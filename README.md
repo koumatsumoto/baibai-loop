@@ -67,10 +67,12 @@ Baibai-Loop は、日本株トレードにおける戦略立案、スクリー�
 baibai-loop/
 ├── README.md                          # このファイル
 ├── docs/
+│   ├── design-principles.md           # 分析階層（世界情勢→日本経済→日本株）など設計根拠
 │   ├── data-sources.md                # 世界情勢調査で使うデータソースの一覧とスコアリング
 │   ├── workflow.md                    # 世界情勢調査の運用ルール
 │   └── templates/
-│       └── world-analysis.md          # 世界情勢メモのテンプレート
+│       ├── world-analysis.md          # 週次・イベント時の世界情勢メモテンプレート
+│       └── macro-monthly.md           # 月次統計集約メモテンプレート
 └── journal/                           # 時系列の調査記録
     └── README.md                      # 命名規則と運用ルールの説明
 ```
@@ -80,7 +82,10 @@ baibai-loop/
 ## 運用ルール
 
 - 世界情勢の調査は **一次統計（中央銀行・政府・国際機関）中心** で行い、意見記事は取らない
+- 分析は **世界情勢 → 日本経済 → 日本株** の階層順に行う（将来の他資産展開を見据えた設計）
+- 月次統計は月次 journal (`macro-monthly`) に集約し、週次 journal は再掲せず参照で済ませる
 - 詳細なルールは以下のドキュメントを参照:
+  - 設計根拠: [docs/design-principles.md](./docs/design-principles.md)
   - データソース: [docs/data-sources.md](./docs/data-sources.md)
   - 運用手順: [docs/workflow.md](./docs/workflow.md)
-  - 記録テンプレート: [docs/templates/world-analysis.md](./docs/templates/world-analysis.md)
+  - 記録テンプレート: [docs/templates/world-analysis.md](./docs/templates/world-analysis.md)（週次）・[docs/templates/macro-monthly.md](./docs/templates/macro-monthly.md)（月次）
