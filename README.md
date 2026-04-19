@@ -60,3 +60,27 @@ Baibai-Loop は、日本株トレードにおける戦略立案、スクリー�
 - このリポジトリは、短期売買を機械的に自動執行することだけを目的としません
 - 相場観、仮説、条件、売買理由、結果、反省を一貫して残すことを重視します
 - 記録を積み上げ、あとから振り返りと比較ができる状態を保つことを目指します
+
+## ディレクトリ構成
+
+```
+baibai-loop/
+├── README.md                          # このファイル
+├── docs/
+│   ├── data-sources.md                # 世界情勢調査で使うデータソースの一覧とスコアリング
+│   ├── workflow.md                    # 世界情勢調査の運用ルール
+│   └── templates/
+│       └── world-analysis.md          # 世界情勢メモのテンプレート
+└── journal/                           # 時系列の調査記録
+    └── README.md                      # 命名規則と運用ルールの説明
+```
+
+将来的にスクリーニング条件・個別トレード記録などのディレクトリを追加していく想定。
+
+## 運用ルール
+
+- 世界情勢の調査は **一次統計（中央銀行・政府・国際機関）中心** で行い、意見記事は取らない
+- 詳細なルールは以下のドキュメントを参照:
+  - データソース: [docs/data-sources.md](./docs/data-sources.md)
+  - 運用手順: [docs/workflow.md](./docs/workflow.md)
+  - 記録テンプレート: [docs/templates/world-analysis.md](./docs/templates/world-analysis.md)
