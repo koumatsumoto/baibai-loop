@@ -37,12 +37,34 @@ Tier 1 で拾えない **地政学イベント** や **速報性が必要な事�
 
 ## Tier 1 の準拠扱い
 
-FRED は多くの一次統計の集約先として機能する。Tier 1 の適用を受ける連邦機関の直接 URL も Tier 1 に準ずる扱いとする:
+FRED は多くの一次統計の集約先として機能する。Tier 1 の適用を受ける政府機関・中央銀行の直接 URL も Tier 1 に準ずる扱いとする:
+
+### 米国連邦機関
 
 - [Bureau of Labor Statistics (BLS)](https://www.bls.gov/) — 米国・CPI / 労働統計
+- [Bureau of Economic Analysis (BEA)](https://www.bea.gov/) — 米国・PCE / GDP / 国民経済計算
+- [U.S. Census Bureau](https://www.census.gov/) — 米国・小売売上高 / 住宅着工
 - [Federal Reserve Board](https://www.federalreserve.gov/) — 米国・金融政策声明文 / FOMC 議事要旨
 
-これらは総務省統計局や日本銀行の米国対応機関にあたり、追加スコアリング無しに Tier 1 として引用できる。
+### 日本の省庁（総務省・財務省・日銀に準ずる）
+
+- [厚生労働省](https://www.mhlw.go.jp/) — 有効求人倍率 / 毎月勤労統計
+- [経済産業省](https://www.meti.go.jp/) — 鉱工業生産指数 / 商業動態統計
+
+### 主要中央銀行（FRB・日銀に準ずる）
+
+- [European Central Bank (ECB)](https://www.ecb.europa.eu/) — 欧州・金融政策声明文
+- [Bank of England (BoE)](https://www.bankofengland.co.uk/) — 英国・金融政策声明文
+
+これらはいずれも Tier 1 の既存媒体（総務省統計局・日本銀行・FRB 等）の対応機関にあたり、追加スコアリング無しに Tier 1 として引用できる。
+
+## Tier 1 の取得失敗時の扱い
+
+Tier 1 / Tier 1 準拠 ソースが作業環境からアクセスできない場合、数値の代替埋めは**行わない**。journal 側で `データ取得失敗` と明示する（詳細は [workflow.md](./workflow.md) の「データ取得失敗時の運用」節を参照）。
+
+- Tier 1 で取れない数値を Tier 2 / 補助外で埋めてはならない（一次統計の客観性が失われる）
+- 連続 2 回の journal 作成で同じソースが取得失敗した場合、代替一次ソース（同じ統計を別 URL で配信している一次統計ミラー・集約サイト）の Tier 1 準拠追加を検討する
+- 検討の結果、恒常的に取れないと判断した指標は、テンプレート側から該当行を落とすか、空欄運用で確定させる
 
 ## Tier 2 補助ソースの運用と例外
 
