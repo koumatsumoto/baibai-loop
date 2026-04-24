@@ -8,7 +8,7 @@ sources:
 
 # Brief Event: YYYY-MM-DD {kind} ({slug})
 
-**成分**: 4 成分アーキテクチャの **(a) マクロ事実ブリーフ**（不定期）([`../components/brief.md`](../components/brief.md))
+**成分**: 4 成分アーキテクチャの **(a) マクロ事実ブリーフ**（不定期）([`/docs/components/brief.md`](/docs/components/brief.md))
 
 **レイヤー**: 事実レイヤー（観測値・一次統計引用のみ。解釈・予測・相場観は書かない）
 
@@ -51,4 +51,4 @@ sources:
 
 ---
 
-記入ルールは [`../workflow.md`](../workflow.md) を、設計根拠は [`../design-principles.md`](../design-principles.md) を参照。
+記入ルールは [`/docs/workflow.md`](/docs/workflow.md) を、設計根拠は [`/docs/design-principles.md`](/docs/design-principles.md) を参照。

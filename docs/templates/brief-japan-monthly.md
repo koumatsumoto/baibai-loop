@@ -9,9 +9,9 @@ sources:
 
 # Brief Japan Monthly: YYYY-MM {kind} ({slug})
 
-**成分**: 4 成分アーキテクチャの **(a) マクロ事実ブリーフ**（[`../components/brief.md`](../components/brief.md)）
+**成分**: 4 成分アーキテクチャの **(a) マクロ事実ブリーフ**（[`/docs/components/brief.md`](/docs/components/brief.md)）
 
-**レイヤー**: 事実レイヤー（観測値・一次統計引用・機械的計算のみ。解釈・予測・相場観は書かない。詳細は [`../design-principles.md`](../design-principles.md) の「事実と分析の分離」節を参照）
+**レイヤー**: 事実レイヤー（観測値・一次統計引用・機械的計算のみ。解釈・予測・相場観は書かない。詳細は [`/docs/design-principles.md`](/docs/design-principles.md) の「事実と分析の分離」節を参照）
 
 対象月: YYYY-MM
 観測日: YYYY-MM-DD
@@ -54,7 +54,7 @@ sources:
 
 ## 3. 差分データ
 
-この節は計算結果とルール適用の結果のみを記録する。解釈・予測・相場観は書かない（詳細は [../workflow.md](../workflow.md) の「差分データ」節を参照）。
+この節は計算結果とルール適用の結果のみを記録する。解釈・予測・相場観は書かない（詳細は [`/docs/workflow.md`](/docs/workflow.md) の「差分データ」節を参照）。
 
 ### 3.1 前月比・前年比サマリ
 
@@ -64,7 +64,7 @@ sources:
 
 ### 3.2 閾値超えの変化
 
-閾値は [../workflow.md](../workflow.md) の「差分データの閾値（月次、macro-monthly 用）」節を参照。
+閾値は [`/docs/workflow.md`](/docs/workflow.md) の「差分データの閾値（月次、macro-monthly 用）」節を参照。
 
 - 🔺 Major: [指標]: [前月値] → [今月値] ([変化量])
 - 🔸 Notable: [指標]: [前月値] → [今月値] ([変化量])
@@ -84,4 +84,4 @@ sources:
 
 ---
 
-記入ルールは [../workflow.md](../workflow.md) を、設計根拠は [../design-principles.md](../design-principles.md) を参照。
+記入ルールは [`/docs/workflow.md`](/docs/workflow.md) を、設計根拠は [`/docs/design-principles.md`](/docs/design-principles.md) を参照。

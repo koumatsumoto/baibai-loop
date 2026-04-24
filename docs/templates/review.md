@@ -15,10 +15,10 @@ free_text: "一行で事後検証の要点"
 
 # Review: YYYY-MM-DD XXXX [銘柄名]
 
-**成分**: 4 成分アーキテクチャの下流 **reviews**（[`../components/reviews.md`](../components/reviews.md)）
+**成分**: 4 成分アーキテクチャの下流 **reviews**（[`/docs/components/reviews.md`](/docs/components/reviews.md)）
 
-**Trade**: [trades/YYYY/MM/YYYY-MM-DD-XXXX.md](../../trades/YYYY/MM/YYYY-MM-DD-XXXX.md)
-**Research**: [research/YYYY/MM/YYYY-MM-DD-XXXX-*.md](../../research/YYYY/MM/YYYY-MM-DD-XXXX-*.md)
+**Trade**: [trades/YYYY/MM/YYYY-MM-DD-XXXX.md](/trades/YYYY/MM/YYYY-MM-DD-XXXX.md)
+**Research**: [research/YYYY/MM/YYYY-MM-DD-XXXX-*.md](/research/YYYY/MM/YYYY-MM-DD-XXXX-*.md)
 
 ## 1. Trade 概要
 
@@ -65,7 +65,7 @@ Review 実施日: YYYY-MM-DD
 
 ## 6. 月次 retro への引き渡し
 
-本 review の要点を月次 retro ([`retro-YYYYMM.md`](../retro-YYYYMM.md)) でまとめる:
+本 review の要点を月次 retro ([`retro-YYYYMM.md`](/reviews/YYYY/retro-YYYYMM.md)) でまとめる:
 
 - 成功/失敗分類と自由記述
 - 四半期再分類の input 候補
@@ -73,4 +73,4 @@ Review 実施日: YYYY-MM-DD
 
 ---
 
-参照: [`../components/reviews.md`](../components/reviews.md), [`../screening/failure-taxonomy.md`](../screening/failure-taxonomy.md)
+参照: [`/docs/components/reviews.md`](/docs/components/reviews.md), [`/docs/screening/failure-taxonomy.md`](/docs/screening/failure-taxonomy.md)

@@ -21,7 +21,7 @@ valuation:
 
 # Research: YYYY-MM-DD XXXX [銘柄名] [playbook]
 
-**成分**: 4 成分アーキテクチャの **(d) 個別銘柄リサーチ**（[`../components/research.md`](../components/research.md)）
+**成分**: 4 成分アーキテクチャの **(d) 個別銘柄リサーチ**（[`/docs/components/research.md`](/docs/components/research.md)）
 
 **Playbook**: [valuation-mean-reversion-v1 | valuation-catalyst-confirmation-v1]
 
@@ -167,4 +167,4 @@ P-A の場合は「catalyst なし（純粋な valuation mean-reversion 狙い�
 
 ---
 
-参照: [`../components/research.md`](../components/research.md), [`../screening/principles.md`](../screening/principles.md), [`../../playbooks/`](../../playbooks/)
+参照: [`/docs/components/research.md`](/docs/components/research.md), [`/docs/screening/principles.md`](/docs/screening/principles.md), [`/playbooks/`](/playbooks/)

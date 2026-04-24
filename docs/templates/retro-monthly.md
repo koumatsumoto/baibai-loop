@@ -27,7 +27,7 @@ next_cycle_changes:
 
 # Retro: YYYY-MM 月次振り返り
 
-**成分**: 4 成分アーキテクチャの下流 **reviews**（[`../components/reviews.md`](../components/reviews.md)）の月次集約
+**成分**: 4 成分アーキテクチャの下流 **reviews**（[`/docs/components/reviews.md`](/docs/components/reviews.md)）の月次集約
 
 ## 1. Trade 集計
 
@@ -122,4 +122,4 @@ next_cycle_changes:
 
 ---
 
-参照: [`../components/reviews.md`](../components/reviews.md), [`../screening/failure-taxonomy.md`](../screening/failure-taxonomy.md), [`../screening/principles.md`](../screening/principles.md)
+参照: [`/docs/components/reviews.md`](/docs/components/reviews.md), [`/docs/screening/failure-taxonomy.md`](/docs/screening/failure-taxonomy.md), [`/docs/screening/principles.md`](/docs/screening/principles.md)

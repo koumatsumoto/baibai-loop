@@ -9,7 +9,7 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
 # Playbook: [playbook 名]
 
-**成分**: `playbooks/` 配下の運用資産。[`../components/research.md`](../components/research.md) の `playbook` front matter で参照される。
+**成分**: `playbooks/` 配下の運用資産。[`/docs/components/research.md`](/docs/components/research.md) の `playbook` front matter で参照される。
 
 ## 1. 概要
 
@@ -51,7 +51,7 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
 ### 2.5 Universe 条件
 
-- 時価総額 300 億円以上 + 売買代金 2 億円以上（[`../docs/screening/universe-rules.md`](../docs/screening/universe-rules.md)）
+- 時価総額 300 億円以上 + 売買代金 2 億円以上（[`/docs/screening/universe-rules.md`](/docs/screening/universe-rules.md)）
 - 300-500 億円帯の特例条件（該当する場合のみ）
 
 ## 3. 修飾因子
@@ -85,7 +85,7 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
 ## 6. Position sizing
 
-- 時価総額別上限（[`../docs/screening/universe-rules.md`](../docs/screening/universe-rules.md)）に従う
+- 時価総額別上限（[`/docs/screening/universe-rules.md`](/docs/screening/universe-rules.md)）に従う
 - 1,000 億円以上: 2%、500-1,000 億円: 1%、300-500 億円: 0.5%（supplementary のみ）
 
 ## 7. Kill switch 確認
@@ -96,7 +96,7 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
 ## 8. AI の役割境界
 
-[`../docs/components/research.md`](../docs/components/research.md) の AI 境界表を継承。核心:
+[`/docs/components/research.md`](/docs/components/research.md) の AI 境界表を継承。核心:
 
 - **AI 可**: Thesis / valuation / 仮説ドラフト / catalyst / price / crowding
 - **人間のみ**: Macro gate 確定 / 一次ソース URL 確認 / 最終採用判定

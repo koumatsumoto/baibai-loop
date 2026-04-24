@@ -18,13 +18,13 @@ regions:
 
 # View: YYYY-MM-DD {slug}
 
-**成分**: 4 成分アーキテクチャの **(c) マクロ見解**（[`../components/view.md`](../components/view.md)）
+**成分**: 4 成分アーキテクチャの **(c) マクロ見解**（[`/docs/components/view.md`](/docs/components/view.md)）
 
 **レイヤー**: 分析レイヤー（解釈 OK。ただし根拠となる brief への参照必須）
 
 Horizon: 1-6 か月
 
-Bootstrap（v1 初回）: [`../components/view.md`](../components/view.md) の Bootstrap 規則に従って作成。既存 brief 全てを `updated_from` に列挙し、保守的に neutral を多めに記入する。
+Bootstrap（v1 初回）: [`/docs/components/view.md`](/docs/components/view.md) の Bootstrap 規則に従って作成。既存 brief 全てを `updated_from` に列挙し、保守的に neutral を多めに記入する。
 
 ## 1. Executive Summary
 
@@ -81,4 +81,4 @@ Bootstrap（v1 初回）: [`../components/view.md`](../components/view.md) の B
 
 ---
 
-記入ルールは [`../components/view.md`](../components/view.md) を参照。
+記入ルールは [`/docs/components/view.md`](/docs/components/view.md) を参照。
