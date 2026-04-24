@@ -124,3 +124,12 @@ baibai-loop/
   - 各成分: [`docs/components/`](./docs/components/)
   - スクリーニング: [`docs/screening/`](./docs/screening/)
   - テンプレート: [`docs/templates/`](./docs/templates/)
+
+## 改善バックログ
+
+改善点・未解決の設計課題・将来対応項目は GitHub Issues で管理する。`docs/` 配下に backlog.md などの追跡ファイルは置かない。作業引き継ぎ (handoff) も `docs/` には置かず、PR 本文か issue comment に記録する（`docs/` は normative spec 専用）。
+
+- 現在の open issues: <https://github.com/koumatsumoto/baibai-loop/issues>
+- 新規に課題を見つけたら issue を起票する。タイトルは「対象 + 問題 + 望ましい状態」の順で具体的に書く
+- コード内で課題箇所に marker を残す場合は `FIXME(issue #N)` 形式で該当 issue 番号を入れる。全件は `git grep 'FIXME(issue'` で列挙できる
+- 過去の移行記録: screening-automation-v1 の暫定 backlog (`docs/screening/backlog.md`、2026-04-24 削除) は issue #14-#17 に移行済み。by-design 項目と具体性不足項目 (data persistence 戦略・J-Quants methods 拡張) は移行せず見送り

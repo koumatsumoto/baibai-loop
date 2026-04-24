@@ -1,24 +1,35 @@
 ---
 run_date: "YYYY-MM-DD"
+asof_date: "YYYY-MM-DD"              # run_date と同値。対象営業日
 universe_size: 整数
 filters:
   min_market_cap_oku: 300
   min_avg_turnover_oku: 2
   exclude_listed_under_months: 6
+generated_by: "screening-cli-v1"
+data_sources:
+- "j-quants-light"
+- "edinet-api-v2@2026-01-29"
+- "jpx-public-csv"
+run_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 tickers:
-  - ticker: "XXXX"
-    name: "..."
-    per_forward: 8.2       # null if 会社予想 EPS 未公表
-    per_trailing: 9.5
-    pbr: 0.72
-    ev_ebitda: 4.8
-    p_s: 0.6
-    pcfr: 5.1
-    sector_33: "業種名"
-    threshold_hit:
-      - sector_median_under_20pct_and_self_range_bottom_20pct
-      - price_down_60d_and_valuation_sigma_down
-      - sector_rotation_short_sell
+- ticker: "130A"                     # 4 文字文字列。英字組入れ対応
+  name: "..."
+  per_forward: 8.2                   # null if 会社予想 EPS 未公表
+  per_trailing: 9.5
+  pbr: 0.72
+  ev_ebitda: 4.8
+  p_s: 0.6
+  pcfr: 5.1
+  sector_33: "業種名"
+  ttm_quality:
+    ev_ebitda: exact
+    p_s: approximated
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+  - price_down_60d_and_valuation_sigma_down
+  - sector_rotation_short_sell
 ---
 
 # Screened: YYYY-MM-DD
@@ -35,21 +46,24 @@ tickers:
 
 ## 1. 実行概要
 
-- 実行日: YYYY-MM-DD
+- 対象営業日: YYYY-MM-DD
 - Universe サイズ: XXX 銘柄
 - 通過銘柄数: XX 銘柄
 
 ## 2. 通過銘柄の事実メモ
-
-特筆すべき事実（複数閾値 hit 銘柄、同業種集中、異常値の除外など）を事実として記録。解釈は入れない。
 
 - [事実 1]
 - [事実 2]
 
 ## 3. 実行環境
 
-- データソース: J-Quants core（日足・財務サマリー・業績予想）+ EDINET + JPX
-- 取得失敗の有無: [有の場合は対象銘柄と理由を列挙]
+- データソース: J-Quants Light（日足・財務サマリー・業績予想）+ EDINET + JPX
+- [各 exclusion_flag: N 件]
+- ttm_quality 集計: exact=X, approximated=Y, unavailable=Z
+- [該当時] ttm_quality 非 exact 件数: N
+- [該当時] 業績悪化フィルタ入力欠損: N 銘柄
+- [該当時] EDINET 読み込み失敗: [type]: [msg]
+- [該当時] JPX source 未ロード: [flag1], [flag2]
 
 ---
 

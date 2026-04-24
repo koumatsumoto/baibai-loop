@@ -18,11 +18,11 @@ Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデ
 ### 2.1 採用ソース
 
 - **会社予想 EPS ベース**（会社が期初/修正後に開示した公式予想）
-- 取得: J-Quants core（財務サマリー / 業績予想） + EDINET（補完）
+- 取得: J-Quants Light（財務サマリー / 業績予想） + EDINET（補完）
 
 ### 2.2 却下したソース
 
-- **アナリストコンセンサス forward EPS**: J-Quants core / EDINET のスコープ外。Bloomberg / IBES 等は有料で本計画の非スコープ。
+- **アナリストコンセンサス forward EPS**: J-Quants Light / EDINET のスコープ外。Bloomberg / IBES 等は有料で本計画の非スコープ。
 - **期初予想のみ使用**: 期中の修正予想を無視すると精度低下、最新の修正予想を使う
 
 ### 2.3 会社予想未公表 or 予想レンジ提示銘柄の扱い
@@ -49,7 +49,7 @@ Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデ
 - **現金**: 現金及び現金同等物
 - **EBITDA**: 営業利益 + 減価償却費 + のれん償却費（直近 4Q 合算）
 
-EDINET の XBRL 構造から取得。J-Quants core の財務サマリーで取れる項目は優先使用、不足分を EDINET で補完。
+EDINET の XBRL 構造から取得。J-Quants Light の財務サマリーで取れる項目は優先使用し、不足分を EDINET で補完する。
 
 ## 6. P/S の算出
 
@@ -92,19 +92,18 @@ EDINET の XBRL 構造から取得。J-Quants core の財務サマリーで取�
 
 ### 10.1 Core（v1 必須）
 
-- **J-Quants core tier**:
-  - 上場銘柄一覧
-  - 日足（OHLC + 出来高 + 売買代金）
-  - 財務サマリー（PER, PBR, 配当利回り等の基本指標）
-  - 業績予想（会社予想 EPS）
-  - 決算発表予定日
+- **J-Quants Light / ClientV2**:
+  - `get_eq_master`: 上場銘柄一覧、普通株判定、市場区分、33 業種
+  - `get_eq_bars_daily_range`: 日足（OHLC + 出来高 + 売買代金）
+  - `get_fin_summary_range`: 財務サマリー、会社予想 EPS、利益系の概要値
+  - `get_eq_earnings_cal`: 決算発表予定日
+  - `get_mkt_calendar`: 営業日カレンダ
 - **EDINET API v2**:
-  - XBRL ベース財務諸表（EV/EBITDA 計算用）
-  - 会社予想修正の履歴
+  - XBRL ベース財務諸表（EV/EBITDA / P/S / PCFR 計算用）
+  - 2024 年以降の半期移行を踏まえた TTM 再構成用の確定値
 - **JPX**:
-  - 上場会社情報（業種分類、上場日）
-  - 空売り残高（crowding 指標）
-  - 日々公表信用・特別注意（crowding 指標）
+  - 上場会社情報（業種分類、市場区分の補助確認）
+  - 特別注意 / 整理 / 取引停止 / 上場廃止警告の除外判定
 
 ### 10.2 Optional（将来拡張）
 
@@ -112,13 +111,28 @@ EDINET の XBRL 構造から取得。J-Quants core の財務サマリーで取�
 - TDnet API（5 年分の適時開示 / XBRL）
 - JPX Corporate Action Data
 
-## 11. 算出エラー・欠損の扱い
+## 11. 半期移行と TTM 品質
+
+- 2024 年以降、EDINET 単体では旧来の四半期報告書に依存した TTM 再構成ができない期間がある
+- v1 では TTM 品質を `exact` / `approximated` / `unavailable` で明示する
+- `EV/EBITDA` は `ttm_quality = exact` のときのみ mechanical 判定に使用する（**ただし issue #15 の historical 近似バグが残っている間は A/B 判定から一時除外。修正後に `exact` ガードで復帰予定**）
+- `P/S` と `PCFR` は v1 では表示用とし、`ttm_quality` を front matter に残す
+
+## 12. 営業利益相当の fallback
+
+- 業績悪化フィルタに使う利益代表は以下の順で採用する
+  - `OperatingProfit`
+  - `OrdinaryProfit`
+  - `Profit`
+- すべて欠損のときは EPS / 売上の 2 項目だけで業績悪化フィルタを評価する
+
+## 13. 算出エラー・欠損の扱い
 
 - 取得不能・算出不能は **明示的に `null`**（省略しない）
 - 決算期またぎの一時的欠損: 確報確定まで `null` 運用
 - 会計方針変更・特損計上等で一時的歪み: research 側で「反対仮説」に記録、screened の指標値は素直に採用（事実層のため）
 
-## 12. 参考
+## 14. 参考
 
 - [`principles.md`](./principles.md): スクリーニング原則
 - [`universe-rules.md`](./universe-rules.md): universe 境界条件

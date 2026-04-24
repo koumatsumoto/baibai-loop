@@ -175,21 +175,11 @@ screened/YYYY/MM/YYYY-MM-DD.md
 
 #### 3.2.4 Front matter
 
-```yaml
----
-run_date: "YYYY-MM-DD"
-universe_size: 整数
-filters:
-  min_market_cap_oku: 300
-  min_avg_turnover_oku: 2
-  # その他閾値
-tickers:
-  - ticker: "7203"
-    per_forward: 8.2
-    pbr: 0.7
-    # ...
----
-```
+詳細は [`components/screened.md`](./components/screened.md) §4 を正本とする。要点のみ抜粋:
+
+- `run_date` / `asof_date` (同値) / `universe_size` / `filters`
+- `generated_by`, `data_sources`, `run_at`
+- `tickers[]`: `ticker`, `name`, valuation 指標 (`per_forward`, `per_trailing`, `pbr`, `ev_ebitda`, `p_s`, `pcfr`), `sector_33`, `ttm_quality`, `threshold_hit`
 
 ### 3.3 `view/` — (c) マクロ見解
 
@@ -334,7 +324,7 @@ reviews/YYYY/retro-YYYYMM.md                   # 月次 retro
 ## 4. Front matter 共通原則
 
 - 日時は ISO 8601 完全形（秒まで）、**quote 必須**: `"2026-04-24T09:00:00+09:00"`
-- ticker は quote 必須（先頭 0 落ち防止）: `"7203"`
+- ticker は **4 文字の英数字文字列**として quote 必須（先頭 0 落ち防止、英字組入れ対応）: `"7203"`, `"130A"`
 - null 許容フィールドは明示的に `null`
 - AI 下書きは `ai-draft: true`、人間確認後 `false`
 - 参照は path 配列: `brief_refs: [...]`, `updated_from: [...]`, `screened_ref: ...`
