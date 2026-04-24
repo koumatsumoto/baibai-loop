@@ -27,7 +27,7 @@ Baibai-Loop における世界情勢・相場環境の調査記録に関する�
 ## ファイル配置と命名
 
 ```
-journal/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
+brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
 ```
 
 - `{kind}` は `world-weekly` / `macro-monthly` / `fomc` / `boj` / `cpi` / `gdp` / `geopolitics` などイベント種別を示す
@@ -37,7 +37,7 @@ journal/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
   - 数値を含める場合、小数点は `p` で代用する (`3.3%` → `3p3`)
   - 目立つ事実がない観測月は `overview` を用いてよい
 - `{kind}` 自体にハイフンを含む場合があるので、パース時は既知の kind 一覧との貪欲一致を前提とする
-- INDEX ファイルは作らない。一覧は `git ls-files journal/` または GitHub 上のツリーで確認する
+- INDEX ファイルは作らない。一覧は `git ls-files brief/` または GitHub 上のツリーで確認する
 
 ## 日付の扱い
 
@@ -173,8 +173,8 @@ journal は事実レイヤー専用ドキュメント。解釈・予測・相場
 
 ## テンプレート
 
-- 週次記録を作るときは [templates/world-analysis.md](./templates/world-analysis.md) をコピーして使う
-- 月次記録を作るときは [templates/macro-monthly.md](./templates/macro-monthly.md) をコピーして使う
+- 週次記録を作るときは [templates/brief-world-weekly.md](./templates/brief-world-weekly.md) をコピーして使う
+- 月次記録を作るときは [templates/brief-japan-monthly.md](./templates/brief-japan-monthly.md) をコピーして使う
 - 事実ベース運用のため、テンプレートに主観的な「解釈」「示唆」欄は設けていない
 
 ## 作成後セルフレビューチェックリスト
