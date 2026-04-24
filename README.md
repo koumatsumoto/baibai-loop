@@ -8,46 +8,47 @@ Baibai-Loop は、日本株トレードにおける戦略立案、スクリー�
 
 このリポジトリでは、以下のループを継続的に回すことを想定しています。
 
-1. トレード戦略を作る
-2. スクリーニング基準を作る
-3. 定期的にスクリーニングする
-4. 条件を満たしたら取引する
-5. その後に評価・検証する
-6. 次回の戦略改善のために、事実と実績を蓄積する
-7. 世界情勢や相場環境の変化を踏まえて、戦略や基準を更新する
+1. マクロ事実を蓄積する（brief）
+2. マクロ見解を更新する（view）
+3. スクリーニング基準でふるいにかける（screened）
+4. 個別銘柄を深掘り調査する（research）
+5. 条件を満たしたら取引する（trades）
+6. 事後検証と retro で次回改善に活かす（reviews）
 
-この流れを通じて、思いつきではなく、検証可能な事実に基づいて売買判断を改善していくことを重視します。
+この流れを通じて、思いつきではなく、**検証可能な事実に基づいて売買判断を改善していく** ことを重視します。詳しくは [`docs/philosophy.md`](./docs/philosophy.md) と [`docs/architecture-v1.md`](./docs/architecture-v1.md) を参照してください。
 
 ## 対象とする売買スタイル
 
-- 基本は **1〜2週間程度のスイングトレード**
-- ただし、底狙いなどで **3か月〜1年未満の中期投資** も対象に含みます
-- そのため、このリポジトリはスイング専用の記録帳ではなく、より広く日本株の売買判断と検証を扱えるように設計します
+- 基本は **2 か月以内（5〜40 営業日）のスイングトレード**
+- **マクロ 76% / ミクロ 24%** の比重で判断（大方針、運用途中で動かさない）
+- **long-only**、裁量支援基盤
+- 配当利回り / Rerating Book はスコープ外
 
-## このリポジトリで扱いたいもの
+## アーキテクチャ（4 成分 + 下流）
 
-- 戦略の仮説と前提
-- スクリーニング条件と観測結果
-- 個別トレードの計画、実行、結果
-- 事後検証と振り返り
-- 相場環境や世界情勢に関するメモ
-- 次回の判断に活かすための学びと改善点
+Baibai-Loop は 4 成分 + 下流（2 成分）で構成されます。
+
+| 成分 | directory | 役割 |
+| --- | --- | --- |
+| a | [`brief/`](./brief/) | マクロ事実ブリーフ（定期+不定期） |
+| b | `screened/` | スクリーニング通過銘柄（初回ファイル生成で作成） |
+| c | `view/` | マクロ見解（brief を積み上げて作成、初回ファイル生成で作成） |
+| d | `research/` | 個別銘柄リサーチ packet（初回ファイル生成で作成） |
+| ― | `trades/` | 執行記録（初回ファイル生成で作成） |
+| ― | `reviews/` | 事後検証（初回ファイル生成で作成） |
+
+**2 トラック構成**:
+
+- **Macro track (独立)**: `brief/` → `view/`（売買イベントと独立に更新）
+- **Micro track (売買ループ)**: `screened/` → `research/` → `trades/` → `reviews/` → retro feedback
+
+全体像の詳細は [`docs/architecture-v1.md`](./docs/architecture-v1.md) を参照。
 
 ## リポジトリ名の背景
 
-このリポジトリ名には **Baibai-Loop** を採用しています。
-
-この名前には、単発の売買ではなく、次のような循環を回す場にしたいという意図があります。
+**Baibai-Loop** は「売買」+「Loop」の合成。単発の売買ではなく、以下の循環を回す場にしたいという意図があります。
 
 `strategy -> screening -> execution -> review -> learning`
-
-### この名前を採用した理由
-
-- 「売買」という日本語の意味がすぐ分かる
-- 英字表記でも GitHub リポジトリ名として自然
-- 少し遊び心がある
-- この repo の本質である **継続ループ** を名前に含められる
-- 自動売買ツールではなく、売買を含む運用改善の基盤であることを表現しやすい
 
 ### 名前に込めたニュアンス
 
@@ -55,37 +56,70 @@ Baibai-Loop は、日本株トレードにおける戦略立案、スクリー�
 - 仮説を立て、条件を設計し、実行し、結果を評価し、次に活かす
 - 「検証可能な事実をためる」「勝ち筋の型を育てる」ための基盤
 
-## 方針
-
-- このリポジトリは、短期売買を機械的に自動執行することだけを目的としません
-- 相場観、仮説、条件、売買理由、結果、反省を一貫して残すことを重視します
-- 記録を積み上げ、あとから振り返りと比較ができる状態を保つことを目指します
-
 ## ディレクトリ構成
 
 ```
 baibai-loop/
 ├── README.md                          # このファイル
 ├── docs/
-│   ├── design-principles.md           # 分析階層（世界情勢→日本経済→日本株）など設計根拠
-│   ├── data-sources.md                # 世界情勢調査で使うデータソースの一覧とスコアリング
-│   ├── workflow.md                    # 世界情勢調査の運用ルール
-│   └── templates/
-│       ├── world-analysis.md          # 週次・イベント時の世界情勢メモテンプレート
-│       └── macro-monthly.md           # 月次統計集約メモテンプレート
-└── journal/                           # 時系列の調査記録
-    └── README.md                      # 命名規則と運用ルールの説明
+│   ├── philosophy.md                  # 思想・ベースの考え方・進化の歴史
+│   ├── architecture-v1.md             # 4 成分 + 下流アーキテクチャの正本
+│   ├── design-principles.md           # 設計原則
+│   ├── data-sources.md                # データソース（成分ごと）
+│   ├── workflow.md                    # 日々の運用ワークフロー
+│   ├── components/                    # 各成分の運用仕様
+│   │   ├── brief.md
+│   │   ├── screened.md
+│   │   ├── view.md
+│   │   ├── research.md
+│   │   ├── trades.md
+│   │   └── reviews.md
+│   ├── screening/                     # スクリーニングサブシステム詳細
+│   │   ├── principles.md
+│   │   ├── failure-taxonomy.md
+│   │   ├── universe-rules.md
+│   │   ├── valuation-metrics.md
+│   │   ├── mechanical-v1.md
+│   │   └── macro-gate-procedure.md
+│   └── templates/                     # 各成分の記入テンプレート
+│       ├── brief-world-weekly.md
+│       ├── brief-japan-monthly.md
+│       ├── brief-event.md
+│       ├── view.md
+│       ├── screened.md
+│       ├── research.md
+│       ├── trade.md
+│       ├── review.md
+│       ├── retro-monthly.md
+│       └── playbook.md
+├── brief/                             # (a) マクロ事実ブリーフ
+│   ├── README.md
+│   └── 2026/{01..04}/...
+├── playbooks/                         # 運用中の playbook
+│   ├── README.md
+│   ├── valuation-mean-reversion-v1.md
+│   └── valuation-catalyst-confirmation-v1.md
+# 以下は初回ファイル生成で自然発生する（本リポジトリではまだ作成しない）:
+# ├── screened/
+# ├── view/
+# ├── research/
+# ├── trades/
+# └── reviews/
 ```
-
-将来的にスクリーニング条件・個別トレード記録などのディレクトリを追加していく想定。
 
 ## 運用ルール
 
-- 世界情勢の調査は **一次統計（中央銀行・政府・国際機関）中心** で行い、意見記事は取らない
-- 分析は **世界情勢 → 日本経済 → 日本株** の階層順に行う（将来の他資産展開を見据えた設計）
-- 月次統計は月次 journal (`macro-monthly`) に集約し、週次 journal は再掲せず参照で済ませる
+- 事実（`brief/`, `screened/`）と分析（`view/`, `research/`）を**物理的に分離**
+- 分析階層は **世界情勢 → 日本経済 → 日本株**（`docs/design-principles.md`）
+- 一次統計（中央銀行・政府・国際機関）中心で事実を記録、意見記事は取らない
+- マクロゲートを通過した銘柄のみ research 対象（逆風銘柄は採用しない）
+- Kill switch: 決算またぎ禁止 / 日銀会合前日禁止 / FOMC 前日禁止
 - 詳細なルールは以下のドキュメントを参照:
-  - 設計根拠: [docs/design-principles.md](./docs/design-principles.md)
-  - データソース: [docs/data-sources.md](./docs/data-sources.md)
-  - 運用手順: [docs/workflow.md](./docs/workflow.md)
-  - 記録テンプレート: [docs/templates/world-analysis.md](./docs/templates/world-analysis.md)（週次）・[docs/templates/macro-monthly.md](./docs/templates/macro-monthly.md)（月次）
+  - 思想: [`docs/philosophy.md`](./docs/philosophy.md)
+  - アーキテクチャ: [`docs/architecture-v1.md`](./docs/architecture-v1.md)
+  - 設計原則: [`docs/design-principles.md`](./docs/design-principles.md)
+  - データソース: [`docs/data-sources.md`](./docs/data-sources.md)
+  - 運用手順: [`docs/workflow.md`](./docs/workflow.md)
+  - 各成分: [`docs/components/`](./docs/components/)
+  - スクリーニング: [`docs/screening/`](./docs/screening/)
+  - テンプレート: [`docs/templates/`](./docs/templates/)

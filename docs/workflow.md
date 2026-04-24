@@ -1,10 +1,28 @@
-# 世界情勢調査の運用ルール
+# 運用ワークフロー
 
-Baibai-Loop における世界情勢・相場環境の調査記録に関する運用ルール。設計の根拠は [design-principles.md](./design-principles.md) を参照。
+Baibai-Loop の 4 成分 + 下流アーキテクチャにおける日々の運用ルール。設計の根拠は [`design-principles.md`](./design-principles.md)、構造は [`architecture-v1.md`](./architecture-v1.md)、思想は [`philosophy.md`](./philosophy.md) を参照。
 
-## 分析階層
+## 0. 全体ワークフロー（4 成分 + 下流）
 
-全ての journal は「世界情勢 → 日本経済 → 日本株」の階層で記録する。各レイヤーの役割と分離方針は [design-principles.md](./design-principles.md) を参照。
+Baibai-Loop は 2 トラック構成で運用する:
+
+- **Macro track (独立)**: `brief/` → `view/`（売買イベントと独立に更新）
+- **Micro track (売買ループ)**: `screened/` → `research/` → `trades/` → `reviews/` → retro feedback
+
+各成分の詳細運用は [`components/`](./components/) 配下の個別 doc を参照:
+
+- [`components/brief.md`](./components/brief.md): (a) マクロ事実ブリーフ
+- [`components/screened.md`](./components/screened.md): (b) スクリーニング通過銘柄
+- [`components/view.md`](./components/view.md): (c) マクロ見解
+- [`components/research.md`](./components/research.md): (d) 個別銘柄リサーチ
+- [`components/trades.md`](./components/trades.md): 執行記録
+- [`components/reviews.md`](./components/reviews.md): 事後検証・retro
+
+本ファイルの以下の節は、主に **(a) brief の運用** に関するルール（世界情勢調査の記録）を扱う。他成分の運用は上記 components/ を参照。
+
+## 1. brief の分析階層
+
+全ての brief は「世界情勢 → 日本経済 → 日本株」の階層で記録する。各レイヤーの役割と分離方針は [design-principles.md](./design-principles.md) を参照。
 
 ## 更新頻度と kind の分離
 
@@ -14,20 +32,20 @@ Baibai-Loop における世界情勢・相場環境の調査記録に関する�
 - **月次レギュラー** (`macro-monthly`): CPI / 雇用統計 / 政策金利変更などの月次〜四半期統計。毎月 1 回（主要発表の出揃い後）
 - **イベント時臨時** (`fomc` / `boj` / `cpi` / `gdp` / `geopolitics` 等): 重要イベント発生時に都度
 
-週次 / 日次 journal は月次データを再掲せず、該当月の `macro-monthly` journal へリンクで参照するだけにする。
+週次 / 日次 brief は月次データを再掲せず、該当月の `macro-monthly` brief へリンクで参照するだけにする。
 
 ### kind の重複回避
 
 同じイベントを複数 kind で記録しない。優先順位:
 
-1. 個別イベント kind (`fomc` 等) がある場合、週次 journal は該当 kind へのリンクで代替する
-2. 月次 kind (`macro-monthly`) で拾える指標は、週次 journal の指標表に再掲しない
-3. 同じ重要度のイベントが複数 kind にまたがる場合、もっとも粒度の細かい kind で記録し、他の journal からはリンクする
+1. 個別イベント kind (`fomc` 等) がある場合、週次 brief は該当 kind へのリンクで代替する
+2. 月次 kind (`macro-monthly`) で拾える指標は、週次 brief の指標表に再掲しない
+3. 同じ重要度のイベントが複数 kind にまたがる場合、もっとも粒度の細かい kind で記録し、他の brief からはリンクする
 
 ## ファイル配置と命名
 
 ```
-journal/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
+brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
 ```
 
 - `{kind}` は `world-weekly` / `macro-monthly` / `fomc` / `boj` / `cpi` / `gdp` / `geopolitics` などイベント種別を示す
@@ -37,13 +55,13 @@ journal/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
   - 数値を含める場合、小数点は `p` で代用する (`3.3%` → `3p3`)
   - 目立つ事実がない観測月は `overview` を用いてよい
 - `{kind}` 自体にハイフンを含む場合があるので、パース時は既知の kind 一覧との貪欲一致を前提とする
-- INDEX ファイルは作らない。一覧は `git ls-files journal/` または GitHub 上のツリーで確認する
+- INDEX ファイルは作らない。一覧は `git ls-files brief/` または GitHub 上のツリーで確認する
 
 ## 日付の扱い
 
 - **観測日**: ファイル名の日付 = その記録を作成・確定した日
 - **市場データの基準日**: マーケット指標の参照元となる直近営業日終値の日付（週末や祝日では観測日とずれる）
-- **取得日**: 引用末尾の `(YYYY-MM-DD取得)` は「そのソースに今回アクセスした日付」。既存 journal と同じ URL を再利用する場合でも、今回の journal 作成時にその URL を再確認したならその日付を記載する。再確認していないなら、URL を含めて再掲しない（古いデータの流用を避ける）
+- **取得日**: 引用末尾の `(YYYY-MM-DD取得)` は「そのソースに今回アクセスした日付」。既存 brief と同じ URL を再利用する場合でも、今回の brief 作成時にその URL を再確認したならその日付を記載する。再確認していないなら、URL を含めて再掲しない（古いデータの流用を避ける）
 
 ## データソースと引用
 
@@ -53,7 +71,7 @@ journal/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
 
 ## 事実記述の粒度
 
-journal は事実レイヤー専用ドキュメント。解釈・予測・相場観は書かない（詳細は [design-principles.md](./design-principles.md) の「事実と分析の分離」節を参照）。
+brief は事実レイヤー専用ドキュメント。解釈・予測・相場観は書かない（詳細は [design-principles.md](./design-principles.md) の「事実と分析の分離」節を参照）。
 
 - 事実と解釈は分離し、引用時は事実記述部分に限定する
 - 以下の表現は解釈・推測を含むため、地の文では原則として使わない:
@@ -67,14 +85,14 @@ journal は事実レイヤー専用ドキュメント。解釈・予測・相場
 
 ## 差分データ
 
-週次 / 月次 journal では、観測値のスナップショットだけでなく **前期間からの変化量** を計算して記録する。
+週次 / 月次 brief では、観測値のスナップショットだけでなく **前期間からの変化量** を計算して記録する。
 
-> **この節で扱うのは計算結果とルール適用による事実の整理のみ。解釈・予測・相場観（「〜を示唆する」「〜と思われる」「次は〜」等）は書かない。** journal 全体の「事実レイヤー」原則については [design-principles.md](./design-principles.md) の「事実と分析の分離」節を参照。
+> **この節で扱うのは計算結果とルール適用による事実の整理のみ。解釈・予測・相場観（「〜を示唆する」「〜と思われる」「次は〜」等）は書かない。** brief 全体の「事実レイヤー」原則については [design-principles.md](./design-principles.md) の「事実と分析の分離」節を参照。
 
 ### 差分の観点
 
-- **週次 journal**: 前週比 (WoW)
-- **月次 journal**: 前月比 (MoM) + 前年比 (YoY)
+- **週次 brief**: 前週比 (WoW)
+- **月次 brief**: 前月比 (MoM) + 前年比 (YoY)
 
 ### 2 層構造
 
@@ -119,15 +137,15 @@ journal は事実レイヤー専用ドキュメント。解釈・予測・相場
 
 **用語注意**: かつて「連続トレンド」「転換点」と呼んでいた概念を、解釈性を帯びる用語を避けて「方向履歴」「方向反転」に置き換えている。3 週連続同方向を「トレンド」と呼ぶと「トレンドが続く見込み」という含意を誘発するため、純粋な計算結果として命名し直した。
 
-### 前週 journal の参照
+### 前週 brief の参照
 
-- 週次 journal の本文冒頭に「前週 journal: [パス]」を記載する
-- 初回週（前週 journal がない場合）は「該当なし（差分データ初回）」と明記
-- 月次 journal の場合は「前月 journal」「前年同月 journal」（あれば）を同じ場所に記載
+- 週次 brief の本文冒頭に「前週 brief: [パス]」を記載する
+- 初回週（前週 brief がない場合）は「該当なし（差分データ初回）」と明記
+- 月次 brief の場合は「前月 brief」「前年同月 brief」（あれば）を同じ場所に記載
 
 ### 閾値の校正
 
-初期閾値は FX / 株式 / 金利市場の一般的通念に基づく暫定値。**四半期ごと**（四半期末月の最終週次 journal 作成時）に過去 12 週の実データから標準偏差を算出し、Notable ≒ 1σ / Major ≒ 2σ を目安に閾値を校正する。校正結果は本ファイルの閾値テーブルを更新し、末尾の「閾値校正履歴」に記録する。
+初期閾値は FX / 株式 / 金利市場の一般的通念に基づく暫定値。**四半期ごと**（四半期末月の最終週次 brief 作成時）に過去 12 週の実データから標準偏差を算出し、Notable ≒ 1σ / Major ≒ 2σ を目安に閾値を校正する。校正結果は本ファイルの閾値テーブルを更新し、末尾の「閾値校正履歴」に記録する。
 
 ### 閾値校正履歴
 
@@ -161,11 +179,11 @@ journal は事実レイヤー専用ドキュメント。解釈・予測・相場
 
 - 取得失敗の指標は閾値判定の対象外とし、差分データ節では「判定不能」と記録する
 - 方向履歴は取得可能な範囲だけ作成し、不能な場合は「データ不足または取得失敗により判定不能」と明示
-- 取得失敗が一時的か恒常的かは**次回 journal 作成時に再試行して確認する**
+- 取得失敗が一時的か恒常的かは**次回 brief 作成時に再試行して確認する**
 
 ### 恒常的な取得失敗の扱い
 
-連続 2 回の journal 作成で同じ Tier 1 ソースが取得失敗した場合、[data-sources.md](./data-sources.md) 側の運用を見直す。具体的には:
+連続 2 回の brief 作成で同じ Tier 1 ソースが取得失敗した場合、[data-sources.md](./data-sources.md) 側の運用を見直す。具体的には:
 
 - 代替ソース（同じ一次統計を別 URL で配信しているミラー・集約サイト）の Tier 1 準拠扱いを検討する
 - Tier 1 準拠扱いに追加できるものがない場合は、「Tier 1 取得試行が通らない環境では該当指標は空欄運用」を明記する
@@ -173,13 +191,13 @@ journal は事実レイヤー専用ドキュメント。解釈・予測・相場
 
 ## テンプレート
 
-- 週次記録を作るときは [templates/world-analysis.md](./templates/world-analysis.md) をコピーして使う
-- 月次記録を作るときは [templates/macro-monthly.md](./templates/macro-monthly.md) をコピーして使う
+- 週次記録を作るときは [templates/brief-world-weekly.md](./templates/brief-world-weekly.md) をコピーして使う
+- 月次記録を作るときは [templates/brief-japan-monthly.md](./templates/brief-japan-monthly.md) をコピーして使う
 - 事実ベース運用のため、テンプレートに主観的な「解釈」「示唆」欄は設けていない
 
 ## 作成後セルフレビューチェックリスト
 
-journal を書いた後、コミット前に以下を確認する:
+brief を書いた後、コミット前に以下を確認する:
 
 - [ ] 全 citation が Tier 1 / Tier 1 準拠 / Tier 2 / `[補助外]` のいずれかに収まっているか
 - [ ] 「事実記述の粒度」節の禁止表現が地の文に含まれていないか
@@ -187,4 +205,4 @@ journal を書いた後、コミット前に以下を確認する:
 - [ ] 取得失敗指標は `データ取得失敗` 表記かつソース列が `(アクセス不能, YYYY-MM-DD取得試行)` になっているか（`未公表` と混同していないか）
 - [ ] 観測日 / 市場データの基準日 / `(YYYY-MM-DD取得)` が整合しているか
 - [ ] 階層構造（世界情勢 → 日本経済 → 日本株）の各節が埋まっているか。埋められない項目は「該当なし」または `未公表（次回予定: YYYY-MM-DD）` と記載しているか
-- [ ] 月次データを週次 journal に再掲していないか（該当月の `macro-monthly` journal を参照リンクで代替しているか）
+- [ ] 月次データを週次 brief に再掲していないか（該当月の `macro-monthly` brief を参照リンクで代替しているか）

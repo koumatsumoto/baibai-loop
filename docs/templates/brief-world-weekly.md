@@ -1,16 +1,27 @@
-# World Analysis: YYYY-MM-DD {kind} ({slug})
+---
+type: periodic
+scope: world
+published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
+sources:
+  - "URL1"
+  - "URL2"
+---
 
-**レイヤー**: 事実レイヤー（観測値・一次統計引用・機械的計算のみ。解釈・予測・相場観は書かない。詳細は [../design-principles.md](../design-principles.md) の「事実と分析の分離」節を参照）
+# Brief World Weekly: YYYY-MM-DD {kind} ({slug})
+
+**成分**: 4 成分アーキテクチャの **(a) マクロ事実ブリーフ**（[`/docs/components/brief.md`](/docs/components/brief.md)）
+
+**レイヤー**: 事実レイヤー（観測値・一次統計引用・機械的計算のみ。解釈・予測・相場観は書かない。詳細は [`/docs/design-principles.md`](/docs/design-principles.md) の「事実と分析の分離」節を参照）
 
 対象期間: YYYY-MM-DD 〜 YYYY-MM-DD
 観測日: YYYY-MM-DD
 市場データの基準日: YYYY-MM-DD 終値（直近営業日）
-前週 journal: [YYYY-MM-DD-world-weekly-{slug}.md](../MM/YYYY-MM-DD-world-weekly-{slug}.md)（初回の場合は「該当なし（差分データ初回）」）
-直近の月次 journal: [YYYY-MM-macro-monthly-{slug}.md](../MM/YYYY-MM-macro-monthly-{slug}.md)（未作成の場合はその旨を明記）
+前週 brief: [YYYY-MM-DD-world-weekly-{slug}.md](../MM/YYYY-MM-DD-world-weekly-{slug}.md)（初回の場合は「該当なし（差分データ初回）」）
+直近の月次 brief: [YYYY-MM-macro-monthly-{slug}.md](../MM/YYYY-MM-macro-monthly-{slug}.md)（未作成の場合はその旨を明記）
 
-階層: **世界情勢 → 日本経済 → 日本株** の順に記録する。設計根拠は [../design-principles.md](../design-principles.md) を参照。
+階層: **世界情勢 → 日本経済 → 日本株** の順に記録する。設計根拠は [`/docs/design-principles.md`](/docs/design-principles.md) を参照。
 
-月次統計（CPI / 雇用統計 / 政策金利変更 等）はこのテンプレートでは記録せず、該当月の `macro-monthly` journal を参照する。
+月次統計（CPI / 雇用統計 / 政策金利変更 等）はこのテンプレートでは記録せず、該当月の `macro-monthly` brief を参照する。
 
 ## 1. 世界情勢
 
@@ -73,11 +84,11 @@
 
 ## 4. 差分データ（前週比）
 
-この節は計算結果とルール適用の結果のみを記録する。解釈・予測・相場観は書かない（詳細は [../workflow.md](../workflow.md) の「差分データ」節を参照）。
+この節は計算結果とルール適用の結果のみを記録する。解釈・予測・相場観は書かない（詳細は [`/docs/workflow.md`](/docs/workflow.md) の「差分データ」節を参照）。
 
 ### 4.1 閾値超えの変化
 
-閾値は [../workflow.md](../workflow.md) の「差分データの閾値（週次）」節を参照。
+閾値は [`/docs/workflow.md`](/docs/workflow.md) の「差分データの閾値（週次）」節を参照。
 
 - 🔺 Major: [指標]: [前週値] → [今週値] ([変化量])
 - 🔸 Notable: [指標]: [前週値] → [今週値] ([変化量])
@@ -91,7 +102,7 @@
 - **方向履歴（過去 4 週）**: [指標]: `[↑↑↑↑]`（直近の週が右端）
 - **方向反転**: [指標]: `[↑↑↑↓]`（3 週連続上昇後に反転）
 
-過去 4 週の参照 journal が不足する場合は「データ不足（観測対象週数: N）」と記載する。反転が検出されない場合は「該当なし」と記載する。
+過去 4 週の参照 brief が不足する場合は「データ不足（観測対象週数: N）」と記載する。反転が検出されない場合は「該当なし」と記載する。
 
 ## 5. 次回主要イベント予定
 
@@ -99,4 +110,4 @@
 
 ---
 
-記入ルールは [../workflow.md](../workflow.md) を、設計根拠は [../design-principles.md](../design-principles.md) を参照。
+記入ルールは [`/docs/workflow.md`](/docs/workflow.md) を、設計根拠は [`/docs/design-principles.md`](/docs/design-principles.md) を参照。
