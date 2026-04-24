@@ -13,4 +13,4 @@ Thumbs.db
 .plan/
 
 # Local Codex workspace files
-.codex/
+/.codex
