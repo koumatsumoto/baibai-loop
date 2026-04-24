@@ -1,13 +1,24 @@
-# Macro Monthly: YYYY-MM {kind} ({slug})
+---
+type: periodic
+scope: japan
+published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
+sources:
+  - "URL1"
+  - "URL2"
+---
 
-**レイヤー**: 事実レイヤー（観測値・一次統計引用・機械的計算のみ。解釈・予測・相場観は書かない。詳細は [../design-principles.md](../design-principles.md) の「事実と分析の分離」節を参照）
+# Brief Japan Monthly: YYYY-MM {kind} ({slug})
+
+**成分**: 4 成分アーキテクチャの **(a) マクロ事実ブリーフ**（[`../components/brief.md`](../components/brief.md)）
+
+**レイヤー**: 事実レイヤー（観測値・一次統計引用・機械的計算のみ。解釈・予測・相場観は書かない。詳細は [`../design-principles.md`](../design-principles.md) の「事実と分析の分離」節を参照）
 
 対象月: YYYY-MM
 観測日: YYYY-MM-DD
-前月 journal: [YYYY-MM-macro-monthly-{slug}.md](../MM/YYYY-MM-macro-monthly-{slug}.md)（初回の場合は「該当なし（差分データ初回）」）
-前年同月 journal: [YYYY-MM-macro-monthly-{slug}.md](../../YYYY/MM/YYYY-MM-macro-monthly-{slug}.md)（存在しない場合は「該当なし」）
+前月 brief: [YYYY-MM-macro-monthly-{slug}.md](../MM/YYYY-MM-macro-monthly-{slug}.md)（初回の場合は「該当なし（差分データ初回）」）
+前年同月 brief: [YYYY-MM-macro-monthly-{slug}.md](../../YYYY/MM/YYYY-MM-macro-monthly-{slug}.md)（存在しない場合は「該当なし」）
 
-月次〜四半期で更新される経済統計を集約する。週次 / 日次の journal (`world-weekly` 等) はこのファイルを参照するだけにし、月次データを再掲しない。
+月次〜四半期で更新される経済統計を集約する。週次 / 日次の brief (`world-weekly` 等) はこのファイルを参照するだけにし、月次データを再掲しない。
 
 ## 1. 世界情勢レイヤーの月次統計
 
