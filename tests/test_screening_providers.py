@@ -14,7 +14,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from baibai_loop.screening.providers.edinet import EDINETProviderError, normalize_metric_record, parse_sec_code
-from baibai_loop.screening.providers.jpx import JPXProvider
+from baibai_loop.screening.providers.jpx import JPXProvider, JPXProviderError
 from baibai_loop.screening.providers.jquants import (
     JQuantsProvider,
     normalize_daily_bar,
@@ -27,6 +27,9 @@ from baibai_loop.screening.schema import TTMQuality
 
 
 class ScreeningProviderTests(unittest.TestCase):
+    def _read_jpx_fixture(self, name: str) -> bytes:
+        return (ROOT / "tests" / "fixtures" / "jpx" / name).read_bytes()
+
     def test_parse_sec_code_supports_alpha_numeric_code(self) -> None:
         self.assertEqual(parse_sec_code("130A0"), "130A")
 
@@ -329,3 +332,116 @@ class ScreeningProviderTests(unittest.TestCase):
                 {"code": "65480", "flag": "特別注意銘柄"},
             ],
         )
+
+    def test_jpx_download_rows_rejects_non_jpx_origin(self) -> None:
+        class FakeSession:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            def get(self, url: str, timeout: int):
+                del timeout
+                self.calls.append(url)
+                raise AssertionError("request should not be attempted")
+
+        session = FakeSession()
+        provider = JPXProvider(Path("/tmp"), session=session)
+
+        with self.assertRaisesRegex(JPXProviderError, "https://www\\.jpx\\.co\\.jp"):
+            provider._download_rows("整理銘柄", "https://example.com/listing/market-alerts/supervision/")
+
+        self.assertEqual(session.calls, [])
+
+    def test_jpx_parse_reorganization_html_rows_from_content_type(self) -> None:
+        class FakeResponse:
+            def __init__(self, content: bytes) -> None:
+                self.content = content
+                self.status_code = 200
+                self.headers = {"content-type": "text/html; charset=UTF-8"}
+
+        class FakeSession:
+            def __init__(self, response: FakeResponse) -> None:
+                self._response = response
+
+            def get(self, url: str, timeout: int) -> FakeResponse:
+                del url, timeout
+                return self._response
+
+        provider = JPXProvider(
+            Path("/tmp"),
+            session=FakeSession(FakeResponse(self._read_jpx_fixture("reorganization.html"))),
+        )
+        rows = provider._download_rows("整理銘柄", "https://www.jpx.co.jp/listing/market-alerts/supervision/")
+
+        self.assertEqual(
+            rows,
+            [
+                {"code": "4917", "flag": "整理銘柄"},
+                {"code": "7426", "flag": "整理銘柄"},
+            ],
+        )
+
+    def test_jpx_parse_trading_halt_html_rows_extracts_codes(self) -> None:
+        provider = JPXProvider(Path("/tmp"))
+
+        rows = provider._parse_html_rows(
+            "取引停止",
+            self._read_jpx_fixture("trading_halt.html"),
+            "https://www.jpx.co.jp/markets/equities/suspended/",
+        )
+
+        self.assertEqual(rows, [{"code": "9941", "flag": "取引停止"}])
+
+    def test_jpx_parse_delisting_warning_html_rows_extracts_codes(self) -> None:
+        provider = JPXProvider(Path("/tmp"))
+
+        rows = provider._parse_html_rows(
+            "上場廃止警告",
+            self._read_jpx_fixture("delisting_warning.html"),
+            "https://www.jpx.co.jp/listing/stocks/delisted/",
+        )
+
+        self.assertEqual(
+            rows,
+            [
+                {"code": "7709", "flag": "上場廃止警告"},
+                {"code": "7426", "flag": "上場廃止警告"},
+            ],
+        )
+
+    def test_jpx_parse_html_rows_fail_fast_on_layout_change(self) -> None:
+        provider = JPXProvider(Path("/tmp"))
+        broken_html = self._read_jpx_fixture("reorganization.html").decode("utf-8").replace("整理銘柄", "整理銘柄一覧")
+
+        with self.assertRaisesRegex(JPXProviderError, "failed to locate JPX HTML section"):
+            provider._parse_html_rows(
+                "整理銘柄",
+                broken_html.encode("utf-8"),
+                "https://www.jpx.co.jp/listing/market-alerts/supervision/",
+            )
+
+    def test_jpx_get_regulation_snapshot_fails_on_invalid_html_code(self) -> None:
+        class FakeResponse:
+            def __init__(self, content: bytes) -> None:
+                self.content = content
+                self.status_code = 200
+                self.headers = {"content-type": "text/html; charset=UTF-8"}
+
+        class FakeSession:
+            def __init__(self, responses: dict[str, FakeResponse]) -> None:
+                self._responses = responses
+
+            def get(self, url: str, timeout: int) -> FakeResponse:
+                del timeout
+                return self._responses[url]
+
+        url = "https://www.jpx.co.jp/markets/equities/suspended/"
+        broken_html = self._read_jpx_fixture("trading_halt.html").decode("utf-8").replace("9941", "99411", 1).encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            provider = JPXProvider(
+                Path(tmp),
+                regulation_urls={"取引停止": url},
+                session=FakeSession({url: FakeResponse(broken_html)}),
+            )
+            with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
+                provider.get_regulation_snapshot(date(2026, 4, 24))

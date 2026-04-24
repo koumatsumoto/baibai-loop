@@ -73,6 +73,7 @@ class ScreeningRenderTests(unittest.TestCase):
         self.assertIn("approximated", rendered)
         self.assertIn("ttm_quality 集計: exact=1, approximated=1, unavailable=1", rendered)
         self.assertIn("## 3. 実行環境", rendered)
+        self.assertIn('- "jpx-public-regulation"', rendered)
 
     def test_render_screened_markdown_matches_canonical_structure(self) -> None:
         document = ScreenedRunDocument(
@@ -130,7 +131,7 @@ class ScreeningRenderTests(unittest.TestCase):
             data_sources:
             - "j-quants-light"
             - "edinet-api-v2@2026-01-29"
-            - "jpx-public-csv"
+            - "jpx-public-regulation"
             run_at: "2026-04-24T09:00:00+09:00"
             tickers:
             - ticker: "130A"

@@ -95,7 +95,7 @@ Baibai-Loop スクリーニングの universe（対象銘柄集合）の境界�
 
 ### 7.4 JPX 規制情報の取得失敗
 
-- 特別注意 / 整理 / 取引停止 / 上場廃止警告の参照に必要な JPX 公開 CSV / Excel が取得できない run は、**fail-fast** として `screened` を生成しない
+- 特別注意 / 整理 / 取引停止 / 上場廃止警告の参照に必要な JPX 公開情報（CSV / Excel / HTML）が取得できない run は、**fail-fast** として `screened` を生成しない
 - `universe` の必須除外条件に直結するため、`unknown` 扱いで run 継続しない
 
 ## 8. 参考

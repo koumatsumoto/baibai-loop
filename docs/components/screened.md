@@ -36,7 +36,7 @@ generated_by: "screening-cli-v1"
 data_sources:
   - "j-quants-light"
   - "edinet-api-v2@2026-01-29"
-  - "jpx-public-csv"
+  - "jpx-public-regulation"
 run_at: "ISO 8601"
 tickers:                            # 通過銘柄 list
   - ticker: "130A"
