@@ -57,8 +57,9 @@ Baibai-Loop スクリーニングの universe（対象銘柄集合）の境界�
 
 ### 6.2 ticker
 
-- **quote 必須**（先頭 0 落ち防止）
-- 例: `"7203"`, `"0036"` （4 桁証券コード）
+- **quote 必須**
+- **4 文字の英数字文字列**として扱う（先頭 0 落ち防止、英字組入れ対応）
+- 例: `"7203"`, `"0036"`, `"130A"`
 
 ### 6.3 時価総額 / 売買代金
 
@@ -90,6 +91,11 @@ Baibai-Loop スクリーニングの universe（対象銘柄集合）の境界�
 
 - 各 `screened/YYYY/MM/YYYY-MM-DD.md` の front matter `universe_size` で実行時点の universe サイズを記録
 - 履歴を遡れば universe の縮小・拡大を追跡できる
+
+### 7.4 JPX 規制情報の取得失敗
+
+- 特別注意 / 整理 / 取引停止 / 上場廃止警告の参照に必要な JPX 公開 CSV / Excel が取得できない run は、**fail-fast** として `screened` を生成しない
+- `universe` の必須除外条件に直結するため、`unknown` 扱いで run 継続しない
 
 ## 8. 参考
 

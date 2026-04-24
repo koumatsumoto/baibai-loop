@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "baibai-loop"
+version = "0.1.0"
+description = "Automation utilities for Baibai-Loop."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "httpx",
+  "jquants-api-client",
+  "pandas",
+  "pyarrow",
+  "pyyaml",
+  "requests",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-mock",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/baibai_loop"]

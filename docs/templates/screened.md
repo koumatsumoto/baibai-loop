@@ -1,12 +1,19 @@
 ---
 run_date: "YYYY-MM-DD"
+asof_date: "YYYY-MM-DD"              # run_date と同値。対象営業日
 universe_size: 整数
 filters:
   min_market_cap_oku: 300
   min_avg_turnover_oku: 2
   exclude_listed_under_months: 6
+generated_by: "screening-cli-v1"
+data_sources:
+  - "j-quants-light"
+  - "edinet-api-v2@2026-01-29"
+  - "jpx-public-csv"
+run_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 tickers:
-  - ticker: "XXXX"
+  - ticker: "130A"                   # 4 文字文字列。英字組入れ対応
     name: "..."
     per_forward: 8.2       # null if 会社予想 EPS 未公表
     per_trailing: 9.5
@@ -15,6 +22,10 @@ tickers:
     p_s: 0.6
     pcfr: 5.1
     sector_33: "業種名"
+    ttm_quality:
+      ev_ebitda: exact | approximated | unavailable
+      p_s: exact | approximated | unavailable
+      pcfr: exact | approximated | unavailable
     threshold_hit:
       - sector_median_under_20pct_and_self_range_bottom_20pct
       - price_down_60d_and_valuation_sigma_down
@@ -35,7 +46,7 @@ tickers:
 
 ## 1. 実行概要
 
-- 実行日: YYYY-MM-DD
+- 対象営業日: YYYY-MM-DD
 - Universe サイズ: XXX 銘柄
 - 通過銘柄数: XX 銘柄
 
@@ -48,7 +59,8 @@ tickers:
 
 ## 3. 実行環境
 
-- データソース: J-Quants core（日足・財務サマリー・業績予想）+ EDINET + JPX
+- データソース: J-Quants Light（日足・財務サマリー・業績予想）+ EDINET + JPX
+- ttm_quality 集計: exact=X, approximated=Y, unavailable=Z
 - 取得失敗の有無: [有の場合は対象銘柄と理由を列挙]
 
 ---

@@ -25,14 +25,21 @@ screened/YYYY/MM/YYYY-MM-DD.md
 
 ```yaml
 ---
-run_date: "YYYY-MM-DD"              # 実行日
+run_date: "YYYY-MM-DD"              # 対象営業日（asof_date と同値）
+asof_date: "YYYY-MM-DD"             # path の日付と同じ
 universe_size: 整数                 # その時点の universe 銘柄数
 filters:                            # 適用した閾値・条件
   min_market_cap_oku: 300
   min_avg_turnover_oku: 2
   # その他閾値
+generated_by: "screening-cli-v1"
+data_sources:
+  - "j-quants-light"
+  - "edinet-api-v2@2026-01-29"
+  - "jpx-public-csv"
+run_at: "ISO 8601"
 tickers:                            # 通過銘柄 list
-  - ticker: "7203"
+  - ticker: "130A"
     name: "..."
     per_forward: 8.2 | null
     per_trailing: 9.5
@@ -41,14 +48,21 @@ tickers:                            # 通過銘柄 list
     p_s: 0.6
     pcfr: 5.1
     sector_33: "輸送用機器"         # 東証 33 業種
+    ttm_quality:
+      ev_ebitda: exact | approximated | unavailable
+      p_s: exact | approximated | unavailable
+      pcfr: exact | approximated | unavailable
     threshold_hit:                  # どの閾値条件を満たして通過したか（OR 条件）
-      - sector_median_under_20pct
-      - self_range_bottom_20pct
+      - sector_median_under_20pct_and_self_range_bottom_20pct
+      - price_down_60d_and_valuation_sigma_down
+      - sector_rotation_short_sell
 ---
 ```
 
-- ticker は文字列として quote 必須（先頭 0 落ち防止）
+- ticker は **4 文字の英数字文字列**として quote 必須（先頭 0 落ち防止、英字組入れ対応）
 - 欠損値（例: forward EPS 未公表）は明示的に `null`
+- `run_date` は `asof_date` と同値。ファイル path の日付とも一致させる
+- `ttm_quality` は `EV/EBITDA` / `P/S` / `PCFR` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - `threshold_hit`: mechanical-v1 の閾値条件 3 種のどれを満たしたか（OR 条件、複数 hit 可）
 
 ## 5. ワークフロー
@@ -63,8 +77,9 @@ tickers:                            # 通過銘柄 list
 
 ### 5.2 実装
 
-- 初期は **手動 + AI 下書き**（J-Quants から数値取得 → 手動で閾値適用 → front matter に記入）
-- 将来 script 化を検討（v1 運用で手間を計測してから）
+- 現行運用は **手動 + AI 下書き**
+- automation の正本設計は [`../screening/automation-v1.md`](../screening/automation-v1.md) を参照
+- CLI 化後も、人間が異常値 spot check してから commit する
 
 ## 6. research への接続
 

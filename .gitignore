@@ -8,9 +8,14 @@ Thumbs.db
 *.swp
 *.swo
 *~
+__pycache__/
+*.pyc
 
 # Local planning drafts
 .plan/
+
+# Screening caches
+.cache/
 
 # Local Codex workspace files
 /.codex
