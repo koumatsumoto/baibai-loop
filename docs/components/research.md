@@ -82,7 +82,7 @@ valuation:
 
 ```
 1. Thesis（一文、why now / why this stock、マクロゲート × valuation 軸を明示）
-2. Macro gate（tailwind / neutral / headwind）+ 判定根拠（journal_refs 引用 + 1-2 行要約）【最上位ゲート】
+2. Macro gate（tailwind / neutral / headwind）+ 判定根拠（view_ref 引用、必要なら brief_refs も + 1-2 行要約）【最上位ゲート】
 3. Valuation snapshot（PER/PBR/EV-EBITDA/P-S/PCFR の 4 軸評価表、業種中央値・過去3年パーセンタイル・primary metric 付き）
 4. 一時的割安の原因仮説（P-A 必須、P-B もできれば記入）
 5. 反対仮説 - 構造的理由（8 例示 + 自由記述必須）

@@ -136,7 +136,7 @@ regions:                            # 地域別 gate 判定
 
 ## 8. Future work: analysis 集約層への置換
 
-- 将来、`brief/` の上位に `analysis/` 集約層（産業別 AI 分析集約）を導入する構想がある（philosophy 柱 7 節 6）
+- 将来、`brief/` の上位に `analysis/` 集約層（産業別 AI 分析集約）を導入する構想がある（philosophy §6「v1 の時点で意図的に残す未熟さ」の未熟さ 1）
 - その時は `research/` の `view_ref` を `analysis_ref` に切り替える
 - v1 では view 手動運用のまま。置換可能な設計を意識して view schema を stable に保つ
 
