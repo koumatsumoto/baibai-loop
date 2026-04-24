@@ -1,6 +1,6 @@
 ---
 ai-draft: true
-published_at: "2026-04-25T09:00:00+09:00"
+published_at: "2026-04-27T09:00:00+09:00"
 horizon: "1-6m"
 updated_from:
   - brief/2026/01/2026-01-macro-monthly-overview.md
