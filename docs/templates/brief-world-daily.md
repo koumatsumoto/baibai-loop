@@ -16,11 +16,11 @@ sources:
 
 対象日: YYYY-MM-DD
 観測日: YYYY-MM-DD
-前日 brief: [YYYY-MM-DD-world-daily-{slug}.md](../MM/YYYY-MM-DD-world-daily-{slug}.md)（存在しない場合は「該当なし」）
+直近 world-daily brief（あれば）: [YYYY-MM-DD-world-daily-{slug}.md](../MM/YYYY-MM-DD-world-daily-{slug}.md)（存在しない場合は「該当なし」または行ごと省略）
 直近の週次 brief: [YYYY-MM-DD-world-weekly-{slug}.md](../MM/YYYY-MM-DD-world-weekly-{slug}.md)（未作成の場合はその旨を明記）
 直近の月次 brief: [YYYY-MM-macro-monthly-{slug}.md](../MM/YYYY-MM-macro-monthly-{slug}.md)（未作成の場合はその旨を明記）
 
-`world-daily` は、週次まで待つと stale になる fresh fact を受け止めるための brief。`macro-monthly` がまだ閉じていない月は、当日公表された月次級データを一時的に載せてよい。
+`world-daily` は、週次まで待つと stale になる fresh fact を受け止めるための brief。`macro-monthly` がまだ閉じていない月は、当日公表された月次級データを一時的に載せてよい。後日 `macro-monthly` ができたら、その値の正本は `macro-monthly` に移り、この brief は archive として保持する。
 
 ## 1. 世界情勢
 

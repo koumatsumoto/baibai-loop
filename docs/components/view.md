@@ -55,7 +55,7 @@ bootstrap の段階では保守的に neutral を多くすることを推奨す�
 
 ### 2.4 null フィールドの扱い
 
-bootstrap view（および通常 view でも情報不足時）で `sectors` / `regions` の特定フィールドを `null` とした場合、research 側での Macro gate 判定は **`neutral` 扱い** とする。保守的側（`headwind` 扱い）にはしない（情報不足で過度に厳格化すると採用率が極端に下がるため）。view が充実してきたら `null` を削り、明示的な判定に更新する。
+bootstrap view（および通常 view でも情報不足時）で `sectors` / `regions` の特定フィールドを `null` とした場合、research 側での Macro gate 判定は **`neutral` 扱い** とする。保守的側（`headwind` 扱い）にはしない（情報不足で過度に厳格化すると採用率が極端に下がるため）。この読み替えは `research/` 作成時の macro gate 算出で実施し、[`../screening/macro-gate-procedure.md`](../screening/macro-gate-procedure.md) を正とする。view が充実してきたら `null` を削り、明示的な判定に更新する。
 
 ## 3. 更新 trigger と頻度
 
@@ -63,6 +63,7 @@ bootstrap view（および通常 view でも情報不足時）で `sectors` / `r
 
 - **月次 1 回**（月初 3 営業日以内）
 - 直近 1 か月の brief（週次 + 月次を基本、必要に応じて daily / event を追加）を合成して更新
+- 標準の `published_at` は、必要な `world-daily` / `event` を取り込んだ **翌営業日朝（JST 06:00-10:00）** とする。同日中に出すのは緊急更新時のみ
 
 ### 3.2 不定期
 
@@ -112,11 +113,16 @@ regions:                            # 地域別 gate 判定
 ### 5.1 `updated_from` の選び方
 
 - `updated_from` は「存在する brief の全列挙」ではなく、**今回の判定に効いた canonical input 集** を書く
-- bootstrap / 通常更新ともに、最低限として以下を優先する:
-  - 現在のレジームを規定する最近の `macro-monthly`
-  - 直近 2-4 週の `world-weekly`
-  - 直近週次より後に追加された `world-daily` / `event`
+- 通常更新では、**前回 view 以降に追加された brief すべて + 前回 view の tailwind/headwind 判定を支えた brief の最新版** を入れる
+- bootstrap では、初回判定に実際に使った brief を列挙する。freshness gap を埋めるために追加した `world-daily` / `event` も含めてよい
 - これにより、view の鮮度と追跡可能性を両立する
+
+### 5.2 sector / region の責務分離
+
+- 同一マクロ根拠を `sectors` と `regions` の両方に重ねて tailwind/headwind 化しない
+- 円安、外需、米最終需要のような **横断的要因** は `regions.japan-external-demand` などの地域軸へ寄せる
+- `sectors` に tailwind/headwind を付けるのは、その業種固有の追加根拠がある場合に限る
+- これにより、research 側の macro gate で同一要因を二重計上しない
 
 ## 6. 本文の構成
 

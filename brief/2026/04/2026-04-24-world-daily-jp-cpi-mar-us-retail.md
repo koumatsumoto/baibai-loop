@@ -18,11 +18,11 @@ sources:
 
 対象日: 2026-04-24
 観測日: 2026-04-24
-前日 brief: 該当なし
+直近 world-daily brief: 該当なし
 直近の週次 brief: [2026-04-19-world-weekly-us-iran-deescalation.md](./2026-04-19-world-weekly-us-iran-deescalation.md)
 直近の月次 brief: [../03/2026-03-macro-monthly-us-cpi-3p3.md](../03/2026-03-macro-monthly-us-cpi-3p3.md)
 
-`world-daily` は、週次まで待つと stale になる fresh fact を受け止めるための brief。2026-04-24 時点では、当月 `macro-monthly` がまだ閉じていないため、当日までに公表された月次級データを一時的にここへ保持する。
+`world-daily` は、週次まで待つと stale になる fresh fact を受け止めるための brief。2026-04-24 時点では、当月 `macro-monthly` がまだ閉じていないため、当日までに公表された月次級データを一時的にここへ保持する。今回の CPI / retail sales は routine 公表であり、閾値超え surprise ではないため `event` ではなく `world-daily` に置く。
 
 ## 1. 世界情勢
 

@@ -41,6 +41,8 @@ Baibai-Loop 4 成分アーキテクチャの **(a) マクロ事実ブリーフ**
 
 閾値未満のイベントは次回の定期 brief（週次/月次）で扱う。
 
+単一統計の通常公表日は、まず `world-daily` に記録する。`event` に昇格させるのは、上記閾値を満たす surprise、金融政策変更、地政学 shock のいずれかがある場合に限る。
+
 ## 3. Path と命名
 
 ```
@@ -86,13 +88,15 @@ sources:
 
 - `world-daily` は **週次の縮小版ではない**。目的は、`view/` の入力に必要な鮮度を補うこと
 - `macro-monthly` がまだ閉じていない月でも、当日公表された CPI / 小売売上高 / 雇用関連などの **月次級データを一時的に保持してよい**
-- 後日 `macro-monthly` が作成されたら、その月次級データの正本は `macro-monthly` に移る。以後の `world-daily` / `world-weekly` では再掲せずリンクで参照する
+- 後日 `macro-monthly` が作成されたら、その月次級データの正本は `macro-monthly` に移る。既存の `world-daily` は archive として保持し、以後の `world-daily` / `world-weekly` では再掲せずリンクで参照する
 - bootstrap view の直前に最新 brief が古い場合は、`world-daily` または `event` を先に追加して freshness gap を埋める
+- 同じ統計を `world-daily` と `event` の両方で重複生成しない。通常の月次級統計公表は `world-daily`、decisive event のみ `event`
 
 ### 5.3 event
 
 - trigger 発生時に当営業日中に作成する（理想、遅くとも翌営業日まで）
 - `sources` に必ず一次統計を含める
+- 政策変更や閾値超え surprise を 1 件 1 brief で切り出す。routine な統計更新の受け皿にはしない
 
 ### 5.4 事実と分析の分離
 

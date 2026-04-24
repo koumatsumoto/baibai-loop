@@ -20,6 +20,8 @@ sources:
 - 主要指数 ±3% 以上変動（Nikkei 225, S&P 500, 米 10Y ±15bp 等）
 - 地政学 shock（戦争勃発、主要制裁、政権交代、中央銀行総裁交代等）
 
+通常の統計公表日はこの template を使わず、まず `world-daily` に記録する。政策変更や閾値超え surprise があるときだけ event brief に切り出す。
+
 発生日: YYYY-MM-DD
 観測日: YYYY-MM-DD
 

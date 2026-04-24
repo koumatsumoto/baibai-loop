@@ -1,6 +1,6 @@
 ---
 ai-draft: true
-published_at: "2026-04-24T20:00:00+09:00"
+published_at: "2026-04-25T09:00:00+09:00"
 horizon: "1-6m"
 updated_from:
   - brief/2026/01/2026-01-macro-monthly-overview.md
@@ -24,9 +24,9 @@ sectors:
   "鉄鋼": neutral
   "非鉄金属": neutral
   "金属製品": neutral
-  "機械": tailwind
-  "電気機器": tailwind
-  "輸送用機器": tailwind
+  "機械": neutral
+  "電気機器": neutral
+  "輸送用機器": neutral
   "精密機器": neutral
   "その他製品": neutral
   "電気・ガス業": neutral
@@ -62,7 +62,7 @@ Bootstrap（v1 初回）: stale な履歴だけではなく、2026-04-24 時点�
 
 ## 1. Executive Summary
 
-2026-04-24 時点のマクロは、米国では 2026-03 CPI の再加速と 2026-03 小売売上高の強さが同居し、日本では全国コア CPI が +1.8% と 2%近辺を維持しつつ、USD/JPY は 159 台、原油は 100ドル割れまで低下している。1-6か月 horizon では、BoJ / FOMC 前のため国内需要や金利感応セクターは広く `neutral` を維持しつつ、弱い円と外需の底堅さが相対的に効きやすい輸出主導セクターを `tailwind` とした。
+2026-04-24 時点のマクロは、米国では 2026-03 CPI の再加速と 2026-03 小売売上高の強さが同居し、日本では全国コア CPI が +1.8% と 2%近辺を維持しつつ、USD/JPY は 159 台、原油は 100ドル割れまで低下している。1-6か月 horizon では、BoJ / FOMC 前のため sector は広く `neutral` を維持し、横断的な円安と外需の強さは `regions.japan-external-demand` に集約して表現する。
 
 ## 2. 主要 brief の要点集約
 
@@ -77,11 +77,7 @@ Bootstrap（v1 初回）: stale な履歴だけではなく、2026-04-24 時点�
 
 ### 3.1 tailwind 判定業種
 
-| 業種 | 判定 | 根拠 | 根拠 brief |
-| --- | --- | --- | --- |
-| 機械 | tailwind | 円安水準と外需の強さが相対追い風。BoJ / FOMC 前で過度な強気にはしないが、neutral より一段上に置く | [2026-03 monthly](../../../brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.md), [2026-04-24 daily](../../../brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.md) |
-| 電気機器 | tailwind | 輸出比率が高く、USD/JPY 159台と米小売売上高 +1.7% MoM を追い風として扱う | [2026-04-19 weekly](../../../brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.md), [2026-04-24 daily](../../../brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.md) |
-| 輸送用機器 | tailwind | 円安と米最終需要の強さが最も素直に効きやすい。原油低下もコスト面で逆風を和らげる | [2026-04-19 weekly](../../../brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.md), [2026-04-24 daily](../../../brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.md) |
+該当なし。円安と米最終需要の強さは輸出関連に横断的に効くが、この bootstrap では `regions.japan-external-demand` に集約し、sector 側は業種固有の追加根拠が出るまで `neutral` を維持する。
 
 ### 3.2 neutral 判定業種
 
@@ -89,6 +85,9 @@ Bootstrap（v1 初回）: stale な履歴だけではなく、2026-04-24 時点�
 
 | 業種 | 判定 | 根拠 | 根拠 brief |
 | --- | --- | --- | --- |
+| 機械 | neutral | 円安・外需は追い風だが、同根拠は `japan-external-demand` 側で表現する。業種固有の追加 signal は未確認 | [2026-03 monthly](../../../brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.md), [2026-04-24 daily](../../../brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.md) |
+| 電気機器 | neutral | 輸出需要の強さは地域軸に寄せ、sector として一段強気にする固有根拠はまだ不足 | [2026-04-19 weekly](../../../brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.md), [2026-04-24 daily](../../../brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.md) |
+| 輸送用機器 | neutral | 円安と原油低下は確認できるが、bootstrap 時点では sector 固有 tailwind まで断定しない | [2026-04-19 weekly](../../../brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.md), [2026-04-24 daily](../../../brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.md) |
 | 銀行業 | neutral | BoJ は 0.75% 維持で、次回会合前。金利上昇再加速を front-run する根拠が不足 | [2026-01 monthly](../../../brief/2026/01/2026-01-macro-monthly-overview.md), [2026-04-24 daily](../../../brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.md) |
 | 小売業 | neutral | 日本コア CPI は 1.8% だが、消費の強弱を sector headwind まで断定できる brief が不足 | [2026-02 monthly](../../../brief/2026/02/2026-02-macro-monthly-jp-core-cpi-sub2.md), [2026-04-24 daily](../../../brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.md) |
 | 不動産業 | neutral | 国内インフレは 2%近辺、政策金利は据置。金利・賃料のどちらも明確方向が出ていない | [2026-01 monthly](../../../brief/2026/01/2026-01-macro-monthly-overview.md), [2026-04-24 daily](../../../brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.md) |

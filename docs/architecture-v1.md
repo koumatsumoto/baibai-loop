@@ -130,6 +130,8 @@ flowchart TB
 - 金融政策変更（利上げ・利下げ、YCC 等）
 - 主要指数 ±3% 以上変動（Nikkei 225, S&P 500 等）
 
+`world-daily` は `world-weekly` と `macro-monthly` の間を埋める freshness bridge として扱う。単一統計の通常公表は、`macro-monthly` が未作成ならまず `world-daily` に載せ、上記閾値を満たす decisive event のときだけ `event` kind を使う。
+
 #### 3.1.3 Path
 
 ```

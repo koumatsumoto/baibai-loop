@@ -39,9 +39,10 @@ Baibai-Loop は 2 トラック構成で運用する:
 
 同じイベントを複数 kind で記録しない。優先順位:
 
-1. 個別イベント kind (`fomc` 等) がある場合、週次 brief は該当 kind へのリンクで代替する
-2. 月次 kind (`macro-monthly`) で拾える指標は、週次 brief の指標表に再掲しない。`macro-monthly` 未作成期間は `world-daily` に置く
-3. 同じ重要度のイベントが複数 kind にまたがる場合、もっとも粒度の細かい kind で記録し、他の brief からはリンクする
+1. 政策変更や閾値超え surprise は個別イベント kind (`fomc`, `boj`, `cpi` 等) を作り、週次 brief は該当 kind へのリンクで代替する
+2. routine な単一統計公表は `macro-monthly` 未作成期間なら `world-daily` に置き、`event` は作らない
+3. 月次 kind (`macro-monthly`) で拾える指標は、週次 brief の指標表に再掲しない。`macro-monthly` 未作成期間は `world-daily` に置く
+4. 同じ重要度のイベントが複数 kind にまたがる場合、もっとも粒度の細かい kind で記録し、他の brief からはリンクする
 
 ## ファイル配置と命名
 
@@ -77,6 +78,15 @@ bootstrap view または通常の view 更新の前に、brief の鮮度を確�
 - 最新 brief が 5 営業日以上古い場合は、まず `world-daily` または `event` を追加する
 - 当月の `macro-monthly` が未作成でも、その後に view に効く一次統計が出ていれば `world-daily` に載せてから view を作る
 - `updated_from` は「存在する全 brief」ではなく、今回の view 判定に効いた brief を列挙する
+
+## world-daily から macro-monthly への移管
+
+`world-daily` が月次級データを一時保持したあと、`macro-monthly` が完成したら以下で整合を取る:
+
+1. `macro-monthly` がその月の月次級データの **正本** になる
+2. 先行していた `world-daily` は削除しない。原始記録として保持し、archive 扱いにする
+3. 以後の `world-daily` / `world-weekly` では同じ数値を再掲せず、該当 `macro-monthly` へのリンクで参照する
+4. view 更新時は、通常は `macro-monthly` を canonical input とし、鮮度のために必要だった先行 `world-daily` は bootstrap / 緊急更新時の補助入力として扱う
 
 ## 事実記述の粒度
 
