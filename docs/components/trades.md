@@ -20,7 +20,7 @@ trades/YYYY/MM/YYYY-MM-DD-<ticker>.md
 ```
 
 - 日付は entry 日
-- `<ticker>` は 4 桁証券コード
+- `<ticker>` は 4 文字の英数字文字列
 
 ## 4. Front matter 必須項目
 

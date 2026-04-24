@@ -34,6 +34,24 @@ class ScreeningConfigTests(unittest.TestCase):
 
         self.assertEqual(config.cache_dir, Path("/tmp/cache"))
 
+    def test_from_env_collects_jpx_regulation_urls(self) -> None:
+        config = ScreeningConfig.from_env(
+            {
+                "JQUANTS_REFRESH_TOKEN": "token",
+                "EDINET_API_KEY": "key",
+                "JPX_SPECIAL_CAUTION_URL": "https://example.com/special.csv",
+                "JPX_TRADING_HALT_URL": "https://example.com/halt.csv",
+            }
+        )
+
+        self.assertEqual(
+            dict(config.jpx_regulation_urls),
+            {
+                "特別注意銘柄": "https://example.com/special.csv",
+                "取引停止": "https://example.com/halt.csv",
+            },
+        )
+
     def test_from_env_requires_tokens(self) -> None:
         with self.assertRaises(ConfigError):
             ScreeningConfig.from_env({})

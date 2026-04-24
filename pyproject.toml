@@ -11,10 +11,12 @@ requires-python = ">=3.12"
 dependencies = [
   "httpx",
   "jquants-api-client",
+  "openpyxl",
   "pandas",
   "pyarrow",
   "pyyaml",
   "requests",
+  "xlrd",
 ]
 
 [project.optional-dependencies]

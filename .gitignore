@@ -17,5 +17,11 @@ __pycache__/
 # Screening caches
 .cache/
 
+# Local environment files
+.env
+
 # Local Codex workspace files
 /.codex
+
+# Screening run outputs (管理方針確定までは repo 外)
+/screened/

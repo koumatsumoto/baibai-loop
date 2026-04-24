@@ -29,6 +29,12 @@ python -m baibai_loop.screening.cli bootstrap-cache --start YYYY-MM-DD --end YYY
 
 - `SCREENING_CACHE_DIR`
   - 既定値: `.cache/screening`
+- JPX 公開 CSV/Excel URL（未設定時は該当 source のカバレッジなしで `fallback_lines` に `JPX source 未ロード` 明示）。URL 運用の日次変動は issue #16 を参照:
+  - `JPX_SPECIAL_CAUTION_URL` 特別注意銘柄
+  - `JPX_REORGANIZATION_URL` 整理銘柄
+  - `JPX_TRADING_HALT_URL` 取引停止
+  - `JPX_DELISTING_WARNING_URL` 上場廃止警告
+- env vars の雛形は repo root の `.env.sample` を参照。
 
 ## 4. J-Quants ClientV2 Methods
 
@@ -53,13 +59,14 @@ v1 で使う method は次の 5 点に固定する。
   - `120`: 有報
   - `140`: 旧四半期報告書
   - `160`: 半期報告書
-- CSV ZIP は UTF-16 LE タブ区切りとしてパースする
+- CSV ZIP の解凍形式は仕様上 UTF-16 LE タブ区切り（v1 時点の CLI は `documents.json` の取得のみを行い、CSV ZIP 解凍・metric 抽出は本 CLI では未実装。`providers/edinet.py` の `load_metric_records` は前処理済み JSON cache を読み込む前提）
 
 ## 6. JPX Policy
 
 - 利用対象は公開 CSV / Excel のみ
-- HTML スクレイプは行わない
+- HTML スクレイプは行わない（ただし spec 変更は issue #14 で検討中、次 PR で限定許可予定）
 - 規制情報の取得失敗は fail-fast
+- 個別 source のうちロードできなかったものは `fallback_lines` に `JPX source 未ロード: ...` として明示される
 
 ## 7. Date Semantics
 
@@ -77,7 +84,7 @@ v1 で使う method は次の 5 点に固定する。
   - `OrdinaryProfit`
   - `Profit`
 - `short_history_flag = true` の銘柄は条件 A を skip
-- `EV/EBITDA` は `ttm_quality = exact` のときのみ判定に使う
+- `EV/EBITDA` は `ttm_quality = exact` のときのみ判定に使う（**issue #15 の historical 近似バグ解決までは常時除外**。`_rule_metrics` は `per_trailing` / `pbr` のみを返す）
 
 ## 9. Partial Warning Thresholds
 

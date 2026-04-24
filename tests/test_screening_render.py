@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import textwrap
 import unittest
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -72,6 +73,120 @@ class ScreeningRenderTests(unittest.TestCase):
         self.assertIn("approximated", rendered)
         self.assertIn("ttm_quality 集計: exact=1, approximated=1, unavailable=1", rendered)
         self.assertIn("## 3. 実行環境", rendered)
+
+    def test_render_screened_markdown_matches_canonical_structure(self) -> None:
+        document = ScreenedRunDocument(
+            run_date=date(2026, 4, 24),
+            asof_date=date(2026, 4, 24),
+            universe_size=321,
+            filters={
+                "min_market_cap_oku": 300,
+                "min_avg_turnover_oku": 2,
+                "exclude_listed_under_months": 6,
+            },
+            tickers=[
+                ScreenedTicker(
+                    ticker="130A",
+                    name="...",
+                    per_forward=8.2,
+                    per_trailing=9.5,
+                    pbr=0.72,
+                    ev_ebitda=4.8,
+                    p_s=0.6,
+                    pcfr=5.1,
+                    sector_33="業種名",
+                    threshold_hit=(
+                        "sector_median_under_20pct_and_self_range_bottom_20pct",
+                        "price_down_60d_and_valuation_sigma_down",
+                        "sector_rotation_short_sell",
+                    ),
+                    ttm_quality={
+                        "ev_ebitda": TTMQuality.EXACT,
+                        "p_s": TTMQuality.APPROXIMATED,
+                        "pcfr": TTMQuality.UNAVAILABLE,
+                    },
+                )
+            ],
+            run_at=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+            fact_memo_lines=("[事実 1]", "[事実 2]"),
+            provider_status_lines=("データソース: J-Quants Light（日足・財務サマリー・業績予想）+ EDINET + JPX",),
+            ttm_quality_counts={"exact": 1, "approximated": 1, "unavailable": 1},
+            fallback_lines=("取得失敗の有無: [有の場合は対象銘柄と理由を列挙]",),
+        )
+
+        rendered = render_screened_markdown(document)
+
+        expected = textwrap.dedent(
+            """\
+            ---
+            run_date: "2026-04-24"
+            asof_date: "2026-04-24"
+            universe_size: 321
+            filters:
+              min_market_cap_oku: 300
+              min_avg_turnover_oku: 2
+              exclude_listed_under_months: 6
+            generated_by: "screening-cli-v1"
+            data_sources:
+            - "j-quants-light"
+            - "edinet-api-v2@2026-01-29"
+            - "jpx-public-csv"
+            run_at: "2026-04-24T09:00:00+09:00"
+            tickers:
+            - ticker: "130A"
+              name: "..."
+              per_forward: 8.2
+              per_trailing: 9.5
+              pbr: 0.72
+              ev_ebitda: 4.8
+              p_s: 0.6
+              pcfr: 5.1
+              sector_33: "業種名"
+              ttm_quality:
+                ev_ebitda: exact
+                p_s: approximated
+                pcfr: unavailable
+              threshold_hit:
+              - sector_median_under_20pct_and_self_range_bottom_20pct
+              - price_down_60d_and_valuation_sigma_down
+              - sector_rotation_short_sell
+            ---
+
+            # Screened: 2026-04-24
+
+            **成分**: 4 成分アーキテクチャの **(b) スクリーニング通過銘柄**（[`/docs/components/screened.md`](/docs/components/screened.md)）
+
+            **レイヤー**: 事実レイヤー（解釈は入れない）
+
+            **閾値条件**: 以下 3 種の OR 条件、最低 1 つ満たす（[`/docs/screening/mechanical-v1.md`](/docs/screening/mechanical-v1.md)）
+
+            - 条件 A: 業種中央値比 -20% 以上 かつ 過去 3 年自己レンジ下位 20%
+            - 条件 B: 過去 60 営業日 -15% 以上下落 かつ valuation 1σ 以上下方（業績悪化なし）
+            - 条件 C: セクター RS 下位 20% + 個別が業種平均下回り（業績悪化なし）
+
+            ## 1. 実行概要
+
+            - 対象営業日: 2026-04-24
+            - Universe サイズ: 321 銘柄
+            - 通過銘柄数: 1 銘柄
+
+            ## 2. 通過銘柄の事実メモ
+
+            - [事実 1]
+            - [事実 2]
+
+            ## 3. 実行環境
+
+            - データソース: J-Quants Light（日足・財務サマリー・業績予想）+ EDINET + JPX
+            - ttm_quality 集計: exact=1, approximated=1, unavailable=1
+            - 取得失敗の有無: [有の場合は対象銘柄と理由を列挙]
+
+            ---
+
+            研究選定は [`/docs/components/research.md`](/docs/components/research.md) の選定プロセスに従う。通過銘柄のうち `view/` で tailwind / neutral の業種/地域のもののみが research 候補となる。
+            """
+        ).rstrip()
+        self.assertEqual(rendered, expected)
 
     def test_render_requires_jst_run_at(self) -> None:
         document = ScreenedRunDocument(

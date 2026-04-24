@@ -32,9 +32,7 @@ class SecurityMaster:
     name: str
     market_segment: str
     sector_33: str
-    listing_date: date
     is_common_stock: bool
-    days_listed: int
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "code", normalize_ticker(self.code))
@@ -64,6 +62,9 @@ class FinancialSnapshot:
     consolidation_basis: str | None
     operating_profit: float | None = None
     operating_profit_source: OperatingProfitSource = OperatingProfitSource.NULL
+    eps_yoy: float | None = None
+    sales_yoy: float | None = None
+    operating_profit_yoy: float | None = None
     ttm_quality_ev_ebitda: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_p_s: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_pcfr: TTMQuality = TTMQuality.UNAVAILABLE
@@ -71,11 +72,14 @@ class FinancialSnapshot:
 
 @dataclass(frozen=True)
 class DerivedMetrics:
-    sector_median_gap: float | None
-    self_range_percentile: float | None
     price_change_60d: float | None
-    sigma_gap: float | None
     sector_relative_strength_4w: float | None
+    sector_median_gap: Mapping[str, float | None] = field(default_factory=dict)
+    self_range_percentile: Mapping[str, float | None] = field(default_factory=dict)
+    sigma_gap: Mapping[str, float | None] = field(default_factory=dict)
+    sector_relative_strength_percentile: float | None = None
+    ticker_return_4w: float | None = None
+    sector_return_4w: float | None = None
     short_history_flag: bool = False
 
 

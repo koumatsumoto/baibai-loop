@@ -39,12 +39,14 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 - PER / PBR / EV-EBITDA のいずれかが **業種中央値比 -20% 以上の水準**
 - かつ、**同指標が過去 3 年自己レンジの下位 20%** に入っている
 - 両方を同時に満たすことが必要（業種対比と自己対比の二重確認）
+- 注: **EV/EBITDA は issue #15 の historical 近似バグの修正までは A/B 判定から一時除外**している。実装上は PER / PBR のみで評価する。
 
 ### 3.2 条件 B: 過去 60 営業日の急落 + valuation 下方乖離
 
 - 株価が過去 60 営業日で **-15% 以上** 下落
 - かつ、PER / PBR / EV-EBITDA のいずれかが **1σ 以上下方に振れている**（過去 3 年平均 + 標準偏差ベース）
 - 業績トレンドに明確な悪化がない（EPS / ROE / 売上の前年比が大きく崩れていない）
+- 注: EV/EBITDA は 3.1 と同様に issue #15 の解決までは対象外（PER / PBR のみ）。
 
 ### 3.3 条件 C: セクターローテーションによる短期売り
 
@@ -96,20 +98,14 @@ tickers:
 
 ## 6. 実装方針
 
-### 6.1 v1 初期
+v1 は CLI で自動化しており、正本の実装仕様は [`automation-v1.md`](./automation-v1.md) を参照。
 
-- **手動 + AI 下書き**:
-  - J-Quants core から数値取得（手動 or script）
-  - AI が閾値適用・threshold_hit 判定のドラフト
-  - 人間が異常値チェックして front matter 確定
-
-### 6.2 将来の自動化
-
-- 運用で以下が安定してから script 化を検討:
-  - 閾値の妥当性（retro で false positive/negative 評価）
+- 実行形式: `python -m baibai_loop.screening.cli run --asof YYYY-MM-DD`
+- 本ドキュメントは mechanical ルール（閾値条件・rule engine）の意味論に絞り、実行方式・実装構成の詳細は automation-v1.md を正本とする
+- retro で以下が安定したら閾値・データソースを調整する:
+  - 閾値の妥当性（false positive/negative 評価）
   - データソースの安定性（J-Quants / EDINET 取得失敗の頻度）
-  - 業種分類粒度の確定（33 業種で十分か）
-- 本計画 v1 では script 実装は非スコープ（future work）
+  - 業種分類粒度（33 業種で十分か）
 
 ## 7. Retro での調整
 

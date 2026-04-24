@@ -18,11 +18,11 @@ Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデ
 ### 2.1 採用ソース
 
 - **会社予想 EPS ベース**（会社が期初/修正後に開示した公式予想）
-- 取得: J-Quants core（財務サマリー / 業績予想） + EDINET（補完）
+- 取得: J-Quants Light（財務サマリー / 業績予想） + EDINET（補完）
 
 ### 2.2 却下したソース
 
-- **アナリストコンセンサス forward EPS**: J-Quants core / EDINET のスコープ外。Bloomberg / IBES 等は有料で本計画の非スコープ。
+- **アナリストコンセンサス forward EPS**: J-Quants Light / EDINET のスコープ外。Bloomberg / IBES 等は有料で本計画の非スコープ。
 - **期初予想のみ使用**: 期中の修正予想を無視すると精度低下、最新の修正予想を使う
 
 ### 2.3 会社予想未公表 or 予想レンジ提示銘柄の扱い
@@ -115,7 +115,7 @@ EDINET の XBRL 構造から取得。J-Quants Light の財務サマリーで取�
 
 - 2024 年以降、EDINET 単体では旧来の四半期報告書に依存した TTM 再構成ができない期間がある
 - v1 では TTM 品質を `exact` / `approximated` / `unavailable` で明示する
-- `EV/EBITDA` は `ttm_quality = exact` のときのみ mechanical 判定に使用する
+- `EV/EBITDA` は `ttm_quality = exact` のときのみ mechanical 判定に使用する（**ただし issue #15 の historical 近似バグが残っている間は A/B 判定から一時除外。修正後に `exact` ガードで復帰予定**）
 - `P/S` と `PCFR` は v1 では表示用とし、`ttm_quality` を front matter に残す
 
 ## 12. 営業利益相当の fallback

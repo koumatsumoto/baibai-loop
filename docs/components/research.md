@@ -42,7 +42,7 @@ Baibai-Loop 4 成分アーキテクチャの **(d) 個別銘柄リサーチ** �
 research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
 ```
 
-- `<ticker>`: 4 桁証券コード
+- `<ticker>`: 4 文字の英数字文字列
 - `<playbook>`: `valuation-mean-reversion-v1` (P-A) or `valuation-catalyst-confirmation-v1` (P-B)
 
 ## 4. Front matter 必須項目

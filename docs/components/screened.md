@@ -65,11 +65,27 @@ tickers:                            # 通過銘柄 list
 - `ttm_quality` は `EV/EBITDA` / `P/S` / `PCFR` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - `threshold_hit`: mechanical-v1 の閾値条件 3 種のどれを満たしたか（OR 条件、複数 hit 可）
 
+### 4.1 本文の構造
+
+自動生成される本文は以下の 3 セクションで構成される。手動で作成する場合も同一構造にする。
+
+1. **実行概要**: 対象営業日、universe サイズ、通過銘柄数
+2. **通過銘柄の事実メモ**: 複数閾値 hit などの事実を箇条書き。該当なしの場合は `該当なし`
+3. **実行環境**: 以下を箇条書きで記録
+   - データソース行
+   - universe 除外件数（各 exclusion_flag ごと）
+   - `ttm_quality 集計: exact=N, approximated=N, unavailable=N`
+   - fallback / 部分警告の詳細:
+     - `ttm_quality 非 exact 件数: N`
+     - `業績悪化フィルタ入力欠損: N 銘柄`
+     - `EDINET 読み込み失敗: <エラー>` (読み込みに失敗したとき)
+     - `JPX source 未ロード: <flag 列挙>` (REQUIRED 4 種すべてカバーできなかったとき)
+
 ## 5. ワークフロー
 
 ### 5.1 実行手順
 
-1. 最新 universe を取得（J-Quants core + JPX 除外条件適用）
+1. 最新 universe を取得（J-Quants Light + JPX 除外条件適用）
 2. 各 ticker の valuation 指標を算出（[`../screening/valuation-metrics.md`](../screening/valuation-metrics.md) 参照）
 3. 閾値条件（[`../screening/mechanical-v1.md`](../screening/mechanical-v1.md) の 3 種 OR）を適用
 4. 通過銘柄を `tickers` 配列として front matter に記録
@@ -77,7 +93,8 @@ tickers:                            # 通過銘柄 list
 
 ### 5.2 実装
 
-- 現行運用は **手動 + AI 下書き**
+- automation v1 は `python -m baibai_loop.screening.cli run --asof YYYY-MM-DD` を正本とする
+- raw cache の事前取得は `python -m baibai_loop.screening.cli bootstrap-cache --start YYYY-MM-DD --end YYYY-MM-DD` を使う
 - automation の正本設計は [`../screening/automation-v1.md`](../screening/automation-v1.md) を参照
 - CLI 化後も、人間が異常値 spot check してから commit する
 
