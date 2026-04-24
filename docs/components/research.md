@@ -108,7 +108,7 @@ valuation:
 
 ### 6.2 判定基準
 
-- `macro_gate = headwind` は原則採用不可（bootstrap 期の `null` は neutral 扱いで判定可）
+- `macro_gate = headwind` は原則採用不可（bootstrap view 内で対象業種/地域が `null` の場合は neutral 扱いで判定可）
 - valuation 軸で割安判定（業種中央値・過去自己比較）が成立
 - 反対仮説を考えて「構造的 trap ではない」と確信できる
 - catalyst（P-B のみ必須）が freshness ≦ 60 営業日

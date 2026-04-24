@@ -37,7 +37,7 @@ next_cycle_changes:
 - **Skipped candidates**: XX 件（見送り / 保留）
 - **勝敗**: Wins XX / Losses XX（closed trades のみ）
 - **P&L sum**: +X.X% / -X.X%（closed trades の損益率合計）
-- **Wins / Losses 内訳**（前のほうに盛ったら結果）:
+- **Wins / Losses 内訳**（該当 trade を列挙）:
 
 | Ticker | Playbook | Entry | Exit | PnL% | 分類 |
 | --- | --- | --- | --- | --- | --- |

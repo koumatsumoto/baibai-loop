@@ -25,6 +25,8 @@ Baibai-Loop の **Macro gate 判定手順**。research の front matter `macro_g
 3. 食い違いがある場合は **保守的な方を採用**（下記 3.2）
 4. research front matter の `macro_gate` と `view_ref` に記録
 
+**null フィールドの扱い**: view の `sectors` / `regions` で対象業種/地域が `null`（判定未記入）の場合、Macro gate は **`neutral` 扱い** とする。情報不足で `headwind` 側に倒さない（採用率の過度な低下を避けるため）。view が充実してきたら `null` を削り、明示的な判定に更新する。この運用は [`../components/view.md`](../components/view.md) §2.4 と整合。
+
 ### 3.2 食い違い時の保守側優先ルール
 
 業種判定と地域判定が食い違う場合、以下の優先順位で **保守的な方**を採用:

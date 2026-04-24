@@ -51,6 +51,10 @@ bootstrap の段階では保守的に neutral を多くすることを推奨す�
 
 通常の更新 trigger（3.1）に従って view を更新する。bootstrap view は第 1 版であり、第 2 版以降は追加 brief を反映して更新する。
 
+### 2.4 null フィールドの扱い
+
+bootstrap view（および通常 view でも情報不足時）で `sectors` / `regions` の特定フィールドを `null` とした場合、research 側での Macro gate 判定は **`neutral` 扱い** とする。保守的側（`headwind` 扱い）にはしない（情報不足で過度に厳格化すると採用率が極端に下がるため）。view が充実してきたら `null` を削り、明示的な判定に更新する。
+
 ## 3. 更新 trigger と頻度
 
 ### 3.1 定期
