@@ -6,6 +6,7 @@ Baibai-Loop 各成分の記入テンプレート集。template をコピーし�
 
 | Template | 最終 location | 対応 component |
 | --- | --- | --- |
+| `brief-world-daily.md` | `brief/YYYY/MM/YYYY-MM-DD-world-daily-*.md` | [`/docs/components/brief.md`](/docs/components/brief.md) |
 | `brief-world-weekly.md` | `brief/YYYY/MM/YYYY-MM-DD-world-weekly-*.md` | [`/docs/components/brief.md`](/docs/components/brief.md) |
 | `brief-japan-monthly.md` | `brief/YYYY/MM/YYYY-MM-macro-monthly-*.md` | [`/docs/components/brief.md`](/docs/components/brief.md) |
 | `brief-event.md` | `brief/YYYY/MM/YYYY-MM-DD-<kind>-*.md` | [`/docs/components/brief.md`](/docs/components/brief.md) |
@@ -29,7 +30,7 @@ Baibai-Loop 各成分の記入テンプレート集。template をコピーし�
 
 1. 作成したい成分に対応する template を `docs/templates/` からコピー
 2. 最終 location に配置（上記表参照）
-3. front matter と本文を埋める（AI 下書き可の項目は `ai-draft: true`）
+3. front matter と本文を埋める（AI 下書きは `ai-draft: true`）
 4. 人間が最終確認（`ai-draft: false` に更新）
 5. commit
 

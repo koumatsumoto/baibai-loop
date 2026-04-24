@@ -1,6 +1,7 @@
 ---
 type: periodic
 scope: japan
+ai-draft: true | false
 published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 sources:
   - "URL1"
@@ -18,7 +19,7 @@ sources:
 前月 brief: [YYYY-MM-macro-monthly-{slug}.md](../MM/YYYY-MM-macro-monthly-{slug}.md)（初回の場合は「該当なし（差分データ初回）」）
 前年同月 brief: [YYYY-MM-macro-monthly-{slug}.md](../../YYYY/MM/YYYY-MM-macro-monthly-{slug}.md)（存在しない場合は「該当なし」）
 
-月次〜四半期で更新される経済統計を集約する。週次 / 日次の brief (`world-weekly` 等) はこのファイルを参照するだけにし、月次データを再掲しない。
+月次〜四半期で更新される経済統計を集約する。週次 / 日次の brief (`world-daily`, `world-weekly` 等) はこのファイルを参照するだけにし、月次データを再掲しない。
 
 ## 1. 世界情勢レイヤーの月次統計
 

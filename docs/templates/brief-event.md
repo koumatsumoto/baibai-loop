@@ -1,6 +1,7 @@
 ---
 type: event
 scope: world | japan | sector-xx
+ai-draft: true | false
 published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 sources:
   - "URL1"

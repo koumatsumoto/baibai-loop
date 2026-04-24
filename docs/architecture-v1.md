@@ -121,7 +121,7 @@ flowchart TB
 
 | type | 頻度 | trigger | 典型例 |
 | --- | --- | --- | --- |
-| `periodic` | 週次 / 月次 | 定期 | `world-weekly-YYYY-MM-DD-*.md`, `YYYY-MM-macro-monthly-*.md` |
+| `periodic` | 日次 / 週次 / 月次 | 定期 | `world-daily-YYYY-MM-DD-*.md`, `world-weekly-YYYY-MM-DD-*.md`, `YYYY-MM-macro-monthly-*.md` |
 | `event` | 不定期 | 重大イベント | BOJ / FOMC / CPI 大振れ / 地政学 shock |
 
 **不定期 trigger 閾値**:
@@ -136,7 +136,7 @@ flowchart TB
 brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
 ```
 
-- `{kind}` 例: `world-weekly` / `macro-monthly` / `fomc` / `boj` / `cpi` / `gdp` / `geopolitics` / `event`
+- `{kind}` 例: `world-daily` / `world-weekly` / `macro-monthly` / `fomc` / `boj` / `cpi` / `gdp` / `geopolitics` / `event`
 - `{slug}`: 内容を端的に示す短い英小文字ハイフン区切り（解釈語は避ける）
 
 #### 3.1.4 Front matter
@@ -145,6 +145,7 @@ brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
 ---
 type: periodic | event
 scope: world | japan | sector-xx
+ai-draft: true | false
 published_at: "ISO 8601"
 sources:
   - "path or URL"
@@ -210,9 +211,11 @@ view/YYYY/MM/view-YYYY-MM-DD-<slug>.md
 
 ```yaml
 ---
+ai-draft: true | false
 published_at: "ISO 8601"
 horizon: "1-6m"
 updated_from:
+  - brief/YYYY/MM/world-daily-*.md
   - brief/YYYY/MM/world-weekly-*.md
   - brief/YYYY/MM/*-macro-monthly-*.md
 sectors:
@@ -230,8 +233,8 @@ regions:
 
 v1 運用開始時点で `view/` は存在しない。以下の bootstrap 手順を必須とする:
 
-1. 既存 `brief/` 全ファイル（migration 後の 5 件）を読んで、最初の `view/2026/04/view-YYYY-MM-DD-bootstrap.md` を手動作成する
-2. bootstrap view の front matter: `updated_from: [全 brief 5 件]`, `horizon: "1-6m"`, 業種/地域は既存 brief から読み取れる範囲で記入（空欄は `null` 許容）
+1. 既存 `brief/` を読み、鮮度が不足する場合は `world-daily` / `event` を先に追加してから最初の `view/2026/04/view-YYYY-MM-DD-bootstrap.md` を手動作成する
+2. bootstrap view の front matter: `updated_from: [実際に使った brief 群]`, `horizon: "1-6m"`, 業種/地域は brief から読み取れる範囲で記入（空欄は `null` 許容）
 3. bootstrap view 作成後、通常の research 作成フローに遷移
 
 ### 3.4 `research/` — (d) 個別銘柄リサーチ packet
