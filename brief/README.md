@@ -9,7 +9,7 @@
 
 | type | 頻度 | trigger | 典型例 |
 | --- | --- | --- | --- |
-| periodic | 週次 / 月次 | 定期 | 世界 weekly, 日本 monthly |
+| periodic | 日次 / 週次 / 月次 | 定期 | 世界 daily, 世界 weekly, 日本 monthly |
 | event | 不定期 | 重大イベント（BOJ / FOMC / CPI 大振れ / 地政学 shock 等） | 会合決定当日のブリーフ |
 
 **不定期 trigger 閾値**: 主要統計が予想対比 ±10% 以上乖離、金融政策変更、主要指数 ±3% 以上変動（詳細は [`docs/components/brief.md`](../docs/components/brief.md)）。
@@ -20,7 +20,7 @@
 brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
 ```
 
-- `{kind}` 例: `world-weekly` / `macro-monthly` / `fomc` / `boj` / `cpi` / `gdp` / `geopolitics` / `event`
+- `{kind}` 例: `world-daily` / `world-weekly` / `macro-monthly` / `fomc` / `boj` / `cpi` / `gdp` / `geopolitics` / `event`
 - `{slug}` は内容を端的に示す短い英小文字ハイフン区切り
 
 例:
@@ -37,6 +37,7 @@ brief/2026/04/2026-04-30-fomc-hold.md
 ---
 type: periodic | event
 scope: world | japan | sector-xx
+ai-draft: true | false
 published_at: "ISO 8601"
 sources:
   - "path or URL"
@@ -50,6 +51,7 @@ sources:
 - 思想・ベースの考え方: [`../docs/philosophy.md`](../docs/philosophy.md)
 - アーキテクチャ正本: [`../docs/architecture-v1.md`](../docs/architecture-v1.md)
 - 設計原則: [`../docs/design-principles.md`](../docs/design-principles.md)
+- 日次 template: [`../docs/templates/brief-world-daily.md`](../docs/templates/brief-world-daily.md)
 - 週次 template: [`../docs/templates/brief-world-weekly.md`](../docs/templates/brief-world-weekly.md)
 - 月次 template: [`../docs/templates/brief-japan-monthly.md`](../docs/templates/brief-japan-monthly.md)
 - 不定期 template: [`../docs/templates/brief-event.md`](../docs/templates/brief-event.md)

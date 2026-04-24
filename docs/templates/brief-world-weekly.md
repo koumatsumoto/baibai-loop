@@ -1,6 +1,7 @@
 ---
 type: periodic
 scope: world
+ai-draft: true | false
 published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 sources:
   - "URL1"
@@ -21,7 +22,7 @@ sources:
 
 階層: **世界情勢 → 日本経済 → 日本株** の順に記録する。設計根拠は [`/docs/design-principles.md`](/docs/design-principles.md) を参照。
 
-月次統計（CPI / 雇用統計 / 政策金利変更 等）はこのテンプレートでは記録せず、該当月の `macro-monthly` brief を参照する。
+月次統計（CPI / 雇用統計 / 政策金利変更 等）はこのテンプレートでは原則記録せず、該当月の `macro-monthly` brief を参照する。`macro-monthly` がまだ閉じていない期間は `world-daily` に置かれた値を参照する。
 
 ## 1. 世界情勢
 

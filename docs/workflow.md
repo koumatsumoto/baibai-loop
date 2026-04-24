@@ -29,18 +29,20 @@ Baibai-Loop は 2 トラック構成で運用する:
 データは更新サイクルと一致する粒度で別ファイルに分離する:
 
 - **週次レギュラー** (`world-weekly`): マーケット指標・直近イベント・地政学速報。毎週 1 回
+- **日次レギュラー** (`world-daily`): 週次まで待つと stale になる fresh fact。営業日ベースで必要な日に作成
 - **月次レギュラー** (`macro-monthly`): CPI / 雇用統計 / 政策金利変更などの月次〜四半期統計。毎月 1 回（主要発表の出揃い後）
 - **イベント時臨時** (`fomc` / `boj` / `cpi` / `gdp` / `geopolitics` 等): 重要イベント発生時に都度
 
-週次 / 日次 brief は月次データを再掲せず、該当月の `macro-monthly` brief へリンクで参照するだけにする。
+週次 / 日次 brief は原則として月次データを再掲せず、該当月の `macro-monthly` brief へリンクで参照するだけにする。例外として、`macro-monthly` がまだ閉じていない期間は `world-daily` が新規公表された月次級データを一時的に保持してよい。
 
 ### kind の重複回避
 
 同じイベントを複数 kind で記録しない。優先順位:
 
-1. 個別イベント kind (`fomc` 等) がある場合、週次 brief は該当 kind へのリンクで代替する
-2. 月次 kind (`macro-monthly`) で拾える指標は、週次 brief の指標表に再掲しない
-3. 同じ重要度のイベントが複数 kind にまたがる場合、もっとも粒度の細かい kind で記録し、他の brief からはリンクする
+1. 政策変更や閾値超え surprise は個別イベント kind (`fomc`, `boj`, `cpi` 等) を作り、週次 brief は該当 kind へのリンクで代替する
+2. routine な単一統計公表は `macro-monthly` 未作成期間なら `world-daily` に置き、`event` は作らない
+3. 月次 kind (`macro-monthly`) で拾える指標は、週次 brief の指標表に再掲しない。`macro-monthly` 未作成期間は `world-daily` に置く
+4. 同じ重要度のイベントが複数 kind にまたがる場合、もっとも粒度の細かい kind で記録し、他の brief からはリンクする
 
 ## ファイル配置と命名
 
@@ -48,7 +50,7 @@ Baibai-Loop は 2 トラック構成で運用する:
 brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
 ```
 
-- `{kind}` は `world-weekly` / `macro-monthly` / `fomc` / `boj` / `cpi` / `gdp` / `geopolitics` などイベント種別を示す
+- `{kind}` は `world-daily` / `world-weekly` / `macro-monthly` / `fomc` / `boj` / `cpi` / `gdp` / `geopolitics` などイベント種別を示す
 - `{slug}` は内容を端的に示す短い英小文字ハイフン区切り文字列
   - 事実ベース: 指標名と値を組み合わせた中立表現を選ぶ（例: `us-cpi-3p3`, `jp-core-cpi-sub2`, `us-10y-down`）
   - 解釈・評価を含む語 (`beat`, `surge`, `rally`, `crash`, `hot`, `cool`) は避ける
@@ -68,6 +70,23 @@ brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
 - 使うソースは [data-sources.md](./data-sources.md) に限定する
 - 引用は本文中にインラインで `[ソース名](URL) (YYYY-MM-DD取得)` の形式を使う
 - 数値や事実はできるだけ Tier 1 から取り、Tier 2 は一次統計で拾えない事象に限定する
+
+## view 作成前の brief 充足
+
+bootstrap view または通常の view 更新の前に、brief の鮮度を確認する:
+
+- 最新 brief が 5 営業日以上古い場合は、まず `world-daily` または `event` を追加する
+- 当月の `macro-monthly` が未作成でも、その後に view に効く一次統計が出ていれば `world-daily` に載せてから view を作る
+- `updated_from` は「存在する全 brief」ではなく、今回の view 判定に効いた brief を列挙する
+
+## world-daily から macro-monthly への移管
+
+`world-daily` が月次級データを一時保持したあと、`macro-monthly` が完成したら以下で整合を取る:
+
+1. `macro-monthly` がその月の月次級データの **正本** になる
+2. 先行していた `world-daily` は削除しない。原始記録として保持し、archive 扱いにする
+3. 以後の `world-daily` / `world-weekly` では同じ数値を再掲せず、該当 `macro-monthly` へのリンクで参照する
+4. view 更新時は、通常は `macro-monthly` を canonical input とし、鮮度のために必要だった先行 `world-daily` は bootstrap / 緊急更新時の補助入力として扱う
 
 ## 事実記述の粒度
 
@@ -191,6 +210,7 @@ brief は事実レイヤー専用ドキュメント。解釈・予測・相場�
 
 ## テンプレート
 
+- 日次記録を作るときは [templates/brief-world-daily.md](./templates/brief-world-daily.md) をコピーして使う
 - 週次記録を作るときは [templates/brief-world-weekly.md](./templates/brief-world-weekly.md) をコピーして使う
 - 月次記録を作るときは [templates/brief-japan-monthly.md](./templates/brief-japan-monthly.md) をコピーして使う
 - 事実ベース運用のため、テンプレートに主観的な「解釈」「示唆」欄は設けていない
@@ -206,3 +226,4 @@ brief を書いた後、コミット前に以下を確認する:
 - [ ] 観測日 / 市場データの基準日 / `(YYYY-MM-DD取得)` が整合しているか
 - [ ] 階層構造（世界情勢 → 日本経済 → 日本株）の各節が埋まっているか。埋められない項目は「該当なし」または `未公表（次回予定: YYYY-MM-DD）` と記載しているか
 - [ ] 月次データを週次 brief に再掲していないか（該当月の `macro-monthly` brief を参照リンクで代替しているか）
+- [ ] `macro-monthly` 未作成の月次級データを daily に置いた場合、その旨が明示されているか

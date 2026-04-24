@@ -1,7 +1,9 @@
 ---
+ai-draft: true | false
 published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 horizon: "1-6m"
 updated_from:
+  - brief/YYYY/MM/world-daily-*.md
   - brief/YYYY/MM/world-weekly-*.md
   - brief/YYYY/MM/*-macro-monthly-*.md
 sectors:
@@ -24,7 +26,7 @@ regions:
 
 Horizon: 1-6 か月
 
-Bootstrap（v1 初回）: [`/docs/components/view.md`](/docs/components/view.md) の Bootstrap 規則に従って作成。既存 brief 全てを `updated_from` に列挙し、保守的に neutral を多めに記入する。
+Bootstrap（v1 初回）: [`/docs/components/view.md`](/docs/components/view.md) の Bootstrap 規則に従って作成。既存 brief だけで stale なら、先に `world-daily` / `event` を追加してから `updated_from` に含める。保守的に neutral を多めに記入し、横断的要因は `regions` 側へ寄せる。
 
 ## 1. Executive Summary
 
@@ -44,6 +46,8 @@ Bootstrap（v1 初回）: [`/docs/components/view.md`](/docs/components/view.md)
 | 業種 | 判定 | 根拠 | 根拠 brief |
 | --- | --- | --- | --- |
 | [業種名] | tailwind | [マクロ追い風要因の簡潔な説明] | [brief path] |
+
+横断的な円安・外需要因だけで説明できる場合は、`sectors` ではなく `regions.japan-external-demand` 側で表現する。
 
 ### 3.2 neutral 判定業種
 

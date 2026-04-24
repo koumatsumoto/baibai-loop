@@ -11,3 +11,6 @@ Thumbs.db
 
 # Local planning drafts
 .plan/
+
+# Local Codex workspace files
+/.codex
