@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
 
+from .jpx_sources import JPX_SPECIAL_CAUTION_SOURCE_NAME
+
 DEFAULT_CACHE_DIR = Path(".cache/screening")
 JQUANTS_CLIENT_V2_METHODS = (
     "get_eq_master",
@@ -23,7 +25,6 @@ JPX_REGULATION_ENV_MAP = {
     "取引停止": "JPX_TRADING_HALT_URL",
     "上場廃止警告": "JPX_DELISTING_WARNING_URL",
 }
-JPX_SPECIAL_CAUTION_SOURCE_NAME = "特別注意銘柄"
 JPX_SPECIAL_CAUTION_INDEX_ENV = "JPX_SPECIAL_CAUTION_INDEX_URL"
 
 

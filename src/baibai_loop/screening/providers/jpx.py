@@ -15,6 +15,7 @@ from urllib.parse import urljoin, urlparse
 import requests
 
 from ..date_utils import weekday_distance
+from ..jpx_sources import JPX_SPECIAL_CAUTION_SOURCE_NAME
 from ..render import JST
 from ..schema import normalize_ticker
 
@@ -22,7 +23,8 @@ _JPX_ALLOWED_SCHEME = "https"
 _JPX_ALLOWED_HOST = "www.jpx.co.jp"
 _JPX_CACHE_SCHEMA_VERSION = 1
 _JPX_STALE_SNAPSHOT_BUSINESS_DAYS = 7
-_JPX_SPECIAL_CAUTION_SOURCE_NAME = "特別注意銘柄"
+# Current JPX margin Excel URL pattern. Keep the broader text/heading anchors
+# below so a future filename prefix change fails less often and never silently.
 _JPX_SPECIAL_CAUTION_MARGIN_LINK_HINT = "mtdailyk"
 _JPX_EXCEL_SUFFIXES = {".xls", ".xlsx"}
 _TRADING_HALT_EMPTY_MARKER = "現在、該当する情報はありません。"
@@ -225,7 +227,7 @@ class JPXProvider:
         self._special_caution_index_url = special_caution_index_url
         if special_caution_index_url:
             self._regulation_urls.setdefault(
-                _JPX_SPECIAL_CAUTION_SOURCE_NAME, special_caution_index_url
+                JPX_SPECIAL_CAUTION_SOURCE_NAME, special_caution_index_url
             )
 
     def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot:
@@ -253,9 +255,10 @@ class JPXProvider:
 
         flags: dict[str, set[str]] = {}
         for source_name, url in self._regulation_urls.items():
-            if source_name == _JPX_SPECIAL_CAUTION_SOURCE_NAME and self._special_caution_index_url:
-                url = self._resolve_special_attention_xls_url(asof_date)
-            rows = self._download_rows(source_name, url)
+            download_url = url
+            if source_name == JPX_SPECIAL_CAUTION_SOURCE_NAME and self._special_caution_index_url:
+                download_url = self._resolve_special_attention_xls_url(asof_date)
+            rows = self._download_rows(source_name, download_url)
             for row in rows:
                 ticker_raw = (
                     row.get("ticker")
@@ -346,6 +349,8 @@ class JPXProvider:
             )
 
     def _resolve_special_attention_xls_url(self, asof_date: date) -> str:
+        # The index publishes only the latest xls; backfill control is enforced
+        # one layer up via the --allow-stale-jpx guard (issue #19).
         del asof_date
         if not self._special_caution_index_url:
             raise JPXProviderError("JPX_SPECIAL_CAUTION_INDEX_URL is not configured")
@@ -383,11 +388,13 @@ class JPXProvider:
             )
             if (
                 _JPX_SPECIAL_CAUTION_MARGIN_LINK_HINT not in parsed.path.lower()
-                and _JPX_SPECIAL_CAUTION_SOURCE_NAME not in haystack
+                and JPX_SPECIAL_CAUTION_SOURCE_NAME not in haystack
                 and "個別銘柄信用取引残高表" not in haystack
             ):
                 continue
             date_match = re.search(r"20\d{6}", parsed.path)
+            # Prefer the newest date token; if JPX ever omits dates, fall back
+            # to document order by keeping zero-date candidates sortable.
             date_key = int(date_match.group(0)) if date_match else 0
             candidates.append((date_key, position, resolved_url))
 
