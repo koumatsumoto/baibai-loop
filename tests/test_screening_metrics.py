@@ -35,6 +35,8 @@ def _summary(
     eps_ttm: float = 18.0,
     sales: float = 1_000_000_000.0,
     operating_profit: float = 100_000_000.0,
+    fiscal_period: str | None = "1Q",
+    fiscal_year_end: date | None = date(2026, 3, 31),
 ) -> JQuantsFinancialSummary:
     return JQuantsFinancialSummary(
         ticker=code,
@@ -47,6 +49,8 @@ def _summary(
         operating_profit=operating_profit,
         ordinary_profit=None,
         profit=None,
+        fiscal_period=fiscal_period,
+        fiscal_year_end=fiscal_year_end,
     )
 
 
@@ -105,14 +109,14 @@ class ScreeningMetricsTests(unittest.TestCase):
         )
         self.assertFalse(result.derived["130A"].short_history_flag)
 
-    def test_build_metrics_compares_yoy_with_four_disclosures_before_latest(self) -> None:
+    def test_build_metrics_compares_yoy_with_prior_fiscal_period(self) -> None:
         asof = date(2026, 4, 24)
         summaries = [
-            _summary("130A", date(2025, 4, 24), eps_ttm=10.0, sales=100.0, operating_profit=20.0),
-            _summary("130A", date(2025, 7, 24), eps_ttm=40.0, sales=400.0, operating_profit=80.0),
-            _summary("130A", date(2025, 10, 24), eps_ttm=50.0, sales=500.0, operating_profit=100.0),
-            _summary("130A", date(2026, 1, 24), eps_ttm=60.0, sales=600.0, operating_profit=120.0),
-            _summary("130A", date(2026, 4, 24), eps_ttm=15.0, sales=125.0, operating_profit=25.0),
+            _summary("130A", date(2025, 4, 24), eps_ttm=10.0, sales=100.0, operating_profit=20.0, fiscal_period="1Q", fiscal_year_end=date(2026, 3, 31)),
+            _summary("130A", date(2025, 7, 24), eps_ttm=40.0, sales=400.0, operating_profit=80.0, fiscal_period="2Q", fiscal_year_end=date(2026, 3, 31)),
+            _summary("130A", date(2025, 10, 24), eps_ttm=50.0, sales=500.0, operating_profit=100.0, fiscal_period="3Q", fiscal_year_end=date(2026, 3, 31)),
+            _summary("130A", date(2026, 1, 24), eps_ttm=60.0, sales=600.0, operating_profit=120.0, fiscal_period="FY", fiscal_year_end=date(2026, 3, 31)),
+            _summary("130A", date(2026, 4, 24), eps_ttm=15.0, sales=125.0, operating_profit=25.0, fiscal_period="1Q", fiscal_year_end=date(2027, 3, 31)),
         ]
         result = build_metrics(
             asof_date=asof,
@@ -129,7 +133,7 @@ class ScreeningMetricsTests(unittest.TestCase):
         assert snapshot.sales_yoy is not None
         assert snapshot.operating_profit_yoy is not None
         # Old QoQ logic would compare EPS with the previous disclosure (60.0)
-        # and produce -0.75. This locks the prior-year proxy at +0.50.
+        # and produce -0.75. Fiscal-period matching locks YoY at +0.50.
         self.assertAlmostEqual(snapshot.eps_yoy, 0.5)
         self.assertAlmostEqual(snapshot.sales_yoy, 0.25)
         self.assertAlmostEqual(snapshot.operating_profit_yoy, 0.25)
@@ -142,10 +146,10 @@ class ScreeningMetricsTests(unittest.TestCase):
             bars_by_ticker={"130A": _daily_bars("130A", asof, 800)},
             summaries_by_ticker={
                 "130A": [
-                    _summary("130A", date(2025, 7, 24)),
-                    _summary("130A", date(2025, 10, 24)),
-                    _summary("130A", date(2026, 1, 24)),
-                    _summary("130A", date(2026, 4, 24)),
+                    _summary("130A", date(2025, 7, 24), fiscal_period="2Q", fiscal_year_end=date(2026, 3, 31)),
+                    _summary("130A", date(2025, 10, 24), fiscal_period="3Q", fiscal_year_end=date(2026, 3, 31)),
+                    _summary("130A", date(2026, 1, 24), fiscal_period="FY", fiscal_year_end=date(2026, 3, 31)),
+                    _summary("130A", date(2026, 4, 24), fiscal_period="1Q", fiscal_year_end=date(2027, 3, 31)),
                 ]
             },
             edinet_by_ticker={},
@@ -158,11 +162,11 @@ class ScreeningMetricsTests(unittest.TestCase):
     def test_build_metrics_ignores_qoq_seasonality_for_yoy_deterioration(self) -> None:
         asof = date(2026, 4, 24)
         summaries = [
-            _summary("130A", date(2025, 4, 24), eps_ttm=10.0, sales=100.0, operating_profit=20.0),
-            _summary("130A", date(2025, 7, 24), eps_ttm=20.0, sales=200.0, operating_profit=40.0),
-            _summary("130A", date(2025, 10, 24), eps_ttm=30.0, sales=300.0, operating_profit=60.0),
-            _summary("130A", date(2026, 1, 24), eps_ttm=80.0, sales=800.0, operating_profit=160.0),
-            _summary("130A", date(2026, 4, 24), eps_ttm=10.0, sales=100.0, operating_profit=20.0),
+            _summary("130A", date(2025, 4, 24), eps_ttm=10.0, sales=100.0, operating_profit=20.0, fiscal_period="1Q", fiscal_year_end=date(2026, 3, 31)),
+            _summary("130A", date(2025, 7, 24), eps_ttm=20.0, sales=200.0, operating_profit=40.0, fiscal_period="2Q", fiscal_year_end=date(2026, 3, 31)),
+            _summary("130A", date(2025, 10, 24), eps_ttm=30.0, sales=300.0, operating_profit=60.0, fiscal_period="3Q", fiscal_year_end=date(2026, 3, 31)),
+            _summary("130A", date(2026, 1, 24), eps_ttm=80.0, sales=800.0, operating_profit=160.0, fiscal_period="FY", fiscal_year_end=date(2026, 3, 31)),
+            _summary("130A", date(2026, 4, 24), eps_ttm=10.0, sales=100.0, operating_profit=20.0, fiscal_period="1Q", fiscal_year_end=date(2027, 3, 31)),
         ]
         result = build_metrics(
             asof_date=asof,
@@ -175,6 +179,43 @@ class ScreeningMetricsTests(unittest.TestCase):
         self.assertEqual(snapshot.eps_yoy, 0.0)
         self.assertEqual(snapshot.sales_yoy, 0.0)
         self.assertEqual(snapshot.operating_profit_yoy, 0.0)
+
+    def test_build_metrics_uses_fiscal_period_match_when_extra_disclosure_shifts_index(self) -> None:
+        asof = date(2026, 4, 24)
+        summaries = [
+            _summary("130A", date(2025, 4, 24), eps_ttm=10.0, fiscal_period="1Q", fiscal_year_end=date(2026, 3, 31)),
+            _summary("130A", date(2025, 6, 1), eps_ttm=999.0, fiscal_period="OTHER", fiscal_year_end=date(2026, 3, 31)),
+            _summary("130A", date(2025, 7, 24), eps_ttm=20.0, fiscal_period="2Q", fiscal_year_end=date(2026, 3, 31)),
+            _summary("130A", date(2025, 10, 24), eps_ttm=30.0, fiscal_period="3Q", fiscal_year_end=date(2026, 3, 31)),
+            _summary("130A", date(2026, 1, 24), eps_ttm=40.0, fiscal_period="FY", fiscal_year_end=date(2026, 3, 31)),
+            _summary("130A", date(2026, 4, 24), eps_ttm=15.0, fiscal_period="1Q", fiscal_year_end=date(2027, 3, 31)),
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": _daily_bars("130A", asof, 800)},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        self.assertEqual(result.financials["130A"].eps_yoy, 0.5)
+
+    def test_build_metrics_requires_same_prior_fiscal_year_end_for_yoy(self) -> None:
+        asof = date(2026, 4, 24)
+        summaries = [
+            _summary("130A", date(2025, 4, 24), eps_ttm=10.0, fiscal_period="1Q", fiscal_year_end=date(2026, 3, 31)),
+            _summary("130A", date(2025, 7, 24), eps_ttm=20.0, fiscal_period="2Q", fiscal_year_end=date(2026, 3, 31)),
+            _summary("130A", date(2025, 10, 24), eps_ttm=30.0, fiscal_period="3Q", fiscal_year_end=date(2026, 3, 31)),
+            _summary("130A", date(2026, 1, 24), eps_ttm=40.0, fiscal_period="FY", fiscal_year_end=date(2026, 3, 31)),
+            _summary("130A", date(2026, 4, 24), eps_ttm=15.0, fiscal_period="1Q", fiscal_year_end=date(2027, 5, 31)),
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": _daily_bars("130A", asof, 800)},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        self.assertIsNone(result.financials["130A"].eps_yoy)
 
 
 if __name__ == "__main__":

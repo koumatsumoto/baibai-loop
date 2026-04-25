@@ -38,6 +38,10 @@ class JQuantsFinancialSummary:
     operating_profit: float | None
     ordinary_profit: float | None
     profit: float | None
+    fiscal_period: str | None = None
+    fiscal_year_end: date | None = None
+    period_start: date | None = None
+    period_end: date | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "ticker", normalize_ticker(self.ticker))
@@ -353,6 +357,10 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
         operating_profit=_to_float(_coalesce_field(record, "OperatingProfit", "operating_profit", "OP")),
         ordinary_profit=_to_float(_coalesce_field(record, "OrdinaryProfit", "ordinary_profit", "OdP")),
         profit=_to_float(_coalesce_field(record, "Profit", "profit", "NP")),
+        fiscal_period=_to_period(_coalesce_field(record, "TypeOfCurrentPeriod", "type_of_current_period")),
+        fiscal_year_end=_parse_optional_date(_coalesce_field(record, "CurrentFiscalYearEndDate", "current_fiscal_year_end_date")),
+        period_start=_parse_optional_date(_coalesce_field(record, "CurrentPeriodStartDate", "current_period_start_date")),
+        period_end=_parse_optional_date(_coalesce_field(record, "CurrentPeriodEndDate", "current_period_end_date")),
     )
 
 
@@ -413,6 +421,18 @@ def _parse_date(value: Any) -> date:
     if not value:
         raise JQuantsProviderError("missing date field in payload")
     return date.fromisoformat(str(value)[:10])
+
+
+def _parse_optional_date(value: Any) -> date | None:
+    if value in (None, ""):
+        return None
+    return _parse_date(value)
+
+
+def _to_period(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    return str(value).strip().upper()
 
 
 def _to_float(value: Any) -> float | None:

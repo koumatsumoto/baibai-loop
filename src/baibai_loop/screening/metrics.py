@@ -204,13 +204,29 @@ def _latest_summary(summaries: Sequence[JQuantsFinancialSummary]) -> JQuantsFina
 
 
 def _prior_year_summary(summaries: Sequence[JQuantsFinancialSummary]) -> JQuantsFinancialSummary | None:
-    """Return the current prior-year proxy from oldest-first summaries."""
-    # J-Quants financial summaries are quarterly disclosures. The immediately
-    # previous record is QoQ, so use four disclosures before latest as the
-    # closest available prior-year quarter.
-    # TODO(issue #24): replace this proxy with fiscal-period matching once
-    # normalize_financial_summary stores TypeOfCurrentPeriod / CurrentFiscalYearEndDate.
-    return summaries[-5] if len(summaries) >= 5 else None
+    """Return the same fiscal period in the previous fiscal year."""
+    latest = _latest_summary(summaries)
+    if latest is None or latest.fiscal_period is None or latest.fiscal_year_end is None:
+        return None
+    target_fiscal_year_end = _shift_year(latest.fiscal_year_end, -1)
+    if target_fiscal_year_end is None:
+        return None
+    candidates = [
+        summary
+        for summary in summaries[:-1]
+        if summary.fiscal_period == latest.fiscal_period
+        and summary.fiscal_year_end == target_fiscal_year_end
+    ]
+    return candidates[-1] if candidates else None
+
+
+def _shift_year(value: date, years: int) -> date | None:
+    try:
+        return value.replace(year=value.year + years)
+    except ValueError:
+        # Feb 29 has no same-month/day counterpart in non-leap years; avoid
+        # inventing a fiscal year-end match.
+        return None
 
 
 def _latest_bar_on_or_before(
