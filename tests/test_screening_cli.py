@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import sys
 import tempfile
 import unittest
@@ -26,8 +28,8 @@ class FakeJQuantsProvider:
     business_day: bool = True
 
     def get_mkt_calendar(self, start: date, end: date) -> list[JQuantsMarketCalendarDay]:
-        del start, end
-        return [JQuantsMarketCalendarDay(day=date(2026, 4, 24), is_business_day=self.business_day)]
+        del end
+        return [JQuantsMarketCalendarDay(day=start, is_business_day=self.business_day)]
 
     def get_eq_master(self) -> list[SecurityMaster]:
         return [
@@ -121,10 +123,17 @@ class FakeEDINETProvider:
 @dataclass
 class FakeJPXProvider:
     fail_bootstrap: bool = False
+    cache_exists: bool = True
+    snapshots_requested: int = 0
 
     def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot:
         del asof_date
+        self.snapshots_requested += 1
         return JPXRegulationSnapshot(flags_by_ticker={}, source_names=("jpx-public-csv",))
+
+    def has_regulation_cache(self, asof_date: date) -> bool:
+        del asof_date
+        return self.cache_exists
 
     def bootstrap_cache(self, asof_date: date) -> dict[str, int]:
         del asof_date
@@ -178,6 +187,60 @@ class ScreeningCliTests(unittest.TestCase):
                 )
                 exit_code = run_command(date(2026, 4, 24), config, providers)
                 self.assertEqual(exit_code, 1)
+            finally:
+                os.chdir(cwd)
+
+    def test_run_command_fails_stale_jpx_backfill_without_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = Path.cwd()
+            try:
+                import os
+
+                os.chdir(tmpdir)
+                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                jpx = FakeJPXProvider(cache_exists=False)
+                providers = ProviderBundle(
+                    jquants=FakeJQuantsProvider(),
+                    edinet=FakeEDINETProvider(),
+                    jpx=jpx,
+                )
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    exit_code = run_command(
+                        date(2026, 1, 15),
+                        config,
+                        providers,
+                        now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    )
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(jpx.snapshots_requested, 0)
+                self.assertIn("--allow-stale-jpx", stderr.getvalue())
+            finally:
+                os.chdir(cwd)
+
+    def test_run_command_allows_stale_jpx_backfill_when_flag_is_set(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = Path.cwd()
+            try:
+                import os
+
+                os.chdir(tmpdir)
+                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                jpx = FakeJPXProvider(cache_exists=False)
+                providers = ProviderBundle(
+                    jquants=FakeJQuantsProvider(),
+                    edinet=FakeEDINETProvider(),
+                    jpx=jpx,
+                )
+                exit_code = run_command(
+                    date(2026, 1, 15),
+                    config,
+                    providers,
+                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    allow_stale_jpx=True,
+                )
+                self.assertEqual(exit_code, 2)
+                self.assertEqual(jpx.snapshots_requested, 1)
             finally:
                 os.chdir(cwd)
 
