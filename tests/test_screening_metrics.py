@@ -34,7 +34,7 @@ def _summary(
     *,
     eps_ttm: float = 18.0,
     sales: float = 1_000_000_000.0,
-    operating_profit: float | None = 100_000_000.0,
+    operating_profit: float = 100_000_000.0,
 ) -> JQuantsFinancialSummary:
     return JQuantsFinancialSummary(
         ticker=code,
@@ -128,6 +128,8 @@ class ScreeningMetricsTests(unittest.TestCase):
         assert snapshot.eps_yoy is not None
         assert snapshot.sales_yoy is not None
         assert snapshot.operating_profit_yoy is not None
+        # Old QoQ logic would compare EPS with the previous disclosure (60.0)
+        # and produce -0.75. This locks the prior-year proxy at +0.50.
         self.assertAlmostEqual(snapshot.eps_yoy, 0.5)
         self.assertAlmostEqual(snapshot.sales_yoy, 0.25)
         self.assertAlmostEqual(snapshot.operating_profit_yoy, 0.25)

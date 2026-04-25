@@ -204,9 +204,12 @@ def _latest_summary(summaries: Sequence[JQuantsFinancialSummary]) -> JQuantsFina
 
 
 def _prior_year_summary(summaries: Sequence[JQuantsFinancialSummary]) -> JQuantsFinancialSummary | None:
+    """Return the current prior-year proxy from oldest-first summaries."""
     # J-Quants financial summaries are quarterly disclosures. The immediately
     # previous record is QoQ, so use four disclosures before latest as the
-    # closest available prior-year quarter until fiscal-period fields are stored.
+    # closest available prior-year quarter.
+    # TODO(issue #24): replace this proxy with fiscal-period matching once
+    # normalize_financial_summary stores TypeOfCurrentPeriod / CurrentFiscalYearEndDate.
     return summaries[-5] if len(summaries) >= 5 else None
 
 

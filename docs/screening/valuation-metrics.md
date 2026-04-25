@@ -128,7 +128,7 @@ EDINET の XBRL 構造から取得。J-Quants Light の財務サマリーで取�
 
 ## 13. 前年同期の決定ロジック
 
-J-Quants の財務サマリーは四半期 disclosure の時系列として扱うため、直前 disclosure は YoY ではなく QoQ になる。v1 では `eps_yoy` / `sales_yoy` / `operating_profit_yoy` の比較対象を「最新 disclosure から 4 本前」とし、最新を含めて 5 本未満の場合は `null` にする。`null` は業績悪化フィルタでは悪化なしとして扱い、季節性による QoQ 減少を過剰棄却に使わない。
+J-Quants の財務サマリーは四半期 disclosure の時系列として扱うため、直前 disclosure は YoY ではなく QoQ になる。v1 では `eps_yoy` / `sales_yoy` / `operating_profit_yoy` の比較対象を「最新 disclosure から 4 本前」とする。oldest-first に並んだ summaries では `summaries[-1]` が最新、`summaries[-2]` / `[-3]` / `[-4]` が直近 3 四半期、`summaries[-5]` が 4 四半期前の前年同期 proxy になる。最新を含めて 5 本未満の場合は `null` にする。`null` は業績悪化フィルタでは悪化なしとして扱い、季節性による QoQ 減少を過剰棄却に使わない。fiscal-period match への移行は issue #24 で追跡する。
 
 ## 14. 算出エラー・欠損の扱い
 
