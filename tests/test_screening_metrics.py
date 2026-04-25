@@ -28,18 +28,35 @@ def _daily_bars(code: str, end: date, total_days: int) -> list[JQuantsDailyBar]:
     ]
 
 
-def _summary(code: str, disclosed_at: date) -> JQuantsFinancialSummary:
+def _summary(
+    code: str,
+    disclosed_at: date,
+    *,
+    eps_ttm: float = 18.0,
+    sales: float = 1_000_000_000.0,
+    operating_profit: float | None = 100_000_000.0,
+) -> JQuantsFinancialSummary:
     return JQuantsFinancialSummary(
         ticker=code,
         disclosed_at=disclosed_at,
         forecast_eps=20.0,
-        eps_ttm=18.0,
+        eps_ttm=eps_ttm,
         bps=120.0,
         shares_outstanding=400_000_000.0,
-        sales=1_000_000_000.0,
-        operating_profit=100_000_000.0,
+        sales=sales,
+        operating_profit=operating_profit,
         ordinary_profit=None,
         profit=None,
+    )
+
+
+def _security(code: str = "130A") -> SecurityMaster:
+    return SecurityMaster(
+        code=code,
+        name="Alpha",
+        market_segment="Prime",
+        sector_33="情報・通信業",
+        is_common_stock=True,
     )
 
 
@@ -47,13 +64,7 @@ class ScreeningMetricsTests(unittest.TestCase):
     def test_build_metrics_excludes_future_bars_from_history(self) -> None:
         """look-ahead bias regression guard: bars after asof must not influence derived metrics."""
         asof = date(2026, 4, 24)
-        security = SecurityMaster(
-            code="130A",
-            name="Alpha",
-            market_segment="Prime",
-            sector_33="情報・通信業",
-            is_common_stock=True,
-        )
+        security = _security()
         base_bars = _daily_bars("130A", asof, 400)
         future_bars = [
             JQuantsDailyBar(
@@ -83,13 +94,7 @@ class ScreeningMetricsTests(unittest.TestCase):
     def test_build_metrics_uses_bars_span_for_short_history_when_established(self) -> None:
         """An established listing (800 days of bars) must not be flagged as short_history."""
         asof = date(2026, 4, 24)
-        security = SecurityMaster(
-            code="130A",
-            name="Alpha",
-            market_segment="Prime",
-            sector_33="情報・通信業",
-            is_common_stock=True,
-        )
+        security = _security()
         bars = _daily_bars("130A", asof, 800)
         result = build_metrics(
             asof_date=asof,
@@ -99,6 +104,75 @@ class ScreeningMetricsTests(unittest.TestCase):
             edinet_by_ticker={},
         )
         self.assertFalse(result.derived["130A"].short_history_flag)
+
+    def test_build_metrics_compares_yoy_with_four_disclosures_before_latest(self) -> None:
+        asof = date(2026, 4, 24)
+        summaries = [
+            _summary("130A", date(2025, 4, 24), eps_ttm=10.0, sales=100.0, operating_profit=20.0),
+            _summary("130A", date(2025, 7, 24), eps_ttm=40.0, sales=400.0, operating_profit=80.0),
+            _summary("130A", date(2025, 10, 24), eps_ttm=50.0, sales=500.0, operating_profit=100.0),
+            _summary("130A", date(2026, 1, 24), eps_ttm=60.0, sales=600.0, operating_profit=120.0),
+            _summary("130A", date(2026, 4, 24), eps_ttm=15.0, sales=125.0, operating_profit=25.0),
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": _daily_bars("130A", asof, 800)},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        snapshot = result.financials["130A"]
+        self.assertIsNotNone(snapshot.eps_yoy)
+        self.assertIsNotNone(snapshot.sales_yoy)
+        self.assertIsNotNone(snapshot.operating_profit_yoy)
+        assert snapshot.eps_yoy is not None
+        assert snapshot.sales_yoy is not None
+        assert snapshot.operating_profit_yoy is not None
+        self.assertAlmostEqual(snapshot.eps_yoy, 0.5)
+        self.assertAlmostEqual(snapshot.sales_yoy, 0.25)
+        self.assertAlmostEqual(snapshot.operating_profit_yoy, 0.25)
+
+    def test_build_metrics_sets_yoy_to_none_when_prior_year_summary_is_missing(self) -> None:
+        asof = date(2026, 4, 24)
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": _daily_bars("130A", asof, 800)},
+            summaries_by_ticker={
+                "130A": [
+                    _summary("130A", date(2025, 7, 24)),
+                    _summary("130A", date(2025, 10, 24)),
+                    _summary("130A", date(2026, 1, 24)),
+                    _summary("130A", date(2026, 4, 24)),
+                ]
+            },
+            edinet_by_ticker={},
+        )
+        snapshot = result.financials["130A"]
+        self.assertIsNone(snapshot.eps_yoy)
+        self.assertIsNone(snapshot.sales_yoy)
+        self.assertIsNone(snapshot.operating_profit_yoy)
+
+    def test_build_metrics_ignores_qoq_seasonality_for_yoy_deterioration(self) -> None:
+        asof = date(2026, 4, 24)
+        summaries = [
+            _summary("130A", date(2025, 4, 24), eps_ttm=10.0, sales=100.0, operating_profit=20.0),
+            _summary("130A", date(2025, 7, 24), eps_ttm=20.0, sales=200.0, operating_profit=40.0),
+            _summary("130A", date(2025, 10, 24), eps_ttm=30.0, sales=300.0, operating_profit=60.0),
+            _summary("130A", date(2026, 1, 24), eps_ttm=80.0, sales=800.0, operating_profit=160.0),
+            _summary("130A", date(2026, 4, 24), eps_ttm=10.0, sales=100.0, operating_profit=20.0),
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": _daily_bars("130A", asof, 800)},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        snapshot = result.financials["130A"]
+        self.assertEqual(snapshot.eps_yoy, 0.0)
+        self.assertEqual(snapshot.sales_yoy, 0.0)
+        self.assertEqual(snapshot.operating_profit_yoy, 0.0)
 
 
 if __name__ == "__main__":

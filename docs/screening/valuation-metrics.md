@@ -126,13 +126,17 @@ EDINET の XBRL 構造から取得。J-Quants Light の財務サマリーで取�
   - `Profit`
 - すべて欠損のときは EPS / 売上の 2 項目だけで業績悪化フィルタを評価する
 
-## 13. 算出エラー・欠損の扱い
+## 13. 前年同期の決定ロジック
+
+J-Quants の財務サマリーは四半期 disclosure の時系列として扱うため、直前 disclosure は YoY ではなく QoQ になる。v1 では `eps_yoy` / `sales_yoy` / `operating_profit_yoy` の比較対象を「最新 disclosure から 4 本前」とし、最新を含めて 5 本未満の場合は `null` にする。`null` は業績悪化フィルタでは悪化なしとして扱い、季節性による QoQ 減少を過剰棄却に使わない。
+
+## 14. 算出エラー・欠損の扱い
 
 - 取得不能・算出不能は **明示的に `null`**（省略しない）
 - 決算期またぎの一時的欠損: 確報確定まで `null` 運用
 - 会計方針変更・特損計上等で一時的歪み: research 側で「反対仮説」に記録、screened の指標値は素直に採用（事実層のため）
 
-## 14. 参考
+## 15. 参考
 
 - [`principles.md`](./principles.md): スクリーニング原則
 - [`universe-rules.md`](./universe-rules.md): universe 境界条件

@@ -86,6 +86,17 @@ class ScreeningRulesTests(unittest.TestCase):
         self.assertNotIn(THRESHOLD_B, result.threshold_hit)
         self.assertNotIn(THRESHOLD_C, result.threshold_hit)
 
+    def test_missing_yoy_does_not_count_as_deterioration(self) -> None:
+        result = evaluate_screening(
+            _financial(eps_yoy=None, sales_yoy=None, operating_profit_yoy=None),
+            _derived(
+                sector_median_gap={"per_trailing": 0.0},
+                self_range_percentile={"per_trailing": 0.5},
+                sigma_gap={"per_trailing": -1.4},
+            ),
+        )
+        self.assertIn(THRESHOLD_B, result.threshold_hit)
+
     def test_condition_c_hits_on_sector_rotation(self) -> None:
         result = evaluate_screening(
             _financial(eps_yoy=0.1, sales_yoy=0.1, operating_profit_yoy=0.1),
@@ -118,4 +129,3 @@ class ScreeningRulesTests(unittest.TestCase):
             ),
         )
         self.assertFalse(result.pass_fail)
-
