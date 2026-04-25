@@ -88,6 +88,8 @@ EDINET の XBRL 構造から取得。J-Quants Light の財務サマリーで取�
 - **パーセンタイル**: 下位 20% / 下位 50% / 上位 50% / 上位 80%
 - **上場 3 年未満**: 上場来レンジで代替（universe-rules.md 参照）
 
+Historical EV/EBITDA は、各日の終値で時価総額だけを変化させ、最新の発行済株式数・有利子負債・現金・TTM EBITDA を全期間に適用する近似で算出する。式は `(historical_price * latest_shares_outstanding + latest_debt - latest_cash) / latest_ebitda_ttm` とし、balance sheet / EBITDA の時系列が無い v1 でも EV/EBITDA の定義を保つ。必要項目が欠損する場合は `null` とし、`ttm_quality_ev_ebitda = exact` の銘柄だけ mechanical 判定に使う。
+
 ## 10. データソース
 
 ### 10.1 Core（v1 必須）
@@ -115,7 +117,7 @@ EDINET の XBRL 構造から取得。J-Quants Light の財務サマリーで取�
 
 - 2024 年以降、EDINET 単体では旧来の四半期報告書に依存した TTM 再構成ができない期間がある
 - v1 では TTM 品質を `exact` / `approximated` / `unavailable` で明示する
-- `EV/EBITDA` は `ttm_quality = exact` のときのみ mechanical 判定に使用する（**ただし issue #15 の historical 近似バグが残っている間は A/B 判定から一時除外。修正後に `exact` ガードで復帰予定**）
+- `EV/EBITDA` は `ttm_quality = exact` のときのみ mechanical 判定に使用する
 - `P/S` と `PCFR` は v1 では表示用とし、`ttm_quality` を front matter に残す
 
 ## 12. 営業利益相当の fallback

@@ -112,12 +112,25 @@ class ScreeningRulesTests(unittest.TestCase):
         )
         self.assertIn(THRESHOLD_C, result.threshold_hit)
 
-    def test_ev_ebitda_is_skipped_pending_issue_15(self) -> None:
-        # issue #15: _valuation_history の ev_ebitda 近似が price / snapshot.ev_ebitda
-        # に縮退しているため、ttm_quality_ev_ebitda == EXACT であっても閾値 A/B の
-        # rule metrics から除外する。ev_ebitda だけを hit させても pass しない。
+    def test_ev_ebitda_participates_when_ttm_quality_is_exact(self) -> None:
         result = evaluate_screening(
             _financial(ttm_quality_ev_ebitda=TTMQuality.EXACT),
+            _derived(
+                sector_median_gap={"ev_ebitda": -0.4},
+                self_range_percentile={"ev_ebitda": 0.1},
+                sigma_gap={"ev_ebitda": -1.5},
+                price_change_60d=-0.05,
+                sector_relative_strength_percentile=0.8,
+                ticker_return_4w=0.0,
+                sector_return_4w=0.0,
+            ),
+        )
+        self.assertTrue(result.pass_fail)
+        self.assertIn(THRESHOLD_A, result.threshold_hit)
+
+    def test_ev_ebitda_is_skipped_when_ttm_quality_is_not_exact(self) -> None:
+        result = evaluate_screening(
+            _financial(ttm_quality_ev_ebitda=TTMQuality.APPROXIMATED),
             _derived(
                 sector_median_gap={"ev_ebitda": -0.4},
                 self_range_percentile={"ev_ebitda": 0.1},

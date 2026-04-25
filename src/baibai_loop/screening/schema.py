@@ -68,6 +68,7 @@ class FinancialSnapshot:
     ttm_quality_ev_ebitda: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_p_s: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_pcfr: TTMQuality = TTMQuality.UNAVAILABLE
+    shares_outstanding: float | None = None
 
 
 @dataclass(frozen=True)

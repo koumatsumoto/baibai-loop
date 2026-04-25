@@ -168,19 +168,26 @@ def _build_financial_snapshot(
     pbr = (latest_price / bps) if bps and bps > 0 else None
     operating_profit, operating_profit_source = _select_operating_profit(latest)
     operating_profit_prior_year, _ = _select_operating_profit(prior_year)
+    shares_outstanding = latest.shares_outstanding if latest else None
     sales_ttm = edinet.sales_ttm if edinet else None
     ocf_ttm = edinet.ocf_ttm if edinet else None
     debt = edinet.debt if edinet else None
     cash = edinet.cash if edinet else None
     ebitda_ttm = edinet.ebitda_ttm if edinet else None
+    latest_market_cap = (latest_price * shares_outstanding) if shares_outstanding else None
+    latest_enterprise_value = (
+        (latest_market_cap + debt - cash)
+        if latest_market_cap is not None and debt is not None and cash is not None
+        else None
+    )
 
     return FinancialSnapshot(
         per_forward=per_forward,
         per_trailing=per_trailing,
         pbr=pbr,
-        ev_ebitda=_safe_ratio(((latest_price * latest.shares_outstanding) + debt - cash) if latest and latest.shares_outstanding and debt is not None and cash is not None else None, ebitda_ttm),
-        p_s=_safe_ratio((latest_price * latest.shares_outstanding) if latest and latest.shares_outstanding else None, sales_ttm),
-        pcfr=_safe_ratio((latest_price * latest.shares_outstanding) if latest and latest.shares_outstanding else None, ocf_ttm if ocf_ttm and ocf_ttm > 0 else None),
+        ev_ebitda=_safe_ratio(latest_enterprise_value, ebitda_ttm),
+        p_s=_safe_ratio(latest_market_cap, sales_ttm),
+        pcfr=_safe_ratio(latest_market_cap, ocf_ttm if ocf_ttm and ocf_ttm > 0 else None),
         eps=eps_ttm,
         sales_ttm=sales_ttm,
         ocf_ttm=ocf_ttm,
@@ -196,6 +203,7 @@ def _build_financial_snapshot(
         ttm_quality_ev_ebitda=edinet.ttm_quality_ev_ebitda if edinet else TTMQuality.UNAVAILABLE,
         ttm_quality_p_s=edinet.ttm_quality_p_s if edinet else TTMQuality.UNAVAILABLE,
         ttm_quality_pcfr=edinet.ttm_quality_pcfr if edinet else TTMQuality.UNAVAILABLE,
+        shares_outstanding=shares_outstanding,
     )
 
 
@@ -253,17 +261,34 @@ def _valuation_history(
         key=lambda item: item.traded_at,
     )
     prices = [bar.close for bar in eligible[-750:]]
-    # FIXME(issue #15): ev_ebitda の history 近似は展開すると price / snapshot.ev_ebitda に縮退する。
+    ev_ebitda_history = [
+        value
+        for price in prices
+        if (value := _historical_ev_ebitda(price, snapshot)) is not None
+    ]
     history: dict[str, list[float]] = {
         "per_trailing": [(price / snapshot.eps) for price in prices if snapshot.eps and snapshot.eps > 0],
         "pbr": [(price / (latest_price / snapshot.pbr)) for price in prices if snapshot.pbr not in (None, 0)],
-        "ev_ebitda": [
-            ((price / latest_price) * ((latest_price / snapshot.ev_ebitda) * snapshot.ebitda_ttm) / snapshot.ebitda_ttm)
-            for price in prices
-            if snapshot.ev_ebitda is not None and snapshot.ebitda_ttm not in (None, 0) and latest_price != 0
-        ],
+        "ev_ebitda": ev_ebitda_history,
     }
     return history
+
+
+def _historical_ev_ebitda(
+    price: float,
+    snapshot: FinancialSnapshot,
+) -> float | None:
+    if (
+        snapshot.shares_outstanding is None
+        or snapshot.debt is None
+        or snapshot.cash is None
+        or snapshot.ebitda_ttm in (None, 0)
+    ):
+        return None
+    # v1 has only the latest balance sheet and TTM EBITDA; hold those constant
+    # across price history while varying market cap by historical close.
+    enterprise_value = (price * snapshot.shares_outstanding) + snapshot.debt - snapshot.cash
+    return enterprise_value / snapshot.ebitda_ttm
 
 
 def _price_change(bars: Sequence[JQuantsDailyBar], sessions: int, asof_date: date) -> float | None:

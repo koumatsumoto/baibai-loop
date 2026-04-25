@@ -106,9 +106,7 @@ def _has_deterioration(financial: FinancialSnapshot) -> bool:
 
 
 def _rule_metrics(financial: FinancialSnapshot) -> tuple[str, ...]:
-    # issue #15: _valuation_history の ev_ebitda 系が代数的に price / snapshot.ev_ebitda
-    # に縮退しているため、self_range_percentile と sigma_gap が本質的に price 判定に
-    # なってしまう。issue #15 解決までは ttm_quality_ev_ebitda == EXACT であっても
-    # 閾値 A/B には参加させない。
-    del financial
-    return ("per_trailing", "pbr")
+    metrics = ["per_trailing", "pbr"]
+    if financial.ttm_quality_ev_ebitda == TTMQuality.EXACT:
+        metrics.append("ev_ebitda")
+    return tuple(metrics)
