@@ -288,6 +288,48 @@ class ScreeningMetricsTests(unittest.TestCase):
         expected_sigma_gap = (history_values[-1] - avg) / (variance**0.5)
         self.assertAlmostEqual(derived.sigma_gap["ev_ebitda"], expected_sigma_gap)
 
+    def test_build_metrics_price_change_uses_adjusted_close_across_splits(self) -> None:
+        # 2-for-1 split between the 60d-prior date and today:
+        # raw close drops 100 -> 50, but adjustment_close stays 50 on both
+        # ends, so price_change_60d should not register a synthetic decline.
+        asof = date(2026, 4, 24)
+        bars = []
+        # 70 sessions of pre-split history at raw=100, adj=50
+        for i in range(70):
+            bars.append(
+                JQuantsDailyBar(
+                    "130A",
+                    asof - timedelta(days=70 - i),
+                    close=100.0,
+                    turnover_value=300_000_000.0,
+                    adjustment_close=50.0,
+                )
+            )
+        # Latest bar at raw=adj=50 (post-split day == today)
+        bars.append(
+            JQuantsDailyBar(
+                "130A",
+                asof,
+                close=50.0,
+                turnover_value=300_000_000.0,
+                adjustment_close=50.0,
+            )
+        )
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={
+                "130A": [_summary("130A", asof, eps_ttm=10.0, fiscal_period="FY",
+                                  fiscal_year_end=date(2026, 3, 31), shares_outstanding=10.0)]
+            },
+            edinet_by_ticker={},
+        )
+        derived = result.derived["130A"]
+        # Without adjustment-aware change calc, this would be (50-100)/100 = -0.5
+        # which would falsely trip the -15% screening threshold.
+        self.assertEqual(derived.price_change_60d, 0.0)
+
     def test_build_metrics_historical_ev_ebitda_uses_adjusted_close_when_available(self) -> None:
         # Simulate a 2-for-1 stock split between asof-2 and asof-1 by giving
         # raw close a discontinuous jump while adjustment_close stays smooth.

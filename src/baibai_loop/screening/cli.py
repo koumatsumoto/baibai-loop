@@ -4,6 +4,8 @@ import argparse
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from pathlib import Path
+import re
 
 from .config import (
     ConfigError,
@@ -49,12 +51,36 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bootstrap_parser.add_argument("--start", required=True, help="start date (YYYY-MM-DD)")
     bootstrap_parser.add_argument("--end", required=True, help="end date (YYYY-MM-DD)")
+
+    select_parser = subparsers.add_parser(
+        "select",
+        help="rank research candidates by combining screened with view sectors",
+    )
+    select_parser.add_argument("--asof", required=True, help="screening target date (YYYY-MM-DD)")
+    select_parser.add_argument(
+        "--view",
+        help="view path to apply (default: latest view/<YYYY>/<MM>/view-*.md on or before asof)",
+    )
+    select_parser.add_argument(
+        "--top",
+        type=int,
+        default=10,
+        help="maximum number of candidates to emit (default 10)",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "select":
+        # select reads existing screened/view markdown only, no env or providers needed.
+        return select_command(
+            asof_date=_parse_iso_date(args.asof),
+            view_path=Path(args.view) if args.view else None,
+            top=args.top,
+        )
 
     try:
         config = ScreeningConfig.from_env()
@@ -136,7 +162,12 @@ def run_command(
         securities = providers.jquants.get_eq_master()
         bars = providers.jquants.get_eq_bars_daily_range(start_date, asof_date)
         summaries = providers.jquants.get_fin_summary_range(start_date, asof_date)
-        providers.jquants.get_eq_earnings_cal(start_date, asof_date)
+        # Pull earnings calendar from asof to asof + 90 calendar days (~ 60
+        # business days) so research can populate next_earnings_date and
+        # surface kill-switch overlaps at packet build time.
+        earnings_records = providers.jquants.get_eq_earnings_cal(
+            asof_date, asof_date + timedelta(days=90)
+        )
         jpx_snapshot = providers.jpx.get_regulation_snapshot(asof_date)
     except (JQuantsProviderError, JPXProviderError) as exc:
         # 型情報を残して root cause を追いやすくする。secret を含みうる 3rd party
@@ -146,6 +177,7 @@ def run_command(
 
     bars_by_ticker = group_bars_by_ticker(bars)
     summaries_by_ticker = group_summaries_by_ticker(summaries)
+    next_earnings_by_ticker = _index_next_earnings(earnings_records, asof_date)
     shares_by_ticker = build_shares_outstanding_index(summaries_by_ticker)
     edinet_load_error: str | None = None
     try:
@@ -190,7 +222,16 @@ def run_command(
         if len(result.threshold_hit) > 1:
             fact_lines.append(f"{ticker}: 複数閾値 hit ({', '.join(result.threshold_hit)})")
         financial = metric_result.financials[ticker]
+        derived = metric_result.derived[ticker]
+        universe_snapshot = universe_result.snapshots[ticker]
         security = securities_by_ticker[ticker]
+        metrics_breakdown: dict[str, dict[str, float | None]] = {}
+        for metric in ("per_trailing", "pbr", "ev_ebitda"):
+            metrics_breakdown[metric] = {
+                "sector_median_gap": derived.sector_median_gap.get(metric),
+                "self_range_percentile": derived.self_range_percentile.get(metric),
+                "sigma_gap": derived.sigma_gap.get(metric),
+            }
         screened_tickers.append(
             ScreenedTicker(
                 ticker=ticker,
@@ -208,6 +249,13 @@ def run_command(
                     "p_s": financial.ttm_quality_p_s,
                     "pcfr": financial.ttm_quality_pcfr,
                 },
+                market_cap_oku=universe_snapshot.market_cap_oku,
+                avg_turnover_oku=universe_snapshot.avg_turnover_oku,
+                price_change_60d=derived.price_change_60d,
+                price_change_4w=derived.ticker_return_4w,
+                sector_relative_strength_percentile=derived.sector_relative_strength_percentile,
+                metrics_breakdown=metrics_breakdown,
+                next_earnings_date=next_earnings_by_ticker.get(ticker),
             )
         )
 
@@ -258,6 +306,164 @@ def run_command(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(markdown, encoding="utf-8")
     return 2 if partial_warning else 0
+
+
+def select_command(
+    *,
+    asof_date: date,
+    view_path: Path | None,
+    top: int,
+    screened_root: Path | None = None,
+    view_root: Path | None = None,
+    stdout: object | None = None,
+) -> int:
+    import yaml
+
+    out = stdout if stdout is not None else sys.stdout
+    screened_root = screened_root or Path("screened")
+    view_root = view_root or Path("view")
+
+    screened_path = (
+        screened_root
+        / f"{asof_date:%Y}"
+        / f"{asof_date:%m}"
+        / f"{asof_date:%Y-%m-%d}.md"
+    )
+    if not screened_path.exists():
+        print(f"screened file not found: {screened_path}", file=sys.stderr)
+        return 1
+    screened_fm = _parse_front_matter(screened_path)
+
+    resolved_view_path = view_path or _find_latest_view(view_root, asof_date)
+    if resolved_view_path is None or not resolved_view_path.exists():
+        print(
+            "view file not found. Pass --view <path> or create view/<YYYY>/<MM>/view-*.md",
+            file=sys.stderr,
+        )
+        return 1
+    view_fm = _parse_front_matter(resolved_view_path)
+    sectors_view: dict[str, str | None] = view_fm.get("sectors") or {}
+
+    candidates = _rank_candidates(screened_fm.get("tickers") or [], sectors_view)
+    summary = {
+        "asof": asof_date.isoformat(),
+        "screened_ref": str(screened_path),
+        "view_ref": str(resolved_view_path),
+        "input_count": len(screened_fm.get("tickers") or []),
+        "after_view_filter": len(candidates),
+        "candidates": candidates[:top],
+    }
+    yaml.safe_dump(summary, out, allow_unicode=True, sort_keys=False)
+    return 0
+
+
+def _parse_front_matter(path: Path) -> dict[str, object]:
+    import yaml
+
+    text = path.read_text(encoding="utf-8")
+    match = re.match(r"^---\n(.*?)\n---", text, re.DOTALL)
+    if not match:
+        return {}
+    return yaml.safe_load(match.group(1)) or {}
+
+
+def _find_latest_view(view_root: Path, asof_date: date) -> Path | None:
+    if not view_root.exists():
+        return None
+    asof_iso = asof_date.isoformat()
+    matches = sorted(view_root.glob("*/*/view-*.md"))
+    eligible = [
+        path for path in matches
+        # Heuristic: view filename contains a YYYY-MM-DD on or before asof.
+        if (m := re.search(r"\d{4}-\d{2}-\d{2}", path.name)) and m.group(0) <= asof_iso
+    ]
+    return eligible[-1] if eligible else None
+
+
+def _rank_candidates(
+    tickers: list[dict[str, object]],
+    sectors_view: dict[str, str | None],
+) -> list[dict[str, object]]:
+    ranked: list[tuple[tuple[int, int, int], dict[str, object]]] = []
+    for ticker in tickers:
+        sector = str(ticker.get("sector_33") or "")
+        view_status = sectors_view.get(sector)
+        # headwind は除外。null / unknown / tailwind / neutral は通過。
+        if view_status == "headwind":
+            continue
+        threshold_hit_obj = ticker.get("threshold_hit")
+        threshold_hit_count = (
+            len(threshold_hit_obj) if isinstance(threshold_hit_obj, list) else 0
+        )
+        market_cap = ticker.get("market_cap_oku")
+        market_cap_int = int(market_cap) if isinstance(market_cap, (int, float)) else 0
+        # Higher = better: more threshold hits, larger market cap, then ticker tie-breaker
+        sort_key = (
+            -threshold_hit_count,
+            -market_cap_int,
+            str(ticker.get("ticker") or ""),
+        )
+        candidate = {
+            "ticker": ticker.get("ticker"),
+            "name": ticker.get("name"),
+            "sector_33": sector,
+            "view_sector": view_status,
+            "market_cap_oku": market_cap,
+            "threshold_hit": threshold_hit_obj or [],
+            "threshold_hit_count": threshold_hit_count,
+            "next_earnings_date": ticker.get("next_earnings_date"),
+            "position_tier": _position_tier(market_cap_int),
+        }
+        ranked.append((sort_key, candidate))
+    ranked.sort(key=lambda item: item[0])
+    return [candidate for _, candidate in ranked]
+
+
+def _position_tier(market_cap_oku: int) -> str:
+    if market_cap_oku >= 1000:
+        return "1000+ (max 2.0%)"
+    if market_cap_oku >= 500:
+        return "500-1000 (max 1.0%)"
+    if market_cap_oku >= 300:
+        return "300-500 (P-B only, max 0.5%)"
+    return "below 300 (out of universe)"
+
+
+def _index_next_earnings(
+    records: list[dict[str, object]], asof_date: date
+) -> dict[str, date]:
+    # Pick the soonest forthcoming earnings announcement (>= asof_date) per
+    # ticker so research packets can populate next_earnings_date for the
+    # decision-period kill switch.
+    asof_iso = asof_date.isoformat()
+    by_ticker: dict[str, str] = {}
+    for record in records:
+        raw_code = (
+            record.get("Code")
+            or record.get("code")
+            or record.get("LocalCode")
+            or record.get("local_code")
+        )
+        if not raw_code:
+            continue
+        code = str(raw_code).strip().upper()
+        ticker = code[:4] if len(code) == 5 else code
+        if not ticker.isalnum() or len(ticker) != 4:
+            continue
+        raw_date = (
+            record.get("Date")
+            or record.get("date")
+            or record.get("AnnouncementDate")
+            or record.get("announcement_date")
+        )
+        if not raw_date:
+            continue
+        date_iso = str(raw_date)[:10]
+        if date_iso < asof_iso:
+            continue
+        if ticker not in by_ticker or date_iso < by_ticker[ticker]:
+            by_ticker[ticker] = date_iso
+    return {ticker: date.fromisoformat(value) for ticker, value in by_ticker.items()}
 
 
 def bootstrap_cache_command(start: date, end: date, providers: ProviderBundle) -> int:

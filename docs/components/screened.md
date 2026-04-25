@@ -48,10 +48,29 @@ tickers:                            # 通過銘柄 list
     p_s: 0.6
     pcfr: 5.1
     sector_33: "輸送用機器"         # 東証 33 業種
+    market_cap_oku: 1083            # 時価総額 (億円、整数)
+    avg_turnover_oku: 12.8          # 20 営業日平均売買代金 (億円、小数 1)
+    price_change_60d: -0.155        # 直近 60 営業日変化率 (adj close)
+    price_change_4w: -0.072         # 直近 20 営業日変化率 (adj close)
+    sector_relative_strength_percentile: 0.35
+    metrics_breakdown:              # 各 valuation 指標の screening 用派生値
+      per_trailing:
+        sector_median_gap: -0.21    # 業種中央値比 (本人 / 中央値 - 1)
+        self_range_percentile: 0.14 # 過去 750 日自己レンジ位置 [0=底, 1=頂]
+        sigma_gap: -1.4             # 自己 history からの σ 偏差
+      pbr:
+        sector_median_gap: -0.18
+        self_range_percentile: 0.20
+        sigma_gap: -1.1
+      ev_ebitda:                    # ttm_quality_ev_ebitda != exact なら null
+        sector_median_gap: null
+        self_range_percentile: null
+        sigma_gap: null
     ttm_quality:
       ev_ebitda: exact | approximated | unavailable
       p_s: exact | approximated | unavailable
       pcfr: exact | approximated | unavailable
+    next_earnings_date: "2026-05-13"  # asof 以降直近の決算発表日 (cache 範囲内、無ければ null)
     threshold_hit:                  # どの閾値条件を満たして通過したか（OR 条件）
       - sector_median_under_20pct_and_self_range_bottom_20pct
       - price_down_60d_and_valuation_sigma_down
@@ -64,6 +83,11 @@ tickers:                            # 通過銘柄 list
 - `run_date` は `asof_date` と同値。ファイル path の日付とも一致させる
 - `ttm_quality` は `EV/EBITDA` / `P/S` / `PCFR` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - `threshold_hit`: mechanical-v1 の閾値条件 3 種のどれを満たしたか（OR 条件、複数 hit 可）
+- `market_cap_oku` / `avg_turnover_oku`: research の position size 判定で使う。`market_cap_oku >= 300` かつ `avg_turnover_oku >= 2.0` で universe 通過する閾値と整合
+- `price_change_60d` / `price_change_4w`: split 影響を排除するため adjustment_close ベースで算出。research §7 Price reaction の数値ソース
+- `sector_relative_strength_percentile`: 4 週リターンの sector 内 percentile。条件 C の根拠
+- `metrics_breakdown`: 各 valuation 指標 (per_trailing / pbr / ev_ebitda) の `sector_median_gap` / `self_range_percentile` / `sigma_gap` を集約。research §3 Valuation snapshot の primary metric 選択と判定根拠の数値ソース
+- `next_earnings_date`: asof 以降直近の決算発表予定日 (J-Quants earnings calendar、asof + 90 calendar days 範囲内)。research §10 Entry 条件の「決算またぎ kill switch」自動 check に使う。範囲内に予定が無い銘柄は `null`
 
 ### 4.1 本文の構造
 

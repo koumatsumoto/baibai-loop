@@ -86,6 +86,28 @@ def _build_ticker_entry(ticker: ScreenedTicker) -> dict[str, Any]:
     entry["p_s"] = _round_value("p_s", ticker.p_s)
     entry["pcfr"] = _round_value("pcfr", ticker.pcfr)
     entry["sector_33"] = QuotedString(ticker.sector_33)
+    entry["market_cap_oku"] = ticker.market_cap_oku
+    entry["avg_turnover_oku"] = (
+        round(ticker.avg_turnover_oku, 1) if ticker.avg_turnover_oku is not None else None
+    )
+    entry["price_change_60d"] = _round_ratio(ticker.price_change_60d)
+    entry["price_change_4w"] = _round_ratio(ticker.price_change_4w)
+    entry["sector_relative_strength_percentile"] = _round_ratio(
+        ticker.sector_relative_strength_percentile
+    )
+    entry["metrics_breakdown"] = {
+        metric: {
+            "sector_median_gap": _round_ratio(values.get("sector_median_gap")),
+            "self_range_percentile": _round_ratio(values.get("self_range_percentile")),
+            "sigma_gap": _round_ratio(values.get("sigma_gap")),
+        }
+        for metric, values in ticker.metrics_breakdown.items()
+    }
+    entry["next_earnings_date"] = (
+        QuotedString(ticker.next_earnings_date.isoformat())
+        if ticker.next_earnings_date is not None
+        else None
+    )
     entry["ttm_quality"] = {
         "ev_ebitda": ticker.ttm_quality.get("ev_ebitda", TTMQuality.UNAVAILABLE).value,
         "p_s": ticker.ttm_quality.get("p_s", TTMQuality.UNAVAILABLE).value,
@@ -93,6 +115,12 @@ def _build_ticker_entry(ticker: ScreenedTicker) -> dict[str, Any]:
     }
     entry["threshold_hit"] = list(ticker.threshold_hit)
     return entry
+
+
+def _round_ratio(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return round(float(value), 4)
 
 
 def _round_value(metric: str, value: float | None) -> float | None:

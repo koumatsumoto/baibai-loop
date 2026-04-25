@@ -106,6 +106,20 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(security.market_segment, "グロース")
         self.assertEqual(security.sector_33, "情報・通信業")
 
+    def test_normalize_security_master_normalizes_half_width_middle_dot_in_sector(self) -> None:
+        # J-Quants payloads use both U+FF65 ("情報･通信業") and U+30FB
+        # ("情報・通信業") for the same TSE 33 sector. Normalize to full-width.
+        security = normalize_security_master(
+            {
+                "Code": "130A",
+                "CoName": "Alpha",
+                "MktNm": "プライム",
+                "S33Nm": "情報･通信業",
+                "Date": "2026-04-24T00:00:00",
+            }
+        )
+        self.assertEqual(security.sector_33, "情報・通信業")
+
     def test_normalize_security_master_marks_non_zero_suffix_as_non_common(self) -> None:
         security = normalize_security_master(
             {

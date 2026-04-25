@@ -19,7 +19,10 @@ Baibai-Loop の `screened/` を対象にした automation v1 の実装正本。�
 python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 python -m baibai_loop.screening.cli run --asof YYYY-MM-DD --allow-stale-jpx
 python -m baibai_loop.screening.cli bootstrap-cache --start YYYY-MM-DD --end YYYY-MM-DD
+python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--view path] [--top N]
 ```
+
+`select` は最新 `screened/<YYYY>/<MM>/<asof>.md` と `view/` を組み合わせて、`view` で `headwind` 判定された業種を除外し、`threshold_hit` の本数 → 時価総額の順で候補をランキングする。`research` の選定プロセス (`docs/components/research.md` §2.1) をスクリプトで支援する。
 
 ## 3. Required Env Vars
 
