@@ -56,7 +56,7 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_parse_jquants_code_supports_zero_suffix(self) -> None:
         self.assertEqual(parse_jquants_code("130A0"), "130A")
 
-    def test_parse_jquants_code_rejects_non_zero_suffix(self) -> None:
+    def test_parse_jquants_code_truncates_non_zero_suffix(self) -> None:
         self.assertEqual(parse_jquants_code("130A1"), "130A")
 
     def test_normalize_metric_record_parses_ttm_quality(self) -> None:
