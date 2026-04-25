@@ -204,7 +204,11 @@ def _latest_summary(summaries: Sequence[JQuantsFinancialSummary]) -> JQuantsFina
 
 
 def _prior_year_summary(summaries: Sequence[JQuantsFinancialSummary]) -> JQuantsFinancialSummary | None:
-    """Return the same fiscal period in the previous fiscal year."""
+    """Return the same fiscal period in the previous fiscal year.
+
+    Assumes summaries are ordered oldest-first; revisions of the same fiscal
+    period are resolved by taking the most recent occurrence.
+    """
     latest = _latest_summary(summaries)
     if latest is None or latest.fiscal_period is None or latest.fiscal_year_end is None:
         return None
