@@ -121,7 +121,7 @@ class ScreenedRunDocument:
     data_sources: Sequence[str] = (
         "j-quants-light",
         "edinet-api-v2@2026-01-29",
-        "jpx-public-csv",
+        "jpx-public-regulation",
     )
     fact_memo_lines: Sequence[str] = field(default_factory=tuple)
     provider_status_lines: Sequence[str] = field(default_factory=tuple)

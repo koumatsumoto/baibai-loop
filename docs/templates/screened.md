@@ -10,7 +10,7 @@ generated_by: "screening-cli-v1"
 data_sources:
 - "j-quants-light"
 - "edinet-api-v2@2026-01-29"
-- "jpx-public-csv"
+- "jpx-public-regulation"
 run_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 tickers:
 - ticker: "130A"                     # 4 文字文字列。英字組入れ対応
