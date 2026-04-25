@@ -660,6 +660,30 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(snapshot.flags_by_ticker, {"4917": ("整理銘柄",)})
         self.assertIn("JPX regulation cache may be stale", "\n".join(logs.output))
 
+    def test_jpx_get_regulation_snapshot_warns_just_over_stale_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "cache"
+            cache_path = cache_dir / "jpx" / "regulations" / "2026-04-14.json"
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "fetched_at_utc": "2026-04-24T00:00:00+00:00",
+                        "flags_by_ticker": {"4917": ["整理銘柄"]},
+                        "source_names": ["整理銘柄"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            provider = JPXProvider(cache_dir)
+            with self.assertLogs("baibai_loop.screening.providers.jpx", level="WARNING") as logs:
+                snapshot = provider.get_regulation_snapshot(date(2026, 4, 14))
+
+        self.assertEqual(snapshot.flags_by_ticker, {"4917": ("整理銘柄",)})
+        self.assertIn("weekdays=8", "\n".join(logs.output))
+
     def test_jpx_get_regulation_snapshot_does_not_warn_at_stale_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache_dir = Path(tmp) / "cache"

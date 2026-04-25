@@ -218,6 +218,34 @@ class ScreeningCliTests(unittest.TestCase):
             finally:
                 os.chdir(cwd)
 
+    def test_run_command_fails_jpx_backfill_just_over_stale_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = Path.cwd()
+            try:
+                import os
+
+                os.chdir(tmpdir)
+                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                jpx = FakeJPXProvider(cache_exists=False)
+                providers = ProviderBundle(
+                    jquants=FakeJQuantsProvider(),
+                    edinet=FakeEDINETProvider(),
+                    jpx=jpx,
+                )
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    exit_code = run_command(
+                        date(2026, 4, 14),
+                        config,
+                        providers,
+                        now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    )
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(jpx.snapshots_requested, 0)
+                self.assertIn("--allow-stale-jpx", stderr.getvalue())
+            finally:
+                os.chdir(cwd)
+
     def test_run_command_allows_stale_jpx_backfill_when_flag_is_set(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
