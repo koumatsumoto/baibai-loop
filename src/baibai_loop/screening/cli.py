@@ -12,6 +12,7 @@ from .config import (
     PARTIAL_WARNING_YOY_MISSING_RATIO,
     ScreeningConfig,
 )
+from .date_utils import weekday_distance
 from .metrics import build_metrics, build_shares_outstanding_index, group_bars_by_ticker, group_summaries_by_ticker
 from .providers import EDINETProvider, JPXProvider, JQuantsProvider
 from .providers.edinet import EDINETProviderError
@@ -36,6 +37,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_parser = subparsers.add_parser("run", help="run weekly screening")
     run_parser.add_argument("--asof", required=True, help="screening target date (YYYY-MM-DD)")
+    run_parser.add_argument(
+        "--allow-stale-jpx",
+        action="store_true",
+        help="allow fetching latest JPX regulation data for a stale backfill asof",
+    )
 
     bootstrap_parser = subparsers.add_parser(
         "bootstrap-cache",
@@ -63,7 +69,12 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if args.command == "run":
-        return run_command(_parse_iso_date(args.asof), config, providers)
+        return run_command(
+            _parse_iso_date(args.asof),
+            config,
+            providers,
+            allow_stale_jpx=args.allow_stale_jpx,
+        )
 
     if args.command == "bootstrap-cache":
         start = _parse_iso_date(args.start)
@@ -89,11 +100,27 @@ def run_command(
     config: ScreeningConfig,
     providers: ProviderBundle,
     now: datetime | None = None,
+    allow_stale_jpx: bool = False,
 ) -> int:
     del config
     output_path = build_output_path(asof_date)
     if output_path.exists():
         print(f"output already exists: {output_path}", file=sys.stderr)
+        return 1
+
+    run_now = now or datetime.now(JST)
+    today = run_now.date()
+    if (
+        not allow_stale_jpx
+        and asof_date < today
+        and weekday_distance(asof_date, today) > 7
+        and not providers.jpx.has_regulation_cache(asof_date)
+    ):
+        print(
+            "JPX regulation cache is missing for a stale backfill; "
+            "rerun with --allow-stale-jpx to fetch the latest JPX snapshot explicitly",
+            file=sys.stderr,
+        )
         return 1
 
     start_date = asof_date - timedelta(days=1200)
@@ -212,7 +239,7 @@ def run_command(
             "exclude_listed_under_months": LISTED_UNDER_DAYS // 30,
         },
         tickers=tuple(screened_tickers),
-        run_at=now or datetime.now(JST),
+        run_at=run_now,
         fact_memo_lines=tuple(fact_lines),
         provider_status_lines=(
             "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ EDINET + JPX",

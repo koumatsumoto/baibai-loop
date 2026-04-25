@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 from html.parser import HTMLParser
 from io import BytesIO
 from pathlib import Path
@@ -13,13 +14,17 @@ from urllib.parse import urlparse
 
 import requests
 
+from ..date_utils import weekday_distance
+from ..render import JST
 from ..schema import normalize_ticker
 
 _JPX_ALLOWED_SCHEME = "https"
 _JPX_ALLOWED_HOST = "www.jpx.co.jp"
 _JPX_CACHE_SCHEMA_VERSION = 1
+_JPX_STALE_SNAPSHOT_BUSINESS_DAYS = 7
 _TRADING_HALT_EMPTY_MARKER = "現在、該当する情報はありません。"
 _HTTP_TIMEOUT_SECONDS = 30
+_LOGGER = logging.getLogger(__name__)
 
 
 class JPXProviderError(RuntimeError):
@@ -180,7 +185,7 @@ class JPXProvider:
         self._regulation_urls = dict(regulation_urls or {})
 
     def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot:
-        cache_path = self._cache_dir / "regulations" / f"{asof_date.isoformat()}.json"
+        cache_path = self._regulation_cache_path(asof_date)
         if cache_path.exists():
             payload = json.loads(cache_path.read_text(encoding="utf-8"))
             schema_version = payload.get("schema_version")
@@ -188,6 +193,7 @@ class JPXProvider:
                 raise JPXProviderError(
                     f"incompatible JPX cache schema version: {schema_version}"
                 )
+            self._warn_if_stale_cache(asof_date, payload)
             return JPXRegulationSnapshot(
                 flags_by_ticker={
                     ticker: tuple(flags)
@@ -228,6 +234,7 @@ class JPXProvider:
             json.dumps(
                 {
                     "schema_version": _JPX_CACHE_SCHEMA_VERSION,
+                    "fetched_at_utc": datetime.now(timezone.utc).isoformat(),
                     "flags_by_ticker": snapshot.flags_by_ticker,
                     "source_names": list(snapshot.source_names),
                 },
@@ -238,6 +245,30 @@ class JPXProvider:
             encoding="utf-8",
         )
         return snapshot
+
+    def has_regulation_cache(self, asof_date: date) -> bool:
+        return self._regulation_cache_path(asof_date).exists()
+
+    def _regulation_cache_path(self, asof_date: date) -> Path:
+        return self._cache_dir / "regulations" / f"{asof_date.isoformat()}.json"
+
+    def _warn_if_stale_cache(self, asof_date: date, payload: Mapping[str, object]) -> None:
+        fetched_at_raw = payload.get("fetched_at_utc")
+        if not fetched_at_raw:
+            return
+        try:
+            fetched_at = datetime.fromisoformat(str(fetched_at_raw).replace("Z", "+00:00"))
+        except ValueError:
+            _LOGGER.warning("JPX regulation cache has invalid fetched_at_utc: %s", fetched_at_raw)
+            return
+        distance = weekday_distance(asof_date, fetched_at.astimezone(JST).date())
+        if distance > _JPX_STALE_SNAPSHOT_BUSINESS_DAYS:
+            _LOGGER.warning(
+                "JPX regulation cache may be stale: asof=%s fetched_at_utc=%s weekdays=%s",
+                asof_date.isoformat(),
+                fetched_at.isoformat(),
+                distance,
+            )
 
     def bootstrap_cache(self, asof_date: date) -> dict[str, int]:
         snapshot = self.get_regulation_snapshot(asof_date)
