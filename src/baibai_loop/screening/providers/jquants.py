@@ -233,6 +233,7 @@ def _is_retryable_jquants_error(exc: Exception) -> bool:
 
 
 def parse_jquants_code(code: Any) -> str:
+    """Return the 4-char ticker portion of a J-Quants 5-char issue code."""
     return _parse_jquants_code(code)[0]
 
 
@@ -242,6 +243,8 @@ def _parse_jquants_code(code: Any) -> tuple[str, bool]:
         return normalize_ticker(raw), True
     if len(raw) == 5 and raw[:4].isalnum():
         # ClientV2 master/bars/summary payloads use 5-char local codes.
+        # Unlike EDINET/JPX parsers, this public parser truncates the suffix
+        # because J-Quants uses the 4-char code to request common stock only.
         # Common stock is typically suffixed with "0"; non-zero suffixes represent
         # preferred/other lines that should not be merged into the 4-char common ticker.
         return normalize_ticker(raw[:4]), raw.endswith("0")
