@@ -74,6 +74,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    if args.command == "select":
+        # select reads existing screened/view markdown only, no env or providers needed.
+        return select_command(
+            asof_date=_parse_iso_date(args.asof),
+            view_path=Path(args.view) if args.view else None,
+            top=args.top,
+        )
+
     try:
         config = ScreeningConfig.from_env()
     except ConfigError as exc:
@@ -105,13 +113,6 @@ def main(argv: list[str] | None = None) -> int:
             print("--start must be on or before --end", file=sys.stderr)
             return 1
         return bootstrap_cache_command(start, end, providers)
-
-    if args.command == "select":
-        return select_command(
-            asof_date=_parse_iso_date(args.asof),
-            view_path=Path(args.view) if args.view else None,
-            top=args.top,
-        )
 
     parser.error("unknown command")
     return 2
