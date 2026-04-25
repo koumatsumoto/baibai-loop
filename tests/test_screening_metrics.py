@@ -66,6 +66,31 @@ def _security(code: str = "130A") -> SecurityMaster:
     )
 
 
+def _edinet_metric_record(
+    code: str = "130A",
+    *,
+    sales_ttm: float = 1_000.0,
+    ocf_ttm: float = 100.0,
+    debt: float = 300.0,
+    cash: float = 100.0,
+    ebitda_ttm: float = 200.0,
+    consolidation_basis: str = "consolidated",
+    ttm_quality: TTMQuality = TTMQuality.EXACT,
+) -> EdinetMetricRecord:
+    return EdinetMetricRecord(
+        ticker=code,
+        sales_ttm=sales_ttm,
+        ocf_ttm=ocf_ttm,
+        debt=debt,
+        cash=cash,
+        ebitda_ttm=ebitda_ttm,
+        consolidation_basis=consolidation_basis,
+        ttm_quality_ev_ebitda=ttm_quality,
+        ttm_quality_p_s=ttm_quality,
+        ttm_quality_pcfr=ttm_quality,
+    )
+
+
 class ScreeningMetricsTests(unittest.TestCase):
     def test_build_metrics_excludes_future_bars_from_history(self) -> None:
         """look-ahead bias regression guard: bars after asof must not influence derived metrics."""
@@ -242,20 +267,7 @@ class ScreeningMetricsTests(unittest.TestCase):
                     )
                 ]
             },
-            edinet_by_ticker={
-                "130A": EdinetMetricRecord(
-                    ticker="130A",
-                    sales_ttm=1_000.0,
-                    ocf_ttm=100.0,
-                    debt=300.0,
-                    cash=100.0,
-                    ebitda_ttm=200.0,
-                    consolidation_basis="consolidated",
-                    ttm_quality_ev_ebitda=TTMQuality.EXACT,
-                    ttm_quality_p_s=TTMQuality.EXACT,
-                    ttm_quality_pcfr=TTMQuality.EXACT,
-                )
-            },
+            edinet_by_ticker={"130A": _edinet_metric_record()},
         )
 
         snapshot = result.financials["130A"]
@@ -275,6 +287,69 @@ class ScreeningMetricsTests(unittest.TestCase):
         variance = sum((value - avg) ** 2 for value in history_values) / len(history_values)
         expected_sigma_gap = (history_values[-1] - avg) / (variance**0.5)
         self.assertAlmostEqual(derived.sigma_gap["ev_ebitda"], expected_sigma_gap)
+
+    def test_build_metrics_historical_ev_ebitda_uses_adjusted_close_when_available(self) -> None:
+        # Simulate a 2-for-1 stock split between asof-2 and asof-1 by giving
+        # raw close a discontinuous jump while adjustment_close stays smooth.
+        # Latest close (asof) is the unadjusted post-split price; historical
+        # series should use adjustment_close so the split does not propagate
+        # into self_range_percentile / sigma_gap.
+        asof = date(2026, 4, 24)
+        bars = [
+            JQuantsDailyBar(
+                "130A",
+                asof - timedelta(days=2),
+                close=160.0,
+                turnover_value=300_000_000.0,
+                adjustment_close=80.0,
+            ),
+            JQuantsDailyBar(
+                "130A",
+                asof - timedelta(days=1),
+                close=200.0,
+                turnover_value=300_000_000.0,
+                adjustment_close=100.0,
+            ),
+            JQuantsDailyBar(
+                "130A",
+                asof,
+                close=120.0,
+                turnover_value=300_000_000.0,
+                adjustment_close=120.0,
+            ),
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={
+                "130A": [
+                    _summary(
+                        "130A",
+                        asof,
+                        eps_ttm=10.0,
+                        fiscal_period="FY",
+                        fiscal_year_end=date(2026, 3, 31),
+                        shares_outstanding=10.0,
+                    )
+                ]
+            },
+            edinet_by_ticker={"130A": _edinet_metric_record()},
+        )
+
+        derived = result.derived["130A"]
+        # adjusted close history [80, 100, 120] -> EV/EBITDA history [5.0, 6.0, 7.0]
+        expected_history = [
+            ((price * 10.0) + 300.0 - 100.0) / 200.0
+            for price in (80.0, 100.0, 120.0)
+        ]
+        avg = sum(expected_history) / len(expected_history)
+        variance = sum((value - avg) ** 2 for value in expected_history) / len(expected_history)
+        expected_sigma_gap = (expected_history[-1] - avg) / (variance**0.5)
+        self.assertAlmostEqual(derived.sigma_gap["ev_ebitda"], expected_sigma_gap)
+        # If raw close were used the second sample (200.0 -> 21/2 = 10.5) would
+        # dominate the percentile and push latest off the upper boundary.
+        self.assertAlmostEqual(derived.self_range_percentile["ev_ebitda"], 1.0)
 
 
 if __name__ == "__main__":

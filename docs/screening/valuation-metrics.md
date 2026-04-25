@@ -88,7 +88,7 @@ EDINET の XBRL 構造から取得。J-Quants Light の財務サマリーで取�
 - **パーセンタイル**: 下位 20% / 下位 50% / 上位 50% / 上位 80%
 - **上場 3 年未満**: 上場来レンジで代替（universe-rules.md 参照）
 
-Historical EV/EBITDA は、各日の終値で時価総額だけを変化させ、最新の発行済株式数・有利子負債・現金・TTM EBITDA を全期間に適用する近似で算出する。式は `(historical_price * latest_shares_outstanding + latest_debt - latest_cash) / latest_ebitda_ttm` とし、balance sheet / EBITDA の時系列が無い v1 でも EV/EBITDA の定義を保つ。必要項目が欠損する場合は `null` とし、`ttm_quality_ev_ebitda = exact` の銘柄だけ mechanical 判定に使う。
+Historical EV/EBITDA は、各日の split-adjusted close で時価総額だけを変化させ、最新の発行済株式数・有利子負債・現金・TTM EBITDA を全期間に適用する近似で算出する。式は `(historical_adjustment_close * latest_shares_outstanding + latest_debt - latest_cash) / latest_ebitda_ttm` とし、balance sheet / EBITDA の時系列が無い v1 でも EV/EBITDA の定義を保つ。`adjustment_close` が欠損する場合は raw `close` にフォールバックする。必要項目が欠損する場合は `null` とし、`ttm_quality_ev_ebitda = exact` の銘柄だけ mechanical 判定に使う。PBR / PER の history も同じ price 基準（adjustment_close 優先）で算出するため、株式分割があっても history は連続になる。
 
 ## 10. データソース
 

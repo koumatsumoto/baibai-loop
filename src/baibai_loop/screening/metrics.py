@@ -260,12 +260,24 @@ def _valuation_history(
         (bar for bar in bars if bar.traded_at <= asof_date),
         key=lambda item: item.traded_at,
     )
-    prices = [bar.close for bar in eligible[-750:]]
-    ev_ebitda_history = [
-        value
-        for price in prices
-        if (value := _historical_ev_ebitda(price, snapshot)) is not None
+    # Prefer split-adjusted close so price discontinuities at split dates do
+    # not propagate into historical valuation series. PBR/PER history happens
+    # to cancel raw price discontinuities through their proportional form, but
+    # EV/EBITDA carries a constant net-debt offset that does not, so adjusted
+    # close is required for at least that series; using it everywhere keeps
+    # the three histories on the same price basis.
+    prices = [
+        bar.adjustment_close if bar.adjustment_close is not None else bar.close
+        for bar in eligible[-750:]
     ]
+    ev_ebitda_history: list[float] = []
+    if (
+        snapshot.shares_outstanding is not None
+        and snapshot.debt is not None
+        and snapshot.cash is not None
+        and snapshot.ebitda_ttm not in (None, 0)
+    ):
+        ev_ebitda_history = [_historical_ev_ebitda(price, snapshot) for price in prices]
     history: dict[str, list[float]] = {
         "per_trailing": [(price / snapshot.eps) for price in prices if snapshot.eps and snapshot.eps > 0],
         "pbr": [(price / (latest_price / snapshot.pbr)) for price in prices if snapshot.pbr not in (None, 0)],
@@ -277,16 +289,22 @@ def _valuation_history(
 def _historical_ev_ebitda(
     price: float,
     snapshot: FinancialSnapshot,
-) -> float | None:
-    if (
-        snapshot.shares_outstanding is None
-        or snapshot.debt is None
-        or snapshot.cash is None
-        or snapshot.ebitda_ttm in (None, 0)
-    ):
-        return None
-    # v1 has only the latest balance sheet and TTM EBITDA; hold those constant
-    # across price history while varying market cap by historical close.
+) -> float:
+    """Return the EV/EBITDA value for one historical price.
+
+    Caller must ensure ``shares_outstanding`` / ``debt`` / ``cash`` are not
+    None and ``ebitda_ttm`` is not in ``(None, 0)``. v1 has only the latest
+    balance sheet and TTM EBITDA, so those are held constant across price
+    history while market cap varies with the (adjusted) historical close.
+
+    A negative ``ebitda_ttm`` (loss-making company) yields a negative
+    EV/EBITDA value; loss-making screening is handled at a separate layer
+    (condition C / counter-thesis), not here.
+    """
+    assert snapshot.shares_outstanding is not None
+    assert snapshot.debt is not None
+    assert snapshot.cash is not None
+    assert snapshot.ebitda_ttm is not None and snapshot.ebitda_ttm != 0
     enterprise_value = (price * snapshot.shares_outstanding) + snapshot.debt - snapshot.cash
     return enterprise_value / snapshot.ebitda_ttm
 

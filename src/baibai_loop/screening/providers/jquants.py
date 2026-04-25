@@ -21,6 +21,7 @@ class JQuantsDailyBar:
     traded_at: date
     close: float
     turnover_value: float | None
+    adjustment_close: float | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "ticker", normalize_ticker(self.ticker))
@@ -302,10 +303,18 @@ def normalize_daily_bar(record: Mapping[str, Any]) -> JQuantsDailyBar | None:
     if close is None:
         # Non-trading day or missing close; treat as absent bar so history stays clean.
         return None
+    # AdjustmentClose is the split-adjusted close. We keep it separate from the
+    # raw `close` so that latest-day calculations stay on the unadjusted price
+    # while historical series can use the adjusted value to avoid jumps at
+    # split dates.
+    adjustment_close = _to_float(
+        _coalesce_field(record, "AdjustmentClose", "adjustment_close")
+    )
     return JQuantsDailyBar(
         ticker=ticker,
         traded_at=_parse_date(_first_value(record, "Date", "date", "TradedAt", "traded_at")),
         close=close,
+        adjustment_close=adjustment_close,
         turnover_value=_to_float(
             _coalesce_field(
                 record,
