@@ -52,6 +52,26 @@ class ScreeningConfigTests(unittest.TestCase):
             },
         )
 
+    def test_from_env_supports_special_caution_index_url(self) -> None:
+        config = ScreeningConfig.from_env(
+            {
+                "JQUANTS_REFRESH_TOKEN": "token",
+                "EDINET_API_KEY": "key",
+                "JPX_SPECIAL_CAUTION_INDEX_URL": "https://www.jpx.co.jp/markets/statistics-equities/margin/index.html",
+            }
+        )
+
+        self.assertEqual(
+            config.jpx_special_caution_index_url,
+            "https://www.jpx.co.jp/markets/statistics-equities/margin/index.html",
+        )
+        self.assertEqual(
+            dict(config.jpx_regulation_urls),
+            {
+                "特別注意銘柄": "https://www.jpx.co.jp/markets/statistics-equities/margin/index.html",
+            },
+        )
+
     def test_from_env_requires_tokens(self) -> None:
         with self.assertRaises(ConfigError):
             ScreeningConfig.from_env({})

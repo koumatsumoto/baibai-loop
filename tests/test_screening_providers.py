@@ -369,6 +369,82 @@ class ScreeningProviderTests(unittest.TestCase):
             ],
         )
 
+    def test_jpx_resolves_latest_special_attention_xls_from_index(self) -> None:
+        index_url = "https://www.jpx.co.jp/markets/statistics-equities/margin/index.html"
+        provider = JPXProvider(
+            Path("/tmp"),
+            session=_FixedHtmlSession(self._read_jpx_fixture("special_caution_index.html")),
+            special_caution_index_url=index_url,
+        )
+
+        resolved = provider._resolve_special_attention_xls_url(date(2026, 4, 24))
+
+        self.assertEqual(
+            resolved,
+            "https://www.jpx.co.jp/markets/statistics-equities/margin/"
+            "tvdivq0000001r92-att/mtdailyk2026042300.xls",
+        )
+
+    def test_jpx_resolve_special_attention_xls_rejects_non_jpx_link(self) -> None:
+        html = """
+        <html><body>
+          <a href="https://example.com/mtdailyk2026042300.xls">Excel</a>
+          <p>特別注意銘柄について信用取引残高を日々公表しています。</p>
+        </body></html>
+        """.encode("utf-8")
+        provider = JPXProvider(
+            Path("/tmp"),
+            session=_FixedHtmlSession(html),
+            special_caution_index_url="https://www.jpx.co.jp/markets/statistics-equities/margin/index.html",
+        )
+
+        with self.assertRaisesRegex(JPXProviderError, "https://www\\.jpx\\.co\\.jp"):
+            provider._resolve_special_attention_xls_url(date(2026, 4, 24))
+
+    def test_jpx_resolve_special_attention_xls_fails_when_no_candidates(self) -> None:
+        html = """
+        <html><body>
+          <a href="/markets/statistics-equities/margin/readme.pdf">PDF</a>
+          <p>特別注意銘柄について信用取引残高を日々公表しています。</p>
+        </body></html>
+        """.encode("utf-8")
+        provider = JPXProvider(
+            Path("/tmp"),
+            session=_FixedHtmlSession(html),
+            special_caution_index_url="https://www.jpx.co.jp/markets/statistics-equities/margin/index.html",
+        )
+
+        with self.assertRaisesRegex(JPXProviderError, "failed to locate JPX special caution Excel link"):
+            provider._resolve_special_attention_xls_url(date(2026, 4, 24))
+
+    def test_jpx_get_regulation_snapshot_resolves_special_attention_index_before_download(self) -> None:
+        class CapturingProvider(JPXProvider):
+            def __init__(self, *args, **kwargs) -> None:
+                super().__init__(*args, **kwargs)
+                self.downloaded_urls: list[str] = []
+
+            def _download_rows(self, source_name: str, url: str) -> list[dict[str, str]]:
+                self.downloaded_urls.append(url)
+                return [{"code": "38560", "flag": source_name}]
+
+        index_url = "https://www.jpx.co.jp/markets/statistics-equities/margin/index.html"
+        with tempfile.TemporaryDirectory() as tmp:
+            provider = CapturingProvider(
+                Path(tmp),
+                session=_FixedHtmlSession(self._read_jpx_fixture("special_caution_index.html")),
+                special_caution_index_url=index_url,
+            )
+            snapshot = provider.get_regulation_snapshot(date(2026, 4, 24))
+
+        self.assertEqual(snapshot.flags_by_ticker, {"3856": ("特別注意銘柄",)})
+        self.assertEqual(
+            provider.downloaded_urls,
+            [
+                "https://www.jpx.co.jp/markets/statistics-equities/margin/"
+                "tvdivq0000001r92-att/mtdailyk2026042300.xls",
+            ],
+        )
+
     def test_jpx_download_rows_rejects_non_jpx_origin(self) -> None:
         class FakeSession:
             def __init__(self) -> None:

@@ -10,7 +10,7 @@ from html.parser import HTMLParser
 from io import BytesIO
 from pathlib import Path
 from typing import Mapping, Sequence
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
 
@@ -22,6 +22,9 @@ _JPX_ALLOWED_SCHEME = "https"
 _JPX_ALLOWED_HOST = "www.jpx.co.jp"
 _JPX_CACHE_SCHEMA_VERSION = 1
 _JPX_STALE_SNAPSHOT_BUSINESS_DAYS = 7
+_JPX_SPECIAL_CAUTION_SOURCE_NAME = "特別注意銘柄"
+_JPX_SPECIAL_CAUTION_MARGIN_LINK_HINT = "mtdailyk"
+_JPX_EXCEL_SUFFIXES = {".xls", ".xlsx"}
 _TRADING_HALT_EMPTY_MARKER = "現在、該当する情報はありません。"
 _HTTP_TIMEOUT_SECONDS = 30
 _LOGGER = logging.getLogger(__name__)
@@ -52,8 +55,16 @@ class _ParsedTable:
     header_th_texts: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class _ParsedLink:
+    href: str
+    text: str
+    preceding_h2: str | None
+    preceding_h3: str | None
+
+
 class _JpxHtmlIndexer(HTMLParser):
-    """Parse JPX HTML once and surface only outer-most `<table>` blocks.
+    """Parse JPX HTML once and surface outer-most `<table>` blocks and links.
 
     Nested tables are dropped by construction (only tables closing at stack
     depth 0 are recorded), so callers can match by class / preceding heading /
@@ -63,15 +74,26 @@ class _JpxHtmlIndexer(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.tables: list[_ParsedTable] = []
+        self.links: list[_ParsedLink] = []
         self._table_stack: list[dict[str, object]] = []
         self._cell_fragments: list[str] | None = None
         self._cell_tag: str | None = None
+        self._link_href: str | None = None
+        self._link_fragments: list[str] | None = None
         self._heading_buffer: list[str] | None = None
         self._heading_tag: str | None = None
         self._last_h2: str | None = None
         self._last_h3: str | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attrs_by_name = {name: value for name, value in attrs}
+        if tag == "a" and attrs_by_name.get("href"):
+            self._link_href = attrs_by_name["href"]
+            self._link_fragments = []
+        if tag == "img" and self._link_fragments is not None:
+            label = attrs_by_name.get("alt") or attrs_by_name.get("title")
+            if label:
+                self._link_fragments.append(label)
         if tag in {"h2", "h3"}:
             self._heading_buffer = []
             self._heading_tag = tag
@@ -105,6 +127,20 @@ class _JpxHtmlIndexer(HTMLParser):
             self._cell_fragments.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
+        if tag == "a" and self._link_href is not None:
+            value = "".join(self._link_fragments or []).replace("\xa0", " ")
+            normalized = re.sub(r"\s+", " ", value).strip()
+            self.links.append(
+                _ParsedLink(
+                    href=self._link_href,
+                    text=normalized,
+                    preceding_h2=self._last_h2,
+                    preceding_h3=self._last_h3,
+                )
+            )
+            self._link_href = None
+            self._link_fragments = None
+            return
         if tag in {"h2", "h3"} and self._heading_buffer is not None:
             text = re.sub(r"\s+", " ", "".join(self._heading_buffer)).strip()
             if self._heading_tag == "h2":
@@ -169,6 +205,8 @@ class _JpxHtmlIndexer(HTMLParser):
             self._heading_buffer.append(data)
         if self._cell_fragments is not None:
             self._cell_fragments.append(data)
+        if self._link_fragments is not None:
+            self._link_fragments.append(data)
 
 
 class JPXProvider:
@@ -179,10 +217,16 @@ class JPXProvider:
         cache_dir: Path,
         regulation_urls: Mapping[str, str] | None = None,
         session: requests.Session | None = None,
+        special_caution_index_url: str | None = None,
     ) -> None:
         self._cache_dir = Path(cache_dir) / "jpx"
         self._session = session or requests.Session()
         self._regulation_urls = dict(regulation_urls or {})
+        self._special_caution_index_url = special_caution_index_url
+        if special_caution_index_url:
+            self._regulation_urls.setdefault(
+                _JPX_SPECIAL_CAUTION_SOURCE_NAME, special_caution_index_url
+            )
 
     def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot:
         cache_path = self._regulation_cache_path(asof_date)
@@ -209,6 +253,8 @@ class JPXProvider:
 
         flags: dict[str, set[str]] = {}
         for source_name, url in self._regulation_urls.items():
+            if source_name == _JPX_SPECIAL_CAUTION_SOURCE_NAME and self._special_caution_index_url:
+                url = self._resolve_special_attention_xls_url(asof_date)
             rows = self._download_rows(source_name, url)
             for row in rows:
                 ticker_raw = (
@@ -298,6 +344,61 @@ class JPXProvider:
             raise JPXProviderError(
                 f"JPX regulation source must use https://www.jpx.co.jp/: {url}"
             )
+
+    def _resolve_special_attention_xls_url(self, asof_date: date) -> str:
+        del asof_date
+        if not self._special_caution_index_url:
+            raise JPXProviderError("JPX_SPECIAL_CAUTION_INDEX_URL is not configured")
+
+        index_url = self._special_caution_index_url
+        self._validate_allowed_url(index_url)
+        response = self._session.get(index_url, timeout=_HTTP_TIMEOUT_SECONDS)
+        if response.status_code >= 400:
+            raise JPXProviderError(
+                f"failed to download JPX special caution index: {index_url} "
+                f"(status={response.status_code})"
+            )
+
+        content_type_header = response.headers.get("content-type", "")
+        html = self._decode_html_text(response.content, index_url, content_type_header)
+        indexer = _JpxHtmlIndexer()
+        indexer.feed(html)
+
+        candidates: list[tuple[int, int, str]] = []
+        for position, link in enumerate(indexer.links):
+            resolved_url = urljoin(index_url, link.href)
+            parsed = urlparse(resolved_url)
+            suffix = Path(parsed.path).suffix.lower()
+            if suffix not in _JPX_EXCEL_SUFFIXES:
+                continue
+            haystack = " ".join(
+                part
+                for part in (
+                    parsed.path.lower(),
+                    link.text,
+                    link.preceding_h2,
+                    link.preceding_h3,
+                )
+                if part
+            )
+            if (
+                _JPX_SPECIAL_CAUTION_MARGIN_LINK_HINT not in parsed.path.lower()
+                and _JPX_SPECIAL_CAUTION_SOURCE_NAME not in haystack
+                and "個別銘柄信用取引残高表" not in haystack
+            ):
+                continue
+            date_match = re.search(r"20\d{6}", parsed.path)
+            date_key = int(date_match.group(0)) if date_match else 0
+            candidates.append((date_key, position, resolved_url))
+
+        if not candidates:
+            raise JPXProviderError(
+                f"failed to locate JPX special caution Excel link: {index_url}"
+            )
+
+        resolved_url = max(candidates)[2]
+        self._validate_allowed_url(resolved_url)
+        return resolved_url
 
     def _parse_csv_rows(self, content: bytes, url: str) -> list[dict[str, str]]:
         try:
