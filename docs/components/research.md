@@ -16,7 +16,7 @@ Baibai-Loop 4 成分アーキテクチャの **(d) 個別銘柄リサーチ** �
 
 1. **最新 screened を取得**: 直近の `screened/YYYY/MM/YYYY-MM-DD.md` を選び、`tickers` 配列を取得
 2. **最新 view を参照**: 直近の `view/YYYY/MM/view-YYYY-MM-DD-*.md` を選び、`sectors` / `regions` を取得
-3. **gate 通過銘柄に絞り込み**: screened ticker のうち、所属業種/地域が view で **tailwind または neutral** のものを候補に残す（**headwind は除外**）
+3. **gate 通過銘柄に絞り込み**: screened ticker のうち、所属業種/地域が view で **tailwind または neutral** のものを候補に残す（**headwind は除外**）。screened は `sector_33` のみ持つので、各業種を view の region (`japan-external-demand` 等) に対応させるには [`../screening/sector-region-map.md`](../screening/sector-region-map.md) の default mapping を出発点にする (mixed 業種は研究で個別判断)
 4. **候補から人間 + AI が個別 ticker を選定**: 以下の基準で優先度判定
    - `threshold_hit` の重なり（複数閾値で hit した方が confidence 高）
    - valuation 指標の乖離幅（業種中央値比・過去自己比較）
