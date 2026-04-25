@@ -105,6 +105,12 @@ class ScreenedTicker:
     sector_33: str
     threshold_hit: Sequence[str]
     ttm_quality: Mapping[str, TTMQuality]
+    market_cap_oku: int | None = None
+    avg_turnover_oku: float | None = None
+    price_change_60d: float | None = None
+    price_change_4w: float | None = None
+    sector_relative_strength_percentile: float | None = None
+    metrics_breakdown: Mapping[str, Mapping[str, float | None]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "ticker", normalize_ticker(self.ticker))

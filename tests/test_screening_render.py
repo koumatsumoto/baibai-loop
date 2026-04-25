@@ -106,6 +106,28 @@ class ScreeningRenderTests(unittest.TestCase):
                         "p_s": TTMQuality.APPROXIMATED,
                         "pcfr": TTMQuality.UNAVAILABLE,
                     },
+                    market_cap_oku=585,
+                    avg_turnover_oku=2.3,
+                    price_change_60d=-0.155,
+                    price_change_4w=-0.072,
+                    sector_relative_strength_percentile=0.35,
+                    metrics_breakdown={
+                        "per_trailing": {
+                            "sector_median_gap": -0.21,
+                            "self_range_percentile": 0.14,
+                            "sigma_gap": -1.4,
+                        },
+                        "pbr": {
+                            "sector_median_gap": -0.18,
+                            "self_range_percentile": 0.20,
+                            "sigma_gap": -1.1,
+                        },
+                        "ev_ebitda": {
+                            "sector_median_gap": None,
+                            "self_range_percentile": None,
+                            "sigma_gap": None,
+                        },
+                    },
                 )
             ],
             run_at=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
@@ -143,6 +165,24 @@ class ScreeningRenderTests(unittest.TestCase):
               p_s: 0.6
               pcfr: 5.1
               sector_33: "業種名"
+              market_cap_oku: 585
+              avg_turnover_oku: 2.3
+              price_change_60d: -0.155
+              price_change_4w: -0.072
+              sector_relative_strength_percentile: 0.35
+              metrics_breakdown:
+                per_trailing:
+                  sector_median_gap: -0.21
+                  self_range_percentile: 0.14
+                  sigma_gap: -1.4
+                pbr:
+                  sector_median_gap: -0.18
+                  self_range_percentile: 0.2
+                  sigma_gap: -1.1
+                ev_ebitda:
+                  sector_median_gap: null
+                  self_range_percentile: null
+                  sigma_gap: null
               ttm_quality:
                 ev_ebitda: exact
                 p_s: approximated

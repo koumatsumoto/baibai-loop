@@ -190,7 +190,16 @@ def run_command(
         if len(result.threshold_hit) > 1:
             fact_lines.append(f"{ticker}: 複数閾値 hit ({', '.join(result.threshold_hit)})")
         financial = metric_result.financials[ticker]
+        derived = metric_result.derived[ticker]
+        universe_snapshot = universe_result.snapshots[ticker]
         security = securities_by_ticker[ticker]
+        metrics_breakdown: dict[str, dict[str, float | None]] = {}
+        for metric in ("per_trailing", "pbr", "ev_ebitda"):
+            metrics_breakdown[metric] = {
+                "sector_median_gap": derived.sector_median_gap.get(metric),
+                "self_range_percentile": derived.self_range_percentile.get(metric),
+                "sigma_gap": derived.sigma_gap.get(metric),
+            }
         screened_tickers.append(
             ScreenedTicker(
                 ticker=ticker,
@@ -208,6 +217,12 @@ def run_command(
                     "p_s": financial.ttm_quality_p_s,
                     "pcfr": financial.ttm_quality_pcfr,
                 },
+                market_cap_oku=universe_snapshot.market_cap_oku,
+                avg_turnover_oku=universe_snapshot.avg_turnover_oku,
+                price_change_60d=derived.price_change_60d,
+                price_change_4w=derived.ticker_return_4w,
+                sector_relative_strength_percentile=derived.sector_relative_strength_percentile,
+                metrics_breakdown=metrics_breakdown,
             )
         )
 
