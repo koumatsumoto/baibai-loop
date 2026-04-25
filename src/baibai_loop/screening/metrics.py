@@ -313,8 +313,12 @@ def _price_change(bars: Sequence[JQuantsDailyBar], sessions: int, asof_date: dat
     ordered = sorted((bar for bar in bars if bar.traded_at <= asof_date), key=lambda item: item.traded_at)
     if len(ordered) <= sessions:
         return None
-    current = ordered[-1].close
-    base = ordered[-(sessions + 1)].close
+    # Prefer split-adjusted close on both ends so a stock split between the two
+    # dates does not show up as a synthetic price drop. Fall back to raw close
+    # only when the adjustment field is absent (legacy bars).
+    current = ordered[-1].adjustment_close if ordered[-1].adjustment_close is not None else ordered[-1].close
+    base_bar = ordered[-(sessions + 1)]
+    base = base_bar.adjustment_close if base_bar.adjustment_close is not None else base_bar.close
     if base == 0:
         return None
     return (current / base) - 1.0
