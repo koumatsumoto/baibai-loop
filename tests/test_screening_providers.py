@@ -26,6 +26,22 @@ from baibai_loop.screening.providers.jquants import (
 from baibai_loop.screening.schema import TTMQuality
 
 
+class _FixedHtmlSession:
+    def __init__(self, content: bytes) -> None:
+        self._content = content
+
+    def get(self, url: str, timeout: int):
+        del url, timeout
+
+        class _Response:
+            def __init__(self, content: bytes) -> None:
+                self.content = content
+                self.status_code = 200
+                self.headers = {"content-type": "text/html; charset=UTF-8"}
+
+        return _Response(self._content)
+
+
 class ScreeningProviderTests(unittest.TestCase):
     def _read_jpx_fixture(self, name: str) -> bytes:
         return (ROOT / "tests" / "fixtures" / "jpx" / name).read_bytes()
@@ -442,6 +458,193 @@ class ScreeningProviderTests(unittest.TestCase):
                 Path(tmp),
                 regulation_urls={"取引停止": url},
                 session=FakeSession({url: FakeResponse(broken_html)}),
+            )
+            with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
+                provider.get_regulation_snapshot(date(2026, 4, 24))
+
+    def test_jpx_trading_halt_empty_marker_returns_no_rows(self) -> None:
+        provider = JPXProvider(Path("/tmp"))
+        rows = provider._parse_html_rows(
+            "取引停止",
+            self._read_jpx_fixture("trading_halt_empty.html"),
+            "https://www.jpx.co.jp/markets/equities/suspended/",
+        )
+        self.assertEqual(rows, [])
+
+    def test_jpx_trading_halt_flat_header_fails_fast(self) -> None:
+        # ヘッダが 1 段になった場合、header_rows=2 を要求しているので 2 行目 (data) が
+        # `<th>` 全列ではなく fail-fast に落ちる。これにより JPX が rowspan を外して
+        # 出してきても列ズレで silently 1 件欠損する事故を防げる。
+        provider = JPXProvider(Path("/tmp"))
+        with self.assertRaisesRegex(JPXProviderError, "unexpected JPX HTML header layout"):
+            provider._parse_html_rows(
+                "取引停止",
+                self._read_jpx_fixture("trading_halt_flat_header.html"),
+                "https://www.jpx.co.jp/markets/equities/suspended/",
+            )
+
+    def test_jpx_reorganization_nested_table_uses_outer_table_only(self) -> None:
+        # 外側 table.fixedhead の data 行に nested table が入っているケース。
+        # HTMLParser の stack で外側のみ index される設計が壊れたら、内側の行が
+        # 外側 row として混入し header check で raise されるか、コード列に
+        # 別の値が入って test 期待値と不一致になる。
+        provider = JPXProvider(Path("/tmp"))
+        rows = provider._parse_html_rows(
+            "整理銘柄",
+            self._read_jpx_fixture("reorganization_nested.html"),
+            "https://www.jpx.co.jp/listing/market-alerts/supervision/",
+        )
+        self.assertEqual(rows, [{"code": "4917", "flag": "整理銘柄"}])
+
+    def test_jpx_download_rows_rejects_unsupported_format(self) -> None:
+        class FakeResponse:
+            content = b"<plain>"
+            status_code = 200
+            headers: dict[str, str] = {"content-type": "text/plain; charset=UTF-8"}
+
+        class FakeSession:
+            def get(self, url: str, timeout: int) -> FakeResponse:
+                del url, timeout
+                return FakeResponse()
+
+        provider = JPXProvider(Path("/tmp"), session=FakeSession())
+        with self.assertRaisesRegex(JPXProviderError, "unsupported JPX regulation source format"):
+            provider._download_rows(
+                "整理銘柄",
+                "https://www.jpx.co.jp/listing/market-alerts/supervision/notes",
+            )
+
+    def test_jpx_download_rows_raises_on_http_error_status(self) -> None:
+        class FakeResponse:
+            content = b""
+            status_code = 503
+            headers: dict[str, str] = {}
+
+        class FakeSession:
+            def get(self, url: str, timeout: int) -> FakeResponse:
+                del url, timeout
+                return FakeResponse()
+
+        provider = JPXProvider(Path("/tmp"), session=FakeSession())
+        with self.assertRaisesRegex(JPXProviderError, "status=503"):
+            provider._download_rows(
+                "整理銘柄",
+                "https://www.jpx.co.jp/listing/market-alerts/supervision/",
+            )
+
+    def test_jpx_get_regulation_snapshot_uses_cache_without_calling_session(self) -> None:
+        class ExplodingSession:
+            def get(self, url: str, timeout: int):
+                del url, timeout
+                raise AssertionError("session.get must not be called when cache is present")
+
+        url = "https://www.jpx.co.jp/listing/market-alerts/supervision/"
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "cache"
+            cache_path = cache_dir / "jpx" / "regulations" / "2026-04-24.json"
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(
+                '{"schema_version": 1, "flags_by_ticker": {"4917": ["整理銘柄"]}, "source_names": ["整理銘柄"]}',
+                encoding="utf-8",
+            )
+
+            provider = JPXProvider(
+                cache_dir,
+                regulation_urls={"整理銘柄": url},
+                session=ExplodingSession(),
+            )
+            snapshot = provider.get_regulation_snapshot(date(2026, 4, 24))
+
+        self.assertEqual(snapshot.source_names, ("整理銘柄",))
+        self.assertEqual(snapshot.flags_by_ticker, {"4917": ("整理銘柄",)})
+
+    def test_jpx_get_regulation_snapshot_reads_legacy_cache_without_schema_version(self) -> None:
+        url = "https://www.jpx.co.jp/listing/market-alerts/supervision/"
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "cache"
+            cache_path = cache_dir / "jpx" / "regulations" / "2026-04-24.json"
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(
+                '{"flags_by_ticker": {"4917": ["整理銘柄"]}, "source_names": ["整理銘柄"]}',
+                encoding="utf-8",
+            )
+
+            provider = JPXProvider(cache_dir, regulation_urls={"整理銘柄": url})
+            snapshot = provider.get_regulation_snapshot(date(2026, 4, 24))
+
+        self.assertEqual(snapshot.flags_by_ticker, {"4917": ("整理銘柄",)})
+
+    def test_jpx_get_regulation_snapshot_rejects_incompatible_cache_schema(self) -> None:
+        url = "https://www.jpx.co.jp/listing/market-alerts/supervision/"
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "cache"
+            cache_path = cache_dir / "jpx" / "regulations" / "2026-04-24.json"
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(
+                '{"schema_version": 99, "flags_by_ticker": {}, "source_names": []}',
+                encoding="utf-8",
+            )
+
+            provider = JPXProvider(cache_dir, regulation_urls={"整理銘柄": url})
+            with self.assertRaisesRegex(JPXProviderError, "incompatible JPX cache schema version"):
+                provider.get_regulation_snapshot(date(2026, 4, 24))
+
+    def test_jpx_decode_html_text_prefers_content_type_charset(self) -> None:
+        # JPX が cp932 ページを Content-Type で告知してきた場合、フォールバックの utf-8
+        # が偶然成功して文字化けが残るリスクを避けるため、charset を最優先で試行する。
+        provider = JPXProvider(Path("/tmp"))
+        cp932_payload = "整理銘柄".encode("cp932")
+        decoded = provider._decode_html_text(
+            cp932_payload,
+            "https://www.jpx.co.jp/listing/market-alerts/supervision/",
+            "text/html; charset=Shift_JIS",
+        )
+        self.assertEqual(decoded, "整理銘柄")
+
+    def test_jpx_decode_html_text_raises_when_all_encodings_fail(self) -> None:
+        provider = JPXProvider(Path("/tmp"))
+        # 0xFF は cp932 / utf-8 / utf-8-sig いずれでも lead byte として無効なので、
+        # フォールバック 3 段すべて UnicodeDecodeError で落ちる。LookupError 経路の
+        # 確認も兼ねて、Content-Type には未知の encoding 名を載せる。
+        with self.assertRaises(JPXProviderError):
+            provider._decode_html_text(
+                b"\x81\x00\x81\x00",
+                "https://www.jpx.co.jp/listing/market-alerts/supervision/",
+                "text/html; charset=jpx-unknown",
+            )
+
+    def test_jpx_reorganization_invalid_code_raises(self) -> None:
+        broken_html = (
+            self._read_jpx_fixture("reorganization.html")
+            .decode("utf-8")
+            .replace("4917", "49171", 1)
+            .encode("utf-8")
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            provider = JPXProvider(
+                Path(tmp),
+                regulation_urls={
+                    "整理銘柄": "https://www.jpx.co.jp/listing/market-alerts/supervision/"
+                },
+                session=_FixedHtmlSession(broken_html),
+            )
+            with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
+                provider.get_regulation_snapshot(date(2026, 4, 24))
+
+    def test_jpx_delisting_warning_invalid_code_raises(self) -> None:
+        broken_html = (
+            self._read_jpx_fixture("delisting_warning.html")
+            .decode("utf-8")
+            .replace("7709", "77091", 1)
+            .encode("utf-8")
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            provider = JPXProvider(
+                Path(tmp),
+                regulation_urls={
+                    "上場廃止警告": "https://www.jpx.co.jp/listing/stocks/delisted/"
+                },
+                session=_FixedHtmlSession(broken_html),
             )
             with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
                 provider.get_regulation_snapshot(date(2026, 4, 24))
