@@ -111,6 +111,7 @@ class ScreenedTicker:
     price_change_4w: float | None = None
     sector_relative_strength_percentile: float | None = None
     metrics_breakdown: Mapping[str, Mapping[str, float | None]] = field(default_factory=dict)
+    next_earnings_date: date | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "ticker", normalize_ticker(self.ticker))

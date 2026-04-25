@@ -136,7 +136,12 @@ def run_command(
         securities = providers.jquants.get_eq_master()
         bars = providers.jquants.get_eq_bars_daily_range(start_date, asof_date)
         summaries = providers.jquants.get_fin_summary_range(start_date, asof_date)
-        providers.jquants.get_eq_earnings_cal(start_date, asof_date)
+        # Pull earnings calendar from asof to asof + 90 calendar days (~ 60
+        # business days) so research can populate next_earnings_date and
+        # surface kill-switch overlaps at packet build time.
+        earnings_records = providers.jquants.get_eq_earnings_cal(
+            asof_date, asof_date + timedelta(days=90)
+        )
         jpx_snapshot = providers.jpx.get_regulation_snapshot(asof_date)
     except (JQuantsProviderError, JPXProviderError) as exc:
         # 型情報を残して root cause を追いやすくする。secret を含みうる 3rd party
@@ -146,6 +151,7 @@ def run_command(
 
     bars_by_ticker = group_bars_by_ticker(bars)
     summaries_by_ticker = group_summaries_by_ticker(summaries)
+    next_earnings_by_ticker = _index_next_earnings(earnings_records, asof_date)
     shares_by_ticker = build_shares_outstanding_index(summaries_by_ticker)
     edinet_load_error: str | None = None
     try:
@@ -223,6 +229,7 @@ def run_command(
                 price_change_4w=derived.ticker_return_4w,
                 sector_relative_strength_percentile=derived.sector_relative_strength_percentile,
                 metrics_breakdown=metrics_breakdown,
+                next_earnings_date=next_earnings_by_ticker.get(ticker),
             )
         )
 
@@ -273,6 +280,43 @@ def run_command(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(markdown, encoding="utf-8")
     return 2 if partial_warning else 0
+
+
+def _index_next_earnings(
+    records: list[dict[str, object]], asof_date: date
+) -> dict[str, date]:
+    # Pick the soonest forthcoming earnings announcement (>= asof_date) per
+    # ticker so research packets can populate next_earnings_date for the
+    # decision-period kill switch.
+    asof_iso = asof_date.isoformat()
+    by_ticker: dict[str, str] = {}
+    for record in records:
+        raw_code = (
+            record.get("Code")
+            or record.get("code")
+            or record.get("LocalCode")
+            or record.get("local_code")
+        )
+        if not raw_code:
+            continue
+        code = str(raw_code).strip().upper()
+        ticker = code[:4] if len(code) == 5 else code
+        if not ticker.isalnum() or len(ticker) != 4:
+            continue
+        raw_date = (
+            record.get("Date")
+            or record.get("date")
+            or record.get("AnnouncementDate")
+            or record.get("announcement_date")
+        )
+        if not raw_date:
+            continue
+        date_iso = str(raw_date)[:10]
+        if date_iso < asof_iso:
+            continue
+        if ticker not in by_ticker or date_iso < by_ticker[ticker]:
+            by_ticker[ticker] = date_iso
+    return {ticker: date.fromisoformat(value) for ticker, value in by_ticker.items()}
 
 
 def bootstrap_cache_command(start: date, end: date, providers: ProviderBundle) -> int:

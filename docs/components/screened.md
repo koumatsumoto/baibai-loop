@@ -70,6 +70,7 @@ tickers:                            # 通過銘柄 list
       ev_ebitda: exact | approximated | unavailable
       p_s: exact | approximated | unavailable
       pcfr: exact | approximated | unavailable
+    next_earnings_date: "2026-05-13"  # asof 以降直近の決算発表日 (cache 範囲内、無ければ null)
     threshold_hit:                  # どの閾値条件を満たして通過したか（OR 条件）
       - sector_median_under_20pct_and_self_range_bottom_20pct
       - price_down_60d_and_valuation_sigma_down
@@ -86,6 +87,7 @@ tickers:                            # 通過銘柄 list
 - `price_change_60d` / `price_change_4w`: split 影響を排除するため adjustment_close ベースで算出。research §7 Price reaction の数値ソース
 - `sector_relative_strength_percentile`: 4 週リターンの sector 内 percentile。条件 C の根拠
 - `metrics_breakdown`: 各 valuation 指標 (per_trailing / pbr / ev_ebitda) の `sector_median_gap` / `self_range_percentile` / `sigma_gap` を集約。research §3 Valuation snapshot の primary metric 選択と判定根拠の数値ソース
+- `next_earnings_date`: asof 以降直近の決算発表予定日 (J-Quants earnings calendar、asof + 90 calendar days 範囲内)。research §10 Entry 条件の「決算またぎ kill switch」自動 check に使う。範囲内に予定が無い銘柄は `null`
 
 ### 4.1 本文の構造
 

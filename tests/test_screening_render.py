@@ -128,6 +128,7 @@ class ScreeningRenderTests(unittest.TestCase):
                             "sigma_gap": None,
                         },
                     },
+                    next_earnings_date=date(2026, 5, 13),
                 )
             ],
             run_at=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
@@ -183,6 +184,7 @@ class ScreeningRenderTests(unittest.TestCase):
                   sector_median_gap: null
                   self_range_percentile: null
                   sigma_gap: null
+              next_earnings_date: "2026-05-13"
               ttm_quality:
                 ev_ebitda: exact
                 p_s: approximated

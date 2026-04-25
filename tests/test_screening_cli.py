@@ -14,7 +14,12 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.screening.cli import ProviderBundle, bootstrap_cache_command, run_command
+from baibai_loop.screening.cli import (
+    ProviderBundle,
+    _index_next_earnings,
+    bootstrap_cache_command,
+    run_command,
+)
 from baibai_loop.screening.config import ScreeningConfig
 from baibai_loop.screening.providers.edinet import EdinetMetricRecord
 from baibai_loop.screening.providers.jpx import JPXProviderError, JPXRegulationSnapshot
@@ -310,3 +315,31 @@ class ScreeningCliTests(unittest.TestCase):
             ),
         )
         self.assertEqual(exit_code, 0)
+
+
+class IndexNextEarningsTests(unittest.TestCase):
+    def test_picks_earliest_future_announcement_per_ticker(self) -> None:
+        records = [
+            {"Code": "13010", "Date": "2026-05-13T00:00:00"},
+            {"Code": "13010", "Date": "2026-08-13T00:00:00"},
+            {"Code": "29140", "Date": "2026-05-08T00:00:00"},
+        ]
+        result = _index_next_earnings(records, date(2026, 4, 25))
+        self.assertEqual(result, {"1301": date(2026, 5, 13), "2914": date(2026, 5, 8)})
+
+    def test_skips_announcements_before_asof(self) -> None:
+        records = [
+            {"Code": "13010", "Date": "2026-04-20T00:00:00"},
+            {"Code": "13010", "Date": "2026-05-13T00:00:00"},
+        ]
+        result = _index_next_earnings(records, date(2026, 4, 25))
+        self.assertEqual(result, {"1301": date(2026, 5, 13)})
+
+    def test_handles_invalid_codes_and_dates_without_raising(self) -> None:
+        records = [
+            {"Code": "", "Date": "2026-05-13"},
+            {"Code": "13010"},
+            {"Code": "abcde", "Date": "2026-05-13"},
+        ]
+        result = _index_next_earnings(records, date(2026, 4, 25))
+        self.assertEqual(result, {"ABCD": date(2026, 5, 13)})

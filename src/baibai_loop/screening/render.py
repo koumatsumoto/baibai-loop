@@ -103,6 +103,11 @@ def _build_ticker_entry(ticker: ScreenedTicker) -> dict[str, Any]:
         }
         for metric, values in ticker.metrics_breakdown.items()
     }
+    entry["next_earnings_date"] = (
+        QuotedString(ticker.next_earnings_date.isoformat())
+        if ticker.next_earnings_date is not None
+        else None
+    )
     entry["ttm_quality"] = {
         "ev_ebitda": ticker.ttm_quality.get("ev_ebitda", TTMQuality.UNAVAILABLE).value,
         "p_s": ticker.ttm_quality.get("p_s", TTMQuality.UNAVAILABLE).value,
