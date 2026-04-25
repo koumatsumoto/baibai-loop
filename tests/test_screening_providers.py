@@ -412,7 +412,7 @@ class ScreeningProviderTests(unittest.TestCase):
         provider = JPXProvider(Path("/tmp"))
         broken_html = self._read_jpx_fixture("reorganization.html").decode("utf-8").replace("整理銘柄", "整理銘柄一覧")
 
-        with self.assertRaisesRegex(JPXProviderError, "failed to locate JPX HTML section"):
+        with self.assertRaisesRegex(JPXProviderError, "failed to locate JPX HTML table"):
             provider._parse_html_rows(
                 "整理銘柄",
                 broken_html.encode("utf-8"),
