@@ -65,7 +65,11 @@ def main(argv: list[str] | None = None) -> int:
     providers = ProviderBundle(
         jquants=JQuantsProvider(config.jquants_refresh_token, config.cache_dir),
         edinet=EDINETProvider(config.edinet_api_key, config.cache_dir),
-        jpx=JPXProvider(config.cache_dir, regulation_urls=config.jpx_regulation_urls),
+        jpx=JPXProvider(
+            config.cache_dir,
+            regulation_urls=config.jpx_regulation_urls,
+            special_caution_index_url=config.jpx_special_caution_index_url,
+        ),
     )
 
     if args.command == "run":

@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
 
+from .jpx_sources import JPX_SPECIAL_CAUTION_SOURCE_NAME
+
 DEFAULT_CACHE_DIR = Path(".cache/screening")
 JQUANTS_CLIENT_V2_METHODS = (
     "get_eq_master",
@@ -23,6 +25,7 @@ JPX_REGULATION_ENV_MAP = {
     "取引停止": "JPX_TRADING_HALT_URL",
     "上場廃止警告": "JPX_DELISTING_WARNING_URL",
 }
+JPX_SPECIAL_CAUTION_INDEX_ENV = "JPX_SPECIAL_CAUTION_INDEX_URL"
 
 
 class ConfigError(ValueError):
@@ -35,6 +38,7 @@ class ScreeningConfig:
     edinet_api_key: str
     cache_dir: Path = DEFAULT_CACHE_DIR
     jpx_regulation_urls: Mapping[str, str] = field(default_factory=dict)
+    jpx_special_caution_index_url: str | None = None
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "ScreeningConfig":
@@ -49,13 +53,19 @@ class ScreeningConfig:
             raise ConfigError(f"missing required env vars: {missing_names}")
 
         cache_dir_value = source.get("SCREENING_CACHE_DIR", str(DEFAULT_CACHE_DIR))
+        jpx_regulation_urls = {
+            source_name: source[env_name]
+            for source_name, env_name in JPX_REGULATION_ENV_MAP.items()
+            if source.get(env_name)
+        }
+        special_caution_index_url = source.get(JPX_SPECIAL_CAUTION_INDEX_ENV) or None
+        if special_caution_index_url and JPX_SPECIAL_CAUTION_SOURCE_NAME not in jpx_regulation_urls:
+            jpx_regulation_urls[JPX_SPECIAL_CAUTION_SOURCE_NAME] = special_caution_index_url
+
         return cls(
             jquants_refresh_token=source["JQUANTS_REFRESH_TOKEN"],
             edinet_api_key=source["EDINET_API_KEY"],
             cache_dir=Path(cache_dir_value),
-            jpx_regulation_urls={
-                source_name: source[env_name]
-                for source_name, env_name in JPX_REGULATION_ENV_MAP.items()
-                if source.get(env_name)
-            },
+            jpx_regulation_urls=jpx_regulation_urls,
+            jpx_special_caution_index_url=special_caution_index_url,
         )

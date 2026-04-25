@@ -31,7 +31,8 @@ python -m baibai_loop.screening.cli bootstrap-cache --start YYYY-MM-DD --end YYY
 - `SCREENING_CACHE_DIR`
   - 既定値: `.cache/screening`
 - JPX 公開規制情報 URL（CSV / Excel / HTML。未設定時は該当 source のカバレッジなしで `fallback_lines` に `JPX source 未ロード` 明示）。URL 運用の日次変動は issue #16 を参照:
-  - `JPX_SPECIAL_CAUTION_URL` 特別注意銘柄
+  - `JPX_SPECIAL_CAUTION_INDEX_URL` 特別注意銘柄の個別銘柄信用取引残高表 index（推奨。日次で変わる `mtdailyk*.xls` を index から解決）
+  - `JPX_SPECIAL_CAUTION_URL` 特別注意銘柄の固定 Excel URL（後方互換）
   - `JPX_REORGANIZATION_URL` 整理銘柄
   - `JPX_TRADING_HALT_URL` 取引停止
   - `JPX_DELISTING_WARNING_URL` 上場廃止警告
@@ -66,6 +67,7 @@ v1 で使う method は次の 5 点に固定する。
 
 - 利用対象は JPX 公開情報（CSV / Excel / HTML）
 - HTML は `https://www.jpx.co.jp/` 配下の許可済み URL に限定し、source-specific parser で fail-fast に扱う
+- 特別注意銘柄は `JPX_SPECIAL_CAUTION_INDEX_URL` が設定されていれば、JPX の「個別銘柄信用取引残高表」index から最新の `mtdailyk*.xls` link を解決してから Excel を取得する。index 未設定時は従来どおり `JPX_SPECIAL_CAUTION_URL` の固定 URL を使う。
 - 規制情報の取得失敗は fail-fast
 - 個別 source のうちロードできなかったものは `fallback_lines` に `JPX source 未ロード: ...` として明示される
 - JPX 公開規制情報は latest snapshot しか取得できないため、cache には `fetched_at_utc` を記録する。cache 読み込み時に `asof` と `fetched_at_utc` が 7 weekday 超乖離していれば warning を出す（祝日は引かない近似）。
