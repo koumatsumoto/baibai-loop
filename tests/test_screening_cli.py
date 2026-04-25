@@ -19,6 +19,7 @@ from baibai_loop.screening.cli import (
     _index_next_earnings,
     bootstrap_cache_command,
     run_command,
+    select_command,
 )
 from baibai_loop.screening.config import ScreeningConfig
 from baibai_loop.screening.providers.edinet import EdinetMetricRecord
@@ -343,3 +344,87 @@ class IndexNextEarningsTests(unittest.TestCase):
         ]
         result = _index_next_earnings(records, date(2026, 4, 25))
         self.assertEqual(result, {"ABCD": date(2026, 5, 13)})
+
+
+class SelectCommandTests(unittest.TestCase):
+    def _write_screened(self, root: Path, asof: date, tickers: list[dict[str, object]]) -> Path:
+        path = root / f"{asof:%Y}" / f"{asof:%m}" / f"{asof:%Y-%m-%d}.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        import yaml as _yaml
+
+        front = _yaml.safe_dump({"tickers": tickers}, allow_unicode=True, sort_keys=False)
+        path.write_text(f"---\n{front}---\n", encoding="utf-8")
+        return path
+
+    def _write_view(self, root: Path, asof: date, sectors: dict[str, str | None]) -> Path:
+        path = root / f"{asof:%Y}" / f"{asof:%m}" / f"view-{asof:%Y-%m-%d}-bootstrap.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        import yaml as _yaml
+
+        front = _yaml.safe_dump({"sectors": sectors}, allow_unicode=True, sort_keys=False)
+        path.write_text(f"---\n{front}---\n", encoding="utf-8")
+        return path
+
+    def test_filters_headwind_sectors_and_ranks_by_threshold_count(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_screened(
+                root / "screened",
+                asof,
+                tickers=[
+                    {
+                        "ticker": "1111",
+                        "name": "headwind exclude",
+                        "sector_33": "石油・石炭製品",
+                        "market_cap_oku": 2000,
+                        "threshold_hit": ["sector_median_under_20pct_and_self_range_bottom_20pct"],
+                    },
+                    {
+                        "ticker": "2222",
+                        "name": "single hit",
+                        "sector_33": "電気機器",
+                        "market_cap_oku": 600,
+                        "threshold_hit": ["sector_median_under_20pct_and_self_range_bottom_20pct"],
+                    },
+                    {
+                        "ticker": "3333",
+                        "name": "triple hit",
+                        "sector_33": "機械",
+                        "market_cap_oku": 400,
+                        "threshold_hit": [
+                            "sector_median_under_20pct_and_self_range_bottom_20pct",
+                            "price_down_60d_and_valuation_sigma_down",
+                            "sector_rotation_short_sell",
+                        ],
+                    },
+                ],
+            )
+            self._write_view(
+                root / "view",
+                asof,
+                sectors={
+                    "石油・石炭製品": "headwind",
+                    "電気機器": "neutral",
+                    "機械": "tailwind",
+                },
+            )
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                view_path=None,
+                top=10,
+                screened_root=root / "screened",
+                view_root=root / "view",
+                stdout=buffer,
+            )
+            self.assertEqual(exit_code, 0)
+            import yaml as _yaml
+
+            payload = _yaml.safe_load(buffer.getvalue())
+            self.assertEqual(payload["input_count"], 3)
+            self.assertEqual(payload["after_view_filter"], 2)
+            tickers = [c["ticker"] for c in payload["candidates"]]
+            self.assertEqual(tickers, ["3333", "2222"])
+            self.assertEqual(payload["candidates"][0]["position_tier"], "300-500 (P-B only, max 0.5%)")
+            self.assertEqual(payload["candidates"][1]["position_tier"], "500-1000 (max 1.0%)")

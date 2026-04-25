@@ -4,6 +4,8 @@ import argparse
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from pathlib import Path
+import re
 
 from .config import (
     ConfigError,
@@ -49,6 +51,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bootstrap_parser.add_argument("--start", required=True, help="start date (YYYY-MM-DD)")
     bootstrap_parser.add_argument("--end", required=True, help="end date (YYYY-MM-DD)")
+
+    select_parser = subparsers.add_parser(
+        "select",
+        help="rank research candidates by combining screened with view sectors",
+    )
+    select_parser.add_argument("--asof", required=True, help="screening target date (YYYY-MM-DD)")
+    select_parser.add_argument(
+        "--view",
+        help="view path to apply (default: latest view/<YYYY>/<MM>/view-*.md on or before asof)",
+    )
+    select_parser.add_argument(
+        "--top",
+        type=int,
+        default=10,
+        help="maximum number of candidates to emit (default 10)",
+    )
     return parser
 
 
@@ -87,6 +105,13 @@ def main(argv: list[str] | None = None) -> int:
             print("--start must be on or before --end", file=sys.stderr)
             return 1
         return bootstrap_cache_command(start, end, providers)
+
+    if args.command == "select":
+        return select_command(
+            asof_date=_parse_iso_date(args.asof),
+            view_path=Path(args.view) if args.view else None,
+            top=args.top,
+        )
 
     parser.error("unknown command")
     return 2
@@ -280,6 +305,127 @@ def run_command(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(markdown, encoding="utf-8")
     return 2 if partial_warning else 0
+
+
+def select_command(
+    *,
+    asof_date: date,
+    view_path: Path | None,
+    top: int,
+    screened_root: Path | None = None,
+    view_root: Path | None = None,
+    stdout: object | None = None,
+) -> int:
+    import yaml
+
+    out = stdout if stdout is not None else sys.stdout
+    screened_root = screened_root or Path("screened")
+    view_root = view_root or Path("view")
+
+    screened_path = (
+        screened_root
+        / f"{asof_date:%Y}"
+        / f"{asof_date:%m}"
+        / f"{asof_date:%Y-%m-%d}.md"
+    )
+    if not screened_path.exists():
+        print(f"screened file not found: {screened_path}", file=sys.stderr)
+        return 1
+    screened_fm = _parse_front_matter(screened_path)
+
+    resolved_view_path = view_path or _find_latest_view(view_root, asof_date)
+    if resolved_view_path is None or not resolved_view_path.exists():
+        print(
+            "view file not found. Pass --view <path> or create view/<YYYY>/<MM>/view-*.md",
+            file=sys.stderr,
+        )
+        return 1
+    view_fm = _parse_front_matter(resolved_view_path)
+    sectors_view: dict[str, str | None] = view_fm.get("sectors") or {}
+
+    candidates = _rank_candidates(screened_fm.get("tickers") or [], sectors_view)
+    summary = {
+        "asof": asof_date.isoformat(),
+        "screened_ref": str(screened_path),
+        "view_ref": str(resolved_view_path),
+        "input_count": len(screened_fm.get("tickers") or []),
+        "after_view_filter": len(candidates),
+        "candidates": candidates[:top],
+    }
+    yaml.safe_dump(summary, out, allow_unicode=True, sort_keys=False)
+    return 0
+
+
+def _parse_front_matter(path: Path) -> dict[str, object]:
+    import yaml
+
+    text = path.read_text(encoding="utf-8")
+    match = re.match(r"^---\n(.*?)\n---", text, re.DOTALL)
+    if not match:
+        return {}
+    return yaml.safe_load(match.group(1)) or {}
+
+
+def _find_latest_view(view_root: Path, asof_date: date) -> Path | None:
+    if not view_root.exists():
+        return None
+    asof_iso = asof_date.isoformat()
+    matches = sorted(view_root.glob("*/*/view-*.md"))
+    eligible = [
+        path for path in matches
+        # Heuristic: view filename contains a YYYY-MM-DD on or before asof.
+        if (m := re.search(r"\d{4}-\d{2}-\d{2}", path.name)) and m.group(0) <= asof_iso
+    ]
+    return eligible[-1] if eligible else None
+
+
+def _rank_candidates(
+    tickers: list[dict[str, object]],
+    sectors_view: dict[str, str | None],
+) -> list[dict[str, object]]:
+    ranked: list[tuple[tuple[int, int, int], dict[str, object]]] = []
+    for ticker in tickers:
+        sector = str(ticker.get("sector_33") or "")
+        view_status = sectors_view.get(sector)
+        # headwind は除外。null / unknown / tailwind / neutral は通過。
+        if view_status == "headwind":
+            continue
+        threshold_hit_obj = ticker.get("threshold_hit")
+        threshold_hit_count = (
+            len(threshold_hit_obj) if isinstance(threshold_hit_obj, list) else 0
+        )
+        market_cap = ticker.get("market_cap_oku")
+        market_cap_int = int(market_cap) if isinstance(market_cap, (int, float)) else 0
+        # Higher = better: more threshold hits, larger market cap, then ticker tie-breaker
+        sort_key = (
+            -threshold_hit_count,
+            -market_cap_int,
+            str(ticker.get("ticker") or ""),
+        )
+        candidate = {
+            "ticker": ticker.get("ticker"),
+            "name": ticker.get("name"),
+            "sector_33": sector,
+            "view_sector": view_status,
+            "market_cap_oku": market_cap,
+            "threshold_hit": threshold_hit_obj or [],
+            "threshold_hit_count": threshold_hit_count,
+            "next_earnings_date": ticker.get("next_earnings_date"),
+            "position_tier": _position_tier(market_cap_int),
+        }
+        ranked.append((sort_key, candidate))
+    ranked.sort(key=lambda item: item[0])
+    return [candidate for _, candidate in ranked]
+
+
+def _position_tier(market_cap_oku: int) -> str:
+    if market_cap_oku >= 1000:
+        return "1000+ (max 2.0%)"
+    if market_cap_oku >= 500:
+        return "500-1000 (max 1.0%)"
+    if market_cap_oku >= 300:
+        return "300-500 (P-B only, max 0.5%)"
+    return "below 300 (out of universe)"
 
 
 def _index_next_earnings(
