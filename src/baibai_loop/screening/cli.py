@@ -12,10 +12,11 @@ from .config import (
     PARTIAL_WARNING_YOY_MISSING_RATIO,
     ScreeningConfig,
 )
+from .date_utils import weekday_distance
 from .metrics import build_metrics, build_shares_outstanding_index, group_bars_by_ticker, group_summaries_by_ticker
 from .providers import EDINETProvider, JPXProvider, JQuantsProvider
 from .providers.edinet import EDINETProviderError
-from .providers.jpx import JPXProviderError, business_day_distance
+from .providers.jpx import JPXProviderError
 from .providers.jquants import JQuantsProviderError
 from .render import JST, build_output_path, render_screened_markdown
 from .rules import evaluate_screening
@@ -109,12 +110,11 @@ def run_command(
 
     run_now = now or datetime.now(JST)
     today = run_now.date()
-    has_jpx_cache = getattr(providers.jpx, "has_regulation_cache", lambda _asof: True)
     if (
         not allow_stale_jpx
         and asof_date < today
-        and business_day_distance(asof_date, today) > 7
-        and not has_jpx_cache(asof_date)
+        and weekday_distance(asof_date, today) > 7
+        and not providers.jpx.has_regulation_cache(asof_date)
     ):
         print(
             "JPX regulation cache is missing for a stale backfill; "

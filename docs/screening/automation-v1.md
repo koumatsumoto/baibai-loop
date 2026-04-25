@@ -68,8 +68,8 @@ v1 で使う method は次の 5 点に固定する。
 - HTML は `https://www.jpx.co.jp/` 配下の許可済み URL に限定し、source-specific parser で fail-fast に扱う
 - 規制情報の取得失敗は fail-fast
 - 個別 source のうちロードできなかったものは `fallback_lines` に `JPX source 未ロード: ...` として明示される
-- JPX 公開規制情報は latest snapshot しか取得できないため、cache には `fetched_at_utc` を記録する。cache 読み込み時に `asof` と `fetched_at_utc` が 7 営業日超乖離していれば warning を出す。
-- `asof` が実行日から 7 営業日超過去で、該当日の JPX cache が無い場合、`run` は fail-fast する。運用者が latest snapshot を過去 `asof` に固定するリスクを理解して許容する場合のみ `--allow-stale-jpx` を付ける。
+- JPX 公開規制情報は latest snapshot しか取得できないため、cache には `fetched_at_utc` を記録する。cache 読み込み時に `asof` と `fetched_at_utc` が 7 weekday 超乖離していれば warning を出す（祝日は引かない近似）。
+- `asof` が実行日から 7 weekday 超過去で、該当日の JPX cache が無い場合、`run` は fail-fast する。運用者が latest snapshot を過去 `asof` に固定するリスクを理解して許容する場合のみ `--allow-stale-jpx` を付ける。
 
 ## 7. Date Semantics
 

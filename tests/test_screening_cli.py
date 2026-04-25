@@ -239,6 +239,33 @@ class ScreeningCliTests(unittest.TestCase):
                     now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
                     allow_stale_jpx=True,
                 )
+                # The fixture intentionally lacks enough YoY inputs, so the
+                # command succeeds with the existing partial-warning exit code.
+                self.assertEqual(exit_code, 2)
+                self.assertEqual(jpx.snapshots_requested, 1)
+            finally:
+                os.chdir(cwd)
+
+    def test_run_command_allows_jpx_backfill_at_stale_boundary_without_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = Path.cwd()
+            try:
+                import os
+
+                os.chdir(tmpdir)
+                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                jpx = FakeJPXProvider(cache_exists=False)
+                providers = ProviderBundle(
+                    jquants=FakeJQuantsProvider(),
+                    edinet=FakeEDINETProvider(),
+                    jpx=jpx,
+                )
+                exit_code = run_command(
+                    date(2026, 4, 15),
+                    config,
+                    providers,
+                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                )
                 self.assertEqual(exit_code, 2)
                 self.assertEqual(jpx.snapshots_requested, 1)
             finally:

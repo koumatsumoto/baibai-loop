@@ -14,6 +14,8 @@ from urllib.parse import urlparse
 
 import requests
 
+from ..date_utils import weekday_distance
+from ..render import JST
 from ..schema import normalize_ticker
 
 _JPX_ALLOWED_SCHEME = "https"
@@ -259,10 +261,10 @@ class JPXProvider:
         except ValueError:
             _LOGGER.warning("JPX regulation cache has invalid fetched_at_utc: %s", fetched_at_raw)
             return
-        distance = business_day_distance(asof_date, fetched_at.date())
+        distance = weekday_distance(asof_date, fetched_at.astimezone(JST).date())
         if distance > _JPX_STALE_SNAPSHOT_BUSINESS_DAYS:
             _LOGGER.warning(
-                "JPX regulation cache may be stale: asof=%s fetched_at_utc=%s business_days=%s",
+                "JPX regulation cache may be stale: asof=%s fetched_at_utc=%s weekdays=%s",
                 asof_date.isoformat(),
                 fetched_at.isoformat(),
                 distance,
@@ -549,16 +551,3 @@ def parse_jpx_code(code: object) -> str:
     if len(raw) == 5 and raw[:4].isalnum() and raw.endswith("0"):
         return normalize_ticker(raw[:4])
     raise JPXProviderError(f"invalid JPX code: {code!r}")
-
-
-def business_day_distance(start: date, end: date) -> int:
-    if start == end:
-        return 0
-    earlier, later = (start, end) if start < end else (end, start)
-    current = earlier
-    count = 0
-    while current < later:
-        current = date.fromordinal(current.toordinal() + 1)
-        if current.weekday() < 5:
-            count += 1
-    return count
