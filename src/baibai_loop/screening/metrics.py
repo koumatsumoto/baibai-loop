@@ -159,7 +159,7 @@ def _build_financial_snapshot(
     edinet: EdinetMetricRecord | None,
 ) -> FinancialSnapshot:
     latest = _latest_summary(summaries)
-    previous = summaries[-2] if len(summaries) >= 2 else None
+    prior_year = _prior_year_summary(summaries)
     forecast_eps = latest.forecast_eps if latest else None
     eps_ttm = latest.eps_ttm if latest else None
     bps = latest.bps if latest else None
@@ -167,7 +167,7 @@ def _build_financial_snapshot(
     per_trailing = (latest_price / eps_ttm) if eps_ttm and eps_ttm > 0 else None
     pbr = (latest_price / bps) if bps and bps > 0 else None
     operating_profit, operating_profit_source = _select_operating_profit(latest)
-    operating_profit_prev, _ = _select_operating_profit(previous)
+    operating_profit_prior_year, _ = _select_operating_profit(prior_year)
     sales_ttm = edinet.sales_ttm if edinet else None
     ocf_ttm = edinet.ocf_ttm if edinet else None
     debt = edinet.debt if edinet else None
@@ -190,9 +190,9 @@ def _build_financial_snapshot(
         consolidation_basis=edinet.consolidation_basis if edinet else None,
         operating_profit=operating_profit,
         operating_profit_source=operating_profit_source,
-        eps_yoy=_yoy_ratio(eps_ttm, previous.eps_ttm if previous else None),
-        sales_yoy=_yoy_ratio(latest.sales if latest else None, previous.sales if previous else None),
-        operating_profit_yoy=_yoy_ratio(operating_profit, operating_profit_prev),
+        eps_yoy=_yoy_ratio(eps_ttm, prior_year.eps_ttm if prior_year else None),
+        sales_yoy=_yoy_ratio(latest.sales if latest else None, prior_year.sales if prior_year else None),
+        operating_profit_yoy=_yoy_ratio(operating_profit, operating_profit_prior_year),
         ttm_quality_ev_ebitda=edinet.ttm_quality_ev_ebitda if edinet else TTMQuality.UNAVAILABLE,
         ttm_quality_p_s=edinet.ttm_quality_p_s if edinet else TTMQuality.UNAVAILABLE,
         ttm_quality_pcfr=edinet.ttm_quality_pcfr if edinet else TTMQuality.UNAVAILABLE,
@@ -201,6 +201,36 @@ def _build_financial_snapshot(
 
 def _latest_summary(summaries: Sequence[JQuantsFinancialSummary]) -> JQuantsFinancialSummary | None:
     return summaries[-1] if summaries else None
+
+
+def _prior_year_summary(summaries: Sequence[JQuantsFinancialSummary]) -> JQuantsFinancialSummary | None:
+    """Return the same fiscal period in the previous fiscal year.
+
+    Assumes summaries are ordered oldest-first; revisions of the same fiscal
+    period are resolved by taking the most recent occurrence.
+    """
+    latest = _latest_summary(summaries)
+    if latest is None or latest.fiscal_period is None or latest.fiscal_year_end is None:
+        return None
+    target_fiscal_year_end = _shift_year(latest.fiscal_year_end, -1)
+    if target_fiscal_year_end is None:
+        return None
+    candidates = [
+        summary
+        for summary in summaries[:-1]
+        if summary.fiscal_period == latest.fiscal_period
+        and summary.fiscal_year_end == target_fiscal_year_end
+    ]
+    return candidates[-1] if candidates else None
+
+
+def _shift_year(value: date, years: int) -> date | None:
+    try:
+        return value.replace(year=value.year + years)
+    except ValueError:
+        # Feb 29 has no same-month/day counterpart in non-leap years; avoid
+        # inventing a fiscal year-end match.
+        return None
 
 
 def _latest_bar_on_or_before(

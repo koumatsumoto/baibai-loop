@@ -213,6 +213,25 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(summary.shares_outstanding, 1000000.0)
         self.assertEqual(summary.operating_profit, 1840000000.0)
 
+    def test_normalize_financial_summary_preserves_fiscal_period_fields(self) -> None:
+        summary = normalize_financial_summary(
+            {
+                "Code": "88910",
+                "DisclosedDate": "2026-04-01",
+                "TypeOfCurrentPeriod": "1Q",
+                "CurrentFiscalYearEndDate": "2027-03-31",
+                "CurrentPeriodStartDate": "2026-04-01",
+                "CurrentPeriodEndDate": "2026-06-30",
+                "EarningsPerShare": "300.50",
+            }
+        )
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertEqual(summary.fiscal_period, "1Q")
+        self.assertEqual(summary.fiscal_year_end, date(2027, 3, 31))
+        self.assertEqual(summary.period_start, date(2026, 4, 1))
+        self.assertEqual(summary.period_end, date(2026, 6, 30))
+
     def test_normalize_financial_summary_skips_non_common_suffix(self) -> None:
         summary = normalize_financial_summary(
             {
