@@ -4,7 +4,7 @@
   "title": "Screened YAML",
   "description": "Schema for screened/YYYY/MM/YYYY-MM-DD.yaml outputs (PR 1-A onward).",
   "type": "object",
-  "additionalProperties": true,
+  "additionalProperties": false,
   "required": [
     "run_date",
     "asof_date",
@@ -60,7 +60,7 @@
     },
     "Ticker": {
       "type": "object",
-      "additionalProperties": true,
+      "additionalProperties": false,
       "required": [
         "ticker",
         "name",

@@ -131,6 +131,32 @@ class ScreenedValidationTests(unittest.TestCase):
         codes = {finding.code for finding in findings}
         self.assertTrue(any(code.startswith("screened.") for code in codes))
 
+    def test_unknown_root_field_is_flagged(self) -> None:
+        payload = _minimal_screened()
+        payload["typo_field_name"] = "oops"
+        path = self._write(payload)
+        try:
+            findings = validate_screened_file(path)
+        finally:
+            path.unlink()
+        codes = {finding.code for finding in findings}
+        self.assertIn("screened.additionalProperties", codes)
+
+    def test_unknown_ticker_field_is_flagged(self) -> None:
+        payload = _minimal_screened()
+        tickers = payload["tickers"]
+        assert isinstance(tickers, list)
+        ticker_entry = tickers[0]
+        assert isinstance(ticker_entry, dict)
+        ticker_entry["typo_field"] = "oops"
+        path = self._write(payload)
+        try:
+            findings = validate_screened_file(path)
+        finally:
+            path.unlink()
+        codes = {finding.code for finding in findings}
+        self.assertIn("screened.additionalProperties", codes)
+
     def test_non_mapping_yaml_root_returns_single_finding(self) -> None:
         path = self._write([_minimal_screened()])
         try:
