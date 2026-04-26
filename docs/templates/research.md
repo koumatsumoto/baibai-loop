@@ -2,6 +2,7 @@
 ticker: "XXXX"
 name: "..."
 playbook: valuation-mean-reversion-v1 | valuation-catalyst-confirmation-v1
+decision: accepted | skipped | pending
 screened_ref: screened/YYYY/MM/YYYY-MM-DD.yaml
 view_ref: view/YYYY/MM/view-YYYY-MM-DD-*.md
 brief_refs: []                            # 任意、view 後の緊急 brief がある場合のみ
@@ -9,6 +10,11 @@ ai-draft: true
 published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 tradable_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 macro_gate: tailwind | neutral | headwind
+macro_gate_override: "..."                # headwind / 200-500 億 P-A 採用時のみ
+position_size_oku: 0.01                   # 仮定資本 1 億円ベース
+adv_participation_pct: 0.2
+market_cap_oku: 936
+sector_33: "情報・通信業"
 valuation:
   per_forward: 8.2                        # null if 会社予想 EPS 未公表
   per_trailing: 9.5
