@@ -36,8 +36,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "sync":
         calendar, bars, market_warnings = _load_market_data(args.root, os.environ)
         if args.require_market_data and (not calendar or not bars):
-            for warning in market_warnings:
-                print(f"error: {warning}", file=sys.stderr)
+            if market_warnings:
+                for warning in market_warnings:
+                    print(f"error: {warning}", file=sys.stderr)
+            else:
+                # research packet が無い等で warning も出ないケースを silent にしない。
+                print(
+                    "error: --require-market-data set but no calendar/bars could be loaded",
+                    file=sys.stderr,
+                )
             return 1
         result = sync_ledger(args.root, dry_run=args.dry_run, calendar=calendar, bars=bars)
         for warning in market_warnings:

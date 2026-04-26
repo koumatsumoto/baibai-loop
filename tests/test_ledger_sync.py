@@ -179,6 +179,19 @@ def test_ledger_cli_require_market_data_fails_without_token(
     assert main(["sync", "--root", str(tmp_path), "--dry-run", "--require-market-data"]) == 1
 
 
+def test_ledger_cli_require_market_data_emits_diagnostic_when_no_research(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # research packet が空の場合 _load_market_data は warnings を返さないが、
+    # --require-market-data の失敗理由は必ず stderr に出るべき。
+    monkeypatch.setenv("JQUANTS_REFRESH_TOKEN", "dummy-token")
+    (tmp_path / "research").mkdir()
+    assert main(["sync", "--root", str(tmp_path), "--dry-run", "--require-market-data"]) == 1
+    assert "no calendar/bars" in capsys.readouterr().err
+
+
 def test_sync_ledger_writes_update_events_for_tracking_changes(tmp_path: Path) -> None:
     _seed(tmp_path)
     sync_ledger(tmp_path, observed_at=datetime(2026, 4, 26, tzinfo=UTC))
