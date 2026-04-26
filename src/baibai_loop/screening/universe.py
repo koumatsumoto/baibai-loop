@@ -7,11 +7,10 @@ from statistics import mean
 
 from .providers.jquants import JQuantsDailyBar
 from .schema import SecurityMaster, UniverseSnapshot
+from .tiers import MIN_AVG_TURNOVER_OKU, MIN_MARKET_CAP_OKU
 
 ELIGIBLE_MARKETS = {"PRIME", "STANDARD", "GROWTH", "プライム", "スタンダード", "グロース"}
 LISTED_UNDER_DAYS = 182
-MIN_MARKET_CAP_OKU = 300
-MIN_AVG_TURNOVER_OKU = 2.0
 REQUIRED_JPX_FLAGS = {"特別注意銘柄", "整理銘柄", "取引停止", "上場廃止警告"}
 
 

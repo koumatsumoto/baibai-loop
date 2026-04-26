@@ -441,7 +441,7 @@ class SelectCommandTests(unittest.TestCase):
             tickers = [c["ticker"] for c in payload["candidates"]]
             self.assertEqual(tickers, ["3333", "2222"])
             self.assertEqual(
-                payload["candidates"][0]["position_tier"], "300-500 (P-B only, max 0.5%)"
+                payload["candidates"][0]["position_tier"], "200-500 (P-B only, max 0.5%)"
             )
             self.assertEqual(payload["candidates"][1]["position_tier"], "500-1000 (max 1.0%)")
 

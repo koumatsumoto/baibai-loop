@@ -54,6 +54,42 @@ class ScreeningUniverseTests(unittest.TestCase):
         self.assertEqual(result.snapshots["130A"].market_cap_oku, 400)
         self.assertEqual(result.snapshots["130A"].avg_turnover_oku, 3.0)
 
+    def test_build_universe_keeps_200_oku_band_security(self) -> None:
+        security = SecurityMaster(
+            code="201A",
+            name="Small Cap",
+            market_segment="Standard",
+            sector_33="情報・通信業",
+            is_common_stock=True,
+        )
+        result = build_universe(
+            asof_date=date(2026, 4, 24),
+            securities=[security],
+            bars_by_ticker={"201A": _bars("201A", close=100.0, turnover=300_000_000.0)},
+            shares_outstanding_by_ticker={"201A": 200_000_000.0},
+            jpx_flags_by_ticker={},
+        )
+        self.assertIn("201A", result.snapshots)
+        self.assertEqual(result.snapshots["201A"].market_cap_oku, 200)
+
+    def test_build_universe_excludes_turnover_below_3_oku(self) -> None:
+        security = SecurityMaster(
+            code="202A",
+            name="Thin Trading",
+            market_segment="Standard",
+            sector_33="情報・通信業",
+            is_common_stock=True,
+        )
+        result = build_universe(
+            asof_date=date(2026, 4, 24),
+            securities=[security],
+            bars_by_ticker={"202A": _bars("202A", close=100.0, turnover=299_000_000.0)},
+            shares_outstanding_by_ticker={"202A": 300_000_000.0},
+            jpx_flags_by_ticker={},
+        )
+        self.assertNotIn("202A", result.snapshots)
+        self.assertEqual(result.exclusion_counts.get("avg_turnover_below_threshold"), 1)
+
     def test_build_universe_excludes_jpx_regulated_security(self) -> None:
         security = SecurityMaster(
             code="7203",

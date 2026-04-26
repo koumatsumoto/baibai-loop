@@ -43,8 +43,8 @@ class ScreeningRenderTests(unittest.TestCase):
             asof_date=date(2026, 4, 24),
             universe_size=321,
             filters={
-                "min_market_cap_oku": 300,
-                "min_avg_turnover_oku": 2,
+                "min_market_cap_oku": 200,
+                "min_avg_turnover_oku": 3,
                 "exclude_listed_under_months": 6,
             },
             tickers=[
@@ -97,8 +97,8 @@ class ScreeningRenderTests(unittest.TestCase):
             asof_date=date(2026, 4, 24),
             universe_size=321,
             filters={
-                "min_market_cap_oku": 300,
-                "min_avg_turnover_oku": 2,
+                "min_market_cap_oku": 200,
+                "min_avg_turnover_oku": 3,
                 "exclude_listed_under_months": 6,
             },
             tickers=[
@@ -167,8 +167,8 @@ class ScreeningRenderTests(unittest.TestCase):
             asof_date: "2026-04-24"
             universe_size: 321
             filters:
-              min_market_cap_oku: 300
-              min_avg_turnover_oku: 2
+              min_market_cap_oku: 200
+              min_avg_turnover_oku: 3
               exclude_listed_under_months: 6
             generated_by: "screening-cli-v1"
             data_sources:
