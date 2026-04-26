@@ -529,7 +529,7 @@ def _rank_candidates(
             "threshold_hit": ticker.threshold_hit,
             "threshold_hit_count": len(ticker.threshold_hit),
             "next_earnings_date": ticker.next_earnings_date,
-            "position_tier": position_tier(market_cap_int),
+            "position_tier": position_tier(market_cap),
         }
         ranked.append((sort_key, candidate))
     ranked.sort(key=lambda item: item[0])
