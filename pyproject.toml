@@ -27,6 +27,7 @@ classifiers = [
 
 [project.scripts]
 baibai-loop-screening = "baibai_loop.screening.cli:main"
+baibai-loop-validate = "baibai_loop.validate.cli:main"
 
 [dependency-groups]
 dev = [
