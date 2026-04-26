@@ -7,6 +7,7 @@ from pathlib import Path
 
 import yaml
 
+from baibai_loop.ledger.cli import _discover_decision_dates, _load_market_data
 from baibai_loop.ledger.sync import sync_ledger
 from baibai_loop.screening.providers.jquants import JQuantsDailyBar
 
@@ -132,3 +133,16 @@ def test_sync_ledger_adds_select_candidates_without_research_to_skipped(tmp_path
     record = json.loads((tmp_path / "ledger" / "skipped" / "2026-04.jsonl").read_text().strip())
     assert record["ledger_id"] == "skipped-20260425-9999-vmean"
     assert record["research_ref"] is None
+
+
+def test_ledger_cli_warns_when_jquants_token_is_missing(tmp_path: Path) -> None:
+    _seed(tmp_path)
+    calendar, bars, warnings = _load_market_data(tmp_path, {})
+    assert calendar == ()
+    assert bars == ()
+    assert warnings == ("JQUANTS_REFRESH_TOKEN is unset; tracking prices remain null",)
+
+
+def test_ledger_cli_discovers_research_decision_dates(tmp_path: Path) -> None:
+    _seed(tmp_path)
+    assert _discover_decision_dates(tmp_path) == (date(2026, 4, 25),)
