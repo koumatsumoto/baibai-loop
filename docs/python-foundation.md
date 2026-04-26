@@ -1,5 +1,7 @@
 # Python foundation
 
+最終確認日: 2026-04-26 / target: Python 3.14.4
+
 この文書は、このリポジトリで採用する Python 基盤の正本である。対象は `src/baibai_loop/**` と `tests/**`。Baibai-Loop は外部データを取り込み、Markdown front matter と cache に永続化し、売買判断の事実レイヤーを作るため、Python 基盤では「新しさ」よりも **境界が検証され、静的に読め、CI で再現できること** を優先する。
 
 ## 1. Runtime policy
@@ -19,16 +21,18 @@ Python 3.14 は 2025-10-07 に final release 済みで、2026-04-26 現在は bu
 
 依存管理は `uv` に寄せる。`pyproject.toml` と `uv.lock` を単一の真実源にし、`requirements.txt` は常設しない。
 
-依存の置き場所は以下に分ける。
+依存の置き場所は以下に分ける。`pyproject.toml` では `[dependency-groups]` テーブル直下に `test` / `typing` / `quality` / `security` / `dev` をリストとして並べる。
 
 - `[project.dependencies]`: 実行時に必要な依存だけ。
-- `[dependency-groups.test]`: pytest / coverage / Hypothesis などテスト用。
-- `[dependency-groups.typing]`: mypy と stub。
-- `[dependency-groups.quality]`: Ruff / pre-commit / mutmut。
-- `[dependency-groups.security]`: Bandit / pip-audit。
-- `[dependency-groups.dev]`: 上記 group の include だけ。
+- `[dependency-groups]` の `test`: pytest / coverage / Hypothesis などテスト用。
+- `[dependency-groups]` の `typing`: mypy と stub。
+- `[dependency-groups]` の `quality`: Ruff / pre-commit / mutmut。
+- `[dependency-groups]` の `security`: Bandit / pip-audit。
+- `[dependency-groups]` の `dev`: 上記 group の include だけ。
 
 経験的に、dev tooling を optional dependencies に入れると「配布 extras」と「ローカル開発環境」が混ざる。uv は standardized dependency groups を扱えるため、この repo では optional dependencies を開発用途に使わない。
+
+`dev` は include-only にしてあるが、CI / ローカルでは明示的に `uv sync --frozen --all-groups` と `uv export --all-groups` を使う。group 構成を将来変更したときに `dev` の include 漏れで取りこぼすリスクを排除し、CI 上での group 選択意図をコマンド側に残すためである。
 
 Dependabot は `package-ecosystem: "uv"` を使う。2026-04 時点で uv lockfile 更新に対応しているが、uv 側のドキュメントでも未対応ケースが残ると説明されているため、依存更新 PR は CI の `uv sync --frozen --all-groups` を必ず見る。
 
@@ -52,9 +56,10 @@ formatter と linter は Ruff に統一する。Black / isort / Flake8 / pyupgra
 
 - `target-version = "py314"`
 - line length は 100。
-- `RUF001` は無効化する。日本語 Markdown や出力文字列では全角括弧・ギリシャ文字がドメイン表現として自然に出るため、ambiguous unicode を一般ルールとして禁止すると false positive が多い。
+- `RUF001` は無効化する。日本語の docstring や出力文字列リテラルでは全角括弧・ギリシャ文字がドメイン表現として自然に出るため、ambiguous unicode を一般ルールとして禁止すると false positive が多い。
 - tests は `ANN` / `PT009` / `PT027` などを緩める。テストは既存の `unittest` 形を維持しつつ、production code の strictness を優先する。
-- Markdown では末尾スペースが hard break として使われるため、pre-commit の trailing whitespace hook は `.md` を除外する。
+- Markdown では末尾スペースが hard break として使われるため、pre-commit の trailing whitespace hook は `.md` を除外する。`end-of-file-fixer` は EOF 改行のみ補正し本文の hard break には触らないので、Markdown 全般を対象にしたままで安全。
+- Ruff formatter は PEP 758 の `except T1, T2:` パーレス構文を正規形として保持し、`except (T1, T2):` と書いてもパレンを外す。Python 2 の `except T, name:`（as バインド旧構文）と外見が似るが、Python 3.14 では「両方の例外型を捕捉する」新構文として読む。レビュー時にバインド変数だと誤読しないこと。
 
 参考:
 
@@ -63,7 +68,7 @@ formatter と linter は Ruff に統一する。Black / isort / Flake8 / pyupgra
 
 ## 4. Type checking
 
-mypy strict を CI の主 type gate とする。Pyright は IDE 補助としては有力だが、この repo では CI の単一 gate を mypy に絞る。
+mypy strict を CI の主 type gate とする。Pyright の設定ファイルは repo に置かず、IDE での利用は開発者裁量に委ねる。CI の type gate は mypy 一本に揃え、CI 結果と IDE 表示の乖離は許容する。
 
 採用設定の意図:
 
@@ -114,11 +119,11 @@ provider では次を守る。
 - 外部 exception は secret を含む可能性があるため、表示前に sanitize する。
 - retry は transient HTTP status に限定する。
 - cache payload は `json.loads()` 後に shape を検証する。
-- HTML scraping は regex ではなく `HTMLParser` で一度構造化してから table/link を選ぶ。
+- HTML scraping の構造抽出（table / link / 見出し）は regex ではなく `HTMLParser` を介す。テキスト後処理（空白正規化、日付抽出など）で `re` を併用するのは妨げない。
 
 ## 7. Testing and coverage
 
-pytest は `--strict` を有効化する。pytest 9 では strict mode が `strict_config` / `strict_markers` / `strict_parametrization_ids` / `strict_xfail` をまとめるため、locked dependency 前提の repo では早めに有効化する価値がある。
+pytest は CI / config / marker / xfail の strict 系を個別に有効化する。`addopts` に `--strict-config` と `--strict-markers` を入れ、ini で `xfail_strict = true` を設定する。`--strict` の集約 alias は pytest 9 では曖昧になるため使わず、明示指定で厳密度の意図を保つ。
 
 coverage は `coverage.py` を直接使う。pytest-cov は便利だが、この repo の CI では `coverage run -m pytest` と `coverage report` で足りる。
 
@@ -136,11 +141,12 @@ coverage gate は現在 80%。これは理想値ではなく、既存 suite の�
 
 ## 8. Security checks
 
-CI では Bandit、pip-audit、CodeQL を分ける。
+CI では Bandit と pip-audit を分ける。
 
 - Bandit: source code の危険な構文や API を見る。
 - pip-audit: lock 由来の依存を requirements に export して監査する。
-- CodeQL: GitHub code scanning として定期的に見る。
+
+CodeQL は採用しない。GitHub の Code scanning は private repository では Advanced Security ライセンス（Organization 限定の有償機能）が必須で、個人 plan の private repo では SARIF の取り込み先がない。SARIF を artifact として保存する形でも結果の検査体験が貧弱で運用価値が薄いため、CodeQL ジョブは置かず、代替として上記 2 ツールに集中する。
 
 2026-04 時点の実行確認では、`pip-audit --locked .` はこの環境の `uv.lock` を直接拾えなかった。そのため CI では以下の順にしている。
 
@@ -152,7 +158,6 @@ CI では Bandit、pip-audit、CodeQL を分ける。
 参考:
 
 - https://github.com/pypa/pip-audit
-- https://github.com/github/codeql-action
 
 ## 9. CI and local parity
 

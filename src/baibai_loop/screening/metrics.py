@@ -304,9 +304,7 @@ def _valuation_history(
         ev_ebitda_history = [_historical_ev_ebitda(price, snapshot) for price in prices]
     pbr_history: list[float] = []
     pbr = snapshot.pbr
-    if pbr not in (None, 0):
-        if pbr is None:
-            raise ValueError("pbr unexpectedly missing")
+    if pbr is not None and pbr != 0:
         pbr_basis = latest_price / pbr
         pbr_history = [price / pbr_basis for price in prices]
 
@@ -390,9 +388,7 @@ def _sigma_gap(history: Sequence[float], current: float | None) -> float | None:
 
 
 def _safe_ratio(numerator: float | None, denominator: float | None) -> float | None:
-    if numerator is None or denominator in (None, 0):
-        return None
-    if denominator is None:
+    if numerator is None or denominator is None or denominator == 0:
         return None
     return numerator / denominator
 
@@ -412,9 +408,7 @@ def _select_operating_profit(
 
 
 def _yoy_ratio(current: float | None, previous: float | None) -> float | None:
-    if current is None or previous in (None, 0):
-        return None
-    if previous is None:
+    if current is None or previous is None or previous == 0:
         return None
     return (current / previous) - 1.0
 

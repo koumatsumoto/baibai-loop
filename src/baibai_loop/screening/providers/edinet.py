@@ -71,7 +71,7 @@ class EDINETProvider:
             payload = json.loads(cache_path.read_text(encoding="utf-8"))
             if not isinstance(payload, list):
                 raise EDINETProviderError("cached EDINET document payload must be a list")
-            return [dict(item) for item in payload if isinstance(item, Mapping)]
+            return _coerce_document_items(payload, source="cached EDINET")
 
         query = urlencode(
             {
@@ -89,7 +89,7 @@ class EDINETProvider:
         cache_path.write_text(
             json.dumps(results, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
         )
-        return [dict(item) for item in results]
+        return _coerce_document_items(results, source="EDINET documents.json")
 
     def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
         cache_path = self._cache_dir / "metrics" / f"{asof_date.isoformat()}.json"
@@ -162,6 +162,15 @@ def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
             _coalesce(record, "ttm_quality_pcfr", "TTMQualityPCFR")
         ),
     )
+
+
+def _coerce_document_items(payload: list[Any], *, source: str) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for item in payload:
+        if not isinstance(item, Mapping):
+            raise EDINETProviderError(f"{source} contained a non-mapping document item")
+        items.append(dict(item))
+    return items
 
 
 def _coalesce(record: Mapping[str, Any], *keys: str) -> Any:

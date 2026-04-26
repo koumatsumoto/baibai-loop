@@ -209,7 +209,9 @@ class JQuantsProvider:
 
     def _call_with_retry(self, method: str, call: Any, **params: Any) -> Any:
         last_exc: Exception | None = None
-        for delay_seconds in (0, *self._RATE_LIMIT_BACKOFF_SECONDS):
+        attempts = 0
+        for attempt, delay_seconds in enumerate((0, *self._RATE_LIMIT_BACKOFF_SECONDS), start=1):
+            attempts = attempt
             try:
                 return call(**_stringify_dates(params))
             except Exception as exc:
@@ -223,7 +225,8 @@ class JQuantsProvider:
         sanitized = self._sanitize_secret(str(last_exc)) if last_exc else ""
         exception_name = type(last_exc).__name__ if last_exc else "unknown"
         raise JQuantsProviderError(
-            f"failed to fetch J-Quants payload via {method}: {exception_name}: {sanitized}"
+            f"failed to fetch J-Quants payload via {method} after {attempts} attempts: "
+            f"{exception_name}: {sanitized}"
         ) from None
 
     def _sanitize_secret(self, text: str) -> str:
