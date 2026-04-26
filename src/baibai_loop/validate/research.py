@@ -92,6 +92,18 @@ def validate_research_file(
     if isinstance(playbook, str) and playbook in known_playbooks:
         try:
             schema = load_playbook_schema(playbook_root, playbook)
+        except FileNotFoundError as exc:
+            # discover_playbook_schemas との競合状態 (validate 実行中に schema YAML
+            # が消えた等) で発生しうる。uncaught で die せず error finding に変換する。
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.missing-playbook-schema",
+                    message=str(exc),
+                    location=f"playbook:{playbook}",
+                )
+            )
         except PlaybookSchemaError as exc:
             findings.append(
                 ValidationFinding(

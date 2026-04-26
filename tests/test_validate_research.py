@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import yaml
 
@@ -185,6 +186,27 @@ class ResearchValidationTests(unittest.TestCase):
             path.unlink()
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0].code, "research.front-matter-non-mapping")
+
+    def test_missing_playbook_schema_at_load_time_is_handled(self) -> None:
+        # discover_playbook_schemas が playbook を返すが、load_playbook_schema を
+        # 呼んだ時点で schema YAML が無いケース (validate 実行中に削除された等の
+        # 競合状態)。uncaught FileNotFoundError で die せず finding に変換される
+        # ことを確認する。
+        front = _minimal_research_front_matter()
+        path = self._write(front)
+        try:
+            with (
+                tempfile.TemporaryDirectory() as empty_root,
+                patch(
+                    "baibai_loop.validate.research.discover_playbook_schemas",
+                    return_value={"valuation-mean-reversion-v1"},
+                ),
+            ):
+                findings = validate_research_file(path, playbooks_root=Path(empty_root))
+        finally:
+            path.unlink()
+        codes = {f.code for f in findings}
+        self.assertIn("research.missing-playbook-schema", codes)
 
     def test_invalid_yaml_front_matter_is_flagged(self) -> None:
         with tempfile.NamedTemporaryFile(
