@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from .jpx_sources import JPX_SPECIAL_CAUTION_SOURCE_NAME
 
@@ -32,21 +34,59 @@ class ConfigError(ValueError):
     """Raised when required screening configuration is missing."""
 
 
-@dataclass(frozen=True)
-class ScreeningConfig:
-    jquants_refresh_token: str
-    edinet_api_key: str
+class ScreeningConfig(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    jquants_refresh_token: str = Field(min_length=1)
+    edinet_api_key: str = Field(min_length=1)
     cache_dir: Path = DEFAULT_CACHE_DIR
-    jpx_regulation_urls: Mapping[str, str] = field(default_factory=dict)
+    jpx_regulation_urls: Mapping[str, str] = Field(default_factory=dict)
     jpx_special_caution_index_url: str | None = None
 
+    def __init__(
+        self,
+        jquants_refresh_token: str | None = None,
+        edinet_api_key: str | None = None,
+        /,
+        **data: Any,
+    ) -> None:
+        if jquants_refresh_token is not None:
+            data["jquants_refresh_token"] = jquants_refresh_token
+        if edinet_api_key is not None:
+            data["edinet_api_key"] = edinet_api_key
+        super().__init__(**data)
+
+    @field_validator("cache_dir", mode="before")
     @classmethod
-    def from_env(cls, env: Mapping[str, str] | None = None) -> "ScreeningConfig":
+    def _coerce_cache_dir(cls, value: object) -> Path:
+        if isinstance(value, Path):
+            return value
+        if isinstance(value, str) and value:
+            return Path(value)
+        raise ValueError("cache_dir must be a non-empty path")
+
+    @field_validator("jpx_regulation_urls")
+    @classmethod
+    def _validate_jpx_urls(cls, value: Mapping[str, str]) -> Mapping[str, str]:
+        for source_name, url in value.items():
+            if not source_name:
+                raise ValueError("JPX source name must not be empty")
+            if not url.startswith("https://"):
+                raise ValueError(f"JPX URL must use https: {source_name}")
+        return value
+
+    @field_validator("jpx_special_caution_index_url")
+    @classmethod
+    def _validate_special_caution_index_url(cls, value: str | None) -> str | None:
+        if value is not None and not value.startswith("https://"):
+            raise ValueError("JPX special caution index URL must use https")
+        return value
+
+    @classmethod
+    def from_env(cls, env: Mapping[str, str] | None = None) -> ScreeningConfig:
         source = env if env is not None else os.environ
         missing = [
-            name
-            for name in ("JQUANTS_REFRESH_TOKEN", "EDINET_API_KEY")
-            if not source.get(name)
+            name for name in ("JQUANTS_REFRESH_TOKEN", "EDINET_API_KEY") if not source.get(name)
         ]
         if missing:
             missing_names = ", ".join(missing)
@@ -62,10 +102,13 @@ class ScreeningConfig:
         if special_caution_index_url and JPX_SPECIAL_CAUTION_SOURCE_NAME not in jpx_regulation_urls:
             jpx_regulation_urls[JPX_SPECIAL_CAUTION_SOURCE_NAME] = special_caution_index_url
 
-        return cls(
-            jquants_refresh_token=source["JQUANTS_REFRESH_TOKEN"],
-            edinet_api_key=source["EDINET_API_KEY"],
-            cache_dir=Path(cache_dir_value),
-            jpx_regulation_urls=jpx_regulation_urls,
-            jpx_special_caution_index_url=special_caution_index_url,
-        )
+        try:
+            return cls(
+                jquants_refresh_token=source["JQUANTS_REFRESH_TOKEN"],
+                edinet_api_key=source["EDINET_API_KEY"],
+                cache_dir=cache_dir_value,
+                jpx_regulation_urls=jpx_regulation_urls,
+                jpx_special_caution_index_url=special_caution_index_url,
+            )
+        except ValidationError as exc:
+            raise ConfigError(str(exc)) from exc

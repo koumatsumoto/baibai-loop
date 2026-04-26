@@ -4,15 +4,17 @@ import csv
 import json
 import logging
 import re
-from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from collections.abc import Mapping
+from datetime import UTC, date, datetime
 from html.parser import HTMLParser
 from io import BytesIO
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import requests
+from pydantic import ConfigDict, Field
+from pydantic.dataclasses import dataclass
 
 from ..date_utils import weekday_distance
 from ..jpx_sources import JPX_SPECIAL_CAUTION_SOURCE_NAME
@@ -30,25 +32,26 @@ _JPX_EXCEL_SUFFIXES = {".xls", ".xlsx"}
 _TRADING_HALT_EMPTY_MARKER = "現在、該当する情報はありません。"
 _HTTP_TIMEOUT_SECONDS = 30
 _LOGGER = logging.getLogger(__name__)
+_MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False)
 
 
 class JPXProviderError(RuntimeError):
     """Raised when required JPX public CSV/Excel/HTML sources are unavailable."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
 class JPXRegulationSnapshot:
-    flags_by_ticker: Mapping[str, tuple[str, ...]]
-    source_names: Sequence[str]
+    flags_by_ticker: Mapping[str, tuple[str, ...]] = Field(default_factory=dict)
+    source_names: tuple[str, ...] = ()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
 class _ParsedRow:
     cells: tuple[str, ...]
     cell_tags: tuple[str, ...]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
 class _ParsedTable:
     classes: tuple[str, ...]
     rows: tuple[_ParsedRow, ...]
@@ -57,7 +60,7 @@ class _ParsedTable:
     header_th_texts: tuple[str, ...]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
 class _ParsedLink:
     href: str
     text: str
@@ -88,7 +91,7 @@ class _JpxHtmlIndexer(HTMLParser):
         self._last_h3: str | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attrs_by_name = {name: value for name, value in attrs}
+        attrs_by_name = dict(attrs)
         if tag == "a" and attrs_by_name.get("href"):
             self._link_href = attrs_by_name["href"]
             self._link_fragments = []
@@ -167,9 +170,10 @@ class _JpxHtmlIndexer(HTMLParser):
             current_row = self._table_stack[-1].get("current_row")
             self._table_stack[-1]["current_row"] = None
             if isinstance(current_row, list) and any(text for _, text in current_row):
-                rows = self._table_stack[-1]["rows"]
-                assert isinstance(rows, list)
-                rows.append(
+                current_table_rows = self._table_stack[-1]["rows"]
+                if not isinstance(current_table_rows, list):
+                    raise JPXProviderError("internal JPX parser row buffer is invalid")
+                current_table_rows.append(
                     _ParsedRow(
                         cells=tuple(text for _, text in current_row),
                         cell_tags=tuple(tag_ for tag_, _ in current_row),
@@ -179,22 +183,26 @@ class _JpxHtmlIndexer(HTMLParser):
         if tag == "table":
             data = self._table_stack.pop()
             rows_payload = data["rows"]
-            assert isinstance(rows_payload, list)
-            rows: tuple[_ParsedRow, ...] = tuple(rows_payload)
+            if not isinstance(rows_payload, list):
+                raise JPXProviderError("internal JPX parser row payload is invalid")
+            parsed_rows: tuple[_ParsedRow, ...] = tuple(rows_payload)
             classes_payload = data["classes"]
-            assert isinstance(classes_payload, tuple)
+            if not isinstance(classes_payload, tuple):
+                raise JPXProviderError("internal JPX parser class payload is invalid")
             header_th_texts: tuple[str, ...] = ()
-            for row in rows:
+            for row in parsed_rows:
                 if row.cell_tags and all(t == "th" for t in row.cell_tags):
                     header_th_texts = row.cells
                     break
             preceding_h2 = data["preceding_h2"]
             preceding_h3 = data["preceding_h3"]
-            assert preceding_h2 is None or isinstance(preceding_h2, str)
-            assert preceding_h3 is None or isinstance(preceding_h3, str)
+            if preceding_h2 is not None and not isinstance(preceding_h2, str):
+                raise JPXProviderError("internal JPX parser h2 payload is invalid")
+            if preceding_h3 is not None and not isinstance(preceding_h3, str):
+                raise JPXProviderError("internal JPX parser h3 payload is invalid")
             parsed = _ParsedTable(
                 classes=classes_payload,
-                rows=rows,
+                rows=parsed_rows,
                 preceding_h2=preceding_h2,
                 preceding_h3=preceding_h3,
                 header_th_texts=header_th_texts,
@@ -236,9 +244,7 @@ class JPXProvider:
             payload = json.loads(cache_path.read_text(encoding="utf-8"))
             schema_version = payload.get("schema_version")
             if schema_version not in (None, _JPX_CACHE_SCHEMA_VERSION):
-                raise JPXProviderError(
-                    f"incompatible JPX cache schema version: {schema_version}"
-                )
+                raise JPXProviderError(f"incompatible JPX cache schema version: {schema_version}")
             self._warn_if_stale_cache(asof_date, payload)
             return JPXRegulationSnapshot(
                 flags_by_ticker={
@@ -283,7 +289,7 @@ class JPXProvider:
             json.dumps(
                 {
                     "schema_version": _JPX_CACHE_SCHEMA_VERSION,
-                    "fetched_at_utc": datetime.now(timezone.utc).isoformat(),
+                    "fetched_at_utc": datetime.now(UTC).isoformat(),
                     "flags_by_ticker": snapshot.flags_by_ticker,
                     "source_names": list(snapshot.source_names),
                 },
@@ -344,9 +350,7 @@ class JPXProvider:
     def _validate_allowed_url(self, url: str) -> None:
         parsed = urlparse(url)
         if parsed.scheme != _JPX_ALLOWED_SCHEME or parsed.netloc != _JPX_ALLOWED_HOST:
-            raise JPXProviderError(
-                f"JPX regulation source must use https://www.jpx.co.jp/: {url}"
-            )
+            raise JPXProviderError(f"JPX regulation source must use https://www.jpx.co.jp/: {url}")
 
     def _resolve_special_attention_xls_url(self, asof_date: date) -> str:
         # The index publishes only the latest xls; backfill control is enforced
@@ -399,9 +403,7 @@ class JPXProvider:
             candidates.append((date_key, position, resolved_url))
 
         if not candidates:
-            raise JPXProviderError(
-                f"failed to locate JPX special caution Excel link: {index_url}"
-            )
+            raise JPXProviderError(f"failed to locate JPX special caution Excel link: {index_url}")
 
         resolved_url = max(candidates)[2]
         self._validate_allowed_url(resolved_url)
@@ -418,9 +420,7 @@ class JPXProvider:
         reader = csv.DictReader(text.splitlines())
         return [dict(row) for row in reader]
 
-    def _parse_excel_rows(
-        self, source_name: str, content: bytes, url: str
-    ) -> list[dict[str, str]]:
+    def _parse_excel_rows(self, source_name: str, content: bytes, url: str) -> list[dict[str, str]]:
         try:
             import pandas as pd
         except ModuleNotFoundError as exc:
@@ -459,9 +459,7 @@ class JPXProvider:
             return self._parse_delisting_warning_html_rows(html, url)
         raise JPXProviderError(f"unsupported JPX HTML parser source: {source_name}")
 
-    def _decode_html_text(
-        self, content: bytes, url: str, content_type_header: str = ""
-    ) -> str:
+    def _decode_html_text(self, content: bytes, url: str, content_type_header: str = "") -> str:
         # Prefer the charset advertised by the server, fall back to common JPX encodings.
         # Shift_JIS is normalized to cp932 (its lossless superset).
         encodings: list[str] = []
@@ -477,7 +475,7 @@ class JPXProvider:
             seen.add(encoding)
             try:
                 return content.decode(encoding)
-            except (UnicodeDecodeError, LookupError):
+            except UnicodeDecodeError, LookupError:
                 continue
         raise JPXProviderError(f"failed to decode JPX HTML source: {url}")
 
@@ -537,9 +535,7 @@ class JPXProvider:
             error_label=error_label,
         )
 
-    def _parse_delisting_warning_html_rows(
-        self, html: str, url: str
-    ) -> list[dict[str, str]]:
+    def _parse_delisting_warning_html_rows(self, html: str, url: str) -> list[dict[str, str]]:
         indexer = _JpxHtmlIndexer()
         indexer.feed(html)
         error_label = "table.fixedhead th=上場廃止日"
@@ -581,9 +577,7 @@ class JPXProvider:
             if header_text is not None and header_text not in table.header_th_texts:
                 continue
             return table
-        raise JPXProviderError(
-            f"failed to locate JPX HTML table for {error_label}: {url}"
-        )
+        raise JPXProviderError(f"failed to locate JPX HTML table for {error_label}: {url}")
 
     def _rows_from_parsed_table(
         self,
@@ -598,9 +592,7 @@ class JPXProvider:
     ) -> list[dict[str, str]]:
         rows = table.rows
         if len(rows) < header_rows + 1:
-            raise JPXProviderError(
-                f"failed to parse JPX HTML table rows for {error_label}: {url}"
-            )
+            raise JPXProviderError(f"failed to parse JPX HTML table rows for {error_label}: {url}")
         # All header rows must be entirely <th> cells. This anchors against
         # silent layout drift such as JPX dropping rowspan and serving a single
         # header row, which would otherwise let a <td> data row slip into the
@@ -612,30 +604,24 @@ class JPXProvider:
                 )
         header = rows[0]
         if len(header.cells) <= code_column or header.cells[code_column] != expected_header:
-            raise JPXProviderError(
-                f"unexpected JPX HTML table layout for {error_label}: {url}"
-            )
+            raise JPXProviderError(f"unexpected JPX HTML table layout for {error_label}: {url}")
 
         parsed_rows: list[dict[str, str]] = []
         for row in rows[header_rows:]:
             if len(row.cells) <= code_column:
-                raise JPXProviderError(
-                    f"unexpected JPX HTML row layout for {error_label}: {url}"
-                )
+                raise JPXProviderError(f"unexpected JPX HTML row layout for {error_label}: {url}")
             if row.cell_tags and all(tag == "th" for tag in row.cell_tags):
                 raise JPXProviderError(
                     f"unexpected JPX HTML data row layout for {error_label}: {url}"
                 )
             code = row.cells[code_column]
             if not code:
-                raise JPXProviderError(
-                    f"missing JPX code in HTML row for {error_label}: {url}"
-                )
+                raise JPXProviderError(f"missing JPX code in HTML row for {error_label}: {url}")
             parsed_rows.append({"code": code, "flag": source_name})
         return parsed_rows
 
     def _parse_special_alert_margin_rows(
-        self, pd: object, content: bytes, source_name: str, url: str
+        self, pd: Any, content: bytes, source_name: str, url: str
     ) -> list[dict[str, str]]:
         # Official JPX margin xls marks current "特別注意銘柄" rows with "○" in the
         # second column and stores the 5-char security code in the seventh column.

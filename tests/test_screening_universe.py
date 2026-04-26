@@ -15,14 +15,21 @@ from baibai_loop.screening.schema import SecurityMaster
 from baibai_loop.screening.universe import build_universe
 
 
-def _bars(code: str, close: float = 100.0, turnover: float = 300_000_000.0) -> list[JQuantsDailyBar]:
+def _bars(
+    code: str, close: float = 100.0, turnover: float = 300_000_000.0
+) -> list[JQuantsDailyBar]:
     # Span 200 days ending at 2026-04-24 so listing_span >= LISTED_UNDER_DAYS (182).
     # Only the trailing 20 bars populate turnover/close for universe filters.
     end = date(2026, 4, 24)
     total = 200
     start = end - timedelta(days=total - 1)
     return [
-        JQuantsDailyBar(ticker=code, traded_at=start + timedelta(days=index), close=close, turnover_value=turnover)
+        JQuantsDailyBar(
+            ticker=code,
+            traded_at=start + timedelta(days=index),
+            close=close,
+            turnover_value=turnover,
+        )
         for index in range(total)
     ]
 
@@ -76,7 +83,12 @@ class ScreeningUniverseTests(unittest.TestCase):
         end = date(2026, 4, 24)
         # 90 days of bars starting ~90 days before asof; listing_span < 182 threshold.
         bars = [
-            JQuantsDailyBar(ticker="300A", traded_at=end - timedelta(days=90 - idx), close=100.0, turnover_value=300_000_000.0)
+            JQuantsDailyBar(
+                ticker="300A",
+                traded_at=end - timedelta(days=90 - idx),
+                close=100.0,
+                turnover_value=300_000_000.0,
+            )
             for idx in range(90)
         ]
         result = build_universe(
@@ -88,4 +100,3 @@ class ScreeningUniverseTests(unittest.TestCase):
         )
         self.assertNotIn("300A", result.snapshots)
         self.assertEqual(result.exclusion_counts.get("listed_under_6_months"), 1)
-

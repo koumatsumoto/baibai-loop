@@ -1,36 +1,117 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
-import re
+from typing import Protocol, TextIO
+
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
 from .config import (
-    ConfigError,
     PARTIAL_WARNING_TTM_COUNT,
     PARTIAL_WARNING_TTM_RATIO,
     PARTIAL_WARNING_YOY_MISSING_RATIO,
+    ConfigError,
     ScreeningConfig,
 )
 from .date_utils import weekday_distance
-from .metrics import build_metrics, build_shares_outstanding_index, group_bars_by_ticker, group_summaries_by_ticker
+from .filesystem import write_text_atomic
+from .metrics import (
+    build_metrics,
+    build_shares_outstanding_index,
+    group_bars_by_ticker,
+    group_summaries_by_ticker,
+)
 from .providers import EDINETProvider, JPXProvider, JQuantsProvider
-from .providers.edinet import EDINETProviderError
-from .providers.jpx import JPXProviderError
-from .providers.jquants import JQuantsProviderError
+from .providers.edinet import EdinetMetricRecord, EDINETProviderError
+from .providers.jpx import JPXProviderError, JPXRegulationSnapshot
+from .providers.jquants import (
+    JQuantsDailyBar,
+    JQuantsFinancialSummary,
+    JQuantsMarketCalendarDay,
+    JQuantsProviderError,
+)
 from .render import JST, build_output_path, render_screened_markdown
 from .rules import evaluate_screening
-from .schema import ScreenedRunDocument, ScreenedTicker
-from .universe import MIN_AVG_TURNOVER_OKU, MIN_MARKET_CAP_OKU, LISTED_UNDER_DAYS, REQUIRED_JPX_FLAGS, build_universe
+from .schema import ScreenedRunDocument, ScreenedTicker, SecurityMaster, normalize_ticker
+from .universe import (
+    LISTED_UNDER_DAYS,
+    MIN_AVG_TURNOVER_OKU,
+    MIN_MARKET_CAP_OKU,
+    REQUIRED_JPX_FLAGS,
+    build_universe,
+)
 
 
-@dataclass(frozen=True)
+class JQuantsAdapter(Protocol):
+    def get_mkt_calendar(self, start: date, end: date) -> list[JQuantsMarketCalendarDay]: ...
+
+    def get_eq_master(self) -> list[SecurityMaster]: ...
+
+    def get_eq_bars_daily_range(self, start: date, end: date) -> list[JQuantsDailyBar]: ...
+
+    def get_fin_summary_range(
+        self,
+        start: date,
+        end: date,
+    ) -> list[JQuantsFinancialSummary]: ...
+
+    def get_eq_earnings_cal(self, start: date, end: date) -> list[dict[str, object]]: ...
+
+    def bootstrap_cache(self, start: date, end: date) -> Mapping[str, int]: ...
+
+
+class EDINETAdapter(Protocol):
+    def load_metric_records(self, asof_date: date) -> Mapping[str, EdinetMetricRecord]: ...
+
+    def bootstrap_cache(self, start: date, end: date) -> Mapping[str, int]: ...
+
+
+class JPXAdapter(Protocol):
+    def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot: ...
+
+    def has_regulation_cache(self, asof_date: date) -> bool: ...
+
+    def bootstrap_cache(self, asof_date: date) -> Mapping[str, int]: ...
+
+
+@dataclass(frozen=True, slots=True)
 class ProviderBundle:
-    jquants: object
-    edinet: object
-    jpx: object
+    jquants: JQuantsAdapter
+    edinet: EDINETAdapter
+    jpx: JPXAdapter
+
+
+class _ScreenedCandidateInput(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    ticker: str
+    name: str | None = None
+    sector_33: str = ""
+    market_cap_oku: int | float | None = None
+    threshold_hit: list[str] = Field(default_factory=list)
+    next_earnings_date: str | None = None
+
+    @field_validator("ticker", mode="before")
+    @classmethod
+    def _normalize_ticker_field(cls, value: str) -> str:
+        return normalize_ticker(value)
+
+
+class _ScreenedFrontMatter(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    tickers: list[_ScreenedCandidateInput] = Field(default_factory=list)
+
+
+class _ViewFrontMatter(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    sectors: Mapping[str, str | None] = Field(default_factory=dict)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -114,8 +195,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return bootstrap_cache_command(start, end, providers)
 
-    parser.error("unknown command")
-    return 2
+    raise AssertionError(f"unreachable command: {args.command!r}")
 
 
 def _parse_iso_date(raw: str) -> date:
@@ -260,14 +340,13 @@ def run_command(
         )
 
     universe_size = len(universe_result.snapshots)
-    approx_total = metric_result.ttm_quality_counts.get("approximated", 0) + metric_result.ttm_quality_counts.get("unavailable", 0)
-    partial_warning = (
-        universe_size > 0
-        and (
-            approx_total >= PARTIAL_WARNING_TTM_COUNT
-            or (approx_total / universe_size) >= PARTIAL_WARNING_TTM_RATIO
-            or (metric_result.yoy_missing_count / universe_size) >= PARTIAL_WARNING_YOY_MISSING_RATIO
-        )
+    approx_total = metric_result.ttm_quality_counts.get(
+        "approximated", 0
+    ) + metric_result.ttm_quality_counts.get("unavailable", 0)
+    partial_warning = universe_size > 0 and (
+        approx_total >= PARTIAL_WARNING_TTM_COUNT
+        or (approx_total / universe_size) >= PARTIAL_WARNING_TTM_RATIO
+        or (metric_result.yoy_missing_count / universe_size) >= PARTIAL_WARNING_YOY_MISSING_RATIO
     )
     fallback_lines: list[str] = []
     if approx_total:
@@ -277,7 +356,9 @@ def run_command(
     if edinet_load_error is not None:
         fallback_lines.append(f"EDINET 読み込み失敗: {edinet_load_error}")
     # JPX source coverage: REQUIRED_JPX_FLAGS 全てを載せきれていないなら明示する。
-    missing_jpx_sources = tuple(flag for flag in sorted(REQUIRED_JPX_FLAGS) if flag not in jpx_snapshot.source_names)
+    missing_jpx_sources = tuple(
+        flag for flag in sorted(REQUIRED_JPX_FLAGS) if flag not in jpx_snapshot.source_names
+    )
     if missing_jpx_sources:
         fallback_lines.append(f"JPX source 未ロード: {', '.join(missing_jpx_sources)}")
 
@@ -303,8 +384,7 @@ def run_command(
         fallback_lines=tuple(fallback_lines),
     )
     markdown = render_screened_markdown(document)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(markdown, encoding="utf-8")
+    write_text_atomic(output_path, markdown)
     return 2 if partial_warning else 0
 
 
@@ -315,24 +395,31 @@ def select_command(
     top: int,
     screened_root: Path | None = None,
     view_root: Path | None = None,
-    stdout: object | None = None,
+    stdout: TextIO | None = None,
 ) -> int:
     import yaml
+
+    if top < 1:
+        print("--top must be greater than zero", file=sys.stderr)
+        return 1
 
     out = stdout if stdout is not None else sys.stdout
     screened_root = screened_root or Path("screened")
     view_root = view_root or Path("view")
 
     screened_path = (
-        screened_root
-        / f"{asof_date:%Y}"
-        / f"{asof_date:%m}"
-        / f"{asof_date:%Y-%m-%d}.md"
+        screened_root / f"{asof_date:%Y}" / f"{asof_date:%m}" / f"{asof_date:%Y-%m-%d}.md"
     )
     if not screened_path.exists():
         print(f"screened file not found: {screened_path}", file=sys.stderr)
         return 1
-    screened_fm = _parse_front_matter(screened_path)
+    try:
+        screened_fm = TypeAdapter(_ScreenedFrontMatter).validate_python(
+            _parse_front_matter(screened_path)
+        )
+    except ValidationError as exc:
+        print(f"invalid screened front matter: {screened_path}: {exc}", file=sys.stderr)
+        return 1
 
     resolved_view_path = view_path or _find_latest_view(view_root, asof_date)
     if resolved_view_path is None or not resolved_view_path.exists():
@@ -341,15 +428,20 @@ def select_command(
             file=sys.stderr,
         )
         return 1
-    view_fm = _parse_front_matter(resolved_view_path)
-    sectors_view: dict[str, str | None] = view_fm.get("sectors") or {}
+    try:
+        view_fm = TypeAdapter(_ViewFrontMatter).validate_python(
+            _parse_front_matter(resolved_view_path)
+        )
+    except ValidationError as exc:
+        print(f"invalid view front matter: {resolved_view_path}: {exc}", file=sys.stderr)
+        return 1
 
-    candidates = _rank_candidates(screened_fm.get("tickers") or [], sectors_view)
+    candidates = _rank_candidates(screened_fm.tickers, view_fm.sectors)
     summary = {
         "asof": asof_date.isoformat(),
         "screened_ref": str(screened_path),
         "view_ref": str(resolved_view_path),
-        "input_count": len(screened_fm.get("tickers") or []),
+        "input_count": len(screened_fm.tickers),
         "after_view_filter": len(candidates),
         "candidates": candidates[:top],
     }
@@ -373,7 +465,8 @@ def _find_latest_view(view_root: Path, asof_date: date) -> Path | None:
     asof_iso = asof_date.isoformat()
     matches = sorted(view_root.glob("*/*/view-*.md"))
     eligible = [
-        path for path in matches
+        path
+        for path in matches
         # Heuristic: view filename contains a YYYY-MM-DD on or before asof.
         if (m := re.search(r"\d{4}-\d{2}-\d{2}", path.name)) and m.group(0) <= asof_iso
     ]
@@ -381,37 +474,33 @@ def _find_latest_view(view_root: Path, asof_date: date) -> Path | None:
 
 
 def _rank_candidates(
-    tickers: list[dict[str, object]],
-    sectors_view: dict[str, str | None],
+    tickers: list[_ScreenedCandidateInput],
+    sectors_view: Mapping[str, str | None],
 ) -> list[dict[str, object]]:
-    ranked: list[tuple[tuple[int, int, int], dict[str, object]]] = []
+    ranked: list[tuple[tuple[int, int, str], dict[str, object]]] = []
     for ticker in tickers:
-        sector = str(ticker.get("sector_33") or "")
+        sector = ticker.sector_33
         view_status = sectors_view.get(sector)
         # headwind は除外。null / unknown / tailwind / neutral は通過。
         if view_status == "headwind":
             continue
-        threshold_hit_obj = ticker.get("threshold_hit")
-        threshold_hit_count = (
-            len(threshold_hit_obj) if isinstance(threshold_hit_obj, list) else 0
-        )
-        market_cap = ticker.get("market_cap_oku")
+        market_cap = ticker.market_cap_oku
         market_cap_int = int(market_cap) if isinstance(market_cap, (int, float)) else 0
         # Higher = better: more threshold hits, larger market cap, then ticker tie-breaker
         sort_key = (
-            -threshold_hit_count,
+            -len(ticker.threshold_hit),
             -market_cap_int,
-            str(ticker.get("ticker") or ""),
+            ticker.ticker,
         )
-        candidate = {
-            "ticker": ticker.get("ticker"),
-            "name": ticker.get("name"),
+        candidate: dict[str, object] = {
+            "ticker": ticker.ticker,
+            "name": ticker.name,
             "sector_33": sector,
             "view_sector": view_status,
             "market_cap_oku": market_cap,
-            "threshold_hit": threshold_hit_obj or [],
-            "threshold_hit_count": threshold_hit_count,
-            "next_earnings_date": ticker.get("next_earnings_date"),
+            "threshold_hit": ticker.threshold_hit,
+            "threshold_hit_count": len(ticker.threshold_hit),
+            "next_earnings_date": ticker.next_earnings_date,
             "position_tier": _position_tier(market_cap_int),
         }
         ranked.append((sort_key, candidate))
@@ -430,7 +519,7 @@ def _position_tier(market_cap_oku: int) -> str:
 
 
 def _index_next_earnings(
-    records: list[dict[str, object]], asof_date: date
+    records: Sequence[Mapping[str, object]], asof_date: date
 ) -> dict[str, date]:
     # Pick the soonest forthcoming earnings announcement (>= asof_date) per
     # ticker so research packets can populate next_earnings_date for the

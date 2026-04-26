@@ -11,6 +11,13 @@ Thumbs.db
 __pycache__/
 *.pyc
 
+# Python build and quality-tool outputs
+.coverage
+.coverage.*
+.mypy_cache/
+.ruff_cache/
+dist/
+
 # Local planning drafts
 .plan/
 

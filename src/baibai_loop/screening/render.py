@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -145,11 +145,13 @@ def _build_body(document: ScreenedRunDocument) -> str:
     lines = [
         f"# Screened: {document.asof_date.isoformat()}",
         "",
-        "**成分**: 4 成分アーキテクチャの **(b) スクリーニング通過銘柄**（[`/docs/components/screened.md`](/docs/components/screened.md)）",
+        "**成分**: 4 成分アーキテクチャの **(b) スクリーニング通過銘柄**"
+        "（[`/docs/components/screened.md`](/docs/components/screened.md)）",
         "",
         "**レイヤー**: 事実レイヤー（解釈は入れない）",
         "",
-        "**閾値条件**: 以下 3 種の OR 条件、最低 1 つ満たす（[`/docs/screening/mechanical-v1.md`](/docs/screening/mechanical-v1.md)）",
+        "**閾値条件**: 以下 3 種の OR 条件、最低 1 つ満たす"
+        "（[`/docs/screening/mechanical-v1.md`](/docs/screening/mechanical-v1.md)）",
         "",
         "- 条件 A: 業種中央値比 -20% 以上 かつ 過去 3 年自己レンジ下位 20%",
         "- 条件 B: 過去 60 営業日 -15% 以上下落 かつ valuation 1σ 以上下方（業績悪化なし）",
@@ -172,7 +174,9 @@ def _build_body(document: ScreenedRunDocument) -> str:
             "",
             "---",
             "",
-            "研究選定は [`/docs/components/research.md`](/docs/components/research.md) の選定プロセスに従う。通過銘柄のうち `view/` で tailwind / neutral の業種/地域のもののみが research 候補となる。",
+            "研究選定は [`/docs/components/research.md`](/docs/components/research.md) "
+            "の選定プロセスに従う。通過銘柄のうち `view/` で tailwind / neutral "
+            "の業種/地域のもののみが research 候補となる。",
         ]
     )
     return "\n".join(lines)
@@ -183,6 +187,5 @@ def _format_ttm_quality_counts(counts: dict[str, int] | Any) -> str:
     approximated = counts.get("approximated", 0) if hasattr(counts, "get") else 0
     unavailable = counts.get("unavailable", 0) if hasattr(counts, "get") else 0
     return (
-        "ttm_quality 集計: "
-        f"exact={exact}, approximated={approximated}, unavailable={unavailable}"
+        f"ttm_quality 集計: exact={exact}, approximated={approximated}, unavailable={unavailable}"
     )

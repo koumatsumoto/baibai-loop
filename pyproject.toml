@@ -5,25 +5,154 @@ build-backend = "hatchling.build"
 [project]
 name = "baibai-loop"
 version = "0.1.0"
-description = "Automation utilities for Baibai-Loop."
+description = "Automation utilities for the Baibai-Loop Japanese equity trading workflow."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14,<3.15"
 dependencies = [
-  "httpx",
-  "jquants-api-client",
-  "openpyxl",
-  "pandas",
-  "pyarrow",
-  "pyyaml",
-  "requests",
-  "xlrd",
+  "httpx>=0.28.0",
+  "jquants-api-client>=1.7.0",
+  "openpyxl>=3.1.0",
+  "pandas>=2.3.0",
+  "pydantic>=2.12.0",
+  "pydantic-settings>=2.11.0",
+  "pyarrow>=21.0.0",
+  "pyyaml>=6.0.0",
+  "requests>=2.32.0",
+  "xlrd>=2.0.0",
+]
+classifiers = [
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.14",
+  "Typing :: Typed",
 ]
 
-[project.optional-dependencies]
+[project.scripts]
+baibai-loop-screening = "baibai_loop.screening.cli:main"
+
+[dependency-groups]
 dev = [
-  "pytest",
-  "pytest-mock",
+  { include-group = "test" },
+  { include-group = "typing" },
+  { include-group = "quality" },
+  { include-group = "security" },
+]
+test = [
+  "coverage[toml]>=7.13.0",
+  "hypothesis>=6.150.0",
+  "pytest>=9.0.0",
+  "pytest-mock>=3.15.0",
+]
+typing = [
+  "mypy>=1.20.0",
+  "pandas-stubs>=2.3.0.250703",
+  "types-pyyaml>=6.0.12.20250915",
+  "types-requests>=2.32.0.20250913",
+]
+quality = [
+  "mutmut>=3.3.0",
+  "pre-commit>=4.3.0",
+  "ruff>=0.14.0",
+]
+security = [
+  "bandit[toml]>=1.9.0",
+  "pip-audit>=2.10.0",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/baibai_loop"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/baibai_loop/py.typed" = "baibai_loop/py.typed"
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+  "E",
+  "F",
+  "W",
+  "I",
+  "UP",
+  "B",
+  "SIM",
+  "C4",
+  "DTZ",
+  "ISC",
+  "RET",
+  "RUF",
+  "PTH",
+  "ANN",
+  "PIE",
+  "PT",
+]
+ignore = [
+  "ANN401",
+  "ISC001",
+  "RUF001",
+]
+fixable = ["ALL"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["ANN", "C408", "E402", "E501", "PT009", "PT027", "RUF012"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_unreachable = true
+show_error_codes = true
+pretty = true
+disallow_any_unimported = true
+no_implicit_optional = true
+packages = ["baibai_loop"]
+plugins = ["pydantic.mypy"]
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+
+[[tool.mypy.overrides]]
+module = [
+  "jquantsapi.*",
+  "xlrd.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = [
+  "-ra",
+  "--strict",
+  "--maxfail=1",
+]
+markers = [
+  "integration: touches external services or local integration boundaries",
+  "property: property-based tests",
+  "slow: long-running tests",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["src/baibai_loop"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = false
+exclude_lines = [
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
+skips = ["B101"]
+
+[tool.mutmut]
+paths_to_mutate = ["src/baibai_loop"]
+tests_dir = "tests"
+runner = "python -m pytest -q -m 'not slow and not integration'"

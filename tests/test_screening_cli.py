@@ -24,7 +24,11 @@ from baibai_loop.screening.cli import (
 from baibai_loop.screening.config import ScreeningConfig
 from baibai_loop.screening.providers.edinet import EdinetMetricRecord
 from baibai_loop.screening.providers.jpx import JPXProviderError, JPXRegulationSnapshot
-from baibai_loop.screening.providers.jquants import JQuantsDailyBar, JQuantsFinancialSummary, JQuantsMarketCalendarDay
+from baibai_loop.screening.providers.jquants import (
+    JQuantsDailyBar,
+    JQuantsFinancialSummary,
+    JQuantsMarketCalendarDay,
+)
 from baibai_loop.screening.render import JST, build_output_path
 from baibai_loop.screening.schema import SecurityMaster, TTMQuality
 
@@ -426,5 +430,7 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(payload["after_view_filter"], 2)
             tickers = [c["ticker"] for c in payload["candidates"]]
             self.assertEqual(tickers, ["3333", "2222"])
-            self.assertEqual(payload["candidates"][0]["position_tier"], "300-500 (P-B only, max 0.5%)")
+            self.assertEqual(
+                payload["candidates"][0]["position_tier"], "300-500 (P-B only, max 0.5%)"
+            )
             self.assertEqual(payload["candidates"][1]["position_tier"], "500-1000 (max 1.0%)")
