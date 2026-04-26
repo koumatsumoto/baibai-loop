@@ -39,8 +39,9 @@ def build_provider_settings(config: ScreeningConfig) -> dict[str, object]:
             "methods": list(JQUANTS_CLIENT_V2_METHODS),
         },
         "edinet": {
+            # api_version は EDINET_API_BASE に既に含まれるため別 key としては持たない。
+            # API バージョンを上げる際は URL 側を変更すれば config_hash に出る。
             "api_base": EDINET_API_BASE,
-            "api_version": "v2",
         },
         "jpx": {
             "regulation_urls": dict(sorted(config.jpx_regulation_urls.items())),
