@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import date, timedelta, timezone
 from pathlib import Path
-from typing import Any
 
 import yaml
 
@@ -61,8 +60,8 @@ def render_screened_yaml(document: ScreenedRunDocument) -> str:
     return f"{yaml_text}\n"
 
 
-def _build_front_matter(document: ScreenedRunDocument) -> dict[str, Any]:
-    front_matter: dict[str, Any] = {}
+def _build_front_matter(document: ScreenedRunDocument) -> dict[str, object]:
+    front_matter: dict[str, object] = {}
     front_matter["run_date"] = QuotedString(document.run_date.isoformat())
     front_matter["asof_date"] = QuotedString(document.asof_date.isoformat())
     front_matter["universe_size"] = document.universe_size
@@ -83,8 +82,8 @@ def _build_front_matter(document: ScreenedRunDocument) -> dict[str, Any]:
     return front_matter
 
 
-def _build_ticker_entry(ticker: ScreenedTicker) -> dict[str, Any]:
-    entry: dict[str, Any] = {}
+def _build_ticker_entry(ticker: ScreenedTicker) -> dict[str, object]:
+    entry: dict[str, object] = {}
     entry["ticker"] = QuotedString(ticker.ticker)
     entry["name"] = QuotedString(ticker.name)
     entry["per_forward"] = _round_value("per_forward", ticker.per_forward)

@@ -1,26 +1,26 @@
-run_date: '2026-04-24'
-asof_date: '2026-04-24'
+run_date: "2026-04-24"
+asof_date: "2026-04-24"
 universe_size: 997
 filters:
   min_market_cap_oku: 300
   min_avg_turnover_oku: 2.0
   exclude_listed_under_months: 6
-generated_by: screening-cli-v1
+generated_by: "screening-cli-v1"
 data_sources:
-- j-quants-light
-- edinet-api-v2@2026-01-29
-- jpx-public-regulation
-run_at: '2026-04-25T22:20:32.973720+09:00'
+- "j-quants-light"
+- "edinet-api-v2@2026-01-29"
+- "jpx-public-regulation"
+run_at: "2026-04-25T22:20:32.973720+09:00"
 tickers:
-- ticker: '1333'
-  name: Ｕｍｉｏｓ
+- ticker: "1333"
+  name: "Ｕｍｉｏｓ"
   per_forward: 10.38
   per_trailing: 11.56
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 水産・農林業
+  sector_33: "水産・農林業"
   market_cap_oku: 2031
   avg_turnover_oku: 7.0
   price_change_60d: -0.045
@@ -46,15 +46,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '1515'
-  name: 日鉄鉱業
+- ticker: "1515"
+  name: "日鉄鉱業"
   per_forward: 18.37
   per_trailing: 20.76
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 鉱業
+  sector_33: "鉱業"
   market_cap_oku: 1961
   avg_turnover_oku: 22.1
   price_change_60d: -0.2651
@@ -80,15 +80,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '1518'
-  name: 三井松島ホールディングス
+- ticker: "1518"
+  name: "三井松島ホールディングス"
   per_forward: 10.71
   per_trailing: 8.77
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: その他製品
+  sector_33: "その他製品"
   market_cap_oku: 876
   avg_turnover_oku: 2.9
   price_change_60d: -0.0583
@@ -114,15 +114,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '1605'
-  name: ＩＮＰＥＸ
+- ticker: "1605"
+  name: "ＩＮＰＥＸ"
   per_forward: null
   per_trailing: 12.31
   pbr: 1.0
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 鉱業
+  sector_33: "鉱業"
   market_cap_oku: 51297
   avg_turnover_oku: 539.8
   price_change_60d: 0.2505
@@ -148,15 +148,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_rotation_short_sell
-- ticker: '1662'
-  name: 石油資源開発
+- ticker: "1662"
+  name: "石油資源開発"
   per_forward: 12.81
   per_trailing: 14.5
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 鉱業
+  sector_33: "鉱業"
   market_cap_oku: 5790
   avg_turnover_oku: 83.4
   price_change_60d: 0.1796
@@ -182,15 +182,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_rotation_short_sell
-- ticker: '1723'
-  name: 日本電技
+- ticker: "1723"
+  name: "日本電技"
   per_forward: 4.57
   per_trailing: 6.5
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 建設業
+  sector_33: "建設業"
   market_cap_oku: 379
   avg_turnover_oku: 5.3
   price_change_60d: -0.772
@@ -217,15 +217,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '1861'
-  name: 熊谷組
+- ticker: "1861"
+  name: "熊谷組"
   per_forward: 13.47
   per_trailing: 20.84
   pbr: 1.34
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 建設業
+  sector_33: "建設業"
   market_cap_oku: 2514
   avg_turnover_oku: 13.8
   price_change_60d: -0.1906
@@ -251,15 +251,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '1911'
-  name: 住友林業
+- ticker: "1911"
+  name: "住友林業"
   per_forward: null
   per_trailing: 8.15
   pbr: 0.86
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 建設業
+  sector_33: "建設業"
   market_cap_oku: 8777
   avg_turnover_oku: 45.1
   price_change_60d: -0.1397
@@ -285,15 +285,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '2124'
-  name: ジェイエイシーリクルートメント
+- ticker: "2124"
+  name: "ジェイエイシーリクルートメント"
   per_forward: null
   per_trailing: 16.18
   pbr: 6.07
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: サービス業
+  sector_33: "サービス業"
   market_cap_oku: 1419
   avg_turnover_oku: 2.4
   price_change_60d: -0.1421
@@ -319,15 +319,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '2181'
-  name: パーソルホールディングス
+- ticker: "2181"
+  name: "パーソルホールディングス"
   per_forward: 12.89
   per_trailing: 15.12
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: サービス業
+  sector_33: "サービス業"
   market_cap_oku: 5393
   avg_turnover_oku: 18.4
   price_change_60d: -0.1393
@@ -353,15 +353,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '2201'
-  name: 森永製菓
+- ticker: "2201"
+  name: "森永製菓"
   per_forward: 12.64
   per_trailing: 14.8
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 食料品
+  sector_33: "食料品"
   market_cap_oku: 2354
   avg_turnover_oku: 7.0
   price_change_60d: -0.0082
@@ -387,15 +387,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '2331'
-  name: ＡＬＳＯＫ
+- ticker: "2331"
+  name: "ＡＬＳＯＫ"
   per_forward: 17.89
   per_trailing: 24.86
   pbr: 1.67
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: サービス業
+  sector_33: "サービス業"
   market_cap_oku: 6184
   avg_turnover_oku: 11.7
   price_change_60d: -0.0154
@@ -421,15 +421,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '2379'
-  name: ディップ
+- ticker: "2379"
+  name: "ディップ"
   per_forward: null
   per_trailing: 16.05
   pbr: 2.6
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: サービス業
+  sector_33: "サービス業"
   market_cap_oku: 1099
   avg_turnover_oku: 10.5
   price_change_60d: -0.1221
@@ -455,15 +455,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '2413'
-  name: エムスリー
+- ticker: "2413"
+  name: "エムスリー"
   per_forward: 22.64
   per_trailing: 24.43
   pbr: 2.45
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: サービス業
+  sector_33: "サービス業"
   market_cap_oku: 10190
   avg_turnover_oku: 56.4
   price_change_60d: -0.2325
@@ -489,15 +489,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '2585'
-  name: ライフドリンク　カンパニー
+- ticker: "2585"
+  name: "ライフドリンク　カンパニー"
   per_forward: 21.89
   per_trailing: 24.68
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 食料品
+  sector_33: "食料品"
   market_cap_oku: 763
   avg_turnover_oku: 29.5
   price_change_60d: -0.1659
@@ -523,15 +523,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '2587'
-  name: サントリービバレッジ＆フード
+- ticker: "2587"
+  name: "サントリービバレッジ＆フード"
   per_forward: null
   per_trailing: 15.46
   pbr: 1.04
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 食料品
+  sector_33: "食料品"
   market_cap_oku: 13713
   avg_turnover_oku: 35.1
   price_change_60d: -0.1011
@@ -557,15 +557,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '2602'
-  name: 日清オイリオグループ
+- ticker: "2602"
+  name: "日清オイリオグループ"
   per_forward: 2.36
   per_trailing: 2.52
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 食料品
+  sector_33: "食料品"
   market_cap_oku: 607
   avg_turnover_oku: 4.7
   price_change_60d: -0.678
@@ -592,15 +592,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '2670'
-  name: エービーシー・マート
+- ticker: "2670"
+  name: "エービーシー・マート"
   per_forward: null
   per_trailing: 14.73
   pbr: 1.71
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 小売業
+  sector_33: "小売業"
   market_cap_oku: 6827
   avg_turnover_oku: 20.8
   price_change_60d: 0.1262
@@ -626,15 +626,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '2726'
-  name: パルグループホールディングス
+- ticker: "2726"
+  name: "パルグループホールディングス"
   per_forward: null
   per_trailing: 15.27
   pbr: 3.24
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 小売業
+  sector_33: "小売業"
   market_cap_oku: 2884
   avg_turnover_oku: 18.8
   price_change_60d: -0.101
@@ -660,15 +660,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '2733'
-  name: あらた
+- ticker: "2733"
+  name: "あらた"
   per_forward: 9.38
   per_trailing: 11.96
   pbr: 0.76
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 卸売業
+  sector_33: "卸売業"
   market_cap_oku: 1001
   avg_turnover_oku: 2.2
   price_change_60d: -0.099
@@ -694,15 +694,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '2767'
-  name: 円谷フィールズホールディングス
+- ticker: "2767"
+  name: "円谷フィールズホールディングス"
   per_forward: 6.96
   per_trailing: 6.63
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 卸売業
+  sector_33: "卸売業"
   market_cap_oku: 936
   avg_turnover_oku: 4.9
   price_change_60d: -0.2327
@@ -729,15 +729,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '3002'
-  name: グンゼ
+- ticker: "3002"
+  name: "グンゼ"
   per_forward: 74.13
   per_trailing: 89.82
   pbr: 1.05
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 繊維製品
+  sector_33: "繊維製品"
   market_cap_oku: 1269
   avg_turnover_oku: 10.2
   price_change_60d: -0.1961
@@ -763,15 +763,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '3038'
-  name: 神戸物産
+- ticker: "3038"
+  name: "神戸物産"
   per_forward: 20.52
   per_trailing: 102.55
   pbr: 3.86
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 卸売業
+  sector_33: "卸売業"
   market_cap_oku: 7480
   avg_turnover_oku: 61.9
   price_change_60d: -0.2781
@@ -797,15 +797,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '3104'
-  name: 富士紡ホールディングス
+- ticker: "3104"
+  name: "富士紡ホールディングス"
   per_forward: 8.48
   per_trailing: 9.97
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 繊維製品
+  sector_33: "繊維製品"
   market_cap_oku: 427
   avg_turnover_oku: 12.4
   price_change_60d: -0.5948
@@ -831,15 +831,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '3231'
-  name: 野村不動産ホールディングス
+- ticker: "3231"
+  name: "野村不動産ホールディングス"
   per_forward: null
   per_trailing: 10.37
   pbr: 1.07
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 不動産業
+  sector_33: "不動産業"
   market_cap_oku: 9207
   avg_turnover_oku: 20.5
   price_change_60d: -0.0238
@@ -858,22 +858,22 @@ tickers:
       sector_median_gap: null
       self_range_percentile: null
       sigma_gap: null
-  next_earnings_date: '2026-04-24'
+  next_earnings_date: "2026-04-24"
   ttm_quality:
     ev_ebitda: unavailable
     p_s: unavailable
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '3333'
-  name: あさひ
+- ticker: "3333"
+  name: "あさひ"
   per_forward: null
   per_trailing: 14.83
   pbr: 0.84
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 小売業
+  sector_33: "小売業"
   market_cap_oku: 339
   avg_turnover_oku: 3.1
   price_change_60d: -0.0008
@@ -899,15 +899,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '3350'
-  name: メタプラネット
+- ticker: "3350"
+  name: "メタプラネット"
   per_forward: null
   per_trailing: null
   pbr: 0.89
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 卸売業
+  sector_33: "卸売業"
   market_cap_oku: 3872
   avg_turnover_oku: 68.7
   price_change_60d: -0.3152
@@ -933,15 +933,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '3382'
-  name: セブン＆アイ・ホールディングス
+- ticker: "3382"
+  name: "セブン＆アイ・ホールディングス"
   per_forward: null
   per_trailing: 16.1
   pbr: 1.22
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 小売業
+  sector_33: "小売業"
   market_cap_oku: 49825
   avg_turnover_oku: 145.9
   price_change_60d: -0.1201
@@ -967,15 +967,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '3391'
-  name: ツルハホールディングス
+- ticker: "3391"
+  name: "ツルハホールディングス"
   per_forward: null
   per_trailing: 14.19
   pbr: 1.06
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 小売業
+  sector_33: "小売業"
   market_cap_oku: 9320
   avg_turnover_oku: 51.8
   price_change_60d: -0.1801
@@ -1002,15 +1002,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '3399'
-  name: 丸千代山岡家
+- ticker: "3399"
+  name: "丸千代山岡家"
   per_forward: null
   per_trailing: 16.52
   pbr: 6.03
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 小売業
+  sector_33: "小売業"
   market_cap_oku: 623
   avg_turnover_oku: 4.4
   price_change_60d: -0.0491
@@ -1036,15 +1036,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '3431'
-  name: 宮地エンジニアリンググループ
+- ticker: "3431"
+  name: "宮地エンジニアリンググループ"
   per_forward: 14.36
   per_trailing: 17.78
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 金属製品
+  sector_33: "金属製品"
   market_cap_oku: 450
   avg_turnover_oku: 2.6
   price_change_60d: -0.1662
@@ -1070,15 +1070,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '3498'
-  name: 霞ヶ関キャピタル
+- ticker: "3498"
+  name: "霞ヶ関キャピタル"
   per_forward: 9.65
   per_trailing: 29.49
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 不動産業
+  sector_33: "不動産業"
   market_cap_oku: 1596
   avg_turnover_oku: 31.6
   price_change_60d: -0.1516
@@ -1104,15 +1104,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '3612'
-  name: ワールド
+- ticker: "3612"
+  name: "ワールド"
   per_forward: null
   per_trailing: 8.75
   pbr: 1.15
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 繊維製品
+  sector_33: "繊維製品"
   market_cap_oku: 1106
   avg_turnover_oku: 5.0
   price_change_60d: -0.5122
@@ -1139,15 +1139,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '3661'
-  name: エムアップホールディングス
+- ticker: "3661"
+  name: "エムアップホールディングス"
   per_forward: 16.99
   per_trailing: 20.06
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 523
   avg_turnover_oku: 3.8
   price_change_60d: -0.1614
@@ -1174,15 +1174,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '3687'
-  name: フィックスターズ
+- ticker: "3687"
+  name: "フィックスターズ"
   per_forward: 25.46
   per_trailing: 90.67
   pbr: 5.01
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 425
   avg_turnover_oku: 6.4
   price_change_60d: -0.1793
@@ -1208,15 +1208,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '3697'
-  name: ＳＨＩＦＴ
+- ticker: "3697"
+  name: "ＳＨＩＦＴ"
   per_forward: 15.15
   per_trailing: 43.17
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 1769
   avg_turnover_oku: 66.2
   price_change_60d: -0.2222
@@ -1242,15 +1242,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '3844'
-  name: コムチュア
+- ticker: "3844"
+  name: "コムチュア"
   per_forward: 12.99
   per_trailing: 20.19
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 437
   avg_turnover_oku: 4.1
   price_change_60d: -0.1892
@@ -1277,15 +1277,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '3962'
-  name: チェンジホールディングス
+- ticker: "3962"
+  name: "チェンジホールディングス"
   per_forward: 7.9
   per_trailing: 9.08
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 663
   avg_turnover_oku: 2.4
   price_change_60d: -0.1701
@@ -1312,15 +1312,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '4107'
-  name: 伊勢化学工業
+- ticker: "4107"
+  name: "伊勢化学工業"
   per_forward: null
   per_trailing: 40.31
   pbr: 6.54
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 化学
+  sector_33: "化学"
   market_cap_oku: 2639
   avg_turnover_oku: 22.7
   price_change_60d: -0.1696
@@ -1346,15 +1346,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '4114'
-  name: 日本触媒
+- ticker: "4114"
+  name: "日本触媒"
   per_forward: 21.1
   per_trailing: 22.1
   pbr: 0.81
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 化学
+  sector_33: "化学"
   market_cap_oku: 3176
   avg_turnover_oku: 13.7
   price_change_60d: -0.056
@@ -1380,15 +1380,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: 417A
-  name: ブルーゾーンホールディングス
+- ticker: "417A"
+  name: "ブルーゾーンホールディングス"
   per_forward: 3.55
   per_trailing: 2.9
   pbr: 0.36
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 小売業
+  sector_33: "小売業"
   market_cap_oku: 745
   avg_turnover_oku: 5.1
   price_change_60d: -0.7996
@@ -1414,15 +1414,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '4180'
-  name: Ａｐｐｉｅｒ　Ｇｒｏｕｐ
+- ticker: "4180"
+  name: "Ａｐｐｉｅｒ　Ｇｒｏｕｐ"
   per_forward: null
   per_trailing: 36.04
   pbr: 2.49
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 929
   avg_turnover_oku: 14.7
   price_change_60d: -0.1541
@@ -1449,15 +1449,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '4183'
-  name: 三井化学
+- ticker: "4183"
+  name: "三井化学"
   per_forward: 16.92
   per_trailing: 31.45
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 化学
+  sector_33: "化学"
   market_cap_oku: 7590
   avg_turnover_oku: 58.0
   price_change_60d: -0.1606
@@ -1483,15 +1483,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '4368'
-  name: 扶桑化学工業
+- ticker: "4368"
+  name: "扶桑化学工業"
   per_forward: 8.81
   per_trailing: 10.06
   pbr: 0.95
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 化学
+  sector_33: "化学"
   market_cap_oku: 1083
   avg_turnover_oku: 12.8
   price_change_60d: -0.595
@@ -1518,15 +1518,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '4443'
-  name: Ｓａｎｓａｎ
+- ticker: "4443"
+  name: "Ｓａｎｓａｎ"
   per_forward: null
   per_trailing: 39.0
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 1606
   avg_turnover_oku: 27.0
   price_change_60d: -0.2121
@@ -1552,15 +1552,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '4449'
-  name: ギフティ
+- ticker: "4449"
+  name: "ギフティ"
   per_forward: null
   per_trailing: 33.74
   pbr: 3.74
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 317
   avg_turnover_oku: 2.7
   price_change_60d: -0.2132
@@ -1586,15 +1586,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '4478'
-  name: フリー
+- ticker: "4478"
+  name: "フリー"
   per_forward: null
   per_trailing: 441.2
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 1361
   avg_turnover_oku: 18.7
   price_change_60d: -0.2183
@@ -1620,15 +1620,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '4523'
-  name: エーザイ
+- ticker: "4523"
+  name: "エーザイ"
   per_forward: 32.17
   per_trailing: 31.93
   pbr: 1.5
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 医薬品
+  sector_33: "医薬品"
   market_cap_oku: 13810
   avg_turnover_oku: 51.2
   price_change_60d: 0.0718
@@ -1654,15 +1654,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '4565'
-  name: ネクセラファーマ
+- ticker: "4565"
+  name: "ネクセラファーマ"
   per_forward: null
   per_trailing: null
   pbr: 1.44
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 医薬品
+  sector_33: "医薬品"
   market_cap_oku: 876
   avg_turnover_oku: 12.2
   price_change_60d: 0.1819
@@ -1688,15 +1688,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '4568'
-  name: 第一三共
+- ticker: "4568"
+  name: "第一三共"
   per_forward: 16.06
   per_trailing: 21.3
   pbr: 2.7
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 医薬品
+  sector_33: "医薬品"
   market_cap_oku: 47340
   avg_turnover_oku: 220.7
   price_change_60d: -0.179
@@ -1722,15 +1722,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '4587'
-  name: ペプチドリーム
+- ticker: "4587"
+  name: "ペプチドリーム"
   per_forward: null
   per_trailing: null
   pbr: 2.91
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 医薬品
+  sector_33: "医薬品"
   market_cap_oku: 1506
   avg_turnover_oku: 10.6
   price_change_60d: -0.2939
@@ -1756,15 +1756,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '4704'
-  name: トレンドマイクロ
+- ticker: "4704"
+  name: "トレンドマイクロ"
   per_forward: null
   per_trailing: 21.25
   pbr: 5.71
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 7857
   avg_turnover_oku: 73.9
   price_change_60d: -0.0936
@@ -1790,15 +1790,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '4716'
-  name: 日本オラクル
+- ticker: "4716"
+  name: "日本オラクル"
   per_forward: null
   per_trailing: 24.95
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 11728
   avg_turnover_oku: 38.1
   price_change_60d: -0.1557
@@ -1824,15 +1824,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '4768'
-  name: 大塚商会
+- ticker: "4768"
+  name: "大塚商会"
   per_forward: null
   per_trailing: 17.52
   pbr: 2.86
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 11290
   avg_turnover_oku: 43.8
   price_change_60d: -0.055
@@ -1858,15 +1858,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '4825'
-  name: ウェザーニューズ
+- ticker: "4825"
+  name: "ウェザーニューズ"
   per_forward: 25.37
   per_trailing: 32.06
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 949
   avg_turnover_oku: 4.7
   price_change_60d: -0.5156
@@ -1892,15 +1892,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '5019'
-  name: 出光興産
+- ticker: "5019"
+  name: "出光興産"
   per_forward: 21.82
   per_trailing: 31.12
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 石油・石炭製品
+  sector_33: "石油・石炭製品"
   market_cap_oku: 17218
   avg_turnover_oku: 72.7
   price_change_60d: 0.0437
@@ -1926,15 +1926,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_rotation_short_sell
-- ticker: '5021'
-  name: コスモエネルギーホールディングス
+- ticker: "5021"
+  name: "コスモエネルギーホールディングス"
   per_forward: 11.74
   per_trailing: 18.55
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 石油・石炭製品
+  sector_33: "石油・石炭製品"
   market_cap_oku: 6508
   avg_turnover_oku: 24.7
   price_change_60d: -0.1286
@@ -1960,15 +1960,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_rotation_short_sell
-- ticker: '5032'
-  name: ＡＮＹＣＯＬＯＲ
+- ticker: "5032"
+  name: "ＡＮＹＣＯＬＯＲ"
   per_forward: null
   per_trailing: 15.02
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 1772
   avg_turnover_oku: 23.9
   price_change_60d: -0.3536
@@ -1994,15 +1994,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '5108'
-  name: ブリヂストン
+- ticker: "5108"
+  name: "ブリヂストン"
   per_forward: null
   per_trailing: 13.35
   pbr: 1.15
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: ゴム製品
+  sector_33: "ゴム製品"
   market_cap_oku: 46890
   avg_turnover_oku: 131.7
   price_change_60d: -0.0606
@@ -2028,15 +2028,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '5253'
-  name: カバー
+- ticker: "5253"
+  name: "カバー"
   per_forward: 15.95
   per_trailing: 23.15
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 909
   avg_turnover_oku: 13.5
   price_change_60d: -0.1642
@@ -2062,15 +2062,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '5262'
-  name: 日本ヒューム
+- ticker: "5262"
+  name: "日本ヒューム"
   per_forward: 18.46
   per_trailing: 20.13
   pbr: 1.21
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: ガラス・土石製品
+  sector_33: "ガラス・土石製品"
   market_cap_oku: 698
   avg_turnover_oku: 4.7
   price_change_60d: -0.2473
@@ -2096,15 +2096,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '5331'
-  name: ノリタケ
+- ticker: "5331"
+  name: "ノリタケ"
   per_forward: 7.55
   per_trailing: 10.61
   pbr: 0.57
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: ガラス・土石製品
+  sector_33: "ガラス・土石製品"
   market_cap_oku: 926
   avg_turnover_oku: 4.9
   price_change_60d: -0.4745
@@ -2131,15 +2131,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '5393'
-  name: ニチアス
+- ticker: "5393"
+  name: "ニチアス"
   per_forward: 7.8
   per_trailing: 9.49
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: ガラス・土石製品
+  sector_33: "ガラス・土石製品"
   market_cap_oku: 2137
   avg_turnover_oku: 18.1
   price_change_60d: -0.6041
@@ -2166,15 +2166,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '5410'
-  name: 合同製鐵
+- ticker: "5410"
+  name: "合同製鐵"
   per_forward: 5.87
   per_trailing: 7.62
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 鉄鋼
+  sector_33: "鉄鋼"
   market_cap_oku: 585
   avg_turnover_oku: 2.3
   price_change_60d: -0.1549
@@ -2201,15 +2201,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '5411'
-  name: ＪＦＥホールディングス
+- ticker: "5411"
+  name: "ＪＦＥホールディングス"
   per_forward: 14.29
   per_trailing: 17.61
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 鉄鋼
+  sector_33: "鉄鋼"
   market_cap_oku: 10778
   avg_turnover_oku: 64.1
   price_change_60d: -0.2036
@@ -2235,15 +2235,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '5602'
-  name: 栗本鐵工所
+- ticker: "5602"
+  name: "栗本鐵工所"
   per_forward: 13.14
   per_trailing: 16.55
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 鉄鋼
+  sector_33: "鉄鋼"
   market_cap_oku: 970
   avg_turnover_oku: 4.8
   price_change_60d: -0.1634
@@ -2269,15 +2269,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '5803'
-  name: フジクラ
+- ticker: "5803"
+  name: "フジクラ"
   per_forward: 11.1
   per_trailing: 14.88
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 非鉄金属
+  sector_33: "非鉄金属"
   market_cap_oku: 17861
   avg_turnover_oku: 2885.5
   price_change_60d: -0.6714
@@ -2303,15 +2303,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '6027'
-  name: 弁護士ドットコム
+- ticker: "6027"
+  name: "弁護士ドットコム"
   per_forward: 47.55
   per_trailing: 57.58
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: サービス業
+  sector_33: "サービス業"
   market_cap_oku: 571
   avg_turnover_oku: 2.9
   price_change_60d: -0.168
@@ -2337,15 +2337,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '6036'
-  name: ＫｅｅＰｅｒ技研
+- ticker: "6036"
+  name: "ＫｅｅＰｅｒ技研"
   per_forward: 8.71
   per_trailing: 11.24
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: サービス業
+  sector_33: "サービス業"
   market_cap_oku: 843
   avg_turnover_oku: 4.2
   price_change_60d: -0.0757
@@ -2371,15 +2371,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '6088'
-  name: シグマクシス・ホールディングス
+- ticker: "6088"
+  name: "シグマクシス・ホールディングス"
   per_forward: 12.2
   per_trailing: 16.47
   pbr: 3.62
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: サービス業
+  sector_33: "サービス業"
   market_cap_oku: 553
   avg_turnover_oku: 3.3
   price_change_60d: -0.2101
@@ -2406,15 +2406,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '6226'
-  name: 守谷輸送機工業
+- ticker: "6226"
+  name: "守谷輸送機工業"
   per_forward: 9.24
   per_trailing: 11.61
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 機械
+  sector_33: "機械"
   market_cap_oku: 332
   avg_turnover_oku: 4.1
   price_change_60d: -0.6413
@@ -2440,15 +2440,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '6371'
-  name: 椿本チエイン
+- ticker: "6371"
+  name: "椿本チエイン"
   per_forward: 12.12
   per_trailing: 14.42
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 機械
+  sector_33: "機械"
   market_cap_oku: 2434
   avg_turnover_oku: 3.6
   price_change_60d: -0.0386
@@ -2474,15 +2474,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '6412'
-  name: 平和
+- ticker: "6412"
+  name: "平和"
   per_forward: 22.68
   per_trailing: 10.51
   pbr: 0.71
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 機械
+  sector_33: "機械"
   market_cap_oku: 1814
   avg_turnover_oku: 5.3
   price_change_60d: -0.1009
@@ -2508,15 +2508,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '6417'
-  name: ＳＡＮＫＹＯ
+- ticker: "6417"
+  name: "ＳＡＮＫＹＯ"
   per_forward: 8.75
   per_trailing: 8.59
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 機械
+  sector_33: "機械"
   market_cap_oku: 4874
   avg_turnover_oku: 18.6
   price_change_60d: -0.2254
@@ -2542,15 +2542,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '6425'
-  name: ユニバーサルエンターテインメント
+- ticker: "6425"
+  name: "ユニバーサルエンターテインメント"
   per_forward: null
   per_trailing: null
   pbr: 0.45
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 機械
+  sector_33: "機械"
   market_cap_oku: 605
   avg_turnover_oku: 2.6
   price_change_60d: -0.022
@@ -2576,15 +2576,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '6454'
-  name: マックス
+- ticker: "6454"
+  name: "マックス"
   per_forward: 5.81
   per_trailing: 7.06
   pbr: 0.7
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 機械
+  sector_33: "機械"
   market_cap_oku: 787
   avg_turnover_oku: 4.2
   price_change_60d: -0.743
@@ -2611,15 +2611,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '6590'
-  name: 芝浦メカトロニクス
+- ticker: "6590"
+  name: "芝浦メカトロニクス"
   per_forward: 30.14
   per_trailing: 7.35
   pbr: 1.24
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 電気機器
+  sector_33: "電気機器"
   market_cap_oku: 693
   avg_turnover_oku: 85.4
   price_change_60d: -0.8129
@@ -2646,15 +2646,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '6592'
-  name: マブチモーター
+- ticker: "6592"
+  name: "マブチモーター"
   per_forward: null
   per_trailing: 15.11
   pbr: 1.18
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 電気機器
+  sector_33: "電気機器"
   market_cap_oku: 4170
   avg_turnover_oku: 12.1
   price_change_60d: 0.0989
@@ -2680,15 +2680,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '6701'
-  name: 日本電気
+- ticker: "6701"
+  name: "日本電気"
   per_forward: null
   per_trailing: 42.28
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 電気機器
+  sector_33: "電気機器"
   market_cap_oku: 61569
   avg_turnover_oku: 329.2
   price_change_60d: -0.2064
@@ -2714,15 +2714,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '6702'
-  name: 富士通
+- ticker: "6702"
+  name: "富士通"
   per_forward: 15.28
   per_trailing: 19.05
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 電気機器
+  sector_33: "電気機器"
   market_cap_oku: 76548
   avg_turnover_oku: 307.4
   price_change_60d: -0.0957
@@ -2748,15 +2748,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '6724'
-  name: セイコーエプソン
+- ticker: "6724"
+  name: "セイコーエプソン"
   per_forward: 15.83
   per_trailing: 18.31
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 電気機器
+  sector_33: "電気機器"
   market_cap_oku: 7569
   avg_turnover_oku: 30.4
   price_change_60d: 0.0115
@@ -2782,15 +2782,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '6737'
-  name: ＥＩＺＯ
+- ticker: "6737"
+  name: "ＥＩＺＯ"
   per_forward: 26.2
   per_trailing: 29.74
   pbr: 0.61
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 電気機器
+  sector_33: "電気機器"
   market_cap_oku: 875
   avg_turnover_oku: 2.3
   price_change_60d: -0.102
@@ -2816,15 +2816,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '6753'
-  name: シャープ
+- ticker: "6753"
+  name: "シャープ"
   per_forward: 6.8
   per_trailing: 5.34
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 電気機器
+  sector_33: "電気機器"
   market_cap_oku: 3610
   avg_turnover_oku: 19.4
   price_change_60d: -0.2101
@@ -2851,15 +2851,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '6849'
-  name: 日本光電工業
+- ticker: "6849"
+  name: "日本光電工業"
   per_forward: 18.91
   per_trailing: 37.04
   pbr: 1.37
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 電気機器
+  sector_33: "電気機器"
   market_cap_oku: 2489
   avg_turnover_oku: 7.8
   price_change_60d: -0.167
@@ -2886,15 +2886,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '6869'
-  name: シスメックス
+- ticker: "6869"
+  name: "シスメックス"
   per_forward: 21.23
   per_trailing: 25.83
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 電気機器
+  sector_33: "電気機器"
   market_cap_oku: 8788
   avg_turnover_oku: 43.0
   price_change_60d: -0.0564
@@ -2920,15 +2920,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '6966'
-  name: 三井ハイテック
+- ticker: "6966"
+  name: "三井ハイテック"
   per_forward: null
   per_trailing: 38.55
   pbr: 1.07
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 電気機器
+  sector_33: "電気機器"
   market_cap_oku: 1312
   avg_turnover_oku: 11.3
   price_change_60d: -0.1133
@@ -2954,15 +2954,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '7012'
-  name: 川崎重工業
+- ticker: "7012"
+  name: "川崎重工業"
   per_forward: 5.9
   per_trailing: 8.06
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 輸送用機器
+  sector_33: "輸送用機器"
   market_cap_oku: 5332
   avg_turnover_oku: 446.4
   price_change_60d: -0.7564
@@ -2989,15 +2989,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '7181'
-  name: かんぽ生命保険
+- ticker: "7181"
+  name: "かんぽ生命保険"
   per_forward: 3.47
   per_trailing: 4.68
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 保険業
+  sector_33: "保険業"
   market_cap_oku: 5561
   avg_turnover_oku: 34.5
   price_change_60d: -0.6821
@@ -3025,15 +3025,15 @@ tickers:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
   - sector_rotation_short_sell
-- ticker: '7269'
-  name: スズキ
+- ticker: "7269"
+  name: "スズキ"
   per_forward: 8.79
   per_trailing: 11.19
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 輸送用機器
+  sector_33: "輸送用機器"
   market_cap_oku: 34901
   avg_turnover_oku: 164.2
   price_change_60d: -0.1567
@@ -3059,15 +3059,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '7270'
-  name: ＳＵＢＡＲＵ
+- ticker: "7270"
+  name: "ＳＵＢＡＲＵ"
   per_forward: 14.17
   per_trailing: 21.4
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 輸送用機器
+  sector_33: "輸送用機器"
   market_cap_oku: 17942
   avg_turnover_oku: 81.1
   price_change_60d: -0.2465
@@ -3093,15 +3093,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '7272'
-  name: ヤマハ発動機
+- ticker: "7272"
+  name: "ヤマハ発動機"
   per_forward: null
   per_trailing: 65.76
   pbr: 0.94
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 輸送用機器
+  sector_33: "輸送用機器"
   market_cap_oku: 11108
   avg_turnover_oku: 62.9
   price_change_60d: -0.0521
@@ -3127,15 +3127,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '7318'
-  name: セレンディップ・ホールディングス
+- ticker: "7318"
+  name: "セレンディップ・ホールディングス"
   per_forward: 8.47
   per_trailing: 8.49
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 輸送用機器
+  sector_33: "輸送用機器"
   market_cap_oku: 345
   avg_turnover_oku: 4.5
   price_change_60d: 0.6667
@@ -3161,15 +3161,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '7322'
-  name: 三十三フィナンシャルグループ
+- ticker: "7322"
+  name: "三十三フィナンシャルグループ"
   per_forward: 3.58
   per_trailing: 4.13
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 銀行業
+  sector_33: "銀行業"
   market_cap_oku: 400
   avg_turnover_oku: 5.5
   price_change_60d: -0.6948
@@ -3196,15 +3196,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - sector_rotation_short_sell
-- ticker: '7419'
-  name: ノジマ
+- ticker: "7419"
+  name: "ノジマ"
   per_forward: 9.11
   per_trailing: 12.44
   pbr: 1.56
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 小売業
+  sector_33: "小売業"
   market_cap_oku: 3865
   avg_turnover_oku: 14.7
   price_change_60d: 0.0236
@@ -3230,15 +3230,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '7552'
-  name: ハピネット
+- ticker: "7552"
+  name: "ハピネット"
   per_forward: 11.84
   per_trailing: 12.23
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 卸売業
+  sector_33: "卸売業"
   market_cap_oku: 1291
   avg_turnover_oku: 4.6
   price_change_60d: -0.0509
@@ -3264,15 +3264,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '7595'
-  name: アルゴグラフィックス
+- ticker: "7595"
+  name: "アルゴグラフィックス"
   per_forward: 5.41
   per_trailing: 6.42
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 1120
   avg_turnover_oku: 2.5
   price_change_60d: -0.0735
@@ -3298,15 +3298,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '7649'
-  name: スギホールディングス
+- ticker: "7649"
+  name: "スギホールディングス"
   per_forward: null
   per_trailing: 12.77
   pbr: 1.98
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 小売業
+  sector_33: "小売業"
   market_cap_oku: 6032
   avg_turnover_oku: 25.7
   price_change_60d: -0.1656
@@ -3332,15 +3332,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '7701'
-  name: 島津製作所
+- ticker: "7701"
+  name: "島津製作所"
   per_forward: 19.23
   per_trailing: 26.57
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 精密機器
+  sector_33: "精密機器"
   market_cap_oku: 10641
   avg_turnover_oku: 45.2
   price_change_60d: -0.1696
@@ -3366,15 +3366,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '7733'
-  name: オリンパス
+- ticker: "7733"
+  name: "オリンパス"
   per_forward: null
   per_trailing: 39.32
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 精密機器
+  sector_33: "精密機器"
   market_cap_oku: 17035
   avg_turnover_oku: 84.7
   price_change_60d: -0.1756
@@ -3400,15 +3400,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '7740'
-  name: タムロン
+- ticker: "7740"
+  name: "タムロン"
   per_forward: null
   per_trailing: 14.88
   pbr: 2.03
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 精密機器
+  sector_33: "精密機器"
   market_cap_oku: 1850
   avg_turnover_oku: 3.9
   price_change_60d: 0.0464
@@ -3434,15 +3434,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '7744'
-  name: ノーリツ鋼機
+- ticker: "7744"
+  name: "ノーリツ鋼機"
   per_forward: null
   per_trailing: 13.82
   pbr: 0.95
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 精密機器
+  sector_33: "精密機器"
   market_cap_oku: 2210
   avg_turnover_oku: 4.7
   price_change_60d: -0.0402
@@ -3468,15 +3468,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '7915'
-  name: ＮＩＳＳＨＡ
+- ticker: "7915"
+  name: "ＮＩＳＳＨＡ"
   per_forward: null
   per_trailing: 61.57
   pbr: 0.53
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: その他製品
+  sector_33: "その他製品"
   market_cap_oku: 625
   avg_turnover_oku: 2.4
   price_change_60d: 0.0301
@@ -3502,15 +3502,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '7947'
-  name: エフピコ
+- ticker: "7947"
+  name: "エフピコ"
   per_forward: 12.98
   per_trailing: 15.57
   pbr: 1.18
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 化学
+  sector_33: "化学"
   market_cap_oku: 1996
   avg_turnover_oku: 6.6
   price_change_60d: -0.1339
@@ -3536,15 +3536,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '7951'
-  name: ヤマハ
+- ticker: "7951"
+  name: "ヤマハ"
   per_forward: 20.96
   per_trailing: 25.04
   pbr: 1.05
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: その他製品
+  sector_33: "その他製品"
   market_cap_oku: 5621
   avg_turnover_oku: 20.9
   price_change_60d: 0.0013
@@ -3570,15 +3570,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '7984'
-  name: コクヨ
+- ticker: "7984"
+  name: "コクヨ"
   per_forward: null
   per_trailing: 17.79
   pbr: 1.47
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: その他製品
+  sector_33: "その他製品"
   market_cap_oku: 3790
   avg_turnover_oku: 7.0
   price_change_60d: -0.0483
@@ -3604,15 +3604,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '8012'
-  name: 長瀬産業
+- ticker: "8012"
+  name: "長瀬産業"
   per_forward: 3.95
   per_trailing: 5.04
   pbr: 0.3
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 卸売業
+  sector_33: "卸売業"
   market_cap_oku: 1306
   avg_turnover_oku: 9.4
   price_change_60d: -0.7075
@@ -3639,15 +3639,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '8022'
-  name: 美津濃
+- ticker: "8022"
+  name: "美津濃"
   per_forward: 15.28
   per_trailing: 16.94
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: その他製品
+  sector_33: "その他製品"
   market_cap_oku: 2619
   avg_turnover_oku: 5.5
   price_change_60d: 0.0363
@@ -3673,15 +3673,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '8060'
-  name: キヤノンマーケティングジャパン
+- ticker: "8060"
+  name: "キヤノンマーケティングジャパン"
   per_forward: 18.44
   per_trailing: 61.12
   pbr: 1.95
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 卸売業
+  sector_33: "卸売業"
   market_cap_oku: 8160
   avg_turnover_oku: 20.4
   price_change_60d: -0.4567
@@ -3707,15 +3707,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '8078'
-  name: 阪和興業
+- ticker: "8078"
+  name: "阪和興業"
   per_forward: 1.65
   per_trailing: 2.54
   pbr: 0.16
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 卸売業
+  sector_33: "卸売業"
   market_cap_oku: 692
   avg_turnover_oku: 7.8
   price_change_60d: -0.7928
@@ -3742,15 +3742,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '8117'
-  name: 中央自動車工業
+- ticker: "8117"
+  name: "中央自動車工業"
   per_forward: 10.7
   per_trailing: 13.86
   pbr: 1.66
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 卸売業
+  sector_33: "卸売業"
   market_cap_oku: 1087
   avg_turnover_oku: 2.6
   price_change_60d: -0.1739
@@ -3776,15 +3776,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '8136'
-  name: サンリオ
+- ticker: "8136"
+  name: "サンリオ"
   per_forward: 4.41
   per_trailing: 5.24
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 卸売業
+  sector_33: "卸売業"
   market_cap_oku: 2432
   avg_turnover_oku: 210.1
   price_change_60d: -0.8033
@@ -3811,15 +3811,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '8219'
-  name: 青山商事
+- ticker: "8219"
+  name: "青山商事"
   per_forward: 3.92
   per_trailing: 92.27
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 小売業
+  sector_33: "小売業"
   market_cap_oku: 397
   avg_turnover_oku: 6.8
   price_change_60d: -0.6979
@@ -3845,15 +3845,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '8227'
-  name: しまむら
+- ticker: "8227"
+  name: "しまむら"
   per_forward: null
   per_trailing: 16.38
   pbr: 1.41
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 小売業
+  sector_33: "小売業"
   market_cap_oku: 7342
   avg_turnover_oku: 26.7
   price_change_60d: -0.6849
@@ -3880,15 +3880,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '8267'
-  name: イオン
+- ticker: "8267"
+  name: "イオン"
   per_forward: null
   per_trailing: 57.29
   pbr: 3.5
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 小売業
+  sector_33: "小売業"
   market_cap_oku: 42852
   avg_turnover_oku: 154.9
   price_change_60d: -0.3015
@@ -3914,15 +3914,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '8273'
-  name: イズミ
+- ticker: "8273"
+  name: "イズミ"
   per_forward: null
   per_trailing: 12.05
   pbr: 0.68
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 小売業
+  sector_33: "小売業"
   market_cap_oku: 2058
   avg_turnover_oku: 7.1
   price_change_60d: -0.6908
@@ -3949,15 +3949,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '8336'
-  name: 武蔵野銀行
+- ticker: "8336"
+  name: "武蔵野銀行"
   per_forward: 5.14
   per_trailing: 6.02
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 銀行業
+  sector_33: "銀行業"
   market_cap_oku: 779
   avg_turnover_oku: 11.2
   price_change_60d: -0.5766
@@ -3984,15 +3984,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - sector_rotation_short_sell
-- ticker: '8341'
-  name: 七十七銀行
+- ticker: "8341"
+  name: "七十七銀行"
   per_forward: 4.63
   per_trailing: 5.45
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 銀行業
+  sector_33: "銀行業"
   market_cap_oku: 2246
   avg_turnover_oku: 25.1
   price_change_60d: -0.6533
@@ -4019,15 +4019,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - sector_rotation_short_sell
-- ticker: '8345'
-  name: 岩手銀行
+- ticker: "8345"
+  name: "岩手銀行"
   per_forward: 3.83
   per_trailing: 4.78
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 銀行業
+  sector_33: "銀行業"
   market_cap_oku: 337
   avg_turnover_oku: 5.7
   price_change_60d: -0.7029
@@ -4055,15 +4055,15 @@ tickers:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
   - sector_rotation_short_sell
-- ticker: '8366'
-  name: 滋賀銀行
+- ticker: "8366"
+  name: "滋賀銀行"
   per_forward: 4.32
   per_trailing: 5.07
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 銀行業
+  sector_33: "銀行業"
   market_cap_oku: 992
   avg_turnover_oku: 19.0
   price_change_60d: -0.7707
@@ -4091,15 +4091,15 @@ tickers:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
   - sector_rotation_short_sell
-- ticker: '8392'
-  name: 大分銀行
+- ticker: "8392"
+  name: "大分銀行"
   per_forward: 3.27
   per_trailing: 4.01
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 銀行業
+  sector_33: "銀行業"
   market_cap_oku: 311
   avg_turnover_oku: 6.1
   price_change_60d: -0.754
@@ -4126,15 +4126,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - sector_rotation_short_sell
-- ticker: '8393'
-  name: 宮崎銀行
+- ticker: "8393"
+  name: "宮崎銀行"
   per_forward: 2.39
   per_trailing: 3.13
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 銀行業
+  sector_33: "銀行業"
   market_cap_oku: 331
   avg_turnover_oku: 7.1
   price_change_60d: -0.7527
@@ -4162,15 +4162,15 @@ tickers:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
   - sector_rotation_short_sell
-- ticker: '8424'
-  name: 芙蓉総合リース
+- ticker: "8424"
+  name: "芙蓉総合リース"
   per_forward: 22.7
   per_trailing: 28.99
   pbr: 0.81
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: その他金融業
+  sector_33: "その他金融業"
   market_cap_oku: 3888
   avg_turnover_oku: 6.4
   price_change_60d: -0.0231
@@ -4196,15 +4196,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '8425'
-  name: みずほリース
+- ticker: "8425"
+  name: "みずほリース"
   per_forward: 8.79
   per_trailing: 9.71
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: その他金融業
+  sector_33: "その他金融業"
   market_cap_oku: 3991
   avg_turnover_oku: 4.5
   price_change_60d: -0.0167
@@ -4230,15 +4230,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '8439'
-  name: 東京センチュリー
+- ticker: "8439"
+  name: "東京センチュリー"
   per_forward: 10.25
   per_trailing: 8.84
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: その他金融業
+  sector_33: "その他金融業"
   market_cap_oku: 10325
   avg_turnover_oku: 9.8
   price_change_60d: -0.026
@@ -4264,15 +4264,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '8729'
-  name: ソニーフィナンシャルグループ
+- ticker: "8729"
+  name: "ソニーフィナンシャルグループ"
   per_forward: 18.69
   per_trailing: 13.92
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 保険業
+  sector_33: "保険業"
   market_cap_oku: 9473
   avg_turnover_oku: 121.8
   price_change_60d: -0.1362
@@ -4298,15 +4298,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_rotation_short_sell
-- ticker: '8750'
-  name: 第一ライフグループ
+- ticker: "8750"
+  name: "第一ライフグループ"
   per_forward: 12.55
   per_trailing: 13.91
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 保険業
+  sector_33: "保険業"
   market_cap_oku: 52203
   avg_turnover_oku: 112.1
   price_change_60d: 0.0613
@@ -4332,15 +4332,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '9008'
-  name: 京王電鉄
+- ticker: "9008"
+  name: "京王電鉄"
   per_forward: 2.12
   per_trailing: 2.68
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 陸運業
+  sector_33: "陸運業"
   market_cap_oku: 903
   avg_turnover_oku: 15.3
   price_change_60d: -0.8057
@@ -4367,15 +4367,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '9021'
-  name: 西日本旅客鉄道
+- ticker: "9021"
+  name: "西日本旅客鉄道"
   per_forward: 11.49
   per_trailing: 11.28
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 陸運業
+  sector_33: "陸運業"
   market_cap_oku: 13510
   avg_turnover_oku: 56.1
   price_change_60d: -0.0501
@@ -4401,15 +4401,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '9022'
-  name: 東海旅客鉄道
+- ticker: "9022"
+  name: "東海旅客鉄道"
   per_forward: 7.93
   per_trailing: 8.7
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 陸運業
+  sector_33: "陸運業"
   market_cap_oku: 42333
   avg_turnover_oku: 114.5
   price_change_60d: -0.0361
@@ -4435,15 +4435,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '9107'
-  name: 川崎汽船
+- ticker: "9107"
+  name: "川崎汽船"
   per_forward: 13.98
   per_trailing: 15.67
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 海運業
+  sector_33: "海運業"
   market_cap_oku: 16261
   avg_turnover_oku: 171.2
   price_change_60d: 0.1556
@@ -4469,15 +4469,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '9166'
-  name: ＧＥＮＤＡ
+- ticker: "9166"
+  name: "ＧＥＮＤＡ"
   per_forward: null
   per_trailing: 26.91
   pbr: 1.64
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: サービス業
+  sector_33: "サービス業"
   market_cap_oku: 1089
   avg_turnover_oku: 9.2
   price_change_60d: -0.1978
@@ -4504,15 +4504,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '9202'
-  name: ＡＮＡホールディングス
+- ticker: "9202"
+  name: "ＡＮＡホールディングス"
   per_forward: 8.79
   per_trailing: 9.1
   pbr: 1.01
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 空運業
+  sector_33: "空運業"
   market_cap_oku: 13061
   avg_turnover_oku: 86.2
   price_change_60d: -0.101
@@ -4538,15 +4538,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '9301'
-  name: 三菱倉庫
+- ticker: "9301"
+  name: "三菱倉庫"
   per_forward: 9.78
   per_trailing: 11.63
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 倉庫・運輸関連業
+  sector_33: "倉庫・運輸関連業"
   market_cap_oku: 5268
   avg_turnover_oku: 14.8
   price_change_60d: 0.0342
@@ -4572,15 +4572,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '9416'
-  name: ビジョン
+- ticker: "9416"
+  name: "ビジョン"
   per_forward: null
   per_trailing: 11.77
   pbr: 2.56
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 552
   avg_turnover_oku: 2.7
   price_change_60d: -0.1417
@@ -4606,15 +4606,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '9418'
-  name: Ｕ−ＮＥＸＴ　ＨＯＬＤＩＮＧＳ
+- ticker: "9418"
+  name: "Ｕ−ＮＥＸＴ　ＨＯＬＤＩＮＧＳ"
   per_forward: 15.24
   per_trailing: 28.52
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 2819
   avg_turnover_oku: 10.0
   price_change_60d: -0.1721
@@ -4640,15 +4640,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '9432'
-  name: ＮＴＴ
+- ticker: "9432"
+  name: "ＮＴＴ"
   per_forward: 12.95
   per_trailing: 13.49
   pbr: 1.3
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 137184
   avg_turnover_oku: 271.3
   price_change_60d: -0.0238
@@ -4674,15 +4674,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '9434'
-  name: ソフトバンク
+- ticker: "9434"
+  name: "ソフトバンク"
   per_forward: 19.52
   per_trailing: 21.93
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 105552
   avg_turnover_oku: 178.6
   price_change_60d: 0.0411
@@ -4708,15 +4708,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '9531'
-  name: 東京瓦斯
+- ticker: "9531"
+  name: "東京瓦斯"
   per_forward: 11.52
   per_trailing: 13.6
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 電気・ガス業
+  sector_33: "電気・ガス業"
   market_cap_oku: 23950
   avg_turnover_oku: 82.8
   price_change_60d: -0.0197
@@ -4742,15 +4742,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_rotation_short_sell
-- ticker: '9533'
-  name: 東邦瓦斯
+- ticker: "9533"
+  name: "東邦瓦斯"
   per_forward: 4.31
   per_trailing: 4.95
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 電気・ガス業
+  sector_33: "電気・ガス業"
   market_cap_oku: 1237
   avg_turnover_oku: 10.6
   price_change_60d: -0.7593
@@ -4778,15 +4778,15 @@ tickers:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
   - sector_rotation_short_sell
-- ticker: '9602'
-  name: 東宝
+- ticker: "9602"
+  name: "東宝"
   per_forward: null
   per_trailing: 24.06
   pbr: 2.4
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 12958
   avg_turnover_oku: 59.6
   price_change_60d: -0.8154
@@ -4813,15 +4813,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '9603'
-  name: エイチ・アイ・エス
+- ticker: "9603"
+  name: "エイチ・アイ・エス"
   per_forward: 8.69
   per_trailing: 22.81
   pbr: 1.3
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: サービス業
+  sector_33: "サービス業"
   market_cap_oku: 835
   avg_turnover_oku: 5.4
   price_change_60d: -0.1904
@@ -4848,15 +4848,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '9616'
-  name: 共立メンテナンス
+- ticker: "9616"
+  name: "共立メンテナンス"
   per_forward: 11.05
   per_trailing: 13.57
   pbr: 1.55
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: サービス業
+  sector_33: "サービス業"
   market_cap_oku: 2077
   avg_turnover_oku: 21.6
   price_change_60d: -0.1717
@@ -4883,15 +4883,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '9682'
-  name: ＤＴＳ
+- ticker: "9682"
+  name: "ＤＴＳ"
   per_forward: 15.32
   per_trailing: 19.67
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 1722
   avg_turnover_oku: 3.5
   price_change_60d: -0.1719
@@ -4918,15 +4918,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '9722'
-  name: 藤田観光
+- ticker: "9722"
+  name: "藤田観光"
   per_forward: null
   per_trailing: 13.39
   pbr: 3.36
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: サービス業
+  sector_33: "サービス業"
   market_cap_oku: 1260
   avg_turnover_oku: 4.8
   price_change_60d: -0.2303
@@ -4953,15 +4953,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '9735'
-  name: セコム
+- ticker: "9735"
+  name: "セコム"
   per_forward: 22.37
   per_trailing: 29.56
   pbr: 1.82
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: サービス業
+  sector_33: "サービス業"
   market_cap_oku: 26456
   avg_turnover_oku: 63.5
   price_change_60d: -0.0182
@@ -4987,15 +4987,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '9757'
-  name: 船井総研ホールディングス
+- ticker: "9757"
+  name: "船井総研ホールディングス"
   per_forward: null
   per_trailing: 15.72
   pbr: 4.04
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: サービス業
+  sector_33: "サービス業"
   market_cap_oku: 1111
   avg_turnover_oku: 3.7
   price_change_60d: -0.0246
@@ -5021,15 +5021,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '9759'
-  name: ＮＳＤ
+- ticker: "9759"
+  name: "ＮＳＤ"
   per_forward: 16.41
   per_trailing: 23.11
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 2349
   avg_turnover_oku: 5.9
   price_change_60d: -0.1851
@@ -5055,15 +5055,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - price_down_60d_and_valuation_sigma_down
-- ticker: '9882'
-  name: イエローハット
+- ticker: "9882"
+  name: "イエローハット"
   per_forward: 11.82
   per_trailing: 12.67
   pbr: 1.06
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 卸売業
+  sector_33: "卸売業"
   market_cap_oku: 1355
   avg_turnover_oku: 2.3
   price_change_60d: -0.1064
@@ -5089,15 +5089,15 @@ tickers:
     pcfr: unavailable
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
-- ticker: '9889'
-  name: ＪＢＣＣホールディングス
+- ticker: "9889"
+  name: "ＪＢＣＣホールディングス"
   per_forward: 14.37
   per_trailing: 19.79
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 861
   avg_turnover_oku: 2.2
   price_change_60d: -0.2374
@@ -5124,15 +5124,15 @@ tickers:
   threshold_hit:
   - sector_median_under_20pct_and_self_range_bottom_20pct
   - price_down_60d_and_valuation_sigma_down
-- ticker: '9984'
-  name: ソフトバンクグループ
+- ticker: "9984"
+  name: "ソフトバンクグループ"
   per_forward: null
   per_trailing: 10.77
   pbr: null
   ev_ebitda: null
   p_s: null
   pcfr: null
-  sector_33: 情報・通信業
+  sector_33: "情報・通信業"
   market_cap_oku: 340598
   avg_turnover_oku: 3122.7
   price_change_60d: 0.472
@@ -5160,7 +5160,7 @@ tickers:
   - sector_median_under_20pct_and_self_range_bottom_20pct
 fact_memo_lines: []
 provider_status_lines:
-- 'データソース: J-Quants Light（日足・財務サマリー・業績予想）+ EDINET + JPX'
+- "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ EDINET + JPX"
 universe_exclusion_lines: []
 ttm_quality_counts: {}
 fallback_lines: []

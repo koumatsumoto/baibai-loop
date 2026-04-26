@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Protocol, TextIO
 
+import yaml
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
 from .config import (
@@ -397,8 +398,6 @@ def select_command(
     view_root: Path | None = None,
     stdout: TextIO | None = None,
 ) -> int:
-    import yaml
-
     if top < 1:
         print("--top must be greater than zero", file=sys.stderr)
         return 1
@@ -415,9 +414,9 @@ def select_command(
         return 1
     try:
         screened_fm = TypeAdapter(_ScreenedFrontMatter).validate_python(
-            _parse_yaml_document(screened_path)
+            _parse_screened_yaml_payload(screened_path)
         )
-    except ValidationError as exc:
+    except (ValidationError, ValueError) as exc:
         print(f"invalid screened YAML: {screened_path}: {exc}", file=sys.stderr)
         return 1
 
@@ -430,7 +429,7 @@ def select_command(
         return 1
     try:
         view_fm = TypeAdapter(_ViewFrontMatter).validate_python(
-            _parse_front_matter(resolved_view_path)
+            _parse_markdown_front_matter(resolved_view_path)
         )
     except ValidationError as exc:
         print(f"invalid view front matter: {resolved_view_path}: {exc}", file=sys.stderr)
@@ -449,9 +448,7 @@ def select_command(
     return 0
 
 
-def _parse_front_matter(path: Path) -> dict[str, object]:
-    import yaml
-
+def _parse_markdown_front_matter(path: Path) -> dict[str, object]:
     text = path.read_text(encoding="utf-8")
     match = re.match(r"^---\n(.*?)\n---", text, re.DOTALL)
     if not match:
@@ -459,12 +456,10 @@ def _parse_front_matter(path: Path) -> dict[str, object]:
     return yaml.safe_load(match.group(1)) or {}
 
 
-def _parse_yaml_document(path: Path) -> dict[str, object]:
-    import yaml
-
-    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+def _parse_screened_yaml_payload(path: Path) -> dict[str, object]:
+    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
-        return {}
+        raise ValueError(f"screened YAML root must be a mapping: {path}")
     return payload
 
 
@@ -517,6 +512,8 @@ def _rank_candidates(
     return [candidate for _, candidate in ranked]
 
 
+# Tier 境界は 300 億 universe 閾値前提。Phase 3 (issue #39 R11) で
+# 200 億化に伴い境界値を更新する。
 def _position_tier(market_cap_oku: int) -> str:
     if market_cap_oku >= 1000:
         return "1000+ (max 2.0%)"
