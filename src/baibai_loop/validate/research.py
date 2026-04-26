@@ -16,14 +16,11 @@ import yaml
 from .errors import ValidationFinding
 from .playbook_schema import (
     PlaybookSchemaError,
+    discover_playbook_schemas,
     load_playbook_schema,
     validate_research_body,
 )
 
-KNOWN_PLAYBOOKS: tuple[str, ...] = (
-    "valuation-mean-reversion-v1",
-    "valuation-catalyst-confirmation-v1",
-)
 KNOWN_MACRO_GATES: tuple[str, ...] = ("tailwind", "neutral", "headwind")
 REQUIRED_FRONT_MATTER: tuple[str, ...] = (
     "ticker",
@@ -87,23 +84,14 @@ def validate_research_file(
             )
         ]
     body = match.group(2)
+    playbook_root = playbooks_root or _default_playbook_root()
+    known_playbooks = frozenset(discover_playbook_schemas(playbook_root))
     findings: list[ValidationFinding] = []
-    findings.extend(_validate_front_matter(path, front_matter))
+    findings.extend(_validate_front_matter(path, front_matter, known_playbooks))
     playbook = front_matter.get("playbook")
-    if isinstance(playbook, str) and playbook in KNOWN_PLAYBOOKS:
-        playbook_root = playbooks_root or _default_playbook_root()
+    if isinstance(playbook, str) and playbook in known_playbooks:
         try:
             schema = load_playbook_schema(playbook_root, playbook)
-        except FileNotFoundError as exc:
-            findings.append(
-                ValidationFinding(
-                    severity="warning",
-                    target=path,
-                    code="research.missing-playbook-schema",
-                    message=str(exc),
-                    location=f"playbook:{playbook}",
-                )
-            )
         except PlaybookSchemaError as exc:
             findings.append(
                 ValidationFinding(
@@ -129,7 +117,11 @@ def _default_playbook_root() -> Path:
     return Path(__file__).resolve().parents[3] / "playbooks"
 
 
-def _validate_front_matter(path: Path, front_matter: dict[str, object]) -> list[ValidationFinding]:
+def _validate_front_matter(
+    path: Path,
+    front_matter: dict[str, object],
+    known_playbooks: frozenset[str],
+) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
     for field in REQUIRED_FRONT_MATTER:
         if field not in front_matter:
@@ -154,13 +146,16 @@ def _validate_front_matter(path: Path, front_matter: dict[str, object]) -> list[
             )
         )
     playbook = front_matter.get("playbook")
-    if isinstance(playbook, str) and playbook not in KNOWN_PLAYBOOKS:
+    if isinstance(playbook, str) and playbook not in known_playbooks:
+        known_sorted = sorted(known_playbooks)
         findings.append(
             ValidationFinding(
                 severity="error",
                 target=path,
                 code="research.unknown-playbook",
-                message=(f"playbook must be one of {list(KNOWN_PLAYBOOKS)}, got {playbook!r}"),
+                message=(
+                    f"playbook {playbook!r} has no schema in playbooks/; known: {known_sorted}"
+                ),
                 location="playbook",
             )
         )

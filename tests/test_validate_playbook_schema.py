@@ -13,9 +13,31 @@ if str(SRC) not in sys.path:
 from baibai_loop.validate.playbook_schema import (
     PlaybookSchema,
     PlaybookSchemaError,
+    discover_playbook_schemas,
     load_playbook_schema,
     validate_research_body,
 )
+
+
+class PlaybookSchemaDiscoveryTests(unittest.TestCase):
+    def test_returns_empty_set_for_missing_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.assertEqual(discover_playbook_schemas(Path(tmpdir) / "missing"), set())
+
+    def test_returns_empty_set_for_root_without_schemas(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "playbook.md").write_text("# stub\n", encoding="utf-8")
+            self.assertEqual(discover_playbook_schemas(Path(tmpdir)), set())
+
+    def test_strips_schema_yaml_suffix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "alpha.schema.yaml").write_text("name: alpha\n", encoding="utf-8")
+            (Path(tmpdir) / "beta.schema.yaml").write_text("name: beta\n", encoding="utf-8")
+            self.assertEqual(discover_playbook_schemas(Path(tmpdir)), {"alpha", "beta"})
+
+    def test_repository_schemas_include_known_playbook(self) -> None:
+        names = discover_playbook_schemas(ROOT / "playbooks")
+        self.assertIn("valuation-mean-reversion-v1", names)
 
 
 class PlaybookSchemaLoaderTests(unittest.TestCase):

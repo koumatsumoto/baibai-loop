@@ -35,6 +35,22 @@ class PlaybookSchema:
     body_sections: tuple[PlaybookBodySection, ...]
 
 
+def discover_playbook_schemas(root: Path) -> set[str]:
+    """Return the set of playbook names with a `<name>.schema.yaml` under `root`.
+
+    Used by `validate_research_file` to dynamically determine the valid
+    playbook universe so that adding a new playbook requires only dropping a
+    schema YAML next to the playbook markdown — no edit to validate code.
+    """
+    if not root.exists():
+        return set()
+    return {
+        path.name.removesuffix(".schema.yaml")
+        for path in root.glob("*.schema.yaml")
+        if path.is_file()
+    }
+
+
 def load_playbook_schema(root: Path, playbook: str) -> PlaybookSchema:
     """Load `<root>/<playbook>.schema.yaml` and parse it into a PlaybookSchema."""
     schema_path = root / f"{playbook}.schema.yaml"
