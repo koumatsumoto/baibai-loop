@@ -1,0 +1,30 @@
+# J-Quants Light daily quotes are finalized after the TSE close around 18:00 JST.
+# 22:00 UTC is 07:00 JST on the next day, so weekday runs see finalized data.
+name: ledger sync
+
+on:
+  schedule:
+    - cron: "0 22 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  ledger-sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen --group dev
+      - run: uv run baibai-loop-ledger sync --root .
+      - uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore(ledger): sync daily ledger"
+          title: "chore(ledger): sync daily ledger"
+          body: "Automated ledger sync."
+          branch: chore/ledger-daily-sync
+          delete-branch: true
