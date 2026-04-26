@@ -64,6 +64,8 @@ macro_gate: tailwind | neutral | headwind          # view 判定結果
 macro_gate_override: "..."                         # headwind 採用時のみ必須
 position_size_oku: 0.01                            # 建玉 proxy (億円)
 adv_participation_pct: 0.2                         # position_size_oku / avg_turnover_oku * 100
+market_cap_oku: 936                                # screened 由来の時価総額 (億円)
+sector_33: "情報・通信業"                         # screened 由来の東証 33 業種
 valuation:
   per_forward: 数値 | null                         # 会社予想ベース、未公表は null
   per_trailing: 数値
@@ -81,6 +83,7 @@ valuation:
 - `decision: accepted` かつ `macro_gate: headwind` の場合は `macro_gate_override` が必須
 - `position_size_oku` は仮定資本 1 億円ベース。採用 position 1.0% は `0.01` 億円として記録する
 - `adv_participation_pct` は `5.0` 以上で hard reject
+- `market_cap_oku` / `sector_33` は screened から転記し、tier rule と sector 集中 warning の検証に使う
 - 配当利回りは v1 スコープ外のため front matter に含めない
 
 ## 5. Packet 必須項目（本文、13 項目）
@@ -128,6 +131,7 @@ research decision は `baibai-loop-ledger sync` で [`ledger/`](./ledger.md) の
 - crowding が踏み上げリスクと逆回転リスクの両方で許容範囲
 - kill switch に抵触しない（決算またぎ / 日銀会合前日 / FOMC 前日）
 - position size が時価総額別上限を満たす
+- 市場規模 200-500 億帯で P-A (`valuation-mean-reversion-v1`) を採用する場合は `macro_gate_override` で明示理由を残す
 
 ## 7. trades への接続
 

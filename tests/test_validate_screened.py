@@ -24,8 +24,8 @@ def _minimal_screened() -> dict[str, object]:
         "asof_date": "2026-04-24",
         "universe_size": 100,
         "filters": {
-            "min_market_cap_oku": 300,
-            "min_avg_turnover_oku": 2.0,
+            "min_market_cap_oku": 200,
+            "min_avg_turnover_oku": 3.0,
             "exclude_listed_under_months": 6,
         },
         "generated_by": "screening-cli-v1",

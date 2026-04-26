@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import yaml
@@ -17,11 +18,14 @@ from .playbook_schema import (
 
 KNOWN_MACRO_GATES: tuple[str, ...] = ("tailwind", "neutral", "headwind")
 KNOWN_DECISIONS: tuple[str, ...] = ("accepted", "skipped", "pending")
+MEAN_REVERSION_PLAYBOOK = "valuation-mean-reversion-v1"
 REQUIRED_FRONT_MATTER: tuple[str, ...] = (
     "ticker",
     "name",
     "playbook",
     "decision",
+    "market_cap_oku",
+    "sector_33",
     "screened_ref",
     "view_ref",
     "brief_refs",
@@ -42,6 +46,112 @@ def validate_research_file(
     playbooks_root: Path | None = None,
     known_playbooks: frozenset[str] | None = None,
 ) -> list[ValidationFinding]:
+    loaded = _load_research_document(path)
+    if isinstance(loaded, list):
+        return loaded
+    front_matter, body = loaded
+    return validate_research_parsed(
+        path,
+        front_matter,
+        body,
+        playbooks_root=playbooks_root,
+        known_playbooks=known_playbooks,
+    )
+
+
+def validate_research_parsed(
+    path: Path,
+    front_matter: dict[str, object],
+    body: str,
+    *,
+    playbooks_root: Path | None = None,
+    known_playbooks: frozenset[str] | None = None,
+) -> list[ValidationFinding]:
+    """Validate already-parsed research front matter and body.
+
+    CLI 側は load_research_document の結果をキャッシュしてから collection 集約と
+    per-file 検証の両方で再利用する。単独呼び出し用に validate_research_file が
+    薄いラッパーとして残るが、内側のロジックは本関数に集約する。
+    """
+    playbook_root = playbooks_root or _default_playbook_root()
+    # CLI は run_validation で 1 回だけ discover してくる。単独呼び出し時のため
+    # フォールバックとして自前 discover を残す。
+    if known_playbooks is None:
+        known_playbooks = frozenset(discover_playbook_schemas(playbook_root))
+    findings: list[ValidationFinding] = []
+    findings.extend(_validate_front_matter(path, front_matter, known_playbooks))
+    playbook = front_matter.get("playbook")
+    if isinstance(playbook, str) and playbook in known_playbooks:
+        try:
+            schema = load_playbook_schema(playbook_root, playbook)
+        except FileNotFoundError as exc:
+            # discover_playbook_schemas との競合状態 (validate 実行中に schema YAML
+            # が消えた等) で発生しうる。uncaught で die せず error finding に変換する。
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.missing-playbook-schema",
+                    message=str(exc),
+                    location=f"playbook:{playbook}",
+                )
+            )
+        except PlaybookSchemaError as exc:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.invalid-playbook-schema",
+                    message=str(exc),
+                    location=f"playbook:{playbook}",
+                )
+            )
+        else:
+            findings.extend(validate_research_body(path, body, schema))
+    return findings
+
+
+def load_research_document(
+    path: Path,
+) -> tuple[dict[str, object], str] | list[ValidationFinding]:
+    """Public entry to ``_load_research_document`` for CLI-level caching."""
+    return _load_research_document(path)
+
+
+def validate_research_collection(
+    paths_with_front_matter: Sequence[tuple[Path, Mapping[str, object]]],
+) -> list[ValidationFinding]:
+    accepted_by_sector: dict[str, list[Path]] = {}
+    for path, front_matter in paths_with_front_matter:
+        if front_matter.get("decision") != "accepted":
+            continue
+        sector = front_matter.get("sector_33")
+        if isinstance(sector, str) and sector.strip():
+            accepted_by_sector.setdefault(sector, []).append(path)
+
+    findings: list[ValidationFinding] = []
+    for sector, paths in sorted(accepted_by_sector.items()):
+        if len(paths) < 3:
+            continue
+        for path in paths:
+            findings.append(
+                ValidationFinding(
+                    severity="warning",
+                    target=path,
+                    code="research.sector-concentration",
+                    message=(
+                        f"3+ accepted research packets share sector_33={sector}; "
+                        "review for concentration risk"
+                    ),
+                    location="sector_33",
+                )
+            )
+    return findings
+
+
+def _load_research_document(
+    path: Path,
+) -> tuple[dict[str, object], str] | list[ValidationFinding]:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
@@ -84,42 +194,7 @@ def validate_research_file(
             )
         ]
     body = match.group(2)
-    playbook_root = playbooks_root or _default_playbook_root()
-    # CLI は run_validation で 1 回だけ discover してくる。単独呼び出し時のため
-    # フォールバックとして自前 discover を残す。
-    if known_playbooks is None:
-        known_playbooks = frozenset(discover_playbook_schemas(playbook_root))
-    findings: list[ValidationFinding] = []
-    findings.extend(_validate_front_matter(path, front_matter, known_playbooks))
-    playbook = front_matter.get("playbook")
-    if isinstance(playbook, str) and playbook in known_playbooks:
-        try:
-            schema = load_playbook_schema(playbook_root, playbook)
-        except FileNotFoundError as exc:
-            # discover_playbook_schemas との競合状態 (validate 実行中に schema YAML
-            # が消えた等) で発生しうる。uncaught で die せず error finding に変換する。
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.missing-playbook-schema",
-                    message=str(exc),
-                    location=f"playbook:{playbook}",
-                )
-            )
-        except PlaybookSchemaError as exc:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.invalid-playbook-schema",
-                    message=str(exc),
-                    location=f"playbook:{playbook}",
-                )
-            )
-        else:
-            findings.extend(validate_research_body(path, body, schema))
-    return findings
+    return front_matter, body
 
 
 def discover_research_files(root: Path) -> list[Path]:
@@ -266,6 +341,84 @@ def _validate_front_matter(
                 location="position_size_oku",
             )
         )
+    market_cap = front_matter.get("market_cap_oku")
+    if isinstance(market_cap, bool) or not isinstance(market_cap, (int, float)):
+        if "market_cap_oku" in front_matter:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.invalid-market-cap",
+                    message="market_cap_oku must be a positive number",
+                    location="market_cap_oku",
+                )
+            )
+    elif market_cap <= 0:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.invalid-market-cap",
+                message="market_cap_oku must be greater than 0",
+                location="market_cap_oku",
+            )
+        )
+    sector = front_matter.get("sector_33")
+    if isinstance(sector, str):
+        if not sector.strip():
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.invalid-sector",
+                    message="sector_33 must be a non-empty string",
+                    location="sector_33",
+                )
+            )
+    elif "sector_33" in front_matter:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.invalid-sector",
+                message="sector_33 must be a non-empty string",
+                location="sector_33",
+            )
+        )
+    if (
+        decision == "accepted"
+        and playbook == MEAN_REVERSION_PLAYBOOK
+        and isinstance(market_cap, (int, float))
+        and not isinstance(market_cap, bool)
+        and 200 <= market_cap < 500
+    ):
+        if has_override:
+            findings.append(
+                ValidationFinding(
+                    severity="warning",
+                    target=path,
+                    code="research.low-cap-mean-reversion",
+                    message=(
+                        "P-A accepted research below 500 oku uses explicit "
+                        "macro_gate_override; review P-B alternative"
+                    ),
+                    location="market_cap_oku",
+                )
+            )
+        else:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.low-cap-mean-reversion",
+                    message=(
+                        "P-A is discouraged below 500 oku; consider "
+                        "valuation-catalyst-confirmation-v1 (P-B) or document an "
+                        "explicit macro_gate_override"
+                    ),
+                    location="market_cap_oku",
+                )
+            )
     valuation = front_matter.get("valuation")
     top_level_adv = front_matter.get("adv_participation_pct")
     if isinstance(top_level_adv, (int, float)) and not isinstance(top_level_adv, bool):

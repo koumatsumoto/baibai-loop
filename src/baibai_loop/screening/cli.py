@@ -47,10 +47,9 @@ from .providers.jquants import (
 from .render import JST, build_output_path, render_screened_yaml
 from .rules import evaluate_screening
 from .schema import ScreenedRunDocument, ScreenedTicker, SecurityMaster, normalize_ticker
+from .tiers import MIN_AVG_TURNOVER_OKU, MIN_MARKET_CAP_OKU, position_tier
 from .universe import (
     LISTED_UNDER_DAYS,
-    MIN_AVG_TURNOVER_OKU,
-    MIN_MARKET_CAP_OKU,
     REQUIRED_JPX_FLAGS,
     build_universe,
 )
@@ -530,23 +529,11 @@ def _rank_candidates(
             "threshold_hit": ticker.threshold_hit,
             "threshold_hit_count": len(ticker.threshold_hit),
             "next_earnings_date": ticker.next_earnings_date,
-            "position_tier": _position_tier(market_cap_int),
+            "position_tier": position_tier(market_cap),
         }
         ranked.append((sort_key, candidate))
     ranked.sort(key=lambda item: item[0])
     return [candidate for _, candidate in ranked]
-
-
-# Tier 境界は 300 億 universe 閾値前提。Phase 3 (issue #39 R11) で
-# 200 億化に伴い境界値を更新する。
-def _position_tier(market_cap_oku: int) -> str:
-    if market_cap_oku >= 1000:
-        return "1000+ (max 2.0%)"
-    if market_cap_oku >= 500:
-        return "500-1000 (max 1.0%)"
-    if market_cap_oku >= 300:
-        return "300-500 (P-B only, max 0.5%)"
-    return "below 300 (out of universe)"
 
 
 def _index_next_earnings(

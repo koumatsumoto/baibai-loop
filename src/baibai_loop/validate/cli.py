@@ -16,7 +16,13 @@ from typing import Literal, TextIO, assert_never
 from .errors import ValidationFinding
 from .ledger import discover_ledger_files, validate_ledger_file
 from .playbook_schema import discover_playbook_schemas
-from .research import discover_research_files, validate_research_file
+from .research import (
+    discover_research_files,
+    load_research_document,
+    validate_research_collection,
+    validate_research_file,
+    validate_research_parsed,
+)
 from .review import discover_review_files, validate_review_file
 from .screened import discover_screened_files, validate_screened_file
 from .view import discover_view_files, validate_view_file
@@ -75,13 +81,41 @@ def run_validation(
     # I/O を線形回数に抑える)。
     known_playbooks = frozenset(discover_playbook_schemas(root / "playbooks"))
 
+    # research target は per-file 検証と collection 集約の両方で同じ document を
+    # 読むため、target ループ前に 1 度 load して再利用する。
+    research_documents: dict[Path, tuple[dict[str, object], str] | list[ValidationFinding]] = {}
+    if "research" in targets:
+        for path in discover_research_files(root / "research"):
+            research_documents[path] = load_research_document(path)
+
     findings: list[ValidationFinding] = []
     file_count = 0
     for target in targets:
         files = _discover(root, target)
         file_count += len(files)
         for path in files:
-            findings.extend(_validate(root, target, path, known_playbooks))
+            if target == "research":
+                doc = research_documents[path]
+                if isinstance(doc, list):
+                    findings.extend(doc)
+                else:
+                    front_matter, body = doc
+                    findings.extend(
+                        validate_research_parsed(
+                            path,
+                            front_matter,
+                            body,
+                            playbooks_root=root / "playbooks",
+                            known_playbooks=known_playbooks,
+                        )
+                    )
+            else:
+                findings.extend(_validate(root, target, path, known_playbooks))
+    if research_documents:
+        front_matters = [
+            (path, doc[0]) for path, doc in research_documents.items() if not isinstance(doc, list)
+        ]
+        findings.extend(validate_research_collection(front_matters))
 
     error_count = 0
     warning_count = 0
