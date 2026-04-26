@@ -12,6 +12,8 @@ tradable_at: "2026-05-15T09:00:00+09:00"
 macro_gate: neutral
 position_size_oku: 0.01
 adv_participation_pct: 0.43
+market_cap_oku: 585
+sector_33: "鉄鋼"
 valuation:
   per_forward: 5.87
   per_trailing: 7.62

@@ -12,6 +12,8 @@ tradable_at: "2026-05-15T09:00:00+09:00"
 macro_gate: neutral
 position_size_oku: 0.02
 adv_participation_pct: 0.09
+market_cap_oku: 2077
+sector_33: "サービス業"
 valuation:
   per_forward: null
   per_trailing: 13.57
