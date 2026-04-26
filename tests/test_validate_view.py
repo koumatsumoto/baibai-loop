@@ -112,6 +112,38 @@ class ViewValidationTests(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0].code, "view.no-front-matter")
 
+    def test_front_matter_non_mapping_is_flagged(self) -> None:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", delete=False, encoding="utf-8"
+        ) as tmp:
+            tmp.write("---\n- 1\n- 2\n---\n# body\n")
+            path = Path(tmp.name)
+        try:
+            findings = validate_view_file(path)
+        finally:
+            path.unlink()
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].code, "view.front-matter-non-mapping")
+
+    def test_invalid_yaml_front_matter_is_flagged(self) -> None:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", delete=False, encoding="utf-8"
+        ) as tmp:
+            # invalid YAML: unbalanced quote inside a flow mapping
+            tmp.write('---\nsectors: {"機械": "neutral\n---\n# body\n')
+            path = Path(tmp.name)
+        try:
+            findings = validate_view_file(path)
+        finally:
+            path.unlink()
+        codes = {f.code for f in findings}
+        # Either invalid-yaml or no-front-matter (regex may not match) is acceptable;
+        # both indicate the parser refused malformed input.
+        self.assertTrue(
+            codes & {"view.invalid-yaml", "view.no-front-matter"},
+            f"expected parser failure code, got {codes}",
+        )
+
     def test_repository_view_files_pass(self) -> None:
         repo_view = ROOT / "view"
         files = discover_view_files(repo_view)

@@ -173,6 +173,36 @@ class ResearchValidationTests(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0].code, "research.no-front-matter")
 
+    def test_front_matter_non_mapping_is_flagged(self) -> None:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", delete=False, encoding="utf-8"
+        ) as tmp:
+            tmp.write("---\n- a\n- b\n---\n# body\n")
+            path = Path(tmp.name)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+        finally:
+            path.unlink()
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].code, "research.front-matter-non-mapping")
+
+    def test_invalid_yaml_front_matter_is_flagged(self) -> None:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", delete=False, encoding="utf-8"
+        ) as tmp:
+            tmp.write('---\nticker: "2767\n---\n# body\n')
+            path = Path(tmp.name)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+        finally:
+            path.unlink()
+        codes = {f.code for f in findings}
+        # malformed YAML may surface as either invalid-yaml or no-front-matter
+        self.assertTrue(
+            codes & {"research.invalid-yaml", "research.no-front-matter"},
+            f"expected parser failure code, got {codes}",
+        )
+
     def test_repository_research_files_pass(self) -> None:
         repo_research = ROOT / "research"
         files = discover_research_files(repo_research)

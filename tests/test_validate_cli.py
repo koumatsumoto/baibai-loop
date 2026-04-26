@@ -14,7 +14,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.validate.cli import main, run_validation
+from baibai_loop.validate.cli import _format_finding, main, run_validation
+from baibai_loop.validate.errors import ValidationFinding
 
 
 def _make_screened_payload() -> dict[str, object]:
@@ -180,6 +181,33 @@ class ValidateCliTests(unittest.TestCase):
         argv = ["--root", str(ROOT)]
         exit_code = main(argv)
         self.assertEqual(exit_code, 0)
+
+
+class FormatFindingTests(unittest.TestCase):
+    def test_format_uses_path_relative_to_root_when_inside(self) -> None:
+        finding = ValidationFinding(
+            severity="error",
+            target=Path("/repo/screened/2026-04-24.yaml"),
+            code="screened.required",
+            message="missing run_id",
+            location="run_id",
+        )
+        line = _format_finding(finding, Path("/repo"))
+        self.assertIn("screened/2026-04-24.yaml", line)
+        self.assertIn("@ run_id", line)
+        self.assertIn("[error]", line)
+
+    def test_format_falls_back_to_absolute_path_when_outside_root(self) -> None:
+        finding = ValidationFinding(
+            severity="warning",
+            target=Path("/elsewhere/orphan.yaml"),
+            code="screened.unknown-sector",
+            message="unknown sector",
+        )
+        line = _format_finding(finding, Path("/repo"))
+        self.assertIn("/elsewhere/orphan.yaml", line)
+        self.assertNotIn("@ ", line)  # no location suffix when location is None
+        self.assertIn("[warning]", line)
 
 
 if __name__ == "__main__":
