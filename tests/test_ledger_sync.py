@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import textwrap
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
+import pytest
 import yaml
 
-from baibai_loop.ledger.cli import _discover_decision_dates, _load_market_data
+from baibai_loop.ledger.cli import _discover_decision_dates, _load_market_data, main
+from baibai_loop.ledger.io import diff_jsonl
 from baibai_loop.ledger.sync import sync_ledger
 from baibai_loop.screening.providers.jquants import JQuantsDailyBar
 
@@ -107,6 +109,26 @@ def test_sync_ledger_uses_adjusted_price_when_bar_available(tmp_path: Path) -> N
     assert record["adjustment_applied"] is True
 
 
+def test_sync_ledger_does_not_mark_adjustment_when_adjusted_equals_close(
+    tmp_path: Path,
+) -> None:
+    _seed(tmp_path)
+    sync_ledger(
+        tmp_path,
+        bars=(
+            JQuantsDailyBar(
+                ticker="2767",
+                traded_at=date(2026, 4, 25),
+                close=100.0,
+                adjustment_close=100.0,
+                turnover_value=None,
+            ),
+        ),
+    )
+    record = json.loads((tmp_path / "ledger" / "paper" / "2026-04.jsonl").read_text().strip())
+    assert record["adjustment_applied"] is False
+
+
 def test_sync_ledger_adds_select_candidates_without_research_to_skipped(tmp_path: Path) -> None:
     _seed(tmp_path)
     select_dir = tmp_path / "select"
@@ -146,3 +168,43 @@ def test_ledger_cli_warns_when_jquants_token_is_missing(tmp_path: Path) -> None:
 def test_ledger_cli_discovers_research_decision_dates(tmp_path: Path) -> None:
     _seed(tmp_path)
     assert _discover_decision_dates(tmp_path) == (date(2026, 4, 25),)
+
+
+def test_ledger_cli_require_market_data_fails_without_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed(tmp_path)
+    monkeypatch.delenv("JQUANTS_REFRESH_TOKEN", raising=False)
+    assert main(["sync", "--root", str(tmp_path), "--dry-run", "--require-market-data"]) == 1
+
+
+def test_sync_ledger_writes_update_events_for_tracking_changes(tmp_path: Path) -> None:
+    _seed(tmp_path)
+    sync_ledger(tmp_path, observed_at=datetime(2026, 4, 26, tzinfo=UTC))
+    sync_ledger(
+        tmp_path,
+        bars=(
+            JQuantsDailyBar(
+                ticker="2767",
+                traded_at=date(2026, 4, 25),
+                close=100.0,
+                adjustment_close=90.0,
+                turnover_value=None,
+            ),
+        ),
+        observed_at=datetime(2026, 4, 27, tzinfo=UTC),
+    )
+    update_path = tmp_path / "ledger" / "updates" / "2026-04.jsonl"
+    events = [json.loads(line) for line in update_path.read_text().splitlines()]
+    assert {event["field"] for event in events} >= {"baseline_price", "adjustment_applied"}
+
+
+def test_diff_jsonl_reports_removed_existing_records(tmp_path: Path) -> None:
+    ledger_path = tmp_path / "ledger" / "paper" / "2026-04.jsonl"
+    ledger_path.parent.mkdir(parents=True)
+    ledger_path.write_text(
+        json.dumps({"ledger_id": "paper-20260425-2767-vmean"}) + "\n",
+        encoding="utf-8",
+    )
+    assert diff_jsonl(ledger_path, []) == ["- paper-20260425-2767-vmean"]

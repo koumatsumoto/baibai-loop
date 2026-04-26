@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -11,13 +11,15 @@ import yaml
 
 from baibai_loop.playbooks import playbook_short
 from baibai_loop.screening.providers.jquants import JQuantsDailyBar
+from baibai_loop.screening.render import JST
 
-from .io import diff_jsonl, upsert_jsonl
+from .io import append_jsonl, diff_jsonl, read_jsonl, upsert_jsonl
 from .records import PaperLedgerRecord, SkippedLedgerRecord, Tracking
 from .tracking import resolve_price_on_or_before, resolve_tracking_prices
 
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)
 _LATEST_PRICE_RE = re.compile(r"最新 adj close \([^)]*\) \| ([0-9,]+(?:\.[0-9]+)?) 円")
+_TRACKED_UPDATE_FIELDS = ("baseline_price", "adjustment_applied", "tracking")
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +36,9 @@ def sync_ledger(
     dry_run: bool = False,
     calendar: tuple[date, ...] = (),
     bars: tuple[JQuantsDailyBar, ...] = (),
+    observed_at: datetime | None = None,
 ) -> SyncResult:
+    observed = (observed_at or datetime.now(UTC)).isoformat()
     screened = _load_screened(root)
     paper_records: list[dict[str, Any]] = []
     skipped_records: list[dict[str, Any]] = []
@@ -53,13 +57,17 @@ def sync_ledger(
         screened_ref = str(front["screened_ref"])
         candidate = screened.get(screened_ref, {}).get(ticker, {})
         decision_date = _decision_date(path, front)
-        baseline_price, adjustment_applied = _baseline_price(ticker, decision_date, body, bars)
+        baseline_price, adjustment_applied, price_warning = _baseline_price(
+            ticker, decision_date, body, bars
+        )
+        if price_warning:
+            warnings.append(f"{path}: {price_warning}")
         avg_turnover = _float_or_none(candidate.get("avg_turnover_oku")) or _extract_avg_turnover(
             body
         )
         position_size = _float_or_none(front.get("position_size_oku"))
         adv_participation = (
-            round(position_size / avg_turnover * 100, 4)
+            round(position_size / avg_turnover * 100, 2)
             if position_size is not None and avg_turnover and avg_turnover > 0
             else None
         )
@@ -135,13 +143,18 @@ def sync_ledger(
         if dry_run:
             diff_lines.extend(diff_jsonl(path, records))
         else:
+            _write_update_events(root, "paper", month, records, observed)
             upsert_jsonl(path, records)
     for month, records in skipped_by_month.items():
         path = root / "ledger" / "skipped" / f"{month}.jsonl"
         if dry_run:
             diff_lines.extend(diff_jsonl(path, records))
         else:
+            _write_update_events(root, "skipped", month, records, observed)
             upsert_jsonl(path, records)
+    if dry_run:
+        diff_lines.extend(_removed_month_diffs(root, "paper", paper_by_month))
+        diff_lines.extend(_removed_month_diffs(root, "skipped", skipped_by_month))
     return SyncResult(
         paper_count=len(paper_records),
         skipped_count=len(skipped_records),
@@ -245,7 +258,8 @@ def _select_decision_date(path: Path, document: Mapping[str, Any]) -> date:
 def _decision_date(path: Path, front: Mapping[str, Any]) -> date:
     published = front.get("published_at")
     if isinstance(published, str):
-        return date.fromisoformat(published[:10])
+        normalized = published.replace("Z", "+00:00")
+        return datetime.fromisoformat(normalized).astimezone(JST).date()
     return date.fromisoformat(path.name[:10])
 
 
@@ -258,15 +272,15 @@ def _baseline_price(
     decision_date: date,
     body: str,
     bars: tuple[JQuantsDailyBar, ...],
-) -> tuple[float | None, bool]:
+) -> tuple[float | None, bool, str | None]:
     if bars:
         price, adjusted = resolve_price_on_or_before(ticker, decision_date, bars)
         if price is not None:
-            return price, adjusted
+            return price, adjusted, None
     match = _LATEST_PRICE_RE.search(body)
     if match:
-        return float(match.group(1).replace(",", "")), False
-    return None, False
+        return float(match.group(1).replace(",", "")), False, None
+    return None, False, "baseline_price could not be resolved from J-Quants bars or body fallback"
 
 
 def _extract_market_cap(body: str) -> float | None:
@@ -293,3 +307,52 @@ def _group_by_month(records: list[dict[str, Any]]) -> dict[str, list[dict[str, A
         month = str(record["decision_date"])[:7]
         grouped.setdefault(month, []).append(record)
     return grouped
+
+
+def _write_update_events(
+    root: Path,
+    ledger_type: str,
+    month: str,
+    records: list[dict[str, Any]],
+    observed_at: str,
+) -> None:
+    existing = {
+        str(record["ledger_id"]): record
+        for record in read_jsonl(_ledger_path(root, ledger_type, month))
+    }
+    events: list[dict[str, Any]] = []
+    for record in records:
+        ledger_id = str(record["ledger_id"])
+        previous = existing.get(ledger_id)
+        if previous is None:
+            continue
+        for field in _TRACKED_UPDATE_FIELDS:
+            old = previous.get(field)
+            new = record.get(field)
+            if old != new:
+                events.append(
+                    {
+                        "ledger_id": ledger_id,
+                        "field": field,
+                        "old": old,
+                        "new": new,
+                        "observed_at": observed_at,
+                    }
+                )
+    append_jsonl(root / "ledger" / "updates" / f"{month}.jsonl", events)
+
+
+def _ledger_path(root: Path, ledger_type: str, month: str) -> Path:
+    return root / "ledger" / ledger_type / f"{month}.jsonl"
+
+
+def _removed_month_diffs(
+    root: Path,
+    ledger_type: str,
+    grouped: Mapping[str, list[dict[str, Any]]],
+) -> list[str]:
+    lines: list[str] = []
+    for path in sorted((root / "ledger" / ledger_type).glob("*.jsonl")):
+        if path.stem not in grouped:
+            lines.extend(diff_jsonl(path, []))
+    return lines

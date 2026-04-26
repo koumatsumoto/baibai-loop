@@ -43,12 +43,29 @@ def upsert_jsonl(path: Path, records: Iterable[Mapping[str, Any]]) -> tuple[int,
 
 def diff_jsonl(path: Path, records: Iterable[Mapping[str, Any]]) -> list[str]:
     existing = {str(record["ledger_id"]): record for record in read_jsonl(path)}
+    incoming_ids: set[str] = set()
     lines: list[str] = []
     for record in records:
         ledger_id = str(record["ledger_id"])
+        incoming_ids.add(ledger_id)
         current = existing.get(ledger_id)
         if current is None:
             lines.append(f"+ {ledger_id}")
         elif current != dict(record):
             lines.append(f"~ {ledger_id}")
+    for removed_id in sorted(set(existing) - incoming_ids):
+        lines.append(f"- {removed_id}")
     return lines
+
+
+def append_jsonl(path: Path, records: Iterable[Mapping[str, Any]]) -> int:
+    existing = read_jsonl(path)
+    additions = [dict(record) for record in records]
+    if not additions:
+        return 0
+    content = "".join(
+        json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
+        for record in (*existing, *additions)
+    )
+    write_text_atomic(path, content)
+    return len(additions)

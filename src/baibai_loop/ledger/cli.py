@@ -23,6 +23,11 @@ def build_parser() -> argparse.ArgumentParser:
     sync_parser = subparsers.add_parser("sync", help="sync research decisions into JSONL ledgers")
     sync_parser.add_argument("--root", type=Path, default=Path.cwd())
     sync_parser.add_argument("--dry-run", action="store_true")
+    sync_parser.add_argument(
+        "--require-market-data",
+        action="store_true",
+        help="fail when J-Quants market data cannot be loaded",
+    )
     return parser
 
 
@@ -30,6 +35,10 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "sync":
         calendar, bars, market_warnings = _load_market_data(args.root, os.environ)
+        if args.require_market_data and (not calendar or not bars):
+            for warning in market_warnings:
+                print(f"error: {warning}", file=sys.stderr)
+            return 1
         result = sync_ledger(args.root, dry_run=args.dry_run, calendar=calendar, bars=bars)
         for warning in market_warnings:
             print(f"warning: {warning}", file=sys.stderr)
