@@ -14,13 +14,15 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version-file: .python-version
-      - uses: astral-sh/setup-uv@v5
-      - run: uv sync --frozen --group dev
-      - run: uv run baibai-loop-ledger sync --root .
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --frozen --all-groups
+      - run: uv run baibai-loop-ledger sync --root . --require-market-data
         env:
           JQUANTS_REFRESH_TOKEN: ${{ secrets.JQUANTS_REFRESH_TOKEN }}
       - uses: peter-evans/create-pull-request@v6
@@ -30,3 +32,6 @@ jobs:
           body: "Automated ledger sync."
           branch: chore/ledger-daily-sync
           delete-branch: true
+          author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+          committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+          signoff: true

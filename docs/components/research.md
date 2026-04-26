@@ -63,6 +63,7 @@ tradable_at: "ISO 8601"
 macro_gate: tailwind | neutral | headwind          # view 判定結果
 macro_gate_override: "..."                         # headwind 採用時のみ必須
 position_size_oku: 0.01                            # 建玉 proxy (億円)
+adv_participation_pct: 0.2                         # position_size_oku / avg_turnover_oku * 100
 valuation:
   per_forward: 数値 | null                         # 会社予想ベース、未公表は null
   per_trailing: 数値
@@ -78,7 +79,8 @@ valuation:
 - `brief_refs` は任意。view 後に gate 判定に影響する緊急 brief を参照した場合のみ追加
 - `macro_gate` が `headwind` の場合は採用不可（原則）
 - `decision: accepted` かつ `macro_gate: headwind` の場合は `macro_gate_override` が必須
-- `position_size_oku` は ledger の `adv_participation_pct` 算出に使う
+- `position_size_oku` は仮定資本 1 億円ベース。採用 position 1.0% は `0.01` 億円として記録する
+- `adv_participation_pct` は `5.0` 以上で hard reject
 - 配当利回りは v1 スコープ外のため front matter に含めない
 
 ## 5. Packet 必須項目（本文、13 項目）
