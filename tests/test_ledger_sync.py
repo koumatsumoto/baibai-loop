@@ -217,11 +217,12 @@ def test_decision_date_normalizes_utc_published_at(tmp_path: Path) -> None:
     )
 
 
-def test_diff_jsonl_reports_removed_existing_records(tmp_path: Path) -> None:
+def test_diff_jsonl_marks_orphan_existing_records(tmp_path: Path) -> None:
     ledger_path = tmp_path / "ledger" / "paper" / "2026-04.jsonl"
     ledger_path.parent.mkdir(parents=True)
     ledger_path.write_text(
         json.dumps({"ledger_id": "paper-20260425-2767-vmean"}) + "\n",
         encoding="utf-8",
     )
-    assert diff_jsonl(ledger_path, []) == ["- paper-20260425-2767-vmean"]
+    # upsert は削除しないので、削除予告ではなく orphan 通知として ! を使う。
+    assert diff_jsonl(ledger_path, []) == ["! paper-20260425-2767-vmean"]

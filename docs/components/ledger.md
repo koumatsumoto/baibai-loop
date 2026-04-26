@@ -69,7 +69,17 @@ ledger JSONL は [`../../schemas/ledger-paper-v1.json`](../../schemas/ledger-pap
 uv run baibai-loop-validate --target ledger
 ```
 
-## 7. 事故時の扱い
+## 7. dry-run 出力の読み方
+
+`baibai-loop-ledger sync --dry-run` は次の prefix で差分を表示する。
+
+- `+ ledger_id`: 新規 record (upsert で追記される)
+- `~ ledger_id`: 既存 record の値が変わる (upsert で置換される)
+- `! ledger_id`: 既存 record だが今回の入力 (research / select) には現れない orphan。
+  ledger は audit log のため upsert は削除しない。research packet が消えた・移動した等の
+  状況で発生し、retro 集計の整合確認のための通知である。
+
+## 8. 事故時の扱い
 
 JSONL は 1 行 1 record で、`ledger_id` が主キーである。壊れた行がある場合は
 `uv run baibai-loop-validate --target ledger` で該当 line を確認し、元の research packet

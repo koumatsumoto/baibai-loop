@@ -42,6 +42,16 @@ def upsert_jsonl(path: Path, records: Iterable[Mapping[str, Any]]) -> tuple[int,
 
 
 def diff_jsonl(path: Path, records: Iterable[Mapping[str, Any]]) -> list[str]:
+    """Compute a dry-run diff between ``records`` and the JSONL at ``path``.
+
+    Symbols:
+
+    - ``+ id``: 新規 record (upsert で追記される)。
+    - ``~ id``: 既存 record の値が変わる (upsert で置換される)。
+    - ``! id``: 既存 record だが今回の records には現れない orphan。
+      ledger は audit log なので upsert は削除しない。orphan は
+      research packet が消えた等の状況で発生し、retro 確認用の通知。
+    """
     existing = {str(record["ledger_id"]): record for record in read_jsonl(path)}
     incoming_ids: set[str] = set()
     lines: list[str] = []
@@ -53,8 +63,8 @@ def diff_jsonl(path: Path, records: Iterable[Mapping[str, Any]]) -> list[str]:
             lines.append(f"+ {ledger_id}")
         elif current != dict(record):
             lines.append(f"~ {ledger_id}")
-    for removed_id in sorted(set(existing) - incoming_ids):
-        lines.append(f"- {removed_id}")
+    for orphan_id in sorted(set(existing) - incoming_ids):
+        lines.append(f"! {orphan_id}")
     return lines
 
 
