@@ -77,6 +77,38 @@ class ScreeningLineageTests(unittest.TestCase):
             compute_config_hash(config_b, build_provider_settings(config_b)),
         )
 
+    def test_config_hash_changes_for_edinet_api_base(self) -> None:
+        config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+        base_settings = build_provider_settings(config)
+        base_hash = compute_config_hash(config, base_settings)
+
+        edinet = base_settings["edinet"]
+        assert isinstance(edinet, dict)
+        altered_edinet: dict[str, object] = {
+            **edinet,
+            "api_base": "https://api-other.example.com/v2",
+        }
+        altered_settings: dict[str, object] = {**base_settings, "edinet": altered_edinet}
+
+        self.assertNotEqual(base_hash, compute_config_hash(config, altered_settings))
+
+    def test_config_hash_changes_for_jquants_methods(self) -> None:
+        config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+        base_settings = build_provider_settings(config)
+        base_hash = compute_config_hash(config, base_settings)
+
+        jquants = base_settings["jquants"]
+        assert isinstance(jquants, dict)
+        methods = jquants["methods"]
+        assert isinstance(methods, list)
+        altered_jquants: dict[str, object] = {
+            **jquants,
+            "methods": [*methods, "new_method"],
+        }
+        altered_settings: dict[str, object] = {**base_settings, "jquants": altered_jquants}
+
+        self.assertNotEqual(base_hash, compute_config_hash(config, altered_settings))
+
     def test_asof_date_changes_run_id_but_not_config_hash(self) -> None:
         config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
         config_hash = compute_config_hash(config, build_provider_settings(config))
