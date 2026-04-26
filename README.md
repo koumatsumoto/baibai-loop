@@ -88,7 +88,7 @@ baibai-loop/
 │       ├── brief-japan-monthly.md
 │       ├── brief-event.md
 │       ├── view.md
-│       ├── screened.md
+│       ├── screened.yaml
 │       ├── research.md
 │       ├── trade.md
 │       ├── review.md

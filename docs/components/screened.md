@@ -16,15 +16,14 @@ Baibai-Loop 4 成分アーキテクチャの **(b) スクリーニング通過�
 ## 3. Path と命名
 
 ```
-screened/YYYY/MM/YYYY-MM-DD.md
+screened/YYYY/MM/YYYY-MM-DD.yaml
 ```
 
 1 実行 = 1 ファイル（週次運用のため）。
 
-## 4. Front matter 必須項目
+## 4. YAML 必須項目
 
 ```yaml
----
 run_date: "YYYY-MM-DD"              # 対象営業日（asof_date と同値）
 asof_date: "YYYY-MM-DD"             # path の日付と同じ
 universe_size: 整数                 # その時点の universe 銘柄数
@@ -75,7 +74,6 @@ tickers:                            # 通過銘柄 list
       - sector_median_under_20pct_and_self_range_bottom_20pct
       - price_down_60d_and_valuation_sigma_down
       - sector_rotation_short_sell
----
 ```
 
 - ticker は **4 文字の英数字文字列**として quote 必須（先頭 0 落ち防止、英字組入れ対応）
@@ -89,21 +87,15 @@ tickers:                            # 通過銘柄 list
 - `metrics_breakdown`: 各 valuation 指標 (per_trailing / pbr / ev_ebitda) の `sector_median_gap` / `self_range_percentile` / `sigma_gap` を集約。research §3 Valuation snapshot の primary metric 選択と判定根拠の数値ソース
 - `next_earnings_date`: asof 以降直近の決算発表予定日 (J-Quants earnings calendar、asof + 90 calendar days 範囲内)。research §10 Entry 条件の「決算またぎ kill switch」自動 check に使う。範囲内に予定が無い銘柄は `null`
 
-### 4.1 本文の構造
+### 4.1 実行メモの扱い
 
-自動生成される本文は以下の 3 セクションで構成される。手動で作成する場合も同一構造にする。
+`screened/` は YAML 正本とし、Markdown 本文は持たない。複数閾値 hit、provider 状態、universe 除外件数、fallback / 部分警告は以下の配列フィールドで保持する。
 
-1. **実行概要**: 対象営業日、universe サイズ、通過銘柄数
-2. **通過銘柄の事実メモ**: 複数閾値 hit などの事実を箇条書き。該当なしの場合は `該当なし`
-3. **実行環境**: 以下を箇条書きで記録
-   - データソース行
-   - universe 除外件数（各 exclusion_flag ごと）
-   - `ttm_quality 集計: exact=N, approximated=N, unavailable=N`
-   - fallback / 部分警告の詳細:
-     - `ttm_quality 非 exact 件数: N`
-     - `業績悪化フィルタ入力欠損: N 銘柄`
-     - `EDINET 読み込み失敗: <エラー>` (読み込みに失敗したとき)
-     - `JPX source 未ロード: <flag 列挙>` (REQUIRED 4 種すべてカバーできなかったとき)
+- `fact_memo_lines`
+- `provider_status_lines`
+- `universe_exclusion_lines`
+- `fallback_lines`
+- `ttm_quality_counts`
 
 ## 5. ワークフロー
 
@@ -112,8 +104,8 @@ tickers:                            # 通過銘柄 list
 1. 最新 universe を取得（J-Quants Light + JPX 除外条件適用）
 2. 各 ticker の valuation 指標を算出（[`../screening/valuation-metrics.md`](../screening/valuation-metrics.md) 参照）
 3. 閾値条件（[`../screening/mechanical-v1.md`](../screening/mechanical-v1.md) の 3 種 OR）を適用
-4. 通過銘柄を `tickers` 配列として front matter に記録
-5. 本文には補足情報（実行時の市場環境メモ、除外した特殊ケース等）を事実として記録
+4. 通過銘柄を `tickers` 配列として YAML に記録
+5. 補足情報（実行時の provider 状態、除外件数、fallback 等）を事実として配列フィールドに記録
 
 ### 5.2 実装
 
@@ -140,7 +132,7 @@ tickers:                            # 通過銘柄 list
 | --- | --- | --- |
 | valuation 指標の算出 | ○ | 異常値の手動確認 |
 | 閾値適用・threshold_hit 判定 | ○ | |
-| front matter 整備 | ○ | |
+| YAML 整備 | ○ | |
 | 数値ソースの一次確認 | ○ | 最終責任 |
 | 最終 commit | | ○ |
 
@@ -152,4 +144,4 @@ tickers:                            # 通過銘柄 list
 - [`../screening/universe-rules.md`](../screening/universe-rules.md): universe 境界条件
 - [`../screening/valuation-metrics.md`](../screening/valuation-metrics.md): 指標算出仕様
 - [`../screening/mechanical-v1.md`](../screening/mechanical-v1.md): 機械的ふるい仕様（閾値 3 種 OR）
-- [`../templates/screened.md`](../templates/screened.md): template
+- [`../templates/screened.yaml`](../templates/screened.yaml): template

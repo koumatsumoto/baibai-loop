@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -153,7 +155,7 @@ class FakeJPXProvider:
 
 
 class ScreeningCliTests(unittest.TestCase):
-    def test_run_command_writes_screened_markdown(self) -> None:
+    def test_run_command_writes_screened_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
             try:
@@ -178,7 +180,7 @@ class ScreeningCliTests(unittest.TestCase):
                 self.assertTrue(output_path.exists())
                 rendered = output_path.read_text(encoding="utf-8")
                 self.assertIn('run_date: "2026-04-24"', rendered)
-                self.assertIn("ttm_quality 集計: exact=1, approximated=1, unavailable=1", rendered)
+                self.assertIn("ttm_quality_counts:", rendered)
             finally:
                 os.chdir(cwd)
 
@@ -352,20 +354,16 @@ class IndexNextEarningsTests(unittest.TestCase):
 
 class SelectCommandTests(unittest.TestCase):
     def _write_screened(self, root: Path, asof: date, tickers: list[dict[str, object]]) -> Path:
-        path = root / f"{asof:%Y}" / f"{asof:%m}" / f"{asof:%Y-%m-%d}.md"
+        path = root / f"{asof:%Y}" / f"{asof:%m}" / f"{asof:%Y-%m-%d}.yaml"
         path.parent.mkdir(parents=True, exist_ok=True)
-        import yaml as _yaml
-
-        front = _yaml.safe_dump({"tickers": tickers}, allow_unicode=True, sort_keys=False)
-        path.write_text(f"---\n{front}---\n", encoding="utf-8")
+        payload = yaml.safe_dump({"tickers": tickers}, allow_unicode=True, sort_keys=False)
+        path.write_text(payload, encoding="utf-8")
         return path
 
     def _write_view(self, root: Path, asof: date, sectors: dict[str, str | None]) -> Path:
         path = root / f"{asof:%Y}" / f"{asof:%m}" / f"view-{asof:%Y-%m-%d}-bootstrap.md"
         path.parent.mkdir(parents=True, exist_ok=True)
-        import yaml as _yaml
-
-        front = _yaml.safe_dump({"sectors": sectors}, allow_unicode=True, sort_keys=False)
+        front = yaml.safe_dump({"sectors": sectors}, allow_unicode=True, sort_keys=False)
         path.write_text(f"---\n{front}---\n", encoding="utf-8")
         return path
 
@@ -423,9 +421,7 @@ class SelectCommandTests(unittest.TestCase):
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
-            import yaml as _yaml
-
-            payload = _yaml.safe_load(buffer.getvalue())
+            payload = yaml.safe_load(buffer.getvalue())
             self.assertEqual(payload["input_count"], 3)
             self.assertEqual(payload["after_view_filter"], 2)
             tickers = [c["ticker"] for c in payload["candidates"]]
@@ -434,3 +430,33 @@ class SelectCommandTests(unittest.TestCase):
                 payload["candidates"][0]["position_tier"], "300-500 (P-B only, max 0.5%)"
             )
             self.assertEqual(payload["candidates"][1]["position_tier"], "500-1000 (max 1.0%)")
+
+    def test_rejects_non_mapping_screened_yaml(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            screened_path = (
+                root / "screened" / f"{asof:%Y}" / f"{asof:%m}" / f"{asof:%Y-%m-%d}.yaml"
+            )
+            screened_path.parent.mkdir(parents=True, exist_ok=True)
+            # YAML root is a list rather than a mapping; should fail-fast.
+            screened_path.write_text(
+                yaml.safe_dump([{"ticker": "1111"}], allow_unicode=True),
+                encoding="utf-8",
+            )
+            self._write_view(root / "view", asof, sectors={})
+
+            buffer = io.StringIO()
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = select_command(
+                    asof_date=asof,
+                    view_path=None,
+                    top=10,
+                    screened_root=root / "screened",
+                    view_root=root / "view",
+                    stdout=buffer,
+                )
+            self.assertEqual(exit_code, 1)
+            self.assertIn("invalid screened YAML", stderr.getvalue())
+            self.assertIn("must be a mapping", stderr.getvalue())

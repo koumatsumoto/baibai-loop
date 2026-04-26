@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Protocol, TextIO
 
+import yaml
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
 from .config import (
@@ -35,7 +36,7 @@ from .providers.jquants import (
     JQuantsMarketCalendarDay,
     JQuantsProviderError,
 )
-from .render import JST, build_output_path, render_screened_markdown
+from .render import JST, build_output_path, render_screened_yaml
 from .rules import evaluate_screening
 from .schema import ScreenedRunDocument, ScreenedTicker, SecurityMaster, normalize_ticker
 from .universe import (
@@ -156,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "select":
-        # select reads existing screened/view markdown only, no env or providers needed.
+        # select reads existing screened YAML and view markdown only, no env or providers needed.
         return select_command(
             asof_date=_parse_iso_date(args.asof),
             view_path=Path(args.view) if args.view else None,
@@ -383,8 +384,8 @@ def run_command(
         ttm_quality_counts=metric_result.ttm_quality_counts,
         fallback_lines=tuple(fallback_lines),
     )
-    markdown = render_screened_markdown(document)
-    write_text_atomic(output_path, markdown)
+    yaml_text = render_screened_yaml(document)
+    write_text_atomic(output_path, yaml_text)
     return 2 if partial_warning else 0
 
 
@@ -397,8 +398,6 @@ def select_command(
     view_root: Path | None = None,
     stdout: TextIO | None = None,
 ) -> int:
-    import yaml
-
     if top < 1:
         print("--top must be greater than zero", file=sys.stderr)
         return 1
@@ -408,17 +407,17 @@ def select_command(
     view_root = view_root or Path("view")
 
     screened_path = (
-        screened_root / f"{asof_date:%Y}" / f"{asof_date:%m}" / f"{asof_date:%Y-%m-%d}.md"
+        screened_root / f"{asof_date:%Y}" / f"{asof_date:%m}" / f"{asof_date:%Y-%m-%d}.yaml"
     )
     if not screened_path.exists():
         print(f"screened file not found: {screened_path}", file=sys.stderr)
         return 1
     try:
         screened_fm = TypeAdapter(_ScreenedFrontMatter).validate_python(
-            _parse_front_matter(screened_path)
+            _parse_screened_yaml_payload(screened_path)
         )
-    except ValidationError as exc:
-        print(f"invalid screened front matter: {screened_path}: {exc}", file=sys.stderr)
+    except (ValidationError, ValueError) as exc:
+        print(f"invalid screened YAML: {screened_path}: {exc}", file=sys.stderr)
         return 1
 
     resolved_view_path = view_path or _find_latest_view(view_root, asof_date)
@@ -430,7 +429,7 @@ def select_command(
         return 1
     try:
         view_fm = TypeAdapter(_ViewFrontMatter).validate_python(
-            _parse_front_matter(resolved_view_path)
+            _parse_markdown_front_matter(resolved_view_path)
         )
     except ValidationError as exc:
         print(f"invalid view front matter: {resolved_view_path}: {exc}", file=sys.stderr)
@@ -449,14 +448,19 @@ def select_command(
     return 0
 
 
-def _parse_front_matter(path: Path) -> dict[str, object]:
-    import yaml
-
+def _parse_markdown_front_matter(path: Path) -> dict[str, object]:
     text = path.read_text(encoding="utf-8")
     match = re.match(r"^---\n(.*?)\n---", text, re.DOTALL)
     if not match:
         return {}
     return yaml.safe_load(match.group(1)) or {}
+
+
+def _parse_screened_yaml_payload(path: Path) -> dict[str, object]:
+    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"screened YAML root must be a mapping: {path}")
+    return payload
 
 
 def _find_latest_view(view_root: Path, asof_date: date) -> Path | None:
@@ -508,6 +512,8 @@ def _rank_candidates(
     return [candidate for _, candidate in ranked]
 
 
+# Tier 境界は 300 億 universe 閾値前提。Phase 3 (issue #39 R11) で
+# 200 億化に伴い境界値を更新する。
 def _position_tier(market_cap_oku: int) -> str:
     if market_cap_oku >= 1000:
         return "1000+ (max 2.0%)"

@@ -57,7 +57,7 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 ### 3.4 OR 条件の意味
 
 - **最低 1 つ満たせば通過**（複数満たす銘柄は confidence が高い）
-- 通過した銘柄の front matter `threshold_hit` に「どの条件を満たしたか」を記録
+- 通過した銘柄の YAML `threshold_hit` に「どの条件を満たしたか」を記録
 - research 側で primary metric と合わせて採用判定の input にする
 
 ## 4. 出力
@@ -65,12 +65,12 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 ### 4.1 Path
 
 ```
-screened/YYYY/MM/YYYY-MM-DD.md
+screened/YYYY/MM/YYYY-MM-DD.yaml
 ```
 
 1 実行 = 1 ファイル（週次運用）
 
-### 4.2 Front matter
+### 4.2 YAML
 
 詳細は [`../components/screened.md`](../components/screened.md) 節 4 を参照。核心:
 

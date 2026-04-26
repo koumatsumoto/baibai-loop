@@ -14,7 +14,7 @@ Baibai-Loop 4 成分アーキテクチャの **(d) 個別銘柄リサーチ** �
 
 ### 2.1 4 ステップ
 
-1. **最新 screened を取得**: 直近の `screened/YYYY/MM/YYYY-MM-DD.md` を選び、`tickers` 配列を取得
+1. **最新 screened を取得**: 直近の `screened/YYYY/MM/YYYY-MM-DD.yaml` を選び、`tickers` 配列を取得
 2. **最新 view を参照**: 直近の `view/YYYY/MM/view-YYYY-MM-DD-*.md` を選び、`sectors` / `regions` を取得
 3. **gate 通過銘柄に絞り込み**: screened ticker のうち、所属業種/地域が view で **tailwind または neutral** のものを候補に残す（**headwind は除外**）。screened は `sector_33` のみ持つので、各業種を view の region (`japan-external-demand` 等) に対応させるには [`../screening/sector-region-map.md`](../screening/sector-region-map.md) の default mapping を出発点にする (mixed 業種は研究で個別判断)
 4. **候補から人間 + AI が個別 ticker を選定**: 以下の基準で優先度判定
@@ -52,7 +52,7 @@ research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
 ticker: "7203"
 name: "トヨタ自動車"
 playbook: valuation-mean-reversion-v1 | valuation-catalyst-confirmation-v1
-screened_ref: screened/YYYY/MM/YYYY-MM-DD.md      # 必須
+screened_ref: screened/YYYY/MM/YYYY-MM-DD.yaml      # 必須
 view_ref: view/YYYY/MM/view-YYYY-MM-DD-*.md       # 必須（Bootstrap 後は例外なし）
 brief_refs:                                        # 任意、view 後に出た緊急 brief 時のみ
   - brief/YYYY/MM/event-YYYY-MM-DD-*.md

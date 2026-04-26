@@ -22,7 +22,7 @@ python -m baibai_loop.screening.cli bootstrap-cache --start YYYY-MM-DD --end YYY
 python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--view path] [--top N]
 ```
 
-`select` は最新 `screened/<YYYY>/<MM>/<asof>.md` と `view/` を組み合わせて、`view` で `headwind` 判定された業種を除外し、`threshold_hit` の本数 → 時価総額の順で候補をランキングする。`research` の選定プロセス (`docs/components/research.md` §2.1) をスクリプトで支援する。
+`select` は最新 `screened/<YYYY>/<MM>/<asof>.yaml` と `view/` を組み合わせて、`view` で `headwind` 判定された業種を除外し、`threshold_hit` の本数 → 時価総額の順で候補をランキングする。`research` の選定プロセス (`docs/components/research.md` §2.1) をスクリプトで支援する。
 
 ## 3. Required Env Vars
 
@@ -80,7 +80,7 @@ v1 で使う method は次の 5 点に固定する。
 
 - `--asof` は対象営業日を表す
 - `run_date` は `asof_date` と同値にする
-- 出力 path は `screened/{YYYY}/{MM}/{asof_date}.md`
+- 出力 path は `screened/{YYYY}/{MM}/{asof_date}.yaml`
 - 同一 path が既に存在する場合は fail-fast
 - 非営業日の `--asof` は fail-fast
 
