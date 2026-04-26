@@ -124,6 +124,10 @@ regions:                            # 地域別 gate 判定
 - `sectors` に tailwind/headwind を付けるのは、その業種固有の追加根拠がある場合に限る
 - これにより、research 側の macro gate で同一要因を二重計上しない
 
+### 5.3 schema 検証
+
+front matter の `sectors` / `regions` の許容値、業種名 / 地域名は `baibai-loop-validate` で検査される。未知 sector / region 名は warning、不正な status (`tailwind`/`neutral`/`headwind`/`null` 以外) は error。CI の `Validate artefacts` step で merge gate になる。手元では `uv run baibai-loop-validate --target view` で個別に走らせられる。
+
 ## 6. 本文の構成
 
 ### 6.1 推奨節構成

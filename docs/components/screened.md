@@ -107,6 +107,10 @@ screened YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行時�
 - `fallback_lines`
 - `ttm_quality_counts`
 
+### 4.3 schema 検証
+
+`schemas/screened-v1.json` が screened YAML のコア schema (Draft 2020-12 jsonschema)。`baibai-loop-validate` CLI が同 schema で全 `screened/*.yaml` を検査し、CI の `Validate artefacts` step で merge gate になる。手元では `uv run baibai-loop-validate --target screened` で個別に走らせられる。
+
 ## 5. ワークフロー
 
 ### 5.1 実行手順
