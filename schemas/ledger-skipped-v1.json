@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ledger_id",
+    "ticker",
+    "name",
+    "decision",
+    "playbook",
+    "screened_ref",
+    "research_ref",
+    "asof_date",
+    "decision_date",
+    "baseline_price",
+    "market_cap_oku",
+    "avg_turnover_oku",
+    "threshold_hit_count",
+    "macro_gate",
+    "adv_participation_pct",
+    "adjustment_applied",
+    "tracking"
+  ],
+  "properties": {
+    "ledger_id": {"type": "string", "pattern": "^skipped-[0-9]{8}-[0-9A-Z]{4}-[a-z0-9]+$"},
+    "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
+    "name": {"type": "string", "minLength": 1},
+    "decision": {"const": "skipped"},
+    "playbook": {"type": "string", "minLength": 1},
+    "screened_ref": {"type": "string", "minLength": 1},
+    "research_ref": {"type": ["string", "null"]},
+    "asof_date": {"type": "string", "format": "date"},
+    "decision_date": {"type": "string", "format": "date"},
+    "baseline_price": {"type": ["number", "null"]},
+    "market_cap_oku": {"type": ["number", "null"]},
+    "avg_turnover_oku": {"type": ["number", "null"]},
+    "threshold_hit_count": {"type": "integer", "minimum": 0},
+    "macro_gate": {"type": ["string", "null"]},
+    "adv_participation_pct": {"type": ["number", "null"]},
+    "adjustment_applied": {"type": "boolean"},
+    "tracking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plus_15bd", "plus_30bd"],
+      "properties": {
+        "plus_15bd": {"type": ["number", "null"]},
+        "plus_30bd": {"type": ["number", "null"]}
+      }
+    }
+  }
+}

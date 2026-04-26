@@ -14,13 +14,15 @@ from pathlib import Path
 from typing import Literal, TextIO, assert_never
 
 from .errors import ValidationFinding
+from .ledger import discover_ledger_files, validate_ledger_file
 from .playbook_schema import discover_playbook_schemas
 from .research import discover_research_files, validate_research_file
+from .review import discover_review_files, validate_review_file
 from .screened import discover_screened_files, validate_screened_file
 from .view import discover_view_files, validate_view_file
 
-type ValidationTarget = Literal["screened", "view", "research"]
-_TARGETS: tuple[ValidationTarget, ...] = ("screened", "view", "research")
+type ValidationTarget = Literal["screened", "view", "research", "ledger", "review"]
+_TARGETS: tuple[ValidationTarget, ...] = ("screened", "view", "research", "ledger", "review")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -107,6 +109,10 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
             return discover_view_files(root / "view")
         case "research":
             return discover_research_files(root / "research")
+        case "ledger":
+            return discover_ledger_files(root / "ledger")
+        case "review":
+            return discover_review_files(root / "reviews")
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 
@@ -128,6 +134,10 @@ def _validate(
                 playbooks_root=root / "playbooks",
                 known_playbooks=known_playbooks,
             )
+        case "ledger":
+            return validate_ledger_file(path)
+        case "review":
+            return validate_review_file(path)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 
