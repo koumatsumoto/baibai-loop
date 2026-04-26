@@ -78,8 +78,8 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "bandit", extras = ["toml"], specifier = ">=1.9.0" },
-    { name = "coverage", extras = ["toml"], specifier = ">=7.13.0" },
+    { name = "bandit", extras = ["toml"], specifier = ">=1.9.4" },
+    { name = "coverage", extras = ["toml"], specifier = ">=7.13.5" },
     { name = "hypothesis", specifier = ">=6.150.0" },
     { name = "mutmut", specifier = ">=3.3.0" },
     { name = "mypy", specifier = ">=1.20.0" },
@@ -98,11 +98,11 @@ quality = [
     { name = "ruff", specifier = ">=0.14.0" },
 ]
 security = [
-    { name = "bandit", extras = ["toml"], specifier = ">=1.9.0" },
+    { name = "bandit", extras = ["toml"], specifier = ">=1.9.4" },
     { name = "pip-audit", specifier = ">=2.10.0" },
 ]
 test = [
-    { name = "coverage", extras = ["toml"], specifier = ">=7.13.0" },
+    { name = "coverage", extras = ["toml"], specifier = ">=7.13.5" },
     { name = "hypothesis", specifier = ">=6.150.0" },
     { name = "pytest", specifier = ">=9.0.0" },
     { name = "pytest-mock", specifier = ">=3.15.0" },
