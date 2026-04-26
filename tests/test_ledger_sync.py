@@ -200,6 +200,30 @@ def test_sync_ledger_writes_update_events_for_tracking_changes(tmp_path: Path) -
     assert {event["field"] for event in events} >= {"baseline_price", "adjustment_applied"}
 
 
+def test_sync_ledger_logs_decision_transition_in_update_events(tmp_path: Path) -> None:
+    _seed(tmp_path)
+    sync_ledger(tmp_path, observed_at=datetime(2026, 4, 26, tzinfo=UTC))
+    research_path = tmp_path / "research" / "2026" / "04"
+    target = next(research_path.glob("*.md"))
+    target.write_text(
+        target.read_text(encoding="utf-8").replace("decision: accepted", "decision: pending"),
+        encoding="utf-8",
+    )
+    sync_ledger(tmp_path, observed_at=datetime(2026, 4, 27, tzinfo=UTC))
+    update_path = tmp_path / "ledger" / "updates" / "2026-04.jsonl"
+    events = [json.loads(line) for line in update_path.read_text().splitlines()]
+    decision_events = [event for event in events if event["field"] == "decision"]
+    assert decision_events == [
+        {
+            "ledger_id": "paper-20260425-2767-vmean",
+            "field": "decision",
+            "old": "accepted",
+            "new": "pending",
+            "observed_at": "2026-04-27T00:00:00+00:00",
+        }
+    ]
+
+
 def test_decision_date_treats_naive_published_at_as_jst(tmp_path: Path) -> None:
     # 22:00 JST と naive 22:00 が同じ日付 (= JST 解釈) を返すことを確認する。
     # naive を local time で解釈すると CI ランナー (UTC) では翌日に倒れてしまう。

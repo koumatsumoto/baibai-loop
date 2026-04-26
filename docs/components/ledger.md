@@ -14,7 +14,10 @@
 
 - `ledger/paper/YYYY-MM.jsonl`: `decision: accepted | pending`
 - `ledger/skipped/YYYY-MM.jsonl`: `decision: skipped`
-- `ledger/updates/YYYY-MM.jsonl`: `{ledger_id, field, old, new, observed_at}` の更新イベント
+- `ledger/updates/YYYY-MM.jsonl`: `{ledger_id, field, old, new, observed_at}` の更新イベント。
+  追跡対象 field は `baseline_price`, `adjustment_applied`, `tracking`, `decision`,
+  `macro_gate`, `adv_participation_pct` の 6 個。新規 record の作成時には event を残さず、
+  既存 record の値が変わった時のみ追記する。
 
 ## 3. ledger_id
 

@@ -19,7 +19,18 @@ from .tracking import resolve_price_on_or_before, resolve_tracking_prices
 
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)
 _LATEST_PRICE_RE = re.compile(r"最新 adj close \([^)]*\) \| ([0-9,]+(?:\.[0-9]+)?) 円")
-_TRACKED_UPDATE_FIELDS = ("baseline_price", "adjustment_applied", "tracking")
+# 既存 record と incoming record で差分があったときに updates ledger に event を残す
+# 対象。tracking 系 (price 解決) と decision 系 (state 遷移) を残し、retro 集計で
+# 「いつ pending → accepted になったか」「どの時点で adjustment 入ったか」を ledger
+# 単独で追えるようにする。docs/components/ledger.md と同期。
+_TRACKED_UPDATE_FIELDS = (
+    "baseline_price",
+    "adjustment_applied",
+    "tracking",
+    "decision",
+    "macro_gate",
+    "adv_participation_pct",
+)
 
 
 @dataclass(frozen=True, slots=True)
