@@ -11,14 +11,15 @@ import argparse
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TextIO
+from typing import Literal, TextIO, assert_never
 
 from .errors import ValidationFinding
 from .research import discover_research_files, validate_research_file
 from .screened import discover_screened_files, validate_screened_file
 from .view import discover_view_files, validate_view_file
 
-_TARGETS: tuple[str, ...] = ("screened", "view", "research")
+type ValidationTarget = Literal["screened", "view", "research"]
+_TARGETS: tuple[ValidationTarget, ...] = ("screened", "view", "research")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -35,19 +36,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=_TARGETS,
         help="restrict validation to a specific artefact type (repeatable)",
     )
-    parser.add_argument(
-        "--all",
-        action="store_true",
-        help="(default) validate every supported artefact type; kept for "
-        "compatibility with `baibai-loop-validate --all` in docs",
-    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    targets: tuple[str, ...] = tuple(args.target) if args.target else _TARGETS
+    targets: tuple[ValidationTarget, ...] = tuple(args.target) if args.target else _TARGETS
     return run_validation(
         root=args.root,
         targets=targets,
@@ -59,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
 def run_validation(
     *,
     root: Path,
-    targets: Sequence[str],
+    targets: Sequence[ValidationTarget],
     stdout: TextIO,
     stderr: TextIO,
 ) -> int:
@@ -75,10 +70,13 @@ def run_validation(
     warning_count = 0
     for finding in findings:
         line = _format_finding(finding, root)
-        if finding.severity == "error":
-            error_count += 1
-        else:
-            warning_count += 1
+        match finding.severity:
+            case "error":
+                error_count += 1
+            case "warning":
+                warning_count += 1
+            case _ as unhandled:  # pragma: no cover
+                assert_never(unhandled)
         print(line, file=stderr)
 
     summary = f"validated {file_count} file(s): {error_count} error(s), {warning_count} warning(s)"
@@ -86,24 +84,28 @@ def run_validation(
     return 1 if error_count else 0
 
 
-def _discover(root: Path, target: str) -> list[Path]:
-    if target == "screened":
-        return discover_screened_files(root / "screened")
-    if target == "view":
-        return discover_view_files(root / "view")
-    if target == "research":
-        return discover_research_files(root / "research")
-    raise AssertionError(f"unreachable target: {target!r}")
+def _discover(root: Path, target: ValidationTarget) -> list[Path]:
+    match target:
+        case "screened":
+            return discover_screened_files(root / "screened")
+        case "view":
+            return discover_view_files(root / "view")
+        case "research":
+            return discover_research_files(root / "research")
+        case _ as unhandled:  # pragma: no cover
+            assert_never(unhandled)
 
 
-def _validate(root: Path, target: str, path: Path) -> list[ValidationFinding]:
-    if target == "screened":
-        return validate_screened_file(path)
-    if target == "view":
-        return validate_view_file(path)
-    if target == "research":
-        return validate_research_file(path, playbooks_root=root / "playbooks")
-    raise AssertionError(f"unreachable target: {target!r}")
+def _validate(root: Path, target: ValidationTarget, path: Path) -> list[ValidationFinding]:
+    match target:
+        case "screened":
+            return validate_screened_file(path)
+        case "view":
+            return validate_view_file(path)
+        case "research":
+            return validate_research_file(path, playbooks_root=root / "playbooks")
+        case _ as unhandled:  # pragma: no cover
+            assert_never(unhandled)
 
 
 def _format_finding(finding: ValidationFinding, root: Path) -> str:
