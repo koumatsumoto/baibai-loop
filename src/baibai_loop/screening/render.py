@@ -69,6 +69,9 @@ def _build_front_matter(document: ScreenedRunDocument) -> dict[str, object]:
     front_matter["generated_by"] = QuotedString(document.generated_by)
     front_matter["data_sources"] = [QuotedString(source) for source in document.data_sources]
     front_matter["run_at"] = QuotedString(document.run_at.isoformat())
+    front_matter["run_id"] = QuotedString(document.run_id)
+    front_matter["config_hash"] = QuotedString(document.config_hash)
+    front_matter["cache_manifest_hash"] = QuotedString(document.cache_manifest_hash)
     front_matter["tickers"] = [_build_ticker_entry(ticker) for ticker in document.tickers]
     front_matter["fact_memo_lines"] = [QuotedString(line) for line in document.fact_memo_lines]
     front_matter["provider_status_lines"] = [

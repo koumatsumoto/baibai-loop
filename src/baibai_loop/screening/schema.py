@@ -230,6 +230,9 @@ class ScreenedRunDocument:
     filters: Mapping[str, Any]
     tickers: tuple[ScreenedTicker, ...]
     run_at: datetime
+    run_id: NonEmptyString
+    config_hash: NonEmptyString
+    cache_manifest_hash: NonEmptyString
     generated_by: str = "screening-cli-v1"
     data_sources: tuple[str, ...] = (
         "j-quants-light",

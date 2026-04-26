@@ -11,6 +11,9 @@ data_sources:
 - "edinet-api-v2@2026-01-29"
 - "jpx-public-regulation"
 run_at: "YYYY-MM-DDTHH:MM:SS+09:00"
+run_id: "screening-YYYYMMDD-xxxxxxxx"
+config_hash: "0123456789abcdef"
+cache_manifest_hash: "fedcba9876543210"
 tickers:
 - ticker: "130A"                     # 4 文字文字列。英字組入れ対応
   name: "..."

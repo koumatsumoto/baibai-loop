@@ -21,6 +21,14 @@ from .config import (
 )
 from .date_utils import weekday_distance
 from .filesystem import write_text_atomic
+from .lineage import (
+    build_provider_settings,
+    build_run_id,
+    compute_cache_manifest,
+    compute_cache_manifest_hash,
+    compute_config_hash,
+    write_manifest,
+)
 from .metrics import (
     build_metrics,
     build_shares_outstanding_index,
@@ -213,13 +221,15 @@ def run_command(
     now: datetime | None = None,
     allow_stale_jpx: bool = False,
 ) -> int:
-    del config
     output_path = build_output_path(asof_date)
     if output_path.exists():
         print(f"output already exists: {output_path}", file=sys.stderr)
         return 1
 
     run_now = now or datetime.now(JST)
+    provider_settings = build_provider_settings(config)
+    config_hash = compute_config_hash(config, provider_settings)
+    run_id = build_run_id(asof_date, config_hash)
     today = run_now.date()
     if (
         not allow_stale_jpx
@@ -363,6 +373,18 @@ def run_command(
     if missing_jpx_sources:
         fallback_lines.append(f"JPX source 未ロード: {', '.join(missing_jpx_sources)}")
 
+    cache_manifest = compute_cache_manifest(config.cache_dir)
+    cache_manifest_hash = compute_cache_manifest_hash(cache_manifest)
+    write_manifest(
+        config.cache_dir / "manifests" / f"{run_id}.json",
+        cache_manifest,
+        run_id=run_id,
+        asof_date=asof_date,
+        config_hash=config_hash,
+        manifest_hash=cache_manifest_hash,
+        generated_at=run_now,
+    )
+
     document = ScreenedRunDocument(
         run_date=asof_date,
         asof_date=asof_date,
@@ -374,6 +396,9 @@ def run_command(
         },
         tickers=tuple(screened_tickers),
         run_at=run_now,
+        run_id=run_id,
+        config_hash=config_hash,
+        cache_manifest_hash=cache_manifest_hash,
         fact_memo_lines=tuple(fact_lines),
         provider_status_lines=(
             "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ EDINET + JPX",
