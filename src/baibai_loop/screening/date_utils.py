@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date
 
 
@@ -20,3 +21,15 @@ def weekday_distance(start: date, end: date) -> int:
         if current.weekday() < 5:
             count += 1
     return count
+
+
+def add_business_days(start: date, n: int, calendar: Sequence[date]) -> date | None:
+    """Return the nth business day after ``start`` from an ascending calendar."""
+    if n < 0:
+        raise ValueError("n must be non-negative")
+    future_days = [day for day in calendar if day > start]
+    if n == 0:
+        return start
+    if len(future_days) < n:
+        return None
+    return future_days[n - 1]
