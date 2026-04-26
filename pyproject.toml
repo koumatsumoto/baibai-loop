@@ -17,6 +17,7 @@ dependencies = [
   "pyyaml>=6.0.0",
   "requests>=2.32.0",
   "xlrd>=2.0.0",
+  "jsonschema>=4.21.0",
 ]
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
@@ -26,6 +27,7 @@ classifiers = [
 
 [project.scripts]
 baibai-loop-screening = "baibai_loop.screening.cli:main"
+baibai-loop-validate = "baibai_loop.validate.cli:main"
 
 [dependency-groups]
 dev = [
@@ -43,6 +45,7 @@ test = [
 typing = [
   "mypy>=1.20.0",
   "pandas-stubs>=2.3.0.250703",
+  "types-jsonschema>=4.21.0",
   "types-pyyaml>=6.0.12.20250915",
   "types-requests>=2.32.0.20250913",
 ]

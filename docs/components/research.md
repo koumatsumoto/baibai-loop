@@ -98,6 +98,10 @@ valuation:
 
 詳細は [`../screening/principles.md`](../screening/principles.md) を参照。
 
+### 5.1 schema 検証
+
+front matter の必須 field と `playbook` ごとの本文 section 構造は `baibai-loop-validate` で検査される。playbook 別の本文 section schema は [`/playbooks/`](../../playbooks/) 配下に `<name>.schema.yaml` として分離してあり、新 playbook を追加した時は同名 schema YAML を置くだけで validate に反映される (validate 本体改修不要)。CI の `Validate artefacts` step で merge gate になる。手元では `uv run baibai-loop-validate --target research` で個別に走らせられる。
+
 ## 6. 採用判定
 
 ### 6.1 判定カテゴリ
