@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import textwrap
 import unittest
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,8 +11,18 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.screening.render import JST, RenderError, build_output_path, render_screened_markdown
-from baibai_loop.screening.schema import ScreenedRunDocument, ScreenedTicker, TTMQuality, normalize_ticker
+from baibai_loop.screening.render import (
+    JST,
+    RenderError,
+    build_output_path,
+    render_screened_markdown,
+)
+from baibai_loop.screening.schema import (
+    ScreenedRunDocument,
+    ScreenedTicker,
+    TTMQuality,
+    normalize_ticker,
+)
 
 
 class ScreeningRenderTests(unittest.TestCase):
@@ -133,7 +143,9 @@ class ScreeningRenderTests(unittest.TestCase):
             ],
             run_at=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
             fact_memo_lines=("[事実 1]", "[事実 2]"),
-            provider_status_lines=("データソース: J-Quants Light（日足・財務サマリー・業績予想）+ EDINET + JPX",),
+            provider_status_lines=(
+                "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ EDINET + JPX",
+            ),
             ttm_quality_counts={"exact": 1, "approximated": 1, "unavailable": 1},
             fallback_lines=("取得失敗の有無: [有の場合は対象銘柄と理由を列挙]",),
         )
@@ -238,7 +250,7 @@ class ScreeningRenderTests(unittest.TestCase):
             universe_size=0,
             filters={},
             tickers=(),
-            run_at=datetime(2026, 4, 24, 0, 0, tzinfo=timezone.utc),
+            run_at=datetime(2026, 4, 24, 0, 0, tzinfo=UTC),
         )
 
         with self.assertRaises(RenderError):

@@ -2,20 +2,32 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta
+from math import isfinite
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, ClassVar
+
+from pydantic import ConfigDict, field_validator
+from pydantic.dataclasses import dataclass
 
 from ..config import JQUANTS_CLIENT_V2_METHODS
 from ..schema import SecurityMaster, normalize_ticker
+
+_MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False)
 
 
 class JQuantsProviderError(RuntimeError):
     """Raised when a required J-Quants fetch or normalization fails."""
 
 
-@dataclass(frozen=True)
+def _validate_finite(value: float | None) -> float | None:
+    if value is not None and not isfinite(value):
+        raise ValueError("numeric values must be finite")
+    return value
+
+
+@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
 class JQuantsDailyBar:
     ticker: str
     traded_at: date
@@ -23,11 +35,18 @@ class JQuantsDailyBar:
     turnover_value: float | None
     adjustment_close: float | None = None
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "ticker", normalize_ticker(self.ticker))
+    @field_validator("ticker", mode="before")
+    @classmethod
+    def _normalize_ticker_field(cls, value: str) -> str:
+        return normalize_ticker(value)
+
+    @field_validator("close", "turnover_value", "adjustment_close")
+    @classmethod
+    def _finite_numeric_fields(cls, value: float | None) -> float | None:
+        return _validate_finite(value)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
 class JQuantsFinancialSummary:
     ticker: str
     disclosed_at: date
@@ -44,11 +63,27 @@ class JQuantsFinancialSummary:
     period_start: date | None = None
     period_end: date | None = None
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "ticker", normalize_ticker(self.ticker))
+    @field_validator("ticker", mode="before")
+    @classmethod
+    def _normalize_ticker_field(cls, value: str) -> str:
+        return normalize_ticker(value)
+
+    @field_validator(
+        "forecast_eps",
+        "eps_ttm",
+        "bps",
+        "shares_outstanding",
+        "sales",
+        "operating_profit",
+        "ordinary_profit",
+        "profit",
+    )
+    @classmethod
+    def _finite_numeric_fields(cls, value: float | None) -> float | None:
+        return _validate_finite(value)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
 class JQuantsMarketCalendarDay:
     day: date
     is_business_day: bool
@@ -57,7 +92,7 @@ class JQuantsMarketCalendarDay:
 class JQuantsProvider:
     """Thin cache-first adapter for jquantsapi.ClientV2 only."""
 
-    _RANGE_CHUNK_DAYS = {
+    _RANGE_CHUNK_DAYS: ClassVar[Mapping[str, int]] = {
         # ClientV2 range helpers fan out to per-day API calls internally.
         # Long windows can hit J-Quants 429s, so persist smaller chunks to make
         # retries resumable and keep the behavior understandable from static code.
@@ -87,7 +122,11 @@ class JQuantsProvider:
 
     def get_fin_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
         records = self._load_or_fetch_range("get_fin_summary_range", start, end)
-        return [summary for record in records if (summary := normalize_financial_summary(record)) is not None]
+        return [
+            summary
+            for record in records
+            if (summary := normalize_financial_summary(record)) is not None
+        ]
 
     def get_eq_earnings_cal(self, start: date, end: date) -> list[dict[str, Any]]:
         records = self._load_or_fetch("get_eq_earnings_cal")
@@ -96,7 +135,11 @@ class JQuantsProvider:
         return [
             record
             for record in records
-            if start_iso <= str(record.get("Date") or record.get("date") or record.get("AnnouncementDate") or "")[:10] <= end_iso
+            if start_iso
+            <= str(
+                record.get("Date") or record.get("date") or record.get("AnnouncementDate") or ""
+            )[:10]
+            <= end_iso
         ]
 
     def get_mkt_calendar(self, start: date, end: date) -> list[JQuantsMarketCalendarDay]:
@@ -166,7 +209,7 @@ class JQuantsProvider:
 
     def _call_with_retry(self, method: str, call: Any, **params: Any) -> Any:
         last_exc: Exception | None = None
-        for attempt, delay_seconds in enumerate((0, *self._RATE_LIMIT_BACKOFF_SECONDS)):
+        for delay_seconds in (0, *self._RATE_LIMIT_BACKOFF_SECONDS):
             try:
                 return call(**_stringify_dates(params))
             except Exception as exc:
@@ -178,8 +221,9 @@ class JQuantsProvider:
         # refresh_token / id_token 等の secret が exception 文字列に含まれる可能性に備えて
         # sanitize、さらに `from None` で原因チェーンを切って traceback 漏洩も遮断する。
         sanitized = self._sanitize_secret(str(last_exc)) if last_exc else ""
+        exception_name = type(last_exc).__name__ if last_exc else "unknown"
         raise JQuantsProviderError(
-            f"failed to fetch J-Quants payload via {method}: {type(last_exc).__name__ if last_exc else 'unknown'}: {sanitized}"
+            f"failed to fetch J-Quants payload via {method}: {exception_name}: {sanitized}"
         ) from None
 
     def _sanitize_secret(self, text: str) -> str:
@@ -188,7 +232,10 @@ class JQuantsProvider:
         return text
 
     def _cache_path(self, method: str, params: Mapping[str, Any]) -> Path:
-        suffix = "-".join(f"{key}-{value.isoformat() if hasattr(value, 'isoformat') else value}" for key, value in sorted(params.items()))
+        suffix = "-".join(
+            f"{key}-{value.isoformat() if hasattr(value, 'isoformat') else value}"
+            for key, value in sorted(params.items())
+        )
         filename = f"{method}.json" if not suffix else f"{method}-{suffix}.json"
         return self._cache_dir / filename
 
@@ -264,7 +311,9 @@ def _normalize_sector_name(value: Any) -> str:
 
 
 def normalize_security_master(record: Mapping[str, Any]) -> SecurityMaster:
-    code, common_code = _parse_jquants_code(_first_value(record, "Code", "code", "LocalCode", "local_code"))
+    code, common_code = _parse_jquants_code(
+        _first_value(record, "Code", "code", "LocalCode", "local_code")
+    )
     name = _first_value(record, "CompanyName", "company_name", "Name", "name", "CoName", "co_name")
     market_segment = _first_value(
         record,
@@ -291,7 +340,10 @@ def normalize_security_master(record: Mapping[str, Any]) -> SecurityMaster:
     is_common_stock = bool(
         record.get("is_common_stock")
         if "is_common_stock" in record
-        else _first_value(record, "TypeOfDocument", "SecurityType", "security_type", default="common").lower() in {"common", "common stock", "普通株"}
+        else _first_value(
+            record, "TypeOfDocument", "SecurityType", "security_type", default="common"
+        ).lower()
+        in {"common", "common stock", "普通株"}
     )
     if not common_code:
         is_common_stock = False
@@ -318,9 +370,7 @@ def normalize_daily_bar(record: Mapping[str, Any]) -> JQuantsDailyBar | None:
     # raw `close` so that latest-day calculations stay on the unadjusted price
     # while historical series can use the adjusted value to avoid jumps at
     # split dates.
-    adjustment_close = _to_float(
-        _coalesce_field(record, "AdjustmentClose", "adjustment_close")
-    )
+    adjustment_close = _to_float(_coalesce_field(record, "AdjustmentClose", "adjustment_close"))
     return JQuantsDailyBar(
         ticker=ticker,
         traded_at=_parse_date(_first_value(record, "Date", "date", "TradedAt", "traded_at")),
@@ -348,8 +398,14 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
     # (EPS=0 の赤字転換点、Sales=0 の新規事業初期、OP=0 の損益分岐点ちょうど、など)。
     return JQuantsFinancialSummary(
         ticker=ticker,
-        disclosed_at=_parse_date(_first_value(record, "DisclosedDate", "disclosed_at", "DiscDate", "disc_date", "Date", "date")),
-        forecast_eps=_to_float(_coalesce_field(record, "ForecastEPS", "forecast_eps", "FEPS", "f_eps")),
+        disclosed_at=_parse_date(
+            _first_value(
+                record, "DisclosedDate", "disclosed_at", "DiscDate", "disc_date", "Date", "date"
+            )
+        ),
+        forecast_eps=_to_float(
+            _coalesce_field(record, "ForecastEPS", "forecast_eps", "FEPS", "f_eps")
+        ),
         eps_ttm=_to_float(
             _coalesce_field(
                 record,
@@ -361,7 +417,9 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
                 "eps",
             )
         ),
-        bps=_to_float(_coalesce_field(record, "BPS", "bps", "BookValuePerShare", "book_value_per_share")),
+        bps=_to_float(
+            _coalesce_field(record, "BPS", "bps", "BookValuePerShare", "book_value_per_share")
+        ),
         shares_outstanding=_to_float(
             _coalesce_field(
                 record,
@@ -374,13 +432,25 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
             )
         ),
         sales=_to_float(_coalesce_field(record, "NetSales", "net_sales", "Sales", "sales")),
-        operating_profit=_to_float(_coalesce_field(record, "OperatingProfit", "operating_profit", "OP")),
-        ordinary_profit=_to_float(_coalesce_field(record, "OrdinaryProfit", "ordinary_profit", "OdP")),
+        operating_profit=_to_float(
+            _coalesce_field(record, "OperatingProfit", "operating_profit", "OP")
+        ),
+        ordinary_profit=_to_float(
+            _coalesce_field(record, "OrdinaryProfit", "ordinary_profit", "OdP")
+        ),
         profit=_to_float(_coalesce_field(record, "Profit", "profit", "NP")),
-        fiscal_period=_to_period(_coalesce_field(record, "TypeOfCurrentPeriod", "type_of_current_period")),
-        fiscal_year_end=_parse_optional_date(_coalesce_field(record, "CurrentFiscalYearEndDate", "current_fiscal_year_end_date")),
-        period_start=_parse_optional_date(_coalesce_field(record, "CurrentPeriodStartDate", "current_period_start_date")),
-        period_end=_parse_optional_date(_coalesce_field(record, "CurrentPeriodEndDate", "current_period_end_date")),
+        fiscal_period=_to_period(
+            _coalesce_field(record, "TypeOfCurrentPeriod", "type_of_current_period")
+        ),
+        fiscal_year_end=_parse_optional_date(
+            _coalesce_field(record, "CurrentFiscalYearEndDate", "current_fiscal_year_end_date")
+        ),
+        period_start=_parse_optional_date(
+            _coalesce_field(record, "CurrentPeriodStartDate", "current_period_start_date")
+        ),
+        period_end=_parse_optional_date(
+            _coalesce_field(record, "CurrentPeriodEndDate", "current_period_end_date")
+        ),
     )
 
 
@@ -460,7 +530,7 @@ def _to_float(value: Any) -> float | None:
         return None
     try:
         result = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     # J-Quants returns NaN for non-trading days on calendar-aligned payloads;
     # treat NaN as missing so downstream metrics do not propagate it.
