@@ -18,9 +18,10 @@ from .ledger import discover_ledger_files, validate_ledger_file
 from .playbook_schema import discover_playbook_schemas
 from .research import (
     discover_research_files,
-    parse_research_front_matter,
+    load_research_document,
     validate_research_collection,
     validate_research_file,
+    validate_research_parsed,
 )
 from .review import discover_review_files, validate_review_file
 from .screened import discover_screened_files, validate_screened_file
@@ -80,21 +81,39 @@ def run_validation(
     # I/O を線形回数に抑える)。
     known_playbooks = frozenset(discover_playbook_schemas(root / "playbooks"))
 
+    # research target は per-file 検証と collection 集約の両方で同じ document を
+    # 読むため、target ループ前に 1 度 load して再利用する。
+    research_documents: dict[Path, tuple[dict[str, object], str] | list[ValidationFinding]] = {}
+    if "research" in targets:
+        for path in discover_research_files(root / "research"):
+            research_documents[path] = load_research_document(path)
+
     findings: list[ValidationFinding] = []
     file_count = 0
-    research_files: list[Path] = []
     for target in targets:
         files = _discover(root, target)
         file_count += len(files)
-        if target == "research":
-            research_files.extend(files)
         for path in files:
-            findings.extend(_validate(root, target, path, known_playbooks))
-    if research_files:
+            if target == "research":
+                doc = research_documents[path]
+                if isinstance(doc, list):
+                    findings.extend(doc)
+                else:
+                    front_matter, body = doc
+                    findings.extend(
+                        validate_research_parsed(
+                            path,
+                            front_matter,
+                            body,
+                            playbooks_root=root / "playbooks",
+                            known_playbooks=known_playbooks,
+                        )
+                    )
+            else:
+                findings.extend(_validate(root, target, path, known_playbooks))
+    if research_documents:
         front_matters = [
-            (path, front_matter)
-            for path in research_files
-            if (front_matter := parse_research_front_matter(path)) is not None
+            (path, doc[0]) for path, doc in research_documents.items() if not isinstance(doc, list)
         ]
         findings.extend(validate_research_collection(front_matters))
 

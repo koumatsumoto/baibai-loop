@@ -50,6 +50,29 @@ def validate_research_file(
     if isinstance(loaded, list):
         return loaded
     front_matter, body = loaded
+    return validate_research_parsed(
+        path,
+        front_matter,
+        body,
+        playbooks_root=playbooks_root,
+        known_playbooks=known_playbooks,
+    )
+
+
+def validate_research_parsed(
+    path: Path,
+    front_matter: dict[str, object],
+    body: str,
+    *,
+    playbooks_root: Path | None = None,
+    known_playbooks: frozenset[str] | None = None,
+) -> list[ValidationFinding]:
+    """Validate already-parsed research front matter and body.
+
+    CLI 側は load_research_document の結果をキャッシュしてから collection 集約と
+    per-file 検証の両方で再利用する。単独呼び出し用に validate_research_file が
+    薄いラッパーとして残るが、内側のロジックは本関数に集約する。
+    """
     playbook_root = playbooks_root or _default_playbook_root()
     # CLI は run_validation で 1 回だけ discover してくる。単独呼び出し時のため
     # フォールバックとして自前 discover を残す。
@@ -88,12 +111,11 @@ def validate_research_file(
     return findings
 
 
-def parse_research_front_matter(path: Path) -> dict[str, object] | None:
-    loaded = _load_research_document(path)
-    if isinstance(loaded, list):
-        return None
-    front_matter, _body = loaded
-    return front_matter
+def load_research_document(
+    path: Path,
+) -> tuple[dict[str, object], str] | list[ValidationFinding]:
+    """Public entry to ``_load_research_document`` for CLI-level caching."""
+    return _load_research_document(path)
 
 
 def validate_research_collection(
