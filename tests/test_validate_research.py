@@ -15,6 +15,7 @@ if str(SRC) not in sys.path:
 
 from baibai_loop.validate.research import (
     discover_research_files,
+    validate_research_collection,
     validate_research_file,
 )
 
@@ -68,6 +69,8 @@ def _minimal_research_front_matter() -> dict[str, object]:
         "name": "Sample Co",
         "playbook": "valuation-mean-reversion-v1",
         "decision": "accepted",
+        "market_cap_oku": 600,
+        "sector_33": "情報・通信業",
         "screened_ref": "screened/2026/04/2026-04-24.yaml",
         "view_ref": "view/2026/04/view-2026-04-24-bootstrap.md",
         "brief_refs": [],
@@ -163,6 +166,105 @@ class ResearchValidationTests(unittest.TestCase):
             path.unlink()
         self.assertIn("research.missing-field", {f.code for f in findings})
 
+    def test_missing_market_cap_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        del front["market_cap_oku"]
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.missing-field", {f.code for f in findings})
+
+    def test_missing_sector_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        del front["sector_33"]
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.missing-field", {f.code for f in findings})
+
+    def test_low_cap_mean_reversion_accepted_is_error(self) -> None:
+        front = _minimal_research_front_matter()
+        front["market_cap_oku"] = 250
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.low-cap-mean-reversion", {f.code for f in findings})
+
+    def test_low_cap_mean_reversion_with_override_is_warning(self) -> None:
+        front = _minimal_research_front_matter()
+        front["market_cap_oku"] = 250
+        front["macro_gate_override"] = "catalyst quality offsets low-cap risk"
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+        finally:
+            path.unlink()
+        warning_codes = {f.code for f in findings if f.severity == "warning"}
+        error_codes = {f.code for f in findings if f.severity == "error"}
+        self.assertIn("research.low-cap-mean-reversion", warning_codes)
+        self.assertNotIn("research.low-cap-mean-reversion", error_codes)
+
+    def test_low_cap_catalyst_playbook_passes_tier_rule(self) -> None:
+        front = _minimal_research_front_matter()
+        front["market_cap_oku"] = 250
+        front["playbook"] = "valuation-catalyst-confirmation-v1"
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+        finally:
+            path.unlink()
+        self.assertNotIn("research.low-cap-mean-reversion", {f.code for f in findings})
+
+    def test_low_cap_skipped_mean_reversion_passes_tier_rule(self) -> None:
+        front = _minimal_research_front_matter()
+        front["market_cap_oku"] = 250
+        front["decision"] = "skipped"
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+        finally:
+            path.unlink()
+        self.assertNotIn("research.low-cap-mean-reversion", {f.code for f in findings})
+
+    def test_mid_cap_mean_reversion_passes_tier_rule(self) -> None:
+        front = _minimal_research_front_matter()
+        front["market_cap_oku"] = 600
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+        finally:
+            path.unlink()
+        self.assertNotIn("research.low-cap-mean-reversion", {f.code for f in findings})
+
+    def test_tier_rule_includes_200_and_excludes_500_boundary(self) -> None:
+        front_199 = _minimal_research_front_matter()
+        front_199["market_cap_oku"] = 199
+        front_200 = _minimal_research_front_matter()
+        front_200["market_cap_oku"] = 200
+        front_499 = _minimal_research_front_matter()
+        front_499["market_cap_oku"] = 499
+        front_500 = _minimal_research_front_matter()
+        front_500["market_cap_oku"] = 500
+        paths = [self._write(front) for front in (front_199, front_200, front_499, front_500)]
+        try:
+            codes_by_cap = []
+            for path in paths:
+                findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+                codes_by_cap.append({f.code for f in findings})
+        finally:
+            for path in paths:
+                path.unlink()
+        self.assertNotIn("research.low-cap-mean-reversion", codes_by_cap[0])
+        self.assertIn("research.low-cap-mean-reversion", codes_by_cap[1])
+        self.assertIn("research.low-cap-mean-reversion", codes_by_cap[2])
+        self.assertNotIn("research.low-cap-mean-reversion", codes_by_cap[3])
+
     def test_adv_participation_at_cap_is_rejected(self) -> None:
         front = _minimal_research_front_matter()
         front["adv_participation_pct"] = 5.0
@@ -182,6 +284,39 @@ class ResearchValidationTests(unittest.TestCase):
         finally:
             path.unlink()
         self.assertNotIn("research.adv-participation-cap", {f.code for f in findings})
+
+    def test_sector_concentration_warns_for_three_accepted_packets(self) -> None:
+        base = _minimal_research_front_matter()
+        paths_with_front = [
+            (Path(f"research-{index}.md"), {**base, "ticker": f"13{index}A"}) for index in range(3)
+        ]
+        findings = validate_research_collection(paths_with_front)
+        self.assertEqual(len(findings), 3)
+        self.assertEqual({f.code for f in findings}, {"research.sector-concentration"})
+
+    def test_sector_concentration_ignores_two_accepted_packets(self) -> None:
+        base = _minimal_research_front_matter()
+        findings = validate_research_collection(
+            [
+                (Path("research-1.md"), {**base, "ticker": "130A"}),
+                (Path("research-2.md"), {**base, "ticker": "131A"}),
+            ]
+        )
+        self.assertEqual(findings, [])
+
+    def test_sector_concentration_ignores_skipped_packets(self) -> None:
+        base = _minimal_research_front_matter()
+        findings = validate_research_collection(
+            [
+                (Path("research-1.md"), {**base, "ticker": "130A"}),
+                (Path("research-2.md"), {**base, "ticker": "131A"}),
+                (
+                    Path("research-3.md"),
+                    {**base, "ticker": "132A", "decision": "skipped"},
+                ),
+            ]
+        )
+        self.assertEqual(findings, [])
 
     def test_invalid_ticker_pattern_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
