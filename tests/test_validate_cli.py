@@ -182,6 +182,37 @@ class ValidateCliTests(unittest.TestCase):
         exit_code = main(argv)
         self.assertEqual(exit_code, 0)
 
+    def test_nonexistent_root_exits_nonzero(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            missing = Path(tmpdir) / "no-such-dir"
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            exit_code = run_validation(
+                root=missing,
+                targets=("screened",),
+                stdout=stdout,
+                stderr=stderr,
+            )
+            self.assertEqual(exit_code, 1)
+            self.assertIn("does not exist", stderr.getvalue())
+
+    def test_root_pointing_to_file_exits_nonzero(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
+            file_root = Path(tmp.name)
+        try:
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            exit_code = run_validation(
+                root=file_root,
+                targets=("screened",),
+                stdout=stdout,
+                stderr=stderr,
+            )
+            self.assertEqual(exit_code, 1)
+            self.assertIn("not a directory", stderr.getvalue())
+        finally:
+            file_root.unlink()
+
 
 class FormatFindingTests(unittest.TestCase):
     def test_format_uses_path_relative_to_root_when_inside(self) -> None:

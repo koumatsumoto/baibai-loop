@@ -58,6 +58,15 @@ def run_validation(
     stdout: TextIO,
     stderr: TextIO,
 ) -> int:
+    if not root.is_dir():
+        # silent failure 防止: typo した --root で「0 file validated」になり
+        # CI が誤って通るのを防ぐ。
+        print(
+            f"--root path does not exist or is not a directory: {root}",
+            file=stderr,
+        )
+        return 1
+
     findings: list[ValidationFinding] = []
     file_count = 0
     for target in targets:
