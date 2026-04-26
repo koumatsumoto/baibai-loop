@@ -161,7 +161,7 @@ P-A の場合は「catalyst なし（純粋な valuation mean-reversion 狙い�
 - [ ] 日銀会合前日エントリーではない
 - [ ] FOMC 前日エントリーではない
 - [ ] マクロゲート: tailwind または neutral（headwind なら採用不可）
-- [ ] 300-500 億円帯なら P-B かつ catalyst freshness ≦ 10 営業日 かつ 出来高 1.5x 以上
+- [ ] 200-500 億円帯なら P-B かつ catalyst freshness ≦ 10 営業日 かつ 出来高 1.5x 以上
 
 全 check が ✓ の場合のみ採用可。
 

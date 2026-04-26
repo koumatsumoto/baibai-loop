@@ -4,7 +4,7 @@ Baibai-Loop 4 成分アーキテクチャの **(b) スクリーニング通過�
 
 ## 1. 役割
 
-- universe（日本株普通株、時価総額 300 億円以上、20 営業日平均売買代金 2 億円以上）に対し、valuation 指標でふるいをかけ、**通過銘柄 list を事実として記録**
+- universe（日本株普通株、時価総額 200 億円以上、20 営業日平均売買代金 3 億円以上）に対し、valuation 指標でふるいをかけ、**通過銘柄 list を事実として記録**
 - 事実層のため解釈は入れない（反対仮説・原因仮説は research 側で行う）
 - Micro track の出発点として、`research/` の選定入力となる
 
@@ -28,8 +28,8 @@ run_date: "YYYY-MM-DD"              # 対象営業日（asof_date と同値）
 asof_date: "YYYY-MM-DD"             # path の日付と同じ
 universe_size: 整数                 # その時点の universe 銘柄数
 filters:                            # 適用した閾値・条件
-  min_market_cap_oku: 300
-  min_avg_turnover_oku: 2
+  min_market_cap_oku: 200
+  min_avg_turnover_oku: 3
   # その他閾値
 generated_by: "screening-cli-v1"
 data_sources:
@@ -87,7 +87,7 @@ tickers:                            # 通過銘柄 list
 - `cache_manifest_hash`: `.cache/screening` 配下の provider cache（`manifests/` 除外）を path / sha256 / size で記録した manifest の SHA256 短縮 hash
 - `ttm_quality` は `EV/EBITDA` / `P/S` / `PCFR` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - `threshold_hit`: mechanical-v1 の閾値条件 3 種のどれを満たしたか（OR 条件、複数 hit 可）
-- `market_cap_oku` / `avg_turnover_oku`: research の position size 判定で使う。`market_cap_oku >= 300` かつ `avg_turnover_oku >= 2.0` で universe 通過する閾値と整合
+- `market_cap_oku` / `avg_turnover_oku`: research の position size 判定で使う。`market_cap_oku >= 200` かつ `avg_turnover_oku >= 3.0` で universe 通過する閾値と整合
 - `price_change_60d` / `price_change_4w`: split 影響を排除するため adjustment_close ベースで算出。research §7 Price reaction の数値ソース
 - `sector_relative_strength_percentile`: 4 週リターンの sector 内 percentile。条件 C の根拠
 - `metrics_breakdown`: 各 valuation 指標 (per_trailing / pbr / ev_ebitda) の `sector_median_gap` / `self_range_percentile` / `sigma_gap` を集約。research §3 Valuation snapshot の primary metric 選択と判定根拠の数値ソース

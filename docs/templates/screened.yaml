@@ -2,8 +2,8 @@ run_date: "YYYY-MM-DD"
 asof_date: "YYYY-MM-DD"              # run_date と同値。対象営業日
 universe_size: 321
 filters:
-  min_market_cap_oku: 300
-  min_avg_turnover_oku: 2
+  min_market_cap_oku: 200
+  min_avg_turnover_oku: 3
   exclude_listed_under_months: 6
 generated_by: "screening-cli-v1"
 data_sources:

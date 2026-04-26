@@ -51,8 +51,8 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
 ### 2.5 Universe 条件
 
-- 時価総額 300 億円以上 + 売買代金 2 億円以上（[`/docs/screening/universe-rules.md`](/docs/screening/universe-rules.md)）
-- 300-500 億円帯の特例条件（該当する場合のみ）
+- 時価総額 200 億円以上 + 売買代金 3 億円以上（[`/docs/screening/universe-rules.md`](/docs/screening/universe-rules.md)）
+- 200-500 億円帯の特例条件（該当する場合のみ）
 
 ## 3. 修飾因子
 
@@ -86,7 +86,7 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 ## 6. Position sizing
 
 - 時価総額別上限（[`/docs/screening/universe-rules.md`](/docs/screening/universe-rules.md)）に従う
-- 1,000 億円以上: 2%、500-1,000 億円: 1%、300-500 億円: 0.5%（supplementary のみ）
+- 1,000 億円以上: 2%、500-1,000 億円: 1%、200-500 億円: 0.5%（P-B のみ）
 
 ## 7. Kill switch 確認
 
