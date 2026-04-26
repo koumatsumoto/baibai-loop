@@ -10,7 +10,7 @@ import yaml
 
 from baibai_loop.ledger.cli import _discover_decision_dates, _load_market_data, main
 from baibai_loop.ledger.io import diff_jsonl
-from baibai_loop.ledger.sync import sync_ledger
+from baibai_loop.ledger.sync import _decision_date, sync_ledger
 from baibai_loop.screening.providers.jquants import JQuantsDailyBar
 
 
@@ -198,6 +198,23 @@ def test_sync_ledger_writes_update_events_for_tracking_changes(tmp_path: Path) -
     update_path = tmp_path / "ledger" / "updates" / "2026-04.jsonl"
     events = [json.loads(line) for line in update_path.read_text().splitlines()]
     assert {event["field"] for event in events} >= {"baseline_price", "adjustment_applied"}
+
+
+def test_decision_date_treats_naive_published_at_as_jst(tmp_path: Path) -> None:
+    # 22:00 JST と naive 22:00 が同じ日付 (= JST 解釈) を返すことを確認する。
+    # naive を local time で解釈すると CI ランナー (UTC) では翌日に倒れてしまう。
+    research_path = tmp_path / "2026-04-25-2767-valuation-mean-reversion-v1.md"
+    aware = _decision_date(research_path, {"published_at": "2026-04-25T22:00:00+09:00"})
+    naive = _decision_date(research_path, {"published_at": "2026-04-25T22:00:00"})
+    assert aware == naive == date(2026, 4, 25)
+
+
+def test_decision_date_normalizes_utc_published_at(tmp_path: Path) -> None:
+    # UTC 22:00 = JST 翌日 07:00 で日付が前倒しされることを確認する。
+    research_path = tmp_path / "2026-04-25-2767-valuation-mean-reversion-v1.md"
+    assert _decision_date(research_path, {"published_at": "2026-04-25T22:00:00Z"}) == date(
+        2026, 4, 26
+    )
 
 
 def test_diff_jsonl_reports_removed_existing_records(tmp_path: Path) -> None:

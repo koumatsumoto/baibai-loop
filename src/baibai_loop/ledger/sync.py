@@ -259,7 +259,12 @@ def _decision_date(path: Path, front: Mapping[str, Any]) -> date:
     published = front.get("published_at")
     if isinstance(published, str):
         normalized = published.replace("Z", "+00:00")
-        return datetime.fromisoformat(normalized).astimezone(JST).date()
+        parsed = datetime.fromisoformat(normalized)
+        # naive datetime は astimezone でランナーの local time として解釈されてしまう
+        # ため、明示的に JST を付与する。research front matter は JST 前提。
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=JST)
+        return parsed.astimezone(JST).date()
     return date.fromisoformat(path.name[:10])
 
 
