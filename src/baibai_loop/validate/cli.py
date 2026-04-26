@@ -16,7 +16,12 @@ from typing import Literal, TextIO, assert_never
 from .errors import ValidationFinding
 from .ledger import discover_ledger_files, validate_ledger_file
 from .playbook_schema import discover_playbook_schemas
-from .research import discover_research_files, validate_research_file
+from .research import (
+    discover_research_files,
+    parse_research_front_matter,
+    validate_research_collection,
+    validate_research_file,
+)
 from .review import discover_review_files, validate_review_file
 from .screened import discover_screened_files, validate_screened_file
 from .view import discover_view_files, validate_view_file
@@ -77,11 +82,21 @@ def run_validation(
 
     findings: list[ValidationFinding] = []
     file_count = 0
+    research_files: list[Path] = []
     for target in targets:
         files = _discover(root, target)
         file_count += len(files)
+        if target == "research":
+            research_files.extend(files)
         for path in files:
             findings.extend(_validate(root, target, path, known_playbooks))
+    if research_files:
+        front_matters = [
+            (path, front_matter)
+            for path in research_files
+            if (front_matter := parse_research_front_matter(path)) is not None
+        ]
+        findings.extend(validate_research_collection(front_matters))
 
     error_count = 0
     warning_count = 0
