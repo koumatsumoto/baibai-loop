@@ -133,6 +133,7 @@ screened YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行時�
 - `research/` の front matter `screened_ref` で本ファイルを参照
 - 選定プロセス: 最新 `screened/` と最新 `view/` を突き合わせ、`view` で tailwind/neutral の業種/地域の ticker を候補に残す（headwind 除外）
 - 詳細: [`research.md`](./research.md) の選定プロセス
+- research decision 後の追跡先: [`ledger.md`](./ledger.md)
 
 ## 7. 事実と分析の分離
 

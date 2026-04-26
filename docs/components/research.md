@@ -52,6 +52,7 @@ research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
 ticker: "7203"
 name: "トヨタ自動車"
 playbook: valuation-mean-reversion-v1 | valuation-catalyst-confirmation-v1
+decision: accepted | skipped | pending
 screened_ref: screened/YYYY/MM/YYYY-MM-DD.yaml      # 必須
 view_ref: view/YYYY/MM/view-YYYY-MM-DD-*.md       # 必須（Bootstrap 後は例外なし）
 brief_refs:                                        # 任意、view 後に出た緊急 brief 時のみ
@@ -60,6 +61,8 @@ ai-draft: true | false                             # AI 下書きフラグ
 published_at: "ISO 8601"
 tradable_at: "ISO 8601"
 macro_gate: tailwind | neutral | headwind          # view 判定結果
+macro_gate_override: "..."                         # headwind 採用時のみ必須
+position_size_oku: 0.01                            # 建玉 proxy (億円)
 valuation:
   per_forward: 数値 | null                         # 会社予想ベース、未公表は null
   per_trailing: 数値
@@ -74,6 +77,8 @@ valuation:
 - `view_ref` は **必須**（Bootstrap 後は例外なし）
 - `brief_refs` は任意。view 後に gate 判定に影響する緊急 brief を参照した場合のみ追加
 - `macro_gate` が `headwind` の場合は採用不可（原則）
+- `decision: accepted` かつ `macro_gate: headwind` の場合は `macro_gate_override` が必須
+- `position_size_oku` は ledger の `adv_participation_pct` 算出に使う
 - 配当利回りは v1 スコープ外のため front matter に含めない
 
 ## 5. Packet 必須項目（本文、13 項目）
@@ -101,6 +106,8 @@ valuation:
 ### 5.1 schema 検証
 
 front matter の必須 field と `playbook` ごとの本文 section 構造は `baibai-loop-validate` で検査される。playbook 別の本文 section schema は [`/playbooks/`](../../playbooks/) 配下に `<name>.schema.yaml` として分離してあり、新 playbook を追加した時は同名 schema YAML を置くだけで validate に反映される (validate 本体改修不要)。CI の `Validate artefacts` step で merge gate になる。手元では `uv run baibai-loop-validate --target research` で個別に走らせられる。
+
+research decision は `baibai-loop-ledger sync` で [`ledger/`](./ledger.md) の JSONL に正規化される。`accepted` と `pending` は paper ledger、`skipped` は skipped ledger に残す。
 
 ## 6. 採用判定
 
