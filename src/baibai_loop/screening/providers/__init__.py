@@ -1,4 +1,4 @@
-from .edinet import EDINETProvider, EDINETProviderError, EdinetMetricRecord
+from .edinet import EdinetMetricRecord, EDINETProvider, EDINETProviderError
 from .jpx import JPXProvider, JPXProviderError
 from .jquants import (
     JQuantsDailyBar,

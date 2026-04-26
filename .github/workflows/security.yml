@@ -1,0 +1,45 @@
+name: security
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Sync
+        run: uv sync --frozen --all-groups
+
+      - name: Bandit
+        run: uv run bandit -c pyproject.toml -r src/baibai_loop -q
+
+      - name: Dependency audit
+        run: |
+          uv export \
+            --format requirements.txt \
+            --locked \
+            --all-groups \
+            --no-emit-project \
+            --no-hashes \
+            --output-file /tmp/baibai-loop-requirements.txt
+          uv run pip-audit -r /tmp/baibai-loop-requirements.txt

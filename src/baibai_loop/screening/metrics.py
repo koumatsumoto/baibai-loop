@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from math import sqrt
 from statistics import mean, median
-from typing import Mapping, Sequence
 
 from .providers.edinet import EdinetMetricRecord
 from .providers.jquants import JQuantsDailyBar, JQuantsFinancialSummary
-from .schema import DerivedMetrics, FinancialSnapshot, OperatingProfitSource, SecurityMaster, TTMQuality
+from .schema import (
+    DerivedMetrics,
+    FinancialSnapshot,
+    OperatingProfitSource,
+    SecurityMaster,
+    TTMQuality,
+)
 
 VALUATION_METRICS = ("per_trailing", "pbr", "ev_ebitda")
 
@@ -46,7 +52,9 @@ def build_metrics(
     sector_metric_values: dict[str, dict[str, list[float]]] = {}
     for ticker, snapshot in financials.items():
         sector = securities_by_ticker[ticker].sector_33
-        sector_bucket = sector_metric_values.setdefault(sector, {metric: [] for metric in VALUATION_METRICS})
+        sector_bucket = sector_metric_values.setdefault(
+            sector, {metric: [] for metric in VALUATION_METRICS}
+        )
         for metric in VALUATION_METRICS:
             value = getattr(snapshot, metric)
             if value is not None:
@@ -71,7 +79,9 @@ def build_metrics(
 
     market_return_4w = mean(ticker_returns_4w.values()) if ticker_returns_4w else None
     sector_rs = {
-        sector: (mean(values) - market_return_4w) if values and market_return_4w is not None else None
+        sector: (mean(values) - market_return_4w)
+        if values and market_return_4w is not None
+        else None
         for sector, values in sector_returns.items()
     }
     rs_percentiles = _rank_to_percentiles(sector_rs)
@@ -80,16 +90,24 @@ def build_metrics(
     for ticker, snapshot in financials.items():
         sector = securities_by_ticker[ticker].sector_33
         ticker_bars = bars_by_ticker.get(ticker, ())
-        valuation_history = _valuation_history(latest_prices[ticker], ticker_bars, snapshot, asof_date)
+        valuation_history = _valuation_history(
+            latest_prices[ticker], ticker_bars, snapshot, asof_date
+        )
         sector_gaps: dict[str, float | None] = {}
         self_percentiles: dict[str, float | None] = {}
         sigma_gaps: dict[str, float | None] = {}
         for metric in VALUATION_METRICS:
             current = getattr(snapshot, metric)
             sector_values = sector_metric_values.get(sector, {}).get(metric, [])
-            baseline = sector_values if len(sector_values) >= 10 else market_metric_values.get(metric, [])
+            baseline = (
+                sector_values if len(sector_values) >= 10 else market_metric_values.get(metric, [])
+            )
             sector_median = median(baseline) if baseline else None
-            sector_gaps[metric] = ((current / sector_median) - 1.0) if current is not None and sector_median not in (None, 0) else None
+            sector_gaps[metric] = (
+                ((current / sector_median) - 1.0)
+                if current is not None and sector_median not in (None, 0)
+                else None
+            )
             history_values = valuation_history.get(metric, [])
             self_percentiles[metric] = _self_range_percentile(history_values, current)
             sigma_gaps[metric] = _sigma_gap(history_values, current)
@@ -111,11 +129,13 @@ def build_metrics(
             short_history_flag=listing_span_days < 750,
         )
 
-    ttm_quality_counts = _count_ttm_qualities(financials.values())
+    ttm_quality_counts = _count_ttm_qualities(list(financials.values()))
     yoy_missing_count = sum(
         1
         for snapshot in financials.values()
-        if snapshot.eps_yoy is None or snapshot.sales_yoy is None or snapshot.operating_profit_yoy is None
+        if snapshot.eps_yoy is None
+        or snapshot.sales_yoy is None
+        or snapshot.operating_profit_yoy is None
     )
     return MetricBuildResult(
         financials=financials,
@@ -198,7 +218,9 @@ def _build_financial_snapshot(
         operating_profit=operating_profit,
         operating_profit_source=operating_profit_source,
         eps_yoy=_yoy_ratio(eps_ttm, prior_year.eps_ttm if prior_year else None),
-        sales_yoy=_yoy_ratio(latest.sales if latest else None, prior_year.sales if prior_year else None),
+        sales_yoy=_yoy_ratio(
+            latest.sales if latest else None, prior_year.sales if prior_year else None
+        ),
         operating_profit_yoy=_yoy_ratio(operating_profit, operating_profit_prior_year),
         ttm_quality_ev_ebitda=edinet.ttm_quality_ev_ebitda if edinet else TTMQuality.UNAVAILABLE,
         ttm_quality_p_s=edinet.ttm_quality_p_s if edinet else TTMQuality.UNAVAILABLE,
@@ -211,7 +233,9 @@ def _latest_summary(summaries: Sequence[JQuantsFinancialSummary]) -> JQuantsFina
     return summaries[-1] if summaries else None
 
 
-def _prior_year_summary(summaries: Sequence[JQuantsFinancialSummary]) -> JQuantsFinancialSummary | None:
+def _prior_year_summary(
+    summaries: Sequence[JQuantsFinancialSummary],
+) -> JQuantsFinancialSummary | None:
     """Return the same fiscal period in the previous fiscal year.
 
     Assumes summaries are ordered oldest-first; revisions of the same fiscal
@@ -278,9 +302,17 @@ def _valuation_history(
         and snapshot.ebitda_ttm not in (None, 0)
     ):
         ev_ebitda_history = [_historical_ev_ebitda(price, snapshot) for price in prices]
+    pbr_history: list[float] = []
+    pbr = snapshot.pbr
+    if pbr is not None and pbr != 0:
+        pbr_basis = latest_price / pbr
+        pbr_history = [price / pbr_basis for price in prices]
+
     history: dict[str, list[float]] = {
-        "per_trailing": [(price / snapshot.eps) for price in prices if snapshot.eps and snapshot.eps > 0],
-        "pbr": [(price / (latest_price / snapshot.pbr)) for price in prices if snapshot.pbr not in (None, 0)],
+        "per_trailing": [
+            (price / snapshot.eps) for price in prices if snapshot.eps and snapshot.eps > 0
+        ],
+        "pbr": pbr_history,
         "ev_ebitda": ev_ebitda_history,
     }
     return history
@@ -301,22 +333,32 @@ def _historical_ev_ebitda(
     EV/EBITDA value; loss-making screening is handled at a separate layer
     (condition C / counter-thesis), not here.
     """
-    assert snapshot.shares_outstanding is not None
-    assert snapshot.debt is not None
-    assert snapshot.cash is not None
-    assert snapshot.ebitda_ttm is not None and snapshot.ebitda_ttm != 0
-    enterprise_value = (price * snapshot.shares_outstanding) + snapshot.debt - snapshot.cash
-    return enterprise_value / snapshot.ebitda_ttm
+    shares_outstanding = snapshot.shares_outstanding
+    debt = snapshot.debt
+    cash = snapshot.cash
+    ebitda_ttm = snapshot.ebitda_ttm
+    if shares_outstanding is None or debt is None or cash is None:
+        raise ValueError("EV/EBITDA history requires shares, debt, and cash")
+    if ebitda_ttm is None or ebitda_ttm == 0:
+        raise ValueError("EV/EBITDA history requires non-zero EBITDA")
+    enterprise_value = (price * shares_outstanding) + debt - cash
+    return enterprise_value / ebitda_ttm
 
 
 def _price_change(bars: Sequence[JQuantsDailyBar], sessions: int, asof_date: date) -> float | None:
-    ordered = sorted((bar for bar in bars if bar.traded_at <= asof_date), key=lambda item: item.traded_at)
+    ordered = sorted(
+        (bar for bar in bars if bar.traded_at <= asof_date), key=lambda item: item.traded_at
+    )
     if len(ordered) <= sessions:
         return None
     # Prefer split-adjusted close on both ends so a stock split between the two
     # dates does not show up as a synthetic price drop. Fall back to raw close
     # only when the adjustment field is absent (legacy bars).
-    current = ordered[-1].adjustment_close if ordered[-1].adjustment_close is not None else ordered[-1].close
+    current = (
+        ordered[-1].adjustment_close
+        if ordered[-1].adjustment_close is not None
+        else ordered[-1].close
+    )
     base_bar = ordered[-(sessions + 1)]
     base = base_bar.adjustment_close if base_bar.adjustment_close is not None else base_bar.close
     if base == 0:
@@ -346,7 +388,7 @@ def _sigma_gap(history: Sequence[float], current: float | None) -> float | None:
 
 
 def _safe_ratio(numerator: float | None, denominator: float | None) -> float | None:
-    if numerator is None or denominator in (None, 0):
+    if numerator is None or denominator is None or denominator == 0:
         return None
     return numerator / denominator
 
@@ -366,7 +408,7 @@ def _select_operating_profit(
 
 
 def _yoy_ratio(current: float | None, previous: float | None) -> float | None:
-    if current is None or previous in (None, 0):
+    if current is None or previous is None or previous == 0:
         return None
     return (current / previous) - 1.0
 
@@ -386,9 +428,9 @@ def _count_ttm_qualities(snapshots: Sequence[FinancialSnapshot]) -> dict[str, in
 def _rank_to_percentiles(values: Mapping[str, float | None]) -> dict[str, float | None]:
     available = sorted((value, key) for key, value in values.items() if value is not None)
     if not available:
-        return {key: None for key in values}
+        return dict.fromkeys(values)
     total = len(available)
-    output: dict[str, float | None] = {key: None for key in values}
+    output: dict[str, float | None] = dict.fromkeys(values)
     for index, (_, key) in enumerate(available, start=1):
         output[key] = index / total
     return output

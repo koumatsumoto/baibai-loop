@@ -139,11 +139,51 @@ class ScreeningMetricsTests(unittest.TestCase):
     def test_build_metrics_compares_yoy_with_prior_fiscal_period(self) -> None:
         asof = date(2026, 4, 24)
         summaries = [
-            _summary("130A", date(2025, 4, 24), eps_ttm=10.0, sales=100.0, operating_profit=20.0, fiscal_period="1Q", fiscal_year_end=date(2026, 3, 31)),
-            _summary("130A", date(2025, 7, 24), eps_ttm=40.0, sales=400.0, operating_profit=80.0, fiscal_period="2Q", fiscal_year_end=date(2026, 3, 31)),
-            _summary("130A", date(2025, 10, 24), eps_ttm=50.0, sales=500.0, operating_profit=100.0, fiscal_period="3Q", fiscal_year_end=date(2026, 3, 31)),
-            _summary("130A", date(2026, 1, 24), eps_ttm=60.0, sales=600.0, operating_profit=120.0, fiscal_period="FY", fiscal_year_end=date(2026, 3, 31)),
-            _summary("130A", date(2026, 4, 24), eps_ttm=15.0, sales=125.0, operating_profit=25.0, fiscal_period="1Q", fiscal_year_end=date(2027, 3, 31)),
+            _summary(
+                "130A",
+                date(2025, 4, 24),
+                eps_ttm=10.0,
+                sales=100.0,
+                operating_profit=20.0,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2026, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2025, 7, 24),
+                eps_ttm=40.0,
+                sales=400.0,
+                operating_profit=80.0,
+                fiscal_period="2Q",
+                fiscal_year_end=date(2026, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2025, 10, 24),
+                eps_ttm=50.0,
+                sales=500.0,
+                operating_profit=100.0,
+                fiscal_period="3Q",
+                fiscal_year_end=date(2026, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2026, 1, 24),
+                eps_ttm=60.0,
+                sales=600.0,
+                operating_profit=120.0,
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2026, 4, 24),
+                eps_ttm=15.0,
+                sales=125.0,
+                operating_profit=25.0,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2027, 3, 31),
+            ),
         ]
         result = build_metrics(
             asof_date=asof,
@@ -173,10 +213,30 @@ class ScreeningMetricsTests(unittest.TestCase):
             bars_by_ticker={"130A": _daily_bars("130A", asof, 800)},
             summaries_by_ticker={
                 "130A": [
-                    _summary("130A", date(2025, 7, 24), fiscal_period="2Q", fiscal_year_end=date(2026, 3, 31)),
-                    _summary("130A", date(2025, 10, 24), fiscal_period="3Q", fiscal_year_end=date(2026, 3, 31)),
-                    _summary("130A", date(2026, 1, 24), fiscal_period="FY", fiscal_year_end=date(2026, 3, 31)),
-                    _summary("130A", date(2026, 4, 24), fiscal_period="1Q", fiscal_year_end=date(2027, 3, 31)),
+                    _summary(
+                        "130A",
+                        date(2025, 7, 24),
+                        fiscal_period="2Q",
+                        fiscal_year_end=date(2026, 3, 31),
+                    ),
+                    _summary(
+                        "130A",
+                        date(2025, 10, 24),
+                        fiscal_period="3Q",
+                        fiscal_year_end=date(2026, 3, 31),
+                    ),
+                    _summary(
+                        "130A",
+                        date(2026, 1, 24),
+                        fiscal_period="FY",
+                        fiscal_year_end=date(2026, 3, 31),
+                    ),
+                    _summary(
+                        "130A",
+                        date(2026, 4, 24),
+                        fiscal_period="1Q",
+                        fiscal_year_end=date(2027, 3, 31),
+                    ),
                 ]
             },
             edinet_by_ticker={},
@@ -189,11 +249,51 @@ class ScreeningMetricsTests(unittest.TestCase):
     def test_build_metrics_ignores_qoq_seasonality_for_yoy_deterioration(self) -> None:
         asof = date(2026, 4, 24)
         summaries = [
-            _summary("130A", date(2025, 4, 24), eps_ttm=10.0, sales=100.0, operating_profit=20.0, fiscal_period="1Q", fiscal_year_end=date(2026, 3, 31)),
-            _summary("130A", date(2025, 7, 24), eps_ttm=20.0, sales=200.0, operating_profit=40.0, fiscal_period="2Q", fiscal_year_end=date(2026, 3, 31)),
-            _summary("130A", date(2025, 10, 24), eps_ttm=30.0, sales=300.0, operating_profit=60.0, fiscal_period="3Q", fiscal_year_end=date(2026, 3, 31)),
-            _summary("130A", date(2026, 1, 24), eps_ttm=80.0, sales=800.0, operating_profit=160.0, fiscal_period="FY", fiscal_year_end=date(2026, 3, 31)),
-            _summary("130A", date(2026, 4, 24), eps_ttm=10.0, sales=100.0, operating_profit=20.0, fiscal_period="1Q", fiscal_year_end=date(2027, 3, 31)),
+            _summary(
+                "130A",
+                date(2025, 4, 24),
+                eps_ttm=10.0,
+                sales=100.0,
+                operating_profit=20.0,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2026, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2025, 7, 24),
+                eps_ttm=20.0,
+                sales=200.0,
+                operating_profit=40.0,
+                fiscal_period="2Q",
+                fiscal_year_end=date(2026, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2025, 10, 24),
+                eps_ttm=30.0,
+                sales=300.0,
+                operating_profit=60.0,
+                fiscal_period="3Q",
+                fiscal_year_end=date(2026, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2026, 1, 24),
+                eps_ttm=80.0,
+                sales=800.0,
+                operating_profit=160.0,
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2026, 4, 24),
+                eps_ttm=10.0,
+                sales=100.0,
+                operating_profit=20.0,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2027, 3, 31),
+            ),
         ]
         result = build_metrics(
             asof_date=asof,
@@ -207,15 +307,53 @@ class ScreeningMetricsTests(unittest.TestCase):
         self.assertEqual(snapshot.sales_yoy, 0.0)
         self.assertEqual(snapshot.operating_profit_yoy, 0.0)
 
-    def test_build_metrics_uses_fiscal_period_match_when_extra_disclosure_shifts_index(self) -> None:
+    def test_build_metrics_uses_fiscal_period_match_when_extra_disclosure_shifts_index(
+        self,
+    ) -> None:
         asof = date(2026, 4, 24)
         summaries = [
-            _summary("130A", date(2025, 4, 24), eps_ttm=10.0, fiscal_period="1Q", fiscal_year_end=date(2026, 3, 31)),
-            _summary("130A", date(2025, 6, 1), eps_ttm=999.0, fiscal_period="OTHER", fiscal_year_end=date(2026, 3, 31)),
-            _summary("130A", date(2025, 7, 24), eps_ttm=20.0, fiscal_period="2Q", fiscal_year_end=date(2026, 3, 31)),
-            _summary("130A", date(2025, 10, 24), eps_ttm=30.0, fiscal_period="3Q", fiscal_year_end=date(2026, 3, 31)),
-            _summary("130A", date(2026, 1, 24), eps_ttm=40.0, fiscal_period="FY", fiscal_year_end=date(2026, 3, 31)),
-            _summary("130A", date(2026, 4, 24), eps_ttm=15.0, fiscal_period="1Q", fiscal_year_end=date(2027, 3, 31)),
+            _summary(
+                "130A",
+                date(2025, 4, 24),
+                eps_ttm=10.0,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2026, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2025, 6, 1),
+                eps_ttm=999.0,
+                fiscal_period="OTHER",
+                fiscal_year_end=date(2026, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2025, 7, 24),
+                eps_ttm=20.0,
+                fiscal_period="2Q",
+                fiscal_year_end=date(2026, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2025, 10, 24),
+                eps_ttm=30.0,
+                fiscal_period="3Q",
+                fiscal_year_end=date(2026, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2026, 1, 24),
+                eps_ttm=40.0,
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2026, 4, 24),
+                eps_ttm=15.0,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2027, 3, 31),
+            ),
         ]
         result = build_metrics(
             asof_date=asof,
@@ -229,11 +367,41 @@ class ScreeningMetricsTests(unittest.TestCase):
     def test_build_metrics_requires_same_prior_fiscal_year_end_for_yoy(self) -> None:
         asof = date(2026, 4, 24)
         summaries = [
-            _summary("130A", date(2025, 4, 24), eps_ttm=10.0, fiscal_period="1Q", fiscal_year_end=date(2026, 3, 31)),
-            _summary("130A", date(2025, 7, 24), eps_ttm=20.0, fiscal_period="2Q", fiscal_year_end=date(2026, 3, 31)),
-            _summary("130A", date(2025, 10, 24), eps_ttm=30.0, fiscal_period="3Q", fiscal_year_end=date(2026, 3, 31)),
-            _summary("130A", date(2026, 1, 24), eps_ttm=40.0, fiscal_period="FY", fiscal_year_end=date(2026, 3, 31)),
-            _summary("130A", date(2026, 4, 24), eps_ttm=15.0, fiscal_period="1Q", fiscal_year_end=date(2027, 5, 31)),
+            _summary(
+                "130A",
+                date(2025, 4, 24),
+                eps_ttm=10.0,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2026, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2025, 7, 24),
+                eps_ttm=20.0,
+                fiscal_period="2Q",
+                fiscal_year_end=date(2026, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2025, 10, 24),
+                eps_ttm=30.0,
+                fiscal_period="3Q",
+                fiscal_year_end=date(2026, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2026, 1, 24),
+                eps_ttm=40.0,
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2026, 4, 24),
+                eps_ttm=15.0,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2027, 5, 31),
+            ),
         ]
         result = build_metrics(
             asof_date=asof,
@@ -280,8 +448,7 @@ class ScreeningMetricsTests(unittest.TestCase):
         self.assertAlmostEqual(snapshot.ev_ebitda, ((120.0 * 10.0) + 300.0 - 100.0) / 200.0)
         self.assertAlmostEqual(derived.self_range_percentile["ev_ebitda"], 1.0)
         history_values = [
-            ((price * 10.0) + 300.0 - 100.0) / 200.0
-            for price in (80.0, 100.0, 120.0)
+            ((price * 10.0) + 300.0 - 100.0) / 200.0 for price in (80.0, 100.0, 120.0)
         ]
         avg = sum(history_values) / len(history_values)
         variance = sum((value - avg) ** 2 for value in history_values) / len(history_values)
@@ -320,8 +487,16 @@ class ScreeningMetricsTests(unittest.TestCase):
             securities_by_ticker={"130A": _security()},
             bars_by_ticker={"130A": bars},
             summaries_by_ticker={
-                "130A": [_summary("130A", asof, eps_ttm=10.0, fiscal_period="FY",
-                                  fiscal_year_end=date(2026, 3, 31), shares_outstanding=10.0)]
+                "130A": [
+                    _summary(
+                        "130A",
+                        asof,
+                        eps_ttm=10.0,
+                        fiscal_period="FY",
+                        fiscal_year_end=date(2026, 3, 31),
+                        shares_outstanding=10.0,
+                    )
+                ]
             },
             edinet_by_ticker={},
         )
@@ -382,8 +557,7 @@ class ScreeningMetricsTests(unittest.TestCase):
         derived = result.derived["130A"]
         # adjusted close history [80, 100, 120] -> EV/EBITDA history [5.0, 6.0, 7.0]
         expected_history = [
-            ((price * 10.0) + 300.0 - 100.0) / 200.0
-            for price in (80.0, 100.0, 120.0)
+            ((price * 10.0) + 300.0 - 100.0) / 200.0 for price in (80.0, 100.0, 120.0)
         ]
         avg = sum(expected_history) / len(expected_history)
         variance = sum((value - avg) ** 2 for value in expected_history) / len(expected_history)

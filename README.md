@@ -67,6 +67,7 @@ baibai-loop/
 │   ├── design-principles.md           # 設計原則
 │   ├── data-sources.md                # データソース（成分ごと）
 │   ├── workflow.md                    # 日々の運用ワークフロー
+│   ├── python-foundation.md           # Python 3.14 基盤と品質ゲート
 │   ├── components/                    # 各成分の運用仕様
 │   │   ├── brief.md
 │   │   ├── screened.md
@@ -121,6 +122,7 @@ baibai-loop/
   - 設計原則: [`docs/design-principles.md`](./docs/design-principles.md)
   - データソース: [`docs/data-sources.md`](./docs/data-sources.md)
   - 運用手順: [`docs/workflow.md`](./docs/workflow.md)
+  - Python 基盤: [`docs/python-foundation.md`](./docs/python-foundation.md)
   - 各成分: [`docs/components/`](./docs/components/)
   - スクリーニング: [`docs/screening/`](./docs/screening/)
   - テンプレート: [`docs/templates/`](./docs/templates/)

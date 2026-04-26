@@ -9,7 +9,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.screening.config import ConfigError, DEFAULT_CACHE_DIR, ScreeningConfig
+from baibai_loop.screening.config import DEFAULT_CACHE_DIR, ConfigError, ScreeningConfig
 
 
 class ScreeningConfigTests(unittest.TestCase):

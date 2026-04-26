@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from statistics import mean
-from typing import Mapping, Sequence
 
-from .schema import SecurityMaster, UniverseSnapshot
 from .providers.jquants import JQuantsDailyBar
+from .schema import SecurityMaster, UniverseSnapshot
 
 ELIGIBLE_MARKETS = {"PRIME", "STANDARD", "GROWTH", "プライム", "スタンダード", "グロース"}
 LISTED_UNDER_DAYS = 182
@@ -54,7 +54,9 @@ def build_universe(
             avg_turnover_oku = None
             market_cap_oku = None
         else:
-            turnovers = [bar.turnover_value for bar in trailing_20 if bar.turnover_value is not None]
+            turnovers = [
+                bar.turnover_value for bar in trailing_20 if bar.turnover_value is not None
+            ]
             avg_turnover_oku = mean(turnovers) / 100_000_000 if len(turnovers) == 20 else None
             shares = shares_outstanding_by_ticker.get(security.code)
             market_cap_oku = (latest.close * shares / 100_000_000) if shares else None
@@ -78,9 +80,11 @@ def build_universe(
             continue
 
         snapshots[security.code] = UniverseSnapshot(
-            market_cap_oku=int(round(market_cap_oku)) if market_cap_oku is not None else None,
+            market_cap_oku=round(market_cap_oku) if market_cap_oku is not None else None,
             avg_turnover_oku=round(avg_turnover_oku, 1) if avg_turnover_oku is not None else None,
             exclusion_flags=(),
         )
 
-    return UniverseBuildResult(snapshots=snapshots, exclusion_counts=dict(sorted(exclusion_counts.items())))
+    return UniverseBuildResult(
+        snapshots=snapshots, exclusion_counts=dict(sorted(exclusion_counts.items()))
+    )
