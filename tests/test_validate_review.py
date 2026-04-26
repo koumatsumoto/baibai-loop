@@ -36,6 +36,12 @@ def test_review_unknown_classification_is_flagged(tmp_path: Path) -> None:
     }
 
 
+def test_review_invalid_yaml_is_returned_as_finding(tmp_path: Path) -> None:
+    path = tmp_path / "review.md"
+    path.write_text('---\nclassification: "unterminated\n---\n# Review\n')
+    assert "review.invalid-yaml" in {finding.code for finding in validate_review_file(path)}
+
+
 def test_empty_reviews_directory_discovers_no_files(tmp_path: Path) -> None:
     reviews = tmp_path / "reviews"
     reviews.mkdir()

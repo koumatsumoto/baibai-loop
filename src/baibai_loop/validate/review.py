@@ -33,7 +33,18 @@ def discover_review_files(root: Path) -> list[Path]:
 
 
 def validate_review_file(path: Path) -> list[ValidationFinding]:
-    match = _FRONT_MATTER_RE.match(path.read_text(encoding="utf-8"))
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="review.io",
+                message=f"failed to read file: {exc}",
+            )
+        ]
+    match = _FRONT_MATTER_RE.match(text)
     if not match:
         return [
             ValidationFinding(
@@ -43,7 +54,17 @@ def validate_review_file(path: Path) -> list[ValidationFinding]:
                 message="review markdown must start with YAML front matter",
             )
         ]
-    front = yaml.safe_load(match.group(1))
+    try:
+        front = yaml.safe_load(match.group(1))
+    except yaml.YAMLError as exc:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="review.invalid-yaml",
+                message=f"front matter YAML parse failed: {exc}",
+            )
+        ]
     if not isinstance(front, dict):
         return [
             ValidationFinding(
