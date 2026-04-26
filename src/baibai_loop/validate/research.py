@@ -267,19 +267,35 @@ def _validate_front_matter(
             )
         )
     valuation = front_matter.get("valuation")
+    top_level_adv = front_matter.get("adv_participation_pct")
+    if isinstance(top_level_adv, (int, float)) and not isinstance(top_level_adv, bool):
+        _append_adv_participation_finding(path, top_level_adv, findings, "adv_participation_pct")
+    elif "adv_participation_pct" in front_matter:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.invalid-adv-participation",
+                message="adv_participation_pct must be a number when present",
+                location="adv_participation_pct",
+            )
+        )
     if isinstance(valuation, dict):
         adv_participation = valuation.get("adv_participation_pct")
-        if (
-            not isinstance(adv_participation, bool)
-            and isinstance(adv_participation, (int, float))
-            and adv_participation >= 5.0
-        ):
+        if isinstance(adv_participation, (int, float)) and not isinstance(adv_participation, bool):
+            _append_adv_participation_finding(
+                path,
+                adv_participation,
+                findings,
+                "valuation.adv_participation_pct",
+            )
+        elif "adv_participation_pct" in valuation:
             findings.append(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.adv-participation-cap",
-                    message="adv_participation_pct must be below 5.0 for accepted research",
+                    code="research.invalid-adv-participation",
+                    message="valuation.adv_participation_pct must be a number when present",
                     location="valuation.adv_participation_pct",
                 )
             )
@@ -294,4 +310,33 @@ def _validate_front_matter(
                 location="screened_ref",
             )
         )
+    view_ref = front_matter.get("view_ref")
+    if isinstance(view_ref, str) and not view_ref.endswith(".md"):
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.view-ref-not-md",
+                message="view_ref must end with .md",
+                location="view_ref",
+            )
+        )
     return findings
+
+
+def _append_adv_participation_finding(
+    path: Path,
+    value: int | float,
+    findings: list[ValidationFinding],
+    location: str,
+) -> None:
+    if value >= 5.0:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.adv-participation-cap",
+                message="adv_participation_pct must be below 5.0 for accepted research",
+                location=location,
+            )
+        )

@@ -165,7 +165,7 @@ class ResearchValidationTests(unittest.TestCase):
 
     def test_adv_participation_at_cap_is_rejected(self) -> None:
         front = _minimal_research_front_matter()
-        front["valuation"] = {"per_trailing": 6.63, "adv_participation_pct": 5.0}
+        front["adv_participation_pct"] = 5.0
         path = self._write(front)
         try:
             findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
@@ -175,7 +175,7 @@ class ResearchValidationTests(unittest.TestCase):
 
     def test_adv_participation_below_cap_passes(self) -> None:
         front = _minimal_research_front_matter()
-        front["valuation"] = {"per_trailing": 6.63, "adv_participation_pct": 4.9}
+        front["adv_participation_pct"] = 4.9
         path = self._write(front)
         try:
             findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
@@ -226,6 +226,17 @@ class ResearchValidationTests(unittest.TestCase):
             path.unlink()
         codes = {f.code for f in findings}
         self.assertIn("research.screened-ref-not-yaml", codes)
+
+    def test_view_ref_must_be_markdown(self) -> None:
+        front = _minimal_research_front_matter()
+        front["view_ref"] = "view/2026/04/view.yaml"
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+        finally:
+            path.unlink()
+        codes = {f.code for f in findings}
+        self.assertIn("research.view-ref-not-md", codes)
 
     def test_missing_required_section_is_flagged(self) -> None:
         body = "# Research\n\n## 1. Thesis\nonly thesis\n"

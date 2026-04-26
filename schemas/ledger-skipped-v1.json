@@ -36,7 +36,7 @@
     "avg_turnover_oku": {"type": ["number", "null"]},
     "threshold_hit_count": {"type": "integer", "minimum": 0},
     "macro_gate": {"type": ["string", "null"]},
-    "adv_participation_pct": {"type": ["number", "null"]},
+    "adv_participation_pct": {"type": ["number", "null"], "exclusiveMaximum": 5.0},
     "adjustment_applied": {"type": "boolean"},
     "tracking": {
       "type": "object",
