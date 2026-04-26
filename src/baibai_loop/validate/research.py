@@ -40,7 +40,10 @@ _TICKER_PATTERN = re.compile(r"^[0-9A-Z]{4}$")
 
 
 def validate_research_file(
-    path: Path, *, playbooks_root: Path | None = None
+    path: Path,
+    *,
+    playbooks_root: Path | None = None,
+    known_playbooks: frozenset[str] | None = None,
 ) -> list[ValidationFinding]:
     try:
         text = path.read_text(encoding="utf-8")
@@ -85,7 +88,10 @@ def validate_research_file(
         ]
     body = match.group(2)
     playbook_root = playbooks_root or _default_playbook_root()
-    known_playbooks = frozenset(discover_playbook_schemas(playbook_root))
+    # CLI は run_validation で 1 回だけ discover してくる。単独呼び出し時のため
+    # フォールバックとして自前 discover を残す。
+    if known_playbooks is None:
+        known_playbooks = frozenset(discover_playbook_schemas(playbook_root))
     findings: list[ValidationFinding] = []
     findings.extend(_validate_front_matter(path, front_matter, known_playbooks))
     playbook = front_matter.get("playbook")

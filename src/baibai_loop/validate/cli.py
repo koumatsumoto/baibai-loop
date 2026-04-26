@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Literal, TextIO, assert_never
 
 from .errors import ValidationFinding
+from .playbook_schema import discover_playbook_schemas
 from .research import discover_research_files, validate_research_file
 from .screened import discover_screened_files, validate_screened_file
 from .view import discover_view_files, validate_view_file
@@ -67,13 +68,18 @@ def run_validation(
         )
         return 1
 
+    # research validation で playbook schema lookup が必要。1 回だけ discover
+    # して全 research file に再利用する (Phase 2 で packet が増えたときに
+    # I/O を線形回数に抑える)。
+    known_playbooks = frozenset(discover_playbook_schemas(root / "playbooks"))
+
     findings: list[ValidationFinding] = []
     file_count = 0
     for target in targets:
         files = _discover(root, target)
         file_count += len(files)
         for path in files:
-            findings.extend(_validate(root, target, path))
+            findings.extend(_validate(root, target, path, known_playbooks))
 
     error_count = 0
     warning_count = 0
@@ -105,14 +111,23 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
             assert_never(unhandled)
 
 
-def _validate(root: Path, target: ValidationTarget, path: Path) -> list[ValidationFinding]:
+def _validate(
+    root: Path,
+    target: ValidationTarget,
+    path: Path,
+    known_playbooks: frozenset[str],
+) -> list[ValidationFinding]:
     match target:
         case "screened":
             return validate_screened_file(path)
         case "view":
             return validate_view_file(path)
         case "research":
-            return validate_research_file(path, playbooks_root=root / "playbooks")
+            return validate_research_file(
+                path,
+                playbooks_root=root / "playbooks",
+                known_playbooks=known_playbooks,
+            )
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 
