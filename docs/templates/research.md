@@ -2,7 +2,7 @@
 ticker: "XXXX"
 name: "..."
 playbook: valuation-mean-reversion-v1 | valuation-catalyst-confirmation-v1
-screened_ref: screened/YYYY/MM/YYYY-MM-DD.md
+screened_ref: screened/YYYY/MM/YYYY-MM-DD.yaml
 view_ref: view/YYYY/MM/view-YYYY-MM-DD-*.md
 brief_refs: []                            # 任意、view 後の緊急 brief がある場合のみ
 ai-draft: true

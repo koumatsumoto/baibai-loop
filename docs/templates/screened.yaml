@@ -1,0 +1,62 @@
+run_date: "YYYY-MM-DD"
+asof_date: "YYYY-MM-DD"              # run_date と同値。対象営業日
+universe_size: 321
+filters:
+  min_market_cap_oku: 300
+  min_avg_turnover_oku: 2
+  exclude_listed_under_months: 6
+generated_by: "screening-cli-v1"
+data_sources:
+- "j-quants-light"
+- "edinet-api-v2@2026-01-29"
+- "jpx-public-regulation"
+run_at: "YYYY-MM-DDTHH:MM:SS+09:00"
+tickers:
+- ticker: "130A"                     # 4 文字文字列。英字組入れ対応
+  name: "..."
+  per_forward: 8.2                   # null if 会社予想 EPS 未公表
+  per_trailing: 9.5
+  pbr: 0.72
+  ev_ebitda: 4.8
+  p_s: 0.6
+  pcfr: 5.1
+  sector_33: "業種名"
+  market_cap_oku: 585
+  avg_turnover_oku: 2.3
+  price_change_60d: -0.155
+  price_change_4w: -0.072
+  sector_relative_strength_percentile: 0.35
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.21
+      self_range_percentile: 0.14
+      sigma_gap: -1.4
+    pbr:
+      sector_median_gap: -0.18
+      self_range_percentile: 0.2
+      sigma_gap: -1.1
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: "YYYY-MM-DD"
+  ttm_quality:
+    ev_ebitda: exact
+    p_s: approximated
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+  - price_down_60d_and_valuation_sigma_down
+  - sector_rotation_short_sell
+fact_memo_lines:
+- "[事実メモ]"
+provider_status_lines:
+- "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ EDINET + JPX"
+universe_exclusion_lines:
+- "universe 除外件数: 上場 6 ヶ月未満=0, 売買代金不足=0"
+ttm_quality_counts:
+  exact: 1
+  approximated: 1
+  unavailable: 1
+fallback_lines:
+- "取得失敗の有無: [有の場合は対象銘柄と理由を列挙]"

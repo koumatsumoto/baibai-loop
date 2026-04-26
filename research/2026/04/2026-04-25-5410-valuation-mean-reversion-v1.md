@@ -2,7 +2,7 @@
 ticker: "5410"
 name: "合同製鐵"
 playbook: valuation-mean-reversion-v1
-screened_ref: screened/2026/04/2026-04-24.md
+screened_ref: screened/2026/04/2026-04-24.yaml
 view_ref: view/2026/04/view-2026-04-24-bootstrap.md
 brief_refs: []
 ai-draft: true

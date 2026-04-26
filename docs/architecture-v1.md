@@ -168,12 +168,12 @@ sources:
 #### 3.2.3 Path
 
 ```
-screened/YYYY/MM/YYYY-MM-DD.md
+screened/YYYY/MM/YYYY-MM-DD.yaml
 ```
 
 1 実行 = 1 ファイル。
 
-#### 3.2.4 Front matter
+#### 3.2.4 YAML
 
 詳細は [`components/screened.md`](./components/screened.md) §4 を正本とする。要点のみ抜粋:
 
@@ -238,7 +238,7 @@ v1 運用開始時点で `view/` は存在しない。以下の bootstrap 手順
 
 #### 3.4.2 選定プロセス（screened × view → 候補絞り込み）
 
-1. 最新 `screened/*.md` の ticker list を取得
+1. 最新 `screened/*.yaml` の ticker list を取得
 2. 最新 `view/*.md` の `sectors` / `regions` を参照
 3. screened ticker のうち、所属業種/地域が `view` で `tailwind` または `neutral` のものを候補に残す（`headwind` は **除外**）
 4. 候補から人間 + AI が個別 ticker を選定（詳細基準は [`components/research.md`](./components/research.md)）
@@ -256,7 +256,7 @@ research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
 ticker: "7203"
 name: "..."
 playbook: valuation-mean-reversion-v1 | valuation-catalyst-confirmation-v1
-screened_ref: screened/YYYY/MM/YYYY-MM-DD.md      # 必須
+screened_ref: screened/YYYY/MM/YYYY-MM-DD.yaml      # 必須
 view_ref: view/YYYY/MM/view-YYYY-MM-DD-*.md       # 必須（Bootstrap 後は例外なし）
 brief_refs:                                        # 任意
   - brief/YYYY/MM/event-YYYY-MM-DD-*.md
@@ -366,7 +366,7 @@ docs/
     brief-japan-monthly.md
     brief-event.md
     view.md
-    screened.md
+    screened.yaml
     research.md
     trade.md
     review.md

@@ -35,7 +35,7 @@ from .providers.jquants import (
     JQuantsMarketCalendarDay,
     JQuantsProviderError,
 )
-from .render import JST, build_output_path, render_screened_markdown
+from .render import JST, build_output_path, render_screened_yaml
 from .rules import evaluate_screening
 from .schema import ScreenedRunDocument, ScreenedTicker, SecurityMaster, normalize_ticker
 from .universe import (
@@ -156,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "select":
-        # select reads existing screened/view markdown only, no env or providers needed.
+        # select reads existing screened YAML and view markdown only, no env or providers needed.
         return select_command(
             asof_date=_parse_iso_date(args.asof),
             view_path=Path(args.view) if args.view else None,
@@ -383,8 +383,8 @@ def run_command(
         ttm_quality_counts=metric_result.ttm_quality_counts,
         fallback_lines=tuple(fallback_lines),
     )
-    markdown = render_screened_markdown(document)
-    write_text_atomic(output_path, markdown)
+    yaml_text = render_screened_yaml(document)
+    write_text_atomic(output_path, yaml_text)
     return 2 if partial_warning else 0
 
 
@@ -408,17 +408,17 @@ def select_command(
     view_root = view_root or Path("view")
 
     screened_path = (
-        screened_root / f"{asof_date:%Y}" / f"{asof_date:%m}" / f"{asof_date:%Y-%m-%d}.md"
+        screened_root / f"{asof_date:%Y}" / f"{asof_date:%m}" / f"{asof_date:%Y-%m-%d}.yaml"
     )
     if not screened_path.exists():
         print(f"screened file not found: {screened_path}", file=sys.stderr)
         return 1
     try:
         screened_fm = TypeAdapter(_ScreenedFrontMatter).validate_python(
-            _parse_front_matter(screened_path)
+            _parse_yaml_document(screened_path)
         )
     except ValidationError as exc:
-        print(f"invalid screened front matter: {screened_path}: {exc}", file=sys.stderr)
+        print(f"invalid screened YAML: {screened_path}: {exc}", file=sys.stderr)
         return 1
 
     resolved_view_path = view_path or _find_latest_view(view_root, asof_date)
@@ -457,6 +457,15 @@ def _parse_front_matter(path: Path) -> dict[str, object]:
     if not match:
         return {}
     return yaml.safe_load(match.group(1)) or {}
+
+
+def _parse_yaml_document(path: Path) -> dict[str, object]:
+    import yaml
+
+    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(payload, dict):
+        return {}
+    return payload
 
 
 def _find_latest_view(view_root: Path, asof_date: date) -> Path | None:

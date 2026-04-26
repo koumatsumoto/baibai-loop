@@ -11,7 +11,7 @@ Baibai-Loop 各成分の記入テンプレート集。template をコピーし�
 | `brief-japan-monthly.md` | `brief/YYYY/MM/YYYY-MM-macro-monthly-*.md` | [`/docs/components/brief.md`](/docs/components/brief.md) |
 | `brief-event.md` | `brief/YYYY/MM/YYYY-MM-DD-<kind>-*.md` | [`/docs/components/brief.md`](/docs/components/brief.md) |
 | `view.md` | `view/YYYY/MM/view-YYYY-MM-DD-*.md` | [`/docs/components/view.md`](/docs/components/view.md) |
-| `screened.md` | `screened/YYYY/MM/YYYY-MM-DD.md` | [`/docs/components/screened.md`](/docs/components/screened.md) |
+| `screened.yaml` | `screened/YYYY/MM/YYYY-MM-DD.yaml` | [`/docs/components/screened.md`](/docs/components/screened.md) |
 | `research.md` | `research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md` | [`/docs/components/research.md`](/docs/components/research.md) |
 | `trade.md` | `trades/YYYY/MM/YYYY-MM-DD-<ticker>.md` | [`/docs/components/trades.md`](/docs/components/trades.md) |
 | `review.md` | `reviews/YYYY/MM/YYYY-MM-DD-<ticker>.md` | [`/docs/components/reviews.md`](/docs/components/reviews.md) |
@@ -30,7 +30,7 @@ Baibai-Loop 各成分の記入テンプレート集。template をコピーし�
 
 1. 作成したい成分に対応する template を `docs/templates/` からコピー
 2. 最終 location に配置（上記表参照）
-3. front matter と本文を埋める（AI 下書きは `ai-draft: true`）
+3. YAML または front matter と本文を埋める（AI 下書きは `ai-draft: true`）
 4. 人間が最終確認（`ai-draft: false` に更新）
 5. commit
 

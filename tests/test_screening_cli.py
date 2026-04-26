@@ -153,7 +153,7 @@ class FakeJPXProvider:
 
 
 class ScreeningCliTests(unittest.TestCase):
-    def test_run_command_writes_screened_markdown(self) -> None:
+    def test_run_command_writes_screened_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
             try:
@@ -178,7 +178,7 @@ class ScreeningCliTests(unittest.TestCase):
                 self.assertTrue(output_path.exists())
                 rendered = output_path.read_text(encoding="utf-8")
                 self.assertIn('run_date: "2026-04-24"', rendered)
-                self.assertIn("ttm_quality 集計: exact=1, approximated=1, unavailable=1", rendered)
+                self.assertIn("ttm_quality_counts:", rendered)
             finally:
                 os.chdir(cwd)
 
@@ -352,12 +352,12 @@ class IndexNextEarningsTests(unittest.TestCase):
 
 class SelectCommandTests(unittest.TestCase):
     def _write_screened(self, root: Path, asof: date, tickers: list[dict[str, object]]) -> Path:
-        path = root / f"{asof:%Y}" / f"{asof:%m}" / f"{asof:%Y-%m-%d}.md"
+        path = root / f"{asof:%Y}" / f"{asof:%m}" / f"{asof:%Y-%m-%d}.yaml"
         path.parent.mkdir(parents=True, exist_ok=True)
         import yaml as _yaml
 
-        front = _yaml.safe_dump({"tickers": tickers}, allow_unicode=True, sort_keys=False)
-        path.write_text(f"---\n{front}---\n", encoding="utf-8")
+        payload = _yaml.safe_dump({"tickers": tickers}, allow_unicode=True, sort_keys=False)
+        path.write_text(payload, encoding="utf-8")
         return path
 
     def _write_view(self, root: Path, asof: date, sectors: dict[str, str | None]) -> Path:

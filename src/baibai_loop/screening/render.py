@@ -20,7 +20,7 @@ _DECIMAL_PLACES = {
 
 
 class RenderError(ValueError):
-    """Raised when screened markdown cannot be rendered safely."""
+    """Raised when screened YAML cannot be rendered safely."""
 
 
 class QuotedString(str):
@@ -39,10 +39,10 @@ _QuotedDumper.add_representer(QuotedString, _quoted_scalar_representer)
 
 
 def build_output_path(asof_date: date) -> Path:
-    return Path("screened") / f"{asof_date:%Y}" / f"{asof_date:%m}" / f"{asof_date:%Y-%m-%d}.md"
+    return Path("screened") / f"{asof_date:%Y}" / f"{asof_date:%m}" / f"{asof_date:%Y-%m-%d}.yaml"
 
 
-def render_screened_markdown(document: ScreenedRunDocument) -> str:
+def render_screened_yaml(document: ScreenedRunDocument) -> str:
     if document.run_date != document.asof_date:
         raise RenderError("run_date must equal asof_date")
     if document.run_at.tzinfo is None:
@@ -58,8 +58,7 @@ def render_screened_markdown(document: ScreenedRunDocument) -> str:
         allow_unicode=True,
         default_flow_style=False,
     ).strip()
-    body = _build_body(document)
-    return f"---\n{yaml_text}\n---\n\n{body}"
+    return f"{yaml_text}\n"
 
 
 def _build_front_matter(document: ScreenedRunDocument) -> dict[str, Any]:
@@ -72,6 +71,15 @@ def _build_front_matter(document: ScreenedRunDocument) -> dict[str, Any]:
     front_matter["data_sources"] = [QuotedString(source) for source in document.data_sources]
     front_matter["run_at"] = QuotedString(document.run_at.isoformat())
     front_matter["tickers"] = [_build_ticker_entry(ticker) for ticker in document.tickers]
+    front_matter["fact_memo_lines"] = [QuotedString(line) for line in document.fact_memo_lines]
+    front_matter["provider_status_lines"] = [
+        QuotedString(line) for line in document.provider_status_lines
+    ]
+    front_matter["universe_exclusion_lines"] = [
+        QuotedString(line) for line in document.universe_exclusion_lines
+    ]
+    front_matter["ttm_quality_counts"] = dict(document.ttm_quality_counts)
+    front_matter["fallback_lines"] = [QuotedString(line) for line in document.fallback_lines]
     return front_matter
 
 
@@ -127,65 +135,3 @@ def _round_value(metric: str, value: float | None) -> float | None:
     if value is None:
         return None
     return round(float(value), _DECIMAL_PLACES[metric])
-
-
-def _build_body(document: ScreenedRunDocument) -> str:
-    pass_count = len(document.tickers)
-    fact_lines = list(document.fact_memo_lines) or ["該当なし"]
-    env_lines = [
-        *document.provider_status_lines,
-        *document.universe_exclusion_lines,
-        _format_ttm_quality_counts(document.ttm_quality_counts),
-        *document.fallback_lines,
-    ]
-    env_lines = [line for line in env_lines if line]
-    if not env_lines:
-        env_lines = ["データ取得は未実行"]
-
-    lines = [
-        f"# Screened: {document.asof_date.isoformat()}",
-        "",
-        "**成分**: 4 成分アーキテクチャの **(b) スクリーニング通過銘柄**"
-        "（[`/docs/components/screened.md`](/docs/components/screened.md)）",
-        "",
-        "**レイヤー**: 事実レイヤー（解釈は入れない）",
-        "",
-        "**閾値条件**: 以下 3 種の OR 条件、最低 1 つ満たす"
-        "（[`/docs/screening/mechanical-v1.md`](/docs/screening/mechanical-v1.md)）",
-        "",
-        "- 条件 A: 業種中央値比 -20% 以上 かつ 過去 3 年自己レンジ下位 20%",
-        "- 条件 B: 過去 60 営業日 -15% 以上下落 かつ valuation 1σ 以上下方（業績悪化なし）",
-        "- 条件 C: セクター RS 下位 20% + 個別が業種平均下回り（業績悪化なし）",
-        "",
-        "## 1. 実行概要",
-        "",
-        f"- 対象営業日: {document.asof_date.isoformat()}",
-        f"- Universe サイズ: {document.universe_size} 銘柄",
-        f"- 通過銘柄数: {pass_count} 銘柄",
-        "",
-        "## 2. 通過銘柄の事実メモ",
-        "",
-    ]
-    lines.extend(f"- {line}" for line in fact_lines)
-    lines.extend(["", "## 3. 実行環境", ""])
-    lines.extend(f"- {line}" for line in env_lines)
-    lines.extend(
-        [
-            "",
-            "---",
-            "",
-            "研究選定は [`/docs/components/research.md`](/docs/components/research.md) "
-            "の選定プロセスに従う。通過銘柄のうち `view/` で tailwind / neutral "
-            "の業種/地域のもののみが research 候補となる。",
-        ]
-    )
-    return "\n".join(lines)
-
-
-def _format_ttm_quality_counts(counts: dict[str, int] | Any) -> str:
-    exact = counts.get("exact", 0) if hasattr(counts, "get") else 0
-    approximated = counts.get("approximated", 0) if hasattr(counts, "get") else 0
-    unavailable = counts.get("unavailable", 0) if hasattr(counts, "get") else 0
-    return (
-        f"ttm_quality 集計: exact={exact}, approximated={approximated}, unavailable={unavailable}"
-    )
