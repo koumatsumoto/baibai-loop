@@ -129,6 +129,7 @@ class ScreeningLineageTests(unittest.TestCase):
             payload = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(payload["run_id"], "screening-20260424-a1b2c3d4")
             self.assertEqual(payload["asof_date"], "2026-04-24")
+            self.assertEqual(payload["cache_root"], root.as_posix())
             self.assertEqual(payload["config_hash"], "a1b2c3d4e5f6a7b8")
             self.assertEqual(payload["cache_manifest_hash"], manifest_hash)
             self.assertEqual(payload["files"][0]["path"], "edinet/metrics.json")

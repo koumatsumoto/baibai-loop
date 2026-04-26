@@ -13,6 +13,8 @@ from .providers.edinet import EDINET_API_BASE
 
 _HEX_LENGTH = 16
 _RUN_ID_SUFFIX_LENGTH = 8
+# 現状 J-Quants Light tier 固定。Pro 移行時はここを変更し、その変化が config_hash
+# として lineage 履歴に出ることで tier 切替を traceable にする。
 _PROVIDER_TIER = "j-quants-light"
 
 
@@ -64,7 +66,9 @@ def compute_cache_manifest(cache_root: Path) -> CacheManifest:
     if not root.exists():
         return CacheManifest(cache_root=root, files=())
 
-    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
         relative_path = path.relative_to(root)
         if relative_path.parts and relative_path.parts[0] == "manifests":
             continue
@@ -76,6 +80,9 @@ def compute_cache_manifest(cache_root: Path) -> CacheManifest:
                 size=len(content),
             )
         )
+    # POSIX 文字列順で安定 sort する。CacheManifest は「files が文字列順 sorted」を
+    # 契約として保つため、後段の hash / payload は再 sort 不要。
+    records.sort(key=lambda record: record.path)
     return CacheManifest(cache_root=root, files=tuple(records))
 
 
@@ -101,6 +108,7 @@ def write_manifest(
     payload = {
         "run_id": run_id,
         "asof_date": asof_date.isoformat(),
+        "cache_root": manifest.cache_root.as_posix(),
         "config_hash": config_hash,
         "cache_manifest_hash": manifest_hash,
         "generated_at": generated_at.isoformat(),
@@ -136,9 +144,10 @@ def _normalize_value(value: object) -> object:
 
 
 def _manifest_files_payload(manifest: CacheManifest) -> list[dict[str, object]]:
+    # CacheManifest.files は compute_cache_manifest が POSIX 文字列順で sorted 済み。
     return [
         {"path": record.path, "sha256": record.sha256, "size": record.size}
-        for record in sorted(manifest.files, key=lambda item: item.path)
+        for record in manifest.files
     ]
 
 
