@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "screened-v1",
+  "title": "Screened YAML",
+  "description": "Schema for screened/YYYY/MM/YYYY-MM-DD.yaml outputs (PR 1-A onward).",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "run_date",
+    "asof_date",
+    "universe_size",
+    "filters",
+    "generated_by",
+    "data_sources",
+    "run_at",
+    "run_id",
+    "config_hash",
+    "cache_manifest_hash",
+    "tickers"
+  ],
+  "properties": {
+    "run_date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "asof_date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "universe_size": {"type": "integer", "minimum": 0},
+    "filters": {
+      "type": "object",
+      "required": ["min_market_cap_oku", "min_avg_turnover_oku"],
+      "properties": {
+        "min_market_cap_oku": {"type": "integer", "minimum": 0},
+        "min_avg_turnover_oku": {"type": "number", "minimum": 0},
+        "exclude_listed_under_months": {"type": "integer", "minimum": 0}
+      }
+    },
+    "generated_by": {"type": "string", "minLength": 1},
+    "data_sources": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "minItems": 1
+    },
+    "run_at": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "pattern": "^screening-[0-9]{8}-[0-9a-f]{8}$"},
+    "config_hash": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+    "cache_manifest_hash": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+    "tickers": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/Ticker"}
+    },
+    "fact_memo_lines": {"type": "array", "items": {"type": "string"}},
+    "provider_status_lines": {"type": "array", "items": {"type": "string"}},
+    "universe_exclusion_lines": {"type": "array", "items": {"type": "string"}},
+    "ttm_quality_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "fallback_lines": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "TTMQualityValue": {
+      "enum": ["exact", "approximated", "unavailable"]
+    },
+    "Ticker": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "ticker",
+        "name",
+        "sector_33",
+        "ttm_quality",
+        "threshold_hit"
+      ],
+      "properties": {
+        "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
+        "name": {"type": "string", "minLength": 1},
+        "per_forward": {"type": ["number", "null"]},
+        "per_trailing": {"type": ["number", "null"]},
+        "pbr": {"type": ["number", "null"]},
+        "ev_ebitda": {"type": ["number", "null"]},
+        "p_s": {"type": ["number", "null"]},
+        "pcfr": {"type": ["number", "null"]},
+        "sector_33": {"type": "string", "minLength": 1},
+        "market_cap_oku": {"type": ["integer", "number", "null"], "minimum": 0},
+        "avg_turnover_oku": {"type": ["number", "null"], "minimum": 0},
+        "price_change_60d": {"type": ["number", "null"]},
+        "price_change_4w": {"type": ["number", "null"]},
+        "sector_relative_strength_percentile": {"type": ["number", "null"]},
+        "metrics_breakdown": {"type": "object"},
+        "next_earnings_date": {
+          "anyOf": [
+            {"type": "null"},
+            {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}
+          ]
+        },
+        "ttm_quality": {
+          "type": "object",
+          "required": ["ev_ebitda", "p_s", "pcfr"],
+          "properties": {
+            "ev_ebitda": {"$ref": "#/$defs/TTMQualityValue"},
+            "p_s": {"$ref": "#/$defs/TTMQualityValue"},
+            "pcfr": {"$ref": "#/$defs/TTMQualityValue"}
+          }
+        },
+        "threshold_hit": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "minItems": 1
+        }
+      }
+    }
+  }
+}
