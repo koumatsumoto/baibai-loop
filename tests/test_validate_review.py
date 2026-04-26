@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from baibai_loop.validate.review import discover_review_files, validate_review_file
+from baibai_loop.validate.review import (
+    KNOWN_CLASSIFICATIONS,
+    discover_review_files,
+    validate_review_file,
+)
 
 
 def _review_text(classification: str = "success") -> str:
@@ -52,3 +56,8 @@ def test_review_template_is_skipped(tmp_path: Path) -> None:
     template = reviews / "template.md"
     template.write_text(_review_text())
     assert discover_review_files(reviews) == []
+
+
+def test_known_classifications_are_derived_from_schema() -> None:
+    # schema の enum と KNOWN_CLASSIFICATIONS が drift しないことを担保する。
+    assert KNOWN_CLASSIFICATIONS == ("success", "failure", "invalidated", "inconclusive")

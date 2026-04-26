@@ -12,13 +12,6 @@ from jsonschema import Draft202012Validator
 from .errors import ValidationFinding
 
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "schemas" / "review-v1.json"
-KNOWN_CLASSIFICATIONS: tuple[str, ...] = (
-    "success",
-    "failure",
-    "invalidated",
-    "inconclusive",
-)
-REQUIRED_FRONT_MATTER: tuple[str, ...] = ("trade_ref", "classification", "verified_at")
 REQUIRED_SECTIONS: tuple[str, ...] = (
     "Outcome",
     "Hypothesis check",
@@ -29,15 +22,23 @@ REQUIRED_SECTIONS: tuple[str, ...] = (
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)
 
 
-def _load_validator() -> Draft202012Validator:
+def _load_schema() -> dict[str, Any]:
     raw = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise RuntimeError(f"unexpected schema root: {SCHEMA_PATH}")
     Draft202012Validator.check_schema(raw)
-    return Draft202012Validator(raw)
+    return raw
 
 
-_VALIDATOR = _load_validator()
+def _classifications_from_schema(schema: dict[str, Any]) -> tuple[str, ...]:
+    # schema を単一の source of truth として扱う。constant 側を更新し忘れる drift を避ける。
+    enum = schema["properties"]["classification"]["enum"]
+    return tuple(str(value) for value in enum)
+
+
+_SCHEMA = _load_schema()
+_VALIDATOR = Draft202012Validator(_SCHEMA)
+KNOWN_CLASSIFICATIONS: tuple[str, ...] = _classifications_from_schema(_SCHEMA)
 
 
 def discover_review_files(root: Path) -> list[Path]:
