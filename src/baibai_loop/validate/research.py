@@ -1,10 +1,4 @@
-"""Validate research markdown front matter and (via playbook schema) body sections.
-
-PR 1-C 時点では `decision` / `macro_gate_override` は research front matter に
-まだ存在しない。これらの field は Phase 2 で追加するため、本モジュールでは
-現行の必須 front matter のみを検証する。本文 section の検証は playbook 別
-schema (`playbooks/<name>.schema.yaml`) に分離する。
-"""
+"""Validate research markdown front matter and playbook-specific body sections."""
 
 from __future__ import annotations
 
@@ -22,10 +16,12 @@ from .playbook_schema import (
 )
 
 KNOWN_MACRO_GATES: tuple[str, ...] = ("tailwind", "neutral", "headwind")
+KNOWN_DECISIONS: tuple[str, ...] = ("accepted", "skipped", "pending")
 REQUIRED_FRONT_MATTER: tuple[str, ...] = (
     "ticker",
     "name",
     "playbook",
+    "decision",
     "screened_ref",
     "view_ref",
     "brief_refs",
@@ -33,6 +29,7 @@ REQUIRED_FRONT_MATTER: tuple[str, ...] = (
     "published_at",
     "tradable_at",
     "macro_gate",
+    "position_size_oku",
     "valuation",
 )
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)
@@ -190,6 +187,118 @@ def _validate_front_matter(
                 location="macro_gate",
             )
         )
+    decision = front_matter.get("decision")
+    if isinstance(decision, str):
+        if decision not in KNOWN_DECISIONS:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.invalid-decision",
+                    message=(f"decision must be one of {list(KNOWN_DECISIONS)}, got {decision!r}"),
+                    location="decision",
+                )
+            )
+    elif "decision" in front_matter:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.invalid-decision",
+                message="decision must be a string",
+                location="decision",
+            )
+        )
+    override = front_matter.get("macro_gate_override")
+    has_override = isinstance(override, str) and bool(override.strip())
+    if "macro_gate_override" in front_matter and not has_override:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.invalid-macro-gate-override",
+                message="macro_gate_override must be a non-empty string when present",
+                location="macro_gate_override",
+            )
+        )
+    if macro_gate == "headwind" and decision == "accepted":
+        if has_override:
+            findings.append(
+                ValidationFinding(
+                    severity="warning",
+                    target=path,
+                    code="research.headwind-with-override",
+                    message="accepted research uses headwind macro_gate with an explicit override",
+                    location="macro_gate_override",
+                )
+            )
+        else:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.headwind-without-override",
+                    message=(
+                        "accepted research with headwind macro_gate requires macro_gate_override"
+                    ),
+                    location="macro_gate_override",
+                )
+            )
+    position_size = front_matter.get("position_size_oku")
+    if isinstance(position_size, bool) or not isinstance(position_size, (int, float)):
+        if "position_size_oku" in front_matter:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.invalid-position-size",
+                    message="position_size_oku must be a positive number",
+                    location="position_size_oku",
+                )
+            )
+    elif position_size <= 0:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.invalid-position-size",
+                message="position_size_oku must be greater than 0",
+                location="position_size_oku",
+            )
+        )
+    valuation = front_matter.get("valuation")
+    top_level_adv = front_matter.get("adv_participation_pct")
+    if isinstance(top_level_adv, (int, float)) and not isinstance(top_level_adv, bool):
+        _append_adv_participation_finding(path, top_level_adv, findings, "adv_participation_pct")
+    elif "adv_participation_pct" in front_matter:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.invalid-adv-participation",
+                message="adv_participation_pct must be a number when present",
+                location="adv_participation_pct",
+            )
+        )
+    if isinstance(valuation, dict):
+        adv_participation = valuation.get("adv_participation_pct")
+        if isinstance(adv_participation, (int, float)) and not isinstance(adv_participation, bool):
+            _append_adv_participation_finding(
+                path,
+                adv_participation,
+                findings,
+                "valuation.adv_participation_pct",
+            )
+        elif "adv_participation_pct" in valuation:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.invalid-adv-participation",
+                    message="valuation.adv_participation_pct must be a number when present",
+                    location="valuation.adv_participation_pct",
+                )
+            )
     screened_ref = front_matter.get("screened_ref")
     if isinstance(screened_ref, str) and not screened_ref.endswith(".yaml"):
         findings.append(
@@ -201,4 +310,33 @@ def _validate_front_matter(
                 location="screened_ref",
             )
         )
+    view_ref = front_matter.get("view_ref")
+    if isinstance(view_ref, str) and not view_ref.endswith(".md"):
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.view-ref-not-md",
+                message="view_ref must end with .md",
+                location="view_ref",
+            )
+        )
     return findings
+
+
+def _append_adv_participation_finding(
+    path: Path,
+    value: int | float,
+    findings: list[ValidationFinding],
+    location: str,
+) -> None:
+    if value >= 5.0:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.adv-participation-cap",
+                message="adv_participation_pct must be below 5.0 for accepted research",
+                location=location,
+            )
+        )

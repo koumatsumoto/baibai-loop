@@ -66,6 +66,7 @@ def _make_research_text() -> str:
             "ticker": "2767",
             "name": "Sample",
             "playbook": "valuation-mean-reversion-v1",
+            "decision": "accepted",
             "screened_ref": "screened/2026/04/2026-04-24.yaml",
             "view_ref": "view/2026/04/view-2026-04-24-bootstrap.md",
             "brief_refs": [],
@@ -73,6 +74,7 @@ def _make_research_text() -> str:
             "published_at": "2026-04-25T22:00:00+09:00",
             "tradable_at": "2026-05-15T09:00:00+09:00",
             "macro_gate": "neutral",
+            "position_size_oku": 0.01,
             "valuation": {"per_trailing": 6.63},
         },
         allow_unicode=True,
@@ -135,7 +137,7 @@ class ValidateCliTests(unittest.TestCase):
             stderr = io.StringIO()
             exit_code = run_validation(
                 root=root,
-                targets=("screened", "view", "research"),
+                targets=("screened", "view", "research", "ledger", "review"),
                 stdout=stdout,
                 stderr=stderr,
             )

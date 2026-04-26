@@ -2,6 +2,7 @@
 ticker: "9616"
 name: "共立メンテナンス"
 playbook: valuation-mean-reversion-v1
+decision: accepted
 screened_ref: screened/2026/04/2026-04-24.yaml
 view_ref: view/2026/04/view-2026-04-24-bootstrap.md
 brief_refs: []
@@ -9,6 +10,8 @@ ai-draft: true
 published_at: "2026-04-25T22:00:00+09:00"
 tradable_at: "2026-05-15T09:00:00+09:00"
 macro_gate: neutral
+position_size_oku: 0.02
+adv_participation_pct: 0.09
 valuation:
   per_forward: null
   per_trailing: 13.57

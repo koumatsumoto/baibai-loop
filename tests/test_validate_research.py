@@ -67,6 +67,7 @@ def _minimal_research_front_matter() -> dict[str, object]:
         "ticker": "2767",
         "name": "Sample Co",
         "playbook": "valuation-mean-reversion-v1",
+        "decision": "accepted",
         "screened_ref": "screened/2026/04/2026-04-24.yaml",
         "view_ref": "view/2026/04/view-2026-04-24-bootstrap.md",
         "brief_refs": [],
@@ -74,6 +75,7 @@ def _minimal_research_front_matter() -> dict[str, object]:
         "published_at": "2026-04-25T22:00:00+09:00",
         "tradable_at": "2026-05-15T09:00:00+09:00",
         "macro_gate": "neutral",
+        "position_size_oku": 0.01,
         "valuation": {"per_trailing": 6.63},
     }
 
@@ -106,6 +108,80 @@ class ResearchValidationTests(unittest.TestCase):
             path.unlink()
         codes = {f.code for f in findings}
         self.assertIn("research.missing-field", codes)
+
+    def test_missing_decision_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        del front["decision"]
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.missing-field", {f.code for f in findings})
+
+    def test_unknown_decision_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        front["decision"] = "maybe"
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.invalid-decision", {f.code for f in findings})
+
+    def test_headwind_accepted_without_override_is_error(self) -> None:
+        front = _minimal_research_front_matter()
+        front["macro_gate"] = "headwind"
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.headwind-without-override", {f.code for f in findings})
+
+    def test_headwind_accepted_with_override_is_warning(self) -> None:
+        front = _minimal_research_front_matter()
+        front["macro_gate"] = "headwind"
+        front["macro_gate_override"] = "event-specific mispricing"
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+        finally:
+            path.unlink()
+        warning_codes = {f.code for f in findings if f.severity == "warning"}
+        error_codes = {f.code for f in findings if f.severity == "error"}
+        self.assertIn("research.headwind-with-override", warning_codes)
+        self.assertNotIn("research.headwind-without-override", error_codes)
+
+    def test_missing_position_size_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        del front["position_size_oku"]
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.missing-field", {f.code for f in findings})
+
+    def test_adv_participation_at_cap_is_rejected(self) -> None:
+        front = _minimal_research_front_matter()
+        front["adv_participation_pct"] = 5.0
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.adv-participation-cap", {f.code for f in findings})
+
+    def test_adv_participation_below_cap_passes(self) -> None:
+        front = _minimal_research_front_matter()
+        front["adv_participation_pct"] = 4.9
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+        finally:
+            path.unlink()
+        self.assertNotIn("research.adv-participation-cap", {f.code for f in findings})
 
     def test_invalid_ticker_pattern_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
@@ -150,6 +226,17 @@ class ResearchValidationTests(unittest.TestCase):
             path.unlink()
         codes = {f.code for f in findings}
         self.assertIn("research.screened-ref-not-yaml", codes)
+
+    def test_view_ref_must_be_markdown(self) -> None:
+        front = _minimal_research_front_matter()
+        front["view_ref"] = "view/2026/04/view.yaml"
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+        finally:
+            path.unlink()
+        codes = {f.code for f in findings}
+        self.assertIn("research.view-ref-not-md", codes)
 
     def test_missing_required_section_is_flagged(self) -> None:
         body = "# Research\n\n## 1. Thesis\nonly thesis\n"
