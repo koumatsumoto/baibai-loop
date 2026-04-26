@@ -67,6 +67,9 @@ class ScreeningRenderTests(unittest.TestCase):
                 )
             ],
             run_at=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+            run_id="screening-20260424-a1b2c3d4",
+            config_hash="a1b2c3d4e5f6a7b8",
+            cache_manifest_hash="9988776655443322",
             fact_memo_lines=("複数閾値 hit 銘柄はなし",),
             provider_status_lines=("データソース: J-Quants Light + EDINET + JPX",),
             universe_exclusion_lines=("除外件数: 42 銘柄",),
@@ -78,6 +81,9 @@ class ScreeningRenderTests(unittest.TestCase):
 
         self.assertIn('run_date: "2026-04-24"', rendered)
         self.assertIn('asof_date: "2026-04-24"', rendered)
+        self.assertIn('run_id: "screening-20260424-a1b2c3d4"', rendered)
+        self.assertIn('config_hash: "a1b2c3d4e5f6a7b8"', rendered)
+        self.assertIn('cache_manifest_hash: "9988776655443322"', rendered)
         self.assertIn('ticker: "130A"', rendered)
         self.assertIn("ttm_quality:", rendered)
         self.assertIn("approximated", rendered)
@@ -142,6 +148,9 @@ class ScreeningRenderTests(unittest.TestCase):
                 )
             ],
             run_at=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+            run_id="screening-20260424-a1b2c3d4",
+            config_hash="a1b2c3d4e5f6a7b8",
+            cache_manifest_hash="9988776655443322",
             fact_memo_lines=("[事実 1]", "[事実 2]"),
             provider_status_lines=(
                 "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ EDINET + JPX",
@@ -167,6 +176,9 @@ class ScreeningRenderTests(unittest.TestCase):
             - "edinet-api-v2@2026-01-29"
             - "jpx-public-regulation"
             run_at: "2026-04-24T09:00:00+09:00"
+            run_id: "screening-20260424-a1b2c3d4"
+            config_hash: "a1b2c3d4e5f6a7b8"
+            cache_manifest_hash: "9988776655443322"
             tickers:
             - ticker: "130A"
               name: "..."
@@ -228,6 +240,9 @@ class ScreeningRenderTests(unittest.TestCase):
             filters={},
             tickers=(),
             run_at=datetime(2026, 4, 24, 0, 0, tzinfo=UTC),
+            run_id="screening-20260424-a1b2c3d4",
+            config_hash="a1b2c3d4e5f6a7b8",
+            cache_manifest_hash="9988776655443322",
         )
 
         with self.assertRaises(RenderError):

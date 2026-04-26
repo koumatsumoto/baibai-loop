@@ -1,6 +1,6 @@
 # screening/automation-v1.md
 
-Baibai-Loop の `screened/` を対象にした automation v1 の実装正本。週次 screening を機械的に再現するための実行方式、依存、失敗時の扱いを定義する。
+Baibai-Loop の `screened/` を対象にした automation v1 の実装正本。週次 screening の入力と実行条件を traceability として追跡するための実行方式、依存、失敗時の扱いを定義する。
 
 ## 1. Scope
 
@@ -102,5 +102,5 @@ v1 で使う method は次の 5 点に固定する。
 ## 10. Exit Codes
 
 - `0`: 全件成功
-- `1`: fail-fast（markdown 未生成）
-- `2`: partial warning（markdown 生成済み、欠損明記）
+- `1`: fail-fast（YAML 未生成）
+- `2`: partial warning（YAML 生成済み、欠損明記）

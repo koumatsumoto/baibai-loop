@@ -37,6 +37,9 @@ data_sources:
   - "edinet-api-v2@2026-01-29"
   - "jpx-public-regulation"
 run_at: "ISO 8601"
+run_id: "screening-YYYYMMDD-xxxxxxxx"
+config_hash: "16 hex chars"
+cache_manifest_hash: "16 hex chars"
 tickers:                            # 通過銘柄 list
   - ticker: "130A"
     name: "..."
@@ -79,6 +82,9 @@ tickers:                            # 通過銘柄 list
 - ticker は **4 文字の英数字文字列**として quote 必須（先頭 0 落ち防止、英字組入れ対応）
 - 欠損値（例: forward EPS 未公表）は明示的に `null`
 - `run_date` は `asof_date` と同値。ファイル path の日付とも一致させる
+- `run_id`: 実行単位 ID。`screening-{asof_date:YYYYMMDD}-{config_hash 先頭 8 hex}` 形式
+- `config_hash`: `ScreeningConfig` の secret 以外と provider URL / tier 設定を正規化した SHA256 短縮 hash。`--asof` や出力 path は含めない
+- `cache_manifest_hash`: `.cache/screening` 配下の provider cache（`manifests/` 除外）を path / sha256 / size で記録した manifest の SHA256 短縮 hash
 - `ttm_quality` は `EV/EBITDA` / `P/S` / `PCFR` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - `threshold_hit`: mechanical-v1 の閾値条件 3 種のどれを満たしたか（OR 条件、複数 hit 可）
 - `market_cap_oku` / `avg_turnover_oku`: research の position size 判定で使う。`market_cap_oku >= 300` かつ `avg_turnover_oku >= 2.0` で universe 通過する閾値と整合
@@ -87,7 +93,11 @@ tickers:                            # 通過銘柄 list
 - `metrics_breakdown`: 各 valuation 指標 (per_trailing / pbr / ev_ebitda) の `sector_median_gap` / `self_range_percentile` / `sigma_gap` を集約。research §3 Valuation snapshot の primary metric 選択と判定根拠の数値ソース
 - `next_earnings_date`: asof 以降直近の決算発表予定日 (J-Quants earnings calendar、asof + 90 calendar days 範囲内)。research §10 Entry 条件の「決算またぎ kill switch」自動 check に使う。範囲内に予定が無い銘柄は `null`
 
-### 4.1 実行メモの扱い
+### 4.1 traceability の境界
+
+screened YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行時の input を追跡可能にする。ただし J-Quants Light tier は rolling 12 週間が取得上限のため、cache 中身が消えると過去データの再取得は不能。完全な point-in-time 再現性は本 repo のスコープ外とする。
+
+### 4.2 実行メモの扱い
 
 `screened/` は YAML 正本とし、Markdown 本文は持たない。複数閾値 hit、provider 状態、universe 除外件数、fallback / 部分警告は以下の配列フィールドで保持する。
 

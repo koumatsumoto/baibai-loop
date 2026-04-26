@@ -11,6 +11,9 @@ data_sources:
 - "edinet-api-v2@2026-01-29"
 - "jpx-public-regulation"
 run_at: "2026-04-25T22:20:32.973720+09:00"
+run_id: "screening-20260424-b70eb19e"
+config_hash: "b70eb19ee5e46374"
+cache_manifest_hash: "18835a4438a1e34e"
 tickers:
 - ticker: "1333"
   name: "Ｕｍｉｏｓ"

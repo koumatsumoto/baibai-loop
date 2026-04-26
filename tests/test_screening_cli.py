@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import sys
 import tempfile
 import unittest
@@ -181,6 +182,19 @@ class ScreeningCliTests(unittest.TestCase):
                 rendered = output_path.read_text(encoding="utf-8")
                 self.assertIn('run_date: "2026-04-24"', rendered)
                 self.assertIn("ttm_quality_counts:", rendered)
+                payload = yaml.safe_load(rendered)
+                self.assertRegex(payload["run_id"], r"^screening-20260424-[0-9a-f]{8}$")
+                self.assertRegex(payload["config_hash"], r"^[0-9a-f]{16}$")
+                self.assertRegex(payload["cache_manifest_hash"], r"^[0-9a-f]{16}$")
+                manifest_path = Path(".cache/screening/manifests") / f"{payload['run_id']}.json"
+                self.assertTrue(manifest_path.exists())
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                self.assertEqual(manifest["run_id"], payload["run_id"])
+                self.assertEqual(manifest["config_hash"], payload["config_hash"])
+                self.assertEqual(
+                    manifest["cache_manifest_hash"],
+                    payload["cache_manifest_hash"],
+                )
             finally:
                 os.chdir(cwd)
 
