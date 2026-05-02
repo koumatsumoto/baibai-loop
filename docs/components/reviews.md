@@ -79,6 +79,9 @@ playbook_revision_decision: "v1 据え置き" | "v1.1 改訂" | "v2 開発"
 next_cycle_changes:
   - "変更点 1"
   - "変更点 2"
+price_missing_counts:
+  plus_15bd: 整数
+  plus_30bd: 整数
 ---
 ```
 
@@ -126,6 +129,7 @@ next_cycle_changes:
 - 代わりに checklist 差分（packet の追加チェック欄）を提案する
 - 自由記述 + 反対仮説自由記述の頻出キーワードを 3-5 個抽出し、次周回で意識するポイントに落とす
 - **Macro gate の判定精度** を集計（追い風判定した銘柄の +15/+30 パフォーマンス、逆風判定した不採用銘柄のパフォーマンス）
+- **+15/+30 価格欠損件数** を必ず出し、tracking 未完了のまま評価しない
 - **Valuation trap が 0 件だった場合**: 「サンプル不足のため valuation trap 耐性は未検証」と明記し、次周回の重点観察項目にする
 
 ### 9.2 受け渡し条件

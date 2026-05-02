@@ -10,8 +10,10 @@ import yaml
 
 from baibai_loop.ledger.cli import _discover_decision_dates, _load_market_data, main
 from baibai_loop.ledger.io import diff_jsonl
+from baibai_loop.ledger.retro import build_monthly_retro
 from baibai_loop.ledger.sync import _decision_date, sync_ledger
 from baibai_loop.screening.providers.jquants import JQuantsDailyBar
+from baibai_loop.validate.review import validate_review_file
 
 
 def _seed(root: Path) -> None:
@@ -190,6 +192,62 @@ def test_ledger_cli_require_market_data_emits_diagnostic_when_no_research(
     (tmp_path / "research").mkdir()
     assert main(["sync", "--root", str(tmp_path), "--dry-run", "--require-market-data"]) == 1
     assert "no calendar/bars" in capsys.readouterr().err
+
+
+def test_monthly_retro_draft_uses_ledger_only_fallback(tmp_path: Path) -> None:
+    _seed(tmp_path)
+    sync_ledger(tmp_path)
+    draft = build_monthly_retro(tmp_path, "2026-04")
+    assert draft.path == tmp_path / "reviews" / "2026" / "retro-202604.md"
+    assert "reviews/2026/04 does not exist" in draft.warnings[0]
+    assert "price_missing_counts:" in draft.content
+    assert "## Skipped trade log の分析" in draft.content
+    draft.path.parent.mkdir(parents=True)
+    draft.path.write_text(draft.content, encoding="utf-8")
+    assert validate_review_file(draft.path) == []
+
+
+def test_ledger_cli_retro_writes_draft_and_refuses_overwrite(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed(tmp_path)
+    sync_ledger(tmp_path)
+    assert main(["retro", "--root", str(tmp_path), "--month", "2026-04"]) == 0
+    assert (tmp_path / "reviews" / "2026" / "retro-202604.md").exists()
+    assert main(["retro", "--root", str(tmp_path), "--month", "2026-04"]) == 1
+    assert "already exists" in capsys.readouterr().err
+
+
+def test_monthly_retro_counts_review_classes(tmp_path: Path) -> None:
+    _seed(tmp_path)
+    sync_ledger(tmp_path)
+    reviews = tmp_path / "reviews" / "2026" / "04"
+    reviews.mkdir(parents=True)
+    (reviews / "2026-04-30-2767.md").write_text(
+        """---
+trade_ref: trades/2026/04/2026-04-25-2767.md
+classification: success
+verified_at: "2026-04-30"
+pnl_pct: 3.5
+success_class: "仮説的中"
+---
+
+# Review
+
+## Outcome
+## Hypothesis check
+## Process check
+## Lessons
+## Next actions
+""",
+        encoding="utf-8",
+    )
+    draft = build_monthly_retro(tmp_path, "2026-04")
+    front = yaml.safe_load(draft.content.split("---", 2)[1])
+    assert front["closed_trades"] == 1
+    assert front["wins"] == 1
+    assert front["success_class_counts"]["仮説的中"] == 1
 
 
 def test_sync_ledger_writes_update_events_for_tracking_changes(tmp_path: Path) -> None:

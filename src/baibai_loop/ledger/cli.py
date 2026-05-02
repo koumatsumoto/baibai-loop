@@ -14,6 +14,7 @@ from baibai_loop.screening.providers.jquants import (
     JQuantsProviderError,
 )
 
+from .retro import build_monthly_retro, write_monthly_retro
 from .sync import sync_ledger
 
 
@@ -28,6 +29,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="fail when J-Quants market data cannot be loaded",
     )
+    retro_parser = subparsers.add_parser(
+        "retro",
+        help="generate a monthly retro draft from ledger JSONL and optional reviews",
+    )
+    retro_parser.add_argument("--root", type=Path, default=Path.cwd())
+    retro_parser.add_argument("--month", required=True, help="target month (YYYY-MM)")
+    retro_parser.add_argument("--dry-run", action="store_true", help="print draft to stdout")
+    retro_parser.add_argument("--overwrite", action="store_true", help="replace existing draft")
     return parser
 
 
@@ -58,6 +67,24 @@ def main(argv: list[str] | None = None) -> int:
             f"paper={result.paper_count} skipped={result.skipped_count}"
             + (" dry_run=true" if args.dry_run else "")
         )
+        return 0
+    if args.command == "retro":
+        try:
+            if args.dry_run:
+                draft = build_monthly_retro(args.root, args.month)
+                print(draft.content, end="")
+            else:
+                draft = write_monthly_retro(
+                    args.root,
+                    args.month,
+                    overwrite=args.overwrite,
+                )
+                print(f"wrote {draft.path}")
+        except (FileExistsError, ValueError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        for warning in draft.warnings:
+            print(f"warning: {warning}", file=sys.stderr)
         return 0
     raise AssertionError(f"unreachable command: {args.command!r}")
 

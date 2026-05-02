@@ -509,6 +509,8 @@ def _stringify_dates(params: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _parse_date(value: Any) -> date:
+    if isinstance(value, datetime):
+        return value.date()
     if isinstance(value, date):
         return value
     if not value:

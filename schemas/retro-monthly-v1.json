@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "retro_month",
+    "total_trades",
+    "open_trades",
+    "closed_trades",
+    "skipped_candidates",
+    "wins",
+    "losses",
+    "pnl_pct_sum",
+    "failure_class_counts",
+    "success_class_counts",
+    "playbook_revision_decision",
+    "next_cycle_changes",
+    "price_missing_counts"
+  ],
+  "properties": {
+    "retro_month": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}$"},
+    "total_trades": {"type": "integer", "minimum": 0},
+    "open_trades": {"type": "integer", "minimum": 0},
+    "closed_trades": {"type": "integer", "minimum": 0},
+    "skipped_candidates": {"type": "integer", "minimum": 0},
+    "wins": {"type": "integer", "minimum": 0},
+    "losses": {"type": "integer", "minimum": 0},
+    "pnl_pct_sum": {"type": "number"},
+    "failure_class_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "success_class_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "playbook_revision_decision": {
+      "enum": ["v1 据え置き", "v1.1 改訂", "v2 開発"]
+    },
+    "next_cycle_changes": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "minItems": 1,
+      "maxItems": 3
+    },
+    "price_missing_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plus_15bd", "plus_30bd"],
+      "properties": {
+        "plus_15bd": {"type": "integer", "minimum": 0},
+        "plus_30bd": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

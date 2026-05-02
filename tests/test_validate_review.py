@@ -58,6 +58,45 @@ def test_review_template_is_skipped(tmp_path: Path) -> None:
     assert discover_review_files(reviews) == []
 
 
+def test_monthly_retro_file_uses_retro_schema(tmp_path: Path) -> None:
+    path = tmp_path / "retro-202604.md"
+    path.write_text(
+        """---
+retro_month: "2026-04"
+total_trades: 0
+open_trades: 0
+closed_trades: 0
+skipped_candidates: 0
+wins: 0
+losses: 0
+pnl_pct_sum: 0.0
+failure_class_counts:
+  材料誤読: 0
+success_class_counts:
+  仮説的中: 0
+playbook_revision_decision: "v1 据え置き"
+next_cycle_changes:
+  - "実 trade がないため、次周回も採用後の執行記録を優先する"
+price_missing_counts:
+  plus_15bd: 0
+  plus_30bd: 0
+---
+
+# Retro: 2026-04 月次振り返り
+
+## Trade 集計
+## 失敗分類の集計
+## 成功分類の集計
+## Skipped trade log の分析
+## Macro gate 判定精度
+## Playbook 改訂判断
+## 次周回の運用変更点
+""",
+        encoding="utf-8",
+    )
+    assert validate_review_file(path) == []
+
+
 def test_known_classifications_are_derived_from_schema() -> None:
     # schema の enum と KNOWN_CLASSIFICATIONS が drift しないことを担保する。
     assert KNOWN_CLASSIFICATIONS == ("success", "failure", "invalidated", "inconclusive")

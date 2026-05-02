@@ -72,7 +72,19 @@ ledger JSONL は [`../../schemas/ledger-paper-v1.json`](../../schemas/ledger-pap
 uv run baibai-loop-validate --target ledger
 ```
 
-## 7. dry-run 出力の読み方
+## 7. 月次 retro 下書き
+
+ledger と任意の個別 review から、月次 retro の下書きを生成する。
+
+```bash
+uv run baibai-loop-ledger retro --root . --month YYYY-MM
+```
+
+出力先は `reviews/YYYY/retro-YYYYMM.md`。個別 review がまだ無い月でも ledger 単独で生成し、
+`price_missing_counts.plus_15bd` / `price_missing_counts.plus_30bd` に tracking 未解決件数を
+必ず出す。既存ファイルがある場合は上書きしない。確認だけなら `--dry-run` を使う。
+
+## 8. dry-run 出力の読み方
 
 `baibai-loop-ledger sync --dry-run` は次の prefix で差分を表示する。
 
@@ -82,7 +94,7 @@ uv run baibai-loop-validate --target ledger
   ledger は audit log のため upsert は削除しない。research packet が消えた・移動した等の
   状況で発生し、retro 集計の整合確認のための通知である。
 
-## 8. 事故時の扱い
+## 9. 事故時の扱い
 
 JSONL は 1 行 1 record で、`ledger_id` が主キーである。壊れた行がある場合は
 `uv run baibai-loop-validate --target ledger` で該当 line を確認し、元の research packet
