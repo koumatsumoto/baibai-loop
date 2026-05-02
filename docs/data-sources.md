@@ -15,6 +15,12 @@ Baibai-Loop で使うデータソースを、客観性を優先した基準で�
 
 本ファイルの以下の節は主に **Tier 1 / Tier 2 一次統計**（brief 用）のスコアリングを扱う。screening / research で使う J-Quants / EDINET / TDnet の詳細仕様は [`screening/valuation-metrics.md`](./screening/valuation-metrics.md) を参照。
 
+## 取得データの保存方針
+
+J-Quants / EDINET から取得したデータは、個人利用・非公開 repository での Baibai-Loop 運用に限り、ローカル cache または永続 cache として保存してよいことを確認済み（2026-05-02、運用者確認）。外部公開・第三者再配布は行わない。
+
+保存済み cache は、screening 再生成、ledger tracking、monthly retro のための入力証跡として扱う。ただし J-Quants の調整後価格、銘柄マスター、JPX 規制情報などは完全な point-in-time snapshot ではないため、再現性ではなく traceability の補助として使う。
+
 ## スコアリング軸
 
 各軸 10 点満点、合計 30 点で評価する。
