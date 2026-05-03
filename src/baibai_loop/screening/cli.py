@@ -481,6 +481,7 @@ def run_command(
         config_hash=config_hash,
         manifest_hash=cache_manifest_hash,
         generated_at=run_now,
+        sqlite_path=config.sqlite_cache_dir / "market.sqlite",
     )
 
     document = ScreenedRunDocument(

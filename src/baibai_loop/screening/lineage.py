@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -105,8 +106,9 @@ def write_manifest(
     config_hash: str,
     manifest_hash: str,
     generated_at: datetime,
+    sqlite_path: Path | None = None,
 ) -> None:
-    payload = {
+    payload: dict[str, object] = {
         "run_id": run_id,
         "asof_date": asof_date.isoformat(),
         "cache_root": manifest.cache_root.as_posix(),
@@ -115,11 +117,51 @@ def write_manifest(
         "generated_at": generated_at.isoformat(),
         "files": _manifest_files_payload(manifest),
     }
+    sqlite_summary = compute_sqlite_summary(sqlite_path) if sqlite_path else None
+    if sqlite_summary is not None:
+        payload["sqlite_cache"] = sqlite_summary
     path.parent.mkdir(parents=True, exist_ok=True)
     write_text_atomic(
         path,
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
     )
+
+
+def compute_sqlite_summary(sqlite_path: Path | None) -> dict[str, object] | None:
+    """Snapshot the SQLite cache state at run time so the lineage manifest
+    records which derived cache (if any) was available alongside the raw
+    JSON inputs. Returns `None` when the SQLite file is missing — the
+    `cache_manifest_hash` already covers the canonical raw JSON so a
+    missing SQLite is not a lineage failure.
+    """
+    if sqlite_path is None or not sqlite_path.exists():
+        return None
+    conn = sqlite3.connect(sqlite_path)
+    try:
+        try:
+            schema_version_row = conn.execute(
+                "SELECT value FROM cache_metadata WHERE key = 'schema_version'"
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return None
+        try:
+            counts_rows = conn.execute(
+                "SELECT source, COUNT(*), COALESCE(SUM(record_count), 0) "
+                "FROM raw_imports GROUP BY source ORDER BY source"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            counts_rows = []
+    finally:
+        conn.close()
+
+    return {
+        "path": sqlite_path.as_posix(),
+        "schema_version": schema_version_row[0] if schema_version_row else None,
+        "imports": [
+            {"source": source, "files": files, "records": records}
+            for source, files, records in counts_rows
+        ],
+    }
 
 
 def _traceable_config_payload(config: ScreeningConfig) -> dict[str, object]:
