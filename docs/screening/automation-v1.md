@@ -135,3 +135,19 @@ v1 で使う method は次の 5 点に固定する。
 - `cache_metadata(key, value)` — `schema_version=v1` を含む KV ストア。
 
 EDINET / JPX / earnings_calendar / market_calendar の SQLite 化、および provider 側の SQLite read-through / write-through 切替は follow-up の対象。issue #45 の TODO を参照。
+
+### 11.2 Measured Volume and Rebuild Time (2026-05-03)
+
+`2023-01-10..2026-01-29` の raw JSON 投入 (PR #50) 時点での実測値:
+
+| 指標 | 値 |
+| --- | --- |
+| `data/raw/screening/` 合計 | 1.1GB / 44 ファイル |
+| 1 ファイル最大サイズ | 32.8MB（jquants daily bars 31 日 chunk） |
+| `git clone` 時の pack download | 約 182MB（aggressive gc 後の実測。オブジェクトは pretty JSON が deflate でよく縮む） |
+| clone + checkout 後の disk 使用量 | 約 1.3GB（working tree 1.1GB + .git 182MB） |
+| `rebuild-cache` 実行時間 | 約 24 秒（Python 3.14 / WSL2 / SSD） |
+| `data/cache/screening/market.sqlite` サイズ | 410MB（schema v1 の 3 table、約 354 万 row） |
+| 取り込まれた record 数 | bars 3,535,769 / fin_summaries 5,499 / master_snapshots 4,445 |
+
+参考: 月次の追加見込みは raw JSON +30〜35MB / SQLite +10〜13MB / month。5 年で raw JSON 約 3.0GB、SQLite 約 1.2GB の規模に達する想定。GitHub 私有リポジトリ推奨上限 5GB に収まる範囲。
