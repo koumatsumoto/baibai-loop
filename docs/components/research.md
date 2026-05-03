@@ -62,8 +62,10 @@ published_at: "ISO 8601"
 tradable_at: "ISO 8601"
 macro_gate: tailwind | neutral | headwind          # outlook 判定結果
 macro_gate_override: "..."                         # headwind 採用時のみ必須
-position_size_oku: 0.01                            # 建玉 proxy (億円)
-adv_participation_pct: 0.2                         # position_size_oku / avg_turnover_oku * 100
+position_size_oku: 0.01                            # 建玉 proxy (億円)。skipped は 0、accepted/pending は > 0
+hypothetical_position_size_oku: 0.005              # 任意。skipped で参考値として記録する場合
+avg_turnover_oku: 5.0                              # candidates 由来の 20 日平均売買代金 (億円)。adv_participation_pct を書く場合は > 0 必須 (validator 強制)
+adv_participation_pct: 0.2                         # position_size_oku / avg_turnover_oku * 100。validator が ±5% で整合チェック
 market_cap_oku: 936                                # candidates 由来の時価総額 (億円)
 sector_33: "情報・通信業"                         # candidates 由来の東証 33 業種
 valuation:

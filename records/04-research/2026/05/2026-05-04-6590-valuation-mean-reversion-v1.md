@@ -134,7 +134,7 @@ skipped のため定義しない。
 
 - split 調整済み candidates が再生成され、`price_change_60d` が adj close ベースで -25% 以上の真の過剰売りである場合
 - 5 月通期決算で会社予想 EPS が市場想定を上回り、forward PER 30 が一過性であることが確認される場合
-- 有報で AI / 半導体 capex 関連の顧客 / 製品 mix が明示され、TSMC / Samsung / Kioxia 等の主要顧客の capex / 投資計画が transcript / 10-K 経由で cross-check 完了し、本銘柄への spillover が定量的に確認される場合
+- 有報で 6590 の顧客 / 製品 mix と地域別売上が明示され、主要半導体メーカー (公式 IR / transcript / 10-K で確認できる範囲) の AI 関連 capex / 投資計画と接続できる場合 (顧客名は本 packet 内では断定しない、有報確認後に列挙)
 - 上記が揃った時点で再 packet 化して accepted/pending を判定する
 
 ## 13. Position size + 採用判定

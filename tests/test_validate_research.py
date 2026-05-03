@@ -380,6 +380,19 @@ class ResearchValidationTests(unittest.TestCase):
             path.unlink()
         self.assertIn("research.adv-participation-inconsistent", {f.code for f in findings})
 
+    def test_skipped_decision_with_positive_position_size_is_flagged(self) -> None:
+        # skipped で position_size_oku > 0 だと ledger sync が adv_participation_pct を
+        # 計算してしまう穴を塞ぐ
+        front = _minimal_research_front_matter()
+        front["decision"] = "skipped"
+        front["position_size_oku"] = 0.01
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.invalid-position-size", {f.code for f in findings})
+
     def test_skipped_packet_with_zero_position_and_zero_adv_passes(self) -> None:
         front = _minimal_research_front_matter()
         front["decision"] = "skipped"

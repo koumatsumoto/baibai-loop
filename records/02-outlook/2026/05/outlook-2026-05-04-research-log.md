@@ -1,6 +1,8 @@
 # Outlook 2026-05-04 Research Log
 
-`outlook-2026-05-04-post-fomc-boj-hold.yaml` 作成時に取得した一次情報源 (Tier 1 / Tier 1 準拠) のカタログ。outlook 本体の `summary` で参照される具体的な fact + URL を保存する。outlook YAML 自体には schema 都合で URL 一覧を入れにくいため、sidecar として分離する。
+`outlook-2026-05-04-post-fomc-boj-hold.yaml` 作成時に確認した URL の **取得ログ** (Tier 1 / Tier 1 準拠 / Tier 2 を含む)。再現性確保と監査用途で残す。
+
+**位置付け**: 本 sidecar は outlook の **正本根拠 source ではない**。outlook の canonical fact layer は `records/01-brief/**.yaml` のみで、各 brief の `sources` に Tier 別の URL が紐付いている。本ログに記載した URL の中で fact 値を outlook 判定に使ったものは、必ず対応する brief を経由して `source_refs` で参照される運用に従う ([`docs/components/outlook.md`](../../../docs/components/outlook.md) §9.1)。
 
 取得日: 2026-05-04
 取得方法: deep research (general-purpose subagent + WebFetch)
@@ -53,7 +55,7 @@
    - Tier: 1 (OPEC)
    - Key fact: 8 ヶ国の自主削減 1.65mb/d のうち 206kb/d 分の調整を 2026 年 5 月から実施
 
-7b. **OPEC 8 Producing Countries Statement (2026-05-03)**
+7b. **OPEC Producing Countries Statement (2026-05-03)**
    - URL: https://www.opec.org/pr-detail/1779602-3-may-2026.html
    - Tier: 1 (OPEC)
    - Key fact: 7 ヶ国 (サウジ / ロシア / イラク / クウェート / カザフ / アルジェリア / オマーン) が 2026-06 に 188kb/d adjustment を実施。flexibility to increase / pause / reverse phase-out、2024-01 以降の overproduced volumes の full compensation、JMMC monthly monitoring。次回会合 2026-06-07

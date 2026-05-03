@@ -357,6 +357,23 @@ def _validate_front_matter(
                 location="position_size_oku",
             )
         )
+    elif position_size > 0 and decision == "skipped":
+        # skipped 判定で実 position 値を残すと ledger sync (`src/baibai_loop/ledger/
+        # sync.py`) が skipped ledger の adv_participation_pct を計算してしまう。
+        # 実建玉なしを示す skipped では position_size_oku: 0 を強制し、参考値は
+        # hypothetical_position_size_oku に分離する。
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.invalid-position-size",
+                message=(
+                    "decision=skipped requires position_size_oku=0; use "
+                    "hypothetical_position_size_oku for reference values"
+                ),
+                location="position_size_oku",
+            )
+        )
     market_cap = front_matter.get("market_cap_oku")
     if isinstance(market_cap, bool) or not isinstance(market_cap, (int, float)):
         if "market_cap_oku" in front_matter:

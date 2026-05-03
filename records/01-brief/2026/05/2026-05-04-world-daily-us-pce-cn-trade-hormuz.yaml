@@ -52,7 +52,7 @@ sources:
     accessed_at: "2026-05-04"
     status: ok
   - id: opec-may-statement
-    name: OPEC 8 Producing Countries Statement (2026-05-03)
+    name: OPEC Producing Countries Statement (2026-05-03)
     url: https://www.opec.org/pr-detail/1779602-3-may-2026.html
     accessed_at: "2026-05-04"
     status: ok
@@ -200,7 +200,7 @@ layers:
         text: "OPEC JMMC が 8 ヶ国の自主削減 1.65mb/d のうち 206kb/d 分の調整を 2026-05 から実施 (段階的増産)"
         source_ids: [opec-jmmc-april]
       - date: "2026-05-03"
-        text: "OPEC 8 Producing Countries Statement: サウジ・ロシア・イラク・クウェート・カザフスタン・アルジェリア・オマーンの 7 ヶ国が 2026-06 に 188kb/d の adjustment を実施。flexibility to increase / pause / reverse phase-out of voluntary adjustments、2024-01 以降の overproduced volumes の full compensation、JMMC monthly monitoring を継続。次回会合 2026-06-07"
+        text: "OPEC Producing Countries Statement: サウジ・ロシア・イラク・クウェート・カザフスタン・アルジェリア・オマーンの 7 ヶ国が 2026-06 に 188kb/d の adjustment を実施。flexibility to increase / pause / reverse phase-out of voluntary adjustments、2024-01 以降の overproduced volumes の full compensation、JMMC monthly monitoring を継続。次回会合 2026-06-07"
         source_ids: [opec-may-statement]
       - date: "2026-04 (STEO 公表)"
         text: "EIA STEO: Brent 2026 年通年 $96/b (前月 $79 から +22% 上方修正)、Q2 ピーク $115/b、Q4 $88/b。米原油生産 13.5mb/d (2026)"

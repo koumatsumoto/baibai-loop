@@ -14,9 +14,14 @@ summary: |
   本 outlook の作成根拠 (Tier 1 / Tier 1 準拠 一次情報源 30+)
   ============================================================
 
-  本 outlook は brief 6 件 (`updated_from` 列挙) に加え、外部 deep research で取得した
-  下記 30+ source を直接根拠とする。詳細な fact / URL は sidecar
-  `outlook-2026-05-04-research-log.md` に保存。
+  本 outlook の **正本根拠は `updated_from` の brief 6 件**。各 brief の `sources` に
+  Tier 1 / Tier 2 一次情報源の URL が紐付いており、本 outlook の各 sector / region /
+  changes の `source_refs` も `records/01-brief/**.yaml` のみを参照する (canonical
+  fact layer は brief)。outlook 作成時に確認した URL の取得ログは sidecar
+  `outlook-2026-05-04-research-log.md` に保存しているが、これは取得ログであり outlook
+  の根拠 source 数には数えない (sidecar だけで brief を skip するのは設計違反)。
+
+  brief 群が集約している主な一次情報源 (詳細は brief の `sources` と sidecar 参照):
 
   - 米マクロ: BEA Personal Income and Outlays (2026-03、コア PCE +3.2%)、Census 小売
     (3 月 +1.7%)、BLS 雇用統計スケジュール (4 月分 5/8 発表予定)、BLS CPI スケジュール
@@ -50,8 +55,10 @@ summary: |
     2-10s +50bp)、CBO Budget Outlook 2026-2036 (FY26 赤字 1.9 兆 / GDP 比 5.8%、
     2036 年公的債務 GDP 比 120%、利払い 2026 年 1.0 兆 / 3.3% GDP)、FRED VIX (4 月
     平均 16.89、3/9 ピーク 35.30 から急低下)
-  - 中国・新興国: 中国 NBS 4 月製造業 PMI (50.3、-0.1pt、ぎりぎり拡張)、中国海関総署
-    3 月輸出 (+2.5% YoY、予想 +8.6% 大幅下振れ、対米 -26% 超)、中国 NBS Q1 不動産
+  - 中国・新興国: 中国 NBS 4 月製造業 PMI (50.3、-0.1pt、ぎりぎり拡張)、中国 3 月
+    輸出 (+2.5% YoY、対米 -26% 超。海関総署一次の個別 release URL は本作業環境で
+    未取得のため Trading Economics 二次集計を Tier 2 で参照、122 条効果と整合的に
+    解釈)、中国 NBS Q1 不動産
     投資 (-11.2% YoY、住宅販売 -18.5%、回復途上)
 
   ============================================================
@@ -218,9 +225,10 @@ summary: |
     AI 部品需要)、鉄鋼 (BDI 高値、鉄鉱石需要)、情報・通信業 (AI/データセンター)
   - headwind: 化学 (ナフサ + IEA 需要破壊)、電気・ガス業 (LNG 高値)、陸運業 (燃料
     費)、空運業 (ジェット燃料)、不動産業 (米住宅 -14.2% spillover + BOJ 利上げ警戒)
-  - neutral: 海運業 (BDI 高値 = ドライバルク plus、コンテナ = 中国対米輸出 -26% で
-    minus、相殺)、輸送用機器 (短観底堅さ + 米需要堅調 vs 円高反転 + 中東向け輸出
-    減少)、銀行業 (BOJ 利上げハードル上昇 = 利ザヤ拡大 front-run 弱)
+  - neutral: 海運業 (BDI 高値 = ドライバルク plus、コンテナ = 中国対米輸出 -26%
+    [Tier 2 二次集計、122 条効果と整合的に解釈] で minus、相殺)、輸送用機器 (短観
+    底堅さ + 米需要堅調 vs 円高反転 + 中東向け輸出減少)、銀行業 (BOJ 利上げハードル
+    上昇 = 利ザヤ拡大 front-run 弱)
 
   投資方向: AI 軸 + エネルギー上流軸の dual barbell を中心に、燃料 sensitive sector
   は long-only で避ける。BDI 高値 は鉄鋼にも spillover。
@@ -466,7 +474,7 @@ sectors:
       - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
   "海運業":
     status: neutral
-    rationale: "事業 mix で評価分散: ①ドライバルク (BDI 4/29 2,670 高値、Capesize 主導) は商船三井 / 日本郵船にとって tailwind、②石油タンカー (ホルムズ封鎖継続でフロー変化、運賃変動激しい) は neutral、③コンテナ (中国対米輸出 -26% で需要側 headwind) は逆風、④船舶燃料 (LSFO) は原油連動で高値 headwind。大手 3 社 (日本郵船 / 商船三井 / 川崎汽船) では plus / minus 相殺で sector 単位で neutral。個別銘柄選定で事業 mix を見る必要"
+    rationale: "事業 mix で評価分散: ①ドライバルク (BDI 4/29 2,670 高値、Capesize 主導) は商船三井 / 日本郵船にとって tailwind、②石油タンカー (ホルムズ封鎖継続でフロー変化、運賃変動激しい) は neutral、③コンテナ (中国対米輸出 -26%、Tier 2 二次集計、122 条効果と整合的に解釈、で需要側 headwind) は逆風、④船舶燃料 (LSFO) は原油連動で高値 headwind。大手 3 社 (日本郵船 / 商船三井 / 川崎汽船) では plus / minus 相殺で sector 単位で neutral。個別銘柄選定で事業 mix を見る必要"
     source_refs:
       - records/01-brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.yaml
       - records/01-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
@@ -545,7 +553,7 @@ regions:
       - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
   japan-external-demand:
     status: tailwind
-    rationale: "①AI / 半導体 capex 持続 (高確度根拠: TSMC Q1 売上 359 億 USD / GM 66.2%、NVIDIA FY26 +65% / Q1 FY27 ガイ 780 億 USD、いずれも公式 release。Capex 上方修正・Sovereign AI 300 億は transcript 参考値で cross-check 待ち) で日本の半導体製造装置 / 電子部品 / 電力関連が構造的 tailwind、②貿易統計輸出 +11.7% (3 月、7 ヶ月連続増、半導体製造装置・IC が牽引)、③USD/JPY 156.56 で円安水準維持 (147-150 水準下回るには更なる -4-6% が必要)、④米最終需要は CPI 再加速下でも堅調 (小売 +1.7%、雇用 +178k、失業率 4.3%)。リスク: ⑤対中東向け輸出減少 (ホルムズ封鎖)、⑥中国対米輸出 -26% (122 条効果) で日本の対アジア中間財需要に間接 headwind。net では tailwind 維持、AI 軸の dominance が決め手"
+    rationale: "①AI / 半導体 capex 持続 (高確度根拠: TSMC Q1 売上 359 億 USD / GM 66.2%、NVIDIA FY26 +65% / Q1 FY27 ガイ 780 億 USD、いずれも公式 release。Capex 上方修正・Sovereign AI 300 億は transcript 参考値で cross-check 待ち) で日本の半導体製造装置 / 電子部品 / 電力関連が構造的 tailwind、②貿易統計輸出 +11.7% (3 月、7 ヶ月連続増、半導体製造装置・IC が牽引)、③USD/JPY 156.56 で円安水準維持 (147-150 水準下回るには更なる -4-6% が必要)、④米最終需要は CPI 再加速下でも堅調 (小売 +1.7%、雇用 +178k、失業率 4.3%)。リスク: ⑤対中東向け輸出減少 (ホルムズ封鎖)、⑥中国対米輸出 -26% (Tier 2 二次集計、海関総署個別 release は本作業環境で未取得、122 条効果と整合的に解釈) で日本の対アジア中間財需要に間接 headwind。net では tailwind 維持、AI 軸の dominance が決め手"
     source_refs:
       - records/01-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
       - records/01-brief/2026/04/2026-04-26-world-weekly-jp-cpi-retail.yaml
@@ -655,7 +663,7 @@ changes:
   - target: emerging
     from_status: null
     to_status: headwind
-    rationale: "中国 PMI 50.3 ぎりぎり、3 月輸出 +2.5% (対米 -26%、122 条 Proclamation 11012 効果)、Q1 不動産 -11.2%、新興国通貨切下げ圧力、bootstrap null から headwind に確定"
+    rationale: "中国 PMI 50.3 ぎりぎり (NBS 一次)、3 月輸出 +2.5% / 対米 -26% (Tier 2 二次集計、海関総署個別 release 未取得、122 条 Proclamation 11012 効果と整合的に解釈)、Q1 不動産 -11.2% (NBS 公式 4/17)、新興国通貨切下げ圧力、bootstrap null から headwind に確定"
     source_refs:
       - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
 next_triggers:
@@ -679,4 +687,4 @@ next_triggers:
     text: "FOMC 会合 + 日銀 金融政策決定会合 (推定)。両中銀の方向性確定"
   - date: "随時"
     text: "ホルムズ情勢、米クレジット (IG/HY OAS)、AI capex (TSMC / NVIDIA quarterly transcripts cross-check)"
-notes: "前回 outlook は 2026-04-24 bootstrap (33 業種 neutral 中心 + japan-external-demand: tailwind)。今回 (第 2 版) は不定期 trigger (FOMC 4/29 hold + BOJ 4/27-28 6-3 hold + USD/JPY -1.75% notable + Brent / WTI 4 週 +14% Major + ホルムズ閉鎖 + コア PCE +3.2%) に基づく更新。brief 6 件 + 外部 deep research 30+ source を根拠とし、シナリオ分析 (Base 50% / Upside 15% / Downside 30% / Tail 5%)、リスク因子 12 件、投資方向性を summary に詳述。bootstrap の保守的 neutral 集中を見直し、AI / 半導体軸 + エネルギー上流軸の dual barbell を主軸に、燃料 sensitive sector を headwind、不動産を headwind、emerging を headwind に分類。米マクロは stagflation lite 顕在化で headwind 寄りへ修正。詳細な fact と source URL は sidecar `outlook-2026-05-04-research-log.md` を参照。"
+notes: "前回 outlook は 2026-04-24 bootstrap (33 業種 neutral 中心 + japan-external-demand: tailwind)。今回 (第 2 版) は不定期 trigger (FOMC 4/29 hold + BOJ 4/27-28 6-3 hold + USD/JPY -1.75% notable + Brent / WTI 4 週 +14% Major + ホルムズ閉鎖 + コア PCE +3.2%) に基づく更新。**正本根拠は `updated_from` の brief 6 件のみ** (canonical fact layer = brief)。各 brief の `sources` に集約された Tier 1 / Tier 2 一次情報源を背景にシナリオ分析 (Base 50% / Upside 15% / Downside 30% / Tail 5%)、リスク因子 12 件、投資方向性を summary に詳述。bootstrap の保守的 neutral 集中を見直し、AI / 半導体軸 + エネルギー上流軸の dual barbell を主軸に、燃料 sensitive sector を headwind、不動産を headwind、emerging を headwind に分類。米マクロは stagflation lite 顕在化で headwind 寄りへ修正。outlook 作成時に確認した URL の取得ログは sidecar `outlook-2026-05-04-research-log.md` に保存 (取得ログ専用、根拠 source 数には数えない)。"
