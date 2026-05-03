@@ -278,11 +278,16 @@ def main(argv: list[str] | None = None) -> int:
             config.cache_dir,
             sqlite_path=sqlite_path,
         ),
-        edinet=EDINETProvider(config.edinet_api_key, config.cache_dir),
+        edinet=EDINETProvider(
+            config.edinet_api_key,
+            config.cache_dir,
+            sqlite_path=sqlite_path,
+        ),
         jpx=JPXProvider(
             config.cache_dir,
             regulation_urls=config.jpx_regulation_urls,
             special_caution_index_url=config.jpx_special_caution_index_url,
+            sqlite_path=sqlite_path,
         ),
     )
 

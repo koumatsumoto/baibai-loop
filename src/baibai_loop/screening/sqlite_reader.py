@@ -15,14 +15,20 @@ imported.
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
+from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
+from typing import Any
 
+from .providers.edinet import EdinetMetricRecord, normalize_metric_record
+from .providers.jpx import JPXRegulationSnapshot
 from .providers.jquants import (
     JQuantsDailyBar,
     JQuantsFinancialSummary,
+    JQuantsMarketCalendarDay,
     JQuantsProviderError,
 )
 from .schema import SecurityMaster
@@ -173,9 +179,194 @@ def read_fin_summaries(
     return summaries
 
 
+def read_eq_earnings_cal(sqlite_path: Path, start: date, end: date) -> list[dict[str, Any]] | None:
+    """Return earnings calendar records overlapping `[start, end]`, or
+    `None` when the cache cannot serve the range. Records are returned as
+    raw dicts to match the JSON path's contract.
+    """
+    if not sqlite_path.exists():
+        return None
+    conn = sqlite3.connect(sqlite_path)
+    try:
+        if not _has_any_import(conn, "jquants_earnings_calendar"):
+            return None
+        rows = conn.execute(
+            "SELECT raw_json FROM jquants_earnings_calendar "
+            "WHERE announcement_date BETWEEN ? AND ? "
+            "ORDER BY announcement_date, ticker",
+            (start.isoformat(), end.isoformat()),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        conn.close()
+    return [json.loads(row[0]) for row in rows]
+
+
+def read_market_calendar(
+    sqlite_path: Path, start: date, end: date
+) -> list[JQuantsMarketCalendarDay] | None:
+    """Return market calendar days for `[start, end]`, or `None` if the
+    cache cannot serve the range.
+    """
+    if not sqlite_path.exists():
+        return None
+    conn = sqlite3.connect(sqlite_path)
+    try:
+        if not _range_covered(conn, "jquants_market_calendar", start, end):
+            return None
+        rows = conn.execute(
+            "SELECT day, is_business_day FROM jquants_market_calendar "
+            "WHERE day BETWEEN ? AND ? ORDER BY day",
+            (start.isoformat(), end.isoformat()),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        conn.close()
+    return [
+        JQuantsMarketCalendarDay(day=date.fromisoformat(day), is_business_day=bool(flag))
+        for day, flag in rows
+    ]
+
+
+def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, Any]] | None:
+    """Return raw EDINET document records for `on_date` from SQLite, or
+    `None` if the cache cannot serve the date.
+    """
+    if not sqlite_path.exists():
+        return None
+    conn = sqlite3.connect(sqlite_path)
+    try:
+        if not _date_imported(conn, "edinet_documents", on_date):
+            return None
+        rows = conn.execute(
+            "SELECT raw_json FROM edinet_documents WHERE doc_date = ? ORDER BY doc_id",
+            (on_date.isoformat(),),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        conn.close()
+    return [json.loads(row[0]) for row in rows]
+
+
+def read_edinet_metrics(
+    sqlite_path: Path, asof_date: date
+) -> Mapping[str, EdinetMetricRecord] | None:
+    """Return EDINET metric records keyed by ticker for `asof_date`, or
+    `None` if the cache cannot serve the date.
+    """
+    if not sqlite_path.exists():
+        return None
+    conn = sqlite3.connect(sqlite_path)
+    try:
+        if not _date_imported(conn, "edinet_metrics", asof_date):
+            return None
+        rows = conn.execute(
+            "SELECT ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, "
+            "consolidation_basis, ttm_quality_ev_ebitda, ttm_quality_p_s, ttm_quality_pcfr "
+            "FROM edinet_metrics WHERE asof_date = ?",
+            (asof_date.isoformat(),),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        conn.close()
+
+    # Reuse the provider's normalize step so SQLite-backed records pick up
+    # the same TTMQuality coercion / shape as the JSON path. Pass an
+    # already-normalized payload that the function expects (typed columns
+    # already match its key set).
+    records: dict[str, EdinetMetricRecord] = {}
+    for row in rows:
+        payload = {
+            "ticker": row[0],
+            "sales_ttm": row[1],
+            "ocf_ttm": row[2],
+            "debt": row[3],
+            "cash": row[4],
+            "ebitda_ttm": row[5],
+            "consolidation_basis": row[6],
+            "ttm_quality_ev_ebitda": row[7],
+            "ttm_quality_p_s": row[8],
+            "ttm_quality_pcfr": row[9],
+        }
+        record = normalize_metric_record(payload)
+        records[record.ticker] = record
+    return records
+
+
+def read_jpx_regulations(sqlite_path: Path, asof_date: date) -> JPXRegulationSnapshot | None:
+    """Return the JPX regulation snapshot for `asof_date`, or `None` if the
+    cache has not imported a snapshot for that date.
+    """
+    if not sqlite_path.exists():
+        return None
+    conn = sqlite3.connect(sqlite_path)
+    try:
+        if not _date_imported(conn, "jpx_regulation_flags", asof_date):
+            return None
+        rows = conn.execute(
+            "SELECT source_name, ticker, flag FROM jpx_regulation_flags "
+            "WHERE asof_date = ? ORDER BY ticker, flag",
+            (asof_date.isoformat(),),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        conn.close()
+
+    flags: dict[str, list[str]] = {}
+    source_names: set[str] = set()
+    for source_name, ticker, flag in rows:
+        flags.setdefault(ticker, []).append(flag)
+        source_names.add(source_name)
+    return JPXRegulationSnapshot(
+        flags_by_ticker={ticker: tuple(values) for ticker, values in flags.items()},
+        source_names=tuple(sorted(source_names)),
+    )
+
+
+def has_jpx_regulation_data(sqlite_path: Path, asof_date: date) -> bool:
+    """Return True when `asof_date` has any rows in `jpx_regulation_flags`."""
+    if not sqlite_path.exists():
+        return False
+    conn = sqlite3.connect(sqlite_path)
+    try:
+        try:
+            cur = conn.execute(
+                "SELECT 1 FROM jpx_regulation_flags WHERE asof_date = ? LIMIT 1",
+                (asof_date.isoformat(),),
+            )
+        except sqlite3.OperationalError:
+            return False
+        return cur.fetchone() is not None
+    finally:
+        conn.close()
+
+
 def _has_any_import(conn: sqlite3.Connection, source: str) -> bool:
     try:
         cur = conn.execute("SELECT 1 FROM raw_imports WHERE source = ? LIMIT 1", (source,))
+    except sqlite3.OperationalError:
+        return False
+    return cur.fetchone() is not None
+
+
+def _date_imported(conn: sqlite3.Connection, source: str, on_date: date) -> bool:
+    """True when `raw_imports` records that `source` has imported a file
+    whose `[min_date, max_date]` window includes `on_date`. EDINET / JPX
+    chunks are per-date, so this collapses to an equality check on the
+    filename stem captured in `min_date`.
+    """
+    iso = on_date.isoformat()
+    try:
+        cur = conn.execute(
+            "SELECT 1 FROM raw_imports WHERE source = ? "
+            "AND min_date <= ? AND max_date >= ? LIMIT 1",
+            (source, iso, iso),
+        )
     except sqlite3.OperationalError:
         return False
     return cur.fetchone() is not None

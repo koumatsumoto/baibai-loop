@@ -157,6 +157,12 @@ class JQuantsProvider:
         ]
 
     def get_eq_earnings_cal(self, start: date, end: date) -> list[dict[str, Any]]:
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_eq_earnings_cal
+
+            cached = read_eq_earnings_cal(self._sqlite_path, start, end)
+            if cached is not None:
+                return cached
         records = self._load_or_fetch("get_eq_earnings_cal")
         start_iso = start.isoformat()
         end_iso = end.isoformat()
@@ -171,6 +177,12 @@ class JQuantsProvider:
         ]
 
     def get_mkt_calendar(self, start: date, end: date) -> list[JQuantsMarketCalendarDay]:
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_market_calendar
+
+            cached = read_market_calendar(self._sqlite_path, start, end)
+            if cached is not None:
+                return cached
         # holiday_division フィルタは掛けない。"1"=営業日だけでなく "2"=半日営業 (大納会など)
         # も取引あり扱いすべきで、事前フィルタで "2" を落とすと正しい営業日で asof が
         # reject される。normalize 側で "1"/"2" を営業扱いにする。

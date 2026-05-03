@@ -228,17 +228,26 @@ class JPXProvider:
         regulation_urls: Mapping[str, str] | None = None,
         session: requests.Session | None = None,
         special_caution_index_url: str | None = None,
+        *,
+        sqlite_path: Path | None = None,
     ) -> None:
         self._cache_dir = Path(cache_dir) / "jpx"
         self._session = session or requests.Session()
         self._regulation_urls = dict(regulation_urls or {})
         self._special_caution_index_url = special_caution_index_url
+        self._sqlite_path = Path(sqlite_path) if sqlite_path is not None else None
         if special_caution_index_url:
             self._regulation_urls.setdefault(
                 JPX_SPECIAL_CAUTION_SOURCE_NAME, special_caution_index_url
             )
 
     def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot:
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_jpx_regulations
+
+            cached = read_jpx_regulations(self._sqlite_path, asof_date)
+            if cached is not None:
+                return cached
         cache_path = self._regulation_cache_path(asof_date)
         if cache_path.exists():
             payload = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -302,6 +311,11 @@ class JPXProvider:
         return snapshot
 
     def has_regulation_cache(self, asof_date: date) -> bool:
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import has_jpx_regulation_data
+
+            if has_jpx_regulation_data(self._sqlite_path, asof_date):
+                return True
         return self._regulation_cache_path(asof_date).exists()
 
     def _regulation_cache_path(self, asof_date: date) -> Path:
