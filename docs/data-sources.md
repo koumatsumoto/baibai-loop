@@ -64,6 +64,9 @@ FRED は多くの一次統計の集約先として機能する。Tier 1 の適�
 - [Bureau of Economic Analysis (BEA)](https://www.bea.gov/) — 米国・PCE / GDP / 国民経済計算
 - [U.S. Census Bureau](https://www.census.gov/) — 米国・小売売上高 / 住宅着工
 - [Federal Reserve Board](https://www.federalreserve.gov/) — 米国・金融政策声明文 / FOMC 議事要旨
+- [Federal Reserve H.15 Selected Interest Rates](https://www.federalreserve.gov/releases/h15/) — 米国・Treasury constant maturity（10Y/2Y 等）。前後 5 営業日を保持。長期は [datadownload Output.aspx](https://www.federalreserve.gov/datadownload/Build.aspx?rel=H15) の CSV エクスポートで取得可
+- [Federal Reserve H.10 Foreign Exchange Rates](https://www.federalreserve.gov/releases/h10/) — 米国・USD/JPY 等の noon-buying rate。週次公表 (月曜日)、`/Hist/dat00_ja.htm` などで歴史 CSV 取得可
+- [U.S. Energy Information Administration (EIA)](https://www.eia.gov/) — 米国・原油 / 天然ガス・電力統計。Brent / WTI スポット価格は [RBRTEd.htm](https://www.eia.gov/dnav/pet/hist/RBRTEd.htm) / [RWTCd.htm](https://www.eia.gov/dnav/pet/hist/RWTCd.htm)。週次更新（火曜日 release date）
 
 ### 日本の省庁（総務省・財務省・日銀に準ずる）
 
@@ -73,9 +76,14 @@ FRED は多くの一次統計の集約先として機能する。Tier 1 の適�
 ### 主要中央銀行（FRB・日銀に準ずる）
 
 - [European Central Bank (ECB)](https://www.ecb.europa.eu/) — 欧州・金融政策声明文
+- [ECB euro reference rates (historical CSV ZIP)](https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip) — EUR ベースの主要通貨レート。USD/JPY や AUD/JPY は `JPY/EUR ÷ USD/EUR`、`JPY/EUR ÷ AUD/EUR` で機械的に算出可。日次公表 (CET 16:00)
 - [Bank of England (BoE)](https://www.bankofengland.co.uk/) — 英国・金融政策声明文
 
-これらはいずれも Tier 1 の既存媒体（総務省統計局・日本銀行・FRB 等）の対応機関にあたり、追加スコアリング無しに Tier 1 として引用できる。
+### 取引所・指数公表元（一次統計に準ずる）
+
+- [CBOE VIX History CSV](https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv) — VIX は CBOE が公表する指数。指数公表元として一次扱い
+
+これらはいずれも Tier 1 の既存媒体（総務省統計局・日本銀行・FRB 等）の対応機関、もしくは指数の公表元にあたり、追加スコアリング無しに Tier 1 として引用できる。
 
 ## Tier 1 の取得失敗時の扱い
 
@@ -84,6 +92,29 @@ Tier 1 / Tier 1 準拠 ソースが作業環境からアクセスできない場
 - Tier 1 で取れない数値を Tier 2 / 補助外で埋めてはならない（一次統計の客観性が失われる）
 - 連続 2 回の brief 作成で同じソースが取得失敗した場合、代替一次ソース（同じ統計を別 URL で配信している一次統計ミラー・集約サイト）の Tier 1 準拠追加を検討する
 - 検討の結果、恒常的に取れないと判断した指標は、テンプレート側から該当行を落とすか、空欄運用で確定させる
+
+### 既知の取得経路と代替ルート（2026-05 時点）
+
+本リポジトリの作業環境では `fred.stlouisfed.org` への直接 HTTP リクエストが HTTP/2 stream INTERNAL_ERROR で打ち切られる（curl の `--http1.1` を付けても同じ）。FRED 経由で取りに行く前に、以下の Tier 1 / Tier 1 準拠 経路を優先的に試す:
+
+| 指標 | 第一経路 (Tier 1) | 第二経路 (Tier 1 準拠) | 第三経路 (恒常的失敗時のみ) |
+|---|---|---|---|
+| 米 10Y / 2Y 利回り | Federal Reserve H.15 Selected Interest Rates | Federal Reserve datadownload Output.aspx (CSV) | Web Archive snapshot of FRED DGS10 / DGS2 |
+| VIX | CBOE VIX History CSV | — | Web Archive snapshot of FRED VIXCLS |
+| Brent 原油 | EIA RBRTEd.htm | — | Web Archive snapshot of FRED DCOILBRENTEU |
+| WTI 原油 | EIA RWTCd.htm | — | Web Archive snapshot of FRED DCOILWTICO |
+| USD/JPY | Federal Reserve H.10 weekly historical | ECB euro reference rates から `JPY/EUR ÷ USD/EUR` で算出 | Web Archive snapshot of FRED DEXJPUS |
+| EUR/JPY | ECB euro reference rates (JPY 列) | — | — |
+| AUD/JPY | ECB euro reference rates から `JPY/EUR ÷ AUD/EUR` で算出 | — | — |
+| 日経平均 | （Nikkei 公式 indexes.nikkei.co.jp は 403） | （JPX 日次 PDF: テキスト抽出ツール必要） | Web Archive snapshot of FRED NIKKEI225 |
+| TOPIX / 東証プライム売買代金 | JPX 日次レポート（PDF）。 PDF テキスト抽出ツール（poppler-utils / pdftotext / Python pdfminer / pypdf 等）が必要 | — | — |
+| FedWatch (利下げ確率) | CME FedWatch Tool（HTTP 403 で取得不可） | — | — |
+
+**Web Archive の使い方**: `https://web.archive.org/web/{TIMESTAMP}/{元 URL}` で snapshot を直接取得できる。`TIMESTAMP` は `YYYYMMDD` 8 桁または `YYYYMMDDHHMMSS` 14 桁。最新値が欲しい場合は観測日寄りのタイムスタンプを指定し、それでも snapshot が古い場合は別シリーズで複数 timestamp を試す。Wayback の snapshot は元ソースのキャッシュであり、引用は元ソース URL（FRED 等）として扱い、Wayback URL を併記する。
+
+**ECB を使う前提**: ECB FX レートは日次 (CET 16:00) であり、週次の H.10 (米 NY noon) と timing が異なる。両者の差は通常 ±0.5 円以内。短期スパンでは互換とみなしてよいが、brief 内で USD/JPY を H.10 と ECB で混在させない（同一 brief 内では基準時刻を揃える）。
+
+**PDF 抽出の前提**: BOJ の総裁記者会見・展望レポート PDF と JPX 日次統計 PDF は CMap encoded Type0 font を使うため、`pdftotext` (poppler-utils) か Python の `pdfminer.six` / `pypdf` が必要。本作業環境にこれらが入っていない場合、TOPIX や BOJ 政策決定本文は数値・本文ともに `データ取得失敗` 扱いになる。
 
 ## Tier 2 補助ソースの運用と例外
 

@@ -79,6 +79,55 @@ bootstrap view または通常の view 更新の前に、brief の鮮度を確�
 - 当月の `macro-monthly` が未作成でも、その後に view に効く一次統計が出ていれば `world-daily` に載せてから view を作る
 - `updated_from` は「存在する全 brief」ではなく、今回の view 判定に効いた brief を列挙する
 
+## brief 作成前の欠損確認
+
+`world-weekly` / `world-daily` / `macro-monthly` を新規作成する前に、既存 brief の時系列欠損を必ず確認する。これは Codex / Claude Code を含む AI agent の作業前チェックとして扱い、省略しない。
+
+### 必須チェック
+
+1. `find brief/YYYY -type f -name '*.md' | sort` で対象年の brief 一覧を確認する
+2. `find brief/YYYY -type f -name '*world-weekly*.md' | sort` で週次 brief の連続性を確認する
+3. 各 `world-weekly` の `対象期間` / `観測日` / `前週 brief` を確認し、週次の対象期間に抜けがないか見る
+4. 新規 `world-weekly` を作る場合、直前の週次対象期間の翌日から始まっているか確認する
+5. 欠損がある場合は、現在週を作る前に欠損週を backfill する
+6. backfill 後、現在週の `前週 brief` と前週比計算の基準を backfill した週次 brief に更新する
+
+### 判断ルール
+
+- `world-daily` は週次欠損を埋める代替にはしない。日次 brief が存在しても、週次 brief の対象期間が飛んでいれば `world-weekly` 欠損として扱う
+- 週次欠損の backfill は `published_at` を実作成日時にし、`対象期間` は欠損していた週にする
+- backfill では、その時点で確認できる一次ソースだけを使う。取れない値は `データ取得失敗` と明記する
+- 欠損確認で見つけた gap を放置したまま PR / commit しない
+
+### 確認コマンド例
+
+```bash
+find brief/2026 -type f -name '*.md' | sort
+find brief/2026 -type f -name '*world-weekly*.md' | sort
+for f in $(find brief/2026 -type f -name '*world-weekly*.md' | sort); do
+  printf '\n== %s ==\n' "$f"
+  rg -n '対象期間:|観測日:|前週 brief:' "$f"
+done
+```
+
+## brief 作成時のデータ取得手順（FRED 経由が落ちている場合の鉄則）
+
+brief 作成における**データ欠損は基本的に許容しない**。`データ取得失敗` 表記は最後の手段で、まずは Tier 1 / Tier 1 準拠の代替経路を試すこと。詳細な経路一覧は [data-sources.md](./data-sources.md) の「既知の取得経路と代替ルート」表を参照。
+
+### 取得手順
+
+1. 各指標について、まず [data-sources.md](./data-sources.md) の代替ルート表で第一経路を確認する（FRED が第一経路ではないものが多い）
+2. 第一経路が落ちていれば第二経路、第三経路と試す
+3. すべて失敗した場合に限り `データ取得失敗` を記録する。その際、ソース列に `(アクセス不能, YYYY-MM-DD取得試行)` を必ず併記し、何が起きたか（HTTP 403 / HTTP/2 stream error / PDF パース不能 等）を週次コメント列で 1 文書く
+4. 値を埋めた指標は、ソース列にこの brief で実際に使った Tier 1 / Tier 1 準拠 URL（FRED は試行できなくても、利用した代替の H.15 / H.10 / EIA / CBOE / ECB / Wayback Machine など）を書く。FRED 直リンクをソースに残しつつ実際に取った値が別経路、という記法は禁止（再現できない）
+
+### よくある罠
+
+- **FRED 直リンクをソースに書いたまま、別経路で取った値を載せる**: 観測の再現性が崩れる。実際に取得したソースを書く
+- **前週 brief のテンプレ文言（例: 「前週 brief 表示値 約159.5 から -0.1%」）をそのままコピーして数値だけ入れ替える**: 前週 brief で使った参照値とこの brief の参照値が一致しているか毎回確認する。コピー検出のため、前週比計算式も短く併記してよい
+- **CME / Nikkei 公式 / FRED が落ちる前提でテンプレを残す**: `データ取得失敗` をそのまま流用しない。毎回再試行し、復活していないか確認する。連続 2 回ダメなら data-sources.md 側に代替経路として登録する
+- **PDF を取得しただけで「取れた」と扱う**: JPX / BOJ の PDF は CMap-encoded で本作業環境では数値抽出に失敗することが多い。テキスト抽出が完了したかまで確認する
+
 ## world-daily から macro-monthly への移管
 
 `world-daily` が月次級データを一時保持したあと、`macro-monthly` が完成したら以下で整合を取る:
