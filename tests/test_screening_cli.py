@@ -456,7 +456,11 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             candidates_path = (
-                root / "records/03-candidates" / f"{asof:%Y}" / f"{asof:%m}" / f"{asof:%Y-%m-%d}.yaml"
+                root
+                / "records/03-candidates"
+                / f"{asof:%Y}"
+                / f"{asof:%m}"
+                / f"{asof:%Y-%m-%d}.yaml"
             )
             candidates_path.parent.mkdir(parents=True, exist_ok=True)
             # YAML root is a list rather than a mapping; should fail-fast.
