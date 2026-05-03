@@ -465,13 +465,13 @@ def _validate_front_matter(
             )
         )
     outlook_ref = front_matter.get("outlook_ref")
-    if isinstance(outlook_ref, str) and not outlook_ref.endswith(".md"):
+    if isinstance(outlook_ref, str) and not outlook_ref.endswith(".yaml"):
         findings.append(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.outlook-ref-not-md",
-                message="outlook_ref must end with .md",
+                code="research.outlook-ref-not-yaml",
+                message="outlook_ref must end with .yaml",
                 location="outlook_ref",
             )
         )

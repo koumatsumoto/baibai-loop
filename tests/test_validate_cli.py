@@ -46,18 +46,101 @@ def _make_screened_payload() -> dict[str, object]:
     }
 
 
-def _make_view_text() -> str:
-    front = yaml.safe_dump(
-        {
-            "ai-draft": True,
-            "published_at": "2026-04-27T09:00:00+09:00",
-            "sectors": {"機械": "neutral"},
-            "regions": {"us": "neutral"},
+_TSE_33_SECTORS: tuple[str, ...] = (
+    "水産・農林業",
+    "鉱業",
+    "建設業",
+    "食料品",
+    "繊維製品",
+    "パルプ・紙",
+    "化学",
+    "医薬品",
+    "石油・石炭製品",
+    "ゴム製品",
+    "ガラス・土石製品",
+    "鉄鋼",
+    "非鉄金属",
+    "金属製品",
+    "機械",
+    "電気機器",
+    "輸送用機器",
+    "精密機器",
+    "その他製品",
+    "電気・ガス業",
+    "陸運業",
+    "海運業",
+    "空運業",
+    "倉庫・運輸関連業",
+    "情報・通信業",
+    "卸売業",
+    "小売業",
+    "銀行業",
+    "証券、商品先物取引業",
+    "保険業",
+    "その他金融業",
+    "不動産業",
+    "サービス業",
+)
+
+
+def _make_outlook_yaml_text() -> str:
+    judgement = {"status": "neutral", "rationale": "neutral", "source_refs": []}
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "ai_draft": True,
+        "published_at": "2026-04-27T09:00:00+09:00",
+        "horizon": "1-6m",
+        "updated_from": ["records/01-brief/2026/04/2026-04-19-world-weekly-x.yaml"],
+        "summary": "summary",
+        "sectors": {sector: dict(judgement) for sector in _TSE_33_SECTORS},
+        "regions": {
+            "us": dict(judgement),
+            "japan-domestic": dict(judgement),
+            "japan-external-demand": {**judgement, "status": "tailwind"},
+            "emerging": {**judgement, "status": None},
         },
-        allow_unicode=True,
-        sort_keys=False,
-    )
-    return f"---\n{front}---\n# Outlook\n"
+        "changes": [],
+        "next_triggers": [{"date": "2026-05-12", "text": "BoJ"}],
+    }
+    return yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
+
+
+def _make_brief_yaml_text() -> str:
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "kind": "world-weekly",
+        "type": "periodic",
+        "scope": "world",
+        "ai_draft": True,
+        "published_at": "2026-04-19T18:00:00+09:00",
+        "observation_date": "2026-04-19",
+        "period": {"start": "2026-04-13", "end": "2026-04-19"},
+        "sources": [
+            {
+                "id": "fed-h15",
+                "name": "Federal Reserve H.15",
+                "url": "https://www.federalreserve.gov/releases/h15/",
+                "accessed_at": "2026-04-19",
+                "status": "ok",
+            }
+        ],
+        "layers": {
+            "world": {
+                "market_indicators": [
+                    {
+                        "name": "米10Y",
+                        "value": "4.31%",
+                        "source_ids": ["fed-h15"],
+                    }
+                ]
+            },
+            "japan": {},
+            "japan_equity": {},
+        },
+        "deltas": {"threshold_breaches": [], "direction_history": []},
+        "next_events": [{"date": "2026-04-28", "text": "FOMC"}],
+    }
+    return yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
 
 
 def _make_research_text() -> str:
@@ -70,7 +153,7 @@ def _make_research_text() -> str:
             "market_cap_oku": 600,
             "sector_33": "情報・通信業",
             "screened_ref": "records/03-screened/2026/04/2026-04-24.yaml",
-            "outlook_ref": "records/02-outlook/2026/04/outlook-2026-04-24-bootstrap.md",
+            "outlook_ref": "records/02-outlook/2026/04/outlook-2026-04-24-bootstrap.yaml",
             "brief_refs": [],
             "ai-draft": True,
             "published_at": "2026-04-25T22:00:00+09:00",
@@ -105,11 +188,12 @@ def _make_research_text() -> str:
 
 
 def _seed_repo(root: Path, *, screened_overrides: dict[str, object] | None = None) -> None:
+    brief_dir = root / "records/01-brief" / "2026" / "04"
+    outlook_dir = root / "records/02-outlook" / "2026" / "04"
     screened_dir = root / "records/03-screened" / "2026" / "04"
-    view_dir = root / "records/02-outlook" / "2026" / "04"
     research_dir = root / "records/04-research" / "2026" / "04"
     playbooks_dir = root / "records/_playbooks"
-    for directory in (screened_dir, view_dir, research_dir, playbooks_dir):
+    for directory in (brief_dir, outlook_dir, screened_dir, research_dir, playbooks_dir):
         directory.mkdir(parents=True, exist_ok=True)
 
     payload = _make_screened_payload()
@@ -119,7 +203,12 @@ def _seed_repo(root: Path, *, screened_overrides: dict[str, object] | None = Non
         yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
-    (view_dir / "outlook-2026-04-24-bootstrap.md").write_text(_make_view_text(), encoding="utf-8")
+    (brief_dir / "2026-04-19-world-weekly-x.yaml").write_text(
+        _make_brief_yaml_text(), encoding="utf-8"
+    )
+    (outlook_dir / "outlook-2026-04-24-bootstrap.yaml").write_text(
+        _make_outlook_yaml_text(), encoding="utf-8"
+    )
     (research_dir / "2026-04-25-2767-valuation-mean-reversion-v1.md").write_text(
         _make_research_text(), encoding="utf-8"
     )
@@ -139,7 +228,7 @@ class ValidateCliTests(unittest.TestCase):
             stderr = io.StringIO()
             exit_code = run_validation(
                 root=root,
-                targets=("screened", "outlook", "research", "ledger", "review"),
+                targets=("brief", "screened", "outlook", "research", "ledger", "review"),
                 stdout=stdout,
                 stderr=stderr,
             )

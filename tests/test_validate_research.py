@@ -72,7 +72,7 @@ def _minimal_research_front_matter() -> dict[str, object]:
         "market_cap_oku": 600,
         "sector_33": "情報・通信業",
         "screened_ref": "records/03-screened/2026/04/2026-04-24.yaml",
-        "outlook_ref": "records/02-outlook/2026/04/outlook-2026-04-24-bootstrap.md",
+        "outlook_ref": "records/02-outlook/2026/04/outlook-2026-04-24-bootstrap.yaml",
         "brief_refs": [],
         "ai-draft": True,
         "published_at": "2026-04-25T22:00:00+09:00",
@@ -362,16 +362,16 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {f.code for f in findings}
         self.assertIn("research.screened-ref-not-yaml", codes)
 
-    def test_outlook_ref_must_be_markdown(self) -> None:
+    def test_outlook_ref_must_be_yaml(self) -> None:
         front = _minimal_research_front_matter()
-        front["outlook_ref"] = "records/02-outlook/2026/04/outlook.yaml"
+        front["outlook_ref"] = "records/02-outlook/2026/04/outlook.md"
         path = self._write(front)
         try:
             findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         codes = {f.code for f in findings}
-        self.assertIn("research.outlook-ref-not-md", codes)
+        self.assertIn("research.outlook-ref-not-yaml", codes)
 
     def test_missing_required_section_is_flagged(self) -> None:
         body = "# Research\n\n## 1. Thesis\nonly thesis\n"

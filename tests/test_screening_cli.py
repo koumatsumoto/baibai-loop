@@ -375,10 +375,16 @@ class SelectCommandTests(unittest.TestCase):
         return path
 
     def _write_outlook(self, root: Path, asof: date, sectors: dict[str, str | None]) -> Path:
-        path = root / f"{asof:%Y}" / f"{asof:%m}" / f"outlook-{asof:%Y-%m-%d}-bootstrap.md"
+        path = root / f"{asof:%Y}" / f"{asof:%m}" / f"outlook-{asof:%Y-%m-%d}-bootstrap.yaml"
         path.parent.mkdir(parents=True, exist_ok=True)
-        front = yaml.safe_dump({"sectors": sectors}, allow_unicode=True, sort_keys=False)
-        path.write_text(f"---\n{front}---\n", encoding="utf-8")
+        sectors_payload = {
+            sector: {"status": status, "rationale": "test", "source_refs": []}
+            for sector, status in sectors.items()
+        }
+        path.write_text(
+            yaml.safe_dump({"sectors": sectors_payload}, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
         return path
 
     def test_filters_headwind_sectors_and_ranks_by_threshold_count(self) -> None:
