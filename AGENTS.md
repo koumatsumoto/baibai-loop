@@ -9,6 +9,20 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 - 設計原則: [`docs/design-principles.md`](./docs/design-principles.md)
 - 運用手順: [`docs/workflow.md`](./docs/workflow.md)
 - 触る成分の仕様: [`docs/components/`](./docs/components/)
+- **失敗パターンと再発防止**: [`docs/anti-patterns.md`](./docs/anti-patterns.md) — 過去の PR レビューで繰り返し指摘された類型集。brief / outlook / research / validator を編集する前に該当節のチェックリストを 1 周すること
+
+## commit 前 / PR 前の self-review
+
+records / src / docs の変更を含む commit を作る前に、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の対応する anti-pattern (AP-01〜AP-08) のチェックリストを通過させること。特に以下は 100% 防ぐ:
+
+- 一次情報を直接確認せず二次情報・推測で書く (AP-01)
+- 数値計算を機械的に検算しない (AP-02)
+- 株価異常値の corporate action 確認を skip する (AP-03)
+- schema / 実装の意味を読まずに推測で解釈する (AP-04)
+- brief に解釈・因果推論を書く (AP-05)
+- outlook fact が brief 経由になっていない (AP-06)
+- 公表日 / source の最新性確認を skip する (AP-07)
+- validator の抜け道を意識しない (AP-08)
 
 ## 事実と分析の分離
 

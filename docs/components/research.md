@@ -165,6 +165,18 @@ research_ref: records/04-research/2026/04/2026-04-25-7203-valuation-mean-reversi
 
 AI 下書きは front matter `ai-draft: true` で識別、人間確認後 `false` に更新。
 
+## 8.1 commit 前 self-review (anti-pattern との対応)
+
+research packet を書いた / 更新した後、commit 前に以下を必ず確認する。詳細チェックリストは
+[`../anti-patterns.md`](../anti-patterns.md) を参照:
+
+- [ ] **AP-01** (一次情報直接確認): TSMC / NVIDIA / 顧客企業等の事業構造を断定する場合、有価証券報告書 / 決算説明資料 / 統合報告書 / IR press release のいずれかに直接 URL を紐付けたか。アナリスト試算や業界レポート由来は明示的に「外部 estimate」と区別したか
+- [ ] **AP-02** (数値検算): `adv_participation_pct = position_size_oku / avg_turnover_oku * 100` を電卓 / Python で検算したか。利確 target の % は EPS 一定で `(target_per / current_per - 1) * 100` で計算したか
+- [ ] **AP-03** (株価異常値の corporate action 確認): candidates の `price_change_60d` / `price_change_4w` が ±50% を超える、または `self_range_percentile` が下位 5% 以下の銘柄は、研究進める前に EDINET / TDnet / 適時開示で 60 日 / 4 週期間内の株式分割 / 併合 / 合併 / TOB の有無を必ず確認したか
+- [ ] **AP-04** (schema / 実装の意味): candidates の `sector_relative_strength_percentile` は **sector level の rank** であって個別銘柄の同業種内相対強度ではない。同様に `threshold_hit` / `metrics_breakdown` も `src/baibai_loop/screening/metrics.py` と `rules.py` で意味を確認したか
+- [ ] **AP-06** (ref 整合性): `outlook_ref` / `candidates_ref` / `brief_refs` の 3 ref が valid パスか、対応 file が実在するか
+- [ ] **AP-08** (validator 抜け道): `adv_participation_pct` を front matter に書く場合は `avg_turnover_oku` も併記 (validator が required 化)。`decision: skipped` で建玉なしを示すには `position_size_oku: 0` + `hypothetical_position_size_oku: <参考値>` を使う
+
 ## 9. 参考
 
 - [`../philosophy.md`](../philosophy.md): 思想（マクロ優位 76/24、事実と分析の分離）

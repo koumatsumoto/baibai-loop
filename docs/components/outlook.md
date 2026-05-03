@@ -196,10 +196,19 @@ outlook YAML は以下を満たさなければ `ai_draft: true → false` の確
 過去のセッションで観測された outlook の品質低下パターン。これらが見つかれば即書き直し:
 
 - **neutral 量産**: 33 業種すべて neutral にして「分析放棄」する状態。bootstrap の保守化原則 (§3) は判定材料が無い sector を null/neutral にする逃げ道であって、brief で確認できる事実から sector に効く因果は判定すべき
-- **思い込み**: 自分の事前知識ベースで OPEC supply discipline / シェール頭打ち / 政治情勢などを「事実」として記述する。一次情報で確認しない限り「事実」と扱わない
+- **思い込み**: 自分の事前知識ベースで OPEC supply discipline / シェール頭打ち / 政治情勢などを「事実」として記述する。一次情報で確認しない限り「事実」と扱わない (詳細: [`../anti-patterns.md`](../anti-patterns.md) AP-01)
 - **表層的 summary**: FOMC hold + BOJ hold + 円高反転と表層を並べただけで、構造分析 (なぜ油価が地政学緩和後も粘着するか、円独歩高の意味、政策金利の reaction function に油価が組み込まれた含意) が欠落
 - **brief 5 件のみで作成**: 外部 deep research 無しでは 20+ source 基準を満たせない
 - **fact 認識違い**: brief の「外交緩和」と「物理的フロー」を混同 (例: US-Iran de-escalation を「中東緊張緩和」と誤読し、ホルムズ閉鎖継続を見逃す)
+- **brief 経由を skip して outlook で fact を直接引用**: outlook 内で fact を引用するときは必ず brief への `source_refs` を介す (詳細: [`../anti-patterns.md`](../anti-patterns.md) AP-06)
+- **TSMC / NVIDIA 等の transcript 由来値を press release / earnings release 確認値として記述**: source 粒度は分けて記載し、未確認値は明示的に「参考値、要 cross-check」と書く (詳細: [`../anti-patterns.md`](../anti-patterns.md) AP-01)
+- **発行日 ± 5 営業日の主要 release を見落とす**: outlook 発行直前 / 当日に FOMC / BOJ / OPEC+ / CPI / PCE / NFP の release が出ていれば必ず確認 (詳細: [`../anti-patterns.md`](../anti-patterns.md) AP-07)
+
+### 9.5 関連: 全体的な anti-pattern 集
+
+outlook 単体で閉じない範囲の anti-pattern (数値検算、schema 誤読、validator 抜け道、brief
+への分析混入など) は [`../anti-patterns.md`](../anti-patterns.md) に集約してある。outlook を
+書く前に AP-01 / AP-02 / AP-04 / AP-05 / AP-06 / AP-07 のチェックリストを 1 周すること。
 
 ## 10. 参考
 

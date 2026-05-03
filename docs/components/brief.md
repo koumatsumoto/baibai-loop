@@ -152,6 +152,17 @@ next_events: [...]
 
 AI 下書きは `ai_draft: true` で識別し、人間確認後 `false` に更新する。
 
+## 7.1 commit 前 self-review (anti-pattern との対応)
+
+brief を書いた / 更新した後、commit 前に以下を必ず確認する。詳細チェックリストは
+[`../anti-patterns.md`](../anti-patterns.md) を参照:
+
+- [ ] **AP-01** (一次情報直接確認): すべての数値・固有名詞に一次情報 URL を紐付けたか
+- [ ] **AP-02** (数値検算): 前期比・前年比の計算結果を電卓 / Python で検算したか
+- [ ] **AP-05** (fact / 分析の境界): 「示唆」「受けて」「正当化材料」「early signal」「顕在化」「構造要因」「注目すべき」「重要な」等の解釈・因果推論・重要度評価表現が地の文に含まれていないか
+- [ ] **AP-07** (公表日確認): 各 monthly_statistic / event の `release_date` を一次 source の発表日と照合したか
+- [ ] **AP-04** (schema 整合): `Indicator` には `note` 不可、`MonthlyStatistic` の `release_date` は `null` か非空文字列のみ等、`records/_schemas/brief-v1.json` を読み返したか
+
 ## 8. 参考
 
 - [`../philosophy.md`](../philosophy.md): 思想（事実と分析の分離、マクロ優位）
