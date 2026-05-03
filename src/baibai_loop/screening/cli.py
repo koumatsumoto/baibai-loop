@@ -58,6 +58,7 @@ from .universe import (
     REQUIRED_JPX_FLAGS,
     build_universe,
 )
+from .verify import DEFAULT_MAX_FILE_SIZE_MB, verify_raw_cache
 
 
 class JQuantsAdapter(Protocol):
@@ -183,6 +184,34 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"output SQLite path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
     )
 
+    verify_parser = subparsers.add_parser(
+        "verify-raw-cache",
+        help="check that data/raw/screening/ stays under 50MB per file and matches SQLite",
+    )
+    verify_parser.add_argument(
+        "--raw-dir",
+        default=str(DEFAULT_CACHE_DIR),
+        help=f"raw JSON root (default: {DEFAULT_CACHE_DIR})",
+    )
+    verify_parser.add_argument(
+        "--max-size-mb",
+        type=int,
+        default=DEFAULT_MAX_FILE_SIZE_MB,
+        help=(
+            "fail when any single file is at or above this size in MB "
+            f"(default: {DEFAULT_MAX_FILE_SIZE_MB})"
+        ),
+    )
+    verify_parser.add_argument(
+        "--sqlite-path",
+        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
+        help=(
+            "SQLite cache to cross-check SHA-256 against raw_imports "
+            f"(default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite). "
+            "If the file is missing, the cross-check is skipped silently."
+        ),
+    )
+
     select_parser = subparsers.add_parser(
         "select",
         help="rank research candidates by combining screened with view sectors",
@@ -225,6 +254,14 @@ def main(argv: list[str] | None = None) -> int:
         # rebuild-cache reads local raw JSON and writes a SQLite file; no API tokens needed.
         return rebuild_cache_command(
             raw_dir=Path(args.raw_dir),
+            sqlite_path=Path(args.sqlite_path),
+        )
+
+    if args.command == "verify-raw-cache":
+        # verify-raw-cache only inspects local files; no API tokens needed.
+        return verify_raw_cache_command(
+            raw_dir=Path(args.raw_dir),
+            max_size_mb=args.max_size_mb,
             sqlite_path=Path(args.sqlite_path),
         )
 
@@ -687,6 +724,43 @@ def rebuild_cache_command(
         joined = ", ".join(summary.skipped_files)
         print(f"skipped {len(summary.skipped_files)} unrecognized files: {joined}", file=out)
     return 0
+
+
+def verify_raw_cache_command(
+    *,
+    raw_dir: Path,
+    max_size_mb: int,
+    sqlite_path: Path,
+    stdout: TextIO | None = None,
+) -> int:
+    """Walk `raw_dir` and report files that exceed the size threshold or whose
+    SHA-256 differs from `raw_imports.sha256` in the SQLite cache.
+    """
+    out = stdout if stdout is not None else sys.stdout
+    if not raw_dir.exists():
+        print(f"raw JSON directory not found: {raw_dir}", file=sys.stderr)
+        return 1
+
+    sqlite_arg: Path | None = sqlite_path if sqlite_path.exists() else None
+    result = verify_raw_cache(raw_dir, max_size_mb=max_size_mb, sqlite_path=sqlite_arg)
+    print(
+        f"verified {result.file_count} files ({result.total_bytes} bytes); "
+        f"largest single file {result.max_file_size} bytes",
+        file=out,
+    )
+    if result.size_violations:
+        print(f"size violations (>= {max_size_mb}MB):", file=out)
+        for violation in result.size_violations:
+            mb = violation.size / (1024 * 1024)
+            print(f"  {violation.path} ({mb:.1f}MB)", file=out)
+    if result.sqlite_issues:
+        print("SQLite SHA-256 mismatches (run rebuild-cache):", file=out)
+        for issue in result.sqlite_issues:
+            print(
+                f"  {issue.path}: expected {issue.expected_sha256} got {issue.actual_sha256}",
+                file=out,
+            )
+    return 1 if result.has_failures else 0
 
 
 def bootstrap_cache_command(start: date, end: date, providers: ProviderBundle) -> int:

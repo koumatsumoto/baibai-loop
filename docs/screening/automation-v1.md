@@ -22,11 +22,14 @@ python -m baibai_loop.screening.cli bootstrap-cache --start YYYY-MM-DD --end YYY
 python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--view path] [--top N]
 python -m baibai_loop.screening.cli migrate-cache [--from PATH] [--to PATH] [--dry-run]
 python -m baibai_loop.screening.cli rebuild-cache [--raw-dir PATH] [--sqlite-path PATH]
+python -m baibai_loop.screening.cli verify-raw-cache [--raw-dir PATH] [--max-size-mb N] [--sqlite-path PATH]
 ```
 
 `migrate-cache` は legacy の `.cache/screening/` 配下の raw JSON を git 管理対象の `data/raw/screening/` に移動する一回限りの helper。re-run しても既存ファイルは上書きしない（idempotent）。詳細は §11 を参照。
 
 `rebuild-cache` は `data/raw/screening/` 配下の git 管理 raw JSON から派生 SQLite cache (`data/cache/screening/market.sqlite`) を再生成する。実行毎に出力ファイルを削除して書き直すため idempotent。schema は v1（jquants_daily_bars / jquants_fin_summaries / jquants_master_snapshots / raw_imports / cache_metadata）。詳細は §11 を参照。
+
+`verify-raw-cache` は `data/raw/screening/` を再帰的に walk し、(1) 1 ファイル `--max-size-mb` 以上のものが無いこと、(2) SQLite (`data/cache/screening/market.sqlite`) が存在する場合は `raw_imports.sha256` と現状ファイルの SHA-256 が一致することを検証する。違反があれば exit 1。CI の `quality` job でも実行され、50MB 超過の commit を merge 前に弾く。
 
 `select` は最新 `screened/<YYYY>/<MM>/<asof>.yaml` と `view/` を組み合わせて、`view` で `headwind` 判定された業種を除外し、`threshold_hit` の本数 → 時価総額の順で候補をランキングする。`research` の選定プロセス (`docs/components/research.md` §2.1) をスクリプトで支援する。
 
