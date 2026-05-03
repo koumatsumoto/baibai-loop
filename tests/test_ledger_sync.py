@@ -183,6 +183,7 @@ def test_ledger_cli_require_market_data_fails_without_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _seed(tmp_path)
+    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("JQUANTS_REFRESH_TOKEN", raising=False)
     assert main(["sync", "--root", str(tmp_path), "--dry-run", "--require-market-data"]) == 1
 
@@ -194,6 +195,7 @@ def test_ledger_cli_require_market_data_emits_diagnostic_when_no_research(
 ) -> None:
     # research packet が空の場合 _load_market_data は warnings を返さないが、
     # --require-market-data の失敗理由は必ず stderr に出るべき。
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("JQUANTS_REFRESH_TOKEN", "dummy-token")
     (tmp_path / "records/04-research").mkdir(parents=True)
     assert main(["sync", "--root", str(tmp_path), "--dry-run", "--require-market-data"]) == 1

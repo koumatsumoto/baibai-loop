@@ -12,6 +12,8 @@ from typing import Protocol, TextIO
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
+from baibai_loop._env import load_project_env
+
 from .config import (
     DEFAULT_CACHE_DIR,
     DEFAULT_SQLITE_CACHE_DIR,
@@ -243,6 +245,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_project_env()
     parser = build_parser()
     args = parser.parse_args(argv)
 

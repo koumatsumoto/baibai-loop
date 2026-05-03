@@ -4,9 +4,10 @@ Baibai-Loop 4 成分アーキテクチャの **(c) マクロ見解** の運用�
 
 ## 1. 役割
 
-- `records/01-brief/` の積み上げを source として、**業種/地域/資産クラス別の追い風 (tailwind) / 中立 (neutral) / 逆風 (headwind) 評価** を生成
+- `records/01-brief/` の積み上げ + 外部 deep research を source として、**業種/地域/資産クラス別の追い風 (tailwind) / 中立 (neutral) / 逆風 (headwind) 評価** を生成
 - `records/04-research/` の Macro gate 判定で参照される唯一の source
 - Macro track の出力として、Micro track の research 選定に影響する
+- **outlook は投資戦略の最上位 gate**。ここの分析の質が portfolio パフォーマンスを支配する。深さを犠牲にして時間を惜しんではならない (深い分析を要求される非常に重要なドキュメント)
 
 ## 2. 更新 trigger と頻度
 
@@ -143,7 +144,64 @@ outlook YAML の構造、必須キー、`sectors` の 33 業種完全性、`regi
 | **最終判定（tailwind/neutral/headwind）の確定** | | ○ |
 | **判定根拠の最終確認** | | ○ |
 
-## 9. 参考
+## 9. 品質基準と self-review
+
+### 9.1 必須の completeness 基準
+
+outlook YAML は以下を満たさなければ `ai_draft: true → false` の確定に進めない。
+
+- **20+ Tier 1 / Tier 1 準拠の一次情報源を直接根拠**とする (`updated_from` の brief だけでなく、外部 deep research source も sidecar `outlook-<date>-research-log.md` に明記)
+  - 米マクロ axis 3-5 source: BLS / BEA / FRB / FOMC / Census 等
+  - 地政学・エネルギー axis 3-5 source: EIA / IEA / OPEC 等
+  - 為替・金融政策 axis 3-5 source: FRB / BOJ / ECB / BoE
+  - 日本マクロ axis 3-5 source: BOJ / 財務省 / 総務省 / 内閣府 / 経産省
+  - セクター動向 axis 3-5 source: 主要企業 IR / SEMI / IATA / Baltic Exchange 等
+  - リスク資産・債券 axis 2-3 source: FRED / Treasury / CBOE 等
+  - 中国・新興国 axis 2-3 source: PBOC / NBS / 海関総署 等
+- **summary に PART A-E の構造を含める** (詳細は §9.2 を参照)
+- **シナリオ分析 4 件**: Base / Upside / Downside / Tail。各シナリオに triggering path、確度 (合計 100%)、sector 帰結、投資方向性を記述
+- **リスク因子 10+**: 順位 / 確度 / 影響度 / 観測指標 / 次の確認日 を表で記述
+- **33 業種 / 4 region すべての rationale に 2 因子以上の検討痕跡** (cost / revenue / 為替 / 金利 / 業種特有 / 地政学のいずれか 2 つ以上)
+- **deep research を 30 分以上実施**してから書く (general-purpose subagent 活用も可)。所要時間目安は deep research 30 分 + 構造分析 30 分 + self-review 15 分 = 計 75 分以上
+
+### 9.2 summary の構造 (PART A-E)
+
+`summary` は単一段落ではなく、以下の構造を持つ multi-paragraph で書く:
+
+- **PART A. 現状の構造分析 (axes 5-6)**: 米マクロ / 地政学・エネルギー / 為替・金融政策 / 日本マクロ / リスク資産 / セクター固有テーマ
+- **PART B. シナリオ分析 (4 シナリオ)**: Base / Upside / Downside / Tail、確度合計 100%、各 triggering path・sector 帰結・投資方向性
+- **PART C. リスク因子の優先順位 (10+ 件)**: 順位 / リスク / 確度 / 影響度 / 観測指標 / 次の確認日
+- **PART D. 1-6m 投資方向性**: 主軸 / 補助軸 / 避ける軸 / ポートフォリオ偏在管理
+- **PART E. 次回 outlook 更新の trigger と reweight 軸**: 主要 economic events、利上げ会合、CPI / PCE 公表
+
+### 9.3 self-review チェックリスト
+
+`ai_draft: true → false` の確定前に以下をチェック:
+
+- [ ] 20+ 一次情報源を sidecar `outlook-<date>-research-log.md` に列挙したか
+- [ ] 4 シナリオ (Base / Upside / Downside / Tail) を確度付きで書いたか、合計 100% か
+- [ ] 10+ リスク因子表を観測指標付きで書いたか
+- [ ] 33 業種すべて rationale に 2 因子以上の検討痕跡を残したか
+- [ ] 「業種固有 signal が brief 群から確認できない」一辺倒の rationale が 33 業種中 5 件以下か (5 件超なら検討不足)
+- [ ] regions 4 件すべて status / rationale / source_refs を埋めているか
+- [ ] FOMC / BOJ / 主要中央銀行 statement の声明文を直接引用 (内容を要約で済ませない) しているか
+- [ ] 油価 / 為替 / 主要金利 の数値が brief と一致しているか
+- [ ] 思い込みではなく source URL を伴う事実だけで根拠を組み立てているか
+- [ ] brief 内の外交イベント (例: 「de-escalation」) と物理的フロー (例: 「ホルムズ閉鎖継続」) を区別し、deep research で cross-check したか
+- [ ] 個別銘柄言及がないか (ある場合は research の責務、削除)
+- [ ] `next_triggers` に主要イベント (FOMC / BOJ / CPI / PCE / 雇用) を網羅しているか
+
+### 9.4 禁止される failure mode
+
+過去のセッションで観測された outlook の品質低下パターン。これらが見つかれば即書き直し:
+
+- **neutral 量産**: 33 業種すべて neutral にして「分析放棄」する状態。bootstrap の保守化原則 (§3) は判定材料が無い sector を null/neutral にする逃げ道であって、brief で確認できる事実から sector に効く因果は判定すべき
+- **思い込み**: 自分の事前知識ベースで OPEC supply discipline / シェール頭打ち / 政治情勢などを「事実」として記述する。一次情報で確認しない限り「事実」と扱わない
+- **表層的 summary**: FOMC hold + BOJ hold + 円高反転と表層を並べただけで、構造分析 (なぜ油価が地政学緩和後も粘着するか、円独歩高の意味、政策金利の reaction function に油価が組み込まれた含意) が欠落
+- **brief 5 件のみで作成**: 外部 deep research 無しでは 20+ source 基準を満たせない
+- **fact 認識違い**: brief の「外交緩和」と「物理的フロー」を混同 (例: US-Iran de-escalation を「中東緊張緩和」と誤読し、ホルムズ閉鎖継続を見逃す)
+
+## 10. 参考
 
 - [`../philosophy.md`](../philosophy.md): 思想（マクロ優位 76/24）
 - [`../architecture.md`](../architecture.md): 全体構造
