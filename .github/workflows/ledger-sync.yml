@@ -25,7 +25,7 @@ jobs:
       - run: uv run baibai-loop-ledger sync --root . --require-market-data
         env:
           JQUANTS_REFRESH_TOKEN: ${{ secrets.JQUANTS_REFRESH_TOKEN }}
-      - uses: peter-evans/create-pull-request@v6
+      - uses: peter-evans/create-pull-request@v8
         with:
           commit-message: "chore(ledger): sync daily ledger"
           title: "chore(ledger): sync daily ledger"
