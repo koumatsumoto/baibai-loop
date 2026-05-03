@@ -1,0 +1,33 @@
+schema_version: 1
+kind: world-daily
+type: periodic
+scope: world
+ai_draft: true
+published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
+observation_date: "YYYY-MM-DD"
+references:
+  latest_weekly: records/01-brief/YYYY/MM/YYYY-MM-DD-world-weekly-{slug}.yaml
+  latest_monthly: records/01-brief/YYYY/MM/YYYY-MM-macro-monthly-{slug}.yaml
+sources:
+  - id: census-retail
+    name: U.S. Census Bureau Retail Sales
+    url: https://www.census.gov/retail/sales.html
+    accessed_at: "YYYY-MM-DD"
+    status: ok
+layers:
+  world:
+    events:
+      - date: "YYYY-MM-DD"
+        text: "..."
+        source_ids: [census-retail]
+  japan:
+    events: []
+  japan_equity:
+    events: []
+notes: >-
+  world-daily は週次まで待つと stale になる fresh fact を受け止めるための brief。
+  macro-monthly がまだ閉じていない月は、当日公表された月次級データを一時的にここへ保持してよい。
+next_events:
+  - date: "YYYY-MM-DD"
+    text: "FOMC / BOJ / 主要統計発表"
+    source_ids: []

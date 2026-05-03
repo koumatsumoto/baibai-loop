@@ -121,7 +121,7 @@ flowchart TB
 
 | type | 頻度 | trigger | 典型例 |
 | --- | --- | --- | --- |
-| `periodic` | 日次 / 週次 / 月次 | 定期 | `world-daily-YYYY-MM-DD-*.md`, `world-weekly-YYYY-MM-DD-*.md`, `YYYY-MM-macro-monthly-*.md` |
+| `periodic` | 日次 / 週次 / 月次 | 定期 | `world-daily-YYYY-MM-DD-*.yaml`, `world-weekly-YYYY-MM-DD-*.yaml`, `YYYY-MM-macro-monthly-*.yaml` |
 | `event` | 不定期 | 重大イベント | BOJ / FOMC / CPI 大振れ / 地政学 shock |
 
 **不定期 trigger 閾値**:
@@ -135,24 +135,52 @@ flowchart TB
 #### 3.1.3 Path
 
 ```
-records/01-brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
+records/01-brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.yaml
 ```
 
 - `{kind}` 例: `world-daily` / `world-weekly` / `macro-monthly` / `fomc` / `boj` / `cpi` / `gdp` / `geopolitics` / `event`
 - `{slug}`: 内容を端的に示す短い英小文字ハイフン区切り（解釈語は避ける）
 
-#### 3.1.4 Front matter
+#### 3.1.4 YAML
 
 ```yaml
----
+schema_version: 1
+kind: world-weekly | world-daily | macro-monthly | fomc | boj | cpi | gdp | geopolitics | event
 type: periodic | event
 scope: world | japan | sector-xx
-ai-draft: true | false
+ai_draft: true | false
 published_at: "ISO 8601"
+observation_date: "YYYY-MM-DD"
+period:                       # world-weekly では必須、daily では任意
+  start: "YYYY-MM-DD"
+  end: "YYYY-MM-DD"
+  market_basis_date: "YYYY-MM-DD"
+month: "YYYY-MM"              # macro-monthly では必須
+references:
+  prev_period: records/01-brief/YYYY/MM/...yaml | null
+  latest_monthly: records/01-brief/YYYY/MM/...yaml | null
 sources:
-  - "path or URL"
----
+  - id: <id>
+    name: <ソース名>
+    url: <URL>
+    accessed_at: "YYYY-MM-DD"
+    status: ok | partial | failed
+layers:
+  world: { market_indicators: [...], events: [...], ... }
+  japan: { fx: [...], events: [...], ... }
+  japan_equity: { market_indicators: [...], sector_movements: [...], events: [...] }
+deltas:                       # world-weekly / macro-monthly では必須
+  threshold_breaches: [...]
+  unjudgeable: [...]
+  direction_history: [...]
+  direction_reversals: [...]
+fact_memos: [...]             # 任意
+next_events: [...]
 ```
+
+- `sources[].id` は brief 内の安全な ID。本文の各 item は `source_ids: [<id>, ...]` で参照する
+- `layers` は `world` / `japan` / `japan_equity` の 3 キーを必ず持つ。該当なしは `{}` を明示
+- 詳細は [`components/brief.md`](./components/brief.md) と [`../records/_schemas/brief-v1.json`](../records/_schemas/brief-v1.json) を参照
 
 ### 3.2 `records/03-screened/` — (b) スクリーニング通過銘柄
 
@@ -196,37 +224,52 @@ records/03-screened/YYYY/MM/YYYY-MM-DD.yaml
 #### 3.3.3 Path
 
 ```
-records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-<slug>.md
+records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-<slug>.yaml
 ```
 
-#### 3.3.4 Front matter
+#### 3.3.4 YAML
 
 ```yaml
----
-ai-draft: true | false
+schema_version: 1
+ai_draft: true | false
 published_at: "ISO 8601"
 horizon: "1-6m"
 updated_from:
-  - records/01-brief/YYYY/MM/world-daily-*.md
-  - records/01-brief/YYYY/MM/world-weekly-*.md
-  - records/01-brief/YYYY/MM/*-macro-monthly-*.md
-sectors:
-  "情報・通信": tailwind
-  "銀行": neutral
-  "不動産": headwind
-regions:
-  us: tailwind
-  japan-domestic: neutral
-  emerging: headwind
----
+  - records/01-brief/YYYY/MM/...yaml
+summary: <1 段落の要約>
+sectors:                        # 東証 33 業種を全件必須
+  "水産・農林業":
+    status: tailwind | neutral | headwind | null
+    rationale: <判定根拠>
+    source_refs: [records/01-brief/...yaml]
+  ...
+regions:                        # 4 地域を全件必須
+  us:           { status: ..., rationale: ..., source_refs: [...] }
+  japan-domestic: { status: ..., rationale: ..., source_refs: [...] }
+  japan-external-demand: { status: ..., rationale: ..., source_refs: [...] }
+  emerging:     { status: ..., rationale: ..., source_refs: [...] }
+changes:
+  - target: <sector or region>
+    from_status: ...
+    to_status: ...
+    rationale: ...
+    source_refs: [...]
+next_triggers:
+  - date: "YYYY-MM-DD"
+    text: "<イベント>"
 ```
+
+- `sectors` は東証 33 業種を全件必須にする（一部省略は不可）。変動がない業種は `status: neutral` でも明示する
+- `regions` は `us` / `japan-domestic` / `japan-external-demand` / `emerging` の 4 件を全件必須にする
+- `status` の許容値は `tailwind` / `neutral` / `headwind` / `null` のみ。`null` の場合も `rationale` は必須
+- 詳細は [`components/outlook.md`](./components/outlook.md) と [`../records/_schemas/outlook-v1.json`](../records/_schemas/outlook-v1.json) を参照
 
 #### 3.3.5 Bootstrap 規則（v1 運用 Day 1）
 
 `records/02-outlook/` は以下の手順で更新する:
 
-1. 既存 `records/01-brief/` を読み、鮮度が不足する場合は `world-daily` / `event` を先に追加してから `records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-<slug>.md` を作成する
-2. bootstrap outlook の front matter: `updated_from: [実際に使った brief 群]`, `horizon: "1-6m"`, 業種/地域は brief から読み取れる範囲で記入（空欄は `null` 許容）
+1. 既存 `records/01-brief/` を読み、鮮度が不足する場合は `world-daily` / `event` を先に追加してから `records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-<slug>.yaml` を作成する
+2. outlook YAML の `updated_from` には実際に使った brief YAML を列挙する。`sectors` は東証 33 業種、`regions` は 4 地域を全件必須で埋める。判定材料が不足する場合は `status: null` + `rationale` で明示する
 3. bootstrap outlook 作成後、通常の research 作成フローに遷移
 
 ### 3.4 `records/04-research/` — (d) 個別銘柄リサーチ packet
@@ -239,7 +282,7 @@ regions:
 #### 3.4.2 選定プロセス（screened × outlook → 候補絞り込み）
 
 1. 最新 `records/03-screened/*.yaml` の ticker list を取得
-2. 最新 `records/02-outlook/*.md` の `sectors` / `regions` を参照
+2. 最新 `records/02-outlook/*.yaml` の `sectors` / `regions` を参照
 3. screened ticker のうち、所属業種/地域が `outlook` で `tailwind` または `neutral` のものを候補に残す（`headwind` は **除外**）
 4. 候補から人間 + AI が個別 ticker を選定（詳細基準は [`components/research.md`](./components/research.md)）
 
@@ -257,9 +300,9 @@ ticker: "7203"
 name: "..."
 playbook: valuation-mean-reversion-v1 | valuation-catalyst-confirmation-v1
 screened_ref: records/03-screened/YYYY/MM/YYYY-MM-DD.yaml      # 必須
-outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.md       # 必須（Bootstrap 後は例外なし）
+outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml     # 必須（Bootstrap 後は例外なし）
 brief_refs:                                        # 任意
-  - records/01-brief/YYYY/MM/event-YYYY-MM-DD-*.md
+  - records/01-brief/YYYY/MM/YYYY-MM-DD-*.yaml
 ai-draft: true | false
 published_at: "ISO 8601"
 tradable_at: "ISO 8601"

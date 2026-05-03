@@ -15,36 +15,46 @@ Baibai-Loop 4 成分アーキテクチャの **(c) マクロ見解** の運用�
 ### 2.1 Day 1 必須タスク
 
 1. まず、当日時点で利用可能な `records/01-brief/` を読む。最低限として既存 brief 群を読むが、**最新 brief が 5 営業日以上古い場合は `world-daily` または `event` を先に追加して freshness gap を埋める**
-2. `records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-<slug>.md` を作成する（日付は実際の観測日を使う）
-3. front matter の `updated_from` には、**実際に判定根拠として使った brief を列挙**する。最低限の履歴だけでなく、直近の weekly / daily / event を含めてよい
-4. `sectors` / `regions` は brief から読み取れる範囲で記入。読み取れない業種/地域は `null` 許容（保守的に neutral とする選択肢も可）
+2. `records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-<slug>.yaml` を作成する（日付は実際の観測日を使う）
+3. `updated_from` には、**実際に判定根拠として使った brief YAML を列挙**する。最低限の履歴だけでなく、直近の weekly / daily / event を含めてよい
+4. `sectors` は東証 33 業種を全件必須、`regions` は 4 地域を全件必須で埋める。判定材料が不足する場合は `status: null` + `rationale` で明示する（省略は不可）
 5. `horizon: "1-6m"` で 1-6 か月先の見通しを記述
 6. bootstrap outlook 作成後、通常の research 作成フローに遷移できる
 
-### 2.2 Bootstrap outlook の front matter 例
+### 2.2 Bootstrap outlook の YAML 例
 
 ```yaml
----
-ai-draft: true
+schema_version: 1
+ai_draft: true
 published_at: "2026-04-27T09:00:00+09:00"
 horizon: "1-6m"
 updated_from:
-  - records/01-brief/2026/01/2026-01-macro-monthly-overview.md
-  - records/01-brief/2026/02/2026-02-macro-monthly-jp-core-cpi-sub2.md
-  - records/01-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.md
-  - records/01-brief/2026/04/2026-04-10-world-weekly-us-10y-down.md
-  - records/01-brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.md
-  - records/01-brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.md
+  - records/01-brief/2026/01/2026-01-macro-monthly-overview.yaml
+  - records/01-brief/2026/02/2026-02-macro-monthly-jp-core-cpi-sub2.yaml
+  - records/01-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
+  - records/01-brief/2026/04/2026-04-10-world-weekly-us-10y-down.yaml
+  - records/01-brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.yaml
+  - records/01-brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.yaml
+summary: "..."
 sectors:
-  "情報・通信": neutral
-  "銀行": neutral
-  "不動産": neutral
-  # 記入できない業種は省略 or null
+  "情報・通信業":
+    status: neutral
+    rationale: "マクロから直接の sector signal が弱く、個別要因優位とみなす"
+    source_refs:
+      - records/01-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
+  # ... 東証 33 業種を全件記入する
 regions:
-  us: neutral
-  japan-domestic: neutral
-  emerging: null
----
+  us:
+    status: neutral
+    rationale: "CPI 再加速は逆風だが、小売売上高は強い。相殺して neutral"
+    source_refs: [records/01-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml]
+  japan-domestic: { status: neutral, rationale: "...", source_refs: [...] }
+  japan-external-demand: { status: tailwind, rationale: "...", source_refs: [...] }
+  emerging: { status: null, rationale: "材料不足", source_refs: [] }
+changes: []
+next_triggers:
+  - date: "2026-04-28 〜 29"
+    text: "FOMC 会合"
 ```
 
 bootstrap の段階では保守的に neutral を多くすることを推奨する（headwind 判定は research 採用不可を招くため、情報不足では保守的に）。
@@ -53,9 +63,9 @@ bootstrap の段階では保守的に neutral を多くすることを推奨す�
 
 通常の更新 trigger（3.1）に従って outlook を更新する。bootstrap outlook は第 1 版であり、第 2 版以降は追加 brief を反映して更新する。
 
-### 2.4 null フィールドの扱い
+### 2.4 null status の扱い
 
-bootstrap outlook（および通常 outlook でも情報不足時）で `sectors` / `regions` の特定フィールドを `null` とした場合、research 側での Macro gate 判定は **`neutral` 扱い** とする。保守的側（`headwind` 扱い）にはしない（情報不足で過度に厳格化すると採用率が極端に下がるため）。この読み替えは `records/04-research/` 作成時の macro gate 算出で実施し、[`../screening/macro-gate-procedure.md`](../screening/macro-gate-procedure.md) を正とする。outlook が充実してきたら `null` を削り、明示的な判定に更新する。
+`status: null` とした sector / region は、research 側での Macro gate 判定では **`neutral` 扱い** とする。保守的側（`headwind` 扱い）にはしない（情報不足で過度に厳格化すると採用率が極端に下がるため）。この読み替えは `records/04-research/` 作成時の macro gate 算出で実施し、[`../screening/macro-gate-procedure.md`](../screening/macro-gate-procedure.md) を正とする。`null` でも `rationale` は必須。outlook が充実してきたら `null` を `tailwind` / `neutral` / `headwind` の明示的な判定に更新する。
 
 ## 3. 更新 trigger と頻度
 
@@ -78,37 +88,49 @@ bootstrap outlook（および通常 outlook でも情報不足時）で `sectors
 ## 4. Path と命名
 
 ```
-records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-<slug>.md
+records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-<slug>.yaml
 ```
 
 - `<slug>`: 内容を示す英小文字ハイフン区切り（例: `bootstrap`, `q2-outlook`, `post-boj-april`, `cpi-3p3-reaction`）
 
-## 5. Front matter 必須項目
+## 5. YAML 必須項目
 
 ```yaml
----
-ai-draft: true | false
+schema_version: 1
+ai_draft: true | false
 published_at: "ISO 8601"
 horizon: "1-6m"                     # 想定先読み期間
-updated_from:                       # この outlook を作る元になった brief
-  - records/01-brief/YYYY/MM/world-daily-*.md
-  - records/01-brief/YYYY/MM/world-weekly-*.md
-  - records/01-brief/YYYY/MM/*-macro-monthly-*.md
-sectors:                            # 業種別 gate 判定（東証 33 業種ベース）
-  "情報・通信": tailwind
-  "銀行": neutral
-  "不動産": headwind
-regions:                            # 地域別 gate 判定
-  us: tailwind
-  japan-domestic: neutral
-  emerging: headwind
----
+updated_from:                       # この outlook を作る元になった brief YAML
+  - records/01-brief/YYYY/MM/...yaml
+summary: <1 段落の要約>
+sectors:                            # 東証 33 業種を全件必須
+  "水産・農林業":
+    status: tailwind | neutral | headwind | null
+    rationale: <判定根拠>
+    source_refs: [records/01-brief/.../*.yaml]
+  # ... 33 業種を全件記入する
+regions:                            # 4 地域を全件必須
+  us:                    { status: ..., rationale: ..., source_refs: [...] }
+  japan-domestic:        { status: ..., rationale: ..., source_refs: [...] }
+  japan-external-demand: { status: ..., rationale: ..., source_refs: [...] }
+  emerging:              { status: ..., rationale: ..., source_refs: [...] }
+changes:                            # 前回 outlook からの判定変更
+  - target: <sector or region>
+    from_status: ...
+    to_status: ...
+    rationale: ...
+    source_refs: [...]
+next_triggers:
+  - date: "YYYY-MM-DD"
+    text: "<次回更新 trigger となるイベント>"
 ```
 
-- `ai-draft`: AI 下書き段階では `true`、人間確認後 `false`
-- `sectors` のキーは東証 33 業種の正式名称を使う（[`../screening/valuation-metrics.md`](../screening/valuation-metrics.md) 参照）
-- `regions` は `us` / `japan-domestic` / `japan-external-demand` / `emerging` / その他国コード等
-- 判定できない項目は省略 or `null`（空欄を許容）
+- `schema_version`: 現状は `1`
+- `ai_draft`: AI 下書き段階では `true`、人間確認後 `false`
+- `sectors` のキーは東証 33 業種の正式名称を全件使う（[`../screening/valuation-metrics.md`](../screening/valuation-metrics.md) 参照）。省略は不可
+- `regions` は `us` / `japan-domestic` / `japan-external-demand` / `emerging` の 4 件を全件必須
+- 判定できない項目は `status: null` + `rationale` で明示する（key の省略は不可）
+- 詳細な schema は [`../../records/_schemas/outlook-v1.json`](../../records/_schemas/outlook-v1.json)
 
 ### 5.1 `updated_from` の選び方
 
@@ -126,23 +148,16 @@ regions:                            # 地域別 gate 判定
 
 ### 5.3 schema 検証
 
-front matter の `sectors` / `regions` の許容値、業種名 / 地域名は `baibai-loop-validate` で検査される。未知 sector / region 名は warning、不正な status (`tailwind`/`neutral`/`headwind`/`null` 以外) は error。CI の `Validate artefacts` step で merge gate になる。手元では `uv run baibai-loop-validate --target outlook` で個別に走らせられる。
+outlook YAML の構造、必須キー、`sectors` の 33 業種完全性、`regions` の 4 地域完全性、`status` 許容値（`tailwind` / `neutral` / `headwind` / `null` 以外は error）、`updated_from` / `source_refs` の `.yaml` 末尾は `baibai-loop-validate` で検査される。CI の `Validate artefacts` step で merge gate になる。手元では `uv run baibai-loop-validate --target outlook` で個別に走らせられる。
 
-## 6. 本文の構成
-
-### 6.1 推奨節構成
-
-- **Executive summary**: 1 段落で現在のマクロ見解を要約
-- **主要 brief の要点集約**: `updated_from` に挙げた各 brief のどこが effective だったか
-- **業種別判定の根拠**: なぜその業種を tailwind/neutral/headwind と判定したか
-- **地域別判定の根拠**: 同上
-- **変化ポイント**: 前回 outlook からの判定変更と理由
-- **次回更新 trigger の想定**: 次に outlook を更新すべきイベント
-
-### 6.2 書き方
+## 6. フィールドの書き方
 
 - outlook は **分析層**（philosophy 柱 1）。解釈を書いてよい
-- ただし、根拠となる brief への参照を必ず付ける（`updated_from` の brief への link）
+- ただし、根拠となる brief への参照を必ず付ける（`source_refs` / `updated_from`）
+- `summary` は 1 段落で現在のマクロ見解を要約
+- 各 sector / region の `rationale` は判定根拠を 1〜2 文で記述する
+- `changes` には前回 outlook からの判定変更を `target` / `from_status` / `to_status` / `rationale` で構造化する
+- `next_triggers` は次に outlook を更新すべきイベントを列挙
 - 投資判断の示唆は軽く（「このマクロ下では... が相対的に有利」程度）、個別銘柄への言及はしない（それは research の仕事）
 
 ## 7. research への接続
@@ -186,4 +201,4 @@ front matter の `sectors` / `regions` の許容値、業種名 / 地域名は `
 - [`brief.md`](./brief.md): source となる brief の仕様
 - [`research.md`](./research.md): 接続先 research の仕様
 - [`../screening/macro-gate-procedure.md`](../screening/macro-gate-procedure.md): Macro gate 判定手順
-- [`../templates/outlook.md`](../templates/outlook.md): template
+- [`../templates/outlook.yaml`](../templates/outlook.yaml): template

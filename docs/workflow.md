@@ -47,7 +47,7 @@ Baibai-Loop は 2 トラック構成で運用する:
 ## ファイル配置と命名
 
 ```
-records/01-brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
+records/01-brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.yaml
 ```
 
 - `{kind}` は `world-daily` / `world-weekly` / `macro-monthly` / `fomc` / `boj` / `cpi` / `gdp` / `geopolitics` などイベント種別を示す
@@ -85,12 +85,12 @@ bootstrap outlook または通常の outlook 更新の前に、brief の鮮度�
 
 ### 必須チェック
 
-1. `find records/01-brief/YYYY -type f -name '*.md' | sort` で対象年の brief 一覧を確認する
-2. `find records/01-brief/YYYY -type f -name '*world-weekly*.md' | sort` で週次 brief の連続性を確認する
-3. 各 `world-weekly` の `対象期間` / `観測日` / `前週 brief` を確認し、週次の対象期間に抜けがないか見る
+1. `find records/01-brief/YYYY -type f -name '*.yaml' | sort` で対象年の brief 一覧を確認する
+2. `find records/01-brief/YYYY -type f -name '*world-weekly*.yaml' | sort` で週次 brief の連続性を確認する
+3. 各 `world-weekly` YAML の `period.start` / `period.end` / `observation_date` / `references.prev_period` を確認し、週次の対象期間に抜けがないか見る
 4. 新規 `world-weekly` を作る場合、直前の週次対象期間の翌日から始まっているか確認する
 5. 欠損がある場合は、現在週を作る前に欠損週を backfill する
-6. backfill 後、現在週の `前週 brief` と前週比計算の基準を backfill した週次 brief に更新する
+6. backfill 後、現在週の `references.prev_period` と前週比計算の基準を backfill した週次 brief に更新する
 
 ### 判断ルール
 
@@ -102,11 +102,11 @@ bootstrap outlook または通常の outlook 更新の前に、brief の鮮度�
 ### 確認コマンド例
 
 ```bash
-find records/01-brief/2026 -type f -name '*.md' | sort
-find records/01-brief/2026 -type f -name '*world-weekly*.md' | sort
-for f in $(find records/01-brief/2026 -type f -name '*world-weekly*.md' | sort); do
+find records/01-brief/2026 -type f -name '*.yaml' | sort
+find records/01-brief/2026 -type f -name '*world-weekly*.yaml' | sort
+for f in $(find records/01-brief/2026 -type f -name '*world-weekly*.yaml' | sort); do
   printf '\n== %s ==\n' "$f"
-  rg -n '対象期間:|観測日:|前週 brief:' "$f"
+  rg -n 'observation_date:|period:|prev_period:|start:|end:' "$f"
 done
 ```
 
@@ -259,9 +259,9 @@ brief は事実レイヤー専用ドキュメント。解釈・予測・相場�
 
 ## テンプレート
 
-- 日次記録を作るときは [templates/brief-world-daily.md](./templates/brief-world-daily.md) をコピーして使う
-- 週次記録を作るときは [templates/brief-world-weekly.md](./templates/brief-world-weekly.md) をコピーして使う
-- 月次記録を作るときは [templates/brief-japan-monthly.md](./templates/brief-japan-monthly.md) をコピーして使う
+- 日次記録を作るときは [templates/brief-world-daily.yaml](./templates/brief-world-daily.yaml) をコピーして使う
+- 週次記録を作るときは [templates/brief-world-weekly.yaml](./templates/brief-world-weekly.yaml) をコピーして使う
+- 月次記録を作るときは [templates/brief-japan-monthly.yaml](./templates/brief-japan-monthly.yaml) をコピーして使う
 - 事実ベース運用のため、テンプレートに主観的な「解釈」「示唆」欄は設けていない
 
 ## 作成後セルフレビューチェックリスト

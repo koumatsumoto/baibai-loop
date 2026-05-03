@@ -15,7 +15,7 @@ Baibai-Loop 4 成分アーキテクチャの **(d) 個別銘柄リサーチ** �
 ### 2.1 4 ステップ
 
 1. **最新 screened を取得**: 直近の `records/03-screened/YYYY/MM/YYYY-MM-DD.yaml` を選び、`tickers` 配列を取得
-2. **最新 outlook を参照**: 直近の `records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.md` を選び、`sectors` / `regions` を取得
+2. **最新 outlook を参照**: 直近の `records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml` を選び、`sectors` / `regions` を取得
 3. **gate 通過銘柄に絞り込み**: screened ticker のうち、所属業種/地域が outlook で **tailwind または neutral** のものを候補に残す（**headwind は除外**）。screened は `sector_33` のみ持つので、各業種を outlook の region (`japan-external-demand` 等) に対応させるには [`../screening/sector-region-map.md`](../screening/sector-region-map.md) の default mapping を出発点にする (mixed 業種は研究で個別判断)
 4. **候補から人間 + AI が個別 ticker を選定**: 以下の基準で優先度判定
    - `threshold_hit` の重なり（複数閾値で hit した方が confidence 高）
@@ -54,9 +54,9 @@ name: "トヨタ自動車"
 playbook: valuation-mean-reversion-v1 | valuation-catalyst-confirmation-v1
 decision: accepted | skipped | pending
 screened_ref: records/03-screened/YYYY/MM/YYYY-MM-DD.yaml      # 必須
-outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.md       # 必須（Bootstrap 後は例外なし）
+outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml       # 必須（Bootstrap 後は例外なし）
 brief_refs:                                        # 任意、outlook 後に出た緊急 brief 時のみ
-  - records/01-brief/YYYY/MM/event-YYYY-MM-DD-*.md
+  - records/01-brief/YYYY/MM/YYYY-MM-DD-*.yaml
 ai-draft: true | false                             # AI 下書きフラグ
 published_at: "ISO 8601"
 tradable_at: "ISO 8601"

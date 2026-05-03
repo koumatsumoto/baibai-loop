@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal, TextIO, assert_never
 
+from .brief import discover_brief_files, validate_brief_file
 from .errors import ValidationFinding
 from .ledger import discover_ledger_files, validate_ledger_file
 from .outlook import discover_outlook_files, validate_outlook_file
@@ -27,9 +28,17 @@ from .research import (
 from .review import discover_review_files, validate_review_file
 from .screened import discover_screened_files, validate_screened_file
 
-type ValidationTarget = Literal["screened", "outlook", "research", "ledger", "review"]
-_TARGETS: tuple[ValidationTarget, ...] = ("screened", "outlook", "research", "ledger", "review")
+type ValidationTarget = Literal["brief", "screened", "outlook", "research", "ledger", "review"]
+_TARGETS: tuple[ValidationTarget, ...] = (
+    "brief",
+    "screened",
+    "outlook",
+    "research",
+    "ledger",
+    "review",
+)
 
+BRIEF_ROOT = Path("records/01-brief")
 SCREENED_ROOT = Path("records/03-screened")
 OUTLOOK_ROOT = Path("records/02-outlook")
 RESEARCH_ROOT = Path("records/04-research")
@@ -144,6 +153,8 @@ def run_validation(
 
 def _discover(root: Path, target: ValidationTarget) -> list[Path]:
     match target:
+        case "brief":
+            return discover_brief_files(root / BRIEF_ROOT)
         case "screened":
             return discover_screened_files(root / SCREENED_ROOT)
         case "outlook":
@@ -165,6 +176,8 @@ def _validate(
     known_playbooks: frozenset[str],
 ) -> list[ValidationFinding]:
     match target:
+        case "brief":
+            return validate_brief_file(path)
         case "screened":
             return validate_screened_file(path)
         case "outlook":

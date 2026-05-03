@@ -1,0 +1,62 @@
+schema_version: 1
+ai_draft: true
+published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
+horizon: "1-6m"
+updated_from:
+  - records/01-brief/YYYY/MM/...yaml
+summary: >-
+  1 段落で現在のマクロ見解を要約。何が追い風で何が逆風かを明示。
+sectors:
+  # 東証 33 業種を全件必須。判定できない場合も status: null + rationale で明示する。
+  "水産・農林業":
+    status: tailwind | neutral | headwind | null
+    rationale: "..."
+    source_refs: []
+  "鉱業": { status: neutral, rationale: "...", source_refs: [] }
+  "建設業": { status: neutral, rationale: "...", source_refs: [] }
+  "食料品": { status: neutral, rationale: "...", source_refs: [] }
+  "繊維製品": { status: neutral, rationale: "...", source_refs: [] }
+  "パルプ・紙": { status: neutral, rationale: "...", source_refs: [] }
+  "化学": { status: neutral, rationale: "...", source_refs: [] }
+  "医薬品": { status: neutral, rationale: "...", source_refs: [] }
+  "石油・石炭製品": { status: neutral, rationale: "...", source_refs: [] }
+  "ゴム製品": { status: neutral, rationale: "...", source_refs: [] }
+  "ガラス・土石製品": { status: neutral, rationale: "...", source_refs: [] }
+  "鉄鋼": { status: neutral, rationale: "...", source_refs: [] }
+  "非鉄金属": { status: neutral, rationale: "...", source_refs: [] }
+  "金属製品": { status: neutral, rationale: "...", source_refs: [] }
+  "機械": { status: neutral, rationale: "...", source_refs: [] }
+  "電気機器": { status: neutral, rationale: "...", source_refs: [] }
+  "輸送用機器": { status: neutral, rationale: "...", source_refs: [] }
+  "精密機器": { status: neutral, rationale: "...", source_refs: [] }
+  "その他製品": { status: neutral, rationale: "...", source_refs: [] }
+  "電気・ガス業": { status: neutral, rationale: "...", source_refs: [] }
+  "陸運業": { status: neutral, rationale: "...", source_refs: [] }
+  "海運業": { status: neutral, rationale: "...", source_refs: [] }
+  "空運業": { status: neutral, rationale: "...", source_refs: [] }
+  "倉庫・運輸関連業": { status: neutral, rationale: "...", source_refs: [] }
+  "情報・通信業": { status: neutral, rationale: "...", source_refs: [] }
+  "卸売業": { status: neutral, rationale: "...", source_refs: [] }
+  "小売業": { status: neutral, rationale: "...", source_refs: [] }
+  "銀行業": { status: neutral, rationale: "...", source_refs: [] }
+  "証券、商品先物取引業": { status: neutral, rationale: "...", source_refs: [] }
+  "保険業": { status: neutral, rationale: "...", source_refs: [] }
+  "その他金融業": { status: neutral, rationale: "...", source_refs: [] }
+  "不動産業": { status: neutral, rationale: "...", source_refs: [] }
+  "サービス業": { status: neutral, rationale: "...", source_refs: [] }
+regions:
+  us:                    { status: neutral, rationale: "...", source_refs: [] }
+  japan-domestic:        { status: neutral, rationale: "...", source_refs: [] }
+  japan-external-demand: { status: neutral, rationale: "...", source_refs: [] }
+  emerging:              { status: null,    rationale: "材料不足", source_refs: [] }
+changes:
+  # 前回 outlook がない場合（Bootstrap 等）は空配列。
+  # 判定が変わった対象を target / from_status / to_status / rationale で記述する。
+  - target: "<sector or region>"
+    from_status: neutral
+    to_status: tailwind
+    rationale: "..."
+    source_refs: []
+next_triggers:
+  - date: "YYYY-MM-DD"
+    text: "FOMC / BOJ / CPI 発表等"

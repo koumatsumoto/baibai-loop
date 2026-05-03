@@ -21,7 +21,7 @@ Baibai-Loop の **Macro gate 判定手順**。research の front matter `macro_g
 ### 3.1 通常運用（outlook が最新）
 
 1. 対象銘柄の **業種（東証 33 業種）** と **地域（domestic / external-demand / us / emerging 等）** を確認
-2. 最新 `records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.md` の `sectors` / `regions` を参照し、業種と地域の判定を取得
+2. 最新 `records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml` の `sectors` / `regions` を参照し、業種と地域の判定を取得
 3. 食い違いがある場合は **保守的な方を採用**（下記 3.2）
 4. research front matter の `macro_gate` と `outlook_ref` に記録
 
@@ -67,9 +67,9 @@ headwind > neutral > tailwind
 
 ```yaml
 macro_gate: tailwind | neutral | headwind
-outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.md       # 必須
+outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml       # 必須
 brief_refs:                                         # 任意（outlook 後の緊急 brief があった場合のみ）
-  - records/01-brief/YYYY/MM/event-YYYY-MM-DD-*.md
+  - records/01-brief/YYYY/MM/YYYY-MM-DD-*.yaml
 ```
 
 ### 4.2 記録例
@@ -78,7 +78,7 @@ brief_refs:                                         # 任意（outlook 後の緊
 
 ```yaml
 macro_gate: tailwind
-outlook_ref: records/02-outlook/2026/04/outlook-2026-04-25-q2-outlook.md
+outlook_ref: records/02-outlook/2026/04/outlook-2026-04-25-q2-outlook.yaml
 # brief_refs は省略可
 ```
 
@@ -86,9 +86,9 @@ outlook_ref: records/02-outlook/2026/04/outlook-2026-04-25-q2-outlook.md
 
 ```yaml
 macro_gate: neutral           # outlook は tailwind だったが brief で neutral に下方
-outlook_ref: records/02-outlook/2026/04/outlook-2026-04-25-q2-outlook.md
+outlook_ref: records/02-outlook/2026/04/outlook-2026-04-25-q2-outlook.yaml
 brief_refs:
-  - records/01-brief/2026/04/2026-04-28-boj-tightening.md  # outlook 後の緊急 brief
+  - records/01-brief/2026/04/2026-04-28-boj-tightening.yaml  # outlook 後の緊急 brief
 ```
 
 ## 5. 採用判定への影響

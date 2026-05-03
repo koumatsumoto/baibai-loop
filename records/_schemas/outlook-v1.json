@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "outlook-v1",
+  "title": "Outlook YAML",
+  "description": "Schema for records/02-outlook/**/*.yaml. Captures macro outlook by sector (TSE 33-sector taxonomy, all 33 mandatory) and region (us / japan-domestic / japan-external-demand / emerging, all 4 mandatory).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "ai_draft",
+    "published_at",
+    "horizon",
+    "updated_from",
+    "summary",
+    "sectors",
+    "regions",
+    "changes",
+    "next_triggers"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "ai_draft": {"type": "boolean"},
+    "published_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[+-][0-9]{2}:[0-9]{2}|Z)$"
+    },
+    "horizon": {"type": "string", "minLength": 1},
+    "updated_from": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^records/01-brief/.*\\.yaml$"
+      }
+    },
+    "summary": {"type": "string", "minLength": 1},
+    "sectors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "水産・農林業",
+        "鉱業",
+        "建設業",
+        "食料品",
+        "繊維製品",
+        "パルプ・紙",
+        "化学",
+        "医薬品",
+        "石油・石炭製品",
+        "ゴム製品",
+        "ガラス・土石製品",
+        "鉄鋼",
+        "非鉄金属",
+        "金属製品",
+        "機械",
+        "電気機器",
+        "輸送用機器",
+        "精密機器",
+        "その他製品",
+        "電気・ガス業",
+        "陸運業",
+        "海運業",
+        "空運業",
+        "倉庫・運輸関連業",
+        "情報・通信業",
+        "卸売業",
+        "小売業",
+        "銀行業",
+        "証券、商品先物取引業",
+        "保険業",
+        "その他金融業",
+        "不動産業",
+        "サービス業"
+      ],
+      "patternProperties": {
+        ".+": {"$ref": "#/$defs/Judgement"}
+      }
+    },
+    "regions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["us", "japan-domestic", "japan-external-demand", "emerging"],
+      "properties": {
+        "us": {"$ref": "#/$defs/Judgement"},
+        "japan-domestic": {"$ref": "#/$defs/Judgement"},
+        "japan-external-demand": {"$ref": "#/$defs/Judgement"},
+        "emerging": {"$ref": "#/$defs/Judgement"}
+      }
+    },
+    "changes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/Change"}
+    },
+    "next_triggers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/Trigger"}
+    },
+    "notes": {"type": "string"}
+  },
+  "$defs": {
+    "Judgement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "rationale", "source_refs"],
+      "properties": {
+        "status": {
+          "anyOf": [
+            {"enum": ["tailwind", "neutral", "headwind"]},
+            {"type": "null"}
+          ]
+        },
+        "rationale": {"type": "string", "minLength": 1},
+        "source_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^records/01-brief/.*\\.yaml$"
+          }
+        }
+      }
+    },
+    "Change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "from_status", "to_status", "rationale"],
+      "properties": {
+        "target": {"type": "string", "minLength": 1},
+        "from_status": {
+          "anyOf": [
+            {"enum": ["tailwind", "neutral", "headwind"]},
+            {"type": "null"}
+          ]
+        },
+        "to_status": {
+          "anyOf": [
+            {"enum": ["tailwind", "neutral", "headwind"]},
+            {"type": "null"}
+          ]
+        },
+        "rationale": {"type": "string", "minLength": 1},
+        "source_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^records/01-brief/.*\\.yaml$"
+          }
+        }
+      }
+    },
+    "Trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["date", "text"],
+      "properties": {
+        "date": {"type": "string", "minLength": 1},
+        "text": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

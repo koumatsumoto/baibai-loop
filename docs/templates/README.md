@@ -6,11 +6,11 @@ Baibai-Loop 各成分の記入テンプレート集。template をコピーし�
 
 | Template | 最終 location | 対応 component |
 | --- | --- | --- |
-| `brief-world-daily.md` | `records/01-brief/YYYY/MM/YYYY-MM-DD-world-daily-*.md` | [`/docs/components/brief.md`](/docs/components/brief.md) |
-| `brief-world-weekly.md` | `records/01-brief/YYYY/MM/YYYY-MM-DD-world-weekly-*.md` | [`/docs/components/brief.md`](/docs/components/brief.md) |
-| `brief-japan-monthly.md` | `records/01-brief/YYYY/MM/YYYY-MM-macro-monthly-*.md` | [`/docs/components/brief.md`](/docs/components/brief.md) |
-| `brief-event.md` | `records/01-brief/YYYY/MM/YYYY-MM-DD-<kind>-*.md` | [`/docs/components/brief.md`](/docs/components/brief.md) |
-| `outlook.md` | `records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.md` | [`/docs/components/outlook.md`](/docs/components/outlook.md) |
+| `brief-world-daily.yaml` | `records/01-brief/YYYY/MM/YYYY-MM-DD-world-daily-*.yaml` | [`/docs/components/brief.md`](/docs/components/brief.md) |
+| `brief-world-weekly.yaml` | `records/01-brief/YYYY/MM/YYYY-MM-DD-world-weekly-*.yaml` | [`/docs/components/brief.md`](/docs/components/brief.md) |
+| `brief-japan-monthly.yaml` | `records/01-brief/YYYY/MM/YYYY-MM-macro-monthly-*.yaml` | [`/docs/components/brief.md`](/docs/components/brief.md) |
+| `brief-event.yaml` | `records/01-brief/YYYY/MM/YYYY-MM-DD-<kind>-*.yaml` | [`/docs/components/brief.md`](/docs/components/brief.md) |
+| `outlook.yaml` | `records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml` | [`/docs/components/outlook.md`](/docs/components/outlook.md) |
 | `screened.yaml` | `records/03-screened/YYYY/MM/YYYY-MM-DD.yaml` | [`/docs/components/screened.md`](/docs/components/screened.md) |
 | `research.md` | `records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md` | [`/docs/components/research.md`](/docs/components/research.md) |
 | `trade.md` | `records/05-trades/YYYY/MM/YYYY-MM-DD-<ticker>.md` | [`/docs/components/trades.md`](/docs/components/trades.md) |
@@ -30,8 +30,8 @@ Baibai-Loop 各成分の記入テンプレート集。template をコピーし�
 
 1. 作成したい成分に対応する template を `docs/templates/` からコピー
 2. 最終 location に配置（上記表参照）
-3. YAML または front matter と本文を埋める（AI 下書きは `ai-draft: true`）
-4. 人間が最終確認（`ai-draft: false` に更新）
+3. YAML または front matter と本文を埋める（AI 下書きは `ai_draft: true` / `ai-draft: true`、成分により key 表記が異なる）
+4. 人間が最終確認（`ai_draft: false` / `ai-draft: false` に更新）
 5. commit
 
 ## 参考

@@ -15,15 +15,15 @@ Baibai-Loop 4 成分アーキテクチャの **(a) マクロ事実ブリーフ**
 
 | kind | 頻度 | 対象 | template |
 | --- | --- | --- | --- |
-| `world-daily` | 日次（営業日ベース、鮮度補完が必要な日） | 前日以降に増えた一次統計・会合日程・市場事実のうち、週次まで待つと outlook が stale になるもの | [`../templates/brief-world-daily.md`](../templates/brief-world-daily.md) |
-| `world-weekly` | 週次 1 回 | 世界情勢・グローバル市場指標・地政学速報 | [`../templates/brief-world-weekly.md`](../templates/brief-world-weekly.md) |
-| `macro-monthly` | 月次 1 回（主要発表の出揃い後） | CPI / 雇用統計 / 政策金利変更などの月次〜四半期統計 | [`../templates/brief-japan-monthly.md`](../templates/brief-japan-monthly.md) |
+| `world-daily` | 日次（営業日ベース、鮮度補完が必要な日） | 前日以降に増えた一次統計・会合日程・市場事実のうち、週次まで待つと outlook が stale になるもの | [`../templates/brief-world-daily.yaml`](../templates/brief-world-daily.yaml) |
+| `world-weekly` | 週次 1 回 | 世界情勢・グローバル市場指標・地政学速報 | [`../templates/brief-world-weekly.yaml`](../templates/brief-world-weekly.yaml) |
+| `macro-monthly` | 月次 1 回（主要発表の出揃い後） | CPI / 雇用統計 / 政策金利変更などの月次〜四半期統計 | [`../templates/brief-japan-monthly.yaml`](../templates/brief-japan-monthly.yaml) |
 
 ### 2.2 event（不定期）
 
 | kind | trigger | template |
 | --- | --- | --- |
-| `fomc` | FOMC 会合当日または翌営業日 | [`../templates/brief-event.md`](../templates/brief-event.md) |
+| `fomc` | FOMC 会合当日または翌営業日 | [`../templates/brief-event.yaml`](../templates/brief-event.yaml) |
 | `boj` | 日銀金融政策決定会合当日 | 同上 |
 | `cpi` | CPI 発表日（予想対比 ±0.5% 以上乖離時） | 同上 |
 | `gdp` | GDP 速報発表日 | 同上 |
@@ -46,7 +46,7 @@ Baibai-Loop 4 成分アーキテクチャの **(a) マクロ事実ブリーフ**
 ## 3. Path と命名
 
 ```
-records/01-brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
+records/01-brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.yaml
 ```
 
 - `{kind}`: `world-daily` / `world-weekly` / `macro-monthly` / `fomc` / `boj` / `cpi` / `gdp` / `geopolitics` / `event`
@@ -57,24 +57,52 @@ records/01-brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
   - 目立つ事実がない観測月は `overview` を用いてよい
 - INDEX ファイルは作らない。一覧は `git ls-files records/01-brief/` または GitHub ツリーで確認
 
-## 4. Front matter 必須項目
+## 4. YAML 必須項目
 
 ```yaml
----
+schema_version: 1
+kind: world-weekly | world-daily | macro-monthly | fomc | boj | cpi | gdp | geopolitics | event
 type: periodic | event
 scope: world | japan | sector-xx
-ai-draft: true | false
+ai_draft: true | false
 published_at: "ISO 8601"       # 例: "2026-04-24T09:00:00+09:00"
+observation_date: "YYYY-MM-DD"
+period:                        # world-weekly では必須
+  start: "YYYY-MM-DD"
+  end: "YYYY-MM-DD"
+  market_basis_date: "YYYY-MM-DD"
+month: "YYYY-MM"               # macro-monthly では必須
+references:
+  prev_period: records/01-brief/.../...yaml | null
+  latest_monthly: records/01-brief/.../...yaml | null
 sources:
-  - "URL or path"
----
+  - id: <id>
+    name: <ソース名>
+    url: <URL>
+    accessed_at: "YYYY-MM-DD"
+    status: ok | partial | failed
+layers:
+  world: {...}
+  japan: {...}
+  japan_equity: {...}
+deltas:                        # world-weekly / macro-monthly では必須
+  threshold_breaches: [...]
+  unjudgeable: [...]
+  direction_history: [...]
+next_events: [...]
 ```
 
-- `type`: `periodic` か `event` のどちらか
-- `scope`: 対象範囲（世界 / 日本 / 特定セクター）
-- `ai-draft`: AI 下書き段階では `true`、人間確認後 `false`
+- `schema_version`: 現状は `1`
+- `kind` / `type` / `scope`: 種別と範囲
+- `ai_draft`: AI 下書き段階では `true`、人間確認後 `false`
 - `published_at`: 作成/公開日時（ISO 8601 完全形、quote 必須）
-- `sources`: 参照した一次統計 URL / path の配列
+- `observation_date`: 観測日（実作成日）
+- `period`: 週次 brief の対象期間と市場データ基準日
+- `month`: 月次 brief の対象月
+- `sources[]`: 参照した一次統計を構造化記録。本文の各 indicator / event は `source_ids: [<id>, ...]` で sources を参照する
+- `layers`: `world` / `japan` / `japan_equity` の 3 キー必須。該当なしは `{}` を明示
+- `deltas`: 週次 / 月次は必須。閾値超え（`threshold_breaches`）、判定不能（`unjudgeable`）、方向履歴（`direction_history`）、方向反転（`direction_reversals`）を構造化
+- 詳細な schema は [`../../records/_schemas/brief-v1.json`](../../records/_schemas/brief-v1.json)
 
 ## 5. 更新頻度とワークフロー
 
@@ -122,7 +150,7 @@ sources:
 | **事実と解釈の混入チェック** | | ○ |
 | 最終 commit | | ○ |
 
-AI 下書きは `ai-draft: true` で識別し、人間確認後 `false` に更新する。
+AI 下書きは `ai_draft: true` で識別し、人間確認後 `false` に更新する。
 
 ## 8. 参考
 
@@ -130,7 +158,7 @@ AI 下書きは `ai-draft: true` で識別し、人間確認後 `false` に更�
 - [`../architecture-v1.md`](../architecture-v1.md): 全体構造
 - [`../workflow.md`](../workflow.md): brief の詳細運用ルール（閾値、差分、禁止表現）
 - [`../data-sources.md`](../data-sources.md): 一次統計ソース Tier
-- [`../templates/brief-world-daily.md`](../templates/brief-world-daily.md): 日次 template
-- [`../templates/brief-world-weekly.md`](../templates/brief-world-weekly.md): 週次 template
-- [`../templates/brief-japan-monthly.md`](../templates/brief-japan-monthly.md): 月次 template
-- [`../templates/brief-event.md`](../templates/brief-event.md): 不定期 template
+- [`../templates/brief-world-daily.yaml`](../templates/brief-world-daily.yaml): 日次 template
+- [`../templates/brief-world-weekly.yaml`](../templates/brief-world-weekly.yaml): 週次 template
+- [`../templates/brief-japan-monthly.yaml`](../templates/brief-japan-monthly.yaml): 月次 template
+- [`../templates/brief-event.yaml`](../templates/brief-event.yaml): 不定期 template

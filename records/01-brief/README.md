@@ -17,7 +17,7 @@
 ## 命名規則
 
 ```
-records/01-brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
+records/01-brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.yaml
 ```
 
 - `{kind}` 例: `world-daily` / `world-weekly` / `macro-monthly` / `fomc` / `boj` / `cpi` / `gdp` / `geopolitics` / `event`
@@ -26,35 +26,45 @@ records/01-brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
 例:
 
 ```
-records/01-brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.md
-records/01-brief/2026/04/2026-04-macro-monthly-us-cpi-hot.md
-records/01-brief/2026/04/2026-04-30-fomc-hold.md
+records/01-brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.yaml
+records/01-brief/2026/04/2026-04-macro-monthly-us-cpi-hot.yaml
+records/01-brief/2026/04/2026-04-30-fomc-hold.yaml
 ```
 
-## Front matter 必須項目
+## YAML 必須項目
 
 ```yaml
----
+schema_version: 1
+kind: world-weekly | world-daily | macro-monthly | fomc | boj | cpi | gdp | geopolitics | event
 type: periodic | event
 scope: world | japan | sector-xx
-ai-draft: true | false
+ai_draft: true | false
 published_at: "ISO 8601"
+observation_date: "YYYY-MM-DD"
 sources:
-  - "path or URL"
----
+  - id: <id>
+    name: <name>
+    url: <URL>
+    accessed_at: "YYYY-MM-DD"
+    status: ok | partial | failed
+layers:
+  world: {...}
+  japan: {...}
+  japan_equity: {...}
+next_events: [...]
 ```
 
-詳細: [`docs/components/brief.md`](/docs/components/brief.md)
+詳細: [`docs/components/brief.md`](/docs/components/brief.md) と [`records/_schemas/brief-v1.json`](/records/_schemas/brief-v1.json)
 
 ## 運用ルール
 
 - 思想・ベースの考え方: [`../docs/philosophy.md`](/docs/philosophy.md)
 - アーキテクチャ正本: [`../docs/architecture-v1.md`](/docs/architecture-v1.md)
 - 設計原則: [`../docs/design-principles.md`](/docs/design-principles.md)
-- 日次 template: [`../docs/templates/brief-world-daily.md`](/docs/templates/brief-world-daily.md)
-- 週次 template: [`../docs/templates/brief-world-weekly.md`](/docs/templates/brief-world-weekly.md)
-- 月次 template: [`../docs/templates/brief-japan-monthly.md`](/docs/templates/brief-japan-monthly.md)
-- 不定期 template: [`../docs/templates/brief-event.md`](/docs/templates/brief-event.md)
+- 日次 template: [`../docs/templates/brief-world-daily.yaml`](/docs/templates/brief-world-daily.yaml)
+- 週次 template: [`../docs/templates/brief-world-weekly.yaml`](/docs/templates/brief-world-weekly.yaml)
+- 月次 template: [`../docs/templates/brief-japan-monthly.yaml`](/docs/templates/brief-japan-monthly.yaml)
+- 不定期 template: [`../docs/templates/brief-event.yaml`](/docs/templates/brief-event.yaml)
 - 更新頻度・引用形式: [`../docs/workflow.md`](/docs/workflow.md)
 - 作成前の欠損確認: [`../docs/workflow.md#brief-作成前の欠損確認`](/docs/workflow.md#brief-作成前の欠損確認)
 - データソース: [`../docs/data-sources.md`](/docs/data-sources.md)

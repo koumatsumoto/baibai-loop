@@ -4,7 +4,7 @@ name: "チェンジホールディングス"
 playbook: valuation-mean-reversion-v1
 decision: accepted
 screened_ref: records/03-screened/2026/04/2026-04-24.yaml
-outlook_ref: records/02-outlook/2026/04/outlook-2026-04-24-bootstrap.md
+outlook_ref: records/02-outlook/2026/04/outlook-2026-04-24-bootstrap.yaml
 brief_refs: []
 ai-draft: true
 published_at: "2026-04-25T22:00:00+09:00"

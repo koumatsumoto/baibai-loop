@@ -122,10 +122,16 @@ class _ScreenedFrontMatter(BaseModel):
     tickers: list[_ScreenedCandidateInput] = Field(default_factory=list)
 
 
-class _OutlookFrontMatter(BaseModel):
-    model_config = ConfigDict(frozen=True, strict=True)
+class _OutlookJudgement(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=False, extra="allow")
 
-    sectors: Mapping[str, str | None] = Field(default_factory=dict)
+    status: str | None = None
+
+
+class _OutlookFrontMatter(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=False, extra="allow")
+
+    sectors: Mapping[str, _OutlookJudgement] = Field(default_factory=dict)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -224,7 +230,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--outlook",
         help=(
             "outlook path to apply (default: latest "
-            "records/02-outlook/<YYYY>/<MM>/outlook-*.md on or before asof)"
+            "records/02-outlook/<YYYY>/<MM>/outlook-*.yaml on or before asof)"
         ),
     )
     select_parser.add_argument(
@@ -559,19 +565,22 @@ def select_command(
     if resolved_outlook_path is None or not resolved_outlook_path.exists():
         print(
             "outlook file not found. Pass --outlook <path> or create "
-            "records/02-outlook/<YYYY>/<MM>/outlook-*.md",
+            "records/02-outlook/<YYYY>/<MM>/outlook-*.yaml",
             file=sys.stderr,
         )
         return 1
     try:
         outlook_fm = TypeAdapter(_OutlookFrontMatter).validate_python(
-            _parse_markdown_front_matter(resolved_outlook_path)
+            _parse_outlook_yaml(resolved_outlook_path)
         )
     except ValidationError as exc:
         print(f"invalid outlook front matter: {resolved_outlook_path}: {exc}", file=sys.stderr)
         return 1
 
-    candidates = _rank_candidates(screened_fm.tickers, outlook_fm.sectors)
+    sectors_status: Mapping[str, str | None] = {
+        sector: judgement.status for sector, judgement in outlook_fm.sectors.items()
+    }
+    candidates = _rank_candidates(screened_fm.tickers, sectors_status)
     summary = {
         "asof": asof_date.isoformat(),
         "screened_ref": str(screened_path),
@@ -584,12 +593,11 @@ def select_command(
     return 0
 
 
-def _parse_markdown_front_matter(path: Path) -> dict[str, object]:
-    text = path.read_text(encoding="utf-8")
-    match = re.match(r"^---\n(.*?)\n---", text, re.DOTALL)
-    if not match:
-        return {}
-    return yaml.safe_load(match.group(1)) or {}
+def _parse_outlook_yaml(path: Path) -> dict[str, object]:
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise ValueError(f"outlook YAML root must be a mapping: {path}")
+    return document
 
 
 def _parse_screened_yaml_payload(path: Path) -> dict[str, object]:
@@ -603,7 +611,7 @@ def _find_latest_outlook(outlook_root: Path, asof_date: date) -> Path | None:
     if not outlook_root.exists():
         return None
     asof_iso = asof_date.isoformat()
-    matches = sorted(outlook_root.glob("*/*/outlook-*.md"))
+    matches = sorted(outlook_root.glob("*/*/outlook-*.yaml"))
     eligible = [
         path
         for path in matches

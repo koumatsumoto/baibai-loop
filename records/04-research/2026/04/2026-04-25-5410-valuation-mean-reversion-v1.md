@@ -4,7 +4,7 @@ name: "合同製鐵"
 playbook: valuation-mean-reversion-v1
 decision: accepted
 screened_ref: records/03-screened/2026/04/2026-04-24.yaml
-outlook_ref: records/02-outlook/2026/04/outlook-2026-04-24-bootstrap.md
+outlook_ref: records/02-outlook/2026/04/outlook-2026-04-24-bootstrap.yaml
 brief_refs: []
 ai-draft: true
 published_at: "2026-04-25T22:00:00+09:00"
@@ -40,7 +40,7 @@ valuation:
 - 業種: 鉄鋼 (outlook で `neutral`)
 - 地域: `japan-external-demand` tailwind (USD/JPY 159 台 + 米最終需要強)
 - 保守側優先判定結果: neutral
-- outlook_ref: records/02-outlook/2026/04/outlook-2026-04-24-bootstrap.md
+- outlook_ref: records/02-outlook/2026/04/outlook-2026-04-24-bootstrap.yaml
 - 1-2 行要約: 業種は neutral だが外需地域は tailwind。鉄鋼は輸出比率が高く tailwind の恩恵を受けやすい。headwind ではないので採用可。
 
 ## 3. Valuation snapshot

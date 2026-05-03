@@ -83,11 +83,11 @@ baibai-loop/
 │   │   ├── mechanical-v1.md
 │   │   └── macro-gate-procedure.md
 │   └── templates/                     # 各成分の記入テンプレート
-│       ├── brief-world-daily.md
-│       ├── brief-world-weekly.md
-│       ├── brief-japan-monthly.md
-│       ├── brief-event.md
-│       ├── outlook.md
+│       ├── brief-world-daily.yaml
+│       ├── brief-world-weekly.yaml
+│       ├── brief-japan-monthly.yaml
+│       ├── brief-event.yaml
+│       ├── outlook.yaml
 │       ├── screened.yaml
 │       ├── research.md
 │       ├── trade.md
