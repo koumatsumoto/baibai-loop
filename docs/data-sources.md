@@ -2,7 +2,7 @@
 
 Baibai-Loop で使うデータソースを、客観性を優先した基準で選定して記録する。ニュース媒体の意見に偏らないよう **一次統計（中央銀行・政府・国際機関）中心** で構成し、一次統計で拾えない地政学イベントのみを補助ソースで補完する。
 
-4 成分アーキテクチャ ([`architecture-v1.md`](./architecture-v1.md)) における各成分のデータソース対応:
+4 成分アーキテクチャ ([`architecture.md`](./architecture.md)) における各成分のデータソース対応:
 
 | 成分 | 用途 | 主なソース |
 | --- | --- | --- |
@@ -17,9 +17,9 @@ Baibai-Loop で使うデータソースを、客観性を優先した基準で�
 
 ## 取得データの保存方針
 
-J-Quants / EDINET から取得したデータは、個人利用・非公開 repository での Baibai-Loop 運用に限り、ローカル cache または永続 cache として保存してよいことを確認済み（2026-05-02、運用者確認）。外部公開・第三者再配布は行わない。
+J-Quants / EDINET から取得したデータは、個人利用・非公開 repository での Baibai-Loop 運用に限り、ローカル cache または永続 cache として保存してよい。外部公開・第三者再配布は行わない。
 
-保存済み cache は、screening 再生成、ledger tracking、monthly retro のための入力証跡として扱う。ただし J-Quants の調整後価格、銘柄マスター、JPX 規制情報などは完全な point-in-time snapshot ではないため、再現性ではなく traceability の補助として使う。
+保存済み cache は、screening 再生成、ledger tracking、monthly retro のための入力証跡として扱う。J-Quants の調整後価格、銘柄マスター、JPX 規制情報などは完全な point-in-time snapshot ではないため、再現性ではなく traceability の補助として使う。
 
 ## スコアリング軸
 
@@ -93,7 +93,7 @@ Tier 1 / Tier 1 準拠 ソースが作業環境からアクセスできない場
 - 連続 2 回の brief 作成で同じソースが取得失敗した場合、代替一次ソース（同じ統計を別 URL で配信している一次統計ミラー・集約サイト）の Tier 1 準拠追加を検討する
 - 検討の結果、恒常的に取れないと判断した指標は、テンプレート側から該当行を落とすか、空欄運用で確定させる
 
-### 既知の取得経路と代替ルート（2026-05 時点）
+### 既知の取得経路と代替ルート
 
 本リポジトリの作業環境では `fred.stlouisfed.org` への直接 HTTP リクエストが HTTP/2 stream INTERNAL_ERROR で打ち切られる（curl の `--http1.1` を付けても同じ）。FRED 経由で取りに行く前に、以下の Tier 1 / Tier 1 準拠 経路を優先的に試す:
 

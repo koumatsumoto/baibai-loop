@@ -23,7 +23,7 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
 ### 1.3 保有期間
 
-- 5〜40 営業日（v1 swing の範囲内）
+- 5〜40 営業日（swing の範囲内）
 
 ### 1.4 Type
 

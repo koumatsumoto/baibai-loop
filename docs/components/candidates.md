@@ -1,6 +1,6 @@
 # components/candidates.md
 
-Baibai-Loop 4 成分アーキテクチャの **(b) スクリーニング通過銘柄** の運用仕様。狭義のスクリーニング = 機械的ふるいの完了形を指す。全体構造は [`../architecture-v1.md`](../architecture-v1.md)、スクリーニング詳細は [`../screening/`](../screening/) 配下を参照。
+Baibai-Loop 4 成分アーキテクチャの **(b) スクリーニング通過銘柄** の運用仕様。狭義のスクリーニング = 機械的ふるいの完了形を指す。全体構造は [`../architecture.md`](../architecture.md)、スクリーニング詳細は [`../screening/`](../screening/) 配下を参照。
 
 ## 1. 役割
 
@@ -84,9 +84,9 @@ tickers:                            # 通過銘柄 list
 - `run_date` は `asof_date` と同値。ファイル path の日付とも一致させる
 - `run_id`: 実行単位 ID。`screening-{asof_date:YYYYMMDD}-{config_hash 先頭 8 hex}` 形式
 - `config_hash`: `ScreeningConfig` の secret 以外と provider URL / tier 設定を正規化した SHA256 短縮 hash。`--asof` や出力 path は含めない
-- `cache_manifest_hash`: `records/_data/raw/screening/` 配下の provider raw JSON cache（`manifests/` 除外）を path / sha256 / size で記録した manifest の SHA256 短縮 hash。配置先は `SCREENING_CACHE_DIR` で上書き可能（issue #45 で `.cache/screening` から git 管理対象の path に移行）
+- `cache_manifest_hash`: `records/_data/raw/screening/` 配下の provider raw JSON cache（`manifests/` 除外）を path / sha256 / size で記録した manifest の SHA256 短縮 hash。配置先は `SCREENING_CACHE_DIR` で上書き可能
 - `ttm_quality` は `EV/EBITDA` / `P/S` / `PCFR` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する
-- `threshold_hit`: mechanical-v1 の閾値条件 3 種のどれを満たしたか（OR 条件、複数 hit 可）
+- `threshold_hit`: mechanical の閾値条件 3 種のどれを満たしたか（OR 条件、複数 hit 可）
 - `market_cap_oku` / `avg_turnover_oku`: research の position size 判定で使う。`market_cap_oku >= 200` かつ `avg_turnover_oku >= 3.0` で universe 通過する閾値と整合
 - `price_change_60d` / `price_change_4w`: split 影響を排除するため adjustment_close ベースで算出。research §7 Price reaction の数値ソース
 - `sector_relative_strength_percentile`: 4 週リターンの sector 内 percentile。条件 C の根拠
@@ -117,16 +117,16 @@ candidates YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行�
 
 1. 最新 universe を取得（J-Quants Light + JPX 除外条件適用）
 2. 各 ticker の valuation 指標を算出（[`../screening/valuation-metrics.md`](../screening/valuation-metrics.md) 参照）
-3. 閾値条件（[`../screening/mechanical-v1.md`](../screening/mechanical-v1.md) の 3 種 OR）を適用
+3. 閾値条件（[`../screening/mechanical.md`](../screening/mechanical.md) の 3 種 OR）を適用
 4. 通過銘柄を `tickers` 配列として YAML に記録
 5. 補足情報（実行時の provider 状態、除外件数、fallback 等）を事実として配列フィールドに記録
 
 ### 5.2 実装
 
-- automation v1 は `python -m baibai_loop.screening.cli run --asof YYYY-MM-DD` を正本とする
+- automation は `python -m baibai_loop.screening.cli run --asof YYYY-MM-DD` を正本とする
 - raw cache の事前取得は `python -m baibai_loop.screening.cli bootstrap-cache --start YYYY-MM-DD --end YYYY-MM-DD` を使う
-- automation の正本設計は [`../screening/automation-v1.md`](../screening/automation-v1.md) を参照
-- CLI 化後も、人間が異常値 spot check してから commit する
+- automation の正本設計は [`../screening/automation.md`](../screening/automation.md) を参照
+- 人間が異常値を spot check してから commit する
 
 ## 6. research への接続
 
@@ -154,9 +154,9 @@ candidates YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行�
 ## 9. 参考
 
 - [`../philosophy.md`](../philosophy.md): 思想（事実と分析の分離、マクロ優位）
-- [`../architecture-v1.md`](../architecture-v1.md): 全体構造
+- [`../architecture.md`](../architecture.md): 全体構造
 - [`../screening/`](../screening/): スクリーニングサブシステム詳細
 - [`../screening/universe-rules.md`](../screening/universe-rules.md): universe 境界条件
 - [`../screening/valuation-metrics.md`](../screening/valuation-metrics.md): 指標算出仕様
-- [`../screening/mechanical-v1.md`](../screening/mechanical-v1.md): 機械的ふるい仕様（閾値 3 種 OR）
+- [`../screening/mechanical.md`](../screening/mechanical.md): 機械的ふるい仕様（閾値 3 種 OR）
 - [`../templates/candidates.yaml`](../templates/candidates.yaml): template

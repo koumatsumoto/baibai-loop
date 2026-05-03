@@ -1,6 +1,6 @@
 # components/research.md
 
-Baibai-Loop 4 成分アーキテクチャの **(d) 個別銘柄リサーチ** の運用仕様。candidates × outlook から選定した個別銘柄の深掘り packet 本体で、本計画 v1 の主戦場。全体構造は [`../architecture-v1.md`](../architecture-v1.md)、スクリーニング詳細は [`../screening/`](../screening/) を参照。
+Baibai-Loop 4 成分アーキテクチャの **(d) 個別銘柄リサーチ** の運用仕様。candidates × outlook から選定した個別銘柄の深掘り packet 本体。全体構造は [`../architecture.md`](../architecture.md)、スクリーニング詳細は [`../screening/`](../screening/) を参照。
 
 ## 1. 役割
 
@@ -10,7 +10,7 @@ Baibai-Loop 4 成分アーキテクチャの **(d) 個別銘柄リサーチ** �
 
 ## 2. 選定プロセス（candidates × outlook → 候補絞り込み）
 
-本節は v1 アーキテクチャの中核。`candidates` (ミクロ事実) × `outlook` (マクロ見解) の 2 軸統合を具体化する。
+`candidates` (ミクロ事実) × `outlook` (マクロ見解) の 2 軸統合を具体化する。
 
 ### 2.1 4 ステップ
 
@@ -31,10 +31,10 @@ Baibai-Loop 4 成分アーキテクチャの **(d) 個別銘柄リサーチ** �
   - gate を **保守側にのみ** 手動上書き可（tailwind → neutral、neutral → headwind。逆方向の上書き不可）
   - 詳細: [`../screening/macro-gate-procedure.md`](../screening/macro-gate-procedure.md)
 
-### 2.3 outlook が存在しない期間（Bootstrap 前）
+### 2.3 outlook が存在しない場合
 
-- `records/02-outlook/` に最新の outlook がない場合は、research 作成前に outlook を更新する
-- bootstrap 手順: [`outlook.md`](./outlook.md) の Bootstrap 規則を参照
+- `records/02-outlook/` に最新の outlook がない場合は、research 作成前に outlook を作成する
+- 初回作成手順: [`outlook.md`](./outlook.md) §3 を参照
 
 ## 3. Path と命名
 
@@ -54,7 +54,7 @@ name: "トヨタ自動車"
 playbook: valuation-mean-reversion-v1 | valuation-catalyst-confirmation-v1
 decision: accepted | skipped | pending
 candidates_ref: records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml      # 必須
-outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml       # 必須（Bootstrap 後は例外なし）
+outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml       # 必須
 brief_refs:                                        # 任意、outlook 後に出た緊急 brief 時のみ
   - records/01-brief/YYYY/MM/YYYY-MM-DD-*.yaml
 ai-draft: true | false                             # AI 下書きフラグ
@@ -77,14 +77,14 @@ valuation:
 ---
 ```
 
-- `outlook_ref` は **必須**（Bootstrap 後は例外なし）
+- `outlook_ref` は **必須**
 - `brief_refs` は任意。outlook 後に gate 判定に影響する緊急 brief を参照した場合のみ追加
 - `macro_gate` が `headwind` の場合は採用不可（原則）
 - `decision: accepted` かつ `macro_gate: headwind` の場合は `macro_gate_override` が必須
 - `position_size_oku` は仮定資本 1 億円ベース。採用 position 1.0% は `0.01` 億円として記録する
 - `adv_participation_pct` は `5.0` 以上で hard reject
 - `market_cap_oku` / `sector_33` は candidates から転記し、tier rule と sector 集中 warning の検証に使う
-- 配当利回りは v1 スコープ外のため front matter に含めない
+- 配当利回りはスコープ外のため front matter に含めない
 
 ## 5. Packet 必須項目（本文、13 項目）
 
@@ -124,14 +124,14 @@ research decision は `baibai-loop-ledger sync` で [`records/_ledger/`](./ledge
 
 ### 6.2 判定基準
 
-- `macro_gate = headwind` は原則採用不可（bootstrap outlook 内で対象業種/地域が `null` の場合は neutral 扱いで判定可）
+- `macro_gate = headwind` は原則採用不可（outlook で対象業種/地域が `null` の場合は neutral 扱いで判定可）
 - valuation 軸で割安判定（業種中央値・過去自己比較）が成立
 - 反対仮説を考えて「構造的 trap ではない」と確信できる
 - catalyst（P-B のみ必須）が freshness ≦ 60 営業日
 - crowding が踏み上げリスクと逆回転リスクの両方で許容範囲
 - kill switch に抵触しない（決算またぎ / 日銀会合前日 / FOMC 前日）
 - position size が時価総額別上限を満たす
-- 市場規模 200-500 億帯で P-A (`valuation-mean-reversion-v1`) を採用する場合は `macro_gate_override` で明示理由を残す
+- 200-500 億帯は **P-B のみ採用可**（P-A 単独は不可）。例外運用が必要なら `macro_gate_override` で明示理由を残す
 
 ## 7. trades への接続
 
@@ -168,7 +168,7 @@ AI 下書きは front matter `ai-draft: true` で識別、人間確認後 `false
 ## 9. 参考
 
 - [`../philosophy.md`](../philosophy.md): 思想（マクロ優位 76/24、事実と分析の分離）
-- [`../architecture-v1.md`](../architecture-v1.md): 全体構造
+- [`../architecture.md`](../architecture.md): 全体構造
 - [`candidates.md`](./candidates.md): source となる candidates の仕様
 - [`outlook.md`](./outlook.md): Macro gate source の仕様
 - [`../screening/principles.md`](../screening/principles.md): Playbook P-A / P-B 定義

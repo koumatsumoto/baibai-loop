@@ -104,5 +104,5 @@ Baibai-Loop スクリーニングの universe（対象銘柄集合）の境界�
 
 - [`principles.md`](./principles.md): スクリーニング原則
 - [`valuation-metrics.md`](./valuation-metrics.md): 指標算出仕様
-- [`mechanical-v1.md`](./mechanical-v1.md): 機械的ふるい仕様
+- [`mechanical.md`](./mechanical.md): 機械的ふるい仕様
 - [`../components/candidates.md`](../components/candidates.md): candidates 運用仕様

@@ -1,14 +1,7 @@
-# architecture-v1
+# architecture
 
-Baibai-Loop の **構造・schema・procedure** を記述する正本。  
+Baibai-Loop の **構造・schema・procedure** を記述する正本。
 思想・ベースの考え方は [`philosophy.md`](./philosophy.md) に分離する。
-
-## 0. このドキュメントの役割と境界
-
-- **architecture-v1.md (本ファイル)**: **structure + schema + procedure**。具体的 structure、schema、path、front matter 定義、workflow
-- **philosophy.md**: **what we believe + why we chose this design**。価値観、選択の根拠、却下した対立案
-
-重なる topic（例: 「なぜ 4 成分か」）は philosophy 側で思想として書き、本ファイルは「4 成分である」と事実として受けて構造の記述に進む。
 
 ## 1. アーキテクチャ概観
 
@@ -27,10 +20,6 @@ Baibai-Loop は **4 成分 + 下流 2 成分** で構成される意思決定ル
 
 ## 2. 全体ワークフロー（2 トラック + 統合 + フィードバック）
 
-### 2.1 ASCII 図（source of truth）
-
-本 ASCII 図を source of truth とする。Mermaid 図は render 補助。
-
 ```
 ┌─────────────── Macro Track (independent) ───────────────┐
 │                                                          │
@@ -38,9 +27,9 @@ Baibai-Loop は **4 成分 + 下流 2 成分** で構成される意思決定ル
 │             │                                            │
 │             ↓                                            │
 │    ┌────────────┐    積み上げ    ┌────────────┐          │
-│    │  records/01-brief/    │ ─────────────→ │  records/02-outlook/     │          │
-│    │  (a) 事実   │                │  (c) 見解  │          │
-│    │  定期+不定期│                │  定期+不定期│          │
+│    │ records/   │ ─────────────→ │ records/   │          │
+│    │ 01-brief/  │                │ 02-outlook/│          │
+│    │ (a) 事実   │                │ (c) 見解   │          │
 │    └────────────┘                └─────┬──────┘          │
 │                                        │                 │
 └────────────────────────────────────────┼─────────────────┘
@@ -50,62 +39,35 @@ Baibai-Loop は **4 成分 + 下流 2 成分** で構成される意思決定ル
 │   primary sources (J-Quants 等)        │                 │
 │             │                          │                 │
 │             ↓                          │                 │
-│    ┌────────────┐                      │                 │
-│    │ records/03-candidates/  │                      │                 │
-│    │ (b) ふるい │                      │                 │
-│    │ 定期        │                      │                 │
-│    └──────┬─────┘                      │                 │
-│           │ candidates_ref (required)    │                 │
+│    ┌──────────────┐                    │                 │
+│    │ records/     │                    │                 │
+│    │ 03-candidates│                    │                 │
+│    │ (b) ふるい   │                    │                 │
+│    └──────┬───────┘                    │                 │
+│           │ candidates_ref (required)  │                 │
 │           └──────────┬─────────────────┘                 │
 │                      ↓                                   │
 │              ┌─────────────┐                             │
-│              │ records/04-research/   │                             │
+│              │ records/    │                             │
+│              │ 04-research │                             │
 │              │ (d) 深掘り  │                             │
-│              │ packet 本体 │                             │
 │              └──────┬──────┘                             │
 │                     │ 採用判定                           │
 │                     ↓                                    │
 │              ┌─────────────┐                             │
-│              │  records/05-trades/    │                             │
-│              │  執行       │                             │
+│              │ records/    │                             │
+│              │ 05-trades/  │                             │
 │              └──────┬──────┘                             │
 │                     ↓                                    │
 │              ┌─────────────┐                             │
-│              │  records/06-reviews/   │                             │
-│              │  事後検証   │                             │
+│              │ records/    │                             │
+│              │ 06-reviews/ │                             │
 │              └──────┬──────┘                             │
 │                     │                                    │
 │                     ↓ retro                              │
 │              feedback → playbook / screening 改訂        │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
-```
-
-### 2.2 Mermaid 図（render 補助、fallback は 2.1 ASCII）
-
-```mermaid
-flowchart TB
-    subgraph MacroTrack[Macro Track - independent]
-        PA[primary sources<br/>BOJ/BLS/JPX/総務省]
-        BRIEF[records/01-brief/<br/>a 事実ブリーフ<br/>定期+不定期]
-        OUTLOOK[records/02-outlook/<br/>c マクロ見解<br/>定期+不定期]
-        PA --> BRIEF --> OUTLOOK
-    end
-
-    subgraph MicroTrack[Micro Track - 売買ループ]
-        PB[primary sources<br/>J-Quants/EDINET/TDnet/JPX]
-        SCREENED[records/03-candidates/<br/>b 通過銘柄<br/>定期]
-        RESEARCH[records/04-research/<br/>d 個別深掘り<br/>+packet]
-        TRADES[records/05-trades/<br/>執行]
-        REVIEWS[records/06-reviews/<br/>事後検証]
-        PB --> SCREENED
-        SCREENED --> RESEARCH
-        RESEARCH -->|採用| TRADES
-        TRADES --> REVIEWS
-        REVIEWS -.retro feedback.-> RESEARCH
-    end
-
-    OUTLOOK -->|outlook_ref required| RESEARCH
 ```
 
 ## 3. 各成分の仕様
@@ -214,7 +176,7 @@ records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml
 #### 3.3.1 責務
 
 - `records/01-brief/` の積み上げを source として、業種/地域/資産クラス別の追い風/中立/逆風評価を生成
-- `records/04-research/` の Macro gate 判定で参照される（v1 では唯一の gate source）
+- `records/04-research/` の Macro gate 判定で参照される唯一の source
 
 #### 3.3.2 更新 trigger
 
@@ -259,18 +221,10 @@ next_triggers:
     text: "<イベント>"
 ```
 
-- `sectors` は東証 33 業種を全件必須にする（一部省略は不可）。変動がない業種は `status: neutral` でも明示する
+- `sectors` は東証 33 業種を全件必須にする。変動がない業種は `status: neutral` でも明示する
 - `regions` は `us` / `japan-domestic` / `japan-external-demand` / `emerging` の 4 件を全件必須にする
 - `status` の許容値は `tailwind` / `neutral` / `headwind` / `null` のみ。`null` の場合も `rationale` は必須
 - 詳細は [`components/outlook.md`](./components/outlook.md) と [`../records/_schemas/outlook-v1.json`](../records/_schemas/outlook-v1.json) を参照
-
-#### 3.3.5 Bootstrap 規則（v1 運用 Day 1）
-
-`records/02-outlook/` は以下の手順で更新する:
-
-1. 既存 `records/01-brief/` を読み、鮮度が不足する場合は `world-daily` / `event` を先に追加してから `records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-<slug>.yaml` を作成する
-2. outlook YAML の `updated_from` には実際に使った brief YAML を列挙する。`sectors` は東証 33 業種、`regions` は 4 地域を全件必須で埋める。判定材料が不足する場合は `status: null` + `rationale` で明示する
-3. bootstrap outlook 作成後、通常の research 作成フローに遷移
 
 ### 3.4 `records/04-research/` — (d) 個別銘柄リサーチ packet
 
@@ -300,7 +254,7 @@ ticker: "7203"
 name: "..."
 playbook: valuation-mean-reversion-v1 | valuation-catalyst-confirmation-v1
 candidates_ref: records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml      # 必須
-outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml     # 必須（Bootstrap 後は例外なし）
+outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml  # 必須
 brief_refs:                                        # 任意
   - records/01-brief/YYYY/MM/YYYY-MM-DD-*.yaml
 ai-draft: true | false

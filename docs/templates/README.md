@@ -37,6 +37,6 @@ Baibai-Loop 各成分の記入テンプレート集。template をコピーし�
 ## 参考
 
 - [`/docs/philosophy.md`](/docs/philosophy.md): 思想
-- [`/docs/architecture-v1.md`](/docs/architecture-v1.md): 全体構造
+- [`/docs/architecture.md`](/docs/architecture.md): 全体構造
 - [`/docs/components/`](/docs/components/): 各成分の運用仕様
 - [`/docs/screening/`](/docs/screening/): スクリーニングサブシステム詳細

@@ -1,6 +1,6 @@
 # screening/principles.md
 
-Baibai-Loop のスクリーニングサブシステムの設計原則。4 成分アーキテクチャの `(b) candidates` + `(c) outlook` + `(d) research` のフローに対応するルール集。全体構造は [`../architecture-v1.md`](../architecture-v1.md) を参照。
+Baibai-Loop のスクリーニングサブシステムの設計原則。4 成分アーキテクチャの `(b) candidates` + `(c) outlook` + `(d) research` のフローに対応するルール集。全体構造は [`../architecture.md`](../architecture.md) を参照。
 
 ## 1. 4 成分アーキテクチャとの接続
 
@@ -8,7 +8,7 @@ Baibai-Loop のスクリーニングサブシステムの設計原則。4 成分
 
 | 成分 | スクリーニング側の対応 | この原則集での位置付け |
 | --- | --- | --- |
-| (b) `records/03-candidates/` | 機械的ふるい | [`mechanical-v1.md`](./mechanical-v1.md) で仕様化 |
+| (b) `records/03-candidates/` | 機械的ふるい | [`mechanical.md`](./mechanical.md) で仕様化 |
 | (c) `records/02-outlook/` | Macro gate の source（簡易版） | [`macro-gate-procedure.md`](./macro-gate-procedure.md) で手順化 |
 | (d) `records/04-research/` | Playbook + 4 軸評価 + 採用判定 | 本ファイル + Playbook 本体 |
 
@@ -25,7 +25,7 @@ Baibai-Loop のスクリーニングサブシステムの設計原則。4 成分
 ### 3.1 P-A: Valuation Mean-Reversion（本命）
 
 - **対象**: 数値 valuation が業種中央値・過去自己比較で **一時的に割安** と判定される銘柄
-- **判定条件**: 閾値 3 種のうち **最低 1 つ満たす**（OR 条件、[`mechanical-v1.md`](./mechanical-v1.md)）
+- **判定条件**: 閾値 3 種のうち **最低 1 つ満たす**（OR 条件、[`mechanical.md`](./mechanical.md)）
 - **狙い**: 市場の短期過剰売りによる底値を掴む
 - **保有期間**: 5〜40 営業日
 
@@ -88,7 +88,7 @@ Research packet で以下の 4 軸を記入する。**合計点は算出しな�
 - **日銀金融政策決定会合の前日エントリー禁止**
 - **FOMC 前日エントリー禁止**
 - **マクロゲートが `headwind` の銘柄**（outlook で headwind 判定）
-- **Bootstrap 期でも outlook が未作成ならマクロゲート判定不能なので entry 不可**
+- **outlook が未作成ならマクロゲート判定不能なので entry 不可**
 
 保有中に outlook が更新され gate が `headwind` に転じた場合、即時 exit 検討。
 
@@ -119,12 +119,12 @@ Research packet で以下の 4 軸を記入する。**合計点は算出しな�
 ## 10. 参考
 
 - [`../philosophy.md`](../philosophy.md): 思想（マクロ優位、事実と分析の分離、feedback loop 先行、markdown 駆動）
-- [`../architecture-v1.md`](../architecture-v1.md): 全体構造
+- [`../architecture.md`](../architecture.md): 全体構造
 - [`../components/research.md`](../components/research.md): research 運用仕様
 - [`failure-taxonomy.md`](./failure-taxonomy.md): 失敗分類詳細
 - [`universe-rules.md`](./universe-rules.md): universe 境界条件
 - [`valuation-metrics.md`](./valuation-metrics.md): 指標算出仕様
-- [`mechanical-v1.md`](./mechanical-v1.md): 機械的ふるい仕様（閾値 3 種 OR）
+- [`mechanical.md`](./mechanical.md): 機械的ふるい仕様（閾値 3 種 OR）
 - [`macro-gate-procedure.md`](./macro-gate-procedure.md): Macro gate 判定手順
 - [`/records/_playbooks/valuation-mean-reversion-v1.md`](/records/_playbooks/valuation-mean-reversion-v1.md): P-A 本体
 - [`/records/_playbooks/valuation-catalyst-confirmation-v1.md`](/records/_playbooks/valuation-catalyst-confirmation-v1.md): P-B 本体

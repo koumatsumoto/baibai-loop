@@ -1,21 +1,5 @@
 # Security Policy
 
-## Supported Versions
+このリポジトリは個人運用の trading workflow であり、外部公開の脆弱性報告窓口を持ちません。security 関連の指摘がある場合はリポジトリの issue で連絡してください。
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
-
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
-
-## Reporting a Vulnerability
-
-Use this section to tell people how to report a vulnerability.
-
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+依存ライブラリの脆弱性監査は CI で `pip-audit` を、source コードの静的解析は `bandit` を実行しています。詳細は [`docs/python-foundation.md`](./docs/python-foundation.md) §8 を参照。

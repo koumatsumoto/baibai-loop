@@ -1,4 +1,4 @@
-# screening/mechanical-v1.md
+# screening/mechanical.md
 
 Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕様。4 成分アーキテクチャの (b) `records/03-candidates/` の出力を決める閾値ベース rule。
 
@@ -39,14 +39,14 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 - PER / PBR / EV-EBITDA のいずれかが **業種中央値比 -20% 以上の水準**
 - かつ、**同指標が過去 3 年自己レンジの下位 20%** に入っている
 - 両方を同時に満たすことが必要（業種対比と自己対比の二重確認）
-- 注: **EV/EBITDA は issue #15 の historical 近似バグの修正までは A/B 判定から一時除外**している。実装上は PER / PBR のみで評価する。
+- 注: EV/EBITDA は historical 近似精度の制約から判定対象外。実装上は PER / PBR のみで評価する
 
 ### 3.2 条件 B: 過去 60 営業日の急落 + valuation 下方乖離
 
 - 株価が過去 60 営業日で **-15% 以上** 下落
 - かつ、PER / PBR / EV-EBITDA のいずれかが **1σ 以上下方に振れている**（過去 3 年平均 + 標準偏差ベース）
 - 業績トレンドに明確な悪化がない（EPS / ROE / 売上の前年比が大きく崩れていない）
-- 注: EV/EBITDA は 3.1 と同様に issue #15 の解決までは対象外（PER / PBR のみ）。
+- 注: EV/EBITDA は 3.1 と同様に判定対象外（PER / PBR のみ）
 
 ### 3.3 条件 C: セクターローテーションによる短期売り
 
@@ -98,14 +98,9 @@ tickers:
 
 ## 6. 実装方針
 
-v1 は CLI で自動化しており、正本の実装仕様は [`automation-v1.md`](./automation-v1.md) を参照。
+CLI で自動化されており、実装の正本は [`automation.md`](./automation.md) を参照。本ドキュメントは mechanical ルール（閾値条件・rule engine）の意味論に絞る。
 
 - 実行形式: `python -m baibai_loop.screening.cli run --asof YYYY-MM-DD`
-- 本ドキュメントは mechanical ルール（閾値条件・rule engine）の意味論に絞り、実行方式・実装構成の詳細は automation-v1.md を正本とする
-- retro で以下が安定したら閾値・データソースを調整する:
-  - 閾値の妥当性（false positive/negative 評価）
-  - データソースの安定性（J-Quants / EDINET 取得失敗の頻度）
-  - 業種分類粒度（33 業種で十分か）
 
 ## 7. Retro での調整
 
@@ -115,11 +110,11 @@ v1 は CLI で自動化しており、正本の実装仕様は [`automation-v1.m
 - **採用率**: 通過銘柄のうち research で採用された割合。低すぎる場合は閾値が甘い
 - **skipped trade log**: 見送り銘柄の事後パフォーマンス。「割安判定したが採用見送り → 上昇」の偽陰性率
 
-閾値変更は playbook v2 改訂議論に含める（v1 運用中は据え置き、#7 から継承）。
+閾値変更は playbook 改訂議論に含める。
 
 ## 8. 事実と分析の分離
 
-- mechanical-v1 は **事実層**。閾値適用・threshold_hit は機械的
+- mechanical は **事実層**。閾値適用・threshold_hit は機械的
 - 「なぜ割安か」の仮説・「採用すべきか」の判断は research 側
 - candidates ファイル本文には補足情報（実行時の市場環境メモ、除外した特殊ケース等）を事実として記録。解釈を入れない
 
