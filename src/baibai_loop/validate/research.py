@@ -26,7 +26,7 @@ REQUIRED_FRONT_MATTER: tuple[str, ...] = (
     "decision",
     "market_cap_oku",
     "sector_33",
-    "screened_ref",
+    "candidates_ref",
     "outlook_ref",
     "brief_refs",
     "ai-draft",
@@ -453,15 +453,15 @@ def _validate_front_matter(
                     location="valuation.adv_participation_pct",
                 )
             )
-    screened_ref = front_matter.get("screened_ref")
-    if isinstance(screened_ref, str) and not screened_ref.endswith(".yaml"):
+    candidates_ref = front_matter.get("candidates_ref")
+    if isinstance(candidates_ref, str) and not candidates_ref.endswith(".yaml"):
         findings.append(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.screened-ref-not-yaml",
-                message="screened_ref must end with .yaml",
-                location="screened_ref",
+                code="research.candidates-ref-not-yaml",
+                message="candidates_ref must end with .yaml",
+                location="candidates_ref",
             )
         )
     outlook_ref = front_matter.get("outlook_ref")

@@ -1,6 +1,6 @@
 # screening/principles.md
 
-Baibai-Loop のスクリーニングサブシステムの設計原則。4 成分アーキテクチャの `(b) screened` + `(c) outlook` + `(d) research` のフローに対応するルール集。全体構造は [`../architecture-v1.md`](../architecture-v1.md) を参照。
+Baibai-Loop のスクリーニングサブシステムの設計原則。4 成分アーキテクチャの `(b) candidates` + `(c) outlook` + `(d) research` のフローに対応するルール集。全体構造は [`../architecture-v1.md`](../architecture-v1.md) を参照。
 
 ## 1. 4 成分アーキテクチャとの接続
 
@@ -8,7 +8,7 @@ Baibai-Loop のスクリーニングサブシステムの設計原則。4 成分
 
 | 成分 | スクリーニング側の対応 | この原則集での位置付け |
 | --- | --- | --- |
-| (b) `records/03-screened/` | 機械的ふるい | [`mechanical-v1.md`](./mechanical-v1.md) で仕様化 |
+| (b) `records/03-candidates/` | 機械的ふるい | [`mechanical-v1.md`](./mechanical-v1.md) で仕様化 |
 | (c) `records/02-outlook/` | Macro gate の source（簡易版） | [`macro-gate-procedure.md`](./macro-gate-procedure.md) で手順化 |
 | (d) `records/04-research/` | Playbook + 4 軸評価 + 採用判定 | 本ファイル + Playbook 本体 |
 

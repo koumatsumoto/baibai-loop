@@ -71,7 +71,7 @@ def _minimal_research_front_matter() -> dict[str, object]:
         "decision": "accepted",
         "market_cap_oku": 600,
         "sector_33": "情報・通信業",
-        "screened_ref": "records/03-screened/2026/04/2026-04-24.yaml",
+        "candidates_ref": "records/03-candidates/2026/04/2026-04-24.yaml",
         "outlook_ref": "records/02-outlook/2026/04/outlook-2026-04-24-bootstrap.yaml",
         "brief_refs": [],
         "ai-draft": True,
@@ -351,16 +351,16 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {f.code for f in findings}
         self.assertIn("research.invalid-macro-gate", codes)
 
-    def test_screened_ref_must_be_yaml(self) -> None:
+    def test_candidates_ref_must_be_yaml(self) -> None:
         front = _minimal_research_front_matter()
-        front["screened_ref"] = "records/03-screened/2026/04/2026-04-24.md"
+        front["candidates_ref"] = "records/03-candidates/2026/04/2026-04-24.md"
         path = self._write(front)
         try:
             findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         codes = {f.code for f in findings}
-        self.assertIn("research.screened-ref-not-yaml", codes)
+        self.assertIn("research.candidates-ref-not-yaml", codes)
 
     def test_outlook_ref_must_be_yaml(self) -> None:
         front = _minimal_research_front_matter()

@@ -4,7 +4,7 @@ Baibai-Loop の運用上の設計原則を記述する。本原則は [`philosop
 
 ## 1. 4 成分 + 下流アーキテクチャを前提とする
 
-Baibai-Loop は **4 成分 (`records/01-brief/`, `records/03-screened/`, `records/02-outlook/`, `records/04-research/`) + 下流 (`records/05-trades/`, `records/06-reviews/`)** の構造で運用する。全ての設計判断は本アーキテクチャを前提とする。詳細は [`architecture-v1.md`](./architecture-v1.md)。
+Baibai-Loop は **4 成分 (`records/01-brief/`, `records/03-candidates/`, `records/02-outlook/`, `records/04-research/`) + 下流 (`records/05-trades/`, `records/06-reviews/`)** の構造で運用する。全ての設計判断は本アーキテクチャを前提とする。詳細は [`architecture-v1.md`](./architecture-v1.md)。
 
 ## 2. 分析階層: 世界情勢 → 地域経済 → 個別資産
 
@@ -53,14 +53,14 @@ Baibai-Loop は **4 成分 (`records/01-brief/`, `records/03-screened/`, `record
 
 ## 4. 事実と分析の分離（philosophy 柱 1 の具体化）
 
-Baibai-Loop では **事実層（brief, screened）** と **分析層（outlook, research）** を物理的に別ファイル/別ディレクトリに分離する。同一ファイルに混在させない。
+Baibai-Loop では **事実層（brief, candidates）** と **分析層（outlook, research）** を物理的に別ファイル/別ディレクトリに分離する。同一ファイルに混在させない。
 
 ### 4.1 ファイル単位の分離
 
 | レイヤー | 扱う対象 | 格納先 | 4 成分対応 |
 |---|---|---|---|
 | マクロ事実 | グローバル/日本経済の観測値・一次統計引用・機械的計算 | `records/01-brief/` 配下 | (a) |
-| ミクロ事実 | スクリーニング通過銘柄・valuation 指標 snapshot | `records/03-screened/` 配下 | (b) |
+| ミクロ事実 | スクリーニング通過銘柄・valuation 指標 snapshot | `records/03-candidates/` 配下 | (b) |
 | マクロ分析 | マクロ見解・業種/地域の追い風/中立/逆風評価 | `records/02-outlook/` 配下 | (c) |
 | ミクロ分析 | 個別銘柄の深掘り・原因仮説・反対仮説・採用判定 | `records/04-research/` 配下 | (d) |
 
@@ -70,7 +70,7 @@ Baibai-Loop では **事実層（brief, screened）** と **分析層（outlook,
 2. **後知恵バイアスの抑制**: 過去の事実ファイルを見返すとき、当時の解釈と事実を混同すると、判断が汚染される
 3. **相場観の受け皿を事前に用意することでの防止**: 「相場観を書きたい」衝動の行き先を先に定義（`records/02-outlook/`, `records/04-research/`）しておくことで、`records/01-brief/` への混入を設計で遮断する
 
-### 4.3 事実レイヤー（brief / screened）に含めてよいもの
+### 4.3 事実レイヤー（brief / candidates）に含めてよいもの
 
 - 一次統計の数値引用（CPI 等）
 - マーケット終値・利回り
@@ -78,7 +78,7 @@ Baibai-Loop では **事実層（brief, screened）** と **分析層（outlook,
 - workflow で明示された閾値ルールの適用結果（Major / Notable ラベル等）
 - 過去 N 週の方向履歴（矢印列）
 - 方向反転の機械的検出
-- Valuation 指標の算出結果（`records/03-screened/` 側）
+- Valuation 指標の算出結果（`records/03-candidates/` 側）
 
 ### 4.4 事実レイヤーで禁止するもの
 
@@ -89,7 +89,7 @@ Baibai-Loop では **事実層（brief, screened）** と **分析層（outlook,
 
 ### 4.5 用語の運用ルール
 
-事実レイヤー（brief, screened）内で使う用語は、解釈を招かない中立的なものを選ぶ:
+事実レイヤー（brief, candidates）内で使う用語は、解釈を招かない中立的なものを選ぶ:
 
 - 「連続トレンド」「転換点」→ 解釈を帯びるため使わない
 - 「方向履歴」「方向反転」→ 機械的計算結果として中立

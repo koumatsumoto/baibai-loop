@@ -17,7 +17,7 @@ class PaperLedgerRecord:
     name: str
     decision: Literal["accepted", "pending"]
     playbook: str
-    screened_ref: str
+    candidates_ref: str
     research_ref: str
     asof_date: str
     decision_date: str
@@ -41,7 +41,7 @@ class SkippedLedgerRecord:
     name: str
     decision: Literal["skipped"]
     playbook: str
-    screened_ref: str
+    candidates_ref: str
     research_ref: str | None
     asof_date: str
     decision_date: str

@@ -12,13 +12,13 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.validate.screened import (
-    discover_screened_files,
-    validate_screened_file,
+from baibai_loop.validate.candidates import (
+    discover_candidates_files,
+    validate_candidates_file,
 )
 
 
-def _minimal_screened() -> dict[str, object]:
+def _minimal_candidates() -> dict[str, object]:
     return {
         "run_date": "2026-04-24",
         "asof_date": "2026-04-24",
@@ -50,7 +50,7 @@ def _minimal_screened() -> dict[str, object]:
     }
 
 
-class ScreenedValidationTests(unittest.TestCase):
+class CandidatesValidationTests(unittest.TestCase):
     def _write(self, payload: object) -> Path:
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".yaml", delete=False, encoding="utf-8"
@@ -59,50 +59,50 @@ class ScreenedValidationTests(unittest.TestCase):
             return Path(tmp.name)
 
     def test_minimal_valid_payload_has_no_findings(self) -> None:
-        path = self._write(_minimal_screened())
+        path = self._write(_minimal_candidates())
         try:
-            findings = validate_screened_file(path)
+            findings = validate_candidates_file(path)
         finally:
             path.unlink()
         self.assertEqual(findings, [])
 
     def test_invalid_run_id_pattern_is_flagged(self) -> None:
-        payload = _minimal_screened()
+        payload = _minimal_candidates()
         payload["run_id"] = "screening-20260424-XYZ"
         path = self._write(payload)
         try:
-            findings = validate_screened_file(path)
+            findings = validate_candidates_file(path)
         finally:
             path.unlink()
         codes = {finding.code for finding in findings}
         locations = {finding.location for finding in findings}
-        self.assertIn("screened.pattern", codes)
+        self.assertIn("candidates.pattern", codes)
         self.assertIn("run_id", locations)
 
     def test_short_config_hash_is_flagged(self) -> None:
-        payload = _minimal_screened()
+        payload = _minimal_candidates()
         payload["config_hash"] = "abc"
         path = self._write(payload)
         try:
-            findings = validate_screened_file(path)
+            findings = validate_candidates_file(path)
         finally:
             path.unlink()
         locations = {finding.location for finding in findings}
         self.assertIn("config_hash", locations)
 
     def test_missing_required_lineage_field_is_flagged(self) -> None:
-        payload = _minimal_screened()
+        payload = _minimal_candidates()
         del payload["cache_manifest_hash"]
         path = self._write(payload)
         try:
-            findings = validate_screened_file(path)
+            findings = validate_candidates_file(path)
         finally:
             path.unlink()
         codes = {finding.code for finding in findings}
-        self.assertIn("screened.required", codes)
+        self.assertIn("candidates.required", codes)
 
     def test_invalid_ticker_pattern_is_flagged(self) -> None:
-        payload = _minimal_screened()
+        payload = _minimal_candidates()
         tickers = payload["tickers"]
         assert isinstance(tickers, list)
         ticker_entry = tickers[0]
@@ -110,14 +110,14 @@ class ScreenedValidationTests(unittest.TestCase):
         ticker_entry["ticker"] = "abc"
         path = self._write(payload)
         try:
-            findings = validate_screened_file(path)
+            findings = validate_candidates_file(path)
         finally:
             path.unlink()
         locations = {finding.location for finding in findings}
         self.assertTrue(any("ticker" in loc for loc in locations if loc is not None))
 
     def test_empty_threshold_hit_is_flagged(self) -> None:
-        payload = _minimal_screened()
+        payload = _minimal_candidates()
         tickers = payload["tickers"]
         assert isinstance(tickers, list)
         ticker_entry = tickers[0]
@@ -125,25 +125,25 @@ class ScreenedValidationTests(unittest.TestCase):
         ticker_entry["threshold_hit"] = []
         path = self._write(payload)
         try:
-            findings = validate_screened_file(path)
+            findings = validate_candidates_file(path)
         finally:
             path.unlink()
         codes = {finding.code for finding in findings}
-        self.assertTrue(any(code.startswith("screened.") for code in codes))
+        self.assertTrue(any(code.startswith("candidates.") for code in codes))
 
     def test_unknown_root_field_is_flagged(self) -> None:
-        payload = _minimal_screened()
+        payload = _minimal_candidates()
         payload["typo_field_name"] = "oops"
         path = self._write(payload)
         try:
-            findings = validate_screened_file(path)
+            findings = validate_candidates_file(path)
         finally:
             path.unlink()
         codes = {finding.code for finding in findings}
-        self.assertIn("screened.additionalProperties", codes)
+        self.assertIn("candidates.additionalProperties", codes)
 
     def test_unknown_ticker_field_is_flagged(self) -> None:
-        payload = _minimal_screened()
+        payload = _minimal_candidates()
         tickers = payload["tickers"]
         assert isinstance(tickers, list)
         ticker_entry = tickers[0]
@@ -151,29 +151,29 @@ class ScreenedValidationTests(unittest.TestCase):
         ticker_entry["typo_field"] = "oops"
         path = self._write(payload)
         try:
-            findings = validate_screened_file(path)
+            findings = validate_candidates_file(path)
         finally:
             path.unlink()
         codes = {finding.code for finding in findings}
-        self.assertIn("screened.additionalProperties", codes)
+        self.assertIn("candidates.additionalProperties", codes)
 
     def test_non_mapping_yaml_root_returns_single_finding(self) -> None:
-        path = self._write([_minimal_screened()])
+        path = self._write([_minimal_candidates()])
         try:
-            findings = validate_screened_file(path)
+            findings = validate_candidates_file(path)
         finally:
             path.unlink()
         self.assertEqual(len(findings), 1)
-        self.assertEqual(findings[0].code, "screened.non-mapping")
+        self.assertEqual(findings[0].code, "candidates.non-mapping")
 
-    def test_repository_screened_files_pass(self) -> None:
-        repo_screened = ROOT / "screened"
-        files = discover_screened_files(repo_screened)
+    def test_repository_candidates_files_pass(self) -> None:
+        repo_candidates = ROOT / "candidates"
+        files = discover_candidates_files(repo_candidates)
         if not files:
-            self.skipTest("no screened files under repository root")
+            self.skipTest("no candidates files under repository root")
         for path in files:
-            findings = validate_screened_file(path)
-            self.assertEqual(findings, [], f"screened YAML {path} produced findings: {findings}")
+            findings = validate_candidates_file(path)
+            self.assertEqual(findings, [], f"candidates YAML {path} produced findings: {findings}")
 
 
 if __name__ == "__main__":

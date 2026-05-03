@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "screened-v1",
-  "title": "Screened YAML",
-  "description": "Schema for records/03-screened/YYYY/MM/YYYY-MM-DD.yaml outputs.",
+  "$id": "candidates-v1",
+  "title": "Candidates YAML",
+  "description": "Schema for records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml outputs.",
   "type": "object",
   "additionalProperties": false,
   "required": [

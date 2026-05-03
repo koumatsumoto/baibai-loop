@@ -156,7 +156,7 @@ class FakeJPXProvider:
 
 
 class ScreeningCliTests(unittest.TestCase):
-    def test_run_command_writes_screened_yaml(self) -> None:
+    def test_run_command_writes_candidates_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
             try:
@@ -367,7 +367,7 @@ class IndexNextEarningsTests(unittest.TestCase):
 
 
 class SelectCommandTests(unittest.TestCase):
-    def _write_screened(self, root: Path, asof: date, tickers: list[dict[str, object]]) -> Path:
+    def _write_candidates(self, root: Path, asof: date, tickers: list[dict[str, object]]) -> Path:
         path = root / f"{asof:%Y}" / f"{asof:%m}" / f"{asof:%Y-%m-%d}.yaml"
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = yaml.safe_dump({"tickers": tickers}, allow_unicode=True, sort_keys=False)
@@ -391,8 +391,8 @@ class SelectCommandTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
-            self._write_screened(
-                root / "records/03-screened",
+            self._write_candidates(
+                root / "records/03-candidates",
                 asof,
                 tickers=[
                     {
@@ -436,7 +436,7 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 outlook_path=None,
                 top=10,
-                screened_root=root / "records/03-screened",
+                candidates_root=root / "records/03-candidates",
                 outlook_root=root / "records/02-outlook",
                 stdout=buffer,
             )
@@ -451,16 +451,20 @@ class SelectCommandTests(unittest.TestCase):
             )
             self.assertEqual(payload["candidates"][1]["position_tier"], "500-1000 (max 1.0%)")
 
-    def test_rejects_non_mapping_screened_yaml(self) -> None:
+    def test_rejects_non_mapping_candidates_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
-            screened_path = (
-                root / "records/03-screened" / f"{asof:%Y}" / f"{asof:%m}" / f"{asof:%Y-%m-%d}.yaml"
+            candidates_path = (
+                root
+                / "records/03-candidates"
+                / f"{asof:%Y}"
+                / f"{asof:%m}"
+                / f"{asof:%Y-%m-%d}.yaml"
             )
-            screened_path.parent.mkdir(parents=True, exist_ok=True)
+            candidates_path.parent.mkdir(parents=True, exist_ok=True)
             # YAML root is a list rather than a mapping; should fail-fast.
-            screened_path.write_text(
+            candidates_path.write_text(
                 yaml.safe_dump([{"ticker": "1111"}], allow_unicode=True),
                 encoding="utf-8",
             )
@@ -473,10 +477,10 @@ class SelectCommandTests(unittest.TestCase):
                     asof_date=asof,
                     outlook_path=None,
                     top=10,
-                    screened_root=root / "records/03-screened",
+                    candidates_root=root / "records/03-candidates",
                     outlook_root=root / "records/02-outlook",
                     stdout=buffer,
                 )
             self.assertEqual(exit_code, 1)
-            self.assertIn("invalid screened YAML", stderr.getvalue())
+            self.assertIn("invalid candidates YAML", stderr.getvalue())
             self.assertIn("must be a mapping", stderr.getvalue())

@@ -69,7 +69,7 @@ USD/JPY、米製造業需要、海外建設投資の影響を一次的に受け�
 
 ## 3. 使い方 (research での integration)
 
-1. screened ticker の `sector_33` を本表で region 区分に対応させる
+1. candidates ticker の `sector_33` を本表で region 区分に対応させる
 2. 該当 region の outlook 判定 (tailwind / neutral / headwind) を確認
 3. **mixed / context-dependent** の業種は、`research §2 Macro gate` で銘柄個別の輸出比率や顧客地域を調べて region を確定する
 4. 業種 outlook と region outlook の両方が **headwind** の場合のみ「採用不可」(両方 neutral 以上は採用可)

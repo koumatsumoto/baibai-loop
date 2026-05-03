@@ -1,7 +1,7 @@
-"""Validate screened YAML artefacts against the central jsonschema.
+"""Validate candidates YAML artefacts against the central jsonschema.
 
-Phase 1-A で screened は YAML 正本になった。R6 のコア schema として
-`records/_schemas/screened-v1.json` で構造を中央集約し、本モジュールはその schema
+candidates は YAML 正本である。R6 のコア schema として
+`records/_schemas/candidates-v1.json` で構造を中央集約し、本モジュールはその schema
 で artefact を検証する。playbook 別 schema (本文 section 構造) は本
 モジュールの対象外。
 """
@@ -17,7 +17,7 @@ from jsonschema import Draft202012Validator
 
 from .errors import ValidationFinding
 
-SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "screened-v1.json"
+SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "candidates-v1.json"
 
 
 def _load_validator() -> Draft202012Validator:
@@ -31,8 +31,8 @@ def _load_validator() -> Draft202012Validator:
 _VALIDATOR = _load_validator()
 
 
-def validate_screened_file(path: Path) -> list[ValidationFinding]:
-    """Validate a single screened YAML file and return all findings."""
+def validate_candidates_file(path: Path) -> list[ValidationFinding]:
+    """Validate a single candidates YAML file and return all findings."""
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
@@ -40,7 +40,7 @@ def validate_screened_file(path: Path) -> list[ValidationFinding]:
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="screened.io",
+                code="candidates.io",
                 message=f"failed to read file: {exc}",
             )
         ]
@@ -51,7 +51,7 @@ def validate_screened_file(path: Path) -> list[ValidationFinding]:
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="screened.invalid-yaml",
+                code="candidates.invalid-yaml",
                 message=f"YAML parse failed: {exc}",
             )
         ]
@@ -60,8 +60,8 @@ def validate_screened_file(path: Path) -> list[ValidationFinding]:
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="screened.non-mapping",
-                message="screened YAML root must be a mapping",
+                code="candidates.non-mapping",
+                message="candidates YAML root must be a mapping",
             )
         ]
     findings: list[ValidationFinding] = []
@@ -71,7 +71,7 @@ def validate_screened_file(path: Path) -> list[ValidationFinding]:
             ValidationFinding(
                 severity="error",
                 target=path,
-                code=f"screened.{validator_keyword}",
+                code=f"candidates.{validator_keyword}",
                 message=str(error.message),
                 location=_format_path(error.absolute_path),
             )
@@ -79,8 +79,8 @@ def validate_screened_file(path: Path) -> list[ValidationFinding]:
     return findings
 
 
-def discover_screened_files(root: Path) -> list[Path]:
-    """Return all records/03-screened/*.yaml files under ``root`` in sorted order."""
+def discover_candidates_files(root: Path) -> list[Path]:
+    """Return all records/03-candidates/*.yaml files under ``root`` in sorted order."""
     if not root.exists():
         return []
     return sorted(p for p in root.rglob("*.yaml") if p.is_file())

@@ -7,12 +7,12 @@ Baibai-Loop の 4 成分 + 下流アーキテクチャにおける日々の運�
 Baibai-Loop は 2 トラック構成で運用する:
 
 - **Macro track (独立)**: `records/01-brief/` → `records/02-outlook/`（売買イベントと独立に更新）
-- **Micro track (売買ループ)**: `records/03-screened/` → `records/04-research/` → `records/05-trades/` → `records/06-reviews/` → retro feedback
+- **Micro track (売買ループ)**: `records/03-candidates/` → `records/04-research/` → `records/05-trades/` → `records/06-reviews/` → retro feedback
 
 各成分の詳細運用は [`components/`](./components/) 配下の個別 doc を参照:
 
 - [`components/brief.md`](./components/brief.md): (a) マクロ事実ブリーフ
-- [`components/screened.md`](./components/screened.md): (b) スクリーニング通過銘柄
+- [`components/candidates.md`](./components/candidates.md): (b) スクリーニング通過銘柄
 - [`components/outlook.md`](./components/outlook.md): (c) マクロ見解
 - [`components/research.md`](./components/research.md): (d) 個別銘柄リサーチ
 - [`components/trades.md`](./components/trades.md): 執行記録

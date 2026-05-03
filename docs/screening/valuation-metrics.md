@@ -1,6 +1,6 @@
 # screening/valuation-metrics.md
 
-Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。`(b) records/03-screened/` と `(d) records/04-research/` の両方で参照される指標の前提を確定する。
+Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。`(b) records/03-candidates/` と `(d) records/04-research/` の両方で参照される指標の前提を確定する。
 
 ## 1. 使用指標
 
@@ -136,12 +136,12 @@ J-Quants の財務サマリーは四半期 disclosure の時系列として扱�
 
 - 取得不能・算出不能は **明示的に `null`**（省略しない）
 - 決算期またぎの一時的欠損: 確報確定まで `null` 運用
-- 会計方針変更・特損計上等で一時的歪み: research 側で「反対仮説」に記録、screened の指標値は素直に採用（事実層のため）
+- 会計方針変更・特損計上等で一時的歪み: research 側で「反対仮説」に記録、candidates の指標値は素直に採用（事実層のため）
 
 ## 15. 参考
 
 - [`principles.md`](./principles.md): スクリーニング原則
 - [`universe-rules.md`](./universe-rules.md): universe 境界条件
 - [`mechanical-v1.md`](./mechanical-v1.md): 機械的ふるい仕様（閾値 3 種 OR）
-- [`../components/screened.md`](../components/screened.md): screened 運用仕様
+- [`../components/candidates.md`](../components/candidates.md): candidates 運用仕様
 - [`../data-sources.md`](../data-sources.md): データソース Tier 一覧

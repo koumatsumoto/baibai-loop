@@ -17,9 +17,9 @@ Baibai-Loop は **4 成分 + 下流 2 成分** で構成される意思決定ル
 | 成分 | directory | 役割 | 頻度 |
 | --- | --- | --- | --- |
 | **a** | [`records/01-brief/`](../records/01-brief/) | マクロ事実ブリーフ | 定期（週次/月次）+ 不定期 |
-| **b** | `records/03-screened/` | スクリーニング通過銘柄 | 定期（週次） |
+| **b** | `records/03-candidates/` | スクリーニング通過銘柄 | 定期（週次） |
 | **c** | `records/02-outlook/` | マクロ見解 | 定期（月次）+ 不定期 |
-| **d** | `records/04-research/` | 個別銘柄リサーチ（packet 本体） | screened 後の選定単位 |
+| **d** | `records/04-research/` | 個別銘柄リサーチ（packet 本体） | candidates 後の選定単位 |
 | ― | `records/05-trades/` | 執行記録 | 採用時 |
 | ― | `records/06-reviews/` | 事後検証 | 決済後 +15/+30 営業日 + 月次 retro |
 
@@ -51,11 +51,11 @@ Baibai-Loop は **4 成分 + 下流 2 成分** で構成される意思決定ル
 │             │                          │                 │
 │             ↓                          │                 │
 │    ┌────────────┐                      │                 │
-│    │ records/03-screened/  │                      │                 │
+│    │ records/03-candidates/  │                      │                 │
 │    │ (b) ふるい │                      │                 │
 │    │ 定期        │                      │                 │
 │    └──────┬─────┘                      │                 │
-│           │ screened_ref (required)    │                 │
+│           │ candidates_ref (required)    │                 │
 │           └──────────┬─────────────────┘                 │
 │                      ↓                                   │
 │              ┌─────────────┐                             │
@@ -94,7 +94,7 @@ flowchart TB
 
     subgraph MicroTrack[Micro Track - 売買ループ]
         PB[primary sources<br/>J-Quants/EDINET/TDnet/JPX]
-        SCREENED[records/03-screened/<br/>b 通過銘柄<br/>定期]
+        SCREENED[records/03-candidates/<br/>b 通過銘柄<br/>定期]
         RESEARCH[records/04-research/<br/>d 個別深掘り<br/>+packet]
         TRADES[records/05-trades/<br/>執行]
         REVIEWS[records/06-reviews/<br/>事後検証]
@@ -182,7 +182,7 @@ next_events: [...]
 - `layers` は `world` / `japan` / `japan_equity` の 3 キーを必ず持つ。該当なしは `{}` を明示
 - 詳細は [`components/brief.md`](./components/brief.md) と [`../records/_schemas/brief-v1.json`](../records/_schemas/brief-v1.json) を参照
 
-### 3.2 `records/03-screened/` — (b) スクリーニング通過銘柄
+### 3.2 `records/03-candidates/` — (b) スクリーニング通過銘柄
 
 #### 3.2.1 責務
 
@@ -196,14 +196,14 @@ next_events: [...]
 #### 3.2.3 Path
 
 ```
-records/03-screened/YYYY/MM/YYYY-MM-DD.yaml
+records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml
 ```
 
 1 実行 = 1 ファイル。
 
 #### 3.2.4 YAML
 
-詳細は [`components/screened.md`](./components/screened.md) §4 を正本とする。要点のみ抜粋:
+詳細は [`components/candidates.md`](./components/candidates.md) §4 を正本とする。要点のみ抜粋:
 
 - `run_date` / `asof_date` (同値) / `universe_size` / `filters`
 - `generated_by`, `data_sources`, `run_at`
@@ -276,14 +276,14 @@ next_triggers:
 
 #### 3.4.1 責務
 
-- `records/03-screened/` × `records/02-outlook/` から選定した個別銘柄の深掘り + 採用判定
+- `records/03-candidates/` × `records/02-outlook/` から選定した個別銘柄の深掘り + 採用判定
 - 4 成分統合の出力 = packet 本体
 
-#### 3.4.2 選定プロセス（screened × outlook → 候補絞り込み）
+#### 3.4.2 選定プロセス（candidates × outlook → 候補絞り込み）
 
-1. 最新 `records/03-screened/*.yaml` の ticker list を取得
+1. 最新 `records/03-candidates/*.yaml` の ticker list を取得
 2. 最新 `records/02-outlook/*.yaml` の `sectors` / `regions` を参照
-3. screened ticker のうち、所属業種/地域が `outlook` で `tailwind` または `neutral` のものを候補に残す（`headwind` は **除外**）
+3. candidates ticker のうち、所属業種/地域が `outlook` で `tailwind` または `neutral` のものを候補に残す（`headwind` は **除外**）
 4. 候補から人間 + AI が個別 ticker を選定（詳細基準は [`components/research.md`](./components/research.md)）
 
 #### 3.4.3 Path
@@ -299,7 +299,7 @@ records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
 ticker: "7203"
 name: "..."
 playbook: valuation-mean-reversion-v1 | valuation-catalyst-confirmation-v1
-screened_ref: records/03-screened/YYYY/MM/YYYY-MM-DD.yaml      # 必須
+candidates_ref: records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml      # 必須
 outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml     # 必須（Bootstrap 後は例外なし）
 brief_refs:                                        # 任意
   - records/01-brief/YYYY/MM/YYYY-MM-DD-*.yaml
@@ -370,7 +370,7 @@ records/06-reviews/YYYY/retro-YYYYMM.md                   # 月次 retro
 - ticker は **4 文字の英数字文字列**として quote 必須（先頭 0 落ち防止、英字組入れ対応）: `"7203"`, `"130A"`
 - null 許容フィールドは明示的に `null`
 - AI 下書きは `ai-draft: true`、人間確認後 `false`
-- 参照は path 配列: `brief_refs: [...]`, `updated_from: [...]`, `screened_ref: ...`
+- 参照は path 配列: `brief_refs: [...]`, `updated_from: [...]`, `candidates_ref: ...`
 
 ## 5. ディレクトリ構造
 
@@ -385,7 +385,7 @@ baibai-loop/
 │   ├── _schemas/
 │   ├── 01-brief/
 │   ├── 02-outlook/
-│   ├── 03-screened/
+│   ├── 03-candidates/
 │   ├── 04-research/
 │   ├── 05-trades/
 │   └── 06-reviews/

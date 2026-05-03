@@ -18,7 +18,7 @@ from baibai_loop.validate.cli import _format_finding, main, run_validation
 from baibai_loop.validate.errors import ValidationFinding
 
 
-def _make_screened_payload() -> dict[str, object]:
+def _make_candidates_payload() -> dict[str, object]:
     return {
         "run_date": "2026-04-24",
         "asof_date": "2026-04-24",
@@ -152,7 +152,7 @@ def _make_research_text() -> str:
             "decision": "accepted",
             "market_cap_oku": 600,
             "sector_33": "情報・通信業",
-            "screened_ref": "records/03-screened/2026/04/2026-04-24.yaml",
+            "candidates_ref": "records/03-candidates/2026/04/2026-04-24.yaml",
             "outlook_ref": "records/02-outlook/2026/04/outlook-2026-04-24-bootstrap.yaml",
             "brief_refs": [],
             "ai-draft": True,
@@ -187,19 +187,19 @@ def _make_research_text() -> str:
     return f"---\n{front}---\n{body}"
 
 
-def _seed_repo(root: Path, *, screened_overrides: dict[str, object] | None = None) -> None:
+def _seed_repo(root: Path, *, candidates_overrides: dict[str, object] | None = None) -> None:
     brief_dir = root / "records/01-brief" / "2026" / "04"
     outlook_dir = root / "records/02-outlook" / "2026" / "04"
-    screened_dir = root / "records/03-screened" / "2026" / "04"
+    candidates_dir = root / "records/03-candidates" / "2026" / "04"
     research_dir = root / "records/04-research" / "2026" / "04"
     playbooks_dir = root / "records/_playbooks"
-    for directory in (brief_dir, outlook_dir, screened_dir, research_dir, playbooks_dir):
+    for directory in (brief_dir, outlook_dir, candidates_dir, research_dir, playbooks_dir):
         directory.mkdir(parents=True, exist_ok=True)
 
-    payload = _make_screened_payload()
-    if screened_overrides:
-        payload.update(screened_overrides)
-    (screened_dir / "2026-04-24.yaml").write_text(
+    payload = _make_candidates_payload()
+    if candidates_overrides:
+        payload.update(candidates_overrides)
+    (candidates_dir / "2026-04-24.yaml").write_text(
         yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
@@ -228,38 +228,38 @@ class ValidateCliTests(unittest.TestCase):
             stderr = io.StringIO()
             exit_code = run_validation(
                 root=root,
-                targets=("brief", "screened", "outlook", "research", "ledger", "review"),
+                targets=("brief", "candidates", "outlook", "research", "ledger", "review"),
                 stdout=stdout,
                 stderr=stderr,
             )
             self.assertEqual(exit_code, 0, msg=stderr.getvalue())
             self.assertIn("0 error(s)", stdout.getvalue())
 
-    def test_invalid_screened_exits_nonzero(self) -> None:
+    def test_invalid_candidates_exits_nonzero(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            _seed_repo(root, screened_overrides={"run_id": "screening-20260424-XYZ"})
+            _seed_repo(root, candidates_overrides={"run_id": "screening-20260424-XYZ"})
             stdout = io.StringIO()
             stderr = io.StringIO()
             exit_code = run_validation(
                 root=root,
-                targets=("screened",),
+                targets=("candidates",),
                 stdout=stdout,
                 stderr=stderr,
             )
             self.assertEqual(exit_code, 1)
-            self.assertIn("screened.pattern", stderr.getvalue())
+            self.assertIn("candidates.pattern", stderr.getvalue())
 
     def test_target_filter_skips_other_artefact_types(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             _seed_repo(root)
-            (root / "records/03-screened" / "2026" / "04" / "2026-04-24.yaml").write_text(
+            (root / "records/03-candidates" / "2026" / "04" / "2026-04-24.yaml").write_text(
                 "not-a-mapping\n", encoding="utf-8"
             )
             stdout = io.StringIO()
             stderr = io.StringIO()
-            # screened は壊れているが target=outlook のみなので通る
+            # candidates は壊れているが target=outlook のみなので通る
             exit_code = run_validation(
                 root=root,
                 targets=("outlook",),
@@ -282,7 +282,7 @@ class ValidateCliTests(unittest.TestCase):
             stderr = io.StringIO()
             exit_code = run_validation(
                 root=missing,
-                targets=("screened",),
+                targets=("candidates",),
                 stdout=stdout,
                 stderr=stderr,
             )
@@ -297,7 +297,7 @@ class ValidateCliTests(unittest.TestCase):
             stderr = io.StringIO()
             exit_code = run_validation(
                 root=file_root,
-                targets=("screened",),
+                targets=("candidates",),
                 stdout=stdout,
                 stderr=stderr,
             )
@@ -311,13 +311,13 @@ class FormatFindingTests(unittest.TestCase):
     def test_format_uses_path_relative_to_root_when_inside(self) -> None:
         finding = ValidationFinding(
             severity="error",
-            target=Path("/repo/records/03-screened/2026-04-24.yaml"),
-            code="screened.required",
+            target=Path("/repo/records/03-candidates/2026-04-24.yaml"),
+            code="candidates.required",
             message="missing run_id",
             location="run_id",
         )
         line = _format_finding(finding, Path("/repo"))
-        self.assertIn("records/03-screened/2026-04-24.yaml", line)
+        self.assertIn("records/03-candidates/2026-04-24.yaml", line)
         self.assertIn("@ run_id", line)
         self.assertIn("[error]", line)
 
@@ -325,7 +325,7 @@ class FormatFindingTests(unittest.TestCase):
         finding = ValidationFinding(
             severity="warning",
             target=Path("/elsewhere/orphan.yaml"),
-            code="screened.unknown-sector",
+            code="candidates.unknown-sector",
             message="unknown sector",
         )
         line = _format_finding(finding, Path("/repo"))

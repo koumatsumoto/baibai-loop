@@ -1,10 +1,10 @@
 # screening/automation-v1.md
 
-Baibai-Loop の `records/03-screened/` を対象にした automation v1 の実装正本。週次 screening の入力と実行条件を traceability として追跡するための実行方式、依存、失敗時の扱いを定義する。
+Baibai-Loop の `records/03-candidates/` を対象にした automation v1 の実装正本。週次 screening の入力と実行条件を traceability として追跡するための実行方式、依存、失敗時の扱いを定義する。
 
 ## 1. Scope
 
-- 対象は `screened` 自動生成まで
+- 対象は `candidates` 自動生成まで
 - `research` 自動選定、`outlook` 自動突合、CI 定期実行は対象外
 - `kabuステーションAPI` と `JPX Market Explorer` は source of truth に使わない
 
@@ -31,7 +31,7 @@ python -m baibai_loop.screening.cli verify-raw-cache [--raw-dir PATH] [--max-siz
 
 `verify-raw-cache` は `records/_data/raw/screening/` を再帰的に walk し、(1) 1 ファイル `--max-size-mb` 以上のものが無いこと、(2) SQLite (`records/_data/cache/screening/market.sqlite`) が存在する場合は `raw_imports.sha256` と現状ファイルの SHA-256 が一致することを検証する。違反があれば exit 1。CI の `quality` job でも実行され、50MB 超過の commit を merge 前に弾く。
 
-`select` は最新 `records/03-screened/<YYYY>/<MM>/<asof>.yaml` と `records/02-outlook/` を組み合わせて、`outlook` で `headwind` 判定された業種を除外し、`threshold_hit` の本数 → 時価総額の順で候補をランキングする。`research` の選定プロセス (`docs/components/research.md` §2.1) をスクリプトで支援する。
+`select` は最新 `records/03-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/02-outlook/` を組み合わせて、`outlook` で `headwind` 判定された業種を除外し、`threshold_hit` の本数 → 時価総額の順で候補をランキングする。`research` の選定プロセス (`docs/components/research.md` §2.1) をスクリプトで支援する。
 
 ## 3. Required Env Vars
 
@@ -91,7 +91,7 @@ v1 で使う method は次の 5 点に固定する。
 
 - `--asof` は対象営業日を表す
 - `run_date` は `asof_date` と同値にする
-- 出力 path は `records/03-screened/{YYYY}/{MM}/{asof_date}.yaml`
+- 出力 path は `records/03-candidates/{YYYY}/{MM}/{asof_date}.yaml`
 - 同一 path が既に存在する場合は fail-fast
 - 非営業日の `--asof` は fail-fast
 
@@ -120,7 +120,7 @@ v1 で使う method は次の 5 点に固定する。
 
 - `records/_data/raw/screening/` は J-Quants / EDINET / JPX から取得した raw JSON の **正本**。git 管理対象。1 ファイル 50MB 未満を維持し、別 PC で `git clone` 後に再取得なしで screening / ledger を再生成できる状態を目指す。
 - `records/_data/cache/screening/` は raw JSON から派生した SQLite cache や rebuild 中の一時ファイルの置き場。`.gitignore` 対象。安全に削除して再生成できる。
-- `records/_data/raw/screening/manifests/` は run 毎の lineage manifest 出力先。`.gitignore` 対象（`screened` YAML 側に `cache_manifest_hash` が記録されるため、manifest JSON 自体は git に載せない）。
+- `records/_data/raw/screening/manifests/` は run 毎の lineage manifest 出力先。`.gitignore` 対象（`candidates` YAML 側に `cache_manifest_hash` が記録されるため、manifest JSON 自体は git に載せない）。
 - `JQuantsProvider` は SQLite (`records/_data/cache/screening/market.sqlite`) が存在し、要求範囲を `raw_imports` の chunk window で覆える場合は SQLite から読む（read-through）。覆えない場合は従来通り raw JSON cache → API の順にフォールバックする。SQLite が古い場合は `rebuild-cache` を再実行する。
 - `.cache/screening/` は legacy 配置で `.gitignore` のまま。新規ファイルは作られないが、既存の checkout には残っている。`migrate-cache` サブコマンドで `records/_data/raw/screening/` に移動する。
 - `migrate-cache` は冪等。`.cache/screening/` を空にした後に手動で `rmdir` して legacy ディレクトリを掃除してよい。

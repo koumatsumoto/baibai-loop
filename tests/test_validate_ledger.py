@@ -13,7 +13,7 @@ def _paper_record(**overrides: object) -> dict[str, object]:
         "name": "Sample",
         "decision": "accepted",
         "playbook": "valuation-mean-reversion-v1",
-        "screened_ref": "records/03-screened/2026/04/2026-04-24.yaml",
+        "candidates_ref": "records/03-candidates/2026/04/2026-04-24.yaml",
         "research_ref": "records/04-research/2026/04/sample.md",
         "asof_date": "2026-04-24",
         "decision_date": "2026-04-25",

@@ -17,13 +17,13 @@ from baibai_loop.validate.review import validate_review_file
 
 
 def _seed(root: Path) -> None:
-    screened_dir = root / "records/03-screened" / "2026" / "04"
+    candidates_dir = root / "records/03-candidates" / "2026" / "04"
     research_dir = root / "records/04-research" / "2026" / "04"
     playbooks_dir = root / "records/_playbooks"
-    screened_dir.mkdir(parents=True)
+    candidates_dir.mkdir(parents=True)
     research_dir.mkdir(parents=True)
     playbooks_dir.mkdir()
-    (screened_dir / "2026-04-24.yaml").write_text(
+    (candidates_dir / "2026-04-24.yaml").write_text(
         yaml.safe_dump(
             {
                 "asof_date": "2026-04-24",
@@ -48,7 +48,7 @@ def _seed(root: Path) -> None:
             "name": "Sample",
             "playbook": "valuation-mean-reversion-v1",
             "decision": "accepted",
-            "screened_ref": "records/03-screened/2026/04/2026-04-24.yaml",
+            "candidates_ref": "records/03-candidates/2026/04/2026-04-24.yaml",
             "published_at": "2026-04-25T22:00:00+09:00",
             "macro_gate": "neutral",
             "position_size_oku": 0.01,
@@ -142,7 +142,7 @@ def test_sync_ledger_adds_select_candidates_without_research_to_skipped(tmp_path
     (select_dir / "2026-04-25.yaml").write_text(
         yaml.safe_dump(
             {
-                "screened_ref": "records/03-screened/2026/04/2026-04-24.yaml",
+                "candidates_ref": "records/03-candidates/2026/04/2026-04-24.yaml",
                 "candidates": [
                     {
                         "ticker": "9999",
