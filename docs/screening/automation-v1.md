@@ -21,9 +21,12 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD --allow-stale-jpx
 python -m baibai_loop.screening.cli bootstrap-cache --start YYYY-MM-DD --end YYYY-MM-DD
 python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--view path] [--top N]
 python -m baibai_loop.screening.cli migrate-cache [--from PATH] [--to PATH] [--dry-run]
+python -m baibai_loop.screening.cli rebuild-cache [--raw-dir PATH] [--sqlite-path PATH]
 ```
 
 `migrate-cache` は legacy の `.cache/screening/` 配下の raw JSON を git 管理対象の `data/raw/screening/` に移動する一回限りの helper。re-run しても既存ファイルは上書きしない（idempotent）。詳細は §11 を参照。
+
+`rebuild-cache` は `data/raw/screening/` 配下の git 管理 raw JSON から派生 SQLite cache (`data/cache/screening/market.sqlite`) を再生成する。実行毎に出力ファイルを削除して書き直すため idempotent。schema は v1（jquants_daily_bars / jquants_fin_summaries / jquants_master_snapshots / raw_imports / cache_metadata）。詳細は §11 を参照。
 
 `select` は最新 `screened/<YYYY>/<MM>/<asof>.yaml` と `view/` を組み合わせて、`view` で `headwind` 判定された業種を除外し、`threshold_hit` の本数 → 時価総額の順で候補をランキングする。`research` の選定プロセス (`docs/components/research.md` §2.1) をスクリプトで支援する。
 
@@ -117,3 +120,15 @@ v1 で使う method は次の 5 点に固定する。
 - `data/raw/screening/manifests/` は run 毎の lineage manifest 出力先。`.gitignore` 対象（`screened` YAML 側に `cache_manifest_hash` が記録されるため、manifest JSON 自体は git に載せない）。
 - `.cache/screening/` は legacy 配置で `.gitignore` のまま。新規ファイルは作られないが、既存の checkout には残っている。`migrate-cache` サブコマンドで `data/raw/screening/` に移動する。
 - `migrate-cache` は冪等。`.cache/screening/` を空にした後に手動で `rmdir` して legacy ディレクトリを掃除してよい。
+
+### 11.1 SQLite Schema v1
+
+`rebuild-cache` は以下のテーブルを `data/cache/screening/market.sqlite` に作成する。
+
+- `jquants_daily_bars(ticker, traded_at, open, high, low, close, volume, turnover_value, adjustment_*, upper_limit, lower_limit)` — 主キー `(ticker, traded_at)`、`traded_at` index 付。`is_common_stock=False` の record はスキップする。
+- `jquants_fin_summaries(ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, sales, operating_profit, ordinary_profit, profit, fiscal_period, fiscal_year_end, period_start, period_end, raw_json)` — 主キー `(ticker, disclosed_at)`。
+- `jquants_master_snapshots(snapshot_date, ticker, name, market, sector_33, is_common_stock, raw_json)` — 主キー `(snapshot_date, ticker)`。
+- `raw_imports(source, path, sha256, imported_at_utc, record_count, min_date, max_date)` — `path` を主キーとし、import した raw JSON の SHA-256 と record 範囲を記録する監査用 table。
+- `cache_metadata(key, value)` — `schema_version=v1` を含む KV ストア。
+
+EDINET / JPX / earnings_calendar / market_calendar の SQLite 化、および provider 側の SQLite read-through / write-through 切替は follow-up の対象。issue #45 の TODO を参照。

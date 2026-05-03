@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
 
 from .config import (
     DEFAULT_CACHE_DIR,
+    DEFAULT_SQLITE_CACHE_DIR,
     LEGACY_CACHE_DIR,
     PARTIAL_WARNING_TTM_COUNT,
     PARTIAL_WARNING_TTM_RATIO,
@@ -50,6 +51,7 @@ from .providers.jquants import (
 from .render import JST, build_output_path, render_screened_yaml
 from .rules import evaluate_screening
 from .schema import ScreenedRunDocument, ScreenedTicker, SecurityMaster, normalize_ticker
+from .sqlite_cache import SQLiteCacheError, rebuild_from_raw
 from .tiers import MIN_AVG_TURNOVER_OKU, MIN_MARKET_CAP_OKU, position_tier
 from .universe import (
     LISTED_UNDER_DAYS,
@@ -166,6 +168,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="report the planned moves without touching the filesystem",
     )
 
+    rebuild_parser = subparsers.add_parser(
+        "rebuild-cache",
+        help="rebuild SQLite cache under data/cache/screening/ from data/raw/screening/ JSON",
+    )
+    rebuild_parser.add_argument(
+        "--raw-dir",
+        default=str(DEFAULT_CACHE_DIR),
+        help=f"raw JSON root (default: {DEFAULT_CACHE_DIR})",
+    )
+    rebuild_parser.add_argument(
+        "--sqlite-path",
+        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
+        help=f"output SQLite path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
+    )
+
     select_parser = subparsers.add_parser(
         "select",
         help="rank research candidates by combining screened with view sectors",
@@ -202,6 +219,13 @@ def main(argv: list[str] | None = None) -> int:
             source=Path(args.source),
             destination=Path(args.destination),
             dry_run=args.dry_run,
+        )
+
+    if args.command == "rebuild-cache":
+        # rebuild-cache reads local raw JSON and writes a SQLite file; no API tokens needed.
+        return rebuild_cache_command(
+            raw_dir=Path(args.raw_dir),
+            sqlite_path=Path(args.sqlite_path),
         )
 
     try:
@@ -631,6 +655,37 @@ def migrate_cache_command(
         f"skipped {len(result.skipped)} pre-existing files",
         file=out,
     )
+    return 0
+
+
+def rebuild_cache_command(
+    *,
+    raw_dir: Path,
+    sqlite_path: Path,
+    stdout: TextIO | None = None,
+) -> int:
+    """Rebuild the SQLite cache from raw JSON. The destination file is removed
+    first so the rebuild is deterministic.
+    """
+    out = stdout if stdout is not None else sys.stdout
+    if not raw_dir.exists():
+        print(f"raw JSON directory not found: {raw_dir}", file=sys.stderr)
+        return 1
+    try:
+        summary = rebuild_from_raw(raw_dir, sqlite_path)
+    except SQLiteCacheError as exc:
+        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    print(
+        f"rebuilt {sqlite_path}: "
+        f"{summary.daily_bars_files} bars files / {summary.daily_bars_rows} rows, "
+        f"{summary.fin_summary_files} fin_summary files / {summary.fin_summary_rows} rows, "
+        f"{summary.master_files} master files / {summary.master_rows} rows",
+        file=out,
+    )
+    if summary.skipped_files:
+        joined = ", ".join(summary.skipped_files)
+        print(f"skipped {len(summary.skipped_files)} unrecognized files: {joined}", file=out)
     return 0
 
 
