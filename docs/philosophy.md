@@ -148,7 +148,7 @@ v1 で確定した 4 成分の名前は、**役割を一語で表す** ことと
 | 成分 | 名前 | 採用理由 | 却下案 |
 | --- | --- | --- | --- |
 | a | `brief` | 「short fact+points doc」の業界標準語。journal（時系列ログ）より役割に忠実 | journal（log 含意が強い）、record、ledger |
-| b | `candidates` | 機械的ふるいの完了形。プロセスではなく結果を指す | screening（プロセス感）、candidates（research と混同）、filtered |
+| b | `candidates` | 機械的ふるいで残った銘柄群というデータの実体を直接表す。フェーズ名 (brief / outlook / research) と粒度が揃う | screened（動詞由来で粒度不一致）、screening（プロセス感）、filtered |
 | c | `outlook` | humble、更新しやすい。"strategy" は大げさ、"thesis" は academic | strategy（大げさ）、thesis（重い）、outlook（見通し限定）、perspective |
 | d | `research` | 業界標準、「仮説を立てて検証する」ワークフローと整合 | deep-dive（2 語）、investigation（堅い）、analysis（generic）、memo（軽い） |
 
