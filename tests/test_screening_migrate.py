@@ -25,9 +25,7 @@ class PlanMigrationTests(unittest.TestCase):
             (source / "jquants").mkdir(parents=True)
             (source / "jquants" / "a.json").write_text("{}", encoding="utf-8")
             (source / "edinet" / "documents").mkdir(parents=True)
-            (source / "edinet" / "documents" / "2026-04-24.json").write_text(
-                "[]", encoding="utf-8"
-            )
+            (source / "edinet" / "documents" / "2026-04-24.json").write_text("[]", encoding="utf-8")
 
             plan = plan_migration(source, destination)
 
@@ -149,9 +147,7 @@ class MigrateCacheCommandTests(unittest.TestCase):
             (source / "jquants" / "a.json").write_text("aa", encoding="utf-8")
 
             stdout = io.StringIO()
-            exit_code = migrate_cache_command(
-                source=source, destination=destination, stdout=stdout
-            )
+            exit_code = migrate_cache_command(source=source, destination=destination, stdout=stdout)
             self.assertEqual(exit_code, 0)
             output = stdout.getvalue()
             self.assertIn("moved 1 files", output)
