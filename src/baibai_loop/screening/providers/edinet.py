@@ -59,13 +59,25 @@ class EDINETProvider:
     """API v2 client. Subscription-Key is always passed as a query parameter."""
 
     def __init__(
-        self, api_key: str, cache_dir: Path, session: requests.Session | None = None
+        self,
+        api_key: str,
+        cache_dir: Path,
+        session: requests.Session | None = None,
+        *,
+        sqlite_path: Path | None = None,
     ) -> None:
         self._api_key = api_key
         self._cache_dir = Path(cache_dir) / "edinet"
         self._session = session or requests.Session()
+        self._sqlite_path = Path(sqlite_path) if sqlite_path is not None else None
 
     def list_documents(self, on_date: date) -> list[dict[str, Any]]:
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_edinet_documents
+
+            cached = read_edinet_documents(self._sqlite_path, on_date)
+            if cached is not None:
+                return cached
         cache_path = self._cache_dir / "documents" / f"{on_date.isoformat()}.json"
         if cache_path.exists():
             payload = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -92,6 +104,12 @@ class EDINETProvider:
         return _coerce_document_items(results, source="EDINET documents.json")
 
     def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_edinet_metrics
+
+            cached = read_edinet_metrics(self._sqlite_path, asof_date)
+            if cached is not None:
+                return dict(cached)
         cache_path = self._cache_dir / "metrics" / f"{asof_date.isoformat()}.json"
         if not cache_path.exists():
             return {}

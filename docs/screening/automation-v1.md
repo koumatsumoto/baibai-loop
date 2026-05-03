@@ -27,7 +27,7 @@ python -m baibai_loop.screening.cli verify-raw-cache [--raw-dir PATH] [--max-siz
 
 `migrate-cache` は legacy の `.cache/screening/` 配下の raw JSON を git 管理対象の `data/raw/screening/` に移動する一回限りの helper。re-run しても既存ファイルは上書きしない（idempotent）。詳細は §11 を参照。
 
-`rebuild-cache` は `data/raw/screening/` 配下の git 管理 raw JSON から派生 SQLite cache (`data/cache/screening/market.sqlite`) を再生成する。実行毎に出力ファイルを削除して書き直すため idempotent。schema は v1（jquants_daily_bars / jquants_fin_summaries / jquants_master_snapshots / raw_imports / cache_metadata）。詳細は §11 を参照。
+`rebuild-cache` は `data/raw/screening/` 配下の git 管理 raw JSON から派生 SQLite cache (`data/cache/screening/market.sqlite`) を再生成する。実行毎に出力ファイルを削除して書き直すため idempotent。schema は v2（jquants 5 種 + edinet 2 種 + jpx 1 種 + raw_imports / cache_metadata）。詳細は §11 を参照。
 
 `verify-raw-cache` は `data/raw/screening/` を再帰的に walk し、(1) 1 ファイル `--max-size-mb` 以上のものが無いこと、(2) SQLite (`data/cache/screening/market.sqlite`) が存在する場合は `raw_imports.sha256` と現状ファイルの SHA-256 が一致することを検証する。違反があれば exit 1。CI の `quality` job でも実行され、50MB 超過の commit を merge 前に弾く。
 
@@ -121,20 +121,26 @@ v1 で使う method は次の 5 点に固定する。
 - `data/raw/screening/` は J-Quants / EDINET / JPX から取得した raw JSON の **正本**。git 管理対象。1 ファイル 50MB 未満を維持し、別 PC で `git clone` 後に再取得なしで screening / ledger を再生成できる状態を目指す。
 - `data/cache/screening/` は raw JSON から派生した SQLite cache や rebuild 中の一時ファイルの置き場。`.gitignore` 対象。安全に削除して再生成できる。
 - `data/raw/screening/manifests/` は run 毎の lineage manifest 出力先。`.gitignore` 対象（`screened` YAML 側に `cache_manifest_hash` が記録されるため、manifest JSON 自体は git に載せない）。
+- `JQuantsProvider` は SQLite (`data/cache/screening/market.sqlite`) が存在し、要求範囲を `raw_imports` の chunk window で覆える場合は SQLite から読む（read-through）。覆えない場合は従来通り raw JSON cache → API の順にフォールバックする。SQLite が古い場合は `rebuild-cache` を再実行する。
 - `.cache/screening/` は legacy 配置で `.gitignore` のまま。新規ファイルは作られないが、既存の checkout には残っている。`migrate-cache` サブコマンドで `data/raw/screening/` に移動する。
 - `migrate-cache` は冪等。`.cache/screening/` を空にした後に手動で `rmdir` して legacy ディレクトリを掃除してよい。
 
-### 11.1 SQLite Schema v1
+### 11.1 SQLite Schema v2
 
 `rebuild-cache` は以下のテーブルを `data/cache/screening/market.sqlite` に作成する。
 
 - `jquants_daily_bars(ticker, traded_at, open, high, low, close, volume, turnover_value, adjustment_*, upper_limit, lower_limit)` — 主キー `(ticker, traded_at)`、`traded_at` index 付。`is_common_stock=False` の record はスキップする。
 - `jquants_fin_summaries(ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, sales, operating_profit, ordinary_profit, profit, fiscal_period, fiscal_year_end, period_start, period_end, raw_json)` — 主キー `(ticker, disclosed_at)`。
 - `jquants_master_snapshots(snapshot_date, ticker, name, market, sector_33, is_common_stock, raw_json)` — 主キー `(snapshot_date, ticker)`。
+- `jquants_earnings_calendar(announcement_date, ticker, raw_json)` — 主キー `(announcement_date, ticker)`。
+- `jquants_market_calendar(day, is_business_day, raw_json)` — 主キー `(day)`。`HolidayDivision` "1" / "2" を business day=1、それ以外を 0 として記録。
+- `edinet_documents(doc_date, doc_id, sec_code, doc_type_code, raw_json)` — 主キー `(doc_date, doc_id)`。`doc_date` はファイル名 (`{date}.json`) から復元。
+- `edinet_metrics(asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, consolidation_basis, ttm_quality_*)` — 主キー `(asof_date, ticker)`。`asof_date` はファイル名から復元。
+- `jpx_regulation_flags(asof_date, source_name, ticker, flag, fetched_at_utc)` — 主キー `(asof_date, source_name, ticker, flag)`。JPX cache の `flags_by_ticker` は source 別の起源を保持しないため、`source_name=flag` として記録する。
 - `raw_imports(source, path, sha256, imported_at_utc, record_count, min_date, max_date)` — `path` を主キーとし、import した raw JSON の SHA-256 と record 範囲を記録する監査用 table。
-- `cache_metadata(key, value)` — `schema_version=v1` を含む KV ストア。
+- `cache_metadata(key, value)` — `schema_version=v2` を含む KV ストア。
 
-EDINET / JPX / earnings_calendar / market_calendar の SQLite 化、および provider 側の SQLite read-through / write-through 切替は follow-up の対象。issue #45 の TODO を参照。
+provider 側の SQLite read-through / write-through 切替は follow-up の対象。issue #45 の TODO を参照。
 
 ### 11.2 Measured Volume and Rebuild Time (2026-05-03)
 
@@ -147,7 +153,7 @@ EDINET / JPX / earnings_calendar / market_calendar の SQLite 化、および pr
 | `git clone` 時の pack download | 約 182MB（aggressive gc 後の実測。オブジェクトは pretty JSON が deflate でよく縮む） |
 | clone + checkout 後の disk 使用量 | 約 1.3GB（working tree 1.1GB + .git 182MB） |
 | `rebuild-cache` 実行時間 | 約 24 秒（Python 3.14 / WSL2 / SSD） |
-| `data/cache/screening/market.sqlite` サイズ | 410MB（schema v1 の 3 table、約 354 万 row） |
+| `data/cache/screening/market.sqlite` サイズ | 410MB（jquants 3 table、約 354 万 row 時点。EDINET / JPX cache は未投入） |
 | 取り込まれた record 数 | bars 3,535,769 / fin_summaries 5,499 / master_snapshots 4,445 |
 
 参考: 月次の追加見込みは raw JSON +30〜35MB / SQLite +10〜13MB / month。5 年で raw JSON 約 3.0GB、SQLite 約 1.2GB の規模に達する想定。GitHub 私有リポジトリ推奨上限 5GB に収まる範囲。

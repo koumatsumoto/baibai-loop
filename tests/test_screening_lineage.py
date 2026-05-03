@@ -19,9 +19,11 @@ from baibai_loop.screening.lineage import (
     compute_cache_manifest,
     compute_cache_manifest_hash,
     compute_config_hash,
+    compute_sqlite_summary,
     write_manifest,
 )
 from baibai_loop.screening.render import JST
+from baibai_loop.screening.sqlite_cache import open_connection
 
 
 class ScreeningLineageTests(unittest.TestCase):
@@ -165,3 +167,72 @@ class ScreeningLineageTests(unittest.TestCase):
             self.assertEqual(payload["config_hash"], "a1b2c3d4e5f6a7b8")
             self.assertEqual(payload["cache_manifest_hash"], manifest_hash)
             self.assertEqual(payload["files"][0]["path"], "edinet/metrics.json")
+            self.assertNotIn(
+                "sqlite_cache",
+                payload,
+                "missing SQLite path should leave the manifest free of stale lineage",
+            )
+
+    def test_compute_sqlite_summary_returns_none_when_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.assertIsNone(compute_sqlite_summary(Path(tmpdir) / "missing.sqlite"))
+            self.assertIsNone(compute_sqlite_summary(None))
+
+    def test_compute_sqlite_summary_records_schema_version_and_imports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            conn.execute(
+                "INSERT INTO raw_imports("
+                "source, path, sha256, imported_at_utc, record_count, min_date, max_date"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "jquants_master_snapshots",
+                    "data/raw/screening/jquants/get_eq_master.json",
+                    "0" * 64,
+                    "2026-04-24T00:00:00+00:00",
+                    4445,
+                    "2026-04-24",
+                    "2026-04-24",
+                ),
+            )
+            conn.commit()
+            conn.close()
+
+            summary = compute_sqlite_summary(sqlite_path)
+
+            self.assertIsNotNone(summary)
+            assert summary is not None  # narrow for type checker
+            self.assertEqual(summary["path"], sqlite_path.as_posix())
+            self.assertIn(summary["schema_version"], {"v1", "v2"})
+            self.assertEqual(
+                summary["imports"],
+                [{"source": "jquants_master_snapshots", "files": 1, "records": 4445}],
+            )
+
+    def test_write_manifest_includes_sqlite_summary_when_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            sqlite_path = root / "cache" / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            conn.commit()
+            conn.close()
+
+            manifest = compute_cache_manifest(root)
+            manifest_hash = compute_cache_manifest_hash(manifest)
+            path = root / "manifests" / "screening-20260424-a1b2c3d4.json"
+
+            write_manifest(
+                path,
+                manifest,
+                run_id="screening-20260424-a1b2c3d4",
+                asof_date=date(2026, 4, 24),
+                config_hash="a1b2c3d4e5f6a7b8",
+                manifest_hash=manifest_hash,
+                generated_at=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                sqlite_path=sqlite_path,
+            )
+
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            self.assertIn("sqlite_cache", payload)
+            self.assertEqual(payload["sqlite_cache"]["path"], sqlite_path.as_posix())

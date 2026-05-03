@@ -271,13 +271,23 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
+    sqlite_path = config.sqlite_cache_dir / "market.sqlite"
     providers = ProviderBundle(
-        jquants=JQuantsProvider(config.jquants_refresh_token, config.cache_dir),
-        edinet=EDINETProvider(config.edinet_api_key, config.cache_dir),
+        jquants=JQuantsProvider(
+            config.jquants_refresh_token,
+            config.cache_dir,
+            sqlite_path=sqlite_path,
+        ),
+        edinet=EDINETProvider(
+            config.edinet_api_key,
+            config.cache_dir,
+            sqlite_path=sqlite_path,
+        ),
         jpx=JPXProvider(
             config.cache_dir,
             regulation_urls=config.jpx_regulation_urls,
             special_caution_index_url=config.jpx_special_caution_index_url,
+            sqlite_path=sqlite_path,
         ),
     )
 
@@ -476,6 +486,7 @@ def run_command(
         config_hash=config_hash,
         manifest_hash=cache_manifest_hash,
         generated_at=run_now,
+        sqlite_path=config.sqlite_cache_dir / "market.sqlite",
     )
 
     document = ScreenedRunDocument(
@@ -713,11 +724,43 @@ def rebuild_cache_command(
     except SQLiteCacheError as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
+    print(f"rebuilt {sqlite_path}:", file=out)
     print(
-        f"rebuilt {sqlite_path}: "
-        f"{summary.daily_bars_files} bars files / {summary.daily_bars_rows} rows, "
-        f"{summary.fin_summary_files} fin_summary files / {summary.fin_summary_rows} rows, "
-        f"{summary.master_files} master files / {summary.master_rows} rows",
+        f"  jquants_daily_bars: {summary.daily_bars_files} files / {summary.daily_bars_rows} rows",
+        file=out,
+    )
+    print(
+        f"  jquants_fin_summaries: {summary.fin_summary_files} files / "
+        f"{summary.fin_summary_rows} rows",
+        file=out,
+    )
+    print(
+        f"  jquants_master_snapshots: {summary.master_files} files / {summary.master_rows} rows",
+        file=out,
+    )
+    print(
+        f"  jquants_earnings_calendar: {summary.earnings_calendar_files} files / "
+        f"{summary.earnings_calendar_rows} rows",
+        file=out,
+    )
+    print(
+        f"  jquants_market_calendar: {summary.market_calendar_files} files / "
+        f"{summary.market_calendar_rows} rows",
+        file=out,
+    )
+    print(
+        f"  edinet_documents: {summary.edinet_document_files} files / "
+        f"{summary.edinet_document_rows} rows",
+        file=out,
+    )
+    print(
+        f"  edinet_metrics: {summary.edinet_metric_files} files / "
+        f"{summary.edinet_metric_rows} rows",
+        file=out,
+    )
+    print(
+        f"  jpx_regulation_flags: {summary.jpx_regulation_files} files / "
+        f"{summary.jpx_regulation_rows} rows",
         file=out,
     )
     if summary.skipped_files:
