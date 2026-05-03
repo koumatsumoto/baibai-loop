@@ -56,6 +56,7 @@ sources:
 - 月次 template: [`../docs/templates/brief-japan-monthly.md`](../docs/templates/brief-japan-monthly.md)
 - 不定期 template: [`../docs/templates/brief-event.md`](../docs/templates/brief-event.md)
 - 更新頻度・引用形式: [`../docs/workflow.md`](../docs/workflow.md)
+- 作成前の欠損確認: [`../docs/workflow.md#brief-作成前の欠損確認`](../docs/workflow.md#brief-作成前の欠損確認)
 - データソース: [`../docs/data-sources.md`](../docs/data-sources.md)
 
 INDEX ファイルは設けない。一覧は `git ls-files brief/` または GitHub ツリーで確認する。
