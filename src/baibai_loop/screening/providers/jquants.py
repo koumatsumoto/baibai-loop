@@ -107,20 +107,48 @@ class JQuantsProvider:
     _RATE_LIMIT_BACKOFF_SECONDS = (30, 60, 120, 300, 600)
     _INTER_CHUNK_SLEEP_SECONDS = 3.0
 
-    def __init__(self, refresh_token: str, cache_dir: Path, client: Any | None = None) -> None:
+    def __init__(
+        self,
+        refresh_token: str,
+        cache_dir: Path,
+        client: Any | None = None,
+        *,
+        sqlite_path: Path | None = None,
+    ) -> None:
         self._refresh_token = refresh_token
         self._cache_dir = Path(cache_dir) / "jquants"
         self._client = client
+        self._sqlite_path = Path(sqlite_path) if sqlite_path is not None else None
 
     def get_eq_master(self) -> list[SecurityMaster]:
+        if self._sqlite_path is not None:
+            # Imported lazily to avoid a circular import: sqlite_reader pulls in
+            # this module's schema dataclasses to materialise rows.
+            from ..sqlite_reader import read_eq_master
+
+            cached = read_eq_master(self._sqlite_path)
+            if cached is not None:
+                return cached
         records = self._load_or_fetch("get_eq_master")
         return [normalize_security_master(record) for record in records]
 
     def get_eq_bars_daily_range(self, start: date, end: date) -> list[JQuantsDailyBar]:
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_daily_bars
+
+            cached = read_daily_bars(self._sqlite_path, start, end)
+            if cached is not None:
+                return cached
         records = self._load_or_fetch_range("get_eq_bars_daily_range", start, end)
         return [bar for record in records if (bar := normalize_daily_bar(record)) is not None]
 
     def get_fin_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_fin_summaries
+
+            cached = read_fin_summaries(self._sqlite_path, start, end)
+            if cached is not None:
+                return cached
         records = self._load_or_fetch_range("get_fin_summary_range", start, end)
         return [
             summary

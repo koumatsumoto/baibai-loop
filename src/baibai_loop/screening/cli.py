@@ -271,8 +271,13 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
+    sqlite_path = config.sqlite_cache_dir / "market.sqlite"
     providers = ProviderBundle(
-        jquants=JQuantsProvider(config.jquants_refresh_token, config.cache_dir),
+        jquants=JQuantsProvider(
+            config.jquants_refresh_token,
+            config.cache_dir,
+            sqlite_path=sqlite_path,
+        ),
         edinet=EDINETProvider(config.edinet_api_key, config.cache_dir),
         jpx=JPXProvider(
             config.cache_dir,

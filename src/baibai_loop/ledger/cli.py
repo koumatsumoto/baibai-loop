@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-from baibai_loop.screening.config import DEFAULT_CACHE_DIR
+from baibai_loop.screening.config import DEFAULT_CACHE_DIR, DEFAULT_SQLITE_CACHE_DIR
 from baibai_loop.screening.providers.jquants import (
     JQuantsDailyBar,
     JQuantsProvider,
@@ -102,7 +102,12 @@ def _load_market_data(
     start = min(decision_dates) - timedelta(days=10)
     end = max(datetime.now(UTC).date(), max(decision_dates))
     cache_dir = Path(env.get("SCREENING_CACHE_DIR", str(DEFAULT_CACHE_DIR)))
-    provider = JQuantsProvider(token, cache_dir)
+    sqlite_cache_dir = Path(env.get("SCREENING_SQLITE_CACHE_DIR", str(DEFAULT_SQLITE_CACHE_DIR)))
+    provider = JQuantsProvider(
+        token,
+        cache_dir,
+        sqlite_path=sqlite_cache_dir / "market.sqlite",
+    )
     try:
         calendar_days = provider.get_mkt_calendar(min(decision_dates), end)
         bars = provider.get_eq_bars_daily_range(start, end)
