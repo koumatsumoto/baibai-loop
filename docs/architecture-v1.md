@@ -16,14 +16,14 @@ Baibai-Loop は **4 成分 + 下流 2 成分** で構成される意思決定ル
 
 | 成分 | directory | 役割 | 頻度 |
 | --- | --- | --- | --- |
-| **a** | [`brief/`](../brief/) | マクロ事実ブリーフ | 定期（週次/月次）+ 不定期 |
-| **b** | `screened/` | スクリーニング通過銘柄 | 定期（週次） |
-| **c** | `view/` | マクロ見解 | 定期（月次）+ 不定期 |
-| **d** | `research/` | 個別銘柄リサーチ（packet 本体） | screened 後の選定単位 |
-| ― | `trades/` | 執行記録 | 採用時 |
-| ― | `reviews/` | 事後検証 | 決済後 +15/+30 営業日 + 月次 retro |
+| **a** | [`records/01-brief/`](../records/01-brief/) | マクロ事実ブリーフ | 定期（週次/月次）+ 不定期 |
+| **b** | `records/03-screened/` | スクリーニング通過銘柄 | 定期（週次） |
+| **c** | `records/02-outlook/` | マクロ見解 | 定期（月次）+ 不定期 |
+| **d** | `records/04-research/` | 個別銘柄リサーチ（packet 本体） | screened 後の選定単位 |
+| ― | `records/05-trades/` | 執行記録 | 採用時 |
+| ― | `records/06-reviews/` | 事後検証 | 決済後 +15/+30 営業日 + 月次 retro |
 
-Placeholder ディレクトリは v1 で作成しない。`screened/`, `view/`, `research/`, `trades/`, `reviews/` は初回ファイル生成時に自然発生する。
+運用成果物と証跡は `records/` 配下に集約する。`docs/`, `src/`, `tests/`, `.github/` は仕様・実装・検証基盤として root に残す。
 
 ## 2. 全体ワークフロー（2 トラック + 統合 + フィードバック）
 
@@ -38,20 +38,20 @@ Placeholder ディレクトリは v1 で作成しない。`screened/`, `view/`, 
 │             │                                            │
 │             ↓                                            │
 │    ┌────────────┐    積み上げ    ┌────────────┐          │
-│    │  brief/    │ ─────────────→ │  view/     │          │
+│    │  records/01-brief/    │ ─────────────→ │  records/02-outlook/     │          │
 │    │  (a) 事実   │                │  (c) 見解  │          │
 │    │  定期+不定期│                │  定期+不定期│          │
 │    └────────────┘                └─────┬──────┘          │
 │                                        │                 │
 └────────────────────────────────────────┼─────────────────┘
-                                         │ view_ref (required)
+                                         │ outlook_ref (required)
 ┌─────────────── Micro Track ────────────┼─────────────────┐
 │                                        │                 │
 │   primary sources (J-Quants 等)        │                 │
 │             │                          │                 │
 │             ↓                          │                 │
 │    ┌────────────┐                      │                 │
-│    │ screened/  │                      │                 │
+│    │ records/03-screened/  │                      │                 │
 │    │ (b) ふるい │                      │                 │
 │    │ 定期        │                      │                 │
 │    └──────┬─────┘                      │                 │
@@ -59,19 +59,19 @@ Placeholder ディレクトリは v1 で作成しない。`screened/`, `view/`, 
 │           └──────────┬─────────────────┘                 │
 │                      ↓                                   │
 │              ┌─────────────┐                             │
-│              │ research/   │                             │
+│              │ records/04-research/   │                             │
 │              │ (d) 深掘り  │                             │
 │              │ packet 本体 │                             │
 │              └──────┬──────┘                             │
 │                     │ 採用判定                           │
 │                     ↓                                    │
 │              ┌─────────────┐                             │
-│              │  trades/    │                             │
+│              │  records/05-trades/    │                             │
 │              │  執行       │                             │
 │              └──────┬──────┘                             │
 │                     ↓                                    │
 │              ┌─────────────┐                             │
-│              │  reviews/   │                             │
+│              │  records/06-reviews/   │                             │
 │              │  事後検証   │                             │
 │              └──────┬──────┘                             │
 │                     │                                    │
@@ -87,17 +87,17 @@ Placeholder ディレクトリは v1 で作成しない。`screened/`, `view/`, 
 flowchart TB
     subgraph MacroTrack[Macro Track - independent]
         PA[primary sources<br/>BOJ/BLS/JPX/総務省]
-        BRIEF[brief/<br/>a 事実ブリーフ<br/>定期+不定期]
-        VIEW[view/<br/>c マクロ見解<br/>定期+不定期]
-        PA --> BRIEF --> VIEW
+        BRIEF[records/01-brief/<br/>a 事実ブリーフ<br/>定期+不定期]
+        OUTLOOK[records/02-outlook/<br/>c マクロ見解<br/>定期+不定期]
+        PA --> BRIEF --> OUTLOOK
     end
 
     subgraph MicroTrack[Micro Track - 売買ループ]
         PB[primary sources<br/>J-Quants/EDINET/TDnet/JPX]
-        SCREENED[screened/<br/>b 通過銘柄<br/>定期]
-        RESEARCH[research/<br/>d 個別深掘り<br/>+packet]
-        TRADES[trades/<br/>執行]
-        REVIEWS[reviews/<br/>事後検証]
+        SCREENED[records/03-screened/<br/>b 通過銘柄<br/>定期]
+        RESEARCH[records/04-research/<br/>d 個別深掘り<br/>+packet]
+        TRADES[records/05-trades/<br/>執行]
+        REVIEWS[records/06-reviews/<br/>事後検証]
         PB --> SCREENED
         SCREENED --> RESEARCH
         RESEARCH -->|採用| TRADES
@@ -105,12 +105,12 @@ flowchart TB
         REVIEWS -.retro feedback.-> RESEARCH
     end
 
-    VIEW -->|view_ref required| RESEARCH
+    OUTLOOK -->|outlook_ref required| RESEARCH
 ```
 
 ## 3. 各成分の仕様
 
-### 3.1 `brief/` — (a) マクロ事実ブリーフ
+### 3.1 `records/01-brief/` — (a) マクロ事実ブリーフ
 
 #### 3.1.1 責務
 
@@ -135,7 +135,7 @@ flowchart TB
 #### 3.1.3 Path
 
 ```
-brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
+records/01-brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
 ```
 
 - `{kind}` 例: `world-daily` / `world-weekly` / `macro-monthly` / `fomc` / `boj` / `cpi` / `gdp` / `geopolitics` / `event`
@@ -154,7 +154,7 @@ sources:
 ---
 ```
 
-### 3.2 `screened/` — (b) スクリーニング通過銘柄
+### 3.2 `records/03-screened/` — (b) スクリーニング通過銘柄
 
 #### 3.2.1 責務
 
@@ -168,7 +168,7 @@ sources:
 #### 3.2.3 Path
 
 ```
-screened/YYYY/MM/YYYY-MM-DD.yaml
+records/03-screened/YYYY/MM/YYYY-MM-DD.yaml
 ```
 
 1 実行 = 1 ファイル。
@@ -181,12 +181,12 @@ screened/YYYY/MM/YYYY-MM-DD.yaml
 - `generated_by`, `data_sources`, `run_at`
 - `tickers[]`: `ticker`, `name`, valuation 指標 (`per_forward`, `per_trailing`, `pbr`, `ev_ebitda`, `p_s`, `pcfr`), `sector_33`, `ttm_quality`, `threshold_hit`
 
-### 3.3 `view/` — (c) マクロ見解
+### 3.3 `records/02-outlook/` — (c) マクロ見解
 
 #### 3.3.1 責務
 
-- `brief/` の積み上げを source として、業種/地域/資産クラス別の追い風/中立/逆風評価を生成
-- `research/` の Macro gate 判定で参照される（v1 では唯一の gate source）
+- `records/01-brief/` の積み上げを source として、業種/地域/資産クラス別の追い風/中立/逆風評価を生成
+- `records/04-research/` の Macro gate 判定で参照される（v1 では唯一の gate source）
 
 #### 3.3.2 更新 trigger
 
@@ -196,7 +196,7 @@ screened/YYYY/MM/YYYY-MM-DD.yaml
 #### 3.3.3 Path
 
 ```
-view/YYYY/MM/view-YYYY-MM-DD-<slug>.md
+records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-<slug>.md
 ```
 
 #### 3.3.4 Front matter
@@ -207,9 +207,9 @@ ai-draft: true | false
 published_at: "ISO 8601"
 horizon: "1-6m"
 updated_from:
-  - brief/YYYY/MM/world-daily-*.md
-  - brief/YYYY/MM/world-weekly-*.md
-  - brief/YYYY/MM/*-macro-monthly-*.md
+  - records/01-brief/YYYY/MM/world-daily-*.md
+  - records/01-brief/YYYY/MM/world-weekly-*.md
+  - records/01-brief/YYYY/MM/*-macro-monthly-*.md
 sectors:
   "情報・通信": tailwind
   "銀行": neutral
@@ -223,30 +223,30 @@ regions:
 
 #### 3.3.5 Bootstrap 規則（v1 運用 Day 1）
 
-v1 運用開始時点で `view/` は存在しない。以下の bootstrap 手順を必須とする:
+`records/02-outlook/` は以下の手順で更新する:
 
-1. 既存 `brief/` を読み、鮮度が不足する場合は `world-daily` / `event` を先に追加してから最初の `view/2026/04/view-YYYY-MM-DD-bootstrap.md` を手動作成する
-2. bootstrap view の front matter: `updated_from: [実際に使った brief 群]`, `horizon: "1-6m"`, 業種/地域は brief から読み取れる範囲で記入（空欄は `null` 許容）
-3. bootstrap view 作成後、通常の research 作成フローに遷移
+1. 既存 `records/01-brief/` を読み、鮮度が不足する場合は `world-daily` / `event` を先に追加してから `records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-<slug>.md` を作成する
+2. bootstrap outlook の front matter: `updated_from: [実際に使った brief 群]`, `horizon: "1-6m"`, 業種/地域は brief から読み取れる範囲で記入（空欄は `null` 許容）
+3. bootstrap outlook 作成後、通常の research 作成フローに遷移
 
-### 3.4 `research/` — (d) 個別銘柄リサーチ packet
+### 3.4 `records/04-research/` — (d) 個別銘柄リサーチ packet
 
 #### 3.4.1 責務
 
-- `screened/` × `view/` から選定した個別銘柄の深掘り + 採用判定
+- `records/03-screened/` × `records/02-outlook/` から選定した個別銘柄の深掘り + 採用判定
 - 4 成分統合の出力 = packet 本体
 
-#### 3.4.2 選定プロセス（screened × view → 候補絞り込み）
+#### 3.4.2 選定プロセス（screened × outlook → 候補絞り込み）
 
-1. 最新 `screened/*.yaml` の ticker list を取得
-2. 最新 `view/*.md` の `sectors` / `regions` を参照
-3. screened ticker のうち、所属業種/地域が `view` で `tailwind` または `neutral` のものを候補に残す（`headwind` は **除外**）
+1. 最新 `records/03-screened/*.yaml` の ticker list を取得
+2. 最新 `records/02-outlook/*.md` の `sectors` / `regions` を参照
+3. screened ticker のうち、所属業種/地域が `outlook` で `tailwind` または `neutral` のものを候補に残す（`headwind` は **除外**）
 4. 候補から人間 + AI が個別 ticker を選定（詳細基準は [`components/research.md`](./components/research.md)）
 
 #### 3.4.3 Path
 
 ```
-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
+records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
 ```
 
 #### 3.4.4 Front matter
@@ -256,10 +256,10 @@ research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
 ticker: "7203"
 name: "..."
 playbook: valuation-mean-reversion-v1 | valuation-catalyst-confirmation-v1
-screened_ref: screened/YYYY/MM/YYYY-MM-DD.yaml      # 必須
-view_ref: view/YYYY/MM/view-YYYY-MM-DD-*.md       # 必須（Bootstrap 後は例外なし）
+screened_ref: records/03-screened/YYYY/MM/YYYY-MM-DD.yaml      # 必須
+outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.md       # 必須（Bootstrap 後は例外なし）
 brief_refs:                                        # 任意
-  - brief/YYYY/MM/event-YYYY-MM-DD-*.md
+  - records/01-brief/YYYY/MM/event-YYYY-MM-DD-*.md
 ai-draft: true | false
 published_at: "ISO 8601"
 tradable_at: "ISO 8601"
@@ -275,7 +275,7 @@ valuation:
 ---
 ```
 
-### 3.5 `trades/` — 執行記録
+### 3.5 `records/05-trades/` — 執行記録
 
 #### 3.5.1 責務
 
@@ -284,7 +284,7 @@ valuation:
 #### 3.5.2 Path
 
 ```
-trades/YYYY/MM/YYYY-MM-DD-<ticker>.md
+records/05-trades/YYYY/MM/YYYY-MM-DD-<ticker>.md
 ```
 
 #### 3.5.3 Front matter
@@ -292,7 +292,7 @@ trades/YYYY/MM/YYYY-MM-DD-<ticker>.md
 ```yaml
 ---
 ticker: "7203"
-research_ref: research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md  # 必須
+research_ref: records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md  # 必須
 entry_date: "YYYY-MM-DD"
 entry_price: 数値
 position_size_pct: 数値
@@ -307,7 +307,7 @@ pnl_pct: 数値 | null
 ---
 ```
 
-### 3.6 `reviews/` — 事後検証
+### 3.6 `records/06-reviews/` — 事後検証
 
 #### 3.6.1 責務
 
@@ -317,8 +317,8 @@ pnl_pct: 数値 | null
 #### 3.6.2 Path
 
 ```
-reviews/YYYY/MM/YYYY-MM-DD-<ticker>.md         # 個別 review
-reviews/YYYY/retro-YYYYMM.md                   # 月次 retro
+records/06-reviews/YYYY/MM/YYYY-MM-DD-<ticker>.md         # 個別 review
+records/06-reviews/YYYY/retro-YYYYMM.md                   # 月次 retro
 ```
 
 ## 4. Front matter 共通原則
@@ -329,55 +329,28 @@ reviews/YYYY/retro-YYYYMM.md                   # 月次 retro
 - AI 下書きは `ai-draft: true`、人間確認後 `false`
 - 参照は path 配列: `brief_refs: [...]`, `updated_from: [...]`, `screened_ref: ...`
 
-## 5. ディレクトリ構造（最終形）
+## 5. ディレクトリ構造
 
 ```
-brief/                          # (a) RENAMED from journal/
-  README.md
-  2026/{01..04}/...
-
-playbooks/                      # 運用中の playbook
-  README.md
-  valuation-mean-reversion-v1.md
-  valuation-catalyst-confirmation-v1.md
-
-docs/
-  philosophy.md                 # 思想・ベース概念・進化の歴史
-  architecture-v1.md            # 本ファイル（構造・schema・procedure）
-  design-principles.md          # 設計原則
-  workflow.md                   # 日々の運用ワークフロー
-  data-sources.md               # 成分ごとのデータソース
-  components/                   # 各成分の運用仕様
-    brief.md
-    screened.md
-    view.md
-    research.md
-    trades.md
-    reviews.md
-  screening/                    # スクリーニングサブシステム詳細
-    principles.md
-    failure-taxonomy.md
-    universe-rules.md
-    valuation-metrics.md
-    mechanical-v1.md
-    macro-gate-procedure.md
-  templates/
-    brief-world-weekly.md
-    brief-japan-monthly.md
-    brief-event.md
-    view.md
-    screened.yaml
-    research.md
-    trade.md
-    review.md
-    retro-monthly.md
-    playbook.md
-
-README.md                       # root
-.gitignore                      # .plan/ 含む
-
-# 以下は初回ファイル生成で自然発生（v1 では作成しない）:
-# screened/ view/ research/ trades/ reviews/
+baibai-loop/
+├── README.md
+├── docs/
+├── records/
+│   ├── _data/
+│   ├── _ledger/
+│   ├── _playbooks/
+│   ├── _schemas/
+│   ├── 01-brief/
+│   ├── 02-outlook/
+│   ├── 03-screened/
+│   ├── 04-research/
+│   ├── 05-trades/
+│   └── 06-reviews/
+├── src/
+├── tests/
+├── .github/
+├── pyproject.toml
+└── uv.lock
 ```
 
 ## 6. 参考

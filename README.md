@@ -9,7 +9,7 @@ Baibai-Loop は、日本株トレードにおける戦略立案、スクリー�
 このリポジトリでは、以下のループを継続的に回すことを想定しています。
 
 1. マクロ事実を蓄積する（brief）
-2. マクロ見解を更新する（view）
+2. マクロ見解を更新する（outlook）
 3. スクリーニング基準でふるいにかける（screened）
 4. 個別銘柄を深掘り調査する（research）
 5. 条件を満たしたら取引する（trades）
@@ -30,17 +30,17 @@ Baibai-Loop は 4 成分 + 下流（2 成分）で構成されます。
 
 | 成分 | directory | 役割 |
 | --- | --- | --- |
-| a | [`brief/`](./brief/) | マクロ事実ブリーフ（定期+不定期） |
-| b | `screened/` | スクリーニング通過銘柄（初回ファイル生成で作成） |
-| c | `view/` | マクロ見解（brief を積み上げて作成、初回ファイル生成で作成） |
-| d | `research/` | 個別銘柄リサーチ packet（初回ファイル生成で作成） |
-| ― | `trades/` | 執行記録（初回ファイル生成で作成） |
-| ― | `reviews/` | 事後検証（初回ファイル生成で作成） |
+| a | [`records/01-brief/`](./records/01-brief/) | マクロ事実ブリーフ（定期+不定期） |
+| b | `records/03-screened/` | スクリーニング通過銘柄 |
+| c | `records/02-outlook/` | マクロ見解（brief を積み上げて作成） |
+| d | `records/04-research/` | 個別銘柄リサーチ packet |
+| ― | `records/05-trades/` | 執行記録 |
+| ― | `records/06-reviews/` | 事後検証 |
 
 **2 トラック構成**:
 
-- **Macro track (独立)**: `brief/` → `view/`（売買イベントと独立に更新）
-- **Micro track (売買ループ)**: `screened/` → `research/` → `trades/` → `reviews/` → retro feedback
+- **Macro track (独立)**: `records/01-brief/` → `records/02-outlook/`（売買イベントと独立に更新）
+- **Micro track (売買ループ)**: `records/03-screened/` → `records/04-research/` → `records/05-trades/` → `records/06-reviews/` → retro feedback
 
 全体像の詳細は [`docs/architecture-v1.md`](./docs/architecture-v1.md) を参照。
 
@@ -71,7 +71,7 @@ baibai-loop/
 │   ├── components/                    # 各成分の運用仕様
 │   │   ├── brief.md
 │   │   ├── screened.md
-│   │   ├── view.md
+│   │   ├── outlook.md
 │   │   ├── research.md
 │   │   ├── trades.md
 │   │   └── reviews.md
@@ -87,31 +87,33 @@ baibai-loop/
 │       ├── brief-world-weekly.md
 │       ├── brief-japan-monthly.md
 │       ├── brief-event.md
-│       ├── view.md
+│       ├── outlook.md
 │       ├── screened.yaml
 │       ├── research.md
 │       ├── trade.md
 │       ├── review.md
 │       ├── retro-monthly.md
 │       └── playbook.md
-├── brief/                             # (a) マクロ事実ブリーフ
-│   ├── README.md
-│   └── 2026/{01..04}/...
-├── playbooks/                         # 運用中の playbook
-│   ├── README.md
-│   ├── valuation-mean-reversion-v1.md
-│   └── valuation-catalyst-confirmation-v1.md
-# 以下は初回ファイル生成で自然発生する（本リポジトリではまだ作成しない）:
-# ├── screened/
-# ├── view/
-# ├── research/
-# ├── trades/
-# └── reviews/
+├── records/
+│   ├── 01-brief/                    # (a) マクロ事実ブリーフ
+│   ├── 02-outlook/                  # (c) マクロ見解
+│   ├── 03-screened/                 # (b) スクリーニング通過銘柄
+│   ├── 04-research/                 # (d) 個別銘柄リサーチ packet
+│   ├── 05-trades/                   # 執行記録
+│   ├── 06-reviews/                  # 事後検証
+│   ├── _data/                       # screening raw data / derived cache
+│   ├── _ledger/                     # paper / skipped / updates ledger
+│   ├── _playbooks/                  # 運用中の playbook
+│   └── _schemas/                    # validation schema
+├── src/
+├── tests/
+├── pyproject.toml
+└── uv.lock
 ```
 
 ## 運用ルール
 
-- 事実（`brief/`, `screened/`）と分析（`view/`, `research/`）を**物理的に分離**
+- 事実（`records/01-brief/`, `records/03-screened/`）と分析（`records/02-outlook/`, `records/04-research/`）を**物理的に分離**
 - 分析階層は **世界情勢 → 日本経済 → 日本株**（`docs/design-principles.md`）
 - 一次統計（中央銀行・政府・国際機関）中心で事実を記録、意見記事は取らない
 - マクロゲートを通過した銘柄のみ research 対象（逆風銘柄は採用しない）

@@ -1,5 +1,5 @@
 """Helpers for migrating the legacy `.cache/screening/` raw JSON tree to
-`data/raw/screening/`.
+`records/_data/raw/screening/`.
 
 Issue #45 moved the raw JSON cache from a `.gitignore`d local workspace to a
 git-tracked location so that another machine can rebuild screening / ledger

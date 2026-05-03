@@ -13,8 +13,8 @@ def _paper_record(**overrides: object) -> dict[str, object]:
         "name": "Sample",
         "decision": "accepted",
         "playbook": "valuation-mean-reversion-v1",
-        "screened_ref": "screened/2026/04/2026-04-24.yaml",
-        "research_ref": "research/2026/04/sample.md",
+        "screened_ref": "records/03-screened/2026/04/2026-04-24.yaml",
+        "research_ref": "records/04-research/2026/04/sample.md",
         "asof_date": "2026-04-24",
         "decision_date": "2026-04-25",
         "baseline_price": 100.0,
@@ -36,8 +36,8 @@ def _write_jsonl(path: Path, record: object) -> None:
 
 
 def test_discover_ledger_files_finds_paper_and_skipped(tmp_path: Path) -> None:
-    paper = tmp_path / "ledger" / "paper" / "2026-04.jsonl"
-    skipped = tmp_path / "ledger" / "skipped" / "2026-04.jsonl"
+    paper = tmp_path / "records/_ledger" / "paper" / "2026-04.jsonl"
+    skipped = tmp_path / "records/_ledger" / "skipped" / "2026-04.jsonl"
     _write_jsonl(paper, _paper_record())
     _write_jsonl(
         skipped,
@@ -48,24 +48,24 @@ def test_discover_ledger_files_finds_paper_and_skipped(tmp_path: Path) -> None:
             "research_ref": None,
         },
     )
-    assert discover_ledger_files(tmp_path / "ledger") == [paper, skipped]
+    assert discover_ledger_files(tmp_path / "records/_ledger") == [paper, skipped]
 
 
 def test_validate_ledger_invalid_json_is_finding(tmp_path: Path) -> None:
-    path = tmp_path / "ledger" / "paper" / "2026-04.jsonl"
+    path = tmp_path / "records/_ledger" / "paper" / "2026-04.jsonl"
     path.parent.mkdir(parents=True)
     path.write_text("{bad\n", encoding="utf-8")
     assert "ledger.invalid-json" in {finding.code for finding in validate_ledger_file(path)}
 
 
 def test_validate_ledger_non_object_line_is_finding(tmp_path: Path) -> None:
-    path = tmp_path / "ledger" / "paper" / "2026-04.jsonl"
+    path = tmp_path / "records/_ledger" / "paper" / "2026-04.jsonl"
     _write_jsonl(path, ["not", "object"])
     assert "ledger.non-object" in {finding.code for finding in validate_ledger_file(path)}
 
 
 def test_validate_ledger_missing_required_field_is_finding(tmp_path: Path) -> None:
-    path = tmp_path / "ledger" / "paper" / "2026-04.jsonl"
+    path = tmp_path / "records/_ledger" / "paper" / "2026-04.jsonl"
     record = _paper_record()
     del record["ticker"]
     _write_jsonl(path, record)
@@ -73,12 +73,12 @@ def test_validate_ledger_missing_required_field_is_finding(tmp_path: Path) -> No
 
 
 def test_validate_ledger_rejects_adv_participation_cap(tmp_path: Path) -> None:
-    path = tmp_path / "ledger" / "paper" / "2026-04.jsonl"
+    path = tmp_path / "records/_ledger" / "paper" / "2026-04.jsonl"
     _write_jsonl(path, _paper_record(adv_participation_pct=5.0))
     assert "ledger.exclusiveMaximum" in {finding.code for finding in validate_ledger_file(path)}
 
 
 def test_validate_ledger_rejects_bad_ledger_id_pattern(tmp_path: Path) -> None:
-    path = tmp_path / "ledger" / "paper" / "2026-04.jsonl"
+    path = tmp_path / "records/_ledger" / "paper" / "2026-04.jsonl"
     _write_jsonl(path, _paper_record(ledger_id="bad"))
     assert "ledger.pattern" in {finding.code for finding in validate_ledger_file(path)}

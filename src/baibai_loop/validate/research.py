@@ -27,7 +27,7 @@ REQUIRED_FRONT_MATTER: tuple[str, ...] = (
     "market_cap_oku",
     "sector_33",
     "screened_ref",
-    "view_ref",
+    "outlook_ref",
     "brief_refs",
     "ai-draft",
     "published_at",
@@ -204,7 +204,7 @@ def discover_research_files(root: Path) -> list[Path]:
 
 
 def _default_playbook_root() -> Path:
-    return Path(__file__).resolve().parents[3] / "playbooks"
+    return Path(__file__).resolve().parents[3] / "records" / "_playbooks"
 
 
 def _validate_front_matter(
@@ -244,7 +244,8 @@ def _validate_front_matter(
                 target=path,
                 code="research.unknown-playbook",
                 message=(
-                    f"playbook {playbook!r} has no schema in playbooks/; known: {known_sorted}"
+                    f"playbook {playbook!r} has no schema in records/_playbooks/; "
+                    f"known: {known_sorted}"
                 ),
                 location="playbook",
             )
@@ -459,19 +460,19 @@ def _validate_front_matter(
                 severity="error",
                 target=path,
                 code="research.screened-ref-not-yaml",
-                message="screened_ref must end with .yaml (PR 1-A: screened is YAML)",
+                message="screened_ref must end with .yaml",
                 location="screened_ref",
             )
         )
-    view_ref = front_matter.get("view_ref")
-    if isinstance(view_ref, str) and not view_ref.endswith(".md"):
+    outlook_ref = front_matter.get("outlook_ref")
+    if isinstance(outlook_ref, str) and not outlook_ref.endswith(".md"):
         findings.append(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.view-ref-not-md",
-                message="view_ref must end with .md",
-                location="view_ref",
+                code="research.outlook-ref-not-md",
+                message="outlook_ref must end with .md",
+                location="outlook_ref",
             )
         )
     return findings

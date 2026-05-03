@@ -7,7 +7,7 @@ Baibai-Loop 4 成分アーキテクチャの **(a) マクロ事実ブリーフ**
 - 世界情勢・日本経済・業種動向の **一次情報** を短く記録する
 - 「事実 + 要点」の短いドキュメントで、解釈は入れない
 - **独立トラック**: 売買ループ（screened → research → trades → reviews）から独立に積み上がる
-- Macro track の出発点として `view/` の source となる
+- Macro track の出発点として `records/02-outlook/` の source となる
 
 ## 2. 種類
 
@@ -15,7 +15,7 @@ Baibai-Loop 4 成分アーキテクチャの **(a) マクロ事実ブリーフ**
 
 | kind | 頻度 | 対象 | template |
 | --- | --- | --- | --- |
-| `world-daily` | 日次（営業日ベース、鮮度補完が必要な日） | 前日以降に増えた一次統計・会合日程・市場事実のうち、週次まで待つと view が stale になるもの | [`../templates/brief-world-daily.md`](../templates/brief-world-daily.md) |
+| `world-daily` | 日次（営業日ベース、鮮度補完が必要な日） | 前日以降に増えた一次統計・会合日程・市場事実のうち、週次まで待つと outlook が stale になるもの | [`../templates/brief-world-daily.md`](../templates/brief-world-daily.md) |
 | `world-weekly` | 週次 1 回 | 世界情勢・グローバル市場指標・地政学速報 | [`../templates/brief-world-weekly.md`](../templates/brief-world-weekly.md) |
 | `macro-monthly` | 月次 1 回（主要発表の出揃い後） | CPI / 雇用統計 / 政策金利変更などの月次〜四半期統計 | [`../templates/brief-japan-monthly.md`](../templates/brief-japan-monthly.md) |
 
@@ -46,7 +46,7 @@ Baibai-Loop 4 成分アーキテクチャの **(a) マクロ事実ブリーフ**
 ## 3. Path と命名
 
 ```
-brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
+records/01-brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
 ```
 
 - `{kind}`: `world-daily` / `world-weekly` / `macro-monthly` / `fomc` / `boj` / `cpi` / `gdp` / `geopolitics` / `event`
@@ -55,7 +55,7 @@ brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
   - 解釈語（`beat`, `surge`, `rally`, `crash`, `hot`, `cool`）は避ける
   - 数値の小数点は `p` で代用（`3.3%` → `3p3`）
   - 目立つ事実がない観測月は `overview` を用いてよい
-- INDEX ファイルは作らない。一覧は `git ls-files brief/` または GitHub ツリーで確認
+- INDEX ファイルは作らない。一覧は `git ls-files records/01-brief/` または GitHub ツリーで確認
 
 ## 4. Front matter 必須項目
 
@@ -80,16 +80,16 @@ sources:
 
 ### 5.1 periodic
 
-- **日次**: `world-daily` は「週次まで待つと stale になる事実」の受け皿。新しい一次統計、公表済み会合日程の更新、view に効く fresh fact が増えた営業日に作成する
+- **日次**: `world-daily` は「週次まで待つと stale になる事実」の受け皿。新しい一次統計、公表済み会合日程の更新、outlook に効く fresh fact が増えた営業日に作成する
 - **週次**: 毎週 1 回、世界情勢・グローバル指標・地政学速報を `world-weekly` として記録。[`../workflow.md`](../workflow.md) の「brief の分析階層」節に従う
 - **月次**: 毎月 1 回、主要統計の出揃いを待って `macro-monthly` として記録。差分データ（MoM / YoY）を計算
 
 ### 5.2 日次 brief の位置付け
 
-- `world-daily` は **週次の縮小版ではない**。目的は、`view/` の入力に必要な鮮度を補うこと
+- `world-daily` は **週次の縮小版ではない**。目的は、`records/02-outlook/` の入力に必要な鮮度を補うこと
 - `macro-monthly` がまだ閉じていない月でも、当日公表された CPI / 小売売上高 / 雇用関連などの **月次級データを一時的に保持してよい**
 - 後日 `macro-monthly` が作成されたら、その月次級データの正本は `macro-monthly` に移る。既存の `world-daily` は archive として保持し、以後の `world-daily` / `world-weekly` では再掲せずリンクで参照する
-- bootstrap view の直前に最新 brief が古い場合は、`world-daily` または `event` を先に追加して freshness gap を埋める
+- bootstrap outlook の直前に最新 brief が古い場合は、`world-daily` または `event` を先に追加して freshness gap を埋める
 - 同じ統計を `world-daily` と `event` の両方で重複生成しない。通常の月次級統計公表は `world-daily`、decisive event のみ `event`
 
 ### 5.3 event
@@ -105,10 +105,10 @@ sources:
 - 因果は報道引用として明示する場合のみ許容（`CNBC は中東情勢緩和を下落要因として挙げている`）
 - 詳細: [`../workflow.md`](../workflow.md) の「事実記述の粒度」節
 
-## 6. view への接続
+## 6. outlook への接続
 
-- `view/` は複数の brief を積み上げて作成される（`updated_from` で brief ファイル path を列挙）
-- brief 自体は view の存在を意識しない。brief は独立に積み上がる
+- `records/02-outlook/` は複数の brief を積み上げて作成される（`updated_from` で brief ファイル path を列挙）
+- brief 自体は outlook の存在を意識しない。brief は独立に積み上がる
 
 ## 7. AI の役割境界
 

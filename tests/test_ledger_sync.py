@@ -17,9 +17,9 @@ from baibai_loop.validate.review import validate_review_file
 
 
 def _seed(root: Path) -> None:
-    screened_dir = root / "screened" / "2026" / "04"
-    research_dir = root / "research" / "2026" / "04"
-    playbooks_dir = root / "playbooks"
+    screened_dir = root / "records/03-screened" / "2026" / "04"
+    research_dir = root / "records/04-research" / "2026" / "04"
+    playbooks_dir = root / "records/_playbooks"
     screened_dir.mkdir(parents=True)
     research_dir.mkdir(parents=True)
     playbooks_dir.mkdir()
@@ -48,7 +48,7 @@ def _seed(root: Path) -> None:
             "name": "Sample",
             "playbook": "valuation-mean-reversion-v1",
             "decision": "accepted",
-            "screened_ref": "screened/2026/04/2026-04-24.yaml",
+            "screened_ref": "records/03-screened/2026/04/2026-04-24.yaml",
             "published_at": "2026-04-25T22:00:00+09:00",
             "macro_gate": "neutral",
             "position_size_oku": 0.01,
@@ -75,7 +75,7 @@ def test_sync_ledger_writes_idempotent_paper_records(tmp_path: Path) -> None:
     second = sync_ledger(tmp_path)
     assert first.paper_count == 1
     assert second.paper_count == 1
-    ledger_path = tmp_path / "ledger" / "paper" / "2026-04.jsonl"
+    ledger_path = tmp_path / "records/_ledger" / "paper" / "2026-04.jsonl"
     lines = ledger_path.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1
     record = json.loads(lines[0])
@@ -106,7 +106,9 @@ def test_sync_ledger_uses_adjusted_price_when_bar_available(tmp_path: Path) -> N
         ),
     )
     assert result.paper_count == 1
-    record = json.loads((tmp_path / "ledger" / "paper" / "2026-04.jsonl").read_text().strip())
+    record = json.loads(
+        (tmp_path / "records/_ledger" / "paper" / "2026-04.jsonl").read_text().strip()
+    )
     assert record["baseline_price"] == 90.0
     assert record["adjustment_applied"] is True
 
@@ -127,7 +129,9 @@ def test_sync_ledger_does_not_mark_adjustment_when_adjusted_equals_close(
             ),
         ),
     )
-    record = json.loads((tmp_path / "ledger" / "paper" / "2026-04.jsonl").read_text().strip())
+    record = json.loads(
+        (tmp_path / "records/_ledger" / "paper" / "2026-04.jsonl").read_text().strip()
+    )
     assert record["adjustment_applied"] is False
 
 
@@ -138,7 +142,7 @@ def test_sync_ledger_adds_select_candidates_without_research_to_skipped(tmp_path
     (select_dir / "2026-04-25.yaml").write_text(
         yaml.safe_dump(
             {
-                "screened_ref": "screened/2026/04/2026-04-24.yaml",
+                "screened_ref": "records/03-screened/2026/04/2026-04-24.yaml",
                 "candidates": [
                     {
                         "ticker": "9999",
@@ -154,7 +158,9 @@ def test_sync_ledger_adds_select_candidates_without_research_to_skipped(tmp_path
     )
     result = sync_ledger(tmp_path)
     assert result.skipped_count == 1
-    record = json.loads((tmp_path / "ledger" / "skipped" / "2026-04.jsonl").read_text().strip())
+    record = json.loads(
+        (tmp_path / "records/_ledger" / "skipped" / "2026-04.jsonl").read_text().strip()
+    )
     assert record["ledger_id"] == "skipped-20260425-9999-vmean"
     assert record["research_ref"] is None
 
@@ -189,7 +195,7 @@ def test_ledger_cli_require_market_data_emits_diagnostic_when_no_research(
     # research packet が空の場合 _load_market_data は warnings を返さないが、
     # --require-market-data の失敗理由は必ず stderr に出るべき。
     monkeypatch.setenv("JQUANTS_REFRESH_TOKEN", "dummy-token")
-    (tmp_path / "research").mkdir()
+    (tmp_path / "records/04-research").mkdir(parents=True)
     assert main(["sync", "--root", str(tmp_path), "--dry-run", "--require-market-data"]) == 1
     assert "no calendar/bars" in capsys.readouterr().err
 
@@ -198,8 +204,8 @@ def test_monthly_retro_draft_uses_ledger_only_fallback(tmp_path: Path) -> None:
     _seed(tmp_path)
     sync_ledger(tmp_path)
     draft = build_monthly_retro(tmp_path, "2026-04")
-    assert draft.path == tmp_path / "reviews" / "2026" / "retro-202604.md"
-    assert "reviews/2026/04 does not exist" in draft.warnings[0]
+    assert draft.path == tmp_path / "records/06-reviews" / "2026" / "retro-202604.md"
+    assert "records/06-reviews/2026/04 does not exist" in draft.warnings[0]
     assert "price_missing_counts:" in draft.content
     assert "## Skipped trade log の分析" in draft.content
     draft.path.parent.mkdir(parents=True)
@@ -214,7 +220,7 @@ def test_ledger_cli_retro_writes_draft_and_refuses_overwrite(
     _seed(tmp_path)
     sync_ledger(tmp_path)
     assert main(["retro", "--root", str(tmp_path), "--month", "2026-04"]) == 0
-    assert (tmp_path / "reviews" / "2026" / "retro-202604.md").exists()
+    assert (tmp_path / "records/06-reviews" / "2026" / "retro-202604.md").exists()
     assert main(["retro", "--root", str(tmp_path), "--month", "2026-04"]) == 1
     assert "already exists" in capsys.readouterr().err
 
@@ -222,11 +228,11 @@ def test_ledger_cli_retro_writes_draft_and_refuses_overwrite(
 def test_monthly_retro_counts_review_classes(tmp_path: Path) -> None:
     _seed(tmp_path)
     sync_ledger(tmp_path)
-    reviews = tmp_path / "reviews" / "2026" / "04"
+    reviews = tmp_path / "records/06-reviews" / "2026" / "04"
     reviews.mkdir(parents=True)
     (reviews / "2026-04-30-2767.md").write_text(
         """---
-trade_ref: trades/2026/04/2026-04-25-2767.md
+trade_ref: records/05-trades/2026/04/2026-04-25-2767.md
 classification: success
 verified_at: "2026-04-30"
 pnl_pct: 3.5
@@ -266,7 +272,7 @@ def test_sync_ledger_writes_update_events_for_tracking_changes(tmp_path: Path) -
         ),
         observed_at=datetime(2026, 4, 27, tzinfo=UTC),
     )
-    update_path = tmp_path / "ledger" / "updates" / "2026-04.jsonl"
+    update_path = tmp_path / "records/_ledger" / "updates" / "2026-04.jsonl"
     events = [json.loads(line) for line in update_path.read_text().splitlines()]
     assert {event["field"] for event in events} >= {"baseline_price", "adjustment_applied"}
 
@@ -274,14 +280,14 @@ def test_sync_ledger_writes_update_events_for_tracking_changes(tmp_path: Path) -
 def test_sync_ledger_logs_decision_transition_in_update_events(tmp_path: Path) -> None:
     _seed(tmp_path)
     sync_ledger(tmp_path, observed_at=datetime(2026, 4, 26, tzinfo=UTC))
-    research_path = tmp_path / "research" / "2026" / "04"
+    research_path = tmp_path / "records/04-research" / "2026" / "04"
     target = next(research_path.glob("*.md"))
     target.write_text(
         target.read_text(encoding="utf-8").replace("decision: accepted", "decision: pending"),
         encoding="utf-8",
     )
     sync_ledger(tmp_path, observed_at=datetime(2026, 4, 27, tzinfo=UTC))
-    update_path = tmp_path / "ledger" / "updates" / "2026-04.jsonl"
+    update_path = tmp_path / "records/_ledger" / "updates" / "2026-04.jsonl"
     events = [json.loads(line) for line in update_path.read_text().splitlines()]
     decision_events = [event for event in events if event["field"] == "decision"]
     assert decision_events == [
@@ -313,7 +319,7 @@ def test_decision_date_normalizes_utc_published_at(tmp_path: Path) -> None:
 
 
 def test_diff_jsonl_marks_orphan_existing_records(tmp_path: Path) -> None:
-    ledger_path = tmp_path / "ledger" / "paper" / "2026-04.jsonl"
+    ledger_path = tmp_path / "records/_ledger" / "paper" / "2026-04.jsonl"
     ledger_path.parent.mkdir(parents=True)
     ledger_path.write_text(
         json.dumps({"ledger_id": "paper-20260425-2767-vmean"}) + "\n",

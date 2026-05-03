@@ -50,12 +50,14 @@ def sync_ledger(
     observed_at: datetime | None = None,
 ) -> SyncResult:
     observed = (observed_at or datetime.now(UTC)).isoformat()
+    research_root = root / "records/04-research"
+    ledger_root = root / "records/_ledger"
     screened = _load_screened(root)
     paper_records: list[dict[str, Any]] = []
     skipped_records: list[dict[str, Any]] = []
     warnings: list[str] = []
     research_keys: set[tuple[str, str]] = set()
-    for path in sorted((root / "research").rglob("*.md")):
+    for path in sorted(research_root.rglob("*.md")):
         parsed = _parse_research(path)
         if parsed is None:
             warnings.append(f"skip malformed research file: {path}")
@@ -150,14 +152,14 @@ def sync_ledger(
     skipped_by_month = _group_by_month(skipped_records)
     diff_lines: list[str] = []
     for month, records in paper_by_month.items():
-        path = root / "ledger" / "paper" / f"{month}.jsonl"
+        path = ledger_root / "paper" / f"{month}.jsonl"
         if dry_run:
             diff_lines.extend(diff_jsonl(path, records))
         else:
             _write_update_events(root, "paper", month, records, observed)
             upsert_jsonl(path, records)
     for month, records in skipped_by_month.items():
-        path = root / "ledger" / "skipped" / f"{month}.jsonl"
+        path = ledger_root / "skipped" / f"{month}.jsonl"
         if dry_run:
             diff_lines.extend(diff_jsonl(path, records))
         else:
@@ -186,7 +188,7 @@ def _parse_research(path: Path) -> tuple[dict[str, Any], str] | None:
 
 def _load_screened(root: Path) -> dict[str, dict[str, Mapping[str, Any]]]:
     loaded: dict[str, dict[str, Mapping[str, Any]]] = {}
-    for path in sorted((root / "screened").rglob("*.yaml")):
+    for path in sorted((root / "records/03-screened").rglob("*.yaml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(document, dict):
             continue
@@ -355,11 +357,11 @@ def _write_update_events(
                         "observed_at": observed_at,
                     }
                 )
-    append_jsonl(root / "ledger" / "updates" / f"{month}.jsonl", events)
+    append_jsonl(root / "records/_ledger" / "updates" / f"{month}.jsonl", events)
 
 
 def _ledger_path(root: Path, ledger_type: str, month: str) -> Path:
-    return root / "ledger" / ledger_type / f"{month}.jsonl"
+    return root / "records/_ledger" / ledger_type / f"{month}.jsonl"
 
 
 def _removed_month_diffs(
@@ -368,7 +370,7 @@ def _removed_month_diffs(
     grouped: Mapping[str, list[dict[str, Any]]],
 ) -> list[str]:
     lines: list[str] = []
-    for path in sorted((root / "ledger" / ledger_type).glob("*.jsonl")):
+    for path in sorted((root / "records/_ledger" / ledger_type).glob("*.jsonl")):
         if path.stem not in grouped:
             lines.extend(diff_jsonl(path, []))
     return lines

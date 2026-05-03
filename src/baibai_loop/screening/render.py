@@ -38,7 +38,12 @@ _QuotedDumper.add_representer(QuotedString, _quoted_scalar_representer)
 
 
 def build_output_path(asof_date: date) -> Path:
-    return Path("screened") / f"{asof_date:%Y}" / f"{asof_date:%m}" / f"{asof_date:%Y-%m-%d}.yaml"
+    return (
+        Path("records/03-screened")
+        / f"{asof_date:%Y}"
+        / f"{asof_date:%m}"
+        / f"{asof_date:%Y-%m-%d}.yaml"
+    )
 
 
 def render_screened_yaml(document: ScreenedRunDocument) -> str:

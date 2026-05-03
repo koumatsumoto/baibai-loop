@@ -1,10 +1,10 @@
 # screening/macro-gate-procedure.md
 
-Baibai-Loop の **Macro gate 判定手順**。research の front matter `macro_gate` を決める手順で、`(c) view/` を唯一の source として運用する（v1 簡易版）。将来 `analysis/` 集約層に差し替え可能な設計にしておく。
+Baibai-Loop の **Macro gate 判定手順**。research の front matter `macro_gate` を決める手順で、`(c) records/02-outlook/` を唯一の source として運用する（v1 簡易版）。将来 `analysis/` 集約層に差し替え可能な設計にしておく。
 
 ## 1. 位置付け
 
-- 4 成分アーキテクチャの (c) `view/` と (d) `research/` の接続点
+- 4 成分アーキテクチャの (c) `records/02-outlook/` と (d) `records/04-research/` の接続点
 - philosophy 柱 2（マクロ優位 76/24）を具体運用に落とす rule
 - research 採用判定の**必須通過ゲート**
 
@@ -18,14 +18,14 @@ Baibai-Loop の **Macro gate 判定手順**。research の front matter `macro_g
 
 ## 3. 判定手順
 
-### 3.1 通常運用（view が最新）
+### 3.1 通常運用（outlook が最新）
 
 1. 対象銘柄の **業種（東証 33 業種）** と **地域（domestic / external-demand / us / emerging 等）** を確認
-2. 最新 `view/YYYY/MM/view-YYYY-MM-DD-*.md` の `sectors` / `regions` を参照し、業種と地域の判定を取得
+2. 最新 `records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.md` の `sectors` / `regions` を参照し、業種と地域の判定を取得
 3. 食い違いがある場合は **保守的な方を採用**（下記 3.2）
-4. research front matter の `macro_gate` と `view_ref` に記録
+4. research front matter の `macro_gate` と `outlook_ref` に記録
 
-**null フィールドの扱い**: view の `sectors` / `regions` で対象業種/地域が `null`（判定未記入）の場合、Macro gate は **`neutral` 扱い** とする。情報不足で `headwind` 側に倒さない（採用率の過度な低下を避けるため）。view が充実してきたら `null` を削り、明示的な判定に更新する。この運用は [`../components/view.md`](../components/view.md) §2.4 と整合。
+**null フィールドの扱い**: outlook の `sectors` / `regions` で対象業種/地域が `null`（判定未記入）の場合、Macro gate は **`neutral` 扱い** とする。情報不足で `headwind` 側に倒さない（採用率の過度な低下を避けるため）。outlook が充実してきたら `null` を削り、明示的な判定に更新する。この運用は [`../components/outlook.md`](../components/outlook.md) §2.4 と整合。
 
 ### 3.2 食い違い時の保守側優先ルール
 
@@ -44,21 +44,21 @@ headwind > neutral > tailwind
 - 2 軸のうち片方が逆風なら、全体のリスクは少なくとも neutral 以下とみなす
 - tailwind 採用の誤判定が採用不可になるのは想定内、逆は structural trap に繋がる
 
-### 3.3 view 未更新時の対応
+### 3.3 outlook 未更新時の対応
 
-- **最新 view が古く**、その後に重大 brief（BOJ/FOMC/CPI 大振れ等）が出た場合:
+- **最新 outlook が古く**、その後に重大 brief（BOJ/FOMC/CPI 大振れ等）が出た場合:
   - 該当 brief を research の `brief_refs` に追加
   - gate 判定を **保守側にのみ** 手動上書き可
     - tailwind → neutral ✓
     - tailwind → headwind ✓
     - neutral → headwind ✓
     - **逆方向の上書き不可**（neutral → tailwind、headwind → neutral は禁止）
-- 常態的に view が遅れるなら、view の更新 trigger を見直す（[`../components/view.md`](../components/view.md)）
+- 常態的に outlook が遅れるなら、outlook の更新 trigger を見直す（[`../components/outlook.md`](../components/outlook.md)）
 
-### 3.4 view が存在しない期間（Bootstrap 前）
+### 3.4 outlook が存在しない期間（Bootstrap 前）
 
-- v1 運用 Day 1 時点では `view/` が存在しない
-- この場合、**先に view の bootstrap を実施** する（[`../components/view.md`](../components/view.md) の Bootstrap 規則）
+- `records/02-outlook/` に最新の outlook がない場合は、research 作成前に outlook を更新する
+- この場合、**先に outlook の bootstrap を実施** する（[`../components/outlook.md`](../components/outlook.md) の Bootstrap 規則）
 - bootstrap 完了前に research を作成してはならない（gate 判定不能のため）
 
 ## 4. Front matter 記録
@@ -67,28 +67,28 @@ headwind > neutral > tailwind
 
 ```yaml
 macro_gate: tailwind | neutral | headwind
-view_ref: view/YYYY/MM/view-YYYY-MM-DD-*.md       # 必須
-brief_refs:                                         # 任意（view 後の緊急 brief があった場合のみ）
-  - brief/YYYY/MM/event-YYYY-MM-DD-*.md
+outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.md       # 必須
+brief_refs:                                         # 任意（outlook 後の緊急 brief があった場合のみ）
+  - records/01-brief/YYYY/MM/event-YYYY-MM-DD-*.md
 ```
 
 ### 4.2 記録例
 
-**パターン 1: 通常運用（view のみ参照）**:
+**パターン 1: 通常運用（outlook のみ参照）**:
 
 ```yaml
 macro_gate: tailwind
-view_ref: view/2026/04/view-2026-04-25-q2-outlook.md
+outlook_ref: records/02-outlook/2026/04/outlook-2026-04-25-q2-outlook.md
 # brief_refs は省略可
 ```
 
-**パターン 2: view 後に緊急 brief で gate 下方修正**:
+**パターン 2: outlook 後に緊急 brief で gate 下方修正**:
 
 ```yaml
-macro_gate: neutral           # view は tailwind だったが brief で neutral に下方
-view_ref: view/2026/04/view-2026-04-25-q2-outlook.md
+macro_gate: neutral           # outlook は tailwind だったが brief で neutral に下方
+outlook_ref: records/02-outlook/2026/04/outlook-2026-04-25-q2-outlook.md
 brief_refs:
-  - brief/2026/04/2026-04-28-boj-tightening.md  # view 後の緊急 brief
+  - records/01-brief/2026/04/2026-04-28-boj-tightening.md  # outlook 後の緊急 brief
 ```
 
 ## 5. 採用判定への影響
@@ -103,14 +103,14 @@ brief_refs:
 
 ### 6.1 置換の動機
 
-- 現状の `view/` は brief からの手動集約であり、運用負荷が高い
+- 現状の `records/02-outlook/` は brief からの手動集約であり、運用負荷が高い
 - 将来 `analysis/` 集約層を導入し、産業別・地域別の長期トレンドを AI 分析で集約する（philosophy §6 未熟さ 1）
 
 ### 6.2 置換の方法（将来）
 
-- `view_ref` を `analysis_ref` に置き換える
-- `analysis/YYYY/MM/analysis-YYYY-MM-DD-*.md` の schema は `view/` と互換性を持たせる想定
-- v1 運用中に `view/` schema を stable に保つことで、将来の置換コストを下げる
+- `outlook_ref` を `analysis_ref` に置き換える
+- `analysis/YYYY/MM/analysis-YYYY-MM-DD-*.md` の schema は `records/02-outlook/` と互換性を持たせる想定
+- v1 運用中に `records/02-outlook/` schema を stable に保つことで、将来の置換コストを下げる
 
 ### 6.3 v1 では置換しない
 
@@ -125,11 +125,11 @@ brief_refs:
 - **逆風判定で見送った銘柄**のパフォーマンス（見送り判断の妥当性、偽陰性率）
 - **gate 判定誤り**（採用時 tailwind → 保有中 headwind に反転）の頻度
 
-これらから view の更新 trigger や gate 判定の精度を評価し、次周回の改善項目にする。
+これらから outlook の更新 trigger や gate 判定の精度を評価し、次周回の改善項目にする。
 
 ## 8. 参考
 
 - [`principles.md`](./principles.md): スクリーニング原則
-- [`../components/view.md`](../components/view.md): view 運用仕様（Bootstrap 規則含む）
+- [`../components/outlook.md`](../components/outlook.md): outlook 運用仕様（Bootstrap 規則含む）
 - [`../components/research.md`](../components/research.md): research 選定プロセス
 - [`../philosophy.md`](../philosophy.md): 思想（マクロ優位 76/24）

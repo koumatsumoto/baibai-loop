@@ -1,11 +1,11 @@
 # screening/automation-v1.md
 
-Baibai-Loop の `screened/` を対象にした automation v1 の実装正本。週次 screening の入力と実行条件を traceability として追跡するための実行方式、依存、失敗時の扱いを定義する。
+Baibai-Loop の `records/03-screened/` を対象にした automation v1 の実装正本。週次 screening の入力と実行条件を traceability として追跡するための実行方式、依存、失敗時の扱いを定義する。
 
 ## 1. Scope
 
 - 対象は `screened` 自動生成まで
-- `research` 自動選定、`view` 自動突合、CI 定期実行は対象外
+- `research` 自動選定、`outlook` 自動突合、CI 定期実行は対象外
 - `kabuステーションAPI` と `JPX Market Explorer` は source of truth に使わない
 
 ## 2. Runtime
@@ -19,19 +19,19 @@ Baibai-Loop の `screened/` を対象にした automation v1 の実装正本。�
 python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 python -m baibai_loop.screening.cli run --asof YYYY-MM-DD --allow-stale-jpx
 python -m baibai_loop.screening.cli bootstrap-cache --start YYYY-MM-DD --end YYYY-MM-DD
-python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--view path] [--top N]
+python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--outlook path] [--top N]
 python -m baibai_loop.screening.cli migrate-cache [--from PATH] [--to PATH] [--dry-run]
 python -m baibai_loop.screening.cli rebuild-cache [--raw-dir PATH] [--sqlite-path PATH]
 python -m baibai_loop.screening.cli verify-raw-cache [--raw-dir PATH] [--max-size-mb N] [--sqlite-path PATH]
 ```
 
-`migrate-cache` は legacy の `.cache/screening/` 配下の raw JSON を git 管理対象の `data/raw/screening/` に移動する一回限りの helper。re-run しても既存ファイルは上書きしない（idempotent）。詳細は §11 を参照。
+`migrate-cache` は legacy の `.cache/screening/` 配下の raw JSON を git 管理対象の `records/_data/raw/screening/` に移動する一回限りの helper。re-run しても既存ファイルは上書きしない（idempotent）。詳細は §11 を参照。
 
-`rebuild-cache` は `data/raw/screening/` 配下の git 管理 raw JSON から派生 SQLite cache (`data/cache/screening/market.sqlite`) を再生成する。実行毎に出力ファイルを削除して書き直すため idempotent。schema は v2（jquants 5 種 + edinet 2 種 + jpx 1 種 + raw_imports / cache_metadata）。詳細は §11 を参照。
+`rebuild-cache` は `records/_data/raw/screening/` 配下の git 管理 raw JSON から派生 SQLite cache (`records/_data/cache/screening/market.sqlite`) を再生成する。実行毎に出力ファイルを削除して書き直すため idempotent。schema は v2（jquants 5 種 + edinet 2 種 + jpx 1 種 + raw_imports / cache_metadata）。詳細は §11 を参照。
 
-`verify-raw-cache` は `data/raw/screening/` を再帰的に walk し、(1) 1 ファイル `--max-size-mb` 以上のものが無いこと、(2) SQLite (`data/cache/screening/market.sqlite`) が存在する場合は `raw_imports.sha256` と現状ファイルの SHA-256 が一致することを検証する。違反があれば exit 1。CI の `quality` job でも実行され、50MB 超過の commit を merge 前に弾く。
+`verify-raw-cache` は `records/_data/raw/screening/` を再帰的に walk し、(1) 1 ファイル `--max-size-mb` 以上のものが無いこと、(2) SQLite (`records/_data/cache/screening/market.sqlite`) が存在する場合は `raw_imports.sha256` と現状ファイルの SHA-256 が一致することを検証する。違反があれば exit 1。CI の `quality` job でも実行され、50MB 超過の commit を merge 前に弾く。
 
-`select` は最新 `screened/<YYYY>/<MM>/<asof>.yaml` と `view/` を組み合わせて、`view` で `headwind` 判定された業種を除外し、`threshold_hit` の本数 → 時価総額の順で候補をランキングする。`research` の選定プロセス (`docs/components/research.md` §2.1) をスクリプトで支援する。
+`select` は最新 `records/03-screened/<YYYY>/<MM>/<asof>.yaml` と `records/02-outlook/` を組み合わせて、`outlook` で `headwind` 判定された業種を除外し、`threshold_hit` の本数 → 時価総額の順で候補をランキングする。`research` の選定プロセス (`docs/components/research.md` §2.1) をスクリプトで支援する。
 
 ## 3. Required Env Vars
 
@@ -41,9 +41,9 @@ python -m baibai_loop.screening.cli verify-raw-cache [--raw-dir PATH] [--max-siz
 任意:
 
 - `SCREENING_CACHE_DIR`
-  - 既定値: `data/raw/screening`（git 管理対象）。issue #45 で `.cache/screening`（gitignore）から移行。
+  - 既定値: `records/_data/raw/screening`（git 管理対象）。issue #45 で `.cache/screening`（gitignore）から移行。
 - `SCREENING_SQLITE_CACHE_DIR`
-  - 既定値: `data/cache/screening`（gitignore）。raw JSON から再生成される SQLite cache 配置先。
+  - 既定値: `records/_data/cache/screening`（gitignore）。raw JSON から再生成される SQLite cache 配置先。
 - JPX 公開規制情報 URL（CSV / Excel / HTML。未設定時は該当 source のカバレッジなしで `fallback_lines` に `JPX source 未ロード` 明示）。URL 運用の日次変動は issue #16 を参照:
   - `JPX_SPECIAL_CAUTION_INDEX_URL` 特別注意銘柄の個別銘柄信用取引残高表 index（推奨。日次で変わる `mtdailyk*.xls` を index から解決）
   - `JPX_SPECIAL_CAUTION_URL` 特別注意銘柄の固定 Excel URL（後方互換）
@@ -91,7 +91,7 @@ v1 で使う method は次の 5 点に固定する。
 
 - `--asof` は対象営業日を表す
 - `run_date` は `asof_date` と同値にする
-- 出力 path は `screened/{YYYY}/{MM}/{asof_date}.yaml`
+- 出力 path は `records/03-screened/{YYYY}/{MM}/{asof_date}.yaml`
 - 同一 path が既に存在する場合は fail-fast
 - 非営業日の `--asof` は fail-fast
 
@@ -118,16 +118,16 @@ v1 で使う method は次の 5 点に固定する。
 
 ## 11. Cache Layout (issue #45)
 
-- `data/raw/screening/` は J-Quants / EDINET / JPX から取得した raw JSON の **正本**。git 管理対象。1 ファイル 50MB 未満を維持し、別 PC で `git clone` 後に再取得なしで screening / ledger を再生成できる状態を目指す。
-- `data/cache/screening/` は raw JSON から派生した SQLite cache や rebuild 中の一時ファイルの置き場。`.gitignore` 対象。安全に削除して再生成できる。
-- `data/raw/screening/manifests/` は run 毎の lineage manifest 出力先。`.gitignore` 対象（`screened` YAML 側に `cache_manifest_hash` が記録されるため、manifest JSON 自体は git に載せない）。
-- `JQuantsProvider` は SQLite (`data/cache/screening/market.sqlite`) が存在し、要求範囲を `raw_imports` の chunk window で覆える場合は SQLite から読む（read-through）。覆えない場合は従来通り raw JSON cache → API の順にフォールバックする。SQLite が古い場合は `rebuild-cache` を再実行する。
-- `.cache/screening/` は legacy 配置で `.gitignore` のまま。新規ファイルは作られないが、既存の checkout には残っている。`migrate-cache` サブコマンドで `data/raw/screening/` に移動する。
+- `records/_data/raw/screening/` は J-Quants / EDINET / JPX から取得した raw JSON の **正本**。git 管理対象。1 ファイル 50MB 未満を維持し、別 PC で `git clone` 後に再取得なしで screening / ledger を再生成できる状態を目指す。
+- `records/_data/cache/screening/` は raw JSON から派生した SQLite cache や rebuild 中の一時ファイルの置き場。`.gitignore` 対象。安全に削除して再生成できる。
+- `records/_data/raw/screening/manifests/` は run 毎の lineage manifest 出力先。`.gitignore` 対象（`screened` YAML 側に `cache_manifest_hash` が記録されるため、manifest JSON 自体は git に載せない）。
+- `JQuantsProvider` は SQLite (`records/_data/cache/screening/market.sqlite`) が存在し、要求範囲を `raw_imports` の chunk window で覆える場合は SQLite から読む（read-through）。覆えない場合は従来通り raw JSON cache → API の順にフォールバックする。SQLite が古い場合は `rebuild-cache` を再実行する。
+- `.cache/screening/` は legacy 配置で `.gitignore` のまま。新規ファイルは作られないが、既存の checkout には残っている。`migrate-cache` サブコマンドで `records/_data/raw/screening/` に移動する。
 - `migrate-cache` は冪等。`.cache/screening/` を空にした後に手動で `rmdir` して legacy ディレクトリを掃除してよい。
 
 ### 11.1 SQLite Schema v2
 
-`rebuild-cache` は以下のテーブルを `data/cache/screening/market.sqlite` に作成する。
+`rebuild-cache` は以下のテーブルを `records/_data/cache/screening/market.sqlite` に作成する。
 
 - `jquants_daily_bars(ticker, traded_at, open, high, low, close, volume, turnover_value, adjustment_*, upper_limit, lower_limit)` — 主キー `(ticker, traded_at)`、`traded_at` index 付。`is_common_stock=False` の record はスキップする。
 - `jquants_fin_summaries(ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, sales, operating_profit, ordinary_profit, profit, fiscal_period, fiscal_year_end, period_start, period_end, raw_json)` — 主キー `(ticker, disclosed_at)`。
@@ -148,12 +148,12 @@ provider 側の SQLite read-through / write-through 切替は follow-up の対�
 
 | 指標 | 値 |
 | --- | --- |
-| `data/raw/screening/` 合計 | 1.1GB / 44 ファイル |
+| `records/_data/raw/screening/` 合計 | 1.1GB / 44 ファイル |
 | 1 ファイル最大サイズ | 32.8MB（jquants daily bars 31 日 chunk） |
 | `git clone` 時の pack download | 約 182MB（aggressive gc 後の実測。オブジェクトは pretty JSON が deflate でよく縮む） |
 | clone + checkout 後の disk 使用量 | 約 1.3GB（working tree 1.1GB + .git 182MB） |
 | `rebuild-cache` 実行時間 | 約 24 秒（Python 3.14 / WSL2 / SSD） |
-| `data/cache/screening/market.sqlite` サイズ | 410MB（jquants 3 table、約 354 万 row 時点。EDINET / JPX cache は未投入） |
+| `records/_data/cache/screening/market.sqlite` サイズ | 410MB（jquants 3 table、約 354 万 row 時点。EDINET / JPX cache は未投入） |
 | 取り込まれた record 数 | bars 3,535,769 / fin_summaries 5,499 / master_snapshots 4,445 |
 
 参考: 月次の追加見込みは raw JSON +30〜35MB / SQLite +10〜13MB / month。5 年で raw JSON 約 3.0GB、SQLite 約 1.2GB の規模に達する想定。GitHub 私有リポジトリ推奨上限 5GB に収まる範囲。

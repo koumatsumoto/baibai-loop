@@ -57,7 +57,7 @@ def _make_view_text() -> str:
         allow_unicode=True,
         sort_keys=False,
     )
-    return f"---\n{front}---\n# View\n"
+    return f"---\n{front}---\n# Outlook\n"
 
 
 def _make_research_text() -> str:
@@ -69,8 +69,8 @@ def _make_research_text() -> str:
             "decision": "accepted",
             "market_cap_oku": 600,
             "sector_33": "情報・通信業",
-            "screened_ref": "screened/2026/04/2026-04-24.yaml",
-            "view_ref": "view/2026/04/view-2026-04-24-bootstrap.md",
+            "screened_ref": "records/03-screened/2026/04/2026-04-24.yaml",
+            "outlook_ref": "records/02-outlook/2026/04/outlook-2026-04-24-bootstrap.md",
             "brief_refs": [],
             "ai-draft": True,
             "published_at": "2026-04-25T22:00:00+09:00",
@@ -105,10 +105,10 @@ def _make_research_text() -> str:
 
 
 def _seed_repo(root: Path, *, screened_overrides: dict[str, object] | None = None) -> None:
-    screened_dir = root / "screened" / "2026" / "04"
-    view_dir = root / "view" / "2026" / "04"
-    research_dir = root / "research" / "2026" / "04"
-    playbooks_dir = root / "playbooks"
+    screened_dir = root / "records/03-screened" / "2026" / "04"
+    view_dir = root / "records/02-outlook" / "2026" / "04"
+    research_dir = root / "records/04-research" / "2026" / "04"
+    playbooks_dir = root / "records/_playbooks"
     for directory in (screened_dir, view_dir, research_dir, playbooks_dir):
         directory.mkdir(parents=True, exist_ok=True)
 
@@ -119,12 +119,12 @@ def _seed_repo(root: Path, *, screened_overrides: dict[str, object] | None = Non
         yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
-    (view_dir / "view-2026-04-24-bootstrap.md").write_text(_make_view_text(), encoding="utf-8")
+    (view_dir / "outlook-2026-04-24-bootstrap.md").write_text(_make_view_text(), encoding="utf-8")
     (research_dir / "2026-04-25-2767-valuation-mean-reversion-v1.md").write_text(
         _make_research_text(), encoding="utf-8"
     )
 
-    schema_source = ROOT / "playbooks" / "valuation-mean-reversion-v1.schema.yaml"
+    schema_source = ROOT / "records/_playbooks" / "valuation-mean-reversion-v1.schema.yaml"
     (playbooks_dir / "valuation-mean-reversion-v1.schema.yaml").write_text(
         schema_source.read_text(encoding="utf-8"), encoding="utf-8"
     )
@@ -139,7 +139,7 @@ class ValidateCliTests(unittest.TestCase):
             stderr = io.StringIO()
             exit_code = run_validation(
                 root=root,
-                targets=("screened", "view", "research", "ledger", "review"),
+                targets=("screened", "outlook", "research", "ledger", "review"),
                 stdout=stdout,
                 stderr=stderr,
             )
@@ -165,15 +165,15 @@ class ValidateCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             _seed_repo(root)
-            (root / "screened" / "2026" / "04" / "2026-04-24.yaml").write_text(
+            (root / "records/03-screened" / "2026" / "04" / "2026-04-24.yaml").write_text(
                 "not-a-mapping\n", encoding="utf-8"
             )
             stdout = io.StringIO()
             stderr = io.StringIO()
-            # screened は壊れているが target=view のみなので通る
+            # screened は壊れているが target=outlook のみなので通る
             exit_code = run_validation(
                 root=root,
-                targets=("view",),
+                targets=("outlook",),
                 stdout=stdout,
                 stderr=stderr,
             )
@@ -222,13 +222,13 @@ class FormatFindingTests(unittest.TestCase):
     def test_format_uses_path_relative_to_root_when_inside(self) -> None:
         finding = ValidationFinding(
             severity="error",
-            target=Path("/repo/screened/2026-04-24.yaml"),
+            target=Path("/repo/records/03-screened/2026-04-24.yaml"),
             code="screened.required",
             message="missing run_id",
             location="run_id",
         )
         line = _format_finding(finding, Path("/repo"))
-        self.assertIn("screened/2026-04-24.yaml", line)
+        self.assertIn("records/03-screened/2026-04-24.yaml", line)
         self.assertIn("@ run_id", line)
         self.assertIn("[error]", line)
 

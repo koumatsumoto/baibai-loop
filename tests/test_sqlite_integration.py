@@ -92,7 +92,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     _add_raw_import(
         conn,
         source="jquants_master_snapshots",
-        path="data/raw/screening/jquants/get_eq_master.json",
+        path="records/_data/raw/screening/jquants/get_eq_master.json",
         record_count=1,
         min_date=asof.isoformat(),
         max_date=asof.isoformat(),
@@ -135,7 +135,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
         conn,
         source="jquants_daily_bars",
         path=(
-            f"data/raw/screening/jquants/"
+            f"records/_data/raw/screening/jquants/"
             f"get_eq_bars_daily_range-end_dt-{history_end.isoformat()}-"
             f"start_dt-{bars_start.isoformat()}.json"
         ),
@@ -193,7 +193,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
         conn,
         source="jquants_fin_summaries",
         path=(
-            f"data/raw/screening/jquants/"
+            f"records/_data/raw/screening/jquants/"
             f"get_fin_summary_range-end_dt-{asof.isoformat()}-"
             f"start_dt-{bars_start.isoformat()}.json"
         ),
@@ -207,7 +207,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     _add_raw_import(
         conn,
         source="jquants_earnings_calendar",
-        path="data/raw/screening/jquants/get_eq_earnings_cal.json",
+        path="records/_data/raw/screening/jquants/get_eq_earnings_cal.json",
         record_count=0,
         min_date=asof.isoformat(),
         max_date=asof.isoformat(),
@@ -230,7 +230,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     _add_raw_import(
         conn,
         source="jquants_market_calendar",
-        path="data/raw/screening/jquants/get_mkt_calendar-from_yyyymmdd-X-to_yyyymmdd-Y.json",
+        path="records/_data/raw/screening/jquants/get_mkt_calendar-from_yyyymmdd-X-to_yyyymmdd-Y.json",
         record_count=history_days,
         min_date=history_start.isoformat(),
         max_date=history_end.isoformat(),
@@ -259,7 +259,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     _add_raw_import(
         conn,
         source="edinet_metrics",
-        path=f"data/raw/screening/edinet/metrics/{asof.isoformat()}.json",
+        path=f"records/_data/raw/screening/edinet/metrics/{asof.isoformat()}.json",
         record_count=1,
         min_date=asof.isoformat(),
         max_date=asof.isoformat(),
@@ -269,7 +269,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     _add_raw_import(
         conn,
         source="jpx_regulation_flags",
-        path=f"data/raw/screening/jpx/regulations/{asof.isoformat()}.json",
+        path=f"records/_data/raw/screening/jpx/regulations/{asof.isoformat()}.json",
         record_count=0,
         min_date=asof.isoformat(),
         max_date=asof.isoformat(),
@@ -341,17 +341,17 @@ class LedgerSyncOverSqliteTests(unittest.TestCase):
         asof = date(2026, 4, 24)
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir)
-            sqlite_dir = workspace / "data" / "cache" / "screening"
+            sqlite_dir = workspace / "records" / "_data" / "cache" / "screening"
             sqlite_path = sqlite_dir / "market.sqlite"
             _populate_screening_fixture(sqlite_path, asof)
 
             # Place a minimal research packet so _load_market_data discovers
             # at least one decision date and triggers J-Quants resolution.
-            research_path = workspace / "research" / f"{asof.isoformat()}-130A.md"
+            research_path = workspace / "records" / "04-research" / f"{asof.isoformat()}-130A.md"
             research_path.parent.mkdir(parents=True)
             research_path.write_text("---\nticker: 130A\n---\n", encoding="utf-8")
 
-            cache_dir = workspace / "data" / "raw" / "screening"
+            cache_dir = workspace / "records" / "_data" / "raw" / "screening"
             env = {
                 "JQUANTS_REFRESH_TOKEN": "token",
                 "SCREENING_CACHE_DIR": str(cache_dir),

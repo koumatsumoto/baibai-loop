@@ -3,9 +3,9 @@ ai-draft: true | false
 published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 horizon: "1-6m"
 updated_from:
-  - brief/YYYY/MM/world-daily-*.md
-  - brief/YYYY/MM/world-weekly-*.md
-  - brief/YYYY/MM/*-macro-monthly-*.md
+  - records/01-brief/YYYY/MM/world-daily-*.md
+  - records/01-brief/YYYY/MM/world-weekly-*.md
+  - records/01-brief/YYYY/MM/*-macro-monthly-*.md
 sectors:
   "情報・通信": tailwind | neutral | headwind | null
   "銀行": tailwind | neutral | headwind | null
@@ -18,15 +18,15 @@ regions:
   emerging: tailwind | neutral | headwind | null
 ---
 
-# View: YYYY-MM-DD {slug}
+# Outlook: YYYY-MM-DD {slug}
 
-**成分**: 4 成分アーキテクチャの **(c) マクロ見解**（[`/docs/components/view.md`](/docs/components/view.md)）
+**成分**: 4 成分アーキテクチャの **(c) マクロ見解**（[`/docs/components/outlook.md`](/docs/components/outlook.md)）
 
 **レイヤー**: 分析レイヤー（解釈 OK。ただし根拠となる brief への参照必須）
 
 Horizon: 1-6 か月
 
-Bootstrap（v1 初回）: [`/docs/components/view.md`](/docs/components/view.md) の Bootstrap 規則に従って作成。既存 brief だけで stale なら、先に `world-daily` / `event` を追加してから `updated_from` に含める。保守的に neutral を多めに記入し、横断的要因は `regions` 側へ寄せる。
+Bootstrap（v1 初回）: [`/docs/components/outlook.md`](/docs/components/outlook.md) の Bootstrap 規則に従って作成。既存 brief だけで stale なら、先に `world-daily` / `event` を追加してから `updated_from` に含める。保守的に neutral を多めに記入し、横断的要因は `regions` 側へ寄せる。
 
 ## 1. Executive Summary
 
@@ -36,8 +36,8 @@ Bootstrap（v1 初回）: [`/docs/components/view.md`](/docs/components/view.md)
 
 `updated_from` に挙げた各 brief のどこが effective だったかを記述:
 
-- [brief/YYYY/MM/world-weekly-YYYY-MM-DD-*.md]: [要点 1-2 行]
-- [brief/YYYY/MM/YYYY-MM-macro-monthly-*.md]: [要点 1-2 行]
+- [records/01-brief/YYYY/MM/world-weekly-YYYY-MM-DD-*.md]: [要点 1-2 行]
+- [records/01-brief/YYYY/MM/YYYY-MM-macro-monthly-*.md]: [要点 1-2 行]
 
 ## 3. 業種別判定の根拠
 
@@ -68,21 +68,21 @@ Bootstrap（v1 初回）: [`/docs/components/view.md`](/docs/components/view.md)
 | us | [判定] | [根拠] | [brief path] |
 | japan-domestic | [判定] | [根拠] | [brief path] |
 
-## 5. 変化ポイント（前回 view からの差分）
+## 5. 変化ポイント（前回 outlook からの差分）
 
-前回 view との比較で判定が変わった業種 / 地域を列挙:
+前回 outlook との比較で判定が変わった業種 / 地域を列挙:
 
 - [業種/地域]: [前回判定] → [今回判定]、根拠: [brief path]
 
-前回 view がない場合（Bootstrap 等）は「該当なし（初回作成）」と記載。
+前回 outlook がない場合（Bootstrap 等）は「該当なし（初回作成）」と記載。
 
 ## 6. 次回更新 trigger の想定
 
-次に view を更新すべきイベントを列挙:
+次に outlook を更新すべきイベントを列挙:
 
 - YYYY-MM-DD: [FOMC / BOJ / CPI 発表等]
 - [その他の想定 trigger]
 
 ---
 
-記入ルールは [`/docs/components/view.md`](/docs/components/view.md) を参照。
+記入ルールは [`/docs/components/outlook.md`](/docs/components/outlook.md) を参照。

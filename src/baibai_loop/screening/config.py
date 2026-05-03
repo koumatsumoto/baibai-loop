@@ -13,10 +13,10 @@ from .jpx_sources import JPX_SPECIAL_CAUTION_SOURCE_NAME
 # under this path so that another machine can reconstruct the screening input
 # from a fresh `git clone` without re-hitting J-Quants / EDINET / JPX (issue
 # #45). Each file is expected to stay below 50MB so it fits standard Git.
-DEFAULT_CACHE_DIR = Path("data/raw/screening")
+DEFAULT_CACHE_DIR = Path("records/_data/raw/screening")
 # Gitignored derived caches (SQLite, rebuild temp). Built from the raw JSON
 # under DEFAULT_CACHE_DIR; safe to delete and rebuild on any machine.
-DEFAULT_SQLITE_CACHE_DIR = Path("data/cache/screening")
+DEFAULT_SQLITE_CACHE_DIR = Path("records/_data/cache/screening")
 LEGACY_CACHE_DIR = Path(".cache/screening")
 JQUANTS_CLIENT_V2_METHODS = (
     "get_eq_master",

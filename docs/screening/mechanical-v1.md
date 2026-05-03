@@ -1,10 +1,10 @@
 # screening/mechanical-v1.md
 
-Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕様。4 成分アーキテクチャの (b) `screened/` の出力を決める閾値ベース rule。
+Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕様。4 成分アーキテクチャの (b) `records/03-screened/` の出力を決める閾値ベース rule。
 
 ## 1. 位置付け
 
-- 4 成分アーキテクチャの **(b) screened/** の中核
+- 4 成分アーキテクチャの **(b) records/03-screened/** の中核
 - universe（[`universe-rules.md`](./universe-rules.md)）× valuation 指標（[`valuation-metrics.md`](./valuation-metrics.md)）を入力
 - **通過銘柄 list を事実として出力**（解釈は入れない）
 - research 選定の input となる
@@ -65,7 +65,7 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 ### 4.1 Path
 
 ```
-screened/YYYY/MM/YYYY-MM-DD.yaml
+records/03-screened/YYYY/MM/YYYY-MM-DD.yaml
 ```
 
 1 実行 = 1 ファイル（週次運用）

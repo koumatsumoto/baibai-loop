@@ -1,5 +1,5 @@
 """Integrity checks for the git-tracked raw JSON tree under
-`data/raw/screening/`.
+`records/_data/raw/screening/`.
 
 Two failure modes the verifier guards against:
 

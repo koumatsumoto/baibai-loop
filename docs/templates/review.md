@@ -1,7 +1,7 @@
 ---
 ticker: "XXXX"
-trade_ref: trades/YYYY/MM/YYYY-MM-DD-<ticker>.md
-research_ref: research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
+trade_ref: records/05-trades/YYYY/MM/YYYY-MM-DD-<ticker>.md
+research_ref: records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
 playbook: valuation-mean-reversion-v1 | valuation-catalyst-confirmation-v1
 entry_date: "YYYY-MM-DD"
 exit_date: "YYYY-MM-DD"
@@ -17,8 +17,8 @@ free_text: "一行で事後検証の要点"
 
 **成分**: 4 成分アーキテクチャの下流 **reviews**（[`/docs/components/reviews.md`](/docs/components/reviews.md)）
 
-**Trade**: [trades/YYYY/MM/YYYY-MM-DD-XXXX.md](/trades/YYYY/MM/YYYY-MM-DD-XXXX.md)
-**Research**: [research/YYYY/MM/YYYY-MM-DD-XXXX-*.md](/research/YYYY/MM/YYYY-MM-DD-XXXX-*.md)
+**Trade**: [records/05-trades/YYYY/MM/YYYY-MM-DD-XXXX.md](/records/05-trades/YYYY/MM/YYYY-MM-DD-XXXX.md)
+**Research**: [records/04-research/YYYY/MM/YYYY-MM-DD-XXXX-*.md](/records/04-research/YYYY/MM/YYYY-MM-DD-XXXX-*.md)
 
 ## 1. Trade 概要
 
@@ -52,7 +52,7 @@ Review 実施日: YYYY-MM-DD
 
 - exit 後の株価推移: [+X%, 上昇/下降トレンド継続/反転]
 - 同業種の推移: [業種全体との相対パフォーマンス]
-- マクロ環境の変化: [view に関連する変化があれば記録]
+- マクロ環境の変化: [outlook に関連する変化があれば記録]
 - 振り返り: [exit タイミングは適切だったか、早すぎた/遅すぎた]
 
 ## 5. +30 営業日レビュー（exit 日 + 30 営業日時点）
@@ -65,7 +65,7 @@ Review 実施日: YYYY-MM-DD
 
 ## 6. 月次 retro への引き渡し
 
-本 review の要点を月次 retro ([`retro-YYYYMM.md`](/reviews/YYYY/retro-YYYYMM.md)) でまとめる:
+本 review の要点を月次 retro ([`retro-YYYYMM.md`](/records/06-reviews/YYYY/retro-YYYYMM.md)) でまとめる:
 
 - 成功/失敗分類と自由記述
 - 四半期再分類の input 候補

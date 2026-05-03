@@ -35,8 +35,8 @@ class RetroDraft:
 
 def build_monthly_retro(root: Path, month: str) -> RetroDraft:
     _validate_month(month)
-    paper_records = read_jsonl(root / "ledger" / "paper" / f"{month}.jsonl")
-    skipped_records = read_jsonl(root / "ledger" / "skipped" / f"{month}.jsonl")
+    paper_records = read_jsonl(root / "records/_ledger" / "paper" / f"{month}.jsonl")
+    skipped_records = read_jsonl(root / "records/_ledger" / "skipped" / f"{month}.jsonl")
     reviews, warnings = _load_reviews(root, month)
 
     closed_trades = len(reviews)
@@ -72,7 +72,7 @@ def build_monthly_retro(root: Path, month: str) -> RetroDraft:
     content = _render_retro(month, front, paper_records, skipped_records, reviews)
     year = month[:4]
     return RetroDraft(
-        path=root / "reviews" / year / f"retro-{month.replace('-', '')}.md",
+        path=root / "records/06-reviews" / year / f"retro-{month.replace('-', '')}.md",
         content=content,
         warnings=tuple(warnings),
     )
@@ -95,7 +95,7 @@ def _validate_month(month: str) -> None:
 def _load_reviews(root: Path, month: str) -> tuple[list[dict[str, Any]], list[str]]:
     reviews: list[dict[str, Any]] = []
     warnings: list[str] = []
-    reviews_dir = root / "reviews" / month[:4] / month[5:7]
+    reviews_dir = root / "records/06-reviews" / month[:4] / month[5:7]
     if not reviews_dir.exists():
         warnings.append(f"{reviews_dir} does not exist; retro uses ledger-only fallback")
         return reviews, warnings

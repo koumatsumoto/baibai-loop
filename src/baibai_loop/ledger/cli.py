@@ -119,7 +119,7 @@ def _load_market_data(
 
 def _discover_decision_dates(root: Path) -> tuple[date, ...]:
     dates: list[date] = []
-    for path in sorted((root / "research").rglob("*.md")):
+    for path in sorted((root / "records/04-research").rglob("*.md")):
         try:
             dates.append(date.fromisoformat(path.name[:10]))
         except ValueError:

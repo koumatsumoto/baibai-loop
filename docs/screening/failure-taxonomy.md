@@ -1,6 +1,6 @@
 # screening/failure-taxonomy.md
 
-採用 trade の失敗分類。`reviews/` の個別 review と月次 retro で使う。4 成分アーキテクチャにおける feedback loop の質を担保するための分類体系。
+採用 trade の失敗分類。`records/06-reviews/` の個別 review と月次 retro で使う。4 成分アーキテクチャにおける feedback loop の質を担保するための分類体系。
 
 ## 1. 設計思想
 
@@ -31,7 +31,7 @@
 - **定義**: Macro gate 判定の誤り、または gate が保有期間中に反転
 - **典型例**:
   - 採用時 `tailwind` 判定だったが、その後 BOJ / FOMC で trend が変わった
-  - view の更新遅れで実態と乖離
+  - outlook の更新遅れで実態と乖離
   - 業種 RS が急変、業種全体の売りに巻き込まれた
 
 ### 2.4 混雑（Crowding）

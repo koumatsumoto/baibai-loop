@@ -1,20 +1,20 @@
 # Ledger
 
-`ledger/` は research decision を正規化した JSONL の保存先である。採用・保留・見送りを
+`records/_ledger/` は research decision を正規化した JSONL の保存先である。採用・保留・見送りを
 後から retro できる最小 record に変換し、+15/+30 営業日後の価格追跡もここに集約する。
 
 ## 1. 役割
 
-- `research/**/*.md` の `decision` を paper/skipped ledger に正規化する
+- `records/04-research/**/*.md` の `decision` を paper/skipped ledger に正規化する
 - 同じ `ledger_id` を upsert し、同じ入力の再実行で重複行を作らない
 - `baseline_price` と `tracking.plus_15bd` / `tracking.plus_30bd` を J-Quants daily から更新する
-- tracking が更新された場合は `ledger/updates/YYYY-MM.jsonl` に event log を残す
+- tracking が更新された場合は `records/_ledger/updates/YYYY-MM.jsonl` に event log を残す
 
 ## 2. ファイル構造
 
-- `ledger/paper/YYYY-MM.jsonl`: `decision: accepted | pending`
-- `ledger/skipped/YYYY-MM.jsonl`: `decision: skipped`
-- `ledger/updates/YYYY-MM.jsonl`: `{ledger_id, field, old, new, observed_at}` の更新イベント。
+- `records/_ledger/paper/YYYY-MM.jsonl`: `decision: accepted | pending`
+- `records/_ledger/skipped/YYYY-MM.jsonl`: `decision: skipped`
+- `records/_ledger/updates/YYYY-MM.jsonl`: `{ledger_id, field, old, new, observed_at}` の更新イベント。
   追跡対象 field は `baseline_price`, `adjustment_applied`, `tracking`, `decision`,
   `macro_gate`, `adv_participation_pct` の 6 個。新規 record の作成時には event を残さず、
   既存 record の値が変わった時のみ追記する。
@@ -64,8 +64,8 @@ workflow を失敗させる。
 
 ## 6. schema 検証
 
-ledger JSONL は [`../../schemas/ledger-paper-v1.json`](../../schemas/ledger-paper-v1.json) と
-[`../../schemas/ledger-skipped-v1.json`](../../schemas/ledger-skipped-v1.json) で検証する。
+ledger JSONL は [`/records/_schemas/ledger-paper-v1.json`](/records/_schemas/ledger-paper-v1.json) と
+[`/records/_schemas/ledger-skipped-v1.json`](/records/_schemas/ledger-skipped-v1.json) で検証する。
 手元では次を実行する。
 
 ```bash
@@ -80,7 +80,7 @@ ledger と任意の個別 review から、月次 retro の下書きを生成す�
 uv run baibai-loop-ledger retro --root . --month YYYY-MM
 ```
 
-出力先は `reviews/YYYY/retro-YYYYMM.md`。個別 review がまだ無い月でも ledger 単独で生成し、
+出力先は `records/06-reviews/YYYY/retro-YYYYMM.md`。個別 review がまだ無い月でも ledger 単独で生成し、
 `price_missing_counts.plus_15bd` / `price_missing_counts.plus_30bd` に tracking 未解決件数を
 必ず出す。既存ファイルがある場合は上書きしない。確認だけなら `--dry-run` を使う。
 
@@ -98,5 +98,5 @@ uv run baibai-loop-ledger retro --root . --month YYYY-MM
 
 JSONL は 1 行 1 record で、`ledger_id` が主キーである。壊れた行がある場合は
 `uv run baibai-loop-validate --target ledger` で該当 line を確認し、元の research packet
-から再 sync する。`ledger/updates/` は event log なので、重複や誤記録があれば該当行を
+から再 sync する。`records/_ledger/updates/` は event log なので、重複や誤記録があれば該当行を
 削除して次回 sync で再生成する。

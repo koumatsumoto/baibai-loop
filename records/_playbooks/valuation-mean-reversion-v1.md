@@ -10,7 +10,7 @@ updated_at: "2026-04-24T09:00:00+09:00"
 # Playbook: Valuation Mean-Reversion v1 (P-A)
 
 **Type**: Primary（本命）  
-**成分**: `playbooks/` の active rule。4 成分アーキテクチャの `(d) research/` で参照。
+**成分**: `records/_playbooks/` の active rule。4 成分アーキテクチャの `(d) records/04-research/` で参照。
 
 ## 1. 概要
 
@@ -38,11 +38,11 @@ updated_at: "2026-04-24T09:00:00+09:00"
 - P/S
 - PCFR
 
-指標算出は [`../docs/screening/valuation-metrics.md`](../docs/screening/valuation-metrics.md) に従う。
+指標算出は [`../docs/screening/valuation-metrics.md`](/docs/screening/valuation-metrics.md) に従う。
 
 ### 2.2 Mean-Reversion 条件（3 種 OR、最低 1 つ）
 
-[`../docs/screening/mechanical-v1.md`](../docs/screening/mechanical-v1.md) の閾値条件を継承:
+[`../docs/screening/mechanical-v1.md`](/docs/screening/mechanical-v1.md) の閾値条件を継承:
 
 - **条件 A**: PER / PBR / EV-EBITDA のいずれかが業種中央値比 -20% 以上 かつ 過去 3 年自己レンジ下位 20%
 - **条件 B**: 過去 60 営業日で -15% 以上下落 かつ valuation が 1σ 以上下方（業績悪化なし）
@@ -57,7 +57,7 @@ updated_at: "2026-04-24T09:00:00+09:00"
 
 - 業種/地域のマクロ gate が `tailwind` または `neutral`
 - `headwind` は **採用不可**（valuation trap リスク）
-- 判定: [`../docs/screening/macro-gate-procedure.md`](../docs/screening/macro-gate-procedure.md)
+- 判定: [`../docs/screening/macro-gate-procedure.md`](/docs/screening/macro-gate-procedure.md)
 
 ### 2.5 Universe 条件
 
@@ -66,7 +66,7 @@ updated_at: "2026-04-24T09:00:00+09:00"
 - 上場 6 か月以上
 - 特別注意 / 整理銘柄除外
 - **300-500 億円帯は P-A 単独採用不可**（本 playbook の対象外、P-B のみ許可）
-- 詳細: [`../docs/screening/universe-rules.md`](../docs/screening/universe-rules.md)
+- 詳細: [`../docs/screening/universe-rules.md`](/docs/screening/universe-rules.md)
 
 ## 3. 原因仮説と反対仮説（research packet 必須）
 
@@ -112,7 +112,7 @@ updated_at: "2026-04-24T09:00:00+09:00"
 - 業績下方修正が出た
 - 業種中央値自体が切り下がり、相対割安が消えた
 - 出来高を伴わずさらに下落継続（valuation trap の兆候）
-- マクロゲートが `headwind` に転じた（view 更新または緊急 brief 経由）
+- マクロゲートが `headwind` に転じた（outlook 更新または緊急 brief 経由）
 
 ## 6. Exit 戦略
 
@@ -135,7 +135,7 @@ updated_at: "2026-04-24T09:00:00+09:00"
 
 ## 9. AI の役割境界
 
-[`../docs/components/research.md`](../docs/components/research.md) の AI 境界表を継承。核心:
+[`../docs/components/research.md`](/docs/components/research.md) の AI 境界表を継承。核心:
 
 - **AI 可**: Thesis ドラフト / valuation snapshot 数値取得 / 原因仮説・反対仮説ドラフト / price reaction / crowding
 - **人間のみ**: Macro gate 確定 / 一次ソース URL 確認 / 最終採用判定 / 失敗分類確定
@@ -148,9 +148,9 @@ updated_at: "2026-04-24T09:00:00+09:00"
 
 ## 11. 参考
 
-- [`../docs/screening/principles.md`](../docs/screening/principles.md): スクリーニング原則
-- [`../docs/screening/mechanical-v1.md`](../docs/screening/mechanical-v1.md): 機械的ふるい閾値
-- [`../docs/screening/valuation-metrics.md`](../docs/screening/valuation-metrics.md): 指標算出仕様
-- [`../docs/screening/macro-gate-procedure.md`](../docs/screening/macro-gate-procedure.md): Macro gate 判定
-- [`../docs/components/research.md`](../docs/components/research.md): research 運用仕様
+- [`../docs/screening/principles.md`](/docs/screening/principles.md): スクリーニング原則
+- [`../docs/screening/mechanical-v1.md`](/docs/screening/mechanical-v1.md): 機械的ふるい閾値
+- [`../docs/screening/valuation-metrics.md`](/docs/screening/valuation-metrics.md): 指標算出仕様
+- [`../docs/screening/macro-gate-procedure.md`](/docs/screening/macro-gate-procedure.md): Macro gate 判定
+- [`../docs/components/research.md`](/docs/components/research.md): research 運用仕様
 - [`valuation-catalyst-confirmation-v1.md`](./valuation-catalyst-confirmation-v1.md): P-B 補助 playbook

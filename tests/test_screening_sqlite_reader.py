@@ -63,7 +63,7 @@ class ReadEqMasterTests(unittest.TestCase):
             _add_raw_import(
                 conn,
                 source="jquants_master_snapshots",
-                path="data/raw/screening/jquants/get_eq_master.json",
+                path="records/_data/raw/screening/jquants/get_eq_master.json",
                 record_count=1,
                 min_date="2026-05-07",
                 max_date="2026-05-07",
@@ -198,7 +198,7 @@ class ReadFinSummariesTests(unittest.TestCase):
             _add_raw_import(
                 conn,
                 source="jquants_fin_summaries",
-                path="data/raw/screening/jquants/"
+                path="records/_data/raw/screening/jquants/"
                 "get_fin_summary_range-end_dt-2025-10-28-start_dt-2025-09-28.json",
                 record_count=1,
                 min_date="2025-09-29",

@@ -6,7 +6,7 @@ Baibai-Loop 4 成分アーキテクチャの **(b) スクリーニング通過�
 
 - universe（日本株普通株、時価総額 200 億円以上、20 営業日平均売買代金 3 億円以上）に対し、valuation 指標でふるいをかけ、**通過銘柄 list を事実として記録**
 - 事実層のため解釈は入れない（反対仮説・原因仮説は research 側で行う）
-- Micro track の出発点として、`research/` の選定入力となる
+- Micro track の出発点として、`records/04-research/` の選定入力となる
 
 ## 2. 頻度
 
@@ -16,7 +16,7 @@ Baibai-Loop 4 成分アーキテクチャの **(b) スクリーニング通過�
 ## 3. Path と命名
 
 ```
-screened/YYYY/MM/YYYY-MM-DD.yaml
+records/03-screened/YYYY/MM/YYYY-MM-DD.yaml
 ```
 
 1 実行 = 1 ファイル（週次運用のため）。
@@ -84,7 +84,7 @@ tickers:                            # 通過銘柄 list
 - `run_date` は `asof_date` と同値。ファイル path の日付とも一致させる
 - `run_id`: 実行単位 ID。`screening-{asof_date:YYYYMMDD}-{config_hash 先頭 8 hex}` 形式
 - `config_hash`: `ScreeningConfig` の secret 以外と provider URL / tier 設定を正規化した SHA256 短縮 hash。`--asof` や出力 path は含めない
-- `cache_manifest_hash`: `data/raw/screening/` 配下の provider raw JSON cache（`manifests/` 除外）を path / sha256 / size で記録した manifest の SHA256 短縮 hash。配置先は `SCREENING_CACHE_DIR` で上書き可能（issue #45 で `.cache/screening` から git 管理対象の path に移行）
+- `cache_manifest_hash`: `records/_data/raw/screening/` 配下の provider raw JSON cache（`manifests/` 除外）を path / sha256 / size で記録した manifest の SHA256 短縮 hash。配置先は `SCREENING_CACHE_DIR` で上書き可能（issue #45 で `.cache/screening` から git 管理対象の path に移行）
 - `ttm_quality` は `EV/EBITDA` / `P/S` / `PCFR` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - `threshold_hit`: mechanical-v1 の閾値条件 3 種のどれを満たしたか（OR 条件、複数 hit 可）
 - `market_cap_oku` / `avg_turnover_oku`: research の position size 判定で使う。`market_cap_oku >= 200` かつ `avg_turnover_oku >= 3.0` で universe 通過する閾値と整合
@@ -99,7 +99,7 @@ screened YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行時�
 
 ### 4.2 実行メモの扱い
 
-`screened/` は YAML 正本とし、Markdown 本文は持たない。複数閾値 hit、provider 状態、universe 除外件数、fallback / 部分警告は以下の配列フィールドで保持する。
+`records/03-screened/` は YAML 正本とし、Markdown 本文は持たない。複数閾値 hit、provider 状態、universe 除外件数、fallback / 部分警告は以下の配列フィールドで保持する。
 
 - `fact_memo_lines`
 - `provider_status_lines`
@@ -109,7 +109,7 @@ screened YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行時�
 
 ### 4.3 schema 検証
 
-[`../../schemas/screened-v1.json`](../../schemas/screened-v1.json) が screened YAML のコア schema (Draft 2020-12 jsonschema)。`baibai-loop-validate` CLI が同 schema で全 `screened/*.yaml` を検査し、CI の `Validate artefacts` step で merge gate になる。手元では `uv run baibai-loop-validate --target screened` で個別に走らせられる。
+[`/records/_schemas/screened-v1.json`](/records/_schemas/screened-v1.json) が screened YAML のコア schema (Draft 2020-12 jsonschema)。`baibai-loop-validate` CLI が同 schema で全 `records/03-screened/*.yaml` を検査し、CI の `Validate artefacts` step で merge gate になる。手元では `uv run baibai-loop-validate --target screened` で個別に走らせられる。
 
 ## 5. ワークフロー
 
@@ -130,8 +130,8 @@ screened YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行時�
 
 ## 6. research への接続
 
-- `research/` の front matter `screened_ref` で本ファイルを参照
-- 選定プロセス: 最新 `screened/` と最新 `view/` を突き合わせ、`view` で tailwind/neutral の業種/地域の ticker を候補に残す（headwind 除外）
+- `records/04-research/` の front matter `screened_ref` で本ファイルを参照
+- 選定プロセス: 最新 `records/03-screened/` と最新 `records/02-outlook/` を突き合わせ、`outlook` で tailwind/neutral の業種/地域の ticker を候補に残す（headwind 除外）
 - 詳細: [`research.md`](./research.md) の選定プロセス
 - research decision 後の追跡先: [`ledger.md`](./ledger.md)
 

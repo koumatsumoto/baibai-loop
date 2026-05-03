@@ -4,11 +4,11 @@ Baibai-Loop の運用上の設計原則を記述する。本原則は [`philosop
 
 ## 1. 4 成分 + 下流アーキテクチャを前提とする
 
-Baibai-Loop は **4 成分 (brief/screened/view/research) + 下流 (trades/reviews)** の構造で運用する。全ての設計判断は本アーキテクチャを前提とする。詳細は [`architecture-v1.md`](./architecture-v1.md)。
+Baibai-Loop は **4 成分 (`records/01-brief/`, `records/03-screened/`, `records/02-outlook/`, `records/04-research/`) + 下流 (`records/05-trades/`, `records/06-reviews/`)** の構造で運用する。全ての設計判断は本アーキテクチャを前提とする。詳細は [`architecture-v1.md`](./architecture-v1.md)。
 
 ## 2. 分析階層: 世界情勢 → 地域経済 → 個別資産
 
-マクロ track（`brief/` → `view/`）における調査は、以下の階層で上から順に分析する:
+マクロ track（`records/01-brief/` → `records/02-outlook/`）における調査は、以下の階層で上から順に分析する:
 
 1. **世界情勢**: グローバルマクロ・主要中央銀行・コモディティ・地政学
 2. **地域経済**: 対象資産が属する地域の一次統計・金融政策・為替
@@ -53,22 +53,22 @@ Baibai-Loop は **4 成分 (brief/screened/view/research) + 下流 (trades/revie
 
 ## 4. 事実と分析の分離（philosophy 柱 1 の具体化）
 
-Baibai-Loop では **事実層（brief, screened）** と **分析層（view, research）** を物理的に別ファイル/別ディレクトリに分離する。同一ファイルに混在させない。
+Baibai-Loop では **事実層（brief, screened）** と **分析層（outlook, research）** を物理的に別ファイル/別ディレクトリに分離する。同一ファイルに混在させない。
 
 ### 4.1 ファイル単位の分離
 
 | レイヤー | 扱う対象 | 格納先 | 4 成分対応 |
 |---|---|---|---|
-| マクロ事実 | グローバル/日本経済の観測値・一次統計引用・機械的計算 | `brief/` 配下 | (a) |
-| ミクロ事実 | スクリーニング通過銘柄・valuation 指標 snapshot | `screened/` 配下 | (b) |
-| マクロ分析 | マクロ見解・業種/地域の追い風/中立/逆風評価 | `view/` 配下 | (c) |
-| ミクロ分析 | 個別銘柄の深掘り・原因仮説・反対仮説・採用判定 | `research/` 配下 | (d) |
+| マクロ事実 | グローバル/日本経済の観測値・一次統計引用・機械的計算 | `records/01-brief/` 配下 | (a) |
+| ミクロ事実 | スクリーニング通過銘柄・valuation 指標 snapshot | `records/03-screened/` 配下 | (b) |
+| マクロ分析 | マクロ見解・業種/地域の追い風/中立/逆風評価 | `records/02-outlook/` 配下 | (c) |
+| ミクロ分析 | 個別銘柄の深掘り・原因仮説・反対仮説・採用判定 | `records/04-research/` 配下 | (d) |
 
 ### 4.2 根拠
 
 1. **AI エージェント参照時のコンテキスト汚染回避**: 事実ファイルを AI に渡す際、事実と意見が混在していると、AI が過去の解釈を「事実」として再生産する可能性がある
 2. **後知恵バイアスの抑制**: 過去の事実ファイルを見返すとき、当時の解釈と事実を混同すると、判断が汚染される
-3. **相場観の受け皿を事前に用意することでの防止**: 「相場観を書きたい」衝動の行き先を先に定義（`view/`, `research/`）しておくことで、`brief/` への混入を設計で遮断する
+3. **相場観の受け皿を事前に用意することでの防止**: 「相場観を書きたい」衝動の行き先を先に定義（`records/02-outlook/`, `records/04-research/`）しておくことで、`records/01-brief/` への混入を設計で遮断する
 
 ### 4.3 事実レイヤー（brief / screened）に含めてよいもの
 
@@ -78,7 +78,7 @@ Baibai-Loop では **事実層（brief, screened）** と **分析層（view, re
 - workflow で明示された閾値ルールの適用結果（Major / Notable ラベル等）
 - 過去 N 週の方向履歴（矢印列）
 - 方向反転の機械的検出
-- Valuation 指標の算出結果（`screened/` 側）
+- Valuation 指標の算出結果（`records/03-screened/` 側）
 
 ### 4.4 事実レイヤーで禁止するもの
 
@@ -100,13 +100,13 @@ Baibai-Loop では **事実層（brief, screened）** と **分析層（view, re
 
 - トレード判断の比重は **マクロ 76% / ミクロ 24%**
 - 運用途中で動かさない（原則はぶれない）
-- `research/` の採用判定では `view/` の Macro gate 判定を必ず通す（gate を通らなければ採用不可）
+- `records/04-research/` の採用判定では `records/02-outlook/` の Macro gate 判定を必ず通す（gate を通らなければ採用不可）
 - 詳細は [`screening/macro-gate-procedure.md`](./screening/macro-gate-procedure.md)
 
 ## 6. Feedback loop 先行の原則（philosophy 柱 3 の具体化）
 
 - 完成設計より不完全な loop 1 周を優先
-- `reviews/retro-YYYYMM.md` で playbook / screening 閾値の改訂判断を行う
+- `records/06-reviews/retro-YYYYMM.md` で playbook / screening 閾値の改訂判断を行う
 - サンプル数 10 件未満なら playbook 据え置きを許容（#7 から継承）
 
 ## 7. Markdown 駆動の原則（philosophy 柱 4 の具体化）

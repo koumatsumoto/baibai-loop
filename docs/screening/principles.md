@@ -1,6 +1,6 @@
 # screening/principles.md
 
-Baibai-Loop のスクリーニングサブシステムの設計原則。4 成分アーキテクチャの `(b) screened` + `(c) view` + `(d) research` のフローに対応するルール集。全体構造は [`../architecture-v1.md`](../architecture-v1.md) を参照。
+Baibai-Loop のスクリーニングサブシステムの設計原則。4 成分アーキテクチャの `(b) screened` + `(c) outlook` + `(d) research` のフローに対応するルール集。全体構造は [`../architecture-v1.md`](../architecture-v1.md) を参照。
 
 ## 1. 4 成分アーキテクチャとの接続
 
@@ -8,19 +8,19 @@ Baibai-Loop のスクリーニングサブシステムの設計原則。4 成分
 
 | 成分 | スクリーニング側の対応 | この原則集での位置付け |
 | --- | --- | --- |
-| (b) `screened/` | 機械的ふるい | [`mechanical-v1.md`](./mechanical-v1.md) で仕様化 |
-| (c) `view/` | Macro gate の source（簡易版） | [`macro-gate-procedure.md`](./macro-gate-procedure.md) で手順化 |
-| (d) `research/` | Playbook + 4 軸評価 + 採用判定 | 本ファイル + Playbook 本体 |
+| (b) `records/03-screened/` | 機械的ふるい | [`mechanical-v1.md`](./mechanical-v1.md) で仕様化 |
+| (c) `records/02-outlook/` | Macro gate の source（簡易版） | [`macro-gate-procedure.md`](./macro-gate-procedure.md) で手順化 |
+| (d) `records/04-research/` | Playbook + 4 軸評価 + 採用判定 | 本ファイル + Playbook 本体 |
 
 ## 2. マクロ優位 (76/24) 原則
 
 - **マクロ 76% / ミクロ 24%** の比重（philosophy 柱 2）
 - Macro gate を通過しない銘柄は採用不可（research 段階で除外）
-- gate 判定は view → research の接続で行う（[`macro-gate-procedure.md`](./macro-gate-procedure.md)）
+- gate 判定は outlook → research の接続で行う（[`macro-gate-procedure.md`](./macro-gate-procedure.md)）
 
 ## 3. Playbook P-A / P-B 定義（概要）
 
-詳細は `playbooks/valuation-*.md` 本体を参照。ここでは概要のみ。
+詳細は `records/_playbooks/valuation-*.md` 本体を参照。ここでは概要のみ。
 
 ### 3.1 P-A: Valuation Mean-Reversion（本命）
 
@@ -87,10 +87,10 @@ Research packet で以下の 4 軸を記入する。**合計点は算出しな�
 - **決算発表日またぎエントリー禁止**（保有期間内に決算発表日が入る）
 - **日銀金融政策決定会合の前日エントリー禁止**
 - **FOMC 前日エントリー禁止**
-- **マクロゲートが `headwind` の銘柄**（view で headwind 判定）
-- **Bootstrap 期でも view が未作成ならマクロゲート判定不能なので entry 不可**
+- **マクロゲートが `headwind` の銘柄**（outlook で headwind 判定）
+- **Bootstrap 期でも outlook が未作成ならマクロゲート判定不能なので entry 不可**
 
-保有中に view が更新され gate が `headwind` に転じた場合、即時 exit 検討。
+保有中に outlook が更新され gate が `headwind` に転じた場合、即時 exit 検討。
 
 ## 7. Position sizing（時価総額別上限）
 
@@ -126,5 +126,5 @@ Research packet で以下の 4 軸を記入する。**合計点は算出しな�
 - [`valuation-metrics.md`](./valuation-metrics.md): 指標算出仕様
 - [`mechanical-v1.md`](./mechanical-v1.md): 機械的ふるい仕様（閾値 3 種 OR）
 - [`macro-gate-procedure.md`](./macro-gate-procedure.md): Macro gate 判定手順
-- [`../../playbooks/valuation-mean-reversion-v1.md`](../../playbooks/valuation-mean-reversion-v1.md): P-A 本体
-- [`../../playbooks/valuation-catalyst-confirmation-v1.md`](../../playbooks/valuation-catalyst-confirmation-v1.md): P-B 本体
+- [`/records/_playbooks/valuation-mean-reversion-v1.md`](/records/_playbooks/valuation-mean-reversion-v1.md): P-A 本体
+- [`/records/_playbooks/valuation-catalyst-confirmation-v1.md`](/records/_playbooks/valuation-catalyst-confirmation-v1.md): P-B 本体

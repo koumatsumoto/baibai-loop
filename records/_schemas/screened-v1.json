@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "screened-v1",
   "title": "Screened YAML",
-  "description": "Schema for screened/YYYY/MM/YYYY-MM-DD.yaml outputs (PR 1-A onward).",
+  "description": "Schema for records/03-screened/YYYY/MM/YYYY-MM-DD.yaml outputs.",
   "type": "object",
   "additionalProperties": false,
   "required": [

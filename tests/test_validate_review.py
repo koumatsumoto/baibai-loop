@@ -11,7 +11,7 @@ from baibai_loop.validate.review import (
 
 def _review_text(classification: str = "success") -> str:
     return f"""---
-trade_ref: trades/2026/04/example.md
+trade_ref: records/05-trades/2026/04/example.md
 classification: {classification}
 verified_at: "2026-04-30"
 ---
@@ -28,7 +28,7 @@ verified_at: "2026-04-30"
 
 def test_review_missing_required_front_matter_is_flagged(tmp_path: Path) -> None:
     path = tmp_path / "review.md"
-    path.write_text(_review_text().replace("trade_ref: trades/2026/04/example.md\n", ""))
+    path.write_text(_review_text().replace("trade_ref: records/05-trades/2026/04/example.md\n", ""))
     assert "review.required" in {finding.code for finding in validate_review_file(path)}
 
 

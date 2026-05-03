@@ -94,7 +94,7 @@ price_missing_counts:
 - **追い風判定銘柄の +15 日パフォーマンス**: +X.X%（平均）
 - **逆風判定で見送った銘柄の +15 日パフォーマンス**: +X.X%（平均）
 - **gate 判定誤り**（採用時 tailwind → 保有中 headwind に反転）: XX 件
-- **view の更新頻度が適切だったか**: [定量評価]
+- **outlook の更新頻度が適切だったか**: [定量評価]
 
 ## Playbook 改訂判断
 
@@ -118,7 +118,7 @@ price_missing_counts:
 - [変更点 2]
 - [変更点 3]
 
-変更適用対象: [playbook / screening 閾値 / view 更新 trigger / research 選定基準 のどれか]
+変更適用対象: [playbook / screening 閾値 / outlook 更新 trigger / research 選定基準 のどれか]
 
 ### Valuation trap の経験
 
