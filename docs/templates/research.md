@@ -3,9 +3,9 @@ ticker: "XXXX"
 name: "..."
 playbook: valuation-mean-reversion-v1 | valuation-catalyst-confirmation-v1
 decision: accepted | skipped | pending
-screened_ref: screened/YYYY/MM/YYYY-MM-DD.yaml
-view_ref: view/YYYY/MM/view-YYYY-MM-DD-*.md
-brief_refs: []                            # 任意、view 後の緊急 brief がある場合のみ
+screened_ref: records/03-screened/YYYY/MM/YYYY-MM-DD.yaml
+outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.md
+brief_refs: []                            # 任意、outlook 後の緊急 brief がある場合のみ
 ai-draft: true
 published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 tradable_at: "YYYY-MM-DDTHH:MM:SS+09:00"
@@ -40,11 +40,11 @@ valuation:
 ## 2. Macro gate [最上位ゲート]
 
 - **判定**: tailwind | neutral | headwind
-- **業種**: [東証 33 業種]（view で {tailwind/neutral/headwind}）
-- **地域**: [地域]（view で {tailwind/neutral/headwind}）
+- **業種**: [東証 33 業種]（outlook で {tailwind/neutral/headwind}）
+- **地域**: [地域]（outlook で {tailwind/neutral/headwind}）
 - **保守側優先判定結果**: [最終 gate 判定]
-- **view_ref**: [view path]
-- **brief_refs**（任意）: [view 後の緊急 brief があれば]
+- **outlook_ref**: [outlook path]
+- **brief_refs**（任意）: [outlook 後の緊急 brief があれば]
 - **1-2 行要約**: [gate 判定の要点]
 
 headwind の場合は原則採用不可。neutral は条件付き採用可。
@@ -173,4 +173,4 @@ P-A の場合は「catalyst なし（純粋な valuation mean-reversion 狙い�
 
 ---
 
-参照: [`/docs/components/research.md`](/docs/components/research.md), [`/docs/screening/principles.md`](/docs/screening/principles.md), [`/playbooks/`](/playbooks/)
+参照: [`/docs/components/research.md`](/docs/components/research.md), [`/docs/screening/principles.md`](/docs/screening/principles.md), [`/records/_playbooks/`](/records/_playbooks/)

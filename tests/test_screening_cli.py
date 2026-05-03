@@ -374,8 +374,8 @@ class SelectCommandTests(unittest.TestCase):
         path.write_text(payload, encoding="utf-8")
         return path
 
-    def _write_view(self, root: Path, asof: date, sectors: dict[str, str | None]) -> Path:
-        path = root / f"{asof:%Y}" / f"{asof:%m}" / f"view-{asof:%Y-%m-%d}-bootstrap.md"
+    def _write_outlook(self, root: Path, asof: date, sectors: dict[str, str | None]) -> Path:
+        path = root / f"{asof:%Y}" / f"{asof:%m}" / f"outlook-{asof:%Y-%m-%d}-bootstrap.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         front = yaml.safe_dump({"sectors": sectors}, allow_unicode=True, sort_keys=False)
         path.write_text(f"---\n{front}---\n", encoding="utf-8")
@@ -386,7 +386,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_screened(
-                root / "screened",
+                root / "records/03-screened",
                 asof,
                 tickers=[
                     {
@@ -416,8 +416,8 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_view(
-                root / "view",
+            self._write_outlook(
+                root / "records/02-outlook",
                 asof,
                 sectors={
                     "石油・石炭製品": "headwind",
@@ -428,16 +428,16 @@ class SelectCommandTests(unittest.TestCase):
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                view_path=None,
+                outlook_path=None,
                 top=10,
-                screened_root=root / "screened",
-                view_root=root / "view",
+                screened_root=root / "records/03-screened",
+                outlook_root=root / "records/02-outlook",
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
             self.assertEqual(payload["input_count"], 3)
-            self.assertEqual(payload["after_view_filter"], 2)
+            self.assertEqual(payload["after_outlook_filter"], 2)
             tickers = [c["ticker"] for c in payload["candidates"]]
             self.assertEqual(tickers, ["3333", "2222"])
             self.assertEqual(
@@ -450,7 +450,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             screened_path = (
-                root / "screened" / f"{asof:%Y}" / f"{asof:%m}" / f"{asof:%Y-%m-%d}.yaml"
+                root / "records/03-screened" / f"{asof:%Y}" / f"{asof:%m}" / f"{asof:%Y-%m-%d}.yaml"
             )
             screened_path.parent.mkdir(parents=True, exist_ok=True)
             # YAML root is a list rather than a mapping; should fail-fast.
@@ -458,17 +458,17 @@ class SelectCommandTests(unittest.TestCase):
                 yaml.safe_dump([{"ticker": "1111"}], allow_unicode=True),
                 encoding="utf-8",
             )
-            self._write_view(root / "view", asof, sectors={})
+            self._write_outlook(root / "records/02-outlook", asof, sectors={})
 
             buffer = io.StringIO()
             stderr = io.StringIO()
             with contextlib.redirect_stderr(stderr):
                 exit_code = select_command(
                     asof_date=asof,
-                    view_path=None,
+                    outlook_path=None,
                     top=10,
-                    screened_root=root / "screened",
-                    view_root=root / "view",
+                    screened_root=root / "records/03-screened",
+                    outlook_root=root / "records/02-outlook",
                     stdout=buffer,
                 )
             self.assertEqual(exit_code, 1)

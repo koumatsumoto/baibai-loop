@@ -11,8 +11,10 @@ from jsonschema import Draft202012Validator
 
 from .errors import ValidationFinding
 
-SCHEMA_PATH = Path(__file__).resolve().parents[3] / "schemas" / "review-v1.json"
-RETRO_SCHEMA_PATH = Path(__file__).resolve().parents[3] / "schemas" / "retro-monthly-v1.json"
+SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "review-v1.json"
+RETRO_SCHEMA_PATH = (
+    Path(__file__).resolve().parents[3] / "records" / "_schemas" / "retro-monthly-v1.json"
+)
 REQUIRED_SECTIONS: tuple[str, ...] = (
     "Outcome",
     "Hypothesis check",

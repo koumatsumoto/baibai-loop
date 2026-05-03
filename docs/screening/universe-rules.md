@@ -1,6 +1,6 @@
 # screening/universe-rules.md
 
-Baibai-Loop スクリーニングの universe（対象銘柄集合）の境界条件。`(b) screened/` の入力となる銘柄 pool を定義する。
+Baibai-Loop スクリーニングの universe（対象銘柄集合）の境界条件。`(b) records/03-screened/` の入力となる銘柄 pool を定義する。
 
 ## 1. 対象
 
@@ -90,7 +90,7 @@ Baibai-Loop スクリーニングの universe（対象銘柄集合）の境界�
 
 ### 7.3 履歴
 
-- 各 `screened/YYYY/MM/YYYY-MM-DD.yaml` の YAML `universe_size` で実行時点の universe サイズを記録
+- 各 `records/03-screened/YYYY/MM/YYYY-MM-DD.yaml` の YAML `universe_size` で実行時点の universe サイズを記録
 - 履歴を遡れば universe の縮小・拡大を追跡できる
 
 ### 7.4 JPX 規制情報の取得失敗

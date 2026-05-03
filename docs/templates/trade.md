@@ -1,7 +1,7 @@
 ---
 ticker: "XXXX"
 name: "..."
-research_ref: research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
+research_ref: records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
 entry_date: "YYYY-MM-DD"
 entry_price: 数値
 position_size_pct: 0.5 | 1 | 2
@@ -23,7 +23,7 @@ kill_switch_check:
 
 **成分**: 4 成分アーキテクチャの下流 **trades**（[`/docs/components/trades.md`](/docs/components/trades.md)）
 
-**Research source**: [research/YYYY/MM/YYYY-MM-DD-*-*.md](...)
+**Research source**: [records/04-research/YYYY/MM/YYYY-MM-DD-*-*.md](...)
 
 ## 1. Entry
 
@@ -95,4 +95,4 @@ kill_switch_check:
 
 - +15 営業日 review 予定日: YYYY-MM-DD
 - +30 営業日 review 予定日: YYYY-MM-DD
-- 事後 review: [`reviews/YYYY/MM/YYYY-MM-DD-XXXX.md`](/reviews/YYYY/MM/YYYY-MM-DD-XXXX.md)（決済後に作成）
+- 事後 review: [`records/06-reviews/YYYY/MM/YYYY-MM-DD-XXXX.md`](/records/06-reviews/YYYY/MM/YYYY-MM-DD-XXXX.md)（決済後に作成）

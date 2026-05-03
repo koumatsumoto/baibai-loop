@@ -1,7 +1,7 @@
 """Per-playbook schema loader for research markdown body sections.
 
 R6 で「validate のコア schema と playbook 個別 schema を分離」を採用した。
-本モジュールは `playbooks/<name>.schema.yaml` を読み込み、research markdown の
+本モジュールは `records/_playbooks/<name>.schema.yaml` を読み込み、research markdown の
 本文に必須 section が揃っているかを section title pattern で検証する。
 
 新 playbook を追加した場合は同名 schema YAML を playbook ファイルと一緒に置く

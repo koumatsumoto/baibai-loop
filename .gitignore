@@ -22,18 +22,18 @@ dist/
 .plan/
 
 # Screening caches
-# Legacy raw JSON cache. Kept ignored for back-compat; new runs write to
-# data/raw/screening/ which is git-tracked (issue #45).
+# Local legacy raw JSON cache. New runs write to records/_data/raw/screening/,
+# which is git-tracked.
 .cache/
 
-# SQLite caches and rebuild temp files derived from data/raw/. The
-# data/raw/ tree itself is git-tracked as the canonical raw JSON source.
-data/cache/
+# SQLite caches and rebuild temp files derived from records/_data/raw/. The
+# records/_data/raw/ tree itself is git-tracked as the canonical raw JSON source.
+records/_data/cache/
 
 # Per-run lineage manifests are derived artifacts of a screening run; the
 # screened YAML records cache_manifest_hash, so the manifest JSON itself
 # does not need to be in git.
-data/raw/screening/manifests/
+records/_data/raw/screening/manifests/
 
 # Local environment files
 .env

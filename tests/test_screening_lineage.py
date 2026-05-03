@@ -188,7 +188,7 @@ class ScreeningLineageTests(unittest.TestCase):
                 ") VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     "jquants_master_snapshots",
-                    "data/raw/screening/jquants/get_eq_master.json",
+                    "records/_data/raw/screening/jquants/get_eq_master.json",
                     "0" * 64,
                     "2026-04-24T00:00:00+00:00",
                     4445,

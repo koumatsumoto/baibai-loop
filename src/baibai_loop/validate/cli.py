@@ -1,8 +1,8 @@
 """CLI entry point for ``baibai-loop-validate``.
 
-Walks ``<root>/screened/``, ``<root>/view/`` and ``<root>/research/`` and
-reports every ValidationFinding produced by the per-artefact validators. CI
-runs this command against the repository to gate merges on schema regressions.
+Walks the records tree under ``<root>/records/`` and reports every
+ValidationFinding produced by the per-artefact validators. CI runs this
+command against the repository to gate merges on schema regressions.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from typing import Literal, TextIO, assert_never
 
 from .errors import ValidationFinding
 from .ledger import discover_ledger_files, validate_ledger_file
+from .outlook import discover_outlook_files, validate_outlook_file
 from .playbook_schema import discover_playbook_schemas
 from .research import (
     discover_research_files,
@@ -25,10 +26,16 @@ from .research import (
 )
 from .review import discover_review_files, validate_review_file
 from .screened import discover_screened_files, validate_screened_file
-from .view import discover_view_files, validate_view_file
 
-type ValidationTarget = Literal["screened", "view", "research", "ledger", "review"]
-_TARGETS: tuple[ValidationTarget, ...] = ("screened", "view", "research", "ledger", "review")
+type ValidationTarget = Literal["screened", "outlook", "research", "ledger", "review"]
+_TARGETS: tuple[ValidationTarget, ...] = ("screened", "outlook", "research", "ledger", "review")
+
+SCREENED_ROOT = Path("records/03-screened")
+OUTLOOK_ROOT = Path("records/02-outlook")
+RESEARCH_ROOT = Path("records/04-research")
+LEDGER_ROOT = Path("records/_ledger")
+PLAYBOOKS_ROOT = Path("records/_playbooks")
+REVIEWS_ROOT = Path("records/06-reviews")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -79,13 +86,13 @@ def run_validation(
     # research validation で playbook schema lookup が必要。1 回だけ discover
     # して全 research file に再利用する (Phase 2 で packet が増えたときに
     # I/O を線形回数に抑える)。
-    known_playbooks = frozenset(discover_playbook_schemas(root / "playbooks"))
+    known_playbooks = frozenset(discover_playbook_schemas(root / PLAYBOOKS_ROOT))
 
     # research target は per-file 検証と collection 集約の両方で同じ document を
     # 読むため、target ループ前に 1 度 load して再利用する。
     research_documents: dict[Path, tuple[dict[str, object], str] | list[ValidationFinding]] = {}
     if "research" in targets:
-        for path in discover_research_files(root / "research"):
+        for path in discover_research_files(root / RESEARCH_ROOT):
             research_documents[path] = load_research_document(path)
 
     findings: list[ValidationFinding] = []
@@ -105,7 +112,7 @@ def run_validation(
                             path,
                             front_matter,
                             body,
-                            playbooks_root=root / "playbooks",
+                            playbooks_root=root / PLAYBOOKS_ROOT,
                             known_playbooks=known_playbooks,
                         )
                     )
@@ -138,15 +145,15 @@ def run_validation(
 def _discover(root: Path, target: ValidationTarget) -> list[Path]:
     match target:
         case "screened":
-            return discover_screened_files(root / "screened")
-        case "view":
-            return discover_view_files(root / "view")
+            return discover_screened_files(root / SCREENED_ROOT)
+        case "outlook":
+            return discover_outlook_files(root / OUTLOOK_ROOT)
         case "research":
-            return discover_research_files(root / "research")
+            return discover_research_files(root / RESEARCH_ROOT)
         case "ledger":
-            return discover_ledger_files(root / "ledger")
+            return discover_ledger_files(root / LEDGER_ROOT)
         case "review":
-            return discover_review_files(root / "reviews")
+            return discover_review_files(root / REVIEWS_ROOT)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 
@@ -160,12 +167,12 @@ def _validate(
     match target:
         case "screened":
             return validate_screened_file(path)
-        case "view":
-            return validate_view_file(path)
+        case "outlook":
+            return validate_outlook_file(path)
         case "research":
             return validate_research_file(
                 path,
-                playbooks_root=root / "playbooks",
+                playbooks_root=root / PLAYBOOKS_ROOT,
                 known_playbooks=known_playbooks,
             )
         case "ledger":

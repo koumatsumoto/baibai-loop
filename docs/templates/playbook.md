@@ -9,7 +9,7 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
 # Playbook: [playbook 名]
 
-**成分**: `playbooks/` 配下の運用資産。[`/docs/components/research.md`](/docs/components/research.md) の `playbook` front matter で参照される。
+**成分**: `records/_playbooks/` 配下の運用資産。[`/docs/components/research.md`](/docs/components/research.md) の `playbook` front matter で参照される。
 
 ## 1. 概要
 
@@ -63,7 +63,7 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
 ### 3.2 Macro tailwind（二重確認）
 
-- view の業種/地域判定を再確認
+- outlook の業種/地域判定を再確認
 
 ### 3.3 Relative strength
 

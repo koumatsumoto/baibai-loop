@@ -122,7 +122,7 @@ class _ScreenedFrontMatter(BaseModel):
     tickers: list[_ScreenedCandidateInput] = Field(default_factory=list)
 
 
-class _ViewFrontMatter(BaseModel):
+class _OutlookFrontMatter(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
     sectors: Mapping[str, str | None] = Field(default_factory=dict)
@@ -149,7 +149,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     migrate_parser = subparsers.add_parser(
         "migrate-cache",
-        help="move legacy .cache/screening/ raw JSON to git-tracked data/raw/screening/",
+        help="move legacy .cache/screening/ raw JSON to git-tracked records/_data/raw/screening/",
     )
     migrate_parser.add_argument(
         "--from",
@@ -171,7 +171,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     rebuild_parser = subparsers.add_parser(
         "rebuild-cache",
-        help="rebuild SQLite cache under data/cache/screening/ from data/raw/screening/ JSON",
+        help=(
+            "rebuild SQLite cache under records/_data/cache/screening/ "
+            "from records/_data/raw/screening/ JSON"
+        ),
     )
     rebuild_parser.add_argument(
         "--raw-dir",
@@ -186,7 +189,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     verify_parser = subparsers.add_parser(
         "verify-raw-cache",
-        help="check that data/raw/screening/ stays under 50MB per file and matches SQLite",
+        help="check that records/_data/raw/screening/ stays under 50MB per file and matches SQLite",
     )
     verify_parser.add_argument(
         "--raw-dir",
@@ -214,12 +217,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     select_parser = subparsers.add_parser(
         "select",
-        help="rank research candidates by combining screened with view sectors",
+        help="rank research candidates by combining screened with outlook sectors",
     )
     select_parser.add_argument("--asof", required=True, help="screening target date (YYYY-MM-DD)")
     select_parser.add_argument(
-        "--view",
-        help="view path to apply (default: latest view/<YYYY>/<MM>/view-*.md on or before asof)",
+        "--outlook",
+        help=(
+            "outlook path to apply (default: latest "
+            "records/02-outlook/<YYYY>/<MM>/outlook-*.md on or before asof)"
+        ),
     )
     select_parser.add_argument(
         "--top",
@@ -235,10 +241,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "select":
-        # select reads existing screened YAML and view markdown only, no env or providers needed.
+        # select reads existing screened YAML and outlook markdown only, no env or providers needed.
         return select_command(
             asof_date=_parse_iso_date(args.asof),
-            view_path=Path(args.view) if args.view else None,
+            outlook_path=Path(args.outlook) if args.outlook else None,
             top=args.top,
         )
 
@@ -521,10 +527,10 @@ def run_command(
 def select_command(
     *,
     asof_date: date,
-    view_path: Path | None,
+    outlook_path: Path | None,
     top: int,
     screened_root: Path | None = None,
-    view_root: Path | None = None,
+    outlook_root: Path | None = None,
     stdout: TextIO | None = None,
 ) -> int:
     if top < 1:
@@ -532,8 +538,8 @@ def select_command(
         return 1
 
     out = stdout if stdout is not None else sys.stdout
-    screened_root = screened_root or Path("screened")
-    view_root = view_root or Path("view")
+    screened_root = screened_root or Path("records/03-screened")
+    outlook_root = outlook_root or Path("records/02-outlook")
 
     screened_path = (
         screened_root / f"{asof_date:%Y}" / f"{asof_date:%m}" / f"{asof_date:%Y-%m-%d}.yaml"
@@ -549,28 +555,29 @@ def select_command(
         print(f"invalid screened YAML: {screened_path}: {exc}", file=sys.stderr)
         return 1
 
-    resolved_view_path = view_path or _find_latest_view(view_root, asof_date)
-    if resolved_view_path is None or not resolved_view_path.exists():
+    resolved_outlook_path = outlook_path or _find_latest_outlook(outlook_root, asof_date)
+    if resolved_outlook_path is None or not resolved_outlook_path.exists():
         print(
-            "view file not found. Pass --view <path> or create view/<YYYY>/<MM>/view-*.md",
+            "outlook file not found. Pass --outlook <path> or create "
+            "records/02-outlook/<YYYY>/<MM>/outlook-*.md",
             file=sys.stderr,
         )
         return 1
     try:
-        view_fm = TypeAdapter(_ViewFrontMatter).validate_python(
-            _parse_markdown_front_matter(resolved_view_path)
+        outlook_fm = TypeAdapter(_OutlookFrontMatter).validate_python(
+            _parse_markdown_front_matter(resolved_outlook_path)
         )
     except ValidationError as exc:
-        print(f"invalid view front matter: {resolved_view_path}: {exc}", file=sys.stderr)
+        print(f"invalid outlook front matter: {resolved_outlook_path}: {exc}", file=sys.stderr)
         return 1
 
-    candidates = _rank_candidates(screened_fm.tickers, view_fm.sectors)
+    candidates = _rank_candidates(screened_fm.tickers, outlook_fm.sectors)
     summary = {
         "asof": asof_date.isoformat(),
         "screened_ref": str(screened_path),
-        "view_ref": str(resolved_view_path),
+        "outlook_ref": str(resolved_outlook_path),
         "input_count": len(screened_fm.tickers),
-        "after_view_filter": len(candidates),
+        "after_outlook_filter": len(candidates),
         "candidates": candidates[:top],
     }
     yaml.safe_dump(summary, out, allow_unicode=True, sort_keys=False)
@@ -592,15 +599,15 @@ def _parse_screened_yaml_payload(path: Path) -> dict[str, object]:
     return payload
 
 
-def _find_latest_view(view_root: Path, asof_date: date) -> Path | None:
-    if not view_root.exists():
+def _find_latest_outlook(outlook_root: Path, asof_date: date) -> Path | None:
+    if not outlook_root.exists():
         return None
     asof_iso = asof_date.isoformat()
-    matches = sorted(view_root.glob("*/*/view-*.md"))
+    matches = sorted(outlook_root.glob("*/*/outlook-*.md"))
     eligible = [
         path
         for path in matches
-        # Heuristic: view filename contains a YYYY-MM-DD on or before asof.
+        # Heuristic: outlook filename contains a YYYY-MM-DD on or before asof.
         if (m := re.search(r"\d{4}-\d{2}-\d{2}", path.name)) and m.group(0) <= asof_iso
     ]
     return eligible[-1] if eligible else None
@@ -608,14 +615,14 @@ def _find_latest_view(view_root: Path, asof_date: date) -> Path | None:
 
 def _rank_candidates(
     tickers: list[_ScreenedCandidateInput],
-    sectors_view: Mapping[str, str | None],
+    sectors_outlook: Mapping[str, str | None],
 ) -> list[dict[str, object]]:
     ranked: list[tuple[tuple[int, int, str], dict[str, object]]] = []
     for ticker in tickers:
         sector = ticker.sector_33
-        view_status = sectors_view.get(sector)
+        outlook_status = sectors_outlook.get(sector)
         # headwind は除外。null / unknown / tailwind / neutral は通過。
-        if view_status == "headwind":
+        if outlook_status == "headwind":
             continue
         market_cap = ticker.market_cap_oku
         market_cap_int = int(market_cap) if isinstance(market_cap, (int, float)) else 0
@@ -629,7 +636,7 @@ def _rank_candidates(
             "ticker": ticker.ticker,
             "name": ticker.name,
             "sector_33": sector,
-            "view_sector": view_status,
+            "outlook_sector": outlook_status,
             "market_cap_oku": market_cap,
             "threshold_hit": ticker.threshold_hit,
             "threshold_hit_count": len(ticker.threshold_hit),
@@ -685,7 +692,7 @@ def migrate_cache_command(
     dry_run: bool = False,
     stdout: TextIO | None = None,
 ) -> int:
-    """Move legacy `.cache/screening/` raw JSON to `data/raw/screening/`.
+    """Move legacy `.cache/screening/` raw JSON to `records/_data/raw/screening/`.
 
     The default source / destination match the layout introduced by issue #45.
     Re-runs are idempotent: existing destination files are skipped, never

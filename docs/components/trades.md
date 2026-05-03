@@ -4,9 +4,9 @@ Baibai-Loop 4 成分アーキテクチャの下流 **trades** 成分の運用仕
 
 ## 1. 役割
 
-- `research/` で採用判定された packet の **entry / exit / position / P&L を記録**
-- 採用した銘柄のみ生成（見送り / 保留は `research/` 内で完結）
-- `reviews/` 作成の source
+- `records/04-research/` で採用判定された packet の **entry / exit / position / P&L を記録**
+- 採用した銘柄のみ生成（見送り / 保留は `records/04-research/` 内で完結）
+- `records/06-reviews/` 作成の source
 
 ## 2. 頻度
 
@@ -16,7 +16,7 @@ Baibai-Loop 4 成分アーキテクチャの下流 **trades** 成分の運用仕
 ## 3. Path と命名
 
 ```
-trades/YYYY/MM/YYYY-MM-DD-<ticker>.md
+records/05-trades/YYYY/MM/YYYY-MM-DD-<ticker>.md
 ```
 
 - 日付は entry 日
@@ -28,7 +28,7 @@ trades/YYYY/MM/YYYY-MM-DD-<ticker>.md
 ---
 ticker: "7203"
 name: "トヨタ自動車"
-research_ref: research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md  # 必須
+research_ref: records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md  # 必須
 entry_date: "YYYY-MM-DD"
 entry_price: 数値
 position_size_pct: 数値                                    # 0.5 / 1 / 2 から選択
@@ -73,7 +73,7 @@ kill_switch_check:                                         # entry 時に確認
 
 ## 6. reviews への接続
 
-- 決済後 +15 営業日、+30 営業日で `reviews/YYYY/MM/YYYY-MM-DD-<ticker>.md` を作成
+- 決済後 +15 営業日、+30 営業日で `records/06-reviews/YYYY/MM/YYYY-MM-DD-<ticker>.md` を作成
 - 月次 retro では成功/失敗分類を集計
 
 ## 7. Kill switch 運用
@@ -83,7 +83,7 @@ entry 時 + 保有中に以下を確認:
 - **決算またぎ禁止**: entry 時に次回決算発表日が保有期間内にないか確認
 - **日銀会合前日禁止**: entry 時に次回 BOJ 会合日の前日ではないか確認
 - **FOMC 前日禁止**: entry 時に次回 FOMC 日の前日ではないか確認
-- **マクロゲート逆風化**: 保有中に view が更新され gate が `headwind` に転じた場合、即時 exit 検討（必須ではないが、無効化条件として機能）
+- **マクロゲート逆風化**: 保有中に outlook が更新され gate が `headwind` に転じた場合、即時 exit 検討（必須ではないが、無効化条件として機能）
 
 ## 8. AI の役割境界
 

@@ -1,6 +1,6 @@
 # screening/valuation-metrics.md
 
-Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。`(b) screened/` と `(d) research/` の両方で参照される指標の前提を確定する。
+Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。`(b) records/03-screened/` と `(d) records/04-research/` の両方で参照される指標の前提を確定する。
 
 ## 1. 使用指標
 
@@ -66,7 +66,7 @@ EDINET の XBRL 構造から取得。J-Quants Light の財務サマリーで取�
 ### 8.1 業種分類粒度
 
 - **東証 33 業種** を初期値として採用
-- 17 業種はマクロ判定（view の sectors）で使うことも可能だが、スクリーニングは 33 業種基準
+- 17 業種はマクロ判定（outlook の sectors）で使うことも可能だが、スクリーニングは 33 業種基準
 - 将来 retro で粒度変更する場合は本ファイルを更新
 
 ### 8.2 中央値算出

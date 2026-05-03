@@ -1,6 +1,6 @@
-"""Validate view markdown front matter.
+"""Validate outlook markdown front matter.
 
-view markdown は人間 narrative が中心の成果物。Markdown body は形式自由
+outlook markdown は人間 narrative が中心の成果物。Markdown body は形式自由
 にし、front matter の `sectors` / `regions` のみを機械的に検証する。
 未知 sector / 未知 region は warning、不正な status (許容値以外) は error。
 """
@@ -15,14 +15,14 @@ import yaml
 
 from .errors import ValidationFinding
 
-KNOWN_VIEW_STATES: tuple[str, ...] = ("tailwind", "neutral", "headwind")
+KNOWN_OUTLOOK_STATES: tuple[str, ...] = ("tailwind", "neutral", "headwind")
 KNOWN_REGIONS: tuple[str, ...] = (
     "us",
     "japan-domestic",
     "japan-external-demand",
     "emerging",
 )
-# 33 業種の正規名 (東証 33 業種)。view が部分集合を書くこと自体は許容するが、
+# 33 業種の正規名 (東証 33 業種)。outlook が部分集合を書くこと自体は許容するが、
 # 表記ゆれ (例: 末尾の中黒抜け) を warning で検出する。
 KNOWN_SECTORS: tuple[str, ...] = (
     "水産・農林業",
@@ -63,7 +63,7 @@ KNOWN_SECTORS: tuple[str, ...] = (
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
 
 
-def validate_view_file(path: Path) -> list[ValidationFinding]:
+def validate_outlook_file(path: Path) -> list[ValidationFinding]:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
@@ -71,7 +71,7 @@ def validate_view_file(path: Path) -> list[ValidationFinding]:
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="view.io",
+                code="outlook.io",
                 message=f"failed to read file: {exc}",
             )
         ]
@@ -81,8 +81,8 @@ def validate_view_file(path: Path) -> list[ValidationFinding]:
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="view.no-front-matter",
-                message="view markdown must start with `---` YAML front matter",
+                code="outlook.no-front-matter",
+                message="outlook markdown must start with `---` YAML front matter",
             )
         ]
     try:
@@ -92,7 +92,7 @@ def validate_view_file(path: Path) -> list[ValidationFinding]:
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="view.invalid-yaml",
+                code="outlook.invalid-yaml",
                 message=f"front matter YAML parse failed: {exc}",
             )
         ]
@@ -101,8 +101,8 @@ def validate_view_file(path: Path) -> list[ValidationFinding]:
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="view.front-matter-non-mapping",
-                message="view front matter must be a mapping",
+                code="outlook.front-matter-non-mapping",
+                message="outlook front matter must be a mapping",
             )
         ]
     findings: list[ValidationFinding] = []
@@ -111,10 +111,10 @@ def validate_view_file(path: Path) -> list[ValidationFinding]:
     return findings
 
 
-def discover_view_files(root: Path) -> list[Path]:
+def discover_outlook_files(root: Path) -> list[Path]:
     if not root.exists():
         return []
-    return sorted(p for p in root.rglob("view-*.md") if p.is_file())
+    return sorted(p for p in root.rglob("outlook-*.md") if p.is_file())
 
 
 def _check_sectors(path: Path, value: object) -> list[ValidationFinding]:
@@ -123,7 +123,7 @@ def _check_sectors(path: Path, value: object) -> list[ValidationFinding]:
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="view.missing-sectors",
+                code="outlook.missing-sectors",
                 message="front matter must define `sectors`",
                 location="sectors",
             )
@@ -133,7 +133,7 @@ def _check_sectors(path: Path, value: object) -> list[ValidationFinding]:
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="view.sectors-not-mapping",
+                code="outlook.sectors-not-mapping",
                 message="`sectors` must be a mapping of sector → status",
                 location="sectors",
             )
@@ -147,19 +147,19 @@ def _check_sectors(path: Path, value: object) -> list[ValidationFinding]:
                 ValidationFinding(
                     severity="warning",
                     target=path,
-                    code="view.unknown-sector",
+                    code="outlook.unknown-sector",
                     message=f"unknown sector name: {sector_str!r}",
                     location=f"sectors.{sector_str}",
                 )
             )
-        if not isinstance(status, str) or status not in KNOWN_VIEW_STATES:
+        if not isinstance(status, str) or status not in KNOWN_OUTLOOK_STATES:
             findings.append(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="view.invalid-sector-status",
+                    code="outlook.invalid-sector-status",
                     message=(
-                        f"sector status must be one of {list(KNOWN_VIEW_STATES)}, got {status!r}"
+                        f"sector status must be one of {list(KNOWN_OUTLOOK_STATES)}, got {status!r}"
                     ),
                     location=f"sectors.{sector_str}",
                 )
@@ -173,7 +173,7 @@ def _check_regions(path: Path, value: object) -> list[ValidationFinding]:
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="view.missing-regions",
+                code="outlook.missing-regions",
                 message="front matter must define `regions`",
                 location="regions",
             )
@@ -183,7 +183,7 @@ def _check_regions(path: Path, value: object) -> list[ValidationFinding]:
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="view.regions-not-mapping",
+                code="outlook.regions-not-mapping",
                 message="`regions` must be a mapping",
                 location="regions",
             )
@@ -197,21 +197,21 @@ def _check_regions(path: Path, value: object) -> list[ValidationFinding]:
                 ValidationFinding(
                     severity="warning",
                     target=path,
-                    code="view.unknown-region",
+                    code="outlook.unknown-region",
                     message=f"unknown region name: {region_str!r}",
                     location=f"regions.{region_str}",
                 )
             )
         if status is None:
             continue
-        if not isinstance(status, str) or status not in KNOWN_VIEW_STATES:
+        if not isinstance(status, str) or status not in KNOWN_OUTLOOK_STATES:
             findings.append(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="view.invalid-region-status",
+                    code="outlook.invalid-region-status",
                     message=(
-                        f"region status must be one of {list(KNOWN_VIEW_STATES)} or null, "
+                        f"region status must be one of {list(KNOWN_OUTLOOK_STATES)} or null, "
                         f"got {status!r}"
                     ),
                     location=f"regions.{region_str}",

@@ -1,4 +1,4 @@
-"""SQLite cache layer rebuilt from `data/raw/screening/` raw JSON.
+"""SQLite cache layer rebuilt from `records/_data/raw/screening/` raw JSON.
 
 Issue #45 keeps raw JSON as the canonical, audit-grade source under git, and
 treats SQLite as a derived workspace cache that can be rebuilt at any time.
@@ -6,7 +6,7 @@ This module owns:
 
 - the SQLite schema (versioned via `SCHEMA_VERSION`)
 - per-source readers that translate raw JSON into rows
-- the top-level `rebuild_from_raw()` that scans a `data/raw/screening/` tree
+- the top-level `rebuild_from_raw()` that scans a `records/_data/raw/screening/` tree
   and writes a fresh SQLite file from scratch
 
 Schema v2 (current) covers all five sources: jquants daily bars / fin

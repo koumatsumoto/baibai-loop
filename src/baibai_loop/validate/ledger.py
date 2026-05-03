@@ -9,7 +9,7 @@ from jsonschema import Draft202012Validator
 
 from .errors import ValidationFinding
 
-SCHEMA_ROOT = Path(__file__).resolve().parents[3] / "schemas"
+SCHEMA_ROOT = Path(__file__).resolve().parents[3] / "records" / "_schemas"
 
 
 def discover_ledger_files(root: Path) -> list[Path]:

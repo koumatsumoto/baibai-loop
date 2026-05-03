@@ -3,8 +3,8 @@ ticker: "5032"
 name: "ＡＮＹＣＯＬＯＲ"
 playbook: valuation-mean-reversion-v1
 decision: accepted
-screened_ref: screened/2026/04/2026-04-24.yaml
-view_ref: view/2026/04/view-2026-04-24-bootstrap.md
+screened_ref: records/03-screened/2026/04/2026-04-24.yaml
+outlook_ref: records/02-outlook/2026/04/outlook-2026-04-24-bootstrap.md
 brief_refs: []
 ai-draft: true
 published_at: "2026-04-25T22:00:00+09:00"
@@ -35,7 +35,7 @@ valuation:
 ## 2. Macro gate
 
 - 判定: neutral
-- 業種: 情報・通信業 (view で `neutral`)
+- 業種: 情報・通信業 (outlook で `neutral`)
 - 地域: japan-domestic neutral / グローバル展開 (海外 VTuber、英語 Vtuber グループ)
 - 保守側優先判定結果: neutral
 - 1-2 行要約: VTuber 業界はグローバル展開、円安は海外売上の円換算寄与、headwind ではない。

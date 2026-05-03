@@ -6,14 +6,14 @@ Baibai-Loop の 4 成分 + 下流アーキテクチャにおける日々の運�
 
 Baibai-Loop は 2 トラック構成で運用する:
 
-- **Macro track (独立)**: `brief/` → `view/`（売買イベントと独立に更新）
-- **Micro track (売買ループ)**: `screened/` → `research/` → `trades/` → `reviews/` → retro feedback
+- **Macro track (独立)**: `records/01-brief/` → `records/02-outlook/`（売買イベントと独立に更新）
+- **Micro track (売買ループ)**: `records/03-screened/` → `records/04-research/` → `records/05-trades/` → `records/06-reviews/` → retro feedback
 
 各成分の詳細運用は [`components/`](./components/) 配下の個別 doc を参照:
 
 - [`components/brief.md`](./components/brief.md): (a) マクロ事実ブリーフ
 - [`components/screened.md`](./components/screened.md): (b) スクリーニング通過銘柄
-- [`components/view.md`](./components/view.md): (c) マクロ見解
+- [`components/outlook.md`](./components/outlook.md): (c) マクロ見解
 - [`components/research.md`](./components/research.md): (d) 個別銘柄リサーチ
 - [`components/trades.md`](./components/trades.md): 執行記録
 - [`components/reviews.md`](./components/reviews.md): 事後検証・retro
@@ -47,7 +47,7 @@ Baibai-Loop は 2 トラック構成で運用する:
 ## ファイル配置と命名
 
 ```
-brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
+records/01-brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
 ```
 
 - `{kind}` は `world-daily` / `world-weekly` / `macro-monthly` / `fomc` / `boj` / `cpi` / `gdp` / `geopolitics` などイベント種別を示す
@@ -57,7 +57,7 @@ brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
   - 数値を含める場合、小数点は `p` で代用する (`3.3%` → `3p3`)
   - 目立つ事実がない観測月は `overview` を用いてよい
 - `{kind}` 自体にハイフンを含む場合があるので、パース時は既知の kind 一覧との貪欲一致を前提とする
-- INDEX ファイルは作らない。一覧は `git ls-files brief/` または GitHub 上のツリーで確認する
+- INDEX ファイルは作らない。一覧は `git ls-files records/01-brief/` または GitHub 上のツリーで確認する
 
 ## 日付の扱い
 
@@ -71,13 +71,13 @@ brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.md
 - 引用は本文中にインラインで `[ソース名](URL) (YYYY-MM-DD取得)` の形式を使う
 - 数値や事実はできるだけ Tier 1 から取り、Tier 2 は一次統計で拾えない事象に限定する
 
-## view 作成前の brief 充足
+## outlook 作成前の brief 充足
 
-bootstrap view または通常の view 更新の前に、brief の鮮度を確認する:
+bootstrap outlook または通常の outlook 更新の前に、brief の鮮度を確認する:
 
 - 最新 brief が 5 営業日以上古い場合は、まず `world-daily` または `event` を追加する
-- 当月の `macro-monthly` が未作成でも、その後に view に効く一次統計が出ていれば `world-daily` に載せてから view を作る
-- `updated_from` は「存在する全 brief」ではなく、今回の view 判定に効いた brief を列挙する
+- 当月の `macro-monthly` が未作成でも、その後に outlook に効く一次統計が出ていれば `world-daily` に載せてから outlook を作る
+- `updated_from` は「存在する全 brief」ではなく、今回の outlook 判定に効いた brief を列挙する
 
 ## brief 作成前の欠損確認
 
@@ -85,8 +85,8 @@ bootstrap view または通常の view 更新の前に、brief の鮮度を確�
 
 ### 必須チェック
 
-1. `find brief/YYYY -type f -name '*.md' | sort` で対象年の brief 一覧を確認する
-2. `find brief/YYYY -type f -name '*world-weekly*.md' | sort` で週次 brief の連続性を確認する
+1. `find records/01-brief/YYYY -type f -name '*.md' | sort` で対象年の brief 一覧を確認する
+2. `find records/01-brief/YYYY -type f -name '*world-weekly*.md' | sort` で週次 brief の連続性を確認する
 3. 各 `world-weekly` の `対象期間` / `観測日` / `前週 brief` を確認し、週次の対象期間に抜けがないか見る
 4. 新規 `world-weekly` を作る場合、直前の週次対象期間の翌日から始まっているか確認する
 5. 欠損がある場合は、現在週を作る前に欠損週を backfill する
@@ -102,9 +102,9 @@ bootstrap view または通常の view 更新の前に、brief の鮮度を確�
 ### 確認コマンド例
 
 ```bash
-find brief/2026 -type f -name '*.md' | sort
-find brief/2026 -type f -name '*world-weekly*.md' | sort
-for f in $(find brief/2026 -type f -name '*world-weekly*.md' | sort); do
+find records/01-brief/2026 -type f -name '*.md' | sort
+find records/01-brief/2026 -type f -name '*world-weekly*.md' | sort
+for f in $(find records/01-brief/2026 -type f -name '*world-weekly*.md' | sort); do
   printf '\n== %s ==\n' "$f"
   rg -n '対象期間:|観測日:|前週 brief:' "$f"
 done
@@ -135,7 +135,7 @@ brief 作成における**データ欠損は基本的に許容しない**。`デ
 1. `macro-monthly` がその月の月次級データの **正本** になる
 2. 先行していた `world-daily` は削除しない。原始記録として保持し、archive 扱いにする
 3. 以後の `world-daily` / `world-weekly` では同じ数値を再掲せず、該当 `macro-monthly` へのリンクで参照する
-4. view 更新時は、通常は `macro-monthly` を canonical input とし、鮮度のために必要だった先行 `world-daily` は bootstrap / 緊急更新時の補助入力として扱う
+4. outlook 更新時は、通常は `macro-monthly` を canonical input とし、鮮度のために必要だった先行 `world-daily` は bootstrap / 緊急更新時の補助入力として扱う
 
 ## 事実記述の粒度
 

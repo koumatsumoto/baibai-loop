@@ -1,5 +1,5 @@
 ---
-trade_ref: trades/YYYY/MM/example.md
+trade_ref: records/05-trades/YYYY/MM/example.md
 classification: inconclusive
 verified_at: "YYYY-MM-DD"
 ---

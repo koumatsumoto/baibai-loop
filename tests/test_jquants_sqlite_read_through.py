@@ -62,7 +62,7 @@ def _add_raw_import(
         ") VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
             source,
-            f"data/raw/screening/jquants/{source}.json",
+            f"records/_data/raw/screening/jquants/{source}.json",
             "0" * 64,
             datetime.now(UTC).isoformat(),
             record_count,

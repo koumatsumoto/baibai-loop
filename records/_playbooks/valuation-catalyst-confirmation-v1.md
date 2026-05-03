@@ -10,7 +10,7 @@ updated_at: "2026-04-24T09:00:00+09:00"
 # Playbook: Valuation + Catalyst Confirmation v1 (P-B)
 
 **Type**: Supplementary（補助）  
-**成分**: `playbooks/` の active rule。4 成分アーキテクチャの `(d) research/` で参照。
+**成分**: `records/_playbooks/` の active rule。4 成分アーキテクチャの `(d) records/04-research/` で参照。
 
 ## 1. 概要
 
@@ -132,7 +132,7 @@ P-A と同じ。catalyst 欄の一次ソース URL 確認は **人間必須**。
 ## 11. 参考
 
 - [`valuation-mean-reversion-v1.md`](./valuation-mean-reversion-v1.md): P-A 本命 playbook
-- [`../docs/screening/principles.md`](../docs/screening/principles.md): スクリーニング原則
-- [`../docs/screening/mechanical-v1.md`](../docs/screening/mechanical-v1.md): 機械的ふるい閾値
-- [`../docs/screening/macro-gate-procedure.md`](../docs/screening/macro-gate-procedure.md): Macro gate 判定
-- [`../docs/components/research.md`](../docs/components/research.md): research 運用仕様
+- [`../docs/screening/principles.md`](/docs/screening/principles.md): スクリーニング原則
+- [`../docs/screening/mechanical-v1.md`](/docs/screening/mechanical-v1.md): 機械的ふるい閾値
+- [`../docs/screening/macro-gate-procedure.md`](/docs/screening/macro-gate-procedure.md): Macro gate 判定
+- [`../docs/components/research.md`](/docs/components/research.md): research 運用仕様

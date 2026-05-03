@@ -71,8 +71,8 @@ def _minimal_research_front_matter() -> dict[str, object]:
         "decision": "accepted",
         "market_cap_oku": 600,
         "sector_33": "情報・通信業",
-        "screened_ref": "screened/2026/04/2026-04-24.yaml",
-        "view_ref": "view/2026/04/view-2026-04-24-bootstrap.md",
+        "screened_ref": "records/03-screened/2026/04/2026-04-24.yaml",
+        "outlook_ref": "records/02-outlook/2026/04/outlook-2026-04-24-bootstrap.md",
         "brief_refs": [],
         "ai-draft": True,
         "published_at": "2026-04-25T22:00:00+09:00",
@@ -95,7 +95,7 @@ class ResearchValidationTests(unittest.TestCase):
     def test_minimal_valid_research_passes(self) -> None:
         path = self._write(_minimal_research_front_matter())
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         errors = [f for f in findings if f.severity == "error"]
@@ -106,7 +106,7 @@ class ResearchValidationTests(unittest.TestCase):
         del front["macro_gate"]
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         codes = {f.code for f in findings}
@@ -117,7 +117,7 @@ class ResearchValidationTests(unittest.TestCase):
         del front["decision"]
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         self.assertIn("research.missing-field", {f.code for f in findings})
@@ -127,7 +127,7 @@ class ResearchValidationTests(unittest.TestCase):
         front["decision"] = "maybe"
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         self.assertIn("research.invalid-decision", {f.code for f in findings})
@@ -137,7 +137,7 @@ class ResearchValidationTests(unittest.TestCase):
         front["macro_gate"] = "headwind"
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         self.assertIn("research.headwind-without-override", {f.code for f in findings})
@@ -148,7 +148,7 @@ class ResearchValidationTests(unittest.TestCase):
         front["macro_gate_override"] = "event-specific mispricing"
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         warning_codes = {f.code for f in findings if f.severity == "warning"}
@@ -161,7 +161,7 @@ class ResearchValidationTests(unittest.TestCase):
         del front["position_size_oku"]
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         self.assertIn("research.missing-field", {f.code for f in findings})
@@ -171,7 +171,7 @@ class ResearchValidationTests(unittest.TestCase):
         del front["market_cap_oku"]
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         self.assertIn("research.missing-field", {f.code for f in findings})
@@ -181,7 +181,7 @@ class ResearchValidationTests(unittest.TestCase):
         del front["sector_33"]
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         self.assertIn("research.missing-field", {f.code for f in findings})
@@ -191,7 +191,7 @@ class ResearchValidationTests(unittest.TestCase):
         front["market_cap_oku"] = 250
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         self.assertIn("research.low-cap-mean-reversion", {f.code for f in findings})
@@ -202,7 +202,7 @@ class ResearchValidationTests(unittest.TestCase):
         front["macro_gate_override"] = "catalyst quality offsets low-cap risk"
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         warning_codes = {f.code for f in findings if f.severity == "warning"}
@@ -216,7 +216,7 @@ class ResearchValidationTests(unittest.TestCase):
         front["playbook"] = "valuation-catalyst-confirmation-v1"
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         self.assertNotIn("research.low-cap-mean-reversion", {f.code for f in findings})
@@ -227,7 +227,7 @@ class ResearchValidationTests(unittest.TestCase):
         front["decision"] = "skipped"
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         self.assertNotIn("research.low-cap-mean-reversion", {f.code for f in findings})
@@ -237,7 +237,7 @@ class ResearchValidationTests(unittest.TestCase):
         front["market_cap_oku"] = 600
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         self.assertNotIn("research.low-cap-mean-reversion", {f.code for f in findings})
@@ -255,7 +255,7 @@ class ResearchValidationTests(unittest.TestCase):
         try:
             codes_by_cap = []
             for path in paths:
-                findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+                findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
                 codes_by_cap.append({f.code for f in findings})
         finally:
             for path in paths:
@@ -270,7 +270,7 @@ class ResearchValidationTests(unittest.TestCase):
         front["adv_participation_pct"] = 5.0
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         self.assertIn("research.adv-participation-cap", {f.code for f in findings})
@@ -280,7 +280,7 @@ class ResearchValidationTests(unittest.TestCase):
         front["adv_participation_pct"] = 4.9
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         self.assertNotIn("research.adv-participation-cap", {f.code for f in findings})
@@ -323,7 +323,7 @@ class ResearchValidationTests(unittest.TestCase):
         front["ticker"] = "abc"
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         codes = {f.code for f in findings}
@@ -334,7 +334,7 @@ class ResearchValidationTests(unittest.TestCase):
         front["playbook"] = "unknown-playbook"
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         codes = {f.code for f in findings}
@@ -345,7 +345,7 @@ class ResearchValidationTests(unittest.TestCase):
         front["macro_gate"] = "wrong"
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         codes = {f.code for f in findings}
@@ -353,31 +353,31 @@ class ResearchValidationTests(unittest.TestCase):
 
     def test_screened_ref_must_be_yaml(self) -> None:
         front = _minimal_research_front_matter()
-        front["screened_ref"] = "screened/2026/04/2026-04-24.md"
+        front["screened_ref"] = "records/03-screened/2026/04/2026-04-24.md"
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         codes = {f.code for f in findings}
         self.assertIn("research.screened-ref-not-yaml", codes)
 
-    def test_view_ref_must_be_markdown(self) -> None:
+    def test_outlook_ref_must_be_markdown(self) -> None:
         front = _minimal_research_front_matter()
-        front["view_ref"] = "view/2026/04/view.yaml"
+        front["outlook_ref"] = "records/02-outlook/2026/04/outlook.yaml"
         path = self._write(front)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         codes = {f.code for f in findings}
-        self.assertIn("research.view-ref-not-md", codes)
+        self.assertIn("research.outlook-ref-not-md", codes)
 
     def test_missing_required_section_is_flagged(self) -> None:
         body = "# Research\n\n## 1. Thesis\nonly thesis\n"
         path = self._write(_minimal_research_front_matter(), body=body)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         codes = {f.code for f in findings}
@@ -390,7 +390,7 @@ class ResearchValidationTests(unittest.TestCase):
             tmp.write("# Research\n\nno front matter\n")
             path = Path(tmp.name)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         self.assertEqual(len(findings), 1)
@@ -403,7 +403,7 @@ class ResearchValidationTests(unittest.TestCase):
             tmp.write("---\n- a\n- b\n---\n# body\n")
             path = Path(tmp.name)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         self.assertEqual(len(findings), 1)
@@ -437,7 +437,7 @@ class ResearchValidationTests(unittest.TestCase):
             tmp.write('---\nticker: "2767\n---\n# body\n')
             path = Path(tmp.name)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "playbooks")
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
         codes = {f.code for f in findings}
@@ -455,7 +455,7 @@ class ResearchValidationTests(unittest.TestCase):
         for path in files:
             findings = [
                 f
-                for f in validate_research_file(path, playbooks_root=ROOT / "playbooks")
+                for f in validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
                 if f.severity == "error"
             ]
             self.assertEqual(findings, [], f"research {path} produced error findings: {findings}")

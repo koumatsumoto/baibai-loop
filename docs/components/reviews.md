@@ -4,9 +4,9 @@ Baibai-Loop 4 成分アーキテクチャの下流 **reviews** 成分の運用�
 
 ## 1. 役割
 
-- `trades/` の完結（exit 済み）に対し、**決済後 +15 / +30 営業日レビュー** を作成
+- `records/05-trades/` の完結（exit 済み）に対し、**決済後 +15 / +30 営業日レビュー** を作成
 - **月次 retro** で成功/失敗分類、skipped trade log、playbook 改訂判断
-- retro からの feedback を playbook / screening / view 運用に反映
+- retro からの feedback を playbook / screening / outlook 運用に反映
 
 ## 2. 種類
 
@@ -25,8 +25,8 @@ Baibai-Loop 4 成分アーキテクチャの下流 **reviews** 成分の運用�
 ## 3. Path と命名
 
 ```
-reviews/YYYY/MM/YYYY-MM-DD-<ticker>.md        # 個別 review（exit 日付）
-reviews/YYYY/retro-YYYYMM.md                  # 月次 retro
+records/06-reviews/YYYY/MM/YYYY-MM-DD-<ticker>.md        # 個別 review（exit 日付）
+records/06-reviews/YYYY/retro-YYYYMM.md                  # 月次 retro
 ```
 
 ## 4. 個別 review の Front matter
@@ -34,8 +34,8 @@ reviews/YYYY/retro-YYYYMM.md                  # 月次 retro
 ```yaml
 ---
 ticker: "7203"
-trade_ref: trades/YYYY/MM/YYYY-MM-DD-<ticker>.md  # 必須
-research_ref: research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md  # 必須
+trade_ref: records/05-trades/YYYY/MM/YYYY-MM-DD-<ticker>.md  # 必須
+research_ref: records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md  # 必須
 playbook: valuation-mean-reversion-v1 | valuation-catalyst-confirmation-v1
 entry_date: "YYYY-MM-DD"
 exit_date: "YYYY-MM-DD"
@@ -115,7 +115,7 @@ price_missing_counts:
 
 ## 8. Skipped trade log
 
-- `research/` で見送り / 保留判定した銘柄を、月次 retro で追跡
+- `records/04-research/` で見送り / 保留判定した銘柄を、月次 retro で追跡
 - **追跡タイミング**: candidate 作成日 +15 / +30 営業日時点で、仮想 entry 価格からの騰落を 1 行追記
 - **追跡方法**: 月次 retro のタイミングでまとめて実施。日次作業に乗せない
 - **マクロゲート headwind で見送った候補も同様に追跡**（gate 判定の精度測定）
@@ -135,7 +135,7 @@ price_missing_counts:
 ### 9.2 受け渡し条件
 
 - 次周回の運用変更点が **3 行以内で要約できる** こと
-- 変更点は `playbook` / `screening 閾値` / `view` 運用 / `research` 選定基準 のどこに反映するかも明示
+- 変更点は `playbook` / `screening 閾値` / `outlook` 運用 / `research` 選定基準 のどこに反映するかも明示
 
 ## 10. AI の役割境界
 

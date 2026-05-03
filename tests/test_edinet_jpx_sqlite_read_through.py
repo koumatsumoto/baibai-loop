@@ -36,7 +36,7 @@ def _add_raw_import(
         ") VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
             source,
-            f"data/raw/screening/{source}/{date_iso}.json",
+            f"records/_data/raw/screening/{source}/{date_iso}.json",
             "0" * 64,
             datetime.now(UTC).isoformat(),
             1,
