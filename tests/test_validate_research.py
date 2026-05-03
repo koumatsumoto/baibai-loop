@@ -311,6 +311,38 @@ class ResearchValidationTests(unittest.TestCase):
             path.unlink()
         self.assertIn("research.adv-participation-inconsistent", {f.code for f in findings})
 
+    def test_adv_participation_without_avg_turnover_is_flagged(self) -> None:
+        # avg_turnover_oku が無いと整合チェックが skip されて 100 倍ズレを catch できない
+        front = _minimal_research_front_matter()
+        front["adv_participation_pct"] = 0.585
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.missing-avg-turnover-oku", {f.code for f in findings})
+
+    def test_skipped_decision_allows_zero_position_size(self) -> None:
+        front = _minimal_research_front_matter()
+        front["decision"] = "skipped"
+        front["position_size_oku"] = 0
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+        finally:
+            path.unlink()
+        self.assertNotIn("research.invalid-position-size", {f.code for f in findings})
+
+    def test_accepted_decision_with_zero_position_size_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        front["position_size_oku"] = 0
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.invalid-position-size", {f.code for f in findings})
+
     def test_sector_concentration_warns_for_three_accepted_packets(self) -> None:
         base = _minimal_research_front_matter()
         paths_with_front = [

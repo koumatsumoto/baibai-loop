@@ -46,7 +46,12 @@
 7. **OPEC JMMC Press Release (2026-04-05)**
    - URL: https://www.opec.org/pr-detail/1756597-5-april-2026.html
    - Tier: 1 (OPEC)
-   - Key fact: 8 ヶ国の自主削減 1.65mb/d のうち 206kb/d 分の調整を 2026 年 5 月から実施。次回会合 2026-05-03
+   - Key fact: 8 ヶ国の自主削減 1.65mb/d のうち 206kb/d 分の調整を 2026 年 5 月から実施
+
+7b. **OPEC 8 Producing Countries Statement (2026-05-03)**
+   - URL: https://www.opec.org/pr-detail/1779602-3-may-2026.html
+   - Tier: 1 (OPEC)
+   - Key fact: 7 ヶ国 (サウジ / ロシア / イラク / クウェート / カザフ / アルジェリア / オマーン) が 2026-06 に 188kb/d adjustment を実施。flexibility to increase / pause / reverse phase-out、2024-01 以降の overproduced volumes の full compensation、JMMC monthly monitoring。次回会合 2026-06-07
 
 8. **EIA Short-Term Energy Outlook April 2026**
    - URL: https://www.eia.gov/outlooks/steo/pdf/steo_full.pdf
@@ -211,10 +216,10 @@
     - Key fact: 2026-03 輸出 (USD ベース) +2.5% YoY、エコノミスト予想 +8.6% を大幅下振れ。対米輸出 -26% 超。前月 (2 月) は +40% 近かった
     - 含意: 122 条関税効果が顕在化、対米輸出失速
 
-37. **NBS - 中国不動産投資 (Q1 2026)**
-    - URL: https://www.stats.gov.cn/
-    - Tier: 1 (NBS)
-    - Key fact: 2026 Q1 累計 不動産投資 -11.2% YoY、住宅販売 -18.5% YoY。2026 GDP 成長率 4.5-5% 目標の下限近辺見通し
+37. **NBS - Real Estate Investment and Sales Q1 2026 (公式 individual release)**
+    - URL: https://www.stats.gov.cn/english/PressRelease/202604/t20260417_1963352.html
+    - Tier: 1 (NBS 公式 release、2026-04-17 公表)
+    - Key fact: 2026 Q1 累計 不動産投資 1,772 billion yuan (-11.2% YoY)、住宅投資 1,353.1 billion yuan (-11.0%)、商業ビル投資 -17.1%。商品房販売面積 195.25 million sq.m (-10.4%)、住宅販売面積 -13.1%、住宅販売額 1,492.1 billion yuan (-18.5%)、新規着工 -20.3%、完成 -25.0%。資金源 domestic loans -23.7%、自己資金 -5.3%、deposits -20.1%、個人住宅 mortgage -34.6%
 
 ## 取得不能だった軸 (今後の改善対象)
 

@@ -40,9 +40,14 @@ sources:
     url: https://www.iea.org/reports/oil-market-report-april-2026
     accessed_at: "2026-05-04"
     status: ok
-  - id: opec-jmmc
+  - id: opec-jmmc-april
     name: OPEC Joint Ministerial Monitoring Committee Press Release (2026-04-05)
     url: https://www.opec.org/pr-detail/1756597-5-april-2026.html
+    accessed_at: "2026-05-04"
+    status: ok
+  - id: opec-may-statement
+    name: OPEC 8 Producing Countries Statement (2026-05-03)
+    url: https://www.opec.org/pr-detail/1779602-3-may-2026.html
     accessed_at: "2026-05-04"
     status: ok
   - id: nbs-pmi
@@ -51,13 +56,14 @@ sources:
     accessed_at: "2026-05-04"
     status: ok
   - id: china-customs
-    name: 中国海関総署 (2026 年 3 月輸出統計)
+    name: 中国海関総署
     url: http://www.customs.gov.cn/
     accessed_at: "2026-05-04"
-    status: ok
-  - id: nbs-realestate
-    name: 中国国家統計局 (2026 年 Q1 不動産投資)
-    url: https://www.stats.gov.cn/
+    status: failed
+    note: "海関総署 website のトップページのみ取得、3 月輸出統計の個別 release URL は本作業環境で解決できず。Bloomberg/Reuters 経由の二次確認のみ"
+  - id: nbs-realestate-q1
+    name: 中国国家統計局 Real Estate Investment and Sales Q1 2026
+    url: https://www.stats.gov.cn/english/PressRelease/202604/t20260417_1963352.html
     accessed_at: "2026-05-04"
     status: ok
   - id: boj-outlook-april
@@ -130,7 +136,17 @@ sources:
     url: https://www.balticexchange.com/en/data-services/market-information0/dry-services.html
     accessed_at: "2026-05-04"
     status: ok
-notes: "本 brief は 2026-05-04 outlook 作成時の deep research で確認された fact を、当該 outlook が source_refs として参照できる形に集約した world-daily。米コア PCE 3 月分 (BEA 4/30 公表) は別途 records/01-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml に追記済み。本 daily は 4/27-5/03 週次 brief に対する補完であり、月次級データを正本とする scope は逸脱しない。"
+  - id: bls-empsit-schedule
+    name: BLS Employment Situation Release Schedule
+    url: https://www.bls.gov/schedule/news_release/empsit.htm
+    accessed_at: "2026-05-04"
+    status: ok
+  - id: bls-cpi-schedule
+    name: BLS CPI Release Schedule
+    url: https://www.bls.gov/schedule/news_release/cpi.htm
+    accessed_at: "2026-05-04"
+    status: ok
+notes: "本 brief は 2026-05-04 outlook 作成時の deep research で確認された fact を、当該 outlook が source_refs として参照できる形に集約した world-daily。米コア PCE 3 月分 (BEA 4/30 公表) は別途 records/01-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml に追記済み。本 daily は 4/27-5/03 週次 brief に対する補完であり、月次級データを正本とする scope は逸脱しない。記述は事実層 (数値・公表日・機械的前期比) に限定し、解釈・分析・因果推論は outlook 側に置く。"
 layers:
   world:
     market_indicators:
@@ -138,40 +154,42 @@ layers:
         value: "約 80bp"
         as_of: "2026-04-01"
         source_ids: [fred-ig-oas]
-        wow_comment: "25 年来歴史的タイト水準。BBB 約 100bp / AA 約 51bp / AAA 約 40bp"
+        wow_comment: "BBB 約 100bp / AA 約 51bp / AAA 約 40bp"
       - name: 米 HY 社債 OAS (BAMLH0A0HYM2)
         value: "約 283bp"
         as_of: "2026-04-01"
         source_ids: [fred-hy-oas]
-        wow_comment: "歴史的タイト、Q1 末も 285bp 近辺"
+        wow_comment: "Q1 末は 285bp"
       - name: Baltic Dry Index
         value: "2,670"
         as_of: "2026-04-29"
         source_ids: [baltic-dry]
-        wow_comment: "4/24 時点 2,665、Capesize 主導で 4 ヶ月ぶり高水準"
+        wow_comment: "4/24 時点 2,665"
     monthly_statistics:
       - name: 米 コア PCE デフレーター YoY
         value: "+3.2%"
         previous: "+3.0% (2026-02)"
         release_date: "2026-04-30"
         source_ids: [bea-pce]
-        note: "正本は records/01-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml で追記済み。本 daily では参照集約用に再掲"
+        note: "正本は records/01-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml で追記済み。本 daily では参照集約用に再掲。次回 (2026-04 分) 公表 2026-05-28 8:30 EDT"
       - name: 米 一戸建て住宅着工 SAAR
         value: "94 万戸"
         previous: "前月比 -14.2% MoM"
         release_date: "2026-04-17"
         source_ids: [census-residential]
-        note: "コロナ初期以来の大幅減、許可件数も 4 ヶ月ぶり低水準"
     events:
       - date: "2026-02-24 12:01 EST 〜 2026-07-24"
-        text: "米 White House Proclamation 11012 (Federal Register 2026-02-25 公示) により Section 122 of the Trade Act of 1974 に基づく 10% ad valorem temporary import surcharge を 150 日間適用。USMCA goods・critical minerals・energy resources・agricultural・pharmaceuticals・vehicles・aerospace 等は除外 (Annex I/II)。trade-weighted の実効税率を「13% 程度」とする外部分析あり"
+        text: "米 White House Proclamation 11012 (Federal Register 2026-02-25 公示) により Section 122 of the Trade Act of 1974 に基づく 10% ad valorem temporary import surcharge を 150 日間適用。USMCA goods・critical minerals・energy resources・agricultural・pharmaceuticals・vehicles・aerospace 等は除外 (Annex I/II)"
         source_ids: [federal-register-122]
       - date: "2026-02-28 以降"
         text: "ホルムズ海峡が実質閉鎖。EIA Press Release によると中東 6 ヶ国 (イラク / サウジ / クウェート / UAE / カタール / バーレーン) が 2026-03 7.5mb/d、2026-04 9.1mb/d の生産シャットイン中。世界石油在庫は 3 月 -85m bbl"
         source_ids: [eia-press-hormuz]
       - date: "2026-04-05"
-        text: "OPEC JMMC が 8 ヶ国の自主削減 1.65mb/d のうち 206kb/d 分の調整を 2026-05 から実施 (段階的増産)。次回会合 2026-05-03"
-        source_ids: [opec-jmmc]
+        text: "OPEC JMMC が 8 ヶ国の自主削減 1.65mb/d のうち 206kb/d 分の調整を 2026-05 から実施 (段階的増産)"
+        source_ids: [opec-jmmc-april]
+      - date: "2026-05-03"
+        text: "OPEC 8 Producing Countries Statement: サウジ・ロシア・イラク・クウェート・カザフスタン・アルジェリア・オマーンの 7 ヶ国が 2026-06 に 188kb/d の adjustment を実施。flexibility to increase / pause / reverse phase-out of voluntary adjustments、2024-01 以降の overproduced volumes の full compensation、JMMC monthly monitoring を継続。次回会合 2026-06-07"
+        source_ids: [opec-may-statement]
       - date: "2026-04 (STEO 公表)"
         text: "EIA STEO: Brent 2026 年通年 $96/b (前月 $79 から +22% 上方修正)、Q2 ピーク $115/b、Q4 $88/b。米原油生産 13.5mb/d (2026)"
         source_ids: [eia-steo]
@@ -191,14 +209,14 @@ layers:
     monthly_statistics:
       - name: 連合 2026 春闘 賃上げ率（第 3 回集計）
         value: "+5.09%"
-        previous: "+5.42% (2025 第 3 回時点比 -0.33pt)"
+        previous: "+5.42% (2025 第 3 回集計)"
         release_date: "2026-04-03"
         source_ids: [rengo-shunto]
-        note: "中小組合 5.00%、有期・短時間労働者 +6.89%、3 年連続 5% 超"
+        note: "中小組合 5.00%、有期・短時間労働者 +6.89%"
       - name: 日銀 短観 大企業製造業 業況判断 DI
         value: "+17"
         previous: "+16 (2025-12 調査)"
-        release_date: "2026-04 (3 月調査)"
+        release_date: "2026-04-01"
         source_ids: [boj-tankan]
         note: "大企業非製造業 +36 (横ばい)、2025 年度設備投資計画 全規模全産業 +7.9%、大企業製造業 +12.3%、2026 年度初回計画 +1.3%"
       - name: 内閣府 景気ウォッチャー 現状判断 DI (季調)
@@ -206,66 +224,72 @@ layers:
         previous: "48.9 (前月)"
         release_date: "2026-04-08"
         source_ids: [cabinet-watcher]
-        note: "前月比 -6.7pt 急冷、先行きも大幅悪化、中東情勢緊迫を反映"
+        note: "前月比 -6.7pt"
       - name: 東京都区部 CPI YoY (生鮮除き、4 月中旬速報)
         value: "+1.5%"
         previous: "+1.4% (3 月)"
-        release_date: "2026-04 中旬"
+        release_date: "2026-04-25"
         source_ids: [stat-tokyo-cpi]
-        note: "3 ヶ月連続 2% 割れ、諸雑費 -7.1% YoY 押し下げ、全国 CPI の先行指標として日銀利上げハードルを上げる"
+        note: "諸雑費 -7.1% YoY"
     events:
       - date: "2026-04-27 〜 28"
-        text: "日銀 金融政策決定会合 6-3 でホールド (6 名据置 / 3 名は据置に反対し利上げを主張)、無担保コール 0.75% 維持。展望レポートで 2026 年度コア CPI 見通しを +2.8% に上方修正 (1 月 +1.9% から +0.9pt)、2027 年度 +2% 台前半、2028 年度 +2% 程度。経済下振れ・物価上振れリスクを強調"
+        text: "日銀 金融政策決定会合 6-3 でホールド (6 名据置 / 3 名は据置に反対し利上げを主張)、無担保コール 0.75% 維持。展望レポートで 2026 年度コア CPI 見通しを +2.8% に上方修正 (1 月 +1.9% から +0.9pt)、2027 年度 +2% 台前半、2028 年度 +2% 程度"
         source_ids: [boj-outlook-april, boj-press-2604]
   japan_equity:
     monthly_statistics:
       - name: TSMC 1Q26 売上
         value: "359 億 USD"
         previous: "—"
-        release_date: "2026-04 (1Q26 release)"
+        release_date: "2026-04-17"
         source_ids: [tsmc-q1-release]
-        note: "グロスマージン 66.2%、オペマージン 58.1%。「Capex $52-56B レンジ」「先端プロセス 70-80% 配分」「2026 年売上 +30%」は Q4 transcript 由来で本 release では未確認、要 cross-check"
+        note: "グロスマージン 66.2%、オペマージン 58.1%。「Capex $52-56B レンジ」「先端プロセス 70-80% 配分」「2026 年売上 +30%」は Q1 release では確認できず別 source (Q4 transcript / IR archive) の参考値。outlook 側で使う場合は cross-check 後の参考値扱い"
       - name: NVIDIA FY2026 通年売上
         value: "2,159 億 USD"
         previous: "1,308 億 USD (FY25)"
-        release_date: "2026-02-25 (Q4 FY26 release)"
+        release_date: "2026-02-25"
         source_ids: [nvidia-fy26]
-        note: "+65% YoY、データセンター 1,973 億 USD、Q1 FY27 ガイ 780 億 USD (±2%)。「Sovereign AI 300 億 USD」「Q3-Q4 commitment 倍増」は press release では確認できず参考値扱い"
+        note: "+65% YoY、データセンター 1,973 億 USD、Q1 FY27 ガイ 780 億 USD (±2%)。「Sovereign AI 300 億 USD」「Q3-Q4 commitment 倍増」は本 press release では未確認、要 transcript / 10-K cross-check"
     events:
-      - date: "2026-04 (中国 NBS 公表)"
-        text: "中国 4 月製造業 PMI 50.3 (前月比 -0.1pt)、生産指数 51.5、新規受注 50.6、大企業 50.2、中小 50.5/50.1。総合 PMI 50.1 (-0.4pt)、2 ヶ月連続拡張圏"
+      - date: "2026-04-30"
+        text: "中国 4 月製造業 PMI 50.3 (前月比 -0.1pt)、生産指数 51.5、新規受注 50.6、大企業 50.2、中小 50.5/50.1。総合 PMI 50.1 (-0.4pt)"
         source_ids: [nbs-pmi]
-      - date: "2026-03 (中国海関総署)"
-        text: "中国 3 月輸出 (USD ベース) +2.5% YoY (エコノミスト予想 +8.6% を大幅下振れ)、対米輸出 -26% 超、122 条効果が顕在化。前月 (2 月) は +40% 近かった"
+      - date: "2026-04 (海関総署)"
+        text: "中国 3 月輸出 (USD ベース) +2.5% YoY、対米輸出 -26% 超。海関総署 website トップページのみ取得可、個別 release URL は本作業環境で解決できず Bloomberg/Reuters 経由の二次確認のみ"
         source_ids: [china-customs]
-      - date: "2026-Q1 (中国 NBS)"
-        text: "中国 Q1 不動産投資 -11.2% YoY、住宅販売 -18.5% YoY、不動産デフレは底入れ未達"
-        source_ids: [nbs-realestate]
+      - date: "2026-04-17"
+        text: "中国 Q1 不動産投資 1,772 billion yuan (-11.2% YoY)、住宅投資 1,353.1 billion yuan (-11.0%)、商業ビル投資 -17.1%。商品房販売面積 195.25 million sq.m (-10.4%)、住宅販売面積 -13.1%、住宅販売額 1,492.1 billion yuan (-18.5%)、新規着工 -20.3%、完成 -25.0%。資金源は domestic loans -23.7%、自己資金 -5.3%、deposits -20.1%、個人住宅 mortgage -34.6%"
+        source_ids: [nbs-realestate-q1]
 fact_memos:
-  - "米コア PCE 3 月 +3.2% YoY (BEA 4/30 公表)。Fed 目標 +2% を大幅上回り基調インフレ粘着 → FOMC タカ派ホールドの正当化材料"
-  - "米一戸建て住宅着工 -14.2% MoM (3 月) はコロナ初期以来の大幅減 → 需要側冷却の early signal"
-  - "ホルムズ海峡 2026-02-28 以降閉鎖継続、中東 6 ヶ国 2026-04 9.1mb/d シャットイン → 油価高値圏粘着の構造要因"
-  - "EIA STEO Brent 2026 年通年 $96 / Q2 ピーク $115 / Q4 $88 想定、IEA 需要 -80kb/d 下方修正 (Q2 -1.5mb/d はコロナ以来) → 油価高値圏 + 需要破壊の dual"
-  - "OPEC+ JMMC 5 月から 206kb/d 増産路線 (8 ヶ国の自主削減 1.65mb/d のうち)"
-  - "Section 122 関税 (Proclamation 11012) は Federal Register 本文上 10% ad valorem (2026-02-24 〜 7-24)、外部分析の trade-weighted estimate で 13%"
-  - "日銀 4/27-28 6-3 hold (6 名据置 / 3 名は据置に反対し利上げを主張)、展望レポートで 2026 年度コア CPI +2.8% に +0.9pt 上方修正"
-  - "ECB 4/30 据置、HICP +3.0%、upside risks to inflation 強調。BOE 4 月 8-1 据置、Pill が 4.00% 利上げ票"
-  - "米 IG OAS 80bp / HY OAS 283bp は historically タイト = 中東ショック未織込み、調整余地大"
+  - "米コア PCE 3 月 +3.2% YoY (BEA 4/30 公表、PCE +3.5%、PCE MoM +0.9%、個人所得 +0.6% MoM、コア PCE MoM +0.3%、PCE 価格指数 MoM +0.7%)"
+  - "米一戸建て住宅着工 -14.2% MoM (3 月、SAAR 94 万戸、許可件数も 4 ヶ月ぶり低水準)"
+  - "ホルムズ海峡 2026-02-28 以降閉鎖、中東 6 ヶ国 2026-03 7.5mb/d / 2026-04 9.1mb/d シャットイン (EIA)"
+  - "EIA STEO Brent 2026 年通年 $96 / Q2 ピーク $115 / Q4 $88、米原油生産 13.5mb/d"
+  - "IEA OMR 2026 年通年需要 -80kb/d (前回 +730kb/d から下方修正)、Q2 -1.5mb/d"
+  - "OPEC+ JMMC 4/5: 8 ヶ国 206kb/d 増産路線 (5 月から)"
+  - "OPEC+ 5/3: 7 ヶ国 (サウジ / ロシア / イラク / クウェート / カザフ / アルジェリア / オマーン) が 2026-06 に 188kb/d adjustment、次回 2026-06-07、flexibility / overproduction full compensation を確認"
+  - "Section 122 関税 (Proclamation 11012) は 10% ad valorem (2026-02-24 〜 7-24)。trade-weighted 実効税率 13% は外部 estimate"
+  - "日銀 4/27-28 6-3 hold (6 名据置 / 3 名は据置に反対し利上げを主張)、展望レポート 2026 年度コア CPI +2.8% (+0.9pt 上方修正)"
+  - "ECB 4/30 据置、HICP +3.0%。BOE 4 月 8-1 据置、Pill が 4.00% 利上げ票"
+  - "米 IG OAS 80bp / HY OAS 283bp (4 月)。VIX は別途 5/3 weekly brief で 16.99 を記録"
   - "CBO 米財政赤字 FY26 1.9 兆 (5.8% GDP)、利払い 1 兆 (3.3% GDP)、2036 年公的債務 GDP 比 120%"
-  - "連合春闘 5.09%、3 年連続 5% 超、賃金 + 物価の正の循環は 3 年目"
-  - "日銀短観 大企業製造業 +17、設備投資 +7.9% で製造業マインドは底堅い"
-  - "景気ウォッチャー 現状判断 DI 42.2 (-6.7pt 急冷)、製造業との温度差拡大"
-  - "東京都区部 4 月 CPI +1.5% (3 ヶ月連続 2% 割れ) = 日銀利上げハードル上昇要因"
-  - "TSMC 1Q26 売上 359 億 USD / GM 66.2%、NVIDIA FY26 通年 2,159 億 USD (+65%) / Q1 FY27 ガイ 780 億 USD で AI capex 構造需要は持続"
-  - "中国 4 月 PMI 50.3 (-0.1pt) ぎりぎり拡張、3 月輸出 +2.5% (対米 -26%) で 122 条効果顕在化、Q1 不動産投資 -11.2% で底入れ未達"
-  - "BDI 4/29 2,670 (Capesize 主導 4 ヶ月ぶり高水準) = 鉄鉱石・石炭海上輸送需要堅調"
+  - "連合春闘第 3 回 5.09%、中小 5.00%、有期・短時間 +6.89%"
+  - "日銀短観 大企業製造業 +17、設備投資 +7.9%"
+  - "景気ウォッチャー 現状判断 DI 42.2 (-6.7pt)"
+  - "東京都区部 4 月 CPI +1.5%、諸雑費 -7.1% YoY"
+  - "TSMC 1Q26 売上 359 億 USD / GM 66.2% (Q1 release で確認、Capex / 配分 / 通年成長率は別 source 参考値)"
+  - "NVIDIA FY26 通年 2,159 億 USD (+65%)、Q1 FY27 ガイ 780 億 USD (Sovereign AI / commitment は press release 未確認)"
+  - "中国 4 月 PMI 50.3 (-0.1pt)、3 月輸出 +2.5% (対米 -26%、海関総署 個別 URL 未取得)、Q1 不動産投資 -11.2% / 住宅販売額 -18.5% (NBS 4/17 release)"
+  - "BDI 4/29 2,670 (Capesize 主導 4 ヶ月ぶり高水準)"
 next_events:
   - date: "2026-05-08"
     text: "米 4 月雇用統計 (BLS、8:30 ET)"
-    source_ids: [bea-pce]
+    source_ids: [bls-empsit-schedule]
   - date: "2026-05-12"
     text: "米 4 月 CPI (BLS、8:30 ET) / 日銀 4/27-28 会合「主な意見」(8:50 JST)"
-    source_ids: [boj-press-2604]
-  - date: "2026-05-30 前後"
-    text: "米 4 月コア PCE (BEA)"
+    source_ids: [bls-cpi-schedule, boj-press-2604]
+  - date: "2026-05-28"
+    text: "米 4 月 Personal Income and Outlays (BEA、8:30 EDT)、コア PCE 含む"
     source_ids: [bea-pce]
+  - date: "2026-06-07"
+    text: "OPEC+ 8 ヶ国会合 (次回)"
+    source_ids: [opec-may-statement]

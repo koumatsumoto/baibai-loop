@@ -11,8 +11,9 @@ ai-draft: true
 published_at: "2026-05-04T19:00:00+09:00"
 tradable_at: "2026-05-15T09:00:00+09:00"
 macro_gate: tailwind
-position_size_oku: 0.005
-adv_participation_pct: 0.00585
+position_size_oku: 0
+hypothetical_position_size_oku: 0.005
+adv_participation_pct: 0
 avg_turnover_oku: 85.4
 market_cap_oku: 693
 sector_33: "電気機器"
@@ -139,7 +140,9 @@ skipped のため定義しない。
 
 - **時価総額**: 693 億円
 - **時価総額帯**: 500-1,000 億円帯 (max 1.0%)
-- **adv_participation 計算 (修正)**: position_size_oku 0.005 ÷ avg_turnover_oku 85.4 × 100 = **0.00585%** (流動性は十分余裕。前回記載の `0.585` は計算ミスで 100 倍ズレ、修正)
+- **front matter `position_size_oku`**: `0` (skipped のため実建玉なし)。ledger sync は決済 / 約定計算で 0 を扱える設計に従う
+- **front matter `hypothetical_position_size_oku`**: `0.005` (skipped から将来 accepted に格上げる場合の参考値、本 packet では実約定の根拠ではない)
+- **adv_participation 整合 (参考)**: hypothetical 0.005 ÷ avg_turnover_oku 85.4 × 100 = **0.00585%** (前 commit の `0.585` は 100 倍ズレ計算ミスを修正)
 - **採用 position**: 0 (skipped のため建玉せず)
 - **採用判定**: **見送り (skipped)**
 - **判定理由**:

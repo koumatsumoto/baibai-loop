@@ -328,17 +328,32 @@ def _validate_front_matter(
                     severity="error",
                     target=path,
                     code="research.invalid-position-size",
-                    message="position_size_oku must be a positive number",
+                    message="position_size_oku must be a non-negative number",
                     location="position_size_oku",
                 )
             )
-    elif position_size <= 0:
+    elif position_size < 0:
         findings.append(
             ValidationFinding(
                 severity="error",
                 target=path,
                 code="research.invalid-position-size",
-                message="position_size_oku must be greater than 0",
+                message="position_size_oku must be non-negative",
+                location="position_size_oku",
+            )
+        )
+    elif position_size == 0 and decision != "skipped":
+        # accepted / pending は実 position を伴うため 0 は不可。skipped のみ 0 を許容し、
+        # ヒューリスティック値は hypothetical_position_size_oku に分離する設計を許す。
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.invalid-position-size",
+                message=(
+                    "position_size_oku must be > 0 for accepted/pending decision; "
+                    "use 0 only with decision=skipped"
+                ),
                 location="position_size_oku",
             )
         )
@@ -424,6 +439,9 @@ def _validate_front_matter(
     top_level_adv = front_matter.get("adv_participation_pct")
     if isinstance(top_level_adv, (int, float)) and not isinstance(top_level_adv, bool):
         _append_adv_participation_finding(path, top_level_adv, findings, "adv_participation_pct")
+        _append_adv_participation_avg_turnover_required_finding(
+            path, front_matter, findings, "adv_participation_pct"
+        )
         _append_adv_participation_consistency_finding(
             path, front_matter, top_level_adv, findings, "adv_participation_pct"
         )
@@ -445,6 +463,12 @@ def _validate_front_matter(
                 adv_participation,
                 findings,
                 "valuation.adv_participation_pct",
+            )
+            _append_adv_participation_avg_turnover_required_finding(
+                path, front_matter, findings, "valuation.adv_participation_pct"
+            )
+            _append_adv_participation_consistency_finding(
+                path, front_matter, adv_participation, findings, "valuation.adv_participation_pct"
             )
         elif "adv_participation_pct" in valuation:
             findings.append(
@@ -497,6 +521,35 @@ def _append_adv_participation_finding(
                 location=location,
             )
         )
+
+
+def _append_adv_participation_avg_turnover_required_finding(
+    path: Path,
+    front_matter: dict[str, object],
+    findings: list[ValidationFinding],
+    location: str,
+) -> None:
+    """adv_participation_pct があるなら avg_turnover_oku の併記を必須にする。
+
+    avg_turnover_oku が無いと整合チェック (position_size / avg_turnover * 100) が
+    skip され、100 倍ズレ等の桁誤りを catch できない。required field 化することで
+    整合チェックを必ず走らせる。
+    """
+    avg_turnover = front_matter.get("avg_turnover_oku")
+    if isinstance(avg_turnover, (int, float)) and not isinstance(avg_turnover, bool):
+        return
+    findings.append(
+        ValidationFinding(
+            severity="error",
+            target=path,
+            code="research.missing-avg-turnover-oku",
+            message=(
+                "adv_participation_pct requires avg_turnover_oku in front matter for "
+                "consistency check (prevents 100x scaling errors)"
+            ),
+            location=location,
+        )
+    )
 
 
 def _append_adv_participation_consistency_finding(
