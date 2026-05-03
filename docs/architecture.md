@@ -198,7 +198,7 @@ published_at: "ISO 8601"
 horizon: "1-6m"
 updated_from:
   - records/01-brief/YYYY/MM/...yaml
-summary: <1 段落の要約>
+summary: <PART A-E (構造分析 / 4 シナリオ / リスク 10+ / 投資方向性 / 次回 trigger) を含む multi-paragraph long-form。詳細は components/outlook.md §9 参照>
 sectors:                        # 東証 33 業種を全件必須
   "水産・農林業":
     status: tailwind | neutral | headwind | null

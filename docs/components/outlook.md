@@ -56,7 +56,7 @@ published_at: "ISO 8601"
 horizon: "1-6m"                     # 想定先読み期間
 updated_from:                       # この outlook を作る元になった brief YAML
   - records/01-brief/YYYY/MM/...yaml
-summary: <1 段落の要約>
+summary: <PART A-E (構造分析 / 4 シナリオ / リスク 10+ / 投資方向性 / 次回 trigger) を含む multi-paragraph long-form。詳細は §9.2 参照>
 sectors:                            # 東証 33 業種を全件必須
   "水産・農林業":
     status: tailwind | neutral | headwind | null
@@ -108,7 +108,7 @@ outlook YAML の構造、必須キー、`sectors` の 33 業種完全性、`regi
 
 - outlook は **分析層**（philosophy 柱 1）。解釈を書いてよい
 - ただし、根拠となる brief への参照を必ず付ける（`source_refs` / `updated_from`）
-- `summary` は 1 段落で現在のマクロ見解を要約
+- `summary` は PART A-E (§9.2) を含む long-form の multi-paragraph で現在のマクロ見解を構造的に記述する。1 段落の要約では深さが足りず investor behaviour を支配できないため不可
 - 各 sector / region の `rationale` は判定根拠を 1〜2 文で記述する
 - `changes` には前回 outlook からの判定変更を `target` / `from_status` / `to_status` / `rationale` で構造化する
 - `next_triggers` は次に outlook を更新すべきイベントを列挙

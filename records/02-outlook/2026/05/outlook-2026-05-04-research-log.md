@@ -16,8 +16,8 @@
 2. **U.S. Census Bureau - Advance Monthly Retail Trade Survey (2026-03)**
    - URL: https://www.census.gov/retail/marts/www/marts_current.pdf
    - Tier: 1 (米商務省 Census)
-   - Key fact: 2026-03 小売売上高 7,521 億 USD、+1.7% MoM、+4.0% YoY。Nonstore +10.1% YoY。Q1 累計 +3.7% YoY
-   - 含意: 額面強いが、ガソリン +15.5% MoM の影響を相当含み、実質消費の強さは見かけ倒し
+   - Key fact: 2026-03 小売売上高 7,521 億 USD、+1.7% MoM、+4.0% YoY。Nonstore +10.1% YoY。Q1 累計 +3.7% YoY。ガソリン部門は +15.5% MoM、ガソリン除き retail trade も +0.6% MoM
+   - 含意: 額面強い。ガソリンが headline を押し上げているが、ガソリン除きでも +0.6% MoM で消費は底堅く、実質評価は real PCE / control group の確認待ち
 
 3. **BLS Schedule (米雇用 4 月分)**
    - URL: https://www.bls.gov/schedule/news_release/empsit.htm
@@ -35,10 +35,11 @@
    - Key fact: 2026-03 一戸建て住宅着工 SAAR 94 万戸、-14.2% MoM (コロナ初期以来の大幅減)、許可も 4 ヶ月ぶり低水準
    - 含意: 高金利 + 中東リスクで建設サイクルが折れる兆候、Fed 利下げ遅れの impact
 
-6. **USTR - 通商法 122 条関税運用**
-   - URL: https://www.jetro.go.jp/world/n_america/us/us-china/timeline_us.html (USTR 公式情報を JETRO が時系列整理)
-   - Tier: 1 準拠
-   - Key fact: IEEPA 関税の代替として 1974 年通商法 122 条関税が 2026-02-24 適用開始、約 13% 上乗せ。期限 2026-07-24。301 条適用除外は 2026-11-10 まで延長
+6. **White House Proclamation 11012 / Federal Register (Section 122 関税)**
+   - URL: https://www.federalregister.gov/documents/full_text/html/2026/02/25/2026-03824.html
+   - Tier: 1 (Federal Register、White House Proclamation)
+   - Key fact: Section 122 of the Trade Act of 1974 に基づく 10% ad valorem temporary import surcharge を 2026-02-24 12:01 EST から適用、150 日間 (2026-07-24 12:01 EDT 期限)。USMCA goods・critical minerals・energy resources・agricultural・pharmaceuticals・vehicles・aerospace 等 (Annex I/II 列挙) は除外
+   - 注意: 「13% 上乗せ」は外部分析の trade-weighted estimate であり、Federal Register 本文の率は 10%。outlook で 13% を引用する場合は外部 estimate と明記する必要がある
 
 ## Axis 2: 地政学・エネルギー
 
@@ -142,15 +143,17 @@
 
 ## Axis 5: セクター動向
 
-25. **TSMC - 2026 Q1 Earnings Release / Investor Presentation**
+25. **TSMC - 2026 Q1 Earnings Release**
     - URL: https://investor.tsmc.com/english/encrypt/files/encrypt_file/reports/2026-04/e85216eea8dccd8ca75d7e040e8d57be3ccd618b/1Q26%20EarningsRelease.pdf
     - Tier: 1 (TSMC IR)
-    - Key fact: Q1 2026 売上 359 億 USD、グロスマージン 66.2%、オペマージン 58.1%。2026 年通年 Capex $52-56B レンジ上限見込み (上方修正)。2026 年売上 +30% 超 (約 1,580 億 USD)。Capex 70-80% を先端プロセス (N2/A14) に配分
+    - Key fact (Q1 release で確認できた範囲): Q1 2026 売上 359 億 USD、グロスマージン 66.2%、オペマージン 58.1%
+    - **注意**: 「Capex $52-56B レンジ上限」「Capex 70-80% 先端プロセス配分」「2026 年売上 +30%」は Q1 release 本文だけでは確認できず、**Q4 (2025) earnings transcript / IR ガイダンス由来の値を引用している**。引用粒度を上げるなら TSMC IR Archive の Q4 transcript を別 source として明示する必要
 
 26. **NVIDIA - Q4 / Fiscal 2026 Financial Results (2026-02-25)**
     - URL: https://nvidianews.nvidia.com/news/nvidia-announces-financial-results-for-fourth-quarter-and-fiscal-2026
     - Tier: 1 (NVIDIA IR)
-    - Key fact: FY2026 通年売上 2,159 億 USD (+65% YoY)、データセンター 1,973 億 USD。Q4 売上 681 億 USD (+73%)、データセンター 623 億 USD。Q1 FY27 ガイ 780 億 USD (±2%)。供給コミットメント Q3 末 503 億 → Q4 末 952 億 USD (倍増)。Sovereign AI 売上 300 億 USD 超
+    - Key fact (press release で確認できた範囲): FY2026 通年売上 2,159 億 USD (+65% YoY)、データセンター 1,973 億 USD、Q4 売上 681 億 USD (+73%)、データセンター 623 億 USD、Q1 FY27 ガイ 780 億 USD (±2%)
+    - **注意**: 「Sovereign AI 売上 300 億 USD 超」「供給コミットメント Q3 末 503 億 → Q4 末 952 億 USD」は press release だけでは確認できず、**earnings call transcript / 10-K / 10-Q の本文確認が必要**。本 outlook では参考値扱いで、確度の高い fact としては FY26 通年売上と Q1 FY27 ガイダンスのみを使う
 
 27. **Baltic Exchange - Baltic Dry Index (April 2026)**
     - URL: https://www.balticexchange.com/en/data-services/market-information0/dry-services.html

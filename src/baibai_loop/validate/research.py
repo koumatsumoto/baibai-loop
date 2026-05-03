@@ -424,6 +424,9 @@ def _validate_front_matter(
     top_level_adv = front_matter.get("adv_participation_pct")
     if isinstance(top_level_adv, (int, float)) and not isinstance(top_level_adv, bool):
         _append_adv_participation_finding(path, top_level_adv, findings, "adv_participation_pct")
+        _append_adv_participation_consistency_finding(
+            path, front_matter, top_level_adv, findings, "adv_participation_pct"
+        )
     elif "adv_participation_pct" in front_matter:
         findings.append(
             ValidationFinding(
@@ -491,6 +494,47 @@ def _append_adv_participation_finding(
                 target=path,
                 code="research.adv-participation-cap",
                 message="adv_participation_pct must be below 5.0 for accepted research",
+                location=location,
+            )
+        )
+
+
+def _append_adv_participation_consistency_finding(
+    path: Path,
+    front_matter: dict[str, object],
+    adv_participation: int | float,
+    findings: list[ValidationFinding],
+    location: str,
+) -> None:
+    """Cross-check adv_participation_pct against position_size_oku / avg_turnover_oku.
+
+    avg_turnover_oku が front matter にあれば、`position_size_oku / avg_turnover_oku
+    * 100 ≈ adv_participation_pct` を確認する (許容誤差 5%)。100 倍ズレなどの
+    桁誤りを検出する。avg_turnover_oku が無い既存 research は warning にとどめない。
+    """
+    position_size = front_matter.get("position_size_oku")
+    avg_turnover = front_matter.get("avg_turnover_oku")
+    if not isinstance(position_size, (int, float)) or isinstance(position_size, bool):
+        return
+    if not isinstance(avg_turnover, (int, float)) or isinstance(avg_turnover, bool):
+        return
+    if avg_turnover <= 0:
+        return
+    expected = (position_size / avg_turnover) * 100.0
+    if expected == 0:
+        return
+    diff_ratio = abs(adv_participation - expected) / expected
+    if diff_ratio > 0.05:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.adv-participation-inconsistent",
+                message=(
+                    f"adv_participation_pct={adv_participation:.6f} does not match "
+                    f"position_size_oku / avg_turnover_oku * 100={expected:.6f} "
+                    f"(diff {diff_ratio * 100:.1f}% > 5%); likely scaling error"
+                ),
                 location=location,
             )
         )

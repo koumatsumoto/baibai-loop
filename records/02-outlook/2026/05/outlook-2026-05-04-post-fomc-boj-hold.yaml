@@ -8,6 +8,7 @@ updated_from:
   - records/01-brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.yaml
   - records/01-brief/2026/04/2026-04-26-world-weekly-jp-cpi-retail.yaml
   - records/01-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
+  - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
 summary: |
   ============================================================
   本 outlook の作成根拠 (Tier 1 / Tier 1 準拠 一次情報源 30+)
@@ -20,7 +21,7 @@ summary: |
   - 米マクロ: BEA Personal Income and Outlays (2026-03、コア PCE +3.2%)、Census 小売
     (3 月 +1.7%)、BLS 雇用統計スケジュール (4 月分 5/8 発表予定)、BLS CPI スケジュール
     (4 月分 5/12 発表予定)、Census Residential Construction (3 月一戸建て -14.2%)、
-    USTR 通商法 122 条関税運用 (2/24 適用、7/24 期限)
+    USTR / White House Proclamation 11012 (2026-02-25 Federal Register、Section 122 of the Trade Act of 1974 に基づく 10% ad valorem temporary import surcharge、2026-02-24 12:01 EST 適用、150 日間 = 2026-07-24 12:01 EDT 期限。USMCA goods・critical minerals・energy resources・agricultural・pharma・vehicles・aerospace 等は除外)
   - 地政学・エネルギー: OPEC JMMC Press Release (4/5、5 月から 206kb/d 増産)、EIA STEO
     April 2026 (Brent 通年 $96、Q2 $115、Q4 $88)、EIA ホルムズ海峡 Briefing (2/28 以降
     閉鎖、中東 6 ヶ国 3 月 7.5mb/d / 4 月 9.1mb/d シャットイン、世界在庫 3 月 -85m bbl)、
@@ -29,7 +30,7 @@ summary: |
   - 為替・金融政策: FOMC 4/29 Statement (3.50-3.75% hold、8-4 vote、声明文「inflation
     is elevated, in part reflecting the recent increase in global energy prices」)、
     日銀 4 月展望レポート基本的見解 (2026 年度コア CPI +2.8% へ +0.9pt 上方修正)、
-    日銀総裁会見 4/30 公表分 (4/27-28 会合 6-3 hold、3 名利上げ反対)、ECB 4/30
+    日銀総裁会見 4/30 公表分 (4/27-28 会合 6-3 hold、6 名据置 / 3 名は据置に反対し利上げを主張)、ECB 4/30
     据置 (預金 2.00%、HICP +3.0%、upside risks to inflation 強調)、BOE 4 月 8-1
     据置 (Bank Rate 3.75%、Pill が 4.00% 利上げ票)、BOE Monetary Policy Report 4 月
   - 日本マクロ: 連合春闘第 3 回 (4/3、5.09%、3 年連続 5% 超)、日銀短観 3 月 (大企業
@@ -69,8 +70,12 @@ summary: |
   構造解釈: 「失速 + 物価高」型の stagflation 様相が現実化しつつある。住宅 -14.2%
   は明確な需要側冷却の signal で、雇用・小売の強さと矛盾し始めた。コア PCE +3.2% は
   エネルギー除いても基調インフレが粘着しており、油価が反落しても物価が下がりにくい
-  構造。米 1974 年通商法 122 条関税 (2/24 適用、13% 上乗せ、7/24 期限) と 301 条
-  (11/10 まで延長) の二段構えが、輸入物価の構造的押し上げ要因として残存。
+  構造。米 1974 年通商法 122 条関税 (Proclamation 11012、Federal Register 2026-02-25、
+  10% ad valorem temporary import surcharge、2026-02-24 12:01 EST 適用、150 日間
+  = 2026-07-24 期限、USMCA goods・critical minerals・energy・pharma・vehicles・
+  aerospace 等を除外。trade-weighted 実効税率は外部分析で 13% 程度との estimate
+  あり) と 301 条 (適用除外 11/10 まで延長) の二段構えが、輸入物価の構造的押し上げ
+  要因として残存。
 
   FOMC 4/29: 3.50-3.75% 据置、賛成 8 / 反対 4 (Miran 利下げ希望 / Hammack, Kashkari,
   Logan は hold だが easing bias 削除)。タカ派 3 名 + 利下げ派 1 名で内部 4 分裂は
@@ -108,7 +113,7 @@ summary: |
     AUD/JPY 113.90 → 111.91 (-1.75%)
   - 日銀 4 月展望レポート: 2026 年度コア CPI 見通しを +2.8% に上方修正 (1 月 +1.9%
     から +0.9pt)。2027 年度 +2% 台前半、2028 年度 +2% 程度
-  - 日銀 4/27-28 会合: 6-3 でホールド (3 名利上げ反対)。総裁会見で「中東情勢の
+  - 日銀 4/27-28 会合: 6-3 でホールド (6 名据置 / 3 名は据置に反対し利上げを主張)。総裁会見で「中東情勢の
     不確実性」を強調、利上げ条件は揃いつつあるが「中東を見極める」姿勢
   - ECB 4/30: 預金金利 2.00% / MRO 2.15% / 限界貸付 2.40% で据置。HICP +3.0%、
     「upside risks to inflation and downside risks to growth have intensified」
@@ -495,7 +500,7 @@ regions:
       - records/01-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
   japan-domestic:
     status: neutral
-    rationale: "BOJ 4/27-28 6-3 hold (3 名利上げ反対)、日銀展望でコア CPI +2.8% へ大幅上方修正 (+0.9pt) で利上げ正当化材料は強化。一方、東京都区部 4 月 CPI +1.5% (3 ヶ月連続 2% 割れ) と景気ウォッチャー DI -6.7pt 急冷は内需冷却の signal、利上げハードルを上げる。日銀短観大企業製造業 +17 / 設備投資 +7.9% で製造業マインドは底堅く、春闘 5.09% で家計購買力支え。製造業 vs 内需の温度差で sector 共通方向は引かない、neutral 維持"
+    rationale: "BOJ 4/27-28 6-3 hold (6 名据置 / 3 名は据置に反対し利上げを主張)、日銀展望でコア CPI +2.8% へ大幅上方修正 (+0.9pt) で利上げ正当化材料は強化。一方、東京都区部 4 月 CPI +1.5% (3 ヶ月連続 2% 割れ) と景気ウォッチャー DI -6.7pt 急冷は内需冷却の signal、利上げハードルを上げる。日銀短観大企業製造業 +17 / 設備投資 +7.9% で製造業マインドは底堅く、春闘 5.09% で家計購買力支え。製造業 vs 内需の温度差で sector 共通方向は引かない、neutral 維持"
     source_refs:
       - records/01-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
       - records/01-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
@@ -508,8 +513,9 @@ regions:
       - records/01-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
   emerging:
     status: headwind
-    rationale: "①中国 4 月製造業 PMI 50.3 (-0.1pt) でぎりぎり拡張維持、②中国 3 月輸出 +2.5% YoY (予想 +8.6% 大幅下振れ)、対米 -26% 超 = 米通商法 122 条 (13% 上乗せ) 効果が顕在化、③中国 Q1 不動産投資 -11.2% YoY、住宅販売 -18.5% で不動産デフレは底入れ未達、④日本のアジア向け中間財・中国輸出への spillover は限定的だが下押し方向。emerging 全般は中国脆弱性 + ホルムズ閉鎖でエネルギー輸入コスト圧迫 (新興国通貨切下げ圧力) で headwind"
-    source_refs: []
+    rationale: "①中国 4 月製造業 PMI 50.3 (-0.1pt) でぎりぎり拡張維持、②中国 3 月輸出 +2.5% YoY (予想 +8.6% 大幅下振れ)、対米 -26% 超 = 米通商法 122 条 (Proclamation 11012、10% ad valorem surcharge、trade-weighted 実効は外部 estimate で 13% 程度) 効果が顕在化、③中国 Q1 不動産投資 -11.2% YoY、住宅販売 -18.5% で不動産デフレは底入れ未達、④日本のアジア向け中間財・中国輸出への spillover は限定的だが下押し方向。emerging 全般は中国脆弱性 + ホルムズ閉鎖でエネルギー輸入コスト圧迫 (新興国通貨切下げ圧力) で headwind。fact 根拠は sidecar `outlook-2026-05-04-research-log.md` Axis 7 (中国 NBS PMI / 海関総署輸出 / NBS 不動産) と Axis 1 (USTR 122 条) を参照"
+    source_refs:
+      - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
 changes:
   - target: 鉱業
     from_status: neutral
@@ -596,8 +602,9 @@ changes:
   - target: emerging
     from_status: null
     to_status: headwind
-    rationale: "中国 PMI 50.3 ぎりぎり、3 月輸出 +2.5% (対米 -26%、122 条効果)、Q1 不動産 -11.2%、新興国通貨切下げ圧力、bootstrap null から headwind に確定"
-    source_refs: []
+    rationale: "中国 PMI 50.3 ぎりぎり、3 月輸出 +2.5% (対米 -26%、122 条 Proclamation 11012 効果)、Q1 不動産 -11.2%、新興国通貨切下げ圧力、bootstrap null から headwind に確定"
+    source_refs:
+      - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
 next_triggers:
   - date: "2026-05-08"
     text: "米 4 月雇用統計 (BLS、8:30 ET)。stagflation lite 確度確認、住宅 -14.2% との整合性"

@@ -285,6 +285,32 @@ class ResearchValidationTests(unittest.TestCase):
             path.unlink()
         self.assertNotIn("research.adv-participation-cap", {f.code for f in findings})
 
+    def test_adv_participation_consistent_with_position_and_turnover_passes(self) -> None:
+        front = _minimal_research_front_matter()
+        front["position_size_oku"] = 0.005
+        front["avg_turnover_oku"] = 85.4
+        # 0.005 / 85.4 * 100 = 0.005853...
+        front["adv_participation_pct"] = 0.00585
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+        finally:
+            path.unlink()
+        self.assertNotIn("research.adv-participation-inconsistent", {f.code for f in findings})
+
+    def test_adv_participation_100x_off_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        front["position_size_oku"] = 0.005
+        front["avg_turnover_oku"] = 85.4
+        # 100 倍ズレた値 (0.585 vs 正解 0.00585)
+        front["adv_participation_pct"] = 0.585
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.adv-participation-inconsistent", {f.code for f in findings})
+
     def test_sector_concentration_warns_for_three_accepted_packets(self) -> None:
         base = _minimal_research_front_matter()
         paths_with_front = [
