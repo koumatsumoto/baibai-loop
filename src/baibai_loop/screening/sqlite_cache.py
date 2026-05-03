@@ -9,8 +9,9 @@ This module owns:
 - the top-level `rebuild_from_raw()` that scans a `data/raw/screening/` tree
   and writes a fresh SQLite file from scratch
 
-EDINET / JPX / earnings_calendar / market_calendar tables are out of scope
-for this iteration; see issue #45 follow-ups.
+Schema v2 (current) covers all five sources: jquants daily bars / fin
+summaries / master / earnings calendar / market calendar, plus EDINET
+documents and metrics, and JPX regulation flags.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ import hashlib
 import json
 import sqlite3
 from collections.abc import Iterable, Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -29,7 +30,7 @@ from .providers.jquants import (
     parse_jquants_code,
 )
 
-SCHEMA_VERSION = "v1"
+SCHEMA_VERSION = "v2"
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS jquants_daily_bars(
@@ -85,6 +86,52 @@ CREATE TABLE IF NOT EXISTS jquants_master_snapshots(
   PRIMARY KEY (snapshot_date, ticker)
 );
 
+CREATE TABLE IF NOT EXISTS jquants_earnings_calendar(
+  announcement_date TEXT NOT NULL,
+  ticker TEXT NOT NULL,
+  raw_json TEXT NOT NULL,
+  PRIMARY KEY (announcement_date, ticker)
+);
+
+CREATE TABLE IF NOT EXISTS jquants_market_calendar(
+  day TEXT PRIMARY KEY,
+  is_business_day INTEGER NOT NULL,
+  raw_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS edinet_documents(
+  doc_date TEXT NOT NULL,
+  doc_id TEXT NOT NULL,
+  sec_code TEXT,
+  doc_type_code TEXT,
+  raw_json TEXT NOT NULL,
+  PRIMARY KEY (doc_date, doc_id)
+);
+
+CREATE TABLE IF NOT EXISTS edinet_metrics(
+  asof_date TEXT NOT NULL,
+  ticker TEXT NOT NULL,
+  sales_ttm REAL,
+  ocf_ttm REAL,
+  debt REAL,
+  cash REAL,
+  ebitda_ttm REAL,
+  consolidation_basis TEXT,
+  ttm_quality_ev_ebitda TEXT,
+  ttm_quality_p_s TEXT,
+  ttm_quality_pcfr TEXT,
+  PRIMARY KEY (asof_date, ticker)
+);
+
+CREATE TABLE IF NOT EXISTS jpx_regulation_flags(
+  asof_date TEXT NOT NULL,
+  source_name TEXT NOT NULL,
+  ticker TEXT NOT NULL,
+  flag TEXT NOT NULL,
+  fetched_at_utc TEXT,
+  PRIMARY KEY (asof_date, source_name, ticker, flag)
+);
+
 CREATE TABLE IF NOT EXISTS raw_imports(
   source TEXT NOT NULL,
   path TEXT PRIMARY KEY,
@@ -114,6 +161,16 @@ class RebuildSummary:
     fin_summary_rows: int
     master_files: int
     master_rows: int
+    earnings_calendar_files: int
+    earnings_calendar_rows: int
+    market_calendar_files: int
+    market_calendar_rows: int
+    edinet_document_files: int
+    edinet_document_rows: int
+    edinet_metric_files: int
+    edinet_metric_rows: int
+    jpx_regulation_files: int
+    jpx_regulation_rows: int
     skipped_files: tuple[str, ...]
 
 
@@ -131,11 +188,12 @@ def open_connection(db_path: Path) -> sqlite3.Connection:
 
 
 def rebuild_from_raw(raw_dir: Path, db_path: Path) -> RebuildSummary:
-    """Rebuild the SQLite cache from scratch using every `*.json` under
-    `raw_dir/jquants/`.
+    """Rebuild the SQLite cache from scratch by walking the entire `raw_dir`
+    tree. Files are dispatched by their parent directory + filename pattern
+    (see `_rebuild`).
 
-    The destination file is removed first so the rebuild is deterministic and
-    will not carry stale rows from a prior schema version.
+    The destination file is removed first so the rebuild is deterministic
+    and will not carry stale rows from a prior schema version.
     """
     if db_path.exists():
         db_path.unlink()
@@ -146,54 +204,119 @@ def rebuild_from_raw(raw_dir: Path, db_path: Path) -> RebuildSummary:
         conn.close()
 
 
+@dataclass
+class _RebuildCounters:
+    bars_files: int = 0
+    bars_rows: int = 0
+    fin_files: int = 0
+    fin_rows: int = 0
+    master_files: int = 0
+    master_rows: int = 0
+    earnings_files: int = 0
+    earnings_rows: int = 0
+    market_calendar_files: int = 0
+    market_calendar_rows: int = 0
+    edinet_doc_files: int = 0
+    edinet_doc_rows: int = 0
+    edinet_metric_files: int = 0
+    edinet_metric_rows: int = 0
+    jpx_reg_files: int = 0
+    jpx_reg_rows: int = 0
+    skipped: list[str] = field(default_factory=list)
+
+
 def _rebuild(conn: sqlite3.Connection, raw_dir: Path) -> RebuildSummary:
-    jquants_dir = raw_dir / "jquants"
-    bars_files = 0
-    bars_rows = 0
-    fin_files = 0
-    fin_rows = 0
-    master_files = 0
-    master_rows = 0
-    skipped: list[str] = []
+    counters = _RebuildCounters()
+    if raw_dir.exists():
+        _import_jquants_dir(conn, raw_dir / "jquants", counters)
+        _import_edinet_dir(conn, raw_dir / "edinet", counters)
+        _import_jpx_dir(conn, raw_dir / "jpx", counters)
+    conn.commit()
+    return RebuildSummary(
+        daily_bars_files=counters.bars_files,
+        daily_bars_rows=counters.bars_rows,
+        fin_summary_files=counters.fin_files,
+        fin_summary_rows=counters.fin_rows,
+        master_files=counters.master_files,
+        master_rows=counters.master_rows,
+        earnings_calendar_files=counters.earnings_files,
+        earnings_calendar_rows=counters.earnings_rows,
+        market_calendar_files=counters.market_calendar_files,
+        market_calendar_rows=counters.market_calendar_rows,
+        edinet_document_files=counters.edinet_doc_files,
+        edinet_document_rows=counters.edinet_doc_rows,
+        edinet_metric_files=counters.edinet_metric_files,
+        edinet_metric_rows=counters.edinet_metric_rows,
+        jpx_regulation_files=counters.jpx_reg_files,
+        jpx_regulation_rows=counters.jpx_reg_rows,
+        skipped_files=tuple(counters.skipped),
+    )
 
+
+def _import_jquants_dir(
+    conn: sqlite3.Connection, jquants_dir: Path, counters: _RebuildCounters
+) -> None:
     if not jquants_dir.exists():
-        return RebuildSummary(
-            daily_bars_files=0,
-            daily_bars_rows=0,
-            fin_summary_files=0,
-            fin_summary_rows=0,
-            master_files=0,
-            master_rows=0,
-            skipped_files=(),
-        )
-
+        return
     for path in sorted(jquants_dir.glob("*.json")):
         name = path.name
         try:
             if name.startswith("get_eq_bars_daily_range"):
-                bars_rows += _import_bars_file(conn, path)
-                bars_files += 1
+                counters.bars_rows += _import_bars_file(conn, path)
+                counters.bars_files += 1
             elif name.startswith("get_fin_summary_range"):
-                fin_rows += _import_fin_summary_file(conn, path)
-                fin_files += 1
+                counters.fin_rows += _import_fin_summary_file(conn, path)
+                counters.fin_files += 1
             elif name == "get_eq_master.json":
-                master_rows += _import_master_file(conn, path)
-                master_files += 1
+                counters.master_rows += _import_master_file(conn, path)
+                counters.master_files += 1
+            elif name.startswith("get_eq_earnings_cal"):
+                counters.earnings_rows += _import_earnings_calendar_file(conn, path)
+                counters.earnings_files += 1
+            elif name.startswith("get_mkt_calendar"):
+                counters.market_calendar_rows += _import_market_calendar_file(conn, path)
+                counters.market_calendar_files += 1
             else:
-                skipped.append(name)
+                counters.skipped.append(name)
         except (JQuantsProviderError, ValueError, KeyError, TypeError) as exc:
             raise SQLiteCacheError(f"failed to import {path.name}: {exc}") from exc
 
-    conn.commit()
-    return RebuildSummary(
-        daily_bars_files=bars_files,
-        daily_bars_rows=bars_rows,
-        fin_summary_files=fin_files,
-        fin_summary_rows=fin_rows,
-        master_files=master_files,
-        master_rows=master_rows,
-        skipped_files=tuple(skipped),
-    )
+
+def _import_edinet_dir(
+    conn: sqlite3.Connection, edinet_dir: Path, counters: _RebuildCounters
+) -> None:
+    if not edinet_dir.exists():
+        return
+    documents_dir = edinet_dir / "documents"
+    if documents_dir.exists():
+        for path in sorted(documents_dir.glob("*.json")):
+            try:
+                counters.edinet_doc_rows += _import_edinet_documents_file(conn, path)
+                counters.edinet_doc_files += 1
+            except (ValueError, KeyError, TypeError) as exc:
+                raise SQLiteCacheError(f"failed to import {path.name}: {exc}") from exc
+    metrics_dir = edinet_dir / "metrics"
+    if metrics_dir.exists():
+        for path in sorted(metrics_dir.glob("*.json")):
+            try:
+                counters.edinet_metric_rows += _import_edinet_metrics_file(conn, path)
+                counters.edinet_metric_files += 1
+            except (ValueError, KeyError, TypeError) as exc:
+                raise SQLiteCacheError(f"failed to import {path.name}: {exc}") from exc
+
+
+def _import_jpx_dir(conn: sqlite3.Connection, jpx_dir: Path, counters: _RebuildCounters) -> None:
+    if not jpx_dir.exists():
+        return
+    regulations_dir = jpx_dir / "regulations"
+    if not regulations_dir.exists():
+        return
+    for path in sorted(regulations_dir.glob("*.json")):
+        try:
+            counters.jpx_reg_rows += _import_jpx_regulations_file(conn, path)
+            counters.jpx_reg_files += 1
+        except (ValueError, KeyError, TypeError) as exc:
+            raise SQLiteCacheError(f"failed to import {path.name}: {exc}") from exc
 
 
 def _import_bars_file(conn: sqlite3.Connection, path: Path) -> int:
@@ -374,6 +497,184 @@ def _iter_master_rows(
             1 if is_common_stock else 0,
             json.dumps(record, ensure_ascii=False, sort_keys=True),
         )
+
+
+def _import_earnings_calendar_file(conn: sqlite3.Connection, path: Path) -> int:
+    records = _read_json_array(path)
+    rows: list[tuple[Any, ...]] = []
+    for record in records:
+        ticker = _normalize_ticker_or_none(_first(record, "Code", "code"))
+        announcement_date = _date_iso(
+            _first(record, "Date", "date", "AnnouncementDate", "announcement_date")
+        )
+        if ticker is None or announcement_date is None:
+            continue
+        rows.append(
+            (
+                announcement_date,
+                ticker,
+                json.dumps(record, ensure_ascii=False, sort_keys=True),
+            )
+        )
+    if not rows:
+        _record_raw_import(conn, "jquants_earnings_calendar", path, 0, None, None)
+        return 0
+    conn.executemany(
+        "INSERT OR REPLACE INTO jquants_earnings_calendar("
+        "announcement_date, ticker, raw_json"
+        ") VALUES (?, ?, ?)",
+        rows,
+    )
+    dates = sorted({row[0] for row in rows})
+    _record_raw_import(
+        conn,
+        "jquants_earnings_calendar",
+        path,
+        len(rows),
+        dates[0],
+        dates[-1],
+    )
+    return len(rows)
+
+
+def _import_market_calendar_file(conn: sqlite3.Connection, path: Path) -> int:
+    records = _read_json_array(path)
+    rows: list[tuple[Any, ...]] = []
+    for record in records:
+        day = _date_iso(_first(record, "Date", "date"))
+        if day is None:
+            continue
+        # Mirror JQuantsProvider: HolidayDivision "1" (営業日) and "2"
+        # (半日営業: 大納会など) both count as business days.
+        division = _to_str_or_none(
+            _first(record, "HolidayDivision", "holiday_division", "HolDiv", "hol_div")
+        )
+        is_business_day = 1 if division in {"1", "2"} else 0
+        rows.append(
+            (
+                day,
+                is_business_day,
+                json.dumps(record, ensure_ascii=False, sort_keys=True),
+            )
+        )
+    if not rows:
+        _record_raw_import(conn, "jquants_market_calendar", path, 0, None, None)
+        return 0
+    conn.executemany(
+        "INSERT OR REPLACE INTO jquants_market_calendar(day, is_business_day, raw_json) "
+        "VALUES (?, ?, ?)",
+        rows,
+    )
+    days = sorted({row[0] for row in rows})
+    _record_raw_import(conn, "jquants_market_calendar", path, len(rows), days[0], days[-1])
+    return len(rows)
+
+
+def _import_edinet_documents_file(conn: sqlite3.Connection, path: Path) -> int:
+    records = _read_json_array(path)
+    # The filename is `{doc_date}.json`; the API payload itself does not
+    # always carry the date so we recover it from the filename stem.
+    doc_date = path.stem
+    rows: list[tuple[Any, ...]] = []
+    for record in records:
+        doc_id = _to_str_or_none(_first(record, "docID", "doc_id"))
+        if doc_id is None:
+            continue
+        rows.append(
+            (
+                doc_date,
+                doc_id,
+                _to_str_or_none(_first(record, "secCode", "sec_code")),
+                _to_str_or_none(_first(record, "docTypeCode", "doc_type_code")),
+                json.dumps(record, ensure_ascii=False, sort_keys=True),
+            )
+        )
+    if not rows:
+        _record_raw_import(conn, "edinet_documents", path, 0, doc_date, doc_date)
+        return 0
+    conn.executemany(
+        "INSERT OR REPLACE INTO edinet_documents("
+        "doc_date, doc_id, sec_code, doc_type_code, raw_json"
+        ") VALUES (?, ?, ?, ?, ?)",
+        rows,
+    )
+    _record_raw_import(conn, "edinet_documents", path, len(rows), doc_date, doc_date)
+    return len(rows)
+
+
+def _import_edinet_metrics_file(conn: sqlite3.Connection, path: Path) -> int:
+    records = _read_json_array(path)
+    asof_date = path.stem
+    rows: list[tuple[Any, ...]] = []
+    for record in records:
+        ticker = _normalize_ticker_or_none(_first(record, "secCode", "ticker", "code", "Code"))
+        if ticker is None:
+            continue
+        rows.append(
+            (
+                asof_date,
+                ticker,
+                _to_float(_first(record, "sales_ttm", "SalesTTM")),
+                _to_float(_first(record, "ocf_ttm", "OperatingCashFlowTTM")),
+                _to_float(_first(record, "debt", "Debt")),
+                _to_float(_first(record, "cash", "Cash")),
+                _to_float(_first(record, "ebitda_ttm", "EBITDATTM")),
+                _to_str_or_none(_first(record, "consolidation_basis", "ConsolidationBasis")),
+                _to_str_or_none(_first(record, "ttm_quality_ev_ebitda", "TTMQualityEvEbitda")),
+                _to_str_or_none(_first(record, "ttm_quality_p_s", "TTMQualityPS")),
+                _to_str_or_none(_first(record, "ttm_quality_pcfr", "TTMQualityPCFR")),
+            )
+        )
+    if not rows:
+        _record_raw_import(conn, "edinet_metrics", path, 0, asof_date, asof_date)
+        return 0
+    conn.executemany(
+        "INSERT OR REPLACE INTO edinet_metrics("
+        "asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, "
+        "consolidation_basis, ttm_quality_ev_ebitda, ttm_quality_p_s, ttm_quality_pcfr"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        rows,
+    )
+    _record_raw_import(conn, "edinet_metrics", path, len(rows), asof_date, asof_date)
+    return len(rows)
+
+
+def _import_jpx_regulations_file(conn: sqlite3.Connection, path: Path) -> int:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, Mapping):
+        raise SQLiteCacheError(f"expected JSON object at {path}")
+    asof_date = path.stem
+    fetched_at_utc = _to_str_or_none(payload.get("fetched_at_utc"))
+    flags_by_ticker = payload.get("flags_by_ticker") or {}
+    if not isinstance(flags_by_ticker, Mapping):
+        raise SQLiteCacheError(f"flags_by_ticker must be an object: {path}")
+    rows: list[tuple[Any, ...]] = []
+    for raw_ticker, flags in flags_by_ticker.items():
+        ticker = _normalize_ticker_or_none(raw_ticker)
+        if ticker is None:
+            continue
+        if not isinstance(flags, list | tuple):
+            continue
+        for flag in flags:
+            flag_text = _to_str_or_none(flag)
+            if flag_text is None:
+                continue
+            # JPX cache JSON groups flags per ticker without recording the
+            # source URL that produced each flag. Use the flag string as the
+            # source_name so the (asof, source, ticker, flag) PK stays unique
+            # while preserving the natural-language label for downstream UI.
+            rows.append((asof_date, flag_text, ticker, flag_text, fetched_at_utc))
+    if not rows:
+        _record_raw_import(conn, "jpx_regulation_flags", path, 0, asof_date, asof_date)
+        return 0
+    conn.executemany(
+        "INSERT OR REPLACE INTO jpx_regulation_flags("
+        "asof_date, source_name, ticker, flag, fetched_at_utc"
+        ") VALUES (?, ?, ?, ?, ?)",
+        rows,
+    )
+    _record_raw_import(conn, "jpx_regulation_flags", path, len(rows), asof_date, asof_date)
+    return len(rows)
 
 
 def _record_raw_import(

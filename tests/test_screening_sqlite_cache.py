@@ -93,6 +93,11 @@ class OpenConnectionTests(unittest.TestCase):
                 self.assertIn("jquants_daily_bars", tables)
                 self.assertIn("jquants_fin_summaries", tables)
                 self.assertIn("jquants_master_snapshots", tables)
+                self.assertIn("jquants_earnings_calendar", tables)
+                self.assertIn("jquants_market_calendar", tables)
+                self.assertIn("edinet_documents", tables)
+                self.assertIn("edinet_metrics", tables)
+                self.assertIn("jpx_regulation_flags", tables)
                 self.assertIn("raw_imports", tables)
                 self.assertIn("cache_metadata", tables)
                 version = conn.execute(
@@ -248,11 +253,158 @@ class RebuildFromRawTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             raw = Path(tmp) / "raw"
             db = Path(tmp) / "cache" / "market.sqlite"
-            _write_json(raw / "jquants" / "get_mkt_calendar.json", [])
+            _write_json(raw / "jquants" / "get_unknown_endpoint.json", [])
 
             summary = rebuild_from_raw(raw, db)
 
-            self.assertEqual(summary.skipped_files, ("get_mkt_calendar.json",))
+            self.assertEqual(summary.skipped_files, ("get_unknown_endpoint.json",))
+
+    def test_imports_earnings_calendar(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            raw = Path(tmp) / "raw"
+            db = Path(tmp) / "cache" / "market.sqlite"
+            _write_json(
+                raw / "jquants" / "get_eq_earnings_cal.json",
+                [
+                    {"Code": "13010", "Date": "2026-05-15T00:00:00"},
+                    {"Code": "13015", "Date": "2026-05-15T00:00:00"},  # non-common, dropped
+                ],
+            )
+
+            summary = rebuild_from_raw(raw, db)
+
+            self.assertEqual(summary.earnings_calendar_files, 1)
+            self.assertEqual(summary.earnings_calendar_rows, 1)
+            with sqlite3.connect(db) as conn:
+                rows = conn.execute(
+                    "SELECT announcement_date, ticker FROM jquants_earnings_calendar"
+                ).fetchall()
+                self.assertEqual(rows, [("2026-05-15", "1301")])
+
+    def test_imports_market_calendar_treats_division_2_as_business_day(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            raw = Path(tmp) / "raw"
+            db = Path(tmp) / "cache" / "market.sqlite"
+            _write_json(
+                raw / "jquants" / "get_mkt_calendar.json",
+                [
+                    {"Date": "2026-05-15", "HolidayDivision": "1"},
+                    {"Date": "2026-12-30", "HolidayDivision": "2"},
+                    {"Date": "2026-05-16", "HolidayDivision": "0"},
+                ],
+            )
+
+            summary = rebuild_from_raw(raw, db)
+
+            self.assertEqual(summary.market_calendar_rows, 3)
+            with sqlite3.connect(db) as conn:
+                rows = conn.execute(
+                    "SELECT day, is_business_day FROM jquants_market_calendar ORDER BY day"
+                ).fetchall()
+                self.assertEqual(
+                    rows,
+                    [("2026-05-15", 1), ("2026-05-16", 0), ("2026-12-30", 1)],
+                )
+
+    def test_imports_edinet_documents(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            raw = Path(tmp) / "raw"
+            db = Path(tmp) / "cache" / "market.sqlite"
+            _write_json(
+                raw / "edinet" / "documents" / "2026-04-24.json",
+                [
+                    {"docID": "S100ABCD", "secCode": "13010", "docTypeCode": "120"},
+                    {"docID": "S100ABCE", "secCode": "13020", "docTypeCode": "140"},
+                ],
+            )
+
+            summary = rebuild_from_raw(raw, db)
+
+            self.assertEqual(summary.edinet_document_rows, 2)
+            with sqlite3.connect(db) as conn:
+                rows = conn.execute(
+                    "SELECT doc_date, doc_id, sec_code, doc_type_code FROM edinet_documents "
+                    "ORDER BY doc_id"
+                ).fetchall()
+                self.assertEqual(
+                    rows,
+                    [
+                        ("2026-04-24", "S100ABCD", "13010", "120"),
+                        ("2026-04-24", "S100ABCE", "13020", "140"),
+                    ],
+                )
+
+    def test_imports_edinet_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            raw = Path(tmp) / "raw"
+            db = Path(tmp) / "cache" / "market.sqlite"
+            _write_json(
+                raw / "edinet" / "metrics" / "2026-04-24.json",
+                [
+                    {
+                        "secCode": "13010",
+                        "sales_ttm": 1_000_000.0,
+                        "ocf_ttm": 200_000.0,
+                        "debt": 50_000.0,
+                        "cash": 80_000.0,
+                        "ebitda_ttm": 300_000.0,
+                        "consolidation_basis": "consolidated",
+                        "ttm_quality_ev_ebitda": "exact",
+                        "ttm_quality_p_s": "exact",
+                        "ttm_quality_pcfr": "approximated",
+                    }
+                ],
+            )
+
+            summary = rebuild_from_raw(raw, db)
+
+            self.assertEqual(summary.edinet_metric_rows, 1)
+            with sqlite3.connect(db) as conn:
+                row = conn.execute(
+                    "SELECT asof_date, ticker, sales_ttm, ttm_quality_ev_ebitda, "
+                    "ttm_quality_pcfr FROM edinet_metrics"
+                ).fetchone()
+                self.assertEqual(row, ("2026-04-24", "1301", 1_000_000.0, "exact", "approximated"))
+
+    def test_imports_jpx_regulation_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            raw = Path(tmp) / "raw"
+            db = Path(tmp) / "cache" / "market.sqlite"
+            _write_json(
+                raw / "jpx" / "regulations" / "2026-04-24.json",
+                {
+                    "schema_version": "v1",
+                    "fetched_at_utc": "2026-04-24T03:00:00+00:00",
+                    "flags_by_ticker": {
+                        "13010": ["特別注意銘柄", "整理銘柄"],
+                        "13020": ["取引停止"],
+                    },
+                    "source_names": ["特別注意銘柄", "整理銘柄", "取引停止"],
+                },
+            )
+
+            summary = rebuild_from_raw(raw, db)
+
+            self.assertEqual(summary.jpx_regulation_rows, 3)
+            with sqlite3.connect(db) as conn:
+                rows = conn.execute(
+                    "SELECT asof_date, source_name, ticker, flag, fetched_at_utc "
+                    "FROM jpx_regulation_flags ORDER BY ticker, flag"
+                ).fetchall()
+                self.assertEqual(
+                    rows,
+                    [
+                        ("2026-04-24", "整理銘柄", "1301", "整理銘柄", "2026-04-24T03:00:00+00:00"),
+                        (
+                            "2026-04-24",
+                            "特別注意銘柄",
+                            "1301",
+                            "特別注意銘柄",
+                            "2026-04-24T03:00:00+00:00",
+                        ),
+                        ("2026-04-24", "取引停止", "1302", "取引停止", "2026-04-24T03:00:00+00:00"),
+                    ],
+                )
 
 
 class RebuildCacheCommandTests(unittest.TestCase):
@@ -279,7 +431,7 @@ class RebuildCacheCommandTests(unittest.TestCase):
             exit_code = rebuild_cache_command(raw_dir=raw, sqlite_path=db, stdout=stdout)
 
             self.assertEqual(exit_code, 0)
-            self.assertIn("1 master files / 1 rows", stdout.getvalue())
+            self.assertIn("jquants_master_snapshots: 1 files / 1 rows", stdout.getvalue())
 
 
 if __name__ == "__main__":  # pragma: no cover
