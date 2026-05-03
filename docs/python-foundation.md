@@ -1,16 +1,12 @@
 # Python foundation
 
-最終確認日: 2026-04-26 / target: Python 3.14.4
-
-この文書は、このリポジトリで採用する Python 基盤の正本である。対象は `src/baibai_loop/**` と `tests/**`。Baibai-Loop は外部データを取り込み、Markdown front matter と cache に永続化し、売買判断の事実レイヤーを作るため、Python 基盤では「新しさ」よりも **境界が検証され、静的に読め、CI で再現できること** を優先する。
+このリポジトリの Python 基盤の正本。対象は `src/baibai_loop/**` と `tests/**`。Baibai-Loop は外部データを取り込み、Markdown front matter と cache に永続化し、売買判断の事実レイヤーを作るため、Python 基盤では「新しさ」よりも **境界が検証され、静的に読め、CI で再現できること** を優先する。
 
 ## 1. Runtime policy
 
 - Python は `>=3.14,<3.15` の単一ターゲットとする。
-- `.python-version` は実行確認済みの patch release に固定する。現在は `3.14.4`。
+- `.python-version` は実行確認済みの patch release に固定する。
 - 後方互換のための分岐は置かない。古い Python への配慮より、型構文・標準ライブラリ・ツール設定を単純に保つ。
-
-Python 3.14 は 2025-10-07 に final release 済みで、2026-04-26 現在は bugfix フェーズにある。したがって、この repo では future target ではなく operational baseline として扱う。
 
 参考:
 
@@ -34,7 +30,7 @@ Python 3.14 は 2025-10-07 に final release 済みで、2026-04-26 現在は bu
 
 `dev` は include-only にしてあるが、CI / ローカルでは明示的に `uv sync --frozen --all-groups` と `uv export --all-groups` を使う。group 構成を将来変更したときに `dev` の include 漏れで取りこぼすリスクを排除し、CI 上での group 選択意図をコマンド側に残すためである。
 
-Dependabot は `package-ecosystem: "uv"` を使う。2026-04 時点で uv lockfile 更新に対応しているが、uv 側のドキュメントでも未対応ケースが残ると説明されているため、依存更新 PR は CI の `uv sync --frozen --all-groups` を必ず見る。
+Dependabot は `package-ecosystem: "uv"` を使う。uv lockfile 更新に対応しているが未対応ケースが残るため、依存更新 PR は CI の `uv sync --frozen --all-groups` を必ず見る。
 
 参考:
 
@@ -148,7 +144,7 @@ CI では Bandit と pip-audit を分ける。
 
 CodeQL は採用しない。GitHub の Code scanning は private repository では Advanced Security ライセンス（Organization 限定の有償機能）が必須で、個人 plan の private repo では SARIF の取り込み先がない。SARIF を artifact として保存する形でも結果の検査体験が貧弱で運用価値が薄いため、CodeQL ジョブは置かず、代替として上記 2 ツールに集中する。
 
-2026-04 時点の実行確認では、`pip-audit --locked .` はこの環境の `uv.lock` を直接拾えなかった。そのため CI では以下の順にしている。
+`pip-audit --locked .` は uv の `uv.lock` を直接拾えないため、CI では以下の順にする。
 
 1. `uv export --format requirements.txt --locked --all-groups --no-emit-project --no-hashes`
 2. `pip-audit -r <exported requirements>`

@@ -1,0 +1,141 @@
+# screening/automation.md
+
+`records/03-candidates/` の自動生成を担う screening CLI の実装正本。週次 screening の入力と実行条件を traceability として追跡するための実行方式、依存、失敗時の扱いを定義する。
+
+## 1. Scope
+
+- 対象は `candidates` の自動生成と、`research` 選定を補助する `select` まで
+- `research` 自動採用判定、`outlook` 自動突合は対象外
+- `kabuステーション API` と `JPX Market Explorer` は source of truth に使わない
+
+## 2. Runtime
+
+- Python 3.14（[`../python-foundation.md`](../python-foundation.md)）
+- package root: `src/baibai_loop/screening/`
+- J-Quants client は `jquantsapi.ClientV2` 固定
+- 実行コマンド:
+
+```bash
+python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
+python -m baibai_loop.screening.cli run --asof YYYY-MM-DD --allow-stale-jpx
+python -m baibai_loop.screening.cli bootstrap-cache --start YYYY-MM-DD --end YYYY-MM-DD
+python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--outlook path] [--top N]
+python -m baibai_loop.screening.cli migrate-cache [--from PATH] [--to PATH] [--dry-run]
+python -m baibai_loop.screening.cli rebuild-cache [--raw-dir PATH] [--sqlite-path PATH]
+python -m baibai_loop.screening.cli verify-raw-cache [--raw-dir PATH] [--max-size-mb N] [--sqlite-path PATH]
+```
+
+`migrate-cache` は raw JSON cache を任意の `--from` から `--to` へ移動する helper（既存ファイルは上書きしないため idempotent）。
+
+`rebuild-cache` は `records/_data/raw/screening/` 配下の git 管理 raw JSON から派生 SQLite cache (`records/_data/cache/screening/market.sqlite`) を再生成する。実行毎に出力ファイルを削除して書き直すため idempotent。詳細は §11 を参照。
+
+`verify-raw-cache` は `records/_data/raw/screening/` を再帰的に walk し、(1) 1 ファイル `--max-size-mb` 以上のものが無いこと、(2) SQLite (`records/_data/cache/screening/market.sqlite`) が存在する場合は `raw_imports.sha256` と現状ファイルの SHA-256 が一致することを検証する。違反があれば exit 1。CI の `quality` job でも実行され、50MB 超過の commit を merge 前に弾く。
+
+`select` は最新 `records/03-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/02-outlook/` を組み合わせて、`outlook` で `headwind` 判定された業種を除外し、`threshold_hit` の本数 → 時価総額の順で候補をランキングする。`research` の選定プロセス ([`../components/research.md`](../components/research.md) §2.1) をスクリプトで支援する。
+
+## 3. Required Env Vars
+
+- `JQUANTS_REFRESH_TOKEN`
+- `EDINET_API_KEY`
+
+任意:
+
+- `SCREENING_CACHE_DIR`
+  - 既定値: `records/_data/raw/screening`（git 管理対象）
+- `SCREENING_SQLITE_CACHE_DIR`
+  - 既定値: `records/_data/cache/screening`（gitignore）。raw JSON から再生成される SQLite cache 配置先
+- JPX 公開規制情報 URL（CSV / Excel / HTML）。未設定時は該当 source のカバレッジなしで `fallback_lines` に `JPX source 未ロード` を明示する:
+  - `JPX_SPECIAL_CAUTION_INDEX_URL` 特別注意銘柄の個別銘柄信用取引残高表 index（推奨。日次で変わる `mtdailyk*.xls` を index から解決）
+  - `JPX_SPECIAL_CAUTION_URL` 特別注意銘柄の固定 Excel URL
+  - `JPX_REORGANIZATION_URL` 整理銘柄
+  - `JPX_TRADING_HALT_URL` 取引停止
+  - `JPX_DELISTING_WARNING_URL` 上場廃止警告
+- env vars の雛形は repo root の `.env.sample` を参照
+
+## 4. J-Quants ClientV2 Methods
+
+使う method は次の 5 点に固定する。
+
+| method | 用途 |
+| --- | --- |
+| `get_eq_master` | 上場銘柄一覧、普通株判定、市場区分、33 業種、信用銘柄区分 |
+| `get_eq_bars_daily_range` | 日次 OHLCV、20 営業日平均売買代金、60 営業日騰落率、750 営業日自己レンジ |
+| `get_fin_summary_range` | 財務サマリー、会社予想 EPS、利益系概要値 |
+| `get_eq_earnings_cal` | 決算発表予定 |
+| `get_mkt_calendar` | 営業日カレンダ |
+
+## 5. EDINET Baseline
+
+- API version: v2
+- 仕様書: `2026-01-29 / ESE140206.pdf`
+- 認証方式: `Subscription-Key` を query parameter に付与
+- 対象 docTypeCode:
+  - `120`: 有報
+  - `140`: 旧四半期報告書
+  - `160`: 半期報告書
+- CLI は `documents.json` の取得のみを行い、CSV ZIP（UTF-16 LE タブ区切り）の解凍と metric 抽出は行わない。`providers/edinet.py` の `load_metric_records` は前処理済み JSON cache を読み込む前提
+
+## 6. JPX Policy
+
+- 利用対象は JPX 公開情報（CSV / Excel / HTML）
+- HTML は `https://www.jpx.co.jp/` 配下の許可済み URL に限定し、source-specific parser で fail-fast に扱う
+- 特別注意銘柄は `JPX_SPECIAL_CAUTION_INDEX_URL` が設定されていれば、JPX の「個別銘柄信用取引残高表」index から最新の `mtdailyk*.xls` link を解決してから Excel を取得する。index 未設定時は `JPX_SPECIAL_CAUTION_URL` の固定 URL を使う
+- 規制情報の取得失敗は fail-fast
+- 個別 source のうちロードできなかったものは `fallback_lines` に `JPX source 未ロード: ...` として明示される
+- JPX 公開規制情報は latest snapshot しか取得できないため、cache には `fetched_at_utc` を記録する。cache 読み込み時に `asof` と `fetched_at_utc` が 7 weekday 超乖離していれば warning を出す（祝日は引かない近似）
+- `asof` が実行日から 7 weekday 超過去で、該当日の JPX cache が無い場合、`run` は fail-fast する。運用者が latest snapshot を過去 `asof` に固定するリスクを許容する場合のみ `--allow-stale-jpx` を付ける
+
+## 7. Date Semantics
+
+- `--asof` は対象営業日を表す
+- `run_date` は `asof_date` と同値にする
+- 出力 path は `records/03-candidates/{YYYY}/{MM}/{asof_date}.yaml`
+- 同一 path が既に存在する場合は fail-fast
+- 非営業日の `--asof` は fail-fast
+
+## 8. Rule Baselines
+
+- `yoy_deterioration_threshold = -30%`
+- 営業利益相当の fallback:
+  - `OperatingProfit`
+  - `OrdinaryProfit`
+  - `Profit`
+- `short_history_flag = true` の銘柄は条件 A を skip
+- `EV/EBITDA` は `ttm_quality = exact` のときのみ判定に使う。historical 近似精度の制約から、`_rule_metrics` は `per_trailing` / `pbr` のみを返す
+
+## 9. Partial Warning Thresholds
+
+- `ttm_quality != exact` が universe の 5% 以上、または 20 銘柄以上
+- 業績悪化フィルタ入力欠損が universe の 10% 以上
+
+## 10. Exit Codes
+
+- `0`: 全件成功
+- `1`: fail-fast（YAML 未生成）
+- `2`: partial warning（YAML 生成済み、欠損明記）
+
+## 11. Cache Layout
+
+- `records/_data/raw/screening/` は J-Quants / EDINET / JPX から取得した raw JSON の **正本**。git 管理対象。1 ファイル 50MB 未満を維持し、別 PC で `git clone` 後に再取得なしで screening / ledger を再生成できる
+- `records/_data/cache/screening/` は raw JSON から派生した SQLite cache や rebuild 中の一時ファイルの置き場。`.gitignore` 対象。安全に削除して再生成できる
+- `records/_data/raw/screening/manifests/` は run 毎の lineage manifest 出力先。`.gitignore` 対象（`candidates` YAML 側に `cache_manifest_hash` が記録されるため、manifest JSON 自体は git に載せない）
+- `JQuantsProvider` は SQLite (`records/_data/cache/screening/market.sqlite`) が存在し、要求範囲を `raw_imports` の chunk window で覆える場合は SQLite から読む（read-through）。覆えない場合は raw JSON cache → API の順にフォールバックする。SQLite が古い場合は `rebuild-cache` を再実行する
+
+### 11.1 SQLite Schema
+
+`rebuild-cache` は以下のテーブルを `records/_data/cache/screening/market.sqlite` に作成する。`cache_metadata.schema_version` で schema version を管理する。
+
+- `jquants_daily_bars(ticker, traded_at, open, high, low, close, volume, turnover_value, adjustment_*, upper_limit, lower_limit)` — 主キー `(ticker, traded_at)`、`traded_at` index 付。`is_common_stock=False` の record はスキップ
+- `jquants_fin_summaries(ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, sales, operating_profit, ordinary_profit, profit, fiscal_period, fiscal_year_end, period_start, period_end, raw_json)` — 主キー `(ticker, disclosed_at)`
+- `jquants_master_snapshots(snapshot_date, ticker, name, market, sector_33, is_common_stock, raw_json)` — 主キー `(snapshot_date, ticker)`
+- `jquants_earnings_calendar(announcement_date, ticker, raw_json)` — 主キー `(announcement_date, ticker)`
+- `jquants_market_calendar(day, is_business_day, raw_json)` — 主キー `(day)`。`HolidayDivision` "1" / "2" を business day=1、それ以外を 0 として記録
+- `edinet_documents(doc_date, doc_id, sec_code, doc_type_code, raw_json)` — 主キー `(doc_date, doc_id)`。`doc_date` はファイル名（`{date}.json`）から復元
+- `edinet_metrics(asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, consolidation_basis, ttm_quality_*)` — 主キー `(asof_date, ticker)`。`asof_date` はファイル名から復元
+- `jpx_regulation_flags(asof_date, source_name, ticker, flag, fetched_at_utc)` — 主キー `(asof_date, source_name, ticker, flag)`。JPX cache の `flags_by_ticker` は source 別の起源を保持しないため、`source_name=flag` として記録
+- `raw_imports(source, path, sha256, imported_at_utc, record_count, min_date, max_date)` — `path` を主キーとし、import した raw JSON の SHA-256 と record 範囲を記録する監査用 table
+- `cache_metadata(key, value)` — schema version などの KV ストア
+
+### 11.2 Volume と rebuild 時間の目安
+
+raw JSON 約 1.1GB / 44 ファイル（1 ファイル最大 32.8MB）規模で、`rebuild-cache` は数十秒程度で完了する。月次の追加見込みは raw JSON +30〜35MB / SQLite +10〜13MB の想定。GitHub 私有リポジトリ推奨上限 5GB に収まる範囲で運用する。

@@ -1,6 +1,6 @@
 # components/brief.md
 
-Baibai-Loop 4 成分アーキテクチャの **(a) マクロ事実ブリーフ** の運用仕様。全体構造は [`../architecture-v1.md`](../architecture-v1.md) を参照。
+Baibai-Loop 4 成分アーキテクチャの **(a) マクロ事実ブリーフ** の運用仕様。全体構造は [`../architecture.md`](../architecture.md) を参照。
 
 ## 1. 役割
 
@@ -155,7 +155,7 @@ AI 下書きは `ai_draft: true` で識別し、人間確認後 `false` に更�
 ## 8. 参考
 
 - [`../philosophy.md`](../philosophy.md): 思想（事実と分析の分離、マクロ優位）
-- [`../architecture-v1.md`](../architecture-v1.md): 全体構造
+- [`../architecture.md`](../architecture.md): 全体構造
 - [`../workflow.md`](../workflow.md): brief の詳細運用ルール（閾値、差分、禁止表現）
 - [`../data-sources.md`](../data-sources.md): 一次統計ソース Tier
 - [`../templates/brief-world-daily.yaml`](../templates/brief-world-daily.yaml): 日次 template

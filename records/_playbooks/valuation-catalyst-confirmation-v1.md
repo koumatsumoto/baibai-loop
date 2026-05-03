@@ -55,9 +55,9 @@ P-A と同じ。業種/地域のマクロ gate が `tailwind` または `neutral
 
 ### 2.5 Universe 条件
 
-- 時価総額 300 億円以上
-- 20 営業日平均売買代金 2 億円以上
-- **300-500 億円帯は本 playbook で採用可**: ただし **catalyst freshness ≦ 10 営業日 かつ 前日比出来高 1.5x 以上** の追加条件
+- 時価総額 200 億円以上
+- 20 営業日平均売買代金 3 億円以上
+- **200-500 億円帯は本 playbook で採用可**: ただし **catalyst freshness ≦ 10 営業日 かつ 前日比出来高 1.5x 以上** の追加条件
 - 他の universe 条件は P-A と同じ
 
 ## 3. 原因仮説と反対仮説
@@ -113,7 +113,7 @@ P-A の無効化条件に加えて:
 
 - 1,000 億円以上: 2%
 - 500-1,000 億円: 1%
-- **300-500 億円帯: 0.5%**（P-B のみ、catalyst freshness ≦ 10 営業日 + 出来高 1.5x 以上を満たす場合）
+- **200-500 億円帯: 0.5%**（P-B のみ、catalyst freshness ≦ 10 営業日 + 出来高 1.5x 以上を満たす場合）
 
 ## 8. Kill switch
 
@@ -123,16 +123,10 @@ P-A と同じ。
 
 P-A と同じ。catalyst 欄の一次ソース URL 確認は **人間必須**。
 
-## 10. 改訂履歴
-
-| 版 | 日付 | 変更内容 | 判断根拠 |
-| --- | --- | --- | --- |
-| v1 | 2026-04-24 | 初版（#7 5.3 から正本化） | アーキテクチャ v1 統合 |
-
-## 11. 参考
+## 10. 参考
 
 - [`valuation-mean-reversion-v1.md`](./valuation-mean-reversion-v1.md): P-A 本命 playbook
 - [`../docs/screening/principles.md`](/docs/screening/principles.md): スクリーニング原則
-- [`../docs/screening/mechanical-v1.md`](/docs/screening/mechanical-v1.md): 機械的ふるい閾値
+- [`../docs/screening/mechanical.md`](/docs/screening/mechanical.md): 機械的ふるい閾値
 - [`../docs/screening/macro-gate-procedure.md`](/docs/screening/macro-gate-procedure.md): Macro gate 判定
 - [`../docs/components/research.md`](/docs/components/research.md): research 運用仕様

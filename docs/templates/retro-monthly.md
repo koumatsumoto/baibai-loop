@@ -101,7 +101,7 @@ price_missing_counts:
 - **Playbook 別サンプル数**:
   - P-A: XX 件
   - P-B: XX 件
-- **10 件未満の playbook**: v1 据え置きを許容（#7 から継承）
+- **10 件未満の playbook**: 据え置きを許容
 - **改訂判断**: [v1 据え置き | v1.1 改訂（checklist 差分提案）| v2 開発]
 - **改訂の根拠**: [1-2 段落]
 

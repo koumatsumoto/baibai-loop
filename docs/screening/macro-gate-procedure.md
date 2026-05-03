@@ -1,6 +1,6 @@
 # screening/macro-gate-procedure.md
 
-Baibai-Loop の **Macro gate 判定手順**。research の front matter `macro_gate` を決める手順で、`(c) records/02-outlook/` を唯一の source として運用する（v1 簡易版）。将来 `analysis/` 集約層に差し替え可能な設計にしておく。
+Baibai-Loop の **Macro gate 判定手順**。research の front matter `macro_gate` を決める手順で、`(c) records/02-outlook/` を唯一の source として運用する。
 
 ## 1. 位置付け
 
@@ -55,11 +55,10 @@ headwind > neutral > tailwind
     - **逆方向の上書き不可**（neutral → tailwind、headwind → neutral は禁止）
 - 常態的に outlook が遅れるなら、outlook の更新 trigger を見直す（[`../components/outlook.md`](../components/outlook.md)）
 
-### 3.4 outlook が存在しない期間（Bootstrap 前）
+### 3.4 outlook が存在しない場合
 
-- `records/02-outlook/` に最新の outlook がない場合は、research 作成前に outlook を更新する
-- この場合、**先に outlook の bootstrap を実施** する（[`../components/outlook.md`](../components/outlook.md) の Bootstrap 規則）
-- bootstrap 完了前に research を作成してはならない（gate 判定不能のため）
+- `records/02-outlook/` に最新の outlook がない場合は、research 作成前に outlook を作成する（[`../components/outlook.md`](../components/outlook.md) §3 初回作成手順）
+- outlook 作成完了前に research を作成してはならない（gate 判定不能のため）
 
 ## 4. Front matter 記録
 
@@ -97,27 +96,9 @@ brief_refs:
 | --- | --- | --- |
 | `tailwind` | 採用可 | 4 軸評価 + 反対仮説 + kill switch で最終判定 |
 | `neutral` | 条件付き採用可 | valuation の割安度 + catalyst freshness（P-B）で confidence 高いもののみ |
-| `headwind` | **原則採用不可** | 例外運用は playbook v2 改訂議論の input にする（v1 は例外なし） |
+| `headwind` | **原則採用不可** | 例外運用は playbook 改訂議論の input にする |
 
-## 6. 将来の置換想定（`analysis/` 集約層）
-
-### 6.1 置換の動機
-
-- 現状の `records/02-outlook/` は brief からの手動集約であり、運用負荷が高い
-- 将来 `analysis/` 集約層を導入し、産業別・地域別の長期トレンドを AI 分析で集約する（philosophy §6 未熟さ 1）
-
-### 6.2 置換の方法（将来）
-
-- `outlook_ref` を `analysis_ref` に置き換える
-- `analysis/YYYY/MM/analysis-YYYY-MM-DD-*.md` の schema は `records/02-outlook/` と互換性を持たせる想定
-- v1 運用中に `records/02-outlook/` schema を stable に保つことで、将来の置換コストを下げる
-
-### 6.3 v1 では置換しない
-
-- 実装は future work、v1 運用 1 サイクル完走後に検討
-- 本計画 v1 のスコープ外
-
-## 7. Retro での評価
+## 6. Retro での評価
 
 月次 retro で以下を集計（[`../components/reviews.md`](../components/reviews.md)）:
 
@@ -127,9 +108,9 @@ brief_refs:
 
 これらから outlook の更新 trigger や gate 判定の精度を評価し、次周回の改善項目にする。
 
-## 8. 参考
+## 7. 参考
 
 - [`principles.md`](./principles.md): スクリーニング原則
-- [`../components/outlook.md`](../components/outlook.md): outlook 運用仕様（Bootstrap 規則含む）
+- [`../components/outlook.md`](../components/outlook.md): outlook 運用仕様
 - [`../components/research.md`](../components/research.md): research 選定プロセス
 - [`../philosophy.md`](../philosophy.md): 思想（マクロ優位 76/24）

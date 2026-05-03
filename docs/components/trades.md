@@ -1,6 +1,6 @@
 # components/trades.md
 
-Baibai-Loop 4 成分アーキテクチャの下流 **trades** 成分の運用仕様。research で採用された packet の執行記録。全体構造は [`../architecture-v1.md`](../architecture-v1.md) を参照。
+Baibai-Loop 4 成分アーキテクチャの下流 **trades** 成分の運用仕様。research で採用された packet の執行記録。全体構造は [`../architecture.md`](../architecture.md) を参照。
 
 ## 1. 役割
 
@@ -95,12 +95,12 @@ entry 時 + 保有中に以下を確認:
 | **実際の約定実行** | | ○ |
 | **exit 判断** | | ○ |
 
-自動発注は v1 スコープ外。
+自動発注はスコープ外。
 
 ## 9. 参考
 
 - [`../philosophy.md`](../philosophy.md): 思想
-- [`../architecture-v1.md`](../architecture-v1.md): 全体構造、trades schema
+- [`../architecture.md`](../architecture.md): 全体構造、trades schema
 - [`research.md`](./research.md): source となる research の仕様
 - [`reviews.md`](./reviews.md): 接続先 reviews
 - [`../templates/trade.md`](../templates/trade.md): template

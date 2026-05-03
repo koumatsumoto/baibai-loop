@@ -86,4 +86,4 @@ USD/JPY、米製造業需要、海外建設投資の影響を一次的に受け�
 - [`../components/outlook.md`](../components/outlook.md): outlook の region 判定ルール
 - [`../components/research.md`](../components/research.md) §2: Macro gate での integrated judgement
 - [`./universe-rules.md`](./universe-rules.md): universe 境界条件
-- [`./mechanical-v1.md`](./mechanical-v1.md): 機械的ふるい仕様
+- [`./mechanical.md`](./mechanical.md): 機械的ふるい仕様

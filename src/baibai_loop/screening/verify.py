@@ -94,7 +94,7 @@ def _iter_raw_json_files(raw_dir: Path) -> Iterable[Path]:
         if not path.is_file():
             continue
         # Skip per-run lineage manifests; they live under manifests/ and are
-        # gitignored as derived run output (see automation-v1.md §11).
+        # gitignored as derived run output (see automation.md §11).
         if "manifests" in path.relative_to(raw_dir).parts:
             continue
         yield path

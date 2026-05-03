@@ -1,6 +1,6 @@
 # components/reviews.md
 
-Baibai-Loop 4 成分アーキテクチャの下流 **reviews** 成分の運用仕様。事後検証と月次 retro で feedback loop を閉じる。全体構造は [`../architecture-v1.md`](../architecture-v1.md) を参照。
+Baibai-Loop 4 成分アーキテクチャの下流 **reviews** 成分の運用仕様。事後検証と月次 retro で feedback loop を閉じる。全体構造は [`../architecture.md`](../architecture.md) を参照。
 
 ## 1. 役割
 
@@ -125,7 +125,7 @@ price_missing_counts:
 
 ### 9.1 判断基準
 
-- サンプル数が playbook 別で 10 件未満 → **playbook v1 据え置きを許容**（#7 から継承）
+- サンプル数が playbook 別で 10 件未満 → **playbook 据え置きを許容**
 - 代わりに checklist 差分（packet の追加チェック欄）を提案する
 - 自由記述 + 反対仮説自由記述の頻出キーワードを 3-5 個抽出し、次周回で意識するポイントに落とす
 - **Macro gate の判定精度** を集計（追い風判定した銘柄の +15/+30 パフォーマンス、逆風判定した不採用銘柄のパフォーマンス）
@@ -151,7 +151,7 @@ price_missing_counts:
 ## 11. 参考
 
 - [`../philosophy.md`](../philosophy.md): 思想（feedback loop 先行）
-- [`../architecture-v1.md`](../architecture-v1.md): 全体構造
+- [`../architecture.md`](../architecture.md): 全体構造
 - [`trades.md`](./trades.md): source となる trades の仕様
 - [`research.md`](./research.md): skipped trade log source
 - [`../screening/failure-taxonomy.md`](../screening/failure-taxonomy.md): 失敗分類詳細

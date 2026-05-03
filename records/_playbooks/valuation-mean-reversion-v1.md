@@ -42,7 +42,7 @@ updated_at: "2026-04-24T09:00:00+09:00"
 
 ### 2.2 Mean-Reversion 条件（3 種 OR、最低 1 つ）
 
-[`../docs/screening/mechanical-v1.md`](/docs/screening/mechanical-v1.md) の閾値条件を継承:
+[`../docs/screening/mechanical.md`](/docs/screening/mechanical.md) の閾値条件を継承:
 
 - **条件 A**: PER / PBR / EV-EBITDA のいずれかが業種中央値比 -20% 以上 かつ 過去 3 年自己レンジ下位 20%
 - **条件 B**: 過去 60 営業日で -15% 以上下落 かつ valuation が 1σ 以上下方（業績悪化なし）
@@ -61,11 +61,11 @@ updated_at: "2026-04-24T09:00:00+09:00"
 
 ### 2.5 Universe 条件
 
-- 時価総額 300 億円以上
-- 20 営業日平均売買代金 2 億円以上
+- 時価総額 200 億円以上
+- 20 営業日平均売買代金 3 億円以上
 - 上場 6 か月以上
 - 特別注意 / 整理銘柄除外
-- **300-500 億円帯は P-A 単独採用不可**（本 playbook の対象外、P-B のみ許可）
+- **200-500 億円帯は P-A 単独採用不可**（本 playbook の対象外、P-B のみ許可）
 - 詳細: [`../docs/screening/universe-rules.md`](/docs/screening/universe-rules.md)
 
 ## 3. 原因仮説と反対仮説（research packet 必須）
@@ -125,7 +125,7 @@ updated_at: "2026-04-24T09:00:00+09:00"
 
 - 1,000 億円以上: 2%
 - 500-1,000 億円: 1%
-- **300-500 億円帯: P-A 単独採用不可**（P-B のみ）
+- **200-500 億円帯: P-A 単独採用不可**（P-B のみ）
 
 ## 8. Kill switch
 
@@ -140,16 +140,10 @@ updated_at: "2026-04-24T09:00:00+09:00"
 - **AI 可**: Thesis ドラフト / valuation snapshot 数値取得 / 原因仮説・反対仮説ドラフト / price reaction / crowding
 - **人間のみ**: Macro gate 確定 / 一次ソース URL 確認 / 最終採用判定 / 失敗分類確定
 
-## 10. 改訂履歴
-
-| 版 | 日付 | 変更内容 | 判断根拠 |
-| --- | --- | --- | --- |
-| v1 | 2026-04-24 | 初版（#7 5.2 から正本化） | アーキテクチャ v1 統合 |
-
-## 11. 参考
+## 10. 参考
 
 - [`../docs/screening/principles.md`](/docs/screening/principles.md): スクリーニング原則
-- [`../docs/screening/mechanical-v1.md`](/docs/screening/mechanical-v1.md): 機械的ふるい閾値
+- [`../docs/screening/mechanical.md`](/docs/screening/mechanical.md): 機械的ふるい閾値
 - [`../docs/screening/valuation-metrics.md`](/docs/screening/valuation-metrics.md): 指標算出仕様
 - [`../docs/screening/macro-gate-procedure.md`](/docs/screening/macro-gate-procedure.md): Macro gate 判定
 - [`../docs/components/research.md`](/docs/components/research.md): research 運用仕様

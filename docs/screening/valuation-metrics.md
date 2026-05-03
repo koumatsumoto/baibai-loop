@@ -28,7 +28,7 @@ Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデ
 ### 2.3 会社予想未公表 or 予想レンジ提示銘柄の扱い
 
 - **forward PER なし** として扱い、`per_forward: null`
-- **trailing PER のみで判定**（mechanical-v1.md の閾値判定は trailing で代用）
+- **trailing PER のみで判定**（mechanical.md の閾値判定は trailing で代用）
 - research packet の `primary_metric` には trailing を含める
 
 ## 3. Trailing PER の算出
@@ -88,11 +88,11 @@ EDINET の XBRL 構造から取得。J-Quants Light の財務サマリーで取�
 - **パーセンタイル**: 下位 20% / 下位 50% / 上位 50% / 上位 80%
 - **上場 3 年未満**: 上場来レンジで代替（universe-rules.md 参照）
 
-Historical EV/EBITDA は、各日の split-adjusted close で時価総額だけを変化させ、最新の発行済株式数・有利子負債・現金・TTM EBITDA を全期間に適用する近似で算出する。式は `(historical_adjustment_close * latest_shares_outstanding + latest_debt - latest_cash) / latest_ebitda_ttm` とし、balance sheet / EBITDA の時系列が無い v1 でも EV/EBITDA の定義を保つ。`adjustment_close` が欠損する場合は raw `close` にフォールバックする。必要項目が欠損する場合は `null` とし、`ttm_quality_ev_ebitda = exact` の銘柄だけ mechanical 判定に使う。PBR / PER の history も同じ price 基準（adjustment_close 優先）で算出するため、株式分割があっても history は連続になる。
+Historical EV/EBITDA は、各日の split-adjusted close で時価総額だけを変化させ、最新の発行済株式数・有利子負債・現金・TTM EBITDA を全期間に適用する近似で算出する。式は `(historical_adjustment_close * latest_shares_outstanding + latest_debt - latest_cash) / latest_ebitda_ttm` とし、balance sheet / EBITDA の時系列が無くても EV/EBITDA の定義を保つ。`adjustment_close` が欠損する場合は raw `close` にフォールバックする。必要項目が欠損する場合は `null` とし、`ttm_quality_ev_ebitda = exact` の銘柄だけ mechanical 判定に使う。PBR / PER の history も同じ price 基準（adjustment_close 優先）で算出するため、株式分割があっても history は連続になる。
 
 ## 10. データソース
 
-### 10.1 Core（v1 必須）
+### 10.1 Core
 
 - **J-Quants Light / ClientV2**:
   - `get_eq_master`: 上場銘柄一覧、普通株判定、市場区分、33 業種
@@ -116,9 +116,9 @@ Historical EV/EBITDA は、各日の split-adjusted close で時価総額だけ�
 ## 11. 半期移行と TTM 品質
 
 - 2024 年以降、EDINET 単体では旧来の四半期報告書に依存した TTM 再構成ができない期間がある
-- v1 では TTM 品質を `exact` / `approximated` / `unavailable` で明示する
+- TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - `EV/EBITDA` は `ttm_quality = exact` のときのみ mechanical 判定に使用する
-- `P/S` と `PCFR` は v1 では表示用とし、`ttm_quality` を front matter に残す
+- `P/S` と `PCFR` は表示用とし、`ttm_quality` を front matter に残す
 
 ## 12. 営業利益相当の fallback
 
@@ -130,7 +130,7 @@ Historical EV/EBITDA は、各日の split-adjusted close で時価総額だけ�
 
 ## 13. 前年同期の決定ロジック
 
-J-Quants の財務サマリーは四半期 disclosure の時系列として扱うため、直前 disclosure は YoY ではなく QoQ になる。v1 では `eps_yoy` / `sales_yoy` / `operating_profit_yoy` の比較対象を、最新 summary と同じ `TypeOfCurrentPeriod` かつ `CurrentFiscalYearEndDate` が 1 年前の summary とする。該当する前年同期が無い場合、または period field が欠損している場合は `null` にする。`null` は業績悪化フィルタでは悪化なしとして扱い、季節性による QoQ 減少や不規則 disclosure の index shift を過剰棄却に使わない。
+J-Quants の財務サマリーは四半期 disclosure の時系列として扱うため、直前 disclosure は YoY ではなく QoQ になる。 `eps_yoy` / `sales_yoy` / `operating_profit_yoy` の比較対象を、最新 summary と同じ `TypeOfCurrentPeriod` かつ `CurrentFiscalYearEndDate` が 1 年前の summary とする。該当する前年同期が無い場合、または period field が欠損している場合は `null` にする。`null` は業績悪化フィルタでは悪化なしとして扱い、季節性による QoQ 減少や不規則 disclosure の index shift を過剰棄却に使わない。
 
 ## 14. 算出エラー・欠損の扱い
 
@@ -142,6 +142,6 @@ J-Quants の財務サマリーは四半期 disclosure の時系列として扱�
 
 - [`principles.md`](./principles.md): スクリーニング原則
 - [`universe-rules.md`](./universe-rules.md): universe 境界条件
-- [`mechanical-v1.md`](./mechanical-v1.md): 機械的ふるい仕様（閾値 3 種 OR）
+- [`mechanical.md`](./mechanical.md): 機械的ふるい仕様（閾値 3 種 OR）
 - [`../components/candidates.md`](../components/candidates.md): candidates 運用仕様
 - [`../data-sources.md`](../data-sources.md): データソース Tier 一覧
