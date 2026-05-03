@@ -1,22 +1,22 @@
 # components/research.md
 
-Baibai-Loop 4 成分アーキテクチャの **(d) 個別銘柄リサーチ** の運用仕様。screened × outlook から選定した個別銘柄の深掘り packet 本体で、本計画 v1 の主戦場。全体構造は [`../architecture-v1.md`](../architecture-v1.md)、スクリーニング詳細は [`../screening/`](../screening/) を参照。
+Baibai-Loop 4 成分アーキテクチャの **(d) 個別銘柄リサーチ** の運用仕様。candidates × outlook から選定した個別銘柄の深掘り packet 本体で、本計画 v1 の主戦場。全体構造は [`../architecture-v1.md`](../architecture-v1.md)、スクリーニング詳細は [`../screening/`](../screening/) を参照。
 
 ## 1. 役割
 
-- `records/03-screened/` × `records/02-outlook/` から選定した個別銘柄について、**一時的割安の原因仮説・反対仮説・catalyst・crowding を深く分析**
+- `records/03-candidates/` × `records/02-outlook/` から選定した個別銘柄について、**一時的割安の原因仮説・反対仮説・catalyst・crowding を深く分析**
 - 採用判定 / 見送り / 保留を記録（packet）
 - Micro track の分析層、4 成分統合の出力点
 
-## 2. 選定プロセス（screened × outlook → 候補絞り込み）
+## 2. 選定プロセス（candidates × outlook → 候補絞り込み）
 
-本節は v1 アーキテクチャの中核。`screened` (ミクロ事実) × `outlook` (マクロ見解) の 2 軸統合を具体化する。
+本節は v1 アーキテクチャの中核。`candidates` (ミクロ事実) × `outlook` (マクロ見解) の 2 軸統合を具体化する。
 
 ### 2.1 4 ステップ
 
-1. **最新 screened を取得**: 直近の `records/03-screened/YYYY/MM/YYYY-MM-DD.yaml` を選び、`tickers` 配列を取得
+1. **最新 candidates を取得**: 直近の `records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml` を選び、`tickers` 配列を取得
 2. **最新 outlook を参照**: 直近の `records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml` を選び、`sectors` / `regions` を取得
-3. **gate 通過銘柄に絞り込み**: screened ticker のうち、所属業種/地域が outlook で **tailwind または neutral** のものを候補に残す（**headwind は除外**）。screened は `sector_33` のみ持つので、各業種を outlook の region (`japan-external-demand` 等) に対応させるには [`../screening/sector-region-map.md`](../screening/sector-region-map.md) の default mapping を出発点にする (mixed 業種は研究で個別判断)
+3. **gate 通過銘柄に絞り込み**: candidates ticker のうち、所属業種/地域が outlook で **tailwind または neutral** のものを候補に残す（**headwind は除外**）。candidates は `sector_33` のみ持つので、各業種を outlook の region (`japan-external-demand` 等) に対応させるには [`../screening/sector-region-map.md`](../screening/sector-region-map.md) の default mapping を出発点にする (mixed 業種は研究で個別判断)
 4. **候補から人間 + AI が個別 ticker を選定**: 以下の基準で優先度判定
    - `threshold_hit` の重なり（複数閾値で hit した方が confidence 高）
    - valuation 指標の乖離幅（業種中央値比・過去自己比較）
@@ -53,7 +53,7 @@ ticker: "7203"
 name: "トヨタ自動車"
 playbook: valuation-mean-reversion-v1 | valuation-catalyst-confirmation-v1
 decision: accepted | skipped | pending
-screened_ref: records/03-screened/YYYY/MM/YYYY-MM-DD.yaml      # 必須
+candidates_ref: records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml      # 必須
 outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml       # 必須（Bootstrap 後は例外なし）
 brief_refs:                                        # 任意、outlook 後に出た緊急 brief 時のみ
   - records/01-brief/YYYY/MM/YYYY-MM-DD-*.yaml
@@ -64,8 +64,8 @@ macro_gate: tailwind | neutral | headwind          # outlook 判定結果
 macro_gate_override: "..."                         # headwind 採用時のみ必須
 position_size_oku: 0.01                            # 建玉 proxy (億円)
 adv_participation_pct: 0.2                         # position_size_oku / avg_turnover_oku * 100
-market_cap_oku: 936                                # screened 由来の時価総額 (億円)
-sector_33: "情報・通信業"                         # screened 由来の東証 33 業種
+market_cap_oku: 936                                # candidates 由来の時価総額 (億円)
+sector_33: "情報・通信業"                         # candidates 由来の東証 33 業種
 valuation:
   per_forward: 数値 | null                         # 会社予想ベース、未公表は null
   per_trailing: 数値
@@ -83,7 +83,7 @@ valuation:
 - `decision: accepted` かつ `macro_gate: headwind` の場合は `macro_gate_override` が必須
 - `position_size_oku` は仮定資本 1 億円ベース。採用 position 1.0% は `0.01` 億円として記録する
 - `adv_participation_pct` は `5.0` 以上で hard reject
-- `market_cap_oku` / `sector_33` は screened から転記し、tier rule と sector 集中 warning の検証に使う
+- `market_cap_oku` / `sector_33` は candidates から転記し、tier rule と sector 集中 warning の検証に使う
 - 配当利回りは v1 スコープ外のため front matter に含めない
 
 ## 5. Packet 必須項目（本文、13 項目）
@@ -169,7 +169,7 @@ AI 下書きは front matter `ai-draft: true` で識別、人間確認後 `false
 
 - [`../philosophy.md`](../philosophy.md): 思想（マクロ優位 76/24、事実と分析の分離）
 - [`../architecture-v1.md`](../architecture-v1.md): 全体構造
-- [`screened.md`](./screened.md): source となる screened の仕様
+- [`candidates.md`](./candidates.md): source となる candidates の仕様
 - [`outlook.md`](./outlook.md): Macro gate source の仕様
 - [`../screening/principles.md`](../screening/principles.md): Playbook P-A / P-B 定義
 - [`../screening/macro-gate-procedure.md`](../screening/macro-gate-procedure.md): Macro gate 判定手順

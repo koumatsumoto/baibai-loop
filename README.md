@@ -10,7 +10,7 @@ Baibai-Loop は、日本株トレードにおける戦略立案、スクリー�
 
 1. マクロ事実を蓄積する（brief）
 2. マクロ見解を更新する（outlook）
-3. スクリーニング基準でふるいにかける（screened）
+3. スクリーニング基準でふるいにかける（candidates）
 4. 個別銘柄を深掘り調査する（research）
 5. 条件を満たしたら取引する（trades）
 6. 事後検証と retro で次回改善に活かす（reviews）
@@ -31,7 +31,7 @@ Baibai-Loop は 4 成分 + 下流（2 成分）で構成されます。
 | 成分 | directory | 役割 |
 | --- | --- | --- |
 | a | [`records/01-brief/`](./records/01-brief/) | マクロ事実ブリーフ（定期+不定期） |
-| b | `records/03-screened/` | スクリーニング通過銘柄 |
+| b | `records/03-candidates/` | スクリーニング通過銘柄 |
 | c | `records/02-outlook/` | マクロ見解（brief を積み上げて作成） |
 | d | `records/04-research/` | 個別銘柄リサーチ packet |
 | ― | `records/05-trades/` | 執行記録 |
@@ -40,7 +40,7 @@ Baibai-Loop は 4 成分 + 下流（2 成分）で構成されます。
 **2 トラック構成**:
 
 - **Macro track (独立)**: `records/01-brief/` → `records/02-outlook/`（売買イベントと独立に更新）
-- **Micro track (売買ループ)**: `records/03-screened/` → `records/04-research/` → `records/05-trades/` → `records/06-reviews/` → retro feedback
+- **Micro track (売買ループ)**: `records/03-candidates/` → `records/04-research/` → `records/05-trades/` → `records/06-reviews/` → retro feedback
 
 全体像の詳細は [`docs/architecture-v1.md`](./docs/architecture-v1.md) を参照。
 
@@ -70,7 +70,7 @@ baibai-loop/
 │   ├── python-foundation.md           # Python 3.14 基盤と品質ゲート
 │   ├── components/                    # 各成分の運用仕様
 │   │   ├── brief.md
-│   │   ├── screened.md
+│   │   ├── candidates.md
 │   │   ├── outlook.md
 │   │   ├── research.md
 │   │   ├── trades.md
@@ -88,7 +88,7 @@ baibai-loop/
 │       ├── brief-japan-monthly.yaml
 │       ├── brief-event.yaml
 │       ├── outlook.yaml
-│       ├── screened.yaml
+│       ├── candidates.yaml
 │       ├── research.md
 │       ├── trade.md
 │       ├── review.md
@@ -97,7 +97,7 @@ baibai-loop/
 ├── records/
 │   ├── 01-brief/                    # (a) マクロ事実ブリーフ
 │   ├── 02-outlook/                  # (c) マクロ見解
-│   ├── 03-screened/                 # (b) スクリーニング通過銘柄
+│   ├── 03-candidates/                 # (b) スクリーニング通過銘柄
 │   ├── 04-research/                 # (d) 個別銘柄リサーチ packet
 │   ├── 05-trades/                   # 執行記録
 │   ├── 06-reviews/                  # 事後検証
@@ -113,7 +113,7 @@ baibai-loop/
 
 ## 運用ルール
 
-- 事実（`records/01-brief/`, `records/03-screened/`）と分析（`records/02-outlook/`, `records/04-research/`）を**物理的に分離**
+- 事実（`records/01-brief/`, `records/03-candidates/`）と分析（`records/02-outlook/`, `records/04-research/`）を**物理的に分離**
 - 分析階層は **世界情勢 → 日本経済 → 日本株**（`docs/design-principles.md`）
 - 一次統計（中央銀行・政府・国際機関）中心で事実を記録、意見記事は取らない
 - マクロゲートを通過した銘柄のみ research 対象（逆風銘柄は採用しない）

@@ -1,10 +1,10 @@
 # screening/mechanical-v1.md
 
-Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕様。4 成分アーキテクチャの (b) `records/03-screened/` の出力を決める閾値ベース rule。
+Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕様。4 成分アーキテクチャの (b) `records/03-candidates/` の出力を決める閾値ベース rule。
 
 ## 1. 位置付け
 
-- 4 成分アーキテクチャの **(b) records/03-screened/** の中核
+- 4 成分アーキテクチャの **(b) records/03-candidates/** の中核
 - universe（[`universe-rules.md`](./universe-rules.md)）× valuation 指標（[`valuation-metrics.md`](./valuation-metrics.md)）を入力
 - **通過銘柄 list を事実として出力**（解釈は入れない）
 - research 選定の input となる
@@ -65,14 +65,14 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 ### 4.1 Path
 
 ```
-records/03-screened/YYYY/MM/YYYY-MM-DD.yaml
+records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml
 ```
 
 1 実行 = 1 ファイル（週次運用）
 
 ### 4.2 YAML
 
-詳細は [`../components/screened.md`](../components/screened.md) 節 4 を参照。核心:
+詳細は [`../components/candidates.md`](../components/candidates.md) 節 4 を参照。核心:
 
 ```yaml
 tickers:
@@ -121,7 +121,7 @@ v1 は CLI で自動化しており、正本の実装仕様は [`automation-v1.m
 
 - mechanical-v1 は **事実層**。閾値適用・threshold_hit は機械的
 - 「なぜ割安か」の仮説・「採用すべきか」の判断は research 側
-- screened ファイル本文には補足情報（実行時の市場環境メモ、除外した特殊ケース等）を事実として記録。解釈を入れない
+- candidates ファイル本文には補足情報（実行時の市場環境メモ、除外した特殊ケース等）を事実として記録。解釈を入れない
 
 ## 9. 参考
 
@@ -129,5 +129,5 @@ v1 は CLI で自動化しており、正本の実装仕様は [`automation-v1.m
 - [`universe-rules.md`](./universe-rules.md): universe 境界条件
 - [`valuation-metrics.md`](./valuation-metrics.md): 指標算出仕様
 - [`macro-gate-procedure.md`](./macro-gate-procedure.md): research 側の Macro gate
-- [`../components/screened.md`](../components/screened.md): screened 運用仕様
+- [`../components/candidates.md`](../components/candidates.md): candidates 運用仕様
 - [`../components/research.md`](../components/research.md): research 選定プロセス

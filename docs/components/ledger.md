@@ -33,7 +33,7 @@
 paper/skipped ともに以下を持つ。取得不能な価格・出来高系は `null` を許容する。
 
 - `ticker` / `name` / `decision` / `playbook`
-- `screened_ref` / `research_ref`
+- `candidates_ref` / `research_ref`
 - `asof_date` / `decision_date`
 - `baseline_price`
 - `market_cap_oku` / `avg_turnover_oku`

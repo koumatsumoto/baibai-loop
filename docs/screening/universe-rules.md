@@ -1,6 +1,6 @@
 # screening/universe-rules.md
 
-Baibai-Loop スクリーニングの universe（対象銘柄集合）の境界条件。`(b) records/03-screened/` の入力となる銘柄 pool を定義する。
+Baibai-Loop スクリーニングの universe（対象銘柄集合）の境界条件。`(b) records/03-candidates/` の入力となる銘柄 pool を定義する。
 
 ## 1. 対象
 
@@ -74,7 +74,7 @@ Baibai-Loop スクリーニングの universe（対象銘柄集合）の境界�
 
 ### 6.5 配列
 
-- 参照は path 配列: `brief_refs: [...]`, `updated_from: [...]`, `screened_ref: ...`（単一は文字列、複数は配列）
+- 参照は path 配列: `brief_refs: [...]`, `updated_from: [...]`, `candidates_ref: ...`（単一は文字列、複数は配列）
 
 ## 7. Universe 更新の運用
 
@@ -90,12 +90,12 @@ Baibai-Loop スクリーニングの universe（対象銘柄集合）の境界�
 
 ### 7.3 履歴
 
-- 各 `records/03-screened/YYYY/MM/YYYY-MM-DD.yaml` の YAML `universe_size` で実行時点の universe サイズを記録
+- 各 `records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml` の YAML `universe_size` で実行時点の universe サイズを記録
 - 履歴を遡れば universe の縮小・拡大を追跡できる
 
 ### 7.4 JPX 規制情報の取得失敗
 
-- 特別注意 / 整理 / 取引停止 / 上場廃止警告の参照に必要な JPX 公開情報（CSV / Excel / HTML）が取得できない run は、**fail-fast** として `screened` を生成しない
+- 特別注意 / 整理 / 取引停止 / 上場廃止警告の参照に必要な JPX 公開情報（CSV / Excel / HTML）が取得できない run は、**fail-fast** として `candidates` を生成しない
 - `universe` の必須除外条件に直結するため、`unknown` 扱いで run 継続しない
 - 特別注意銘柄は `JPX_SPECIAL_CAUTION_INDEX_URL` があれば、日次変動する個別銘柄信用取引残高表の `mtdailyk*.xls` を index から解決する
 - JPX 規制情報は latest snapshot 取得のため、7 weekday 超のバックフィルで cache が無い場合は fail-fast し、明示的な `--allow-stale-jpx` 指定時のみ latest snapshot の取得を許容する
@@ -105,4 +105,4 @@ Baibai-Loop スクリーニングの universe（対象銘柄集合）の境界�
 - [`principles.md`](./principles.md): スクリーニング原則
 - [`valuation-metrics.md`](./valuation-metrics.md): 指標算出仕様
 - [`mechanical-v1.md`](./mechanical-v1.md): 機械的ふるい仕様
-- [`../components/screened.md`](../components/screened.md): screened 運用仕様
+- [`../components/candidates.md`](../components/candidates.md): candidates 運用仕様

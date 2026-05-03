@@ -28,7 +28,7 @@ Baibai-Loop は、日本株スイングトレードの精度を売買反復で�
 
 #### (a) 信念
 
-記録されるべき **事実**（`brief`, `screened`）と、人間/AI の **解釈**（`outlook`, `research`）は **物理的に別ファイル** として管理する。同一ファイルに混在させない。
+記録されるべき **事実**（`brief`, `candidates`）と、人間/AI の **解釈**（`outlook`, `research`）は **物理的に別ファイル** として管理する。同一ファイルに混在させない。
 
 #### (b) そう信じる根拠
 
@@ -109,12 +109,12 @@ Baibai-Loop は事実層と分析層を **マクロ/ミクロ で斜交配置** 
 
 ```
               マクロ軸                 ミクロ軸
-事実軸   (a) brief               (b) screened
+事実軸   (a) brief               (b) candidates
 分析軸   (c) outlook                (d) research
 ```
 
 - **a↔c ペア（マクロ）**: brief（事実）が積み上がって outlook（見解）になる
-- **b↔d ペア（ミクロ）**: screened（事実）からの選定で research（分析）が作られる
+- **b↔d ペア（ミクロ）**: candidates（事実）からの選定で research（分析）が作られる
 - **a↔b ペア（事実層）**: マクロとミクロの事実は並行して蓄積される
 - **c↔d ペア（分析層）**: outlook × research の統合が売買判断を生む
 
@@ -130,13 +130,13 @@ Baibai-Loop は事実層と分析層を **マクロ/ミクロ で斜交配置** 
 
 ### (b) Micro track（売買ループ）
 
-`screened → research → trades → reviews` は **売買判断と連動する** ループ。screening 実行 → 選定 → 深掘り → 採用 → 執行 → 検証 → retro feedback。
+`candidates → research → trades → reviews` は **売買判断と連動する** ループ。screening 実行 → 選定 → 深掘り → 採用 → 執行 → 検証 → retro feedback。
 
 ### (c) 2 トラックの統合点: research
 
 2 トラックは **research で統合** される。research は:
 
-- **入力**: 最新 screened（ミクロ事実）+ 最新 outlook（マクロ見解）
+- **入力**: 最新 candidates（ミクロ事実）+ 最新 outlook（マクロ見解）
 - **出力**: 個別銘柄の深掘り packet + 採用判定
 
 outlook がなければ research が作れない（Bootstrap 規則）。これは、マクロ見解なしに個別銘柄を評価しないという柱 2（マクロ優位 76/24）の帰結である。
@@ -148,7 +148,7 @@ v1 で確定した 4 成分の名前は、**役割を一語で表す** ことと
 | 成分 | 名前 | 採用理由 | 却下案 |
 | --- | --- | --- | --- |
 | a | `brief` | 「short fact+points doc」の業界標準語。journal（時系列ログ）より役割に忠実 | journal（log 含意が強い）、record、ledger |
-| b | `screened` | 機械的ふるいの完了形。プロセスではなく結果を指す | screening（プロセス感）、candidates（research と混同）、filtered |
+| b | `candidates` | 機械的ふるいの完了形。プロセスではなく結果を指す | screening（プロセス感）、candidates（research と混同）、filtered |
 | c | `outlook` | humble、更新しやすい。"strategy" は大げさ、"thesis" は academic | strategy（大げさ）、thesis（重い）、outlook（見通し限定）、perspective |
 | d | `research` | 業界標準、「仮説を立てて検証する」ワークフローと整合 | deep-dive（2 語）、investigation（堅い）、analysis（generic）、memo（軽い） |
 
@@ -166,7 +166,7 @@ v1 で確定した 4 成分の名前は、**役割を一語で表す** ことと
 
 将来 `analysis/` 集約層で自動化する想定だが、v1 では人間 + AI による手動集約。v1 運用の手間を計測してから自動化仕様を決める。
 
-### 未熟さ 2: `records/03-screened/` は機械的ふるいを手動 + AI で実行
+### 未熟さ 2: `records/03-candidates/` は機械的ふるいを手動 + AI で実行
 
 将来 script 化を検討するが、v1 では手動 + AI 下書き。閾値やデータソースを運用で validate してから自動化する。
 
@@ -199,7 +199,7 @@ v1 は Swing only（2 か月以内）に絞る。Rerating は v2 以降の検討
 
 - **#5 → #6**: MVP-first へ。抽象過剰を切り、feedback loop 先行に
 - **#6 → #7**: valuation-based 割安検出を核に、マクロ 76/24 を hard gate 化、4 成分アーキ採用
-- **#7 → v1**: 用語確定（`records/01-brief/`, `records/03-screened/`, `records/02-outlook/`, `records/04-research/`）、screening をサブシステム化、philosophy 明文化、migration 実施
+- **#7 → v1**: 用語確定（`records/01-brief/`, `records/03-candidates/`, `records/02-outlook/`, `records/04-research/`）、screening をサブシステム化、philosophy 明文化、migration 実施
 
 ### 7.3 なぜ v1 で philosophy を明文化したか
 

@@ -1,4 +1,4 @@
-# components/screened.md
+# components/candidates.md
 
 Baibai-Loop 4 成分アーキテクチャの **(b) スクリーニング通過銘柄** の運用仕様。狭義のスクリーニング = 機械的ふるいの完了形を指す。全体構造は [`../architecture-v1.md`](../architecture-v1.md)、スクリーニング詳細は [`../screening/`](../screening/) 配下を参照。
 
@@ -16,7 +16,7 @@ Baibai-Loop 4 成分アーキテクチャの **(b) スクリーニング通過�
 ## 3. Path と命名
 
 ```
-records/03-screened/YYYY/MM/YYYY-MM-DD.yaml
+records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml
 ```
 
 1 実行 = 1 ファイル（週次運用のため）。
@@ -95,11 +95,11 @@ tickers:                            # 通過銘柄 list
 
 ### 4.1 traceability の境界
 
-screened YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行時の input を追跡可能にする。ただし J-Quants Light tier は rolling 12 週間が取得上限のため、cache 中身が消えると過去データの再取得は不能。完全な point-in-time 再現性は本 repo のスコープ外とする。
+candidates YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行時の input を追跡可能にする。ただし J-Quants Light tier は rolling 12 週間が取得上限のため、cache 中身が消えると過去データの再取得は不能。完全な point-in-time 再現性は本 repo のスコープ外とする。
 
 ### 4.2 実行メモの扱い
 
-`records/03-screened/` は YAML 正本とし、Markdown 本文は持たない。複数閾値 hit、provider 状態、universe 除外件数、fallback / 部分警告は以下の配列フィールドで保持する。
+`records/03-candidates/` は YAML 正本とし、Markdown 本文は持たない。複数閾値 hit、provider 状態、universe 除外件数、fallback / 部分警告は以下の配列フィールドで保持する。
 
 - `fact_memo_lines`
 - `provider_status_lines`
@@ -109,7 +109,7 @@ screened YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行時�
 
 ### 4.3 schema 検証
 
-[`/records/_schemas/screened-v1.json`](/records/_schemas/screened-v1.json) が screened YAML のコア schema (Draft 2020-12 jsonschema)。`baibai-loop-validate` CLI が同 schema で全 `records/03-screened/*.yaml` を検査し、CI の `Validate artefacts` step で merge gate になる。手元では `uv run baibai-loop-validate --target screened` で個別に走らせられる。
+[`/records/_schemas/candidates-v1.json`](/records/_schemas/candidates-v1.json) が candidates YAML のコア schema (Draft 2020-12 jsonschema)。`baibai-loop-validate` CLI が同 schema で全 `records/03-candidates/*.yaml` を検査し、CI の `Validate artefacts` step で merge gate になる。手元では `uv run baibai-loop-validate --target candidates` で個別に走らせられる。
 
 ## 5. ワークフロー
 
@@ -130,14 +130,14 @@ screened YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行時�
 
 ## 6. research への接続
 
-- `records/04-research/` の front matter `screened_ref` で本ファイルを参照
-- 選定プロセス: 最新 `records/03-screened/` と最新 `records/02-outlook/` を突き合わせ、`outlook` で tailwind/neutral の業種/地域の ticker を候補に残す（headwind 除外）
+- `records/04-research/` の front matter `candidates_ref` で本ファイルを参照
+- 選定プロセス: 最新 `records/03-candidates/` と最新 `records/02-outlook/` を突き合わせ、`outlook` で tailwind/neutral の業種/地域の ticker を候補に残す（headwind 除外）
 - 詳細: [`research.md`](./research.md) の選定プロセス
 - research decision 後の追跡先: [`ledger.md`](./ledger.md)
 
 ## 7. 事実と分析の分離
 
-- screened は **事実層**。valuation 数値・閾値 hit 判定は機械的
+- candidates は **事実層**。valuation 数値・閾値 hit 判定は機械的
 - 「この銘柄は割安だ」という解釈は research 側で行う
 - 「通過した」ことは事実だが、「採用すべき」は解釈
 
@@ -159,4 +159,4 @@ screened YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行時�
 - [`../screening/universe-rules.md`](../screening/universe-rules.md): universe 境界条件
 - [`../screening/valuation-metrics.md`](../screening/valuation-metrics.md): 指標算出仕様
 - [`../screening/mechanical-v1.md`](../screening/mechanical-v1.md): 機械的ふるい仕様（閾値 3 種 OR）
-- [`../templates/screened.yaml`](../templates/screened.yaml): template
+- [`../templates/candidates.yaml`](../templates/candidates.yaml): template

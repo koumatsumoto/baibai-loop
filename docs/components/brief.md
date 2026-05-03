@@ -6,7 +6,7 @@ Baibai-Loop 4 成分アーキテクチャの **(a) マクロ事実ブリーフ**
 
 - 世界情勢・日本経済・業種動向の **一次情報** を短く記録する
 - 「事実 + 要点」の短いドキュメントで、解釈は入れない
-- **独立トラック**: 売買ループ（screened → research → trades → reviews）から独立に積み上がる
+- **独立トラック**: 売買ループ（candidates → research → trades → reviews）から独立に積み上がる
 - Macro track の出発点として `records/02-outlook/` の source となる
 
 ## 2. 種類

@@ -52,7 +52,7 @@ def sync_ledger(
     observed = (observed_at or datetime.now(UTC)).isoformat()
     research_root = root / "records/04-research"
     ledger_root = root / "records/_ledger"
-    screened = _load_screened(root)
+    candidates_index = _load_candidates(root)
     paper_records: list[dict[str, Any]] = []
     skipped_records: list[dict[str, Any]] = []
     warnings: list[str] = []
@@ -67,8 +67,8 @@ def sync_ledger(
         ticker = str(front["ticker"])
         playbook = str(front["playbook"])
         research_keys.add((ticker, playbook))
-        screened_ref = str(front["screened_ref"])
-        candidate = screened.get(screened_ref, {}).get(ticker, {})
+        candidates_ref = str(front["candidates_ref"])
+        candidate = candidates_index.get(candidates_ref, {}).get(ticker, {})
         decision_date = _decision_date(path, front)
         baseline_price, adjustment_applied, price_warning = _baseline_price(
             ticker, decision_date, body, bars
@@ -91,7 +91,7 @@ def sync_ledger(
         )
         name = str(front["name"])
         research_ref = str(path.relative_to(root))
-        asof_date = _asof_date(screened_ref)
+        asof_date = _asof_date(candidates_ref)
         market_cap = _float_or_none(candidate.get("market_cap_oku")) or _extract_market_cap(body)
         threshold_hit_count = (
             len(candidate.get("threshold_hit", []))
@@ -108,7 +108,7 @@ def sync_ledger(
                 ticker=ticker,
                 name=name,
                 playbook=playbook,
-                screened_ref=screened_ref,
+                candidates_ref=candidates_ref,
                 research_ref=research_ref,
                 asof_date=asof_date,
                 decision_date=decision_date.isoformat(),
@@ -129,7 +129,7 @@ def sync_ledger(
                 ticker=ticker,
                 name=name,
                 playbook=playbook,
-                screened_ref=screened_ref,
+                candidates_ref=candidates_ref,
                 research_ref=research_ref,
                 asof_date=asof_date,
                 decision_date=decision_date.isoformat(),
@@ -145,7 +145,9 @@ def sync_ledger(
             skipped_records.append(skipped_record.to_json())
     select_dir = root / "select"
     if select_dir.exists():
-        skipped_records.extend(_load_select_skipped(root, screened, research_keys, warnings))
+        skipped_records.extend(
+            _load_select_skipped(root, candidates_index, research_keys, warnings)
+        )
     else:
         warnings.append("select/ does not exist; skipped candidate-only ledger population")
     paper_by_month = _group_by_month(paper_records)
@@ -186,9 +188,9 @@ def _parse_research(path: Path) -> tuple[dict[str, Any], str] | None:
     return front, match.group(2)
 
 
-def _load_screened(root: Path) -> dict[str, dict[str, Mapping[str, Any]]]:
+def _load_candidates(root: Path) -> dict[str, dict[str, Mapping[str, Any]]]:
     loaded: dict[str, dict[str, Mapping[str, Any]]] = {}
-    for path in sorted((root / "records/03-screened").rglob("*.yaml")):
+    for path in sorted((root / "records/03-candidates").rglob("*.yaml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(document, dict):
             continue
@@ -204,7 +206,7 @@ def _load_screened(root: Path) -> dict[str, dict[str, Mapping[str, Any]]]:
 
 def _load_select_skipped(
     root: Path,
-    screened: Mapping[str, Mapping[str, Mapping[str, Any]]],
+    candidates_index: Mapping[str, Mapping[str, Mapping[str, Any]]],
     research_keys: set[tuple[str, str]],
     warnings: list[str],
 ) -> list[dict[str, Any]]:
@@ -215,7 +217,7 @@ def _load_select_skipped(
             warnings.append(f"skip malformed select file: {path}")
             continue
         decision_date = _select_decision_date(path, document)
-        screened_ref = str(document.get("screened_ref") or "")
+        candidates_ref = str(document.get("candidates_ref") or "")
         candidates = _select_candidates(document)
         for candidate in candidates:
             ticker_raw = candidate.get("ticker")
@@ -225,23 +227,25 @@ def _load_select_skipped(
             playbook = str(candidate.get("playbook") or document.get("playbook") or "default")
             if (ticker, playbook) in research_keys:
                 continue
-            screened_candidate = screened.get(screened_ref, {}).get(ticker, {})
+            candidate_info = candidates_index.get(candidates_ref, {}).get(ticker, {})
             short = playbook_short(playbook) if playbook != "default" else "default"
             record = SkippedLedgerRecord(
                 ledger_id=f"skipped-{decision_date:%Y%m%d}-{ticker}-{short}",
                 ticker=ticker,
-                name=str(candidate.get("name") or screened_candidate.get("name") or ""),
+                name=str(candidate.get("name") or candidate_info.get("name") or ""),
                 decision="skipped",
                 playbook=playbook,
-                screened_ref=screened_ref,
+                candidates_ref=candidates_ref,
                 research_ref=None,
-                asof_date=_asof_date(screened_ref) if screened_ref else decision_date.isoformat(),
+                asof_date=(
+                    _asof_date(candidates_ref) if candidates_ref else decision_date.isoformat()
+                ),
                 decision_date=decision_date.isoformat(),
                 baseline_price=None,
-                market_cap_oku=_float_or_none(screened_candidate.get("market_cap_oku")),
-                avg_turnover_oku=_float_or_none(screened_candidate.get("avg_turnover_oku")),
-                threshold_hit_count=len(screened_candidate.get("threshold_hit", []))
-                if isinstance(screened_candidate.get("threshold_hit"), list)
+                market_cap_oku=_float_or_none(candidate_info.get("market_cap_oku")),
+                avg_turnover_oku=_float_or_none(candidate_info.get("avg_turnover_oku")),
+                threshold_hit_count=len(candidate_info.get("threshold_hit", []))
+                if isinstance(candidate_info.get("threshold_hit"), list)
                 else 0,
                 macro_gate=None,
                 adv_participation_pct=None,
@@ -281,8 +285,8 @@ def _decision_date(path: Path, front: Mapping[str, Any]) -> date:
     return date.fromisoformat(path.name[:10])
 
 
-def _asof_date(screened_ref: str) -> str:
-    return Path(screened_ref).stem[:10]
+def _asof_date(candidates_ref: str) -> str:
+    return Path(candidates_ref).stem[:10]
 
 
 def _baseline_price(

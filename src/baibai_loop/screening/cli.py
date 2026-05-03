@@ -223,7 +223,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     select_parser = subparsers.add_parser(
         "select",
-        help="rank research candidates by combining screened with outlook sectors",
+        help="rank research candidates by combining candidates with outlook sectors",
     )
     select_parser.add_argument("--asof", required=True, help="screening target date (YYYY-MM-DD)")
     select_parser.add_argument(
@@ -247,7 +247,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "select":
-        # select reads existing screened YAML and outlook markdown only, no env or providers needed.
+        # select reads existing candidates YAML and outlook markdown only;
+        # no env or providers needed.
         return select_command(
             asof_date=_parse_iso_date(args.asof),
             outlook_path=Path(args.outlook) if args.outlook else None,
@@ -535,7 +536,7 @@ def select_command(
     asof_date: date,
     outlook_path: Path | None,
     top: int,
-    screened_root: Path | None = None,
+    candidates_root: Path | None = None,
     outlook_root: Path | None = None,
     stdout: TextIO | None = None,
 ) -> int:
@@ -544,21 +545,21 @@ def select_command(
         return 1
 
     out = stdout if stdout is not None else sys.stdout
-    screened_root = screened_root or Path("records/03-screened")
+    candidates_root = candidates_root or Path("records/03-candidates")
     outlook_root = outlook_root or Path("records/02-outlook")
 
-    screened_path = (
-        screened_root / f"{asof_date:%Y}" / f"{asof_date:%m}" / f"{asof_date:%Y-%m-%d}.yaml"
+    candidates_path = (
+        candidates_root / f"{asof_date:%Y}" / f"{asof_date:%m}" / f"{asof_date:%Y-%m-%d}.yaml"
     )
-    if not screened_path.exists():
-        print(f"screened file not found: {screened_path}", file=sys.stderr)
+    if not candidates_path.exists():
+        print(f"candidates file not found: {candidates_path}", file=sys.stderr)
         return 1
     try:
-        screened_fm = TypeAdapter(_ScreenedFrontMatter).validate_python(
-            _parse_screened_yaml_payload(screened_path)
+        candidates_fm = TypeAdapter(_ScreenedFrontMatter).validate_python(
+            _parse_candidates_yaml_payload(candidates_path)
         )
     except (ValidationError, ValueError) as exc:
-        print(f"invalid screened YAML: {screened_path}: {exc}", file=sys.stderr)
+        print(f"invalid candidates YAML: {candidates_path}: {exc}", file=sys.stderr)
         return 1
 
     resolved_outlook_path = outlook_path or _find_latest_outlook(outlook_root, asof_date)
@@ -580,12 +581,12 @@ def select_command(
     sectors_status: Mapping[str, str | None] = {
         sector: judgement.status for sector, judgement in outlook_fm.sectors.items()
     }
-    candidates = _rank_candidates(screened_fm.tickers, sectors_status)
+    candidates = _rank_candidates(candidates_fm.tickers, sectors_status)
     summary = {
         "asof": asof_date.isoformat(),
-        "screened_ref": str(screened_path),
+        "candidates_ref": str(candidates_path),
         "outlook_ref": str(resolved_outlook_path),
-        "input_count": len(screened_fm.tickers),
+        "input_count": len(candidates_fm.tickers),
         "after_outlook_filter": len(candidates),
         "candidates": candidates[:top],
     }
@@ -600,10 +601,10 @@ def _parse_outlook_yaml(path: Path) -> dict[str, object]:
     return document
 
 
-def _parse_screened_yaml_payload(path: Path) -> dict[str, object]:
+def _parse_candidates_yaml_payload(path: Path) -> dict[str, object]:
     payload = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
-        raise ValueError(f"screened YAML root must be a mapping: {path}")
+        raise ValueError(f"candidates YAML root must be a mapping: {path}")
     return payload
 
 

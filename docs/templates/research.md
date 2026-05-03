@@ -3,7 +3,7 @@ ticker: "XXXX"
 name: "..."
 playbook: valuation-mean-reversion-v1 | valuation-catalyst-confirmation-v1
 decision: accepted | skipped | pending
-screened_ref: records/03-screened/YYYY/MM/YYYY-MM-DD.yaml
+candidates_ref: records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml
 outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml
 brief_refs: []                            # 任意、outlook 後の緊急 brief がある場合のみ
 ai-draft: true
