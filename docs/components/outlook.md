@@ -150,14 +150,18 @@ outlook YAML の構造、必須キー、`sectors` の 33 業種完全性、`regi
 
 outlook YAML は以下を満たさなければ `ai_draft: true → false` の確定に進めない。
 
-- **20+ Tier 1 / Tier 1 準拠の一次情報源を直接根拠**とする (`updated_from` の brief だけでなく、外部 deep research source も sidecar `outlook-<date>-research-log.md` に明記)
-  - 米マクロ axis 3-5 source: BLS / BEA / FRB / FOMC / Census 等
-  - 地政学・エネルギー axis 3-5 source: EIA / IEA / OPEC 等
-  - 為替・金融政策 axis 3-5 source: FRB / BOJ / ECB / BoE
-  - 日本マクロ axis 3-5 source: BOJ / 財務省 / 総務省 / 内閣府 / 経産省
-  - セクター動向 axis 3-5 source: 主要企業 IR / SEMI / IATA / Baltic Exchange 等
-  - リスク資産・債券 axis 2-3 source: FRED / Treasury / CBOE 等
-  - 中国・新興国 axis 2-3 source: PBOC / NBS / 海関総署 等
+- **20+ Tier 1 / Tier 1 準拠の一次情報源を直接根拠**とする。ただし正本フローは以下に厳格に従う:
+  - **canonical fact layer は brief のみ**: outlook の `updated_from` および `source_refs` は `records/01-brief/**.yaml` パスのみを許容する (schema で強制)。outlook 直接の外部 URL 引用は禁止
+  - **外部 deep research の取扱**: 取得した一次情報を outlook で使う場合、必ず **対応する brief (世界週次 / 日次 / 月次 / event) を同 PR で新規作成または更新**してから、outlook がその brief を `updated_from` / `source_refs` で参照する形に集約する
+  - **sidecar (`outlook-<date>-research-log.md`) の役割は取得ログ**: deep research 中に確認した URL / 取得日 / Tier / key fact をリスト化し、再現性確保と監査用途で残す。outlook の根拠 source としては数えない (= research-log だけで brief を skip するのは設計違反)
+  - 必要 axis (各 3-5 source、合計 20+):
+    - 米マクロ axis: BLS / BEA / FRB / FOMC / Census 等
+    - 地政学・エネルギー axis: EIA / IEA / OPEC 等
+    - 為替・金融政策 axis: FRB / BOJ / ECB / BoE
+    - 日本マクロ axis: BOJ / 財務省 / 総務省 / 内閣府 / 経産省
+    - セクター動向 axis: 主要企業 IR / SEMI / IATA / Baltic Exchange 等
+    - リスク資産・債券 axis: FRED / Treasury / CBOE 等
+    - 中国・新興国 axis: PBOC / NBS / 海関総署 等
 - **summary に PART A-E の構造を含める** (詳細は §9.2 を参照)
 - **シナリオ分析 4 件**: Base / Upside / Downside / Tail。各シナリオに triggering path、確度 (合計 100%)、sector 帰結、投資方向性を記述
 - **リスク因子 10+**: 順位 / 確度 / 影響度 / 観測指標 / 次の確認日 を表で記述

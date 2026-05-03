@@ -529,14 +529,18 @@ def _append_adv_participation_avg_turnover_required_finding(
     findings: list[ValidationFinding],
     location: str,
 ) -> None:
-    """adv_participation_pct があるなら avg_turnover_oku の併記を必須にする。
+    """adv_participation_pct があるなら avg_turnover_oku の正値併記を必須にする。
 
-    avg_turnover_oku が無いと整合チェック (position_size / avg_turnover * 100) が
-    skip され、100 倍ズレ等の桁誤りを catch できない。required field 化することで
-    整合チェックを必ず走らせる。
+    avg_turnover_oku が無い / 0 / 負値だと整合チェック (position_size / avg_turnover *
+    100) が skip され、100 倍ズレ等の桁誤りを catch できない。「数値であれば OK」では
+    なく「正値 (> 0)」を必須にする。
     """
     avg_turnover = front_matter.get("avg_turnover_oku")
-    if isinstance(avg_turnover, (int, float)) and not isinstance(avg_turnover, bool):
+    if (
+        isinstance(avg_turnover, (int, float))
+        and not isinstance(avg_turnover, bool)
+        and avg_turnover > 0
+    ):
         return
     findings.append(
         ValidationFinding(
@@ -544,8 +548,8 @@ def _append_adv_participation_avg_turnover_required_finding(
             target=path,
             code="research.missing-avg-turnover-oku",
             message=(
-                "adv_participation_pct requires avg_turnover_oku in front matter for "
-                "consistency check (prevents 100x scaling errors)"
+                "adv_participation_pct requires avg_turnover_oku > 0 in front matter for "
+                "consistency check (prevents 100x scaling errors and divide-by-zero skips)"
             ),
             location=location,
         )
@@ -561,9 +565,15 @@ def _append_adv_participation_consistency_finding(
 ) -> None:
     """Cross-check adv_participation_pct against position_size_oku / avg_turnover_oku.
 
-    avg_turnover_oku が front matter にあれば、`position_size_oku / avg_turnover_oku
-    * 100 ≈ adv_participation_pct` を確認する (許容誤差 5%)。100 倍ズレなどの
-    桁誤りを検出する。avg_turnover_oku が無い既存 research は warning にとどめない。
+    `position_size_oku / avg_turnover_oku * 100 ≈ adv_participation_pct` を確認する
+    (許容誤差 5%)。100 倍ズレなどの桁誤りを検出する。
+
+    依存先 field の状態別の挙動:
+    - `position_size_oku` 未指定 / 非数値: required check 側で別途 error 化されるので skip
+    - `avg_turnover_oku <= 0` または不在: required check 側で error 化されるので skip
+    - `position_size_oku == 0` (skipped packet 想定): expected = 0 となるので、
+      adv_participation_pct も `0` でなければ error にする (skipped で hypothetical 値が
+      混入する穴を塞ぐ)
     """
     position_size = front_matter.get("position_size_oku")
     avg_turnover = front_matter.get("avg_turnover_oku")
@@ -572,9 +582,25 @@ def _append_adv_participation_consistency_finding(
     if not isinstance(avg_turnover, (int, float)) or isinstance(avg_turnover, bool):
         return
     if avg_turnover <= 0:
+        # required check 側で error 化済み。consistency 計算は分母不正のため skip
         return
     expected = (position_size / avg_turnover) * 100.0
     if expected == 0:
+        # position_size_oku == 0 (skipped) の場合、adv_participation_pct も 0 を要求
+        if adv_participation != 0:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.adv-participation-inconsistent",
+                    message=(
+                        f"position_size_oku=0 requires adv_participation_pct=0 but got "
+                        f"{adv_participation}; use hypothetical_position_size_oku for "
+                        f"reference values in skipped packets"
+                    ),
+                    location=location,
+                )
+            )
         return
     diff_ratio = abs(adv_participation - expected) / expected
     if diff_ratio > 0.05:

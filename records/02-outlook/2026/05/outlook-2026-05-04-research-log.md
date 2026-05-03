@@ -39,7 +39,12 @@
    - URL: https://www.federalregister.gov/documents/full_text/html/2026/02/25/2026-03824.html
    - Tier: 1 (Federal Register、White House Proclamation)
    - Key fact: Section 122 of the Trade Act of 1974 に基づく 10% ad valorem temporary import surcharge を 2026-02-24 12:01 EST から適用、150 日間 (2026-07-24 12:01 EDT 期限)。USMCA goods・critical minerals・energy resources・agricultural・pharmaceuticals・vehicles・aerospace 等 (Annex I/II 列挙) は除外
-   - 注意: 「13% 上乗せ」は外部分析の trade-weighted estimate であり、Federal Register 本文の率は 10%。outlook で 13% を引用する場合は外部 estimate と明記する必要がある
+
+6b. **Global Trade Alert - S122 US Tariff Estimates**
+   - URL: https://globaltradealert.org/reports/S122-US-Tariff-Estimates
+   - Tier: 2 (民間 trade analysis、二次推計)
+   - Key fact: 274,000+ trade flow を 2024 年米国輸入額で加重した trade-weighted 実効税率推計。**10% シナリオ (= 法定 Proclamation 11012)** の実効税率は 11.4-11.5% (Annex II の約 1,100 製品コード除外を反映して 11.6 → 11.5 に調整)。**15% シナリオ (法定上昇時の試算)** で 13.0%。Section 232 製品 (鋼・アルミ・銅・木材・自動車)・USMCA 無税品・CAFTA-DR 繊維等は除外
+   - 注意: 過去本 PR で「外部 estimate 13%」と書いていたが、これは 15% シナリオの数値であり 10% 法定の前提と整合しなかった。本 cross-check で訂正済み
 
 ## Axis 2: 地政学・エネルギー
 
@@ -210,11 +215,12 @@
     - Tier: 1 (中国 NBS)
     - Key fact: 4 月製造業 PMI 50.3 (前月比 -0.1pt)、生産 51.5、新規受注 50.6、大企業 50.2、中小 50.5/50.1。総合 PMI 50.1 (-0.4pt)。2 ヶ月連続拡張圏
 
-36. **海関総署 - 2026-03 中国輸出統計**
-    - URL: http://www.customs.gov.cn/
-    - Tier: 1 (中国海関総署)
-    - Key fact: 2026-03 輸出 (USD ベース) +2.5% YoY、エコノミスト予想 +8.6% を大幅下振れ。対米輸出 -26% 超。前月 (2 月) は +40% 近かった
-    - 含意: 122 条関税効果が顕在化、対米輸出失速
+36. **中国 3 月輸出 (Tier 2 二次集計、Tier 1 一次は本作業環境で未取得)**
+    - URL (Tier 1 一次、未取得): http://www.customs.gov.cn/ — トップページのみ、個別 release URL は本作業環境で未解決
+    - URL (Tier 2 二次): https://tradingeconomics.com/china/exports-yoy
+    - Tier: 2 (民間集計、海関総署一次の二次集計)
+    - Key fact (Tier 2 値): 2026-03 輸出 (USD ベース) +2.5% YoY、エコノミスト予想 +8.6% を大幅下振れ。対米輸出 -26% 超。前月 (2 月) は +40% 近かった
+    - 注意: 過去本 PR で「海関総署 Tier 1 で確認」と書いていたが、実際は Tier 2 二次集計のみで Tier 1 一次 individual release は未取得。fact layer では Tier 2 として明示する運用に訂正。Tier 1 取得復活時に再 cross-check
 
 37. **NBS - Real Estate Investment and Sales Q1 2026 (公式 individual release)**
     - URL: https://www.stats.gov.cn/english/PressRelease/202604/t20260417_1963352.html
@@ -237,4 +243,4 @@
 2. EIA は Brent $96/b (2026 年通年)、Q2 ピーク $115/b、IEA は需要を年 -80kb/d 下方修正 → スタグフレーション正面化
 3. 米クレジット (IG 80bp / HY 283bp) は歴史的タイトでショック未織込み、先行き調整リスク残存
 4. 日本側は短観製造業 +17、設備投資 +7.9% で底堅いが、東京 CPI +1.5% / 景気ウォッチャー -6.7pt と内需冷却。日銀は利上げハードル上昇で 6 月以降に持越し
-5. AI 関連 (TSMC Capex 上方、NVIDIA FY27 Q1 ガイ 780 億 USD) は揺るぎなく、日本の半導体製造装置・素材・電力関連が macro outlook の構造的下支え
+5. AI 関連: 公式 release で確認できる範囲では TSMC Q1 売上 359 億 USD / GM 66.2%、NVIDIA FY26 +65% / Q1 FY27 ガイ 780 億 USD。「TSMC Capex 上方」「Sovereign AI 300 億 USD」「commitment 倍増」は transcript / 10-K 由来の参考値で本 cross-check では確認できず、要 cross-check。確認済み範囲だけでも日本の半導体製造装置・素材・電力関連が macro outlook の構造的下支え候補

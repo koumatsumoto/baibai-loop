@@ -14,7 +14,7 @@ summary: |
   本 outlook の作成根拠 (Tier 1 / Tier 1 準拠 一次情報源 30+)
   ============================================================
 
-  本 outlook は brief 5 件 (`updated_from` 列挙) に加え、外部 deep research で取得した
+  本 outlook は brief 6 件 (`updated_from` 列挙) に加え、外部 deep research で取得した
   下記 30+ source を直接根拠とする。詳細な fact / URL は sidecar
   `outlook-2026-05-04-research-log.md` に保存。
 
@@ -76,9 +76,10 @@ summary: |
   構造。米 1974 年通商法 122 条関税 (Proclamation 11012、Federal Register 2026-02-25、
   10% ad valorem temporary import surcharge、2026-02-24 12:01 EST 適用、150 日間
   = 2026-07-24 期限、USMCA goods・critical minerals・energy・pharma・vehicles・
-  aerospace 等を除外。trade-weighted 実効税率は外部分析で 13% 程度との estimate
-  あり) と 301 条 (適用除外 11/10 まで延長) の二段構えが、輸入物価の構造的押し上げ
-  要因として残存。
+  aerospace 等を除外。Global Trade Alert (Tier 2 民間推計) の trade-weighted 実効
+  税率は 10% シナリオで 11.4-11.5% (Annex II 除外で 11.6 → 11.5)、15% シナリオで
+  13.0%) と 301 条 (適用除外 11/10 まで延長) の二段構えが、輸入物価の構造的押し
+  上げ要因として残存。
 
   FOMC 4/29: 3.50-3.75% 据置、賛成 8 / 反対 4 (Miran 利下げ希望 / Hammack, Kashkari,
   Logan は hold だが easing bias 削除)。タカ派 3 名 + 利下げ派 1 名で内部 4 分裂は
@@ -280,7 +281,7 @@ summary: |
 
   順位 / リスク / 確度 / 影響度 / 観測指標 / 次の確認日:
   1.  ホルムズ閉鎖継続・再激化       / 高 / 大 / EIA 中東 6 ヶ国生産 / 月次
-  2.  米コア PCE / CPI 加速継続     / 中 / 大 / BEA / BLS         / 5/12 (CPI), 5/30 (PCE)
+  2.  米コア PCE / CPI 加速継続     / 中 / 大 / BEA / BLS         / 5/12 (CPI), 5/28 (PCE 4 月分)
   3.  日銀利上げ前後 timing 変化     / 中 / 中 / BOJ「主な意見」    / 5/12
   4.  油価 EIA 予想 ($96 平均) ずれ   / 中 / 大 / Brent / WTI 終値    / 毎週
   5.  米クレジット調整 (IG/HY OAS)   / 中 / 大 / FRED IG/HY OAS     / 毎週
@@ -552,7 +553,7 @@ regions:
       - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
   emerging:
     status: headwind
-    rationale: "①中国 4 月製造業 PMI 50.3 (-0.1pt) でぎりぎり拡張維持、②中国 3 月輸出 +2.5% YoY (予想 +8.6% 大幅下振れ)、対米 -26% 超 = 米通商法 122 条 (Proclamation 11012、10% ad valorem surcharge、trade-weighted 実効は外部 estimate で 13% 程度) 効果が顕在化、③中国 Q1 不動産投資 -11.2% YoY、住宅販売 -18.5% で不動産デフレは底入れ未達、④日本のアジア向け中間財・中国輸出への spillover は限定的だが下押し方向。emerging 全般は中国脆弱性 + ホルムズ閉鎖でエネルギー輸入コスト圧迫 (新興国通貨切下げ圧力) で headwind。fact 根拠は sidecar `outlook-2026-05-04-research-log.md` Axis 7 (中国 NBS PMI / 海関総署輸出 / NBS 不動産) と Axis 1 (USTR 122 条) を参照"
+    rationale: "①中国 4 月製造業 PMI 50.3 (-0.1pt) でぎりぎり拡張維持、②中国 3 月輸出 +2.5% YoY、対米 -26% (Trading Economics 等の二次集計、海関総署個別 release は本作業環境で未取得、Tier 2 cross-check 限定) を 122 条効果と整合的に解釈、③中国 Q1 不動産投資 -11.2% YoY、住宅販売 -18.5% (NBS 公式 individual release 4/17) で不動産デフレは底入れ未達、④122 条 (Proclamation 11012、10% ad valorem、Global Trade Alert trade-weighted 推計 11.4-11.5%) で対米輸出ストレス、⑤日本のアジア向け中間財・中国輸出への spillover は限定的だが下押し方向。emerging 全般は中国脆弱性 + ホルムズ閉鎖でエネルギー輸入コスト圧迫 (新興国通貨切下げ圧力) で headwind。fact 根拠の中国輸出は二次集計依存である点を bias 注記"
     source_refs:
       - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
 changes:
@@ -673,9 +674,9 @@ next_triggers:
   - date: "2026-05-28"
     text: "米 4 月 Personal Income and Outlays (BEA、8:30 EDT)、コア PCE 含む。Downside 確度の重要 input"
   - date: "2026-06-07"
-    text: "OPEC+ 8 ヶ国会合 (5/3 statement で次回確定)。ホルムズ情勢を踏まえた supply discipline 確認"
+    text: "OPEC+ Producing Countries 7 ヶ国会合 (5/3 statement: サウジ / ロシア / イラク / クウェート / カザフ / アルジェリア / オマーン)。ホルムズ情勢を踏まえた supply discipline 確認"
   - date: "2026-06-16 〜 17"
     text: "FOMC 会合 + 日銀 金融政策決定会合 (推定)。両中銀の方向性確定"
   - date: "随時"
     text: "ホルムズ情勢、米クレジット (IG/HY OAS)、AI capex (TSMC / NVIDIA quarterly transcripts cross-check)"
-notes: "前回 outlook は 2026-04-24 bootstrap (33 業種 neutral 中心 + japan-external-demand: tailwind)。今回 (第 2 版) は不定期 trigger (FOMC 4/29 hold + BOJ 4/27-28 6-3 hold + USD/JPY -1.75% notable + Brent / WTI 4 週 +14% Major + ホルムズ閉鎖 + コア PCE +3.2%) に基づく更新。brief 5 件 + 外部 deep research 30+ source を根拠とし、シナリオ分析 (Base 50% / Upside 15% / Downside 30% / Tail 5%)、リスク因子 12 件、投資方向性を summary に詳述。bootstrap の保守的 neutral 集中を見直し、AI / 半導体軸 + エネルギー上流軸の dual barbell を主軸に、燃料 sensitive sector を headwind、不動産を headwind、emerging を headwind に分類。米マクロは stagflation lite 顕在化で headwind 寄りへ修正。詳細な fact と source URL は sidecar `outlook-2026-05-04-research-log.md` を参照。"
+notes: "前回 outlook は 2026-04-24 bootstrap (33 業種 neutral 中心 + japan-external-demand: tailwind)。今回 (第 2 版) は不定期 trigger (FOMC 4/29 hold + BOJ 4/27-28 6-3 hold + USD/JPY -1.75% notable + Brent / WTI 4 週 +14% Major + ホルムズ閉鎖 + コア PCE +3.2%) に基づく更新。brief 6 件 + 外部 deep research 30+ source を根拠とし、シナリオ分析 (Base 50% / Upside 15% / Downside 30% / Tail 5%)、リスク因子 12 件、投資方向性を summary に詳述。bootstrap の保守的 neutral 集中を見直し、AI / 半導体軸 + エネルギー上流軸の dual barbell を主軸に、燃料 sensitive sector を headwind、不動産を headwind、emerging を headwind に分類。米マクロは stagflation lite 顕在化で headwind 寄りへ修正。詳細な fact と source URL は sidecar `outlook-2026-05-04-research-log.md` を参照。"

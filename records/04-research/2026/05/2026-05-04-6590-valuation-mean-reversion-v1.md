@@ -7,6 +7,7 @@ candidates_ref: records/03-candidates/2026/04/2026-04-24.yaml
 outlook_ref: records/02-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
 brief_refs:
   - records/01-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
+  - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
 ai-draft: true
 published_at: "2026-05-04T19:00:00+09:00"
 tradable_at: "2026-05-15T09:00:00+09:00"
@@ -46,8 +47,8 @@ valuation:
 - **地域**: japan-external-demand (outlook で `tailwind`)
 - **保守側優先判定結果**: tailwind
 - **outlook_ref**: records/02-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
-- **brief_refs**: records/01-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
-- **1-2 行要約**: TSMC 1Q26 Capex 上方 + NVIDIA AI 需要持続で半導体製造装置・電子部品 sector に AI 軸 tailwind。日本側は短観製造業 +17 / 設備投資 +7.9% で底堅さ。電気機器 sector tailwind は P-A 採用条件には足りず、銘柄個別 edge が必要
+- **brief_refs**: records/01-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml、records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
+- **1-2 行要約**: 公式 release で確認できる範囲 (TSMC Q1 売上 359 億 USD / GM 66.2%、NVIDIA FY26 +65% / Q1 FY27 ガイ 780 億 USD) と日銀短観大企業製造業 +17 / 設備投資 +7.9% で半導体製造装置・電子部品 sector の AI 軸 tailwind を仮置き。TSMC Capex 上方や Sovereign AI は transcript 由来参考値で cross-check 後に補強する想定。電気機器 sector tailwind は P-A 採用条件には足りず、銘柄個別 edge が必要
 
 ## 3. Valuation snapshot (4 軸評価表)
 
@@ -133,7 +134,7 @@ skipped のため定義しない。
 
 - split 調整済み candidates が再生成され、`price_change_60d` が adj close ベースで -25% 以上の真の過剰売りである場合
 - 5 月通期決算で会社予想 EPS が市場想定を上回り、forward PER 30 が一過性であることが確認される場合
-- 有報で AI / 半導体 capex 関連の顧客 / 製品 mix が明示され、TSMC Capex 上方の spillover が定量的に確認される場合
+- 有報で AI / 半導体 capex 関連の顧客 / 製品 mix が明示され、TSMC / Samsung / Kioxia 等の主要顧客の capex / 投資計画が transcript / 10-K 経由で cross-check 完了し、本銘柄への spillover が定量的に確認される場合
 - 上記が揃った時点で再 packet 化して accepted/pending を判定する
 
 ## 13. Position size + 採用判定

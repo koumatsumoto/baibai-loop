@@ -46,6 +46,12 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 
 - [ ] **すべての数値・固有名詞 (社名・組織名・地名・政策名) について、引用元 URL を文書内に明示しているか**
 - [ ] その URL を実際に WebFetch / curl で取得し、本文に記載があることを確認したか
+- [ ] **source の policy / rate / date / scenario が本文主張と一致しているか** (URL を貼っただけで終わらせない)
+  - 例: 「Section 122 trade-weighted 13%」と書く場合、貼った Global Trade Alert source の中で
+        13.0% は **15% シナリオ** の数値であり、10% 法定 (Proclamation 11012) 前提と整合しない。
+        10% 前提なら 11.4-11.5%、15% シナリオを使うなら法定が 15% の場合の話だと明記する
+  - 例: 「BEA 公表」と書く場合、その URL が press release / FRED / BEA Schedule のどれか、
+        対象月 (March 2026 vs April 2026) が一致するか、speech だけで release ではないか
 - [ ] 「業界レポート」「アナリスト試算」「外部分析の trade-weighted estimate」などの二次値は、
       一次値と明確に区別して `(外部 estimate, source: ...)` の形で書いているか
 - [ ] 銘柄固有の事業構造 (顧客 / 地域 / 親会社取引比率) を断定する場合、有価証券報告書 / 決算
@@ -169,10 +175,22 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - [ ] 存在しない fact は、outlook 作成と同じ commit で **新規 brief を追加**してから引用
 - [ ] outlook の各 sector / region / changes の `rationale` に出てくる fact 引用について、
       対応する brief パスが `source_refs` に含まれているか機械的に対応関係を確認
+- [ ] **fact item は `status: ok` の `source_id` を少なくとも 1 つ持つこと**。`status: failed`
+      / `partial` の source だけを根拠にして fact 値を入れていないか
+  - `failed` source は「Tier 1 を試行したが取れなかった」記録として残してよいが、その値の
+    根拠としては機能しない。値を入れるなら **同じ事実を取得できた `status: ok` の二次
+    source を別 id で宣言**し、`source_ids` に併記する (例: `china-customs-toplevel:
+    failed` + `tradingeconomics-cn-exports: ok` の併記、Tier 2 明示)
+  - 一次が取れない期間が続くなら、`data-sources.md` 側で恒常的代替経路を Tier 1 準拠扱い
+    に格上げするか、Tier 2 / 補助外運用を明示する
 - [ ] research の `outlook_ref` / `brief_refs` / `candidates_ref` の 3 ref が valid パス
       かつ実在するか
 - [ ] `updated_from` は「全 brief」ではなく「判定に効いた canonical input 集」であることを
       意識して列挙しているか
+- [ ] outlook の正本フローを守っているか: **canonical fact layer は brief のみ**。outlook
+      の `updated_from` / `source_refs` は `records/01-brief/**.yaml` のみで、外部 URL を
+      直接書かない。sidecar `outlook-<date>-research-log.md` は取得ログであり source 数
+      にも数えない (詳細は [`components/outlook.md`](./components/outlook.md) §9.1)
 
 ## 7. AP-07: 公表日 / 期間 / source の最新性確認を skip する
 
@@ -221,6 +239,17 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
   - [ ] **nested** field (例: `valuation.adv_participation_pct`) も同じ rule を適用するか
   - [ ] **既存 packet** (4/25 research 5 件など) が新 rule で breakage しないか、する場合は
         同 commit で fix する
+- [ ] 以下の adv_participation 関連の具体条件を validator が catch するか、test を書いて
+      確認する:
+  - [ ] `avg_turnover_oku <= 0` は error (整合チェックの分母が成立しない、required な数値
+        だけでは抜け道になる)
+  - [ ] `position_size_oku == 0` の場合は **`adv_participation_pct == 0`** を要求 (skipped
+        packet で hypothetical 値と取り違えると `position_size 0 / avg_turnover 85.4 *
+        100 = 0` だが `adv: 1.0` のような非ゼロを期待値 0 で skip してしまう穴を塞ぐ)
+  - [ ] `valuation.adv_participation_pct` (nested) も top-level と同じ整合チェックの対象
+        にする
+- [ ] cross-field consistency rule は **依存先の field が「数値であること」だけでなく、
+      「正値 (> 0) であること」を確認**する。0 / 負値で silently skip する実装は穴になる
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
       required 化する
 

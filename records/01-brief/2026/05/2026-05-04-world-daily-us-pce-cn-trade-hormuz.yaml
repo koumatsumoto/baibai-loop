@@ -25,6 +25,12 @@ sources:
     url: https://www.federalregister.gov/documents/full_text/html/2026/02/25/2026-03824.html
     accessed_at: "2026-05-04"
     status: ok
+  - id: gta-s122-estimates
+    name: Global Trade Alert - S122 US Tariff Estimates
+    url: https://globaltradealert.org/reports/S122-US-Tariff-Estimates
+    accessed_at: "2026-05-04"
+    status: ok
+    note: "Tier 2 (民間 trade analysis、二次推計)。trade-weighted 実効税率を 274,000+ trade flow ベースで算出。10% シナリオ (法定 = Proclamation 11012) → 11.4-11.5%、15% シナリオ → 13.0%"
   - id: eia-press-hormuz
     name: EIA Press Release - Hormuz closure drives forecast (2026-04-07)
     url: https://www.eia.gov/pressroom/releases/press586.php
@@ -55,12 +61,18 @@ sources:
     url: https://www.stats.gov.cn/sj/zxfb/202604/t20260430_1963473.html
     accessed_at: "2026-05-04"
     status: ok
-  - id: china-customs
-    name: 中国海関総署
+  - id: china-customs-toplevel
+    name: 中国海関総署 (Tier 1 一次、本作業環境で個別 release 未取得)
     url: http://www.customs.gov.cn/
     accessed_at: "2026-05-04"
     status: failed
-    note: "海関総署 website のトップページのみ取得、3 月輸出統計の個別 release URL は本作業環境で解決できず。Bloomberg/Reuters 経由の二次確認のみ"
+    note: "海関総署 website のトップページのみ取得、3 月輸出統計の個別 release URL は本作業環境で解決できず。一次 Tier 1 として fact layer に値を入れることはせず、参照のみ"
+  - id: tradingeconomics-cn-exports
+    name: Trading Economics - China Exports YoY (Tier 2 二次集計)
+    url: https://tradingeconomics.com/china/exports-yoy
+    accessed_at: "2026-05-04"
+    status: ok
+    note: "中国海関総署一次データの二次集計サイト。Tier 2 (一次統計を集約した民間 data provider)。海関総署一次が取れない場合の補助"
   - id: nbs-realestate-q1
     name: 中国国家統計局 Real Estate Investment and Sales Q1 2026
     url: https://www.stats.gov.cn/english/PressRelease/202604/t20260417_1963352.html
@@ -179,8 +191,8 @@ layers:
         source_ids: [census-residential]
     events:
       - date: "2026-02-24 12:01 EST 〜 2026-07-24"
-        text: "米 White House Proclamation 11012 (Federal Register 2026-02-25 公示) により Section 122 of the Trade Act of 1974 に基づく 10% ad valorem temporary import surcharge を 150 日間適用。USMCA goods・critical minerals・energy resources・agricultural・pharmaceuticals・vehicles・aerospace 等は除外 (Annex I/II)"
-        source_ids: [federal-register-122]
+        text: "米 White House Proclamation 11012 (Federal Register 2026-02-25 公示) により Section 122 of the Trade Act of 1974 に基づく 10% ad valorem temporary import surcharge を 150 日間適用。USMCA goods・critical minerals・energy resources・agricultural・pharmaceuticals・vehicles・aerospace 等は除外 (Annex I/II)。Global Trade Alert の trade-weighted 推計 (Tier 2) によれば 10% シナリオの実効税率は 11.4-11.5% (Annex II 除外で 11.6 → 11.5)、15% シナリオで 13.0%"
+        source_ids: [federal-register-122, gta-s122-estimates]
       - date: "2026-02-28 以降"
         text: "ホルムズ海峡が実質閉鎖。EIA Press Release によると中東 6 ヶ国 (イラク / サウジ / クウェート / UAE / カタール / バーレーン) が 2026-03 7.5mb/d、2026-04 9.1mb/d の生産シャットイン中。世界石油在庫は 3 月 -85m bbl"
         source_ids: [eia-press-hormuz]
@@ -253,9 +265,9 @@ layers:
       - date: "2026-04-30"
         text: "中国 4 月製造業 PMI 50.3 (前月比 -0.1pt)、生産指数 51.5、新規受注 50.6、大企業 50.2、中小 50.5/50.1。総合 PMI 50.1 (-0.4pt)"
         source_ids: [nbs-pmi]
-      - date: "2026-04 (海関総署)"
-        text: "中国 3 月輸出 (USD ベース) +2.5% YoY、対米輸出 -26% 超。海関総署 website トップページのみ取得可、個別 release URL は本作業環境で解決できず Bloomberg/Reuters 経由の二次確認のみ"
-        source_ids: [china-customs]
+      - date: "2026-04 (海関総署一次、Trading Economics 経由二次集計で確認)"
+        text: "中国 3 月輸出 (USD ベース) +2.5% YoY、対米輸出 -26% 超 (Tier 2 二次集計値)。海関総署一次 Tier 1 の個別 release URL は本作業環境で解決できないため、Tier 2 二次集計値として記録し、Tier 1 一次取得が回復したら再取得して上書きする運用"
+        source_ids: [tradingeconomics-cn-exports, china-customs-toplevel]
       - date: "2026-04-17"
         text: "中国 Q1 不動産投資 1,772 billion yuan (-11.2% YoY)、住宅投資 1,353.1 billion yuan (-11.0%)、商業ビル投資 -17.1%。商品房販売面積 195.25 million sq.m (-10.4%)、住宅販売面積 -13.1%、住宅販売額 1,492.1 billion yuan (-18.5%)、新規着工 -20.3%、完成 -25.0%。資金源は domestic loans -23.7%、自己資金 -5.3%、deposits -20.1%、個人住宅 mortgage -34.6%"
         source_ids: [nbs-realestate-q1]
@@ -267,7 +279,7 @@ fact_memos:
   - "IEA OMR 2026 年通年需要 -80kb/d (前回 +730kb/d から下方修正)、Q2 -1.5mb/d"
   - "OPEC+ JMMC 4/5: 8 ヶ国 206kb/d 増産路線 (5 月から)"
   - "OPEC+ 5/3: 7 ヶ国 (サウジ / ロシア / イラク / クウェート / カザフ / アルジェリア / オマーン) が 2026-06 に 188kb/d adjustment、次回 2026-06-07、flexibility / overproduction full compensation を確認"
-  - "Section 122 関税 (Proclamation 11012) は 10% ad valorem (2026-02-24 〜 7-24)。trade-weighted 実効税率 13% は外部 estimate"
+  - "Section 122 関税 (Proclamation 11012) は 10% ad valorem (2026-02-24 〜 7-24)。Global Trade Alert (Tier 2 民間推計) によれば 10% 法定の trade-weighted 実効税率は 11.4-11.5% (Annex II 除外で 11.6 → 11.5)。15% シナリオ (法定上昇時の試算) で 13.0%"
   - "日銀 4/27-28 6-3 hold (6 名据置 / 3 名は据置に反対し利上げを主張)、展望レポート 2026 年度コア CPI +2.8% (+0.9pt 上方修正)"
   - "ECB 4/30 据置、HICP +3.0%。BOE 4 月 8-1 据置、Pill が 4.00% 利上げ票"
   - "米 IG OAS 80bp / HY OAS 283bp (4 月)。VIX は別途 5/3 weekly brief で 16.99 を記録"
@@ -278,7 +290,7 @@ fact_memos:
   - "東京都区部 4 月 CPI +1.5%、諸雑費 -7.1% YoY"
   - "TSMC 1Q26 売上 359 億 USD / GM 66.2% (Q1 release で確認、Capex / 配分 / 通年成長率は別 source 参考値)"
   - "NVIDIA FY26 通年 2,159 億 USD (+65%)、Q1 FY27 ガイ 780 億 USD (Sovereign AI / commitment は press release 未確認)"
-  - "中国 4 月 PMI 50.3 (-0.1pt)、3 月輸出 +2.5% (対米 -26%、海関総署 個別 URL 未取得)、Q1 不動産投資 -11.2% / 住宅販売額 -18.5% (NBS 4/17 release)"
+  - "中国 4 月 PMI 50.3 (-0.1pt、NBS 一次)、3 月輸出 +2.5% (対米 -26%、Trading Economics 二次集計、海関総署一次は本作業環境で未取得)、Q1 不動産投資 -11.2% / 住宅販売額 -18.5% (NBS 4/17 一次 release)"
   - "BDI 4/29 2,670 (Capesize 主導 4 ヶ月ぶり高水準)"
 next_events:
   - date: "2026-05-08"
@@ -291,5 +303,5 @@ next_events:
     text: "米 4 月 Personal Income and Outlays (BEA、8:30 EDT)、コア PCE 含む"
     source_ids: [bea-pce]
   - date: "2026-06-07"
-    text: "OPEC+ 8 ヶ国会合 (次回)"
+    text: "OPEC+ Producing Countries 7 ヶ国会合 (5/3 statement: サウジ / ロシア / イラク / クウェート / カザフ / アルジェリア / オマーン、次回)"
     source_ids: [opec-may-statement]
