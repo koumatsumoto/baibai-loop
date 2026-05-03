@@ -93,7 +93,7 @@ requires-dist = [
 dev = [
     { name = "bandit", extras = ["toml"], specifier = ">=1.9.4" },
     { name = "coverage", extras = ["toml"], specifier = ">=7.13.5" },
-    { name = "hypothesis", specifier = ">=6.150.0" },
+    { name = "hypothesis", specifier = ">=6.152.4" },
     { name = "mutmut", specifier = ">=3.3.0" },
     { name = "mypy", specifier = ">=1.20.0" },
     { name = "pandas-stubs", specifier = ">=2.3.0.250703" },
@@ -104,7 +104,7 @@ dev = [
     { name = "ruff", specifier = ">=0.14.0" },
     { name = "types-jsonschema", specifier = ">=4.21.0" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20250915" },
-    { name = "types-requests", specifier = ">=2.32.0.20250913" },
+    { name = "types-requests", specifier = ">=2.33.0.20260503" },
 ]
 quality = [
     { name = "mutmut", specifier = ">=3.3.0" },
@@ -117,7 +117,7 @@ security = [
 ]
 test = [
     { name = "coverage", extras = ["toml"], specifier = ">=7.13.5" },
-    { name = "hypothesis", specifier = ">=6.150.0" },
+    { name = "hypothesis", specifier = ">=6.152.4" },
     { name = "pytest", specifier = ">=9.0.0" },
     { name = "pytest-mock", specifier = ">=3.15.0" },
 ]
@@ -126,7 +126,7 @@ typing = [
     { name = "pandas-stubs", specifier = ">=2.3.0.250703" },
     { name = "types-jsonschema", specifier = ">=4.21.0" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20250915" },
-    { name = "types-requests", specifier = ">=2.32.0.20250913" },
+    { name = "types-requests", specifier = ">=2.33.0.20260503" },
 ]
 
 [[package]]
@@ -343,14 +343,14 @@ wheels = [
 
 [[package]]
 name = "hypothesis"
-version = "6.152.2"
+version = "6.152.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "sortedcontainers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b0/7f/67a06c5f19368e0fa04612bbc446c535bf45b0b51bc6aa56055b112f7604/hypothesis-6.152.2.tar.gz", hash = "sha256:11fd5725958fe75597d1b831f703fdf7e636b7cf1f249117f381ad5cee4d888f", size = 466358, upload-time = "2026-04-24T04:26:18.917Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fa/c7/3147bd903d6b18324a016d43a259cf5b4bb4545e1ead6773dc8a0374e70a/hypothesis-6.152.4.tar.gz", hash = "sha256:31c8f9ce619716f543e2710b489b1633c833586641d9e6c94cee03f109a5afc4", size = 466444, upload-time = "2026-04-27T20:18:37.594Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/59/ed/77eed094bceae845a994f936721293afae40a346c0005d85208407fd40e8/hypothesis-6.152.2-py3-none-any.whl", hash = "sha256:1ad5b87f0e6c0ab7a9a35b1378cc4963d23eaf0cb1e47e94f1d574b41155907a", size = 532034, upload-time = "2026-04-24T04:26:16.394Z" },
+    { url = "https://files.pythonhosted.org/packages/19/89/0f50dd0d92e8a7dffc24f69ab910ff81db89b2f082ba42682bd57695e4d2/hypothesis-6.152.4-py3-none-any.whl", hash = "sha256:e730fd93c7578182efadc7f90b3c5437ee4d55edf738930eb5043c81ac1d97e8", size = 532145, upload-time = "2026-04-27T20:18:35.043Z" },
 ]
 
 [[package]]
@@ -1270,14 +1270,14 @@ wheels = [
 
 [[package]]
 name = "types-requests"
-version = "2.33.0.20260408"
+version = "2.33.0.20260503"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/69/6a/749dc53a54a3f35842c1f8197b3ca6b54af6d7458a1bfc75f6629b6da666/types_requests-2.33.0.20260408.tar.gz", hash = "sha256:95b9a86376807a216b2fb412b47617b202091c3ea7c078f47cc358d5528ccb7b", size = 23882, upload-time = "2026-04-08T04:34:49.33Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a1/b8/57e94268c0d82ac3eaa2fc35aa8ca7bbc2542f726b67dcf90b0b00a3b14d/types_requests-2.33.0.20260503.tar.gz", hash = "sha256:9721b2d9dbee7131f2fb39f20f0ebb1999c18cef4b512c9a7932f3722de7c5f4", size = 23931, upload-time = "2026-05-03T05:20:08.882Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/90/b8/78fd6c037de4788c040fdd323b3369804400351b7827473920f6c1d03c10/types_requests-2.33.0.20260408-py3-none-any.whl", hash = "sha256:81f31d5ea4acb39f03be7bc8bed569ba6d5a9c5d97e89f45ac43d819b68ca50f", size = 20739, upload-time = "2026-04-08T04:34:48.325Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/82/959113a6351f3ca046cd0a8cd2cee071d7ea47473560557a01eeae9a6fe2/types_requests-2.33.0.20260503-py3-none-any.whl", hash = "sha256:02aaa7e3577a13471715bb1bddb693cc985ea514f754b503bf033e6a09a3e528", size = 20736, upload-time = "2026-05-03T05:20:07.858Z" },
 ]
 
 [[package]]
