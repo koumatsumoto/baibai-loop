@@ -9,7 +9,15 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from .jpx_sources import JPX_SPECIAL_CAUTION_SOURCE_NAME
 
-DEFAULT_CACHE_DIR = Path(".cache/screening")
+# Git-tracked raw JSON cache root. Each per-fetch JSON file is stored verbatim
+# under this path so that another machine can reconstruct the screening input
+# from a fresh `git clone` without re-hitting J-Quants / EDINET / JPX (issue
+# #45). Each file is expected to stay below 50MB so it fits standard Git.
+DEFAULT_CACHE_DIR = Path("data/raw/screening")
+# Gitignored derived caches (SQLite, rebuild temp). Built from the raw JSON
+# under DEFAULT_CACHE_DIR; safe to delete and rebuild on any machine.
+DEFAULT_SQLITE_CACHE_DIR = Path("data/cache/screening")
+LEGACY_CACHE_DIR = Path(".cache/screening")
 JQUANTS_CLIENT_V2_METHODS = (
     "get_eq_master",
     "get_eq_bars_daily_range",
@@ -40,6 +48,7 @@ class ScreeningConfig(BaseModel):
     jquants_refresh_token: str = Field(min_length=1)
     edinet_api_key: str = Field(min_length=1)
     cache_dir: Path = DEFAULT_CACHE_DIR
+    sqlite_cache_dir: Path = DEFAULT_SQLITE_CACHE_DIR
     jpx_regulation_urls: Mapping[str, str] = Field(default_factory=dict)
     jpx_special_caution_index_url: str | None = None
 
@@ -56,14 +65,14 @@ class ScreeningConfig(BaseModel):
             data["edinet_api_key"] = edinet_api_key
         super().__init__(**data)
 
-    @field_validator("cache_dir", mode="before")
+    @field_validator("cache_dir", "sqlite_cache_dir", mode="before")
     @classmethod
-    def _coerce_cache_dir(cls, value: object) -> Path:
+    def _coerce_dir(cls, value: object) -> Path:
         if isinstance(value, Path):
             return value
         if isinstance(value, str) and value:
             return Path(value)
-        raise ValueError("cache_dir must be a non-empty path")
+        raise ValueError("path must be a non-empty string or Path")
 
     @field_validator("jpx_regulation_urls")
     @classmethod
@@ -93,6 +102,9 @@ class ScreeningConfig(BaseModel):
             raise ConfigError(f"missing required env vars: {missing_names}")
 
         cache_dir_value = source.get("SCREENING_CACHE_DIR", str(DEFAULT_CACHE_DIR))
+        sqlite_cache_dir_value = source.get(
+            "SCREENING_SQLITE_CACHE_DIR", str(DEFAULT_SQLITE_CACHE_DIR)
+        )
         jpx_regulation_urls = {
             source_name: source[env_name]
             for source_name, env_name in JPX_REGULATION_ENV_MAP.items()
@@ -107,6 +119,7 @@ class ScreeningConfig(BaseModel):
                 jquants_refresh_token=source["JQUANTS_REFRESH_TOKEN"],
                 edinet_api_key=source["EDINET_API_KEY"],
                 cache_dir=cache_dir_value,
+                sqlite_cache_dir=sqlite_cache_dir_value,
                 jpx_regulation_urls=jpx_regulation_urls,
                 jpx_special_caution_index_url=special_caution_index_url,
             )

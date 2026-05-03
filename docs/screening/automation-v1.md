@@ -20,7 +20,10 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 python -m baibai_loop.screening.cli run --asof YYYY-MM-DD --allow-stale-jpx
 python -m baibai_loop.screening.cli bootstrap-cache --start YYYY-MM-DD --end YYYY-MM-DD
 python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--view path] [--top N]
+python -m baibai_loop.screening.cli migrate-cache [--from PATH] [--to PATH] [--dry-run]
 ```
+
+`migrate-cache` は legacy の `.cache/screening/` 配下の raw JSON を git 管理対象の `data/raw/screening/` に移動する一回限りの helper。re-run しても既存ファイルは上書きしない（idempotent）。詳細は §11 を参照。
 
 `select` は最新 `screened/<YYYY>/<MM>/<asof>.yaml` と `view/` を組み合わせて、`view` で `headwind` 判定された業種を除外し、`threshold_hit` の本数 → 時価総額の順で候補をランキングする。`research` の選定プロセス (`docs/components/research.md` §2.1) をスクリプトで支援する。
 
@@ -32,7 +35,9 @@ python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--view path] [--to
 任意:
 
 - `SCREENING_CACHE_DIR`
-  - 既定値: `.cache/screening`
+  - 既定値: `data/raw/screening`（git 管理対象）。issue #45 で `.cache/screening`（gitignore）から移行。
+- `SCREENING_SQLITE_CACHE_DIR`
+  - 既定値: `data/cache/screening`（gitignore）。raw JSON から再生成される SQLite cache 配置先。
 - JPX 公開規制情報 URL（CSV / Excel / HTML。未設定時は該当 source のカバレッジなしで `fallback_lines` に `JPX source 未ロード` 明示）。URL 運用の日次変動は issue #16 を参照:
   - `JPX_SPECIAL_CAUTION_INDEX_URL` 特別注意銘柄の個別銘柄信用取引残高表 index（推奨。日次で変わる `mtdailyk*.xls` を index から解決）
   - `JPX_SPECIAL_CAUTION_URL` 特別注意銘柄の固定 Excel URL（後方互換）
@@ -104,3 +109,11 @@ v1 で使う method は次の 5 点に固定する。
 - `0`: 全件成功
 - `1`: fail-fast（YAML 未生成）
 - `2`: partial warning（YAML 生成済み、欠損明記）
+
+## 11. Cache Layout (issue #45)
+
+- `data/raw/screening/` は J-Quants / EDINET / JPX から取得した raw JSON の **正本**。git 管理対象。1 ファイル 50MB 未満を維持し、別 PC で `git clone` 後に再取得なしで screening / ledger を再生成できる状態を目指す。
+- `data/cache/screening/` は raw JSON から派生した SQLite cache や rebuild 中の一時ファイルの置き場。`.gitignore` 対象。安全に削除して再生成できる。
+- `data/raw/screening/manifests/` は run 毎の lineage manifest 出力先。`.gitignore` 対象（`screened` YAML 側に `cache_manifest_hash` が記録されるため、manifest JSON 自体は git に載せない）。
+- `.cache/screening/` は legacy 配置で `.gitignore` のまま。新規ファイルは作られないが、既存の checkout には残っている。`migrate-cache` サブコマンドで `data/raw/screening/` に移動する。
+- `migrate-cache` は冪等。`.cache/screening/` を空にした後に手動で `rmdir` して legacy ディレクトリを掃除してよい。
