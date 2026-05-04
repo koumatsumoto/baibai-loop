@@ -18,6 +18,21 @@ from .playbook_schema import (
 
 KNOWN_MACRO_GATES: tuple[str, ...] = ("tailwind", "neutral", "headwind")
 KNOWN_DECISIONS: tuple[str, ...] = ("accepted", "skipped", "pending")
+KNOWN_OVERRIDE_TYPES: tuple[str, ...] = (
+    "decision_flip",
+    "candidate_absence",
+    "universe_drop",
+    "real_concentration_cap",
+    "gate_headwind",
+)
+_OVERRIDE_REQUIRED_KEYS: tuple[str, ...] = (
+    "type",
+    "prior_state_ref",
+    "prior_state",
+    "new_state",
+    "reason",
+)
+_EXTERNAL_REFS_PREFIX = "records/_external/"
 MEAN_REVERSION_PLAYBOOK = "valuation-mean-reversion-v1"
 REQUIRED_FRONT_MATTER: tuple[str, ...] = (
     "ticker",
@@ -531,6 +546,103 @@ def _validate_front_matter(
                 location="outlook_ref",
             )
         )
+    findings.extend(_validate_overrides(path, front_matter))
+    findings.extend(_validate_external_refs(path, front_matter))
+    return findings
+
+
+def _validate_overrides(path: Path, front_matter: dict[str, object]) -> list[ValidationFinding]:
+    overrides = front_matter.get("overrides")
+    if overrides is None:
+        return []
+    if not isinstance(overrides, list):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.overrides-non-list",
+                message="overrides must be a list when present",
+                location="overrides",
+            )
+        ]
+    findings: list[ValidationFinding] = []
+    for index, entry in enumerate(overrides):
+        location = f"overrides[{index}]"
+        if not isinstance(entry, dict):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.override-non-mapping",
+                    message="override entry must be a mapping",
+                    location=location,
+                )
+            )
+            continue
+        for key in _OVERRIDE_REQUIRED_KEYS:
+            value = entry.get(key)
+            if not isinstance(value, str) or not value.strip():
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="research.override-missing-key",
+                        message=(f"override entry requires non-empty string field: {key}"),
+                        location=f"{location}.{key}",
+                    )
+                )
+        type_value = entry.get("type")
+        if isinstance(type_value, str) and type_value not in KNOWN_OVERRIDE_TYPES:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.override-unknown-type",
+                    message=(f"override type {type_value!r} is not in {KNOWN_OVERRIDE_TYPES}"),
+                    location=f"{location}.type",
+                )
+            )
+    return findings
+
+
+def _validate_external_refs(path: Path, front_matter: dict[str, object]) -> list[ValidationFinding]:
+    external_refs = front_matter.get("external_refs")
+    if external_refs is None:
+        return []
+    if not isinstance(external_refs, list):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.external-refs-non-list",
+                message="external_refs must be a list when present",
+                location="external_refs",
+            )
+        ]
+    findings: list[ValidationFinding] = []
+    for index, entry in enumerate(external_refs):
+        location = f"external_refs[{index}]"
+        if not isinstance(entry, str) or not entry.strip():
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.external-ref-non-string",
+                    message="external_refs entries must be non-empty strings",
+                    location=location,
+                )
+            )
+            continue
+        if not entry.startswith(_EXTERNAL_REFS_PREFIX):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.external-ref-prefix",
+                    message=(f"external_refs entries must start with {_EXTERNAL_REFS_PREFIX!r}"),
+                    location=location,
+                )
+            )
     return findings
 
 

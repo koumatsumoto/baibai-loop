@@ -606,6 +606,88 @@ class ResearchValidationTests(unittest.TestCase):
             ]
             self.assertEqual(findings, [], f"research {path} produced error findings: {findings}")
 
+    def test_overrides_with_known_type_passes(self) -> None:
+        front = _minimal_research_front_matter()
+        front["overrides"] = [
+            {
+                "type": "decision_flip",
+                "prior_state_ref": "records/04-research/2026/05/...md@abc123",
+                "prior_state": "skipped",
+                "new_state": "accepted",
+                "reason": "200 株実発注のため accepted へ更新",
+            }
+        ]
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+        finally:
+            path.unlink()
+        override_errors = [
+            f for f in findings if f.severity == "error" and f.code.startswith("research.override")
+        ]
+        self.assertEqual(override_errors, [])
+
+    def test_overrides_unknown_type_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        front["overrides"] = [
+            {
+                "type": "totally_made_up",
+                "prior_state_ref": "x",
+                "prior_state": "y",
+                "new_state": "z",
+                "reason": "w",
+            }
+        ]
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.override-unknown-type", {f.code for f in findings})
+
+    def test_overrides_missing_required_key_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        front["overrides"] = [{"type": "decision_flip"}]
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.override-missing-key", {f.code for f in findings})
+
+    def test_overrides_non_list_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        front["overrides"] = "not a list"
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.overrides-non-list", {f.code for f in findings})
+
+    def test_external_refs_with_external_prefix_passes(self) -> None:
+        front = _minimal_research_front_matter()
+        front["external_refs"] = ["records/_external/chatgpt-5/2026-05-04-9682.md"]
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+        finally:
+            path.unlink()
+        external_errors = [
+            f for f in findings if f.severity == "error" and f.code.startswith("research.external")
+        ]
+        self.assertEqual(external_errors, [])
+
+    def test_external_refs_outside_external_dir_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        front["external_refs"] = ["records/01-brief/foo.yaml"]
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.external-ref-prefix", {f.code for f in findings})
+
 
 if __name__ == "__main__":
     unittest.main()

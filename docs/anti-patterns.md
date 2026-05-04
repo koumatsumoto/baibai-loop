@@ -256,12 +256,20 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - [ ] front matter の `avg_turnover_oku` が `candidates_ref` の対応 ticker の値と整合
       しているか (将来的検出推奨、現在は手動 check)。validator が `candidates_ref` を
       resolve してもよい
-- [ ] trade に `status: ordered` を導入・変更する場合、以下の corner case を確認したか:
-  - [ ] `ordered` では `entry_date == null`、`entry_price == null`
-  - [ ] `open` / `closed` では `entry_date` と `entry_price` が非 null
-  - [ ] `ordered` から `open` に遷移しても filename は `order_date` のまま
+- [ ] trade に `status: ordered` を導入・変更する場合、以下の corner case を確認したか
+      (現状は `src/baibai_loop/validate/trade.py` がほぼ enforce する):
+  - [ ] `ordered` では `entry_date == null`、`entry_price == null` (validator: `trade.lifecycle-non-null-where-prohibited`)
+  - [ ] `open` / `closed` では `entry_date` と `entry_price` が非 null (validator: `trade.lifecycle-null-where-required`)
+  - [ ] `ordered` から `open` に遷移しても filename は `order_date` のまま (validator: `trade.filename-date-mismatch`)
   - [ ] paper proxy size と real capital / real notional / real concentration を別 field に分離
+  - [ ] `paper_proxy_position_size_pct` は `paper_proxy_position_size_oku / 0.01` と整合 (validator: `trade.paper-proxy-pct-mismatch`)
+  - [ ] `real_concentration_pct` は `real_order_notional_yen / real_capital_yen * 100` と整合 (validator: `trade.real-concentration-mismatch`)
+  - [ ] `real_concentration_pct` の hard cap (50%) 超過は error / soft cap (25%) 超過は warning (validator: `trade.real-concentration-{hard,soft}-cap`)
   - [ ] `position_size_oku` / `adv_participation_pct` は paper proxy の検証であり、実資金集中度の検証ではない
+- [ ] research の `overrides` 配列を導入・変更する場合、以下を確認したか:
+  - [ ] type が `decision_flip` / `candidate_absence` / `universe_drop` / `real_concentration_cap` / `gate_headwind` の既知集合に属する (validator: `research.override-unknown-type`)
+  - [ ] `type` / `prior_state_ref` / `prior_state` / `new_state` / `reason` の 5 必須キーが揃う (validator: `research.override-missing-key`)
+  - [ ] `external_refs[]` は `records/_external/` 配下の path のみ (validator: `research.external-ref-prefix`)
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
