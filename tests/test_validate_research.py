@@ -380,6 +380,31 @@ class ResearchValidationTests(unittest.TestCase):
             path.unlink()
         self.assertIn("research.adv-participation-inconsistent", {f.code for f in findings})
 
+    def test_avg_turnover_mismatch_with_candidates_warns(self) -> None:
+        """research front matter の avg_turnover_oku が candidates と乖離すると warning"""
+        with tempfile.TemporaryDirectory() as tmp_repo:
+            repo = Path(tmp_repo)
+            (repo / "records" / "03-candidates" / "2026" / "04").mkdir(parents=True)
+            (repo / "docs").mkdir()
+            cand_path = repo / "records" / "03-candidates" / "2026" / "04" / "2026-04-24.yaml"
+            cand_path.write_text(
+                'tickers:\n  - ticker: "2767"\n    avg_turnover_oku: 4.9\n',
+                encoding="utf-8",
+            )
+            (repo / "records" / "04-research" / "2026" / "04").mkdir(parents=True)
+            front = _minimal_research_front_matter()
+            front["candidates_ref"] = "records/03-candidates/2026/04/2026-04-24.yaml"
+            front["adv_participation_pct"] = 0.2
+            front["avg_turnover_oku"] = 100.0  # candidates 4.9 と乖離
+            research_path = repo / "records" / "04-research" / "2026" / "04" / "2026-04-25-test.md"
+            front_yaml = yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
+            research_path.write_text(f"---\n{front_yaml}---\n{_DEFAULT_BODY}", encoding="utf-8")
+            findings = validate_research_file(
+                research_path, playbooks_root=ROOT / "records/_playbooks"
+            )
+        codes = {f.code for f in findings}
+        self.assertIn("research.avg-turnover-candidates-mismatch", codes)
+
     def test_skipped_decision_with_positive_position_size_is_flagged(self) -> None:
         # skipped で position_size_oku > 0 だと ledger sync が adv_participation_pct を
         # 計算してしまう穴を塞ぐ

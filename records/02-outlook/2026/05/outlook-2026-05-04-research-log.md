@@ -46,7 +46,8 @@
    - URL: https://globaltradealert.org/reports/S122-US-Tariff-Estimates
    - Tier: 2 (民間 trade analysis、二次推計)
    - Key fact: 274,000+ trade flow を 2024 年米国輸入額で加重した trade-weighted 実効税率推計。**10% シナリオ (= 法定 Proclamation 11012)** の実効税率は 11.4-11.5% (Annex II の約 1,100 製品コード除外を反映して 11.6 → 11.5 に調整)。**15% シナリオ (法定上昇時の試算)** で 13.0%。Section 232 製品 (鋼・アルミ・銅・木材・自動車)・USMCA 無税品・CAFTA-DR 繊維等は除外
-   - 注意: 過去本 PR で「外部 estimate 13%」と書いていたが、これは 15% シナリオの数値であり 10% 法定の前提と整合しなかった。本 cross-check で訂正済み
+   - **公式正本との関係**: 本 PR が canonical fact として採用するのは White House Proclamation 11012 / Federal Register (Tier 1) の **10% ad valorem** のみ。GTA の 15% シナリオは「法定が将来 15% に上がった場合」の試算であり、現行 (2026-02-24 以降) の実効税率ではない。GTA ページ上の見出しが 15% を current regime のように読める箇所があるが、本 PR では混入を避けるため「10% シナリオ → 11.4-11.5%」のみを一次法定 (10%) と整合する trade-weighted 推計として採用する
+   - 注意: 過去本 PR の round 1 で「外部 estimate 13%」と書いていたのは 15% シナリオの数値であり、10% 法定の前提と整合しなかった。round 3 で訂正済み
 
 ## Axis 2: 地政学・エネルギー
 

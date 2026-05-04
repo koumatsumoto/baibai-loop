@@ -75,7 +75,7 @@ valuation:
 
 - **本 packet の中核反対仮説 = split artifact**: candidates 由来の `price_change_60d: -0.8129` が 1:5 分割の technical 調整に対応している可能性が極めて高い。実際の adjusted close ベースで -10% 程度の小幅な調整しかしていなければ、P-A の「過剰売り」前提は不成立。`self_range_percentile` 4.1% も同様に split-unadjusted の自己レンジ評価なら artifact になる
 - **forward PER 30 の意味**: 来期会社予想 EPS 想定では trailing PER 7.35 と大きく乖離。これは業績下方修正 / 一過性利益 / 会計年度 timing の差異の可能性があり、銘柄固有の業績 cycle 構造を有報・決算説明資料で確認しないと評価不能
-- **顧客別売上構造の確認不足**: 公式製品ページ (https://www.shibaura.co.jp/products/semicon/) で確認できるのは洗浄・エッチング・ボンディング等の **製品領域** までで、TSMC / Samsung / Kioxia 等への顧客別売上比率や中国向け売上比率は本 packet 内では裏取りしていない。有報 (有価証券報告書) と決算説明資料の確認が必要
+- **顧客別売上構造の確認不足**: 公式製品ページ (https://www.shibaura.co.jp/products/semicon/) で確認できるのは洗浄・エッチング・ボンディング等の **製品領域** までで、主要半導体メーカー (顧客名は本 packet 内では断定せず、有報確認後に列挙) への顧客別売上比率や地域別売上比率は本 packet 内では裏取りしていない。有報 (有価証券報告書) と決算説明資料の確認が必要
 - **親会社 (東芝グループ) との取引比率**: 親会社東芝の事業再編・グループ内取引動向は連結ベースで追わないと評価できない、本 packet 内では未確認
 
 ## 6. Catalyst (P-A は空欄可)
@@ -128,7 +128,7 @@ skipped のため定義しない。
 
 - **split artifact が確定**: split 調整済み adj close ベースで `price_change_60d` を再計算すると -10% 〜 -15% 程度の小幅な調整しかしていなければ、P-A の「過剰売り」前提は不成立。本 packet の skipped が確定
 - **業績下方修正の構造化**: 5 月通期決算で会社予想 EPS が現状 forward PER 30 想定をさらに下方修正すれば、構造的 trap で skipped 維持
-- **顧客構造の不確実性**: 有報で TSMC / Samsung / Kioxia への露出と中国向け売上比率が確認できなければ、銘柄固有の判断材料が揃わず skipped 維持
+- **顧客構造の不確実性**: 有報で主要半導体メーカー (顧客名は有報確認後に列挙) への露出と地域別売上比率が確認できなければ、銘柄固有の判断材料が揃わず skipped 維持
 
 ### 12.2 再評価条件 (skipped → pending or accepted への昇格 trigger)
 

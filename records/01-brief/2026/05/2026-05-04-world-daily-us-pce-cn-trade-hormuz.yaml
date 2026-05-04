@@ -30,7 +30,7 @@ sources:
     url: https://globaltradealert.org/reports/S122-US-Tariff-Estimates
     accessed_at: "2026-05-04"
     status: ok
-    note: "Tier 2 (民間 trade analysis、二次推計)。trade-weighted 実効税率を 274,000+ trade flow ベースで算出。10% シナリオ (法定 = Proclamation 11012) → 11.4-11.5%、15% シナリオ → 13.0%"
+    note: "Tier 2 (民間 trade analysis、二次推計)。trade-weighted 実効税率を 274,000+ trade flow ベースで算出。10% シナリオ (法定 = Proclamation 11012) → 11.4-11.5%、15% シナリオ → 13.0%。**公式正本は federal-register-122 (Proclamation 11012) の 10% ad valorem**。GTA の 15% シナリオは将来 rate 上昇時の試算であり、本 brief / outlook では 10% シナリオの 11.4-11.5% のみを採用、13% 単独引用は避ける"
   - id: eia-press-hormuz
     name: EIA Press Release - Hormuz closure drives forecast (2026-04-07)
     url: https://www.eia.gov/pressroom/releases/press586.php

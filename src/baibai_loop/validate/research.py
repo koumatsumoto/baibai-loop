@@ -508,6 +508,18 @@ def _validate_front_matter(
                 location="candidates_ref",
             )
         )
+    if isinstance(candidates_ref, str) and candidates_ref.endswith(".yaml"):
+        ticker = front_matter.get("ticker")
+        front_avg_turnover = front_matter.get("avg_turnover_oku")
+        if (
+            isinstance(ticker, str)
+            and isinstance(front_avg_turnover, (int, float))
+            and not isinstance(front_avg_turnover, bool)
+            and front_avg_turnover > 0
+        ):
+            _append_avg_turnover_candidates_consistency_finding(
+                path, candidates_ref, ticker, front_avg_turnover, findings
+            )
     outlook_ref = front_matter.get("outlook_ref")
     if isinstance(outlook_ref, str) and not outlook_ref.endswith(".yaml"):
         findings.append(
@@ -538,6 +550,75 @@ def _append_adv_participation_finding(
                 location=location,
             )
         )
+
+
+def _append_avg_turnover_candidates_consistency_finding(
+    path: Path,
+    candidates_ref: str,
+    ticker: str,
+    front_avg_turnover: int | float,
+    findings: list[ValidationFinding],
+) -> None:
+    """research front matter の avg_turnover_oku が candidates_ref の対応 ticker と
+    整合しているか check する。
+
+    ledger sync (`src/baibai_loop/ledger/sync.py`) は candidate YAML の avg_turnover_oku
+    を使って adv_participation_pct を再計算するため、front matter と candidate がずれて
+    いると validator が通っても ledger は別の値で計算する穴になる。
+
+    candidate YAML の解決は repo root を起点とした相対 path で行う。candidate file が
+    存在しない / ticker が見つからない / candidate に avg_turnover_oku が無い場合は
+    silently skip (warning にしない: 既存テスト fixture や archive 対応のため)。
+    """
+    repo_root = _resolve_repo_root(path)
+    candidate_path = repo_root / candidates_ref
+    if not candidate_path.is_file():
+        return
+    try:
+        candidate_doc = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
+    except OSError, yaml.YAMLError:
+        return
+    if not isinstance(candidate_doc, dict):
+        return
+    tickers = candidate_doc.get("tickers")
+    if not isinstance(tickers, list):
+        return
+    for entry in tickers:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("ticker") != ticker:
+            continue
+        candidate_avg = entry.get("avg_turnover_oku")
+        if not isinstance(candidate_avg, (int, float)) or isinstance(candidate_avg, bool):
+            return
+        if candidate_avg <= 0:
+            return
+        diff_ratio = abs(front_avg_turnover - candidate_avg) / candidate_avg
+        if diff_ratio > 0.05:
+            findings.append(
+                ValidationFinding(
+                    severity="warning",
+                    target=path,
+                    code="research.avg-turnover-candidates-mismatch",
+                    message=(
+                        f"front matter avg_turnover_oku={front_avg_turnover} mismatches "
+                        f"candidates_ref={candidates_ref} ticker={ticker} value "
+                        f"{candidate_avg} (diff {diff_ratio * 100:.1f}% > 5%); "
+                        f"ledger sync uses candidate value, validator uses front value"
+                    ),
+                    location="avg_turnover_oku",
+                )
+            )
+        return
+
+
+def _resolve_repo_root(path: Path) -> Path:
+    """research file path から repo root を推定する。`records/04-research/...` 構造を想定。"""
+    resolved = path.resolve()
+    for parent in resolved.parents:
+        if (parent / "records").is_dir() and (parent / "docs").is_dir():
+            return parent
+    return resolved.parent
 
 
 def _append_adv_participation_avg_turnover_required_finding(

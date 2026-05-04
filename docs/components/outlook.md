@@ -4,7 +4,8 @@ Baibai-Loop 4 成分アーキテクチャの **(c) マクロ見解** の運用�
 
 ## 1. 役割
 
-- `records/01-brief/` の積み上げ + 外部 deep research を source として、**業種/地域/資産クラス別の追い風 (tailwind) / 中立 (neutral) / 逆風 (headwind) 評価** を生成
+- **canonical fact layer は `records/01-brief/` のみ**。一次情報 (Tier 1 / Tier 2) は brief の `sources` に集約し、outlook の `updated_from` / `source_refs` は `records/01-brief/**.yaml` のみを参照する (schema で強制)。outlook 作成時の deep research transcript は sidecar `outlook-<date>-research-log.md` に保存するが、これは取得ログ専用で outlook の根拠 source 数には数えない (= sidecar だけで brief を skip するのは設計違反)
+- 上記 fact layer を入力に **業種/地域/資産クラス別の追い風 (tailwind) / 中立 (neutral) / 逆風 (headwind) 評価** を生成
 - `records/04-research/` の Macro gate 判定で参照される唯一の source
 - Macro track の出力として、Micro track の research 選定に影響する
 - **outlook は投資戦略の最上位 gate**。ここの分析の質が portfolio パフォーマンスを支配する。深さを犠牲にして時間を惜しんではならない (深い分析を要求される非常に重要なドキュメント)

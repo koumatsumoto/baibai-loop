@@ -246,10 +246,18 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
   - [ ] `position_size_oku == 0` の場合は **`adv_participation_pct == 0`** を要求 (skipped
         packet で hypothetical 値と取り違えると `position_size 0 / avg_turnover 85.4 *
         100 = 0` だが `adv: 1.0` のような非ゼロを期待値 0 で skip してしまう穴を塞ぐ)
+  - [ ] **`decision == 'skipped'` の場合は `position_size_oku == 0` を要求** (skipped で
+        正値が残ると ledger sync `src/baibai_loop/ledger/sync.py` が adv_participation_pct
+        を計算してしまうため。round 4 で塞いだ穴)
   - [ ] `valuation.adv_participation_pct` (nested) も top-level と同じ整合チェックの対象
         にする
 - [ ] cross-field consistency rule は **依存先の field が「数値であること」だけでなく、
       「正値 (> 0) であること」を確認**する。0 / 負値で silently skip する実装は穴になる
+- [ ] front matter の `avg_turnover_oku` が `candidates_ref` の対応 ticker の値と整合
+      しているか (将来的検出推奨、現在は手動 check)。validator が `candidates_ref` を
+      resolve してもよい
+- [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
+      checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
       required 化する
 
