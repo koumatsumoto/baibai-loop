@@ -125,11 +125,15 @@ def _check_rationale_block(
                 token=", ".join(sorted(tokens)),
             )
         ]
-    source_text = _read_source_texts(source_paths)
+    # source brief は token ごとに変わらないので、ループ前に 1 度だけ normalize する。
+    # outlook 1 件で sectors 33 + regions 4 + changes が走るが、すべて同じ
+    # source brief を参照することが多いため、ここで事前正規化しておくと全体で
+    # O(rationale x token) -> O(brief + rationale x token) に下がる。
+    normalized_source_texts = [_normalize(text) for text in _read_source_texts(source_paths)]
     findings: list[OutlookFinding] = []
     for token in _collect_tokens(rationale):
         normalized = _normalize(token)
-        if not _matches_any(normalized, source_text):
+        if not _matches_any_normalized(normalized, normalized_source_texts):
             findings.append(
                 OutlookFinding(
                     severity="warning",
@@ -173,8 +177,8 @@ def _read_source_texts(paths: Iterable[Path]) -> list[str]:
     return texts
 
 
-def _matches_any(normalized_token: str, source_texts: Iterable[str]) -> bool:
-    return any(normalized_token in _normalize(text) for text in source_texts)
+def _matches_any_normalized(normalized_token: str, normalized_source_texts: Iterable[str]) -> bool:
+    return any(normalized_token in text for text in normalized_source_texts)
 
 
 def _normalize(text: str) -> str:

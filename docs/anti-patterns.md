@@ -193,7 +193,8 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
       にも数えない (詳細は [`components/outlook.md`](./components/outlook.md) §9.1)
 - [ ] **機械化チェック**: outlook 編集後に `uv run baibai-loop-precheck` を実行し、rationale 中の
       数値・bp・億円トークンが `source_refs` に列挙された brief で見つかることを確認したか。
-      新規 outlook なら `--strict` で 0 件を目指す
+      新規 outlook なら `--strict` で 0 件を目指す。precheck は同時に research の
+      `decision: skipped|pending → accepted` flip で `overrides[].type='decision_flip'` 不在も検出する
 
 ## 7. AP-07: 公表日 / 期間 / source の最新性確認を skip する
 
@@ -272,7 +273,9 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - [ ] research の `overrides` 配列を導入・変更する場合、以下を確認したか:
   - [ ] type が `decision_flip` / `candidate_absence` / `universe_drop` / `real_concentration_cap` / `gate_headwind` の既知集合に属する (validator: `research.override-unknown-type`)
   - [ ] `type` / `prior_state_ref` / `prior_state` / `new_state` / `reason` の 5 必須キーが揃う (validator: `research.override-missing-key`)
+  - [ ] `decision: accepted` で candidates_ref に ticker が見つからない場合、`overrides[].type='candidate_absence'` または `'universe_drop'` が必須 (validator: `research.candidate-absence-without-override`)
   - [ ] `external_refs[]` は `records/_external/` 配下の path のみ (validator: `research.external-ref-prefix`)
+  - [ ] 連続する commit で `decision: skipped|pending → accepted` に flip した場合、`overrides[].type='decision_flip'` を残す (precheck: `precheck.decision-flip-without-override`、`baibai-loop-precheck` で git 履歴ベースに検出)
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を

@@ -548,6 +548,7 @@ def _validate_front_matter(
         )
     findings.extend(_validate_overrides(path, front_matter))
     findings.extend(_validate_external_refs(path, front_matter))
+    findings.extend(_validate_candidate_absence_override(path, front_matter))
     return findings
 
 
@@ -603,6 +604,62 @@ def _validate_overrides(path: Path, front_matter: dict[str, object]) -> list[Val
                 )
             )
     return findings
+
+
+def _validate_candidate_absence_override(
+    path: Path, front_matter: dict[str, object]
+) -> list[ValidationFinding]:
+    """``decision: accepted`` で candidates_ref に ticker が見つからない場合は
+    ``overrides[].type`` に ``candidate_absence`` または ``universe_drop`` が必須。
+
+    - candidates file が存在しない (fixture / archive 経路) → 既存の挙動に倣い skip。
+    - candidates が存在しても yaml parse 失敗 → 別 validator が報告するので skip。
+    - ticker が candidates にある → enforce 不要。
+    - ticker が candidates にない + overrides 不足 → error。
+    """
+    if front_matter.get("decision") != "accepted":
+        return []
+    candidates_ref = front_matter.get("candidates_ref")
+    ticker = front_matter.get("ticker")
+    if not isinstance(candidates_ref, str) or not isinstance(ticker, str):
+        return []
+    repo_root = _resolve_repo_root(path)
+    candidate_path = repo_root / candidates_ref
+    if not candidate_path.is_file():
+        return []
+    try:
+        candidate_doc = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
+    except OSError, yaml.YAMLError:
+        return []
+    if not isinstance(candidate_doc, dict):
+        return []
+    tickers = candidate_doc.get("tickers")
+    if not isinstance(tickers, list):
+        return []
+    found = any(isinstance(entry, dict) and entry.get("ticker") == ticker for entry in tickers)
+    if found:
+        return []
+    overrides = front_matter.get("overrides")
+    if isinstance(overrides, list):
+        for entry in overrides:
+            if isinstance(entry, dict) and entry.get("type") in (
+                "candidate_absence",
+                "universe_drop",
+            ):
+                return []
+    return [
+        ValidationFinding(
+            severity="error",
+            target=path,
+            code="research.candidate-absence-without-override",
+            message=(
+                f"ticker {ticker!r} not found in candidates_ref={candidates_ref}; "
+                "decision=accepted requires overrides[].type='candidate_absence' "
+                "or 'universe_drop'"
+            ),
+            location="overrides",
+        )
+    ]
 
 
 def _validate_external_refs(path: Path, front_matter: dict[str, object]) -> list[ValidationFinding]:
@@ -776,7 +833,11 @@ def _append_adv_participation_consistency_finding(
     """Cross-check adv_participation_pct against position_size_oku / avg_turnover_oku.
 
     `position_size_oku / avg_turnover_oku * 100 ≈ adv_participation_pct` を確認する
-    (許容誤差 5%)。100 倍ズレなどの桁誤りを検出する。
+    (許容誤差 5% relative)。これは AP-02 (PR #68) で観測された「100 倍ズレ
+    `0.585` vs `0.00585%`」のような桁誤りを捕捉するためで、relative 5% で十分。
+    Issue #81 の文中 "±0.5%" は relative ではなく absolute 解釈を許容する記述だが、
+    ここでの本来の目的は scaling error の検出であり、ノイズの少ない relative 5% を
+    維持する。より厳密な検算は `baibai-loop-precheck` 側で扱う設計余地。
 
     依存先 field の状態別の挙動:
     - `position_size_oku` 未指定 / 非数値: required check 側で別途 error 化されるので skip

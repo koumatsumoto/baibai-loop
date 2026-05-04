@@ -4,12 +4,24 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
-from .source_refs import OutlookFinding, scan_outlook_source_refs
+from .decision_flip import scan_research_decision_flips
+from .source_refs import scan_outlook_source_refs
 
 OUTLOOK_ROOT = Path("records/02-outlook")
+RESEARCH_ROOT = Path("records/04-research")
+
+
+@dataclass(frozen=True, slots=True)
+class _DisplayFinding:
+    severity: str
+    target: Path
+    code: str
+    message: str
+    location: str
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -47,15 +59,40 @@ def run_precheck(*, root: Path, strict: bool, stdout: TextIO, stderr: TextIO) ->
             file=stderr,
         )
         return 1
-    findings = scan_outlook_source_refs(root / OUTLOOK_ROOT, repo_root=root)
+    outlook_findings = scan_outlook_source_refs(root / OUTLOOK_ROOT, repo_root=root)
+    flip_findings = scan_research_decision_flips(root / RESEARCH_ROOT, repo_root=root)
+    findings: list[_DisplayFinding] = []
+    for outlook_finding in outlook_findings:
+        findings.append(
+            _DisplayFinding(
+                severity=outlook_finding.severity,
+                target=outlook_finding.target,
+                code=outlook_finding.code,
+                message=outlook_finding.message,
+                location=outlook_finding.location,
+            )
+        )
+    for flip_finding in flip_findings:
+        findings.append(
+            _DisplayFinding(
+                severity=flip_finding.severity,
+                target=flip_finding.target,
+                code=flip_finding.code,
+                message=flip_finding.message,
+                location=flip_finding.location,
+            )
+        )
     for finding in findings:
         print(_format_finding(finding, root), file=stderr)
-    summary = f"precheck: {len(findings)} finding(s)"
+    summary = (
+        f"precheck: {len(outlook_findings)} source-ref finding(s), "
+        f"{len(flip_findings)} decision-flip finding(s)"
+    )
     print(summary, file=stdout)
     return 1 if strict and findings else 0
 
 
-def _format_finding(finding: OutlookFinding, root: Path) -> str:
+def _format_finding(finding: _DisplayFinding, root: Path) -> str:
     try:
         target = finding.target.relative_to(root)
     except ValueError:
