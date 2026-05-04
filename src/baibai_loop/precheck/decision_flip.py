@@ -14,7 +14,8 @@ shell out). Files outside a git working tree are silently skipped.
 from __future__ import annotations
 
 import re
-import subprocess
+import shutil
+import subprocess  # nosec B404
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,7 @@ import yaml
 
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)
 _FLIP_TYPE = "decision_flip"
+_GIT_PATH = shutil.which("git")
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,7 +42,7 @@ class DecisionFlipFinding:
 def scan_research_decision_flips(
     research_root: Path, *, repo_root: Path
 ) -> list[DecisionFlipFinding]:
-    if not research_root.is_dir() or not (repo_root / ".git").exists():
+    if not research_root.is_dir() or not (repo_root / ".git").exists() or not _GIT_PATH:
         return []
     findings: list[DecisionFlipFinding] = []
     for path in sorted(research_root.rglob("*.md")):
@@ -101,11 +103,13 @@ def _parse_front_matter(text: str) -> Mapping[str, object] | None:
 
 def _previous_committed_text(repo_root: Path, rel: Path) -> str | None:
     """Return the file content from the commit before HEAD's most recent change."""
+    if not _GIT_PATH:
+        return None
     rel_str = rel.as_posix()
     try:
-        log = subprocess.run(
+        log = subprocess.run(  # nosec B603
             [
-                "git",
+                _GIT_PATH,
                 "-C",
                 str(repo_root),
                 "log",
@@ -126,9 +130,9 @@ def _previous_committed_text(repo_root: Path, rel: Path) -> str | None:
         return None
     prev_commit = commits[1]
     try:
-        show = subprocess.run(
+        show = subprocess.run(  # nosec B603
             [
-                "git",
+                _GIT_PATH,
                 "-C",
                 str(repo_root),
                 "show",
@@ -138,6 +142,6 @@ def _previous_committed_text(repo_root: Path, rel: Path) -> str | None:
             capture_output=True,
             text=True,
         )
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError, FileNotFoundError:
         return None
     return show.stdout
