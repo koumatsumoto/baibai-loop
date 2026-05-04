@@ -50,13 +50,19 @@ Baibai-Loop は、日本株トレードにおける戦略立案、スクリー�
   約定を出す前提
 - **戦略パラメータの auto-tuning** — playbook (`records/_playbooks/`) は人間が原則ベースで
   決め、過去データへの fit で update しない
-- **未来情報を含む計算** — `price_change_60d` 等は J-Quants point-in-time data + asof
-  filter で評価し、look-ahead は構造的に発生しない (詳細は [`docs/data-sources.md`](./docs/data-sources.md))
+- **未来情報を含む計算** — `price_change_60d` 等の評価では asof filter を通して日次
+  fetch 対象を絞るが、J-Quants の銘柄 master / 価格調整係数 / JPX 規制データは
+  **完全な point-in-time snapshot ではない** (詳細は
+  [`docs/data-sources.md`](./docs/data-sources.md) §「取得データの保存方針」)。本システム
+  は forward-only な意思決定支援であり、historical 累積リターンの正確な再現
+  (survivorship-correct backtest) はスコープ外で claim しない
 
 「バックテスト誤認」が起きた場合の指摘 (サバイバビリティ・バイアス、look-ahead、データ
 スヌーピング、ベンチマーク比較不在等) は、本システムが forward-looking な意思決定支援
-基盤である限り原則として該当しない。バックテスト前提のレビューを受けた場合はまずこの
-section を参照すること。
+基盤である限り **原則として該当しない** (= 過去リターン算出をしないので発生する余地
+がない)。一方で、上述のとおり利用しているデータが完全な PIT snapshot ではない事実は
+独立した制約として残る。バックテスト前提のレビューを受けた場合はまずこの section を
+参照すること。
 
 実取引時の前提コスト想定は [`docs/components/research.md`](./docs/components/research.md)
 を参照。

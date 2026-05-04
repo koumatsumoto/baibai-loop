@@ -109,7 +109,10 @@ Baibai-Loop は **4 成分 (`records/01-brief/`, `records/03-candidates/`, `reco
 - **バックテスト**: 過去 N 年に対する累積リターン・MaxDD・シャープ計算をしない
 - **パラメータ・サーチ**: `sector_median_gap < -20%`、`self_range bottom 20%` 等の閾値を
   grid search で fit しない (固定値の恣意性は受け入れる)
-- **生存者調整 / look-ahead 補正のシミュレーション**: 上記をしないので必要が発生しない
+- **生存者調整 / look-ahead 補正のシミュレーション**: backtest をしないので necessitate
+  しない。ただし J-Quants 銘柄 master / 価格調整係数 / JPX 規制データは latest-snapshot
+  で取得しており、完全な PIT snapshot ではない点はデータ層の限界として残る (詳細は
+  [`data-sources.md`](./data-sources.md) §「取得データの保存方針」)
 - **戦略パフォーマンスの track record claim**: 「過去 X 年で年率 Y%」のような report を
   作らない
 - **アルファ / ベータ / シャープ等の事前計測**: 入る前に「どれだけ稼いだか」を計らない
@@ -128,8 +131,11 @@ Baibai-Loop は **4 成分 (`records/01-brief/`, `records/03-candidates/`, `reco
   pressure に逆らえない。原則ベースで思想を固定し、forward-only で realistic な
   performance を観測して playbook を改訂する方が長期 robust
 - バックテスト前提のレビュー指摘 (サバイバビリティ・バイアス、look-ahead bias、データ
-  スヌーピング、ベンチマーク比較不在等) は本原則を採用している限り **構造的に該当しな
-  い**。レビューを受けた際は本 section を参照する
+  スヌーピング、ベンチマーク比較不在等) は本原則を採用している限り **原則として該当
+  しない** (= 過去累積リターンの算出を行わないので発生する余地がない)。レビューを
+  受けた際は本 section を参照する。なお、データ層では完全な PIT snapshot を保有して
+  いない (前項 9.1 末尾参照) ため、forward-only であることは backtest 品質を保証する
+  ものではなく、survivorship-correct backtest がスコープ外であることを意味する
 
 ## 10. 参考
 

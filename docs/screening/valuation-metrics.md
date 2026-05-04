@@ -92,10 +92,12 @@ Historical EV/EBITDA は、各日の split-adjusted close で時価総額だけ�
 
 ### 9.1 `adjustment_close` の中身（dividend / 配当の扱い）
 
-J-Quants の `AdjustmentClose` は **株式分割・併合・無償増資 (株式数の希薄化要因) のみ** を
-遡及調整し、**現金配当の支払いは price には反映しない** (price-only series、total return
-ではない)。本システムでも total return ベースには変換せず、`adjustment_close` をそのまま
-使う。理由:
+J-Quants の `AdjustmentClose` は **株式分割・株式併合 (reverse split を含む)** を遡及
+調整した price-only series であり、現金配当の支払いは price には反映しない (total
+return ではない)。これ以外のコーポレートアクション (合併、株式交換、その他の無償交付
+等) はサポート対象外として **公式 docs に明示** されている (J-Quants daily_quotes API
+リファレンス: <https://jpx.gitbook.io/j-quants-ja/api-reference/daily_quotes>)。本システム
+でも total return ベースには変換せず、`adjustment_close` をそのまま使う。理由:
 
 - mean reversion playbook (`valuation-mean-reversion-v1`) の主信号は「short-term の price
   decline」であり、配当落ちを含めた pure な price 系列で判定するのが thesis と整合
