@@ -36,6 +36,18 @@ Baibai-Loop 4 成分アーキテクチャの **(d) 個別銘柄リサーチ** �
 - `records/02-outlook/` に最新の outlook がない場合は、research 作成前に outlook を作成する
 - 初回作成手順: [`outlook.md`](./outlook.md) §3 を参照
 
+### 2.4 銘柄IR確認の必須化
+
+research 対象に選んだ銘柄は、業種を問わず **会社IRを一次情報として必ず確認する**。screening や
+外部分析は候補選定の補助であり、採用 / 見送り / 保留の判断を確定する根拠にはしない。
+
+- 最低限、直近の決算短信、決算説明資料、会社説明会 Q&A、有価証券報告書 / 統合報告書、
+  中期経営計画、株主還元・自己株式取得・配当関連の適時開示を確認する
+- 会社IRで確認できた事実、会社IRでは確認できず外部 estimate に留めた情報、外部AI / 二次分析から
+  修正した数値を research 本文の source verification log に分けて残す
+- 会社IRが未確認の銘柄は `decision: accepted` にしない。情報不足なら `pending` または `skipped` とし、
+  未確認項目を明記する
+
 ## 3. Path と命名
 
 ```
@@ -62,6 +74,12 @@ published_at: "ISO 8601"
 tradable_at: "ISO 8601"
 macro_gate: tailwind | neutral | headwind          # outlook 判定結果
 macro_gate_override: "..."                         # headwind 採用時のみ必須
+overrides:                                         # 任意。system signal を上書きする場合は必須運用
+  - type: decision_flip | candidate_absence | universe_drop | real_concentration_cap
+    prior_state_ref: "path or commit:path"
+    prior_state: "..."
+    new_state: "..."
+    reason: "..."
 position_size_oku: 0.01                            # 建玉 proxy (億円)。skipped は 0、accepted/pending は > 0
 hypothetical_position_size_oku: 0.005              # 任意。skipped で参考値として記録する場合
 avg_turnover_oku: 5.0                              # candidates 由来の 20 日平均売買代金 (億円)。adv_participation_pct を書く場合は > 0 必須 (validator 強制)
@@ -83,6 +101,10 @@ valuation:
 - `brief_refs` は任意。outlook 後に gate 判定に影響する緊急 brief を参照した場合のみ追加
 - `macro_gate` が `headwind` の場合は採用不可（原則）
 - `decision: accepted` かつ `macro_gate: headwind` の場合は `macro_gate_override` が必須
+- `tradable_at` は注文または約定が可能になる最初の市場時刻。休場日・立会時間外に注文を入れた場合、
+  `published_at` / `order_date` より後の次回立会時刻になる
+- `overrides` は、直前の `skipped` 判定、最新 candidates からの不在、universe drop、実資金集中度超過など、
+  system signal を人間判断で上書きする場合に残す
 - `position_size_oku` は仮定資本 1 億円ベース。採用 position 1.0% は `0.01` 億円として記録する
 - `adv_participation_pct` は `5.0` 以上で hard reject
 - `market_cap_oku` / `sector_33` は candidates から転記し、tier rule と sector 集中 warning の検証に使う
@@ -202,6 +224,9 @@ research packet を書いた / 更新した後、commit 前に以下を必ず確
 [`../anti-patterns.md`](../anti-patterns.md) を参照:
 
 - [ ] **AP-01** (一次情報直接確認): TSMC / NVIDIA / 顧客企業等の事業構造を断定する場合、有価証券報告書 / 決算説明資料 / 統合報告書 / IR press release のいずれかに直接 URL を紐付けたか。アナリスト試算や業界レポート由来は明示的に「外部 estimate」と区別したか。**source の policy / rate / date / scenario が本文主張と一致しているか** (URL を貼っただけで終わらせない)
+- [ ] **会社IR必須確認**: research 対象銘柄について、業種を問わず直近決算短信 / 決算説明資料 /
+      Q&A / 有価証券報告書または統合報告書 / 中計 / 株主還元関連開示を確認したか。未確認のまま
+      `decision: accepted` にしていないか
 - [ ] **AP-02** (数値検算): `adv_participation_pct = position_size_oku / avg_turnover_oku * 100` を電卓 / Python で検算したか。利確 target の % は EPS 一定で `(target_per / current_per - 1) * 100` で計算したか
 - [ ] **AP-03** (株価異常値の corporate action 確認): candidates の `price_change_60d` / `price_change_4w` が ±50% を超える、または `self_range_percentile` が下位 5% 以下の銘柄は、研究進める前に EDINET / TDnet / 適時開示で 60 日 / 4 週期間内の株式分割 / 併合 / 合併 / TOB の有無を必ず確認したか
 - [ ] **AP-04** (schema / 実装の意味): candidates の `sector_relative_strength_percentile` は **sector level の rank** であって個別銘柄の同業種内相対強度ではない。同様に `threshold_hit` / `metrics_breakdown` も `src/baibai_loop/screening/metrics.py` と `rules.py` で意味を確認したか
@@ -209,6 +234,10 @@ research packet を書いた / 更新した後、commit 前に以下を必ず確
 - [ ] **AP-06** (ref 整合性): `outlook_ref` / `candidates_ref` / `brief_refs` の 3 ref が valid パスか、対応 file が実在するか。引用する fact は brief 経由で参照しているか
 - [ ] **AP-07** (kill switch と日付): `tradable_at` 周辺に決算 (会社四季報 / TDnet で確認)・日銀会合・FOMC が無いか、`next_earnings_date` が candidates から正しく取れているか
 - [ ] **AP-08** (validator 抜け道): `adv_participation_pct` を front matter に書く場合は `avg_turnover_oku` も併記 (validator が required 化)。`decision: skipped` では `position_size_oku: 0` + `adv_participation_pct: 0` 強制 (validator)、参考値は `hypothetical_position_size_oku` に分離。`avg_turnover_oku` は `candidates_ref` 対応 ticker と ±5% で整合 (validator が warning レベルで check)
+- [ ] **外部 AI / 二次分析の検証**: 他AI・証券サイト・ニュース要約の投資判断を取り込む場合、結論をそのまま転記せず、少なくとも会社IR / 決算短信 / 決算説明資料 / Q&A / 取引所休日 / candidates のいずれかで主要数値を再確認したか。確認できた事実、修正した数値、未採用の二次情報を research の source verification log に分けて残したか
+- [ ] **system signal override の明示**: 直前の `decision: skipped`、最新 candidates からの不在、
+      universe drop、macro headwind、実資金集中度超過などを上書きして採用する場合、`overrides` と本文に
+      prior state / override reason / evidence を残したか
 
 ## 9. 参考
 
