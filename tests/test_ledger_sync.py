@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import textwrap
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -183,8 +184,31 @@ def test_ledger_cli_require_market_data_fails_without_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _seed(tmp_path)
+    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("JQUANTS_REFRESH_TOKEN", raising=False)
     assert main(["sync", "--root", str(tmp_path), "--dry-run", "--require-market-data"]) == 1
+
+
+def test_ledger_cli_loads_dotenv_from_root_not_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # cwd != --root の状態で、.env 探索が --root 起点で動くことを確認する。
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    _seed(repo_root)
+    (repo_root / ".env").write_text("JQUANTS_REFRESH_TOKEN=from_root_dotenv\n", encoding="utf-8")
+
+    other_dir = tmp_path / "elsewhere"
+    other_dir.mkdir()
+    monkeypatch.chdir(other_dir)
+    monkeypatch.delenv("JQUANTS_REFRESH_TOKEN", raising=False)
+
+    # repo の .env が見つかれば token が設定され、--require-market-data でも 1 で
+    # 帰るがその理由は warnings 経由 (無 research 等) になる。0 (success) にはならない。
+    # 重要なのは `missing token` 起因で abort せず、--root の .env が読まれていること。
+    main(["sync", "--root", str(repo_root), "--dry-run", "--require-market-data"])
+    assert os.environ["JQUANTS_REFRESH_TOKEN"] == "from_root_dotenv"
 
 
 def test_ledger_cli_require_market_data_emits_diagnostic_when_no_research(
@@ -194,6 +218,7 @@ def test_ledger_cli_require_market_data_emits_diagnostic_when_no_research(
 ) -> None:
     # research packet が空の場合 _load_market_data は warnings を返さないが、
     # --require-market-data の失敗理由は必ず stderr に出るべき。
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("JQUANTS_REFRESH_TOKEN", "dummy-token")
     (tmp_path / "records/04-research").mkdir(parents=True)
     assert main(["sync", "--root", str(tmp_path), "--dry-run", "--require-market-data"]) == 1

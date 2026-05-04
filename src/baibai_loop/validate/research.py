@@ -328,17 +328,49 @@ def _validate_front_matter(
                     severity="error",
                     target=path,
                     code="research.invalid-position-size",
-                    message="position_size_oku must be a positive number",
+                    message="position_size_oku must be a non-negative number",
                     location="position_size_oku",
                 )
             )
-    elif position_size <= 0:
+    elif position_size < 0:
         findings.append(
             ValidationFinding(
                 severity="error",
                 target=path,
                 code="research.invalid-position-size",
-                message="position_size_oku must be greater than 0",
+                message="position_size_oku must be non-negative",
+                location="position_size_oku",
+            )
+        )
+    elif position_size == 0 and decision != "skipped":
+        # accepted / pending は実 position を伴うため 0 は不可。skipped のみ 0 を許容し、
+        # ヒューリスティック値は hypothetical_position_size_oku に分離する設計を許す。
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.invalid-position-size",
+                message=(
+                    "position_size_oku must be > 0 for accepted/pending decision; "
+                    "use 0 only with decision=skipped"
+                ),
+                location="position_size_oku",
+            )
+        )
+    elif position_size > 0 and decision == "skipped":
+        # skipped 判定で実 position 値を残すと ledger sync (`src/baibai_loop/ledger/
+        # sync.py`) が skipped ledger の adv_participation_pct を計算してしまう。
+        # 実建玉なしを示す skipped では position_size_oku: 0 を強制し、参考値は
+        # hypothetical_position_size_oku に分離する。
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.invalid-position-size",
+                message=(
+                    "decision=skipped requires position_size_oku=0; use "
+                    "hypothetical_position_size_oku for reference values"
+                ),
                 location="position_size_oku",
             )
         )
@@ -424,6 +456,12 @@ def _validate_front_matter(
     top_level_adv = front_matter.get("adv_participation_pct")
     if isinstance(top_level_adv, (int, float)) and not isinstance(top_level_adv, bool):
         _append_adv_participation_finding(path, top_level_adv, findings, "adv_participation_pct")
+        _append_adv_participation_avg_turnover_required_finding(
+            path, front_matter, findings, "adv_participation_pct"
+        )
+        _append_adv_participation_consistency_finding(
+            path, front_matter, top_level_adv, findings, "adv_participation_pct"
+        )
     elif "adv_participation_pct" in front_matter:
         findings.append(
             ValidationFinding(
@@ -442,6 +480,12 @@ def _validate_front_matter(
                 adv_participation,
                 findings,
                 "valuation.adv_participation_pct",
+            )
+            _append_adv_participation_avg_turnover_required_finding(
+                path, front_matter, findings, "valuation.adv_participation_pct"
+            )
+            _append_adv_participation_consistency_finding(
+                path, front_matter, adv_participation, findings, "valuation.adv_participation_pct"
             )
         elif "adv_participation_pct" in valuation:
             findings.append(
@@ -464,6 +508,18 @@ def _validate_front_matter(
                 location="candidates_ref",
             )
         )
+    if isinstance(candidates_ref, str) and candidates_ref.endswith(".yaml"):
+        ticker = front_matter.get("ticker")
+        front_avg_turnover = front_matter.get("avg_turnover_oku")
+        if (
+            isinstance(ticker, str)
+            and isinstance(front_avg_turnover, (int, float))
+            and not isinstance(front_avg_turnover, bool)
+            and front_avg_turnover > 0
+        ):
+            _append_avg_turnover_candidates_consistency_finding(
+                path, candidates_ref, ticker, front_avg_turnover, findings
+            )
     outlook_ref = front_matter.get("outlook_ref")
     if isinstance(outlook_ref, str) and not outlook_ref.endswith(".yaml"):
         findings.append(
@@ -491,6 +547,171 @@ def _append_adv_participation_finding(
                 target=path,
                 code="research.adv-participation-cap",
                 message="adv_participation_pct must be below 5.0 for accepted research",
+                location=location,
+            )
+        )
+
+
+def _append_avg_turnover_candidates_consistency_finding(
+    path: Path,
+    candidates_ref: str,
+    ticker: str,
+    front_avg_turnover: int | float,
+    findings: list[ValidationFinding],
+) -> None:
+    """research front matter の avg_turnover_oku が candidates_ref の対応 ticker と
+    整合しているか check する。
+
+    ledger sync (`src/baibai_loop/ledger/sync.py`) は candidate YAML の avg_turnover_oku
+    を使って adv_participation_pct を再計算するため、front matter と candidate がずれて
+    いると validator が通っても ledger は別の値で計算する穴になる。
+
+    candidate YAML の解決は repo root を起点とした相対 path で行う。candidate file が
+    存在しない / ticker が見つからない / candidate に avg_turnover_oku が無い場合は
+    silently skip (warning にしない: 既存テスト fixture や archive 対応のため)。
+    """
+    repo_root = _resolve_repo_root(path)
+    candidate_path = repo_root / candidates_ref
+    if not candidate_path.is_file():
+        return
+    try:
+        candidate_doc = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
+    except OSError, yaml.YAMLError:
+        return
+    if not isinstance(candidate_doc, dict):
+        return
+    tickers = candidate_doc.get("tickers")
+    if not isinstance(tickers, list):
+        return
+    for entry in tickers:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("ticker") != ticker:
+            continue
+        candidate_avg = entry.get("avg_turnover_oku")
+        if not isinstance(candidate_avg, (int, float)) or isinstance(candidate_avg, bool):
+            return
+        if candidate_avg <= 0:
+            return
+        diff_ratio = abs(front_avg_turnover - candidate_avg) / candidate_avg
+        if diff_ratio > 0.05:
+            findings.append(
+                ValidationFinding(
+                    severity="warning",
+                    target=path,
+                    code="research.avg-turnover-candidates-mismatch",
+                    message=(
+                        f"front matter avg_turnover_oku={front_avg_turnover} mismatches "
+                        f"candidates_ref={candidates_ref} ticker={ticker} value "
+                        f"{candidate_avg} (diff {diff_ratio * 100:.1f}% > 5%); "
+                        f"ledger sync uses candidate value, validator uses front value"
+                    ),
+                    location="avg_turnover_oku",
+                )
+            )
+        return
+
+
+def _resolve_repo_root(path: Path) -> Path:
+    """research file path から repo root を推定する。`records/04-research/...` 構造を想定。"""
+    resolved = path.resolve()
+    for parent in resolved.parents:
+        if (parent / "records").is_dir() and (parent / "docs").is_dir():
+            return parent
+    return resolved.parent
+
+
+def _append_adv_participation_avg_turnover_required_finding(
+    path: Path,
+    front_matter: dict[str, object],
+    findings: list[ValidationFinding],
+    location: str,
+) -> None:
+    """adv_participation_pct があるなら avg_turnover_oku の正値併記を必須にする。
+
+    avg_turnover_oku が無い / 0 / 負値だと整合チェック (position_size / avg_turnover *
+    100) が skip され、100 倍ズレ等の桁誤りを catch できない。「数値であれば OK」では
+    なく「正値 (> 0)」を必須にする。
+    """
+    avg_turnover = front_matter.get("avg_turnover_oku")
+    if (
+        isinstance(avg_turnover, (int, float))
+        and not isinstance(avg_turnover, bool)
+        and avg_turnover > 0
+    ):
+        return
+    findings.append(
+        ValidationFinding(
+            severity="error",
+            target=path,
+            code="research.missing-avg-turnover-oku",
+            message=(
+                "adv_participation_pct requires avg_turnover_oku > 0 in front matter for "
+                "consistency check (prevents 100x scaling errors and divide-by-zero skips)"
+            ),
+            location=location,
+        )
+    )
+
+
+def _append_adv_participation_consistency_finding(
+    path: Path,
+    front_matter: dict[str, object],
+    adv_participation: int | float,
+    findings: list[ValidationFinding],
+    location: str,
+) -> None:
+    """Cross-check adv_participation_pct against position_size_oku / avg_turnover_oku.
+
+    `position_size_oku / avg_turnover_oku * 100 ≈ adv_participation_pct` を確認する
+    (許容誤差 5%)。100 倍ズレなどの桁誤りを検出する。
+
+    依存先 field の状態別の挙動:
+    - `position_size_oku` 未指定 / 非数値: required check 側で別途 error 化されるので skip
+    - `avg_turnover_oku <= 0` または不在: required check 側で error 化されるので skip
+    - `position_size_oku == 0` (skipped packet 想定): expected = 0 となるので、
+      adv_participation_pct も `0` でなければ error にする (skipped で hypothetical 値が
+      混入する穴を塞ぐ)
+    """
+    position_size = front_matter.get("position_size_oku")
+    avg_turnover = front_matter.get("avg_turnover_oku")
+    if not isinstance(position_size, (int, float)) or isinstance(position_size, bool):
+        return
+    if not isinstance(avg_turnover, (int, float)) or isinstance(avg_turnover, bool):
+        return
+    if avg_turnover <= 0:
+        # required check 側で error 化済み。consistency 計算は分母不正のため skip
+        return
+    expected = (position_size / avg_turnover) * 100.0
+    if expected == 0:
+        # position_size_oku == 0 (skipped) の場合、adv_participation_pct も 0 を要求
+        if adv_participation != 0:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.adv-participation-inconsistent",
+                    message=(
+                        f"position_size_oku=0 requires adv_participation_pct=0 but got "
+                        f"{adv_participation}; use hypothetical_position_size_oku for "
+                        f"reference values in skipped packets"
+                    ),
+                    location=location,
+                )
+            )
+        return
+    diff_ratio = abs(adv_participation - expected) / expected
+    if diff_ratio > 0.05:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.adv-participation-inconsistent",
+                message=(
+                    f"adv_participation_pct={adv_participation:.6f} does not match "
+                    f"position_size_oku / avg_turnover_oku * 100={expected:.6f} "
+                    f"(diff {diff_ratio * 100:.1f}% > 5%); likely scaling error"
+                ),
                 location=location,
             )
         )

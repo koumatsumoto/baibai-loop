@@ -62,8 +62,10 @@ published_at: "ISO 8601"
 tradable_at: "ISO 8601"
 macro_gate: tailwind | neutral | headwind          # outlook 判定結果
 macro_gate_override: "..."                         # headwind 採用時のみ必須
-position_size_oku: 0.01                            # 建玉 proxy (億円)
-adv_participation_pct: 0.2                         # position_size_oku / avg_turnover_oku * 100
+position_size_oku: 0.01                            # 建玉 proxy (億円)。skipped は 0、accepted/pending は > 0
+hypothetical_position_size_oku: 0.005              # 任意。skipped で参考値として記録する場合
+avg_turnover_oku: 5.0                              # candidates 由来の 20 日平均売買代金 (億円)。adv_participation_pct を書く場合は > 0 必須 (validator 強制)
+adv_participation_pct: 0.2                         # position_size_oku / avg_turnover_oku * 100。validator が ±5% で整合チェック
 market_cap_oku: 936                                # candidates 由来の時価総額 (億円)
 sector_33: "情報・通信業"                         # candidates 由来の東証 33 業種
 valuation:
@@ -164,6 +166,20 @@ research_ref: records/04-research/2026/04/2026-04-25-7203-valuation-mean-reversi
 | 13 | Position size 判定ドラフト | ○ | **最終採用判定は人間** |
 
 AI 下書きは front matter `ai-draft: true` で識別、人間確認後 `false` に更新。
+
+## 8.1 commit 前 self-review (anti-pattern との対応)
+
+research packet を書いた / 更新した後、commit 前に以下を必ず確認する。詳細チェックリストは
+[`../anti-patterns.md`](../anti-patterns.md) を参照:
+
+- [ ] **AP-01** (一次情報直接確認): TSMC / NVIDIA / 顧客企業等の事業構造を断定する場合、有価証券報告書 / 決算説明資料 / 統合報告書 / IR press release のいずれかに直接 URL を紐付けたか。アナリスト試算や業界レポート由来は明示的に「外部 estimate」と区別したか。**source の policy / rate / date / scenario が本文主張と一致しているか** (URL を貼っただけで終わらせない)
+- [ ] **AP-02** (数値検算): `adv_participation_pct = position_size_oku / avg_turnover_oku * 100` を電卓 / Python で検算したか。利確 target の % は EPS 一定で `(target_per / current_per - 1) * 100` で計算したか
+- [ ] **AP-03** (株価異常値の corporate action 確認): candidates の `price_change_60d` / `price_change_4w` が ±50% を超える、または `self_range_percentile` が下位 5% 以下の銘柄は、研究進める前に EDINET / TDnet / 適時開示で 60 日 / 4 週期間内の株式分割 / 併合 / 合併 / TOB の有無を必ず確認したか
+- [ ] **AP-04** (schema / 実装の意味): candidates の `sector_relative_strength_percentile` は **sector level の rank** であって個別銘柄の同業種内相対強度ではない。同様に `threshold_hit` / `metrics_breakdown` も `src/baibai_loop/screening/metrics.py` と `rules.py` で意味を確認したか
+- [ ] **AP-05** (顧客 / 競合 / 親会社の断定回避): 公式製品ページや業界記事だけを根拠に「主要顧客 = X / Y / Z」と固有名詞を断定していないか。有報・決算説明資料で確認できない顧客名は本 packet 内では断定せず「主要半導体メーカー (有報確認後に列挙)」のような plain holder で書く
+- [ ] **AP-06** (ref 整合性): `outlook_ref` / `candidates_ref` / `brief_refs` の 3 ref が valid パスか、対応 file が実在するか。引用する fact は brief 経由で参照しているか
+- [ ] **AP-07** (kill switch と日付): `tradable_at` 周辺に決算 (会社四季報 / TDnet で確認)・日銀会合・FOMC が無いか、`next_earnings_date` が candidates から正しく取れているか
+- [ ] **AP-08** (validator 抜け道): `adv_participation_pct` を front matter に書く場合は `avg_turnover_oku` も併記 (validator が required 化)。`decision: skipped` では `position_size_oku: 0` + `adv_participation_pct: 0` 強制 (validator)、参考値は `hypothetical_position_size_oku` に分離。`avg_turnover_oku` は `candidates_ref` 対応 ticker と ±5% で整合 (validator が warning レベルで check)
 
 ## 9. 参考
 

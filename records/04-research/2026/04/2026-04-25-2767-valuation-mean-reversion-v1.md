@@ -12,6 +12,7 @@ tradable_at: "2026-05-15T09:00:00+09:00"
 macro_gate: neutral
 position_size_oku: 0.01
 adv_participation_pct: 0.2
+avg_turnover_oku: 4.9
 market_cap_oku: 936
 sector_33: "卸売業"
 valuation:

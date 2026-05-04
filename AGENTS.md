@@ -9,6 +9,30 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 - 設計原則: [`docs/design-principles.md`](./docs/design-principles.md)
 - 運用手順: [`docs/workflow.md`](./docs/workflow.md)
 - 触る成分の仕様: [`docs/components/`](./docs/components/)
+- **失敗パターンと再発防止**: [`docs/anti-patterns.md`](./docs/anti-patterns.md) — 過去の PR レビューで繰り返し指摘された類型集。brief / outlook / research / validator を編集する前に該当節のチェックリストを 1 周すること
+
+## commit 前 / PR 前の self-review
+
+records / src / docs の変更を含む commit を作る前に、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の対応する anti-pattern (AP-01〜AP-08) のチェックリストを通過させること。特に以下は 100% 防ぐ:
+
+- 一次情報を直接確認せず二次情報・推測で書く (AP-01)
+- 数値計算を機械的に検算しない (AP-02)
+- 株価異常値の corporate action 確認を skip する (AP-03)
+- schema / 実装の意味を読まずに推測で解釈する (AP-04)
+- brief に解釈・因果推論を書く (AP-05)
+- outlook fact が brief 経由になっていない (AP-06)
+- 公表日 / source の最新性確認を skip する (AP-07)
+- validator の抜け道を意識しない (AP-08)
+
+成分別の詳細チェックリスト:
+- brief 編集時: [`docs/components/brief.md`](./docs/components/brief.md) §7.1
+- outlook 編集時: [`docs/components/outlook.md`](./docs/components/outlook.md) §9.3 self-review チェックリスト
+- research 編集時: [`docs/components/research.md`](./docs/components/research.md) §8.1
+
+メタ運用 (失敗パターンの再発防止):
+- 同じ failure mode を 2 回以上 PR review で指摘されたら、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の該当節を強化する
+- 新 validator rule を追加するときは、anti-patterns.md AP-08 のチェックリストを必ず更新して次回 review で同じ穴が再発しないように記録する
+- 一次情報 (Tier 1) が継続的に取得困難な指標は [`docs/data-sources.md`](./docs/data-sources.md) §「一次統計の数値で Tier 1 取得が困難な場合の Tier 2 例外運用」に従い、`status: failed` Tier 1 と `status: ok` Tier 2 を併記する
 
 ## 事実と分析の分離
 

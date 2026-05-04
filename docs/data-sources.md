@@ -29,7 +29,7 @@ J-Quants / EDINET から取得したデータは、個人利用・非公開 repo
 - **更新頻度**: 日次・週次での新鮮さ
 - **取得容易性**: Web で誰でも読める / API・CSV 提供があるか
 
-## Tier 1: 一次統計（10 媒体）
+## Tier 1: 一次統計（12 媒体）
 
 | # | ソース | 種別 | 主な対象 | 客観性 | 更新頻度 | 取得容易性 | 合計 |
 |---|---|---|---|---|---|---|---|
@@ -43,6 +43,10 @@ J-Quants / EDINET から取得したデータは、個人利用・非公開 repo
 | 8 | [BIS Statistics](https://www.bis.org/statistics/) | 国際機関 | 国際金融・与信・為替 | 10 | 6 | 7 | 23 |
 | 9 | [JPX マーケット統計](https://www.jpx.co.jp/markets/statistics-equities/) | 取引所 | 日本株市況・売買代金・信用残 | 10 | 10 | 9 | 29 |
 | 10 | [CME FedWatch Tool](https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html) | 取引所 / 指標 | 米金利先物・利上げ期待 | 9 | 10 | 9 | 28 |
+| 11 | [中国国家統計局 (NBS)](https://www.stats.gov.cn/) | 政府統計 | 中国・PMI / GDP / 不動産投資 / CPI | 9 | 7 | 6 | 22 |
+| 12 | [中国海関総署](http://www.customs.gov.cn/) | 政府統計 | 中国・貿易統計 (輸出 / 輸入 / 国別) | 9 | 7 | 4 | 20 |
+
+中国 NBS / 海関総署は政府統計として Tier 1 だが、Web 取得容易性は他 Tier 1 より低い (英語ページの個別 release URL の解決が困難な期間がある)。一次取得が継続困難な場合は §「一次統計の数値で Tier 1 取得が困難な場合の Tier 2 例外運用」を参照。
 
 ## Tier 2: 補助ソース（3 媒体）
 
@@ -125,6 +129,30 @@ Tier 2 の Reuters / AP News / NHK は、Web 取得ツール側の制約で直�
 3. `[補助外]` 引用は暫定であり、次回の週次 brief 作成時に Tier 2 引用への置換を 1 回試みる
 4. **置換試行の打ち切りルール**: 連続 2 回置換に失敗した場合、その引用は `[補助外]` のまま受容して確定させる（恒常的に暫定扱いのまま放置しない）
 5. `[補助外]` 引用でも意見記事・論評は取らず、事実記述部分に限定する
+
+## 一次統計の数値で Tier 1 取得が困難な場合の Tier 2 例外運用
+
+原則として「Tier 1 で取れない数値を Tier 2 / 補助外で埋めてはならない」(一次統計の客観性が失われる) が、**広く流通している経済統計のうち本作業環境からは Tier 1 個別 release URL が継続的に解決できない指標**については、以下の限定的な例外運用を許容する。
+
+### 適用条件 (すべて満たすこと)
+
+1. 元 Tier 1 が政府統計 (本ファイルの Tier 1 表に登録済み、例: 中国 NBS / 海関総署) であること
+2. 取れない原因が data-sources.md 既知の取得経路と代替ルートで列挙された一次統計サイト側の構造的問題 (英語 individual release ページの URL 解決困難等) であること
+3. 二次集計 (Trading Economics / FRED の集約コピー / Reuters 数値表示等) と一次統計の数値が一致する報道・配信が複数あること
+
+### 運用
+
+- brief の `sources` で Tier 1 の URL は `status: failed` (取得不能) として残し、Tier 2 二次集計 URL を別 source id で `status: ok`、`note: "Tier 2 (一次統計の二次集計、Tier 1 一次は本作業環境で未取得)"` で追加する
+- fact item の `source_ids` に **両方を併記** し、`status: ok` の Tier 2 source 経由で値を採用する (validator は `status: ok` の source_id が 1 つ以上必要)
+- 数値の前後に「Tier 2 二次集計、Tier 1 で確認できない期間」と注記し、outlook で引用する場合も同等の注記をつける
+- 連続 2 回 (= 2 つの outlook cycle) で Tier 1 が取れない指標は、本ファイルの Tier 1 表に「個別 release URL 解決困難の運用注記」を追加し、暫定状態を可視化する
+- 一次統計の数値が二次集計と乖離している場合 (=単一二次集計のみの値) は本例外を適用せず、analysis layer で「報道ベースの参考値」として質的に扱う
+
+### 現在の例外運用対象 (2026-05-04 時点)
+
+| 指標 | Tier 1 | Tier 2 暫定 | 失敗理由 |
+| --- | --- | --- | --- |
+| 中国 月次輸出 (国別含む) | [中国海関総署](http://www.customs.gov.cn/) | [Trading Economics](https://tradingeconomics.com/china/exports-yoy) | 個別 release URL の英語ページ解決が本作業環境で不能 |
 
 ## 運用上のルール
 

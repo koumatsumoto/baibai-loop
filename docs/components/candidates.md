@@ -89,7 +89,7 @@ tickers:                            # 通過銘柄 list
 - `threshold_hit`: mechanical の閾値条件 3 種のどれを満たしたか（OR 条件、複数 hit 可）
 - `market_cap_oku` / `avg_turnover_oku`: research の position size 判定で使う。`market_cap_oku >= 200` かつ `avg_turnover_oku >= 3.0` で universe 通過する閾値と整合
 - `price_change_60d` / `price_change_4w`: split 影響を排除するため adjustment_close ベースで算出。research §7 Price reaction の数値ソース
-- `sector_relative_strength_percentile`: 4 週リターンの sector 内 percentile。条件 C の根拠
+- `sector_relative_strength_percentile`: **sector 単位の percentile**。実装 (`src/baibai_loop/screening/metrics.py` `_rank_to_percentiles`) は「sector ごとに 4 週リターンの平均を取り、市場全体の 4 週リターン平均との差 (relative strength) を求めた上で、全 sector 間で rank 化した percentile」を計算する。つまり当該銘柄に与えられる値は「**この銘柄が属する sector が全 33 業種中で対市場 RS が何位 (percentile) か**」を示し、銘柄個別の同業種内相対強度ではない。1.0 は当該 sector が全 sector 中で最も対市場 RS が強い、0.20 以下は条件 C (`rules.py:91`) で「弱い sector」として sector ローテーション短期売り判定の input になる
 - `metrics_breakdown`: 各 valuation 指標 (per_trailing / pbr / ev_ebitda) の `sector_median_gap` / `self_range_percentile` / `sigma_gap` を集約。research §3 Valuation snapshot の primary metric 選択と判定根拠の数値ソース
 - `next_earnings_date`: asof 以降直近の決算発表予定日 (J-Quants earnings calendar、asof + 90 calendar days 範囲内)。research §10 Entry 条件の「決算またぎ kill switch」自動 check に使う。範囲内に予定が無い銘柄は `null`
 

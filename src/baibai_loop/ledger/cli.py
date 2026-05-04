@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+from baibai_loop._env import load_project_env
 from baibai_loop.screening.config import DEFAULT_CACHE_DIR, DEFAULT_SQLITE_CACHE_DIR
 from baibai_loop.screening.providers.jquants import (
     JQuantsDailyBar,
@@ -42,6 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    load_project_env(args.root)
     if args.command == "sync":
         calendar, bars, market_warnings = _load_market_data(args.root, os.environ)
         if args.require_market_data and (not calendar or not bars):
