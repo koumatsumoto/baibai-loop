@@ -27,6 +27,7 @@ from typing import Any
 
 from .providers.jquants import (
     JQuantsProviderError,
+    normalize_sector_name,
     parse_jquants_code,
 )
 
@@ -516,14 +517,18 @@ def _iter_master_rows(
             continue
         snapshot_date = _date_iso(_first(record, "Date", "date", "snapshot_date")) or "unknown"
         is_common_stock = _is_common_stock_flag(record)
+        sector_raw = _to_str_or_none(
+            _first(record, "Sector33CodeName", "sector_33", "Sector33Name", "S33Nm", "S33")
+        )
         yield (
             snapshot_date,
             ticker,
             _to_str_or_none(_first(record, "CompanyName", "company_name", "Name", "CoName")),
             _to_str_or_none(_first(record, "MarketCodeName", "market_segment", "MktNm", "Mkt")),
-            _to_str_or_none(
-                _first(record, "Sector33CodeName", "sector_33", "Sector33Name", "S33Nm", "S33")
-            ),
+            # J-Quants は同じ TSE 33 セクターを半角中黒 (U+FF65)・全角中黒 (U+30FB) で
+            # 揺らせて返してくる。SQLite に取り込む段階で全角形に正規化し、outlook /
+            # candidates / select の matcher が一意に解決できるようにする。
+            normalize_sector_name(sector_raw) if sector_raw else sector_raw,
             1 if is_common_stock else 0,
             json.dumps(record, ensure_ascii=False, sort_keys=True),
         )

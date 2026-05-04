@@ -518,6 +518,37 @@ class IsSqliteStaleTests(unittest.TestCase):
             self.assertFalse(is_sqlite_stale([existing, absent], db))
 
 
+class SectorNameNormalizationTests(unittest.TestCase):
+    def test_master_import_normalizes_halfwidth_middle_dot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            raw = Path(tmp) / "raw"
+            db = Path(tmp) / "cache" / "market.sqlite"
+            # J-Quants は同じ TSE 33 セクターを半角中黒 (U+FF65) で返してくる
+            # ことがある。SQLite 取り込み段階で全角形に正規化されないと、
+            # outlook の `情報・通信業` (全角) と一致せず select で sector=null
+            # になり、tailwind 分類が漏れる。
+            _write_json(
+                raw / "jquants" / "get_eq_master.json",
+                [
+                    {
+                        "Code": "47160",
+                        "CoName": "日本オラクル",
+                        "MktNm": "プライム",
+                        "S33Nm": "情報･通信業",  # half-width middle dot
+                        "Mrgn": "2",
+                        "Date": "2026-05-07T00:00:00",
+                    },
+                ],
+            )
+
+            rebuild_from_raw(raw, db)
+            with sqlite3.connect(db) as conn:
+                row = conn.execute(
+                    "SELECT sector_33 FROM jquants_master_snapshots WHERE ticker = '4716'"
+                ).fetchone()
+            self.assertEqual(row[0], "情報・通信業")  # full-width, canonical
+
+
 class RebuildFromMultipleDirsTests(unittest.TestCase):
     def test_merges_records_across_dirs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
