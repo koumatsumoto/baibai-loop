@@ -30,6 +30,7 @@ Research は `records/03-candidates/` と `records/02-outlook/` を統合する 
   決算説明資料、Q&A、有価証券報告書 / 統合報告書、中期経営計画、株主還元関連開示を未確認のまま
   `decision: accepted` にしない。
 - 採用判定は `decision: accepted | skipped | pending` の意味を [`../components/research.md`](../components/research.md) に合わせる。
+- `decision` を flip する場合 (例: `skipped → accepted`)、`baibai-loop-ledger sync` で paper / skipped 両 ledger に同 ticker の行が並ぶ。これは [`../components/ledger.md §5.1`](../components/ledger.md) の audit log 設計どおりの挙動。current state を見るときは research の最新 `decision` を正本とする。
 
 ## After writing
 

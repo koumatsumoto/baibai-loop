@@ -62,6 +62,40 @@ uv run baibai-loop-ledger sync --root .
 schedule では `--require-market-data` を付け、J-Quants token や market data が取れない場合は
 workflow を失敗させる。
 
+## 5.1 Audit log としての性質
+
+`baibai-loop-ledger sync` は `src/baibai_loop/ledger/io.py` の `upsert_jsonl` 経由で書き込み、
+**既存 record を削除しない**。`paper/` と `skipped/` のいずれも、過去に書き込まれた
+`ledger_id` 行は research packet が削除・移動・decision flip しても残り続ける。これは
+意図した audit log 設計であり、bug ではない。
+
+### 5.1.1 Decision flip の見え方
+
+research の `decision` を `accepted → skipped` (またはその逆) に flip すると、`ledger_id` の
+prefix が `paper-` / `skipped-` で変わるため、両 ledger に同 ticker / 同 `decision_date` の
+行が残る。例:
+
+```
+records/_ledger/paper/2026-04.jsonl
+  paper-20260425-3962-vmean   decision=accepted   (旧 sync 結果が残存)
+
+records/_ledger/skipped/2026-04.jsonl
+  skipped-20260425-3962-vmean decision=skipped    (flip 後の sync で追加)
+```
+
+両方の行は履歴として正しい。ある時点の current state を再構成するには次のいずれかを使う。
+
+- 最新 sync 時点の view: `records/_ledger/updates/YYYY-MM.jsonl` の `decision` event を最後まで巡って状態確定する
+- research 側を正本にする: `records/04-research/**/*.md` の `decision` を改めて grep する
+- retro: 次節 §7 の `baibai-loop-ledger retro` を使う (event log を畳んで集計する)
+
+### 5.1.2 Orphan 行の扱い
+
+`baibai-loop-ledger sync --dry-run` で `! ledger_id` が出る行は、対応 research packet が
+削除・移動された orphan である。retro 集計の整合確認のための通知であり、自動削除はしない。
+意図的に packet を消した場合は、ledger 行を手動で削除するか、新規 packet を作って
+`ledger_id` を upsert で上書きする。
+
 ## 6. schema 検証
 
 ledger JSONL は [`/records/_schemas/ledger-paper-v1.json`](/records/_schemas/ledger-paper-v1.json) と
