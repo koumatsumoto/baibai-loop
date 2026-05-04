@@ -54,6 +54,8 @@ superseded_by: "docs/<new-path>.md"
 <旧本文を残す>
 ```
 
+shim に残した旧本文は互換性用の freeze copy として扱います。内容更新は `superseded_by` の新正本だけに行い、shim 旧本文を追従編集しません。
+
 ## Section freeze
 
 - `docs/components/*.md` は path と節構造を凍結します。

@@ -34,9 +34,10 @@ shim を削除する前に、少なくとも以下を実行します。
 
 ```bash
 rg -n 'docs/<old-path>.md|<old-heading-text>' README.md AGENTS.md docs src tests records/_playbooks records/_schemas
+rg -n '\]\((\.{1,2}/)?(architecture|workflow|data-sources|python-foundation)\.md' docs
 ```
 
-内部参照が消えていない場合は削除しません。外部 issue / PR / permalink からの参照は残るため、削除は個別 issue で判断します。
+内部参照や他 shim 旧本文からの relay link が消えていない場合は削除しません。外部 issue / PR / permalink からの参照は残るため、削除は個別 issue で判断します。
 
 ## PR body
 

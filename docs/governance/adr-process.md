@@ -23,6 +23,11 @@ ADR は [`../architecture/decisions/`](../architecture/decisions/) に置きま�
 - `Decision`
 - `Rationale`
 
+## Language
+
+- ADR の `title`, `summary`, 本文は日本語で書きます。
+- `Status`, `Background`, `Decision`, `Rationale` の見出しと status 値は、検索しやすさを優先して英語の識別子を使います。
+
 ## Status
 
 - `Proposed`
@@ -31,3 +36,7 @@ ADR は [`../architecture/decisions/`](../architecture/decisions/) に置きま�
 - `Rejected`
 
 初期 seed ADR は `Status: Accepted` とし、背景、決定、根拠を 1-2 段落ずつに留めます。
+
+## Index update
+
+新しい ADR を追加したら、同じ commit で [`../architecture/decisions/README.md`](../architecture/decisions/README.md) の table も更新します。

@@ -18,7 +18,7 @@ Outlook は `records/01-brief/` を source として作る macro analysis layer 
 1. 最新 brief の鮮度を確認する。
 2. 発行日 ±5 営業日の FOMC / BOJ / CPI / PCE / NFP / OPEC+ などの release を確認する。
 3. outlook に入れる fact がすべて brief から辿れるか確認する。
-4. [`../anti-patterns.md`](../anti-patterns.md) AP-01, AP-06, AP-07 を読む。
+4. [`../anti-patterns.md`](../anti-patterns.md) の AP-01〜AP-08 を全体 gate として確認する。outlook では特に AP-01, AP-06, AP-07 を重点確認する。
 
 ## Rules
 

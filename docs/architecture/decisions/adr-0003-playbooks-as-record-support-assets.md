@@ -1,6 +1,6 @@
 ---
-title: "ADR 0003: Playbooks as record support assets"
-summary: "Record the decision to keep active playbooks under records/_playbooks instead of docs."
+title: "ADR 0003: playbook を records support asset として扱う"
+summary: "active playbook を docs ではなく records/_playbooks に置く判断を記録する。"
 doc_type: adr
 status: accepted
 last_reviewed: 2026-05-04
@@ -9,7 +9,7 @@ related_docs:
   - "../../../records/_playbooks/README.md"
 ---
 
-# ADR 0003: Playbooks as record support assets
+# ADR 0003: playbook を records support asset として扱う
 
 ## Status
 
@@ -17,12 +17,12 @@ Accepted
 
 ## Background
 
-Playbooks are not background documentation. They are active operating rules referenced from research front matter and revised through reviews. Treating them as docs would blur the boundary between explanatory material and live decision assets.
+Playbook は背景説明の docs ではない。research front matter から参照され、reviews を通じて改訂される active operating rule である。docs として扱うと、説明資料と実際の判断 asset の境界が曖昧になる。
 
 ## Decision
 
-Active playbooks live under `records/_playbooks/`. `docs/components/playbooks.md` documents their contract, lifecycle, and relationship with research and reviews.
+active playbook は `records/_playbooks/` に置く。`docs/components/playbooks.md` は、その contract、lifecycle、research / reviews との関係を説明する。
 
 ## Rationale
 
-Keeping playbooks in `records/` makes them part of the forward-only operating evidence while still allowing docs to explain how they are used. This also aligns playbook revisions with monthly retro rather than docs-only maintenance.
+Playbook を `records/` に置くことで、forward-only な運用証跡の一部として扱える。一方で docs は使い方を説明できる。これにより、playbook 改訂は docs maintenance ではなく monthly retro と結び付く。

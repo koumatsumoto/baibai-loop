@@ -1,6 +1,6 @@
 ---
 title: "Operations index"
-summary: "Runbook entry point for daily cycle, brief, outlook, screening, trade, review, and incidents."
+summary: "Runbook entry point for daily cycle, brief, outlook, screening, research, trade, review, and incidents."
 doc_type: operation-index
 status: active
 last_reviewed: 2026-05-04
@@ -16,6 +16,7 @@ last_reviewed: 2026-05-04
 | [`brief-runbook.md`](./brief-runbook.md) | `records/01-brief/` を作る前 |
 | [`outlook-runbook.md`](./outlook-runbook.md) | `records/02-outlook/` を作る前 |
 | [`screening-runbook.md`](./screening-runbook.md) | candidates 生成、select、research 候補選定 |
+| [`research-runbook.md`](./research-runbook.md) | `records/04-research/` を作る前 |
 | [`trade-runbook.md`](./trade-runbook.md) | research 採用後の trade 記録 |
 | [`review-runbook.md`](./review-runbook.md) | trade 後 review と monthly retro |
 | [`incident-runbook.md`](./incident-runbook.md) | source 取得失敗、validator failure、ledger sync failure |

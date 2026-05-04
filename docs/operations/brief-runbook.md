@@ -19,7 +19,7 @@ Brief は `records/01-brief/` に置く fact layer です。詳細 contract は 
 1. `world-weekly` / `world-daily` / `macro-monthly` のどれを作るか決める。
 2. [`../workflow.md`](../workflow.md) の「brief 作成前の欠損確認」を実行する。
 3. 使用 source は [`../reference/data-sources.md`](../reference/data-sources.md) で Tier と代替経路を確認する。
-4. [`../anti-patterns.md`](../anti-patterns.md) AP-01, AP-02, AP-05, AP-06, AP-07 を確認する。
+4. [`../anti-patterns.md`](../anti-patterns.md) の AP-01〜AP-08 を全体 gate として確認する。brief では特に AP-01, AP-02, AP-05, AP-06, AP-07 を重点確認する。
 
 ## Rules
 
