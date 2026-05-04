@@ -1,15 +1,15 @@
 ---
 title: "Python foundation"
-summary: "This document has moved, but the previous body is retained for compatibility."
-doc_type: shim
-status: superseded
+summary: "Canonical reference for Python runtime, dependency policy, linting, typing, validation boundary, tests, security, and CI parity."
+doc_type: reference
+status: active
 last_reviewed: 2026-05-04
-superseded_by: "docs/reference/python-foundation.md"
+source_paths:
+  - "../../src/baibai_loop/"
+  - "../../tests/"
+  - "../../pyproject.toml"
+  - "../../uv.lock"
 ---
-
-> このファイルは `docs/reference/python-foundation.md` へ移行しました。
-> AGENTS.md からの `§9` 参照を守るため、当面は旧本文を残します。
-> repo 全体のリンク張替えが完了し、旧 path 参照が消えたことを確認してから削除します。
 
 # Python foundation
 

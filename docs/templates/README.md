@@ -16,7 +16,7 @@ Baibai-Loop 各成分の記入テンプレート集。template をコピーし�
 | `trade.md` | `records/05-trades/YYYY/MM/YYYY-MM-DD-<ticker>.md` | [`/docs/components/trades.md`](/docs/components/trades.md) |
 | `review.md` | `records/06-reviews/YYYY/MM/YYYY-MM-DD-<ticker>.md` | [`/docs/components/reviews.md`](/docs/components/reviews.md) |
 | `retro-monthly.md` | `records/06-reviews/YYYY/retro-YYYYMM.md` | [`/docs/components/reviews.md`](/docs/components/reviews.md) |
-| `playbook.md` | `records/_playbooks/<playbook-slug>-v<n>.md` | [`/records/_playbooks/`](/records/_playbooks/) |
+| `playbook.md` | `records/_playbooks/<playbook-slug>-v<n>.md` | [`/docs/components/playbooks.md`](/docs/components/playbooks.md) |
 
 ## リンク path 規約（重要）
 
@@ -37,6 +37,7 @@ Baibai-Loop 各成分の記入テンプレート集。template をコピーし�
 ## 参考
 
 - [`/docs/philosophy.md`](/docs/philosophy.md): 思想
-- [`/docs/architecture.md`](/docs/architecture.md): 全体構造
+- [`/docs/architecture/system-overview.md`](/docs/architecture/system-overview.md): 全体構造
 - [`/docs/components/`](/docs/components/): 各成分の運用仕様
+- [`/docs/components/playbooks.md`](/docs/components/playbooks.md): playbook component
 - [`/docs/screening/`](/docs/screening/): スクリーニングサブシステム詳細

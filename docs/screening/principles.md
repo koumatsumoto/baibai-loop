@@ -1,6 +1,6 @@
 # screening/principles.md
 
-Baibai-Loop のスクリーニングサブシステムの設計原則。4 成分アーキテクチャの `(b) candidates` + `(c) outlook` + `(d) research` のフローに対応するルール集。全体構造は [`../architecture.md`](../architecture.md) を参照。
+Baibai-Loop のスクリーニングサブシステムの設計原則。4 成分アーキテクチャの `(b) candidates` + `(c) outlook` + `(d) research` のフローに対応するルール集。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md) を参照。
 
 ## 1. 4 成分アーキテクチャとの接続
 
@@ -119,7 +119,7 @@ Research packet で以下の 4 軸を記入する。**合計点は算出しな�
 ## 10. 参考
 
 - [`../philosophy.md`](../philosophy.md): 思想（マクロ優位、事実と分析の分離、feedback loop 先行、markdown 駆動）
-- [`../architecture.md`](../architecture.md): 全体構造
+- [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
 - [`../components/research.md`](../components/research.md): research 運用仕様
 - [`failure-taxonomy.md`](./failure-taxonomy.md): 失敗分類詳細
 - [`universe-rules.md`](./universe-rules.md): universe 境界条件

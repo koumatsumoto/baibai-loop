@@ -1,3 +1,16 @@
+---
+title: "運用ワークフロー"
+summary: "This document has moved, but the previous body is retained for compatibility."
+doc_type: shim
+status: superseded
+last_reviewed: 2026-05-04
+superseded_by: "docs/operations/README.md"
+---
+
+> このファイルは `docs/operations/README.md` 配下の runbook 群へ移行しました。
+> brief の詳細節番号参照を守るため、当面は旧本文を残します。
+> repo 全体のリンク張替えが完了し、旧 path 参照が消えたことを確認してから削除します。
+
 # 運用ワークフロー
 
 Baibai-Loop の 4 成分 + 下流アーキテクチャにおける日々の運用ルール。設計の根拠は [`design-principles.md`](./design-principles.md)、構造は [`architecture.md`](./architecture.md)、思想は [`philosophy.md`](./philosophy.md) を参照。

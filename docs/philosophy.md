@@ -1,7 +1,7 @@
 # philosophy
 
 Baibai-Loop が **何を信じ、なぜこの設計を選んだか** の正本。価値観・選択の根拠・却下した対立案を残す。
-構造・schema・procedure は [`architecture.md`](./architecture.md) に分離する。
+構造・schema・procedure は [`architecture/system-overview.md`](./architecture/system-overview.md) と [`architecture/README.md`](./architecture/README.md) に分離する。
 
 このファイルは変更頻度が低い。運用で大きな信念が揺らいだときだけ更新する。日々の構造変更は architecture.md 側で処理する。
 
@@ -152,7 +152,7 @@ outlook がなければ research が作れない。これは、マクロ見解�
 
 ## 7. 参考
 
-- [`architecture.md`](./architecture.md): 構造・schema・procedure
+- [`architecture/system-overview.md`](./architecture/system-overview.md): 構造・schema・procedure
 - [`design-principles.md`](./design-principles.md): 設計原則
-- [`workflow.md`](./workflow.md): 日々の運用ワークフロー
-- [`data-sources.md`](./data-sources.md): データソース
+- [`operations/README.md`](./operations/README.md): 日々の運用ワークフロー
+- [`reference/data-sources.md`](./reference/data-sources.md): データソース

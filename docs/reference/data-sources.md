@@ -1,21 +1,21 @@
 ---
-title: "データソース一覧とスコアリング"
-summary: "This document has moved, but the previous body is retained for compatibility."
-doc_type: shim
-status: superseded
+title: "Data sources"
+summary: "Canonical reference for data source tiers, data cache policy, and Tier 1 failure handling."
+doc_type: reference
+status: active
 last_reviewed: 2026-05-04
-superseded_by: "docs/reference/data-sources.md"
+source_paths:
+  - "../../records/_data/"
+related_docs:
+  - "../architecture/repository-map.md"
+  - "../operations/brief-runbook.md"
 ---
-
-> このファイルは `docs/reference/data-sources.md` へ移行しました。
-> 既存リンクと見出し名参照を守るため、当面は旧本文を残します。
-> repo 全体のリンク張替えが完了し、旧 path 参照が消えたことを確認してから削除します。
 
 # データソース一覧とスコアリング
 
 Baibai-Loop で使うデータソースを、客観性を優先した基準で選定して記録する。ニュース媒体の意見に偏らないよう **一次統計（中央銀行・政府・国際機関）中心** で構成し、一次統計で拾えない地政学イベントのみを補助ソースで補完する。
 
-4 成分アーキテクチャ ([`architecture.md`](./architecture.md)) における各成分のデータソース対応:
+4 成分アーキテクチャ ([`../architecture/system-overview.md`](../architecture/system-overview.md)) における各成分のデータソース対応:
 
 | 成分 | 用途 | 主なソース |
 | --- | --- | --- |
@@ -26,7 +26,7 @@ Baibai-Loop で使うデータソースを、客観性を優先した基準で�
 | `records/05-trades/` | 執行記録 | 証券会社からの約定情報（手動記録） |
 | `records/06-reviews/` | 事後検証 | `records/05-trades/` + 対象銘柄の株価推移（J-Quants） |
 
-本ファイルの以下の節は主に **Tier 1 / Tier 2 一次統計**（brief 用）のスコアリングを扱う。screening / research で使う J-Quants / EDINET / TDnet の詳細仕様は [`screening/valuation-metrics.md`](./screening/valuation-metrics.md) を参照。
+本ファイルの以下の節は主に **Tier 1 / Tier 2 一次統計**（brief 用）のスコアリングを扱う。screening / research で使う J-Quants / EDINET / TDnet の詳細仕様は [`../screening/valuation-metrics.md`](../screening/valuation-metrics.md) を参照。
 
 ## 取得データの保存方針
 
@@ -104,7 +104,7 @@ FRED は多くの一次統計の集約先として機能する。Tier 1 の適�
 
 ## Tier 1 の取得失敗時の扱い
 
-Tier 1 / Tier 1 準拠 ソースが作業環境からアクセスできない場合、数値の代替埋めは**行わない**。brief 側で `データ取得失敗` と明示する（詳細は [workflow.md](./workflow.md) の「データ取得失敗時の運用」節を参照）。
+Tier 1 / Tier 1 準拠 ソースが作業環境からアクセスできない場合、数値の代替埋めは**行わない**。brief 側で `データ取得失敗` と明示する（詳細は [`../operations/brief-runbook.md`](../operations/brief-runbook.md) と [`../workflow.md`](../workflow.md) の「データ取得失敗時の運用」節を参照）。
 
 - Tier 1 で取れない数値を Tier 2 / 補助外で埋めてはならない（一次統計の客観性が失われる）
 - 連続 2 回の brief 作成で同じソースが取得失敗した場合、代替一次ソース（同じ統計を別 URL で配信している一次統計ミラー・集約サイト）の Tier 1 準拠追加を検討する

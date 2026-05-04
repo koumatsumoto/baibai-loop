@@ -10,7 +10,7 @@
 
 ## 2. Runtime
 
-- Python 3.14（[`../python-foundation.md`](../python-foundation.md)）
+- Python 3.14（[`../reference/python-foundation.md`](../reference/python-foundation.md)）
 - package root: `src/baibai_loop/screening/`
 - J-Quants client は `jquantsapi.ClientV2` 固定
 - 実行コマンド:
