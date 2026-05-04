@@ -30,6 +30,7 @@ classifiers = [
 baibai-loop-screening = "baibai_loop.screening.cli:main"
 baibai-loop-validate = "baibai_loop.validate.cli:main"
 baibai-loop-ledger = "baibai_loop.ledger.cli:main"
+baibai-loop-precheck = "baibai_loop.precheck.cli:main"
 
 [dependency-groups]
 dev = [

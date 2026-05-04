@@ -191,6 +191,9 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
       の `updated_from` / `source_refs` は `records/01-brief/**.yaml` のみで、外部 URL を
       直接書かない。sidecar `outlook-<date>-research-log.md` は取得ログであり source 数
       にも数えない (詳細は [`components/outlook.md`](./components/outlook.md) §9.1)
+- [ ] **機械化チェック**: outlook 編集後に `uv run baibai-loop-precheck` を実行し、rationale 中の
+      数値・bp・億円トークンが `source_refs` に列挙された brief で見つかることを確認したか。
+      新規 outlook なら `--strict` で 0 件を目指す
 
 ## 7. AP-07: 公表日 / 期間 / source の最新性確認を skip する
 
