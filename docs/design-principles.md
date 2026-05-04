@@ -71,6 +71,13 @@ Baibai-Loop は **4 成分 (`records/01-brief/`, `records/03-candidates/`, `reco
 
 新しい用語を導入する際は「自然言語として解釈や予測を含意しないか」をチェックする。
 
+### 4.5 分析レイヤーにプロセス指示を書かない
+
+分析レイヤー（outlook, research）は判断と根拠を残す場所であり、運用手順そのものを書く場所ではない。
+特に `records/02-outlook/` の `rationale` / `changes.rationale` には、業種・地域見解の根拠だけを書く。
+「research では会社IRを確認する」「次回からこの手順で調べる」のようなプロセス指示は
+`docs/components/`、`docs/operations/`、`docs/anti-patterns.md` に置く。
+
 ## 5. マクロ優位 (76/24) の原則（philosophy 柱 2 の具体化）
 
 - トレード判断の比重は **マクロ 76% / ミクロ 24%**

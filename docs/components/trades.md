@@ -10,7 +10,7 @@ Baibai-Loop 4 成分アーキテクチャの下流 **trades** 成分の運用仕
 
 ## 2. 頻度
 
-- **entry 時に作成**: research 採用判定後、実際に entry した当日
+- **order / entry 時に作成**: research 採用判定後、実際に注文または entry した当日
 - **exit まで追記**: 決済まで同じファイルで追記（status フィールド更新）
 
 ## 3. Path と命名
@@ -19,8 +19,9 @@ Baibai-Loop 4 成分アーキテクチャの下流 **trades** 成分の運用仕
 records/05-trades/YYYY/MM/YYYY-MM-DD-<ticker>.md
 ```
 
-- 日付は原則 entry 日。休場中の成行注文など、注文済みだが未約定の場合は order 日で作成し、
-  `status: ordered` として約定後に `entry_date` / `entry_price` を追記する
+- 日付はファイル作成時点の最初の執行イベント日。未約定注文なら `order_date`、約定済み entry なら
+  `entry_date`
+- `ordered` から `open` に遷移しても filename は `order_date` のまま維持する。entry 日で改名しない
 - `<ticker>` は 4 文字の英数字文字列
 
 ## 4. Front matter 必須項目
@@ -31,9 +32,14 @@ ticker: "7203"
 name: "トヨタ自動車"
 research_ref: records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md  # 必須
 order_date: "YYYY-MM-DD" | null                         # ordered の場合は必須
+expected_fill_at: "ISO 8601" | null                     # ordered の場合は次回立会予定時刻
 entry_date: "YYYY-MM-DD" | null                         # ordered では null、open/closed では必須
 entry_price: 数値 | null                                # ordered では null、open/closed では必須
-position_size_pct: 数値                                    # 0.5 / 1 / 2 から選択
+paper_proxy_position_size_oku: 数値                      # 1 億円 proxy 上の建玉額
+paper_proxy_position_size_pct: 数値                      # paper_proxy_position_size_oku / 1 億円 * 100
+real_capital_yen: 数値 | null                            # 実資金を使った場合のみ
+real_order_notional_yen: 数値 | null                     # ordered では参照価格ベース、open では約定ベース
+real_concentration_pct: 数値 | null                      # real_order_notional_yen / real_capital_yen * 100
 planned_exit:
   target_price: 数値 | null
   stop_loss: 数値
@@ -52,8 +58,20 @@ kill_switch_check:                                         # entry 時に確認
 - `research_ref` は必須（研究なき執行を禁止）
 - `ordered` は注文済み・未約定の状態。休場中の成行注文、寄成、引成などで価格が未確定なら
   `entry_price` を推定で埋めない
+- `paper_proxy_*` は 1 億円 proxy の記録用。`real_*` は実資金の集中度を表す。両者を混同しない
 - `kill_switch_check` の 3 項目が全て `false` でないと order / entry 不可
 - `status`: `ordered` (注文済み未約定) → `open` (ポジション保有中) → `closed` (決済済み)
+
+## 4.1 Lifecycle
+
+| status | 必須 field | null にする field | 禁止事項 |
+| --- | --- | --- | --- |
+| `ordered` | `order_date`, `expected_fill_at`, `paper_proxy_position_size_*` | `entry_date`, `entry_price`, `exit_date`, `exit_price`, `pnl_pct` | 推定約定価格を `entry_price` に入れない |
+| `open` | `order_date`, `entry_date`, `entry_price`, `paper_proxy_position_size_*` | `exit_date`, `exit_price`, `pnl_pct` | filename を entry 日へ改名しない |
+| `closed` | `order_date`, `entry_date`, `entry_price`, `exit_date`, `exit_price`, `pnl_pct` | なし | exit 後に thesis を後付けで書き換えない |
+
+`ordered` では stop / target は注文時の参照価格または絶対価格で置く。約定価格が参照価格から大きく
+乖離した場合は、`open` 更新時に planned exit を再計算し、その理由を本文に追記する。
 
 ## 5. 本文の構成
 
@@ -61,7 +79,7 @@ kill_switch_check:                                         # entry 時に確認
 
 - **Entry reason**: 研究から採用判定に至った理由を 1-2 段落で要約（research の Thesis を短縮）
 - **Order / Entry triggers**: 実際に order / entry した条件（価格レンジ到達、特定日、出来高増など）
-- **Order log**: 未約定注文の記録（注文日、数量、注文種別、参照価格）
+- **Order log**: 未約定注文の記録（注文日、数量、注文種別、参照価格、expected fill）
 - **Entry log**: 実際の約定記録（約定日、時刻、数量、単価）。`ordered` では推定値を書かない
 
 ### 5.2 保有中（Exit まで追記）
@@ -105,7 +123,7 @@ entry 時 + 保有中に以下を確認:
 ## 9. 参考
 
 - [`../philosophy.md`](../philosophy.md): 思想
-- [`../architecture.md`](../architecture.md): 全体構造、trades schema
+- [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
 - [`research.md`](./research.md): source となる research の仕様
 - [`reviews.md`](./reviews.md): 接続先 reviews
 - [`../templates/trade.md`](../templates/trade.md): template

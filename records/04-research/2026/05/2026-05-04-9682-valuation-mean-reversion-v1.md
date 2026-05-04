@@ -23,7 +23,18 @@ valuation:
   ev_ebitda: null
   p_s: null
   pcfr: null
-  primary_metric: ["per_forward", "per_trailing"]
+  primary_metric: ["per_forward"]
+overrides:
+  - type: decision_flip
+    prior_state_ref: "records/04-research/2026/05/2026-05-04-9682-valuation-mean-reversion-v1.md@5d8bed8^"
+    prior_state: "skipped"
+    new_state: "accepted"
+    reason: "200株の実注文が出たため、公式IR再確認後にlive orderとして記録する"
+  - type: candidate_absence
+    prior_state_ref: records/03-candidates/2026/05/2026-05-01.yaml
+    prior_state: "ticker absent from selected candidates"
+    new_state: "accepted with explicit override"
+    reason: "5/1 selected candidates には不在だが、4/24 candidates の valuation signal と公式IR確認、実注文サイズの小ささを根拠に記録する"
 ---
 
 # Research: 2026-05-04 9682 ＤＴＳ valuation-mean-reversion-v1
@@ -56,15 +67,15 @@ valuation:
 - **brief_refs**: records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
 - **補足**: 情報・通信業 tailwind は AI / クラウド / データセンター需要が主因。ただし research では
   業種を問わず対象銘柄の会社IRを一次情報として確認し、sector 一括判断ではなく銘柄固有の margin /
-  受注 / 還元 / 中計進捗を確認する。DTS では春闘 5% 超の賃上げ、人件費・外注費、顧客内製化、
-  生成AIによる工数モデル変化を個別リスクとして扱う。
+  受注 / 還元 / 中計進捗を確認する。DTS では人件費・外注費、顧客内製化、生成AIによる工数モデル変化を
+  個別リスクとして扱う。
 
 ## 3. Valuation snapshot
 
 | 指標 | 値 | 比較軸 | 判定 | primary |
 | --- | ---: | --- | --- | --- |
-| PER (forward) | 13.52 | 2027年3月期会社予想 EPS 75.00 円 / 5/1 終値 1,014 円 | 同業比で割安寄り | yes |
-| PER (trailing) | 19.67 | 4/24 candidates: sector_median_gap -31.03% | 業種中央値比で割安 | yes |
+| PER (forward) | 13.52 | 2027年3月期会社予想 EPS 75.00 円 / 5/1 終値 1,014 円 | 同業比で割安寄り。今回の primary | yes |
+| PER (trailing) | 19.67 | 4/24 candidates: sector_median_gap -31.03%、sigma_gap -1.993 | 業種中央値比・自己平均との差の補助 evidence | supporting |
 | PBR | null | candidates 未取得 | 補助不可 | |
 | EV/EBITDA | null | candidates 未取得 | 補助不可 | |
 | P/S | null | candidates 未取得 | 補助不可 | |
@@ -74,6 +85,8 @@ valuation:
 - 旧 candidates の `per_forward: 15.32` は本決算前の snapshot。5/1 決算短信後は公式 EPS を優先する。
 - trailing PER の sector median 逆算: 19.67 / (1 - 0.3103) = 28.52 倍。
 - self_range_percentile 0.0102 = 750 営業日中の下位 1.02%。
+- `metrics_breakdown.per_trailing.sigma_gap = -1.993` は、trailing PER が自己平均から約 2σ 下方にある
+  補助 evidence。採用判断の primary は 5/1 決算短信後の会社予想 EPS による forward PER とする。
 
 ### 3.1 PER scenario (EPS 75.00 円)
 
@@ -148,7 +161,7 @@ P-A 純粋型のため catalyst は必須にしない。ただし今回の再評
 | 空売り残高 | 未確認 |
 | 日々公表信用指定 | candidates の `threshold_hit` に `crowding_alert` 不在 |
 | 特別注意 | 無 |
-| 流動性 | 4/24 candidates の avg_turnover 3.5 億円 / 日。5/1 screening では universe 外のため再確認対象 |
+| 流動性 | 4/24 candidates の avg_turnover 3.5 億円 / 日。5/1 selected candidates では不在のため再確認対象 |
 
 実注文は 200 株、5/1 終値 1,014 円換算で 202,800 円 = 0.002028 億円。4/24 avg_turnover 3.5 億円を
 基準にした ADV 参加率は 0.002028 / 3.5 * 100 = 0.0579%。システム上の liquidity warning は残すが、
@@ -161,14 +174,15 @@ P-A 純粋型のため catalyst は必須にしない。ただし今回の再評
 | Valuation | strong | 公式 forward PER 13.52、trailing PER 業種中央値比 -31% |
 | Mean-Reversion | strong | self_range 下位 1.02%、991 円近辺の底値確認 |
 | Catalyst | neutral | P-A。1Q / 自社株買い / AI売上進捗が補助 catalyst |
-| Crowding | neutral | 5/1 universe 外は警戒。ただし実注文サイズの ADV は小さい |
+| Crowding | neutral | 5/1 selected candidates 不在は警戒。ただし実注文サイズの ADV は小さい |
 
 ## 10. Entry 条件
 
 - **注文**: 2026-05-04 に 200 株成行買注文を提出。
 - **市場休場**: 2026-05-04 / 05 / 06 は東証休場。約定は最短で 2026-05-07 寄り付き。
 - **価格レンジ**: 1,000-1,030 円を初回打診の主レンジとする。成行のため 5/7 寄り付き価格が
-  1,050 円を大きく超える場合は約定後に entry reason を再確認する。
+  1,050 円を明確に超える気配なら、可能な限り注文取消または指値変更を検討する。取消できず約定した場合は
+  entry reason と planned exit を即時再確認する。
 - **追加検討**: 970-990 円で下落理由が地合い・需給のみ、かつ減配 / 下方修正 / 受注悪化がなければ
   追加 100 株を検討。1,050 円終値回復 + 出来高増は反転確認。
 
@@ -207,15 +221,23 @@ P-A 純粋型のため catalyst は必須にしない。ただし今回の再評
 - **avg_turnover**: 3.5 億円 / 日 (4/24 candidates)
 - **adv_participation**: 0.0579%
 - **採用判定**: accepted
+- **override log**:
+  - prior: 直前版は `decision: skipped`。理由は 5/1 selected candidates に 9682 が不在だったこと。
+  - evidence: 4/24 candidates では `sector_median_under_20pct_and_self_range_bottom_20pct` と
+    `price_down_60d_and_valuation_sigma_down` の 2 条件に hit。5/1 candidates artifact は selected list のみで、
+    9682 の除外 metric までは保持していないため、「universe 外」とは断定しない。
+  - override reason: 2026-05-04 に実注文が出たため、公式IR再確認済みの live order として records に残す。
+    ただし 5/1 selected candidates 不在は system signal の弱化として扱い、約定後も流動性・利益率・受注残を
+    通常より厳しく監視する。
 
 採用理由: 公式IRで本決算実績・2027年3月期計画・中計・AI/生成AI進捗・株主還元を確認した結果、下落理由は
 「業績崩壊」ではなく「来期利益成長鈍化と中計再加速待ち」と整理できる。1,000 円前後は forward PER
-13 倍台かつ配当利回り 3.8%前後で、下値は 991 円を基準に監視可能。5/1 screening universe 外の流動性
-警告は残るが、今回の 200 株注文では ADV 参加率が 0.1%未満のため執行リスクは許容範囲。
+13 倍台かつ配当利回り 3.8%前後で、下値は 991 円を基準に監視可能。5/1 selected candidates 不在の警告は
+残るが、今回の 200 株注文では ADV 参加率が 0.1%未満のため執行リスクは許容範囲。
 
 ## 14. Source verification log
 
-公式・一次に準じる確認先:
+公式・一次に準じる確認先。いずれも 2026-05-04 JST に取得し、PDF は本文抽出して数値を照合した:
 
 - DTS 2026年3月期 決算短信 (2026-05-01): https://contents.xj-storage.jp/xcontents/AS04298/2e3c1f84/446d/4e03/8195/1847f465502e/140120260430515331.pdf
 - DTS 2026年3月期 決算説明会資料 (2026-05-01): https://contents.xj-storage.jp/xcontents/AS04298/a188f889/f048/4e1c/880e/065b1dee3cb4/20260501185643481s.pdf

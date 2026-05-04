@@ -256,6 +256,12 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - [ ] front matter の `avg_turnover_oku` が `candidates_ref` の対応 ticker の値と整合
       しているか (将来的検出推奨、現在は手動 check)。validator が `candidates_ref` を
       resolve してもよい
+- [ ] trade に `status: ordered` を導入・変更する場合、以下の corner case を確認したか:
+  - [ ] `ordered` では `entry_date == null`、`entry_price == null`
+  - [ ] `open` / `closed` では `entry_date` と `entry_price` が非 null
+  - [ ] `ordered` から `open` に遷移しても filename は `order_date` のまま
+  - [ ] paper proxy size と real capital / real notional / real concentration を別 field に分離
+  - [ ] `position_size_oku` / `adv_participation_pct` は paper proxy の検証であり、実資金集中度の検証ではない
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
@@ -268,12 +274,17 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - 別AIの分析にある EPS 前提、OpenAI 連携日、AI 関連売上、同業倍率、休場日などを、
   会社IR・取引所・candidates で再確認せず research / trade に取り込む
 - 「分析の方向性は合っている」ことと「records に事実として残せる」ことを混同する
+- 直前の `skipped` 判定、最新 candidates からの不在、universe drop、macro headwind などの
+  system signal を、override log なしに外部分析で上書きする
+- 1 億円 paper proxy と実資金 position を同じ `position_size_pct` に混在させる
 - 祝日中の成行注文を約定済み entry として記録し、entry price を推定で埋める
 
 ### 根本原因
 - 外部 AI の整った文章を監査済み資料のように扱う
 - research 対象は全銘柄で会社IR確認が必須、という前提が弱い
 - source URL が貼られていても、一次情報か二次情報か、本文中に数値が存在するかを確認しない
+- system signal を上書きする行為を一級の decision として記録していない
+- paper layer と real execution layer のサイズ概念を分離していない
 - order と execution の状態遷移を trade record で区別しない
 
 ### 再発防止チェックリスト
@@ -287,6 +298,10 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
       取引所 calendar・candidates のいずれかで再確認したか
 - [ ] 確認できた事実、修正した数値、未採用の二次情報を research の source verification log に分けて残したか
 - [ ] EPS / PER / 配当利回り / target price は公式 EPS・配当予想・株価で再計算したか
+- [ ] 直前の `skipped`、最新 candidates からの不在、universe drop、macro headwind、実資金集中度超過などを
+      上書きする場合、research front matter の `overrides` と本文に prior state / reason / evidence を残したか
+- [ ] 実取引を records に残す場合、1 億円 paper proxy と real capital / real notional /
+      real concentration を別 field に分けたか
 - [ ] 注文日が休場日または立会時間外の場合、trade は `status: ordered` とし、`entry_price` を
       推定で埋めていないか
 - [ ] 外部市場予測 (例: Gartner / IDC / 証券サイトの同業倍率) は、今回の canonical fact として
@@ -301,6 +316,7 @@ PR で同じ anti-pattern が 2 ラウンド以上指摘されたら、本ドキ
 | --- | --- | --- |
 | #68 | 1 | AP-01 (122 条 13%、TSMC/Samsung/Kioxia 断定)、AP-02 (adv 100 倍、利確 +118% / +30% 矛盾)、AP-03 (6590 split artifact)、AP-04 (sector_relative_strength_percentile 誤読)、AP-06 (米コア PCE brief 未反映)、AP-07 (PCE 5/30 前後)、AP-08 (adv consistency 抜け道) |
 | #68 | 2 | AP-01 (TSMC Capex / Sovereign AI 未確認のまま outlook で断定継続)、AP-05 (brief への分析混入)、AP-06 (outlook source_refs と brief 不整合 35 箇所)、AP-07 (OPEC+ 5/3 反映漏れ、PCE 5/28 ではなく 5/30) |
+| #77 | 1 | AP-06 (outlook source_refs と春闘 fact の不整合)、AP-08 (ordered trade / paper-real size 分離の validator 死角)、AP-09 (別AI分析で skipped→accepted を暗黙 override、注文と約定の状態分離不足) |
 
 ## 11. 関連ドキュメント
 

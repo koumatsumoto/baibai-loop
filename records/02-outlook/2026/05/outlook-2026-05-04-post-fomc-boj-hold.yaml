@@ -492,10 +492,9 @@ sectors:
     source_refs: []
   "情報・通信業":
     status: tailwind
-    rationale: "AI / クラウド / 半導体テーマは個別銘柄要因が大きいが、TSMC Q1 release と NVIDIA FY26 通年 +65% / Q1 FY27 ガイ 780 億 USD (公式 release 確認) の構造的需要は日本のデータセンター事業 (KDDI / NTT、データセンター ETF 関連)、AI 関連 SaaS、IT サービスにも spillover。Sovereign AI / Capex 上方は transcript 由来参考値で cross-check 後に補強。春闘 5.09% による人件費上昇は国内サービス企業全般の margin 確認事項。research では業種を問わず対象銘柄の会社IRを一次情報として確認し、sector 一括判断ではなく銘柄固有の受注・利益率・還元・中計進捗で採否を決める。tailwind 寄り (selective)"
+    rationale: "AI / クラウド / 半導体テーマは個別銘柄要因が大きいが、TSMC Q1 release と NVIDIA FY26 通年 +65% / Q1 FY27 ガイ 780 億 USD (公式 release 確認) の構造的需要は日本のデータセンター事業 (KDDI / NTT、データセンター ETF 関連)、AI 関連 SaaS、IT サービスにも spillover。Sovereign AI / Capex 上方は transcript 由来参考値で cross-check 後に補強。tailwind 寄り (selective)"
     source_refs:
       - records/01-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
-      - records/01-brief/2026/04/2026-04-26-world-weekly-jp-cpi-retail.yaml
       - records/01-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
       - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
   "卸売業":
@@ -613,9 +612,8 @@ changes:
   - target: 情報・通信業
     from_status: neutral
     to_status: tailwind
-    rationale: "AI / クラウド / 半導体テーマの spillover (TSMC Q1 release / NVIDIA FY26 通年公式 release で確認済み AI 需要)、データセンター事業に追い風、tailwind 寄り。春闘 5.09% による人件費上昇は margin 確認事項。research では業種を問わず対象銘柄の会社IRを一次情報として確認し、sector 一括判断ではなく銘柄固有の受注・利益率・還元・中計進捗で採否を決める。transcript 由来の Sovereign AI / Capex 上限は cross-check 後に追加根拠化"
+    rationale: "AI / クラウド / 半導体テーマの spillover (TSMC Q1 release / NVIDIA FY26 通年公式 release で確認済み AI 需要)、データセンター事業に追い風、tailwind 寄り。transcript 由来の Sovereign AI / Capex 上限は cross-check 後に追加根拠化"
     source_refs:
-      - records/01-brief/2026/04/2026-04-26-world-weekly-jp-cpi-retail.yaml
       - records/01-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
       - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
   - target: 電気・ガス業

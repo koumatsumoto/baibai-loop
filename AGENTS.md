@@ -15,7 +15,7 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 
 ## commit 前 / PR 前の self-review
 
-records / src / docs の変更を含む commit を作る前に、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の対応する anti-pattern (AP-01〜AP-08) のチェックリストを通過させること。特に以下は 100% 防ぐ:
+records / src / docs の変更を含む commit を作る前に、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の対応する anti-pattern (AP-01〜AP-09) のチェックリストを通過させること。特に以下は 100% 防ぐ:
 
 - 一次情報を直接確認せず二次情報・推測で書く (AP-01)
 - 数値計算を機械的に検算しない (AP-02)
@@ -25,6 +25,7 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 - outlook fact が brief 経由になっていない (AP-06)
 - 公表日 / source の最新性確認を skip する (AP-07)
 - validator の抜け道を意識しない (AP-08)
+- 外部 AI 分析や system signal を override せず records に取り込む / paper proxy と実資金集中度を混同する / 注文と約定の状態を区別しない (AP-09)
 
 成分別の詳細チェックリスト:
 - brief 編集時: [`docs/components/brief.md`](./docs/components/brief.md) §7.1

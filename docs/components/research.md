@@ -74,6 +74,12 @@ published_at: "ISO 8601"
 tradable_at: "ISO 8601"
 macro_gate: tailwind | neutral | headwind          # outlook 判定結果
 macro_gate_override: "..."                         # headwind 採用時のみ必須
+overrides:                                         # 任意。system signal を上書きする場合は必須運用
+  - type: decision_flip | candidate_absence | universe_drop | real_concentration_cap
+    prior_state_ref: "path or commit:path"
+    prior_state: "..."
+    new_state: "..."
+    reason: "..."
 position_size_oku: 0.01                            # 建玉 proxy (億円)。skipped は 0、accepted/pending は > 0
 hypothetical_position_size_oku: 0.005              # 任意。skipped で参考値として記録する場合
 avg_turnover_oku: 5.0                              # candidates 由来の 20 日平均売買代金 (億円)。adv_participation_pct を書く場合は > 0 必須 (validator 強制)
@@ -95,6 +101,10 @@ valuation:
 - `brief_refs` は任意。outlook 後に gate 判定に影響する緊急 brief を参照した場合のみ追加
 - `macro_gate` が `headwind` の場合は採用不可（原則）
 - `decision: accepted` かつ `macro_gate: headwind` の場合は `macro_gate_override` が必須
+- `tradable_at` は注文または約定が可能になる最初の市場時刻。休場日・立会時間外に注文を入れた場合、
+  `published_at` / `order_date` より後の次回立会時刻になる
+- `overrides` は、直前の `skipped` 判定、最新 candidates からの不在、universe drop、実資金集中度超過など、
+  system signal を人間判断で上書きする場合に残す
 - `position_size_oku` は仮定資本 1 億円ベース。採用 position 1.0% は `0.01` 億円として記録する
 - `adv_participation_pct` は `5.0` 以上で hard reject
 - `market_cap_oku` / `sector_33` は candidates から転記し、tier rule と sector 集中 warning の検証に使う
@@ -225,6 +235,9 @@ research packet を書いた / 更新した後、commit 前に以下を必ず確
 - [ ] **AP-07** (kill switch と日付): `tradable_at` 周辺に決算 (会社四季報 / TDnet で確認)・日銀会合・FOMC が無いか、`next_earnings_date` が candidates から正しく取れているか
 - [ ] **AP-08** (validator 抜け道): `adv_participation_pct` を front matter に書く場合は `avg_turnover_oku` も併記 (validator が required 化)。`decision: skipped` では `position_size_oku: 0` + `adv_participation_pct: 0` 強制 (validator)、参考値は `hypothetical_position_size_oku` に分離。`avg_turnover_oku` は `candidates_ref` 対応 ticker と ±5% で整合 (validator が warning レベルで check)
 - [ ] **外部 AI / 二次分析の検証**: 他AI・証券サイト・ニュース要約の投資判断を取り込む場合、結論をそのまま転記せず、少なくとも会社IR / 決算短信 / 決算説明資料 / Q&A / 取引所休日 / candidates のいずれかで主要数値を再確認したか。確認できた事実、修正した数値、未採用の二次情報を research の source verification log に分けて残したか
+- [ ] **system signal override の明示**: 直前の `decision: skipped`、最新 candidates からの不在、
+      universe drop、macro headwind、実資金集中度超過などを上書きして採用する場合、`overrides` と本文に
+      prior state / override reason / evidence を残したか
 
 ## 9. 参考
 

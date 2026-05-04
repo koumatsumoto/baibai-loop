@@ -3,9 +3,14 @@ ticker: "XXXX"
 name: "..."
 research_ref: records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
 order_date: "YYYY-MM-DD" | null
+expected_fill_at: "ISO 8601" | null
 entry_date: "YYYY-MM-DD" | null
 entry_price: 数値 | null
-position_size_pct: 0.5 | 1 | 2
+paper_proxy_position_size_oku: 数値
+paper_proxy_position_size_pct: 数値
+real_capital_yen: 数値 | null
+real_order_notional_yen: 数値 | null
+real_concentration_pct: 数値 | null
 planned_exit:
   target_price: 数値 | null
   stop_loss: 数値
@@ -43,15 +48,16 @@ kill_switch_check:
 
 ### 1.3 Order / Entry log
 
-| 日時 | 数量 | 注文種別 | 単価 | 手数料 | 備考 |
-| --- | ---: | --- | ---: | --- | --- |
-| YYYY-MM-DD HH:MM | XX 株 | 成行 / 指値 | XXXXX 円 | XX 円 | ordered では参照価格、open では約定価格 |
+| 注文日 | expected fill | 数量 | 注文種別 | 参照価格 / 約定価格 | 手数料 | 備考 |
+| --- | --- | ---: | --- | ---: | --- | --- |
+| YYYY-MM-DD | YYYY-MM-DD HH:MM | XX 株 | 成行 / 指値 | XXXXX 円 | XX 円 | ordered では参照価格、open では約定価格 |
 
 **Entry price (加重平均)**: XXXXX 円 / ordered の場合は未約定
 
 ### 1.4 Position
 
-- Position size: X.X%（時価総額別上限内）
+- Paper proxy size: X.X% / X.XXXX 億円
+- Real concentration: X.X%（実資金を使った場合のみ）
 - Stop loss: XXXXX 円（-X%）
 - Target: XXXXX 円（+X%）
 - Time stop: YYYY-MM-DD まで（最長 40 営業日）
