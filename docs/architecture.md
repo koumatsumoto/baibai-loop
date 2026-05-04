@@ -1,3 +1,17 @@
+---
+title: "architecture"
+summary: "This document has moved, but the previous body is retained for compatibility."
+doc_type: shim
+status: superseded
+last_reviewed: 2026-05-04
+superseded_by: "docs/architecture/system-overview.md"
+---
+
+> このファイルは `docs/architecture/system-overview.md` へ移行しました。
+> 現在の構成図は `docs/architecture/README.md` から辿ってください。
+> 既存リンクと節番号参照を守るため、当面は旧本文を残します。
+> repo 全体のリンク張替えが完了し、旧 path 参照が消えたことを確認してから削除します。
+
 # architecture
 
 Baibai-Loop の **構造・schema・procedure** を記述する正本。

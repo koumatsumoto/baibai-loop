@@ -1,10 +1,10 @@
 # 設計原則
 
-Baibai-Loop の運用上の設計原則を記述する。本原則は [`philosophy.md`](./philosophy.md) の 4 つの柱を具体運用に落とした実践ルールである。構造・schema は [`architecture.md`](./architecture.md)、日々の運用手順は [`workflow.md`](./workflow.md) を参照。
+Baibai-Loop の運用上の設計原則を記述する。本原則は [`philosophy.md`](./philosophy.md) の 4 つの柱を具体運用に落とした実践ルールである。構造・schema は [`architecture/system-overview.md`](./architecture/system-overview.md)、日々の運用手順は [`operations/README.md`](./operations/README.md) を参照。
 
 ## 1. 4 成分 + 下流アーキテクチャを前提とする
 
-Baibai-Loop は **4 成分 (`records/01-brief/`, `records/03-candidates/`, `records/02-outlook/`, `records/04-research/`) + 下流 (`records/05-trades/`, `records/06-reviews/`)** の構造で運用する。全ての設計判断は本アーキテクチャを前提とする。詳細は [`architecture.md`](./architecture.md)。
+Baibai-Loop は **4 成分 (`records/01-brief/`, `records/03-candidates/`, `records/02-outlook/`, `records/04-research/`) + 下流 (`records/05-trades/`, `records/06-reviews/`)** の構造で運用する。全ての設計判断は本アーキテクチャを前提とする。詳細は [`architecture/system-overview.md`](./architecture/system-overview.md)。
 
 ## 2. 分析階層: 世界情勢 → 地域経済 → 個別資産
 
@@ -112,7 +112,7 @@ Baibai-Loop は **4 成分 (`records/01-brief/`, `records/03-candidates/`, `reco
 - **生存者調整 / look-ahead 補正のシミュレーション**: backtest をしないので necessitate
   しない。ただし J-Quants 銘柄 master / 価格調整係数 / JPX 規制データは latest-snapshot
   で取得しており、完全な PIT snapshot ではない点はデータ層の限界として残る (詳細は
-  [`data-sources.md`](./data-sources.md) §「取得データの保存方針」)
+  [`reference/data-sources.md`](./reference/data-sources.md) §「取得データの保存方針」)
 - **戦略パフォーマンスの track record claim**: 「過去 X 年で年率 Y%」のような report を
   作らない
 - **アルファ / ベータ / シャープ等の事前計測**: 入る前に「どれだけ稼いだか」を計らない
@@ -140,6 +140,6 @@ Baibai-Loop は **4 成分 (`records/01-brief/`, `records/03-candidates/`, `reco
 ## 10. 参考
 
 - [`philosophy.md`](./philosophy.md): 思想・ベース概念・4 つの柱
-- [`architecture.md`](./architecture.md): 構造・schema・procedure
-- [`workflow.md`](./workflow.md): 日々の運用ワークフロー
-- [`data-sources.md`](./data-sources.md): データソース
+- [`architecture/system-overview.md`](./architecture/system-overview.md): 構造・schema・procedure
+- [`operations/README.md`](./operations/README.md): 日々の運用ワークフロー
+- [`reference/data-sources.md`](./reference/data-sources.md): データソース

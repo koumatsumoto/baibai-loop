@@ -163,4 +163,4 @@ J-Quants の財務サマリーは四半期 disclosure の時系列として扱�
 - [`universe-rules.md`](./universe-rules.md): universe 境界条件
 - [`mechanical.md`](./mechanical.md): 機械的ふるい仕様（閾値 3 種 OR）
 - [`../components/candidates.md`](../components/candidates.md): candidates 運用仕様
-- [`../data-sources.md`](../data-sources.md): データソース Tier 一覧
+- [`../reference/data-sources.md`](../reference/data-sources.md): データソース Tier 一覧

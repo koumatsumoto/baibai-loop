@@ -1,6 +1,6 @@
 # records/_playbooks/
 
-Baibai-Loop で運用中の playbook 集合。各 playbook は `docs/components/research.md` の `playbook` front matter で参照される。
+Baibai-Loop で運用中の playbook 集合。各 playbook は `docs/components/research.md` の `playbook` front matter で参照される。docs 上の contract は `docs/components/playbooks.md` を参照する。
 
 ## 運用中の playbook
 
@@ -19,5 +19,6 @@ Baibai-Loop で運用中の playbook 集合。各 playbook は `docs/components/
 ## 参考
 
 - [`../docs/screening/principles.md`](/docs/screening/principles.md): スクリーニング原則
+- [`../docs/components/playbooks.md`](/docs/components/playbooks.md): playbook contract
 - [`../docs/components/research.md`](/docs/components/research.md): research 側の playbook 参照
 - [`../docs/templates/playbook.md`](/docs/templates/playbook.md): 新規 playbook template

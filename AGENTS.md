@@ -1,14 +1,16 @@
 # Repository Agent Instructions
 
-Baibai-Loop の運用作業を AI エージェントに任せるときの最小規約。リポジトリ全体の構造は [`README.md`](./README.md)、設計の根拠は [`docs/`](./docs/) を読む。
+Baibai-Loop の運用作業を AI エージェントに任せるときの最小規約。リポジトリ全体の構造は [`README.md`](./README.md)、docs 入口は [`docs/README.md`](./docs/README.md) を読む。
 
 ## 作業前に必ず読む
 
-- 全体構造: [`docs/architecture.md`](./docs/architecture.md)
+- 全体構造: [`docs/architecture/system-overview.md`](./docs/architecture/system-overview.md)
+- repository map: [`docs/architecture/repository-map.md`](./docs/architecture/repository-map.md)
 - 思想: [`docs/philosophy.md`](./docs/philosophy.md)
 - 設計原則: [`docs/design-principles.md`](./docs/design-principles.md)
-- 運用手順: [`docs/workflow.md`](./docs/workflow.md)
+- 運用手順入口: [`docs/operations/README.md`](./docs/operations/README.md)
 - 触る成分の仕様: [`docs/components/`](./docs/components/)
+- data sources / validation / Python 基盤: [`docs/reference/README.md`](./docs/reference/README.md)
 - **失敗パターンと再発防止**: [`docs/anti-patterns.md`](./docs/anti-patterns.md) — 過去の PR レビューで繰り返し指摘された類型集。brief / outlook / research / validator を編集する前に該当節のチェックリストを 1 周すること
 
 ## commit 前 / PR 前の self-review
@@ -32,7 +34,7 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 メタ運用 (失敗パターンの再発防止):
 - 同じ failure mode を 2 回以上 PR review で指摘されたら、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の該当節を強化する
 - 新 validator rule を追加するときは、anti-patterns.md AP-08 のチェックリストを必ず更新して次回 review で同じ穴が再発しないように記録する
-- 一次情報 (Tier 1) が継続的に取得困難な指標は [`docs/data-sources.md`](./docs/data-sources.md) §「一次統計の数値で Tier 1 取得が困難な場合の Tier 2 例外運用」に従い、`status: failed` Tier 1 と `status: ok` Tier 2 を併記する
+- 一次情報 (Tier 1) が継続的に取得困難な指標は [`docs/reference/data-sources.md`](./docs/reference/data-sources.md) §「一次統計の数値で Tier 1 取得が困難な場合の Tier 2 例外運用」に従い、`status: failed` Tier 1 と `status: ok` Tier 2 を併記する
 
 ## 事実と分析の分離
 
@@ -59,4 +61,4 @@ uv run mypy
 uv run pytest
 ```
 
-CI と同じ手順は [`docs/python-foundation.md`](./docs/python-foundation.md) §9 を参照。
+CI と同じ手順は [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §9 を参照。
