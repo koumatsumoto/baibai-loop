@@ -2,7 +2,7 @@
 ticker: "9682"
 name: "ＤＴＳ"
 playbook: valuation-mean-reversion-v1
-decision: accepted
+decision: skipped
 candidates_ref: records/03-candidates/2026/04/2026-04-24.yaml
 outlook_ref: records/02-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
 brief_refs:
@@ -11,8 +11,9 @@ ai-draft: true
 published_at: "2026-05-04T22:00:00+09:00"
 tradable_at: "2026-05-18T09:00:00+09:00"
 macro_gate: tailwind
-position_size_oku: 0.01
-adv_participation_pct: 0.286
+position_size_oku: 0.0
+hypothetical_position_size_oku: 0.01
+adv_participation_pct: 0.0
 avg_turnover_oku: 3.5
 market_cap_oku: 1722
 sector_33: "情報・通信業"
@@ -175,18 +176,21 @@ avg_turnover 3.5 億 / 日。1000+ 億 cap tier だが流動性は中位。0.02 
 
 - **時価総額**: 1,722 億円 (1000+ tier)
 - **許容 position**: max 2.0% (1000+ tier 上限)
-- **採用 position**: 1.0% (= 0.01 億 = 100万円、1億 portfolio 想定。tier 上限 2.0% に対し
-  半分に絞る)
-- **avg_turnover**: 3.5 億 / 日 → adv_participation = 0.01 / 3.5 * 100 = 0.286% (1% 制限内、
-  余裕あり)
-- **採用判定**: **採用 (情報・通信業 sector concentration mitigation 後)**
-- **判定理由**: 4 軸 valuation × mean-reversion ともに strong、業種 tailwind の selective 受益
+- **採用 position**: 0% (skipped)
+- **hypothetical_position_size_oku**: 0.01 (entry した場合の参考値)
+- **avg_turnover**: 3.5 億 / 日 (4-24 candidates 時点)
+- **採用判定**: **skipped (5/1 screening universe 除外)**
+- **判定理由 (4-25 時点 thesis)**: 4 軸 valuation × mean-reversion ともに strong、業種 tailwind の selective 受益
   (Snowflake / AWS / DAVinCI LABS の AI / クラウド exposure は確認済)、反対仮説 (国内 SI 縮小 /
   労務費圧迫 / SaaS bypass) は中長期だが entry 期間 (40 営業日) には影響限定的。catalyst 不在
   の P-A 型として valuation gap > 30% + self_range 1% 以下の組み合わせは playbook 採用条件を
-  クリア。**ただし 3962 + 5032 と合わせて情報・通信業 sector 集中** (validator
-  `research.sector-concentration` warning) のため、tier 上限の半分 (1.0%) に position size を
-  抑える。
+  クリア。
+- **5-04 アップデート (skipped 理由)**: 5/1 screening では本銘柄が universe から除外
+  (avg_turnover が 4-24 時点 3.5 億から低下し、`min_avg_turnover_oku: 3.0` threshold を
+  下回ったため)。trade execution は physical には可能だが screening 品質バー未達。同じ
+  情報・通信業 tailwind 露出を 5/1 candidates で healthy な 4716 日本オラクル
+  (avg_turnover 37.3 億) で代替するため accepted を撤回。tradable_at = 2026-05-18 直前に
+  再評価する場合は最新の avg_turnover を確認すること。
 
 ---
 
