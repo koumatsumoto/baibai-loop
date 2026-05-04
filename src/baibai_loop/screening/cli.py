@@ -288,20 +288,14 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     sqlite_path = config.sqlite_cache_dir / "market.sqlite"
-    # Merge canonical + legacy raw dirs into a single SQLite. The legacy
-    # `.cache/screening/` tree may still hold chunks from earlier runs that
-    # have not been migrate-cache'd yet, and the SQLite reader is the only
-    # range-aware fallback — without merging, JSON chunk filenames keyed by
-    # asof-relative windows force a full 1200-day refetch when asof shifts
-    # by even one day, since chunk windows no longer match cached files.
-    raw_dirs_for_sqlite: tuple[Path, ...] = tuple(
-        dict.fromkeys((config.cache_dir, DEFAULT_CACHE_DIR, LEGACY_CACHE_DIR))
-    )
-    if args.command == "run" and is_sqlite_stale(raw_dirs_for_sqlite, sqlite_path):
-        sources = ", ".join(str(p) for p in raw_dirs_for_sqlite if p.exists())
-        print(f"rebuilding SQLite cache from {sources}…", file=sys.stderr)
+    # SQLite is the only range-aware fallback for the JSON chunk cache —
+    # without it, asof-relative chunk filenames force a full 1200-day
+    # refetch whenever asof shifts. Auto-rebuild before each `run` so
+    # range queries always hit a fresh derived cache.
+    if args.command == "run" and is_sqlite_stale((config.cache_dir,), sqlite_path):
+        print(f"rebuilding SQLite cache from {config.cache_dir}…", file=sys.stderr)
         try:
-            rebuild_from_raw(raw_dirs_for_sqlite, sqlite_path)
+            rebuild_from_raw(config.cache_dir, sqlite_path)
         except SQLiteCacheError as exc:
             print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
             return 1

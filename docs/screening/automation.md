@@ -38,12 +38,13 @@ python -m baibai_loop.screening.cli verify-raw-cache [--raw-dir PATH] [--max-siz
 - `JQUANTS_REFRESH_TOKEN`
 - `EDINET_API_KEY`
 
+raw cache / SQLite cache の配置先は固定 (env override 廃止):
+
+- raw JSON: `records/_data/raw/screening/`（git 管理対象、hardcoded）
+- SQLite cache: `records/_data/cache/screening/`（gitignore、`run` 開始時に raw JSON から自動 rebuild）
+
 任意:
 
-- `SCREENING_CACHE_DIR`
-  - 既定値: `records/_data/raw/screening`（git 管理対象）
-- `SCREENING_SQLITE_CACHE_DIR`
-  - 既定値: `records/_data/cache/screening`（gitignore）。raw JSON から再生成される SQLite cache 配置先
 - JPX 公開規制情報 URL（CSV / Excel / HTML）。未設定時は該当 source のカバレッジなしで `fallback_lines` に `JPX source 未ロード` を明示する:
   - `JPX_SPECIAL_CAUTION_INDEX_URL` 特別注意銘柄の個別銘柄信用取引残高表 index（推奨。日次で変わる `mtdailyk*.xls` を index から解決）
   - `JPX_SPECIAL_CAUTION_URL` 特別注意銘柄の固定 Excel URL

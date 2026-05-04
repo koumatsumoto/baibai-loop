@@ -84,7 +84,7 @@ tickers:                            # 通過銘柄 list
 - `run_date` は `asof_date` と同値。ファイル path の日付とも一致させる
 - `run_id`: 実行単位 ID。`screening-{asof_date:YYYYMMDD}-{config_hash 先頭 8 hex}` 形式
 - `config_hash`: `ScreeningConfig` の secret 以外と provider URL / tier 設定を正規化した SHA256 短縮 hash。`--asof` や出力 path は含めない
-- `cache_manifest_hash`: `records/_data/raw/screening/` 配下の provider raw JSON cache（`manifests/` 除外）を path / sha256 / size で記録した manifest の SHA256 短縮 hash。配置先は `SCREENING_CACHE_DIR` で上書き可能
+- `cache_manifest_hash`: `records/_data/raw/screening/` 配下の provider raw JSON cache（`manifests/` 除外）を path / sha256 / size で記録した manifest の SHA256 短縮 hash。配置先は固定 (env override 廃止)
 - `ttm_quality` は `EV/EBITDA` / `P/S` / `PCFR` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - `threshold_hit`: mechanical の閾値条件 3 種のどれを満たしたか（OR 条件、複数 hit 可）
 - `market_cap_oku` / `avg_turnover_oku`: research の position size 判定で使う。`market_cap_oku >= 200` かつ `avg_turnover_oku >= 3.0` で universe 通過する閾値と整合
