@@ -94,11 +94,43 @@ Research packet で以下の 4 軸を記入する。**合計点は算出しな�
 
 ## 7. Position sizing（時価総額別上限）
 
+position は **paper proxy layer (1 億円仮想資本)** と **real layer (実資金)** の 2 つの観点で
+管理する。research / trade record では両者を別 field に記録し、validator も別 rule で
+チェックする (詳細は [`../components/trades.md §4 / §4.1`](../components/trades.md))。
+
+### 7.1 Paper proxy layer (1 億円仮想資本ベース)
+
+paper proxy は 4 成分アーキテクチャの正本 sizing で、playbook が前提とする capital。
+
 | 時価総額 | 許容 position | 備考 |
 | --- | --- | --- |
 | 1,000 億円以上 | 最大 2% | 標準 |
 | 500〜1,000 億円 | 最大 1% | |
 | 200〜500 億円 | 最大 0.5% | **P-B のみ**、catalyst freshness ≦ 10 営業日 + 出来高 1.5x 以上 |
+
+`paper_proxy_position_size_oku` (research front matter) と
+`paper_proxy_position_size_oku/pct` (trade front matter) はこの上限内で記録する。
+`adv_participation_pct ≧ 5.0` は別途 hard reject。
+
+### 7.2 Real layer (実資金ベース)
+
+実資金で執行する場合、paper proxy と独立した集中度ルールを満たす。実資金規模は人それぞれの
+ため数値はあくまで起点で、各人が自分の運用前提で再校正してよい。ただし上限を超える場合は
+必ず research front matter `overrides` に `type: real_concentration_cap` で記録する。
+
+| 区分 | soft 推奨 | hard 上限 (`overrides` 必須) |
+| --- | --- | --- |
+| 単一銘柄集中度 (`real_concentration_pct`) | < 25% | 50% |
+| 単一 sector_33 集中度 | < 40% | 60% |
+| cash 比率 | > 30% | 最低 10% |
+
+実資金最低投入単位 (株式 100 株 × 株価) によっては soft 推奨を超えることがあり、その場合は
+本文で「最低投入単位による不可避な超過」を明記する。例えば 50 万円資金で 1,000 円株を 200
+株買えば実集中度は 40.56% となり、soft 推奨 (< 25%) を超える。soft 超過は警告レベル、
+hard 超過は `overrides` 必須。
+
+`real_*` 系 field は trade record の `real_capital_yen` / `real_order_notional_yen` /
+`real_concentration_pct` で表現する。`paper_proxy_*` 系と混同しない (AP-09 参照)。
 
 ## 8. Universe
 

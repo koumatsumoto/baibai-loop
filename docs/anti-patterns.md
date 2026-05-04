@@ -302,6 +302,10 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
       上書きする場合、research front matter の `overrides` と本文に prior state / reason / evidence を残したか
 - [ ] 実取引を records に残す場合、1 億円 paper proxy と real capital / real notional /
       real concentration を別 field に分けたか
+- [ ] `real_concentration_pct` が [`screening/principles.md §7.2`](./screening/principles.md) の hard 上限
+      (単一銘柄 50% / 単一 sector 60% / cash 最低 10%) を超える場合、`overrides` に
+      `type: real_concentration_cap` で記録したか。soft 推奨 (< 25% / < 40% / > 30%) を超える場合も
+      本文で理由を明記したか
 - [ ] 注文日が休場日または立会時間外の場合、trade は `status: ordered` とし、`entry_price` を
       推定で埋めていないか
 - [ ] 外部市場予測 (例: Gartner / IDC / 証券サイトの同業倍率) は、今回の canonical fact として
