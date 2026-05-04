@@ -73,6 +73,24 @@ kill_switch_check:                                         # entry 時に確認
 `ordered` では stop / target は注文時の参照価格または絶対価格で置く。約定価格が参照価格から大きく
 乖離した場合は、`open` 更新時に planned exit を再計算し、その理由を本文に追記する。
 
+## 4.2 Validator
+
+trade record は `baibai-loop-validate` (target=`trade`) で `src/baibai_loop/validate/trade.py` が enforce する。
+具体的に検出する違反と対応 finding code は [`../anti-patterns.md`](../anti-patterns.md) AP-08 を参照する。
+
+```bash
+uv run baibai-loop-validate --target trade
+```
+
+主な enforced rule:
+
+- 必須 front matter field の存在 (`trade.required-field-missing`)
+- ticker 形式 (`trade.ticker-format`) と filename との一致 (`trade.filename-{date,ticker}-mismatch`)
+- status 値域 (`trade.unknown-status`) と Lifecycle 表に従う null / non-null 整合 (`trade.lifecycle-*`)
+- paper proxy `pct` と `oku` の整合 (`trade.paper-proxy-pct-mismatch`)
+- real layer `concentration_pct` と `notional / capital` の整合 (`trade.real-concentration-mismatch`)
+- real layer 集中度の hard cap (50%) / soft cap (25%) (`trade.real-concentration-{hard,soft}-cap`)
+
 ## 5. 本文の構成
 
 ### 5.1 Order / Entry 時

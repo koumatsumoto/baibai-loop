@@ -80,6 +80,8 @@ overrides:                                         # 任意。system signal を�
     prior_state: "..."
     new_state: "..."
     reason: "..."
+external_refs:                                     # 任意。外部AI / 二次分析を参照する場合
+  - records/_external/<source>/YYYY-MM-DD-<topic>.md
 position_size_oku: 0.01                            # 建玉 proxy (億円)。skipped は 0、accepted/pending は > 0
 hypothetical_position_size_oku: 0.005              # 任意。skipped で参考値として記録する場合
 avg_turnover_oku: 5.0                              # candidates 由来の 20 日平均売買代金 (億円)。adv_participation_pct を書く場合は > 0 必須 (validator 強制)
@@ -105,6 +107,8 @@ valuation:
   `published_at` / `order_date` より後の次回立会時刻になる
 - `overrides` は、直前の `skipped` 判定、最新 candidates からの不在、universe drop、実資金集中度超過など、
   system signal を人間判断で上書きする場合に残す
+- `external_refs` は外部 AI / 二次分析を参照する場合に使う。生原稿は [`/records/_external/`](/records/_external/)
+  に保存し、本文 §14 source verification log で `external_refs[]` ごとに 採用 / 修正 / 未採用 を表で残す
 - `position_size_oku` は仮定資本 1 億円ベース。採用 position 1.0% は `0.01` 億円として記録する
 - `adv_participation_pct` は `5.0` 以上で hard reject
 - `market_cap_oku` / `sector_33` は candidates から転記し、tier rule と sector 集中 warning の検証に使う

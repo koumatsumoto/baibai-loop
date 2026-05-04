@@ -606,6 +606,198 @@ class ResearchValidationTests(unittest.TestCase):
             ]
             self.assertEqual(findings, [], f"research {path} produced error findings: {findings}")
 
+    def test_overrides_with_known_type_passes(self) -> None:
+        front = _minimal_research_front_matter()
+        front["overrides"] = [
+            {
+                "type": "decision_flip",
+                "prior_state_ref": "records/04-research/2026/05/...md@abc123",
+                "prior_state": "skipped",
+                "new_state": "accepted",
+                "reason": "200 株実発注のため accepted へ更新",
+            }
+        ]
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+        finally:
+            path.unlink()
+        override_errors = [
+            f for f in findings if f.severity == "error" and f.code.startswith("research.override")
+        ]
+        self.assertEqual(override_errors, [])
+
+    def test_overrides_unknown_type_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        front["overrides"] = [
+            {
+                "type": "totally_made_up",
+                "prior_state_ref": "x",
+                "prior_state": "y",
+                "new_state": "z",
+                "reason": "w",
+            }
+        ]
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.override-unknown-type", {f.code for f in findings})
+
+    def test_overrides_missing_required_key_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        front["overrides"] = [{"type": "decision_flip"}]
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.override-missing-key", {f.code for f in findings})
+
+    def test_overrides_non_list_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        front["overrides"] = "not a list"
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.overrides-non-list", {f.code for f in findings})
+
+    def test_external_refs_with_external_prefix_passes(self) -> None:
+        front = _minimal_research_front_matter()
+        front["external_refs"] = ["records/_external/chatgpt-5/2026-05-04-9682.md"]
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+        finally:
+            path.unlink()
+        external_errors = [
+            f for f in findings if f.severity == "error" and f.code.startswith("research.external")
+        ]
+        self.assertEqual(external_errors, [])
+
+    def test_external_refs_outside_external_dir_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        front["external_refs"] = ["records/01-brief/foo.yaml"]
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.external-ref-prefix", {f.code for f in findings})
+
+
+class CandidateAbsenceOverrideTests(unittest.TestCase):
+    """Hermetic mini-repo to drive ``_validate_candidate_absence_override``."""
+
+    def _build_repo(
+        self,
+        tmp_dir: Path,
+        *,
+        candidate_tickers: list[str],
+        front_matter: dict[str, object],
+        candidates_ref: str = "records/03-candidates/2026/04/2026-04-24.yaml",
+    ) -> Path:
+        (tmp_dir / "docs").mkdir(parents=True, exist_ok=True)
+        candidates_path = tmp_dir / candidates_ref
+        candidates_path.parent.mkdir(parents=True, exist_ok=True)
+        candidates_path.write_text(
+            yaml.safe_dump(
+                {
+                    "schema_version": 1,
+                    "tickers": [
+                        {"ticker": t, "name": t, "avg_turnover_oku": 5.0} for t in candidate_tickers
+                    ],
+                },
+                allow_unicode=True,
+            ),
+            encoding="utf-8",
+        )
+        playbooks_path = tmp_dir / "records/_playbooks"
+        playbooks_path.mkdir(parents=True, exist_ok=True)
+        # template playbook so validate_research_body has a target schema
+        (ROOT / "records/_playbooks/valuation-mean-reversion-v1.schema.yaml").read_text(
+            encoding="utf-8"
+        )  # ensure source exists
+        for src in (ROOT / "records/_playbooks").glob("*.schema.yaml"):
+            (playbooks_path / src.name).write_text(src.read_text(encoding="utf-8"))
+        research_path = tmp_dir / "records/04-research/2026/04/sample.md"
+        research_path.parent.mkdir(parents=True, exist_ok=True)
+        front_yaml = yaml.safe_dump(front_matter, allow_unicode=True, sort_keys=False)
+        research_path.write_text(f"---\n{front_yaml}---\n{_DEFAULT_BODY}", encoding="utf-8")
+        return research_path
+
+    def _front(self, **overrides: object) -> dict[str, object]:
+        front = {
+            "ticker": "9682",
+            "name": "Sample",
+            "playbook": "valuation-mean-reversion-v1",
+            "decision": "accepted",
+            "market_cap_oku": 1700,
+            "sector_33": "情報・通信業",
+            "candidates_ref": "records/03-candidates/2026/04/2026-04-24.yaml",
+            "outlook_ref": "records/02-outlook/2026/04/outlook-2026-04-24-bootstrap.yaml",
+            "brief_refs": [],
+            "ai-draft": True,
+            "published_at": "2026-04-25T22:00:00+09:00",
+            "tradable_at": "2026-05-15T09:00:00+09:00",
+            "macro_gate": "neutral",
+            "position_size_oku": 0.01,
+            "valuation": {"per_trailing": 13.5},
+        }
+        front.update(overrides)
+        return front
+
+    def test_ticker_in_candidates_passes_without_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_root:
+            root = Path(raw_root)
+            research = self._build_repo(
+                root, candidate_tickers=["9682"], front_matter=self._front()
+            )
+            findings = validate_research_file(research, playbooks_root=root / "records/_playbooks")
+        codes = {f.code for f in findings if f.severity == "error"}
+        self.assertNotIn("research.candidate-absence-without-override", codes)
+
+    def test_ticker_absent_without_overrides_is_error(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_root:
+            root = Path(raw_root)
+            research = self._build_repo(
+                root, candidate_tickers=["1111"], front_matter=self._front()
+            )
+            findings = validate_research_file(research, playbooks_root=root / "records/_playbooks")
+        codes = {f.code for f in findings if f.severity == "error"}
+        self.assertIn("research.candidate-absence-without-override", codes)
+
+    def test_ticker_absent_with_candidate_absence_override_passes(self) -> None:
+        front = self._front(
+            overrides=[
+                {
+                    "type": "candidate_absence",
+                    "prior_state_ref": "records/03-candidates/2026/04/2026-04-24.yaml",
+                    "prior_state": "ticker absent",
+                    "new_state": "accepted with explicit override",
+                    "reason": "explicit live order",
+                }
+            ]
+        )
+        with tempfile.TemporaryDirectory() as raw_root:
+            root = Path(raw_root)
+            research = self._build_repo(root, candidate_tickers=["1111"], front_matter=front)
+            findings = validate_research_file(research, playbooks_root=root / "records/_playbooks")
+        codes = {f.code for f in findings if f.severity == "error"}
+        self.assertNotIn("research.candidate-absence-without-override", codes)
+
+    def test_skipped_decision_is_not_enforced(self) -> None:
+        front = self._front(decision="skipped", position_size_oku=0)
+        with tempfile.TemporaryDirectory() as raw_root:
+            root = Path(raw_root)
+            research = self._build_repo(root, candidate_tickers=["1111"], front_matter=front)
+            findings = validate_research_file(research, playbooks_root=root / "records/_playbooks")
+        codes = {f.code for f in findings if f.severity == "error"}
+        self.assertNotIn("research.candidate-absence-without-override", codes)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,21 @@ from .playbook_schema import (
 
 KNOWN_MACRO_GATES: tuple[str, ...] = ("tailwind", "neutral", "headwind")
 KNOWN_DECISIONS: tuple[str, ...] = ("accepted", "skipped", "pending")
+KNOWN_OVERRIDE_TYPES: tuple[str, ...] = (
+    "decision_flip",
+    "candidate_absence",
+    "universe_drop",
+    "real_concentration_cap",
+    "gate_headwind",
+)
+_OVERRIDE_REQUIRED_KEYS: tuple[str, ...] = (
+    "type",
+    "prior_state_ref",
+    "prior_state",
+    "new_state",
+    "reason",
+)
+_EXTERNAL_REFS_PREFIX = "records/_external/"
 MEAN_REVERSION_PLAYBOOK = "valuation-mean-reversion-v1"
 REQUIRED_FRONT_MATTER: tuple[str, ...] = (
     "ticker",
@@ -531,6 +546,160 @@ def _validate_front_matter(
                 location="outlook_ref",
             )
         )
+    findings.extend(_validate_overrides(path, front_matter))
+    findings.extend(_validate_external_refs(path, front_matter))
+    findings.extend(_validate_candidate_absence_override(path, front_matter))
+    return findings
+
+
+def _validate_overrides(path: Path, front_matter: dict[str, object]) -> list[ValidationFinding]:
+    overrides = front_matter.get("overrides")
+    if overrides is None:
+        return []
+    if not isinstance(overrides, list):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.overrides-non-list",
+                message="overrides must be a list when present",
+                location="overrides",
+            )
+        ]
+    findings: list[ValidationFinding] = []
+    for index, entry in enumerate(overrides):
+        location = f"overrides[{index}]"
+        if not isinstance(entry, dict):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.override-non-mapping",
+                    message="override entry must be a mapping",
+                    location=location,
+                )
+            )
+            continue
+        for key in _OVERRIDE_REQUIRED_KEYS:
+            value = entry.get(key)
+            if not isinstance(value, str) or not value.strip():
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="research.override-missing-key",
+                        message=(f"override entry requires non-empty string field: {key}"),
+                        location=f"{location}.{key}",
+                    )
+                )
+        type_value = entry.get("type")
+        if isinstance(type_value, str) and type_value not in KNOWN_OVERRIDE_TYPES:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.override-unknown-type",
+                    message=(f"override type {type_value!r} is not in {KNOWN_OVERRIDE_TYPES}"),
+                    location=f"{location}.type",
+                )
+            )
+    return findings
+
+
+def _validate_candidate_absence_override(
+    path: Path, front_matter: dict[str, object]
+) -> list[ValidationFinding]:
+    """``decision: accepted`` で candidates_ref に ticker が見つからない場合は
+    ``overrides[].type`` に ``candidate_absence`` または ``universe_drop`` が必須。
+
+    - candidates file が存在しない (fixture / archive 経路) → 既存の挙動に倣い skip。
+    - candidates が存在しても yaml parse 失敗 → 別 validator が報告するので skip。
+    - ticker が candidates にある → enforce 不要。
+    - ticker が candidates にない + overrides 不足 → error。
+    """
+    if front_matter.get("decision") != "accepted":
+        return []
+    candidates_ref = front_matter.get("candidates_ref")
+    ticker = front_matter.get("ticker")
+    if not isinstance(candidates_ref, str) or not isinstance(ticker, str):
+        return []
+    repo_root = _resolve_repo_root(path)
+    candidate_path = repo_root / candidates_ref
+    if not candidate_path.is_file():
+        return []
+    try:
+        candidate_doc = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
+    except OSError, yaml.YAMLError:
+        return []
+    if not isinstance(candidate_doc, dict):
+        return []
+    tickers = candidate_doc.get("tickers")
+    if not isinstance(tickers, list):
+        return []
+    found = any(isinstance(entry, dict) and entry.get("ticker") == ticker for entry in tickers)
+    if found:
+        return []
+    overrides = front_matter.get("overrides")
+    if isinstance(overrides, list):
+        for entry in overrides:
+            if isinstance(entry, dict) and entry.get("type") in (
+                "candidate_absence",
+                "universe_drop",
+            ):
+                return []
+    return [
+        ValidationFinding(
+            severity="error",
+            target=path,
+            code="research.candidate-absence-without-override",
+            message=(
+                f"ticker {ticker!r} not found in candidates_ref={candidates_ref}; "
+                "decision=accepted requires overrides[].type='candidate_absence' "
+                "or 'universe_drop'"
+            ),
+            location="overrides",
+        )
+    ]
+
+
+def _validate_external_refs(path: Path, front_matter: dict[str, object]) -> list[ValidationFinding]:
+    external_refs = front_matter.get("external_refs")
+    if external_refs is None:
+        return []
+    if not isinstance(external_refs, list):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.external-refs-non-list",
+                message="external_refs must be a list when present",
+                location="external_refs",
+            )
+        ]
+    findings: list[ValidationFinding] = []
+    for index, entry in enumerate(external_refs):
+        location = f"external_refs[{index}]"
+        if not isinstance(entry, str) or not entry.strip():
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.external-ref-non-string",
+                    message="external_refs entries must be non-empty strings",
+                    location=location,
+                )
+            )
+            continue
+        if not entry.startswith(_EXTERNAL_REFS_PREFIX):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.external-ref-prefix",
+                    message=(f"external_refs entries must start with {_EXTERNAL_REFS_PREFIX!r}"),
+                    location=location,
+                )
+            )
     return findings
 
 
@@ -664,7 +833,11 @@ def _append_adv_participation_consistency_finding(
     """Cross-check adv_participation_pct against position_size_oku / avg_turnover_oku.
 
     `position_size_oku / avg_turnover_oku * 100 ≈ adv_participation_pct` を確認する
-    (許容誤差 5%)。100 倍ズレなどの桁誤りを検出する。
+    (許容誤差 5% relative)。これは AP-02 (PR #68) で観測された「100 倍ズレ
+    `0.585` vs `0.00585%`」のような桁誤りを捕捉するためで、relative 5% で十分。
+    Issue #81 の文中 "±0.5%" は relative ではなく absolute 解釈を許容する記述だが、
+    ここでの本来の目的は scaling error の検出であり、ノイズの少ない relative 5% を
+    維持する。より厳密な検算は `baibai-loop-precheck` 側で扱う設計余地。
 
     依存先 field の状態別の挙動:
     - `position_size_oku` 未指定 / 非数値: required check 側で別途 error 化されるので skip

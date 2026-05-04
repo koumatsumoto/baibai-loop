@@ -27,13 +27,17 @@ from .research import (
     validate_research_parsed,
 )
 from .review import discover_review_files, validate_review_file
+from .trade import discover_trade_files, validate_trade_file
 
-type ValidationTarget = Literal["brief", "candidates", "outlook", "research", "ledger", "review"]
+type ValidationTarget = Literal[
+    "brief", "candidates", "outlook", "research", "trade", "ledger", "review"
+]
 _TARGETS: tuple[ValidationTarget, ...] = (
     "brief",
     "candidates",
     "outlook",
     "research",
+    "trade",
     "ledger",
     "review",
 )
@@ -42,6 +46,7 @@ BRIEF_ROOT = Path("records/01-brief")
 CANDIDATES_ROOT = Path("records/03-candidates")
 OUTLOOK_ROOT = Path("records/02-outlook")
 RESEARCH_ROOT = Path("records/04-research")
+TRADES_ROOT = Path("records/05-trades")
 LEDGER_ROOT = Path("records/_ledger")
 PLAYBOOKS_ROOT = Path("records/_playbooks")
 REVIEWS_ROOT = Path("records/06-reviews")
@@ -161,6 +166,8 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
             return discover_outlook_files(root / OUTLOOK_ROOT)
         case "research":
             return discover_research_files(root / RESEARCH_ROOT)
+        case "trade":
+            return discover_trade_files(root / TRADES_ROOT)
         case "ledger":
             return discover_ledger_files(root / LEDGER_ROOT)
         case "review":
@@ -188,6 +195,8 @@ def _validate(
                 playbooks_root=root / PLAYBOOKS_ROOT,
                 known_playbooks=known_playbooks,
             )
+        case "trade":
+            return validate_trade_file(path)
         case "ledger":
             return validate_ledger_file(path)
         case "review":

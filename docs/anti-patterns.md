@@ -191,6 +191,10 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
       の `updated_from` / `source_refs` は `records/01-brief/**.yaml` のみで、外部 URL を
       直接書かない。sidecar `outlook-<date>-research-log.md` は取得ログであり source 数
       にも数えない (詳細は [`components/outlook.md`](./components/outlook.md) §9.1)
+- [ ] **機械化チェック**: outlook 編集後に `uv run baibai-loop-precheck` を実行し、rationale 中の
+      数値・bp・億円トークンが `source_refs` に列挙された brief で見つかることを確認したか。
+      新規 outlook なら `--strict` で 0 件を目指す。precheck は同時に research の
+      `decision: skipped|pending → accepted` flip で `overrides[].type='decision_flip'` 不在も検出する
 
 ## 7. AP-07: 公表日 / 期間 / source の最新性確認を skip する
 
@@ -256,12 +260,22 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - [ ] front matter の `avg_turnover_oku` が `candidates_ref` の対応 ticker の値と整合
       しているか (将来的検出推奨、現在は手動 check)。validator が `candidates_ref` を
       resolve してもよい
-- [ ] trade に `status: ordered` を導入・変更する場合、以下の corner case を確認したか:
-  - [ ] `ordered` では `entry_date == null`、`entry_price == null`
-  - [ ] `open` / `closed` では `entry_date` と `entry_price` が非 null
-  - [ ] `ordered` から `open` に遷移しても filename は `order_date` のまま
+- [ ] trade に `status: ordered` を導入・変更する場合、以下の corner case を確認したか
+      (現状は `src/baibai_loop/validate/trade.py` がほぼ enforce する):
+  - [ ] `ordered` では `entry_date == null`、`entry_price == null` (validator: `trade.lifecycle-non-null-where-prohibited`)
+  - [ ] `open` / `closed` では `entry_date` と `entry_price` が非 null (validator: `trade.lifecycle-null-where-required`)
+  - [ ] `ordered` から `open` に遷移しても filename は `order_date` のまま (validator: `trade.filename-date-mismatch`)
   - [ ] paper proxy size と real capital / real notional / real concentration を別 field に分離
+  - [ ] `paper_proxy_position_size_pct` は `paper_proxy_position_size_oku / 0.01` と整合 (validator: `trade.paper-proxy-pct-mismatch`)
+  - [ ] `real_concentration_pct` は `real_order_notional_yen / real_capital_yen * 100` と整合 (validator: `trade.real-concentration-mismatch`)
+  - [ ] `real_concentration_pct` の hard cap (50%) 超過は error / soft cap (25%) 超過は warning (validator: `trade.real-concentration-{hard,soft}-cap`)
   - [ ] `position_size_oku` / `adv_participation_pct` は paper proxy の検証であり、実資金集中度の検証ではない
+- [ ] research の `overrides` 配列を導入・変更する場合、以下を確認したか:
+  - [ ] type が `decision_flip` / `candidate_absence` / `universe_drop` / `real_concentration_cap` / `gate_headwind` の既知集合に属する (validator: `research.override-unknown-type`)
+  - [ ] `type` / `prior_state_ref` / `prior_state` / `new_state` / `reason` の 5 必須キーが揃う (validator: `research.override-missing-key`)
+  - [ ] `decision: accepted` で candidates_ref に ticker が見つからない場合、`overrides[].type='candidate_absence'` または `'universe_drop'` が必須 (validator: `research.candidate-absence-without-override`)
+  - [ ] `external_refs[]` は `records/_external/` 配下の path のみ (validator: `research.external-ref-prefix`)
+  - [ ] 連続する commit で `decision: skipped|pending → accepted` に flip した場合、`overrides[].type='decision_flip'` を残す (precheck: `precheck.decision-flip-without-override`、`baibai-loop-precheck` で git 履歴ベースに検出)
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
@@ -296,12 +310,20 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
       `skipped` にして、追加確認条件を明示したか
 - [ ] 外部 AI / 二次分析の結論を採用する前に、主要数値を会社IR・決算短信・決算説明資料・Q&A・
       取引所 calendar・candidates のいずれかで再確認したか
+- [ ] 外部 AI セッション・証券レポート・アナリストノートを取り込む場合、生原稿を
+      [`/records/_external/<source>/YYYY-MM-DD-<topic>.md`](/records/_external/) に保存し、
+      research front matter の `external_refs` で参照したか。要約のみで生原稿を残さないのは AP-09 違反
 - [ ] 確認できた事実、修正した数値、未採用の二次情報を research の source verification log に分けて残したか
+      (`external_refs[]` ごとに 採用 / 修正 / 未採用 の表で構造化する)
 - [ ] EPS / PER / 配当利回り / target price は公式 EPS・配当予想・株価で再計算したか
 - [ ] 直前の `skipped`、最新 candidates からの不在、universe drop、macro headwind、実資金集中度超過などを
       上書きする場合、research front matter の `overrides` と本文に prior state / reason / evidence を残したか
 - [ ] 実取引を records に残す場合、1 億円 paper proxy と real capital / real notional /
       real concentration を別 field に分けたか
+- [ ] `real_concentration_pct` が [`screening/principles.md §7.2`](./screening/principles.md) の hard 上限
+      (単一銘柄 50% / 単一 sector 60% / cash 最低 10%) を超える場合、`overrides` に
+      `type: real_concentration_cap` で記録したか。soft 推奨 (< 25% / < 40% / > 30%) を超える場合も
+      本文で理由を明記したか
 - [ ] 注文日が休場日または立会時間外の場合、trade は `status: ordered` とし、`entry_price` を
       推定で埋めていないか
 - [ ] 外部市場予測 (例: Gartner / IDC / 証券サイトの同業倍率) は、今回の canonical fact として
