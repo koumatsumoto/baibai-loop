@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from math import sqrt
 from statistics import mean, median
 
@@ -127,6 +127,7 @@ def build_metrics(
             ticker_return_4w=ticker_returns_4w.get(ticker),
             sector_return_4w=mean(sector_returns[sector]) if sector in sector_returns else None,
             short_history_flag=listing_span_days < 750,
+            corporate_action_flag=_has_recent_corporate_action(ticker_bars, asof_date, 60),
         )
 
     ttm_quality_counts = _count_ttm_qualities(list(financials.values()))
@@ -364,6 +365,34 @@ def _price_change(bars: Sequence[JQuantsDailyBar], sessions: int, asof_date: dat
     if base == 0:
         return None
     return (current / base) - 1.0
+
+
+def _has_recent_corporate_action(
+    bars: Sequence[JQuantsDailyBar], asof_date: date, window_days: int
+) -> bool:
+    """True when adjustment_factor changes within the window [asof - window_days, asof].
+
+    A change in adjustment_factor indicates a stock split, reverse split, or
+    other corporate action that affects historical price comparability.
+    """
+    relevant = sorted(
+        (
+            bar
+            for bar in bars
+            if (asof_date - timedelta(days=window_days)) <= bar.traded_at <= asof_date
+        ),
+        key=lambda item: item.traded_at,
+    )
+    if len(relevant) < 2:
+        return False
+
+    # adjustment_factor が None の bar はスキップして、存在するもの同士で比較する。
+    factors = [bar.adjustment_factor for bar in relevant if bar.adjustment_factor is not None]
+    if not factors:
+        return False
+
+    first_factor = factors[0]
+    return any(f != first_factor for f in factors)
 
 
 def _self_range_percentile(history: Sequence[float], current: float | None) -> float | None:

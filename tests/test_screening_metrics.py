@@ -567,6 +567,66 @@ class ScreeningMetricsTests(unittest.TestCase):
         # dominate the percentile and push latest off the upper boundary.
         self.assertAlmostEqual(derived.self_range_percentile["ev_ebitda"], 1.0)
 
+    def test_build_metrics_flags_corporate_action_when_adjustment_factor_shifts(self) -> None:
+        """corporate_action_flag must be True when adjustment_factor changes within 60 days."""
+        asof = date(2026, 4, 24)
+        bars = [
+            JQuantsDailyBar(
+                "130A",
+                asof - timedelta(days=61),
+                100.0,
+                300_000_000.0,
+                adjustment_factor=1.0,
+            ),
+            JQuantsDailyBar(
+                "130A",
+                asof - timedelta(days=60),
+                100.0,
+                300_000_000.0,
+                adjustment_factor=1.0,
+            ),
+            JQuantsDailyBar(
+                "130A",
+                asof - timedelta(days=30),
+                50.0,
+                300_000_000.0,
+                adjustment_factor=2.0,
+            ),
+            JQuantsDailyBar(
+                "130A",
+                asof,
+                50.0,
+                300_000_000.0,
+                adjustment_factor=2.0,
+            ),
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={
+                "130A": [_summary("130A", asof)],
+            },
+            edinet_by_ticker={},
+        )
+        self.assertTrue(result.derived["130A"].corporate_action_flag)
+
+    def test_build_metrics_does_not_flag_corporate_action_when_factor_is_constant(self) -> None:
+        asof = date(2026, 4, 24)
+        bars = _daily_bars("130A", asof, 100)
+        # all bars from _daily_bars have adjustment_factor=None by default,
+        # which should not trip the flag.
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={
+                "130A": [_summary("130A", asof)],
+            },
+            edinet_by_ticker={},
+        )
+        self.assertFalse(result.derived["130A"].corporate_action_flag)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -208,6 +208,7 @@ class ScreeningRenderTests(unittest.TestCase):
                   self_range_percentile: null
                   sigma_gap: null
               next_earnings_date: "2026-05-13"
+              corporate_action_flag: false
               ttm_quality:
                 ev_ebitda: exact
                 p_s: approximated

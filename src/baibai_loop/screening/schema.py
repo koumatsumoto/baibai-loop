@@ -140,6 +140,7 @@ class DerivedMetrics:
     ticker_return_4w: float | None = None
     sector_return_4w: float | None = None
     short_history_flag: bool = False
+    corporate_action_flag: bool = False
 
     @field_validator(
         "price_change_60d",
@@ -194,6 +195,7 @@ class ScreenedTicker:
     sector_relative_strength_percentile: float | None = None
     metrics_breakdown: MetricBreakdown = Field(default_factory=dict)
     next_earnings_date: date | None = None
+    corporate_action_flag: bool = False
 
     @field_validator("threshold_hit", mode="before")
     @classmethod
