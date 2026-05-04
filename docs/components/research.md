@@ -135,6 +135,25 @@ research decision は `baibai-loop-ledger sync` で [`records/_ledger/`](./ledge
 - position size が時価総額別上限を満たす
 - 200-500 億帯は **P-B のみ採用可**（P-A 単独は不可）。例外運用が必要なら `macro_gate_override` で明示理由を残す
 
+### 6.3 取引コスト・スリッページの想定
+
+採用判定時の利確 / 損切ターゲットは **net of cost** で評価する。本システムは backtest を行
+わないため厳密なシミュレーションコストは引かないが、入退出計画では以下の概算を組み
+込んだ上で playbook 採用条件 (利確 +X%) を評価する:
+
+- **手数料 (round-trip)**: ネット証券・現物取引で約定代金 0.05-0.10% 想定 (1 億円
+  portfolio で 100-200万円 / position の場合の典型レンジ)。新興系ブローカーで定額制を
+  使う場合はさらに低くなる
+- **スプレッド・スリッページ**: liquid な大型 cap (avg_turnover_oku ≧ 10) では 0.05% 程度、
+  中小型 (3-10 億 / 日) では 0.10-0.20% を見込む。`adv_participation_pct` 上限 1% は
+  この観点でも overflow 防止として効く
+- **対 target return の影響**: 利確 +20% / 損切 -10% target に対し、round-trip cost 0.3-0.5%
+  は target の 1.5-2.5% に相当。target を crossing する判定には十分マージンがあるが、
+  target +5% 未満の playbook (短期 P-B 等) を作る場合は cost ratio がきつくなる点に注意
+
+採用判定の thesis 説明で利確目標を書く際は、上記コスト想定を意識して **net で playbook
+の最低期待リターン (P-A: +15-25%) を満たす想定価格レンジ** を示す。
+
 ## 7. trades への接続
 
 採用した research の front matter path は、`records/05-trades/` の `research_ref` で参照される:

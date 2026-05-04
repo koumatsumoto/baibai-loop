@@ -90,6 +90,23 @@ EDINET の XBRL 構造から取得。J-Quants Light の財務サマリーで取�
 
 Historical EV/EBITDA は、各日の split-adjusted close で時価総額だけを変化させ、最新の発行済株式数・有利子負債・現金・TTM EBITDA を全期間に適用する近似で算出する。式は `(historical_adjustment_close * latest_shares_outstanding + latest_debt - latest_cash) / latest_ebitda_ttm` とし、balance sheet / EBITDA の時系列が無くても EV/EBITDA の定義を保つ。`adjustment_close` が欠損する場合は raw `close` にフォールバックする。必要項目が欠損する場合は `null` とし、`ttm_quality_ev_ebitda = exact` の銘柄だけ mechanical 判定に使う。PBR / PER の history も同じ price 基準（adjustment_close 優先）で算出するため、株式分割があっても history は連続になる。
 
+### 9.1 `adjustment_close` の中身（dividend / 配当の扱い）
+
+J-Quants の `AdjustmentClose` は **株式分割・併合・無償増資 (株式数の希薄化要因) のみ** を
+遡及調整し、**現金配当の支払いは price には反映しない** (price-only series、total return
+ではない)。本システムでも total return ベースには変換せず、`adjustment_close` をそのまま
+使う。理由:
+
+- mean reversion playbook (`valuation-mean-reversion-v1`) の主信号は「short-term の price
+  decline」であり、配当落ちを含めた pure な price 系列で判定するのが thesis と整合
+- 配当落ち分を加算した擬似 total return を使うと、配当利回り高銘柄 (鉄鋼 / 銀行 / 商社等)
+  の `price_change_60d` が本来より small に見え、oversold 判定が遅れる方向にバイアスする
+- 1-2 ヶ月 horizon の swing trade では現金配当の寄与は 0.3-0.5% / 60 日程度で、playbook
+  の利確 / 損切 target (±10-20%) から見れば noise 範囲
+
+トータルリターン視点での portfolio 評価が必要になった場合 (年次 retro 等) は `_ledger/`
+側で配当落ちを別途加算するか、J-Quants Premium の配当 API 取得を検討する。
+
 ## 10. データソース
 
 ### 10.1 Core
