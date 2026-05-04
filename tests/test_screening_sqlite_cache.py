@@ -17,6 +17,7 @@ from baibai_loop.screening.cli import rebuild_cache_command
 from baibai_loop.screening.sqlite_cache import (
     SCHEMA_VERSION,
     SQLiteCacheError,
+    is_sqlite_stale,
     open_connection,
     rebuild_from_raw,
 )
@@ -432,6 +433,150 @@ class RebuildCacheCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             self.assertIn("jquants_master_snapshots: 1 files / 1 rows", stdout.getvalue())
+
+
+class IsSqliteStaleTests(unittest.TestCase):
+    def test_missing_db_is_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            raw = Path(tmp) / "raw"
+            raw.mkdir()
+            db = Path(tmp) / "cache" / "market.sqlite"
+            self.assertTrue(is_sqlite_stale([raw], db))
+
+    def test_db_newer_than_raw_is_fresh(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            raw = Path(tmp) / "raw"
+            db = Path(tmp) / "cache" / "market.sqlite"
+            _write_json(
+                raw / "jquants" / "get_eq_master.json",
+                [_master_record("13010", name="極洋", sector="水産・農林業")],
+            )
+            rebuild_from_raw(raw, db)
+            self.assertFalse(is_sqlite_stale([raw], db))
+
+    def test_db_older_than_raw_is_stale(self) -> None:
+        import os
+        import time
+
+        with tempfile.TemporaryDirectory() as tmp:
+            raw = Path(tmp) / "raw"
+            db = Path(tmp) / "cache" / "market.sqlite"
+            _write_json(
+                raw / "jquants" / "get_eq_master.json",
+                [_master_record("13010", name="極洋", sector="水産・農林業")],
+            )
+            rebuild_from_raw(raw, db)
+            # touch raw to be newer than db
+            time.sleep(0.05)
+            new_raw = (
+                raw
+                / "jquants"
+                / "get_eq_bars_daily_range-end_dt-2024-04-18-start_dt-2024-03-19.json"
+            )
+            _write_json(
+                new_raw, [_bars_record("13010", "2024-03-19", close=100.0, adj_close=100.0)]
+            )
+            os.utime(new_raw, (time.time() + 60, time.time() + 60))
+            self.assertTrue(is_sqlite_stale([raw], db))
+
+    def test_multiple_raw_dirs_checked(self) -> None:
+        import os
+        import time
+
+        with tempfile.TemporaryDirectory() as tmp:
+            primary = Path(tmp) / "primary"
+            secondary = Path(tmp) / "secondary"
+            db = Path(tmp) / "cache" / "market.sqlite"
+            _write_json(
+                primary / "jquants" / "get_eq_master.json",
+                [_master_record("13010", name="極洋", sector="水産・農林業")],
+            )
+            rebuild_from_raw(primary, db)
+            self.assertFalse(is_sqlite_stale([primary, secondary], db))
+            # add a fresh file to the secondary dir
+            new_file = (
+                secondary
+                / "jquants"
+                / "get_eq_bars_daily_range-end_dt-2024-04-18-start_dt-2024-03-19.json"
+            )
+            _write_json(
+                new_file, [_bars_record("13010", "2024-03-19", close=100.0, adj_close=100.0)]
+            )
+            os.utime(new_file, (time.time() + 60, time.time() + 60))
+            self.assertTrue(is_sqlite_stale([primary, secondary], db))
+
+    def test_missing_raw_dirs_not_stale_when_db_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            existing = Path(tmp) / "existing"
+            absent = Path(tmp) / "absent"
+            db = Path(tmp) / "cache" / "market.sqlite"
+            _write_json(
+                existing / "jquants" / "get_eq_master.json",
+                [_master_record("13010", name="極洋", sector="水産・農林業")],
+            )
+            rebuild_from_raw(existing, db)
+            self.assertFalse(is_sqlite_stale([existing, absent], db))
+
+
+class SectorNameNormalizationTests(unittest.TestCase):
+    def test_master_import_normalizes_halfwidth_middle_dot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            raw = Path(tmp) / "raw"
+            db = Path(tmp) / "cache" / "market.sqlite"
+            # J-Quants は同じ TSE 33 セクターを半角中黒 (U+FF65) で返してくる
+            # ことがある。SQLite 取り込み段階で全角形に正規化されないと、
+            # outlook の `情報・通信業` (全角) と一致せず select で sector=null
+            # になり、tailwind 分類が漏れる。
+            _write_json(
+                raw / "jquants" / "get_eq_master.json",
+                [
+                    {
+                        "Code": "47160",
+                        "CoName": "日本オラクル",
+                        "MktNm": "プライム",
+                        "S33Nm": "情報･通信業",  # half-width middle dot
+                        "Mrgn": "2",
+                        "Date": "2026-05-07T00:00:00",
+                    },
+                ],
+            )
+
+            rebuild_from_raw(raw, db)
+            with sqlite3.connect(db) as conn:
+                row = conn.execute(
+                    "SELECT sector_33 FROM jquants_master_snapshots WHERE ticker = '4716'"
+                ).fetchone()
+            self.assertEqual(row[0], "情報・通信業")  # full-width, canonical
+
+
+class RebuildFromMultipleDirsTests(unittest.TestCase):
+    def test_merges_records_across_dirs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            primary = Path(tmp) / "primary"
+            secondary = Path(tmp) / "secondary"
+            db = Path(tmp) / "cache" / "market.sqlite"
+            _write_json(
+                primary
+                / "jquants"
+                / "get_eq_bars_daily_range-end_dt-2024-04-18-start_dt-2024-03-19.json",
+                [_bars_record("13010", "2024-03-19", close=100.0, adj_close=100.0)],
+            )
+            _write_json(
+                secondary
+                / "jquants"
+                / "get_eq_bars_daily_range-end_dt-2024-05-19-start_dt-2024-04-19.json",
+                [_bars_record("13010", "2024-04-19", close=110.0, adj_close=110.0)],
+            )
+
+            summary = rebuild_from_raw([primary, secondary], db)
+
+            self.assertEqual(summary.daily_bars_files, 2)
+            self.assertEqual(summary.daily_bars_rows, 2)
+            with sqlite3.connect(db) as conn:
+                rows = conn.execute(
+                    "SELECT traded_at, close FROM jquants_daily_bars ORDER BY traded_at"
+                ).fetchall()
+                self.assertEqual(rows, [("2024-03-19", 100.0), ("2024-04-19", 110.0)])
 
 
 if __name__ == "__main__":  # pragma: no cover

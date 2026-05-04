@@ -2,7 +2,7 @@
 ticker: "3962"
 name: "チェンジホールディングス"
 playbook: valuation-mean-reversion-v1
-decision: accepted
+decision: skipped
 candidates_ref: records/03-candidates/2026/04/2026-04-24.yaml
 outlook_ref: records/02-outlook/2026/04/outlook-2026-04-24-bootstrap.yaml
 brief_refs: []
@@ -10,8 +10,9 @@ ai-draft: true
 published_at: "2026-04-25T22:00:00+09:00"
 tradable_at: "2026-05-15T09:00:00+09:00"
 macro_gate: neutral
-position_size_oku: 0.01
-adv_participation_pct: 0.42
+position_size_oku: 0.0
+hypothetical_position_size_oku: 0.01
+adv_participation_pct: 0.0
 avg_turnover_oku: 2.4
 market_cap_oku: 663
 sector_33: "情報・通信業"
@@ -118,9 +119,11 @@ P-A: catalyst なし。
 
 - 時価総額: 663 億円
 - 許容 position: max 1.0% (500-1,000 億円帯)
-- 採用 position: 1.0%
-- 採用判定: **採用**
-- 判定理由: 自己レンジ下位 4% と過去 3 年で最深部の割安水準。反対仮説 (規制リスク) は実在するが議論段階で材料化していない。流動性は中程度、position は max 1.0% に抑制。
+- 採用 position: 0% (skipped)
+- hypothetical_position_size_oku: 0.01 (entry した場合の参考値)
+- 採用判定: **skipped (5/1 screening universe 除外)**
+- 判定理由 (4-25 時点): 自己レンジ下位 4% と過去 3 年で最深部の割安水準。反対仮説 (規制リスク) は実在するが議論段階で材料化していない。流動性は中程度、position は max 1.0% に抑制。
+- **5-04 アップデート (skipped 理由)**: 5/1 screening では `min_avg_turnover_oku` threshold が 2.0 → 3.0 に引き上げられ、本銘柄 (avg_turnover 2.4 億) は universe から除外。4-25 時点で threshold 2.0 を満たして候補入りしていたが、5/1 quality bar には届かず。trade execution は position 0.01 億 / adv 0.42% で物理的には可能だが、screening 品質バー未達のため accepted を撤回。tradable_at 直前に再評価する場合は最新の avg_turnover を確認すること。
 
 ---
 

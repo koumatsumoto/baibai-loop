@@ -23,7 +23,9 @@ class ScreeningConfigTests(unittest.TestCase):
 
         self.assertEqual(config.cache_dir, DEFAULT_CACHE_DIR)
 
-    def test_from_env_supports_custom_cache_dir(self) -> None:
+    def test_from_env_ignores_screening_cache_dir_override(self) -> None:
+        # SCREENING_CACHE_DIR の env override は廃止 (config.py の意図的な
+        # hardcode 化、stale .env が canonical を見失う regression を防ぐ)。
         config = ScreeningConfig.from_env(
             {
                 "JQUANTS_REFRESH_TOKEN": "token",
@@ -32,7 +34,7 @@ class ScreeningConfigTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(config.cache_dir, Path("/tmp/cache"))
+        self.assertEqual(config.cache_dir, DEFAULT_CACHE_DIR)
 
     def test_from_env_collects_jpx_regulation_urls(self) -> None:
         config = ScreeningConfig.from_env(

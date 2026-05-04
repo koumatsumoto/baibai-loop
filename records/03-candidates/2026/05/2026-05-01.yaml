@@ -1,0 +1,1585 @@
+run_date: "2026-05-01"
+asof_date: "2026-05-01"
+universe_size: 877
+filters:
+  min_market_cap_oku: 200
+  min_avg_turnover_oku: 3.0
+  exclude_listed_under_months: 6
+generated_by: "screening-cli-v1"
+data_sources:
+- "j-quants-light"
+- "edinet-api-v2@2026-01-29"
+- "jpx-public-regulation"
+run_at: "2026-05-04T11:15:40.603394+09:00"
+run_id: "screening-20260501-db2ed14f"
+config_hash: "db2ed14f4df373b4"
+cache_manifest_hash: "ef0756274863bacc"
+tickers:
+- ticker: "1332"
+  name: "ニッスイ"
+  per_forward: 13.32
+  per_trailing: 16.52
+  pbr: null
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "水産・農林業"
+  market_cap_oku: 3773
+  avg_turnover_oku: 16.7
+  price_change_60d: -0.0712
+  price_change_4w: -0.1118
+  sector_relative_strength_percentile: 0.0606
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.191
+      self_range_percentile: 0.6517
+      sigma_gap: 1.4482
+    pbr:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_rotation_short_sell
+- ticker: "1605"
+  name: "ＩＮＰＥＸ"
+  per_forward: null
+  per_trailing: 12.45
+  pbr: 1.01
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "鉱業"
+  market_cap_oku: 51851
+  avg_turnover_oku: 402.9
+  price_change_60d: 0.2315
+  price_change_4w: -0.0983
+  sector_relative_strength_percentile: 0.0909
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.3905
+      self_range_percentile: 0.775
+      sigma_gap: 2.686
+    pbr:
+      sector_median_gap: -0.3586
+      self_range_percentile: 0.775
+      sigma_gap: 2.686
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_rotation_short_sell
+- ticker: "1663"
+  name: "Ｋ＆Ｏエナジーグループ"
+  per_forward: null
+  per_trailing: 14.98
+  pbr: 1.19
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "鉱業"
+  market_cap_oku: 1333
+  avg_turnover_oku: 8.3
+  price_change_60d: 0.1176
+  price_change_4w: -0.1072
+  sector_relative_strength_percentile: 0.0909
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.2663
+      self_range_percentile: 0.7368
+      sigma_gap: 2.0616
+    pbr:
+      sector_median_gap: -0.2433
+      self_range_percentile: 0.7368
+      sigma_gap: 2.0616
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_rotation_short_sell
+- ticker: "2379"
+  name: "ディップ"
+  per_forward: null
+  per_trailing: 16.01
+  pbr: 2.59
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "サービス業"
+  market_cap_oku: 1096
+  avg_turnover_oku: 10.5
+  price_change_60d: -0.1198
+  price_change_4w: -0.1232
+  sector_relative_strength_percentile: 0.4545
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.3139
+      self_range_percentile: 0.0088
+      sigma_gap: -1.6552
+    pbr:
+      sector_median_gap: 0.0543
+      self_range_percentile: 0.0088
+      sigma_gap: -1.6552
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "2413"
+  name: "エムスリー"
+  per_forward: null
+  per_trailing: 20.63
+  pbr: 2.46
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "サービス業"
+  market_cap_oku: 10163
+  avg_turnover_oku: 56.2
+  price_change_60d: -0.2048
+  price_change_4w: -0.0883
+  sector_relative_strength_percentile: 0.4545
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.1157
+      self_range_percentile: 0.1492
+      sigma_gap: -1.0269
+    pbr:
+      sector_median_gap: 0.0
+      self_range_percentile: 0.1492
+      sigma_gap: -1.0269
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - price_down_60d_and_valuation_sigma_down
+- ticker: "2587"
+  name: "サントリービバレッジ＆フード"
+  per_forward: null
+  per_trailing: 15.63
+  pbr: 1.05
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "食料品"
+  market_cap_oku: 13868
+  avg_turnover_oku: 34.6
+  price_change_60d: -0.0977
+  price_change_4w: -0.0121
+  sector_relative_strength_percentile: 0.3333
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.279
+      self_range_percentile: 0.101
+      sigma_gap: -1.3657
+    pbr:
+      sector_median_gap: -0.3605
+      self_range_percentile: 0.101
+      sigma_gap: -1.3657
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "2760"
+  name: "東京エレクトロン　デバイス"
+  per_forward: null
+  per_trailing: 13.2
+  pbr: 1.96
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "卸売業"
+  market_cap_oku: 1100
+  avg_turnover_oku: 5.6
+  price_change_60d: 0.0369
+  price_change_4w: 0.1471
+  sector_relative_strength_percentile: 0.5758
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.2061
+      self_range_percentile: 0.1961
+      sigma_gap: -0.1901
+    pbr:
+      sector_median_gap: 0.1101
+      self_range_percentile: 0.1961
+      sigma_gap: -0.1901
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "2767"
+  name: "円谷フィールズホールディングス"
+  per_forward: 6.75
+  per_trailing: 6.43
+  pbr: null
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "卸売業"
+  market_cap_oku: 909
+  avg_turnover_oku: 4.5
+  price_change_60d: -0.2205
+  price_change_4w: -0.044
+  sector_relative_strength_percentile: 0.5758
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.6132
+      self_range_percentile: 0.1325
+      sigma_gap: -1.2769
+    pbr:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+  - price_down_60d_and_valuation_sigma_down
+- ticker: "3028"
+  name: "アルペン"
+  per_forward: 13.52
+  per_trailing: 27.37
+  pbr: 0.61
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "小売業"
+  market_cap_oku: 763
+  avg_turnover_oku: 4.3
+  price_change_60d: -0.09
+  price_change_4w: -0.0545
+  sector_relative_strength_percentile: 0.3636
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: 0.3466
+      self_range_percentile: 0.1591
+      sigma_gap: -1.0138
+    pbr:
+      sector_median_gap: -0.6879
+      self_range_percentile: 0.1591
+      sigma_gap: -1.0138
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "3222"
+  name: "ユナイテッド・スーパーマーケット・ホールディングス"
+  per_forward: null
+  per_trailing: null
+  pbr: 0.79
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "小売業"
+  market_cap_oku: 1617
+  avg_turnover_oku: 3.5
+  price_change_60d: -0.1353
+  price_change_4w: -0.1067
+  sector_relative_strength_percentile: 0.3636
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+    pbr:
+      sector_median_gap: -0.5919
+      self_range_percentile: 0.1852
+      sigma_gap: -1.1934
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "3350"
+  name: "メタプラネット"
+  per_forward: null
+  per_trailing: null
+  pbr: 0.85
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "卸売業"
+  market_cap_oku: 3712
+  avg_turnover_oku: 71.6
+  price_change_60d: -0.1915
+  price_change_4w: 0.0762
+  sector_relative_strength_percentile: 0.5758
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+    pbr:
+      sector_median_gap: -0.5183
+      self_range_percentile: 0.1653
+      sigma_gap: 0.0495
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "3844"
+  name: "コムチュア"
+  per_forward: 13.0
+  per_trailing: 20.22
+  pbr: null
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "情報・通信業"
+  market_cap_oku: 437
+  avg_turnover_oku: 4.4
+  price_change_60d: -0.1546
+  price_change_4w: -0.0648
+  sector_relative_strength_percentile: 0.7273
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.322
+      self_range_percentile: 0.0138
+      sigma_gap: -1.9841
+    pbr:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+  - price_down_60d_and_valuation_sigma_down
+- ticker: "4180"
+  name: "Ａｐｐｉｅｒ　Ｇｒｏｕｐ"
+  per_forward: null
+  per_trailing: 35.68
+  pbr: 2.46
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "情報・通信業"
+  market_cap_oku: 920
+  avg_turnover_oku: 13.7
+  price_change_60d: -0.1189
+  price_change_4w: 0.1047
+  sector_relative_strength_percentile: 0.7273
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: 0.1965
+      self_range_percentile: 0.1728
+      sigma_gap: -2.0234
+    pbr:
+      sector_median_gap: -0.2546
+      self_range_percentile: 0.1728
+      sigma_gap: -2.0234
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "4371"
+  name: "コアコンセプト・テクノロジー"
+  per_forward: null
+  per_trailing: 14.8
+  pbr: 4.26
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "情報・通信業"
+  market_cap_oku: 234
+  avg_turnover_oku: 3.6
+  price_change_60d: 0.0448
+  price_change_4w: 0.4414
+  sector_relative_strength_percentile: 0.7273
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.5037
+      self_range_percentile: 0.1857
+      sigma_gap: -0.6241
+    pbr:
+      sector_median_gap: 0.2914
+      self_range_percentile: 0.1857
+      sigma_gap: -0.6241
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "4432"
+  name: "ウイングアーク１ｓｔ"
+  per_forward: null
+  per_trailing: 13.65
+  pbr: 1.89
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "情報・通信業"
+  market_cap_oku: 896
+  avg_turnover_oku: 4.5
+  price_change_60d: -0.2278
+  price_change_4w: -0.0351
+  sector_relative_strength_percentile: 0.7273
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.5423
+      self_range_percentile: 0.3159
+      sigma_gap: -1.0371
+    pbr:
+      sector_median_gap: -0.428
+      self_range_percentile: 0.3159
+      sigma_gap: -1.0371
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - price_down_60d_and_valuation_sigma_down
+- ticker: "4443"
+  name: "Ｓａｎｓａｎ"
+  per_forward: null
+  per_trailing: 38.47
+  pbr: null
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "情報・通信業"
+  market_cap_oku: 1585
+  avg_turnover_oku: 26.4
+  price_change_60d: -0.1565
+  price_change_4w: 0.0487
+  sector_relative_strength_percentile: 0.7273
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: 0.2902
+      self_range_percentile: 0.1512
+      sigma_gap: -1.4724
+    pbr:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - price_down_60d_and_valuation_sigma_down
+- ticker: "4523"
+  name: "エーザイ"
+  per_forward: 31.85
+  per_trailing: 31.61
+  pbr: 1.49
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "医薬品"
+  market_cap_oku: 13673
+  avg_turnover_oku: 50.2
+  price_change_60d: 0.0672
+  price_change_4w: -0.0684
+  sector_relative_strength_percentile: 0.2121
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: 0.4243
+      self_range_percentile: 0.1626
+      sigma_gap: -0.7333
+    pbr:
+      sector_median_gap: -0.3357
+      self_range_percentile: 0.1626
+      sigma_gap: -0.7333
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "4661"
+  name: "オリエンタルランド"
+  per_forward: null
+  per_trailing: 29.9
+  pbr: 3.31
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "サービス業"
+  market_cap_oku: 40024
+  avg_turnover_oku: 144.1
+  price_change_60d: -0.1944
+  price_change_4w: -0.1872
+  sector_relative_strength_percentile: 0.4545
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: 0.2816
+      self_range_percentile: 0.0098
+      sigma_gap: -1.8822
+    pbr:
+      sector_median_gap: 0.3484
+      self_range_percentile: 0.0098
+      sigma_gap: -1.8822
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - price_down_60d_and_valuation_sigma_down
+- ticker: "4704"
+  name: "トレンドマイクロ"
+  per_forward: null
+  per_trailing: 20.21
+  pbr: 5.44
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "情報・通信業"
+  market_cap_oku: 7473
+  avg_turnover_oku: 74.0
+  price_change_60d: -0.1292
+  price_change_4w: 0.0006
+  sector_relative_strength_percentile: 0.7273
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.3222
+      self_range_percentile: 0.0573
+      sigma_gap: -1.6461
+    pbr:
+      sector_median_gap: 0.646
+      self_range_percentile: 0.0573
+      sigma_gap: -1.6461
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "4716"
+  name: "日本オラクル"
+  per_forward: null
+  per_trailing: 23.27
+  pbr: null
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "情報・通信業"
+  market_cap_oku: 10940
+  avg_turnover_oku: 37.3
+  price_change_60d: -0.1845
+  price_change_4w: -0.0246
+  sector_relative_strength_percentile: 0.7273
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.2196
+      self_range_percentile: 0.0184
+      sigma_gap: -1.7498
+    pbr:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+  - price_down_60d_and_valuation_sigma_down
+- ticker: "4722"
+  name: "フューチャー"
+  per_forward: 11.6
+  per_trailing: 58.03
+  pbr: 2.16
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "情報・通信業"
+  market_cap_oku: 1471
+  avg_turnover_oku: 3.9
+  price_change_60d: -0.1836
+  price_change_4w: -0.0362
+  sector_relative_strength_percentile: 0.7273
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: 0.946
+      self_range_percentile: 0.1102
+      sigma_gap: -1.1829
+    pbr:
+      sector_median_gap: -0.346
+      self_range_percentile: 0.1102
+      sigma_gap: -1.1829
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+  - price_down_60d_and_valuation_sigma_down
+- ticker: "4922"
+  name: "コーセーホールディングス"
+  per_forward: null
+  per_trailing: 21.07
+  pbr: 1.12
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "化学"
+  market_cap_oku: 3382
+  avg_turnover_oku: 14.9
+  price_change_60d: 0.0043
+  price_change_4w: -0.0714
+  sector_relative_strength_percentile: 0.7576
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: 0.0729
+      self_range_percentile: 0.0555
+      sigma_gap: -0.9782
+    pbr:
+      sector_median_gap: -0.2157
+      self_range_percentile: 0.0555
+      sigma_gap: -0.9782
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "5032"
+  name: "ＡＮＹＣＯＬＯＲ"
+  per_forward: null
+  per_trailing: 14.47
+  pbr: null
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "情報・通信業"
+  market_cap_oku: 1708
+  avg_turnover_oku: 26.0
+  price_change_60d: -0.3316
+  price_change_4w: -0.0656
+  sector_relative_strength_percentile: 0.7273
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.5146
+      self_range_percentile: 0.1758
+      sigma_gap: -0.6783
+    pbr:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "5410"
+  name: "合同製鐵"
+  per_forward: null
+  per_trailing: 5.24
+  pbr: 0.29
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "鉄鋼"
+  market_cap_oku: 494
+  avg_turnover_oku: 4.6
+  price_change_60d: -0.2589
+  price_change_4w: -0.2144
+  sector_relative_strength_percentile: 0.4848
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.6858
+      self_range_percentile: 0.0115
+      sigma_gap: -1.9456
+    pbr:
+      sector_median_gap: -0.814
+      self_range_percentile: 0.0115
+      sigma_gap: -1.9456
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+  - price_down_60d_and_valuation_sigma_down
+- ticker: "5938"
+  name: "ＬＩＸＩＬ"
+  per_forward: null
+  per_trailing: 58.67
+  pbr: 0.72
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "金属製品"
+  market_cap_oku: 4778
+  avg_turnover_oku: 38.2
+  price_change_60d: -0.0621
+  price_change_4w: 0.0196
+  sector_relative_strength_percentile: 1.0
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: 1.8723
+      self_range_percentile: 0.18
+      sigma_gap: -1.0617
+    pbr:
+      sector_median_gap: -0.5441
+      self_range_percentile: 0.18
+      sigma_gap: -1.0617
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "6036"
+  name: "ＫｅｅＰｅｒ技研"
+  per_forward: 8.71
+  per_trailing: 11.24
+  pbr: null
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "サービス業"
+  market_cap_oku: 843
+  avg_turnover_oku: 4.1
+  price_change_60d: -0.0915
+  price_change_4w: -0.0277
+  sector_relative_strength_percentile: 0.4545
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.5184
+      self_range_percentile: 0.024
+      sigma_gap: -1.3598
+    pbr:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "6088"
+  name: "シグマクシス・ホールディングス"
+  per_forward: 11.82
+  per_trailing: 15.96
+  pbr: 3.5
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "サービス業"
+  market_cap_oku: 536
+  avg_turnover_oku: 3.1
+  price_change_60d: -0.1972
+  price_change_4w: -0.022
+  sector_relative_strength_percentile: 0.4545
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.316
+      self_range_percentile: 0.1338
+      sigma_gap: -1.2027
+    pbr:
+      sector_median_gap: 0.4262
+      self_range_percentile: 0.1338
+      sigma_gap: -1.2027
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+  - price_down_60d_and_valuation_sigma_down
+- ticker: "6412"
+  name: "平和"
+  per_forward: 22.53
+  per_trailing: 10.44
+  pbr: 0.7
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "機械"
+  market_cap_oku: 1802
+  avg_turnover_oku: 4.8
+  price_change_60d: -0.1006
+  price_change_4w: -0.055
+  sector_relative_strength_percentile: 0.9091
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.664
+      self_range_percentile: 0.0
+      sigma_gap: -1.9985
+    pbr:
+      sector_median_gap: -0.5803
+      self_range_percentile: 0.0
+      sigma_gap: -1.9985
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "6753"
+  name: "シャープ"
+  per_forward: 7.13
+  per_trailing: 5.6
+  pbr: null
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "電気機器"
+  market_cap_oku: 3788
+  avg_turnover_oku: 20.1
+  price_change_60d: -0.1662
+  price_change_4w: -0.0264
+  sector_relative_strength_percentile: 0.9697
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.8207
+      self_range_percentile: 0.0637
+      sigma_gap: -2.3793
+    pbr:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "6849"
+  name: "日本光電工業"
+  per_forward: 18.74
+  per_trailing: 36.7
+  pbr: 1.36
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "電気機器"
+  market_cap_oku: 2466
+  avg_turnover_oku: 7.1
+  price_change_60d: -0.1432
+  price_change_4w: -0.0441
+  sector_relative_strength_percentile: 0.9697
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: 0.1745
+      self_range_percentile: 0.0
+      sigma_gap: -2.0163
+    pbr:
+      sector_median_gap: -0.4095
+      self_range_percentile: 0.0
+      sigma_gap: -2.0163
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "6902"
+  name: "デンソー"
+  per_forward: null
+  per_trailing: 11.63
+  pbr: 0.93
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "輸送用機器"
+  market_cap_oku: 55178
+  avg_turnover_oku: 157.4
+  price_change_60d: -0.1196
+  price_change_4w: -0.0179
+  sector_relative_strength_percentile: 0.6061
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.3133
+      self_range_percentile: 0.1942
+      sigma_gap: -1.2639
+    pbr:
+      sector_median_gap: 0.025
+      self_range_percentile: 0.1942
+      sigma_gap: -1.2639
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "6966"
+  name: "三井ハイテック"
+  per_forward: null
+  per_trailing: 38.72
+  pbr: 1.08
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "電気機器"
+  market_cap_oku: 1318
+  avg_turnover_oku: 11.5
+  price_change_60d: -0.0837
+  price_change_4w: 0.106
+  sector_relative_strength_percentile: 0.9697
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: 0.2395
+      self_range_percentile: 0.0958
+      sigma_gap: -1.076
+    pbr:
+      sector_median_gap: -0.5312
+      self_range_percentile: 0.0958
+      sigma_gap: -1.076
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "7947"
+  name: "エフピコ"
+  per_forward: null
+  per_trailing: 12.87
+  pbr: 1.16
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "化学"
+  market_cap_oku: 2001
+  avg_turnover_oku: 7.3
+  price_change_60d: -0.1
+  price_change_4w: 0.006
+  sector_relative_strength_percentile: 0.7576
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.3449
+      self_range_percentile: 0.066
+      sigma_gap: -1.8584
+    pbr:
+      sector_median_gap: -0.1857
+      self_range_percentile: 0.066
+      sigma_gap: -1.8584
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "8273"
+  name: "イズミ"
+  per_forward: null
+  per_trailing: 11.91
+  pbr: 0.68
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "小売業"
+  market_cap_oku: 2034
+  avg_turnover_oku: 7.3
+  price_change_60d: -0.0664
+  price_change_4w: -0.0973
+  sector_relative_strength_percentile: 0.3636
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.4138
+      self_range_percentile: 0.0049
+      sigma_gap: -1.8992
+    pbr:
+      sector_median_gap: -0.6518
+      self_range_percentile: 0.0049
+      sigma_gap: -1.8992
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "8303"
+  name: "ＳＢＩ新生銀行"
+  per_forward: null
+  per_trailing: 12.47
+  pbr: 1.24
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "銀行業"
+  market_cap_oku: 15376
+  avg_turnover_oku: 86.5
+  price_change_60d: -0.0472
+  price_change_4w: -0.0029
+  sector_relative_strength_percentile: 0.6364
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.2638
+      self_range_percentile: 0.0761
+      sigma_gap: -1.4551
+    pbr:
+      sector_median_gap: -0.2112
+      self_range_percentile: 0.0761
+      sigma_gap: -1.4551
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "9119"
+  name: "飯野海運"
+  per_forward: 11.94
+  per_trailing: 13.56
+  pbr: 1.12
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "海運業"
+  market_cap_oku: 1770
+  avg_turnover_oku: 3.9
+  price_change_60d: 0.0635
+  price_change_4w: -0.1226
+  sector_relative_strength_percentile: 0.1515
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.3361
+      self_range_percentile: 0.7462
+      sigma_gap: 1.9923
+    pbr:
+      sector_median_gap: -0.2877
+      self_range_percentile: 0.7462
+      sigma_gap: 1.9923
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_rotation_short_sell
+- ticker: "9166"
+  name: "ＧＥＮＤＡ"
+  per_forward: null
+  per_trailing: 24.69
+  pbr: 1.51
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "サービス業"
+  market_cap_oku: 999
+  avg_turnover_oku: 9.8
+  price_change_60d: -0.1622
+  price_change_4w: -0.1293
+  sector_relative_strength_percentile: 0.4545
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: 0.0581
+      self_range_percentile: 0.0749
+      sigma_gap: -1.3213
+    pbr:
+      sector_median_gap: -0.3864
+      self_range_percentile: 0.0749
+      sigma_gap: -1.3213
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "9202"
+  name: "ＡＮＡホールディングス"
+  per_forward: null
+  per_trailing: 7.56
+  pbr: 0.95
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "空運業"
+  market_cap_oku: 13122
+  avg_turnover_oku: 93.2
+  price_change_60d: -0.1282
+  price_change_4w: -0.0716
+  sector_relative_strength_percentile: 0.1818
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.6298
+      self_range_percentile: 0.1628
+      sigma_gap: -1.6635
+    pbr:
+      sector_median_gap: -0.3975
+      self_range_percentile: 0.1628
+      sigma_gap: -1.6635
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+  - sector_rotation_short_sell
+- ticker: "9503"
+  name: "関西電力"
+  per_forward: null
+  per_trailing: 7.05
+  pbr: 0.78
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "電気・ガス業"
+  market_cap_oku: 26803
+  avg_turnover_oku: 94.1
+  price_change_60d: 0.0029
+  price_change_4w: -0.1003
+  sector_relative_strength_percentile: 0.1212
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: 0.0588
+      self_range_percentile: 0.695
+      sigma_gap: 0.7933
+    pbr:
+      sector_median_gap: 0.1907
+      self_range_percentile: 0.695
+      sigma_gap: 0.7933
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_rotation_short_sell
+- ticker: "9505"
+  name: "北陸電力"
+  per_forward: null
+  per_trailing: 3.32
+  pbr: 0.4
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "電気・ガス業"
+  market_cap_oku: 1819
+  avg_turnover_oku: 10.4
+  price_change_60d: -0.0848
+  price_change_4w: -0.2212
+  sector_relative_strength_percentile: 0.1212
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.5016
+      self_range_percentile: 0.4651
+      sigma_gap: 0.0278
+    pbr:
+      sector_median_gap: -0.382
+      self_range_percentile: 0.4651
+      sigma_gap: 0.0278
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_rotation_short_sell
+- ticker: "9507"
+  name: "四国電力"
+  per_forward: null
+  per_trailing: 6.23
+  pbr: 0.66
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "電気・ガス業"
+  market_cap_oku: 3198
+  avg_turnover_oku: 11.8
+  price_change_60d: 0.0085
+  price_change_4w: -0.1507
+  sector_relative_strength_percentile: 0.1212
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.0636
+      self_range_percentile: 0.7238
+      sigma_gap: 1.3447
+    pbr:
+      sector_median_gap: 0.0194
+      self_range_percentile: 0.7238
+      sigma_gap: 1.3447
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_rotation_short_sell
+- ticker: "9532"
+  name: "大阪瓦斯"
+  per_forward: 15.71
+  per_trailing: 15.93
+  pbr: null
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "電気・ガス業"
+  market_cap_oku: 22695
+  avg_turnover_oku: 60.9
+  price_change_60d: -0.0283
+  price_change_4w: -0.1065
+  sector_relative_strength_percentile: 0.1212
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: 1.3941
+      self_range_percentile: 0.7767
+      sigma_gap: 1.8428
+    pbr:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_rotation_short_sell
+- ticker: "9603"
+  name: "エイチ・アイ・エス"
+  per_forward: 8.89
+  per_trailing: 23.33
+  pbr: 1.33
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "サービス業"
+  market_cap_oku: 855
+  avg_turnover_oku: 5.7
+  price_change_60d: -0.1712
+  price_change_4w: 0.0047
+  sector_relative_strength_percentile: 0.4545
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: 0.0
+      self_range_percentile: 0.0419
+      sigma_gap: -2.117
+    pbr:
+      sector_median_gap: -0.4574
+      self_range_percentile: 0.0419
+      sigma_gap: -2.117
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+  - price_down_60d_and_valuation_sigma_down
+- ticker: "9616"
+  name: "共立メンテナンス"
+  per_forward: 11.25
+  per_trailing: 13.81
+  pbr: 1.58
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "サービス業"
+  market_cap_oku: 2113
+  avg_turnover_oku: 19.7
+  price_change_60d: -0.1368
+  price_change_4w: -0.0365
+  sector_relative_strength_percentile: 0.4545
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.4083
+      self_range_percentile: 0.1493
+      sigma_gap: -1.6566
+    pbr:
+      sector_median_gap: -0.3572
+      self_range_percentile: 0.1493
+      sigma_gap: -1.6566
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - sector_median_under_20pct_and_self_range_bottom_20pct
+- ticker: "9759"
+  name: "ＮＳＤ"
+  per_forward: 16.16
+  per_trailing: 22.75
+  pbr: null
+  ev_ebitda: null
+  p_s: null
+  pcfr: null
+  sector_33: "情報・通信業"
+  market_cap_oku: 2313
+  avg_turnover_oku: 5.8
+  price_change_60d: -0.196
+  price_change_4w: -0.0317
+  sector_relative_strength_percentile: 0.7273
+  metrics_breakdown:
+    per_trailing:
+      sector_median_gap: -0.237
+      self_range_percentile: 0.2588
+      sigma_gap: -1.2126
+    pbr:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
+  next_earnings_date: null
+  ttm_quality:
+    ev_ebitda: unavailable
+    p_s: unavailable
+    pcfr: unavailable
+  threshold_hit:
+  - price_down_60d_and_valuation_sigma_down
+fact_memo_lines:
+- "2767: 複数閾値 hit (sector_median_under_20pct_and_self_range_bottom_20pct, price_down_60d_and_valuation_sigma_down)"
+- "3844: 複数閾値 hit (sector_median_under_20pct_and_self_range_bottom_20pct, price_down_60d_and_valuation_sigma_down)"
+- "4716: 複数閾値 hit (sector_median_under_20pct_and_self_range_bottom_20pct, price_down_60d_and_valuation_sigma_down)"
+- "4722: 複数閾値 hit (sector_median_under_20pct_and_self_range_bottom_20pct, price_down_60d_and_valuation_sigma_down)"
+- "5410: 複数閾値 hit (sector_median_under_20pct_and_self_range_bottom_20pct, price_down_60d_and_valuation_sigma_down)"
+- "6088: 複数閾値 hit (sector_median_under_20pct_and_self_range_bottom_20pct, price_down_60d_and_valuation_sigma_down)"
+- "9202: 複数閾値 hit (sector_median_under_20pct_and_self_range_bottom_20pct, sector_rotation_short_sell)"
+- "9603: 複数閾値 hit (sector_median_under_20pct_and_self_range_bottom_20pct, price_down_60d_and_valuation_sigma_down)"
+provider_status_lines:
+- "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ EDINET + JPX"
+universe_exclusion_lines:
+- "avg_turnover_below_threshold: 3073 件"
+- "insufficient_bar_history: 184 件"
+- "jpx:上場廃止警告: 18 件"
+- "jpx:整理銘柄: 16 件"
+- "jpx:特別注意銘柄: 7 件"
+- "jpx_regulation: 25 件"
+- "listed_under_6_months: 151 件"
+- "market_cap_below_threshold: 1597 件"
+- "market_out_of_scope: 698 件"
+- "missing_market_cap: 977 件"
+ttm_quality_counts:
+  exact: 0
+  approximated: 0
+  unavailable: 2631
+fallback_lines:
+- "ttm_quality 非 exact 件数: 2631"
+- "業績悪化フィルタ入力欠損: 28 銘柄"
+- "JPX source 未ロード: 取引停止"

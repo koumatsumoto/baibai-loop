@@ -351,12 +351,7 @@ class LedgerSyncOverSqliteTests(unittest.TestCase):
             research_path.parent.mkdir(parents=True)
             research_path.write_text("---\nticker: 130A\n---\n", encoding="utf-8")
 
-            cache_dir = workspace / "records" / "_data" / "raw" / "screening"
-            env = {
-                "JQUANTS_REFRESH_TOKEN": "token",
-                "SCREENING_CACHE_DIR": str(cache_dir),
-                "SCREENING_SQLITE_CACHE_DIR": str(sqlite_dir),
-            }
+            env = {"JQUANTS_REFRESH_TOKEN": "token"}
 
             calendar, bars, warnings = _load_market_data(workspace, env)
 

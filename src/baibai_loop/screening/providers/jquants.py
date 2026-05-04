@@ -344,7 +344,7 @@ def _parse_jquants_code(code: Any) -> tuple[str, bool]:
     raise JQuantsProviderError(f"invalid J-Quants code: {code!r}")
 
 
-def _normalize_sector_name(value: Any) -> str:
+def normalize_sector_name(value: Any) -> str:
     # J-Quants payloads sometimes return the half-width katakana middle dot
     # ("情報･通信業", U+FF65) and other times the full-width middle dot
     # ("情報・通信業", U+30FB) for the same TSE 33 sector. Pick the full-width
@@ -367,7 +367,7 @@ def normalize_security_master(record: Mapping[str, Any]) -> SecurityMaster:
         "MktNm",
         "mkt_nm",
     )
-    sector_33 = _normalize_sector_name(
+    sector_33 = normalize_sector_name(
         _first_value(
             record,
             "Sector33CodeName",

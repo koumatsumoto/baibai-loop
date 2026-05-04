@@ -101,10 +101,13 @@ class ScreeningConfig(BaseModel):
             missing_names = ", ".join(missing)
             raise ConfigError(f"missing required env vars: {missing_names}")
 
-        cache_dir_value = source.get("SCREENING_CACHE_DIR", str(DEFAULT_CACHE_DIR))
-        sqlite_cache_dir_value = source.get(
-            "SCREENING_SQLITE_CACHE_DIR", str(DEFAULT_SQLITE_CACHE_DIR)
-        )
+        # cache_dir は records/_data/raw/screening 固定 (git 追跡対象)。
+        # 過去 SCREENING_CACHE_DIR で override 可能だったが、.env 値が
+        # 古い `.cache/screening` を指したまま残ると新しい canonical
+        # ツリーが無視され、chunk 整合のとれない split cache を抱える
+        # regression を起こすので env override を廃止する。
+        cache_dir_value = str(DEFAULT_CACHE_DIR)
+        sqlite_cache_dir_value = str(DEFAULT_SQLITE_CACHE_DIR)
         jpx_regulation_urls = {
             source_name: source[env_name]
             for source_name, env_name in JPX_REGULATION_ENV_MAP.items()

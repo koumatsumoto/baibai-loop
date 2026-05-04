@@ -103,8 +103,11 @@ def _load_market_data(
         return (), (), ()
     start = min(decision_dates) - timedelta(days=10)
     end = max(datetime.now(UTC).date(), max(decision_dates))
-    cache_dir = Path(env.get("SCREENING_CACHE_DIR", str(DEFAULT_CACHE_DIR)))
-    sqlite_cache_dir = Path(env.get("SCREENING_SQLITE_CACHE_DIR", str(DEFAULT_SQLITE_CACHE_DIR)))
+    # cache_dir / sqlite_cache_dir は固定の相対 path (env override 廃止)。
+    # 詳細は screening/config.py の同名コメント参照。`root` 配下に解決する
+    # ことで、test 等で workspace を切り替えるユースケースにも対応する。
+    cache_dir = root / DEFAULT_CACHE_DIR
+    sqlite_cache_dir = root / DEFAULT_SQLITE_CACHE_DIR
     provider = JQuantsProvider(
         token,
         cache_dir,

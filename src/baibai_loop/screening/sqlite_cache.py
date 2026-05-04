@@ -27,6 +27,7 @@ from typing import Any
 
 from .providers.jquants import (
     JQuantsProviderError,
+    normalize_sector_name,
     parse_jquants_code,
 )
 
@@ -187,21 +188,49 @@ def open_connection(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def rebuild_from_raw(raw_dir: Path, db_path: Path) -> RebuildSummary:
-    """Rebuild the SQLite cache from scratch by walking the entire `raw_dir`
-    tree. Files are dispatched by their parent directory + filename pattern
-    (see `_rebuild`).
+def rebuild_from_raw(raw_dir: Path | Iterable[Path], db_path: Path) -> RebuildSummary:
+    """Rebuild the SQLite cache from scratch by walking each entry in
+    `raw_dir` (a single Path or an iterable of Paths). Files are dispatched
+    by their parent directory + filename pattern (see `_rebuild`).
+
+    Multiple raw dirs are supported so the legacy `.cache/screening/` tree
+    can be merged with the canonical `records/_data/raw/screening/` tree
+    in a single SQLite, without forcing the operator to migrate files.
+    Chunk windows differ between the two (legacy was last populated with a
+    different asof), so merging gives the SQLite reader broader coverage.
 
     The destination file is removed first so the rebuild is deterministic
     and will not carry stale rows from a prior schema version.
     """
     if db_path.exists():
         db_path.unlink()
+    raw_dirs: tuple[Path, ...] = (raw_dir,) if isinstance(raw_dir, Path) else tuple(raw_dir)
     conn = open_connection(db_path)
     try:
-        return _rebuild(conn, raw_dir)
+        return _rebuild(conn, raw_dirs)
     finally:
         conn.close()
+
+
+def is_sqlite_stale(raw_dirs: Iterable[Path], db_path: Path) -> bool:
+    """True when the SQLite cache is missing or older than the newest raw
+    JSON file across all `raw_dirs`. Used by the `run` command to
+    auto-rebuild before any reader consults SQLite — without this, JSON
+    chunk filenames keyed by asof-relative windows force a full 1200-day
+    refetch when asof shifts by even one day, since chunk windows then no
+    longer match cached files. SQLite is range-aware and absorbs that
+    drift.
+    """
+    if not db_path.exists():
+        return True
+    db_mtime = db_path.stat().st_mtime
+    for raw_dir in raw_dirs:
+        if not raw_dir.exists():
+            continue
+        for path in raw_dir.rglob("*.json"):
+            if path.stat().st_mtime > db_mtime:
+                return True
+    return False
 
 
 @dataclass
@@ -225,9 +254,11 @@ class _RebuildCounters:
     skipped: list[str] = field(default_factory=list)
 
 
-def _rebuild(conn: sqlite3.Connection, raw_dir: Path) -> RebuildSummary:
+def _rebuild(conn: sqlite3.Connection, raw_dirs: tuple[Path, ...]) -> RebuildSummary:
     counters = _RebuildCounters()
-    if raw_dir.exists():
+    for raw_dir in raw_dirs:
+        if not raw_dir.exists():
+            continue
         _import_jquants_dir(conn, raw_dir / "jquants", counters)
         _import_edinet_dir(conn, raw_dir / "edinet", counters)
         _import_jpx_dir(conn, raw_dir / "jpx", counters)
@@ -486,14 +517,18 @@ def _iter_master_rows(
             continue
         snapshot_date = _date_iso(_first(record, "Date", "date", "snapshot_date")) or "unknown"
         is_common_stock = _is_common_stock_flag(record)
+        sector_raw = _to_str_or_none(
+            _first(record, "Sector33CodeName", "sector_33", "Sector33Name", "S33Nm", "S33")
+        )
         yield (
             snapshot_date,
             ticker,
             _to_str_or_none(_first(record, "CompanyName", "company_name", "Name", "CoName")),
             _to_str_or_none(_first(record, "MarketCodeName", "market_segment", "MktNm", "Mkt")),
-            _to_str_or_none(
-                _first(record, "Sector33CodeName", "sector_33", "Sector33Name", "S33Nm", "S33")
-            ),
+            # J-Quants は同じ TSE 33 セクターを半角中黒 (U+FF65)・全角中黒 (U+30FB) で
+            # 揺らせて返してくる。SQLite に取り込む段階で全角形に正規化し、outlook /
+            # candidates / select の matcher が一意に解決できるようにする。
+            normalize_sector_name(sector_raw) if sector_raw else sector_raw,
             1 if is_common_stock else 0,
             json.dumps(record, ensure_ascii=False, sort_keys=True),
         )

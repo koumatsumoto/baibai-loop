@@ -53,7 +53,7 @@ from .providers.jquants import (
 from .render import JST, build_output_path, render_screened_yaml
 from .rules import evaluate_screening
 from .schema import ScreenedRunDocument, ScreenedTicker, SecurityMaster, normalize_ticker
-from .sqlite_cache import SQLiteCacheError, rebuild_from_raw
+from .sqlite_cache import SQLiteCacheError, is_sqlite_stale, rebuild_from_raw
 from .tiers import MIN_AVG_TURNOVER_OKU, MIN_MARKET_CAP_OKU, position_tier
 from .universe import (
     LISTED_UNDER_DAYS,
@@ -288,6 +288,17 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     sqlite_path = config.sqlite_cache_dir / "market.sqlite"
+    # SQLite is the only range-aware fallback for the JSON chunk cache —
+    # without it, asof-relative chunk filenames force a full 1200-day
+    # refetch whenever asof shifts. Auto-rebuild before each `run` so
+    # range queries always hit a fresh derived cache.
+    if args.command == "run" and is_sqlite_stale((config.cache_dir,), sqlite_path):
+        print(f"rebuilding SQLite cache from {config.cache_dir}…", file=sys.stderr)
+        try:
+            rebuild_from_raw(config.cache_dir, sqlite_path)
+        except SQLiteCacheError as exc:
+            print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
     providers = ProviderBundle(
         jquants=JQuantsProvider(
             config.jquants_refresh_token,
@@ -363,15 +374,22 @@ def run_command(
         )
         return 1
 
-    start_date = asof_date - timedelta(days=1200)
+    # bars need 1200d for 3-year self-range percentile and sigma_gap; fin
+    # summaries are only consumed for TTM (latest) and prior-year YoY
+    # (`_prior_year_summary` in metrics.py), which fits comfortably in 24
+    # months of disclosures. Fetching the same 1200d window for both costs
+    # ~26 extra fin chunks over J-Quants Light at ~1-3 min each — by far
+    # the dominant slowdown when raw cache is sparse.
+    bars_start_date = asof_date - timedelta(days=1200)
+    fin_start_date = asof_date - timedelta(days=730)
     try:
         calendar_days = providers.jquants.get_mkt_calendar(asof_date, asof_date)
         if not any(day.day == asof_date and day.is_business_day for day in calendar_days):
             print(f"--asof must be a business day: {asof_date.isoformat()}", file=sys.stderr)
             return 1
         securities = providers.jquants.get_eq_master()
-        bars = providers.jquants.get_eq_bars_daily_range(start_date, asof_date)
-        summaries = providers.jquants.get_fin_summary_range(start_date, asof_date)
+        bars = providers.jquants.get_eq_bars_daily_range(bars_start_date, asof_date)
+        summaries = providers.jquants.get_fin_summary_range(fin_start_date, asof_date)
         # Pull earnings calendar from asof to asof + 90 calendar days (~ 60
         # business days) so research can populate next_earnings_date and
         # surface kill-switch overlaps at packet build time.
