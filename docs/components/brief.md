@@ -157,11 +157,12 @@ AI 下書きは `ai_draft: true` で識別し、人間確認後 `false` に更�
 brief を書いた / 更新した後、commit 前に以下を必ず確認する。詳細チェックリストは
 [`../anti-patterns.md`](../anti-patterns.md) を参照:
 
-- [ ] **AP-01** (一次情報直接確認): すべての数値・固有名詞に一次情報 URL を紐付けたか
+- [ ] **AP-01** (一次情報直接確認): すべての数値・固有名詞に一次情報 URL を紐付けたか。source の policy / rate / date / scenario が本文主張と一致しているか
 - [ ] **AP-02** (数値検算): 前期比・前年比の計算結果を電卓 / Python で検算したか
-- [ ] **AP-05** (fact / 分析の境界): 「示唆」「受けて」「正当化材料」「early signal」「顕在化」「構造要因」「注目すべき」「重要な」等の解釈・因果推論・重要度評価表現が地の文に含まれていないか
-- [ ] **AP-07** (公表日確認): 各 monthly_statistic / event の `release_date` を一次 source の発表日と照合したか
 - [ ] **AP-04** (schema 整合): `Indicator` には `note` 不可、`MonthlyStatistic` の `release_date` は `null` か非空文字列のみ等、`records/_schemas/brief-v1.json` を読み返したか
+- [ ] **AP-05** (fact / 分析の境界): 「示唆」「受けて」「正当化材料」「early signal」「顕在化」「構造要因」「注目すべき」「重要な」等の解釈・因果推論・重要度評価表現が地の文に含まれていないか
+- [ ] **AP-06** (source status と Tier の取り扱い): fact item の `source_ids` には少なくとも 1 つ `status: ok` の source を含めているか。`status: failed` の Tier 1 source だけで fact 値を入れていないか。Tier 1 が継続的に取れない指標は [`../data-sources.md`](../data-sources.md) §「一次統計の数値で Tier 1 取得が困難な場合の Tier 2 例外運用」に従って `failed` Tier 1 + `ok` Tier 2 を併記しているか
+- [ ] **AP-07** (公表日確認): 各 monthly_statistic / event の `release_date` を一次 source の発表日と照合したか。発行日 ± 5 営業日に予定された FOMC / BOJ / OPEC+ / CPI / PCE / NFP の最新 release が出ていれば必ず取り込んだか
 
 ## 8. 参考
 

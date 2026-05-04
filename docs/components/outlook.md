@@ -38,7 +38,7 @@ Baibai-Loop 4 成分アーキテクチャの **(c) マクロ見解** の運用�
 4. `sectors` は東証 33 業種を全件必須、`regions` は 4 地域を全件必須で埋める。判定材料が不足する場合は `status: null` + `rationale` で明示する（省略は不可）
 5. `horizon: "1-6m"` で 1-6 か月先の見通しを記述
 
-初版段階では保守的に neutral を多くする（headwind 判定は research 採用不可を招くため、情報不足では保守的に）。
+初版段階では「材料が無い sector を null/neutral にする」逃げ道は許容するが、**brief で確認できる fact から sector に効く因果は積極的に判定する** こと。33 業種すべて neutral にして「分析放棄」する状態は禁止 (詳細は §9.4 / [`../anti-patterns.md`](../anti-patterns.md))。headwind 判定は research 採用不可を招くため情報不足の場合は保守的に neutral / null へ倒すが、油価 / 為替 / 政策金利等の横断的因果が brief で明示されていれば即座に反映する。
 
 ## 4. Path と命名
 
@@ -110,7 +110,7 @@ outlook YAML の構造、必須キー、`sectors` の 33 業種完全性、`regi
 - outlook は **分析層**（philosophy 柱 1）。解釈を書いてよい
 - ただし、根拠となる brief への参照を必ず付ける（`source_refs` / `updated_from`）
 - `summary` は PART A-E (§9.2) を含む long-form の multi-paragraph で現在のマクロ見解を構造的に記述する。1 段落の要約では深さが足りず investor behaviour を支配できないため不可
-- 各 sector / region の `rationale` は判定根拠を 1〜2 文で記述する
+- 各 sector / region の `rationale` は判定根拠を **2 因子以上の検討痕跡を含む 1-3 文** で記述する (cost / revenue / 為替 / 金利 / 業種特有 / 地政学のいずれか 2 つ以上を必ず触れる)。「業種固有 signal が brief 群から確認できない」一辺倒の rationale が 33 業種中 5 件超なら検討不足のシグナル (§9.3)
 - `changes` には前回 outlook からの判定変更を `target` / `from_status` / `to_status` / `rationale` で構造化する
 - `next_triggers` は次に outlook を更新すべきイベントを列挙
 - 投資判断の示唆は軽く（「このマクロ下では... が相対的に有利」程度）、個別銘柄への言及はしない（それは research の仕事）

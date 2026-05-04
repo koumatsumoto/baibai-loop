@@ -24,6 +24,16 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 - 公表日 / source の最新性確認を skip する (AP-07)
 - validator の抜け道を意識しない (AP-08)
 
+成分別の詳細チェックリスト:
+- brief 編集時: [`docs/components/brief.md`](./docs/components/brief.md) §7.1
+- outlook 編集時: [`docs/components/outlook.md`](./docs/components/outlook.md) §9.3 self-review チェックリスト
+- research 編集時: [`docs/components/research.md`](./docs/components/research.md) §8.1
+
+メタ運用 (失敗パターンの再発防止):
+- 同じ failure mode を 2 回以上 PR review で指摘されたら、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の該当節を強化する
+- 新 validator rule を追加するときは、anti-patterns.md AP-08 のチェックリストを必ず更新して次回 review で同じ穴が再発しないように記録する
+- 一次情報 (Tier 1) が継続的に取得困難な指標は [`docs/data-sources.md`](./docs/data-sources.md) §「一次統計の数値で Tier 1 取得が困難な場合の Tier 2 例外運用」に従い、`status: failed` Tier 1 と `status: ok` Tier 2 を併記する
+
 ## 事実と分析の分離
 
 `records/01-brief/` と `records/03-candidates/` は事実層、`records/02-outlook/` と `records/04-research/` は分析層。事実ファイルに解釈・予測・相場観を書かない。詳細は [`docs/design-principles.md`](./docs/design-principles.md)。
