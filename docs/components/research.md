@@ -135,6 +135,35 @@ research decision は `baibai-loop-ledger sync` で [`records/_ledger/`](./ledge
 - position size が時価総額別上限を満たす
 - 200-500 億帯は **P-B のみ採用可**（P-A 単独は不可）。例外運用が必要なら `macro_gate_override` で明示理由を残す
 
+### 6.3 取引コスト・スリッページの想定
+
+利確 target は playbook 仕様に従う (P-A `valuation-mean-reversion-v1` の場合は entry 時の
+業種中央値比 valuation gap が 0% に回帰した時点を指す。詳細は
+[`/records/_playbooks/valuation-mean-reversion-v1.md`](../../records/_playbooks/valuation-mean-reversion-v1.md))。
+target % は entry 時の cheap 度合いで決まり、固定 minimum を持たない。
+
+参考までに観測上の典型値レンジ (binding ではない):
+
+- 既存 P-A 採用 packets の利確 target は概ね +10% 〜 +30% に収まる (例: 5410 合同製鐵
+  は +11%、4716 日本オラクル は +20% 程度)
+- 業種中央値比 -20% から復帰する想定なら +25% 前後 が typical、-10% からの復帰なら +11%
+  前後
+
+採用判定時の利確 / 損切ターゲットは **net of cost** で評価する。本システムは backtest を行
+わないため厳密なシミュレーションコストは引かないが、入退出計画では以下の概算を頭に
+置く:
+
+- **手数料 (round-trip)**: ネット証券・現物取引で約定代金 0.05-0.10% 想定 (1 億円
+  portfolio で 100-200万円 / position の場合の典型レンジ)。新興系ブローカーで定額制を
+  使う場合はさらに低くなる
+- **スプレッド・スリッページ**: liquid な大型 cap (avg_turnover_oku ≧ 10) では 0.05% 程度、
+  中小型 (3-10 億 / 日) では 0.10-0.20% を見込む。`adv_participation_pct` 上限 1% は
+  この観点でも overflow 防止として効く
+- **対 target return の影響**: round-trip cost 合計 0.3-0.5% は target +10-30% の playbook
+  に対し target の 1-5% に相当。target を crossing する判定には実用上のマージンが確保
+  できる範囲だが、target +5% 未満を狙う short-horizon の playbook を新設する場合は
+  cost ratio がきつくなる点に注意
+
 ## 7. trades への接続
 
 採用した research の front matter path は、`records/05-trades/` の `research_ref` で参照される:
