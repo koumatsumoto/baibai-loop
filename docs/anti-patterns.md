@@ -296,7 +296,11 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
       `skipped` にして、追加確認条件を明示したか
 - [ ] 外部 AI / 二次分析の結論を採用する前に、主要数値を会社IR・決算短信・決算説明資料・Q&A・
       取引所 calendar・candidates のいずれかで再確認したか
+- [ ] 外部 AI セッション・証券レポート・アナリストノートを取り込む場合、生原稿を
+      [`/records/_external/<source>/YYYY-MM-DD-<topic>.md`](/records/_external/) に保存し、
+      research front matter の `external_refs` で参照したか。要約のみで生原稿を残さないのは AP-09 違反
 - [ ] 確認できた事実、修正した数値、未採用の二次情報を research の source verification log に分けて残したか
+      (`external_refs[]` ごとに 採用 / 修正 / 未採用 の表で構造化する)
 - [ ] EPS / PER / 配当利回り / target price は公式 EPS・配当予想・株価で再計算したか
 - [ ] 直前の `skipped`、最新 candidates からの不在、universe drop、macro headwind、実資金集中度超過などを
       上書きする場合、research front matter の `overrides` と本文に prior state / reason / evidence を残したか

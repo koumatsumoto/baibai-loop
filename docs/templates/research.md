@@ -12,6 +12,7 @@ tradable_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 macro_gate: tailwind | neutral | headwind
 macro_gate_override: "..."                # headwind / 200-500 億 P-A 採用時のみ
 overrides: []                             # system signal を上書きする場合は理由を記録
+external_refs: []                         # 外部AI / 二次分析を参照する場合: records/_external/<source>/...md
 position_size_oku: 0.01                   # accepted/pending: > 0 必須。skipped: 0 強制 (validator)
 hypothetical_position_size_oku: 0.005     # 任意。skipped で参考値として記録する場合のみ
 avg_turnover_oku: 5.0                     # candidates 由来の 20 日平均売買代金。adv_participation_pct を書く場合は > 0 必須
