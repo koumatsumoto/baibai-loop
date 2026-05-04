@@ -304,19 +304,23 @@ records/05-trades/YYYY/MM/YYYY-MM-DD-<ticker>.md
 ---
 ticker: "7203"
 research_ref: records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md  # 必須
-entry_date: "YYYY-MM-DD"
-entry_price: 数値
+order_date: "YYYY-MM-DD" | null
+entry_date: "YYYY-MM-DD" | null
+entry_price: 数値 | null
 position_size_pct: 数値
 planned_exit:
   target_price: 数値 | null
   stop_loss: 数値
   time_stop_days: 40
-status: open | closed
+status: ordered | open | closed
 exit_date: "YYYY-MM-DD" | null
 exit_price: 数値 | null
 pnl_pct: 数値 | null
 ---
 ```
+
+`ordered` は注文済み・未約定の状態。休場中の成行注文や寄成など、約定価格が未確定の注文は
+`entry_date: null` / `entry_price: null` のまま記録し、約定後に `open` へ更新する。
 
 ### 3.6 `records/06-reviews/` — 事後検証
 

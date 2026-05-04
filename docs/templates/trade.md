@@ -2,14 +2,15 @@
 ticker: "XXXX"
 name: "..."
 research_ref: records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
-entry_date: "YYYY-MM-DD"
-entry_price: 数値
+order_date: "YYYY-MM-DD" | null
+entry_date: "YYYY-MM-DD" | null
+entry_price: 数値 | null
 position_size_pct: 0.5 | 1 | 2
 planned_exit:
   target_price: 数値 | null
   stop_loss: 数値
   time_stop_days: 40
-status: open | closed
+status: ordered | open | closed
 exit_date: "YYYY-MM-DD" | null
 exit_price: 数値 | null
 pnl_pct: 数値 | null
@@ -25,7 +26,7 @@ kill_switch_check:
 
 **Research source**: [records/04-research/YYYY/MM/YYYY-MM-DD-*-*.md](...)
 
-## 1. Entry
+## 1. Order / Entry
 
 ### 1.1 Entry reason（research から）
 
@@ -34,19 +35,19 @@ kill_switch_check:
 - **Macro gate**: [tailwind | neutral]
 - **Primary valuation metric**: [per_forward + pbr 等]
 
-### 1.2 Entry triggers
+### 1.2 Order / Entry triggers
 
-実際に entry した条件:
+実際に order / entry した条件:
 
 - [価格レンジ到達 / 特定日 / 出来高増 / etc.]
 
-### 1.3 Entry log
+### 1.3 Order / Entry log
 
-| 時刻 | 数量 | 単価 | 手数料 | 備考 |
-| --- | --- | --- | --- | --- |
-| HH:MM | XX 株 | XXXXX 円 | XX 円 | [成行 / 指値] |
+| 日時 | 数量 | 注文種別 | 単価 | 手数料 | 備考 |
+| --- | ---: | --- | ---: | --- | --- |
+| YYYY-MM-DD HH:MM | XX 株 | 成行 / 指値 | XXXXX 円 | XX 円 | ordered では参照価格、open では約定価格 |
 
-**Entry price (加重平均)**: XXXXX 円
+**Entry price (加重平均)**: XXXXX 円 / ordered の場合は未約定
 
 ### 1.4 Position
 

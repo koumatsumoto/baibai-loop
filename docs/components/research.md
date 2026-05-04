@@ -36,6 +36,18 @@ Baibai-Loop 4 成分アーキテクチャの **(d) 個別銘柄リサーチ** �
 - `records/02-outlook/` に最新の outlook がない場合は、research 作成前に outlook を作成する
 - 初回作成手順: [`outlook.md`](./outlook.md) §3 を参照
 
+### 2.4 銘柄IR確認の必須化
+
+research 対象に選んだ銘柄は、業種を問わず **会社IRを一次情報として必ず確認する**。screening や
+外部分析は候補選定の補助であり、採用 / 見送り / 保留の判断を確定する根拠にはしない。
+
+- 最低限、直近の決算短信、決算説明資料、会社説明会 Q&A、有価証券報告書 / 統合報告書、
+  中期経営計画、株主還元・自己株式取得・配当関連の適時開示を確認する
+- 会社IRで確認できた事実、会社IRでは確認できず外部 estimate に留めた情報、外部AI / 二次分析から
+  修正した数値を research 本文の source verification log に分けて残す
+- 会社IRが未確認の銘柄は `decision: accepted` にしない。情報不足なら `pending` または `skipped` とし、
+  未確認項目を明記する
+
 ## 3. Path と命名
 
 ```
@@ -202,6 +214,9 @@ research packet を書いた / 更新した後、commit 前に以下を必ず確
 [`../anti-patterns.md`](../anti-patterns.md) を参照:
 
 - [ ] **AP-01** (一次情報直接確認): TSMC / NVIDIA / 顧客企業等の事業構造を断定する場合、有価証券報告書 / 決算説明資料 / 統合報告書 / IR press release のいずれかに直接 URL を紐付けたか。アナリスト試算や業界レポート由来は明示的に「外部 estimate」と区別したか。**source の policy / rate / date / scenario が本文主張と一致しているか** (URL を貼っただけで終わらせない)
+- [ ] **会社IR必須確認**: research 対象銘柄について、業種を問わず直近決算短信 / 決算説明資料 /
+      Q&A / 有価証券報告書または統合報告書 / 中計 / 株主還元関連開示を確認したか。未確認のまま
+      `decision: accepted` にしていないか
 - [ ] **AP-02** (数値検算): `adv_participation_pct = position_size_oku / avg_turnover_oku * 100` を電卓 / Python で検算したか。利確 target の % は EPS 一定で `(target_per / current_per - 1) * 100` で計算したか
 - [ ] **AP-03** (株価異常値の corporate action 確認): candidates の `price_change_60d` / `price_change_4w` が ±50% を超える、または `self_range_percentile` が下位 5% 以下の銘柄は、研究進める前に EDINET / TDnet / 適時開示で 60 日 / 4 週期間内の株式分割 / 併合 / 合併 / TOB の有無を必ず確認したか
 - [ ] **AP-04** (schema / 実装の意味): candidates の `sector_relative_strength_percentile` は **sector level の rank** であって個別銘柄の同業種内相対強度ではない。同様に `threshold_hit` / `metrics_breakdown` も `src/baibai_loop/screening/metrics.py` と `rules.py` で意味を確認したか
@@ -209,6 +224,7 @@ research packet を書いた / 更新した後、commit 前に以下を必ず確
 - [ ] **AP-06** (ref 整合性): `outlook_ref` / `candidates_ref` / `brief_refs` の 3 ref が valid パスか、対応 file が実在するか。引用する fact は brief 経由で参照しているか
 - [ ] **AP-07** (kill switch と日付): `tradable_at` 周辺に決算 (会社四季報 / TDnet で確認)・日銀会合・FOMC が無いか、`next_earnings_date` が candidates から正しく取れているか
 - [ ] **AP-08** (validator 抜け道): `adv_participation_pct` を front matter に書く場合は `avg_turnover_oku` も併記 (validator が required 化)。`decision: skipped` では `position_size_oku: 0` + `adv_participation_pct: 0` 強制 (validator)、参考値は `hypothetical_position_size_oku` に分離。`avg_turnover_oku` は `candidates_ref` 対応 ticker と ±5% で整合 (validator が warning レベルで check)
+- [ ] **外部 AI / 二次分析の検証**: 他AI・証券サイト・ニュース要約の投資判断を取り込む場合、結論をそのまま転記せず、少なくとも会社IR / 決算短信 / 決算説明資料 / Q&A / 取引所休日 / candidates のいずれかで主要数値を再確認したか。確認できた事実、修正した数値、未採用の二次情報を research の source verification log に分けて残したか
 
 ## 9. 参考
 

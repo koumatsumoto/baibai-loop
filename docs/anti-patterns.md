@@ -261,7 +261,38 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
       required 化する
 
-## 9. PR review で繰り返し指摘される類型の追跡
+## 9. AP-09: 外部 AI 分析を検証せず records に取り込む
+
+### 観測された症状
+- research 対象銘柄なのに、会社IRを読まず、screening 数値や外部分析だけで採用 / 見送り判断を書く
+- 別AIの分析にある EPS 前提、OpenAI 連携日、AI 関連売上、同業倍率、休場日などを、
+  会社IR・取引所・candidates で再確認せず research / trade に取り込む
+- 「分析の方向性は合っている」ことと「records に事実として残せる」ことを混同する
+- 祝日中の成行注文を約定済み entry として記録し、entry price を推定で埋める
+
+### 根本原因
+- 外部 AI の整った文章を監査済み資料のように扱う
+- research 対象は全銘柄で会社IR確認が必須、という前提が弱い
+- source URL が貼られていても、一次情報か二次情報か、本文中に数値が存在するかを確認しない
+- order と execution の状態遷移を trade record で区別しない
+
+### 再発防止チェックリスト
+
+- [ ] research 対象銘柄について、業種を問わず会社IRを確認したか。最低限、直近決算短信 /
+      決算説明資料 / Q&A / 有価証券報告書または統合報告書 / 中期経営計画 / 株主還元関連開示を
+      確認し、未確認項目を本文に残したか
+- [ ] 会社IR未確認のまま `decision: accepted` にしていないか。未確認なら `pending` または
+      `skipped` にして、追加確認条件を明示したか
+- [ ] 外部 AI / 二次分析の結論を採用する前に、主要数値を会社IR・決算短信・決算説明資料・Q&A・
+      取引所 calendar・candidates のいずれかで再確認したか
+- [ ] 確認できた事実、修正した数値、未採用の二次情報を research の source verification log に分けて残したか
+- [ ] EPS / PER / 配当利回り / target price は公式 EPS・配当予想・株価で再計算したか
+- [ ] 注文日が休場日または立会時間外の場合、trade は `status: ordered` とし、`entry_price` を
+      推定で埋めていないか
+- [ ] 外部市場予測 (例: Gartner / IDC / 証券サイトの同業倍率) は、今回の canonical fact として
+      採用するなら brief / research の source として明示し、未確認なら「判断補助・未採用」として分離したか
+
+## 10. PR review で繰り返し指摘される類型の追跡
 
 PR で同じ anti-pattern が 2 ラウンド以上指摘されたら、本ドキュメントの該当節を強化または
 新節として追加する。直近の事例:
@@ -271,7 +302,7 @@ PR で同じ anti-pattern が 2 ラウンド以上指摘されたら、本ドキ
 | #68 | 1 | AP-01 (122 条 13%、TSMC/Samsung/Kioxia 断定)、AP-02 (adv 100 倍、利確 +118% / +30% 矛盾)、AP-03 (6590 split artifact)、AP-04 (sector_relative_strength_percentile 誤読)、AP-06 (米コア PCE brief 未反映)、AP-07 (PCE 5/30 前後)、AP-08 (adv consistency 抜け道) |
 | #68 | 2 | AP-01 (TSMC Capex / Sovereign AI 未確認のまま outlook で断定継続)、AP-05 (brief への分析混入)、AP-06 (outlook source_refs と brief 不整合 35 箇所)、AP-07 (OPEC+ 5/3 反映漏れ、PCE 5/28 ではなく 5/30) |
 
-## 10. 関連ドキュメント
+## 11. 関連ドキュメント
 
 - 思想・基本方針: [`philosophy.md`](./philosophy.md)
 - 事実 / 分析の分離: [`design-principles.md`](./design-principles.md) §4
