@@ -182,7 +182,7 @@ uv run coverage report -m
 uv run bandit -c pyproject.toml -r src/baibai_loop -q
 uv export --format requirements.txt --locked --all-groups --no-emit-project --no-hashes --output-file /tmp/baibai-loop-requirements.txt
 uv run pip-audit -r /tmp/baibai-loop-requirements.txt
-uv build
+uv build --wheel
 ```
 
 GitHub Actions では `astral-sh/setup-uv` を使う。`python -m pip install uv` より CI の intent が明確で、uv cache も扱いやすい。
