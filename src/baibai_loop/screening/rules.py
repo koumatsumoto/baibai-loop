@@ -29,6 +29,13 @@ REASON_STRICT_NET_CASH = "net_cash_to_market_cap_price_to_equity_and_equity_rati
 REASON_FCF_YIELD = "fcf_yield_discount"
 REASON_SALES_DISCOUNT = "ps_discount_with_sales_growth"
 
+_FCF_FAILURE_REASON_PREFIXES = (
+    "csv_parse_failed",
+    "non_consolidated_fallback",
+    "tag_not_found:capex",
+    "tag_not_found:ocf",
+)
+
 
 def evaluate_screening(
     financial: FinancialSnapshot,
@@ -235,6 +242,13 @@ def _cash_rich_asset_discount(
     if financial.equity_ratio is None:
         null_reasons.append("cash_rich_missing_equity_ratio")
         return None
+    if (
+        lane.edinet_net_cash_to_market_cap_min_if_available is not None
+        and financial.net_cash_to_market_cap is not None
+        and financial.net_cash_to_market_cap < lane.edinet_net_cash_to_market_cap_min_if_available
+    ):
+        null_reasons.append("cash_rich_edinet_net_cash_contradiction")
+        return None
     if lane.operating_profit_positive_required and (
         financial.operating_profit is None or financial.operating_profit <= 0
     ):
@@ -251,6 +265,9 @@ def _cash_rich_asset_discount(
         reasons=(REASON_CASH_RICH,),
         metrics={
             "cash_to_market_cap": financial.cash_to_market_cap,
+            "net_cash_to_market_cap": financial.net_cash_to_market_cap,
+            "debt": financial.debt,
+            "cash": financial.cash,
             "price_to_equity": financial.price_to_equity,
             "equity_ratio": financial.equity_ratio,
             "operating_profit": financial.operating_profit,
@@ -382,7 +399,9 @@ def _fcf_yield_discount(
             "edinet_source_period_start": _date_iso(financial.edinet_source_period_start),
             "edinet_source_period_end": _date_iso(financial.edinet_source_period_end),
             "edinet_capex_source": financial.edinet_capex_source,
-            "edinet_failure_reasons": financial.edinet_failure_reasons,
+            "edinet_failure_reasons": _edinet_failure_reasons_matching(
+                financial, _FCF_FAILURE_REASON_PREFIXES
+            ),
         },
     )
 
@@ -434,10 +453,25 @@ def _sales_operating_profit_gate(
 
 
 def _has_edinet_failure_reason(financial: FinancialSnapshot, reason: str) -> bool:
+    return reason in _edinet_failure_reasons(financial)
+
+
+def _edinet_failure_reasons_matching(
+    financial: FinancialSnapshot, prefixes: tuple[str, ...]
+) -> str | None:
+    matched = [
+        reason
+        for reason in _edinet_failure_reasons(financial)
+        if any(reason.startswith(prefix) for prefix in prefixes)
+    ]
+    return ",".join(matched) if matched else None
+
+
+def _edinet_failure_reasons(financial: FinancialSnapshot) -> tuple[str, ...]:
     reasons = financial.edinet_failure_reasons
     if reasons is None:
-        return False
-    return reason in {item.strip() for item in reasons.split(",") if item.strip()}
+        return ()
+    return tuple(item.strip() for item in reasons.split(",") if item.strip())
 
 
 def _date_iso(value: date | None) -> str | None:

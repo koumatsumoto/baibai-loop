@@ -65,6 +65,7 @@ class CashRichLane(BaseModel):
     playbook: str
     excluded_sectors: tuple[str, ...] = ()
     cash_to_market_cap_min: float = Field(ge=0)
+    edinet_net_cash_to_market_cap_min_if_available: float | None = None
     price_to_equity_max: float = Field(ge=0)
     equity_ratio_min: float = Field(ge=0, le=1)
     operating_profit_positive_required: bool

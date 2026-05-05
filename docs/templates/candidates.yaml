@@ -101,6 +101,9 @@ candidates:
     - cash_to_market_cap_price_to_equity_and_equity_ratio
     metrics:
       cash_to_market_cap: 0.42
+      net_cash_to_market_cap: 0.34
+      debt: 12000000000.0
+      cash: 32000000000.0
       price_to_equity: 0.82
       equity_ratio: 0.45
   - name: strict-net-cash-discount

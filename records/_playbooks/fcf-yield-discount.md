@@ -36,7 +36,7 @@ EDINET CSV-derived metrics の operating cash flow と capex を使い、営業 
 ## Required Research Checks
 
 - FCF snapshot: EDINET CFO / capex / FCF / market cap / fcf_yield を candidates と一次資料で突合する。J-Quants `ocf_ttm` と混ぜて再計算しない。
-- EDINET source trace: `edinet_source_doc_id`、`edinet_document_type`、`edinet_source_submit_datetime`、`edinet_source_period_start`、`edinet_source_period_end` を確認し、対象期間が FCF thesis と一致するか確認する。
+- EDINET source trace: `edinet_source_doc_id`、`edinet_document_type`、`edinet_source_submit_datetime`、`edinet_source_period_start`、`edinet_source_period_end` を確認し、対象期間が FCF thesis と一致するか確認する。半期報告書 / 訂正半期報告書では `edinet_source_period_end` が fiscal year end を指すことがあるため、CF 計算書の実際の測定期間を一次資料で確認する。
 - Capex quality: 維持投資、成長投資、投資サイクル、翌期投資計画を確認する。
 - Working capital quality: 売掛金、棚卸資産、前受金、仕入債務、税金影響を確認する。
 - Earnings quality: 利益率、特損益、減価償却、受注・解約など現金創出力の裏付けを見る。

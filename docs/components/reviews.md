@@ -36,7 +36,7 @@ records/06-reviews/YYYY/retro-YYYYMM.md                  # 月次 retro
 ticker: "7203"
 trade_ref: records/05-trades/YYYY/MM/YYYY-MM-DD-<ticker>.md  # 必須
 research_ref: records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md  # 必須
-playbook: valuation-reversion | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth
+playbook: valuation-reversion | strict-net-cash-discount | fcf-yield-discount | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth
 entry_date: "YYYY-MM-DD"
 exit_date: "YYYY-MM-DD"
 pnl_pct: 数値

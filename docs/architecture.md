@@ -266,7 +266,7 @@ records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
 ---
 ticker: "7203"
 name: "..."
-playbook: valuation-reversion | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth
+playbook: valuation-reversion | strict-net-cash-discount | fcf-yield-discount | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth
 candidates_ref: records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml      # 必須
 outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml  # 必須
 brief_refs:                                        # 任意

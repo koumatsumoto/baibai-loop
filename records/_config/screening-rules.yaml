@@ -53,6 +53,7 @@ signal_lanes:
       - その他金融業
       - 電気・ガス業
     cash_to_market_cap_min: 0.40
+    edinet_net_cash_to_market_cap_min_if_available: 0.00
     price_to_equity_max: 1.00
     equity_ratio_min: 0.30
     operating_profit_positive_required: true

@@ -222,6 +222,21 @@ class ScreeningRulesTests(unittest.TestCase):
         )
         self.assertNotIn(SIGNAL_CASH_RICH, [signal.name for signal in result.signals])
 
+    def test_cash_rich_asset_discount_rejects_edinet_net_debt_contradiction(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                cash_to_market_cap=0.8,
+                price_to_equity=0.8,
+                equity_ratio=0.5,
+                operating_profit=10.0,
+                net_cash_to_market_cap=-0.1,
+            ),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertNotIn(SIGNAL_CASH_RICH, [signal.name for signal in result.signals])
+        self.assertIn("cash_rich_edinet_net_cash_contradiction", result.null_reasons)
+
     def test_cashflow_yield_discount_hits(self) -> None:
         result = evaluate_screening(
             _financial(ocf_ttm=100.0, ocf_yield=0.1),
@@ -292,6 +307,22 @@ class ScreeningRulesTests(unittest.TestCase):
         signal = next(signal for signal in result.signals if signal.name == SIGNAL_FCF_YIELD)
         self.assertEqual(signal.metrics["edinet_ocf_ttm"], 120.0)
         self.assertNotIn("ocf_ttm", signal.metrics)
+
+    def test_fcf_yield_discount_filters_unrelated_edinet_failures(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                edinet_ocf_ttm=120.0,
+                fcf_ttm=100.0,
+                fcf_yield=0.1,
+                capex_ttm=20.0,
+                cfo_yoy=0.2,
+                edinet_failure_reasons="debt_assumed_zero,non_consolidated_fallback",
+            ),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        signal = next(signal for signal in result.signals if signal.name == SIGNAL_FCF_YIELD)
+        self.assertEqual(signal.metrics["edinet_failure_reasons"], "non_consolidated_fallback")
 
     def test_fcf_yield_discount_rejects_missing_edinet_ocf(self) -> None:
         result = evaluate_screening(

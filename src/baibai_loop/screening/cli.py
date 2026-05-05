@@ -884,6 +884,7 @@ def _rank_lane_toplists(
                         outlook_status=outlook_status,
                         selection_lane=name,
                         selection_metrics=metrics,
+                        recommendation_lane=name,
                     ),
                 )
             )
@@ -918,7 +919,13 @@ def _recommended_research_candidates(
             ticker = _string_value(candidate.get("ticker"))
             if ticker is None or ticker in selected_tickers:
                 continue
-            selected.append(candidate)
+            selected.append(
+                _research_recommendation_candidate(
+                    candidate,
+                    recommendation_lane=lane,
+                    lane_order=lane_order,
+                )
+            )
             selected_tickers.add(ticker)
             break
 
@@ -928,10 +935,54 @@ def _recommended_research_candidates(
         ticker = _string_value(candidate.get("ticker"))
         if ticker is None or ticker in selected_tickers:
             continue
-        selected.append(candidate)
+        selected.append(
+            _research_recommendation_candidate(
+                candidate,
+                recommendation_lane="global-rank",
+                lane_order=lane_order,
+            )
+        )
         selected_tickers.add(ticker)
 
     return selected
+
+
+def _research_recommendation_candidate(
+    candidate: Mapping[str, object],
+    *,
+    recommendation_lane: str,
+    lane_order: Sequence[str],
+) -> dict[str, object]:
+    output = dict(candidate)
+    output["recommendation_lane"] = recommendation_lane
+    selection_lane, selection_metrics = _primary_signal_by_lane_order(
+        output.get("signals"), lane_order
+    )
+    if selection_lane is not None:
+        output["selection_lane"] = selection_lane
+        output["selection_metrics"] = selection_metrics
+    return output
+
+
+def _primary_signal_by_lane_order(
+    raw_signals: object,
+    lane_order: Sequence[str],
+) -> tuple[str | None, dict[str, object]]:
+    if not isinstance(raw_signals, Sequence) or isinstance(raw_signals, str):
+        return None, {}
+    signal_by_lane: dict[str, Mapping[str, object]] = {}
+    for signal in raw_signals:
+        if not isinstance(signal, Mapping):
+            continue
+        name = _string_value(signal.get("name"))
+        if name is None:
+            continue
+        signal_by_lane[name] = signal
+    for lane in lane_order:
+        signal = signal_by_lane.get(lane)
+        if signal is not None:
+            return lane, _metric_map(signal.get("metrics"))
+    return None, {}
 
 
 def _best_selection_signal(
@@ -961,6 +1012,7 @@ def _selection_candidate(
     outlook_status: str | None,
     selection_lane: str | None,
     selection_metrics: Mapping[str, object],
+    recommendation_lane: str | None = None,
 ) -> dict[str, object]:
     market_cap = item.market_cap_oku
     return {
@@ -972,6 +1024,7 @@ def _selection_candidate(
         "signals": item.signals,
         "signal_count": len(item.signals),
         "selection_lane": selection_lane,
+        "recommendation_lane": recommendation_lane,
         "selection_metrics": dict(selection_metrics),
         "next_earnings_date": item.next_earnings_date,
         "position_tier": position_tier(market_cap),

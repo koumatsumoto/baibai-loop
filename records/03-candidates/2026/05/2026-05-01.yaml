@@ -10,9 +10,9 @@ data_sources:
 - "j-quants-light"
 - "jpx-public-regulation"
 - "edinet-preprocessed-metrics"
-run_at: "2026-05-05T19:01:41.988388+09:00"
-run_id: "screening-20260501-c542e656"
-config_hash: "c542e656fad38d34"
+run_at: "2026-05-05T19:21:50.589300+09:00"
+run_id: "screening-20260501-79ec46a8"
+config_hash: "79ec46a888c64350"
 cache_manifest_hash: "8d9db7bec47b4245"
 candidates:
 - ticker: "1301"
@@ -1606,15 +1606,6 @@ candidates:
     fcf_yield: approximated
     net_cash: approximated
   signals:
-  - name: "cash-rich-asset-discount"
-    playbook: "cash-rich-asset-discount"
-    reasons:
-    - "cash_to_market_cap_price_to_equity_and_equity_ratio"
-    metrics:
-      cash_to_market_cap: 0.4118
-      price_to_equity: 0.6471
-      equity_ratio: 0.5595
-      operating_profit: 10476000000.0
   - name: "sales-discount-growth"
     playbook: "sales-discount-growth"
     reasons:
@@ -2806,6 +2797,9 @@ candidates:
     - "cash_to_market_cap_price_to_equity_and_equity_ratio"
     metrics:
       cash_to_market_cap: 0.5168
+      net_cash_to_market_cap: 0.3408
+      debt: 16356000000.0
+      cash: 41488000000.0
       price_to_equity: 0.6362
       equity_ratio: 0.5808
       operating_profit: 6779000000.0
@@ -3905,87 +3899,6 @@ candidates:
       ocf_ttm: 6841000000.0
       cfo_yoy: -0.0242
       ttm_quality: exact
-- ticker: "2884"
-  name: "ヨシムラ・フード・ホールディングス"
-  per_forward: null
-  per_trailing: 17.77
-  pbr: 1.31
-  ev_ebitda: 18.2
-  p_s: 0.29
-  pcfr: null
-  sector_33: "食料品"
-  market_cap_oku: 165
-  avg_turnover_oku: 2.2
-  price_change_60d: -0.2
-  price_change_4w: -0.2271
-  sector_relative_strength_percentile: 0.303
-  metrics:
-    sales_ttm: 57484000000.0
-    ocf_ttm: -2503000000.0
-    edinet_ocf_ttm: -4260875000.0
-    cash_eq: 8288000000.0
-    total_assets: 61028000000.0
-    equity: 19253000000.0
-    cash_to_market_cap: 0.5031
-    price_to_equity: 0.8556
-    equity_ratio: 0.3155
-    ocf_yield: -0.1519
-    net_cash: -21023709000.0
-    net_cash_to_market_cap: -1.2763
-    debt: 32217037000.0
-    cash: 11193328000.0
-    fcf_ttm: -4602050000.0
-    fcf_yield: -0.2794
-    capex_ttm: 341175000.0
-    depreciation_and_amortization_ttm: 1140880000.0
-    edinet_source_doc_id: S100WV62
-    edinet_document_type: '160'
-    edinet_source_submit_datetime: 2025-10-15 16:05
-    edinet_source_period_start: '2025-03-01'
-    edinet_source_period_end: '2026-02-28'
-    edinet_capex_source: purchase_of_fixed_assets
-    edinet_failure_reasons: null
-    sales_yoy: -0.0108
-    cfo_yoy: -1.3775
-    operating_profit: 1568000000.0
-    operating_profit_loss_narrowing: false
-  metrics_breakdown:
-    per_trailing:
-      sector_median_gap: -0.1824
-      self_range_percentile: 0.0389
-      sigma_gap: -1.4846
-    pbr:
-      sector_median_gap: 0.0
-      self_range_percentile: 0.0389
-      sigma_gap: -1.4846
-    ev_ebitda:
-      sector_median_gap: 0.1076
-      self_range_percentile: 0.0389
-      sigma_gap: -1.4846
-    p_s:
-      sector_median_gap: -0.6455
-      self_range_percentile: 0.0389
-      sigma_gap: -1.4846
-  next_earnings_date: null
-  split_adjustment_flag: false
-  ttm_quality:
-    ev_ebitda: approximated
-    p_s: exact
-    pcfr: exact
-    ocf_yield: exact
-    sales: exact
-    fcf_yield: approximated
-    net_cash: approximated
-  signals:
-  - name: "cash-rich-asset-discount"
-    playbook: "cash-rich-asset-discount"
-    reasons:
-    - "cash_to_market_cap_price_to_equity_and_equity_ratio"
-    metrics:
-      cash_to_market_cap: 0.5031
-      price_to_equity: 0.8556
-      equity_ratio: 0.3155
-      operating_profit: 1568000000.0
 - ticker: "2918"
   name: "わらべや日洋ホールディングス"
   per_forward: null
@@ -4940,6 +4853,9 @@ candidates:
     - "cash_to_market_cap_price_to_equity_and_equity_ratio"
     metrics:
       cash_to_market_cap: 0.6724
+      net_cash_to_market_cap: null
+      debt: null
+      cash: null
       price_to_equity: 0.7828
       equity_ratio: 0.4475
       operating_profit: 53948000000.0
@@ -6657,6 +6573,9 @@ candidates:
     - "cash_to_market_cap_price_to_equity_and_equity_ratio"
     metrics:
       cash_to_market_cap: 1.1293
+      net_cash_to_market_cap: 0.5355
+      debt: 16700000000.0
+      cash: 51258000000.0
       price_to_equity: 0.6908
       equity_ratio: 0.7515
       operating_profit: 1468000000.0
@@ -7015,6 +6934,9 @@ candidates:
     - "cash_to_market_cap_price_to_equity_and_equity_ratio"
     metrics:
       cash_to_market_cap: 0.7524
+      net_cash_to_market_cap: 0.612
+      debt: 3006000000.0
+      cash: 14405000000.0
       price_to_equity: 0.9691
       equity_ratio: 0.3376
       operating_profit: 2453000000.0
@@ -8132,7 +8054,7 @@ candidates:
       edinet_source_period_start: '2025-01-01'
       edinet_source_period_end: '2025-12-31'
       edinet_capex_source: purchase_of_fixed_assets
-      edinet_failure_reasons: debt_assumed_zero
+      edinet_failure_reasons: null
   - name: "sales-discount-growth"
     playbook: "sales-discount-growth"
     reasons:
@@ -12160,6 +12082,9 @@ candidates:
     - "cash_to_market_cap_price_to_equity_and_equity_ratio"
     metrics:
       cash_to_market_cap: 0.4046
+      net_cash_to_market_cap: null
+      debt: null
+      cash: null
       price_to_equity: 0.8029
       equity_ratio: 0.3245
       operating_profit: 284198000000.0
@@ -13253,6 +13178,9 @@ candidates:
     - "cash_to_market_cap_price_to_equity_and_equity_ratio"
     metrics:
       cash_to_market_cap: 0.408
+      net_cash_to_market_cap: null
+      debt: null
+      cash: null
       price_to_equity: 0.4771
       equity_ratio: 0.435
       operating_profit: 33291000000.0
@@ -15285,15 +15213,6 @@ candidates:
       condition_b_metric: per_trailing
       price_change_60d: -0.2589
       condition_b_sigma_gap: -1.9456
-  - name: "cash-rich-asset-discount"
-    playbook: "cash-rich-asset-discount"
-    reasons:
-    - "cash_to_market_cap_price_to_equity_and_equity_ratio"
-    metrics:
-      cash_to_market_cap: 0.5362
-      price_to_equity: 0.3427
-      equity_ratio: 0.5646
-      operating_profit: 9813000000.0
   - name: "cashflow-yield-discount"
     playbook: "cashflow-yield-discount"
     reasons:
@@ -15394,87 +15313,6 @@ candidates:
       edinet_source_period_start: '2025-04-01'
       edinet_source_period_end: '2026-03-31'
       edinet_failure_reasons: non_consolidated_fallback
-- ticker: "5440"
-  name: "共英製鋼"
-  per_forward: null
-  per_trailing: 8.05
-  pbr: 0.38
-  ev_ebitda: 8.6
-  p_s: 0.26
-  pcfr: 3.3
-  sector_33: "鉄鋼"
-  market_cap_oku: 820
-  avg_turnover_oku: 2.6
-  price_change_60d: -0.2466
-  price_change_4w: -0.2291
-  sector_relative_strength_percentile: 0.3939
-  metrics:
-    sales_ttm: 315106000000.0
-    ocf_ttm: 24730000000.0
-    edinet_ocf_ttm: 14132000000.0
-    cash_eq: 46359000000.0
-    total_assets: 373127000000.0
-    equity: 218808000000.0
-    cash_to_market_cap: 0.5651
-    price_to_equity: 0.3749
-    equity_ratio: 0.5864
-    ocf_yield: 0.3015
-    net_cash: -30526000000.0
-    net_cash_to_market_cap: -0.3721
-    debt: 80548000000.0
-    cash: 50022000000.0
-    fcf_ttm: 5041000000.0
-    fcf_yield: 0.0615
-    capex_ttm: 9091000000.0
-    depreciation_and_amortization_ttm: 3849000000.0
-    edinet_source_doc_id: S100WZZT
-    edinet_document_type: '160'
-    edinet_source_submit_datetime: 2025-11-10 13:01
-    edinet_source_period_start: '2025-04-01'
-    edinet_source_period_end: '2026-03-31'
-    edinet_capex_source: purchase_of_fixed_assets
-    edinet_failure_reasons: null
-    sales_yoy: -0.024
-    cfo_yoy: -0.3725
-    operating_profit: 16967000000.0
-    operating_profit_loss_narrowing: false
-  metrics_breakdown:
-    per_trailing:
-      sector_median_gap: -0.5259
-      self_range_percentile: 0.2753
-      sigma_gap: -0.9973
-    pbr:
-      sector_median_gap: -0.7259
-      self_range_percentile: 0.2753
-      sigma_gap: -0.9973
-    ev_ebitda:
-      sector_median_gap: -0.3565
-      self_range_percentile: 0.2753
-      sigma_gap: -0.9973
-    p_s:
-      sector_median_gap: -0.5995
-      self_range_percentile: 0.2753
-      sigma_gap: -0.9973
-  next_earnings_date: null
-  split_adjustment_flag: false
-  ttm_quality:
-    ev_ebitda: approximated
-    p_s: exact
-    pcfr: exact
-    ocf_yield: exact
-    sales: exact
-    fcf_yield: approximated
-    net_cash: approximated
-  signals:
-  - name: "cash-rich-asset-discount"
-    playbook: "cash-rich-asset-discount"
-    reasons:
-    - "cash_to_market_cap_price_to_equity_and_equity_ratio"
-    metrics:
-      cash_to_market_cap: 0.5651
-      price_to_equity: 0.3749
-      equity_ratio: 0.5864
-      operating_profit: 16967000000.0
 - ticker: "5482"
   name: "愛知製鋼"
   per_forward: null
@@ -16300,6 +16138,9 @@ candidates:
     - "cash_to_market_cap_price_to_equity_and_equity_ratio"
     metrics:
       cash_to_market_cap: 0.4384
+      net_cash_to_market_cap: null
+      debt: null
+      cash: null
       price_to_equity: 0.4771
       equity_ratio: 0.3731
       operating_profit: 7506000000.0
@@ -17053,6 +16894,9 @@ candidates:
     - "cash_to_market_cap_price_to_equity_and_equity_ratio"
     metrics:
       cash_to_market_cap: 0.5229
+      net_cash_to_market_cap: 0.0983
+      debt: 36611000000.0
+      cash: 45064000000.0
       price_to_equity: 0.9496
       equity_ratio: 0.5819
       operating_profit: 4224000000.0
@@ -17973,15 +17817,6 @@ candidates:
     fcf_yield: exact
     net_cash: exact
   signals:
-  - name: "cash-rich-asset-discount"
-    playbook: "cash-rich-asset-discount"
-    reasons:
-    - "cash_to_market_cap_price_to_equity_and_equity_ratio"
-    metrics:
-      cash_to_market_cap: 0.4508
-      price_to_equity: 0.8728
-      equity_ratio: 0.4491
-      operating_profit: 18552000000.0
   - name: "sales-discount-growth"
     playbook: "sales-discount-growth"
     reasons:
@@ -18416,15 +18251,6 @@ candidates:
     fcf_yield: approximated
     net_cash: approximated
   signals:
-  - name: "cash-rich-asset-discount"
-    playbook: "cash-rich-asset-discount"
-    reasons:
-    - "cash_to_market_cap_price_to_equity_and_equity_ratio"
-    metrics:
-      cash_to_market_cap: 0.5619
-      price_to_equity: 0.5445
-      equity_ratio: 0.5604
-      operating_profit: 2589000000.0
   - name: "cashflow-yield-discount"
     playbook: "cashflow-yield-discount"
     reasons:
@@ -19123,87 +18949,6 @@ candidates:
       operating_profit: 5334000000.0
       ocf_ttm: 8861000000.0
       operating_profit_loss_narrowing: false
-- ticker: "6584"
-  name: "三櫻工業"
-  per_forward: 15.07
-  per_trailing: 16.83
-  pbr: 0.59
-  ev_ebitda: 7.9
-  p_s: 0.18
-  pcfr: 10.3
-  sector_33: "輸送用機器"
-  market_cap_oku: 281
-  avg_turnover_oku: 2.4
-  price_change_60d: -0.0911
-  price_change_4w: 0.128
-  sector_relative_strength_percentile: 0.6061
-  metrics:
-    sales_ttm: 156755000000.0
-    ocf_ttm: 2731000000.0
-    edinet_ocf_ttm: 1933000000.0
-    cash_eq: 16938000000.0
-    total_assets: 129979000000.0
-    equity: 49233000000.0
-    cash_to_market_cap: 0.6021
-    price_to_equity: 0.5714
-    equity_ratio: 0.3788
-    ocf_yield: 0.0971
-    net_cash: -24681000000.0
-    net_cash_to_market_cap: -0.8774
-    debt: 42567000000.0
-    cash: 17886000000.0
-    fcf_ttm: -2858000000.0
-    fcf_yield: -0.1016
-    capex_ttm: 4791000000.0
-    depreciation_and_amortization_ttm: 3317000000.0
-    edinet_source_doc_id: S100X4L9
-    edinet_document_type: '160'
-    edinet_source_submit_datetime: 2025-11-14 16:21
-    edinet_source_period_start: '2025-04-01'
-    edinet_source_period_end: '2026-03-31'
-    edinet_capex_source: purchase_of_fixed_assets
-    edinet_failure_reasons: null
-    sales_yoy: -0.0232
-    cfo_yoy: -0.949
-    operating_profit: 3649000000.0
-    operating_profit_loss_narrowing: false
-  metrics_breakdown:
-    per_trailing:
-      sector_median_gap: 0.2396
-      self_range_percentile: 0.3689
-      sigma_gap: -0.4338
-    pbr:
-      sector_median_gap: -0.2678
-      self_range_percentile: 0.3689
-      sigma_gap: -0.4338
-    ev_ebitda:
-      sector_median_gap: -0.3485
-      self_range_percentile: 0.3689
-      sigma_gap: -0.4338
-    p_s:
-      sector_median_gap: -0.6144
-      self_range_percentile: 0.3689
-      sigma_gap: -0.4338
-  next_earnings_date: null
-  split_adjustment_flag: false
-  ttm_quality:
-    ev_ebitda: approximated
-    p_s: exact
-    pcfr: exact
-    ocf_yield: exact
-    sales: exact
-    fcf_yield: approximated
-    net_cash: approximated
-  signals:
-  - name: "cash-rich-asset-discount"
-    playbook: "cash-rich-asset-discount"
-    reasons:
-    - "cash_to_market_cap_price_to_equity_and_equity_ratio"
-    metrics:
-      cash_to_market_cap: 0.6021
-      price_to_equity: 0.5714
-      equity_ratio: 0.3788
-      operating_profit: 3649000000.0
 - ticker: "6590"
   name: "芝浦メカトロニクス"
   per_forward: 28.5
@@ -20614,6 +20359,9 @@ candidates:
     - "cash_to_market_cap_price_to_equity_and_equity_ratio"
     metrics:
       cash_to_market_cap: 0.6207
+      net_cash_to_market_cap: 0.1415
+      debt: 12122000000.0
+      cash: 17488000000.0
       price_to_equity: 0.7579
       equity_ratio: 0.6532
       operating_profit: 5742000000.0
@@ -21642,15 +21390,6 @@ candidates:
     fcf_yield: approximated
     net_cash: approximated
   signals:
-  - name: "cash-rich-asset-discount"
-    playbook: "cash-rich-asset-discount"
-    reasons:
-    - "cash_to_market_cap_price_to_equity_and_equity_ratio"
-    metrics:
-      cash_to_market_cap: 0.6142
-      price_to_equity: 0.4916
-      equity_ratio: 0.4201
-      operating_profit: 5867000000.0
   - name: "cashflow-yield-discount"
     playbook: "cashflow-yield-discount"
     reasons:
@@ -21900,6 +21639,9 @@ candidates:
     - "cash_to_market_cap_price_to_equity_and_equity_ratio"
     metrics:
       cash_to_market_cap: 0.4938
+      net_cash_to_market_cap: null
+      debt: null
+      cash: null
       price_to_equity: 0.6316
       equity_ratio: 0.5248
       operating_profit: 66284000000.0
@@ -22156,87 +21898,6 @@ candidates:
       edinet_source_period_start: '2024-11-01'
       edinet_source_period_end: '2025-10-31'
       edinet_failure_reasons: null
-- ticker: "7280"
-  name: "ミツバ"
-  per_forward: 6.34
-  per_trailing: 7.71
-  pbr: null
-  ev_ebitda: 6.1
-  p_s: 0.15
-  pcfr: 1.6
-  sector_33: "電気機器"
-  market_cap_oku: 523
-  avg_turnover_oku: 2.5
-  price_change_60d: -0.1442
-  price_change_4w: -0.0542
-  sector_relative_strength_percentile: 1.0
-  metrics:
-    sales_ttm: 345660000000.0
-    ocf_ttm: 32121000000.0
-    edinet_ocf_ttm: 10766000000.0
-    cash_eq: 100107000000.0
-    total_assets: 338469000000.0
-    equity: 123499000000.0
-    cash_to_market_cap: 1.9127
-    price_to_equity: 0.4238
-    equity_ratio: 0.3649
-    ocf_yield: 0.6137
-    net_cash: -50135000000.0
-    net_cash_to_market_cap: -0.9579
-    debt: 144440000000.0
-    cash: 94305000000.0
-    fcf_ttm: 5794000000.0
-    fcf_yield: 0.1107
-    capex_ttm: 4972000000.0
-    depreciation_and_amortization_ttm: 6857000000.0
-    edinet_source_doc_id: S100X04K
-    edinet_document_type: '160'
-    edinet_source_submit_datetime: 2025-11-12 15:27
-    edinet_source_period_start: '2025-04-01'
-    edinet_source_period_end: '2026-03-31'
-    edinet_capex_source: purchase_of_fixed_assets
-    edinet_failure_reasons: null
-    sales_yoy: -0.0143
-    cfo_yoy: -0.2448
-    operating_profit: 16065000000.0
-    operating_profit_loss_narrowing: false
-  metrics_breakdown:
-    per_trailing:
-      sector_median_gap: -0.7354
-      self_range_percentile: 0.485
-      sigma_gap: 0.7347
-    pbr:
-      sector_median_gap: null
-      self_range_percentile: null
-      sigma_gap: null
-    ev_ebitda:
-      sector_median_gap: -0.7088
-      self_range_percentile: 0.485
-      sigma_gap: 0.7347
-    p_s:
-      sector_median_gap: -0.9049
-      self_range_percentile: 0.485
-      sigma_gap: 0.7347
-  next_earnings_date: null
-  split_adjustment_flag: false
-  ttm_quality:
-    ev_ebitda: approximated
-    p_s: exact
-    pcfr: exact
-    ocf_yield: exact
-    sales: exact
-    fcf_yield: approximated
-    net_cash: approximated
-  signals:
-  - name: "cash-rich-asset-discount"
-    playbook: "cash-rich-asset-discount"
-    reasons:
-    - "cash_to_market_cap_price_to_equity_and_equity_ratio"
-    metrics:
-      cash_to_market_cap: 1.9127
-      price_to_equity: 0.4238
-      equity_ratio: 0.3649
-      operating_profit: 16065000000.0
 - ticker: "7283"
   name: "愛三工業"
   per_forward: null
@@ -22315,6 +21976,9 @@ candidates:
     - "cash_to_market_cap_price_to_equity_and_equity_ratio"
     metrics:
       cash_to_market_cap: 0.7896
+      net_cash_to_market_cap: 0.1006
+      debt: 56081000000.0
+      cash: 67245000000.0
       price_to_equity: 0.7583
       equity_ratio: 0.4698
       operating_profit: 18287000000.0
@@ -22477,6 +22141,9 @@ candidates:
     - "cash_to_market_cap_price_to_equity_and_equity_ratio"
     metrics:
       cash_to_market_cap: 0.4006
+      net_cash_to_market_cap: null
+      debt: null
+      cash: null
       price_to_equity: 0.8771
       equity_ratio: 0.773
       operating_profit: 13916000000.0
@@ -22980,15 +22647,6 @@ candidates:
     fcf_yield: exact
     net_cash: exact
   signals:
-  - name: "cash-rich-asset-discount"
-    playbook: "cash-rich-asset-discount"
-    reasons:
-    - "cash_to_market_cap_price_to_equity_and_equity_ratio"
-    metrics:
-      cash_to_market_cap: 0.4604
-      price_to_equity: 0.6235
-      equity_ratio: 0.4993
-      operating_profit: 8853000000.0
   - name: "cashflow-yield-discount"
     playbook: "cashflow-yield-discount"
     reasons:
@@ -23256,6 +22914,9 @@ candidates:
     - "cash_to_market_cap_price_to_equity_and_equity_ratio"
     metrics:
       cash_to_market_cap: 0.4318
+      net_cash_to_market_cap: 0.0735
+      debt: 37515000000.0
+      cash: 54086000000.0
       price_to_equity: 0.9868
       equity_ratio: 0.7574
       operating_profit: 20815000000.0
@@ -23675,15 +23336,6 @@ candidates:
       condition_a_metric: pbr
       condition_a_sector_median_gap: -0.5813
       condition_a_self_range_percentile: 0.1538
-  - name: "cash-rich-asset-discount"
-    playbook: "cash-rich-asset-discount"
-    reasons:
-    - "cash_to_market_cap_price_to_equity_and_equity_ratio"
-    metrics:
-      cash_to_market_cap: 0.6528
-      price_to_equity: 0.5096
-      equity_ratio: 0.4713
-      operating_profit: 4040000000.0
 - ticker: "7942"
   name: "ＪＳＰ"
   per_forward: null
@@ -24123,6 +23775,9 @@ candidates:
     - "cash_to_market_cap_price_to_equity_and_equity_ratio"
     metrics:
       cash_to_market_cap: 0.462
+      net_cash_to_market_cap: 0.3044
+      debt: 6895000000.0
+      cash: 19080000000.0
       price_to_equity: 0.978
       equity_ratio: 0.6834
       operating_profit: 1298000000.0
@@ -24887,6 +24542,9 @@ candidates:
     - "cash_to_market_cap_price_to_equity_and_equity_ratio"
     metrics:
       cash_to_market_cap: 0.4982
+      net_cash_to_market_cap: 0.4701
+      debt: 2648000000.0
+      cash: 38667000000.0
       price_to_equity: 0.8515
       equity_ratio: 0.6079
       operating_profit: 3151000000.0
@@ -25422,6 +25080,9 @@ candidates:
     - "cash_to_market_cap_price_to_equity_and_equity_ratio"
     metrics:
       cash_to_market_cap: 0.5104
+      net_cash_to_market_cap: 0.5539
+      debt: 770000000.0
+      cash: 18926000000.0
       price_to_equity: 0.656
       equity_ratio: 0.7036
       operating_profit: 1090000000.0
@@ -27760,6 +27421,9 @@ candidates:
     - "cash_to_market_cap_price_to_equity_and_equity_ratio"
     metrics:
       cash_to_market_cap: 0.6804
+      net_cash_to_market_cap: null
+      debt: null
+      cash: null
       price_to_equity: 0.6867
       equity_ratio: 0.3456
       operating_profit: 5783000000.0
@@ -28135,6 +27799,9 @@ candidates:
     - "cash_to_market_cap_price_to_equity_and_equity_ratio"
     metrics:
       cash_to_market_cap: 0.9145
+      net_cash_to_market_cap: null
+      debt: null
+      cash: null
       price_to_equity: 0.8276
       equity_ratio: 0.4173
       operating_profit: 207349000000.0
@@ -28242,15 +27909,6 @@ candidates:
       sector_relative_strength_percentile: 0.1515
       ticker_return_4w: -0.0716
       sector_return_4w: -0.0573
-  - name: "cash-rich-asset-discount"
-    playbook: "cash-rich-asset-discount"
-    reasons:
-    - "cash_to_market_cap_price_to_equity_and_equity_ratio"
-    metrics:
-      cash_to_market_cap: 0.5612
-      price_to_equity: 0.8733
-      equity_ratio: 0.3799
-      operating_profit: 217437000000.0
   - name: "cashflow-yield-discount"
     playbook: "cashflow-yield-discount"
     reasons:
@@ -31286,6 +30944,9 @@ candidates:
     - "cash_to_market_cap_price_to_equity_and_equity_ratio"
     metrics:
       cash_to_market_cap: 0.467
+      net_cash_to_market_cap: 0.3422
+      debt: 26461000000.0
+      cash: 93244000000.0
       price_to_equity: 0.9949
       equity_ratio: 0.6523
       operating_profit: 17632000000.0
@@ -31479,7 +31140,6 @@ fact_memo_lines:
 - "1911: 複数 signal hit (cashflow-yield-discount, sales-discount-growth)"
 - "2181: 複数 signal hit (cashflow-yield-discount, sales-discount-growth)"
 - "2282: 複数 signal hit (cashflow-yield-discount, sales-discount-growth)"
-- "2292: 複数 signal hit (cash-rich-asset-discount, sales-discount-growth)"
 - "2384: 複数 signal hit (cashflow-yield-discount, sales-discount-growth)"
 - "2587: 複数 signal hit (valuation-reversion, cashflow-yield-discount)"
 - "2590: 複数 signal hit (valuation-reversion, cashflow-yield-discount)"
@@ -31515,13 +31175,12 @@ fact_memo_lines:
 - "5027: 複数 signal hit (valuation-reversion, sales-discount-growth)"
 - "5105: 複数 signal hit (cashflow-yield-discount, fcf-yield-discount)"
 - "5244: 複数 signal hit (valuation-reversion, sales-discount-growth)"
-- "5410: 複数 signal hit (valuation-reversion, cash-rich-asset-discount, cashflow-yield-discount)"
+- "5410: 複数 signal hit (valuation-reversion, cashflow-yield-discount)"
 - "6266: 複数 signal hit (cashflow-yield-discount, fcf-yield-discount)"
 - "6310: 複数 signal hit (cashflow-yield-discount, sales-discount-growth)"
-- "6395: 複数 signal hit (cash-rich-asset-discount, sales-discount-growth)"
 - "6412: 複数 signal hit (valuation-reversion, cashflow-yield-discount, sales-discount-growth)"
 - "6425: 複数 signal hit (valuation-reversion, cashflow-yield-discount)"
-- "6470: 複数 signal hit (cash-rich-asset-discount, cashflow-yield-discount, sales-discount-growth)"
+- "6470: 複数 signal hit (cashflow-yield-discount, sales-discount-growth)"
 - "6471: 複数 signal hit (cashflow-yield-discount, sales-discount-growth)"
 - "6547: 複数 signal hit (cashflow-yield-discount, sales-discount-growth)"
 - "6817: 複数 signal hit (cashflow-yield-discount, sales-discount-growth)"
@@ -31531,11 +31190,9 @@ fact_memo_lines:
 - "6999: 複数 signal hit (cashflow-yield-discount, sales-discount-growth)"
 - "7012: 複数 signal hit (cashflow-yield-discount, sales-discount-growth)"
 - "7071: 複数 signal hit (valuation-reversion, sales-discount-growth)"
-- "7245: 複数 signal hit (cash-rich-asset-discount, cashflow-yield-discount)"
 - "7373: 複数 signal hit (valuation-reversion, cashflow-yield-discount)"
 - "7512: 複数 signal hit (cashflow-yield-discount, sales-discount-growth)"
-- "7613: 複数 signal hit (cash-rich-asset-discount, cashflow-yield-discount, fcf-yield-discount)"
-- "7915: 複数 signal hit (valuation-reversion, cash-rich-asset-discount)"
+- "7613: 複数 signal hit (cashflow-yield-discount, fcf-yield-discount)"
 - "7947: 複数 signal hit (valuation-reversion, cashflow-yield-discount)"
 - "8011: 複数 signal hit (strict-net-cash-discount, cash-rich-asset-discount)"
 - "8056: 複数 signal hit (cashflow-yield-discount, sales-discount-growth)"
@@ -31554,8 +31211,7 @@ fact_memo_lines:
 - "9166: 複数 signal hit (valuation-reversion, cashflow-yield-discount, sales-discount-growth)"
 - "9168: 複数 signal hit (valuation-reversion, cashflow-yield-discount)"
 - "9201: 複数 signal hit (cash-rich-asset-discount, cashflow-yield-discount, sales-discount-growth)"
-- "9202: 複数 signal hit (valuation-reversion, cash-rich-asset-discount, cashflow-yield-discount,\
-  \ sales-discount-growth)"
+- "9202: 複数 signal hit (valuation-reversion, cashflow-yield-discount, sales-discount-growth)"
 - "9418: 複数 signal hit (cashflow-yield-discount, sales-discount-growth)"
 - "9672: 複数 signal hit (cashflow-yield-discount, fcf-yield-discount)"
 - "9740: 複数 signal hit (strict-net-cash-discount, cashflow-yield-discount, sales-discount-growth)"
@@ -31582,7 +31238,7 @@ ttm_quality_counts:
 signals_summary:
   valuation-reversion: 94
   strict-net-cash-discount: 20
-  cash-rich-asset-discount: 31
+  cash-rich-asset-discount: 19
   cashflow-yield-discount: 183
   fcf-yield-discount: 14
   sales-discount-growth: 132

@@ -32,7 +32,7 @@ uv run baibai-loop-screening select --asof YYYY-MM-DD
 
 `select` は最新 candidates と outlook を組み合わせ、Macro gate を支援します。最終採用判断は [`../components/research.md`](../components/research.md) の boundary に従い、人間が確定します。
 
-`select` は `headwind` 業種を除外した上で、lane-specific metric に基づき triage します。signal 数と時価総額だけで機械的に上位化しません。出力の `candidates` は lane 分散済みの research 着手候補、`ranked_candidates` はグローバル順位、`lane_toplists` は lane 別上位です。`selection_lane`、`selection_metrics` を見て、どの割安仮説を research するのかを決めます。`candidates` の件数は `--top` と `output.research_selection_target_max`、lane 別一覧の件数は `records/_config/screening-rules.yaml` の `output.lane_toplist_limit` で調整します。
+`select` は `headwind` 業種を除外した上で、lane-specific metric に基づき triage します。signal 数と時価総額だけで機械的に上位化しません。出力の `candidates` は lane 分散済みの research 着手候補、`ranked_candidates` はグローバル順位、`lane_toplists` は lane 別上位です。`selection_lane`、`selection_metrics` を見て primary thesis を決めます。`recommendation_lane` は lane 分散でその候補を拾った枠で、複数 signal 銘柄では `selection_lane` と異なる場合があります。`candidates` の件数は `--top` と `output.research_selection_target_max`、lane 別一覧の件数は `records/_config/screening-rules.yaml` の `output.lane_toplist_limit` で調整します。
 
 signal lane ごとの hit 数は `signals_summary` で確認します。特定 lane が universe の大きな割合を占める場合は、候補数が増えただけで signal の識別力が弱い可能性があるため、`records/_config/screening-rules.yaml` の閾値・sector policy を見直します。
 

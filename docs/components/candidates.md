@@ -130,7 +130,7 @@ signals_summary:
 - `signals`: 通過した signal lane。複数 hit 可。表示順は rule config の lane 順に固定し、単一総合 score は持たせない
 - `metrics`: candidate-level の flat な派生値。例: `sales_ttm`, `ocf_ttm`, `edinet_ocf_ttm`, `cash_to_market_cap`, `net_cash_to_market_cap`, `price_to_equity`, `equity_ratio`, `ocf_yield`, `fcf_yield`, `cfo_yoy`, `sales_yoy`, `operating_profit`, `edinet_source_doc_id`, `edinet_source_submit_datetime`, `edinet_source_period_start`, `edinet_source_period_end`, `edinet_failure_reasons`
 - `ocf_ttm` は J-Quants 財務サマリーを TTM 正規化した営業 CF。`edinet_ocf_ttm` は EDINET CSV から抽出した CFO で、`fcf-yield-discount` の `fcf_ttm = edinet_ocf_ttm - capex_ttm` と同じ source family に属する
-- `edinet_source_*`: EDINET CSV-derived metrics の提出書類 ID、doc type、提出日時、対象期間。research で一次資料へ戻るための traceability であり、strict net-cash / FCF signal の `signals[].metrics` にも同じ source metadata を入れる
+- `edinet_source_*`: EDINET CSV-derived metrics の提出書類 ID、doc type、提出日時、書類 metadata 上の対象期間。research で一次資料へ戻るための traceability であり、strict net-cash / FCF signal の `signals[].metrics` にも同じ source metadata を入れる。半期報告書 / 訂正半期報告書では `source_period_end` が fiscal year end を指すことがあるため、FCF / CFO の測定期間そのものとは限らない
 - `metrics_breakdown`: valuation 指標ごとの `sector_median_gap` / `self_range_percentile` / `sigma_gap`
 - `signals[].metrics`: signal hit の判定に直接使った値。valuation は `condition_a_metric` などの flat key、cash / CF / sales は lane 固有 key で記録する
 - `ttm_quality`: `EV/EBITDA` / `P/S` / `PCFR` / `OCF yield` / `sales` / `FCF yield` / `net cash` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する
@@ -172,7 +172,7 @@ candidates YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行�
 - 選定プロセス: 最新 `records/03-candidates/` と最新 `records/02-outlook/` を突き合わせ、`outlook` で tailwind/neutral の業種/地域の ticker を候補に残す（headwind 除外）
 - 複数 signal が重なる候補は research 優先度を上げるが、単一総合 score は作らない
 - `select` は lane 別の primary metric と macro status を使って research triage を支援する。signal 数と時価総額だけでは並べない
-- `select` output には `lane_toplists`、`ranked_candidates`、research 着手候補として lane 分散した `candidates` が含まれる。`ranked_candidates` は macro + lane rank + signal strength のグローバル順位、`candidates` は `output.research_selection_lane_order` に沿って各 lane の上位を重複排除した推奨リスト。`candidates` の件数は CLI `--top` と `output.research_selection_target_max` の小さい方、lane 別件数は `records/_config/screening-rules.yaml` の `output.lane_toplist_limit` で管理する
+- `select` output には `lane_toplists`、`ranked_candidates`、research 着手候補として lane 分散した `candidates` が含まれる。`ranked_candidates` は macro + lane rank + signal strength のグローバル順位、`candidates` は `output.research_selection_lane_order` に沿って各 lane の上位を重複排除した推奨リスト。`candidates[].recommendation_lane` は lane 分散でその候補を拾った枠、`candidates[].selection_lane` は primary thesis として優先確認する signal。複数 signal 銘柄では両者が異なることがある。`candidates` の件数は CLI `--top` と `output.research_selection_target_max` の小さい方、lane 別件数は `records/_config/screening-rules.yaml` の `output.lane_toplist_limit` で管理する
 - 詳細: [`research.md`](./research.md) の選定プロセス
 - research decision 後の追跡先: [`ledger.md`](./ledger.md)
 

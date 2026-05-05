@@ -36,7 +36,7 @@ kill_switch_check:
 ### 1.1 Entry reason（research から）
 
 - **Thesis**（research から転写、短縮）: [1-2 段落]
-- **Playbook**: [valuation-reversion | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth]
+- **Playbook**: [valuation-reversion | strict-net-cash-discount | fcf-yield-discount | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth]
 - **Macro gate**: [tailwind | neutral]
 - **Primary valuation metric**: [per_forward + pbr 等]
 

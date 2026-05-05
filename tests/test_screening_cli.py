@@ -656,6 +656,9 @@ class SelectCommandTests(unittest.TestCase):
             )
             self.assertEqual(payload["candidates"][0]["selection_lane"], "cash-rich-asset-discount")
             self.assertEqual(
+                payload["candidates"][0]["recommendation_lane"], "cash-rich-asset-discount"
+            )
+            self.assertEqual(
                 payload["ranked_candidates"][0]["selection_lane"], "valuation-reversion"
             )
             self.assertEqual(payload["candidates"][0]["position_tier"], "200-500")
@@ -717,6 +720,81 @@ class SelectCommandTests(unittest.TestCase):
             )
             self.assertEqual([c["ticker"] for c in payload["candidates"]], ["2222", "1111"])
             self.assertEqual(payload["candidates"][0]["selection_lane"], "strict-net-cash-discount")
+            self.assertEqual(
+                payload["candidates"][0]["recommendation_lane"], "strict-net-cash-discount"
+            )
+
+    def test_select_separates_recommendation_lane_from_primary_selection_lane(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/03-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "strict top",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "signals": [
+                            {
+                                "name": "strict-net-cash-discount",
+                                "metrics": {
+                                    "net_cash_to_market_cap": 0.9,
+                                    "price_to_equity": 0.6,
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "ticker": "2222",
+                        "name": "strict and sales",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "signals": [
+                            {
+                                "name": "strict-net-cash-discount",
+                                "metrics": {
+                                    "net_cash_to_market_cap": 0.4,
+                                    "price_to_equity": 0.8,
+                                },
+                            },
+                            {
+                                "name": "sales-discount-growth",
+                                "metrics": {
+                                    "ps_sector_gap": -0.7,
+                                    "sales_yoy": 0.12,
+                                    "operating_profit": 10.0,
+                                },
+                            },
+                        ],
+                    },
+                ],
+            )
+            self._write_outlook(
+                root / "records/02-outlook",
+                asof,
+                sectors={"機械": "neutral"},
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                candidates_root=root / "records/03-candidates",
+                outlook_root=root / "records/02-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            self.assertEqual([c["ticker"] for c in payload["candidates"]], ["1111", "2222"])
+            self.assertEqual(
+                payload["candidates"][1]["recommendation_lane"], "sales-discount-growth"
+            )
+            self.assertEqual(payload["candidates"][1]["selection_lane"], "strict-net-cash-discount")
 
     def test_select_uses_lane_strength_before_market_cap(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

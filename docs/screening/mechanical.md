@@ -80,7 +80,7 @@ CashEq / market cap、price-to-equity、equity ratio を使い、厳密 net cash
 
 電気・ガス業もこの lane から除外する。規制・設備産業では CashEq / market cap が高くても、有利子負債・設備投資・燃料費調整などを見ないと margin of safety として読みにくいため。
 
-この lane は EDINET metrics が欠ける銘柄の proxy / downgrade として残す。EDINET で `strict-net-cash-discount` が成立する銘柄では、research の primary thesis は原則 `strict-net-cash-discount` に寄せる。
+この lane は EDINET metrics が欠ける銘柄の proxy / downgrade として残す。ただし EDINET の `net_cash_to_market_cap` が取得でき、設定値を下回る場合は、CashEq proxy が高くても cash-rich signal を出さない。J-Quants の CashEq だけで「現金が厚い」と見えても、EDINET の有利子負債を差し引くと net debt である銘柄を research 優先候補に上げないためである。EDINET で `strict-net-cash-discount` が成立する銘柄では、research の primary thesis は原則 `strict-net-cash-discount` に寄せる。
 
 ### 3.5 `cashflow-yield-discount`
 

@@ -81,9 +81,13 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。document selection は period end / period start を submit time より先に比較し、古い期間の訂正書が新しい半期 / 年次の通常書類を上書きしないようにする。同一期間では最新 submit time を優先し、同一 submit time の tie-break として訂正書を通常書類より優先する。
 
+`edinet_source_period_start` / `edinet_source_period_end` は EDINET documents metadata 上の書類対象期間であり、必ずしも抽出 metric の測定期間そのものではない。特に半期報告書 / 訂正半期報告書では fiscal year 全体の period end が入ることがある。screening では source traceability と document selection に使い、research では対象書類の CF 計算書 / BS 表示期間を一次確認する。
+
 `strict-net-cash-discount` は `ttm_quality_net_cash != unavailable` かつ `failure_reasons` に `debt_assumed_zero` がないときだけ判定する。Debt tag が見つからない場合は debt を 0 と推定せず、net cash は unavailable として strict lane から除外する。一方で、CSV 上に debt element があり値が `0` / `－` などのゼロ表記で報告されている場合は、報告ゼロとして debt 0 を許容する。Net cash は balance sheet snapshot なので、半期・四半期の最新値も research で確認する前提で許容する。
 
 `fcf-yield-discount` は `ttm_quality_fcf_yield = exact` のときだけ判定する。FCF は TTM 必須であり、半期・四半期の単一期間値を annualize して機械判定しない。tag 欠損、CSV parse 失敗、非連結 fallback は `failure_reasons` と coverage report に残し、候補判定では無理に推定しない。
+
+J-Quants CashEq proxy の `cash-rich-asset-discount` は、EDINET `net_cash_to_market_cap` が取得できる場合に限り、EDINET net cash が設定下限を下回る銘柄を除外する。CashEq / market cap が高くても有利子負債を差し引くと net debt になる銘柄は、「お買い得」候補ではなく leverage / working capital の確認対象として research 優先度を下げる。
 
 ## 8. 業種中央値の算出
 

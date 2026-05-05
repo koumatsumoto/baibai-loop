@@ -23,7 +23,9 @@ Baibai-Loop のスクリーニングサブシステムの設計原則。4 成分
 | playbook | primary signal | 狙い |
 | --- | --- | --- |
 | `valuation-reversion` | PER / PBR / exact かつ正の EV/EBITDA の相対割安、短期急落、sector rotation | 伝統的な valuation mean-reversion |
-| `cash-rich-asset-discount` | CashEq / market cap と Eq / market cap の厚さ | J-Quants summary で拾える cash-rich / asset discount 候補 |
+| `strict-net-cash-discount` | EDINET cash - debt / market cap と Eq / market cap | 有利子負債を差し引いても財務余力が厚い asset discount 候補 |
+| `fcf-yield-discount` | EDINET CFO - capex / market cap | 設備投資後の現金創出力に対して安い候補 |
+| `cash-rich-asset-discount` | CashEq / market cap と Eq / market cap の厚さ | J-Quants summary で拾える cash-rich / asset discount 候補。ただし EDINET net debt が取れる場合は抑止 |
 | `cashflow-yield-discount` | 期間正規化した CFO TTM / market cap | PER では拾いにくい現金創出力の割安 |
 | `sales-discount-growth` | P/S discount + 売上成長維持 | 利益が薄いが売上成長が残る調整銘柄 |
 
