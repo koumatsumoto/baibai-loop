@@ -30,7 +30,7 @@ sectors:
     source_refs: []
   "食料品":
     status: neutral
-    rationale: "コア CPI が +2%近辺で安定しており、食料品セクター固有の上振れ / 下振れが確認できない"
+    rationale: "コア CPI が +1.8%、コアコア CPI が +2.4% で、食料品セクター固有の上振れ / 下振れが確認できない"
     source_refs:
       - records/01-brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.yaml
   "繊維製品":
