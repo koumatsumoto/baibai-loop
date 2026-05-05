@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from .schema import ScreenedCandidate, ScreenedRunDocument, TTMQuality
+from .schema import FreshnessWarning, ScreenedCandidate, ScreenedRunDocument, TTMQuality
 
 JST = timezone(timedelta(hours=9))
 _DECIMAL_PLACES = {
@@ -129,6 +129,9 @@ def _build_candidate_entry(candidate: ScreenedCandidate) -> dict[str, object]:
         else None
     )
     entry["split_adjustment_flag"] = candidate.split_adjustment_flag
+    entry["freshness_warnings"] = [
+        _build_freshness_warning(warning) for warning in candidate.freshness_warnings
+    ]
     entry["ttm_quality"] = {
         "ev_ebitda": candidate.ttm_quality.get("ev_ebitda", TTMQuality.UNAVAILABLE).value,
         "p_s": candidate.ttm_quality.get("p_s", TTMQuality.UNAVAILABLE).value,
@@ -148,6 +151,24 @@ def _build_candidate_entry(candidate: ScreenedCandidate) -> dict[str, object]:
         for signal in candidate.signals
     ]
     return entry
+
+
+def _build_freshness_warning(warning: FreshnessWarning) -> dict[str, object]:
+    return {
+        "source_family": QuotedString(warning.source_family),
+        "stale_metric": QuotedString(warning.stale_metric),
+        "reason": QuotedString(warning.reason),
+        "event_date": QuotedString(warning.event_date.isoformat()),
+        "event_kind": QuotedString(warning.event_kind),
+        "event_title": QuotedString(warning.event_title),
+        "event_source": QuotedString(warning.event_source),
+        "event_url": QuotedString(warning.event_url) if warning.event_url is not None else None,
+        "edinet_source_submit_datetime": (
+            QuotedString(warning.edinet_source_submit_datetime)
+            if warning.edinet_source_submit_datetime is not None
+            else None
+        ),
+    }
 
 
 def _round_ratio(value: float | None) -> float | None:

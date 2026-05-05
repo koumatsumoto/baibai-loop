@@ -97,6 +97,7 @@ class ScreeningRenderTests(unittest.TestCase):
         self.assertIn('ticker: "130A"', rendered)
         self.assertIn("ttm_quality:", rendered)
         self.assertIn("approximated", rendered)
+        self.assertIn("freshness_warnings:", rendered)
         self.assertIn("ttm_quality_counts:", rendered)
         self.assertIn("fact_memo_lines:", rendered)
         self.assertIn('- "jpx-public-regulation"', rendered)
@@ -229,6 +230,7 @@ class ScreeningRenderTests(unittest.TestCase):
                   sigma_gap: null
               next_earnings_date: "2026-05-13"
               split_adjustment_flag: false
+              freshness_warnings: []
               ttm_quality:
                 ev_ebitda: exact
                 p_s: approximated

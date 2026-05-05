@@ -86,6 +86,9 @@ class FakeJQuantsProvider:
                 shares_outstanding=400_000_000.0,
                 sales=1000.0,
                 operating_profit=100.0,
+                cash_eq=200_000_000_000.0,
+                total_assets=1_000_000_000_000.0,
+                equity=600_000_000_000.0,
                 ordinary_profit=None,
                 profit=None,
             ),
@@ -98,6 +101,9 @@ class FakeJQuantsProvider:
                 shares_outstanding=400_000_000.0,
                 sales=1100.0,
                 operating_profit=110.0,
+                cash_eq=210_000_000_000.0,
+                total_assets=1_000_000_000_000.0,
+                equity=600_000_000_000.0,
                 ordinary_profit=None,
                 profit=None,
             ),
@@ -131,6 +137,8 @@ class FakeEDINETProvider:
                 ttm_quality_ev_ebitda=TTMQuality.EXACT,
                 ttm_quality_p_s=TTMQuality.APPROXIMATED,
                 ttm_quality_pcfr=TTMQuality.UNAVAILABLE,
+                source_doc_id="S100TEST",
+                source_submit_datetime="2025-10-15 12:00",
             )
         }
 
@@ -144,6 +152,24 @@ class FakeEDINETProvider:
     def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
         del start, end
         return {"ok": 1}
+
+
+class _FreshnessWarningEDINETProvider(FakeEDINETProvider):
+    def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
+        del asof_date
+        return {
+            "130A": EdinetMetricRecord(
+                ticker="130A",
+                debt=20_000_000_000.0,
+                cash=150_000_000_000.0,
+                net_cash=130_000_000_000.0,
+                ebitda_ttm=30_000_000_000.0,
+                ttm_quality_net_cash=TTMQuality.EXACT,
+                ttm_quality_ev_ebitda=TTMQuality.EXACT,
+                source_doc_id="S100TEST",
+                source_submit_datetime="2025-10-15 12:00",
+            )
+        }
 
 
 @dataclass
@@ -256,6 +282,117 @@ class ScreeningCliTests(unittest.TestCase):
                 self.assertIn(
                     "EDINET preprocessed metrics: optional unavailable",
                     payload["provider_status_lines"],
+                )
+            finally:
+                os.chdir(cwd)
+
+    def test_run_command_emits_edinet_freshness_warnings_from_disclosure_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = Path.cwd()
+            try:
+                os_path = Path(tmpdir)
+                import os
+
+                os.chdir(os_path)
+                cache_dir = Path(".cache/screening")
+                disclosure_path = cache_dir / "disclosures" / "tdnet.json"
+                disclosure_path.parent.mkdir(parents=True)
+                disclosure_path.write_text(
+                    json.dumps(
+                        [
+                            {
+                                "Code": "130A0",
+                                "Date": "2026-03-03",
+                                "Title": "資金の借入に関するお知らせ",
+                                "Source": "tdnet",
+                            }
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+                config = ScreeningConfig("token", "key", cache_dir=cache_dir)
+                providers = ProviderBundle(
+                    jquants=FakeJQuantsProvider(),
+                    edinet=_FreshnessWarningEDINETProvider(),
+                    jpx=FakeJPXProvider(),
+                )
+
+                exit_code = run_command(
+                    date(2026, 4, 24),
+                    config,
+                    providers,
+                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                )
+
+                self.assertEqual(exit_code, 2)
+                payload = yaml.safe_load(build_output_path(date(2026, 4, 24)).read_text())
+                self.assertIn("disclosure-title-events", payload["data_sources"])
+                self.assertIn(
+                    "Disclosure title material-event scan: 1 events from 1 files "
+                    "(skipped=0, unsupported=0, errors=0)",
+                    payload["provider_status_lines"],
+                )
+                warnings = payload["candidates"][0]["freshness_warnings"]
+                self.assertEqual(warnings[0]["event_kind"], "borrowing")
+                self.assertEqual(warnings[0]["stale_metric"], "edinet_metrics")
+                self.assertEqual(
+                    payload["candidates"][0]["metrics"]["edinet_freshness_warning_count"], 1
+                )
+            finally:
+                os.chdir(cwd)
+
+    def test_run_command_reports_disclosure_scan_coverage_issues(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = Path.cwd()
+            try:
+                os_path = Path(tmpdir)
+                import os
+
+                os.chdir(os_path)
+                cache_dir = Path(".cache/screening")
+                disclosure_dir = cache_dir / "disclosures"
+                disclosure_dir.mkdir(parents=True)
+                (disclosure_dir / "broken.json").write_text("{", encoding="utf-8")
+                (disclosure_dir / "mixed.json").write_text(
+                    json.dumps(
+                        {
+                            "events": [
+                                {"Code": "130A0", "Date": "2026-03-03"},
+                                "not-a-record",
+                            ]
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                config = ScreeningConfig("token", "key", cache_dir=cache_dir)
+                providers = ProviderBundle(
+                    jquants=FakeJQuantsProvider(),
+                    edinet=_FreshnessWarningEDINETProvider(),
+                    jpx=FakeJPXProvider(),
+                )
+
+                exit_code = run_command(
+                    date(2026, 4, 24),
+                    config,
+                    providers,
+                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                )
+
+                self.assertEqual(exit_code, 2)
+                payload = yaml.safe_load(build_output_path(date(2026, 4, 24)).read_text())
+                self.assertIn(
+                    "Disclosure title material-event scan: 0 events from 2 files "
+                    "(skipped=1, unsupported=1, errors=1)",
+                    payload["provider_status_lines"],
+                )
+                self.assertIn("Disclosure title scan 読み込み失敗: 1 件", payload["fallback_lines"])
+                self.assertIn(
+                    "Disclosure title scan 必須 key 欠損/不正 record: 1 件",
+                    payload["fallback_lines"],
+                )
+                self.assertIn(
+                    "Disclosure title scan 未対応 record/layout: 1 件",
+                    payload["fallback_lines"],
                 )
             finally:
                 os.chdir(cwd)
@@ -722,6 +859,68 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(payload["candidates"][0]["selection_lane"], "strict-net-cash-discount")
             self.assertEqual(
                 payload["candidates"][0]["recommendation_lane"], "strict-net-cash-discount"
+            )
+
+    def test_select_preserves_freshness_warnings_across_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            warning = {
+                "source_family": "edinet-metrics",
+                "stale_metric": "edinet_metrics",
+                "reason": "material_event_after_edinet_source",
+                "event_date": "2026-03-03",
+                "event_kind": "borrowing",
+                "event_title": "資金の借入に関するお知らせ",
+                "event_source": "tdnet",
+                "event_url": None,
+                "edinet_source_submit_datetime": "2026-03-03 10:00",
+            }
+            self._write_candidates(
+                root / "records/03-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "2222",
+                        "name": "strict net cash warning",
+                        "sector_33": "機械",
+                        "market_cap_oku": 150,
+                        "freshness_warnings": [warning],
+                        "signals": [
+                            {
+                                "name": "strict-net-cash-discount",
+                                "metrics": {
+                                    "net_cash_to_market_cap": 0.6,
+                                    "price_to_equity": 0.7,
+                                },
+                            }
+                        ],
+                    },
+                ],
+            )
+            self._write_outlook(
+                root / "records/02-outlook",
+                asof,
+                sectors={"機械": "neutral"},
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                candidates_root=root / "records/03-candidates",
+                outlook_root=root / "records/02-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            self.assertEqual(payload["candidates"][0]["freshness_warnings"], [warning])
+            self.assertEqual(payload["ranked_candidates"][0]["freshness_warnings"], [warning])
+            self.assertEqual(
+                payload["lane_toplists"]["strict-net-cash-discount"][0]["freshness_warnings"],
+                [warning],
             )
 
     def test_select_separates_recommendation_lane_from_primary_selection_lane(self) -> None:

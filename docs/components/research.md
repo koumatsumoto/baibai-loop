@@ -37,6 +37,7 @@ research 対象に選んだ銘柄は、業種を問わず **会社IRを一次情
 - 最低限、直近の決算短信、決算説明資料、会社説明会 Q&A、有価証券報告書 / 統合報告書、中期経営計画、株主還元・自己株式取得・配当関連の適時開示を確認する
 - cash-rich signal では有利子負債・偶発債務を一次情報で確認する
 - CF signal では営業 CF の一過性要因、運転資本、季節性を確認する
+- candidates / select の `freshness_warnings` に `source_family: edinet-metrics` がある場合、strict net cash / cash-rich / FCF 系の primary または supporting signal では、EDINET 由来の cash / debt / net cash / EV / equity / share count / capex / fcf_ttm を最新の会社IR・適時開示・有報で再確認する。warning が残ったまま未確認なら `decision: accepted` にしない
 - 会社IRで確認できた事実、会社IRでは確認できず外部 estimate に留めた情報、外部AI / 二次分析から修正した数値を research 本文の source verification log に分けて残す
 - 会社IRが未確認の銘柄は `decision: accepted` にしない。情報不足なら `pending` または `skipped` とし、未確認項目を明記する
 
@@ -163,6 +164,7 @@ research decision は `baibai-loop-ledger sync` で [`records/_ledger/`](./ledge
 - strict net-cash signal では EDINET 由来 debt / cash の tag source と有利子負債の範囲を一次情報で確認している
 - cash-rich signal では有利子負債確認を完了している
 - FCF signal では capex source、設備投資の一過性、維持投資 / 成長投資の区別を確認している
+- candidates / select の `freshness_warnings` が EDINET metrics の古さを示す場合、該当 warning の event title と日付を確認し、最新の balance sheet / cash flow / share count への影響を一次情報で確認している
 - OCF signal では営業 CF の期間正規化、一過性要因、悪化有無を確認している
 - sales signal では売上成長が残り、営業赤字の場合は CFO プラスまたは赤字縮小が確認できる
 - catalyst は必須ではないが、存在する場合は freshness と一次ソースを記録する
@@ -214,6 +216,7 @@ AI 下書きは front matter `ai-draft: true` で識別、人間確認後 `false
 - [ ] **AP-02** (数値検算): `adv_participation_pct = position_size_oku / avg_turnover_oku * 100` を検算したか
 - [ ] **AP-03** (株価異常値の corporate action 確認): candidates の `price_change_60d` / `price_change_4w` が大きい銘柄は corporate action の有無を確認したか
 - [ ] **AP-04** (schema / 実装の意味): candidates の `signals` / `metrics` / `sector_relative_strength_percentile` の意味を `src/baibai_loop/screening/metrics.py` と `rules.py` で確認したか
+- [ ] **EDINET freshness warning**: candidates / select の `freshness_warnings` がある場合、該当 event 後の cash / debt / net cash / EV / equity / share count / capex / FCF 影響を一次情報で再確認したか
 - [ ] **AP-06** (ref 整合性): `outlook_ref` / `candidates_ref` / `brief_refs` の 3 ref が valid パスか
 - [ ] **AP-07** (kill switch と日付): `tradable_at` 周辺に決算・日銀会合・FOMC が無いか
 - [ ] **AP-08** (validator 抜け道): skipped では `position_size_oku: 0` + `adv_participation_pct: 0` を守ったか
