@@ -38,6 +38,7 @@ def _financial(**overrides: object) -> FinancialSnapshot:
         eps=100.0,
         sales_ttm=1000.0,
         ocf_ttm=100.0,
+        edinet_ocf_ttm=100.0,
         cfo_yoy=0.1,
         equity_ratio=0.5,
         debt=50.0,
@@ -254,11 +255,29 @@ class ScreeningRulesTests(unittest.TestCase):
 
     def test_fcf_yield_discount_hits(self) -> None:
         result = evaluate_screening(
-            _financial(fcf_ttm=100.0, fcf_yield=0.1, cfo_yoy=0.2),
+            _financial(
+                ocf_ttm=999.0,
+                edinet_ocf_ttm=120.0,
+                fcf_ttm=100.0,
+                fcf_yield=0.1,
+                capex_ttm=20.0,
+                cfo_yoy=0.2,
+            ),
             _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
             RULES,
         )
-        self.assertIn(SIGNAL_FCF_YIELD, [signal.name for signal in result.signals])
+        signal = next(signal for signal in result.signals if signal.name == SIGNAL_FCF_YIELD)
+        self.assertEqual(signal.metrics["edinet_ocf_ttm"], 120.0)
+        self.assertNotIn("ocf_ttm", signal.metrics)
+
+    def test_fcf_yield_discount_rejects_missing_edinet_ocf(self) -> None:
+        result = evaluate_screening(
+            _financial(edinet_ocf_ttm=None, fcf_ttm=100.0, fcf_yield=0.1, cfo_yoy=0.2),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertNotIn(SIGNAL_FCF_YIELD, [signal.name for signal in result.signals])
+        self.assertIn("fcf_yield_missing_edinet_ocf", result.null_reasons)
 
     def test_fcf_yield_discount_rejects_unavailable_quality(self) -> None:
         result = evaluate_screening(

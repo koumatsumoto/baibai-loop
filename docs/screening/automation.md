@@ -75,8 +75,12 @@ raw cache / SQLite cache の配置先は固定 (env override 廃止):
 - 認証方式: `Subscription-Key` を query parameter に付与
 - 対象 docTypeCode:
   - `120`: 有報
+  - `130`: 訂正有報
   - `140`: 旧四半期報告書
+  - `150`: 訂正四半期報告書
   - `160`: 半期報告書
+  - `170`: 訂正半期報告書
+- 同一期間の訂正書は通常書類より優先する。ただし訂正書の対象期間が古い場合は、新しい通常書類を上書きしない
 - `extract-edinet-metrics` は `documents.json` 取得後、`type=5` CSV ZIP（UTF-16 LE タブ区切り）を解凍し、EV/EBITDA / net cash / FCF 関連 metrics を前処理済み JSON cache に書く
 - EDINET cache / API key が無い場合も screening は fail-fast しない。`data_sources` には利用した source のみを記録し、`config_hash` には rules file hash と optional EDINET 設定有無を含める
 
@@ -148,7 +152,7 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 - `jquants_earnings_calendar(announcement_date, ticker, raw_json)` — 主キー `(announcement_date, ticker)`
 - `jquants_market_calendar(day, is_business_day, raw_json)` — 主キー `(day)`。`HolidayDivision` "1" / "2" を business day=1、それ以外を 0 として記録
 - `edinet_documents(doc_date, doc_id, sec_code, doc_type_code, raw_json)` — 主キー `(doc_date, doc_id)`。`doc_date` はファイル名（`{date}.json`）から復元
-- `edinet_metrics(asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, operating_profit_ttm, depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, net_cash, equity, total_assets, consolidation_basis, ttm_quality_*, source_doc_id, document_type, capex_source, failure_reasons)` — 主キー `(asof_date, ticker)`。`asof_date` はファイル名から復元
+- `edinet_metrics(asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, operating_profit_ttm, depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, net_cash, equity, total_assets, consolidation_basis, ttm_quality_*, source_doc_id, document_type, capex_source, failure_reasons)` — 主キー `(asof_date, ticker)`。`asof_date` はファイル名から復元。Candidate YAML では EDINET raw `ocf_ttm` を `edinet_ocf_ttm` として出し、J-Quants 財務サマリー由来の `ocf_ttm` と区別する
 - `jpx_regulation_flags(asof_date, source_name, ticker, flag, fetched_at_utc)` — 主キー `(asof_date, source_name, ticker, flag)`。JPX cache の `flags_by_ticker` は source 別の起源を保持しないため、`source_name=flag` として記録
 - `raw_imports(source, path, sha256, imported_at_utc, record_count, min_date, max_date)` — `path` を主キーとし、import した raw JSON の SHA-256 と record 範囲を記録する監査用 table
 - `cache_metadata(key, value)` — schema version などの KV ストア

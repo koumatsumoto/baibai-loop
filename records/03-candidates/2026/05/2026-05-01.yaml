@@ -10,7 +10,7 @@ data_sources:
 - "j-quants-light"
 - "jpx-public-regulation"
 - "edinet-preprocessed-metrics"
-run_at: "2026-05-05T18:13:07.381920+09:00"
+run_at: "2026-05-05T18:32:51.841596+09:00"
 run_id: "screening-20260501-9fb7bc90"
 config_hash: "9fb7bc90014da27b"
 cache_manifest_hash: "05293740ff042f2d"
@@ -32,6 +32,7 @@ candidates:
   metrics:
     sales_ttm: 324771000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: -8639000000.0
     cash_eq: null
     total_assets: 222439000000.0
     equity: 75639000000.0
@@ -111,6 +112,7 @@ candidates:
   metrics:
     sales_ttm: 912544000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 16543000000.0
     cash_eq: null
     total_assets: 686801000000.0
     equity: 293966000000.0
@@ -187,6 +189,7 @@ candidates:
   metrics:
     sales_ttm: 1074205000000.0
     ocf_ttm: 83717000000.0
+    edinet_ocf_ttm: 113669000000.0
     cash_eq: 116403000000.0
     total_assets: 850466000000.0
     equity: 131723000000.0
@@ -264,6 +267,7 @@ candidates:
   metrics:
     sales_ttm: 33670000000.0
     ocf_ttm: 1510000000.0
+    edinet_ocf_ttm: 1510471000.0
     cash_eq: 2415000000.0
     total_assets: 25810000000.0
     equity: 11633000000.0
@@ -344,6 +348,7 @@ candidates:
   metrics:
     sales_ttm: 24068000000.0
     ocf_ttm: 1849000000.0
+    edinet_ocf_ttm: 1849156000.0
     cash_eq: 7505000000.0
     total_assets: 15925000000.0
     equity: 11167000000.0
@@ -421,6 +426,7 @@ candidates:
   metrics:
     sales_ttm: 2011351000000.0
     ocf_ttm: 693893000000.0
+    edinet_ocf_ttm: null
     cash_eq: 168407000000.0
     total_assets: 7735198000000.0
     equity: 5022903000000.0
@@ -506,6 +512,7 @@ candidates:
   metrics:
     sales_ttm: 91354000000.0
     ocf_ttm: 15911000000.0
+    edinet_ocf_ttm: 15911000000.0
     cash_eq: 29857000000.0
     total_assets: 127773000000.0
     equity: 108888000000.0
@@ -591,6 +598,7 @@ candidates:
   metrics:
     sales_ttm: 361237000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: -16084000000.0
     cash_eq: null
     total_assets: 285671000000.0
     equity: 141308000000.0
@@ -670,6 +678,7 @@ candidates:
   metrics:
     sales_ttm: 1984743000000.0
     ocf_ttm: 40490000000.0
+    edinet_ocf_ttm: -15747000000.0
     cash_eq: 258120000000.0
     total_assets: 1367502000000.0
     equity: 496598000000.0
@@ -749,6 +758,7 @@ candidates:
   metrics:
     sales_ttm: 135361000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 901000000.0
     cash_eq: null
     total_assets: 159178000000.0
     equity: 69382000000.0
@@ -828,6 +838,7 @@ candidates:
   metrics:
     sales_ttm: 61219000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 1553840000.0
     cash_eq: null
     total_assets: 53218000000.0
     equity: 34883000000.0
@@ -907,6 +918,7 @@ candidates:
   metrics:
     sales_ttm: 2267577000000.0
     ocf_ttm: 94675000000.0
+    edinet_ocf_ttm: 94675000000.0
     cash_eq: 208577000000.0
     total_assets: 2572032000000.0
     equity: 1136786000000.0
@@ -995,6 +1007,7 @@ candidates:
   metrics:
     sales_ttm: 227850000000.0
     ocf_ttm: 29146000000.0
+    edinet_ocf_ttm: 12243000000.0
     cash_eq: 43605000000.0
     total_assets: 317819000000.0
     equity: 247823000000.0
@@ -1072,6 +1085,7 @@ candidates:
   metrics:
     sales_ttm: 272468000000.0
     ocf_ttm: 26095000000.0
+    edinet_ocf_ttm: 9154000000.0
     cash_eq: 46046000000.0
     total_assets: 312053000000.0
     equity: 153170000000.0
@@ -1149,6 +1163,7 @@ candidates:
   metrics:
     sales_ttm: 170489000000.0
     ocf_ttm: 17507000000.0
+    edinet_ocf_ttm: null
     cash_eq: 21108000000.0
     total_assets: 125484000000.0
     equity: 77636000000.0
@@ -1226,6 +1241,7 @@ candidates:
   metrics:
     sales_ttm: 74315000000.0
     ocf_ttm: 14101319000.0
+    edinet_ocf_ttm: 6643111000.0
     cash_eq: 7792851000.0
     total_assets: 75077000000.0
     equity: 38185000000.0
@@ -1303,6 +1319,7 @@ candidates:
   metrics:
     sales_ttm: 1519313000000.0
     ocf_ttm: 76127000000.0
+    edinet_ocf_ttm: null
     cash_eq: 88429000000.0
     total_assets: 605250000000.0
     equity: 225898000000.0
@@ -1391,6 +1408,7 @@ candidates:
   metrics:
     sales_ttm: 1424126000000.0
     ocf_ttm: 90491000000.0
+    edinet_ocf_ttm: null
     cash_eq: 63107000000.0
     total_assets: 1005702000000.0
     equity: 554514000000.0
@@ -1479,6 +1497,7 @@ candidates:
   metrics:
     sales_ttm: 472312000000.0
     ocf_ttm: 8750000000.0
+    edinet_ocf_ttm: -3766000000.0
     cash_eq: 37482000000.0
     total_assets: 251439000000.0
     equity: 140672000000.0
@@ -1567,6 +1586,7 @@ candidates:
   metrics:
     sales_ttm: 1071381000000.0
     ocf_ttm: 13663000000.0
+    edinet_ocf_ttm: 12836000000.0
     cash_eq: 17572000000.0
     total_assets: 524726000000.0
     equity: 295509000000.0
@@ -1646,6 +1666,7 @@ candidates:
   metrics:
     sales_ttm: 54852000000.0
     ocf_ttm: 9965000000.0
+    edinet_ocf_ttm: 4808652000.0
     cash_eq: 9039000000.0
     total_assets: 49954000000.0
     equity: 37193000000.0
@@ -1722,6 +1743,7 @@ candidates:
   metrics:
     sales_ttm: 490344000000.0
     ocf_ttm: 35432000000.0
+    edinet_ocf_ttm: 35432000000.0
     cash_eq: 20439000000.0
     total_assets: 346852000000.0
     equity: 126553000000.0
@@ -1810,6 +1832,7 @@ candidates:
   metrics:
     sales_ttm: 351363000000.0
     ocf_ttm: 70262000000.0
+    edinet_ocf_ttm: null
     cash_eq: 156177000000.0
     total_assets: 637396000000.0
     equity: 446648000000.0
@@ -1886,6 +1909,7 @@ candidates:
   metrics:
     sales_ttm: 284350000000.0
     ocf_ttm: 14787000000.0
+    edinet_ocf_ttm: 14787000000.0
     cash_eq: 38885000000.0
     total_assets: 185692000000.0
     equity: 53342000000.0
@@ -1965,6 +1989,7 @@ candidates:
   metrics:
     sales_ttm: 161722000000.0
     ocf_ttm: 50853000000.0
+    edinet_ocf_ttm: null
     cash_eq: 97531000000.0
     total_assets: 374986000000.0
     equity: 259688000000.0
@@ -2042,6 +2067,7 @@ candidates:
   metrics:
     sales_ttm: 66656000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 4831000000.0
     cash_eq: null
     total_assets: 45434000000.0
     equity: 14346000000.0
@@ -2121,6 +2147,7 @@ candidates:
   metrics:
     sales_ttm: 18884000000.0
     ocf_ttm: 304000000.0
+    edinet_ocf_ttm: 1923000000.0
     cash_eq: 10072000000.0
     total_assets: 15435000000.0
     equity: 11556000000.0
@@ -2197,6 +2224,7 @@ candidates:
   metrics:
     sales_ttm: 2433363000000.0
     ocf_ttm: 295428000000.0
+    edinet_ocf_ttm: null
     cash_eq: 125292000000.0
     total_assets: 3494043000000.0
     equity: 1595148000000.0
@@ -2274,6 +2302,7 @@ candidates:
   metrics:
     sales_ttm: 900566000000.0
     ocf_ttm: 69540000000.0
+    edinet_ocf_ttm: null
     cash_eq: 70716000000.0
     total_assets: 681531000000.0
     equity: 368913000000.0
@@ -2351,6 +2380,7 @@ candidates:
   metrics:
     sales_ttm: 1715438000000.0
     ocf_ttm: 159307000000.0
+    edinet_ocf_ttm: null
     cash_eq: 148663000000.0
     total_assets: 2218015000000.0
     equity: 1425198000000.0
@@ -2436,6 +2466,7 @@ candidates:
   metrics:
     sales_ttm: 241236000000.0
     ocf_ttm: 11409000000.0
+    edinet_ocf_ttm: 11409000000.0
     cash_eq: 27877000000.0
     total_assets: 162812000000.0
     equity: 64895000000.0
@@ -2521,6 +2552,7 @@ candidates:
   metrics:
     sales_ttm: 245548000000.0
     ocf_ttm: 31617000000.0
+    edinet_ocf_ttm: 23356000000.0
     cash_eq: 79534000000.0
     total_assets: 217274000000.0
     equity: 160958000000.0
@@ -2598,6 +2630,7 @@ candidates:
   metrics:
     sales_ttm: 284492000000.0
     ocf_ttm: 8865000000.0
+    edinet_ocf_ttm: 9337000000.0
     cash_eq: 38112000000.0
     total_assets: 199614000000.0
     equity: 115928000000.0
@@ -2700,6 +2733,7 @@ candidates:
   metrics:
     sales_ttm: 467116000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 2645000000.0
     cash_eq: null
     total_assets: 300181000000.0
     equity: 97019000000.0
@@ -2779,6 +2813,7 @@ candidates:
   metrics:
     sales_ttm: 304351000000.0
     ocf_ttm: 20566000000.0
+    edinet_ocf_ttm: 10019000000.0
     cash_eq: 24820000000.0
     total_assets: 139688000000.0
     equity: 81823000000.0
@@ -2856,6 +2891,7 @@ candidates:
   metrics:
     sales_ttm: 249474000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 14869000000.0
     cash_eq: null
     total_assets: 162148000000.0
     equity: 88865000000.0
@@ -2935,6 +2971,7 @@ candidates:
   metrics:
     sales_ttm: 781418000000.0
     ocf_ttm: 26841000000.0
+    edinet_ocf_ttm: 20438000000.0
     cash_eq: 10829000000.0
     total_assets: 446536000000.0
     equity: 230798000000.0
@@ -3012,6 +3049,7 @@ candidates:
   metrics:
     sales_ttm: 251790000000.0
     ocf_ttm: 15481000000.0
+    edinet_ocf_ttm: 16160000000.0
     cash_eq: 25614000000.0
     total_assets: 221122000000.0
     equity: 96329000000.0
@@ -3089,6 +3127,7 @@ candidates:
   metrics:
     sales_ttm: 633668000000.0
     ocf_ttm: -97467000000.0
+    edinet_ocf_ttm: -43906000000.0
     cash_eq: 11721000000.0
     total_assets: 344957000000.0
     equity: 59237000000.0
@@ -3168,6 +3207,7 @@ candidates:
   metrics:
     sales_ttm: 225719000000.0
     ocf_ttm: 26200000000.0
+    edinet_ocf_ttm: 21326000000.0
     cash_eq: 24699000000.0
     total_assets: 136010000000.0
     equity: 77739000000.0
@@ -3256,6 +3296,7 @@ candidates:
   metrics:
     sales_ttm: 203748000000.0
     ocf_ttm: 15684000000.0
+    edinet_ocf_ttm: 8452000000.0
     cash_eq: 7622000000.0
     total_assets: 162211000000.0
     equity: 53756000000.0
@@ -3333,6 +3374,7 @@ candidates:
   metrics:
     sales_ttm: 197434000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 10906000000.0
     cash_eq: null
     total_assets: 141766000000.0
     equity: 67121000000.0
@@ -3413,6 +3455,7 @@ candidates:
   metrics:
     sales_ttm: 204685000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: -176500000.0
     cash_eq: null
     total_assets: 106414000000.0
     equity: 34968000000.0
@@ -3492,6 +3535,7 @@ candidates:
   metrics:
     sales_ttm: 3061813000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 30557000000.0
     cash_eq: null
     total_assets: 1626893000000.0
     equity: 497094000000.0
@@ -3576,6 +3620,7 @@ candidates:
   metrics:
     sales_ttm: 314075000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 1933000000.0
     cash_eq: null
     total_assets: 129430000000.0
     equity: 60347000000.0
@@ -3655,6 +3700,7 @@ candidates:
   metrics:
     sales_ttm: 119995000000.0
     ocf_ttm: 6841000000.0
+    edinet_ocf_ttm: null
     cash_eq: 16248000000.0
     total_assets: 102162000000.0
     equity: 40617000000.0
@@ -3732,6 +3778,7 @@ candidates:
   metrics:
     sales_ttm: 57484000000.0
     ocf_ttm: -2503000000.0
+    edinet_ocf_ttm: -4260875000.0
     cash_eq: 8288000000.0
     total_assets: 61028000000.0
     equity: 19253000000.0
@@ -3809,6 +3856,7 @@ candidates:
   metrics:
     sales_ttm: 233833000000.0
     ocf_ttm: 16960000000.0
+    edinet_ocf_ttm: 8628000000.0
     cash_eq: 10378000000.0
     total_assets: 131735000000.0
     equity: 62131000000.0
@@ -3897,6 +3945,7 @@ candidates:
   metrics:
     sales_ttm: 50370000000.0
     ocf_ttm: 5188000000.0
+    edinet_ocf_ttm: 5188000000.0
     cash_eq: 15903000000.0
     total_assets: 72332000000.0
     equity: 28526000000.0
@@ -3963,7 +4012,7 @@ candidates:
     metrics:
       fcf_yield: 0.0836
       fcf_ttm: 4593000000.0
-      ocf_ttm: 5188000000.0
+      edinet_ocf_ttm: 5188000000.0
       capex_ttm: 595000000.0
       cfo_yoy: 0.9614
       ttm_quality: exact
@@ -3988,6 +4037,7 @@ candidates:
   metrics:
     sales_ttm: 67531000000.0
     ocf_ttm: -5954000000.0
+    edinet_ocf_ttm: -5954194000.0
     cash_eq: 11634000000.0
     total_assets: 72062000000.0
     equity: 20576000000.0
@@ -4067,6 +4117,7 @@ candidates:
   metrics:
     sales_ttm: 48623000000.0
     ocf_ttm: -1311000000.0
+    edinet_ocf_ttm: -1311752000.0
     cash_eq: 5835000000.0
     total_assets: 35103000000.0
     equity: 7816000000.0
@@ -4146,6 +4197,7 @@ candidates:
   metrics:
     sales_ttm: 275408000000.0
     ocf_ttm: 3879000000.0
+    edinet_ocf_ttm: 1896000000.0
     cash_eq: 13453000000.0
     total_assets: 217926000000.0
     equity: 117236000000.0
@@ -4233,6 +4285,7 @@ candidates:
   metrics:
     sales_ttm: 281790000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 6186000000.0
     cash_eq: null
     total_assets: 156617000000.0
     equity: 56655000000.0
@@ -4312,6 +4365,7 @@ candidates:
   metrics:
     sales_ttm: 1003410000000.0
     ocf_ttm: 36871000000.0
+    edinet_ocf_ttm: 6613000000.0
     cash_eq: 56334000000.0
     total_assets: 513376000000.0
     equity: 221400000000.0
@@ -4391,6 +4445,7 @@ candidates:
   metrics:
     sales_ttm: 542317000000.0
     ocf_ttm: 36541000000.0
+    edinet_ocf_ttm: 32898000000.0
     cash_eq: 85094000000.0
     total_assets: 670854000000.0
     equity: 298177000000.0
@@ -4468,6 +4523,7 @@ candidates:
   metrics:
     sales_ttm: 502339000000.0
     ocf_ttm: 49337000000.0
+    edinet_ocf_ttm: 49337000000.0
     cash_eq: 44055000000.0
     total_assets: 667817000000.0
     equity: 316591000000.0
@@ -4535,7 +4591,7 @@ candidates:
     metrics:
       fcf_yield: 0.0955
       fcf_ttm: 32498000000.0
-      ocf_ttm: 49337000000.0
+      edinet_ocf_ttm: 49337000000.0
       capex_ttm: 16839000000.0
       cfo_yoy: 0.739
       ttm_quality: exact
@@ -4560,6 +4616,7 @@ candidates:
   metrics:
     sales_ttm: 1329247000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 6512000000.0
     cash_eq: null
     total_assets: 459277000000.0
     equity: 160719000000.0
@@ -4639,6 +4696,7 @@ candidates:
   metrics:
     sales_ttm: 2037063000000.0
     ocf_ttm: 142965000000.0
+    edinet_ocf_ttm: null
     cash_eq: 278507000000.0
     total_assets: 1182385000000.0
     equity: 529068000000.0
@@ -4725,6 +4783,7 @@ candidates:
   metrics:
     sales_ttm: 185404000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: -268000000.0
     cash_eq: null
     total_assets: 97763000000.0
     equity: 32309000000.0
@@ -4804,6 +4863,7 @@ candidates:
   metrics:
     sales_ttm: null
     ocf_ttm: null
+    edinet_ocf_ttm: 5224000000.0
     cash_eq: null
     total_assets: 115514000000.0
     equity: 28924000000.0
@@ -4880,6 +4940,7 @@ candidates:
   metrics:
     sales_ttm: 51040000000.0
     ocf_ttm: 2600000000.0
+    edinet_ocf_ttm: 2522465000.0
     cash_eq: 4651000000.0
     total_assets: 33457000000.0
     equity: 12187000000.0
@@ -4956,6 +5017,7 @@ candidates:
   metrics:
     sales_ttm: 457794000000.0
     ocf_ttm: 74495000000.0
+    edinet_ocf_ttm: null
     cash_eq: 34331000000.0
     total_assets: 518549000000.0
     equity: 187567000000.0
@@ -5033,6 +5095,7 @@ candidates:
   metrics:
     sales_ttm: 963762000000.0
     ocf_ttm: 25603000000.0
+    edinet_ocf_ttm: 20398000000.0
     cash_eq: 32411000000.0
     total_assets: 379211000000.0
     equity: 200671000000.0
@@ -5129,6 +5192,7 @@ candidates:
   metrics:
     sales_ttm: 97590000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: -15050000000.0
     cash_eq: null
     total_assets: 210926000000.0
     equity: 50715000000.0
@@ -5208,6 +5272,7 @@ candidates:
   metrics:
     sales_ttm: 117417000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 481652000.0
     cash_eq: null
     total_assets: 46568000000.0
     equity: 17322000000.0
@@ -5287,6 +5352,7 @@ candidates:
   metrics:
     sales_ttm: 81374000000.0
     ocf_ttm: 6299000000.0
+    edinet_ocf_ttm: 6800014000.0
     cash_eq: 12269000000.0
     total_assets: 56077000000.0
     equity: 40159000000.0
@@ -5372,6 +5438,7 @@ candidates:
   metrics:
     sales_ttm: 8905000000.0
     ocf_ttm: 6618000000.0
+    edinet_ocf_ttm: 6618000000.0
     cash_eq: 2552000000.0
     total_assets: 505286000000.0
     equity: 458592000000.0
@@ -5448,6 +5515,7 @@ candidates:
   metrics:
     sales_ttm: 276942000000.0
     ocf_ttm: 47285000000.0
+    edinet_ocf_ttm: null
     cash_eq: 69164000000.0
     total_assets: 318456000000.0
     equity: 97668000000.0
@@ -5525,6 +5593,7 @@ candidates:
   metrics:
     sales_ttm: 3039323000000.0
     ocf_ttm: 306939000000.0
+    edinet_ocf_ttm: 134771000000.0
     cash_eq: 436560000000.0
     total_assets: 4164696000000.0
     equity: 2081841000000.0
@@ -5602,6 +5671,7 @@ candidates:
   metrics:
     sales_ttm: 409670000000.0
     ocf_ttm: 100040000000.0
+    edinet_ocf_ttm: 100040000000.0
     cash_eq: 75296000000.0
     total_assets: 1127966000000.0
     equity: 647785000000.0
@@ -5679,6 +5749,7 @@ candidates:
   metrics:
     sales_ttm: 114357000000.0
     ocf_ttm: 13957000000.0
+    edinet_ocf_ttm: 4761000000.0
     cash_eq: 45569000000.0
     total_assets: 170851000000.0
     equity: 57309000000.0
@@ -5767,6 +5838,7 @@ candidates:
   metrics:
     sales_ttm: 69262000000.0
     ocf_ttm: -3201000000.0
+    edinet_ocf_ttm: -3201947000.0
     cash_eq: 14549000000.0
     total_assets: 47650000000.0
     equity: 14986000000.0
@@ -5846,6 +5918,7 @@ candidates:
   metrics:
     sales_ttm: 259191000000.0
     ocf_ttm: 6100000000.0
+    edinet_ocf_ttm: null
     cash_eq: 29063000000.0
     total_assets: 99275000000.0
     equity: 30761000000.0
@@ -5925,6 +5998,7 @@ candidates:
   metrics:
     sales_ttm: 194560000000.0
     ocf_ttm: 13233000000.0
+    edinet_ocf_ttm: 7874000000.0
     cash_eq: 19801000000.0
     total_assets: 81320000000.0
     equity: 47423000000.0
@@ -6013,6 +6087,7 @@ candidates:
   metrics:
     sales_ttm: 150601000000.0
     ocf_ttm: 10432000000.0
+    edinet_ocf_ttm: 9467000000.0
     cash_eq: 6205000000.0
     total_assets: 89567000000.0
     equity: 33384000000.0
@@ -6090,6 +6165,7 @@ candidates:
   metrics:
     sales_ttm: 167085000000.0
     ocf_ttm: -7717000000.0
+    edinet_ocf_ttm: -7017000000.0
     cash_eq: 27955000000.0
     total_assets: 174204000000.0
     equity: 99321000000.0
@@ -6169,6 +6245,7 @@ candidates:
   metrics:
     sales_ttm: 284014000000.0
     ocf_ttm: 30984000000.0
+    edinet_ocf_ttm: null
     cash_eq: 18109000000.0
     total_assets: 280059000000.0
     equity: 96282000000.0
@@ -6257,6 +6334,7 @@ candidates:
   metrics:
     sales_ttm: 54063000000.0
     ocf_ttm: 689000000.0
+    edinet_ocf_ttm: 573000000.0
     cash_eq: 72876000000.0
     total_assets: 124311000000.0
     equity: 93416000000.0
@@ -6350,6 +6428,7 @@ candidates:
   metrics:
     sales_ttm: 128592000000.0
     ocf_ttm: 6000000000.0
+    edinet_ocf_ttm: -11992000000.0
     cash_eq: 15872000000.0
     total_assets: 140413000000.0
     equity: 88553000000.0
@@ -6429,6 +6508,7 @@ candidates:
   metrics:
     sales_ttm: 75785000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 1986000000.0
     cash_eq: null
     total_assets: 40648000000.0
     equity: 21773000000.0
@@ -6508,6 +6588,7 @@ candidates:
   metrics:
     sales_ttm: 25391000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 2645000000.0
     cash_eq: null
     total_assets: 72183000000.0
     equity: 66215000000.0
@@ -6584,6 +6665,7 @@ candidates:
   metrics:
     sales_ttm: 108537000000.0
     ocf_ttm: 2454000000.0
+    edinet_ocf_ttm: 1731000000.0
     cash_eq: 14014000000.0
     total_assets: 56926000000.0
     equity: 19221000000.0
@@ -6700,6 +6782,7 @@ candidates:
   metrics:
     sales_ttm: 31495000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 1670237000.0
     cash_eq: null
     total_assets: 39773000000.0
     equity: 13852000000.0
@@ -6779,6 +6862,7 @@ candidates:
   metrics:
     sales_ttm: 140166000000.0
     ocf_ttm: 12738000000.0
+    edinet_ocf_ttm: 1129000000.0
     cash_eq: 24315000000.0
     total_assets: 80389000000.0
     equity: 38574000000.0
@@ -6858,6 +6942,7 @@ candidates:
   metrics:
     sales_ttm: 69137000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: null
     cash_eq: 32938388000.0
     total_assets: 117324000000.0
     equity: 32601000000.0
@@ -6937,6 +7022,7 @@ candidates:
   metrics:
     sales_ttm: 54490000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 1211000000.0
     cash_eq: null
     total_assets: 49723000000.0
     equity: 32767000000.0
@@ -7016,6 +7102,7 @@ candidates:
   metrics:
     sales_ttm: 30117000000.0
     ocf_ttm: 3790522000.0
+    edinet_ocf_ttm: 552608000.0
     cash_eq: 11334951000.0
     total_assets: 21160000000.0
     equity: 14361000000.0
@@ -7096,6 +7183,7 @@ candidates:
   metrics:
     sales_ttm: 60711000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 3206427000.0
     cash_eq: null
     total_assets: 38636000000.0
     equity: 11079000000.0
@@ -7175,6 +7263,7 @@ candidates:
   metrics:
     sales_ttm: 37519000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 1475000000.0
     cash_eq: null
     total_assets: 25593000000.0
     equity: 19447000000.0
@@ -7251,6 +7340,7 @@ candidates:
   metrics:
     sales_ttm: 8369000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: -1221081000.0
     cash_eq: null
     total_assets: 29874000000.0
     equity: 22568000000.0
@@ -7327,6 +7417,7 @@ candidates:
   metrics:
     sales_ttm: 28056000000.0
     ocf_ttm: 1763000000.0
+    edinet_ocf_ttm: 710179000.0
     cash_eq: 8265000000.0
     total_assets: 22212000000.0
     equity: 14967000000.0
@@ -7406,6 +7497,7 @@ candidates:
   metrics:
     sales_ttm: 9546000000.0
     ocf_ttm: 3413000000.0
+    edinet_ocf_ttm: 1650089000.0
     cash_eq: 8308000000.0
     total_assets: 11584000000.0
     equity: 9275000000.0
@@ -7483,6 +7575,7 @@ candidates:
   metrics:
     sales_ttm: 23988000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 369000000.0
     cash_eq: null
     total_assets: 57687000000.0
     equity: 43092000000.0
@@ -7567,6 +7660,7 @@ candidates:
   metrics:
     sales_ttm: 52977000000.0
     ocf_ttm: 12617000000.0
+    edinet_ocf_ttm: null
     cash_eq: 25524000000.0
     total_assets: 126350000000.0
     equity: 55162000000.0
@@ -7654,6 +7748,7 @@ candidates:
   metrics:
     sales_ttm: 64139000000.0
     ocf_ttm: 12745000000.0
+    edinet_ocf_ttm: 12745018000.0
     cash_eq: 23104000000.0
     total_assets: 50781000000.0
     equity: 26622000000.0
@@ -7721,7 +7816,7 @@ candidates:
     metrics:
       fcf_yield: 0.1936
       fcf_ttm: 11046465000.0
-      ocf_ttm: 12745000000.0
+      edinet_ocf_ttm: 12745018000.0
       capex_ttm: 1698553000.0
       cfo_yoy: 1.6262
       ttm_quality: exact
@@ -7757,6 +7852,7 @@ candidates:
   metrics:
     sales_ttm: 25074000000.0
     ocf_ttm: -2810000000.0
+    edinet_ocf_ttm: -2810300000.0
     cash_eq: 2535000000.0
     total_assets: 18647000000.0
     equity: 4400000000.0
@@ -7836,6 +7932,7 @@ candidates:
   metrics:
     sales_ttm: 8307000000.0
     ocf_ttm: 2018000000.0
+    edinet_ocf_ttm: null
     cash_eq: 10058000000.0
     total_assets: 13747000000.0
     equity: 10353000000.0
@@ -7912,6 +8009,7 @@ candidates:
   metrics:
     sales_ttm: 4969000000.0
     ocf_ttm: 2089745000.0
+    edinet_ocf_ttm: 995040000.0
     cash_eq: 9326447000.0
     total_assets: 10665000000.0
     equity: 9375000000.0
@@ -7988,6 +8086,7 @@ candidates:
   metrics:
     sales_ttm: 47270000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 3019000000.0
     cash_eq: null
     total_assets: 48109000000.0
     equity: 30262000000.0
@@ -8067,6 +8166,7 @@ candidates:
   metrics:
     sales_ttm: 349476000000.0
     ocf_ttm: 50985000000.0
+    edinet_ocf_ttm: 22378000000.0
     cash_eq: 46466000000.0
     total_assets: 557432000000.0
     equity: 297811000000.0
@@ -8144,6 +8244,7 @@ candidates:
   metrics:
     sales_ttm: 68131000000.0
     ocf_ttm: 4165000000.0
+    edinet_ocf_ttm: 4165000000.0
     cash_eq: 17581000000.0
     total_assets: 69112000000.0
     equity: 24881000000.0
@@ -8211,7 +8312,7 @@ candidates:
     metrics:
       fcf_yield: 0.1155
       fcf_ttm: 3533000000.0
-      ocf_ttm: 4165000000.0
+      edinet_ocf_ttm: 4165000000.0
       capex_ttm: 632000000.0
       cfo_yoy: 0.3787
       ttm_quality: exact
@@ -8247,6 +8348,7 @@ candidates:
   metrics:
     sales_ttm: 1084606000000.0
     ocf_ttm: 90242000000.0
+    edinet_ocf_ttm: null
     cash_eq: 63787000000.0
     total_assets: 1153403000000.0
     equity: 459455000000.0
@@ -8324,6 +8426,7 @@ candidates:
   metrics:
     sales_ttm: 1334480000000.0
     ocf_ttm: 260868000000.0
+    edinet_ocf_ttm: null
     cash_eq: 132916000000.0
     total_assets: 2667670000000.0
     equity: 1211370000000.0
@@ -8401,6 +8504,7 @@ candidates:
   metrics:
     sales_ttm: 136840000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 10328000000.0
     cash_eq: null
     total_assets: 259113000000.0
     equity: 214386000000.0
@@ -8485,6 +8589,7 @@ candidates:
   metrics:
     sales_ttm: 400058000000.0
     ocf_ttm: 47858000000.0
+    edinet_ocf_ttm: null
     cash_eq: 50712000000.0
     total_assets: 564710000000.0
     equity: 397214000000.0
@@ -8562,6 +8667,7 @@ candidates:
   metrics:
     sales_ttm: 496826000000.0
     ocf_ttm: 96619000000.0
+    edinet_ocf_ttm: null
     cash_eq: 218769000000.0
     total_assets: 1107860000000.0
     equity: 893332000000.0
@@ -8638,6 +8744,7 @@ candidates:
   metrics:
     sales_ttm: 13902000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 1376503000.0
     cash_eq: null
     total_assets: 12192000000.0
     equity: 5079000000.0
@@ -8714,6 +8821,7 @@ candidates:
   metrics:
     sales_ttm: 1689039000000.0
     ocf_ttm: 200110000000.0
+    edinet_ocf_ttm: null
     cash_eq: 192227000000.0
     total_assets: 2209139000000.0
     equity: 1005224000000.0
@@ -8791,6 +8899,7 @@ candidates:
   metrics:
     sales_ttm: 115098000000.0
     ocf_ttm: 13783000000.0
+    edinet_ocf_ttm: 13783000000.0
     cash_eq: 6719000000.0
     total_assets: 130101000000.0
     equity: 72629000000.0
@@ -8858,7 +8967,7 @@ candidates:
     metrics:
       fcf_yield: 0.0877
       fcf_ttm: 8981000000.0
-      ocf_ttm: 13783000000.0
+      edinet_ocf_ttm: 13783000000.0
       capex_ttm: 4802000000.0
       cfo_yoy: 0.9741
       ttm_quality: exact
@@ -8883,6 +8992,7 @@ candidates:
   metrics:
     sales_ttm: 459331000000.0
     ocf_ttm: 62867000000.0
+    edinet_ocf_ttm: 31595000000.0
     cash_eq: 50248000000.0
     total_assets: 929459000000.0
     equity: 443521000000.0
@@ -8960,6 +9070,7 @@ candidates:
   metrics:
     sales_ttm: 77101000000.0
     ocf_ttm: 8288000000.0
+    edinet_ocf_ttm: 5680000000.0
     cash_eq: 15270000000.0
     total_assets: 141077000000.0
     equity: 97395000000.0
@@ -9037,6 +9148,7 @@ candidates:
   metrics:
     sales_ttm: 131377000000.0
     ocf_ttm: 13399000000.0
+    edinet_ocf_ttm: 7071713000.0
     cash_eq: 26527000000.0
     total_assets: 119103000000.0
     equity: 78442000000.0
@@ -9114,6 +9226,7 @@ candidates:
   metrics:
     sales_ttm: 1435245000000.0
     ocf_ttm: 117972000000.0
+    edinet_ocf_ttm: null
     cash_eq: 295183000000.0
     total_assets: 3206787000000.0
     equity: 447954000000.0
@@ -9191,6 +9304,7 @@ candidates:
   metrics:
     sales_ttm: 93290000000.0
     ocf_ttm: 11598000000.0
+    edinet_ocf_ttm: 3429380000.0
     cash_eq: 7792000000.0
     total_assets: 64228000000.0
     equity: 8014000000.0
@@ -9279,6 +9393,7 @@ candidates:
   metrics:
     sales_ttm: 33796000000.0
     ocf_ttm: 6814000000.0
+    edinet_ocf_ttm: 3336458000.0
     cash_eq: 13341000000.0
     total_assets: 65421000000.0
     equity: 52390000000.0
@@ -9356,6 +9471,7 @@ candidates:
   metrics:
     sales_ttm: 75009000000.0
     ocf_ttm: 21780236000.0
+    edinet_ocf_ttm: 11598848000.0
     cash_eq: 33646509000.0
     total_assets: 149422000000.0
     equity: 113142000000.0
@@ -9433,6 +9549,7 @@ candidates:
   metrics:
     sales_ttm: 20878000000.0
     ocf_ttm: 1835000000.0
+    edinet_ocf_ttm: 1835427000.0
     cash_eq: 2314000000.0
     total_assets: 8561000000.0
     equity: 5058000000.0
@@ -9520,6 +9637,7 @@ candidates:
   metrics:
     sales_ttm: 12133000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 2867000000.0
     cash_eq: null
     total_assets: 8038000000.0
     equity: 6135000000.0
@@ -9596,6 +9714,7 @@ candidates:
   metrics:
     sales_ttm: 30945000000.0
     ocf_ttm: 7197000000.0
+    edinet_ocf_ttm: null
     cash_eq: 13339000000.0
     total_assets: 73490000000.0
     equity: 47032000000.0
@@ -9672,6 +9791,7 @@ candidates:
   metrics:
     sales_ttm: 51330000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: -359000000.0
     cash_eq: null
     total_assets: 47807000000.0
     equity: 19070000000.0
@@ -9748,6 +9868,7 @@ candidates:
   metrics:
     sales_ttm: 14149000000.0
     ocf_ttm: 11089000000.0
+    edinet_ocf_ttm: 11089000000.0
     cash_eq: 16933000000.0
     total_assets: 44706000000.0
     equity: 9272000000.0
@@ -9824,6 +9945,7 @@ candidates:
   metrics:
     sales_ttm: 127750000000.0
     ocf_ttm: 19543000000.0
+    edinet_ocf_ttm: 9191000000.0
     cash_eq: 30871000000.0
     total_assets: 193209000000.0
     equity: 155484000000.0
@@ -9901,6 +10023,7 @@ candidates:
   metrics:
     sales_ttm: 20729000000.0
     ocf_ttm: 3283000000.0
+    edinet_ocf_ttm: 3283000000.0
     cash_eq: 24865000000.0
     total_assets: 57803000000.0
     equity: 15119000000.0
@@ -9959,7 +10082,7 @@ candidates:
     metrics:
       fcf_yield: 0.0963
       fcf_ttm: 3268000000.0
-      ocf_ttm: 3283000000.0
+      edinet_ocf_ttm: 3283000000.0
       capex_ttm: 15000000.0
       cfo_yoy: -0.1023
       ttm_quality: exact
@@ -9984,6 +10107,7 @@ candidates:
   metrics:
     sales_ttm: 5084000000.0
     ocf_ttm: 1004000000.0
+    edinet_ocf_ttm: 1004149000.0
     cash_eq: 3983000000.0
     total_assets: 5833000000.0
     equity: 4421000000.0
@@ -10060,6 +10184,7 @@ candidates:
   metrics:
     sales_ttm: 4464578000000.0
     ocf_ttm: 1189062000000.0
+    edinet_ocf_ttm: null
     cash_eq: 654937000000.0
     total_assets: 15408774000000.0
     equity: 7644091000000.0
@@ -10145,6 +10270,7 @@ candidates:
   metrics:
     sales_ttm: 2139245000000.0
     ocf_ttm: 560188000000.0
+    edinet_ocf_ttm: null
     cash_eq: 281605000000.0
     total_assets: 3567042000000.0
     equity: 1830884000000.0
@@ -10230,6 +10356,7 @@ candidates:
   metrics:
     sales_ttm: 166047000000.0
     ocf_ttm: 31003000000.0
+    edinet_ocf_ttm: null
     cash_eq: 60771000000.0
     total_assets: 328108000000.0
     equity: 284196000000.0
@@ -10306,6 +10433,7 @@ candidates:
   metrics:
     sales_ttm: 1291229000000.0
     ocf_ttm: 441643000000.0
+    edinet_ocf_ttm: null
     cash_eq: 417984000000.0
     total_assets: 2265101000000.0
     equity: 1907715000000.0
@@ -10382,6 +10510,7 @@ candidates:
   metrics:
     sales_ttm: 808186000000.0
     ocf_ttm: 86550000000.0
+    edinet_ocf_ttm: null
     cash_eq: 319397000000.0
     total_assets: 1486221000000.0
     equity: 915660000000.0
@@ -10462,6 +10591,7 @@ candidates:
   metrics:
     sales_ttm: 509345000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: null
     cash_eq: 188385000000.0
     total_assets: 1084397000000.0
     equity: 845357000000.0
@@ -10538,6 +10668,7 @@ candidates:
   metrics:
     sales_ttm: 111915000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 4044000000.0
     cash_eq: null
     total_assets: 182220000000.0
     equity: 137431000000.0
@@ -10625,6 +10756,7 @@ candidates:
   metrics:
     sales_ttm: 287994000000.0
     ocf_ttm: 41411000000.0
+    edinet_ocf_ttm: null
     cash_eq: 61544000000.0
     total_assets: 401161000000.0
     equity: 282436000000.0
@@ -10701,6 +10833,7 @@ candidates:
   metrics:
     sales_ttm: 41276000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 1327000000.0
     cash_eq: null
     total_assets: 60209000000.0
     equity: 43745000000.0
@@ -10777,6 +10910,7 @@ candidates:
   metrics:
     sales_ttm: 269922000000.0
     ocf_ttm: 30829000000.0
+    edinet_ocf_ttm: 14092000000.0
     cash_eq: 39552000000.0
     total_assets: 488886000000.0
     equity: 189689000000.0
@@ -10865,6 +10999,7 @@ candidates:
   metrics:
     sales_ttm: 2052148000000.0
     ocf_ttm: 123862000000.0
+    edinet_ocf_ttm: null
     cash_eq: 541451000000.0
     total_assets: 3821811000000.0
     equity: 1710549000000.0
@@ -10941,6 +11076,7 @@ candidates:
   metrics:
     sales_ttm: 133257000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 6188000000.0
     cash_eq: null
     total_assets: 194266000000.0
     equity: 138869000000.0
@@ -11017,6 +11153,7 @@ candidates:
   metrics:
     sales_ttm: 50766000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 5342000000.0
     cash_eq: null
     total_assets: 74963000000.0
     equity: 52336000000.0
@@ -11093,6 +11230,7 @@ candidates:
   metrics:
     sales_ttm: 1052194000000.0
     ocf_ttm: 72971000000.0
+    edinet_ocf_ttm: 72971000000.0
     cash_eq: 67310000000.0
     total_assets: 1274091000000.0
     equity: 490844000000.0
@@ -11160,7 +11298,7 @@ candidates:
     metrics:
       fcf_yield: 0.091
       fcf_ttm: 31015000000.0
-      ocf_ttm: 72971000000.0
+      edinet_ocf_ttm: 72971000000.0
       capex_ttm: 41956000000.0
       cfo_yoy: 0.5792
       ttm_quality: exact
@@ -11185,6 +11323,7 @@ candidates:
   metrics:
     sales_ttm: 257668000000.0
     ocf_ttm: 17005000000.0
+    edinet_ocf_ttm: 17005000000.0
     cash_eq: 18782000000.0
     total_assets: 225864000000.0
     equity: 126519000000.0
@@ -11262,6 +11401,7 @@ candidates:
   metrics:
     sales_ttm: 349979000000.0
     ocf_ttm: 27554000000.0
+    edinet_ocf_ttm: 27554000000.0
     cash_eq: 45792000000.0
     total_assets: 462600000000.0
     equity: 277220000000.0
@@ -11339,6 +11479,7 @@ candidates:
   metrics:
     sales_ttm: 704539000000.0
     ocf_ttm: 181281000000.0
+    edinet_ocf_ttm: 43748000000.0
     cash_eq: 236132000000.0
     total_assets: 1629076000000.0
     equity: 1100021000000.0
@@ -11415,6 +11556,7 @@ candidates:
   metrics:
     sales_ttm: 43229000000.0
     ocf_ttm: 3956000000.0
+    edinet_ocf_ttm: 1555000000.0
     cash_eq: 3305000000.0
     total_assets: 32234000000.0
     equity: 23968000000.0
@@ -11492,6 +11634,7 @@ candidates:
   metrics:
     sales_ttm: null
     ocf_ttm: null
+    edinet_ocf_ttm: null
     cash_eq: 1168780000000.0
     total_assets: 11089007000000.0
     equity: 3597966000000.0
@@ -11569,6 +11712,7 @@ candidates:
   metrics:
     sales_ttm: 277288000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 23419000000.0
     cash_eq: null
     total_assets: 315493000000.0
     equity: 188081000000.0
@@ -11645,6 +11789,7 @@ candidates:
   metrics:
     sales_ttm: 76935000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 8664000000.0
     cash_eq: null
     total_assets: 94019000000.0
     equity: 63358000000.0
@@ -11725,6 +11870,7 @@ candidates:
   metrics:
     sales_ttm: 902565000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 79518000000.0
     cash_eq: null
     total_assets: 524692000000.0
     equity: 267484000000.0
@@ -11804,6 +11950,7 @@ candidates:
   metrics:
     sales_ttm: 2496575000000.0
     ocf_ttm: 424093000000.0
+    edinet_ocf_ttm: null
     cash_eq: 5837566000000.0
     total_assets: 28804400000000.0
     equity: 1354232000000.0
@@ -11883,6 +12030,7 @@ candidates:
   metrics:
     sales_ttm: 1352003000000.0
     ocf_ttm: 115478000000.0
+    edinet_ocf_ttm: 92218000000.0
     cash_eq: 261406000000.0
     total_assets: 749489000000.0
     equity: 397614000000.0
@@ -11950,7 +12098,7 @@ candidates:
     metrics:
       fcf_yield: 0.081
       fcf_ttm: 87846000000.0
-      ocf_ttm: 115478000000.0
+      edinet_ocf_ttm: 92218000000.0
       capex_ttm: 4372000000.0
       cfo_yoy: 3.5452
       ttm_quality: exact
@@ -11986,6 +12134,7 @@ candidates:
   metrics:
     sales_ttm: 28714000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 486710000.0
     cash_eq: null
     total_assets: 19633000000.0
     equity: 14888000000.0
@@ -12065,6 +12214,7 @@ candidates:
   metrics:
     sales_ttm: 77227000000.0
     ocf_ttm: 1356000000.0
+    edinet_ocf_ttm: 1356000000.0
     cash_eq: 21029000000.0
     total_assets: 57830000000.0
     equity: 32654000000.0
@@ -12144,6 +12294,7 @@ candidates:
   metrics:
     sales_ttm: 68699000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 1105000000.0
     cash_eq: null
     total_assets: 112699000000.0
     equity: 74743000000.0
@@ -12223,6 +12374,7 @@ candidates:
   metrics:
     sales_ttm: 200680000000.0
     ocf_ttm: 20288000000.0
+    edinet_ocf_ttm: null
     cash_eq: 46122000000.0
     total_assets: 377030000000.0
     equity: 178800000000.0
@@ -12302,6 +12454,7 @@ candidates:
   metrics:
     sales_ttm: 968000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: -320766000.0
     cash_eq: null
     total_assets: 4776000000.0
     equity: 2695000000.0
@@ -12378,6 +12531,7 @@ candidates:
   metrics:
     sales_ttm: 356000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: -851611000.0
     cash_eq: null
     total_assets: 5214000000.0
     equity: 5031000000.0
@@ -12454,6 +12608,7 @@ candidates:
   metrics:
     sales_ttm: 1077156000000.0
     ocf_ttm: 67256000000.0
+    edinet_ocf_ttm: null
     cash_eq: 103533000000.0
     total_assets: 1222489000000.0
     equity: 531841000000.0
@@ -12540,6 +12695,7 @@ candidates:
   metrics:
     sales_ttm: 330193000000.0
     ocf_ttm: 11138000000.0
+    edinet_ocf_ttm: 11138000000.0
     cash_eq: 90747000000.0
     total_assets: 393454000000.0
     equity: 304784000000.0
@@ -12616,6 +12772,7 @@ candidates:
   metrics:
     sales_ttm: 170285000000.0
     ocf_ttm: 18536000000.0
+    edinet_ocf_ttm: 18536000000.0
     cash_eq: 61948000000.0
     total_assets: 197906000000.0
     equity: 163094000000.0
@@ -12692,6 +12849,7 @@ candidates:
   metrics:
     sales_ttm: 136569000000.0
     ocf_ttm: 13733000000.0
+    edinet_ocf_ttm: 6609000000.0
     cash_eq: 19416000000.0
     total_assets: 139610000000.0
     equity: 88860000000.0
@@ -12769,6 +12927,7 @@ candidates:
   metrics:
     sales_ttm: 31950000000.0
     ocf_ttm: 4900000000.0
+    edinet_ocf_ttm: 4900000000.0
     cash_eq: 4519000000.0
     total_assets: 37308000000.0
     equity: 19956000000.0
@@ -12836,7 +12995,7 @@ candidates:
     metrics:
       fcf_yield: 0.14
       fcf_ttm: 4351000000.0
-      ocf_ttm: 4900000000.0
+      edinet_ocf_ttm: 4900000000.0
       capex_ttm: 549000000.0
       cfo_yoy: 0.3025
       ttm_quality: exact
@@ -12861,6 +13020,7 @@ candidates:
   metrics:
     sales_ttm: 179182000000.0
     ocf_ttm: 10795000000.0
+    edinet_ocf_ttm: 10795000000.0
     cash_eq: 22930000000.0
     total_assets: 149382000000.0
     equity: 81290000000.0
@@ -12940,6 +13100,7 @@ candidates:
   metrics:
     sales_ttm: 173788000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 33803000000.0
     cash_eq: null
     total_assets: 260913000000.0
     equity: 154279000000.0
@@ -13019,6 +13180,7 @@ candidates:
   metrics:
     sales_ttm: 11438935000000.0
     ocf_ttm: 724013000000.0
+    edinet_ocf_ttm: null
     cash_eq: 775385000000.0
     total_assets: 9031538000000.0
     equity: 3561128000000.0
@@ -13096,6 +13258,7 @@ candidates:
   metrics:
     sales_ttm: 57300000000.0
     ocf_ttm: 268000000.0
+    edinet_ocf_ttm: null
     cash_eq: 8607000000.0
     total_assets: 45143000000.0
     equity: 17086000000.0
@@ -13183,6 +13346,7 @@ candidates:
   metrics:
     sales_ttm: 55992000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 8527000000.0
     cash_eq: null
     total_assets: 36387000000.0
     equity: 28822000000.0
@@ -13259,6 +13423,7 @@ candidates:
   metrics:
     sales_ttm: 193347000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 1135000000.0
     cash_eq: null
     total_assets: 87763000000.0
     equity: 27129000000.0
@@ -13338,6 +13503,7 @@ candidates:
   metrics:
     sales_ttm: 1011766000000.0
     ocf_ttm: 65867000000.0
+    edinet_ocf_ttm: null
     cash_eq: 189403000000.0
     total_assets: 1897780000000.0
     equity: 608471000000.0
@@ -13415,6 +13581,7 @@ candidates:
   metrics:
     sales_ttm: 1234959000000.0
     ocf_ttm: 135630000000.0
+    edinet_ocf_ttm: null
     cash_eq: 107391000000.0
     total_assets: 1998360000000.0
     equity: 1040231000000.0
@@ -13492,6 +13659,7 @@ candidates:
   metrics:
     sales_ttm: 594923000000.0
     ocf_ttm: 93060000000.0
+    edinet_ocf_ttm: 93060000000.0
     cash_eq: 116796000000.0
     total_assets: 753248000000.0
     equity: 522659000000.0
@@ -13559,7 +13727,7 @@ candidates:
     metrics:
       fcf_yield: 0.1128
       fcf_ttm: 65882000000.0
-      ocf_ttm: 93060000000.0
+      edinet_ocf_ttm: 93060000000.0
       capex_ttm: 27178000000.0
       cfo_yoy: 0.3877
       ttm_quality: exact
@@ -13584,6 +13752,7 @@ candidates:
   metrics:
     sales_ttm: 4429452000000.0
     ocf_ttm: 660442000000.0
+    edinet_ocf_ttm: null
     cash_eq: 713810000000.0
     total_assets: 5747705000000.0
     equity: 3719888000000.0
@@ -13661,6 +13830,7 @@ candidates:
   metrics:
     sales_ttm: 1207061000000.0
     ocf_ttm: 150427000000.0
+    edinet_ocf_ttm: null
     cash_eq: 98642000000.0
     total_assets: 1459932000000.0
     equity: 736310000000.0
@@ -13738,6 +13908,7 @@ candidates:
   metrics:
     sales_ttm: 2058832000000.0
     ocf_ttm: 274476000000.0
+    edinet_ocf_ttm: null
     cash_eq: 94671000000.0
     total_assets: 2950077000000.0
     equity: 1731722000000.0
@@ -13815,6 +13986,7 @@ candidates:
   metrics:
     sales_ttm: 14753000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 638649000.0
     cash_eq: null
     total_assets: 7330000000.0
     equity: 4798000000.0
@@ -13902,6 +14074,7 @@ candidates:
   metrics:
     sales_ttm: 112384000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 7815000000.0
     cash_eq: null
     total_assets: 102656000000.0
     equity: 53459000000.0
@@ -13981,6 +14154,7 @@ candidates:
   metrics:
     sales_ttm: 322960000000.0
     ocf_ttm: 55872000000.0
+    edinet_ocf_ttm: 55872000000.0
     cash_eq: 64327000000.0
     total_assets: 664033000000.0
     equity: 352846000000.0
@@ -14058,6 +14232,7 @@ candidates:
   metrics:
     sales_ttm: 37735000000.0
     ocf_ttm: 6319000000.0
+    edinet_ocf_ttm: 6319000000.0
     cash_eq: 15035000000.0
     total_assets: 85607000000.0
     equity: 63607000000.0
@@ -14135,6 +14310,7 @@ candidates:
   metrics:
     sales_ttm: 11341000000.0
     ocf_ttm: 1675000000.0
+    edinet_ocf_ttm: 519784000.0
     cash_eq: 4138000000.0
     total_assets: 18853000000.0
     equity: 14137000000.0
@@ -14212,6 +14388,7 @@ candidates:
   metrics:
     sales_ttm: 9399351000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: null
     cash_eq: 508081000000.0
     total_assets: 14443085000000.0
     equity: 5851165000000.0
@@ -14291,6 +14468,7 @@ candidates:
   metrics:
     sales_ttm: 149384000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 9349000000.0
     cash_eq: null
     total_assets: 149983000000.0
     equity: 107297000000.0
@@ -14375,6 +14553,7 @@ candidates:
   metrics:
     sales_ttm: 191772000000.0
     ocf_ttm: 21429000000.0
+    edinet_ocf_ttm: 9968000000.0
     cash_eq: 26504000000.0
     total_assets: 255507000000.0
     equity: 144249000000.0
@@ -14473,6 +14652,7 @@ candidates:
   metrics:
     sales_ttm: 268095000000.0
     ocf_ttm: -3282000000.0
+    edinet_ocf_ttm: 7471000000.0
     cash_eq: 73470000000.0
     total_assets: 292995000000.0
     equity: 222089000000.0
@@ -14557,6 +14737,7 @@ candidates:
   metrics:
     sales_ttm: 315106000000.0
     ocf_ttm: 24730000000.0
+    edinet_ocf_ttm: 14132000000.0
     cash_eq: 46359000000.0
     total_assets: 373127000000.0
     equity: 218808000000.0
@@ -14634,6 +14815,7 @@ candidates:
   metrics:
     sales_ttm: 304341000000.0
     ocf_ttm: 65028000000.0
+    edinet_ocf_ttm: null
     cash_eq: 33574000000.0
     total_assets: 398843000000.0
     equity: 248926000000.0
@@ -14711,6 +14893,7 @@ candidates:
   metrics:
     sales_ttm: 77277000000.0
     ocf_ttm: 14569000000.0
+    edinet_ocf_ttm: 14569000000.0
     cash_eq: 6008000000.0
     total_assets: 93414000000.0
     equity: 71025000000.0
@@ -14788,6 +14971,7 @@ candidates:
   metrics:
     sales_ttm: 15537000000.0
     ocf_ttm: 983498000.0
+    edinet_ocf_ttm: -179779000.0
     cash_eq: 2632403000.0
     total_assets: 6651000000.0
     equity: 2428000000.0
@@ -14867,6 +15051,7 @@ candidates:
   metrics:
     sales_ttm: 46601000000.0
     ocf_ttm: 3617000000.0
+    edinet_ocf_ttm: 2083000000.0
     cash_eq: 15909000000.0
     total_assets: 56747000000.0
     equity: 43480000000.0
@@ -14951,6 +15136,7 @@ candidates:
   metrics:
     sales_ttm: 45835000000.0
     ocf_ttm: 4863612000.0
+    edinet_ocf_ttm: 1395985000.0
     cash_eq: 6823096000.0
     total_assets: 32256000000.0
     equity: 17699000000.0
@@ -15028,6 +15214,7 @@ candidates:
   metrics:
     sales_ttm: 573289000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 23084000000.0
     cash_eq: null
     total_assets: 569467000000.0
     equity: 260746000000.0
@@ -15107,6 +15294,7 @@ candidates:
   metrics:
     sales_ttm: 309111000000.0
     ocf_ttm: 13888000000.0
+    edinet_ocf_ttm: 13888000000.0
     cash_eq: 27292000000.0
     total_assets: 343734000000.0
     equity: 189550000000.0
@@ -15186,6 +15374,7 @@ candidates:
   metrics:
     sales_ttm: 569992000000.0
     ocf_ttm: -99385000000.0
+    edinet_ocf_ttm: null
     cash_eq: 10336000000.0
     total_assets: 615388000000.0
     equity: 230555000000.0
@@ -15265,6 +15454,7 @@ candidates:
   metrics:
     sales_ttm: 1510704000000.0
     ocf_ttm: 82689000000.0
+    edinet_ocf_ttm: null
     cash_eq: 115624000000.0
     total_assets: 1883927000000.0
     equity: 668361000000.0
@@ -15342,6 +15532,7 @@ candidates:
   metrics:
     sales_ttm: 203263000000.0
     ocf_ttm: 8267000000.0
+    edinet_ocf_ttm: null
     cash_eq: 15872000000.0
     total_assets: 203333000000.0
     equity: 75873000000.0
@@ -15419,6 +15610,7 @@ candidates:
   metrics:
     sales_ttm: 264185000000.0
     ocf_ttm: 42873000000.0
+    edinet_ocf_ttm: null
     cash_eq: 53882000000.0
     total_assets: 455940000000.0
     equity: 231570000000.0
@@ -15496,6 +15688,7 @@ candidates:
   metrics:
     sales_ttm: 23933000000.0
     ocf_ttm: 5024858000.0
+    edinet_ocf_ttm: 1275108000.0
     cash_eq: 13922684000.0
     total_assets: 32847000000.0
     equity: 23596000000.0
@@ -15572,6 +15765,7 @@ candidates:
   metrics:
     sales_ttm: 63794000000.0
     ocf_ttm: 10349000000.0
+    edinet_ocf_ttm: 5189000000.0
     cash_eq: 22273000000.0
     total_assets: 47293000000.0
     equity: 27141000000.0
@@ -15649,6 +15843,7 @@ candidates:
   metrics:
     sales_ttm: 24841000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 1699183000.0
     cash_eq: null
     total_assets: 17376000000.0
     equity: 14715000000.0
@@ -15729,6 +15924,7 @@ candidates:
   metrics:
     sales_ttm: 127832000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 7584000000.0
     cash_eq: null
     total_assets: 183726000000.0
     equity: 120088000000.0
@@ -15813,6 +16009,7 @@ candidates:
   metrics:
     sales_ttm: 78928000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 1534000000.0
     cash_eq: null
     total_assets: 124952000000.0
     equity: 84904000000.0
@@ -15897,6 +16094,7 @@ candidates:
   metrics:
     sales_ttm: 261184000000.0
     ocf_ttm: 33227000000.0
+    edinet_ocf_ttm: 21478000000.0
     cash_eq: 75151000000.0
     total_assets: 423026000000.0
     equity: 261429000000.0
@@ -15974,6 +16172,7 @@ candidates:
   metrics:
     sales_ttm: 536497000000.0
     ocf_ttm: 28713000000.0
+    edinet_ocf_ttm: null
     cash_eq: 43745000000.0
     total_assets: 877690000000.0
     equity: 335813000000.0
@@ -16053,6 +16252,7 @@ candidates:
   metrics:
     sales_ttm: 80572000000.0
     ocf_ttm: 7147000000.0
+    edinet_ocf_ttm: 7147000000.0
     cash_eq: 44983000000.0
     total_assets: 155695000000.0
     equity: 90592000000.0
@@ -16130,6 +16330,7 @@ candidates:
   metrics:
     sales_ttm: 145826000000.0
     ocf_ttm: 16533000000.0
+    edinet_ocf_ttm: null
     cash_eq: 7194000000.0
     total_assets: 169821000000.0
     equity: 74782000000.0
@@ -16207,6 +16408,7 @@ candidates:
   metrics:
     sales_ttm: 17437000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: -3178057000.0
     cash_eq: null
     total_assets: 26760000000.0
     equity: 5908000000.0
@@ -16286,6 +16488,7 @@ candidates:
   metrics:
     sales_ttm: 36361000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 987000000.0
     cash_eq: null
     total_assets: 28028000000.0
     equity: 2719000000.0
@@ -16365,6 +16568,7 @@ candidates:
   metrics:
     sales_ttm: 28529000000.0
     ocf_ttm: 8670498000.0
+    edinet_ocf_ttm: 7932628000.0
     cash_eq: 5844541000.0
     total_assets: 30584000000.0
     equity: 12584000000.0
@@ -16442,6 +16646,7 @@ candidates:
   metrics:
     sales_ttm: 2598000000.0
     ocf_ttm: -1246000000.0
+    edinet_ocf_ttm: -1246490000.0
     cash_eq: 2018000000.0
     total_assets: 5665000000.0
     equity: 1755000000.0
@@ -16518,6 +16723,7 @@ candidates:
   metrics:
     sales_ttm: 35428000000.0
     ocf_ttm: 9425000000.0
+    edinet_ocf_ttm: 9425231000.0
     cash_eq: 13946000000.0
     total_assets: 46893000000.0
     equity: 27037000000.0
@@ -16585,7 +16791,7 @@ candidates:
     metrics:
       fcf_yield: 0.1763
       fcf_ttm: 7927545000.0
-      ocf_ttm: 9425000000.0
+      edinet_ocf_ttm: 9425231000.0
       capex_ttm: 1497686000.0
       cfo_yoy: 0.2557
       ttm_quality: exact
@@ -16610,6 +16816,7 @@ candidates:
   metrics:
     sales_ttm: 1080911000000.0
     ocf_ttm: 55799000000.0
+    edinet_ocf_ttm: 63666000000.0
     cash_eq: 121243000000.0
     total_assets: 1328120000000.0
     equity: 689480000000.0
@@ -16689,6 +16896,7 @@ candidates:
   metrics:
     sales_ttm: 1405493000000.0
     ocf_ttm: 164223000000.0
+    edinet_ocf_ttm: null
     cash_eq: 141456000000.0
     total_assets: 1857321000000.0
     equity: 955670000000.0
@@ -16766,6 +16974,7 @@ candidates:
   metrics:
     sales_ttm: 185770000000.0
     ocf_ttm: 23456000000.0
+    edinet_ocf_ttm: 23456000000.0
     cash_eq: 12840000000.0
     total_assets: 209475000000.0
     equity: 78428000000.0
@@ -16854,6 +17063,7 @@ candidates:
   metrics:
     sales_ttm: 3018891000000.0
     ocf_ttm: 327901000000.0
+    edinet_ocf_ttm: null
     cash_eq: 276959000000.0
     total_assets: 6204909000000.0
     equity: 2873024000000.0
@@ -16931,6 +17141,7 @@ candidates:
   metrics:
     sales_ttm: 281984000000.0
     ocf_ttm: 29023000000.0
+    edinet_ocf_ttm: 13691000000.0
     cash_eq: 61890000000.0
     total_assets: 382005000000.0
     equity: 266068000000.0
@@ -17008,6 +17219,7 @@ candidates:
   metrics:
     sales_ttm: 349477000000.0
     ocf_ttm: -2407000000.0
+    edinet_ocf_ttm: -2407000000.0
     cash_eq: 81032000000.0
     total_assets: 458529000000.0
     equity: 205946000000.0
@@ -17096,6 +17308,7 @@ candidates:
   metrics:
     sales_ttm: 233639000000.0
     ocf_ttm: 37265000000.0
+    edinet_ocf_ttm: 14256000000.0
     cash_eq: 72279000000.0
     total_assets: 1103579000000.0
     equity: 253948000000.0
@@ -17192,6 +17405,7 @@ candidates:
   metrics:
     sales_ttm: 122827000000.0
     ocf_ttm: 11053000000.0
+    edinet_ocf_ttm: 11053000000.0
     cash_eq: 36279000000.0
     total_assets: 373634000000.0
     equity: 129687000000.0
@@ -17277,6 +17491,7 @@ candidates:
   metrics:
     sales_ttm: 88761000000.0
     ocf_ttm: 11712000000.0
+    edinet_ocf_ttm: 11712000000.0
     cash_eq: 13122000000.0
     total_assets: 120594000000.0
     equity: 32687000000.0
@@ -17354,6 +17569,7 @@ candidates:
   metrics:
     sales_ttm: 878811000000.0
     ocf_ttm: 91644000000.0
+    edinet_ocf_ttm: null
     cash_eq: 177314000000.0
     total_assets: 983109000000.0
     equity: 743777000000.0
@@ -17431,6 +17647,7 @@ candidates:
   metrics:
     sales_ttm: 119378000000.0
     ocf_ttm: 8467000000.0
+    edinet_ocf_ttm: 2821000000.0
     cash_eq: 19687000000.0
     total_assets: 114827000000.0
     equity: 64344000000.0
@@ -17528,6 +17745,7 @@ candidates:
   metrics:
     sales_ttm: 858210000000.0
     ocf_ttm: 158834000000.0
+    edinet_ocf_ttm: null
     cash_eq: 154360000000.0
     total_assets: 1302547000000.0
     equity: 698936000000.0
@@ -17616,6 +17834,7 @@ candidates:
   metrics:
     sales_ttm: 1924950000000.0
     ocf_ttm: 108495000000.0
+    edinet_ocf_ttm: null
     cash_eq: 137550000000.0
     total_assets: 1577696000000.0
     equity: 825230000000.0
@@ -17693,6 +17912,7 @@ candidates:
   metrics:
     sales_ttm: 239400000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 17938000000.0
     cash_eq: null
     total_assets: 339580000000.0
     equity: 179009000000.0
@@ -17772,6 +17992,7 @@ candidates:
   metrics:
     sales_ttm: 1607058000000.0
     ocf_ttm: 84283000000.0
+    edinet_ocf_ttm: null
     cash_eq: 219970000000.0
     total_assets: 1782291000000.0
     equity: 855968000000.0
@@ -17851,6 +18072,7 @@ candidates:
   metrics:
     sales_ttm: 174594000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 12594000000.0
     cash_eq: null
     total_assets: 224033000000.0
     equity: 135435000000.0
@@ -17930,6 +18152,7 @@ candidates:
   metrics:
     sales_ttm: 28890000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 677181000.0
     cash_eq: null
     total_assets: 39061000000.0
     equity: 27755000000.0
@@ -18009,6 +18232,7 @@ candidates:
   metrics:
     sales_ttm: 363934000000.0
     ocf_ttm: 41491000000.0
+    edinet_ocf_ttm: null
     cash_eq: 44875000000.0
     total_assets: 552667000000.0
     equity: 158610000000.0
@@ -18086,6 +18310,7 @@ candidates:
   metrics:
     sales_ttm: 52867000000.0
     ocf_ttm: 8861000000.0
+    edinet_ocf_ttm: 5512000000.0
     cash_eq: 10822000000.0
     total_assets: 33856000000.0
     equity: 13196000000.0
@@ -18174,6 +18399,7 @@ candidates:
   metrics:
     sales_ttm: 156755000000.0
     ocf_ttm: 2731000000.0
+    edinet_ocf_ttm: 1933000000.0
     cash_eq: 16938000000.0
     total_assets: 129979000000.0
     equity: 49233000000.0
@@ -18251,6 +18477,7 @@ candidates:
   metrics:
     sales_ttm: 90524000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: -1047000000.0
     cash_eq: null
     total_assets: 95327000000.0
     equity: 52501000000.0
@@ -18330,6 +18557,7 @@ candidates:
   metrics:
     sales_ttm: 3630000000.0
     ocf_ttm: 745000000.0
+    edinet_ocf_ttm: 745000000.0
     cash_eq: 271000000.0
     total_assets: 52004000000.0
     equity: 40933000000.0
@@ -18406,6 +18634,7 @@ candidates:
   metrics:
     sales_ttm: 41746000000.0
     ocf_ttm: 20140000000.0
+    edinet_ocf_ttm: 20140044000.0
     cash_eq: 12171000000.0
     total_assets: 100572000000.0
     equity: 59928000000.0
@@ -18483,6 +18712,7 @@ candidates:
   metrics:
     sales_ttm: 356865000000.0
     ocf_ttm: 33758000000.0
+    edinet_ocf_ttm: null
     cash_eq: 65716000000.0
     total_assets: 347605000000.0
     equity: 149698000000.0
@@ -18560,6 +18790,7 @@ candidates:
   metrics:
     sales_ttm: 59928000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 1972870000.0
     cash_eq: null
     total_assets: 76176000000.0
     equity: 52903000000.0
@@ -18639,6 +18870,7 @@ candidates:
   metrics:
     sales_ttm: 194349000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 4265000000.0
     cash_eq: null
     total_assets: 180736000000.0
     equity: 119121000000.0
@@ -18718,6 +18950,7 @@ candidates:
   metrics:
     sales_ttm: 1413251000000.0
     ocf_ttm: 112372000000.0
+    edinet_ocf_ttm: null
     cash_eq: 288582000000.0
     total_assets: 1534870000000.0
     equity: 853648000000.0
@@ -18795,6 +19028,7 @@ candidates:
   metrics:
     sales_ttm: 113889000000.0
     ocf_ttm: 13285000000.0
+    edinet_ocf_ttm: 13993000000.0
     cash_eq: 11206000000.0
     total_assets: 165089000000.0
     equity: 107244000000.0
@@ -18872,6 +19106,7 @@ candidates:
   metrics:
     sales_ttm: 1919885000000.0
     ocf_ttm: -29532000000.0
+    edinet_ocf_ttm: -23349000000.0
     cash_eq: 232922000000.0
     total_assets: 1436287000000.0
     equity: 270998000000.0
@@ -18948,6 +19183,7 @@ candidates:
   metrics:
     sales_ttm: 12073447000000.0
     ocf_ttm: 2050969000000.0
+    edinet_ocf_ttm: null
     cash_eq: 2086500000000.0
     total_assets: 15884971000000.0
     equity: 8519095000000.0
@@ -19025,6 +19261,7 @@ candidates:
   metrics:
     sales_ttm: 121187000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 2409000000.0
     cash_eq: null
     total_assets: 125135000000.0
     equity: 61228000000.0
@@ -19104,6 +19341,7 @@ candidates:
   metrics:
     sales_ttm: 1019459000000.0
     ocf_ttm: 95926000000.0
+    edinet_ocf_ttm: 34251000000.0
     cash_eq: 153390000000.0
     total_assets: 783152000000.0
     equity: 449401000000.0
@@ -19181,6 +19419,7 @@ candidates:
   metrics:
     sales_ttm: 442825000000.0
     ocf_ttm: 9701000000.0
+    edinet_ocf_ttm: 5594000000.0
     cash_eq: 56158000000.0
     total_assets: 217911000000.0
     equity: 146447000000.0
@@ -19260,6 +19499,7 @@ candidates:
   metrics:
     sales_ttm: 150232000000.0
     ocf_ttm: 16860000000.0
+    edinet_ocf_ttm: null
     cash_eq: 6527000000.0
     total_assets: 164914000000.0
     equity: 63970000000.0
@@ -19348,6 +19588,7 @@ candidates:
   metrics:
     sales_ttm: 49950000000.0
     ocf_ttm: 6747000000.0
+    edinet_ocf_ttm: 6747143000.0
     cash_eq: 17029000000.0
     total_assets: 48728000000.0
     equity: 21333000000.0
@@ -19415,7 +19656,7 @@ candidates:
     metrics:
       fcf_yield: 0.2261
       fcf_ttm: 6221259000.0
-      ocf_ttm: 6747000000.0
+      edinet_ocf_ttm: 6747143000.0
       capex_ttm: 525884000.0
       cfo_yoy: 0.1748
       ttm_quality: exact
@@ -19440,6 +19681,7 @@ candidates:
   metrics:
     sales_ttm: 230961000000.0
     ocf_ttm: 21472000000.0
+    edinet_ocf_ttm: 11740000000.0
     cash_eq: 43089000000.0
     total_assets: 246762000000.0
     equity: 172534000000.0
@@ -19516,6 +19758,7 @@ candidates:
   metrics:
     sales_ttm: 55473000000.0
     ocf_ttm: 10278000000.0
+    edinet_ocf_ttm: 5380000000.0
     cash_eq: 23534000000.0
     total_assets: 76589000000.0
     equity: 50025000000.0
@@ -19602,6 +19845,7 @@ candidates:
   metrics:
     sales_ttm: 218329000000.0
     ocf_ttm: 24135000000.0
+    edinet_ocf_ttm: 24135000000.0
     cash_eq: 52742000000.0
     total_assets: 240994000000.0
     equity: 113614000000.0
@@ -19687,6 +19931,7 @@ candidates:
   metrics:
     sales_ttm: 72287000000.0
     ocf_ttm: 8849000000.0
+    edinet_ocf_ttm: 4822000000.0
     cash_eq: 27410000000.0
     total_assets: 151550000000.0
     equity: 88577000000.0
@@ -19775,6 +20020,7 @@ candidates:
   metrics:
     sales_ttm: 2283362000000.0
     ocf_ttm: 146543000000.0
+    edinet_ocf_ttm: null
     cash_eq: 108754000000.0
     total_assets: 3286731000000.0
     equity: 875107000000.0
@@ -19863,6 +20109,7 @@ candidates:
   metrics:
     sales_ttm: 27001000000.0
     ocf_ttm: 3954000000.0
+    edinet_ocf_ttm: null
     cash_eq: 4985000000.0
     total_assets: 31075000000.0
     equity: 10403000000.0
@@ -19940,6 +20187,7 @@ candidates:
   metrics:
     sales_ttm: 50337000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 6025000000.0
     cash_eq: null
     total_assets: 83354000000.0
     equity: 36832000000.0
@@ -20031,6 +20279,7 @@ candidates:
   metrics:
     sales_ttm: 50985000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: null
     cash_eq: 5706000000.0
     total_assets: 23265000000.0
     equity: 14044000000.0
@@ -20107,6 +20356,7 @@ candidates:
   metrics:
     sales_ttm: 99971000000.0
     ocf_ttm: 8002000000.0
+    edinet_ocf_ttm: 3876000000.0
     cash_eq: 13709000000.0
     total_assets: 152564000000.0
     equity: 82248000000.0
@@ -20184,6 +20434,7 @@ candidates:
   metrics:
     sales_ttm: 3391397000000.0
     ocf_ttm: 291296000000.0
+    edinet_ocf_ttm: null
     cash_eq: 400979000000.0
     total_assets: 3547966000000.0
     equity: 1635679000000.0
@@ -20261,6 +20512,7 @@ candidates:
   metrics:
     sales_ttm: 261995000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 4289000000.0
     cash_eq: null
     total_assets: 173165000000.0
     equity: 98630000000.0
@@ -20345,6 +20597,7 @@ candidates:
   metrics:
     sales_ttm: 677919000000.0
     ocf_ttm: 38644000000.0
+    edinet_ocf_ttm: 21542000000.0
     cash_eq: 20226000000.0
     total_assets: 334332000000.0
     equity: 145851000000.0
@@ -20422,6 +20675,7 @@ candidates:
   metrics:
     sales_ttm: 469483000000.0
     ocf_ttm: 42920000000.0
+    edinet_ocf_ttm: null
     cash_eq: 50452000000.0
     total_assets: 498470000000.0
     equity: 250780000000.0
@@ -20499,6 +20753,7 @@ candidates:
   metrics:
     sales_ttm: 140256000000.0
     ocf_ttm: 12544000000.0
+    edinet_ocf_ttm: 5445000000.0
     cash_eq: 25859000000.0
     total_assets: 203837000000.0
     equity: 85637000000.0
@@ -20585,6 +20840,7 @@ candidates:
   metrics:
     sales_ttm: 5117764000000.0
     ocf_ttm: 376084000000.0
+    edinet_ocf_ttm: null
     cash_eq: 592398000000.0
     total_assets: 4512274000000.0
     equity: 2496098000000.0
@@ -20662,6 +20918,7 @@ candidates:
   metrics:
     sales_ttm: 6058085000000.0
     ocf_ttm: 634827000000.0
+    edinet_ocf_ttm: null
     cash_eq: 902169000000.0
     total_assets: 6465812000000.0
     equity: 4078489000000.0
@@ -20739,6 +20996,7 @@ candidates:
   metrics:
     sales_ttm: 4668381000000.0
     ocf_ttm: 359672000000.0
+    edinet_ocf_ttm: null
     cash_eq: 857786000000.0
     total_assets: 5240244000000.0
     equity: 2750078000000.0
@@ -20816,6 +21074,7 @@ candidates:
   metrics:
     sales_ttm: 931543000000.0
     ocf_ttm: 96897000000.0
+    edinet_ocf_ttm: 45495000000.0
     cash_eq: 170695000000.0
     total_assets: 906572000000.0
     equity: 689217000000.0
@@ -20893,6 +21152,7 @@ candidates:
   metrics:
     sales_ttm: 303933000000.0
     ocf_ttm: 40567000000.0
+    edinet_ocf_ttm: null
     cash_eq: 74473000000.0
     total_assets: 320103000000.0
     equity: 208272000000.0
@@ -20970,6 +21230,7 @@ candidates:
   metrics:
     sales_ttm: 332191000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 12023000000.0
     cash_eq: null
     total_assets: 370711000000.0
     equity: 234912000000.0
@@ -21054,6 +21315,7 @@ candidates:
   metrics:
     sales_ttm: 345660000000.0
     ocf_ttm: 32121000000.0
+    edinet_ocf_ttm: 10766000000.0
     cash_eq: 100107000000.0
     total_assets: 338469000000.0
     equity: 123499000000.0
@@ -21131,6 +21393,7 @@ candidates:
   metrics:
     sales_ttm: 330834000000.0
     ocf_ttm: 7204000000.0
+    edinet_ocf_ttm: 3321000000.0
     cash_eq: 87620000000.0
     total_assets: 311476000000.0
     equity: 146329000000.0
@@ -21208,6 +21471,7 @@ candidates:
   metrics:
     sales_ttm: 322959000000.0
     ocf_ttm: 30158000000.0
+    edinet_ocf_ttm: null
     cash_eq: 50368000000.0
     total_assets: 346770000000.0
     equity: 231497000000.0
@@ -21285,6 +21549,7 @@ candidates:
   metrics:
     sales_ttm: 257480000000.0
     ocf_ttm: 22395000000.0
+    edinet_ocf_ttm: null
     cash_eq: 69761000000.0
     total_assets: 256843000000.0
     equity: 198531000000.0
@@ -21362,6 +21627,7 @@ candidates:
   metrics:
     sales_ttm: 14271000000.0
     ocf_ttm: 2879594000.0
+    edinet_ocf_ttm: 1384905000.0
     cash_eq: 5823110000.0
     total_assets: 10691000000.0
     equity: 7593000000.0
@@ -21447,6 +21713,7 @@ candidates:
   metrics:
     sales_ttm: 951037000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 37135000000.0
     cash_eq: null
     total_assets: 578175000000.0
     equity: 239767000000.0
@@ -21526,6 +21793,7 @@ candidates:
   metrics:
     sales_ttm: 380063000000.0
     ocf_ttm: 22687000000.0
+    edinet_ocf_ttm: 15534000000.0
     cash_eq: 5558000000.0
     total_assets: 193483000000.0
     equity: 74357000000.0
@@ -21614,6 +21882,7 @@ candidates:
   metrics:
     sales_ttm: 519779000000.0
     ocf_ttm: 22990000000.0
+    edinet_ocf_ttm: 16060000000.0
     cash_eq: 13300000000.0
     total_assets: 504793000000.0
     equity: 173849000000.0
@@ -21691,6 +21960,7 @@ candidates:
   metrics:
     sales_ttm: 376737000000.0
     ocf_ttm: 23390000000.0
+    edinet_ocf_ttm: null
     cash_eq: 12090000000.0
     total_assets: 294558000000.0
     equity: 79547000000.0
@@ -21770,6 +22040,7 @@ candidates:
   metrics:
     sales_ttm: 289491000000.0
     ocf_ttm: 26539000000.0
+    edinet_ocf_ttm: 26539000000.0
     cash_eq: 29793000000.0
     total_assets: 207862000000.0
     equity: 103784000000.0
@@ -21846,7 +22117,7 @@ candidates:
     metrics:
       fcf_yield: 0.3579
       fcf_ttm: 23163000000.0
-      ocf_ttm: 26539000000.0
+      edinet_ocf_ttm: 26539000000.0
       capex_ttm: 3376000000.0
       cfo_yoy: 0.149
       ttm_quality: exact
@@ -21871,6 +22142,7 @@ candidates:
   metrics:
     sales_ttm: 286540000000.0
     ocf_ttm: 32491000000.0
+    edinet_ocf_ttm: null
     cash_eq: 59600000000.0
     total_assets: 345555000000.0
     equity: 94258000000.0
@@ -21948,6 +22220,7 @@ candidates:
   metrics:
     sales_ttm: 1010336000000.0
     ocf_ttm: 86779000000.0
+    edinet_ocf_ttm: 66416000000.0
     cash_eq: 111150000000.0
     total_assets: 614493000000.0
     equity: 290474000000.0
@@ -22025,6 +22298,7 @@ candidates:
   metrics:
     sales_ttm: 119223000000.0
     ocf_ttm: 19948000000.0
+    edinet_ocf_ttm: null
     cash_eq: 97399000000.0
     total_assets: 301798000000.0
     equity: 228590000000.0
@@ -22102,6 +22376,7 @@ candidates:
   metrics:
     sales_ttm: 2574782000000.0
     ocf_ttm: 147451000000.0
+    edinet_ocf_ttm: null
     cash_eq: 180949000000.0
     total_assets: 2518061000000.0
     equity: 1171850000000.0
@@ -22179,6 +22454,7 @@ candidates:
   metrics:
     sales_ttm: 214951000000.0
     ocf_ttm: 22469000000.0
+    edinet_ocf_ttm: 12128000000.0
     cash_eq: 34783000000.0
     total_assets: 222333000000.0
     equity: 155666000000.0
@@ -22256,6 +22532,7 @@ candidates:
   metrics:
     sales_ttm: 40109000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 978000000.0
     cash_eq: null
     total_assets: 53695000000.0
     equity: 38916000000.0
@@ -22340,6 +22617,7 @@ candidates:
   metrics:
     sales_ttm: 96660000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 3949000000.0
     cash_eq: null
     total_assets: 82950000000.0
     equity: 36887000000.0
@@ -22419,6 +22697,7 @@ candidates:
   metrics:
     sales_ttm: 194898000000.0
     ocf_ttm: 9205000000.0
+    edinet_ocf_ttm: null
     cash_eq: 39213000000.0
     total_assets: 250120000000.0
     equity: 117872000000.0
@@ -22504,6 +22783,7 @@ candidates:
   metrics:
     sales_ttm: 145456000000.0
     ocf_ttm: 16349000000.0
+    edinet_ocf_ttm: 4768000000.0
     cash_eq: 16567000000.0
     total_assets: 164848000000.0
     equity: 113514000000.0
@@ -22581,6 +22861,7 @@ candidates:
   metrics:
     sales_ttm: 100952000000.0
     ocf_ttm: 13699000000.0
+    edinet_ocf_ttm: 13699000000.0
     cash_eq: 15876000000.0
     total_assets: 83477000000.0
     equity: 41364000000.0
@@ -22658,6 +22939,7 @@ candidates:
   metrics:
     sales_ttm: 240490000000.0
     ocf_ttm: 29981000000.0
+    edinet_ocf_ttm: 11613000000.0
     cash_eq: 25478000000.0
     total_assets: 304062000000.0
     equity: 165171000000.0
@@ -22743,6 +23025,7 @@ candidates:
   metrics:
     sales_ttm: 42623000000.0
     ocf_ttm: 4522000000.0
+    edinet_ocf_ttm: 4522933000.0
     cash_eq: 15114000000.0
     total_assets: 67735000000.0
     equity: 56353000000.0
@@ -22827,6 +23110,7 @@ candidates:
   metrics:
     sales_ttm: 58448000000.0
     ocf_ttm: 995000000.0
+    edinet_ocf_ttm: -2164000000.0
     cash_eq: 18492000000.0
     total_assets: 59880000000.0
     equity: 40923000000.0
@@ -22920,6 +23204,7 @@ candidates:
   metrics:
     sales_ttm: 950986000000.0
     ocf_ttm: 44250000000.0
+    edinet_ocf_ttm: 16277000000.0
     cash_eq: 42083000000.0
     total_assets: 860462000000.0
     equity: 416339000000.0
@@ -22997,6 +23282,7 @@ candidates:
   metrics:
     sales_ttm: 299293000000.0
     ocf_ttm: 11543000000.0
+    edinet_ocf_ttm: 5949000000.0
     cash_eq: 28198000000.0
     total_assets: 153373000000.0
     equity: 102444000000.0
@@ -23074,6 +23360,7 @@ candidates:
   metrics:
     sales_ttm: 236804000000.0
     ocf_ttm: 8249000000.0
+    edinet_ocf_ttm: 3980000000.0
     cash_eq: 19715000000.0
     total_assets: 189223000000.0
     equity: 93588000000.0
@@ -23153,6 +23440,7 @@ candidates:
   metrics:
     sales_ttm: 1056856000000.0
     ocf_ttm: 54420000000.0
+    edinet_ocf_ttm: null
     cash_eq: 52304000000.0
     total_assets: 712978000000.0
     equity: 213126000000.0
@@ -23230,6 +23518,7 @@ candidates:
   metrics:
     sales_ttm: 591917000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 14355000000.0
     cash_eq: null
     total_assets: 398363000000.0
     equity: 141874000000.0
@@ -23309,6 +23598,7 @@ candidates:
   metrics:
     sales_ttm: 326346000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 14163000000.0
     cash_eq: null
     total_assets: 397182000000.0
     equity: 176053000000.0
@@ -23388,6 +23678,7 @@ candidates:
   metrics:
     sales_ttm: 433686000000.0
     ocf_ttm: 57566000000.0
+    edinet_ocf_ttm: null
     cash_eq: 47043000000.0
     total_assets: 380669000000.0
     equity: 181059000000.0
@@ -23476,6 +23767,7 @@ candidates:
   metrics:
     sales_ttm: 126823000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: -610251000.0
     cash_eq: null
     total_assets: 105676000000.0
     equity: 57740000000.0
@@ -23552,6 +23844,7 @@ candidates:
   metrics:
     sales_ttm: 210801000000.0
     ocf_ttm: 12520000000.0
+    edinet_ocf_ttm: 8290000000.0
     cash_eq: 38173000000.0
     total_assets: 147996000000.0
     equity: 89974000000.0
@@ -23645,6 +23938,7 @@ candidates:
   metrics:
     sales_ttm: 164927000000.0
     ocf_ttm: 4406000000.0
+    edinet_ocf_ttm: 737000000.0
     cash_eq: 11231000000.0
     total_assets: 84580000000.0
     equity: 42097000000.0
@@ -23733,6 +24027,7 @@ candidates:
   metrics:
     sales_ttm: 851235000000.0
     ocf_ttm: 45071000000.0
+    edinet_ocf_ttm: null
     cash_eq: 21924000000.0
     total_assets: 452690000000.0
     equity: 210535000000.0
@@ -23810,6 +24105,7 @@ candidates:
   metrics:
     sales_ttm: 259747000000.0
     ocf_ttm: 7935000000.0
+    edinet_ocf_ttm: 7935000000.0
     cash_eq: 11150000000.0
     total_assets: 96454000000.0
     equity: 34542000000.0
@@ -23898,6 +24194,7 @@ candidates:
   metrics:
     sales_ttm: 278197000000.0
     ocf_ttm: 9631000000.0
+    edinet_ocf_ttm: 8017000000.0
     cash_eq: 19545000000.0
     total_assets: 136241000000.0
     equity: 91701000000.0
@@ -23983,6 +24280,7 @@ candidates:
   metrics:
     sales_ttm: 165495000000.0
     ocf_ttm: 15778000000.0
+    edinet_ocf_ttm: 15778000000.0
     cash_eq: 19566000000.0
     total_assets: 139763000000.0
     equity: 55481000000.0
@@ -24060,6 +24358,7 @@ candidates:
   metrics:
     sales_ttm: 81377000000.0
     ocf_ttm: -4130000000.0
+    edinet_ocf_ttm: -4470000000.0
     cash_eq: 16729000000.0
     total_assets: 71016000000.0
     equity: 49964000000.0
@@ -24153,6 +24452,7 @@ candidates:
   metrics:
     sales_ttm: 881325000000.0
     ocf_ttm: 74477000000.0
+    edinet_ocf_ttm: 70402000000.0
     cash_eq: 26592000000.0
     total_assets: 335246000000.0
     equity: 155534000000.0
@@ -24230,6 +24530,7 @@ candidates:
   metrics:
     sales_ttm: 252655000000.0
     ocf_ttm: 7619000000.0
+    edinet_ocf_ttm: 4562000000.0
     cash_eq: 10999000000.0
     total_assets: 129223000000.0
     equity: 74641000000.0
@@ -24315,6 +24616,7 @@ candidates:
   metrics:
     sales_ttm: 385384000000.0
     ocf_ttm: 23825000000.0
+    edinet_ocf_ttm: 16789000000.0
     cash_eq: 12002000000.0
     total_assets: 394194000000.0
     equity: 256979000000.0
@@ -24392,6 +24694,7 @@ candidates:
   metrics:
     sales_ttm: 125450000000.0
     ocf_ttm: 15234000000.0
+    edinet_ocf_ttm: 9273000000.0
     cash_eq: 4658000000.0
     total_assets: 124749000000.0
     equity: 45825000000.0
@@ -24469,6 +24772,7 @@ candidates:
   metrics:
     sales_ttm: 293667000000.0
     ocf_ttm: 16346000000.0
+    edinet_ocf_ttm: 8184000000.0
     cash_eq: 29204000000.0
     total_assets: 144469000000.0
     equity: 92844000000.0
@@ -24557,6 +24861,7 @@ candidates:
   metrics:
     sales_ttm: 10715342000000.0
     ocf_ttm: 1126589000000.0
+    edinet_ocf_ttm: 816268000000.0
     cash_eq: 1263123000000.0
     total_assets: 15369658000000.0
     equity: 2204267000000.0
@@ -24634,6 +24939,7 @@ candidates:
   metrics:
     sales_ttm: 569312000000.0
     ocf_ttm: 64515000000.0
+    edinet_ocf_ttm: 44755000000.0
     cash_eq: 28088000000.0
     total_assets: 595383000000.0
     equity: 307939000000.0
@@ -24730,6 +25036,7 @@ candidates:
   metrics:
     sales_ttm: 814260000000.0
     ocf_ttm: 37740000000.0
+    edinet_ocf_ttm: 36952000000.0
     cash_eq: 38943000000.0
     total_assets: 415212000000.0
     equity: 227227000000.0
@@ -24807,6 +25114,7 @@ candidates:
   metrics:
     sales_ttm: 747688000000.0
     ocf_ttm: 31866000000.0
+    edinet_ocf_ttm: 23548000000.0
     cash_eq: 10346000000.0
     total_assets: 432796000000.0
     equity: 248241000000.0
@@ -24884,6 +25192,7 @@ candidates:
   metrics:
     sales_ttm: 117531000000.0
     ocf_ttm: 8562000000.0
+    edinet_ocf_ttm: 2160000000.0
     cash_eq: 7870000000.0
     total_assets: 101531000000.0
     equity: 56965000000.0
@@ -24961,6 +25270,7 @@ candidates:
   metrics:
     sales_ttm: 98157000000.0
     ocf_ttm: 3449000000.0
+    edinet_ocf_ttm: 3136000000.0
     cash_eq: 3571000000.0
     total_assets: 64648000000.0
     equity: 21062000000.0
@@ -25038,6 +25348,7 @@ candidates:
   metrics:
     sales_ttm: 774058000000.0
     ocf_ttm: 1895839000000.0
+    edinet_ocf_ttm: null
     cash_eq: 4623613000000.0
     total_assets: 24741359000000.0
     equity: 1233041000000.0
@@ -25114,6 +25425,7 @@ candidates:
   metrics:
     sales_ttm: 32905000000.0
     ocf_ttm: 3031437000.0
+    edinet_ocf_ttm: -941187000.0
     cash_eq: 5721786000.0
     total_assets: 31705000000.0
     equity: 10673000000.0
@@ -25202,6 +25514,7 @@ candidates:
   metrics:
     sales_ttm: 655435000000.0
     ocf_ttm: 106640000000.0
+    edinet_ocf_ttm: 44879000000.0
     cash_eq: 44207000000.0
     total_assets: 1863562000000.0
     equity: 622227000000.0
@@ -25279,6 +25592,7 @@ candidates:
   metrics:
     sales_ttm: 478205000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 4595000000.0
     cash_eq: null
     total_assets: 1140753000000.0
     equity: 440740000000.0
@@ -25358,6 +25672,7 @@ candidates:
   metrics:
     sales_ttm: 3084679000000.0
     ocf_ttm: 765072000000.0
+    edinet_ocf_ttm: 291235000000.0
     cash_eq: 262057000000.0
     total_assets: 10820726000000.0
     equity: 3060091000000.0
@@ -25435,6 +25750,7 @@ candidates:
   metrics:
     sales_ttm: 1845840000000.0
     ocf_ttm: 361634000000.0
+    edinet_ocf_ttm: 137372000000.0
     cash_eq: 234860000000.0
     total_assets: 3986721000000.0
     equity: 1337206000000.0
@@ -25512,6 +25828,7 @@ candidates:
   metrics:
     sales_ttm: 2006218000000.0
     ocf_ttm: 748185000000.0
+    edinet_ocf_ttm: 320477000000.0
     cash_eq: 370554000000.0
     total_assets: 10876154000000.0
     equity: 5136631000000.0
@@ -25589,6 +25906,7 @@ candidates:
   metrics:
     sales_ttm: 422414000000.0
     ocf_ttm: 133764000000.0
+    edinet_ocf_ttm: 61053000000.0
     cash_eq: 68280000000.0
     total_assets: 2047168000000.0
     equity: 734751000000.0
@@ -25666,6 +25984,7 @@ candidates:
   metrics:
     sales_ttm: 470321000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 15969000000.0
     cash_eq: null
     total_assets: 795313000000.0
     equity: 276619000000.0
@@ -25745,6 +26064,7 @@ candidates:
   metrics:
     sales_ttm: 264714000000.0
     ocf_ttm: 47535000000.0
+    edinet_ocf_ttm: 9929000000.0
     cash_eq: 38827000000.0
     total_assets: 1065100000000.0
     equity: 354085000000.0
@@ -25822,6 +26142,7 @@ candidates:
   metrics:
     sales_ttm: 1865675000000.0
     ocf_ttm: 72218000000.0
+    edinet_ocf_ttm: 15350000000.0
     cash_eq: 237822000000.0
     total_assets: 1280170000000.0
     equity: 582057000000.0
@@ -25910,6 +26231,7 @@ candidates:
   metrics:
     sales_ttm: 807120000000.0
     ocf_ttm: 50851000000.0
+    edinet_ocf_ttm: 22531000000.0
     cash_eq: 74425000000.0
     total_assets: 784215000000.0
     equity: 435390000000.0
@@ -25987,6 +26309,7 @@ candidates:
   metrics:
     sales_ttm: 1825098000000.0
     ocf_ttm: 450963000000.0
+    edinet_ocf_ttm: 262707000000.0
     cash_eq: 201494000000.0
     total_assets: 5962245000000.0
     equity: 2929073000000.0
@@ -26064,6 +26387,7 @@ candidates:
   metrics:
     sales_ttm: 229784000000.0
     ocf_ttm: 35422000000.0
+    edinet_ocf_ttm: 21130000000.0
     cash_eq: 65625000000.0
     total_assets: 296361000000.0
     equity: 187200000000.0
@@ -26141,6 +26465,7 @@ candidates:
   metrics:
     sales_ttm: 128098000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 14377000000.0
     cash_eq: null
     total_assets: 346621000000.0
     equity: 153241000000.0
@@ -26217,6 +26542,7 @@ candidates:
   metrics:
     sales_ttm: 2574826000000.0
     ocf_ttm: 208660000000.0
+    edinet_ocf_ttm: null
     cash_eq: 283394000000.0
     total_assets: 2414985000000.0
     equity: 849075000000.0
@@ -26294,6 +26620,7 @@ candidates:
   metrics:
     sales_ttm: 54353000000.0
     ocf_ttm: 5706000000.0
+    edinet_ocf_ttm: null
     cash_eq: 15835000000.0
     total_assets: 98054000000.0
     equity: 33891000000.0
@@ -26399,6 +26726,7 @@ candidates:
   metrics:
     sales_ttm: 24542000000.0
     ocf_ttm: 2523461000.0
+    edinet_ocf_ttm: null
     cash_eq: 4309620000.0
     total_assets: 24345000000.0
     equity: 14454000000.0
@@ -26476,6 +26804,7 @@ candidates:
   metrics:
     sales_ttm: 170787000000.0
     ocf_ttm: 13919000000.0
+    edinet_ocf_ttm: 13919000000.0
     cash_eq: 31901000000.0
     total_assets: 222643000000.0
     equity: 65357000000.0
@@ -26572,6 +26901,7 @@ candidates:
   metrics:
     sales_ttm: 8421000000.0
     ocf_ttm: 1358000000.0
+    edinet_ocf_ttm: null
     cash_eq: 2721000000.0
     total_assets: 9495000000.0
     equity: 7192000000.0
@@ -26661,6 +26991,7 @@ candidates:
   metrics:
     sales_ttm: 2012515000000.0
     ocf_ttm: 394879000000.0
+    edinet_ocf_ttm: null
     cash_eq: 1010185000000.0
     total_assets: 3198757000000.0
     equity: 1334765000000.0
@@ -26758,6 +27089,7 @@ candidates:
   metrics:
     sales_ttm: 2539233000000.0
     ocf_ttm: 443459000000.0
+    edinet_ocf_ttm: 179015000000.0
     cash_eq: 736385000000.0
     total_assets: 3955128000000.0
     equity: 1502633000000.0
@@ -26867,6 +27199,7 @@ candidates:
   metrics:
     sales_ttm: 123234000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 10318000000.0
     cash_eq: null
     total_assets: 171140000000.0
     equity: 83938000000.0
@@ -26946,6 +27279,7 @@ candidates:
   metrics:
     sales_ttm: 126607000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 1257000000.0
     cash_eq: null
     total_assets: 59543000000.0
     equity: 21070000000.0
@@ -27025,6 +27359,7 @@ candidates:
   metrics:
     sales_ttm: 340403000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 11395000000.0
     cash_eq: null
     total_assets: 576520000000.0
     equity: 467221000000.0
@@ -27104,6 +27439,7 @@ candidates:
   metrics:
     sales_ttm: 165741000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 5820000000.0
     cash_eq: null
     total_assets: 157654000000.0
     equity: 108213000000.0
@@ -27183,6 +27519,7 @@ candidates:
   metrics:
     sales_ttm: 39012000000.0
     ocf_ttm: 3540000000.0
+    edinet_ocf_ttm: 3635569000.0
     cash_eq: 13504000000.0
     total_assets: 30172000000.0
     equity: 21289000000.0
@@ -27259,6 +27596,7 @@ candidates:
   metrics:
     sales_ttm: 416449000000.0
     ocf_ttm: 35403000000.0
+    edinet_ocf_ttm: 19213000000.0
     cash_eq: 82386000000.0
     total_assets: 296543000000.0
     equity: 117176000000.0
@@ -27347,6 +27685,7 @@ candidates:
   metrics:
     sales_ttm: 14076041000000.0
     ocf_ttm: 2242828000000.0
+    edinet_ocf_ttm: null
     cash_eq: 2816904000000.0
     total_assets: 46834791000000.0
     equity: 9987551000000.0
@@ -27424,6 +27763,7 @@ candidates:
   metrics:
     sales_ttm: 6928285000000.0
     ocf_ttm: 1248882000000.0
+    edinet_ocf_ttm: null
     cash_eq: 1577481000000.0
     total_assets: 18243656000000.0
     equity: 4490375000000.0
@@ -27501,6 +27841,7 @@ candidates:
   metrics:
     sales_ttm: 201894000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 7817000000.0
     cash_eq: null
     total_assets: 142989000000.0
     equity: 58784000000.0
@@ -27580,6 +27921,7 @@ candidates:
   metrics:
     sales_ttm: 64277000000.0
     ocf_ttm: 7112000000.0
+    edinet_ocf_ttm: 4265000000.0
     cash_eq: 11536000000.0
     total_assets: 72014000000.0
     equity: 48903000000.0
@@ -27656,6 +27998,7 @@ candidates:
   metrics:
     sales_ttm: 4056638000000.0
     ocf_ttm: 652381000000.0
+    edinet_ocf_ttm: 229984000000.0
     cash_eq: 741286000000.0
     total_assets: 9854646000000.0
     equity: 3502744000000.0
@@ -27732,6 +28075,7 @@ candidates:
   metrics:
     sales_ttm: 786552000000.0
     ocf_ttm: 117459000000.0
+    edinet_ocf_ttm: 47007000000.0
     cash_eq: 92984000000.0
     total_assets: 1842067000000.0
     equity: 451303000000.0
@@ -27808,6 +28152,7 @@ candidates:
   metrics:
     sales_ttm: 761862000000.0
     ocf_ttm: 82290000000.0
+    edinet_ocf_ttm: 48153000000.0
     cash_eq: 78554000000.0
     total_assets: 1734358000000.0
     equity: 477531000000.0
@@ -27884,6 +28229,7 @@ candidates:
   metrics:
     sales_ttm: 220177000000.0
     ocf_ttm: 27303000000.0
+    edinet_ocf_ttm: 10093000000.0
     cash_eq: 19220000000.0
     total_assets: 522482000000.0
     equity: 132865000000.0
@@ -27964,6 +28310,7 @@ candidates:
   metrics:
     sales_ttm: 2834749000000.0
     ocf_ttm: 451837000000.0
+    edinet_ocf_ttm: 238091000000.0
     cash_eq: 187043000000.0
     total_assets: 3892268000000.0
     equity: 1796567000000.0
@@ -28040,6 +28387,7 @@ candidates:
   metrics:
     sales_ttm: 2063718000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 199521000000.0
     cash_eq: null
     total_assets: 3326702000000.0
     equity: 1779803000000.0
@@ -28116,6 +28464,7 @@ candidates:
   metrics:
     sales_ttm: 174519000000.0
     ocf_ttm: 27028000000.0
+    edinet_ocf_ttm: 14681000000.0
     cash_eq: 9799000000.0
     total_assets: 198198000000.0
     equity: 99710000000.0
@@ -28192,6 +28541,7 @@ candidates:
   metrics:
     sales_ttm: 261823000000.0
     ocf_ttm: 25329000000.0
+    edinet_ocf_ttm: 12522000000.0
     cash_eq: 22834000000.0
     total_assets: 465845000000.0
     equity: 123331000000.0
@@ -28268,6 +28618,7 @@ candidates:
   metrics:
     sales_ttm: 36874000000.0
     ocf_ttm: 1260324000.0
+    edinet_ocf_ttm: 474703000.0
     cash_eq: 5295360000.0
     total_assets: 16655000000.0
     equity: 7226000000.0
@@ -28347,6 +28698,7 @@ candidates:
   metrics:
     sales_ttm: null
     ocf_ttm: null
+    edinet_ocf_ttm: 21219000000.0
     cash_eq: null
     total_assets: 395218000000.0
     equity: 72661000000.0
@@ -28427,6 +28779,7 @@ candidates:
   metrics:
     sales_ttm: 241064000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: -2912000000.0
     cash_eq: null
     total_assets: 323620000000.0
     equity: 133290000000.0
@@ -28503,6 +28856,7 @@ candidates:
   metrics:
     sales_ttm: 594855000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 1225000000.0
     cash_eq: null
     total_assets: 524999000000.0
     equity: 151172000000.0
@@ -28582,6 +28936,7 @@ candidates:
   metrics:
     sales_ttm: 17306000000.0
     ocf_ttm: 1434000000.0
+    edinet_ocf_ttm: 116000000.0
     cash_eq: 18548000000.0
     total_assets: 35401000000.0
     equity: 19052000000.0
@@ -28662,6 +29017,7 @@ candidates:
   metrics:
     sales_ttm: 41758000000.0
     ocf_ttm: 19901000000.0
+    edinet_ocf_ttm: 19901747000.0
     cash_eq: 14243000000.0
     total_assets: 125785000000.0
     equity: 94902000000.0
@@ -28729,7 +29085,7 @@ candidates:
     metrics:
       fcf_yield: 0.0831
       fcf_ttm: 13070770000.0
-      ocf_ttm: 19901000000.0
+      edinet_ocf_ttm: 19901747000.0
       capex_ttm: 6830977000.0
       cfo_yoy: 0.236
       ttm_quality: exact
@@ -28754,6 +29110,7 @@ candidates:
   metrics:
     sales_ttm: 135213000000.0
     ocf_ttm: 8929000000.0
+    edinet_ocf_ttm: 4820000000.0
     cash_eq: 29381000000.0
     total_assets: 85248000000.0
     equity: 64691000000.0
@@ -28833,6 +29190,7 @@ candidates:
   metrics:
     sales_ttm: 65882000000.0
     ocf_ttm: 5825000000.0
+    edinet_ocf_ttm: 5825000000.0
     cash_eq: 25200000000.0
     total_assets: 62210000000.0
     equity: 42603000000.0
@@ -28912,6 +29270,7 @@ candidates:
   metrics:
     sales_ttm: 393866000000.0
     ocf_ttm: 20760000000.0
+    edinet_ocf_ttm: 11311000000.0
     cash_eq: 78901000000.0
     total_assets: 223865000000.0
     equity: 139293000000.0
@@ -28989,6 +29348,7 @@ candidates:
   metrics:
     sales_ttm: 82004000000.0
     ocf_ttm: 15922000000.0
+    edinet_ocf_ttm: 15922000000.0
     cash_eq: 12245000000.0
     total_assets: 98834000000.0
     equity: 36818000000.0
@@ -29066,6 +29426,7 @@ candidates:
   metrics:
     sales_ttm: 78745000000.0
     ocf_ttm: 5583000000.0
+    edinet_ocf_ttm: 4621465000.0
     cash_eq: 16211000000.0
     total_assets: 71736000000.0
     equity: 44189000000.0
@@ -29170,6 +29531,7 @@ candidates:
   metrics:
     sales_ttm: 107222000000.0
     ocf_ttm: 3743000000.0
+    edinet_ocf_ttm: 3743000000.0
     cash_eq: 17589000000.0
     total_assets: 55725000000.0
     equity: 37665000000.0
@@ -29249,6 +29611,7 @@ candidates:
   metrics:
     sales_ttm: 76285000000.0
     ocf_ttm: 7878000000.0
+    edinet_ocf_ttm: 7878000000.0
     cash_eq: 18015000000.0
     total_assets: 108515000000.0
     equity: 78805000000.0
@@ -29326,6 +29689,7 @@ candidates:
   metrics:
     sales_ttm: 115143000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 8883000000.0
     cash_eq: null
     total_assets: 90748000000.0
     equity: 69517000000.0
@@ -29402,6 +29766,7 @@ candidates:
   metrics:
     sales_ttm: 29342000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 823428000.0
     cash_eq: null
     total_assets: 20641000000.0
     equity: 15403000000.0
@@ -29481,6 +29846,7 @@ candidates:
   metrics:
     sales_ttm: 341141000000.0
     ocf_ttm: 23229000000.0
+    edinet_ocf_ttm: 12284000000.0
     cash_eq: 20384000000.0
     total_assets: 346213000000.0
     equity: 128357000000.0
@@ -29560,6 +29926,7 @@ candidates:
   metrics:
     sales_ttm: 73945000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 1520000000.0
     cash_eq: null
     total_assets: 45329000000.0
     equity: 25232000000.0
@@ -29639,6 +30006,7 @@ candidates:
   metrics:
     sales_ttm: 626957000000.0
     ocf_ttm: 26302000000.0
+    edinet_ocf_ttm: 22878000000.0
     cash_eq: 91130000000.0
     total_assets: 300714000000.0
     equity: 196142000000.0
@@ -29741,6 +30109,7 @@ candidates:
   metrics:
     sales_ttm: 901291000000.0
     ocf_ttm: null
+    edinet_ocf_ttm: 26423000000.0
     cash_eq: null
     total_assets: 529439000000.0
     equity: 200518000000.0
@@ -29820,6 +30189,7 @@ candidates:
   metrics:
     sales_ttm: 423432000000.0
     ocf_ttm: 20935000000.0
+    edinet_ocf_ttm: 12812000000.0
     cash_eq: 19847000000.0
     total_assets: 221376000000.0
     equity: 120592000000.0

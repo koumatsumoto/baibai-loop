@@ -92,6 +92,7 @@ class FinancialSnapshot:
     eps: float | None
     sales_ttm: float | None
     ocf_ttm: float | None
+    edinet_ocf_ttm: float | None = None
     sales: float | None = None
     cfo: float | None = None
     cash_eq: float | None = None
@@ -142,6 +143,7 @@ class FinancialSnapshot:
         "eps",
         "sales_ttm",
         "ocf_ttm",
+        "edinet_ocf_ttm",
         "sales",
         "cfo",
         "cash_eq",

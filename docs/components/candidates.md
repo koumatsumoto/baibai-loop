@@ -57,6 +57,7 @@ candidates:
     metrics:
       sales_ttm: 100000000000.0
       ocf_ttm: 13000000000.0
+      edinet_ocf_ttm: 13000000000.0
       cash_to_market_cap: 0.42
       net_cash: null
       net_cash_to_market_cap: null
@@ -124,7 +125,8 @@ signals_summary:
 - `config_hash`: `ScreeningConfig` の secret 以外、provider URL、tier 設定、`records/_config/screening-rules.yaml` の内容 hash を含む
 - `cache_manifest_hash`: `records/_data/raw/screening/` 配下の provider raw JSON cache の manifest hash
 - `signals`: 通過した signal lane。複数 hit 可。表示順は rule config の lane 順に固定し、単一総合 score は持たせない
-- `metrics`: candidate-level の flat な派生値。例: `sales_ttm`, `ocf_ttm`, `cash_to_market_cap`, `net_cash_to_market_cap`, `price_to_equity`, `equity_ratio`, `ocf_yield`, `fcf_yield`, `cfo_yoy`, `sales_yoy`, `operating_profit`, `edinet_source_doc_id`, `edinet_failure_reasons`
+- `metrics`: candidate-level の flat な派生値。例: `sales_ttm`, `ocf_ttm`, `edinet_ocf_ttm`, `cash_to_market_cap`, `net_cash_to_market_cap`, `price_to_equity`, `equity_ratio`, `ocf_yield`, `fcf_yield`, `cfo_yoy`, `sales_yoy`, `operating_profit`, `edinet_source_doc_id`, `edinet_failure_reasons`
+- `ocf_ttm` は J-Quants 財務サマリーを TTM 正規化した営業 CF。`edinet_ocf_ttm` は EDINET CSV から抽出した CFO で、`fcf-yield-discount` の `fcf_ttm = edinet_ocf_ttm - capex_ttm` と同じ source family に属する
 - `metrics_breakdown`: valuation 指標ごとの `sector_median_gap` / `self_range_percentile` / `sigma_gap`
 - `signals[].metrics`: signal hit の判定に直接使った値。valuation は `condition_a_metric` などの flat key、cash / CF / sales は lane 固有 key で記録する
 - `ttm_quality`: `EV/EBITDA` / `P/S` / `PCFR` / `OCF yield` / `sales` / `FCF yield` / `net cash` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する

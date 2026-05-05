@@ -197,6 +197,7 @@ def _build_financial_snapshot(
     shares_outstanding = latest.shares_outstanding if latest else None
     sales_ttm, sales_quality = _ttm_value(summaries, "sales", rules.ttm)
     ocf_ttm, ocf_quality = _ttm_value(summaries, "cfo", rules.ttm)
+    edinet_ocf_ttm = edinet.ocf_ttm if edinet else None
     debt = edinet.debt if edinet else None
     cash = edinet.cash if edinet else None
     ebitda_ttm = edinet.ebitda_ttm if edinet else None
@@ -222,6 +223,7 @@ def _build_financial_snapshot(
         eps=eps_ttm,
         sales_ttm=sales_ttm,
         ocf_ttm=ocf_ttm,
+        edinet_ocf_ttm=edinet_ocf_ttm,
         sales=latest.sales if latest else None,
         cfo=latest.cfo if latest else None,
         cash_eq=latest.cash_eq if latest else None,

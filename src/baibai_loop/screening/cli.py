@@ -581,6 +581,7 @@ def run_command(
                 metrics={
                     "sales_ttm": financial.sales_ttm,
                     "ocf_ttm": financial.ocf_ttm,
+                    "edinet_ocf_ttm": financial.edinet_ocf_ttm,
                     "cash_eq": financial.cash_eq,
                     "total_assets": financial.total_assets,
                     "equity": financial.equity,

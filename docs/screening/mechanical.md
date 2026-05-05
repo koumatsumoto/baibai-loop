@@ -63,7 +63,7 @@ EDINET `type=5` CSV から抽出した cash と interest-bearing debt を使い�
 
 ### 3.3 `fcf-yield-discount`
 
-EDINET `type=5` CSV から抽出した営業 CF と設備投資支出を使い、`FCF = CFO - capex` として FCF yield を算出する。OCF yield だけでは設備投資負担の大きい企業を安く見誤るため、CF 系の中ではこの lane を優先して見る。
+EDINET `type=5` CSV から抽出した営業 CF と設備投資支出を使い、`FCF = EDINET CFO - capex` として FCF yield を算出する。OCF yield だけでは設備投資負担の大きい企業を安く見誤るため、CF 系の中ではこの lane を優先して見る。J-Quants 財務サマリー由来の `ocf_ttm` は別 source のため、FCF signal の再計算には混ぜない。
 
 - `fcf_yield` が閾値以上
 - FCF がプラス

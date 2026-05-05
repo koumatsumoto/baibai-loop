@@ -16,9 +16,9 @@ EDINET `type=5` CSV-derived metrics の coverage / precision を確認するた�
 | `cash` | cash and deposits / cash and cash equivalents | net cash |
 | `debt` | borrowings / bonds / lease obligations | net cash |
 | `net_cash` | `cash - debt` | `strict-net-cash-discount` |
-| `ocf_ttm` | operating cash flow | FCF / OCF |
+| `ocf_ttm` | operating cash flow | EDINET raw metric. Candidate YAML では `edinet_ocf_ttm` として出力し、J-Quants `ocf_ttm` と区別する |
 | `capex_ttm` | purchase of PPE / intangible assets | FCF |
-| `fcf_ttm` | `ocf_ttm - abs(capex_ttm)` | `fcf-yield-discount` |
+| `fcf_ttm` | `edinet_ocf_ttm - abs(capex_ttm)` | `fcf-yield-discount` |
 | `operating_profit_ttm` | operating profit / operating income | EBITDA / profitability gate |
 | `depreciation_and_amortization_ttm` | depreciation / amortization | EBITDA |
 
@@ -32,13 +32,14 @@ EDINET `type=5` CSV-derived metrics の coverage / precision を確認するた�
 - `ttm_quality_fcf != unavailable` の件数
 - `failure_reasons` 上位件数
 - `strict-net-cash-discount` / `fcf-yield-discount` の hit 数
-- sample 3 銘柄以上について、会社 IR / 有報の一次資料と `cash` / `debt` / `CFO` / `capex` / `FCF` を突合
+- sample 3 銘柄以上について、generated artifact 上で source-consistency を確認する
+- 会社 IR / 有報 PDF との一次資料突合は research packet 作成時の follow-up とし、この PR の完了条件にはしない
 
 ## 4. Initial Implementation Notes
 
 CSV tag map は deliberately small に始める。tag が見つからない場合は推定で埋めず、`failure_reasons` に `tag_not_found:<metric>` を残す。非連結しか取れない場合は `non_consolidated_fallback` を残し、research で連結 / 単体の意味を確認する。
 
-`strict-net-cash-discount` と `fcf-yield-discount` は「新しい候補を増やす」ための lane だが、目的は hit 数の最大化ではない。PER / PBR 中心では拾えなかった安さを、より実体に近い balance sheet / FCF で拾えるかを sample research で検証する。
+`strict-net-cash-discount` と `fcf-yield-discount` は「新しい候補を増やす」ための lane だが、目的は hit 数の最大化ではない。PER / PBR 中心では拾えなかった安さを、より実体に近い balance sheet / FCF で拾えるかを follow-up research で検証する。
 
 ## 5. 2026-05-01 Initial Run
 
@@ -127,3 +128,13 @@ Candidate sanity check:
 | 4008 | 初期 PR #93 では debt 抽出漏れにより strict hit していたが、`ShortTermLoansPayable` 等を debt に含めた後は候補外。false positive 削減として妥当 |
 | 3151 | 初期 PR #93 では old correction / debt 抽出漏れの影響を受けていたが、修正後は候補外 |
 | 9682 | 引き続き `sales-discount-growth` 候補。EDINET metrics は `debt_assumed_zero` のため strict net-cash thesis は強めない。FCF yield も 2.7% 程度で FCF lane には不十分 |
+
+Source-consistency audit:
+
+| ticker | lane | generated artifact check | result |
+| --- | --- | --- | --- |
+| 4768 | `fcf-yield-discount` | EDINET `edinet_ocf_ttm` 92,218,000,000 - `capex_ttm` 4,372,000,000 = `fcf_ttm` 87,846,000,000。J-Quants `ocf_ttm` 115,478,000,000 は separate metric として保持 | pass |
+| 7279 | `strict-net-cash-discount` | `cash` 57,666,000,000 - `debt` 8,939,000,000 = `net_cash` 48,727,000,000。`failure_reasons` なし | pass |
+| 7871 | `strict-net-cash-discount` | `cash` 13,674,000,000 - `debt` 1,053,000,000 = `net_cash` 12,621,000,000。`failure_reasons` なし | pass |
+
+この audit は parser output と candidates YAML の内部整合性確認であり、会社公表資料の表示科目との突合ではない。Research では各 playbook の required checks に従い、一次資料で CFO / capex / cash / debt の意味を再確認する。

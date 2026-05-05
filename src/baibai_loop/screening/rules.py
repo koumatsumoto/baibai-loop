@@ -348,6 +348,9 @@ def _fcf_yield_discount(
     if lane.fcf_required and financial.fcf_ttm is None:
         null_reasons.append("fcf_yield_missing_fcf")
         return None
+    if financial.edinet_ocf_ttm is None:
+        null_reasons.append("fcf_yield_missing_edinet_ocf")
+        return None
     if lane.cfo_yoy_required and financial.cfo_yoy is None:
         null_reasons.append("fcf_yield_missing_cfo_yoy")
         return None
@@ -364,7 +367,7 @@ def _fcf_yield_discount(
         metrics={
             "fcf_yield": financial.fcf_yield,
             "fcf_ttm": financial.fcf_ttm,
-            "ocf_ttm": financial.ocf_ttm,
+            "edinet_ocf_ttm": financial.edinet_ocf_ttm,
             "capex_ttm": financial.capex_ttm,
             "cfo_yoy": financial.cfo_yoy,
             "ttm_quality": financial.ttm_quality_fcf_yield.value,

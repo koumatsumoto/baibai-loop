@@ -69,10 +69,12 @@ EDINET `type=5` CSV-derived metrics から以下を抽出する。
 
 - `cash`: 現金及び現金同等物 / 現金及び預金
 - `debt`: 短期借入金、1 年内返済予定長期借入金、社債、長期借入金、リース債務等の合算
-- `ocf_ttm`: 営業活動によるキャッシュ・フロー
+- `edinet_ocf_ttm`: EDINET CSV から抽出した営業活動によるキャッシュ・フロー
 - `capex_ttm`: 有形固定資産・無形固定資産の取得支出。符号は絶対値に正規化する
 - `net_cash = cash - debt`
-- `fcf_ttm = ocf_ttm - capex_ttm`
+- `fcf_ttm = edinet_ocf_ttm - capex_ttm`
+
+J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定に使う。`fcf-yield-discount` では EDINET CFO / capex / FCF を同じ source family として扱い、J-Quants `ocf_ttm` と混ぜて FCF を再計算しない。
 
 対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。同一期間の訂正書は通常書類より優先するが、古い期間の訂正書が新しい半期 / 年次の通常書類を上書きしないよう、period end を submit time より先に比較する。
 
