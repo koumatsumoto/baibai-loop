@@ -217,6 +217,19 @@ class SignalHit:
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
+class FreshnessWarning:
+    source_family: NonEmptyString
+    stale_metric: NonEmptyString
+    reason: NonEmptyString
+    event_date: date
+    event_kind: NonEmptyString
+    event_title: NonEmptyString
+    event_source: NonEmptyString
+    edinet_source_submit_datetime: str | None = None
+    event_url: str | None = None
+
+
+@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
 class ScreeningResult:
     pass_fail: bool
     signals: tuple[SignalHit, ...] = ()
@@ -259,10 +272,11 @@ class ScreenedCandidate:
     metrics_breakdown: MetricBreakdown = Field(default_factory=dict)
     next_earnings_date: date | None = None
     split_adjustment_flag: bool = False
+    freshness_warnings: tuple[FreshnessWarning, ...] = ()
 
-    @field_validator("signals", mode="before")
+    @field_validator("signals", "freshness_warnings", mode="before")
     @classmethod
-    def _tuple_signals(cls, value: Sequence[SignalHit]) -> tuple[SignalHit, ...]:
+    def _tuple_sequence(cls, value: Sequence[Any]) -> tuple[Any, ...]:
         return tuple(value)
 
     @field_validator("ticker", mode="before")

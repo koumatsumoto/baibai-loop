@@ -25,6 +25,7 @@ from .config import (
 )
 from .date_utils import weekday_distance
 from .filesystem import write_text_atomic
+from .freshness import detect_edinet_freshness_warnings, load_disclosure_events
 from .lineage import (
     build_provider_settings,
     build_run_id,
@@ -138,6 +139,7 @@ class _ScreenedCandidateInput(BaseModel):
     signals: list[dict[str, object]] = Field(default_factory=list)
     metrics: dict[str, object] = Field(default_factory=dict)
     metrics_breakdown: dict[str, object] = Field(default_factory=dict)
+    freshness_warnings: list[dict[str, object]] = Field(default_factory=list)
     next_earnings_date: str | None = None
 
     @field_validator("ticker", mode="before")
@@ -525,6 +527,10 @@ def run_command(
         edinet_by_ticker=edinet_by_ticker,
         rules=rules,
     )
+    disclosure_load_result = load_disclosure_events(
+        config.cache_dir / "disclosures",
+        asof_date=asof_date,
+    )
 
     screened_candidates: list[ScreenedCandidate] = []
     fact_lines: list[str] = []
@@ -545,6 +551,16 @@ def run_command(
         derived = metric_result.derived[ticker]
         universe_snapshot = universe_result.snapshots[ticker]
         security = securities_by_ticker[ticker]
+        freshness_warnings = detect_edinet_freshness_warnings(
+            ticker=ticker,
+            financial=financial,
+            events_by_ticker=disclosure_load_result.events_by_ticker,
+            asof_date=asof_date,
+        )
+        if freshness_warnings:
+            fact_lines.append(
+                f"{ticker}: EDINET freshness warning ({len(freshness_warnings)} material events)"
+            )
         metrics_breakdown: dict[str, dict[str, float | None]] = {}
         for metric in ("per_trailing", "pbr", "ev_ebitda", "p_s"):
             metrics_breakdown[metric] = {
@@ -610,10 +626,12 @@ def run_command(
                     "cfo_yoy": financial.cfo_yoy,
                     "operating_profit": financial.operating_profit,
                     "operating_profit_loss_narrowing": (financial.operating_profit_loss_narrowing),
+                    "edinet_freshness_warning_count": len(freshness_warnings),
                 },
                 metrics_breakdown=metrics_breakdown,
                 next_earnings_date=next_earnings_by_ticker.get(ticker),
                 split_adjustment_flag=derived.split_adjustment_flag,
+                freshness_warnings=freshness_warnings,
             )
         )
 
@@ -654,11 +672,19 @@ def run_command(
     data_sources = ["j-quants-light", "jpx-public-regulation"]
     if edinet_by_ticker:
         data_sources.append("edinet-preprocessed-metrics")
+    if disclosure_load_result.file_count:
+        data_sources.append("disclosure-title-events")
     provider_status_lines = ["データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX"]
     if edinet_by_ticker:
         provider_status_lines.append("EDINET preprocessed metrics: loaded")
     else:
         provider_status_lines.append("EDINET preprocessed metrics: optional unavailable")
+    if disclosure_load_result.file_count:
+        provider_status_lines.append(
+            "Disclosure title material-event scan: "
+            f"{disclosure_load_result.event_count} events from "
+            f"{disclosure_load_result.file_count} files"
+        )
 
     document = ScreenedRunDocument(
         run_date=asof_date,
@@ -836,6 +862,7 @@ def _rank_candidates(
             "market_cap_oku": market_cap,
             "signals": item.signals,
             "signal_count": signal_count,
+            "freshness_warnings": item.freshness_warnings,
             "selection_lane": selection_lane,
             "selection_metrics": selection_metrics,
             "next_earnings_date": item.next_earnings_date,
@@ -1023,6 +1050,7 @@ def _selection_candidate(
         "market_cap_oku": market_cap,
         "signals": item.signals,
         "signal_count": len(item.signals),
+        "freshness_warnings": item.freshness_warnings,
         "selection_lane": selection_lane,
         "recommendation_lane": recommendation_lane,
         "selection_metrics": dict(selection_metrics),

@@ -105,6 +105,16 @@ candidates:
       net_cash: exact | approximated | unavailable
     next_earnings_date: "YYYY-MM-DD" | null
     split_adjustment_flag: false
+    freshness_warnings:
+      - source_family: "edinet-metrics"
+        stale_metric: "net_cash"
+        reason: "material_event_after_edinet_source"
+        event_date: "2026-03-03"
+        event_kind: "borrowing"
+        event_title: "資金の借入に関するお知らせ"
+        event_source: "tdnet-title-cache"
+        event_url: null
+        edinet_source_submit_datetime: "2025-10-15 15:00"
     signals:
       - name: valuation-reversion
         playbook: valuation-reversion
@@ -137,6 +147,7 @@ signals_summary:
 - `market_cap_oku` / `avg_turnover_oku`: research の position size と流動性確認で使う。universe 閾値は `market_cap_oku >= 100` かつ `avg_turnover_oku >= 1.0`
 - `price_change_60d` / `price_change_4w`: split 影響を排除するため adjustment_close ベースで算出
 - `split_adjustment_flag`: `price_change_60d` と同じ window 内に J-Quants `AdjustmentFactor` が株式分割 / 株式併合の調整を示した場合に `true`
+- `freshness_warnings`: EDINET CSV-derived metrics の提出後、候補 `asof_date` までに任意の disclosure title cache (`records/_data/raw/screening/disclosures/**/*.json`) から M&A / 借入 / 社債 / 自己株買い / 設備投資 / 増資 / 減資 / 資本業務提携系の title keyword hit が見つかった場合に出す。Net cash / cash-rich 系 signal は research で balance sheet の再確認を必須にする。cache が無い場合は warning は出ない
 - `sector_relative_strength_percentile`: **sector 単位の percentile**。銘柄個別の同業種内相対強度ではない
 
 ### 4.1 traceability の境界

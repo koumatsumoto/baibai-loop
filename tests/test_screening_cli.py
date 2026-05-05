@@ -86,6 +86,9 @@ class FakeJQuantsProvider:
                 shares_outstanding=400_000_000.0,
                 sales=1000.0,
                 operating_profit=100.0,
+                cash_eq=200_000_000_000.0,
+                total_assets=1_000_000_000_000.0,
+                equity=600_000_000_000.0,
                 ordinary_profit=None,
                 profit=None,
             ),
@@ -98,6 +101,9 @@ class FakeJQuantsProvider:
                 shares_outstanding=400_000_000.0,
                 sales=1100.0,
                 operating_profit=110.0,
+                cash_eq=210_000_000_000.0,
+                total_assets=1_000_000_000_000.0,
+                equity=600_000_000_000.0,
                 ordinary_profit=None,
                 profit=None,
             ),
@@ -131,6 +137,8 @@ class FakeEDINETProvider:
                 ttm_quality_ev_ebitda=TTMQuality.EXACT,
                 ttm_quality_p_s=TTMQuality.APPROXIMATED,
                 ttm_quality_pcfr=TTMQuality.UNAVAILABLE,
+                source_doc_id="S100TEST",
+                source_submit_datetime="2025-10-15 12:00",
             )
         }
 
@@ -144,6 +152,24 @@ class FakeEDINETProvider:
     def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
         del start, end
         return {"ok": 1}
+
+
+class _FreshnessWarningEDINETProvider(FakeEDINETProvider):
+    def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
+        del asof_date
+        return {
+            "130A": EdinetMetricRecord(
+                ticker="130A",
+                debt=20_000_000_000.0,
+                cash=150_000_000_000.0,
+                net_cash=130_000_000_000.0,
+                ebitda_ttm=30_000_000_000.0,
+                ttm_quality_net_cash=TTMQuality.EXACT,
+                ttm_quality_ev_ebitda=TTMQuality.EXACT,
+                source_doc_id="S100TEST",
+                source_submit_datetime="2025-10-15 12:00",
+            )
+        }
 
 
 @dataclass
@@ -256,6 +282,56 @@ class ScreeningCliTests(unittest.TestCase):
                 self.assertIn(
                     "EDINET preprocessed metrics: optional unavailable",
                     payload["provider_status_lines"],
+                )
+            finally:
+                os.chdir(cwd)
+
+    def test_run_command_emits_edinet_freshness_warnings_from_disclosure_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = Path.cwd()
+            try:
+                os_path = Path(tmpdir)
+                import os
+
+                os.chdir(os_path)
+                cache_dir = Path(".cache/screening")
+                disclosure_path = cache_dir / "disclosures" / "tdnet.json"
+                disclosure_path.parent.mkdir(parents=True)
+                disclosure_path.write_text(
+                    json.dumps(
+                        [
+                            {
+                                "Code": "130A0",
+                                "Date": "2026-03-03",
+                                "Title": "資金の借入に関するお知らせ",
+                                "Source": "tdnet",
+                            }
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+                config = ScreeningConfig("token", "key", cache_dir=cache_dir)
+                providers = ProviderBundle(
+                    jquants=FakeJQuantsProvider(),
+                    edinet=_FreshnessWarningEDINETProvider(),
+                    jpx=FakeJPXProvider(),
+                )
+
+                exit_code = run_command(
+                    date(2026, 4, 24),
+                    config,
+                    providers,
+                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                )
+
+                self.assertEqual(exit_code, 2)
+                payload = yaml.safe_load(build_output_path(date(2026, 4, 24)).read_text())
+                self.assertIn("disclosure-title-events", payload["data_sources"])
+                warnings = payload["candidates"][0]["freshness_warnings"]
+                self.assertEqual(warnings[0]["event_kind"], "borrowing")
+                self.assertEqual(warnings[0]["stale_metric"], "net_cash")
+                self.assertEqual(
+                    payload["candidates"][0]["metrics"]["edinet_freshness_warning_count"], 1
                 )
             finally:
                 os.chdir(cwd)
