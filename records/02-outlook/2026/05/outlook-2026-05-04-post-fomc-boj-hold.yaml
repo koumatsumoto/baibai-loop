@@ -384,6 +384,7 @@ sectors:
     rationale: "国内コア CPI +1.8% / コアコア +2.4% で粘着、原油高 (穀物物流コスト + 包材) は原価圧迫。一方、春闘 5.09% で家計購買力支えあり、国内消費基盤は堅調。両建てで sector 単独 signal は neutral"
     source_refs:
       - records/01-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
+      - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
   "繊維製品":
     status: neutral
     rationale: "原料コスト (原油連動の合繊原料) は逆風方向、円高反転は輸出採算逆風 / 輸入 cost relief で両建て、業種固有 signal なし、neutral"
@@ -394,7 +395,7 @@ sectors:
     source_refs: []
   "化学":
     status: headwind
-    rationale: "ナフサは原油連動で Brent +14% Major 上昇は石化原料コストを直接圧迫、価格転嫁にラグ。さらに IEA 4 月 Oil Market Report で「アジアの石油化学需要が中心に減退」(通年需要 -80kb/d 下方修正、Q2 -1.5mb/d) で需要破壊の二重逆風。基礎化学・石化系は短中期マージン悪化、誘導品・スペシャルティでは転嫁余地。sector 単位で headwind"
+    rationale: "ナフサは原油連動で Brent +14.1% Major 上昇は石化原料コストを直接圧迫、価格転嫁にラグ。さらに IEA 4 月 Oil Market Report で「アジアの石油化学需要が中心に減退」(通年需要 -80kb/d 下方修正、Q2 -1.5mb/d) で需要破壊の二重逆風。基礎化学・石化系は短中期マージン悪化、誘導品・スペシャルティでは転嫁余地。sector 単位で headwind"
     source_refs:
       - records/01-brief/2026/04/2026-04-26-world-weekly-jp-cpi-retail.yaml
       - records/01-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
@@ -405,15 +406,17 @@ sectors:
     source_refs: []
   "石油・石炭製品":
     status: tailwind
-    rationale: "原油 4 週 +14% Major 上昇局面で在庫評価益、精製マージンも需要堅調 (米小売 +1.7%) で改善方向。ENEOS / 出光 / コスモエネルギーは上流統合型で資源開発益も享受。EIA Q4 油価 $88 への減衰想定はあるが、Q2-Q3 ピークの間は tailwind"
+    rationale: "原油 4 週 +14.1% Major 上昇局面で在庫評価益、精製マージンも需要堅調 (米小売 +1.7%) で改善方向。ENEOS / 出光 / コスモエネルギーは上流統合型で資源開発益も享受。EIA Q4 油価 $88 への減衰想定はあるが、Q2-Q3 ピークの間は tailwind"
     source_refs:
+      - records/01-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
       - records/01-brief/2026/04/2026-04-26-world-weekly-jp-cpi-retail.yaml
       - records/01-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
       - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
   "ゴム製品":
     status: neutral
     rationale: "原料天然ゴム / 合成ゴム (ナフサ系) は原油連動で逆風要素もあるが、自動車向け需要 (短観製造業 +17、貿易統計輸出 +11.7%) は支え。両建てで neutral"
-    source_refs: []
+    source_refs:
+      - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
   "ガラス・土石製品":
     status: neutral
     rationale: "燃料・電力コスト sensitive ではあるが、建設・自動車・電子向け需要との相殺、半導体関連向け硝子は AI tailwind 享受可能性、neutral"
@@ -467,7 +470,7 @@ sectors:
       - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
   "陸運業":
     status: headwind
-    rationale: "軽油 / ガソリン高はトラック (ヤマト / SG など) ・バス・タクシー輸送のダイレクトコスト。燃料サーチャージは契約改定にラグ (典型 3-6 か月)、原油 4 週 +14% Major 上昇局面では transfer ラグでマージン悪化方向。鉄道は電力連動で間接 headwind、不動産事業 mix のある JR 系は不動産 headwind も合算。1-6m headwind"
+    rationale: "軽油 / ガソリン高はトラック (ヤマト / SG など) ・バス・タクシー輸送のダイレクトコスト。燃料サーチャージは契約改定にラグ (典型 3-6 か月)、原油 4 週 +14.1% Major 上昇局面では transfer ラグでマージン悪化方向。鉄道は電力連動で間接 headwind、不動産事業 mix のある JR 系は不動産 headwind も合算。1-6m headwind"
     source_refs:
       - records/01-brief/2026/04/2026-04-26-world-weekly-jp-cpi-retail.yaml
       - records/01-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
@@ -481,7 +484,7 @@ sectors:
       - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
   "空運業":
     status: headwind
-    rationale: "ジェット燃料は原油連動で Brent $113 高値圏 → 航空 operating cost の 25-35% 占める燃料費が直撃。ヘッジ会計でラグはあるが、現物価格高値圏が 1 四半期以上続けば P/L に effective。さらに対中東路線はホルムズ封鎖でルート変更コスト + 旅客減少。ANA / JAL の P/L で 1-6m headwind が顕在化"
+    rationale: "ジェット燃料は原油連動で Brent $113 高値圏となり、航空 operating cost の大きな割合を占める燃料費が直撃。ヘッジ会計でラグはあるが、現物価格高値圏が 1 四半期以上続けば P/L に effective。さらに対中東路線はホルムズ封鎖でルート変更コスト + 旅客減少。ANA / JAL の P/L で 1-6m headwind が顕在化"
     source_refs:
       - records/01-brief/2026/04/2026-04-26-world-weekly-jp-cpi-retail.yaml
       - records/01-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
@@ -506,6 +509,7 @@ sectors:
     rationale: "国内コア CPI +1.8% は緩やか、春闘 5.09% で家計購買力は支え。一方、景気ウォッチャー DI -6.7pt 急冷で消費マインドは弱い signal。両建てで neutral、sector 内では生活必需品 selective tailwind 候補"
     source_refs:
       - records/01-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
+      - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
   "銀行業":
     status: neutral
     rationale: "BOJ 0.75% 据置確定 (4/27-28 6-3 hold)。日銀 4 月展望でコア CPI +2.8% へ +0.9pt 上方修正は利上げ正当化材料だが、東京都区部 4 月 CPI +1.5% (3 ヶ月連続 2% 割れ) は利上げハードル上昇。次回 6/16-17 会合の利上げ確度は中位 30-40%、5/12「主な意見」で再評価。利ザヤ拡大の front-run 根拠は不足、tailwind 化は利上げ確認後"
@@ -576,7 +580,7 @@ changes:
   - target: 石油・石炭製品
     from_status: neutral
     to_status: tailwind
-    rationale: "原油 4 週 +14% Major 上昇、在庫評価益 + 精製マージン改善、上流統合型は資源開発益も享受、tailwind"
+    rationale: "原油 4 週 +14.1% Major 上昇、在庫評価益 + 精製マージン改善、上流統合型は資源開発益も享受、tailwind"
     source_refs:
       - records/01-brief/2026/04/2026-04-26-world-weekly-jp-cpi-retail.yaml
       - records/01-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml

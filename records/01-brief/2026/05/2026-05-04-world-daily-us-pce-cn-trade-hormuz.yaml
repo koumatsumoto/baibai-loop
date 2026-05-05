@@ -103,6 +103,16 @@ sources:
     url: https://www5.cao.go.jp/keizai3/2026/0408watcher/menu.html
     accessed_at: "2026-05-04"
     status: ok
+  - id: meti-iip-mar
+    name: 経済産業省 鉱工業生産指数 2026 年 3 月速報
+    url: https://www.meti.go.jp/statistics/tyo/iip/result/book/b2020_202603sj.html
+    accessed_at: "2026-05-04"
+    status: ok
+  - id: mof-trade-mar
+    name: 財務省 貿易統計 2026 年 3 月
+    url: https://www.customs.go.jp/toukei/shinbun/happyou.htm
+    accessed_at: "2026-05-04"
+    status: ok
   - id: stat-tokyo-cpi
     name: 総務省 東京都区部 CPI 2026 年 4 月（中旬速報値）
     url: https://www.soumu.go.jp/menu_news/s-news/01toukei08_01000342.html
@@ -237,6 +247,18 @@ layers:
         release_date: "2026-04-08"
         source_ids: [cabinet-watcher]
         note: "前月比 -6.7pt"
+      - name: 経済産業省 鉱工業生産指数 2026 年 3 月速報
+        value: "前月比 -0.5%"
+        previous: "出荷 -1.1%"
+        release_date: "2026-04-30"
+        source_ids: [meti-iip-mar]
+        note: "製造工業生産予測指数は 2026-04 +2.1%、2026-05 +2.2%"
+      - name: 財務省 貿易統計 2026 年 3 月
+        value: "輸出 +11.7% YoY"
+        previous: "輸入 +10.9% YoY"
+        release_date: "2026-04-17"
+        source_ids: [mof-trade-mar]
+        note: "貿易収支 +6,670 億円。半導体製造装置・IC 増加、対中東向け減少、自動車減少"
       - name: 東京都区部 CPI YoY (生鮮除き、4 月中旬速報)
         value: "+1.5%"
         previous: "+1.4% (3 月)"
@@ -286,6 +308,8 @@ fact_memos:
   - "CBO 米財政赤字 FY26 1.9 兆 (5.8% GDP)、利払い 1 兆 (3.3% GDP)、2036 年公的債務 GDP 比 120%"
   - "連合春闘第 3 回 5.09%、中小 5.00%、有期・短時間 +6.89%"
   - "日銀短観 大企業製造業 +17、設備投資 +7.9%"
+  - "経産省鉱工業生産 3 月速報は前月比 -0.5%、製造工業生産予測指数は 4 月 +2.1%、5 月 +2.2%"
+  - "財務省貿易統計 3 月は輸出 +11.7% YoY、輸入 +10.9% YoY、貿易収支 +6,670 億円"
   - "景気ウォッチャー 現状判断 DI 42.2 (-6.7pt)"
   - "東京都区部 4 月 CPI +1.5%、諸雑費 -7.1% YoY"
   - "TSMC 1Q26 売上 359 億 USD / GM 66.2% (Q1 release で確認、Capex / 配分 / 通年成長率は別 source 参考値)"
