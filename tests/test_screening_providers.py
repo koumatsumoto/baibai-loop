@@ -216,6 +216,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 "Date": "2026-04-24T00:00:00",
                 "Close": 200.0,
                 "AdjustmentClose": 100.0,
+                "AdjustmentFactor": 0.5,
                 "Va": 526318500.0,
             }
         )
@@ -223,6 +224,7 @@ class ScreeningProviderTests(unittest.TestCase):
         assert bar is not None
         self.assertEqual(bar.close, 200.0)
         self.assertEqual(bar.adjustment_close, 100.0)
+        self.assertEqual(bar.adjustment_factor, 0.5)
 
     def test_normalize_daily_bar_leaves_adjustment_close_none_when_missing(self) -> None:
         bar = normalize_daily_bar(

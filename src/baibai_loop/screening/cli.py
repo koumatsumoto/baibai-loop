@@ -484,7 +484,7 @@ def run_command(
                 sector_relative_strength_percentile=derived.sector_relative_strength_percentile,
                 metrics_breakdown=metrics_breakdown,
                 next_earnings_date=next_earnings_by_ticker.get(ticker),
-                corporate_action_flag=derived.corporate_action_flag,
+                split_adjustment_flag=derived.split_adjustment_flag,
             )
         )
 
