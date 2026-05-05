@@ -10,10 +10,10 @@ data_sources:
 - "j-quants-light"
 - "jpx-public-regulation"
 - "edinet-preprocessed-metrics"
-run_at: "2026-05-05T17:52:23.063907+09:00"
+run_at: "2026-05-05T18:13:07.381920+09:00"
 run_id: "screening-20260501-9fb7bc90"
 config_hash: "9fb7bc90014da27b"
-cache_manifest_hash: "a77e6547dd4b7278"
+cache_manifest_hash: "05293740ff042f2d"
 candidates:
 - ticker: "1301"
   name: "極洋"
@@ -5861,8 +5861,8 @@ candidates:
     fcf_yield: null
     capex_ttm: null
     depreciation_and_amortization_ttm: null
-    edinet_source_doc_id: S100XHWU
-    edinet_document_type: '120'
+    edinet_source_doc_id: S100XMV3
+    edinet_document_type: '130'
     edinet_capex_source: null
     edinet_failure_reasons: non_consolidated_fallback,tag_not_found:ocf,tag_not_found:capex
     sales_yoy: 0.212
@@ -8653,8 +8653,8 @@ candidates:
     fcf_yield: 0.0576
     capex_ttm: 105097000.0
     depreciation_and_amortization_ttm: 81639000.0
-    edinet_source_doc_id: S100XAX3
-    edinet_document_type: '120'
+    edinet_source_doc_id: S100XBSL
+    edinet_document_type: '130'
     edinet_capex_source: purchase_of_fixed_assets
     edinet_failure_reasons: null
     sales_yoy: 0.1586
@@ -11740,8 +11740,8 @@ candidates:
     fcf_yield: 0.0991
     capex_ttm: 17060000000.0
     depreciation_and_amortization_ttm: 9115000000.0
-    edinet_source_doc_id: S100XCU9
-    edinet_document_type: '120'
+    edinet_source_doc_id: S100XZ2X
+    edinet_document_type: '130'
     edinet_capex_source: purchase_of_fixed_assets
     edinet_failure_reasons: null
     sales_yoy: 0.14
@@ -13430,8 +13430,8 @@ candidates:
     fcf_yield: null
     capex_ttm: null
     depreciation_and_amortization_ttm: null
-    edinet_source_doc_id: S100XSMJ
-    edinet_document_type: '120'
+    edinet_source_doc_id: S100XV3S
+    edinet_document_type: '130'
     edinet_capex_source: null
     edinet_failure_reasons: tag_not_found:sales,tag_not_found:ocf,tag_not_found:cash,tag_not_found:capex,tag_not_found:debt
     sales_yoy: 0.1281
@@ -23998,8 +23998,8 @@ candidates:
     fcf_yield: 0.0412
     capex_ttm: 10170000000.0
     depreciation_and_amortization_ttm: 8262000000.0
-    edinet_source_doc_id: S100XSL6
-    edinet_document_type: '120'
+    edinet_source_doc_id: S100XX3T
+    edinet_document_type: '130'
     edinet_capex_source: purchase_of_fixed_assets
     edinet_failure_reasons: null
     sales_yoy: 0.0877
@@ -26882,8 +26882,8 @@ candidates:
     fcf_yield: null
     capex_ttm: null
     depreciation_and_amortization_ttm: 4540000000.0
-    edinet_source_doc_id: S100X4T1
-    edinet_document_type: '160'
+    edinet_source_doc_id: S100XIIH
+    edinet_document_type: '170'
     edinet_capex_source: null
     edinet_failure_reasons: tag_not_found:capex
     sales_yoy: 0.0524
@@ -27516,8 +27516,8 @@ candidates:
     fcf_yield: null
     capex_ttm: null
     depreciation_and_amortization_ttm: 4736000000.0
-    edinet_source_doc_id: S100XBI1
-    edinet_document_type: '120'
+    edinet_source_doc_id: S100XKOH
+    edinet_document_type: '130'
     edinet_capex_source: null
     edinet_failure_reasons: tag_not_found:capex
     sales_yoy: 0.0604

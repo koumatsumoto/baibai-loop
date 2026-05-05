@@ -5,7 +5,7 @@ EDINET `type=5` CSV-derived metrics の coverage / precision を確認するた�
 ## 1. Source Policy
 
 - Source: EDINET API v2 `documents.json?type=2` と `documents/{docID}?type=5`
-- 対象書類: 有価証券報告書 (`120`)、訂正有価証券報告書 (`130`)、四半期報告書 (`140`)、半期報告書 (`160`)
+- 対象書類: 有価証券報告書 (`120`)、訂正有価証券報告書 (`130`)、四半期報告書 (`140`)、訂正四半期報告書 (`150`)、半期報告書 (`160`)、訂正半期報告書 (`170`)
 - raw XBRL (`type=1`) 直接 parser は非スコープ。CSV-derived metrics の coverage / precision が不十分な場合に別 issue で検討する
 - CSV ZIP 本体は `records/_data/cache/screening/edinet/csv_zips/` の derived cache。git 管理対象は抽出後の `records/_data/raw/screening/edinet/metrics/YYYY-MM-DD.json`
 
@@ -56,16 +56,17 @@ EDINET metrics extraction:
 | --- | ---: |
 | selected filings | 3,999 |
 | metrics records | 3,999 |
-| `net_cash` available | 3,205 |
+| selected correction filings (`130` / `150` / `170`) | 88 |
+| `net_cash` available | 3,204 |
 | `fcf_ttm` available | 3,295 |
 | `sales_ttm` available | 3,476 |
 | `ebitda_ttm` available | 3,538 |
 | `total_assets` available | 3,753 |
-| `ttm_quality_net_cash = exact` | 825 |
-| `ttm_quality_net_cash = approximated` | 2,380 |
-| `ttm_quality_net_cash = unavailable` | 794 |
-| `ttm_quality_fcf = exact` | 829 |
-| `ttm_quality_fcf = approximated` | 2,466 |
+| `ttm_quality_net_cash = exact` | 823 |
+| `ttm_quality_net_cash = approximated` | 2,381 |
+| `ttm_quality_net_cash = unavailable` | 795 |
+| `ttm_quality_fcf = exact` | 827 |
+| `ttm_quality_fcf = approximated` | 2,468 |
 | `ttm_quality_fcf = unavailable` | 704 |
 
 Top `failure_reasons`:
@@ -74,7 +75,7 @@ Top `failure_reasons`:
 | --- | ---: | --- |
 | `non_consolidated_fallback` | 799 | 連結行が無く単体値で fallback |
 | `tag_not_found:capex` | 704 | FCF 判定不可 |
-| `debt_assumed_zero` | 547 | cash は取れたが debt element が見つからない。strict net-cash 判定では使わない |
+| `debt_assumed_zero` | 548 | cash は取れたが debt element が見つからない。strict net-cash 判定では使わない |
 | `tag_not_found:sales` | 523 | P/S / sales 補完不可 |
 | `tag_not_found:ocf` | 313 | OCF / FCF 判定不可 |
 | `tag_not_found:cash` | 247 | net cash 判定不可 |
@@ -99,12 +100,21 @@ Screening result:
 | `cash-rich-asset-discount` | 31 |
 | `cashflow-yield-discount` | 183 |
 | `sales-discount-growth` | 132 |
+| candidates using correction filing (`130` / `150` / `170`) | 7 |
 
 Document selection audit:
 
 | item | count |
 | --- | ---: |
+| selected `130` correction filings | 41 |
+| selected `150` correction filings | 0 |
+| selected `170` correction filings | 47 |
+| same-period annual corrections ignored against normal annual (`130` vs `120`) | 0 |
+| same-period quarterly corrections ignored against normal quarterly (`150` vs `140`) | 0 |
+| same-period semiannual corrections ignored against normal semiannual (`170` vs `160`) | 0 |
 | old correction overriding newer different-period filing | 0 |
+
+EDINET documents API の訂正書は `periodStart` / `periodEnd` が欠損しやすいため、`docDescription` の `YYYY/MM/DD－YYYY/MM/DD` 形式から期間を fallback parse する。API field がある場合は API field を優先する。同一期間の訂正書は通常書類より優先するが、古い期間の訂正書が新しい半期 / 年次の通常書類を上書きしないよう、document selection は period end を submit time より先に比較する。
 
 Initial PR #93 実装では `strict-net-cash-discount` が 87 件出ていたが、そのうち 61 件が `debt_assumed_zero` に依存していた。これは strict lane として false positive risk が高いため、debt element が見つからない銘柄は strict 判定から除外した。修正後は strict hit が 20 件へ減ったが、`debt_assumed_zero` 依存は 0 件になった。候補数を増やすよりも、research 工数を投じる価値のある net-cash 候補に絞る判断である。
 

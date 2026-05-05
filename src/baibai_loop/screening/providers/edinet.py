@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import time
 import zipfile
 from collections.abc import Mapping, Sequence
@@ -28,8 +29,11 @@ class EDINETProviderError(RuntimeError):
     """Raised when EDINET access or normalization fails."""
 
 
-TARGET_DOC_TYPE_CODES = frozenset({"120", "130", "140", "160"})
-CORRECTION_DOC_TYPE_CODES = frozenset({"130"})
+TARGET_DOC_TYPE_CODES = frozenset({"120", "130", "140", "150", "160", "170"})
+CORRECTION_DOC_TYPE_CODES = frozenset({"130", "150", "170"})
+_DOCUMENT_DESCRIPTION_PERIOD_RE = re.compile(
+    r"(\d{4}/\d{2}/\d{2})\s*[－~～-]\s*(\d{4}/\d{2}/\d{2})"
+)
 
 
 def _validate_finite(value: float | None) -> float | None:
@@ -318,13 +322,14 @@ def select_document_candidates(
             ticker = parse_sec_code(_coalesce(document, "secCode", "sec_code"))
         except EDINETProviderError:
             continue
+        period_start, period_end = _document_period(document)
         candidate = EdinetDocumentCandidate(
             ticker=ticker,
             doc_id=str(raw_doc_id),
             doc_type_code=raw_type,
             submit_datetime=_to_str_or_none(_coalesce(document, "submitDateTime")),
-            period_start=_parse_optional_date(_coalesce(document, "periodStart", "period_start")),
-            period_end=_parse_optional_date(_coalesce(document, "periodEnd", "period_end")),
+            period_start=period_start,
+            period_end=period_end,
         )
         current = candidates.get(ticker)
         if current is None or _document_sort_key(candidate) > _document_sort_key(current):
@@ -467,6 +472,35 @@ def _document_sort_key(
         correction,
         candidate.doc_id,
     )
+
+
+def _document_period(document: Mapping[str, Any]) -> tuple[date | None, date | None]:
+    start = _parse_optional_date(_coalesce(document, "periodStart", "period_start"))
+    end = _parse_optional_date(_coalesce(document, "periodEnd", "period_end"))
+    if start is not None and end is not None:
+        return start, end
+    description = _to_str_or_none(_coalesce(document, "docDescription", "doc_description"))
+    fallback_start, fallback_end = _parse_document_description_period(description)
+    return start or fallback_start, end or fallback_end
+
+
+def _parse_document_description_period(value: str | None) -> tuple[date | None, date | None]:
+    if not value:
+        return None, None
+    match = _DOCUMENT_DESCRIPTION_PERIOD_RE.search(value)
+    if match is None:
+        return None, None
+    return (
+        _parse_slash_date(match.group(1)),
+        _parse_slash_date(match.group(2)),
+    )
+
+
+def _parse_slash_date(value: str) -> date | None:
+    try:
+        return date.fromisoformat(value.replace("/", "-"))
+    except ValueError:
+        return None
 
 
 _TAGS: dict[str, tuple[str, ...]] = {

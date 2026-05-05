@@ -182,6 +182,146 @@ class ScreeningProviderTests(unittest.TestCase):
 
         self.assertEqual(selected["7203"].doc_id, "S100NEW")
 
+    def test_select_document_candidates_prefers_same_period_annual_correction_from_description(
+        self,
+    ) -> None:
+        selected = select_document_candidates(
+            [
+                {
+                    "docID": "S100NORMAL",
+                    "secCode": "72030",
+                    "docTypeCode": "120",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "periodStart": "2024-10-01",
+                    "periodEnd": "2025-09-30",
+                    "submitDateTime": "2025-12-24 16:11",
+                },
+                {
+                    "docID": "S100CORR",
+                    "secCode": "72030",
+                    "docTypeCode": "130",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "docDescription": "訂正有価証券報告書－第28期(2024/10/01－2025/09/30)",
+                    "submitDateTime": "2026-04-15 16:01",
+                },
+            ]
+        )
+
+        self.assertEqual(selected["7203"].doc_id, "S100CORR")
+        self.assertEqual(selected["7203"].period_start, date(2024, 10, 1))
+        self.assertEqual(selected["7203"].period_end, date(2025, 9, 30))
+
+    def test_select_document_candidates_keeps_newer_period_over_old_correction_description(
+        self,
+    ) -> None:
+        selected = select_document_candidates(
+            [
+                {
+                    "docID": "S100OLD",
+                    "secCode": "72030",
+                    "docTypeCode": "130",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "docDescription": "訂正有価証券報告書－第90期(2024/04/01－2025/03/31)",
+                    "submitDateTime": "2026-01-23 14:35",
+                },
+                {
+                    "docID": "S100NEW",
+                    "secCode": "72030",
+                    "docTypeCode": "160",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "periodStart": "2025-04-01",
+                    "periodEnd": "2026-03-31",
+                    "submitDateTime": "2025-11-01 10:00",
+                },
+            ]
+        )
+
+        self.assertEqual(selected["7203"].doc_id, "S100NEW")
+
+    def test_select_document_candidates_accepts_semiannual_correction(self) -> None:
+        selected = select_document_candidates(
+            [
+                {
+                    "docID": "S100NORMAL",
+                    "secCode": "72030",
+                    "docTypeCode": "160",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "periodStart": "2025-04-01",
+                    "periodEnd": "2026-03-31",
+                    "submitDateTime": "2025-11-14 15:34",
+                },
+                {
+                    "docID": "S100CORR",
+                    "secCode": "72030",
+                    "docTypeCode": "170",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "docDescription": "訂正半期報告書－第5期(2025/04/01-2026/03/31)",
+                    "submitDateTime": "2026-01-30 15:33",
+                },
+            ]
+        )
+
+        self.assertEqual(selected["7203"].doc_id, "S100CORR")
+        self.assertEqual(selected["7203"].doc_type_code, "170")
+
+    def test_select_document_candidates_accepts_quarterly_correction(self) -> None:
+        selected = select_document_candidates(
+            [
+                {
+                    "docID": "S100NORMAL",
+                    "secCode": "72030",
+                    "docTypeCode": "140",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "periodStart": "2021-11-01",
+                    "periodEnd": "2022-01-31",
+                    "submitDateTime": "2022-03-15 15:00",
+                },
+                {
+                    "docID": "S100CORR",
+                    "secCode": "72030",
+                    "docTypeCode": "150",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "docDescription": "訂正四半期報告書－第72期第3四半期(2021/11/01～2022/01/31)",
+                    "submitDateTime": "2025-02-14 15:29",
+                },
+            ]
+        )
+
+        self.assertEqual(selected["7203"].doc_id, "S100CORR")
+        self.assertEqual(selected["7203"].doc_type_code, "150")
+
     def test_select_document_candidates_prefers_latest_submit_within_same_period(self) -> None:
         selected = select_document_candidates(
             [
