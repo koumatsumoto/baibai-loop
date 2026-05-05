@@ -13,8 +13,14 @@ ai-draft: true
 published_at: "2026-05-05T13:31:15+09:00"
 tradable_at: "2026-05-07T09:00:00+09:00"
 macro_gate: tailwind
-overrides: []
-external_refs: []
+overrides:
+  - type: decision_flip
+    prior_state_ref: "origin/main:records/04-research/2026/05/2026-05-05-9682-sales-discount-growth.md"
+    prior_state: "decision: pending"
+    new_state: "decision: accepted"
+    reason: "2026-05-05 に 200 株成行注文済みで、投資可能資金 500 万円に対して 4.06%、当面の 100 万円 tactical cap に対して 20.28% に留まる。決算またぎではなく、増配・自己株式取得 catalyst が確認できるため accepted とする。"
+external_refs:
+  - records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
 position_size_oku: 0.01
 avg_turnover_oku: 3.8
 adv_participation_pct: 0.2632
@@ -46,7 +52,7 @@ valuation:
 
 情報・通信業の macro gate は 2026-05-04 outlook で tailwind。9682 DTS は PER/PBR/CF ではなく、P/S 1.23、業種中央値比 -45.5%、売上 YoY +7.4%、営業黒字という `sales-discount-growth` 単独 signal で拾われた。5/1 の決算、増配、自己株式取得・消却が確認でき、今回の screening redesign が「PER/PBR 以外のお買い得」を拾う目的には合っている。
 
-採用判定は accepted。ただし「9682 を最大確信銘柄として集中」ではなく、50 万円上限の実資金では 100 株だけ採用する。理由は、9682 は global rank 112/307、sales lane 40/114 の single signal で、P/S discount の一部は SIer 事業モデル差の可能性があるため。一方で、決算・増配・自己株式取得が同時に確認でき、次回 1Q は 8 月予定で決算またぎ kill switch まで時間がある。銘柄数を先に決めるのではなく、安定 SIer + shareholder return 枠として 100 株だけならお買い得候補として成立すると判断する。
+採用判定は accepted。ただし「9682 を最大確信銘柄として集中」ではなく、投資可能資金 500 万円のうち、当面の様子見上限 100 万円内で 200 株までの採用に留める。理由は、9682 は global rank 112/307、sales lane 40/114 の single signal で、P/S discount の一部は SIer 事業モデル差の可能性があるため。一方で、決算・増配・自己株式取得が同時に確認でき、次回 1Q は 8 月予定で決算またぎ kill switch まで時間がある。200 株の成行買い注文は既に発注済みで、5/1 終値 1,014 円参照では 202,800 円、総資金 500 万円に対して 4.06%、tactical cap 100 万円に対して 20.28%。数量を 100 株へ減らすほど過大ではないと判断する。訂正するなら数量削減ではなく、可能なら 1,080 円程度の価格上限を置く方が合理的。
 
 ## Macro gate
 
@@ -55,6 +61,25 @@ valuation:
 - **outlook_ref**: records/02-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
 - **根拠**: outlook は AI / クラウド / 半導体テーマの spillover を理由に、情報・通信業を neutral から tailwind に引き上げている。DTS は SIer なので、データセンター・AI 関連の直接感応度は高成長 SaaS より低いが、DX / AI / クラウド投資の継続は追い風。
 - **保守側判定**: tailwind。ただし個別では「AI テーマ性」だけで採用しない。
+
+### Portfolio macro risk budget
+
+2026-05-04 outlook は、Base case 50% を「hawkish hold + ホルムズ高止まり + AI 需要持続」、Downside 30% を「スタグフレーション正面化 + クレジット調整」としている。2026-05-05 の deepresearch でも、米株先物は反発している一方、Brent は 110 ドル超、USD/JPY は介入警戒が残り、5/8 米雇用・5/12 米 CPI が控える。したがって、macro gate は tailwind でも、総資金 500 万円を一気にフルインベストする局面ではない。
+
+運用上の risk budget は以下:
+
+- 投資可能資金全体は 500 万円。当面の様子見上限を 100 万円とし、主要 trigger 前は tactical cap の 40-45%、総資金の 8-9% 程度までを上限に初期投入する。
+- 9682 200 株 + 9692 100 株で 395,700 円（5/1 終値基準）、総資金の 7.9%、tactical cap の 39.6%。この範囲なら許容。
+- 5/8 米雇用、5/12 米 CPI、5/15 6310/6835 の 1Q を通過するまでは、決算直前銘柄への大きな先行買いは避ける。
+- 5/15 通過後に 6310 / 6835 の thesis が残れば、tactical cap の 60-70% まで上げる。ホルムズ悪化・米金利上振れ・円急騰なら 100 万円 cap 自体を広げない。
+- 大規模買い場と判断するには、日本株全体が売られる一方で油価・為替・米金利の少なくとも 1 つが安定し、個別 thesis が壊れていないことを条件にする。その場合だけ 500 万円枠から段階投入を再検討する。
+
+Source:
+
+- outlook: records/02-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
+- deepresearch: records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
+- JPX holidays: https://www.jpx.co.jp/english/corporate/about-jpx/calendar/
+- Reuters / MarketScreener 2026-05-05 market update: https://www.marketscreener.com/news/oil-eases-on-signs-us-is-loosening-iranian-closure-of-strait-of-hormuz-ce7f58dfdd80ff22
 
 ## Sales / P/S snapshot
 
@@ -138,22 +163,22 @@ Source:
 採用条件:
 
 - 2026-05-05 と 2026-05-06 は JPX cash market holiday のため、最短 tradable_at は 2026-05-07 09:00。
-- 2026-05-01 終値 1,014 円を基準に 100 株。5/7 寄りで 1,080 円を超える gap up なら追わず、1,000-1,080 円レンジの指値で待つ。
+- 2026-05-01 終値 1,014 円を基準に 200 株。5/7 寄りで 1,080 円を超える gap up なら、約定後すぐに thesis を再評価する。注文訂正が容易なら、数量削減より 1,080 円程度の価格上限を置く方が望ましい。
 - 決算・増配・自己株式取得後に 1,000 円を明確に割り込む場合は、還元 catalyst が吸収されていないため見送り。
 - P/S discount の比較対象を、情報・通信業全体ではなく SIer / IT services peer に絞っても割高ではないことを継続確認する。
 
-50 万円上限の実資金では、銘柄数を 4 に固定しない。2026-05-05 時点の優先順位は以下:
+投資可能資金 500 万円、当面の tactical cap 100 万円では、銘柄数を固定しない。2026-05-05 時点の優先順位は以下:
 
 | ticker | 銘柄 | 方針 | 5/1 終値基準の数量 | 参考金額 |
 | --- | --- | --- | ---: | ---: |
-| 9682 | DTS | 5/7 以降、1,080 円以下なら 100 株 | 100 | 101,400 円 |
+| 9682 | DTS | 5/7 以降の成行注文済み。1,080 円超で約定なら即再評価 | 200 | 202,800 円 |
 | 9692 | シーイーシー | 5/7 以降、2,000 円以下なら 100 株 | 100 | 192,900 円 |
 | 6310 | 井関農機 | 5/15 1Q 通過後、営業 CF thesis が崩れなければ 100 株 | 100 | 172,600 円 |
-| 6835 | アライドテレシスHD | 5/15 1Q 通過後、FCF thesis が崩れなければ追加候補 | 100-300 | 26,200-78,600 円 |
+| 6835 | アライドテレシスHD | 原則 5/15 1Q 後。高リスク許容なら 100 株だけ先行可 | 100-300 | 26,200-78,600 円 |
 
-9682 100 株、9692 100 株、6310 100 株までで 466,900 円。6835 は Q1 通過後に thesis が残れば、9682/9692/6310 の約定価格と残余資金を見て 100 株単位で追加する。無理に 4 銘柄へ合わせるため、弱い候補を買わない。
+9682 200 株、9692 100 株、6310 100 株までで 568,300 円。これは総資金 500 万円では 11.4% だが、tactical cap 100 万円では 56.8% で、5/8 雇用・5/12 CPI・5/15 個別決算前としてはやや重い。したがって、5/7 時点では 9682 200 株 + 9692 100 株までを基本とし、6310 は Q1 後に回す。6835 は Q1 通過後に thesis が残れば、9682/9692/6310 の約定価格と残余資金を見て 100 株単位で追加する。高リスク許容なら 6835 は 100 株だけ先行しても、5/1 終値基準で 26,200 円と小さいため、総資金への損失寄与は限定的。6310 は 1 単元 172,600 円かつ net debt / 低 margin / 1Q 直前のため、Q1 前の先行買いは避ける。
 
-初期 paper proxy は 1.0% まで。実資金 100-200 万円では ADV cap は実質拘束しないが、記録上は 1 億円 proxy で ADV 0.263% とし、5% hard reject には十分余裕がある。
+初期 paper proxy は 1.0% まで。現在の tactical cap 100 万円では ADV cap は実質拘束しないが、記録上は 1 億円 proxy で ADV 0.263% とし、5% hard reject には十分余裕がある。
 
 ## Exit
 
@@ -179,9 +204,10 @@ Source:
 - **paper proxy position**: 0.01 億円
 - **ADV participation**: 0.2632%
 - **許容上限**: single signal のため最大 1%
+- **実注文**: 2026-05-05 に 200 株成行。2026-05-07 09:00 expected fill。5/1 終値参照 202,800 円、総資金 500 万円に対して 4.06%、tactical cap 100 万円に対して 20.28%。
 
 ### Screening redesign 目的に対する検証
 
 9682 は、旧 PER/PBR 中心の screening では拾いにくかったが、新設した P/S + growth intact lane で候補化された。候補化の理由は機械的に説明可能で、一次情報でも売上成長、営業黒字、営業利益率改善、増配、自己株式取得・消却が確認できる。したがって、「より広い観点でお買い得候補を拾う」という Issue #87 の目的には合致している。
 
-一方で、9682 は sales lane 40/114、global rank 112/307、かつ single signal である。P/S discount は SIer 事業モデル差による恒久的 discount の可能性があり、これだけで大きく張る銘柄ではない。今回の変更は「候補発見」としては成功だが、実資金では 100 株に限定する。追加資金は、より signal が強い 9692 / 6310 / 6835 のリサーチ結果を優先する。
+一方で、9682 は sales lane 40/114、global rank 112/307、かつ single signal である。P/S discount は SIer 事業モデル差による恒久的 discount の可能性があり、これだけで大きく張る銘柄ではない。今回の変更は「候補発見」としては成功だが、実資金では 200 株に限定する。追加資金は、より signal が強い 9692 / 6310 / 6835 のリサーチ結果を優先する。

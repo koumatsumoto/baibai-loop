@@ -15,7 +15,8 @@ published_at: "2026-05-05T20:10:00+09:00"
 tradable_at: "2026-05-18T09:00:00+09:00"
 macro_gate: tailwind
 overrides: []
-external_refs: []
+external_refs:
+  - records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
 position_size_oku: 0.01
 avg_turnover_oku: 2.0
 adv_participation_pct: 0.5
@@ -54,6 +55,12 @@ valuation:
 - **outlook_ref**: records/02-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
 - **根拠**: outlook は機械を tailwind。AI / 半導体製造装置色が強い gate だが、日銀短観の製造業設備投資や生産用機械の底堅さは機械セクター全体の下支えになる。
 - **保守側判定**: tailwind。ただし井関農機は農業機械で、半導体装置の直接恩恵は薄い。採用理由は macro より個別の CF / 低 PBR / 低 P/S。
+
+### Portfolio macro risk budget
+
+6310 は機械 sector tailwind だが、半導体製造装置ではなく農業機械で、macro tailwind の直接度は低い。さらに 2026-05-05 時点ではホルムズ・油価・米 CPI 前の macro risk が高く、1Q 決算も 2026-05-15 に迫る。OCF lane 1 位という upside は大きいが、1 単元 172,600 円で、総資金 500 万円では 3.45% でも、当面の 100 万円 tactical cap では 17.3% のイベントリスクになる。
+
+したがって、5/7 に先行買いを入れる risk / return は 6835 より劣る。買うなら 1Q 通過後に 100 株。5/15 までに market が上がって取り逃すリスクはあるが、OCF の一過性反証を避ける価値の方が大きい。
 
 ## Cashflow snapshot
 
@@ -121,7 +128,7 @@ Source:
 
 ## Entry
 
-- 2026-05-15 に 2026/12 期 1Q 決算発表予定。5/7 に買うと決算まで 6 営業日程度で、OCF thesis の反証がすぐ来るため見送る。
+- 2026-05-15 に 2026/12 期 1Q 決算発表予定。5/7 に買うと決算まで 6 営業日程度で、OCF thesis の反証がすぐ来るため見送る。100 万円までリスク許容しても、1 単元 172,600 円は「少額の先行オプション」とは言いにくい。
 - 1Q 通過後、営業 CF / 在庫 / 受注 / 会社計画が崩れていなければ 100 株。5/1 終値 1,726 円基準で 172,600 円。
 - 1,800 円以下なら採用余地あり。1Q 後に 1,900 円超まで gap up した場合は追わず、OCF yield の妙味を再計算する。
 
@@ -153,4 +160,4 @@ Source:
 
 ### お買い得候補としての結論
 
-6310 は、数値上は今回の候補群で最も強い。cashflow lane 1 位かつ sales lane 3 位で、9682 より screening 上の説得力は明確に高い。ただし 5/15 決算直前で、OCF の一過性リスクも大きい。2026-05-05 時点では「今すぐ買う」ではなく、「1Q 通過後に最優先で買う候補」として残す。
+6310 は、数値上は今回の候補群で最も強い。cashflow lane 1 位かつ sales lane 3 位で、9682 より screening 上の説得力は明確に高い。ただし 5/15 決算直前で、OCF の一過性リスクも大きく、1 単元も大きい。2026-05-05 時点では「今すぐ買う」ではなく、「1Q 通過後に最優先で買う候補」として残す。

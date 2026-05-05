@@ -15,7 +15,8 @@ published_at: "2026-05-05T20:15:00+09:00"
 tradable_at: "2026-05-18T09:00:00+09:00"
 macro_gate: tailwind
 overrides: []
-external_refs: []
+external_refs:
+  - records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
 position_size_oku: 0.01
 avg_turnover_oku: 2.2
 adv_participation_pct: 0.4545
@@ -54,6 +55,12 @@ valuation:
 - **outlook_ref**: records/02-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
 - **根拠**: outlook は AI / HPC / データセンター向け部品需要を背景に電気機器を tailwind としている。アライドテレシスはネットワーク機器・ソリューション企業で、データセンター部品というより企業・公共向けネットワーク投資に近い。
 - **保守側判定**: tailwind。ただし採用理由は macro ではなく、FCF / OCF / net cash の同時成立。
+
+### Portfolio macro risk budget
+
+6835 は決算直前のため system default は 1Q 後だが、1 単元が 26,200 円と小さい。総資金 500 万円では 0.52%、当面の 100 万円 tactical cap でも 2.62% で、Q1 が悪かった場合の損失寄与は限定的。一方、FCF lane 1 位・cashflow lane 10 位・net cash 38.9% という signal は強く、決算後に gap up してからでは FCF yield の妙味が薄れる可能性がある。
+
+したがって、macro risk budget 上は「任意の高リスク toe-hold」として 100 株だけ先行する余地はある。ただし research decision は pending のままにする。理由は、system rule では決算またぎ entry を原則避けるため。人間が明示的に event risk を取る場合だけ、100 株を上限に先行し、1Q 後に accepted へ切り替える。
 
 ## FCF snapshot
 
@@ -118,7 +125,8 @@ Source:
 
 ## Entry
 
-- 2026-05-15 15:30 に 2026/12 期 1Q 決算発表予定。5/7 に買うと決算またぎになるため、5/5 時点では買わない。
+- 2026-05-15 15:30 に 2026/12 期 1Q 決算発表予定。system default では 5/7 に買わず、決算後に判断する。
+- ただし、100 万円 tactical cap で event risk を明示的に許容するなら、100 株だけの toe-hold は許容可能。5/1 終値基準で 26,200 円、総資金 500 万円比 0.52%、tactical cap 比 2.62% に留まるため、損失額は限定的で、決算後 gap up の取り逃しリスクを小さくできる。
 - 1Q 通過後、FCF / OCF / net cash thesis が維持されれば 100 株から。5/1 終値 262 円基準で 26,200 円。
 - 275 円以下なら starter position。決算後に 300 円超まで gap up した場合は、FCF yield を再計算してから判断する。
 - 残余資金が大きく、1Q の cash quality が強ければ 200-300 株まで増やせるが、最初は数量より thesis 確認を優先する。
@@ -146,9 +154,9 @@ Source:
 - **avg turnover**: 2.2 億円
 - **paper proxy position**: 0.01 億円
 - **ADV participation**: 0.4545%
-- **実資金想定**: 1Q 通過後 100 株から、5/1 終値基準 26,200 円
+- **実資金想定**: 原則 1Q 通過後 100 株から。高リスク許容なら 1Q 前に 100 株だけ toe-hold。5/1 終値基準 26,200 円。
 - **許容上限**: 複数 signal だが小型・決算直前のため初期 1%
 
 ### お買い得候補としての結論
 
-6835 は、FCF lane 1 位で、今回の新 screening の価値が最も分かりやすい候補。9682 よりも「現金創出力に対して安い」根拠は強い。ただし決算直前のため、2026-05-05 に注文する銘柄ではない。5/15 1Q 通過後、cash quality が維持されれば少額 starter を置く。
+6835 は、FCF lane 1 位で、今回の新 screening の価値が最も分かりやすい候補。9682 よりも「現金創出力に対して安い」根拠は強い。ただし決算直前のため、system default は 5/15 1Q 後。人間が決算またぎリスクを明示的に取るなら、100 株だけの toe-hold は risk / return が非対称で許容できる。

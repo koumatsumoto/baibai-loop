@@ -14,7 +14,8 @@ published_at: "2026-05-05T20:05:00+09:00"
 tradable_at: "2026-05-07T09:00:00+09:00"
 macro_gate: tailwind
 overrides: []
-external_refs: []
+external_refs:
+  - records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
 position_size_oku: 0.01
 avg_turnover_oku: 1.3
 adv_participation_pct: 0.7692
@@ -53,6 +54,12 @@ valuation:
 - **outlook_ref**: records/02-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
 - **根拠**: outlook は AI / クラウド / データセンター需要の spillover を理由に情報・通信業を tailwind としている。シーイーシーは SIer / IT service で、高成長 SaaS ほど直接的ではないが、DX / クラウド / セキュリティ / スマートファクトリー投資の継続は追い風。
 - **保守側判定**: tailwind。ただし「AI テーマ」ではなく、実績成長と還元で採用する。
+
+### Portfolio macro risk budget
+
+macro は tailwind だが、2026-05-05 時点ではホルムズ海峡リスク、Brent 110 ドル超、米利上げ再織り込み、5/8 米雇用・5/12 米 CPI 前という制約がある。AI 関連ではなく domestic SIer のため、9692 は macro beta を取りに行く銘柄ではない。投資可能資金は 500 万円、当面の tactical cap は 100 万円。9682 200 株注文後でも、9692 100 株を追加した合計は 395,700 円（5/1 終値基準）で、総資金の 7.9%、tactical cap の約 39.6%。初期投入上限 40-45% の範囲内に収まるため、即時候補として許容する。
+
+6310 / 6835 の 1Q を待つ前に全額を使い切る必要はない。9692 は次回 1Q 予定が 6/11 で、決算またぎまで時間があるため、5/7 以降の即時候補としては 6310 / 6835 より優先する。
 
 ## Sales / P/S snapshot
 
@@ -126,7 +133,7 @@ Source:
 - 2026-05-05 と 2026-05-06 は JPX cash market holiday のため、最短 tradable_at は 2026-05-07 09:00。
 - 2026-05-01 終値 1,929 円を基準に 100 株。2,000 円以下なら採用。2,000 円超の gap up は追わず、指値を置く。
 - 次回 1Q 予定は株予報 Pro ベースで 2026-06-11。決算またぎ kill switch まで 1 か月以上あるため、5/7 の即時候補として 6310 / 6835 より扱いやすい。
-- 9682 を既に 100 株注文済みなら、追加資金はまず 9692 に回す。
+- 9682 を既に 200 株注文済みでも、当面の 100 万円 tactical cap なら追加資金はまず 9692 に回す。9682 200 株 + 9692 100 株で 395,700 円、総資金 500 万円比 7.9%、tactical cap 比 39.6%。
 
 Source:
 
@@ -156,9 +163,9 @@ Source:
 - **avg turnover**: 1.3 億円
 - **paper proxy position**: 0.01 億円
 - **ADV participation**: 0.7692%
-- **実資金想定**: 100 株、5/1 終値基準 192,900 円
+- **実資金想定**: 100 株、5/1 終値基準 192,900 円。9682 200 株注文後でも合計 395,700 円。総資金 500 万円比 7.9%、tactical cap 100 万円比 39.6%。
 - **許容上限**: single signal のため paper proxy 最大 1%
 
 ### お買い得候補としての結論
 
-9692 は 9682 と同じ sales-discount-growth だが、P/S discount、売上成長、PER、net cash、配当利回りの組み合わせがより厚い。50 万円上限では、銘柄数を増やすより 9692 を 100 株入れる方が、9682 を追加で積むより business goal に合う。即時候補の最優先は 9692 とする。
+9692 は 9682 と同じ sales-discount-growth だが、P/S discount、売上成長、PER、net cash、配当利回りの組み合わせがより厚い。100 万円 tactical cap では、9682 を 200 株維持した上で 9692 を 100 株入れても初期 risk budget の範囲に収まる。即時候補の最優先は 9692 とする。

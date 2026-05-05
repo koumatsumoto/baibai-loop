@@ -58,6 +58,14 @@ valuation:
 
 headwind の場合は原則採用不可。採用する場合は `macro_gate_override` に system signal を上書きする理由を残す。
 
+### 2.1 Portfolio macro risk budget
+
+- **現在の macro scenario**: [outlook の base/downside/upside と現在の近さ]
+- **直近 1-2 週間の trigger**: [米 CPI / 雇用 / FOMC / BOJ / 原油 / 地政学 / 決算など]
+- **trigger 前の投入上限**: [投資可能資金全体に対する % / tactical cap に対する % と理由]
+- **trigger 通過後の追加条件**: [何が確認できれば増やすか]
+- **sector / thesis 集中**: [同一 sector / 同一 signal への偏り]
+
 ## 3. Candidate signals + valuation snapshot
 
 ### 3.1 Candidate signals
@@ -199,7 +207,7 @@ catalyst がない場合は、どの signal が catalyst 不在を補う margin 
 - **採用判定**: 採用 | 見送り | 保留
 - **判定理由**: [1-2 段落、4 軸寄与度・反対仮説・kill switch 確認結果を踏まえて]
 
-現在の実資金が 100-200 万円程度の場合、paper proxy の ADV cap は実運用ではほぼ拘束しない。混乱を避けるため、paper proxy の sizing は検証用の上限として扱い、実資金の集中度は trade 側の real fields で別管理する。
+現在の実資金や tactical cap が小さい場合、paper proxy の ADV cap は実運用ではほぼ拘束しない。混乱を避けるため、paper proxy の sizing は検証用の上限として扱い、実資金の集中度は trade 側の `real_*` / `tactical_*` fields で別管理する。
 
 ---
 

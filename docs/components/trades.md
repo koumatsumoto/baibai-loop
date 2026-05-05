@@ -40,6 +40,8 @@ paper_proxy_position_size_pct: 数値                      # paper_proxy_positio
 real_capital_yen: 数値 | null                            # 実資金を使った場合のみ
 real_order_notional_yen: 数値 | null                     # ordered では参照価格ベース、open では約定ベース
 real_concentration_pct: 数値 | null                      # real_order_notional_yen / real_capital_yen * 100
+tactical_capital_yen: 数値 | null                        # 当面の様子見枠・投入上限。real_capital_yen 以下
+tactical_concentration_pct: 数値 | null                  # real_order_notional_yen / tactical_capital_yen * 100
 planned_exit:
   target_price: 数値 | null
   stop_loss: 数値
@@ -58,7 +60,10 @@ kill_switch_check:                                         # entry 時に確認
 - `research_ref` は必須（研究なき執行を禁止）
 - `ordered` は注文済み・未約定の状態。休場中の成行注文、寄成、引成などで価格が未確定なら
   `entry_price` を推定で埋めない
-- `paper_proxy_*` は 1 億円 proxy の記録用。`real_*` は実資金の集中度を表す。両者を混同しない
+- `paper_proxy_*` は 1 億円 proxy の記録用。`real_*` は実資金全体の集中度を表す。両者を混同しない
+- `real_capital_yen` は投資可能な実資金全体を分母にする。一時的に「今週は 100 万円まで」
+  のような様子見枠を置く場合は `real_capital_yen` を小さくせず、任意 field の
+  `tactical_capital_yen` / `tactical_concentration_pct` に分ける
 - `kill_switch_check` の 3 項目が全て `false` でないと order / entry 不可
 - `status`: `ordered` (注文済み未約定) → `open` (ポジション保有中) → `closed` (決済済み)
 
@@ -89,6 +94,8 @@ uv run baibai-loop-validate --target trade
 - status 値域 (`trade.unknown-status`) と Lifecycle 表に従う null / non-null 整合 (`trade.lifecycle-*`)
 - paper proxy `pct` と `oku` の整合 (`trade.paper-proxy-pct-mismatch`)
 - real layer `concentration_pct` と `notional / capital` の整合 (`trade.real-concentration-mismatch`)
+- tactical layer `tactical_concentration_pct` と `notional / tactical_capital` の整合
+  (`trade.tactical-concentration-*`)
 - real layer 集中度の hard cap (50%) / soft cap (25%) (`trade.real-concentration-{hard,soft}-cap`)
 
 ## 5. 本文の構成

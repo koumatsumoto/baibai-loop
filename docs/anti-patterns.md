@@ -272,6 +272,8 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
   - [ ] paper proxy size と real capital / real notional / real concentration を別 field に分離
   - [ ] `paper_proxy_position_size_pct` は `paper_proxy_position_size_oku / 0.01` と整合 (validator: `trade.paper-proxy-pct-mismatch`)
   - [ ] `real_concentration_pct` は `real_order_notional_yen / real_capital_yen * 100` と整合 (validator: `trade.real-concentration-mismatch`)
+  - [ ] 一時的な投入上限を置く場合、`real_capital_yen` を小さくせず `tactical_capital_yen` /
+        `tactical_concentration_pct` に分離したか (validator: `trade.tactical-concentration-*`)
   - [ ] `real_concentration_pct` の hard cap (50%) 超過は error / soft cap (25%) 超過は warning (validator: `trade.real-concentration-{hard,soft}-cap`)
   - [ ] `position_size_oku` / `adv_participation_pct` は paper proxy の検証であり、実資金集中度の検証ではない
 - [ ] research の `overrides` 配列を導入・変更する場合、以下を確認したか:
@@ -326,6 +328,8 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
       上書きする場合、research front matter の `overrides` と本文に prior state / reason / evidence を残したか
 - [ ] 実取引を records に残す場合、1 億円 paper proxy と real capital / real notional /
       real concentration を別 field に分けたか
+- [ ] 「投資可能な実資金全体」と「当面の様子見枠」を混同していないか。様子見枠は
+      `tactical_capital_yen` として別 field にし、`real_capital_yen` は実資金全体を分母にしたか
 - [ ] `real_concentration_pct` が [`screening/principles.md §7.2`](./screening/principles.md) の hard 上限
       (単一銘柄 50% / 単一 sector 60% / cash 最低 10%) を超える場合、`overrides` に
       `type: real_concentration_cap` で記録したか。soft 推奨 (< 25% / < 40% / > 30%) を超える場合も

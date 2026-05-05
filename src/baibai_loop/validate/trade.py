@@ -9,6 +9,10 @@ Rules enforced (see ``docs/components/trades.md`` for the spec):
   ``paper_proxy_position_size_oku / 0.01`` (paper proxy is 1 oku JPY).
 - ``real_concentration_pct`` is consistent with
   ``real_order_notional_yen / real_capital_yen * 100`` when real fields are present.
+- Optional ``tactical_concentration_pct`` is consistent with
+  ``real_order_notional_yen / tactical_capital_yen * 100`` when tactical fields
+  are present. Tactical capital represents a temporary deployment budget and
+  must not exceed ``real_capital_yen`` when both are set.
 - Filename matches ``YYYY-MM-DD-<ticker>.md`` and the date equals ``order_date``
   (or ``entry_date`` when ``order_date`` is null).
 - ``real_concentration_pct`` exceeding the hard cap from
@@ -42,6 +46,7 @@ REQUIRED_FRONT_MATTER: tuple[str, ...] = (
 _PAPER_PROXY_CAPITAL_OKU = 0.01  # 1 oku JPY = 100 in paper proxy pct denominator
 _PAPER_PROXY_PCT_TOLERANCE = 0.05  # absolute tolerance in pct points
 _REAL_CONCENTRATION_TOLERANCE = 0.5  # absolute tolerance in pct points
+_TACTICAL_CONCENTRATION_TOLERANCE = 0.5  # absolute tolerance in pct points
 _REAL_CONCENTRATION_HARD_CAP_PCT = 50.0
 _REAL_CONCENTRATION_SOFT_CAP_PCT = 25.0
 
@@ -112,6 +117,7 @@ def validate_trade_file(path: Path) -> list[ValidationFinding]:
     findings.extend(_check_lifecycle_fields(path, front))
     findings.extend(_check_paper_proxy_consistency(path, front))
     findings.extend(_check_real_concentration_consistency(path, front))
+    findings.extend(_check_tactical_concentration_consistency(path, front))
     findings.extend(_check_real_concentration_cap(path, front))
     findings.extend(_check_filename(path, front))
     return findings
@@ -314,6 +320,87 @@ def _check_real_concentration_consistency(
             )
         ]
     return []
+
+
+def _check_tactical_concentration_consistency(
+    path: Path, front: Mapping[str, object]
+) -> list[ValidationFinding]:
+    if (
+        front.get("tactical_capital_yen") is None
+        and front.get("tactical_concentration_pct") is None
+    ):
+        return []
+
+    notional = _coerce_number(front.get("real_order_notional_yen"))
+    tactical_capital = _coerce_number(front.get("tactical_capital_yen"))
+    tactical_pct = _coerce_number(front.get("tactical_concentration_pct"))
+
+    missing_fields: list[str] = []
+    if notional is None:
+        missing_fields.append("real_order_notional_yen")
+    if tactical_capital is None:
+        missing_fields.append("tactical_capital_yen")
+    if tactical_pct is None:
+        missing_fields.append("tactical_concentration_pct")
+    if missing_fields:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.tactical-concentration-missing-field",
+                message=(
+                    "tactical concentration requires numeric fields: " + ", ".join(missing_fields)
+                ),
+                location="tactical_concentration_pct",
+            )
+        ]
+
+    assert tactical_capital is not None
+    assert tactical_pct is not None
+    assert notional is not None
+    if tactical_capital <= 0:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.tactical-capital-non-positive",
+                message="tactical_capital_yen must be > 0 when tactical_concentration_pct is set",
+                location="tactical_capital_yen",
+            )
+        ]
+
+    findings: list[ValidationFinding] = []
+    real_capital = _coerce_number(front.get("real_capital_yen"))
+    if real_capital is not None and tactical_capital > real_capital:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.tactical-capital-exceeds-real-capital",
+                message=(
+                    f"tactical_capital_yen ({tactical_capital}) must not exceed "
+                    f"real_capital_yen ({real_capital})"
+                ),
+                location="tactical_capital_yen",
+            )
+        )
+
+    expected = notional / tactical_capital * 100.0
+    if abs(tactical_pct - expected) > _TACTICAL_CONCENTRATION_TOLERANCE:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.tactical-concentration-mismatch",
+                message=(
+                    f"tactical_concentration_pct ({tactical_pct}) must equal "
+                    f"real_order_notional_yen / tactical_capital_yen * 100 = {expected:.2f} "
+                    f"(±{_TACTICAL_CONCENTRATION_TOLERANCE})"
+                ),
+                location="tactical_concentration_pct",
+            )
+        )
+    return findings
 
 
 def _check_real_concentration_cap(
