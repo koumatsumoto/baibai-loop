@@ -34,6 +34,10 @@ research_ref: records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md  # �
 order_date: "YYYY-MM-DD" | null                         # ordered の場合は必須
 expected_fill_at: "ISO 8601" | null                     # ordered の場合は次回立会予定時刻
 order_price_guard_yen: 数値 | null                      # 任意。休場明け / 寄りの最大許容価格
+order_quantity: 整数 | null                             # order_price_guard_yen がある場合は必須
+guarded_max_notional_yen: 数値 | null                   # order_price_guard_yen * order_quantity
+guarded_max_real_concentration_pct: 数値 | null         # guarded_max_notional_yen / real_capital_yen * 100
+guarded_max_tactical_concentration_pct: 数値 | null     # guarded_max_notional_yen / tactical_capital_yen * 100
 order_action_required: 文字列 | null                     # 任意。約定前に必要な訂正 / 取消条件
 entry_date: "YYYY-MM-DD" | null                         # ordered では null、open/closed では必須
 entry_price: 数値 | null                                # ordered では null、open/closed では必須
@@ -66,6 +70,11 @@ kill_switch_check:                                         # entry 時に確認
   `order_action_required` を任意で記録し、本文の order log と一致させる。
   `order_price_guard_yen` はその trade record の数量を買ってよい最大価格であり、
   価格帯によって数量を変える場合は本文に減量条件を明示する
+- `order_price_guard_yen` を置く場合は、`order_quantity`、`guarded_max_notional_yen`、
+  `guarded_max_real_concentration_pct` を front matter に記録する。
+  `tactical_capital_yen` がある場合は `guarded_max_tactical_concentration_pct` も記録する。
+  これらは参照価格ベースの `real_order_notional_yen` とは別に、最大約定時の実資金 / tactical
+  集中度を確認するための field とする
 - `paper_proxy_*` は 1 億円 proxy の記録用。`real_*` は実資金全体の集中度を表す。両者を混同しない
 - `real_capital_yen` は投資可能な実資金全体を分母にする。一時的に「今週は 100 万円まで」
   のような様子見枠を置く場合は `real_capital_yen` を小さくせず、任意 field の
@@ -104,6 +113,9 @@ uv run baibai-loop-validate --target trade
 - tactical layer `tactical_concentration_pct` と `notional / tactical_capital` の整合
   (`trade.tactical-concentration-*`)
 - real layer 集中度の hard cap (50%) / soft cap (25%) (`trade.real-concentration-{hard,soft}-cap`)
+- 価格 guard 付き order の guarded max notional / real concentration / tactical concentration の整合
+  (`trade.guarded-max-*`) と guarded max real concentration の hard / soft cap
+  (`trade.guarded-max-real-concentration-{hard,soft}-cap`)
 
 ## 5. 本文の構成
 
