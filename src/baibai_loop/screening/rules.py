@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from .rule_config import (
     CashflowYieldLane,
     CashRichLane,
@@ -332,6 +334,9 @@ def _strict_net_cash_discount(
             "ttm_quality": financial.ttm_quality_net_cash.value,
             "edinet_source_doc_id": financial.edinet_source_doc_id,
             "edinet_document_type": financial.edinet_document_type,
+            "edinet_source_submit_datetime": financial.edinet_source_submit_datetime,
+            "edinet_source_period_start": _date_iso(financial.edinet_source_period_start),
+            "edinet_source_period_end": _date_iso(financial.edinet_source_period_end),
             "edinet_failure_reasons": financial.edinet_failure_reasons,
         },
     )
@@ -373,6 +378,9 @@ def _fcf_yield_discount(
             "ttm_quality": financial.ttm_quality_fcf_yield.value,
             "edinet_source_doc_id": financial.edinet_source_doc_id,
             "edinet_document_type": financial.edinet_document_type,
+            "edinet_source_submit_datetime": financial.edinet_source_submit_datetime,
+            "edinet_source_period_start": _date_iso(financial.edinet_source_period_start),
+            "edinet_source_period_end": _date_iso(financial.edinet_source_period_end),
             "edinet_capex_source": financial.edinet_capex_source,
             "edinet_failure_reasons": financial.edinet_failure_reasons,
         },
@@ -432,6 +440,10 @@ def _has_edinet_failure_reason(financial: FinancialSnapshot, reason: str) -> boo
     return reason in {item.strip() for item in reasons.split(",") if item.strip()}
 
 
+def _date_iso(value: date | None) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
 def _has_deterioration(financial: FinancialSnapshot, deterioration_threshold: float) -> bool:
     for value in (
         financial.eps_yoy,
@@ -450,7 +462,10 @@ def _rule_metrics(financial: FinancialSnapshot, lane: ValuationReversionLane) ->
             continue
         if metric == "p_s" and financial.ttm_quality_p_s == TTMQuality.UNAVAILABLE:
             continue
-        if getattr(financial, metric, None) is None:
+        value = getattr(financial, metric, None)
+        if value is None:
+            continue
+        if metric == "ev_ebitda" and value <= 0:
             continue
         metrics.append(metric)
     return tuple(metrics)

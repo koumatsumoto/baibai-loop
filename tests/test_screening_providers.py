@@ -91,11 +91,17 @@ class ScreeningProviderTests(unittest.TestCase):
                 "ttm_quality_ev_ebitda": "exact",
                 "ttm_quality_p_s": "approximated",
                 "ttm_quality_pcfr": "unavailable",
+                "source_submit_datetime": "2026-04-01 12:00",
+                "source_period_start": "2025-04-01",
+                "source_period_end": "2026-03-31",
             }
         )
         self.assertEqual(record.ttm_quality_ev_ebitda, TTMQuality.EXACT)
         self.assertEqual(record.ttm_quality_p_s, TTMQuality.APPROXIMATED)
         self.assertEqual(record.ttm_quality_pcfr, TTMQuality.UNAVAILABLE)
+        self.assertEqual(record.source_submit_datetime, "2026-04-01 12:00")
+        self.assertEqual(record.source_period_start, date(2025, 4, 1))
+        self.assertEqual(record.source_period_end, date(2026, 3, 31))
 
     def test_select_document_candidates_requires_csv_and_prefers_correction(self) -> None:
         selected = select_document_candidates(
@@ -382,6 +388,9 @@ class ScreeningProviderTests(unittest.TestCase):
             doc_id="S100TEST",
             doc_type_code="120",
             content=_edinet_csv_zip(rows),
+            submit_datetime="2026-04-01 12:00",
+            period_start=date(2025, 4, 1),
+            period_end=date(2026, 3, 31),
         )
 
         self.assertEqual(record.sales_ttm, 1000.0)
@@ -393,6 +402,9 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(record.fcf_ttm, 110.0)
         self.assertEqual(record.ebitda_ttm, 120.0)
         self.assertEqual(record.ttm_quality_fcf, TTMQuality.EXACT)
+        self.assertEqual(record.source_submit_datetime, "2026-04-01 12:00")
+        self.assertEqual(record.source_period_start, date(2025, 4, 1))
+        self.assertEqual(record.source_period_end, date(2026, 3, 31))
 
     def test_parse_csv_zip_metric_record_extracts_loan_payable_and_lease_debt(self) -> None:
         rows = [

@@ -278,7 +278,8 @@ def read_edinet_metrics(
             "consolidation_basis, ttm_quality_ev_ebitda, ttm_quality_p_s, ttm_quality_pcfr, "
             "operating_profit_ttm, depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, "
             "net_cash, equity, total_assets, ttm_quality_fcf, ttm_quality_net_cash, "
-            "source_doc_id, document_type, capex_source, failure_reasons "
+            "source_doc_id, document_type, source_submit_datetime, source_period_start, "
+            "source_period_end, capex_source, failure_reasons "
             "FROM edinet_metrics WHERE asof_date = ?",
             (asof_date.isoformat(),),
         ).fetchall()
@@ -315,8 +316,11 @@ def read_edinet_metrics(
             "ttm_quality_net_cash": row[18],
             "source_doc_id": row[19],
             "document_type": row[20],
-            "capex_source": row[21],
-            "failure_reasons": json.loads(row[22]) if row[22] else [],
+            "source_submit_datetime": row[21],
+            "source_period_start": row[22],
+            "source_period_end": row[23],
+            "capex_source": row[24],
+            "failure_reasons": json.loads(row[25]) if row[25] else [],
         }
         record = normalize_metric_record(payload)
         records[record.ticker] = record

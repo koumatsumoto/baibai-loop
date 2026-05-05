@@ -50,8 +50,11 @@ Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデ
 - **有利子負債**: 短期借入金 + 長期借入金 + 社債
 - **現金**: 現金及び現金同等物
 - **EBITDA**: 営業利益 + 減価償却費 + のれん償却費（直近 4Q 合算）
+- **有効条件**: EV と EBITDA がどちらも正のときだけ倍率として採用する
 
 EDINET `type=5` CSV から抽出する。raw XBRL 直接 parse は現時点の非スコープとし、EDINET API が返す CSV ZIP を deterministic な中間データとして使う。J-Quants Light の財務サマリーで取れる項目は優先使用し、不足分を EDINET CSV-derived metrics で補完する。
+
+EV がゼロ以下、または EBITDA がゼロ以下の場合、EV/EBITDA は `null` として valuation-reversion から除外する。負の EV は net cash / cash-rich lane で扱うべき balance sheet signal であり、負の EBITDA は倍率が「低い」ほど割安という解釈が成立しないため。
 
 ## 6. P/S の算出
 
@@ -76,7 +79,7 @@ EDINET `type=5` CSV-derived metrics から以下を抽出する。
 
 J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定に使う。`fcf-yield-discount` では EDINET CFO / capex / FCF を同じ source family として扱い、J-Quants `ocf_ttm` と混ぜて FCF を再計算しない。
 
-対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。同一期間の訂正書は通常書類より優先するが、古い期間の訂正書が新しい半期 / 年次の通常書類を上書きしないよう、period end を submit time より先に比較する。
+対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。document selection は period end / period start を submit time より先に比較し、古い期間の訂正書が新しい半期 / 年次の通常書類を上書きしないようにする。同一期間では最新 submit time を優先し、同一 submit time の tie-break として訂正書を通常書類より優先する。
 
 `strict-net-cash-discount` は `ttm_quality_net_cash != unavailable` かつ `failure_reasons` に `debt_assumed_zero` がないときだけ判定する。Debt tag が見つからない場合は debt を 0 と推定せず、net cash は unavailable として strict lane から除外する。一方で、CSV 上に debt element があり値が `0` / `－` などのゼロ表記で報告されている場合は、報告ゼロとして debt 0 を許容する。Net cash は balance sheet snapshot なので、半期・四半期の最新値も research で確認する前提で許容する。
 
@@ -109,7 +112,7 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 - **パーセンタイル**: 下位 20% / 下位 50% / 上位 50% / 上位 80%
 - **上場 3 年未満**: 上場来レンジで代替（universe-rules.md 参照）
 
-Historical EV/EBITDA は、各日の split-adjusted close で時価総額だけを変化させ、最新の発行済株式数・有利子負債・現金・TTM EBITDA を全期間に適用する近似で算出する。式は `(historical_adjustment_close * latest_shares_outstanding + latest_debt - latest_cash) / latest_ebitda_ttm` とし、balance sheet / EBITDA の時系列が無くても EV/EBITDA の定義を保つ。`adjustment_close` が欠損する場合は raw `close` にフォールバックする。必要項目が欠損する場合は `null` とし、`ttm_quality_ev_ebitda = exact` の銘柄だけ mechanical 判定に使う。PBR / PER の history も同じ price 基準（adjustment_close 優先）で算出するため、株式分割があっても history は連続になる。
+Historical EV/EBITDA は、各日の split-adjusted close で時価総額だけを変化させ、最新の発行済株式数・有利子負債・現金・TTM EBITDA を全期間に適用する近似で算出する。式は `(historical_adjustment_close * latest_shares_outstanding + latest_debt - latest_cash) / latest_ebitda_ttm` とし、balance sheet / EBITDA の時系列が無くても EV/EBITDA の定義を保つ。`adjustment_close` が欠損する場合は raw `close` にフォールバックする。必要項目が欠損する場合、EV がゼロ以下、または EBITDA がゼロ以下の場合は `null` とし、`ttm_quality_ev_ebitda = exact` かつ正の EV/EBITDA だけ mechanical 判定に使う。PBR / PER の history も同じ price 基準（adjustment_close 優先）で算出するため、株式分割があっても history は連続になる。
 
 ### 9.1 `adjustment_close` の中身（dividend / 配当の扱い）
 
@@ -158,7 +161,7 @@ return ではない)。これ以外のコーポレートアクション (合併�
 
 - 2024 年以降、EDINET 単体では旧来の四半期報告書に依存した TTM 再構成ができない期間がある
 - TTM 品質を `exact` / `approximated` / `unavailable` で明示する
-- `EV/EBITDA` は `ttm_quality_ev_ebitda = exact` のときのみ valuation-reversion 判定に使用する
+- `EV/EBITDA` は `ttm_quality_ev_ebitda = exact` かつ EV / EBITDA がどちらも正のときのみ valuation-reversion 判定に使用する
 - `P/S` / `PCFR` / `OCF yield` / `FCF yield` / `Net cash` は、それぞれ lane が要求する品質条件を満たすときのみ mechanical 判定に使う
 
 ## 12. 営業利益相当の fallback

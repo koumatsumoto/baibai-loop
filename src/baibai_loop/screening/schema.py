@@ -115,6 +115,9 @@ class FinancialSnapshot:
     consolidation_basis: str | None = None
     edinet_source_doc_id: str | None = None
     edinet_document_type: str | None = None
+    edinet_source_submit_datetime: str | None = None
+    edinet_source_period_start: date | None = None
+    edinet_source_period_end: date | None = None
     edinet_capex_source: str | None = None
     edinet_failure_reasons: str | None = None
     operating_profit: float | None = None

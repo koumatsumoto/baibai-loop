@@ -65,6 +65,9 @@ class EdinetMetricRecord:
     ttm_quality_net_cash: TTMQuality = TTMQuality.UNAVAILABLE
     source_doc_id: str | None = None
     document_type: str | None = None
+    source_submit_datetime: str | None = None
+    source_period_start: date | None = None
+    source_period_end: date | None = None
     capex_source: str | None = None
     failure_reasons: tuple[str, ...] = ()
 
@@ -297,6 +300,9 @@ def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
         ttm_quality_net_cash=_parse_ttm_quality(_coalesce(record, "ttm_quality_net_cash")),
         source_doc_id=_to_str_or_none(_coalesce(record, "source_doc_id")),
         document_type=_to_str_or_none(_coalesce(record, "document_type")),
+        source_submit_datetime=_to_str_or_none(_coalesce(record, "source_submit_datetime")),
+        source_period_start=_parse_optional_date(_coalesce(record, "source_period_start")),
+        source_period_end=_parse_optional_date(_coalesce(record, "source_period_end")),
         capex_source=_to_str_or_none(_coalesce(record, "capex_source")),
         failure_reasons=tuple(_coalesce(record, "failure_reasons") or ()),
     )
@@ -343,6 +349,9 @@ def parse_csv_zip_metric_record(
     doc_id: str,
     doc_type_code: str,
     content: bytes,
+    submit_datetime: str | None = None,
+    period_start: date | None = None,
+    period_end: date | None = None,
 ) -> EdinetMetricRecord:
     rows = _read_csv_zip_rows(content)
     if not rows:
@@ -350,6 +359,9 @@ def parse_csv_zip_metric_record(
             ticker=ticker,
             source_doc_id=doc_id,
             document_type=doc_type_code,
+            source_submit_datetime=submit_datetime,
+            source_period_start=period_start,
+            source_period_end=period_end,
             failure_reasons=("csv_parse_failed",),
         )
 
@@ -413,6 +425,9 @@ def parse_csv_zip_metric_record(
         ttm_quality_net_cash=quality if net_cash is not None else TTMQuality.UNAVAILABLE,
         source_doc_id=doc_id,
         document_type=doc_type_code,
+        source_submit_datetime=submit_datetime,
+        source_period_start=period_start,
+        source_period_end=period_end,
         capex_source="purchase_of_fixed_assets" if capex_abs is not None else None,
         failure_reasons=tuple(dict.fromkeys(failures)),
     )

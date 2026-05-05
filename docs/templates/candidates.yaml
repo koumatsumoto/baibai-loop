@@ -52,6 +52,9 @@ candidates:
     depreciation_and_amortization_ttm: 2000000000.0
     edinet_source_doc_id: S100XXXX
     edinet_document_type: "120"
+    edinet_source_submit_datetime: "YYYY-MM-DD HH:MM"
+    edinet_source_period_start: "YYYY-MM-DD"
+    edinet_source_period_end: "YYYY-MM-DD"
     edinet_capex_source: purchase_of_fixed_assets
     edinet_failure_reasons: null
     cfo_yoy: 0.08
@@ -109,6 +112,11 @@ candidates:
       net_cash: 20000000000.0
       debt: 12000000000.0
       cash: 32000000000.0
+      edinet_source_doc_id: S100XXXX
+      edinet_document_type: "120"
+      edinet_source_submit_datetime: "YYYY-MM-DD HH:MM"
+      edinet_source_period_start: "YYYY-MM-DD"
+      edinet_source_period_end: "YYYY-MM-DD"
   - name: fcf-yield-discount
     playbook: fcf-yield-discount
     reasons:
@@ -119,6 +127,11 @@ candidates:
       edinet_ocf_ttm: 13000000000.0
       capex_ttm: 5000000000.0
       cfo_yoy: 0.08
+      edinet_source_doc_id: S100XXXX
+      edinet_document_type: "120"
+      edinet_source_submit_datetime: "YYYY-MM-DD HH:MM"
+      edinet_source_period_start: "YYYY-MM-DD"
+      edinet_source_period_end: "YYYY-MM-DD"
 fact_memo_lines:
 - "[事実メモ]"
 provider_status_lines:

@@ -9,7 +9,7 @@ This module owns:
 - the top-level `rebuild_from_raw()` that scans a `records/_data/raw/screening/` tree
   and writes a fresh SQLite file from scratch
 
-Schema v4 (current) covers all five sources: jquants daily bars / fin
+Schema v5 (current) covers all five sources: jquants daily bars / fin
 summaries / master / earnings calendar / market calendar, plus EDINET
 documents and metrics, and JPX regulation flags.
 """
@@ -31,7 +31,7 @@ from .providers.jquants import (
     parse_jquants_code,
 )
 
-SCHEMA_VERSION = "v4"
+SCHEMA_VERSION = "v5"
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS jquants_daily_bars(
@@ -136,6 +136,9 @@ CREATE TABLE IF NOT EXISTS edinet_metrics(
   ttm_quality_net_cash TEXT,
   source_doc_id TEXT,
   document_type TEXT,
+  source_submit_datetime TEXT,
+  source_period_start TEXT,
+  source_period_end TEXT,
   capex_source TEXT,
   failure_reasons TEXT,
   PRIMARY KEY (asof_date, ticker)
@@ -730,6 +733,9 @@ def _import_edinet_metrics_file(conn: sqlite3.Connection, path: Path) -> int:
                 _to_str_or_none(_first(record, "ttm_quality_net_cash")),
                 _to_str_or_none(_first(record, "source_doc_id")),
                 _to_str_or_none(_first(record, "document_type")),
+                _to_str_or_none(_first(record, "source_submit_datetime")),
+                _to_str_or_none(_first(record, "source_period_start")),
+                _to_str_or_none(_first(record, "source_period_end")),
                 _to_str_or_none(_first(record, "capex_source")),
                 json.dumps(_first(record, "failure_reasons") or (), ensure_ascii=False),
             )
@@ -743,8 +749,12 @@ def _import_edinet_metrics_file(conn: sqlite3.Connection, path: Path) -> int:
         "consolidation_basis, ttm_quality_ev_ebitda, ttm_quality_p_s, ttm_quality_pcfr, "
         "operating_profit_ttm, depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, "
         "net_cash, equity, total_assets, ttm_quality_fcf, ttm_quality_net_cash, "
-        "source_doc_id, document_type, capex_source, failure_reasons"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "source_doc_id, document_type, source_submit_datetime, source_period_start, "
+        "source_period_end, capex_source, failure_reasons"
+        ") VALUES ("
+        "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+        "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+        ")",
         rows,
     )
     _record_raw_import(conn, "edinet_metrics", path, len(rows), asof_date, asof_date)

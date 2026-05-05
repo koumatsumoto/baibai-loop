@@ -437,6 +437,8 @@ class ScreeningCliTests(unittest.TestCase):
                         "docTypeCode": "120",
                         "csvFlag": "1",
                         "xbrlFlag": "1",
+                        "periodStart": "2025-04-01",
+                        "periodEnd": "2026-03-31",
                         "submitDateTime": "2026-04-01 12:00",
                     }
                 ],
@@ -456,6 +458,9 @@ class ScreeningCliTests(unittest.TestCase):
             self.assertEqual(payload[0]["ticker"], "9682")
             self.assertEqual(payload[0]["net_cash"], 600.0)
             self.assertEqual(payload[0]["fcf_ttm"], 700.0)
+            self.assertEqual(payload[0]["source_submit_datetime"], "2026-04-01 12:00")
+            self.assertEqual(payload[0]["source_period_start"], "2025-04-01")
+            self.assertEqual(payload[0]["source_period_end"], "2026-03-31")
             self.assertIn("1 records", buffer.getvalue())
 
     def test_extract_edinet_metrics_command_returns_zero_for_quality_issues(self) -> None:
@@ -638,9 +643,80 @@ class SelectCommandTests(unittest.TestCase):
             )
             tickers = [c["ticker"] for c in payload["candidates"]]
             self.assertEqual(tickers, ["3333", "2222"])
-            self.assertEqual(payload["candidates"][0]["selection_lane"], "valuation-reversion")
+            self.assertEqual(
+                payload["research_selection_lane_order"],
+                [
+                    "strict-net-cash-discount",
+                    "fcf-yield-discount",
+                    "cash-rich-asset-discount",
+                    "cashflow-yield-discount",
+                    "sales-discount-growth",
+                    "valuation-reversion",
+                ],
+            )
+            self.assertEqual(payload["candidates"][0]["selection_lane"], "cash-rich-asset-discount")
+            self.assertEqual(
+                payload["ranked_candidates"][0]["selection_lane"], "valuation-reversion"
+            )
             self.assertEqual(payload["candidates"][0]["position_tier"], "200-500")
             self.assertEqual(payload["candidates"][1]["position_tier"], "500-1000")
+
+    def test_select_recommends_lane_diversified_candidates_before_global_rank(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/03-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "valuation first in global rank",
+                        "sector_33": "機械",
+                        "market_cap_oku": 600,
+                        "signals": [{"name": "valuation-reversion"}],
+                    },
+                    {
+                        "ticker": "2222",
+                        "name": "strict net cash first in research recommendation",
+                        "sector_33": "機械",
+                        "market_cap_oku": 150,
+                        "signals": [
+                            {
+                                "name": "strict-net-cash-discount",
+                                "metrics": {
+                                    "net_cash_to_market_cap": 0.6,
+                                    "price_to_equity": 0.7,
+                                },
+                            }
+                        ],
+                    },
+                ],
+            )
+            self._write_outlook(
+                root / "records/02-outlook",
+                asof,
+                sectors={"機械": "neutral"},
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                candidates_root=root / "records/03-candidates",
+                outlook_root=root / "records/02-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            self.assertEqual(
+                [c["ticker"] for c in payload["ranked_candidates"]],
+                ["1111", "2222"],
+            )
+            self.assertEqual([c["ticker"] for c in payload["candidates"]], ["2222", "1111"])
+            self.assertEqual(payload["candidates"][0]["selection_lane"], "strict-net-cash-discount")
 
     def test_select_uses_lane_strength_before_market_cap(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -96,3 +96,10 @@ output:
   research_selection_target_max: 5
   selection_mode: lane_toplists
   lane_toplist_limit: 5
+  research_selection_lane_order:
+    - strict-net-cash-discount
+    - fcf-yield-discount
+    - cash-rich-asset-discount
+    - cashflow-yield-discount
+    - sales-discount-growth
+    - valuation-reversion

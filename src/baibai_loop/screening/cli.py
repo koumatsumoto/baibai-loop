@@ -601,6 +601,9 @@ def run_command(
                     ),
                     "edinet_source_doc_id": financial.edinet_source_doc_id,
                     "edinet_document_type": financial.edinet_document_type,
+                    "edinet_source_submit_datetime": financial.edinet_source_submit_datetime,
+                    "edinet_source_period_start": _date_iso(financial.edinet_source_period_start),
+                    "edinet_source_period_end": _date_iso(financial.edinet_source_period_end),
                     "edinet_capex_source": financial.edinet_capex_source,
                     "edinet_failure_reasons": financial.edinet_failure_reasons,
                     "sales_yoy": financial.sales_yoy,
@@ -738,21 +741,35 @@ def select_command(
     sectors_status: Mapping[str, str | None] = {
         sector: judgement.status for sector, judgement in outlook_fm.sectors.items()
     }
-    candidates = _rank_candidates(candidates_fm.candidates, sectors_status)
+    ranked_candidates = _rank_candidates(candidates_fm.candidates, sectors_status)
     lane_toplist_limit = rules.output.lane_toplist_limit
     lane_toplists = _rank_lane_toplists(
         candidates_fm.candidates, sectors_status, lane_toplist_limit
+    )
+    recommendation_limit = _research_recommendation_limit(
+        top=top,
+        configured_max=rules.output.research_selection_target_max,
+    )
+    research_candidates = _recommended_research_candidates(
+        lane_toplists=lane_toplists,
+        ranked_candidates=ranked_candidates,
+        lane_order=rules.output.research_selection_lane_order,
+        limit=recommendation_limit,
     )
     summary = {
         "asof": asof_date.isoformat(),
         "candidates_ref": str(candidates_path),
         "outlook_ref": str(resolved_outlook_path),
         "input_count": len(candidates_fm.candidates),
-        "after_outlook_filter": len(candidates),
+        "after_outlook_filter": len(ranked_candidates),
         "selection_mode": rules.output.selection_mode,
+        "research_selection_target_min": rules.output.research_selection_target_min,
+        "research_selection_target_max": rules.output.research_selection_target_max,
+        "research_selection_lane_order": list(rules.output.research_selection_lane_order),
         "lane_toplist_limit": lane_toplist_limit,
         "lane_toplists": lane_toplists,
-        "candidates": candidates[:top],
+        "ranked_candidates": ranked_candidates[:top],
+        "candidates": research_candidates,
     }
     yaml.dump(summary, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
     return 0
@@ -875,6 +892,46 @@ def _rank_lane_toplists(
         entries.sort(key=lambda item: item[0])
         output[name] = [candidate for _, candidate in entries[:top]]
     return output
+
+
+def _research_recommendation_limit(*, top: int, configured_max: int) -> int:
+    return min(top, configured_max) if configured_max > 0 else top
+
+
+def _recommended_research_candidates(
+    *,
+    lane_toplists: Mapping[str, list[dict[str, object]]],
+    ranked_candidates: Sequence[dict[str, object]],
+    lane_order: Sequence[str],
+    limit: int,
+) -> list[dict[str, object]]:
+    if limit < 1:
+        return []
+
+    selected: list[dict[str, object]] = []
+    selected_tickers: set[str] = set()
+
+    for lane in lane_order:
+        if len(selected) >= limit:
+            break
+        for candidate in lane_toplists.get(lane) or []:
+            ticker = _string_value(candidate.get("ticker"))
+            if ticker is None or ticker in selected_tickers:
+                continue
+            selected.append(candidate)
+            selected_tickers.add(ticker)
+            break
+
+    for candidate in ranked_candidates:
+        if len(selected) >= limit:
+            break
+        ticker = _string_value(candidate.get("ticker"))
+        if ticker is None or ticker in selected_tickers:
+            continue
+        selected.append(candidate)
+        selected_tickers.add(ticker)
+
+    return selected
 
 
 def _best_selection_signal(
@@ -1220,6 +1277,9 @@ def extract_edinet_metrics_command(
                 doc_id=candidate.doc_id,
                 doc_type_code=candidate.doc_type_code,
                 content=content,
+                submit_datetime=candidate.submit_datetime,
+                period_start=candidate.period_start,
+                period_end=candidate.period_end,
             )
         except (EDINETProviderError, OSError, ValueError) as exc:
             hard_failure_count += 1
@@ -1227,6 +1287,9 @@ def extract_edinet_metrics_command(
                 ticker=candidate.ticker,
                 source_doc_id=candidate.doc_id,
                 document_type=candidate.doc_type_code,
+                source_submit_datetime=candidate.submit_datetime,
+                source_period_start=candidate.period_start,
+                source_period_end=candidate.period_end,
                 failure_reasons=(f"csv_parse_failed:{type(exc).__name__}",),
             )
             parse_failed = True
@@ -1273,9 +1336,16 @@ def _metric_record_payload(record: EdinetMetricRecord) -> dict[str, object]:
         "ttm_quality_net_cash": record.ttm_quality_net_cash.value,
         "source_doc_id": record.source_doc_id,
         "document_type": record.document_type,
+        "source_submit_datetime": record.source_submit_datetime,
+        "source_period_start": _date_iso(record.source_period_start),
+        "source_period_end": _date_iso(record.source_period_end),
         "capex_source": record.capex_source,
         "failure_reasons": list(record.failure_reasons),
     }
+
+
+def _date_iso(value: date | None) -> str | None:
+    return value.isoformat() if value is not None else None
 
 
 def bootstrap_cache_command(start: date, end: date, providers: ProviderBundle) -> int:

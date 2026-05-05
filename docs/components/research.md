@@ -14,6 +14,7 @@ Baibai-Loop 4 成分アーキテクチャの **(d) 個別銘柄リサーチ** �
 2. **最新 outlook を参照**: 直近の `records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml` を選び、`sectors` / `regions` を取得
 3. **gate 通過銘柄に絞り込み**: candidates ticker のうち、所属業種/地域が outlook で **tailwind または neutral** のものを候補に残す（**headwind は除外**）。candidates は `sector_33` のみ持つので、各業種を outlook の region に対応させるには [`../screening/sector-region-map.md`](../screening/sector-region-map.md) の default mapping を出発点にする
 4. **候補から人間 + AI が個別 ticker を選定**: 以下の基準で優先度判定
+   - `select` の `candidates`（lane 分散済みの research 着手候補）を先に見る。単純な global rank を確認したい場合は `ranked_candidates` を見る
    - `select` の `selection_lane` と `selection_metrics`（どの割安仮説で深掘りするか）
    - `signals` の重なり（複数 signal は tie-break として優先するが、それだけで primary thesis にしない）
    - signal lane の種類（cash / CF / sales / valuation のどの割安タイプか）

@@ -212,12 +212,13 @@ def _build_financial_snapshot(
         if latest_market_cap is not None and debt is not None and cash is not None
         else None
     )
+    ev_ebitda = _safe_positive_ratio(latest_enterprise_value, ebitda_ttm)
 
     return FinancialSnapshot(
         per_forward=per_forward,
         per_trailing=per_trailing,
         pbr=pbr,
-        ev_ebitda=_safe_ratio(latest_enterprise_value, ebitda_ttm),
+        ev_ebitda=ev_ebitda,
         p_s=_safe_ratio(latest_market_cap, sales_ttm),
         pcfr=_safe_ratio(latest_market_cap, ocf_ttm if ocf_ttm and ocf_ttm > 0 else None),
         eps=eps_ttm,
@@ -250,6 +251,9 @@ def _build_financial_snapshot(
         consolidation_basis=edinet.consolidation_basis if edinet else None,
         edinet_source_doc_id=edinet.source_doc_id if edinet else None,
         edinet_document_type=edinet.document_type if edinet else None,
+        edinet_source_submit_datetime=edinet.source_submit_datetime if edinet else None,
+        edinet_source_period_start=edinet.source_period_start if edinet else None,
+        edinet_source_period_end=edinet.source_period_end if edinet else None,
         edinet_capex_source=edinet.capex_source if edinet else None,
         edinet_failure_reasons=edinet_failure_reasons or None,
         operating_profit=operating_profit,
@@ -436,9 +440,14 @@ def _valuation_history(
         snapshot.shares_outstanding is not None
         and snapshot.debt is not None
         and snapshot.cash is not None
-        and snapshot.ebitda_ttm not in (None, 0)
+        and snapshot.ebitda_ttm is not None
+        and snapshot.ebitda_ttm > 0
     ):
-        ev_ebitda_history = [_historical_ev_ebitda(price, snapshot) for price in prices]
+        ev_ebitda_history = [
+            value
+            for price in prices
+            if (value := _historical_ev_ebitda(price, snapshot)) is not None
+        ]
     pbr_history: list[float] = []
     pbr = snapshot.pbr
     if pbr is not None and pbr != 0:
@@ -468,17 +477,17 @@ def _valuation_history(
 def _historical_ev_ebitda(
     price: float,
     snapshot: FinancialSnapshot,
-) -> float:
+) -> float | None:
     """Return the EV/EBITDA value for one historical price.
 
     Caller must ensure ``shares_outstanding`` / ``debt`` / ``cash`` are not
-    None and ``ebitda_ttm`` is not in ``(None, 0)``. v1 has only the latest
-    balance sheet and TTM EBITDA, so those are held constant across price
-    history while market cap varies with the (adjusted) historical close.
+    None and ``ebitda_ttm`` is positive. v1 has only the latest balance sheet
+    and TTM EBITDA, so those are held constant across price history while
+    market cap varies with the (adjusted) historical close.
 
-    A negative ``ebitda_ttm`` (loss-making company) yields a negative
-    EV/EBITDA value; loss-making screening is handled at a separate layer
-    (condition C / counter-thesis), not here.
+    Negative EV or non-positive EBITDA is outside the valuation multiple
+    domain and is handled by cash / net-cash lanes, not by EV/EBITDA mean
+    reversion.
     """
     shares_outstanding = snapshot.shares_outstanding
     debt = snapshot.debt
@@ -486,9 +495,11 @@ def _historical_ev_ebitda(
     ebitda_ttm = snapshot.ebitda_ttm
     if shares_outstanding is None or debt is None or cash is None:
         raise ValueError("EV/EBITDA history requires shares, debt, and cash")
-    if ebitda_ttm is None or ebitda_ttm == 0:
-        raise ValueError("EV/EBITDA history requires non-zero EBITDA")
+    if ebitda_ttm is None or ebitda_ttm <= 0:
+        raise ValueError("EV/EBITDA history requires positive EBITDA")
     enterprise_value = (price * shares_outstanding) + debt - cash
+    if enterprise_value <= 0:
+        return None
     return enterprise_value / ebitda_ttm
 
 
@@ -557,6 +568,12 @@ def _sigma_gap(history: Sequence[float], current: float | None) -> float | None:
 
 def _safe_ratio(numerator: float | None, denominator: float | None) -> float | None:
     if numerator is None or denominator is None or denominator == 0:
+        return None
+    return numerator / denominator
+
+
+def _safe_positive_ratio(numerator: float | None, denominator: float | None) -> float | None:
+    if numerator is None or denominator is None or numerator <= 0 or denominator <= 0:
         return None
     return numerator / denominator
 

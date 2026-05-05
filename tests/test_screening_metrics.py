@@ -78,6 +78,11 @@ def _edinet_metric_record(
     ebitda_ttm: float = 200.0,
     consolidation_basis: str = "consolidated",
     ttm_quality: TTMQuality = TTMQuality.EXACT,
+    source_doc_id: str | None = "S100TEST",
+    document_type: str | None = "120",
+    source_submit_datetime: str | None = "2026-04-01 12:00",
+    source_period_start: date | None = date(2025, 4, 1),
+    source_period_end: date | None = date(2026, 3, 31),
 ) -> EdinetMetricRecord:
     return EdinetMetricRecord(
         ticker=code,
@@ -90,6 +95,11 @@ def _edinet_metric_record(
         ttm_quality_ev_ebitda=ttm_quality,
         ttm_quality_p_s=ttm_quality,
         ttm_quality_pcfr=ttm_quality,
+        source_doc_id=source_doc_id,
+        document_type=document_type,
+        source_submit_datetime=source_submit_datetime,
+        source_period_start=source_period_start,
+        source_period_end=source_period_end,
     )
 
 
@@ -461,6 +471,67 @@ class ScreeningMetricsTests(unittest.TestCase):
         variance = sum((value - avg) ** 2 for value in history_values) / len(history_values)
         expected_sigma_gap = (history_values[-1] - avg) / (variance**0.5)
         self.assertAlmostEqual(derived.sigma_gap["ev_ebitda"], expected_sigma_gap)
+
+    def test_build_metrics_drops_ev_ebitda_when_ev_or_ebitda_is_non_positive(self) -> None:
+        asof = date(2026, 4, 24)
+        bars = [
+            JQuantsDailyBar("130A", asof - timedelta(days=2), 80.0, 300_000_000.0),
+            JQuantsDailyBar("130A", asof - timedelta(days=1), 100.0, 300_000_000.0),
+            JQuantsDailyBar("130A", asof, 120.0, 300_000_000.0),
+        ]
+        summaries = {
+            "130A": [
+                _summary(
+                    "130A",
+                    asof,
+                    eps_ttm=10.0,
+                    fiscal_period="FY",
+                    fiscal_year_end=date(2026, 3, 31),
+                    shares_outstanding=10.0,
+                )
+            ]
+        }
+
+        negative_ebitda = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker=summaries,
+            edinet_by_ticker={"130A": _edinet_metric_record(ebitda_ttm=-10.0)},
+        )
+        self.assertIsNone(negative_ebitda.financials["130A"].ev_ebitda)
+        self.assertIsNone(negative_ebitda.derived["130A"].self_range_percentile["ev_ebitda"])
+        self.assertIsNone(negative_ebitda.derived["130A"].sigma_gap["ev_ebitda"])
+
+        negative_ev = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker=summaries,
+            edinet_by_ticker={
+                "130A": _edinet_metric_record(cash=2_000.0, debt=0.0, ebitda_ttm=200.0)
+            },
+        )
+        self.assertIsNone(negative_ev.financials["130A"].ev_ebitda)
+        self.assertIsNone(negative_ev.derived["130A"].self_range_percentile["ev_ebitda"])
+        self.assertIsNone(negative_ev.derived["130A"].sigma_gap["ev_ebitda"])
+
+    def test_build_metrics_preserves_edinet_source_metadata(self) -> None:
+        asof = date(2026, 4, 24)
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": _daily_bars("130A", asof, 800)},
+            summaries_by_ticker={"130A": [_summary("130A", asof)]},
+            edinet_by_ticker={"130A": _edinet_metric_record()},
+        )
+
+        snapshot = result.financials["130A"]
+        self.assertEqual(snapshot.edinet_source_doc_id, "S100TEST")
+        self.assertEqual(snapshot.edinet_document_type, "120")
+        self.assertEqual(snapshot.edinet_source_submit_datetime, "2026-04-01 12:00")
+        self.assertEqual(snapshot.edinet_source_period_start, date(2025, 4, 1))
+        self.assertEqual(snapshot.edinet_source_period_end, date(2026, 3, 31))
 
     def test_build_metrics_price_change_uses_adjusted_close_across_splits(self) -> None:
         # 2-for-1 split between the 60d-prior date and today:

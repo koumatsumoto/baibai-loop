@@ -34,7 +34,7 @@ python -m baibai_loop.screening.cli verify-raw-cache [--raw-dir PATH] [--max-siz
 
 `extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出する。出力は `records/_data/raw/screening/edinet/metrics/YYYY-MM-DD.json`。CSV ZIP 本体は再生成可能な derived cache として `records/_data/cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 
-`select` は最新 `records/03-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/02-outlook/` を組み合わせて、`outlook` で `headwind` 判定された業種を除外し、lane-specific metric と macro status で候補をランキングする。signal 数と時価総額だけでは並べない。出力には lane 別の `lane_toplists` と flattened な `candidates` が含まれる。`candidates` は CLI `--top`、`lane_toplists` は `records/_config/screening-rules.yaml` の `output.lane_toplist_limit` で件数を管理する。`research` の選定プロセス ([`../components/research.md`](../components/research.md) §2.1) をスクリプトで支援する。
+`select` は最新 `records/03-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/02-outlook/` を組み合わせて、`outlook` で `headwind` 判定された業種を除外し、lane-specific metric と macro status で候補をランキングする。signal 数と時価総額だけでは並べない。出力には lane 別の `lane_toplists`、旧来のグローバル順位である `ranked_candidates`、research 着手用に lane 分散した `candidates` が含まれる。`candidates` は `output.research_selection_lane_order` の順に各 lane の上位を重複排除して選び、残枠を `ranked_candidates` で埋める。件数は CLI `--top` と `output.research_selection_target_max` の小さい方、`lane_toplists` は `records/_config/screening-rules.yaml` の `output.lane_toplist_limit` で管理する。`research` の選定プロセス ([`../components/research.md`](../components/research.md) §2.1) をスクリプトで支援する。
 
 ## 3. Required Env Vars
 
@@ -80,7 +80,7 @@ raw cache / SQLite cache の配置先は固定 (env override 廃止):
   - `150`: 訂正四半期報告書
   - `160`: 半期報告書
   - `170`: 訂正半期報告書
-- 同一期間の訂正書は通常書類より優先する。ただし訂正書の対象期間が古い場合は、新しい通常書類を上書きしない
+- document selection は period end / period start を submit time より先に比較し、古い訂正書が新しい通常書類を上書きしない。同一期間では最新 submit time を優先し、同一 submit time の tie-break として訂正書を通常書類より優先する
 - `extract-edinet-metrics` は `documents.json` 取得後、`type=5` CSV ZIP（UTF-16 LE タブ区切り）を解凍し、EV/EBITDA / net cash / FCF 関連 metrics を前処理済み JSON cache に書く
 - EDINET cache / API key が無い場合も screening は fail-fast しない。`data_sources` には利用した source のみを記録し、`config_hash` には rules file hash と optional EDINET 設定有無を含める
 
@@ -120,7 +120,7 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 - signal lane 閾値: `valuation-reversion` / `strict-net-cash-discount` / `fcf-yield-discount` / `cash-rich-asset-discount` / `cashflow-yield-discount` / `sales-discount-growth`
 - TTM 期間一致基準: partial period の許容日数差、FY 期間長
 - 品質条件: 売上 YoY、営業利益、営業 CF 悪化、赤字縮小条件
-- `EV/EBITDA` は `ttm_quality = exact` のときのみ判定に使う。EDINET が無い場合は `unavailable` として他 metric で degrade する
+- `EV/EBITDA` は `ttm_quality = exact` かつ EV / EBITDA がどちらも正のときのみ判定に使う。EDINET が無い場合、または EV / EBITDA がゼロ以下の場合は `unavailable` / `null` として他 metric で degrade する
 
 ## 9. Partial Warning Thresholds
 
@@ -152,7 +152,7 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 - `jquants_earnings_calendar(announcement_date, ticker, raw_json)` — 主キー `(announcement_date, ticker)`
 - `jquants_market_calendar(day, is_business_day, raw_json)` — 主キー `(day)`。`HolidayDivision` "1" / "2" を business day=1、それ以外を 0 として記録
 - `edinet_documents(doc_date, doc_id, sec_code, doc_type_code, raw_json)` — 主キー `(doc_date, doc_id)`。`doc_date` はファイル名（`{date}.json`）から復元
-- `edinet_metrics(asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, operating_profit_ttm, depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, net_cash, equity, total_assets, consolidation_basis, ttm_quality_*, source_doc_id, document_type, capex_source, failure_reasons)` — 主キー `(asof_date, ticker)`。`asof_date` はファイル名から復元。Candidate YAML では EDINET raw `ocf_ttm` を `edinet_ocf_ttm` として出し、J-Quants 財務サマリー由来の `ocf_ttm` と区別する
+- `edinet_metrics(asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, operating_profit_ttm, depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, net_cash, equity, total_assets, consolidation_basis, ttm_quality_*, source_doc_id, document_type, source_submit_datetime, source_period_start, source_period_end, capex_source, failure_reasons)` — 主キー `(asof_date, ticker)`。`asof_date` はファイル名から復元。Candidate YAML では EDINET raw `ocf_ttm` を `edinet_ocf_ttm` として出し、J-Quants 財務サマリー由来の `ocf_ttm` と区別する。`source_*` は research で一次資料へ戻るための traceability として保持する
 - `jpx_regulation_flags(asof_date, source_name, ticker, flag, fetched_at_utc)` — 主キー `(asof_date, source_name, ticker, flag)`。JPX cache の `flags_by_ticker` は source 別の起源を保持しないため、`source_name=flag` として記録
 - `raw_imports(source, path, sha256, imported_at_utc, record_count, min_date, max_date)` — `path` を主キーとし、import した raw JSON の SHA-256 と record 範囲を記録する監査用 table
 - `cache_metadata(key, value)` — schema version などの KV ストア

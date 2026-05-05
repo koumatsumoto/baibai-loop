@@ -178,6 +178,29 @@ class ScreeningRulesTests(unittest.TestCase):
         )
         self.assertFalse(result.pass_fail)
 
+    def test_negative_ev_ebitda_is_not_a_valuation_discount(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                per_trailing=None,
+                pbr=None,
+                ev_ebitda=-26.0,
+                ebitda_ttm=-10.0,
+                ttm_quality_ev_ebitda=TTMQuality.EXACT,
+            ),
+            _derived(
+                sector_median_gap={"ev_ebitda": -0.9},
+                self_range_percentile={"ev_ebitda": 0.01},
+                sigma_gap={"ev_ebitda": -2.0},
+                price_change_60d=-0.2,
+                sector_relative_strength_percentile=0.8,
+                ticker_return_4w=0.0,
+                sector_return_4w=0.0,
+            ),
+            RULES,
+        )
+        self.assertFalse(result.pass_fail)
+        self.assertIn("valuation_reversion_condition_a_no_metric", result.null_reasons)
+
     def test_cash_rich_asset_discount_hits(self) -> None:
         result = evaluate_screening(
             _financial(cash_to_market_cap=0.45, price_to_equity=0.8, operating_profit=10.0),

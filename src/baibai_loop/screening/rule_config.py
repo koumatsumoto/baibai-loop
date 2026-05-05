@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 DEFAULT_RULES_PATH = Path("records/_config/screening-rules.yaml")
 
@@ -145,6 +145,14 @@ class OutputRules(BaseModel):
     research_selection_target_max: int = Field(ge=0)
     selection_mode: Literal["lane_toplists"] = "lane_toplists"
     lane_toplist_limit: int = Field(default=5, ge=1)
+    research_selection_lane_order: tuple[str, ...]
+
+    @field_validator("research_selection_lane_order", mode="before")
+    @classmethod
+    def _tuple_research_selection_lane_order(
+        cls, value: list[str] | tuple[str, ...]
+    ) -> tuple[str, ...]:
+        return tuple(value)
 
 
 class ScreeningRules(BaseModel):
@@ -194,6 +202,14 @@ class ScreeningRules(BaseModel):
     @property
     def lane_order(self) -> tuple[str, ...]:
         return tuple(self.signal_lanes.keys())
+
+    @model_validator(mode="after")
+    def _validate_output_lane_order(self) -> ScreeningRules:
+        unknown = set(self.output.research_selection_lane_order) - set(self.signal_lanes)
+        if unknown:
+            joined = ", ".join(sorted(unknown))
+            raise ValueError(f"unknown research selection lane(s): {joined}")
+        return self
 
 
 def load_screening_rules(path: Path = DEFAULT_RULES_PATH) -> ScreeningRules:

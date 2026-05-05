@@ -46,7 +46,7 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 - 過去 60 営業日の急落 + valuation 下方乖離
 - セクターローテーションによる短期売り
 
-EDINET が無い場合、EV/EBITDA は `unavailable` として判定対象から外す。PER / PBR など利用可能な指標で degrade して評価する。P/S は売上成長と営業赤字条件を伴う `sales-discount-growth` 専用 lane で扱い、valuation-reversion の単独指標にはしない。
+EDINET が無い場合、EV/EBITDA は `unavailable` として判定対象から外す。EDINET があっても EV または EBITDA がゼロ以下の場合は、倍率としての割安解釈が成立しないため EV/EBITDA を `null` とし、この lane では使わない。PER / PBR など利用可能な指標で degrade して評価する。P/S は売上成長と営業赤字条件を伴う `sales-discount-growth` 専用 lane で扱い、valuation-reversion の単独指標にはしない。
 
 ### 3.2 `strict-net-cash-discount`
 

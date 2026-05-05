@@ -8,6 +8,7 @@ EDINET `type=5` CSV-derived metrics の coverage / precision を確認するた�
 - 対象書類: 有価証券報告書 (`120`)、訂正有価証券報告書 (`130`)、四半期報告書 (`140`)、訂正四半期報告書 (`150`)、半期報告書 (`160`)、訂正半期報告書 (`170`)
 - raw XBRL (`type=1`) 直接 parser は非スコープ。CSV-derived metrics の coverage / precision が不十分な場合に別 issue で検討する
 - CSV ZIP 本体は `records/_data/cache/screening/edinet/csv_zips/` の derived cache。git 管理対象は抽出後の `records/_data/raw/screening/edinet/metrics/YYYY-MM-DD.json`
+- 抽出 metric には `source_doc_id`、`document_type`、`source_submit_datetime`、`source_period_start`、`source_period_end` を保持する。research ではこの metadata から対象 EDINET 書類と対象期間へ戻って一次確認する
 
 ## 2. Extracted Metrics
 
@@ -69,6 +70,8 @@ EDINET metrics extraction:
 | `ttm_quality_fcf = exact` | 827 |
 | `ttm_quality_fcf = approximated` | 2,468 |
 | `ttm_quality_fcf = unavailable` | 704 |
+| source submit datetime available | 3,999 |
+| source period start/end available | 3,999 |
 
 Top `failure_reasons`:
 
@@ -102,6 +105,8 @@ Screening result:
 | `cashflow-yield-discount` | 183 |
 | `sales-discount-growth` | 132 |
 | candidates using correction filing (`130` / `150` / `170`) | 7 |
+| candidates with non-positive EV/EBITDA value | 0 |
+| valuation-reversion hits using non-positive EV/EBITDA | 0 |
 
 Document selection audit:
 
@@ -115,7 +120,7 @@ Document selection audit:
 | same-period semiannual corrections ignored against normal semiannual (`170` vs `160`) | 0 |
 | old correction overriding newer different-period filing | 0 |
 
-EDINET documents API の訂正書は `periodStart` / `periodEnd` が欠損しやすいため、`docDescription` の `YYYY/MM/DD－YYYY/MM/DD` 形式から期間を fallback parse する。API field がある場合は API field を優先する。同一期間の訂正書は通常書類より優先するが、古い期間の訂正書が新しい半期 / 年次の通常書類を上書きしないよう、document selection は period end を submit time より先に比較する。
+EDINET documents API の訂正書は `periodStart` / `periodEnd` が欠損しやすいため、`docDescription` の `YYYY/MM/DD－YYYY/MM/DD` 形式から期間を fallback parse する。API field がある場合は API field を優先する。document selection は period end / period start を submit time より先に比較し、古い期間の訂正書が新しい半期 / 年次の通常書類を上書きしないようにする。同一期間では最新 submit time を優先し、同一 submit time の tie-break として訂正書を通常書類より優先する。
 
 Initial PR #93 実装では `strict-net-cash-discount` が 87 件出ていたが、そのうち 61 件が `debt_assumed_zero` に依存していた。これは strict lane として false positive risk が高いため、debt element が見つからない銘柄は strict 判定から除外した。修正後は strict hit が 20 件へ減ったが、`debt_assumed_zero` 依存は 0 件になった。候補数を増やすよりも、research 工数を投じる価値のある net-cash 候補に絞る判断である。
 
@@ -128,6 +133,7 @@ Candidate sanity check:
 | 4008 | 初期 PR #93 では debt 抽出漏れにより strict hit していたが、`ShortTermLoansPayable` 等を debt に含めた後は候補外。false positive 削減として妥当 |
 | 3151 | 初期 PR #93 では old correction / debt 抽出漏れの影響を受けていたが、修正後は候補外 |
 | 9682 | 引き続き `sales-discount-growth` 候補。EDINET metrics は `debt_assumed_zero` のため strict net-cash thesis は強めない。FCF yield も 2.7% 程度で FCF lane には不十分 |
+| 6232 | 初期 PR #93 の review で、負の EV/EBITDA が valuation-reversion として拾われるリスクが見つかった。修正後は EV / EBITDA のどちらかがゼロ以下なら EV/EBITDA を `null` とし、2026-05-01 sample では候補外 |
 
 Source-consistency audit:
 

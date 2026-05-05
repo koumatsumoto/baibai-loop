@@ -36,6 +36,7 @@ EDINET CSV-derived metrics の cash と interest-bearing debt を使い、厳密
 ## Required Research Checks
 
 - Net cash snapshot: cash / debt / net_cash / market cap / equity を candidates と一次資料で突合する。
+- EDINET source trace: `edinet_source_doc_id`、`edinet_document_type`、`edinet_source_submit_datetime`、`edinet_source_period_start`、`edinet_source_period_end` を確認し、対象期間が直近の thesis と一致するか確認する。
 - Debt quality: 借入、社債、リース、偶発債務、保証債務、退職給付を確認する。
 - Cash usability: 現金の拘束性、運転資本、設備投資予定、M&A 資金、規制資本を確認する。
 - Asset discount and capital efficiency: PBR、ROE、政策保有株、資産売却可能性を確認する。
