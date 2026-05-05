@@ -140,12 +140,12 @@ class ReadDailyBarsTests(unittest.TestCase):
             conn = open_connection(db)
             conn.executemany(
                 "INSERT INTO jquants_daily_bars("
-                "ticker, traded_at, close, turnover_value, adjustment_close"
-                ") VALUES (?, ?, ?, ?, ?)",
+                "ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor"
+                ") VALUES (?, ?, ?, ?, ?, ?)",
                 [
-                    ("1301", "2024-03-19", 3790.0, 1000.0, 3790.0),
-                    ("1301", "2024-03-21", 3800.0, 1200.0, 3800.0),
-                    ("1301", "2024-04-19", 3900.0, 1500.0, 3900.0),
+                    ("1301", "2024-03-19", 3790.0, 1000.0, 3790.0, 1.0),
+                    ("1301", "2024-03-21", 3800.0, 1200.0, 3800.0, 0.5),
+                    ("1301", "2024-04-19", 3900.0, 1500.0, 3900.0, 1.0),
                 ],
             )
             _add_raw_import(
@@ -164,6 +164,7 @@ class ReadDailyBarsTests(unittest.TestCase):
             self.assertEqual(len(bars), 2)
             self.assertEqual(bars[0].traded_at, date(2024, 3, 19))
             self.assertEqual(bars[0].close, 3790.0)
+            self.assertEqual(bars[1].adjustment_factor, 0.5)
 
 
 class ReadFinSummariesTests(unittest.TestCase):

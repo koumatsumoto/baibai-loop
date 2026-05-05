@@ -83,7 +83,7 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
         if not _range_covered(conn, "jquants_daily_bars", start, end):
             return None
         rows = conn.execute(
-            "SELECT ticker, traded_at, close, turnover_value, adjustment_close "
+            "SELECT ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor "
             "FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ? "
             "ORDER BY ticker, traded_at",
             (start.isoformat(), end.isoformat()),
@@ -92,7 +92,7 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
         conn.close()
 
     bars: list[JQuantsDailyBar] = []
-    for ticker, traded_at, close, turnover_value, adjustment_close in rows:
+    for ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor in rows:
         if close is None or traded_at is None:
             continue
         try:
@@ -103,6 +103,7 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
                     close=float(close),
                     turnover_value=_optional_float(turnover_value),
                     adjustment_close=_optional_float(adjustment_close),
+                    adjustment_factor=_optional_float(adjustment_factor),
                 )
             )
         except (TypeError, ValueError) as exc:

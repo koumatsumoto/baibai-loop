@@ -127,6 +127,7 @@ def build_metrics(
             ticker_return_4w=ticker_returns_4w.get(ticker),
             sector_return_4w=mean(sector_returns[sector]) if sector in sector_returns else None,
             short_history_flag=listing_span_days < 750,
+            split_adjustment_flag=_has_split_adjustment_within_sessions(ticker_bars, asof_date, 60),
         )
 
     ttm_quality_counts = _count_ttm_qualities(list(financials.values()))
@@ -364,6 +365,27 @@ def _price_change(bars: Sequence[JQuantsDailyBar], sessions: int, asof_date: dat
     if base == 0:
         return None
     return (current / base) - 1.0
+
+
+def _has_split_adjustment_within_sessions(
+    bars: Sequence[JQuantsDailyBar], asof_date: date, sessions: int
+) -> bool:
+    """True when J-Quants adjustment_factor marks a split in the latest sessions.
+
+    J-Quants daily_quotes sets ``AdjustmentFactor`` on ex-rights dates for
+    stock splits and reverse splits. Use the same session window as
+    ``price_change_60d`` so the flag covers the price-change calculation it
+    qualifies.
+    """
+    ordered = sorted(
+        (bar for bar in bars if bar.traded_at <= asof_date), key=lambda item: item.traded_at
+    )
+    if len(ordered) < 2:
+        return False
+
+    relevant = ordered[-(sessions + 1) :]
+    factors = [bar.adjustment_factor for bar in relevant if bar.adjustment_factor is not None]
+    return any(factor != 1.0 for factor in factors) or len(set(factors)) > 1
 
 
 def _self_range_percentile(history: Sequence[float], current: float | None) -> float | None:

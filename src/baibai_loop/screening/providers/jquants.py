@@ -34,13 +34,14 @@ class JQuantsDailyBar:
     close: float
     turnover_value: float | None
     adjustment_close: float | None = None
+    adjustment_factor: float | None = None
 
     @field_validator("ticker", mode="before")
     @classmethod
     def _normalize_ticker_field(cls, value: str) -> str:
         return normalize_ticker(value)
 
-    @field_validator("close", "turnover_value", "adjustment_close")
+    @field_validator("close", "turnover_value", "adjustment_close", "adjustment_factor")
     @classmethod
     def _finite_numeric_fields(cls, value: float | None) -> float | None:
         return _validate_finite(value)
@@ -413,12 +414,18 @@ def normalize_daily_bar(record: Mapping[str, Any]) -> JQuantsDailyBar | None:
     # raw `close` so that latest-day calculations stay on the unadjusted price
     # while historical series can use the adjusted value to avoid jumps at
     # split dates.
-    adjustment_close = _to_float(_coalesce_field(record, "AdjustmentClose", "adjustment_close"))
+    adjustment_close = _to_float(
+        _coalesce_field(record, "AdjustmentClose", "adjustment_close", "AdjC", "adj_c")
+    )
+    adjustment_factor = _to_float(
+        _coalesce_field(record, "AdjustmentFactor", "adjustment_factor", "AdjFactor")
+    )
     return JQuantsDailyBar(
         ticker=ticker,
         traded_at=_parse_date(_first_value(record, "Date", "date", "TradedAt", "traded_at")),
         close=close,
         adjustment_close=adjustment_close,
+        adjustment_factor=adjustment_factor,
         turnover_value=_to_float(
             _coalesce_field(
                 record,
