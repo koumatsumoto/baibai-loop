@@ -12,6 +12,8 @@ Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデ
 | EV/EBITDA | (時価総額 + 有利子負債 - 現金) / EBITDA | 時価総額、有利子負債、現金、EBITDA |
 | P/S | 株価 / 1 株売上高 | 株価、直近 4Q 売上 |
 | PCFR | 株価 / 1 株営業 CF | 株価、直近 4Q 営業 CF |
+| Net cash ratio | (現金 - 有利子負債) / 時価総額 | EDINET CSV-derived cash / debt、時価総額 |
+| FCF yield | (営業 CF - 設備投資支出) / 時価総額 | EDINET CSV-derived CFO / capex、時価総額 |
 
 ## 2. Forward PER の取得方針（重要）
 
@@ -49,7 +51,7 @@ Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデ
 - **現金**: 現金及び現金同等物
 - **EBITDA**: 営業利益 + 減価償却費 + のれん償却費（直近 4Q 合算）
 
-EDINET の XBRL 構造から取得。J-Quants Light の財務サマリーで取れる項目は優先使用し、不足分を EDINET で補完する。
+EDINET `type=5` CSV から抽出する。raw XBRL 直接 parse は現時点の非スコープとし、EDINET API が返す CSV ZIP を deterministic な中間データとして使う。J-Quants Light の財務サマリーで取れる項目は優先使用し、不足分を EDINET CSV-derived metrics で補完する。
 
 ## 6. P/S の算出
 
@@ -60,6 +62,19 @@ EDINET の XBRL 構造から取得。J-Quants Light の財務サマリーで取�
 
 - 直近 4 四半期の営業 CF 合算
 - 営業 CF マイナスの企業は `null` を採用（割安検出に意味を持たない）
+
+## 7.1 Net cash ratio / FCF yield
+
+EDINET `type=5` CSV-derived metrics から以下を抽出する。
+
+- `cash`: 現金及び現金同等物 / 現金及び預金
+- `debt`: 短期借入金、1 年内返済予定長期借入金、社債、長期借入金、リース債務等の合算
+- `ocf_ttm`: 営業活動によるキャッシュ・フロー
+- `capex_ttm`: 有形固定資産・無形固定資産の取得支出。符号は絶対値に正規化する
+- `net_cash = cash - debt`
+- `fcf_ttm = ocf_ttm - capex_ttm`
+
+`strict-net-cash-discount` は `ttm_quality_net_cash != unavailable` のときだけ判定する。Net cash は balance sheet snapshot なので、半期・四半期の最新値も research で確認する前提で許容する。`fcf-yield-discount` は `ttm_quality_fcf_yield = exact` のときだけ判定する。FCF は TTM 必須であり、半期・四半期の単一期間値を annualize して機械判定しない。tag 欠損、CSV parse 失敗、非連結 fallback は `failure_reasons` と coverage report に残し、候補判定では無理に推定しない。
 
 ## 8. 業種中央値の算出
 
@@ -120,8 +135,9 @@ return ではない)。これ以外のコーポレートアクション (合併�
   - `get_eq_earnings_cal`: 決算発表予定日
   - `get_mkt_calendar`: 営業日カレンダ
 - **EDINET API v2**:
-  - XBRL ベース財務諸表（EV/EBITDA / P/S / PCFR 計算用）
-  - 2024 年以降の半期移行を踏まえた TTM 再構成用の確定値
+  - documents list (`type=2`): CSV 取得可能な提出書類の選定
+  - document download (`type=5`): CSV ZIP から EV/EBITDA / Net cash / FCF 関連項目を抽出
+  - raw XBRL (`type=1`) の直接 parser は将来拡張。CSV-derived metrics の coverage / precision が不十分な場合に検討する
 - **JPX**:
   - 上場会社情報（業種分類、市場区分の補助確認）
   - 特別注意 / 整理 / 取引停止 / 上場廃止警告の除外判定
@@ -136,8 +152,8 @@ return ではない)。これ以外のコーポレートアクション (合併�
 
 - 2024 年以降、EDINET 単体では旧来の四半期報告書に依存した TTM 再構成ができない期間がある
 - TTM 品質を `exact` / `approximated` / `unavailable` で明示する
-- `EV/EBITDA` は `ttm_quality = exact` のときのみ mechanical 判定に使用する
-- `P/S` と `PCFR` は表示用とし、`ttm_quality` を front matter に残す
+- `EV/EBITDA` は `ttm_quality_ev_ebitda = exact` のときのみ valuation-reversion 判定に使用する
+- `P/S` / `PCFR` / `OCF yield` / `FCF yield` / `Net cash` は、それぞれ lane が要求する品質条件を満たすときのみ mechanical 判定に使う
 
 ## 12. 営業利益相当の fallback
 

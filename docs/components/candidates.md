@@ -58,9 +58,18 @@ candidates:
       sales_ttm: 100000000000.0
       ocf_ttm: 13000000000.0
       cash_to_market_cap: 0.42
+      net_cash: 12000000000.0
+      net_cash_to_market_cap: 0.21
       price_to_equity: 0.82
       equity_ratio: 0.45
       ocf_yield: 0.13
+      fcf_ttm: 8000000000.0
+      fcf_yield: 0.08
+      capex_ttm: 5000000000.0
+      edinet_source_doc_id: S100XXXX
+      edinet_document_type: "120"
+      edinet_capex_source: purchase_of_fixed_assets
+      edinet_failure_reasons: debt_assumed_zero
       cfo_yoy: 0.08
       sales_yoy: 0.12
       operating_profit: 9000000000.0
@@ -88,6 +97,8 @@ candidates:
       pcfr: exact | approximated | unavailable
       ocf_yield: exact | approximated | unavailable
       sales: exact | approximated | unavailable
+      fcf_yield: exact | approximated | unavailable
+      net_cash: exact | approximated | unavailable
     next_earnings_date: "YYYY-MM-DD" | null
     split_adjustment_flag: false
     signals:
@@ -100,6 +111,8 @@ candidates:
           condition_a_self_range_percentile: 0.14
 signals_summary:
   valuation-reversion: 1
+  strict-net-cash-discount: 0
+  fcf-yield-discount: 0
   cash-rich-asset-discount: 0
   cashflow-yield-discount: 0
   sales-discount-growth: 0
@@ -111,10 +124,10 @@ signals_summary:
 - `config_hash`: `ScreeningConfig` の secret 以外、provider URL、tier 設定、`records/_config/screening-rules.yaml` の内容 hash を含む
 - `cache_manifest_hash`: `records/_data/raw/screening/` 配下の provider raw JSON cache の manifest hash
 - `signals`: 通過した signal lane。複数 hit 可。表示順は rule config の lane 順に固定し、単一総合 score は持たせない
-- `metrics`: candidate-level の flat な派生値。例: `sales_ttm`, `ocf_ttm`, `cash_to_market_cap`, `price_to_equity`, `equity_ratio`, `ocf_yield`, `cfo_yoy`, `sales_yoy`, `operating_profit`
+- `metrics`: candidate-level の flat な派生値。例: `sales_ttm`, `ocf_ttm`, `cash_to_market_cap`, `net_cash_to_market_cap`, `price_to_equity`, `equity_ratio`, `ocf_yield`, `fcf_yield`, `cfo_yoy`, `sales_yoy`, `operating_profit`, `edinet_source_doc_id`, `edinet_failure_reasons`
 - `metrics_breakdown`: valuation 指標ごとの `sector_median_gap` / `self_range_percentile` / `sigma_gap`
 - `signals[].metrics`: signal hit の判定に直接使った値。valuation は `condition_a_metric` などの flat key、cash / CF / sales は lane 固有 key で記録する
-- `ttm_quality`: `EV/EBITDA` / `P/S` / `PCFR` / `OCF yield` / `sales` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する
+- `ttm_quality`: `EV/EBITDA` / `P/S` / `PCFR` / `OCF yield` / `sales` / `FCF yield` / `net cash` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - `market_cap_oku` / `avg_turnover_oku`: research の position size と流動性確認で使う。universe 閾値は `market_cap_oku >= 100` かつ `avg_turnover_oku >= 1.0`
 - `price_change_60d` / `price_change_4w`: split 影響を排除するため adjustment_close ベースで算出
 - `split_adjustment_flag`: `price_change_60d` と同じ window 内に J-Quants `AdjustmentFactor` が株式分割 / 株式併合の調整を示した場合に `true`

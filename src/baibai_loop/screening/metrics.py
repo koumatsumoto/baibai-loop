@@ -200,6 +200,11 @@ def _build_financial_snapshot(
     debt = edinet.debt if edinet else None
     cash = edinet.cash if edinet else None
     ebitda_ttm = edinet.ebitda_ttm if edinet else None
+    fcf_ttm = edinet.fcf_ttm if edinet else None
+    net_cash = edinet.net_cash if edinet else None
+    edinet_failure_reasons = ",".join(edinet.failure_reasons) if edinet else None
+    if net_cash is None and cash is not None and debt is not None:
+        net_cash = cash - debt
     latest_market_cap = (latest_price * shares_outstanding) if shares_outstanding else None
     latest_enterprise_value = (
         (latest_market_cap + debt - cash)
@@ -229,10 +234,22 @@ def _build_financial_snapshot(
             latest.equity if latest else None, latest.total_assets if latest else None
         ),
         ocf_yield=_safe_ratio(ocf_ttm, latest_market_cap),
+        net_cash=net_cash,
+        net_cash_to_market_cap=_safe_ratio(net_cash, latest_market_cap),
+        fcf_ttm=fcf_ttm,
+        fcf_yield=_safe_ratio(fcf_ttm, latest_market_cap),
+        capex_ttm=edinet.capex_ttm if edinet else None,
+        depreciation_and_amortization_ttm=(
+            edinet.depreciation_and_amortization_ttm if edinet else None
+        ),
         debt=debt,
         cash=cash,
         ebitda_ttm=ebitda_ttm,
         consolidation_basis=edinet.consolidation_basis if edinet else None,
+        edinet_source_doc_id=edinet.source_doc_id if edinet else None,
+        edinet_document_type=edinet.document_type if edinet else None,
+        edinet_capex_source=edinet.capex_source if edinet else None,
+        edinet_failure_reasons=edinet_failure_reasons or None,
         operating_profit=operating_profit,
         operating_profit_source=operating_profit_source,
         eps_yoy=_yoy_ratio(eps_ttm, prior_year.eps_ttm if prior_year else None),
@@ -250,6 +267,8 @@ def _build_financial_snapshot(
         ttm_quality_pcfr=ocf_quality,
         ttm_quality_ocf_yield=ocf_quality,
         ttm_quality_sales=sales_quality,
+        ttm_quality_fcf_yield=edinet.ttm_quality_fcf if edinet else TTMQuality.UNAVAILABLE,
+        ttm_quality_net_cash=edinet.ttm_quality_net_cash if edinet else TTMQuality.UNAVAILABLE,
         shares_outstanding=shares_outstanding,
     )
 
@@ -577,6 +596,8 @@ def _count_ttm_qualities(snapshots: Sequence[FinancialSnapshot]) -> dict[str, in
             snapshot.ttm_quality_pcfr,
             snapshot.ttm_quality_ocf_yield,
             snapshot.ttm_quality_sales,
+            snapshot.ttm_quality_fcf_yield,
+            snapshot.ttm_quality_net_cash,
         ):
             counts[quality.value] += 1
     return counts

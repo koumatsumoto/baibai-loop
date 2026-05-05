@@ -16,7 +16,9 @@ from baibai_loop.screening.rules import (
     REASON_SECTOR_SELF_RANGE,
     SIGNAL_CASH_RICH,
     SIGNAL_CASHFLOW_YIELD,
+    SIGNAL_FCF_YIELD,
     SIGNAL_SALES_DISCOUNT,
+    SIGNAL_STRICT_NET_CASH,
     SIGNAL_VALUATION_REVERSION,
     evaluate_screening,
 )
@@ -40,6 +42,11 @@ def _financial(**overrides: object) -> FinancialSnapshot:
         equity_ratio=0.5,
         debt=50.0,
         cash=20.0,
+        net_cash=40.0,
+        net_cash_to_market_cap=0.2,
+        fcf_ttm=80.0,
+        fcf_yield=0.05,
+        capex_ttm=20.0,
         ebitda_ttm=120.0,
         consolidation_basis="consolidated",
         ttm_quality_ev_ebitda=TTMQuality.EXACT,
@@ -47,6 +54,8 @@ def _financial(**overrides: object) -> FinancialSnapshot:
         ttm_quality_pcfr=TTMQuality.EXACT,
         ttm_quality_ocf_yield=TTMQuality.EXACT,
         ttm_quality_sales=TTMQuality.EXACT,
+        ttm_quality_fcf_yield=TTMQuality.EXACT,
+        ttm_quality_net_cash=TTMQuality.EXACT,
     )
     base.update(overrides)
     return FinancialSnapshot(**base)
@@ -196,6 +205,72 @@ class ScreeningRulesTests(unittest.TestCase):
             RULES,
         )
         self.assertIn(SIGNAL_CASHFLOW_YIELD, [signal.name for signal in result.signals])
+
+    def test_strict_net_cash_discount_hits_with_edinet_debt(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                net_cash=120.0,
+                net_cash_to_market_cap=0.35,
+                price_to_equity=0.8,
+                equity_ratio=0.5,
+                operating_profit=10.0,
+            ),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertIn(SIGNAL_STRICT_NET_CASH, [signal.name for signal in result.signals])
+
+    def test_strict_net_cash_discount_requires_edinet_quality(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                net_cash=120.0,
+                net_cash_to_market_cap=0.35,
+                price_to_equity=0.8,
+                equity_ratio=0.5,
+                operating_profit=10.0,
+                ttm_quality_net_cash=TTMQuality.UNAVAILABLE,
+            ),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertNotIn(SIGNAL_STRICT_NET_CASH, [signal.name for signal in result.signals])
+        self.assertIn("strict_net_cash_unavailable", result.null_reasons)
+
+    def test_fcf_yield_discount_hits(self) -> None:
+        result = evaluate_screening(
+            _financial(fcf_ttm=100.0, fcf_yield=0.1, cfo_yoy=0.2),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertIn(SIGNAL_FCF_YIELD, [signal.name for signal in result.signals])
+
+    def test_fcf_yield_discount_rejects_unavailable_quality(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                fcf_ttm=100.0,
+                fcf_yield=0.1,
+                cfo_yoy=0.2,
+                ttm_quality_fcf_yield=TTMQuality.UNAVAILABLE,
+            ),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertNotIn(SIGNAL_FCF_YIELD, [signal.name for signal in result.signals])
+        self.assertIn("fcf_yield_ttm_not_exact", result.null_reasons)
+
+    def test_fcf_yield_discount_rejects_approximated_quality(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                fcf_ttm=100.0,
+                fcf_yield=0.1,
+                cfo_yoy=0.2,
+                ttm_quality_fcf_yield=TTMQuality.APPROXIMATED,
+            ),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertNotIn(SIGNAL_FCF_YIELD, [signal.name for signal in result.signals])
+        self.assertIn("fcf_yield_ttm_not_exact", result.null_reasons)
 
     def test_cashflow_yield_discount_requires_cfo_yoy_when_configured(self) -> None:
         result = evaluate_screening(

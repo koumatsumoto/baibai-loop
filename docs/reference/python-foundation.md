@@ -63,12 +63,12 @@ formatter と linter は Ruff に統一する。Black / isort / Flake8 / pyupgra
 
 この repo 固有の設定:
 
-- `target-version = "py314"`
+- runtime は Python 3.14 だが、Ruff は `target-version = "py313"` に固定する。Ruff の Python 3.14 formatter は PEP 758 の `except T1, T2:` パーレス構文へ自動整形するため、複数例外捕捉を `except (T1, T2):` に統一する目的で 3.13 target を使う。
 - line length は 100。
 - `RUF001` は無効化する。日本語の docstring や出力文字列リテラルでは全角括弧・ギリシャ文字がドメイン表現として自然に出るため、ambiguous unicode を一般ルールとして禁止すると false positive が多い。
 - tests は `ANN` / `PT009` / `PT027` などを緩める。テストは既存の `unittest` 形を維持しつつ、production code の strictness を優先する。
 - Markdown では末尾スペースが hard break として使われるため、pre-commit の trailing whitespace hook は `.md` を除外する。`end-of-file-fixer` は EOF 改行のみ補正し本文の hard break には触らないので、Markdown 全般を対象にしたままで安全。
-- Ruff formatter は PEP 758 の `except T1, T2:` パーレス構文を正規形として保持し、`except (T1, T2):` と書いてもパレンを外す。Python 2 の `except T, name:`（as バインド旧構文）と外見が似るが、Python 3.14 では「両方の例外型を捕捉する」新構文として読む。レビュー時にバインド変数だと誤読しないこと。
+- 複数例外捕捉は `except (T1, T2):` と書く。commit 前に `rg -n "except [A-Za-z0-9_.]+, [A-Za-z0-9_.]+" src tests` が 0 件であることを確認する。
 
 参考:
 

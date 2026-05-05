@@ -4,6 +4,8 @@ from collections.abc import Mapping
 
 PLAYBOOK_SHORT_MAP: Mapping[str, str] = {
     "valuation-reversion": "vreversion",
+    "strict-net-cash-discount": "netcash",
+    "fcf-yield-discount": "fcfyield",
     "cash-rich-asset-discount": "cashrich",
     "cashflow-yield-discount": "cfyield",
     "sales-discount-growth": "salesgrowth",

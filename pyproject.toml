@@ -69,7 +69,11 @@ packages = ["src/baibai_loop"]
 "src/baibai_loop/py.typed" = "baibai_loop/py.typed"
 
 [tool.ruff]
-target-version = "py314"
+# Runtime is Python 3.14, but Ruff's 3.14 formatter rewrites
+# `except (A, B):` into the legal-but-ambiguous `except A, B:` form.
+# Keep Ruff syntax targeting at 3.13 so multi-exception handlers stay
+# parenthesized and reviewer-visible.
+target-version = "py313"
 line-length = 100
 src = ["src", "tests"]
 

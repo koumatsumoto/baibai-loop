@@ -489,7 +489,7 @@ class JPXProvider:
             seen.add(encoding)
             try:
                 return content.decode(encoding)
-            except UnicodeDecodeError, LookupError:
+            except (UnicodeDecodeError, LookupError):
                 continue
         raise JPXProviderError(f"failed to decode JPX HTML source: {url}")
 

@@ -3,8 +3,10 @@ from __future__ import annotations
 from .rule_config import (
     CashflowYieldLane,
     CashRichLane,
+    FcfYieldLane,
     SalesDiscountGrowthLane,
     ScreeningRules,
+    StrictNetCashLane,
     ValuationReversionLane,
 )
 from .schema import DerivedMetrics, FinancialSnapshot, ScreeningResult, SignalHit, TTMQuality
@@ -12,6 +14,8 @@ from .schema import DerivedMetrics, FinancialSnapshot, ScreeningResult, SignalHi
 SIGNAL_VALUATION_REVERSION = "valuation-reversion"
 SIGNAL_CASH_RICH = "cash-rich-asset-discount"
 SIGNAL_CASHFLOW_YIELD = "cashflow-yield-discount"
+SIGNAL_STRICT_NET_CASH = "strict-net-cash-discount"
+SIGNAL_FCF_YIELD = "fcf-yield-discount"
 SIGNAL_SALES_DISCOUNT = "sales-discount-growth"
 
 REASON_SECTOR_SELF_RANGE = "sector_median_discount_and_self_range_bottom"
@@ -19,6 +23,8 @@ REASON_PRICE_SIGMA = "price_down_60d_and_valuation_sigma_down"
 REASON_SECTOR_ROTATION = "sector_rotation_short_sell"
 REASON_CASH_RICH = "cash_to_market_cap_price_to_equity_and_equity_ratio"
 REASON_CASHFLOW_YIELD = "ocf_yield_discount"
+REASON_STRICT_NET_CASH = "net_cash_to_market_cap_price_to_equity_and_equity_ratio"
+REASON_FCF_YIELD = "fcf_yield_discount"
 REASON_SALES_DISCOUNT = "ps_discount_with_sales_growth"
 
 
@@ -58,6 +64,20 @@ def evaluate_screening(
                     null_reasons.append("cashflow_yield_excluded_sector")
                     continue
                 hit = _cashflow_yield_discount(financial, lane, null_reasons)
+            case "strict-net-cash-discount":
+                if not isinstance(lane, StrictNetCashLane):
+                    continue
+                if _is_excluded_sector(sector_33, lane.excluded_sectors):
+                    null_reasons.append("strict_net_cash_excluded_sector")
+                    continue
+                hit = _strict_net_cash_discount(financial, lane, null_reasons)
+            case "fcf-yield-discount":
+                if not isinstance(lane, FcfYieldLane):
+                    continue
+                if _is_excluded_sector(sector_33, lane.excluded_sectors):
+                    null_reasons.append("fcf_yield_excluded_sector")
+                    continue
+                hit = _fcf_yield_discount(financial, lane, null_reasons)
             case "sales-discount-growth":
                 if not isinstance(lane, SalesDiscountGrowthLane):
                     continue
@@ -263,6 +283,92 @@ def _cashflow_yield_discount(
             "ocf_ttm": financial.ocf_ttm,
             "cfo_yoy": financial.cfo_yoy,
             "ttm_quality": financial.ttm_quality_ocf_yield.value,
+        },
+    )
+
+
+def _strict_net_cash_discount(
+    financial: FinancialSnapshot,
+    lane: StrictNetCashLane,
+    null_reasons: list[str],
+) -> SignalHit | None:
+    if financial.ttm_quality_net_cash == TTMQuality.UNAVAILABLE:
+        null_reasons.append("strict_net_cash_unavailable")
+        return None
+    if financial.net_cash_to_market_cap is None:
+        null_reasons.append("strict_net_cash_missing_net_cash_to_market_cap")
+        return None
+    if financial.price_to_equity is None:
+        null_reasons.append("strict_net_cash_missing_price_to_equity")
+        return None
+    if financial.equity_ratio is None:
+        null_reasons.append("strict_net_cash_missing_equity_ratio")
+        return None
+    if lane.operating_profit_positive_required and (
+        financial.operating_profit is None or financial.operating_profit <= 0
+    ):
+        return None
+    if (
+        financial.net_cash_to_market_cap < lane.net_cash_to_market_cap_min
+        or financial.price_to_equity > lane.price_to_equity_max
+        or financial.equity_ratio < lane.equity_ratio_min
+    ):
+        return None
+    return SignalHit(
+        name=SIGNAL_STRICT_NET_CASH,
+        playbook=lane.playbook,
+        reasons=(REASON_STRICT_NET_CASH,),
+        metrics={
+            "net_cash": financial.net_cash,
+            "net_cash_to_market_cap": financial.net_cash_to_market_cap,
+            "debt": financial.debt,
+            "cash": financial.cash,
+            "price_to_equity": financial.price_to_equity,
+            "equity_ratio": financial.equity_ratio,
+            "operating_profit": financial.operating_profit,
+            "ttm_quality": financial.ttm_quality_net_cash.value,
+            "edinet_source_doc_id": financial.edinet_source_doc_id,
+            "edinet_document_type": financial.edinet_document_type,
+            "edinet_failure_reasons": financial.edinet_failure_reasons,
+        },
+    )
+
+
+def _fcf_yield_discount(
+    financial: FinancialSnapshot,
+    lane: FcfYieldLane,
+    null_reasons: list[str],
+) -> SignalHit | None:
+    if financial.ttm_quality_fcf_yield != TTMQuality.EXACT:
+        null_reasons.append("fcf_yield_ttm_not_exact")
+        return None
+    if lane.fcf_required and financial.fcf_ttm is None:
+        null_reasons.append("fcf_yield_missing_fcf")
+        return None
+    if lane.cfo_yoy_required and financial.cfo_yoy is None:
+        null_reasons.append("fcf_yield_missing_cfo_yoy")
+        return None
+    if financial.cfo_yoy is not None and financial.cfo_yoy < lane.cfo_yoy_min:
+        return None
+    if financial.fcf_ttm is None or financial.fcf_ttm <= 0:
+        return None
+    if financial.fcf_yield is None or financial.fcf_yield < lane.fcf_yield_min:
+        return None
+    return SignalHit(
+        name=SIGNAL_FCF_YIELD,
+        playbook=lane.playbook,
+        reasons=(REASON_FCF_YIELD,),
+        metrics={
+            "fcf_yield": financial.fcf_yield,
+            "fcf_ttm": financial.fcf_ttm,
+            "ocf_ttm": financial.ocf_ttm,
+            "capex_ttm": financial.capex_ttm,
+            "cfo_yoy": financial.cfo_yoy,
+            "ttm_quality": financial.ttm_quality_fcf_yield.value,
+            "edinet_source_doc_id": financial.edinet_source_doc_id,
+            "edinet_document_type": financial.edinet_document_type,
+            "edinet_capex_source": financial.edinet_capex_source,
+            "edinet_failure_reasons": financial.edinet_failure_reasons,
         },
     )
 

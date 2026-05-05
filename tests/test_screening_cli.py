@@ -6,8 +6,10 @@ import json
 import sys
 import tempfile
 import unittest
+import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 
 import yaml
@@ -21,6 +23,7 @@ from baibai_loop.screening.cli import (
     ProviderBundle,
     _index_next_earnings,
     bootstrap_cache_command,
+    extract_edinet_metrics_command,
     run_command,
     select_command,
 )
@@ -111,6 +114,9 @@ class FakeJQuantsProvider:
 
 @dataclass
 class FakeEDINETProvider:
+    documents: list[dict[str, object]] | None = None
+    zip_by_doc_id: dict[str, bytes] | None = None
+
     def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
         del asof_date
         return {
@@ -127,6 +133,13 @@ class FakeEDINETProvider:
                 ttm_quality_pcfr=TTMQuality.UNAVAILABLE,
             )
         }
+
+    def list_documents(self, on_date: date) -> list[dict[str, object]]:
+        del on_date
+        return list(self.documents or [])
+
+    def download_csv_zip(self, doc_id: str) -> bytes:
+        return (self.zip_by_doc_id or {})[doc_id]
 
     def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
         del start, end
@@ -413,6 +426,38 @@ class ScreeningCliTests(unittest.TestCase):
         )
         self.assertEqual(exit_code, 0)
 
+    def test_extract_edinet_metrics_command_writes_parsed_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = Path(tmpdir) / "raw"
+            provider = FakeEDINETProvider(
+                documents=[
+                    {
+                        "docID": "S100TEST",
+                        "secCode": "96820",
+                        "docTypeCode": "120",
+                        "csvFlag": "1",
+                        "xbrlFlag": "1",
+                        "submitDateTime": "2026-04-01 12:00",
+                    }
+                ],
+                zip_by_doc_id={"S100TEST": _edinet_csv_zip()},
+            )
+            buffer = io.StringIO()
+            exit_code = extract_edinet_metrics_command(
+                asof_date=date(2026, 4, 24),
+                lookback_days=0,
+                provider=provider,
+                cache_dir=cache_dir,
+                stdout=buffer,
+            )
+            self.assertEqual(exit_code, 0)
+            output_path = cache_dir / "edinet" / "metrics" / "2026-04-24.json"
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload[0]["ticker"], "9682")
+            self.assertEqual(payload[0]["net_cash"], 600.0)
+            self.assertEqual(payload[0]["fcf_ttm"], 700.0)
+            self.assertIn("1 records", buffer.getvalue())
+
 
 class IndexNextEarningsTests(unittest.TestCase):
     def test_picks_earliest_future_announcement_per_ticker(self) -> None:
@@ -440,6 +485,34 @@ class IndexNextEarningsTests(unittest.TestCase):
         ]
         result = _index_next_earnings(records, date(2026, 4, 25))
         self.assertEqual(result, {"ABCD": date(2026, 5, 13)})
+
+
+def _edinet_csv_zip() -> bytes:
+    rows = [
+        ("jpcrp_cor:NetSales", "CurrentYearDuration_ConsolidatedMember", "1000"),
+        (
+            "jpcrp_cor:NetCashProvidedByUsedInOperatingActivities",
+            "CurrentYearDuration_ConsolidatedMember",
+            "900",
+        ),
+        ("jpcrp_cor:OperatingProfit", "CurrentYearDuration_ConsolidatedMember", "150"),
+        ("jpcrp_cor:CashAndDeposits", "CurrentYearInstant_ConsolidatedMember", "1000"),
+        ("jpcrp_cor:ShortTermBorrowings", "CurrentYearInstant_ConsolidatedMember", "100"),
+        ("jpcrp_cor:LongTermBorrowings", "CurrentYearInstant_ConsolidatedMember", "300"),
+        (
+            "jpcrp_cor:PurchaseOfPropertyPlantAndEquipment",
+            "CurrentYearDuration_ConsolidatedMember",
+            "-200",
+        ),
+        ("jpcrp_cor:Equity", "CurrentYearInstant_ConsolidatedMember", "1200"),
+        ("jpcrp_cor:TotalAssets", "CurrentYearInstant_ConsolidatedMember", "2000"),
+        ("jpcrp_cor:DepreciationAndAmortization", "CurrentYearDuration_ConsolidatedMember", "50"),
+    ]
+    text = "要素ID\tコンテキストID\t値\n" + "\n".join("\t".join(row) for row in rows)
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("XBRL_TO_CSV/test.csv", text.encode("utf-16"))
+    return buffer.getvalue()
 
 
 class SelectCommandTests(unittest.TestCase):

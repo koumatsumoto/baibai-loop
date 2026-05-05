@@ -123,13 +123,15 @@
         "split_adjustment_flag": {"type": "boolean"},
         "ttm_quality": {
           "type": "object",
-          "required": ["ev_ebitda", "p_s", "pcfr", "ocf_yield", "sales"],
+          "required": ["ev_ebitda", "p_s", "pcfr", "ocf_yield", "sales", "fcf_yield", "net_cash"],
           "properties": {
             "ev_ebitda": {"$ref": "#/$defs/TTMQualityValue"},
             "p_s": {"$ref": "#/$defs/TTMQualityValue"},
             "pcfr": {"$ref": "#/$defs/TTMQualityValue"},
             "ocf_yield": {"$ref": "#/$defs/TTMQualityValue"},
-            "sales": {"$ref": "#/$defs/TTMQualityValue"}
+            "sales": {"$ref": "#/$defs/TTMQualityValue"},
+            "fcf_yield": {"$ref": "#/$defs/TTMQualityValue"},
+            "net_cash": {"$ref": "#/$defs/TTMQualityValue"}
           }
         },
         "signals": {

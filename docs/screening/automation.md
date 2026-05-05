@@ -20,6 +20,7 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 python -m baibai_loop.screening.cli run --asof YYYY-MM-DD --allow-stale-jpx
 python -m baibai_loop.screening.cli bootstrap-cache --start YYYY-MM-DD --end YYYY-MM-DD
 python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--outlook path] [--top N]
+python -m baibai_loop.screening.cli extract-edinet-metrics --asof YYYY-MM-DD [--lookback-days N]
 python -m baibai_loop.screening.cli migrate-cache [--from PATH] [--to PATH] [--dry-run]
 python -m baibai_loop.screening.cli rebuild-cache [--raw-dir PATH] [--sqlite-path PATH]
 python -m baibai_loop.screening.cli verify-raw-cache [--raw-dir PATH] [--max-size-mb N] [--sqlite-path PATH]
@@ -30,6 +31,8 @@ python -m baibai_loop.screening.cli verify-raw-cache [--raw-dir PATH] [--max-siz
 `rebuild-cache` は `records/_data/raw/screening/` 配下の git 管理 raw JSON から派生 SQLite cache (`records/_data/cache/screening/market.sqlite`) を再生成する。実行毎に出力ファイルを削除して書き直すため idempotent。詳細は §11 を参照。
 
 `verify-raw-cache` は `records/_data/raw/screening/` を再帰的に walk し、(1) 1 ファイル `--max-size-mb` 以上のものが無いこと、(2) SQLite (`records/_data/cache/screening/market.sqlite`) が存在する場合は `raw_imports.sha256` と現状ファイルの SHA-256 が一致することを検証する。違反があれば exit 1。CI の `quality` job でも実行され、50MB 超過の commit を merge 前に弾く。
+
+`extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出する。出力は `records/_data/raw/screening/edinet/metrics/YYYY-MM-DD.json`。CSV ZIP 本体は再生成可能な derived cache として `records/_data/cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 
 `select` は最新 `records/03-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/02-outlook/` を組み合わせて、`outlook` で `headwind` 判定された業種を除外し、lane-specific metric と macro status で候補をランキングする。signal 数と時価総額だけでは並べない。出力には lane 別の `lane_toplists` と flattened な `candidates` が含まれる。`candidates` は CLI `--top`、`lane_toplists` は `records/_config/screening-rules.yaml` の `output.lane_toplist_limit` で件数を管理する。`research` の選定プロセス ([`../components/research.md`](../components/research.md) §2.1) をスクリプトで支援する。
 
@@ -74,8 +77,18 @@ raw cache / SQLite cache の配置先は固定 (env override 廃止):
   - `120`: 有報
   - `140`: 旧四半期報告書
   - `160`: 半期報告書
-- CLI は `documents.json` の取得のみを行い、CSV ZIP（UTF-16 LE タブ区切り）の解凍と metric 抽出は行わない。`providers/edinet.py` の `load_metric_records` は前処理済み JSON cache を読み込む前提
+- `extract-edinet-metrics` は `documents.json` 取得後、`type=5` CSV ZIP（UTF-16 LE タブ区切り）を解凍し、EV/EBITDA / net cash / FCF 関連 metrics を前処理済み JSON cache に書く
 - EDINET cache / API key が無い場合も screening は fail-fast しない。`data_sources` には利用した source のみを記録し、`config_hash` には rules file hash と optional EDINET 設定有無を含める
+
+EDINET CSV-derived metrics を更新してから run する標準手順:
+
+```bash
+python -m baibai_loop.screening.cli extract-edinet-metrics --asof YYYY-MM-DD --lookback-days 540
+python -m baibai_loop.screening.cli rebuild-cache
+python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
+```
+
+`EDINET_API_KEY` が無い場合、`extract-edinet-metrics` は fail-fast する。`run` は EDINET metrics が無い状態でも継続し、EV/EBITDA / strict net-cash / FCF は `unavailable` として degrade する。
 
 ## 6. JPX Policy
 
@@ -100,7 +113,7 @@ raw cache / SQLite cache の配置先は固定 (env override 廃止):
 閾値の正本は `records/_config/screening-rules.yaml`。実装側の hardcode は parser default と型定義に留め、運用で変える閾値は YAML に寄せる。
 
 - universe 閾値: 時価総額、平均売買代金、上場日数、JPX 除外 flag
-- signal lane 閾値: `valuation-reversion` / `cash-rich-asset-discount` / `cashflow-yield-discount` / `sales-discount-growth`
+- signal lane 閾値: `valuation-reversion` / `strict-net-cash-discount` / `fcf-yield-discount` / `cash-rich-asset-discount` / `cashflow-yield-discount` / `sales-discount-growth`
 - TTM 期間一致基準: partial period の許容日数差、FY 期間長
 - 品質条件: 売上 YoY、営業利益、営業 CF 悪化、赤字縮小条件
 - `EV/EBITDA` は `ttm_quality = exact` のときのみ判定に使う。EDINET が無い場合は `unavailable` として他 metric で degrade する
@@ -121,6 +134,7 @@ raw cache / SQLite cache の配置先は固定 (env override 廃止):
 
 - `records/_data/raw/screening/` は J-Quants / EDINET / JPX から取得した raw JSON の **正本**。git 管理対象。1 ファイル 50MB 未満を維持し、別 PC で `git clone` 後に再取得なしで screening / ledger を再生成できる
 - `records/_data/cache/screening/` は raw JSON から派生した SQLite cache や rebuild 中の一時ファイルの置き場。`.gitignore` 対象。安全に削除して再生成できる
+- `records/_data/cache/screening/edinet/csv_zips/` は EDINET `type=5` CSV ZIP の derived cache。metrics JSON を再生成するための一時物であり git 管理しない
 - `records/_data/raw/screening/manifests/` は run 毎の lineage manifest 出力先。`.gitignore` 対象（`candidates` YAML 側に `cache_manifest_hash` が記録されるため、manifest JSON 自体は git に載せない）
 - `JQuantsProvider` は SQLite (`records/_data/cache/screening/market.sqlite`) が存在し、要求範囲を `raw_imports` の chunk window で覆える場合は SQLite から読む（read-through）。覆えない場合は raw JSON cache → API の順にフォールバックする。SQLite が古い場合は `rebuild-cache` を再実行する
 
@@ -134,7 +148,7 @@ raw cache / SQLite cache の配置先は固定 (env override 廃止):
 - `jquants_earnings_calendar(announcement_date, ticker, raw_json)` — 主キー `(announcement_date, ticker)`
 - `jquants_market_calendar(day, is_business_day, raw_json)` — 主キー `(day)`。`HolidayDivision` "1" / "2" を business day=1、それ以外を 0 として記録
 - `edinet_documents(doc_date, doc_id, sec_code, doc_type_code, raw_json)` — 主キー `(doc_date, doc_id)`。`doc_date` はファイル名（`{date}.json`）から復元
-- `edinet_metrics(asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, consolidation_basis, ttm_quality_*)` — 主キー `(asof_date, ticker)`。`asof_date` はファイル名から復元
+- `edinet_metrics(asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, operating_profit_ttm, depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, net_cash, equity, total_assets, consolidation_basis, ttm_quality_*, source_doc_id, document_type, capex_source, failure_reasons)` — 主キー `(asof_date, ticker)`。`asof_date` はファイル名から復元
 - `jpx_regulation_flags(asof_date, source_name, ticker, flag, fetched_at_utc)` — 主キー `(asof_date, source_name, ticker, flag)`。JPX cache の `flags_by_ticker` は source 別の起源を保持しないため、`source_name=flag` として記録
 - `raw_imports(source, path, sha256, imported_at_utc, record_count, min_date, max_date)` — `path` を主キーとし、import した raw JSON の SHA-256 と record 範囲を記録する監査用 table
 - `cache_metadata(key, value)` — schema version などの KV ストア

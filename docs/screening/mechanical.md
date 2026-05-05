@@ -27,7 +27,9 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 - P/S
 - PCFR
 - OCF yield（CFO TTM / market cap）
+- FCF yield（FCF TTM / market cap、EDINET CSV-derived metrics がある場合のみ）
 - cash-to-market-cap / price-to-equity
+- net-cash-to-market-cap / price-to-equity（EDINET CSV-derived metrics がある場合のみ）
 - 業種中央値（東証 33 業種、n<10 は市場全体 fallback）
 - 過去 3 年自己レンジ（上場 3 年未満は上場来）
 - 詳細: [`valuation-metrics.md`](./valuation-metrics.md)
@@ -46,7 +48,30 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 
 EDINET が無い場合、EV/EBITDA は `unavailable` として判定対象から外す。PER / PBR など利用可能な指標で degrade して評価する。P/S は売上成長と営業赤字条件を伴う `sales-discount-growth` 専用 lane で扱い、valuation-reversion の単独指標にはしない。
 
-### 3.2 `cash-rich-asset-discount`
+### 3.2 `strict-net-cash-discount`
+
+EDINET `type=5` CSV から抽出した cash と interest-bearing debt を使い、`net_cash = cash - debt` を機械的に算出する。J-Quants の CashEq proxy ではなく、より厳密な net cash を使うため、同じ銘柄が `cash-rich-asset-discount` と重なる場合はこの lane を primary にする。
+
+- `net_cash_to_market_cap` が閾値以上
+- `price_to_equity` が閾値以下
+- `equity_ratio` が閾値以上
+- 営業赤字ではない
+- `ttm_quality_net_cash != unavailable`
+
+銀行・証券・保険・その他金融、電気・ガス業は除外する。金融業の負債は通常の事業会社の有利子負債と同じ意味で読めず、電気・ガス業は規制・設備投資・燃料費調整を見ないと net cash の下値余地を機械判定しにくいため。
+
+### 3.3 `fcf-yield-discount`
+
+EDINET `type=5` CSV から抽出した営業 CF と設備投資支出を使い、`FCF = CFO - capex` として FCF yield を算出する。OCF yield だけでは設備投資負担の大きい企業を安く見誤るため、CF 系の中ではこの lane を優先して見る。
+
+- `fcf_yield` が閾値以上
+- FCF がプラス
+- CFO YoY が大きく悪化していない
+- `ttm_quality_fcf_yield = exact`
+
+銀行・証券・保険・その他金融、電気・ガス業は除外する。金融業の営業 CF は通常の事業会社の現金創出力と同じ意味で比較しにくく、電気・ガス業は規制設備産業として capex 解釈を research で個別確認する必要が大きいため。
+
+### 3.4 `cash-rich-asset-discount`
 
 CashEq / market cap、price-to-equity、equity ratio を使い、厳密 net cash ではないが、cash-rich / asset discount 候補を拾う。J-Quants 財務サマリーのみで完結させ、有利子負債は research で一次確認する。
 
@@ -54,7 +79,9 @@ CashEq / market cap、price-to-equity、equity ratio を使い、厳密 net cash
 
 電気・ガス業もこの lane から除外する。規制・設備産業では CashEq / market cap が高くても、有利子負債・設備投資・燃料費調整などを見ないと margin of safety として読みにくいため。
 
-### 3.3 `cashflow-yield-discount`
+この lane は EDINET metrics が欠ける銘柄の proxy / downgrade として残す。EDINET で `strict-net-cash-discount` が成立する銘柄では、research の primary thesis は原則 `strict-net-cash-discount` に寄せる。
+
+### 3.5 `cashflow-yield-discount`
 
 期間正規化した CFO TTM から OCF yield を算出し、営業 CF がプラスで、CF 悪化が大きくない銘柄を拾う。TTM が作れない銘柄はこの lane から除外する。
 
@@ -62,13 +89,15 @@ CashEq / market cap、price-to-equity、equity ratio を使い、厳密 net cash
 
 銀行・証券・保険・その他金融、電気・ガス業はこの lane から除外する。金融業の営業 CF は通常の事業会社の現金創出力と同じ意味で比較しにくく、電気・ガス業は設備投資前の OCF yield だけでは割安性を機械判定しにくいため。
 
-### 3.4 `sales-discount-growth`
+この lane は EDINET FCF が作れない銘柄の proxy としても使う。EDINET で `fcf-yield-discount` が成立する銘柄では、research の primary thesis は原則 `fcf-yield-discount` に寄せる。
+
+### 3.6 `sales-discount-growth`
 
 P/S が業種中央値比で安く、売上成長が残る銘柄を拾う。営業赤字銘柄は CFO プラスまたは営業赤字縮小が確認できる場合に限り許容する。
 
 銀行・証券・保険・その他金融はこの lane から除外する。金融業の P/S は通常の事業会社の売上倍率とは意味が異なるため。
 
-### 3.5 OR 条件の意味
+### 3.7 OR 条件の意味
 
 - **最低 1 つ満たせば通過**
 - 複数 signal が重なる銘柄は research 優先度を上げる
@@ -100,6 +129,8 @@ candidates:
       ocf_yield: 0.13
       cfo_yoy: 0.08
       cash_to_market_cap: 0.42
+      net_cash_to_market_cap: 0.21
+      fcf_yield: 0.08
     signals:
       - name: cashflow-yield-discount
         playbook: cashflow-yield-discount

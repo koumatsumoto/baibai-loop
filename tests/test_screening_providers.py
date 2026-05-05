@@ -4,7 +4,9 @@ import json
 import sys
 import tempfile
 import unittest
+import zipfile
 from datetime import date
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -17,7 +19,9 @@ if str(SRC) not in sys.path:
 from baibai_loop.screening.providers.edinet import (
     EDINETProviderError,
     normalize_metric_record,
+    parse_csv_zip_metric_record,
     parse_sec_code,
+    select_document_candidates,
 )
 from baibai_loop.screening.providers.jpx import JPXProvider, JPXProviderError
 from baibai_loop.screening.providers.jquants import (
@@ -81,6 +85,102 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(record.ttm_quality_ev_ebitda, TTMQuality.EXACT)
         self.assertEqual(record.ttm_quality_p_s, TTMQuality.APPROXIMATED)
         self.assertEqual(record.ttm_quality_pcfr, TTMQuality.UNAVAILABLE)
+
+    def test_select_document_candidates_requires_csv_and_prefers_correction(self) -> None:
+        selected = select_document_candidates(
+            [
+                {
+                    "docID": "S100A",
+                    "secCode": "72030",
+                    "docTypeCode": "120",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "submitDateTime": "2026-05-01 10:00",
+                },
+                {
+                    "docID": "S100B",
+                    "secCode": "72030",
+                    "docTypeCode": "130",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "submitDateTime": "2026-05-01 11:00",
+                },
+                {
+                    "docID": "S100C",
+                    "secCode": "67580",
+                    "docTypeCode": "120",
+                    "csvFlag": "0",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                },
+                {
+                    "docID": "S100D",
+                    "secCode": "99840",
+                    "docTypeCode": "120",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "0",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                },
+            ]
+        )
+        self.assertEqual(selected["7203"].doc_id, "S100B")
+        self.assertNotIn("6758", selected)
+        self.assertNotIn("9984", selected)
+
+    def test_parse_csv_zip_metric_record_extracts_net_cash_and_fcf(self) -> None:
+        rows = [
+            ("jpcrp_cor:NetSales", "CurrentYearConsolidatedDuration", "1000"),
+            (
+                "jpcrp_cor:CashFlowsFromOperatingActivities",
+                "CurrentYearConsolidatedDuration",
+                "150",
+            ),
+            ("jpcrp_cor:OperatingProfit", "CurrentYearConsolidatedDuration", "90"),
+            ("jpcrp_cor:DepreciationAndAmortization", "CurrentYearConsolidatedDuration", "30"),
+            (
+                "jpcrp_cor:PurchaseOfPropertyPlantAndEquipment",
+                "CurrentYearConsolidatedDuration",
+                "-40",
+            ),
+            ("jpcrp_cor:CashAndDeposits", "CurrentYearConsolidatedInstant", "300"),
+            ("jpcrp_cor:ShortTermBorrowings", "CurrentYearConsolidatedInstant", "20"),
+            ("jpcrp_cor:LongTermBorrowings", "CurrentYearConsolidatedInstant", "50"),
+            ("jpcrp_cor:Equity", "CurrentYearConsolidatedInstant", "800"),
+            ("jpcrp_cor:TotalAssets", "CurrentYearConsolidatedInstant", "1400"),
+        ]
+        csv_text = "要素ID\tコンテキストID\t値\n" + "\n".join(
+            f"{element}\t{context}\t{value}" for element, context, value in rows
+        )
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("XBRL_TO_CSV/sample.csv", csv_text.encode("utf-16"))
+
+        record = parse_csv_zip_metric_record(
+            ticker="7203",
+            doc_id="S100TEST",
+            doc_type_code="120",
+            content=buffer.getvalue(),
+        )
+
+        self.assertEqual(record.sales_ttm, 1000.0)
+        self.assertEqual(record.ocf_ttm, 150.0)
+        self.assertEqual(record.debt, 70.0)
+        self.assertEqual(record.cash, 300.0)
+        self.assertEqual(record.net_cash, 230.0)
+        self.assertEqual(record.capex_ttm, 40.0)
+        self.assertEqual(record.fcf_ttm, 110.0)
+        self.assertEqual(record.ebitda_ttm, 120.0)
+        self.assertEqual(record.ttm_quality_fcf, TTMQuality.EXACT)
 
     def test_normalize_security_master_handles_alpha_numeric_ticker(self) -> None:
         security = normalize_security_master(

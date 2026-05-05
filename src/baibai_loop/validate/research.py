@@ -594,7 +594,7 @@ def _validate_candidate_absence_override(
         return []
     try:
         candidate_doc = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
-    except OSError, yaml.YAMLError:
+    except (OSError, yaml.YAMLError):
         return []
     if not isinstance(candidate_doc, dict):
         return []
@@ -710,7 +710,7 @@ def _append_avg_turnover_candidates_consistency_finding(
         return
     try:
         candidate_doc = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
-    except OSError, yaml.YAMLError:
+    except (OSError, yaml.YAMLError):
         return
     if not isinstance(candidate_doc, dict):
         return

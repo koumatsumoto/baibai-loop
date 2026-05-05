@@ -125,6 +125,19 @@ CREATE TABLE IF NOT EXISTS edinet_metrics(
   ttm_quality_ev_ebitda TEXT,
   ttm_quality_p_s TEXT,
   ttm_quality_pcfr TEXT,
+  operating_profit_ttm REAL,
+  depreciation_and_amortization_ttm REAL,
+  capex_ttm REAL,
+  fcf_ttm REAL,
+  net_cash REAL,
+  equity REAL,
+  total_assets REAL,
+  ttm_quality_fcf TEXT,
+  ttm_quality_net_cash TEXT,
+  source_doc_id TEXT,
+  document_type TEXT,
+  capex_source TEXT,
+  failure_reasons TEXT,
   PRIMARY KEY (asof_date, ticker)
 );
 
@@ -706,6 +719,19 @@ def _import_edinet_metrics_file(conn: sqlite3.Connection, path: Path) -> int:
                 _to_str_or_none(_first(record, "ttm_quality_ev_ebitda", "TTMQualityEvEbitda")),
                 _to_str_or_none(_first(record, "ttm_quality_p_s", "TTMQualityPS")),
                 _to_str_or_none(_first(record, "ttm_quality_pcfr", "TTMQualityPCFR")),
+                _to_float(_first(record, "operating_profit_ttm")),
+                _to_float(_first(record, "depreciation_and_amortization_ttm")),
+                _to_float(_first(record, "capex_ttm")),
+                _to_float(_first(record, "fcf_ttm")),
+                _to_float(_first(record, "net_cash")),
+                _to_float(_first(record, "equity")),
+                _to_float(_first(record, "total_assets")),
+                _to_str_or_none(_first(record, "ttm_quality_fcf")),
+                _to_str_or_none(_first(record, "ttm_quality_net_cash")),
+                _to_str_or_none(_first(record, "source_doc_id")),
+                _to_str_or_none(_first(record, "document_type")),
+                _to_str_or_none(_first(record, "capex_source")),
+                json.dumps(_first(record, "failure_reasons") or (), ensure_ascii=False),
             )
         )
     if not rows:
@@ -714,8 +740,11 @@ def _import_edinet_metrics_file(conn: sqlite3.Connection, path: Path) -> int:
     conn.executemany(
         "INSERT OR REPLACE INTO edinet_metrics("
         "asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, "
-        "consolidation_basis, ttm_quality_ev_ebitda, ttm_quality_p_s, ttm_quality_pcfr"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "consolidation_basis, ttm_quality_ev_ebitda, ttm_quality_p_s, ttm_quality_pcfr, "
+        "operating_profit_ttm, depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, "
+        "net_cash, equity, total_assets, ttm_quality_fcf, ttm_quality_net_cash, "
+        "source_doc_id, document_type, capex_source, failure_reasons"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         rows,
     )
     _record_raw_import(conn, "edinet_metrics", path, len(rows), asof_date, asof_date)
@@ -855,7 +884,7 @@ def _to_float(value: Any) -> float | None:
         return None
     try:
         result = float(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
     if result != result:  # NaN
         return None

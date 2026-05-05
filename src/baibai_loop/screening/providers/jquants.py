@@ -612,7 +612,7 @@ def _to_float(value: Any) -> float | None:
         return None
     try:
         result = float(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
     # J-Quants returns NaN for non-trading days on calendar-aligned payloads;
     # treat NaN as missing so downstream metrics do not propagate it.

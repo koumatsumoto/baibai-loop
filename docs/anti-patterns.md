@@ -228,11 +228,15 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - nested の `valuation.adv_participation_pct` も整合チェック対象外だった
 - `decision: skipped` の packet で `position_size_oku > 0` を要求していたため、
   hypothetical 値と実建玉値が混在
+- `except TypeError, ValueError:` のような Python 2 風に見える except をめぐって、レビューで
+  「構文エラー」なのか「Python 3.14 の PEP 758 による複数例外捕捉」なのかが混乱した。
+  本 repo では可読性とレビュー容易性を優先し、複数例外捕捉は `except (A, B):` に統一する
 
 ### 根本原因
 - validator を「データが揃っている前提」で実装し、欠損時の挙動を「skip」にする
 - corner case (skipped / pending / 0 値 / null) のテストを書かない
 - ユーザ指摘で初めて抜け道に気付く
+- runtime / formatter target の違いを確認せず、構文レビューと formatter 挙動を推測で判断する
 
 ### 再発防止チェックリスト
 
@@ -280,6 +284,8 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
       required 化する
+- [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。
+      commit 前に `rg -n "except [A-Za-z0-9_.]+, [A-Za-z0-9_.]+" src tests` が 0 件であることを確認する
 
 ## 9. AP-09: 外部 AI 分析を検証せず records に取り込む
 

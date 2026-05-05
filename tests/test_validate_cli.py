@@ -42,6 +42,8 @@ def _make_candidates_payload() -> dict[str, object]:
                     "pcfr": "unavailable",
                     "ocf_yield": "unavailable",
                     "sales": "approximated",
+                    "fcf_yield": "unavailable",
+                    "net_cash": "unavailable",
                 },
                 "signals": [
                     {

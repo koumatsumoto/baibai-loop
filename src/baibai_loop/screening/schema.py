@@ -102,10 +102,20 @@ class FinancialSnapshot:
     price_to_equity: float | None = None
     equity_ratio: float | None = None
     ocf_yield: float | None = None
+    net_cash: float | None = None
+    net_cash_to_market_cap: float | None = None
+    fcf_ttm: float | None = None
+    fcf_yield: float | None = None
+    capex_ttm: float | None = None
+    depreciation_and_amortization_ttm: float | None = None
     debt: float | None = None
     cash: float | None = None
     ebitda_ttm: float | None = None
     consolidation_basis: str | None = None
+    edinet_source_doc_id: str | None = None
+    edinet_document_type: str | None = None
+    edinet_capex_source: str | None = None
+    edinet_failure_reasons: str | None = None
     operating_profit: float | None = None
     operating_profit_source: OperatingProfitSource = OperatingProfitSource.NULL
     eps_yoy: float | None = None
@@ -118,6 +128,8 @@ class FinancialSnapshot:
     ttm_quality_pcfr: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_ocf_yield: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_sales: TTMQuality = TTMQuality.UNAVAILABLE
+    ttm_quality_fcf_yield: TTMQuality = TTMQuality.UNAVAILABLE
+    ttm_quality_net_cash: TTMQuality = TTMQuality.UNAVAILABLE
     shares_outstanding: float | None = None
 
     @field_validator(
@@ -140,6 +152,12 @@ class FinancialSnapshot:
         "price_to_equity",
         "equity_ratio",
         "ocf_yield",
+        "net_cash",
+        "net_cash_to_market_cap",
+        "fcf_ttm",
+        "fcf_yield",
+        "capex_ttm",
+        "depreciation_and_amortization_ttm",
         "debt",
         "cash",
         "ebitda_ttm",

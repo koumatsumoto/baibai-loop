@@ -51,7 +51,7 @@ records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
 ```
 
 - `<ticker>`: 4 文字の英数字文字列
-- `<playbook>`: `valuation-reversion` / `cash-rich-asset-discount` / `cashflow-yield-discount` / `sales-discount-growth`
+- `<playbook>`: `valuation-reversion` / `strict-net-cash-discount` / `fcf-yield-discount` / `cash-rich-asset-discount` / `cashflow-yield-discount` / `sales-discount-growth`
 
 ## 4. Front matter 必須項目
 
@@ -59,7 +59,7 @@ records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
 ---
 ticker: "7203"
 name: "トヨタ自動車"
-playbook: valuation-reversion | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth
+playbook: valuation-reversion | strict-net-cash-discount | fcf-yield-discount | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth
 supporting_signals:
   - cashflow-yield-discount
 decision: accepted | skipped | pending
@@ -94,6 +94,8 @@ valuation:
   p_s: 数値 | null
   pcfr: 数値 | null
   ocf_yield: 数値 | null
+  fcf_yield: 数値 | null
+  net_cash_to_market_cap: 数値 | null
   cash_to_market_cap: 数値 | null
   price_to_equity: 数値 | null
   equity_ratio: 数値 | null
@@ -138,8 +140,10 @@ research decision は `baibai-loop-ledger sync` で [`records/_ledger/`](./ledge
 - `macro_gate = headwind` は原則採用不可（outlook で対象業種/地域が `null` の場合は neutral 扱いで判定可）
 - primary signal の割安判定が成立している
 - 反対仮説を考えて「構造的 trap ではない」と説明できる
+- strict net-cash signal では EDINET 由来 debt / cash の tag source と有利子負債の範囲を一次情報で確認している
 - cash-rich signal では有利子負債確認を完了している
-- CF signal では営業 CF の期間正規化、一過性要因、悪化有無を確認している
+- FCF signal では capex source、設備投資の一過性、維持投資 / 成長投資の区別を確認している
+- OCF signal では営業 CF の期間正規化、一過性要因、悪化有無を確認している
 - sales signal では売上成長が残り、営業赤字の場合は CFO プラスまたは赤字縮小が確認できる
 - catalyst は必須ではないが、存在する場合は freshness と一次ソースを記録する
 - crowding が踏み上げリスクと逆回転リスクの両方で許容範囲
