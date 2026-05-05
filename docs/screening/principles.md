@@ -99,11 +99,13 @@ position は **paper proxy layer (1 億円仮想資本)** と **real layer (実�
 | signal 1 つ | 最大 1% | 標準 |
 | signal 2 つ以上 | 最大 2% | 複数の独立した割安根拠が重なる場合のみ |
 
-`adv_participation_pct >= 5.0` は hard reject。現在の実資金が 100-200 万円程度の場合、paper proxy の ADV cap は実運用ではほぼ拘束しないため、検証用の統一尺度として扱う。
+`adv_participation_pct >= 5.0` は hard reject。現在の実資金や tactical cap が小さい場合、paper proxy の ADV cap は実運用ではほぼ拘束しないため、検証用の統一尺度として扱う。
 
 ### 7.2 Real layer
 
 実資金で執行する場合、paper proxy と独立した集中度ルールを満たす。実資金最低投入単位によって soft 推奨を超えることがあり、その場合は本文で「最低投入単位による不可避な超過」を明記する。
+
+`real_capital_yen` は投資可能な実資金全体を分母にする。当面の様子見枠・イベント前の一時的な投入上限を置く場合は、`real_capital_yen` を小さくせず、trade record の `tactical_capital_yen` / `tactical_concentration_pct` に分けて記録する。real concentration は破滅的な単一銘柄集中の管理、tactical concentration は今どこまでリスクを取りに行くかの timing 管理として扱う。
 
 | 区分 | soft 推奨 | hard 上限 (`overrides` 必須) |
 | --- | --- | --- |

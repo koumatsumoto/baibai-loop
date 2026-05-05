@@ -46,6 +46,24 @@ research file の `playbook` は primary thesis を 1 つだけ選ぶ。複数 s
 
 複数 signal hit は採用理由ではなく、検証優先度を上げる材料である。例えば cash-rich と CF が両方 hit しても、有利子負債・運転資本・一過性 CF を一次情報で確認できなければ accepted にしない。
 
+### 2.4 Portfolio macro risk budget
+
+research が実注文や実資金 allocation に直結する場合、`Macro gate` section には sector の
+`tailwind / neutral / headwind` だけでなく、portfolio 全体の risk budget を短く明記する。
+
+最低限、以下を確認する:
+
+- 最新 outlook の base / downside / upside scenario と、現在どの scenario に近いか
+- 今後 1-2 週間の macro trigger（米 CPI / 雇用統計 / FOMC / BOJ / 地政学 / 原油など）
+- その trigger 前に実資金をどこまで投入するか、通過後にどこまで増やすか
+- 投資可能な実資金全体と、一時的な様子見枠・tactical cap を分けているか
+- 同一 sector / 同一 thesis への集中度が、個別銘柄の signal 強度に比べて過大でないか
+- 決算直前の候補を先行買いする場合、取り逃しリスクと event risk のどちらが大きいか
+
+macro gate は「採用可否の boolean」ではなく、position size と timing を決める上位制約として扱う。
+個別銘柄が tailwind でも、downside 確率が高く、主要 macro trigger の直前であれば、初期投入を
+抑え、trigger 通過後に追加する。
+
 ## 3. Path と命名
 
 ```
@@ -158,7 +176,7 @@ research decision は `baibai-loop-ledger sync` で [`records/_ledger/`](./ledge
 - 複数 signal: 最大 2%
 - `adv_participation_pct >= 5.0` は hard reject
 
-現在の実資金が 100-200 万円程度の場合、paper proxy の ADV cap は実運用ではほぼ拘束しない。paper proxy は検証用の統一尺度として残し、実資金の集中度は trade 側の `real_*` fields で別管理する。
+現在の実資金や tactical cap が小さい場合、paper proxy の ADV cap は実運用ではほぼ拘束しない。paper proxy は検証用の統一尺度として残し、実資金の集中度は trade 側の `real_*` / `tactical_*` fields で別管理する。
 
 ## 7. trades への接続
 

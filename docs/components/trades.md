@@ -33,6 +33,8 @@ name: "トヨタ自動車"
 research_ref: records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md  # 必須
 order_date: "YYYY-MM-DD" | null                         # ordered の場合は必須
 expected_fill_at: "ISO 8601" | null                     # ordered の場合は次回立会予定時刻
+order_price_guard_yen: 数値 | null                      # 任意。休場明け / 寄りの最大許容価格
+order_action_required: 文字列 | null                     # 任意。約定前に必要な訂正 / 取消条件
 entry_date: "YYYY-MM-DD" | null                         # ordered では null、open/closed では必須
 entry_price: 数値 | null                                # ordered では null、open/closed では必須
 paper_proxy_position_size_oku: 数値                      # 1 億円 proxy 上の建玉額
@@ -40,6 +42,8 @@ paper_proxy_position_size_pct: 数値                      # paper_proxy_positio
 real_capital_yen: 数値 | null                            # 実資金を使った場合のみ
 real_order_notional_yen: 数値 | null                     # ordered では参照価格ベース、open では約定ベース
 real_concentration_pct: 数値 | null                      # real_order_notional_yen / real_capital_yen * 100
+tactical_capital_yen: 数値 | null                        # 当面の様子見枠・投入上限。real_capital_yen 以下
+tactical_concentration_pct: 数値 | null                  # real_order_notional_yen / tactical_capital_yen * 100
 planned_exit:
   target_price: 数値 | null
   stop_loss: 数値
@@ -58,7 +62,14 @@ kill_switch_check:                                         # entry 時に確認
 - `research_ref` は必須（研究なき執行を禁止）
 - `ordered` は注文済み・未約定の状態。休場中の成行注文、寄成、引成などで価格が未確定なら
   `entry_price` を推定で埋めない
-- `paper_proxy_*` は 1 億円 proxy の記録用。`real_*` は実資金の集中度を表す。両者を混同しない
+- 休場明けや寄り付きで価格上限を置く場合は、`order_price_guard_yen` と
+  `order_action_required` を任意で記録し、本文の order log と一致させる。
+  `order_price_guard_yen` はその trade record の数量を買ってよい最大価格であり、
+  価格帯によって数量を変える場合は本文に減量条件を明示する
+- `paper_proxy_*` は 1 億円 proxy の記録用。`real_*` は実資金全体の集中度を表す。両者を混同しない
+- `real_capital_yen` は投資可能な実資金全体を分母にする。一時的に「今週は 100 万円まで」
+  のような様子見枠を置く場合は `real_capital_yen` を小さくせず、任意 field の
+  `tactical_capital_yen` / `tactical_concentration_pct` に分ける
 - `kill_switch_check` の 3 項目が全て `false` でないと order / entry 不可
 - `status`: `ordered` (注文済み未約定) → `open` (ポジション保有中) → `closed` (決済済み)
 
@@ -89,6 +100,9 @@ uv run baibai-loop-validate --target trade
 - status 値域 (`trade.unknown-status`) と Lifecycle 表に従う null / non-null 整合 (`trade.lifecycle-*`)
 - paper proxy `pct` と `oku` の整合 (`trade.paper-proxy-pct-mismatch`)
 - real layer `concentration_pct` と `notional / capital` の整合 (`trade.real-concentration-mismatch`)
+  および real layer の部分入力禁止 (`trade.real-concentration-missing-field`)
+- tactical layer `tactical_concentration_pct` と `notional / tactical_capital` の整合
+  (`trade.tactical-concentration-*`)
 - real layer 集中度の hard cap (50%) / soft cap (25%) (`trade.real-concentration-{hard,soft}-cap`)
 
 ## 5. 本文の構成

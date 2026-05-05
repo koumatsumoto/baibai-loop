@@ -21,6 +21,8 @@ def _trade_text(
     real_capital_yen: float | None = 500000,
     real_order_notional_yen: float | None = 202800,
     real_concentration_pct: float | None = 40.56,
+    tactical_capital_yen: float | None = None,
+    tactical_concentration_pct: float | None = None,
     exit_date: str | None = None,
     exit_price: float | None = None,
     pnl_pct: float | None = None,
@@ -45,6 +47,8 @@ paper_proxy_position_size_pct: {paper_proxy_position_size_pct}
 real_capital_yen: {fmt(real_capital_yen)}
 real_order_notional_yen: {fmt(real_order_notional_yen)}
 real_concentration_pct: {fmt(real_concentration_pct)}
+tactical_capital_yen: {fmt(tactical_capital_yen)}
+tactical_concentration_pct: {fmt(tactical_concentration_pct)}
 status: {status}
 exit_date: {fmt(exit_date)}
 exit_price: {fmt(exit_price)}
@@ -107,6 +111,15 @@ def test_real_concentration_inconsistent_with_notional_is_flagged(tmp_path: Path
     assert "trade.real-concentration-mismatch" in codes
 
 
+def test_partial_real_fields_are_flagged(tmp_path: Path) -> None:
+    path = _write_trade(
+        tmp_path,
+        _trade_text(real_capital_yen=None, real_concentration_pct=None),
+    )
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.real-concentration-missing-field" in codes
+
+
 def test_real_concentration_above_hard_cap_is_error(tmp_path: Path) -> None:
     path = _write_trade(
         tmp_path,
@@ -129,6 +142,50 @@ def test_real_concentration_above_soft_cap_is_warning(tmp_path: Path) -> None:
     soft_cap_warnings = [f for f in findings if f.code == "trade.real-concentration-soft-cap"]
     assert soft_cap_warnings
     assert soft_cap_warnings[0].severity == "warning"
+
+
+def test_tactical_concentration_inconsistent_with_notional_is_flagged(tmp_path: Path) -> None:
+    path = _write_trade(
+        tmp_path,
+        _trade_text(
+            real_capital_yen=5000000,
+            real_order_notional_yen=202800,
+            real_concentration_pct=4.06,
+            tactical_capital_yen=1000000,
+            tactical_concentration_pct=40.56,
+        ),
+    )
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.tactical-concentration-mismatch" in codes
+
+
+def test_tactical_capital_must_not_exceed_real_capital(tmp_path: Path) -> None:
+    path = _write_trade(
+        tmp_path,
+        _trade_text(
+            real_capital_yen=1000000,
+            real_order_notional_yen=202800,
+            real_concentration_pct=20.28,
+            tactical_capital_yen=5000000,
+            tactical_concentration_pct=4.06,
+        ),
+    )
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.tactical-capital-exceeds-real-capital" in codes
+
+
+def test_partial_tactical_fields_are_flagged(tmp_path: Path) -> None:
+    path = _write_trade(
+        tmp_path,
+        _trade_text(
+            real_capital_yen=5000000,
+            real_order_notional_yen=202800,
+            real_concentration_pct=4.06,
+            tactical_capital_yen=1000000,
+        ),
+    )
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.tactical-concentration-missing-field" in codes
 
 
 def test_filename_date_must_match_order_date(tmp_path: Path) -> None:

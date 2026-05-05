@@ -4,6 +4,8 @@ name: "..."
 research_ref: records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
 order_date: "YYYY-MM-DD" | null
 expected_fill_at: "ISO 8601" | null
+order_price_guard_yen: 数値 | null
+order_action_required: 文字列 | null
 entry_date: "YYYY-MM-DD" | null
 entry_price: 数値 | null
 paper_proxy_position_size_oku: 数値
@@ -11,6 +13,8 @@ paper_proxy_position_size_pct: 数値
 real_capital_yen: 数値 | null
 real_order_notional_yen: 数値 | null
 real_concentration_pct: 数値 | null
+tactical_capital_yen: 数値 | null
+tactical_concentration_pct: 数値 | null
 planned_exit:
   target_price: 数値 | null
   stop_loss: 数値
@@ -57,7 +61,8 @@ kill_switch_check:
 ### 1.4 Position
 
 - Paper proxy size: X.X% / X.XXXX 億円
-- Real concentration: X.X%（実資金を使った場合のみ）
+- Real concentration: X.X%（実資金全体を使った場合のみ）
+- Tactical concentration: X.X%（一時的な投入上限を置く場合のみ）
 - Stop loss: XXXXX 円（-X%）
 - Target: XXXXX 円（+X%）
 - Time stop: YYYY-MM-DD まで（最長 40 営業日）
