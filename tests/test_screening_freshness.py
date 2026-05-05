@@ -4,8 +4,10 @@ import json
 import sys
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -16,6 +18,7 @@ from baibai_loop.screening.freshness import (
     detect_edinet_freshness_warnings,
     load_disclosure_events,
 )
+from baibai_loop.screening.providers.edinet import EDINETProvider
 from baibai_loop.screening.schema import FinancialSnapshot
 
 
@@ -69,6 +72,52 @@ class ScreeningFreshnessTests(unittest.TestCase):
             self.assertEqual(result.unsupported_record_count, 0)
             self.assertEqual(result.load_errors, ())
             self.assertEqual(result.events_by_ticker["3678"][0].title, "資金の借入に関するお知らせ")
+
+    def test_issue_94_3678_real_candidate_gets_freshness_warnings(self) -> None:
+        payload = yaml.safe_load(
+            (ROOT / "records/03-candidates/2026/05/2026-05-01.yaml").read_text(encoding="utf-8")
+        )
+        candidate = next(item for item in payload["candidates"] if item["ticker"] == "3678")
+        signal_names = {signal["name"] for signal in candidate["signals"]}
+        self.assertLessEqual(
+            {
+                "strict-net-cash-discount",
+                "cash-rich-asset-discount",
+                "sales-discount-growth",
+                "valuation-reversion",
+            },
+            signal_names,
+        )
+
+        candidate_source_submit_datetime = _datetime_text(
+            candidate["metrics"]["edinet_source_submit_datetime"]
+        )
+        self.assertEqual(candidate_source_submit_datetime, "2025-10-15 16:01")
+        edinet_records = EDINETProvider(
+            None,
+            ROOT / "records/_data/raw/screening",
+        ).load_metric_records(date(2026, 5, 1))
+        source_submit_datetime = edinet_records["3678"].source_submit_datetime
+        self.assertEqual(source_submit_datetime, candidate_source_submit_datetime)
+
+        events = load_disclosure_events(
+            ROOT / "records/_data/raw/screening/disclosures",
+            asof_date=date(2026, 5, 1),
+        )
+        warnings = detect_edinet_freshness_warnings(
+            ticker="3678",
+            financial=_financial(source_submit_datetime),
+            events_by_ticker=events.events_by_ticker,
+            asof_date=date(2026, 5, 1),
+        )
+
+        self.assertEqual(events.file_count, 1)
+        self.assertEqual(events.event_count, 2)
+        self.assertEqual(
+            [(warning.event_date.isoformat(), warning.event_kind) for warning in warnings],
+            [("2026-03-02", "m_and_a"), ("2026-03-03", "borrowing")],
+        )
+        self.assertEqual({warning.stale_metric for warning in warnings}, {"edinet_metrics"})
 
     def test_detect_edinet_freshness_warnings_includes_same_day_events(self) -> None:
         events = load_disclosure_events(
@@ -173,3 +222,9 @@ def _fixture_root(records: list[dict[str, str]]) -> Path:
     path = root / "events.json"
     path.write_text(json.dumps(records), encoding="utf-8")
     return root
+
+
+def _datetime_text(value: object) -> str:
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M")
+    return str(value)
