@@ -295,6 +295,9 @@ def _strict_net_cash_discount(
     if financial.ttm_quality_net_cash == TTMQuality.UNAVAILABLE:
         null_reasons.append("strict_net_cash_unavailable")
         return None
+    if _has_edinet_failure_reason(financial, "debt_assumed_zero"):
+        null_reasons.append("strict_net_cash_debt_assumed_zero")
+        return None
     if financial.net_cash_to_market_cap is None:
         null_reasons.append("strict_net_cash_missing_net_cash_to_market_cap")
         return None
@@ -417,6 +420,13 @@ def _sales_operating_profit_gate(
         (financial.ocf_ttm is not None and financial.ocf_ttm > 0)
         or financial.operating_profit_loss_narrowing
     )
+
+
+def _has_edinet_failure_reason(financial: FinancialSnapshot, reason: str) -> bool:
+    reasons = financial.edinet_failure_reasons
+    if reasons is None:
+        return False
+    return reason in {item.strip() for item in reasons.split(",") if item.strip()}
 
 
 def _has_deterioration(financial: FinancialSnapshot, deterioration_threshold: float) -> bool:

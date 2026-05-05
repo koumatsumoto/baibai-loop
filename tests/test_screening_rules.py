@@ -236,6 +236,22 @@ class ScreeningRulesTests(unittest.TestCase):
         self.assertNotIn(SIGNAL_STRICT_NET_CASH, [signal.name for signal in result.signals])
         self.assertIn("strict_net_cash_unavailable", result.null_reasons)
 
+    def test_strict_net_cash_discount_rejects_assumed_zero_debt(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                net_cash=120.0,
+                net_cash_to_market_cap=0.35,
+                price_to_equity=0.8,
+                equity_ratio=0.5,
+                operating_profit=10.0,
+                edinet_failure_reasons="debt_assumed_zero",
+            ),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertNotIn(SIGNAL_STRICT_NET_CASH, [signal.name for signal in result.signals])
+        self.assertIn("strict_net_cash_debt_assumed_zero", result.null_reasons)
+
     def test_fcf_yield_discount_hits(self) -> None:
         result = evaluate_screening(
             _financial(fcf_ttm=100.0, fcf_yield=0.1, cfo_yoy=0.2),

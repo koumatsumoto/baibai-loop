@@ -58,8 +58,8 @@ candidates:
       sales_ttm: 100000000000.0
       ocf_ttm: 13000000000.0
       cash_to_market_cap: 0.42
-      net_cash: 12000000000.0
-      net_cash_to_market_cap: 0.21
+      net_cash: null
+      net_cash_to_market_cap: null
       price_to_equity: 0.82
       equity_ratio: 0.45
       ocf_yield: 0.13

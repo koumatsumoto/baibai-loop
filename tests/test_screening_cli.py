@@ -458,6 +458,38 @@ class ScreeningCliTests(unittest.TestCase):
             self.assertEqual(payload[0]["fcf_ttm"], 700.0)
             self.assertIn("1 records", buffer.getvalue())
 
+    def test_extract_edinet_metrics_command_returns_zero_for_quality_issues(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = Path(tmpdir) / "raw"
+            provider = FakeEDINETProvider(
+                documents=[
+                    {
+                        "docID": "S100TEST",
+                        "secCode": "96820",
+                        "docTypeCode": "120",
+                        "csvFlag": "1",
+                        "xbrlFlag": "1",
+                        "submitDateTime": "2026-04-01 12:00",
+                    }
+                ],
+                zip_by_doc_id={"S100TEST": _edinet_csv_zip(include_debt=False)},
+            )
+            buffer = io.StringIO()
+            exit_code = extract_edinet_metrics_command(
+                asof_date=date(2026, 4, 24),
+                lookback_days=0,
+                provider=provider,
+                cache_dir=cache_dir,
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(
+                (cache_dir / "edinet" / "metrics" / "2026-04-24.json").read_text(encoding="utf-8")
+            )
+            self.assertIn("debt_assumed_zero", payload[0]["failure_reasons"])
+            self.assertIn("1 records with quality issues", buffer.getvalue())
+
 
 class IndexNextEarningsTests(unittest.TestCase):
     def test_picks_earliest_future_announcement_per_ticker(self) -> None:
@@ -487,7 +519,7 @@ class IndexNextEarningsTests(unittest.TestCase):
         self.assertEqual(result, {"ABCD": date(2026, 5, 13)})
 
 
-def _edinet_csv_zip() -> bytes:
+def _edinet_csv_zip(*, include_debt: bool = True) -> bytes:
     rows = [
         ("jpcrp_cor:NetSales", "CurrentYearDuration_ConsolidatedMember", "1000"),
         (
@@ -497,8 +529,6 @@ def _edinet_csv_zip() -> bytes:
         ),
         ("jpcrp_cor:OperatingProfit", "CurrentYearDuration_ConsolidatedMember", "150"),
         ("jpcrp_cor:CashAndDeposits", "CurrentYearInstant_ConsolidatedMember", "1000"),
-        ("jpcrp_cor:ShortTermBorrowings", "CurrentYearInstant_ConsolidatedMember", "100"),
-        ("jpcrp_cor:LongTermBorrowings", "CurrentYearInstant_ConsolidatedMember", "300"),
         (
             "jpcrp_cor:PurchaseOfPropertyPlantAndEquipment",
             "CurrentYearDuration_ConsolidatedMember",
@@ -508,6 +538,13 @@ def _edinet_csv_zip() -> bytes:
         ("jpcrp_cor:TotalAssets", "CurrentYearInstant_ConsolidatedMember", "2000"),
         ("jpcrp_cor:DepreciationAndAmortization", "CurrentYearDuration_ConsolidatedMember", "50"),
     ]
+    if include_debt:
+        rows.extend(
+            [
+                ("jpcrp_cor:ShortTermBorrowings", "CurrentYearInstant_ConsolidatedMember", "100"),
+                ("jpcrp_cor:LongTermBorrowings", "CurrentYearInstant_ConsolidatedMember", "300"),
+            ]
+        )
     text = "要素ID\tコンテキストID\t値\n" + "\n".join("\t".join(row) for row in rows)
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:

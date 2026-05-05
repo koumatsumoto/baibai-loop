@@ -74,7 +74,9 @@ EDINET `type=5` CSV-derived metrics から以下を抽出する。
 - `net_cash = cash - debt`
 - `fcf_ttm = ocf_ttm - capex_ttm`
 
-`strict-net-cash-discount` は `ttm_quality_net_cash != unavailable` のときだけ判定する。Net cash は balance sheet snapshot なので、半期・四半期の最新値も research で確認する前提で許容する。`fcf-yield-discount` は `ttm_quality_fcf_yield = exact` のときだけ判定する。FCF は TTM 必須であり、半期・四半期の単一期間値を annualize して機械判定しない。tag 欠損、CSV parse 失敗、非連結 fallback は `failure_reasons` と coverage report に残し、候補判定では無理に推定しない。
+`strict-net-cash-discount` は `ttm_quality_net_cash != unavailable` かつ `failure_reasons` に `debt_assumed_zero` がないときだけ判定する。Debt tag が見つからない場合は debt を 0 と推定せず、net cash は unavailable として strict lane から除外する。一方で、CSV 上に debt element があり値が `0` / `－` などのゼロ表記で報告されている場合は、報告ゼロとして debt 0 を許容する。Net cash は balance sheet snapshot なので、半期・四半期の最新値も research で確認する前提で許容する。
+
+`fcf-yield-discount` は `ttm_quality_fcf_yield = exact` のときだけ判定する。FCF は TTM 必須であり、半期・四半期の単一期間値を annualize して機械判定しない。tag 欠損、CSV parse 失敗、非連結 fallback は `failure_reasons` と coverage report に残し、候補判定では無理に推定しない。
 
 ## 8. 業種中央値の算出
 

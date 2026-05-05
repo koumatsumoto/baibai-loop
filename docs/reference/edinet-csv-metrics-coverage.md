@@ -55,37 +55,65 @@ EDINET metrics extraction:
 | item | count |
 | --- | ---: |
 | selected filings | 3,999 |
-| `net_cash` available | 3,764 |
-| `fcf_ttm` available | 3,298 |
-| `sales_ttm` available | 3,483 |
-| `ebitda_ttm` available | 3,544 |
-| `total_assets` available | 3,765 |
-| `ttm_quality_net_cash = exact` | 1,290 |
-| `ttm_quality_net_cash = approximated` | 2,474 |
-| `ttm_quality_fcf = exact` | 1,129 |
-| `ttm_quality_fcf = approximated` | 2,169 |
+| metrics records | 3,999 |
+| `net_cash` available | 3,205 |
+| `fcf_ttm` available | 3,295 |
+| `sales_ttm` available | 3,476 |
+| `ebitda_ttm` available | 3,538 |
+| `total_assets` available | 3,753 |
+| `ttm_quality_net_cash = exact` | 825 |
+| `ttm_quality_net_cash = approximated` | 2,380 |
+| `ttm_quality_net_cash = unavailable` | 794 |
+| `ttm_quality_fcf = exact` | 829 |
+| `ttm_quality_fcf = approximated` | 2,466 |
+| `ttm_quality_fcf = unavailable` | 704 |
 
 Top `failure_reasons`:
 
 | reason | count | interpretation |
 | --- | ---: | --- |
-| `debt_assumed_zero` | 2,990 | debt line item が CSV に無く、cash が取れているため 0 として扱った。research では有利子負債を一次確認する |
-| `non_consolidated_fallback` | 796 | 連結行が無く単体値で fallback |
-| `tag_not_found:capex` | 701 | FCF 判定不可 |
-| `tag_not_found:sales` | 516 | P/S / sales 補完不可 |
-| `tag_not_found:ocf` | 312 | OCF / FCF 判定不可 |
+| `non_consolidated_fallback` | 799 | 連結行が無く単体値で fallback |
+| `tag_not_found:capex` | 704 | FCF 判定不可 |
+| `debt_assumed_zero` | 547 | cash は取れたが debt element が見つからない。strict net-cash 判定では使わない |
+| `tag_not_found:sales` | 523 | P/S / sales 補完不可 |
+| `tag_not_found:ocf` | 313 | OCF / FCF 判定不可 |
+| `tag_not_found:cash` | 247 | net cash 判定不可 |
+| `tag_not_found:debt` | 246 | net cash 判定不可 |
 
 Screening result:
 
 | item | count |
 | --- | ---: |
 | universe | 1,347 |
-| candidates | 409 |
-| `valuation-reversion` | 100 |
-| `strict-net-cash-discount` | 87 |
-| `fcf-yield-discount` | 18 |
+| candidates | 370 |
+| candidates vs pre-EDINET #87 sample | +23 |
+| new tickers vs pre-EDINET #87 sample | 23 |
+| `valuation-reversion` | 94 |
+| `strict-net-cash-discount` | 20 |
+| `strict-net-cash-discount` new vs pre-EDINET #87 sample | 12 |
+| `strict-net-cash-discount` exclusive | 12 |
+| `strict-net-cash-discount` with `debt_assumed_zero` | 0 |
+| `fcf-yield-discount` | 14 |
+| `fcf-yield-discount` new vs pre-EDINET #87 sample | 2 |
+| `fcf-yield-discount` exclusive | 1 |
 | `cash-rich-asset-discount` | 31 |
 | `cashflow-yield-discount` | 183 |
 | `sales-discount-growth` | 132 |
 
-初回 run では `strict-net-cash-discount` が 87 件、`fcf-yield-discount` が 18 件出ており、Issue #87 の「PER / PBR だけでは拾えないお買い得候補」を広げる目的には接続できている。一方で `debt_assumed_zero` が多いため、strict net-cash candidate の research では有利子負債の一次確認を必須にする。FCF lane は `ttm_quality_fcf = exact` のみで hit させ、半期・四半期の単一期間値は screening 採用しない。
+Document selection audit:
+
+| item | count |
+| --- | ---: |
+| old correction overriding newer different-period filing | 0 |
+
+Initial PR #93 実装では `strict-net-cash-discount` が 87 件出ていたが、そのうち 61 件が `debt_assumed_zero` に依存していた。これは strict lane として false positive risk が高いため、debt element が見つからない銘柄は strict 判定から除外した。修正後は strict hit が 20 件へ減ったが、`debt_assumed_zero` 依存は 0 件になった。候補数を増やすよりも、research 工数を投じる価値のある net-cash 候補に絞る判断である。
+
+FCF lane は `ttm_quality_fcf = exact` のみで hit させ、半期・四半期の単一期間値は screening 採用しない。修正後は 14 件 hit、既存候補外 2 件、exclusive 1 件で、現時点の独自発見力は限定的。ただし OCF だけでは設備投資負担を見誤るため、FCF が exact に取れる銘柄の quality lane として残す。
+
+Candidate sanity check:
+
+| ticker | observation |
+| --- | --- |
+| 4008 | 初期 PR #93 では debt 抽出漏れにより strict hit していたが、`ShortTermLoansPayable` 等を debt に含めた後は候補外。false positive 削減として妥当 |
+| 3151 | 初期 PR #93 では old correction / debt 抽出漏れの影響を受けていたが、修正後は候補外 |
+| 9682 | 引き続き `sales-discount-growth` 候補。EDINET metrics は `debt_assumed_zero` のため strict net-cash thesis は強めない。FCF yield も 2.7% 程度で FCF lane には不十分 |

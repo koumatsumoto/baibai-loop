@@ -57,6 +57,7 @@ EDINET `type=5` CSV から抽出した cash と interest-bearing debt を使い�
 - `equity_ratio` が閾値以上
 - 営業赤字ではない
 - `ttm_quality_net_cash != unavailable`
+- `edinet_failure_reasons` に `debt_assumed_zero` が含まれない
 
 銀行・証券・保険・その他金融、電気・ガス業は除外する。金融業の負債は通常の事業会社の有利子負債と同じ意味で読めず、電気・ガス業は規制・設備投資・燃料費調整を見ないと net cash の下値余地を機械判定しにくいため。
 

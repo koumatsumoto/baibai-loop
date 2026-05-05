@@ -352,7 +352,7 @@ def main(argv: list[str] | None = None) -> int:
                 config.cache_dir,
                 sqlite_path=sqlite_path,
             )
-            if config.edinet_api_key
+            if config.edinet_api_key or args.command == "run"
             else None
         ),
         jpx=JPXProvider(
@@ -1208,7 +1208,8 @@ def extract_edinet_metrics_command(
 
     candidates = select_document_candidates(documents)
     records: list[EdinetMetricRecord] = []
-    failure_count = 0
+    hard_failure_count = 0
+    quality_issue_count = 0
     for candidate in sorted(candidates.values(), key=lambda item: item.ticker):
         parse_failed = False
         try:
@@ -1220,7 +1221,7 @@ def extract_edinet_metrics_command(
                 content=content,
             )
         except (EDINETProviderError, OSError, ValueError) as exc:
-            failure_count += 1
+            hard_failure_count += 1
             record = EdinetMetricRecord(
                 ticker=candidate.ticker,
                 source_doc_id=candidate.doc_id,
@@ -1229,7 +1230,7 @@ def extract_edinet_metrics_command(
             )
             parse_failed = True
         if record.failure_reasons and not parse_failed:
-            failure_count += 1
+            quality_issue_count += 1
         records.append(record)
 
     output_path = cache_dir / "edinet" / "metrics" / f"{asof_date.isoformat()}.json"
@@ -1240,10 +1241,12 @@ def extract_edinet_metrics_command(
     )
     print(
         f"wrote {output_path}: {len(records)} records "
-        f"from {len(candidates)} selected filings; {failure_count} records with failures",
+        f"from {len(candidates)} selected filings; "
+        f"{hard_failure_count} hard failures; "
+        f"{quality_issue_count} records with quality issues",
         file=out,
     )
-    return 2 if failure_count else 0
+    return 1 if hard_failure_count else 0
 
 
 def _metric_record_payload(record: EdinetMetricRecord) -> dict[str, object]:

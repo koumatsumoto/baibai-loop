@@ -103,6 +103,8 @@ class EdinetDocumentCandidate:
     doc_id: str
     doc_type_code: str
     submit_datetime: str | None = None
+    period_start: date | None = None
+    period_end: date | None = None
 
     @field_validator("ticker", mode="before")
     @classmethod
@@ -115,7 +117,7 @@ class EDINETProvider:
 
     def __init__(
         self,
-        api_key: str,
+        api_key: str | None,
         cache_dir: Path,
         session: requests.Session | None = None,
         *,
@@ -145,11 +147,12 @@ class EDINETProvider:
                 raise EDINETProviderError("cached EDINET document payload must be a list")
             return _coerce_document_items(payload, source="cached EDINET")
 
+        api_key = self._require_api_key("list_documents")
         query = urlencode(
             {
                 "date": on_date.isoformat(),
                 "type": 2,
-                "Subscription-Key": self._api_key,
+                "Subscription-Key": api_key,
             }
         )
         url = f"{EDINET_API_BASE}/documents.json?{query}"
@@ -193,12 +196,18 @@ class EDINETProvider:
         if cache_path.exists():
             return cache_path.read_bytes()
 
-        query = urlencode({"type": 5, "Subscription-Key": self._api_key})
+        api_key = self._require_api_key("download_csv_zip")
+        query = urlencode({"type": 5, "Subscription-Key": api_key})
         url = f"{EDINET_API_BASE}/documents/{doc_id}?{query}"
         content = self._request_bytes(url)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_bytes(content)
         return content
+
+    def _require_api_key(self, operation: str) -> str:
+        if not self._api_key:
+            raise EDINETProviderError(f"EDINET_API_KEY is required for {operation}")
+        return self._api_key
 
     def _request_json(self, url: str) -> dict[str, Any]:
         max_attempts = 3
@@ -314,6 +323,8 @@ def select_document_candidates(
             doc_id=str(raw_doc_id),
             doc_type_code=raw_type,
             submit_datetime=_to_str_or_none(_coalesce(document, "submitDateTime")),
+            period_start=_parse_optional_date(_coalesce(document, "periodStart", "period_start")),
+            period_end=_parse_optional_date(_coalesce(document, "periodEnd", "period_end")),
         )
         current = candidates.get(ticker)
         if current is None or _document_sort_key(candidate) > _document_sort_key(current):
@@ -349,7 +360,7 @@ def parse_csv_zip_metric_record(
     cash = _single_metric(rows, _TAGS["cash"], basis=basis)
     equity = _single_metric(rows, _TAGS["equity"], basis=basis)
     total_assets = _single_metric(rows, _TAGS["total_assets"], basis=basis)
-    debt = _sum_metric(rows, _TAGS["debt"], basis=basis)
+    debt = _debt_metric(rows, basis=basis)
     depreciation = _sum_metric(rows, _TAGS["depreciation"], basis=basis)
     capex = _sum_metric(rows, _TAGS["capex"], basis=basis)
     capex_abs = abs(capex) if capex is not None else None
@@ -360,8 +371,6 @@ def parse_csv_zip_metric_record(
     )
     fcf = ocf - capex_abs if ocf is not None and capex_abs is not None else None
     debt_assumed_zero = debt is None and cash is not None
-    if debt_assumed_zero:
-        debt = 0.0
     net_cash = cash - debt if cash is not None and debt is not None else None
 
     for name, value in (
@@ -445,9 +454,19 @@ def _is_unusable_status(document: Mapping[str, Any]) -> bool:
     )
 
 
-def _document_sort_key(candidate: EdinetDocumentCandidate) -> tuple[int, str, str]:
+def _document_sort_key(
+    candidate: EdinetDocumentCandidate,
+) -> tuple[int, date, int, date, str, int, str]:
     correction = 1 if candidate.doc_type_code in CORRECTION_DOC_TYPE_CODES else 0
-    return (correction, candidate.submit_datetime or "", candidate.doc_id)
+    return (
+        1 if candidate.period_end is not None else 0,
+        candidate.period_end or date.min,
+        1 if candidate.period_start is not None else 0,
+        candidate.period_start or date.min,
+        candidate.submit_datetime or "",
+        correction,
+        candidate.doc_id,
+    )
 
 
 _TAGS: dict[str, tuple[str, ...]] = {
@@ -457,13 +476,23 @@ _TAGS: dict[str, tuple[str, ...]] = {
     "cash": ("cashanddeposits", "cashandcashequivalents"),
     "equity": ("equity", "totalequity", "netassets"),
     "total_assets": ("totalassets", "assets"),
-    "debt": (
+    "debt_total": (
+        "interestbearingdebt",
+        "interestbearingliabilities",
+    ),
+    "debt_components": (
         "shorttermborrowings",
+        "shorttermloanspayable",
         "currentportionoflongtermborrowings",
+        "currentportionoflongtermloanspayable",
         "currentportionofbonds",
+        "currentportionofbondspayable",
         "bondspayable",
         "longtermborrowings",
+        "longtermloanspayable",
         "leaseobligations",
+        "leaseobligationscl",
+        "leaseobligationsncl",
     ),
     "depreciation": (
         "depreciationandamortization",
@@ -535,6 +564,18 @@ def _sum_metric(
     return sum(values) if values else None
 
 
+def _debt_metric(rows: Sequence[Mapping[str, str]], *, basis: str) -> float | None:
+    total = _single_metric(rows, _TAGS["debt_total"], basis=basis)
+    if total is not None:
+        return total
+    components = _sum_metric(rows, _TAGS["debt_components"], basis=basis)
+    if components is not None:
+        return components
+    if _has_zero_like_metric(rows, (*_TAGS["debt_total"], *_TAGS["debt_components"]), basis=basis):
+        return 0.0
+    return None
+
+
 def _best_metric_values_by_element(
     rows: Sequence[Mapping[str, str]],
     tags: tuple[str, ...],
@@ -578,6 +619,27 @@ def _ranked_metric_values(
     return values
 
 
+def _has_zero_like_metric(
+    rows: Sequence[Mapping[str, str]],
+    tags: tuple[str, ...],
+    *,
+    basis: str,
+) -> bool:
+    found = False
+    for row in rows:
+        raw_element = _row_element(row)
+        if not _element_matches(raw_element, tags):
+            continue
+        if basis == "consolidated" and not _is_consolidated_row(row):
+            continue
+        if basis == "non_consolidated" and _is_consolidated_row(row):
+            continue
+        found = True
+        if not _is_zero_like(_row_value(row)):
+            return False
+    return found
+
+
 def _row_element(row: Mapping[str, str]) -> str:
     return str(_coalesce(row, "要素ID", "element_id", "ElementID", "elementId") or "")
 
@@ -593,6 +655,10 @@ def _row_basis(row: Mapping[str, str]) -> str:
 def _row_value(row: Mapping[str, str]) -> str | None:
     value = _coalesce(row, "値", "value", "Value", "金額")
     return str(value) if value is not None else None
+
+
+def _is_zero_like(value: str | None) -> bool:
+    return str(value or "").strip().replace(",", "") in {"0", "0.0", "-", "－", "―", "–"}
 
 
 def _normalize_element(value: str) -> str:
@@ -637,6 +703,17 @@ def _parse_ttm_quality(value: Any) -> TTMQuality:
         return TTMQuality(raw)
     except ValueError:
         return TTMQuality.UNAVAILABLE
+
+
+def _parse_optional_date(value: Any) -> date | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
 
 
 def _to_float(value: Any) -> float | None:

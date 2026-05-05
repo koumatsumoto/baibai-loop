@@ -9,6 +9,7 @@ generated_by: "screening-cli-v1"
 data_sources:
 - "j-quants-light"
 - "jpx-public-regulation"
+- "edinet-preprocessed-metrics"
 run_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 run_id: "screening-YYYYMMDD-xxxxxxxx"
 config_hash: "0123456789abcdef"
@@ -33,11 +34,11 @@ candidates:
   metrics:
     sales_ttm: 100000000000.0
     ocf_ttm: 13000000000.0
-    cash_eq: 24000000000.0
-    cash: 24000000000.0
+    cash_eq: 32000000000.0
+    cash: 32000000000.0
     debt: 12000000000.0
-    net_cash: 12000000000.0
-    net_cash_to_market_cap: 0.21
+    net_cash: 20000000000.0
+    net_cash_to_market_cap: 0.34
     total_assets: 180000000000.0
     equity: 72000000000.0
     cash_to_market_cap: 0.42
@@ -51,7 +52,7 @@ candidates:
     edinet_source_doc_id: S100XXXX
     edinet_document_type: "120"
     edinet_capex_source: purchase_of_fixed_assets
-    edinet_failure_reasons: debt_assumed_zero
+    edinet_failure_reasons: null
     cfo_yoy: 0.08
     sales_yoy: 0.12
     operating_profit: 9000000000.0
@@ -79,8 +80,8 @@ candidates:
     pcfr: approximated
     ocf_yield: approximated
     sales: approximated
-    fcf_yield: unavailable
-    net_cash: unavailable
+    fcf_yield: exact
+    net_cash: exact
   signals:
   - name: valuation-reversion
     playbook: valuation-reversion
@@ -103,10 +104,10 @@ candidates:
     reasons:
     - net_cash_to_market_cap_price_to_equity_and_equity_ratio
     metrics:
-      net_cash_to_market_cap: 0.21
-      net_cash: 12000000000.0
+      net_cash_to_market_cap: 0.34
+      net_cash: 20000000000.0
       debt: 12000000000.0
-      cash: 24000000000.0
+      cash: 32000000000.0
   - name: fcf-yield-discount
     playbook: fcf-yield-discount
     reasons:
@@ -120,7 +121,7 @@ fact_memo_lines:
 - "[事実メモ]"
 provider_status_lines:
 - "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX"
-- "EDINET preprocessed metrics: optional unavailable"
+- "EDINET preprocessed metrics: available"
 universe_exclusion_lines:
 - "universe 除外件数: 上場 182 日未満=0, 売買代金不足=0"
 ttm_quality_counts:

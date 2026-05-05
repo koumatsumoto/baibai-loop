@@ -15,7 +15,7 @@ EDINET CSV-derived metrics の cash と interest-bearing debt を使い、厳密
 ## Entry Focus
 
 - `net_cash_to_market_cap`、`price_to_equity`、`equity_ratio` が screening rule を満たす。
-- EDINET 由来の debt / cash が取得できている。
+- EDINET 由来の debt / cash が取得できており、debt を未検出から 0 と仮定した `debt_assumed_zero` ではない。
 - 営業赤字ではない。
 - 金融、電気・ガスなど balance sheet の意味が通常事業会社と異なる業種ではない。
 
