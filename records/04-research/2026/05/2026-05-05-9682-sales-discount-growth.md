@@ -3,7 +3,7 @@ ticker: "9682"
 name: "ＤＴＳ"
 playbook: sales-discount-growth
 supporting_signals: []
-decision: pending
+decision: accepted
 candidates_ref: records/03-candidates/2026/05/2026-05-01.yaml
 outlook_ref: records/02-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
 brief_refs:
@@ -28,6 +28,8 @@ valuation:
   p_s: 1.23
   pcfr: 18.6
   ocf_yield: 0.0537
+  fcf_yield: 0.0274
+  net_cash_to_market_cap: null
   cash_to_market_cap: 0.1767
   price_to_equity: 2.5699
   equity_ratio: 0.7589
@@ -44,7 +46,7 @@ valuation:
 
 情報・通信業の macro gate は 2026-05-04 outlook で tailwind。9682 DTS は PER/PBR/CF ではなく、P/S 1.23、業種中央値比 -45.5%、売上 YoY +7.4%、営業黒字という `sales-discount-growth` 単独 signal で拾われた。5/1 の決算、増配、自己株式取得・消却が確認でき、今回の screening redesign が「PER/PBR 以外のお買い得」を拾う目的には合っている。
 
-ただし、DTS 自体の採用判定は pending。理由は、P/S の業種比較が情報・通信業全体に対する比較で、SIer と SaaS/通信/高成長ソフトウェアが混ざるため、P/S discount の一部は事業モデル差の可能性があるため。5/1 15:30 開示後の価格反応を次営業日で確認してから accepted にする。
+採用判定は accepted。ただし「9682 を最大確信銘柄として集中」ではなく、50 万円上限の実資金では 100 株だけ採用する。理由は、9682 は global rank 112/307、sales lane 40/114 の single signal で、P/S discount の一部は SIer 事業モデル差の可能性があるため。一方で、決算・増配・自己株式取得が同時に確認でき、次回 1Q は 8 月予定で決算またぎ kill switch まで時間がある。銘柄数を先に決めるのではなく、安定 SIer + shareholder return 枠として 100 株だけならお買い得候補として成立すると判断する。
 
 ## Macro gate
 
@@ -67,12 +69,14 @@ valuation:
 | PER trailing | 13.9 | 補助。valuation-reversion は未 hit |
 | PBR | 2.54 | 資産割安ではない |
 | OCF yield | 5.37% | CF 割安 lane は未 hit |
+| FCF yield | 2.74% | FCF 割安 lane は未 hit |
 
 一次確認:
 
 - 2026/3 期決算短信: 売上高 135,213 百万円、営業利益 16,434 百万円、親会社株主帰属当期純利益 11,644 百万円、ROE 19.2%、営業利益率 12.2%、営業 CF 8,929 百万円、現金同等物 29,381 百万円。
 - 2027/3 期会社計画: 売上高 142,000 百万円、営業利益 17,000 百万円、当期純利益 11,700 百万円、EPS 75.00 円。
 - 候補 YAML: 2026-05-01 終値ベースで時価総額 1,663 億円、60 営業日 -18.8%、P/S 1.23。
+- 新 screening selection: 9682 は after-outlook の global rank 112/307、sales-discount-growth lane 40/114。候補ではあるが、上位 lane candidate ではない。
 
 Source:
 
@@ -131,12 +135,23 @@ Source:
 
 ## Entry
 
-pending 条件:
+採用条件:
 
-- 5/1 15:30 の決算・増配・自己株式取得発表後、次営業日の寄り付きと終値を確認する。
-- 1,014 円近辺から過度に gap up せず、1,000-1,080 円台で出来高が 20 日平均を大きく下回らないこと。
-- 決算説明資料または有報で営業 CF 減少要因が一過性または運転資本要因として説明可能であること。
-- P/S discount の比較対象を、情報・通信業全体ではなく SIer / IT services peer に絞っても割高でないこと。
+- 2026-05-05 と 2026-05-06 は JPX cash market holiday のため、最短 tradable_at は 2026-05-07 09:00。
+- 2026-05-01 終値 1,014 円を基準に 100 株。5/7 寄りで 1,080 円を超える gap up なら追わず、1,000-1,080 円レンジの指値で待つ。
+- 決算・増配・自己株式取得後に 1,000 円を明確に割り込む場合は、還元 catalyst が吸収されていないため見送り。
+- P/S discount の比較対象を、情報・通信業全体ではなく SIer / IT services peer に絞っても割高ではないことを継続確認する。
+
+50 万円上限の実資金では、銘柄数を 4 に固定しない。2026-05-05 時点の優先順位は以下:
+
+| ticker | 銘柄 | 方針 | 5/1 終値基準の数量 | 参考金額 |
+| --- | --- | --- | ---: | ---: |
+| 9682 | DTS | 5/7 以降、1,080 円以下なら 100 株 | 100 | 101,400 円 |
+| 9692 | シーイーシー | 5/7 以降、2,000 円以下なら 100 株 | 100 | 192,900 円 |
+| 6310 | 井関農機 | 5/15 1Q 通過後、営業 CF thesis が崩れなければ 100 株 | 100 | 172,600 円 |
+| 6835 | アライドテレシスHD | 5/15 1Q 通過後、FCF thesis が崩れなければ追加候補 | 100-300 | 26,200-78,600 円 |
+
+9682 100 株、9692 100 株、6310 100 株までで 466,900 円。6835 は Q1 通過後に thesis が残れば、9682/9692/6310 の約定価格と残余資金を見て 100 株単位で追加する。無理に 4 銘柄へ合わせるため、弱い候補を買わない。
 
 初期 paper proxy は 1.0% まで。実資金 100-200 万円では ADV cap は実質拘束しないが、記録上は 1 億円 proxy で ADV 0.263% とし、5% hard reject には十分余裕がある。
 
@@ -156,7 +171,7 @@ pending 条件:
 
 ## Position size
 
-- **decision**: pending
+- **decision**: accepted
 - **primary signal**: sales-discount-growth
 - **signal 数**: 1
 - **market cap**: 1,663 億円
@@ -169,4 +184,4 @@ pending 条件:
 
 9682 は、旧 PER/PBR 中心の screening では拾いにくかったが、新設した P/S + growth intact lane で候補化された。候補化の理由は機械的に説明可能で、一次情報でも売上成長、営業黒字、営業利益率改善、増配、自己株式取得・消却が確認できる。したがって、「より広い観点でお買い得候補を拾う」という Issue #87 の目的には合致している。
 
-一方で、9682 は top 5 sales lane ではなく sales lane 26 位、かつ single signal である。P/S discount は SIer 事業モデル差による恒久的 discount の可能性があり、これだけで accepted にはしない。今回の変更は候補発見としては成功、最終投資判断としては post-earnings price reaction と peer P/S 確認が残る、という評価にする。
+一方で、9682 は sales lane 40/114、global rank 112/307、かつ single signal である。P/S discount は SIer 事業モデル差による恒久的 discount の可能性があり、これだけで大きく張る銘柄ではない。今回の変更は「候補発見」としては成功だが、実資金では 100 株に限定する。追加資金は、より signal が強い 9692 / 6310 / 6835 のリサーチ結果を優先する。
