@@ -31,7 +31,7 @@ python -m baibai_loop.screening.cli verify-raw-cache [--raw-dir PATH] [--max-siz
 
 `verify-raw-cache` は `records/_data/raw/screening/` を再帰的に walk し、(1) 1 ファイル `--max-size-mb` 以上のものが無いこと、(2) SQLite (`records/_data/cache/screening/market.sqlite`) が存在する場合は `raw_imports.sha256` と現状ファイルの SHA-256 が一致することを検証する。違反があれば exit 1。CI の `quality` job でも実行され、50MB 超過の commit を merge 前に弾く。
 
-`select` は最新 `records/03-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/02-outlook/` を組み合わせて、`outlook` で `headwind` 判定された業種を除外し、`signals` の本数 → 時価総額の順で候補をランキングする。`research` の選定プロセス ([`../components/research.md`](../components/research.md) §2.1) をスクリプトで支援する。
+`select` は最新 `records/03-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/02-outlook/` を組み合わせて、`outlook` で `headwind` 判定された業種を除外し、lane-specific metric と macro status で候補をランキングする。signal 数と時価総額だけでは並べない。出力には lane 別の `lane_toplists` と flattened な `candidates` が含まれる。`candidates` は CLI `--top`、`lane_toplists` は `records/_config/screening-rules.yaml` の `output.lane_toplist_limit` で件数を管理する。`research` の選定プロセス ([`../components/research.md`](../components/research.md) §2.1) をスクリプトで支援する。
 
 ## 3. Required Env Vars
 
@@ -45,7 +45,7 @@ raw cache / SQLite cache の配置先は固定 (env override 廃止):
 任意:
 
 - `EDINET_API_KEY`: EV/EBITDA など EDINET 前処理済み metrics を使う場合のみ設定する。未設定でも screening は実行可能で、EV/EBITDA は `unavailable` として扱う
-- JPX 公開規制情報 URL（CSV / Excel / HTML）。未設定時は該当 source のカバレッジなしで `fallback_lines` に `JPX source 未ロード` を明示する:
+- JPX 公開規制情報 URL（CSV / Excel / HTML）。`records/_config/screening-rules.yaml` の `universe.required_jpx_flags` に含まれる source は必須で、未ロード時は fail-fast し candidates YAML を生成しない:
   - `JPX_SPECIAL_CAUTION_INDEX_URL` 特別注意銘柄の個別銘柄信用取引残高表 index（推奨。日次で変わる `mtdailyk*.xls` を index から解決）
   - `JPX_SPECIAL_CAUTION_URL` 特別注意銘柄の固定 Excel URL
   - `JPX_REORGANIZATION_URL` 整理銘柄
@@ -83,7 +83,7 @@ raw cache / SQLite cache の配置先は固定 (env override 廃止):
 - HTML は `https://www.jpx.co.jp/` 配下の許可済み URL に限定し、source-specific parser で fail-fast に扱う
 - 特別注意銘柄は `JPX_SPECIAL_CAUTION_INDEX_URL` が設定されていれば、JPX の「個別銘柄信用取引残高表」index から最新の `mtdailyk*.xls` link を解決してから Excel を取得する。index 未設定時は `JPX_SPECIAL_CAUTION_URL` の固定 URL を使う
 - 規制情報の取得失敗は fail-fast
-- 個別 source のうちロードできなかったものは `fallback_lines` に `JPX source 未ロード: ...` として明示される
+- `universe.required_jpx_flags` の source が欠ける場合は fail-fast する。JPX 規制除外は universe 定義の一部であり、warning-only では扱わない
 - JPX 公開規制情報は latest snapshot しか取得できないため、cache には `fetched_at_utc` を記録する。cache 読み込み時に `asof` と `fetched_at_utc` が 7 weekday 超乖離していれば warning を出す（祝日は引かない近似）
 - `asof` が実行日から 7 weekday 超過去で、該当日の JPX cache が無い場合、`run` は fail-fast する。運用者が latest snapshot を過去 `asof` に固定するリスクを許容する場合のみ `--allow-stale-jpx` を付ける
 
@@ -107,7 +107,8 @@ raw cache / SQLite cache の配置先は固定 (env override 廃止):
 
 ## 9. Partial Warning Thresholds
 
-- `ttm_quality != exact` が universe の 5% 以上、または 20 銘柄以上
+- 有効な signal lane が必須とする TTM metric の `ttm_quality != exact` が universe の 5% 以上、または 20 銘柄以上
+- EDINET optional による EV/EBITDA `unavailable` だけでは partial warning にしない
 - 業績悪化フィルタ入力欠損が universe の 10% 以上
 
 ## 10. Exit Codes

@@ -225,6 +225,9 @@ def _build_financial_snapshot(
         market_cap=latest_market_cap,
         cash_to_market_cap=_safe_ratio(latest.cash_eq if latest else None, latest_market_cap),
         price_to_equity=_safe_ratio(latest_market_cap, latest.equity if latest else None),
+        equity_ratio=_safe_ratio(
+            latest.equity if latest else None, latest.total_assets if latest else None
+        ),
         ocf_yield=_safe_ratio(ocf_ttm, latest_market_cap),
         debt=debt,
         cash=cash,
@@ -237,6 +240,7 @@ def _build_financial_snapshot(
             latest.sales if latest else None, prior_year.sales if prior_year else None
         ),
         operating_profit_yoy=_yoy_ratio(operating_profit, operating_profit_prior_year),
+        cfo_yoy=_yoy_ratio(latest.cfo if latest else None, prior_year.cfo if prior_year else None),
         operating_profit_loss_narrowing=_loss_narrowing(
             operating_profit,
             operating_profit_prior_year,

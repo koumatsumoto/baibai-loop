@@ -322,13 +322,18 @@ def read_jpx_regulations(sqlite_path: Path, asof_date: date) -> JPXRegulationSna
             "WHERE asof_date = ? ORDER BY ticker, flag",
             (asof_date.isoformat(),),
         ).fetchall()
+        source_rows = conn.execute(
+            "SELECT source_name FROM jpx_regulation_sources "
+            "WHERE asof_date = ? ORDER BY source_name",
+            (asof_date.isoformat(),),
+        ).fetchall()
     except sqlite3.OperationalError:
         return None
     finally:
         conn.close()
 
     flags: dict[str, list[str]] = {}
-    source_names: set[str] = set()
+    source_names: set[str] = {str(source_name) for (source_name,) in source_rows}
     for source_name, ticker, flag in rows:
         flags.setdefault(ticker, []).append(flag)
         source_names.add(source_name)
@@ -339,14 +344,33 @@ def read_jpx_regulations(sqlite_path: Path, asof_date: date) -> JPXRegulationSna
 
 
 def has_jpx_regulation_data(sqlite_path: Path, asof_date: date) -> bool:
-    """Return True when `asof_date` has any rows in `jpx_regulation_flags`."""
+    """Return True when `asof_date` has an imported JPX regulation snapshot.
+
+    A valid snapshot may have zero flagged tickers for a source such as
+    取引停止. Treat the raw import / source-name rows as cache coverage so
+    stale backfill gating does not force a refetch just because a required
+    source happened to be empty on that date.
+    """
     if not sqlite_path.exists():
         return False
     conn = sqlite3.connect(sqlite_path)
     try:
         try:
             cur = conn.execute(
+                "SELECT 1 FROM raw_imports WHERE source = ? "
+                "AND min_date <= ? AND max_date >= ? LIMIT 1",
+                ("jpx_regulation_flags", asof_date.isoformat(), asof_date.isoformat()),
+            )
+            if cur.fetchone() is not None:
+                return True
+            cur = conn.execute(
                 "SELECT 1 FROM jpx_regulation_flags WHERE asof_date = ? LIMIT 1",
+                (asof_date.isoformat(),),
+            )
+            if cur.fetchone() is not None:
+                return True
+            cur = conn.execute(
+                "SELECT 1 FROM jpx_regulation_sources WHERE asof_date = ? LIMIT 1",
                 (asof_date.isoformat(),),
             )
         except sqlite3.OperationalError:

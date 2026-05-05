@@ -36,6 +36,8 @@ def _financial(**overrides: object) -> FinancialSnapshot:
         eps=100.0,
         sales_ttm=1000.0,
         ocf_ttm=100.0,
+        cfo_yoy=0.1,
+        equity_ratio=0.5,
         debt=50.0,
         cash=20.0,
         ebitda_ttm=120.0,
@@ -174,6 +176,19 @@ class ScreeningRulesTests(unittest.TestCase):
         )
         self.assertIn(SIGNAL_CASH_RICH, [signal.name for signal in result.signals])
 
+    def test_cash_rich_asset_discount_rejects_low_equity_ratio(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                cash_to_market_cap=0.8,
+                price_to_equity=0.8,
+                equity_ratio=0.2,
+                operating_profit=10.0,
+            ),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertNotIn(SIGNAL_CASH_RICH, [signal.name for signal in result.signals])
+
     def test_cashflow_yield_discount_hits(self) -> None:
         result = evaluate_screening(
             _financial(ocf_ttm=100.0, ocf_yield=0.1),
@@ -181,6 +196,43 @@ class ScreeningRulesTests(unittest.TestCase):
             RULES,
         )
         self.assertIn(SIGNAL_CASHFLOW_YIELD, [signal.name for signal in result.signals])
+
+    def test_cashflow_yield_discount_requires_cfo_yoy_when_configured(self) -> None:
+        result = evaluate_screening(
+            _financial(ocf_ttm=100.0, ocf_yield=0.1, cfo_yoy=None),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertNotIn(SIGNAL_CASHFLOW_YIELD, [signal.name for signal in result.signals])
+        self.assertIn("cashflow_yield_missing_cfo_yoy", result.null_reasons)
+
+    def test_cashflow_yield_discount_rejects_cfo_deterioration(self) -> None:
+        result = evaluate_screening(
+            _financial(ocf_ttm=100.0, ocf_yield=0.1, cfo_yoy=-0.25),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertNotIn(SIGNAL_CASHFLOW_YIELD, [signal.name for signal in result.signals])
+
+    def test_financial_sector_is_excluded_from_operating_cashflow_lane(self) -> None:
+        result = evaluate_screening(
+            _financial(ocf_ttm=100.0, ocf_yield=0.1, cfo_yoy=0.2),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+            sector_33="銀行業",
+        )
+        self.assertNotIn(SIGNAL_CASHFLOW_YIELD, [signal.name for signal in result.signals])
+        self.assertIn("cashflow_yield_excluded_sector", result.null_reasons)
+
+    def test_utility_sector_is_excluded_from_operating_cashflow_lane(self) -> None:
+        result = evaluate_screening(
+            _financial(ocf_ttm=100.0, ocf_yield=0.1, cfo_yoy=0.2),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+            sector_33="電気・ガス業",
+        )
+        self.assertNotIn(SIGNAL_CASHFLOW_YIELD, [signal.name for signal in result.signals])
+        self.assertIn("cashflow_yield_excluded_sector", result.null_reasons)
 
     def test_sales_discount_growth_allows_op_loss_with_cfo_positive(self) -> None:
         result = evaluate_screening(
@@ -198,3 +250,41 @@ class ScreeningRulesTests(unittest.TestCase):
             RULES,
         )
         self.assertIn(SIGNAL_SALES_DISCOUNT, [signal.name for signal in result.signals])
+
+    def test_financial_sector_is_excluded_from_sales_discount_lane(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                p_s=0.4,
+                sales_yoy=0.1,
+                operating_profit=10.0,
+            ),
+            _derived(
+                sector_median_gap={"p_s": -0.45},
+                self_range_percentile={},
+                sigma_gap={},
+            ),
+            RULES,
+            sector_33="銀行業",
+        )
+        self.assertNotIn(SIGNAL_SALES_DISCOUNT, [signal.name for signal in result.signals])
+        self.assertIn("sales_discount_excluded_sector", result.null_reasons)
+
+    def test_financial_sector_is_excluded_from_cash_rich_lane(self) -> None:
+        result = evaluate_screening(
+            _financial(cash_to_market_cap=0.45, price_to_equity=0.8, operating_profit=10.0),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+            sector_33="銀行業",
+        )
+        self.assertNotIn(SIGNAL_CASH_RICH, [signal.name for signal in result.signals])
+        self.assertIn("cash_rich_excluded_sector", result.null_reasons)
+
+    def test_utility_sector_is_excluded_from_cash_rich_lane(self) -> None:
+        result = evaluate_screening(
+            _financial(cash_to_market_cap=0.45, price_to_equity=0.8, operating_profit=10.0),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+            sector_33="電気・ガス業",
+        )
+        self.assertNotIn(SIGNAL_CASH_RICH, [signal.name for signal in result.signals])
+        self.assertIn("cash_rich_excluded_sector", result.null_reasons)

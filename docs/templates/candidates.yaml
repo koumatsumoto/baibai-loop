@@ -31,6 +31,20 @@ candidates:
   next_earnings_date: "YYYY-MM-DD"
   split_adjustment_flag: false
   metrics:
+    sales_ttm: 100000000000.0
+    ocf_ttm: 13000000000.0
+    cash_eq: 24000000000.0
+    total_assets: 180000000000.0
+    equity: 72000000000.0
+    cash_to_market_cap: 0.42
+    price_to_equity: 0.82
+    equity_ratio: 0.45
+    ocf_yield: 0.13
+    cfo_yoy: 0.08
+    sales_yoy: 0.12
+    operating_profit: 9000000000.0
+    operating_profit_loss_narrowing: false
+  metrics_breakdown:
     per_trailing:
       sector_median_gap: -0.21
       self_range_percentile: 0.14
@@ -39,13 +53,14 @@ candidates:
       sector_median_gap: -0.18
       self_range_percentile: 0.2
       sigma_gap: -1.1
+    ev_ebitda:
+      sector_median_gap: null
+      self_range_percentile: null
+      sigma_gap: null
     p_s:
       sector_median_gap: -0.35
       self_range_percentile: 0.18
       sigma_gap: -1.2
-    cash_to_market_cap: 0.42
-    price_to_equity: 0.82
-    ocf_yield: 0.13
   ttm_quality:
     ev_ebitda: unavailable
     p_s: approximated
@@ -56,22 +71,24 @@ candidates:
   - name: valuation-reversion
     playbook: valuation-reversion
     reasons:
-    - sector_self_range
+    - sector_median_discount_and_self_range_bottom
     metrics:
-      per_trailing:
-        sector_median_gap: -0.21
-        self_range_percentile: 0.14
+      condition_a_metric: per_trailing
+      condition_a_sector_median_gap: -0.21
+      condition_a_self_range_percentile: 0.14
   - name: cash-rich-asset-discount
     playbook: cash-rich-asset-discount
     reasons:
-    - cash_to_market_cap_and_price_to_equity
+    - cash_to_market_cap_price_to_equity_and_equity_ratio
     metrics:
       cash_to_market_cap: 0.42
       price_to_equity: 0.82
+      equity_ratio: 0.45
 fact_memo_lines:
 - "[事実メモ]"
 provider_status_lines:
 - "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX"
+- "EDINET preprocessed metrics: optional unavailable"
 universe_exclusion_lines:
 - "universe 除外件数: 上場 182 日未満=0, 売買代金不足=0"
 ttm_quality_counts:

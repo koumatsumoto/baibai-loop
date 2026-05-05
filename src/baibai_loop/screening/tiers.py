@@ -7,7 +7,7 @@ TIER_MICRO_OKU = 200
 TIER_MID_OKU = 500
 TIER_LARGE_OKU = 1000
 
-# universe フィルタ閾値と "200-500 帯" tier の下限は同じ値を指すので一元管理する。
+# universe フィルタ閾値と最小 position tier の下限は同じ値を指すので一元管理する。
 MIN_MARKET_CAP_OKU = TIER_SMALL_OKU
 
 

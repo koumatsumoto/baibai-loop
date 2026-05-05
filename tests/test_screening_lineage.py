@@ -204,7 +204,7 @@ class ScreeningLineageTests(unittest.TestCase):
             self.assertIsNotNone(summary)
             assert summary is not None  # narrow for type checker
             self.assertEqual(summary["path"], sqlite_path.as_posix())
-            self.assertIn(summary["schema_version"], {"v1", "v2", "v3"})
+            self.assertIn(summary["schema_version"], {"v1", "v2", "v3", "v4"})
             self.assertEqual(
                 summary["imports"],
                 [{"source": "jquants_master_snapshots", "files": 1, "records": 4445}],

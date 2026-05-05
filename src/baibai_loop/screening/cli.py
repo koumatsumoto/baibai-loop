@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -48,15 +49,33 @@ from .providers.jquants import (
     JQuantsProviderError,
 )
 from .render import JST, build_output_path, render_screened_yaml
-from .rule_config import ScreeningRules, load_screening_rules
+from .rule_config import (
+    DEFAULT_RULES_PATH,
+    CashflowYieldLane,
+    SalesDiscountGrowthLane,
+    ScreeningRules,
+    load_screening_rules,
+)
 from .rules import evaluate_screening
-from .schema import ScreenedCandidate, ScreenedRunDocument, SecurityMaster, normalize_ticker
+from .schema import (
+    FinancialSnapshot,
+    ScreenedCandidate,
+    ScreenedRunDocument,
+    SecurityMaster,
+    TTMQuality,
+    normalize_ticker,
+)
 from .sqlite_cache import SQLiteCacheError, is_sqlite_stale, rebuild_from_raw
 from .tiers import position_tier
 from .universe import (
     build_universe,
 )
 from .verify import DEFAULT_MAX_FILE_SIZE_MB, verify_raw_cache
+
+
+class _NoAliasDumper(yaml.SafeDumper):
+    def ignore_aliases(self, data: object) -> bool:
+        return True
 
 
 class JQuantsAdapter(Protocol):
@@ -106,6 +125,8 @@ class _ScreenedCandidateInput(BaseModel):
     sector_33: str = ""
     market_cap_oku: int | float | None = None
     signals: list[dict[str, object]] = Field(default_factory=list)
+    metrics: dict[str, object] = Field(default_factory=dict)
+    metrics_breakdown: dict[str, object] = Field(default_factory=dict)
     next_earnings_date: str | None = None
 
     @field_validator("ticker", mode="before")
@@ -246,8 +267,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "select":
-        # select reads existing candidates YAML and outlook markdown only;
-        # no env or providers needed.
+        # select reads existing candidates YAML, outlook markdown, and the
+        # local rule config for output parameters; no provider credentials are
+        # needed.
         return select_command(
             asof_date=_parse_iso_date(args.asof),
             outlook_path=Path(args.outlook) if args.outlook else None,
@@ -407,6 +429,18 @@ def run_command(
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
 
+    missing_jpx_sources = tuple(
+        flag
+        for flag in sorted(rules.universe.required_jpx_flags)
+        if flag not in jpx_snapshot.source_names
+    )
+    if missing_jpx_sources:
+        print(
+            "missing required JPX regulation sources: " + ", ".join(missing_jpx_sources),
+            file=sys.stderr,
+        )
+        return 1
+
     bars_by_ticker = group_bars_by_ticker(bars)
     summaries_by_ticker = group_summaries_by_ticker(summaries)
     next_earnings_by_ticker = _index_next_earnings(earnings_records, asof_date)
@@ -462,6 +496,7 @@ def run_command(
             metric_result.financials[ticker],
             metric_result.derived[ticker],
             rules,
+            sector_33=securities_by_ticker[ticker].sector_33,
         )
         if not result.pass_fail:
             continue
@@ -512,8 +547,10 @@ def run_command(
                     "equity": financial.equity,
                     "cash_to_market_cap": financial.cash_to_market_cap,
                     "price_to_equity": financial.price_to_equity,
+                    "equity_ratio": financial.equity_ratio,
                     "ocf_yield": financial.ocf_yield,
                     "sales_yoy": financial.sales_yoy,
+                    "cfo_yoy": financial.cfo_yoy,
                     "operating_profit": financial.operating_profit,
                     "operating_profit_loss_narrowing": (financial.operating_profit_loss_narrowing),
                 },
@@ -527,27 +564,22 @@ def run_command(
     approx_total = metric_result.ttm_quality_counts.get(
         "approximated", 0
     ) + metric_result.ttm_quality_counts.get("unavailable", 0)
+    required_ttm_non_exact = _required_ttm_non_exact_count(metric_result.financials.values(), rules)
     partial_warning = universe_size > 0 and (
-        approx_total >= rules.quality.partial_warning_ttm_count
-        or (approx_total / universe_size) >= rules.quality.partial_warning_ttm_ratio
+        required_ttm_non_exact >= rules.quality.partial_warning_ttm_count
+        or (required_ttm_non_exact / universe_size) >= rules.quality.partial_warning_ttm_ratio
         or (metric_result.yoy_missing_count / universe_size)
         >= rules.quality.partial_warning_yoy_missing_ratio
     )
     fallback_lines: list[str] = []
     if approx_total:
         fallback_lines.append(f"ttm_quality 非 exact 件数: {approx_total}")
+    if required_ttm_non_exact:
+        fallback_lines.append(f"有効 lane 必須 TTM metric 非 exact 件数: {required_ttm_non_exact}")
     if metric_result.yoy_missing_count:
         fallback_lines.append(f"業績悪化フィルタ入力欠損: {metric_result.yoy_missing_count} 銘柄")
     if edinet_load_error is not None:
         fallback_lines.append(f"EDINET 読み込み失敗: {edinet_load_error}")
-    # JPX source coverage: REQUIRED_JPX_FLAGS 全てを載せきれていないなら明示する。
-    missing_jpx_sources = tuple(
-        flag
-        for flag in sorted(rules.universe.required_jpx_flags)
-        if flag not in jpx_snapshot.source_names
-    )
-    if missing_jpx_sources:
-        fallback_lines.append(f"JPX source 未ロード: {', '.join(missing_jpx_sources)}")
 
     cache_manifest = compute_cache_manifest(config.cache_dir)
     cache_manifest_hash = compute_cache_manifest_hash(cache_manifest)
@@ -562,6 +594,15 @@ def run_command(
         sqlite_path=config.sqlite_cache_dir / "market.sqlite",
     )
 
+    data_sources = ["j-quants-light", "jpx-public-regulation"]
+    if edinet_by_ticker:
+        data_sources.append("edinet-preprocessed-metrics")
+    provider_status_lines = ["データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX"]
+    if edinet_by_ticker:
+        provider_status_lines.append("EDINET preprocessed metrics: loaded")
+    else:
+        provider_status_lines.append("EDINET preprocessed metrics: optional unavailable")
+
     document = ScreenedRunDocument(
         run_date=asof_date,
         asof_date=asof_date,
@@ -574,12 +615,11 @@ def run_command(
         candidates=tuple(screened_candidates),
         run_at=run_now,
         run_id=run_id,
+        data_sources=tuple(data_sources),
         config_hash=config_hash,
         cache_manifest_hash=cache_manifest_hash,
         fact_memo_lines=tuple(fact_lines),
-        provider_status_lines=(
-            "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX",
-        ),
+        provider_status_lines=tuple(provider_status_lines),
         universe_exclusion_lines=tuple(
             f"{reason}: {count} 件" for reason, count in universe_result.exclusion_counts.items()
         ),
@@ -599,6 +639,7 @@ def select_command(
     top: int,
     candidates_root: Path | None = None,
     outlook_root: Path | None = None,
+    rules: ScreeningRules | None = None,
     stdout: TextIO | None = None,
 ) -> int:
     if top < 1:
@@ -608,6 +649,7 @@ def select_command(
     out = stdout if stdout is not None else sys.stdout
     candidates_root = candidates_root or Path("records/03-candidates")
     outlook_root = outlook_root or Path("records/02-outlook")
+    rules = rules or load_screening_rules(_rules_path_from_env())
 
     candidates_path = (
         candidates_root / f"{asof_date:%Y}" / f"{asof_date:%m}" / f"{asof_date:%Y-%m-%d}.yaml"
@@ -643,16 +685,27 @@ def select_command(
         sector: judgement.status for sector, judgement in outlook_fm.sectors.items()
     }
     candidates = _rank_candidates(candidates_fm.candidates, sectors_status)
+    lane_toplist_limit = rules.output.lane_toplist_limit
+    lane_toplists = _rank_lane_toplists(
+        candidates_fm.candidates, sectors_status, lane_toplist_limit
+    )
     summary = {
         "asof": asof_date.isoformat(),
         "candidates_ref": str(candidates_path),
         "outlook_ref": str(resolved_outlook_path),
         "input_count": len(candidates_fm.candidates),
         "after_outlook_filter": len(candidates),
+        "selection_mode": rules.output.selection_mode,
+        "lane_toplist_limit": lane_toplist_limit,
+        "lane_toplists": lane_toplists,
         "candidates": candidates[:top],
     }
-    yaml.safe_dump(summary, out, allow_unicode=True, sort_keys=False)
+    yaml.dump(summary, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
     return 0
+
+
+def _rules_path_from_env() -> Path:
+    return Path(os.environ.get("SCREENING_RULES_PATH") or DEFAULT_RULES_PATH)
 
 
 def _parse_outlook_yaml(path: Path) -> dict[str, object]:
@@ -687,7 +740,7 @@ def _rank_candidates(
     candidates_input: list[_ScreenedCandidateInput],
     sectors_outlook: Mapping[str, str | None],
 ) -> list[dict[str, object]]:
-    ranked: list[tuple[tuple[int, int, str], dict[str, object]]] = []
+    ranked: list[tuple[tuple[object, ...], dict[str, object]]] = []
     for item in candidates_input:
         sector = item.sector_33
         outlook_status = sectors_outlook.get(sector)
@@ -695,12 +748,13 @@ def _rank_candidates(
         if outlook_status == "headwind":
             continue
         market_cap = item.market_cap_oku
-        market_cap_int = int(market_cap) if isinstance(market_cap, (int, float)) else 0
         signal_count = len(item.signals)
-        # Higher = better: more signal hits, larger market cap, then ticker tie-breaker
+        selection_lane, selection_metrics, strength_key = _best_selection_signal(item.signals)
         sort_key = (
+            _macro_rank(outlook_status),
+            _lane_rank(selection_lane),
+            *strength_key,
             -signal_count,
-            -market_cap_int,
             item.ticker,
         )
         candidate: dict[str, object] = {
@@ -711,12 +765,166 @@ def _rank_candidates(
             "market_cap_oku": market_cap,
             "signals": item.signals,
             "signal_count": signal_count,
+            "selection_lane": selection_lane,
+            "selection_metrics": selection_metrics,
             "next_earnings_date": item.next_earnings_date,
             "position_tier": position_tier(market_cap),
         }
         ranked.append((sort_key, candidate))
     ranked.sort(key=lambda item: item[0])
     return [candidate for _, candidate in ranked]
+
+
+def _rank_lane_toplists(
+    candidates_input: list[_ScreenedCandidateInput],
+    sectors_outlook: Mapping[str, str | None],
+    top: int,
+) -> dict[str, list[dict[str, object]]]:
+    ranked_by_lane: dict[str, list[tuple[tuple[object, ...], dict[str, object]]]] = {
+        "valuation-reversion": [],
+        "cash-rich-asset-discount": [],
+        "cashflow-yield-discount": [],
+        "sales-discount-growth": [],
+    }
+    for item in candidates_input:
+        sector = item.sector_33
+        outlook_status = sectors_outlook.get(sector)
+        if outlook_status == "headwind":
+            continue
+        for signal in item.signals:
+            name = _string_value(signal.get("name"))
+            if name not in ranked_by_lane:
+                continue
+            metrics = _metric_map(signal.get("metrics"))
+            sort_key = (
+                _macro_rank(outlook_status),
+                *_signal_strength_key(name, metrics),
+                -len(item.signals),
+                item.ticker,
+            )
+            ranked_by_lane[name].append(
+                (
+                    sort_key,
+                    _selection_candidate(
+                        item,
+                        sector=sector,
+                        outlook_status=outlook_status,
+                        selection_lane=name,
+                        selection_metrics=metrics,
+                    ),
+                )
+            )
+    output: dict[str, list[dict[str, object]]] = {}
+    for name, entries in ranked_by_lane.items():
+        entries.sort(key=lambda item: item[0])
+        output[name] = [candidate for _, candidate in entries[:top]]
+    return output
+
+
+def _best_selection_signal(
+    signals: Sequence[Mapping[str, object]],
+) -> tuple[str | None, dict[str, object], tuple[float, ...]]:
+    entries = [
+        (
+            _lane_rank(name),
+            _signal_strength_key(name, metrics),
+            name,
+            metrics,
+        )
+        for signal in signals
+        if (name := _string_value(signal.get("name"))) is not None
+        for metrics in [_metric_map(signal.get("metrics"))]
+    ]
+    if not entries:
+        return None, {}, (0.0,)
+    _, strength_key, name, metrics = min(entries, key=lambda item: (item[0], item[1]))
+    return name, metrics, strength_key
+
+
+def _selection_candidate(
+    item: _ScreenedCandidateInput,
+    *,
+    sector: str,
+    outlook_status: str | None,
+    selection_lane: str | None,
+    selection_metrics: Mapping[str, object],
+) -> dict[str, object]:
+    market_cap = item.market_cap_oku
+    return {
+        "ticker": item.ticker,
+        "name": item.name,
+        "sector_33": sector,
+        "outlook_sector": outlook_status,
+        "market_cap_oku": market_cap,
+        "signals": item.signals,
+        "signal_count": len(item.signals),
+        "selection_lane": selection_lane,
+        "selection_metrics": dict(selection_metrics),
+        "next_earnings_date": item.next_earnings_date,
+        "position_tier": position_tier(market_cap),
+    }
+
+
+def _macro_rank(status: str | None) -> int:
+    match status:
+        case "tailwind":
+            return 0
+        case "neutral":
+            return 1
+        case _:
+            return 2
+
+
+def _lane_rank(name: str | None) -> int:
+    order = {
+        "valuation-reversion": 0,
+        "cash-rich-asset-discount": 1,
+        "cashflow-yield-discount": 2,
+        "sales-discount-growth": 3,
+    }
+    return order.get(name or "", 99)
+
+
+def _signal_strength_key(name: str, metrics: Mapping[str, object]) -> tuple[float, ...]:
+    match name:
+        case "valuation-reversion":
+            return (
+                _float_or(metrics.get("condition_a_sector_median_gap"), 1.0),
+                _float_or(metrics.get("condition_a_self_range_percentile"), 1.0),
+                _float_or(metrics.get("condition_b_sigma_gap"), 1.0),
+                _float_or(metrics.get("price_change_60d"), 1.0),
+            )
+        case "cash-rich-asset-discount":
+            return (
+                -_float_or(metrics.get("cash_to_market_cap"), 0.0),
+                _float_or(metrics.get("price_to_equity"), 99.0),
+            )
+        case "cashflow-yield-discount":
+            return (
+                -_float_or(metrics.get("ocf_yield"), 0.0),
+                -_float_or(metrics.get("cfo_yoy"), -99.0),
+            )
+        case "sales-discount-growth":
+            operating_profit = _float_or(metrics.get("operating_profit"), -1.0)
+            return (
+                _float_or(metrics.get("ps_sector_gap"), 1.0),
+                -_float_or(metrics.get("sales_yoy"), 0.0),
+                0.0 if operating_profit >= 0 else 1.0,
+            )
+        case _:
+            return (0.0,)
+
+
+def _metric_map(value: object) -> dict[str, object]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _string_value(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _float_or(value: object, default: float) -> float:
+    return float(value) if isinstance(value, (int, float)) else default
 
 
 def _signals_summary(
@@ -728,6 +936,20 @@ def _signals_summary(
         for signal in candidate.signals:
             summary[signal.name] = summary.get(signal.name, 0) + 1
     return summary
+
+
+def _required_ttm_non_exact_count(
+    financials: Iterable[FinancialSnapshot],
+    rules: ScreeningRules,
+) -> int:
+    snapshots = tuple(financials)
+    required_qualities: list[TTMQuality] = []
+    for lane in rules.signal_lanes.values():
+        if isinstance(lane, CashflowYieldLane) and lane.ttm_cfo_required:
+            required_qualities.extend(snapshot.ttm_quality_ocf_yield for snapshot in snapshots)
+        if isinstance(lane, SalesDiscountGrowthLane):
+            required_qualities.extend(snapshot.ttm_quality_p_s for snapshot in snapshots)
+    return sum(1 for quality in required_qualities if quality != TTMQuality.EXACT)
 
 
 def _index_next_earnings(

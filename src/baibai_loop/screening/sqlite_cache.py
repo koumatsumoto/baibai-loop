@@ -9,7 +9,7 @@ This module owns:
 - the top-level `rebuild_from_raw()` that scans a `records/_data/raw/screening/` tree
   and writes a fresh SQLite file from scratch
 
-Schema v3 (current) covers all five sources: jquants daily bars / fin
+Schema v4 (current) covers all five sources: jquants daily bars / fin
 summaries / master / earnings calendar / market calendar, plus EDINET
 documents and metrics, and JPX regulation flags.
 """
@@ -31,7 +31,7 @@ from .providers.jquants import (
     parse_jquants_code,
 )
 
-SCHEMA_VERSION = "v3"
+SCHEMA_VERSION = "v4"
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS jquants_daily_bars(
@@ -135,6 +135,13 @@ CREATE TABLE IF NOT EXISTS jpx_regulation_flags(
   flag TEXT NOT NULL,
   fetched_at_utc TEXT,
   PRIMARY KEY (asof_date, source_name, ticker, flag)
+);
+
+CREATE TABLE IF NOT EXISTS jpx_regulation_sources(
+  asof_date TEXT NOT NULL,
+  source_name TEXT NOT NULL,
+  fetched_at_utc TEXT,
+  PRIMARY KEY (asof_date, source_name)
 );
 
 CREATE TABLE IF NOT EXISTS raw_imports(
@@ -244,6 +251,9 @@ def is_sqlite_stale(raw_dirs: Iterable[Path], db_path: Path) -> bool:
         if not raw_dir.exists():
             continue
         for path in raw_dir.rglob("*.json"):
+            relative = path.relative_to(raw_dir)
+            if relative.parts and relative.parts[0] == "manifests":
+                continue
             if path.stat().st_mtime > db_mtime:
                 return True
     return False
@@ -721,6 +731,21 @@ def _import_jpx_regulations_file(conn: sqlite3.Connection, path: Path) -> int:
     flags_by_ticker = payload.get("flags_by_ticker") or {}
     if not isinstance(flags_by_ticker, Mapping):
         raise SQLiteCacheError(f"flags_by_ticker must be an object: {path}")
+    source_names = payload.get("source_names") or []
+    if not isinstance(source_names, list | tuple):
+        raise SQLiteCacheError(f"source_names must be an array: {path}")
+    source_rows = [
+        (asof_date, source_name, fetched_at_utc)
+        for raw_source_name in source_names
+        if (source_name := _to_str_or_none(raw_source_name)) is not None
+    ]
+    if source_rows:
+        conn.executemany(
+            "INSERT OR REPLACE INTO jpx_regulation_sources("
+            "asof_date, source_name, fetched_at_utc"
+            ") VALUES (?, ?, ?)",
+            source_rows,
+        )
     rows: list[tuple[Any, ...]] = []
     for raw_ticker, flags in flags_by_ticker.items():
         ticker = _normalize_ticker_or_none(raw_ticker)

@@ -100,6 +100,7 @@ class FinancialSnapshot:
     market_cap: float | None = None
     cash_to_market_cap: float | None = None
     price_to_equity: float | None = None
+    equity_ratio: float | None = None
     ocf_yield: float | None = None
     debt: float | None = None
     cash: float | None = None
@@ -110,6 +111,7 @@ class FinancialSnapshot:
     eps_yoy: float | None = None
     sales_yoy: float | None = None
     operating_profit_yoy: float | None = None
+    cfo_yoy: float | None = None
     operating_profit_loss_narrowing: bool | None = None
     ttm_quality_ev_ebitda: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_p_s: TTMQuality = TTMQuality.UNAVAILABLE
@@ -136,6 +138,7 @@ class FinancialSnapshot:
         "market_cap",
         "cash_to_market_cap",
         "price_to_equity",
+        "equity_ratio",
         "ocf_yield",
         "debt",
         "cash",
@@ -144,6 +147,7 @@ class FinancialSnapshot:
         "eps_yoy",
         "sales_yoy",
         "operating_profit_yoy",
+        "cfo_yoy",
         "shares_outstanding",
     )
     @classmethod

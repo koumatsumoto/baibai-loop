@@ -44,19 +44,29 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 - 過去 60 営業日の急落 + valuation 下方乖離
 - セクターローテーションによる短期売り
 
-EDINET が無い場合、EV/EBITDA は `unavailable` として判定対象から外す。PER / PBR / P/S など利用可能な指標で degrade して評価する。
+EDINET が無い場合、EV/EBITDA は `unavailable` として判定対象から外す。PER / PBR など利用可能な指標で degrade して評価する。P/S は売上成長と営業赤字条件を伴う `sales-discount-growth` 専用 lane で扱い、valuation-reversion の単独指標にはしない。
 
 ### 3.2 `cash-rich-asset-discount`
 
-CashEq / market cap と price-to-equity を使い、厳密 net cash ではないが、cash-rich / asset discount 候補を拾う。J-Quants 財務サマリーのみで完結させ、有利子負債は research で一次確認する。
+CashEq / market cap、price-to-equity、equity ratio を使い、厳密 net cash ではないが、cash-rich / asset discount 候補を拾う。J-Quants 財務サマリーのみで完結させ、有利子負債は research で一次確認する。
+
+銀行・証券・保険・その他金融はこの lane から除外する。金融業の balance sheet は通常の事業会社と意味が異なり、CashEq / market cap を margin of safety として機械判定しにくいため。
+
+電気・ガス業もこの lane から除外する。規制・設備産業では CashEq / market cap が高くても、有利子負債・設備投資・燃料費調整などを見ないと margin of safety として読みにくいため。
 
 ### 3.3 `cashflow-yield-discount`
 
 期間正規化した CFO TTM から OCF yield を算出し、営業 CF がプラスで、CF 悪化が大きくない銘柄を拾う。TTM が作れない銘柄はこの lane から除外する。
 
+この lane は `ocf_yield` だけでは通過させない。comparable period の `cfo_yoy` を確認し、設定された下限を下回る銘柄、または `cfo_yoy_required: true` で `cfo_yoy` が作れない銘柄は除外する。
+
+銀行・証券・保険・その他金融、電気・ガス業はこの lane から除外する。金融業の営業 CF は通常の事業会社の現金創出力と同じ意味で比較しにくく、電気・ガス業は設備投資前の OCF yield だけでは割安性を機械判定しにくいため。
+
 ### 3.4 `sales-discount-growth`
 
 P/S が業種中央値比で安く、売上成長が残る銘柄を拾う。営業赤字銘柄は CFO プラスまたは営業赤字縮小が確認できる場合に限り許容する。
+
+銀行・証券・保険・その他金融はこの lane から除外する。金融業の P/S は通常の事業会社の売上倍率とは意味が異なるため。
 
 ### 3.5 OR 条件の意味
 
@@ -88,6 +98,7 @@ candidates:
     pcfr: 5.1
     metrics:
       ocf_yield: 0.13
+      cfo_yoy: 0.08
       cash_to_market_cap: 0.42
     signals:
       - name: cashflow-yield-discount
@@ -107,6 +118,8 @@ CLI で自動化されており、実装の正本は [`automation.md`](./automat
 ```bash
 python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 ```
+
+JPX 規制情報は universe 定義の一部であり、必須 source が欠ける場合は candidates YAML を生成しない。EDINET 前処理済み metrics は任意 source であり、未ロード時は EV/EBITDA などを `unavailable` として degrade する。
 
 ## 7. Retro での調整
 

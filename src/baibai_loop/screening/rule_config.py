@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -63,26 +63,47 @@ class CashRichLane(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
     playbook: str
+    excluded_sectors: tuple[str, ...] = ()
     cash_to_market_cap_min: float = Field(ge=0)
     price_to_equity_max: float = Field(ge=0)
+    equity_ratio_min: float = Field(ge=0, le=1)
     operating_profit_positive_required: bool
+
+    @field_validator("excluded_sectors", mode="before")
+    @classmethod
+    def _tuple_excluded_sectors(cls, value: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+        return tuple(value or ())
 
 
 class CashflowYieldLane(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
     playbook: str
+    excluded_sectors: tuple[str, ...] = ()
     ocf_yield_min: float = Field(ge=0)
     ttm_cfo_required: bool
+    cfo_yoy_min: float
+    cfo_yoy_required: bool
+
+    @field_validator("excluded_sectors", mode="before")
+    @classmethod
+    def _tuple_excluded_sectors(cls, value: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+        return tuple(value or ())
 
 
 class SalesDiscountGrowthLane(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
     playbook: str
+    excluded_sectors: tuple[str, ...] = ()
     ps_sector_gap_max: float
     sales_yoy_min: float
     allow_operating_loss_if_cfo_positive_or_loss_narrowing: bool
+
+    @field_validator("excluded_sectors", mode="before")
+    @classmethod
+    def _tuple_excluded_sectors(cls, value: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+        return tuple(value or ())
 
 
 class OutputRules(BaseModel):
@@ -90,6 +111,8 @@ class OutputRules(BaseModel):
 
     research_selection_target_min: int = Field(ge=0)
     research_selection_target_max: int = Field(ge=0)
+    selection_mode: Literal["lane_toplists"] = "lane_toplists"
+    lane_toplist_limit: int = Field(default=5, ge=1)
 
 
 class ScreeningRules(BaseModel):

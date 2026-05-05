@@ -17,7 +17,7 @@ SIGNAL_SALES_DISCOUNT = "sales-discount-growth"
 REASON_SECTOR_SELF_RANGE = "sector_median_discount_and_self_range_bottom"
 REASON_PRICE_SIGMA = "price_down_60d_and_valuation_sigma_down"
 REASON_SECTOR_ROTATION = "sector_rotation_short_sell"
-REASON_CASH_RICH = "cash_to_market_cap_and_price_to_equity"
+REASON_CASH_RICH = "cash_to_market_cap_price_to_equity_and_equity_ratio"
 REASON_CASHFLOW_YIELD = "ocf_yield_discount"
 REASON_SALES_DISCOUNT = "ps_discount_with_sales_growth"
 
@@ -26,6 +26,8 @@ def evaluate_screening(
     financial: FinancialSnapshot,
     derived: DerivedMetrics,
     rules: ScreeningRules,
+    *,
+    sector_33: str = "",
 ) -> ScreeningResult:
     signals: list[SignalHit] = []
     null_reasons: list[str] = []
@@ -45,13 +47,22 @@ def evaluate_screening(
             case "cash-rich-asset-discount":
                 if not isinstance(lane, CashRichLane):
                     continue
+                if _is_excluded_sector(sector_33, lane.excluded_sectors):
+                    null_reasons.append("cash_rich_excluded_sector")
+                    continue
                 hit = _cash_rich_asset_discount(financial, lane, null_reasons)
             case "cashflow-yield-discount":
                 if not isinstance(lane, CashflowYieldLane):
                     continue
+                if _is_excluded_sector(sector_33, lane.excluded_sectors):
+                    null_reasons.append("cashflow_yield_excluded_sector")
+                    continue
                 hit = _cashflow_yield_discount(financial, lane, null_reasons)
             case "sales-discount-growth":
                 if not isinstance(lane, SalesDiscountGrowthLane):
+                    continue
+                if _is_excluded_sector(sector_33, lane.excluded_sectors):
+                    null_reasons.append("sales_discount_excluded_sector")
                     continue
                 hit = _sales_discount_growth(financial, derived, lane, null_reasons)
             case _:  # pragma: no cover - config validator rejects this.
@@ -70,6 +81,10 @@ def evaluate_screening(
         signals=tuple(signals),
         null_reasons=tuple(dict.fromkeys(null_reasons)),
     )
+
+
+def _is_excluded_sector(sector_33: str, excluded_sectors: tuple[str, ...]) -> bool:
+    return sector_33 in excluded_sectors
 
 
 def _valuation_reversion(
@@ -195,6 +210,9 @@ def _cash_rich_asset_discount(
     if financial.price_to_equity is None:
         null_reasons.append("cash_rich_missing_price_to_equity")
         return None
+    if financial.equity_ratio is None:
+        null_reasons.append("cash_rich_missing_equity_ratio")
+        return None
     if lane.operating_profit_positive_required and (
         financial.operating_profit is None or financial.operating_profit <= 0
     ):
@@ -202,6 +220,7 @@ def _cash_rich_asset_discount(
     if (
         financial.cash_to_market_cap < lane.cash_to_market_cap_min
         or financial.price_to_equity > lane.price_to_equity_max
+        or financial.equity_ratio < lane.equity_ratio_min
     ):
         return None
     return SignalHit(
@@ -211,6 +230,7 @@ def _cash_rich_asset_discount(
         metrics={
             "cash_to_market_cap": financial.cash_to_market_cap,
             "price_to_equity": financial.price_to_equity,
+            "equity_ratio": financial.equity_ratio,
             "operating_profit": financial.operating_profit,
         },
     )
@@ -227,6 +247,11 @@ def _cashflow_yield_discount(
     if lane.ttm_cfo_required and financial.ocf_ttm is None:
         null_reasons.append("cashflow_yield_missing_ttm_cfo")
         return None
+    if lane.cfo_yoy_required and financial.cfo_yoy is None:
+        null_reasons.append("cashflow_yield_missing_cfo_yoy")
+        return None
+    if financial.cfo_yoy is not None and financial.cfo_yoy < lane.cfo_yoy_min:
+        return None
     if financial.ocf_yield is None or financial.ocf_yield < lane.ocf_yield_min:
         return None
     return SignalHit(
@@ -236,6 +261,7 @@ def _cashflow_yield_discount(
         metrics={
             "ocf_yield": financial.ocf_yield,
             "ocf_ttm": financial.ocf_ttm,
+            "cfo_yoy": financial.cfo_yoy,
             "ttm_quality": financial.ttm_quality_ocf_yield.value,
         },
     )

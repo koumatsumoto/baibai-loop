@@ -55,6 +55,17 @@ candidates:
     price_change_4w: -0.072
     sector_relative_strength_percentile: 0.35
     metrics:
+      sales_ttm: 100000000000.0
+      ocf_ttm: 13000000000.0
+      cash_to_market_cap: 0.42
+      price_to_equity: 0.82
+      equity_ratio: 0.45
+      ocf_yield: 0.13
+      cfo_yoy: 0.08
+      sales_yoy: 0.12
+      operating_profit: 9000000000.0
+      operating_profit_loss_narrowing: false
+    metrics_breakdown:
       per_trailing:
         sector_median_gap: -0.21
         self_range_percentile: 0.14
@@ -63,13 +74,14 @@ candidates:
         sector_median_gap: -0.18
         self_range_percentile: 0.20
         sigma_gap: -1.1
+      ev_ebitda:
+        sector_median_gap: null
+        self_range_percentile: null
+        sigma_gap: null
       p_s:
         sector_median_gap: -0.35
         self_range_percentile: 0.18
         sigma_gap: -1.2
-      cash_to_market_cap: 0.42
-      price_to_equity: 0.82
-      ocf_yield: 0.13
     ttm_quality:
       ev_ebitda: exact | approximated | unavailable
       p_s: exact | approximated | unavailable
@@ -83,9 +95,9 @@ candidates:
         playbook: valuation-reversion
         reasons: [sector_self_range]
         metrics:
-          per_trailing:
-            sector_median_gap: -0.21
-            self_range_percentile: 0.14
+          condition_a_metric: per_trailing
+          condition_a_sector_median_gap: -0.21
+          condition_a_self_range_percentile: 0.14
 signals_summary:
   valuation-reversion: 1
   cash-rich-asset-discount: 0
@@ -99,7 +111,9 @@ signals_summary:
 - `config_hash`: `ScreeningConfig` の secret 以外、provider URL、tier 設定、`records/_config/screening-rules.yaml` の内容 hash を含む
 - `cache_manifest_hash`: `records/_data/raw/screening/` 配下の provider raw JSON cache の manifest hash
 - `signals`: 通過した signal lane。複数 hit 可。表示順は rule config の lane 順に固定し、単一総合 score は持たせない
-- `metrics`: signal 判定に使った派生値。valuation 指標の `sector_median_gap` / `self_range_percentile` / `sigma_gap` と、cash / CF 系の単独値を同居させる
+- `metrics`: candidate-level の flat な派生値。例: `sales_ttm`, `ocf_ttm`, `cash_to_market_cap`, `price_to_equity`, `equity_ratio`, `ocf_yield`, `cfo_yoy`, `sales_yoy`, `operating_profit`
+- `metrics_breakdown`: valuation 指標ごとの `sector_median_gap` / `self_range_percentile` / `sigma_gap`
+- `signals[].metrics`: signal hit の判定に直接使った値。valuation は `condition_a_metric` などの flat key、cash / CF / sales は lane 固有 key で記録する
 - `ttm_quality`: `EV/EBITDA` / `P/S` / `PCFR` / `OCF yield` / `sales` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - `market_cap_oku` / `avg_turnover_oku`: research の position size と流動性確認で使う。universe 閾値は `market_cap_oku >= 100` かつ `avg_turnover_oku >= 1.0`
 - `price_change_60d` / `price_change_4w`: split 影響を排除するため adjustment_close ベースで算出
@@ -138,6 +152,8 @@ candidates YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行�
 - `records/04-research/` の front matter `candidates_ref` で本ファイルを参照
 - 選定プロセス: 最新 `records/03-candidates/` と最新 `records/02-outlook/` を突き合わせ、`outlook` で tailwind/neutral の業種/地域の ticker を候補に残す（headwind 除外）
 - 複数 signal が重なる候補は research 優先度を上げるが、単一総合 score は作らない
+- `select` は lane 別の primary metric と macro status を使って research triage を支援する。signal 数と時価総額だけでは並べない
+- `select` output には `lane_toplists` と flattened な `candidates` が含まれる。多角的に research 候補を選ぶときは `lane_toplists` を優先して確認する。`candidates` の件数は CLI `--top`、lane 別件数は `records/_config/screening-rules.yaml` の `output.lane_toplist_limit` で管理する
 - 詳細: [`research.md`](./research.md) の選定プロセス
 - research decision 後の追跡先: [`ledger.md`](./ledger.md)
 

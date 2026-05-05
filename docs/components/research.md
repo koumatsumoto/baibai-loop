@@ -14,7 +14,8 @@ Baibai-Loop 4 成分アーキテクチャの **(d) 個別銘柄リサーチ** �
 2. **最新 outlook を参照**: 直近の `records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml` を選び、`sectors` / `regions` を取得
 3. **gate 通過銘柄に絞り込み**: candidates ticker のうち、所属業種/地域が outlook で **tailwind または neutral** のものを候補に残す（**headwind は除外**）。candidates は `sector_33` のみ持つので、各業種を outlook の region に対応させるには [`../screening/sector-region-map.md`](../screening/sector-region-map.md) の default mapping を出発点にする
 4. **候補から人間 + AI が個別 ticker を選定**: 以下の基準で優先度判定
-   - `signals` の重なり（複数 signal で hit した方を優先）
+   - `select` の `selection_lane` と `selection_metrics`（どの割安仮説で深掘りするか）
+   - `signals` の重なり（複数 signal は tie-break として優先するが、それだけで primary thesis にしない）
    - signal lane の種類（cash / CF / sales / valuation のどの割安タイプか）
    - primary metric の乖離幅（業種中央値比・過去自己比較・OCF yield・cash 比率）
    - 同業種の中で相対的に過剰売られ
@@ -36,6 +37,12 @@ research 対象に選んだ銘柄は、業種を問わず **会社IRを一次情
 - CF signal では営業 CF の一過性要因、運転資本、季節性を確認する
 - 会社IRで確認できた事実、会社IRでは確認できず外部 estimate に留めた情報、外部AI / 二次分析から修正した数値を research 本文の source verification log に分けて残す
 - 会社IRが未確認の銘柄は `decision: accepted` にしない。情報不足なら `pending` または `skipped` とし、未確認項目を明記する
+
+### 2.3 複数 signal hit の扱い
+
+research file の `playbook` は primary thesis を 1 つだけ選ぶ。複数 signal が hit した場合は、`select` の `selection_lane`、macro gate、最も検証したい割安仮説を見て primary を決め、残りは `supporting_signals` と本文「Candidate signals + valuation snapshot」に列挙する。
+
+複数 signal hit は採用理由ではなく、検証優先度を上げる材料である。例えば cash-rich と CF が両方 hit しても、有利子負債・運転資本・一過性 CF を一次情報で確認できなければ accepted にしない。
 
 ## 3. Path と命名
 
@@ -89,6 +96,7 @@ valuation:
   ocf_yield: 数値 | null
   cash_to_market_cap: 数値 | null
   price_to_equity: 数値 | null
+  equity_ratio: 数値 | null
   primary_metric: ["pbr", "ocf_yield"]
 ---
 ```

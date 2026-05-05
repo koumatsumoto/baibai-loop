@@ -12,7 +12,7 @@ J-Quants financial summary の `CashEq` と `Eq` を使い、現金・純資産�
 
 ## Entry Focus
 
-- `cash_to_market_cap` と `price_to_equity` が screening rule を満たす。
+- `cash_to_market_cap`、`price_to_equity`、`equity_ratio` が screening rule を満たす。
 - 営業赤字ではない。
 - cash が有利子負債や運転資金に食われるだけではないことを一次情報で確認する。
 

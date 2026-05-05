@@ -138,11 +138,17 @@ class FakeJPXProvider:
     fail_bootstrap: bool = False
     cache_exists: bool = True
     snapshots_requested: int = 0
+    source_names: tuple[str, ...] = (
+        "上場廃止警告",
+        "取引停止",
+        "整理銘柄",
+        "特別注意銘柄",
+    )
 
     def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot:
         del asof_date
         self.snapshots_requested += 1
-        return JPXRegulationSnapshot(flags_by_ticker={}, source_names=("jpx-public-csv",))
+        return JPXRegulationSnapshot(flags_by_ticker={}, source_names=self.source_names)
 
     def has_regulation_cache(self, asof_date: date) -> bool:
         del asof_date
@@ -183,6 +189,17 @@ class ScreeningCliTests(unittest.TestCase):
                 self.assertIn('run_date: "2026-04-24"', rendered)
                 self.assertIn("ttm_quality_counts:", rendered)
                 payload = yaml.safe_load(rendered)
+                self.assertEqual(
+                    payload["data_sources"],
+                    [
+                        "j-quants-light",
+                        "jpx-public-regulation",
+                        "edinet-preprocessed-metrics",
+                    ],
+                )
+                self.assertIn(
+                    "EDINET preprocessed metrics: loaded", payload["provider_status_lines"]
+                )
                 self.assertRegex(payload["run_id"], r"^screening-20260424-[0-9a-f]{8}$")
                 self.assertRegex(payload["config_hash"], r"^[0-9a-f]{16}$")
                 self.assertRegex(payload["cache_manifest_hash"], r"^[0-9a-f]{16}$")
@@ -194,6 +211,38 @@ class ScreeningCliTests(unittest.TestCase):
                 self.assertEqual(
                     manifest["cache_manifest_hash"],
                     payload["cache_manifest_hash"],
+                )
+            finally:
+                os.chdir(cwd)
+
+    def test_run_command_omits_edinet_source_when_optional_provider_is_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = Path.cwd()
+            try:
+                os_path = Path(tmpdir)
+                import os
+
+                os.chdir(os_path)
+                config = ScreeningConfig("token", None, cache_dir=Path(".cache/screening"))
+                providers = ProviderBundle(
+                    jquants=FakeJQuantsProvider(),
+                    edinet=None,
+                    jpx=FakeJPXProvider(),
+                )
+                exit_code = run_command(
+                    date(2026, 4, 24),
+                    config,
+                    providers,
+                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                )
+                self.assertEqual(exit_code, 2)
+                payload = yaml.safe_load(build_output_path(date(2026, 4, 24)).read_text())
+                self.assertEqual(
+                    payload["data_sources"], ["j-quants-light", "jpx-public-regulation"]
+                )
+                self.assertIn(
+                    "EDINET preprocessed metrics: optional unavailable",
+                    payload["provider_status_lines"],
                 )
             finally:
                 os.chdir(cwd)
@@ -325,6 +374,33 @@ class ScreeningCliTests(unittest.TestCase):
             finally:
                 os.chdir(cwd)
 
+    def test_run_command_fails_when_required_jpx_source_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = Path.cwd()
+            try:
+                import os
+
+                os.chdir(tmpdir)
+                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                providers = ProviderBundle(
+                    jquants=FakeJQuantsProvider(),
+                    edinet=FakeEDINETProvider(),
+                    jpx=FakeJPXProvider(source_names=("特別注意銘柄", "整理銘柄")),
+                )
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    exit_code = run_command(
+                        date(2026, 4, 24),
+                        config,
+                        providers,
+                        now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    )
+                self.assertEqual(exit_code, 1)
+                self.assertIn("missing required JPX regulation sources", stderr.getvalue())
+                self.assertFalse(build_output_path(date(2026, 4, 24)).exists())
+            finally:
+                os.chdir(cwd)
+
     def test_bootstrap_cache_command_tolerates_jpx_bootstrap_failure(self) -> None:
         exit_code = bootstrap_cache_command(
             date(2026, 4, 1),
@@ -389,7 +465,7 @@ class SelectCommandTests(unittest.TestCase):
         )
         return path
 
-    def test_filters_headwind_sectors_and_ranks_by_threshold_count(self) -> None:
+    def test_filters_headwind_sectors_and_ranks_by_lane_aware_signal(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -446,10 +522,127 @@ class SelectCommandTests(unittest.TestCase):
             payload = yaml.safe_load(buffer.getvalue())
             self.assertEqual(payload["input_count"], 3)
             self.assertEqual(payload["after_outlook_filter"], 2)
+            self.assertEqual(
+                [c["ticker"] for c in payload["lane_toplists"]["cash-rich-asset-discount"]],
+                ["3333"],
+            )
             tickers = [c["ticker"] for c in payload["candidates"]]
             self.assertEqual(tickers, ["3333", "2222"])
+            self.assertEqual(payload["candidates"][0]["selection_lane"], "valuation-reversion")
             self.assertEqual(payload["candidates"][0]["position_tier"], "200-500")
             self.assertEqual(payload["candidates"][1]["position_tier"], "500-1000")
+
+    def test_select_uses_lane_strength_before_market_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/03-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "large weak cash rich",
+                        "sector_33": "機械",
+                        "market_cap_oku": 5000,
+                        "signals": [
+                            {
+                                "name": "cash-rich-asset-discount",
+                                "metrics": {
+                                    "cash_to_market_cap": 0.41,
+                                    "price_to_equity": 0.95,
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "ticker": "2222",
+                        "name": "small strong cash rich",
+                        "sector_33": "機械",
+                        "market_cap_oku": 150,
+                        "signals": [
+                            {
+                                "name": "cash-rich-asset-discount",
+                                "metrics": {
+                                    "cash_to_market_cap": 0.8,
+                                    "price_to_equity": 0.5,
+                                },
+                            }
+                        ],
+                    },
+                ],
+            )
+            self._write_outlook(
+                root / "records/02-outlook",
+                asof,
+                sectors={"機械": "neutral"},
+            )
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                candidates_root=root / "records/03-candidates",
+                outlook_root=root / "records/02-outlook",
+                stdout=buffer,
+            )
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            self.assertEqual([c["ticker"] for c in payload["candidates"]], ["2222", "1111"])
+            self.assertEqual(
+                [c["ticker"] for c in payload["lane_toplists"]["cash-rich-asset-discount"]],
+                ["2222", "1111"],
+            )
+            self.assertEqual(payload["candidates"][0]["selection_lane"], "cash-rich-asset-discount")
+
+    def test_select_uses_configured_lane_toplist_limit_independent_from_top(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/03-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "first",
+                        "sector_33": "機械",
+                        "market_cap_oku": 150,
+                        "signals": [{"name": "cash-rich-asset-discount"}],
+                    },
+                    {
+                        "ticker": "2222",
+                        "name": "second",
+                        "sector_33": "機械",
+                        "market_cap_oku": 160,
+                        "signals": [{"name": "cash-rich-asset-discount"}],
+                    },
+                ],
+            )
+            self._write_outlook(
+                root / "records/02-outlook",
+                asof,
+                sectors={"機械": "neutral"},
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=1,
+                candidates_root=root / "records/03-candidates",
+                outlook_root=root / "records/02-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            self.assertEqual(payload["lane_toplist_limit"], 5)
+            self.assertEqual(len(payload["candidates"]), 1)
+            self.assertEqual(
+                [c["ticker"] for c in payload["lane_toplists"]["cash-rich-asset-discount"]],
+                ["1111", "2222"],
+            )
 
     def test_rejects_non_mapping_candidates_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

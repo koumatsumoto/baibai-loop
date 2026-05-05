@@ -30,6 +30,7 @@ valuation:
   ocf_yield: 0.13
   cash_to_market_cap: 0.42
   price_to_equity: 0.82
+  equity_ratio: 0.45
   primary_metric: ["pbr", "ocf_yield"]
 ---
 
@@ -64,7 +65,7 @@ headwind の場合は原則採用不可。採用する場合は `macro_gate_over
 | signal | playbook | hit reasons | primary metric |
 | --- | --- | --- | --- |
 | valuation-reversion | valuation-reversion | sector_self_range | PER / PBR |
-| cash-rich-asset-discount | cash-rich-asset-discount | cash_to_market_cap_and_price_to_equity | cash_to_market_cap |
+| cash-rich-asset-discount | cash-rich-asset-discount | cash_to_market_cap_price_to_equity_and_equity_ratio | cash_to_market_cap |
 | cashflow-yield-discount | cashflow-yield-discount | ocf_yield_discount | ocf_yield |
 | sales-discount-growth | sales-discount-growth | ps_discount_growth_intact | P/S |
 
@@ -80,6 +81,7 @@ headwind の場合は原則採用不可。採用する場合は `macro_gate_over
 | PCFR | 5.1 | 8.0 | -36% | 18% | |
 | OCF yield | 13.0% | 8.0% | +5.0pt | n/a | ✓ |
 | Cash / market cap | 42.0% | n/a | n/a | n/a | |
+| Equity ratio | 45.0% | n/a | n/a | n/a | |
 
 **primary metric**: [最も効いた 1-2 指標]
 
