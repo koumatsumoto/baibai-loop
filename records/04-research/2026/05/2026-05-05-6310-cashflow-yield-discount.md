@@ -62,6 +62,13 @@ valuation:
 
 したがって、5/7 に先行買いを入れる risk / return は 6835 より劣る。買うなら 1Q 通過後に 100 株。5/15 までに market が上がって取り逃すリスクはあるが、OCF の一過性反証を避ける価値の方が大きい。
 
+### External deepresearch verification log
+
+| external_ref | 採用 / 修正 / 未採用 | この research での扱い |
+| --- | --- | --- |
+| records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md | 採用 | 6310 は OCF lane 1 位だが、5/15 1Q 直前かつ 1 単元 172,600 円の event risk が重いため 5/7 には買わない |
+| 同上 | 採用 | 5/8 米雇用、5/12 CPI、5/15 個別決算を通過してから tactical cap を 60-70% へ上げる、という段階投入を採用 |
+
 ## Cashflow snapshot
 
 | 指標 | 値 | 判定 |

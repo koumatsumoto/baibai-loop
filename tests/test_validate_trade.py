@@ -111,6 +111,15 @@ def test_real_concentration_inconsistent_with_notional_is_flagged(tmp_path: Path
     assert "trade.real-concentration-mismatch" in codes
 
 
+def test_partial_real_fields_are_flagged(tmp_path: Path) -> None:
+    path = _write_trade(
+        tmp_path,
+        _trade_text(real_capital_yen=None, real_concentration_pct=None),
+    )
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.real-concentration-missing-field" in codes
+
+
 def test_real_concentration_above_hard_cap_is_error(tmp_path: Path) -> None:
     path = _write_trade(
         tmp_path,

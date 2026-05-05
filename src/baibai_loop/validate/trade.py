@@ -292,8 +292,31 @@ def _check_real_concentration_consistency(
     notional = _coerce_number(front.get("real_order_notional_yen"))
     capital = _coerce_number(front.get("real_capital_yen"))
     pct = _coerce_number(front.get("real_concentration_pct"))
-    if notional is None or capital is None or pct is None:
+
+    if notional is None and capital is None and pct is None:
         return []
+
+    missing_fields: list[str] = []
+    if notional is None:
+        missing_fields.append("real_order_notional_yen")
+    if capital is None:
+        missing_fields.append("real_capital_yen")
+    if pct is None:
+        missing_fields.append("real_concentration_pct")
+    if missing_fields:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.real-concentration-missing-field",
+                message="real concentration requires numeric fields: " + ", ".join(missing_fields),
+                location="real_concentration_pct",
+            )
+        ]
+
+    assert notional is not None
+    assert capital is not None
+    assert pct is not None
     if capital <= 0:
         return [
             ValidationFinding(

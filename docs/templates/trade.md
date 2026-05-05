@@ -4,6 +4,8 @@ name: "..."
 research_ref: records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
 order_date: "YYYY-MM-DD" | null
 expected_fill_at: "ISO 8601" | null
+order_price_guard_yen: 数値 | null
+order_action_required: 文字列 | null
 entry_date: "YYYY-MM-DD" | null
 entry_price: 数値 | null
 paper_proxy_position_size_oku: 数値

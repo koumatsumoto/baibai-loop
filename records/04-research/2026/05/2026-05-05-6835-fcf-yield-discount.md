@@ -58,9 +58,16 @@ valuation:
 
 ### Portfolio macro risk budget
 
-6835 は決算直前のため system default は 1Q 後だが、1 単元が 26,200 円と小さい。総資金 500 万円では 0.52%、当面の 100 万円 tactical cap でも 2.62% で、Q1 が悪かった場合の損失寄与は限定的。一方、FCF lane 1 位・cashflow lane 10 位・net cash 38.9% という signal は強く、決算後に gap up してからでは FCF yield の妙味が薄れる可能性がある。
+6835 は決算直前のため 1Q 後に回す。1 単元が 26,200 円と小さく、総資金 500 万円では 0.52%、当面の 100 万円 tactical cap でも 2.62% で、Q1 が悪かった場合の損失寄与は限定的。一方で、現行 system rule は決算またぎ entry を原則避ける。FCF lane 1 位・cashflow lane 10 位・net cash 38.9% という signal は強いが、decision: pending のまま event risk を取りに行くと kill switch の意味が薄れる。
 
-したがって、macro risk budget 上は「任意の高リスク toe-hold」として 100 株だけ先行する余地はある。ただし research decision は pending のままにする。理由は、system rule では決算またぎ entry を原則避けるため。人間が明示的に event risk を取る場合だけ、100 株を上限に先行し、1Q 後に accepted へ切り替える。
+したがって、macro risk budget 上も 5/7 の先行買いはしない。5/15 1Q 通過後に FCF / OCF / net cash thesis が残れば、100 株から accepted へ切り替える。決算後に gap up する取り逃しリスクはあるが、今回の PR では「pending 銘柄を override して決算またぎする」運用変更までは行わない。
+
+### External deepresearch verification log
+
+| external_ref | 採用 / 修正 / 未採用 | この research での扱い |
+| --- | --- | --- |
+| records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md | 採用 | 6835 は FCF lane 1 位・cashflow lane 10 位で、1Q 後の優先候補として残す |
+| 同上 | 未採用 | deepresearch 初版の「100 株 toe-hold optional」は、decision: pending と決算またぎ kill switch に抵触するため採用しない |
 
 ## FCF snapshot
 
@@ -126,7 +133,6 @@ Source:
 ## Entry
 
 - 2026-05-15 15:30 に 2026/12 期 1Q 決算発表予定。system default では 5/7 に買わず、決算後に判断する。
-- ただし、100 万円 tactical cap で event risk を明示的に許容するなら、100 株だけの toe-hold は許容可能。5/1 終値基準で 26,200 円、総資金 500 万円比 0.52%、tactical cap 比 2.62% に留まるため、損失額は限定的で、決算後 gap up の取り逃しリスクを小さくできる。
 - 1Q 通過後、FCF / OCF / net cash thesis が維持されれば 100 株から。5/1 終値 262 円基準で 26,200 円。
 - 275 円以下なら starter position。決算後に 300 円超まで gap up した場合は、FCF yield を再計算してから判断する。
 - 残余資金が大きく、1Q の cash quality が強ければ 200-300 株まで増やせるが、最初は数量より thesis 確認を優先する。
@@ -154,9 +160,9 @@ Source:
 - **avg turnover**: 2.2 億円
 - **paper proxy position**: 0.01 億円
 - **ADV participation**: 0.4545%
-- **実資金想定**: 原則 1Q 通過後 100 株から。高リスク許容なら 1Q 前に 100 株だけ toe-hold。5/1 終値基準 26,200 円。
+- **実資金想定**: 1Q 通過後 100 株から。5/1 終値基準 26,200 円。
 - **許容上限**: 複数 signal だが小型・決算直前のため初期 1%
 
 ### お買い得候補としての結論
 
-6835 は、FCF lane 1 位で、今回の新 screening の価値が最も分かりやすい候補。9682 よりも「現金創出力に対して安い」根拠は強い。ただし決算直前のため、system default は 5/15 1Q 後。人間が決算またぎリスクを明示的に取るなら、100 株だけの toe-hold は risk / return が非対称で許容できる。
+6835 は、FCF lane 1 位で、今回の新 screening の価値が最も分かりやすい候補。9682 よりも「現金創出力に対して安い」根拠は強い。ただし決算直前のため、5/15 1Q 後まで買わない。ここで kill switch を守ることで、FCF/OCF が一過性だった場合の false positive を避ける。

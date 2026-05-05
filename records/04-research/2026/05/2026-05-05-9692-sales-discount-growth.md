@@ -9,7 +9,7 @@ outlook_ref: records/02-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.ya
 brief_refs:
   - records/01-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
   - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
-ai-draft: true
+ai-draft: false
 published_at: "2026-05-05T20:05:00+09:00"
 tradable_at: "2026-05-07T09:00:00+09:00"
 macro_gate: tailwind
@@ -57,9 +57,17 @@ valuation:
 
 ### Portfolio macro risk budget
 
-macro は tailwind だが、2026-05-05 時点ではホルムズ海峡リスク、Brent 110 ドル超、米利上げ再織り込み、5/8 米雇用・5/12 米 CPI 前という制約がある。AI 関連ではなく domestic SIer のため、9692 は macro beta を取りに行く銘柄ではない。投資可能資金は 500 万円、当面の tactical cap は 100 万円。9682 200 株注文後でも、9692 100 株を追加した合計は 395,700 円（5/1 終値基準）で、総資金の 7.9%、tactical cap の約 39.6%。初期投入上限 40-45% の範囲内に収まるため、即時候補として許容する。
+macro は tailwind だが、2026-05-05 時点ではホルムズ海峡リスク、Brent 110 ドル超、米利上げ再織り込み、5/8 米雇用・5/12 米 CPI 前という制約がある。AI 関連ではなく domestic SIer のため、9692 は macro beta を取りに行く銘柄ではない。投資可能資金は 500 万円、当面の tactical cap は 100 万円。9682 200 株注文後でも、9692 100 株を追加した合計は 395,700 円（5/1 終値基準）、9682 を 1,050 円上限で見ても最大 402,900 円で、総資金の 7.9-8.1%、tactical cap の約 39.6-40.3%。初期投入上限 40-45% の範囲内に収まるため、即時候補として許容する。
 
 6310 / 6835 の 1Q を待つ前に全額を使い切る必要はない。9692 は次回 1Q 予定が 6/11 で、決算またぎまで時間があるため、5/7 以降の即時候補としては 6310 / 6835 より優先する。
+
+### External deepresearch verification log
+
+| external_ref | 採用 / 修正 / 未採用 | この research での扱い |
+| --- | --- | --- |
+| records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md | 採用 | 5/7 は全額投入ではなく、9682 200 株 + 9692 100 株までを tactical cap 40-45% 内に抑える判断を採用 |
+| 同上 | 採用 | 9692 は 2,000 円以下なら 100 株追加可、次回 1Q まで時間があるため 6310 / 6835 より即時候補として扱う |
+| 同上 | 修正 | 6835 の 100 株 toe-hold は、決算またぎ kill switch と衝突するため、この research の即時 slate には含めない |
 
 ## Sales / P/S snapshot
 
@@ -163,7 +171,7 @@ Source:
 - **avg turnover**: 1.3 億円
 - **paper proxy position**: 0.01 億円
 - **ADV participation**: 0.7692%
-- **実資金想定**: 100 株、5/1 終値基準 192,900 円。9682 200 株注文後でも合計 395,700 円。総資金 500 万円比 7.9%、tactical cap 100 万円比 39.6%。
+- **実資金想定**: 100 株、5/1 終値基準 192,900 円。9682 200 株注文後でも合計 395,700 円、9682 を 1,050 円上限で見ても最大 402,900 円。総資金 500 万円比 7.9-8.1%、tactical cap 100 万円比 39.6-40.3%。
 - **許容上限**: single signal のため paper proxy 最大 1%
 
 ### お買い得候補としての結論
