@@ -197,26 +197,34 @@ def _build_financial_snapshot(
     shares_outstanding = latest.shares_outstanding if latest else None
     sales_ttm, sales_quality = _ttm_value(summaries, "sales", rules.ttm)
     ocf_ttm, ocf_quality = _ttm_value(summaries, "cfo", rules.ttm)
+    edinet_ocf_ttm = edinet.ocf_ttm if edinet else None
     debt = edinet.debt if edinet else None
     cash = edinet.cash if edinet else None
     ebitda_ttm = edinet.ebitda_ttm if edinet else None
+    fcf_ttm = edinet.fcf_ttm if edinet else None
+    net_cash = edinet.net_cash if edinet else None
+    edinet_failure_reasons = ",".join(edinet.failure_reasons) if edinet else None
+    if net_cash is None and cash is not None and debt is not None:
+        net_cash = cash - debt
     latest_market_cap = (latest_price * shares_outstanding) if shares_outstanding else None
     latest_enterprise_value = (
         (latest_market_cap + debt - cash)
         if latest_market_cap is not None and debt is not None and cash is not None
         else None
     )
+    ev_ebitda = _safe_positive_ratio(latest_enterprise_value, ebitda_ttm)
 
     return FinancialSnapshot(
         per_forward=per_forward,
         per_trailing=per_trailing,
         pbr=pbr,
-        ev_ebitda=_safe_ratio(latest_enterprise_value, ebitda_ttm),
+        ev_ebitda=ev_ebitda,
         p_s=_safe_ratio(latest_market_cap, sales_ttm),
         pcfr=_safe_ratio(latest_market_cap, ocf_ttm if ocf_ttm and ocf_ttm > 0 else None),
         eps=eps_ttm,
         sales_ttm=sales_ttm,
         ocf_ttm=ocf_ttm,
+        edinet_ocf_ttm=edinet_ocf_ttm,
         sales=latest.sales if latest else None,
         cfo=latest.cfo if latest else None,
         cash_eq=latest.cash_eq if latest else None,
@@ -229,10 +237,25 @@ def _build_financial_snapshot(
             latest.equity if latest else None, latest.total_assets if latest else None
         ),
         ocf_yield=_safe_ratio(ocf_ttm, latest_market_cap),
+        net_cash=net_cash,
+        net_cash_to_market_cap=_safe_ratio(net_cash, latest_market_cap),
+        fcf_ttm=fcf_ttm,
+        fcf_yield=_safe_ratio(fcf_ttm, latest_market_cap),
+        capex_ttm=edinet.capex_ttm if edinet else None,
+        depreciation_and_amortization_ttm=(
+            edinet.depreciation_and_amortization_ttm if edinet else None
+        ),
         debt=debt,
         cash=cash,
         ebitda_ttm=ebitda_ttm,
         consolidation_basis=edinet.consolidation_basis if edinet else None,
+        edinet_source_doc_id=edinet.source_doc_id if edinet else None,
+        edinet_document_type=edinet.document_type if edinet else None,
+        edinet_source_submit_datetime=edinet.source_submit_datetime if edinet else None,
+        edinet_source_period_start=edinet.source_period_start if edinet else None,
+        edinet_source_period_end=edinet.source_period_end if edinet else None,
+        edinet_capex_source=edinet.capex_source if edinet else None,
+        edinet_failure_reasons=edinet_failure_reasons or None,
         operating_profit=operating_profit,
         operating_profit_source=operating_profit_source,
         eps_yoy=_yoy_ratio(eps_ttm, prior_year.eps_ttm if prior_year else None),
@@ -250,6 +273,8 @@ def _build_financial_snapshot(
         ttm_quality_pcfr=ocf_quality,
         ttm_quality_ocf_yield=ocf_quality,
         ttm_quality_sales=sales_quality,
+        ttm_quality_fcf_yield=edinet.ttm_quality_fcf if edinet else TTMQuality.UNAVAILABLE,
+        ttm_quality_net_cash=edinet.ttm_quality_net_cash if edinet else TTMQuality.UNAVAILABLE,
         shares_outstanding=shares_outstanding,
     )
 
@@ -415,9 +440,14 @@ def _valuation_history(
         snapshot.shares_outstanding is not None
         and snapshot.debt is not None
         and snapshot.cash is not None
-        and snapshot.ebitda_ttm not in (None, 0)
+        and snapshot.ebitda_ttm is not None
+        and snapshot.ebitda_ttm > 0
     ):
-        ev_ebitda_history = [_historical_ev_ebitda(price, snapshot) for price in prices]
+        ev_ebitda_history = [
+            value
+            for price in prices
+            if (value := _historical_ev_ebitda(price, snapshot)) is not None
+        ]
     pbr_history: list[float] = []
     pbr = snapshot.pbr
     if pbr is not None and pbr != 0:
@@ -447,17 +477,17 @@ def _valuation_history(
 def _historical_ev_ebitda(
     price: float,
     snapshot: FinancialSnapshot,
-) -> float:
+) -> float | None:
     """Return the EV/EBITDA value for one historical price.
 
     Caller must ensure ``shares_outstanding`` / ``debt`` / ``cash`` are not
-    None and ``ebitda_ttm`` is not in ``(None, 0)``. v1 has only the latest
-    balance sheet and TTM EBITDA, so those are held constant across price
-    history while market cap varies with the (adjusted) historical close.
+    None and ``ebitda_ttm`` is positive. v1 has only the latest balance sheet
+    and TTM EBITDA, so those are held constant across price history while
+    market cap varies with the (adjusted) historical close.
 
-    A negative ``ebitda_ttm`` (loss-making company) yields a negative
-    EV/EBITDA value; loss-making screening is handled at a separate layer
-    (condition C / counter-thesis), not here.
+    Negative EV or non-positive EBITDA is outside the valuation multiple
+    domain and is handled by cash / net-cash lanes, not by EV/EBITDA mean
+    reversion.
     """
     shares_outstanding = snapshot.shares_outstanding
     debt = snapshot.debt
@@ -465,9 +495,11 @@ def _historical_ev_ebitda(
     ebitda_ttm = snapshot.ebitda_ttm
     if shares_outstanding is None or debt is None or cash is None:
         raise ValueError("EV/EBITDA history requires shares, debt, and cash")
-    if ebitda_ttm is None or ebitda_ttm == 0:
-        raise ValueError("EV/EBITDA history requires non-zero EBITDA")
+    if ebitda_ttm is None or ebitda_ttm <= 0:
+        raise ValueError("EV/EBITDA history requires positive EBITDA")
     enterprise_value = (price * shares_outstanding) + debt - cash
+    if enterprise_value <= 0:
+        return None
     return enterprise_value / ebitda_ttm
 
 
@@ -540,6 +572,12 @@ def _safe_ratio(numerator: float | None, denominator: float | None) -> float | N
     return numerator / denominator
 
 
+def _safe_positive_ratio(numerator: float | None, denominator: float | None) -> float | None:
+    if numerator is None or denominator is None or numerator <= 0 or denominator <= 0:
+        return None
+    return numerator / denominator
+
+
 def _select_operating_profit(
     summary: JQuantsFinancialSummary | None,
 ) -> tuple[float | None, OperatingProfitSource]:
@@ -577,6 +615,8 @@ def _count_ttm_qualities(snapshots: Sequence[FinancialSnapshot]) -> dict[str, in
             snapshot.ttm_quality_pcfr,
             snapshot.ttm_quality_ocf_yield,
             snapshot.ttm_quality_sales,
+            snapshot.ttm_quality_fcf_yield,
+            snapshot.ttm_quality_net_cash,
         ):
             counts[quality.value] += 1
     return counts

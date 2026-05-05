@@ -9,6 +9,7 @@ generated_by: "screening-cli-v1"
 data_sources:
 - "j-quants-light"
 - "jpx-public-regulation"
+- "edinet-preprocessed-metrics"
 run_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 run_id: "screening-YYYYMMDD-xxxxxxxx"
 config_hash: "0123456789abcdef"
@@ -33,13 +34,29 @@ candidates:
   metrics:
     sales_ttm: 100000000000.0
     ocf_ttm: 13000000000.0
-    cash_eq: 24000000000.0
+    edinet_ocf_ttm: 13000000000.0
+    cash_eq: 32000000000.0
+    cash: 32000000000.0
+    debt: 12000000000.0
+    net_cash: 20000000000.0
+    net_cash_to_market_cap: 0.34
     total_assets: 180000000000.0
     equity: 72000000000.0
     cash_to_market_cap: 0.42
     price_to_equity: 0.82
     equity_ratio: 0.45
     ocf_yield: 0.13
+    fcf_ttm: 8000000000.0
+    fcf_yield: 0.08
+    capex_ttm: 5000000000.0
+    depreciation_and_amortization_ttm: 2000000000.0
+    edinet_source_doc_id: S100XXXX
+    edinet_document_type: "120"
+    edinet_source_submit_datetime: "YYYY-MM-DD HH:MM"
+    edinet_source_period_start: "YYYY-MM-DD"
+    edinet_source_period_end: "YYYY-MM-DD"
+    edinet_capex_source: purchase_of_fixed_assets
+    edinet_failure_reasons: null
     cfo_yoy: 0.08
     sales_yoy: 0.12
     operating_profit: 9000000000.0
@@ -67,6 +84,8 @@ candidates:
     pcfr: approximated
     ocf_yield: approximated
     sales: approximated
+    fcf_yield: exact
+    net_cash: exact
   signals:
   - name: valuation-reversion
     playbook: valuation-reversion
@@ -82,13 +101,45 @@ candidates:
     - cash_to_market_cap_price_to_equity_and_equity_ratio
     metrics:
       cash_to_market_cap: 0.42
+      net_cash_to_market_cap: 0.34
+      debt: 12000000000.0
+      cash: 32000000000.0
       price_to_equity: 0.82
       equity_ratio: 0.45
+  - name: strict-net-cash-discount
+    playbook: strict-net-cash-discount
+    reasons:
+    - net_cash_to_market_cap_price_to_equity_and_equity_ratio
+    metrics:
+      net_cash_to_market_cap: 0.34
+      net_cash: 20000000000.0
+      debt: 12000000000.0
+      cash: 32000000000.0
+      edinet_source_doc_id: S100XXXX
+      edinet_document_type: "120"
+      edinet_source_submit_datetime: "YYYY-MM-DD HH:MM"
+      edinet_source_period_start: "YYYY-MM-DD"
+      edinet_source_period_end: "YYYY-MM-DD"
+  - name: fcf-yield-discount
+    playbook: fcf-yield-discount
+    reasons:
+    - fcf_yield_discount
+    metrics:
+      fcf_yield: 0.08
+      fcf_ttm: 8000000000.0
+      edinet_ocf_ttm: 13000000000.0
+      capex_ttm: 5000000000.0
+      cfo_yoy: 0.08
+      edinet_source_doc_id: S100XXXX
+      edinet_document_type: "120"
+      edinet_source_submit_datetime: "YYYY-MM-DD HH:MM"
+      edinet_source_period_start: "YYYY-MM-DD"
+      edinet_source_period_end: "YYYY-MM-DD"
 fact_memo_lines:
 - "[事実メモ]"
 provider_status_lines:
 - "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX"
-- "EDINET preprocessed metrics: optional unavailable"
+- "EDINET preprocessed metrics: available"
 universe_exclusion_lines:
 - "universe 除外件数: 上場 182 日未満=0, 売買代金不足=0"
 ttm_quality_counts:
@@ -97,6 +148,8 @@ ttm_quality_counts:
   unavailable: 1
 signals_summary:
   valuation-reversion: 1
+  strict-net-cash-discount: 1
+  fcf-yield-discount: 1
   cash-rich-asset-discount: 1
   cashflow-yield-discount: 0
   sales-discount-growth: 0

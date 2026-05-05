@@ -1,7 +1,7 @@
 ---
 ticker: "XXXX"
 name: "..."
-playbook: valuation-reversion | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth
+playbook: valuation-reversion | strict-net-cash-discount | fcf-yield-discount | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth
 supporting_signals: []                  # candidates.signals[].name のうち primary 以外
 decision: accepted | skipped | pending
 candidates_ref: records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml
@@ -38,7 +38,7 @@ valuation:
 
 **成分**: 4 成分アーキテクチャの **(d) 個別銘柄リサーチ**（[`/docs/components/research.md`](/docs/components/research.md)）
 
-**Playbook**: [valuation-reversion | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth]
+**Playbook**: [valuation-reversion | strict-net-cash-discount | fcf-yield-discount | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth]
 
 ## 1. Thesis
 
@@ -65,6 +65,8 @@ headwind の場合は原則採用不可。採用する場合は `macro_gate_over
 | signal | playbook | hit reasons | primary metric |
 | --- | --- | --- | --- |
 | valuation-reversion | valuation-reversion | sector_self_range | PER / PBR |
+| strict-net-cash-discount | strict-net-cash-discount | net_cash_to_market_cap_price_to_equity_and_equity_ratio | net_cash_to_market_cap |
+| fcf-yield-discount | fcf-yield-discount | fcf_yield_discount | fcf_yield |
 | cash-rich-asset-discount | cash-rich-asset-discount | cash_to_market_cap_price_to_equity_and_equity_ratio | cash_to_market_cap |
 | cashflow-yield-discount | cashflow-yield-discount | ocf_yield_discount | ocf_yield |
 | sales-discount-growth | sales-discount-growth | ps_discount_growth_intact | P/S |

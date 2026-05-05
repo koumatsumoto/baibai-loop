@@ -57,10 +57,23 @@ candidates:
     metrics:
       sales_ttm: 100000000000.0
       ocf_ttm: 13000000000.0
+      edinet_ocf_ttm: 13000000000.0
       cash_to_market_cap: 0.42
+      net_cash: null
+      net_cash_to_market_cap: null
       price_to_equity: 0.82
       equity_ratio: 0.45
       ocf_yield: 0.13
+      fcf_ttm: 8000000000.0
+      fcf_yield: 0.08
+      capex_ttm: 5000000000.0
+      edinet_source_doc_id: S100XXXX
+      edinet_document_type: "120"
+      edinet_source_submit_datetime: "2026-04-01 12:00"
+      edinet_source_period_start: "2025-04-01"
+      edinet_source_period_end: "2026-03-31"
+      edinet_capex_source: purchase_of_fixed_assets
+      edinet_failure_reasons: debt_assumed_zero
       cfo_yoy: 0.08
       sales_yoy: 0.12
       operating_profit: 9000000000.0
@@ -88,6 +101,8 @@ candidates:
       pcfr: exact | approximated | unavailable
       ocf_yield: exact | approximated | unavailable
       sales: exact | approximated | unavailable
+      fcf_yield: exact | approximated | unavailable
+      net_cash: exact | approximated | unavailable
     next_earnings_date: "YYYY-MM-DD" | null
     split_adjustment_flag: false
     signals:
@@ -100,6 +115,8 @@ candidates:
           condition_a_self_range_percentile: 0.14
 signals_summary:
   valuation-reversion: 1
+  strict-net-cash-discount: 0
+  fcf-yield-discount: 0
   cash-rich-asset-discount: 0
   cashflow-yield-discount: 0
   sales-discount-growth: 0
@@ -111,10 +128,12 @@ signals_summary:
 - `config_hash`: `ScreeningConfig` の secret 以外、provider URL、tier 設定、`records/_config/screening-rules.yaml` の内容 hash を含む
 - `cache_manifest_hash`: `records/_data/raw/screening/` 配下の provider raw JSON cache の manifest hash
 - `signals`: 通過した signal lane。複数 hit 可。表示順は rule config の lane 順に固定し、単一総合 score は持たせない
-- `metrics`: candidate-level の flat な派生値。例: `sales_ttm`, `ocf_ttm`, `cash_to_market_cap`, `price_to_equity`, `equity_ratio`, `ocf_yield`, `cfo_yoy`, `sales_yoy`, `operating_profit`
+- `metrics`: candidate-level の flat な派生値。例: `sales_ttm`, `ocf_ttm`, `edinet_ocf_ttm`, `cash_to_market_cap`, `net_cash_to_market_cap`, `price_to_equity`, `equity_ratio`, `ocf_yield`, `fcf_yield`, `cfo_yoy`, `sales_yoy`, `operating_profit`, `edinet_source_doc_id`, `edinet_source_submit_datetime`, `edinet_source_period_start`, `edinet_source_period_end`, `edinet_failure_reasons`
+- `ocf_ttm` は J-Quants 財務サマリーを TTM 正規化した営業 CF。`edinet_ocf_ttm` は EDINET CSV から抽出した CFO で、`fcf-yield-discount` の `fcf_ttm = edinet_ocf_ttm - capex_ttm` と同じ source family に属する
+- `edinet_source_*`: EDINET CSV-derived metrics の提出書類 ID、doc type、提出日時、書類 metadata 上の対象期間。research で一次資料へ戻るための traceability であり、strict net-cash / FCF signal の `signals[].metrics` にも同じ source metadata を入れる。半期報告書 / 訂正半期報告書では `source_period_end` が fiscal year end を指すことがあるため、FCF / CFO の測定期間そのものとは限らない
 - `metrics_breakdown`: valuation 指標ごとの `sector_median_gap` / `self_range_percentile` / `sigma_gap`
 - `signals[].metrics`: signal hit の判定に直接使った値。valuation は `condition_a_metric` などの flat key、cash / CF / sales は lane 固有 key で記録する
-- `ttm_quality`: `EV/EBITDA` / `P/S` / `PCFR` / `OCF yield` / `sales` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する
+- `ttm_quality`: `EV/EBITDA` / `P/S` / `PCFR` / `OCF yield` / `sales` / `FCF yield` / `net cash` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - `market_cap_oku` / `avg_turnover_oku`: research の position size と流動性確認で使う。universe 閾値は `market_cap_oku >= 100` かつ `avg_turnover_oku >= 1.0`
 - `price_change_60d` / `price_change_4w`: split 影響を排除するため adjustment_close ベースで算出
 - `split_adjustment_flag`: `price_change_60d` と同じ window 内に J-Quants `AdjustmentFactor` が株式分割 / 株式併合の調整を示した場合に `true`
@@ -153,7 +172,7 @@ candidates YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行�
 - 選定プロセス: 最新 `records/03-candidates/` と最新 `records/02-outlook/` を突き合わせ、`outlook` で tailwind/neutral の業種/地域の ticker を候補に残す（headwind 除外）
 - 複数 signal が重なる候補は research 優先度を上げるが、単一総合 score は作らない
 - `select` は lane 別の primary metric と macro status を使って research triage を支援する。signal 数と時価総額だけでは並べない
-- `select` output には `lane_toplists` と flattened な `candidates` が含まれる。多角的に research 候補を選ぶときは `lane_toplists` を優先して確認する。`candidates` の件数は CLI `--top`、lane 別件数は `records/_config/screening-rules.yaml` の `output.lane_toplist_limit` で管理する
+- `select` output には `lane_toplists`、`ranked_candidates`、research 着手候補として lane 分散した `candidates` が含まれる。`ranked_candidates` は macro + lane rank + signal strength のグローバル順位、`candidates` は `output.research_selection_lane_order` に沿って各 lane の上位を重複排除した推奨リスト。`candidates[].recommendation_lane` は lane 分散でその候補を拾った枠、`candidates[].selection_lane` は primary thesis として優先確認する signal。複数 signal 銘柄では両者が異なることがある。`candidates` の件数は CLI `--top` と `output.research_selection_target_max` の小さい方、lane 別件数は `records/_config/screening-rules.yaml` の `output.lane_toplist_limit` で管理する
 - 詳細: [`research.md`](./research.md) の選定プロセス
 - research decision 後の追跡先: [`ledger.md`](./ledger.md)
 

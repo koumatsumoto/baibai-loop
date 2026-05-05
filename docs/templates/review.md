@@ -2,7 +2,7 @@
 ticker: "XXXX"
 trade_ref: records/05-trades/YYYY/MM/YYYY-MM-DD-<ticker>.md
 research_ref: records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
-playbook: valuation-reversion | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth
+playbook: valuation-reversion | strict-net-cash-discount | fcf-yield-discount | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth
 entry_date: "YYYY-MM-DD"
 exit_date: "YYYY-MM-DD"
 pnl_pct: 数値
@@ -22,7 +22,7 @@ free_text: "一行で事後検証の要点"
 
 ## 1. Trade 概要
 
-- Playbook: [valuation-reversion | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth]
+- Playbook: [valuation-reversion | strict-net-cash-discount | fcf-yield-discount | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth]
 - Entry: YYYY-MM-DD @XXXXX 円
 - Exit: YYYY-MM-DD @XXXXX 円
 - 損益率: +X.X%

@@ -14,7 +14,9 @@ Baibai-Loop 4 成分アーキテクチャの **(d) 個別銘柄リサーチ** �
 2. **最新 outlook を参照**: 直近の `records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml` を選び、`sectors` / `regions` を取得
 3. **gate 通過銘柄に絞り込み**: candidates ticker のうち、所属業種/地域が outlook で **tailwind または neutral** のものを候補に残す（**headwind は除外**）。candidates は `sector_33` のみ持つので、各業種を outlook の region に対応させるには [`../screening/sector-region-map.md`](../screening/sector-region-map.md) の default mapping を出発点にする
 4. **候補から人間 + AI が個別 ticker を選定**: 以下の基準で優先度判定
-   - `select` の `selection_lane` と `selection_metrics`（どの割安仮説で深掘りするか）
+   - `select` の `candidates`（lane 分散済みの research 着手候補）を先に見る。単純な global rank を確認したい場合は `ranked_candidates` を見る
+   - `select` の `selection_lane` と `selection_metrics`（primary thesis としてどの割安仮説を深掘りするか）
+   - `select` の `recommendation_lane`（lane 分散でその候補を拾った枠。複数 signal 銘柄では `selection_lane` と異なることがある）
    - `signals` の重なり（複数 signal は tie-break として優先するが、それだけで primary thesis にしない）
    - signal lane の種類（cash / CF / sales / valuation のどの割安タイプか）
    - primary metric の乖離幅（業種中央値比・過去自己比較・OCF yield・cash 比率）
@@ -40,7 +42,7 @@ research 対象に選んだ銘柄は、業種を問わず **会社IRを一次情
 
 ### 2.3 複数 signal hit の扱い
 
-research file の `playbook` は primary thesis を 1 つだけ選ぶ。複数 signal が hit した場合は、`select` の `selection_lane`、macro gate、最も検証したい割安仮説を見て primary を決め、残りは `supporting_signals` と本文「Candidate signals + valuation snapshot」に列挙する。
+research file の `playbook` は primary thesis を 1 つだけ選ぶ。複数 signal が hit した場合は、`select` の `selection_lane`、macro gate、最も検証したい割安仮説を見て primary を決め、残りは `supporting_signals` と本文「Candidate signals + valuation snapshot」に列挙する。`recommendation_lane` は lane 分散の選定理由であり、primary thesis ではない。
 
 複数 signal hit は採用理由ではなく、検証優先度を上げる材料である。例えば cash-rich と CF が両方 hit しても、有利子負債・運転資本・一過性 CF を一次情報で確認できなければ accepted にしない。
 
@@ -51,7 +53,7 @@ records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
 ```
 
 - `<ticker>`: 4 文字の英数字文字列
-- `<playbook>`: `valuation-reversion` / `cash-rich-asset-discount` / `cashflow-yield-discount` / `sales-discount-growth`
+- `<playbook>`: `valuation-reversion` / `strict-net-cash-discount` / `fcf-yield-discount` / `cash-rich-asset-discount` / `cashflow-yield-discount` / `sales-discount-growth`
 
 ## 4. Front matter 必須項目
 
@@ -59,7 +61,7 @@ records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
 ---
 ticker: "7203"
 name: "トヨタ自動車"
-playbook: valuation-reversion | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth
+playbook: valuation-reversion | strict-net-cash-discount | fcf-yield-discount | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth
 supporting_signals:
   - cashflow-yield-discount
 decision: accepted | skipped | pending
@@ -94,6 +96,8 @@ valuation:
   p_s: 数値 | null
   pcfr: 数値 | null
   ocf_yield: 数値 | null
+  fcf_yield: 数値 | null
+  net_cash_to_market_cap: 数値 | null
   cash_to_market_cap: 数値 | null
   price_to_equity: 数値 | null
   equity_ratio: 数値 | null
@@ -138,8 +142,10 @@ research decision は `baibai-loop-ledger sync` で [`records/_ledger/`](./ledge
 - `macro_gate = headwind` は原則採用不可（outlook で対象業種/地域が `null` の場合は neutral 扱いで判定可）
 - primary signal の割安判定が成立している
 - 反対仮説を考えて「構造的 trap ではない」と説明できる
+- strict net-cash signal では EDINET 由来 debt / cash の tag source と有利子負債の範囲を一次情報で確認している
 - cash-rich signal では有利子負債確認を完了している
-- CF signal では営業 CF の期間正規化、一過性要因、悪化有無を確認している
+- FCF signal では capex source、設備投資の一過性、維持投資 / 成長投資の区別を確認している
+- OCF signal では営業 CF の期間正規化、一過性要因、悪化有無を確認している
 - sales signal では売上成長が残り、営業赤字の場合は CFO プラスまたは赤字縮小が確認できる
 - catalyst は必須ではないが、存在する場合は freshness と一次ソースを記録する
 - crowding が踏み上げリスクと逆回転リスクの両方で許容範囲

@@ -46,6 +46,8 @@ def _minimal_candidates() -> dict[str, object]:
                     "pcfr": "unavailable",
                     "ocf_yield": "unavailable",
                     "sales": "approximated",
+                    "fcf_yield": "unavailable",
+                    "net_cash": "unavailable",
                 },
                 "signals": [
                     {

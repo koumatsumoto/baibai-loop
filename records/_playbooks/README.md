@@ -9,6 +9,8 @@ Baibai-Loop で運用中の playbook 集合。各 playbook は `docs/components/
 | playbook | signal lane | status | 本体 |
 | --- | --- | --- | --- |
 | Valuation Reversion | `valuation-reversion` | active | [`valuation-reversion.md`](./valuation-reversion.md) |
+| Strict Net-Cash Discount | `strict-net-cash-discount` | active | [`strict-net-cash-discount.md`](./strict-net-cash-discount.md) |
+| FCF Yield Discount | `fcf-yield-discount` | active | [`fcf-yield-discount.md`](./fcf-yield-discount.md) |
 | Cash-Rich Asset Discount | `cash-rich-asset-discount` | active | [`cash-rich-asset-discount.md`](./cash-rich-asset-discount.md) |
 | Cashflow Yield Discount | `cashflow-yield-discount` | active | [`cashflow-yield-discount.md`](./cashflow-yield-discount.md) |
 | Sales Discount Growth | `sales-discount-growth` | active | [`sales-discount-growth.md`](./sales-discount-growth.md) |

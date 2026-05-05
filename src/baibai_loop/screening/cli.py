@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -8,7 +9,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Protocol, TextIO
+from typing import Any, Protocol, TextIO
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
@@ -40,7 +41,12 @@ from .metrics import (
 )
 from .migrate import migrate_cache
 from .providers import EDINETProvider, JPXProvider, JQuantsProvider
-from .providers.edinet import EdinetMetricRecord, EDINETProviderError
+from .providers.edinet import (
+    EdinetMetricRecord,
+    EDINETProviderError,
+    parse_csv_zip_metric_record,
+    select_document_candidates,
+)
 from .providers.jpx import JPXProviderError, JPXRegulationSnapshot
 from .providers.jquants import (
     JQuantsDailyBar,
@@ -52,6 +58,7 @@ from .render import JST, build_output_path, render_screened_yaml
 from .rule_config import (
     DEFAULT_RULES_PATH,
     CashflowYieldLane,
+    FcfYieldLane,
     SalesDiscountGrowthLane,
     ScreeningRules,
     load_screening_rules,
@@ -98,6 +105,10 @@ class JQuantsAdapter(Protocol):
 
 class EDINETAdapter(Protocol):
     def load_metric_records(self, asof_date: date) -> Mapping[str, EdinetMetricRecord]: ...
+
+    def list_documents(self, on_date: date) -> list[dict[str, Any]]: ...
+
+    def download_csv_zip(self, doc_id: str) -> bytes: ...
 
     def bootstrap_cache(self, start: date, end: date) -> Mapping[str, int]: ...
 
@@ -171,6 +182,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bootstrap_parser.add_argument("--start", required=True, help="start date (YYYY-MM-DD)")
     bootstrap_parser.add_argument("--end", required=True, help="end date (YYYY-MM-DD)")
+
+    extract_parser = subparsers.add_parser(
+        "extract-edinet-metrics",
+        help="extract EDINET type=5 CSV metrics into records/_data/raw/screening/edinet/metrics",
+    )
+    extract_parser.add_argument("--asof", required=True, help="metrics as-of date (YYYY-MM-DD)")
+    extract_parser.add_argument(
+        "--lookback-days",
+        type=int,
+        default=540,
+        help="EDINET document-list lookback window in calendar days (default 540)",
+    )
 
     migrate_parser = subparsers.add_parser(
         "migrate-cache",
@@ -329,7 +352,7 @@ def main(argv: list[str] | None = None) -> int:
                 config.cache_dir,
                 sqlite_path=sqlite_path,
             )
-            if config.edinet_api_key
+            if config.edinet_api_key or args.command == "run"
             else None
         ),
         jpx=JPXProvider(
@@ -356,6 +379,20 @@ def main(argv: list[str] | None = None) -> int:
             print("--start must be on or before --end", file=sys.stderr)
             return 1
         return bootstrap_cache_command(start, end, providers)
+
+    if args.command == "extract-edinet-metrics":
+        if args.lookback_days < 0:
+            print("--lookback-days must be zero or greater", file=sys.stderr)
+            return 1
+        if providers.edinet is None:
+            print("EDINET_API_KEY is required for extract-edinet-metrics", file=sys.stderr)
+            return 1
+        return extract_edinet_metrics_command(
+            asof_date=_parse_iso_date(args.asof),
+            lookback_days=args.lookback_days,
+            provider=providers.edinet,
+            cache_dir=config.cache_dir,
+        )
 
     raise AssertionError(f"unreachable command: {args.command!r}")
 
@@ -533,6 +570,8 @@ def run_command(
                     "pcfr": financial.ttm_quality_pcfr,
                     "ocf_yield": financial.ttm_quality_ocf_yield,
                     "sales": financial.ttm_quality_sales,
+                    "fcf_yield": financial.ttm_quality_fcf_yield,
+                    "net_cash": financial.ttm_quality_net_cash,
                 },
                 market_cap_oku=universe_snapshot.market_cap_oku,
                 avg_turnover_oku=universe_snapshot.avg_turnover_oku,
@@ -542,6 +581,7 @@ def run_command(
                 metrics={
                     "sales_ttm": financial.sales_ttm,
                     "ocf_ttm": financial.ocf_ttm,
+                    "edinet_ocf_ttm": financial.edinet_ocf_ttm,
                     "cash_eq": financial.cash_eq,
                     "total_assets": financial.total_assets,
                     "equity": financial.equity,
@@ -549,6 +589,23 @@ def run_command(
                     "price_to_equity": financial.price_to_equity,
                     "equity_ratio": financial.equity_ratio,
                     "ocf_yield": financial.ocf_yield,
+                    "net_cash": financial.net_cash,
+                    "net_cash_to_market_cap": financial.net_cash_to_market_cap,
+                    "debt": financial.debt,
+                    "cash": financial.cash,
+                    "fcf_ttm": financial.fcf_ttm,
+                    "fcf_yield": financial.fcf_yield,
+                    "capex_ttm": financial.capex_ttm,
+                    "depreciation_and_amortization_ttm": (
+                        financial.depreciation_and_amortization_ttm
+                    ),
+                    "edinet_source_doc_id": financial.edinet_source_doc_id,
+                    "edinet_document_type": financial.edinet_document_type,
+                    "edinet_source_submit_datetime": financial.edinet_source_submit_datetime,
+                    "edinet_source_period_start": _date_iso(financial.edinet_source_period_start),
+                    "edinet_source_period_end": _date_iso(financial.edinet_source_period_end),
+                    "edinet_capex_source": financial.edinet_capex_source,
+                    "edinet_failure_reasons": financial.edinet_failure_reasons,
                     "sales_yoy": financial.sales_yoy,
                     "cfo_yoy": financial.cfo_yoy,
                     "operating_profit": financial.operating_profit,
@@ -684,21 +741,35 @@ def select_command(
     sectors_status: Mapping[str, str | None] = {
         sector: judgement.status for sector, judgement in outlook_fm.sectors.items()
     }
-    candidates = _rank_candidates(candidates_fm.candidates, sectors_status)
+    ranked_candidates = _rank_candidates(candidates_fm.candidates, sectors_status)
     lane_toplist_limit = rules.output.lane_toplist_limit
     lane_toplists = _rank_lane_toplists(
         candidates_fm.candidates, sectors_status, lane_toplist_limit
+    )
+    recommendation_limit = _research_recommendation_limit(
+        top=top,
+        configured_max=rules.output.research_selection_target_max,
+    )
+    research_candidates = _recommended_research_candidates(
+        lane_toplists=lane_toplists,
+        ranked_candidates=ranked_candidates,
+        lane_order=rules.output.research_selection_lane_order,
+        limit=recommendation_limit,
     )
     summary = {
         "asof": asof_date.isoformat(),
         "candidates_ref": str(candidates_path),
         "outlook_ref": str(resolved_outlook_path),
         "input_count": len(candidates_fm.candidates),
-        "after_outlook_filter": len(candidates),
+        "after_outlook_filter": len(ranked_candidates),
         "selection_mode": rules.output.selection_mode,
+        "research_selection_target_min": rules.output.research_selection_target_min,
+        "research_selection_target_max": rules.output.research_selection_target_max,
+        "research_selection_lane_order": list(rules.output.research_selection_lane_order),
         "lane_toplist_limit": lane_toplist_limit,
         "lane_toplists": lane_toplists,
-        "candidates": candidates[:top],
+        "ranked_candidates": ranked_candidates[:top],
+        "candidates": research_candidates,
     }
     yaml.dump(summary, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
     return 0
@@ -782,6 +853,8 @@ def _rank_lane_toplists(
 ) -> dict[str, list[dict[str, object]]]:
     ranked_by_lane: dict[str, list[tuple[tuple[object, ...], dict[str, object]]]] = {
         "valuation-reversion": [],
+        "strict-net-cash-discount": [],
+        "fcf-yield-discount": [],
         "cash-rich-asset-discount": [],
         "cashflow-yield-discount": [],
         "sales-discount-growth": [],
@@ -811,6 +884,7 @@ def _rank_lane_toplists(
                         outlook_status=outlook_status,
                         selection_lane=name,
                         selection_metrics=metrics,
+                        recommendation_lane=name,
                     ),
                 )
             )
@@ -819,6 +893,96 @@ def _rank_lane_toplists(
         entries.sort(key=lambda item: item[0])
         output[name] = [candidate for _, candidate in entries[:top]]
     return output
+
+
+def _research_recommendation_limit(*, top: int, configured_max: int) -> int:
+    return min(top, configured_max) if configured_max > 0 else top
+
+
+def _recommended_research_candidates(
+    *,
+    lane_toplists: Mapping[str, list[dict[str, object]]],
+    ranked_candidates: Sequence[dict[str, object]],
+    lane_order: Sequence[str],
+    limit: int,
+) -> list[dict[str, object]]:
+    if limit < 1:
+        return []
+
+    selected: list[dict[str, object]] = []
+    selected_tickers: set[str] = set()
+
+    for lane in lane_order:
+        if len(selected) >= limit:
+            break
+        for candidate in lane_toplists.get(lane) or []:
+            ticker = _string_value(candidate.get("ticker"))
+            if ticker is None or ticker in selected_tickers:
+                continue
+            selected.append(
+                _research_recommendation_candidate(
+                    candidate,
+                    recommendation_lane=lane,
+                    lane_order=lane_order,
+                )
+            )
+            selected_tickers.add(ticker)
+            break
+
+    for candidate in ranked_candidates:
+        if len(selected) >= limit:
+            break
+        ticker = _string_value(candidate.get("ticker"))
+        if ticker is None or ticker in selected_tickers:
+            continue
+        selected.append(
+            _research_recommendation_candidate(
+                candidate,
+                recommendation_lane="global-rank",
+                lane_order=lane_order,
+            )
+        )
+        selected_tickers.add(ticker)
+
+    return selected
+
+
+def _research_recommendation_candidate(
+    candidate: Mapping[str, object],
+    *,
+    recommendation_lane: str,
+    lane_order: Sequence[str],
+) -> dict[str, object]:
+    output = dict(candidate)
+    output["recommendation_lane"] = recommendation_lane
+    selection_lane, selection_metrics = _primary_signal_by_lane_order(
+        output.get("signals"), lane_order
+    )
+    if selection_lane is not None:
+        output["selection_lane"] = selection_lane
+        output["selection_metrics"] = selection_metrics
+    return output
+
+
+def _primary_signal_by_lane_order(
+    raw_signals: object,
+    lane_order: Sequence[str],
+) -> tuple[str | None, dict[str, object]]:
+    if not isinstance(raw_signals, Sequence) or isinstance(raw_signals, str):
+        return None, {}
+    signal_by_lane: dict[str, Mapping[str, object]] = {}
+    for signal in raw_signals:
+        if not isinstance(signal, Mapping):
+            continue
+        name = _string_value(signal.get("name"))
+        if name is None:
+            continue
+        signal_by_lane[name] = signal
+    for lane in lane_order:
+        signal = signal_by_lane.get(lane)
+        if signal is not None:
+            return lane, _metric_map(signal.get("metrics"))
+    return None, {}
 
 
 def _best_selection_signal(
@@ -848,6 +1012,7 @@ def _selection_candidate(
     outlook_status: str | None,
     selection_lane: str | None,
     selection_metrics: Mapping[str, object],
+    recommendation_lane: str | None = None,
 ) -> dict[str, object]:
     market_cap = item.market_cap_oku
     return {
@@ -859,6 +1024,7 @@ def _selection_candidate(
         "signals": item.signals,
         "signal_count": len(item.signals),
         "selection_lane": selection_lane,
+        "recommendation_lane": recommendation_lane,
         "selection_metrics": dict(selection_metrics),
         "next_earnings_date": item.next_earnings_date,
         "position_tier": position_tier(market_cap),
@@ -878,9 +1044,11 @@ def _macro_rank(status: str | None) -> int:
 def _lane_rank(name: str | None) -> int:
     order = {
         "valuation-reversion": 0,
-        "cash-rich-asset-discount": 1,
-        "cashflow-yield-discount": 2,
-        "sales-discount-growth": 3,
+        "strict-net-cash-discount": 1,
+        "fcf-yield-discount": 2,
+        "cash-rich-asset-discount": 3,
+        "cashflow-yield-discount": 4,
+        "sales-discount-growth": 5,
     }
     return order.get(name or "", 99)
 
@@ -899,9 +1067,19 @@ def _signal_strength_key(name: str, metrics: Mapping[str, object]) -> tuple[floa
                 -_float_or(metrics.get("cash_to_market_cap"), 0.0),
                 _float_or(metrics.get("price_to_equity"), 99.0),
             )
+        case "strict-net-cash-discount":
+            return (
+                -_float_or(metrics.get("net_cash_to_market_cap"), 0.0),
+                _float_or(metrics.get("price_to_equity"), 99.0),
+            )
         case "cashflow-yield-discount":
             return (
                 -_float_or(metrics.get("ocf_yield"), 0.0),
+                -_float_or(metrics.get("cfo_yoy"), -99.0),
+            )
+        case "fcf-yield-discount":
+            return (
+                -_float_or(metrics.get("fcf_yield"), 0.0),
                 -_float_or(metrics.get("cfo_yoy"), -99.0),
             )
         case "sales-discount-growth":
@@ -947,6 +1125,8 @@ def _required_ttm_non_exact_count(
     for lane in rules.signal_lanes.values():
         if isinstance(lane, CashflowYieldLane) and lane.ttm_cfo_required:
             required_qualities.extend(snapshot.ttm_quality_ocf_yield for snapshot in snapshots)
+        if isinstance(lane, FcfYieldLane) and lane.fcf_required:
+            required_qualities.extend(snapshot.ttm_quality_fcf_yield for snapshot in snapshots)
         if isinstance(lane, SalesDiscountGrowthLane):
             required_qualities.extend(snapshot.ttm_quality_p_s for snapshot in snapshots)
     return sum(1 for quality in required_qualities if quality != TTMQuality.EXACT)
@@ -1115,6 +1295,110 @@ def verify_raw_cache_command(
                 file=out,
             )
     return 1 if result.has_failures else 0
+
+
+def extract_edinet_metrics_command(
+    *,
+    asof_date: date,
+    lookback_days: int,
+    provider: EDINETAdapter,
+    cache_dir: Path,
+    stdout: TextIO | None = None,
+) -> int:
+    out = stdout if stdout is not None else sys.stdout
+    start = asof_date - timedelta(days=lookback_days)
+    documents: list[dict[str, Any]] = []
+    cursor = start
+    try:
+        while cursor <= asof_date:
+            documents.extend(provider.list_documents(cursor))
+            cursor += timedelta(days=1)
+    except EDINETProviderError as exc:
+        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+
+    candidates = select_document_candidates(documents)
+    records: list[EdinetMetricRecord] = []
+    hard_failure_count = 0
+    quality_issue_count = 0
+    for candidate in sorted(candidates.values(), key=lambda item: item.ticker):
+        parse_failed = False
+        try:
+            content = provider.download_csv_zip(candidate.doc_id)
+            record = parse_csv_zip_metric_record(
+                ticker=candidate.ticker,
+                doc_id=candidate.doc_id,
+                doc_type_code=candidate.doc_type_code,
+                content=content,
+                submit_datetime=candidate.submit_datetime,
+                period_start=candidate.period_start,
+                period_end=candidate.period_end,
+            )
+        except (EDINETProviderError, OSError, ValueError) as exc:
+            hard_failure_count += 1
+            record = EdinetMetricRecord(
+                ticker=candidate.ticker,
+                source_doc_id=candidate.doc_id,
+                document_type=candidate.doc_type_code,
+                source_submit_datetime=candidate.submit_datetime,
+                source_period_start=candidate.period_start,
+                source_period_end=candidate.period_end,
+                failure_reasons=(f"csv_parse_failed:{type(exc).__name__}",),
+            )
+            parse_failed = True
+        if record.failure_reasons and not parse_failed:
+            quality_issue_count += 1
+        records.append(record)
+
+    output_path = cache_dir / "edinet" / "metrics" / f"{asof_date.isoformat()}.json"
+    payload = [_metric_record_payload(record) for record in records]
+    write_text_atomic(
+        output_path,
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+    )
+    print(
+        f"wrote {output_path}: {len(records)} records "
+        f"from {len(candidates)} selected filings; "
+        f"{hard_failure_count} hard failures; "
+        f"{quality_issue_count} records with quality issues",
+        file=out,
+    )
+    return 1 if hard_failure_count else 0
+
+
+def _metric_record_payload(record: EdinetMetricRecord) -> dict[str, object]:
+    return {
+        "ticker": record.ticker,
+        "sales_ttm": record.sales_ttm,
+        "ocf_ttm": record.ocf_ttm,
+        "debt": record.debt,
+        "cash": record.cash,
+        "ebitda_ttm": record.ebitda_ttm,
+        "consolidation_basis": record.consolidation_basis,
+        "ttm_quality_ev_ebitda": record.ttm_quality_ev_ebitda.value,
+        "ttm_quality_p_s": record.ttm_quality_p_s.value,
+        "ttm_quality_pcfr": record.ttm_quality_pcfr.value,
+        "operating_profit_ttm": record.operating_profit_ttm,
+        "depreciation_and_amortization_ttm": record.depreciation_and_amortization_ttm,
+        "capex_ttm": record.capex_ttm,
+        "fcf_ttm": record.fcf_ttm,
+        "net_cash": record.net_cash,
+        "equity": record.equity,
+        "total_assets": record.total_assets,
+        "ttm_quality_fcf": record.ttm_quality_fcf.value,
+        "ttm_quality_net_cash": record.ttm_quality_net_cash.value,
+        "source_doc_id": record.source_doc_id,
+        "document_type": record.document_type,
+        "source_submit_datetime": record.source_submit_datetime,
+        "source_period_start": _date_iso(record.source_period_start),
+        "source_period_end": _date_iso(record.source_period_end),
+        "capex_source": record.capex_source,
+        "failure_reasons": list(record.failure_reasons),
+    }
+
+
+def _date_iso(value: date | None) -> str | None:
+    return value.isoformat() if value is not None else None
 
 
 def bootstrap_cache_command(start: date, end: date, providers: ProviderBundle) -> int:

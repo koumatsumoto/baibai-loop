@@ -353,6 +353,9 @@ class RebuildFromRawTests(unittest.TestCase):
                         "ttm_quality_ev_ebitda": "exact",
                         "ttm_quality_p_s": "exact",
                         "ttm_quality_pcfr": "approximated",
+                        "source_submit_datetime": "2026-04-01 12:00",
+                        "source_period_start": "2025-04-01",
+                        "source_period_end": "2026-03-31",
                     }
                 ],
             )
@@ -363,9 +366,22 @@ class RebuildFromRawTests(unittest.TestCase):
             with sqlite3.connect(db) as conn:
                 row = conn.execute(
                     "SELECT asof_date, ticker, sales_ttm, ttm_quality_ev_ebitda, "
-                    "ttm_quality_pcfr FROM edinet_metrics"
+                    "ttm_quality_pcfr, source_submit_datetime, source_period_start, "
+                    "source_period_end FROM edinet_metrics"
                 ).fetchone()
-                self.assertEqual(row, ("2026-04-24", "1301", 1_000_000.0, "exact", "approximated"))
+                self.assertEqual(
+                    row,
+                    (
+                        "2026-04-24",
+                        "1301",
+                        1_000_000.0,
+                        "exact",
+                        "approximated",
+                        "2026-04-01 12:00",
+                        "2025-04-01",
+                        "2026-03-31",
+                    ),
+                )
 
     def test_imports_jpx_regulation_flags(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -32,6 +32,18 @@ signal_lanes:
       - per_trailing
       - pbr
       - ev_ebitda
+  strict-net-cash-discount:
+    playbook: strict-net-cash-discount
+    excluded_sectors:
+      - 銀行業
+      - 証券・商品先物取引業
+      - 保険業
+      - その他金融業
+      - 電気・ガス業
+    net_cash_to_market_cap_min: 0.30
+    price_to_equity_max: 1.00
+    equity_ratio_min: 0.30
+    operating_profit_positive_required: true
   cash-rich-asset-discount:
     playbook: cash-rich-asset-discount
     excluded_sectors:
@@ -41,6 +53,7 @@ signal_lanes:
       - その他金融業
       - 電気・ガス業
     cash_to_market_cap_min: 0.40
+    edinet_net_cash_to_market_cap_min_if_available: 0.00
     price_to_equity_max: 1.00
     equity_ratio_min: 0.30
     operating_profit_positive_required: true
@@ -54,6 +67,18 @@ signal_lanes:
       - 電気・ガス業
     ocf_yield_min: 0.10
     ttm_cfo_required: true
+    cfo_yoy_min: -0.20
+    cfo_yoy_required: true
+  fcf-yield-discount:
+    playbook: fcf-yield-discount
+    excluded_sectors:
+      - 銀行業
+      - 証券・商品先物取引業
+      - 保険業
+      - その他金融業
+      - 電気・ガス業
+    fcf_yield_min: 0.08
+    fcf_required: true
     cfo_yoy_min: -0.20
     cfo_yoy_required: true
   sales-discount-growth:
@@ -72,3 +97,10 @@ output:
   research_selection_target_max: 5
   selection_mode: lane_toplists
   lane_toplist_limit: 5
+  research_selection_lane_order:
+    - strict-net-cash-discount
+    - fcf-yield-discount
+    - cash-rich-asset-discount
+    - cashflow-yield-discount
+    - sales-discount-growth
+    - valuation-reversion

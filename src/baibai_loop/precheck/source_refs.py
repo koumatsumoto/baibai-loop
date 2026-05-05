@@ -62,7 +62,7 @@ def scan_outlook_source_refs(
 def _scan_one_outlook(path: Path, repo_root: Path) -> list[OutlookFinding]:
     try:
         loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except OSError, yaml.YAMLError:
+    except (OSError, yaml.YAMLError):
         # 既存 validator (validate/outlook.py) で別 finding として報告される。
         # precheck はこの段階では skip。
         return []

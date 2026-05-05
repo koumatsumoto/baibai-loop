@@ -135,6 +135,8 @@ def _build_candidate_entry(candidate: ScreenedCandidate) -> dict[str, object]:
         "pcfr": candidate.ttm_quality.get("pcfr", TTMQuality.UNAVAILABLE).value,
         "ocf_yield": candidate.ttm_quality.get("ocf_yield", TTMQuality.UNAVAILABLE).value,
         "sales": candidate.ttm_quality.get("sales", TTMQuality.UNAVAILABLE).value,
+        "fcf_yield": candidate.ttm_quality.get("fcf_yield", TTMQuality.UNAVAILABLE).value,
+        "net_cash": candidate.ttm_quality.get("net_cash", TTMQuality.UNAVAILABLE).value,
     }
     entry["signals"] = [
         {

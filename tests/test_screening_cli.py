@@ -6,8 +6,10 @@ import json
 import sys
 import tempfile
 import unittest
+import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 
 import yaml
@@ -21,6 +23,7 @@ from baibai_loop.screening.cli import (
     ProviderBundle,
     _index_next_earnings,
     bootstrap_cache_command,
+    extract_edinet_metrics_command,
     run_command,
     select_command,
 )
@@ -111,6 +114,9 @@ class FakeJQuantsProvider:
 
 @dataclass
 class FakeEDINETProvider:
+    documents: list[dict[str, object]] | None = None
+    zip_by_doc_id: dict[str, bytes] | None = None
+
     def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
         del asof_date
         return {
@@ -127,6 +133,13 @@ class FakeEDINETProvider:
                 ttm_quality_pcfr=TTMQuality.UNAVAILABLE,
             )
         }
+
+    def list_documents(self, on_date: date) -> list[dict[str, object]]:
+        del on_date
+        return list(self.documents or [])
+
+    def download_csv_zip(self, doc_id: str) -> bytes:
+        return (self.zip_by_doc_id or {})[doc_id]
 
     def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
         del start, end
@@ -413,6 +426,75 @@ class ScreeningCliTests(unittest.TestCase):
         )
         self.assertEqual(exit_code, 0)
 
+    def test_extract_edinet_metrics_command_writes_parsed_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = Path(tmpdir) / "raw"
+            provider = FakeEDINETProvider(
+                documents=[
+                    {
+                        "docID": "S100TEST",
+                        "secCode": "96820",
+                        "docTypeCode": "120",
+                        "csvFlag": "1",
+                        "xbrlFlag": "1",
+                        "periodStart": "2025-04-01",
+                        "periodEnd": "2026-03-31",
+                        "submitDateTime": "2026-04-01 12:00",
+                    }
+                ],
+                zip_by_doc_id={"S100TEST": _edinet_csv_zip()},
+            )
+            buffer = io.StringIO()
+            exit_code = extract_edinet_metrics_command(
+                asof_date=date(2026, 4, 24),
+                lookback_days=0,
+                provider=provider,
+                cache_dir=cache_dir,
+                stdout=buffer,
+            )
+            self.assertEqual(exit_code, 0)
+            output_path = cache_dir / "edinet" / "metrics" / "2026-04-24.json"
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload[0]["ticker"], "9682")
+            self.assertEqual(payload[0]["net_cash"], 600.0)
+            self.assertEqual(payload[0]["fcf_ttm"], 700.0)
+            self.assertEqual(payload[0]["source_submit_datetime"], "2026-04-01 12:00")
+            self.assertEqual(payload[0]["source_period_start"], "2025-04-01")
+            self.assertEqual(payload[0]["source_period_end"], "2026-03-31")
+            self.assertIn("1 records", buffer.getvalue())
+
+    def test_extract_edinet_metrics_command_returns_zero_for_quality_issues(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = Path(tmpdir) / "raw"
+            provider = FakeEDINETProvider(
+                documents=[
+                    {
+                        "docID": "S100TEST",
+                        "secCode": "96820",
+                        "docTypeCode": "120",
+                        "csvFlag": "1",
+                        "xbrlFlag": "1",
+                        "submitDateTime": "2026-04-01 12:00",
+                    }
+                ],
+                zip_by_doc_id={"S100TEST": _edinet_csv_zip(include_debt=False)},
+            )
+            buffer = io.StringIO()
+            exit_code = extract_edinet_metrics_command(
+                asof_date=date(2026, 4, 24),
+                lookback_days=0,
+                provider=provider,
+                cache_dir=cache_dir,
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(
+                (cache_dir / "edinet" / "metrics" / "2026-04-24.json").read_text(encoding="utf-8")
+            )
+            self.assertIn("debt_assumed_zero", payload[0]["failure_reasons"])
+            self.assertIn("1 records with quality issues", buffer.getvalue())
+
 
 class IndexNextEarningsTests(unittest.TestCase):
     def test_picks_earliest_future_announcement_per_ticker(self) -> None:
@@ -440,6 +522,39 @@ class IndexNextEarningsTests(unittest.TestCase):
         ]
         result = _index_next_earnings(records, date(2026, 4, 25))
         self.assertEqual(result, {"ABCD": date(2026, 5, 13)})
+
+
+def _edinet_csv_zip(*, include_debt: bool = True) -> bytes:
+    rows = [
+        ("jpcrp_cor:NetSales", "CurrentYearDuration_ConsolidatedMember", "1000"),
+        (
+            "jpcrp_cor:NetCashProvidedByUsedInOperatingActivities",
+            "CurrentYearDuration_ConsolidatedMember",
+            "900",
+        ),
+        ("jpcrp_cor:OperatingProfit", "CurrentYearDuration_ConsolidatedMember", "150"),
+        ("jpcrp_cor:CashAndDeposits", "CurrentYearInstant_ConsolidatedMember", "1000"),
+        (
+            "jpcrp_cor:PurchaseOfPropertyPlantAndEquipment",
+            "CurrentYearDuration_ConsolidatedMember",
+            "-200",
+        ),
+        ("jpcrp_cor:Equity", "CurrentYearInstant_ConsolidatedMember", "1200"),
+        ("jpcrp_cor:TotalAssets", "CurrentYearInstant_ConsolidatedMember", "2000"),
+        ("jpcrp_cor:DepreciationAndAmortization", "CurrentYearDuration_ConsolidatedMember", "50"),
+    ]
+    if include_debt:
+        rows.extend(
+            [
+                ("jpcrp_cor:ShortTermBorrowings", "CurrentYearInstant_ConsolidatedMember", "100"),
+                ("jpcrp_cor:LongTermBorrowings", "CurrentYearInstant_ConsolidatedMember", "300"),
+            ]
+        )
+    text = "要素ID\tコンテキストID\t値\n" + "\n".join("\t".join(row) for row in rows)
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("XBRL_TO_CSV/test.csv", text.encode("utf-16"))
+    return buffer.getvalue()
 
 
 class SelectCommandTests(unittest.TestCase):
@@ -528,9 +643,158 @@ class SelectCommandTests(unittest.TestCase):
             )
             tickers = [c["ticker"] for c in payload["candidates"]]
             self.assertEqual(tickers, ["3333", "2222"])
-            self.assertEqual(payload["candidates"][0]["selection_lane"], "valuation-reversion")
+            self.assertEqual(
+                payload["research_selection_lane_order"],
+                [
+                    "strict-net-cash-discount",
+                    "fcf-yield-discount",
+                    "cash-rich-asset-discount",
+                    "cashflow-yield-discount",
+                    "sales-discount-growth",
+                    "valuation-reversion",
+                ],
+            )
+            self.assertEqual(payload["candidates"][0]["selection_lane"], "cash-rich-asset-discount")
+            self.assertEqual(
+                payload["candidates"][0]["recommendation_lane"], "cash-rich-asset-discount"
+            )
+            self.assertEqual(
+                payload["ranked_candidates"][0]["selection_lane"], "valuation-reversion"
+            )
             self.assertEqual(payload["candidates"][0]["position_tier"], "200-500")
             self.assertEqual(payload["candidates"][1]["position_tier"], "500-1000")
+
+    def test_select_recommends_lane_diversified_candidates_before_global_rank(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/03-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "valuation first in global rank",
+                        "sector_33": "機械",
+                        "market_cap_oku": 600,
+                        "signals": [{"name": "valuation-reversion"}],
+                    },
+                    {
+                        "ticker": "2222",
+                        "name": "strict net cash first in research recommendation",
+                        "sector_33": "機械",
+                        "market_cap_oku": 150,
+                        "signals": [
+                            {
+                                "name": "strict-net-cash-discount",
+                                "metrics": {
+                                    "net_cash_to_market_cap": 0.6,
+                                    "price_to_equity": 0.7,
+                                },
+                            }
+                        ],
+                    },
+                ],
+            )
+            self._write_outlook(
+                root / "records/02-outlook",
+                asof,
+                sectors={"機械": "neutral"},
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                candidates_root=root / "records/03-candidates",
+                outlook_root=root / "records/02-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            self.assertEqual(
+                [c["ticker"] for c in payload["ranked_candidates"]],
+                ["1111", "2222"],
+            )
+            self.assertEqual([c["ticker"] for c in payload["candidates"]], ["2222", "1111"])
+            self.assertEqual(payload["candidates"][0]["selection_lane"], "strict-net-cash-discount")
+            self.assertEqual(
+                payload["candidates"][0]["recommendation_lane"], "strict-net-cash-discount"
+            )
+
+    def test_select_separates_recommendation_lane_from_primary_selection_lane(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/03-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "strict top",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "signals": [
+                            {
+                                "name": "strict-net-cash-discount",
+                                "metrics": {
+                                    "net_cash_to_market_cap": 0.9,
+                                    "price_to_equity": 0.6,
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "ticker": "2222",
+                        "name": "strict and sales",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "signals": [
+                            {
+                                "name": "strict-net-cash-discount",
+                                "metrics": {
+                                    "net_cash_to_market_cap": 0.4,
+                                    "price_to_equity": 0.8,
+                                },
+                            },
+                            {
+                                "name": "sales-discount-growth",
+                                "metrics": {
+                                    "ps_sector_gap": -0.7,
+                                    "sales_yoy": 0.12,
+                                    "operating_profit": 10.0,
+                                },
+                            },
+                        ],
+                    },
+                ],
+            )
+            self._write_outlook(
+                root / "records/02-outlook",
+                asof,
+                sectors={"機械": "neutral"},
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                candidates_root=root / "records/03-candidates",
+                outlook_root=root / "records/02-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            self.assertEqual([c["ticker"] for c in payload["candidates"]], ["1111", "2222"])
+            self.assertEqual(
+                payload["candidates"][1]["recommendation_lane"], "sales-discount-growth"
+            )
+            self.assertEqual(payload["candidates"][1]["selection_lane"], "strict-net-cash-discount")
 
     def test_select_uses_lane_strength_before_market_cap(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

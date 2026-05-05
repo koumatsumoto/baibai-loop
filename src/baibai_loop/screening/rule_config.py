@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 DEFAULT_RULES_PATH = Path("records/_config/screening-rules.yaml")
 
@@ -65,6 +65,7 @@ class CashRichLane(BaseModel):
     playbook: str
     excluded_sectors: tuple[str, ...] = ()
     cash_to_market_cap_min: float = Field(ge=0)
+    edinet_net_cash_to_market_cap_min_if_available: float | None = None
     price_to_equity_max: float = Field(ge=0)
     equity_ratio_min: float = Field(ge=0, le=1)
     operating_profit_positive_required: bool
@@ -82,6 +83,38 @@ class CashflowYieldLane(BaseModel):
     excluded_sectors: tuple[str, ...] = ()
     ocf_yield_min: float = Field(ge=0)
     ttm_cfo_required: bool
+    cfo_yoy_min: float
+    cfo_yoy_required: bool
+
+    @field_validator("excluded_sectors", mode="before")
+    @classmethod
+    def _tuple_excluded_sectors(cls, value: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+        return tuple(value or ())
+
+
+class StrictNetCashLane(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    playbook: str
+    excluded_sectors: tuple[str, ...] = ()
+    net_cash_to_market_cap_min: float
+    price_to_equity_max: float = Field(ge=0)
+    equity_ratio_min: float = Field(ge=0, le=1)
+    operating_profit_positive_required: bool
+
+    @field_validator("excluded_sectors", mode="before")
+    @classmethod
+    def _tuple_excluded_sectors(cls, value: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+        return tuple(value or ())
+
+
+class FcfYieldLane(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    playbook: str
+    excluded_sectors: tuple[str, ...] = ()
+    fcf_yield_min: float = Field(ge=0)
+    fcf_required: bool
     cfo_yoy_min: float
     cfo_yoy_required: bool
 
@@ -113,6 +146,14 @@ class OutputRules(BaseModel):
     research_selection_target_max: int = Field(ge=0)
     selection_mode: Literal["lane_toplists"] = "lane_toplists"
     lane_toplist_limit: int = Field(default=5, ge=1)
+    research_selection_lane_order: tuple[str, ...]
+
+    @field_validator("research_selection_lane_order", mode="before")
+    @classmethod
+    def _tuple_research_selection_lane_order(
+        cls, value: list[str] | tuple[str, ...]
+    ) -> tuple[str, ...]:
+        return tuple(value)
 
 
 class ScreeningRules(BaseModel):
@@ -122,7 +163,13 @@ class ScreeningRules(BaseModel):
     ttm: TTMRules
     quality: QualityRules
     signal_lanes: Mapping[
-        str, ValuationReversionLane | CashRichLane | CashflowYieldLane | SalesDiscountGrowthLane
+        str,
+        ValuationReversionLane
+        | CashRichLane
+        | CashflowYieldLane
+        | StrictNetCashLane
+        | FcfYieldLane
+        | SalesDiscountGrowthLane,
     ]
     output: OutputRules
 
@@ -143,6 +190,10 @@ class ScreeningRules(BaseModel):
                     lanes[name] = CashRichLane.model_validate(data)
                 case "cashflow-yield-discount":
                     lanes[name] = CashflowYieldLane.model_validate(data)
+                case "strict-net-cash-discount":
+                    lanes[name] = StrictNetCashLane.model_validate(data)
+                case "fcf-yield-discount":
+                    lanes[name] = FcfYieldLane.model_validate(data)
                 case "sales-discount-growth":
                     lanes[name] = SalesDiscountGrowthLane.model_validate(data)
                 case _:
@@ -152,6 +203,14 @@ class ScreeningRules(BaseModel):
     @property
     def lane_order(self) -> tuple[str, ...]:
         return tuple(self.signal_lanes.keys())
+
+    @model_validator(mode="after")
+    def _validate_output_lane_order(self) -> ScreeningRules:
+        unknown = set(self.output.research_selection_lane_order) - set(self.signal_lanes)
+        if unknown:
+            joined = ", ".join(sorted(unknown))
+            raise ValueError(f"unknown research selection lane(s): {joined}")
+        return self
 
 
 def load_screening_rules(path: Path = DEFAULT_RULES_PATH) -> ScreeningRules:

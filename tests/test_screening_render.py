@@ -235,6 +235,8 @@ class ScreeningRenderTests(unittest.TestCase):
                 pcfr: unavailable
                 ocf_yield: unavailable
                 sales: approximated
+                fcf_yield: unavailable
+                net_cash: unavailable
               signals:
               - name: "valuation-reversion"
                 playbook: "valuation-reversion"

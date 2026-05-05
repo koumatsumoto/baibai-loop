@@ -123,7 +123,7 @@ def _previous_committed_text(repo_root: Path, rel: Path) -> str | None:
             capture_output=True,
             text=True,
         )
-    except subprocess.CalledProcessError, FileNotFoundError:
+    except (subprocess.CalledProcessError, FileNotFoundError):
         return None
     commits = [line for line in log.stdout.splitlines() if line.strip()]
     if len(commits) < 2:
@@ -142,6 +142,6 @@ def _previous_committed_text(repo_root: Path, rel: Path) -> str | None:
             capture_output=True,
             text=True,
         )
-    except subprocess.CalledProcessError, FileNotFoundError:
+    except (subprocess.CalledProcessError, FileNotFoundError):
         return None
     return show.stdout

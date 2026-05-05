@@ -4,7 +4,9 @@ import json
 import sys
 import tempfile
 import unittest
+import zipfile
 from datetime import date
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -15,9 +17,12 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from baibai_loop.screening.providers.edinet import (
+    EDINETProvider,
     EDINETProviderError,
     normalize_metric_record,
+    parse_csv_zip_metric_record,
     parse_sec_code,
+    select_document_candidates,
 )
 from baibai_loop.screening.providers.jpx import JPXProvider, JPXProviderError
 from baibai_loop.screening.providers.jquants import (
@@ -45,6 +50,16 @@ class _FixedHtmlSession:
                 self.headers = {"content-type": "text/html; charset=UTF-8"}
 
         return _Response(self._content)
+
+
+def _edinet_csv_zip(rows: list[tuple[str, str, str]]) -> bytes:
+    csv_text = "要素ID\tコンテキストID\t値\n" + "\n".join(
+        f"{element}\t{context}\t{value}" for element, context, value in rows
+    )
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("XBRL_TO_CSV/sample.csv", csv_text.encode("utf-16"))
+    return buffer.getvalue()
 
 
 class ScreeningProviderTests(unittest.TestCase):
@@ -76,11 +91,397 @@ class ScreeningProviderTests(unittest.TestCase):
                 "ttm_quality_ev_ebitda": "exact",
                 "ttm_quality_p_s": "approximated",
                 "ttm_quality_pcfr": "unavailable",
+                "source_submit_datetime": "2026-04-01 12:00",
+                "source_period_start": "2025-04-01",
+                "source_period_end": "2026-03-31",
             }
         )
         self.assertEqual(record.ttm_quality_ev_ebitda, TTMQuality.EXACT)
         self.assertEqual(record.ttm_quality_p_s, TTMQuality.APPROXIMATED)
         self.assertEqual(record.ttm_quality_pcfr, TTMQuality.UNAVAILABLE)
+        self.assertEqual(record.source_submit_datetime, "2026-04-01 12:00")
+        self.assertEqual(record.source_period_start, date(2025, 4, 1))
+        self.assertEqual(record.source_period_end, date(2026, 3, 31))
+
+    def test_select_document_candidates_requires_csv_and_prefers_correction(self) -> None:
+        selected = select_document_candidates(
+            [
+                {
+                    "docID": "S100A",
+                    "secCode": "72030",
+                    "docTypeCode": "120",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "submitDateTime": "2026-05-01 10:00",
+                },
+                {
+                    "docID": "S100B",
+                    "secCode": "72030",
+                    "docTypeCode": "130",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "submitDateTime": "2026-05-01 11:00",
+                },
+                {
+                    "docID": "S100C",
+                    "secCode": "67580",
+                    "docTypeCode": "120",
+                    "csvFlag": "0",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                },
+                {
+                    "docID": "S100D",
+                    "secCode": "99840",
+                    "docTypeCode": "120",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "0",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                },
+            ]
+        )
+        self.assertEqual(selected["7203"].doc_id, "S100B")
+        self.assertNotIn("6758", selected)
+        self.assertNotIn("9984", selected)
+
+    def test_select_document_candidates_prefers_new_period_over_old_correction(self) -> None:
+        selected = select_document_candidates(
+            [
+                {
+                    "docID": "S100OLD",
+                    "secCode": "72030",
+                    "docTypeCode": "130",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "periodStart": "2024-04-01",
+                    "periodEnd": "2025-03-31",
+                    "submitDateTime": "2025-07-01 10:00",
+                },
+                {
+                    "docID": "S100NEW",
+                    "secCode": "72030",
+                    "docTypeCode": "160",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "periodStart": "2025-04-01",
+                    "periodEnd": "2025-09-30",
+                    "submitDateTime": "2025-11-01 10:00",
+                },
+            ]
+        )
+
+        self.assertEqual(selected["7203"].doc_id, "S100NEW")
+
+    def test_select_document_candidates_prefers_same_period_annual_correction_from_description(
+        self,
+    ) -> None:
+        selected = select_document_candidates(
+            [
+                {
+                    "docID": "S100NORMAL",
+                    "secCode": "72030",
+                    "docTypeCode": "120",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "periodStart": "2024-10-01",
+                    "periodEnd": "2025-09-30",
+                    "submitDateTime": "2025-12-24 16:11",
+                },
+                {
+                    "docID": "S100CORR",
+                    "secCode": "72030",
+                    "docTypeCode": "130",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "docDescription": "訂正有価証券報告書－第28期(2024/10/01－2025/09/30)",
+                    "submitDateTime": "2026-04-15 16:01",
+                },
+            ]
+        )
+
+        self.assertEqual(selected["7203"].doc_id, "S100CORR")
+        self.assertEqual(selected["7203"].period_start, date(2024, 10, 1))
+        self.assertEqual(selected["7203"].period_end, date(2025, 9, 30))
+
+    def test_select_document_candidates_keeps_newer_period_over_old_correction_description(
+        self,
+    ) -> None:
+        selected = select_document_candidates(
+            [
+                {
+                    "docID": "S100OLD",
+                    "secCode": "72030",
+                    "docTypeCode": "130",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "docDescription": "訂正有価証券報告書－第90期(2024/04/01－2025/03/31)",
+                    "submitDateTime": "2026-01-23 14:35",
+                },
+                {
+                    "docID": "S100NEW",
+                    "secCode": "72030",
+                    "docTypeCode": "160",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "periodStart": "2025-04-01",
+                    "periodEnd": "2026-03-31",
+                    "submitDateTime": "2025-11-01 10:00",
+                },
+            ]
+        )
+
+        self.assertEqual(selected["7203"].doc_id, "S100NEW")
+
+    def test_select_document_candidates_accepts_semiannual_correction(self) -> None:
+        selected = select_document_candidates(
+            [
+                {
+                    "docID": "S100NORMAL",
+                    "secCode": "72030",
+                    "docTypeCode": "160",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "periodStart": "2025-04-01",
+                    "periodEnd": "2026-03-31",
+                    "submitDateTime": "2025-11-14 15:34",
+                },
+                {
+                    "docID": "S100CORR",
+                    "secCode": "72030",
+                    "docTypeCode": "170",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "docDescription": "訂正半期報告書－第5期(2025/04/01-2026/03/31)",
+                    "submitDateTime": "2026-01-30 15:33",
+                },
+            ]
+        )
+
+        self.assertEqual(selected["7203"].doc_id, "S100CORR")
+        self.assertEqual(selected["7203"].doc_type_code, "170")
+
+    def test_select_document_candidates_accepts_quarterly_correction(self) -> None:
+        selected = select_document_candidates(
+            [
+                {
+                    "docID": "S100NORMAL",
+                    "secCode": "72030",
+                    "docTypeCode": "140",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "periodStart": "2021-11-01",
+                    "periodEnd": "2022-01-31",
+                    "submitDateTime": "2022-03-15 15:00",
+                },
+                {
+                    "docID": "S100CORR",
+                    "secCode": "72030",
+                    "docTypeCode": "150",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "docDescription": "訂正四半期報告書－第72期第3四半期(2021/11/01～2022/01/31)",
+                    "submitDateTime": "2025-02-14 15:29",
+                },
+            ]
+        )
+
+        self.assertEqual(selected["7203"].doc_id, "S100CORR")
+        self.assertEqual(selected["7203"].doc_type_code, "150")
+
+    def test_select_document_candidates_prefers_latest_submit_within_same_period(self) -> None:
+        selected = select_document_candidates(
+            [
+                {
+                    "docID": "S100CORR",
+                    "secCode": "72030",
+                    "docTypeCode": "130",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "periodStart": "2025-04-01",
+                    "periodEnd": "2026-03-31",
+                    "submitDateTime": "2026-06-01 10:00",
+                },
+                {
+                    "docID": "S100NORMAL",
+                    "secCode": "72030",
+                    "docTypeCode": "120",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                    "periodStart": "2025-04-01",
+                    "periodEnd": "2026-03-31",
+                    "submitDateTime": "2026-06-02 10:00",
+                },
+            ]
+        )
+
+        self.assertEqual(selected["7203"].doc_id, "S100NORMAL")
+
+    def test_parse_csv_zip_metric_record_extracts_net_cash_and_fcf(self) -> None:
+        rows = [
+            ("jpcrp_cor:NetSales", "CurrentYearConsolidatedDuration", "1000"),
+            (
+                "jpcrp_cor:CashFlowsFromOperatingActivities",
+                "CurrentYearConsolidatedDuration",
+                "150",
+            ),
+            ("jpcrp_cor:OperatingProfit", "CurrentYearConsolidatedDuration", "90"),
+            ("jpcrp_cor:DepreciationAndAmortization", "CurrentYearConsolidatedDuration", "30"),
+            (
+                "jpcrp_cor:PurchaseOfPropertyPlantAndEquipment",
+                "CurrentYearConsolidatedDuration",
+                "-40",
+            ),
+            ("jpcrp_cor:CashAndDeposits", "CurrentYearConsolidatedInstant", "300"),
+            ("jpcrp_cor:ShortTermBorrowings", "CurrentYearConsolidatedInstant", "20"),
+            ("jpcrp_cor:LongTermBorrowings", "CurrentYearConsolidatedInstant", "50"),
+            ("jpcrp_cor:Equity", "CurrentYearConsolidatedInstant", "800"),
+            ("jpcrp_cor:TotalAssets", "CurrentYearConsolidatedInstant", "1400"),
+        ]
+        record = parse_csv_zip_metric_record(
+            ticker="7203",
+            doc_id="S100TEST",
+            doc_type_code="120",
+            content=_edinet_csv_zip(rows),
+            submit_datetime="2026-04-01 12:00",
+            period_start=date(2025, 4, 1),
+            period_end=date(2026, 3, 31),
+        )
+
+        self.assertEqual(record.sales_ttm, 1000.0)
+        self.assertEqual(record.ocf_ttm, 150.0)
+        self.assertEqual(record.debt, 70.0)
+        self.assertEqual(record.cash, 300.0)
+        self.assertEqual(record.net_cash, 230.0)
+        self.assertEqual(record.capex_ttm, 40.0)
+        self.assertEqual(record.fcf_ttm, 110.0)
+        self.assertEqual(record.ebitda_ttm, 120.0)
+        self.assertEqual(record.ttm_quality_fcf, TTMQuality.EXACT)
+        self.assertEqual(record.source_submit_datetime, "2026-04-01 12:00")
+        self.assertEqual(record.source_period_start, date(2025, 4, 1))
+        self.assertEqual(record.source_period_end, date(2026, 3, 31))
+
+    def test_parse_csv_zip_metric_record_extracts_loan_payable_and_lease_debt(self) -> None:
+        rows = [
+            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant_ConsolidatedMember", "1000"),
+            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant_ConsolidatedMember", "120"),
+            ("jppfs_cor:LeaseObligationsCL", "CurrentYearInstant_ConsolidatedMember", "30"),
+            ("jppfs_cor:LeaseAssetsPPE", "CurrentYearInstant_ConsolidatedMember", "999"),
+            ("jppfs_cor:LongTermLoansReceivable", "CurrentYearInstant_ConsolidatedMember", "888"),
+        ]
+        record = parse_csv_zip_metric_record(
+            ticker="7203",
+            doc_id="S100TEST",
+            doc_type_code="120",
+            content=_edinet_csv_zip(rows),
+        )
+
+        self.assertEqual(record.debt, 150.0)
+        self.assertEqual(record.net_cash, 850.0)
+        self.assertNotIn("debt_assumed_zero", record.failure_reasons)
+
+    def test_parse_csv_zip_metric_record_does_not_strict_quality_assumed_zero_debt(
+        self,
+    ) -> None:
+        rows = [
+            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant_ConsolidatedMember", "1000"),
+        ]
+        record = parse_csv_zip_metric_record(
+            ticker="7203",
+            doc_id="S100TEST",
+            doc_type_code="120",
+            content=_edinet_csv_zip(rows),
+        )
+
+        self.assertIsNone(record.debt)
+        self.assertIsNone(record.net_cash)
+        self.assertEqual(record.ttm_quality_net_cash, TTMQuality.UNAVAILABLE)
+        self.assertIn("debt_assumed_zero", record.failure_reasons)
+
+    def test_parse_csv_zip_metric_record_allows_reported_zero_debt(self) -> None:
+        rows = [
+            ("jppfs_cor:CashAndDeposits", "CurrentYearInstant_ConsolidatedMember", "1000"),
+            ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant_ConsolidatedMember", "－"),
+            ("jppfs_cor:LeaseObligationsCL", "CurrentYearInstant_ConsolidatedMember", "－"),
+        ]
+        record = parse_csv_zip_metric_record(
+            ticker="7203",
+            doc_id="S100TEST",
+            doc_type_code="120",
+            content=_edinet_csv_zip(rows),
+        )
+
+        self.assertEqual(record.debt, 0.0)
+        self.assertEqual(record.net_cash, 1000.0)
+        self.assertEqual(record.ttm_quality_net_cash, TTMQuality.EXACT)
+        self.assertNotIn("debt_assumed_zero", record.failure_reasons)
+
+    def test_edinet_provider_reads_cached_metrics_without_api_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = Path(tmpdir) / "raw"
+            metrics_dir = cache_dir / "edinet" / "metrics"
+            metrics_dir.mkdir(parents=True)
+            (metrics_dir / "2026-05-01.json").write_text(
+                json.dumps([{"ticker": "7203", "cash": 100.0, "debt": 10.0}]),
+                encoding="utf-8",
+            )
+
+            provider = EDINETProvider(None, cache_dir)
+            records = provider.load_metric_records(date(2026, 5, 1))
+
+        self.assertEqual(records["7203"].cash, 100.0)
+        self.assertEqual(records["7203"].debt, 10.0)
+
+    def test_edinet_provider_requires_api_key_for_download_without_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            provider = EDINETProvider(None, Path(tmpdir))
+            with self.assertRaisesRegex(EDINETProviderError, "EDINET_API_KEY"):
+                provider.download_csv_zip("S100TEST")
 
     def test_normalize_security_master_handles_alpha_numeric_ticker(self) -> None:
         security = normalize_security_master(

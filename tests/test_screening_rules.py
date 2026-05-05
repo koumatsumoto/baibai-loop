@@ -16,7 +16,9 @@ from baibai_loop.screening.rules import (
     REASON_SECTOR_SELF_RANGE,
     SIGNAL_CASH_RICH,
     SIGNAL_CASHFLOW_YIELD,
+    SIGNAL_FCF_YIELD,
     SIGNAL_SALES_DISCOUNT,
+    SIGNAL_STRICT_NET_CASH,
     SIGNAL_VALUATION_REVERSION,
     evaluate_screening,
 )
@@ -36,10 +38,16 @@ def _financial(**overrides: object) -> FinancialSnapshot:
         eps=100.0,
         sales_ttm=1000.0,
         ocf_ttm=100.0,
+        edinet_ocf_ttm=100.0,
         cfo_yoy=0.1,
         equity_ratio=0.5,
         debt=50.0,
         cash=20.0,
+        net_cash=40.0,
+        net_cash_to_market_cap=0.2,
+        fcf_ttm=80.0,
+        fcf_yield=0.05,
+        capex_ttm=20.0,
         ebitda_ttm=120.0,
         consolidation_basis="consolidated",
         ttm_quality_ev_ebitda=TTMQuality.EXACT,
@@ -47,6 +55,8 @@ def _financial(**overrides: object) -> FinancialSnapshot:
         ttm_quality_pcfr=TTMQuality.EXACT,
         ttm_quality_ocf_yield=TTMQuality.EXACT,
         ttm_quality_sales=TTMQuality.EXACT,
+        ttm_quality_fcf_yield=TTMQuality.EXACT,
+        ttm_quality_net_cash=TTMQuality.EXACT,
     )
     base.update(overrides)
     return FinancialSnapshot(**base)
@@ -168,6 +178,29 @@ class ScreeningRulesTests(unittest.TestCase):
         )
         self.assertFalse(result.pass_fail)
 
+    def test_negative_ev_ebitda_is_not_a_valuation_discount(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                per_trailing=None,
+                pbr=None,
+                ev_ebitda=-26.0,
+                ebitda_ttm=-10.0,
+                ttm_quality_ev_ebitda=TTMQuality.EXACT,
+            ),
+            _derived(
+                sector_median_gap={"ev_ebitda": -0.9},
+                self_range_percentile={"ev_ebitda": 0.01},
+                sigma_gap={"ev_ebitda": -2.0},
+                price_change_60d=-0.2,
+                sector_relative_strength_percentile=0.8,
+                ticker_return_4w=0.0,
+                sector_return_4w=0.0,
+            ),
+            RULES,
+        )
+        self.assertFalse(result.pass_fail)
+        self.assertIn("valuation_reversion_condition_a_no_metric", result.null_reasons)
+
     def test_cash_rich_asset_discount_hits(self) -> None:
         result = evaluate_screening(
             _financial(cash_to_market_cap=0.45, price_to_equity=0.8, operating_profit=10.0),
@@ -189,6 +222,21 @@ class ScreeningRulesTests(unittest.TestCase):
         )
         self.assertNotIn(SIGNAL_CASH_RICH, [signal.name for signal in result.signals])
 
+    def test_cash_rich_asset_discount_rejects_edinet_net_debt_contradiction(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                cash_to_market_cap=0.8,
+                price_to_equity=0.8,
+                equity_ratio=0.5,
+                operating_profit=10.0,
+                net_cash_to_market_cap=-0.1,
+            ),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertNotIn(SIGNAL_CASH_RICH, [signal.name for signal in result.signals])
+        self.assertIn("cash_rich_edinet_net_cash_contradiction", result.null_reasons)
+
     def test_cashflow_yield_discount_hits(self) -> None:
         result = evaluate_screening(
             _financial(ocf_ttm=100.0, ocf_yield=0.1),
@@ -196,6 +244,122 @@ class ScreeningRulesTests(unittest.TestCase):
             RULES,
         )
         self.assertIn(SIGNAL_CASHFLOW_YIELD, [signal.name for signal in result.signals])
+
+    def test_strict_net_cash_discount_hits_with_edinet_debt(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                net_cash=120.0,
+                net_cash_to_market_cap=0.35,
+                price_to_equity=0.8,
+                equity_ratio=0.5,
+                operating_profit=10.0,
+            ),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertIn(SIGNAL_STRICT_NET_CASH, [signal.name for signal in result.signals])
+
+    def test_strict_net_cash_discount_requires_edinet_quality(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                net_cash=120.0,
+                net_cash_to_market_cap=0.35,
+                price_to_equity=0.8,
+                equity_ratio=0.5,
+                operating_profit=10.0,
+                ttm_quality_net_cash=TTMQuality.UNAVAILABLE,
+            ),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertNotIn(SIGNAL_STRICT_NET_CASH, [signal.name for signal in result.signals])
+        self.assertIn("strict_net_cash_unavailable", result.null_reasons)
+
+    def test_strict_net_cash_discount_rejects_assumed_zero_debt(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                net_cash=120.0,
+                net_cash_to_market_cap=0.35,
+                price_to_equity=0.8,
+                equity_ratio=0.5,
+                operating_profit=10.0,
+                edinet_failure_reasons="debt_assumed_zero",
+            ),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertNotIn(SIGNAL_STRICT_NET_CASH, [signal.name for signal in result.signals])
+        self.assertIn("strict_net_cash_debt_assumed_zero", result.null_reasons)
+
+    def test_fcf_yield_discount_hits(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                ocf_ttm=999.0,
+                edinet_ocf_ttm=120.0,
+                fcf_ttm=100.0,
+                fcf_yield=0.1,
+                capex_ttm=20.0,
+                cfo_yoy=0.2,
+            ),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        signal = next(signal for signal in result.signals if signal.name == SIGNAL_FCF_YIELD)
+        self.assertEqual(signal.metrics["edinet_ocf_ttm"], 120.0)
+        self.assertNotIn("ocf_ttm", signal.metrics)
+
+    def test_fcf_yield_discount_filters_unrelated_edinet_failures(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                edinet_ocf_ttm=120.0,
+                fcf_ttm=100.0,
+                fcf_yield=0.1,
+                capex_ttm=20.0,
+                cfo_yoy=0.2,
+                edinet_failure_reasons="debt_assumed_zero,non_consolidated_fallback",
+            ),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        signal = next(signal for signal in result.signals if signal.name == SIGNAL_FCF_YIELD)
+        self.assertEqual(signal.metrics["edinet_failure_reasons"], "non_consolidated_fallback")
+
+    def test_fcf_yield_discount_rejects_missing_edinet_ocf(self) -> None:
+        result = evaluate_screening(
+            _financial(edinet_ocf_ttm=None, fcf_ttm=100.0, fcf_yield=0.1, cfo_yoy=0.2),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertNotIn(SIGNAL_FCF_YIELD, [signal.name for signal in result.signals])
+        self.assertIn("fcf_yield_missing_edinet_ocf", result.null_reasons)
+
+    def test_fcf_yield_discount_rejects_unavailable_quality(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                fcf_ttm=100.0,
+                fcf_yield=0.1,
+                cfo_yoy=0.2,
+                ttm_quality_fcf_yield=TTMQuality.UNAVAILABLE,
+            ),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertNotIn(SIGNAL_FCF_YIELD, [signal.name for signal in result.signals])
+        self.assertIn("fcf_yield_ttm_not_exact", result.null_reasons)
+
+    def test_fcf_yield_discount_rejects_approximated_quality(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                fcf_ttm=100.0,
+                fcf_yield=0.1,
+                cfo_yoy=0.2,
+                ttm_quality_fcf_yield=TTMQuality.APPROXIMATED,
+            ),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertNotIn(SIGNAL_FCF_YIELD, [signal.name for signal in result.signals])
+        self.assertIn("fcf_yield_ttm_not_exact", result.null_reasons)
 
     def test_cashflow_yield_discount_requires_cfo_yoy_when_configured(self) -> None:
         result = evaluate_screening(
