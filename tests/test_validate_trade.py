@@ -14,7 +14,7 @@ def _trade_text(
     ticker: str = "9682",
     order_date: str | None = "2026-05-04",
     expected_fill_at: str | None = "2026-05-07T09:00:00+09:00",
-    order_price_guard_yen: float | None = None,
+    order_price_guard_yen: object = None,
     order_quantity: int | None = None,
     guarded_max_notional_yen: float | None = None,
     guarded_max_real_concentration_pct: float | None = None,
@@ -224,6 +224,39 @@ def test_price_guarded_order_missing_guarded_fields_is_flagged(tmp_path: Path) -
     )
     codes = {finding.code for finding in validate_trade_file(path)}
     assert "trade.guarded-max-missing-field" in codes
+
+
+def test_price_guarded_order_with_quoted_price_guard_is_flagged(tmp_path: Path) -> None:
+    path = _write_trade(
+        tmp_path,
+        _trade_text(order_price_guard_yen="1050"),
+    )
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.order-price-guard-invalid-type" in codes
+
+
+def test_price_guarded_order_with_bool_price_guard_is_flagged(tmp_path: Path) -> None:
+    path = _write_trade(
+        tmp_path,
+        _trade_text(order_price_guard_yen=False),
+    )
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.order-price-guard-invalid-type" in codes
+
+
+def test_price_guard_key_null_without_guarded_fields_is_treated_as_no_guard(
+    tmp_path: Path,
+) -> None:
+    path = _write_trade(tmp_path, _trade_text(order_price_guard_yen=None))
+    assert [finding for finding in validate_trade_file(path) if finding.severity == "error"] == []
+
+
+def test_price_guard_key_absent_without_guarded_fields_is_treated_as_no_guard(
+    tmp_path: Path,
+) -> None:
+    text = _trade_text().replace("order_price_guard_yen: null\n", "")
+    path = _write_trade(tmp_path, text)
+    assert [finding for finding in validate_trade_file(path) if finding.severity == "error"] == []
 
 
 def test_price_guarded_order_requires_positive_quantity(tmp_path: Path) -> None:

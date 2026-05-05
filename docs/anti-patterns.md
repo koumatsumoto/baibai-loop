@@ -283,6 +283,9 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
         order_price_guard_yen * order_quantity` と整合させたか。`tactical_capital_yen` がある場合は
         `guarded_max_tactical_concentration_pct` も記録したか
         (validator: `trade.guarded-max-*`)
+  - [ ] `order_price_guard_yen` は YAML 数値として記録し、quoted numeric (`"1050"`) や boolean
+        (`false`) で validator が guarded max 検証を skip しないことを test したか
+        (validator: `trade.order-price-guard-invalid-type`)
   - [ ] 価格 guard が参照価格より高い場合でも、guarded max real / tactical concentration が
         record 上で確認できるか。guarded max real concentration の hard / soft cap finding
         (validator: `trade.guarded-max-real-concentration-{hard,soft}-cap`) を確認したか

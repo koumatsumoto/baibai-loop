@@ -470,13 +470,13 @@ def _check_real_concentration_cap(
 def _check_guarded_max_consistency(
     path: Path, front: Mapping[str, object]
 ) -> list[ValidationFinding]:
-    guard_price = _coerce_number(front.get("order_price_guard_yen"))
+    raw_guard_price = front.get("order_price_guard_yen")
     guarded_fields = (
         "guarded_max_notional_yen",
         "guarded_max_real_concentration_pct",
         "guarded_max_tactical_concentration_pct",
     )
-    if guard_price is None:
+    if raw_guard_price is None:
         present_fields = [field for field in guarded_fields if front.get(field) is not None]
         if not present_fields:
             return []
@@ -493,6 +493,17 @@ def _check_guarded_max_consistency(
         ]
 
     findings: list[ValidationFinding] = []
+    guard_price = _coerce_number(raw_guard_price)
+    if guard_price is None:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.order-price-guard-invalid-type",
+                message="order_price_guard_yen must be a number when set",
+                location="order_price_guard_yen",
+            )
+        ]
     if guard_price <= 0:
         findings.append(
             ValidationFinding(
