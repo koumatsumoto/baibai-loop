@@ -65,9 +65,12 @@ class ScreeningFreshnessTests(unittest.TestCase):
 
             self.assertEqual(result.file_count, 1)
             self.assertEqual(result.event_count, 1)
+            self.assertEqual(result.skipped_record_count, 0)
+            self.assertEqual(result.unsupported_record_count, 0)
+            self.assertEqual(result.load_errors, ())
             self.assertEqual(result.events_by_ticker["3678"][0].title, "資金の借入に関するお知らせ")
 
-    def test_detect_edinet_freshness_warnings_requires_event_after_source_date(self) -> None:
+    def test_detect_edinet_freshness_warnings_includes_same_day_events(self) -> None:
         events = load_disclosure_events(
             _fixture_root(
                 [
@@ -86,10 +89,9 @@ class ScreeningFreshnessTests(unittest.TestCase):
             asof_date=date(2026, 5, 1),
         )
 
-        self.assertEqual(len(warnings), 1)
-        self.assertEqual(warnings[0].event_kind, "m_and_a")
+        self.assertEqual([warning.event_kind for warning in warnings], ["borrowing", "m_and_a"])
         self.assertEqual(warnings[0].reason, "material_event_after_edinet_source")
-        self.assertEqual(warnings[0].stale_metric, "net_cash")
+        self.assertEqual(warnings[0].stale_metric, "edinet_metrics")
 
     def test_detect_edinet_freshness_warnings_classifies_non_ma_acquisition_titles(
         self,
@@ -120,6 +122,35 @@ class ScreeningFreshnessTests(unittest.TestCase):
         )
 
         self.assertEqual([warning.event_kind for warning in warnings], ["share_buyback", "capex"])
+
+    def test_load_disclosure_events_reports_bad_cache_coverage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "broken.json").write_text("{", encoding="utf-8")
+            (root / "mixed.json").write_text(
+                json.dumps(
+                    {
+                        "events": [
+                            {"ticker": "3678", "date": "2026-03-02"},
+                            "not-a-record",
+                            {"ticker": "3678", "date": "2026-03-03", "title": "社債発行"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "unsupported.json").write_text(
+                json.dumps({"events": {"ticker": "3678"}}),
+                encoding="utf-8",
+            )
+
+            result = load_disclosure_events(root, asof_date=date(2026, 5, 1))
+
+            self.assertEqual(result.file_count, 3)
+            self.assertEqual(result.event_count, 1)
+            self.assertEqual(result.skipped_record_count, 1)
+            self.assertEqual(result.unsupported_record_count, 2)
+            self.assertEqual(len(result.load_errors), 1)
 
     def test_detect_edinet_freshness_warnings_skips_when_source_date_is_missing(self) -> None:
         events = load_disclosure_events(

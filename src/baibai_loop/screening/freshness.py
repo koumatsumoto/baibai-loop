@@ -25,6 +25,9 @@ class DisclosureLoadResult:
     events_by_ticker: Mapping[str, tuple[DisclosureEvent, ...]]
     file_count: int
     event_count: int
+    skipped_record_count: int = 0
+    unsupported_record_count: int = 0
+    load_errors: tuple[str, ...] = ()
 
 
 _EVENT_KIND_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -47,15 +50,24 @@ def load_disclosure_events(root: Path, *, asof_date: date) -> DisclosureLoadResu
         return DisclosureLoadResult(events_by_ticker={}, file_count=0, event_count=0)
 
     grouped: dict[str, list[DisclosureEvent]] = {}
+    skipped_record_count = 0
+    unsupported_record_count = 0
+    load_errors: list[str] = []
     files = sorted(path for path in root.rglob("*.json") if path.is_file())
     for path in files:
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError) as exc:
+            load_errors.append(f"{path}: {type(exc).__name__}: {exc}")
             continue
-        for record in _iter_records(payload):
+        records, unsupported = _iter_records(payload)
+        unsupported_record_count += unsupported
+        for record in records:
             event = _normalize_event(record, default_source=path.stem)
-            if event is None or event.disclosed_at > asof_date:
+            if event is None:
+                skipped_record_count += 1
+                continue
+            if event.disclosed_at > asof_date:
                 continue
             if _event_kind(event.title) is None:
                 continue
@@ -69,6 +81,9 @@ def load_disclosure_events(root: Path, *, asof_date: date) -> DisclosureLoadResu
         events_by_ticker=events_by_ticker,
         file_count=len(files),
         event_count=sum(len(events) for events in events_by_ticker.values()),
+        skipped_record_count=skipped_record_count,
+        unsupported_record_count=unsupported_record_count,
+        load_errors=tuple(load_errors),
     )
 
 
@@ -85,7 +100,7 @@ def detect_edinet_freshness_warnings(
 
     warnings: list[FreshnessWarning] = []
     for event in events_by_ticker.get(ticker, ()):
-        if not (source_submit_date < event.disclosed_at <= asof_date):
+        if not (source_submit_date <= event.disclosed_at <= asof_date):
             continue
         event_kind = _event_kind(event.title)
         if event_kind is None:
@@ -93,7 +108,7 @@ def detect_edinet_freshness_warnings(
         warnings.append(
             FreshnessWarning(
                 source_family="edinet-metrics",
-                stale_metric="net_cash",
+                stale_metric="edinet_metrics",
                 reason="material_event_after_edinet_source",
                 event_date=event.disclosed_at,
                 event_kind=event_kind,
@@ -113,16 +128,22 @@ def _event_kind(title: str) -> str | None:
     return None
 
 
-def _iter_records(payload: object) -> tuple[Mapping[str, Any], ...]:
+def _iter_records(payload: object) -> tuple[tuple[Mapping[str, Any], ...], int]:
     if isinstance(payload, list):
-        return tuple(item for item in payload if isinstance(item, Mapping))
+        return tuple(item for item in payload if isinstance(item, Mapping)), sum(
+            1 for item in payload if not isinstance(item, Mapping)
+        )
     if isinstance(payload, Mapping):
         for key in ("events", "items", "records", "data", "disclosures"):
             value = payload.get(key)
             if isinstance(value, list):
-                return tuple(item for item in value if isinstance(item, Mapping))
-        return (payload,)
-    return ()
+                return tuple(item for item in value if isinstance(item, Mapping)), sum(
+                    1 for item in value if not isinstance(item, Mapping)
+                )
+            if key in payload and value is not None:
+                return (), 1
+        return (payload,), 0
+    return (), 1
 
 
 def _normalize_event(

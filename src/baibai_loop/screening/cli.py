@@ -655,6 +655,20 @@ def run_command(
         fallback_lines.append(f"業績悪化フィルタ入力欠損: {metric_result.yoy_missing_count} 銘柄")
     if edinet_load_error is not None:
         fallback_lines.append(f"EDINET 読み込み失敗: {edinet_load_error}")
+    if disclosure_load_result.load_errors:
+        fallback_lines.append(
+            f"Disclosure title scan 読み込み失敗: {len(disclosure_load_result.load_errors)} 件"
+        )
+    if disclosure_load_result.skipped_record_count:
+        fallback_lines.append(
+            "Disclosure title scan 必須 key 欠損/不正 record: "
+            f"{disclosure_load_result.skipped_record_count} 件"
+        )
+    if disclosure_load_result.unsupported_record_count:
+        fallback_lines.append(
+            "Disclosure title scan 未対応 record/layout: "
+            f"{disclosure_load_result.unsupported_record_count} 件"
+        )
 
     cache_manifest = compute_cache_manifest(config.cache_dir)
     cache_manifest_hash = compute_cache_manifest_hash(cache_manifest)
@@ -683,8 +697,13 @@ def run_command(
         provider_status_lines.append(
             "Disclosure title material-event scan: "
             f"{disclosure_load_result.event_count} events from "
-            f"{disclosure_load_result.file_count} files"
+            f"{disclosure_load_result.file_count} files "
+            f"(skipped={disclosure_load_result.skipped_record_count}, "
+            f"unsupported={disclosure_load_result.unsupported_record_count}, "
+            f"errors={len(disclosure_load_result.load_errors)})"
         )
+    else:
+        provider_status_lines.append("Disclosure title material-event scan: optional unavailable")
 
     document = ScreenedRunDocument(
         run_date=asof_date,

@@ -107,7 +107,7 @@ candidates:
     split_adjustment_flag: false
     freshness_warnings:
       - source_family: "edinet-metrics"
-        stale_metric: "net_cash"
+        stale_metric: "edinet_metrics"
         reason: "material_event_after_edinet_source"
         event_date: "2026-03-03"
         event_kind: "borrowing"
@@ -147,7 +147,7 @@ signals_summary:
 - `market_cap_oku` / `avg_turnover_oku`: research の position size と流動性確認で使う。universe 閾値は `market_cap_oku >= 100` かつ `avg_turnover_oku >= 1.0`
 - `price_change_60d` / `price_change_4w`: split 影響を排除するため adjustment_close ベースで算出
 - `split_adjustment_flag`: `price_change_60d` と同じ window 内に J-Quants `AdjustmentFactor` が株式分割 / 株式併合の調整を示した場合に `true`
-- `freshness_warnings`: EDINET CSV-derived metrics の提出後、候補 `asof_date` までに任意の disclosure title cache (`records/_data/raw/screening/disclosures/**/*.json`) から M&A / 借入 / 社債 / 自己株買い / 設備投資 / 増資 / 減資 / 資本業務提携系の title keyword hit が見つかった場合に出す。Net cash / cash-rich 系 signal は research で balance sheet の再確認を必須にする。cache が無い場合は warning は出ない
+- `freshness_warnings`: EDINET CSV-derived metrics の提出日以降、候補 `asof_date` までに任意の disclosure title cache (`records/_data/raw/screening/disclosures/**/*.json`) から M&A / 借入 / 社債 / 自己株買い / 設備投資 / 増資 / 減資 / 資本業務提携系の title keyword hit が見つかった場合に出す。同日開示は時刻順を判定できないため保守的に warning 対象に含める。`stale_metric: edinet_metrics` は net cash だけでなく cash / debt / EV / equity / share count / FCF など EDINET-derived metrics 全体の再確認が必要であることを示す。cache が無い場合は provider_status_lines で optional unavailable として明示する
 - `sector_relative_strength_percentile`: **sector 単位の percentile**。銘柄個別の同業種内相対強度ではない
 
 ### 4.1 traceability の境界
