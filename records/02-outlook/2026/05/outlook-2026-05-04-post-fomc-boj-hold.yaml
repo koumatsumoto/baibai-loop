@@ -40,7 +40,7 @@ summary: |
     据置 (Bank Rate 3.75%、Pill が 4.00% 利上げ票)、BOE Monetary Policy Report 4 月
   - 日本マクロ: 連合春闘第 3 回 (4/3、5.09%、3 年連続 5% 超)、日銀短観 3 月 (大企業
     製造業 DI +17、設備投資 +7.9%)、経産省鉱工業生産 3 月速報 (前月比 -0.5%、4-5 月
-    予測 +2.1/+2.2%)、財務省貿易統計 3 月 (輸出 +11.7% YoY、貿易黒字 +6,670 億円、
+    予測 +2.1/+2.2%)、財務省貿易統計 3 月 (輸出 +11.5% YoY、差引 642,996 百万円、
     対中東向け減少)、内閣府景気ウォッチャー 3 月 (現状 DI 42.2、-6.7pt 急冷)、総務省
     東京都区部 CPI 4 月中旬 (生鮮除き +1.5%、3 ヶ月連続 2% 割れ)
   - セクター動向: TSMC 1Q26 Earnings (Q1 release で確認: 売上 359 億 USD、グロス
@@ -155,8 +155,8 @@ summary: |
     計画 +1.3%
   - 経産省鉱工業生産 3 月速報: 前月比 -0.5%、出荷 -1.1%。製造工業生産予測指数は
     4 月 +2.1%、5 月 +2.2%。電子部品・デバイス、生産用機械が底堅い
-  - 財務省貿易統計 3 月: 輸出 +11.7% YoY (7 ヶ月連続増)、貿易収支 +6,670 億円。
-    半導体製造装置・IC が増加に寄与、対中東向けはホルムズ封鎖で減少、自動車減少
+  - 財務省貿易統計 3 月: 輸出 +11.5% YoY (7 ヶ月連続増)、差引 642,996 百万円。
+    半導体製造装置・IC が増加に寄与、対中東向けはホルムズ封鎖で減少、自動車は数量 -2.4%、金額 +14.7%
   - 内閣府景気ウォッチャー 3 月: 現状判断 DI 42.2 (前月比 -6.7pt 急冷)、先行きも
     大幅悪化
 
@@ -414,7 +414,7 @@ sectors:
       - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
   "ゴム製品":
     status: neutral
-    rationale: "原料天然ゴム / 合成ゴム (ナフサ系) は原油連動で逆風要素もあるが、自動車向け需要 (短観製造業 +17、貿易統計輸出 +11.7%) は支え。両建てで neutral"
+    rationale: "原料天然ゴム / 合成ゴム (ナフサ系) は原油連動で逆風要素もあるが、自動車向け需要 (短観製造業 +17、貿易統計輸出 +11.5%) は支え。両建てで neutral"
     source_refs:
       - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
   "ガラス・土石製品":
@@ -449,7 +449,7 @@ sectors:
       - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
   "輸送用機器":
     status: neutral
-    rationale: "短観大企業製造業 +17、設備投資 +7.9% は底堅さ示すが、自動車輸出は財務省統計で「自動車減少」、対中東向け輸出はホルムズ封鎖で減少。USD/JPY -1.75% 円高反転は輸出採算逆風 (但し 156-159 水準維持)。AI 関連自動運転 / 電動化テーマは tailwind 要素。両建てで neutral"
+    rationale: "短観大企業製造業 +17、設備投資 +7.9% は底堅さを示し、自動車輸出は財務省統計で数量 -2.4%、金額 +14.7%。対中東向け輸出はホルムズ封鎖で減少。USD/JPY -1.75% 円高反転は輸出採算逆風 (但し 156-159 水準維持)。AI 関連自動運転 / 電動化テーマは tailwind 要素。両建てで neutral"
     source_refs:
       - records/01-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
       - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
@@ -557,7 +557,7 @@ regions:
       - records/01-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
   japan-external-demand:
     status: tailwind
-    rationale: "①AI / 半導体 capex 持続 (高確度根拠: TSMC Q1 売上 359 億 USD / GM 66.2%、NVIDIA FY26 +65% / Q1 FY27 ガイ 780 億 USD、いずれも公式 release。Capex 上方修正・Sovereign AI 300 億は transcript 参考値で cross-check 待ち) で日本の半導体製造装置 / 電子部品 / 電力関連が構造的 tailwind、②貿易統計輸出 +11.7% (3 月、7 ヶ月連続増、半導体製造装置・IC が牽引)、③USD/JPY 156.56 で円安水準維持 (147-150 水準下回るには更なる -4-6% が必要)、④米最終需要は CPI 再加速下でも堅調 (小売 +1.7%、雇用 +178k、失業率 4.3%)。リスク: ⑤対中東向け輸出減少 (ホルムズ封鎖)、⑥中国対米輸出 -26% (Tier 2 二次集計、海関総署個別 release は本作業環境で未取得、122 条効果と整合的に解釈) で日本の対アジア中間財需要に間接 headwind。net では tailwind 維持、AI 軸の dominance が決め手"
+    rationale: "①AI / 半導体 capex 持続 (高確度根拠: TSMC Q1 売上 359 億 USD / GM 66.2%、NVIDIA FY26 +65% / Q1 FY27 ガイ 780 億 USD、いずれも公式 release。Capex 上方修正・Sovereign AI 300 億は transcript 参考値で cross-check 待ち) で日本の半導体製造装置 / 電子部品 / 電力関連が構造的 tailwind、②貿易統計輸出 +11.5% (3 月、7 ヶ月連続増、半導体製造装置・IC が牽引)、③USD/JPY 156.56 で円安水準維持 (147-150 水準下回るには更なる -4-6% が必要)、④米最終需要は CPI 再加速下でも堅調 (小売 +1.7%、雇用 +178k、失業率 4.3%)。リスク: ⑤対中東向け輸出減少 (ホルムズ封鎖)、⑥中国対米輸出 -26% (Tier 2 二次集計、海関総署個別 release は本作業環境で未取得、122 条効果と整合的に解釈) で日本の対アジア中間財需要に間接 headwind。net では tailwind 維持、AI 軸の dominance が決め手"
     source_refs:
       - records/01-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
       - records/01-brief/2026/04/2026-04-26-world-weekly-jp-cpi-retail.yaml
