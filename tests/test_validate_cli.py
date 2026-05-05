@@ -30,17 +30,27 @@ def _make_candidates_payload() -> dict[str, object]:
         "run_id": "screening-20260424-a1b2c3d4",
         "config_hash": "a1b2c3d4e5f6a7b8",
         "cache_manifest_hash": "9988776655443322",
-        "tickers": [
+        "candidates": [
             {
                 "ticker": "130A",
                 "name": "Sample",
                 "sector_33": "情報・通信業",
+                "metrics": {},
                 "ttm_quality": {
                     "ev_ebitda": "exact",
                     "p_s": "approximated",
                     "pcfr": "unavailable",
+                    "ocf_yield": "unavailable",
+                    "sales": "approximated",
                 },
-                "threshold_hit": ["sector_median_under_20pct_and_self_range_bottom_20pct"],
+                "signals": [
+                    {
+                        "name": "valuation-reversion",
+                        "playbook": "valuation-reversion",
+                        "reasons": ["sector_median_discount_and_self_range_bottom"],
+                        "metrics": {},
+                    }
+                ],
             }
         ],
     }
@@ -148,7 +158,7 @@ def _make_research_text() -> str:
         {
             "ticker": "2767",
             "name": "Sample",
-            "playbook": "valuation-mean-reversion-v1",
+            "playbook": "valuation-reversion",
             "decision": "accepted",
             "market_cap_oku": 600,
             "sector_33": "情報・通信業",
@@ -177,7 +187,7 @@ def _make_research_text() -> str:
         ## 6. Catalyst
         ## 7. Price reaction
         ## 8. Crowding
-        ## 9. ミクロ
+        ## 9. Shareholder return
         ## 10. Entry
         ## 11. Exit
         ## 12. Invalidation
@@ -209,12 +219,12 @@ def _seed_repo(root: Path, *, candidates_overrides: dict[str, object] | None = N
     (outlook_dir / "outlook-2026-04-24-bootstrap.yaml").write_text(
         _make_outlook_yaml_text(), encoding="utf-8"
     )
-    (research_dir / "2026-04-25-2767-valuation-mean-reversion-v1.md").write_text(
+    (research_dir / "2026-04-25-2767-valuation-reversion.md").write_text(
         _make_research_text(), encoding="utf-8"
     )
 
-    schema_source = ROOT / "records/_playbooks" / "valuation-mean-reversion-v1.schema.yaml"
-    (playbooks_dir / "valuation-mean-reversion-v1.schema.yaml").write_text(
+    schema_source = ROOT / "records/_playbooks" / "valuation-reversion.schema.yaml"
+    (playbooks_dir / "valuation-reversion.schema.yaml").write_text(
         schema_source.read_text(encoding="utf-8"), encoding="utf-8"
     )
 

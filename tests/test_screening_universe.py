@@ -16,7 +16,7 @@ from baibai_loop.screening.universe import build_universe
 
 
 def _bars(
-    code: str, close: float = 100.0, turnover: float = 300_000_000.0
+    code: str, close: float = 100.0, turnover: float = 100_000_000.0
 ) -> list[JQuantsDailyBar]:
     # Span 200 days ending at 2026-04-24 so listing_span >= LISTED_UNDER_DAYS (182).
     # Only the trailing 20 bars populate turnover/close for universe filters.
@@ -52,7 +52,7 @@ class ScreeningUniverseTests(unittest.TestCase):
         )
         self.assertIn("130A", result.snapshots)
         self.assertEqual(result.snapshots["130A"].market_cap_oku, 400)
-        self.assertEqual(result.snapshots["130A"].avg_turnover_oku, 3.0)
+        self.assertEqual(result.snapshots["130A"].avg_turnover_oku, 1.0)
 
     def test_build_universe_keeps_200_oku_band_security(self) -> None:
         security = SecurityMaster(
@@ -72,7 +72,7 @@ class ScreeningUniverseTests(unittest.TestCase):
         self.assertIn("201A", result.snapshots)
         self.assertEqual(result.snapshots["201A"].market_cap_oku, 200)
 
-    def test_build_universe_excludes_turnover_below_3_oku(self) -> None:
+    def test_build_universe_excludes_turnover_below_1_oku(self) -> None:
         security = SecurityMaster(
             code="202A",
             name="Thin Trading",
@@ -83,7 +83,7 @@ class ScreeningUniverseTests(unittest.TestCase):
         result = build_universe(
             asof_date=date(2026, 4, 24),
             securities=[security],
-            bars_by_ticker={"202A": _bars("202A", close=100.0, turnover=299_000_000.0)},
+            bars_by_ticker={"202A": _bars("202A", close=100.0, turnover=99_000_000.0)},
             shares_outstanding_by_ticker={"202A": 300_000_000.0},
             jpx_flags_by_ticker={},
         )

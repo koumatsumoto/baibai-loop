@@ -37,7 +37,7 @@ paper/skipped ともに以下を持つ。取得不能な価格・出来高系は
 - `asof_date` / `decision_date`
 - `baseline_price`
 - `market_cap_oku` / `avg_turnover_oku`
-- `threshold_hit_count`
+- `signal_count`
 - `macro_gate`
 - `adv_participation_pct`
 - `adjustment_applied`

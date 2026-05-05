@@ -35,7 +35,7 @@
       "additionalProperties": {"type": "integer", "minimum": 0}
     },
     "playbook_revision_decision": {
-      "enum": ["v1 据え置き", "v1.1 改訂", "v2 開発"]
+      "enum": ["据え置き", "小改訂", "大幅改訂"]
     },
     "next_cycle_changes": {
       "type": "array",

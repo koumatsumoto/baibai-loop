@@ -73,7 +73,7 @@ EDINET の XBRL 構造から取得。J-Quants Light の財務サマリーで取�
 
 - 各業種内の銘柄の valuation 指標から中央値を算出
 - 集計タイミング: screening 実行時（週次）
-- 集計対象: universe（時価総額 200 億円以上 + 売買代金 3 億円以上を満たす銘柄のみ）
+- 集計対象: universe（時価総額 100 億円以上 + 売買代金 1 億円以上を満たす銘柄のみ）
 
 ### 8.3 サンプル数下限
 
@@ -99,7 +99,7 @@ return ではない)。これ以外のコーポレートアクション (合併�
 リファレンス: <https://jpx.gitbook.io/j-quants-ja/api-reference/daily_quotes>)。本システム
 でも total return ベースには変換せず、`adjustment_close` をそのまま使う。理由:
 
-- mean reversion playbook (`valuation-mean-reversion-v1`) の主信号は「short-term の price
+- `valuation-reversion` playbook の主信号は「short-term の price
   decline」であり、配当落ちを含めた pure な price 系列で判定するのが thesis と整合
 - 配当落ち分を加算した擬似 total return を使うと、配当利回り高銘柄 (鉄鋼 / 銀行 / 商社等)
   の `price_change_60d` が本来より small に見え、oversold 判定が遅れる方向にバイアスする

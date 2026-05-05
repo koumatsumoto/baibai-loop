@@ -127,7 +127,8 @@ def read_fin_summaries(
             return None
         rows = conn.execute(
             "SELECT ticker, disclosed_at, forecast_eps, eps_ttm, bps, "
-            "shares_outstanding, sales, operating_profit, ordinary_profit, profit, "
+            "shares_outstanding, sales, cfo, cash_eq, total_assets, equity, "
+            "operating_profit, ordinary_profit, profit, "
             "fiscal_period, fiscal_year_end, period_start, period_end "
             "FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ? "
             "ORDER BY ticker, disclosed_at",
@@ -146,6 +147,10 @@ def read_fin_summaries(
             bps,
             shares_outstanding,
             sales,
+            cfo,
+            cash_eq,
+            total_assets,
+            equity,
             operating_profit,
             ordinary_profit,
             profit,
@@ -164,6 +169,10 @@ def read_fin_summaries(
                     bps=_optional_float(bps),
                     shares_outstanding=_optional_float(shares_outstanding),
                     sales=_optional_float(sales),
+                    cfo=_optional_float(cfo),
+                    cash_eq=_optional_float(cash_eq),
+                    total_assets=_optional_float(total_assets),
+                    equity=_optional_float(equity),
                     operating_profit=_optional_float(operating_profit),
                     ordinary_profit=_optional_float(ordinary_profit),
                     profit=_optional_float(profit),

@@ -367,10 +367,12 @@ class IndexNextEarningsTests(unittest.TestCase):
 
 
 class SelectCommandTests(unittest.TestCase):
-    def _write_candidates(self, root: Path, asof: date, tickers: list[dict[str, object]]) -> Path:
+    def _write_candidates(
+        self, root: Path, asof: date, candidates: list[dict[str, object]]
+    ) -> Path:
         path = root / f"{asof:%Y}" / f"{asof:%m}" / f"{asof:%Y-%m-%d}.yaml"
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = yaml.safe_dump({"tickers": tickers}, allow_unicode=True, sort_keys=False)
+        payload = yaml.safe_dump({"candidates": candidates}, allow_unicode=True, sort_keys=False)
         path.write_text(payload, encoding="utf-8")
         return path
 
@@ -394,30 +396,30 @@ class SelectCommandTests(unittest.TestCase):
             self._write_candidates(
                 root / "records/03-candidates",
                 asof,
-                tickers=[
+                candidates=[
                     {
                         "ticker": "1111",
                         "name": "headwind exclude",
                         "sector_33": "石油・石炭製品",
                         "market_cap_oku": 2000,
-                        "threshold_hit": ["sector_median_under_20pct_and_self_range_bottom_20pct"],
+                        "signals": [{"name": "valuation-reversion"}],
                     },
                     {
                         "ticker": "2222",
                         "name": "single hit",
                         "sector_33": "電気機器",
                         "market_cap_oku": 600,
-                        "threshold_hit": ["sector_median_under_20pct_and_self_range_bottom_20pct"],
+                        "signals": [{"name": "valuation-reversion"}],
                     },
                     {
                         "ticker": "3333",
                         "name": "triple hit",
                         "sector_33": "機械",
                         "market_cap_oku": 400,
-                        "threshold_hit": [
-                            "sector_median_under_20pct_and_self_range_bottom_20pct",
-                            "price_down_60d_and_valuation_sigma_down",
-                            "sector_rotation_short_sell",
+                        "signals": [
+                            {"name": "valuation-reversion"},
+                            {"name": "cash-rich-asset-discount"},
+                            {"name": "cashflow-yield-discount"},
                         ],
                     },
                 ],
@@ -446,10 +448,8 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(payload["after_outlook_filter"], 2)
             tickers = [c["ticker"] for c in payload["candidates"]]
             self.assertEqual(tickers, ["3333", "2222"])
-            self.assertEqual(
-                payload["candidates"][0]["position_tier"], "200-500 (P-B only, max 0.5%)"
-            )
-            self.assertEqual(payload["candidates"][1]["position_tier"], "500-1000 (max 1.0%)")
+            self.assertEqual(payload["candidates"][0]["position_tier"], "200-500")
+            self.assertEqual(payload["candidates"][1]["position_tier"], "500-1000")
 
     def test_rejects_non_mapping_candidates_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

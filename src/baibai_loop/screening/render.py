@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date, timedelta, timezone
 from pathlib import Path
 
 import yaml
 
-from .schema import ScreenedRunDocument, ScreenedTicker, TTMQuality
+from .schema import ScreenedCandidate, ScreenedRunDocument, TTMQuality
 
 JST = timezone(timedelta(hours=9))
 _DECIMAL_PLACES = {
@@ -77,7 +78,9 @@ def _build_front_matter(document: ScreenedRunDocument) -> dict[str, object]:
     front_matter["run_id"] = QuotedString(document.run_id)
     front_matter["config_hash"] = QuotedString(document.config_hash)
     front_matter["cache_manifest_hash"] = QuotedString(document.cache_manifest_hash)
-    front_matter["tickers"] = [_build_ticker_entry(ticker) for ticker in document.tickers]
+    front_matter["candidates"] = [
+        _build_candidate_entry(candidate) for candidate in document.candidates
+    ]
     front_matter["fact_memo_lines"] = [QuotedString(line) for line in document.fact_memo_lines]
     front_matter["provider_status_lines"] = [
         QuotedString(line) for line in document.provider_status_lines
@@ -86,50 +89,62 @@ def _build_front_matter(document: ScreenedRunDocument) -> dict[str, object]:
         QuotedString(line) for line in document.universe_exclusion_lines
     ]
     front_matter["ttm_quality_counts"] = dict(document.ttm_quality_counts)
+    front_matter["signals_summary"] = dict(document.signals_summary)
     front_matter["fallback_lines"] = [QuotedString(line) for line in document.fallback_lines]
     return front_matter
 
 
-def _build_ticker_entry(ticker: ScreenedTicker) -> dict[str, object]:
+def _build_candidate_entry(candidate: ScreenedCandidate) -> dict[str, object]:
     entry: dict[str, object] = {}
-    entry["ticker"] = QuotedString(ticker.ticker)
-    entry["name"] = QuotedString(ticker.name)
-    entry["per_forward"] = _round_value("per_forward", ticker.per_forward)
-    entry["per_trailing"] = _round_value("per_trailing", ticker.per_trailing)
-    entry["pbr"] = _round_value("pbr", ticker.pbr)
-    entry["ev_ebitda"] = _round_value("ev_ebitda", ticker.ev_ebitda)
-    entry["p_s"] = _round_value("p_s", ticker.p_s)
-    entry["pcfr"] = _round_value("pcfr", ticker.pcfr)
-    entry["sector_33"] = QuotedString(ticker.sector_33)
-    entry["market_cap_oku"] = ticker.market_cap_oku
+    entry["ticker"] = QuotedString(candidate.ticker)
+    entry["name"] = QuotedString(candidate.name)
+    entry["per_forward"] = _round_value("per_forward", candidate.per_forward)
+    entry["per_trailing"] = _round_value("per_trailing", candidate.per_trailing)
+    entry["pbr"] = _round_value("pbr", candidate.pbr)
+    entry["ev_ebitda"] = _round_value("ev_ebitda", candidate.ev_ebitda)
+    entry["p_s"] = _round_value("p_s", candidate.p_s)
+    entry["pcfr"] = _round_value("pcfr", candidate.pcfr)
+    entry["sector_33"] = QuotedString(candidate.sector_33)
+    entry["market_cap_oku"] = candidate.market_cap_oku
     entry["avg_turnover_oku"] = (
-        round(ticker.avg_turnover_oku, 1) if ticker.avg_turnover_oku is not None else None
+        round(candidate.avg_turnover_oku, 1) if candidate.avg_turnover_oku is not None else None
     )
-    entry["price_change_60d"] = _round_ratio(ticker.price_change_60d)
-    entry["price_change_4w"] = _round_ratio(ticker.price_change_4w)
+    entry["price_change_60d"] = _round_ratio(candidate.price_change_60d)
+    entry["price_change_4w"] = _round_ratio(candidate.price_change_4w)
     entry["sector_relative_strength_percentile"] = _round_ratio(
-        ticker.sector_relative_strength_percentile
+        candidate.sector_relative_strength_percentile
     )
+    entry["metrics"] = _round_metrics(candidate.metrics)
     entry["metrics_breakdown"] = {
         metric: {
             "sector_median_gap": _round_ratio(values.get("sector_median_gap")),
             "self_range_percentile": _round_ratio(values.get("self_range_percentile")),
             "sigma_gap": _round_ratio(values.get("sigma_gap")),
         }
-        for metric, values in ticker.metrics_breakdown.items()
+        for metric, values in candidate.metrics_breakdown.items()
     }
     entry["next_earnings_date"] = (
-        QuotedString(ticker.next_earnings_date.isoformat())
-        if ticker.next_earnings_date is not None
+        QuotedString(candidate.next_earnings_date.isoformat())
+        if candidate.next_earnings_date is not None
         else None
     )
-    entry["split_adjustment_flag"] = ticker.split_adjustment_flag
+    entry["split_adjustment_flag"] = candidate.split_adjustment_flag
     entry["ttm_quality"] = {
-        "ev_ebitda": ticker.ttm_quality.get("ev_ebitda", TTMQuality.UNAVAILABLE).value,
-        "p_s": ticker.ttm_quality.get("p_s", TTMQuality.UNAVAILABLE).value,
-        "pcfr": ticker.ttm_quality.get("pcfr", TTMQuality.UNAVAILABLE).value,
+        "ev_ebitda": candidate.ttm_quality.get("ev_ebitda", TTMQuality.UNAVAILABLE).value,
+        "p_s": candidate.ttm_quality.get("p_s", TTMQuality.UNAVAILABLE).value,
+        "pcfr": candidate.ttm_quality.get("pcfr", TTMQuality.UNAVAILABLE).value,
+        "ocf_yield": candidate.ttm_quality.get("ocf_yield", TTMQuality.UNAVAILABLE).value,
+        "sales": candidate.ttm_quality.get("sales", TTMQuality.UNAVAILABLE).value,
     }
-    entry["threshold_hit"] = list(ticker.threshold_hit)
+    entry["signals"] = [
+        {
+            "name": QuotedString(signal.name),
+            "playbook": QuotedString(signal.playbook),
+            "reasons": [QuotedString(reason) for reason in signal.reasons],
+            "metrics": _round_metrics(signal.metrics),
+        }
+        for signal in candidate.signals
+    ]
     return entry
 
 
@@ -143,3 +158,15 @@ def _round_value(metric: str, value: float | None) -> float | None:
     if value is None:
         return None
     return round(float(value), _DECIMAL_PLACES[metric])
+
+
+def _round_metrics(values: Mapping[str, object] | object) -> dict[str, object]:
+    if not isinstance(values, Mapping):
+        return {}
+    rounded: dict[str, object] = {}
+    for key, value in values.items():
+        if isinstance(value, bool) or value is None or isinstance(value, str | int):
+            rounded[key] = value
+        elif isinstance(value, float):
+            rounded[key] = _round_ratio(value)
+    return rounded

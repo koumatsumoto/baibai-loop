@@ -18,9 +18,6 @@ from .config import (
     DEFAULT_CACHE_DIR,
     DEFAULT_SQLITE_CACHE_DIR,
     LEGACY_CACHE_DIR,
-    PARTIAL_WARNING_TTM_COUNT,
-    PARTIAL_WARNING_TTM_RATIO,
-    PARTIAL_WARNING_YOY_MISSING_RATIO,
     ConfigError,
     ScreeningConfig,
 )
@@ -51,13 +48,12 @@ from .providers.jquants import (
     JQuantsProviderError,
 )
 from .render import JST, build_output_path, render_screened_yaml
+from .rule_config import ScreeningRules, load_screening_rules
 from .rules import evaluate_screening
-from .schema import ScreenedRunDocument, ScreenedTicker, SecurityMaster, normalize_ticker
+from .schema import ScreenedCandidate, ScreenedRunDocument, SecurityMaster, normalize_ticker
 from .sqlite_cache import SQLiteCacheError, is_sqlite_stale, rebuild_from_raw
-from .tiers import MIN_AVG_TURNOVER_OKU, MIN_MARKET_CAP_OKU, position_tier
+from .tiers import position_tier
 from .universe import (
-    LISTED_UNDER_DAYS,
-    REQUIRED_JPX_FLAGS,
     build_universe,
 )
 from .verify import DEFAULT_MAX_FILE_SIZE_MB, verify_raw_cache
@@ -98,7 +94,7 @@ class JPXAdapter(Protocol):
 @dataclass(frozen=True, slots=True)
 class ProviderBundle:
     jquants: JQuantsAdapter
-    edinet: EDINETAdapter
+    edinet: EDINETAdapter | None
     jpx: JPXAdapter
 
 
@@ -109,7 +105,7 @@ class _ScreenedCandidateInput(BaseModel):
     name: str | None = None
     sector_33: str = ""
     market_cap_oku: int | float | None = None
-    threshold_hit: list[str] = Field(default_factory=list)
+    signals: list[dict[str, object]] = Field(default_factory=list)
     next_earnings_date: str | None = None
 
     @field_validator("ticker", mode="before")
@@ -121,7 +117,7 @@ class _ScreenedCandidateInput(BaseModel):
 class _ScreenedFrontMatter(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
-    tickers: list[_ScreenedCandidateInput] = Field(default_factory=list)
+    candidates: list[_ScreenedCandidateInput] = Field(default_factory=list)
 
 
 class _OutlookJudgement(BaseModel):
@@ -305,10 +301,14 @@ def main(argv: list[str] | None = None) -> int:
             config.cache_dir,
             sqlite_path=sqlite_path,
         ),
-        edinet=EDINETProvider(
-            config.edinet_api_key,
-            config.cache_dir,
-            sqlite_path=sqlite_path,
+        edinet=(
+            EDINETProvider(
+                config.edinet_api_key,
+                config.cache_dir,
+                sqlite_path=sqlite_path,
+            )
+            if config.edinet_api_key
+            else None
         ),
         jpx=JPXProvider(
             config.cache_dir,
@@ -323,6 +323,7 @@ def main(argv: list[str] | None = None) -> int:
             _parse_iso_date(args.asof),
             config,
             providers,
+            rules=load_screening_rules(config.rules_path),
             allow_stale_jpx=args.allow_stale_jpx,
         )
 
@@ -348,10 +349,13 @@ def run_command(
     asof_date: date,
     config: ScreeningConfig,
     providers: ProviderBundle,
+    *,
+    rules: ScreeningRules | None = None,
     now: datetime | None = None,
     allow_stale_jpx: bool = False,
 ) -> int:
     output_path = build_output_path(asof_date)
+    rules = rules or load_screening_rules(config.rules_path)
     if output_path.exists():
         print(f"output already exists: {output_path}", file=sys.stderr)
         return 1
@@ -408,15 +412,20 @@ def run_command(
     next_earnings_by_ticker = _index_next_earnings(earnings_records, asof_date)
     shares_by_ticker = build_shares_outstanding_index(summaries_by_ticker)
     edinet_load_error: str | None = None
-    try:
-        edinet_by_ticker = providers.edinet.load_metric_records(asof_date)
-    except (EDINETProviderError, OSError, ValueError) as exc:
-        # cache 破損 / JSON 不正 / IO 失敗を明示的にログする。pre-existing の
-        # empty cache (FileNotFoundError 相当) は load_metric_records 側で {} を返す
-        # ため、ここに来るのは本質的に異常系のみ。
-        edinet_load_error = f"{type(exc).__name__}: {exc}"
-        print(f"warning: EDINET load_metric_records failed: {edinet_load_error}", file=sys.stderr)
-        edinet_by_ticker = {}
+    edinet_by_ticker: Mapping[str, EdinetMetricRecord] = {}
+    if providers.edinet is not None:
+        try:
+            edinet_by_ticker = providers.edinet.load_metric_records(asof_date)
+        except (EDINETProviderError, OSError, ValueError) as exc:
+            # cache 破損 / JSON 不正 / IO 失敗を明示的にログする。pre-existing の
+            # empty cache (FileNotFoundError 相当) は load_metric_records 側で {} を返す
+            # ため、ここに来るのは本質的に異常系のみ。
+            edinet_load_error = f"{type(exc).__name__}: {exc}"
+            print(
+                f"warning: EDINET load_metric_records failed: {edinet_load_error}",
+                file=sys.stderr,
+            )
+            edinet_by_ticker = {}
 
     universe_result = build_universe(
         asof_date=asof_date,
@@ -424,6 +433,10 @@ def run_command(
         bars_by_ticker=bars_by_ticker,
         shares_outstanding_by_ticker=shares_by_ticker,
         jpx_flags_by_ticker=jpx_snapshot.flags_by_ticker,
+        min_market_cap_oku=rules.universe.min_market_cap_oku,
+        min_avg_turnover_oku=rules.universe.min_avg_turnover_oku,
+        listed_under_days=rules.universe.listed_under_days,
+        required_jpx_flags=frozenset(rules.universe.required_jpx_flags),
     )
     # is_common_stock フィルタを明示して、同一 4 桁 code に優先株などが混じった場合の
     # dict 上書きを防ぐ (build_universe は非共通株を弾くが、snapshots に残った共通株の
@@ -439,29 +452,36 @@ def run_command(
         bars_by_ticker=bars_by_ticker,
         summaries_by_ticker=summaries_by_ticker,
         edinet_by_ticker=edinet_by_ticker,
+        rules=rules,
     )
 
-    screened_tickers: list[ScreenedTicker] = []
+    screened_candidates: list[ScreenedCandidate] = []
     fact_lines: list[str] = []
     for ticker in sorted(universe_result.snapshots):
-        result = evaluate_screening(metric_result.financials[ticker], metric_result.derived[ticker])
+        result = evaluate_screening(
+            metric_result.financials[ticker],
+            metric_result.derived[ticker],
+            rules,
+        )
         if not result.pass_fail:
             continue
-        if len(result.threshold_hit) > 1:
-            fact_lines.append(f"{ticker}: 複数閾値 hit ({', '.join(result.threshold_hit)})")
+        if len(result.signals) > 1:
+            fact_lines.append(
+                f"{ticker}: 複数 signal hit ({', '.join(signal.name for signal in result.signals)})"
+            )
         financial = metric_result.financials[ticker]
         derived = metric_result.derived[ticker]
         universe_snapshot = universe_result.snapshots[ticker]
         security = securities_by_ticker[ticker]
         metrics_breakdown: dict[str, dict[str, float | None]] = {}
-        for metric in ("per_trailing", "pbr", "ev_ebitda"):
+        for metric in ("per_trailing", "pbr", "ev_ebitda", "p_s"):
             metrics_breakdown[metric] = {
                 "sector_median_gap": derived.sector_median_gap.get(metric),
                 "self_range_percentile": derived.self_range_percentile.get(metric),
                 "sigma_gap": derived.sigma_gap.get(metric),
             }
-        screened_tickers.append(
-            ScreenedTicker(
+        screened_candidates.append(
+            ScreenedCandidate(
                 ticker=ticker,
                 name=security.name,
                 per_forward=financial.per_forward,
@@ -471,17 +491,32 @@ def run_command(
                 p_s=financial.p_s,
                 pcfr=financial.pcfr,
                 sector_33=security.sector_33,
-                threshold_hit=result.threshold_hit,
+                signals=result.signals,
                 ttm_quality={
                     "ev_ebitda": financial.ttm_quality_ev_ebitda,
                     "p_s": financial.ttm_quality_p_s,
                     "pcfr": financial.ttm_quality_pcfr,
+                    "ocf_yield": financial.ttm_quality_ocf_yield,
+                    "sales": financial.ttm_quality_sales,
                 },
                 market_cap_oku=universe_snapshot.market_cap_oku,
                 avg_turnover_oku=universe_snapshot.avg_turnover_oku,
                 price_change_60d=derived.price_change_60d,
                 price_change_4w=derived.ticker_return_4w,
                 sector_relative_strength_percentile=derived.sector_relative_strength_percentile,
+                metrics={
+                    "sales_ttm": financial.sales_ttm,
+                    "ocf_ttm": financial.ocf_ttm,
+                    "cash_eq": financial.cash_eq,
+                    "total_assets": financial.total_assets,
+                    "equity": financial.equity,
+                    "cash_to_market_cap": financial.cash_to_market_cap,
+                    "price_to_equity": financial.price_to_equity,
+                    "ocf_yield": financial.ocf_yield,
+                    "sales_yoy": financial.sales_yoy,
+                    "operating_profit": financial.operating_profit,
+                    "operating_profit_loss_narrowing": (financial.operating_profit_loss_narrowing),
+                },
                 metrics_breakdown=metrics_breakdown,
                 next_earnings_date=next_earnings_by_ticker.get(ticker),
                 split_adjustment_flag=derived.split_adjustment_flag,
@@ -493,9 +528,10 @@ def run_command(
         "approximated", 0
     ) + metric_result.ttm_quality_counts.get("unavailable", 0)
     partial_warning = universe_size > 0 and (
-        approx_total >= PARTIAL_WARNING_TTM_COUNT
-        or (approx_total / universe_size) >= PARTIAL_WARNING_TTM_RATIO
-        or (metric_result.yoy_missing_count / universe_size) >= PARTIAL_WARNING_YOY_MISSING_RATIO
+        approx_total >= rules.quality.partial_warning_ttm_count
+        or (approx_total / universe_size) >= rules.quality.partial_warning_ttm_ratio
+        or (metric_result.yoy_missing_count / universe_size)
+        >= rules.quality.partial_warning_yoy_missing_ratio
     )
     fallback_lines: list[str] = []
     if approx_total:
@@ -506,7 +542,9 @@ def run_command(
         fallback_lines.append(f"EDINET 読み込み失敗: {edinet_load_error}")
     # JPX source coverage: REQUIRED_JPX_FLAGS 全てを載せきれていないなら明示する。
     missing_jpx_sources = tuple(
-        flag for flag in sorted(REQUIRED_JPX_FLAGS) if flag not in jpx_snapshot.source_names
+        flag
+        for flag in sorted(rules.universe.required_jpx_flags)
+        if flag not in jpx_snapshot.source_names
     )
     if missing_jpx_sources:
         fallback_lines.append(f"JPX source 未ロード: {', '.join(missing_jpx_sources)}")
@@ -529,23 +567,24 @@ def run_command(
         asof_date=asof_date,
         universe_size=universe_size,
         filters={
-            "min_market_cap_oku": MIN_MARKET_CAP_OKU,
-            "min_avg_turnover_oku": MIN_AVG_TURNOVER_OKU,
-            "exclude_listed_under_months": LISTED_UNDER_DAYS // 30,
+            "min_market_cap_oku": rules.universe.min_market_cap_oku,
+            "min_avg_turnover_oku": rules.universe.min_avg_turnover_oku,
+            "exclude_listed_under_days": rules.universe.listed_under_days,
         },
-        tickers=tuple(screened_tickers),
+        candidates=tuple(screened_candidates),
         run_at=run_now,
         run_id=run_id,
         config_hash=config_hash,
         cache_manifest_hash=cache_manifest_hash,
         fact_memo_lines=tuple(fact_lines),
         provider_status_lines=(
-            "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ EDINET + JPX",
+            "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX",
         ),
         universe_exclusion_lines=tuple(
             f"{reason}: {count} 件" for reason, count in universe_result.exclusion_counts.items()
         ),
         ttm_quality_counts=metric_result.ttm_quality_counts,
+        signals_summary=_signals_summary(screened_candidates, rules),
         fallback_lines=tuple(fallback_lines),
     )
     yaml_text = render_screened_yaml(document)
@@ -603,12 +642,12 @@ def select_command(
     sectors_status: Mapping[str, str | None] = {
         sector: judgement.status for sector, judgement in outlook_fm.sectors.items()
     }
-    candidates = _rank_candidates(candidates_fm.tickers, sectors_status)
+    candidates = _rank_candidates(candidates_fm.candidates, sectors_status)
     summary = {
         "asof": asof_date.isoformat(),
         "candidates_ref": str(candidates_path),
         "outlook_ref": str(resolved_outlook_path),
-        "input_count": len(candidates_fm.tickers),
+        "input_count": len(candidates_fm.candidates),
         "after_outlook_filter": len(candidates),
         "candidates": candidates[:top],
     }
@@ -645,38 +684,50 @@ def _find_latest_outlook(outlook_root: Path, asof_date: date) -> Path | None:
 
 
 def _rank_candidates(
-    tickers: list[_ScreenedCandidateInput],
+    candidates_input: list[_ScreenedCandidateInput],
     sectors_outlook: Mapping[str, str | None],
 ) -> list[dict[str, object]]:
     ranked: list[tuple[tuple[int, int, str], dict[str, object]]] = []
-    for ticker in tickers:
-        sector = ticker.sector_33
+    for item in candidates_input:
+        sector = item.sector_33
         outlook_status = sectors_outlook.get(sector)
         # headwind は除外。null / unknown / tailwind / neutral は通過。
         if outlook_status == "headwind":
             continue
-        market_cap = ticker.market_cap_oku
+        market_cap = item.market_cap_oku
         market_cap_int = int(market_cap) if isinstance(market_cap, (int, float)) else 0
-        # Higher = better: more threshold hits, larger market cap, then ticker tie-breaker
+        signal_count = len(item.signals)
+        # Higher = better: more signal hits, larger market cap, then ticker tie-breaker
         sort_key = (
-            -len(ticker.threshold_hit),
+            -signal_count,
             -market_cap_int,
-            ticker.ticker,
+            item.ticker,
         )
         candidate: dict[str, object] = {
-            "ticker": ticker.ticker,
-            "name": ticker.name,
+            "ticker": item.ticker,
+            "name": item.name,
             "sector_33": sector,
             "outlook_sector": outlook_status,
             "market_cap_oku": market_cap,
-            "threshold_hit": ticker.threshold_hit,
-            "threshold_hit_count": len(ticker.threshold_hit),
-            "next_earnings_date": ticker.next_earnings_date,
+            "signals": item.signals,
+            "signal_count": signal_count,
+            "next_earnings_date": item.next_earnings_date,
             "position_tier": position_tier(market_cap),
         }
         ranked.append((sort_key, candidate))
     ranked.sort(key=lambda item: item[0])
     return [candidate for _, candidate in ranked]
+
+
+def _signals_summary(
+    candidates: Sequence[ScreenedCandidate],
+    rules: ScreeningRules,
+) -> dict[str, int]:
+    summary = dict.fromkeys(rules.lane_order, 0)
+    for candidate in candidates:
+        for signal in candidate.signals:
+            summary[signal.name] = summary.get(signal.name, 0) + 1
+    return summary
 
 
 def _index_next_earnings(
@@ -847,7 +898,8 @@ def verify_raw_cache_command(
 def bootstrap_cache_command(start: date, end: date, providers: ProviderBundle) -> int:
     try:
         providers.jquants.bootstrap_cache(start, end)
-        providers.edinet.bootstrap_cache(start, end)
+        if providers.edinet is not None:
+            providers.edinet.bootstrap_cache(start, end)
         try:
             providers.jpx.bootstrap_cache(end)
         except JPXProviderError as exc:

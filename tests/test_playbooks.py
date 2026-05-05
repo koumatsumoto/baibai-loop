@@ -6,7 +6,7 @@ from baibai_loop.playbooks import playbook_short
 
 
 def test_playbook_short_returns_registered_code() -> None:
-    assert playbook_short("valuation-mean-reversion-v1") == "vmean"
+    assert playbook_short("valuation-reversion") == "vreversion"
 
 
 def test_playbook_short_rejects_unknown_playbook() -> None:

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-MIN_AVG_TURNOVER_OKU = 3.0
+MIN_AVG_TURNOVER_OKU = 1.0
 
-TIER_SMALL_OKU = 200
+TIER_SMALL_OKU = 100
+TIER_MICRO_OKU = 200
 TIER_MID_OKU = 500
 TIER_LARGE_OKU = 1000
 
@@ -19,9 +20,11 @@ def position_tier(market_cap_oku: int | float | None) -> str:
     if not isinstance(market_cap_oku, (int, float)) or isinstance(market_cap_oku, bool):
         return "unknown"
     if market_cap_oku >= TIER_LARGE_OKU:
-        return "1000+ (max 2.0%)"
+        return "1000+"
     if market_cap_oku >= TIER_MID_OKU:
-        return "500-1000 (max 1.0%)"
+        return "500-1000"
+    if market_cap_oku >= TIER_MICRO_OKU:
+        return "200-500"
     if market_cap_oku >= TIER_SMALL_OKU:
-        return "200-500 (P-B only, max 0.5%)"
-    return "below 200 (out of universe)"
+        return "100-200"
+    return "below 100 (out of universe)"

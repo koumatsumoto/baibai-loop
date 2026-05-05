@@ -37,14 +37,14 @@ class PlaybookSchemaDiscoveryTests(unittest.TestCase):
 
     def test_repository_schemas_include_known_playbook(self) -> None:
         names = discover_playbook_schemas(ROOT / "records/_playbooks")
-        self.assertIn("valuation-mean-reversion-v1", names)
+        self.assertIn("valuation-reversion", names)
 
 
 class PlaybookSchemaLoaderTests(unittest.TestCase):
     def test_load_repository_valuation_mean_reversion_schema(self) -> None:
-        schema = load_playbook_schema(ROOT / "records/_playbooks", "valuation-mean-reversion-v1")
+        schema = load_playbook_schema(ROOT / "records/_playbooks", "valuation-reversion")
         self.assertIsInstance(schema, PlaybookSchema)
-        self.assertEqual(schema.name, "valuation-mean-reversion-v1")
+        self.assertEqual(schema.name, "valuation-reversion")
         self.assertGreaterEqual(len(schema.body_sections), 13)
 
     def test_missing_schema_raises_file_not_found(self) -> None:
@@ -81,7 +81,7 @@ class PlaybookSchemaLoaderTests(unittest.TestCase):
 
 class ResearchBodyValidationTests(unittest.TestCase):
     def test_validate_research_body_finds_missing_required_section(self) -> None:
-        schema = load_playbook_schema(ROOT / "records/_playbooks", "valuation-mean-reversion-v1")
+        schema = load_playbook_schema(ROOT / "records/_playbooks", "valuation-reversion")
         body = "## 1. Thesis\ntext\n"
         findings = validate_research_body(Path("dummy.md"), body, schema)
         codes = {f.code for f in findings}

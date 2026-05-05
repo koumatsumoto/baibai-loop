@@ -9,7 +9,7 @@ This module owns:
 - the top-level `rebuild_from_raw()` that scans a `records/_data/raw/screening/` tree
   and writes a fresh SQLite file from scratch
 
-Schema v2 (current) covers all five sources: jquants daily bars / fin
+Schema v3 (current) covers all five sources: jquants daily bars / fin
 summaries / master / earnings calendar / market calendar, plus EDINET
 documents and metrics, and JPX regulation flags.
 """
@@ -31,7 +31,7 @@ from .providers.jquants import (
     parse_jquants_code,
 )
 
-SCHEMA_VERSION = "v2"
+SCHEMA_VERSION = "v3"
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS jquants_daily_bars(
@@ -65,6 +65,10 @@ CREATE TABLE IF NOT EXISTS jquants_fin_summaries(
   bps REAL,
   shares_outstanding REAL,
   sales REAL,
+  cfo REAL,
+  cash_eq REAL,
+  total_assets REAL,
+  equity REAL,
   operating_profit REAL,
   ordinary_profit REAL,
   profit REAL,
@@ -222,6 +226,18 @@ def is_sqlite_stale(raw_dirs: Iterable[Path], db_path: Path) -> bool:
     drift.
     """
     if not db_path.exists():
+        return True
+    try:
+        conn = sqlite3.connect(db_path)
+        try:
+            row = conn.execute(
+                "SELECT value FROM cache_metadata WHERE key = 'schema_version'"
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None or row[0] != SCHEMA_VERSION:
+            return True
+    except sqlite3.Error:
         return True
     db_mtime = db_path.stat().st_mtime
     for raw_dir in raw_dirs:
@@ -416,9 +432,9 @@ def _import_fin_summary_file(conn: sqlite3.Connection, path: Path) -> int:
         """
         INSERT OR REPLACE INTO jquants_fin_summaries(
           ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding,
-          sales, operating_profit, ordinary_profit, profit,
+          sales, cfo, cash_eq, total_assets, equity, operating_profit, ordinary_profit, profit,
           fiscal_period, fiscal_year_end, period_start, period_end, raw_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         rows,
     )
@@ -461,6 +477,28 @@ def _iter_fin_summary_rows(
                 )
             ),
             _to_float(_first(record, "NetSales", "net_sales", "Sales", "sales")),
+            _to_float(
+                _first(
+                    record,
+                    "CashFlowsFromOperatingActivities",
+                    "cash_flows_from_operating_activities",
+                    "OperatingCashFlow",
+                    "operating_cash_flow",
+                    "CFO",
+                    "cfo",
+                )
+            ),
+            _to_float(
+                _first(
+                    record,
+                    "CashAndEquivalents",
+                    "cash_and_equivalents",
+                    "CashEq",
+                    "cash_eq",
+                )
+            ),
+            _to_float(_first(record, "TotalAssets", "total_assets", "TA", "ta")),
+            _to_float(_first(record, "Equity", "equity", "Eq", "eq")),
             _to_float(_first(record, "OperatingProfit", "operating_profit", "OP")),
             _to_float(_first(record, "OrdinaryProfit", "ordinary_profit", "OdP")),
             _to_float(_first(record, "Profit", "profit", "NP")),

@@ -1,0 +1,53 @@
+universe:
+  min_market_cap_oku: 100
+  min_avg_turnover_oku: 1.0
+  listed_under_days: 182
+  required_jpx_flags:
+    - 特別注意銘柄
+    - 整理銘柄
+    - 取引停止
+    - 上場廃止警告
+
+ttm:
+  full_year_min_days: 330
+  full_year_max_days: 370
+  period_length_tolerance_ratio: 0.10
+  period_end_tolerance_days: 45
+
+quality:
+  partial_warning_ttm_ratio: 0.05
+  partial_warning_ttm_count: 20
+  partial_warning_yoy_missing_ratio: 0.10
+  yoy_deterioration_threshold: -0.30
+
+signal_lanes:
+  valuation-reversion:
+    playbook: valuation-reversion
+    sector_median_gap_max: -0.20
+    self_range_percentile_max: 0.20
+    price_change_60d_max: -0.15
+    sigma_gap_max: -1.00
+    sector_relative_strength_percentile_max: 0.20
+    metrics:
+      - per_trailing
+      - pbr
+      - ev_ebitda
+      - p_s
+  cash-rich-asset-discount:
+    playbook: cash-rich-asset-discount
+    cash_to_market_cap_min: 0.40
+    price_to_equity_max: 1.00
+    operating_profit_positive_required: true
+  cashflow-yield-discount:
+    playbook: cashflow-yield-discount
+    ocf_yield_min: 0.08
+    ttm_cfo_required: true
+  sales-discount-growth:
+    playbook: sales-discount-growth
+    ps_sector_gap_max: -0.40
+    sales_yoy_min: 0.05
+    allow_operating_loss_if_cfo_positive_or_loss_narrowing: true
+
+output:
+  research_selection_target_min: 3
+  research_selection_target_max: 5

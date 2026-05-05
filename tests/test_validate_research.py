@@ -46,7 +46,7 @@ text
 ## 8. Crowding
 text
 
-## 9. ミクロ 4 軸寄与度
+## 9. Shareholder return
 text
 
 ## 10. Entry 条件
@@ -67,7 +67,7 @@ def _minimal_research_front_matter() -> dict[str, object]:
     return {
         "ticker": "2767",
         "name": "Sample Co",
-        "playbook": "valuation-mean-reversion-v1",
+        "playbook": "valuation-reversion",
         "decision": "accepted",
         "market_cap_oku": 600,
         "sector_33": "情報・通信業",
@@ -186,7 +186,7 @@ class ResearchValidationTests(unittest.TestCase):
             path.unlink()
         self.assertIn("research.missing-field", {f.code for f in findings})
 
-    def test_low_cap_mean_reversion_accepted_is_error(self) -> None:
+    def test_low_cap_valuation_reversion_accepted_is_allowed(self) -> None:
         front = _minimal_research_front_matter()
         front["market_cap_oku"] = 250
         path = self._write(front)
@@ -194,9 +194,9 @@ class ResearchValidationTests(unittest.TestCase):
             findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
         finally:
             path.unlink()
-        self.assertIn("research.low-cap-mean-reversion", {f.code for f in findings})
+        self.assertNotIn("research.low-cap-mean-reversion", {f.code for f in findings})
 
-    def test_low_cap_mean_reversion_with_override_is_warning(self) -> None:
+    def test_low_cap_valuation_reversion_with_override_has_no_tier_warning(self) -> None:
         front = _minimal_research_front_matter()
         front["market_cap_oku"] = 250
         front["macro_gate_override"] = "catalyst quality offsets low-cap risk"
@@ -207,13 +207,13 @@ class ResearchValidationTests(unittest.TestCase):
             path.unlink()
         warning_codes = {f.code for f in findings if f.severity == "warning"}
         error_codes = {f.code for f in findings if f.severity == "error"}
-        self.assertIn("research.low-cap-mean-reversion", warning_codes)
+        self.assertNotIn("research.low-cap-mean-reversion", warning_codes)
         self.assertNotIn("research.low-cap-mean-reversion", error_codes)
 
     def test_low_cap_catalyst_playbook_passes_tier_rule(self) -> None:
         front = _minimal_research_front_matter()
         front["market_cap_oku"] = 250
-        front["playbook"] = "valuation-catalyst-confirmation-v1"
+        front["playbook"] = "cash-rich-asset-discount"
         path = self._write(front)
         try:
             findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
@@ -260,10 +260,8 @@ class ResearchValidationTests(unittest.TestCase):
         finally:
             for path in paths:
                 path.unlink()
-        self.assertNotIn("research.low-cap-mean-reversion", codes_by_cap[0])
-        self.assertIn("research.low-cap-mean-reversion", codes_by_cap[1])
-        self.assertIn("research.low-cap-mean-reversion", codes_by_cap[2])
-        self.assertNotIn("research.low-cap-mean-reversion", codes_by_cap[3])
+        for codes in codes_by_cap:
+            self.assertNotIn("research.low-cap-mean-reversion", codes)
 
     def test_adv_participation_at_cap_is_rejected(self) -> None:
         front = _minimal_research_front_matter()
@@ -388,7 +386,7 @@ class ResearchValidationTests(unittest.TestCase):
             (repo / "docs").mkdir()
             cand_path = repo / "records" / "03-candidates" / "2026" / "04" / "2026-04-24.yaml"
             cand_path.write_text(
-                'tickers:\n  - ticker: "2767"\n    avg_turnover_oku: 4.9\n',
+                'candidates:\n  - ticker: "2767"\n    avg_turnover_oku: 4.9\n',
                 encoding="utf-8",
             )
             (repo / "records" / "04-research" / "2026" / "04").mkdir(parents=True)
@@ -567,7 +565,7 @@ class ResearchValidationTests(unittest.TestCase):
                 tempfile.TemporaryDirectory() as empty_root,
                 patch(
                     "baibai_loop.validate.research.discover_playbook_schemas",
-                    return_value={"valuation-mean-reversion-v1"},
+                    return_value={"valuation-reversion"},
                 ),
             ):
                 findings = validate_research_file(path, playbooks_root=Path(empty_root))
@@ -707,7 +705,7 @@ class CandidateAbsenceOverrideTests(unittest.TestCase):
             yaml.safe_dump(
                 {
                     "schema_version": 1,
-                    "tickers": [
+                    "candidates": [
                         {"ticker": t, "name": t, "avg_turnover_oku": 5.0} for t in candidate_tickers
                     ],
                 },
@@ -718,7 +716,7 @@ class CandidateAbsenceOverrideTests(unittest.TestCase):
         playbooks_path = tmp_dir / "records/_playbooks"
         playbooks_path.mkdir(parents=True, exist_ok=True)
         # template playbook so validate_research_body has a target schema
-        (ROOT / "records/_playbooks/valuation-mean-reversion-v1.schema.yaml").read_text(
+        (ROOT / "records/_playbooks/valuation-reversion.schema.yaml").read_text(
             encoding="utf-8"
         )  # ensure source exists
         for src in (ROOT / "records/_playbooks").glob("*.schema.yaml"):
@@ -733,7 +731,7 @@ class CandidateAbsenceOverrideTests(unittest.TestCase):
         front = {
             "ticker": "9682",
             "name": "Sample",
-            "playbook": "valuation-mean-reversion-v1",
+            "playbook": "valuation-reversion",
             "decision": "accepted",
             "market_cap_oku": 1700,
             "sector_33": "情報・通信業",

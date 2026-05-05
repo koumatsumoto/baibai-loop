@@ -1,35 +1,36 @@
 run_date: "YYYY-MM-DD"
-asof_date: "YYYY-MM-DD"              # run_date と同値。対象営業日
-universe_size: 321
+asof_date: "YYYY-MM-DD"
+universe_size: 1347
 filters:
-  min_market_cap_oku: 200
-  min_avg_turnover_oku: 3
-  exclude_listed_under_months: 6
+  min_market_cap_oku: 100
+  min_avg_turnover_oku: 1.0
+  exclude_listed_under_days: 182
 generated_by: "screening-cli-v1"
 data_sources:
 - "j-quants-light"
-- "edinet-api-v2@2026-01-29"
 - "jpx-public-regulation"
 run_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 run_id: "screening-YYYYMMDD-xxxxxxxx"
 config_hash: "0123456789abcdef"
 cache_manifest_hash: "fedcba9876543210"
-tickers:
-- ticker: "130A"                     # 4 文字文字列。英字組入れ対応
+candidates:
+- ticker: "130A"
   name: "..."
-  per_forward: 8.2                   # null if 会社予想 EPS 未公表
-  per_trailing: 9.5
-  pbr: 0.72
-  ev_ebitda: 4.8
-  p_s: 0.6
-  pcfr: 5.1
   sector_33: "業種名"
   market_cap_oku: 585
   avg_turnover_oku: 2.3
+  per_forward: 8.2
+  per_trailing: 9.5
+  pbr: 0.72
+  ev_ebitda: null
+  p_s: 0.6
+  pcfr: 5.1
   price_change_60d: -0.155
   price_change_4w: -0.072
   sector_relative_strength_percentile: 0.35
-  metrics_breakdown:
+  next_earnings_date: "YYYY-MM-DD"
+  split_adjustment_flag: false
+  metrics:
     per_trailing:
       sector_median_gap: -0.21
       self_range_percentile: 0.14
@@ -38,28 +39,49 @@ tickers:
       sector_median_gap: -0.18
       self_range_percentile: 0.2
       sigma_gap: -1.1
-    ev_ebitda:
-      sector_median_gap: null
-      self_range_percentile: null
-      sigma_gap: null
-  next_earnings_date: "YYYY-MM-DD"
+    p_s:
+      sector_median_gap: -0.35
+      self_range_percentile: 0.18
+      sigma_gap: -1.2
+    cash_to_market_cap: 0.42
+    price_to_equity: 0.82
+    ocf_yield: 0.13
   ttm_quality:
-    ev_ebitda: exact
+    ev_ebitda: unavailable
     p_s: approximated
-    pcfr: unavailable
-  threshold_hit:
-  - sector_median_under_20pct_and_self_range_bottom_20pct
-  - price_down_60d_and_valuation_sigma_down
-  - sector_rotation_short_sell
+    pcfr: approximated
+    ocf_yield: approximated
+    sales: approximated
+  signals:
+  - name: valuation-reversion
+    playbook: valuation-reversion
+    reasons:
+    - sector_self_range
+    metrics:
+      per_trailing:
+        sector_median_gap: -0.21
+        self_range_percentile: 0.14
+  - name: cash-rich-asset-discount
+    playbook: cash-rich-asset-discount
+    reasons:
+    - cash_to_market_cap_and_price_to_equity
+    metrics:
+      cash_to_market_cap: 0.42
+      price_to_equity: 0.82
 fact_memo_lines:
 - "[事実メモ]"
 provider_status_lines:
-- "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ EDINET + JPX"
+- "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX"
 universe_exclusion_lines:
-- "universe 除外件数: 上場 6 ヶ月未満=0, 売買代金不足=0"
+- "universe 除外件数: 上場 182 日未満=0, 売買代金不足=0"
 ttm_quality_counts:
   exact: 1
-  approximated: 1
+  approximated: 3
   unavailable: 1
+signals_summary:
+  valuation-reversion: 1
+  cash-rich-asset-discount: 1
+  cashflow-yield-discount: 0
+  sales-discount-growth: 0
 fallback_lines:
 - "取得失敗の有無: [有の場合は対象銘柄と理由を列挙]"

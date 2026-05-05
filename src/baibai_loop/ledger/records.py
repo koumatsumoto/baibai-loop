@@ -24,7 +24,7 @@ class PaperLedgerRecord:
     baseline_price: float | None
     market_cap_oku: float | None
     avg_turnover_oku: float | None
-    threshold_hit_count: int
+    signal_count: int
     macro_gate: str
     adv_participation_pct: float | None
     adjustment_applied: bool
@@ -48,7 +48,7 @@ class SkippedLedgerRecord:
     baseline_price: float | None
     market_cap_oku: float | None
     avg_turnover_oku: float | None
-    threshold_hit_count: int
+    signal_count: int
     macro_gate: str | None
     adv_participation_pct: float | None
     adjustment_applied: bool

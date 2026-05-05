@@ -1,0 +1,28 @@
+---
+playbook_id: valuation-reversion
+signal_lane: valuation-reversion
+status: active
+---
+
+# Valuation Reversion
+
+## Purpose
+
+一時的な価格下落、業種売り、または自己レンジ下方乖離により、valuation が過去レンジまたは業種対比で安くなった候補を扱う。
+
+## Entry Focus
+
+- 割安が一時的な需給・sector rotation・短期過剰反応で説明できる。
+- macro gate が `tailwind` または `neutral`。
+- 構造的な売上・利益悪化が主因ではない。
+
+## Required Research Checks
+
+- Valuation snapshot の primary metric と sector / self range の根拠。
+- 一時的割安の原因仮説。
+- 反対仮説。
+- Catalyst の有無。
+- Price reaction と crowding。
+- Entry / Exit / Invalidation。
+- Position size。
+- Shareholder return check。

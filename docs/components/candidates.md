@@ -4,7 +4,7 @@ Baibai-Loop 4 成分アーキテクチャの **(b) スクリーニング通過�
 
 ## 1. 役割
 
-- universe（日本株普通株、時価総額 200 億円以上、20 営業日平均売買代金 3 億円以上）に対し、valuation 指標でふるいをかけ、**通過銘柄 list を事実として記録**
+- universe（日本株普通株、時価総額 100 億円以上、20 営業日平均売買代金 1 億円以上）に対し、複数の signal lane で機械的にふるいをかけ、**通過銘柄 list を事実として記録**
 - 事実層のため解釈は入れない（反対仮説・原因仮説は research 側で行う）
 - Micro track の出発点として、`records/04-research/` の選定入力となる
 
@@ -24,80 +24,87 @@ records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml
 ## 4. YAML 必須項目
 
 ```yaml
-run_date: "YYYY-MM-DD"              # 対象営業日（asof_date と同値）
-asof_date: "YYYY-MM-DD"             # path の日付と同じ
-universe_size: 整数                 # その時点の universe 銘柄数
-filters:                            # 適用した閾値・条件
-  min_market_cap_oku: 200
-  min_avg_turnover_oku: 3
-  # その他閾値
+run_date: "YYYY-MM-DD"
+asof_date: "YYYY-MM-DD"
+universe_size: 整数
+filters:
+  min_market_cap_oku: 100
+  min_avg_turnover_oku: 1.0
+  exclude_listed_under_days: 182
 generated_by: "screening-cli-v1"
 data_sources:
   - "j-quants-light"
-  - "edinet-api-v2@2026-01-29"
   - "jpx-public-regulation"
 run_at: "ISO 8601"
 run_id: "screening-YYYYMMDD-xxxxxxxx"
 config_hash: "16 hex chars"
 cache_manifest_hash: "16 hex chars"
-tickers:                            # 通過銘柄 list
+candidates:
   - ticker: "130A"
     name: "..."
+    sector_33: "輸送用機器"
+    market_cap_oku: 1083
+    avg_turnover_oku: 12.8
     per_forward: 8.2 | null
     per_trailing: 9.5
     pbr: 0.72
-    ev_ebitda: 4.8
-    p_s: 0.6
-    pcfr: 5.1
-    sector_33: "輸送用機器"         # 東証 33 業種
-    market_cap_oku: 1083            # 時価総額 (億円、整数)
-    avg_turnover_oku: 12.8          # 20 営業日平均売買代金 (億円、小数 1)
-    price_change_60d: -0.155        # 直近 60 営業日変化率 (adj close)
-    price_change_4w: -0.072         # 直近 20 営業日変化率 (adj close)
+    ev_ebitda: 4.8 | null
+    p_s: 0.6 | null
+    pcfr: 5.1 | null
+    price_change_60d: -0.155
+    price_change_4w: -0.072
     sector_relative_strength_percentile: 0.35
-    metrics_breakdown:              # 各 valuation 指標の screening 用派生値
+    metrics:
       per_trailing:
-        sector_median_gap: -0.21    # 業種中央値比 (本人 / 中央値 - 1)
-        self_range_percentile: 0.14 # 過去 750 日自己レンジ位置 [0=底, 1=頂]
-        sigma_gap: -1.4             # 自己 history からの σ 偏差
+        sector_median_gap: -0.21
+        self_range_percentile: 0.14
+        sigma_gap: -1.4
       pbr:
         sector_median_gap: -0.18
         self_range_percentile: 0.20
         sigma_gap: -1.1
-      ev_ebitda:                    # ttm_quality_ev_ebitda != exact なら null
-        sector_median_gap: null
-        self_range_percentile: null
-        sigma_gap: null
+      p_s:
+        sector_median_gap: -0.35
+        self_range_percentile: 0.18
+        sigma_gap: -1.2
+      cash_to_market_cap: 0.42
+      price_to_equity: 0.82
+      ocf_yield: 0.13
     ttm_quality:
       ev_ebitda: exact | approximated | unavailable
       p_s: exact | approximated | unavailable
       pcfr: exact | approximated | unavailable
-    next_earnings_date: "2026-05-13"  # asof 以降直近の決算発表日 (cache 範囲内、無ければ null)
-    split_adjustment_flag: false      # price_change_60d window 内で J-Quants split 調整係数が立ったか
-    threshold_hit:                  # どの閾値条件を満たして通過したか（OR 条件）
-      - sector_median_under_20pct_and_self_range_bottom_20pct
-      - price_down_60d_and_valuation_sigma_down
-      - sector_rotation_short_sell
+      ocf_yield: exact | approximated | unavailable
+      sales: exact | approximated | unavailable
+    next_earnings_date: "YYYY-MM-DD" | null
+    split_adjustment_flag: false
+    signals:
+      - name: valuation-reversion
+        playbook: valuation-reversion
+        reasons: [sector_self_range]
+        metrics:
+          per_trailing:
+            sector_median_gap: -0.21
+            self_range_percentile: 0.14
+signals_summary:
+  valuation-reversion: 1
+  cash-rich-asset-discount: 0
+  cashflow-yield-discount: 0
+  sales-discount-growth: 0
 ```
 
 - ticker は **4 文字の英数字文字列**として quote 必須（先頭 0 落ち防止、英字組入れ対応）
-- 欠損値（例: forward EPS 未公表）は明示的に `null`
+- 欠損値（例: forward EPS 未公表、EDINET 由来 EV/EBITDA 不在）は明示的に `null`
 - `run_date` は `asof_date` と同値。ファイル path の日付とも一致させる
-- `run_id`: 実行単位 ID。`screening-{asof_date:YYYYMMDD}-{config_hash 先頭 8 hex}` 形式
-- `config_hash`: `ScreeningConfig` の secret 以外と provider URL / tier 設定を正規化した SHA256 短縮 hash。`--asof` や出力 path は含めない
-- `cache_manifest_hash`: `records/_data/raw/screening/` 配下の provider raw JSON cache（`manifests/` 除外）を path / sha256 / size で記録した manifest の SHA256 短縮 hash。配置先は固定 (env override 廃止)
-- `ttm_quality` は `EV/EBITDA` / `P/S` / `PCFR` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する
-- `threshold_hit`: mechanical の閾値条件 3 種のどれを満たしたか（OR 条件、複数 hit 可）
-- `market_cap_oku` / `avg_turnover_oku`: research の position size 判定で使う。`market_cap_oku >= 200` かつ `avg_turnover_oku >= 3.0` で universe 通過する閾値と整合
-- `price_change_60d` / `price_change_4w`: split 影響を排除するため adjustment_close ベースで算出。research §7 Price reaction の数値ソース
-- `split_adjustment_flag`: `price_change_60d` と同じ直近 60 営業日 window 内に J-Quants
-  `AdjustmentFactor` が株式分割 / 株式併合の調整を示した場合に `true`。J-Quants daily_quotes
-  の split / reverse split 調整に限定した機械 flag であり、合併、TOB、株式交換など corporate
-  action 全般を網羅するものではない。`true` の銘柄や異常値銘柄を research へ進める場合は、
-  AP-03 に従い EDINET / TDnet / 適時開示で個別確認する
-- `sector_relative_strength_percentile`: **sector 単位の percentile**。実装 (`src/baibai_loop/screening/metrics.py` `_rank_to_percentiles`) は「sector ごとに 4 週リターンの平均を取り、市場全体の 4 週リターン平均との差 (relative strength) を求めた上で、全 sector 間で rank 化した percentile」を計算する。つまり当該銘柄に与えられる値は「**この銘柄が属する sector が全 33 業種中で対市場 RS が何位 (percentile) か**」を示し、銘柄個別の同業種内相対強度ではない。1.0 は当該 sector が全 sector 中で最も対市場 RS が強い、0.20 以下は条件 C (`rules.py:91`) で「弱い sector」として sector ローテーション短期売り判定の input になる
-- `metrics_breakdown`: 各 valuation 指標 (per_trailing / pbr / ev_ebitda) の `sector_median_gap` / `self_range_percentile` / `sigma_gap` を集約。research §3 Valuation snapshot の primary metric 選択と判定根拠の数値ソース
-- `next_earnings_date`: asof 以降直近の決算発表予定日 (J-Quants earnings calendar、asof + 90 calendar days 範囲内)。research §10 Entry 条件の「決算またぎ kill switch」自動 check に使う。範囲内に予定が無い銘柄は `null`
+- `config_hash`: `ScreeningConfig` の secret 以外、provider URL、tier 設定、`records/_config/screening-rules.yaml` の内容 hash を含む
+- `cache_manifest_hash`: `records/_data/raw/screening/` 配下の provider raw JSON cache の manifest hash
+- `signals`: 通過した signal lane。複数 hit 可。表示順は rule config の lane 順に固定し、単一総合 score は持たせない
+- `metrics`: signal 判定に使った派生値。valuation 指標の `sector_median_gap` / `self_range_percentile` / `sigma_gap` と、cash / CF 系の単独値を同居させる
+- `ttm_quality`: `EV/EBITDA` / `P/S` / `PCFR` / `OCF yield` / `sales` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する
+- `market_cap_oku` / `avg_turnover_oku`: research の position size と流動性確認で使う。universe 閾値は `market_cap_oku >= 100` かつ `avg_turnover_oku >= 1.0`
+- `price_change_60d` / `price_change_4w`: split 影響を排除するため adjustment_close ベースで算出
+- `split_adjustment_flag`: `price_change_60d` と同じ window 内に J-Quants `AdjustmentFactor` が株式分割 / 株式併合の調整を示した場合に `true`
+- `sector_relative_strength_percentile`: **sector 単位の percentile**。銘柄個別の同業種内相対強度ではない
 
 ### 4.1 traceability の境界
 
@@ -105,45 +112,38 @@ candidates YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行�
 
 ### 4.2 実行メモの扱い
 
-`records/03-candidates/` は YAML 正本とし、Markdown 本文は持たない。複数閾値 hit、provider 状態、universe 除外件数、fallback / 部分警告は以下の配列フィールドで保持する。
+`records/03-candidates/` は YAML 正本とし、Markdown 本文は持たない。provider 状態、universe 除外件数、fallback / 部分警告は以下の配列フィールドで保持する。
 
 - `fact_memo_lines`
 - `provider_status_lines`
 - `universe_exclusion_lines`
 - `fallback_lines`
 - `ttm_quality_counts`
+- `signals_summary`
 
 ### 4.3 schema 検証
 
-[`/records/_schemas/candidates-v1.json`](/records/_schemas/candidates-v1.json) が candidates YAML のコア schema (Draft 2020-12 jsonschema)。`baibai-loop-validate` CLI が同 schema で全 `records/03-candidates/*.yaml` を検査し、CI の `Validate artefacts` step で merge gate になる。手元では `uv run baibai-loop-validate --target candidates` で個別に走らせられる。
+[`/records/_schemas/candidates-v1.json`](/records/_schemas/candidates-v1.json) が candidates YAML のコア schema (Draft 2020-12 jsonschema)。互換性を残さない方針のため、旧 schema の migration は持たない。手元では `uv run baibai-loop-validate --target candidates` で個別に走らせられる。
 
 ## 5. ワークフロー
 
-### 5.1 実行手順
-
 1. 最新 universe を取得（J-Quants Light + JPX 除外条件適用）
-2. 各 ticker の valuation 指標を算出（[`../screening/valuation-metrics.md`](../screening/valuation-metrics.md) 参照）
-3. 閾値条件（[`../screening/mechanical.md`](../screening/mechanical.md) の 3 種 OR）を適用
-4. 通過銘柄を `tickers` 配列として YAML に記録
+2. 各 ticker の valuation / cash / CF / sales 指標を算出（[`../screening/valuation-metrics.md`](../screening/valuation-metrics.md) 参照）
+3. signal lane（[`../screening/mechanical.md`](../screening/mechanical.md)）を適用
+4. 通過銘柄を `candidates` 配列として YAML に記録
 5. 補足情報（実行時の provider 状態、除外件数、fallback 等）を事実として配列フィールドに記録
-
-### 5.2 実装
-
-- automation は `python -m baibai_loop.screening.cli run --asof YYYY-MM-DD` を正本とする
-- raw cache の事前取得は `python -m baibai_loop.screening.cli bootstrap-cache --start YYYY-MM-DD --end YYYY-MM-DD` を使う
-- automation の正本設計は [`../screening/automation.md`](../screening/automation.md) を参照
-- 人間が異常値を spot check してから commit する
 
 ## 6. research への接続
 
 - `records/04-research/` の front matter `candidates_ref` で本ファイルを参照
 - 選定プロセス: 最新 `records/03-candidates/` と最新 `records/02-outlook/` を突き合わせ、`outlook` で tailwind/neutral の業種/地域の ticker を候補に残す（headwind 除外）
+- 複数 signal が重なる候補は research 優先度を上げるが、単一総合 score は作らない
 - 詳細: [`research.md`](./research.md) の選定プロセス
 - research decision 後の追跡先: [`ledger.md`](./ledger.md)
 
 ## 7. 事実と分析の分離
 
-- candidates は **事実層**。valuation 数値・閾値 hit 判定は機械的
+- candidates は **事実層**。数値・signal hit 判定は機械的
 - 「この銘柄は割安だ」という解釈は research 側で行う
 - 「通過した」ことは事実だが、「採用すべき」は解釈
 
@@ -151,8 +151,8 @@ candidates YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行�
 
 | 作業 | AI 可 | 人間のみ |
 | --- | --- | --- |
-| valuation 指標の算出 | ○ | 異常値の手動確認 |
-| 閾値適用・threshold_hit 判定 | ○ | |
+| valuation / cash / CF / sales 指標の算出 | ○ | 異常値の手動確認 |
+| signal hit 判定 | ○ | |
 | YAML 整備 | ○ | |
 | 数値ソースの一次確認 | ○ | 最終責任 |
 | 最終 commit | | ○ |
@@ -164,5 +164,5 @@ candidates YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行�
 - [`../screening/`](../screening/): スクリーニングサブシステム詳細
 - [`../screening/universe-rules.md`](../screening/universe-rules.md): universe 境界条件
 - [`../screening/valuation-metrics.md`](../screening/valuation-metrics.md): 指標算出仕様
-- [`../screening/mechanical.md`](../screening/mechanical.md): 機械的ふるい仕様（閾値 3 種 OR）
+- [`../screening/mechanical.md`](../screening/mechanical.md): 機械的ふるい仕様
 - [`../templates/candidates.yaml`](../templates/candidates.yaml): template
