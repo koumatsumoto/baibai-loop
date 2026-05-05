@@ -140,6 +140,15 @@ class JPXSQLiteReaderTests(unittest.TestCase):
             conn.close()
             self.assertFalse(has_jpx_regulation_data(sqlite_path, date(2026, 4, 24)))
 
+    def test_has_jpx_regulation_data_true_for_imported_empty_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            _add_raw_import(conn, source="jpx_regulation_flags", date_iso="2026-04-24")
+            conn.commit()
+            conn.close()
+            self.assertTrue(has_jpx_regulation_data(sqlite_path, date(2026, 4, 24)))
+
 
 class EDINETProviderReadThroughTests(unittest.TestCase):
     def test_list_documents_uses_sqlite_when_available(self) -> None:

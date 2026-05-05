@@ -8,11 +8,11 @@ from baibai_loop.validate.ledger import discover_ledger_files, validate_ledger_f
 
 def _paper_record(**overrides: object) -> dict[str, object]:
     record: dict[str, object] = {
-        "ledger_id": "paper-20260425-2767-vmean",
+        "ledger_id": "paper-20260425-2767-vreversion",
         "ticker": "2767",
         "name": "Sample",
         "decision": "accepted",
-        "playbook": "valuation-mean-reversion-v1",
+        "playbook": "valuation-reversion",
         "candidates_ref": "records/03-candidates/2026/04/2026-04-24.yaml",
         "research_ref": "records/04-research/2026/04/sample.md",
         "asof_date": "2026-04-24",
@@ -20,7 +20,7 @@ def _paper_record(**overrides: object) -> dict[str, object]:
         "baseline_price": 100.0,
         "market_cap_oku": 500.0,
         "avg_turnover_oku": 10.0,
-        "threshold_hit_count": 2,
+        "signal_count": 2,
         "macro_gate": "neutral",
         "adv_participation_pct": 0.1,
         "adjustment_applied": False,
@@ -43,7 +43,7 @@ def test_discover_ledger_files_finds_paper_and_skipped(tmp_path: Path) -> None:
         skipped,
         {
             **_paper_record(),
-            "ledger_id": "skipped-20260425-2767-vmean",
+            "ledger_id": "skipped-20260425-2767-vreversion",
             "decision": "skipped",
             "research_ref": None,
         },

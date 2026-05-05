@@ -18,8 +18,9 @@ from baibai_loop.screening.render import (
     render_screened_yaml,
 )
 from baibai_loop.screening.schema import (
+    ScreenedCandidate,
     ScreenedRunDocument,
-    ScreenedTicker,
+    SignalHit,
     TTMQuality,
     normalize_ticker,
 )
@@ -45,10 +46,10 @@ class ScreeningRenderTests(unittest.TestCase):
             filters={
                 "min_market_cap_oku": 200,
                 "min_avg_turnover_oku": 3,
-                "exclude_listed_under_months": 6,
+                "exclude_listed_under_days": 182,
             },
-            tickers=[
-                ScreenedTicker(
+            candidates=[
+                ScreenedCandidate(
                     ticker="130A",
                     name="Sample Co",
                     per_forward=8.234,
@@ -58,11 +59,19 @@ class ScreeningRenderTests(unittest.TestCase):
                     p_s=0.613,
                     pcfr=5.12,
                     sector_33="情報・通信業",
-                    threshold_hit=("price_down_60d_and_valuation_sigma_down",),
+                    signals=(
+                        SignalHit(
+                            name="valuation-reversion",
+                            playbook="valuation-reversion",
+                            reasons=("price_down_60d_and_valuation_sigma_down",),
+                        ),
+                    ),
                     ttm_quality={
                         "ev_ebitda": TTMQuality.EXACT,
                         "p_s": TTMQuality.APPROXIMATED,
                         "pcfr": TTMQuality.UNAVAILABLE,
+                        "ocf_yield": TTMQuality.UNAVAILABLE,
+                        "sales": TTMQuality.APPROXIMATED,
                     },
                 )
             ],
@@ -74,6 +83,7 @@ class ScreeningRenderTests(unittest.TestCase):
             provider_status_lines=("データソース: J-Quants Light + EDINET + JPX",),
             universe_exclusion_lines=("除外件数: 42 銘柄",),
             ttm_quality_counts={"exact": 1, "approximated": 1, "unavailable": 1},
+            signals_summary={"valuation-reversion": 1},
             fallback_lines=("欠損件数: 0",),
         )
 
@@ -99,10 +109,10 @@ class ScreeningRenderTests(unittest.TestCase):
             filters={
                 "min_market_cap_oku": 200,
                 "min_avg_turnover_oku": 3,
-                "exclude_listed_under_months": 6,
+                "exclude_listed_under_days": 182,
             },
-            tickers=[
-                ScreenedTicker(
+            candidates=[
+                ScreenedCandidate(
                     ticker="130A",
                     name="...",
                     per_forward=8.2,
@@ -112,15 +122,24 @@ class ScreeningRenderTests(unittest.TestCase):
                     p_s=0.6,
                     pcfr=5.1,
                     sector_33="業種名",
-                    threshold_hit=(
-                        "sector_median_under_20pct_and_self_range_bottom_20pct",
-                        "price_down_60d_and_valuation_sigma_down",
-                        "sector_rotation_short_sell",
+                    signals=(
+                        SignalHit(
+                            name="valuation-reversion",
+                            playbook="valuation-reversion",
+                            reasons=(
+                                "sector_median_discount_and_self_range_bottom",
+                                "price_down_60d_and_valuation_sigma_down",
+                                "sector_rotation_short_sell",
+                            ),
+                            metrics={"price_change_60d": -0.155},
+                        ),
                     ),
                     ttm_quality={
                         "ev_ebitda": TTMQuality.EXACT,
                         "p_s": TTMQuality.APPROXIMATED,
                         "pcfr": TTMQuality.UNAVAILABLE,
+                        "ocf_yield": TTMQuality.UNAVAILABLE,
+                        "sales": TTMQuality.APPROXIMATED,
                     },
                     market_cap_oku=585,
                     avg_turnover_oku=2.3,
@@ -153,9 +172,10 @@ class ScreeningRenderTests(unittest.TestCase):
             cache_manifest_hash="9988776655443322",
             fact_memo_lines=("[事実 1]", "[事実 2]"),
             provider_status_lines=(
-                "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ EDINET + JPX",
+                "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX",
             ),
             ttm_quality_counts={"exact": 1, "approximated": 1, "unavailable": 1},
+            signals_summary={"valuation-reversion": 1},
             fallback_lines=("取得失敗の有無: [有の場合は対象銘柄と理由を列挙]",),
         )
 
@@ -169,17 +189,16 @@ class ScreeningRenderTests(unittest.TestCase):
             filters:
               min_market_cap_oku: 200
               min_avg_turnover_oku: 3
-              exclude_listed_under_months: 6
+              exclude_listed_under_days: 182
             generated_by: "screening-cli-v1"
             data_sources:
             - "j-quants-light"
-            - "edinet-api-v2@2026-01-29"
             - "jpx-public-regulation"
             run_at: "2026-04-24T09:00:00+09:00"
             run_id: "screening-20260424-a1b2c3d4"
             config_hash: "a1b2c3d4e5f6a7b8"
             cache_manifest_hash: "9988776655443322"
-            tickers:
+            candidates:
             - ticker: "130A"
               name: "..."
               per_forward: 8.2
@@ -194,6 +213,7 @@ class ScreeningRenderTests(unittest.TestCase):
               price_change_60d: -0.155
               price_change_4w: -0.072
               sector_relative_strength_percentile: 0.35
+              metrics: {}
               metrics_breakdown:
                 per_trailing:
                   sector_median_gap: -0.21
@@ -213,20 +233,29 @@ class ScreeningRenderTests(unittest.TestCase):
                 ev_ebitda: exact
                 p_s: approximated
                 pcfr: unavailable
-              threshold_hit:
-              - sector_median_under_20pct_and_self_range_bottom_20pct
-              - price_down_60d_and_valuation_sigma_down
-              - sector_rotation_short_sell
+                ocf_yield: unavailable
+                sales: approximated
+              signals:
+              - name: "valuation-reversion"
+                playbook: "valuation-reversion"
+                reasons:
+                - "sector_median_discount_and_self_range_bottom"
+                - "price_down_60d_and_valuation_sigma_down"
+                - "sector_rotation_short_sell"
+                metrics:
+                  price_change_60d: -0.155
             fact_memo_lines:
             - "[事実 1]"
             - "[事実 2]"
             provider_status_lines:
-            - "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ EDINET + JPX"
+            - "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX"
             universe_exclusion_lines: []
             ttm_quality_counts:
               exact: 1
               approximated: 1
               unavailable: 1
+            signals_summary:
+              valuation-reversion: 1
             fallback_lines:
             - "取得失敗の有無: [有の場合は対象銘柄と理由を列挙]"
             """
@@ -239,7 +268,7 @@ class ScreeningRenderTests(unittest.TestCase):
             asof_date=date(2026, 4, 24),
             universe_size=0,
             filters={},
-            tickers=(),
+            candidates=(),
             run_at=datetime(2026, 4, 24, 0, 0, tzinfo=UTC),
             run_id="screening-20260424-a1b2c3d4",
             config_hash="a1b2c3d4e5f6a7b8",

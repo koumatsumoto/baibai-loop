@@ -19,7 +19,7 @@ success_class_counts:
   catalyst 反応: 整数
   macro tailwind: 整数
   timing 一致: 整数
-playbook_revision_decision: "v1 据え置き" | "v1.1 改訂" | "v2 開発"
+playbook_revision_decision: "据え置き" | "小改訂" | "大幅改訂"
 next_cycle_changes:
   - "変更点 1"
   - "変更点 2"
@@ -44,8 +44,8 @@ price_missing_counts:
 
 | Ticker | Playbook | Entry | Exit | PnL% | 分類 |
 | --- | --- | --- | --- | --- | --- |
-| XXXX | P-A | YYYY-MM-DD | YYYY-MM-DD | +X.X% | 仮説的中 |
-| YYYY | P-B | ... | ... | ... | ... |
+| XXXX | valuation-reversion | YYYY-MM-DD | YYYY-MM-DD | +X.X% | 仮説的中 |
+| YYYY | cashflow-yield-discount | ... | ... | ... | ... |
 
 ## 失敗分類の集計
 
@@ -99,13 +99,15 @@ price_missing_counts:
 ## Playbook 改訂判断
 
 - **Playbook 別サンプル数**:
-  - P-A: XX 件
-  - P-B: XX 件
+  - valuation-reversion: XX 件
+  - cash-rich-asset-discount: XX 件
+  - cashflow-yield-discount: XX 件
+  - sales-discount-growth: XX 件
 - **10 件未満の playbook**: 据え置きを許容
-- **改訂判断**: [v1 据え置き | v1.1 改訂（checklist 差分提案）| v2 開発]
+- **改訂判断**: [据え置き | 小改訂（checklist 差分提案）| 大幅改訂]
 - **改訂の根拠**: [1-2 段落]
 
-### Checklist 差分提案（v1.1 案）
+### Checklist 差分提案
 
 - 次周回で意識するポイント（3-5 個）を列挙:
   - [提案 1]

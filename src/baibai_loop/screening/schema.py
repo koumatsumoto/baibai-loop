@@ -18,6 +18,7 @@ _TICKER_PATTERN = r"^[0-9A-Z]{4}$"
 
 type NullableFloatMap = Mapping[str, float | None]
 type MetricBreakdown = Mapping[str, NullableFloatMap]
+type MetricValueMap = Mapping[str, float | int | bool | str | None]
 type Ticker = Annotated[str, Field(pattern=_TICKER_PATTERN)]
 type NonEmptyString = Annotated[str, Field(min_length=1)]
 type NonNegativeInt = Annotated[int, Field(ge=0)]
@@ -91,18 +92,32 @@ class FinancialSnapshot:
     eps: float | None
     sales_ttm: float | None
     ocf_ttm: float | None
-    debt: float | None
-    cash: float | None
-    ebitda_ttm: float | None
-    consolidation_basis: str | None
+    sales: float | None = None
+    cfo: float | None = None
+    cash_eq: float | None = None
+    total_assets: float | None = None
+    equity: float | None = None
+    market_cap: float | None = None
+    cash_to_market_cap: float | None = None
+    price_to_equity: float | None = None
+    equity_ratio: float | None = None
+    ocf_yield: float | None = None
+    debt: float | None = None
+    cash: float | None = None
+    ebitda_ttm: float | None = None
+    consolidation_basis: str | None = None
     operating_profit: float | None = None
     operating_profit_source: OperatingProfitSource = OperatingProfitSource.NULL
     eps_yoy: float | None = None
     sales_yoy: float | None = None
     operating_profit_yoy: float | None = None
+    cfo_yoy: float | None = None
+    operating_profit_loss_narrowing: bool | None = None
     ttm_quality_ev_ebitda: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_p_s: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_pcfr: TTMQuality = TTMQuality.UNAVAILABLE
+    ttm_quality_ocf_yield: TTMQuality = TTMQuality.UNAVAILABLE
+    ttm_quality_sales: TTMQuality = TTMQuality.UNAVAILABLE
     shares_outstanding: float | None = None
 
     @field_validator(
@@ -115,6 +130,16 @@ class FinancialSnapshot:
         "eps",
         "sales_ttm",
         "ocf_ttm",
+        "sales",
+        "cfo",
+        "cash_eq",
+        "total_assets",
+        "equity",
+        "market_cap",
+        "cash_to_market_cap",
+        "price_to_equity",
+        "equity_ratio",
+        "ocf_yield",
         "debt",
         "cash",
         "ebitda_ttm",
@@ -122,6 +147,7 @@ class FinancialSnapshot:
         "eps_yoy",
         "sales_yoy",
         "operating_profit_yoy",
+        "cfo_yoy",
         "shares_outstanding",
     )
     @classmethod
@@ -155,28 +181,41 @@ class DerivedMetrics:
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
+class SignalHit:
+    name: NonEmptyString
+    playbook: NonEmptyString
+    reasons: tuple[str, ...]
+    metrics: MetricValueMap = Field(default_factory=dict)
+
+    @field_validator("reasons", mode="before")
+    @classmethod
+    def _tuple_reasons(cls, value: Sequence[str]) -> tuple[str, ...]:
+        return tuple(value)
+
+
+@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
 class ScreeningResult:
     pass_fail: bool
-    threshold_hit: tuple[str, ...] = ()
+    signals: tuple[SignalHit, ...] = ()
     failure_reasons: tuple[str, ...] = ()
     null_reasons: tuple[str, ...] = ()
 
-    @field_validator("threshold_hit", "failure_reasons", "null_reasons", mode="before")
+    @field_validator("signals", "failure_reasons", "null_reasons", mode="before")
     @classmethod
-    def _tuple_string_sequence(cls, value: Sequence[str]) -> tuple[str, ...]:
+    def _tuple_sequence(cls, value: Sequence[Any]) -> tuple[Any, ...]:
         return tuple(value)
 
     @model_validator(mode="after")
     def _consistent_result(self) -> ScreeningResult:
-        if self.pass_fail and not self.threshold_hit:
-            raise ValueError("pass_fail=True requires at least one threshold_hit")
+        if self.pass_fail and not self.signals:
+            raise ValueError("pass_fail=True requires at least one signal")
         if not self.pass_fail and not self.failure_reasons:
             raise ValueError("pass_fail=False requires at least one failure_reasons")
         return self
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
-class ScreenedTicker:
+class ScreenedCandidate:
     ticker: Ticker
     name: NonEmptyString
     per_forward: float | None
@@ -186,20 +225,21 @@ class ScreenedTicker:
     p_s: float | None
     pcfr: float | None
     sector_33: NonEmptyString
-    threshold_hit: tuple[str, ...]
+    signals: tuple[SignalHit, ...]
     ttm_quality: Mapping[str, TTMQuality]
     market_cap_oku: int | None = None
     avg_turnover_oku: float | None = None
     price_change_60d: float | None = None
     price_change_4w: float | None = None
     sector_relative_strength_percentile: float | None = None
+    metrics: MetricValueMap = Field(default_factory=dict)
     metrics_breakdown: MetricBreakdown = Field(default_factory=dict)
     next_earnings_date: date | None = None
     split_adjustment_flag: bool = False
 
-    @field_validator("threshold_hit", mode="before")
+    @field_validator("signals", mode="before")
     @classmethod
-    def _tuple_threshold_hit(cls, value: Sequence[str]) -> tuple[str, ...]:
+    def _tuple_signals(cls, value: Sequence[SignalHit]) -> tuple[SignalHit, ...]:
         return tuple(value)
 
     @field_validator("ticker", mode="before")
@@ -230,7 +270,7 @@ class ScreenedRunDocument:
     asof_date: date
     universe_size: NonNegativeInt
     filters: Mapping[str, Any]
-    tickers: tuple[ScreenedTicker, ...]
+    candidates: tuple[ScreenedCandidate, ...]
     run_at: datetime
     run_id: NonEmptyString
     config_hash: NonEmptyString
@@ -238,17 +278,17 @@ class ScreenedRunDocument:
     generated_by: str = "screening-cli-v1"
     data_sources: tuple[str, ...] = (
         "j-quants-light",
-        "edinet-api-v2@2026-01-29",
         "jpx-public-regulation",
     )
     fact_memo_lines: tuple[str, ...] = ()
     provider_status_lines: tuple[str, ...] = ()
     universe_exclusion_lines: tuple[str, ...] = ()
     ttm_quality_counts: Mapping[str, int] = Field(default_factory=dict)
+    signals_summary: Mapping[str, int] = Field(default_factory=dict)
     fallback_lines: tuple[str, ...] = ()
 
     @field_validator(
-        "tickers",
+        "candidates",
         "data_sources",
         "fact_memo_lines",
         "provider_status_lines",

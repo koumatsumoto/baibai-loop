@@ -8,13 +8,15 @@ from baibai_loop.screening.tiers import MIN_MARKET_CAP_OKU, TIER_SMALL_OKU, posi
 @pytest.mark.parametrize(
     ("market_cap", "expected"),
     [
-        (199, "below 200 (out of universe)"),
-        (200, "200-500 (P-B only, max 0.5%)"),
-        (499, "200-500 (P-B only, max 0.5%)"),
-        (500, "500-1000 (max 1.0%)"),
-        (999, "500-1000 (max 1.0%)"),
-        (1000, "1000+ (max 2.0%)"),
-        (5000.0, "1000+ (max 2.0%)"),
+        (99, "below 100 (out of universe)"),
+        (100, "100-200"),
+        (199, "100-200"),
+        (200, "200-500"),
+        (499, "200-500"),
+        (500, "500-1000"),
+        (999, "500-1000"),
+        (1000, "1000+"),
+        (5000.0, "1000+"),
     ],
 )
 def test_position_tier_returns_band_label(market_cap: int | float, expected: str) -> None:

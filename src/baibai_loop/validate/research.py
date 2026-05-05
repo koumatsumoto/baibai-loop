@@ -33,7 +33,6 @@ _OVERRIDE_REQUIRED_KEYS: tuple[str, ...] = (
     "reason",
 )
 _EXTERNAL_REFS_PREFIX = "records/_external/"
-MEAN_REVERSION_PLAYBOOK = "valuation-mean-reversion-v1"
 REQUIRED_FRONT_MATTER: tuple[str, ...] = (
     "ticker",
     "name",
@@ -433,40 +432,6 @@ def _validate_front_matter(
                 location="sector_33",
             )
         )
-    if (
-        decision == "accepted"
-        and playbook == MEAN_REVERSION_PLAYBOOK
-        and isinstance(market_cap, (int, float))
-        and not isinstance(market_cap, bool)
-        and 200 <= market_cap < 500
-    ):
-        if has_override:
-            findings.append(
-                ValidationFinding(
-                    severity="warning",
-                    target=path,
-                    code="research.low-cap-mean-reversion",
-                    message=(
-                        "P-A accepted research below 500 oku uses explicit "
-                        "macro_gate_override; review P-B alternative"
-                    ),
-                    location="market_cap_oku",
-                )
-            )
-        else:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.low-cap-mean-reversion",
-                    message=(
-                        "P-A is discouraged below 500 oku; consider "
-                        "valuation-catalyst-confirmation-v1 (P-B) or document an "
-                        "explicit macro_gate_override"
-                    ),
-                    location="market_cap_oku",
-                )
-            )
     valuation = front_matter.get("valuation")
     top_level_adv = front_matter.get("adv_participation_pct")
     if isinstance(top_level_adv, (int, float)) and not isinstance(top_level_adv, bool):
@@ -633,10 +598,10 @@ def _validate_candidate_absence_override(
         return []
     if not isinstance(candidate_doc, dict):
         return []
-    tickers = candidate_doc.get("tickers")
-    if not isinstance(tickers, list):
+    candidates = candidate_doc.get("candidates")
+    if not isinstance(candidates, list):
         return []
-    found = any(isinstance(entry, dict) and entry.get("ticker") == ticker for entry in tickers)
+    found = any(isinstance(entry, dict) and entry.get("ticker") == ticker for entry in candidates)
     if found:
         return []
     overrides = front_matter.get("overrides")
@@ -749,10 +714,10 @@ def _append_avg_turnover_candidates_consistency_finding(
         return
     if not isinstance(candidate_doc, dict):
         return
-    tickers = candidate_doc.get("tickers")
-    if not isinstance(tickers, list):
+    candidates = candidate_doc.get("candidates")
+    if not isinstance(candidates, list):
         return
-    for entry in tickers:
+    for entry in candidates:
         if not isinstance(entry, dict):
             continue
         if entry.get("ticker") != ticker:

@@ -183,7 +183,7 @@ records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml
 
 - `run_date` / `asof_date` (同値) / `universe_size` / `filters`
 - `generated_by`, `data_sources`, `run_at`
-- `tickers[]`: `ticker`, `name`, valuation 指標 (`per_forward`, `per_trailing`, `pbr`, `ev_ebitda`, `p_s`, `pcfr`), `sector_33`, `ttm_quality`, `threshold_hit`
+- `candidates[]`: `ticker`, `name`, valuation / cash / CF 指標 (`per_forward`, `per_trailing`, `pbr`, `ev_ebitda`, `p_s`, `pcfr`), `sector_33`, `metrics`, `ttm_quality`, `signals`
 
 ### 3.3 `records/02-outlook/` — (c) マクロ見解
 
@@ -266,7 +266,7 @@ records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
 ---
 ticker: "7203"
 name: "..."
-playbook: valuation-mean-reversion-v1 | valuation-catalyst-confirmation-v1
+playbook: valuation-reversion | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth
 candidates_ref: records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml      # 必須
 outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml  # 必須
 brief_refs:                                        # 任意

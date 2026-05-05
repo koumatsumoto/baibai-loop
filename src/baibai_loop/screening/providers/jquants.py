@@ -51,14 +51,18 @@ class JQuantsDailyBar:
 class JQuantsFinancialSummary:
     ticker: str
     disclosed_at: date
-    forecast_eps: float | None
-    eps_ttm: float | None
-    bps: float | None
-    shares_outstanding: float | None
-    sales: float | None
-    operating_profit: float | None
-    ordinary_profit: float | None
-    profit: float | None
+    forecast_eps: float | None = None
+    eps_ttm: float | None = None
+    bps: float | None = None
+    shares_outstanding: float | None = None
+    sales: float | None = None
+    cfo: float | None = None
+    cash_eq: float | None = None
+    total_assets: float | None = None
+    equity: float | None = None
+    operating_profit: float | None = None
+    ordinary_profit: float | None = None
+    profit: float | None = None
     fiscal_period: str | None = None
     fiscal_year_end: date | None = None
     period_start: date | None = None
@@ -75,6 +79,10 @@ class JQuantsFinancialSummary:
         "bps",
         "shares_outstanding",
         "sales",
+        "cfo",
+        "cash_eq",
+        "total_assets",
+        "equity",
         "operating_profit",
         "ordinary_profit",
         "profit",
@@ -482,6 +490,28 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
             )
         ),
         sales=_to_float(_coalesce_field(record, "NetSales", "net_sales", "Sales", "sales")),
+        cfo=_to_float(
+            _coalesce_field(
+                record,
+                "CashFlowsFromOperatingActivities",
+                "cash_flows_from_operating_activities",
+                "OperatingCashFlow",
+                "operating_cash_flow",
+                "CFO",
+                "cfo",
+            )
+        ),
+        cash_eq=_to_float(
+            _coalesce_field(
+                record,
+                "CashAndEquivalents",
+                "cash_and_equivalents",
+                "CashEq",
+                "cash_eq",
+            )
+        ),
+        total_assets=_to_float(_coalesce_field(record, "TotalAssets", "total_assets", "TA", "ta")),
+        equity=_to_float(_coalesce_field(record, "Equity", "equity", "Eq", "eq")),
         operating_profit=_to_float(
             _coalesce_field(record, "OperatingProfit", "operating_profit", "OP")
         ),

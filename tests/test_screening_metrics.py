@@ -35,6 +35,7 @@ def _summary(
     *,
     eps_ttm: float = 18.0,
     sales: float = 1_000_000_000.0,
+    cfo: float | None = 100_000_000.0,
     operating_profit: float = 100_000_000.0,
     fiscal_period: str | None = "1Q",
     fiscal_year_end: date | None = date(2026, 3, 31),
@@ -48,6 +49,7 @@ def _summary(
         bps=120.0,
         shares_outstanding=shares_outstanding,
         sales=sales,
+        cfo=cfo,
         operating_profit=operating_profit,
         ordinary_profit=None,
         profit=None,
@@ -144,6 +146,7 @@ class ScreeningMetricsTests(unittest.TestCase):
                 date(2025, 4, 24),
                 eps_ttm=10.0,
                 sales=100.0,
+                cfo=20.0,
                 operating_profit=20.0,
                 fiscal_period="1Q",
                 fiscal_year_end=date(2026, 3, 31),
@@ -180,6 +183,7 @@ class ScreeningMetricsTests(unittest.TestCase):
                 date(2026, 4, 24),
                 eps_ttm=15.0,
                 sales=125.0,
+                cfo=25.0,
                 operating_profit=25.0,
                 fiscal_period="1Q",
                 fiscal_year_end=date(2027, 3, 31),
@@ -196,14 +200,17 @@ class ScreeningMetricsTests(unittest.TestCase):
         self.assertIsNotNone(snapshot.eps_yoy)
         self.assertIsNotNone(snapshot.sales_yoy)
         self.assertIsNotNone(snapshot.operating_profit_yoy)
+        self.assertIsNotNone(snapshot.cfo_yoy)
         assert snapshot.eps_yoy is not None
         assert snapshot.sales_yoy is not None
         assert snapshot.operating_profit_yoy is not None
+        assert snapshot.cfo_yoy is not None
         # Old QoQ logic would compare EPS with the previous disclosure (60.0)
         # and produce -0.75. Fiscal-period matching locks YoY at +0.50.
         self.assertAlmostEqual(snapshot.eps_yoy, 0.5)
         self.assertAlmostEqual(snapshot.sales_yoy, 0.25)
         self.assertAlmostEqual(snapshot.operating_profit_yoy, 0.25)
+        self.assertAlmostEqual(snapshot.cfo_yoy, 0.25)
 
     def test_build_metrics_sets_yoy_to_none_when_prior_year_summary_is_missing(self) -> None:
         asof = date(2026, 4, 24)

@@ -8,6 +8,7 @@ from statistics import mean, median
 
 from .providers.edinet import EdinetMetricRecord
 from .providers.jquants import JQuantsDailyBar, JQuantsFinancialSummary
+from .rule_config import ScreeningRules, TTMRules, load_screening_rules
 from .schema import (
     DerivedMetrics,
     FinancialSnapshot,
@@ -16,7 +17,7 @@ from .schema import (
     TTMQuality,
 )
 
-VALUATION_METRICS = ("per_trailing", "pbr", "ev_ebitda")
+VALUATION_METRICS = ("per_trailing", "pbr", "ev_ebitda", "p_s")
 
 
 @dataclass(frozen=True)
@@ -33,7 +34,9 @@ def build_metrics(
     bars_by_ticker: Mapping[str, Sequence[JQuantsDailyBar]],
     summaries_by_ticker: Mapping[str, Sequence[JQuantsFinancialSummary]],
     edinet_by_ticker: Mapping[str, EdinetMetricRecord],
+    rules: ScreeningRules | None = None,
 ) -> MetricBuildResult:
+    rules = rules or load_screening_rules()
     financials: dict[str, FinancialSnapshot] = {}
     latest_prices: dict[str, float] = {}
 
@@ -47,6 +50,7 @@ def build_metrics(
             latest_price=latest_bar.close,
             summaries=summaries_by_ticker.get(ticker, ()),
             edinet=edinet_by_ticker.get(ticker),
+            rules=rules,
         )
 
     sector_metric_values: dict[str, dict[str, list[float]]] = {}
@@ -178,9 +182,10 @@ def _build_financial_snapshot(
     latest_price: float,
     summaries: Sequence[JQuantsFinancialSummary],
     edinet: EdinetMetricRecord | None,
+    rules: ScreeningRules,
 ) -> FinancialSnapshot:
     latest = _latest_summary(summaries)
-    prior_year = _prior_year_summary(summaries)
+    prior_year = _prior_year_summary(summaries, rules.ttm)
     forecast_eps = latest.forecast_eps if latest else None
     eps_ttm = latest.eps_ttm if latest else None
     bps = latest.bps if latest else None
@@ -190,8 +195,8 @@ def _build_financial_snapshot(
     operating_profit, operating_profit_source = _select_operating_profit(latest)
     operating_profit_prior_year, _ = _select_operating_profit(prior_year)
     shares_outstanding = latest.shares_outstanding if latest else None
-    sales_ttm = edinet.sales_ttm if edinet else None
-    ocf_ttm = edinet.ocf_ttm if edinet else None
+    sales_ttm, sales_quality = _ttm_value(summaries, "sales", rules.ttm)
+    ocf_ttm, ocf_quality = _ttm_value(summaries, "cfo", rules.ttm)
     debt = edinet.debt if edinet else None
     cash = edinet.cash if edinet else None
     ebitda_ttm = edinet.ebitda_ttm if edinet else None
@@ -212,6 +217,18 @@ def _build_financial_snapshot(
         eps=eps_ttm,
         sales_ttm=sales_ttm,
         ocf_ttm=ocf_ttm,
+        sales=latest.sales if latest else None,
+        cfo=latest.cfo if latest else None,
+        cash_eq=latest.cash_eq if latest else None,
+        total_assets=latest.total_assets if latest else None,
+        equity=latest.equity if latest else None,
+        market_cap=latest_market_cap,
+        cash_to_market_cap=_safe_ratio(latest.cash_eq if latest else None, latest_market_cap),
+        price_to_equity=_safe_ratio(latest_market_cap, latest.equity if latest else None),
+        equity_ratio=_safe_ratio(
+            latest.equity if latest else None, latest.total_assets if latest else None
+        ),
+        ocf_yield=_safe_ratio(ocf_ttm, latest_market_cap),
         debt=debt,
         cash=cash,
         ebitda_ttm=ebitda_ttm,
@@ -223,9 +240,16 @@ def _build_financial_snapshot(
             latest.sales if latest else None, prior_year.sales if prior_year else None
         ),
         operating_profit_yoy=_yoy_ratio(operating_profit, operating_profit_prior_year),
+        cfo_yoy=_yoy_ratio(latest.cfo if latest else None, prior_year.cfo if prior_year else None),
+        operating_profit_loss_narrowing=_loss_narrowing(
+            operating_profit,
+            operating_profit_prior_year,
+        ),
         ttm_quality_ev_ebitda=edinet.ttm_quality_ev_ebitda if edinet else TTMQuality.UNAVAILABLE,
-        ttm_quality_p_s=edinet.ttm_quality_p_s if edinet else TTMQuality.UNAVAILABLE,
-        ttm_quality_pcfr=edinet.ttm_quality_pcfr if edinet else TTMQuality.UNAVAILABLE,
+        ttm_quality_p_s=sales_quality,
+        ttm_quality_pcfr=ocf_quality,
+        ttm_quality_ocf_yield=ocf_quality,
+        ttm_quality_sales=sales_quality,
         shares_outstanding=shares_outstanding,
     )
 
@@ -236,6 +260,7 @@ def _latest_summary(summaries: Sequence[JQuantsFinancialSummary]) -> JQuantsFina
 
 def _prior_year_summary(
     summaries: Sequence[JQuantsFinancialSummary],
+    ttm_rules: TTMRules,
 ) -> JQuantsFinancialSummary | None:
     """Return the same fiscal period in the previous fiscal year.
 
@@ -243,7 +268,13 @@ def _prior_year_summary(
     period are resolved by taking the most recent occurrence.
     """
     latest = _latest_summary(summaries)
-    if latest is None or latest.fiscal_period is None or latest.fiscal_year_end is None:
+    if latest is None:
+        return None
+    if latest.period_start is not None and latest.period_end is not None:
+        matched = _matched_prior_period_summary(summaries, latest, ttm_rules)
+        if matched is not None:
+            return matched
+    if latest.fiscal_period is None or latest.fiscal_year_end is None:
         return None
     target_fiscal_year_end = _shift_year(latest.fiscal_year_end, -1)
     if target_fiscal_year_end is None:
@@ -255,6 +286,90 @@ def _prior_year_summary(
         and summary.fiscal_year_end == target_fiscal_year_end
     ]
     return candidates[-1] if candidates else None
+
+
+def _ttm_value(
+    summaries: Sequence[JQuantsFinancialSummary],
+    field: str,
+    ttm_rules: TTMRules,
+) -> tuple[float | None, TTMQuality]:
+    latest = _latest_summary(summaries)
+    if latest is None or latest.period_start is None or latest.period_end is None:
+        return None, TTMQuality.UNAVAILABLE
+    latest_value = getattr(latest, field)
+    if latest_value is None:
+        return None, TTMQuality.UNAVAILABLE
+    latest_days = _period_days(latest)
+    if latest_days is None:
+        return None, TTMQuality.UNAVAILABLE
+    if ttm_rules.full_year_min_days <= latest_days <= ttm_rules.full_year_max_days:
+        return latest_value, TTMQuality.EXACT
+    if latest.fiscal_year_end is None:
+        return None, TTMQuality.UNAVAILABLE
+    prior_fy_end = _shift_year(latest.fiscal_year_end, -1)
+    if prior_fy_end is None:
+        return None, TTMQuality.UNAVAILABLE
+    prior_fy = _latest_full_year_summary(summaries, prior_fy_end, field, ttm_rules)
+    prior_same = _matched_prior_period_summary(summaries, latest, ttm_rules)
+    if prior_fy is None or prior_same is None:
+        return None, TTMQuality.UNAVAILABLE
+    prior_fy_value = getattr(prior_fy, field)
+    prior_same_value = getattr(prior_same, field)
+    if prior_fy_value is None or prior_same_value is None:
+        return None, TTMQuality.UNAVAILABLE
+    return latest_value + prior_fy_value - prior_same_value, TTMQuality.EXACT
+
+
+def _latest_full_year_summary(
+    summaries: Sequence[JQuantsFinancialSummary],
+    fiscal_year_end: date,
+    field: str,
+    ttm_rules: TTMRules,
+) -> JQuantsFinancialSummary | None:
+    candidates = [
+        summary
+        for summary in summaries
+        if summary.fiscal_year_end == fiscal_year_end
+        and getattr(summary, field) is not None
+        and (days := _period_days(summary)) is not None
+        and ttm_rules.full_year_min_days <= days <= ttm_rules.full_year_max_days
+    ]
+    return candidates[-1] if candidates else None
+
+
+def _matched_prior_period_summary(
+    summaries: Sequence[JQuantsFinancialSummary],
+    latest: JQuantsFinancialSummary,
+    ttm_rules: TTMRules,
+) -> JQuantsFinancialSummary | None:
+    if latest.period_start is None or latest.period_end is None:
+        return None
+    latest_days = _period_days(latest)
+    prior_start = _shift_year(latest.period_start, -1)
+    prior_end = _shift_year(latest.period_end, -1)
+    if latest_days is None or prior_start is None or prior_end is None:
+        return None
+    max_length_delta = max(1, round(latest_days * ttm_rules.period_length_tolerance_ratio))
+    candidates: list[JQuantsFinancialSummary] = []
+    for summary in summaries[:-1]:
+        if summary.period_start is None or summary.period_end is None:
+            continue
+        summary_days = _period_days(summary)
+        if summary_days is None or abs(summary_days - latest_days) > max_length_delta:
+            continue
+        if abs((summary.period_end - prior_end).days) > ttm_rules.period_end_tolerance_days:
+            continue
+        if abs((summary.period_start - prior_start).days) > ttm_rules.period_end_tolerance_days:
+            continue
+        candidates.append(summary)
+    return candidates[-1] if candidates else None
+
+
+def _period_days(summary: JQuantsFinancialSummary) -> int | None:
+    if summary.period_start is None or summary.period_end is None:
+        return None
+    days = (summary.period_end - summary.period_start).days + 1
+    return days if days > 0 else None
 
 
 def _shift_year(value: date, years: int) -> date | None:
@@ -308,6 +423,15 @@ def _valuation_history(
     if pbr is not None and pbr != 0:
         pbr_basis = latest_price / pbr
         pbr_history = [price / pbr_basis for price in prices]
+    p_s_history: list[float] = []
+    if (
+        snapshot.sales_ttm is not None
+        and snapshot.sales_ttm > 0
+        and snapshot.shares_outstanding is not None
+    ):
+        p_s_history = [
+            (price * snapshot.shares_outstanding) / snapshot.sales_ttm for price in prices
+        ]
 
     history: dict[str, list[float]] = {
         "per_trailing": [
@@ -315,6 +439,7 @@ def _valuation_history(
         ],
         "pbr": pbr_history,
         "ev_ebitda": ev_ebitda_history,
+        "p_s": p_s_history,
     }
     return history
 
@@ -435,6 +560,14 @@ def _yoy_ratio(current: float | None, previous: float | None) -> float | None:
     return (current / previous) - 1.0
 
 
+def _loss_narrowing(current: float | None, previous: float | None) -> bool | None:
+    if current is None or previous is None:
+        return None
+    if current >= 0:
+        return False
+    return previous < 0 and current > previous
+
+
 def _count_ttm_qualities(snapshots: Sequence[FinancialSnapshot]) -> dict[str, int]:
     counts = {quality.value: 0 for quality in TTMQuality}
     for snapshot in snapshots:
@@ -442,6 +575,8 @@ def _count_ttm_qualities(snapshots: Sequence[FinancialSnapshot]) -> dict[str, in
             snapshot.ttm_quality_ev_ebitda,
             snapshot.ttm_quality_p_s,
             snapshot.ttm_quality_pcfr,
+            snapshot.ttm_quality_ocf_yield,
+            snapshot.ttm_quality_sales,
         ):
             counts[quality.value] += 1
     return counts

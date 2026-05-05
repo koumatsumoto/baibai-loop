@@ -127,7 +127,8 @@ def read_fin_summaries(
             return None
         rows = conn.execute(
             "SELECT ticker, disclosed_at, forecast_eps, eps_ttm, bps, "
-            "shares_outstanding, sales, operating_profit, ordinary_profit, profit, "
+            "shares_outstanding, sales, cfo, cash_eq, total_assets, equity, "
+            "operating_profit, ordinary_profit, profit, "
             "fiscal_period, fiscal_year_end, period_start, period_end "
             "FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ? "
             "ORDER BY ticker, disclosed_at",
@@ -146,6 +147,10 @@ def read_fin_summaries(
             bps,
             shares_outstanding,
             sales,
+            cfo,
+            cash_eq,
+            total_assets,
+            equity,
             operating_profit,
             ordinary_profit,
             profit,
@@ -164,6 +169,10 @@ def read_fin_summaries(
                     bps=_optional_float(bps),
                     shares_outstanding=_optional_float(shares_outstanding),
                     sales=_optional_float(sales),
+                    cfo=_optional_float(cfo),
+                    cash_eq=_optional_float(cash_eq),
+                    total_assets=_optional_float(total_assets),
+                    equity=_optional_float(equity),
                     operating_profit=_optional_float(operating_profit),
                     ordinary_profit=_optional_float(ordinary_profit),
                     profit=_optional_float(profit),
@@ -313,13 +322,18 @@ def read_jpx_regulations(sqlite_path: Path, asof_date: date) -> JPXRegulationSna
             "WHERE asof_date = ? ORDER BY ticker, flag",
             (asof_date.isoformat(),),
         ).fetchall()
+        source_rows = conn.execute(
+            "SELECT source_name FROM jpx_regulation_sources "
+            "WHERE asof_date = ? ORDER BY source_name",
+            (asof_date.isoformat(),),
+        ).fetchall()
     except sqlite3.OperationalError:
         return None
     finally:
         conn.close()
 
     flags: dict[str, list[str]] = {}
-    source_names: set[str] = set()
+    source_names: set[str] = {str(source_name) for (source_name,) in source_rows}
     for source_name, ticker, flag in rows:
         flags.setdefault(ticker, []).append(flag)
         source_names.add(source_name)
@@ -330,14 +344,33 @@ def read_jpx_regulations(sqlite_path: Path, asof_date: date) -> JPXRegulationSna
 
 
 def has_jpx_regulation_data(sqlite_path: Path, asof_date: date) -> bool:
-    """Return True when `asof_date` has any rows in `jpx_regulation_flags`."""
+    """Return True when `asof_date` has an imported JPX regulation snapshot.
+
+    A valid snapshot may have zero flagged tickers for a source such as
+    取引停止. Treat the raw import / source-name rows as cache coverage so
+    stale backfill gating does not force a refetch just because a required
+    source happened to be empty on that date.
+    """
     if not sqlite_path.exists():
         return False
     conn = sqlite3.connect(sqlite_path)
     try:
         try:
             cur = conn.execute(
+                "SELECT 1 FROM raw_imports WHERE source = ? "
+                "AND min_date <= ? AND max_date >= ? LIMIT 1",
+                ("jpx_regulation_flags", asof_date.isoformat(), asof_date.isoformat()),
+            )
+            if cur.fetchone() is not None:
+                return True
+            cur = conn.execute(
                 "SELECT 1 FROM jpx_regulation_flags WHERE asof_date = ? LIMIT 1",
+                (asof_date.isoformat(),),
+            )
+            if cur.fetchone() is not None:
+                return True
+            cur = conn.execute(
+                "SELECT 1 FROM jpx_regulation_sources WHERE asof_date = ? LIMIT 1",
                 (asof_date.isoformat(),),
             )
         except sqlite3.OperationalError:

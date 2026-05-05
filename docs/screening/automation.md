@@ -31,12 +31,11 @@ python -m baibai_loop.screening.cli verify-raw-cache [--raw-dir PATH] [--max-siz
 
 `verify-raw-cache` は `records/_data/raw/screening/` を再帰的に walk し、(1) 1 ファイル `--max-size-mb` 以上のものが無いこと、(2) SQLite (`records/_data/cache/screening/market.sqlite`) が存在する場合は `raw_imports.sha256` と現状ファイルの SHA-256 が一致することを検証する。違反があれば exit 1。CI の `quality` job でも実行され、50MB 超過の commit を merge 前に弾く。
 
-`select` は最新 `records/03-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/02-outlook/` を組み合わせて、`outlook` で `headwind` 判定された業種を除外し、`threshold_hit` の本数 → 時価総額の順で候補をランキングする。`research` の選定プロセス ([`../components/research.md`](../components/research.md) §2.1) をスクリプトで支援する。
+`select` は最新 `records/03-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/02-outlook/` を組み合わせて、`outlook` で `headwind` 判定された業種を除外し、lane-specific metric と macro status で候補をランキングする。signal 数と時価総額だけでは並べない。出力には lane 別の `lane_toplists` と flattened な `candidates` が含まれる。`candidates` は CLI `--top`、`lane_toplists` は `records/_config/screening-rules.yaml` の `output.lane_toplist_limit` で件数を管理する。`research` の選定プロセス ([`../components/research.md`](../components/research.md) §2.1) をスクリプトで支援する。
 
 ## 3. Required Env Vars
 
 - `JQUANTS_REFRESH_TOKEN`
-- `EDINET_API_KEY`
 
 raw cache / SQLite cache の配置先は固定 (env override 廃止):
 
@@ -45,7 +44,8 @@ raw cache / SQLite cache の配置先は固定 (env override 廃止):
 
 任意:
 
-- JPX 公開規制情報 URL（CSV / Excel / HTML）。未設定時は該当 source のカバレッジなしで `fallback_lines` に `JPX source 未ロード` を明示する:
+- `EDINET_API_KEY`: EV/EBITDA など EDINET 前処理済み metrics を使う場合のみ設定する。未設定でも screening は実行可能で、EV/EBITDA は `unavailable` として扱う
+- JPX 公開規制情報 URL（CSV / Excel / HTML）。`records/_config/screening-rules.yaml` の `universe.required_jpx_flags` に含まれる source は必須で、未ロード時は fail-fast し candidates YAML を生成しない:
   - `JPX_SPECIAL_CAUTION_INDEX_URL` 特別注意銘柄の個別銘柄信用取引残高表 index（推奨。日次で変わる `mtdailyk*.xls` を index から解決）
   - `JPX_SPECIAL_CAUTION_URL` 特別注意銘柄の固定 Excel URL
   - `JPX_REORGANIZATION_URL` 整理銘柄
@@ -65,7 +65,7 @@ raw cache / SQLite cache の配置先は固定 (env override 廃止):
 | `get_eq_earnings_cal` | 決算発表予定 |
 | `get_mkt_calendar` | 営業日カレンダ |
 
-## 5. EDINET Baseline
+## 5. EDINET Baseline（任意）
 
 - API version: v2
 - 仕様書: `2026-01-29 / ESE140206.pdf`
@@ -75,6 +75,7 @@ raw cache / SQLite cache の配置先は固定 (env override 廃止):
   - `140`: 旧四半期報告書
   - `160`: 半期報告書
 - CLI は `documents.json` の取得のみを行い、CSV ZIP（UTF-16 LE タブ区切り）の解凍と metric 抽出は行わない。`providers/edinet.py` の `load_metric_records` は前処理済み JSON cache を読み込む前提
+- EDINET cache / API key が無い場合も screening は fail-fast しない。`data_sources` には利用した source のみを記録し、`config_hash` には rules file hash と optional EDINET 設定有無を含める
 
 ## 6. JPX Policy
 
@@ -82,7 +83,7 @@ raw cache / SQLite cache の配置先は固定 (env override 廃止):
 - HTML は `https://www.jpx.co.jp/` 配下の許可済み URL に限定し、source-specific parser で fail-fast に扱う
 - 特別注意銘柄は `JPX_SPECIAL_CAUTION_INDEX_URL` が設定されていれば、JPX の「個別銘柄信用取引残高表」index から最新の `mtdailyk*.xls` link を解決してから Excel を取得する。index 未設定時は `JPX_SPECIAL_CAUTION_URL` の固定 URL を使う
 - 規制情報の取得失敗は fail-fast
-- 個別 source のうちロードできなかったものは `fallback_lines` に `JPX source 未ロード: ...` として明示される
+- `universe.required_jpx_flags` の source が欠ける場合は fail-fast する。JPX 規制除外は universe 定義の一部であり、warning-only では扱わない
 - JPX 公開規制情報は latest snapshot しか取得できないため、cache には `fetched_at_utc` を記録する。cache 読み込み時に `asof` と `fetched_at_utc` が 7 weekday 超乖離していれば warning を出す（祝日は引かない近似）
 - `asof` が実行日から 7 weekday 超過去で、該当日の JPX cache が無い場合、`run` は fail-fast する。運用者が latest snapshot を過去 `asof` に固定するリスクを許容する場合のみ `--allow-stale-jpx` を付ける
 
@@ -96,17 +97,18 @@ raw cache / SQLite cache の配置先は固定 (env override 廃止):
 
 ## 8. Rule Baselines
 
-- `yoy_deterioration_threshold = -30%`
-- 営業利益相当の fallback:
-  - `OperatingProfit`
-  - `OrdinaryProfit`
-  - `Profit`
-- `short_history_flag = true` の銘柄は条件 A を skip
-- `EV/EBITDA` は `ttm_quality = exact` のときのみ判定に使う。historical 近似精度の制約から、`_rule_metrics` は `per_trailing` / `pbr` のみを返す
+閾値の正本は `records/_config/screening-rules.yaml`。実装側の hardcode は parser default と型定義に留め、運用で変える閾値は YAML に寄せる。
+
+- universe 閾値: 時価総額、平均売買代金、上場日数、JPX 除外 flag
+- signal lane 閾値: `valuation-reversion` / `cash-rich-asset-discount` / `cashflow-yield-discount` / `sales-discount-growth`
+- TTM 期間一致基準: partial period の許容日数差、FY 期間長
+- 品質条件: 売上 YoY、営業利益、営業 CF 悪化、赤字縮小条件
+- `EV/EBITDA` は `ttm_quality = exact` のときのみ判定に使う。EDINET が無い場合は `unavailable` として他 metric で degrade する
 
 ## 9. Partial Warning Thresholds
 
-- `ttm_quality != exact` が universe の 5% 以上、または 20 銘柄以上
+- 有効な signal lane が必須とする TTM metric の `ttm_quality != exact` が universe の 5% 以上、または 20 銘柄以上
+- EDINET optional による EV/EBITDA `unavailable` だけでは partial warning にしない
 - 業績悪化フィルタ入力欠損が universe の 10% 以上
 
 ## 10. Exit Codes
@@ -127,7 +129,7 @@ raw cache / SQLite cache の配置先は固定 (env override 廃止):
 `rebuild-cache` は以下のテーブルを `records/_data/cache/screening/market.sqlite` に作成する。`cache_metadata.schema_version` で schema version を管理する。
 
 - `jquants_daily_bars(ticker, traded_at, open, high, low, close, volume, turnover_value, adjustment_*, upper_limit, lower_limit)` — 主キー `(ticker, traded_at)`、`traded_at` index 付。`is_common_stock=False` の record はスキップ
-- `jquants_fin_summaries(ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, sales, operating_profit, ordinary_profit, profit, fiscal_period, fiscal_year_end, period_start, period_end, raw_json)` — 主キー `(ticker, disclosed_at)`
+- `jquants_fin_summaries(ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, sales, operating_profit, ordinary_profit, profit, cfo, cash_eq, total_assets, equity, fiscal_period, fiscal_year_end, period_start, period_end, raw_json)` — 主キー `(ticker, disclosed_at)`
 - `jquants_master_snapshots(snapshot_date, ticker, name, market, sector_33, is_common_stock, raw_json)` — 主キー `(snapshot_date, ticker)`
 - `jquants_earnings_calendar(announcement_date, ticker, raw_json)` — 主キー `(announcement_date, ticker)`
 - `jquants_market_calendar(day, is_business_day, raw_json)` — 主キー `(day)`。`HolidayDivision` "1" / "2" を business day=1、それ以外を 0 として記録

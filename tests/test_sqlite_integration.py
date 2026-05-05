@@ -266,6 +266,16 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     )
 
     # JPX regulation flags (empty snapshot, asof imported)
+    conn.executemany(
+        "INSERT INTO jpx_regulation_sources(asof_date, source_name, fetched_at_utc) "
+        "VALUES (?, ?, ?)",
+        [
+            (asof.isoformat(), "上場廃止警告", None),
+            (asof.isoformat(), "取引停止", None),
+            (asof.isoformat(), "整理銘柄", None),
+            (asof.isoformat(), "特別注意銘柄", None),
+        ],
+    )
     _add_raw_import(
         conn,
         source="jpx_regulation_flags",

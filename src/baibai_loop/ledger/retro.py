@@ -65,7 +65,7 @@ def build_monthly_retro(root: Path, month: str) -> RetroDraft:
         "pnl_pct_sum": round(sum(realized_pnl), 4),
         "failure_class_counts": failure_counts,
         "success_class_counts": success_counts,
-        "playbook_revision_decision": "v1 据え置き",
+        "playbook_revision_decision": "据え置き",
         "next_cycle_changes": ["サンプル不足のため、次周回も ledger / review の記録品質を優先する"],
         "price_missing_counts": price_missing_counts,
     }
@@ -197,7 +197,7 @@ def _render_retro(
         f"- 改訂判断: {front['playbook_revision_decision']}",
         "- Playbook 別サンプル数:",
         *_playbook_count_lines((*paper_records, *skipped_records)),
-        "- 10 件未満の playbook は v1 据え置きを許容する。",
+        "- 10 件未満の playbook は据え置きを許容する。",
         "",
         "## 次周回の運用変更点",
         "",

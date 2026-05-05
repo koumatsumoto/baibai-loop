@@ -1,8 +1,5 @@
-name: valuation-mean-reversion-v1
-description: >
-  Required H2 sections for research markdown using the
-  valuation-mean-reversion-v1 playbook. Patterns are searched (re.search) within
-  each H2 heading text, so matching tolerates numbering and trailing notes.
+name: valuation-reversion
+description: Required H2 sections for valuation-reversion research markdown.
 body_sections:
   - title_pattern: "Thesis"
   - title_pattern: "Macro gate"
@@ -12,7 +9,7 @@ body_sections:
   - title_pattern: "Catalyst"
   - title_pattern: "Price reaction"
   - title_pattern: "Crowding"
-  - title_pattern: "ミクロ"
+  - title_pattern: "Shareholder return"
   - title_pattern: "Entry"
   - title_pattern: "Exit"
   - title_pattern: "Invalidation"

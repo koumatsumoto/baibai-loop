@@ -1,11 +1,11 @@
 # screening/mechanical.md
 
-Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕様。4 成分アーキテクチャの (b) `records/03-candidates/` の出力を決める閾値ベース rule。
+Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕様。4 成分アーキテクチャの (b) `records/03-candidates/` の出力を決める signal lane ベース rule。
 
 ## 1. 位置付け
 
 - 4 成分アーキテクチャの **(b) records/03-candidates/** の中核
-- universe（[`universe-rules.md`](./universe-rules.md)）× valuation 指標（[`valuation-metrics.md`](./valuation-metrics.md)）を入力
+- universe（[`universe-rules.md`](./universe-rules.md)）× valuation / cash / CF / sales 指標（[`valuation-metrics.md`](./valuation-metrics.md)）を入力
 - **通過銘柄 list を事実として出力**（解釈は入れない）
 - research 選定の input となる
 
@@ -13,52 +13,66 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 
 ### 2.1 Universe
 
-- 時価総額 200 億円以上
-- 20 営業日平均売買代金 3 億円以上
-- 上場 6 か月以上
-- 特別注意 / 整理銘柄除外
+- 時価総額 100 億円以上
+- 20 営業日平均売買代金 1 億円以上
+- 上場 182 日以上
+- 特別注意 / 整理銘柄 / 取引停止 / 上場廃止警告を除外
 - 詳細: [`universe-rules.md`](./universe-rules.md)
 
-### 2.2 Valuation 指標
+### 2.2 指標
 
 - PER（forward 優先、会社予想ベース、未公表時は trailing のみ）
 - PBR
-- EV/EBITDA
+- EV/EBITDA（EDINET 前処理済み metrics がある場合のみ）
 - P/S
 - PCFR
+- OCF yield（CFO TTM / market cap）
+- cash-to-market-cap / price-to-equity
 - 業種中央値（東証 33 業種、n<10 は市場全体 fallback）
 - 過去 3 年自己レンジ（上場 3 年未満は上場来）
 - 詳細: [`valuation-metrics.md`](./valuation-metrics.md)
 
-## 3. 閾値条件（OR 条件、最低 1 つ満たす）
+## 3. Signal lane（OR 条件、最低 1 つ満たす）
 
-以下 3 種の閾値条件のうち、**最低 1 つ** を満たす銘柄を通過とする（OR 条件）。
+以下の signal lane のうち、**最低 1 つ** を満たす銘柄を通過とする。閾値は `records/_config/screening-rules.yaml` を正本とする。
 
-### 3.1 条件 A: 業種中央値比 + 過去自己レンジ下位
+### 3.1 `valuation-reversion`
 
-- PER / PBR / EV-EBITDA のいずれかが **業種中央値比 -20% 以上の水準**
-- かつ、**同指標が過去 3 年自己レンジの下位 20%** に入っている
-- 両方を同時に満たすことが必要（業種対比と自己対比の二重確認）
-- 注: EV/EBITDA は historical 近似精度の制約から判定対象外。実装上は PER / PBR のみで評価する
+伝統的な valuation mean-reversion。旧来の 3 条件を 1 つの lane に束ね、`reasons[]` で内訳を残す。
 
-### 3.2 条件 B: 過去 60 営業日の急落 + valuation 下方乖離
+- 業種中央値比 + 過去自己レンジ下位
+- 過去 60 営業日の急落 + valuation 下方乖離
+- セクターローテーションによる短期売り
 
-- 株価が過去 60 営業日で **-15% 以上** 下落
-- かつ、PER / PBR / EV-EBITDA のいずれかが **1σ 以上下方に振れている**（過去 3 年平均 + 標準偏差ベース）
-- 業績トレンドに明確な悪化がない（EPS / ROE / 売上の前年比が大きく崩れていない）
-- 注: EV/EBITDA は 3.1 と同様に判定対象外（PER / PBR のみ）
+EDINET が無い場合、EV/EBITDA は `unavailable` として判定対象から外す。PER / PBR など利用可能な指標で degrade して評価する。P/S は売上成長と営業赤字条件を伴う `sales-discount-growth` 専用 lane で扱い、valuation-reversion の単独指標にはしない。
 
-### 3.3 条件 C: セクターローテーションによる短期売り
+### 3.2 `cash-rich-asset-discount`
 
-- 業種 relative strength が直近 4 週で **下位 20%** に入っている
-- かつ、個別銘柄が業種平均を下回って売られている（業種下落幅を超える下落）
-- かつ、業績トレンドに明確な悪化がない
+CashEq / market cap、price-to-equity、equity ratio を使い、厳密 net cash ではないが、cash-rich / asset discount 候補を拾う。J-Quants 財務サマリーのみで完結させ、有利子負債は research で一次確認する。
 
-### 3.4 OR 条件の意味
+銀行・証券・保険・その他金融はこの lane から除外する。金融業の balance sheet は通常の事業会社と意味が異なり、CashEq / market cap を margin of safety として機械判定しにくいため。
 
-- **最低 1 つ満たせば通過**（複数満たす銘柄は confidence が高い）
-- 通過した銘柄の YAML `threshold_hit` に「どの条件を満たしたか」を記録
-- research 側で primary metric と合わせて採用判定の input にする
+電気・ガス業もこの lane から除外する。規制・設備産業では CashEq / market cap が高くても、有利子負債・設備投資・燃料費調整などを見ないと margin of safety として読みにくいため。
+
+### 3.3 `cashflow-yield-discount`
+
+期間正規化した CFO TTM から OCF yield を算出し、営業 CF がプラスで、CF 悪化が大きくない銘柄を拾う。TTM が作れない銘柄はこの lane から除外する。
+
+この lane は `ocf_yield` だけでは通過させない。comparable period の `cfo_yoy` を確認し、設定された下限を下回る銘柄、または `cfo_yoy_required: true` で `cfo_yoy` が作れない銘柄は除外する。
+
+銀行・証券・保険・その他金融、電気・ガス業はこの lane から除外する。金融業の営業 CF は通常の事業会社の現金創出力と同じ意味で比較しにくく、電気・ガス業は設備投資前の OCF yield だけでは割安性を機械判定しにくいため。
+
+### 3.4 `sales-discount-growth`
+
+P/S が業種中央値比で安く、売上成長が残る銘柄を拾う。営業赤字銘柄は CFO プラスまたは営業赤字縮小が確認できる場合に限り許容する。
+
+銀行・証券・保険・その他金融はこの lane から除外する。金融業の P/S は通常の事業会社の売上倍率とは意味が異なるため。
+
+### 3.5 OR 条件の意味
+
+- **最低 1 つ満たせば通過**
+- 複数 signal が重なる銘柄は research 優先度を上げる
+- candidates YAML の `signals[]` に lane 名、playbook、hit reasons、判定に使った metrics を記録する
 
 ## 4. 出力
 
@@ -75,20 +89,21 @@ records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml
 詳細は [`../components/candidates.md`](../components/candidates.md) 節 4 を参照。核心:
 
 ```yaml
-tickers:
+candidates:
   - ticker: "7203"
     name: "..."
-    per_forward: 8.2 | null
-    per_trailing: 9.5
+    per_forward: 8.2
     pbr: 0.72
-    ev_ebitda: 4.8
     p_s: 0.6
     pcfr: 5.1
-    sector_33: "輸送用機器"
-    threshold_hit:
-      - sector_median_under_20pct_and_self_range_bottom_20pct  # 条件 A
-      - price_down_60d_and_valuation_sigma_down                # 条件 B
-      - sector_rotation_short_sell                             # 条件 C
+    metrics:
+      ocf_yield: 0.13
+      cfo_yoy: 0.08
+      cash_to_market_cap: 0.42
+    signals:
+      - name: cashflow-yield-discount
+        playbook: cashflow-yield-discount
+        reasons: [ocf_yield_discount]
 ```
 
 ## 5. 実行頻度
@@ -98,25 +113,30 @@ tickers:
 
 ## 6. 実装方針
 
-CLI で自動化されており、実装の正本は [`automation.md`](./automation.md) を参照。本ドキュメントは mechanical ルール（閾値条件・rule engine）の意味論に絞る。
+CLI で自動化されており、実装の正本は [`automation.md`](./automation.md) を参照。本ドキュメントは mechanical ルールの意味論に絞る。
 
-- 実行形式: `python -m baibai_loop.screening.cli run --asof YYYY-MM-DD`
+```bash
+python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
+```
+
+JPX 規制情報は universe 定義の一部であり、必須 source が欠ける場合は candidates YAML を生成しない。EDINET 前処理済み metrics は任意 source であり、未ロード時は EV/EBITDA などを `unavailable` として degrade する。
 
 ## 7. Retro での調整
 
 月次 retro で以下を評価:
 
-- **閾値通過銘柄数**: 多すぎる（選定が困難）/ 少なすぎる（候補不足）場合は閾値調整候補
-- **採用率**: 通過銘柄のうち research で採用された割合。低すぎる場合は閾値が甘い
-- **skipped trade log**: 見送り銘柄の事後パフォーマンス。「割安判定したが採用見送り → 上昇」の偽陰性率
+- **signal lane 別 hit 数**: 多すぎる / 少なすぎる場合は `screening-rules.yaml` の閾値調整候補
+- **採用率**: 通過銘柄のうち research で採用された割合
+- **skipped trade log**: 見送り銘柄の事後パフォーマンス
+- **lane 別の成功 / 失敗分類**: どの割安タイプが機能したか
 
 閾値変更は playbook 改訂議論に含める。
 
 ## 8. 事実と分析の分離
 
-- mechanical は **事実層**。閾値適用・threshold_hit は機械的
+- mechanical は **事実層**。閾値適用・signal hit は機械的
 - 「なぜ割安か」の仮説・「採用すべきか」の判断は research 側
-- candidates ファイル本文には補足情報（実行時の市場環境メモ、除外した特殊ケース等）を事実として記録。解釈を入れない
+- candidates ファイル本文には補足情報を事実として記録し、解釈を入れない
 
 ## 9. 参考
 

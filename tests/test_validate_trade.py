@@ -35,7 +35,7 @@ def _trade_text(
     return f"""---
 ticker: "{ticker}"
 name: "ＤＴＳ"
-research_ref: records/04-research/2026/05/2026-05-04-9682-valuation-mean-reversion-v1.md
+research_ref: records/04-research/2026/05/2026-05-04-9682-valuation-reversion.md
 order_date: {fmt(order_date)}
 expected_fill_at: {fmt(expected_fill_at)}
 entry_date: {fmt(entry_date)}

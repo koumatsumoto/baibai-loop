@@ -28,13 +28,13 @@ def _seed(root: Path) -> None:
         yaml.safe_dump(
             {
                 "asof_date": "2026-04-24",
-                "tickers": [
+                "candidates": [
                     {
                         "ticker": "2767",
                         "name": "Sample",
                         "market_cap_oku": 936,
                         "avg_turnover_oku": 4.9,
-                        "threshold_hit": ["a", "b"],
+                        "signals": [{"name": "valuation-reversion"}, {"name": "cash-rich"}],
                     }
                 ],
             },
@@ -47,7 +47,7 @@ def _seed(root: Path) -> None:
         {
             "ticker": "2767",
             "name": "Sample",
-            "playbook": "valuation-mean-reversion-v1",
+            "playbook": "valuation-reversion",
             "decision": "accepted",
             "candidates_ref": "records/03-candidates/2026/04/2026-04-24.yaml",
             "published_at": "2026-04-25T22:00:00+09:00",
@@ -64,7 +64,7 @@ def _seed(root: Path) -> None:
         | 最新 adj close (2026-04-24) | 1,431 円 | — |
         """
     )
-    (research_dir / "2026-04-25-2767-valuation-mean-reversion-v1.md").write_text(
+    (research_dir / "2026-04-25-2767-valuation-reversion.md").write_text(
         f"---\n{front}---\n{body}",
         encoding="utf-8",
     )
@@ -80,7 +80,7 @@ def test_sync_ledger_writes_idempotent_paper_records(tmp_path: Path) -> None:
     lines = ledger_path.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1
     record = json.loads(lines[0])
-    assert record["ledger_id"] == "paper-20260425-2767-vmean"
+    assert record["ledger_id"] == "paper-20260425-2767-vreversion"
     assert record["tracking"] == {"plus_15bd": None, "plus_30bd": None}
     assert record["adjustment_applied"] is False
 
@@ -89,7 +89,7 @@ def test_sync_ledger_dry_run_reports_existing_packets(tmp_path: Path) -> None:
     _seed(tmp_path)
     result = sync_ledger(tmp_path, dry_run=True)
     assert result.paper_count == 1
-    assert result.diff_lines == ("+ paper-20260425-2767-vmean",)
+    assert result.diff_lines == ("+ paper-20260425-2767-vreversion",)
 
 
 def test_sync_ledger_uses_adjusted_price_when_bar_available(tmp_path: Path) -> None:
@@ -148,7 +148,7 @@ def test_sync_ledger_adds_select_candidates_without_research_to_skipped(tmp_path
                     {
                         "ticker": "9999",
                         "name": "Skipped Co",
-                        "playbook": "valuation-mean-reversion-v1",
+                        "playbook": "valuation-reversion",
                     }
                 ],
             },
@@ -162,7 +162,7 @@ def test_sync_ledger_adds_select_candidates_without_research_to_skipped(tmp_path
     record = json.loads(
         (tmp_path / "records/_ledger" / "skipped" / "2026-04.jsonl").read_text().strip()
     )
-    assert record["ledger_id"] == "skipped-20260425-9999-vmean"
+    assert record["ledger_id"] == "skipped-20260425-9999-vreversion"
     assert record["research_ref"] is None
 
 
@@ -317,7 +317,7 @@ def test_sync_ledger_logs_decision_transition_in_update_events(tmp_path: Path) -
     decision_events = [event for event in events if event["field"] == "decision"]
     assert decision_events == [
         {
-            "ledger_id": "paper-20260425-2767-vmean",
+            "ledger_id": "paper-20260425-2767-vreversion",
             "field": "decision",
             "old": "accepted",
             "new": "pending",
@@ -329,7 +329,7 @@ def test_sync_ledger_logs_decision_transition_in_update_events(tmp_path: Path) -
 def test_decision_date_treats_naive_published_at_as_jst(tmp_path: Path) -> None:
     # 22:00 JST と naive 22:00 が同じ日付 (= JST 解釈) を返すことを確認する。
     # naive を local time で解釈すると CI ランナー (UTC) では翌日に倒れてしまう。
-    research_path = tmp_path / "2026-04-25-2767-valuation-mean-reversion-v1.md"
+    research_path = tmp_path / "2026-04-25-2767-valuation-reversion.md"
     aware = _decision_date(research_path, {"published_at": "2026-04-25T22:00:00+09:00"})
     naive = _decision_date(research_path, {"published_at": "2026-04-25T22:00:00"})
     assert aware == naive == date(2026, 4, 25)
@@ -337,7 +337,7 @@ def test_decision_date_treats_naive_published_at_as_jst(tmp_path: Path) -> None:
 
 def test_decision_date_normalizes_utc_published_at(tmp_path: Path) -> None:
     # UTC 22:00 = JST 翌日 07:00 で日付が前倒しされることを確認する。
-    research_path = tmp_path / "2026-04-25-2767-valuation-mean-reversion-v1.md"
+    research_path = tmp_path / "2026-04-25-2767-valuation-reversion.md"
     assert _decision_date(research_path, {"published_at": "2026-04-25T22:00:00Z"}) == date(
         2026, 4, 26
     )
@@ -347,8 +347,8 @@ def test_diff_jsonl_marks_orphan_existing_records(tmp_path: Path) -> None:
     ledger_path = tmp_path / "records/_ledger" / "paper" / "2026-04.jsonl"
     ledger_path.parent.mkdir(parents=True)
     ledger_path.write_text(
-        json.dumps({"ledger_id": "paper-20260425-2767-vmean"}) + "\n",
+        json.dumps({"ledger_id": "paper-20260425-2767-vreversion"}) + "\n",
         encoding="utf-8",
     )
     # upsert は削除しないので、削除予告ではなく orphan 通知として ! を使う。
-    assert diff_jsonl(ledger_path, []) == ["! paper-20260425-2767-vmean"]
+    assert diff_jsonl(ledger_path, []) == ["! paper-20260425-2767-vreversion"]

@@ -406,6 +406,18 @@ class RebuildFromRawTests(unittest.TestCase):
                         ("2026-04-24", "取引停止", "1302", "取引停止", "2026-04-24T03:00:00+00:00"),
                     ],
                 )
+                source_rows = conn.execute(
+                    "SELECT asof_date, source_name, fetched_at_utc "
+                    "FROM jpx_regulation_sources ORDER BY source_name"
+                ).fetchall()
+                self.assertEqual(
+                    source_rows,
+                    [
+                        ("2026-04-24", "取引停止", "2026-04-24T03:00:00+00:00"),
+                        ("2026-04-24", "整理銘柄", "2026-04-24T03:00:00+00:00"),
+                        ("2026-04-24", "特別注意銘柄", "2026-04-24T03:00:00+00:00"),
+                    ],
+                )
 
 
 class RebuildCacheCommandTests(unittest.TestCase):
@@ -478,6 +490,23 @@ class IsSqliteStaleTests(unittest.TestCase):
             )
             os.utime(new_raw, (time.time() + 60, time.time() + 60))
             self.assertTrue(is_sqlite_stale([raw], db))
+
+    def test_manifest_files_do_not_make_sqlite_stale(self) -> None:
+        import os
+        import time
+
+        with tempfile.TemporaryDirectory() as tmp:
+            raw = Path(tmp) / "raw"
+            db = Path(tmp) / "cache" / "market.sqlite"
+            _write_json(
+                raw / "jquants" / "get_eq_master.json",
+                [_master_record("13010", name="極洋", sector="水産・農林業")],
+            )
+            rebuild_from_raw(raw, db)
+            manifest = raw / "manifests" / "screening-20260501-test.json"
+            _write_json(manifest, {"run_id": "screening-20260501-test"})
+            os.utime(manifest, (time.time() + 60, time.time() + 60))
+            self.assertFalse(is_sqlite_stale([raw], db))
 
     def test_multiple_raw_dirs_checked(self) -> None:
         import os

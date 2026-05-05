@@ -26,7 +26,7 @@ def _minimal_candidates() -> dict[str, object]:
         "filters": {
             "min_market_cap_oku": 200,
             "min_avg_turnover_oku": 3.0,
-            "exclude_listed_under_months": 6,
+            "exclude_listed_under_days": 182,
         },
         "generated_by": "screening-cli-v1",
         "data_sources": ["j-quants-light"],
@@ -34,17 +34,27 @@ def _minimal_candidates() -> dict[str, object]:
         "run_id": "screening-20260424-a1b2c3d4",
         "config_hash": "a1b2c3d4e5f6a7b8",
         "cache_manifest_hash": "9988776655443322",
-        "tickers": [
+        "candidates": [
             {
                 "ticker": "130A",
                 "name": "Sample Co",
                 "sector_33": "情報・通信業",
+                "metrics": {},
                 "ttm_quality": {
                     "ev_ebitda": "exact",
                     "p_s": "approximated",
                     "pcfr": "unavailable",
+                    "ocf_yield": "unavailable",
+                    "sales": "approximated",
                 },
-                "threshold_hit": ["sector_median_under_20pct_and_self_range_bottom_20pct"],
+                "signals": [
+                    {
+                        "name": "valuation-reversion",
+                        "playbook": "valuation-reversion",
+                        "reasons": ["sector_median_discount_and_self_range_bottom"],
+                        "metrics": {},
+                    }
+                ],
             }
         ],
     }
@@ -103,11 +113,11 @@ class CandidatesValidationTests(unittest.TestCase):
 
     def test_invalid_ticker_pattern_is_flagged(self) -> None:
         payload = _minimal_candidates()
-        tickers = payload["tickers"]
-        assert isinstance(tickers, list)
-        ticker_entry = tickers[0]
-        assert isinstance(ticker_entry, dict)
-        ticker_entry["ticker"] = "abc"
+        candidates = payload["candidates"]
+        assert isinstance(candidates, list)
+        candidate_entry = candidates[0]
+        assert isinstance(candidate_entry, dict)
+        candidate_entry["ticker"] = "abc"
         path = self._write(payload)
         try:
             findings = validate_candidates_file(path)
@@ -116,13 +126,13 @@ class CandidatesValidationTests(unittest.TestCase):
         locations = {finding.location for finding in findings}
         self.assertTrue(any("ticker" in loc for loc in locations if loc is not None))
 
-    def test_empty_threshold_hit_is_flagged(self) -> None:
+    def test_empty_signals_is_flagged(self) -> None:
         payload = _minimal_candidates()
-        tickers = payload["tickers"]
-        assert isinstance(tickers, list)
-        ticker_entry = tickers[0]
-        assert isinstance(ticker_entry, dict)
-        ticker_entry["threshold_hit"] = []
+        candidates = payload["candidates"]
+        assert isinstance(candidates, list)
+        candidate_entry = candidates[0]
+        assert isinstance(candidate_entry, dict)
+        candidate_entry["signals"] = []
         path = self._write(payload)
         try:
             findings = validate_candidates_file(path)
@@ -144,11 +154,11 @@ class CandidatesValidationTests(unittest.TestCase):
 
     def test_unknown_ticker_field_is_flagged(self) -> None:
         payload = _minimal_candidates()
-        tickers = payload["tickers"]
-        assert isinstance(tickers, list)
-        ticker_entry = tickers[0]
-        assert isinstance(ticker_entry, dict)
-        ticker_entry["typo_field"] = "oops"
+        candidates = payload["candidates"]
+        assert isinstance(candidates, list)
+        candidate_entry = candidates[0]
+        assert isinstance(candidate_entry, dict)
+        candidate_entry["typo_field"] = "oops"
         path = self._write(payload)
         try:
             findings = validate_candidates_file(path)

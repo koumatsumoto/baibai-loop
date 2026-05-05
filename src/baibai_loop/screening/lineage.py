@@ -33,22 +33,24 @@ class CacheManifest:
 
 
 def build_provider_settings(config: ScreeningConfig) -> dict[str, object]:
-    return {
+    settings: dict[str, object] = {
         "jquants": {
             "tier": _PROVIDER_TIER,
             "client": "ClientV2",
             "methods": list(JQUANTS_CLIENT_V2_METHODS),
-        },
-        "edinet": {
-            # api_version は EDINET_API_BASE に既に含まれるため別 key としては持たない。
-            # API バージョンを上げる際は URL 側を変更すれば config_hash に出る。
-            "api_base": EDINET_API_BASE,
         },
         "jpx": {
             "regulation_urls": dict(sorted(config.jpx_regulation_urls.items())),
             "special_caution_index_url": config.jpx_special_caution_index_url,
         },
     }
+    if config.edinet_api_key:
+        settings["edinet"] = {
+            # api_version は EDINET_API_BASE に既に含まれるため別 key としては持たない。
+            # API バージョンを上げる際は URL 側を変更すれば config_hash に出る。
+            "api_base": EDINET_API_BASE,
+        }
+    return settings
 
 
 def compute_config_hash(
@@ -165,8 +167,13 @@ def compute_sqlite_summary(sqlite_path: Path | None) -> dict[str, object] | None
 
 
 def _traceable_config_payload(config: ScreeningConfig) -> dict[str, object]:
+    rules_hash = None
+    if config.rules_path.exists():
+        rules_hash = hashlib.sha256(config.rules_path.read_bytes()).hexdigest()
     return {
         "cache_dir": config.cache_dir.as_posix(),
+        "rules_path": config.rules_path.as_posix(),
+        "rules_sha256": rules_hash,
         "jpx_regulation_urls": dict(sorted(config.jpx_regulation_urls.items())),
         "jpx_special_caution_index_url": config.jpx_special_caution_index_url,
     }

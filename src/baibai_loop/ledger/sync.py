@@ -93,10 +93,8 @@ def sync_ledger(
         research_ref = str(path.relative_to(root))
         asof_date = _asof_date(candidates_ref)
         market_cap = _float_or_none(candidate.get("market_cap_oku")) or _extract_market_cap(body)
-        threshold_hit_count = (
-            len(candidate.get("threshold_hit", []))
-            if isinstance(candidate.get("threshold_hit"), list)
-            else 0
+        signal_count = (
+            len(candidate.get("signals", [])) if isinstance(candidate.get("signals"), list) else 0
         )
         macro_gate = str(front.get("macro_gate", ""))
         tracking = Tracking(plus_15bd=plus_15bd, plus_30bd=plus_30bd)
@@ -115,7 +113,7 @@ def sync_ledger(
                 baseline_price=baseline_price,
                 market_cap_oku=market_cap,
                 avg_turnover_oku=avg_turnover,
-                threshold_hit_count=threshold_hit_count,
+                signal_count=signal_count,
                 macro_gate=macro_gate,
                 adv_participation_pct=adv_participation,
                 adjustment_applied=adjustment_applied,
@@ -136,7 +134,7 @@ def sync_ledger(
                 baseline_price=baseline_price,
                 market_cap_oku=market_cap,
                 avg_turnover_oku=avg_turnover,
-                threshold_hit_count=threshold_hit_count,
+                signal_count=signal_count,
                 macro_gate=macro_gate,
                 adv_participation_pct=adv_participation,
                 adjustment_applied=adjustment_applied,
@@ -195,9 +193,9 @@ def _load_candidates(root: Path) -> dict[str, dict[str, Mapping[str, Any]]]:
         if not isinstance(document, dict):
             continue
         by_ticker: dict[str, Mapping[str, Any]] = {}
-        tickers = document.get("tickers", [])
-        if isinstance(tickers, list):
-            for item in tickers:
+        candidates = document.get("candidates", [])
+        if isinstance(candidates, list):
+            for item in candidates:
                 if isinstance(item, Mapping) and isinstance(item.get("ticker"), str):
                     by_ticker[str(item["ticker"])] = item
         loaded[str(path.relative_to(root))] = by_ticker
@@ -244,8 +242,8 @@ def _load_select_skipped(
                 baseline_price=None,
                 market_cap_oku=_float_or_none(candidate_info.get("market_cap_oku")),
                 avg_turnover_oku=_float_or_none(candidate_info.get("avg_turnover_oku")),
-                threshold_hit_count=len(candidate_info.get("threshold_hit", []))
-                if isinstance(candidate_info.get("threshold_hit"), list)
+                signal_count=len(candidate_info.get("signals", []))
+                if isinstance(candidate_info.get("signals"), list)
                 else 0,
                 macro_gate=None,
                 adv_participation_pct=None,
@@ -257,7 +255,7 @@ def _load_select_skipped(
 
 
 def _select_candidates(document: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    for key in ("candidates", "tickers", "selected"):
+    for key in ("candidates", "selected"):
         value = document.get(key)
         if isinstance(value, list):
             return [item for item in value if isinstance(item, Mapping)]

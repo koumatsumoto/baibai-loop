@@ -74,7 +74,7 @@ failure_class_counts:
   材料誤読: 0
 success_class_counts:
   仮説的中: 0
-playbook_revision_decision: "v1 据え置き"
+playbook_revision_decision: "据え置き"
 next_cycle_changes:
   - "実 trade がないため、次周回も採用後の執行記録を優先する"
 price_missing_counts:

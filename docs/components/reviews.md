@@ -36,7 +36,7 @@ records/06-reviews/YYYY/retro-YYYYMM.md                  # 月次 retro
 ticker: "7203"
 trade_ref: records/05-trades/YYYY/MM/YYYY-MM-DD-<ticker>.md  # 必須
 research_ref: records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md  # 必須
-playbook: valuation-mean-reversion-v1 | valuation-catalyst-confirmation-v1
+playbook: valuation-reversion | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth
 entry_date: "YYYY-MM-DD"
 exit_date: "YYYY-MM-DD"
 pnl_pct: 数値
@@ -75,7 +75,7 @@ success_class_counts:
   catalyst 反応: 整数
   macro tailwind: 整数
   timing 一致: 整数
-playbook_revision_decision: "v1 据え置き" | "v1.1 改訂" | "v2 開発"
+playbook_revision_decision: "据え置き" | "小改訂" | "大幅改訂"
 next_cycle_changes:
   - "変更点 1"
   - "変更点 2"
