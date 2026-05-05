@@ -13,6 +13,8 @@ Rules enforced (see ``docs/components/trades.md`` for the spec):
   ``real_order_notional_yen / tactical_capital_yen * 100`` when tactical fields
   are present. Tactical capital represents a temporary deployment budget and
   must not exceed ``real_capital_yen`` when both are set.
+- Price-guarded orders record and validate max guarded notional /
+  concentration from ``order_price_guard_yen * order_quantity``.
 - Filename matches ``YYYY-MM-DD-<ticker>.md`` and the date equals ``order_date``
   (or ``entry_date`` when ``order_date`` is null).
 - ``real_concentration_pct`` exceeding the hard cap from
@@ -45,6 +47,7 @@ REQUIRED_FRONT_MATTER: tuple[str, ...] = (
 
 _PAPER_PROXY_CAPITAL_OKU = 0.01  # 1 oku JPY = 100 in paper proxy pct denominator
 _PAPER_PROXY_PCT_TOLERANCE = 0.05  # absolute tolerance in pct points
+_NOTIONAL_YEN_TOLERANCE = 1.0
 _REAL_CONCENTRATION_TOLERANCE = 0.5  # absolute tolerance in pct points
 _TACTICAL_CONCENTRATION_TOLERANCE = 0.5  # absolute tolerance in pct points
 _REAL_CONCENTRATION_HARD_CAP_PCT = 50.0
@@ -119,6 +122,8 @@ def validate_trade_file(path: Path) -> list[ValidationFinding]:
     findings.extend(_check_real_concentration_consistency(path, front))
     findings.extend(_check_tactical_concentration_consistency(path, front))
     findings.extend(_check_real_concentration_cap(path, front))
+    findings.extend(_check_guarded_max_consistency(path, front))
+    findings.extend(_check_guarded_max_real_concentration_cap(path, front))
     findings.extend(_check_filename(path, front))
     return findings
 
@@ -462,6 +467,246 @@ def _check_real_concentration_cap(
     return []
 
 
+def _check_guarded_max_consistency(
+    path: Path, front: Mapping[str, object]
+) -> list[ValidationFinding]:
+    guard_price = _coerce_number(front.get("order_price_guard_yen"))
+    guarded_fields = (
+        "guarded_max_notional_yen",
+        "guarded_max_real_concentration_pct",
+        "guarded_max_tactical_concentration_pct",
+    )
+    if guard_price is None:
+        present_fields = [field for field in guarded_fields if front.get(field) is not None]
+        if not present_fields:
+            return []
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.guarded-max-without-price-guard",
+                message=(
+                    "guarded max fields require order_price_guard_yen: " + ", ".join(present_fields)
+                ),
+                location="order_price_guard_yen",
+            )
+        ]
+
+    findings: list[ValidationFinding] = []
+    if guard_price <= 0:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.order-price-guard-non-positive",
+                message="order_price_guard_yen must be > 0 when set",
+                location="order_price_guard_yen",
+            )
+        )
+
+    quantity = _coerce_integer(front.get("order_quantity"))
+    guarded_notional = _coerce_number(front.get("guarded_max_notional_yen"))
+    real_capital = _coerce_number(front.get("real_capital_yen"))
+    guarded_real_pct = _coerce_number(front.get("guarded_max_real_concentration_pct"))
+
+    missing_fields: list[str] = []
+    if quantity is None:
+        missing_fields.append("order_quantity")
+    if guarded_notional is None:
+        missing_fields.append("guarded_max_notional_yen")
+    if real_capital is None:
+        missing_fields.append("real_capital_yen")
+    if guarded_real_pct is None:
+        missing_fields.append("guarded_max_real_concentration_pct")
+    if missing_fields:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.guarded-max-missing-field",
+                message=(
+                    "price-guarded orders require numeric fields: " + ", ".join(missing_fields)
+                ),
+                location="guarded_max_real_concentration_pct",
+            )
+        )
+
+    if quantity is not None and quantity <= 0:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.order-quantity-non-positive",
+                message="order_quantity must be > 0 when order_price_guard_yen is set",
+                location="order_quantity",
+            )
+        )
+    if guarded_notional is not None and guarded_notional <= 0:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.guarded-max-notional-non-positive",
+                message="guarded_max_notional_yen must be > 0 when order_price_guard_yen is set",
+                location="guarded_max_notional_yen",
+            )
+        )
+    if real_capital is not None and real_capital <= 0:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.real-capital-non-positive",
+                message="real_capital_yen must be > 0 when guarded max concentration is set",
+                location="real_capital_yen",
+            )
+        )
+
+    if findings:
+        return findings
+
+    assert quantity is not None
+    assert guarded_notional is not None
+    assert real_capital is not None
+    assert guarded_real_pct is not None
+
+    expected_notional = guard_price * quantity
+    if abs(guarded_notional - expected_notional) > _NOTIONAL_YEN_TOLERANCE:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.guarded-max-notional-mismatch",
+                message=(
+                    f"guarded_max_notional_yen ({guarded_notional}) must equal "
+                    f"order_price_guard_yen * order_quantity = {expected_notional:.0f} "
+                    f"(±{_NOTIONAL_YEN_TOLERANCE})"
+                ),
+                location="guarded_max_notional_yen",
+            )
+        )
+
+    expected_real_pct = expected_notional / real_capital * 100.0
+    if abs(guarded_real_pct - expected_real_pct) > _REAL_CONCENTRATION_TOLERANCE:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.guarded-max-real-concentration-mismatch",
+                message=(
+                    f"guarded_max_real_concentration_pct ({guarded_real_pct}) must equal "
+                    f"guarded max notional / real_capital_yen * 100 = {expected_real_pct:.2f} "
+                    f"(±{_REAL_CONCENTRATION_TOLERANCE})"
+                ),
+                location="guarded_max_real_concentration_pct",
+            )
+        )
+
+    findings.extend(_check_guarded_max_tactical_concentration(path, front, expected_notional))
+    return findings
+
+
+def _check_guarded_max_tactical_concentration(
+    path: Path, front: Mapping[str, object], expected_notional: float
+) -> list[ValidationFinding]:
+    if (
+        front.get("tactical_capital_yen") is None
+        and front.get("guarded_max_tactical_concentration_pct") is None
+    ):
+        return []
+
+    tactical_capital = _coerce_number(front.get("tactical_capital_yen"))
+    guarded_tactical_pct = _coerce_number(front.get("guarded_max_tactical_concentration_pct"))
+
+    missing_fields: list[str] = []
+    if tactical_capital is None:
+        missing_fields.append("tactical_capital_yen")
+    if guarded_tactical_pct is None:
+        missing_fields.append("guarded_max_tactical_concentration_pct")
+    if missing_fields:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.guarded-max-tactical-concentration-missing-field",
+                message=(
+                    "guarded max tactical concentration requires numeric fields: "
+                    + ", ".join(missing_fields)
+                ),
+                location="guarded_max_tactical_concentration_pct",
+            )
+        ]
+
+    assert tactical_capital is not None
+    assert guarded_tactical_pct is not None
+    if tactical_capital <= 0:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.tactical-capital-non-positive",
+                message=(
+                    "tactical_capital_yen must be > 0 when guarded max tactical "
+                    "concentration is set"
+                ),
+                location="tactical_capital_yen",
+            )
+        ]
+
+    expected_tactical_pct = expected_notional / tactical_capital * 100.0
+    if abs(guarded_tactical_pct - expected_tactical_pct) > _TACTICAL_CONCENTRATION_TOLERANCE:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.guarded-max-tactical-concentration-mismatch",
+                message=(
+                    f"guarded_max_tactical_concentration_pct ({guarded_tactical_pct}) "
+                    "must equal guarded max notional / tactical_capital_yen * 100 = "
+                    f"{expected_tactical_pct:.2f} (±{_TACTICAL_CONCENTRATION_TOLERANCE})"
+                ),
+                location="guarded_max_tactical_concentration_pct",
+            )
+        ]
+    return []
+
+
+def _check_guarded_max_real_concentration_cap(
+    path: Path, front: Mapping[str, object]
+) -> list[ValidationFinding]:
+    pct = _coerce_number(front.get("guarded_max_real_concentration_pct"))
+    if pct is None:
+        return []
+    if pct >= _REAL_CONCENTRATION_HARD_CAP_PCT:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.guarded-max-real-concentration-hard-cap",
+                message=(
+                    f"guarded_max_real_concentration_pct {pct} >= hard cap "
+                    f"{_REAL_CONCENTRATION_HARD_CAP_PCT}; record overrides "
+                    "(type=real_concentration_cap) on the linked research"
+                ),
+                location="guarded_max_real_concentration_pct",
+            )
+        ]
+    if pct > _REAL_CONCENTRATION_SOFT_CAP_PCT:
+        return [
+            ValidationFinding(
+                severity="warning",
+                target=path,
+                code="trade.guarded-max-real-concentration-soft-cap",
+                message=(
+                    f"guarded_max_real_concentration_pct {pct} exceeds soft recommendation "
+                    f"{_REAL_CONCENTRATION_SOFT_CAP_PCT} (single-ticker)"
+                ),
+                location="guarded_max_real_concentration_pct",
+            )
+        ]
+    return []
+
+
 def _check_filename(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
     match = _FILENAME_PATTERN.match(path.name)
     if not match:
@@ -524,6 +769,16 @@ def _coerce_number(value: object) -> float | None:
         return None
     if isinstance(value, (int, float)):
         return float(value)
+    return None
+
+
+def _coerce_integer(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
     return None
 
 

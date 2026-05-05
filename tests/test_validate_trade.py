@@ -14,6 +14,11 @@ def _trade_text(
     ticker: str = "9682",
     order_date: str | None = "2026-05-04",
     expected_fill_at: str | None = "2026-05-07T09:00:00+09:00",
+    order_price_guard_yen: float | None = None,
+    order_quantity: int | None = None,
+    guarded_max_notional_yen: float | None = None,
+    guarded_max_real_concentration_pct: float | None = None,
+    guarded_max_tactical_concentration_pct: float | None = None,
     entry_date: str | None = None,
     entry_price: float | None = None,
     paper_proxy_position_size_oku: float | None = 0.002028,
@@ -40,6 +45,11 @@ name: "ＤＴＳ"
 research_ref: records/04-research/2026/05/2026-05-04-9682-valuation-reversion.md
 order_date: {fmt(order_date)}
 expected_fill_at: {fmt(expected_fill_at)}
+order_price_guard_yen: {fmt(order_price_guard_yen)}
+order_quantity: {fmt(order_quantity)}
+guarded_max_notional_yen: {fmt(guarded_max_notional_yen)}
+guarded_max_real_concentration_pct: {fmt(guarded_max_real_concentration_pct)}
+guarded_max_tactical_concentration_pct: {fmt(guarded_max_tactical_concentration_pct)}
 entry_date: {fmt(entry_date)}
 entry_price: {fmt(entry_price)}
 paper_proxy_position_size_oku: {paper_proxy_position_size_oku}
@@ -186,6 +196,157 @@ def test_partial_tactical_fields_are_flagged(tmp_path: Path) -> None:
     )
     codes = {finding.code for finding in validate_trade_file(path)}
     assert "trade.tactical-concentration-missing-field" in codes
+
+
+def test_price_guarded_order_with_guarded_max_fields_passes(tmp_path: Path) -> None:
+    path = _write_trade(
+        tmp_path,
+        _trade_text(
+            order_price_guard_yen=1050,
+            order_quantity=200,
+            guarded_max_notional_yen=210000,
+            guarded_max_real_concentration_pct=4.2,
+            guarded_max_tactical_concentration_pct=21.0,
+            real_capital_yen=5000000,
+            real_order_notional_yen=202800,
+            real_concentration_pct=4.06,
+            tactical_capital_yen=1000000,
+            tactical_concentration_pct=20.28,
+        ),
+    )
+    assert [finding for finding in validate_trade_file(path) if finding.severity == "error"] == []
+
+
+def test_price_guarded_order_missing_guarded_fields_is_flagged(tmp_path: Path) -> None:
+    path = _write_trade(
+        tmp_path,
+        _trade_text(order_price_guard_yen=1050, order_quantity=200),
+    )
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.guarded-max-missing-field" in codes
+
+
+def test_price_guarded_order_requires_positive_quantity(tmp_path: Path) -> None:
+    path = _write_trade(
+        tmp_path,
+        _trade_text(
+            order_price_guard_yen=1050,
+            order_quantity=0,
+            guarded_max_notional_yen=210000,
+            guarded_max_real_concentration_pct=42.0,
+        ),
+    )
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.order-quantity-non-positive" in codes
+
+
+def test_guarded_max_notional_must_match_guard_times_quantity(tmp_path: Path) -> None:
+    path = _write_trade(
+        tmp_path,
+        _trade_text(
+            order_price_guard_yen=1050,
+            order_quantity=200,
+            guarded_max_notional_yen=202800,
+            guarded_max_real_concentration_pct=42.0,
+        ),
+    )
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.guarded-max-notional-mismatch" in codes
+
+
+def test_guarded_max_real_concentration_must_match_guarded_notional(tmp_path: Path) -> None:
+    path = _write_trade(
+        tmp_path,
+        _trade_text(
+            order_price_guard_yen=1050,
+            order_quantity=200,
+            guarded_max_notional_yen=210000,
+            guarded_max_real_concentration_pct=10.0,
+        ),
+    )
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.guarded-max-real-concentration-mismatch" in codes
+
+
+def test_guarded_max_tactical_concentration_is_required_with_tactical_capital(
+    tmp_path: Path,
+) -> None:
+    path = _write_trade(
+        tmp_path,
+        _trade_text(
+            order_price_guard_yen=1050,
+            order_quantity=200,
+            guarded_max_notional_yen=210000,
+            guarded_max_real_concentration_pct=4.2,
+            real_capital_yen=5000000,
+            real_order_notional_yen=202800,
+            real_concentration_pct=4.06,
+            tactical_capital_yen=1000000,
+            tactical_concentration_pct=20.28,
+        ),
+    )
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.guarded-max-tactical-concentration-missing-field" in codes
+
+
+def test_guarded_max_tactical_concentration_must_match_guarded_notional(
+    tmp_path: Path,
+) -> None:
+    path = _write_trade(
+        tmp_path,
+        _trade_text(
+            order_price_guard_yen=1050,
+            order_quantity=200,
+            guarded_max_notional_yen=210000,
+            guarded_max_real_concentration_pct=4.2,
+            guarded_max_tactical_concentration_pct=40.0,
+            real_capital_yen=5000000,
+            real_order_notional_yen=202800,
+            real_concentration_pct=4.06,
+            tactical_capital_yen=1000000,
+            tactical_concentration_pct=20.28,
+        ),
+    )
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.guarded-max-tactical-concentration-mismatch" in codes
+
+
+def test_guarded_max_real_concentration_above_hard_cap_is_error(tmp_path: Path) -> None:
+    path = _write_trade(
+        tmp_path,
+        _trade_text(
+            order_price_guard_yen=3000,
+            order_quantity=100,
+            guarded_max_notional_yen=300000,
+            guarded_max_real_concentration_pct=60.0,
+            real_capital_yen=500000,
+            real_order_notional_yen=100000,
+            real_concentration_pct=20.0,
+        ),
+    )
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.guarded-max-real-concentration-hard-cap" in codes
+
+
+def test_guarded_max_real_concentration_above_soft_cap_is_warning(tmp_path: Path) -> None:
+    path = _write_trade(
+        tmp_path,
+        _trade_text(
+            order_price_guard_yen=3000,
+            order_quantity=100,
+            guarded_max_notional_yen=300000,
+            guarded_max_real_concentration_pct=30.0,
+            real_capital_yen=1000000,
+            real_order_notional_yen=200000,
+            real_concentration_pct=20.0,
+        ),
+    )
+    findings = validate_trade_file(path)
+    soft_cap_warnings = [
+        f for f in findings if f.code == "trade.guarded-max-real-concentration-soft-cap"
+    ]
+    assert soft_cap_warnings
+    assert soft_cap_warnings[0].severity == "warning"
 
 
 def test_filename_date_must_match_order_date(tmp_path: Path) -> None:

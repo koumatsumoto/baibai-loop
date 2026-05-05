@@ -278,6 +278,14 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
   - [ ] 一時的な投入上限を置く場合、`real_capital_yen` を小さくせず `tactical_capital_yen` /
         `tactical_concentration_pct` に分離したか (validator: `trade.tactical-concentration-*`)
   - [ ] `real_concentration_pct` の hard cap (50%) 超過は error / soft cap (25%) 超過は warning (validator: `trade.real-concentration-{hard,soft}-cap`)
+  - [ ] `order_price_guard_yen` を置く場合、`order_quantity` / `guarded_max_notional_yen` /
+        `guarded_max_real_concentration_pct` を記録し、`guarded_max_notional_yen =
+        order_price_guard_yen * order_quantity` と整合させたか。`tactical_capital_yen` がある場合は
+        `guarded_max_tactical_concentration_pct` も記録したか
+        (validator: `trade.guarded-max-*`)
+  - [ ] 価格 guard が参照価格より高い場合でも、guarded max real / tactical concentration が
+        record 上で確認できるか。guarded max real concentration の hard / soft cap finding
+        (validator: `trade.guarded-max-real-concentration-{hard,soft}-cap`) を確認したか
   - [ ] `position_size_oku` / `adv_participation_pct` は paper proxy の検証であり、実資金集中度の検証ではない
 - [ ] research の `overrides` 配列を導入・変更する場合、以下を確認したか:
   - [ ] type が `decision_flip` / `candidate_absence` / `universe_drop` / `real_concentration_cap` / `gate_headwind` の既知集合に属する (validator: `research.override-unknown-type`)
