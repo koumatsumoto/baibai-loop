@@ -1,7 +1,7 @@
 # 2026-05-06 E2E Regeneration
 
 This directory records the current end-to-end regeneration exercise for the
-domain model PR. It is not a migration audit trail.
+domain model PR.
 
 ## Current As-Of
 

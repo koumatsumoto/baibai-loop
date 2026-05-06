@@ -86,4 +86,4 @@ Baibai-Loop では `evidence hit` を使います。`evidence hit` は candidate
 
 `relative return attribution` は、review outcome を absolute return だけでなく market / sector baseline に対する relative return として評価することです。Bull / bear regime の beta を playbook alpha と誤認しないために使います。
 
-`investment benchmark` は TOPIX や業種指数など投資成果の比較対象です。`regression benchmark` は schema / validator / migration の business invariants を検査する fixture 群です。両者は別概念です。
+`investment benchmark` は TOPIX や業種指数など投資成果の比較対象です。`regression benchmark` は schema / validator / business rule の invariants を検査する fixture 群です。両者は別概念です。
