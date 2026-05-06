@@ -177,6 +177,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="allow fetching latest JPX regulation data for a stale backfill asof",
     )
+    run_parser.add_argument(
+        "--output-path",
+        help=(
+            "write candidates YAML to this path instead of the canonical "
+            "records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml path"
+        ),
+    )
+    run_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite an existing candidates YAML output path",
+    )
 
     bootstrap_parser = subparsers.add_parser(
         "bootstrap-cache",
@@ -278,6 +290,13 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     select_parser.add_argument(
+        "--candidates",
+        help=(
+            "candidates YAML path to rank (default: "
+            "records/04-candidates/<YYYY>/<MM>/<YYYY-MM-DD>.yaml)"
+        ),
+    )
+    select_parser.add_argument(
         "--top",
         type=int,
         default=10,
@@ -297,6 +316,7 @@ def main(argv: list[str] | None = None) -> int:
         # needed.
         return select_command(
             asof_date=_parse_iso_date(args.asof),
+            candidates_path=Path(args.candidates) if args.candidates else None,
             outlook_path=Path(args.outlook) if args.outlook else None,
             top=args.top,
         )
@@ -372,6 +392,8 @@ def main(argv: list[str] | None = None) -> int:
             providers,
             rules=load_screening_rules(config.rules_path),
             allow_stale_jpx=args.allow_stale_jpx,
+            output_path=Path(args.output_path) if args.output_path else None,
+            force=args.force,
         )
 
     if args.command == "bootstrap-cache":
@@ -414,10 +436,12 @@ def run_command(
     rules: ScreeningRules | None = None,
     now: datetime | None = None,
     allow_stale_jpx: bool = False,
+    output_path: Path | None = None,
+    force: bool = False,
 ) -> int:
-    output_path = build_output_path(asof_date)
+    output_path = output_path or build_output_path(asof_date)
     rules = rules or load_screening_rules(config.rules_path)
-    if output_path.exists():
+    if output_path.exists() and not force:
         print(f"output already exists: {output_path}", file=sys.stderr)
         return 1
 
@@ -737,6 +761,7 @@ def select_command(
     *,
     asof_date: date,
     outlook_path: Path | None,
+    candidates_path: Path | None = None,
     top: int,
     candidates_root: Path | None = None,
     outlook_root: Path | None = None,
@@ -752,7 +777,7 @@ def select_command(
     outlook_root = outlook_root or Path("records/03-outlook")
     rules = rules or load_screening_rules(_rules_path_from_env())
 
-    candidates_path = (
+    candidates_path = candidates_path or (
         candidates_root / f"{asof_date:%Y}" / f"{asof_date:%m}" / f"{asof_date:%Y-%m-%d}.yaml"
     )
     if not candidates_path.exists():

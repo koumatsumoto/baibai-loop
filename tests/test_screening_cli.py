@@ -256,6 +256,50 @@ class ScreeningCliTests(unittest.TestCase):
             finally:
                 os.chdir(cwd)
 
+    def test_run_command_can_write_custom_output_path_with_force(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = Path.cwd()
+            try:
+                os_path = Path(tmpdir)
+                import os
+
+                os.chdir(os_path)
+                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                providers = ProviderBundle(
+                    jquants=FakeJQuantsProvider(),
+                    edinet=FakeEDINETProvider(),
+                    jpx=FakeJPXProvider(),
+                )
+                output_path = Path("records/_benchmarks/e2e/candidates.yaml")
+                exit_code = run_command(
+                    date(2026, 4, 24),
+                    config,
+                    providers,
+                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    output_path=output_path,
+                )
+                self.assertEqual(exit_code, 2)
+                self.assertTrue(output_path.exists())
+                rejected = run_command(
+                    date(2026, 4, 24),
+                    config,
+                    providers,
+                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    output_path=output_path,
+                )
+                self.assertEqual(rejected, 1)
+                overwritten = run_command(
+                    date(2026, 4, 24),
+                    config,
+                    providers,
+                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    output_path=output_path,
+                    force=True,
+                )
+                self.assertEqual(overwritten, 2)
+            finally:
+                os.chdir(cwd)
+
     def test_run_command_omits_edinet_source_when_optional_provider_is_absent(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
@@ -802,6 +846,44 @@ class SelectCommandTests(unittest.TestCase):
             )
             self.assertEqual(payload["candidates"][0]["position_tier"], "200-500")
             self.assertEqual(payload["candidates"][1]["position_tier"], "500-1000")
+
+    def test_select_command_accepts_explicit_candidates_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            canonical = self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "custom path",
+                        "sector_33": "機械",
+                        "market_cap_oku": 600,
+                        "evidence_hits": [{"name": "valuation-reversion"}],
+                    }
+                ],
+            )
+            custom = root / "records/_benchmarks/e2e/custom-candidates.yaml"
+            custom.parent.mkdir(parents=True)
+            custom.write_text(canonical.read_text(encoding="utf-8"), encoding="utf-8")
+            canonical.unlink()
+            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "supportive"})
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                candidates_path=custom,
+                top=10,
+                outlook_root=root / "records/03-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            self.assertEqual(payload["candidates_ref"], str(custom))
+            self.assertEqual([item["ticker"] for item in payload["candidates"]], ["1111"])
 
     def test_select_recommends_lane_diversified_candidates_before_global_rank(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
