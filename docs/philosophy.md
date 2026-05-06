@@ -36,24 +36,27 @@ Baibai-Loop は、日本株スイングトレードの精度を売買反復で�
 - **front matter で `type: fact/analysis` を切り分け**: 同ファイル内で混在する構造がそもそも汚染を許す。ファイル単位で分けないと「解釈ファイルを AI に見せない」運用が成立しない
 - **1 ファイル内で章節を分ける**: 事実節と解釈節の間に書き換えが混入するリスク。特に AI 支援ではファイル単位で touch される前提で考えるとリスクが高い
 
-### 柱 2: マクロ優位 (76/24)
+### 柱 2: Macro regime discipline
 
 #### (a) 信念
 
-トレード判断は **マクロ × ミクロ** の組み合わせだが、比重は **76% : 24%** とする。長期トレンド（マクロ）がなければ割安検出（ミクロ）は機能しない。この比率は運用途中で動かさない。
+トレード判断では、security-level の割安さだけでなく、macro / sector regime を必ず gate として扱う。`macro 76% / security-level 24%` は、判断時に割く attention / review time / cognitive budget の policy weight を表す説明補助であり、採用可否や position size を直接計算する比率ではない。
+
+Validator-visible な採用可否と sizing cap は、macro regime gate と portfolio policy が担う。
 
 #### (b) そう信じる根拠
 
 - **逆風下の割安は構造的 trap**: マクロ逆風業種の個別銘柄が割安でも、構造的に売られ続ける（valuation trap）。短期のリバウンドはあっても中期の戻りが期待できない
 - **Top-down の合理性**: 世界情勢 → 日本経済 → 日本株 の階層で判断することは、マクロショックの transmission パスと一致している
 - **底値狙いの性質**: 「一時的に過剰に売られている」の「過剰」を判定するには、マクロトレンドが追い風であることの確認が前提
+- **実装可能性**: 注意配分は思想として固定し、実際の gate / cap は outlook、portfolio policy、research の構造 field で検査するほうが再現性が高い
 
 #### (c) 却下した対立案
 
-- **50/50**: macro と micro の重みが同等だと、macro 逆風下の micro 割安を拾う危険が残る。比重で優位を明示しないと運用時に流される
-- **90/10**: macro 一辺倒。個別銘柄の変動情報を活用しきれない。短期スイングにはマクロ 100% は粗すぎる
+- **Macro を prose の注意喚起だけにする**: macro 逆風下の割安を拾う危険が残る。Macro regime gate と portfolio policy の cap に落とす必要がある
+- **Macro だけで候補を決める**: 個別銘柄の valuation、fundamental、catalyst、liquidity を活用しきれない。短期スイングには粗すぎる
 - **動的 weight（機械学習による調整）**: candidate 数が 3 桁に満たない 1 人運用では、weight 学習の統計的根拠が出ない。学習データ不足で over-fit するリスク
-- **比率を明示せず「総合判断」とする**: 運用時に「今回は macro より micro を重視」の判断ブレが起きる。数値で固定するほうが規律が保てる
+- **比率を position sizing の数式にする**: attention policy と execution cap が混ざり、あとから sizing の妥当性を再検証しにくい
 
 ### 柱 3: Feedback loop 先行
 
@@ -71,7 +74,7 @@ Baibai-Loop は、日本株スイングトレードの精度を売買反復で�
 
 - **完成設計 → 運用開始**: 設計に時間をかけすぎて、実運用に届くまでに構造が陳腐化するリスク
 - **Event Store / Feature Store の先行導入**: 1 人運用で YAGNI、schema migration コストが運用開始を遅らせる
-- **設計凍結なしに実運用**: 構造なしに loop を回すと、何が記録されるべきか不定で混乱する。**最低限の構造**（4 成分 + front matter）で開始し、内容は育てる
+- **設計凍結なしに実運用**: 構造なしに loop を回すと、何が記録されるべきか不定で混乱する。**最低限の lifecycle と front matter** で開始し、内容は育てる
 
 ### 柱 4: Markdown / YAML 駆動
 
@@ -94,30 +97,37 @@ DB / Feature Store を先行導入しない。**front matter が揃った Markdo
 - **Notion / Airtable 等外部ツール**: vendor lock-in、git 統合困難、料金、AI 支援時の access 手続きなど運用課題が多い
 - **最初から RDB + ORM**: 1 人運用の YAGNI 極致。運用で必要になるまで導入しない
 
-## 3. なぜ 4 成分か（3 層ではなく斜交 2×2）
+## 3. なぜ lifecycle loop か（3 層の階層モデルではない）
 
-事実層と分析層を **マクロ/ミクロ で斜交配置** した 4 成分で構成する。階層的 3 層モデルではない。
+Baibai-Loop は、単純な「事実 → 解釈 → 判断」の 3 層モデルではなく、portfolio policy から review attribution までの lifecycle loop として扱う。
 
+```text
+portfolio policy
+  -> brief
+  -> outlook
+  -> candidates
+  -> research
+  -> trades
+  -> reviews
+  -> playbooks
+  -> candidates
 ```
-              マクロ軸                 ミクロ軸
-事実軸   (a) brief               (b) candidates
-分析軸   (c) outlook             (d) research
-```
 
-- **a↔c ペア（マクロ）**: brief（事実）が積み上がって outlook（見解）になる
-- **b↔d ペア（ミクロ）**: candidates（事実）からの選定で research（分析）が作られる
-- **a↔b ペア（事実層）**: マクロとミクロの事実は並行して蓄積される
-- **c↔d ペア（分析層）**: outlook × research の統合が売買判断を生む
+- **policy**: 目的、制約、資本、許容リスク、time horizon を固定する
+- **brief / candidates**: fact layer。Macro / market observations と security-level screen output を分ける
+- **outlook / research**: analysis layer。Macro regime view と investment memo を分ける
+- **trades**: execution record。判断を実行したか、できなかったかを記録する
+- **reviews / playbooks**: outcome attribution を playbook feedback に戻す
 
-階層的 3 層（事実 → 解釈 → 判断）だと、マクロとミクロが同じ層で混ざり、責務が重なる。事実と分析は独立した 2 本のトラック（マクロ事実 → マクロ見解 / ミクロ事実 → ミクロ分析）として存在し、**統合は research の中で起こる**。斜交配置のほうが責務境界が自然になる。
+階層的 3 層（事実 → 解釈 → 判断）だけだと、macro regime、security-level thesis、execution、review attribution が同じ「判断」層に混ざり、責務が重なる。Lifecycle loop として分けるほうが、どこで候補を拾い、どこで落とし、どこで改善するかを追いやすい。
 
-## 4. なぜ 2 トラック（macro 独立 + micro 売買ループ）か
+## 4. なぜ 2 トラック（macro 独立 + security-level 売買ループ）か
 
 ### (a) Macro track（独立）
 
 `brief → outlook` は **売買イベントと独立に更新される**。CPI / BOJ / FOMC などのマクロイベントは売買の有無に関わらず発生し、記録される必要がある。
 
-### (b) Micro track（売買ループ）
+### (b) Security-level track（売買ループ）
 
 `candidates → research → trades → reviews` は **売買判断と連動する** ループ。screening 実行 → 選定 → 深掘り → 採用 → 執行 → 検証 → retro feedback。
 
@@ -125,21 +135,23 @@ DB / Feature Store を先行導入しない。**front matter が揃った Markdo
 
 research は:
 
-- **入力**: 最新 candidates（ミクロ事実）+ 最新 outlook（マクロ見解）
-- **出力**: 個別銘柄の深掘り packet + 採用判定
+- **入力**: 最新 candidates（security-level screen output）+ 最新 outlook（macro regime view）+ portfolio policy
+- **出力**: investment memo と採用可否、position sizing、execution への接続
 
-outlook がなければ research が作れない。これは、マクロ見解なしに個別銘柄を評価しないという柱 2（マクロ優位 76/24）の帰結である。
+outlook がなければ research が作れない。これは、macro regime なしに個別銘柄を評価しないという柱 2 の帰結である。
 
 ## 5. 用語選定の思想
 
-4 成分の名前は、**役割を一語で表す** ことと **投資業界の慣習** を両立する。
+主要 artifact の名前は、**役割を一語で表す** ことと **投資業界の慣習** を両立する。
 
-| 成分 | 名前 | 採用理由 | 却下案 |
+| Artifact | 名前 | 採用理由 | 却下案 |
 | --- | --- | --- | --- |
-| a | `brief` | 「short fact+points doc」の業界標準語。journal（時系列ログ）より役割に忠実 | journal（log 含意が強い）、record、ledger |
-| b | `candidates` | 機械的ふるいで残った銘柄群というデータの実体を直接表す。フェーズ名 (brief / outlook / research) と粒度が揃う | screened（動詞由来で粒度不一致）、screening（プロセス感）、filtered |
-| c | `outlook` | humble、更新しやすい。"strategy" は大げさ、"thesis" は academic | strategy（大げさ）、thesis（重い）、perspective |
-| d | `research` | 業界標準、「仮説を立てて検証する」ワークフローと整合 | deep-dive（2 語）、investigation（堅い）、analysis（generic）、memo（軽い） |
+| `brief` | brief | 「short fact+points doc」の業界標準語。journal（時系列ログ）より役割に忠実 | journal（log 含意が強い）、record、ledger |
+| `candidates` | candidates | 機械的ふるいで残った銘柄群というデータの実体を直接表す | screened（動詞由来で粒度不一致）、screening（プロセス感）、filtered |
+| `outlook` | outlook | humble、更新しやすい。"strategy" は大げさ、"thesis" は academic | strategy（大げさ）、thesis（重い）、perspective |
+| `research` | investment memo | 業界標準の memo 形式に寄せつつ、repository path としては research を維持できる | deep-dive（2 語）、investigation（堅い）、analysis（generic） |
+| `trades` | execution record | trade / order / fill / cancellation を execution layer として扱える | entry log（entry に偏る）、order log（約定後の position を扱いにくい） |
+| `reviews` | attribution review | outcome を evidence、macro gate、sizing、execution、playbook に帰属できる | retro only（事後集計に偏る）、postmortem（失敗だけに見える） |
 
 ## 6. 意図的に未自動化のまま残しているもの
 

@@ -52,7 +52,7 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 ### 2.5 Universe 条件
 
 - 時価総額 100 億円以上 + 売買代金 1 億円以上（[`/docs/screening/universe-rules.md`](/docs/screening/universe-rules.md)）
-- signal 数別 position 上限（single signal 1%、複数 signal 2%）
+- evidence path 数別 position 上限（single evidence path 1%、複数 independent evidence paths 2%）
 
 ## 3. 修飾因子
 
@@ -85,8 +85,8 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
 ## 6. Position sizing
 
-- signal 数別上限（[`/docs/screening/universe-rules.md`](/docs/screening/universe-rules.md)）に従う
-- single signal: 最大 1%、複数 signal: 最大 2%、`adv_participation_pct >= 5.0` は hard reject
+- evidence path 数別上限（[`/docs/screening/universe-rules.md`](/docs/screening/universe-rules.md)）に従う
+- single evidence path: 最大 1%、複数 independent evidence paths: 最大 2%、`adv_participation_pct >= 5.0` は hard reject
 
 ## 7. Kill switch 確認
 

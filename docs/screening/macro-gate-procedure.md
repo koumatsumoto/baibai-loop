@@ -1,11 +1,11 @@
 # screening/macro-gate-procedure.md
 
-Baibai-Loop の **Macro gate 判定手順**。research の front matter `macro_gate` を決める手順で、`(c) records/02-outlook/` を唯一の source として運用する。
+Baibai-Loop の **Macro gate 判定手順**。research の front matter `macro_gate` を決める手順で、`records/02-outlook/` を唯一の source として運用する。
 
 ## 1. 位置付け
 
-- 4 成分アーキテクチャの (c) `records/02-outlook/` と (d) `records/04-research/` の接続点
-- philosophy 柱 2（マクロ優位 76/24）を具体運用に落とす rule
+- `records/02-outlook/` と `records/04-research/` の接続点
+- philosophy 柱 2（macro regime discipline）を具体運用に落とす rule
 - research 採用判定の**必須通過ゲート**
 
 ## 2. 判定の 3 段階
@@ -13,7 +13,7 @@ Baibai-Loop の **Macro gate 判定手順**。research の front matter `macro_g
 | 判定 | 意味 | research 採用可否 |
 | --- | --- | --- |
 | `tailwind` | 追い風 | 優先採用 |
-| `neutral` | 中立 | 条件付き採用（ミクロの confidence が高い場合） |
+| `neutral` | 中立 | 条件付き採用（security-level confidence が高い場合） |
 | `headwind` | 逆風 | **原則採用不可**（valuation trap リスク） |
 
 ## 3. 判定手順
@@ -113,4 +113,4 @@ brief_refs:
 - [`principles.md`](./principles.md): スクリーニング原則
 - [`../components/outlook.md`](../components/outlook.md): outlook 運用仕様
 - [`../components/research.md`](../components/research.md): research 選定プロセス
-- [`../philosophy.md`](../philosophy.md): 思想（マクロ優位 76/24）
+- [`../philosophy.md`](../philosophy.md): 思想（macro regime discipline）

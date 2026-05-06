@@ -1,6 +1,6 @@
 # records/01-brief/
 
-4 成分アーキテクチャの **(a) マクロ事実ブリーフ** を蓄積するディレクトリ。世界情勢・日本経済・業種動向の一次情報を、短い事実 + 要点として時系列で記録する。
+Decision lifecycle の **macro / market observations** を蓄積するディレクトリ。世界情勢・日本経済・業種動向の一次情報を、短い事実 + 要点として時系列で記録する。
 
 - **独立トラック**: 売買ループ（candidates → research → trade → review）から独立して積み上がる
 - **アーキテクチャ上の位置付け**: `brief` を source とし、[`records/02-outlook/`](/docs/components/outlook.md) がマクロ見解を構築する
@@ -59,14 +59,14 @@ next_events: [...]
 ## 運用ルール
 
 - 思想・ベースの考え方: [`../docs/philosophy.md`](/docs/philosophy.md)
-- アーキテクチャ正本: [`../docs/architecture.md`](/docs/architecture.md)
+- アーキテクチャ正本: [`../docs/architecture/system-overview.md`](/docs/architecture/system-overview.md)
 - 設計原則: [`../docs/design-principles.md`](/docs/design-principles.md)
 - 日次 template: [`../docs/templates/brief-world-daily.yaml`](/docs/templates/brief-world-daily.yaml)
 - 週次 template: [`../docs/templates/brief-world-weekly.yaml`](/docs/templates/brief-world-weekly.yaml)
 - 月次 template: [`../docs/templates/brief-japan-monthly.yaml`](/docs/templates/brief-japan-monthly.yaml)
 - 不定期 template: [`../docs/templates/brief-event.yaml`](/docs/templates/brief-event.yaml)
-- 更新頻度・引用形式: [`../docs/workflow.md`](/docs/workflow.md)
-- 作成前の欠損確認: [`../docs/workflow.md#brief-作成前の欠損確認`](/docs/workflow.md#brief-作成前の欠損確認)
-- データソース: [`../docs/data-sources.md`](/docs/data-sources.md)
+- 更新頻度・引用形式: [`../docs/components/brief.md`](/docs/components/brief.md)
+- 作成前の欠損確認: [`../docs/operations/brief-runbook.md#brief-作成前の欠損確認`](/docs/operations/brief-runbook.md#brief-作成前の欠損確認)
+- データソース: [`../docs/reference/data-sources.md`](/docs/reference/data-sources.md)
 
 INDEX ファイルは設けない。一覧は `git ls-files records/01-brief/` または GitHub ツリーで確認する。

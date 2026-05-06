@@ -5,7 +5,7 @@ Baibai-Loop の **execution record / trades** 成分の運用仕様。investment
 ## 1. 役割
 
 - `records/04-research/` で採用判定された packet の **entry / exit / position / P&L を記録**
-- 実際に order / entry した場合のみ生成。見送り / 保留 / approved-but-not-submitted は trade ではなく decision register / review attribution 側で扱う
+- 実際に order / entry した場合のみ生成。見送り / 保留 / 採用したが発注しなかった候補は trade ではなく ledger / review attribution 側で扱う
 - `records/06-reviews/` 作成の source
 
 ## 2. 頻度

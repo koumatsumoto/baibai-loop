@@ -44,7 +44,7 @@ research 対象に選んだ銘柄は、業種を問わず **会社IRを一次情
 
 ### 2.3 複数 screen hit の扱い
 
-research file の `playbook` は primary thesis を 1 つだけ選ぶ。複数 screen が hit した場合は、`select` の `selection_lane`、macro gate、最も検証したい割安仮説を見て primary を決め、残りは `supporting_signals` と本文「Candidate evidence + valuation snapshot」に列挙する。`recommendation_lane` は lane 分散の選定理由であり、primary thesis ではない。
+research file の `playbook` は primary thesis を 1 つだけ選ぶ。複数 screen が hit した場合は、`select` の `selection_lane`、macro gate、最も検証したい割安仮説を見て primary を決め、残りは `supporting_signals` と本文「Candidate evidence + valuation snapshot」に列挙する。`supporting_signals` は field 名として残るが、概念上は supporting evidence を表す。`recommendation_lane` は lane 分散の選定理由であり、primary thesis ではない。
 
 複数 screen hit は採用理由ではなく、検証優先度を上げる材料である。例えば cash-rich と CF が両方 hit しても、有利子負債・運転資本・一過性 CF を一次情報で確認できなければ accepted にしない。
 
@@ -145,7 +145,7 @@ valuation:
 7. Price reaction
 8. Positioning / liquidity
 9. 株主還元確認（配当政策 / 自社株買い / DOE or 配当性向 / 減配リスク）
-10. ミクロ 4 軸寄与度表
+10. Security-level evidence contribution table
 11. Entry 条件
 12. Exit 条件
 13. Invalidation + Pre-mortem
@@ -202,7 +202,7 @@ research_ref: records/04-research/2026/05/2026-05-10-7203-valuation-reversion.md
 | 7 | Price reaction 機械集計 | ○ | |
 | 8 | Positioning / liquidity 指標取得 | ○ | |
 | 9 | 株主還元確認ドラフト | ○ | 一次ソース確認 |
-| 10 | 4 軸寄与度初期評価 | ○ | 確定 |
+| 10 | Security-level evidence contribution 初期評価 | ○ | 確定 |
 | 11 | Entry 条件ドラフト | ○ | 確定 |
 | 12 | Exit 条件ドラフト | ○ | 確定 |
 | 13 | Invalidation / Pre-mortem ドラフト | ○ | 採用条件確定 |
@@ -226,7 +226,7 @@ AI 下書きは front matter `ai-draft: true` で識別、人間確認後 `false
 
 ## 9. 参考
 
-- [`../philosophy.md`](../philosophy.md): 思想（マクロ優位、事実と分析の分離）
+- [`../philosophy.md`](../philosophy.md): 思想（macro regime discipline、事実と分析の分離）
 - [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
 - [`../concepts.md`](../concepts.md): 投資判断ドメインモデル
 - [`candidates.md`](./candidates.md): source となる candidates の仕様

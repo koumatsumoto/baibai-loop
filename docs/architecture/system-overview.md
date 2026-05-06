@@ -42,7 +42,7 @@ flowchart LR
 
 Macro track は売買イベントと独立して `brief -> outlook` を更新します。Security-level track は `candidates -> research -> trades -> reviews` で売買判断と feedback を扱います。統合点は investment memo です。
 
-`policy weight` としての macro 76 / micro 24 は attention / review time / cognitive budget の説明補助です。Validator-visible な採用可否と sizing cap は macro regime gate と portfolio policy が担います。
+`policy weight` としての macro 76 / security-level 24 は attention / review time / cognitive budget の説明補助です。Validator-visible な採用可否と sizing cap は macro regime gate と portfolio policy が担います。
 
 ## スコープ
 

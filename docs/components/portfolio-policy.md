@@ -11,7 +11,7 @@ related_docs:
 
 # Portfolio policy
 
-Portfolio policy は、Baibai-Loop の判断ループより上流にある self-directed governance artifact です。目的、制約、資本、許容リスク、time horizon、eligible universe、liquidity constraints、kill switch を明文化し、research / trade がその時点の policy snapshot を参照できるようにします。
+Portfolio policy は、Baibai-Loop の判断ループより上流にある self-directed governance artifact です。目的、制約、資本、許容リスク、time horizon、eligible universe、liquidity constraints、kill switch を明文化し、research / trade が判断時点の policy assumptions を検証できるようにします。
 
 Baibai-Loop は投資助言サービスではありません。Portfolio policy は他者に運用を委任する mandate ではなく、自分の裁量判断を後から検証するための統制文書です。
 
@@ -21,7 +21,7 @@ Baibai-Loop は投資助言サービスではありません。Portfolio policy 
 - Real capital、tactical real budget、paper proxy capital を分ける。
 - 最大 concentration、liquidity cap、time stop、kill switch、eligible universe を定義する。
 - Macro adverse の扱い、minimum payoff、risk/reward の下限など、research / trade が守る guardrail を定義する。
-- 後続 artifact が参照した policy snapshot を再現できるようにする。
+- 後続 artifact が使った policy assumptions を再現できるようにする。
 
 ## 対象外
 
@@ -59,4 +59,4 @@ Portfolio policy は「この条件下でどの程度のリスクを許すか」
 
 ## Snapshot Principle
 
-Portfolio policy は immutable snapshot として扱います。Research、decision register、trades は、参照した policy snapshot を object として持ちます。後から policy が変わっても、当時の判断条件は書き換えません。
+Portfolio policy は governance component として扱います。現在の lifecycle では、capital / risk / liquidity の判断条件を research、ledger、trades の各 artifact に記録される field で監査します。後から policy が変わっても、当時の判断条件として記録された artifact field は書き換えません。

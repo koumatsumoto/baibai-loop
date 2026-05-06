@@ -14,7 +14,7 @@ related_docs:
 
 `portfolio policy` は、自己運用における目的、制約、資本、許容リスク、time horizon、eligible universe、liquidity constraints、kill switch をまとめる統制文書です。CFA の IPS に近い考え方ですが、Baibai-Loop は投資助言サービスではなく、自己判断を後から検証するための audit discipline として使います。
 
-`policy snapshot` は research / trade / ledger が参照した時点の immutable policy です。あとで policy が変わっても、当時の判断条件を再現できるようにします。
+`policy snapshot` は research / trade / ledger に記録された、その判断時点の policy assumptions です。あとで policy が変わっても、当時の判断条件を再現できるようにします。
 
 `mandate` は委任運用の語感が強いため、Baibai-Loop の正準語にはしません。外部文献の説明では使えますが、repo 内の canonical label は `portfolio policy` です。
 
@@ -86,11 +86,11 @@ Baibai-Loop では `evidence hit` を使います。`evidence hit` は candidate
 
 ## Decision Register
 
-`decision register` は candidate-level、research-level、execution-level の判断イベントを append-only に記録する register です。Candidates の current state を上書きするものではなく、screening 後の判断履歴の正本です。
+`decision register` は判断イベントを append-only に記録する register です。Baibai-Loop では `records/_ledger/` が research decision と tracking event の正本です。Candidates の screen fact、trades の execution record、reviews の attribution record とは分けます。
 
 ## Missed Opportunity / Screening False Negative
 
-`missed opportunity tracking` は、rejected / deferred / approved-but-not-submitted candidates が後から良い relative return を出したかを追跡する概念です。
+`missed opportunity tracking` は、見送り、保留、採用したが発注しなかった候補が後から良い relative return を出したかを追跡する概念です。
 
 `screening false negative tracking` は、screening に入ったが hit しなかった、rank 外だった、または gate で落ちた universe member が後から相対的に良い成績を出したかを追跡する概念です。見送った候補だけでなく、screening rule 自体の取りこぼしを改善するために使います。
 

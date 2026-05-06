@@ -1,6 +1,6 @@
 # screening/universe-rules.md
 
-Baibai-Loop スクリーニングの universe（対象銘柄集合）の境界条件。`(b) records/03-candidates/` の入力となる銘柄 pool を定義する。
+Baibai-Loop スクリーニングの universe（対象銘柄集合）の境界条件。`records/03-candidates/` の入力となる銘柄 pool を定義する。
 
 ## 1. 対象
 

@@ -35,7 +35,7 @@ kill_switch_check:
 
 # Trade: YYYY-MM-DD XXXX [銘柄名]
 
-**成分**: 4 成分アーキテクチャの下流 **trades**（[`/docs/components/trades.md`](/docs/components/trades.md)）
+**成分**: Decision lifecycle の **trades / execution record**（[`/docs/components/trades.md`](/docs/components/trades.md)）
 
 **Research source**: [records/04-research/YYYY/MM/YYYY-MM-DD-*-*.md](...)
 

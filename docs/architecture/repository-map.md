@@ -34,8 +34,8 @@ source_paths:
 | --- | --- | --- |
 | `records/01-brief/` | fact / macro | brief YAML |
 | `records/02-outlook/` | analysis / macro | outlook YAML |
-| `records/03-candidates/` | fact / micro | candidates YAML |
-| `records/04-research/` | analysis / micro | research packet Markdown |
+| `records/03-candidates/` | fact / security-level | candidates YAML |
+| `records/04-research/` | analysis / security-level | research packet Markdown |
 | `records/05-trades/` | downstream | trade record Markdown |
 | `records/06-reviews/` | downstream | individual review と monthly retro |
 
@@ -57,7 +57,8 @@ source_paths:
 | `docs/architecture/` | 現行構造、情報フロー、repository map、automation map、ADR |
 | `docs/components/` | 成果物ごとの contract。既存 `components/*.md` は path と節構造を凍結 |
 | `docs/operations/` | 運用 runbook の入口。component docs から本文を移動しない |
-| `docs/reference/` | data sources、configuration、layout、testing、glossary、Python foundation |
+| `docs/reference/` | data sources、configuration、layout、testing、Python foundation |
+| `docs/glossary/` | 金融一般の意味と Baibai-Loop 固有語 |
 | `docs/governance/` | docs style、review process、ADR process、anti-pattern 運用 |
 | `docs/screening/` | candidates 生成 subsystem の詳細 |
 | `docs/templates/` | artifact 作成用 template |

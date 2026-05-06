@@ -7,7 +7,7 @@ Baibai-Loop の **screen output / candidates** の運用仕様。狭義のスク
 - universe（日本株普通株、時価総額 100 億円以上、20 営業日平均売買代金 1 億円以上）に対し、複数の playbook-linked screen で機械的にふるいをかけ、**ticker-level の raw screen output を事実として記録**
 - 事実層のため解釈は入れない（反対仮説・原因仮説は research 側で行う）
 - Investment memo の出発点として、`records/04-research/` の選定入力となる
-- Playbook hit、policy / liquidity / macro gate の初期結果は screen fact として残す。後続の selected / deferred / rejected などの current decision は decision register に append-only で記録する
+- Playbook hit、policy / liquidity / macro gate の初期結果は screen fact として残す。後続の選定・見送り・保留判断は candidates を上書きせず、research / ledger / review 側の記録で追跡する
 
 ## 2. 頻度
 
@@ -206,7 +206,7 @@ candidates YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行�
 
 ## 9. 参考
 
-- [`../philosophy.md`](../philosophy.md): 思想（事実と分析の分離、マクロ優位）
+- [`../philosophy.md`](../philosophy.md): 思想（事実と分析の分離、macro regime discipline）
 - [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
 - [`../concepts.md`](../concepts.md): 投資判断ドメインモデル
 - [`../screening/`](../screening/): スクリーニングサブシステム詳細

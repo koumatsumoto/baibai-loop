@@ -59,7 +59,7 @@ retro_month: "YYYY-MM"
 total_trades: 整数
 open_trades: 整数
 closed_trades: 整数
-missed_opportunity_candidates: 整数    # 見送り / 保留 / 未実行の追跡対象
+skipped_candidates: 整数              # missed opportunity tracking の対象候補数
 wins: 整数                            # pnl_pct > 0
 losses: 整数                          # pnl_pct < 0
 pnl_pct_sum: 数値
@@ -67,7 +67,7 @@ failure_class_counts:
   材料誤読: 整数
   既に織り込み済み: 整数
   マクロ逆風: 整数
-  混雑: 整数
+  混雑: 整数                          # 概念上は positioning / liquidity risk
   流動性不足: 整数
   ルール違反: 整数                    # 別枠、playbook 改訂の input にしない
 success_class_counts:
@@ -94,7 +94,7 @@ price_missing_counts:
 | 材料誤読 | 一次材料の解釈が誤っていた（例: 上振れが一事業限定だった） |
 | 既に織り込み済み | 採用時点で市場がすでに織り込んでいた |
 | マクロ逆風 | Macro gate 判定の誤り、または gate が途中で反転 |
-| ポジショニング / 流動性 | 空売り残高・日々公表信用・特別注意・出来高不足など positioning / liquidity risk |
+| 混雑（positioning / liquidity） | 空売り残高・日々公表信用・特別注意・出来高不足など positioning / liquidity risk |
 | 流動性不足 | 想定より出来高が伴わず entry/exit が困難 |
 | ルール違反 | playbook / kill switch / position sizing 等のルール違反 |
 
@@ -115,7 +115,7 @@ price_missing_counts:
 
 ## 8. Missed opportunity / screening false negative tracking
 
-- `records/04-research/` で rejected / deferred になった候補、approved だが order submit しなかった候補を、月次 retro で missed opportunity として追跡する
+- `records/04-research/` で見送り / 保留になった候補、採用したが order submit しなかった候補を、月次 retro で missed opportunity として追跡する
 - Screening で no-hit / rank-out / near-threshold / gate excluded になった universe member が後から相対的に良い成績を出した場合、screening false negative として追跡する
 - **追跡タイミング**: candidate 作成日 +15 / +30 営業日時点を基本に、market / sector baseline に対する relative return も見る
 - **追跡方法**: 月次 retro のタイミングでまとめて実施。日次作業に乗せない

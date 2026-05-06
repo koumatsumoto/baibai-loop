@@ -68,8 +68,10 @@ Baibai-Loop は次の concept label で repository lifecycle を説明します�
 | investment memo | `records/04-research/` |
 | execution record | `records/05-trades/` |
 | outcome attribution and feedback review | `records/06-reviews/` |
-| decision and tracking register | `records/_ledger/` |
+| research decision and tracking register | `records/_ledger/` |
 | repeatable thesis patterns | `records/_playbooks/` |
+
+`portfolio policy` は governance component としてこの docs set に置きます。現在の lifecycle では、capital / risk / liquidity の判断条件を research、ledger、trades の各 artifact に記録される field で監査します。
 
 Long-lived context は main lifecycle には含めません。Slow-moving context を扱う場合は、brief / outlook / research へ重複保持せず、lifecycle 外の参照層として扱います。
 
@@ -79,7 +81,7 @@ Long-lived context は main lifecycle には含めません。Slow-moving contex
 - `brief` は fact layer です。一次情報、統計、イベントを記録し、解釈や因果推論を書きません。
 - `outlook` は analysis layer です。brief を source として macro / sector regime を読みます。
 - `candidates` は screen fact layer です。ticker-level の immutable raw screen output を残し、後続の current decision state は上書きしません。
-- `decision register` は candidate-level、research-level、execution-level の判断イベントを append-only に記録する正本です。
+- `records/_ledger/` は research decision と tracking event を append-only に記録する正本です。Candidate は screen fact、trades は execution record、reviews は attribution record として分けます。
 - `research` は investment memo です。Evidence count だけでなく、entry、target、stop、expected upside / downside、risk/reward、time horizon、invalidation conditions を検証します。
 - `trades` は execution record です。実行していない候補を trade と呼びません。
 - `reviews` は outcome attribution / feedback layer です。Absolute return だけでなく relative return、missed opportunity、screening false negative、evidence hit outcome、macro gate attribution、sizing attribution、execution attribution、playbook feedback を扱います。
@@ -98,6 +100,6 @@ Candidate-level / investment memo の evidence hit では、原則として `fun
 
 Review / retro は勝敗の件数集計ではありません。Outcome を playbook、evidence family、macro gate、sizing、execution に帰属させ、次の screening と investment memo を改善する feedback loop です。
 
-Rejected / deferred / approved-but-not-submitted candidates も、missed opportunity として追跡対象になります。Screening が拾わなかった no-hit / rank-out candidates も、後から relative return が大きければ screening false negative として review queue に載せます。
+見送り、保留、採用したが発注しなかった候補も、missed opportunity として追跡対象になります。Screening が拾わなかった no-hit / rank-out candidates も、後から relative return が大きければ screening false negative として review queue に載せます。
 
 この feedback loop が、schema / docs の変更を business value に接続する中心です。

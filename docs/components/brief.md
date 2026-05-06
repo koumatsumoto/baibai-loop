@@ -166,7 +166,7 @@ brief を書いた / 更新した後、commit 前に以下を必ず確認する�
 
 ## 8. 参考
 
-- [`../philosophy.md`](../philosophy.md): 思想（事実と分析の分離、マクロ優位）
+- [`../philosophy.md`](../philosophy.md): 思想（事実と分析の分離、macro regime discipline）
 - [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
 - [`../concepts.md`](../concepts.md): 投資判断ドメインモデル
 - [`../operations/brief-runbook.md`](../operations/brief-runbook.md): brief の運用手順

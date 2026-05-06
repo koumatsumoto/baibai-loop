@@ -63,7 +63,7 @@ layers:
     events: []
 deltas:
   threshold_breaches:
-    # 閾値は docs/workflow.md の「差分データの閾値（週次）」を参照
+    # 閾値は docs/components/brief.md の brief contract を参照
     - severity: notable
       indicator: USD/JPY
       from: "XXX.XX"

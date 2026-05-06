@@ -15,14 +15,14 @@ related_docs:
 
 Baibai-Loop で使うデータソースを、客観性を優先した基準で選定して記録する。ニュース媒体の意見に偏らないよう **一次統計（中央銀行・政府・国際機関）中心** で構成し、一次統計で拾えない地政学イベントのみを補助ソースで補完する。
 
-4 成分アーキテクチャ ([`../architecture/system-overview.md`](../architecture/system-overview.md)) における各成分のデータソース対応:
+Decision lifecycle ([`../architecture/system-overview.md`](../architecture/system-overview.md)) における各 artifact のデータソース対応:
 
-| 成分 | 用途 | 主なソース |
+| Artifact | 用途 | 主なソース |
 | --- | --- | --- |
-| `records/01-brief/` (a) | マクロ事実記録 | Tier 1（日銀・FRB・BLS・BOJ・JPX・FRED 等）+ Tier 2（Reuters / NHK / AP、地政学のみ） |
-| `records/03-candidates/` (b) | 銘柄ふるい・valuation 指標 | J-Quants（銘柄一覧・日足・財務サマリー・決算予定日・営業日カレンダ）+ EDINET（財務諸表補完）+ JPX（特別注意 / 整理 / 取引停止 / 上場廃止警告の除外判定） |
-| `records/02-outlook/` (c) | マクロ見解の組み立て | `records/01-brief/` の積み上げ（外部 API 直接参照なし） |
-| `records/04-research/` (d) | 個別銘柄深掘り | J-Quants + EDINET + TDnet（開示文）+ JPX（資本コスト対応開示一覧）+ 必要時 brief 参照 |
+| `records/01-brief/` | マクロ事実記録 | Tier 1（日銀・FRB・BLS・BOJ・JPX・FRED 等）+ Tier 2（Reuters / NHK / AP、地政学のみ） |
+| `records/03-candidates/` | 銘柄ふるい・valuation 指標 | J-Quants（銘柄一覧・日足・財務サマリー・決算予定日・営業日カレンダ）+ EDINET（財務諸表補完）+ JPX（特別注意 / 整理 / 取引停止 / 上場廃止警告の除外判定） |
+| `records/02-outlook/` | マクロ見解の組み立て | `records/01-brief/` の積み上げ（外部 API 直接参照なし） |
+| `records/04-research/` | 個別銘柄深掘り | J-Quants + EDINET + TDnet（開示文）+ JPX（資本コスト対応開示一覧）+ 必要時 brief 参照 |
 | `records/05-trades/` | 執行記録 | 証券会社からの約定情報（手動記録） |
 | `records/06-reviews/` | 事後検証 | `records/05-trades/` + 対象銘柄の株価推移（J-Quants） |
 

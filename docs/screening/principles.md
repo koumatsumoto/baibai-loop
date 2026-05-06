@@ -2,13 +2,13 @@
 
 Baibai-Loop のスクリーニングサブシステムの設計原則。Candidates、outlook、investment memo のフローに対応するルール集。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md)、概念モデルは [`../concepts.md`](../concepts.md) を参照。
 
-## 1. 4 成分アーキテクチャとの接続
+## 1. Decision lifecycle との接続
 
-| 成分 | スクリーニング側の対応 | この原則集での位置付け |
+| Lifecycle artifact | スクリーニング側の対応 | この原則集での位置付け |
 | --- | --- | --- |
-| (b) `records/03-candidates/` | 機械的ふるい | [`mechanical.md`](./mechanical.md) で仕様化 |
-| (c) `records/02-outlook/` | Macro gate の source | [`macro-gate-procedure.md`](./macro-gate-procedure.md) で手順化 |
-| (d) `records/04-research/` | Playbook + thesis payoff + 採用判定 | 本ファイル + Playbook 本体 |
+| `records/03-candidates/` | 機械的ふるい | [`mechanical.md`](./mechanical.md) で仕様化 |
+| `records/02-outlook/` | Macro gate の source | [`macro-gate-procedure.md`](./macro-gate-procedure.md) で手順化 |
+| `records/04-research/` | Playbook + thesis payoff + 採用判定 | 本ファイル + Playbook 本体 |
 
 ## 2. Macro policy weight と macro regime gate
 
@@ -131,7 +131,7 @@ position は **paper proxy layer (1 億円仮想資本)** と **real layer (実�
 
 ## 10. 参考
 
-- [`../philosophy.md`](../philosophy.md): 思想（マクロ優位、事実と分析の分離、feedback loop 先行、markdown 駆動）
+- [`../philosophy.md`](../philosophy.md): 思想（macro regime discipline、事実と分析の分離、feedback loop 先行、markdown 駆動）
 - [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
 - [`../components/research.md`](../components/research.md): research 運用仕様
 - [`failure-taxonomy.md`](./failure-taxonomy.md): 失敗分類詳細

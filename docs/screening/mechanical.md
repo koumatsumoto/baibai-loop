@@ -4,7 +4,7 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 
 ## 1. 位置付け
 
-- 4 成分アーキテクチャの **(b) records/03-candidates/** の中核
+- Decision lifecycle の **screen output (`records/03-candidates/`)** の中核
 - universe（[`universe-rules.md`](./universe-rules.md)）× valuation / cash / CF / sales 指標（[`valuation-metrics.md`](./valuation-metrics.md)）を入力
 - **通過銘柄 list を事実として出力**（解釈は入れない）
 - research 選定の input となる

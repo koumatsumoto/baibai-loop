@@ -44,7 +44,7 @@ layers:
   japan_equity: {}
 deltas:
   threshold_breaches:
-    # 閾値は docs/workflow.md の「差分データの閾値（月次、macro-monthly 用）」を参照
+    # 閾値は docs/components/brief.md の brief contract を参照
     - severity: major
       indicator: 米 CPI YoY
       from: "+2.4%"

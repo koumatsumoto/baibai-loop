@@ -1,6 +1,6 @@
 # screening/valuation-metrics.md
 
-Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。`(b) records/03-candidates/` と `(d) records/04-research/` の両方で参照される指標の前提を確定する。
+Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。`records/03-candidates/` と `records/04-research/` の両方で参照される指標の前提を確定する。
 
 ## 1. 使用指標
 

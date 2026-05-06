@@ -30,7 +30,7 @@ price_missing_counts:
 
 # Retro: YYYY-MM 月次振り返り
 
-**成分**: 4 成分アーキテクチャの下流 **reviews**（[`/docs/components/reviews.md`](/docs/components/reviews.md)）の月次集約
+**成分**: Decision lifecycle の **reviews / attribution**（[`/docs/components/reviews.md`](/docs/components/reviews.md)）の月次集約
 
 ## Trade 集計
 

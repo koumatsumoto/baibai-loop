@@ -217,7 +217,7 @@ outlook 単体で閉じない範囲の anti-pattern (数値検算、schema 誤�
 
 ## 10. 参考
 
-- [`../philosophy.md`](../philosophy.md): 思想（マクロ優位 76/24）
+- [`../philosophy.md`](../philosophy.md): 思想（macro regime discipline）
 - [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
 - [`../concepts.md`](../concepts.md): 投資判断ドメインモデル
 - [`brief.md`](./brief.md): source となる brief の仕様
