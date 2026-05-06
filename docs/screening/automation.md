@@ -21,12 +21,9 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD --allow-stale-jpx
 python -m baibai_loop.screening.cli bootstrap-cache --start YYYY-MM-DD --end YYYY-MM-DD
 python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--outlook path] [--top N]
 python -m baibai_loop.screening.cli extract-edinet-metrics --asof YYYY-MM-DD [--lookback-days N]
-python -m baibai_loop.screening.cli migrate-cache [--from PATH] [--to PATH] [--dry-run]
 python -m baibai_loop.screening.cli rebuild-cache [--raw-dir PATH] [--sqlite-path PATH]
 python -m baibai_loop.screening.cli verify-raw-cache [--raw-dir PATH] [--max-size-mb N] [--sqlite-path PATH]
 ```
-
-`migrate-cache` は raw JSON cache を任意の `--from` から `--to` へ移動する helper（既存ファイルは上書きしないため idempotent）。
 
 `rebuild-cache` は `records/_data/raw/screening/` 配下の git 管理 raw JSON から派生 SQLite cache (`records/_data/cache/screening/market.sqlite`) を再生成する。実行毎に出力ファイルを削除して書き直すため idempotent。詳細は §11 を参照。
 

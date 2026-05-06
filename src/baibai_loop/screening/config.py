@@ -17,7 +17,6 @@ DEFAULT_CACHE_DIR = Path("records/_data/raw/screening")
 # Gitignored derived caches (SQLite, rebuild temp). Built from the raw JSON
 # under DEFAULT_CACHE_DIR; safe to delete and rebuild on any machine.
 DEFAULT_SQLITE_CACHE_DIR = Path("records/_data/cache/screening")
-LEGACY_CACHE_DIR = Path(".cache/screening")
 JQUANTS_CLIENT_V2_METHODS = (
     "get_eq_master",
     "get_eq_bars_daily_range",

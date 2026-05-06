@@ -19,7 +19,6 @@ from baibai_loop._env import load_project_env
 from .config import (
     DEFAULT_CACHE_DIR,
     DEFAULT_SQLITE_CACHE_DIR,
-    LEGACY_CACHE_DIR,
     ConfigError,
     ScreeningConfig,
 )
@@ -40,7 +39,6 @@ from .metrics import (
     group_bars_by_ticker,
     group_summaries_by_ticker,
 )
-from .migrate import migrate_cache
 from .providers import EDINETProvider, JPXProvider, JQuantsProvider
 from .providers.edinet import (
     EdinetMetricRecord,
@@ -209,28 +207,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="EDINET document-list lookback window in calendar days (default 540)",
     )
 
-    migrate_parser = subparsers.add_parser(
-        "migrate-cache",
-        help="move legacy .cache/screening/ raw JSON to git-tracked records/_data/raw/screening/",
-    )
-    migrate_parser.add_argument(
-        "--from",
-        dest="source",
-        default=str(LEGACY_CACHE_DIR),
-        help=f"source cache dir (default: {LEGACY_CACHE_DIR})",
-    )
-    migrate_parser.add_argument(
-        "--to",
-        dest="destination",
-        default=str(DEFAULT_CACHE_DIR),
-        help=f"destination raw JSON dir (default: {DEFAULT_CACHE_DIR})",
-    )
-    migrate_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="report the planned moves without touching the filesystem",
-    )
-
     rebuild_parser = subparsers.add_parser(
         "rebuild-cache",
         help=(
@@ -319,14 +295,6 @@ def main(argv: list[str] | None = None) -> int:
             candidates_path=Path(args.candidates) if args.candidates else None,
             outlook_path=Path(args.outlook) if args.outlook else None,
             top=args.top,
-        )
-
-    if args.command == "migrate-cache":
-        # migrate-cache only touches the local filesystem; no API tokens needed.
-        return migrate_cache_command(
-            source=Path(args.source),
-            destination=Path(args.destination),
-            dry_run=args.dry_run,
         )
 
     if args.command == "rebuild-cache":
@@ -1261,34 +1229,6 @@ def _index_next_earnings(
         if ticker not in by_ticker or date_iso < by_ticker[ticker]:
             by_ticker[ticker] = date_iso
     return {ticker: date.fromisoformat(value) for ticker, value in by_ticker.items()}
-
-
-def migrate_cache_command(
-    *,
-    source: Path,
-    destination: Path,
-    dry_run: bool = False,
-    stdout: TextIO | None = None,
-) -> int:
-    """Move legacy `.cache/screening/` raw JSON to `records/_data/raw/screening/`.
-
-    The default source / destination match the layout introduced by issue #45.
-    Re-runs are idempotent: existing destination files are skipped, never
-    overwritten. The source tree's empty directories are pruned at the end so
-    the legacy `.cache/screening/` workspace can be removed cleanly.
-    """
-    out = stdout if stdout is not None else sys.stdout
-    if not source.exists():
-        print(f"nothing to migrate: {source} does not exist", file=out)
-        return 0
-    result = migrate_cache(source, destination, dry_run=dry_run)
-    verb = "would move" if dry_run else "moved"
-    print(
-        f"{verb} {len(result.moved)} files ({result.moved_bytes} bytes); "
-        f"skipped {len(result.skipped)} pre-existing files",
-        file=out,
-    )
-    return 0
 
 
 def rebuild_cache_command(
