@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import yaml
@@ -467,6 +467,27 @@ def _check_record_expected(
                     f"fixtures[{index}].expected.rejection_reason",
                 )
             )
+    for field in ("conviction_tier", "independent_evidence_count"):
+        if field in expected and record.get(field) != expected[field]:
+            findings.append(
+                _finding(
+                    path,
+                    f"benchmark.expected-{field.replace('_', '-')}",
+                    f"fixture {field} mismatch",
+                    f"fixtures[{index}].expected.{field}",
+                )
+            )
+    if "real_order_intent_yen" in expected:
+        actual = _nested_value(record, ("position_sizing_overlay", "real_order_intent_yen"))
+        if actual != expected["real_order_intent_yen"]:
+            findings.append(
+                _finding(
+                    path,
+                    "benchmark.expected-real-order-intent-yen",
+                    "fixture real_order_intent_yen mismatch",
+                    f"fixtures[{index}].expected.real_order_intent_yen",
+                )
+            )
     if "target_quantity" in expected:
         intent = record.get("order_intent")
         actual = intent.get("quantity") if isinstance(intent, Mapping) else None
@@ -491,7 +512,28 @@ def _check_record_expected(
                     f"fixtures[{index}].expected.order_price_guard_yen",
                 )
             )
+    for field in ("guarded_max_notional_yen", "estimated_real_order_notional_yen"):
+        if field in expected:
+            actual = _nested_value(record, ("position_sizing_overlay", field))
+            if actual != expected[field]:
+                findings.append(
+                    _finding(
+                        path,
+                        f"benchmark.expected-{field.replace('_', '-')}",
+                        f"fixture {field} mismatch",
+                        f"fixtures[{index}].expected.{field}",
+                    )
+                )
     return findings
+
+
+def _nested_value(record: Mapping[str, object], path: Sequence[str]) -> object:
+    current: object = record
+    for part in path:
+        if not isinstance(current, Mapping):
+            return None
+        current = current.get(part)
+    return current
 
 
 def _check_scan_expected(

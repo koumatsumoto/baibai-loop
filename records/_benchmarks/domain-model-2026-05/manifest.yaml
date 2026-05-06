@@ -53,7 +53,6 @@ fixtures:
   fixture_binding:
     candidates_ref: records/04-candidates/2026/05/2026-05-01.yaml
   expected:
-    run_id: screening-20260501-79ec46a8
     candidate_tickers_include:
     - '9682'
     - '9692'
@@ -71,6 +70,9 @@ fixtures:
   expected:
     ticker: '9682'
     outcome: approved
+    conviction_tier: medium
+    independent_evidence_count: 1
+    real_order_intent_yen: 210000
 - fixture_id: golden-research-approved-9692
   layer_id: L3a
   fixture_binding:
@@ -78,6 +80,9 @@ fixtures:
   expected:
     ticker: '9692'
     outcome: approved
+    conviction_tier: medium
+    independent_evidence_count: 1
+    real_order_intent_yen: 200000
 - fixture_id: golden-approved-9682
   layer_id: L4
   fixture_binding:
@@ -86,6 +91,8 @@ fixtures:
     ticker: '9682'
     target_quantity: 200
     order_price_guard_yen: 1050
+    guarded_max_notional_yen: 210000
+    estimated_real_order_notional_yen: 202800
 - fixture_id: golden-approved-9692
   layer_id: L4
   fixture_binding:
@@ -94,6 +101,8 @@ fixtures:
     ticker: '9692'
     target_quantity: 100
     order_price_guard_yen: 2000
+    guarded_max_notional_yen: 200000
+    estimated_real_order_notional_yen: 192900
 - fixture_id: corporate-action-rejected-3678
   layer_id: L3a
   fixture_binding:
@@ -102,6 +111,9 @@ fixtures:
     ticker: '3678'
     outcome: rejected
     rejection_reason: corporate_action_post_snapshot
+    conviction_tier: low
+    independent_evidence_count: 0
+    real_order_intent_yen: null
 - fixture_id: unreviewed-hit-anchor
   layer_id: L5
   fixture_binding:
