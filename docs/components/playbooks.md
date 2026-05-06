@@ -14,13 +14,13 @@ related_docs:
 
 # Playbooks
 
-`records/_playbooks/` は、research の採用判定で参照する active rule を保持する運用 asset です。docs ではなく records support area なので、実際に運用で使う本文は `records/_playbooks/` に残します。
+`records/_playbooks/` は、research の採用判定で参照する repeatable thesis pattern を保持する運用 asset です。docs ではなく records support area なので、実際に運用で使う本文は `records/_playbooks/` に残します。
 
 ## 責務
 
-- research front matter の `playbook` から参照される選定ルールを保持する。
+- research front matter の `playbook` から参照される thesis pattern / evidence checklist を保持する。
 - 月次 retro で改訂可否を判断できるよう、versioned Markdown として残す。
-- screening 原則、Macro gate、valuation 指標、research 境界を横断する active rule をまとめる。
+- screening 原則、macro regime gate、valuation 指標、investment memo 境界を横断する active rule をまとめる。
 
 ## 非責務
 
@@ -32,7 +32,7 @@ related_docs:
 
 1. 新規 playbook は [`../templates/playbook.md`](../templates/playbook.md) を元に `records/_playbooks/<slug>-v<n>.md` として作る。
 2. research は front matter の `playbook` で active playbook を参照する。
-3. trade / skipped decision は ledger に同期され、reviews と monthly retro の材料になる。
+3. approved / deferred / rejected decisions は ledger に同期され、reviews と monthly retro の材料になる。
 4. 月次 retro で十分なサンプルと failure taxonomy を確認してから、playbook 改訂 issue / PR を起こす。
 5. 旧 version は削除せず、research が参照していた当時の rule を追跡できる状態を保つ。
 

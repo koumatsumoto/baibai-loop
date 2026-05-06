@@ -1,6 +1,6 @@
 ---
 title: "Docs review process"
-summary: "Review and verification process for docs changes, shims, links, and PR descriptions."
+summary: "Review and verification process for docs changes, links, and PR descriptions."
 doc_type: governance
 status: active
 last_reviewed: 2026-05-04
@@ -13,7 +13,7 @@ last_reviewed: 2026-05-04
 - root `README.md` が詳細規範を持ちすぎていないか。
 - `docs/README.md` から主要 docs に辿れるか。
 - component docs の path と節構造を壊していないか。
-- shim は [`docs-style-guide.md`](./docs-style-guide.md) の形式に従っているか。
+- 移動履歴や互換用 redirect/shim を本文に残していないか。
 - retained canonical docs (`philosophy.md`, `design-principles.md`, `anti-patterns.md`) を不要に移動していないか。
 - `records/_*` の責務が [`../architecture/repository-map.md`](../architecture/repository-map.md) から辿れるか。
 
@@ -28,17 +28,17 @@ rg -n 'docs/' src tests records/_playbooks records/_schemas
 
 PCRE2 syntax を使う grep には `-P` を付けます。
 
-## Shim deletion
+## Removed path check
 
-shim を削除する前に、少なくとも以下を実行します。
+docs の移動・統合・削除を行う場合は、少なくとも以下を実行します。
 
 ```bash
 rg -n 'docs/<old-path>.md|<old-heading-text>' README.md AGENTS.md docs src tests records/_playbooks records/_schemas
 rg -n '\]\((\.{1,2}/)?(architecture|workflow|data-sources|python-foundation)\.md' docs
 ```
 
-内部参照や他 shim 旧本文からの relay link が消えていない場合は削除しません。外部 issue / PR / permalink からの参照は残るため、削除は個別 issue で判断します。
+内部参照が残る場合は、同じ PR で正本 path に更新します。
 
 ## PR body
 
-計画 issue 全文を PR description に貼りません。該当 section だけを要約し、変更内容、残した shim、検証結果、受け入れ済みリスクを短く書きます。
+計画 issue 全文を PR description に貼りません。該当 section だけを要約し、変更内容、検証結果、受け入れ済みリスクを短く書きます。

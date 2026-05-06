@@ -6,7 +6,7 @@ Baibai-Loop で運用中の playbook 集合。各 playbook は `docs/components/
 
 ## 運用中の playbook
 
-| playbook | signal lane | status | 本体 |
+| playbook | screen lane | status | 本体 |
 | --- | --- | --- | --- |
 | Valuation Reversion | `valuation-reversion` | active | [`valuation-reversion.md`](./valuation-reversion.md) |
 | Strict Net-Cash Discount | `strict-net-cash-discount` | active | [`strict-net-cash-discount.md`](./strict-net-cash-discount.md) |
@@ -19,7 +19,7 @@ Baibai-Loop で運用中の playbook 集合。各 playbook は `docs/components/
 
 - `records/_playbooks/` は **運用資産**。ドキュメント（`docs/`）ではなく、実際に研究判定で参照される active rule
 - Playbook 名に version suffix は付けない
-- Research packet は主 thesis として単一 `playbook` を選び、複数 signal hit は `supporting_signals` に残す
+- Research packet は主 thesis として単一 `playbook` を選び、複数 evidence hit は `supporting_signals` に残す
 - Playbook 改訂は月次 retro（[`../docs/components/reviews.md`](/docs/components/reviews.md)）の判断基準に従う
 - サンプル数 10 件未満なら据え置きを許容
 

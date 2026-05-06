@@ -15,7 +15,7 @@ free_text: "一行で事後検証の要点"
 
 # Review: YYYY-MM-DD XXXX [銘柄名]
 
-**成分**: 4 成分アーキテクチャの下流 **reviews**（[`/docs/components/reviews.md`](/docs/components/reviews.md)）
+**成分**: Decision lifecycle の **reviews / attribution**（[`/docs/components/reviews.md`](/docs/components/reviews.md)）
 
 **Trade**: [records/05-trades/YYYY/MM/YYYY-MM-DD-XXXX.md](/records/05-trades/YYYY/MM/YYYY-MM-DD-XXXX.md)
 **Research**: [records/04-research/YYYY/MM/YYYY-MM-DD-XXXX-*.md](/records/04-research/YYYY/MM/YYYY-MM-DD-XXXX-*.md)

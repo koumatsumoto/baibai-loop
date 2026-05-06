@@ -1,19 +1,18 @@
 # Ledger
 
-`records/_ledger/` は research decision を正規化した JSONL の保存先である。採用・保留・見送りを
-後から retro できる最小 record に変換し、+15/+30 営業日後の価格追跡もここに集約する。
+`records/_ledger/` は research decision と tracking event を正規化した JSONL の保存先である。Baibai-Loop では、research の採用・保留・見送り判断と、その後の価格追跡を append-only な decision and tracking register として扱う。
 
 ## 1. 役割
 
-- `records/04-research/**/*.md` の `decision` を paper/skipped ledger に正規化する
+- `records/04-research/**/*.md` の `decision` を decision register に正規化する
 - 同じ `ledger_id` を upsert し、同じ入力の再実行で重複行を作らない
 - `baseline_price` と `tracking.plus_15bd` / `tracking.plus_30bd` を J-Quants daily から更新する
 - tracking が更新された場合は `records/_ledger/updates/YYYY-MM.jsonl` に event log を残す
 
 ## 2. ファイル構造
 
-- `records/_ledger/paper/YYYY-MM.jsonl`: `decision: accepted | pending`
-- `records/_ledger/skipped/YYYY-MM.jsonl`: `decision: skipped`
+- `records/_ledger/paper/YYYY-MM.jsonl`: 実行検討に進む research decision（`decision: accepted | pending`）
+- `records/_ledger/skipped/YYYY-MM.jsonl`: 見送り research decision（`decision: skipped`）
 - `records/_ledger/updates/YYYY-MM.jsonl`: `{ledger_id, field, old, new, observed_at}` の更新イベント。
   追跡対象 field は `baseline_price`, `adjustment_applied`, `tracking`, `decision`,
   `macro_gate`, `adv_participation_pct` の 6 個。新規 record の作成時には event を残さず、
@@ -30,14 +29,14 @@
 
 ## 4. 必須フィールド
 
-paper/skipped ともに以下を持つ。取得不能な価格・出来高系は `null` を許容する。
+paper / skipped の各 decision record は以下を持つ。取得不能な価格・出来高系は `null` を許容する。
 
 - `ticker` / `name` / `decision` / `playbook`
 - `candidates_ref` / `research_ref`
 - `asof_date` / `decision_date`
 - `baseline_price`
 - `market_cap_oku` / `avg_turnover_oku`
-- `signal_count`
+- `signal_count`（概念上は independent evidence count / evidence hit 由来の count）
 - `macro_gate`
 - `adv_participation_pct`
 - `adjustment_applied`

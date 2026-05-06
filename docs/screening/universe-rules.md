@@ -1,6 +1,6 @@
 # screening/universe-rules.md
 
-Baibai-Loop スクリーニングの universe（対象銘柄集合）の境界条件。`(b) records/03-candidates/` の入力となる銘柄 pool を定義する。
+Baibai-Loop スクリーニングの universe（対象銘柄集合）の境界条件。`records/03-candidates/` の入力となる銘柄 pool を定義する。
 
 ## 1. 対象
 
@@ -33,7 +33,7 @@ Baibai-Loop スクリーニングの universe（対象銘柄集合）の境界�
 
 - **特別注意銘柄**: 除外
 - **整理銘柄**: 除外
-- **日々公表信用指定**: universe からは除外しないが、research で crowding 懸念材料として必ず記録
+- **日々公表信用指定**: universe からは除外しないが、research で positioning / liquidity risk として必ず記録
 
 ### 4.3 取引停止・上場廃止警告
 
@@ -45,8 +45,8 @@ Baibai-Loop スクリーニングの universe（対象銘柄集合）の境界�
 
 | 条件 | Position 上限 | 備考 |
 | --- | --- | --- |
-| signal 1 つ | 1% | 標準 |
-| signal 2 つ以上 | 2% | 複数の独立した割安根拠が重なる場合 |
+| single primary evidence path | 1% | 標準 |
+| 複数 independent evidence paths | 2% | 複数の独立した割安根拠が重なる場合 |
 
 ## 6. Front matter 書式ルール（universe 関連）
 

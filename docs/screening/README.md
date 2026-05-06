@@ -8,7 +8,7 @@ last_reviewed: 2026-05-04
 
 # Screening subsystem
 
-`docs/screening/` は `records/03-candidates/` 生成と research handoff を支える subsystem 詳細です。今回の再編では subsystem として維持し、各 doc の責務を明示します。
+`docs/screening/` は `records/03-candidates/` 生成と research handoff を支える subsystem 詳細です。各 doc は screening の責務境界を明示します。
 
 `README.md` は目次と役割タグ表だけを扱います。設計原則本文の正本は [`principles.md`](./principles.md) です。
 

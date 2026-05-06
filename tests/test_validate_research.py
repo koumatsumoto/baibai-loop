@@ -43,7 +43,7 @@ text
 ## 7. Price reaction
 text
 
-## 8. Crowding
+## 8. Crowding (positioning / liquidity)
 text
 
 ## 9. Shareholder return
@@ -146,6 +146,15 @@ class ResearchValidationTests(unittest.TestCase):
         front = _minimal_research_front_matter()
         front["macro_gate"] = "headwind"
         front["macro_gate_override"] = "event-specific mispricing"
+        front["overrides"] = [
+            {
+                "type": "gate_headwind",
+                "prior_state_ref": "records/02-outlook/2026/05/outlook.yaml",
+                "prior_state": "macro_gate: headwind",
+                "new_state": "accepted with explicit override",
+                "reason": "event-specific mispricing",
+            }
+        ]
         path = self._write(front)
         try:
             findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
@@ -155,6 +164,18 @@ class ResearchValidationTests(unittest.TestCase):
         error_codes = {f.code for f in findings if f.severity == "error"}
         self.assertIn("research.headwind-with-override", warning_codes)
         self.assertNotIn("research.headwind-without-override", error_codes)
+        self.assertNotIn("research.headwind-without-gate-override", error_codes)
+
+    def test_headwind_accepted_without_gate_override_is_error(self) -> None:
+        front = _minimal_research_front_matter()
+        front["macro_gate"] = "headwind"
+        front["macro_gate_override"] = "event-specific mispricing"
+        path = self._write(front)
+        try:
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+        finally:
+            path.unlink()
+        self.assertIn("research.headwind-without-gate-override", {f.code for f in findings})
 
     def test_missing_position_size_is_flagged(self) -> None:
         front = _minimal_research_front_matter()

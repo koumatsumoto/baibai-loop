@@ -1,12 +1,12 @@
 # components/reviews.md
 
-Baibai-Loop 4 成分アーキテクチャの下流 **reviews** 成分の運用仕様。事後検証と月次 retro で feedback loop を閉じる。全体構造は [`../architecture.md`](../architecture.md) を参照。
+Baibai-Loop の **review / attribution** 成分の運用仕様。事後検証、missed opportunity tracking、screening false negative tracking、playbook attribution で feedback loop を閉じる。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md)、概念モデルは [`../concepts.md`](../concepts.md) を参照。
 
 ## 1. 役割
 
 - `records/05-trades/` の完結（exit 済み）に対し、**決済後 +15 / +30 営業日レビュー** を作成
-- **月次 retro** で成功/失敗分類、skipped trade log、playbook 改訂判断
-- retro からの feedback を playbook / screening / outlook 運用に反映
+- **月次 retro** で成功/失敗分類、missed opportunity、screening false negative、playbook 改訂判断を扱う
+- Outcome を evidence hit、macro gate、sizing、execution、playbook へ帰属し、次回の screening / investment memo に反映する
 
 ## 2. 種類
 
@@ -19,7 +19,7 @@ Baibai-Loop 4 成分アーキテクチャの下流 **reviews** 成分の運用�
 ### 2.2 月次 retro
 
 - 毎月 1 回（月末または翌月初）
-- 当月の全個別 review + skipped trade log を集約
+- 当月の全個別 review + missed opportunity tracking を集約
 - 失敗分類の再集計、playbook 改訂判断、次周回の変更点
 
 ## 3. Path と命名
@@ -59,7 +59,7 @@ retro_month: "YYYY-MM"
 total_trades: 整数
 open_trades: 整数
 closed_trades: 整数
-skipped_candidates: 整数              # 見送り + 保留の合計
+skipped_candidates: 整数              # missed opportunity tracking の対象候補数
 wins: 整数                            # pnl_pct > 0
 losses: 整数                          # pnl_pct < 0
 pnl_pct_sum: 数値
@@ -67,7 +67,7 @@ failure_class_counts:
   材料誤読: 整数
   既に織り込み済み: 整数
   マクロ逆風: 整数
-  混雑: 整数
+  混雑: 整数                          # 概念上は positioning / liquidity risk
   流動性不足: 整数
   ルール違反: 整数                    # 別枠、playbook 改訂の input にしない
 success_class_counts:
@@ -94,7 +94,7 @@ price_missing_counts:
 | 材料誤読 | 一次材料の解釈が誤っていた（例: 上振れが一事業限定だった） |
 | 既に織り込み済み | 採用時点で市場がすでに織り込んでいた |
 | マクロ逆風 | Macro gate 判定の誤り、または gate が途中で反転 |
-| 混雑 | 空売り残高・日々公表信用・特別注意など crowding リスク |
+| 混雑（positioning / liquidity） | 空売り残高・日々公表信用・特別注意・出来高不足など positioning / liquidity risk |
 | 流動性不足 | 想定より出来高が伴わず entry/exit が困難 |
 | ルール違反 | playbook / kill switch / position sizing 等のルール違反 |
 
@@ -113,13 +113,14 @@ price_missing_counts:
 
 将来の retro で成功/失敗分類の再分類を行う（四半期ごと）。
 
-## 8. Skipped trade log
+## 8. Missed opportunity / screening false negative tracking
 
-- `records/04-research/` で見送り / 保留判定した銘柄を、月次 retro で追跡
-- **追跡タイミング**: candidate 作成日 +15 / +30 営業日時点で、仮想 entry 価格からの騰落を 1 行追記
+- `records/04-research/` で見送り / 保留になった候補、採用したが order submit しなかった候補を、月次 retro で missed opportunity として追跡する
+- Screening で no-hit / rank-out / near-threshold / gate excluded になった universe member が後から相対的に良い成績を出した場合、screening false negative として追跡する
+- **追跡タイミング**: candidate 作成日 +15 / +30 営業日時点を基本に、market / sector baseline に対する relative return も見る
 - **追跡方法**: 月次 retro のタイミングでまとめて実施。日次作業に乗せない
-- **マクロゲート headwind で見送った候補も同様に追跡**（gate 判定の精度測定）
-- skipped trade log の結果は retro 本文に集計（偽陰性率 = 見送ったが上がった銘柄の割合）
+- Macro gate で見送った候補も追跡し、gate 判定が false negative を作っていないか検証する
+- 結果は retro 本文に集計し、playbook / screening threshold / macro gate / review capacity のどこを直すべきかに接続する
 
 ## 9. Retro での feedback ループ
 
@@ -143,7 +144,7 @@ price_missing_counts:
 | --- | --- | --- |
 | review 下書き生成 | ○ | |
 | pnl_pct 計算 | ○ | |
-| skipped trade log 追跡の騰落集計 | ○ | |
+| missed opportunity / false negative の騰落集計 | ○ | |
 | **失敗分類の確定** | | ○ |
 | **成功分類の確定** | | ○ |
 | **playbook 改訂判断** | | ○ |
@@ -151,9 +152,10 @@ price_missing_counts:
 ## 11. 参考
 
 - [`../philosophy.md`](../philosophy.md): 思想（feedback loop 先行）
-- [`../architecture.md`](../architecture.md): 全体構造
+- [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
+- [`../concepts.md`](../concepts.md): 投資判断ドメインモデル
 - [`trades.md`](./trades.md): source となる trades の仕様
-- [`research.md`](./research.md): skipped trade log source
+- [`research.md`](./research.md): investment memo source
 - [`../screening/failure-taxonomy.md`](../screening/failure-taxonomy.md): 失敗分類詳細
 - [`../templates/review.md`](../templates/review.md): 個別 review template
 - [`../templates/retro-monthly.md`](../templates/retro-monthly.md): 月次 retro template

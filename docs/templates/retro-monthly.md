@@ -30,14 +30,14 @@ price_missing_counts:
 
 # Retro: YYYY-MM 月次振り返り
 
-**成分**: 4 成分アーキテクチャの下流 **reviews**（[`/docs/components/reviews.md`](/docs/components/reviews.md)）の月次集約
+**成分**: Decision lifecycle の **reviews / attribution**（[`/docs/components/reviews.md`](/docs/components/reviews.md)）の月次集約
 
 ## Trade 集計
 
 - **総 trade 数**: XX 件
 - **Open trade 数**: XX 件（月末時点、未決済）
 - **Closed trade 数**: XX 件
-- **Skipped candidates**: XX 件（見送り / 保留）
+- **Missed opportunity tracking candidates**: XX 件（見送り / 保留）
 - **勝敗**: Wins XX / Losses XX（closed trades のみ）
 - **P&L sum**: +X.X% / -X.X%（closed trades の損益率合計）
 - **Wins / Losses 内訳**（該当 trade を列挙）:
@@ -77,13 +77,13 @@ price_missing_counts:
 
 四半期末（3月・6月・9月・12月）の retro で再分類候補を検討する。
 
-## Skipped trade log の分析
+## Missed opportunity / screening false negative tracking の分析
 
-見送り / 保留した候補について、+15/+30 営業日の仮想パフォーマンスを集計:
+見送り / 保留した候補、および screening false negative 候補について、+15/+30 営業日の仮想パフォーマンスと relative return を集計:
 
-| Ticker | 見送り理由 | +15 日騰落 | +30 日騰落 | 判定妥当性 |
-| --- | --- | --- | --- | --- |
-| XXXX | Macro gate headwind | +X% | +X% | 妥当 / 偽陰性 |
+| Ticker | 追跡区分 | 見送り理由 / 検出理由 | +15 日騰落 | +30 日騰落 | 判定妥当性 |
+| --- | --- | --- | --- | --- | --- |
+| XXXX | missed opportunity / screening false negative | Macro gate headwind | +X% | +X% | 妥当 / 偽陰性 |
 
 **偽陰性率**: XX/XX 件（見送ったが +30 日で上昇した銘柄の比率）
 

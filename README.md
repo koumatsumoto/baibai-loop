@@ -1,19 +1,20 @@
 # Baibai-Loop
 
-Baibai-Loop は、日本株スイングトレードの戦略立案、スクリーニング、売買実行、事後検証を一貫して記録し、継続的に改善するためのリポジトリです。
+Baibai-Loop は、日本株スイングトレードの戦略立案、スクリーニング、売買実行、事後検証を一貫して記録し、継続的に改善するためのリポジトリです。自己判断を後から検証する記録体系であり、売買推奨や自動発注判断は提供しません。
 
 運用の詳細は [`docs/`](./docs/) を正本とします。初めて読む場合は [`docs/README.md`](./docs/README.md) から入ってください。
 
 ## 目的
 
-以下の loop を forward-only に回します。
+以下の loop を forward-only に回します。概念モデルの正本は [`docs/concepts.md`](./docs/concepts.md) です。
 
-1. マクロ事実を蓄積する: `records/01-brief/`
-2. マクロ見解を更新する: `records/02-outlook/`
-3. スクリーニング基準でふるいにかける: `records/03-candidates/`
-4. 個別銘柄を深掘り調査する: `records/04-research/`
-5. 条件を満たしたら取引する: `records/05-trades/`
-6. 事後検証と retro で次回改善に活かす: `records/06-reviews/`
+1. portfolio policy で目的・制約・資本・許容リスクを固定する
+2. マクロ事実を蓄積する: `records/01-brief/`
+3. マクロ見解を更新する: `records/02-outlook/`
+4. スクリーニング基準でふるいにかける: `records/03-candidates/`
+5. 個別銘柄を investment memo として深掘り調査する: `records/04-research/`
+6. 条件を満たしたら execution record を残す: `records/05-trades/`
+7. 事後検証と attribution で次回改善に活かす: `records/06-reviews/`
 
 思想は [`docs/philosophy.md`](./docs/philosophy.md)、現行構造は [`docs/architecture/system-overview.md`](./docs/architecture/system-overview.md) を参照してください。
 
@@ -69,6 +70,7 @@ directory ごとの責務は [`docs/architecture/repository-map.md`](./docs/arch
 | 目的 | doc |
 | --- | --- |
 | docs portal | [`docs/README.md`](./docs/README.md) |
+| 概念モデル / 用語 | [`docs/concepts.md`](./docs/concepts.md), [`docs/glossary/`](./docs/glossary/) |
 | 現行アーキテクチャ | [`docs/architecture/README.md`](./docs/architecture/README.md) |
 | component contract | [`docs/components/README.md`](./docs/components/README.md) |
 | 運用 runbook | [`docs/operations/README.md`](./docs/operations/README.md) |

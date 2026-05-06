@@ -12,7 +12,12 @@ published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 tradable_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 macro_gate: tailwind | neutral | headwind
 macro_gate_override: "..."              # headwind 採用時のみ
-overrides: []                           # system signal を上書きする場合は理由を記録
+overrides:
+  - type: decision_flip | candidate_absence | universe_drop | real_concentration_cap | gate_headwind
+    prior_state_ref: "path or commit:path"
+    prior_state: "..."
+    new_state: "..."
+    reason: "..."
 external_refs: []                       # 外部AI / 二次分析を参照する場合
 position_size_oku: 0.01                 # accepted/pending: > 0 必須。skipped: 0 強制
 hypothetical_position_size_oku: 0.005   # 任意。skipped で参考値として記録する場合のみ
@@ -36,13 +41,13 @@ valuation:
 
 # Research: YYYY-MM-DD XXXX [銘柄名] [playbook]
 
-**成分**: 4 成分アーキテクチャの **(d) 個別銘柄リサーチ**（[`/docs/components/research.md`](/docs/components/research.md)）
+**成分**: Decision lifecycle の **research / investment memo**（[`/docs/components/research.md`](/docs/components/research.md)）
 
 **Playbook**: [valuation-reversion | strict-net-cash-discount | fcf-yield-discount | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth]
 
 ## 1. Thesis
 
-一文で why now × why this stock。マクロゲート、primary signal、主要な反対仮説を明示。
+一文で why now × why this stock。マクロゲート、primary evidence path、主要な反対仮説を明示。
 
 例: `マクロは {tailwind} の業種に属し、{cashflow-yield-discount} が出ている。営業 CF yield は {X%}、売上悪化は限定的で、構造悪化ではなく一時的な評価低下と見る。`
 
@@ -56,7 +61,7 @@ valuation:
 - **brief_refs**（任意）: [outlook 後の緊急 brief があれば]
 - **1-2 行要約**: [gate 判定の要点]
 
-headwind の場合は原則採用不可。採用する場合は `macro_gate_override` に system signal を上書きする理由を残す。
+headwind の場合は原則採用不可。採用する場合は `macro_gate_override` と `overrides[].type: gate_headwind` に system output を上書きする理由を残す。
 
 ### 2.1 Portfolio macro risk budget
 
@@ -64,13 +69,13 @@ headwind の場合は原則採用不可。採用する場合は `macro_gate_over
 - **直近 1-2 週間の trigger**: [米 CPI / 雇用 / FOMC / BOJ / 原油 / 地政学 / 決算など]
 - **trigger 前の投入上限**: [投資可能資金全体に対する % / tactical cap に対する % と理由]
 - **trigger 通過後の追加条件**: [何が確認できれば増やすか]
-- **sector / thesis 集中**: [同一 sector / 同一 signal への偏り]
+- **sector / thesis 集中**: [同一 sector / 同一 evidence path への偏り]
 
-## 3. Candidate signals + valuation snapshot
+## 3. Candidate evidence + valuation snapshot
 
-### 3.1 Candidate signals
+### 3.1 Candidate evidence
 
-| signal | playbook | hit reasons | primary metric |
+| evidence path | playbook | hit reasons | primary metric |
 | --- | --- | --- | --- |
 | valuation-reversion | valuation-reversion | sector_self_range | PER / PBR |
 | strict-net-cash-discount | strict-net-cash-discount | net_cash_to_market_cap_price_to_equity_and_equity_ratio | net_cash_to_market_cap |
@@ -133,7 +138,7 @@ headwind の場合は原則採用不可。採用する場合は `macro_gate_over
 - **一次ソース URL**: [URL]
 - **要点**: [1-2 行]
 
-catalyst がない場合は、どの signal が catalyst 不在を補う margin of safety になっているかを明記する。
+catalyst がない場合は、どの evidence path が catalyst 不在を補う margin of safety になっているかを明記する。
 
 ## 7. Price reaction
 
@@ -144,7 +149,7 @@ catalyst がない場合は、どの signal が catalyst 不在を補う margin 
 | 60 営業日騰落 | - | -X.X% | 計算 |
 | 出来高比（20 日平均） | - | X.Xx | 計算 |
 
-## 8. Crowding
+## 8. Crowding (positioning / liquidity)
 
 | 指標 | 現値 | 60 日推移 | ソース |
 | --- | --- | --- | --- |
@@ -162,14 +167,14 @@ catalyst がない場合は、どの signal が catalyst 不在を補う margin 
 | DOE or 配当性向 | [X%] | [URL] |
 | 減配リスク | [低 / 中 / 高] | [根拠] |
 
-## 10. ミクロ 4 軸寄与度表
+## 10. Security-level evidence contribution table
 
 | 軸 | 寄与度 | 備考 |
 | --- | --- | --- |
 | Valuation | strong / weak / neutral | primary: pbr, ocf_yield |
 | Mean-Reversion | strong / weak / neutral | [根拠] |
 | Catalyst | strong / weak / neutral | [根拠] |
-| Crowding | strong / weak / neutral | [踏み上げ余地 / 逆回転リスク] |
+| Crowding (positioning / liquidity) | strong / weak / neutral | [踏み上げ余地 / 逆回転リスク] |
 
 ## 11. Entry 条件
 
@@ -200,12 +205,12 @@ catalyst がない場合は、どの signal が catalyst 不在を補う margin 
 ## 14. Position size + 採用判定
 
 - **時価総額**: XXX 億円
-- **signal 数**: 1 / 2+
-- **許容 position**: single signal は最大 1%、複数 signal は最大 2%
+- **evidence path 数**: 1 / 2+
+- **許容 position**: single evidence path は最大 1%、複数 independent evidence paths は最大 2%
 - **ADV 参加率**: X.X%
 - **採用 position**: X.X%
 - **採用判定**: 採用 | 見送り | 保留
-- **判定理由**: [1-2 段落、4 軸寄与度・反対仮説・kill switch 確認結果を踏まえて]
+- **判定理由**: [1-2 段落、security-level evidence contribution・反対仮説・kill switch 確認結果を踏まえて]
 
 現在の実資金や tactical cap が小さい場合、paper proxy の ADV cap は実運用ではほぼ拘束しない。混乱を避けるため、paper proxy の sizing は検証用の上限として扱い、実資金の集中度は trade 側の `real_*` / `tactical_*` fields で別管理する。
 

@@ -1,26 +1,26 @@
 # screening/principles.md
 
-Baibai-Loop のスクリーニングサブシステムの設計原則。4 成分アーキテクチャの `(b) candidates` + `(c) outlook` + `(d) research` のフローに対応するルール集。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md) を参照。
+Baibai-Loop のスクリーニングサブシステムの設計原則。Candidates、outlook、investment memo のフローに対応するルール集。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md)、概念モデルは [`../concepts.md`](../concepts.md) を参照。
 
-## 1. 4 成分アーキテクチャとの接続
+## 1. Decision lifecycle との接続
 
-| 成分 | スクリーニング側の対応 | この原則集での位置付け |
+| Lifecycle artifact | スクリーニング側の対応 | この原則集での位置付け |
 | --- | --- | --- |
-| (b) `records/03-candidates/` | 機械的ふるい | [`mechanical.md`](./mechanical.md) で仕様化 |
-| (c) `records/02-outlook/` | Macro gate の source | [`macro-gate-procedure.md`](./macro-gate-procedure.md) で手順化 |
-| (d) `records/04-research/` | Playbook + 4 軸評価 + 採用判定 | 本ファイル + Playbook 本体 |
+| `records/03-candidates/` | 機械的ふるい | [`mechanical.md`](./mechanical.md) で仕様化 |
+| `records/02-outlook/` | Macro gate の source | [`macro-gate-procedure.md`](./macro-gate-procedure.md) で手順化 |
+| `records/04-research/` | Playbook + thesis payoff + 採用判定 | 本ファイル + Playbook 本体 |
 
-## 2. マクロ優位 (76/24) 原則
+## 2. Macro policy weight と macro regime gate
 
-- **マクロ 76% / ミクロ 24%** の比重（philosophy 柱 2）
-- Macro gate を通過しない銘柄は採用不可（research 段階で除外）
-- gate 判定は outlook → research の接続で行う（[`macro-gate-procedure.md`](./macro-gate-procedure.md)）
+- **マクロ 76% / security-level 24%** は attention / review time / cognitive budget の policy weight として扱う。
+- Validator-visible な採用可否と sizing cap は macro regime gate と portfolio policy が担う。
+- Gate 判定は outlook → investment memo の接続で行う（[`macro-gate-procedure.md`](./macro-gate-procedure.md)）。
 
 ## 3. Playbook 定義（概要）
 
-詳細は `records/_playbooks/` 本体を参照。screening では signal lane と playbook を 1 対 1 で対応させ、retro でどの割安タイプが機能したかを分けて検証する。
+詳細は `records/_playbooks/` 本体を参照。screening では playbook-linked screen と playbook を 1 対 1 で対応させ、retro でどの thesis pattern が機能したかを分けて検証する。
 
-| playbook | primary signal | 狙い |
+| playbook | primary evidence path | 狙い |
 | --- | --- | --- |
 | `valuation-reversion` | PER / PBR / exact かつ正の EV/EBITDA の相対割安、短期急落、sector rotation | 伝統的な valuation mean-reversion |
 | `strict-net-cash-discount` | EDINET cash - debt / market cap と Eq / market cap | 有利子負債を差し引いても財務余力が厚い asset discount 候補 |
@@ -29,7 +29,7 @@ Baibai-Loop のスクリーニングサブシステムの設計原則。4 成分
 | `cashflow-yield-discount` | 期間正規化した CFO TTM / market cap | PER では拾いにくい現金創出力の割安 |
 | `sales-discount-growth` | P/S discount + 売上成長維持 | 利益が薄いが売上成長が残る調整銘柄 |
 
-単一総合 score は持たせない。候補 YAML では `signals[]` を lane 順に記録し、research では primary playbook 1 つと supporting signals を分けて扱う。
+単一総合 score は持たせない。現行 candidates YAML では `signals[]` を lane 順に記録するが、概念上は playbook-linked evidence hit として扱う。Research では primary playbook 1 つと supporting evidence を分けて扱う。
 
 ## 4. 4 軸評価（単一総合点に戻さない）
 
@@ -40,7 +40,7 @@ Research packet で以下の 4 軸を記入する。**合計点は算出しな�
 | Valuation | PER / PBR / EV-EBITDA / P-S / PCFR / OCF yield / cash-to-market-cap | 指標ごとに値、比較対象、primary metric |
 | Mean-Reversion | 急落有無 / 自己過去レンジ下位度 / セクターローテーション起因度 | 定量値 + 1-2 行コメント |
 | Catalyst | 有無 / freshness / 種別 | 種別 + 経過営業日 + 一次ソース URL |
-| Crowding | 空売り残高 / 日々公表信用 / 特別注意 / 貸借状態 | 各指標の絶対値 + 60 日推移 |
+| Crowding (positioning / liquidity) | 空売り残高 / 日々公表信用 / 特別注意 / 貸借状態 / 出来高 | 各指標の絶対値 + 60 日推移 |
 
 各軸に **寄与度 3 段階**（strong / weak / neutral）を記録し、retro で軸別 bias を定性分析する。
 
@@ -96,8 +96,8 @@ position は **paper proxy layer (1 億円仮想資本)** と **real layer (実�
 
 | 条件 | 許容 position | 備考 |
 | --- | --- | --- |
-| signal 1 つ | 最大 1% | 標準 |
-| signal 2 つ以上 | 最大 2% | 複数の独立した割安根拠が重なる場合のみ |
+| single primary evidence path | 最大 1% | 標準 |
+| 複数 independent evidence paths | 最大 2% | 複数の独立した割安根拠が重なる場合のみ |
 
 `adv_participation_pct >= 5.0` は hard reject。現在の実資金や tactical cap が小さい場合、paper proxy の ADV cap は実運用ではほぼ拘束しないため、検証用の統一尺度として扱う。
 
@@ -126,12 +126,12 @@ position は **paper proxy layer (1 億円仮想資本)** と **real layer (実�
 
 `../components/research.md` の「AI の役割境界（packet 項目単位）」節を参照。核心:
 
-- **AI 可**: Thesis / valuation snapshot / 仮説ドラフト / catalyst ドラフト / price reaction / crowding 取得 / 株主還元確認ドラフト / 4 軸寄与度初期評価
+- **AI 可**: Thesis / valuation snapshot / 仮説ドラフト / catalyst ドラフト / price reaction / positioning / liquidity 取得 / 株主還元確認ドラフト / evidence 寄与度初期評価
 - **人間のみ**: Macro gate 判定確定 / 一次ソース URL 確認 / 最終採用判定 / 失敗分類確定
 
 ## 10. 参考
 
-- [`../philosophy.md`](../philosophy.md): 思想（マクロ優位、事実と分析の分離、feedback loop 先行、markdown 駆動）
+- [`../philosophy.md`](../philosophy.md): 思想（macro regime discipline、事実と分析の分離、feedback loop 先行、markdown 駆動）
 - [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
 - [`../components/research.md`](../components/research.md): research 運用仕様
 - [`failure-taxonomy.md`](./failure-taxonomy.md): 失敗分類詳細

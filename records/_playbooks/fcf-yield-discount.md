@@ -42,4 +42,4 @@ EDINET CSV-derived metrics の operating cash flow と capex を使い、営業 
 - Earnings quality: 利益率、特損益、減価償却、受注・解約など現金創出力の裏付けを見る。
 - Shareholder return check: 配当政策、自社株買い、DOE or 配当性向、減配リスクを確認する。
 - Entry / Exit / Invalidation: FCF thesis が崩れる条件と正常化 target を明示する。
-- Position size: single signal / multiple signal と流動性を確認する。
+- Position size: single evidence path / multiple independent evidence paths と流動性を確認する。

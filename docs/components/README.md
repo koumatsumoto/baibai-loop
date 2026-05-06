@@ -8,15 +8,16 @@ last_reviewed: 2026-05-04
 
 # Components
 
-`docs/components/` は `records/` に残る成果物の contract を扱います。いつ作るか、どの順番で作るかは [`../operations/README.md`](../operations/README.md) に置きます。
+`docs/components/` は `records/` に残る成果物の contract を扱います。いつ作るか、どの順番で作るかは [`../operations/README.md`](../operations/README.md) に置きます。投資判断プロセス全体の概念モデルは [`../concepts.md`](../concepts.md) を正本とします。
 
-既存 `components/*.md` は AGENTS や anti-patterns から節番号付きで参照されているため、path と節構造を凍結します。今回追加する新規 component doc は [`playbooks.md`](./playbooks.md) だけです。
+既存 `components/*.md` は AGENTS や anti-patterns から節番号付きで参照されているため、path と節構造を凍結します。Portfolio policy の component 境界は [`portfolio-policy.md`](./portfolio-policy.md) で説明します。
 
-| component | records path | contract doc |
+| component | repository location | contract doc |
 | --- | --- | --- |
+| portfolio policy | [`portfolio-policy.md`](./portfolio-policy.md) | [`portfolio-policy.md`](./portfolio-policy.md) |
 | brief | `records/01-brief/` | [`brief.md`](./brief.md) |
-| candidates | `records/03-candidates/` | [`candidates.md`](./candidates.md) |
 | outlook | `records/02-outlook/` | [`outlook.md`](./outlook.md) |
+| candidates | `records/03-candidates/` | [`candidates.md`](./candidates.md) |
 | research | `records/04-research/` | [`research.md`](./research.md) |
 | trades | `records/05-trades/` | [`trades.md`](./trades.md) |
 | reviews | `records/06-reviews/` | [`reviews.md`](./reviews.md) |

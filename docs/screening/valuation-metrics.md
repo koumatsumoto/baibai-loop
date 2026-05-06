@@ -1,6 +1,6 @@
 # screening/valuation-metrics.md
 
-Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。`(b) records/03-candidates/` と `(d) records/04-research/` の両方で参照される指標の前提を確定する。
+Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。`records/03-candidates/` と `records/04-research/` の両方で参照される指標の前提を確定する。
 
 ## 1. 使用指標
 
@@ -54,7 +54,7 @@ Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデ
 
 EDINET `type=5` CSV から抽出する。raw XBRL 直接 parse は現時点の非スコープとし、EDINET API が返す CSV ZIP を deterministic な中間データとして使う。J-Quants Light の財務サマリーで取れる項目は優先使用し、不足分を EDINET CSV-derived metrics で補完する。
 
-EV がゼロ以下、または EBITDA がゼロ以下の場合、EV/EBITDA は `null` として valuation-reversion から除外する。負の EV は net cash / cash-rich lane で扱うべき balance sheet signal であり、負の EBITDA は倍率が「低い」ほど割安という解釈が成立しないため。
+EV がゼロ以下、または EBITDA がゼロ以下の場合、EV/EBITDA は `null` として valuation-reversion から除外する。負の EV は net cash / cash-rich lane で扱うべき balance sheet evidence であり、負の EBITDA は倍率が「低い」ほど割安という解釈が成立しないため。
 
 ## 6. P/S の算出
 

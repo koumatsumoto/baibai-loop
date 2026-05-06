@@ -1,10 +1,10 @@
 # screening/mechanical.md
 
-Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕様。4 成分アーキテクチャの (b) `records/03-candidates/` の出力を決める signal lane ベース rule。
+Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕様。`records/03-candidates/` の出力を決める playbook-linked screen rule。
 
 ## 1. 位置付け
 
-- 4 成分アーキテクチャの **(b) records/03-candidates/** の中核
+- Decision lifecycle の **screen output (`records/03-candidates/`)** の中核
 - universe（[`universe-rules.md`](./universe-rules.md)）× valuation / cash / CF / sales 指標（[`valuation-metrics.md`](./valuation-metrics.md)）を入力
 - **通過銘柄 list を事実として出力**（解釈は入れない）
 - research 選定の input となる
@@ -34,9 +34,9 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 - 過去 3 年自己レンジ（上場 3 年未満は上場来）
 - 詳細: [`valuation-metrics.md`](./valuation-metrics.md)
 
-## 3. Signal lane（OR 条件、最低 1 つ満たす）
+## 3. Playbook-linked screen（OR 条件、最低 1 つ満たす）
 
-以下の signal lane のうち、**最低 1 つ** を満たす銘柄を通過とする。閾値は `records/_config/screening-rules.yaml` を正本とする。
+以下の playbook-linked screen のうち、**最低 1 つ** を満たす銘柄を通過とする。閾値は `records/_config/screening-rules.yaml` を正本とする。
 
 ### 3.1 `valuation-reversion`
 
@@ -63,7 +63,7 @@ EDINET `type=5` CSV から抽出した cash と interest-bearing debt を使い�
 
 ### 3.3 `fcf-yield-discount`
 
-EDINET `type=5` CSV から抽出した営業 CF と設備投資支出を使い、`FCF = EDINET CFO - capex` として FCF yield を算出する。OCF yield だけでは設備投資負担の大きい企業を安く見誤るため、CF 系の中ではこの lane を優先して見る。J-Quants 財務サマリー由来の `ocf_ttm` は別 source のため、FCF signal の再計算には混ぜない。
+EDINET `type=5` CSV から抽出した営業 CF と設備投資支出を使い、`FCF = EDINET CFO - capex` として FCF yield を算出する。OCF yield だけでは設備投資負担の大きい企業を安く見誤るため、CF 系の中ではこの lane を優先して見る。J-Quants 財務サマリー由来の `ocf_ttm` は別 source のため、FCF evidence の再計算には混ぜない。
 
 - `fcf_yield` が閾値以上
 - FCF がプラス
@@ -80,7 +80,7 @@ CashEq / market cap、price-to-equity、equity ratio を使い、厳密 net cash
 
 電気・ガス業もこの lane から除外する。規制・設備産業では CashEq / market cap が高くても、有利子負債・設備投資・燃料費調整などを見ないと margin of safety として読みにくいため。
 
-この lane は EDINET metrics が欠ける銘柄の proxy / downgrade として残す。ただし EDINET の `net_cash_to_market_cap` が取得でき、設定値を下回る場合は、CashEq proxy が高くても cash-rich signal を出さない。J-Quants の CashEq だけで「現金が厚い」と見えても、EDINET の有利子負債を差し引くと net debt である銘柄を research 優先候補に上げないためである。EDINET で `strict-net-cash-discount` が成立する銘柄では、research の primary thesis は原則 `strict-net-cash-discount` に寄せる。
+この lane は EDINET metrics が欠ける銘柄の proxy / downgrade として残す。ただし EDINET の `net_cash_to_market_cap` が取得でき、設定値を下回る場合は、CashEq proxy が高くても cash-rich evidence hit を出さない。J-Quants の CashEq だけで「現金が厚い」と見えても、EDINET の有利子負債を差し引くと net debt である銘柄を research 優先候補に上げないためである。EDINET で `strict-net-cash-discount` が成立する銘柄では、research の primary thesis は原則 `strict-net-cash-discount` に寄せる。
 
 ### 3.5 `cashflow-yield-discount`
 
@@ -101,7 +101,7 @@ P/S が業種中央値比で安く、売上成長が残る銘柄を拾う。営�
 ### 3.7 OR 条件の意味
 
 - **最低 1 つ満たせば通過**
-- 複数 signal が重なる銘柄は research 優先度を上げる
+- 複数 screen hit が重なる銘柄は research 優先度を上げる
 - candidates YAML の `signals[]` に lane 名、playbook、hit reasons、判定に使った metrics を記録する
 
 ## 4. 出力
@@ -157,16 +157,16 @@ JPX 規制情報は universe 定義の一部であり、必須 source が欠け�
 
 月次 retro で以下を評価:
 
-- **signal lane 別 hit 数**: 多すぎる / 少なすぎる場合は `screening-rules.yaml` の閾値調整候補
+- **playbook-linked screen 別 hit 数**: 多すぎる / 少なすぎる場合は `screening-rules.yaml` の閾値調整候補
 - **採用率**: 通過銘柄のうち research で採用された割合
-- **skipped trade log**: 見送り銘柄の事後パフォーマンス
+- **missed opportunity tracking**: 見送り / 保留 / 未実行候補の事後パフォーマンス
 - **lane 別の成功 / 失敗分類**: どの割安タイプが機能したか
 
 閾値変更は playbook 改訂議論に含める。
 
 ## 8. 事実と分析の分離
 
-- mechanical は **事実層**。閾値適用・signal hit は機械的
+- mechanical は **事実層**。閾値適用・screen hit は機械的
 - 「なぜ割安か」の仮説・「採用すべきか」の判断は research 側
 - candidates ファイル本文には補足情報を事実として記録し、解釈を入れない
 

@@ -2,9 +2,9 @@
 
 Baibai-Loop の運用上の設計原則を記述する。本原則は [`philosophy.md`](./philosophy.md) の 4 つの柱を具体運用に落とした実践ルールである。構造・schema は [`architecture/system-overview.md`](./architecture/system-overview.md)、日々の運用手順は [`operations/README.md`](./operations/README.md) を参照。
 
-## 1. 4 成分 + 下流アーキテクチャを前提とする
+## 1. Decision lifecycle を前提とする
 
-Baibai-Loop は **4 成分 (`records/01-brief/`, `records/03-candidates/`, `records/02-outlook/`, `records/04-research/`) + 下流 (`records/05-trades/`, `records/06-reviews/`)** の構造で運用する。全ての設計判断は本アーキテクチャを前提とする。詳細は [`architecture/system-overview.md`](./architecture/system-overview.md)。
+Baibai-Loop は **portfolio policy -> brief -> outlook -> candidates -> research -> trades -> reviews -> playbooks feedback** の decision lifecycle で運用する。全ての設計判断はこの lifecycle と責務境界を前提とする。詳細は [`architecture/system-overview.md`](./architecture/system-overview.md) と [`concepts.md`](./concepts.md)。
 
 ## 2. 分析階層: 世界情勢 → 地域経済 → 個別資産
 
@@ -38,26 +38,26 @@ Baibai-Loop は **4 成分 (`records/01-brief/`, `records/03-candidates/`, `reco
 
 ### 4.1 ファイル単位の分離
 
-| レイヤー | 扱う対象 | 格納先 | 4 成分対応 |
+| レイヤー | 扱う対象 | 格納先 | lifecycle role |
 |---|---|---|---|
-| マクロ事実 | グローバル/日本経済の観測値・一次統計引用・機械的計算 | `records/01-brief/` 配下 | (a) |
-| ミクロ事実 | スクリーニング通過銘柄・valuation 指標 snapshot | `records/03-candidates/` 配下 | (b) |
-| マクロ分析 | マクロ見解・業種/地域の追い風/中立/逆風評価 | `records/02-outlook/` 配下 | (c) |
-| ミクロ分析 | 個別銘柄の深掘り・原因仮説・反対仮説・採用判定 | `records/04-research/` 配下 | (d) |
+| マクロ事実 | グローバル/日本経済の観測値・一次統計引用・機械的計算 | `records/01-brief/` 配下 | observations |
+| Security-level 事実 | スクリーニング通過銘柄・valuation 指標 snapshot | `records/03-candidates/` 配下 | screen output |
+| マクロ分析 | マクロ見解・業種/地域の追い風/中立/逆風評価 | `records/02-outlook/` 配下 | regime view |
+| Security-level 分析 | 個別銘柄の深掘り・原因仮説・反対仮説・採用判定 | `records/04-research/` 配下 | investment memo |
 
 ### 4.2 事実レイヤー（brief / candidates）に含めてよいもの
 
 - 一次統計の数値引用（CPI 等）
 - マーケット終値・利回り
 - 前週比・前月比の計算結果
-- workflow で明示された閾値ルールの適用結果（Major / Notable ラベル等）
+- brief contract で明示された閾値ルールの適用結果（Major / Notable ラベル等）
 - 過去 N 週の方向履歴（矢印列）
 - 方向反転の機械的検出
 - Valuation 指標の算出結果（`records/03-candidates/` 側）
 
 ### 4.3 事実レイヤーで禁止するもの
 
-- 「〜を示唆する」「〜を受けて」「〜を背景に」等の因果推論表現（[`workflow.md`](./workflow.md) の禁止表現リスト参照）
+- 「〜を示唆する」「〜を受けて」「〜を背景に」等の因果推論表現（brief では [`operations/brief-runbook.md`](./operations/brief-runbook.md) と [`components/brief.md`](./components/brief.md) の fact layer 規則を参照）
 - 「次の FOMC では〜が予想される」等の予測
 - 「この動きは〜を意味する」等の意味付け
 - 「注目すべき」「重要な」等の重要度評価（Major/Notable は「変化量の統計的大きさ」のラベルであり、重要度評価ではない）
@@ -78,11 +78,11 @@ Baibai-Loop は **4 成分 (`records/01-brief/`, `records/03-candidates/`, `reco
 「research では会社IRを確認する」「次回からこの手順で調べる」のようなプロセス指示は
 `docs/components/`、`docs/operations/`、`docs/anti-patterns.md` に置く。
 
-## 5. マクロ優位 (76/24) の原則（philosophy 柱 2 の具体化）
+## 5. Macro regime discipline（philosophy 柱 2 の具体化）
 
-- トレード判断の比重は **マクロ 76% / ミクロ 24%**
-- 運用途中で動かさない
-- `records/04-research/` の採用判定では `records/02-outlook/` の Macro gate 判定を必ず通す（gate を通らなければ採用不可）
+- **マクロ 76% / security-level 24%** は attention / review time / cognitive budget の policy weight として扱う
+- 採用可否と position sizing は prose の総合判断ではなく、macro regime gate と portfolio policy の gate / cap で扱う
+- `records/04-research/` の採用判定では `records/02-outlook/` の macro regime gate 判定を必ず通す
 - 詳細は [`screening/macro-gate-procedure.md`](./screening/macro-gate-procedure.md)
 
 ## 6. Feedback loop 先行の原則（philosophy 柱 3 の具体化）

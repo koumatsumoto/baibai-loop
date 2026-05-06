@@ -232,7 +232,7 @@ def test_monthly_retro_draft_uses_ledger_only_fallback(tmp_path: Path) -> None:
     assert draft.path == tmp_path / "records/06-reviews" / "2026" / "retro-202604.md"
     assert "records/06-reviews/2026/04 does not exist" in draft.warnings[0]
     assert "price_missing_counts:" in draft.content
-    assert "## Skipped trade log の分析" in draft.content
+    assert "## Missed opportunity / screening false negative tracking の分析" in draft.content
     draft.path.parent.mkdir(parents=True)
     draft.path.write_text(draft.content, encoding="utf-8")
     assert validate_review_file(draft.path) == []
