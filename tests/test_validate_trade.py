@@ -96,7 +96,9 @@ def _trade_front(**overrides: object) -> dict[str, object]:
 def _write_trade(
     tmp_path: Path, front: dict[str, object] | None = None, name: str = "2026-05-05-9682.md"
 ) -> Path:
-    path = tmp_path / name
+    root = _test_repo_root(tmp_path)
+    _write_test_repo_sources(root)
+    path = tmp_path / name if _is_trade_dir(tmp_path) else root / "records/06-trades/2026/05" / name
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = front if front is not None else _trade_front()
     path.write_text(
@@ -104,6 +106,49 @@ def _write_trade(
         encoding="utf-8",
     )
     return path
+
+
+def _test_repo_root(path: Path) -> Path:
+    parts = path.parts
+    if "records" not in parts:
+        return path
+    return Path(*parts[: parts.index("records")])
+
+
+def _is_trade_dir(path: Path) -> bool:
+    parts = path.parts
+    return "records" in parts and "06-trades" in parts
+
+
+def _write_test_repo_sources(root: Path) -> None:
+    (root / "src").mkdir(parents=True, exist_ok=True)
+    policy_path = root / "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"
+    policy_path.parent.mkdir(parents=True, exist_ok=True)
+    if not policy_path.exists():
+        policy_path.write_text(
+            "---\norder_constraints:\n  board_lot: 100\n---\n\n# Policy\n",
+            encoding="utf-8",
+        )
+    research_path = root / "records/05-research/2026/05/2026-05-05-9682-sales-discount-growth.md"
+    research_path.parent.mkdir(parents=True, exist_ok=True)
+    if not research_path.exists():
+        research_path.write_text(
+            "---\n"
+            "thesis_payoff:\n"
+            "  max_entry_price_yen: 1050\n"
+            "position_sizing_overlay:\n"
+            "  real_order_intent_yen: 210000\n"
+            "---\n\n# Research\n",
+            encoding="utf-8",
+        )
+    register_path = root / "records/_ledger/research-decisions/2026-05.jsonl"
+    register_path.parent.mkdir(parents=True, exist_ok=True)
+    if not register_path.exists():
+        register_path.write_text(
+            '{"decision_event_id":"decision-20260505-9682-trade",'
+            '"order_intent":{"order_intent_id":"intent-20260505-9682-entry"}}\n',
+            encoding="utf-8",
+        )
 
 
 def test_trade_with_filled_order_lifecycle_passes(tmp_path: Path) -> None:
@@ -321,7 +366,9 @@ def test_invalid_ticker_pattern_is_flagged(tmp_path: Path) -> None:
 
 
 def test_discover_trade_files_skips_template(tmp_path: Path) -> None:
-    (tmp_path / "template.md").write_text("placeholder", encoding="utf-8")
+    trade_root = tmp_path / "records/06-trades"
+    trade_root.mkdir(parents=True)
+    (trade_root / "template.md").write_text("placeholder", encoding="utf-8")
     valid = _write_trade(tmp_path)
-    discovered = discover_trade_files(tmp_path)
+    discovered = discover_trade_files(trade_root)
     assert discovered == [valid]
