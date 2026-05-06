@@ -12,7 +12,12 @@ published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 tradable_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 macro_gate: tailwind | neutral | headwind
 macro_gate_override: "..."              # headwind 採用時のみ
-overrides: []                           # system output を上書きする場合は理由を記録
+overrides:
+  - type: decision_flip | candidate_absence | universe_drop | real_concentration_cap | gate_headwind
+    prior_state_ref: "path or commit:path"
+    prior_state: "..."
+    new_state: "..."
+    reason: "..."
 external_refs: []                       # 外部AI / 二次分析を参照する場合
 position_size_oku: 0.01                 # accepted/pending: > 0 必須。skipped: 0 強制
 hypothetical_position_size_oku: 0.005   # 任意。skipped で参考値として記録する場合のみ
@@ -56,7 +61,7 @@ valuation:
 - **brief_refs**（任意）: [outlook 後の緊急 brief があれば]
 - **1-2 行要約**: [gate 判定の要点]
 
-headwind の場合は原則採用不可。採用する場合は `macro_gate_override` に system output を上書きする理由を残す。
+headwind の場合は原則採用不可。採用する場合は `macro_gate_override` と `overrides[].type: gate_headwind` に system output を上書きする理由を残す。
 
 ### 2.1 Portfolio macro risk budget
 
@@ -144,7 +149,7 @@ catalyst がない場合は、どの evidence path が catalyst 不在を補う 
 | 60 営業日騰落 | - | -X.X% | 計算 |
 | 出来高比（20 日平均） | - | X.Xx | 計算 |
 
-## 8. Crowding
+## 8. Crowding (positioning / liquidity)
 
 | 指標 | 現値 | 60 日推移 | ソース |
 | --- | --- | --- | --- |
@@ -169,7 +174,7 @@ catalyst がない場合は、どの evidence path が catalyst 不在を補う 
 | Valuation | strong / weak / neutral | primary: pbr, ocf_yield |
 | Mean-Reversion | strong / weak / neutral | [根拠] |
 | Catalyst | strong / weak / neutral | [根拠] |
-| Crowding | strong / weak / neutral | [踏み上げ余地 / 逆回転リスク] |
+| Crowding (positioning / liquidity) | strong / weak / neutral | [踏み上げ余地 / 逆回転リスク] |
 
 ## 11. Entry 条件
 

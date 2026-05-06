@@ -83,7 +83,7 @@ kill_switch_check:
 ### YYYY-MM-DD
 
 - [重大な変化があった場合のメモ]
-- [マクロ変化、決算発表接近、crowding 変化、価格動向、無効化条件監視]
+- [マクロ変化、決算発表接近、positioning / liquidity 変化、価格動向、無効化条件監視]
 
 ## 3. Exit
 

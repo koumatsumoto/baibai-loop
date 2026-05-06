@@ -40,7 +40,7 @@ Research packet で以下の 4 軸を記入する。**合計点は算出しな�
 | Valuation | PER / PBR / EV-EBITDA / P-S / PCFR / OCF yield / cash-to-market-cap | 指標ごとに値、比較対象、primary metric |
 | Mean-Reversion | 急落有無 / 自己過去レンジ下位度 / セクターローテーション起因度 | 定量値 + 1-2 行コメント |
 | Catalyst | 有無 / freshness / 種別 | 種別 + 経過営業日 + 一次ソース URL |
-| Positioning / liquidity | 空売り残高 / 日々公表信用 / 特別注意 / 貸借状態 / 出来高 | 各指標の絶対値 + 60 日推移 |
+| Crowding (positioning / liquidity) | 空売り残高 / 日々公表信用 / 特別注意 / 貸借状態 / 出来高 | 各指標の絶対値 + 60 日推移 |
 
 各軸に **寄与度 3 段階**（strong / weak / neutral）を記録し、retro で軸別 bias を定性分析する。
 

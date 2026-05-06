@@ -42,4 +42,4 @@ EDINET CSV-derived metrics の cash と interest-bearing debt を使い、厳密
 - Asset discount and capital efficiency: PBR、ROE、政策保有株、資産売却可能性を確認する。
 - Shareholder return check: 配当政策、自社株買い、DOE or 配当性向、減配リスクを確認する。
 - Entry / Exit / Invalidation: net cash thesis が崩れる条件と re-rating 経路を明示する。
-- Position size: single signal / multiple signal と流動性を確認する。
+- Position size: single evidence path / multiple independent evidence paths と流動性を確認する。

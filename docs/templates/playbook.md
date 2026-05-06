@@ -52,11 +52,11 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 ### 2.5 Universe 条件
 
 - 時価総額 100 億円以上 + 売買代金 1 億円以上（[`/docs/screening/universe-rules.md`](/docs/screening/universe-rules.md)）
-- evidence path 数別 position 上限（single evidence path 1%、複数 independent evidence paths 2%）
+- evidence path 数別 position 上限（[`/docs/screening/principles.md#7-position-sizing`](/docs/screening/principles.md#7-position-sizing)）
 
 ## 3. 修飾因子
 
-### 3.1 Crowding
+### 3.1 Crowding (positioning / liquidity)
 
 - 空売り残高 / 日々公表信用 / 特別注意 / 貸借状態の評価
 - 踏み上げリスクと逆回転リスクの両面評価
@@ -85,7 +85,7 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
 ## 6. Position sizing
 
-- evidence path 数別上限（[`/docs/screening/universe-rules.md`](/docs/screening/universe-rules.md)）に従う
+- evidence path 数別上限（[`/docs/screening/principles.md#7-position-sizing`](/docs/screening/principles.md#7-position-sizing)）に従う
 - single evidence path: 最大 1%、複数 independent evidence paths: 最大 2%、`adv_participation_pct >= 5.0` は hard reject
 
 ## 7. Kill switch 確認
@@ -98,7 +98,7 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
 [`/docs/components/research.md`](/docs/components/research.md) の AI 境界表を継承。核心:
 
-- **AI 可**: Thesis / valuation / 仮説ドラフト / catalyst / price / crowding
+- **AI 可**: Thesis / valuation / 仮説ドラフト / catalyst / price / positioning-liquidity
 - **人間のみ**: Macro gate 確定 / 一次ソース URL 確認 / 最終採用判定
 
 ## 9. 改訂履歴

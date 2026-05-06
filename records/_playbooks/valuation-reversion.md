@@ -22,7 +22,7 @@ status: active
 - 一時的割安の原因仮説。
 - 反対仮説。
 - Catalyst の有無。
-- Price reaction と crowding。
+- Price reaction と Crowding (positioning / liquidity)。
 - Entry / Exit / Invalidation。
 - Position size。
 - Shareholder return check。

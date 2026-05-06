@@ -10,7 +10,7 @@ status: active
 
 J-Quants financial summary の `CashEq` と `Eq` を使い、現金・純資産に対して時価総額が安い候補を扱う。これは厳密 net cash 判定ではない。
 
-EDINET `net_cash_to_market_cap` が取得できる場合は、J-Quants CashEq proxy より EDINET net cash を優先して contradiction check を行う。EDINET 上で net debt と分かる銘柄は、CashEq / market cap が高くてもこの signal から除外する。
+EDINET `net_cash_to_market_cap` が取得できる場合は、J-Quants CashEq proxy より EDINET net cash を優先して contradiction check を行う。EDINET 上で net debt と分かる銘柄は、CashEq / market cap が高くてもこの evidence path から除外する。
 
 ## Entry Focus
 

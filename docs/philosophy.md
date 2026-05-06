@@ -116,7 +116,7 @@ portfolio policy
 - **policy**: 目的、制約、資本、許容リスク、time horizon を固定する
 - **brief / candidates**: fact layer。Macro / market observations と security-level screen output を分ける
 - **outlook / research**: analysis layer。Macro regime view と investment memo を分ける
-- **trades**: execution record。判断を実行したか、できなかったかを記録する
+- **trades**: execution record。order / entry した判断がどう約定・保有・決済されたかを記録する
 - **reviews / playbooks**: outcome attribution を playbook feedback に戻す
 
 階層的 3 層（事実 → 解釈 → 判断）だけだと、macro regime、security-level thesis、execution、review attribution が同じ「判断」層に混ざり、責務が重なる。Lifecycle loop として分けるほうが、どこで候補を拾い、どこで落とし、どこで改善するかを追いやすい。

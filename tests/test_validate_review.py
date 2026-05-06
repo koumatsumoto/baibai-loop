@@ -87,7 +87,7 @@ price_missing_counts:
 ## Trade 集計
 ## 失敗分類の集計
 ## 成功分類の集計
-## Skipped trade log の分析
+## Missed opportunity / screening false negative tracking の分析
 ## Macro gate 判定精度
 ## Playbook 改訂判断
 ## 次周回の運用変更点

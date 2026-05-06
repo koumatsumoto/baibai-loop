@@ -36,9 +36,9 @@ Baibai-Loop の **research / investment memo** の運用仕様。candidates × o
 research 対象に選んだ銘柄は、業種を問わず **会社IRを一次情報として必ず確認する**。screening や外部分析は候補選定の補助であり、採用 / 見送り / 保留の判断を確定する根拠にはしない。
 
 - 最低限、直近の決算短信、決算説明資料、会社説明会 Q&A、有価証券報告書 / 統合報告書、中期経営計画、株主還元・自己株式取得・配当関連の適時開示を確認する
-- cash-rich signal では有利子負債・偶発債務を一次情報で確認する
-- CF signal では営業 CF の一過性要因、運転資本、季節性を確認する
-- candidates / select の `freshness_warnings` に `source_family: edinet-metrics` がある場合、strict net cash / cash-rich / FCF 系の primary または supporting signal では、EDINET 由来の cash / debt / net cash / EV / equity / share count / capex / fcf_ttm を最新の会社IR・適時開示・有報で再確認する。warning が残ったまま未確認なら `decision: accepted` にしない
+- cash-rich evidence path では有利子負債・偶発債務を一次情報で確認する
+- CF evidence path では営業 CF の一過性要因、運転資本、季節性を確認する
+- candidates / select の `freshness_warnings` に `source_family: edinet-metrics` がある場合、strict net cash / cash-rich / FCF 系の primary または supporting evidence では、EDINET 由来の cash / debt / net cash / EV / equity / share count / capex / fcf_ttm を最新の会社IR・適時開示・有報で再確認する。warning が残ったまま未確認なら `decision: accepted` にしない
 - 会社IRで確認できた事実、会社IRでは確認できず外部 estimate に留めた情報、外部AI / 二次分析から修正した数値を research 本文の source verification log に分けて残す
 - 会社IRが未確認の銘柄は `decision: accepted` にしない。情報不足なら `pending` または `skipped` とし、未確認項目を明記する
 
@@ -95,7 +95,7 @@ tradable_at: "ISO 8601"
 macro_gate: tailwind | neutral | headwind
 macro_gate_override: "..."
 overrides:
-  - type: decision_flip | candidate_absence | universe_drop | real_concentration_cap
+  - type: decision_flip | candidate_absence | universe_drop | real_concentration_cap | gate_headwind
     prior_state_ref: "path or commit:path"
     prior_state: "..."
     new_state: "..."
@@ -127,7 +127,7 @@ valuation:
 
 - `playbook` は primary thesis を 1 つだけ持つ。複数 screen hit がある場合は `supporting_signals` と本文 §3 に列挙する
 - `outlook_ref` は **必須**
-- `macro_gate` が `headwind` の場合は採用不可（原則）。採用する場合は `macro_gate_override` が必須
+- `macro_gate` が `headwind` の場合は採用不可（原則）。採用する場合は `macro_gate_override` と `overrides[].type: gate_headwind` が必須
 - `position_size_oku` は仮定資本 1 億円ベース。採用 position 1.0% は `0.01` 億円として記録する
 - `adv_participation_pct` は `5.0` 以上で hard reject
 - 配当利回りは front matter に含めず、本文の株主還元確認で扱う
@@ -143,7 +143,7 @@ valuation:
 5. 反対仮説 - 構造的理由
 6. Catalyst
 7. Price reaction
-8. Positioning / liquidity
+8. Crowding (positioning / liquidity)
 9. 株主還元確認（配当政策 / 自社株買い / DOE or 配当性向 / 減配リスク）
 10. Security-level evidence contribution table
 11. Entry 条件
@@ -222,7 +222,7 @@ AI 下書きは front matter `ai-draft: true` で識別、人間確認後 `false
 - [ ] **AP-07** (kill switch と日付): `tradable_at` 周辺に決算・日銀会合・FOMC が無いか
 - [ ] **AP-08** (validator 抜け道): skipped では `position_size_oku: 0` + `adv_participation_pct: 0` を守ったか
 - [ ] **外部 AI / 二次分析の検証**: 他AI・証券サイト・ニュース要約の投資判断をそのまま転記していないか
-- [ ] **system output override の明示**: 最新 candidates からの不在、universe drop、macro headwind、実資金集中度超過などを上書きして採用する場合、`overrides` と本文に理由を残したか
+- [ ] **system output override の明示**: 最新 candidates からの不在、universe drop、macro headwind、実資金集中度超過などを上書きして採用する場合、`overrides` と本文に理由を残したか。macro headwind 採用では `macro_gate_override` と `overrides[].type: gate_headwind` を併記したか
 
 ## 9. 参考
 

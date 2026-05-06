@@ -322,6 +322,19 @@ def _validate_front_matter(
                     location="macro_gate_override",
                 )
             )
+            if not _has_override_type(front_matter, "gate_headwind"):
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="research.headwind-without-gate-override",
+                        message=(
+                            "accepted research with headwind macro_gate requires "
+                            "overrides[].type='gate_headwind'"
+                        ),
+                        location="overrides",
+                    )
+                )
         else:
             findings.append(
                 ValidationFinding(
@@ -515,6 +528,15 @@ def _validate_front_matter(
     findings.extend(_validate_external_refs(path, front_matter))
     findings.extend(_validate_candidate_absence_override(path, front_matter))
     return findings
+
+
+def _has_override_type(front_matter: Mapping[str, object], override_type: str) -> bool:
+    overrides = front_matter.get("overrides")
+    if not isinstance(overrides, list):
+        return False
+    return any(
+        isinstance(entry, dict) and entry.get("type") == override_type for entry in overrides
+    )
 
 
 def _validate_overrides(path: Path, front_matter: dict[str, object]) -> list[ValidationFinding]:

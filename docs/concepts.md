@@ -37,7 +37,7 @@ flowchart LR
 | outlook | regime view | その観測から macro / sector regime をどう読むか |
 | candidates | screen output | どの銘柄が mechanical screen に残ったか |
 | research | investment memo | thesis, risk/reward, invalidation を満たすか |
-| trades | execution record | 判断を実行したか、できなかったか |
+| trades | execution record | order / entry した判断がどう約定・保有・決済されたか |
 | reviews | attribution | 結果を何に帰属し、次回何を直すか |
 | playbooks | repeatable thesis patterns | どの thesis pattern を強める / 弱める / 改訂するか |
 
@@ -83,7 +83,7 @@ Long-lived context は main lifecycle には含めません。Slow-moving contex
 - `candidates` は screen fact layer です。ticker-level の immutable raw screen output を残し、後続の current decision state は上書きしません。
 - `records/_ledger/` は research decision と tracking event を append-only に記録する正本です。Candidate は screen fact、trades は execution record、reviews は attribution record として分けます。
 - `research` は investment memo です。Evidence count だけでなく、entry、target、stop、expected upside / downside、risk/reward、time horizon、invalidation conditions を検証します。
-- `trades` は execution record です。実行していない候補を trade と呼びません。
+- `trades` は execution record です。実際に order / entry した採用判断を扱い、発注しなかった採用・見送り・保留を trade と呼びません。
 - `reviews` は outcome attribution / feedback layer です。Absolute return だけでなく relative return、missed opportunity、screening false negative、evidence hit outcome、macro gate attribution、sizing attribution、execution attribution、playbook feedback を扱います。
 
 ## Evidence Taxonomy

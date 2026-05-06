@@ -1,6 +1,6 @@
 # components/trades.md
 
-Baibai-Loop の **execution record / trades** 成分の運用仕様。investment memo で採用された判断を実行したか、実行できなかったか、約定・取消・決済がどうなったかを記録する。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md) を参照。
+Baibai-Loop の **execution record / trades** 成分の運用仕様。investment memo で採用され、実際に order / entry した判断の注文、約定、建玉、決済を記録する。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md) を参照。
 
 ## 1. 役割
 

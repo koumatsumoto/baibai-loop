@@ -188,7 +188,7 @@ def _make_research_text() -> str:
         ## 5. 反対仮説
         ## 6. Catalyst
         ## 7. Price reaction
-        ## 8. Crowding
+        ## 8. Crowding (positioning / liquidity)
         ## 9. Shareholder return
         ## 10. Entry
         ## 11. Exit

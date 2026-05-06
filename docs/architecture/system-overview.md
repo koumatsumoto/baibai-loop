@@ -23,7 +23,7 @@ Baibai-Loop は、日本株スイングトレードの判断を forward-only に
 | regime view | `records/02-outlook/` | analysis | brief を積み上げ、macro / sector regime を判断する |
 | screen output | `records/03-candidates/` | fact | universe と screening rule から ticker-level raw screen output を記録する |
 | investment memo | `records/04-research/` | analysis | candidates と outlook を統合し、thesis payoff と採用可否を判断する |
-| execution record | `records/05-trades/` | execution | 採用判断の実行、未実行、約定、取消、決済を記録する |
+| execution record | `records/05-trades/` | execution | 実際に order / entry した採用判断の注文、約定、建玉、決済を記録する |
 | attribution review | `records/06-reviews/` | feedback | relative return、missed opportunity、playbook attribution で feedback loop を閉じる |
 
 ## Decision Loop
