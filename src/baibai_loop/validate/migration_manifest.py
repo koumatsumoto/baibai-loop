@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import subprocess
+import shutil
+import subprocess  # nosec B404
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ _OLD_PATH_PREFIXES = (
     "records/05-trades/",
     "records/06-reviews/",
 )
+_GIT_PATH = shutil.which("git")
 
 
 def discover_migration_manifest_files(root: Path) -> list[Path]:
@@ -207,11 +209,12 @@ def _check_old_row_reference(
 
 def _old_row_from_reference(root: Path, old_path: str, line_number: int) -> str | None:
     text: str | None = None
-    if (root / ".git").exists():
+    if (root / ".git").exists() and _GIT_PATH:
         for ref in ("origin/main", "HEAD^"):
             try:
-                text = subprocess.check_output(
-                    ["git", "show", f"{ref}:{old_path}"],
+                # old_path is restricted to known pre-migration record roots above.
+                text = subprocess.check_output(  # nosec B603
+                    [_GIT_PATH, "show", f"{ref}:{old_path}"],
                     cwd=root,
                     text=True,
                     stderr=subprocess.DEVNULL,
