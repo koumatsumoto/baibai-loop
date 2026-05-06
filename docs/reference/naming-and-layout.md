@@ -20,6 +20,15 @@ last_reviewed: 2026-05-04
 | `records/07-reviews/` | `YYYY/MM/YYYY-MM-DD-<ticker>.md` or `YYYY/retro-YYYYMM.md` |
 | `records/_playbooks/` | `<playbook-slug>-v<n>.md` |
 
+## Index And Changelog Policy
+
+Brief / outlook / candidates / research / trades / reviews は event records であり、
+`_index.yaml` や `_changelog.jsonl` を持たない。正本は file path、record 内の snapshot
+refs、CLI の `--asof` / explicit path で決まる。
+
+Snapshot 系 support area は content hash と changelog が必要な場合だけ `_changelog.jsonl`
+を持つ。mutable latest index を足して current state の解釈を二重化しない。
+
 ## Slugs
 
 - 英小文字、数字、ハイフンを使う。

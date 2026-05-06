@@ -44,6 +44,10 @@ source_paths:
 
 `records/_*` は運用成果物そのものではなく、生成・検証・検証後追跡を支える領域です。重複と drift を避けるため、正本 docs は 1 つに固定します。
 
+通常 record (`01-policy` を除く `02-brief` から `07-reviews`) は event artifact として path
+自体を正本にし、mutable latest index は持たない。Snapshot 系 support area は、hash 検査が
+必要なものだけ `_changelog.jsonl` を持つ。
+
 | path | 正本 docs | 参照 docs | 役割 |
 | --- | --- | --- | --- |
 | `records/_approval-rules/` | [`../components/research.md`](../components/research.md) | this map | analyst asserted evidence を sizing に入れる approval rule snapshots |
