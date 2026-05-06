@@ -85,6 +85,11 @@ def _trade_front(**overrides: object) -> dict[str, object]:
                 "at": "2026-05-05T09:01:00+09:00",
             }
         ],
+        "kill_switch_check": {
+            "earnings_straddle": False,
+            "boj_eve": False,
+            "fomc_eve": False,
+        },
     }
     front.update(overrides)
     return front
@@ -259,6 +264,51 @@ def test_trade_intent_must_join_decision_register(tmp_path: Path) -> None:
     path = _write_trade(tmp_path / "records/06-trades/2026/05", _trade_front())
     codes = {finding.code for finding in validate_trade_file(path)}
     assert "trade.decision-register-intent-join" in codes
+
+
+def test_kill_switch_check_is_recomputed_from_events_calendar(tmp_path: Path) -> None:
+    policy = tmp_path / "policy.yaml"
+    policy.write_text(
+        yaml.safe_dump(
+            {
+                "kill_switch": {
+                    "boj_eve": {"validator_callable_id": "boj_eve_window"},
+                }
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    events = tmp_path / "events.yaml"
+    events.write_text(
+        yaml.safe_dump(
+            {
+                "events": [
+                    {
+                        "event_id": "boj-20260506",
+                        "date": "2026-05-06",
+                        "kind": "boj",
+                    }
+                ]
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    front = _trade_front(
+        policy_snapshot=_snapshot(str(policy)),
+        calendars_snapshot={
+            "business_days": _snapshot("records/_calendars/business-days/2026-05.yaml"),
+            "events": _snapshot(str(events)),
+            "corporate_actions": _snapshot(
+                "records/_calendars/corporate-actions/2026-05.yaml"
+            ),
+        },
+        kill_switch_check={"boj_eve": False},
+    )
+    path = _write_trade(tmp_path, front)
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.kill-switch-check" in codes
 
 
 def test_filename_ticker_must_match_front_matter(tmp_path: Path) -> None:

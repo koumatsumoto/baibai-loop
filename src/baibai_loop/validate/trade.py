@@ -22,6 +22,7 @@ from .domain import (
     resolve_ref,
 )
 from .errors import ValidationFinding
+from .registry import evaluate_kill_switch, has_validator_callable
 
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "trade.json"
 
@@ -87,6 +88,7 @@ def validate_trade_file(path: Path) -> list[ValidationFinding]:
     findings.extend(_check_current_quantity(path, front))
     findings.extend(_check_guarded_notional(path, front))
     findings.extend(_check_intent_recomputed(path, front))
+    findings.extend(_check_kill_switches(path, front))
     findings.extend(_check_entry_legs(path, front))
     return findings
 
@@ -549,6 +551,79 @@ def _check_entry_legs(path: Path, front: Mapping[str, object]) -> list[Validatio
             )
         ]
     return []
+
+
+def _check_kill_switches(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
+    policy = _load_policy(path, front)
+    kill_switch = as_mapping(policy.get("kill_switch"))
+    if not kill_switch:
+        return []
+    event_payload = _load_events_calendar(path, front)
+    events = [event for event in as_list(event_payload.get("events")) if isinstance(event, Mapping)]
+    checked = as_mapping(front.get("kill_switch_check"))
+    at = _first_order_event_at(front)
+    findings: list[ValidationFinding] = []
+    for key, config_value in kill_switch.items():
+        config = as_mapping(config_value)
+        callable_id = config.get("validator_callable_id")
+        if not isinstance(callable_id, str) or not callable_id:
+            continue
+        if not has_validator_callable(callable_id):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="trade.kill-switch-callable",
+                    message=f"kill switch has no validator implementation: {callable_id}",
+                    location=f"policy_snapshot.kill_switch.{key}.validator_callable_id",
+                )
+            )
+            continue
+        expected = evaluate_kill_switch(
+            callable_id,
+            {
+                "ticker": front.get("ticker"),
+                "at": at,
+                "window_days": config.get("window_days"),
+            },
+            events,
+        )
+        if expected is None:
+            continue
+        actual = checked.get(str(key))
+        if actual is not expected:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="trade.kill-switch-check",
+                    message=f"kill_switch_check.{key} must be {str(expected).lower()}",
+                    location=f"kill_switch_check.{key}",
+                )
+            )
+    return findings
+
+
+def _load_events_calendar(path: Path, front: Mapping[str, object]) -> Mapping[str, Any]:
+    calendars = as_mapping(front.get("calendars_snapshot"))
+    try:
+        _events_path, payload = load_snapshot_mapping(repo_root_for(path), calendars.get("events"))
+        return payload
+    except (OSError, ValueError, yaml.YAMLError):
+        return {}
+
+
+def _first_order_event_at(front: Mapping[str, object]) -> str | None:
+    for order in as_list(front.get("orders")):
+        if not isinstance(order, Mapping):
+            continue
+        for event in as_list(order.get("events")):
+            if not isinstance(event, Mapping):
+                continue
+            at = event.get("at")
+            if isinstance(at, str) and at:
+                return at
+    return None
 
 
 def _is_repository_trade_record(path: Path) -> bool:
