@@ -89,9 +89,9 @@ or order readiness.
   disconfirming evidence and payoff. The current strategy caps first orders for
   this sleeve at 75,000 yen and requires research confirmation before order
   readiness.
-- Current order-ready queue is empty. Past order intents are not preserved as a
-  control; fresh research is required before changing from selected/research
-  queue to order-ready.
+- Current order-ready queue is empty. Order intents are not carried forward;
+  fresh research is required before changing from selected/research queue to
+  order-ready.
 
 ## Raw Data Added
 
