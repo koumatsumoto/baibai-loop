@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -11,7 +13,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.validate.snapshots import validate_snapshot_integrity
+from baibai_loop.validate.snapshots import _records_payload_hash, validate_snapshot_integrity
 
 
 class SnapshotIntegrityValidationTests(unittest.TestCase):
@@ -120,6 +122,35 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
             findings = validate_snapshot_integrity(root)
 
         self.assertEqual(findings, [])
+
+    @unittest.skipUnless(shutil.which("git"), "git is required")
+    def test_payload_hash_ignores_untracked_and_ignored_record_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            subprocess.run(["git", "init"], cwd=root, check=True, stdout=subprocess.DEVNULL)
+            (root / ".gitignore").write_text("records/_data/cache/\n", encoding="utf-8")
+            payload = root / "records/05-research/item.md"
+            payload.parent.mkdir(parents=True)
+            payload.write_text("---\nticker: '9682'\n---\n", encoding="utf-8")
+            ignored = root / "records/_data/cache/local.zip"
+            ignored.parent.mkdir(parents=True)
+            ignored.write_text("local cache must not affect migration payload\n", encoding="utf-8")
+            untracked = root / "records/05-research/untracked.md"
+            untracked.write_text("---\nticker: '9999'\n---\n", encoding="utf-8")
+            subprocess.run(
+                ["git", "add", ".gitignore", "records/05-research/item.md"],
+                cwd=root,
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+
+            actual = _records_payload_hash(root)
+            expected_rows = (
+                f"{hashlib.sha256(payload.read_bytes()).hexdigest()}  records/05-research/item.md\n"
+            )
+            expected = f"sha256:{hashlib.sha256(expected_rows.encode('utf-8')).hexdigest()}"
+
+        self.assertEqual(actual, expected)
 
 
 def _payload_hash(root: Path) -> str:

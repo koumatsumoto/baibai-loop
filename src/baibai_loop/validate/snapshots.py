@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
+import subprocess  # nosec B404
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -15,6 +17,7 @@ from .errors import ValidationFinding
 
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
 _SHA_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_GIT_PATH = shutil.which("git")
 
 _SNAPSHOT_ROOTS: tuple[Path, ...] = (
     Path("records/01-policy/2026"),
@@ -422,8 +425,40 @@ def _records_payload_hash(root: Path) -> str:
     rows: list[str] = []
     if not records_root.exists():
         return f"sha256:{hashlib.sha256(b'').hexdigest()}"
-    for path in sorted(records_root.rglob("*")):
+    for path in _payload_files(root):
         if not path.is_file() or "_migrations" in path.relative_to(records_root).parts:
             continue
         rows.append(f"{_raw_sha256(path)}  {path.relative_to(root).as_posix()}\n")
     return f"sha256:{hashlib.sha256(''.join(rows).encode('utf-8')).hexdigest()}"
+
+
+def _payload_files(root: Path) -> list[Path]:
+    tracked = _tracked_records_files(root)
+    if tracked is not None:
+        return tracked
+    records_root = root / "records"
+    return sorted(records_root.rglob("*"))
+
+
+def _tracked_records_files(root: Path) -> list[Path] | None:
+    if _GIT_PATH is None or not (root / ".git").exists():
+        return None
+    try:
+        raw = subprocess.check_output(  # nosec B603
+            [_GIT_PATH, "-C", str(root), "ls-files", "-z", "--", "records"],
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+    files: list[Path] = []
+    for item in raw.split(b"\0"):
+        if not item:
+            continue
+        rel = Path(item.decode("utf-8"))
+        if "_migrations" in rel.parts:
+            continue
+        path = root / rel
+        if path.is_file():
+            files.append(path)
+    return sorted(files)
