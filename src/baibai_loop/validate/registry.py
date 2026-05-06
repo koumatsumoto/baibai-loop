@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import date, datetime
 from pathlib import Path
-from typing import Callable, Any
+from typing import Any
 
 import yaml
 
@@ -103,9 +103,7 @@ def _walk(
 
 
 @_kill_switch("earnings_straddle_window")
-def _earnings_straddle_window(
-    context: Mapping[str, Any], events: list[Mapping[str, Any]]
-) -> bool:
+def _earnings_straddle_window(context: Mapping[str, Any], events: list[Mapping[str, Any]]) -> bool:
     ticker = str(context.get("ticker") or "")
     at = _context_date(context)
     window_days = _window_days(context)

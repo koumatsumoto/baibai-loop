@@ -146,7 +146,9 @@ def sync_ledger(
     )
 
 
-def _candidate_screen_records(root: Path, covered_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _candidate_screen_records(
+    root: Path, covered_records: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     covered = _covered_candidate_refs(covered_records)
     records: list[dict[str, Any]] = []
     candidates_root = root / "records/04-candidates"
@@ -158,7 +160,10 @@ def _candidate_screen_records(root: Path, covered_records: list[dict[str, Any]])
             document = yaml.safe_load(path.read_text(encoding="utf-8"))
         except (OSError, yaml.YAMLError):
             continue
-        if not isinstance(document, Mapping) or document.get("requires_decision_coverage") is not True:
+        if (
+            not isinstance(document, Mapping)
+            or document.get("requires_decision_coverage") is not True
+        ):
             continue
         candidates = document.get("candidates")
         if not isinstance(candidates, list):
@@ -186,9 +191,7 @@ def _candidate_screen_records(root: Path, covered_records: list[dict[str, Any]])
                 candidate_ref["candidate_id"] = candidate_id_value
             records.append(
                 DecisionRegisterRecord(
-                    decision_event_id=(
-                        f"decision-{screen_run_id}-{ticker}-not-reviewed"
-                    ),
+                    decision_event_id=(f"decision-{screen_run_id}-{ticker}-not-reviewed"),
                     event_kind="decision",
                     decision_scope="candidate_screen",
                     ticker=ticker,

@@ -712,8 +712,7 @@ def _check_evidence_and_counts(
             )
         if isinstance(research_hits, list):
             has_risk_review = any(
-                isinstance(hit, Mapping) and _is_risk_review_evidence(hit)
-                for hit in research_hits
+                isinstance(hit, Mapping) and _is_risk_review_evidence(hit) for hit in research_hits
             )
             if not has_risk_review:
                 findings.append(
@@ -1494,9 +1493,7 @@ def _check_corporate_action_invalidation(
         if catalog_rules:
             invalidated_set = {str(metric) for metric in invalidated}
             disallowed = sorted(
-                metric
-                for metric in invalidated_set
-                if kind not in catalog_rules.get(metric, set())
+                metric for metric in invalidated_set if kind not in catalog_rules.get(metric, set())
             )
             if disallowed:
                 findings.append(
@@ -1538,8 +1535,9 @@ def _load_metric_event_invalidation_rules(
     if not document:
         return {}
     root = repo_root_for(path)
+    snapshot_ref = document.get("metric_catalog_snapshot")
     try:
-        _catalog_path, catalog = load_snapshot_mapping(root, document.get("metric_catalog_snapshot"))
+        _catalog_path, catalog = load_snapshot_mapping(root, snapshot_ref)
     except (OSError, ValueError, yaml.YAMLError):
         return {}
     rules: dict[str, set[str]] = {}

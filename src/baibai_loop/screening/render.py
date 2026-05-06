@@ -7,7 +7,13 @@ from pathlib import Path
 
 import yaml
 
-from .schema import FreshnessWarning, ScreenedCandidate, ScreenedRunDocument, TTMQuality
+from .schema import (
+    EvidenceHit,
+    FreshnessWarning,
+    ScreenedCandidate,
+    ScreenedRunDocument,
+    TTMQuality,
+)
 
 JST = timezone(timedelta(hours=9))
 _DECIMAL_PLACES = {
@@ -219,7 +225,10 @@ def _evidence_family_set(evidence_hit: EvidenceHit) -> list[str]:
         "price_change_60d": "market_derived",
     }
     families = {
-        family for metric in evidence_hit.metrics for family in [metric_families.get(metric)] if family
+        family
+        for metric in evidence_hit.metrics
+        for family in [metric_families.get(metric)]
+        if family
     }
     if not families:
         families = {
