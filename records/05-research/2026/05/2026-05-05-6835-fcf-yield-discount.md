@@ -119,8 +119,8 @@ thesis_payoff:
   - Q1 invalidates FCF or cash-flow durability.
   entry_trigger: price_guard_or_revisit
   expected_upside_pct: 25.93
-  expected_downside_pct: 17.39
-  risk_reward_ratio: 1.49
+  expected_downside_pct: 14.81
+  risk_reward_ratio: 1.75
 tracking:
   mode: re_examination
   plus_15bd: null

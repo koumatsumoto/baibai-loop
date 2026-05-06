@@ -119,8 +119,8 @@ thesis_payoff:
   - Post-1Q operating cash-flow thesis deteriorates.
   entry_trigger: price_guard_or_revisit
   expected_upside_pct: 20.0
-  expected_downside_pct: 12.9
-  risk_reward_ratio: 1.55
+  expected_downside_pct: 11.43
+  risk_reward_ratio: 1.75
 tracking:
   mode: re_examination
   plus_15bd: null

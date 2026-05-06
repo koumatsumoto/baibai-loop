@@ -115,8 +115,8 @@ thesis_payoff:
   - FCF strength is explained by working-capital timing only.
   entry_trigger: price_guard_or_revisit
   expected_upside_pct: 19.23
-  expected_downside_pct: 13.04
-  risk_reward_ratio: 1.47
+  expected_downside_pct: 11.54
+  risk_reward_ratio: 1.67
 tracking:
   mode: re_examination
   plus_15bd: null

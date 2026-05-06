@@ -149,8 +149,8 @@ def _minimal_research_front_matter() -> dict[str, object]:
             "target_price_yen": 1300,
             "stop_loss_yen": 900,
             "expected_upside_pct": 30.0,
-            "expected_downside_pct": 11.11,
-            "risk_reward_ratio": 2.7,
+            "expected_downside_pct": 10.0,
+            "risk_reward_ratio": 3.0,
             "time_horizon_bd": 30,
             "invalidation_conditions": ["stop loss"],
         },
@@ -680,6 +680,18 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.risk-evidence-required", codes)
 
+    def test_approved_risk_evidence_must_be_separate_from_sizing_evidence(self) -> None:
+        front = _minimal_research_front_matter()
+        front["research_evidence_hits"] = [
+            {
+                "evidence_hit_id": "risk-1",
+                "decision_role": "sizing_evidence",
+                "evidence_polarity": "risk",
+            }
+        ]
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.risk-evidence-required", codes)
+
     def test_payoff_order_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
         payoff = front["thesis_payoff"]
@@ -711,6 +723,73 @@ class ResearchValidationTests(unittest.TestCase):
         payoff["risk_reward_ratio"] = 1.0
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.risk-reward", codes)
+
+    def test_backdated_analyst_approval_rule_is_flagged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "src").mkdir()
+            approval_root = root / "records/_approval-rules"
+            approval_root.mkdir(parents=True)
+            approval_file = approval_root / "2026-05-06T000000+0900.yaml"
+            approval_file.write_text(
+                yaml.safe_dump(
+                    {
+                        "registry_id": "approval-rules-test",
+                        "effective_from": "2026-05-01T00:00:00+09:00",
+                        "rules": [
+                            {
+                                "approval_rule_id": "late-rule",
+                                "created_at": "2026-05-06T00:00:00+09:00",
+                                "creation_motive": "prospective_policy",
+                                "target_record_refs": [],
+                                "max_valid_days": 30,
+                            }
+                        ],
+                    },
+                    allow_unicode=True,
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+            (approval_root / "_changelog.jsonl").write_text(
+                (
+                    '{"event_at":"2026-05-01T00:00:00+09:00",'
+                    '"snapshot_path":"records/_approval-rules/2026-05-06T000000+0900.yaml"}\n'
+                ),
+                encoding="utf-8",
+            )
+            front = _minimal_research_front_matter()
+            front["recorded_at"] = "2026-05-05T20:00:00+09:00"
+            front["research_evidence_hits"].append(
+                {
+                    "evidence_hit_id": "analyst-1",
+                    "decision_role": "sizing_evidence",
+                    "evidence_polarity": "supports",
+                    "analyst_asserted": True,
+                    "sizing_eligible": True,
+                    "approval_rule_id": "late-rule",
+                    "approved_at": "2026-05-05T20:00:00+09:00",
+                    "source_refs": [
+                        {
+                            "ref_path": "records/_external/test.md",
+                            "content_sha256": _DIGEST,
+                        }
+                    ],
+                }
+            )
+            research_path = root / "records/05-research/2026/05/test.md"
+            research_path.parent.mkdir(parents=True)
+            research_path.write_text(
+                "---\n"
+                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
+                + "---\n"
+                + _DEFAULT_BODY,
+                encoding="utf-8",
+            )
+
+            codes = {finding.code for finding in validate_research_file(research_path)}
+
+        self.assertIn("research.approval-rule-active", codes)
 
     def test_snapshot_hash_must_be_full_sha256(self) -> None:
         front = _minimal_research_front_matter()

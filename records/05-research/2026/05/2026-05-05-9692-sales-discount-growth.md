@@ -116,8 +116,8 @@ thesis_payoff:
   - Growth slowdown overwhelms P/S and dividend support.
   entry_trigger: price_guard_or_revisit
   expected_upside_pct: 15.0
-  expected_downside_pct: 11.11
-  risk_reward_ratio: 1.35
+  expected_downside_pct: 10.0
+  risk_reward_ratio: 1.5
 tracking:
   mode: post_approval
   plus_15bd: null

@@ -142,8 +142,8 @@ thesis_payoff:
     threshold.
   entry_trigger: price_guard_or_revisit
   expected_upside_pct: 14.29
-  expected_downside_pct: 16.67
-  risk_reward_ratio: 0.86
+  expected_downside_pct: 14.29
+  risk_reward_ratio: 1.0
 tracking:
   mode: missed_opportunity
   plus_15bd: null

@@ -712,7 +712,7 @@ def _check_evidence_and_counts(
             )
         if isinstance(research_hits, list):
             has_risk_review = any(
-                isinstance(hit, Mapping) and hit.get("evidence_polarity") in {"risk", "contradicts"}
+                isinstance(hit, Mapping) and _is_risk_review_evidence(hit)
                 for hit in research_hits
             )
             if not has_risk_review:
@@ -1268,8 +1268,15 @@ def _check_conviction_tier(
 
 def _has_risk_evidence(front_matter: Mapping[str, object]) -> bool:
     return any(
-        isinstance(hit, Mapping) and hit.get("evidence_polarity") in {"risk", "contradicts"}
+        isinstance(hit, Mapping) and _is_risk_review_evidence(hit)
         for hit in as_list(front_matter.get("research_evidence_hits"))
+    )
+
+
+def _is_risk_review_evidence(hit: Mapping[str, object]) -> bool:
+    return (
+        hit.get("evidence_polarity") in {"risk", "contradicts"}
+        and hit.get("decision_role") != "sizing_evidence"
     )
 
 
@@ -1673,7 +1680,7 @@ def _approval_rule_active(
                     days=max_valid_days
                 ):
                     continue
-                return True
+            return True
     return False
 
 
@@ -1734,7 +1741,7 @@ def _check_payoff(path: Path, front_matter: Mapping[str, object]) -> list[Valida
                 )
             )
         expected_upside = round((target / entry - 1) * 100, 2)
-        expected_downside = round((entry / stop - 1) * 100, 2)
+        expected_downside = round((1 - stop / entry) * 100, 2)
         risk_reward = round(expected_upside / expected_downside, 2) if expected_downside else None
         if not _close(payoff.get("expected_upside_pct"), expected_upside, tolerance=0.01):
             findings.append(

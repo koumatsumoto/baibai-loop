@@ -116,8 +116,8 @@ thesis_payoff:
   - Shareholder-return catalyst is absorbed and price breaks below 950 yen.
   entry_trigger: price_guard_or_revisit
   expected_upside_pct: 17.14
-  expected_downside_pct: 10.53
-  risk_reward_ratio: 1.63
+  expected_downside_pct: 9.52
+  risk_reward_ratio: 1.8
 tracking:
   mode: post_approval
   plus_15bd: null
