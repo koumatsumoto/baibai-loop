@@ -1,7 +1,11 @@
 snapshot_id: portfolio-exposure-20260505-203000
 as_of: '2026-05-05T20:30:00+09:00'
 source_decision_register_refs: []
-source_trade_refs: []
+source_trade_refs:
+- ref_path: records/06-trades/2026/05/2026-05-05-9682.md
+  content_sha256: sha256:c0de150bcce111297ff736a48d7451ba62a97a1b2c3486cc2d7f1f7b7f63c375
+- ref_path: records/06-trades/2026/05/2026-05-05-9692.md
+  content_sha256: sha256:a58671e60ce7c5868ec22cb82de85b568929e9f16dfc305ff8534703f30cbc2f
 source_broker_snapshot_refs: []
 positions: []
 exposures: []
@@ -20,3 +24,11 @@ outstanding_orders:
   economic_exposure_group: sales-discount-growth
 tactical_real_budget_yen: 1000000
 remaining_tactical_real_budget_yen: 590000
+ticker_paper_proxy_cap_remaining_yen: 2000000
+sector_paper_proxy_cap_remaining_yen: 100000000
+playbook_paper_proxy_cap_remaining_yen: 100000000
+economic_exposure_paper_proxy_cap_remaining_yen: 100000000
+ticker_real_cap_remaining_yen: 400000
+sector_real_cap_remaining_yen: 1840000
+playbook_real_cap_remaining_yen: 1340000
+economic_exposure_real_cap_remaining_yen: 1590000

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -11,6 +12,14 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
+from .domain import (
+    as_mapping,
+    load_markdown_front_matter,
+    load_snapshot_mapping,
+    number,
+    repo_root_for,
+    resolve_ref,
+)
 from .errors import ValidationFinding
 
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "trade.json"
@@ -73,6 +82,8 @@ def validate_trade_file(path: Path) -> list[ValidationFinding]:
     findings.extend(_check_order_join(path, front))
     findings.extend(_check_order_state_consistency(path, front))
     findings.extend(_check_guarded_notional(path, front))
+    findings.extend(_check_intent_recomputed(path, front))
+    findings.extend(_check_entry_legs(path, front))
     return findings
 
 
@@ -269,6 +280,107 @@ def _check_guarded_notional(path: Path, front: Mapping[str, object]) -> list[Val
                     f"guarded_max_notional_yen must equal quantity * guard price ({expected:g})"
                 ),
                 location="position_sizing_overlay.guarded_max_notional_yen",
+            )
+        ]
+    return []
+
+
+def _check_intent_recomputed(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
+    intent = as_mapping(front.get("order_intent"))
+    sizing = as_mapping(front.get("position_sizing_overlay"))
+    if not intent or not sizing:
+        return []
+    expected = _derive_trade_order(path, front)
+    findings: list[ValidationFinding] = []
+    if expected is None:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.intent-source",
+                message="submitted trade order intent must derive from a valid research_ref",
+                location="research_ref",
+            )
+        )
+        return findings
+    for field, expected_value in (
+        ("quantity", expected["quantity"]),
+        ("order_price_guard_yen", expected["order_price_guard_yen"]),
+        ("guarded_max_notional_yen", expected["guarded_notional_yen"]),
+    ):
+        source = intent if field in {"quantity", "order_price_guard_yen"} else sizing
+        location = (
+            f"order_intent.{field}" if source is intent else f"position_sizing_overlay.{field}"
+        )
+        actual = _number(source.get(field))
+        if actual is None or abs(actual - expected_value) > 1:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="trade.intent-derived",
+                    message=(
+                        f"{location} must derive to {expected_value:g} from "
+                        "research, policy, and board lot"
+                    ),
+                    location=location,
+                )
+            )
+    return findings
+
+
+def _derive_trade_order(path: Path, front: Mapping[str, object]) -> dict[str, float] | None:
+    root = repo_root_for(path)
+    research_ref = front.get("research_ref")
+    if not isinstance(research_ref, str):
+        return None
+    research_path = resolve_ref(root, research_ref)
+    if not research_path.is_file():
+        return None
+    try:
+        research = load_markdown_front_matter(research_path)
+    except (OSError, ValueError, yaml.YAMLError):
+        return None
+    policy = _load_policy(path, front)
+    order_constraints = as_mapping(policy.get("order_constraints"))
+    board_lot = int(number(order_constraints.get("board_lot")) or 100)
+    payoff = as_mapping(research.get("thesis_payoff"))
+    guard = _number(payoff.get("max_entry_price_yen"))
+    research_sizing = as_mapping(research.get("position_sizing_overlay"))
+    real_intent = _number(research_sizing.get("real_order_intent_yen"))
+    if guard is None or guard <= 0 or real_intent is None:
+        return None
+    quantity = math.floor(real_intent / guard / board_lot) * board_lot if board_lot else 0
+    return {
+        "quantity": float(quantity),
+        "order_price_guard_yen": float(guard),
+        "guarded_notional_yen": float(quantity * guard),
+    }
+
+
+def _load_policy(path: Path, front: Mapping[str, object]) -> Mapping[str, Any]:
+    try:
+        _policy_path, payload = load_snapshot_mapping(
+            repo_root_for(path), front.get("policy_snapshot")
+        )
+        return payload
+    except (OSError, ValueError, yaml.YAMLError):
+        return {}
+
+
+def _check_entry_legs(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
+    legs = front.get("entry_legs")
+    executions = front.get("executions")
+    if front.get("position_state") == "none" and not executions:
+        return []
+    if not isinstance(legs, list) or not legs:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.entry-legs-required",
+                message="trade records with position lifecycle require entry_legs",
+                location="entry_legs",
             )
         ]
     return []

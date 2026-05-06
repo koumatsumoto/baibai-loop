@@ -194,7 +194,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - [ ] **機械化チェック**: outlook 編集後に `uv run baibai-loop-precheck` を実行し、rationale 中の
       数値・bp・億円トークンが `source_refs` に列挙された brief で見つかることを確認したか。
       新規 outlook なら `--strict` で 0 件を目指す。precheck は同時に research の
-      `research_decision.outcome: passed|rejected → approved` flip で `overrides[].type='decision_flip'` 不在も検出する
+      `research_decision.outcome: deferred|rejected → approved` flip で `decision_revisions[].revision_type='decision_flip'` 不在も検出する
 
 ## 7. AP-07: 公表日 / 期間 / source の最新性確認を skip する
 
@@ -280,12 +280,12 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
   - [ ] `position_sizing_overlay.guarded_max_tactical_real_budget_concentration_pct` は
         guarded notional / tactical real budget * 100 として確認できるか
   - [ ] `position_sizing_overlay.paper_proxy_position_size_yen` / `liquidity_cap_participation_pct` は paper proxy の検証であり、実資金集中度の検証ではない
-- [ ] research の `overrides` 配列を導入・変更する場合、以下を確認したか:
-  - [ ] type が `decision_flip` / `candidate_absence` / `universe_drop` / `real_concentration_cap` / `macro_regime_gate_exception` の既知集合に属する (validator: `research.override-unknown-type`)
-  - [ ] `type` / `prior_state_ref` / `prior_state` / `new_state` / `reason` の 5 必須キーが揃う (validator: `research.override-missing-key`)
-  - [ ] `research_decision.outcome: approved` で candidates_ref に ticker が見つからない場合、`overrides[].type='candidate_absence'` または `'universe_drop'` が必須 (validator: `research.candidate-absence-without-override`)
+- [ ] research の `policy_overrides` / `decision_revisions` 配列を導入・変更する場合、以下を確認したか:
+  - [ ] `policy_overrides[]` は policy field の override だけを表し、decision history を混ぜていない
+  - [ ] `decision_revisions[].revision_type` が既知集合に属し、`prior_state_ref` / `prior_state` / `new_state` / `reason` の必須キーが揃う
+  - [ ] `research_decision.outcome: approved` の場合、`candidate_ref` が最新の immutable candidates snapshot の対象 candidate に join できるか
   - [ ] `external_refs[]` は `records/_external/` 配下の path のみ (validator: `research.external-ref-prefix`)
-  - [ ] 連続する commit で `research_decision.outcome: passed|rejected → approved` に flip した場合、`overrides[].type='decision_flip'` を残す (precheck: `precheck.decision-flip-without-override`、`baibai-loop-precheck` で git 履歴ベースに検出)
+  - [ ] 連続する commit で `research_decision.outcome: deferred|rejected → approved` に flip した場合、`decision_revisions[].revision_type='decision_flip'` を残す (precheck: `precheck.decision-flip-without-revision`、`baibai-loop-precheck` で git 履歴ベースに検出)
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
@@ -318,7 +318,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - [ ] research 対象銘柄について、業種を問わず会社IRを確認したか。最低限、直近決算短信 /
       決算説明資料 / Q&A / 有価証券報告書または統合報告書 / 中期経営計画 / 株主還元関連開示を
       確認し、未確認項目を本文に残したか
-- [ ] 会社IR未確認のまま `research_decision.outcome: approved` にしていないか。未確認なら `passed` または
+- [ ] 会社IR未確認のまま `research_decision.outcome: approved` にしていないか。未確認なら `deferred` または
       `rejected` にして、追加確認条件を明示したか
 - [ ] 外部 AI / 二次分析の結論を採用する前に、主要数値を会社IR・決算短信・決算説明資料・Q&A・
       取引所 calendar・candidates のいずれかで再確認したか

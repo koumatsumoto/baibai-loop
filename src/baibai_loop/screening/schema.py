@@ -313,6 +313,7 @@ class ScreenedRunDocument:
     config_hash: NonEmptyString
     cache_manifest_hash: NonEmptyString
     generated_by: str = "screening-cli-v1"
+    universe_snapshot_ref: str | None = None
     data_sources: tuple[str, ...] = (
         "j-quants-light",
         "jpx-public-regulation",

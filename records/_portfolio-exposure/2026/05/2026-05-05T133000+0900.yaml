@@ -8,3 +8,11 @@ exposures: []
 outstanding_orders: []
 tactical_real_budget_yen: 1000000
 remaining_tactical_real_budget_yen: 1000000
+ticker_paper_proxy_cap_remaining_yen: 2000000
+sector_paper_proxy_cap_remaining_yen: 100000000
+playbook_paper_proxy_cap_remaining_yen: 100000000
+economic_exposure_paper_proxy_cap_remaining_yen: 100000000
+ticker_real_cap_remaining_yen: 400000
+sector_real_cap_remaining_yen: 2250000
+playbook_real_cap_remaining_yen: 1750000
+economic_exposure_real_cap_remaining_yen: 2000000

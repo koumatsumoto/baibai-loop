@@ -20,7 +20,7 @@ records/02-brief/             records/04-candidates/
   v                            v
 records/03-outlook/ ------> records/05-research/
        outlook_ref              |
-                                | approved / passed / rejected
+                                | approved / deferred / rejected
                                 v
                          records/06-trades/
                                 |

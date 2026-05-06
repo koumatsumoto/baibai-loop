@@ -62,11 +62,19 @@ def discover_review_files(root: Path) -> list[Path]:
     if not root.exists():
         return []
     return sorted(
-        path for path in root.rglob("*.md") if path.is_file() and path.name != "template.md"
+        path
+        for path in root.rglob("*")
+        if path.is_file()
+        and (
+            (path.suffix == ".md" and path.name != "template.md")
+            or (path.suffix in {".yaml", ".yml"})
+        )
     )
 
 
 def validate_review_file(path: Path) -> list[ValidationFinding]:
+    if path.suffix in {".yaml", ".yml"}:
+        return _validate_review_scan_file(path)
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
@@ -138,6 +146,174 @@ def validate_review_file(path: Path) -> list[ValidationFinding]:
                 )
             )
     return findings
+
+
+def _validate_review_scan_file(path: Path) -> list[ValidationFinding]:
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="review-scan.parse",
+                message=f"failed to read review scan: {exc}",
+            )
+        ]
+    if not isinstance(raw, dict):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="review-scan.root",
+                message="review scan YAML must be a mapping",
+            )
+        ]
+    findings: list[ValidationFinding] = []
+    if "screening-false-negative-scan" in path.parts:
+        items = raw.get("items")
+        if not isinstance(items, list):
+            return [
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review-scan.items",
+                    message="screening false negative scan requires items list",
+                    location="items",
+                )
+            ]
+        findings.extend(_check_false_negative_scan(path, raw, items))
+    elif "missed-opportunity-scan" in path.parts:
+        items = raw.get("items")
+        if not isinstance(items, list):
+            return [
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review-scan.items",
+                    message="missed opportunity scan requires items list",
+                    location="items",
+                )
+            ]
+        findings.extend(_check_missed_opportunity_scan(path, items))
+    return findings
+
+
+def _check_false_negative_scan(
+    path: Path,
+    scan: dict[str, Any],
+    items: list[Any],
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    if scan.get("start_price_basis") != "candidate_run_close_adjusted_close":
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="review-scan.start-price-basis",
+                message=(
+                    "screening false negative scans must use "
+                    "candidate_run_close_adjusted_close as the canonical start basis"
+                ),
+                location="start_price_basis",
+            )
+        )
+    known_decisions = _decision_event_ids(_repo_root(path))
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review-scan.item",
+                    message="scan item must be a mapping",
+                    location=f"items[{index}]",
+                )
+            )
+            continue
+        if item.get("start_price_basis") != "candidate_run_close_adjusted_close":
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review-scan.item-start-price-basis",
+                    message=(
+                        "false negative scan item start price must be the original "
+                        "candidate run close"
+                    ),
+                    location=f"items[{index}].start_price_basis",
+                )
+            )
+        findings.extend(_check_scan_decision_anchor(path, item, known_decisions, index))
+    return findings
+
+
+def _check_missed_opportunity_scan(
+    path: Path,
+    items: list[Any],
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    known_decisions = _decision_event_ids(_repo_root(path))
+    for index, item in enumerate(items):
+        if isinstance(item, dict):
+            findings.extend(_check_scan_decision_anchor(path, item, known_decisions, index))
+    return findings
+
+
+def _check_scan_decision_anchor(
+    path: Path,
+    item: dict[str, Any],
+    known_decisions: set[str],
+    index: int,
+) -> list[ValidationFinding]:
+    decision_id = item.get("decision_event_id")
+    if not isinstance(decision_id, str) or not decision_id:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="review-scan.decision-event-id",
+                message="scan items require decision_event_id anchor",
+                location=f"items[{index}].decision_event_id",
+            )
+        ]
+    if decision_id not in known_decisions:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="review-scan.decision-event-missing",
+                message="scan item decision_event_id must join to the decision register",
+                location=f"items[{index}].decision_event_id",
+            )
+        ]
+    return []
+
+
+def _decision_event_ids(root: Path) -> set[str]:
+    decisions: set[str] = set()
+    for path in sorted((root / "records/_ledger/research-decisions").glob("*.jsonl")):
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(item, dict) and isinstance(item.get("decision_event_id"), str):
+                decisions.add(item["decision_event_id"])
+    return decisions
+
+
+def _repo_root(path: Path) -> Path:
+    for parent in (path.parent, *path.parents):
+        if (parent / "records").is_dir() and (parent / "src").is_dir():
+            return parent
+    return Path.cwd()
 
 
 def _format_path(parts: Iterable[Any]) -> str:

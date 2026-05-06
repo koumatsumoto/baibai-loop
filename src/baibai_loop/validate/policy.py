@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 
 from .errors import ValidationFinding
+from .registry import validate_callable_ids_file
 
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
 
@@ -30,6 +31,7 @@ def validate_policy_file(path: Path) -> list[ValidationFinding]:
     findings.extend(_check_cap_invariants(path, parsed))
     findings.extend(_check_policy_rules(path, parsed))
     findings.extend(_check_execution_scaling(path, parsed))
+    findings.extend(validate_callable_ids_file(path))
     return findings
 
 

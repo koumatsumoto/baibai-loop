@@ -1,10 +1,10 @@
-"""Detect research approval flips lacking an ``overrides`` entry.
+"""Detect research approval flips lacking a ``decision_revisions`` entry.
 
 Walks every ``records/05-research/**/*.md`` and compares
 ``research_decision.outcome`` against the previous git commit of the same file.
 When the current outcome is ``approved`` and the prior outcome was not, the file
-must declare ``overrides[].type = 'decision_flip'``. Otherwise we surface a
-finding mirrored after AP-09.
+must declare ``decision_revisions[].revision_type = 'decision_flip'``. Otherwise
+we surface a finding mirrored after AP-09.
 
 The check needs git history, so it lives outside ``baibai-loop-validate`` (a
 pure-content checker) and inside ``baibai-loop-precheck`` (which is allowed to
@@ -71,20 +71,20 @@ def _check_one_file(repo_root: Path, path: Path, rel: Path) -> DecisionFlipFindi
     prev_outcome = _research_outcome(prev_front)
     if prev_outcome == "approved":
         return None
-    overrides = current_front.get("overrides")
-    if isinstance(overrides, list):
-        for entry in overrides:
-            if isinstance(entry, dict) and entry.get("type") == _FLIP_TYPE:
+    revisions = current_front.get("decision_revisions")
+    if isinstance(revisions, list):
+        for entry in revisions:
+            if isinstance(entry, dict) and entry.get("revision_type") == _FLIP_TYPE:
                 return None
     return DecisionFlipFinding(
         severity="warning",
         target=path,
-        code="precheck.decision-flip-without-override",
+        code="precheck.decision-flip-without-revision",
         message=(
             f"research decision flipped from {prev_outcome!r} to 'approved' between commits "
-            f"but overrides[].type={_FLIP_TYPE!r} is missing"
+            f"but decision_revisions[].revision_type={_FLIP_TYPE!r} is missing"
         ),
-        location="overrides",
+        location="decision_revisions",
     )
 
 

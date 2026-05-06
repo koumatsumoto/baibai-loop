@@ -8,11 +8,11 @@ playbook_snapshot:
   effective_from: '2026-05-01T00:00:00+09:00'
 policy_snapshot:
   ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
-  content_sha256: sha256:14b5b2838171f923ef8098ff1c501ee9c6ab30343e5e73d9b5ef874c1e12dc16
+  content_sha256: sha256:4d8b769749184e6733a4a698000a21070f98d681beacf30bb30568c917f6372a
   effective_from: '2026-05-01T00:00:00+09:00'
 portfolio_exposure_snapshot_ref:
   ref_path: records/_portfolio-exposure/2026/05/2026-05-05T203000+0900.yaml
-  content_sha256: sha256:5430998eaa227bf83bea6b619073ac1bbcd1150e8c9dc6474dfc3e0204f94320
+  content_sha256: sha256:50232ed102544c69f9279cf89370ddbdf9cd95ae34f3e0ecbea0089a91d89690
 selected_supporting_evidence_refs:
 - source: candidate
   evidence_hit_id: candidate-2026-05-01-3678-strict-net-cash-discount
@@ -45,29 +45,55 @@ macro_regime_gate:
   decision_effect: pass
   source_scope: sector
   reducer_id: macro-regime-reducer-v1
-  inputs: []
+  inputs:
+  - scope: sector
+    key: 情報・通信業
+    status: supportive
+    source_ref: records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
+    valid_until: '2026-05-13'
+    weight_or_materiality: high
+    confidence: high
 policy_overrides: []
-external_refs: []
+external_refs:
+- ref_path: records/_external/mediado/2026-05-05-seven-seas-corporate-action.md
+  content_sha256: sha256:9fa8dda6e193613b6f7e1be865bdc750e0d397a845502f7a7fb777edb279dfca
 candidate_evidence_decisions:
 - evidence_hit_id: candidate-2026-05-01-3678-strict-net-cash-discount
   effective_sizing_eligible: false
   evaluated_at: '2026-05-05T20:20:00+09:00'
   reason_code: corporate_action_post_snapshot
+  corporate_action_kind: merger
+  invalidated_metric_ids:
+  - net_cash_to_market_cap
+  - cash_to_market_cap
 - evidence_hit_id: candidate-2026-05-01-3678-valuation-reversion
   effective_sizing_eligible: false
   evaluated_at: '2026-05-05T20:20:00+09:00'
   reason_code: corporate_action_post_snapshot
+  corporate_action_kind: merger
+  invalidated_metric_ids:
+  - condition_a_metric
+  - condition_b_metric
 - evidence_hit_id: candidate-2026-05-01-3678-cash-rich-asset-discount
   effective_sizing_eligible: false
   evaluated_at: '2026-05-05T20:20:00+09:00'
   reason_code: corporate_action_post_snapshot
+  corporate_action_kind: merger
+  invalidated_metric_ids:
+  - net_cash_to_market_cap
+  - cash_to_market_cap
 - evidence_hit_id: candidate-2026-05-01-3678-sales-discount-growth
   effective_sizing_eligible: false
   evaluated_at: '2026-05-05T20:20:00+09:00'
   reason_code: corporate_action_post_snapshot
+  corporate_action_kind: merger
+  invalidated_metric_ids:
+  - p_s
+  - sales_yoy
+  - operating_profit
 research_evidence_hits:
 - evidence_hit_id: research-3678-seven-seas-post-snapshot
-  decision_role: freshness_adjustment
+  decision_role: disconfirming_evidence
   evidence_polarity: contradicts
   evidence_family_set:
   - fundamental
@@ -75,15 +101,15 @@ research_evidence_hits:
   analyst_asserted: true
   sizing_eligible: false
   source_refs:
-  - https://mediado.jp/corporate/15057/
-  - https://mediado.jp/medicome/challenge/15992/
+  - ref_path: records/_external/mediado/2026-05-05-seven-seas-corporate-action.md
+    content_sha256: sha256:9fa8dda6e193613b6f7e1be865bdc750e0d397a845502f7a7fb777edb279dfca
   recorded_at: '2026-05-05T20:20:00+09:00'
 independent_evidence_count: 0
 raw_playbook_concurrence_count: 4
 sizing_eligible_playbook_concurrence_count: 0
 raw_evidence_family_count: 4
 sizing_eligible_evidence_family_count: 0
-conviction_tier: blocked
+conviction_tier: low
 conviction_tier_path: count_breadth
 depth_verification_ref: null
 position_sizing_overlay:
@@ -94,7 +120,7 @@ position_sizing_overlay:
   sizing_formula_id: policy-v1-paper-to-real-ladder
 counterfactual:
   if_approved:
-    paper_proxy_position_size_oku: 0.01
+    hypothetical_paper_proxy_position_size_oku: 0.01
 thesis_payoff:
   max_entry_price_yen: 1225
   target_price_yen: 1400
@@ -108,7 +134,7 @@ thesis_payoff:
   expected_downside_pct: 16.67
   risk_reward_ratio: 0.86
 tracking:
-  mode: missed_opportunity_scan
+  mode: missed_opportunity
   plus_15bd: null
   plus_30bd: null
 market_cap_oku: 186

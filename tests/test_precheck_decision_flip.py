@@ -27,18 +27,18 @@ def _init_repo(tmp_path: Path) -> Path:
     return repo
 
 
-def _write_research(repo: Path, *, outcome: str, overrides_yaml: str | None = None) -> Path:
+def _write_research(repo: Path, *, outcome: str, revisions_yaml: str | None = None) -> Path:
     research_dir = repo / "records/05-research/2026/05"
     research_dir.mkdir(parents=True, exist_ok=True)
     path = research_dir / "2026-05-04-9682-test.md"
-    overrides_block = overrides_yaml or ""
+    revisions_block = revisions_yaml or ""
     path.write_text(
         "---\n"
         'ticker: "9682"\n'
         "research_decision:\n"
         f"  outcome: {outcome}\n"
         "  posture: act_now\n"
-        f"{overrides_block}"
+        f"{revisions_block}"
         "---\n"
         "# body\n",
         encoding="utf-8",
@@ -80,13 +80,13 @@ def test_rejected_to_approved_flip_without_override_is_flagged(tmp_path: Path) -
     _commit(repo, "flip to approved without override")
     findings = scan_research_decision_flips(repo / "records/05-research", repo_root=repo)
     codes = {f.code for f in findings}
-    assert "precheck.decision-flip-without-override" in codes
+    assert "precheck.decision-flip-without-revision" in codes
 
 
-def test_rejected_to_approved_flip_with_override_passes(tmp_path: Path) -> None:
-    overrides_yaml = (
-        "overrides:\n"
-        "  - type: decision_flip\n"
+def test_rejected_to_approved_flip_with_revision_passes(tmp_path: Path) -> None:
+    revisions_yaml = (
+        "decision_revisions:\n"
+        "  - revision_type: decision_flip\n"
         '    prior_state_ref: "abc:research"\n'
         '    prior_state: "research_decision.outcome: rejected"\n'
         '    new_state: "research_decision.outcome: approved"\n'
@@ -95,11 +95,11 @@ def test_rejected_to_approved_flip_with_override_passes(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     _write_research(repo, outcome="rejected")
     _commit(repo, "first rejected")
-    _write_research(repo, outcome="approved", overrides_yaml=overrides_yaml)
-    _commit(repo, "flip with override")
+    _write_research(repo, outcome="approved", revisions_yaml=revisions_yaml)
+    _commit(repo, "flip with revision")
     findings = scan_research_decision_flips(repo / "records/05-research", repo_root=repo)
     codes = {f.code for f in findings}
-    assert "precheck.decision-flip-without-override" not in codes
+    assert "precheck.decision-flip-without-revision" not in codes
 
 
 def test_outside_git_repo_is_silent(tmp_path: Path) -> None:
@@ -109,7 +109,7 @@ def test_outside_git_repo_is_silent(tmp_path: Path) -> None:
     assert findings == []
 
 
-@pytest.mark.parametrize("prior", ["passed", "rejected"])
+@pytest.mark.parametrize("prior", ["deferred", "rejected"])
 def test_non_approved_to_approved_flips_are_detected(tmp_path: Path, prior: str) -> None:
     repo = _init_repo(tmp_path)
     _write_research(repo, outcome=prior)
@@ -118,4 +118,4 @@ def test_non_approved_to_approved_flips_are_detected(tmp_path: Path, prior: str)
     _commit(repo, "flip")
     findings = scan_research_decision_flips(repo / "records/05-research", repo_root=repo)
     codes = {f.code for f in findings}
-    assert "precheck.decision-flip-without-override" in codes
+    assert "precheck.decision-flip-without-revision" in codes

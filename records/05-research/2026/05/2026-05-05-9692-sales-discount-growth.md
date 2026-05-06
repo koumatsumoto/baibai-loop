@@ -8,11 +8,11 @@ playbook_snapshot:
   effective_from: '2026-05-01T00:00:00+09:00'
 policy_snapshot:
   ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
-  content_sha256: sha256:14b5b2838171f923ef8098ff1c501ee9c6ab30343e5e73d9b5ef874c1e12dc16
+  content_sha256: sha256:4d8b769749184e6733a4a698000a21070f98d681beacf30bb30568c917f6372a
   effective_from: '2026-05-01T00:00:00+09:00'
 portfolio_exposure_snapshot_ref:
   ref_path: records/_portfolio-exposure/2026/05/2026-05-05T200000+0900.yaml
-  content_sha256: sha256:3bc069251440493a5f184a55317bd98cc53b45e6fdea2574b6b4d14a0fb6f4db
+  content_sha256: sha256:8a0a662caf0182ce01b632df412bce5c3b74e4d6ac8af8070fb325a915ccc82e
 selected_supporting_evidence_refs:
 - source: candidate
   evidence_hit_id: candidate-2026-05-01-9692-sales-discount-growth
@@ -39,10 +39,18 @@ macro_regime_gate:
   decision_effect: pass
   source_scope: sector
   reducer_id: macro-regime-reducer-v1
-  inputs: []
+  inputs:
+  - scope: sector
+    key: 情報・通信業
+    status: supportive
+    source_ref: records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
+    valid_until: '2026-05-13'
+    weight_or_materiality: high
+    confidence: high
 policy_overrides: []
-external_refs: &id001
-- records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
+external_refs:
+- ref_path: records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
+  content_sha256: sha256:852861e52b0021222477ccd3409cb6d603ddd36837ae5e63ec7ae98124bfb3c5
 candidate_evidence_decisions:
 - evidence_hit_id: candidate-2026-05-01-9692-sales-discount-growth
   effective_sizing_eligible: true
@@ -57,7 +65,9 @@ research_evidence_hits:
   source_status: ok
   analyst_asserted: true
   sizing_eligible: false
-  source_refs: *id001
+  source_refs:
+  - ref_path: records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
+    content_sha256: sha256:852861e52b0021222477ccd3409cb6d603ddd36837ae5e63ec7ae98124bfb3c5
   recorded_at: '2026-05-05T20:05:00+09:00'
 - evidence_hit_id: research-9692-risk-review
   decision_role: risk_evidence
@@ -67,7 +77,9 @@ research_evidence_hits:
   source_status: ok
   analyst_asserted: true
   sizing_eligible: false
-  source_refs: *id001
+  source_refs:
+  - ref_path: records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
+    content_sha256: sha256:852861e52b0021222477ccd3409cb6d603ddd36837ae5e63ec7ae98124bfb3c5
   recorded_at: '2026-05-05T20:05:00+09:00'
 independent_evidence_count: 1
 raw_playbook_concurrence_count: 1

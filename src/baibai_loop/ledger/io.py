@@ -23,26 +23,62 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def upsert_jsonl(path: Path, records: Iterable[Mapping[str, Any]]) -> tuple[int, int]:
-    existing = {_record_id(record): record for record in read_jsonl(path)}
-    before = dict(existing)
+    existing_rows = read_jsonl(path)
+    existing = {_record_id(record): record for record in existing_rows}
+    additions: list[dict[str, Any]] = []
     for record in records:
         record_id = _record_id(record)
-        existing[record_id] = _merge_record(existing.get(record_id), record)
-    ordered = sorted(
-        existing.values(),
-        key=lambda item: (
-            str(item.get("decision_event_at") or item.get("decision_date") or ""),
-            str(item.get("ticker", "")),
-        ),
-    )
+        current = existing.get(record_id)
+        if current is None:
+            addition = dict(record)
+            additions.append(addition)
+            existing[record_id] = addition
+            continue
+        merged = _merge_record(current, record)
+        if merged != current:
+            raise ValueError(
+                "decision register is append-only; write a correction event instead of "
+                f"rewriting {record_id}"
+            )
+    if not additions:
+        return 0, 0
     content = "".join(
         json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
-        for record in ordered
+        for record in (*existing_rows, *additions)
     )
     write_text_atomic(path, content)
-    added = len(set(existing) - set(before))
-    changed = sum(1 for key, record in existing.items() if before.get(key) != record)
-    return added, changed
+    return len(additions), 0
+
+
+def validate_append_only_jsonl(path: Path) -> list[str]:
+    records = read_jsonl(path)
+    seen: set[str] = set()
+    corrections: dict[str, str] = {}
+    errors: list[str] = []
+    for line_number, record in enumerate(records, start=1):
+        record_id = _record_id(record)
+        if record_id in seen:
+            errors.append(f"line {line_number}: duplicate decision_event_id {record_id}")
+        seen.add(record_id)
+        if record.get("event_kind") != "correction":
+            continue
+        target = record.get("corrects_event_id")
+        if not isinstance(target, str) or not target:
+            errors.append(f"line {line_number}: correction requires corrects_event_id")
+            continue
+        if target not in seen:
+            errors.append(f"line {line_number}: correction target must appear earlier: {target}")
+        corrections[record_id] = target
+    for source in corrections:
+        visited = {source}
+        current = corrections[source]
+        while current in corrections:
+            if current in visited:
+                errors.append(f"correction cycle involving {source}")
+                break
+            visited.add(current)
+            current = corrections[current]
+    return errors
 
 
 def diff_jsonl(path: Path, records: Iterable[Mapping[str, Any]]) -> list[str]:

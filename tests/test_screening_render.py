@@ -189,7 +189,7 @@ class ScreeningRenderTests(unittest.TestCase):
             r"^sha256:[0-9a-f]{64}$",
         )
         candidate = payload["candidates"][0]
-        self.assertEqual(candidate["screen_run_id"], "screening-run")
+        self.assertEqual(candidate["screen_run_id"], "screening-20260424-a1b2c3d4")
         self.assertEqual(candidate["playbook_screen_result"], "hit")
         self.assertEqual(candidate["evidence_hits"][0]["playbook_id"], "valuation-reversion")
         self.assertEqual(candidate["evidence_hits"][0]["decision_role"], "sizing_evidence")

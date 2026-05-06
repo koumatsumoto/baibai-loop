@@ -859,8 +859,7 @@ def _rank_candidates(
     for item in candidates_input:
         sector = item.sector_33
         outlook_status = sectors_outlook.get(sector)
-        # adverse は除外。null / unknown / supportive / neutral は通過。
-        if outlook_status == "adverse":
+        if outlook_status not in {"supportive", "neutral"}:
             continue
         market_cap = item.market_cap_oku
         independent_evidence_count = len(item.evidence_hits)
@@ -909,7 +908,7 @@ def _rank_lane_toplists(
     for item in candidates_input:
         sector = item.sector_33
         outlook_status = sectors_outlook.get(sector)
-        if outlook_status == "adverse":
+        if outlook_status not in {"supportive", "neutral"}:
             continue
         for evidence_hit in item.evidence_hits:
             name = _string_value(evidence_hit.get("name"))

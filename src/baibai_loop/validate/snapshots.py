@@ -27,6 +27,7 @@ _SNAPSHOT_ROOTS: tuple[Path, ...] = (
     Path("records/_config/screening-rules"),
     Path("records/_config/sector-baselines"),
     Path("records/_market-data/2026"),
+    Path("records/_external"),
     Path("records/_playbooks"),
     Path("records/_portfolio-exposure/2026"),
     Path("records/_universe-snapshots/2026"),
@@ -83,6 +84,49 @@ def _validate_changelogs(root: Path) -> list[ValidationFinding]:
             if row is None:
                 continue
             findings.extend(_check_snapshot_ref(root, path, row, location=f"line {line_no}"))
+            findings.extend(_check_approval_rule_changelog(root, path, row, line_no))
+    return findings
+
+
+def _check_approval_rule_changelog(
+    root: Path,
+    path: Path,
+    row: Mapping[str, object],
+    line_no: int,
+) -> list[ValidationFinding]:
+    if path != root / "records" / "_approval-rules" / "_changelog.jsonl":
+        return []
+    snapshot_path = row.get("snapshot_path")
+    event_at = row.get("event_at")
+    if not isinstance(snapshot_path, str) or not isinstance(event_at, str):
+        return []
+    expected_at = _timestamp_from_snapshot_name(Path(snapshot_path).name)
+    findings: list[ValidationFinding] = []
+    if expected_at is None or event_at != expected_at:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="approval-rule-changelog.event-at",
+                message="approval-rule changelog event_at must match snapshot path timestamp",
+                location=f"line {line_no}.event_at",
+            )
+        )
+    target = root / snapshot_path
+    parsed = _load_structured_payload(target) if target.is_file() else {}
+    if not isinstance(parsed, Mapping):
+        return findings
+    effective_from = parsed.get("effective_from")
+    if expected_at is not None and effective_from != expected_at:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="approval-rule-changelog.effective-from",
+                message="approval-rule registry effective_from must match snapshot path timestamp",
+                location=f"line {line_no}.snapshot_path",
+            )
+        )
     return findings
 
 
@@ -363,6 +407,14 @@ def _walk_mappings(value: Any, *, prefix: str | None) -> Iterator[tuple[str, Map
 
 def _raw_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _timestamp_from_snapshot_name(name: str) -> str | None:
+    match = re.match(r"^(\d{4})-(\d{2})-(\d{2})T(\d{2})(\d{2})(\d{2})([+-]\d{4})", name)
+    if match is None:
+        return None
+    year, month, day, hour, minute, second, offset = match.groups()
+    return f"{year}-{month}-{day}T{hour}:{minute}:{second}{offset[:3]}:{offset[3:]}"
 
 
 def _records_payload_hash(root: Path) -> str:

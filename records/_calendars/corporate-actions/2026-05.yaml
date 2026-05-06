@@ -8,10 +8,20 @@ events:
   ticker: '3678'
   event_date: '2026-03-02'
   event_kind: corporate_action_post_snapshot
+  corporate_action_kind: merger
   title: Seven Seas Entertainment acquisition
   invalidates_metrics:
+  - condition_a_metric
+  - condition_b_metric
+  - cash
+  - debt
+  - equity_ratio
   - net_cash_to_market_cap
   - cash_to_market_cap
+  - operating_profit
+  - p_s
+  - price_to_equity
+  - sales_yoy
 - event_id: 9682-buyback-20260501
   ticker: '9682'
   event_date: '2026-05-01'

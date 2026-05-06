@@ -8,11 +8,11 @@ playbook_snapshot:
   effective_from: '2026-05-01T00:00:00+09:00'
 policy_snapshot:
   ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
-  content_sha256: sha256:14b5b2838171f923ef8098ff1c501ee9c6ab30343e5e73d9b5ef874c1e12dc16
+  content_sha256: sha256:4d8b769749184e6733a4a698000a21070f98d681beacf30bb30568c917f6372a
   effective_from: '2026-05-01T00:00:00+09:00'
 portfolio_exposure_snapshot_ref:
   ref_path: records/_portfolio-exposure/2026/05/2026-05-05T133000+0900.yaml
-  content_sha256: sha256:d36667a89ccd83fec9b6384c931bd11a7e40307766596d36307d49b4ed0e5408
+  content_sha256: sha256:4d92ab64f3b534cdaf7b8c8143e5521d5c787deb4d7bfc6f6046b9ffd5abe5be
 selected_supporting_evidence_refs:
 - source: candidate
   evidence_hit_id: candidate-2026-05-01-9682-sales-discount-growth
@@ -39,18 +39,18 @@ macro_regime_gate:
   decision_effect: pass
   source_scope: sector
   reducer_id: macro-regime-reducer-v1
-  inputs: []
-policy_overrides:
-- override_id: override-1
-  type: decision_flip
-  prior_state_ref: origin/main:records/05-research/2026/05/2026-05-05-9682-sales-discount-growth.md
-  prior_state: 'research_decision.outcome: passed'
-  new_state: 'research_decision.outcome: approved'
-  reason: 2026-05-05 に 200 株成行注文済みだが、5/7 寄り前に 1,050 円以下の指値または寄指へ訂正する前提で、投資可能資金 500
-    万円に対して最大 4.20%、当面の 100 万円 tactical cap に対して最大 21.0% に留まる。決算またぎではなく、増配・自己株式取得 catalyst
-    が確認できるため approved とする。
-external_refs: &id001
-- records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
+  inputs:
+  - scope: sector
+    key: 情報・通信業
+    status: supportive
+    source_ref: records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
+    valid_until: '2026-05-13'
+    weight_or_materiality: high
+    confidence: high
+policy_overrides: []
+external_refs:
+- ref_path: records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
+  content_sha256: sha256:852861e52b0021222477ccd3409cb6d603ddd36837ae5e63ec7ae98124bfb3c5
 candidate_evidence_decisions:
 - evidence_hit_id: candidate-2026-05-01-9682-sales-discount-growth
   effective_sizing_eligible: true
@@ -65,7 +65,9 @@ research_evidence_hits:
   source_status: ok
   analyst_asserted: true
   sizing_eligible: false
-  source_refs: *id001
+  source_refs:
+  - ref_path: records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
+    content_sha256: sha256:852861e52b0021222477ccd3409cb6d603ddd36837ae5e63ec7ae98124bfb3c5
   recorded_at: '2026-05-05T13:31:15+09:00'
 - evidence_hit_id: research-9682-risk-review
   decision_role: risk_evidence
@@ -75,7 +77,9 @@ research_evidence_hits:
   source_status: ok
   analyst_asserted: true
   sizing_eligible: false
-  source_refs: *id001
+  source_refs:
+  - ref_path: records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
+    content_sha256: sha256:852861e52b0021222477ccd3409cb6d603ddd36837ae5e63ec7ae98124bfb3c5
   recorded_at: '2026-05-05T13:31:15+09:00'
 independent_evidence_count: 1
 raw_playbook_concurrence_count: 1
@@ -125,6 +129,16 @@ valuation:
   equity_ratio: 0.7589
   primary_metric:
   - p_s
+decision_revisions:
+- revision_id: revision-20260505-9682-decision-flip
+  prior_state_ref: origin/main:records/05-research/2026/05/2026-05-05-9682-sales-discount-growth.md
+  prior_state: 'research_decision.outcome: deferred'
+  new_state: 'research_decision.outcome: approved'
+  reason: 2026-05-05 に 200 株成行注文済みだが、5/7 寄り前に 1,050 円以下の指値または寄指へ訂正する前提で、投資可能資金 500
+    万円に対して最大 4.20%、当面の 100 万円 tactical cap に対して最大 21.0% に留まる。決算またぎではなく、増配・自己株式取得 catalyst
+    が確認できるため approved とする。
+  revision_type: decision_flip
+  migration_origin: true
 ---
 
 # Research: 2026-05-05 9682 ＤＴＳ sales-discount-growth

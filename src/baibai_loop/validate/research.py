@@ -3,14 +3,26 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Iterable, Mapping, Sequence
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import yaml
 from jsonschema import Draft202012Validator
 
+from .domain import (
+    as_list,
+    as_mapping,
+    integer,
+    load_snapshot_mapping,
+    number,
+    repo_root_for,
+)
 from .errors import ValidationFinding
+from .external_refs import validate_external_refs_file
 from .playbook_schema import (
     PlaybookSchemaError,
     discover_playbook_schemas,
@@ -32,9 +44,17 @@ _REMOVED_FRONT_MATTER_FIELDS: tuple[str, ...] = (
     "_".join(("supporting", "sig" + "nals")),
     "_".join(("adv", "participation", "pct")),
 )
-_KNOWN_OUTCOMES = {"approved", "passed", "rejected"}
+_KNOWN_OUTCOMES = {"approved", "deferred", "rejected"}
 _KNOWN_POSTURES = {"act_now", "wait_for_event", "wait_for_capital", "dropped"}
 _KNOWN_GATE_EFFECTS = {"pass", "conditional", "block"}
+_KNOWN_CONVICTION_TIERS = {"low", "medium", "high"}
+_KNOWN_CONVICTION_PATHS = {"count_breadth", "depth"}
+_MACRO_STATUS_PRECEDENCE = {
+    "supportive": 0,
+    "neutral": 1,
+    "unknown": 2,
+    "adverse": 3,
+}
 
 
 def _load_validator() -> Draft202012Validator:
@@ -87,8 +107,13 @@ def validate_research_parsed(
     findings.extend(_check_decision(path, front_matter))
     findings.extend(_check_gate(path, front_matter))
     findings.extend(_check_evidence_and_counts(path, front_matter))
+    findings.extend(_check_conviction_tier(path, front_matter))
+    findings.extend(_check_sizing_invariants(path, front_matter))
+    findings.extend(_check_corporate_action_invalidation(path, front_matter))
+    findings.extend(_check_approval_rules(path, front_matter))
     findings.extend(_check_payoff(path, front_matter))
     findings.extend(_check_snapshot_refs(path, front_matter))
+    findings.extend(validate_external_refs_file(path, front_matter))
 
     playbook_id = front_matter.get("playbook_id")
     if isinstance(playbook_id, str) and playbook_id in known_playbooks:
@@ -316,14 +341,34 @@ def _check_decision(path: Path, front_matter: Mapping[str, object]) -> list[Vali
                 location="research_decision.rejection_reason",
             )
         )
-    if outcome == "passed" and posture != "act_now" and "deferral_reason" not in decision:
+    if outcome == "deferred" and posture not in {"wait_for_event", "wait_for_capital"}:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.deferred-posture",
+                message="deferred research decisions must wait for event or capital",
+                location="research_decision.posture",
+            )
+        )
+    if outcome == "deferred" and "deferral_reason" not in decision:
         findings.append(
             ValidationFinding(
                 severity="error",
                 target=path,
                 code="research.deferral-reason-required",
-                message="deferred passed decisions require deferral_reason",
+                message="deferred research decisions require deferral_reason",
                 location="research_decision.deferral_reason",
+            )
+        )
+    if outcome == "rejected" and posture != "dropped":
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.rejected-posture",
+                message="rejected research decisions must use posture: dropped",
+                location="research_decision.posture",
             )
         )
     return findings
@@ -333,9 +378,10 @@ def _check_gate(path: Path, front_matter: Mapping[str, object]) -> list[Validati
     gate = front_matter.get("macro_regime_gate")
     if not isinstance(gate, Mapping):
         return []
+    findings: list[ValidationFinding] = []
     effect = gate.get("decision_effect")
     if effect not in _KNOWN_GATE_EFFECTS:
-        return [
+        findings.append(
             ValidationFinding(
                 severity="error",
                 target=path,
@@ -343,11 +389,11 @@ def _check_gate(path: Path, front_matter: Mapping[str, object]) -> list[Validati
                 message=f"macro_regime_gate.decision_effect must be one of {_KNOWN_GATE_EFFECTS}",
                 location="macro_regime_gate.decision_effect",
             )
-        ]
+        )
     decision = front_matter.get("research_decision")
     outcome = decision.get("outcome") if isinstance(decision, Mapping) else None
     if outcome == "approved" and effect == "block":
-        return [
+        findings.append(
             ValidationFinding(
                 severity="error",
                 target=path,
@@ -355,8 +401,170 @@ def _check_gate(path: Path, front_matter: Mapping[str, object]) -> list[Validati
                 message="approved research cannot use macro_regime_gate.decision_effect: block",
                 location="macro_regime_gate.decision_effect",
             )
+        )
+
+    inputs = gate.get("inputs")
+    if not isinstance(inputs, list) or not inputs:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-inputs-required",
+                message="macro_regime_gate.inputs must contain reducer inputs",
+                location="macro_regime_gate.inputs",
+            )
+        )
+        return findings
+
+    statuses: list[str] = []
+    for index, item in enumerate(inputs):
+        if not isinstance(item, Mapping):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.macro-input",
+                    message="macro_regime_gate input must be a mapping",
+                    location=f"macro_regime_gate.inputs[{index}]",
+                )
+            )
+            continue
+        status = item.get("status")
+        if status not in _MACRO_STATUS_PRECEDENCE:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.macro-input-status",
+                    message="macro input status must be supportive, neutral, unknown, or adverse",
+                    location=f"macro_regime_gate.inputs[{index}].status",
+                )
+            )
+            continue
+        statuses.append(str(status))
+        findings.extend(_check_macro_input_source(path, item, index))
+    if statuses:
+        expected_status = max(statuses, key=lambda value: _MACRO_STATUS_PRECEDENCE[value])
+        if gate.get("aggregate_status") != expected_status:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.macro-aggregate-status",
+                    message=f"macro aggregate_status must reduce to {expected_status}",
+                    location="macro_regime_gate.aggregate_status",
+                )
+            )
+        expected_effect = _expected_gate_effect(path, front_matter, expected_status)
+        if effect in _KNOWN_GATE_EFFECTS and effect != expected_effect:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.macro-decision-effect",
+                    message=f"macro decision_effect must reduce to {expected_effect}",
+                    location="macro_regime_gate.decision_effect",
+                )
+            )
+    return findings
+
+
+def _check_macro_input_source(
+    path: Path,
+    item: Mapping[str, object],
+    index: int,
+) -> list[ValidationFinding]:
+    ref = item.get("source_ref")
+    if not isinstance(ref, str) or not ref:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-source-ref-required",
+                message="macro reducer inputs require source_ref",
+                location=f"macro_regime_gate.inputs[{index}].source_ref",
+            )
+        ]
+    source_path = _resolve_record_ref(path, ref)
+    if source_path is None:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-source-ref-missing",
+                message=f"macro source_ref does not exist: {ref}",
+                location=f"macro_regime_gate.inputs[{index}].source_ref",
+            )
+        ]
+    try:
+        raw = yaml.safe_load(source_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-source-ref-parse",
+                message=f"failed to read macro source_ref: {exc}",
+                location=f"macro_regime_gate.inputs[{index}].source_ref",
+            )
+        ]
+    if not isinstance(raw, Mapping):
+        return []
+    expected = _outlook_status_for_input(raw, item)
+    if expected is None:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-source-status-missing",
+                message="macro source_ref must resolve scope/key to an outlook status",
+                location=f"macro_regime_gate.inputs[{index}].source_ref",
+            )
+        ]
+    actual = item.get("status")
+    if actual != expected:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-source-status",
+                message=f"macro input status must match source outlook status {expected}",
+                location=f"macro_regime_gate.inputs[{index}].status",
+            )
         ]
     return []
+
+
+def _outlook_status_for_input(
+    outlook: Mapping[str, object],
+    item: Mapping[str, object],
+) -> str | None:
+    scope = item.get("scope")
+    key = item.get("key")
+    if not isinstance(key, str) or not key:
+        return None
+    section_name = {
+        "sector": "sectors",
+        "exposure_bucket": "exposure_buckets",
+        "market": "markets",
+        "event": "events",
+    }.get(str(scope))
+    if section_name is None:
+        return None
+    section = outlook.get(section_name)
+    if isinstance(section, Mapping):
+        value = section.get(key)
+        if isinstance(value, Mapping) and isinstance(value.get("status"), str):
+            return str(value["status"])
+    if isinstance(section, list):
+        for entry in section:
+            if (
+                isinstance(entry, Mapping)
+                and entry.get("key") == key
+                and isinstance(entry.get("status"), str)
+            ):
+                return str(entry["status"])
+    return None
 
 
 def _check_evidence_and_counts(
@@ -368,6 +576,16 @@ def _check_evidence_and_counts(
     research_hits = front_matter.get("research_evidence_hits", [])
     if not isinstance(decisions, list):
         return findings
+    candidate_hits = _load_candidate_hits(path, front_matter)
+    findings.extend(
+        _check_candidate_lineage(
+            path,
+            front_matter,
+            selected if isinstance(selected, list) else [],
+            decisions,
+            candidate_hits,
+        )
+    )
 
     effective_components = _effective_independence_components(
         path,
@@ -390,6 +608,24 @@ def _check_evidence_and_counts(
                 location="independent_evidence_count",
             )
         )
+    expected_counts = _expected_evidence_counts(
+        selected if isinstance(selected, list) else [],
+        decisions,
+        research_hits if isinstance(research_hits, list) else [],
+        candidate_hits,
+    )
+    for field, expected in expected_counts.items():
+        actual = front_matter.get(field)
+        if isinstance(actual, int) and actual != expected:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code=f"research.{field.replace('_', '-')}",
+                    message=f"{field} must equal deterministic evidence count {expected}",
+                    location=field,
+                )
+            )
     decision = front_matter.get("research_decision")
     outcome = decision.get("outcome") if isinstance(decision, Mapping) else None
     if outcome == "approved":
@@ -421,7 +657,268 @@ def _check_evidence_and_counts(
                         location="research_evidence_hits",
                     )
                 )
+    if isinstance(research_hits, list):
+        for index, hit in enumerate(research_hits):
+            if not isinstance(hit, Mapping):
+                continue
+            role = hit.get("decision_role")
+            polarity = hit.get("evidence_polarity")
+            findings.extend(_check_research_evidence_source_refs(path, hit, index))
+            if role == "freshness_adjustment" and polarity == "contradicts":
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="research.evidence-role-polarity",
+                        message=(
+                            "freshness_adjustment evidence must use neutral or risk polarity; "
+                            "use disconfirming_evidence for contradicts"
+                        ),
+                        location=f"research_evidence_hits[{index}].evidence_polarity",
+                    )
+                )
     return findings
+
+
+def _check_research_evidence_source_refs(
+    path: Path,
+    hit: Mapping[str, object],
+    index: int,
+) -> list[ValidationFinding]:
+    if hit.get("sizing_eligible") is not True:
+        return []
+    source_refs = hit.get("source_refs")
+    if not isinstance(source_refs, list) or not source_refs:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.sizing-evidence-source-ref",
+                message="sizing-eligible research evidence requires immutable source_refs",
+                location=f"research_evidence_hits[{index}].source_refs",
+            )
+        ]
+    findings: list[ValidationFinding] = []
+    for ref_index, ref in enumerate(source_refs):
+        if not isinstance(ref, Mapping):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.sizing-evidence-source-ref",
+                    message="sizing-eligible research evidence source_refs must be objects",
+                    location=f"research_evidence_hits[{index}].source_refs[{ref_index}]",
+                )
+            )
+            continue
+        ref_path = ref.get("ref_path")
+        digest = ref.get("content_sha256")
+        if not (
+            isinstance(ref_path, str)
+            and ref_path.startswith("records/_external/")
+            and isinstance(digest, str)
+            and re.match(r"^sha256:[0-9a-f]{64}$", digest)
+        ):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.sizing-evidence-source-ref",
+                    message=(
+                        "sizing-eligible research evidence requires records/_external/ "
+                        "source refs with content_sha256"
+                    ),
+                    location=f"research_evidence_hits[{index}].source_refs[{ref_index}]",
+                )
+            )
+    return findings
+
+
+def _check_candidate_lineage(
+    path: Path,
+    front_matter: Mapping[str, object],
+    selected: Sequence[object],
+    decisions: Sequence[object],
+    candidate_hits: Mapping[str, Mapping[str, Any]] | None,
+) -> list[ValidationFinding]:
+    if not _is_repository_research_record(path):
+        return []
+    findings: list[ValidationFinding] = []
+    candidate_ref = as_mapping(front_matter.get("candidate_ref"))
+    candidates_ref = candidate_ref.get("candidates_ref") or front_matter.get("candidates_ref")
+    if not isinstance(candidates_ref, str) or not candidates_ref:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.candidate-ref-required",
+                message="research records require candidate_ref.candidates_ref",
+                location="candidate_ref.candidates_ref",
+            )
+        ]
+    candidate_path = _resolve_record_ref(path, candidates_ref)
+    if candidate_path is None:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.candidate-ref-missing",
+                message=f"candidate_ref.candidates_ref does not exist: {candidates_ref}",
+                location="candidate_ref.candidates_ref",
+            )
+        ]
+    try:
+        document = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.candidate-ref-parse",
+                message=f"failed to read candidate_ref.candidates_ref: {exc}",
+                location="candidate_ref.candidates_ref",
+            )
+        ]
+    if not isinstance(document, Mapping):
+        return []
+    candidate_row = _candidate_row_for_front(front_matter, document)
+    if candidate_row is None:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.candidate-ref-match",
+                message="candidate_ref must match a candidate row by ticker and candidate_id",
+                location="candidate_ref",
+            )
+        )
+    else:
+        findings.extend(_check_copied_candidate_fields(path, front_matter, candidate_row))
+    selected_candidate_ids = {
+        str(item.get("evidence_hit_id"))
+        for item in selected
+        if isinstance(item, Mapping)
+        and item.get("source") == "candidate"
+        and isinstance(item.get("evidence_hit_id"), str)
+    }
+    decision_by_id = {
+        str(item.get("evidence_hit_id")): item
+        for item in decisions
+        if isinstance(item, Mapping) and isinstance(item.get("evidence_hit_id"), str)
+    }
+    decision = as_mapping(front_matter.get("research_decision"))
+    is_approved = decision.get("outcome") == "approved"
+    for evidence_id in sorted(selected_candidate_ids):
+        if candidate_hits is None or evidence_id not in candidate_hits:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.selected-evidence-missing",
+                    message="selected candidate evidence must exist in candidate_ref",
+                    location="selected_supporting_evidence_refs",
+                )
+            )
+            continue
+        decision_item = decision_by_id.get(evidence_id)
+        if decision_item is None:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.selected-evidence-decision",
+                    message=(
+                        "selected candidate evidence requires candidate_evidence_decisions entry"
+                    ),
+                    location="candidate_evidence_decisions",
+                )
+            )
+            continue
+        if is_approved and decision_item.get("effective_sizing_eligible") is not True:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.selected-evidence-not-eligible",
+                    message=(
+                        "approved selected candidate evidence must be effective sizing eligible"
+                    ),
+                    location="candidate_evidence_decisions",
+                )
+            )
+    return findings
+
+
+def _candidate_row_for_front(
+    front_matter: Mapping[str, object],
+    document: Mapping[str, object],
+) -> Mapping[str, object] | None:
+    candidate_ref = as_mapping(front_matter.get("candidate_ref"))
+    ticker = candidate_ref.get("ticker") or front_matter.get("ticker")
+    candidate_id = candidate_ref.get("candidate_id")
+    candidates = document.get("candidates")
+    if not isinstance(candidates, list) or not isinstance(ticker, str):
+        return None
+    for candidate in candidates:
+        if not isinstance(candidate, Mapping) or candidate.get("ticker") != ticker:
+            continue
+        if isinstance(candidate_id, str) and candidate.get("candidate_id") != candidate_id:
+            continue
+        return candidate
+    return None
+
+
+def _check_copied_candidate_fields(
+    path: Path,
+    front_matter: Mapping[str, object],
+    candidate: Mapping[str, object],
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    for field in ("avg_turnover_oku", "market_cap_oku", "sector_33"):
+        actual = front_matter.get(field)
+        expected = candidate.get(field)
+        if expected is not None and actual != expected:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.candidate-field-copy",
+                    message=f"{field} must match candidate_ref source row",
+                    location=field,
+                )
+            )
+    valuation = as_mapping(front_matter.get("valuation"))
+    metrics = as_mapping(candidate.get("metrics"))
+    for field, metric_id in (
+        ("p_s", "p_s"),
+        ("ocf_yield", "ocf_yield"),
+        ("fcf_yield", "fcf_yield"),
+        ("net_cash_to_market_cap", "net_cash_to_market_cap"),
+    ):
+        if metric_id not in metrics:
+            continue
+        expected = metrics.get(metric_id)
+        actual = valuation.get(field)
+        if actual != expected:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.candidate-field-copy",
+                    message=f"valuation.{field} must match candidate_ref metrics.{metric_id}",
+                    location=f"valuation.{field}",
+                )
+            )
+    return findings
+
+
+def _is_repository_research_record(path: Path) -> bool:
+    root = repo_root_for(path)
+    try:
+        path.resolve().relative_to((root / "records/05-research").resolve())
+    except ValueError:
+        return False
+    return True
 
 
 def _effective_independence_components(
@@ -486,6 +983,21 @@ def _load_candidate_components(
     path: Path,
     front_matter: Mapping[str, object],
 ) -> dict[str, str] | None:
+    hits = _load_candidate_hits(path, front_matter)
+    if hits is None:
+        return None
+    return {
+        hit_id: str(hit["independence_component_id"])
+        for hit_id, hit in hits.items()
+        if isinstance(hit.get("independence_component_id"), str)
+        and str(hit["independence_component_id"])
+    }
+
+
+def _load_candidate_hits(
+    path: Path,
+    front_matter: Mapping[str, object],
+) -> dict[str, Mapping[str, Any]] | None:
     candidate_ref = front_matter.get("candidate_ref")
     ref_value: object = (
         candidate_ref.get("candidates_ref") if isinstance(candidate_ref, Mapping) else None
@@ -503,10 +1015,10 @@ def _load_candidate_components(
         return None
     if not isinstance(loaded, Mapping):
         return None
-    components: dict[str, str] = {}
+    hits_by_id: dict[str, Mapping[str, Any]] = {}
     candidates = loaded.get("candidates")
     if not isinstance(candidates, list):
-        return components
+        return hits_by_id
     for candidate in candidates:
         if not isinstance(candidate, Mapping):
             continue
@@ -517,10 +1029,70 @@ def _load_candidate_components(
             if not isinstance(hit, Mapping):
                 continue
             hit_id = hit.get("evidence_hit_id")
-            component = hit.get("independence_component_id")
-            if isinstance(hit_id, str) and isinstance(component, str) and component:
-                components[hit_id] = component
-    return components
+            if isinstance(hit_id, str) and hit_id:
+                hits_by_id[hit_id] = hit
+    return hits_by_id
+
+
+def _expected_evidence_counts(
+    selected: Sequence[object],
+    decisions: Sequence[object],
+    research_hits: Sequence[object],
+    candidate_hits: Mapping[str, Mapping[str, Any]] | None,
+) -> dict[str, int]:
+    selected_ids = {
+        str(item.get("evidence_hit_id"))
+        for item in selected
+        if isinstance(item, Mapping) and isinstance(item.get("evidence_hit_id"), str)
+    }
+    decision_by_id = {
+        str(item.get("evidence_hit_id")): item
+        for item in decisions
+        if isinstance(item, Mapping) and isinstance(item.get("evidence_hit_id"), str)
+    }
+    raw_playbooks: set[str] = set()
+    eligible_playbooks: set[str] = set()
+    raw_families: set[str] = set()
+    eligible_families: set[str] = set()
+
+    if candidate_hits is not None:
+        for hit_id in selected_ids:
+            candidate_hit = candidate_hits.get(hit_id)
+            if candidate_hit is None:
+                continue
+            playbook = candidate_hit.get("playbook_id")
+            if isinstance(playbook, str) and playbook:
+                raw_playbooks.add(playbook)
+            for family in as_list(candidate_hit.get("evidence_family_set")):
+                if isinstance(family, str):
+                    raw_families.add(family)
+            decision = decision_by_id.get(hit_id)
+            if isinstance(decision, Mapping) and decision.get("effective_sizing_eligible") is True:
+                if isinstance(playbook, str) and playbook:
+                    eligible_playbooks.add(playbook)
+                for family in as_list(candidate_hit.get("evidence_family_set")):
+                    if isinstance(family, str):
+                        eligible_families.add(family)
+
+    for research_hit in research_hits:
+        if not isinstance(research_hit, Mapping):
+            continue
+        families = [
+            family
+            for family in as_list(research_hit.get("evidence_family_set"))
+            if isinstance(family, str)
+        ]
+        if research_hit.get("decision_role") == "sizing_evidence":
+            raw_families.update(families)
+            if research_hit.get("sizing_eligible") is True:
+                eligible_families.update(families)
+
+    return {
+        "raw_playbook_concurrence_count": len(raw_playbooks),
+        "sizing_eligible_playbook_concurrence_count": len(eligible_playbooks),
+        "raw_evidence_family_count": len(raw_families),
+        "sizing_eligible_evidence_family_count": len(eligible_families),
+    }
 
 
 def _resolve_record_ref(path: Path, ref: str) -> Path | None:
@@ -531,7 +1103,462 @@ def _resolve_record_ref(path: Path, ref: str) -> Path | None:
         candidate = parent / relative
         if candidate.is_file():
             return candidate
+    candidate = repo_root_for(path) / relative
+    if candidate.is_file():
+        return candidate
     return None
+
+
+def _expected_gate_effect(
+    path: Path,
+    front_matter: Mapping[str, object],
+    aggregate_status: str,
+) -> str:
+    policy = _load_policy_payload(path, front_matter)
+    adverse_treatment = str(
+        as_mapping(policy.get("macro_regime_policy")).get("adverse_treatment") or "block"
+    )
+    if aggregate_status == "adverse":
+        return "conditional" if adverse_treatment == "conditional" else "block"
+    if aggregate_status == "unknown":
+        return "conditional"
+    return "pass"
+
+
+def _check_conviction_tier(
+    path: Path, front_matter: Mapping[str, object]
+) -> list[ValidationFinding]:
+    tier = front_matter.get("conviction_tier")
+    path_name = front_matter.get("conviction_tier_path")
+    if tier not in _KNOWN_CONVICTION_TIERS:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.conviction-tier",
+                message=f"conviction_tier must be one of {_KNOWN_CONVICTION_TIERS}",
+                location="conviction_tier",
+            )
+        ]
+    if path_name not in _KNOWN_CONVICTION_PATHS:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.conviction-tier-path",
+                message=f"conviction_tier_path must be one of {_KNOWN_CONVICTION_PATHS}",
+                location="conviction_tier_path",
+            )
+        ]
+    policy = _load_policy_payload(path, front_matter)
+    rules = as_mapping(policy.get("conviction_tier_rules"))
+    count_rules = as_mapping(rules.get("count_breadth"))
+    independent = integer(front_matter.get("independent_evidence_count")) or 0
+    payoff = as_mapping(front_matter.get("thesis_payoff"))
+    risk_reward = number(payoff.get("risk_reward_ratio")) or 0
+    expected = "low"
+    if path_name == "depth":
+        depth = as_mapping(rules.get("high_depth"))
+        min_independent = int(number(depth.get("min_independent_evidence_count")) or 1)
+        min_rr = number(depth.get("min_risk_reward_ratio")) or math.inf
+        has_ref = bool(front_matter.get("depth_verification_ref"))
+        has_risk = _has_risk_evidence(front_matter)
+        if independent >= min_independent and risk_reward >= min_rr and has_ref and has_risk:
+            expected = "high"
+    else:
+        high_min = int(number(count_rules.get("high_min_independent_evidence_count")) or 3)
+        medium_min = int(number(count_rules.get("medium_min_independent_evidence_count")) or 1)
+        if independent >= high_min:
+            expected = "high"
+        elif independent >= medium_min:
+            expected = "medium"
+    if tier != expected:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.conviction-tier-derived",
+                message=f"conviction_tier must derive to {expected} from policy rules",
+                location="conviction_tier",
+            )
+        ]
+    return []
+
+
+def _has_risk_evidence(front_matter: Mapping[str, object]) -> bool:
+    return any(
+        isinstance(hit, Mapping) and hit.get("evidence_polarity") in {"risk", "contradicts"}
+        for hit in as_list(front_matter.get("research_evidence_hits"))
+    )
+
+
+def _check_sizing_invariants(
+    path: Path, front_matter: Mapping[str, object]
+) -> list[ValidationFinding]:
+    sizing = as_mapping(front_matter.get("position_sizing_overlay"))
+    decision = as_mapping(front_matter.get("research_decision"))
+    if not sizing:
+        return []
+    policy = _load_policy_payload(path, front_matter)
+    if decision.get("outcome") != "approved":
+        expected_zero = {
+            "paper_proxy_position_size_yen": 0,
+            "real_order_intent_yen": 0,
+            "adv_participation_pct": 0,
+        }
+        findings: list[ValidationFinding] = []
+        for field, expected_value in expected_zero.items():
+            value = sizing.get(field)
+            if value is not None and not _close(value, expected_value, tolerance=1):
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="research.rejected-sizing",
+                        message=f"{field} must be zero for non-approved decisions",
+                        location=f"position_sizing_overlay.{field}",
+                    )
+                )
+        return findings
+
+    expected = _derive_order_intent(path, front_matter, policy)
+    checks = {
+        "paper_proxy_position_size_yen": expected["paper_proxy_position_size_yen"],
+        "real_order_intent_yen": expected["real_order_intent_yen"],
+    }
+    findings = []
+    for field, derived_expected_value in checks.items():
+        if not _close(sizing.get(field), derived_expected_value, tolerance=1):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code=f"research.{field.replace('_', '-')}",
+                    message=(
+                        f"{field} must derive to {derived_expected_value:g} "
+                        "from policy and exposure"
+                    ),
+                    location=f"position_sizing_overlay.{field}",
+                )
+            )
+    return findings
+
+
+def _derive_order_intent(
+    path: Path,
+    front_matter: Mapping[str, object],
+    policy: Mapping[str, Any],
+) -> dict[str, float]:
+    tier = str(front_matter.get("conviction_tier") or "low")
+    capital = as_mapping(policy.get("capital_basis"))
+    risk = as_mapping(policy.get("risk_budget"))
+    tier_caps = as_mapping(as_mapping(policy.get("conviction_tier_caps")).get(tier))
+    sizing_ladder = as_mapping(as_mapping(policy.get("sizing_ladder")).get(tier))
+    scaling = as_mapping(policy.get("execution_scaling"))
+    order_constraints = as_mapping(policy.get("order_constraints"))
+    exposure = _load_portfolio_exposure(path, front_matter)
+
+    paper_default = number(sizing_ladder.get("default_paper_proxy_position_size_yen")) or 0
+    paper_caps = [
+        paper_default,
+        number(risk.get("max_paper_proxy_position_size_yen")),
+        number(tier_caps.get("max_paper_proxy_position_size_yen")),
+        _remaining_cap(exposure, "ticker_paper_proxy_cap_remaining_yen"),
+        _remaining_cap(exposure, "sector_paper_proxy_cap_remaining_yen"),
+        _remaining_cap(exposure, "playbook_paper_proxy_cap_remaining_yen"),
+        _remaining_cap(exposure, "economic_exposure_paper_proxy_cap_remaining_yen"),
+    ]
+    paper_yen = min(value for value in paper_caps if value is not None)
+    scaled_real = paper_yen * ((number(scaling.get("paper_to_real_order_notional_pct")) or 0) / 100)
+
+    avg_turnover_oku = number(front_matter.get("avg_turnover_oku"))
+    adv_pct = number(risk.get("max_adv_participation_pct"))
+    liquidity_cap = (
+        avg_turnover_oku * 100_000_000 * adv_pct / 100
+        if avg_turnover_oku is not None and adv_pct is not None
+        else None
+    )
+    real_caps = [
+        scaled_real,
+        number(capital.get("tactical_real_budget_yen")),
+        number(risk.get("max_real_order_notional_yen")),
+        number(tier_caps.get("max_real_order_notional_yen")),
+        number(exposure.get("remaining_tactical_real_budget_yen")),
+        liquidity_cap,
+        _remaining_cap(exposure, "ticker_real_cap_remaining_yen"),
+        _remaining_cap(exposure, "sector_real_cap_remaining_yen"),
+        _remaining_cap(exposure, "playbook_real_cap_remaining_yen"),
+        _remaining_cap(exposure, "economic_exposure_real_cap_remaining_yen"),
+    ]
+    real_intent = min(value for value in real_caps if value is not None)
+    guard = number(as_mapping(front_matter.get("thesis_payoff")).get("max_entry_price_yen"))
+    board_lot = int(number(order_constraints.get("board_lot")) or 100)
+    if guard is not None and guard > 0 and board_lot > 0:
+        quantity = math.floor(real_intent / guard / board_lot) * board_lot
+        real_intent = quantity * guard
+    return {
+        "paper_proxy_position_size_yen": float(paper_yen),
+        "real_order_intent_yen": float(real_intent),
+    }
+
+
+def _remaining_cap(exposure: Mapping[str, Any], field: str) -> float | None:
+    value = number(exposure.get(field))
+    return value if value is not None else None
+
+
+def _load_policy_payload(path: Path, front_matter: Mapping[str, object]) -> Mapping[str, Any]:
+    try:
+        _policy_path, payload = load_snapshot_mapping(
+            repo_root_for(path), front_matter.get("policy_snapshot")
+        )
+        return payload
+    except (OSError, ValueError, yaml.YAMLError):
+        return {}
+
+
+def _load_portfolio_exposure(path: Path, front_matter: Mapping[str, object]) -> Mapping[str, Any]:
+    try:
+        _snapshot_path, payload = load_snapshot_mapping(
+            repo_root_for(path), front_matter.get("portfolio_exposure_snapshot_ref")
+        )
+        return payload
+    except (OSError, ValueError, yaml.YAMLError):
+        return {}
+
+
+def _check_corporate_action_invalidation(
+    path: Path, front_matter: Mapping[str, object]
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    root = repo_root_for(path)
+    calendars = _load_corporate_action_events(root)
+    candidate_ref = as_mapping(front_matter.get("candidate_ref"))
+    ticker = str(candidate_ref.get("ticker") or front_matter.get("ticker") or "")
+    ticker_events = [event for event in calendars if event.get("ticker") == ticker]
+    candidate_hits = _load_candidate_hits(path, front_matter) or {}
+    for index, item in enumerate(as_list(front_matter.get("candidate_evidence_decisions"))):
+        if not isinstance(item, Mapping):
+            continue
+        if item.get("reason_code") != "corporate_action_post_snapshot":
+            continue
+        kind = item.get("corporate_action_kind")
+        invalidated = item.get("invalidated_metric_ids")
+        if not isinstance(kind, str) or not kind:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.corporate-action-kind",
+                    message=(
+                        "corporate_action_post_snapshot decisions require corporate_action_kind"
+                    ),
+                    location=f"candidate_evidence_decisions[{index}].corporate_action_kind",
+                )
+            )
+            continue
+        matching_events = [
+            event
+            for event in ticker_events
+            if event.get("corporate_action_kind") == kind or event.get("event_kind") == kind
+        ]
+        if not matching_events:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.corporate-action-calendar-event",
+                    message=(
+                        "corporate action invalidation requires a pinned matching calendar event"
+                    ),
+                    location=f"candidate_evidence_decisions[{index}].corporate_action_kind",
+                )
+            )
+        if not isinstance(invalidated, list) or not invalidated:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.corporate-action-invalidated-metrics",
+                    message=(
+                        "corporate_action_post_snapshot decisions require invalidated_metric_ids"
+                    ),
+                    location=f"candidate_evidence_decisions[{index}].invalidated_metric_ids",
+                )
+            )
+            continue
+        hit_id = item.get("evidence_hit_id")
+        hit = candidate_hits.get(str(hit_id)) if isinstance(hit_id, str) else None
+        source_metrics = {
+            str(metric) for metric in as_list(hit.get("source_metric_ids") if hit else [])
+        }
+        if source_metrics and not (source_metrics & {str(metric) for metric in invalidated}):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.corporate-action-metric-mismatch",
+                    message="invalidated_metric_ids must intersect source_metric_ids",
+                    location=f"candidate_evidence_decisions[{index}].invalidated_metric_ids",
+                )
+            )
+        event_metrics = {
+            str(metric)
+            for event in matching_events
+            for metric in as_list(event.get("invalidates_metrics"))
+        }
+        if event_metrics and not ({str(metric) for metric in invalidated} <= event_metrics):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.corporate-action-calendar-mismatch",
+                    message=(
+                        "invalidated_metric_ids must be covered by pinned corporate-action calendar"
+                    ),
+                    location=f"candidate_evidence_decisions[{index}].invalidated_metric_ids",
+                )
+            )
+    return findings
+
+
+def _load_corporate_action_events(root: Path) -> list[Mapping[str, Any]]:
+    events: list[Mapping[str, Any]] = []
+    for path in sorted((root / "records/_calendars/corporate-actions").glob("*.yaml")):
+        try:
+            raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(raw, Mapping):
+            continue
+        for event in as_list(raw.get("events")):
+            if isinstance(event, Mapping):
+                events.append(event)
+    return events
+
+
+def _check_approval_rules(
+    path: Path, front_matter: Mapping[str, object]
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    for index, hit in enumerate(as_list(front_matter.get("research_evidence_hits"))):
+        if not isinstance(hit, Mapping):
+            continue
+        if hit.get("analyst_asserted") is True and hit.get("sizing_eligible") is True:
+            rule_id = hit.get("approval_rule_id")
+            approved_at = hit.get("approved_at") or hit.get("recorded_at")
+            record_at = front_matter.get("recorded_at") or front_matter.get("published_at")
+            if not isinstance(rule_id, str) or not rule_id:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="research.approval-rule-required",
+                        message=(
+                            "sizing-eligible analyst asserted evidence requires approval_rule_id"
+                        ),
+                        location=f"research_evidence_hits[{index}].approval_rule_id",
+                    )
+                )
+                continue
+            if not _approval_rule_active(repo_root_for(path), rule_id, approved_at, record_at):
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="research.approval-rule-active",
+                        message="approval_rule_id must reference an active immutable approval rule",
+                        location=f"research_evidence_hits[{index}].approval_rule_id",
+                    )
+                )
+    return findings
+
+
+def _approval_rule_active(
+    root: Path,
+    rule_id: str,
+    approved_at: object,
+    record_at: object,
+) -> bool:
+    approved_dt = _parse_datetime(approved_at)
+    record_dt = _parse_datetime(record_at)
+    changelog_events = _approval_rule_changelog_events(root)
+    for path in sorted((root / "records/_approval-rules").glob("*.yaml")):
+        try:
+            raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(raw, Mapping):
+            continue
+        rel_path = path.relative_to(root).as_posix()
+        event_at = changelog_events.get(rel_path)
+        if event_at is None:
+            continue
+        if record_dt is not None and event_at > record_dt:
+            continue
+        if approved_dt is not None and event_at > approved_dt:
+            continue
+        rules = raw.get("rules")
+        candidates = rules if isinstance(rules, list) else [raw]
+        effective_from = _parse_datetime(raw.get("effective_from"))
+        for item in candidates:
+            if not isinstance(item, Mapping) or item.get("approval_rule_id") != rule_id:
+                continue
+            created_at = _parse_datetime(item.get("created_at"))
+            if record_dt is not None:
+                if effective_from is not None and effective_from > record_dt:
+                    continue
+                if created_at is not None and created_at > record_dt:
+                    continue
+            if approved_dt is not None:
+                if effective_from is not None and effective_from > approved_dt:
+                    continue
+                if created_at is not None and created_at > approved_dt:
+                    continue
+            max_valid_days = number(item.get("max_valid_days"))
+            if max_valid_days is not None and created_at is not None:
+                validation_dt = approved_dt or record_dt
+                if validation_dt is not None and validation_dt > created_at + timedelta(
+                    days=max_valid_days
+                ):
+                    continue
+                return True
+    return False
+
+
+def _approval_rule_changelog_events(root: Path) -> dict[str, datetime]:
+    changelog = root / "records/_approval-rules/_changelog.jsonl"
+    events: dict[str, datetime] = {}
+    try:
+        lines = changelog.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return events
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, Mapping):
+            continue
+        snapshot_path = row.get("snapshot_path")
+        event_at = _parse_datetime(row.get("event_at"))
+        if isinstance(snapshot_path, str) and event_at is not None:
+            events[snapshot_path] = event_at
+    return events
+
+
+def _parse_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone(timedelta(hours=9)))
+    return parsed
 
 
 def _check_payoff(path: Path, front_matter: Mapping[str, object]) -> list[ValidationFinding]:
@@ -558,7 +1585,7 @@ def _check_payoff(path: Path, front_matter: Mapping[str, object]) -> list[Valida
         expected_upside = round((target / entry - 1) * 100, 2)
         expected_downside = round((entry / stop - 1) * 100, 2)
         risk_reward = round(expected_upside / expected_downside, 2) if expected_downside else None
-        if not _close(payoff.get("expected_upside_pct"), expected_upside, tolerance=0.15):
+        if not _close(payoff.get("expected_upside_pct"), expected_upside, tolerance=0.01):
             findings.append(
                 ValidationFinding(
                     severity="error",
@@ -568,7 +1595,7 @@ def _check_payoff(path: Path, front_matter: Mapping[str, object]) -> list[Valida
                     location="thesis_payoff.expected_upside_pct",
                 )
             )
-        if not _close(payoff.get("expected_downside_pct"), expected_downside, tolerance=0.15):
+        if not _close(payoff.get("expected_downside_pct"), expected_downside, tolerance=0.01):
             findings.append(
                 ValidationFinding(
                     severity="error",
@@ -579,7 +1606,7 @@ def _check_payoff(path: Path, front_matter: Mapping[str, object]) -> list[Valida
                 )
             )
         if risk_reward is not None and not _close(
-            payoff.get("risk_reward_ratio"), risk_reward, tolerance=0.05
+            payoff.get("risk_reward_ratio"), risk_reward, tolerance=0.01
         ):
             findings.append(
                 ValidationFinding(

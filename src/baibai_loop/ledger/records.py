@@ -6,7 +6,7 @@ from typing import Literal
 
 @dataclass(frozen=True, slots=True)
 class Tracking:
-    mode: Literal["post_approval", "re_examination", "missed_opportunity_scan", "none"]
+    mode: Literal["post_approval", "re_examination", "missed_opportunity", "none"]
     plus_15bd: float | None = None
     plus_30bd: float | None = None
 

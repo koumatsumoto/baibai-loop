@@ -37,6 +37,16 @@ def _trade_front(**overrides: object) -> dict[str, object]:
             "guarded_max_notional_yen": 210000,
             "estimated_real_order_notional_yen": 210000,
         },
+        "entry_legs": [
+            {
+                "entry_leg_id": "entry-20260505-9682-1",
+                "research_ref": "records/05-research/2026/05/2026-05-05-9682-sales-discount-growth.md",
+                "order_id": "order-20260505-9682-entry",
+                "quantity": 200,
+                "average_price_yen": 1014,
+                "conviction_tier": "medium",
+            }
+        ],
         "orders": [
             {
                 "order_id": "order-20260505-9682-entry",
@@ -149,6 +159,45 @@ def test_guarded_notional_must_match_quantity_times_guard(tmp_path: Path) -> Non
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_trade_file(path)}
     assert "trade.guarded-notional" in codes
+
+
+def test_order_quantity_is_recomputed_from_research_intent(tmp_path: Path) -> None:
+    front = _trade_front()
+    intent = front["order_intent"]
+    sizing = front["position_sizing_overlay"]
+    assert isinstance(intent, dict)
+    assert isinstance(sizing, dict)
+    intent["quantity"] = 100
+    sizing["guarded_max_notional_yen"] = 105000
+    path = _write_trade(tmp_path, front)
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.intent-derived" in codes
+
+
+def test_order_guard_is_recomputed_from_research_payoff(tmp_path: Path) -> None:
+    front = _trade_front()
+    intent = front["order_intent"]
+    sizing = front["position_sizing_overlay"]
+    assert isinstance(intent, dict)
+    assert isinstance(sizing, dict)
+    intent["order_price_guard_yen"] = 1000
+    intent["quantity"] = 200
+    sizing["guarded_max_notional_yen"] = 200000
+    path = _write_trade(tmp_path, front)
+
+    codes = {finding.code for finding in validate_trade_file(path)}
+
+    assert "trade.intent-derived" in codes
+
+
+def test_submitted_trade_requires_valid_research_ref_for_order_intent(tmp_path: Path) -> None:
+    front = _trade_front()
+    front["research_ref"] = "records/05-research/missing.md"
+    path = _write_trade(tmp_path, front)
+
+    codes = {finding.code for finding in validate_trade_file(path)}
+
+    assert "trade.intent-source" in codes
 
 
 def test_filename_ticker_must_match_front_matter(tmp_path: Path) -> None:

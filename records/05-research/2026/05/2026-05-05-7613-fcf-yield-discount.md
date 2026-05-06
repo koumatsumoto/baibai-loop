@@ -8,18 +8,18 @@ playbook_snapshot:
   effective_from: '2026-05-01T00:00:00+09:00'
 policy_snapshot:
   ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
-  content_sha256: sha256:14b5b2838171f923ef8098ff1c501ee9c6ab30343e5e73d9b5ef874c1e12dc16
+  content_sha256: sha256:4d8b769749184e6733a4a698000a21070f98d681beacf30bb30568c917f6372a
   effective_from: '2026-05-01T00:00:00+09:00'
 portfolio_exposure_snapshot_ref:
   ref_path: records/_portfolio-exposure/2026/05/2026-05-05T203000+0900.yaml
-  content_sha256: sha256:5430998eaa227bf83bea6b619073ac1bbcd1150e8c9dc6474dfc3e0204f94320
+  content_sha256: sha256:50232ed102544c69f9279cf89370ddbdf9cd95ae34f3e0ecbea0089a91d89690
 selected_supporting_evidence_refs:
 - source: candidate
   evidence_hit_id: candidate-2026-05-01-7613-fcf-yield-discount
 - source: candidate
   evidence_hit_id: candidate-2026-05-01-7613-cashflow-yield-discount
 research_decision:
-  outcome: passed
+  outcome: deferred
   posture: wait_for_event
   deferral_reason: event_pending
   revisit:
@@ -43,13 +43,20 @@ published_at: '2026-05-05T19:45:00+09:00'
 recorded_at: '2026-05-05T19:45:00+09:00'
 tradable_at: '2026-05-07T09:00:00+09:00'
 macro_regime_gate:
-  aggregate_status: neutral
-  decision_effect: conditional
+  aggregate_status: supportive
+  decision_effect: pass
   source_scope: sector
   reducer_id: macro-regime-reducer-v1
-  inputs: []
+  inputs:
+  - scope: sector
+    key: 情報・通信業
+    status: supportive
+    source_ref: records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
+    valid_until: '2026-05-13'
+    weight_or_materiality: high
+    confidence: high
 policy_overrides: []
-external_refs: &id001 []
+external_refs: []
 candidate_evidence_decisions:
 - evidence_hit_id: candidate-2026-05-01-7613-fcf-yield-discount
   effective_sizing_eligible: true
@@ -68,7 +75,7 @@ research_evidence_hits:
   source_status: ok
   analyst_asserted: true
   sizing_eligible: false
-  source_refs: *id001
+  source_refs: []
   recorded_at: '2026-05-05T19:45:00+09:00'
 independent_evidence_count: 2
 raw_playbook_concurrence_count: 2
@@ -79,12 +86,15 @@ conviction_tier: medium
 conviction_tier_path: count_breadth
 depth_verification_ref: null
 position_sizing_overlay:
-  paper_proxy_position_size_oku: 0.01
-  paper_proxy_position_size_yen: 1000000
+  paper_proxy_position_size_oku: 0.0
+  paper_proxy_position_size_yen: 0
   real_order_intent_yen: null
-  adv_participation_pct: 0.2941
+  adv_participation_pct: 0.0
   sizing_formula_id: policy-v1-paper-to-real-ladder
-counterfactual: null
+counterfactual:
+  if_approved:
+    hypothetical_paper_proxy_position_size_oku: 0.01
+    hypothetical_paper_proxy_position_size_yen: 1000000
 thesis_payoff:
   max_entry_price_yen: 1300
   target_price_yen: 1550

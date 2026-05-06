@@ -27,13 +27,15 @@
       "type": "object",
       "required": ["outcome", "posture"],
       "properties": {
-        "outcome": {"enum": ["approved", "passed", "rejected"]},
+        "outcome": {"enum": ["approved", "deferred", "rejected"]},
         "posture": {"enum": ["act_now", "wait_for_event", "wait_for_capital", "dropped"]}
       }
     },
     "macro_regime_gate": {"type": "object"},
     "candidate_evidence_decisions": {"type": "array"},
     "research_evidence_hits": {"type": "array"},
+    "conviction_tier": {"enum": ["low", "medium", "high"]},
+    "conviction_tier_path": {"enum": ["count_breadth", "depth"]},
     "thesis_payoff": {"type": "object"}
   }
 }

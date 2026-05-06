@@ -176,6 +176,67 @@ class CandidatesValidationTests(unittest.TestCase):
         codes = {finding.code for finding in findings}
         self.assertTrue(any(code.startswith("candidates.") for code in codes))
 
+    def test_candidate_screen_run_id_must_match_root_run_id(self) -> None:
+        payload = _minimal_candidates()
+        candidates = payload["candidates"]
+        assert isinstance(candidates, list)
+        candidate_entry = candidates[0]
+        assert isinstance(candidate_entry, dict)
+        candidate_entry["screen_run_id"] = "screening-20260424-deadbeef"
+        path = self._write(payload)
+        try:
+            codes = {finding.code for finding in validate_candidates_file(path)}
+        finally:
+            path.unlink()
+        self.assertIn("candidates.screen-run-id", codes)
+
+    def test_candidate_key_must_derive_from_run_id_and_ticker(self) -> None:
+        payload = _minimal_candidates()
+        candidates = payload["candidates"]
+        assert isinstance(candidates, list)
+        candidate_entry = candidates[0]
+        assert isinstance(candidate_entry, dict)
+        candidate_entry["candidate_key"] = "screening-20260424-a1b2c3d4:9999"
+        path = self._write(payload)
+        try:
+            codes = {finding.code for finding in validate_candidates_file(path)}
+        finally:
+            path.unlink()
+        self.assertIn("candidates.candidate-key", codes)
+
+    def test_duplicate_candidate_and_evidence_ids_are_flagged(self) -> None:
+        payload = _minimal_candidates()
+        candidates = payload["candidates"]
+        assert isinstance(candidates, list)
+        candidates.append(dict(candidates[0]))
+        path = self._write(payload)
+        try:
+            codes = {finding.code for finding in validate_candidates_file(path)}
+        finally:
+            path.unlink()
+        self.assertIn("candidates.duplicate-candidate-id", codes)
+        self.assertIn("candidates.duplicate-candidate-key", codes)
+        self.assertIn("candidates.duplicate-evidence-hit-id", codes)
+
+    def test_warning_evidence_cannot_be_sizing_eligible(self) -> None:
+        payload = _minimal_candidates()
+        candidates = payload["candidates"]
+        assert isinstance(candidates, list)
+        candidate_entry = candidates[0]
+        assert isinstance(candidate_entry, dict)
+        hits = candidate_entry["evidence_hits"]
+        assert isinstance(hits, list)
+        hit = hits[0]
+        assert isinstance(hit, dict)
+        hit["source_status"] = "warning"
+        hit["sizing_eligible"] = True
+        path = self._write(payload)
+        try:
+            codes = {finding.code for finding in validate_candidates_file(path)}
+        finally:
+            path.unlink()
+        self.assertIn("candidates.ineligible-source-status", codes)
+
     def test_non_mapping_yaml_root_returns_single_finding(self) -> None:
         path = self._write([_minimal_candidates()])
         try:

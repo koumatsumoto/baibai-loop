@@ -20,7 +20,7 @@ candidate_ref:
   ticker: "XXXX"
   candidate_id: candidate-screening-YYYYMMDD-xxxxxxxx-XXXX
 research_decision:
-  outcome: approved | passed | rejected
+  outcome: approved | deferred | rejected
   posture: act_now | wait_for_event | wait_for_capital | dropped
   rejection_reason: thesis_failed | corporate_action_post_snapshot | source_stale | policy_block | other
   deferral_reason: data_gap | event_pending | regime_block | capital_constraint | other

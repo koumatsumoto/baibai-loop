@@ -17,7 +17,7 @@ from .records import DecisionRegisterRecord, Tracking
 from .tracking import resolve_tracking_prices
 
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)
-_TrackingMode = Literal["post_approval", "re_examination", "missed_opportunity_scan", "none"]
+_TrackingMode = Literal["post_approval", "re_examination", "missed_opportunity", "none"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +53,7 @@ def sync_ledger(
         playbook_id = str(front["playbook_id"])
         decision_event_at = _decision_datetime(path, front)
         research_decision = _mapping_or_none(front.get("research_decision")) or {}
-        outcome = str(research_decision.get("outcome") or "passed")
+        outcome = str(research_decision.get("outcome") or "deferred")
         candidate_decision = _candidate_decision_from_research(outcome)
         candidate_ref = _mapping_or_none(front.get("candidate_ref"))
         candidates_ref = str(front.get("candidates_ref") or "")
@@ -226,8 +226,8 @@ def _tracking_from_front(
         mode = "post_approval"
     elif raw_mode == "re_examination":
         mode = "re_examination"
-    elif raw_mode == "missed_opportunity_scan":
-        mode = "missed_opportunity_scan"
+    elif raw_mode == "missed_opportunity":
+        mode = "missed_opportunity"
     elif raw_mode == "none":
         mode = "none"
     else:

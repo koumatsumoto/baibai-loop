@@ -9,8 +9,9 @@ candidates は YAML 正本である。R6 のコア schema として
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
+from typing import Any
 
 import yaml
 from jsonschema import Draft202012Validator
@@ -76,6 +77,100 @@ def validate_candidates_file(path: Path) -> list[ValidationFinding]:
                 location=_format_path(error.absolute_path),
             )
         )
+    findings.extend(_check_business_lineage(path, document))
+    return findings
+
+
+def _check_business_lineage(
+    path: Path,
+    document: Mapping[str, Any],
+) -> list[ValidationFinding]:
+    run_id = document.get("run_id")
+    candidates = document.get("candidates")
+    if not isinstance(run_id, str) or not isinstance(candidates, list):
+        return []
+    findings: list[ValidationFinding] = []
+    seen_candidate_ids: set[str] = set()
+    seen_candidate_keys: set[str] = set()
+    seen_evidence_hit_ids: set[str] = set()
+    for candidate_index, candidate in enumerate(candidates):
+        if not isinstance(candidate, Mapping):
+            continue
+        ticker = candidate.get("ticker")
+        if isinstance(candidate.get("screen_run_id"), str) and candidate["screen_run_id"] != run_id:
+            findings.append(
+                _finding(
+                    path,
+                    "candidates.screen-run-id",
+                    "candidate.screen_run_id must equal root run_id",
+                    f"candidates[{candidate_index}].screen_run_id",
+                )
+            )
+        expected_key = f"{run_id}:{ticker}" if isinstance(ticker, str) else None
+        if (
+            isinstance(candidate.get("candidate_key"), str)
+            and candidate["candidate_key"] != expected_key
+        ):
+            findings.append(
+                _finding(
+                    path,
+                    "candidates.candidate-key",
+                    "candidate_key must equal <run_id>:<ticker>",
+                    f"candidates[{candidate_index}].candidate_key",
+                )
+            )
+        candidate_id = candidate.get("candidate_id")
+        if isinstance(candidate_id, str):
+            if candidate_id in seen_candidate_ids:
+                findings.append(
+                    _finding(
+                        path,
+                        "candidates.duplicate-candidate-id",
+                        "candidate_id must be unique within the screen run",
+                        f"candidates[{candidate_index}].candidate_id",
+                    )
+                )
+            seen_candidate_ids.add(candidate_id)
+        candidate_key = candidate.get("candidate_key")
+        if isinstance(candidate_key, str):
+            if candidate_key in seen_candidate_keys:
+                findings.append(
+                    _finding(
+                        path,
+                        "candidates.duplicate-candidate-key",
+                        "candidate_key must be unique within the screen run",
+                        f"candidates[{candidate_index}].candidate_key",
+                    )
+                )
+            seen_candidate_keys.add(candidate_key)
+        hits = candidate.get("evidence_hits")
+        if not isinstance(hits, list):
+            continue
+        for hit_index, hit in enumerate(hits):
+            if not isinstance(hit, Mapping):
+                continue
+            hit_id = hit.get("evidence_hit_id")
+            if isinstance(hit_id, str):
+                if hit_id in seen_evidence_hit_ids:
+                    findings.append(
+                        _finding(
+                            path,
+                            "candidates.duplicate-evidence-hit-id",
+                            "evidence_hit_id must be unique within the screen run",
+                            f"candidates[{candidate_index}].evidence_hits[{hit_index}].evidence_hit_id",
+                        )
+                    )
+                seen_evidence_hit_ids.add(hit_id)
+            source_status = hit.get("source_status")
+            if source_status != "ok" and hit.get("sizing_eligible") is True:
+                findings.append(
+                    _finding(
+                        path,
+                        "candidates.ineligible-source-status",
+                        "non-ok evidence source_status must not be sizing_eligible",
+                        f"candidates[{candidate_index}].evidence_hits[{hit_index}].sizing_eligible",
+                    )
+                )
     return findings
 
 
@@ -97,3 +192,13 @@ def _format_path(parts: Iterable[object]) -> str:
         else:
             rendered.append(f".{part}" if rendered else str(part))
     return "".join(rendered)
+
+
+def _finding(path: Path, code: str, message: str, location: str) -> ValidationFinding:
+    return ValidationFinding(
+        severity="error",
+        target=path,
+        code=code,
+        message=message,
+        location=location,
+    )

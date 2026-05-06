@@ -12,6 +12,8 @@ data_sources:
 - edinet-preprocessed-metrics
 run_at: '2026-05-05T19:21:50.589300+09:00'
 run_id: screening-20260501-79ec46a8
+requires_decision_coverage: false
+decision_coverage_exception: pre_migration_unregistered_population
 cache_manifest_hash: 8d9db7bec47b4245
 candidates:
 - ticker: '1301'
@@ -45026,7 +45028,7 @@ metric_catalog_snapshot:
   effective_from: '2026-05-01T00:00:00+09:00'
 policy_snapshot:
   ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
-  content_sha256: sha256:14b5b2838171f923ef8098ff1c501ee9c6ab30343e5e73d9b5ef874c1e12dc16
+  content_sha256: sha256:4d8b769749184e6733a4a698000a21070f98d681beacf30bb30568c917f6372a
   effective_from: '2026-05-01T00:00:00+09:00'
 universe_snapshot_ref:
   ref_path: records/_universe-snapshots/2026/05/2026-05-01T192150+0900.yaml

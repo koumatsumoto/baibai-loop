@@ -54,10 +54,10 @@ Snapshot ref は immutable dated path と `content_sha256` を持つ。Snapshot 
 `research_decision.outcome` は次の 3 値。
 
 - `approved`: 今すぐ採用してよい
-- `passed`: thesis は通るが、event / capital / regime / data gap で待つ
+- `deferred`: thesis は通るが、event / capital / regime / data gap で待つ
 - `rejected`: thesis または gate が通らない
 
-`posture` は `act_now | wait_for_event | wait_for_capital | dropped`。`approved` は `act_now` のみ。`rejected` は `rejection_reason`、`passed` かつ待機姿勢の場合は `deferral_reason` と revisit 条件を持つ。
+`posture` は `act_now | wait_for_event | wait_for_capital | dropped`。`approved` は `act_now` のみ。`rejected` は `rejection_reason`、`deferred` かつ待機姿勢の場合は `deferral_reason` と revisit 条件を持つ。
 
 ## 6. Macro Regime Gate
 

@@ -224,6 +224,16 @@ def _make_research_text() -> str:
                 "aggregate_status": "neutral",
                 "decision_effect": "pass",
                 "source_scope": "sector",
+                "inputs": [
+                    {
+                        "scope": "sector",
+                        "key": "情報・通信業",
+                        "status": "neutral",
+                        "source_ref": (
+                            "records/03-outlook/2026/04/outlook-2026-04-24-bootstrap.yaml"
+                        ),
+                    }
+                ],
             },
             "candidate_evidence_decisions": [
                 {
@@ -251,7 +261,12 @@ def _make_research_text() -> str:
             ],
             "independent_evidence_count": 1,
             "conviction_tier": "medium",
-            "position_sizing_overlay": {"paper_proxy_position_size_oku": 0.01},
+            "conviction_tier_path": "count_breadth",
+            "position_sizing_overlay": {
+                "paper_proxy_position_size_oku": 0.01,
+                "paper_proxy_position_size_yen": 1000000,
+                "real_order_intent_yen": 200000,
+            },
             "thesis_payoff": {
                 "max_entry_price_yen": 1000,
                 "target_price_yen": 1200,

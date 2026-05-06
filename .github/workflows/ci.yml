@@ -16,6 +16,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      - name: Fetch base for migration audit
+        if: github.event_name == 'pull_request'
+        run: git fetch origin main:refs/remotes/origin/main --depth=1
 
       - uses: actions/setup-python@v6
         with:
@@ -47,10 +53,10 @@ jobs:
         run: uv run baibai-loop-validate
 
       - name: Verify immutable snapshot append-only policy
-        if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'migration/domain-model-')
+        if: github.event_name == 'pull_request'
         run: |
-          git fetch origin main --depth=1
           python - <<'PY'
+          import os
           import subprocess
           import sys
 
@@ -59,12 +65,22 @@ jobs:
               "records/_approval-rules/",
               "records/_calendars/",
               "records/_config/",
+              "records/_external/",
+              "records/_ledger/research-decisions/",
               "records/_market-data/",
+              "records/_migrations/",
               "records/_playbooks/",
               "records/_portfolio-exposure/",
               "records/_universe-snapshots/",
           )
-          allowed_names = {"_changelog.jsonl", "_index.yaml", "README.md"}
+          mutable_names = {"_index.yaml", "README.md"}
+          append_only_names = {"_changelog.jsonl"}
+          append_only_prefixes = ("records/_ledger/research-decisions/",)
+          migration_mode = os.environ.get("GITHUB_HEAD_REF") == "migration/domain-model-103"
+
+          def git_show(ref: str, path: str) -> str:
+              return subprocess.check_output(["git", "show", f"{ref}:{path}"], text=True)
+
           diff = subprocess.check_output(
               ["git", "diff", "--name-status", "origin/main...HEAD"],
               text=True,
@@ -79,7 +95,21 @@ jobs:
               for path in paths:
                   if not path.startswith(snapshot_prefixes):
                       continue
-                  if path.rsplit("/", 1)[-1] in allowed_names:
+                  if migration_mode and not path.startswith("records/_external/"):
+                      continue
+                  name = path.rsplit("/", 1)[-1]
+                  if name in mutable_names:
+                      continue
+                  is_append_only = name in append_only_names or path.startswith(append_only_prefixes)
+                  if is_append_only:
+                      if status.startswith(("D", "R")):
+                          blocked.append(line)
+                          continue
+                      if status.startswith("M"):
+                          base = git_show("origin/main", path)
+                          head = git_show("HEAD", path)
+                          if not head.startswith(base):
+                              blocked.append(line)
                       continue
                   if status.startswith(("M", "D", "R")):
                       blocked.append(line)

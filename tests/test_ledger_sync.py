@@ -298,7 +298,7 @@ def test_diff_jsonl_marks_orphan_existing_records(tmp_path: Path) -> None:
     assert diff_jsonl(register_path, []) == ["! decision-20260425-2767-research"]
 
 
-def test_ledger_upsert_preserves_audit_fields(tmp_path: Path) -> None:
+def test_ledger_upsert_rejects_rewrite_and_preserves_existing_row(tmp_path: Path) -> None:
     register_path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
     register_path.parent.mkdir(parents=True)
     register_path.write_text(
@@ -320,8 +320,9 @@ def test_ledger_upsert_preserves_audit_fields(tmp_path: Path) -> None:
     }
 
     assert diff_jsonl(register_path, [incoming]) == ["~ decision-20260425-2767-research"]
-    upsert_jsonl(register_path, [incoming])
+    with pytest.raises(ValueError, match="append-only"):
+        upsert_jsonl(register_path, [incoming])
 
     [record] = read_jsonl(register_path)
     assert record["migration_source"] == {"old_ledger_id": "paper-20260425-2767"}
-    assert record["trade_execution_state"] == "none"
+    assert "trade_execution_state" not in record
