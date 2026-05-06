@@ -181,7 +181,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
     根拠としては機能しない。値を入れるなら **同じ事実を取得できた `status: ok` の二次
     source を別 id で宣言**し、`source_ids` に併記する (例: `china-customs-toplevel:
     failed` + `tradingeconomics-cn-exports: ok` の併記、Tier 2 明示)
-  - 一次が取れない期間が続くなら、`data-sources.md` 側で恒常的代替経路を Tier 1 準拠扱い
+  - 一次が取れない期間が続くなら、`reference/data-sources.md` 側で恒常的代替経路を Tier 1 準拠扱い
     に格上げするか、Tier 2 / 補助外運用を明示する
 - [ ] research の `outlook_ref` / `brief_refs` / `candidates_ref` の 3 ref が valid パス
       かつ実在するか
@@ -311,7 +311,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
   会社IR・取引所・candidates で再確認せず research / trade に取り込む
 - 「分析の方向性は合っている」ことと「records に事実として残せる」ことを混同する
 - 直前の `skipped` 判定、最新 candidates からの不在、universe drop、macro headwind などの
-  system signal を、override log なしに外部分析で上書きする
+  system output を、override log なしに外部分析で上書きする
 - 1 億円 paper proxy と実資金 position を同じ `position_size_pct` に混在させる
 - 祝日中の成行注文を約定済み entry として記録し、entry price を推定で埋める
 
@@ -319,7 +319,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - 外部 AI の整った文章を監査済み資料のように扱う
 - research 対象は全銘柄で会社IR確認が必須、という前提が弱い
 - source URL が貼られていても、一次情報か二次情報か、本文中に数値が存在するかを確認しない
-- system signal を上書きする行為を一級の decision として記録していない
+- system output を上書きする行為を一級の decision として記録していない
 - paper layer と real execution layer のサイズ概念を分離していない
 - order と execution の状態遷移を trade record で区別しない
 

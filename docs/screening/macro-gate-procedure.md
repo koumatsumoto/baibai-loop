@@ -95,7 +95,7 @@ brief_refs:
 | `macro_gate` | 採用可否 | 条件 |
 | --- | --- | --- |
 | `tailwind` | 採用可 | 4 軸評価 + 反対仮説 + kill switch で最終判定 |
-| `neutral` | 条件付き採用可 | signal の重なり、割安度、反対仮説、catalyst の有無で confidence 高いもののみ |
+| `neutral` | 条件付き採用可 | evidence の重なり、割安度、反対仮説、catalyst の有無で confidence 高いもののみ |
 | `headwind` | **原則採用不可** | 例外運用は playbook 改訂議論の input にする |
 
 ## 6. Retro での評価

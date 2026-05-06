@@ -25,7 +25,7 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 - outlook fact が brief 経由になっていない (AP-06)
 - 公表日 / source の最新性確認を skip する (AP-07)
 - validator の抜け道を意識しない (AP-08)
-- 外部 AI 分析や system signal を override せず records に取り込む / paper proxy と実資金集中度を混同する / 注文と約定の状態を区別しない (AP-09)
+- 外部 AI 分析や system output を override せず records に取り込む / paper proxy と実資金集中度を混同する / 注文と約定の状態を区別しない (AP-09)
 
 成分別の詳細チェックリスト:
 - brief 編集時: [`docs/components/brief.md`](./docs/components/brief.md) §7.1
@@ -44,7 +44,7 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 
 ## brief 作成前の欠損確認
 
-`records/01-brief/` の `world-weekly` / `world-daily` / `macro-monthly` を新規作成・更新する前に、必ず [`docs/workflow.md`](./docs/workflow.md) の「brief 作成前の欠損確認」を実行する。
+`records/01-brief/` の `world-weekly` / `world-daily` / `macro-monthly` を新規作成・更新する前に、必ず [`docs/operations/brief-runbook.md`](./docs/operations/brief-runbook.md) の「brief 作成前の欠損確認」を実行する。
 
 - `world-weekly` の対象期間に gap がある場合、現在週を作る前に欠損週を backfill する
 - `world-daily` が存在しても `world-weekly` 欠損の代替にはしない

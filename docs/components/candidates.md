@@ -1,12 +1,13 @@
 # components/candidates.md
 
-Baibai-Loop 4 成分アーキテクチャの **(b) スクリーニング通過銘柄** の運用仕様。狭義のスクリーニング = 機械的ふるいの完了形を指す。全体構造は [`../architecture.md`](../architecture.md)、スクリーニング詳細は [`../screening/`](../screening/) 配下を参照。
+Baibai-Loop の **screen output / candidates** の運用仕様。狭義のスクリーニング = 機械的ふるいの完了形を指す。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md)、概念モデルは [`../concepts.md`](../concepts.md)、スクリーニング詳細は [`../screening/`](../screening/) 配下を参照。
 
 ## 1. 役割
 
-- universe（日本株普通株、時価総額 100 億円以上、20 営業日平均売買代金 1 億円以上）に対し、複数の signal lane で機械的にふるいをかけ、**通過銘柄 list を事実として記録**
+- universe（日本株普通株、時価総額 100 億円以上、20 営業日平均売買代金 1 億円以上）に対し、複数の playbook-linked screen で機械的にふるいをかけ、**ticker-level の raw screen output を事実として記録**
 - 事実層のため解釈は入れない（反対仮説・原因仮説は research 側で行う）
-- Micro track の出発点として、`records/04-research/` の選定入力となる
+- Investment memo の出発点として、`records/04-research/` の選定入力となる
+- Playbook hit、policy / liquidity / macro gate の初期結果は screen fact として残す。後続の selected / deferred / rejected などの current decision は decision register に append-only で記録する
 
 ## 2. 頻度
 
@@ -137,12 +138,12 @@ signals_summary:
 - `run_date` は `asof_date` と同値。ファイル path の日付とも一致させる
 - `config_hash`: `ScreeningConfig` の secret 以外、provider URL、tier 設定、`records/_config/screening-rules.yaml` の内容 hash を含む
 - `cache_manifest_hash`: `records/_data/raw/screening/` 配下の provider raw JSON cache の manifest hash
-- `signals`: 通過した signal lane。複数 hit 可。表示順は rule config の lane 順に固定し、単一総合 score は持たせない
+- `signals`: 通過した playbook-linked screen を表す field。概念上は evidence hit として扱う。複数 hit 可。表示順は rule config の lane 順に固定し、単一総合 score は持たせない
 - `metrics`: candidate-level の flat な派生値。例: `sales_ttm`, `ocf_ttm`, `edinet_ocf_ttm`, `cash_to_market_cap`, `net_cash_to_market_cap`, `price_to_equity`, `equity_ratio`, `ocf_yield`, `fcf_yield`, `cfo_yoy`, `sales_yoy`, `operating_profit`, `edinet_source_doc_id`, `edinet_source_submit_datetime`, `edinet_source_period_start`, `edinet_source_period_end`, `edinet_failure_reasons`
 - `ocf_ttm` は J-Quants 財務サマリーを TTM 正規化した営業 CF。`edinet_ocf_ttm` は EDINET CSV から抽出した CFO で、`fcf-yield-discount` の `fcf_ttm = edinet_ocf_ttm - capex_ttm` と同じ source family に属する
-- `edinet_source_*`: EDINET CSV-derived metrics の提出書類 ID、doc type、提出日時、書類 metadata 上の対象期間。research で一次資料へ戻るための traceability であり、strict net-cash / FCF signal の `signals[].metrics` にも同じ source metadata を入れる。半期報告書 / 訂正半期報告書では `source_period_end` が fiscal year end を指すことがあるため、FCF / CFO の測定期間そのものとは限らない
+- `edinet_source_*`: EDINET CSV-derived metrics の提出書類 ID、doc type、提出日時、書類 metadata 上の対象期間。research で一次資料へ戻るための traceability であり、strict net-cash / FCF screen hit の `signals[].metrics` にも同じ source metadata を入れる。半期報告書 / 訂正半期報告書では `source_period_end` が fiscal year end を指すことがあるため、FCF / CFO の測定期間そのものとは限らない
 - `metrics_breakdown`: valuation 指標ごとの `sector_median_gap` / `self_range_percentile` / `sigma_gap`
-- `signals[].metrics`: signal hit の判定に直接使った値。valuation は `condition_a_metric` などの flat key、cash / CF / sales は lane 固有 key で記録する
+- `signals[].metrics`: screen hit の判定に直接使った値。valuation は `condition_a_metric` などの flat key、cash / CF / sales は lane 固有 key で記録する
 - `ttm_quality`: `EV/EBITDA` / `P/S` / `PCFR` / `OCF yield` / `sales` / `FCF yield` / `net cash` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - `market_cap_oku` / `avg_turnover_oku`: research の position size と流動性確認で使う。universe 閾値は `market_cap_oku >= 100` かつ `avg_turnover_oku >= 1.0`
 - `price_change_60d` / `price_change_4w`: split 影響を排除するため adjustment_close ベースで算出
@@ -167,13 +168,13 @@ candidates YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行�
 
 ### 4.3 schema 検証
 
-[`/records/_schemas/candidates-v1.json`](/records/_schemas/candidates-v1.json) が candidates YAML のコア schema (Draft 2020-12 jsonschema)。互換性を残さない方針のため、旧 schema の migration は持たない。手元では `uv run baibai-loop-validate --target candidates` で個別に走らせられる。
+[`/records/_schemas/candidates-v1.json`](/records/_schemas/candidates-v1.json) が candidates YAML のコア schema (Draft 2020-12 jsonschema)。手元では `uv run baibai-loop-validate --target candidates` で個別に走らせられる。
 
 ## 5. ワークフロー
 
 1. 最新 universe を取得（J-Quants Light + JPX 除外条件適用）
 2. 各 ticker の valuation / cash / CF / sales 指標を算出（[`../screening/valuation-metrics.md`](../screening/valuation-metrics.md) 参照）
-3. signal lane（[`../screening/mechanical.md`](../screening/mechanical.md)）を適用
+3. playbook-linked screen rules（[`../screening/mechanical.md`](../screening/mechanical.md)）を適用
 4. 通過銘柄を `candidates` 配列として YAML に記録
 5. 補足情報（実行時の provider 状態、除外件数、fallback 等）を事実として配列フィールドに記録
 
@@ -181,15 +182,15 @@ candidates YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行�
 
 - `records/04-research/` の front matter `candidates_ref` で本ファイルを参照
 - 選定プロセス: 最新 `records/03-candidates/` と最新 `records/02-outlook/` を突き合わせ、`outlook` で tailwind/neutral の業種/地域の ticker を候補に残す（headwind 除外）
-- 複数 signal が重なる候補は research 優先度を上げるが、単一総合 score は作らない
-- `select` は lane 別の primary metric と macro status を使って research triage を支援する。signal 数と時価総額だけでは並べない
-- `select` output には `lane_toplists`、`ranked_candidates`、research 着手候補として lane 分散した `candidates` が含まれる。`ranked_candidates` は macro + lane rank + signal strength のグローバル順位、`candidates` は `output.research_selection_lane_order` に沿って各 lane の上位を重複排除した推奨リスト。`candidates[].recommendation_lane` は lane 分散でその候補を拾った枠、`candidates[].selection_lane` は primary thesis として優先確認する signal。複数 signal 銘柄では両者が異なることがある。`candidates` の件数は CLI `--top` と `output.research_selection_target_max` の小さい方、lane 別件数は `records/_config/screening-rules.yaml` の `output.lane_toplist_limit` で管理する
+- 複数 screen hit が重なる候補は research 優先度を上げるが、単一総合 score は作らない
+- `select` は lane 別の primary metric と macro status を使って research triage を支援する。hit 数と時価総額だけでは並べない
+- `select` output には `lane_toplists`、`ranked_candidates`、research 着手候補として lane 分散した `candidates` が含まれる。`ranked_candidates` は macro + lane rank + evidence strength のグローバル順位、`candidates` は `output.research_selection_lane_order` に沿って各 lane の上位を重複排除した推奨リスト。`candidates[].recommendation_lane` は lane 分散でその候補を拾った枠、`candidates[].selection_lane` は primary thesis として優先確認する screen。複数 hit 銘柄では両者が異なることがある。`candidates` の件数は CLI `--top` と `output.research_selection_target_max` の小さい方、lane 別件数は `records/_config/screening-rules.yaml` の `output.lane_toplist_limit` で管理する
 - 詳細: [`research.md`](./research.md) の選定プロセス
 - research decision 後の追跡先: [`ledger.md`](./ledger.md)
 
 ## 7. 事実と分析の分離
 
-- candidates は **事実層**。数値・signal hit 判定は機械的
+- candidates は **事実層**。数値・screen hit 判定は機械的
 - 「この銘柄は割安だ」という解釈は research 側で行う
 - 「通過した」ことは事実だが、「採用すべき」は解釈
 
@@ -198,7 +199,7 @@ candidates YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行�
 | 作業 | AI 可 | 人間のみ |
 | --- | --- | --- |
 | valuation / cash / CF / sales 指標の算出 | ○ | 異常値の手動確認 |
-| signal hit 判定 | ○ | |
+| screen hit 判定 | ○ | |
 | YAML 整備 | ○ | |
 | 数値ソースの一次確認 | ○ | 最終責任 |
 | 最終 commit | | ○ |
@@ -206,7 +207,8 @@ candidates YAML は `run_id` / `config_hash` / `cache_manifest_hash` で実行�
 ## 9. 参考
 
 - [`../philosophy.md`](../philosophy.md): 思想（事実と分析の分離、マクロ優位）
-- [`../architecture.md`](../architecture.md): 全体構造
+- [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
+- [`../concepts.md`](../concepts.md): 投資判断ドメインモデル
 - [`../screening/`](../screening/): スクリーニングサブシステム詳細
 - [`../screening/universe-rules.md`](../screening/universe-rules.md): universe 境界条件
 - [`../screening/valuation-metrics.md`](../screening/valuation-metrics.md): 指標算出仕様

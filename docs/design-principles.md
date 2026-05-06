@@ -57,7 +57,7 @@ Baibai-Loop は **4 成分 (`records/01-brief/`, `records/03-candidates/`, `reco
 
 ### 4.3 事実レイヤーで禁止するもの
 
-- 「〜を示唆する」「〜を受けて」「〜を背景に」等の因果推論表現（[`workflow.md`](./workflow.md) の禁止表現リスト参照）
+- 「〜を示唆する」「〜を受けて」「〜を背景に」等の因果推論表現（brief では [`operations/brief-runbook.md`](./operations/brief-runbook.md) と [`components/brief.md`](./components/brief.md) の fact layer 規則を参照）
 - 「次の FOMC では〜が予想される」等の予測
 - 「この動きは〜を意味する」等の意味付け
 - 「注目すべき」「重要な」等の重要度評価（Major/Notable は「変化量の統計的大きさ」のラベルであり、重要度評価ではない）

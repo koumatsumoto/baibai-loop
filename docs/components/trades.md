@@ -1,11 +1,11 @@
 # components/trades.md
 
-Baibai-Loop 4 成分アーキテクチャの下流 **trades** 成分の運用仕様。research で採用された packet の執行記録。全体構造は [`../architecture.md`](../architecture.md) を参照。
+Baibai-Loop の **execution record / trades** 成分の運用仕様。investment memo で採用された判断を実行したか、実行できなかったか、約定・取消・決済がどうなったかを記録する。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md) を参照。
 
 ## 1. 役割
 
 - `records/04-research/` で採用判定された packet の **entry / exit / position / P&L を記録**
-- 採用した銘柄のみ生成（見送り / 保留は `records/04-research/` 内で完結）
+- 実際に order / entry した場合のみ生成。見送り / 保留 / approved-but-not-submitted は trade ではなく decision register / review attribution 側で扱う
 - `records/06-reviews/` 作成の source
 
 ## 2. 頻度
@@ -128,7 +128,7 @@ uv run baibai-loop-validate --target trade
 
 ### 5.2 保有中（Exit まで追記）
 
-- **Daily/weekly notes**: 重大な変化があった場合のメモ（マクロ変化、決算発表接近、crowding 変化など）
+- **Daily/weekly notes**: 重大な変化があった場合のメモ（マクロ変化、決算発表接近、positioning / liquidity 変化など）
 - **Invalidation watch**: 無効化条件に近づいていないか監視
 - **Kill switch watch**: マクロゲートが逆風化していないか
 

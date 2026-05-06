@@ -1,7 +1,6 @@
 # Ledger
 
-`records/_ledger/` は research decision を正規化した JSONL の保存先である。採用・保留・見送りを
-後から retro できる最小 record に変換し、+15/+30 営業日後の価格追跡もここに集約する。
+`records/_ledger/` は research decision を正規化した JSONL の保存先である。Candidate-level、research-level、execution-level の判断イベントは、append-only な decision and tracking register として扱う。
 
 ## 1. 役割
 
@@ -37,7 +36,7 @@ paper/skipped ともに以下を持つ。取得不能な価格・出来高系は
 - `asof_date` / `decision_date`
 - `baseline_price`
 - `market_cap_oku` / `avg_turnover_oku`
-- `signal_count`
+- `signal_count`（概念上は independent evidence count / evidence hit 由来の count）
 - `macro_gate`
 - `adv_participation_pct`
 - `adjustment_applied`

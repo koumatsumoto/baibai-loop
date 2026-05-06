@@ -104,7 +104,7 @@ FRED は多くの一次統計の集約先として機能する。Tier 1 の適�
 
 ## Tier 1 の取得失敗時の扱い
 
-Tier 1 / Tier 1 準拠 ソースが作業環境からアクセスできない場合、数値の代替埋めは**行わない**。brief 側で `データ取得失敗` と明示する（詳細は [`../operations/brief-runbook.md`](../operations/brief-runbook.md) と [`../workflow.md`](../workflow.md) の「データ取得失敗時の運用」節を参照）。
+Tier 1 / Tier 1 準拠 ソースが作業環境からアクセスできない場合、数値の代替埋めは**行わない**。brief 側で `データ取得失敗` と明示する（詳細は [`../operations/brief-runbook.md`](../operations/brief-runbook.md) を参照）。
 
 - Tier 1 で取れない数値を Tier 2 / 補助外で埋めてはならない（一次統計の客観性が失われる）
 - 連続 2 回の brief 作成で同じソースが取得失敗した場合、代替一次ソース（同じ統計を別 URL で配信している一次統計ミラー・集約サイト）の Tier 1 準拠追加を検討する

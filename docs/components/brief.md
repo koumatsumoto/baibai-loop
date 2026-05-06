@@ -1,6 +1,6 @@
 # components/brief.md
 
-Baibai-Loop 4 成分アーキテクチャの **(a) マクロ事実ブリーフ** の運用仕様。全体構造は [`../architecture.md`](../architecture.md) を参照。
+Baibai-Loop の **brief / observations** の運用仕様。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md)、概念モデルは [`../concepts.md`](../concepts.md) を参照。
 
 ## 1. 役割
 
@@ -109,7 +109,7 @@ next_events: [...]
 ### 5.1 periodic
 
 - **日次**: `world-daily` は「週次まで待つと stale になる事実」の受け皿。新しい一次統計、公表済み会合日程の更新、outlook に効く fresh fact が増えた営業日に作成する
-- **週次**: 毎週 1 回、世界情勢・グローバル指標・地政学速報を `world-weekly` として記録。[`../workflow.md`](../workflow.md) の「brief の分析階層」節に従う
+- **週次**: 毎週 1 回、世界情勢・グローバル指標・地政学速報を `world-weekly` として記録。運用手順は [`../operations/brief-runbook.md`](../operations/brief-runbook.md) に従う
 - **月次**: 毎月 1 回、主要統計の出揃いを待って `macro-monthly` として記録。差分データ（MoM / YoY）を計算
 
 ### 5.2 日次 brief の位置付け
@@ -131,7 +131,7 @@ next_events: [...]
 - brief は **事実レイヤー専用**。解釈・予測・相場観を書かない
 - 「〜を示唆する」「〜を受けて」「〜の背景に」などの因果推論表現を地の文に入れない
 - 因果は報道引用として明示する場合のみ許容（`CNBC は中東情勢緩和を下落要因として挙げている`）
-- 詳細: [`../workflow.md`](../workflow.md) の「事実記述の粒度」節
+- 詳細: [`../operations/brief-runbook.md`](../operations/brief-runbook.md) と本 doc の fact layer 規則
 
 ## 6. outlook への接続
 
@@ -161,15 +161,16 @@ brief を書いた / 更新した後、commit 前に以下を必ず確認する�
 - [ ] **AP-02** (数値検算): 前期比・前年比の計算結果を電卓 / Python で検算したか
 - [ ] **AP-04** (schema 整合): `Indicator` には `note` 不可、`MonthlyStatistic` の `release_date` は `null` か非空文字列のみ等、`records/_schemas/brief-v1.json` を読み返したか
 - [ ] **AP-05** (fact / 分析の境界): 「示唆」「受けて」「正当化材料」「early signal」「顕在化」「構造要因」「注目すべき」「重要な」等の解釈・因果推論・重要度評価表現が地の文に含まれていないか
-- [ ] **AP-06** (source status と Tier の取り扱い): fact item の `source_ids` には少なくとも 1 つ `status: ok` の source を含めているか。`status: failed` の Tier 1 source だけで fact 値を入れていないか。Tier 1 が継続的に取れない指標は [`../data-sources.md`](../data-sources.md) §「一次統計の数値で Tier 1 取得が困難な場合の Tier 2 例外運用」に従って `failed` Tier 1 + `ok` Tier 2 を併記しているか
+- [ ] **AP-06** (source status と Tier の取り扱い): fact item の `source_ids` には少なくとも 1 つ `status: ok` の source を含めているか。`status: failed` の Tier 1 source だけで fact 値を入れていないか。Tier 1 が継続的に取れない指標は [`../reference/data-sources.md`](../reference/data-sources.md) §「一次統計の数値で Tier 1 取得が困難な場合の Tier 2 例外運用」に従って `failed` Tier 1 + `ok` Tier 2 を併記しているか
 - [ ] **AP-07** (公表日確認): 各 monthly_statistic / event の `release_date` を一次 source の発表日と照合したか。発行日 ± 5 営業日に予定された FOMC / BOJ / OPEC+ / CPI / PCE / NFP の最新 release が出ていれば必ず取り込んだか
 
 ## 8. 参考
 
 - [`../philosophy.md`](../philosophy.md): 思想（事実と分析の分離、マクロ優位）
-- [`../architecture.md`](../architecture.md): 全体構造
-- [`../workflow.md`](../workflow.md): brief の詳細運用ルール（閾値、差分、禁止表現）
-- [`../data-sources.md`](../data-sources.md): 一次統計ソース Tier
+- [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
+- [`../concepts.md`](../concepts.md): 投資判断ドメインモデル
+- [`../operations/brief-runbook.md`](../operations/brief-runbook.md): brief の運用手順
+- [`../reference/data-sources.md`](../reference/data-sources.md): 一次統計ソース Tier
 - [`../templates/brief-world-daily.yaml`](../templates/brief-world-daily.yaml): 日次 template
 - [`../templates/brief-world-weekly.yaml`](../templates/brief-world-weekly.yaml): 週次 template
 - [`../templates/brief-japan-monthly.yaml`](../templates/brief-japan-monthly.yaml): 月次 template

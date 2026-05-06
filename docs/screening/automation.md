@@ -34,7 +34,7 @@ python -m baibai_loop.screening.cli verify-raw-cache [--raw-dir PATH] [--max-siz
 
 `extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出する。出力は `records/_data/raw/screening/edinet/metrics/YYYY-MM-DD.json`。CSV ZIP 本体は再生成可能な derived cache として `records/_data/cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 
-`select` は最新 `records/03-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/02-outlook/` を組み合わせて、`outlook` で `headwind` 判定された業種を除外し、lane-specific metric と macro status で候補をランキングする。signal 数と時価総額だけでは並べない。出力には lane 別の `lane_toplists`、旧来のグローバル順位である `ranked_candidates`、research 着手用に lane 分散した `candidates` が含まれる。`candidates` は `output.research_selection_lane_order` の順に各 lane の上位を重複排除して選び、残枠を `ranked_candidates` で埋める。`recommendation_lane` は lane 分散で拾った枠、`selection_lane` は primary thesis として確認する signal で、複数 signal 銘柄では一致しないことがある。件数は CLI `--top` と `output.research_selection_target_max` の小さい方、`lane_toplists` は `records/_config/screening-rules.yaml` の `output.lane_toplist_limit` で管理する。`research` の選定プロセス ([`../components/research.md`](../components/research.md) §2.1) をスクリプトで支援する。
+`select` は最新 `records/03-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/02-outlook/` を組み合わせて、`outlook` で `headwind` 判定された業種を除外し、lane-specific metric と macro status で候補をランキングする。Hit 数と時価総額だけでは並べない。出力には lane 別の `lane_toplists`、旧来のグローバル順位である `ranked_candidates`、research 着手用に lane 分散した `candidates` が含まれる。`candidates` は `output.research_selection_lane_order` の順に各 lane の上位を重複排除して選び、残枠を `ranked_candidates` で埋める。`recommendation_lane` は lane 分散で拾った枠、`selection_lane` は primary thesis として確認する screen で、複数 hit 銘柄では一致しないことがある。件数は CLI `--top` と `output.research_selection_target_max` の小さい方、`lane_toplists` は `records/_config/screening-rules.yaml` の `output.lane_toplist_limit` で管理する。`research` の選定プロセス ([`../components/research.md`](../components/research.md) §2.1) をスクリプトで支援する。
 
 ## 3. Required Env Vars
 
@@ -117,14 +117,14 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 閾値の正本は `records/_config/screening-rules.yaml`。実装側の hardcode は parser default と型定義に留め、運用で変える閾値は YAML に寄せる。
 
 - universe 閾値: 時価総額、平均売買代金、上場日数、JPX 除外 flag
-- signal lane 閾値: `valuation-reversion` / `strict-net-cash-discount` / `fcf-yield-discount` / `cash-rich-asset-discount` / `cashflow-yield-discount` / `sales-discount-growth`
+- playbook-linked screen 閾値: `valuation-reversion` / `strict-net-cash-discount` / `fcf-yield-discount` / `cash-rich-asset-discount` / `cashflow-yield-discount` / `sales-discount-growth`
 - TTM 期間一致基準: partial period の許容日数差、FY 期間長
 - 品質条件: 売上 YoY、営業利益、営業 CF 悪化、赤字縮小条件
 - `EV/EBITDA` は `ttm_quality = exact` かつ EV / EBITDA がどちらも正のときのみ判定に使う。EDINET が無い場合、または EV / EBITDA がゼロ以下の場合は `unavailable` / `null` として他 metric で degrade する
 
 ## 9. Partial Warning Thresholds
 
-- 有効な signal lane が必須とする TTM metric の `ttm_quality != exact` が universe の 5% 以上、または 20 銘柄以上
+- 有効な playbook-linked screen が必須とする TTM metric の `ttm_quality != exact` が universe の 5% 以上、または 20 銘柄以上
 - EDINET optional による EV/EBITDA `unavailable` だけでは partial warning にしない
 - 業績悪化フィルタ入力欠損が universe の 10% 以上
 

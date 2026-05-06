@@ -17,5 +17,6 @@ last_reviewed: 2026-05-04
 | [`naming-and-layout.md`](./naming-and-layout.md) | records path、file naming、template link path の規約 |
 | [`testing-and-validation.md`](./testing-and-validation.md) | `records/_schemas/`、validator、test / CI verification |
 | [`edinet-csv-metrics-coverage.md`](./edinet-csv-metrics-coverage.md) | EDINET `type=5` CSV-derived metrics の coverage / precision 確認 |
-| [`glossary.md`](./glossary.md) | Baibai-Loop 固有語 |
 | [`python-foundation.md`](./python-foundation.md) | Python runtime、dependency、quality gate、CI parity |
+
+Glossary は [`../glossary/`](../glossary/) を正本とする。

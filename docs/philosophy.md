@@ -3,7 +3,7 @@
 Baibai-Loop が **何を信じ、なぜこの設計を選んだか** の正本。価値観・選択の根拠・却下した対立案を残す。
 構造・schema・procedure は [`architecture/system-overview.md`](./architecture/system-overview.md) と [`architecture/README.md`](./architecture/README.md) に分離する。
 
-このファイルは変更頻度が低い。運用で大きな信念が揺らいだときだけ更新する。日々の構造変更は architecture.md 側で処理する。
+このファイルは変更頻度が低い。運用で大きな信念が揺らいだときだけ更新する。日々の構造変更は [`architecture/`](./architecture/) 側で処理し、投資判断ドメインモデルは [`concepts.md`](./concepts.md) を正本とする。
 
 ## 1. Baibai-Loop の目的
 
