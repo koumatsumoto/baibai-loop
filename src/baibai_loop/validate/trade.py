@@ -13,6 +13,7 @@ import yaml
 from jsonschema import Draft202012Validator
 
 from .domain import (
+    as_list,
     as_mapping,
     load_markdown_front_matter,
     load_snapshot_mapping,
@@ -81,7 +82,9 @@ def validate_trade_file(path: Path) -> list[ValidationFinding]:
     findings.extend(_check_policy_and_calendar_context(path, front))
     findings.extend(_check_ticker(path, front))
     findings.extend(_check_order_join(path, front))
+    findings.extend(_check_decision_register_intent_join(path, front))
     findings.extend(_check_order_state_consistency(path, front))
+    findings.extend(_check_current_quantity(path, front))
     findings.extend(_check_guarded_notional(path, front))
     findings.extend(_check_intent_recomputed(path, front))
     findings.extend(_check_entry_legs(path, front))
@@ -280,6 +283,56 @@ def _check_order_join(path: Path, front: Mapping[str, object]) -> list[Validatio
     return []
 
 
+def _check_decision_register_intent_join(
+    path: Path, front: Mapping[str, object]
+) -> list[ValidationFinding]:
+    if not _is_repository_trade_record(path):
+        return []
+    intent = as_mapping(front.get("order_intent"))
+    decision_event_id = intent.get("decision_event_id")
+    intent_id = intent.get("order_intent_id")
+    if not isinstance(decision_event_id, str) or not isinstance(intent_id, str):
+        return []
+    root = repo_root_for(path)
+    ledger_root = root / "records/_ledger/research-decisions"
+    if not ledger_root.is_dir():
+        return []
+    for register_path in sorted(ledger_root.glob("*.jsonl")):
+        for line in register_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(row, Mapping) or row.get("decision_event_id") != decision_event_id:
+                continue
+            register_intent = as_mapping(row.get("order_intent"))
+            if register_intent.get("order_intent_id") != intent_id:
+                return [
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="trade.decision-register-intent-join",
+                        message=(
+                            "order_intent.order_intent_id must match decision register "
+                            "order_intent for the same decision_event_id"
+                        ),
+                        location="order_intent.order_intent_id",
+                    )
+                ]
+            return []
+    return [
+        ValidationFinding(
+            severity="error",
+            target=path,
+            code="trade.decision-register-intent-missing",
+            message="trade order_intent.decision_event_id must exist in decision register",
+            location="order_intent.decision_event_id",
+        )
+    ]
+
+
 def _check_order_state_consistency(
     path: Path, front: Mapping[str, object]
 ) -> list[ValidationFinding]:
@@ -327,6 +380,49 @@ def _check_order_state_consistency(
             )
         )
     return findings
+
+
+def _check_current_quantity(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
+    if "current_quantity" not in front and front.get("position_state") == "none":
+        return []
+    expected = 0.0
+    for execution in as_list(front.get("executions")):
+        if not isinstance(execution, Mapping):
+            continue
+        quantity = _number(execution.get("quantity")) or 0.0
+        side = execution.get("side")
+        if side == "buy":
+            expected += quantity
+        elif side == "sell":
+            expected -= quantity
+    for event in as_list(front.get("corporate_action_events")):
+        if isinstance(event, Mapping):
+            expected += _number(event.get("delta_quantity")) or 0.0
+    actual = _number(front.get("current_quantity"))
+    if actual is None:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.current-quantity-required",
+                message="trade records with a position lifecycle require current_quantity",
+                location="current_quantity",
+            )
+        ]
+    if abs(actual - expected) > 1e-6:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.current-quantity",
+                message=(
+                    f"current_quantity must equal executions plus corporate action deltas "
+                    f"({expected:g})"
+                ),
+                location="current_quantity",
+            )
+        ]
+    return []
 
 
 def _check_guarded_notional(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
@@ -440,8 +536,7 @@ def _load_policy(path: Path, front: Mapping[str, object]) -> Mapping[str, Any]:
 
 def _check_entry_legs(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
     legs = front.get("entry_legs")
-    executions = front.get("executions")
-    if front.get("position_state") == "none" and not executions:
+    if front.get("trade_execution_state") == "none":
         return []
     if not isinstance(legs, list) or not legs:
         return [
@@ -454,6 +549,15 @@ def _check_entry_legs(path: Path, front: Mapping[str, object]) -> list[Validatio
             )
         ]
     return []
+
+
+def _is_repository_trade_record(path: Path) -> bool:
+    root = repo_root_for(path)
+    try:
+        path.resolve().relative_to((root / "records/06-trades").resolve())
+    except ValueError:
+        return False
+    return True
 
 
 def _number(value: object) -> float | None:

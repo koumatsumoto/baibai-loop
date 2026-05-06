@@ -37,10 +37,12 @@ def _trade_front(**overrides: object) -> dict[str, object]:
         "policy_applicability": "active",
         "calendars_snapshot": _calendar_snapshots(),
         "position_state": "open",
+        "current_quantity": 200,
         "review_state": "not_due",
         "trade_execution_state": "filled",
         "order_intent": {
             "order_intent_id": "intent-20260505-9682-entry",
+            "decision_event_id": "decision-20260505-9682-trade",
             "quantity": 200,
             "order_price_guard_yen": 1050,
             "not_submitted_reason": None,
@@ -92,6 +94,7 @@ def _write_trade(
     tmp_path: Path, front: dict[str, object] | None = None, name: str = "2026-05-05-9682.md"
 ) -> Path:
     path = tmp_path / name
+    path.parent.mkdir(parents=True, exist_ok=True)
     payload = front if front is not None else _trade_front()
     path.write_text(
         "---\n" + yaml.safe_dump(payload, allow_unicode=True, sort_keys=False) + "---\n\n# Trade\n",
@@ -179,6 +182,14 @@ def test_position_state_none_cannot_have_executions(tmp_path: Path) -> None:
     assert "trade.position-execution-state" in codes
 
 
+def test_current_quantity_is_recomputed_from_executions(tmp_path: Path) -> None:
+    front = _trade_front()
+    front["current_quantity"] = 100
+    path = _write_trade(tmp_path, front)
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.current-quantity" in codes
+
+
 def test_guarded_notional_must_match_quantity_times_guard(tmp_path: Path) -> None:
     front = _trade_front()
     sizing = front["position_sizing_overlay"]
@@ -226,6 +237,28 @@ def test_submitted_trade_requires_valid_research_ref_for_order_intent(tmp_path: 
     codes = {finding.code for finding in validate_trade_file(path)}
 
     assert "trade.intent-source" in codes
+
+
+def test_submitted_trade_requires_entry_legs(tmp_path: Path) -> None:
+    front = _trade_front()
+    del front["entry_legs"]
+    path = _write_trade(tmp_path, front)
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.entry-legs-required" in codes
+
+
+def test_trade_intent_must_join_decision_register(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    register = tmp_path / "records/_ledger/research-decisions/2026-05.jsonl"
+    register.parent.mkdir(parents=True)
+    register.write_text(
+        '{"decision_event_id":"decision-20260505-9682-trade",'
+        '"order_intent":{"order_intent_id":"intent-other"}}\n',
+        encoding="utf-8",
+    )
+    path = _write_trade(tmp_path / "records/06-trades/2026/05", _trade_front())
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.decision-register-intent-join" in codes
 
 
 def test_filename_ticker_must_match_front_matter(tmp_path: Path) -> None:
