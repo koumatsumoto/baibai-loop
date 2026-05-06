@@ -131,6 +131,7 @@ def sync_ledger(
         records.append(record.to_json())
 
     records.extend(_candidate_screen_records(root, records))
+    records.extend(_screening_false_negative_records(root, records))
     by_month = _group_by_month(records)
     diff_lines: list[str] = []
     for month, rows in by_month.items():
@@ -223,6 +224,60 @@ def _parse_research(path: Path) -> tuple[dict[str, Any], str] | None:
     return front, match.group(2)
 
 
+def _screening_false_negative_records(
+    root: Path, covered_records: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    covered_event_ids = {
+        str(record.get("decision_event_id"))
+        for record in covered_records
+        if isinstance(record.get("decision_event_id"), str)
+    }
+    records: list[dict[str, Any]] = []
+    scan_root = root / "records/07-reviews/screening-false-negative-scan"
+    if not scan_root.is_dir():
+        return records
+
+    for path in sorted(scan_root.rglob("*.yaml")):
+        try:
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(document, Mapping):
+            continue
+        items = document.get("items")
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, Mapping):
+                continue
+            decision_event_id = item.get("decision_event_id")
+            ticker = item.get("ticker")
+            if not isinstance(decision_event_id, str) or not isinstance(ticker, str):
+                continue
+            if decision_event_id in covered_event_ids:
+                continue
+            classification = str(item.get("classification") or "screening_false_negative")
+            event_at = _scan_item_datetime(path, item)
+            candidate_ref = _mapping_or_none(item.get("candidate_ref"))
+            records.append(
+                DecisionRegisterRecord(
+                    decision_event_id=decision_event_id,
+                    event_kind="decision",
+                    decision_scope="candidate_screen",
+                    ticker=ticker,
+                    name=_scan_item_name(item, ticker),
+                    trade_execution_state="none",
+                    candidate_decision="not_reviewed",
+                    not_reviewed_reason=classification,
+                    candidate_ref=dict(candidate_ref) if candidate_ref else None,
+                    decision_event_at=event_at.isoformat(),
+                    tracking=Tracking(mode="missed_opportunity"),
+                ).to_json()
+            )
+            covered_event_ids.add(decision_event_id)
+    return records
+
+
 def _load_candidates(root: Path) -> dict[str, dict[str, Mapping[str, Any]]]:
     loaded: dict[str, dict[str, Mapping[str, Any]]] = {}
     for path in sorted((root / "records/04-candidates").rglob("*.yaml")):
@@ -263,6 +318,20 @@ def _trade_decision_datetime(path: Path, front: Mapping[str, Any]) -> datetime:
                 if isinstance(value, str):
                     return _parse_jst_datetime(value)
     return _decision_datetime(path, front)
+
+
+def _scan_item_datetime(path: Path, item: Mapping[str, Any]) -> datetime:
+    value = item.get("flagged_at")
+    if isinstance(value, str):
+        return _parse_jst_datetime(value)
+    return datetime.fromisoformat(f"{path.name[:7]}-01T00:00:00+09:00")
+
+
+def _scan_item_name(item: Mapping[str, Any], ticker: str) -> str:
+    scan_item_id = item.get("scan_item_id")
+    if isinstance(scan_item_id, str) and scan_item_id:
+        return scan_item_id
+    return f"{ticker} screening false negative"
 
 
 def _parse_jst_datetime(value: str) -> datetime:

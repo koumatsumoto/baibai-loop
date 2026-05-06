@@ -250,6 +250,49 @@ def test_sync_ledger_adds_not_reviewed_candidate_screen_events(tmp_path: Path) -
     }
 
 
+def test_sync_ledger_adds_false_negative_scan_anchor_events(tmp_path: Path) -> None:
+    scan_dir = tmp_path / "records/07-reviews/screening-false-negative-scan"
+    scan_dir.mkdir(parents=True)
+    (scan_dir / "2026-04.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "scan_id": "screening-false-negative-2026-04",
+                "scan_month": "2026-04",
+                "start_price_basis": "candidate_run_close_adjusted_close",
+                "items": [
+                    {
+                        "scan_item_id": "screening-false-negative-2026-04-no-hit",
+                        "ticker": "9999",
+                        "decision_event_id": "decision-20260430-9999-no-hit-false-negative",
+                        "classification": "screening_no_hit_control",
+                        "flagged_at": "2026-04-30T00:00:00+09:00",
+                    }
+                ],
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = sync_ledger(tmp_path)
+
+    assert result.decision_count == 1
+    assert result.diff_lines == ()
+    register_path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
+    rows = [json.loads(line) for line in register_path.read_text(encoding="utf-8").splitlines()]
+    [record] = rows
+    assert record["decision_event_id"] == "decision-20260430-9999-no-hit-false-negative"
+    assert record["decision_scope"] == "candidate_screen"
+    assert record["candidate_decision"] == "not_reviewed"
+    assert record["not_reviewed_reason"] == "screening_no_hit_control"
+    assert record["tracking"] == {
+        "mode": "missed_opportunity",
+        "plus_15bd": None,
+        "plus_30bd": None,
+    }
+
+
 def test_ledger_cli_warns_when_jquants_token_is_missing(tmp_path: Path) -> None:
     _seed(tmp_path)
     calendar, bars, warnings = _load_market_data(tmp_path, {})
