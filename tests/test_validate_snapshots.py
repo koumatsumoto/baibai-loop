@@ -72,6 +72,24 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
 
         self.assertEqual(findings, [])
 
+    def test_rejects_out_of_range_approval_rule_max_valid_days(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            approval = root / "records/_approval-rules/2026-05-01T000000+0900.yaml"
+            approval.parent.mkdir(parents=True)
+            approval.write_text(
+                "registry_id: approval-rules-test\n"
+                "effective_from: '2026-05-01T00:00:00+09:00'\n"
+                "approval_rules:\n"
+                "- approval_rule_id: bad-rule\n"
+                "  max_valid_days: 0\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("approval-rule.max-valid-days", {finding.code for finding in findings})
+
 
 if __name__ == "__main__":
     unittest.main()

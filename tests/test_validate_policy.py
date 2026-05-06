@@ -66,6 +66,37 @@ class PolicyValidationTests(unittest.TestCase):
 
         self.assertIn("policy.minimum-payoff-rule", {finding.code for finding in findings})
 
+    def test_rejects_non_monotonic_conviction_count_rules(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "policy.md"
+            path.write_text(
+                _valid_policy_front_matter().replace(
+                    "high_min_independent_evidence_count: 3",
+                    "high_min_independent_evidence_count: 0",
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_policy_file(path)
+
+        self.assertIn("policy.conviction-count-monotonicity", {finding.code for finding in findings})
+
+    def test_rejects_weak_minimum_payoff_ratio(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "policy.md"
+            path.write_text(
+                _valid_policy_front_matter().replace(
+                    "min_risk_reward_ratio: 1.1",
+                    "min_risk_reward_ratio: 1.0",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_policy_file(path)
+
+        self.assertIn("policy.minimum-payoff-risk-reward", {finding.code for finding in findings})
+
 
 def _valid_policy_front_matter() -> str:
     return textwrap.dedent(
@@ -93,6 +124,13 @@ def _valid_policy_front_matter() -> str:
           high:
             max_paper_proxy_position_size_yen: 2000000
             max_real_order_notional_yen: 500000
+        conviction_tier_rules:
+          count_breadth:
+            medium_min_independent_evidence_count: 1
+            high_min_independent_evidence_count: 3
+          high_depth:
+            min_independent_evidence_count: 1
+            min_risk_reward_ratio: 2.0
         policy_rules:
           __default__:
             override_allowed: false

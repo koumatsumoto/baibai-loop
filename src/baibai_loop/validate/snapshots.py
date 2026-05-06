@@ -150,6 +150,37 @@ def _validate_snapshot_payloads(root: Path) -> list[ValidationFinding]:
                         location="content_sha256",
                     )
                 )
+            if rel_root == Path("records/_approval-rules") and isinstance(parsed, Mapping):
+                findings.extend(_check_approval_rule_registry(path, parsed))
+    return findings
+
+
+def _check_approval_rule_registry(
+    path: Path, payload: Mapping[str, object]
+) -> list[ValidationFinding]:
+    rules = payload.get("approval_rules")
+    if not isinstance(rules, list):
+        return []
+    findings: list[ValidationFinding] = []
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, Mapping):
+            continue
+        max_valid_days = rule.get("max_valid_days")
+        if (
+            isinstance(max_valid_days, bool)
+            or not isinstance(max_valid_days, int)
+            or max_valid_days <= 0
+            or max_valid_days > 365
+        ):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="approval-rule.max-valid-days",
+                    message="approval rule max_valid_days must be in [1, 365]",
+                    location=f"approval_rules[{index}].max_valid_days",
+                )
+            )
     return findings
 
 

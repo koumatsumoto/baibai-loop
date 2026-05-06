@@ -31,6 +31,7 @@ def validate_policy_file(path: Path) -> list[ValidationFinding]:
     findings.extend(_check_cap_invariants(path, parsed))
     findings.extend(_check_policy_rules(path, parsed))
     findings.extend(_check_execution_scaling(path, parsed))
+    findings.extend(_check_rule_sanity(path, parsed))
     findings.extend(validate_callable_ids_file(path))
     return findings
 
@@ -76,6 +77,7 @@ def _check_required_sections(
         "minimum_payoff",
         "execution_scaling",
         "conviction_tier_caps",
+        "conviction_tier_rules",
         "policy_rules",
     )
     findings: list[ValidationFinding] = []
@@ -222,6 +224,72 @@ def _check_execution_scaling(
             )
         ]
     return []
+
+
+def _check_rule_sanity(
+    path: Path, front_matter: Mapping[str, object]
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    minimum_payoff = _mapping(front_matter.get("minimum_payoff"))
+    min_rr = _number(minimum_payoff.get("min_risk_reward_ratio"))
+    if min_rr is None or min_rr <= 1.0:
+        findings.append(
+            _finding(
+                path,
+                "policy.minimum-payoff-risk-reward",
+                "minimum_payoff.min_risk_reward_ratio must be greater than 1.0",
+                "minimum_payoff.min_risk_reward_ratio",
+            )
+        )
+    min_upside = _number(minimum_payoff.get("min_expected_upside_pct"))
+    if min_upside is None or min_upside <= 0:
+        findings.append(
+            _finding(
+                path,
+                "policy.minimum-payoff-upside",
+                "minimum_payoff.min_expected_upside_pct must be positive",
+                "minimum_payoff.min_expected_upside_pct",
+            )
+        )
+
+    tier_rules = _mapping(front_matter.get("conviction_tier_rules"))
+    count_breadth = _mapping(tier_rules.get("count_breadth"))
+    medium_min = _number(count_breadth.get("medium_min_independent_evidence_count"))
+    high_min = _number(count_breadth.get("high_min_independent_evidence_count"))
+    if medium_min is None or high_min is None or not 1 <= medium_min <= high_min:
+        findings.append(
+            _finding(
+                path,
+                "policy.conviction-count-monotonicity",
+                (
+                    "conviction_tier_rules.count_breadth must satisfy "
+                    "1 <= medium_min <= high_min"
+                ),
+                "conviction_tier_rules.count_breadth",
+            )
+        )
+    high_depth = _mapping(tier_rules.get("high_depth"))
+    depth_min_independent = _number(high_depth.get("min_independent_evidence_count"))
+    depth_min_rr = _number(high_depth.get("min_risk_reward_ratio"))
+    if depth_min_independent is None or depth_min_independent < 1:
+        findings.append(
+            _finding(
+                path,
+                "policy.conviction-depth-evidence",
+                "high_depth.min_independent_evidence_count must be at least 1",
+                "conviction_tier_rules.high_depth.min_independent_evidence_count",
+            )
+        )
+    if depth_min_rr is None or depth_min_rr <= 1.0:
+        findings.append(
+            _finding(
+                path,
+                "policy.conviction-depth-risk-reward",
+                "high_depth.min_risk_reward_ratio must be greater than 1.0",
+                "conviction_tier_rules.high_depth.min_risk_reward_ratio",
+            )
+        )
+    return findings
 
 
 def _mapping(value: object) -> Mapping[str, object]:
