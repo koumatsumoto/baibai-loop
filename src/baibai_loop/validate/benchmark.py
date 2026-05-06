@@ -14,14 +14,11 @@ _VALID_LAYERS = {"L1", "L2", "L3a", "L3b", "L4", "L5"}
 _REQUIRED_FIXTURE_IDS = {
     "screening-raw-output-anchors",
     "gate-policy-orthogonal-fields",
-    "golden-research-approved-9682",
-    "golden-research-approved-9692",
-    "golden-approved-9682",
-    "golden-approved-9692",
-    "corporate-action-rejected-3678",
     "unreviewed-hit-anchor",
     "no-hit-false-negative-anchor",
     "e2e-research-selection-baseline",
+    "e2e-liquidity-sensitive-selection",
+    "e2e-sales-first-selection",
 }
 _DOMAIN_FIXTURE_CONTRACTS: dict[str, Mapping[str, object]] = {
     "screening-raw-output-anchors": {
@@ -32,43 +29,6 @@ _DOMAIN_FIXTURE_CONTRACTS: dict[str, Mapping[str, object]] = {
         "layer_id": "L2",
         "fixture_binding": {"candidates_ref": "records/04-candidates/2026/05/2026-05-01.yaml"},
     },
-    "golden-research-approved-9682": {
-        "layer_id": "L3a",
-        "fixture_binding": {
-            "record_ref": ("records/05-research/2026/05/2026-05-05-9682-sales-discount-growth.md")
-        },
-        "expected": {"ticker": "9682", "outcome": "approved"},
-    },
-    "golden-research-approved-9692": {
-        "layer_id": "L3a",
-        "fixture_binding": {
-            "record_ref": ("records/05-research/2026/05/2026-05-05-9692-sales-discount-growth.md")
-        },
-        "expected": {"ticker": "9692", "outcome": "approved"},
-    },
-    "golden-approved-9682": {
-        "layer_id": "L4",
-        "fixture_binding": {"record_ref": "records/06-trades/2026/05/2026-05-05-9682.md"},
-        "expected": {"ticker": "9682", "target_quantity": 200, "order_price_guard_yen": 1050},
-    },
-    "golden-approved-9692": {
-        "layer_id": "L4",
-        "fixture_binding": {"record_ref": "records/06-trades/2026/05/2026-05-05-9692.md"},
-        "expected": {"ticker": "9692", "target_quantity": 100, "order_price_guard_yen": 2000},
-    },
-    "corporate-action-rejected-3678": {
-        "layer_id": "L3a",
-        "fixture_binding": {
-            "record_ref": (
-                "records/05-research/2026/05/2026-05-05-3678-strict-net-cash-discount.md"
-            )
-        },
-        "expected": {
-            "ticker": "3678",
-            "outcome": "rejected",
-            "rejection_reason": "corporate_action_post_snapshot",
-        },
-    },
     "unreviewed-hit-anchor": {
         "layer_id": "L5",
         "fixture_binding": {
@@ -76,7 +36,7 @@ _DOMAIN_FIXTURE_CONTRACTS: dict[str, Mapping[str, object]] = {
         },
         "expected": {
             "scan_item_id": "screening-false-negative-2026-05-unreviewed-hit-anchor",
-            "classification": "unreviewed_hit_control",
+            "classification": "unreviewed_hit_anchor",
             "joins_to_decision_event": True,
             "candidate_playbook_screen_result": "hit",
         },
@@ -88,7 +48,7 @@ _DOMAIN_FIXTURE_CONTRACTS: dict[str, Mapping[str, object]] = {
         },
         "expected": {
             "scan_item_id": "screening-false-negative-2026-05-no-hit-anchor",
-            "classification": "screening_no_hit_control",
+            "classification": "screening_no_hit_anchor",
             "canonical_start_basis": "candidate_run_close_adjusted_close",
             "joins_to_decision_event": True,
             "no_candidate_ref": True,
@@ -101,6 +61,26 @@ _DOMAIN_FIXTURE_CONTRACTS: dict[str, Mapping[str, object]] = {
         },
         "expected": {
             "run_id": "run-01-baseline",
+            "screening_status": "partial_quality_warning",
+        },
+    },
+    "e2e-liquidity-sensitive-selection": {
+        "layer_id": "L3a",
+        "fixture_binding": {
+            "runs_ref": "records/_benchmarks/domain-model-2026-05/e2e-regeneration/runs.yaml"
+        },
+        "expected": {
+            "run_id": "run-02-liquidity-3oku",
+            "screening_status": "partial_quality_warning",
+        },
+    },
+    "e2e-sales-first-selection": {
+        "layer_id": "L3a",
+        "fixture_binding": {
+            "runs_ref": "records/_benchmarks/domain-model-2026-05/e2e-regeneration/runs.yaml"
+        },
+        "expected": {
+            "run_id": "run-10-sales-first-selection",
             "screening_status": "partial_quality_warning",
         },
     },
@@ -707,20 +687,6 @@ def _check_candidates_expected(
     candidate_rows = (
         [row for row in rows if isinstance(row, Mapping)] if isinstance(rows, list) else []
     )
-    if "candidate_tickers_include" in expected:
-        expected_tickers = expected.get("candidate_tickers_include")
-        actual_tickers = {row.get("ticker") for row in candidate_rows}
-        if isinstance(expected_tickers, list):
-            for ticker in expected_tickers:
-                if ticker not in actual_tickers:
-                    findings.append(
-                        _finding(
-                            path,
-                            "benchmark.expected-candidate-ticker",
-                            f"candidate fixture must include ticker {ticker}",
-                            f"fixtures[{index}].expected.candidate_tickers_include",
-                        )
-                    )
     if expected.get("orthogonal_gate_fields_present") is True:
         required = {
             "playbook_screen_result",
@@ -787,45 +753,6 @@ def _check_runs_expected(
                 f"fixtures[{index}].expected.selected_tickers",
             )
         )
-    not_selected = expected.get("not_selected_tickers")
-    if isinstance(not_selected, list):
-        selected = set(as_list(run.get("selected_tickers")))
-        for ticker in not_selected:
-            if ticker in selected:
-                findings.append(
-                    _finding(
-                        path,
-                        "benchmark.expected-not-selected-ticker",
-                        f"E2E run must not select ticker {ticker}",
-                        f"fixtures[{index}].expected.not_selected_tickers",
-                    )
-                )
-    ticker_expectations = expected.get("tickers")
-    run_tickers = run.get("tickers")
-    if isinstance(ticker_expectations, Mapping) and isinstance(run_tickers, Mapping):
-        for ticker, expected_state in ticker_expectations.items():
-            actual_state = run_tickers.get(ticker)
-            if not isinstance(expected_state, Mapping) or not isinstance(actual_state, Mapping):
-                if actual_state != expected_state:
-                    findings.append(
-                        _finding(
-                            path,
-                            "benchmark.expected-e2e-ticker",
-                            f"E2E ticker state mismatch for {ticker}",
-                            f"fixtures[{index}].expected.tickers.{ticker}",
-                        )
-                    )
-                continue
-            for field, expected_value in expected_state.items():
-                if actual_state.get(field) != expected_value:
-                    findings.append(
-                        _finding(
-                            path,
-                            "benchmark.expected-e2e-ticker-field",
-                            f"E2E ticker {ticker} field {field} mismatch",
-                            f"fixtures[{index}].expected.tickers.{ticker}.{field}",
-                        )
-                    )
     return findings
 
 

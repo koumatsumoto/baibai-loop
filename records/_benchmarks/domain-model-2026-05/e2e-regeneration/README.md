@@ -31,13 +31,10 @@ uv run baibai-loop-screening select \
 
 Observed:
 
-- `9682`: present, `sales-discount-growth`, sizing-eligible.
-- `9692`: present, `sales-discount-growth`, sizing-eligible.
-- `3678`: present, 4 evidence hits, all `source_status: warning` and
-  `sizing_eligible: false`.
 - Recommended research tickers in the baseline selection:
   `3632`, `6835`, `6932`, `6310`, `9470`.
-- `3678` is not recommended after freshness-aware sizing eligibility is applied.
+- The selected queue is driven by the current screen, outlook, freshness, and
+  lane ordering. It is not pinned to any prior research or trade record.
 
 ## 10-Run Parameter Sweep
 
@@ -64,20 +61,18 @@ Findings:
   written and validated; `runs.yaml` records this as
   `screening_status: partial_quality_warning` so it is not confused with a
   hard generation failure.
-- `3678` is either absent under stricter liquidity or present with zero
-  sizing-eligible evidence; it is never selected. This is the desired behavior
-  for post-snapshot corporate-action risk.
-- `9682` and `9692` remain sizing-eligible candidates in the baseline, but are
-  not selected in the top research queue under the current 5/4 outlook and lane
-  ordering. In the full baseline rank they are around rank 111 and 103
-  respectively, which means the current process surfaces stronger candidates
-  before them.
 - The baseline selected research queue is `3632`, `6835`, `6932`, `6310`,
   `9470`. Increasing target max and moving sales first changes ordering and
   broadens the queue to 8 names.
-- Stricter `sales_yoy_min: 0.10` drops `9682` from the candidate set while
-  retaining `9692`. This confirms the sales-growth threshold is a high-impact
-  business knob and should be changed only with benchmark review.
+- Higher liquidity pressure changes the selected queue to `5423`, `6266`,
+  `6143`, `5410`, `6817`, which confirms liquidity policy materially changes
+  the investable shortlist rather than preserving prior decisions.
+- Stricter `sales_yoy_min: 0.10` cuts sales-discount-growth hits from 132 to
+  60 and replaces the fifth selected name with `5036`. This confirms the
+  sales-growth threshold is a high-impact business knob.
+- Moving sales-discount-growth first and expanding the queue selects `9470`,
+  `6310`, `6835`, `3632`, `6932`, `6619`, `6753`, `5410`. This is the primary
+  current-state candidate pool for research diversification.
 
 ## Raw Data Added
 

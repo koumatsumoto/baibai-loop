@@ -264,7 +264,7 @@ def test_sync_ledger_adds_false_negative_scan_anchor_events(tmp_path: Path) -> N
                         "scan_item_id": "screening-false-negative-2026-04-no-hit",
                         "ticker": "9999",
                         "decision_event_id": "decision-20260430-9999-no-hit-false-negative",
-                        "classification": "screening_no_hit_control",
+                        "classification": "screening_no_hit_anchor",
                         "flagged_at": "2026-04-30T00:00:00+09:00",
                     }
                 ],
@@ -285,7 +285,7 @@ def test_sync_ledger_adds_false_negative_scan_anchor_events(tmp_path: Path) -> N
     assert record["decision_event_id"] == "decision-20260430-9999-no-hit-false-negative"
     assert record["decision_scope"] == "candidate_screen"
     assert record["candidate_decision"] == "not_reviewed"
-    assert record["not_reviewed_reason"] == "screening_no_hit_control"
+    assert record["not_reviewed_reason"] == "screening_no_hit_anchor"
     assert record["tracking"] == {
         "mode": "missed_opportunity",
         "plus_15bd": None,

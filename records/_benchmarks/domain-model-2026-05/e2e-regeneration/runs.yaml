@@ -21,25 +21,6 @@ runs:
     cashflow-yield-discount: 183
     fcf-yield-discount: 14
     sales-discount-growth: 132
-  tickers:
-    '9682':
-      present: true
-      selected: false
-      hit_count: 1
-      eligible_count: 1
-      warning_count: 0
-    '9692':
-      present: true
-      selected: false
-      hit_count: 1
-      eligible_count: 1
-      warning_count: 0
-    '3678':
-      present: true
-      selected: false
-      hit_count: 4
-      eligible_count: 0
-      warning_count: 2
   candidates_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-01-baseline-candidates.yaml
   selection_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-01-baseline-selection.yaml
   rules_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/rules/run-01-baseline-rules.yaml
@@ -64,19 +45,6 @@ runs:
     cashflow-yield-discount: 124
     fcf-yield-discount: 8
     sales-discount-growth: 95
-  tickers:
-    '9682':
-      present: true
-      selected: false
-      hit_count: 1
-      eligible_count: 1
-      warning_count: 0
-    '9692':
-      present: false
-      selected: false
-    '3678':
-      present: false
-      selected: false
   candidates_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-02-liquidity-3oku-candidates.yaml
   selection_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-02-liquidity-3oku-selection.yaml
   rules_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/rules/run-02-liquidity-3oku-rules.yaml
@@ -101,25 +69,6 @@ runs:
     cashflow-yield-discount: 186
     fcf-yield-discount: 15
     sales-discount-growth: 141
-  tickers:
-    '9682':
-      present: true
-      selected: false
-      hit_count: 1
-      eligible_count: 1
-      warning_count: 0
-    '9692':
-      present: true
-      selected: false
-      hit_count: 1
-      eligible_count: 1
-      warning_count: 0
-    '3678':
-      present: true
-      selected: false
-      hit_count: 4
-      eligible_count: 0
-      warning_count: 2
   candidates_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-03-smallcap-50oku-candidates.yaml
   selection_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-03-smallcap-50oku-selection.yaml
   rules_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/rules/run-03-smallcap-50oku-rules.yaml
@@ -144,22 +93,6 @@ runs:
     cashflow-yield-discount: 183
     fcf-yield-discount: 14
     sales-discount-growth: 60
-  tickers:
-    '9682':
-      present: false
-      selected: false
-    '9692':
-      present: true
-      selected: false
-      hit_count: 1
-      eligible_count: 1
-      warning_count: 0
-    '3678':
-      present: true
-      selected: false
-      hit_count: 3
-      eligible_count: 0
-      warning_count: 2
   candidates_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-04-sales-strict-growth-candidates.yaml
   selection_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-04-sales-strict-growth-selection.yaml
   rules_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/rules/run-04-sales-strict-growth-rules.yaml
@@ -184,25 +117,6 @@ runs:
     cashflow-yield-discount: 183
     fcf-yield-discount: 14
     sales-discount-growth: 167
-  tickers:
-    '9682':
-      present: true
-      selected: false
-      hit_count: 1
-      eligible_count: 1
-      warning_count: 0
-    '9692':
-      present: true
-      selected: false
-      hit_count: 1
-      eligible_count: 1
-      warning_count: 0
-    '3678':
-      present: true
-      selected: false
-      hit_count: 4
-      eligible_count: 0
-      warning_count: 2
   candidates_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-05-sales-loose-valuation-candidates.yaml
   selection_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-05-sales-loose-valuation-selection.yaml
   rules_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/rules/run-05-sales-loose-valuation-rules.yaml
@@ -227,25 +141,6 @@ runs:
     cashflow-yield-discount: 100
     fcf-yield-discount: 14
     sales-discount-growth: 132
-  tickers:
-    '9682':
-      present: true
-      selected: false
-      hit_count: 1
-      eligible_count: 1
-      warning_count: 0
-    '9692':
-      present: true
-      selected: false
-      hit_count: 1
-      eligible_count: 1
-      warning_count: 0
-    '3678':
-      present: true
-      selected: false
-      hit_count: 4
-      eligible_count: 0
-      warning_count: 2
   candidates_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-06-cashflow-strict-yield-candidates.yaml
   selection_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-06-cashflow-strict-yield-selection.yaml
   rules_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/rules/run-06-cashflow-strict-yield-rules.yaml
@@ -270,25 +165,6 @@ runs:
     cashflow-yield-discount: 183
     fcf-yield-discount: 5
     sales-discount-growth: 132
-  tickers:
-    '9682':
-      present: true
-      selected: false
-      hit_count: 1
-      eligible_count: 1
-      warning_count: 0
-    '9692':
-      present: true
-      selected: false
-      hit_count: 1
-      eligible_count: 1
-      warning_count: 0
-    '3678':
-      present: true
-      selected: false
-      hit_count: 4
-      eligible_count: 0
-      warning_count: 2
   candidates_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-07-fcf-strict-yield-candidates.yaml
   selection_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-07-fcf-strict-yield-selection.yaml
   rules_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/rules/run-07-fcf-strict-yield-rules.yaml
@@ -315,25 +191,6 @@ runs:
     cashflow-yield-discount: 183
     fcf-yield-discount: 14
     sales-discount-growth: 132
-  tickers:
-    '9682':
-      present: true
-      selected: false
-      hit_count: 1
-      eligible_count: 1
-      warning_count: 0
-    '9692':
-      present: true
-      selected: false
-      hit_count: 1
-      eligible_count: 1
-      warning_count: 0
-    '3678':
-      present: true
-      selected: false
-      hit_count: 4
-      eligible_count: 0
-      warning_count: 2
   candidates_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-08-valuation-deep-discount-candidates.yaml
   selection_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-08-valuation-deep-discount-selection.yaml
   rules_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/rules/run-08-valuation-deep-discount-rules.yaml
@@ -359,25 +216,6 @@ runs:
     cashflow-yield-discount: 183
     fcf-yield-discount: 14
     sales-discount-growth: 132
-  tickers:
-    '9682':
-      present: true
-      selected: false
-      hit_count: 1
-      eligible_count: 1
-      warning_count: 0
-    '9692':
-      present: true
-      selected: false
-      hit_count: 1
-      eligible_count: 1
-      warning_count: 0
-    '3678':
-      present: true
-      selected: false
-      hit_count: 4
-      eligible_count: 0
-      warning_count: 2
   candidates_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-09-net-cash-strict-candidates.yaml
   selection_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-09-net-cash-strict-selection.yaml
   rules_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/rules/run-09-net-cash-strict-rules.yaml
@@ -413,25 +251,6 @@ runs:
     cashflow-yield-discount: 183
     fcf-yield-discount: 14
     sales-discount-growth: 132
-  tickers:
-    '9682':
-      present: true
-      selected: false
-      hit_count: 1
-      eligible_count: 1
-      warning_count: 0
-    '9692':
-      present: true
-      selected: false
-      hit_count: 1
-      eligible_count: 1
-      warning_count: 0
-    '3678':
-      present: true
-      selected: false
-      hit_count: 4
-      eligible_count: 0
-      warning_count: 2
   candidates_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-10-sales-first-selection-candidates.yaml
   selection_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-10-sales-first-selection-selection.yaml
   rules_path: records/_benchmarks/domain-model-2026-05/e2e-regeneration/rules/run-10-sales-first-selection-rules.yaml

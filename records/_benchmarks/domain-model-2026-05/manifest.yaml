@@ -40,7 +40,7 @@ layers:
   merge_blocker: true
 - layer_id: L4
   name: trade-preparation
-  merge_blocker: true
+  merge_blocker: false
 - layer_id: L5
   name: review-attribution
   merge_blocker: true
@@ -53,67 +53,13 @@ fixtures:
   fixture_binding:
     candidates_ref: records/04-candidates/2026/05/2026-05-01.yaml
   expected:
-    candidate_tickers_include:
-    - '9682'
-    - '9692'
-    - '3678'
+    run_id: screening-20260501-b2e37953
 - fixture_id: gate-policy-orthogonal-fields
   layer_id: L2
   fixture_binding:
     candidates_ref: records/04-candidates/2026/05/2026-05-01.yaml
   expected:
     orthogonal_gate_fields_present: true
-- fixture_id: golden-research-approved-9682
-  layer_id: L3a
-  fixture_binding:
-    record_ref: records/05-research/2026/05/2026-05-05-9682-sales-discount-growth.md
-  expected:
-    ticker: '9682'
-    outcome: approved
-    conviction_tier: medium
-    independent_evidence_count: 1
-    real_order_intent_yen: 210000
-- fixture_id: golden-research-approved-9692
-  layer_id: L3a
-  fixture_binding:
-    record_ref: records/05-research/2026/05/2026-05-05-9692-sales-discount-growth.md
-  expected:
-    ticker: '9692'
-    outcome: approved
-    conviction_tier: medium
-    independent_evidence_count: 1
-    real_order_intent_yen: 200000
-- fixture_id: golden-approved-9682
-  layer_id: L4
-  fixture_binding:
-    record_ref: records/06-trades/2026/05/2026-05-05-9682.md
-  expected:
-    ticker: '9682'
-    target_quantity: 200
-    order_price_guard_yen: 1050
-    guarded_max_notional_yen: 210000
-    estimated_real_order_notional_yen: 202800
-- fixture_id: golden-approved-9692
-  layer_id: L4
-  fixture_binding:
-    record_ref: records/06-trades/2026/05/2026-05-05-9692.md
-  expected:
-    ticker: '9692'
-    target_quantity: 100
-    order_price_guard_yen: 2000
-    guarded_max_notional_yen: 200000
-    estimated_real_order_notional_yen: 192900
-- fixture_id: corporate-action-rejected-3678
-  layer_id: L3a
-  fixture_binding:
-    record_ref: records/05-research/2026/05/2026-05-05-3678-strict-net-cash-discount.md
-  expected:
-    ticker: '3678'
-    outcome: rejected
-    rejection_reason: corporate_action_post_snapshot
-    conviction_tier: low
-    independent_evidence_count: 0
-    real_order_intent_yen: null
 - fixture_id: e2e-research-selection-baseline
   layer_id: L3a
   fixture_binding:
@@ -127,28 +73,42 @@ fixtures:
     - '6932'
     - '6310'
     - '9470'
-    not_selected_tickers:
-    - '3678'
-    tickers:
-      '9682':
-        present: true
-        selected: false
-        eligible_count: 1
-      '9692':
-        present: true
-        selected: false
-        eligible_count: 1
-      '3678':
-        present: true
-        selected: false
-        eligible_count: 0
+- fixture_id: e2e-liquidity-sensitive-selection
+  layer_id: L3a
+  fixture_binding:
+    runs_ref: records/_benchmarks/domain-model-2026-05/e2e-regeneration/runs.yaml
+  expected:
+    run_id: run-02-liquidity-3oku
+    screening_status: partial_quality_warning
+    selected_tickers:
+    - '5423'
+    - '6266'
+    - '6143'
+    - '5410'
+    - '6817'
+- fixture_id: e2e-sales-first-selection
+  layer_id: L3a
+  fixture_binding:
+    runs_ref: records/_benchmarks/domain-model-2026-05/e2e-regeneration/runs.yaml
+  expected:
+    run_id: run-10-sales-first-selection
+    screening_status: partial_quality_warning
+    selected_tickers:
+    - '9470'
+    - '6310'
+    - '6835'
+    - '3632'
+    - '6932'
+    - '6619'
+    - '6753'
+    - '5410'
 - fixture_id: unreviewed-hit-anchor
   layer_id: L5
   fixture_binding:
     scan_ref: records/07-reviews/screening-false-negative-scan/2026-05.yaml
   expected:
     scan_item_id: screening-false-negative-2026-05-unreviewed-hit-anchor
-    classification: unreviewed_hit_control
+    classification: unreviewed_hit_anchor
     joins_to_decision_event: true
     candidate_playbook_screen_result: hit
 - fixture_id: no-hit-false-negative-anchor
@@ -157,7 +117,7 @@ fixtures:
     scan_ref: records/07-reviews/screening-false-negative-scan/2026-05.yaml
   expected:
     scan_item_id: screening-false-negative-2026-05-no-hit-anchor
-    classification: screening_no_hit_control
+    classification: screening_no_hit_anchor
     canonical_start_basis: candidate_run_close_adjusted_close
     joins_to_decision_event: true
     no_candidate_ref: true

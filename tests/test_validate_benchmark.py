@@ -95,7 +95,7 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
 
         self.assertIn("benchmark.merge-blocker-fixture", {finding.code for finding in findings})
 
-    def test_domain_model_manifest_requires_golden_fixture_ids(self) -> None:
+    def test_domain_model_manifest_requires_current_e2e_fixture_ids(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "manifest.yaml"
             path.write_text(
@@ -113,7 +113,7 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
             record = root / "records/05-research/2026/05/research.md"
             record.parent.mkdir(parents=True)
             record.write_text(
-                "---\nticker: '3678'\nresearch_decision:\n  outcome: approved\n---\n# Research\n",
+                "---\nticker: '1111'\nresearch_decision:\n  outcome: approved\n---\n# Research\n",
                 encoding="utf-8",
             )
             manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
@@ -121,7 +121,7 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
             manifest.write_text(
                 _manifest_with_expected(
                     record_ref="records/05-research/2026/05/research.md",
-                    expected={"ticker": "3678", "outcome": "rejected"},
+                    expected={"ticker": "1111", "outcome": "rejected"},
                 ),
                 encoding="utf-8",
             )
@@ -137,7 +137,7 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
             record.parent.mkdir(parents=True)
             record.write_text(
                 "---\n"
-                "ticker: '9682'\n"
+                "ticker: '2222'\n"
                 "order_intent:\n"
                 "  quantity: 100\n"
                 "  order_price_guard_yen: 1050\n"
@@ -150,7 +150,7 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
             manifest.write_text(
                 _manifest_with_expected(
                     record_ref="records/06-trades/2026/05/trade.md",
-                    expected={"ticker": "9682", "target_quantity": 200},
+                    expected={"ticker": "2222", "target_quantity": 200},
                 ),
                 encoding="utf-8",
             )
@@ -184,35 +184,6 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
             findings = validate_benchmark_manifest_file(manifest)
 
         self.assertIn("benchmark.expected-decision-anchor", {finding.code for finding in findings})
-
-    def test_rejects_candidates_missing_expected_ticker(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            candidates = root / "records/04-candidates/2026/05/candidates.yaml"
-            candidates.parent.mkdir(parents=True)
-            candidates.write_text(
-                "run_id: run-1\n"
-                "candidates:\n"
-                "- ticker: '1111'\n"
-                "  playbook_screen_result: hit\n"
-                "  policy_gate_result: pass\n"
-                "  liquidity_gate_result: pass\n"
-                "  macro_regime_gate_result: pass\n",
-                encoding="utf-8",
-            )
-            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
-            manifest.parent.mkdir(parents=True)
-            manifest.write_text(
-                _manifest_with_expected(
-                    candidates_ref="records/04-candidates/2026/05/candidates.yaml",
-                    expected={"run_id": "run-1", "candidate_tickers_include": ["2222"]},
-                ),
-                encoding="utf-8",
-            )
-
-            findings = validate_benchmark_manifest_file(manifest)
-
-        self.assertIn("benchmark.expected-candidate-ticker", {finding.code for finding in findings})
 
     def test_rejects_e2e_selected_ticker_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

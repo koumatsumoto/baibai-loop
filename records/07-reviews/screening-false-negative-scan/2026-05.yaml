@@ -5,7 +5,7 @@ items:
 - scan_item_id: screening-false-negative-2026-05-no-hit-anchor
   ticker: '9999'
   decision_event_id: decision-20260531-9999-no-hit-false-negative
-  classification: screening_no_hit_control
+  classification: screening_no_hit_anchor
   start_price_basis: candidate_run_close_adjusted_close
   flagged_at: '2026-05-31T00:00:00+09:00'
   relative_return_pct: null
@@ -17,19 +17,7 @@ items:
     candidate_id: candidate-2026-05-01-1301
     ticker: '1301'
   decision_event_id: decision-screening-20260501-b2e37953-1301-not-reviewed
-  classification: unreviewed_hit_control
-  start_price_basis: candidate_run_close_adjusted_close
-  flagged_at: '2026-05-31T00:00:00+09:00'
-  relative_return_pct: null
-- scan_item_id: screening-false-negative-2026-05-rejected-high-confluence-control
-  ticker: '3678'
-  candidate_ref:
-    candidates_ref: records/04-candidates/2026/05/2026-05-01.yaml
-    screen_run_id: screening-20260501-b2e37953
-    candidate_id: candidate-2026-05-01-3678
-    ticker: '3678'
-  decision_event_id: decision-20260505-3678-research
-  classification: rejected_high_confluence_control
+  classification: unreviewed_hit_anchor
   start_price_basis: candidate_run_close_adjusted_close
   flagged_at: '2026-05-31T00:00:00+09:00'
   relative_return_pct: null
