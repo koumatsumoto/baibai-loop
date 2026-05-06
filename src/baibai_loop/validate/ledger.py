@@ -25,6 +25,8 @@ def validate_ledger_file(path: Path) -> list[ValidationFinding]:
     validator = _load_validator(SCHEMA_ROOT / "decision-register.json")
     findings: list[ValidationFinding] = []
     records: list[dict[str, Any]] = []
+    root = _repo_root(path)
+    candidate_document_cache: dict[str, dict[str, Any] | None] = {}
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError as exc:
@@ -78,7 +80,15 @@ def validate_ledger_file(path: Path) -> list[ValidationFinding]:
                 )
             )
         findings.extend(_check_required_lineage_fields(path, line_number, record))
-        findings.extend(_check_candidate_decision_coverage(path, line_number, record))
+        findings.extend(
+            _check_candidate_decision_coverage(
+                path,
+                line_number,
+                record,
+                root=root,
+                candidate_document_cache=candidate_document_cache,
+            )
+        )
     if not parse_errors:
         for message in validate_decision_register_jsonl(path):
             findings.append(
@@ -130,6 +140,9 @@ def _check_candidate_decision_coverage(
     path: Path,
     line_number: int,
     record: dict[str, Any],
+    *,
+    root: Path,
+    candidate_document_cache: dict[str, dict[str, Any] | None],
 ) -> list[ValidationFinding]:
     if record.get("candidate_decision") != "not_reviewed":
         return []
@@ -140,13 +153,10 @@ def _check_candidate_decision_coverage(
     ticker = candidate_ref.get("ticker")
     if not isinstance(candidates_ref, str) or not isinstance(ticker, str):
         return []
-    root = _repo_root(path)
-    candidate_path = root / candidates_ref
-    try:
-        document = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError):
+    document = _load_candidate_document(root, candidates_ref, candidate_document_cache)
+    if document is None:
         return []
-    if not isinstance(document, dict) or document.get("requires_decision_coverage") is not True:
+    if document.get("requires_decision_coverage") is not True:
         return []
     candidate = None
     candidates = document.get("candidates")
@@ -182,6 +192,26 @@ def _check_candidate_decision_coverage(
             )
         ]
     return []
+
+
+def _load_candidate_document(
+    root: Path,
+    candidates_ref: str,
+    cache: dict[str, dict[str, Any] | None],
+) -> dict[str, Any] | None:
+    if candidates_ref in cache:
+        return cache[candidates_ref]
+    candidate_path = root / candidates_ref
+    try:
+        document = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        cache[candidates_ref] = None
+        return None
+    if not isinstance(document, dict):
+        cache[candidates_ref] = None
+        return None
+    cache[candidates_ref] = document
+    return document
 
 
 def _check_candidate_coverage_from_candidates(

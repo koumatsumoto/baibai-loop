@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from baibai_loop.validate.ledger import discover_ledger_files, validate_ledger_file
 
@@ -86,6 +89,67 @@ def test_candidate_coverage_requires_decision_event_for_hit_candidate(tmp_path: 
     codes = {finding.code for finding in validate_ledger_file(path)}
 
     assert "ledger.candidate-decision-coverage" in codes
+
+
+def test_not_reviewed_candidate_validation_reuses_candidate_document(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidate_ref = "records/04-candidates/2026/05/2026-05-01.yaml"
+    candidates_path = tmp_path / candidate_ref
+    candidates_path.parent.mkdir(parents=True)
+    candidates_path.write_text(
+        "requires_decision_coverage: true\n"
+        "candidates:\n"
+        "- ticker: '9682'\n"
+        "  candidate_id: candidate-2026-05-01-9682\n"
+        "  playbook_screen_result: hit\n"
+        "  policy_gate_result: pass\n"
+        "  liquidity_gate_result: pass\n"
+        "  macro_regime_gate_result: pass\n"
+        "- ticker: '9692'\n"
+        "  candidate_id: candidate-2026-05-01-9692\n"
+        "  playbook_screen_result: hit\n"
+        "  policy_gate_result: pass\n"
+        "  liquidity_gate_result: pass\n"
+        "  macro_regime_gate_result: pass\n",
+        encoding="utf-8",
+    )
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
+    path.parent.mkdir(parents=True)
+    records = [
+        _decision_record(
+            decision_event_id=f"decision-20260501-{ticker}-not-reviewed",
+            decision_scope="candidate_screen",
+            ticker=ticker,
+            candidate_decision="not_reviewed",
+            candidate_ref={
+                "candidates_ref": candidate_ref,
+                "candidate_id": f"candidate-2026-05-01-{ticker}",
+                "ticker": ticker,
+            },
+            tracking={"mode": "missed_opportunity"},
+        )
+        for ticker in ("9682", "9692")
+    ]
+    path.write_text(
+        "\n".join(json.dumps(record, ensure_ascii=False) for record in records) + "\n",
+        encoding="utf-8",
+    )
+    original_read_text = Path.read_text
+    candidate_reads = 0
+
+    def counted_read_text(self: Path, *args: Any, **kwargs: Any) -> str:
+        nonlocal candidate_reads
+        if self == candidates_path:
+            candidate_reads += 1
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counted_read_text)
+
+    findings = validate_ledger_file(path)
+
+    assert findings == []
+    assert candidate_reads == 2
 
 
 def test_candidate_coverage_allows_pre_migration_exception(tmp_path: Path) -> None:
