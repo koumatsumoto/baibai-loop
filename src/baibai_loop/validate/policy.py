@@ -226,9 +226,7 @@ def _check_execution_scaling(
     return []
 
 
-def _check_rule_sanity(
-    path: Path, front_matter: Mapping[str, object]
-) -> list[ValidationFinding]:
+def _check_rule_sanity(path: Path, front_matter: Mapping[str, object]) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
     minimum_payoff = _mapping(front_matter.get("minimum_payoff"))
     min_rr = _number(minimum_payoff.get("min_risk_reward_ratio"))
@@ -261,10 +259,7 @@ def _check_rule_sanity(
             _finding(
                 path,
                 "policy.conviction-count-monotonicity",
-                (
-                    "conviction_tier_rules.count_breadth must satisfy "
-                    "1 <= medium_min <= high_min"
-                ),
+                ("conviction_tier_rules.count_breadth must satisfy 1 <= medium_min <= high_min"),
                 "conviction_tier_rules.count_breadth",
             )
         )

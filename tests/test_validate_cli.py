@@ -281,6 +281,7 @@ def _make_research_text() -> str:
                 "paper_proxy_position_size_oku": 0.01,
                 "paper_proxy_position_size_yen": 1000000,
                 "real_order_intent_yen": 200000,
+                "adv_participation_pct": 0.5,
             },
             "thesis_payoff": {
                 "max_entry_price_yen": 1000,
@@ -290,6 +291,7 @@ def _make_research_text() -> str:
                 "expected_downside_pct": 10.0,
                 "risk_reward_ratio": 2.0,
             },
+            "avg_turnover_oku": 2.0,
             "valuation": {"per_trailing": 6.63},
         },
         allow_unicode=True,

@@ -79,7 +79,9 @@ class PolicyValidationTests(unittest.TestCase):
 
             findings = validate_policy_file(path)
 
-        self.assertIn("policy.conviction-count-monotonicity", {finding.code for finding in findings})
+        self.assertIn(
+            "policy.conviction-count-monotonicity", {finding.code for finding in findings}
+        )
 
     def test_rejects_weak_minimum_payoff_ratio(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

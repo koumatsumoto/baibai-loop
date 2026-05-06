@@ -851,10 +851,7 @@ def _check_selected_research_coverage(
         str(record.get("ticker"))
         for record in records
         if record.get("decision_scope") in {"research_memo", "candidate_screen"}
-        and (
-            record.get("research_ref")
-            or record.get("candidate_decision") == "not_reviewed"
-        )
+        and (record.get("research_ref") or record.get("candidate_decision") == "not_reviewed")
     }
     missing = [ticker for ticker in selected if ticker not in covered]
     if not missing:
