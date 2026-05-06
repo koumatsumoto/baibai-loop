@@ -140,16 +140,6 @@ valuation:
   equity_ratio: 0.7589
   primary_metric:
   - p_s
-decision_revisions:
-- revision_id: revision-20260505-9682-decision-flip
-  prior_state_ref: origin/main:records/05-research/2026/05/2026-05-05-9682-sales-discount-growth.md
-  prior_state: 'research_decision.outcome: deferred'
-  new_state: 'research_decision.outcome: approved'
-  reason: 2026-05-05 に 200 株成行注文済みだが、5/7 寄り前に 1,050 円以下の指値または寄指へ訂正する前提で、投資可能資金 500
-    万円に対して最大 4.20%、当面の 100 万円 tactical cap に対して最大 21.0% に留まる。決算またぎではなく、増配・自己株式取得 catalyst
-    が確認できるため approved とする。
-  revision_type: decision_flip
-  migration_origin: true
 ---
 
 # Research: 2026-05-05 9682 ＤＴＳ sales-discount-growth

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -13,7 +11,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.validate.snapshots import _records_payload_hash, validate_snapshot_integrity
+from baibai_loop.validate.snapshots import validate_snapshot_integrity
 
 
 class SnapshotIntegrityValidationTests(unittest.TestCase):
@@ -52,44 +50,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
 
         self.assertIn("snapshot.hash-mismatch", {finding.code for finding in findings})
 
-    def test_rejects_migration_manifest_sidecar_mismatch(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            manifest = root / "records/_migrations/domain-model.jsonl"
-            manifest.parent.mkdir(parents=True)
-            manifest.write_text('{"migration_run_id":"run-1"}\n', encoding="utf-8")
-            manifest.with_suffix(manifest.suffix + ".sha256").write_text(
-                f"{'2' * 64}  domain-model.jsonl\n",
-                encoding="utf-8",
-            )
-
-            findings = validate_snapshot_integrity(root)
-
-        self.assertIn("migration.digest-mismatch", {finding.code for finding in findings})
-
-    def test_rejects_target_payload_hash_mismatch(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            payload = root / "records/05-research/item.md"
-            payload.parent.mkdir(parents=True)
-            payload.write_text("---\nticker: '9682'\n---\n", encoding="utf-8")
-            manifest = root / "records/_migrations/domain-model.jsonl"
-            manifest.parent.mkdir(parents=True)
-            manifest.write_text(
-                f'{{"target_payload_tree_sha":"sha256:{"3" * 64}"}}\n',
-                encoding="utf-8",
-            )
-            manifest_digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
-            manifest.with_suffix(manifest.suffix + ".sha256").write_text(
-                f"{manifest_digest}  domain-model.jsonl\n",
-                encoding="utf-8",
-            )
-
-            findings = validate_snapshot_integrity(root)
-
-        self.assertIn("migration.payload-mismatch", {finding.code for finding in findings})
-
-    def test_accepts_valid_snapshot_reference_and_manifest_digest(self) -> None:
+    def test_accepts_valid_snapshot_reference(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             policy = root / "records/01-policy/2026/05/policy.yaml"
@@ -106,62 +67,10 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 "---\n",
                 encoding="utf-8",
             )
-            manifest = root / "records/_migrations/domain-model.jsonl"
-            manifest.parent.mkdir(parents=True)
-            payload_hash = _payload_hash(root)
-            manifest.write_text(
-                f'{{"migration_run_id":"run-1","target_payload_tree_sha":"{payload_hash}"}}\n',
-                encoding="utf-8",
-            )
-            manifest_digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
-            manifest.with_suffix(manifest.suffix + ".sha256").write_text(
-                f"{manifest_digest}  domain-model.jsonl\n",
-                encoding="utf-8",
-            )
 
             findings = validate_snapshot_integrity(root)
 
         self.assertEqual(findings, [])
-
-    @unittest.skipUnless(shutil.which("git"), "git is required")
-    def test_payload_hash_ignores_untracked_and_ignored_record_cache(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            subprocess.run(["git", "init"], cwd=root, check=True, stdout=subprocess.DEVNULL)
-            (root / ".gitignore").write_text("records/_data/cache/\n", encoding="utf-8")
-            payload = root / "records/05-research/item.md"
-            payload.parent.mkdir(parents=True)
-            payload.write_text("---\nticker: '9682'\n---\n", encoding="utf-8")
-            ignored = root / "records/_data/cache/local.zip"
-            ignored.parent.mkdir(parents=True)
-            ignored.write_text("local cache must not affect migration payload\n", encoding="utf-8")
-            untracked = root / "records/05-research/untracked.md"
-            untracked.write_text("---\nticker: '9999'\n---\n", encoding="utf-8")
-            subprocess.run(
-                ["git", "add", ".gitignore", "records/05-research/item.md"],
-                cwd=root,
-                check=True,
-                stdout=subprocess.DEVNULL,
-            )
-
-            actual = _records_payload_hash(root)
-            expected_rows = (
-                f"{hashlib.sha256(payload.read_bytes()).hexdigest()}  records/05-research/item.md\n"
-            )
-            expected = f"sha256:{hashlib.sha256(expected_rows.encode('utf-8')).hexdigest()}"
-
-        self.assertEqual(actual, expected)
-
-
-def _payload_hash(root: Path) -> str:
-    rows: list[str] = []
-    for path in sorted((root / "records").rglob("*")):
-        if not path.is_file() or "_migrations" in path.relative_to(root / "records").parts:
-            continue
-        rows.append(
-            f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(root).as_posix()}\n"
-        )
-    return f"sha256:{hashlib.sha256(''.join(rows).encode('utf-8')).hexdigest()}"
 
 
 if __name__ == "__main__":

@@ -37,7 +37,6 @@ class DecisionRegisterRecord:
     independent_evidence_count: int | None = None
     conviction_tier: str | None = None
     tracking: Tracking | None = None
-    migration_source: dict[str, object] | None = None
 
     def to_json(self) -> dict[str, object]:
         return {key: value for key, value in asdict(self).items() if value is not None}

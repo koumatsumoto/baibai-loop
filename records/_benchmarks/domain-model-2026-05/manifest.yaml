@@ -163,12 +163,11 @@ fixtures:
     no_candidate_ref: true
 business_invariants:
 - id: old-schema-absent
-  description: Old schema fields and numbered paths are absent outside migration manifest
-    audit trace.
+  description: Old schema fields and numbered paths are absent from current records,
+    docs, and code paths.
   fixture_binding: rg-old-fields
 - id: snapshot-hashes-valid
-  description: Immutable snapshot refs and manifest sidecars have matching content
-    hashes.
+  description: Immutable snapshot refs have matching content hashes.
   fixture_binding: baibai-loop-validate-snapshots
 - id: evidence-count-deterministic
   description: Conviction and sizing counts are derived from effective sizing-eligible

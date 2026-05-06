@@ -233,23 +233,14 @@ def _check_candidate_coverage_from_candidates(
             continue
         requires = document.get("requires_decision_coverage")
         if requires is False:
-            if document.get("decision_coverage_exception") != (
-                "pre_migration_unregistered_population"
-            ):
-                findings.append(
-                    ValidationFinding(
-                        severity="error",
-                        target=path,
-                        code="ledger.candidate-coverage-exception",
-                        message=(
-                            "candidate files with disabled decision coverage require "
-                            "decision_coverage_exception: pre_migration_unregistered_population"
-                        ),
-                        location=str(candidate_path.relative_to(root)),
-                    )
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="ledger.candidate-coverage-disabled",
+                    message="candidate decision coverage must stay enabled for current records",
+                    location=str(candidate_path.relative_to(root)),
                 )
-            findings.extend(
-                _check_coverage_exception_manifest(root, path, candidate_path, document)
             )
             continue
         if requires is not True:
@@ -282,125 +273,6 @@ def _check_candidate_coverage_from_candidates(
                     )
                 )
     return findings
-
-
-def _check_coverage_exception_manifest(
-    root: Path,
-    path: Path,
-    candidate_path: Path,
-    document: dict[str, Any],
-) -> list[ValidationFinding]:
-    summary = _migration_unregistered_summary(root, str(candidate_path.relative_to(root)))
-    if summary is None:
-        return [
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="ledger.candidate-coverage-summary",
-                message=(
-                    "disabled candidate decision coverage requires a matching "
-                    "unregistered_candidate_population manifest summary"
-                ),
-                location=str(candidate_path.relative_to(root)),
-            )
-        ]
-    candidates = document.get("candidates")
-    rows = (
-        [item for item in candidates if isinstance(item, dict)]
-        if isinstance(candidates, list)
-        else []
-    )
-    hit_population = sum(1 for item in rows if _requires_candidate_decision(item))
-    expected = {
-        "screened_population": len(rows),
-        "hit_or_near_threshold_population": hit_population,
-        "reviewed_population": _reviewed_population_for_candidate_file(
-            records=_read_records(root / "records/_ledger/research-decisions"),
-            candidates_ref=str(candidate_path.relative_to(root)),
-        ),
-        "auto_backfilled_not_reviewed_rows": 0,
-        "pre_migration_unresearched_candidate_backfill": False,
-    }
-    findings: list[ValidationFinding] = []
-    for field, expected_value in expected.items():
-        if summary.get(field) != expected_value:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="ledger.candidate-coverage-summary",
-                    message=f"coverage exception summary {field} must be {expected_value}",
-                    location=str(candidate_path.relative_to(root)),
-                )
-            )
-    return findings
-
-
-def _reviewed_population_for_candidate_file(
-    records: list[dict[str, Any]], candidates_ref: str
-) -> int:
-    reviewed: set[str] = set()
-    for record in records:
-        if record.get("candidate_decision") in {None, "not_reviewed"}:
-            continue
-        candidate_ref = record.get("candidate_ref")
-        if (
-            not isinstance(candidate_ref, dict)
-            or candidate_ref.get("candidates_ref") != candidates_ref
-        ):
-            continue
-        candidate_id = candidate_ref.get("candidate_id")
-        ticker = candidate_ref.get("ticker")
-        if isinstance(candidate_id, str):
-            reviewed.add(candidate_id)
-        elif isinstance(ticker, str):
-            reviewed.add(ticker)
-    return len(reviewed)
-
-
-def _read_records(root: Path) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    if not root.is_dir():
-        return records
-    for path in sorted(root.glob("*.jsonl")):
-        try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            continue
-        for line in lines:
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(row, dict):
-                records.append(row)
-    return records
-
-
-def _migration_unregistered_summary(root: Path, candidate_ref: str) -> dict[str, Any] | None:
-    migrations_root = root / "records/_migrations"
-    if not migrations_root.is_dir():
-        return None
-    for manifest in sorted(migrations_root.glob("*.jsonl")):
-        try:
-            lines = manifest.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            continue
-        for line in lines:
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(row, dict):
-                continue
-            summary = row.get("unregistered_candidate_population")
-            if isinstance(summary, dict) and summary.get("candidate_run") == candidate_ref:
-                return summary
-    return None
 
 
 def _covered_candidate_refs(records: list[dict[str, Any]]) -> set[tuple[str, str, str]]:

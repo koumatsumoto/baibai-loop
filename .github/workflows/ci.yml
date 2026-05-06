@@ -19,10 +19,6 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Fetch base for migration audit
-        if: github.event_name == 'pull_request'
-        run: git fetch origin main:refs/remotes/origin/main --depth=1
-
       - uses: actions/setup-python@v6
         with:
           python-version-file: .python-version
@@ -56,7 +52,6 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           python - <<'PY'
-          import os
           import subprocess
           import sys
 
@@ -68,7 +63,6 @@ jobs:
               "records/_external/",
               "records/_ledger/research-decisions/",
               "records/_market-data/",
-              "records/_migrations/",
               "records/_playbooks/",
               "records/_portfolio-exposure/",
               "records/_universe-snapshots/",
@@ -76,7 +70,6 @@ jobs:
           mutable_names = {"_index.yaml", "README.md"}
           append_only_names = {"_changelog.jsonl"}
           append_only_prefixes = ("records/_ledger/research-decisions/",)
-          migration_mode = os.environ.get("GITHUB_HEAD_REF") == "migration/domain-model-103"
 
           def git_show(ref: str, path: str) -> str:
               return subprocess.check_output(["git", "show", f"{ref}:{path}"], text=True)
@@ -94,8 +87,6 @@ jobs:
               paths = parts[1:]
               for path in paths:
                   if not path.startswith(snapshot_prefixes):
-                      continue
-                  if migration_mode and not path.startswith("records/_external/"):
                       continue
                   name = path.rsplit("/", 1)[-1]
                   if name in mutable_names:

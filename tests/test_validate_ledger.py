@@ -152,12 +152,11 @@ def test_not_reviewed_candidate_validation_reuses_candidate_document(
     assert candidate_reads == 2
 
 
-def test_candidate_coverage_allows_pre_migration_exception(tmp_path: Path) -> None:
+def test_candidate_coverage_rejects_disabled_coverage(tmp_path: Path) -> None:
     candidates_path = tmp_path / "records/04-candidates/2026/05/2026-05-01.yaml"
     candidates_path.parent.mkdir(parents=True)
     candidates_path.write_text(
         "requires_decision_coverage: false\n"
-        "decision_coverage_exception: pre_migration_unregistered_population\n"
         "candidates:\n"
         "- ticker: '9682'\n"
         "  candidate_id: candidate-2026-05-01-9682\n"
@@ -172,60 +171,4 @@ def test_candidate_coverage_allows_pre_migration_exception(tmp_path: Path) -> No
 
     codes = {finding.code for finding in validate_ledger_file(path)}
 
-    assert "ledger.candidate-decision-coverage" not in codes
-    assert "ledger.candidate-coverage-summary" in codes
-
-
-def test_pre_migration_exception_summary_must_match_reviewed_population(tmp_path: Path) -> None:
-    candidate_ref = "records/04-candidates/2026/05/2026-05-01.yaml"
-    candidates_path = tmp_path / candidate_ref
-    candidates_path.parent.mkdir(parents=True)
-    candidates_path.write_text(
-        "requires_decision_coverage: false\n"
-        "decision_coverage_exception: pre_migration_unregistered_population\n"
-        "candidates:\n"
-        "- ticker: '9682'\n"
-        "  candidate_id: candidate-2026-05-01-9682\n"
-        "  playbook_screen_result: hit\n"
-        "  policy_gate_result: pass\n"
-        "  liquidity_gate_result: pass\n"
-        "  macro_regime_gate_result: pass\n",
-        encoding="utf-8",
-    )
-    manifest = tmp_path / "records/_migrations/manifest.jsonl"
-    manifest.parent.mkdir(parents=True)
-    manifest.write_text(
-        json.dumps(
-            {
-                "migration_run_id": "domain-model-103-20260506",
-                "migration_strategy": "summarize",
-                "granularity": "repository",
-                "unregistered_candidate_population": {
-                    "candidate_run": candidate_ref,
-                    "screened_population": 1,
-                    "hit_or_near_threshold_population": 1,
-                    "reviewed_population": 0,
-                    "auto_backfilled_not_reviewed_rows": 0,
-                    "pre_migration_unresearched_candidate_backfill": False,
-                },
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
-    _write_jsonl(
-        path,
-        _decision_record(
-            ticker="9682",
-            candidate_ref={
-                "candidates_ref": candidate_ref,
-                "candidate_id": "candidate-2026-05-01-9682",
-                "ticker": "9682",
-            },
-        ),
-    )
-
-    codes = {finding.code for finding in validate_ledger_file(path)}
-
-    assert "ledger.candidate-coverage-summary" in codes
+    assert "ledger.candidate-coverage-disabled" in codes

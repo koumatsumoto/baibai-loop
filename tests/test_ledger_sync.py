@@ -377,7 +377,7 @@ def test_ledger_sync_rewrites_register_from_sources(tmp_path: Path) -> None:
             {
                 "decision_event_id": "decision-20260425-2767-research",
                 "ticker": "2767",
-                "migration_source": {"old_ledger_id": "paper-20260425-2767"},
+                "stale_field": {"legacy_id": "legacy-20260425-2767"},
             }
         )
         + "\n",

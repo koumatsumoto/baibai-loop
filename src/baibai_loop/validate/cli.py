@@ -19,10 +19,6 @@ from .calendar import discover_calendar_files, validate_calendar_file
 from .candidates import discover_candidates_files, validate_candidates_file
 from .errors import ValidationFinding
 from .ledger import discover_ledger_files, validate_ledger_file
-from .migration_manifest import (
-    discover_migration_manifest_files,
-    validate_migration_manifest_file,
-)
 from .outlook import discover_outlook_files, validate_outlook_file
 from .playbook_schema import discover_playbook_schemas
 from .policy import discover_policy_files, validate_policy_file
@@ -54,7 +50,6 @@ type ValidationTarget = Literal[
     "portfolio-exposure",
     "snapshots",
     "calendar",
-    "migration-manifest",
 ]
 _TARGETS: tuple[ValidationTarget, ...] = (
     "brief",
@@ -69,7 +64,6 @@ _TARGETS: tuple[ValidationTarget, ...] = (
     "portfolio-exposure",
     "snapshots",
     "calendar",
-    "migration-manifest",
 )
 
 BRIEF_ROOT = Path("records/02-brief")
@@ -84,7 +78,6 @@ PLAYBOOKS_ROOT = Path("records/_playbooks")
 REVIEWS_ROOT = Path("records/07-reviews")
 PORTFOLIO_EXPOSURE_ROOT = Path("records/_portfolio-exposure")
 CALENDAR_ROOT = Path("records/_calendars")
-MIGRATION_ROOT = Path("records/_migrations")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -221,8 +214,6 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
             return discover_snapshot_validation_files(root)
         case "calendar":
             return discover_calendar_files(root / CALENDAR_ROOT)
-        case "migration-manifest":
-            return discover_migration_manifest_files(root / MIGRATION_ROOT)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 
@@ -262,8 +253,6 @@ def _validate(
             return []
         case "calendar":
             return validate_calendar_file(path)
-        case "migration-manifest":
-            return validate_migration_manifest_file(path)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 
