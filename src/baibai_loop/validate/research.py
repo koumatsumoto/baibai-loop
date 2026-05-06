@@ -49,6 +49,18 @@ _KNOWN_POSTURES = {"act_now", "wait_for_event", "wait_for_capital", "dropped"}
 _KNOWN_GATE_EFFECTS = {"pass", "conditional", "block"}
 _KNOWN_CONVICTION_TIERS = {"low", "medium", "high"}
 _KNOWN_CONVICTION_PATHS = {"count_breadth", "depth"}
+_CANONICAL_SIZING_FIELDS = {
+    "paper_proxy_position_size_yen",
+    "real_order_intent_yen",
+    "adv_participation_pct",
+}
+_DEPRECATED_POSITION_SIZING_FIELDS = {
+    "paper_position_size_yen",
+    "estimated_real_order_notional_yen",
+    "guarded_max_notional_yen",
+    "liquidity_cap_participation_pct",
+}
+_DEPRECATED_VALUATION_FIELDS = {"liquidity_cap_participation_pct"}
 _MACRO_STATUS_PRECEDENCE = {
     "supportive": 0,
     "neutral": 1,
@@ -1286,6 +1298,7 @@ def _check_sizing_invariants(
     decision = as_mapping(front_matter.get("research_decision"))
     if not sizing:
         return []
+    findings = _check_position_sizing_overlay_shape(path, front_matter, sizing)
     policy = _load_policy_payload(path, front_matter)
     if decision.get("outcome") != "approved":
         expected_zero = {
@@ -1293,10 +1306,10 @@ def _check_sizing_invariants(
             "real_order_intent_yen": 0,
             "adv_participation_pct": 0,
         }
-        findings: list[ValidationFinding] = []
         for field, expected_value in expected_zero.items():
             value = sizing.get(field)
-            if value is not None and not _close(value, expected_value, tolerance=1):
+            tolerance = 1 if field.endswith("_yen") else 0.0001
+            if not _close(value, expected_value, tolerance=tolerance):
                 findings.append(
                     ValidationFinding(
                         severity="error",
@@ -1308,14 +1321,28 @@ def _check_sizing_invariants(
                 )
         return findings
 
+    avg_turnover_oku = number(front_matter.get("avg_turnover_oku"))
+    if avg_turnover_oku is None or avg_turnover_oku <= 0:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.adv-participation-input",
+                message="avg_turnover_oku is required to derive adv_participation_pct",
+                location="avg_turnover_oku",
+            )
+        )
+        return findings
+
     expected = _derive_order_intent(path, front_matter, policy)
     checks = {
         "paper_proxy_position_size_yen": expected["paper_proxy_position_size_yen"],
         "real_order_intent_yen": expected["real_order_intent_yen"],
+        "adv_participation_pct": expected["adv_participation_pct"],
     }
-    findings = []
     for field, derived_expected_value in checks.items():
-        if not _close(sizing.get(field), derived_expected_value, tolerance=1):
+        tolerance = 1 if field.endswith("_yen") else 0.0001
+        if not _close(sizing.get(field), derived_expected_value, tolerance=tolerance):
             findings.append(
                 ValidationFinding(
                     severity="error",
@@ -1326,6 +1353,49 @@ def _check_sizing_invariants(
                         "from policy and exposure"
                     ),
                     location=f"position_sizing_overlay.{field}",
+                )
+            )
+    return findings
+
+
+def _check_position_sizing_overlay_shape(
+    path: Path,
+    front_matter: Mapping[str, object],
+    sizing: Mapping[str, object],
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    for field in sorted(_DEPRECATED_POSITION_SIZING_FIELDS):
+        if field in sizing:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.position-sizing-deprecated-field",
+                    message=f"{field} is not a current position_sizing_overlay field",
+                    location=f"position_sizing_overlay.{field}",
+                )
+            )
+    for field in sorted(_CANONICAL_SIZING_FIELDS):
+        if field not in sizing:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.position-sizing-missing-field",
+                    message=f"position_sizing_overlay.{field} is required",
+                    location=f"position_sizing_overlay.{field}",
+                )
+            )
+    valuation = as_mapping(front_matter.get("valuation"))
+    for field in sorted(_DEPRECATED_VALUATION_FIELDS):
+        if field in valuation:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.valuation-deprecated-field",
+                    message=f"valuation.{field} is not a current research field",
+                    location=f"valuation.{field}",
                 )
             )
     return findings
@@ -1344,6 +1414,7 @@ def _derive_order_intent(
     scaling = as_mapping(policy.get("execution_scaling"))
     order_constraints = as_mapping(policy.get("order_constraints"))
     exposure = _load_portfolio_exposure(path, front_matter)
+    avg_turnover_oku = number(front_matter.get("avg_turnover_oku"))
 
     paper_default = number(sizing_ladder.get("default_paper_proxy_position_size_yen")) or 0
     paper_caps = [
@@ -1356,9 +1427,13 @@ def _derive_order_intent(
         _remaining_cap(exposure, "economic_exposure_paper_proxy_cap_remaining_yen"),
     ]
     paper_yen = min(value for value in paper_caps if value is not None)
+    adv_participation_pct = (
+        paper_yen / (avg_turnover_oku * 100_000_000) * 100
+        if avg_turnover_oku is not None and avg_turnover_oku > 0
+        else 0.0
+    )
     scaled_real = paper_yen * ((number(scaling.get("paper_to_real_order_notional_pct")) or 0) / 100)
 
-    avg_turnover_oku = number(front_matter.get("avg_turnover_oku"))
     adv_pct = number(risk.get("max_adv_participation_pct"))
     liquidity_cap = (
         avg_turnover_oku * 100_000_000 * adv_pct / 100
@@ -1386,6 +1461,7 @@ def _derive_order_intent(
     return {
         "paper_proxy_position_size_yen": float(paper_yen),
         "real_order_intent_yen": float(real_intent),
+        "adv_participation_pct": round(float(adv_participation_pct), 4),
     }
 
 

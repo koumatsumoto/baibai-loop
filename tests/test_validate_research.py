@@ -141,6 +141,7 @@ def _minimal_research_front_matter() -> dict[str, object]:
         "position_sizing_overlay": {
             "paper_proxy_position_size_yen": 1000000,
             "real_order_intent_yen": 200000,
+            "adv_participation_pct": 0.5,
         },
         "thesis_payoff": {
             "max_entry_price_yen": 1000,
@@ -153,6 +154,7 @@ def _minimal_research_front_matter() -> dict[str, object]:
             "invalidation_conditions": ["stop loss"],
         },
         "sector_33": "情報・通信業",
+        "avg_turnover_oku": 2.0,
         "ai-draft": True,
         "published_at": "2026-05-05T20:00:00+09:00",
     }
@@ -313,6 +315,37 @@ class ResearchValidationTests(unittest.TestCase):
         sizing["real_order_intent_yen"] = 100000
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.real-order-intent-yen", codes)
+
+    def test_adv_participation_is_recomputed_from_paper_proxy_and_adv(self) -> None:
+        front = _minimal_research_front_matter()
+        sizing = front["position_sizing_overlay"]
+        assert isinstance(sizing, dict)
+        sizing["adv_participation_pct"] = 99.0
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.adv-participation-pct", codes)
+
+    def test_position_sizing_overlay_rejects_deprecated_fields(self) -> None:
+        front = _minimal_research_front_matter()
+        sizing = front["position_sizing_overlay"]
+        assert isinstance(sizing, dict)
+        sizing["liquidity_cap_participation_pct"] = 0.5
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.position-sizing-deprecated-field", codes)
+
+    def test_nested_valuation_liquidity_participation_is_deprecated(self) -> None:
+        front = _minimal_research_front_matter()
+        front["valuation"] = {"liquidity_cap_participation_pct": 0.5}
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.valuation-deprecated-field", codes)
+
+    def test_non_approved_sizing_fields_must_be_zero(self) -> None:
+        front = _minimal_research_front_matter()
+        front["research_decision"] = {"outcome": "deferred", "posture": "wait_for_event"}
+        sizing = front["position_sizing_overlay"]
+        assert isinstance(sizing, dict)
+        sizing["real_order_intent_yen"] = None
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.rejected-sizing", codes)
 
     def test_independent_evidence_count_uses_candidate_components(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -49,9 +49,9 @@ sizing_eligible_playbook_concurrence_count: 1
 conviction_tier: low | medium | high | blocked
 conviction_tier_path: count_breadth | depth
 position_sizing_overlay:
-  paper_position_size_yen: 1000000
-  estimated_real_order_notional_yen: 210000
-  guarded_max_notional_yen: 210000
+  paper_proxy_position_size_yen: 1000000
+  real_order_intent_yen: 210000
+  adv_participation_pct: 0.5
 thesis_payoff:
   max_entry_price_yen: 1000
   target_price_yen: 1300

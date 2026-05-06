@@ -62,7 +62,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 ## 2. AP-02: 数値計算を機械的に検算しない
 
 ### 観測された症状
-- `liquidity_cap_participation_pct = 0.005 / 85.4 * 100 = 0.00585%` を **0.585** と記述 (100 倍ズレ)
+- `adv_participation_pct = 0.005 / 85.4 * 100 = 0.00585%` を **0.585** と記述 (100 倍ズレ)
 - 利確 target を「PER 7.35 → 16 への正常化 = entry 価格 +20-30%」と記述。実際は EPS 一定なら
   +118%、+20-30% を狙うなら PER target は 8.8-9.6
 - 為替変動率を %、bp を混同するリスク
@@ -222,11 +222,11 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 ## 8. AP-08: schema validator の抜け道を意識しない
 
 ### 観測された症状
-- `liquidity_cap_participation_pct: 0.585` (100 倍ズレ) を validator が catch しなかった
+- `adv_participation_pct: 0.585` (100 倍ズレ) を validator が catch しなかった
 - 当初の整合チェックを `avg_turnover_oku` 不在時には silently skip するように実装、
   required field 化を忘れた → 抜け道残存
-- nested の `valuation.liquidity_cap_participation_pct` も整合チェック対象外だった
-- `research_decision.outcome: rejected` の packet で `position_sizing_overlay.paper_position_size_yen > 0` を要求していたため、
+- nested の `valuation.liquidity_cap_participation_pct` のような旧 field も reject 対象外だった
+- `research_decision.outcome: rejected` の packet で `position_sizing_overlay.paper_proxy_position_size_yen > 0` を許していたため、
   hypothetical 値と実建玉値が混在
 - `except TypeError, ValueError:` のような Python 2 風に見える except をめぐって、レビューで
   「構文エラー」なのか「Python 3.14 の PEP 758 による複数例外捕捉」なのかが混乱した。
@@ -244,21 +244,19 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
   - [ ] 関連 field が **不在** の場合 (skip / error どちらが正しいか)
   - [ ] 関連 field が **null** の場合
   - [ ] 関連 field が **0 / 負値** の場合 (decision との整合性)
-  - [ ] **nested** field (例: `valuation.liquidity_cap_participation_pct`) も同じ rule を適用するか
+  - [ ] **nested** 旧 field (例: `valuation.liquidity_cap_participation_pct`) を reject するか
   - [ ] **既存 packet** (4/25 research 5 件など) が新 rule で breakage しないか、する場合は
         同 commit で fix する
 - [ ] 以下の adv_participation 関連の具体条件を validator が catch するか、test を書いて
       確認する:
   - [ ] `avg_turnover_oku <= 0` は error (整合チェックの分母が成立しない、required な数値
         だけでは抜け道になる)
-  - [ ] `position_sizing_overlay.paper_position_size_yen == 0` の場合は **`liquidity_cap_participation_pct == 0`** を要求 (rejected
+  - [ ] `position_sizing_overlay.paper_proxy_position_size_yen == 0` の場合は **`adv_participation_pct == 0`** を要求 (rejected
         packet で hypothetical 値と取り違えると `position_size 0 / avg_turnover 85.4 *
         100 = 0` だが `adv: 1.0` のような非ゼロを期待値 0 で skip してしまう穴を塞ぐ)
-  - [ ] **`research_decision.outcome == 'rejected'` の場合は `position_sizing_overlay.paper_position_size_yen == 0` を要求** (rejected で
-        正値が残ると ledger sync `src/baibai_loop/ledger/sync.py` が liquidity_cap_participation_pct
-        を計算してしまうため。round 4 で塞いだ穴)
-  - [ ] `valuation.liquidity_cap_participation_pct` (nested) も top-level と同じ整合チェックの対象
-        にする
+  - [ ] **`research_decision.outcome != 'approved'` の場合は `position_sizing_overlay.paper_proxy_position_size_yen == 0` を要求** (deferred / rejected で
+        正値が残ると actual sizing と hypothetical sizing が混在する)
+  - [ ] `valuation.liquidity_cap_participation_pct` のような旧 nested field は error にする
 - [ ] cross-field consistency rule は **依存先の field が「数値であること」だけでなく、
       「正値 (> 0) であること」を確認**する。0 / 負値で silently skip する実装は穴になる
 - [ ] front matter の `avg_turnover_oku` が `candidates_ref` の対応 ticker の値と整合
@@ -279,7 +277,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
         `guarded_max_notional_yen = order_price_guard_yen * quantity` と整合させたか
   - [ ] `position_sizing_overlay.guarded_max_tactical_real_budget_concentration_pct` は
         guarded notional / tactical real budget * 100 として確認できるか
-  - [ ] `position_sizing_overlay.paper_proxy_position_size_yen` / `liquidity_cap_participation_pct` は paper proxy の検証であり、実資金集中度の検証ではない
+  - [ ] `position_sizing_overlay.paper_proxy_position_size_yen` / `adv_participation_pct` は paper proxy の検証であり、実資金集中度の検証ではない
 - [ ] research の `policy_overrides` / `decision_revisions` 配列を導入・変更する場合、以下を確認したか:
   - [ ] `policy_overrides[]` は policy field の override だけを表し、decision history を混ぜていない
   - [ ] `decision_revisions[].revision_type` が既知集合に属し、`prior_state_ref` / `prior_state` / `new_state` / `reason` の必須キーが揃う

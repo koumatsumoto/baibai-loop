@@ -99,7 +99,7 @@ depth_verification_ref: null
 position_sizing_overlay:
   paper_proxy_position_size_oku: 0.0
   paper_proxy_position_size_yen: 0
-  real_order_intent_yen: null
+  real_order_intent_yen: 0
   adv_participation_pct: 0.0
   sizing_formula_id: policy-v1-paper-to-real-ladder
 counterfactual:
