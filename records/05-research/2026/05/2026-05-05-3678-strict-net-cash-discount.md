@@ -10,6 +10,17 @@ policy_snapshot:
   ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
   content_sha256: sha256:4d8b769749184e6733a4a698000a21070f98d681beacf30bb30568c917f6372a
   effective_from: '2026-05-01T00:00:00+09:00'
+policy_applicability: active
+calendars_snapshot:
+  business_days:
+    ref_path: records/_calendars/business-days/2026-05.yaml
+    content_sha256: sha256:cd3ddf5dcb6b4de0595547c033d9be68920272be45bf7a358f42465caa17c273
+  events:
+    ref_path: records/_calendars/events/2026-05.yaml
+    content_sha256: sha256:583cf61a16375dfedb766659911daa435b9b8f9d40cd1e26721d3b734ffb0ea6
+  corporate_actions:
+    ref_path: records/_calendars/corporate-actions/2026-05.yaml
+    content_sha256: sha256:5b1f2487807f590acdc5784ac2e84a851aa7264a03c1ffc3f84c5ebfbdcd761c
 portfolio_exposure_snapshot_ref:
   ref_path: records/_portfolio-exposure/2026/05/2026-05-05T203000+0900.yaml
   content_sha256: sha256:50232ed102544c69f9279cf89370ddbdf9cd95ae34f3e0ecbea0089a91d89690

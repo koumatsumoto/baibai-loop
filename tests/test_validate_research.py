@@ -73,6 +73,16 @@ def _snapshot(ref_path: str, digest: str = _DIGEST) -> dict[str, object]:
     }
 
 
+def _calendar_snapshots() -> dict[str, object]:
+    return {
+        "business_days": _snapshot("records/_calendars/business-days/2026-05.yaml"),
+        "events": _snapshot("records/_calendars/events/2026-05.yaml"),
+        "corporate_actions": _snapshot(
+            "records/_calendars/corporate-actions/2026-05.yaml"
+        ),
+    }
+
+
 def _minimal_research_front_matter() -> dict[str, object]:
     return {
         "ticker": "2767",
@@ -87,6 +97,8 @@ def _minimal_research_front_matter() -> dict[str, object]:
         "portfolio_exposure_snapshot_ref": _snapshot(
             "records/_portfolio-exposure/2026/05/2026-05-05T133000+0900.yaml"
         ),
+        "policy_applicability": "active",
+        "calendars_snapshot": _calendar_snapshots(),
         "candidate_ref": {
             "candidates_ref": "records/04-candidates/2026/05/2026-05-01.yaml",
             "screen_run_id": "screening-20260501-1234abcd",
@@ -212,6 +224,18 @@ class ResearchValidationTests(unittest.TestCase):
         front["_".join(("macro", "gate"))] = "neutral"
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.removed-field", codes)
+
+    def test_missing_policy_applicability_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        del front["policy_applicability"]
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.policy-applicability", codes)
+
+    def test_missing_calendars_snapshot_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        del front["calendars_snapshot"]
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.calendars-snapshot", codes)
 
     def test_unknown_outcome_is_flagged(self) -> None:
         front = _minimal_research_front_matter()

@@ -13,6 +13,16 @@ def _snapshot(ref_path: str) -> dict[str, object]:
     return {"ref_path": ref_path, "content_sha256": _DIGEST}
 
 
+def _calendar_snapshots() -> dict[str, object]:
+    return {
+        "business_days": _snapshot("records/_calendars/business-days/2026-05.yaml"),
+        "events": _snapshot("records/_calendars/events/2026-05.yaml"),
+        "corporate_actions": _snapshot(
+            "records/_calendars/corporate-actions/2026-05.yaml"
+        ),
+    }
+
+
 def _trade_front(**overrides: object) -> dict[str, object]:
     front: dict[str, object] = {
         "trade_id": "trade-20260505-9682",
@@ -24,6 +34,8 @@ def _trade_front(**overrides: object) -> dict[str, object]:
         "portfolio_exposure_snapshot_ref": _snapshot(
             "records/_portfolio-exposure/2026/05/2026-05-05T200000+0900.yaml"
         ),
+        "policy_applicability": "active",
+        "calendars_snapshot": _calendar_snapshots(),
         "position_state": "open",
         "review_state": "not_due",
         "trade_execution_state": "filled",
@@ -106,6 +118,22 @@ def test_removed_legacy_field_is_flagged(tmp_path: Path) -> None:
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_trade_file(path)}
     assert "trade.removed-field" in codes
+
+
+def test_missing_policy_applicability_is_flagged(tmp_path: Path) -> None:
+    front = _trade_front()
+    del front["policy_applicability"]
+    path = _write_trade(tmp_path, front)
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.policy-applicability" in codes
+
+
+def test_missing_calendars_snapshot_is_flagged(tmp_path: Path) -> None:
+    front = _trade_front()
+    del front["calendars_snapshot"]
+    path = _write_trade(tmp_path, front)
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.calendars-snapshot" in codes
 
 
 def test_order_intent_must_join_to_order(tmp_path: Path) -> None:

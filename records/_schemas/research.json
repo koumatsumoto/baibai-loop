@@ -10,6 +10,8 @@
     "playbook_id",
     "playbook_snapshot",
     "policy_snapshot",
+    "policy_applicability",
+    "calendars_snapshot",
     "research_decision",
     "candidate_ref",
     "macro_regime_gate",
@@ -23,6 +25,8 @@
   "properties": {
     "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
     "playbook_id": {"type": "string", "minLength": 1},
+    "policy_applicability": {"enum": ["active"]},
+    "calendars_snapshot": {"type": "object"},
     "research_decision": {
       "type": "object",
       "required": ["outcome", "posture"],

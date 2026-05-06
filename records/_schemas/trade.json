@@ -9,6 +9,8 @@
     "ticker",
     "research_ref",
     "policy_snapshot",
+    "policy_applicability",
+    "calendars_snapshot",
     "portfolio_exposure_snapshot_ref",
     "position_state",
     "review_state",
@@ -21,6 +23,8 @@
     "trade_id": {"type": "string", "minLength": 1},
     "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
     "research_ref": {"type": "string", "pattern": "^records/05-research/.*\\.md$"},
+    "policy_applicability": {"enum": ["active"]},
+    "calendars_snapshot": {"type": "object"},
     "position_state": {"enum": ["none", "open", "closed"]},
     "review_state": {"enum": ["not_due", "scheduled", "completed"]},
     "trade_execution_state": {

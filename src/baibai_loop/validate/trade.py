@@ -78,6 +78,7 @@ def validate_trade_file(path: Path) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
     findings.extend(_validate_schema(path, front))
     findings.extend(_check_removed_fields(path, front))
+    findings.extend(_check_policy_and_calendar_context(path, front))
     findings.extend(_check_ticker(path, front))
     findings.extend(_check_order_join(path, front))
     findings.extend(_check_order_state_consistency(path, front))
@@ -159,6 +160,75 @@ def _check_removed_fields(path: Path, front: Mapping[str, object]) -> list[Valid
         for field in sorted(_REMOVED_FRONT_MATTER_FIELDS)
         if field in front
     ]
+
+
+def _check_policy_and_calendar_context(
+    path: Path, front: Mapping[str, object]
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    if front.get("policy_applicability") != "active":
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.policy-applicability",
+                message="trade records require policy_applicability: active",
+                location="policy_applicability",
+            )
+        )
+    findings.extend(_check_calendar_snapshot_block(path, front.get("calendars_snapshot")))
+    return findings
+
+
+def _check_calendar_snapshot_block(path: Path, value: object) -> list[ValidationFinding]:
+    if not isinstance(value, Mapping):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.calendars-snapshot",
+                message="calendars_snapshot must pin business_days, events, and corporate_actions",
+                location="calendars_snapshot",
+            )
+        ]
+    findings: list[ValidationFinding] = []
+    for key in ("business_days", "events", "corporate_actions"):
+        item = value.get(key)
+        location = f"calendars_snapshot.{key}"
+        if not isinstance(item, Mapping):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="trade.calendars-snapshot",
+                    message=f"{location} must be a snapshot ref",
+                    location=location,
+                )
+            )
+            continue
+        ref_path = item.get("ref_path")
+        digest = item.get("content_sha256")
+        if not isinstance(ref_path, str) or not ref_path:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="trade.calendars-snapshot-ref",
+                    message=f"{location}.ref_path is required",
+                    location=f"{location}.ref_path",
+                )
+            )
+        if not isinstance(digest, str) or not re.match(r"^sha256:[0-9a-f]{64}$", digest):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="trade.calendars-snapshot-hash",
+                    message=f"{location}.content_sha256 must be sha256:<64 lowercase hex>",
+                    location=f"{location}.content_sha256",
+                )
+            )
+    return findings
 
 
 def _check_ticker(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
