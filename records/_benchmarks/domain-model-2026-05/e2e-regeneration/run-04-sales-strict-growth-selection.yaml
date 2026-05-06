@@ -1,0 +1,3544 @@
+asof: '2026-05-01'
+candidates_ref: /home/kou/baibai-loop/records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-04-sales-strict-growth-candidates.yaml
+outlook_ref: records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
+input_count: 320
+after_outlook_filter: 268
+selection_mode: lane_toplists
+research_selection_target_min: 3
+research_selection_target_max: 5
+research_selection_lane_order:
+- strict-net-cash-discount
+- fcf-yield-discount
+- cash-rich-asset-discount
+- cashflow-yield-discount
+- sales-discount-growth
+- valuation-reversion
+lane_toplist_limit: 5
+lane_toplists:
+  valuation-reversion:
+  - ticker: '6619'
+    name: ダブル・スコープ
+    sector_33: 電気機器
+    outlook_sector: supportive
+    market_cap_oku: 133
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-6619-valuation-reversion
+      name: valuation-reversion
+      playbook_id: valuation-reversion
+      claim_id: 6619-valuation-reversion
+      claim_type: valuation-reversion
+      evidence_family_set:
+      - market_derived
+      - valuation
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - condition_a_metric
+      - condition_a_sector_median_gap
+      - condition_a_self_range_percentile
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: valuation-reversion
+      reasons:
+      - sector_median_discount_and_self_range_bottom
+      metrics:
+        condition_a_metric: pbr
+        condition_a_sector_median_gap: -0.8217
+        condition_a_self_range_percentile: 0.059
+    independent_evidence_count: 1
+    freshness_warnings: []
+    selection_lane: valuation-reversion
+    recommendation_lane: valuation-reversion
+    selection_metrics:
+      condition_a_metric: pbr
+      condition_a_sector_median_gap: -0.8217
+      condition_a_self_range_percentile: 0.059
+    next_earnings_date: null
+    position_tier: 100-200
+  - ticker: '6753'
+    name: シャープ
+    sector_33: 電気機器
+    outlook_sector: supportive
+    market_cap_oku: 3788
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-6753-valuation-reversion
+      name: valuation-reversion
+      playbook_id: valuation-reversion
+      claim_id: 6753-valuation-reversion
+      claim_type: valuation-reversion
+      evidence_family_set:
+      - market_derived
+      - valuation
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - condition_a_metric
+      - condition_a_sector_median_gap
+      - condition_a_self_range_percentile
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: valuation-reversion
+      reasons:
+      - sector_median_discount_and_self_range_bottom
+      metrics:
+        condition_a_metric: per_trailing
+        condition_a_sector_median_gap: -0.8078
+        condition_a_self_range_percentile: 0.0637
+    independent_evidence_count: 1
+    freshness_warnings: []
+    selection_lane: valuation-reversion
+    recommendation_lane: valuation-reversion
+    selection_metrics:
+      condition_a_metric: per_trailing
+      condition_a_sector_median_gap: -0.8078
+      condition_a_self_range_percentile: 0.0637
+    next_earnings_date: null
+    position_tier: 1000+
+  - ticker: '5410'
+    name: 合同製鐵
+    sector_33: 鉄鋼
+    outlook_sector: supportive
+    market_cap_oku: 494
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-5410-valuation-reversion
+      name: valuation-reversion
+      playbook_id: valuation-reversion
+      claim_id: 5410-valuation-reversion
+      claim_type: valuation-reversion
+      evidence_family_set:
+      - market_derived
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - condition_a_metric
+      - condition_a_sector_median_gap
+      - condition_a_self_range_percentile
+      - condition_b_metric
+      - condition_b_sigma_gap
+      - price_change_60d
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: valuation-reversion
+      reasons:
+      - sector_median_discount_and_self_range_bottom
+      - price_down_60d_and_valuation_sigma_down
+      metrics:
+        condition_a_metric: per_trailing
+        condition_a_sector_median_gap: -0.6916
+        condition_a_self_range_percentile: 0.0115
+        condition_b_metric: per_trailing
+        price_change_60d: -0.2589
+        condition_b_sigma_gap: -1.9456
+    - evidence_hit_id: candidate-2026-05-01-5410-cashflow-yield-discount
+      name: cashflow-yield-discount
+      playbook_id: cashflow-yield-discount
+      claim_id: 5410-cashflow-yield-discount
+      claim_type: cashflow-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cfo_yoy
+      - ocf_ttm
+      - ocf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cashflow-yield-discount
+      reasons:
+      - ocf_yield_discount
+      metrics:
+        ocf_yield: 0.4335
+        ocf_ttm: 21429000000.0
+        cfo_yoy: 0.1197
+        ttm_quality: exact
+    independent_evidence_count: 2
+    freshness_warnings: []
+    selection_lane: valuation-reversion
+    recommendation_lane: valuation-reversion
+    selection_metrics:
+      condition_a_metric: per_trailing
+      condition_a_sector_median_gap: -0.6916
+      condition_a_self_range_percentile: 0.0115
+      condition_b_metric: per_trailing
+      price_change_60d: -0.2589
+      condition_b_sigma_gap: -1.9456
+    next_earnings_date: null
+    position_tier: 200-500
+  - ticker: '3668'
+    name: コロプラ
+    sector_33: 情報・通信業
+    outlook_sector: supportive
+    market_cap_oku: 561
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-3668-valuation-reversion
+      name: valuation-reversion
+      playbook_id: valuation-reversion
+      claim_id: 3668-valuation-reversion
+      claim_type: valuation-reversion
+      evidence_family_set:
+      - market_derived
+      - valuation
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - condition_a_metric
+      - condition_a_sector_median_gap
+      - condition_a_self_range_percentile
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: valuation-reversion
+      reasons:
+      - sector_median_discount_and_self_range_bottom
+      metrics:
+        condition_a_metric: ev_ebitda
+        condition_a_sector_median_gap: -0.6876
+        condition_a_self_range_percentile: 0.0845
+    independent_evidence_count: 1
+    freshness_warnings: []
+    selection_lane: valuation-reversion
+    recommendation_lane: valuation-reversion
+    selection_metrics:
+      condition_a_metric: ev_ebitda
+      condition_a_sector_median_gap: -0.6876
+      condition_a_self_range_percentile: 0.0845
+    next_earnings_date: '2026-05-07'
+    position_tier: 500-1000
+  - ticker: '6425'
+    name: ユニバーサルエンターテインメント
+    sector_33: 機械
+    outlook_sector: supportive
+    market_cap_oku: 589
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-6425-valuation-reversion
+      name: valuation-reversion
+      playbook_id: valuation-reversion
+      claim_id: 6425-valuation-reversion
+      claim_type: valuation-reversion
+      evidence_family_set:
+      - market_derived
+      - valuation
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - condition_a_metric
+      - condition_a_sector_median_gap
+      - condition_a_self_range_percentile
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: valuation-reversion
+      reasons:
+      - sector_median_discount_and_self_range_bottom
+      metrics:
+        condition_a_metric: pbr
+        condition_a_sector_median_gap: -0.6751
+        condition_a_self_range_percentile: 0.0297
+    - evidence_hit_id: candidate-2026-05-01-6425-cashflow-yield-discount
+      name: cashflow-yield-discount
+      playbook_id: cashflow-yield-discount
+      claim_id: 6425-cashflow-yield-discount
+      claim_type: cashflow-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cfo_yoy
+      - ocf_ttm
+      - ocf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cashflow-yield-discount
+      reasons:
+      - ocf_yield_discount
+      metrics:
+        ocf_yield: 0.1878
+        ocf_ttm: 11053000000.0
+        cfo_yoy: 6.2813
+        ttm_quality: exact
+    independent_evidence_count: 2
+    freshness_warnings: []
+    selection_lane: valuation-reversion
+    recommendation_lane: valuation-reversion
+    selection_metrics:
+      condition_a_metric: pbr
+      condition_a_sector_median_gap: -0.6751
+      condition_a_self_range_percentile: 0.0297
+    next_earnings_date: null
+    position_tier: 500-1000
+  strict-net-cash-discount:
+  - ticker: '3632'
+    name: グリーホールディングス
+    sector_33: 情報・通信業
+    outlook_sector: supportive
+    market_cap_oku: 645
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-3632-strict-net-cash-discount
+      name: strict-net-cash-discount
+      playbook_id: strict-net-cash-discount
+      claim_id: 3632-strict-net-cash-discount
+      claim_type: strict-net-cash-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cash
+      - debt
+      - edinet_document_type
+      - edinet_failure_reasons
+      - edinet_source_doc_id
+      - edinet_source_period_end
+      - edinet_source_period_start
+      - edinet_source_submit_datetime
+      - equity_ratio
+      - net_cash
+      - net_cash_to_market_cap
+      - operating_profit
+      - price_to_equity
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: strict-net-cash-discount
+      reasons:
+      - net_cash_to_market_cap_price_to_equity_and_equity_ratio
+      metrics:
+        net_cash: 34558000000.0
+        net_cash_to_market_cap: 0.5355
+        debt: 16700000000.0
+        cash: 51258000000.0
+        price_to_equity: 0.6908
+        equity_ratio: 0.7515
+        operating_profit: 1468000000.0
+        ttm_quality: approximated
+        edinet_source_doc_id: S100XJG7
+        edinet_document_type: '160'
+        edinet_source_submit_datetime: 2026-02-05 16:03
+        edinet_source_period_start: '2025-07-01'
+        edinet_source_period_end: '2026-06-30'
+        edinet_failure_reasons: null
+    - evidence_hit_id: candidate-2026-05-01-3632-cash-rich-asset-discount
+      name: cash-rich-asset-discount
+      playbook_id: cash-rich-asset-discount
+      claim_id: 3632-cash-rich-asset-discount
+      claim_type: cash-rich-asset-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cash
+      - cash_to_market_cap
+      - debt
+      - equity_ratio
+      - net_cash_to_market_cap
+      - operating_profit
+      - price_to_equity
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cash-rich-asset-discount
+      reasons:
+      - cash_to_market_cap_price_to_equity_and_equity_ratio
+      metrics:
+        cash_to_market_cap: 1.1293
+        net_cash_to_market_cap: 0.5355
+        debt: 16700000000.0
+        cash: 51258000000.0
+        price_to_equity: 0.6908
+        equity_ratio: 0.7515
+        operating_profit: 1468000000.0
+    independent_evidence_count: 2
+    freshness_warnings: []
+    selection_lane: strict-net-cash-discount
+    recommendation_lane: strict-net-cash-discount
+    selection_metrics:
+      net_cash: 34558000000.0
+      net_cash_to_market_cap: 0.5355
+      debt: 16700000000.0
+      cash: 51258000000.0
+      price_to_equity: 0.6908
+      equity_ratio: 0.7515
+      operating_profit: 1468000000.0
+      ttm_quality: approximated
+      edinet_source_doc_id: S100XJG7
+      edinet_document_type: '160'
+      edinet_source_submit_datetime: 2026-02-05 16:03
+      edinet_source_period_start: '2025-07-01'
+      edinet_source_period_end: '2026-06-30'
+      edinet_failure_reasons: null
+    next_earnings_date: null
+    position_tier: 500-1000
+  - ticker: '5423'
+    name: 東京製鐵
+    sector_33: 鉄鋼
+    outlook_sector: supportive
+    market_cap_oku: 1846
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-5423-strict-net-cash-discount
+      name: strict-net-cash-discount
+      playbook_id: strict-net-cash-discount
+      claim_id: 5423-strict-net-cash-discount
+      claim_type: strict-net-cash-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cash
+      - debt
+      - edinet_document_type
+      - edinet_failure_reasons
+      - edinet_source_doc_id
+      - edinet_source_period_end
+      - edinet_source_period_start
+      - edinet_source_submit_datetime
+      - equity_ratio
+      - net_cash
+      - net_cash_to_market_cap
+      - operating_profit
+      - price_to_equity
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: strict-net-cash-discount
+      reasons:
+      - net_cash_to_market_cap_price_to_equity_and_equity_ratio
+      metrics:
+        net_cash: 86980000000.0
+        net_cash_to_market_cap: 0.4712
+        debt: 286000000.0
+        cash: 87266000000.0
+        price_to_equity: 0.8311
+        equity_ratio: 0.758
+        operating_profit: 7230000000.0
+        ttm_quality: approximated
+        edinet_source_doc_id: S100WZZW
+        edinet_document_type: '160'
+        edinet_source_submit_datetime: 2025-11-11 14:35
+        edinet_source_period_start: '2025-04-01'
+        edinet_source_period_end: '2026-03-31'
+        edinet_failure_reasons: non_consolidated_fallback
+    independent_evidence_count: 1
+    freshness_warnings: []
+    selection_lane: strict-net-cash-discount
+    recommendation_lane: strict-net-cash-discount
+    selection_metrics:
+      net_cash: 86980000000.0
+      net_cash_to_market_cap: 0.4712
+      debt: 286000000.0
+      cash: 87266000000.0
+      price_to_equity: 0.8311
+      equity_ratio: 0.758
+      operating_profit: 7230000000.0
+      ttm_quality: approximated
+      edinet_source_doc_id: S100WZZW
+      edinet_document_type: '160'
+      edinet_source_submit_datetime: 2025-11-11 14:35
+      edinet_source_period_start: '2025-04-01'
+      edinet_source_period_end: '2026-03-31'
+      edinet_failure_reasons: non_consolidated_fallback
+    next_earnings_date: null
+    position_tier: 1000+
+  - ticker: '3932'
+    name: アカツキ
+    sector_33: 情報・通信業
+    outlook_sector: supportive
+    market_cap_oku: 396
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-3932-strict-net-cash-discount
+      name: strict-net-cash-discount
+      playbook_id: strict-net-cash-discount
+      claim_id: 3932-strict-net-cash-discount
+      claim_type: strict-net-cash-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cash
+      - debt
+      - edinet_document_type
+      - edinet_failure_reasons
+      - edinet_source_doc_id
+      - edinet_source_period_end
+      - edinet_source_period_start
+      - edinet_source_submit_datetime
+      - equity_ratio
+      - net_cash
+      - net_cash_to_market_cap
+      - operating_profit
+      - price_to_equity
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: strict-net-cash-discount
+      reasons:
+      - net_cash_to_market_cap_price_to_equity_and_equity_ratio
+      metrics:
+        net_cash: 17147000000.0
+        net_cash_to_market_cap: 0.4332
+        debt: 9455000000.0
+        cash: 26602000000.0
+        price_to_equity: 0.9185
+        equity_ratio: 0.747
+        operating_profit: 3063000000.0
+        ttm_quality: approximated
+        edinet_source_doc_id: S100X0QP
+        edinet_document_type: '160'
+        edinet_source_submit_datetime: 2025-11-13 11:07
+        edinet_source_period_start: '2025-04-01'
+        edinet_source_period_end: '2026-03-31'
+        edinet_failure_reasons: null
+    independent_evidence_count: 1
+    freshness_warnings: []
+    selection_lane: strict-net-cash-discount
+    recommendation_lane: strict-net-cash-discount
+    selection_metrics:
+      net_cash: 17147000000.0
+      net_cash_to_market_cap: 0.4332
+      debt: 9455000000.0
+      cash: 26602000000.0
+      price_to_equity: 0.9185
+      equity_ratio: 0.747
+      operating_profit: 3063000000.0
+      ttm_quality: approximated
+      edinet_source_doc_id: S100X0QP
+      edinet_document_type: '160'
+      edinet_source_submit_datetime: 2025-11-13 11:07
+      edinet_source_period_start: '2025-04-01'
+      edinet_source_period_end: '2026-03-31'
+      edinet_failure_reasons: null
+    next_earnings_date: null
+    position_tier: 200-500
+  - ticker: '5659'
+    name: 日本精線
+    sector_33: 鉄鋼
+    outlook_sector: supportive
+    market_cap_oku: 411
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-5659-strict-net-cash-discount
+      name: strict-net-cash-discount
+      playbook_id: strict-net-cash-discount
+      claim_id: 5659-strict-net-cash-discount
+      claim_type: strict-net-cash-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cash
+      - debt
+      - edinet_document_type
+      - edinet_failure_reasons
+      - edinet_source_doc_id
+      - edinet_source_period_end
+      - edinet_source_period_start
+      - edinet_source_submit_datetime
+      - equity_ratio
+      - net_cash
+      - net_cash_to_market_cap
+      - operating_profit
+      - price_to_equity
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: strict-net-cash-discount
+      reasons:
+      - net_cash_to_market_cap_price_to_equity_and_equity_ratio
+      metrics:
+        net_cash: 16395000000.0
+        net_cash_to_market_cap: 0.3994
+        debt: 179000000.0
+        cash: 16574000000.0
+        price_to_equity: 0.9441
+        equity_ratio: 0.7662
+        operating_profit: 3077000000.0
+        ttm_quality: approximated
+        edinet_source_doc_id: S100WZ0Y
+        edinet_document_type: '160'
+        edinet_source_submit_datetime: 2025-11-07 09:33
+        edinet_source_period_start: '2025-04-01'
+        edinet_source_period_end: '2026-03-31'
+        edinet_failure_reasons: null
+    independent_evidence_count: 1
+    freshness_warnings: []
+    selection_lane: strict-net-cash-discount
+    recommendation_lane: strict-net-cash-discount
+    selection_metrics:
+      net_cash: 16395000000.0
+      net_cash_to_market_cap: 0.3994
+      debt: 179000000.0
+      cash: 16574000000.0
+      price_to_equity: 0.9441
+      equity_ratio: 0.7662
+      operating_profit: 3077000000.0
+      ttm_quality: approximated
+      edinet_source_doc_id: S100WZ0Y
+      edinet_document_type: '160'
+      edinet_source_submit_datetime: 2025-11-07 09:33
+      edinet_source_period_start: '2025-04-01'
+      edinet_source_period_end: '2026-03-31'
+      edinet_failure_reasons: null
+    next_earnings_date: null
+    position_tier: 200-500
+  - ticker: '6118'
+    name: アイダエンジニアリング
+    sector_33: 機械
+    outlook_sector: supportive
+    market_cap_oku: 765
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-6118-strict-net-cash-discount
+      name: strict-net-cash-discount
+      playbook_id: strict-net-cash-discount
+      claim_id: 6118-strict-net-cash-discount
+      claim_type: strict-net-cash-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cash
+      - debt
+      - edinet_document_type
+      - edinet_failure_reasons
+      - edinet_source_doc_id
+      - edinet_source_period_end
+      - edinet_source_period_start
+      - edinet_source_submit_datetime
+      - equity_ratio
+      - net_cash
+      - net_cash_to_market_cap
+      - operating_profit
+      - price_to_equity
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: strict-net-cash-discount
+      reasons:
+      - net_cash_to_market_cap_price_to_equity_and_equity_ratio
+      metrics:
+        net_cash: 28595000000.0
+        net_cash_to_market_cap: 0.3738
+        debt: 5164000000.0
+        cash: 33759000000.0
+        price_to_equity: 0.901
+        equity_ratio: 0.6795
+        operating_profit: 4212000000.0
+        ttm_quality: approximated
+        edinet_source_doc_id: S100X44D
+        edinet_document_type: '160'
+        edinet_source_submit_datetime: 2025-11-14 16:01
+        edinet_source_period_start: '2025-04-01'
+        edinet_source_period_end: '2026-03-31'
+        edinet_failure_reasons: null
+    independent_evidence_count: 1
+    freshness_warnings: []
+    selection_lane: strict-net-cash-discount
+    recommendation_lane: strict-net-cash-discount
+    selection_metrics:
+      net_cash: 28595000000.0
+      net_cash_to_market_cap: 0.3738
+      debt: 5164000000.0
+      cash: 33759000000.0
+      price_to_equity: 0.901
+      equity_ratio: 0.6795
+      operating_profit: 4212000000.0
+      ttm_quality: approximated
+      edinet_source_doc_id: S100X44D
+      edinet_document_type: '160'
+      edinet_source_submit_datetime: 2025-11-14 16:01
+      edinet_source_period_start: '2025-04-01'
+      edinet_source_period_end: '2026-03-31'
+      edinet_failure_reasons: null
+    next_earnings_date: null
+    position_tier: 500-1000
+  fcf-yield-discount:
+  - ticker: '6835'
+    name: アライドテレシスホールディングス
+    sector_33: 電気機器
+    outlook_sector: supportive
+    market_cap_oku: 275
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-6835-cashflow-yield-discount
+      name: cashflow-yield-discount
+      playbook_id: cashflow-yield-discount
+      claim_id: 6835-cashflow-yield-discount
+      claim_type: cashflow-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cfo_yoy
+      - ocf_ttm
+      - ocf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cashflow-yield-discount
+      reasons:
+      - ocf_yield_discount
+      metrics:
+        ocf_yield: 0.2452
+        ocf_ttm: 6747000000.0
+        cfo_yoy: 0.1748
+        ttm_quality: exact
+    - evidence_hit_id: candidate-2026-05-01-6835-fcf-yield-discount
+      name: fcf-yield-discount
+      playbook_id: fcf-yield-discount
+      claim_id: 6835-fcf-yield-discount
+      claim_type: fcf-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - capex_ttm
+      - cfo_yoy
+      - edinet_capex_source
+      - edinet_document_type
+      - edinet_failure_reasons
+      - edinet_ocf_ttm
+      - edinet_source_doc_id
+      - edinet_source_period_end
+      - edinet_source_period_start
+      - edinet_source_submit_datetime
+      - fcf_ttm
+      - fcf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: fcf-yield-discount
+      reasons:
+      - fcf_yield_discount
+      metrics:
+        fcf_yield: 0.2261
+        fcf_ttm: 6221259000.0
+        edinet_ocf_ttm: 6747143000.0
+        capex_ttm: 525884000.0
+        cfo_yoy: 0.1748
+        ttm_quality: exact
+        edinet_source_doc_id: S100XVFP
+        edinet_document_type: '120'
+        edinet_source_submit_datetime: 2026-03-30 15:01
+        edinet_source_period_start: '2025-01-01'
+        edinet_source_period_end: '2025-12-31'
+        edinet_capex_source: purchase_of_fixed_assets
+        edinet_failure_reasons: null
+    independent_evidence_count: 2
+    freshness_warnings: []
+    selection_lane: fcf-yield-discount
+    recommendation_lane: fcf-yield-discount
+    selection_metrics:
+      fcf_yield: 0.2261
+      fcf_ttm: 6221259000.0
+      edinet_ocf_ttm: 6747143000.0
+      capex_ttm: 525884000.0
+      cfo_yoy: 0.1748
+      ttm_quality: exact
+      edinet_source_doc_id: S100XVFP
+      edinet_document_type: '120'
+      edinet_source_submit_datetime: 2026-03-30 15:01
+      edinet_source_period_start: '2025-01-01'
+      edinet_source_period_end: '2025-12-31'
+      edinet_capex_source: purchase_of_fixed_assets
+      edinet_failure_reasons: null
+    next_earnings_date: null
+    position_tier: 200-500
+  - ticker: '3964'
+    name: オークネット
+    sector_33: 情報・通信業
+    outlook_sector: supportive
+    market_cap_oku: 571
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-3964-cashflow-yield-discount
+      name: cashflow-yield-discount
+      playbook_id: cashflow-yield-discount
+      claim_id: 3964-cashflow-yield-discount
+      claim_type: cashflow-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cfo_yoy
+      - ocf_ttm
+      - ocf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cashflow-yield-discount
+      reasons:
+      - ocf_yield_discount
+      metrics:
+        ocf_yield: 0.2234
+        ocf_ttm: 12745000000.0
+        cfo_yoy: 1.6262
+        ttm_quality: exact
+    - evidence_hit_id: candidate-2026-05-01-3964-fcf-yield-discount
+      name: fcf-yield-discount
+      playbook_id: fcf-yield-discount
+      claim_id: 3964-fcf-yield-discount
+      claim_type: fcf-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - capex_ttm
+      - cfo_yoy
+      - edinet_capex_source
+      - edinet_document_type
+      - edinet_failure_reasons
+      - edinet_ocf_ttm
+      - edinet_source_doc_id
+      - edinet_source_period_end
+      - edinet_source_period_start
+      - edinet_source_submit_datetime
+      - fcf_ttm
+      - fcf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: fcf-yield-discount
+      reasons:
+      - fcf_yield_discount
+      metrics:
+        fcf_yield: 0.1936
+        fcf_ttm: 11046465000.0
+        edinet_ocf_ttm: 12745018000.0
+        capex_ttm: 1698553000.0
+        cfo_yoy: 1.6262
+        ttm_quality: exact
+        edinet_source_doc_id: S100XSDA
+        edinet_document_type: '120'
+        edinet_source_submit_datetime: 2026-03-23 15:30
+        edinet_source_period_start: '2025-01-01'
+        edinet_source_period_end: '2025-12-31'
+        edinet_capex_source: purchase_of_fixed_assets
+        edinet_failure_reasons: null
+    - evidence_hit_id: candidate-2026-05-01-3964-sales-discount-growth
+      name: sales-discount-growth
+      playbook_id: sales-discount-growth
+      claim_id: 3964-sales-discount-growth
+      claim_type: sales-discount-growth
+      evidence_family_set:
+      - fundamental
+      - valuation
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - ocf_ttm
+      - operating_profit
+      - operating_profit_loss_narrowing
+      - p_s
+      - ps_sector_gap
+      - sales_yoy
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: sales-discount-growth
+      reasons:
+      - ps_discount_with_sales_growth
+      metrics:
+        p_s: 0.8896
+        ps_sector_gap: -0.606
+        sales_yoy: 0.1472
+        operating_profit: 9517000000.0
+        ocf_ttm: 12745000000.0
+        operating_profit_loss_narrowing: false
+    independent_evidence_count: 3
+    freshness_warnings: []
+    selection_lane: fcf-yield-discount
+    recommendation_lane: fcf-yield-discount
+    selection_metrics:
+      fcf_yield: 0.1936
+      fcf_ttm: 11046465000.0
+      edinet_ocf_ttm: 12745018000.0
+      capex_ttm: 1698553000.0
+      cfo_yoy: 1.6262
+      ttm_quality: exact
+      edinet_source_doc_id: S100XSDA
+      edinet_document_type: '120'
+      edinet_source_submit_datetime: 2026-03-23 15:30
+      edinet_source_period_start: '2025-01-01'
+      edinet_source_period_end: '2025-12-31'
+      edinet_capex_source: purchase_of_fixed_assets
+      edinet_failure_reasons: null
+    next_earnings_date: null
+    position_tier: 500-1000
+  - ticker: '6266'
+    name: タツモ
+    sector_33: 機械
+    outlook_sector: supportive
+    market_cap_oku: 450
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-6266-cashflow-yield-discount
+      name: cashflow-yield-discount
+      playbook_id: cashflow-yield-discount
+      claim_id: 6266-cashflow-yield-discount
+      claim_type: cashflow-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cfo_yoy
+      - ocf_ttm
+      - ocf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cashflow-yield-discount
+      reasons:
+      - ocf_yield_discount
+      metrics:
+        ocf_yield: 0.2096
+        ocf_ttm: 9425000000.0
+        cfo_yoy: 0.2557
+        ttm_quality: exact
+    - evidence_hit_id: candidate-2026-05-01-6266-fcf-yield-discount
+      name: fcf-yield-discount
+      playbook_id: fcf-yield-discount
+      claim_id: 6266-fcf-yield-discount
+      claim_type: fcf-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - capex_ttm
+      - cfo_yoy
+      - edinet_capex_source
+      - edinet_document_type
+      - edinet_failure_reasons
+      - edinet_ocf_ttm
+      - edinet_source_doc_id
+      - edinet_source_period_end
+      - edinet_source_period_start
+      - edinet_source_submit_datetime
+      - fcf_ttm
+      - fcf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: fcf-yield-discount
+      reasons:
+      - fcf_yield_discount
+      metrics:
+        fcf_yield: 0.1763
+        fcf_ttm: 7927545000.0
+        edinet_ocf_ttm: 9425231000.0
+        capex_ttm: 1497686000.0
+        cfo_yoy: 0.2557
+        ttm_quality: exact
+        edinet_source_doc_id: S100XS15
+        edinet_document_type: '120'
+        edinet_source_submit_datetime: 2026-03-23 15:40
+        edinet_source_period_start: '2025-01-01'
+        edinet_source_period_end: '2025-12-31'
+        edinet_capex_source: purchase_of_fixed_assets
+        edinet_failure_reasons: null
+    independent_evidence_count: 2
+    freshness_warnings: []
+    selection_lane: fcf-yield-discount
+    recommendation_lane: fcf-yield-discount
+    selection_metrics:
+      fcf_yield: 0.1763
+      fcf_ttm: 7927545000.0
+      edinet_ocf_ttm: 9425231000.0
+      capex_ttm: 1497686000.0
+      cfo_yoy: 0.2557
+      ttm_quality: exact
+      edinet_source_doc_id: S100XS15
+      edinet_document_type: '120'
+      edinet_source_submit_datetime: 2026-03-23 15:40
+      edinet_source_period_start: '2025-01-01'
+      edinet_source_period_end: '2025-12-31'
+      edinet_capex_source: purchase_of_fixed_assets
+      edinet_failure_reasons: null
+    next_earnings_date: null
+    position_tier: 200-500
+  - ticker: '4072'
+    name: 電算システムホールディングス
+    sector_33: 情報・通信業
+    outlook_sector: supportive
+    market_cap_oku: 306
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-4072-cashflow-yield-discount
+      name: cashflow-yield-discount
+      playbook_id: cashflow-yield-discount
+      claim_id: 4072-cashflow-yield-discount
+      claim_type: cashflow-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cfo_yoy
+      - ocf_ttm
+      - ocf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cashflow-yield-discount
+      reasons:
+      - ocf_yield_discount
+      metrics:
+        ocf_yield: 0.1361
+        ocf_ttm: 4165000000.0
+        cfo_yoy: 0.3787
+        ttm_quality: exact
+    - evidence_hit_id: candidate-2026-05-01-4072-fcf-yield-discount
+      name: fcf-yield-discount
+      playbook_id: fcf-yield-discount
+      claim_id: 4072-fcf-yield-discount
+      claim_type: fcf-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - capex_ttm
+      - cfo_yoy
+      - edinet_capex_source
+      - edinet_document_type
+      - edinet_failure_reasons
+      - edinet_ocf_ttm
+      - edinet_source_doc_id
+      - edinet_source_period_end
+      - edinet_source_period_start
+      - edinet_source_submit_datetime
+      - fcf_ttm
+      - fcf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: fcf-yield-discount
+      reasons:
+      - fcf_yield_discount
+      metrics:
+        fcf_yield: 0.1155
+        fcf_ttm: 3533000000.0
+        edinet_ocf_ttm: 4165000000.0
+        capex_ttm: 632000000.0
+        cfo_yoy: 0.3787
+        ttm_quality: exact
+        edinet_source_doc_id: S100XSJW
+        edinet_document_type: '120'
+        edinet_source_submit_datetime: 2026-03-24 09:43
+        edinet_source_period_start: '2025-01-01'
+        edinet_source_period_end: '2025-12-31'
+        edinet_capex_source: purchase_of_fixed_assets
+        edinet_failure_reasons: null
+    - evidence_hit_id: candidate-2026-05-01-4072-sales-discount-growth
+      name: sales-discount-growth
+      playbook_id: sales-discount-growth
+      claim_id: 4072-sales-discount-growth
+      claim_type: sales-discount-growth
+      evidence_family_set:
+      - fundamental
+      - valuation
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - ocf_ttm
+      - operating_profit
+      - operating_profit_loss_narrowing
+      - p_s
+      - ps_sector_gap
+      - sales_yoy
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: sales-discount-growth
+      reasons:
+      - ps_discount_with_sales_growth
+      metrics:
+        p_s: 0.449
+        ps_sector_gap: -0.8011
+        sales_yoy: 0.1122
+        operating_profit: 3624000000.0
+        ocf_ttm: 4165000000.0
+        operating_profit_loss_narrowing: false
+    independent_evidence_count: 3
+    freshness_warnings: []
+    selection_lane: fcf-yield-discount
+    recommendation_lane: fcf-yield-discount
+    selection_metrics:
+      fcf_yield: 0.1155
+      fcf_ttm: 3533000000.0
+      edinet_ocf_ttm: 4165000000.0
+      capex_ttm: 632000000.0
+      cfo_yoy: 0.3787
+      ttm_quality: exact
+      edinet_source_doc_id: S100XSJW
+      edinet_document_type: '120'
+      edinet_source_submit_datetime: 2026-03-24 09:43
+      edinet_source_period_start: '2025-01-01'
+      edinet_source_period_end: '2025-12-31'
+      edinet_capex_source: purchase_of_fixed_assets
+      edinet_failure_reasons: null
+    next_earnings_date: null
+    position_tier: 200-500
+  - ticker: '4477'
+    name: ＢＡＳＥ
+    sector_33: 情報・通信業
+    outlook_sector: supportive
+    market_cap_oku: 339
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-4477-fcf-yield-discount
+      name: fcf-yield-discount
+      playbook_id: fcf-yield-discount
+      claim_id: 4477-fcf-yield-discount
+      claim_type: fcf-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - capex_ttm
+      - cfo_yoy
+      - edinet_capex_source
+      - edinet_document_type
+      - edinet_failure_reasons
+      - edinet_ocf_ttm
+      - edinet_source_doc_id
+      - edinet_source_period_end
+      - edinet_source_period_start
+      - edinet_source_submit_datetime
+      - fcf_ttm
+      - fcf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: fcf-yield-discount
+      reasons:
+      - fcf_yield_discount
+      metrics:
+        fcf_yield: 0.0963
+        fcf_ttm: 3268000000.0
+        edinet_ocf_ttm: 3283000000.0
+        capex_ttm: 15000000.0
+        cfo_yoy: -0.1023
+        ttm_quality: exact
+        edinet_source_doc_id: S100XSMS
+        edinet_document_type: '120'
+        edinet_source_submit_datetime: 2026-03-23 15:39
+        edinet_source_period_start: '2025-01-01'
+        edinet_source_period_end: '2025-12-31'
+        edinet_capex_source: purchase_of_fixed_assets
+        edinet_failure_reasons: null
+    independent_evidence_count: 1
+    freshness_warnings: []
+    selection_lane: fcf-yield-discount
+    recommendation_lane: fcf-yield-discount
+    selection_metrics:
+      fcf_yield: 0.0963
+      fcf_ttm: 3268000000.0
+      edinet_ocf_ttm: 3283000000.0
+      capex_ttm: 15000000.0
+      cfo_yoy: -0.1023
+      ttm_quality: exact
+      edinet_source_doc_id: S100XSMS
+      edinet_document_type: '120'
+      edinet_source_submit_datetime: 2026-03-23 15:39
+      edinet_source_period_start: '2025-01-01'
+      edinet_source_period_end: '2025-12-31'
+      edinet_capex_source: purchase_of_fixed_assets
+      edinet_failure_reasons: null
+    next_earnings_date: null
+    position_tier: 200-500
+  cash-rich-asset-discount:
+  - ticker: '3632'
+    name: グリーホールディングス
+    sector_33: 情報・通信業
+    outlook_sector: supportive
+    market_cap_oku: 645
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-3632-strict-net-cash-discount
+      name: strict-net-cash-discount
+      playbook_id: strict-net-cash-discount
+      claim_id: 3632-strict-net-cash-discount
+      claim_type: strict-net-cash-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cash
+      - debt
+      - edinet_document_type
+      - edinet_failure_reasons
+      - edinet_source_doc_id
+      - edinet_source_period_end
+      - edinet_source_period_start
+      - edinet_source_submit_datetime
+      - equity_ratio
+      - net_cash
+      - net_cash_to_market_cap
+      - operating_profit
+      - price_to_equity
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: strict-net-cash-discount
+      reasons:
+      - net_cash_to_market_cap_price_to_equity_and_equity_ratio
+      metrics:
+        net_cash: 34558000000.0
+        net_cash_to_market_cap: 0.5355
+        debt: 16700000000.0
+        cash: 51258000000.0
+        price_to_equity: 0.6908
+        equity_ratio: 0.7515
+        operating_profit: 1468000000.0
+        ttm_quality: approximated
+        edinet_source_doc_id: S100XJG7
+        edinet_document_type: '160'
+        edinet_source_submit_datetime: 2026-02-05 16:03
+        edinet_source_period_start: '2025-07-01'
+        edinet_source_period_end: '2026-06-30'
+        edinet_failure_reasons: null
+    - evidence_hit_id: candidate-2026-05-01-3632-cash-rich-asset-discount
+      name: cash-rich-asset-discount
+      playbook_id: cash-rich-asset-discount
+      claim_id: 3632-cash-rich-asset-discount
+      claim_type: cash-rich-asset-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cash
+      - cash_to_market_cap
+      - debt
+      - equity_ratio
+      - net_cash_to_market_cap
+      - operating_profit
+      - price_to_equity
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cash-rich-asset-discount
+      reasons:
+      - cash_to_market_cap_price_to_equity_and_equity_ratio
+      metrics:
+        cash_to_market_cap: 1.1293
+        net_cash_to_market_cap: 0.5355
+        debt: 16700000000.0
+        cash: 51258000000.0
+        price_to_equity: 0.6908
+        equity_ratio: 0.7515
+        operating_profit: 1468000000.0
+    independent_evidence_count: 2
+    freshness_warnings: []
+    selection_lane: cash-rich-asset-discount
+    recommendation_lane: cash-rich-asset-discount
+    selection_metrics:
+      cash_to_market_cap: 1.1293
+      net_cash_to_market_cap: 0.5355
+      debt: 16700000000.0
+      cash: 51258000000.0
+      price_to_equity: 0.6908
+      equity_ratio: 0.7515
+      operating_profit: 1468000000.0
+    next_earnings_date: null
+    position_tier: 500-1000
+  - ticker: '6932'
+    name: 遠藤照明
+    sector_33: 電気機器
+    outlook_sector: supportive
+    market_cap_oku: 379
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-6932-cash-rich-asset-discount
+      name: cash-rich-asset-discount
+      playbook_id: cash-rich-asset-discount
+      claim_id: 6932-cash-rich-asset-discount
+      claim_type: cash-rich-asset-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cash
+      - cash_to_market_cap
+      - debt
+      - equity_ratio
+      - net_cash_to_market_cap
+      - operating_profit
+      - price_to_equity
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cash-rich-asset-discount
+      reasons:
+      - cash_to_market_cap_price_to_equity_and_equity_ratio
+      metrics:
+        cash_to_market_cap: 0.6207
+        net_cash_to_market_cap: 0.1415
+        debt: 12122000000.0
+        cash: 17488000000.0
+        price_to_equity: 0.7579
+        equity_ratio: 0.6532
+        operating_profit: 5742000000.0
+    - evidence_hit_id: candidate-2026-05-01-6932-cashflow-yield-discount
+      name: cashflow-yield-discount
+      playbook_id: cashflow-yield-discount
+      claim_id: 6932-cashflow-yield-discount
+      claim_type: cashflow-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cfo_yoy
+      - ocf_ttm
+      - ocf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cashflow-yield-discount
+      reasons:
+      - ocf_yield_discount
+      metrics:
+        ocf_yield: 0.2711
+        ocf_ttm: 10278000000.0
+        cfo_yoy: 2.5247
+        ttm_quality: exact
+    independent_evidence_count: 2
+    freshness_warnings: []
+    selection_lane: cash-rich-asset-discount
+    recommendation_lane: cash-rich-asset-discount
+    selection_metrics:
+      cash_to_market_cap: 0.6207
+      net_cash_to_market_cap: 0.1415
+      debt: 12122000000.0
+      cash: 17488000000.0
+      price_to_equity: 0.7579
+      equity_ratio: 0.6532
+      operating_profit: 5742000000.0
+    next_earnings_date: null
+    position_tier: 200-500
+  - ticker: '6143'
+    name: ソディック
+    sector_33: 機械
+    outlook_sector: supportive
+    market_cap_oku: 860
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-6143-cash-rich-asset-discount
+      name: cash-rich-asset-discount
+      playbook_id: cash-rich-asset-discount
+      claim_id: 6143-cash-rich-asset-discount
+      claim_type: cash-rich-asset-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cash
+      - cash_to_market_cap
+      - debt
+      - equity_ratio
+      - net_cash_to_market_cap
+      - operating_profit
+      - price_to_equity
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cash-rich-asset-discount
+      reasons:
+      - cash_to_market_cap_price_to_equity_and_equity_ratio
+      metrics:
+        cash_to_market_cap: 0.5229
+        net_cash_to_market_cap: 0.0983
+        debt: 36611000000.0
+        cash: 45064000000.0
+        price_to_equity: 0.9496
+        equity_ratio: 0.5819
+        operating_profit: 4224000000.0
+    independent_evidence_count: 1
+    freshness_warnings: []
+    selection_lane: cash-rich-asset-discount
+    recommendation_lane: cash-rich-asset-discount
+    selection_metrics:
+      cash_to_market_cap: 0.5229
+      net_cash_to_market_cap: 0.0983
+      debt: 36611000000.0
+      cash: 45064000000.0
+      price_to_equity: 0.9496
+      equity_ratio: 0.5819
+      operating_profit: 4224000000.0
+    next_earnings_date: null
+    position_tier: 500-1000
+  - ticker: '4902'
+    name: コニカミノルタ
+    sector_33: 電気機器
+    outlook_sector: supportive
+    market_cap_oku: 2537
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-4902-cash-rich-asset-discount
+      name: cash-rich-asset-discount
+      playbook_id: cash-rich-asset-discount
+      claim_id: 4902-cash-rich-asset-discount
+      claim_type: cash-rich-asset-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cash
+      - cash_to_market_cap
+      - debt
+      - equity_ratio
+      - net_cash_to_market_cap
+      - operating_profit
+      - price_to_equity
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cash-rich-asset-discount
+      reasons:
+      - cash_to_market_cap_price_to_equity_and_equity_ratio
+      metrics:
+        cash_to_market_cap: 0.408
+        net_cash_to_market_cap: null
+        debt: null
+        cash: null
+        price_to_equity: 0.4771
+        equity_ratio: 0.435
+        operating_profit: 33291000000.0
+    - evidence_hit_id: candidate-2026-05-01-4902-cashflow-yield-discount
+      name: cashflow-yield-discount
+      playbook_id: cashflow-yield-discount
+      claim_id: 4902-cashflow-yield-discount
+      claim_type: cashflow-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cfo_yoy
+      - ocf_ttm
+      - ocf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cashflow-yield-discount
+      reasons:
+      - ocf_yield_discount
+      metrics:
+        ocf_yield: 0.2651
+        ocf_ttm: 67256000000.0
+        cfo_yoy: 0.5481
+        ttm_quality: exact
+    independent_evidence_count: 2
+    freshness_warnings: []
+    selection_lane: cash-rich-asset-discount
+    recommendation_lane: cash-rich-asset-discount
+    selection_metrics:
+      cash_to_market_cap: 0.408
+      net_cash_to_market_cap: null
+      debt: null
+      cash: null
+      price_to_equity: 0.4771
+      equity_ratio: 0.435
+      operating_profit: 33291000000.0
+    next_earnings_date: null
+    position_tier: 1000+
+  - ticker: '4689'
+    name: ＬＩＮＥヤフー
+    sector_33: 情報・通信業
+    outlook_sector: supportive
+    market_cap_oku: 28888
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-4689-cash-rich-asset-discount
+      name: cash-rich-asset-discount
+      playbook_id: cash-rich-asset-discount
+      claim_id: 4689-cash-rich-asset-discount
+      claim_type: cash-rich-asset-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cash
+      - cash_to_market_cap
+      - debt
+      - equity_ratio
+      - net_cash_to_market_cap
+      - operating_profit
+      - price_to_equity
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cash-rich-asset-discount
+      reasons:
+      - cash_to_market_cap_price_to_equity_and_equity_ratio
+      metrics:
+        cash_to_market_cap: 0.4046
+        net_cash_to_market_cap: null
+        debt: null
+        cash: null
+        price_to_equity: 0.8029
+        equity_ratio: 0.3245
+        operating_profit: 284198000000.0
+    independent_evidence_count: 1
+    freshness_warnings: []
+    selection_lane: cash-rich-asset-discount
+    recommendation_lane: cash-rich-asset-discount
+    selection_metrics:
+      cash_to_market_cap: 0.4046
+      net_cash_to_market_cap: null
+      debt: null
+      cash: null
+      price_to_equity: 0.8029
+      equity_ratio: 0.3245
+      operating_profit: 284198000000.0
+    next_earnings_date: null
+    position_tier: 1000+
+  cashflow-yield-discount:
+  - ticker: '6310'
+    name: 井関農機
+    sector_33: 機械
+    outlook_sector: supportive
+    market_cap_oku: 397
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-6310-cashflow-yield-discount
+      name: cashflow-yield-discount
+      playbook_id: cashflow-yield-discount
+      claim_id: 6310-cashflow-yield-discount
+      claim_type: cashflow-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cfo_yoy
+      - ocf_ttm
+      - ocf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cashflow-yield-discount
+      reasons:
+      - ocf_yield_discount
+      metrics:
+        ocf_yield: 0.5912
+        ocf_ttm: 23456000000.0
+        cfo_yoy: 1.6579
+        ttm_quality: exact
+    - evidence_hit_id: candidate-2026-05-01-6310-sales-discount-growth
+      name: sales-discount-growth
+      playbook_id: sales-discount-growth
+      claim_id: 6310-sales-discount-growth
+      claim_type: sales-discount-growth
+      evidence_family_set:
+      - fundamental
+      - valuation
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - ocf_ttm
+      - operating_profit
+      - operating_profit_loss_narrowing
+      - p_s
+      - ps_sector_gap
+      - sales_yoy
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: sales-discount-growth
+      reasons:
+      - ps_discount_with_sales_growth
+      metrics:
+        p_s: 0.2136
+        ps_sector_gap: -0.8462
+        sales_yoy: 0.103
+        operating_profit: 4225000000.0
+        ocf_ttm: 23456000000.0
+        operating_profit_loss_narrowing: false
+    independent_evidence_count: 2
+    freshness_warnings: []
+    selection_lane: cashflow-yield-discount
+    recommendation_lane: cashflow-yield-discount
+    selection_metrics:
+      ocf_yield: 0.5912
+      ocf_ttm: 23456000000.0
+      cfo_yoy: 1.6579
+      ttm_quality: exact
+    next_earnings_date: null
+    position_tier: 200-500
+  - ticker: '6440'
+    name: ＪＵＫＩ
+    sector_33: 機械
+    outlook_sector: supportive
+    market_cap_oku: 239
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-6440-cashflow-yield-discount
+      name: cashflow-yield-discount
+      playbook_id: cashflow-yield-discount
+      claim_id: 6440-cashflow-yield-discount
+      claim_type: cashflow-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cfo_yoy
+      - ocf_ttm
+      - ocf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cashflow-yield-discount
+      reasons:
+      - ocf_yield_discount
+      metrics:
+        ocf_yield: 0.4907
+        ocf_ttm: 11712000000.0
+        cfo_yoy: 0.2498
+        ttm_quality: exact
+    independent_evidence_count: 1
+    freshness_warnings: []
+    selection_lane: cashflow-yield-discount
+    recommendation_lane: cashflow-yield-discount
+    selection_metrics:
+      ocf_yield: 0.4907
+      ocf_ttm: 11712000000.0
+      cfo_yoy: 0.2498
+      ttm_quality: exact
+    next_earnings_date: null
+    position_tier: 200-500
+  - ticker: '5410'
+    name: 合同製鐵
+    sector_33: 鉄鋼
+    outlook_sector: supportive
+    market_cap_oku: 494
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-5410-valuation-reversion
+      name: valuation-reversion
+      playbook_id: valuation-reversion
+      claim_id: 5410-valuation-reversion
+      claim_type: valuation-reversion
+      evidence_family_set:
+      - market_derived
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - condition_a_metric
+      - condition_a_sector_median_gap
+      - condition_a_self_range_percentile
+      - condition_b_metric
+      - condition_b_sigma_gap
+      - price_change_60d
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: valuation-reversion
+      reasons:
+      - sector_median_discount_and_self_range_bottom
+      - price_down_60d_and_valuation_sigma_down
+      metrics:
+        condition_a_metric: per_trailing
+        condition_a_sector_median_gap: -0.6916
+        condition_a_self_range_percentile: 0.0115
+        condition_b_metric: per_trailing
+        price_change_60d: -0.2589
+        condition_b_sigma_gap: -1.9456
+    - evidence_hit_id: candidate-2026-05-01-5410-cashflow-yield-discount
+      name: cashflow-yield-discount
+      playbook_id: cashflow-yield-discount
+      claim_id: 5410-cashflow-yield-discount
+      claim_type: cashflow-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cfo_yoy
+      - ocf_ttm
+      - ocf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cashflow-yield-discount
+      reasons:
+      - ocf_yield_discount
+      metrics:
+        ocf_yield: 0.4335
+        ocf_ttm: 21429000000.0
+        cfo_yoy: 0.1197
+        ttm_quality: exact
+    independent_evidence_count: 2
+    freshness_warnings: []
+    selection_lane: cashflow-yield-discount
+    recommendation_lane: cashflow-yield-discount
+    selection_metrics:
+      ocf_yield: 0.4335
+      ocf_ttm: 21429000000.0
+      cfo_yoy: 0.1197
+      ttm_quality: exact
+    next_earnings_date: null
+    position_tier: 200-500
+  - ticker: '6817'
+    name: スミダコーポレーション
+    sector_33: 電気機器
+    outlook_sector: supportive
+    market_cap_oku: 410
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-6817-cashflow-yield-discount
+      name: cashflow-yield-discount
+      playbook_id: cashflow-yield-discount
+      claim_id: 6817-cashflow-yield-discount
+      claim_type: cashflow-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cfo_yoy
+      - ocf_ttm
+      - ocf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cashflow-yield-discount
+      reasons:
+      - ocf_yield_discount
+      metrics:
+        ocf_yield: 0.4109
+        ocf_ttm: 16860000000.0
+        cfo_yoy: 0.1584
+        ttm_quality: exact
+    independent_evidence_count: 1
+    freshness_warnings: []
+    selection_lane: cashflow-yield-discount
+    recommendation_lane: cashflow-yield-discount
+    selection_metrics:
+      ocf_yield: 0.4109
+      ocf_ttm: 16860000000.0
+      cfo_yoy: 0.1584
+      ttm_quality: exact
+    next_earnings_date: null
+    position_tier: 200-500
+  - ticker: '5482'
+    name: 愛知製鋼
+    sector_33: 鉄鋼
+    outlook_sector: supportive
+    market_cap_oku: 1861
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-5482-cashflow-yield-discount
+      name: cashflow-yield-discount
+      playbook_id: cashflow-yield-discount
+      claim_id: 5482-cashflow-yield-discount
+      claim_type: cashflow-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cfo_yoy
+      - ocf_ttm
+      - ocf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cashflow-yield-discount
+      reasons:
+      - ocf_yield_discount
+      metrics:
+        ocf_yield: 0.3493
+        ocf_ttm: 65028000000.0
+        cfo_yoy: 1.5648
+        ttm_quality: exact
+    independent_evidence_count: 1
+    freshness_warnings: []
+    selection_lane: cashflow-yield-discount
+    recommendation_lane: cashflow-yield-discount
+    selection_metrics:
+      ocf_yield: 0.3493
+      ocf_ttm: 65028000000.0
+      cfo_yoy: 1.5648
+      ttm_quality: exact
+    next_earnings_date: null
+    position_tier: 1000+
+  sales-discount-growth:
+  - ticker: '6310'
+    name: 井関農機
+    sector_33: 機械
+    outlook_sector: supportive
+    market_cap_oku: 397
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-6310-cashflow-yield-discount
+      name: cashflow-yield-discount
+      playbook_id: cashflow-yield-discount
+      claim_id: 6310-cashflow-yield-discount
+      claim_type: cashflow-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cfo_yoy
+      - ocf_ttm
+      - ocf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cashflow-yield-discount
+      reasons:
+      - ocf_yield_discount
+      metrics:
+        ocf_yield: 0.5912
+        ocf_ttm: 23456000000.0
+        cfo_yoy: 1.6579
+        ttm_quality: exact
+    - evidence_hit_id: candidate-2026-05-01-6310-sales-discount-growth
+      name: sales-discount-growth
+      playbook_id: sales-discount-growth
+      claim_id: 6310-sales-discount-growth
+      claim_type: sales-discount-growth
+      evidence_family_set:
+      - fundamental
+      - valuation
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - ocf_ttm
+      - operating_profit
+      - operating_profit_loss_narrowing
+      - p_s
+      - ps_sector_gap
+      - sales_yoy
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: sales-discount-growth
+      reasons:
+      - ps_discount_with_sales_growth
+      metrics:
+        p_s: 0.2136
+        ps_sector_gap: -0.8462
+        sales_yoy: 0.103
+        operating_profit: 4225000000.0
+        ocf_ttm: 23456000000.0
+        operating_profit_loss_narrowing: false
+    independent_evidence_count: 2
+    freshness_warnings: []
+    selection_lane: sales-discount-growth
+    recommendation_lane: sales-discount-growth
+    selection_metrics:
+      p_s: 0.2136
+      ps_sector_gap: -0.8462
+      sales_yoy: 0.103
+      operating_profit: 4225000000.0
+      ocf_ttm: 23456000000.0
+      operating_profit_loss_narrowing: false
+    next_earnings_date: null
+    position_tier: 200-500
+  - ticker: '5036'
+    name: 日本ビジネスシステムズ
+    sector_33: 情報・通信業
+    outlook_sector: supportive
+    market_cap_oku: 687
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-5036-sales-discount-growth
+      name: sales-discount-growth
+      playbook_id: sales-discount-growth
+      claim_id: 5036-sales-discount-growth
+      claim_type: sales-discount-growth
+      evidence_family_set:
+      - fundamental
+      - valuation
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - ocf_ttm
+      - operating_profit
+      - operating_profit_loss_narrowing
+      - p_s
+      - ps_sector_gap
+      - sales_yoy
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: sales-discount-growth
+      reasons:
+      - ps_discount_with_sales_growth
+      metrics:
+        p_s: 0.3552
+        ps_sector_gap: -0.8427
+        sales_yoy: 0.7438
+        operating_profit: 2313000000.0
+        ocf_ttm: null
+        operating_profit_loss_narrowing: false
+    independent_evidence_count: 1
+    freshness_warnings: []
+    selection_lane: sales-discount-growth
+    recommendation_lane: sales-discount-growth
+    selection_metrics:
+      p_s: 0.3552
+      ps_sector_gap: -0.8427
+      sales_yoy: 0.7438
+      operating_profit: 2313000000.0
+      ocf_ttm: null
+      operating_profit_loss_narrowing: false
+    next_earnings_date: null
+    position_tier: 500-1000
+  - ticker: '5027'
+    name: ＡｎｙＭｉｎｄ　Ｇｒｏｕｐ
+    sector_33: 情報・通信業
+    outlook_sector: supportive
+    market_cap_oku: 235
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-5027-valuation-reversion
+      name: valuation-reversion
+      playbook_id: valuation-reversion
+      claim_id: 5027-valuation-reversion
+      claim_type: valuation-reversion
+      evidence_family_set:
+      - market_derived
+      - valuation
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - condition_a_metric
+      - condition_a_sector_median_gap
+      - condition_a_self_range_percentile
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: valuation-reversion
+      reasons:
+      - sector_median_discount_and_self_range_bottom
+      metrics:
+        condition_a_metric: pbr
+        condition_a_sector_median_gap: -0.5167
+        condition_a_self_range_percentile: 0.0044
+    - evidence_hit_id: candidate-2026-05-01-5027-sales-discount-growth
+      name: sales-discount-growth
+      playbook_id: sales-discount-growth
+      claim_id: 5027-sales-discount-growth
+      claim_type: sales-discount-growth
+      evidence_family_set:
+      - fundamental
+      - valuation
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - ocf_ttm
+      - operating_profit
+      - operating_profit_loss_narrowing
+      - p_s
+      - ps_sector_gap
+      - sales_yoy
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: sales-discount-growth
+      reasons:
+      - ps_discount_with_sales_growth
+      metrics:
+        p_s: 0.411
+        ps_sector_gap: -0.8179
+        sales_yoy: 0.1299
+        operating_profit: 1798000000.0
+        ocf_ttm: 268000000.0
+        operating_profit_loss_narrowing: false
+    independent_evidence_count: 2
+    freshness_warnings: []
+    selection_lane: sales-discount-growth
+    recommendation_lane: sales-discount-growth
+    selection_metrics:
+      p_s: 0.411
+      ps_sector_gap: -0.8179
+      sales_yoy: 0.1299
+      operating_profit: 1798000000.0
+      ocf_ttm: 268000000.0
+      operating_profit_loss_narrowing: false
+    next_earnings_date: null
+    position_tier: 200-500
+  - ticker: '4072'
+    name: 電算システムホールディングス
+    sector_33: 情報・通信業
+    outlook_sector: supportive
+    market_cap_oku: 306
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-4072-cashflow-yield-discount
+      name: cashflow-yield-discount
+      playbook_id: cashflow-yield-discount
+      claim_id: 4072-cashflow-yield-discount
+      claim_type: cashflow-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - cfo_yoy
+      - ocf_ttm
+      - ocf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: cashflow-yield-discount
+      reasons:
+      - ocf_yield_discount
+      metrics:
+        ocf_yield: 0.1361
+        ocf_ttm: 4165000000.0
+        cfo_yoy: 0.3787
+        ttm_quality: exact
+    - evidence_hit_id: candidate-2026-05-01-4072-fcf-yield-discount
+      name: fcf-yield-discount
+      playbook_id: fcf-yield-discount
+      claim_id: 4072-fcf-yield-discount
+      claim_type: fcf-yield-discount
+      evidence_family_set:
+      - fundamental
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - capex_ttm
+      - cfo_yoy
+      - edinet_capex_source
+      - edinet_document_type
+      - edinet_failure_reasons
+      - edinet_ocf_ttm
+      - edinet_source_doc_id
+      - edinet_source_period_end
+      - edinet_source_period_start
+      - edinet_source_submit_datetime
+      - fcf_ttm
+      - fcf_yield
+      - ttm_quality
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: fcf-yield-discount
+      reasons:
+      - fcf_yield_discount
+      metrics:
+        fcf_yield: 0.1155
+        fcf_ttm: 3533000000.0
+        edinet_ocf_ttm: 4165000000.0
+        capex_ttm: 632000000.0
+        cfo_yoy: 0.3787
+        ttm_quality: exact
+        edinet_source_doc_id: S100XSJW
+        edinet_document_type: '120'
+        edinet_source_submit_datetime: 2026-03-24 09:43
+        edinet_source_period_start: '2025-01-01'
+        edinet_source_period_end: '2025-12-31'
+        edinet_capex_source: purchase_of_fixed_assets
+        edinet_failure_reasons: null
+    - evidence_hit_id: candidate-2026-05-01-4072-sales-discount-growth
+      name: sales-discount-growth
+      playbook_id: sales-discount-growth
+      claim_id: 4072-sales-discount-growth
+      claim_type: sales-discount-growth
+      evidence_family_set:
+      - fundamental
+      - valuation
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - ocf_ttm
+      - operating_profit
+      - operating_profit_loss_narrowing
+      - p_s
+      - ps_sector_gap
+      - sales_yoy
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: sales-discount-growth
+      reasons:
+      - ps_discount_with_sales_growth
+      metrics:
+        p_s: 0.449
+        ps_sector_gap: -0.8011
+        sales_yoy: 0.1122
+        operating_profit: 3624000000.0
+        ocf_ttm: 4165000000.0
+        operating_profit_loss_narrowing: false
+    independent_evidence_count: 3
+    freshness_warnings: []
+    selection_lane: sales-discount-growth
+    recommendation_lane: sales-discount-growth
+    selection_metrics:
+      p_s: 0.449
+      ps_sector_gap: -0.8011
+      sales_yoy: 0.1122
+      operating_profit: 3624000000.0
+      ocf_ttm: 4165000000.0
+      operating_profit_loss_narrowing: false
+    next_earnings_date: null
+    position_tier: 200-500
+  - ticker: '6217'
+    name: 津田駒工業
+    sector_33: 機械
+    outlook_sector: supportive
+    market_cap_oku: 110
+    evidence_hits:
+    - evidence_hit_id: candidate-2026-05-01-6217-sales-discount-growth
+      name: sales-discount-growth
+      playbook_id: sales-discount-growth
+      claim_id: 6217-sales-discount-growth
+      claim_type: sales-discount-growth
+      evidence_family_set:
+      - fundamental
+      - valuation
+      evidence_polarity: supports
+      decision_role: sizing_evidence
+      source_metric_ids:
+      - ocf_ttm
+      - operating_profit
+      - operating_profit_loss_narrowing
+      - p_s
+      - ps_sector_gap
+      - sales_yoy
+      source_status: ok
+      sizing_eligible: true
+      freshness_dependency: financial_statement
+      independence_component_id: sales-discount-growth
+      reasons:
+      - ps_discount_with_sales_growth
+      metrics:
+        p_s: 0.3014
+        ps_sector_gap: -0.7829
+        sales_yoy: 0.1517
+        operating_profit: -134000000.0
+        ocf_ttm: null
+        operating_profit_loss_narrowing: true
+    independent_evidence_count: 1
+    freshness_warnings: []
+    selection_lane: sales-discount-growth
+    recommendation_lane: sales-discount-growth
+    selection_metrics:
+      p_s: 0.3014
+      ps_sector_gap: -0.7829
+      sales_yoy: 0.1517
+      operating_profit: -134000000.0
+      ocf_ttm: null
+      operating_profit_loss_narrowing: true
+    next_earnings_date: null
+    position_tier: 100-200
+ranked_candidates:
+- ticker: '6619'
+  name: ダブル・スコープ
+  sector_33: 電気機器
+  outlook_sector: supportive
+  market_cap_oku: 133
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-6619-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 6619-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    metrics:
+      condition_a_metric: pbr
+      condition_a_sector_median_gap: -0.8217
+      condition_a_self_range_percentile: 0.059
+  independent_evidence_count: 1
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: pbr
+    condition_a_sector_median_gap: -0.8217
+    condition_a_self_range_percentile: 0.059
+  next_earnings_date: null
+  position_tier: 100-200
+- ticker: '6753'
+  name: シャープ
+  sector_33: 電気機器
+  outlook_sector: supportive
+  market_cap_oku: 3788
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-6753-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 6753-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    metrics:
+      condition_a_metric: per_trailing
+      condition_a_sector_median_gap: -0.8078
+      condition_a_self_range_percentile: 0.0637
+  independent_evidence_count: 1
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: per_trailing
+    condition_a_sector_median_gap: -0.8078
+    condition_a_self_range_percentile: 0.0637
+  next_earnings_date: null
+  position_tier: 1000+
+- ticker: '5410'
+  name: 合同製鐵
+  sector_33: 鉄鋼
+  outlook_sector: supportive
+  market_cap_oku: 494
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-5410-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 5410-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    - condition_b_metric
+    - condition_b_sigma_gap
+    - price_change_60d
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    - price_down_60d_and_valuation_sigma_down
+    metrics:
+      condition_a_metric: per_trailing
+      condition_a_sector_median_gap: -0.6916
+      condition_a_self_range_percentile: 0.0115
+      condition_b_metric: per_trailing
+      price_change_60d: -0.2589
+      condition_b_sigma_gap: -1.9456
+  - evidence_hit_id: candidate-2026-05-01-5410-cashflow-yield-discount
+    name: cashflow-yield-discount
+    playbook_id: cashflow-yield-discount
+    claim_id: 5410-cashflow-yield-discount
+    claim_type: cashflow-yield-discount
+    evidence_family_set:
+    - fundamental
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - cfo_yoy
+    - ocf_ttm
+    - ocf_yield
+    - ttm_quality
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: cashflow-yield-discount
+    reasons:
+    - ocf_yield_discount
+    metrics:
+      ocf_yield: 0.4335
+      ocf_ttm: 21429000000.0
+      cfo_yoy: 0.1197
+      ttm_quality: exact
+  independent_evidence_count: 2
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: per_trailing
+    condition_a_sector_median_gap: -0.6916
+    condition_a_self_range_percentile: 0.0115
+    condition_b_metric: per_trailing
+    price_change_60d: -0.2589
+    condition_b_sigma_gap: -1.9456
+  next_earnings_date: null
+  position_tier: 200-500
+- ticker: '3668'
+  name: コロプラ
+  sector_33: 情報・通信業
+  outlook_sector: supportive
+  market_cap_oku: 561
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-3668-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 3668-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    metrics:
+      condition_a_metric: ev_ebitda
+      condition_a_sector_median_gap: -0.6876
+      condition_a_self_range_percentile: 0.0845
+  independent_evidence_count: 1
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: ev_ebitda
+    condition_a_sector_median_gap: -0.6876
+    condition_a_self_range_percentile: 0.0845
+  next_earnings_date: '2026-05-07'
+  position_tier: 500-1000
+- ticker: '6425'
+  name: ユニバーサルエンターテインメント
+  sector_33: 機械
+  outlook_sector: supportive
+  market_cap_oku: 589
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-6425-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 6425-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    metrics:
+      condition_a_metric: pbr
+      condition_a_sector_median_gap: -0.6751
+      condition_a_self_range_percentile: 0.0297
+  - evidence_hit_id: candidate-2026-05-01-6425-cashflow-yield-discount
+    name: cashflow-yield-discount
+    playbook_id: cashflow-yield-discount
+    claim_id: 6425-cashflow-yield-discount
+    claim_type: cashflow-yield-discount
+    evidence_family_set:
+    - fundamental
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - cfo_yoy
+    - ocf_ttm
+    - ocf_yield
+    - ttm_quality
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: cashflow-yield-discount
+    reasons:
+    - ocf_yield_discount
+    metrics:
+      ocf_yield: 0.1878
+      ocf_ttm: 11053000000.0
+      cfo_yoy: 6.2813
+      ttm_quality: exact
+  independent_evidence_count: 2
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: pbr
+    condition_a_sector_median_gap: -0.6751
+    condition_a_self_range_percentile: 0.0297
+  next_earnings_date: null
+  position_tier: 500-1000
+- ticker: '3903'
+  name: ｇｕｍｉ
+  sector_33: 情報・通信業
+  outlook_sector: supportive
+  market_cap_oku: 172
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-3903-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 3903-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    metrics:
+      condition_a_metric: per_trailing
+      condition_a_sector_median_gap: -0.6405
+      condition_a_self_range_percentile: 0.1397
+  independent_evidence_count: 1
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: per_trailing
+    condition_a_sector_median_gap: -0.6405
+    condition_a_self_range_percentile: 0.1397
+  next_earnings_date: null
+  position_tier: 100-200
+- ticker: '3962'
+  name: チェンジホールディングス
+  sector_33: 情報・通信業
+  outlook_sector: supportive
+  market_cap_oku: 664
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-3962-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 3962-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    metrics:
+      condition_a_metric: per_trailing
+      condition_a_sector_median_gap: -0.6247
+      condition_a_self_range_percentile: 0.0415
+  - evidence_hit_id: candidate-2026-05-01-3962-sales-discount-growth
+    name: sales-discount-growth
+    playbook_id: sales-discount-growth
+    claim_id: 3962-sales-discount-growth
+    claim_type: sales-discount-growth
+    evidence_family_set:
+    - fundamental
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - ocf_ttm
+    - operating_profit
+    - operating_profit_loss_narrowing
+    - p_s
+    - ps_sector_gap
+    - sales_yoy
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: sales-discount-growth
+    reasons:
+    - ps_discount_with_sales_growth
+    metrics:
+      p_s: 1.2532
+      ps_sector_gap: -0.4449
+      sales_yoy: 0.1886
+      operating_profit: 10586000000.0
+      ocf_ttm: 12617000000.0
+      operating_profit_loss_narrowing: false
+  independent_evidence_count: 2
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: per_trailing
+    condition_a_sector_median_gap: -0.6247
+    condition_a_self_range_percentile: 0.0415
+  next_earnings_date: null
+  position_tier: 500-1000
+- ticker: '6412'
+  name: 平和
+  sector_33: 機械
+  outlook_sector: supportive
+  market_cap_oku: 1802
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-6412-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 6412-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    metrics:
+      condition_a_metric: per_trailing
+      condition_a_sector_median_gap: -0.5551
+      condition_a_self_range_percentile: 0.0
+  - evidence_hit_id: candidate-2026-05-01-6412-cashflow-yield-discount
+    name: cashflow-yield-discount
+    playbook_id: cashflow-yield-discount
+    claim_id: 6412-cashflow-yield-discount
+    claim_type: cashflow-yield-discount
+    evidence_family_set:
+    - fundamental
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - cfo_yoy
+    - ocf_ttm
+    - ocf_yield
+    - ttm_quality
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: cashflow-yield-discount
+    reasons:
+    - ocf_yield_discount
+    metrics:
+      ocf_yield: 0.2068
+      ocf_ttm: 37265000000.0
+      cfo_yoy: 0.53
+      ttm_quality: exact
+  - evidence_hit_id: candidate-2026-05-01-6412-sales-discount-growth
+    name: sales-discount-growth
+    playbook_id: sales-discount-growth
+    claim_id: 6412-sales-discount-growth
+    claim_type: sales-discount-growth
+    evidence_family_set:
+    - fundamental
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - ocf_ttm
+    - operating_profit
+    - operating_profit_loss_narrowing
+    - p_s
+    - ps_sector_gap
+    - sales_yoy
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: sales-discount-growth
+    reasons:
+    - ps_discount_with_sales_growth
+    metrics:
+      p_s: 0.7711
+      ps_sector_gap: -0.4446
+      sales_yoy: 0.7389
+      operating_profit: 42916000000.0
+      ocf_ttm: 37265000000.0
+      operating_profit_loss_narrowing: false
+  independent_evidence_count: 3
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: per_trailing
+    condition_a_sector_median_gap: -0.5551
+    condition_a_self_range_percentile: 0.0
+  next_earnings_date: null
+  position_tier: 1000+
+- ticker: '9629'
+  name: ピー・シー・エー
+  sector_33: 情報・通信業
+  outlook_sector: supportive
+  market_cap_oku: 290
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-9629-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 9629-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    - condition_b_metric
+    - condition_b_sigma_gap
+    - price_change_60d
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    - price_down_60d_and_valuation_sigma_down
+    metrics:
+      condition_a_metric: per_trailing
+      condition_a_sector_median_gap: -0.5362
+      condition_a_self_range_percentile: 0.1929
+      condition_b_metric: per_trailing
+      price_change_60d: -0.3198
+      condition_b_sigma_gap: -1.215
+  independent_evidence_count: 1
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: per_trailing
+    condition_a_sector_median_gap: -0.5362
+    condition_a_self_range_percentile: 0.1929
+    condition_b_metric: per_trailing
+    price_change_60d: -0.3198
+    condition_b_sigma_gap: -1.215
+  next_earnings_date: null
+  position_tier: 200-500
+- ticker: '4393'
+  name: バンク・オブ・イノベーション
+  sector_33: 情報・通信業
+  outlook_sector: supportive
+  market_cap_oku: 205
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-4393-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 4393-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    metrics:
+      condition_a_metric: ev_ebitda
+      condition_a_sector_median_gap: -0.5284
+      condition_a_self_range_percentile: 0.1744
+  independent_evidence_count: 1
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: ev_ebitda
+    condition_a_sector_median_gap: -0.5284
+    condition_a_self_range_percentile: 0.1744
+  next_earnings_date: null
+  position_tier: 200-500
+- ticker: '5244'
+  name: ｊｉｇ．ｊｐ
+  sector_33: 情報・通信業
+  outlook_sector: supportive
+  market_cap_oku: 109
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-5244-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 5244-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    metrics:
+      condition_a_metric: per_trailing
+      condition_a_sector_median_gap: -0.5234
+      condition_a_self_range_percentile: 0.1604
+  independent_evidence_count: 1
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: per_trailing
+    condition_a_sector_median_gap: -0.5234
+    condition_a_self_range_percentile: 0.1604
+  next_earnings_date: null
+  position_tier: 100-200
+- ticker: '5027'
+  name: ＡｎｙＭｉｎｄ　Ｇｒｏｕｐ
+  sector_33: 情報・通信業
+  outlook_sector: supportive
+  market_cap_oku: 235
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-5027-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 5027-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    metrics:
+      condition_a_metric: pbr
+      condition_a_sector_median_gap: -0.5167
+      condition_a_self_range_percentile: 0.0044
+  - evidence_hit_id: candidate-2026-05-01-5027-sales-discount-growth
+    name: sales-discount-growth
+    playbook_id: sales-discount-growth
+    claim_id: 5027-sales-discount-growth
+    claim_type: sales-discount-growth
+    evidence_family_set:
+    - fundamental
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - ocf_ttm
+    - operating_profit
+    - operating_profit_loss_narrowing
+    - p_s
+    - ps_sector_gap
+    - sales_yoy
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: sales-discount-growth
+    reasons:
+    - ps_discount_with_sales_growth
+    metrics:
+      p_s: 0.411
+      ps_sector_gap: -0.8179
+      sales_yoy: 0.1299
+      operating_profit: 1798000000.0
+      ocf_ttm: 268000000.0
+      operating_profit_loss_narrowing: false
+  independent_evidence_count: 2
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: pbr
+    condition_a_sector_median_gap: -0.5167
+    condition_a_self_range_percentile: 0.0044
+  next_earnings_date: null
+  position_tier: 200-500
+- ticker: '9416'
+  name: ビジョン
+  sector_33: 情報・通信業
+  outlook_sector: supportive
+  market_cap_oku: 558
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-9416-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 9416-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    metrics:
+      condition_a_metric: per_trailing
+      condition_a_sector_median_gap: -0.5091
+      condition_a_self_range_percentile: 0.1363
+  independent_evidence_count: 1
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: per_trailing
+    condition_a_sector_median_gap: -0.5091
+    condition_a_self_range_percentile: 0.1363
+  next_earnings_date: null
+  position_tier: 500-1000
+- ticker: '4449'
+  name: ギフティ
+  sector_33: 情報・通信業
+  outlook_sector: supportive
+  market_cap_oku: 343
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-4449-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 4449-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    metrics:
+      condition_a_metric: ev_ebitda
+      condition_a_sector_median_gap: -0.4226
+      condition_a_self_range_percentile: 0.1625
+  independent_evidence_count: 1
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: ev_ebitda
+    condition_a_sector_median_gap: -0.4226
+    condition_a_self_range_percentile: 0.1625
+  next_earnings_date: null
+  position_tier: 200-500
+- ticker: '6966'
+  name: 三井ハイテック
+  sector_33: 電気機器
+  outlook_sector: supportive
+  market_cap_oku: 1318
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-6966-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 6966-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    metrics:
+      condition_a_metric: pbr
+      condition_a_sector_median_gap: -0.4091
+      condition_a_self_range_percentile: 0.0958
+  - evidence_hit_id: candidate-2026-05-01-6966-cashflow-yield-discount
+    name: cashflow-yield-discount
+    playbook_id: cashflow-yield-discount
+    claim_id: 6966-cashflow-yield-discount
+    claim_type: cashflow-yield-discount
+    evidence_family_set:
+    - fundamental
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - cfo_yoy
+    - ocf_ttm
+    - ocf_yield
+    - ttm_quality
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: cashflow-yield-discount
+    reasons:
+    - ocf_yield_discount
+    metrics:
+      ocf_yield: 0.1831
+      ocf_ttm: 24135000000.0
+      cfo_yoy: -0.0096
+      ttm_quality: exact
+  independent_evidence_count: 2
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: pbr
+    condition_a_sector_median_gap: -0.4091
+    condition_a_self_range_percentile: 0.0958
+  next_earnings_date: null
+  position_tier: 1000+
+- ticker: '5032'
+  name: ＡＮＹＣＯＬＯＲ
+  sector_33: 情報・通信業
+  outlook_sector: supportive
+  market_cap_oku: 1708
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-5032-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 5032-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    metrics:
+      condition_a_metric: per_trailing
+      condition_a_sector_median_gap: -0.4022
+      condition_a_self_range_percentile: 0.1758
+  independent_evidence_count: 1
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: per_trailing
+    condition_a_sector_median_gap: -0.4022
+    condition_a_self_range_percentile: 0.1758
+  next_earnings_date: null
+  position_tier: 1000+
+- ticker: '4371'
+  name: コアコンセプト・テクノロジー
+  sector_33: 情報・通信業
+  outlook_sector: supportive
+  market_cap_oku: 234
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-4371-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 4371-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    metrics:
+      condition_a_metric: per_trailing
+      condition_a_sector_median_gap: -0.3888
+      condition_a_self_range_percentile: 0.1857
+  independent_evidence_count: 1
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: per_trailing
+    condition_a_sector_median_gap: -0.3888
+    condition_a_self_range_percentile: 0.1857
+  next_earnings_date: null
+  position_tier: 200-500
+- ticker: '3983'
+  name: オロ
+  sector_33: 情報・通信業
+  outlook_sector: supportive
+  market_cap_oku: 316
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-3983-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 3983-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    metrics:
+      condition_a_metric: per_trailing
+      condition_a_sector_median_gap: -0.3189
+      condition_a_self_range_percentile: 0.1367
+  independent_evidence_count: 1
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: per_trailing
+    condition_a_sector_median_gap: -0.3189
+    condition_a_self_range_percentile: 0.1367
+  next_earnings_date: null
+  position_tier: 200-500
+- ticker: '9474'
+  name: ゼンリン
+  sector_33: 情報・通信業
+  outlook_sector: supportive
+  market_cap_oku: 492
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-9474-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 9474-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    metrics:
+      condition_a_metric: per_trailing
+      condition_a_sector_median_gap: -0.3092
+      condition_a_self_range_percentile: 0.1283
+  independent_evidence_count: 1
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: per_trailing
+    condition_a_sector_median_gap: -0.3092
+    condition_a_self_range_percentile: 0.1283
+  next_earnings_date: null
+  position_tier: 200-500
+- ticker: '4165'
+  name: プレイド
+  sector_33: 情報・通信業
+  outlook_sector: supportive
+  market_cap_oku: 221
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-4165-valuation-reversion
+    name: valuation-reversion
+    playbook_id: valuation-reversion
+    claim_id: 4165-valuation-reversion
+    claim_type: valuation-reversion
+    evidence_family_set:
+    - market_derived
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - condition_a_metric
+    - condition_a_sector_median_gap
+    - condition_a_self_range_percentile
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: valuation-reversion
+    reasons:
+    - sector_median_discount_and_self_range_bottom
+    metrics:
+      condition_a_metric: ev_ebitda
+      condition_a_sector_median_gap: -0.2828
+      condition_a_self_range_percentile: 0.0361
+  independent_evidence_count: 1
+  freshness_warnings: []
+  selection_lane: valuation-reversion
+  selection_metrics:
+    condition_a_metric: ev_ebitda
+    condition_a_sector_median_gap: -0.2828
+    condition_a_self_range_percentile: 0.0361
+  next_earnings_date: null
+  position_tier: 200-500
+candidates:
+- ticker: '3632'
+  name: グリーホールディングス
+  sector_33: 情報・通信業
+  outlook_sector: supportive
+  market_cap_oku: 645
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-3632-strict-net-cash-discount
+    name: strict-net-cash-discount
+    playbook_id: strict-net-cash-discount
+    claim_id: 3632-strict-net-cash-discount
+    claim_type: strict-net-cash-discount
+    evidence_family_set:
+    - fundamental
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - cash
+    - debt
+    - edinet_document_type
+    - edinet_failure_reasons
+    - edinet_source_doc_id
+    - edinet_source_period_end
+    - edinet_source_period_start
+    - edinet_source_submit_datetime
+    - equity_ratio
+    - net_cash
+    - net_cash_to_market_cap
+    - operating_profit
+    - price_to_equity
+    - ttm_quality
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: strict-net-cash-discount
+    reasons:
+    - net_cash_to_market_cap_price_to_equity_and_equity_ratio
+    metrics:
+      net_cash: 34558000000.0
+      net_cash_to_market_cap: 0.5355
+      debt: 16700000000.0
+      cash: 51258000000.0
+      price_to_equity: 0.6908
+      equity_ratio: 0.7515
+      operating_profit: 1468000000.0
+      ttm_quality: approximated
+      edinet_source_doc_id: S100XJG7
+      edinet_document_type: '160'
+      edinet_source_submit_datetime: 2026-02-05 16:03
+      edinet_source_period_start: '2025-07-01'
+      edinet_source_period_end: '2026-06-30'
+      edinet_failure_reasons: null
+  - evidence_hit_id: candidate-2026-05-01-3632-cash-rich-asset-discount
+    name: cash-rich-asset-discount
+    playbook_id: cash-rich-asset-discount
+    claim_id: 3632-cash-rich-asset-discount
+    claim_type: cash-rich-asset-discount
+    evidence_family_set:
+    - fundamental
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - cash
+    - cash_to_market_cap
+    - debt
+    - equity_ratio
+    - net_cash_to_market_cap
+    - operating_profit
+    - price_to_equity
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: cash-rich-asset-discount
+    reasons:
+    - cash_to_market_cap_price_to_equity_and_equity_ratio
+    metrics:
+      cash_to_market_cap: 1.1293
+      net_cash_to_market_cap: 0.5355
+      debt: 16700000000.0
+      cash: 51258000000.0
+      price_to_equity: 0.6908
+      equity_ratio: 0.7515
+      operating_profit: 1468000000.0
+  independent_evidence_count: 2
+  freshness_warnings: []
+  selection_lane: strict-net-cash-discount
+  recommendation_lane: strict-net-cash-discount
+  selection_metrics:
+    net_cash: 34558000000.0
+    net_cash_to_market_cap: 0.5355
+    debt: 16700000000.0
+    cash: 51258000000.0
+    price_to_equity: 0.6908
+    equity_ratio: 0.7515
+    operating_profit: 1468000000.0
+    ttm_quality: approximated
+    edinet_source_doc_id: S100XJG7
+    edinet_document_type: '160'
+    edinet_source_submit_datetime: 2026-02-05 16:03
+    edinet_source_period_start: '2025-07-01'
+    edinet_source_period_end: '2026-06-30'
+    edinet_failure_reasons: null
+  next_earnings_date: null
+  position_tier: 500-1000
+- ticker: '6835'
+  name: アライドテレシスホールディングス
+  sector_33: 電気機器
+  outlook_sector: supportive
+  market_cap_oku: 275
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-6835-cashflow-yield-discount
+    name: cashflow-yield-discount
+    playbook_id: cashflow-yield-discount
+    claim_id: 6835-cashflow-yield-discount
+    claim_type: cashflow-yield-discount
+    evidence_family_set:
+    - fundamental
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - cfo_yoy
+    - ocf_ttm
+    - ocf_yield
+    - ttm_quality
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: cashflow-yield-discount
+    reasons:
+    - ocf_yield_discount
+    metrics:
+      ocf_yield: 0.2452
+      ocf_ttm: 6747000000.0
+      cfo_yoy: 0.1748
+      ttm_quality: exact
+  - evidence_hit_id: candidate-2026-05-01-6835-fcf-yield-discount
+    name: fcf-yield-discount
+    playbook_id: fcf-yield-discount
+    claim_id: 6835-fcf-yield-discount
+    claim_type: fcf-yield-discount
+    evidence_family_set:
+    - fundamental
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - capex_ttm
+    - cfo_yoy
+    - edinet_capex_source
+    - edinet_document_type
+    - edinet_failure_reasons
+    - edinet_ocf_ttm
+    - edinet_source_doc_id
+    - edinet_source_period_end
+    - edinet_source_period_start
+    - edinet_source_submit_datetime
+    - fcf_ttm
+    - fcf_yield
+    - ttm_quality
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: fcf-yield-discount
+    reasons:
+    - fcf_yield_discount
+    metrics:
+      fcf_yield: 0.2261
+      fcf_ttm: 6221259000.0
+      edinet_ocf_ttm: 6747143000.0
+      capex_ttm: 525884000.0
+      cfo_yoy: 0.1748
+      ttm_quality: exact
+      edinet_source_doc_id: S100XVFP
+      edinet_document_type: '120'
+      edinet_source_submit_datetime: 2026-03-30 15:01
+      edinet_source_period_start: '2025-01-01'
+      edinet_source_period_end: '2025-12-31'
+      edinet_capex_source: purchase_of_fixed_assets
+      edinet_failure_reasons: null
+  independent_evidence_count: 2
+  freshness_warnings: []
+  selection_lane: fcf-yield-discount
+  recommendation_lane: fcf-yield-discount
+  selection_metrics:
+    fcf_yield: 0.2261
+    fcf_ttm: 6221259000.0
+    edinet_ocf_ttm: 6747143000.0
+    capex_ttm: 525884000.0
+    cfo_yoy: 0.1748
+    ttm_quality: exact
+    edinet_source_doc_id: S100XVFP
+    edinet_document_type: '120'
+    edinet_source_submit_datetime: 2026-03-30 15:01
+    edinet_source_period_start: '2025-01-01'
+    edinet_source_period_end: '2025-12-31'
+    edinet_capex_source: purchase_of_fixed_assets
+    edinet_failure_reasons: null
+  next_earnings_date: null
+  position_tier: 200-500
+- ticker: '6932'
+  name: 遠藤照明
+  sector_33: 電気機器
+  outlook_sector: supportive
+  market_cap_oku: 379
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-6932-cash-rich-asset-discount
+    name: cash-rich-asset-discount
+    playbook_id: cash-rich-asset-discount
+    claim_id: 6932-cash-rich-asset-discount
+    claim_type: cash-rich-asset-discount
+    evidence_family_set:
+    - fundamental
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - cash
+    - cash_to_market_cap
+    - debt
+    - equity_ratio
+    - net_cash_to_market_cap
+    - operating_profit
+    - price_to_equity
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: cash-rich-asset-discount
+    reasons:
+    - cash_to_market_cap_price_to_equity_and_equity_ratio
+    metrics:
+      cash_to_market_cap: 0.6207
+      net_cash_to_market_cap: 0.1415
+      debt: 12122000000.0
+      cash: 17488000000.0
+      price_to_equity: 0.7579
+      equity_ratio: 0.6532
+      operating_profit: 5742000000.0
+  - evidence_hit_id: candidate-2026-05-01-6932-cashflow-yield-discount
+    name: cashflow-yield-discount
+    playbook_id: cashflow-yield-discount
+    claim_id: 6932-cashflow-yield-discount
+    claim_type: cashflow-yield-discount
+    evidence_family_set:
+    - fundamental
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - cfo_yoy
+    - ocf_ttm
+    - ocf_yield
+    - ttm_quality
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: cashflow-yield-discount
+    reasons:
+    - ocf_yield_discount
+    metrics:
+      ocf_yield: 0.2711
+      ocf_ttm: 10278000000.0
+      cfo_yoy: 2.5247
+      ttm_quality: exact
+  independent_evidence_count: 2
+  freshness_warnings: []
+  selection_lane: cash-rich-asset-discount
+  recommendation_lane: cash-rich-asset-discount
+  selection_metrics:
+    cash_to_market_cap: 0.6207
+    net_cash_to_market_cap: 0.1415
+    debt: 12122000000.0
+    cash: 17488000000.0
+    price_to_equity: 0.7579
+    equity_ratio: 0.6532
+    operating_profit: 5742000000.0
+  next_earnings_date: null
+  position_tier: 200-500
+- ticker: '6310'
+  name: 井関農機
+  sector_33: 機械
+  outlook_sector: supportive
+  market_cap_oku: 397
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-6310-cashflow-yield-discount
+    name: cashflow-yield-discount
+    playbook_id: cashflow-yield-discount
+    claim_id: 6310-cashflow-yield-discount
+    claim_type: cashflow-yield-discount
+    evidence_family_set:
+    - fundamental
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - cfo_yoy
+    - ocf_ttm
+    - ocf_yield
+    - ttm_quality
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: cashflow-yield-discount
+    reasons:
+    - ocf_yield_discount
+    metrics:
+      ocf_yield: 0.5912
+      ocf_ttm: 23456000000.0
+      cfo_yoy: 1.6579
+      ttm_quality: exact
+  - evidence_hit_id: candidate-2026-05-01-6310-sales-discount-growth
+    name: sales-discount-growth
+    playbook_id: sales-discount-growth
+    claim_id: 6310-sales-discount-growth
+    claim_type: sales-discount-growth
+    evidence_family_set:
+    - fundamental
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - ocf_ttm
+    - operating_profit
+    - operating_profit_loss_narrowing
+    - p_s
+    - ps_sector_gap
+    - sales_yoy
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: sales-discount-growth
+    reasons:
+    - ps_discount_with_sales_growth
+    metrics:
+      p_s: 0.2136
+      ps_sector_gap: -0.8462
+      sales_yoy: 0.103
+      operating_profit: 4225000000.0
+      ocf_ttm: 23456000000.0
+      operating_profit_loss_narrowing: false
+  independent_evidence_count: 2
+  freshness_warnings: []
+  selection_lane: cashflow-yield-discount
+  recommendation_lane: cashflow-yield-discount
+  selection_metrics:
+    ocf_yield: 0.5912
+    ocf_ttm: 23456000000.0
+    cfo_yoy: 1.6579
+    ttm_quality: exact
+  next_earnings_date: null
+  position_tier: 200-500
+- ticker: '5036'
+  name: 日本ビジネスシステムズ
+  sector_33: 情報・通信業
+  outlook_sector: supportive
+  market_cap_oku: 687
+  evidence_hits:
+  - evidence_hit_id: candidate-2026-05-01-5036-sales-discount-growth
+    name: sales-discount-growth
+    playbook_id: sales-discount-growth
+    claim_id: 5036-sales-discount-growth
+    claim_type: sales-discount-growth
+    evidence_family_set:
+    - fundamental
+    - valuation
+    evidence_polarity: supports
+    decision_role: sizing_evidence
+    source_metric_ids:
+    - ocf_ttm
+    - operating_profit
+    - operating_profit_loss_narrowing
+    - p_s
+    - ps_sector_gap
+    - sales_yoy
+    source_status: ok
+    sizing_eligible: true
+    freshness_dependency: financial_statement
+    independence_component_id: sales-discount-growth
+    reasons:
+    - ps_discount_with_sales_growth
+    metrics:
+      p_s: 0.3552
+      ps_sector_gap: -0.8427
+      sales_yoy: 0.7438
+      operating_profit: 2313000000.0
+      ocf_ttm: null
+      operating_profit_loss_narrowing: false
+  independent_evidence_count: 1
+  freshness_warnings: []
+  selection_lane: sales-discount-growth
+  recommendation_lane: sales-discount-growth
+  selection_metrics:
+    p_s: 0.3552
+    ps_sector_gap: -0.8427
+    sales_yoy: 0.7438
+    operating_profit: 2313000000.0
+    ocf_ttm: null
+    operating_profit_loss_narrowing: false
+  next_earnings_date: null
+  position_tier: 500-1000

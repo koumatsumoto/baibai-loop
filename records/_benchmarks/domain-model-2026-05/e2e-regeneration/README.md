@@ -39,6 +39,41 @@ Observed:
   `3632`, `6835`, `6932`, `6310`, `9470`.
 - `3678` is not recommended after freshness-aware sizing eligibility is applied.
 
+## 10-Run Parameter Sweep
+
+The sweep in [`runs.yaml`](./runs.yaml) executes candidates generation and
+research selection for ten parameter sets:
+
+1. Baseline policy.
+2. Higher liquidity threshold (`min_avg_turnover_oku: 3.0`).
+3. Lower market-cap floor (`min_market_cap_oku: 50`).
+4. Stricter sales growth (`sales_yoy_min: 0.10`).
+5. Looser sales valuation discount (`ps_sector_gap_max: -0.30`).
+6. Stricter operating cash-flow yield (`ocf_yield_min: 0.15`).
+7. Stricter free cash-flow yield (`fcf_yield_min: 0.12`).
+8. Deeper valuation reversion thresholds.
+9. Stricter net-cash / cash-rich thresholds.
+10. Sales-first research selection lane order with target max 8.
+
+Findings:
+
+- Candidate counts range from 243 to 390, so the screen responds materially to
+  liquidity, growth, and valuation thresholds.
+- `3678` is either absent under stricter liquidity or present with zero
+  sizing-eligible evidence; it is never selected. This is the desired behavior
+  for post-snapshot corporate-action risk.
+- `9682` and `9692` remain sizing-eligible candidates in the baseline, but are
+  not selected in the top research queue under the current 5/4 outlook and lane
+  ordering. In the full baseline rank they are around rank 111 and 103
+  respectively, which means the current process surfaces stronger candidates
+  before them.
+- The baseline selected research queue is `3632`, `6835`, `6932`, `6310`,
+  `9470`. Increasing target max and moving sales first changes ordering and
+  broadens the queue to 8 names.
+- Stricter `sales_yoy_min: 0.10` drops `9682` from the candidate set while
+  retaining `9692`. This confirms the sales-growth threshold is a high-impact
+  business knob and should be changed only with benchmark review.
+
 ## Raw Data Added
 
 - `records/_data/raw/screening/jquants/get_eq_bars_daily_range-end_dt-2026-05-06-start_dt-2026-04-25.json`
