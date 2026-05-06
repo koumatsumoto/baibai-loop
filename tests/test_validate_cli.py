@@ -200,6 +200,21 @@ def _make_research_text() -> str:
                 "ref_path": "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md",
                 "content_sha256": "sha256:" + "2" * 64,
             },
+            "policy_applicability": "active",
+            "calendars_snapshot": {
+                "business_days": {
+                    "ref_path": "records/_calendars/business-days/2026-05.yaml",
+                    "content_sha256": "sha256:" + "4" * 64,
+                },
+                "events": {
+                    "ref_path": "records/_calendars/events/2026-05.yaml",
+                    "content_sha256": "sha256:" + "5" * 64,
+                },
+                "corporate_actions": {
+                    "ref_path": "records/_calendars/corporate-actions/2026-05.yaml",
+                    "content_sha256": "sha256:" + "6" * 64,
+                },
+            },
             "portfolio_exposure_snapshot_ref": {
                 "ref_path": "records/_portfolio-exposure/2026/05/2026-05-05T133000+0900.yaml",
                 "content_sha256": "sha256:" + "3" * 64,
@@ -272,8 +287,8 @@ def _make_research_text() -> str:
                 "target_price_yen": 1200,
                 "stop_loss_yen": 900,
                 "expected_upside_pct": 20.0,
-                "expected_downside_pct": 11.11,
-                "risk_reward_ratio": 1.8,
+                "expected_downside_pct": 10.0,
+                "risk_reward_ratio": 2.0,
             },
             "valuation": {"per_trailing": 6.63},
         },
