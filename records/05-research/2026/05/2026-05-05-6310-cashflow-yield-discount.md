@@ -23,7 +23,7 @@ calendars_snapshot:
     content_sha256: sha256:5b1f2487807f590acdc5784ac2e84a851aa7264a03c1ffc3f84c5ebfbdcd761c
 portfolio_exposure_snapshot_ref:
   ref_path: records/_portfolio-exposure/2026/05/2026-05-05T203000+0900.yaml
-  content_sha256: sha256:50232ed102544c69f9279cf89370ddbdf9cd95ae34f3e0ecbea0089a91d89690
+  content_sha256: sha256:6c7bc24d8b753da299984cf647300b705e6f89e37266d10695b0c16efb534329
 selected_supporting_evidence_refs:
 - source: candidate
   evidence_hit_id: candidate-2026-05-01-6310-cashflow-yield-discount
