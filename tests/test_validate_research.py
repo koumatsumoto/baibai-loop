@@ -334,7 +334,7 @@ class ResearchValidationTests(unittest.TestCase):
                                     },
                                     {
                                         "evidence_hit_id": "eh-2",
-                                        "independence_component_id": "shared-component",
+                                        "independence_component_id": "unselected-component",
                                     },
                                 ],
                             }

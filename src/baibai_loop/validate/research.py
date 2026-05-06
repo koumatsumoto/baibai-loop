@@ -660,6 +660,7 @@ def _check_evidence_and_counts(
     effective_components = _effective_independence_components(
         path,
         front_matter,
+        selected if isinstance(selected, list) else [],
         decisions,
         research_hits if isinstance(research_hits, list) else [],
         findings,
@@ -994,17 +995,27 @@ def _is_repository_research_record(path: Path) -> bool:
 def _effective_independence_components(
     path: Path,
     front_matter: Mapping[str, object],
+    selected: Sequence[object],
     decisions: Sequence[object],
     research_hits: Sequence[object],
     findings: list[ValidationFinding],
 ) -> set[str]:
     candidate_components = _load_candidate_components(path, front_matter)
+    selected_ids = {
+        str(item.get("evidence_hit_id"))
+        for item in selected
+        if isinstance(item, Mapping)
+        and item.get("source") == "candidate"
+        and isinstance(item.get("evidence_hit_id"), str)
+    }
     components: set[str] = set()
     for index, item in enumerate(decisions):
         if not isinstance(item, Mapping) or item.get("effective_sizing_eligible") is not True:
             continue
         hit_id = item.get("evidence_hit_id")
         if not isinstance(hit_id, str) or not hit_id:
+            continue
+        if hit_id not in selected_ids:
             continue
         component = item.get("independence_component_id")
         if not isinstance(component, str) or not component:
