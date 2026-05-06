@@ -20,7 +20,7 @@ input_snapshots:
     content_sha256: sha256:4970c273616712bea3b3fb177f02d11eb2f2fa053920c7e227dd67b8cc88c8ad
   portfolio_exposure:
     ref_path: records/_portfolio-exposure/2026/05/2026-05-05T203000+0900.yaml
-    content_sha256: sha256:6c7bc24d8b753da299984cf647300b705e6f89e37266d10695b0c16efb534329
+    content_sha256: sha256:be31db90ae537045faac494e507a9e81851d623d768b642fecf822c655600be0
 playbook_snapshots:
 - playbook_id: sales-discount-growth
   ref_path: records/_playbooks/sales-discount-growth/2026-05-01T000000+0900.md

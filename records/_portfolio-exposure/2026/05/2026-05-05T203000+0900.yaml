@@ -11,7 +11,7 @@ source_trade_refs:
 - ref_path: records/06-trades/2026/05/2026-05-05-9682.md
   content_sha256: sha256:d5c840e544f8f6284b4e16a07e2d2f854e3fb1b5cdd0fa9d527e212986f24283
 - ref_path: records/06-trades/2026/05/2026-05-05-9692.md
-  content_sha256: sha256:dd77fa7b5c69ebd4e4815ae111faca3124496cea32ca158766f37a7b090c39b3
+  content_sha256: sha256:c826ee424e8914c58597f77cb167977a1badebc471aa1fc2c06825dfa1278ac8
 source_broker_snapshot_refs: []
 positions: []
 exposures: []

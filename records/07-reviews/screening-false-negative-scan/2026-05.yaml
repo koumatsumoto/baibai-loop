@@ -16,7 +16,7 @@ items:
     screen_run_id: screening-20260501-b2e37953
     candidate_id: candidate-2026-05-01-1301
     ticker: '1301'
-  decision_event_id: decision-20260531-1301-not-reviewed
+  decision_event_id: decision-screening-20260501-b2e37953-1301-not-reviewed
   classification: unreviewed_hit_control
   start_price_basis: candidate_run_close_adjusted_close
   flagged_at: '2026-05-31T00:00:00+09:00'
