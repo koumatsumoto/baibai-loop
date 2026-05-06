@@ -45024,7 +45024,7 @@ screening_rules_snapshot:
   effective_from: '2026-05-01T00:00:00+09:00'
 metric_catalog_snapshot:
   ref_path: records/_config/metric-catalog/2026-05-01T000000+0900.yaml
-  content_sha256: sha256:b6343ec04b076956cd89ddb6b2509957e7812dfc66208360da5d1050d1720657
+  content_sha256: sha256:885c23bfdcbed68f538aca3401b92dc8838d1d6f21c49e36e9c55c295a975206
   effective_from: '2026-05-01T00:00:00+09:00'
 policy_snapshot:
   ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md

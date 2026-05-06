@@ -383,6 +383,114 @@ class ResearchValidationTests(unittest.TestCase):
 
         self.assertIn("research.independent-evidence-count", codes)
 
+    def test_corporate_action_invalidation_uses_metric_catalog_rules(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            catalog_path = root / "records/_config/metric-catalog/2026-05-01T000000+0900.yaml"
+            catalog_path.parent.mkdir(parents=True)
+            catalog_path.write_text(
+                yaml.safe_dump(
+                    {
+                        "metrics": [
+                            {
+                                "metric_id": "p_s",
+                                "event_invalidation_rules": [
+                                    {"corporate_action_kind": "merger"}
+                                ],
+                            }
+                        ]
+                    },
+                    allow_unicode=True,
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+            candidates_path = root / "records/04-candidates/2026/05/2026-05-01.yaml"
+            candidates_path.parent.mkdir(parents=True)
+            candidates_path.write_text(
+                yaml.safe_dump(
+                    {
+                        "metric_catalog_snapshot": {
+                            "ref_path": str(catalog_path.relative_to(root)),
+                            "content_sha256": _DIGEST,
+                        },
+                        "candidates": [
+                            {
+                                "ticker": "2767",
+                                "candidate_id": "candidate-screening-20260501-1234abcd-2767",
+                                "evidence_hits": [
+                                    {
+                                        "evidence_hit_id": "eh-1",
+                                        "source_metric_ids": ["p_s"],
+                                        "independence_component_id": "component-1",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    allow_unicode=True,
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+            calendar_path = root / "records/_calendars/corporate-actions/2026-05.yaml"
+            calendar_path.parent.mkdir(parents=True)
+            calendar_path.write_text(
+                yaml.safe_dump(
+                    {
+                        "covered_from": "2026-05-01",
+                        "covered_until": "2026-05-31",
+                        "last_refreshed_at": "2026-05-05T00:00:00+09:00",
+                        "source_status": "ok",
+                        "events": [
+                            {
+                                "ticker": "2767",
+                                "corporate_action_kind": "split",
+                                "invalidates_metrics": ["p_s"],
+                            }
+                        ],
+                    },
+                    allow_unicode=True,
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+            front = _minimal_research_front_matter()
+            front["candidate_evidence_decisions"] = [
+                {
+                    "evidence_hit_id": "eh-1",
+                    "effective_sizing_eligible": False,
+                    "evaluated_at": "2026-05-05T20:00:00+09:00",
+                    "reason_code": "corporate_action_post_snapshot",
+                    "corporate_action_kind": "split",
+                    "invalidated_metric_ids": ["p_s"],
+                }
+            ]
+            front["research_decision"] = {
+                "outcome": "rejected",
+                "posture": "dropped",
+                "rejection_reason": "corporate_action_post_snapshot",
+            }
+            front["independent_evidence_count"] = 0
+            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
+            research_path.parent.mkdir(parents=True)
+            research_path.write_text(
+                "---\n"
+                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
+                + "---\n"
+                + _DEFAULT_BODY,
+                encoding="utf-8",
+            )
+
+            codes = {
+                finding.code
+                for finding in validate_research_file(
+                    research_path, playbooks_root=ROOT / "records/_playbooks"
+                )
+            }
+
+        self.assertIn("research.corporate-action-catalog-mismatch", codes)
+
     def test_repository_research_requires_existing_candidate_ref(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

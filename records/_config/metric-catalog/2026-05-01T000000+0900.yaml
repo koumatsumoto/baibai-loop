@@ -7,18 +7,133 @@ metrics:
   source_snapshot_group: market-and-sales
   freshness_dependency: financial_statement
   max_valid_days: 220
+  event_invalidation_rules:
+  - corporate_action_kind: merger
+    rationale: business combination can change the revenue base and market-cap reference
+  - corporate_action_kind: rights_issue
+    rationale: material new equity issuance changes market-cap and per-share reference
+- metric_id: ps_sector_gap
+  evidence_family: valuation
+  economic_exposure_group: sales-valuation
+  source_snapshot_group: market-and-sales
+  freshness_dependency: financial_statement
+  max_valid_days: 220
+  event_invalidation_rules:
+  - corporate_action_kind: merger
+    rationale: business combination can change the revenue base and market-cap reference
+  - corporate_action_kind: rights_issue
+    rationale: material new equity issuance changes market-cap and per-share reference
+- metric_id: condition_a_metric
+  evidence_family: valuation
+  economic_exposure_group: valuation-reversion
+  source_snapshot_group: market-and-financial-statement
+  freshness_dependency: financial_statement
+  max_valid_days: 220
+  event_invalidation_rules:
+  - corporate_action_kind: merger
+    rationale: business combination invalidates the pre-event valuation setup
+- metric_id: condition_b_metric
+  evidence_family: valuation
+  economic_exposure_group: valuation-reversion
+  source_snapshot_group: market-and-financial-statement
+  freshness_dependency: financial_statement
+  max_valid_days: 220
+  event_invalidation_rules:
+  - corporate_action_kind: merger
+    rationale: business combination invalidates the pre-event valuation setup
 - metric_id: sales_yoy
   evidence_family: fundamental
   economic_exposure_group: sales-growth
   source_snapshot_group: financial-statement
   freshness_dependency: financial_statement
   max_valid_days: 220
+  event_invalidation_rules:
+  - corporate_action_kind: merger
+    rationale: business combination can change the sales base
 - metric_id: net_cash_to_market_cap
   evidence_family: fundamental
   economic_exposure_group: balance-sheet-cash
   source_snapshot_group: balance-sheet
   freshness_dependency: balance_sheet
   max_valid_days: 120
+  event_invalidation_rules:
+  - corporate_action_kind: merger
+    rationale: acquisition changes cash, debt, and enterprise balance sheet economics
+  - corporate_action_kind: rights_issue
+    rationale: equity issuance changes market capitalization and cash basis
+- metric_id: net_cash
+  evidence_family: fundamental
+  economic_exposure_group: balance-sheet-cash
+  source_snapshot_group: balance-sheet
+  freshness_dependency: balance_sheet
+  max_valid_days: 120
+  event_invalidation_rules:
+  - corporate_action_kind: merger
+    rationale: acquisition changes cash, debt, and enterprise balance sheet economics
+  - corporate_action_kind: rights_issue
+    rationale: equity issuance changes cash basis
+- metric_id: cash_to_market_cap
+  evidence_family: fundamental
+  economic_exposure_group: balance-sheet-cash
+  source_snapshot_group: balance-sheet
+  freshness_dependency: balance_sheet
+  max_valid_days: 120
+  event_invalidation_rules:
+  - corporate_action_kind: merger
+    rationale: acquisition changes cash and enterprise balance sheet economics
+  - corporate_action_kind: rights_issue
+    rationale: equity issuance changes market capitalization and cash basis
+- metric_id: cash
+  evidence_family: fundamental
+  economic_exposure_group: balance-sheet-cash
+  source_snapshot_group: balance-sheet
+  freshness_dependency: balance_sheet
+  max_valid_days: 120
+  event_invalidation_rules:
+  - corporate_action_kind: merger
+    rationale: acquisition changes cash balance
+  - corporate_action_kind: rights_issue
+    rationale: equity issuance changes cash balance
+- metric_id: debt
+  evidence_family: fundamental
+  economic_exposure_group: balance-sheet-cash
+  source_snapshot_group: balance-sheet
+  freshness_dependency: balance_sheet
+  max_valid_days: 120
+  event_invalidation_rules:
+  - corporate_action_kind: merger
+    rationale: acquisition changes debt balance
+- metric_id: equity_ratio
+  evidence_family: fundamental
+  economic_exposure_group: balance-sheet-cash
+  source_snapshot_group: balance-sheet
+  freshness_dependency: balance_sheet
+  max_valid_days: 120
+  event_invalidation_rules:
+  - corporate_action_kind: merger
+    rationale: acquisition changes balance-sheet structure
+  - corporate_action_kind: rights_issue
+    rationale: equity issuance changes capital structure
+- metric_id: operating_profit
+  evidence_family: fundamental
+  economic_exposure_group: sales-growth
+  source_snapshot_group: financial-statement
+  freshness_dependency: financial_statement
+  max_valid_days: 220
+  event_invalidation_rules:
+  - corporate_action_kind: merger
+    rationale: acquisition changes profit base and integration economics
+- metric_id: price_to_equity
+  evidence_family: fundamental
+  economic_exposure_group: balance-sheet-cash
+  source_snapshot_group: balance-sheet
+  freshness_dependency: balance_sheet
+  max_valid_days: 120
+  event_invalidation_rules:
+  - corporate_action_kind: merger
+    rationale: acquisition changes balance-sheet and market-cap reference
+  - corporate_action_kind: rights_issue
+    rationale: equity issuance changes capital structure and market-cap reference
 - metric_id: ocf_yield
   evidence_family: fundamental
   economic_exposure_group: cashflow-yield

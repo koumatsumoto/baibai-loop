@@ -1414,6 +1414,7 @@ def _check_corporate_action_invalidation(
     findings: list[ValidationFinding] = []
     root = repo_root_for(path)
     calendars = _load_corporate_action_events(root)
+    catalog_rules = _load_metric_event_invalidation_rules(path, front_matter)
     candidate_ref = as_mapping(front_matter.get("candidate_ref"))
     ticker = str(candidate_ref.get("ticker") or front_matter.get("ticker") or "")
     ticker_events = [event for event in calendars if event.get("ticker") == ticker]
@@ -1483,6 +1484,26 @@ def _check_corporate_action_invalidation(
                     location=f"candidate_evidence_decisions[{index}].invalidated_metric_ids",
                 )
             )
+        if catalog_rules:
+            invalidated_set = {str(metric) for metric in invalidated}
+            disallowed = sorted(
+                metric
+                for metric in invalidated_set
+                if kind not in catalog_rules.get(metric, set())
+            )
+            if disallowed:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="research.corporate-action-catalog-mismatch",
+                        message=(
+                            "invalidated_metric_ids must be allowed by metric catalog "
+                            f"event_invalidation_rules for {kind}: {', '.join(disallowed)}"
+                        ),
+                        location=f"candidate_evidence_decisions[{index}].invalidated_metric_ids",
+                    )
+                )
         event_metrics = {
             str(metric)
             for event in matching_events
@@ -1501,6 +1522,55 @@ def _check_corporate_action_invalidation(
                 )
             )
     return findings
+
+
+def _load_metric_event_invalidation_rules(
+    path: Path, front_matter: Mapping[str, object]
+) -> dict[str, set[str]]:
+    document = _load_candidate_document(path, front_matter)
+    if not document:
+        return {}
+    root = repo_root_for(path)
+    try:
+        _catalog_path, catalog = load_snapshot_mapping(root, document.get("metric_catalog_snapshot"))
+    except (OSError, ValueError, yaml.YAMLError):
+        return {}
+    rules: dict[str, set[str]] = {}
+    for metric in as_list(catalog.get("metrics")):
+        if not isinstance(metric, Mapping):
+            continue
+        metric_id = metric.get("metric_id")
+        if not isinstance(metric_id, str) or not metric_id:
+            continue
+        metric_rules = rules.setdefault(metric_id, set())
+        for rule in as_list(metric.get("event_invalidation_rules")):
+            if not isinstance(rule, Mapping):
+                continue
+            kind = rule.get("corporate_action_kind") or rule.get("kind")
+            if isinstance(kind, str) and kind:
+                metric_rules.add(kind)
+    return rules
+
+
+def _load_candidate_document(
+    path: Path, front_matter: Mapping[str, object]
+) -> Mapping[str, Any] | None:
+    candidate_ref = front_matter.get("candidate_ref")
+    ref_value: object = (
+        candidate_ref.get("candidates_ref") if isinstance(candidate_ref, Mapping) else None
+    )
+    if not isinstance(ref_value, str):
+        ref_value = front_matter.get("candidates_ref")
+    if not isinstance(ref_value, str) or not ref_value:
+        return None
+    candidate_path = _resolve_record_ref(path, ref_value)
+    if candidate_path is None:
+        return None
+    try:
+        loaded: object = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return None
+    return loaded if isinstance(loaded, Mapping) else None
 
 
 def _load_corporate_action_events(root: Path) -> list[Mapping[str, Any]]:
