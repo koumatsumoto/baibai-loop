@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -19,6 +20,7 @@ _REQUIRED_FIXTURE_IDS = {
     "e2e-research-selection-baseline",
     "e2e-liquidity-sensitive-selection",
     "e2e-sales-first-selection",
+    "e2e-current-research-strategy",
 }
 _DOMAIN_FIXTURE_CONTRACTS: dict[str, Mapping[str, object]] = {
     "screening-raw-output-anchors": {
@@ -82,6 +84,25 @@ _DOMAIN_FIXTURE_CONTRACTS: dict[str, Mapping[str, object]] = {
         "expected": {
             "run_id": "run-10-sales-first-selection",
             "screening_status": "partial_quality_warning",
+        },
+    },
+    "e2e-current-research-strategy": {
+        "layer_id": "L3a",
+        "fixture_binding": {
+            "runs_ref": "records/_benchmarks/domain-model-2026-05/e2e-regeneration/runs.yaml"
+        },
+        "expected": {
+            "current_strategy": {
+                "baseline_core_tickers": ["3632", "6835", "6932", "6310", "9470"],
+                "liquidity_complement_tickers": ["5423", "6266", "6143", "5410", "6817"],
+                "exploration_tickers": ["6619", "6753"],
+                "order_ready_tickers": [],
+                "evidence_count_one_requires_research_before_order": True,
+            },
+            "selected_research_coverage": {
+                "run_id": "run-01-baseline",
+                "ledger_ref": "records/_ledger/research-decisions/2026-05.jsonl",
+            },
         },
     },
 }
@@ -727,6 +748,16 @@ def _check_runs_expected(
                 f"fixtures[{index}].expected.run_id",
             )
         ]
+    strategy_expected = expected.get("current_strategy")
+    if isinstance(strategy_expected, Mapping):
+        findings.extend(
+            _check_current_strategy_expected(path, index, runs_document, strategy_expected)
+        )
+    coverage_expected = expected.get("selected_research_coverage")
+    if isinstance(coverage_expected, Mapping):
+        findings.extend(
+            _check_selected_research_coverage(path, index, runs_document, coverage_expected)
+        )
     if run is None:
         return findings
     if (
@@ -754,6 +785,106 @@ def _check_runs_expected(
             )
         )
     return findings
+
+
+def _check_current_strategy_expected(
+    path: Path,
+    index: int,
+    runs_document: Mapping[str, object],
+    expected: Mapping[str, object],
+) -> list[ValidationFinding]:
+    strategy = runs_document.get("current_research_strategy")
+    if not isinstance(strategy, Mapping):
+        return [
+            _finding(
+                path,
+                "benchmark.expected-current-strategy",
+                "runs document must contain current_research_strategy",
+                f"fixtures[{index}].expected.current_strategy",
+            )
+        ]
+    checks = {
+        "baseline_core_tickers": _nested_value(strategy, ("baseline_core", "tickers")),
+        "liquidity_complement_tickers": _nested_value(
+            strategy, ("liquidity_complement", "tickers")
+        ),
+        "exploration_tickers": _nested_value(strategy, ("exploration", "tickers")),
+        "order_ready_tickers": strategy.get("order_ready_tickers", []),
+        "evidence_count_one_requires_research_before_order": _nested_value(
+            strategy,
+            (
+                "allocation_guardrails",
+                "evidence_count_one_requires_research_before_order",
+            ),
+        ),
+    }
+    findings: list[ValidationFinding] = []
+    for field, actual in checks.items():
+        if field in expected and actual != expected[field]:
+            findings.append(
+                _finding(
+                    path,
+                    f"benchmark.expected-current-strategy-{field.replace('_', '-')}",
+                    f"current_research_strategy.{field} mismatch",
+                    f"fixtures[{index}].expected.current_strategy.{field}",
+                )
+            )
+    return findings
+
+
+def _check_selected_research_coverage(
+    path: Path,
+    index: int,
+    runs_document: Mapping[str, object],
+    expected: Mapping[str, object],
+) -> list[ValidationFinding]:
+    run = _e2e_run(runs_document, expected.get("run_id"))
+    if not isinstance(run, Mapping):
+        return []
+    selected = [str(ticker) for ticker in as_list(run.get("selected_tickers"))]
+    ledger_ref = expected.get("ledger_ref")
+    if not isinstance(ledger_ref, str):
+        return []
+    ledger_path = resolve_ref(_repo_root(path), ledger_ref)
+    records = _load_decision_register_rows(ledger_path)
+    covered = {
+        str(record.get("ticker"))
+        for record in records
+        if record.get("decision_scope") in {"research_memo", "candidate_screen"}
+        and (
+            record.get("research_ref")
+            or record.get("candidate_decision") == "not_reviewed"
+        )
+    }
+    missing = [ticker for ticker in selected if ticker not in covered]
+    if not missing:
+        return []
+    return [
+        _finding(
+            path,
+            "benchmark.expected-selected-research-coverage",
+            f"selected tickers lack research_memo or not_reviewed anchor: {', '.join(missing)}",
+            f"fixtures[{index}].expected.selected_research_coverage",
+        )
+    ]
+
+
+def _load_decision_register_rows(path: Path) -> list[Mapping[str, object]]:
+    rows: list[Mapping[str, object]] = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return rows
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, Mapping):
+            rows.append(payload)
+    return rows
 
 
 def _e2e_run(

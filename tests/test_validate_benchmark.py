@@ -216,6 +216,86 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
 
         self.assertIn("benchmark.expected-selected-tickers", {finding.code for finding in findings})
 
+    def test_rejects_current_strategy_bucket_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            runs = root / "records/_benchmarks/domain-model/e2e/runs.yaml"
+            runs.parent.mkdir(parents=True, exist_ok=True)
+            runs.write_text(
+                "current_research_strategy:\n"
+                "  baseline_core:\n"
+                "    tickers: ['1111']\n"
+                "  liquidity_complement:\n"
+                "    tickers: []\n"
+                "  exploration:\n"
+                "    tickers: []\n"
+                "  order_ready_tickers: []\n"
+                "  allocation_guardrails:\n"
+                "    evidence_count_one_requires_research_before_order: true\n"
+                "runs:\n"
+                "- run_id: run-01-baseline\n"
+                "  screening_status: partial_quality_warning\n"
+                "  selected_tickers: ['1111']\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    runs_ref="records/_benchmarks/domain-model/e2e/runs.yaml",
+                    expected={"current_strategy": {"baseline_core_tickers": ["2222"]}},
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn(
+            "benchmark.expected-current-strategy-baseline-core-tickers",
+            {finding.code for finding in findings},
+        )
+
+    def test_rejects_selected_ticker_without_research_or_anchor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            runs = root / "records/_benchmarks/domain-model/e2e/runs.yaml"
+            runs.parent.mkdir(parents=True, exist_ok=True)
+            runs.write_text(
+                "runs:\n"
+                "- run_id: run-01-baseline\n"
+                "  screening_status: partial_quality_warning\n"
+                "  selected_tickers: ['1111', '2222']\n",
+                encoding="utf-8",
+            )
+            ledger = root / "records/_ledger/research-decisions/2026-05.jsonl"
+            ledger.parent.mkdir(parents=True, exist_ok=True)
+            ledger.write_text(
+                '{"ticker":"1111","decision_scope":"candidate_screen",'
+                '"candidate_decision":"not_reviewed"}\n',
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    runs_ref="records/_benchmarks/domain-model/e2e/runs.yaml",
+                    expected={
+                        "selected_research_coverage": {
+                            "run_id": "run-01-baseline",
+                            "ledger_ref": "records/_ledger/research-decisions/2026-05.jsonl",
+                        }
+                    },
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn(
+            "benchmark.expected-selected-research-coverage",
+            {finding.code for finding in findings},
+        )
+
 
 def _manifest() -> str:
     return (

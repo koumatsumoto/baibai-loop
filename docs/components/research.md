@@ -22,6 +22,8 @@ Baibai-Loop の **research / investment memo** の運用仕様。candidates × o
 
 候補は一度の selection で 3-5 銘柄までに絞る。複数 playbook hit は優先度を上げる材料だが、sizing count には `effective_sizing_eligible` と `independence_component_id` の再評価後の値だけを使う。
 
+`screening_selected` は research triage queue であり、採用判断ではない。`research_memo` は個別 investment memo が存在する状態、`research_approved` は `research_decision.outcome: approved`、`order_ready` は approved research と有効な order intent がそろった状態を指す。現在の投資方針は E2E regeneration の selected queue を正本にし、baseline で安定して出る 5 銘柄を core、liquidity stress で出る候補を execution-feasibility complement、sales-first でのみ増える single-evidence 候補を小さい exploration sleeve として扱う。evidence count 1 の候補は、反証 evidence と payoff を research で確認するまで大きく張らない。
+
 ## 3. Path と命名
 
 ```

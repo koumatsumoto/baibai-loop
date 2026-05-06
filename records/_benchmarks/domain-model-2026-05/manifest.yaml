@@ -20,7 +20,7 @@ input_snapshots:
     content_sha256: sha256:4970c273616712bea3b3fb177f02d11eb2f2fa053920c7e227dd67b8cc88c8ad
   portfolio_exposure:
     ref_path: records/_portfolio-exposure/2026/05/2026-05-05T203000+0900.yaml
-    content_sha256: sha256:be31db90ae537045faac494e507a9e81851d623d768b642fecf822c655600be0
+    content_sha256: sha256:fe16419b85c5a1c29dff609beb06643e87cb6a208ea2581ffebd31e481bc428a
 playbook_snapshots:
 - playbook_id: sales-discount-growth
   ref_path: records/_playbooks/sales-discount-growth/2026-05-01T000000+0900.md
@@ -102,6 +102,32 @@ fixtures:
     - '6619'
     - '6753'
     - '5410'
+- fixture_id: e2e-current-research-strategy
+  layer_id: L3a
+  fixture_binding:
+    runs_ref: records/_benchmarks/domain-model-2026-05/e2e-regeneration/runs.yaml
+  expected:
+    current_strategy:
+      baseline_core_tickers:
+      - '3632'
+      - '6835'
+      - '6932'
+      - '6310'
+      - '9470'
+      liquidity_complement_tickers:
+      - '5423'
+      - '6266'
+      - '6143'
+      - '5410'
+      - '6817'
+      exploration_tickers:
+      - '6619'
+      - '6753'
+      order_ready_tickers: []
+      evidence_count_one_requires_research_before_order: true
+    selected_research_coverage:
+      run_id: run-01-baseline
+      ledger_ref: records/_ledger/research-decisions/2026-05.jsonl
 - fixture_id: unreviewed-hit-anchor
   layer_id: L5
   fixture_binding:

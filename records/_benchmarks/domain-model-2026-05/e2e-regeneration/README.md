@@ -74,6 +74,25 @@ Findings:
   `6310`, `6835`, `3632`, `6932`, `6619`, `6753`, `5410`. This is the primary
   current-state candidate pool for research diversification.
 
+## Current Research Strategy
+
+`selected_tickers` means the `baibai-loop-screening select` research triage queue.
+It is not a raw candidates row flag and it is not equivalent to research approval
+or order readiness.
+
+- Core research queue: `3632`, `6835`, `6932`, `6310`, `9470`.
+- Liquidity complement: `5423`, `6266`, `6143`, `5410`, `6817`.
+- Growth-discount exploration sleeve: `6619`, `6753`; `5410` is promoted to a
+  higher-priority complement because it appears in both the liquidity-stress and
+  sales-first runs.
+- Evidence-count-one names stay small until an investment memo confirms
+  disconfirming evidence and payoff. The current strategy caps first orders for
+  this sleeve at 75,000 yen and requires research confirmation before order
+  readiness.
+- Current order-ready queue is empty. Past order intents are not preserved as a
+  control; fresh research is required before changing from selected/research
+  queue to order-ready.
+
 ## Raw Data Added
 
 - `records/_data/raw/screening/jquants/get_eq_bars_daily_range-end_dt-2026-05-06-start_dt-2026-04-25.json`

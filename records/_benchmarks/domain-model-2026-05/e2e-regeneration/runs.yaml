@@ -1,5 +1,63 @@
 as_of_requested: '2026-05-06'
 effective_asof: '2026-05-01'
+selected_queue_semantics:
+  screening_selected: ticker list emitted by `baibai-loop-screening select`; this is
+    a research triage queue, not a raw candidates row flag.
+  baseline_core: stable tickers selected by the baseline run and repeated across
+    most parameter sweeps.
+  liquidity_complement: tickers selected only when liquidity thresholds are raised;
+    these improve execution feasibility but do not displace baseline core without
+    research confirmation.
+  exploration: sales-first or single-evidence names used to probe growth-discount
+    opportunity; they remain small until disconfirming evidence and payoff are
+    confirmed in research.
+  research_memo: an investment memo exists under records/05-research.
+  order_ready: approved research plus a valid order intent. The current queue has no
+    order-ready ticker before fresh research confirmation.
+current_research_strategy:
+  source: e2e_selected_queue
+  effective_asof: '2026-05-01'
+  order_ready_tickers: []
+  baseline_core:
+    source_run_id: run-01-baseline
+    tickers:
+    - '3632'
+    - '6835'
+    - '6932'
+    - '6310'
+    - '9470'
+    role: core research queue
+  liquidity_complement:
+    source_run_id: run-02-liquidity-3oku
+    tickers:
+    - '5423'
+    - '6266'
+    - '6143'
+    - '5410'
+    - '6817'
+    role: execution feasibility complement
+  exploration:
+    source_run_id: run-10-sales-first-selection
+    tickers:
+    - '6619'
+    - '6753'
+    role: small growth-discount exploration sleeve
+    max_initial_real_order_notional_yen: 75000
+    requires_disconfirming_evidence: true
+    requires_payoff_confirmation: true
+  promoted_from_exploration:
+    tickers:
+    - '5410'
+    reason: selected by liquidity stress and sales-first runs
+  allocation_guardrails:
+    tactical_budget_deployable_pct: 75.0
+    reserve_pct: 25.0
+    max_core_ticker_pct: 12.0
+    max_liquidity_complement_ticker_pct: 6.0
+    max_exploration_ticker_pct: 3.0
+    evidence_count_one_requires_research_before_order: true
+  coverage_rule: each baseline_core ticker must have a research_memo decision or a
+    candidate_screen not_reviewed anchor.
 runs:
 - run_id: run-01-baseline
   changes: {}

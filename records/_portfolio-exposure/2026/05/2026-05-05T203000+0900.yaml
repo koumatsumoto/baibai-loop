@@ -1,40 +1,18 @@
 snapshot_id: portfolio-exposure-20260505-203000
 as_of: '2026-05-05T20:30:00+09:00'
-source_decision_register_refs:
-- ref_path: records/_ledger/research-decisions/2026-05.jsonl
-  decision_event_id: decision-20260505-9682-trade
-  row_sha256: sha256:e3d22e751471b8668b77bc82b79f364809f8d28a319699f6f94d6d74281c1c4a
-- ref_path: records/_ledger/research-decisions/2026-05.jsonl
-  decision_event_id: decision-20260505-9692-trade
-  row_sha256: sha256:b10e88f37345fc35202e0f4ed61d2f66141412ae1093b20668ce5789f5ce07c0
-source_trade_refs:
-- ref_path: records/06-trades/2026/05/2026-05-05-9682.md
-  content_sha256: sha256:d5c840e544f8f6284b4e16a07e2d2f854e3fb1b5cdd0fa9d527e212986f24283
-- ref_path: records/06-trades/2026/05/2026-05-05-9692.md
-  content_sha256: sha256:c826ee424e8914c58597f77cb167977a1badebc471aa1fc2c06825dfa1278ac8
+source_decision_register_refs: []
+source_trade_refs: []
 source_broker_snapshot_refs: []
 positions: []
 exposures: []
-outstanding_orders:
-- origin_order_intent_id: intent-20260505-9682-buy
-  ticker: '9682'
-  side: buy
-  guarded_notional_yen: 210000
-  playbook_id: sales-discount-growth
-  economic_exposure_group: sales-discount-growth
-- origin_order_intent_id: intent-20260505-9692-buy
-  ticker: '9692'
-  side: buy
-  guarded_notional_yen: 200000
-  playbook_id: sales-discount-growth
-  economic_exposure_group: sales-discount-growth
+outstanding_orders: []
 tactical_real_budget_yen: 1000000
-remaining_tactical_real_budget_yen: 590000
+remaining_tactical_real_budget_yen: 1000000
 ticker_paper_proxy_cap_remaining_yen: 2000000
 sector_paper_proxy_cap_remaining_yen: 100000000
 playbook_paper_proxy_cap_remaining_yen: 100000000
 economic_exposure_paper_proxy_cap_remaining_yen: 100000000
 ticker_real_cap_remaining_yen: 400000
-sector_real_cap_remaining_yen: 1840000
-playbook_real_cap_remaining_yen: 1340000
-economic_exposure_real_cap_remaining_yen: 1590000
+sector_real_cap_remaining_yen: 2250000
+playbook_real_cap_remaining_yen: 1750000
+economic_exposure_real_cap_remaining_yen: 2000000

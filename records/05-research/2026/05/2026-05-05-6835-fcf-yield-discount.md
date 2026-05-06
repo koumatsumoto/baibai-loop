@@ -23,7 +23,7 @@ calendars_snapshot:
     content_sha256: sha256:5b1f2487807f590acdc5784ac2e84a851aa7264a03c1ffc3f84c5ebfbdcd761c
 portfolio_exposure_snapshot_ref:
   ref_path: records/_portfolio-exposure/2026/05/2026-05-05T203000+0900.yaml
-  content_sha256: sha256:be31db90ae537045faac494e507a9e81851d623d768b642fecf822c655600be0
+  content_sha256: sha256:fe16419b85c5a1c29dff609beb06643e87cb6a208ea2581ffebd31e481bc428a
 selected_supporting_evidence_refs:
 - source: candidate
   evidence_hit_id: candidate-2026-05-01-6835-fcf-yield-discount

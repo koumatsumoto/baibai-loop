@@ -205,6 +205,7 @@ candidates YAML は `run_id` / snapshot refs / `cache_manifest_hash` で実行�
 - 複数 screen hit が重なる候補は research 優先度を上げるが、単一総合 score は作らない
 - `select` は lane 別の primary metric と macro status を使って research triage を支援する。hit 数と時価総額だけでは並べない
 - `select` output には `lane_toplists`、`ranked_candidates`、research 着手候補として lane 分散した `candidates` が含まれる。`ranked_candidates` は macro + lane rank + evidence strength のグローバル順位、`candidates` は `output.research_selection_lane_order` に沿って各 lane の上位を重複排除した推奨リスト。`candidates[].recommendation_lane` は lane 分散でその候補を拾った枠、`candidates[].selection_lane` は primary thesis として優先確認する screen。複数 hit 銘柄では両者が異なることがある。`candidates` の件数は CLI `--top` と `output.research_selection_target_max` の小さい方、lane 別件数は `records/_config/screening-rules/2026-05-01T000000+0900.yaml` の `output.lane_toplist_limit` で管理する
+- `selected` という語は `select` output の research triage queue だけを指す。raw candidates の row flag ではなく、research approval でも order ready でもない。段階は `screening_selected` → `research_memo` / `candidate_screen.not_reviewed` → `research_approved` → `order_ready` と分けて読む
 - 詳細: [`research.md`](./research.md) の選定プロセス
 - research decision 後の追跡先: [`ledger.md`](./ledger.md)
 
