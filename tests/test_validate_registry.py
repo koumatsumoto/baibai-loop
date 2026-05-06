@@ -24,9 +24,7 @@ def test_earnings_window_matches_same_ticker_only() -> None:
         evaluate_kill_switch(
             "earnings_straddle_window",
             {"ticker": "9682", "at": "2026-05-05T20:00:00+09:00", "window_days": 1},
-            [
-                {"event_id": "9692-earnings-20260506", "date": "2026-05-06", "kind": "earnings"}
-            ],
+            [{"event_id": "9692-earnings-20260506", "date": "2026-05-06", "kind": "earnings"}],
         )
         is False
     )

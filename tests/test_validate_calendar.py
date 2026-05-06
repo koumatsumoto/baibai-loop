@@ -18,9 +18,7 @@ def test_corporate_action_calendar_invalidates_only_catalog_allowed_metrics(
                 "metrics": [
                     {
                         "metric_id": "p_s",
-                        "event_invalidation_rules": [
-                            {"corporate_action_kind": "merger"}
-                        ],
+                        "event_invalidation_rules": [{"corporate_action_kind": "merger"}],
                     }
                 ]
             },

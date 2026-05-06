@@ -17,9 +17,7 @@ def _calendar_snapshots() -> dict[str, object]:
     return {
         "business_days": _snapshot("records/_calendars/business-days/2026-05.yaml"),
         "events": _snapshot("records/_calendars/events/2026-05.yaml"),
-        "corporate_actions": _snapshot(
-            "records/_calendars/corporate-actions/2026-05.yaml"
-        ),
+        "corporate_actions": _snapshot("records/_calendars/corporate-actions/2026-05.yaml"),
     }
 
 
@@ -300,9 +298,7 @@ def test_kill_switch_check_is_recomputed_from_events_calendar(tmp_path: Path) ->
         calendars_snapshot={
             "business_days": _snapshot("records/_calendars/business-days/2026-05.yaml"),
             "events": _snapshot(str(events)),
-            "corporate_actions": _snapshot(
-                "records/_calendars/corporate-actions/2026-05.yaml"
-            ),
+            "corporate_actions": _snapshot("records/_calendars/corporate-actions/2026-05.yaml"),
         },
         kill_switch_check={"boj_eve": False},
     )

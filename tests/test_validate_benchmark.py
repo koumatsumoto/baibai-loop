@@ -243,9 +243,7 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
 
             findings = validate_benchmark_manifest_file(manifest)
 
-        self.assertIn(
-            "benchmark.expected-selected-tickers", {finding.code for finding in findings}
-        )
+        self.assertIn("benchmark.expected-selected-tickers", {finding.code for finding in findings})
 
 
 def _manifest() -> str:

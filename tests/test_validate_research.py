@@ -77,9 +77,7 @@ def _calendar_snapshots() -> dict[str, object]:
     return {
         "business_days": _snapshot("records/_calendars/business-days/2026-05.yaml"),
         "events": _snapshot("records/_calendars/events/2026-05.yaml"),
-        "corporate_actions": _snapshot(
-            "records/_calendars/corporate-actions/2026-05.yaml"
-        ),
+        "corporate_actions": _snapshot("records/_calendars/corporate-actions/2026-05.yaml"),
     }
 
 
@@ -394,9 +392,7 @@ class ResearchValidationTests(unittest.TestCase):
                         "metrics": [
                             {
                                 "metric_id": "p_s",
-                                "event_invalidation_rules": [
-                                    {"corporate_action_kind": "merger"}
-                                ],
+                                "event_invalidation_rules": [{"corporate_action_kind": "merger"}],
                             }
                         ]
                     },

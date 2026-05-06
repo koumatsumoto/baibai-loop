@@ -775,9 +775,10 @@ def _check_runs_expected(
                 f"fixtures[{index}].expected.screening_status",
             )
         )
-    if "selected_tickers" in expected and run.get("selected_tickers") != expected[
-        "selected_tickers"
-    ]:
+    if (
+        "selected_tickers" in expected
+        and run.get("selected_tickers") != expected["selected_tickers"]
+    ):
         findings.append(
             _finding(
                 path,
