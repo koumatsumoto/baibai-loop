@@ -193,6 +193,57 @@ class ScreeningRenderTests(unittest.TestCase):
         self.assertEqual(candidate["playbook_screen_result"], "hit")
         self.assertEqual(candidate["evidence_hits"][0]["playbook_id"], "valuation-reversion")
         self.assertEqual(candidate["evidence_hits"][0]["decision_role"], "sizing_evidence")
+        self.assertEqual(
+            candidate["evidence_hits"][0]["evidence_family_set"],
+            ["market_derived"],
+        )
+
+    def test_render_evidence_family_set_depends_on_playbook_metrics(self) -> None:
+        document = ScreenedRunDocument(
+            run_date=date(2026, 4, 24),
+            asof_date=date(2026, 4, 24),
+            universe_size=1,
+            filters={},
+            candidates=[
+                ScreenedCandidate(
+                    ticker="130A",
+                    name="Sample Co",
+                    per_forward=12.0,
+                    per_trailing=13.0,
+                    pbr=1.1,
+                    ev_ebitda=6.0,
+                    p_s=0.6,
+                    pcfr=5.0,
+                    sector_33="情報・通信業",
+                    evidence_hits=(
+                        EvidenceHit(
+                            name="sales-discount-growth",
+                            playbook_id="sales-discount-growth",
+                            metrics={"ps_sector_gap": -0.6, "sales_yoy": 0.1},
+                            reasons=("sales_discount_growth",),
+                        ),
+                    ),
+                    ttm_quality={
+                        "ev_ebitda": TTMQuality.EXACT,
+                        "p_s": TTMQuality.EXACT,
+                        "pcfr": TTMQuality.UNAVAILABLE,
+                        "ocf_yield": TTMQuality.UNAVAILABLE,
+                        "sales": TTMQuality.EXACT,
+                    },
+                )
+            ],
+            run_at=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+            run_id="screening-20260424-a1b2c3d4",
+            config_hash="a1b2c3d4e5f6a7b8",
+            cache_manifest_hash="9988776655443322",
+        )
+
+        payload = yaml.safe_load(render_screened_yaml(document))
+
+        self.assertEqual(
+            payload["candidates"][0]["evidence_hits"][0]["evidence_family_set"],
+            ["fundamental", "valuation"],
+        )
 
     def test_render_requires_jst_run_at(self) -> None:
         document = ScreenedRunDocument(

@@ -179,7 +179,7 @@ def _build_candidate_entry(
             "playbook_id": QuotedString(evidence_hit.playbook_id),
             "claim_id": QuotedString(f"{candidate.ticker}-{evidence_hit.name}"),
             "claim_type": QuotedString(evidence_hit.name),
-            "evidence_family_set": ["valuation"],
+            "evidence_family_set": _evidence_family_set(evidence_hit),
             "evidence_polarity": "supports",
             "decision_role": "sizing_evidence",
             "source_metric_ids": [QuotedString(key) for key in sorted(evidence_hit.metrics)],
@@ -201,6 +201,36 @@ def _content_sha256(ref_path: str, fallback_seed: str) -> str:
         return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
     digest = hashlib.sha256(fallback_seed.encode("utf-8")).hexdigest()
     return f"sha256:{digest}"
+
+
+def _evidence_family_set(evidence_hit: EvidenceHit) -> list[str]:
+    metric_families = {
+        "p_s": "valuation",
+        "ps_sector_gap": "valuation",
+        "sales_yoy": "fundamental",
+        "operating_profit": "fundamental",
+        "net_cash_to_market_cap": "fundamental",
+        "cash_to_market_cap": "fundamental",
+        "price_to_equity": "fundamental",
+        "ocf_yield": "fundamental",
+        "fcf_yield": "fundamental",
+        "cfo_yoy": "fundamental",
+        "sector_relative_strength_percentile": "market_derived",
+        "price_change_60d": "market_derived",
+    }
+    families = {
+        family for metric in evidence_hit.metrics for family in [metric_families.get(metric)] if family
+    }
+    if not families:
+        families = {
+            "valuation-reversion": {"valuation", "market_derived"},
+            "strict-net-cash-discount": {"fundamental"},
+            "cash-rich-asset-discount": {"fundamental"},
+            "cashflow-yield-discount": {"fundamental"},
+            "fcf-yield-discount": {"fundamental"},
+            "sales-discount-growth": {"valuation", "fundamental"},
+        }.get(evidence_hit.name, {"valuation"})
+    return sorted(families)
 
 
 def _default_universe_snapshot_ref(document: ScreenedRunDocument) -> str:
