@@ -11,9 +11,11 @@ def _decision_record(**overrides: object) -> dict[str, object]:
         "decision_event_id": "decision-20260425-2767-research",
         "event_kind": "decision",
         "decision_scope": "research_memo",
+        "provenance": "regenerated",
         "ticker": "2767",
         "candidate_decision": "selected",
         "research_decision": {"outcome": "approved", "posture": "act_now"},
+        "tracking": {"mode": "post_approval"},
         "trade_execution_state": "none",
     }
     record.update(overrides)

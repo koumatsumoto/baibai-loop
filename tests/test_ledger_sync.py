@@ -10,7 +10,7 @@ import pytest
 import yaml
 
 from baibai_loop.ledger.cli import _discover_decision_dates, _load_market_data, main
-from baibai_loop.ledger.io import diff_jsonl, read_jsonl, upsert_jsonl
+from baibai_loop.ledger.io import diff_jsonl, read_jsonl, write_jsonl
 from baibai_loop.ledger.retro import build_monthly_retro
 from baibai_loop.ledger.sync import sync_ledger
 from baibai_loop.validate.review import validate_review_file
@@ -179,6 +179,77 @@ def test_sync_ledger_dry_run_reports_existing_decisions(tmp_path: Path) -> None:
     assert result.diff_lines == ("+ decision-20260425-2767-research",)
 
 
+def test_sync_ledger_adds_not_reviewed_candidate_screen_events(tmp_path: Path) -> None:
+    candidates_dir = tmp_path / "records/04-candidates" / "2026" / "04"
+    candidates_dir.mkdir(parents=True)
+    (candidates_dir / "2026-04-24.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "run_id": "screening-20260424-test",
+                "asof_date": "2026-04-24",
+                "run_at": "2026-04-24T23:59:59+09:00",
+                "requires_decision_coverage": True,
+                "candidates": [
+                    {
+                        "ticker": "1111",
+                        "name": "Reviewable",
+                        "screen_run_id": "screening-20260424-test",
+                        "candidate_id": "candidate-2026-04-24-1111",
+                        "playbook_screen_result": "hit",
+                        "policy_gate_result": "pass",
+                        "liquidity_gate_result": "pass",
+                        "macro_regime_gate_result": "pass",
+                        "market_cap_oku": 120,
+                        "avg_turnover_oku": 1.5,
+                        "evidence_hits": [
+                            {
+                                "name": "strict-net-cash-discount",
+                                "source_status": "ok",
+                                "sizing_eligible": True,
+                            }
+                        ],
+                    },
+                    {
+                        "ticker": "2222",
+                        "name": "Hard excluded",
+                        "screen_run_id": "screening-20260424-test",
+                        "candidate_id": "candidate-2026-04-24-2222",
+                        "playbook_screen_result": "hit",
+                        "policy_gate_result": "excluded",
+                        "liquidity_gate_result": "pass",
+                        "macro_regime_gate_result": "pass",
+                    },
+                ],
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = sync_ledger(tmp_path)
+
+    assert result.decision_count == 1
+    register_path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
+    rows = [json.loads(line) for line in register_path.read_text(encoding="utf-8").splitlines()]
+    assert len(rows) == 1
+    [record] = rows
+    assert record["decision_scope"] == "candidate_screen"
+    assert record["candidate_decision"] == "not_reviewed"
+    assert record["not_reviewed_reason"] == "review_capacity"
+    assert record["tracking"] == {
+        "mode": "missed_opportunity",
+        "plus_15bd": None,
+        "plus_30bd": None,
+    }
+    assert record["candidate_ref"] == {
+        "candidates_ref": "records/04-candidates/2026/04/2026-04-24.yaml",
+        "screen_run_id": "screening-20260424-test",
+        "ticker": "1111",
+        "candidate_id": "candidate-2026-04-24-1111",
+    }
+
+
 def test_ledger_cli_warns_when_jquants_token_is_missing(tmp_path: Path) -> None:
     _seed(tmp_path)
     calendar, bars, warnings = _load_market_data(tmp_path, {})
@@ -298,7 +369,7 @@ def test_diff_jsonl_marks_orphan_existing_records(tmp_path: Path) -> None:
     assert diff_jsonl(register_path, []) == ["! decision-20260425-2767-research"]
 
 
-def test_ledger_upsert_rejects_rewrite_and_preserves_existing_row(tmp_path: Path) -> None:
+def test_ledger_sync_rewrites_register_from_sources(tmp_path: Path) -> None:
     register_path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
     register_path.parent.mkdir(parents=True)
     register_path.write_text(
@@ -320,9 +391,7 @@ def test_ledger_upsert_rejects_rewrite_and_preserves_existing_row(tmp_path: Path
     }
 
     assert diff_jsonl(register_path, [incoming]) == ["~ decision-20260425-2767-research"]
-    with pytest.raises(ValueError, match="append-only"):
-        upsert_jsonl(register_path, [incoming])
+    assert write_jsonl(register_path, [incoming]) == 1
 
     [record] = read_jsonl(register_path)
-    assert record["migration_source"] == {"old_ledger_id": "paper-20260425-2767"}
-    assert "trade_execution_state" not in record
+    assert record == incoming

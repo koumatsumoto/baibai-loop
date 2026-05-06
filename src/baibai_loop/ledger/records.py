@@ -19,7 +19,9 @@ class DecisionRegisterRecord:
     ticker: str
     name: str
     trade_execution_state: str
+    provenance: Literal["regenerated", "manual"] = "regenerated"
     candidate_decision: str | None = None
+    not_reviewed_reason: str | None = None
     research_decision: dict[str, object] | None = None
     order_intent: dict[str, object] | None = None
     candidate_ref: dict[str, object] | None = None

@@ -12,7 +12,7 @@ import yaml
 from baibai_loop.screening.providers.jquants import JQuantsDailyBar
 from baibai_loop.screening.render import JST
 
-from .io import diff_jsonl, upsert_jsonl
+from .io import diff_jsonl, write_jsonl
 from .records import DecisionRegisterRecord, Tracking
 from .tracking import resolve_tracking_prices
 
@@ -126,9 +126,11 @@ def sync_ledger(
             policy_snapshot=dict(front["policy_snapshot"])
             if isinstance(front.get("policy_snapshot"), Mapping)
             else None,
+            tracking=Tracking(mode="post_approval"),
         )
         records.append(record.to_json())
 
+    records.extend(_candidate_screen_records(root, records))
     by_month = _group_by_month(records)
     diff_lines: list[str] = []
     for month, rows in by_month.items():
@@ -136,12 +138,76 @@ def sync_ledger(
         if dry_run:
             diff_lines.extend(diff_jsonl(path, rows))
         else:
-            upsert_jsonl(path, rows)
+            write_jsonl(path, rows)
     return SyncResult(
         decision_count=len(records),
         warnings=tuple(warnings),
         diff_lines=tuple(diff_lines),
     )
+
+
+def _candidate_screen_records(root: Path, covered_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    covered = _covered_candidate_refs(covered_records)
+    records: list[dict[str, Any]] = []
+    candidates_root = root / "records/04-candidates"
+    if not candidates_root.is_dir():
+        return records
+
+    for path in sorted(candidates_root.rglob("*.yaml")):
+        try:
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(document, Mapping) or document.get("requires_decision_coverage") is not True:
+            continue
+        candidates = document.get("candidates")
+        if not isinstance(candidates, list):
+            continue
+        candidates_ref = str(path.relative_to(root))
+        event_at = _candidate_run_datetime(path, document)
+        screen_run_id = str(document.get("run_id") or f"screening-{event_at:%Y%m%d}")
+        for candidate in candidates:
+            if not isinstance(candidate, Mapping) or not _requires_candidate_decision(candidate):
+                continue
+            ticker = candidate.get("ticker")
+            if not isinstance(ticker, str):
+                continue
+            candidate_id = candidate.get("candidate_id")
+            candidate_id_value = str(candidate_id) if isinstance(candidate_id, str) else ""
+            key = (candidates_ref, candidate_id_value, ticker)
+            if key in covered:
+                continue
+            candidate_ref = {
+                "candidates_ref": candidates_ref,
+                "screen_run_id": str(candidate.get("screen_run_id") or screen_run_id),
+                "ticker": ticker,
+            }
+            if candidate_id_value:
+                candidate_ref["candidate_id"] = candidate_id_value
+            records.append(
+                DecisionRegisterRecord(
+                    decision_event_id=(
+                        f"decision-{screen_run_id}-{ticker}-not-reviewed"
+                    ),
+                    event_kind="decision",
+                    decision_scope="candidate_screen",
+                    ticker=ticker,
+                    name=str(candidate.get("name") or ""),
+                    trade_execution_state="none",
+                    candidate_decision="not_reviewed",
+                    not_reviewed_reason="review_capacity",
+                    candidate_ref=candidate_ref,
+                    decision_event_at=event_at.isoformat(),
+                    baseline_price=_float_or_none(candidate.get("last_price"))
+                    or _float_or_none(candidate.get("baseline_price")),
+                    market_cap_oku=_float_or_none(candidate.get("market_cap_oku")),
+                    avg_turnover_oku=_float_or_none(candidate.get("avg_turnover_oku")),
+                    independent_evidence_count=_eligible_evidence_count(candidate),
+                    tracking=Tracking(mode="missed_opportunity"),
+                ).to_json()
+            )
+            covered.add(key)
+    return records
 
 
 def _parse_research(path: Path) -> tuple[dict[str, Any], str] | None:
@@ -246,6 +312,64 @@ def _group_by_month(records: list[dict[str, Any]]) -> dict[str, list[dict[str, A
         month = event_at[:7] if event_at else "unknown"
         grouped.setdefault(month, []).append(record)
     return grouped
+
+
+def _covered_candidate_refs(records: list[dict[str, Any]]) -> set[tuple[str, str, str]]:
+    covered: set[tuple[str, str, str]] = set()
+    for record in records:
+        if record.get("decision_scope") not in {"candidate_screen", "research_memo"}:
+            continue
+        candidate_ref = _mapping_or_none(record.get("candidate_ref"))
+        if candidate_ref is None:
+            continue
+        candidates_ref = candidate_ref.get("candidates_ref")
+        ticker = candidate_ref.get("ticker")
+        if not isinstance(candidates_ref, str) or not isinstance(ticker, str):
+            continue
+        candidate_id = candidate_ref.get("candidate_id")
+        covered.add(
+            (
+                candidates_ref,
+                str(candidate_id) if isinstance(candidate_id, str) else "",
+                ticker,
+            )
+        )
+    return covered
+
+
+def _requires_candidate_decision(candidate: Mapping[str, Any]) -> bool:
+    if candidate.get("playbook_screen_result") not in {"hit", "near_threshold"}:
+        return False
+    if candidate.get("policy_gate_result") == "excluded":
+        return False
+    if candidate.get("liquidity_gate_result") == "excluded":
+        return False
+    return candidate.get("macro_regime_gate_result") != "blocked"
+
+
+def _candidate_run_datetime(path: Path, document: Mapping[str, Any]) -> datetime:
+    value = document.get("run_at")
+    if isinstance(value, str):
+        return _parse_jst_datetime(value)
+    for key in ("asof_date", "run_date"):
+        value = document.get(key)
+        if isinstance(value, str):
+            return _parse_jst_datetime(f"{value}T23:59:59+09:00")
+    return datetime.fromisoformat(f"{path.name[:10]}T23:59:59+09:00").replace(tzinfo=JST)
+
+
+def _eligible_evidence_count(candidate: Mapping[str, Any]) -> int:
+    hits = candidate.get("evidence_hits")
+    if not isinstance(hits, list):
+        return 0
+    return sum(1 for hit in hits if isinstance(hit, Mapping) and _is_eligible_evidence(hit))
+
+
+def _is_eligible_evidence(hit: Mapping[str, Any]) -> bool:
+    source_status = hit.get("source_status")
+    if isinstance(source_status, str) and source_status != "ok":
+        return False
+    return hit.get("sizing_eligible") is not False
 
 
 def _mapping_or_none(value: object) -> Mapping[str, Any] | None:

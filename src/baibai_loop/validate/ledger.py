@@ -8,7 +8,7 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
-from baibai_loop.ledger.io import validate_append_only_jsonl
+from baibai_loop.ledger.io import validate_decision_register_jsonl
 
 from .errors import ValidationFinding
 
@@ -77,18 +77,52 @@ def validate_ledger_file(path: Path) -> list[ValidationFinding]:
                     location=f"line {line_number}:{_format_path(error.absolute_path)}",
                 )
             )
+        findings.extend(_check_required_lineage_fields(path, line_number, record))
         findings.extend(_check_candidate_decision_coverage(path, line_number, record))
     if not parse_errors:
-        for message in validate_append_only_jsonl(path):
+        for message in validate_decision_register_jsonl(path):
             findings.append(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="ledger.append-only",
+                    code="ledger.decision-register",
                     message=message,
                 )
             )
         findings.extend(_check_candidate_coverage_from_candidates(path, records))
+    return findings
+
+
+def _check_required_lineage_fields(
+    path: Path, line_number: int, record: dict[str, Any]
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    if record.get("provenance") not in {"regenerated", "manual"}:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.provenance",
+                message="decision register rows require provenance: regenerated | manual",
+                location=f"line {line_number}.provenance",
+            )
+        )
+    tracking = record.get("tracking")
+    if not isinstance(tracking, dict) or tracking.get("mode") not in {
+        "post_approval",
+        "re_examination",
+        "missed_opportunity",
+        "none",
+    }:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.tracking-mode",
+                message="decision register rows require tracking.mode",
+                location=f"line {line_number}.tracking.mode",
+            )
+        )
     return findings
 
 
