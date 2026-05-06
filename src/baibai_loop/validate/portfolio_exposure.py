@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -45,6 +47,7 @@ def validate_portfolio_exposure_file(path: Path) -> list[ValidationFinding]:
     findings.extend(_check_outstanding_orders(path, raw))
     findings.extend(_check_remaining_budget(path, raw))
     findings.extend(_check_rebuild_from_sources(path, raw))
+    findings.extend(_check_decision_register_sources(path, raw))
     findings.extend(_check_cap_remaining_fields(path, raw))
     return findings
 
@@ -107,6 +110,139 @@ def _check_outstanding_orders(
                 )
             )
     return findings
+
+
+def _check_decision_register_sources(
+    path: Path, snapshot: Mapping[str, object]
+) -> list[ValidationFinding]:
+    orders = snapshot.get("outstanding_orders")
+    if not isinstance(orders, list):
+        return []
+    outstanding_intents = {
+        str(order.get("origin_order_intent_id"))
+        for order in orders
+        if isinstance(order, Mapping)
+        and isinstance(order.get("origin_order_intent_id"), str)
+        and order.get("origin_order_intent_id")
+    }
+    if not outstanding_intents:
+        return []
+    refs = snapshot.get("source_decision_register_refs")
+    if not isinstance(refs, list) or not refs:
+        return [
+            _finding(
+                path,
+                "portfolio-exposure.source-decision-register-required",
+                "snapshot with outstanding orders must include source_decision_register_refs",
+                "source_decision_register_refs",
+            )
+        ]
+    root = repo_root_for(path)
+    findings: list[ValidationFinding] = []
+    source_intents: set[str] = set()
+    for index, ref in enumerate(refs):
+        if not isinstance(ref, Mapping):
+            findings.append(
+                _finding(
+                    path,
+                    "portfolio-exposure.source-decision-register-ref",
+                    "source_decision_register_refs entries must be mappings",
+                    f"source_decision_register_refs[{index}]",
+                )
+            )
+            continue
+        ref_path = ref.get("ref_path")
+        decision_event_id = ref.get("decision_event_id")
+        row_sha256 = ref.get("row_sha256")
+        if not (
+            isinstance(ref_path, str)
+            and isinstance(decision_event_id, str)
+            and isinstance(row_sha256, str)
+        ):
+            findings.append(
+                _finding(
+                    path,
+                    "portfolio-exposure.source-decision-register-ref",
+                    "source decision ref requires ref_path, decision_event_id, and row_sha256",
+                    f"source_decision_register_refs[{index}]",
+                )
+            )
+            continue
+        ledger_path = resolve_ref(root, ref_path)
+        if not ledger_path.is_file():
+            findings.append(
+                _finding(
+                    path,
+                    "portfolio-exposure.source-decision-register-missing",
+                    f"source decision register does not exist: {ref_path}",
+                    f"source_decision_register_refs[{index}].ref_path",
+                )
+            )
+            continue
+        row = _find_decision_register_row(ledger_path, decision_event_id)
+        if row is None:
+            findings.append(
+                _finding(
+                    path,
+                    "portfolio-exposure.source-decision-register-row-missing",
+                    f"decision event not found in source register: {decision_event_id}",
+                    f"source_decision_register_refs[{index}].decision_event_id",
+                )
+            )
+            continue
+        row_payload, actual_hash = row
+        if actual_hash != row_sha256:
+            findings.append(
+                _finding(
+                    path,
+                    "portfolio-exposure.source-decision-register-hash",
+                    "source decision row_sha256 does not match JSONL row bytes",
+                    f"source_decision_register_refs[{index}].row_sha256",
+                )
+            )
+        order_intent = row_payload.get("order_intent")
+        if not isinstance(order_intent, Mapping):
+            findings.append(
+                _finding(
+                    path,
+                    "portfolio-exposure.source-decision-register-intent",
+                    "source decision row must include order_intent",
+                    f"source_decision_register_refs[{index}].decision_event_id",
+                )
+            )
+            continue
+        order_intent_id = order_intent.get("order_intent_id")
+        if isinstance(order_intent_id, str) and order_intent_id:
+            source_intents.add(order_intent_id)
+    if source_intents != outstanding_intents:
+        findings.append(
+            _finding(
+                path,
+                "portfolio-exposure.source-decision-register-set",
+                "source_decision_register_refs must cover every outstanding order intent exactly",
+                "source_decision_register_refs",
+            )
+        )
+    return findings
+
+
+def _find_decision_register_row(
+    ledger_path: Path, decision_event_id: str
+) -> tuple[Mapping[str, object], str] | None:
+    for raw_line in ledger_path.read_text(encoding="utf-8").splitlines(keepends=True):
+        if not raw_line.strip():
+            continue
+        try:
+            payload = json.loads(raw_line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, Mapping):
+            continue
+        if payload.get("decision_event_id") != decision_event_id:
+            continue
+        digest = "sha256:" + hashlib.sha256(raw_line.encode("utf-8")).hexdigest()
+        return payload, digest
+    return None
 
 
 def _check_remaining_budget(path: Path, snapshot: Mapping[str, object]) -> list[ValidationFinding]:

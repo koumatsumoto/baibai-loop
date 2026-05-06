@@ -1,9 +1,12 @@
 snapshot_id: portfolio-exposure-20260505-200000
 as_of: '2026-05-05T20:00:00+09:00'
-source_decision_register_refs: []
+source_decision_register_refs:
+- ref_path: records/_ledger/research-decisions/2026-05.jsonl
+  decision_event_id: decision-20260505-9682-trade
+  row_sha256: sha256:e3d22e751471b8668b77bc82b79f364809f8d28a319699f6f94d6d74281c1c4a
 source_trade_refs:
 - ref_path: records/06-trades/2026/05/2026-05-05-9682.md
-  content_sha256: sha256:c0de150bcce111297ff736a48d7451ba62a97a1b2c3486cc2d7f1f7b7f63c375
+  content_sha256: sha256:d5c840e544f8f6284b4e16a07e2d2f854e3fb1b5cdd0fa9d527e212986f24283
 source_broker_snapshot_refs: []
 positions: []
 exposures: []
