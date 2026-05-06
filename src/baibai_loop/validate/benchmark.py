@@ -21,6 +21,7 @@ _REQUIRED_FIXTURE_IDS = {
     "corporate-action-rejected-3678",
     "unreviewed-hit-anchor",
     "no-hit-false-negative-anchor",
+    "e2e-research-selection-baseline",
 }
 _DOMAIN_FIXTURE_CONTRACTS: dict[str, Mapping[str, object]] = {
     "screening-raw-output-anchors": {
@@ -91,6 +92,16 @@ _DOMAIN_FIXTURE_CONTRACTS: dict[str, Mapping[str, object]] = {
             "canonical_start_basis": "candidate_run_close_adjusted_close",
             "joins_to_decision_event": True,
             "no_candidate_ref": True,
+        },
+    },
+    "e2e-research-selection-baseline": {
+        "layer_id": "L3a",
+        "fixture_binding": {
+            "runs_ref": "records/_benchmarks/domain-model-2026-05/e2e-regeneration/runs.yaml"
+        },
+        "expected": {
+            "run_id": "run-01-baseline",
+            "screening_status": "partial_quality_warning",
         },
     },
 }
@@ -369,6 +380,7 @@ def _check_fixture_expectations(
         record_ref = binding.get("record_ref")
         scan_ref = binding.get("scan_ref")
         candidates_ref = binding.get("candidates_ref")
+        runs_ref = binding.get("runs_ref")
         if isinstance(record_ref, str):
             record_path = resolve_ref(root, record_ref)
             if not record_path.is_file():
@@ -424,6 +436,21 @@ def _check_fixture_expectations(
             candidates = yaml.safe_load(candidates_path.read_text(encoding="utf-8"))
             if isinstance(candidates, Mapping):
                 findings.extend(_check_candidates_expected(path, index, candidates, expected))
+        if isinstance(runs_ref, str):
+            runs_path = resolve_ref(root, runs_ref)
+            if not runs_path.is_file():
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-runs-missing",
+                        f"fixture runs file does not exist: {runs_ref}",
+                        f"fixtures[{index}].fixture_binding.runs_ref",
+                    )
+                )
+                continue
+            runs = yaml.safe_load(runs_path.read_text(encoding="utf-8"))
+            if isinstance(runs, Mapping):
+                findings.extend(_check_runs_expected(path, index, runs, expected))
     return findings
 
 
@@ -714,6 +741,104 @@ def _check_candidates_expected(
                 )
                 break
     return findings
+
+
+def _check_runs_expected(
+    path: Path,
+    index: int,
+    runs_document: Mapping[str, object],
+    expected: Mapping[str, object],
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    run_id = expected.get("run_id")
+    run = _e2e_run(runs_document, run_id)
+    if isinstance(run_id, str) and run is None:
+        return [
+            _finding(
+                path,
+                "benchmark.expected-e2e-run",
+                f"fixture runs must contain expected run_id {run_id}",
+                f"fixtures[{index}].expected.run_id",
+            )
+        ]
+    if run is None:
+        return findings
+    if (
+        expected.get("screening_status") is not None
+        and run.get("screening_status") != expected["screening_status"]
+    ):
+        findings.append(
+            _finding(
+                path,
+                "benchmark.expected-screening-status",
+                "E2E run screening_status mismatch",
+                f"fixtures[{index}].expected.screening_status",
+            )
+        )
+    if "selected_tickers" in expected and run.get("selected_tickers") != expected[
+        "selected_tickers"
+    ]:
+        findings.append(
+            _finding(
+                path,
+                "benchmark.expected-selected-tickers",
+                "E2E run selected_tickers mismatch",
+                f"fixtures[{index}].expected.selected_tickers",
+            )
+        )
+    not_selected = expected.get("not_selected_tickers")
+    if isinstance(not_selected, list):
+        selected = set(as_list(run.get("selected_tickers")))
+        for ticker in not_selected:
+            if ticker in selected:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.expected-not-selected-ticker",
+                        f"E2E run must not select ticker {ticker}",
+                        f"fixtures[{index}].expected.not_selected_tickers",
+                    )
+                )
+    ticker_expectations = expected.get("tickers")
+    run_tickers = run.get("tickers")
+    if isinstance(ticker_expectations, Mapping) and isinstance(run_tickers, Mapping):
+        for ticker, expected_state in ticker_expectations.items():
+            actual_state = run_tickers.get(ticker)
+            if not isinstance(expected_state, Mapping) or not isinstance(actual_state, Mapping):
+                if actual_state != expected_state:
+                    findings.append(
+                        _finding(
+                            path,
+                            "benchmark.expected-e2e-ticker",
+                            f"E2E ticker state mismatch for {ticker}",
+                            f"fixtures[{index}].expected.tickers.{ticker}",
+                        )
+                    )
+                continue
+            for field, expected_value in expected_state.items():
+                if actual_state.get(field) != expected_value:
+                    findings.append(
+                        _finding(
+                            path,
+                            "benchmark.expected-e2e-ticker-field",
+                            f"E2E ticker {ticker} field {field} mismatch",
+                            f"fixtures[{index}].expected.tickers.{ticker}.{field}",
+                        )
+                    )
+    return findings
+
+
+def _e2e_run(
+    runs_document: Mapping[str, object],
+    run_id: object,
+) -> Mapping[str, object] | None:
+    runs = runs_document.get("runs")
+    if not isinstance(runs, list) or not isinstance(run_id, str):
+        return None
+    for run in runs:
+        if isinstance(run, Mapping) and run.get("run_id") == run_id:
+            return run
+    return None
 
 
 def _repo_root(path: Path) -> Path:

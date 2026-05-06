@@ -114,6 +114,34 @@ fixtures:
     conviction_tier: low
     independent_evidence_count: 0
     real_order_intent_yen: null
+- fixture_id: e2e-research-selection-baseline
+  layer_id: L3a
+  fixture_binding:
+    runs_ref: records/_benchmarks/domain-model-2026-05/e2e-regeneration/runs.yaml
+  expected:
+    run_id: run-01-baseline
+    screening_status: partial_quality_warning
+    selected_tickers:
+    - '3632'
+    - '6835'
+    - '6932'
+    - '6310'
+    - '9470'
+    not_selected_tickers:
+    - '3678'
+    tickers:
+      '9682':
+        present: true
+        selected: false
+        eligible_count: 1
+      '9692':
+        present: true
+        selected: false
+        eligible_count: 1
+      '3678':
+        present: true
+        selected: false
+        eligible_count: 0
 - fixture_id: unreviewed-hit-anchor
   layer_id: L5
   fixture_binding:

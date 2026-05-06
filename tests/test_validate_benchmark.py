@@ -24,7 +24,7 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manifest = root / "domain-model/manifest.yaml"
-            manifest.parent.mkdir(parents=True)
+            manifest.parent.mkdir(parents=True, exist_ok=True)
             manifest.write_text(_manifest(), encoding="utf-8")
 
             self.assertEqual(discover_benchmark_manifest_files(root), [manifest])
@@ -117,7 +117,7 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
             manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
-            manifest.parent.mkdir(parents=True)
+            manifest.parent.mkdir(parents=True, exist_ok=True)
             manifest.write_text(
                 _manifest_with_expected(
                     record_ref="records/05-research/2026/05/research.md",
@@ -146,7 +146,7 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
             manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
-            manifest.parent.mkdir(parents=True)
+            manifest.parent.mkdir(parents=True, exist_ok=True)
             manifest.write_text(
                 _manifest_with_expected(
                     record_ref="records/06-trades/2026/05/trade.md",
@@ -169,7 +169,7 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
             manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
-            manifest.parent.mkdir(parents=True)
+            manifest.parent.mkdir(parents=True, exist_ok=True)
             manifest.write_text(
                 _manifest_with_expected(
                     scan_ref="records/07-reviews/screening-false-negative-scan/2026-05.yaml",
@@ -214,6 +214,39 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
 
         self.assertIn("benchmark.expected-candidate-ticker", {finding.code for finding in findings})
 
+    def test_rejects_e2e_selected_ticker_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            runs = root / "records/_benchmarks/domain-model/e2e/runs.yaml"
+            runs.parent.mkdir(parents=True)
+            runs.write_text(
+                "runs:\n"
+                "- run_id: run-01-baseline\n"
+                "  screening_status: partial_quality_warning\n"
+                "  selected_tickers:\n"
+                "  - '1111'\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    runs_ref="records/_benchmarks/domain-model/e2e/runs.yaml",
+                    expected={
+                        "run_id": "run-01-baseline",
+                        "screening_status": "partial_quality_warning",
+                        "selected_tickers": ["2222"],
+                    },
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn(
+            "benchmark.expected-selected-tickers", {finding.code for finding in findings}
+        )
+
 
 def _manifest() -> str:
     return (
@@ -256,6 +289,7 @@ def _manifest_with_expected(
     record_ref: str | None = None,
     scan_ref: str | None = None,
     candidates_ref: str | None = None,
+    runs_ref: str | None = None,
 ) -> str:
     binding_lines: list[str] = []
     if record_ref is not None:
@@ -264,6 +298,8 @@ def _manifest_with_expected(
         binding_lines.append(f"    scan_ref: {scan_ref}\n")
     if candidates_ref is not None:
         binding_lines.append(f"    candidates_ref: {candidates_ref}\n")
+    if runs_ref is not None:
+        binding_lines.append(f"    runs_ref: {runs_ref}\n")
     expected_yaml = textwrap.indent(
         yaml.safe_dump(expected, allow_unicode=True, sort_keys=False),
         "    ",
