@@ -46,6 +46,49 @@ jobs:
       - name: Validate artefacts
         run: uv run baibai-loop-validate
 
+      - name: Verify immutable snapshot append-only policy
+        if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'migration/domain-model-')
+        run: |
+          git fetch origin main --depth=1
+          python - <<'PY'
+          import subprocess
+          import sys
+
+          snapshot_prefixes = (
+              "records/01-policy/2026/",
+              "records/_approval-rules/",
+              "records/_calendars/",
+              "records/_config/",
+              "records/_market-data/",
+              "records/_playbooks/",
+              "records/_portfolio-exposure/",
+              "records/_universe-snapshots/",
+          )
+          allowed_names = {"_changelog.jsonl", "_index.yaml", "README.md"}
+          diff = subprocess.check_output(
+              ["git", "diff", "--name-status", "origin/main...HEAD"],
+              text=True,
+          )
+          blocked: list[str] = []
+          for line in diff.splitlines():
+              if not line:
+                  continue
+              parts = line.split("\t")
+              status = parts[0]
+              paths = parts[1:]
+              for path in paths:
+                  if not path.startswith(snapshot_prefixes):
+                      continue
+                  if path.rsplit("/", 1)[-1] in allowed_names:
+                      continue
+                  if status.startswith(("M", "D", "R")):
+                      blocked.append(line)
+          if blocked:
+              print("Immutable snapshot files must be append-only:", file=sys.stderr)
+              print("\n".join(blocked), file=sys.stderr)
+              sys.exit(1)
+          PY
+
       - name: Anti-pattern precheck (AP-06 source_refs)
         # 既存 outlook に先行 AP-06 違反が残っているため、現時点では
         # warning-only として実行する。--strict は別 PR で outlook を

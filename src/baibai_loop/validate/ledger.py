@@ -15,17 +15,11 @@ SCHEMA_ROOT = Path(__file__).resolve().parents[3] / "records" / "_schemas"
 def discover_ledger_files(root: Path) -> list[Path]:
     if not root.exists():
         return []
-    files: list[Path] = []
-    for subdir in ("paper", "skipped"):
-        files.extend(sorted((root / subdir).glob("*.jsonl")))
-    return sorted(path for path in files if path.is_file())
+    return sorted(path for path in (root / "research-decisions").glob("*.jsonl") if path.is_file())
 
 
 def validate_ledger_file(path: Path) -> list[ValidationFinding]:
-    schema_name = (
-        "ledger-skipped-v1.json" if "/skipped/" in path.as_posix() else "ledger-paper-v1.json"
-    )
-    validator = _load_validator(SCHEMA_ROOT / schema_name)
+    validator = _load_validator(SCHEMA_ROOT / "decision-register.json")
     findings: list[ValidationFinding] = []
     try:
         lines = path.read_text(encoding="utf-8").splitlines()

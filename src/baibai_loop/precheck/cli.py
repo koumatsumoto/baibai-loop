@@ -11,8 +11,8 @@ from typing import TextIO
 from .decision_flip import scan_research_decision_flips
 from .source_refs import scan_outlook_source_refs
 
-OUTLOOK_ROOT = Path("records/02-outlook")
-RESEARCH_ROOT = Path("records/04-research")
+OUTLOOK_ROOT = Path("records/03-outlook")
+RESEARCH_ROOT = Path("records/05-research")
 
 
 @dataclass(frozen=True, slots=True)

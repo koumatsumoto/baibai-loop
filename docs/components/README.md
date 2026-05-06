@@ -15,12 +15,12 @@ last_reviewed: 2026-05-04
 | component | repository location | contract doc |
 | --- | --- | --- |
 | portfolio policy | [`portfolio-policy.md`](./portfolio-policy.md) | [`portfolio-policy.md`](./portfolio-policy.md) |
-| brief | `records/01-brief/` | [`brief.md`](./brief.md) |
-| outlook | `records/02-outlook/` | [`outlook.md`](./outlook.md) |
-| candidates | `records/03-candidates/` | [`candidates.md`](./candidates.md) |
-| research | `records/04-research/` | [`research.md`](./research.md) |
-| trades | `records/05-trades/` | [`trades.md`](./trades.md) |
-| reviews | `records/06-reviews/` | [`reviews.md`](./reviews.md) |
+| brief | `records/02-brief/` | [`brief.md`](./brief.md) |
+| outlook | `records/03-outlook/` | [`outlook.md`](./outlook.md) |
+| candidates | `records/04-candidates/` | [`candidates.md`](./candidates.md) |
+| research | `records/05-research/` | [`research.md`](./research.md) |
+| trades | `records/06-trades/` | [`trades.md`](./trades.md) |
+| reviews | `records/07-reviews/` | [`reviews.md`](./reviews.md) |
 | ledger | `records/_ledger/` | [`ledger.md`](./ledger.md) |
 | playbooks | `records/_playbooks/` | [`playbooks.md`](./playbooks.md) |
 

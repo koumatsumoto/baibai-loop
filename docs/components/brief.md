@@ -7,7 +7,7 @@ Baibai-Loop の **brief / observations** の運用仕様。全体構造は [`../
 - 世界情勢・日本経済・業種動向の **一次情報** を短く記録する
 - 「事実 + 要点」の短いドキュメントで、解釈は入れない
 - **独立トラック**: 売買ループ（candidates → research → trades → reviews）から独立に積み上がる
-- Macro track の出発点として `records/02-outlook/` の source となる
+- Macro track の出発点として `records/03-outlook/` の source となる
 
 ## 2. 種類
 
@@ -46,7 +46,7 @@ Baibai-Loop の **brief / observations** の運用仕様。全体構造は [`../
 ## 3. Path と命名
 
 ```
-records/01-brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.yaml
+records/02-brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.yaml
 ```
 
 - `{kind}`: `world-daily` / `world-weekly` / `macro-monthly` / `fomc` / `boj` / `cpi` / `gdp` / `geopolitics` / `event`
@@ -55,7 +55,7 @@ records/01-brief/YYYY/MM/YYYY-MM-DD-{kind}-{slug}.yaml
   - 解釈語（`beat`, `surge`, `rally`, `crash`, `hot`, `cool`）は避ける
   - 数値の小数点は `p` で代用（`3.3%` → `3p3`）
   - 目立つ事実がない観測月は `overview` を用いてよい
-- INDEX ファイルは作らない。一覧は `git ls-files records/01-brief/` または GitHub ツリーで確認
+- INDEX ファイルは作らない。一覧は `git ls-files records/02-brief/` または GitHub ツリーで確認
 
 ## 4. YAML 必須項目
 
@@ -73,8 +73,8 @@ period:                        # world-weekly では必須
   market_basis_date: "YYYY-MM-DD"
 month: "YYYY-MM"               # macro-monthly では必須
 references:
-  prev_period: records/01-brief/.../...yaml | null
-  latest_monthly: records/01-brief/.../...yaml | null
+  prev_period: records/02-brief/.../...yaml | null
+  latest_monthly: records/02-brief/.../...yaml | null
 sources:
   - id: <id>
     name: <ソース名>
@@ -102,7 +102,7 @@ next_events: [...]
 - `sources[]`: 参照した一次統計を構造化記録。本文の各 indicator / event は `source_ids: [<id>, ...]` で sources を参照する
 - `layers`: `world` / `japan` / `japan_equity` の 3 キー必須。該当なしは `{}` を明示
 - `deltas`: 週次 / 月次は必須。閾値超え（`threshold_breaches`）、判定不能（`unjudgeable`）、方向履歴（`direction_history`）、方向反転（`direction_reversals`）を構造化
-- 詳細な schema は [`../../records/_schemas/brief-v1.json`](../../records/_schemas/brief-v1.json)
+- 詳細な schema は [`../../records/_schemas/brief.json`](../../records/_schemas/brief.json)
 
 ## 5. 更新頻度とワークフロー
 
@@ -114,7 +114,7 @@ next_events: [...]
 
 ### 5.2 日次 brief の位置付け
 
-- `world-daily` は **週次の縮小版ではない**。目的は、`records/02-outlook/` の入力に必要な鮮度を補うこと
+- `world-daily` は **週次の縮小版ではない**。目的は、`records/03-outlook/` の入力に必要な鮮度を補うこと
 - `macro-monthly` がまだ閉じていない月でも、当日公表された CPI / 小売売上高 / 雇用関連などの **月次級データを一時的に保持してよい**
 - 後日 `macro-monthly` が作成されたら、その月次級データの正本は `macro-monthly` に移る。既存の `world-daily` は archive として保持し、以後の `world-daily` / `world-weekly` では再掲せずリンクで参照する
 - bootstrap outlook の直前に最新 brief が古い場合は、`world-daily` または `event` を先に追加して freshness gap を埋める
@@ -135,7 +135,7 @@ next_events: [...]
 
 ## 6. outlook への接続
 
-- `records/02-outlook/` は複数の brief を積み上げて作成される（`updated_from` で brief ファイル path を列挙）
+- `records/03-outlook/` は複数の brief を積み上げて作成される（`updated_from` で brief ファイル path を列挙）
 - brief 自体は outlook の存在を意識しない。brief は独立に積み上がる
 
 ## 7. AI の役割境界
@@ -159,8 +159,8 @@ brief を書いた / 更新した後、commit 前に以下を必ず確認する�
 
 - [ ] **AP-01** (一次情報直接確認): すべての数値・固有名詞に一次情報 URL を紐付けたか。source の policy / rate / date / scenario が本文主張と一致しているか
 - [ ] **AP-02** (数値検算): 前期比・前年比の計算結果を電卓 / Python で検算したか
-- [ ] **AP-04** (schema 整合): `Indicator` には `note` 不可、`MonthlyStatistic` の `release_date` は `null` か非空文字列のみ等、`records/_schemas/brief-v1.json` を読み返したか
-- [ ] **AP-05** (fact / 分析の境界): 「示唆」「受けて」「正当化材料」「early signal」「顕在化」「構造要因」「注目すべき」「重要な」等の解釈・因果推論・重要度評価表現が地の文に含まれていないか
+- [ ] **AP-04** (schema 整合): `Indicator` には `note` 不可、`MonthlyStatistic` の `release_date` は `null` か非空文字列のみ等、`records/_schemas/brief.json` を読み返したか
+- [ ] **AP-05** (fact / 分析の境界): 「示唆」「受けて」「正当化材料」「early evidence hit」「顕在化」「構造要因」「注目すべき」「重要な」等の解釈・因果推論・重要度評価表現が地の文に含まれていないか
 - [ ] **AP-06** (source status と Tier の取り扱い): fact item の `source_ids` には少なくとも 1 つ `status: ok` の source を含めているか。`status: failed` の Tier 1 source だけで fact 値を入れていないか。Tier 1 が継続的に取れない指標は [`../reference/data-sources.md`](../reference/data-sources.md) §「一次統計の数値で Tier 1 取得が困難な場合の Tier 2 例外運用」に従って `failed` Tier 1 + `ok` Tier 2 を併記しているか
 - [ ] **AP-07** (公表日確認): 各 monthly_statistic / event の `release_date` を一次 source の発表日と照合したか。発行日 ± 5 営業日に予定された FOMC / BOJ / OPEC+ / CPI / PCE / NFP の最新 release が出ていれば必ず取り込んだか
 

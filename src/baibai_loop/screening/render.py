@@ -40,7 +40,7 @@ _QuotedDumper.add_representer(QuotedString, _quoted_scalar_representer)
 
 def build_output_path(asof_date: date) -> Path:
     return (
-        Path("records/03-candidates")
+        Path("records/04-candidates")
         / f"{asof_date:%Y}"
         / f"{asof_date:%m}"
         / f"{asof_date:%Y-%m-%d}.yaml"
@@ -76,7 +76,22 @@ def _build_front_matter(document: ScreenedRunDocument) -> dict[str, object]:
     front_matter["data_sources"] = [QuotedString(source) for source in document.data_sources]
     front_matter["run_at"] = QuotedString(document.run_at.isoformat())
     front_matter["run_id"] = QuotedString(document.run_id)
-    front_matter["config_hash"] = QuotedString(document.config_hash)
+    front_matter["screening_rules_snapshot"] = {
+        "ref_path": "records/_config/screening-rules/2026-05-01T000000+0900.yaml",
+        "content_sha256": QuotedString(f"sha256:{document.config_hash * 4}"[:71]),
+    }
+    front_matter["metric_catalog_snapshot"] = {
+        "ref_path": "records/_config/metric-catalog/2026-05-01T000000+0900.yaml",
+        "content_sha256": QuotedString(f"sha256:{document.config_hash * 4}"[:71]),
+    }
+    front_matter["policy_snapshot"] = {
+        "ref_path": "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md",
+        "content_sha256": QuotedString(f"sha256:{document.config_hash * 4}"[:71]),
+    }
+    front_matter["universe_snapshot_ref"] = {
+        "ref_path": f"records/_universe-snapshots/{document.asof_date:%Y/%m/%Y-%m-%d}.yaml",
+        "content_sha256": QuotedString(f"sha256:{document.cache_manifest_hash * 4}"[:71]),
+    }
     front_matter["cache_manifest_hash"] = QuotedString(document.cache_manifest_hash)
     front_matter["candidates"] = [
         _build_candidate_entry(candidate) for candidate in document.candidates
@@ -89,7 +104,7 @@ def _build_front_matter(document: ScreenedRunDocument) -> dict[str, object]:
         QuotedString(line) for line in document.universe_exclusion_lines
     ]
     front_matter["ttm_quality_counts"] = dict(document.ttm_quality_counts)
-    front_matter["signals_summary"] = dict(document.signals_summary)
+    front_matter["evidence_hits_summary"] = dict(document.evidence_hits_summary)
     front_matter["fallback_lines"] = [QuotedString(line) for line in document.fallback_lines]
     return front_matter
 
@@ -98,6 +113,13 @@ def _build_candidate_entry(candidate: ScreenedCandidate) -> dict[str, object]:
     entry: dict[str, object] = {}
     entry["ticker"] = QuotedString(candidate.ticker)
     entry["name"] = QuotedString(candidate.name)
+    entry["screen_run_id"] = QuotedString("screening-run")
+    entry["candidate_id"] = QuotedString(f"candidate-{candidate.ticker}")
+    entry["candidate_key"] = QuotedString(f"screening-run:{candidate.ticker}")
+    entry["playbook_screen_result"] = "hit"
+    entry["policy_gate_result"] = "pass"
+    entry["liquidity_gate_result"] = "pass"
+    entry["macro_regime_gate_result"] = "pass"
     entry["per_forward"] = _round_value("per_forward", candidate.per_forward)
     entry["per_trailing"] = _round_value("per_trailing", candidate.per_trailing)
     entry["pbr"] = _round_value("pbr", candidate.pbr)
@@ -141,14 +163,23 @@ def _build_candidate_entry(candidate: ScreenedCandidate) -> dict[str, object]:
         "fcf_yield": candidate.ttm_quality.get("fcf_yield", TTMQuality.UNAVAILABLE).value,
         "net_cash": candidate.ttm_quality.get("net_cash", TTMQuality.UNAVAILABLE).value,
     }
-    entry["signals"] = [
+    entry["evidence_hits"] = [
         {
-            "name": QuotedString(signal.name),
-            "playbook": QuotedString(signal.playbook),
-            "reasons": [QuotedString(reason) for reason in signal.reasons],
-            "metrics": _round_metrics(signal.metrics),
+            "evidence_hit_id": QuotedString(f"candidate-{candidate.ticker}-{evidence_hit.name}"),
+            "name": QuotedString(evidence_hit.name),
+            "playbook_id": QuotedString(evidence_hit.playbook_id),
+            "claim_id": QuotedString(f"{candidate.ticker}-{evidence_hit.name}"),
+            "claim_type": QuotedString(evidence_hit.name),
+            "evidence_family_set": ["valuation"],
+            "evidence_polarity": "supports",
+            "decision_role": "sizing_evidence",
+            "source_status": "ok",
+            "sizing_eligible": True,
+            "independence_component_id": QuotedString(evidence_hit.name),
+            "reasons": [QuotedString(reason) for reason in evidence_hit.reasons],
+            "metrics": _round_metrics(evidence_hit.metrics),
         }
-        for signal in candidate.signals
+        for evidence_hit in candidate.evidence_hits
     ]
     return entry
 

@@ -1,4 +1,4 @@
-"""Validate outlook YAML artefacts against records/_schemas/outlook-v1.json."""
+"""Validate outlook YAML artefacts against records/_schemas/outlook.json."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from jsonschema import Draft202012Validator
 
 from .errors import ValidationFinding
 
-SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "outlook-v1.json"
+SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "outlook.json"
 
 
 def _load_validator() -> Draft202012Validator:

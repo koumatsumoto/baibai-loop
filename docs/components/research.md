@@ -1,237 +1,134 @@
 # components/research.md
 
-Baibai-Loop の **research / investment memo** の運用仕様。candidates × outlook から選定した個別銘柄の thesis、payoff、反証、entry / exit / invalidation を検証する。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md)、概念モデルは [`../concepts.md`](../concepts.md)、スクリーニング詳細は [`../screening/`](../screening/) を参照。
+Baibai-Loop の **research / investment memo** の運用仕様。candidates × outlook × portfolio policy から選定した個別銘柄について、thesis、payoff、反証、entry / exit / invalidation、position size を検証する。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md)、概念モデルは [`../concepts.md`](../concepts.md) を参照。
 
 ## 1. 役割
 
-- `records/03-candidates/` × `records/02-outlook/` から選定した個別銘柄について、**割安の原因仮説・反対仮説・catalyst・positioning / liquidity・株主還元を深く分析**
-- Entry、target、stop、expected upside / downside、risk/reward、time horizon、invalidation conditions を thesis payoff として検証する
-- 採用判定 / 見送り / 保留を記録（packet）
-- Security-level analysis layer の出力点
+- `records/04-candidates/` の immutable screen output から、深掘りする ticker / playbook を選ぶ
+- `records/03-outlook/` と security exposure を使い、macro regime gate を確定する
+- Portfolio policy と portfolio exposure snapshot に照らして、採用可否と sizing を決める
+- thesis payoff を構造化し、target / stop / expected upside / downside / risk reward / time horizon を検査する
+- risk / contradicting evidence を必ず確認し、割安 trap を避ける
+- Decision register と trade order intent へ接続する
 
-## 2. 選定プロセス（candidates × outlook → 候補絞り込み）
+## 2. 選定プロセス
 
-1. **最新 candidates を取得**: 直近の `records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml` を選び、`candidates` 配列を取得
-2. **最新 outlook を参照**: 直近の `records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml` を選び、`sectors` / `regions` を取得
-3. **gate 通過銘柄に絞り込み**: candidates ticker のうち、所属業種/地域が outlook で **tailwind または neutral** のものを候補に残す（**headwind は除外**）。candidates は `sector_33` のみ持つので、各業種を outlook の region に対応させるには [`../screening/sector-region-map.md`](../screening/sector-region-map.md) の default mapping を出発点にする
-4. **候補から人間 + AI が個別 ticker を選定**: 以下の基準で優先度判定
-   - `select` の `candidates`（lane 分散済みの research 着手候補）を先に見る。単純な global rank を確認したい場合は `ranked_candidates` を見る
-   - `select` の `selection_lane` と `selection_metrics`（primary thesis としてどの割安仮説を深掘りするか）
-   - `select` の `recommendation_lane`（lane 分散でその候補を拾った枠。複数 hit 銘柄では `selection_lane` と異なることがある）
-   - playbook-linked screen hit の重なり（複数 hit は tie-break として優先するが、それだけで primary thesis にしない）
-   - playbook-linked screen の種類（cash / CF / sales / valuation のどの割安タイプか）
-   - primary metric の乖離幅（業種中央値比・過去自己比較・OCF yield・cash 比率）
-   - 同業種の中で相対的に過剰売られ
-   - 最大で 1 回の selection あたり **3-5 銘柄** に絞る（1 人運用で深掘りできる現実的な上限）
+1. 直近の `records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml` を読む
+2. `playbook_screen_result`, `policy_gate_result`, `liquidity_gate_result`, `macro_regime_gate_result` を分けて確認する
+3. `records/03-outlook/` の `sectors` / `exposure_buckets` と universe snapshot の `security_exposures[]` を確認する
+4. `candidate_evidence_decisions[]` で research recorded_at 時点の `effective_sizing_eligible` を再評価する
+5. `selected_supporting_evidence_refs[]` に candidate / research の採用 evidence を明示する
+6. thesis payoff と portfolio exposure snapshot に照らし、`research_decision` を確定する
 
-### 2.1 outlook 未更新時の対応
-
-- 最新 outlook が古く、その後に重大 brief が出て gate 判定に影響する場合:
-  - 該当 brief を research の `brief_refs` に追加
-  - gate を **保守側にのみ** 手動上書き可（tailwind → neutral、neutral → headwind。逆方向の上書き不可）
-  - 詳細: [`../screening/macro-gate-procedure.md`](../screening/macro-gate-procedure.md)
-
-### 2.2 銘柄IR確認の必須化
-
-research 対象に選んだ銘柄は、業種を問わず **会社IRを一次情報として必ず確認する**。screening や外部分析は候補選定の補助であり、採用 / 見送り / 保留の判断を確定する根拠にはしない。
-
-- 最低限、直近の決算短信、決算説明資料、会社説明会 Q&A、有価証券報告書 / 統合報告書、中期経営計画、株主還元・自己株式取得・配当関連の適時開示を確認する
-- cash-rich evidence path では有利子負債・偶発債務を一次情報で確認する
-- CF evidence path では営業 CF の一過性要因、運転資本、季節性を確認する
-- candidates / select の `freshness_warnings` に `source_family: edinet-metrics` がある場合、strict net cash / cash-rich / FCF 系の primary または supporting evidence では、EDINET 由来の cash / debt / net cash / EV / equity / share count / capex / fcf_ttm を最新の会社IR・適時開示・有報で再確認する。warning が残ったまま未確認なら `decision: accepted` にしない
-- 会社IRで確認できた事実、会社IRでは確認できず外部 estimate に留めた情報、外部AI / 二次分析から修正した数値を research 本文の source verification log に分けて残す
-- 会社IRが未確認の銘柄は `decision: accepted` にしない。情報不足なら `pending` または `skipped` とし、未確認項目を明記する
-
-### 2.3 複数 screen hit の扱い
-
-research file の `playbook` は primary thesis を 1 つだけ選ぶ。複数 screen が hit した場合は、`select` の `selection_lane`、macro gate、最も検証したい割安仮説を見て primary を決め、残りは `supporting_signals` と本文「Candidate evidence + valuation snapshot」に列挙する。`supporting_signals` は field 名として残るが、概念上は supporting evidence を表す。`recommendation_lane` は lane 分散の選定理由であり、primary thesis ではない。
-
-複数 screen hit は採用理由ではなく、検証優先度を上げる材料である。例えば cash-rich と CF が両方 hit しても、有利子負債・運転資本・一過性 CF を一次情報で確認できなければ accepted にしない。
-
-### 2.4 Portfolio macro risk budget
-
-research が実注文や実資金 allocation に直結する場合、`Macro gate` section には sector の
-`tailwind / neutral / headwind` だけでなく、portfolio 全体の risk budget を短く明記する。
-
-最低限、以下を確認する:
-
-- 最新 outlook の base / downside / upside scenario と、現在どの scenario に近いか
-- 今後 1-2 週間の macro trigger（米 CPI / 雇用統計 / FOMC / BOJ / 地政学 / 原油など）
-- その trigger 前に実資金をどこまで投入するか、通過後にどこまで増やすか
-- 投資可能な実資金全体と、一時的な様子見枠・tactical cap を分けているか
-- 同一 sector / 同一 thesis への集中度が、個別銘柄の evidence strength に比べて過大でないか
-- 決算直前の候補を先行買いする場合、取り逃しリスクと event risk のどちらが大きいか
-
-macro gate は「採用可否の boolean」ではなく、position size と timing を決める上位制約として扱う。
-個別銘柄が tailwind でも、downside 確率が高く、主要 macro trigger の直前であれば、初期投入を
-抑え、trigger 通過後に追加する。
+候補は一度の selection で 3-5 銘柄までに絞る。複数 playbook hit は優先度を上げる材料だが、sizing count には `effective_sizing_eligible` と `independence_component_id` の再評価後の値だけを使う。
 
 ## 3. Path と命名
 
 ```
-records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
+records/05-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook_id>.md
 ```
 
-- `<ticker>`: 4 文字の英数字文字列
-- `<playbook>`: `valuation-reversion` / `strict-net-cash-discount` / `fcf-yield-discount` / `cash-rich-asset-discount` / `cashflow-yield-discount` / `sales-discount-growth`
+## 4. Front Matter
 
-## 4. Front matter 必須項目
+Front matter の形は [`../templates/research.md`](../templates/research.md) を正とする。主な必須 field は次の通り。
 
-```yaml
----
-ticker: "7203"
-name: "トヨタ自動車"
-playbook: valuation-reversion | strict-net-cash-discount | fcf-yield-discount | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth
-supporting_signals:
-  - cashflow-yield-discount
-decision: accepted | skipped | pending
-candidates_ref: records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml
-outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml
-brief_refs:
-  - records/01-brief/YYYY/MM/YYYY-MM-DD-*.yaml
-ai-draft: true | false
-published_at: "ISO 8601"
-tradable_at: "ISO 8601"
-macro_gate: tailwind | neutral | headwind
-macro_gate_override: "..."
-overrides:
-  - type: decision_flip | candidate_absence | universe_drop | real_concentration_cap | gate_headwind
-    prior_state_ref: "path or commit:path"
-    prior_state: "..."
-    new_state: "..."
-    reason: "..."
-external_refs:
-  - records/_external/<source>/YYYY-MM-DD-<topic>.md
-position_size_oku: 0.01
-hypothetical_position_size_oku: 0.005
-avg_turnover_oku: 5.0
-adv_participation_pct: 0.2
-market_cap_oku: 936
-sector_33: "情報・通信業"
-valuation:
-  per_forward: 数値 | null
-  per_trailing: 数値 | null
-  pbr: 数値 | null
-  ev_ebitda: 数値 | null
-  p_s: 数値 | null
-  pcfr: 数値 | null
-  ocf_yield: 数値 | null
-  fcf_yield: 数値 | null
-  net_cash_to_market_cap: 数値 | null
-  cash_to_market_cap: 数値 | null
-  price_to_equity: 数値 | null
-  equity_ratio: 数値 | null
-  primary_metric: ["pbr", "ocf_yield"]
----
-```
+- `ticker` / `name`
+- `playbook_id` / `playbook_snapshot`
+- `policy_snapshot`
+- `portfolio_exposure_snapshot_ref`
+- `candidate_ref`
+- `research_decision`
+- `macro_regime_gate`
+- `candidate_evidence_decisions`
+- `selected_supporting_evidence_refs`
+- `research_evidence_hits`
+- `independent_evidence_count`
+- `conviction_tier`
+- `position_sizing_overlay`
+- `thesis_payoff`
 
-- `playbook` は primary thesis を 1 つだけ持つ。複数 screen hit がある場合は `supporting_signals` と本文 §3 に列挙する
-- `outlook_ref` は **必須**
-- `macro_gate` が `headwind` の場合は採用不可（原則）。採用する場合は `macro_gate_override` と `overrides[].type: gate_headwind` が必須
-- `position_size_oku` は仮定資本 1 億円ベース。採用 position 1.0% は `0.01` 億円として記録する
-- `adv_participation_pct` は `5.0` 以上で hard reject
-- 配当利回りは front matter に含めず、本文の株主還元確認で扱う
+Snapshot ref は immutable dated path と `content_sha256` を持つ。Snapshot file 自身に自己 hash は持たせない。
 
-## 5. Packet 必須項目（本文、14 項目）
+## 5. research_decision
 
-本文は [`../templates/research.md`](../templates/research.md) の 14 項目を使う:
+`research_decision.outcome` は次の 3 値。
 
-1. Thesis（一文、why now / why this stock、primary evidence path を明示）
-2. Macro gate（tailwind / neutral / headwind）+ 判定根拠
-3. Candidate evidence + valuation snapshot
-4. 割安の原因仮説
-5. 反対仮説 - 構造的理由
+- `approved`: 今すぐ採用してよい
+- `passed`: thesis は通るが、event / capital / regime / data gap で待つ
+- `rejected`: thesis または gate が通らない
+
+`posture` は `act_now | wait_for_event | wait_for_capital | dropped`。`approved` は `act_now` のみ。`rejected` は `rejection_reason`、`passed` かつ待機姿勢の場合は `deferral_reason` と revisit 条件を持つ。
+
+## 6. Macro Regime Gate
+
+`macro_regime_gate.decision_effect` は `pass | conditional | block`。
+
+- `pass`: policy と payoff 条件を満たせば採用可
+- `conditional`: blocking condition または低 sizing cap を必須にする
+- `block`: approved 不可
+
+複数 macro input は reducer で合成し、record の値は validator が再計算値と一致検査する。unknown / expired / low confidence exposure は conservative に扱う。
+
+## 7. Evidence And Conviction
+
+- `candidate_evidence_decisions[]` は candidate evidence の research recorded_at 時点の有効性判定
+- `research_evidence_hits[]` は screen 後に確認した catalyst / freshness / risk / contradicting evidence
+- `independent_evidence_count` は `effective_sizing_eligible: true` の distinct `independence_component_id` 数
+- `sizing_eligible_evidence_family_count` は eligible evidence の atomic `evidence_family_set` union size
+- Approved memo は少なくとも 1 件の selected supporting evidence と、1 件の risk / contradicting evidence review を持つ
+- `source_status != ok` の evidence は sizing count に入れない
+
+## 8. Thesis Payoff
+
+Long-only の計算式は次で固定する。
+
+- `expected_upside_pct = (target_price_yen / max_entry_price_yen - 1) * 100`
+- `expected_downside_pct = (max_entry_price_yen / stop_loss_yen - 1) * 100`
+- `risk_reward_ratio = expected_upside_pct / expected_downside_pct`
+- `stop_loss_yen < max_entry_price_yen < target_price_yen`
+
+Portfolio policy の minimum payoff を下回る場合は `policy_overrides[]` を要求する。Override 可否は policy rule で定義し、未定義 rule は default error とする。
+
+## 9. Position Size
+
+Position size は次の順で決める。
+
+1. conviction tier の default sizing ladder
+2. thesis payoff / minimum payoff
+3. macro regime gate cap
+4. event / calendar cap
+5. liquidity cap
+6. ticker / sector / playbook / economic exposure の cumulative cap
+7. board lot と guard price による rounding
+
+実注文数量は `floor(real_order_intent_yen / order_price_guard_yen / board_lot) * board_lot` で計算する。0 株になる場合は `trade_execution_state: none` と `not_submitted_reason` を記録する。
+
+## 10. Body Sections
+
+本文は playbook ごとの body schema に従う。共通の観点は次の通り。
+
+1. Thesis
+2. Macro regime gate
+3. Valuation snapshot
+4. 一時的割安の原因仮説
+5. 反対仮説
 6. Catalyst
 7. Price reaction
-8. Crowding (positioning / liquidity)
-9. 株主還元確認（配当政策 / 自社株買い / DOE or 配当性向 / 減配リスク）
-10. Security-level evidence contribution table
-11. Entry 条件
-12. Exit 条件
-13. Invalidation + Pre-mortem
-14. Position size + 採用判定
+8. Positioning / liquidity
+9. Shareholder return
+10. Entry
+11. Exit
+12. Invalidation
+13. Position size
 
-### 5.1 schema 検証
+## 11. Validation
 
-front matter の必須 field と `playbook` ごとの本文 section 構造は `baibai-loop-validate` で検査される。playbook 別の本文 section schema は [`/records/_playbooks/`](/records/_playbooks/) 配下に `<name>.schema.yaml` として分離してあり、新 playbook を追加した時は同名 schema YAML を置くだけで validate に反映される。手元では `uv run baibai-loop-validate --target research` で個別に走らせられる。
-
-research decision は `baibai-loop-ledger sync` で [`records/_ledger/`](./ledger.md) の JSONL に正規化される。
-
-## 6. 採用判定
-
-- `macro_gate = headwind` は原則採用不可（outlook で対象業種/地域が `null` の場合は neutral 扱いで判定可）
-- primary evidence path の割安判定が成立している
-- 反対仮説を考えて「構造的 trap ではない」と説明できる
-- strict net-cash evidence path では EDINET 由来 debt / cash の tag source と有利子負債の範囲を一次情報で確認している
-- cash-rich evidence path では有利子負債確認を完了している
-- FCF evidence path では capex source、設備投資の一過性、維持投資 / 成長投資の区別を確認している
-- candidates / select の `freshness_warnings` が EDINET metrics の古さを示す場合、該当 warning の event title と日付を確認し、最新の balance sheet / cash flow / share count への影響を一次情報で確認している
-- OCF evidence path では営業 CF の期間正規化、一過性要因、悪化有無を確認している
-- sales evidence path では売上成長が残り、営業赤字の場合は CFO プラスまたは赤字縮小が確認できる
-- catalyst は必須ではないが、存在する場合は freshness と一次ソースを記録する
-- positioning / liquidity が踏み上げリスクと逆回転リスクの両方で許容範囲
-- kill switch に抵触しない（決算またぎ / 日銀会合前日 / FOMC 前日）
-- position size が independent evidence count、thesis payoff、流動性条件に照らして過大でない
-
-### 6.1 Position sizing
-
-- single primary evidence path: 最大 1%
-- 複数 independent evidence paths: 最大 2%
-- `adv_participation_pct >= 5.0` は hard reject
-
-現在の実資金や tactical cap が小さい場合、paper proxy の ADV cap は実運用ではほぼ拘束しない。paper proxy は検証用の統一尺度として残し、実資金の集中度は trade 側の `real_*` / `tactical_*` fields で別管理する。
-
-## 7. trades への接続
-
-採用した research の front matter path は、`records/05-trades/` の `research_ref` で参照される:
-
-```yaml
-research_ref: records/04-research/2026/05/2026-05-10-7203-valuation-reversion.md
+```bash
+uv run baibai-loop-validate --target research
 ```
 
-## 8. AI の役割境界（packet 項目単位）
+Validation は front matter schema、playbook body schema、snapshot refs、decision consistency、macro regime gate、evidence count、thesis payoff を検査する。
 
-| 項目 | 内容 | AI 可 | 人間のみ |
-| --- | --- | --- | --- |
-| 1 | Thesis ドラフト | ○ | 最終確認 |
-| 2 | Macro gate 判定ドラフト | ○ | **確定は人間** |
-| 3 | Candidate evidence / valuation snapshot | ○ | 数値正誤確認 |
-| 4 | 割安の原因仮説ドラフト | ○ | 確定 |
-| 5 | 反対仮説ドラフト | ○ | 確定 |
-| 6 | Catalyst 種別・経過営業日ドラフト | ○ | **一次ソース URL 確認は人間** |
-| 7 | Price reaction 機械集計 | ○ | |
-| 8 | Positioning / liquidity 指標取得 | ○ | |
-| 9 | 株主還元確認ドラフト | ○ | 一次ソース確認 |
-| 10 | Security-level evidence contribution 初期評価 | ○ | 確定 |
-| 11 | Entry 条件ドラフト | ○ | 確定 |
-| 12 | Exit 条件ドラフト | ○ | 確定 |
-| 13 | Invalidation / Pre-mortem ドラフト | ○ | 採用条件確定 |
-| 14 | Position size 判定ドラフト | ○ | **最終採用判定は人間** |
+## 12. Trade / Review への接続
 
-AI 下書きは front matter `ai-draft: true` で識別、人間確認後 `false` に更新。
-
-## 8.1 commit 前 self-review (anti-pattern との対応)
-
-- [ ] **AP-01** (一次情報直接確認): 事業構造や catalyst を断定する場合、会社IR / 有報 / 決算説明資料 / 適時開示のいずれかに直接 URL を紐付けたか
-- [ ] **会社IR必須確認**: 直近決算短信 / 決算説明資料 / Q&A / 有報または統合報告書 / 中計 / 株主還元関連開示を確認したか
-- [ ] **AP-02** (数値検算): `adv_participation_pct = position_size_oku / avg_turnover_oku * 100` を検算したか
-- [ ] **AP-03** (株価異常値の corporate action 確認): candidates の `price_change_60d` / `price_change_4w` が大きい銘柄は corporate action の有無を確認したか
-- [ ] **AP-04** (schema / 実装の意味): candidates の screen hit fields / `metrics` / `sector_relative_strength_percentile` の意味を `src/baibai_loop/screening/metrics.py` と `rules.py` で確認したか
-- [ ] **EDINET freshness warning**: candidates / select の `freshness_warnings` がある場合、該当 event 後の cash / debt / net cash / EV / equity / share count / capex / FCF 影響を一次情報で再確認したか
-- [ ] **AP-06** (ref 整合性): `outlook_ref` / `candidates_ref` / `brief_refs` の 3 ref が valid パスか
-- [ ] **AP-07** (kill switch と日付): `tradable_at` 周辺に決算・日銀会合・FOMC が無いか
-- [ ] **AP-08** (validator 抜け道): skipped では `position_size_oku: 0` + `adv_participation_pct: 0` を守ったか
-- [ ] **外部 AI / 二次分析の検証**: 他AI・証券サイト・ニュース要約の投資判断をそのまま転記していないか
-- [ ] **system output override の明示**: 最新 candidates からの不在、universe drop、macro headwind、実資金集中度超過などを上書きして採用する場合、`overrides` と本文に理由を残したか。macro headwind 採用では `macro_gate_override` と `overrides[].type: gate_headwind` を併記したか
-
-## 9. 参考
-
-- [`../philosophy.md`](../philosophy.md): 思想（macro regime discipline、事実と分析の分離）
-- [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
-- [`../concepts.md`](../concepts.md): 投資判断ドメインモデル
-- [`candidates.md`](./candidates.md): source となる candidates の仕様
-- [`outlook.md`](./outlook.md): Macro gate source の仕様
-- [`../screening/principles.md`](../screening/principles.md): screening / playbook 原則
-- [`../screening/macro-gate-procedure.md`](../screening/macro-gate-procedure.md): Macro gate 判定手順
-- [`../templates/research.md`](../templates/research.md): template
-- [`/records/_playbooks/`](/records/_playbooks/): playbook 本体
+Approved memo は decision register に `decision_scope: research_memo` として記録される。実行する場合は `order_intent` を decision register に作り、`records/06-trades/` の `orders[].origin_order_intent_id` と join する。Outcome は review / retro で evidence、macro regime gate、sizing、execution、playbook へ帰属する。

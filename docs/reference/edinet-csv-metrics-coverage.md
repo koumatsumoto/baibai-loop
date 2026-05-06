@@ -156,7 +156,7 @@ EDINET lane research validation:
 
 | ticker | lane | conclusion |
 | --- | --- | --- |
-| 7613 | `fcf-yield-discount` | `fcf_yield` 35.8%、EDINET CFO 26,539 百万円、capex 3,376 百万円、FCF 23,163 百万円。PER / PBR ではなく FCF で割安に見える候補として research packet を追加。ただし net debt、売上 YoY マイナス、2025/12 期純利益減少があるため decision は pending |
+| 7613 | `fcf-yield-discount` | `fcf_yield` 35.8%、EDINET CFO 26,539 百万円、capex 3,376 百万円、FCF 23,163 百万円。PER / PBR ではなく FCF で割安に見える候補として investment memo を追加。ただし net debt、売上 YoY マイナス、2025/12 期純利益減少があるため `research_decision.outcome: passed` |
 
 Candidate sanity check:
 

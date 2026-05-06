@@ -12,10 +12,21 @@ data_sources:
 - "edinet-preprocessed-metrics"
 run_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 run_id: "screening-YYYYMMDD-xxxxxxxx"
-config_hash: "0123456789abcdef"
+policy_snapshot:
+  ref_path: records/01-policy/YYYY/MM/YYYY-MM-DDTHHMMSS+0900-portfolio-policy.md
+  content_sha256: sha256:<64-hex>
+screening_rules_snapshot:
+  ref_path: records/_config/screening-rules/YYYY-MM-DDTHHMMSS+0900.yaml
+  content_sha256: sha256:<64-hex>
+metric_catalog_snapshot:
+  ref_path: records/_config/metric-catalog/YYYY-MM-DDTHHMMSS+0900.yaml
+  content_sha256: sha256:<64-hex>
+playbook_set_hash: sha256:<64-hex>
 cache_manifest_hash: "fedcba9876543210"
 candidates:
 - ticker: "130A"
+  candidate_id: candidate-screening-YYYYMMDD-xxxxxxxx-130A
+  candidate_key: "screening-YYYYMMDD-xxxxxxxx:130A"
   name: "..."
   sector_33: "業種名"
   market_cap_oku: 585
@@ -86,9 +97,16 @@ candidates:
     sales: approximated
     fcf_yield: exact
     net_cash: exact
-  signals:
+  evidence_hits:
   - name: valuation-reversion
-    playbook: valuation-reversion
+    playbook_id: valuation-reversion
+    evidence_hit_id: eh-130A-valuation-reversion
+    primary_family: valuation
+    evidence_family_set: [valuation]
+    correlation_group: valuation_discount
+    independence_component_id: valuation_discount
+    source_status: ok
+    sizing_eligible: true
     reasons:
     - sector_median_discount_and_self_range_bottom
     metrics:
@@ -96,7 +114,14 @@ candidates:
       condition_a_sector_median_gap: -0.21
       condition_a_self_range_percentile: 0.14
   - name: cash-rich-asset-discount
-    playbook: cash-rich-asset-discount
+    playbook_id: cash-rich-asset-discount
+    evidence_hit_id: eh-130A-cash-rich-asset-discount
+    primary_family: balance_sheet
+    evidence_family_set: [balance_sheet]
+    correlation_group: balance_sheet_cash
+    independence_component_id: balance_sheet_cash
+    source_status: ok
+    sizing_eligible: true
     reasons:
     - cash_to_market_cap_price_to_equity_and_equity_ratio
     metrics:
@@ -107,7 +132,14 @@ candidates:
       price_to_equity: 0.82
       equity_ratio: 0.45
   - name: strict-net-cash-discount
-    playbook: strict-net-cash-discount
+    playbook_id: strict-net-cash-discount
+    evidence_hit_id: eh-130A-strict-net-cash-discount
+    primary_family: balance_sheet
+    evidence_family_set: [balance_sheet]
+    correlation_group: balance_sheet_cash
+    independence_component_id: balance_sheet_cash
+    source_status: ok
+    sizing_eligible: true
     reasons:
     - net_cash_to_market_cap_price_to_equity_and_equity_ratio
     metrics:
@@ -121,7 +153,14 @@ candidates:
       edinet_source_period_start: "YYYY-MM-DD"
       edinet_source_period_end: "YYYY-MM-DD"
   - name: fcf-yield-discount
-    playbook: fcf-yield-discount
+    playbook_id: fcf-yield-discount
+    evidence_hit_id: eh-130A-fcf-yield-discount
+    primary_family: fundamental
+    evidence_family_set: [fundamental]
+    correlation_group: cash_flow_yield
+    independence_component_id: cash_flow_yield
+    source_status: ok
+    sizing_eligible: true
     reasons:
     - fcf_yield_discount
     metrics:
@@ -146,7 +185,7 @@ ttm_quality_counts:
   exact: 1
   approximated: 3
   unavailable: 1
-signals_summary:
+evidence_hits_summary:
   valuation-reversion: 1
   strict-net-cash-discount: 1
   fcf-yield-discount: 1

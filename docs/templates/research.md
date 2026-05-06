@@ -1,231 +1,146 @@
 ---
 ticker: "XXXX"
 name: "..."
-playbook: valuation-reversion | strict-net-cash-discount | fcf-yield-discount | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth
-supporting_signals: []                  # candidates.signals[].name のうち primary 以外
-decision: accepted | skipped | pending
-candidates_ref: records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml
-outlook_ref: records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-*.yaml
-brief_refs: []                          # 任意、outlook 後の緊急 brief がある場合のみ
+playbook_id: valuation-reversion
+playbook_snapshot:
+  ref_path: records/_playbooks/valuation-reversion/YYYY-MM-DDTHHMMSS+0900.md
+  content_sha256: sha256:<64-hex>
+  effective_from: "YYYY-MM-DDTHH:MM:SS+09:00"
+policy_snapshot:
+  ref_path: records/01-policy/YYYY/MM/YYYY-MM-DDTHHMMSS+0900-portfolio-policy.md
+  content_sha256: sha256:<64-hex>
+  effective_from: "YYYY-MM-DDTHH:MM:SS+09:00"
+portfolio_exposure_snapshot_ref:
+  ref_path: records/_portfolio-exposure/YYYY/MM/YYYY-MM-DDTHHMMSS+0900.yaml
+  content_sha256: sha256:<64-hex>
+  as_of: "YYYY-MM-DDTHH:MM:SS+09:00"
+candidate_ref:
+  candidates_ref: records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml
+  screen_run_id: screening-YYYYMMDD-xxxxxxxx
+  ticker: "XXXX"
+  candidate_id: candidate-screening-YYYYMMDD-xxxxxxxx-XXXX
+research_decision:
+  outcome: approved | passed | rejected
+  posture: act_now | wait_for_event | wait_for_capital | dropped
+  rejection_reason: thesis_failed | corporate_action_post_snapshot | source_stale | policy_block | other
+  deferral_reason: data_gap | event_pending | regime_block | capital_constraint | other
+macro_regime_gate:
+  aggregate_status: supportive | neutral | adverse | unknown
+  decision_effect: pass | conditional | block
+  position_cap_reason: null
+candidate_evidence_decisions:
+  - evidence_hit_id: eh-XXXX
+    effective_sizing_eligible: true
+    evaluated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
+    reason_code: source_status_ok | freshness_expired | corporate_action_post_snapshot | duplicate_dependency | other
+selected_supporting_evidence_refs:
+  - source: candidate
+    evidence_hit_id: eh-XXXX
+research_evidence_hits:
+  - evidence_hit_id: risk-XXXX
+    decision_role: risk_evidence
+    evidence_polarity: risk
+    source_status: ok
+independent_evidence_count: 1
+raw_evidence_family_count: 1
+sizing_eligible_evidence_family_count: 1
+raw_playbook_concurrence_count: 1
+sizing_eligible_playbook_concurrence_count: 1
+conviction_tier: low | medium | high | blocked
+conviction_tier_path: count_breadth | depth
+position_sizing_overlay:
+  paper_position_size_yen: 1000000
+  estimated_real_order_notional_yen: 210000
+  guarded_max_notional_yen: 210000
+thesis_payoff:
+  max_entry_price_yen: 1000
+  target_price_yen: 1300
+  stop_loss_yen: 900
+  expected_upside_pct: 30.0
+  expected_downside_pct: 11.11
+  risk_reward_ratio: 2.70
+  time_horizon_bd: 30
+  invalidation_conditions:
+    - stop loss
+sector_33: "情報・通信業"
 ai-draft: true
 published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
-tradable_at: "YYYY-MM-DDTHH:MM:SS+09:00"
-macro_gate: tailwind | neutral | headwind
-macro_gate_override: "..."              # headwind 採用時のみ
-overrides:
-  - type: decision_flip | candidate_absence | universe_drop | real_concentration_cap | gate_headwind
-    prior_state_ref: "path or commit:path"
-    prior_state: "..."
-    new_state: "..."
-    reason: "..."
-external_refs: []                       # 外部AI / 二次分析を参照する場合
-position_size_oku: 0.01                 # accepted/pending: > 0 必須。skipped: 0 強制
-hypothetical_position_size_oku: 0.005   # 任意。skipped で参考値として記録する場合のみ
-avg_turnover_oku: 5.0
-adv_participation_pct: 0.2
-market_cap_oku: 936
-sector_33: "情報・通信業"
-valuation:
-  per_forward: 8.2
-  per_trailing: 9.5
-  pbr: 0.72
-  ev_ebitda: null
-  p_s: 0.6
-  pcfr: 5.1
-  ocf_yield: 0.13
-  cash_to_market_cap: 0.42
-  price_to_equity: 0.82
-  equity_ratio: 0.45
-  primary_metric: ["pbr", "ocf_yield"]
+external_refs: []
 ---
 
-# Research: YYYY-MM-DD XXXX [銘柄名] [playbook]
+# Research: YYYY-MM-DD XXXX [銘柄名] [playbook_id]
 
 **成分**: Decision lifecycle の **research / investment memo**（[`/docs/components/research.md`](/docs/components/research.md)）
 
-**Playbook**: [valuation-reversion | strict-net-cash-discount | fcf-yield-discount | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth]
-
 ## 1. Thesis
 
-一文で why now × why this stock。マクロゲート、primary evidence path、主要な反対仮説を明示。
+Why now × why this stock。主要 evidence、payoff、反対仮説、macro regime gate を一文で結論づける。
 
-例: `マクロは {tailwind} の業種に属し、{cashflow-yield-discount} が出ている。営業 CF yield は {X%}、売上悪化は限定的で、構造悪化ではなく一時的な評価低下と見る。`
+## 2. Macro regime gate
 
-## 2. Macro gate [最上位ゲート]
-
-- **判定**: tailwind | neutral | headwind
-- **業種**: [東証 33 業種]（outlook で {tailwind/neutral/headwind}）
-- **地域**: [地域]（outlook で {tailwind/neutral/headwind}）
-- **保守側優先判定結果**: [最終 gate 判定]
+- **aggregate_status**: supportive | neutral | adverse | unknown
+- **decision_effect**: pass | conditional | block
+- **対象 exposure**: sector / exposure bucket / security exposure
 - **outlook_ref**: [outlook path]
-- **brief_refs**（任意）: [outlook 後の緊急 brief があれば]
-- **1-2 行要約**: [gate 判定の要点]
+- **portfolio policy cap**: [必要なら低 sizing cap の理由]
 
-headwind の場合は原則採用不可。採用する場合は `macro_gate_override` と `overrides[].type: gate_headwind` に system output を上書きする理由を残す。
+## 3. Valuation snapshot
 
-### 2.1 Portfolio macro risk budget
+| 指標 | 値 | 業種中央値 | 業種中央値比 | source |
+| --- | ---: | ---: | ---: | --- |
+| PER | | | | |
+| PBR | | | | |
+| P/S | | | | |
+| FCF yield | | | | |
 
-- **現在の macro scenario**: [outlook の base/downside/upside と現在の近さ]
-- **直近 1-2 週間の trigger**: [米 CPI / 雇用 / FOMC / BOJ / 原油 / 地政学 / 決算など]
-- **trigger 前の投入上限**: [投資可能資金全体に対する % / tactical cap に対する % と理由]
-- **trigger 通過後の追加条件**: [何が確認できれば増やすか]
-- **sector / thesis 集中**: [同一 sector / 同一 evidence path への偏り]
+## 4. 一時的割安の原因仮説
 
-## 3. Candidate evidence + valuation snapshot
+[一時的である根拠。構造悪化なら rejected / deferred に倒す。]
 
-### 3.1 Candidate evidence
+## 5. 反対仮説
 
-| evidence path | playbook | hit reasons | primary metric |
-| --- | --- | --- | --- |
-| valuation-reversion | valuation-reversion | sector_self_range | PER / PBR |
-| strict-net-cash-discount | strict-net-cash-discount | net_cash_to_market_cap_price_to_equity_and_equity_ratio | net_cash_to_market_cap |
-| fcf-yield-discount | fcf-yield-discount | fcf_yield_discount | fcf_yield |
-| cash-rich-asset-discount | cash-rich-asset-discount | cash_to_market_cap_price_to_equity_and_equity_ratio | cash_to_market_cap |
-| cashflow-yield-discount | cashflow-yield-discount | ocf_yield_discount | ocf_yield |
-| sales-discount-growth | sales-discount-growth | ps_discount_growth_intact | P/S |
-
-### 3.2 Valuation snapshot
-
-| 指標 | 値 | 業種中央値 | 業種中央値比 | 過去 3 年パーセンタイル | primary |
-| --- | --- | --- | --- | --- | --- |
-| PER (forward) | 8.2 | 12.0 | -32% | 10% | |
-| PER (trailing) | 9.5 | 13.0 | -27% | 15% | |
-| PBR | 0.72 | 1.10 | -35% | 12% | ✓ |
-| EV/EBITDA | unavailable | 7.2 | n/a | n/a | |
-| P/S | 0.6 | 1.1 | -45% | 8% | |
-| PCFR | 5.1 | 8.0 | -36% | 18% | |
-| OCF yield | 13.0% | 8.0% | +5.0pt | n/a | ✓ |
-| Cash / market cap | 42.0% | n/a | n/a | n/a | |
-| Equity ratio | 45.0% | n/a | n/a | n/a | |
-
-**primary metric**: [最も効いた 1-2 指標]
-
-## 4. 割安の原因仮説
-
-以下のどれか（または複数）:
-
-- 市場全体の短期売り
-- 業種ローテーションの一過性
-- 一過性の悪材料
-- 利益率低下・投資先行による短期的な見栄え悪化
-- ネットキャッシュ / 資産価値 / CF 創出力の見落とし
-- インデックス構成変更・需給要因
-
-**本銘柄の原因仮説**: [1-2 段落で記述、一時的である根拠を含む]
-
-## 5. 反対仮説 - 構造的理由（必須）
-
-以下のうち該当するものを検討:
-
-- 構造的な成長鈍化
-- ガバナンス懸念
-- 技術的陳腐化
-- accounting 警戒
-- 業界需要の構造的縮小
-- ESG / 規制リスク
-- 大株主の売り圧力
-- 営業 CF の一過性要因
-- 現金同等物を相殺する有利子負債・偶発債務
-- その他（自由記述）
-
-**本銘柄の反対仮説**: [1-2 段落で記述。「この仮説が正しい場合、割安は trap である」と明記]
+[最低 1 件の risk / contradicting evidence review を記録する。]
 
 ## 6. Catalyst
 
-- **種別**: [決算修正 / 自社株買い / 大口受注 / 東証開示 / 英語開示 / その他 / なし]
-- **発生日**: YYYY-MM-DD
-- **経過営業日**: XX 日
-- **一次ソース URL**: [URL]
-- **要点**: [1-2 行]
-
-catalyst がない場合は、どの evidence path が catalyst 不在を補う margin of safety になっているかを明記する。
+[決算修正、自社株買い、M&A、事業イベント、イベント不在時の margin of safety。]
 
 ## 7. Price reaction
 
-| 対象 | 値 | 変化 | ソース |
-| --- | --- | --- | --- |
-| 前日終値 | XX,XXX 円 | +X.X% | [J-Quants](URL) |
-| 週次騰落 | - | +X.X% | 計算 |
-| 60 営業日騰落 | - | -X.X% | 計算 |
-| 出来高比（20 日平均） | - | X.Xx | 計算 |
+[価格、出来高、相対リターン、セクター相対の反応。]
 
-## 8. Crowding (positioning / liquidity)
+## 8. Positioning / liquidity
 
-| 指標 | 現値 | 60 日推移 | ソース |
-| --- | --- | --- | --- |
-| 空売り残高 (対発行済株式比) | X.X% | ↑↓→ | [JPX](URL) |
-| 日々公表信用指定 | [有/無] | - | [JPX](URL) |
-| 特別注意 | [有/無] | - | [JPX](URL) |
-| 貸借銘柄状態 | [正常/逼迫] | - | [JPX](URL) |
+[空売り、信用、流動性、board lot、ADV、注文可能性。]
 
-## 9. 株主還元確認
+## 9. Shareholder return
 
-| 項目 | 確認結果 | 一次ソース |
-| --- | --- | --- |
-| 配当政策 | [累進 / DOE / 配当性向 / 未定] | [URL] |
-| 自社株買い | [有 / 無 / 余地あり] | [URL] |
-| DOE or 配当性向 | [X%] | [URL] |
-| 減配リスク | [低 / 中 / 高] | [根拠] |
+[配当、自社株買い、DOE、還元余地、減配リスク。]
 
-## 10. Security-level evidence contribution table
+## 10. Entry 条件
 
-| 軸 | 寄与度 | 備考 |
-| --- | --- | --- |
-| Valuation | strong / weak / neutral | primary: pbr, ocf_yield |
-| Mean-Reversion | strong / weak / neutral | [根拠] |
-| Catalyst | strong / weak / neutral | [根拠] |
-| Crowding (positioning / liquidity) | strong / weak / neutral | [踏み上げ余地 / 逆回転リスク] |
+- **max entry price**:
+- **guard price**:
+- **quantity / board lot**:
+- **not submitted 条件**:
 
-## 11. Entry 条件
+## 11. Exit 条件
 
-- **価格レンジ**: XX,XXX 円 - XX,XXX 円
-- **日付制約**: [kill switch で避ける日があれば列挙]
-- **トリガー**: [出来高増の確認、2 日連続陽線、etc.]
+- **target**:
+- **stop loss**:
+- **time stop**:
 
-## 12. Exit 条件
+## 12. Invalidation
 
-- **利確目標**: XX,XXX 円（+X%）
-- **損切り**: XX,XXX 円（-X%）
-- **時間切れ**: 最長 40 営業日（YYYY-MM-DD まで）
+[thesis が壊れる条件。]
 
-## 13. Invalidation + Pre-mortem
+## 13. Position size
 
-### 13.1 無効化条件
-
-- [業績下方修正が出た]
-- [営業 CF の一過性要因が判明した]
-- [有利子負債確認により cash-rich 仮説が崩れた]
-- [マクロゲートが headwind に転じた]
-
-### 13.2 Pre-mortem（3 営業日以内の無効化シナリオ）
-
-- [3 営業日以内に entry を諦める条件を具体化]
-- [マクロゲート reversal シナリオ]
-
-## 14. Position size + 採用判定
-
-- **時価総額**: XXX 億円
-- **evidence path 数**: 1 / 2+
-- **許容 position**: single evidence path は最大 1%、複数 independent evidence paths は最大 2%
-- **ADV 参加率**: X.X%
-- **採用 position**: X.X%
-- **採用判定**: 採用 | 見送り | 保留
-- **判定理由**: [1-2 段落、security-level evidence contribution・反対仮説・kill switch 確認結果を踏まえて]
-
-現在の実資金や tactical cap が小さい場合、paper proxy の ADV cap は実運用ではほぼ拘束しない。混乱を避けるため、paper proxy の sizing は検証用の上限として扱い、実資金の集中度は trade 側の `real_*` / `tactical_*` fields で別管理する。
-
----
-
-**Kill switch 確認**:
-
-- [ ] 決算またぎエントリーではない
-- [ ] 日銀会合前日エントリーではない
-- [ ] FOMC 前日エントリーではない
-- [ ] マクロゲート: tailwind または neutral（headwind なら override 理由を明示）
-- [ ] 会社IRで直近決算 / 説明資料 / 株主還元方針を確認済み
-
-全 check が ✓ の場合のみ採用可。
-
----
+- **conviction_tier**:
+- **conviction_tier_path**:
+- **paper proxy size**:
+- **estimated real order notional**:
+- **binding cap**:
+- **portfolio exposure snapshot**:
 
 参照: [`/docs/components/research.md`](/docs/components/research.md), [`/docs/screening/principles.md`](/docs/screening/principles.md), [`/records/_playbooks/`](/records/_playbooks/)

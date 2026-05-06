@@ -49,7 +49,7 @@ class ScreeningConfig(BaseModel):
     edinet_api_key: str | None = None
     cache_dir: Path = DEFAULT_CACHE_DIR
     sqlite_cache_dir: Path = DEFAULT_SQLITE_CACHE_DIR
-    rules_path: Path = Path("records/_config/screening-rules.yaml")
+    rules_path: Path = Path("records/_config/screening-rules/2026-05-01T000000+0900.yaml")
     jpx_regulation_urls: Mapping[str, str] = Field(default_factory=dict)
     jpx_special_caution_index_url: str | None = None
 
@@ -124,7 +124,8 @@ class ScreeningConfig(BaseModel):
                 sqlite_cache_dir=sqlite_cache_dir_value,
                 rules_path=str(
                     Path(
-                        source.get("SCREENING_RULES_PATH") or "records/_config/screening-rules.yaml"
+                        source.get("SCREENING_RULES_PATH")
+                        or "records/_config/screening-rules/2026-05-01T000000+0900.yaml"
                     )
                 ),
                 jpx_regulation_urls=jpx_regulation_urls,

@@ -21,7 +21,7 @@ Reviews は trade 後の forward-only 検証と monthly retro を扱います。
 
 ## Monthly retro
 
-1. 対象月の accepted / skipped / pending と closed trades を集計する。
+1. 対象月の approved / passed / rejected decisions と submitted / filled / closed execution records を集計する。
 2. playbook 改訂はサンプル数と failure mode を確認してから判断する。
 3. active playbook の改訂が必要なら別 issue / PR として扱う。
 

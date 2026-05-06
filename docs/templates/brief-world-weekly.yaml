@@ -10,8 +10,8 @@ period:
   end: "YYYY-MM-DD"
   market_basis_date: "YYYY-MM-DD"
 references:
-  prev_period: records/01-brief/YYYY/MM/YYYY-MM-DD-world-weekly-{slug}.yaml
-  latest_monthly: records/01-brief/YYYY/MM/YYYY-MM-macro-monthly-{slug}.yaml
+  prev_period: records/02-brief/YYYY/MM/YYYY-MM-DD-world-weekly-{slug}.yaml
+  latest_monthly: records/02-brief/YYYY/MM/YYYY-MM-macro-monthly-{slug}.yaml
 sources:
   - id: fed-h15
     name: Federal Reserve H.15 Selected Interest Rates

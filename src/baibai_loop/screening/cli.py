@@ -136,7 +136,7 @@ class _ScreenedCandidateInput(BaseModel):
     name: str | None = None
     sector_33: str = ""
     market_cap_oku: int | float | None = None
-    signals: list[dict[str, object]] = Field(default_factory=list)
+    evidence_hits: list[dict[str, object]] = Field(default_factory=list)
     metrics: dict[str, object] = Field(default_factory=dict)
     metrics_breakdown: dict[str, object] = Field(default_factory=dict)
     freshness_warnings: list[dict[str, object]] = Field(default_factory=list)
@@ -274,7 +274,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--outlook",
         help=(
             "outlook path to apply (default: latest "
-            "records/02-outlook/<YYYY>/<MM>/outlook-*.yaml on or before asof)"
+            "records/03-outlook/<YYYY>/<MM>/outlook-*.yaml on or before asof)"
         ),
     )
     select_parser.add_argument(
@@ -543,10 +543,9 @@ def run_command(
         )
         if not result.pass_fail:
             continue
-        if len(result.signals) > 1:
-            fact_lines.append(
-                f"{ticker}: 複数 signal hit ({', '.join(signal.name for signal in result.signals)})"
-            )
+        if len(result.evidence_hits) > 1:
+            evidence_names = ", ".join(evidence_hit.name for evidence_hit in result.evidence_hits)
+            fact_lines.append(f"{ticker}: 複数 evidence_hit hit ({evidence_names})")
         financial = metric_result.financials[ticker]
         derived = metric_result.derived[ticker]
         universe_snapshot = universe_result.snapshots[ticker]
@@ -579,7 +578,7 @@ def run_command(
                 p_s=financial.p_s,
                 pcfr=financial.pcfr,
                 sector_33=security.sector_33,
-                signals=result.signals,
+                evidence_hits=result.evidence_hits,
                 ttm_quality={
                     "ev_ebitda": financial.ttm_quality_ev_ebitda,
                     "p_s": financial.ttm_quality_p_s,
@@ -726,7 +725,7 @@ def run_command(
             f"{reason}: {count} 件" for reason, count in universe_result.exclusion_counts.items()
         ),
         ttm_quality_counts=metric_result.ttm_quality_counts,
-        signals_summary=_signals_summary(screened_candidates, rules),
+        evidence_hits_summary=_evidence_hits_summary(screened_candidates, rules),
         fallback_lines=tuple(fallback_lines),
     )
     yaml_text = render_screened_yaml(document)
@@ -749,8 +748,8 @@ def select_command(
         return 1
 
     out = stdout if stdout is not None else sys.stdout
-    candidates_root = candidates_root or Path("records/03-candidates")
-    outlook_root = outlook_root or Path("records/02-outlook")
+    candidates_root = candidates_root or Path("records/04-candidates")
+    outlook_root = outlook_root or Path("records/03-outlook")
     rules = rules or load_screening_rules(_rules_path_from_env())
 
     candidates_path = (
@@ -771,7 +770,7 @@ def select_command(
     if resolved_outlook_path is None or not resolved_outlook_path.exists():
         print(
             "outlook file not found. Pass --outlook <path> or create "
-            "records/02-outlook/<YYYY>/<MM>/outlook-*.yaml",
+            "records/03-outlook/<YYYY>/<MM>/outlook-*.yaml",
             file=sys.stderr,
         )
         return 1
@@ -860,17 +859,19 @@ def _rank_candidates(
     for item in candidates_input:
         sector = item.sector_33
         outlook_status = sectors_outlook.get(sector)
-        # headwind は除外。null / unknown / tailwind / neutral は通過。
-        if outlook_status == "headwind":
+        # adverse は除外。null / unknown / supportive / neutral は通過。
+        if outlook_status == "adverse":
             continue
         market_cap = item.market_cap_oku
-        signal_count = len(item.signals)
-        selection_lane, selection_metrics, strength_key = _best_selection_signal(item.signals)
+        independent_evidence_count = len(item.evidence_hits)
+        selection_lane, selection_metrics, strength_key = _best_selection_evidence(
+            item.evidence_hits
+        )
         sort_key = (
             _macro_rank(outlook_status),
             _lane_rank(selection_lane),
             *strength_key,
-            -signal_count,
+            -independent_evidence_count,
             item.ticker,
         )
         candidate: dict[str, object] = {
@@ -879,8 +880,8 @@ def _rank_candidates(
             "sector_33": sector,
             "outlook_sector": outlook_status,
             "market_cap_oku": market_cap,
-            "signals": item.signals,
-            "signal_count": signal_count,
+            "evidence_hits": item.evidence_hits,
+            "independent_evidence_count": independent_evidence_count,
             "freshness_warnings": item.freshness_warnings,
             "selection_lane": selection_lane,
             "selection_metrics": selection_metrics,
@@ -908,17 +909,17 @@ def _rank_lane_toplists(
     for item in candidates_input:
         sector = item.sector_33
         outlook_status = sectors_outlook.get(sector)
-        if outlook_status == "headwind":
+        if outlook_status == "adverse":
             continue
-        for signal in item.signals:
-            name = _string_value(signal.get("name"))
+        for evidence_hit in item.evidence_hits:
+            name = _string_value(evidence_hit.get("name"))
             if name not in ranked_by_lane:
                 continue
-            metrics = _metric_map(signal.get("metrics"))
+            metrics = _metric_map(evidence_hit.get("metrics"))
             sort_key = (
                 _macro_rank(outlook_status),
-                *_signal_strength_key(name, metrics),
-                -len(item.signals),
+                *_evidence_strength_key(name, metrics),
+                -len(item.evidence_hits),
                 item.ticker,
             )
             ranked_by_lane[name].append(
@@ -1001,8 +1002,8 @@ def _research_recommendation_candidate(
 ) -> dict[str, object]:
     output = dict(candidate)
     output["recommendation_lane"] = recommendation_lane
-    selection_lane, selection_metrics = _primary_signal_by_lane_order(
-        output.get("signals"), lane_order
+    selection_lane, selection_metrics = _primary_evidence_by_lane_order(
+        output.get("evidence_hits"), lane_order
     )
     if selection_lane is not None:
         output["selection_lane"] = selection_lane
@@ -1010,40 +1011,40 @@ def _research_recommendation_candidate(
     return output
 
 
-def _primary_signal_by_lane_order(
-    raw_signals: object,
+def _primary_evidence_by_lane_order(
+    raw_evidence_hits: object,
     lane_order: Sequence[str],
 ) -> tuple[str | None, dict[str, object]]:
-    if not isinstance(raw_signals, Sequence) or isinstance(raw_signals, str):
+    if not isinstance(raw_evidence_hits, Sequence) or isinstance(raw_evidence_hits, str):
         return None, {}
-    signal_by_lane: dict[str, Mapping[str, object]] = {}
-    for signal in raw_signals:
-        if not isinstance(signal, Mapping):
+    evidence_by_lane: dict[str, Mapping[str, object]] = {}
+    for evidence_hit in raw_evidence_hits:
+        if not isinstance(evidence_hit, Mapping):
             continue
-        name = _string_value(signal.get("name"))
+        name = _string_value(evidence_hit.get("name"))
         if name is None:
             continue
-        signal_by_lane[name] = signal
+        evidence_by_lane[name] = evidence_hit
     for lane in lane_order:
-        signal = signal_by_lane.get(lane)
-        if signal is not None:
-            return lane, _metric_map(signal.get("metrics"))
+        evidence_hit = evidence_by_lane.get(lane)
+        if evidence_hit is not None:
+            return lane, _metric_map(evidence_hit.get("metrics"))
     return None, {}
 
 
-def _best_selection_signal(
-    signals: Sequence[Mapping[str, object]],
+def _best_selection_evidence(
+    evidence_hits: Sequence[Mapping[str, object]],
 ) -> tuple[str | None, dict[str, object], tuple[float, ...]]:
     entries = [
         (
             _lane_rank(name),
-            _signal_strength_key(name, metrics),
+            _evidence_strength_key(name, metrics),
             name,
             metrics,
         )
-        for signal in signals
-        if (name := _string_value(signal.get("name"))) is not None
-        for metrics in [_metric_map(signal.get("metrics"))]
+        for evidence_hit in evidence_hits
+        if (name := _string_value(evidence_hit.get("name"))) is not None
+        for metrics in [_metric_map(evidence_hit.get("metrics"))]
     ]
     if not entries:
         return None, {}, (0.0,)
@@ -1067,8 +1068,8 @@ def _selection_candidate(
         "sector_33": sector,
         "outlook_sector": outlook_status,
         "market_cap_oku": market_cap,
-        "signals": item.signals,
-        "signal_count": len(item.signals),
+        "evidence_hits": item.evidence_hits,
+        "independent_evidence_count": len(item.evidence_hits),
         "freshness_warnings": item.freshness_warnings,
         "selection_lane": selection_lane,
         "recommendation_lane": recommendation_lane,
@@ -1080,7 +1081,7 @@ def _selection_candidate(
 
 def _macro_rank(status: str | None) -> int:
     match status:
-        case "tailwind":
+        case "supportive":
             return 0
         case "neutral":
             return 1
@@ -1100,7 +1101,7 @@ def _lane_rank(name: str | None) -> int:
     return order.get(name or "", 99)
 
 
-def _signal_strength_key(name: str, metrics: Mapping[str, object]) -> tuple[float, ...]:
+def _evidence_strength_key(name: str, metrics: Mapping[str, object]) -> tuple[float, ...]:
     match name:
         case "valuation-reversion":
             return (
@@ -1152,14 +1153,14 @@ def _float_or(value: object, default: float) -> float:
     return float(value) if isinstance(value, (int, float)) else default
 
 
-def _signals_summary(
+def _evidence_hits_summary(
     candidates: Sequence[ScreenedCandidate],
     rules: ScreeningRules,
 ) -> dict[str, int]:
     summary = dict.fromkeys(rules.lane_order, 0)
     for candidate in candidates:
-        for signal in candidate.signals:
-            summary[signal.name] = summary.get(signal.name, 0) + 1
+        for evidence_hit in candidate.evidence_hits:
+            summary[evidence_hit.name] = summary.get(evidence_hit.name, 0) + 1
     return summary
 
 
@@ -1169,7 +1170,7 @@ def _required_ttm_non_exact_count(
 ) -> int:
     snapshots = tuple(financials)
     required_qualities: list[TTMQuality] = []
-    for lane in rules.signal_lanes.values():
+    for lane in rules.screening_playbooks.values():
         if isinstance(lane, CashflowYieldLane) and lane.ttm_cfo_required:
             required_qualities.extend(snapshot.ttm_quality_ocf_yield for snapshot in snapshots)
         if isinstance(lane, FcfYieldLane) and lane.fcf_required:

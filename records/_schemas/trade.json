@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade",
+  "title": "Trade",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "trade_id",
+    "ticker",
+    "research_ref",
+    "policy_snapshot",
+    "portfolio_exposure_snapshot_ref",
+    "position_state",
+    "review_state",
+    "trade_execution_state",
+    "order_intent",
+    "orders",
+    "executions"
+  ],
+  "properties": {
+    "trade_id": {"type": "string", "minLength": 1},
+    "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
+    "research_ref": {"type": "string", "pattern": "^records/05-research/.*\\.md$"},
+    "position_state": {"enum": ["none", "open", "closed"]},
+    "review_state": {"enum": ["not_due", "scheduled", "completed"]},
+    "trade_execution_state": {
+      "enum": ["none", "submitted", "broker_rejected", "cancelled", "expired", "not_filled", "partially_filled", "filled"]
+    },
+    "order_intent": {"type": "object"},
+    "orders": {"type": "array"},
+    "executions": {"type": "array"}
+  }
+}

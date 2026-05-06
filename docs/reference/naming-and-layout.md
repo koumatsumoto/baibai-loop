@@ -12,12 +12,12 @@ last_reviewed: 2026-05-04
 
 | path | naming pattern |
 | --- | --- |
-| `records/01-brief/` | `YYYY/MM/YYYY-MM-DD-{kind}-{slug}.yaml` |
-| `records/02-outlook/` | `YYYY/MM/outlook-YYYY-MM-DD-<slug>.yaml` |
-| `records/03-candidates/` | `YYYY/MM/YYYY-MM-DD.yaml` |
-| `records/04-research/` | `YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md` |
-| `records/05-trades/` | `YYYY/MM/YYYY-MM-DD-<ticker>.md` |
-| `records/06-reviews/` | `YYYY/MM/YYYY-MM-DD-<ticker>.md` or `YYYY/retro-YYYYMM.md` |
+| `records/02-brief/` | `YYYY/MM/YYYY-MM-DD-{kind}-{slug}.yaml` |
+| `records/03-outlook/` | `YYYY/MM/outlook-YYYY-MM-DD-<slug>.yaml` |
+| `records/04-candidates/` | `YYYY/MM/YYYY-MM-DD.yaml` |
+| `records/05-research/` | `YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md` |
+| `records/06-trades/` | `YYYY/MM/YYYY-MM-DD-<ticker>.md` |
+| `records/07-reviews/` | `YYYY/MM/YYYY-MM-DD-<ticker>.md` or `YYYY/retro-YYYYMM.md` |
 | `records/_playbooks/` | `<playbook-slug>-v<n>.md` |
 
 ## Slugs

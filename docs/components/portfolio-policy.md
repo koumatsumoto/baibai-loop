@@ -13,7 +13,7 @@ related_docs:
 
 Portfolio policy は、Baibai-Loop の判断ループより上流にある self-directed governance artifact です。目的、制約、資本、許容リスク、time horizon、eligible universe、liquidity constraints、kill switch を明文化し、research / trade が判断時点の policy assumptions を検証できるようにします。
 
-Baibai-Loop は投資助言サービスではありません。Portfolio policy は他者に運用を委任する mandate ではなく、自分の裁量判断を後から検証するための統制文書です。
+Baibai-Loop は投資助言サービスではありません。Portfolio policy は自分の裁量判断を後から検証するための統制文書です。
 
 ## 責務
 

@@ -1,6 +1,6 @@
 # screening/automation.md
 
-`records/03-candidates/` の自動生成を担う screening CLI の実装正本。週次 screening の入力と実行条件を traceability として追跡するための実行方式、依存、失敗時の扱いを定義する。
+`records/04-candidates/` の自動生成を担う screening CLI の実装正本。週次 screening の入力と実行条件を traceability として追跡するための実行方式、依存、失敗時の扱いを定義する。
 
 ## 1. Scope
 
@@ -34,7 +34,7 @@ python -m baibai_loop.screening.cli verify-raw-cache [--raw-dir PATH] [--max-siz
 
 `extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出する。出力は `records/_data/raw/screening/edinet/metrics/YYYY-MM-DD.json`。CSV ZIP 本体は再生成可能な derived cache として `records/_data/cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 
-`select` は最新 `records/03-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/02-outlook/` を組み合わせて、`outlook` で `headwind` 判定された業種を除外し、lane-specific metric と macro status で候補をランキングする。Hit 数と時価総額だけでは並べない。出力には lane 別の `lane_toplists`、旧来のグローバル順位である `ranked_candidates`、research 着手用に lane 分散した `candidates` が含まれる。`candidates` は `output.research_selection_lane_order` の順に各 lane の上位を重複排除して選び、残枠を `ranked_candidates` で埋める。`recommendation_lane` は lane 分散で拾った枠、`selection_lane` は primary thesis として確認する screen で、複数 hit 銘柄では一致しないことがある。件数は CLI `--top` と `output.research_selection_target_max` の小さい方、`lane_toplists` は `records/_config/screening-rules.yaml` の `output.lane_toplist_limit` で管理する。`research` の選定プロセス ([`../components/research.md`](../components/research.md) §2.1) をスクリプトで支援する。
+`select` は最新 `records/04-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/03-outlook/` を組み合わせて、`outlook` で `adverse` 判定された業種を除外し、lane-specific metric と macro status で候補をランキングする。Hit 数と時価総額だけでは並べない。出力には lane 別の `lane_toplists`、旧来のグローバル順位である `ranked_candidates`、research 着手用に lane 分散した `candidates` が含まれる。`candidates` は `output.research_selection_lane_order` の順に各 lane の上位を重複排除して選び、残枠を `ranked_candidates` で埋める。`recommendation_lane` は lane 分散で拾った枠、`selection_lane` は primary thesis として確認する screen で、複数 hit 銘柄では一致しないことがある。件数は CLI `--top` と `output.research_selection_target_max` の小さい方、`lane_toplists` は `records/_config/screening-rules/2026-05-01T000000+0900.yaml` の `output.lane_toplist_limit` で管理する。`research` の選定プロセス ([`../components/research.md`](../components/research.md) §2.1) をスクリプトで支援する。
 
 ## 3. Required Env Vars
 
@@ -48,7 +48,7 @@ raw cache / SQLite cache の配置先は固定 (env override 廃止):
 任意:
 
 - `EDINET_API_KEY`: EV/EBITDA など EDINET 前処理済み metrics を使う場合のみ設定する。未設定でも screening は実行可能で、EV/EBITDA は `unavailable` として扱う
-- JPX 公開規制情報 URL（CSV / Excel / HTML）。`records/_config/screening-rules.yaml` の `universe.required_jpx_flags` に含まれる source は必須で、未ロード時は fail-fast し candidates YAML を生成しない:
+- JPX 公開規制情報 URL（CSV / Excel / HTML）。`records/_config/screening-rules/2026-05-01T000000+0900.yaml` の `universe.required_jpx_flags` に含まれる source は必須で、未ロード時は fail-fast し candidates YAML を生成しない:
   - `JPX_SPECIAL_CAUTION_INDEX_URL` 特別注意銘柄の個別銘柄信用取引残高表 index（推奨。日次で変わる `mtdailyk*.xls` を index から解決）
   - `JPX_SPECIAL_CAUTION_URL` 特別注意銘柄の固定 Excel URL
   - `JPX_REORGANIZATION_URL` 整理銘柄
@@ -108,13 +108,13 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 
 - `--asof` は対象営業日を表す
 - `run_date` は `asof_date` と同値にする
-- 出力 path は `records/03-candidates/{YYYY}/{MM}/{asof_date}.yaml`
+- 出力 path は `records/04-candidates/{YYYY}/{MM}/{asof_date}.yaml`
 - 同一 path が既に存在する場合は fail-fast
 - 非営業日の `--asof` は fail-fast
 
 ## 8. Rule Baselines
 
-閾値の正本は `records/_config/screening-rules.yaml`。実装側の hardcode は parser default と型定義に留め、運用で変える閾値は YAML に寄せる。
+閾値の正本は `records/_config/screening-rules/2026-05-01T000000+0900.yaml`。実装側の hardcode は parser default と型定義に留め、運用で変える閾値は YAML に寄せる。
 
 - universe 閾値: 時価総額、平均売買代金、上場日数、JPX 除外 flag
 - playbook-linked screen 閾値: `valuation-reversion` / `strict-net-cash-discount` / `fcf-yield-discount` / `cash-rich-asset-discount` / `cashflow-yield-discount` / `sales-discount-growth`

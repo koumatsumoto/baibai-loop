@@ -7,7 +7,7 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-DEFAULT_RULES_PATH = Path("records/_config/screening-rules.yaml")
+DEFAULT_RULES_PATH = Path("records/_config/screening-rules/2026-05-01T000000+0900.yaml")
 
 
 class UniverseRules(BaseModel):
@@ -45,7 +45,7 @@ class QualityRules(BaseModel):
 class ValuationReversionLane(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
-    playbook: str
+    playbook_id: str
     sector_median_gap_max: float
     self_range_percentile_max: float = Field(ge=0, le=1)
     price_change_60d_max: float
@@ -62,7 +62,7 @@ class ValuationReversionLane(BaseModel):
 class CashRichLane(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
-    playbook: str
+    playbook_id: str
     excluded_sectors: tuple[str, ...] = ()
     cash_to_market_cap_min: float = Field(ge=0)
     edinet_net_cash_to_market_cap_min_if_available: float | None = None
@@ -79,7 +79,7 @@ class CashRichLane(BaseModel):
 class CashflowYieldLane(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
-    playbook: str
+    playbook_id: str
     excluded_sectors: tuple[str, ...] = ()
     ocf_yield_min: float = Field(ge=0)
     ttm_cfo_required: bool
@@ -95,7 +95,7 @@ class CashflowYieldLane(BaseModel):
 class StrictNetCashLane(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
-    playbook: str
+    playbook_id: str
     excluded_sectors: tuple[str, ...] = ()
     net_cash_to_market_cap_min: float
     price_to_equity_max: float = Field(ge=0)
@@ -111,7 +111,7 @@ class StrictNetCashLane(BaseModel):
 class FcfYieldLane(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
-    playbook: str
+    playbook_id: str
     excluded_sectors: tuple[str, ...] = ()
     fcf_yield_min: float = Field(ge=0)
     fcf_required: bool
@@ -127,7 +127,7 @@ class FcfYieldLane(BaseModel):
 class SalesDiscountGrowthLane(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
-    playbook: str
+    playbook_id: str
     excluded_sectors: tuple[str, ...] = ()
     ps_sector_gap_max: float
     sales_yoy_min: float
@@ -162,7 +162,7 @@ class ScreeningRules(BaseModel):
     universe: UniverseRules
     ttm: TTMRules
     quality: QualityRules
-    signal_lanes: Mapping[
+    screening_playbooks: Mapping[
         str,
         ValuationReversionLane
         | CashRichLane
@@ -173,15 +173,15 @@ class ScreeningRules(BaseModel):
     ]
     output: OutputRules
 
-    @field_validator("signal_lanes", mode="before")
+    @field_validator("screening_playbooks", mode="before")
     @classmethod
-    def _coerce_signal_lanes(cls, value: Mapping[str, Any]) -> dict[str, Any]:
+    def _coerce_screening_playbooks(cls, value: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(value, Mapping):
-            raise ValueError("signal_lanes must be a mapping")
+            raise ValueError("screening_playbooks must be a mapping")
         lanes: dict[str, Any] = {}
         for name, raw in value.items():
             if not isinstance(raw, Mapping):
-                raise ValueError(f"signal lane {name!r} must be a mapping")
+                raise ValueError(f"evidence_hit lane {name!r} must be a mapping")
             data = dict(raw)
             match name:
                 case "valuation-reversion":
@@ -197,16 +197,16 @@ class ScreeningRules(BaseModel):
                 case "sales-discount-growth":
                     lanes[name] = SalesDiscountGrowthLane.model_validate(data)
                 case _:
-                    raise ValueError(f"unknown signal lane: {name}")
+                    raise ValueError(f"unknown evidence_hit lane: {name}")
         return lanes
 
     @property
     def lane_order(self) -> tuple[str, ...]:
-        return tuple(self.signal_lanes.keys())
+        return tuple(self.screening_playbooks.keys())
 
     @model_validator(mode="after")
     def _validate_output_lane_order(self) -> ScreeningRules:
-        unknown = set(self.output.research_selection_lane_order) - set(self.signal_lanes)
+        unknown = set(self.output.research_selection_lane_order) - set(self.screening_playbooks)
         if unknown:
             joined = ", ".join(sorted(unknown))
             raise ValueError(f"unknown research selection lane(s): {joined}")

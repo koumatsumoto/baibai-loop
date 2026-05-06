@@ -23,13 +23,17 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def upsert_jsonl(path: Path, records: Iterable[Mapping[str, Any]]) -> tuple[int, int]:
-    existing = {str(record["ledger_id"]): record for record in read_jsonl(path)}
+    existing = {_record_id(record): record for record in read_jsonl(path)}
     before = dict(existing)
     for record in records:
-        existing[str(record["ledger_id"])] = dict(record)
+        record_id = _record_id(record)
+        existing[record_id] = _merge_record(existing.get(record_id), record)
     ordered = sorted(
         existing.values(),
-        key=lambda item: (str(item.get("decision_date", "")), str(item.get("ticker", ""))),
+        key=lambda item: (
+            str(item.get("decision_event_at") or item.get("decision_date") or ""),
+            str(item.get("ticker", "")),
+        ),
     )
     content = "".join(
         json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
@@ -52,17 +56,17 @@ def diff_jsonl(path: Path, records: Iterable[Mapping[str, Any]]) -> list[str]:
       ledger は audit log なので upsert は削除しない。orphan は
       research packet が消えた等の状況で発生し、retro 確認用の通知。
     """
-    existing = {str(record["ledger_id"]): record for record in read_jsonl(path)}
+    existing = {_record_id(record): record for record in read_jsonl(path)}
     incoming_ids: set[str] = set()
     lines: list[str] = []
     for record in records:
-        ledger_id = str(record["ledger_id"])
-        incoming_ids.add(ledger_id)
-        current = existing.get(ledger_id)
+        record_id = _record_id(record)
+        incoming_ids.add(record_id)
+        current = existing.get(record_id)
         if current is None:
-            lines.append(f"+ {ledger_id}")
-        elif current != dict(record):
-            lines.append(f"~ {ledger_id}")
+            lines.append(f"+ {record_id}")
+        elif current != _merge_record(current, record):
+            lines.append(f"~ {record_id}")
     for orphan_id in sorted(set(existing) - incoming_ids):
         lines.append(f"! {orphan_id}")
     return lines
@@ -79,3 +83,21 @@ def append_jsonl(path: Path, records: Iterable[Mapping[str, Any]]) -> int:
     )
     write_text_atomic(path, content)
     return len(additions)
+
+
+def _record_id(record: Mapping[str, Any]) -> str:
+    value = record.get("decision_event_id")
+    if value is None:
+        raise KeyError("JSONL record requires decision_event_id")
+    return str(value)
+
+
+def _merge_record(
+    current: Mapping[str, Any] | None,
+    incoming: Mapping[str, Any],
+) -> dict[str, Any]:
+    if current is None:
+        return dict(incoming)
+    merged = dict(current)
+    merged.update(dict(incoming))
+    return merged

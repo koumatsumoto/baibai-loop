@@ -8,7 +8,7 @@ Baibai-Loop は **portfolio policy -> brief -> outlook -> candidates -> research
 
 ## 2. 分析階層: 世界情勢 → 地域経済 → 個別資産
 
-マクロ track（`records/01-brief/` → `records/02-outlook/`）における調査は、以下の階層で上から順に分析する:
+マクロ track（`records/02-brief/` → `records/03-outlook/`）における調査は、以下の階層で上から順に分析する:
 
 1. **世界情勢**: グローバルマクロ・主要中央銀行・コモディティ・地政学
 2. **地域経済**: 対象資産が属する地域の一次統計・金融政策・為替
@@ -40,10 +40,10 @@ Baibai-Loop は **portfolio policy -> brief -> outlook -> candidates -> research
 
 | レイヤー | 扱う対象 | 格納先 | lifecycle role |
 |---|---|---|---|
-| マクロ事実 | グローバル/日本経済の観測値・一次統計引用・機械的計算 | `records/01-brief/` 配下 | observations |
-| Security-level 事実 | スクリーニング通過銘柄・valuation 指標 snapshot | `records/03-candidates/` 配下 | screen output |
-| マクロ分析 | マクロ見解・業種/地域の追い風/中立/逆風評価 | `records/02-outlook/` 配下 | regime view |
-| Security-level 分析 | 個別銘柄の深掘り・原因仮説・反対仮説・採用判定 | `records/04-research/` 配下 | investment memo |
+| マクロ事実 | グローバル/日本経済の観測値・一次統計引用・機械的計算 | `records/02-brief/` 配下 | observations |
+| Security-level 事実 | スクリーニング通過銘柄・valuation 指標 snapshot | `records/04-candidates/` 配下 | screen output |
+| マクロ分析 | マクロ見解・業種/地域の追い風/中立/逆風評価 | `records/03-outlook/` 配下 | regime view |
+| Security-level 分析 | 個別銘柄の深掘り・原因仮説・反対仮説・採用判定 | `records/05-research/` 配下 | investment memo |
 
 ### 4.2 事実レイヤー（brief / candidates）に含めてよいもの
 
@@ -53,7 +53,7 @@ Baibai-Loop は **portfolio policy -> brief -> outlook -> candidates -> research
 - brief contract で明示された閾値ルールの適用結果（Major / Notable ラベル等）
 - 過去 N 週の方向履歴（矢印列）
 - 方向反転の機械的検出
-- Valuation 指標の算出結果（`records/03-candidates/` 側）
+- Valuation 指標の算出結果（`records/04-candidates/` 側）
 
 ### 4.3 事実レイヤーで禁止するもの
 
@@ -74,7 +74,7 @@ Baibai-Loop は **portfolio policy -> brief -> outlook -> candidates -> research
 ### 4.5 分析レイヤーにプロセス指示を書かない
 
 分析レイヤー（outlook, research）は判断と根拠を残す場所であり、運用手順そのものを書く場所ではない。
-特に `records/02-outlook/` の `rationale` / `changes.rationale` には、業種・地域見解の根拠だけを書く。
+特に `records/03-outlook/` の `rationale` / `changes.rationale` には、業種・地域見解の根拠だけを書く。
 「research では会社IRを確認する」「次回からこの手順で調べる」のようなプロセス指示は
 `docs/components/`、`docs/operations/`、`docs/anti-patterns.md` に置く。
 
@@ -82,13 +82,13 @@ Baibai-Loop は **portfolio policy -> brief -> outlook -> candidates -> research
 
 - **マクロ 76% / security-level 24%** は attention / review time / cognitive budget の policy weight として扱う
 - 採用可否と position sizing は prose の総合判断ではなく、macro regime gate と portfolio policy の gate / cap で扱う
-- `records/04-research/` の採用判定では `records/02-outlook/` の macro regime gate 判定を必ず通す
+- `records/05-research/` の採用判定では `records/03-outlook/` の macro regime gate 判定を必ず通す
 - 詳細は [`screening/macro-gate-procedure.md`](./screening/macro-gate-procedure.md)
 
 ## 6. Feedback loop 先行の原則（philosophy 柱 3 の具体化）
 
 - 完成設計より不完全な loop 1 周を優先
-- `records/06-reviews/retro-YYYYMM.md` で playbook / screening 閾値の改訂判断を行う
+- `records/07-reviews/retro-YYYYMM.md` で playbook / screening 閾値の改訂判断を行う
 - サンプル数 10 件未満なら playbook 据え置きを許容する
 
 ## 7. Markdown / YAML 駆動の原則（philosophy 柱 4 の具体化）
@@ -126,8 +126,8 @@ Baibai-Loop は **portfolio policy -> brief -> outlook -> candidates -> research
 
 ### 9.2 代わりにやること（forward-only）
 
-- forward-only な ledger 蓄積 (`records/_ledger/` の paper trade 記録、entry 後の前進的 P/L)
-- 事前 thesis の文書化 (`records/04-research/`) と事後検証 (`records/06-reviews/`) の対比
+- forward-only な decision register 蓄積 (`records/_ledger/` の判断イベント、entry 後の前進的 attribution)
+- 事前 thesis の文書化 (`records/05-research/`) と事後検証 (`records/07-reviews/`) の対比
 - 月次 retro でのプロセス改善 (playbook 改訂は **サンプル数 10 件以上** を条件に検討)
 
 ### 9.3 根拠

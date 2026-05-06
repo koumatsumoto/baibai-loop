@@ -40,11 +40,11 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 
 ## 事実と分析の分離
 
-`records/01-brief/` と `records/03-candidates/` は事実層、`records/02-outlook/` と `records/04-research/` は分析層。事実ファイルに解釈・予測・相場観を書かない。詳細は [`docs/design-principles.md`](./docs/design-principles.md)。
+`records/02-brief/` と `records/04-candidates/` は事実層、`records/03-outlook/` と `records/05-research/` は分析層。事実ファイルに解釈・予測・相場観を書かない。詳細は [`docs/design-principles.md`](./docs/design-principles.md)。
 
 ## brief 作成前の欠損確認
 
-`records/01-brief/` の `world-weekly` / `world-daily` / `macro-monthly` を新規作成・更新する前に、必ず [`docs/operations/brief-runbook.md`](./docs/operations/brief-runbook.md) の「brief 作成前の欠損確認」を実行する。
+`records/02-brief/` の `world-weekly` / `world-daily` / `macro-monthly` を新規作成・更新する前に、必ず [`docs/operations/brief-runbook.md`](./docs/operations/brief-runbook.md) の「brief 作成前の欠損確認」を実行する。
 
 - `world-weekly` の対象期間に gap がある場合、現在週を作る前に欠損週を backfill する
 - `world-daily` が存在しても `world-weekly` 欠損の代替にはしない

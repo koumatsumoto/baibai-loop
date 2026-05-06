@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "research",
+  "title": "Investment Memo",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "ticker",
+    "name",
+    "playbook_id",
+    "playbook_snapshot",
+    "policy_snapshot",
+    "research_decision",
+    "candidate_ref",
+    "macro_regime_gate",
+    "candidate_evidence_decisions",
+    "selected_supporting_evidence_refs",
+    "independent_evidence_count",
+    "conviction_tier",
+    "position_sizing_overlay",
+    "thesis_payoff"
+  ],
+  "properties": {
+    "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
+    "playbook_id": {"type": "string", "minLength": 1},
+    "research_decision": {
+      "type": "object",
+      "required": ["outcome", "posture"],
+      "properties": {
+        "outcome": {"enum": ["approved", "passed", "rejected"]},
+        "posture": {"enum": ["act_now", "wait_for_event", "wait_for_capital", "dropped"]}
+      }
+    },
+    "macro_regime_gate": {"type": "object"},
+    "candidate_evidence_decisions": {"type": "array"},
+    "research_evidence_hits": {"type": "array"},
+    "thesis_payoff": {"type": "object"}
+  }
+}

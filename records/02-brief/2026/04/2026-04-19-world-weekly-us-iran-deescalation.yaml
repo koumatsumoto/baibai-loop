@@ -1,0 +1,210 @@
+schema_version: 1
+kind: world-weekly
+type: periodic
+scope: world
+ai_draft: true
+published_at: "2026-04-19T18:00:00+09:00"
+observation_date: "2026-04-19"
+period:
+  start: "2026-04-13"
+  end: "2026-04-19"
+  market_basis_date: "2026-04-17"
+references:
+  prev_period: records/02-brief/2026/04/2026-04-10-world-weekly-us-10y-down.yaml
+  latest_monthly: records/02-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
+sources:
+  - id: bls-cpi
+    name: BLS CPI News Release
+    url: https://www.bls.gov/news.release/cpi.nr0.htm
+    accessed_at: "2026-04-19"
+    status: ok
+  - id: stat-tokyo-cpi
+    name: 総務省統計局 CPI 東京都区部
+    url: https://www.stat.go.jp/data/cpi/sokuhou/tsuki/index-t.html
+    accessed_at: "2026-04-19"
+    status: ok
+  - id: fomc-statement-mar
+    name: Federal Reserve FOMC Statement 2026-03-18
+    url: https://www.federalreserve.gov/newsevents/pressreleases/monetary20260318a.htm
+    accessed_at: "2026-04-19"
+    status: ok
+  - id: boj-press-jan
+    name: BOJ 総裁記者会見 2026-01-26
+    url: https://www.boj.or.jp/about/press/kaiken_2026/kk260126a.pdf
+    accessed_at: "2026-04-19"
+    status: ok
+  - id: fred-nikkei
+    name: FRED NIKKEI225
+    url: https://fred.stlouisfed.org/series/NIKKEI225
+    accessed_at: "2026-04-19"
+    status: ok
+  - id: fred-dexjpus
+    name: FRED DEXJPUS
+    url: https://fred.stlouisfed.org/series/DEXJPUS
+    accessed_at: "2026-04-19"
+    status: ok
+  - id: fred-dgs10
+    name: FRED DGS10
+    url: https://fred.stlouisfed.org/series/DGS10
+    accessed_at: "2026-04-19"
+    status: ok
+  - id: fred-dgs2
+    name: FRED DGS2
+    url: https://fred.stlouisfed.org/series/DGS2
+    accessed_at: "2026-04-19"
+    status: ok
+  - id: fred-vixcls
+    name: FRED VIXCLS
+    url: https://fred.stlouisfed.org/series/VIXCLS
+    accessed_at: "2026-04-19"
+    status: ok
+  - id: fred-brent
+    name: FRED DCOILBRENTEU
+    url: https://fred.stlouisfed.org/series/DCOILBRENTEU
+    accessed_at: "2026-04-19"
+    status: ok
+  - id: fred-wti
+    name: FRED DCOILWTICO
+    url: https://fred.stlouisfed.org/series/DCOILWTICO
+    accessed_at: "2026-04-19"
+    status: ok
+  - id: fred-root
+    name: FRED root
+    url: https://fred.stlouisfed.org/
+    accessed_at: "2026-04-19"
+    status: failed
+    note: "アクセス不能"
+  - id: cme-fedwatch
+    name: CME FedWatch Tool
+    url: https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html
+    accessed_at: "2026-04-19"
+    status: ok
+  - id: fed-fomc-cal
+    name: Federal Reserve FOMC Calendars
+    url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    accessed_at: "2026-04-19"
+    status: ok
+  - id: boj-mpm
+    name: 日本銀行 金融政策決定会合
+    url: https://www.boj.or.jp/mopo/mpmsche_minu/index.htm
+    accessed_at: "2026-04-19"
+    status: ok
+  - id: cnbc-oil-isr
+    name: CNBC Oil Prices Israel-Lebanon Ceasefire
+    url: https://www.cnbc.com/2026/04/17/oil-prices-wti-brent-israel-lebanon-ceasefire-trump.html
+    accessed_at: "2026-04-19"
+    status: ok
+  - id: jpx-stats
+    name: JPX マーケット統計
+    url: https://www.jpx.co.jp/markets/statistics-equities/
+    accessed_at: "2026-04-19"
+    status: failed
+    note: "取得未試行"
+layers:
+  world:
+    market_indicators:
+      - name: 米10Y利回り
+        value: "4.31%"
+        wow_comment: "2026-04-10 値、前週 brief と同値"
+        source_ids: [fred-dgs10]
+      - name: 米2Y利回り
+        value: "3.81%"
+        as_of: "2026-04-10"
+        source_ids: [fred-dgs2]
+      - name: 10Y-2Yスプレッド
+        value: "+50bp"
+        source_ids: [fred-dgs10, fred-dgs2]
+      - name: VIX
+        value: "17.48"
+        wow_comment: "落ち着き水準"
+        source_ids: [fred-vixcls]
+      - name: Brent原油
+        value: "$98.05"
+        wow_comment: "月初 $100超から低下"
+        source_ids: [fred-brent]
+      - name: WTI原油
+        value: "$93.40"
+        wow_comment: "同上"
+        source_ids: [fred-wti]
+      - name: FedWatch (次回会合 据置確率)
+        value: "97.9%"
+        wow_comment: "4/29-30 FOMC 据置をほぼ織り込み"
+        source_ids: [cme-fedwatch]
+    events:
+      - date: "2026-04-17"
+        text: "Brent 原油は $98.05、WTI は $93.40。CNBC 記事を補助外として記録"
+        source_ids: [cnbc-oil-isr]
+      - date: "2026-04-10"
+        text: "米 2026-03 CPI 発表。詳細は月次 brief を参照"
+        source_ids: [bls-cpi]
+      - date: "2026-03-18"
+        text: "FOMC は政策金利目標レンジ 3.50-3.75% を据置"
+        source_ids: [fomc-statement-mar]
+  japan:
+    fx:
+      - name: USD/JPY
+        value: "約159.5"
+        wow_comment: "3月末高値 160.26 から低下"
+        source_ids: [fred-dexjpus]
+      - name: EUR/JPY
+        value: null
+        wow_comment: "データ取得失敗"
+        fetch_status: failed
+        source_ids: [fred-root]
+      - name: AUD/JPY
+        value: null
+        wow_comment: "データ取得失敗"
+        fetch_status: failed
+        source_ids: [fred-root]
+    events:
+      - date: "2026-03-31"
+        text: "東京都区部 CPI: コア +1.7%、コアコア +2.3%（公表分）"
+        source_ids: [stat-tokyo-cpi]
+      - date: "2026-01-26"
+        text: "日銀は無担保コールレート誘導目標 0.75% を維持"
+        source_ids: [boj-press-jan]
+  japan_equity:
+    market_indicators:
+      - name: 日経平均
+        value: "58,476"
+        as_of: "2026-04-17"
+        wow_comment: "2026-04-17 終値、当日 -1.75%"
+        source_ids: [fred-nikkei]
+      - name: TOPIX
+        value: null
+        wow_comment: "データ取得失敗"
+        fetch_status: failed
+        source_ids: [jpx-stats]
+      - name: 東証プライム売買代金 (日次平均)
+        value: null
+        wow_comment: "データ取得失敗"
+        fetch_status: failed
+        source_ids: [jpx-stats]
+    sector_movements: null
+    events: []
+    note: "JPX 週次集計の一次取得をこの時点では未反映"
+deltas:
+  threshold_breaches: []
+  unjudgeable:
+    - TOPIX
+    - 東証プライム売買代金
+    - EUR/JPY
+    - AUD/JPY
+  direction_history:
+    - indicator: 米10Y利回り
+      insufficient_data: false
+      reason: "前週 brief 参照"
+    - indicator: その他指標
+      insufficient_data: true
+      reason: "過去4週データ不足または取得失敗"
+  direction_reversals: []
+  insufficient_data_reason: "原油は前週値を本 brief では未算出。閾値超え判定に必要な前週データは不足または取得失敗"
+next_events:
+  - date: "2026-04-24"
+    text: "日本 2026-03 全国コア CPI"
+  - date: "2026-04-27 〜 28"
+    text: "日銀 金融政策決定会合"
+    source_ids: [boj-mpm]
+  - date: "2026-04-28 〜 29"
+    text: "FOMC 会合"
+    source_ids: [fed-fomc-cal]

@@ -1,0 +1,60 @@
+schema_version: 1
+kind: world-daily
+type: periodic
+scope: world
+ai_draft: true
+published_at: "2026-04-24T19:00:00+09:00"
+observation_date: "2026-04-24"
+references:
+  prev_period: null
+  latest_weekly: records/02-brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.yaml
+  latest_monthly: records/02-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
+sources:
+  - id: stat-jp-cpi
+    name: 総務省統計局 CPI 全国
+    url: https://www.stat.go.jp/data/cpi/sokuhou/tsuki/index-z.html
+    accessed_at: "2026-04-24"
+    status: ok
+  - id: census-retail
+    name: U.S. Census Bureau Retail Sales
+    url: https://www.census.gov/retail/sales.html
+    accessed_at: "2026-04-24"
+    status: ok
+  - id: fed-fomc-cal
+    name: Federal Reserve FOMC Calendars
+    url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    accessed_at: "2026-04-24"
+    status: ok
+  - id: boj-mpm
+    name: 日本銀行 金融政策決定会合
+    url: https://www.boj.or.jp/mopo/mpmsche_minu/index.htm
+    accessed_at: "2026-04-24"
+    status: ok
+layers:
+  world:
+    events:
+      - date: "2026-04-21"
+        text: "米国 2026-03 小売売上高（Advance）は 752.1 billion dollars、前月比 +1.7%、前年比 +4.0%。Retail trade sales は前月比 +1.9%"
+        source_ids: [census-retail]
+      - date: "2026-04-28 〜 29"
+        text: "FOMC 会合日程が公表済み"
+        source_ids: [fed-fomc-cal]
+  japan:
+    events:
+      - date: "2026-04-24"
+        text: "日本 2026-03 全国 CPI が公表。総合指数は 112.7（前年同月比 +1.5%）、生鮮食品を除く総合指数は 112.1（同 +1.8%）、生鮮食品及びエネルギーを除く総合指数は 111.9（同 +2.4%）"
+        source_ids: [stat-jp-cpi]
+      - date: "2026-04-27 〜 28"
+        text: "日銀 金融政策決定会合の日程が公表済み"
+        source_ids: [boj-mpm]
+  japan_equity:
+    events: []
+    note: "当日確認できた JPX 一次ソースの新規反映対象は本 brief 作成範囲では未採用"
+notes: "world-daily は週次まで待つと stale になる fresh fact を受け止めるための brief。2026-04-24 時点では当月 macro-monthly がまだ閉じていないため、当日までに公表された月次級データを一時的にここへ保持する。"
+next_events:
+  - date: "2026-04-27 〜 28"
+    text: "日銀 金融政策決定会合"
+    source_ids: [boj-mpm]
+  - date: "2026-04-28 〜 29"
+    text: "FOMC 会合"
+    source_ids: [fed-fomc-cal]

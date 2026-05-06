@@ -571,7 +571,7 @@ class SectorNameNormalizationTests(unittest.TestCase):
             # J-Quants は同じ TSE 33 セクターを半角中黒 (U+FF65) で返してくる
             # ことがある。SQLite 取り込み段階で全角形に正規化されないと、
             # outlook の `情報・通信業` (全角) と一致せず select で sector=null
-            # になり、tailwind 分類が漏れる。
+            # になり、supportive 分類が漏れる。
             _write_json(
                 raw / "jquants" / "get_eq_master.json",
                 [

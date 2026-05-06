@@ -32,12 +32,13 @@ source_paths:
 
 | path | レイヤー | 責務 |
 | --- | --- | --- |
-| `records/01-brief/` | fact / macro | brief YAML |
-| `records/02-outlook/` | analysis / macro | outlook YAML |
-| `records/03-candidates/` | fact / security-level | candidates YAML |
-| `records/04-research/` | analysis / security-level | research packet Markdown |
-| `records/05-trades/` | downstream | trade record Markdown |
-| `records/06-reviews/` | downstream | individual review と monthly retro |
+| `records/01-policy/` | policy | portfolio policy snapshot |
+| `records/02-brief/` | fact / macro | brief YAML |
+| `records/03-outlook/` | analysis / macro | outlook YAML |
+| `records/04-candidates/` | fact / security-level | candidates YAML |
+| `records/05-research/` | analysis / security-level | investment memo Markdown |
+| `records/06-trades/` | downstream | trade record Markdown |
+| `records/07-reviews/` | downstream | individual review と monthly retro |
 
 ## Records support areas
 
@@ -45,10 +46,17 @@ source_paths:
 
 | path | 正本 docs | 参照 docs | 役割 |
 | --- | --- | --- | --- |
+| `records/_approval-rules/` | [`../components/research.md`](../components/research.md) | this map | analyst asserted evidence を sizing に入れる approval rule snapshots |
+| `records/_benchmarks/` | [`../reference/testing-and-validation.md`](../reference/testing-and-validation.md) | [`automation-map.md`](./automation-map.md) | business regression benchmark manifest |
+| `records/_calendars/` | [`../components/portfolio-policy.md`](../components/portfolio-policy.md) | this map | business day / event / corporate action calendar snapshots |
+| `records/_config/` | [`../screening/principles.md`](../screening/principles.md) | this map | screening rules / metric catalog / exposure bucket snapshots |
 | `records/_data/` | [`../reference/data-sources.md`](../reference/data-sources.md) | this map | raw / derived data と cache の支援領域 |
-| `records/_ledger/` | [`../components/ledger.md`](../components/ledger.md) | this map | research decision と ledger sync の記録領域 |
+| `records/_ledger/` | [`../components/ledger.md`](../components/ledger.md) | this map | decision register と ledger sync の記録領域 |
+| `records/_market-data/` | [`../components/reviews.md`](../components/reviews.md) | this map | review / missed opportunity 計算用 market data snapshots |
 | `records/_playbooks/` | [`../components/playbooks.md`](../components/playbooks.md) | this map | 運用中 playbook の保存領域 |
+| `records/_portfolio-exposure/` | [`../components/trades.md`](../components/trades.md) | this map | order intent / exposure cap 検査用 portfolio exposure snapshots |
 | `records/_schemas/` | [`../reference/testing-and-validation.md`](../reference/testing-and-validation.md) | [`automation-map.md`](./automation-map.md) | records validation schema の保存領域 |
+| `records/_universe-snapshots/` | [`../components/candidates.md`](../components/candidates.md) | this map | screening universe snapshots |
 
 ## Docs sections
 

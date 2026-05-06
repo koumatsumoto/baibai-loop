@@ -22,7 +22,9 @@ from .sync import sync_ledger
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-loop-ledger")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    sync_parser = subparsers.add_parser("sync", help="sync research decisions into JSONL ledgers")
+    sync_parser = subparsers.add_parser(
+        "sync", help="sync investment memo decisions into the decision register"
+    )
     sync_parser.add_argument("--root", type=Path, default=Path.cwd())
     sync_parser.add_argument("--dry-run", action="store_true")
     sync_parser.add_argument(
@@ -65,10 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.dry_run:
             for line in result.diff_lines:
                 print(line)
-        print(
-            f"paper={result.paper_count} skipped={result.skipped_count}"
-            + (" dry_run=true" if args.dry_run else "")
-        )
+        print(f"decisions={result.decision_count}" + (" dry_run=true" if args.dry_run else ""))
         return 0
     if args.command == "retro":
         try:
@@ -124,7 +123,7 @@ def _load_market_data(
 
 def _discover_decision_dates(root: Path) -> tuple[date, ...]:
     dates: list[date] = []
-    for path in sorted((root / "records/04-research").rglob("*.md")):
+    for path in sorted((root / "records/05-research").rglob("*.md")):
         try:
             dates.append(date.fromisoformat(path.name[:10]))
         except ValueError:

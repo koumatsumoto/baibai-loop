@@ -2,409 +2,170 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from baibai_loop.validate.trade import (
-    discover_trade_files,
-    validate_trade_file,
-)
+import yaml
+
+from baibai_loop.validate.trade import discover_trade_files, validate_trade_file
+
+_DIGEST = "sha256:" + "a" * 64
 
 
-def _trade_text(
-    *,
-    status: str = "ordered",
-    ticker: str = "9682",
-    order_date: str | None = "2026-05-04",
-    expected_fill_at: str | None = "2026-05-07T09:00:00+09:00",
-    order_price_guard_yen: object = None,
-    order_quantity: int | None = None,
-    guarded_max_notional_yen: float | None = None,
-    guarded_max_real_concentration_pct: float | None = None,
-    guarded_max_tactical_concentration_pct: float | None = None,
-    entry_date: str | None = None,
-    entry_price: float | None = None,
-    paper_proxy_position_size_oku: float | None = 0.002028,
-    paper_proxy_position_size_pct: float | None = 0.2028,
-    real_capital_yen: float | None = 500000,
-    real_order_notional_yen: float | None = 202800,
-    real_concentration_pct: float | None = 40.56,
-    tactical_capital_yen: float | None = None,
-    tactical_concentration_pct: float | None = None,
-    exit_date: str | None = None,
-    exit_price: float | None = None,
-    pnl_pct: float | None = None,
-) -> str:
-    def fmt(value: object) -> str:
-        if value is None:
-            return "null"
-        if isinstance(value, str):
-            return f'"{value}"'
-        return str(value)
-
-    return f"""---
-ticker: "{ticker}"
-name: "ＤＴＳ"
-research_ref: records/04-research/2026/05/2026-05-04-9682-valuation-reversion.md
-order_date: {fmt(order_date)}
-expected_fill_at: {fmt(expected_fill_at)}
-order_price_guard_yen: {fmt(order_price_guard_yen)}
-order_quantity: {fmt(order_quantity)}
-guarded_max_notional_yen: {fmt(guarded_max_notional_yen)}
-guarded_max_real_concentration_pct: {fmt(guarded_max_real_concentration_pct)}
-guarded_max_tactical_concentration_pct: {fmt(guarded_max_tactical_concentration_pct)}
-entry_date: {fmt(entry_date)}
-entry_price: {fmt(entry_price)}
-paper_proxy_position_size_oku: {paper_proxy_position_size_oku}
-paper_proxy_position_size_pct: {paper_proxy_position_size_pct}
-real_capital_yen: {fmt(real_capital_yen)}
-real_order_notional_yen: {fmt(real_order_notional_yen)}
-real_concentration_pct: {fmt(real_concentration_pct)}
-tactical_capital_yen: {fmt(tactical_capital_yen)}
-tactical_concentration_pct: {fmt(tactical_concentration_pct)}
-status: {status}
-exit_date: {fmt(exit_date)}
-exit_price: {fmt(exit_price)}
-pnl_pct: {fmt(pnl_pct)}
----
-
-# Trade
-"""
+def _snapshot(ref_path: str) -> dict[str, object]:
+    return {"ref_path": ref_path, "content_sha256": _DIGEST}
 
 
-def _write_trade(tmp_path: Path, text: str, name: str = "2026-05-04-9682.md") -> Path:
+def _trade_front(**overrides: object) -> dict[str, object]:
+    front: dict[str, object] = {
+        "trade_id": "trade-20260505-9682",
+        "ticker": "9682",
+        "research_ref": "records/05-research/2026/05/2026-05-05-9682-sales-discount-growth.md",
+        "policy_snapshot": _snapshot(
+            "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"
+        ),
+        "portfolio_exposure_snapshot_ref": _snapshot(
+            "records/_portfolio-exposure/2026/05/2026-05-05T200000+0900.yaml"
+        ),
+        "position_state": "open",
+        "review_state": "not_due",
+        "trade_execution_state": "filled",
+        "order_intent": {
+            "order_intent_id": "intent-20260505-9682-entry",
+            "quantity": 200,
+            "order_price_guard_yen": 1050,
+            "not_submitted_reason": None,
+        },
+        "position_sizing_overlay": {
+            "guarded_max_notional_yen": 210000,
+            "estimated_real_order_notional_yen": 210000,
+        },
+        "orders": [
+            {
+                "order_id": "order-20260505-9682-entry",
+                "origin_order_intent_id": "intent-20260505-9682-entry",
+                "side": "buy",
+                "state": "filled",
+                "submitted_quantity": 200,
+                "filled_quantity": 200,
+                "events": [
+                    {"event_type": "submit", "at": "2026-05-05T09:00:00+09:00"},
+                    {"event_type": "fill", "at": "2026-05-05T09:01:00+09:00"},
+                ],
+            }
+        ],
+        "executions": [
+            {
+                "execution_id": "exec-20260505-9682-entry-1",
+                "order_id": "order-20260505-9682-entry",
+                "side": "buy",
+                "quantity": 200,
+                "price_yen": 1014,
+                "at": "2026-05-05T09:01:00+09:00",
+            }
+        ],
+    }
+    front.update(overrides)
+    return front
+
+
+def _write_trade(
+    tmp_path: Path, front: dict[str, object] | None = None, name: str = "2026-05-05-9682.md"
+) -> Path:
     path = tmp_path / name
-    path.write_text(text)
+    payload = front if front is not None else _trade_front()
+    path.write_text(
+        "---\n" + yaml.safe_dump(payload, allow_unicode=True, sort_keys=False) + "---\n\n# Trade\n",
+        encoding="utf-8",
+    )
     return path
 
 
-def test_ordered_trade_with_filled_lifecycle_passes(tmp_path: Path) -> None:
-    path = _write_trade(tmp_path, _trade_text())
+def test_trade_with_filled_order_lifecycle_passes(tmp_path: Path) -> None:
+    path = _write_trade(tmp_path)
     assert [finding for finding in validate_trade_file(path) if finding.severity == "error"] == []
 
 
-def test_ordered_trade_missing_expected_fill_at_is_flagged(tmp_path: Path) -> None:
-    path = _write_trade(tmp_path, _trade_text(expected_fill_at=None))
+def test_missing_required_field_is_flagged(tmp_path: Path) -> None:
+    front = _trade_front()
+    del front["trade_id"]
+    path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.lifecycle-null-where-required" in codes
+    assert "trade.required" in codes
 
 
-def test_ordered_trade_with_entry_date_set_is_flagged(tmp_path: Path) -> None:
-    path = _write_trade(tmp_path, _trade_text(entry_date="2026-05-07"))
+def test_removed_legacy_field_is_flagged(tmp_path: Path) -> None:
+    front = _trade_front(status="open")
+    path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.lifecycle-non-null-where-prohibited" in codes
+    assert "trade.removed-field" in codes
 
 
-def test_open_trade_requires_entry_date(tmp_path: Path) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(status="open", entry_date=None, entry_price=1014.0),
-    )
+def test_order_intent_must_join_to_order(tmp_path: Path) -> None:
+    front = _trade_front()
+    orders = front["orders"]
+    assert isinstance(orders, list)
+    order = orders[0]
+    assert isinstance(order, dict)
+    order["origin_order_intent_id"] = "intent-other"
+    path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.lifecycle-null-where-required" in codes
+    assert "trade.order-intent-join" in codes
 
 
-def test_paper_proxy_pct_inconsistent_with_oku_is_flagged(tmp_path: Path) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(paper_proxy_position_size_oku=0.002, paper_proxy_position_size_pct=0.5),
-    )
+def test_order_state_is_validated(tmp_path: Path) -> None:
+    front = _trade_front()
+    orders = front["orders"]
+    assert isinstance(orders, list)
+    order = orders[0]
+    assert isinstance(order, dict)
+    order["state"] = "open"
+    path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.paper-proxy-pct-mismatch" in codes
+    assert "trade.order-state" in codes
 
 
-def test_real_concentration_inconsistent_with_notional_is_flagged(tmp_path: Path) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(
-            real_order_notional_yen=100000, real_capital_yen=500000, real_concentration_pct=99.0
-        ),
-    )
+def test_filled_quantity_cannot_exceed_submitted_quantity(tmp_path: Path) -> None:
+    front = _trade_front()
+    orders = front["orders"]
+    assert isinstance(orders, list)
+    order = orders[0]
+    assert isinstance(order, dict)
+    order["filled_quantity"] = 300
+    path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.real-concentration-mismatch" in codes
+    assert "trade.filled-quantity" in codes
 
 
-def test_partial_real_fields_are_flagged(tmp_path: Path) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(real_capital_yen=None, real_concentration_pct=None),
-    )
+def test_position_state_none_cannot_have_executions(tmp_path: Path) -> None:
+    front = _trade_front(position_state="none")
+    path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.real-concentration-missing-field" in codes
+    assert "trade.position-execution-state" in codes
 
 
-def test_real_concentration_above_hard_cap_is_error(tmp_path: Path) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(
-            real_order_notional_yen=300000, real_capital_yen=500000, real_concentration_pct=60.0
-        ),
-    )
+def test_guarded_notional_must_match_quantity_times_guard(tmp_path: Path) -> None:
+    front = _trade_front()
+    sizing = front["position_sizing_overlay"]
+    assert isinstance(sizing, dict)
+    sizing["guarded_max_notional_yen"] = 202800
+    path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.real-concentration-hard-cap" in codes
-
-
-def test_real_concentration_above_soft_cap_is_warning(tmp_path: Path) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(
-            real_order_notional_yen=200000, real_capital_yen=500000, real_concentration_pct=40.0
-        ),
-    )
-    findings = validate_trade_file(path)
-    soft_cap_warnings = [f for f in findings if f.code == "trade.real-concentration-soft-cap"]
-    assert soft_cap_warnings
-    assert soft_cap_warnings[0].severity == "warning"
-
-
-def test_tactical_concentration_inconsistent_with_notional_is_flagged(tmp_path: Path) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(
-            real_capital_yen=5000000,
-            real_order_notional_yen=202800,
-            real_concentration_pct=4.06,
-            tactical_capital_yen=1000000,
-            tactical_concentration_pct=40.56,
-        ),
-    )
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.tactical-concentration-mismatch" in codes
-
-
-def test_tactical_capital_must_not_exceed_real_capital(tmp_path: Path) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(
-            real_capital_yen=1000000,
-            real_order_notional_yen=202800,
-            real_concentration_pct=20.28,
-            tactical_capital_yen=5000000,
-            tactical_concentration_pct=4.06,
-        ),
-    )
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.tactical-capital-exceeds-real-capital" in codes
-
-
-def test_partial_tactical_fields_are_flagged(tmp_path: Path) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(
-            real_capital_yen=5000000,
-            real_order_notional_yen=202800,
-            real_concentration_pct=4.06,
-            tactical_capital_yen=1000000,
-        ),
-    )
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.tactical-concentration-missing-field" in codes
-
-
-def test_price_guarded_order_with_guarded_max_fields_passes(tmp_path: Path) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(
-            order_price_guard_yen=1050,
-            order_quantity=200,
-            guarded_max_notional_yen=210000,
-            guarded_max_real_concentration_pct=4.2,
-            guarded_max_tactical_concentration_pct=21.0,
-            real_capital_yen=5000000,
-            real_order_notional_yen=202800,
-            real_concentration_pct=4.06,
-            tactical_capital_yen=1000000,
-            tactical_concentration_pct=20.28,
-        ),
-    )
-    assert [finding for finding in validate_trade_file(path) if finding.severity == "error"] == []
-
-
-def test_price_guarded_order_missing_guarded_fields_is_flagged(tmp_path: Path) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(order_price_guard_yen=1050, order_quantity=200),
-    )
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.guarded-max-missing-field" in codes
-
-
-def test_price_guarded_order_with_quoted_price_guard_is_flagged(tmp_path: Path) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(order_price_guard_yen="1050"),
-    )
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.order-price-guard-invalid-type" in codes
-
-
-def test_price_guarded_order_with_bool_price_guard_is_flagged(tmp_path: Path) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(order_price_guard_yen=False),
-    )
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.order-price-guard-invalid-type" in codes
-
-
-def test_price_guard_key_null_without_guarded_fields_is_treated_as_no_guard(
-    tmp_path: Path,
-) -> None:
-    path = _write_trade(tmp_path, _trade_text(order_price_guard_yen=None))
-    assert [finding for finding in validate_trade_file(path) if finding.severity == "error"] == []
-
-
-def test_price_guard_key_absent_without_guarded_fields_is_treated_as_no_guard(
-    tmp_path: Path,
-) -> None:
-    text = _trade_text().replace("order_price_guard_yen: null\n", "")
-    path = _write_trade(tmp_path, text)
-    assert [finding for finding in validate_trade_file(path) if finding.severity == "error"] == []
-
-
-def test_price_guarded_order_requires_positive_quantity(tmp_path: Path) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(
-            order_price_guard_yen=1050,
-            order_quantity=0,
-            guarded_max_notional_yen=210000,
-            guarded_max_real_concentration_pct=42.0,
-        ),
-    )
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.order-quantity-non-positive" in codes
-
-
-def test_guarded_max_notional_must_match_guard_times_quantity(tmp_path: Path) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(
-            order_price_guard_yen=1050,
-            order_quantity=200,
-            guarded_max_notional_yen=202800,
-            guarded_max_real_concentration_pct=42.0,
-        ),
-    )
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.guarded-max-notional-mismatch" in codes
-
-
-def test_guarded_max_real_concentration_must_match_guarded_notional(tmp_path: Path) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(
-            order_price_guard_yen=1050,
-            order_quantity=200,
-            guarded_max_notional_yen=210000,
-            guarded_max_real_concentration_pct=10.0,
-        ),
-    )
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.guarded-max-real-concentration-mismatch" in codes
-
-
-def test_guarded_max_tactical_concentration_is_required_with_tactical_capital(
-    tmp_path: Path,
-) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(
-            order_price_guard_yen=1050,
-            order_quantity=200,
-            guarded_max_notional_yen=210000,
-            guarded_max_real_concentration_pct=4.2,
-            real_capital_yen=5000000,
-            real_order_notional_yen=202800,
-            real_concentration_pct=4.06,
-            tactical_capital_yen=1000000,
-            tactical_concentration_pct=20.28,
-        ),
-    )
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.guarded-max-tactical-concentration-missing-field" in codes
-
-
-def test_guarded_max_tactical_concentration_must_match_guarded_notional(
-    tmp_path: Path,
-) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(
-            order_price_guard_yen=1050,
-            order_quantity=200,
-            guarded_max_notional_yen=210000,
-            guarded_max_real_concentration_pct=4.2,
-            guarded_max_tactical_concentration_pct=40.0,
-            real_capital_yen=5000000,
-            real_order_notional_yen=202800,
-            real_concentration_pct=4.06,
-            tactical_capital_yen=1000000,
-            tactical_concentration_pct=20.28,
-        ),
-    )
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.guarded-max-tactical-concentration-mismatch" in codes
-
-
-def test_guarded_max_real_concentration_above_hard_cap_is_error(tmp_path: Path) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(
-            order_price_guard_yen=3000,
-            order_quantity=100,
-            guarded_max_notional_yen=300000,
-            guarded_max_real_concentration_pct=60.0,
-            real_capital_yen=500000,
-            real_order_notional_yen=100000,
-            real_concentration_pct=20.0,
-        ),
-    )
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.guarded-max-real-concentration-hard-cap" in codes
-
-
-def test_guarded_max_real_concentration_above_soft_cap_is_warning(tmp_path: Path) -> None:
-    path = _write_trade(
-        tmp_path,
-        _trade_text(
-            order_price_guard_yen=3000,
-            order_quantity=100,
-            guarded_max_notional_yen=300000,
-            guarded_max_real_concentration_pct=30.0,
-            real_capital_yen=1000000,
-            real_order_notional_yen=200000,
-            real_concentration_pct=20.0,
-        ),
-    )
-    findings = validate_trade_file(path)
-    soft_cap_warnings = [
-        f for f in findings if f.code == "trade.guarded-max-real-concentration-soft-cap"
-    ]
-    assert soft_cap_warnings
-    assert soft_cap_warnings[0].severity == "warning"
-
-
-def test_filename_date_must_match_order_date(tmp_path: Path) -> None:
-    path = _write_trade(tmp_path, _trade_text(order_date="2026-05-01"))
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.filename-date-mismatch" in codes
+    assert "trade.guarded-notional" in codes
 
 
 def test_filename_ticker_must_match_front_matter(tmp_path: Path) -> None:
-    text = _trade_text(ticker="1111")
-    path = tmp_path / "2026-05-04-9682.md"
-    path.write_text(text)
+    path = _write_trade(tmp_path, _trade_front(ticker="1111"))
     codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.filename-ticker-mismatch" in codes
+    assert "trade.filename-ticker" in codes
 
 
-def test_unknown_status_is_flagged(tmp_path: Path) -> None:
-    path = _write_trade(tmp_path, _trade_text(status="exited"))
+def test_invalid_ticker_pattern_is_flagged(tmp_path: Path) -> None:
+    path = _write_trade(tmp_path, _trade_front(ticker="bad"), name="2026-05-05-bad.md")
     codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.unknown-status" in codes
+    assert "trade.pattern" in codes
+    assert "trade.ticker-format" in codes
 
 
 def test_discover_trade_files_skips_template(tmp_path: Path) -> None:
-    (tmp_path / "template.md").write_text("placeholder")
-    valid = tmp_path / "2026-05-04-9682.md"
-    valid.write_text(_trade_text())
+    (tmp_path / "template.md").write_text("placeholder", encoding="utf-8")
+    valid = _write_trade(tmp_path)
     discovered = discover_trade_files(tmp_path)
     assert discovered == [valid]

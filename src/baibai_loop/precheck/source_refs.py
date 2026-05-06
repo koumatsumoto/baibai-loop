@@ -1,9 +1,10 @@
 """Detect AP-06 source_refs / rationale mismatches in outlook YAML.
 
-For every ``rationale`` in ``records/02-outlook/**.yaml`` (sector / region /
-change entry), extract numeric+unit tokens (e.g. ``5.09%``, ``164.34億円``) and
-verify that *at least one* listed brief in ``source_refs`` contains each token
-verbatim. Tokens not found in any cited brief are reported as findings.
+For every ``rationale`` in ``records/03-outlook/**.yaml`` (sector /
+exposure bucket / change entry), extract numeric+unit tokens (e.g. ``5.09%``,
+``164.34億円``) and verify that *at least one* listed brief in ``source_refs``
+contains each token verbatim. Tokens not found in any cited brief are reported
+as findings.
 
 This is heuristic: paraphrased prose tokens are not detected, but the most
 common AP-06 failure pattern (a numeric quoted in rationale that does not
@@ -78,12 +79,14 @@ def _scan_one_outlook(path: Path, repo_root: Path) -> list[OutlookFinding]:
                     _check_rationale_block(path, payload, f"sectors.{sector_name}", repo_root)
                 )
 
-    regions = loaded.get("regions")
-    if isinstance(regions, Mapping):
-        for region_name, payload in regions.items():
+    exposure_buckets = loaded.get("exposure_buckets")
+    if isinstance(exposure_buckets, Mapping):
+        for bucket_name, payload in exposure_buckets.items():
             if isinstance(payload, Mapping):
                 findings.extend(
-                    _check_rationale_block(path, payload, f"regions.{region_name}", repo_root)
+                    _check_rationale_block(
+                        path, payload, f"exposure_buckets.{bucket_name}", repo_root
+                    )
                 )
 
     changes = loaded.get("changes")
@@ -126,7 +129,7 @@ def _check_rationale_block(
             )
         ]
     # source brief は token ごとに変わらないので、ループ前に 1 度だけ normalize する。
-    # outlook 1 件で sectors 33 + regions 4 + changes が走るが、すべて同じ
+    # outlook 1 件で sectors 33 + exposure buckets + changes が走るが、すべて同じ
     # source brief を参照することが多いため、ここで事前正規化しておくと全体で
     # O(rationale x token) -> O(brief + rationale x token) に下がる。
     normalized_source_texts = [_normalize(text) for text in _read_source_texts(source_paths)]

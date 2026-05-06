@@ -11,9 +11,9 @@ from jsonschema import Draft202012Validator
 
 from .errors import ValidationFinding
 
-SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "review-v1.json"
+SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "review.json"
 RETRO_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[3] / "records" / "_schemas" / "retro-monthly-v1.json"
+    Path(__file__).resolve().parents[3] / "records" / "_schemas" / "retro-monthly.json"
 )
 REQUIRED_SECTIONS: tuple[str, ...] = (
     "Outcome",
@@ -27,7 +27,7 @@ REQUIRED_RETRO_SECTIONS: tuple[str, ...] = (
     "失敗分類の集計",
     "成功分類の集計",
     "Missed opportunity / screening false negative tracking の分析",
-    "Macro gate 判定精度",
+    "Macro regime gate 判定精度",
     "Playbook 改訂判断",
     "次周回の運用変更点",
 )

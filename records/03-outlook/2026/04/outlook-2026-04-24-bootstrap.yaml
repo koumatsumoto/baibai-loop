@@ -1,0 +1,309 @@
+schema_version: 1
+ai_draft: true
+published_at: '2026-04-27T09:00:00+09:00'
+horizon: 1-6m
+updated_from: &id001
+- records/02-brief/2026/01/2026-01-macro-monthly-overview.yaml
+- records/02-brief/2026/02/2026-02-macro-monthly-jp-core-cpi-sub2.yaml
+- records/02-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
+- records/02-brief/2026/04/2026-04-10-world-weekly-us-10y-down.yaml
+- records/02-brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.yaml
+- records/02-brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.yaml
+summary: 2026-04-24 時点のマクロは、米国では 2026-03 CPI の再加速と 2026-03 小売売上高の強さが同居し、 日本では全国コア
+  CPI が +1.8% と 2%近辺を維持しつつ、USD/JPY は 159 台、原油は 100ドル割れまで低下している。 1-6か月 horizon では、BoJ
+  / FOMC 前のため sector は広く neutral を維持し、 横断的な円安と外需の強さは exposure_buckets.japan-external-demand
+  に集約して表現する。
+sectors:
+  水産・農林業:
+    status: neutral
+    rationale: 業種固有の上振れ / 下振れ根拠が brief 群から確認できない。bootstrap 段階では保守的に neutral を維持する
+    source_refs: []
+  鉱業:
+    status: neutral
+    rationale: 原油は 100ドル割れまで低下しているが、鉱業全体としては固有 evidence hit が brief で確認できない
+    source_refs:
+    - records/02-brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.yaml
+  建設業:
+    status: neutral
+    rationale: 国内インフレ・金利の方向が確定的でなく、建設業固有の追い風 / 逆風要因が brief で確認できない
+    source_refs: []
+  食料品:
+    status: neutral
+    rationale: コア CPI が +1.8%、コアコア CPI が +2.4% で、食料品セクター固有の上振れ / 下振れが確認できない
+    source_refs:
+    - records/02-brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.yaml
+  繊維製品:
+    status: neutral
+    rationale: 業種固有の evidence hit が brief 群から確認できない
+    source_refs: []
+  パルプ・紙:
+    status: neutral
+    rationale: 業種固有の evidence hit が brief 群から確認できない
+    source_refs: []
+  化学:
+    status: neutral
+    rationale: 原油低下は確認できるが、化学セクター固有の追い風までは bootstrap 時点で断定しない
+    source_refs:
+    - records/02-brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.yaml
+  医薬品:
+    status: neutral
+    rationale: 業種固有の evidence hit が brief 群から確認できない
+    source_refs: []
+  石油・石炭製品:
+    status: neutral
+    rationale: 原油は 100ドル割れまで低下しているが、製品マージンの方向は brief で確認できず neutral を維持
+    source_refs:
+    - records/02-brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.yaml
+  ゴム製品:
+    status: neutral
+    rationale: 業種固有の evidence hit が brief 群から確認できない
+    source_refs: []
+  ガラス・土石製品:
+    status: neutral
+    rationale: 業種固有の evidence hit が brief 群から確認できない
+    source_refs: []
+  鉄鋼:
+    status: neutral
+    rationale: 業種固有の evidence hit が brief 群から確認できない
+    source_refs: []
+  非鉄金属:
+    status: neutral
+    rationale: 業種固有の evidence hit が brief 群から確認できない
+    source_refs: []
+  金属製品:
+    status: neutral
+    rationale: 業種固有の evidence hit が brief 群から確認できない
+    source_refs: []
+  機械:
+    status: neutral
+    rationale: 円安・外需は追い風だが、同根拠は japan-external-demand 側で表現する。業種固有の追加 evidence hit は未確認
+    source_refs:
+    - records/02-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
+    - records/02-brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.yaml
+  電気機器:
+    status: neutral
+    rationale: 輸出需要の強さは地域軸に寄せ、sector として一段強気にする固有根拠は不足
+    source_refs:
+    - records/02-brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.yaml
+    - records/02-brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.yaml
+  輸送用機器:
+    status: neutral
+    rationale: 円安と原油低下は確認できるが、bootstrap 時点では sector 固有 supportive まで断定しない
+    source_refs:
+    - records/02-brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.yaml
+    - records/02-brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.yaml
+  精密機器:
+    status: neutral
+    rationale: 業種固有の evidence hit が brief 群から確認できない
+    source_refs: []
+  その他製品:
+    status: neutral
+    rationale: 業種固有の evidence hit が brief 群から確認できない
+    source_refs: []
+  電気・ガス業:
+    status: neutral
+    rationale: 原油低下は短期コスト軽減方向だが、規制料金・燃調を踏まえ bootstrap では neutral 維持
+    source_refs:
+    - records/02-brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.yaml
+  陸運業:
+    status: neutral
+    rationale: 業種固有の evidence hit が brief 群から確認できない
+    source_refs: []
+  海運業:
+    status: neutral
+    rationale: 原油低下は確認できるが、運賃サイクルや貿易量の decisive evidence hit を brief では未確認
+    source_refs:
+    - records/02-brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.yaml
+  空運業:
+    status: neutral
+    rationale: 業種固有の evidence hit が brief 群から確認できない
+    source_refs: []
+  倉庫・運輸関連業:
+    status: neutral
+    rationale: 業種固有の evidence hit が brief 群から確認できない
+    source_refs: []
+  情報・通信業:
+    status: neutral
+    rationale: マクロから直接の sector evidence hit が弱く、個別要因優位とみなす
+    source_refs:
+    - records/02-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
+  卸売業:
+    status: neutral
+    rationale: 業種固有の evidence hit が brief 群から確認できない
+    source_refs: []
+  小売業:
+    status: neutral
+    rationale: 日本コア CPI は 1.8% だが、消費の強弱を sector adverse まで断定できる brief が不足
+    source_refs:
+    - records/02-brief/2026/02/2026-02-macro-monthly-jp-core-cpi-sub2.yaml
+    - records/02-brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.yaml
+  銀行業:
+    status: neutral
+    rationale: BoJ は 0.75% 維持で、次回会合前。金利上昇再加速を front-run する根拠が不足
+    source_refs:
+    - records/02-brief/2026/01/2026-01-macro-monthly-overview.yaml
+    - records/02-brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.yaml
+  証券、商品先物取引業:
+    status: neutral
+    rationale: 業種固有の evidence hit が brief 群から確認できない
+    source_refs: []
+  保険業:
+    status: neutral
+    rationale: 業種固有の evidence hit が brief 群から確認できない
+    source_refs: []
+  その他金融業:
+    status: neutral
+    rationale: 業種固有の evidence hit が brief 群から確認できない
+    source_refs: []
+  不動産業:
+    status: neutral
+    rationale: 国内インフレは 2%近辺、政策金利は据置。金利・賃料のどちらも明確方向が出ていない
+    source_refs:
+    - records/02-brief/2026/01/2026-01-macro-monthly-overview.yaml
+    - records/02-brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.yaml
+  サービス業:
+    status: neutral
+    rationale: 業種固有の evidence hit が brief 群から確認できない
+    source_refs: []
+changes: []
+next_triggers:
+- date: 2026-04-27 〜 28
+  text: 日銀 金融政策決定会合
+- date: 2026-04-28 〜 29
+  text: FOMC 会合
+- date: 2026-04-28前後
+  text: 日本 2026-03 完全失業率・有効求人倍率
+- date: '2026-04-30'
+  text: 米 コアPCE、日本 2026-03 鉱工業生産
+notes: Bootstrap（v1 初回）。stale な履歴だけではなく、2026-04-24 時点で追加した daily brief まで含めて初回 outlook
+  を作成した。
+exposure_buckets:
+  us:
+    status: neutral
+    rationale: CPI 再加速は逆風だが、小売売上高は強い。相殺して neutral
+    source_refs:
+    - records/02-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
+    - records/02-brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.yaml
+  japan-domestic:
+    status: neutral
+    rationale: 日本コア CPI は +1.8%、政策金利は 0.75% 維持。需要加速・減速のどちらにもまだ振れない
+    source_refs:
+    - records/02-brief/2026/02/2026-02-macro-monthly-jp-core-cpi-sub2.yaml
+    - records/02-brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.yaml
+  japan-external-demand:
+    status: supportive
+    rationale: USD/JPY 159台と米最終需要の強さが輸出主導に有利
+    source_refs:
+    - records/02-brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.yaml
+    - records/02-brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.yaml
+  emerging:
+    status: null
+    rationale: 参照 brief 群に emerging を直接判定する材料が不足
+    source_refs:
+    - records/02-brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.yaml
+artifact_provenance:
+  source_refs: *id001
+  source_status: ok
+  lineage: brief-derived
+macro_regime:
+  aggregate_status: mixed
+  inputs:
+  - scope: sector
+    key: 水産・農林業
+    status: neutral
+  - scope: sector
+    key: 鉱業
+    status: neutral
+  - scope: sector
+    key: 建設業
+    status: neutral
+  - scope: sector
+    key: 食料品
+    status: neutral
+  - scope: sector
+    key: 繊維製品
+    status: neutral
+  - scope: sector
+    key: パルプ・紙
+    status: neutral
+  - scope: sector
+    key: 化学
+    status: neutral
+  - scope: sector
+    key: 医薬品
+    status: neutral
+  - scope: sector
+    key: 石油・石炭製品
+    status: neutral
+  - scope: sector
+    key: ゴム製品
+    status: neutral
+  - scope: sector
+    key: ガラス・土石製品
+    status: neutral
+  - scope: sector
+    key: 鉄鋼
+    status: neutral
+  - scope: sector
+    key: 非鉄金属
+    status: neutral
+  - scope: sector
+    key: 金属製品
+    status: neutral
+  - scope: sector
+    key: 機械
+    status: neutral
+  - scope: sector
+    key: 電気機器
+    status: neutral
+  - scope: sector
+    key: 輸送用機器
+    status: neutral
+  - scope: sector
+    key: 精密機器
+    status: neutral
+  - scope: sector
+    key: その他製品
+    status: neutral
+  - scope: sector
+    key: 電気・ガス業
+    status: neutral
+  - scope: sector
+    key: 陸運業
+    status: neutral
+  - scope: sector
+    key: 海運業
+    status: neutral
+  - scope: sector
+    key: 空運業
+    status: neutral
+  - scope: sector
+    key: 倉庫・運輸関連業
+    status: neutral
+  - scope: sector
+    key: 情報・通信業
+    status: neutral
+  - scope: sector
+    key: 卸売業
+    status: neutral
+  - scope: sector
+    key: 小売業
+    status: neutral
+  - scope: sector
+    key: 銀行業
+    status: neutral
+  - scope: sector
+    key: 証券、商品先物取引業
+    status: neutral
+  - scope: sector
+    key: 保険業
+    status: neutral
+  - scope: sector
+    key: その他金融業
+    status: neutral
+  - scope: sector
+    key: 不動産業
+    status: neutral
+  - scope: sector
+    key: サービス業
+    status: neutral

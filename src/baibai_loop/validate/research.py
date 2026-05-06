@@ -1,12 +1,14 @@
-"""Validate research markdown front matter and playbook-specific body sections."""
+"""Validate investment memo front matter and playbook body sections."""
 
 from __future__ import annotations
 
+import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 
 import yaml
+from jsonschema import Draft202012Validator
 
 from .errors import ValidationFinding
 from .playbook_schema import (
@@ -16,42 +18,34 @@ from .playbook_schema import (
     validate_research_body,
 )
 
-KNOWN_MACRO_GATES: tuple[str, ...] = ("tailwind", "neutral", "headwind")
-KNOWN_DECISIONS: tuple[str, ...] = ("accepted", "skipped", "pending")
-KNOWN_OVERRIDE_TYPES: tuple[str, ...] = (
-    "decision_flip",
-    "candidate_absence",
-    "universe_drop",
-    "real_concentration_cap",
-    "gate_headwind",
-)
-_OVERRIDE_REQUIRED_KEYS: tuple[str, ...] = (
-    "type",
-    "prior_state_ref",
-    "prior_state",
-    "new_state",
-    "reason",
-)
-_EXTERNAL_REFS_PREFIX = "records/_external/"
-REQUIRED_FRONT_MATTER: tuple[str, ...] = (
-    "ticker",
-    "name",
-    "playbook",
-    "decision",
-    "market_cap_oku",
-    "sector_33",
-    "candidates_ref",
-    "outlook_ref",
-    "brief_refs",
-    "ai-draft",
-    "published_at",
-    "tradable_at",
-    "macro_gate",
-    "position_size_oku",
-    "valuation",
-)
+SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "research.json"
+
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)
 _TICKER_PATTERN = re.compile(r"^[0-9A-Z]{4}$")
+_REMOVED_FRONT_MATTER_FIELDS: tuple[str, ...] = (
+    "playbook",
+    "decision",
+    "_".join(("macro", "gate")),
+    "_".join(("macro", "gate", "override")),
+    "_".join(("position", "size", "oku")),
+    "_".join(("hypothetical", "position", "size", "oku")),
+    "_".join(("supporting", "sig" + "nals")),
+    "_".join(("adv", "participation", "pct")),
+)
+_KNOWN_OUTCOMES = {"approved", "passed", "rejected"}
+_KNOWN_POSTURES = {"act_now", "wait_for_event", "wait_for_capital", "dropped"}
+_KNOWN_GATE_EFFECTS = {"pass", "conditional", "block"}
+
+
+def _load_validator() -> Draft202012Validator:
+    raw = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise RuntimeError(f"unexpected schema root: {SCHEMA_PATH}")
+    Draft202012Validator.check_schema(raw)
+    return Draft202012Validator(raw)
+
+
+_VALIDATOR = _load_validator()
 
 
 def validate_research_file(
@@ -81,43 +75,33 @@ def validate_research_parsed(
     playbooks_root: Path | None = None,
     known_playbooks: frozenset[str] | None = None,
 ) -> list[ValidationFinding]:
-    """Validate already-parsed research front matter and body.
-
-    CLI 側は load_research_document の結果をキャッシュしてから collection 集約と
-    per-file 検証の両方で再利用する。単独呼び出し用に validate_research_file が
-    薄いラッパーとして残るが、内側のロジックは本関数に集約する。
-    """
     playbook_root = playbooks_root or _default_playbook_root()
-    # CLI は run_validation で 1 回だけ discover してくる。単独呼び出し時のため
-    # フォールバックとして自前 discover を残す。
     if known_playbooks is None:
         known_playbooks = frozenset(discover_playbook_schemas(playbook_root))
+
     findings: list[ValidationFinding] = []
-    findings.extend(_validate_front_matter(path, front_matter, known_playbooks))
-    playbook = front_matter.get("playbook")
-    if isinstance(playbook, str) and playbook in known_playbooks:
+    findings.extend(_validate_schema(path, front_matter))
+    findings.extend(_check_removed_fields(path, front_matter))
+    findings.extend(_check_ticker(path, front_matter))
+    findings.extend(_check_playbook(path, front_matter, known_playbooks))
+    findings.extend(_check_decision(path, front_matter))
+    findings.extend(_check_gate(path, front_matter))
+    findings.extend(_check_evidence_and_counts(path, front_matter))
+    findings.extend(_check_payoff(path, front_matter))
+    findings.extend(_check_snapshot_refs(path, front_matter))
+
+    playbook_id = front_matter.get("playbook_id")
+    if isinstance(playbook_id, str) and playbook_id in known_playbooks:
         try:
-            schema = load_playbook_schema(playbook_root, playbook)
-        except FileNotFoundError as exc:
-            # discover_playbook_schemas との競合状態 (validate 実行中に schema YAML
-            # が消えた等) で発生しうる。uncaught で die せず error finding に変換する。
+            schema = load_playbook_schema(playbook_root, playbook_id)
+        except (FileNotFoundError, PlaybookSchemaError) as exc:
             findings.append(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.missing-playbook-schema",
+                    code="research.playbook-schema",
                     message=str(exc),
-                    location=f"playbook:{playbook}",
-                )
-            )
-        except PlaybookSchemaError as exc:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.invalid-playbook-schema",
-                    message=str(exc),
-                    location=f"playbook:{playbook}",
+                    location=f"playbook_id:{playbook_id}",
                 )
             )
         else:
@@ -128,23 +112,23 @@ def validate_research_parsed(
 def load_research_document(
     path: Path,
 ) -> tuple[dict[str, object], str] | list[ValidationFinding]:
-    """Public entry to ``_load_research_document`` for CLI-level caching."""
     return _load_research_document(path)
 
 
 def validate_research_collection(
     paths_with_front_matter: Sequence[tuple[Path, Mapping[str, object]]],
 ) -> list[ValidationFinding]:
-    accepted_by_sector: dict[str, list[Path]] = {}
+    approved_by_sector: dict[str, list[Path]] = {}
     for path, front_matter in paths_with_front_matter:
-        if front_matter.get("decision") != "accepted":
+        decision = front_matter.get("research_decision")
+        if not isinstance(decision, Mapping) or decision.get("outcome") != "approved":
             continue
         sector = front_matter.get("sector_33")
         if isinstance(sector, str) and sector.strip():
-            accepted_by_sector.setdefault(sector, []).append(path)
+            approved_by_sector.setdefault(sector, []).append(path)
 
     findings: list[ValidationFinding] = []
-    for sector, paths in sorted(accepted_by_sector.items()):
+    for sector, paths in sorted(approved_by_sector.items()):
         if len(paths) < 3:
             continue
         for path in paths:
@@ -154,13 +138,19 @@ def validate_research_collection(
                     target=path,
                     code="research.sector-concentration",
                     message=(
-                        f"3+ accepted research packets share sector_33={sector}; "
-                        "review for concentration risk"
+                        f"3+ approved investment memos share sector_33={sector}; "
+                        "review cumulative exposure"
                     ),
                     location="sector_33",
                 )
             )
     return findings
+
+
+def discover_research_files(root: Path) -> list[Path]:
+    if not root.exists():
+        return []
+    return sorted(p for p in root.rglob("*.md") if p.is_file())
 
 
 def _load_research_document(
@@ -184,7 +174,7 @@ def _load_research_document(
                 severity="error",
                 target=path,
                 code="research.no-front-matter",
-                message="research markdown must start with `---` YAML front matter",
+                message="investment memo markdown must start with `---` YAML front matter",
             )
         ]
     try:
@@ -204,674 +194,453 @@ def _load_research_document(
                 severity="error",
                 target=path,
                 code="research.front-matter-non-mapping",
-                message="research front matter must be a mapping",
+                message="investment memo front matter must be a mapping",
             )
         ]
-    body = match.group(2)
-    return front_matter, body
-
-
-def discover_research_files(root: Path) -> list[Path]:
-    if not root.exists():
-        return []
-    return sorted(p for p in root.rglob("*.md") if p.is_file())
+    return front_matter, match.group(2)
 
 
 def _default_playbook_root() -> Path:
     return Path(__file__).resolve().parents[3] / "records" / "_playbooks"
 
 
-def _validate_front_matter(
-    path: Path,
-    front_matter: dict[str, object],
-    known_playbooks: frozenset[str],
-) -> list[ValidationFinding]:
+def _validate_schema(path: Path, front_matter: Mapping[str, object]) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
-    for field in REQUIRED_FRONT_MATTER:
-        if field not in front_matter:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.missing-field",
-                    message=f"required front matter field missing: {field}",
-                    location=field,
-                )
-            )
-    ticker = front_matter.get("ticker")
-    if isinstance(ticker, str) and not _TICKER_PATTERN.match(ticker):
+    for error in _VALIDATOR.iter_errors(front_matter):
         findings.append(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.invalid-ticker",
-                message=f"ticker must be 4-char alphanumeric: {ticker!r}",
-                location="ticker",
+                code=f"research.{error.validator or 'invalid'}",
+                message=str(error.message),
+                location=_format_path(error.absolute_path),
             )
         )
-    playbook = front_matter.get("playbook")
-    if isinstance(playbook, str) and playbook not in known_playbooks:
-        known_sorted = sorted(known_playbooks)
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.unknown-playbook",
-                message=(
-                    f"playbook {playbook!r} has no schema in records/_playbooks/; "
-                    f"known: {known_sorted}"
-                ),
-                location="playbook",
-            )
-        )
-    macro_gate = front_matter.get("macro_gate")
-    if isinstance(macro_gate, str) and macro_gate not in KNOWN_MACRO_GATES:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.invalid-macro-gate",
-                message=(
-                    f"macro_gate must be one of {list(KNOWN_MACRO_GATES)}, got {macro_gate!r}"
-                ),
-                location="macro_gate",
-            )
-        )
-    decision = front_matter.get("decision")
-    if isinstance(decision, str):
-        if decision not in KNOWN_DECISIONS:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.invalid-decision",
-                    message=(f"decision must be one of {list(KNOWN_DECISIONS)}, got {decision!r}"),
-                    location="decision",
-                )
-            )
-    elif "decision" in front_matter:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.invalid-decision",
-                message="decision must be a string",
-                location="decision",
-            )
-        )
-    override = front_matter.get("macro_gate_override")
-    has_override = isinstance(override, str) and bool(override.strip())
-    if "macro_gate_override" in front_matter and not has_override:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.invalid-macro-gate-override",
-                message="macro_gate_override must be a non-empty string when present",
-                location="macro_gate_override",
-            )
-        )
-    if macro_gate == "headwind" and decision == "accepted":
-        if has_override:
-            findings.append(
-                ValidationFinding(
-                    severity="warning",
-                    target=path,
-                    code="research.headwind-with-override",
-                    message="accepted research uses headwind macro_gate with an explicit override",
-                    location="macro_gate_override",
-                )
-            )
-            if not _has_override_type(front_matter, "gate_headwind"):
-                findings.append(
-                    ValidationFinding(
-                        severity="error",
-                        target=path,
-                        code="research.headwind-without-gate-override",
-                        message=(
-                            "accepted research with headwind macro_gate requires "
-                            "overrides[].type='gate_headwind'"
-                        ),
-                        location="overrides",
-                    )
-                )
-        else:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.headwind-without-override",
-                    message=(
-                        "accepted research with headwind macro_gate requires macro_gate_override"
-                    ),
-                    location="macro_gate_override",
-                )
-            )
-    position_size = front_matter.get("position_size_oku")
-    if isinstance(position_size, bool) or not isinstance(position_size, (int, float)):
-        if "position_size_oku" in front_matter:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.invalid-position-size",
-                    message="position_size_oku must be a non-negative number",
-                    location="position_size_oku",
-                )
-            )
-    elif position_size < 0:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.invalid-position-size",
-                message="position_size_oku must be non-negative",
-                location="position_size_oku",
-            )
-        )
-    elif position_size == 0 and decision != "skipped":
-        # accepted / pending は実 position を伴うため 0 は不可。skipped のみ 0 を許容し、
-        # ヒューリスティック値は hypothetical_position_size_oku に分離する設計を許す。
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.invalid-position-size",
-                message=(
-                    "position_size_oku must be > 0 for accepted/pending decision; "
-                    "use 0 only with decision=skipped"
-                ),
-                location="position_size_oku",
-            )
-        )
-    elif position_size > 0 and decision == "skipped":
-        # skipped 判定で実 position 値を残すと ledger sync (`src/baibai_loop/ledger/
-        # sync.py`) が skipped ledger の adv_participation_pct を計算してしまう。
-        # 実建玉なしを示す skipped では position_size_oku: 0 を強制し、参考値は
-        # hypothetical_position_size_oku に分離する。
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.invalid-position-size",
-                message=(
-                    "decision=skipped requires position_size_oku=0; use "
-                    "hypothetical_position_size_oku for reference values"
-                ),
-                location="position_size_oku",
-            )
-        )
-    market_cap = front_matter.get("market_cap_oku")
-    if isinstance(market_cap, bool) or not isinstance(market_cap, (int, float)):
-        if "market_cap_oku" in front_matter:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.invalid-market-cap",
-                    message="market_cap_oku must be a positive number",
-                    location="market_cap_oku",
-                )
-            )
-    elif market_cap <= 0:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.invalid-market-cap",
-                message="market_cap_oku must be greater than 0",
-                location="market_cap_oku",
-            )
-        )
-    sector = front_matter.get("sector_33")
-    if isinstance(sector, str):
-        if not sector.strip():
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.invalid-sector",
-                    message="sector_33 must be a non-empty string",
-                    location="sector_33",
-                )
-            )
-    elif "sector_33" in front_matter:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.invalid-sector",
-                message="sector_33 must be a non-empty string",
-                location="sector_33",
-            )
-        )
-    valuation = front_matter.get("valuation")
-    top_level_adv = front_matter.get("adv_participation_pct")
-    if isinstance(top_level_adv, (int, float)) and not isinstance(top_level_adv, bool):
-        _append_adv_participation_finding(path, top_level_adv, findings, "adv_participation_pct")
-        _append_adv_participation_avg_turnover_required_finding(
-            path, front_matter, findings, "adv_participation_pct"
-        )
-        _append_adv_participation_consistency_finding(
-            path, front_matter, top_level_adv, findings, "adv_participation_pct"
-        )
-    elif "adv_participation_pct" in front_matter:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.invalid-adv-participation",
-                message="adv_participation_pct must be a number when present",
-                location="adv_participation_pct",
-            )
-        )
-    if isinstance(valuation, dict):
-        adv_participation = valuation.get("adv_participation_pct")
-        if isinstance(adv_participation, (int, float)) and not isinstance(adv_participation, bool):
-            _append_adv_participation_finding(
-                path,
-                adv_participation,
-                findings,
-                "valuation.adv_participation_pct",
-            )
-            _append_adv_participation_avg_turnover_required_finding(
-                path, front_matter, findings, "valuation.adv_participation_pct"
-            )
-            _append_adv_participation_consistency_finding(
-                path, front_matter, adv_participation, findings, "valuation.adv_participation_pct"
-            )
-        elif "adv_participation_pct" in valuation:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.invalid-adv-participation",
-                    message="valuation.adv_participation_pct must be a number when present",
-                    location="valuation.adv_participation_pct",
-                )
-            )
-    candidates_ref = front_matter.get("candidates_ref")
-    if isinstance(candidates_ref, str) and not candidates_ref.endswith(".yaml"):
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.candidates-ref-not-yaml",
-                message="candidates_ref must end with .yaml",
-                location="candidates_ref",
-            )
-        )
-    if isinstance(candidates_ref, str) and candidates_ref.endswith(".yaml"):
-        ticker = front_matter.get("ticker")
-        front_avg_turnover = front_matter.get("avg_turnover_oku")
-        if (
-            isinstance(ticker, str)
-            and isinstance(front_avg_turnover, (int, float))
-            and not isinstance(front_avg_turnover, bool)
-            and front_avg_turnover > 0
-        ):
-            _append_avg_turnover_candidates_consistency_finding(
-                path, candidates_ref, ticker, front_avg_turnover, findings
-            )
-    outlook_ref = front_matter.get("outlook_ref")
-    if isinstance(outlook_ref, str) and not outlook_ref.endswith(".yaml"):
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.outlook-ref-not-yaml",
-                message="outlook_ref must end with .yaml",
-                location="outlook_ref",
-            )
-        )
-    findings.extend(_validate_overrides(path, front_matter))
-    findings.extend(_validate_external_refs(path, front_matter))
-    findings.extend(_validate_candidate_absence_override(path, front_matter))
     return findings
 
 
-def _has_override_type(front_matter: Mapping[str, object], override_type: str) -> bool:
-    overrides = front_matter.get("overrides")
-    if not isinstance(overrides, list):
-        return False
-    return any(
-        isinstance(entry, dict) and entry.get("type") == override_type for entry in overrides
-    )
-
-
-def _validate_overrides(path: Path, front_matter: dict[str, object]) -> list[ValidationFinding]:
-    overrides = front_matter.get("overrides")
-    if overrides is None:
-        return []
-    if not isinstance(overrides, list):
-        return [
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.overrides-non-list",
-                message="overrides must be a list when present",
-                location="overrides",
-            )
-        ]
-    findings: list[ValidationFinding] = []
-    for index, entry in enumerate(overrides):
-        location = f"overrides[{index}]"
-        if not isinstance(entry, dict):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.override-non-mapping",
-                    message="override entry must be a mapping",
-                    location=location,
-                )
-            )
-            continue
-        for key in _OVERRIDE_REQUIRED_KEYS:
-            value = entry.get(key)
-            if not isinstance(value, str) or not value.strip():
-                findings.append(
-                    ValidationFinding(
-                        severity="error",
-                        target=path,
-                        code="research.override-missing-key",
-                        message=(f"override entry requires non-empty string field: {key}"),
-                        location=f"{location}.{key}",
-                    )
-                )
-        type_value = entry.get("type")
-        if isinstance(type_value, str) and type_value not in KNOWN_OVERRIDE_TYPES:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.override-unknown-type",
-                    message=(f"override type {type_value!r} is not in {KNOWN_OVERRIDE_TYPES}"),
-                    location=f"{location}.type",
-                )
-            )
-    return findings
-
-
-def _validate_candidate_absence_override(
-    path: Path, front_matter: dict[str, object]
+def _check_removed_fields(
+    path: Path, front_matter: Mapping[str, object]
 ) -> list[ValidationFinding]:
-    """``decision: accepted`` で candidates_ref に ticker が見つからない場合は
-    ``overrides[].type`` に ``candidate_absence`` または ``universe_drop`` が必須。
-
-    - candidates file が存在しない (fixture / archive 経路) → 既存の挙動に倣い skip。
-    - candidates が存在しても yaml parse 失敗 → 別 validator が報告するので skip。
-    - ticker が candidates にある → enforce 不要。
-    - ticker が candidates にない + overrides 不足 → error。
-    """
-    if front_matter.get("decision") != "accepted":
-        return []
-    candidates_ref = front_matter.get("candidates_ref")
-    ticker = front_matter.get("ticker")
-    if not isinstance(candidates_ref, str) or not isinstance(ticker, str):
-        return []
-    repo_root = _resolve_repo_root(path)
-    candidate_path = repo_root / candidates_ref
-    if not candidate_path.is_file():
-        return []
-    try:
-        candidate_doc = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError):
-        return []
-    if not isinstance(candidate_doc, dict):
-        return []
-    candidates = candidate_doc.get("candidates")
-    if not isinstance(candidates, list):
-        return []
-    found = any(isinstance(entry, dict) and entry.get("ticker") == ticker for entry in candidates)
-    if found:
-        return []
-    overrides = front_matter.get("overrides")
-    if isinstance(overrides, list):
-        for entry in overrides:
-            if isinstance(entry, dict) and entry.get("type") in (
-                "candidate_absence",
-                "universe_drop",
-            ):
-                return []
     return [
         ValidationFinding(
             severity="error",
             target=path,
-            code="research.candidate-absence-without-override",
-            message=(
-                f"ticker {ticker!r} not found in candidates_ref={candidates_ref}; "
-                "decision=accepted requires overrides[].type='candidate_absence' "
-                "or 'universe_drop'"
-            ),
-            location="overrides",
+            code="research.removed-field",
+            message=f"removed front matter field is not allowed: {field}",
+            location=field,
         )
+        for field in _REMOVED_FRONT_MATTER_FIELDS
+        if field in front_matter
     ]
 
 
-def _validate_external_refs(path: Path, front_matter: dict[str, object]) -> list[ValidationFinding]:
-    external_refs = front_matter.get("external_refs")
-    if external_refs is None:
-        return []
-    if not isinstance(external_refs, list):
+def _check_ticker(path: Path, front_matter: Mapping[str, object]) -> list[ValidationFinding]:
+    ticker = front_matter.get("ticker")
+    if not isinstance(ticker, str) or not _TICKER_PATTERN.match(ticker):
         return [
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.external-refs-non-list",
-                message="external_refs must be a list when present",
-                location="external_refs",
+                code="research.ticker-format",
+                message=f"ticker must be 4 alphanumeric uppercase chars (got {ticker!r})",
+                location="ticker",
             )
         ]
+    return []
+
+
+def _check_playbook(
+    path: Path,
+    front_matter: Mapping[str, object],
+    known_playbooks: frozenset[str],
+) -> list[ValidationFinding]:
+    playbook_id = front_matter.get("playbook_id")
+    if not isinstance(playbook_id, str) or playbook_id not in known_playbooks:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.unknown-playbook",
+                message=f"playbook_id must reference a known snapshot family (got {playbook_id!r})",
+                location="playbook_id",
+            )
+        ]
+    return []
+
+
+def _check_decision(path: Path, front_matter: Mapping[str, object]) -> list[ValidationFinding]:
+    decision = front_matter.get("research_decision")
+    if not isinstance(decision, Mapping):
+        return []
     findings: list[ValidationFinding] = []
-    for index, entry in enumerate(external_refs):
-        location = f"external_refs[{index}]"
-        if not isinstance(entry, str) or not entry.strip():
+    outcome = decision.get("outcome")
+    posture = decision.get("posture")
+    if outcome not in _KNOWN_OUTCOMES:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.unknown-outcome",
+                message=f"research_decision.outcome must be one of {_KNOWN_OUTCOMES}",
+                location="research_decision.outcome",
+            )
+        )
+    if posture not in _KNOWN_POSTURES:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.unknown-posture",
+                message=f"research_decision.posture must be one of {_KNOWN_POSTURES}",
+                location="research_decision.posture",
+            )
+        )
+    if outcome == "approved" and posture != "act_now":
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.approved-posture",
+                message="approved research decisions must use posture: act_now",
+                location="research_decision.posture",
+            )
+        )
+    if outcome == "rejected" and "rejection_reason" not in decision:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.rejection-reason-required",
+                message="rejected research decisions require rejection_reason",
+                location="research_decision.rejection_reason",
+            )
+        )
+    if outcome == "passed" and posture != "act_now" and "deferral_reason" not in decision:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.deferral-reason-required",
+                message="deferred passed decisions require deferral_reason",
+                location="research_decision.deferral_reason",
+            )
+        )
+    return findings
+
+
+def _check_gate(path: Path, front_matter: Mapping[str, object]) -> list[ValidationFinding]:
+    gate = front_matter.get("macro_regime_gate")
+    if not isinstance(gate, Mapping):
+        return []
+    effect = gate.get("decision_effect")
+    if effect not in _KNOWN_GATE_EFFECTS:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.unknown-gate-effect",
+                message=f"macro_regime_gate.decision_effect must be one of {_KNOWN_GATE_EFFECTS}",
+                location="macro_regime_gate.decision_effect",
+            )
+        ]
+    decision = front_matter.get("research_decision")
+    outcome = decision.get("outcome") if isinstance(decision, Mapping) else None
+    if outcome == "approved" and effect == "block":
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.blocked-gate-approved",
+                message="approved research cannot use macro_regime_gate.decision_effect: block",
+                location="macro_regime_gate.decision_effect",
+            )
+        ]
+    return []
+
+
+def _check_evidence_and_counts(
+    path: Path, front_matter: Mapping[str, object]
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    decisions = front_matter.get("candidate_evidence_decisions")
+    selected = front_matter.get("selected_supporting_evidence_refs")
+    research_hits = front_matter.get("research_evidence_hits", [])
+    if not isinstance(decisions, list):
+        return findings
+
+    effective_components = _effective_independence_components(
+        path,
+        front_matter,
+        decisions,
+        research_hits if isinstance(research_hits, list) else [],
+        findings,
+    )
+    independent_count = front_matter.get("independent_evidence_count")
+    if isinstance(independent_count, int) and independent_count != len(effective_components):
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.independent-evidence-count",
+                message=(
+                    "independent_evidence_count must equal research-time "
+                    "effective sizing-eligible evidence decisions"
+                ),
+                location="independent_evidence_count",
+            )
+        )
+    decision = front_matter.get("research_decision")
+    outcome = decision.get("outcome") if isinstance(decision, Mapping) else None
+    if outcome == "approved":
+        if not isinstance(selected, list) or not selected:
             findings.append(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.external-ref-non-string",
-                    message="external_refs entries must be non-empty strings",
-                    location=location,
+                    code="research.supporting-evidence-required",
+                    message="approved research requires selected_supporting_evidence_refs",
+                    location="selected_supporting_evidence_refs",
                 )
             )
+        if isinstance(research_hits, list):
+            has_risk_review = any(
+                isinstance(hit, Mapping) and hit.get("evidence_polarity") in {"risk", "contradicts"}
+                for hit in research_hits
+            )
+            if not has_risk_review:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="research.risk-evidence-required",
+                        message=(
+                            "approved research requires at least one risk or "
+                            "contradicting evidence review"
+                        ),
+                        location="research_evidence_hits",
+                    )
+                )
+    return findings
+
+
+def _effective_independence_components(
+    path: Path,
+    front_matter: Mapping[str, object],
+    decisions: Sequence[object],
+    research_hits: Sequence[object],
+    findings: list[ValidationFinding],
+) -> set[str]:
+    candidate_components = _load_candidate_components(path, front_matter)
+    components: set[str] = set()
+    for index, item in enumerate(decisions):
+        if not isinstance(item, Mapping) or item.get("effective_sizing_eligible") is not True:
             continue
-        if not entry.startswith(_EXTERNAL_REFS_PREFIX):
+        hit_id = item.get("evidence_hit_id")
+        if not isinstance(hit_id, str) or not hit_id:
+            continue
+        component = item.get("independence_component_id")
+        if not isinstance(component, str) or not component:
+            component = (
+                candidate_components.get(hit_id) if candidate_components is not None else None
+            )
+        if isinstance(component, str) and component:
+            components.add(component)
+        elif candidate_components is not None:
             findings.append(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.external-ref-prefix",
-                    message=(f"external_refs entries must start with {_EXTERNAL_REFS_PREFIX!r}"),
-                    location=location,
+                    code="research.independence-component",
+                    message=(
+                        "effective candidate evidence must resolve to an independence_component_id"
+                    ),
+                    location=f"candidate_evidence_decisions[{index}].evidence_hit_id",
+                )
+            )
+        else:
+            components.add(f"unresolved:{hit_id}")
+
+    for index, hit in enumerate(research_hits):
+        if not isinstance(hit, Mapping):
+            continue
+        if hit.get("decision_role") != "sizing_evidence" or hit.get("sizing_eligible") is not True:
+            continue
+        component = hit.get("independence_component_id")
+        if isinstance(component, str) and component:
+            components.add(component)
+            continue
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.research-evidence-component",
+                message="sizing-eligible research evidence requires independence_component_id",
+                location=f"research_evidence_hits[{index}].independence_component_id",
+            )
+        )
+    return components
+
+
+def _load_candidate_components(
+    path: Path,
+    front_matter: Mapping[str, object],
+) -> dict[str, str] | None:
+    candidate_ref = front_matter.get("candidate_ref")
+    ref_value: object = (
+        candidate_ref.get("candidates_ref") if isinstance(candidate_ref, Mapping) else None
+    )
+    if not isinstance(ref_value, str):
+        ref_value = front_matter.get("candidates_ref")
+    if not isinstance(ref_value, str) or not ref_value:
+        return None
+    candidate_path = _resolve_record_ref(path, ref_value)
+    if candidate_path is None:
+        return None
+    try:
+        loaded: object = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return None
+    if not isinstance(loaded, Mapping):
+        return None
+    components: dict[str, str] = {}
+    candidates = loaded.get("candidates")
+    if not isinstance(candidates, list):
+        return components
+    for candidate in candidates:
+        if not isinstance(candidate, Mapping):
+            continue
+        hits = candidate.get("evidence_hits")
+        if not isinstance(hits, list):
+            continue
+        for hit in hits:
+            if not isinstance(hit, Mapping):
+                continue
+            hit_id = hit.get("evidence_hit_id")
+            component = hit.get("independence_component_id")
+            if isinstance(hit_id, str) and isinstance(component, str) and component:
+                components[hit_id] = component
+    return components
+
+
+def _resolve_record_ref(path: Path, ref: str) -> Path | None:
+    relative = Path(ref)
+    if relative.is_absolute():
+        return relative if relative.is_file() else None
+    for parent in (path.parent, *path.parents):
+        candidate = parent / relative
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _check_payoff(path: Path, front_matter: Mapping[str, object]) -> list[ValidationFinding]:
+    payoff = front_matter.get("thesis_payoff")
+    if not isinstance(payoff, Mapping):
+        return []
+    entry = _number(payoff.get("max_entry_price_yen"))
+    target = _number(payoff.get("target_price_yen"))
+    stop = _number(payoff.get("stop_loss_yen"))
+    findings: list[ValidationFinding] = []
+    if entry is not None and target is not None and stop is not None:
+        if not stop < entry < target:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.payoff-order",
+                    message=(
+                        "long-only payoff must satisfy stop_loss < max_entry_price < target_price"
+                    ),
+                    location="thesis_payoff",
+                )
+            )
+        expected_upside = round((target / entry - 1) * 100, 2)
+        expected_downside = round((entry / stop - 1) * 100, 2)
+        risk_reward = round(expected_upside / expected_downside, 2) if expected_downside else None
+        if not _close(payoff.get("expected_upside_pct"), expected_upside, tolerance=0.15):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.expected-upside",
+                    message=f"expected_upside_pct must equal {expected_upside}",
+                    location="thesis_payoff.expected_upside_pct",
+                )
+            )
+        if not _close(payoff.get("expected_downside_pct"), expected_downside, tolerance=0.15):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.expected-downside",
+                    message=f"expected_downside_pct must equal {expected_downside}",
+                    location="thesis_payoff.expected_downside_pct",
+                )
+            )
+        if risk_reward is not None and not _close(
+            payoff.get("risk_reward_ratio"), risk_reward, tolerance=0.05
+        ):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.risk-reward",
+                    message=f"risk_reward_ratio must equal {risk_reward}",
+                    location="thesis_payoff.risk_reward_ratio",
                 )
             )
     return findings
 
 
-def _append_adv_participation_finding(
-    path: Path,
-    value: int | float,
-    findings: list[ValidationFinding],
-    location: str,
-) -> None:
-    if value >= 5.0:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.adv-participation-cap",
-                message="adv_participation_pct must be below 5.0 for accepted research",
-                location=location,
-            )
-        )
-
-
-def _append_avg_turnover_candidates_consistency_finding(
-    path: Path,
-    candidates_ref: str,
-    ticker: str,
-    front_avg_turnover: int | float,
-    findings: list[ValidationFinding],
-) -> None:
-    """research front matter の avg_turnover_oku が candidates_ref の対応 ticker と
-    整合しているか check する。
-
-    ledger sync (`src/baibai_loop/ledger/sync.py`) は candidate YAML の avg_turnover_oku
-    を使って adv_participation_pct を再計算するため、front matter と candidate がずれて
-    いると validator が通っても ledger は別の値で計算する穴になる。
-
-    candidate YAML の解決は repo root を起点とした相対 path で行う。candidate file が
-    存在しない / ticker が見つからない / candidate に avg_turnover_oku が無い場合は
-    silently skip (warning にしない: 既存テスト fixture や archive 対応のため)。
-    """
-    repo_root = _resolve_repo_root(path)
-    candidate_path = repo_root / candidates_ref
-    if not candidate_path.is_file():
-        return
-    try:
-        candidate_doc = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError):
-        return
-    if not isinstance(candidate_doc, dict):
-        return
-    candidates = candidate_doc.get("candidates")
-    if not isinstance(candidates, list):
-        return
-    for entry in candidates:
-        if not isinstance(entry, dict):
+def _check_snapshot_refs(path: Path, front_matter: Mapping[str, object]) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    for field in ("playbook_snapshot", "policy_snapshot", "portfolio_exposure_snapshot_ref"):
+        value = front_matter.get(field)
+        if not isinstance(value, Mapping):
             continue
-        if entry.get("ticker") != ticker:
-            continue
-        candidate_avg = entry.get("avg_turnover_oku")
-        if not isinstance(candidate_avg, (int, float)) or isinstance(candidate_avg, bool):
-            return
-        if candidate_avg <= 0:
-            return
-        diff_ratio = abs(front_avg_turnover - candidate_avg) / candidate_avg
-        if diff_ratio > 0.05:
-            findings.append(
-                ValidationFinding(
-                    severity="warning",
-                    target=path,
-                    code="research.avg-turnover-candidates-mismatch",
-                    message=(
-                        f"front matter avg_turnover_oku={front_avg_turnover} mismatches "
-                        f"candidates_ref={candidates_ref} ticker={ticker} value "
-                        f"{candidate_avg} (diff {diff_ratio * 100:.1f}% > 5%); "
-                        f"ledger sync uses candidate value, validator uses front value"
-                    ),
-                    location="avg_turnover_oku",
-                )
-            )
-        return
-
-
-def _resolve_repo_root(path: Path) -> Path:
-    """research file path から repo root を推定する。`records/04-research/...` 構造を想定。"""
-    resolved = path.resolve()
-    for parent in resolved.parents:
-        if (parent / "records").is_dir() and (parent / "docs").is_dir():
-            return parent
-    return resolved.parent
-
-
-def _append_adv_participation_avg_turnover_required_finding(
-    path: Path,
-    front_matter: dict[str, object],
-    findings: list[ValidationFinding],
-    location: str,
-) -> None:
-    """adv_participation_pct があるなら avg_turnover_oku の正値併記を必須にする。
-
-    avg_turnover_oku が無い / 0 / 負値だと整合チェック (position_size / avg_turnover *
-    100) が skip され、100 倍ズレ等の桁誤りを catch できない。「数値であれば OK」では
-    なく「正値 (> 0)」を必須にする。
-    """
-    avg_turnover = front_matter.get("avg_turnover_oku")
-    if (
-        isinstance(avg_turnover, (int, float))
-        and not isinstance(avg_turnover, bool)
-        and avg_turnover > 0
-    ):
-        return
-    findings.append(
-        ValidationFinding(
-            severity="error",
-            target=path,
-            code="research.missing-avg-turnover-oku",
-            message=(
-                "adv_participation_pct requires avg_turnover_oku > 0 in front matter for "
-                "consistency check (prevents 100x scaling errors and divide-by-zero skips)"
-            ),
-            location=location,
-        )
-    )
-
-
-def _append_adv_participation_consistency_finding(
-    path: Path,
-    front_matter: dict[str, object],
-    adv_participation: int | float,
-    findings: list[ValidationFinding],
-    location: str,
-) -> None:
-    """Cross-check adv_participation_pct against position_size_oku / avg_turnover_oku.
-
-    `position_size_oku / avg_turnover_oku * 100 ≈ adv_participation_pct` を確認する
-    (許容誤差 5% relative)。これは AP-02 (PR #68) で観測された「100 倍ズレ
-    `0.585` vs `0.00585%`」のような桁誤りを捕捉するためで、relative 5% で十分。
-    Issue #81 の文中 "±0.5%" は relative ではなく absolute 解釈を許容する記述だが、
-    ここでの本来の目的は scaling error の検出であり、ノイズの少ない relative 5% を
-    維持する。より厳密な検算は `baibai-loop-precheck` 側で扱う設計余地。
-
-    依存先 field の状態別の挙動:
-    - `position_size_oku` 未指定 / 非数値: required check 側で別途 error 化されるので skip
-    - `avg_turnover_oku <= 0` または不在: required check 側で error 化されるので skip
-    - `position_size_oku == 0` (skipped packet 想定): expected = 0 となるので、
-      adv_participation_pct も `0` でなければ error にする (skipped で hypothetical 値が
-      混入する穴を塞ぐ)
-    """
-    position_size = front_matter.get("position_size_oku")
-    avg_turnover = front_matter.get("avg_turnover_oku")
-    if not isinstance(position_size, (int, float)) or isinstance(position_size, bool):
-        return
-    if not isinstance(avg_turnover, (int, float)) or isinstance(avg_turnover, bool):
-        return
-    if avg_turnover <= 0:
-        # required check 側で error 化済み。consistency 計算は分母不正のため skip
-        return
-    expected = (position_size / avg_turnover) * 100.0
-    if expected == 0:
-        # position_size_oku == 0 (skipped) の場合、adv_participation_pct も 0 を要求
-        if adv_participation != 0:
+        ref = value.get("ref_path")
+        digest = value.get("content_sha256")
+        if not isinstance(ref, str) or not ref:
             findings.append(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.adv-participation-inconsistent",
-                    message=(
-                        f"position_size_oku=0 requires adv_participation_pct=0 but got "
-                        f"{adv_participation}; use hypothetical_position_size_oku for "
-                        f"reference values in skipped packets"
-                    ),
-                    location=location,
+                    code="research.snapshot-ref",
+                    message=f"{field}.ref_path is required",
+                    location=f"{field}.ref_path",
                 )
             )
-        return
-    diff_ratio = abs(adv_participation - expected) / expected
-    if diff_ratio > 0.05:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.adv-participation-inconsistent",
-                message=(
-                    f"adv_participation_pct={adv_participation:.6f} does not match "
-                    f"position_size_oku / avg_turnover_oku * 100={expected:.6f} "
-                    f"(diff {diff_ratio * 100:.1f}% > 5%); likely scaling error"
-                ),
-                location=location,
+        if not isinstance(digest, str) or not re.match(r"^sha256:[0-9a-f]{64}$", digest):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.snapshot-hash",
+                    message=f"{field}.content_sha256 must be sha256:<64 hex chars>",
+                    location=f"{field}.content_sha256",
+                )
             )
+    return findings
+
+
+def _number(value: object) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _close(value: object, expected: float, *, tolerance: float) -> bool:
+    number = _number(value)
+    return number is not None and abs(number - expected) <= tolerance
+
+
+def _format_path(parts: Iterable[object]) -> str:
+    rendered: list[str] = []
+    for part in parts:
+        rendered.append(
+            f"[{part}]" if isinstance(part, int) else f".{part}" if rendered else str(part)
         )
+    return "".join(rendered)

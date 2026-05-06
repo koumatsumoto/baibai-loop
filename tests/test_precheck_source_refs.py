@@ -24,7 +24,7 @@ def _write_outlook(path: Path, *, sectors: dict[str, dict[str, object]] | None =
         "schema_version": 1,
         "horizon": "1-6m",
         "sectors": sectors or {},
-        "regions": {},
+        "exposure_buckets": {},
         "changes": [],
     }
     path.write_text(yaml.safe_dump(payload, allow_unicode=True))
@@ -32,23 +32,23 @@ def _write_outlook(path: Path, *, sectors: dict[str, dict[str, object]] | None =
 
 def _setup_repo(tmp_path: Path, *, brief_text: str, rationale_text: str) -> Path:
     """Create minimal repo layout for one outlook + one brief."""
-    brief_path = tmp_path / "records/01-brief/2026/04/2026-04-26-world-weekly-test.yaml"
+    brief_path = tmp_path / "records/02-brief/2026/04/2026-04-26-world-weekly-test.yaml"
     brief_path.parent.mkdir(parents=True, exist_ok=True)
     brief_path.write_text(brief_text, encoding="utf-8")
-    outlook_path = tmp_path / "records/02-outlook/2026/05/outlook-2026-05-04-test.yaml"
+    outlook_path = tmp_path / "records/03-outlook/2026/05/outlook-2026-05-04-test.yaml"
     _write_outlook(
         outlook_path,
         sectors={
             "情報・通信業": {
-                "status": "tailwind",
+                "status": "supportive",
                 "rationale": rationale_text,
                 "source_refs": [
-                    "records/01-brief/2026/04/2026-04-26-world-weekly-test.yaml",
+                    "records/02-brief/2026/04/2026-04-26-world-weekly-test.yaml",
                 ],
             },
         },
     )
-    return tmp_path / "records/02-outlook"
+    return tmp_path / "records/03-outlook"
 
 
 def test_token_present_in_brief_passes(tmp_path: Path) -> None:
@@ -75,24 +75,24 @@ def test_token_missing_from_brief_is_flagged(tmp_path: Path) -> None:
 
 
 def test_empty_source_refs_with_tokens_is_flagged(tmp_path: Path) -> None:
-    outlook_path = tmp_path / "records/02-outlook/2026/05/outlook-2026-05-04-test.yaml"
+    outlook_path = tmp_path / "records/03-outlook/2026/05/outlook-2026-05-04-test.yaml"
     _write_outlook(
         outlook_path,
         sectors={
             "情報・通信業": {
-                "status": "tailwind",
+                "status": "supportive",
                 "rationale": "コア PCE +3.2% YoY",
                 "source_refs": [],
             },
         },
     )
-    findings = scan_outlook_source_refs(tmp_path / "records/02-outlook", repo_root=tmp_path)
+    findings = scan_outlook_source_refs(tmp_path / "records/03-outlook", repo_root=tmp_path)
     codes = {f.code for f in findings}
     assert "precheck.source-refs-empty" in codes
 
 
 def test_empty_source_refs_without_tokens_is_silent(tmp_path: Path) -> None:
-    outlook_path = tmp_path / "records/02-outlook/2026/05/outlook-2026-05-04-test.yaml"
+    outlook_path = tmp_path / "records/03-outlook/2026/05/outlook-2026-05-04-test.yaml"
     _write_outlook(
         outlook_path,
         sectors={
@@ -103,7 +103,7 @@ def test_empty_source_refs_without_tokens_is_silent(tmp_path: Path) -> None:
             },
         },
     )
-    findings = scan_outlook_source_refs(tmp_path / "records/02-outlook", repo_root=tmp_path)
+    findings = scan_outlook_source_refs(tmp_path / "records/03-outlook", repo_root=tmp_path)
     assert findings == []
 
 
@@ -118,27 +118,27 @@ def test_token_normalization_handles_inner_whitespace(tmp_path: Path) -> None:
 
 
 def test_changes_rationale_is_checked(tmp_path: Path) -> None:
-    brief_path = tmp_path / "records/01-brief/2026/04/2026-04-26-test.yaml"
+    brief_path = tmp_path / "records/02-brief/2026/04/2026-04-26-test.yaml"
     brief_path.parent.mkdir(parents=True, exist_ok=True)
     brief_path.write_text("CPI 1.5%", encoding="utf-8")
-    outlook_path = tmp_path / "records/02-outlook/2026/05/outlook-2026-05-04-test.yaml"
+    outlook_path = tmp_path / "records/03-outlook/2026/05/outlook-2026-05-04-test.yaml"
     payload = {
         "schema_version": 1,
         "horizon": "1-6m",
         "sectors": {},
-        "regions": {},
+        "exposure_buckets": {},
         "changes": [
             {
                 "target": "情報・通信業",
                 "from_status": "neutral",
-                "to_status": "tailwind",
+                "to_status": "supportive",
                 "rationale": "春闘 5.09% を反映",
-                "source_refs": ["records/01-brief/2026/04/2026-04-26-test.yaml"],
+                "source_refs": ["records/02-brief/2026/04/2026-04-26-test.yaml"],
             }
         ],
     }
     outlook_path.parent.mkdir(parents=True, exist_ok=True)
     outlook_path.write_text(yaml.safe_dump(payload, allow_unicode=True))
-    findings = scan_outlook_source_refs(tmp_path / "records/02-outlook", repo_root=tmp_path)
+    findings = scan_outlook_source_refs(tmp_path / "records/03-outlook", repo_root=tmp_path)
     locations = {f.location for f in findings}
     assert "changes[0](情報・通信業).rationale" in locations

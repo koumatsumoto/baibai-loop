@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "benchmark-manifest",
+  "title": "Domain Model Benchmark Manifest",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "benchmark_id",
+    "manifest_version",
+    "input_snapshots",
+    "layers",
+    "fixtures",
+    "business_invariants"
+  ],
+  "properties": {
+    "benchmark_id": {"type": "string", "minLength": 1},
+    "manifest_version": {"type": "integer", "minimum": 1},
+    "input_snapshots": {"type": "object"},
+    "layers": {"type": "array", "minItems": 1},
+    "fixtures": {"type": "array", "minItems": 1},
+    "business_invariants": {"type": "array", "minItems": 1}
+  }
+}

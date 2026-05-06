@@ -1,4 +1,4 @@
-"""Validate brief YAML artefacts against records/_schemas/brief-v1.json."""
+"""Validate brief YAML artefacts against records/_schemas/brief.json."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from jsonschema import Draft202012Validator
 
 from .errors import ValidationFinding
 
-SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "brief-v1.json"
+SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "brief.json"
 
 
 def _load_validator() -> Draft202012Validator:

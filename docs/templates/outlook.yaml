@@ -3,13 +3,13 @@ ai_draft: true
 published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 horizon: "1-6m"
 updated_from:
-  - records/01-brief/YYYY/MM/...yaml
+  - records/02-brief/YYYY/MM/...yaml
 summary: >-
   1 段落で現在のマクロ見解を要約。何が追い風で何が逆風かを明示。
 sectors:
   # 東証 33 業種を全件必須。判定できない場合も status: null + rationale で明示する。
   "水産・農林業":
-    status: tailwind | neutral | headwind | null
+    status: supportive | neutral | adverse | null
     rationale: "..."
     source_refs: []
   "鉱業": { status: neutral, rationale: "...", source_refs: [] }
@@ -44,7 +44,7 @@ sectors:
   "その他金融業": { status: neutral, rationale: "...", source_refs: [] }
   "不動産業": { status: neutral, rationale: "...", source_refs: [] }
   "サービス業": { status: neutral, rationale: "...", source_refs: [] }
-regions:
+exposure_buckets:
   us:                    { status: neutral, rationale: "...", source_refs: [] }
   japan-domestic:        { status: neutral, rationale: "...", source_refs: [] }
   japan-external-demand: { status: neutral, rationale: "...", source_refs: [] }
@@ -52,9 +52,9 @@ regions:
 changes:
   # 前回 outlook がない場合（Bootstrap 等）は空配列。
   # 判定が変わった対象を target / from_status / to_status / rationale で記述する。
-  - target: "<sector or region>"
+  - target: "<sector or exposure bucket>"
     from_status: neutral
-    to_status: tailwind
+    to_status: supportive
     rationale: "..."
     source_refs: []
 next_triggers:

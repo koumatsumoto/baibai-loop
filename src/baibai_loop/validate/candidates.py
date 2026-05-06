@@ -1,7 +1,7 @@
 """Validate candidates YAML artefacts against the central jsonschema.
 
 candidates は YAML 正本である。R6 のコア schema として
-`records/_schemas/candidates-v1.json` で構造を中央集約し、本モジュールはその schema
+`records/_schemas/candidates.json` で構造を中央集約し、本モジュールはその schema
 で artefact を検証する。playbook 別 schema (本文 section 構造) は本
 モジュールの対象外。
 """
@@ -17,7 +17,7 @@ from jsonschema import Draft202012Validator
 
 from .errors import ValidationFinding
 
-SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "candidates-v1.json"
+SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "candidates.json"
 
 
 def _load_validator() -> Draft202012Validator:
@@ -80,7 +80,7 @@ def validate_candidates_file(path: Path) -> list[ValidationFinding]:
 
 
 def discover_candidates_files(root: Path) -> list[Path]:
-    """Return all records/03-candidates/*.yaml files under ``root`` in sorted order."""
+    """Return all records/04-candidates/*.yaml files under ``root`` in sorted order."""
     if not root.exists():
         return []
     return sorted(p for p in root.rglob("*.yaml") if p.is_file())

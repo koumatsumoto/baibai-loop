@@ -38,11 +38,11 @@ last_reviewed: 2026-05-04
 
 | 変更内容 | 併せて見る docs |
 | --- | --- |
-| `records/01-brief/` の作成・変更 | [`operations/brief-runbook.md`](./operations/brief-runbook.md), [`components/brief.md`](./components/brief.md), [`reference/data-sources.md`](./reference/data-sources.md) |
-| `records/02-outlook/` の作成・変更 | [`operations/outlook-runbook.md`](./operations/outlook-runbook.md), [`components/outlook.md`](./components/outlook.md), [`anti-patterns.md`](./anti-patterns.md) |
-| `records/03-candidates/` または screening CLI の変更 | [`components/candidates.md`](./components/candidates.md), [`screening/README.md`](./screening/README.md), [`architecture/automation-map.md`](./architecture/automation-map.md) |
-| `records/04-research/` の作成・変更 | [`operations/research-runbook.md`](./operations/research-runbook.md), [`components/research.md`](./components/research.md), [`components/playbooks.md`](./components/playbooks.md) |
-| `records/05-trades/` / `records/06-reviews/` の作成・変更 | [`components/trades.md`](./components/trades.md), [`components/reviews.md`](./components/reviews.md), [`operations/review-runbook.md`](./operations/review-runbook.md) |
+| `records/02-brief/` の作成・変更 | [`operations/brief-runbook.md`](./operations/brief-runbook.md), [`components/brief.md`](./components/brief.md), [`reference/data-sources.md`](./reference/data-sources.md) |
+| `records/03-outlook/` の作成・変更 | [`operations/outlook-runbook.md`](./operations/outlook-runbook.md), [`components/outlook.md`](./components/outlook.md), [`anti-patterns.md`](./anti-patterns.md) |
+| `records/04-candidates/` または screening CLI の変更 | [`components/candidates.md`](./components/candidates.md), [`screening/README.md`](./screening/README.md), [`architecture/automation-map.md`](./architecture/automation-map.md) |
+| `records/05-research/` の作成・変更 | [`operations/research-runbook.md`](./operations/research-runbook.md), [`components/research.md`](./components/research.md), [`components/playbooks.md`](./components/playbooks.md) |
+| `records/06-trades/` / `records/07-reviews/` の作成・変更 | [`components/trades.md`](./components/trades.md), [`components/reviews.md`](./components/reviews.md), [`operations/review-runbook.md`](./operations/review-runbook.md) |
 | schema / validator / tests / CI の変更 | [`reference/testing-and-validation.md`](./reference/testing-and-validation.md), [`reference/python-foundation.md`](./reference/python-foundation.md), [`architecture/automation-map.md`](./architecture/automation-map.md) |
 | docs の移動・分割・削除 | [`governance/docs-style-guide.md`](./governance/docs-style-guide.md), [`governance/docs-review-process.md`](./governance/docs-review-process.md) |
 

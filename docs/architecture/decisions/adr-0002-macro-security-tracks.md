@@ -21,7 +21,7 @@ Accepted
 
 ## Decision
 
-Baibai-Loop は独立した macro track (`records/01-brief/` -> `records/02-outlook/`) と、売買に連動する security-level trade loop (`records/03-candidates/` -> `records/04-research/` -> `records/05-trades/` -> `records/06-reviews/`) を分ける。統合点は `records/04-research/` とする。
+Baibai-Loop は独立した macro track (`records/02-brief/` -> `records/03-outlook/`) と、売買に連動する security-level trade loop (`records/04-candidates/` -> `records/05-research/` -> `records/06-trades/` -> `records/07-reviews/`) を分ける。統合点は `records/05-research/` とする。
 
 ## Rationale
 

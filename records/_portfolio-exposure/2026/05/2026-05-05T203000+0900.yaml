@@ -1,0 +1,22 @@
+snapshot_id: portfolio-exposure-20260505-203000
+as_of: '2026-05-05T20:30:00+09:00'
+source_decision_register_refs: []
+source_trade_refs: []
+source_broker_snapshot_refs: []
+positions: []
+exposures: []
+outstanding_orders:
+- origin_order_intent_id: intent-20260505-9682-buy
+  ticker: '9682'
+  side: buy
+  guarded_notional_yen: 210000
+  playbook_id: sales-discount-growth
+  economic_exposure_group: sales-discount-growth
+- origin_order_intent_id: intent-20260505-9692-buy
+  ticker: '9692'
+  side: buy
+  guarded_notional_yen: 200000
+  playbook_id: sales-discount-growth
+  economic_exposure_group: sales-discount-growth
+tactical_real_budget_yen: 1000000
+remaining_tactical_real_budget_yen: 590000

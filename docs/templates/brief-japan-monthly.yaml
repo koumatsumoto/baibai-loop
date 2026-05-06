@@ -7,7 +7,7 @@ published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 observation_date: "YYYY-MM-DD"
 month: "YYYY-MM"
 references:
-  prev_period: records/01-brief/YYYY/MM/YYYY-MM-macro-monthly-{slug}.yaml
+  prev_period: records/02-brief/YYYY/MM/YYYY-MM-macro-monthly-{slug}.yaml
   prev_year_same_period: null
 sources:
   - id: bls-cpi
