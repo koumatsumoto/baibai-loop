@@ -8,6 +8,7 @@ Baibai-Loop の **screen output / candidates** の運用仕様。狭義のスク
 - 事実層のため解釈は入れない（反対仮説・原因仮説は research 側で行う）
 - Investment memo の出発点として、`records/05-research/` の選定入力となる
 - Playbook hit、policy / liquidity / macro regime gate の初期結果は screen fact として残す。後続の選定・見送り・保留判断は candidates を上書きせず、research / ledger / review 側の記録で追跡する
+- candidates の `macro_regime_gate_result` は screening 実行時の pinned rules / input に基づく fact field。最新 outlook との投資判断上の整合は `select` と research の責務であり、candidates YAML を後から書き換えて揃えない
 
 ## 2. 頻度
 
@@ -206,6 +207,7 @@ candidates YAML は `run_id` / snapshot refs / `cache_manifest_hash` で実行�
 - `select` は lane 別の primary metric と macro status を使って research triage を支援する。hit 数と時価総額だけでは並べない
 - `select` output には `lane_toplists`、`ranked_candidates`、research 着手候補として lane 分散した `candidates` が含まれる。`ranked_candidates` は macro + lane rank + evidence strength のグローバル順位、`candidates` は `output.research_selection_lane_order` に沿って各 lane の上位を重複排除した推奨リスト。`candidates[].recommendation_lane` は lane 分散でその候補を拾った枠、`candidates[].selection_lane` は primary thesis として優先確認する screen。複数 hit 銘柄では両者が異なることがある。`candidates` の件数は CLI `--top` と `output.research_selection_target_max` の小さい方、lane 別件数は `records/_config/screening-rules/2026-05-01T000000+0900.yaml` の `output.lane_toplist_limit` で管理する
 - `selected` という語は `select` output の research triage queue だけを指す。raw candidates の row flag ではなく、research approval でも order ready でもない。段階は `screening_selected` → `research_memo` / `candidate_screen.not_reviewed` → `research_approved` → `order_ready` と分けて読む
+- candidates validator は row が orthogonal gate fields を持つことを検査する。Outlook と macro reducer の最終整合は research validator が検査する
 - 詳細: [`research.md`](./research.md) の選定プロセス
 - research decision 後の追跡先: [`ledger.md`](./ledger.md)
 

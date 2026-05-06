@@ -23,6 +23,8 @@ Accepted
 
 Baibai-Loop は独立した macro track (`records/02-brief/` -> `records/03-outlook/`) と、売買に連動する security-level trade loop (`records/04-candidates/` -> `records/05-research/` -> `records/06-trades/` -> `records/07-reviews/`) を分ける。統合点は `records/05-research/` とする。
 
+`records/04-candidates/` の macro gate fields は screening-time fact として保存する。最新 outlook との最終整合は candidates を後から書き換えず、`select` output と `records/05-research/` の macro reducer で確認する。
+
 ## Rationale
 
 この分離により、macro の鮮度を trade cadence から独立して維持しつつ、個別銘柄 research の前に明確な gate を置ける。Macro 76% / security-level 24% は attention / review time / cognitive budget の policy weight として扱い、research は outlook を bypass できない。
