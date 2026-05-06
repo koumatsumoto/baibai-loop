@@ -40,7 +40,7 @@ research_decision:
 candidates_ref: records/04-candidates/2026/05/2026-05-01.yaml
 candidate_ref:
   candidates_ref: records/04-candidates/2026/05/2026-05-01.yaml
-  screen_run_id: screening-20260501-79ec46a8
+  screen_run_id: screening-20260501-b2e37953
   ticker: '3678'
   candidate_id: candidate-2026-05-01-3678
 outlook_ref: records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
@@ -118,7 +118,7 @@ research_evidence_hits:
 independent_evidence_count: 0
 raw_playbook_concurrence_count: 4
 sizing_eligible_playbook_concurrence_count: 0
-raw_evidence_family_count: 4
+raw_evidence_family_count: 3
 sizing_eligible_evidence_family_count: 0
 conviction_tier: low
 conviction_tier_path: count_breadth

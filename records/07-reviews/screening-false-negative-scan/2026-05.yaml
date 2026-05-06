@@ -13,7 +13,7 @@ items:
   ticker: '1301'
   candidate_ref:
     candidates_ref: records/04-candidates/2026/05/2026-05-01.yaml
-    screen_run_id: screening-20260501-79ec46a8
+    screen_run_id: screening-20260501-b2e37953
     candidate_id: candidate-2026-05-01-1301
     ticker: '1301'
   decision_event_id: decision-20260531-1301-not-reviewed
@@ -25,7 +25,7 @@ items:
   ticker: '3678'
   candidate_ref:
     candidates_ref: records/04-candidates/2026/05/2026-05-01.yaml
-    screen_run_id: screening-20260501-79ec46a8
+    screen_run_id: screening-20260501-b2e37953
     candidate_id: candidate-2026-05-01-3678
     ticker: '3678'
   decision_event_id: decision-20260505-3678-research
