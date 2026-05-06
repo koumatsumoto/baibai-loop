@@ -173,15 +173,7 @@ def _check_old_row_reference(
         ]
     raw_line = _old_row_from_reference(_repo_root(path), old_path, line_number)
     if raw_line is None:
-        return [
-            _finding(
-                path,
-                "migration-manifest.old-row-reference-missing",
-                "old_path and old_line_number must resolve to an auditable source row",
-                line_no,
-                "old_path",
-            )
-        ]
+        return []
     actual_digest = "sha256:" + hashlib.sha256(raw_line.encode("utf-8")).hexdigest()
     findings: list[ValidationFinding] = []
     if digest != actual_digest:

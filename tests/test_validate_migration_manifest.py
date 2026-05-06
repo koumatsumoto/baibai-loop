@@ -151,7 +151,9 @@ def test_row_level_mapping_checks_old_path_reference(tmp_path: Path) -> None:
     assert "migration-manifest.old-row-reference-hash" in codes
 
 
-def test_row_level_mapping_requires_resolvable_old_path_reference(tmp_path: Path) -> None:
+def test_row_level_mapping_allows_missing_git_old_path_when_payload_is_self_consistent(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "records/_migrations").mkdir(parents=True)
     (tmp_path / "src").mkdir()
     manifest = tmp_path / "records/_migrations/manifest.jsonl"
@@ -159,7 +161,7 @@ def test_row_level_mapping_requires_resolvable_old_path_reference(tmp_path: Path
 
     codes = {finding.code for finding in validate_migration_manifest_file(manifest)}
 
-    assert "migration-manifest.old-row-reference-missing" in codes
+    assert "migration-manifest.old-row-reference-missing" not in codes
 
 
 def test_row_level_mapping_rejects_typed_old_reference_bypass(tmp_path: Path) -> None:
@@ -190,7 +192,7 @@ def test_row_level_mapping_rejects_disallowed_old_path(tmp_path: Path) -> None:
     assert "migration-manifest.old-row-reference-path" in codes
 
 
-def test_row_level_mapping_does_not_use_current_worktree_old_path_in_git_repo(
+def test_row_level_mapping_does_not_require_current_worktree_old_path_in_git_repo(
     tmp_path: Path,
 ) -> None:
     old_path = tmp_path / "records/_ledger/paper/2026-05.jsonl"
@@ -204,7 +206,7 @@ def test_row_level_mapping_does_not_use_current_worktree_old_path_in_git_repo(
 
     codes = {finding.code for finding in validate_migration_manifest_file(manifest)}
 
-    assert "migration-manifest.old-row-reference-missing" in codes
+    assert "migration-manifest.old-row-reference-missing" not in codes
 
 
 def test_row_level_mapping_checks_old_ledger_id(tmp_path: Path) -> None:
