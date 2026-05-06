@@ -4,6 +4,7 @@ runs:
 - run_id: run-01-baseline
   changes: {}
   screening_exit_code: 2
+  screening_status: partial_quality_warning
   candidate_count: 366
   universe_size: 1347
   after_outlook_filter: 306
@@ -46,6 +47,7 @@ runs:
   changes:
     universe.min_avg_turnover_oku: 3.0
   screening_exit_code: 2
+  screening_status: partial_quality_warning
   candidate_count: 243
   universe_size: 904
   after_outlook_filter: 204
@@ -82,6 +84,7 @@ runs:
   changes:
     universe.min_market_cap_oku: 50
   screening_exit_code: 2
+  screening_status: partial_quality_warning
   candidate_count: 369
   universe_size: 1392
   after_outlook_filter: 309
@@ -124,6 +127,7 @@ runs:
   changes:
     screening_playbooks.sales-discount-growth.sales_yoy_min: 0.1
   screening_exit_code: 2
+  screening_status: partial_quality_warning
   candidate_count: 320
   universe_size: 1347
   after_outlook_filter: 268
@@ -163,6 +167,7 @@ runs:
   changes:
     screening_playbooks.sales-discount-growth.ps_sector_gap_max: -0.3
   screening_exit_code: 2
+  screening_status: partial_quality_warning
   candidate_count: 390
   universe_size: 1347
   after_outlook_filter: 326
@@ -205,6 +210,7 @@ runs:
   changes:
     screening_playbooks.cashflow-yield-discount.ocf_yield_min: 0.15
   screening_exit_code: 2
+  screening_status: partial_quality_warning
   candidate_count: 309
   universe_size: 1347
   after_outlook_filter: 261
@@ -247,6 +253,7 @@ runs:
   changes:
     screening_playbooks.fcf-yield-discount.fcf_yield_min: 0.12
   screening_exit_code: 2
+  screening_status: partial_quality_warning
   candidate_count: 365
   universe_size: 1347
   after_outlook_filter: 305
@@ -291,6 +298,7 @@ runs:
     screening_playbooks.valuation-reversion.self_range_percentile_max: 0.1
     screening_playbooks.valuation-reversion.price_change_60d_max: -0.2
   screening_exit_code: 2
+  screening_status: partial_quality_warning
   candidate_count: 338
   universe_size: 1347
   after_outlook_filter: 279
@@ -334,6 +342,7 @@ runs:
     screening_playbooks.strict-net-cash-discount.net_cash_to_market_cap_min: 0.45
     screening_playbooks.cash-rich-asset-discount.cash_to_market_cap_min: 0.6
   screening_exit_code: 2
+  screening_status: partial_quality_warning
   candidate_count: 350
   universe_size: 1347
   after_outlook_filter: 291
@@ -384,6 +393,7 @@ runs:
     - cash-rich-asset-discount
     - valuation-reversion
   screening_exit_code: 2
+  screening_status: partial_quality_warning
   candidate_count: 366
   universe_size: 1347
   after_outlook_filter: 306

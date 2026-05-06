@@ -59,6 +59,11 @@ Findings:
 
 - Candidate counts range from 243 to 390, so the screen responds materially to
   liquidity, growth, and valuation thresholds.
+- Each screening run returned exit code `2`, which this CLI uses for a
+  completed run with partial data-quality warnings. The artifacts are still
+  written and validated; `runs.yaml` records this as
+  `screening_status: partial_quality_warning` so it is not confused with a
+  hard generation failure.
 - `3678` is either absent under stricter liquidity or present with zero
   sizing-eligible evidence; it is never selected. This is the desired behavior
   for post-snapshot corporate-action risk.
