@@ -925,6 +925,75 @@ class SelectCommandTests(unittest.TestCase):
                 [warning],
             )
 
+    def test_select_excludes_candidates_without_sizing_eligible_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "warning-only false positive",
+                        "sector_33": "機械",
+                        "market_cap_oku": 150,
+                        "evidence_hits": [
+                            {
+                                "name": "strict-net-cash-discount",
+                                "source_status": "warning",
+                                "sizing_eligible": False,
+                                "metrics": {
+                                    "net_cash_to_market_cap": 0.9,
+                                    "price_to_equity": 0.5,
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "ticker": "2222",
+                        "name": "eligible bargain",
+                        "sector_33": "機械",
+                        "market_cap_oku": 180,
+                        "evidence_hits": [
+                            {
+                                "name": "strict-net-cash-discount",
+                                "source_status": "ok",
+                                "sizing_eligible": True,
+                                "metrics": {
+                                    "net_cash_to_market_cap": 0.5,
+                                    "price_to_equity": 0.8,
+                                },
+                            }
+                        ],
+                    },
+                ],
+            )
+            self._write_outlook(
+                root / "records/03-outlook",
+                asof,
+                sectors={"機械": "neutral"},
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            self.assertEqual([c["ticker"] for c in payload["candidates"]], ["2222"])
+            self.assertEqual([c["ticker"] for c in payload["ranked_candidates"]], ["2222"])
+            self.assertEqual(
+                [c["ticker"] for c in payload["lane_toplists"]["strict-net-cash-discount"]],
+                ["2222"],
+            )
+
     def test_select_separates_recommendation_lane_from_primary_selection_lane(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

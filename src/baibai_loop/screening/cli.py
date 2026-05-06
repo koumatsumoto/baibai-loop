@@ -861,10 +861,13 @@ def _rank_candidates(
         outlook_status = sectors_outlook.get(sector)
         if outlook_status not in {"supportive", "neutral"}:
             continue
+        eligible_evidence_hits = _sizing_eligible_evidence_hits(item.evidence_hits)
+        if not eligible_evidence_hits:
+            continue
         market_cap = item.market_cap_oku
-        independent_evidence_count = len(item.evidence_hits)
+        independent_evidence_count = len(eligible_evidence_hits)
         selection_lane, selection_metrics, strength_key = _best_selection_evidence(
-            item.evidence_hits
+            eligible_evidence_hits
         )
         sort_key = (
             _macro_rank(outlook_status),
@@ -910,7 +913,10 @@ def _rank_lane_toplists(
         outlook_status = sectors_outlook.get(sector)
         if outlook_status not in {"supportive", "neutral"}:
             continue
-        for evidence_hit in item.evidence_hits:
+        eligible_evidence_hits = _sizing_eligible_evidence_hits(item.evidence_hits)
+        if not eligible_evidence_hits:
+            continue
+        for evidence_hit in eligible_evidence_hits:
             name = _string_value(evidence_hit.get("name"))
             if name not in ranked_by_lane:
                 continue
@@ -918,7 +924,7 @@ def _rank_lane_toplists(
             sort_key = (
                 _macro_rank(outlook_status),
                 *_evidence_strength_key(name, metrics),
-                -len(item.evidence_hits),
+                -len(eligible_evidence_hits),
                 item.ticker,
             )
             ranked_by_lane[name].append(
@@ -1020,6 +1026,8 @@ def _primary_evidence_by_lane_order(
     for evidence_hit in raw_evidence_hits:
         if not isinstance(evidence_hit, Mapping):
             continue
+        if not _is_sizing_eligible_evidence(evidence_hit):
+            continue
         name = _string_value(evidence_hit.get("name"))
         if name is None:
             continue
@@ -1051,6 +1059,19 @@ def _best_selection_evidence(
     return name, metrics, strength_key
 
 
+def _sizing_eligible_evidence_hits(
+    evidence_hits: Sequence[Mapping[str, object]],
+) -> tuple[Mapping[str, object], ...]:
+    return tuple(hit for hit in evidence_hits if _is_sizing_eligible_evidence(hit))
+
+
+def _is_sizing_eligible_evidence(evidence_hit: Mapping[str, object]) -> bool:
+    source_status = evidence_hit.get("source_status")
+    if isinstance(source_status, str) and source_status != "ok":
+        return False
+    return evidence_hit.get("sizing_eligible") is not False
+
+
 def _selection_candidate(
     item: _ScreenedCandidateInput,
     *,
@@ -1061,6 +1082,7 @@ def _selection_candidate(
     recommendation_lane: str | None = None,
 ) -> dict[str, object]:
     market_cap = item.market_cap_oku
+    eligible_evidence_hits = _sizing_eligible_evidence_hits(item.evidence_hits)
     return {
         "ticker": item.ticker,
         "name": item.name,
@@ -1068,7 +1090,7 @@ def _selection_candidate(
         "outlook_sector": outlook_status,
         "market_cap_oku": market_cap,
         "evidence_hits": item.evidence_hits,
-        "independent_evidence_count": len(item.evidence_hits),
+        "independent_evidence_count": len(eligible_evidence_hits),
         "freshness_warnings": item.freshness_warnings,
         "selection_lane": selection_lane,
         "recommendation_lane": recommendation_lane,
