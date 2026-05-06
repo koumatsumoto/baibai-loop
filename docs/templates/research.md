@@ -57,8 +57,8 @@ thesis_payoff:
   target_price_yen: 1300
   stop_loss_yen: 900
   expected_upside_pct: 30.0
-  expected_downside_pct: 11.11
-  risk_reward_ratio: 2.70
+  expected_downside_pct: 10.0
+  risk_reward_ratio: 3.0
   time_horizon_bd: 30
   invalidation_conditions:
     - stop loss

@@ -85,7 +85,7 @@ Snapshot ref は immutable dated path と `content_sha256` を持つ。Snapshot 
 Long-only の計算式は次で固定する。
 
 - `expected_upside_pct = (target_price_yen / max_entry_price_yen - 1) * 100`
-- `expected_downside_pct = (max_entry_price_yen / stop_loss_yen - 1) * 100`
+- `expected_downside_pct = (1 - stop_loss_yen / max_entry_price_yen) * 100`
 - `risk_reward_ratio = expected_upside_pct / expected_downside_pct`
 - `stop_loss_yen < max_entry_price_yen < target_price_yen`
 
