@@ -182,7 +182,7 @@ def _candidate_screen_records(
             key = (candidates_ref, candidate_id_value, ticker)
             if key in covered:
                 continue
-            candidate_ref = {
+            candidate_ref: dict[str, object] = {
                 "candidates_ref": candidates_ref,
                 "screen_run_id": str(candidate.get("screen_run_id") or screen_run_id),
                 "ticker": ticker,
