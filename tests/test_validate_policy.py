@@ -99,6 +99,22 @@ class PolicyValidationTests(unittest.TestCase):
 
         self.assertIn("policy.minimum-payoff-risk-reward", {finding.code for finding in findings})
 
+    def test_rejects_single_evidence_cap_above_low_tier(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "policy.md"
+            path.write_text(
+                _valid_policy_front_matter().replace(
+                    "max_real_order_notional_yen: 75000",
+                    "max_real_order_notional_yen: 150000",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_policy_file(path)
+
+        self.assertIn("policy.count-1-real-cap", {finding.code for finding in findings})
+
 
 def _valid_policy_front_matter() -> str:
     return textwrap.dedent(
@@ -126,6 +142,11 @@ def _valid_policy_front_matter() -> str:
           high:
             max_paper_proxy_position_size_yen: 2000000
             max_real_order_notional_yen: 500000
+        evidence_count_caps:
+          count_1:
+            max_real_order_notional_yen: 75000
+            requires_disconfirming_or_risk_evidence: true
+            requires_payoff_confirmation: true
         conviction_tier_rules:
           count_breadth:
             medium_min_independent_evidence_count: 1

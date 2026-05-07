@@ -280,7 +280,7 @@ def _make_research_text() -> str:
             "position_sizing_overlay": {
                 "paper_proxy_position_size_oku": 0.01,
                 "paper_proxy_position_size_yen": 1000000,
-                "real_order_intent_yen": 200000,
+                "real_order_intent_yen": 0,
                 "adv_participation_pct": 0.5,
             },
             "thesis_payoff": {

@@ -8,7 +8,7 @@ playbook_snapshot:
   effective_from: '2026-05-01T00:00:00+09:00'
 policy_snapshot:
   ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
-  content_sha256: sha256:4d8b769749184e6733a4a698000a21070f98d681beacf30bb30568c917f6372a
+  content_sha256: sha256:49f20536a65f4e56091c93277215f640acd537a1a9ab032515e9df90c527e766
   effective_from: '2026-05-01T00:00:00+09:00'
 policy_applicability: active
 calendars_snapshot:

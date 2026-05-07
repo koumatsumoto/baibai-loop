@@ -229,8 +229,12 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
                 "    tickers: []\n"
                 "  exploration:\n"
                 "    tickers: []\n"
+                "    max_initial_real_order_notional_yen: 75000\n"
+                "    requires_disconfirming_evidence: true\n"
+                "    requires_payoff_confirmation: true\n"
                 "  order_ready_tickers: []\n"
                 "  allocation_guardrails:\n"
+                "    max_exploration_ticker_pct: 3.0\n"
                 "    evidence_count_one_requires_research_before_order: true\n"
                 "runs:\n"
                 "- run_id: run-01-baseline\n"
@@ -252,6 +256,53 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
 
         self.assertIn(
             "benchmark.expected-current-strategy-baseline-core-tickers",
+            {finding.code for finding in findings},
+        )
+
+    def test_rejects_current_strategy_exploration_cap_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            runs = root / "records/_benchmarks/domain-model/e2e/runs.yaml"
+            runs.parent.mkdir(parents=True, exist_ok=True)
+            runs.write_text(
+                "current_research_strategy:\n"
+                "  baseline_core:\n"
+                "    tickers: []\n"
+                "  liquidity_complement:\n"
+                "    tickers: []\n"
+                "  exploration:\n"
+                "    tickers: ['1111']\n"
+                "    max_initial_real_order_notional_yen: 100000\n"
+                "    requires_disconfirming_evidence: true\n"
+                "    requires_payoff_confirmation: true\n"
+                "  order_ready_tickers: []\n"
+                "  allocation_guardrails:\n"
+                "    max_exploration_ticker_pct: 3.0\n"
+                "    evidence_count_one_requires_research_before_order: true\n"
+                "runs:\n"
+                "- run_id: run-01-baseline\n"
+                "  screening_status: partial_quality_warning\n"
+                "  selected_tickers: ['1111']\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    runs_ref="records/_benchmarks/domain-model/e2e/runs.yaml",
+                    expected={
+                        "current_strategy": {
+                            "exploration_max_initial_real_order_notional_yen": 75000
+                        }
+                    },
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn(
+            "benchmark.expected-current-strategy-exploration-max-initial-real-order-notional-yen",
             {finding.code for finding in findings},
         )
 

@@ -13,6 +13,7 @@
     "minimum_payoff",
     "execution_scaling",
     "conviction_tier_caps",
+    "evidence_count_caps",
     "policy_rules"
   ],
   "properties": {
@@ -24,6 +25,25 @@
     "minimum_payoff": {"type": "object"},
     "execution_scaling": {"type": "object"},
     "conviction_tier_caps": {"type": "object"},
+    "evidence_count_caps": {
+      "type": "object",
+      "required": ["count_1"],
+      "properties": {
+        "count_1": {
+          "type": "object",
+          "required": [
+            "max_real_order_notional_yen",
+            "requires_disconfirming_or_risk_evidence",
+            "requires_payoff_confirmation"
+          ],
+          "properties": {
+            "max_real_order_notional_yen": {"type": "number", "exclusiveMinimum": 0},
+            "requires_disconfirming_or_risk_evidence": {"type": "boolean"},
+            "requires_payoff_confirmation": {"type": "boolean"}
+          }
+        }
+      }
+    },
     "policy_rules": {"type": "object"}
   }
 }

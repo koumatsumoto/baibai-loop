@@ -140,13 +140,13 @@ def _minimal_research_front_matter() -> dict[str, object]:
         "conviction_tier_path": "count_breadth",
         "position_sizing_overlay": {
             "paper_proxy_position_size_yen": 1000000,
-            "real_order_intent_yen": 200000,
+            "real_order_intent_yen": 50000,
             "adv_participation_pct": 0.5,
         },
         "thesis_payoff": {
-            "max_entry_price_yen": 1000,
-            "target_price_yen": 1300,
-            "stop_loss_yen": 900,
+            "max_entry_price_yen": 500,
+            "target_price_yen": 650,
+            "stop_loss_yen": 450,
             "expected_upside_pct": 30.0,
             "expected_downside_pct": 10.0,
             "risk_reward_ratio": 3.0,
@@ -321,6 +321,29 @@ class ResearchValidationTests(unittest.TestCase):
         sizing["real_order_intent_yen"] = 100000
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.real-order-intent-yen", codes)
+
+    def test_single_evidence_real_order_intent_uses_policy_cap(self) -> None:
+        front = _minimal_research_front_matter()
+        front["conviction_tier"] = "high"
+        front["conviction_tier_path"] = "depth"
+        front["depth_verification_ref"] = "records/_external/depth-check.md"
+        sizing = front["position_sizing_overlay"]
+        assert isinstance(sizing, dict)
+        sizing["paper_proxy_position_size_yen"] = 1500000
+        sizing["real_order_intent_yen"] = 100000
+        sizing["adv_participation_pct"] = 0.75
+
+        codes = {finding.code for finding in self._findings_for(front)}
+
+        self.assertIn("research.real-order-intent-yen", codes)
+
+    def test_single_evidence_approval_requires_complete_payoff(self) -> None:
+        front = _minimal_research_front_matter()
+        front["thesis_payoff"] = {}
+
+        codes = {finding.code for finding in self._findings_for(front)}
+
+        self.assertIn("research.single-evidence-payoff-confirmation", codes)
 
     def test_adv_participation_is_recomputed_from_paper_proxy_and_adv(self) -> None:
         front = _minimal_research_front_matter()

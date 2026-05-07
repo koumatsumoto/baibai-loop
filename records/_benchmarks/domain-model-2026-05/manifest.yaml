@@ -5,7 +5,7 @@ purpose: business regression for bargain discovery, decision quality, execution 
 input_snapshots:
   policy:
     ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
-    content_sha256: sha256:4d8b769749184e6733a4a698000a21070f98d681beacf30bb30568c917f6372a
+    content_sha256: sha256:49f20536a65f4e56091c93277215f640acd537a1a9ab032515e9df90c527e766
   screening_rules:
     ref_path: records/_config/screening-rules/2026-05-01T000000+0900.yaml
     content_sha256: sha256:cc8e90ecf8e65f8cad0cbcb3a6ca68fd8ecca8d394009edf9b0b81f11d648b1a
@@ -123,7 +123,11 @@ fixtures:
       exploration_tickers:
       - '6619'
       - '6753'
+      exploration_max_initial_real_order_notional_yen: 75000
+      exploration_requires_disconfirming_evidence: true
+      exploration_requires_payoff_confirmation: true
       order_ready_tickers: []
+      max_exploration_ticker_pct: 3.0
       evidence_count_one_requires_research_before_order: true
     selected_research_coverage:
       run_id: run-01-baseline

@@ -96,7 +96,11 @@ _DOMAIN_FIXTURE_CONTRACTS: dict[str, Mapping[str, object]] = {
                 "baseline_core_tickers": ["3632", "6835", "6932", "6310", "9470"],
                 "liquidity_complement_tickers": ["5423", "6266", "6143", "5410", "6817"],
                 "exploration_tickers": ["6619", "6753"],
+                "exploration_max_initial_real_order_notional_yen": 75000,
+                "exploration_requires_disconfirming_evidence": True,
+                "exploration_requires_payoff_confirmation": True,
                 "order_ready_tickers": [],
+                "max_exploration_ticker_pct": 3.0,
                 "evidence_count_one_requires_research_before_order": True,
             },
             "selected_research_coverage": {
@@ -809,7 +813,19 @@ def _check_current_strategy_expected(
             strategy, ("liquidity_complement", "tickers")
         ),
         "exploration_tickers": _nested_value(strategy, ("exploration", "tickers")),
+        "exploration_max_initial_real_order_notional_yen": _nested_value(
+            strategy, ("exploration", "max_initial_real_order_notional_yen")
+        ),
+        "exploration_requires_disconfirming_evidence": _nested_value(
+            strategy, ("exploration", "requires_disconfirming_evidence")
+        ),
+        "exploration_requires_payoff_confirmation": _nested_value(
+            strategy, ("exploration", "requires_payoff_confirmation")
+        ),
         "order_ready_tickers": strategy.get("order_ready_tickers", []),
+        "max_exploration_ticker_pct": _nested_value(
+            strategy, ("allocation_guardrails", "max_exploration_ticker_pct")
+        ),
         "evidence_count_one_requires_research_before_order": _nested_value(
             strategy,
             (

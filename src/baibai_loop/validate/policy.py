@@ -77,6 +77,7 @@ def _check_required_sections(
         "minimum_payoff",
         "execution_scaling",
         "conviction_tier_caps",
+        "evidence_count_caps",
         "conviction_tier_rules",
         "policy_rules",
     )
@@ -164,6 +165,46 @@ def _check_cap_invariants(
                     f"conviction_tier_caps.{tier_name}.max_real_order_notional_yen",
                 )
             )
+    evidence_caps = _mapping(front_matter.get("evidence_count_caps"))
+    count_1 = _mapping(evidence_caps.get("count_1"))
+    count_1_real = _number(count_1.get("max_real_order_notional_yen"))
+    low_real = _number(_mapping(tiers.get("low")).get("max_real_order_notional_yen"))
+    if count_1_real is None or count_1_real <= 0:
+        findings.append(
+            _finding(
+                path,
+                "policy.count-1-real-cap",
+                "evidence_count_caps.count_1.max_real_order_notional_yen must be positive",
+                "evidence_count_caps.count_1.max_real_order_notional_yen",
+            )
+        )
+    elif low_real is not None and count_1_real > low_real:
+        findings.append(
+            _finding(
+                path,
+                "policy.count-1-real-cap",
+                "single-evidence real order cap must be <= low conviction real order cap",
+                "evidence_count_caps.count_1.max_real_order_notional_yen",
+            )
+        )
+    if count_1.get("requires_disconfirming_or_risk_evidence") is not True:
+        findings.append(
+            _finding(
+                path,
+                "policy.count-1-risk-evidence",
+                "single-evidence approvals must require disconfirming or risk evidence",
+                "evidence_count_caps.count_1.requires_disconfirming_or_risk_evidence",
+            )
+        )
+    if count_1.get("requires_payoff_confirmation") is not True:
+        findings.append(
+            _finding(
+                path,
+                "policy.count-1-payoff-confirmation",
+                "single-evidence approvals must require payoff confirmation",
+                "evidence_count_caps.count_1.requires_payoff_confirmation",
+            )
+        )
     return findings
 
 

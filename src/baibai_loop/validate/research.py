@@ -122,6 +122,7 @@ def validate_research_parsed(
     findings.extend(_check_evidence_and_counts(path, front_matter))
     findings.extend(_check_conviction_tier(path, front_matter))
     findings.extend(_check_sizing_invariants(path, front_matter))
+    findings.extend(_check_single_evidence_guardrails(path, front_matter))
     findings.extend(_check_corporate_action_invalidation(path, front_matter))
     findings.extend(_check_approval_rules(path, front_matter))
     findings.extend(_check_payoff(path, front_matter))
@@ -1401,6 +1402,58 @@ def _check_sizing_invariants(
     return findings
 
 
+def _check_single_evidence_guardrails(
+    path: Path, front_matter: Mapping[str, object]
+) -> list[ValidationFinding]:
+    decision = as_mapping(front_matter.get("research_decision"))
+    if decision.get("outcome") != "approved":
+        return []
+    independent = integer(front_matter.get("independent_evidence_count"))
+    if independent is None or independent > 1:
+        return []
+    policy = _load_policy_payload(path, front_matter)
+    count_1_caps = as_mapping(as_mapping(policy.get("evidence_count_caps")).get("count_1"))
+    findings: list[ValidationFinding] = []
+    if count_1_caps.get("requires_disconfirming_or_risk_evidence") is True and not (
+        _has_risk_evidence(front_matter)
+    ):
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.single-evidence-risk-evidence",
+                message="single-evidence approvals require a disconfirming or risk review",
+                location="research_evidence_hits",
+            )
+        )
+    if count_1_caps.get("requires_payoff_confirmation") is True and not (
+        _has_complete_payoff(front_matter)
+    ):
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.single-evidence-payoff-confirmation",
+                message="single-evidence approvals require complete payoff confirmation",
+                location="thesis_payoff",
+            )
+        )
+    return findings
+
+
+def _has_complete_payoff(front_matter: Mapping[str, object]) -> bool:
+    payoff = as_mapping(front_matter.get("thesis_payoff"))
+    required = (
+        "max_entry_price_yen",
+        "target_price_yen",
+        "stop_loss_yen",
+        "expected_upside_pct",
+        "expected_downside_pct",
+        "risk_reward_ratio",
+    )
+    return all(number(payoff.get(field)) is not None for field in required)
+
+
 def _check_position_sizing_overlay_shape(
     path: Path,
     front_matter: Mapping[str, object],
@@ -1453,6 +1506,7 @@ def _derive_order_intent(
     capital = as_mapping(policy.get("capital_basis"))
     risk = as_mapping(policy.get("risk_budget"))
     tier_caps = as_mapping(as_mapping(policy.get("conviction_tier_caps")).get(tier))
+    count_1_caps = as_mapping(as_mapping(policy.get("evidence_count_caps")).get("count_1"))
     sizing_ladder = as_mapping(as_mapping(policy.get("sizing_ladder")).get(tier))
     scaling = as_mapping(policy.get("execution_scaling"))
     order_constraints = as_mapping(policy.get("order_constraints"))
@@ -1483,11 +1537,17 @@ def _derive_order_intent(
         if avg_turnover_oku is not None and adv_pct is not None
         else None
     )
+    single_evidence_cap = (
+        number(count_1_caps.get("max_real_order_notional_yen"))
+        if (integer(front_matter.get("independent_evidence_count")) or 0) <= 1
+        else None
+    )
     real_caps = [
         scaled_real,
         number(capital.get("tactical_real_budget_yen")),
         number(risk.get("max_real_order_notional_yen")),
         number(tier_caps.get("max_real_order_notional_yen")),
+        single_evidence_cap,
         number(exposure.get("remaining_tactical_real_budget_yen")),
         liquidity_cap,
         _remaining_cap(exposure, "ticker_real_cap_remaining_yen"),

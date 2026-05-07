@@ -22,7 +22,7 @@ metric_catalog_snapshot:
   content_sha256: "sha256:885c23bfdcbed68f538aca3401b92dc8838d1d6f21c49e36e9c55c295a975206"
 policy_snapshot:
   ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
-  content_sha256: "sha256:4d8b769749184e6733a4a698000a21070f98d681beacf30bb30568c917f6372a"
+  content_sha256: "sha256:49f20536a65f4e56091c93277215f640acd537a1a9ab032515e9df90c527e766"
 universe_snapshot_ref:
   ref_path: records/_universe-snapshots/2026/05/2026-05-01T192150+0900.yaml
   content_sha256: "sha256:4970c273616712bea3b3fb177f02d11eb2f2fa053920c7e227dd67b8cc88c8ad"
