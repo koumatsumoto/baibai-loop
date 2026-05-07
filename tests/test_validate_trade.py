@@ -208,6 +208,31 @@ def test_order_intent_must_join_to_order(tmp_path: Path) -> None:
     assert "trade.order-intent-join" in codes
 
 
+def test_submitted_trade_requires_order_intent_fields(tmp_path: Path) -> None:
+    front = _trade_front()
+    front["order_intent"] = {}
+    path = _write_trade(tmp_path, front)
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.order-intent-field" in codes
+
+
+def test_submitted_trade_requires_orders(tmp_path: Path) -> None:
+    front = _trade_front()
+    front["orders"] = []
+    path = _write_trade(tmp_path, front)
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.orders-required" in codes
+
+
+def test_submitted_trade_requires_position_sizing_overlay(tmp_path: Path) -> None:
+    front = _trade_front()
+    del front["position_sizing_overlay"]
+    path = _write_trade(tmp_path, front)
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.required" in codes
+    assert "trade.position-sizing-required" in codes
+
+
 def test_order_state_is_validated(tmp_path: Path) -> None:
     front = _trade_front()
     orders = front["orders"]

@@ -82,6 +82,7 @@ def validate_trade_file(path: Path) -> list[ValidationFinding]:
     findings.extend(_check_removed_fields(path, front))
     findings.extend(_check_policy_and_calendar_context(path, front))
     findings.extend(_check_ticker(path, front))
+    findings.extend(_check_order_ready_shape(path, front))
     findings.extend(_check_order_join(path, front))
     findings.extend(_check_decision_register_intent_join(path, front))
     findings.extend(_check_order_state_consistency(path, front))
@@ -259,6 +260,105 @@ def _check_ticker(path: Path, front: Mapping[str, object]) -> list[ValidationFin
             )
         ]
     return []
+
+
+def _check_order_ready_shape(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
+    if front.get("trade_execution_state") == "none":
+        return []
+    findings: list[ValidationFinding] = []
+    intent = front.get("order_intent")
+    if not isinstance(intent, Mapping):
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.order-intent-required",
+                message="submitted trade records require order_intent",
+                location="order_intent",
+            )
+        )
+    else:
+        string_fields = ("order_intent_id", "decision_event_id", "side")
+        for field in string_fields:
+            value = intent.get(field)
+            if not isinstance(value, str) or not value:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="trade.order-intent-field",
+                        message=f"order_intent.{field} is required",
+                        location=f"order_intent.{field}",
+                    )
+                )
+        if intent.get("side") not in {"buy", "sell"}:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="trade.order-intent-side",
+                    message="order_intent.side must be buy or sell",
+                    location="order_intent.side",
+                )
+            )
+        for field in ("quantity", "order_price_guard_yen"):
+            if _number(intent.get(field)) is None:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="trade.order-intent-field",
+                        message=f"order_intent.{field} is required",
+                        location=f"order_intent.{field}",
+                    )
+                )
+        if not isinstance(intent.get("uses_margin"), bool):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="trade.order-intent-field",
+                    message="order_intent.uses_margin is required",
+                    location="order_intent.uses_margin",
+                )
+            )
+
+    sizing = front.get("position_sizing_overlay")
+    if not isinstance(sizing, Mapping):
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.position-sizing-required",
+                message="submitted trade records require position_sizing_overlay",
+                location="position_sizing_overlay",
+            )
+        )
+    else:
+        for field in ("estimated_real_order_notional_yen", "guarded_max_notional_yen"):
+            if _number(sizing.get(field)) is None:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="trade.position-sizing-field",
+                        message=f"position_sizing_overlay.{field} is required",
+                        location=f"position_sizing_overlay.{field}",
+                    )
+                )
+
+    orders = front.get("orders")
+    if not isinstance(orders, list) or not orders:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.orders-required",
+                message="submitted trade records require at least one order",
+                location="orders",
+            )
+        )
+    return findings
 
 
 def _check_order_join(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
