@@ -148,16 +148,16 @@ outlook がなければ research が作れない。これは、macro regime な�
 | --- | --- | --- | --- |
 | `brief` | brief | 「short fact+points doc」の業界標準語。journal（時系列ログ）より役割に忠実 | journal（log 含意が強い）、record、ledger |
 | `candidates` | candidates | 機械的ふるいで残った銘柄群というデータの実体を直接表す | screened（動詞由来で粒度不一致）、screening（プロセス感）、filtered |
-| `outlook` | outlook | humble、更新しやすい。"strategy" は大げさ、"thesis" は academic | strategy（大げさ）、thesis（重い）、perspective |
+| `outlook` | outlook | humble、更新しやすい。1-6m の regime view として役割に忠実 | thesis（重い）、perspective |
 | `research` | investment memo | 業界標準の memo 形式に寄せつつ、repository path としては research を維持できる | deep-dive（2 語）、investigation（堅い）、analysis（generic） |
 | `trades` | execution record | trade / order / fill / cancellation を execution layer として扱える | entry log（entry に偏る）、order log（約定後の position を扱いにくい） |
-| `reviews` | attribution review | outcome を evidence、macro gate、sizing、execution、playbook に帰属できる | retro only（事後集計に偏る）、postmortem（失敗だけに見える） |
+| `reviews` | attribution review | outcome を evidence、macro regime gate、sizing、execution、playbook に帰属できる | retro only（事後集計に偏る）、postmortem（失敗だけに見える） |
 
 ## 6. 意図的に未自動化のまま残しているもの
 
 完璧を求めず、運用で見えたボトルネックから改善するため、以下は **意図的に手動 + AI 下書き** で運用する。
 
-- **`records/02-outlook/` の集約は手動 + AI**: 自動集約は将来の検討対象。運用負荷を計測してから自動化仕様を決める
+- **`records/03-outlook/` の集約は手動 + AI**: 自動集約は将来の検討対象。運用負荷を計測してから自動化仕様を決める
 - **Valuation 指標の算出粒度は暫定**: 東証 33 業種、中央値下限 n=10 などの初期値で運用。retro で調整する
 - **Rerating Book（1〜6 か月保有）は対象外**: Swing only（2 か月以内）に絞る
 - **Playbook 改訂ルールは緩め**: サンプル数 10 件未満なら playbook 据え置きを許容する。厳密な改訂トリガーは運用後に定める

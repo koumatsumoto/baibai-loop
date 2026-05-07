@@ -17,7 +17,7 @@ last_reviewed: 2026-05-04
 ## Freshness
 
 - Macro track は売買イベントと独立に確認する。
-- `records/01-brief/` の鮮度不足があれば [`brief-runbook.md`](./brief-runbook.md) を優先する。
+- `records/02-brief/` の鮮度不足があれば [`brief-runbook.md`](./brief-runbook.md) を優先する。
 - 最新 outlook が古い、または重大 event が出た場合は [`outlook-runbook.md`](./outlook-runbook.md) に進む。
 
 ## Validation

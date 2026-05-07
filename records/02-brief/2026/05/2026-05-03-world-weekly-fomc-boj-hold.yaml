@@ -1,0 +1,229 @@
+schema_version: 1
+kind: world-weekly
+type: periodic
+scope: world
+ai_draft: true
+published_at: "2026-05-03T22:40:00+09:00"
+observation_date: "2026-05-03"
+period:
+  start: "2026-04-27"
+  end: "2026-05-03"
+  market_basis_date: "2026-04-30"
+  note: "指標ごとに直近営業日が異なる。米金利・USD/JPY 系・ECB クロス・原油は 2026-04-30 終値、VIX は 2026-05-01、Brent / WTI は 2026-04-27、日経平均は 2026-05-01"
+references:
+  prev_period: records/02-brief/2026/04/2026-04-26-world-weekly-jp-cpi-retail.yaml
+  latest_monthly: records/02-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
+  latest_daily: records/02-brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.yaml
+sources:
+  - id: fed-h15
+    name: Federal Reserve H.15 Selected Interest Rates
+    url: https://www.federalreserve.gov/releases/h15/
+    accessed_at: "2026-05-03"
+    status: ok
+  - id: fed-h10
+    name: Federal Reserve H.10 Historical Rates for the Japanese Yen
+    url: https://www.federalreserve.gov/releases/h10/Hist/dat00_ja.htm
+    accessed_at: "2026-05-03"
+    status: ok
+  - id: cboe-vix
+    name: CBOE VIX History CSV
+    url: https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv
+    accessed_at: "2026-05-03"
+    status: ok
+  - id: eia-brent
+    name: EIA Europe Brent Spot Price FOB
+    url: https://www.eia.gov/dnav/pet/hist/RBRTEd.htm
+    accessed_at: "2026-05-03"
+    status: ok
+  - id: eia-wti
+    name: EIA Cushing OK WTI Spot Price FOB
+    url: https://www.eia.gov/dnav/pet/hist/RWTCd.htm
+    accessed_at: "2026-05-03"
+    status: ok
+  - id: ecb-fx
+    name: ECB euro reference rates (historical CSV)
+    url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
+    accessed_at: "2026-05-03"
+    status: ok
+  - id: webarchive-nikkei
+    name: Web Archive snapshot of FRED NIKKEI225
+    url: https://web.archive.org/web/20260503/https://fred.stlouisfed.org/graph/fredgraph.csv?id=NIKKEI225
+    accessed_at: "2026-05-03"
+    status: ok
+  - id: jpx-stats-daily
+    name: JPX マーケット統計
+    url: https://www.jpx.co.jp/markets/statistics-equities/daily/index.html
+    accessed_at: "2026-05-03"
+    status: failed
+    note: "取得済 PDF を解析不能"
+  - id: cme-fedwatch
+    name: CME FedWatch Tool
+    url: https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html
+    accessed_at: "2026-05-03"
+    status: failed
+    note: "HTTP 403"
+  - id: fomc-statement-apr
+    name: Federal Reserve FOMC Statement 2026-04-29
+    url: https://www.federalreserve.gov/newsevents/pressreleases/monetary20260429a.htm
+    accessed_at: "2026-05-03"
+    status: ok
+  - id: fed-fomc-cal
+    name: Federal Reserve FOMC Calendars
+    url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    accessed_at: "2026-05-03"
+    status: ok
+  - id: boj-mpm-state
+    name: 日本銀行 金融市場調節方針に関する公表文 2026年
+    url: https://www.boj.or.jp/mopo/mpmdeci/state_2026/index.htm
+    accessed_at: "2026-05-03"
+    status: ok
+  - id: boj-mpm
+    name: 日本銀行 金融政策決定会合の運営
+    url: https://www.boj.or.jp/mopo/mpmsche_minu/index.htm
+    accessed_at: "2026-05-03"
+    status: ok
+  - id: boj-press
+    name: 日本銀行 総裁記者会見
+    url: https://www.boj.or.jp/about/press/index.htm
+    accessed_at: "2026-05-03"
+    status: ok
+notes: "fred.stlouisfed.org への直接 HTTP リクエストは HTTP/2 stream INTERNAL_ERROR で打ち切られた。代替 Tier 1 / Tier 1 準拠ソースを使用（Federal Reserve H.15/H.10、ECB、CBOE、EIA、Web Archive）。CME FedWatch は HTTP 403、JPX 日次 PDF は取得可だが PDF テキスト抽出ツール無し。"
+layers:
+  world:
+    market_indicators:
+      - name: 米10Y利回り
+        value: "4.40%"
+        as_of: "2026-04-30"
+        wow_comment: "前週 brief 表示値 4.31% から +9bp"
+        source_ids: [fed-h15]
+      - name: 米2Y利回り
+        value: "3.88%"
+        as_of: "2026-04-30"
+        wow_comment: "前週 brief 表示値 3.78% から +10bp"
+        source_ids: [fed-h15]
+      - name: 10Y-2Yスプレッド
+        value: "+52bp"
+        wow_comment: "前週 brief 表示値 +53bp から -1bp"
+        source_ids: [fed-h15]
+      - name: VIX
+        value: "16.99"
+        as_of: "2026-05-01"
+        wow_comment: "前週 brief 表示値 18.71 から -1.72pt"
+        source_ids: [cboe-vix]
+      - name: Brent原油
+        value: "$113.89"
+        as_of: "2026-04-27"
+        wow_comment: "前週 brief 表示値 $111.86 から +1.8%"
+        source_ids: [eia-brent]
+      - name: WTI原油
+        value: "$99.89"
+        as_of: "2026-04-27"
+        wow_comment: "前週 brief 表示値 $98.42 から +1.5%"
+        source_ids: [eia-wti]
+      - name: FedWatch (次回会合 据置確率)
+        value: null
+        wow_comment: "CME ページが HTTP 403 を返却"
+        fetch_status: failed
+        source_ids: [cme-fedwatch]
+    events:
+      - date: "2026-04-29"
+        text: "FOMC は政策金利目標レンジを 3-1/2 〜 3-3/4 percent に維持。賛成 8、反対 4。声明文には『inflation is elevated, in part reflecting the recent increase in global energy prices』と記載"
+        source_ids: [fomc-statement-apr]
+      - date: "2026-04-29"
+        text: "FOMC は声明文・Implementation Note・記者会見ページを公表。議事要旨は会合 3 週間後（5月下旬）公表予定"
+        source_ids: [fed-fomc-cal]
+  japan:
+    fx:
+      - name: USD/JPY
+        value: "156.56"
+        as_of: "2026-04-30"
+        wow_comment: "前週 brief 表示値 159.35 から -1.75%。ECB の JPY/EUR (183.21) と USD/EUR (1.1702) から算出"
+        source_ids: [ecb-fx]
+      - name: EUR/JPY
+        value: "183.21"
+        as_of: "2026-04-30"
+        wow_comment: "前週 brief 表示値 186.71 から -1.87%"
+        source_ids: [ecb-fx]
+      - name: AUD/JPY
+        value: "111.91"
+        as_of: "2026-04-30"
+        wow_comment: "前週 brief 表示値 113.90 から -1.75%。ECB の JPY/EUR (183.21) と AUD/EUR (1.6371) から算出"
+        source_ids: [ecb-fx]
+    events:
+      - date: "2026-04-27 〜 28"
+        text: "日銀 金融政策決定会合が開催。『当面の金融政策運営について』と展望レポート（基本的見解）が 2026-04-28 12:04 JST に公表、展望レポート全文は 2026-04-30 14:00 JST 公表"
+        source_ids: [boj-mpm-state]
+      - date: "2026-04-28"
+        text: "日銀 総裁定例記者会見開催（PDF 掲載日 2026-04-30）"
+        source_ids: [boj-press]
+      - date: "2026-05-12"
+        text: "日銀 2026-04-27 〜 28 会合の『主な意見』公表予定（8:50 JST）"
+        source_ids: [boj-mpm]
+      - date: "2026-06-19"
+        text: "日銀 2026-04-27 〜 28 会合の議事要旨公表予定（8:50 JST）"
+        source_ids: [boj-mpm]
+  japan_equity:
+    market_indicators:
+      - name: 日経平均
+        value: "59,513.12"
+        as_of: "2026-05-01"
+        wow_comment: "前週 brief 表示値 59,716.18 から -0.3%"
+        source_ids: [webarchive-nikkei]
+      - name: TOPIX
+        value: null
+        wow_comment: "JPX 日次 PDF は取得可だが PDF テキスト抽出ツール無し"
+        fetch_status: failed
+        source_ids: [jpx-stats-daily]
+      - name: 東証プライム売買代金 (日次平均)
+        value: null
+        wow_comment: "同上"
+        fetch_status: failed
+        source_ids: [jpx-stats-daily]
+    sector_movements: null
+    events:
+      - date: "2026-05-03 〜 05"
+        text: "日本市場休場（憲法記念日・みどりの日・こどもの日）"
+        source_ids: [boj-mpm]
+    note: "業種別週次騰落: JPX 週次集計を保持する PDF からの数値抽出を本作業環境で完了できず"
+deltas:
+  threshold_breaches:
+    - severity: notable
+      indicator: USD/JPY
+      from: "159.35"
+      to: "156.56"
+      change: "-1.75%"
+    - severity: notable
+      indicator: EUR/JPY
+      from: "186.71"
+      to: "183.21"
+      change: "-1.87%"
+    - severity: notable
+      indicator: AUD/JPY
+      from: "113.90"
+      to: "111.91"
+      change: "-1.75%"
+  unjudgeable:
+    - TOPIX
+    - 東証プライム売買代金
+    - FedWatch
+  direction_history:
+    - indicator: 全指標
+      insufficient_data: true
+      reason: "観測対象週数: 3、world-weekly 系列が 3 週分"
+  direction_reversals:
+    - indicator: 全指標
+      insufficient_data: true
+      reason: "データ不足により判定不能"
+next_events:
+  - date: "2026-05-12"
+    text: "日銀 2026-04-27 〜 28 会合の『主な意見』公表予定"
+    source_ids: [boj-mpm]
+  - date: "2026-05 下旬"
+    text: "FOMC 2026-04-28 〜 29 会合議事要旨公表予定（会合 3 週間後）"
+    source_ids: [fed-fomc-cal]
+  - date: "2026-06-16 〜 17"
+    text: "FOMC 会合"
+    source_ids: [fed-fomc-cal]
+  - date: "2026-06-19"
+    text: "日銀 2026-04-27 〜 28 会合の議事要旨公表予定"
+    source_ids: [boj-mpm]

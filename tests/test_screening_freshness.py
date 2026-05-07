@@ -75,10 +75,10 @@ class ScreeningFreshnessTests(unittest.TestCase):
 
     def test_issue_94_3678_real_candidate_gets_freshness_warnings(self) -> None:
         payload = yaml.safe_load(
-            (ROOT / "records/03-candidates/2026/05/2026-05-01.yaml").read_text(encoding="utf-8")
+            (ROOT / "records/04-candidates/2026/05/2026-05-01.yaml").read_text(encoding="utf-8")
         )
         candidate = next(item for item in payload["candidates"] if item["ticker"] == "3678")
-        signal_names = {signal["name"] for signal in candidate["signals"]}
+        playbook_ids = {evidence_hit["playbook_id"] for evidence_hit in candidate["evidence_hits"]}
         self.assertLessEqual(
             {
                 "strict-net-cash-discount",
@@ -86,7 +86,7 @@ class ScreeningFreshnessTests(unittest.TestCase):
                 "sales-discount-growth",
                 "valuation-reversion",
             },
-            signal_names,
+            playbook_ids,
         )
 
         candidate_source_submit_datetime = _datetime_text(

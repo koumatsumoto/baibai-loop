@@ -19,7 +19,6 @@ from baibai_loop._env import load_project_env
 from .config import (
     DEFAULT_CACHE_DIR,
     DEFAULT_SQLITE_CACHE_DIR,
-    LEGACY_CACHE_DIR,
     ConfigError,
     ScreeningConfig,
 )
@@ -40,7 +39,6 @@ from .metrics import (
     group_bars_by_ticker,
     group_summaries_by_ticker,
 )
-from .migrate import migrate_cache
 from .providers import EDINETProvider, JPXProvider, JQuantsProvider
 from .providers.edinet import (
     EdinetMetricRecord,
@@ -136,7 +134,7 @@ class _ScreenedCandidateInput(BaseModel):
     name: str | None = None
     sector_33: str = ""
     market_cap_oku: int | float | None = None
-    signals: list[dict[str, object]] = Field(default_factory=list)
+    evidence_hits: list[dict[str, object]] = Field(default_factory=list)
     metrics: dict[str, object] = Field(default_factory=dict)
     metrics_breakdown: dict[str, object] = Field(default_factory=dict)
     freshness_warnings: list[dict[str, object]] = Field(default_factory=list)
@@ -177,6 +175,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="allow fetching latest JPX regulation data for a stale backfill asof",
     )
+    run_parser.add_argument(
+        "--output-path",
+        help=(
+            "write candidates YAML to this path instead of the canonical "
+            "records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml path"
+        ),
+    )
+    run_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite an existing candidates YAML output path",
+    )
 
     bootstrap_parser = subparsers.add_parser(
         "bootstrap-cache",
@@ -195,28 +205,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=540,
         help="EDINET document-list lookback window in calendar days (default 540)",
-    )
-
-    migrate_parser = subparsers.add_parser(
-        "migrate-cache",
-        help="move legacy .cache/screening/ raw JSON to git-tracked records/_data/raw/screening/",
-    )
-    migrate_parser.add_argument(
-        "--from",
-        dest="source",
-        default=str(LEGACY_CACHE_DIR),
-        help=f"source cache dir (default: {LEGACY_CACHE_DIR})",
-    )
-    migrate_parser.add_argument(
-        "--to",
-        dest="destination",
-        default=str(DEFAULT_CACHE_DIR),
-        help=f"destination raw JSON dir (default: {DEFAULT_CACHE_DIR})",
-    )
-    migrate_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="report the planned moves without touching the filesystem",
     )
 
     rebuild_parser = subparsers.add_parser(
@@ -274,7 +262,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--outlook",
         help=(
             "outlook path to apply (default: latest "
-            "records/02-outlook/<YYYY>/<MM>/outlook-*.yaml on or before asof)"
+            "records/03-outlook/<YYYY>/<MM>/outlook-*.yaml on or before asof)"
+        ),
+    )
+    select_parser.add_argument(
+        "--candidates",
+        help=(
+            "candidates YAML path to rank (default: "
+            "records/04-candidates/<YYYY>/<MM>/<YYYY-MM-DD>.yaml)"
         ),
     )
     select_parser.add_argument(
@@ -297,16 +292,9 @@ def main(argv: list[str] | None = None) -> int:
         # needed.
         return select_command(
             asof_date=_parse_iso_date(args.asof),
+            candidates_path=Path(args.candidates) if args.candidates else None,
             outlook_path=Path(args.outlook) if args.outlook else None,
             top=args.top,
-        )
-
-    if args.command == "migrate-cache":
-        # migrate-cache only touches the local filesystem; no API tokens needed.
-        return migrate_cache_command(
-            source=Path(args.source),
-            destination=Path(args.destination),
-            dry_run=args.dry_run,
         )
 
     if args.command == "rebuild-cache":
@@ -372,6 +360,8 @@ def main(argv: list[str] | None = None) -> int:
             providers,
             rules=load_screening_rules(config.rules_path),
             allow_stale_jpx=args.allow_stale_jpx,
+            output_path=Path(args.output_path) if args.output_path else None,
+            force=args.force,
         )
 
     if args.command == "bootstrap-cache":
@@ -414,10 +404,12 @@ def run_command(
     rules: ScreeningRules | None = None,
     now: datetime | None = None,
     allow_stale_jpx: bool = False,
+    output_path: Path | None = None,
+    force: bool = False,
 ) -> int:
-    output_path = build_output_path(asof_date)
+    output_path = output_path or build_output_path(asof_date)
     rules = rules or load_screening_rules(config.rules_path)
-    if output_path.exists():
+    if output_path.exists() and not force:
         print(f"output already exists: {output_path}", file=sys.stderr)
         return 1
 
@@ -543,10 +535,9 @@ def run_command(
         )
         if not result.pass_fail:
             continue
-        if len(result.signals) > 1:
-            fact_lines.append(
-                f"{ticker}: 複数 signal hit ({', '.join(signal.name for signal in result.signals)})"
-            )
+        if len(result.evidence_hits) > 1:
+            evidence_names = ", ".join(evidence_hit.name for evidence_hit in result.evidence_hits)
+            fact_lines.append(f"{ticker}: 複数 evidence_hit hit ({evidence_names})")
         financial = metric_result.financials[ticker]
         derived = metric_result.derived[ticker]
         universe_snapshot = universe_result.snapshots[ticker]
@@ -579,7 +570,7 @@ def run_command(
                 p_s=financial.p_s,
                 pcfr=financial.pcfr,
                 sector_33=security.sector_33,
-                signals=result.signals,
+                evidence_hits=result.evidence_hits,
                 ttm_quality={
                     "ev_ebitda": financial.ttm_quality_ev_ebitda,
                     "p_s": financial.ttm_quality_p_s,
@@ -726,7 +717,7 @@ def run_command(
             f"{reason}: {count} 件" for reason, count in universe_result.exclusion_counts.items()
         ),
         ttm_quality_counts=metric_result.ttm_quality_counts,
-        signals_summary=_signals_summary(screened_candidates, rules),
+        evidence_hits_summary=_evidence_hits_summary(screened_candidates, rules),
         fallback_lines=tuple(fallback_lines),
     )
     yaml_text = render_screened_yaml(document)
@@ -738,6 +729,7 @@ def select_command(
     *,
     asof_date: date,
     outlook_path: Path | None,
+    candidates_path: Path | None = None,
     top: int,
     candidates_root: Path | None = None,
     outlook_root: Path | None = None,
@@ -749,11 +741,11 @@ def select_command(
         return 1
 
     out = stdout if stdout is not None else sys.stdout
-    candidates_root = candidates_root or Path("records/03-candidates")
-    outlook_root = outlook_root or Path("records/02-outlook")
+    candidates_root = candidates_root or Path("records/04-candidates")
+    outlook_root = outlook_root or Path("records/03-outlook")
     rules = rules or load_screening_rules(_rules_path_from_env())
 
-    candidates_path = (
+    candidates_path = candidates_path or (
         candidates_root / f"{asof_date:%Y}" / f"{asof_date:%m}" / f"{asof_date:%Y-%m-%d}.yaml"
     )
     if not candidates_path.exists():
@@ -771,7 +763,7 @@ def select_command(
     if resolved_outlook_path is None or not resolved_outlook_path.exists():
         print(
             "outlook file not found. Pass --outlook <path> or create "
-            "records/02-outlook/<YYYY>/<MM>/outlook-*.yaml",
+            "records/03-outlook/<YYYY>/<MM>/outlook-*.yaml",
             file=sys.stderr,
         )
         return 1
@@ -860,17 +852,21 @@ def _rank_candidates(
     for item in candidates_input:
         sector = item.sector_33
         outlook_status = sectors_outlook.get(sector)
-        # headwind は除外。null / unknown / tailwind / neutral は通過。
-        if outlook_status == "headwind":
+        if outlook_status not in {"supportive", "neutral"}:
+            continue
+        eligible_evidence_hits = _sizing_eligible_evidence_hits(item.evidence_hits)
+        if not eligible_evidence_hits:
             continue
         market_cap = item.market_cap_oku
-        signal_count = len(item.signals)
-        selection_lane, selection_metrics, strength_key = _best_selection_signal(item.signals)
+        independent_evidence_count = len(eligible_evidence_hits)
+        selection_lane, selection_metrics, strength_key = _best_selection_evidence(
+            eligible_evidence_hits
+        )
         sort_key = (
             _macro_rank(outlook_status),
             _lane_rank(selection_lane),
             *strength_key,
-            -signal_count,
+            -independent_evidence_count,
             item.ticker,
         )
         candidate: dict[str, object] = {
@@ -879,8 +875,8 @@ def _rank_candidates(
             "sector_33": sector,
             "outlook_sector": outlook_status,
             "market_cap_oku": market_cap,
-            "signals": item.signals,
-            "signal_count": signal_count,
+            "evidence_hits": item.evidence_hits,
+            "independent_evidence_count": independent_evidence_count,
             "freshness_warnings": item.freshness_warnings,
             "selection_lane": selection_lane,
             "selection_metrics": selection_metrics,
@@ -908,17 +904,20 @@ def _rank_lane_toplists(
     for item in candidates_input:
         sector = item.sector_33
         outlook_status = sectors_outlook.get(sector)
-        if outlook_status == "headwind":
+        if outlook_status not in {"supportive", "neutral"}:
             continue
-        for signal in item.signals:
-            name = _string_value(signal.get("name"))
+        eligible_evidence_hits = _sizing_eligible_evidence_hits(item.evidence_hits)
+        if not eligible_evidence_hits:
+            continue
+        for evidence_hit in eligible_evidence_hits:
+            name = _string_value(evidence_hit.get("name"))
             if name not in ranked_by_lane:
                 continue
-            metrics = _metric_map(signal.get("metrics"))
+            metrics = _metric_map(evidence_hit.get("metrics"))
             sort_key = (
                 _macro_rank(outlook_status),
-                *_signal_strength_key(name, metrics),
-                -len(item.signals),
+                *_evidence_strength_key(name, metrics),
+                -len(eligible_evidence_hits),
                 item.ticker,
             )
             ranked_by_lane[name].append(
@@ -1001,8 +1000,8 @@ def _research_recommendation_candidate(
 ) -> dict[str, object]:
     output = dict(candidate)
     output["recommendation_lane"] = recommendation_lane
-    selection_lane, selection_metrics = _primary_signal_by_lane_order(
-        output.get("signals"), lane_order
+    selection_lane, selection_metrics = _primary_evidence_by_lane_order(
+        output.get("evidence_hits"), lane_order
     )
     if selection_lane is not None:
         output["selection_lane"] = selection_lane
@@ -1010,45 +1009,60 @@ def _research_recommendation_candidate(
     return output
 
 
-def _primary_signal_by_lane_order(
-    raw_signals: object,
+def _primary_evidence_by_lane_order(
+    raw_evidence_hits: object,
     lane_order: Sequence[str],
 ) -> tuple[str | None, dict[str, object]]:
-    if not isinstance(raw_signals, Sequence) or isinstance(raw_signals, str):
+    if not isinstance(raw_evidence_hits, Sequence) or isinstance(raw_evidence_hits, str):
         return None, {}
-    signal_by_lane: dict[str, Mapping[str, object]] = {}
-    for signal in raw_signals:
-        if not isinstance(signal, Mapping):
+    evidence_by_lane: dict[str, Mapping[str, object]] = {}
+    for evidence_hit in raw_evidence_hits:
+        if not isinstance(evidence_hit, Mapping):
             continue
-        name = _string_value(signal.get("name"))
+        if not _is_sizing_eligible_evidence(evidence_hit):
+            continue
+        name = _string_value(evidence_hit.get("name"))
         if name is None:
             continue
-        signal_by_lane[name] = signal
+        evidence_by_lane[name] = evidence_hit
     for lane in lane_order:
-        signal = signal_by_lane.get(lane)
-        if signal is not None:
-            return lane, _metric_map(signal.get("metrics"))
+        evidence_hit = evidence_by_lane.get(lane)
+        if evidence_hit is not None:
+            return lane, _metric_map(evidence_hit.get("metrics"))
     return None, {}
 
 
-def _best_selection_signal(
-    signals: Sequence[Mapping[str, object]],
+def _best_selection_evidence(
+    evidence_hits: Sequence[Mapping[str, object]],
 ) -> tuple[str | None, dict[str, object], tuple[float, ...]]:
     entries = [
         (
             _lane_rank(name),
-            _signal_strength_key(name, metrics),
+            _evidence_strength_key(name, metrics),
             name,
             metrics,
         )
-        for signal in signals
-        if (name := _string_value(signal.get("name"))) is not None
-        for metrics in [_metric_map(signal.get("metrics"))]
+        for evidence_hit in evidence_hits
+        if (name := _string_value(evidence_hit.get("name"))) is not None
+        for metrics in [_metric_map(evidence_hit.get("metrics"))]
     ]
     if not entries:
         return None, {}, (0.0,)
     _, strength_key, name, metrics = min(entries, key=lambda item: (item[0], item[1]))
     return name, metrics, strength_key
+
+
+def _sizing_eligible_evidence_hits(
+    evidence_hits: Sequence[Mapping[str, object]],
+) -> tuple[Mapping[str, object], ...]:
+    return tuple(hit for hit in evidence_hits if _is_sizing_eligible_evidence(hit))
+
+
+def _is_sizing_eligible_evidence(evidence_hit: Mapping[str, object]) -> bool:
+    source_status = evidence_hit.get("source_status")
+    if isinstance(source_status, str) and source_status != "ok":
+        return False
+    return evidence_hit.get("sizing_eligible") is not False
 
 
 def _selection_candidate(
@@ -1061,14 +1075,15 @@ def _selection_candidate(
     recommendation_lane: str | None = None,
 ) -> dict[str, object]:
     market_cap = item.market_cap_oku
+    eligible_evidence_hits = _sizing_eligible_evidence_hits(item.evidence_hits)
     return {
         "ticker": item.ticker,
         "name": item.name,
         "sector_33": sector,
         "outlook_sector": outlook_status,
         "market_cap_oku": market_cap,
-        "signals": item.signals,
-        "signal_count": len(item.signals),
+        "evidence_hits": item.evidence_hits,
+        "independent_evidence_count": len(eligible_evidence_hits),
         "freshness_warnings": item.freshness_warnings,
         "selection_lane": selection_lane,
         "recommendation_lane": recommendation_lane,
@@ -1080,7 +1095,7 @@ def _selection_candidate(
 
 def _macro_rank(status: str | None) -> int:
     match status:
-        case "tailwind":
+        case "supportive":
             return 0
         case "neutral":
             return 1
@@ -1100,7 +1115,7 @@ def _lane_rank(name: str | None) -> int:
     return order.get(name or "", 99)
 
 
-def _signal_strength_key(name: str, metrics: Mapping[str, object]) -> tuple[float, ...]:
+def _evidence_strength_key(name: str, metrics: Mapping[str, object]) -> tuple[float, ...]:
     match name:
         case "valuation-reversion":
             return (
@@ -1152,14 +1167,14 @@ def _float_or(value: object, default: float) -> float:
     return float(value) if isinstance(value, (int, float)) else default
 
 
-def _signals_summary(
+def _evidence_hits_summary(
     candidates: Sequence[ScreenedCandidate],
     rules: ScreeningRules,
 ) -> dict[str, int]:
     summary = dict.fromkeys(rules.lane_order, 0)
     for candidate in candidates:
-        for signal in candidate.signals:
-            summary[signal.name] = summary.get(signal.name, 0) + 1
+        for evidence_hit in candidate.evidence_hits:
+            summary[evidence_hit.name] = summary.get(evidence_hit.name, 0) + 1
     return summary
 
 
@@ -1169,7 +1184,7 @@ def _required_ttm_non_exact_count(
 ) -> int:
     snapshots = tuple(financials)
     required_qualities: list[TTMQuality] = []
-    for lane in rules.signal_lanes.values():
+    for lane in rules.screening_playbooks.values():
         if isinstance(lane, CashflowYieldLane) and lane.ttm_cfo_required:
             required_qualities.extend(snapshot.ttm_quality_ocf_yield for snapshot in snapshots)
         if isinstance(lane, FcfYieldLane) and lane.fcf_required:
@@ -1214,34 +1229,6 @@ def _index_next_earnings(
         if ticker not in by_ticker or date_iso < by_ticker[ticker]:
             by_ticker[ticker] = date_iso
     return {ticker: date.fromisoformat(value) for ticker, value in by_ticker.items()}
-
-
-def migrate_cache_command(
-    *,
-    source: Path,
-    destination: Path,
-    dry_run: bool = False,
-    stdout: TextIO | None = None,
-) -> int:
-    """Move legacy `.cache/screening/` raw JSON to `records/_data/raw/screening/`.
-
-    The default source / destination match the layout introduced by issue #45.
-    Re-runs are idempotent: existing destination files are skipped, never
-    overwritten. The source tree's empty directories are pruned at the end so
-    the legacy `.cache/screening/` workspace can be removed cleanly.
-    """
-    out = stdout if stdout is not None else sys.stdout
-    if not source.exists():
-        print(f"nothing to migrate: {source} does not exist", file=out)
-        return 0
-    result = migrate_cache(source, destination, dry_run=dry_run)
-    verb = "would move" if dry_run else "moved"
-    print(
-        f"{verb} {len(result.moved)} files ({result.moved_bytes} bytes); "
-        f"skipped {len(result.skipped)} pre-existing files",
-        file=out,
-    )
-    return 0
 
 
 def rebuild_cache_command(

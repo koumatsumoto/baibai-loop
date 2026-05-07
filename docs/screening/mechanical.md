@@ -1,10 +1,10 @@
 # screening/mechanical.md
 
-Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕様。`records/03-candidates/` の出力を決める playbook-linked screen rule。
+Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕様。`records/04-candidates/` の出力を決める playbook-linked screen rule。
 
 ## 1. 位置付け
 
-- Decision lifecycle の **screen output (`records/03-candidates/`)** の中核
+- Decision lifecycle の **screen output (`records/04-candidates/`)** の中核
 - universe（[`universe-rules.md`](./universe-rules.md)）× valuation / cash / CF / sales 指標（[`valuation-metrics.md`](./valuation-metrics.md)）を入力
 - **通過銘柄 list を事実として出力**（解釈は入れない）
 - research 選定の input となる
@@ -36,7 +36,7 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 
 ## 3. Playbook-linked screen（OR 条件、最低 1 つ満たす）
 
-以下の playbook-linked screen のうち、**最低 1 つ** を満たす銘柄を通過とする。閾値は `records/_config/screening-rules.yaml` を正本とする。
+以下の playbook-linked screen のうち、**最低 1 つ** を満たす銘柄を通過とする。閾値は `records/_config/screening-rules/2026-05-01T000000+0900.yaml` を正本とする。
 
 ### 3.1 `valuation-reversion`
 
@@ -102,14 +102,14 @@ P/S が業種中央値比で安く、売上成長が残る銘柄を拾う。営�
 
 - **最低 1 つ満たせば通過**
 - 複数 screen hit が重なる銘柄は research 優先度を上げる
-- candidates YAML の `signals[]` に lane 名、playbook、hit reasons、判定に使った metrics を記録する
+- candidates YAML の `evidence_hits[]` に lane 名、playbook、hit reasons、判定に使った metrics を記録する
 
 ## 4. 出力
 
 ### 4.1 Path
 
 ```
-records/03-candidates/YYYY/MM/YYYY-MM-DD.yaml
+records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml
 ```
 
 1 実行 = 1 ファイル（週次運用）
@@ -132,9 +132,9 @@ candidates:
       cash_to_market_cap: 0.42
       net_cash_to_market_cap: 0.21
       fcf_yield: 0.08
-    signals:
+    evidence_hits:
       - name: cashflow-yield-discount
-        playbook: cashflow-yield-discount
+        playbook_id: cashflow-yield-discount
         reasons: [ocf_yield_discount]
 ```
 
@@ -157,7 +157,7 @@ JPX 規制情報は universe 定義の一部であり、必須 source が欠け�
 
 月次 retro で以下を評価:
 
-- **playbook-linked screen 別 hit 数**: 多すぎる / 少なすぎる場合は `screening-rules.yaml` の閾値調整候補
+- **playbook-linked screen 別 hit 数**: 多すぎる / 少なすぎる場合は `screening-rules/<effective_from>.yaml` の閾値調整候補
 - **採用率**: 通過銘柄のうち research で採用された割合
 - **missed opportunity tracking**: 見送り / 保留 / 未実行候補の事後パフォーマンス
 - **lane 別の成功 / 失敗分類**: どの割安タイプが機能したか
@@ -175,6 +175,6 @@ JPX 規制情報は universe 定義の一部であり、必須 source が欠け�
 - [`principles.md`](./principles.md): スクリーニング原則
 - [`universe-rules.md`](./universe-rules.md): universe 境界条件
 - [`valuation-metrics.md`](./valuation-metrics.md): 指標算出仕様
-- [`macro-gate-procedure.md`](./macro-gate-procedure.md): research 側の Macro gate
+- [`macro-gate-procedure.md`](./macro-gate-procedure.md): research 側の Macro regime gate
 - [`../components/candidates.md`](../components/candidates.md): candidates 運用仕様
 - [`../components/research.md`](../components/research.md): research 選定プロセス

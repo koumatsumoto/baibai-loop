@@ -2,29 +2,24 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from baibai_loop.validate.ledger import discover_ledger_files, validate_ledger_file
 
 
-def _paper_record(**overrides: object) -> dict[str, object]:
+def _decision_record(**overrides: object) -> dict[str, object]:
     record: dict[str, object] = {
-        "ledger_id": "paper-20260425-2767-vreversion",
+        "decision_event_id": "decision-20260425-2767-research",
+        "event_kind": "decision",
+        "decision_scope": "research_memo",
+        "provenance": "regenerated",
         "ticker": "2767",
-        "name": "Sample",
-        "decision": "accepted",
-        "playbook": "valuation-reversion",
-        "candidates_ref": "records/03-candidates/2026/04/2026-04-24.yaml",
-        "research_ref": "records/04-research/2026/04/sample.md",
-        "asof_date": "2026-04-24",
-        "decision_date": "2026-04-25",
-        "baseline_price": 100.0,
-        "market_cap_oku": 500.0,
-        "avg_turnover_oku": 10.0,
-        "signal_count": 2,
-        "macro_gate": "neutral",
-        "adv_participation_pct": 0.1,
-        "adjustment_applied": False,
-        "tracking": {"plus_15bd": None, "plus_30bd": None},
+        "candidate_decision": "selected",
+        "research_decision": {"outcome": "approved", "posture": "act_now"},
+        "tracking": {"mode": "post_approval"},
+        "trade_execution_state": "none",
     }
     record.update(overrides)
     return record
@@ -35,50 +30,145 @@ def _write_jsonl(path: Path, record: object) -> None:
     path.write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
-def test_discover_ledger_files_finds_paper_and_skipped(tmp_path: Path) -> None:
-    paper = tmp_path / "records/_ledger" / "paper" / "2026-04.jsonl"
-    skipped = tmp_path / "records/_ledger" / "skipped" / "2026-04.jsonl"
-    _write_jsonl(paper, _paper_record())
-    _write_jsonl(
-        skipped,
-        {
-            **_paper_record(),
-            "ledger_id": "skipped-20260425-2767-vreversion",
-            "decision": "skipped",
-            "research_ref": None,
-        },
-    )
-    assert discover_ledger_files(tmp_path / "records/_ledger") == [paper, skipped]
+def test_discover_ledger_files_finds_research_decision_register(tmp_path: Path) -> None:
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
+    _write_jsonl(path, _decision_record())
+    assert discover_ledger_files(tmp_path / "records/_ledger") == [path]
 
 
 def test_validate_ledger_invalid_json_is_finding(tmp_path: Path) -> None:
-    path = tmp_path / "records/_ledger" / "paper" / "2026-04.jsonl"
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
     path.parent.mkdir(parents=True)
     path.write_text("{bad\n", encoding="utf-8")
     assert "ledger.invalid-json" in {finding.code for finding in validate_ledger_file(path)}
 
 
 def test_validate_ledger_non_object_line_is_finding(tmp_path: Path) -> None:
-    path = tmp_path / "records/_ledger" / "paper" / "2026-04.jsonl"
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
     _write_jsonl(path, ["not", "object"])
     assert "ledger.non-object" in {finding.code for finding in validate_ledger_file(path)}
 
 
 def test_validate_ledger_missing_required_field_is_finding(tmp_path: Path) -> None:
-    path = tmp_path / "records/_ledger" / "paper" / "2026-04.jsonl"
-    record = _paper_record()
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
+    record = _decision_record()
     del record["ticker"]
     _write_jsonl(path, record)
     assert "ledger.required" in {finding.code for finding in validate_ledger_file(path)}
 
 
-def test_validate_ledger_rejects_adv_participation_cap(tmp_path: Path) -> None:
-    path = tmp_path / "records/_ledger" / "paper" / "2026-04.jsonl"
-    _write_jsonl(path, _paper_record(adv_participation_pct=5.0))
-    assert "ledger.exclusiveMaximum" in {finding.code for finding in validate_ledger_file(path)}
+def test_validate_ledger_rejects_bad_decision_scope(tmp_path: Path) -> None:
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
+    _write_jsonl(path, _decision_record(decision_scope="trade"))
+    assert "ledger.enum" in {finding.code for finding in validate_ledger_file(path)}
 
 
-def test_validate_ledger_rejects_bad_ledger_id_pattern(tmp_path: Path) -> None:
-    path = tmp_path / "records/_ledger" / "paper" / "2026-04.jsonl"
-    _write_jsonl(path, _paper_record(ledger_id="bad"))
+def test_validate_ledger_rejects_bad_ticker_pattern(tmp_path: Path) -> None:
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
+    _write_jsonl(path, _decision_record(ticker="bad"))
     assert "ledger.pattern" in {finding.code for finding in validate_ledger_file(path)}
+
+
+def test_candidate_coverage_requires_decision_event_for_hit_candidate(tmp_path: Path) -> None:
+    candidates_path = tmp_path / "records/04-candidates/2026/05/2026-05-01.yaml"
+    candidates_path.parent.mkdir(parents=True)
+    candidates_path.write_text(
+        "requires_decision_coverage: true\n"
+        "candidates:\n"
+        "- ticker: '9682'\n"
+        "  candidate_id: candidate-2026-05-01-9682\n"
+        "  playbook_screen_result: hit\n"
+        "  policy_gate_result: pass\n"
+        "  liquidity_gate_result: pass\n"
+        "  macro_regime_gate_result: pass\n",
+        encoding="utf-8",
+    )
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
+    _write_jsonl(path, _decision_record(ticker="2767"))
+
+    codes = {finding.code for finding in validate_ledger_file(path)}
+
+    assert "ledger.candidate-decision-coverage" in codes
+
+
+def test_not_reviewed_candidate_validation_reuses_candidate_document(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidate_ref = "records/04-candidates/2026/05/2026-05-01.yaml"
+    candidates_path = tmp_path / candidate_ref
+    candidates_path.parent.mkdir(parents=True)
+    candidates_path.write_text(
+        "requires_decision_coverage: true\n"
+        "candidates:\n"
+        "- ticker: '9682'\n"
+        "  candidate_id: candidate-2026-05-01-9682\n"
+        "  playbook_screen_result: hit\n"
+        "  policy_gate_result: pass\n"
+        "  liquidity_gate_result: pass\n"
+        "  macro_regime_gate_result: pass\n"
+        "- ticker: '9692'\n"
+        "  candidate_id: candidate-2026-05-01-9692\n"
+        "  playbook_screen_result: hit\n"
+        "  policy_gate_result: pass\n"
+        "  liquidity_gate_result: pass\n"
+        "  macro_regime_gate_result: pass\n",
+        encoding="utf-8",
+    )
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
+    path.parent.mkdir(parents=True)
+    records = [
+        _decision_record(
+            decision_event_id=f"decision-20260501-{ticker}-not-reviewed",
+            decision_scope="candidate_screen",
+            ticker=ticker,
+            candidate_decision="not_reviewed",
+            candidate_ref={
+                "candidates_ref": candidate_ref,
+                "candidate_id": f"candidate-2026-05-01-{ticker}",
+                "ticker": ticker,
+            },
+            tracking={"mode": "missed_opportunity"},
+        )
+        for ticker in ("9682", "9692")
+    ]
+    path.write_text(
+        "\n".join(json.dumps(record, ensure_ascii=False) for record in records) + "\n",
+        encoding="utf-8",
+    )
+    original_read_text = Path.read_text
+    candidate_reads = 0
+
+    def counted_read_text(self: Path, *args: Any, **kwargs: Any) -> str:
+        nonlocal candidate_reads
+        if self == candidates_path:
+            candidate_reads += 1
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counted_read_text)
+
+    findings = validate_ledger_file(path)
+
+    assert findings == []
+    assert candidate_reads == 2
+
+
+def test_candidate_coverage_rejects_disabled_coverage(tmp_path: Path) -> None:
+    candidates_path = tmp_path / "records/04-candidates/2026/05/2026-05-01.yaml"
+    candidates_path.parent.mkdir(parents=True)
+    candidates_path.write_text(
+        "requires_decision_coverage: false\n"
+        "candidates:\n"
+        "- ticker: '9682'\n"
+        "  candidate_id: candidate-2026-05-01-9682\n"
+        "  playbook_screen_result: hit\n"
+        "  policy_gate_result: pass\n"
+        "  liquidity_gate_result: pass\n"
+        "  macro_regime_gate_result: pass\n",
+        encoding="utf-8",
+    )
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
+    _write_jsonl(path, _decision_record(ticker="2767"))
+
+    codes = {finding.code for finding in validate_ledger_file(path)}
+
+    assert "ledger.candidate-coverage-disabled" in codes

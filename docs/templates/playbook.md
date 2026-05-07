@@ -44,10 +44,10 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
 - [短期 catalyst の種別と freshness 上限]
 
-### 2.4 Macro gate 条件
+### 2.4 Macro regime gate 条件
 
-- 業種/地域のマクロ gate が `tailwind` または `neutral`
-- `headwind` は採用不可
+- 業種/地域のマクロ gate が `supportive` または `neutral`
+- `adverse` は採用不可
 
 ### 2.5 Universe 条件
 
@@ -56,12 +56,12 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
 ## 3. 修飾因子
 
-### 3.1 Crowding (positioning / liquidity)
+### 3.1 Positioning / liquidity
 
 - 空売り残高 / 日々公表信用 / 特別注意 / 貸借状態の評価
 - 踏み上げリスクと逆回転リスクの両面評価
 
-### 3.2 Macro tailwind（二重確認）
+### 3.2 Macro supportive（二重確認）
 
 - outlook の業種/地域判定を再確認
 
@@ -73,7 +73,7 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
 - [業績下方修正]
 - [業種中央値切り下がり]
-- [マクロゲート headwind 反転]
+- [マクロゲート adverse 反転]
 - [出来高を伴わない下落継続]
 
 ## 5. Exit 戦略
@@ -99,7 +99,7 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 [`/docs/components/research.md`](/docs/components/research.md) の AI 境界表を継承。核心:
 
 - **AI 可**: Thesis / valuation / 仮説ドラフト / catalyst / price / positioning-liquidity
-- **人間のみ**: Macro gate 確定 / 一次ソース URL 確認 / 最終採用判定
+- **人間のみ**: Macro regime gate 確定 / 一次ソース URL 確認 / 最終採用判定
 
 ## 9. 改訂履歴
 

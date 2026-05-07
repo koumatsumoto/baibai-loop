@@ -1,32 +1,49 @@
 ---
 ticker: "XXXX"
-trade_ref: records/05-trades/YYYY/MM/YYYY-MM-DD-<ticker>.md
-research_ref: records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
-playbook: valuation-reversion | strict-net-cash-discount | fcf-yield-discount | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth
-entry_date: "YYYY-MM-DD"
-exit_date: "YYYY-MM-DD"
-pnl_pct: 数値
-review_15d_done: true | false
-review_30d_done: true | false
-failure_class: null | "材料誤読" | "既に織り込み済み" | "マクロ逆風" | "混雑" | "流動性不足" | "ルール違反"
-success_class: null | "仮説的中" | "catalyst 反応" | "macro tailwind" | "timing 一致"
-free_text: "一行で事後検証の要点"
+decision_event_id: decision-YYYYMMDD-XXXX-review-target
+research_ref: records/05-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
+trade_ref: records/06-trades/YYYY/MM/YYYY-MM-DD-<ticker>.md
+playbook_id: valuation-reversion | strict-net-cash-discount | fcf-yield-discount | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth
+classification: success | failure | invalidated | inconclusive
+verified_at: "YYYY-MM-DDTHH:MM:SS+09:00"
+outcome:
+  horizon_bd: 15
+  start_price_basis: first_fill_vwap_yen | research_max_entry_price_yen | candidate_run_close_adjusted_close
+  start_price_yen: 0
+  end_price_yen: 0
+  gross_return_pct: 0.0
+  market_baseline_return_pct: 0.0
+  sector_baseline_return_pct: 0.0
+  market_relative_return_pct: 0.0
+  sector_relative_return_pct: 0.0
+  primary_relative_baseline: sector
+  primary_relative_return_pct: 0.0
+  execution_costs_yen: 0
+  net_return_pct: 0.0
+attribution_targets:
+  - type: evidence_hit | macro_regime_gate | sizing | execution | playbook
+    target_id: "id"
+    effect: helped | hurt | neutral | unknown
+    confidence: high | medium | low
+structured_field_provenance:
+  outcome: machine_calculated
+  attribution_targets: analyst_written | llm_drafted_analyst_confirmed
 ---
 
 # Review: YYYY-MM-DD XXXX [銘柄名]
 
 **成分**: Decision lifecycle の **reviews / attribution**（[`/docs/components/reviews.md`](/docs/components/reviews.md)）
 
-**Trade**: [records/05-trades/YYYY/MM/YYYY-MM-DD-XXXX.md](/records/05-trades/YYYY/MM/YYYY-MM-DD-XXXX.md)
-**Research**: [records/04-research/YYYY/MM/YYYY-MM-DD-XXXX-*.md](/records/04-research/YYYY/MM/YYYY-MM-DD-XXXX-*.md)
+**Trade**: [records/06-trades/YYYY/MM/YYYY-MM-DD-XXXX.md](/records/06-trades/YYYY/MM/YYYY-MM-DD-XXXX.md)
+**Research**: [records/05-research/YYYY/MM/YYYY-MM-DD-XXXX-*.md](/records/05-research/YYYY/MM/YYYY-MM-DD-XXXX-*.md)
 
 ## 1. Trade 概要
 
 - Playbook: [valuation-reversion | strict-net-cash-discount | fcf-yield-discount | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth]
-- Entry: YYYY-MM-DD @XXXXX 円
-- Exit: YYYY-MM-DD @XXXXX 円
-- 損益率: +X.X%
-- 保有営業日: XX 日
+- Decision event: `decision_event_id`
+- Review horizon: 15 / 30 business days
+- Return basis: market / sector relative return
+- Execution costs: commission / tax / slippage
 
 ## 2. 採用時 thesis の振り返り
 
@@ -34,17 +51,17 @@ free_text: "一行で事後検証の要点"
 - **実際に起きたこと**: [事実として記述]
 - **Thesis の的中度**: [完全的中 / 部分的中 / 外れ]
 
-## 3. 成功分類 or 失敗分類
+## 3. Attribution classification
 
 ### 3.1 分類
 
-- **失敗分類**（該当する場合）: [材料誤読 / 織り込み済み / マクロ逆風 / 混雑 / 流動性不足 / ルール違反] または null
-- **成功分類**（該当する場合）: [仮説的中 / catalyst 反応 / macro tailwind / timing 一致] または null
-- 両方 null は許容しない（どちらか記入必須）
+- **Classification**: success / failure / invalidated / inconclusive
+- **Primary attribution**: evidence_hit / macro_regime_gate / sizing / execution / playbook
+- **Confidence**: high / medium / low
 
 ### 3.2 自由記述（必須）
 
-[1 行で事後検証の要点。四半期再分類の source]
+[判断改善に使う要点。evidence / macro / sizing / execution / playbook のどれに帰属するかを明確にする]
 
 ## 4. +15 営業日レビュー（exit 日 + 15 営業日時点）
 
@@ -65,7 +82,7 @@ Review 実施日: YYYY-MM-DD
 
 ## 6. 月次 retro への引き渡し
 
-本 review の要点を月次 retro ([`retro-YYYYMM.md`](/records/06-reviews/YYYY/retro-YYYYMM.md)) でまとめる:
+本 review の要点を月次 retro ([`retro-YYYYMM.md`](/records/07-reviews/YYYY/retro-YYYYMM.md)) でまとめる:
 
 - 成功/失敗分類と自由記述
 - 四半期再分類の input 候補

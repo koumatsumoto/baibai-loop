@@ -1,0 +1,10 @@
+snapshot_id: market-data-20260501-close
+as_of: '2026-05-01'
+price_basis: adjusted_close
+prices:
+  '3678': 1225
+  '6310': 1726
+  '6835': 262
+  '7613': 1284
+  '9682': 1014
+  '9692': 1929

@@ -1,55 +1,43 @@
 # Ledger
 
-`records/_ledger/` は research decision と tracking event を正規化した JSONL の保存先である。Baibai-Loop では、research の採用・保留・見送り判断と、その後の価格追跡を append-only な decision and tracking register として扱う。
+`records/_ledger/` は候補選定、investment memo、execution intent を append-only に正規化する decision register である。Candidates は screen fact を保持し、ledger は判断イベントと tracking state を保持する。
 
 ## 1. 役割
 
-- `records/04-research/**/*.md` の `decision` を decision register に正規化する
-- 同じ `ledger_id` を upsert し、同じ入力の再実行で重複行を作らない
-- `baseline_price` と `tracking.plus_15bd` / `tracking.plus_30bd` を J-Quants daily から更新する
-- tracking が更新された場合は `records/_ledger/updates/YYYY-MM.jsonl` に event log を残す
+- `records/05-research/**/*.md` の `research_decision` を decision event として正規化する
+- selected / deferred / rejected / not_reviewed の candidate-level event を追跡する
+- approved-but-not-submitted、submitted、filled、broker rejected などの execution state を trade lineage と接続する
+- `baseline_price` と tracking horizon を market data snapshot から更新する
+- correction は既存行の書き換えではなく `event_kind: correction` の追加 event で表す
 
 ## 2. ファイル構造
 
-- `records/_ledger/paper/YYYY-MM.jsonl`: 実行検討に進む research decision（`decision: accepted | pending`）
-- `records/_ledger/skipped/YYYY-MM.jsonl`: 見送り research decision（`decision: skipped`）
-- `records/_ledger/updates/YYYY-MM.jsonl`: `{ledger_id, field, old, new, observed_at}` の更新イベント。
-  追跡対象 field は `baseline_price`, `adjustment_applied`, `tracking`, `decision`,
-  `macro_gate`, `adv_participation_pct` の 6 個。新規 record の作成時には event を残さず、
-  既存 record の値が変わった時のみ追記する。
+- `records/_ledger/research-decisions/YYYY-MM.jsonl`: decision register の正本
+- `records/_ledger/updates/YYYY-MM.jsonl`: tracking / correction の補助 event log
 
-## 3. ledger_id
+JSONL は 1 行 1 event。current state は同じ `decision_event_id` / correction lineage を解決し、対象 ticker / candidate / research / trade ごとに最新の有効 event を読む。
 
-`ledger_id` は以下の形式で固定する。
+## 3. 主なフィールド
 
-- paper: `paper-{decision_date:YYYYMMDD}-{ticker}-{playbook_short}`
-- skipped: `skipped-{decision_date:YYYYMMDD}-{ticker}-{playbook_short_or_default}`
+- `decision_event_id`: decision event の安定 ID
+- `event_kind`: `decision | correction`
+- `decision_scope`: `candidate_screen | research_memo | trade_execution`
+- `ticker`
+- `candidate_ref`
+- `research_ref`
+- `trade_ref`
+- `candidate_decision`: `selected | deferred | rejected | not_reviewed | null`
+- `research_decision`: `{outcome, posture, reason...}`
+- `trade_execution_state`: `none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled`
+- `playbook_id` / `playbook_snapshot`
+- `policy_snapshot`
+- `conviction_tier`
+- `independent_evidence_count`
+- `tracking`
 
-例: `paper-20260425-2767-vmean`
+`decision_event_id` は register 内の join key であり、trade record の `order_intent.order_intent_id`、`orders[].origin_order_intent_id`、review attribution の anchor と接続する。
 
-## 4. 必須フィールド
-
-paper / skipped の各 decision record は以下を持つ。取得不能な価格・出来高系は `null` を許容する。
-
-- `ticker` / `name` / `decision` / `playbook`
-- `candidates_ref` / `research_ref`
-- `asof_date` / `decision_date`
-- `baseline_price`
-- `market_cap_oku` / `avg_turnover_oku`
-- `signal_count`（概念上は independent evidence count / evidence hit 由来の count）
-- `macro_gate`
-- `adv_participation_pct`
-- `adjustment_applied`
-- `tracking.plus_15bd` / `tracking.plus_30bd`
-
-`adv_participation_pct >= 5.0` は validate hard reject。`position_size_oku` は仮定資本
-`1.0` 億円ベースで、research 本文の `採用 position: 1.0%` は `0.01` 億円として記録する。
-実資本を変える場合は、過去 ledger を再生成する。
-
-`adjustment_applied` は `adjustment_close != close` のときだけ `true` とする。単に
-J-Quants の `adjustment_close` フィールドが存在するだけでは `true` にしない。
-
-## 5. 更新タイミング
+## 4. Sync
 
 手元では次を実行する。
 
@@ -57,79 +45,36 @@ J-Quants の `adjustment_close` フィールドが存在するだけでは `true
 uv run baibai-loop-ledger sync --root .
 ```
 
-日次更新は `.github/workflows/ledger-sync.yml` が平日 22:00 UTC (JST 翌 07:00) に実行する。
-schedule では `--require-market-data` を付け、J-Quants token や market data が取れない場合は
-workflow を失敗させる。
+同じ入力からの再実行は同じ `decision_event_id` を更新対象として扱い、重複行を作らない。判断の訂正や無効化が必要な場合は correction event を追加する。
 
-## 5.1 Audit log としての性質
+## 5. schema 検証
 
-`baibai-loop-ledger sync` は `src/baibai_loop/ledger/io.py` の `upsert_jsonl` 経由で書き込み、
-**既存 record を削除しない**。`paper/` と `skipped/` のいずれも、過去に書き込まれた
-`ledger_id` 行は research packet が削除・移動・decision flip しても残り続ける。これは
-意図した audit log 設計であり、bug ではない。
-
-### 5.1.1 Decision flip の見え方
-
-research の `decision` を `accepted → skipped` (またはその逆) に flip すると、`ledger_id` の
-prefix が `paper-` / `skipped-` で変わるため、両 ledger に同 ticker / 同 `decision_date` の
-行が残る。例:
-
-```
-records/_ledger/paper/2026-04.jsonl
-  paper-20260425-3962-vmean   decision=accepted   (旧 sync 結果が残存)
-
-records/_ledger/skipped/2026-04.jsonl
-  skipped-20260425-3962-vmean decision=skipped    (flip 後の sync で追加)
-```
-
-両方の行は履歴として正しい。ある時点の current state を再構成するには次のいずれかを使う。
-
-- 最新 sync 時点の view: `records/_ledger/updates/YYYY-MM.jsonl` の `decision` event を最後まで巡って状態確定する
-- research 側を正本にする: `records/04-research/**/*.md` の `decision` を改めて grep する
-- retro: 次節 §7 の `baibai-loop-ledger retro` を使う (event log を畳んで集計する)
-
-### 5.1.2 Orphan 行の扱い
-
-`baibai-loop-ledger sync --dry-run` で `! ledger_id` が出る行は、対応 research packet が
-削除・移動された orphan である。retro 集計の整合確認のための通知であり、自動削除はしない。
-意図的に packet を消した場合は、ledger 行を手動で削除するか、新規 packet を作って
-`ledger_id` を upsert で上書きする。
-
-## 6. schema 検証
-
-ledger JSONL は [`/records/_schemas/ledger-paper-v1.json`](/records/_schemas/ledger-paper-v1.json) と
-[`/records/_schemas/ledger-skipped-v1.json`](/records/_schemas/ledger-skipped-v1.json) で検証する。
-手元では次を実行する。
+decision register は [`/records/_schemas/decision-register.json`](/records/_schemas/decision-register.json) で検証する。
 
 ```bash
 uv run baibai-loop-validate --target ledger
 ```
 
-## 7. 月次 retro 下書き
+## 6. 月次 retro 下書き
 
-ledger と任意の個別 review から、月次 retro の下書きを生成する。
+ledger と個別 review から月次 retro の下書きを生成する。
 
 ```bash
 uv run baibai-loop-ledger retro --root . --month YYYY-MM
 ```
 
-出力先は `records/06-reviews/YYYY/retro-YYYYMM.md`。個別 review がまだ無い月でも ledger 単独で生成し、
-`price_missing_counts.plus_15bd` / `price_missing_counts.plus_30bd` に tracking 未解決件数を
-必ず出す。既存ファイルがある場合は上書きしない。確認だけなら `--dry-run` を使う。
+出力先は `records/07-reviews/YYYY/retro-YYYYMM.md`。`approved_decisions`, `submitted_orders`, `filled_positions`, `closed_positions`, `missed_opportunities`, `price_missing_counts` を register から集計する。既存ファイルがある場合は上書きしない。確認だけなら `--dry-run` を使う。
 
-## 8. dry-run 出力の読み方
+## 7. dry-run 出力
 
 `baibai-loop-ledger sync --dry-run` は次の prefix で差分を表示する。
 
-- `+ ledger_id`: 新規 record (upsert で追記される)
-- `~ ledger_id`: 既存 record の値が変わる (upsert で置換される)
-- `! ledger_id`: 既存 record だが今回の入力 (research / select) には現れない orphan。
-  ledger は audit log のため upsert は削除しない。research packet が消えた・移動した等の
-  状況で発生し、retro 集計の整合確認のための通知である。
+- `+ decision_event_id`: 新規 event
+- `~ decision_event_id`: 既存 event の再生成差分
+- `! decision_event_id`: 入力側から参照できない orphan candidate / research / trade event
 
-## 9. 事故時の扱い
+orphan は自動削除しない。必要なら correction event で明示的に void する。
 
-JSONL は 1 行 1 record で、`ledger_id` が主キーである。壊れた行がある場合は
-`uv run baibai-loop-validate --target ledger` で該当 line を確認し、元の research packet
-から再 sync する。`records/_ledger/updates/` は event log なので、重複や誤記録があれば該当行を
-削除して次回 sync で再生成する。
+## 8. 事故時の扱い
+
+壊れた JSONL 行は `uv run baibai-loop-validate --target ledger` で line を確認し、該当 source artifact から再 sync する。tracking / correction log の誤記録は、新しい correction event で forward-only に修正する。

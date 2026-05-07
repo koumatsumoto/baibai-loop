@@ -14,18 +14,18 @@ Baibai-Loop は fact layer を先に固定し、analysis layer がその参照�
 External primary sources
   |
   v
-records/01-brief/             records/03-candidates/
+records/02-brief/             records/04-candidates/
   |                            |
   | updated_from               | candidates_ref
   v                            v
-records/02-outlook/ ------> records/04-research/
+records/03-outlook/ ------> records/05-research/
        outlook_ref              |
-                                | accepted / skipped / pending
+                                | approved / deferred / rejected
                                 v
-                         records/05-trades/
+                         records/06-trades/
                                 |
                                 v
-                         records/06-reviews/
+                         records/07-reviews/
                                 |
                                 v
                   records/_playbooks/ and screening rules
@@ -33,12 +33,12 @@ records/02-outlook/ ------> records/04-research/
 
 ## Flow rules
 
-- `records/01-brief/` は fact source です。解釈、予測、相場観を書きません。
-- `records/02-outlook/` は brief を source として分析します。外部 URL を直接 source of truth にしません。
-- `records/03-candidates/` は screening 結果の fact snapshot です。通過理由を分析文として書きません。
-- `records/04-research/` は candidates と outlook の統合点です。`candidates_ref` と `outlook_ref` を必須入力として扱います。
-- `records/05-trades/` は採用済み research に対する執行記録です。
-- `records/06-reviews/` は forward-only な検証です。retro で playbook や screening rule の改訂判断をします。
+- `records/02-brief/` は fact source です。解釈、予測、相場観を書きません。
+- `records/03-outlook/` は brief を source として分析します。外部 URL を直接 source of truth にしません。
+- `records/04-candidates/` は screening 結果の fact snapshot です。通過理由を分析文として書きません。
+- `records/05-research/` は candidates と outlook の統合点です。`candidates_ref` と `outlook_ref` を必須入力として扱います。
+- `records/06-trades/` は採用済み research に対する執行記録です。
+- `records/07-reviews/` は forward-only な検証です。retro で playbook や screening rule の改訂判断をします。
 
 ## Feedback loop
 

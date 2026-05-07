@@ -19,12 +19,12 @@ Baibai-Loop は、日本株スイングトレードの判断を forward-only に
 | Concept | Repository location | レイヤー | 役割 |
 | --- | --- | --- | --- |
 | portfolio policy | [`docs/components/portfolio-policy.md`](../components/portfolio-policy.md) | governance | 目的、制約、資本、許容リスク、time horizon を固定する |
-| observations | `records/01-brief/` | fact | 一次統計、地政学、マーケット指標を事実として蓄積する |
-| regime view | `records/02-outlook/` | analysis | brief を積み上げ、macro / sector regime を判断する |
-| screen output | `records/03-candidates/` | fact | universe と screening rule から ticker-level raw screen output を記録する |
-| investment memo | `records/04-research/` | analysis | candidates と outlook を統合し、thesis payoff と採用可否を判断する |
-| execution record | `records/05-trades/` | execution | 実際に order / entry した採用判断の注文、約定、建玉、決済を記録する |
-| attribution review | `records/06-reviews/` | feedback | relative return、missed opportunity、playbook attribution で feedback loop を閉じる |
+| observations | `records/02-brief/` | fact | 一次統計、地政学、マーケット指標を事実として蓄積する |
+| regime view | `records/03-outlook/` | analysis | brief を積み上げ、macro / sector regime を判断する |
+| screen output | `records/04-candidates/` | fact | universe と screening rule から ticker-level raw screen output を記録する |
+| investment memo | `records/05-research/` | analysis | candidates と outlook を統合し、thesis payoff と採用可否を判断する |
+| execution record | `records/06-trades/` | execution | 実際に order / entry した採用判断の注文、約定、建玉、決済を記録する |
+| attribution review | `records/07-reviews/` | feedback | relative return、missed opportunity、playbook attribution で feedback loop を閉じる |
 
 ## Decision Loop
 

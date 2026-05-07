@@ -21,7 +21,7 @@ Baibai-Loop は AI 下書きを前提にするが、AI が過去の解釈を観�
 
 ## Decision
 
-事実成果物と分析成果物を別 directory に保存する。`records/01-brief/` と `records/03-candidates/` は fact layer、`records/02-outlook/` と `records/04-research/` は analysis layer とする。
+事実成果物と分析成果物を別 directory に保存する。`records/02-brief/` と `records/04-candidates/` は fact layer、`records/03-outlook/` と `records/05-research/` は analysis layer とする。
 
 ## Rationale
 

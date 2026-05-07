@@ -13,12 +13,19 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal, TextIO, assert_never
 
+from .benchmark import discover_benchmark_manifest_files, validate_benchmark_manifest_file
 from .brief import discover_brief_files, validate_brief_file
+from .calendar import discover_calendar_files, validate_calendar_file
 from .candidates import discover_candidates_files, validate_candidates_file
 from .errors import ValidationFinding
 from .ledger import discover_ledger_files, validate_ledger_file
 from .outlook import discover_outlook_files, validate_outlook_file
 from .playbook_schema import discover_playbook_schemas
+from .policy import discover_policy_files, validate_policy_file
+from .portfolio_exposure import (
+    discover_portfolio_exposure_files,
+    validate_portfolio_exposure_file,
+)
 from .research import (
     discover_research_files,
     load_research_document,
@@ -27,29 +34,50 @@ from .research import (
     validate_research_parsed,
 )
 from .review import discover_review_files, validate_review_file
+from .snapshots import discover_snapshot_validation_files, validate_snapshot_integrity
 from .trade import discover_trade_files, validate_trade_file
 
 type ValidationTarget = Literal[
-    "brief", "candidates", "outlook", "research", "trade", "ledger", "review"
-]
-_TARGETS: tuple[ValidationTarget, ...] = (
     "brief",
+    "policy",
+    "benchmark",
     "candidates",
     "outlook",
     "research",
     "trade",
     "ledger",
     "review",
+    "portfolio-exposure",
+    "snapshots",
+    "calendar",
+]
+_TARGETS: tuple[ValidationTarget, ...] = (
+    "brief",
+    "policy",
+    "benchmark",
+    "candidates",
+    "outlook",
+    "research",
+    "trade",
+    "ledger",
+    "review",
+    "portfolio-exposure",
+    "snapshots",
+    "calendar",
 )
 
-BRIEF_ROOT = Path("records/01-brief")
-CANDIDATES_ROOT = Path("records/03-candidates")
-OUTLOOK_ROOT = Path("records/02-outlook")
-RESEARCH_ROOT = Path("records/04-research")
-TRADES_ROOT = Path("records/05-trades")
+BRIEF_ROOT = Path("records/02-brief")
+POLICY_ROOT = Path("records/01-policy")
+BENCHMARK_ROOT = Path("records/_benchmarks")
+CANDIDATES_ROOT = Path("records/04-candidates")
+OUTLOOK_ROOT = Path("records/03-outlook")
+RESEARCH_ROOT = Path("records/05-research")
+TRADES_ROOT = Path("records/06-trades")
 LEDGER_ROOT = Path("records/_ledger")
 PLAYBOOKS_ROOT = Path("records/_playbooks")
-REVIEWS_ROOT = Path("records/06-reviews")
+REVIEWS_ROOT = Path("records/07-reviews")
+PORTFOLIO_EXPOSURE_ROOT = Path("records/_portfolio-exposure")
+CALENDAR_ROOT = Path("records/_calendars")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -115,6 +143,8 @@ def run_validation(
         files = _discover(root, target)
         file_count += len(files)
         for path in files:
+            if target == "snapshots":
+                continue
             if target == "research":
                 doc = research_documents[path]
                 if isinstance(doc, list):
@@ -132,6 +162,8 @@ def run_validation(
                     )
             else:
                 findings.extend(_validate(root, target, path, known_playbooks))
+        if target == "snapshots":
+            findings.extend(validate_snapshot_integrity(root))
     if research_documents:
         front_matters = [
             (path, doc[0]) for path, doc in research_documents.items() if not isinstance(doc, list)
@@ -160,6 +192,10 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
     match target:
         case "brief":
             return discover_brief_files(root / BRIEF_ROOT)
+        case "policy":
+            return discover_policy_files(root / POLICY_ROOT)
+        case "benchmark":
+            return discover_benchmark_manifest_files(root / BENCHMARK_ROOT)
         case "candidates":
             return discover_candidates_files(root / CANDIDATES_ROOT)
         case "outlook":
@@ -172,6 +208,12 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
             return discover_ledger_files(root / LEDGER_ROOT)
         case "review":
             return discover_review_files(root / REVIEWS_ROOT)
+        case "portfolio-exposure":
+            return discover_portfolio_exposure_files(root / PORTFOLIO_EXPOSURE_ROOT)
+        case "snapshots":
+            return discover_snapshot_validation_files(root)
+        case "calendar":
+            return discover_calendar_files(root / CALENDAR_ROOT)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 
@@ -185,6 +227,10 @@ def _validate(
     match target:
         case "brief":
             return validate_brief_file(path)
+        case "policy":
+            return validate_policy_file(path)
+        case "benchmark":
+            return validate_benchmark_manifest_file(path)
         case "candidates":
             return validate_candidates_file(path)
         case "outlook":
@@ -201,6 +247,12 @@ def _validate(
             return validate_ledger_file(path)
         case "review":
             return validate_review_file(path)
+        case "portfolio-exposure":
+            return validate_portfolio_exposure_file(path)
+        case "snapshots":
+            return []
+        case "calendar":
+            return validate_calendar_file(path)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 

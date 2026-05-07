@@ -17,7 +17,6 @@ DEFAULT_CACHE_DIR = Path("records/_data/raw/screening")
 # Gitignored derived caches (SQLite, rebuild temp). Built from the raw JSON
 # under DEFAULT_CACHE_DIR; safe to delete and rebuild on any machine.
 DEFAULT_SQLITE_CACHE_DIR = Path("records/_data/cache/screening")
-LEGACY_CACHE_DIR = Path(".cache/screening")
 JQUANTS_CLIENT_V2_METHODS = (
     "get_eq_master",
     "get_eq_bars_daily_range",
@@ -49,7 +48,7 @@ class ScreeningConfig(BaseModel):
     edinet_api_key: str | None = None
     cache_dir: Path = DEFAULT_CACHE_DIR
     sqlite_cache_dir: Path = DEFAULT_SQLITE_CACHE_DIR
-    rules_path: Path = Path("records/_config/screening-rules.yaml")
+    rules_path: Path = Path("records/_config/screening-rules/2026-05-01T000000+0900.yaml")
     jpx_regulation_urls: Mapping[str, str] = Field(default_factory=dict)
     jpx_special_caution_index_url: str | None = None
 
@@ -100,11 +99,8 @@ class ScreeningConfig(BaseModel):
             missing_names = ", ".join(missing)
             raise ConfigError(f"missing required env vars: {missing_names}")
 
-        # cache_dir は records/_data/raw/screening 固定 (git 追跡対象)。
-        # 過去 SCREENING_CACHE_DIR で override 可能だったが、.env 値が
-        # 古い `.cache/screening` を指したまま残ると新しい canonical
-        # ツリーが無視され、chunk 整合のとれない split cache を抱える
-        # regression を起こすので env override を廃止する。
+        # cache_dir は git 追跡対象の canonical raw-data tree に固定する。
+        # env override は chunk lineage を分断するため受け付けない。
         cache_dir_value = str(DEFAULT_CACHE_DIR)
         sqlite_cache_dir_value = str(DEFAULT_SQLITE_CACHE_DIR)
         jpx_regulation_urls = {
@@ -124,7 +120,8 @@ class ScreeningConfig(BaseModel):
                 sqlite_cache_dir=sqlite_cache_dir_value,
                 rules_path=str(
                     Path(
-                        source.get("SCREENING_RULES_PATH") or "records/_config/screening-rules.yaml"
+                        source.get("SCREENING_RULES_PATH")
+                        or "records/_config/screening-rules/2026-05-01T000000+0900.yaml"
                     )
                 ),
                 jpx_regulation_urls=jpx_regulation_urls,

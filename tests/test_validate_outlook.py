@@ -64,13 +64,13 @@ def _minimal_outlook() -> dict[str, object]:
         "ai_draft": True,
         "published_at": "2026-04-27T09:00:00+09:00",
         "horizon": "1-6m",
-        "updated_from": ["records/01-brief/2026/04/2026-04-19-world-weekly-x.yaml"],
+        "updated_from": ["records/02-brief/2026/04/2026-04-19-world-weekly-x.yaml"],
         "summary": "summary",
         "sectors": {sector: _judgement("neutral") for sector in _TSE_33_SECTORS},
-        "regions": {
+        "exposure_buckets": {
             "us": _judgement("neutral"),
             "japan-domestic": _judgement("neutral"),
-            "japan-external-demand": _judgement("tailwind"),
+            "japan-external-demand": _judgement("supportive"),
             "emerging": _judgement(None),
         },
         "changes": [],
@@ -123,9 +123,9 @@ class OutlookValidationTests(unittest.TestCase):
 
     def test_null_status_with_rationale_is_allowed(self) -> None:
         payload = _minimal_outlook()
-        regions = payload["regions"]
-        assert isinstance(regions, dict)
-        regions["emerging"] = {
+        exposure_buckets = payload["exposure_buckets"]
+        assert isinstance(exposure_buckets, dict)
+        exposure_buckets["emerging"] = {
             "status": None,
             "rationale": "材料不足",
             "source_refs": [],
@@ -139,9 +139,9 @@ class OutlookValidationTests(unittest.TestCase):
 
     def test_missing_rationale_is_flagged(self) -> None:
         payload = _minimal_outlook()
-        regions = payload["regions"]
-        assert isinstance(regions, dict)
-        regions["us"] = {"status": "neutral", "source_refs": []}
+        exposure_buckets = payload["exposure_buckets"]
+        assert isinstance(exposure_buckets, dict)
+        exposure_buckets["us"] = {"status": "neutral", "source_refs": []}
         path = _write_yaml(payload)
         try:
             findings = validate_outlook_file(path)
@@ -150,11 +150,11 @@ class OutlookValidationTests(unittest.TestCase):
         codes = {f.code for f in findings}
         self.assertIn("outlook.required", codes)
 
-    def test_unknown_region_is_flagged(self) -> None:
+    def test_unknown_exposure_bucket_is_flagged(self) -> None:
         payload = _minimal_outlook()
-        regions = payload["regions"]
-        assert isinstance(regions, dict)
-        regions["unknown-region"] = _judgement("neutral")
+        exposure_buckets = payload["exposure_buckets"]
+        assert isinstance(exposure_buckets, dict)
+        exposure_buckets["unknown-exposure"] = _judgement("neutral")
         path = _write_yaml(payload)
         try:
             findings = validate_outlook_file(path)
@@ -165,7 +165,7 @@ class OutlookValidationTests(unittest.TestCase):
 
     def test_updated_from_must_point_to_yaml(self) -> None:
         payload = _minimal_outlook()
-        payload["updated_from"] = ["records/01-brief/2026/04/2026-04-19-world-weekly-x.md"]
+        payload["updated_from"] = ["records/02-brief/2026/04/2026-04-19-world-weekly-x.md"]
         path = _write_yaml(payload)
         try:
             findings = validate_outlook_file(path)
@@ -175,7 +175,7 @@ class OutlookValidationTests(unittest.TestCase):
         self.assertIn("outlook.pattern", codes)
 
     def test_repository_outlook_files_pass(self) -> None:
-        repo_outlook = ROOT / "records/02-outlook"
+        repo_outlook = ROOT / "records/03-outlook"
         files = discover_outlook_files(repo_outlook)
         if not files:
             self.skipTest("no outlook files under repository root")

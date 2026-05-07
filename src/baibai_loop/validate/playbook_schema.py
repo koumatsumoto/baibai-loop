@@ -1,12 +1,4 @@
-"""Per-playbook schema loader for research markdown body sections.
-
-R6 で「validate のコア schema と playbook 個別 schema を分離」を採用した。
-本モジュールは `records/_playbooks/<name>.schema.yaml` を読み込み、research markdown の
-本文に必須 section が揃っているかを section title pattern で検証する。
-
-新 playbook を追加した場合は同名 schema YAML を playbook ファイルと一緒に置く
-だけで validate に反映される (validate 本体改修不要)。
-"""
+"""Per-playbook schema loader for research markdown body sections."""
 
 from __future__ import annotations
 
@@ -36,24 +28,15 @@ class PlaybookSchema:
 
 
 def discover_playbook_schemas(root: Path) -> set[str]:
-    """Return the set of playbook names with a `<name>.schema.yaml` under `root`.
-
-    Used by `validate_research_file` to dynamically determine the valid
-    playbook universe so that adding a new playbook requires only dropping a
-    schema YAML next to the playbook markdown — no edit to validate code.
-    """
+    """Return the set of playbook ids with an immutable snapshot schema."""
     if not root.exists():
         return set()
-    return {
-        path.name.removesuffix(".schema.yaml")
-        for path in root.glob("*.schema.yaml")
-        if path.is_file()
-    }
+    return {path.parent.name for path in root.glob("*/body-schema.yaml") if path.is_file()}
 
 
 def load_playbook_schema(root: Path, playbook: str) -> PlaybookSchema:
-    """Load `<root>/<playbook>.schema.yaml` and parse it into a PlaybookSchema."""
-    schema_path = root / f"{playbook}.schema.yaml"
+    """Load a playbook body schema and parse it into a PlaybookSchema."""
+    schema_path = root / playbook / "body-schema.yaml"
     if not schema_path.exists():
         raise FileNotFoundError(f"playbook schema not found: {schema_path}")
     raw = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
@@ -102,7 +85,7 @@ def validate_research_body(
                         f"required section missing for playbook {schema.name!r}: "
                         f"pattern {section.title_pattern!r}"
                     ),
-                    location=f"playbook:{schema.name}",
+                    location=f"playbook_id:{schema.name}",
                 )
             )
     return findings

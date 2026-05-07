@@ -6,9 +6,9 @@ Baibai-Loop のスクリーニングサブシステムの設計原則。Candidat
 
 | Lifecycle artifact | スクリーニング側の対応 | この原則集での位置付け |
 | --- | --- | --- |
-| `records/03-candidates/` | 機械的ふるい | [`mechanical.md`](./mechanical.md) で仕様化 |
-| `records/02-outlook/` | Macro gate の source | [`macro-gate-procedure.md`](./macro-gate-procedure.md) で手順化 |
-| `records/04-research/` | Playbook + thesis payoff + 採用判定 | 本ファイル + Playbook 本体 |
+| `records/04-candidates/` | 機械的ふるい | [`mechanical.md`](./mechanical.md) で仕様化 |
+| `records/03-outlook/` | Macro regime gate の source | [`macro-gate-procedure.md`](./macro-gate-procedure.md) で手順化 |
+| `records/05-research/` | Playbook + thesis payoff + 採用判定 | 本ファイル + Playbook 本体 |
 
 ## 2. Macro policy weight と macro regime gate
 
@@ -29,7 +29,7 @@ Baibai-Loop のスクリーニングサブシステムの設計原則。Candidat
 | `cashflow-yield-discount` | 期間正規化した CFO TTM / market cap | PER では拾いにくい現金創出力の割安 |
 | `sales-discount-growth` | P/S discount + 売上成長維持 | 利益が薄いが売上成長が残る調整銘柄 |
 
-単一総合 score は持たせない。現行 candidates YAML では `signals[]` を lane 順に記録するが、概念上は playbook-linked evidence hit として扱う。Research では primary playbook 1 つと supporting evidence を分けて扱う。
+単一総合 score は持たせない。現行 candidates YAML では `evidence_hits[]` を lane 順に記録するが、概念上は playbook-linked evidence hit として扱う。Research では primary playbook 1 つと supporting evidence を分けて扱う。
 
 ## 4. 4 軸評価（単一総合点に戻さない）
 
@@ -40,7 +40,7 @@ Research packet で以下の 4 軸を記入する。**合計点は算出しな�
 | Valuation | PER / PBR / EV-EBITDA / P-S / PCFR / OCF yield / cash-to-market-cap | 指標ごとに値、比較対象、primary metric |
 | Mean-Reversion | 急落有無 / 自己過去レンジ下位度 / セクターローテーション起因度 | 定量値 + 1-2 行コメント |
 | Catalyst | 有無 / freshness / 種別 | 種別 + 経過営業日 + 一次ソース URL |
-| Crowding (positioning / liquidity) | 空売り残高 / 日々公表信用 / 特別注意 / 貸借状態 / 出来高 | 各指標の絶対値 + 60 日推移 |
+| Positioning / liquidity | 空売り残高 / 日々公表信用 / 特別注意 / 貸借状態 / 出来高 | 各指標の絶対値 + 60 日推移 |
 
 各軸に **寄与度 3 段階**（strong / weak / neutral）を記録し、retro で軸別 bias を定性分析する。
 
@@ -83,10 +83,10 @@ Research packet で以下の 4 軸を記入する。**合計点は算出しな�
 - **決算発表日またぎエントリー禁止**
 - **日銀金融政策決定会合の前日エントリー禁止**
 - **FOMC 前日エントリー禁止**
-- **マクロゲートが `headwind` の銘柄**（outlook で headwind 判定）
-- **outlook が未作成ならマクロゲート判定不能なので entry 不可**
+- **macro regime gate が `block` の銘柄**（outlook と policy から adverse / expired / unknown を判定）
+- **outlook が未作成なら macro regime gate 判定不能なので entry 不可**
 
-保有中に outlook が更新され gate が `headwind` に転じた場合、即時 exit 検討。
+保有中に outlook が更新され macro regime gate が `block` または policy 上の conditional cap に転じた場合、即時 exit / sizing 見直しを検討。
 
 ## 7. Position sizing
 
@@ -105,7 +105,7 @@ position は **paper proxy layer (1 億円仮想資本)** と **real layer (実�
 
 実資金で執行する場合、paper proxy と独立した集中度ルールを満たす。実資金最低投入単位によって soft 推奨を超えることがあり、その場合は本文で「最低投入単位による不可避な超過」を明記する。
 
-`real_capital_yen` は投資可能な実資金全体を分母にする。当面の様子見枠・イベント前の一時的な投入上限を置く場合は、`real_capital_yen` を小さくせず、trade record の `tactical_capital_yen` / `tactical_concentration_pct` に分けて記録する。real concentration は破滅的な単一銘柄集中の管理、tactical concentration は今どこまでリスクを取りに行くかの timing 管理として扱う。
+`real_capital_yen` は投資可能な実資金全体を分母にする。当面の様子見枠・イベント前の一時的な投入上限を置く場合は、`real_capital_yen` を小さくせず、trade record の `tactical_real_budget_yen` / `tactical_real_budget_concentration_pct` に分けて記録する。real concentration は破滅的な単一銘柄集中の管理、tactical real budget concentration は今どこまでリスクを取りに行くかの timing 管理として扱う。
 
 | 区分 | soft 推奨 | hard 上限 (`overrides` 必須) |
 | --- | --- | --- |
@@ -127,7 +127,7 @@ position は **paper proxy layer (1 億円仮想資本)** と **real layer (実�
 `../components/research.md` の「AI の役割境界（packet 項目単位）」節を参照。核心:
 
 - **AI 可**: Thesis / valuation snapshot / 仮説ドラフト / catalyst ドラフト / price reaction / positioning / liquidity 取得 / 株主還元確認ドラフト / evidence 寄与度初期評価
-- **人間のみ**: Macro gate 判定確定 / 一次ソース URL 確認 / 最終採用判定 / 失敗分類確定
+- **人間のみ**: Macro regime gate 判定確定 / 一次ソース URL 確認 / 最終採用判定 / 失敗分類確定
 
 ## 10. 参考
 
@@ -138,5 +138,5 @@ position は **paper proxy layer (1 億円仮想資本)** と **real layer (実�
 - [`universe-rules.md`](./universe-rules.md): universe 境界条件
 - [`valuation-metrics.md`](./valuation-metrics.md): 指標算出仕様
 - [`mechanical.md`](./mechanical.md): 機械的ふるい仕様
-- [`macro-gate-procedure.md`](./macro-gate-procedure.md): Macro gate 判定手順
+- [`macro-gate-procedure.md`](./macro-gate-procedure.md): Macro regime gate 判定手順
 - [`/records/_playbooks/`](/records/_playbooks/): playbook 本体

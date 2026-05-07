@@ -165,7 +165,7 @@ class BriefValidationTests(unittest.TestCase):
         self.assertTrue(any(c.startswith("brief.") for c in codes))
 
     def test_repository_brief_files_pass(self) -> None:
-        repo_brief = ROOT / "records/01-brief"
+        repo_brief = ROOT / "records/02-brief"
         files = discover_brief_files(repo_brief)
         if not files:
             self.skipTest("no brief files under repository root")

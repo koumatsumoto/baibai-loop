@@ -1,6 +1,6 @@
 ---
 title: "Trade runbook"
-summary: "Operational entry point for recording trades after accepted research decisions."
+summary: "Operational entry point for recording trades after approved research decisions."
 doc_type: operation
 status: active
 last_reviewed: 2026-05-05
@@ -15,21 +15,13 @@ Trade は採用済み research packet に対する執行記録です。自動発
 
 ## Before writing
 
-1. 対応する research が `decision: accepted` であることを確認する。
+1. 対応する research が `research_decision.outcome: approved` であることを確認する。
 2. `research_ref` が実在することを確認する。
-3. 成行・指値・寄成などの注文種別、休場日、次回立会日を確認する。
-4. paper proxy size と real capital / real notional / real concentration を分けて記録する。
-   実資金での集中度を `position_size_pct` などの paper field に混ぜない。
-   一時的な投入上限を置く場合は、`real_capital_yen` を小さくせず
-   `tactical_capital_yen` / `tactical_concentration_pct` に分ける。
-5. 約定済みなら entry price、position size、planned exit、stop loss を記録する。
-6. 注文済みだが未約定なら `status: ordered`、`entry_date: null`、`entry_price: null`、
-   `expected_fill_at` で記録し、推定約定価格を入れない。約定後に `status: open` へ更新する。
-   価格上限を置く場合は `order_price_guard_yen`、`order_quantity`、
-   `guarded_max_notional_yen`、`guarded_max_real_concentration_pct` を記録する。
-   `tactical_capital_yen` がある場合は `guarded_max_tactical_concentration_pct` も記録する。
-7. `ordered` から `open` に更新するときは filename を変えず、`entry_date` / `entry_price` /
-   `real_order_notional_yen` / `pnl_pct` の null 整合を確認する。
+3. Decision register の `order_intent.order_intent_id` を確認する。
+4. 成行・指値・寄成などの注文種別、休場日、次回立会日を確認する。
+5. `orders[]` と `executions[]` を分け、broker 側 ID は optional external ID として記録する。
+6. 約定済みなら `executions[]` に数量・単価・時刻を記録し、`position_state` を更新する。
+7. 未送信、取消、失効、broker reject は `trade_execution_state` と `orders[].state` で表す。
 
 ## After writing
 
@@ -38,10 +30,4 @@ uv run baibai-loop-validate
 uv run baibai-loop-ledger sync --root .
 ```
 
-`status: ordered` の trade では、validate 後に front matter を目視で確認する:
-
-- `entry_date` / `entry_price` / `exit_date` / `exit_price` / `pnl_pct` が `null`
-- `expected_fill_at` が次回立会時刻
-- paper proxy size、real concentration、tactical concentration が別 field
-- `order_price_guard_yen` がある場合、guarded max notional / concentration が front matter にあり、
-  参照価格ベースの concentration と区別されている
+validate 後に、`order_intent.order_intent_id` と `orders[].origin_order_intent_id` が join できること、`guarded_max_notional_yen = quantity * order_price_guard_yen` であることを確認する。

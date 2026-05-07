@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import sys
-import textwrap
 import unittest
 from datetime import UTC, date, datetime
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -18,9 +19,9 @@ from baibai_loop.screening.render import (
     render_screened_yaml,
 )
 from baibai_loop.screening.schema import (
+    EvidenceHit,
     ScreenedCandidate,
     ScreenedRunDocument,
-    SignalHit,
     TTMQuality,
     normalize_ticker,
 )
@@ -30,7 +31,7 @@ class ScreeningRenderTests(unittest.TestCase):
     def test_build_output_path_uses_asof_date(self) -> None:
         self.assertEqual(
             build_output_path(date(2026, 4, 24)),
-            Path("records/03-candidates/2026/04/2026-04-24.yaml"),
+            Path("records/04-candidates/2026/04/2026-04-24.yaml"),
         )
 
     def test_normalize_ticker_supports_alpha_numeric_codes(self) -> None:
@@ -59,10 +60,10 @@ class ScreeningRenderTests(unittest.TestCase):
                     p_s=0.613,
                     pcfr=5.12,
                     sector_33="情報・通信業",
-                    signals=(
-                        SignalHit(
+                    evidence_hits=(
+                        EvidenceHit(
                             name="valuation-reversion",
-                            playbook="valuation-reversion",
+                            playbook_id="valuation-reversion",
                             reasons=("price_down_60d_and_valuation_sigma_down",),
                         ),
                     ),
@@ -83,7 +84,7 @@ class ScreeningRenderTests(unittest.TestCase):
             provider_status_lines=("データソース: J-Quants Light + EDINET + JPX",),
             universe_exclusion_lines=("除外件数: 42 銘柄",),
             ttm_quality_counts={"exact": 1, "approximated": 1, "unavailable": 1},
-            signals_summary={"valuation-reversion": 1},
+            evidence_hits_summary={"valuation-reversion": 1},
             fallback_lines=("欠損件数: 0",),
         )
 
@@ -92,7 +93,6 @@ class ScreeningRenderTests(unittest.TestCase):
         self.assertIn('run_date: "2026-04-24"', rendered)
         self.assertIn('asof_date: "2026-04-24"', rendered)
         self.assertIn('run_id: "screening-20260424-a1b2c3d4"', rendered)
-        self.assertIn('config_hash: "a1b2c3d4e5f6a7b8"', rendered)
         self.assertIn('cache_manifest_hash: "9988776655443322"', rendered)
         self.assertIn('ticker: "130A"', rendered)
         self.assertIn("ttm_quality:", rendered)
@@ -123,10 +123,10 @@ class ScreeningRenderTests(unittest.TestCase):
                     p_s=0.6,
                     pcfr=5.1,
                     sector_33="業種名",
-                    signals=(
-                        SignalHit(
+                    evidence_hits=(
+                        EvidenceHit(
                             name="valuation-reversion",
-                            playbook="valuation-reversion",
+                            playbook_id="valuation-reversion",
                             reasons=(
                                 "sector_median_discount_and_self_range_bottom",
                                 "price_down_60d_and_valuation_sigma_down",
@@ -176,95 +176,74 @@ class ScreeningRenderTests(unittest.TestCase):
                 "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX",
             ),
             ttm_quality_counts={"exact": 1, "approximated": 1, "unavailable": 1},
-            signals_summary={"valuation-reversion": 1},
+            evidence_hits_summary={"valuation-reversion": 1},
             fallback_lines=("取得失敗の有無: [有の場合は対象銘柄と理由を列挙]",),
         )
 
         rendered = render_screened_yaml(document)
 
-        expected = textwrap.dedent(
-            """\
-            run_date: "2026-04-24"
-            asof_date: "2026-04-24"
-            universe_size: 321
-            filters:
-              min_market_cap_oku: 200
-              min_avg_turnover_oku: 3
-              exclude_listed_under_days: 182
-            generated_by: "screening-cli-v1"
-            data_sources:
-            - "j-quants-light"
-            - "jpx-public-regulation"
-            run_at: "2026-04-24T09:00:00+09:00"
-            run_id: "screening-20260424-a1b2c3d4"
-            config_hash: "a1b2c3d4e5f6a7b8"
-            cache_manifest_hash: "9988776655443322"
-            candidates:
-            - ticker: "130A"
-              name: "..."
-              per_forward: 8.2
-              per_trailing: 9.5
-              pbr: 0.72
-              ev_ebitda: 4.8
-              p_s: 0.6
-              pcfr: 5.1
-              sector_33: "業種名"
-              market_cap_oku: 585
-              avg_turnover_oku: 2.3
-              price_change_60d: -0.155
-              price_change_4w: -0.072
-              sector_relative_strength_percentile: 0.35
-              metrics: {}
-              metrics_breakdown:
-                per_trailing:
-                  sector_median_gap: -0.21
-                  self_range_percentile: 0.14
-                  sigma_gap: -1.4
-                pbr:
-                  sector_median_gap: -0.18
-                  self_range_percentile: 0.2
-                  sigma_gap: -1.1
-                ev_ebitda:
-                  sector_median_gap: null
-                  self_range_percentile: null
-                  sigma_gap: null
-              next_earnings_date: "2026-05-13"
-              split_adjustment_flag: false
-              freshness_warnings: []
-              ttm_quality:
-                ev_ebitda: exact
-                p_s: approximated
-                pcfr: unavailable
-                ocf_yield: unavailable
-                sales: approximated
-                fcf_yield: unavailable
-                net_cash: unavailable
-              signals:
-              - name: "valuation-reversion"
-                playbook: "valuation-reversion"
-                reasons:
-                - "sector_median_discount_and_self_range_bottom"
-                - "price_down_60d_and_valuation_sigma_down"
-                - "sector_rotation_short_sell"
-                metrics:
-                  price_change_60d: -0.155
-            fact_memo_lines:
-            - "[事実 1]"
-            - "[事実 2]"
-            provider_status_lines:
-            - "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX"
-            universe_exclusion_lines: []
-            ttm_quality_counts:
-              exact: 1
-              approximated: 1
-              unavailable: 1
-            signals_summary:
-              valuation-reversion: 1
-            fallback_lines:
-            - "取得失敗の有無: [有の場合は対象銘柄と理由を列挙]"
-            """
-        ).rstrip()
-        self.assertEqual(rendered.rstrip(), expected)
+        payload = yaml.safe_load(rendered)
+        self.assertEqual(payload["run_id"], "screening-20260424-a1b2c3d4")
+        self.assertRegex(
+            payload["screening_rules_snapshot"]["content_sha256"],
+            r"^sha256:[0-9a-f]{64}$",
+        )
+        candidate = payload["candidates"][0]
+        self.assertEqual(candidate["screen_run_id"], "screening-20260424-a1b2c3d4")
+        self.assertEqual(candidate["playbook_screen_result"], "hit")
+        self.assertEqual(candidate["evidence_hits"][0]["playbook_id"], "valuation-reversion")
+        self.assertEqual(candidate["evidence_hits"][0]["decision_role"], "sizing_evidence")
+        self.assertEqual(
+            candidate["evidence_hits"][0]["evidence_family_set"],
+            ["market_derived"],
+        )
+
+    def test_render_evidence_family_set_depends_on_playbook_metrics(self) -> None:
+        document = ScreenedRunDocument(
+            run_date=date(2026, 4, 24),
+            asof_date=date(2026, 4, 24),
+            universe_size=1,
+            filters={},
+            candidates=[
+                ScreenedCandidate(
+                    ticker="130A",
+                    name="Sample Co",
+                    per_forward=12.0,
+                    per_trailing=13.0,
+                    pbr=1.1,
+                    ev_ebitda=6.0,
+                    p_s=0.6,
+                    pcfr=5.0,
+                    sector_33="情報・通信業",
+                    evidence_hits=(
+                        EvidenceHit(
+                            name="sales-discount-growth",
+                            playbook_id="sales-discount-growth",
+                            metrics={"ps_sector_gap": -0.6, "sales_yoy": 0.1},
+                            reasons=("sales_discount_growth",),
+                        ),
+                    ),
+                    ttm_quality={
+                        "ev_ebitda": TTMQuality.EXACT,
+                        "p_s": TTMQuality.EXACT,
+                        "pcfr": TTMQuality.UNAVAILABLE,
+                        "ocf_yield": TTMQuality.UNAVAILABLE,
+                        "sales": TTMQuality.EXACT,
+                    },
+                )
+            ],
+            run_at=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+            run_id="screening-20260424-a1b2c3d4",
+            config_hash="a1b2c3d4e5f6a7b8",
+            cache_manifest_hash="9988776655443322",
+        )
+
+        payload = yaml.safe_load(render_screened_yaml(document))
+
+        self.assertEqual(
+            payload["candidates"][0]["evidence_hits"][0]["evidence_family_set"],
+            ["fundamental", "valuation"],
+        )
 
     def test_render_requires_jst_run_at(self) -> None:
         document = ScreenedRunDocument(

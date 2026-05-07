@@ -240,17 +240,63 @@ class ScreeningCliTests(unittest.TestCase):
                     "EDINET preprocessed metrics: loaded", payload["provider_status_lines"]
                 )
                 self.assertRegex(payload["run_id"], r"^screening-20260424-[0-9a-f]{8}$")
-                self.assertRegex(payload["config_hash"], r"^[0-9a-f]{16}$")
+                self.assertRegex(
+                    payload["screening_rules_snapshot"]["content_sha256"],
+                    r"^sha256:[0-9a-f]{64}$",
+                )
                 self.assertRegex(payload["cache_manifest_hash"], r"^[0-9a-f]{16}$")
                 manifest_path = Path(".cache/screening/manifests") / f"{payload['run_id']}.json"
                 self.assertTrue(manifest_path.exists())
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
                 self.assertEqual(manifest["run_id"], payload["run_id"])
-                self.assertEqual(manifest["config_hash"], payload["config_hash"])
                 self.assertEqual(
                     manifest["cache_manifest_hash"],
                     payload["cache_manifest_hash"],
                 )
+            finally:
+                os.chdir(cwd)
+
+    def test_run_command_can_write_custom_output_path_with_force(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = Path.cwd()
+            try:
+                os_path = Path(tmpdir)
+                import os
+
+                os.chdir(os_path)
+                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                providers = ProviderBundle(
+                    jquants=FakeJQuantsProvider(),
+                    edinet=FakeEDINETProvider(),
+                    jpx=FakeJPXProvider(),
+                )
+                output_path = Path("records/_benchmarks/e2e/candidates.yaml")
+                exit_code = run_command(
+                    date(2026, 4, 24),
+                    config,
+                    providers,
+                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    output_path=output_path,
+                )
+                self.assertEqual(exit_code, 2)
+                self.assertTrue(output_path.exists())
+                rejected = run_command(
+                    date(2026, 4, 24),
+                    config,
+                    providers,
+                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    output_path=output_path,
+                )
+                self.assertEqual(rejected, 1)
+                overwritten = run_command(
+                    date(2026, 4, 24),
+                    config,
+                    providers,
+                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    output_path=output_path,
+                    force=True,
+                )
+                self.assertEqual(overwritten, 2)
             finally:
                 os.chdir(cwd)
 
@@ -717,34 +763,34 @@ class SelectCommandTests(unittest.TestCase):
         )
         return path
 
-    def test_filters_headwind_sectors_and_ranks_by_lane_aware_signal(self) -> None:
+    def test_filters_adverse_sectors_and_ranks_by_lane_aware_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/03-candidates",
+                root / "records/04-candidates",
                 asof,
                 candidates=[
                     {
                         "ticker": "1111",
-                        "name": "headwind exclude",
+                        "name": "adverse exclude",
                         "sector_33": "石油・石炭製品",
                         "market_cap_oku": 2000,
-                        "signals": [{"name": "valuation-reversion"}],
+                        "evidence_hits": [{"name": "valuation-reversion"}],
                     },
                     {
                         "ticker": "2222",
                         "name": "single hit",
                         "sector_33": "電気機器",
                         "market_cap_oku": 600,
-                        "signals": [{"name": "valuation-reversion"}],
+                        "evidence_hits": [{"name": "valuation-reversion"}],
                     },
                     {
                         "ticker": "3333",
                         "name": "triple hit",
                         "sector_33": "機械",
                         "market_cap_oku": 400,
-                        "signals": [
+                        "evidence_hits": [
                             {"name": "valuation-reversion"},
                             {"name": "cash-rich-asset-discount"},
                             {"name": "cashflow-yield-discount"},
@@ -753,12 +799,12 @@ class SelectCommandTests(unittest.TestCase):
                 ],
             )
             self._write_outlook(
-                root / "records/02-outlook",
+                root / "records/03-outlook",
                 asof,
                 sectors={
-                    "石油・石炭製品": "headwind",
+                    "石油・石炭製品": "adverse",
                     "電気機器": "neutral",
-                    "機械": "tailwind",
+                    "機械": "supportive",
                 },
             )
             buffer = io.StringIO()
@@ -766,8 +812,8 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 outlook_path=None,
                 top=10,
-                candidates_root=root / "records/03-candidates",
-                outlook_root=root / "records/02-outlook",
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
@@ -801,12 +847,50 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(payload["candidates"][0]["position_tier"], "200-500")
             self.assertEqual(payload["candidates"][1]["position_tier"], "500-1000")
 
+    def test_select_command_accepts_explicit_candidates_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            canonical = self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "custom path",
+                        "sector_33": "機械",
+                        "market_cap_oku": 600,
+                        "evidence_hits": [{"name": "valuation-reversion"}],
+                    }
+                ],
+            )
+            custom = root / "records/_benchmarks/e2e/custom-candidates.yaml"
+            custom.parent.mkdir(parents=True)
+            custom.write_text(canonical.read_text(encoding="utf-8"), encoding="utf-8")
+            canonical.unlink()
+            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "supportive"})
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                candidates_path=custom,
+                top=10,
+                outlook_root=root / "records/03-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            self.assertEqual(payload["candidates_ref"], str(custom))
+            self.assertEqual([item["ticker"] for item in payload["candidates"]], ["1111"])
+
     def test_select_recommends_lane_diversified_candidates_before_global_rank(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/03-candidates",
+                root / "records/04-candidates",
                 asof,
                 candidates=[
                     {
@@ -814,14 +898,14 @@ class SelectCommandTests(unittest.TestCase):
                         "name": "valuation first in global rank",
                         "sector_33": "機械",
                         "market_cap_oku": 600,
-                        "signals": [{"name": "valuation-reversion"}],
+                        "evidence_hits": [{"name": "valuation-reversion"}],
                     },
                     {
                         "ticker": "2222",
                         "name": "strict net cash first in research recommendation",
                         "sector_33": "機械",
                         "market_cap_oku": 150,
-                        "signals": [
+                        "evidence_hits": [
                             {
                                 "name": "strict-net-cash-discount",
                                 "metrics": {
@@ -834,7 +918,7 @@ class SelectCommandTests(unittest.TestCase):
                 ],
             )
             self._write_outlook(
-                root / "records/02-outlook",
+                root / "records/03-outlook",
                 asof,
                 sectors={"機械": "neutral"},
             )
@@ -844,8 +928,8 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 outlook_path=None,
                 top=10,
-                candidates_root=root / "records/03-candidates",
-                outlook_root=root / "records/02-outlook",
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
                 stdout=buffer,
             )
 
@@ -877,7 +961,7 @@ class SelectCommandTests(unittest.TestCase):
                 "edinet_source_submit_datetime": "2026-03-03 10:00",
             }
             self._write_candidates(
-                root / "records/03-candidates",
+                root / "records/04-candidates",
                 asof,
                 candidates=[
                     {
@@ -886,7 +970,7 @@ class SelectCommandTests(unittest.TestCase):
                         "sector_33": "機械",
                         "market_cap_oku": 150,
                         "freshness_warnings": [warning],
-                        "signals": [
+                        "evidence_hits": [
                             {
                                 "name": "strict-net-cash-discount",
                                 "metrics": {
@@ -899,7 +983,7 @@ class SelectCommandTests(unittest.TestCase):
                 ],
             )
             self._write_outlook(
-                root / "records/02-outlook",
+                root / "records/03-outlook",
                 asof,
                 sectors={"機械": "neutral"},
             )
@@ -909,8 +993,8 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 outlook_path=None,
                 top=10,
-                candidates_root=root / "records/03-candidates",
-                outlook_root=root / "records/02-outlook",
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
                 stdout=buffer,
             )
 
@@ -923,12 +1007,81 @@ class SelectCommandTests(unittest.TestCase):
                 [warning],
             )
 
+    def test_select_excludes_candidates_without_sizing_eligible_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "warning-only false positive",
+                        "sector_33": "機械",
+                        "market_cap_oku": 150,
+                        "evidence_hits": [
+                            {
+                                "name": "strict-net-cash-discount",
+                                "source_status": "warning",
+                                "sizing_eligible": False,
+                                "metrics": {
+                                    "net_cash_to_market_cap": 0.9,
+                                    "price_to_equity": 0.5,
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "ticker": "2222",
+                        "name": "eligible bargain",
+                        "sector_33": "機械",
+                        "market_cap_oku": 180,
+                        "evidence_hits": [
+                            {
+                                "name": "strict-net-cash-discount",
+                                "source_status": "ok",
+                                "sizing_eligible": True,
+                                "metrics": {
+                                    "net_cash_to_market_cap": 0.5,
+                                    "price_to_equity": 0.8,
+                                },
+                            }
+                        ],
+                    },
+                ],
+            )
+            self._write_outlook(
+                root / "records/03-outlook",
+                asof,
+                sectors={"機械": "neutral"},
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            self.assertEqual([c["ticker"] for c in payload["candidates"]], ["2222"])
+            self.assertEqual([c["ticker"] for c in payload["ranked_candidates"]], ["2222"])
+            self.assertEqual(
+                [c["ticker"] for c in payload["lane_toplists"]["strict-net-cash-discount"]],
+                ["2222"],
+            )
+
     def test_select_separates_recommendation_lane_from_primary_selection_lane(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/03-candidates",
+                root / "records/04-candidates",
                 asof,
                 candidates=[
                     {
@@ -936,7 +1089,7 @@ class SelectCommandTests(unittest.TestCase):
                         "name": "strict top",
                         "sector_33": "機械",
                         "market_cap_oku": 300,
-                        "signals": [
+                        "evidence_hits": [
                             {
                                 "name": "strict-net-cash-discount",
                                 "metrics": {
@@ -951,7 +1104,7 @@ class SelectCommandTests(unittest.TestCase):
                         "name": "strict and sales",
                         "sector_33": "機械",
                         "market_cap_oku": 300,
-                        "signals": [
+                        "evidence_hits": [
                             {
                                 "name": "strict-net-cash-discount",
                                 "metrics": {
@@ -972,7 +1125,7 @@ class SelectCommandTests(unittest.TestCase):
                 ],
             )
             self._write_outlook(
-                root / "records/02-outlook",
+                root / "records/03-outlook",
                 asof,
                 sectors={"機械": "neutral"},
             )
@@ -982,8 +1135,8 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 outlook_path=None,
                 top=10,
-                candidates_root=root / "records/03-candidates",
-                outlook_root=root / "records/02-outlook",
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
                 stdout=buffer,
             )
 
@@ -1000,7 +1153,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/03-candidates",
+                root / "records/04-candidates",
                 asof,
                 candidates=[
                     {
@@ -1008,7 +1161,7 @@ class SelectCommandTests(unittest.TestCase):
                         "name": "large weak cash rich",
                         "sector_33": "機械",
                         "market_cap_oku": 5000,
-                        "signals": [
+                        "evidence_hits": [
                             {
                                 "name": "cash-rich-asset-discount",
                                 "metrics": {
@@ -1023,7 +1176,7 @@ class SelectCommandTests(unittest.TestCase):
                         "name": "small strong cash rich",
                         "sector_33": "機械",
                         "market_cap_oku": 150,
-                        "signals": [
+                        "evidence_hits": [
                             {
                                 "name": "cash-rich-asset-discount",
                                 "metrics": {
@@ -1036,7 +1189,7 @@ class SelectCommandTests(unittest.TestCase):
                 ],
             )
             self._write_outlook(
-                root / "records/02-outlook",
+                root / "records/03-outlook",
                 asof,
                 sectors={"機械": "neutral"},
             )
@@ -1045,8 +1198,8 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 outlook_path=None,
                 top=10,
-                candidates_root=root / "records/03-candidates",
-                outlook_root=root / "records/02-outlook",
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
@@ -1063,7 +1216,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/03-candidates",
+                root / "records/04-candidates",
                 asof,
                 candidates=[
                     {
@@ -1071,19 +1224,19 @@ class SelectCommandTests(unittest.TestCase):
                         "name": "first",
                         "sector_33": "機械",
                         "market_cap_oku": 150,
-                        "signals": [{"name": "cash-rich-asset-discount"}],
+                        "evidence_hits": [{"name": "cash-rich-asset-discount"}],
                     },
                     {
                         "ticker": "2222",
                         "name": "second",
                         "sector_33": "機械",
                         "market_cap_oku": 160,
-                        "signals": [{"name": "cash-rich-asset-discount"}],
+                        "evidence_hits": [{"name": "cash-rich-asset-discount"}],
                     },
                 ],
             )
             self._write_outlook(
-                root / "records/02-outlook",
+                root / "records/03-outlook",
                 asof,
                 sectors={"機械": "neutral"},
             )
@@ -1093,8 +1246,8 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 outlook_path=None,
                 top=1,
-                candidates_root=root / "records/03-candidates",
-                outlook_root=root / "records/02-outlook",
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
                 stdout=buffer,
             )
 
@@ -1113,7 +1266,7 @@ class SelectCommandTests(unittest.TestCase):
             asof = date(2026, 4, 24)
             candidates_path = (
                 root
-                / "records/03-candidates"
+                / "records/04-candidates"
                 / f"{asof:%Y}"
                 / f"{asof:%m}"
                 / f"{asof:%Y-%m-%d}.yaml"
@@ -1124,7 +1277,7 @@ class SelectCommandTests(unittest.TestCase):
                 yaml.safe_dump([{"ticker": "1111"}], allow_unicode=True),
                 encoding="utf-8",
             )
-            self._write_outlook(root / "records/02-outlook", asof, sectors={})
+            self._write_outlook(root / "records/03-outlook", asof, sectors={})
 
             buffer = io.StringIO()
             stderr = io.StringIO()
@@ -1133,8 +1286,8 @@ class SelectCommandTests(unittest.TestCase):
                     asof_date=asof,
                     outlook_path=None,
                     top=10,
-                    candidates_root=root / "records/03-candidates",
-                    outlook_root=root / "records/02-outlook",
+                    candidates_root=root / "records/04-candidates",
+                    outlook_root=root / "records/03-outlook",
                     stdout=buffer,
                 )
             self.assertEqual(exit_code, 1)

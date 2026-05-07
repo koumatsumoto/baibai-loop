@@ -1,6 +1,6 @@
 ---
 title: "Outlook runbook"
-summary: "Operational entry point for creating or updating records/02-outlook artifacts."
+summary: "Operational entry point for creating or updating records/03-outlook artifacts."
 doc_type: operation
 status: active
 last_reviewed: 2026-05-04
@@ -11,7 +11,7 @@ related_docs:
 
 # Outlook runbook
 
-Outlook は `records/01-brief/` を source として作る macro analysis layer です。contract と self-review は [`../components/outlook.md`](../components/outlook.md) を正本とします。
+Outlook は `records/02-brief/` を source として作る macro analysis layer です。contract と self-review は [`../components/outlook.md`](../components/outlook.md) を正本とします。
 
 ## Before writing
 
@@ -24,7 +24,7 @@ Outlook は `records/01-brief/` を source として作る macro analysis layer 
 
 - outlook 内の fact は `source_refs` で brief YAML を参照する。
 - 外部 URL を outlook の正本 source にしない。
-- sector / region 判定は [`../components/outlook.md`](../components/outlook.md) の self-review checklist を通す。
+- sector / exposure bucket 判定は [`../components/outlook.md`](../components/outlook.md) の self-review checklist を通す。
 
 ## After writing
 

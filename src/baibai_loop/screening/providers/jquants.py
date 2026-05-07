@@ -303,7 +303,7 @@ class JQuantsProvider:
 
 
 _RETRYABLE_HTTP_STATUSES = frozenset({429, 500, 502, 503, 504})
-_RETRYABLE_TEXT_SIGNALS = (
+_RETRYABLE_TEXT_MARKERS = (
     "Too Many Requests",
     "Service Unavailable",
     "Gateway Timeout",
@@ -325,7 +325,7 @@ def _is_retryable_jquants_error(exc: Exception) -> bool:
     if isinstance(status_code, int):
         return status_code in _RETRYABLE_HTTP_STATUSES
     text = str(exc)
-    if any(signal in text for signal in _RETRYABLE_TEXT_SIGNALS):
+    if any(evidence_hit in text for evidence_hit in _RETRYABLE_TEXT_MARKERS):
         return True
     # Last-resort substring check for the raw status tokens. Narrower than pure
     # "429" match because it requires the status to appear as a standalone token.

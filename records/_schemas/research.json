@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "research",
+  "title": "Investment Memo",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "ticker",
+    "name",
+    "playbook_id",
+    "playbook_snapshot",
+    "policy_snapshot",
+    "policy_applicability",
+    "calendars_snapshot",
+    "research_decision",
+    "candidate_ref",
+    "macro_regime_gate",
+    "candidate_evidence_decisions",
+    "selected_supporting_evidence_refs",
+    "independent_evidence_count",
+    "conviction_tier",
+    "position_sizing_overlay",
+    "thesis_payoff"
+  ],
+  "properties": {
+    "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
+    "playbook_id": {"type": "string", "minLength": 1},
+    "policy_applicability": {"enum": ["active"]},
+    "calendars_snapshot": {"type": "object"},
+    "research_decision": {
+      "type": "object",
+      "required": ["outcome", "posture"],
+      "properties": {
+        "outcome": {"enum": ["approved", "deferred", "rejected"]},
+        "posture": {"enum": ["act_now", "wait_for_event", "wait_for_capital", "dropped"]}
+      }
+    },
+    "macro_regime_gate": {"type": "object"},
+    "candidate_evidence_decisions": {"type": "array"},
+    "research_evidence_hits": {"type": "array"},
+    "conviction_tier": {"enum": ["low", "medium", "high"]},
+    "conviction_tier_path": {"enum": ["count_breadth", "depth"]},
+    "position_sizing_overlay": {
+      "type": "object",
+      "required": [
+        "paper_proxy_position_size_yen",
+        "real_order_intent_yen",
+        "adv_participation_pct"
+      ],
+      "properties": {
+        "paper_proxy_position_size_yen": {"type": "number"},
+        "real_order_intent_yen": {"type": "number"},
+        "adv_participation_pct": {"type": "number"}
+      }
+    },
+    "thesis_payoff": {"type": "object"}
+  }
+}

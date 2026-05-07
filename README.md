@@ -9,12 +9,12 @@ Baibai-Loop は、日本株スイングトレードの戦略立案、スクリ�
 以下の loop を forward-only に回します。概念モデルの正本は [`docs/concepts.md`](./docs/concepts.md) です。
 
 1. portfolio policy で目的・制約・資本・許容リスクを固定する
-2. マクロ事実を蓄積する: `records/01-brief/`
-3. マクロ見解を更新する: `records/02-outlook/`
-4. スクリーニング基準でふるいにかける: `records/03-candidates/`
-5. 個別銘柄を investment memo として深掘り調査する: `records/04-research/`
-6. 条件を満たしたら execution record を残す: `records/05-trades/`
-7. 事後検証と attribution で次回改善に活かす: `records/06-reviews/`
+2. マクロ事実を蓄積する: `records/02-brief/`
+3. マクロ見解を更新する: `records/03-outlook/`
+4. スクリーニング基準でふるいにかける: `records/04-candidates/`
+5. 個別銘柄を investment memo として深掘り調査する: `records/05-research/`
+6. 条件を満たしたら execution record を残す: `records/06-trades/`
+7. 事後検証と attribution で次回改善に活かす: `records/07-reviews/`
 
 思想は [`docs/philosophy.md`](./docs/philosophy.md)、現行構造は [`docs/architecture/system-overview.md`](./docs/architecture/system-overview.md) を参照してください。
 

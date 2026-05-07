@@ -135,7 +135,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 
 ### 観測された症状
 - brief の `note` / `fact_memos` / `events` に「FOMC タカ派ホールドの正当化材料」「需要側
-  冷却の early signal」「油価高値圏粘着の構造要因」「122 条効果が顕在化」などの解釈・因果
+  冷却の early evidence hit」「油価高値圏粘着の構造要因」「122 条効果が顕在化」などの解釈・因果
   推論・意味付け表現を書いた (docs/design-principles.md §4.3 で禁止)
 
 ### 根本原因
@@ -147,7 +147,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 
 - [ ] brief の地の文に以下の表現が含まれていないか:
   - [ ] 「示唆する」「観測される」「受けて」「背景に」「意味する」
-  - [ ] 「正当化材料」「early signal」「顕在化」「構造要因」
+  - [ ] 「正当化材料」「early evidence hit」「顕在化」「構造要因」
   - [ ] 「注目すべき」「重要な」「焦点となる」 (Major/Notable は閾値ラベルでありこの意味では
         使わない)
 - [ ] brief は `数値 + 公表日 + 機械的前期比 + source URL` のみで構成されているか
@@ -165,7 +165,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 
 ### 根本原因
 - 「outlook で書いてしまえば伝わる」と判断して brief 経由を skip
-- source_refs の意味 (= research が macro_gate を再構成するための trace) を忘れる
+- source_refs の意味 (= research が macro_regime_gate を再構成するための trace) を忘れる
 - design-principles.md の柱 (事実層と分析層の物理分離、updated_from は判定根拠列挙) を
   運用で守らない
 
@@ -173,7 +173,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 
 - [ ] outlook で引用する **すべての fact** について、対応する brief YAML が存在するか
 - [ ] 存在しない fact は、outlook 作成と同じ commit で **新規 brief を追加**してから引用
-- [ ] outlook の各 sector / region / changes の `rationale` に出てくる fact 引用について、
+- [ ] outlook の各 sector / exposure bucket / changes の `rationale` に出てくる fact 引用について、
       対応する brief パスが `source_refs` に含まれているか機械的に対応関係を確認
 - [ ] **fact item は `status: ok` の `source_id` を少なくとも 1 つ持つこと**。`status: failed`
       / `partial` の source だけを根拠にして fact 値を入れていないか
@@ -188,13 +188,13 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - [ ] `updated_from` は「全 brief」ではなく「判定に効いた canonical input 集」であることを
       意識して列挙しているか
 - [ ] outlook の正本フローを守っているか: **canonical fact layer は brief のみ**。outlook
-      の `updated_from` / `source_refs` は `records/01-brief/**.yaml` のみで、外部 URL を
+      の `updated_from` / `source_refs` は `records/02-brief/**.yaml` のみで、外部 URL を
       直接書かない。sidecar `outlook-<date>-research-log.md` は取得ログであり source 数
       にも数えない (詳細は [`components/outlook.md`](./components/outlook.md) §9.1)
 - [ ] **機械化チェック**: outlook 編集後に `uv run baibai-loop-precheck` を実行し、rationale 中の
       数値・bp・億円トークンが `source_refs` に列挙された brief で見つかることを確認したか。
       新規 outlook なら `--strict` で 0 件を目指す。precheck は同時に research の
-      `decision: skipped|pending → accepted` flip で `overrides[].type='decision_flip'` 不在も検出する
+      `research_decision.outcome: deferred|rejected → approved` flip で `decision_revisions[].revision_type='decision_flip'` 不在も検出する
 
 ## 7. AP-07: 公表日 / 期間 / source の最新性確認を skip する
 
@@ -225,8 +225,8 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - `adv_participation_pct: 0.585` (100 倍ズレ) を validator が catch しなかった
 - 当初の整合チェックを `avg_turnover_oku` 不在時には silently skip するように実装、
   required field 化を忘れた → 抜け道残存
-- nested の `valuation.adv_participation_pct` も整合チェック対象外だった
-- `decision: skipped` の packet で `position_size_oku > 0` を要求していたため、
+- nested の `valuation.liquidity_cap_participation_pct` のような旧 field も reject 対象外だった
+- `research_decision.outcome: rejected` の packet で `position_sizing_overlay.paper_proxy_position_size_yen > 0` を許していたため、
   hypothetical 値と実建玉値が混在
 - `except TypeError, ValueError:` のような Python 2 風に見える except をめぐって、レビューで
   「構文エラー」なのか「Python 3.14 の PEP 758 による複数例外捕捉」なのかが混乱した。
@@ -234,7 +234,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 
 ### 根本原因
 - validator を「データが揃っている前提」で実装し、欠損時の挙動を「skip」にする
-- corner case (skipped / pending / 0 値 / null) のテストを書かない
+- corner case (rejected / deferred / 0 値 / null) のテストを書かない
 - ユーザ指摘で初めて抜け道に気付く
 - runtime / formatter target の違いを確認せず、構文レビューと formatter 挙動を推測で判断する
 
@@ -244,58 +244,46 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
   - [ ] 関連 field が **不在** の場合 (skip / error どちらが正しいか)
   - [ ] 関連 field が **null** の場合
   - [ ] 関連 field が **0 / 負値** の場合 (decision との整合性)
-  - [ ] **nested** field (例: `valuation.adv_participation_pct`) も同じ rule を適用するか
+  - [ ] **nested** 旧 field (例: `valuation.liquidity_cap_participation_pct`) を reject するか
   - [ ] **既存 packet** (4/25 research 5 件など) が新 rule で breakage しないか、する場合は
         同 commit で fix する
 - [ ] 以下の adv_participation 関連の具体条件を validator が catch するか、test を書いて
       確認する:
   - [ ] `avg_turnover_oku <= 0` は error (整合チェックの分母が成立しない、required な数値
         だけでは抜け道になる)
-  - [ ] `position_size_oku == 0` の場合は **`adv_participation_pct == 0`** を要求 (skipped
+  - [ ] `position_sizing_overlay.paper_proxy_position_size_yen == 0` の場合は **`adv_participation_pct == 0`** を要求 (rejected
         packet で hypothetical 値と取り違えると `position_size 0 / avg_turnover 85.4 *
         100 = 0` だが `adv: 1.0` のような非ゼロを期待値 0 で skip してしまう穴を塞ぐ)
-  - [ ] **`decision == 'skipped'` の場合は `position_size_oku == 0` を要求** (skipped で
-        正値が残ると ledger sync `src/baibai_loop/ledger/sync.py` が adv_participation_pct
-        を計算してしまうため。round 4 で塞いだ穴)
-  - [ ] `valuation.adv_participation_pct` (nested) も top-level と同じ整合チェックの対象
-        にする
+  - [ ] **`research_decision.outcome != 'approved'` の場合は `position_sizing_overlay.paper_proxy_position_size_yen == 0` を要求** (deferred / rejected で
+        正値が残ると actual sizing と hypothetical sizing が混在する)
+  - [ ] `valuation.liquidity_cap_participation_pct` のような旧 nested field は error にする
 - [ ] cross-field consistency rule は **依存先の field が「数値であること」だけでなく、
       「正値 (> 0) であること」を確認**する。0 / 負値で silently skip する実装は穴になる
 - [ ] front matter の `avg_turnover_oku` が `candidates_ref` の対応 ticker の値と整合
       しているか (将来的検出推奨、現在は手動 check)。validator が `candidates_ref` を
       resolve してもよい
-- [ ] trade に `status: ordered` を導入・変更する場合、以下の corner case を確認したか
-      (現状は `src/baibai_loop/validate/trade.py` がほぼ enforce する):
-  - [ ] `ordered` では `entry_date == null`、`entry_price == null` (validator: `trade.lifecycle-non-null-where-prohibited`)
-  - [ ] `open` / `closed` では `entry_date` と `entry_price` が非 null (validator: `trade.lifecycle-null-where-required`)
-  - [ ] `ordered` から `open` に遷移しても filename は `order_date` のまま (validator: `trade.filename-date-mismatch`)
+- [ ] trade order / execution state を導入・変更する場合、以下の corner case を確認したか
+      (現状は `src/baibai_loop/validate/trade.py` が enforce する):
+  - [ ] `order_intent.order_intent_id` と `orders[].origin_order_intent_id` が join できる
+  - [ ] `orders[].state` は `submitted` / `broker_rejected` / `cancelled` / `expired` /
+        `not_filled` / `partially_filled` / `filled` のいずれか
+  - [ ] `orders[].filled_quantity <= orders[].submitted_quantity`
+  - [ ] `position_state: none` で executions を持たない
   - [ ] paper proxy size と real capital / real notional / real concentration を別 field に分離
-  - [ ] `paper_proxy_position_size_pct` は `paper_proxy_position_size_oku / 0.01` と整合 (validator: `trade.paper-proxy-pct-mismatch`)
-  - [ ] 実資金 field は部分入力にしない。`real_order_notional_yen` / `real_capital_yen` /
-        `real_concentration_pct` は 3 つ揃えるか、全て省略 / null にしたか
-        (validator: `trade.real-concentration-missing-field`)
-  - [ ] `real_concentration_pct` は `real_order_notional_yen / real_capital_yen * 100` と整合 (validator: `trade.real-concentration-mismatch`)
-  - [ ] 一時的な投入上限を置く場合、`real_capital_yen` を小さくせず `tactical_capital_yen` /
-        `tactical_concentration_pct` に分離したか (validator: `trade.tactical-concentration-*`)
-  - [ ] `real_concentration_pct` の hard cap (50%) 超過は error / soft cap (25%) 超過は warning (validator: `trade.real-concentration-{hard,soft}-cap`)
-  - [ ] `order_price_guard_yen` を置く場合、`order_quantity` / `guarded_max_notional_yen` /
-        `guarded_max_real_concentration_pct` を記録し、`guarded_max_notional_yen =
-        order_price_guard_yen * order_quantity` と整合させたか。`tactical_capital_yen` がある場合は
-        `guarded_max_tactical_concentration_pct` も記録したか
-        (validator: `trade.guarded-max-*`)
-  - [ ] `order_price_guard_yen` は YAML 数値として記録し、quoted numeric (`"1050"`) や boolean
-        (`false`) で validator が guarded max 検証を skip しないことを test したか
-        (validator: `trade.order-price-guard-invalid-type`)
-  - [ ] 価格 guard が参照価格より高い場合でも、guarded max real / tactical concentration が
-        record 上で確認できるか。guarded max real concentration の hard / soft cap finding
-        (validator: `trade.guarded-max-real-concentration-{hard,soft}-cap`) を確認したか
-  - [ ] `position_size_oku` / `adv_participation_pct` は paper proxy の検証であり、実資金集中度の検証ではない
-- [ ] research の `overrides` 配列を導入・変更する場合、以下を確認したか:
-  - [ ] type が `decision_flip` / `candidate_absence` / `universe_drop` / `real_concentration_cap` / `gate_headwind` の既知集合に属する (validator: `research.override-unknown-type`)
-  - [ ] `type` / `prior_state_ref` / `prior_state` / `new_state` / `reason` の 5 必須キーが揃う (validator: `research.override-missing-key`)
-  - [ ] `decision: accepted` で candidates_ref に ticker が見つからない場合、`overrides[].type='candidate_absence'` または `'universe_drop'` が必須 (validator: `research.candidate-absence-without-override`)
+  - [ ] `capital_basis.real_capital_yen`、`capital_basis.tactical_real_budget_yen`、
+        `capital_basis.paper_proxy_capital_yen` を混同していない
+  - [ ] `order_price_guard_yen` を置く場合、`order_intent.quantity` /
+        `position_sizing_overlay.guarded_max_notional_yen` を記録し、
+        `guarded_max_notional_yen = order_price_guard_yen * quantity` と整合させたか
+  - [ ] `position_sizing_overlay.guarded_max_tactical_real_budget_concentration_pct` は
+        guarded notional / tactical real budget * 100 として確認できるか
+  - [ ] `position_sizing_overlay.paper_proxy_position_size_yen` / `adv_participation_pct` は paper proxy の検証であり、実資金集中度の検証ではない
+- [ ] research の `policy_overrides` / `decision_revisions` 配列を導入・変更する場合、以下を確認したか:
+  - [ ] `policy_overrides[]` は policy field の override だけを表し、decision history を混ぜていない
+  - [ ] `decision_revisions[].revision_type` が既知集合に属し、`prior_state_ref` / `prior_state` / `new_state` / `reason` の必須キーが揃う
+  - [ ] `research_decision.outcome: approved` の場合、`candidate_ref` が最新の immutable candidates snapshot の対象 candidate に join できるか
   - [ ] `external_refs[]` は `records/_external/` 配下の path のみ (validator: `research.external-ref-prefix`)
-  - [ ] 連続する commit で `decision: skipped|pending → accepted` に flip した場合、`overrides[].type='decision_flip'` を残す (precheck: `precheck.decision-flip-without-override`、`baibai-loop-precheck` で git 履歴ベースに検出)
+  - [ ] 連続する commit で `research_decision.outcome: deferred|rejected → approved` に flip した場合、`decision_revisions[].revision_type='decision_flip'` を残す (precheck: `precheck.decision-flip-without-revision`、`baibai-loop-precheck` で git 履歴ベースに検出)
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
@@ -310,7 +298,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - 別AIの分析にある EPS 前提、OpenAI 連携日、AI 関連売上、同業倍率、休場日などを、
   会社IR・取引所・candidates で再確認せず research / trade に取り込む
 - 「分析の方向性は合っている」ことと「records に事実として残せる」ことを混同する
-- 直前の `skipped` 判定、最新 candidates からの不在、universe drop、macro headwind などの
+- 直前の `rejected` 判定、最新 candidates からの不在、universe drop、macro regime adverse などの
   system output を、override log なしに外部分析で上書きする
 - 1 億円 paper proxy と実資金 position を同じ `position_size_pct` に混在させる
 - 祝日中の成行注文を約定済み entry として記録し、entry price を推定で埋める
@@ -328,8 +316,8 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - [ ] research 対象銘柄について、業種を問わず会社IRを確認したか。最低限、直近決算短信 /
       決算説明資料 / Q&A / 有価証券報告書または統合報告書 / 中期経営計画 / 株主還元関連開示を
       確認し、未確認項目を本文に残したか
-- [ ] 会社IR未確認のまま `decision: accepted` にしていないか。未確認なら `pending` または
-      `skipped` にして、追加確認条件を明示したか
+- [ ] 会社IR未確認のまま `research_decision.outcome: approved` にしていないか。未確認なら `deferred` または
+      `rejected` にして、追加確認条件を明示したか
 - [ ] 外部 AI / 二次分析の結論を採用する前に、主要数値を会社IR・決算短信・決算説明資料・Q&A・
       取引所 calendar・candidates のいずれかで再確認したか
 - [ ] 外部 AI セッション・証券レポート・アナリストノートを取り込む場合、生原稿を
@@ -340,18 +328,18 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - [ ] 確認できた事実、修正した数値、未採用の二次情報を research の source verification log に分けて残したか
       (`external_refs[]` ごとに 採用 / 修正 / 未採用 の表で構造化する)
 - [ ] EPS / PER / 配当利回り / target price は公式 EPS・配当予想・株価で再計算したか
-- [ ] 直前の `skipped`、最新 candidates からの不在、universe drop、macro headwind、実資金集中度超過などを
+- [ ] 直前の `rejected`、最新 candidates からの不在、universe drop、macro regime adverse、実資金集中度超過などを
       上書きする場合、research front matter の `overrides` と本文に prior state / reason / evidence を残したか
 - [ ] 実取引を records に残す場合、1 億円 paper proxy と real capital / real notional /
       real concentration を別 field に分けたか
 - [ ] 「投資可能な実資金全体」と「当面の様子見枠」を混同していないか。様子見枠は
-      `tactical_capital_yen` として別 field にし、`real_capital_yen` は実資金全体を分母にしたか
+      `tactical_real_budget_yen` として別 field にし、`real_capital_yen` は実資金全体を分母にしたか
 - [ ] `real_concentration_pct` が [`screening/principles.md §7.2`](./screening/principles.md) の hard 上限
       (単一銘柄 50% / 単一 sector 60% / cash 最低 10%) を超える場合、`overrides` に
       `type: real_concentration_cap` で記録したか。soft 推奨 (< 25% / < 40% / > 30%) を超える場合も
       本文で理由を明記したか
-- [ ] 注文日が休場日または立会時間外の場合、trade は `status: ordered` とし、`entry_price` を
-      推定で埋めていないか
+- [ ] 注文日が休場日または立会時間外の場合、trade は `orders[].state: submitted` とし、
+      executions がない限り約定価格を推定で埋めていないか
 - [ ] 外部市場予測 (例: Gartner / IDC / 証券サイトの同業倍率) は、今回の canonical fact として
       採用するなら brief / research の source として明示し、未確認なら「判断補助・未採用」として分離したか
 
@@ -364,7 +352,7 @@ PR で同じ anti-pattern が 2 ラウンド以上指摘されたら、本ドキ
 | --- | --- | --- |
 | #68 | 1 | AP-01 (122 条 13%、TSMC/Samsung/Kioxia 断定)、AP-02 (adv 100 倍、利確 +118% / +30% 矛盾)、AP-03 (6590 split artifact)、AP-04 (sector_relative_strength_percentile 誤読)、AP-06 (米コア PCE brief 未反映)、AP-07 (PCE 5/30 前後)、AP-08 (adv consistency 抜け道) |
 | #68 | 2 | AP-01 (TSMC Capex / Sovereign AI 未確認のまま outlook で断定継続)、AP-05 (brief への分析混入)、AP-06 (outlook source_refs と brief 不整合 35 箇所)、AP-07 (OPEC+ 5/3 反映漏れ、PCE 5/28 ではなく 5/30) |
-| #77 | 1 | AP-06 (outlook source_refs と春闘 fact の不整合)、AP-08 (ordered trade / paper-real size 分離の validator 死角)、AP-09 (別AI分析で skipped→accepted を暗黙 override、注文と約定の状態分離不足) |
+| #77 | 1 | AP-06 (outlook source_refs と春闘 fact の不整合)、AP-08 (submitted order / paper-real size 分離の validator 死角)、AP-09 (別AI分析で rejected→approved を暗黙 override、注文と約定の状態分離不足) |
 
 ## 11. 関連ドキュメント
 

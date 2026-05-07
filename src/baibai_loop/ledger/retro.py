@@ -19,11 +19,11 @@ _FAILURE_CLASSES = (
     "材料誤読",
     "既に織り込み済み",
     "マクロ逆風",
-    "混雑",
+    "ポジショニング / 流動性",
     "流動性不足",
     "ルール違反",
 )
-_SUCCESS_CLASSES = ("仮説的中", "catalyst 反応", "macro tailwind", "timing 一致")
+_SUCCESS_CLASSES = ("仮説的中", "catalyst 反応", "macro supportive", "timing 一致")
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,44 +35,53 @@ class RetroDraft:
 
 def build_monthly_retro(root: Path, month: str) -> RetroDraft:
     _validate_month(month)
-    paper_records = read_jsonl(root / "records/_ledger" / "paper" / f"{month}.jsonl")
-    skipped_records = read_jsonl(root / "records/_ledger" / "skipped" / f"{month}.jsonl")
+    decisions = read_jsonl(root / "records/_ledger" / "research-decisions" / f"{month}.jsonl")
     reviews, warnings = _load_reviews(root, month)
 
-    closed_trades = len(reviews)
-    total_trades = max(len(paper_records), closed_trades)
-    open_trades = max(total_trades - closed_trades, 0)
-    skipped_candidates = len(skipped_records) + sum(
-        1 for record in paper_records if record.get("decision") == "pending"
+    approved_decisions = sum(
+        1
+        for record in decisions
+        if _research_outcome(record) == "approved" or record.get("candidate_decision") == "selected"
+    )
+    submitted_orders = sum(
+        1 for record in decisions if record.get("trade_execution_state") == "submitted"
+    )
+    filled_positions = sum(
+        1
+        for record in decisions
+        if record.get("trade_execution_state") in {"filled", "partially_filled"}
+    )
+    closed_positions = sum(
+        1 for review in reviews if review.get("classification") in {"success", "failure"}
+    )
+    missed_opportunities = sum(
+        1
+        for record in decisions
+        if record.get("candidate_decision") in {"rejected", "deferred", "not_reviewed"}
     )
 
-    pnl_values = [_to_float(review.get("pnl_pct")) for review in reviews]
-    realized_pnl = [value for value in pnl_values if value is not None]
-    wins = sum(1 for value in realized_pnl if value > 0)
-    losses = sum(1 for value in realized_pnl if value < 0)
     failure_counts = _count_classes(reviews, "failure_class", _FAILURE_CLASSES)
     success_counts = _count_classes(reviews, "success_class", _SUCCESS_CLASSES)
-    price_missing_counts = _price_missing_counts((*paper_records, *skipped_records))
-
+    price_missing_counts = _price_missing_counts(decisions)
     front = {
         "retro_month": month,
-        "total_trades": total_trades,
-        "open_trades": open_trades,
-        "closed_trades": closed_trades,
-        "skipped_candidates": skipped_candidates,
-        "wins": wins,
-        "losses": losses,
-        "pnl_pct_sum": round(sum(realized_pnl), 4),
+        "approved_decisions": approved_decisions,
+        "submitted_orders": submitted_orders,
+        "filled_positions": filled_positions,
+        "closed_positions": closed_positions,
+        "missed_opportunities": missed_opportunities,
         "failure_class_counts": failure_counts,
         "success_class_counts": success_counts,
         "playbook_revision_decision": "据え置き",
-        "next_cycle_changes": ["サンプル不足のため、次周回も ledger / review の記録品質を優先する"],
+        "next_cycle_changes": [
+            "サンプル不足のため、次周回も decision register / review の記録品質を優先する"
+        ],
         "price_missing_counts": price_missing_counts,
     }
-    content = _render_retro(month, front, paper_records, skipped_records, reviews)
+    content = _render_retro(month, front, decisions, reviews)
     year = month[:4]
     return RetroDraft(
-        path=root / "records/06-reviews" / year / f"retro-{month.replace('-', '')}.md",
+        path=root / "records/07-reviews" / year / f"retro-{month.replace('-', '')}.md",
         content=content,
         warnings=tuple(warnings),
     )
@@ -95,9 +104,9 @@ def _validate_month(month: str) -> None:
 def _load_reviews(root: Path, month: str) -> tuple[list[dict[str, Any]], list[str]]:
     reviews: list[dict[str, Any]] = []
     warnings: list[str] = []
-    reviews_dir = root / "records/06-reviews" / month[:4] / month[5:7]
+    reviews_dir = root / "records/07-reviews" / month[:4] / month[5:7]
     if not reviews_dir.exists():
-        warnings.append(f"{reviews_dir} does not exist; retro uses ledger-only fallback")
+        warnings.append(f"{reviews_dir} does not exist; retro uses decision-register fallback")
         return reviews, warnings
 
     for path in sorted(reviews_dir.glob("*.md")):
@@ -143,8 +152,7 @@ def _price_missing_counts(records: Sequence[Mapping[str, Any]]) -> dict[str, int
 def _render_retro(
     month: str,
     front: Mapping[str, Any],
-    paper_records: Sequence[Mapping[str, Any]],
-    skipped_records: Sequence[Mapping[str, Any]],
+    decisions: Sequence[Mapping[str, Any]],
     reviews: Sequence[Mapping[str, Any]],
 ) -> str:
     front_yaml = yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
@@ -157,16 +165,15 @@ def _render_retro(
         "",
         "## Trade 集計",
         "",
-        f"- 総 trade 数: {front['total_trades']} 件",
-        f"- Open trade 数: {front['open_trades']} 件",
-        f"- Closed trade 数: {front['closed_trades']} 件",
-        f"- Missed opportunity tracking candidates: {front['skipped_candidates']} 件",
-        f"- 勝敗: Wins {front['wins']} / Losses {front['losses']}",
-        f"- P&L sum: {_format_pct(front['pnl_pct_sum'])}",
+        f"- Approved decisions: {front['approved_decisions']} 件",
+        f"- Submitted orders: {front['submitted_orders']} 件",
+        f"- Filled positions: {front['filled_positions']} 件",
+        f"- Closed positions: {front['closed_positions']} 件",
+        f"- Missed opportunities: {front['missed_opportunities']} 件",
         "",
-        "| Ticker | Playbook | Decision | Baseline | +15bd | +30bd |",
-        "| --- | --- | --- | ---: | ---: | ---: |",
-        *_paper_rows(paper_records),
+        "| Ticker | Playbook | Scope | Candidate decision | Research outcome | +15bd | +30bd |",
+        "| --- | --- | --- | --- | --- | ---: | ---: |",
+        *_decision_rows(decisions),
         "",
         "## 失敗分類の集計",
         "",
@@ -184,19 +191,15 @@ def _render_retro(
         "",
         _missing_price_summary(front["price_missing_counts"]),
         "",
-        "| Ticker | Playbook | Baseline | +15bd | +30bd | +30bd 判定 |",
-        "| --- | --- | ---: | ---: | ---: | --- |",
-        *_skipped_rows(skipped_records),
+        "## Macro regime gate 判定精度",
         "",
-        "## Macro gate 判定精度",
-        "",
-        *_macro_gate_lines((*paper_records, *skipped_records)),
+        *_macro_regime_lines(decisions),
         "",
         "## Playbook 改訂判断",
         "",
         f"- 改訂判断: {front['playbook_revision_decision']}",
         "- Playbook 別サンプル数:",
-        *_playbook_count_lines((*paper_records, *skipped_records)),
+        *_playbook_count_lines(decisions),
         "- 10 件未満の playbook は据え置きを許容する。",
         "",
         "## 次周回の運用変更点",
@@ -208,33 +211,21 @@ def _render_retro(
     return "\n".join(lines) + "\n"
 
 
-def _paper_rows(records: Sequence[Mapping[str, Any]]) -> list[str]:
+def _decision_rows(records: Sequence[Mapping[str, Any]]) -> list[str]:
     if not records:
-        return ["| - | - | - | - | - | - |"]
+        return ["| - | - | - | - | - | - | - |"]
+    row_template = (
+        "| {ticker} | {playbook} | {scope} | {candidate} | {outcome} | {plus15} | {plus30} |"
+    )
     return [
-        "| {ticker} | {playbook} | {decision} | {baseline} | {plus15} | {plus30} |".format(
+        row_template.format(
             ticker=record.get("ticker", ""),
-            playbook=record.get("playbook", ""),
-            decision=record.get("decision", ""),
-            baseline=_format_price(record.get("baseline_price")),
+            playbook=record.get("playbook_id", ""),
+            scope=record.get("decision_scope", ""),
+            candidate=record.get("candidate_decision", ""),
+            outcome=_research_outcome(record) or "",
             plus15=_format_price(_tracking_value(record, "plus_15bd")),
             plus30=_format_price(_tracking_value(record, "plus_30bd")),
-        )
-        for record in records
-    ]
-
-
-def _skipped_rows(records: Sequence[Mapping[str, Any]]) -> list[str]:
-    if not records:
-        return ["| - | - | - | - | - | - |"]
-    return [
-        "| {ticker} | {playbook} | {baseline} | {plus15} | {plus30} | {verdict} |".format(
-            ticker=record.get("ticker", ""),
-            playbook=record.get("playbook", ""),
-            baseline=_format_price(record.get("baseline_price")),
-            plus15=_format_return(record, "plus_15bd"),
-            plus30=_format_return(record, "plus_30bd"),
-            verdict=_skipped_verdict(record),
         )
         for record in records
     ]
@@ -246,23 +237,19 @@ def _class_rows(counts: object) -> list[str]:
     return [f"| {name} | {count} |" for name, count in counts.items()]
 
 
-def _macro_gate_lines(records: Sequence[Mapping[str, Any]]) -> list[str]:
-    grouped: dict[str, list[float]] = {}
-    for record in records:
-        macro_gate = str(record.get("macro_gate") or "unknown")
-        value = _return_pct(record, "plus_15bd")
-        if value is not None:
-            grouped.setdefault(macro_gate, []).append(value)
-    if not grouped:
-        return ["- +15bd が未解決のため、macro gate 別の定量評価は未算出。"]
-    return [
-        f"- {gate}: +15bd 平均 {_format_pct(sum(values) / len(values))} ({len(values)} 件)"
-        for gate, values in sorted(grouped.items())
-    ]
+def _macro_regime_lines(records: Sequence[Mapping[str, Any]]) -> list[str]:
+    counts = Counter(
+        str(record.get("macro_regime_decision_effect") or "unknown")
+        for record in records
+        if record.get("decision_scope") == "research_memo"
+    )
+    if not counts:
+        return ["- macro regime gate 別の定量評価は未算出。"]
+    return [f"- {effect}: {count} 件" for effect, count in sorted(counts.items())]
 
 
 def _playbook_count_lines(records: Sequence[Mapping[str, Any]]) -> list[str]:
-    counts = Counter(str(record.get("playbook") or "unknown") for record in records)
+    counts = Counter(str(record.get("playbook_id") or "unknown") for record in records)
     if not counts:
         return ["  - none: 0 件"]
     return [f"  - {playbook}: {count} 件" for playbook, count in sorted(counts.items())]
@@ -283,24 +270,12 @@ def _missing_price_summary(value: object) -> str:
     )
 
 
-def _skipped_verdict(record: Mapping[str, Any]) -> str:
-    return_pct = _return_pct(record, "plus_30bd")
-    if return_pct is None:
-        return "未判定"
-    return "偽陰性候補" if return_pct > 0 else "妥当候補"
-
-
-def _format_return(record: Mapping[str, Any], key: str) -> str:
-    value = _return_pct(record, key)
-    return _format_pct(value) if value is not None else "-"
-
-
-def _return_pct(record: Mapping[str, Any], key: str) -> float | None:
-    baseline = _to_float(record.get("baseline_price"))
-    target = _to_float(_tracking_value(record, key))
-    if baseline is None or baseline == 0 or target is None:
-        return None
-    return round((target / baseline - 1) * 100, 4)
+def _research_outcome(record: Mapping[str, Any]) -> str | None:
+    decision = record.get("research_decision")
+    if isinstance(decision, Mapping):
+        outcome = decision.get("outcome")
+        return str(outcome) if outcome is not None else None
+    return None
 
 
 def _tracking_value(record: Mapping[str, Any], key: str) -> object:
@@ -315,14 +290,6 @@ def _format_price(value: object) -> str:
     if numeric is None:
         return "-"
     return f"{numeric:.2f}"
-
-
-def _format_pct(value: object) -> str:
-    numeric = _to_float(value)
-    if numeric is None:
-        return "-"
-    sign = "+" if numeric > 0 else ""
-    return f"{sign}{numeric:.2f}%"
 
 
 def _to_float(value: object) -> float | None:

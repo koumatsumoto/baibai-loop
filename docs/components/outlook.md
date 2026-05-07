@@ -1,12 +1,12 @@
 # components/outlook.md
 
-Baibai-Loop の **outlook / regime view** の運用仕様。brief を積み上げて作成されるマクロ見解で、`records/04-research/` の macro regime gate 判定の source となる。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md)、概念モデルは [`../concepts.md`](../concepts.md) を参照。
+Baibai-Loop の **outlook / regime view** の運用仕様。brief を積み上げて作成されるマクロ見解で、`records/05-research/` の macro regime gate 判定の source となる。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md)、概念モデルは [`../concepts.md`](../concepts.md) を参照。
 
 ## 1. 役割
 
-- **canonical fact layer は `records/01-brief/` のみ**。一次情報 (Tier 1 / Tier 2) は brief の `sources` に集約し、outlook の `updated_from` / `source_refs` は `records/01-brief/**.yaml` のみを参照する (schema で強制)。outlook 作成時の deep research transcript は sidecar `outlook-<date>-research-log.md` に保存するが、これは取得ログ専用で outlook の根拠 source 数には数えない (= sidecar だけで brief を skip するのは設計違反)
-- 上記 fact layer を入力に **業種/地域/資産クラス別の追い風 (tailwind) / 中立 (neutral) / 逆風 (headwind) 評価** を生成
-- `records/04-research/` の Macro gate 判定で参照される唯一の source
+- **canonical fact layer は `records/02-brief/` のみ**。一次情報 (Tier 1 / Tier 2) は brief の `sources` に集約し、outlook の `updated_from` / `source_refs` は `records/02-brief/**.yaml` のみを参照する (schema で強制)。outlook 作成時の deep research transcript は sidecar `outlook-<date>-research-log.md` に保存するが、これは取得ログ専用で outlook の根拠 source 数には数えない (= sidecar だけで brief を skip するのは設計違反)
+- 上記 fact layer を入力に **業種/地域/資産クラス別の追い風 (supportive) / 中立 (neutral) / 逆風 (adverse) 評価** を生成
+- `records/05-research/` の Macro regime gate 判定で参照される唯一の source
 - Macro track の出力として、security-level trade loop の research 選定に影響する
 - **outlook は投資戦略の最上位 gate**。ここの分析の質が portfolio パフォーマンスを支配する。深さを犠牲にして時間を惜しんではならない (深い分析を要求される非常に重要なドキュメント)
 
@@ -30,20 +30,20 @@ Baibai-Loop の **outlook / regime view** の運用仕様。brief を積み上�
 
 ## 3. 初回作成手順
 
-`records/02-outlook/` がまだ存在しない時点では、`records/04-research/` を作る前に以下の手順で初版 outlook を用意する。
+`records/03-outlook/` がまだ存在しない時点では、`records/05-research/` を作る前に以下の手順で初版 outlook を用意する。
 
-1. 当日時点で利用可能な `records/01-brief/` を読む。**最新 brief が 5 営業日以上古い場合は `world-daily` または `event` を先に追加して freshness gap を埋める**
-2. `records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-<slug>.yaml` を作成する
+1. 当日時点で利用可能な `records/02-brief/` を読む。**最新 brief が 5 営業日以上古い場合は `world-daily` または `event` を先に追加して freshness gap を埋める**
+2. `records/03-outlook/YYYY/MM/outlook-YYYY-MM-DD-<slug>.yaml` を作成する
 3. `updated_from` には、**実際に判定根拠として使った brief YAML を列挙** する
-4. `sectors` は東証 33 業種を全件必須、`regions` は 4 地域を全件必須で埋める。判定材料が不足する場合は `status: null` + `rationale` で明示する（省略は不可）
+4. `sectors` は東証 33 業種を全件必須、`exposure_buckets` は 4 地域を全件必須で埋める。判定材料が不足する場合は `status: null` + `rationale` で明示する（省略は不可）
 5. `horizon: "1-6m"` で 1-6 か月先の見通しを記述
 
-初版段階では「材料が無い sector を null/neutral にする」逃げ道は許容するが、**brief で確認できる fact から sector に効く因果は積極的に判定する** こと。33 業種すべて neutral にして「分析放棄」する状態は禁止 (詳細は §9.4 / [`../anti-patterns.md`](../anti-patterns.md))。headwind 判定は research 採用不可を招くため情報不足の場合は保守的に neutral / null へ倒すが、油価 / 為替 / 政策金利等の横断的因果が brief で明示されていれば即座に反映する。
+初版段階では「材料が無い sector を null/neutral にする」逃げ道は許容するが、**brief で確認できる fact から sector に効く因果は積極的に判定する** こと。33 業種すべて neutral にして「分析放棄」する状態は禁止 (詳細は §9.4 / [`../anti-patterns.md`](../anti-patterns.md))。adverse 判定は research 採用不可を招くため情報不足の場合は保守的に neutral / null へ倒すが、油価 / 為替 / 政策金利等の横断的因果が brief で明示されていれば即座に反映する。
 
 ## 4. Path と命名
 
 ```
-records/02-outlook/YYYY/MM/outlook-YYYY-MM-DD-<slug>.yaml
+records/03-outlook/YYYY/MM/outlook-YYYY-MM-DD-<slug>.yaml
 ```
 
 - `<slug>`: 内容を示す英小文字ハイフン区切り（例: `q2-outlook`, `post-boj-april`, `cpi-3p3-reaction`）
@@ -56,21 +56,21 @@ ai_draft: true | false
 published_at: "ISO 8601"
 horizon: "1-6m"                     # 想定先読み期間
 updated_from:                       # この outlook を作る元になった brief YAML
-  - records/01-brief/YYYY/MM/...yaml
+  - records/02-brief/YYYY/MM/...yaml
 summary: <PART A-E (構造分析 / 4 シナリオ / リスク 10+ / 投資方向性 / 次回 trigger) を含む multi-paragraph long-form。詳細は §9.2 参照>
 sectors:                            # 東証 33 業種を全件必須
   "水産・農林業":
-    status: tailwind | neutral | headwind | null
+    status: supportive | neutral | adverse | null
     rationale: <判定根拠>
-    source_refs: [records/01-brief/.../*.yaml]
+    source_refs: [records/02-brief/.../*.yaml]
   # ... 33 業種を全件記入する
-regions:                            # 4 地域を全件必須
+exposure_buckets:                            # 4 地域を全件必須
   us:                    { status: ..., rationale: ..., source_refs: [...] }
   japan-domestic:        { status: ..., rationale: ..., source_refs: [...] }
   japan-external-demand: { status: ..., rationale: ..., source_refs: [...] }
   emerging:              { status: ..., rationale: ..., source_refs: [...] }
 changes:                            # 前回 outlook からの判定変更
-  - target: <sector or region>
+  - target: <sector or exposure bucket>
     from_status: ...
     to_status: ...
     rationale: ...
@@ -82,47 +82,47 @@ next_triggers:
 
 - `ai_draft`: AI 下書き段階では `true`、人間確認後 `false`
 - `sectors` のキーは東証 33 業種の正式名称を全件使う（[`../screening/valuation-metrics.md`](../screening/valuation-metrics.md) 参照）。省略は不可
-- `regions` は `us` / `japan-domestic` / `japan-external-demand` / `emerging` の 4 件を全件必須
+- `exposure_buckets` は `us` / `japan-domestic` / `japan-external-demand` / `emerging` の 4 件を全件必須
 - 判定できない項目は `status: null` + `rationale` で明示する（key の省略は不可）
-- 詳細な schema は [`../../records/_schemas/outlook-v1.json`](../../records/_schemas/outlook-v1.json)
+- 詳細な schema は [`../../records/_schemas/outlook.json`](../../records/_schemas/outlook.json)
 
 ### 5.1 null status の扱い
 
-`status: null` とした sector / region は、research 側の Macro gate 判定では **`neutral` 扱い** とする。情報不足を理由に `headwind` 側へ倒さない（採用率が過度に下がるのを避ける）。`null` でも `rationale` は必須。outlook が充実してきたら `null` を明示的な判定に更新する。
+`status: null` とした sector / exposure bucket は、research 側の Macro regime gate 判定では **`neutral` 扱い** とする。情報不足を理由に `adverse` 側へ倒さない（採用率が過度に下がるのを避ける）。`null` でも `rationale` は必須。outlook が充実してきたら `null` を明示的な判定に更新する。
 
 ### 5.2 `updated_from` の選び方
 
 - `updated_from` は「存在する brief の全列挙」ではなく、**今回の判定に効いた canonical input 集** を書く
-- 通常更新では、**前回 outlook 以降に追加された brief すべて + 前回 outlook の tailwind/headwind 判定を支えた brief の最新版** を入れる
+- 通常更新では、**前回 outlook 以降に追加された brief すべて + 前回 outlook の supportive/adverse 判定を支えた brief の最新版** を入れる
 
-### 5.3 sector / region の責務分離
+### 5.3 sector / exposure bucket の責務分離
 
-- 同一マクロ根拠を `sectors` と `regions` の両方に重ねて tailwind/headwind 化しない
-- 円安、外需、米最終需要のような **横断的要因** は `regions.japan-external-demand` などの地域軸へ寄せる
-- `sectors` に tailwind/headwind を付けるのは、その業種固有の追加根拠がある場合に限る
+- 同一マクロ根拠を `sectors` と `exposure_buckets` の両方に重ねて supportive/adverse 化しない
+- 円安、外需、米最終需要のような **横断的要因** は `exposure_buckets.japan-external-demand` などの地域軸へ寄せる
+- `sectors` に supportive/adverse を付けるのは、その業種固有の追加根拠がある場合に限る
 
 ### 5.4 schema 検証
 
-outlook YAML の構造、必須キー、`sectors` の 33 業種完全性、`regions` の 4 地域完全性、`status` 許容値、`updated_from` / `source_refs` の `.yaml` 末尾は `baibai-loop-validate` で検査される。CI の `Validate artefacts` step で merge gate になる。手元では `uv run baibai-loop-validate --target outlook` で個別に走らせられる。
+outlook YAML の構造、必須キー、`sectors` の 33 業種完全性、`exposure_buckets` の 4 地域完全性、`status` 許容値、`updated_from` / `source_refs` の `.yaml` 末尾は `baibai-loop-validate` で検査される。CI の `Validate artefacts` step で merge gate になる。手元では `uv run baibai-loop-validate --target outlook` で個別に走らせられる。
 
 ## 6. フィールドの書き方
 
 - outlook は **分析層**（philosophy 柱 1）。解釈を書いてよい
 - ただし、根拠となる brief への参照を必ず付ける（`source_refs` / `updated_from`）
 - `summary` は PART A-E (§9.2) を含む long-form の multi-paragraph で現在のマクロ見解を構造的に記述する。1 段落の要約では深さが足りず investor behaviour を支配できないため不可
-- 各 sector / region の `rationale` は判定根拠を **2 因子以上の検討痕跡を含む 1-3 文** で記述する (cost / revenue / 為替 / 金利 / 業種特有 / 地政学のいずれか 2 つ以上を必ず触れる)。「業種固有 evidence が brief 群から確認できない」一辺倒の rationale が 33 業種中 5 件超なら検討不足の finding (§9.3)
+- 各 sector / exposure bucket の `rationale` は判定根拠を **2 因子以上の検討痕跡を含む 1-3 文** で記述する (cost / revenue / 為替 / 金利 / 業種特有 / 地政学のいずれか 2 つ以上を必ず触れる)。「業種固有 evidence が brief 群から確認できない」一辺倒の rationale が 33 業種中 5 件超なら検討不足の finding (§9.3)
 - `changes` には前回 outlook からの判定変更を `target` / `from_status` / `to_status` / `rationale` で構造化する
 - `next_triggers` は次に outlook を更新すべきイベントを列挙
 - 投資判断の示唆は軽く（「このマクロ下では... が相対的に有利」程度）、個別銘柄への言及はしない（それは research の仕事）
 
 ## 7. research への接続
 
-### 7.1 Macro gate 判定
+### 7.1 Macro regime gate 判定
 
-`records/04-research/` の front matter `macro_gate` は、この outlook の `sectors` / `regions` を参照して決まる:
+`records/05-research/` の front matter `macro_regime_gate` は、この outlook の `sectors` / `exposure_buckets` を参照して決まる:
 
 - 対象銘柄の属する業種・地域の outlook 判定を取得
-- 業種と地域で判定が食い違う場合は **保守的な方を採用**（headwind >> neutral >> tailwind）
+- 業種と地域で判定が食い違う場合は **保守的な方を採用**（adverse >> neutral >> supportive）
 - 詳細: [`../screening/macro-gate-procedure.md`](../screening/macro-gate-procedure.md)
 
 ### 7.2 outlook 未更新時
@@ -130,7 +130,7 @@ outlook YAML の構造、必須キー、`sectors` の 33 業種完全性、`regi
 最新の outlook が古く、その後に重大 brief が出て gate 判定に影響する場合:
 
 - 該当 brief を research の `brief_refs` に追加
-- gate 判定を **保守側にのみ** 手動上書き可（tailwind → neutral、neutral → headwind。逆向きの上書き不可）
+- gate 判定を **保守側にのみ** 手動上書き可（supportive → neutral、neutral → adverse。逆向きの上書き不可）
 
 常態的に outlook が遅れるようなら、outlook の更新 trigger を見直す。
 
@@ -140,9 +140,9 @@ outlook YAML の構造、必須キー、`sectors` の 33 業種完全性、`regi
 | --- | --- | --- |
 | brief の読み込み・要点抽出 | ○ | |
 | outlook 下書き生成 | ○ | |
-| sectors / regions 判定の初期案 | ○ | 最終確定は人間 |
+| sectors / exposure_buckets 判定の初期案 | ○ | 最終確定は人間 |
 | 反対論点の列挙 | ○ | |
-| **最終判定（tailwind/neutral/headwind）の確定** | | ○ |
+| **最終判定（supportive/neutral/adverse）の確定** | | ○ |
 | **判定根拠の最終確認** | | ○ |
 
 ## 9. 品質基準と self-review
@@ -152,7 +152,7 @@ outlook YAML の構造、必須キー、`sectors` の 33 業種完全性、`regi
 outlook YAML は以下を満たさなければ `ai_draft: true → false` の確定に進めない。
 
 - **20+ Tier 1 / Tier 1 準拠の一次情報源を直接根拠**とする。ただし正本フローは以下に厳格に従う:
-  - **canonical fact layer は brief のみ**: outlook の `updated_from` および `source_refs` は `records/01-brief/**.yaml` パスのみを許容する (schema で強制)。outlook 直接の外部 URL 引用は禁止
+  - **canonical fact layer は brief のみ**: outlook の `updated_from` および `source_refs` は `records/02-brief/**.yaml` パスのみを許容する (schema で強制)。outlook 直接の外部 URL 引用は禁止
   - **外部 deep research の取扱**: 取得した一次情報を outlook で使う場合、必ず **対応する brief (世界週次 / 日次 / 月次 / event) を同 PR で新規作成または更新**してから、outlook がその brief を `updated_from` / `source_refs` で参照する形に集約する
   - **sidecar (`outlook-<date>-research-log.md`) の役割は取得ログ**: deep research 中に確認した URL / 取得日 / Tier / key fact をリスト化し、再現性確保と監査用途で残す。outlook の根拠 source としては数えない (= research-log だけで brief を skip するのは設計違反)
   - 必要 axis (各 3-5 source、合計 20+):
@@ -166,7 +166,7 @@ outlook YAML は以下を満たさなければ `ai_draft: true → false` の確
 - **summary に PART A-E の構造を含める** (詳細は §9.2 を参照)
 - **シナリオ分析 4 件**: Base / Upside / Downside / Tail。各シナリオに triggering path、確度 (合計 100%)、sector 帰結、投資方向性を記述
 - **リスク因子 10+**: 順位 / 確度 / 影響度 / 観測指標 / 次の確認日 を表で記述
-- **33 業種 / 4 region すべての rationale に 2 因子以上の検討痕跡** (cost / revenue / 為替 / 金利 / 業種特有 / 地政学のいずれか 2 つ以上)
+- **33 業種 / 4 exposure bucket すべての rationale に 2 因子以上の検討痕跡** (cost / revenue / 為替 / 金利 / 業種特有 / 地政学のいずれか 2 つ以上)
 - **deep research を 30 分以上実施**してから書く (general-purpose subagent 活用も可)。所要時間目安は deep research 30 分 + 構造分析 30 分 + self-review 15 分 = 計 75 分以上
 
 ### 9.2 summary の構造 (PART A-E)
@@ -188,7 +188,7 @@ outlook YAML は以下を満たさなければ `ai_draft: true → false` の確
 - [ ] 10+ リスク因子表を観測指標付きで書いたか
 - [ ] 33 業種すべて rationale に 2 因子以上の検討痕跡を残したか
 - [ ] 「業種固有 evidence が brief 群から確認できない」一辺倒の rationale が 33 業種中 5 件以下か (5 件超なら検討不足)
-- [ ] regions 4 件すべて status / rationale / source_refs を埋めているか
+- [ ] exposure_buckets 4 件すべて status / rationale / source_refs を埋めているか
 - [ ] FOMC / BOJ / 主要中央銀行 statement の声明文を直接引用 (内容を要約で済ませない) しているか
 - [ ] 油価 / 為替 / 主要金利 の数値が brief と一致しているか
 - [ ] 思い込みではなく source URL を伴う事実だけで根拠を組み立てているか
@@ -222,5 +222,5 @@ outlook 単体で閉じない範囲の anti-pattern (数値検算、schema 誤�
 - [`../concepts.md`](../concepts.md): 投資判断ドメインモデル
 - [`brief.md`](./brief.md): source となる brief の仕様
 - [`research.md`](./research.md): 接続先 research の仕様
-- [`../screening/macro-gate-procedure.md`](../screening/macro-gate-procedure.md): Macro gate 判定手順
+- [`../screening/macro-gate-procedure.md`](../screening/macro-gate-procedure.md): Macro regime gate 判定手順
 - [`../templates/outlook.yaml`](../templates/outlook.yaml): template

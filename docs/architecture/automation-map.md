@@ -22,7 +22,7 @@ Automation は人間の投資判断を置き換えるものではなく、fact s
 | `uv run baibai-loop-screening run --asof YYYY-MM-DD` | `src/baibai_loop/screening/` | J-Quants / EDINET / JPX 由来データから candidates YAML を生成する |
 | `uv run baibai-loop-screening select --asof YYYY-MM-DD` | `src/baibai_loop/screening/` | candidates と outlook を突合し、research 候補の ranking を支援する |
 | `uv run baibai-loop-validate` | `src/baibai_loop/validate/` | records と schema の整合性を検証する |
-| `uv run baibai-loop-ledger sync --root .` | `src/baibai_loop/ledger/` | research decision を `records/_ledger/` の JSONL に正規化する |
+| `uv run baibai-loop-ledger sync --root .` | `src/baibai_loop/ledger/` | decision event を `records/_ledger/` の JSONL に正規化する |
 
 ## Schema and validation
 
@@ -30,7 +30,8 @@ Automation は人間の投資判断を置き換えるものではなく、fact s
 
 | support area | 説明 |
 | --- | --- |
-| `records/_schemas/` | brief / outlook / candidates / playbook などの validation schema |
+| `records/_schemas/` | records artifact の validation schema |
+| `records/_benchmarks/` | business regression benchmark manifest |
 | `src/baibai_loop/validate/` | schema だけでは表現しにくい cross-file validation |
 | `tests/test_validate_*.py` | validator の期待挙動を固定する tests |
 

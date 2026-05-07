@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "retro-monthly",
+  "title": "Monthly Retro",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "retro_month",
+    "approved_decisions",
+    "submitted_orders",
+    "filled_positions",
+    "closed_positions",
+    "missed_opportunities",
+    "failure_class_counts",
+    "success_class_counts",
+    "playbook_revision_decision",
+    "next_cycle_changes",
+    "price_missing_counts"
+  ],
+  "properties": {
+    "retro_month": {"type": "string"},
+    "approved_decisions": {"type": "integer", "minimum": 0},
+    "submitted_orders": {"type": "integer", "minimum": 0},
+    "filled_positions": {"type": "integer", "minimum": 0},
+    "closed_positions": {"type": "integer", "minimum": 0},
+    "missed_opportunities": {"type": "integer", "minimum": 0},
+    "failure_class_counts": {"type": "object"},
+    "success_class_counts": {"type": "object"},
+    "playbook_revision_decision": {"enum": ["据え置き", "小改訂", "大幅改訂"]},
+    "next_cycle_changes": {"type": "array"},
+    "price_missing_counts": {"type": "object"}
+  }
+}

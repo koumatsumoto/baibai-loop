@@ -6,8 +6,8 @@ ai_draft: true
 published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 observation_date: "YYYY-MM-DD"
 references:
-  latest_weekly: records/01-brief/YYYY/MM/YYYY-MM-DD-world-weekly-{slug}.yaml
-  latest_monthly: records/01-brief/YYYY/MM/YYYY-MM-macro-monthly-{slug}.yaml
+  latest_weekly: records/02-brief/YYYY/MM/YYYY-MM-DD-world-weekly-{slug}.yaml
+  latest_monthly: records/02-brief/YYYY/MM/YYYY-MM-macro-monthly-{slug}.yaml
 sources:
   - id: census-retail
     name: U.S. Census Bureau Retail Sales

@@ -1,6 +1,6 @@
 ---
 title: "Brief runbook"
-summary: "Operational entry point for creating or updating records/01-brief artifacts."
+summary: "Operational entry point for creating or updating records/02-brief artifacts."
 doc_type: operation
 status: active
 last_reviewed: 2026-05-04
@@ -11,7 +11,7 @@ related_docs:
 
 # Brief runbook
 
-Brief は `records/01-brief/` に置く fact layer です。詳細 contract は [`../components/brief.md`](../components/brief.md) を正本とします。
+Brief は `records/02-brief/` に置く fact layer です。詳細 contract は [`../components/brief.md`](../components/brief.md) を正本とします。
 
 ## Before writing
 

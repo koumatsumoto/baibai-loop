@@ -11,14 +11,14 @@ from .rule_config import (
     StrictNetCashLane,
     ValuationReversionLane,
 )
-from .schema import DerivedMetrics, FinancialSnapshot, ScreeningResult, SignalHit, TTMQuality
+from .schema import DerivedMetrics, EvidenceHit, FinancialSnapshot, ScreeningResult, TTMQuality
 
-SIGNAL_VALUATION_REVERSION = "valuation-reversion"
-SIGNAL_CASH_RICH = "cash-rich-asset-discount"
-SIGNAL_CASHFLOW_YIELD = "cashflow-yield-discount"
-SIGNAL_STRICT_NET_CASH = "strict-net-cash-discount"
-SIGNAL_FCF_YIELD = "fcf-yield-discount"
-SIGNAL_SALES_DISCOUNT = "sales-discount-growth"
+PLAYBOOK_VALUATION_REVERSION = "valuation-reversion"
+PLAYBOOK_CASH_RICH = "cash-rich-asset-discount"
+PLAYBOOK_CASHFLOW_YIELD = "cashflow-yield-discount"
+PLAYBOOK_STRICT_NET_CASH = "strict-net-cash-discount"
+PLAYBOOK_FCF_YIELD = "fcf-yield-discount"
+PLAYBOOK_SALES_DISCOUNT = "sales-discount-growth"
 
 REASON_SECTOR_SELF_RANGE = "sector_median_discount_and_self_range_bottom"
 REASON_PRICE_SIGMA = "price_down_60d_and_valuation_sigma_down"
@@ -44,10 +44,10 @@ def evaluate_screening(
     *,
     sector_33: str = "",
 ) -> ScreeningResult:
-    signals: list[SignalHit] = []
+    evidence_hits: list[EvidenceHit] = []
     null_reasons: list[str] = []
 
-    for name, lane in rules.signal_lanes.items():
+    for name, lane in rules.screening_playbooks.items():
         match name:
             case "valuation-reversion":
                 if not isinstance(lane, ValuationReversionLane):
@@ -97,17 +97,17 @@ def evaluate_screening(
             case _:  # pragma: no cover - config validator rejects this.
                 hit = None
         if hit is not None:
-            signals.append(hit)
+            evidence_hits.append(hit)
 
-    if not signals:
+    if not evidence_hits:
         return ScreeningResult(
             pass_fail=False,
-            failure_reasons=("no_signal_hit",),
+            failure_reasons=("no_evidence_hit",),
             null_reasons=tuple(dict.fromkeys(null_reasons)),
         )
     return ScreeningResult(
         pass_fail=True,
-        signals=tuple(signals),
+        evidence_hits=tuple(evidence_hits),
         null_reasons=tuple(dict.fromkeys(null_reasons)),
     )
 
@@ -122,7 +122,7 @@ def _valuation_reversion(
     lane: ValuationReversionLane,
     deterioration_threshold: float,
     null_reasons: list[str],
-) -> SignalHit | None:
+) -> EvidenceHit | None:
     reasons: list[str] = []
     metrics: dict[str, float | int | bool | str | None] = {}
     hit_metric_a = _condition_a_metric(financial, derived, lane, null_reasons)
@@ -152,9 +152,9 @@ def _valuation_reversion(
         metrics["sector_return_4w"] = derived.sector_return_4w
     if not reasons:
         return None
-    return SignalHit(
-        name=SIGNAL_VALUATION_REVERSION,
-        playbook=lane.playbook,
+    return EvidenceHit(
+        name=PLAYBOOK_VALUATION_REVERSION,
+        playbook_id=lane.playbook_id,
         reasons=tuple(reasons),
         metrics=metrics,
     )
@@ -232,7 +232,7 @@ def _cash_rich_asset_discount(
     financial: FinancialSnapshot,
     lane: CashRichLane,
     null_reasons: list[str],
-) -> SignalHit | None:
+) -> EvidenceHit | None:
     if financial.cash_to_market_cap is None:
         null_reasons.append("cash_rich_missing_cash_to_market_cap")
         return None
@@ -259,9 +259,9 @@ def _cash_rich_asset_discount(
         or financial.equity_ratio < lane.equity_ratio_min
     ):
         return None
-    return SignalHit(
-        name=SIGNAL_CASH_RICH,
-        playbook=lane.playbook,
+    return EvidenceHit(
+        name=PLAYBOOK_CASH_RICH,
+        playbook_id=lane.playbook_id,
         reasons=(REASON_CASH_RICH,),
         metrics={
             "cash_to_market_cap": financial.cash_to_market_cap,
@@ -279,7 +279,7 @@ def _cashflow_yield_discount(
     financial: FinancialSnapshot,
     lane: CashflowYieldLane,
     null_reasons: list[str],
-) -> SignalHit | None:
+) -> EvidenceHit | None:
     if financial.ttm_quality_ocf_yield == TTMQuality.UNAVAILABLE:
         null_reasons.append("cashflow_yield_ttm_cfo_unavailable")
         return None
@@ -293,9 +293,9 @@ def _cashflow_yield_discount(
         return None
     if financial.ocf_yield is None or financial.ocf_yield < lane.ocf_yield_min:
         return None
-    return SignalHit(
-        name=SIGNAL_CASHFLOW_YIELD,
-        playbook=lane.playbook,
+    return EvidenceHit(
+        name=PLAYBOOK_CASHFLOW_YIELD,
+        playbook_id=lane.playbook_id,
         reasons=(REASON_CASHFLOW_YIELD,),
         metrics={
             "ocf_yield": financial.ocf_yield,
@@ -310,7 +310,7 @@ def _strict_net_cash_discount(
     financial: FinancialSnapshot,
     lane: StrictNetCashLane,
     null_reasons: list[str],
-) -> SignalHit | None:
+) -> EvidenceHit | None:
     if financial.ttm_quality_net_cash == TTMQuality.UNAVAILABLE:
         null_reasons.append("strict_net_cash_unavailable")
         return None
@@ -336,9 +336,9 @@ def _strict_net_cash_discount(
         or financial.equity_ratio < lane.equity_ratio_min
     ):
         return None
-    return SignalHit(
-        name=SIGNAL_STRICT_NET_CASH,
-        playbook=lane.playbook,
+    return EvidenceHit(
+        name=PLAYBOOK_STRICT_NET_CASH,
+        playbook_id=lane.playbook_id,
         reasons=(REASON_STRICT_NET_CASH,),
         metrics={
             "net_cash": financial.net_cash,
@@ -363,7 +363,7 @@ def _fcf_yield_discount(
     financial: FinancialSnapshot,
     lane: FcfYieldLane,
     null_reasons: list[str],
-) -> SignalHit | None:
+) -> EvidenceHit | None:
     if financial.ttm_quality_fcf_yield != TTMQuality.EXACT:
         null_reasons.append("fcf_yield_ttm_not_exact")
         return None
@@ -382,9 +382,9 @@ def _fcf_yield_discount(
         return None
     if financial.fcf_yield is None or financial.fcf_yield < lane.fcf_yield_min:
         return None
-    return SignalHit(
-        name=SIGNAL_FCF_YIELD,
-        playbook=lane.playbook,
+    return EvidenceHit(
+        name=PLAYBOOK_FCF_YIELD,
+        playbook_id=lane.playbook_id,
         reasons=(REASON_FCF_YIELD,),
         metrics={
             "fcf_yield": financial.fcf_yield,
@@ -411,7 +411,7 @@ def _sales_discount_growth(
     derived: DerivedMetrics,
     lane: SalesDiscountGrowthLane,
     null_reasons: list[str],
-) -> SignalHit | None:
+) -> EvidenceHit | None:
     ps_gap = derived.sector_median_gap.get("p_s")
     if ps_gap is None:
         null_reasons.append("sales_discount_missing_ps_sector_gap")
@@ -423,9 +423,9 @@ def _sales_discount_growth(
         return None
     if not _sales_operating_profit_gate(financial, lane):
         return None
-    return SignalHit(
-        name=SIGNAL_SALES_DISCOUNT,
-        playbook=lane.playbook,
+    return EvidenceHit(
+        name=PLAYBOOK_SALES_DISCOUNT,
+        playbook_id=lane.playbook_id,
         reasons=(REASON_SALES_DISCOUNT,),
         metrics={
             "p_s": financial.p_s,

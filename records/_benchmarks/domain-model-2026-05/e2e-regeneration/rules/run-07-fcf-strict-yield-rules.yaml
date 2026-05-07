@@ -1,0 +1,102 @@
+universe:
+  min_market_cap_oku: 100
+  min_avg_turnover_oku: 1.0
+  listed_under_days: 182
+  required_jpx_flags:
+  - 特別注意銘柄
+  - 整理銘柄
+  - 取引停止
+  - 上場廃止警告
+ttm:
+  full_year_min_days: 330
+  full_year_max_days: 370
+  period_length_tolerance_ratio: 0.1
+  period_end_tolerance_days: 45
+quality:
+  partial_warning_ttm_ratio: 0.05
+  partial_warning_ttm_count: 20
+  partial_warning_yoy_missing_ratio: 0.1
+  yoy_deterioration_threshold: -0.3
+output:
+  research_selection_target_min: 3
+  research_selection_target_max: 5
+  selection_mode: lane_toplists
+  lane_toplist_limit: 5
+  research_selection_lane_order:
+  - strict-net-cash-discount
+  - fcf-yield-discount
+  - cash-rich-asset-discount
+  - cashflow-yield-discount
+  - sales-discount-growth
+  - valuation-reversion
+screening_playbooks:
+  valuation-reversion:
+    sector_median_gap_max: -0.2
+    self_range_percentile_max: 0.2
+    price_change_60d_max: -0.15
+    sigma_gap_max: -1.0
+    sector_relative_strength_percentile_max: 0.2
+    metrics:
+    - per_trailing
+    - pbr
+    - ev_ebitda
+    playbook_id: valuation-reversion
+  strict-net-cash-discount:
+    excluded_sectors:
+    - 銀行業
+    - 証券・商品先物取引業
+    - 保険業
+    - その他金融業
+    - 電気・ガス業
+    net_cash_to_market_cap_min: 0.3
+    price_to_equity_max: 1.0
+    equity_ratio_min: 0.3
+    operating_profit_positive_required: true
+    playbook_id: strict-net-cash-discount
+  cash-rich-asset-discount:
+    excluded_sectors:
+    - 銀行業
+    - 証券・商品先物取引業
+    - 保険業
+    - その他金融業
+    - 電気・ガス業
+    cash_to_market_cap_min: 0.4
+    edinet_net_cash_to_market_cap_min_if_available: 0.0
+    price_to_equity_max: 1.0
+    equity_ratio_min: 0.3
+    operating_profit_positive_required: true
+    playbook_id: cash-rich-asset-discount
+  cashflow-yield-discount:
+    excluded_sectors:
+    - 銀行業
+    - 証券・商品先物取引業
+    - 保険業
+    - その他金融業
+    - 電気・ガス業
+    ocf_yield_min: 0.1
+    ttm_cfo_required: true
+    cfo_yoy_min: -0.2
+    cfo_yoy_required: true
+    playbook_id: cashflow-yield-discount
+  fcf-yield-discount:
+    excluded_sectors:
+    - 銀行業
+    - 証券・商品先物取引業
+    - 保険業
+    - その他金融業
+    - 電気・ガス業
+    fcf_yield_min: 0.12
+    fcf_required: true
+    cfo_yoy_min: -0.2
+    cfo_yoy_required: true
+    playbook_id: fcf-yield-discount
+  sales-discount-growth:
+    excluded_sectors:
+    - 銀行業
+    - 証券・商品先物取引業
+    - 保険業
+    - その他金融業
+    ps_sector_gap_max: -0.4
+    sales_yoy_min: 0.05
+    allow_operating_loss_if_cfo_positive_or_loss_narrowing: true
+    playbook_id: sales-discount-growth

@@ -29,10 +29,16 @@ class PlaybookSchemaDiscoveryTests(unittest.TestCase):
             (Path(tmpdir) / "playbook.md").write_text("# stub\n", encoding="utf-8")
             self.assertEqual(discover_playbook_schemas(Path(tmpdir)), set())
 
-    def test_strips_schema_yaml_suffix(self) -> None:
+    def test_discovers_immutable_snapshot_schemas(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            (Path(tmpdir) / "alpha.schema.yaml").write_text("name: alpha\n", encoding="utf-8")
-            (Path(tmpdir) / "beta.schema.yaml").write_text("name: beta\n", encoding="utf-8")
+            (Path(tmpdir) / "alpha").mkdir()
+            (Path(tmpdir) / "alpha" / "body-schema.yaml").write_text(
+                "name: alpha\nbody_sections: []\n", encoding="utf-8"
+            )
+            (Path(tmpdir) / "beta").mkdir()
+            (Path(tmpdir) / "beta" / "body-schema.yaml").write_text(
+                "name: beta\nbody_sections: []\n", encoding="utf-8"
+            )
             self.assertEqual(discover_playbook_schemas(Path(tmpdir)), {"alpha", "beta"})
 
     def test_repository_schemas_include_known_playbook(self) -> None:
@@ -53,14 +59,16 @@ class PlaybookSchemaLoaderTests(unittest.TestCase):
 
     def test_invalid_schema_root_raises(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            schema_path = Path(tmpdir) / "broken.schema.yaml"
+            (Path(tmpdir) / "broken").mkdir()
+            schema_path = Path(tmpdir) / "broken" / "body-schema.yaml"
             schema_path.write_text("- not-a-mapping\n", encoding="utf-8")
             with self.assertRaises(PlaybookSchemaError):
                 load_playbook_schema(Path(tmpdir), "broken")
 
     def test_missing_title_pattern_raises(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            schema_path = Path(tmpdir) / "broken.schema.yaml"
+            (Path(tmpdir) / "broken").mkdir()
+            schema_path = Path(tmpdir) / "broken" / "body-schema.yaml"
             schema_path.write_text(
                 "name: broken\nbody_sections:\n  - required: true\n",
                 encoding="utf-8",
@@ -70,7 +78,8 @@ class PlaybookSchemaLoaderTests(unittest.TestCase):
 
     def test_invalid_regex_pattern_raises(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            schema_path = Path(tmpdir) / "broken.schema.yaml"
+            (Path(tmpdir) / "broken").mkdir()
+            schema_path = Path(tmpdir) / "broken" / "body-schema.yaml"
             schema_path.write_text(
                 "name: broken\nbody_sections:\n  - title_pattern: '[invalid'\n",
                 encoding="utf-8",
@@ -92,7 +101,8 @@ class ResearchBodyValidationTests(unittest.TestCase):
 
     def test_validate_research_body_skips_optional_section(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            schema_path = Path(tmpdir) / "demo.schema.yaml"
+            (Path(tmpdir) / "demo").mkdir()
+            schema_path = Path(tmpdir) / "demo" / "body-schema.yaml"
             schema_path.write_text(
                 "name: demo\nbody_sections:\n"
                 "  - title_pattern: 'Required'\n"

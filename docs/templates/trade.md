@@ -1,32 +1,42 @@
 ---
+trade_id: trade-YYYYMMDD-XXXX
 ticker: "XXXX"
 name: "..."
-research_ref: records/04-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md
-order_date: "YYYY-MM-DD" | null
-expected_fill_at: "ISO 8601" | null
-order_price_guard_yen: 数値 | null
-order_quantity: 整数 | null
-guarded_max_notional_yen: 数値 | null
-guarded_max_real_concentration_pct: 数値 | null
-guarded_max_tactical_concentration_pct: 数値 | null
-order_action_required: 文字列 | null
-entry_date: "YYYY-MM-DD" | null
-entry_price: 数値 | null
-paper_proxy_position_size_oku: 数値
-paper_proxy_position_size_pct: 数値
-real_capital_yen: 数値 | null
-real_order_notional_yen: 数値 | null
-real_concentration_pct: 数値 | null
-tactical_capital_yen: 数値 | null
-tactical_concentration_pct: 数値 | null
+research_ref: records/05-research/YYYY/MM/YYYY-MM-DD-XXXX-<playbook_id>.md
+policy_snapshot:
+  ref_path: records/01-policy/YYYY/MM/YYYY-MM-DDTHHMMSS+0900-portfolio-policy.md
+  content_sha256: sha256:<64-hex>
+portfolio_exposure_snapshot_ref:
+  ref_path: records/_portfolio-exposure/YYYY/MM/YYYY-MM-DDTHHMMSS+0900.yaml
+  content_sha256: sha256:<64-hex>
+position_state: none | open | closed
+review_state: not_due | scheduled | completed
+trade_execution_state: none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled
+order_intent:
+  order_intent_id: intent-YYYYMMDD-XXXX-entry
+  decision_event_id: decision-YYYYMMDD-XXXX-research
+  quantity: 100
+  order_price_guard_yen: 1000
+  not_submitted_reason: null
+position_sizing_overlay:
+  estimated_real_order_notional_yen: 100000
+  guarded_max_notional_yen: 100000
+orders:
+  - order_id: order-YYYYMMDD-XXXX-entry
+    origin_order_intent_id: intent-YYYYMMDD-XXXX-entry
+    external_broker_order_id: null
+    side: buy
+    state: submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled
+    submitted_quantity: 100
+    filled_quantity: 0
+    events:
+      - event_type: submit
+        at: "YYYY-MM-DDTHH:MM:SS+09:00"
+executions: []
 planned_exit:
-  target_price: 数値 | null
-  stop_loss: 数値
-  time_stop_days: 40
-status: ordered | open | closed
-exit_date: "YYYY-MM-DD" | null
-exit_price: 数値 | null
-pnl_pct: 数値 | null
+  target_price_yen: 1300
+  stop_loss_yen: 900
+  time_stop_at: "YYYY-MM-DD"
 kill_switch_check:
   earnings_straddle: false
   boj_eve: false
@@ -37,79 +47,60 @@ kill_switch_check:
 
 **成分**: Decision lifecycle の **trades / execution record**（[`/docs/components/trades.md`](/docs/components/trades.md)）
 
-**Research source**: [records/04-research/YYYY/MM/YYYY-MM-DD-*-*.md](...)
+**Research source**: [records/05-research/YYYY/MM/YYYY-MM-DD-*-*.md](...)
 
 ## 1. Order / Entry
 
-### 1.1 Entry reason（research から）
+### 1.1 Entry reason
 
-- **Thesis**（research から転写、短縮）: [1-2 段落]
-- **Playbook**: [valuation-reversion | strict-net-cash-discount | fcf-yield-discount | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth]
-- **Macro gate**: [tailwind | neutral]
-- **Primary valuation metric**: [per_forward + pbr 等]
+- **Thesis**:
+- **Playbook**:
+- **Macro regime gate**:
+- **Primary valuation metric**:
 
-### 1.2 Order / Entry triggers
+### 1.2 Order intent
 
-実際に order / entry した条件:
+- **order_intent_id**:
+- **quantity**:
+- **order_price_guard_yen**:
+- **guarded_max_notional_yen**:
+- **binding cap**:
 
-- [価格レンジ到達 / 特定日 / 出来高増 / etc.]
+### 1.3 Orders
 
-### 1.3 Order / Entry log
+| order_id | side | state | submitted | filled | broker / reason |
+| --- | --- | --- | ---: | ---: | --- |
+| order-... | buy | submitted | 100 | 0 | |
 
-| 注文日 | expected fill | 数量 | 注文種別 | 参照価格 / 約定価格 | 手数料 | 備考 |
-| --- | --- | ---: | --- | ---: | --- | --- |
-| YYYY-MM-DD | YYYY-MM-DD HH:MM | XX 株 | 成行 / 指値 | XXXXX 円 | XX 円 | ordered では参照価格、open では約定価格 |
+### 1.4 Executions
 
-**Entry price (加重平均)**: XXXXX 円 / ordered の場合は未約定
+| execution_id | order_id | side | quantity | price | at |
+| --- | --- | --- | ---: | ---: | --- |
+| exec-... | order-... | buy | 100 | 1000 | YYYY-MM-DD HH:MM |
 
-### 1.4 Position
+## 2. 保有中ログ
 
-- Paper proxy size: X.X% / X.XXXX 億円
-- Real concentration: X.X%（実資金全体を使った場合のみ）
-- Tactical concentration: X.X%（一時的な投入上限を置く場合のみ）
-- Guarded max concentration: real X.X% / tactical X.X%（価格 guard を置く場合のみ）
-- Stop loss: XXXXX 円（-X%）
-- Target: XXXXX 円（+X%）
-- Time stop: YYYY-MM-DD まで（最長 40 営業日）
-
-### 1.5 Kill switch 確認
-
-- [x] 決算またぎエントリーではない
-- [x] 日銀会合前日エントリーではない
-- [x] FOMC 前日エントリーではない
-
-## 2. 保有中ログ（随時追記、exit までのメモ）
-
-### YYYY-MM-DD
-
-- [重大な変化があった場合のメモ]
-- [マクロ変化、決算発表接近、positioning / liquidity 変化、価格動向、無効化条件監視]
+[重大な変化、macro regime gate、決算、positioning / liquidity、価格、無効化条件の監視。]
 
 ## 3. Exit
 
 ### 3.1 Exit reason
 
-[利確 / 損切り / 時間切れ / 無効化 / kill switch reversal / マクロゲート headwind 化]
+[利確 / 損切り / time stop / invalidation / kill switch reversal]
 
-- [詳細説明]
+### 3.2 Exit executions
 
-### 3.2 Exit log
-
-| 時刻 | 数量 | 単価 | 手数料 |
-| --- | --- | --- | --- |
-| HH:MM | XX 株 | XXXXX 円 | XX 円 |
-
-**Exit price (加重平均)**: XXXXX 円
+| execution_id | order_id | side | quantity | price | at |
+| --- | --- | --- | ---: | ---: | --- |
 
 ### 3.3 P&L
 
-- **損益率**: X.X%
-- **保有営業日数**: XX 日
-- **手数料・税考慮前**: +XXXXX 円
-- **手数料・税考慮後**: +XXXXX 円
+- **gross_return_pct**:
+- **net_return_pct**:
+- **execution_costs_yen**:
 
 ## 4. Review への接続
 
-- +15 営業日 review 予定日: YYYY-MM-DD
-- +30 営業日 review 予定日: YYYY-MM-DD
-- 事後 review: [`records/06-reviews/YYYY/MM/YYYY-MM-DD-XXXX.md`](/records/06-reviews/YYYY/MM/YYYY-MM-DD-XXXX.md)（決済後に作成）
+- +15 営業日 review 予定日:
+- +30 営業日 review 予定日:
+- attribution review: [`records/07-reviews/YYYY/MM/YYYY-MM-DD-XXXX.md`](/records/07-reviews/YYYY/MM/YYYY-MM-DD-XXXX.md)

@@ -1,6 +1,6 @@
 # records/_external/
 
-外部 AI / 二次分析の **生原稿保管領域**。`records/04-research/` に取り込む前段の素材として、
+外部 AI / 二次分析の **生原稿保管領域**。`records/05-research/` に取り込む前段の素材として、
 他 AI セッション、証券レポート、アナリストノート、ニュース要約などをそのまま残す。
 
 ## 1. 目的
@@ -48,7 +48,7 @@ related_themes:              # 任意。トピック分類
 
 ## 4. research との紐付け
 
-`records/04-research/**.md` の front matter に `external_refs` 配列で参照する:
+`records/05-research/**.md` の front matter に `external_refs` 配列で参照する:
 
 ```yaml
 external_refs:

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "review",
+  "title": "Review",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["decision_event_id", "classification", "verified_at"],
+  "properties": {
+    "decision_event_id": {"type": "string", "minLength": 1},
+    "research_ref": {"type": ["string", "null"]},
+    "trade_ref": {"type": ["string", "null"]},
+    "classification": {"enum": ["success", "failure", "invalidated", "inconclusive"]},
+    "verified_at": {"type": "string"},
+    "outcome": {"type": "object"},
+    "attribution_targets": {"type": "array"}
+  }
+}

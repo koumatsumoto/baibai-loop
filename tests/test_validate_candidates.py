@@ -19,6 +19,10 @@ from baibai_loop.validate.candidates import (
 
 
 def _minimal_candidates() -> dict[str, object]:
+    snapshot = {
+        "ref_path": "records/_config/screening-rules/2026-05-01T000000+0900.yaml",
+        "content_sha256": "sha256:" + "1" * 64,
+    }
     return {
         "run_date": "2026-04-24",
         "asof_date": "2026-04-24",
@@ -32,12 +36,31 @@ def _minimal_candidates() -> dict[str, object]:
         "data_sources": ["j-quants-light"],
         "run_at": "2026-04-24T09:00:00+09:00",
         "run_id": "screening-20260424-a1b2c3d4",
-        "config_hash": "a1b2c3d4e5f6a7b8",
+        "screening_rules_snapshot": snapshot,
+        "metric_catalog_snapshot": {
+            **snapshot,
+            "ref_path": "records/_config/metric-catalog/2026-05-01T000000+0900.yaml",
+        },
+        "policy_snapshot": {
+            **snapshot,
+            "ref_path": "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md",
+        },
+        "universe_snapshot_ref": {
+            **snapshot,
+            "ref_path": "records/_universe-snapshots/2026/04/2026-04-24.yaml",
+        },
         "cache_manifest_hash": "9988776655443322",
         "candidates": [
             {
                 "ticker": "130A",
                 "name": "Sample Co",
+                "screen_run_id": "screening-20260424-a1b2c3d4",
+                "candidate_id": "candidate-2026-04-24-130A",
+                "candidate_key": "screening-20260424-a1b2c3d4:130A",
+                "playbook_screen_result": "hit",
+                "policy_gate_result": "pass",
+                "liquidity_gate_result": "pass",
+                "macro_regime_gate_result": "pass",
                 "sector_33": "情報・通信業",
                 "metrics": {},
                 "ttm_quality": {
@@ -49,10 +72,18 @@ def _minimal_candidates() -> dict[str, object]:
                     "fcf_yield": "unavailable",
                     "net_cash": "unavailable",
                 },
-                "signals": [
+                "evidence_hits": [
                     {
-                        "name": "valuation-reversion",
-                        "playbook": "valuation-reversion",
+                        "evidence_hit_id": "candidate-2026-04-24-130A-valuation-reversion",
+                        "playbook_id": "valuation-reversion",
+                        "claim_id": "130A-valuation-reversion",
+                        "claim_type": "valuation_reversion",
+                        "evidence_family_set": ["valuation"],
+                        "decision_role": "sizing_evidence",
+                        "evidence_polarity": "supports",
+                        "source_status": "ok",
+                        "sizing_eligible": True,
+                        "independence_component_id": "valuation-reversion",
                         "reasons": ["sector_median_discount_and_self_range_bottom"],
                         "metrics": {},
                     }
@@ -91,20 +122,22 @@ class CandidatesValidationTests(unittest.TestCase):
         self.assertIn("candidates.pattern", codes)
         self.assertIn("run_id", locations)
 
-    def test_short_config_hash_is_flagged(self) -> None:
+    def test_short_snapshot_hash_is_flagged(self) -> None:
         payload = _minimal_candidates()
-        payload["config_hash"] = "abc"
+        snapshot = payload["screening_rules_snapshot"]
+        assert isinstance(snapshot, dict)
+        snapshot["content_sha256"] = "abc"
         path = self._write(payload)
         try:
             findings = validate_candidates_file(path)
         finally:
             path.unlink()
         locations = {finding.location for finding in findings}
-        self.assertIn("config_hash", locations)
+        self.assertIn("screening_rules_snapshot.content_sha256", locations)
 
     def test_missing_required_lineage_field_is_flagged(self) -> None:
         payload = _minimal_candidates()
-        del payload["cache_manifest_hash"]
+        del payload["screening_rules_snapshot"]
         path = self._write(payload)
         try:
             findings = validate_candidates_file(path)
@@ -128,13 +161,13 @@ class CandidatesValidationTests(unittest.TestCase):
         locations = {finding.location for finding in findings}
         self.assertTrue(any("ticker" in loc for loc in locations if loc is not None))
 
-    def test_empty_signals_is_flagged(self) -> None:
+    def test_empty_evidence_hits_is_flagged(self) -> None:
         payload = _minimal_candidates()
         candidates = payload["candidates"]
         assert isinstance(candidates, list)
         candidate_entry = candidates[0]
         assert isinstance(candidate_entry, dict)
-        candidate_entry["signals"] = []
+        candidate_entry["evidence_hits"] = []
         path = self._write(payload)
         try:
             findings = validate_candidates_file(path)
@@ -143,31 +176,66 @@ class CandidatesValidationTests(unittest.TestCase):
         codes = {finding.code for finding in findings}
         self.assertTrue(any(code.startswith("candidates.") for code in codes))
 
-    def test_unknown_root_field_is_flagged(self) -> None:
-        payload = _minimal_candidates()
-        payload["typo_field_name"] = "oops"
-        path = self._write(payload)
-        try:
-            findings = validate_candidates_file(path)
-        finally:
-            path.unlink()
-        codes = {finding.code for finding in findings}
-        self.assertIn("candidates.additionalProperties", codes)
-
-    def test_unknown_ticker_field_is_flagged(self) -> None:
+    def test_candidate_screen_run_id_must_match_root_run_id(self) -> None:
         payload = _minimal_candidates()
         candidates = payload["candidates"]
         assert isinstance(candidates, list)
         candidate_entry = candidates[0]
         assert isinstance(candidate_entry, dict)
-        candidate_entry["typo_field"] = "oops"
+        candidate_entry["screen_run_id"] = "screening-20260424-deadbeef"
         path = self._write(payload)
         try:
-            findings = validate_candidates_file(path)
+            codes = {finding.code for finding in validate_candidates_file(path)}
         finally:
             path.unlink()
-        codes = {finding.code for finding in findings}
-        self.assertIn("candidates.additionalProperties", codes)
+        self.assertIn("candidates.screen-run-id", codes)
+
+    def test_candidate_key_must_derive_from_run_id_and_ticker(self) -> None:
+        payload = _minimal_candidates()
+        candidates = payload["candidates"]
+        assert isinstance(candidates, list)
+        candidate_entry = candidates[0]
+        assert isinstance(candidate_entry, dict)
+        candidate_entry["candidate_key"] = "screening-20260424-a1b2c3d4:9999"
+        path = self._write(payload)
+        try:
+            codes = {finding.code for finding in validate_candidates_file(path)}
+        finally:
+            path.unlink()
+        self.assertIn("candidates.candidate-key", codes)
+
+    def test_duplicate_candidate_and_evidence_ids_are_flagged(self) -> None:
+        payload = _minimal_candidates()
+        candidates = payload["candidates"]
+        assert isinstance(candidates, list)
+        candidates.append(dict(candidates[0]))
+        path = self._write(payload)
+        try:
+            codes = {finding.code for finding in validate_candidates_file(path)}
+        finally:
+            path.unlink()
+        self.assertIn("candidates.duplicate-candidate-id", codes)
+        self.assertIn("candidates.duplicate-candidate-key", codes)
+        self.assertIn("candidates.duplicate-evidence-hit-id", codes)
+
+    def test_warning_evidence_cannot_be_sizing_eligible(self) -> None:
+        payload = _minimal_candidates()
+        candidates = payload["candidates"]
+        assert isinstance(candidates, list)
+        candidate_entry = candidates[0]
+        assert isinstance(candidate_entry, dict)
+        hits = candidate_entry["evidence_hits"]
+        assert isinstance(hits, list)
+        hit = hits[0]
+        assert isinstance(hit, dict)
+        hit["source_status"] = "warning"
+        hit["sizing_eligible"] = True
+        path = self._write(payload)
+        try:
+            codes = {finding.code for finding in validate_candidates_file(path)}
+        finally:
+            path.unlink()
+        self.assertIn("candidates.ineligible-source-status", codes)
 
     def test_non_mapping_yaml_root_returns_single_finding(self) -> None:
         path = self._write([_minimal_candidates()])
@@ -179,7 +247,7 @@ class CandidatesValidationTests(unittest.TestCase):
         self.assertEqual(findings[0].code, "candidates.non-mapping")
 
     def test_repository_candidates_files_pass(self) -> None:
-        repo_candidates = ROOT / "candidates"
+        repo_candidates = ROOT / "records/04-candidates"
         files = discover_candidates_files(repo_candidates)
         if not files:
             self.skipTest("no candidates files under repository root")

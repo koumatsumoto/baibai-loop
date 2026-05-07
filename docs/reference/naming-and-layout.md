@@ -12,13 +12,22 @@ last_reviewed: 2026-05-04
 
 | path | naming pattern |
 | --- | --- |
-| `records/01-brief/` | `YYYY/MM/YYYY-MM-DD-{kind}-{slug}.yaml` |
-| `records/02-outlook/` | `YYYY/MM/outlook-YYYY-MM-DD-<slug>.yaml` |
-| `records/03-candidates/` | `YYYY/MM/YYYY-MM-DD.yaml` |
-| `records/04-research/` | `YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md` |
-| `records/05-trades/` | `YYYY/MM/YYYY-MM-DD-<ticker>.md` |
-| `records/06-reviews/` | `YYYY/MM/YYYY-MM-DD-<ticker>.md` or `YYYY/retro-YYYYMM.md` |
+| `records/02-brief/` | `YYYY/MM/YYYY-MM-DD-{kind}-{slug}.yaml` |
+| `records/03-outlook/` | `YYYY/MM/outlook-YYYY-MM-DD-<slug>.yaml` |
+| `records/04-candidates/` | `YYYY/MM/YYYY-MM-DD.yaml` |
+| `records/05-research/` | `YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md` |
+| `records/06-trades/` | `YYYY/MM/YYYY-MM-DD-<ticker>.md` |
+| `records/07-reviews/` | `YYYY/MM/YYYY-MM-DD-<ticker>.md` or `YYYY/retro-YYYYMM.md` |
 | `records/_playbooks/` | `<playbook-slug>-v<n>.md` |
+
+## Index And Changelog Policy
+
+Brief / outlook / candidates / research / trades / reviews は event records であり、
+`_index.yaml` や `_changelog.jsonl` を持たない。正本は file path、record 内の snapshot
+refs、CLI の `--asof` / explicit path で決まる。
+
+Snapshot 系 support area は content hash と changelog が必要な場合だけ `_changelog.jsonl`
+を持つ。mutable latest index を足して current state の解釈を二重化しない。
 
 ## Slugs
 

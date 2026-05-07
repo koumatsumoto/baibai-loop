@@ -5,38 +5,24 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 import yaml
 
-from baibai_loop.playbooks import playbook_short
 from baibai_loop.screening.providers.jquants import JQuantsDailyBar
 from baibai_loop.screening.render import JST
 
-from .io import append_jsonl, diff_jsonl, read_jsonl, upsert_jsonl
-from .records import PaperLedgerRecord, SkippedLedgerRecord, Tracking
-from .tracking import resolve_price_on_or_before, resolve_tracking_prices
+from .io import diff_jsonl, write_jsonl
+from .records import DecisionRegisterRecord, Tracking
+from .tracking import resolve_tracking_prices
 
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)
-_LATEST_PRICE_RE = re.compile(r"最新 adj close \([^)]*\) \| ([0-9,]+(?:\.[0-9]+)?) 円")
-# 既存 record と incoming record で差分があったときに updates ledger に event を残す
-# 対象。tracking 系 (price 解決) と decision 系 (state 遷移) を残し、retro 集計で
-# 「いつ pending → accepted になったか」「どの時点で adjustment 入ったか」を ledger
-# 単独で追えるようにする。docs/components/ledger.md と同期。
-_TRACKED_UPDATE_FIELDS = (
-    "baseline_price",
-    "adjustment_applied",
-    "tracking",
-    "decision",
-    "macro_gate",
-    "adv_participation_pct",
-)
+_TrackingMode = Literal["post_approval", "re_examination", "missed_opportunity", "none"]
 
 
 @dataclass(frozen=True, slots=True)
 class SyncResult:
-    paper_count: int
-    skipped_count: int
+    decision_count: int
     warnings: tuple[str, ...]
     diff_lines: tuple[str, ...]
 
@@ -49,131 +35,183 @@ def sync_ledger(
     bars: tuple[JQuantsDailyBar, ...] = (),
     observed_at: datetime | None = None,
 ) -> SyncResult:
-    observed = (observed_at or datetime.now(UTC)).isoformat()
-    research_root = root / "records/04-research"
-    ledger_root = root / "records/_ledger"
+    _ = (observed_at or datetime.now(UTC)).isoformat()
+    research_root = root / "records/05-research"
+    trade_root = root / "records/06-trades"
+    register_root = root / "records/_ledger/research-decisions"
     candidates_index = _load_candidates(root)
-    paper_records: list[dict[str, Any]] = []
-    skipped_records: list[dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
     warnings: list[str] = []
-    research_keys: set[tuple[str, str]] = set()
+
     for path in sorted(research_root.rglob("*.md")):
         parsed = _parse_research(path)
         if parsed is None:
-            warnings.append(f"skip malformed research file: {path}")
+            warnings.append(f"skip malformed investment memo: {path}")
             continue
-        front, body = parsed
-        decision = str(front.get("decision", "pending"))
+        front, _body = parsed
         ticker = str(front["ticker"])
-        playbook = str(front["playbook"])
-        research_keys.add((ticker, playbook))
-        candidates_ref = str(front["candidates_ref"])
+        playbook_id = str(front["playbook_id"])
+        decision_event_at = _decision_datetime(path, front)
+        research_decision = _mapping_or_none(front.get("research_decision")) or {}
+        outcome = str(research_decision.get("outcome") or "deferred")
+        candidate_decision = _candidate_decision_from_research(outcome)
+        candidate_ref = _mapping_or_none(front.get("candidate_ref"))
+        candidates_ref = str(front.get("candidates_ref") or "")
         candidate = candidates_index.get(candidates_ref, {}).get(ticker, {})
-        decision_date = _decision_date(path, front)
-        baseline_price, adjustment_applied, price_warning = _baseline_price(
-            ticker, decision_date, body, bars
-        )
-        if price_warning:
-            warnings.append(f"{path}: {price_warning}")
-        avg_turnover = _float_or_none(candidate.get("avg_turnover_oku")) or _extract_avg_turnover(
-            body
-        )
-        position_size = _float_or_none(front.get("position_size_oku"))
-        adv_participation = (
-            round(position_size / avg_turnover * 100, 2)
-            if position_size is not None and avg_turnover and avg_turnover > 0
-            else None
-        )
         plus_15bd, plus_30bd = (
-            resolve_tracking_prices(ticker, decision_date, calendar, bars)
+            resolve_tracking_prices(ticker, decision_event_at.date(), calendar, bars)
             if calendar and bars
             else (None, None)
         )
-        name = str(front["name"])
-        research_ref = str(path.relative_to(root))
-        asof_date = _asof_date(candidates_ref)
-        market_cap = _float_or_none(candidate.get("market_cap_oku")) or _extract_market_cap(body)
-        signal_count = (
-            len(candidate.get("signals", [])) if isinstance(candidate.get("signals"), list) else 0
+        tracking = _tracking_from_front(front, plus_15bd, plus_30bd, outcome)
+        record = DecisionRegisterRecord(
+            decision_event_id=f"decision-{decision_event_at:%Y%m%d}-{ticker}-research",
+            event_kind="decision",
+            decision_scope="research_memo",
+            ticker=ticker,
+            name=str(front.get("name") or ""),
+            trade_execution_state="none",
+            candidate_decision=candidate_decision,
+            research_decision=dict(research_decision),
+            candidate_ref=dict(candidate_ref) if candidate_ref else None,
+            research_ref=str(path.relative_to(root)),
+            trade_ref=None,
+            decision_event_at=decision_event_at.isoformat(),
+            playbook_id=playbook_id,
+            playbook_snapshot=dict(front["playbook_snapshot"])
+            if isinstance(front.get("playbook_snapshot"), Mapping)
+            else None,
+            policy_snapshot=dict(front["policy_snapshot"])
+            if isinstance(front.get("policy_snapshot"), Mapping)
+            else None,
+            baseline_price=_float_or_none(candidate.get("last_price"))
+            or _float_or_none(candidate.get("baseline_price")),
+            market_cap_oku=_float_or_none(candidate.get("market_cap_oku"))
+            or _float_or_none(front.get("market_cap_oku")),
+            avg_turnover_oku=_float_or_none(candidate.get("avg_turnover_oku"))
+            or _float_or_none(front.get("avg_turnover_oku")),
+            independent_evidence_count=_int_or_none(front.get("independent_evidence_count")),
+            conviction_tier=str(front.get("conviction_tier") or ""),
+            tracking=tracking,
         )
-        macro_gate = str(front.get("macro_gate", ""))
-        tracking = Tracking(plus_15bd=plus_15bd, plus_30bd=plus_30bd)
-        short = playbook_short(playbook)
-        if decision in {"accepted", "pending"}:
-            record = PaperLedgerRecord(
-                ledger_id=f"paper-{decision_date:%Y%m%d}-{ticker}-{short}",
-                decision=cast(Literal["accepted", "pending"], decision),
-                ticker=ticker,
-                name=name,
-                playbook=playbook,
-                candidates_ref=candidates_ref,
-                research_ref=research_ref,
-                asof_date=asof_date,
-                decision_date=decision_date.isoformat(),
-                baseline_price=baseline_price,
-                market_cap_oku=market_cap,
-                avg_turnover_oku=avg_turnover,
-                signal_count=signal_count,
-                macro_gate=macro_gate,
-                adv_participation_pct=adv_participation,
-                adjustment_applied=adjustment_applied,
-                tracking=tracking,
-            )
-            paper_records.append(record.to_json())
-        elif decision == "skipped":
-            skipped_record = SkippedLedgerRecord(
-                ledger_id=f"skipped-{decision_date:%Y%m%d}-{ticker}-{short}",
-                decision="skipped",
-                ticker=ticker,
-                name=name,
-                playbook=playbook,
-                candidates_ref=candidates_ref,
-                research_ref=research_ref,
-                asof_date=asof_date,
-                decision_date=decision_date.isoformat(),
-                baseline_price=baseline_price,
-                market_cap_oku=market_cap,
-                avg_turnover_oku=avg_turnover,
-                signal_count=signal_count,
-                macro_gate=macro_gate,
-                adv_participation_pct=adv_participation,
-                adjustment_applied=adjustment_applied,
-                tracking=tracking,
-            )
-            skipped_records.append(skipped_record.to_json())
-    select_dir = root / "select"
-    if select_dir.exists():
-        skipped_records.extend(
-            _load_select_skipped(root, candidates_index, research_keys, warnings)
+        records.append(record.to_json())
+
+    for path in sorted(trade_root.rglob("*.md")):
+        parsed = _parse_research(path)
+        if parsed is None:
+            warnings.append(f"skip malformed trade record: {path}")
+            continue
+        front, _body = parsed
+        order_intent = _mapping_or_none(front.get("order_intent"))
+        if order_intent is None:
+            warnings.append(f"skip trade without order_intent: {path}")
+            continue
+        ticker = str(front["ticker"])
+        decision_event_at = _trade_decision_datetime(path, front)
+        decision_event_id = str(
+            order_intent.get("decision_event_id")
+            or f"decision-{decision_event_at:%Y%m%d}-{ticker}-trade"
         )
-    else:
-        warnings.append("select/ does not exist; skipped candidate-only ledger population")
-    paper_by_month = _group_by_month(paper_records)
-    skipped_by_month = _group_by_month(skipped_records)
+        record = DecisionRegisterRecord(
+            decision_event_id=decision_event_id,
+            event_kind="decision",
+            decision_scope="trade_execution",
+            ticker=ticker,
+            name=str(front.get("name") or ""),
+            trade_execution_state=str(front.get("trade_execution_state") or "none"),
+            order_intent=dict(order_intent),
+            research_ref=str(front.get("research_ref") or ""),
+            trade_ref=str(path.relative_to(root)),
+            decision_event_at=decision_event_at.isoformat(),
+            policy_snapshot=dict(front["policy_snapshot"])
+            if isinstance(front.get("policy_snapshot"), Mapping)
+            else None,
+            tracking=Tracking(mode="post_approval"),
+        )
+        records.append(record.to_json())
+
+    records.extend(_candidate_screen_records(root, records))
+    records.extend(_screening_false_negative_records(root, records))
+    by_month = _group_by_month(records)
     diff_lines: list[str] = []
-    for month, records in paper_by_month.items():
-        path = ledger_root / "paper" / f"{month}.jsonl"
+    for month, rows in by_month.items():
+        path = register_root / f"{month}.jsonl"
         if dry_run:
-            diff_lines.extend(diff_jsonl(path, records))
+            diff_lines.extend(diff_jsonl(path, rows))
         else:
-            _write_update_events(root, "paper", month, records, observed)
-            upsert_jsonl(path, records)
-    for month, records in skipped_by_month.items():
-        path = ledger_root / "skipped" / f"{month}.jsonl"
-        if dry_run:
-            diff_lines.extend(diff_jsonl(path, records))
-        else:
-            _write_update_events(root, "skipped", month, records, observed)
-            upsert_jsonl(path, records)
-    if dry_run:
-        diff_lines.extend(_removed_month_diffs(root, "paper", paper_by_month))
-        diff_lines.extend(_removed_month_diffs(root, "skipped", skipped_by_month))
+            write_jsonl(path, rows)
     return SyncResult(
-        paper_count=len(paper_records),
-        skipped_count=len(skipped_records),
+        decision_count=len(records),
         warnings=tuple(warnings),
         diff_lines=tuple(diff_lines),
     )
+
+
+def _candidate_screen_records(
+    root: Path, covered_records: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    covered = _covered_candidate_refs(covered_records)
+    records: list[dict[str, Any]] = []
+    candidates_root = root / "records/04-candidates"
+    if not candidates_root.is_dir():
+        return records
+
+    for path in sorted(candidates_root.rglob("*.yaml")):
+        try:
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        if (
+            not isinstance(document, Mapping)
+            or document.get("requires_decision_coverage") is not True
+        ):
+            continue
+        candidates = document.get("candidates")
+        if not isinstance(candidates, list):
+            continue
+        candidates_ref = str(path.relative_to(root))
+        event_at = _candidate_run_datetime(path, document)
+        screen_run_id = str(document.get("run_id") or f"screening-{event_at:%Y%m%d}")
+        for candidate in candidates:
+            if not isinstance(candidate, Mapping) or not _requires_candidate_decision(candidate):
+                continue
+            ticker = candidate.get("ticker")
+            if not isinstance(ticker, str):
+                continue
+            candidate_id = candidate.get("candidate_id")
+            candidate_id_value = str(candidate_id) if isinstance(candidate_id, str) else ""
+            key = (candidates_ref, candidate_id_value, ticker)
+            if key in covered:
+                continue
+            candidate_ref: dict[str, object] = {
+                "candidates_ref": candidates_ref,
+                "screen_run_id": str(candidate.get("screen_run_id") or screen_run_id),
+                "ticker": ticker,
+            }
+            if candidate_id_value:
+                candidate_ref["candidate_id"] = candidate_id_value
+            records.append(
+                DecisionRegisterRecord(
+                    decision_event_id=(f"decision-{screen_run_id}-{ticker}-not-reviewed"),
+                    event_kind="decision",
+                    decision_scope="candidate_screen",
+                    ticker=ticker,
+                    name=str(candidate.get("name") or ""),
+                    trade_execution_state="none",
+                    candidate_decision="not_reviewed",
+                    not_reviewed_reason="review_capacity",
+                    candidate_ref=candidate_ref,
+                    decision_event_at=event_at.isoformat(),
+                    baseline_price=_float_or_none(candidate.get("last_price"))
+                    or _float_or_none(candidate.get("baseline_price")),
+                    market_cap_oku=_float_or_none(candidate.get("market_cap_oku")),
+                    avg_turnover_oku=_float_or_none(candidate.get("avg_turnover_oku")),
+                    independent_evidence_count=_eligible_evidence_count(candidate),
+                    tracking=Tracking(mode="missed_opportunity"),
+                ).to_json()
+            )
+            covered.add(key)
+    return records
 
 
 def _parse_research(path: Path) -> tuple[dict[str, Any], str] | None:
@@ -186,9 +224,63 @@ def _parse_research(path: Path) -> tuple[dict[str, Any], str] | None:
     return front, match.group(2)
 
 
+def _screening_false_negative_records(
+    root: Path, covered_records: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    covered_event_ids = {
+        str(record.get("decision_event_id"))
+        for record in covered_records
+        if isinstance(record.get("decision_event_id"), str)
+    }
+    records: list[dict[str, Any]] = []
+    scan_root = root / "records/07-reviews/screening-false-negative-scan"
+    if not scan_root.is_dir():
+        return records
+
+    for path in sorted(scan_root.rglob("*.yaml")):
+        try:
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(document, Mapping):
+            continue
+        items = document.get("items")
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, Mapping):
+                continue
+            decision_event_id = item.get("decision_event_id")
+            ticker = item.get("ticker")
+            if not isinstance(decision_event_id, str) or not isinstance(ticker, str):
+                continue
+            if decision_event_id in covered_event_ids:
+                continue
+            classification = str(item.get("classification") or "screening_false_negative")
+            event_at = _scan_item_datetime(path, item)
+            candidate_ref = _mapping_or_none(item.get("candidate_ref"))
+            records.append(
+                DecisionRegisterRecord(
+                    decision_event_id=decision_event_id,
+                    event_kind="decision",
+                    decision_scope="candidate_screen",
+                    ticker=ticker,
+                    name=_scan_item_name(item, ticker),
+                    trade_execution_state="none",
+                    candidate_decision="not_reviewed",
+                    not_reviewed_reason=classification,
+                    candidate_ref=dict(candidate_ref) if candidate_ref else None,
+                    decision_event_at=event_at.isoformat(),
+                    tracking=Tracking(mode="missed_opportunity"),
+                ).to_json()
+            )
+            covered_event_ids.add(decision_event_id)
+    return records
+
+
 def _load_candidates(root: Path) -> dict[str, dict[str, Mapping[str, Any]]]:
     loaded: dict[str, dict[str, Mapping[str, Any]]] = {}
-    for path in sorted((root / "records/03-candidates").rglob("*.yaml")):
+    for path in sorted((root / "records/04-candidates").rglob("*.yaml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(document, dict):
             continue
@@ -202,115 +294,158 @@ def _load_candidates(root: Path) -> dict[str, dict[str, Mapping[str, Any]]]:
     return loaded
 
 
-def _load_select_skipped(
-    root: Path,
-    candidates_index: Mapping[str, Mapping[str, Mapping[str, Any]]],
-    research_keys: set[tuple[str, str]],
-    warnings: list[str],
-) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    for path in sorted((root / "select").glob("*.yaml")):
-        document = yaml.safe_load(path.read_text(encoding="utf-8"))
-        if not isinstance(document, Mapping):
-            warnings.append(f"skip malformed select file: {path}")
+def _decision_datetime(path: Path, front: Mapping[str, Any]) -> datetime:
+    for key in ("recorded_at", "published_at"):
+        value = front.get(key)
+        if isinstance(value, str):
+            return _parse_jst_datetime(value)
+    return datetime.fromisoformat(f"{path.name[:10]}T00:00:00+09:00")
+
+
+def _trade_decision_datetime(path: Path, front: Mapping[str, Any]) -> datetime:
+    orders = front.get("orders")
+    if isinstance(orders, list):
+        for order in orders:
+            if not isinstance(order, Mapping):
+                continue
+            events = order.get("events")
+            if not isinstance(events, list):
+                continue
+            for event in events:
+                if not isinstance(event, Mapping):
+                    continue
+                value = event.get("at")
+                if isinstance(value, str):
+                    return _parse_jst_datetime(value)
+    return _decision_datetime(path, front)
+
+
+def _scan_item_datetime(path: Path, item: Mapping[str, Any]) -> datetime:
+    value = item.get("flagged_at")
+    if isinstance(value, str):
+        return _parse_jst_datetime(value)
+    return datetime.fromisoformat(f"{path.name[:7]}-01T00:00:00+09:00")
+
+
+def _scan_item_name(item: Mapping[str, Any], ticker: str) -> str:
+    scan_item_id = item.get("scan_item_id")
+    if isinstance(scan_item_id, str) and scan_item_id:
+        return scan_item_id
+    return f"{ticker} screening false negative"
+
+
+def _parse_jst_datetime(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=JST)
+    return parsed.astimezone(JST)
+
+
+def _candidate_decision_from_research(outcome: str) -> str:
+    match outcome:
+        case "approved":
+            return "selected"
+        case "rejected":
+            return "rejected"
+        case _:
+            return "deferred"
+
+
+def _tracking_from_front(
+    front: Mapping[str, Any],
+    plus_15bd: float | None,
+    plus_30bd: float | None,
+    outcome: str,
+) -> Tracking:
+    tracking = _mapping_or_none(front.get("tracking")) or {}
+    raw_mode = tracking.get("mode")
+    mode: _TrackingMode
+    if raw_mode == "post_approval":
+        mode = "post_approval"
+    elif raw_mode == "re_examination":
+        mode = "re_examination"
+    elif raw_mode == "missed_opportunity":
+        mode = "missed_opportunity"
+    elif raw_mode == "none":
+        mode = "none"
+    else:
+        mode = "post_approval" if outcome == "approved" else "re_examination"
+    return Tracking(
+        mode=mode,
+        plus_15bd=plus_15bd if plus_15bd is not None else _float_or_none(tracking.get("plus_15bd")),
+        plus_30bd=plus_30bd if plus_30bd is not None else _float_or_none(tracking.get("plus_30bd")),
+    )
+
+
+def _group_by_month(records: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        event_at = str(record.get("decision_event_at") or "")
+        month = event_at[:7] if event_at else "unknown"
+        grouped.setdefault(month, []).append(record)
+    return grouped
+
+
+def _covered_candidate_refs(records: list[dict[str, Any]]) -> set[tuple[str, str, str]]:
+    covered: set[tuple[str, str, str]] = set()
+    for record in records:
+        if record.get("decision_scope") not in {"candidate_screen", "research_memo"}:
             continue
-        decision_date = _select_decision_date(path, document)
-        candidates_ref = str(document.get("candidates_ref") or "")
-        candidates = _select_candidates(document)
-        for candidate in candidates:
-            ticker_raw = candidate.get("ticker")
-            if not isinstance(ticker_raw, str):
-                continue
-            ticker = ticker_raw
-            playbook = str(candidate.get("playbook") or document.get("playbook") or "default")
-            if (ticker, playbook) in research_keys:
-                continue
-            candidate_info = candidates_index.get(candidates_ref, {}).get(ticker, {})
-            short = playbook_short(playbook) if playbook != "default" else "default"
-            record = SkippedLedgerRecord(
-                ledger_id=f"skipped-{decision_date:%Y%m%d}-{ticker}-{short}",
-                ticker=ticker,
-                name=str(candidate.get("name") or candidate_info.get("name") or ""),
-                decision="skipped",
-                playbook=playbook,
-                candidates_ref=candidates_ref,
-                research_ref=None,
-                asof_date=(
-                    _asof_date(candidates_ref) if candidates_ref else decision_date.isoformat()
-                ),
-                decision_date=decision_date.isoformat(),
-                baseline_price=None,
-                market_cap_oku=_float_or_none(candidate_info.get("market_cap_oku")),
-                avg_turnover_oku=_float_or_none(candidate_info.get("avg_turnover_oku")),
-                signal_count=len(candidate_info.get("signals", []))
-                if isinstance(candidate_info.get("signals"), list)
-                else 0,
-                macro_gate=None,
-                adv_participation_pct=None,
-                adjustment_applied=False,
-                tracking=Tracking(plus_15bd=None, plus_30bd=None),
+        candidate_ref = _mapping_or_none(record.get("candidate_ref"))
+        if candidate_ref is None:
+            continue
+        candidates_ref = candidate_ref.get("candidates_ref")
+        ticker = candidate_ref.get("ticker")
+        if not isinstance(candidates_ref, str) or not isinstance(ticker, str):
+            continue
+        candidate_id = candidate_ref.get("candidate_id")
+        covered.add(
+            (
+                candidates_ref,
+                str(candidate_id) if isinstance(candidate_id, str) else "",
+                ticker,
             )
-            records.append(record.to_json())
-    return records
+        )
+    return covered
 
 
-def _select_candidates(document: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    for key in ("candidates", "selected"):
-        value = document.get(key)
-        if isinstance(value, list):
-            return [item for item in value if isinstance(item, Mapping)]
-    return []
+def _requires_candidate_decision(candidate: Mapping[str, Any]) -> bool:
+    if candidate.get("playbook_screen_result") not in {"hit", "near_threshold"}:
+        return False
+    if candidate.get("policy_gate_result") == "excluded":
+        return False
+    if candidate.get("liquidity_gate_result") == "excluded":
+        return False
+    return candidate.get("macro_regime_gate_result") != "blocked"
 
 
-def _select_decision_date(path: Path, document: Mapping[str, Any]) -> date:
-    for key in ("decision_date", "asof_date", "run_date"):
+def _candidate_run_datetime(path: Path, document: Mapping[str, Any]) -> datetime:
+    value = document.get("run_at")
+    if isinstance(value, str):
+        return _parse_jst_datetime(value)
+    for key in ("asof_date", "run_date"):
         value = document.get(key)
         if isinstance(value, str):
-            return date.fromisoformat(value[:10])
-    return date.fromisoformat(path.stem[:10])
+            return _parse_jst_datetime(f"{value}T23:59:59+09:00")
+    return datetime.fromisoformat(f"{path.name[:10]}T23:59:59+09:00").replace(tzinfo=JST)
 
 
-def _decision_date(path: Path, front: Mapping[str, Any]) -> date:
-    published = front.get("published_at")
-    if isinstance(published, str):
-        normalized = published.replace("Z", "+00:00")
-        parsed = datetime.fromisoformat(normalized)
-        # naive datetime は astimezone でランナーの local time として解釈されてしまう
-        # ため、明示的に JST を付与する。research front matter は JST 前提。
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=JST)
-        return parsed.astimezone(JST).date()
-    return date.fromisoformat(path.name[:10])
+def _eligible_evidence_count(candidate: Mapping[str, Any]) -> int:
+    hits = candidate.get("evidence_hits")
+    if not isinstance(hits, list):
+        return 0
+    return sum(1 for hit in hits if isinstance(hit, Mapping) and _is_eligible_evidence(hit))
 
 
-def _asof_date(candidates_ref: str) -> str:
-    return Path(candidates_ref).stem[:10]
+def _is_eligible_evidence(hit: Mapping[str, Any]) -> bool:
+    source_status = hit.get("source_status")
+    if isinstance(source_status, str) and source_status != "ok":
+        return False
+    return hit.get("sizing_eligible") is not False
 
 
-def _baseline_price(
-    ticker: str,
-    decision_date: date,
-    body: str,
-    bars: tuple[JQuantsDailyBar, ...],
-) -> tuple[float | None, bool, str | None]:
-    if bars:
-        price, adjusted = resolve_price_on_or_before(ticker, decision_date, bars)
-        if price is not None:
-            return price, adjusted, None
-    match = _LATEST_PRICE_RE.search(body)
-    if match:
-        return float(match.group(1).replace(",", "")), False, None
-    return None, False, "baseline_price could not be resolved from J-Quants bars or body fallback"
-
-
-def _extract_market_cap(body: str) -> float | None:
-    match = re.search(r"時価総額: ([0-9,]+(?:\.[0-9]+)?) 億円", body)
-    return float(match.group(1).replace(",", "")) if match else None
-
-
-def _extract_avg_turnover(body: str) -> float | None:
-    match = re.search(r"avg 約 ([0-9,]+(?:\.[0-9]+)?) 億円/日", body)
-    return float(match.group(1).replace(",", "")) if match else None
+def _mapping_or_none(value: object) -> Mapping[str, Any] | None:
+    return value if isinstance(value, Mapping) else None
 
 
 def _float_or_none(value: object) -> float | None:
@@ -321,58 +456,9 @@ def _float_or_none(value: object) -> float | None:
     return None
 
 
-def _group_by_month(records: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for record in records:
-        month = str(record["decision_date"])[:7]
-        grouped.setdefault(month, []).append(record)
-    return grouped
-
-
-def _write_update_events(
-    root: Path,
-    ledger_type: str,
-    month: str,
-    records: list[dict[str, Any]],
-    observed_at: str,
-) -> None:
-    existing = {
-        str(record["ledger_id"]): record
-        for record in read_jsonl(_ledger_path(root, ledger_type, month))
-    }
-    events: list[dict[str, Any]] = []
-    for record in records:
-        ledger_id = str(record["ledger_id"])
-        previous = existing.get(ledger_id)
-        if previous is None:
-            continue
-        for field in _TRACKED_UPDATE_FIELDS:
-            old = previous.get(field)
-            new = record.get(field)
-            if old != new:
-                events.append(
-                    {
-                        "ledger_id": ledger_id,
-                        "field": field,
-                        "old": old,
-                        "new": new,
-                        "observed_at": observed_at,
-                    }
-                )
-    append_jsonl(root / "records/_ledger" / "updates" / f"{month}.jsonl", events)
-
-
-def _ledger_path(root: Path, ledger_type: str, month: str) -> Path:
-    return root / "records/_ledger" / ledger_type / f"{month}.jsonl"
-
-
-def _removed_month_diffs(
-    root: Path,
-    ledger_type: str,
-    grouped: Mapping[str, list[dict[str, Any]]],
-) -> list[str]:
-    lines: list[str] = []
-    for path in sorted((root / "records/_ledger" / ledger_type).glob("*.jsonl")):
-        if path.stem not in grouped:
-            lines.extend(diff_jsonl(path, []))
-    return lines
+def _int_or_none(value: object) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    return None

@@ -1,0 +1,14 @@
+name: strict-net-cash-discount
+description: Required H2 sections for strict-net-cash-discount research markdown.
+body_sections:
+- title_pattern: Thesis
+- title_pattern: Macro regime gate
+- title_pattern: Net cash snapshot
+- title_pattern: Debt quality
+- title_pattern: Cash usability
+- title_pattern: Asset discount
+- title_pattern: Shareholder return
+- title_pattern: Entry
+- title_pattern: Exit
+- title_pattern: Invalidation
+- title_pattern: Position size

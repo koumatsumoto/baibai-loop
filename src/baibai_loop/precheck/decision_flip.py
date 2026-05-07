@@ -1,10 +1,10 @@
-"""Detect ``decision: skipped → accepted`` flips lacking an ``overrides`` entry.
+"""Detect research approval flips lacking a ``decision_revisions`` entry.
 
-Walks every ``records/04-research/**/*.md`` and compares the front-matter
-``decision`` against the previous git commit of the same file. When the
-current decision is ``accepted`` and the prior decision was ``skipped`` /
-``pending`` (or absent), the file must declare ``overrides[].type =
-'decision_flip'``. Otherwise we surface a finding mirrored after AP-09.
+Walks every ``records/05-research/**/*.md`` and compares
+``research_decision.outcome`` against the previous git commit of the same file.
+When the current outcome is ``approved`` and the prior outcome was not, the file
+must declare ``decision_revisions[].revision_type = 'decision_flip'``. Otherwise
+we surface a finding mirrored after AP-09.
 
 The check needs git history, so it lives outside ``baibai-loop-validate`` (a
 pure-content checker) and inside ``baibai-loop-precheck`` (which is allowed to
@@ -59,8 +59,8 @@ def _check_one_file(repo_root: Path, path: Path, rel: Path) -> DecisionFlipFindi
     current_front = _parse_front_matter(path.read_text(encoding="utf-8"))
     if current_front is None:
         return None
-    current_decision = current_front.get("decision")
-    if current_decision != "accepted":
+    current_outcome = _research_outcome(current_front)
+    if current_outcome != "approved":
         return None
     prev_text = _previous_committed_text(repo_root, rel)
     if prev_text is None:
@@ -68,24 +68,33 @@ def _check_one_file(repo_root: Path, path: Path, rel: Path) -> DecisionFlipFindi
     prev_front = _parse_front_matter(prev_text)
     if prev_front is None:
         return None
-    prev_decision = prev_front.get("decision")
-    if prev_decision == "accepted":
+    prev_outcome = _research_outcome(prev_front)
+    if prev_outcome == "approved":
         return None
-    overrides = current_front.get("overrides")
-    if isinstance(overrides, list):
-        for entry in overrides:
-            if isinstance(entry, dict) and entry.get("type") == _FLIP_TYPE:
+    revisions = current_front.get("decision_revisions")
+    if isinstance(revisions, list):
+        for entry in revisions:
+            if isinstance(entry, dict) and entry.get("revision_type") == _FLIP_TYPE:
                 return None
     return DecisionFlipFinding(
         severity="warning",
         target=path,
-        code="precheck.decision-flip-without-override",
+        code="precheck.decision-flip-without-revision",
         message=(
-            f"decision flipped from {prev_decision!r} → 'accepted' between commits "
-            f"but overrides[].type={_FLIP_TYPE!r} is missing"
+            f"research decision flipped from {prev_outcome!r} to 'approved' between commits "
+            f"but decision_revisions[].revision_type={_FLIP_TYPE!r} is missing"
         ),
-        location="overrides",
+        location="decision_revisions",
     )
+
+
+def _research_outcome(front_matter: Mapping[str, object]) -> str | None:
+    decision = front_matter.get("research_decision")
+    if isinstance(decision, Mapping):
+        outcome = decision.get("outcome")
+        if isinstance(outcome, str):
+            return outcome
+    return None
 
 
 def _parse_front_matter(text: str) -> Mapping[str, object] | None:
