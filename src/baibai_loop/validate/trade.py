@@ -555,16 +555,16 @@ def _check_entry_legs(path: Path, front: Mapping[str, object]) -> list[Validatio
 
 def _check_kill_switches(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
     policy = _load_policy(path, front)
-    kill_switch = as_mapping(policy.get("kill_switch"))
-    if not kill_switch:
+    validator_configs = _validator_configs(policy)
+    if not validator_configs:
         return []
     event_payload = _load_events_calendar(path, front)
     events = [event for event in as_list(event_payload.get("events")) if isinstance(event, Mapping)]
     checked = as_mapping(front.get("kill_switch_check"))
     at = _first_order_event_at(front)
     findings: list[ValidationFinding] = []
-    for key, config_value in kill_switch.items():
-        config = as_mapping(config_value)
+    intent = as_mapping(front.get("order_intent"))
+    for key, config in validator_configs:
         callable_id = config.get("validator_callable_id")
         if not isinstance(callable_id, str) or not callable_id:
             continue
@@ -585,11 +585,31 @@ def _check_kill_switches(path: Path, front: Mapping[str, object]) -> list[Valida
                 "ticker": front.get("ticker"),
                 "at": at,
                 "window_days": config.get("window_days"),
+                "uses_margin": intent.get("uses_margin"),
             },
             events,
         )
         if expected is None:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="trade.kill-switch-callable",
+                    message=f"validator callable did not return a value: {callable_id}",
+                    location=f"kill_switch_check.{key}",
+                )
+            )
             continue
+        if callable_id == "no_margin_trading" and expected:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="trade.no-margin-trading",
+                    message="margin trading is not allowed by portfolio policy",
+                    location="order_intent.uses_margin",
+                )
+            )
         actual = checked.get(str(key))
         if actual is not expected:
             findings.append(
@@ -602,6 +622,23 @@ def _check_kill_switches(path: Path, front: Mapping[str, object]) -> list[Valida
                 )
             )
     return findings
+
+
+def _validator_configs(policy: Mapping[str, Any]) -> list[tuple[str, Mapping[str, Any]]]:
+    configs: list[tuple[str, Mapping[str, Any]]] = []
+    for key, config_value in as_mapping(policy.get("kill_switch")).items():
+        config = as_mapping(config_value)
+        if config:
+            configs.append((str(key), config))
+    for item in as_list(policy.get("unique_constraints")):
+        if not isinstance(item, Mapping):
+            continue
+        config = as_mapping(item)
+        callable_id = config.get("validator_callable_id")
+        key = str(callable_id or item.get("id") or "")
+        if key:
+            configs.append((key, config))
+    return configs
 
 
 def _load_events_calendar(path: Path, front: Mapping[str, object]) -> Mapping[str, Any]:

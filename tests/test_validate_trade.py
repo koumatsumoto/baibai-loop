@@ -41,8 +41,10 @@ def _trade_front(**overrides: object) -> dict[str, object]:
         "order_intent": {
             "order_intent_id": "intent-20260505-9682-entry",
             "decision_event_id": "decision-20260505-9682-trade",
+            "side": "buy",
             "quantity": 200,
             "order_price_guard_yen": 1050,
+            "uses_margin": False,
             "not_submitted_reason": None,
         },
         "position_sizing_overlay": {
@@ -87,6 +89,7 @@ def _trade_front(**overrides: object) -> dict[str, object]:
             "earnings_straddle": False,
             "boj_eve": False,
             "fomc_eve": False,
+            "no_margin_trading": False,
         },
     }
     front.update(overrides)
@@ -126,7 +129,13 @@ def _write_test_repo_sources(root: Path) -> None:
     policy_path.parent.mkdir(parents=True, exist_ok=True)
     if not policy_path.exists():
         policy_path.write_text(
-            "---\norder_constraints:\n  board_lot: 100\n---\n\n# Policy\n",
+            "---\n"
+            "order_constraints:\n"
+            "  board_lot: 100\n"
+            "unique_constraints:\n"
+            "- id: no-margin-trading\n"
+            "  validator_callable_id: no_margin_trading\n"
+            "---\n\n# Policy\n",
             encoding="utf-8",
         )
     research_path = root / "records/05-research/2026/05/2026-05-05-9682-sales-discount-growth.md"
@@ -350,6 +359,19 @@ def test_kill_switch_check_is_recomputed_from_events_calendar(tmp_path: Path) ->
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_trade_file(path)}
     assert "trade.kill-switch-check" in codes
+
+
+def test_no_margin_trading_constraint_rejects_margin_usage(tmp_path: Path) -> None:
+    front = _trade_front()
+    intent = front["order_intent"]
+    checked = front["kill_switch_check"]
+    assert isinstance(intent, dict)
+    assert isinstance(checked, dict)
+    intent["uses_margin"] = True
+    checked["no_margin_trading"] = True
+    path = _write_trade(tmp_path, front)
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.no-margin-trading" in codes
 
 
 def test_filename_ticker_must_match_front_matter(tmp_path: Path) -> None:

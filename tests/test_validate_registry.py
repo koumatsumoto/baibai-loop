@@ -5,6 +5,7 @@ from baibai_loop.validate.registry import evaluate_kill_switch, has_validator_ca
 
 def test_registry_has_kill_switch_implementation() -> None:
     assert has_validator_callable("boj_eve_window")
+    assert has_validator_callable("no_margin_trading")
     assert not has_validator_callable("unknown_window")
 
 
@@ -28,3 +29,8 @@ def test_earnings_window_matches_same_ticker_only() -> None:
         )
         is False
     )
+
+
+def test_no_margin_trading_reports_margin_usage() -> None:
+    assert evaluate_kill_switch("no_margin_trading", {"uses_margin": True}, []) is True
+    assert evaluate_kill_switch("no_margin_trading", {"uses_margin": False}, []) is False

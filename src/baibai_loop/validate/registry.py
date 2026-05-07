@@ -32,7 +32,7 @@ def _kill_switch(callable_id: str) -> Callable[[ValidatorCallable], ValidatorCal
 
 
 def has_validator_callable(callable_id: str) -> bool:
-    return callable_id in KILL_SWITCH_IMPLEMENTATIONS or callable_id == "no_margin_trading"
+    return callable_id in KILL_SWITCH_IMPLEMENTATIONS
 
 
 def evaluate_kill_switch(
@@ -128,6 +128,12 @@ def _boj_eve_window(context: Mapping[str, Any], events: list[Mapping[str, Any]])
 @_kill_switch("fomc_eve_window")
 def _fomc_eve_window(context: Mapping[str, Any], events: list[Mapping[str, Any]]) -> bool:
     return _event_eve_window(context, events, "fomc")
+
+
+@_kill_switch("no_margin_trading")
+def _no_margin_trading(context: Mapping[str, Any], events: list[Mapping[str, Any]]) -> bool:
+    _ = events
+    return context.get("uses_margin") is True
 
 
 def _event_eve_window(
