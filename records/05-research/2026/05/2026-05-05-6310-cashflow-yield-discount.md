@@ -60,7 +60,7 @@ macro_regime_gate:
   reducer_id: macro-regime-reducer-v1
   inputs:
   - scope: sector
-    key: 情報・通信業
+    key: 機械
     status: supportive
     source_ref: records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
     valid_until: '2026-05-13'

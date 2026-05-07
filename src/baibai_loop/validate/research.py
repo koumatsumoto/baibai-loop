@@ -524,6 +524,7 @@ def _check_gate(path: Path, front_matter: Mapping[str, object]) -> list[Validati
             )
             continue
         statuses.append(str(status))
+        findings.extend(_check_macro_input_record_join(path, front_matter, item, index))
         findings.extend(_check_macro_input_source(path, item, index))
     if statuses:
         expected_status = max(statuses, key=lambda value: _MACRO_STATUS_PRECEDENCE[value])
@@ -549,6 +550,39 @@ def _check_gate(path: Path, front_matter: Mapping[str, object]) -> list[Validati
                 )
             )
     return findings
+
+
+def _check_macro_input_record_join(
+    path: Path,
+    front_matter: Mapping[str, object],
+    item: Mapping[str, object],
+    index: int,
+) -> list[ValidationFinding]:
+    if item.get("scope") != "sector":
+        return []
+    sector = front_matter.get("sector_33")
+    key = item.get("key")
+    if not isinstance(sector, str) or not sector:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-sector-missing",
+                message="sector macro inputs require research sector_33",
+                location="sector_33",
+            )
+        ]
+    if key != sector:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-sector-join",
+                message="scope: sector macro input key must match research sector_33",
+                location=f"macro_regime_gate.inputs[{index}].key",
+            )
+        ]
+    return []
 
 
 def _check_macro_input_source(

@@ -296,6 +296,12 @@ class ResearchValidationTests(unittest.TestCase):
         self.assertIn("research.macro-aggregate-status", codes)
         self.assertIn("research.macro-decision-effect", codes)
 
+    def test_sector_macro_input_must_match_research_sector(self) -> None:
+        front = _minimal_research_front_matter()
+        front["sector_33"] = "機械"
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.macro-sector-join", codes)
+
     def test_independent_evidence_count_uses_effective_decisions(self) -> None:
         front = _minimal_research_front_matter()
         front["independent_evidence_count"] = 2
