@@ -1328,10 +1328,19 @@ def _is_risk_review_evidence(hit: Mapping[str, object]) -> bool:
 def _check_sizing_invariants(
     path: Path, front_matter: Mapping[str, object]
 ) -> list[ValidationFinding]:
-    sizing = as_mapping(front_matter.get("position_sizing_overlay"))
+    raw_sizing = front_matter.get("position_sizing_overlay")
     decision = as_mapping(front_matter.get("research_decision"))
-    if not sizing:
-        return []
+    if not isinstance(raw_sizing, Mapping):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.position-sizing-shape",
+                message="position_sizing_overlay must be a mapping with canonical sizing fields",
+                location="position_sizing_overlay",
+            )
+        ]
+    sizing = raw_sizing
     findings = _check_position_sizing_overlay_shape(path, front_matter, sizing)
     policy = _load_policy_payload(path, front_matter)
     if decision.get("outcome") != "approved":

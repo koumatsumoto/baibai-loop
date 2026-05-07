@@ -40,6 +40,19 @@
     "research_evidence_hits": {"type": "array"},
     "conviction_tier": {"enum": ["low", "medium", "high"]},
     "conviction_tier_path": {"enum": ["count_breadth", "depth"]},
+    "position_sizing_overlay": {
+      "type": "object",
+      "required": [
+        "paper_proxy_position_size_yen",
+        "real_order_intent_yen",
+        "adv_participation_pct"
+      ],
+      "properties": {
+        "paper_proxy_position_size_yen": {"type": "number"},
+        "real_order_intent_yen": {"type": "number"},
+        "adv_participation_pct": {"type": "number"}
+      }
+    },
     "thesis_payoff": {"type": "object"}
   }
 }

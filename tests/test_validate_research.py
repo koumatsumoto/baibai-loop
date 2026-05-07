@@ -338,6 +338,20 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.position-sizing-deprecated-field", codes)
 
+    def test_position_sizing_overlay_requires_mapping(self) -> None:
+        front = _minimal_research_front_matter()
+        front["position_sizing_overlay"] = []
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.type", codes)
+        self.assertIn("research.position-sizing-shape", codes)
+
+    def test_position_sizing_overlay_requires_canonical_fields(self) -> None:
+        front = _minimal_research_front_matter()
+        front["position_sizing_overlay"] = {}
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.required", codes)
+        self.assertIn("research.position-sizing-missing-field", codes)
+
     def test_nested_valuation_liquidity_participation_is_deprecated(self) -> None:
         front = _minimal_research_front_matter()
         front["valuation"] = {"liquidity_cap_participation_pct": 0.5}
