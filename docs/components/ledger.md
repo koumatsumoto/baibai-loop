@@ -27,6 +27,7 @@ JSONL は 1 行 1 event。current state は同じ `decision_event_id` / correcti
 - `research_ref`
 - `trade_ref`
 - `candidate_decision`: `selected | deferred | rejected | not_reviewed | null`
+- `not_reviewed_reason`: `candidate_decision: not_reviewed` の理由。代表値は `review_capacity`、`screening_no_hit_anchor`、`screening_false_negative`。screening false-negative scan 由来では `classification` の値を保持する。
 - `research_decision`: `{outcome, posture, reason...}`
 - `trade_execution_state`: `none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled`
 - `playbook_id` / `playbook_snapshot`

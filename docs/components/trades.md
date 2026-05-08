@@ -128,6 +128,9 @@ uv run baibai-loop-validate --target trade
 - 必須 front matter field の存在
 - ticker 形式と filename との一致
 - `orders[].origin_order_intent_id` と `order_intent.order_intent_id` の join
+- `trade_execution_state != none` の場合、`research_ref` が approved research を参照していること
+- `trade_execution_state != none` の場合、`order_intent.quantity > 0` であること
+- `trade_execution_state != none` の場合、`position_sizing_overlay.estimated_real_order_notional_yen` と `guarded_max_notional_yen` が存在すること
 - order state 値域と filled quantity consistency
 - `position_state: none` と executions の矛盾検出
 - guarded notional と `quantity * order_price_guard_yen` の一致

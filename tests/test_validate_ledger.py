@@ -69,6 +69,21 @@ def test_validate_ledger_rejects_bad_ticker_pattern(tmp_path: Path) -> None:
     assert "ledger.pattern" in {finding.code for finding in validate_ledger_file(path)}
 
 
+def test_not_reviewed_reason_is_schema_documented_field(tmp_path: Path) -> None:
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
+    _write_jsonl(
+        path,
+        _decision_record(
+            decision_scope="candidate_screen",
+            candidate_decision="not_reviewed",
+            not_reviewed_reason="review_capacity",
+            tracking={"mode": "missed_opportunity"},
+        ),
+    )
+
+    assert [finding for finding in validate_ledger_file(path) if finding.severity == "error"] == []
+
+
 def test_candidate_coverage_requires_decision_event_for_hit_candidate(tmp_path: Path) -> None:
     candidates_path = tmp_path / "records/04-candidates/2026/05/2026-05-01.yaml"
     candidates_path.parent.mkdir(parents=True)

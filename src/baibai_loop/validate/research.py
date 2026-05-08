@@ -54,7 +54,9 @@ _CANONICAL_SIZING_FIELDS = {
     "real_order_intent_yen",
     "adv_participation_pct",
 }
-_DEPRECATED_POSITION_SIZING_FIELDS = {
+# These fields are valid in trade-stage records, but are non-canonical inside
+# research-stage position_sizing_overlay.
+_RESEARCH_NON_CANONICAL_SIZING_FIELDS = {
     "paper_position_size_yen",
     "estimated_real_order_notional_yen",
     "guarded_max_notional_yen",
@@ -1460,7 +1462,7 @@ def _check_position_sizing_overlay_shape(
     sizing: Mapping[str, object],
 ) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
-    for field in sorted(_DEPRECATED_POSITION_SIZING_FIELDS):
+    for field in sorted(_RESEARCH_NON_CANONICAL_SIZING_FIELDS):
         if field in sizing:
             findings.append(
                 ValidationFinding(
