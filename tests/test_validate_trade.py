@@ -143,6 +143,9 @@ def _write_test_repo_sources(root: Path) -> None:
     if not research_path.exists():
         research_path.write_text(
             "---\n"
+            "research_decision:\n"
+            "  outcome: approved\n"
+            "  posture: act_now\n"
             "thesis_payoff:\n"
             "  max_entry_price_yen: 1050\n"
             "position_sizing_overlay:\n"
@@ -233,6 +236,17 @@ def test_submitted_trade_requires_position_sizing_overlay(tmp_path: Path) -> Non
     assert "trade.position-sizing-required" in codes
 
 
+def test_submitted_trade_schema_requires_sizing_fields(tmp_path: Path) -> None:
+    front = _trade_front()
+    sizing = front["position_sizing_overlay"]
+    assert isinstance(sizing, dict)
+    del sizing["guarded_max_notional_yen"]
+    path = _write_trade(tmp_path, front)
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.required" in codes
+    assert "trade.position-sizing-field" in codes
+
+
 def test_order_state_is_validated(tmp_path: Path) -> None:
     front = _trade_front()
     orders = front["orders"]
@@ -293,6 +307,63 @@ def test_order_quantity_is_recomputed_from_research_intent(tmp_path: Path) -> No
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_trade_file(path)}
     assert "trade.intent-derived" in codes
+
+
+def test_submitted_trade_requires_positive_quantity(tmp_path: Path) -> None:
+    front = _trade_front(current_quantity=0, executions=[], entry_legs=[])
+    intent = front["order_intent"]
+    sizing = front["position_sizing_overlay"]
+    orders = front["orders"]
+    assert isinstance(intent, dict)
+    assert isinstance(sizing, dict)
+    assert isinstance(orders, list)
+    intent["quantity"] = 0
+    sizing["guarded_max_notional_yen"] = 0
+    order = orders[0]
+    assert isinstance(order, dict)
+    order["submitted_quantity"] = 0
+    order["filled_quantity"] = 0
+    path = _write_trade(tmp_path, front)
+
+    codes = {finding.code for finding in validate_trade_file(path)}
+
+    assert "trade.order-intent-quantity" in codes
+
+
+def test_submitted_trade_requires_approved_research_ref(tmp_path: Path) -> None:
+    front = _trade_front(current_quantity=0, executions=[], entry_legs=[])
+    intent = front["order_intent"]
+    sizing = front["position_sizing_overlay"]
+    orders = front["orders"]
+    assert isinstance(intent, dict)
+    assert isinstance(sizing, dict)
+    assert isinstance(orders, list)
+    intent["quantity"] = 0
+    sizing["guarded_max_notional_yen"] = 0
+    order = orders[0]
+    assert isinstance(order, dict)
+    order["submitted_quantity"] = 0
+    order["filled_quantity"] = 0
+    root = _test_repo_root(tmp_path)
+    research_path = root / "records/05-research/2026/05/2026-05-05-9682-sales-discount-growth.md"
+    research_path.parent.mkdir(parents=True, exist_ok=True)
+    research_path.write_text(
+        "---\n"
+        "research_decision:\n"
+        "  outcome: deferred\n"
+        "  posture: wait_for_event\n"
+        "thesis_payoff:\n"
+        "  max_entry_price_yen: 1050\n"
+        "position_sizing_overlay:\n"
+        "  real_order_intent_yen: 0\n"
+        "---\n\n# Research\n",
+        encoding="utf-8",
+    )
+    path = _write_trade(tmp_path, front)
+
+    codes = {finding.code for finding in validate_trade_file(path)}
+
+    assert "trade.research-approval" in codes
 
 
 def test_order_guard_is_recomputed_from_research_payoff(tmp_path: Path) -> None:

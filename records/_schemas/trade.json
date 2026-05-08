@@ -54,5 +54,25 @@
       "items": {"type": "object"}
     },
     "executions": {"type": "array"}
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["trade_execution_state"],
+        "properties": {
+          "trade_execution_state": {"not": {"const": "none"}}
+        }
+      },
+      "then": {
+        "properties": {
+          "position_sizing_overlay": {
+            "required": [
+              "estimated_real_order_notional_yen",
+              "guarded_max_notional_yen"
+            ]
+          }
+        }
+      }
+    }
+  ]
 }

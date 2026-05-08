@@ -83,6 +83,7 @@ def validate_trade_file(path: Path) -> list[ValidationFinding]:
     findings.extend(_check_policy_and_calendar_context(path, front))
     findings.extend(_check_ticker(path, front))
     findings.extend(_check_order_ready_shape(path, front))
+    findings.extend(_check_research_approval(path, front))
     findings.extend(_check_order_join(path, front))
     findings.extend(_check_decision_register_intent_join(path, front))
     findings.extend(_check_order_state_consistency(path, front))
@@ -312,6 +313,17 @@ def _check_order_ready_shape(path: Path, front: Mapping[str, object]) -> list[Va
                         location=f"order_intent.{field}",
                     )
                 )
+        quantity = _number(intent.get("quantity"))
+        if quantity is not None and quantity <= 0:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="trade.order-intent-quantity",
+                    message="trade records with execution intent require order_intent.quantity > 0",
+                    location="order_intent.quantity",
+                )
+            )
         if not isinstance(intent.get("uses_margin"), bool):
             findings.append(
                 ValidationFinding(
@@ -359,6 +371,26 @@ def _check_order_ready_shape(path: Path, front: Mapping[str, object]) -> list[Va
             )
         )
     return findings
+
+
+def _check_research_approval(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
+    if front.get("trade_execution_state") == "none":
+        return []
+    research = _load_referenced_research(path, front)
+    if research is None:
+        return []
+    decision = as_mapping(research.get("research_decision"))
+    if decision.get("outcome") == "approved":
+        return []
+    return [
+        ValidationFinding(
+            severity="error",
+            target=path,
+            code="trade.research-approval",
+            message="trade records with execution intent require approved research_ref",
+            location="research_ref",
+        )
+    ]
 
 
 def _check_order_join(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
@@ -598,16 +630,8 @@ def _check_intent_recomputed(path: Path, front: Mapping[str, object]) -> list[Va
 
 
 def _derive_trade_order(path: Path, front: Mapping[str, object]) -> dict[str, float] | None:
-    root = repo_root_for(path)
-    research_ref = front.get("research_ref")
-    if not isinstance(research_ref, str):
-        return None
-    research_path = resolve_ref(root, research_ref)
-    if not research_path.is_file():
-        return None
-    try:
-        research = load_markdown_front_matter(research_path)
-    except (OSError, ValueError, yaml.YAMLError):
+    research = _load_referenced_research(path, front)
+    if research is None:
         return None
     policy = _load_policy(path, front)
     order_constraints = as_mapping(policy.get("order_constraints"))
@@ -624,6 +648,23 @@ def _derive_trade_order(path: Path, front: Mapping[str, object]) -> dict[str, fl
         "order_price_guard_yen": float(guard),
         "guarded_notional_yen": float(quantity * guard),
     }
+
+
+def _load_referenced_research(
+    path: Path, front: Mapping[str, object]
+) -> Mapping[str, object] | None:
+    root = repo_root_for(path)
+    research_ref = front.get("research_ref")
+    if not isinstance(research_ref, str):
+        return None
+    research_path = resolve_ref(root, research_ref)
+    if not research_path.is_file():
+        return None
+    try:
+        research = load_markdown_front_matter(research_path)
+    except (OSError, ValueError, yaml.YAMLError):
+        return None
+    return research
 
 
 def _load_policy(path: Path, front: Mapping[str, object]) -> Mapping[str, Any]:
