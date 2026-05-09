@@ -7,6 +7,7 @@ import math
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +70,21 @@ _MACRO_STATUS_PRECEDENCE = {
     "unknown": 2,
     "adverse": 3,
 }
+_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
+
+def _load_yaml(path: Path) -> object:
+    stat = path.stat()
+    return _load_yaml_cached(path.resolve().as_posix(), stat.st_mtime_ns, stat.st_size)
+
+
+@lru_cache(maxsize=256)
+def _load_yaml_cached(path: str, mtime_ns: int, size: int) -> object:
+    del mtime_ns, size
+    # _YAML_LOADER is CSafeLoader or SafeLoader; keep yaml.load for the C loader path.
+    return yaml.load(  # nosec B506
+        Path(path).read_text(encoding="utf-8"), Loader=_YAML_LOADER
+    )
 
 
 def _load_validator() -> Draft202012Validator:
@@ -616,7 +632,7 @@ def _check_macro_input_source(
             )
         ]
     try:
-        raw = yaml.safe_load(source_path.read_text(encoding="utf-8"))
+        raw = _load_yaml(source_path)
     except (OSError, yaml.YAMLError) as exc:
         return [
             ValidationFinding(
@@ -875,7 +891,7 @@ def _check_candidate_lineage(
                 location="candidate_ref.candidates_ref",
             )
         ]
-    candidate_path = _resolve_record_ref(path, candidates_ref)
+    candidate_path = _resolve_candidate_ref(path, candidates_ref)
     if candidate_path is None:
         return [
             ValidationFinding(
@@ -887,7 +903,7 @@ def _check_candidate_lineage(
             )
         ]
     try:
-        document = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
+        document = _load_yaml(candidate_path)
     except (OSError, yaml.YAMLError) as exc:
         return [
             ValidationFinding(
@@ -1135,11 +1151,11 @@ def _load_candidate_hits(
         ref_value = front_matter.get("candidates_ref")
     if not isinstance(ref_value, str) or not ref_value:
         return None
-    candidate_path = _resolve_record_ref(path, ref_value)
+    candidate_path = _resolve_candidate_ref(path, ref_value)
     if candidate_path is None:
         return None
     try:
-        loaded: object = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
+        loaded: object = _load_yaml(candidate_path)
     except (OSError, yaml.YAMLError):
         return None
     if not isinstance(loaded, Mapping):
@@ -1235,6 +1251,21 @@ def _resolve_record_ref(path: Path, ref: str) -> Path | None:
     candidate = repo_root_for(path) / relative
     if candidate.is_file():
         return candidate
+    return None
+
+
+def _resolve_candidate_ref(path: Path, ref: str) -> Path | None:
+    relative = Path(ref)
+    if relative.is_absolute():
+        return relative if relative.is_file() else None
+    for parent in (path.parent, *path.parents):
+        candidate = parent / relative
+        if candidate.is_file():
+            return candidate
+    if _is_repository_research_record(path):
+        candidate = repo_root_for(path) / relative
+        if candidate.is_file():
+            return candidate
     return None
 
 
@@ -1749,11 +1780,11 @@ def _load_candidate_document(
         ref_value = front_matter.get("candidates_ref")
     if not isinstance(ref_value, str) or not ref_value:
         return None
-    candidate_path = _resolve_record_ref(path, ref_value)
+    candidate_path = _resolve_candidate_ref(path, ref_value)
     if candidate_path is None:
         return None
     try:
-        loaded: object = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
+        loaded: object = _load_yaml(candidate_path)
     except (OSError, yaml.YAMLError):
         return None
     return loaded if isinstance(loaded, Mapping) else None
@@ -1763,7 +1794,7 @@ def _load_corporate_action_events(root: Path) -> list[Mapping[str, Any]]:
     events: list[Mapping[str, Any]] = []
     for path in sorted((root / "records/_calendars/corporate-actions").glob("*.yaml")):
         try:
-            raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+            raw = _load_yaml(path)
         except (OSError, yaml.YAMLError):
             continue
         if not isinstance(raw, Mapping):
@@ -1822,7 +1853,7 @@ def _approval_rule_active(
     changelog_events = _approval_rule_changelog_events(root)
     for path in sorted((root / "records/_approval-rules").glob("*.yaml")):
         try:
-            raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+            raw = _load_yaml(path)
         except (OSError, yaml.YAMLError):
             continue
         if not isinstance(raw, Mapping):
