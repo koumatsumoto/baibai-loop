@@ -19,6 +19,7 @@ last_reviewed: 2026-05-04
 | [`research-runbook.md`](./research-runbook.md) | `records/05-research/` を作る前 |
 | [`trade-runbook.md`](./trade-runbook.md) | research 採用後の trade 記録 |
 | [`review-runbook.md`](./review-runbook.md) | trade 後 review と monthly retro |
+| [`task-runbook.md`](./task-runbook.md) | 決算後確認など将来イベント後に実行する GitHub issue タスク管理 |
 | [`incident-runbook.md`](./incident-runbook.md) | source 取得失敗、validator failure、ledger sync failure |
 
 ## 原則

@@ -9,6 +9,7 @@ related_docs:
   - "../components/candidates.md"
   - "../components/outlook.md"
   - "./screening-runbook.md"
+  - "./task-runbook.md"
 ---
 
 # Research runbook
@@ -30,6 +31,7 @@ Research は `records/04-candidates/` と `records/03-outlook/` を統合する 
   決算説明資料、Q&A、有価証券報告書 / 統合報告書、中期経営計画、株主還元関連開示を未確認のまま
   `research_decision.outcome: approved` にしない。
 - 採用判定は `research_decision.outcome` と `research_decision.posture` の意味を [`../components/research.md`](../components/research.md) に合わせる。
+- `research_decision.outcome: deferred` かつ `research_decision.posture: wait_for_event` の場合は、[`task-runbook.md`](./task-runbook.md) に従い、決算後確認タスク issue を作成または既存 issue に紐づける。
 - 訂正が必要な場合は既存行を書き換えず、decision register に correction event を追加する。
 
 ## After writing
