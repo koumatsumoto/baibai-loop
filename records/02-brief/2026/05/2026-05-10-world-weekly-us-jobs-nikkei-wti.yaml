@@ -1,0 +1,216 @@
+schema_version: 1
+kind: world-weekly
+type: periodic
+scope: world
+ai_draft: true
+published_at: "2026-05-10T11:05:33+09:00"
+observation_date: "2026-05-10"
+period:
+  start: "2026-05-04"
+  end: "2026-05-10"
+  market_basis_date: "2026-05-08"
+  note: "指標ごとに直近営業日が異なる。米金利は 2026-05-07、VIX・ECB クロス・日経平均は 2026-05-08、Brent は 2026-05-01、WTI は 2026-05-04、米雇用統計は 2026-05-08 公表の 2026-04 月分"
+references:
+  prev_period: records/02-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
+  latest_monthly: records/02-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
+  latest_daily: records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
+sources:
+  - id: fed-h15
+    name: Federal Reserve H.15 Selected Interest Rates
+    url: https://www.federalreserve.gov/releases/h15/
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: cboe-vix
+    name: CBOE VIX History CSV
+    url: https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: eia-brent
+    name: EIA Europe Brent Spot Price FOB
+    url: https://www.eia.gov/dnav/pet/hist/RBRTEd.htm
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: eia-wti
+    name: EIA Cushing OK WTI Spot Price FOB
+    url: https://www.eia.gov/dnav/pet/hist/RWTCd.htm
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: ecb-fx
+    name: ECB euro reference rates historical CSV
+    url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: nikkei-225
+    name: Nikkei 225 Official Daily Summary
+    url: https://indexes.nikkei.co.jp/en/nkave/archives/summary?dt=05082026&idx=nk225
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: bls-empsit-apr
+    name: BLS Employment Situation April 2026
+    url: https://www.bls.gov/news.release/archives/empsit_05082026.htm
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: bls-cpi-schedule
+    name: BLS CPI release schedule
+    url: https://www.bls.gov/schedule/news_release/cpi.htm
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: fed-fomc-cal
+    name: Federal Reserve FOMC Calendars
+    url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: boj-mpm
+    name: 日本銀行 金融政策決定会合の運営
+    url: https://www.boj.or.jp/mopo/mpmsche_minu/index.htm
+    accessed_at: "2026-05-10"
+    status: ok
+layers:
+  world:
+    market_indicators:
+      - name: 米10Y利回り
+        value: "4.41%"
+        as_of: "2026-05-07"
+        wow_comment: "前週 brief 表示値 4.40% から +1bp"
+        source_ids: [fed-h15]
+      - name: 米2Y利回り
+        value: "3.92%"
+        as_of: "2026-05-07"
+        wow_comment: "前週 brief 表示値 3.88% から +4bp"
+        source_ids: [fed-h15]
+      - name: 10Y-2Yスプレッド
+        value: "+49bp"
+        as_of: "2026-05-07"
+        wow_comment: "前週 brief 表示値 +52bp から -3bp"
+        source_ids: [fed-h15]
+      - name: VIX
+        value: "17.19"
+        as_of: "2026-05-08"
+        wow_comment: "前週 brief 表示値 16.99 から +0.20pt"
+        source_ids: [cboe-vix]
+      - name: Brent原油
+        value: "$118.26"
+        as_of: "2026-05-01"
+        wow_comment: "前週 brief 表示値 $113.89 から +3.8%"
+        source_ids: [eia-brent]
+      - name: WTI原油
+        value: "$109.76"
+        as_of: "2026-05-04"
+        wow_comment: "前週 brief 表示値 $99.89 から +9.9%"
+        source_ids: [eia-wti]
+    monthly_statistics:
+      - name: 米非農業部門雇用者数
+        value: "+115,000"
+        previous: "+185,000"
+        release_date: "2026-05-08"
+        note: "April 2026。March 2026 は +178,000 から +185,000 へ上方改定"
+        source_ids: [bls-empsit-apr]
+      - name: 米失業率
+        value: "4.3%"
+        previous: "4.3%"
+        release_date: "2026-05-08"
+        source_ids: [bls-empsit-apr]
+      - name: 米労働参加率
+        value: "61.8%"
+        previous: "61.9%"
+        release_date: "2026-05-08"
+        source_ids: [bls-empsit-apr]
+      - name: 米平均時給
+        value: "+0.2% MoM / +3.6% YoY"
+        previous: null
+        release_date: "2026-05-08"
+        note: "All employees on private nonfarm payrolls, $37.41"
+        source_ids: [bls-empsit-apr]
+    events: []
+  japan:
+    fx:
+      - name: USD/JPY
+        value: "156.76"
+        as_of: "2026-05-08"
+        wow_comment: "前週 brief 表示値 156.56 から +0.13%。ECB の JPY/EUR (184.37) と USD/EUR (1.1761) から算出"
+        source_ids: [ecb-fx]
+      - name: EUR/JPY
+        value: "184.37"
+        as_of: "2026-05-08"
+        wow_comment: "前週 brief 表示値 183.21 から +0.63%"
+        source_ids: [ecb-fx]
+      - name: AUD/JPY
+        value: "113.40"
+        as_of: "2026-05-08"
+        wow_comment: "前週 brief 表示値 111.91 から +1.33%。ECB の JPY/EUR (184.37) と AUD/EUR (1.6259) から算出"
+        source_ids: [ecb-fx]
+    events:
+      - date: "2026-05-12"
+        text: "日銀 2026-04-27 〜 28 会合の『主な意見』公表予定（8:50 JST）"
+        source_ids: [boj-mpm]
+      - date: "2026-06-19"
+        text: "日銀 2026-04-27 〜 28 会合の議事要旨公表予定（8:50 JST）"
+        source_ids: [boj-mpm]
+  japan_equity:
+    market_indicators:
+      - name: 日経平均
+        value: "62,713.65"
+        as_of: "2026-05-08"
+        wow_comment: "前週 brief 表示値 59,513.12 から +5.4%"
+        source_ids: [nikkei-225]
+      - name: 日経平均 P/E (時価総額基準)
+        value: "20.09"
+        as_of: "2026-05-08"
+        wow_comment: "前週 Nikkei 公式値 19.77 から +0.32"
+        source_ids: [nikkei-225]
+      - name: 日経平均 売買代金
+        value: "8.87 Tril.Yen"
+        as_of: "2026-05-08"
+        wow_comment: "前週 Nikkei 公式値 6.15 Tril.Yen から +44.2%"
+        source_ids: [nikkei-225]
+      - name: 日経平均 Technology sector weight
+        value: "55.34%"
+        as_of: "2026-05-08"
+        wow_comment: "前週 Nikkei 公式値 54.32% から +1.02pt"
+        source_ids: [nikkei-225]
+    sector_movements: null
+    events: []
+deltas:
+  threshold_breaches:
+    - severity: major
+      indicator: 日経平均
+      from: "59,513.12"
+      to: "62,713.65"
+      change: "+5.4%"
+    - severity: major
+      indicator: WTI原油
+      from: "$99.89"
+      to: "$109.76"
+      change: "+9.9%"
+    - severity: notable
+      indicator: Brent原油
+      from: "$113.89"
+      to: "$118.26"
+      change: "+3.8%"
+  unjudgeable: []
+  direction_history:
+    - indicator: 全指標
+      insufficient_data: true
+      reason: "world-weekly 系列は 4 週分。方向履歴の機械算出ルールが未整備のため定性的な履歴判定は実施しない"
+  direction_reversals:
+    - indicator: 全指標
+      insufficient_data: true
+      reason: "方向履歴の機械算出ルールが未整備"
+fact_memos: []
+next_events:
+  - date: "2026-05-12"
+    text: "BLS April 2026 CPI release scheduled for 08:30 ET"
+    source_ids: [bls-cpi-schedule]
+  - date: "2026-05-12"
+    text: "日銀 2026-04-27 〜 28 会合の『主な意見』公表予定"
+    source_ids: [boj-mpm]
+  - date: "2026-06-05"
+    text: "BLS Employment Situation for May 2026 scheduled for 08:30 ET"
+    source_ids: [bls-empsit-apr]
+  - date: "2026-06-16 〜 17"
+    text: "FOMC 会合（Summary of Economic Projections 付き）"
+    source_ids: [fed-fomc-cal]
+  - date: "2026-06-19"
+    text: "日銀 2026-04-27 〜 28 会合の議事要旨公表予定"
+    source_ids: [boj-mpm]
+notes: "Nikkei 225 公式ページは curl で HTTP 403 を返したため、web open の取得結果で確認した。Brent / WTI は EIA HTML 表の該当週を再取得して確認した。"
