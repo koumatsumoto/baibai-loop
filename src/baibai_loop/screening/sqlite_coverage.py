@@ -598,16 +598,7 @@ def _jpx_source_names(conn: sqlite3.Connection, asof_date: date) -> set[str]:
         "SELECT DISTINCT source_name FROM jpx_regulation_sources WHERE asof_date = ?",
         (asof_date.isoformat(),),
     ).fetchall()
-    if rows:
-        return {str(row[0]) for row in rows if row[0]}
-    # Legacy rows before `jpx_regulation_sources` used `flag` as source_name.
-    # This fallback is valid only while required_jpx_sources stays aligned with
-    # the JPX flag/source labels configured in universe rules.
-    flag_rows = conn.execute(
-        "SELECT DISTINCT source_name FROM jpx_regulation_flags WHERE asof_date = ?",
-        (asof_date.isoformat(),),
-    ).fetchall()
-    return {str(row[0]) for row in flag_rows if row[0]}
+    return {str(row[0]) for row in rows if row[0]}
 
 
 def _append_edinet_metrics_coverage_issues(
@@ -762,12 +753,6 @@ def _append_jpx_freshness_issues(
         (asof_date.isoformat(),),
     ).fetchall()
     if not rows:
-        rows = conn.execute(
-            "SELECT DISTINCT flag, fetched_at_utc FROM jpx_regulation_flags "
-            "WHERE asof_date = ? AND fetched_at_utc IS NOT NULL",
-            (asof_date.isoformat(),),
-        ).fetchall()
-    if not rows:
         issues.append(
             CacheCoverageIssue(
                 source="jpx_regulation_flags",
@@ -858,7 +843,6 @@ def _append_table_consistency_issues(
                         ),
                     )
                 )
-            return
     if enforce_record_count and table_count != imported_count:
         issues.append(
             CacheCoverageIssue(

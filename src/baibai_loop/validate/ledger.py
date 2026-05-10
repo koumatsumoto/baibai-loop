@@ -204,6 +204,15 @@ def _check_candidate_ref_lineage(
 ) -> list[ValidationFinding]:
     if not isinstance(record.get("candidate_ref"), dict):
         return []
+    findings = _candidate_ref_document_findings(
+        path,
+        line_number,
+        record,
+        root=root,
+        candidate_document_cache=candidate_document_cache,
+    )
+    if findings:
+        return findings
     loaded = _candidate_ref_document_and_row(
         record,
         root=root,
@@ -216,7 +225,7 @@ def _check_candidate_ref_lineage(
     if not isinstance(candidate_ref, dict):
         return []
 
-    findings: list[ValidationFinding] = []
+    findings = []
     ref_screen_run_id = candidate_ref.get("screen_run_id")
     document_run_id = document.get("run_id")
     if not isinstance(ref_screen_run_id, str) or not ref_screen_run_id:
@@ -279,6 +288,93 @@ def _check_candidate_ref_lineage(
             )
         )
     return findings
+
+
+def _candidate_ref_document_findings(
+    path: Path,
+    line_number: int,
+    record: dict[str, Any],
+    *,
+    root: Path,
+    candidate_document_cache: dict[str, dict[str, Any] | None],
+) -> list[ValidationFinding]:
+    candidate_ref = record.get("candidate_ref")
+    if not isinstance(candidate_ref, dict):
+        return []
+    candidates_ref = candidate_ref.get("candidates_ref")
+    if not isinstance(candidates_ref, str) or not candidates_ref:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-required",
+                message="candidate_ref.candidates_ref is required",
+                location=f"line {line_number}.candidate_ref.candidates_ref",
+            )
+        ]
+    if candidates_ref in candidate_document_cache:
+        return (
+            []
+            if candidate_document_cache[candidates_ref] is not None
+            else [
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="ledger.candidate-ref-parse",
+                    message="candidate_ref.candidates_ref failed to load previously",
+                    location=f"line {line_number}.candidate_ref.candidates_ref",
+                )
+            ]
+        )
+    candidate_path = root / candidates_ref
+    try:
+        raw = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        candidate_document_cache[candidates_ref] = None
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-missing",
+                message=f"candidate_ref.candidates_ref does not exist: {candidates_ref}",
+                location=f"line {line_number}.candidate_ref.candidates_ref",
+            )
+        ]
+    except OSError as exc:
+        candidate_document_cache[candidates_ref] = None
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-parse",
+                message=f"failed to read candidate_ref.candidates_ref: {exc}",
+                location=f"line {line_number}.candidate_ref.candidates_ref",
+            )
+        ]
+    except yaml.YAMLError as exc:
+        candidate_document_cache[candidates_ref] = None
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-parse",
+                message=f"failed to parse candidate_ref.candidates_ref: {exc}",
+                location=f"line {line_number}.candidate_ref.candidates_ref",
+            )
+        ]
+    if not isinstance(raw, dict):
+        candidate_document_cache[candidates_ref] = None
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-parse",
+                message="candidate_ref.candidates_ref must point to a candidates mapping",
+                location=f"line {line_number}.candidate_ref.candidates_ref",
+            )
+        ]
+    candidate_document_cache[candidates_ref] = raw
+    return []
 
 
 def _candidate_ref_document_and_row(

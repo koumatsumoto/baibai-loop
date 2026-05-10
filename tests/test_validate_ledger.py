@@ -288,6 +288,29 @@ def test_candidate_ref_requires_screen_run_id(tmp_path: Path) -> None:
     assert "ledger.candidate-ref-screen-run-id" in codes
 
 
+def test_candidate_ref_missing_candidates_ref_is_error(tmp_path: Path) -> None:
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
+    _write_jsonl(
+        path,
+        _decision_record(
+            decision_event_id="decision-20260501-9682-research",
+            decision_scope="research_memo",
+            ticker="9682",
+            candidate_decision="selected",
+            candidate_ref={
+                "candidates_ref": "records/04-candidates/2026/05/missing.yaml",
+                "candidate_id": "candidate-2026-05-01-9682",
+                "screen_run_id": "screening-20260501",
+                "ticker": "9682",
+            },
+        ),
+    )
+
+    codes = {finding.code for finding in validate_ledger_file(path)}
+
+    assert "ledger.candidate-ref-missing" in codes
+
+
 def test_candidate_coverage_rejects_disabled_coverage(tmp_path: Path) -> None:
     candidates_path = tmp_path / "records/04-candidates/2026/05/2026-05-01.yaml"
     candidates_path.parent.mkdir(parents=True)

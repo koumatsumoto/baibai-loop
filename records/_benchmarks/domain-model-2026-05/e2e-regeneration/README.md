@@ -35,6 +35,10 @@ Observed:
   `3632`, `6835`, `6932`, `6310`, `9470`.
 - The selected queue is driven by the current screen, outlook, freshness, and
   lane ordering. It is not pinned to any prior research or trade record.
+- `baseline-candidates.yaml` and `run-01-baseline-candidates.yaml` intentionally
+  preserve separate generation timestamps for the standalone baseline and the
+  sweep baseline. Apart from run metadata such as `run_at`, update both together
+  when refreshing the baseline artifacts.
 
 ## 10-Run Parameter Sweep
 

@@ -709,18 +709,18 @@ def _check_evidence_and_counts(
     decisions = front_matter.get("candidate_evidence_decisions")
     selected = front_matter.get("selected_supporting_evidence_refs")
     research_hits = front_matter.get("research_evidence_hits", [])
-    if not isinstance(decisions, list):
-        return findings
     candidate_hits = _load_candidate_hits(path, front_matter)
     findings.extend(
         _check_candidate_lineage(
             path,
             front_matter,
             selected if isinstance(selected, list) else [],
-            decisions,
+            decisions if isinstance(decisions, list) else [],
             candidate_hits,
         )
     )
+    if not isinstance(decisions, list):
+        return findings
 
     effective_components = _effective_independence_components(
         path,
@@ -1780,13 +1780,8 @@ def _check_corporate_action_invalidation(
 def _load_metric_event_invalidation_rules(
     path: Path, front_matter: Mapping[str, object]
 ) -> dict[str, set[str]]:
-    document = _load_candidate_document(path, front_matter)
-    if not document:
-        return {}
-    root = repo_root_for(path)
-    snapshot_ref = document.get("metric_catalog_snapshot")
     try:
-        _catalog_path, catalog = load_snapshot_mapping(root, snapshot_ref)
+        catalog = _load_current_metric_catalog(path)
     except (OSError, ValueError, yaml.YAMLError):
         return {}
     rules: dict[str, set[str]] = {}
@@ -1804,6 +1799,25 @@ def _load_metric_event_invalidation_rules(
             if isinstance(kind, str) and kind:
                 metric_rules.add(kind)
     return rules
+
+
+def _load_current_metric_catalog(path: Path) -> Mapping[str, Any]:
+    search_roots: list[Path] = []
+    for parent in (path.parent, *path.parents):
+        if (parent / "records").is_dir():
+            search_roots.append(parent)
+    repo_root = repo_root_for(path)
+    if repo_root not in search_roots:
+        search_roots.append(repo_root)
+    for root in search_roots:
+        candidates = sorted((root / "records/_config/metric-catalog").glob("*.yaml"))
+        if not candidates:
+            continue
+        raw = _load_yaml(candidates[-1])
+        if not isinstance(raw, Mapping):
+            raise ValueError(f"{candidates[-1]}: metric catalog must be a mapping")
+        return raw
+    raise FileNotFoundError("records/_config/metric-catalog/*.yaml")
 
 
 def _load_candidate_document(
