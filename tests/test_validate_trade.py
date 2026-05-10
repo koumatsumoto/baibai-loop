@@ -231,6 +231,16 @@ def test_wrong_calendar_ref_prefix_is_flagged_by_trade_target(tmp_path: Path) ->
     assert "trade.calendar-ref" in codes
 
 
+def test_nested_removed_hash_field_is_flagged(tmp_path: Path) -> None:
+    front = _trade_front()
+    order_intent = front["order_intent"]
+    assert isinstance(order_intent, dict)
+    order_intent["content_" + "sha256"] = "sha256:bad"
+    path = _write_trade(tmp_path, front)
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.removed-hash-field" in codes
+
+
 def test_order_intent_must_join_to_order(tmp_path: Path) -> None:
     front = _trade_front()
     orders = front["orders"]

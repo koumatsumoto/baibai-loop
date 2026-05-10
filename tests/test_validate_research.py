@@ -990,6 +990,14 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.removed-hash-field", codes)
 
+    def test_nested_removed_hash_field_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        candidate_ref = front["candidate_ref"]
+        assert isinstance(candidate_ref, dict)
+        candidate_ref["row_" + "sha256"] = "sha256:bad"
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.removed-hash-field", codes)
+
     def test_invalid_ticker_pattern_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
         front["ticker"] = "abc"

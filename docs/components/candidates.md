@@ -39,6 +39,8 @@ data_sources:
   - "jpx-public-regulation"
 run_at: "ISO 8601"
 run_id: "screening-YYYYMMDD"
+universe_ref:
+  ref_path: records/_universe-snapshots/YYYY/MM/YYYY-MM-DDTHHMMSS+0900.yaml
 candidates:
   - ticker: "130A"
     candidate_id: candidate-YYYY-MM-DD-130A
@@ -160,7 +162,7 @@ evidence_hits_summary:
 
 ### 4.1 traceability の境界
 
-candidates YAML は `run_id` と candidate-level の metric / source metadata を記録する。SQLite の厳密な point-in-time hash audit や policy file の固定参照は保持しない。必要な運用確認は git 履歴、SQLite coverage 検証、research 時の一次情報確認で行う。
+candidates YAML は `run_id`、`universe_ref`、candidate-level の metric / source metadata を記録する。`universe_ref` は screening universe の repo 内 YAML file link で、hash audit ではなく候補母集団の確認に使う。SQLite の厳密な point-in-time hash audit や policy file の固定参照は保持しない。必要な運用確認は git 履歴、SQLite coverage 検証、research 時の一次情報確認で行う。
 
 ### 4.2 実行メモの扱い
 

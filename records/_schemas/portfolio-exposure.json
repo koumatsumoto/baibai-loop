@@ -19,7 +19,46 @@
     "positions": {"type": "array"},
     "exposures": {"type": "array"},
     "outstanding_orders": {"type": "array"},
+    "source_trade_refs": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/RepositoryRef"}
+    },
+    "source_decision_register_refs": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          {"$ref": "#/$defs/RepositoryRef"},
+          {
+            "type": "object",
+            "required": ["decision_event_id"],
+            "properties": {
+              "decision_event_id": {"type": "string", "minLength": 1}
+            }
+          }
+        ]
+      }
+    },
     "tactical_real_budget_yen": {"type": "number"},
     "remaining_tactical_real_budget_yen": {"type": "number"}
+  },
+  "$defs": {
+    "RepositoryRef": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["ref_path"],
+      "not": {
+        "anyOf": [
+          {"required": ["content_sha256"]},
+          {"required": ["row_sha256"]}
+        ]
+      },
+      "properties": {
+        "ref_path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^records/[^\\n]*$"
+        }
+      }
+    }
   }
 }

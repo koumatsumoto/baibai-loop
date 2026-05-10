@@ -51,7 +51,7 @@ raw_evidence_family_count: 1
 sizing_eligible_evidence_family_count: 1
 raw_playbook_concurrence_count: 1
 sizing_eligible_playbook_concurrence_count: 1
-conviction_tier: low | medium | high | blocked
+conviction_tier: low | medium | high
 conviction_tier_path: count_breadth | depth
 position_sizing_overlay:
   paper_proxy_position_size_yen: 1000000

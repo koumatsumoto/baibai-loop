@@ -23,7 +23,7 @@
   "properties": {
     "trade_id": {"type": "string", "minLength": 1},
     "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
-    "research_ref": {"type": "string", "pattern": "^records/05-research/.*\\.md$"},
+    "research_ref": {"type": "string", "pattern": "^records/05-research/[^.][^\\n]*\\.md$"},
     "policy_ref": {"$ref": "#/$defs/RepositoryRef"},
     "portfolio_exposure_ref": {"$ref": "#/$defs/RepositoryRef"},
     "policy_applicability": {"enum": ["active"]},
@@ -71,8 +71,14 @@
       "type": "object",
       "additionalProperties": true,
       "required": ["ref_path"],
+      "not": {
+        "anyOf": [
+          {"required": ["content_sha256"]},
+          {"required": ["row_sha256"]}
+        ]
+      },
       "properties": {
-        "ref_path": {"type": "string", "minLength": 1},
+        "ref_path": {"type": "string", "minLength": 1, "pattern": "^records/[^\\n]*$"},
         "effective_from": {"type": "string"},
         "as_of": {"type": "string"}
       }

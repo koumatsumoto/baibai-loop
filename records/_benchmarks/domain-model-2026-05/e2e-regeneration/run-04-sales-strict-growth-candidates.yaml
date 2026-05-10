@@ -14,15 +14,10 @@ data_sources:
 run_at: "2026-05-07T00:20:15.222646+09:00"
 run_id: "screening-20260501"
 requires_decision_coverage: true
-screening_rules_snapshot:
-  ref_path: records/_config/screening-rules/2026-05-01T000000+0900.yaml
-metric_catalog_snapshot:
-  ref_path: records/_config/metric-catalog/2026-05-01T000000+0900.yaml
 policy_ref:
   ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
 universe_ref:
   ref_path: records/_universe-snapshots/2026/05/2026-05-01T192150+0900.yaml
-cache_manifest_hash: "ef8cb04d210809c3"
 candidates:
 - ticker: "1332"
   name: "ニッスイ"

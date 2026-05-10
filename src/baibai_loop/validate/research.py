@@ -139,6 +139,7 @@ def validate_research_parsed(
     findings: list[ValidationFinding] = []
     findings.extend(_validate_schema(path, front_matter))
     findings.extend(_check_removed_fields(path, front_matter))
+    findings.extend(_check_removed_hash_fields_recursive(path, front_matter))
     findings.extend(_check_policy_and_calendar_context(path, front_matter))
     findings.extend(_check_ticker(path, front_matter))
     findings.extend(_check_playbook(path, front_matter, known_playbooks))
@@ -609,7 +610,9 @@ def _check_macro_input_source(
                 location=f"macro_regime_gate.inputs[{index}].source_ref",
             )
         ]
-    source_path = _resolve_record_ref(path, ref)
+    source_path = _resolve_record_ref(
+        path, ref, prefixes=("records/03-outlook/",), suffixes=(".yaml", ".yml")
+    )
     if source_path is None:
         return [
             ValidationFinding(
@@ -818,7 +821,7 @@ def _check_research_evidence_source_refs(
                 severity="error",
                 target=path,
                 code="research.sizing-evidence-source-ref",
-                message="sizing-eligible research evidence requires immutable source_refs",
+                message="sizing-eligible research evidence requires repository source_refs",
                 location=f"research_evidence_hits[{index}].source_refs",
             )
         ]
@@ -836,7 +839,8 @@ def _check_research_evidence_source_refs(
             )
             continue
         ref_path = ref.get("ref_path")
-        if not (isinstance(ref_path, str) and ref_path.startswith("records/_external/")):
+        error = repository_ref_error(ref_path, root=repo_root_for(path))
+        if error is not None or not isinstance(ref_path, str):
             findings.append(
                 ValidationFinding(
                     severity="error",
@@ -845,6 +849,31 @@ def _check_research_evidence_source_refs(
                     message=(
                         "sizing-eligible research evidence requires records/_external/ source refs"
                     ),
+                    location=f"research_evidence_hits[{index}].source_refs[{ref_index}]",
+                )
+            )
+            continue
+        source_path = resolve_repository_ref(repo_root_for(path), ref_path)
+        if not ref_path.startswith("records/_external/") or source_path.suffix != ".md":
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.sizing-evidence-source-ref",
+                    message=(
+                        "sizing-eligible research evidence requires records/_external/ "
+                        "markdown source refs"
+                    ),
+                    location=f"research_evidence_hits[{index}].source_refs[{ref_index}]",
+                )
+            )
+        elif not source_path.is_file():
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.sizing-evidence-source-ref",
+                    message=f"source ref does not exist: {ref_path}",
                     location=f"research_evidence_hits[{index}].source_refs[{ref_index}]",
                 )
             )
@@ -1266,33 +1295,33 @@ def _expected_evidence_counts(
     }
 
 
-def _resolve_record_ref(path: Path, ref: str) -> Path | None:
-    relative = Path(ref)
-    if relative.is_absolute():
-        return relative if relative.is_file() else None
-    for parent in (path.parent, *path.parents):
-        candidate = parent / relative
-        if candidate.is_file():
-            return candidate
-    candidate = repo_root_for(path) / relative
-    if candidate.is_file():
-        return candidate
-    return None
+def _resolve_record_ref(
+    path: Path,
+    ref: str,
+    *,
+    prefixes: tuple[str, ...],
+    suffixes: tuple[str, ...],
+) -> Path | None:
+    root = repo_root_for(path)
+    if repository_ref_error(ref, root=root) is not None:
+        return None
+    candidate = resolve_repository_ref(root, ref)
+    if not ref.startswith(prefixes) or candidate.suffix not in suffixes:
+        return None
+    return candidate if candidate.is_file() else None
 
 
 def _resolve_candidate_ref(path: Path, ref: str) -> Path | None:
-    relative = Path(ref)
-    if relative.is_absolute():
-        return relative if relative.is_file() else None
-    for parent in (path.parent, *path.parents):
-        candidate = parent / relative
-        if candidate.is_file():
-            return candidate
-    if _is_repository_research_record(path):
-        candidate = repo_root_for(path) / relative
-        if candidate.is_file():
-            return candidate
-    return None
+    root = repo_root_for(path)
+    if repository_ref_error(ref, root=root) is not None:
+        return None
+    candidate = resolve_repository_ref(root, ref)
+    if not ref.startswith("records/04-candidates/") or candidate.suffix not in {
+        ".yaml",
+        ".yml",
+    }:
+        return None
+    return candidate if candidate.is_file() else None
 
 
 def _expected_gate_effect(
@@ -2123,6 +2152,40 @@ def _check_removed_hash_fields(
         for field in sorted(_REMOVED_HASH_FIELDS)
         if field in value
     ]
+
+
+def _check_removed_hash_fields_recursive(
+    path: Path, front_matter: Mapping[str, object]
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    for location, node in _walk_mappings(front_matter, prefix=None):
+        for field in sorted(_REMOVED_HASH_FIELDS):
+            if field in node:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="research.removed-hash-field",
+                        message=f"{field} is no longer allowed in research records",
+                        location=f"{location}.{field}" if location else field,
+                    )
+                )
+    return findings
+
+
+def _walk_mappings(
+    value: object, *, prefix: str | None
+) -> Iterable[tuple[str, Mapping[str, object]]]:
+    if isinstance(value, Mapping):
+        location = prefix or ""
+        yield location, value
+        for key, child in value.items():
+            child_prefix = f"{location}.{key}" if location else str(key)
+            yield from _walk_mappings(child, prefix=child_prefix)
+    elif isinstance(value, list):
+        location = prefix or ""
+        for index, child in enumerate(value):
+            yield from _walk_mappings(child, prefix=f"{location}[{index}]")
 
 
 def _number(value: object) -> float | None:

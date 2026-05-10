@@ -4,7 +4,7 @@ Baibai-Loop の **research / investment memo** の運用仕様。candidates × o
 
 ## 1. 役割
 
-- `records/04-candidates/` の immutable screen output から、深掘りする ticker / playbook を選ぶ
+- `records/04-candidates/` の pinned repository file から、深掘りする ticker / playbook を選ぶ
 - `records/03-outlook/` と security exposure を使い、macro regime gate を確定する
 - Portfolio policy と portfolio exposure file に照らして、採用可否と sizing を決める
 - thesis payoff を構造化し、target / stop / expected upside / downside / risk reward / time horizon を検査する

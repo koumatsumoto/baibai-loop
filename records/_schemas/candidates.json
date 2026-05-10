@@ -33,8 +33,14 @@
       "type": "object",
       "additionalProperties": true,
       "required": ["ref_path"],
+      "not": {
+        "anyOf": [
+          {"required": ["content_sha256"]},
+          {"required": ["row_sha256"]}
+        ]
+      },
       "properties": {
-        "ref_path": {"type": "string", "minLength": 1},
+        "ref_path": {"type": "string", "minLength": 1, "pattern": "^records/[^\\n]*$"},
         "effective_from": {"type": "string"}
       }
     },

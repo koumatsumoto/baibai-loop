@@ -29,7 +29,7 @@ class PlaybookSchemaDiscoveryTests(unittest.TestCase):
             (Path(tmpdir) / "playbook.md").write_text("# stub\n", encoding="utf-8")
             self.assertEqual(discover_playbook_schemas(Path(tmpdir)), set())
 
-    def test_discovers_immutable_snapshot_schemas(self) -> None:
+    def test_discovers_playbook_schemas(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "alpha").mkdir()
             (Path(tmpdir) / "alpha" / "body-schema.yaml").write_text(

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import yaml
 
+from .candidates import validate_candidates_file
 from .domain import load_markdown_front_matter, resolve_repository_ref
 from .errors import ValidationFinding
 
@@ -149,8 +150,98 @@ def validate_benchmark_manifest_file(path: Path) -> list[ValidationFinding]:
     findings.extend(_check_required_fixture_ids(path, raw))
     findings.extend(_check_domain_fixture_contracts(path, raw))
     findings.extend(_check_business_invariants(path, raw))
+    findings.extend(_check_repository_refs(path, raw))
+    findings.extend(_check_candidate_fixtures(path))
     findings.extend(_check_fixture_expectations(path, raw))
     return findings
+
+
+def _check_repository_refs(path: Path, manifest: Mapping[str, object]) -> list[ValidationFinding]:
+    root = _repo_root(path)
+    findings: list[ValidationFinding] = []
+    input_specs = {
+        "policy": ("records/01-policy/", (".md",)),
+        "screening_rules": ("records/_config/screening-rules/", (".yaml", ".yml")),
+        "metric_catalog": ("records/_config/metric-catalog/", (".yaml", ".yml")),
+        "exposure_buckets": ("records/_config/exposure-buckets/", (".yaml", ".yml")),
+        "universe": ("records/_universe-snapshots/", (".yaml", ".yml")),
+        "portfolio_exposure": ("records/_portfolio-exposure/", (".yaml", ".yml")),
+    }
+    input_refs = manifest.get("input_refs")
+    if isinstance(input_refs, Mapping):
+        for key, (prefix, suffixes) in input_specs.items():
+            ref = input_refs.get(key)
+            if isinstance(ref, Mapping):
+                findings.extend(
+                    _check_repo_ref(
+                        path,
+                        root,
+                        ref.get("ref_path"),
+                        code="benchmark.input-ref",
+                        location=f"input_refs.{key}.ref_path",
+                        prefix=prefix,
+                        suffixes=suffixes,
+                    )
+                )
+    playbook_refs = manifest.get("playbook_refs")
+    if isinstance(playbook_refs, list):
+        for index, ref in enumerate(playbook_refs):
+            if not isinstance(ref, Mapping):
+                continue
+            findings.extend(
+                _check_repo_ref(
+                    path,
+                    root,
+                    ref.get("ref_path"),
+                    code="benchmark.playbook-ref",
+                    location=f"playbook_refs[{index}].ref_path",
+                    prefix="records/_playbooks/",
+                    suffixes=(".md",),
+                )
+            )
+    return findings
+
+
+def _check_candidate_fixtures(path: Path) -> list[ValidationFinding]:
+    fixture_dir = path.parent / "e2e-regeneration"
+    if not fixture_dir.is_dir():
+        return []
+    findings: list[ValidationFinding] = []
+    for candidates_path in sorted(fixture_dir.glob("*candidates.yaml")):
+        findings.extend(validate_candidates_file(candidates_path))
+    return findings
+
+
+def _check_repo_ref(
+    path: Path,
+    root: Path,
+    ref: object,
+    *,
+    code: str,
+    location: str,
+    prefix: str,
+    suffixes: tuple[str, ...],
+) -> list[ValidationFinding]:
+    if not isinstance(ref, str):
+        return [_finding(path, code, "repository ref must include ref_path", location)]
+    try:
+        ref_path = resolve_repository_ref(root, ref)
+    except ValueError as exc:
+        return [_finding(path, code, str(exc), location)]
+    if not ref.startswith(prefix):
+        return [_finding(path, code, f"repository ref must point under {prefix}", location)]
+    if ref_path.suffix not in suffixes:
+        return [_finding(path, code, f"repository ref must use suffix {suffixes}", location)]
+    if not ref_path.is_file():
+        return [_finding(path, code, f"repository ref does not exist: {ref}", location)]
+    try:
+        if ref_path.suffix == ".md":
+            load_markdown_front_matter(ref_path)
+        else:
+            yaml.safe_load(ref_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        return [_finding(path, code, f"repository ref cannot be parsed: {exc}", location)]
+    return []
 
 
 def _check_required(path: Path, manifest: Mapping[str, object]) -> list[ValidationFinding]:

@@ -174,6 +174,16 @@ def _check_decision_register_sources(
             )
             continue
         assert isinstance(ref_path, str)
+        if not ref_path.startswith("records/_ledger/") or Path(ref_path).suffix != ".jsonl":
+            findings.append(
+                _finding(
+                    path,
+                    "portfolio-exposure.source-decision-register-ref",
+                    "source decision ref must point under records/_ledger/ and use .jsonl",
+                    f"source_decision_register_refs[{index}].ref_path",
+                )
+            )
+            continue
         ledger_path = resolve_repository_ref(root, ref_path)
         if not ledger_path.is_file():
             findings.append(
@@ -315,6 +325,16 @@ def _check_rebuild_from_sources(
             )
             continue
         assert isinstance(ref_path, str)
+        if not ref_path.startswith("records/06-trades/") or Path(ref_path).suffix != ".md":
+            findings.append(
+                _finding(
+                    path,
+                    "portfolio-exposure.source-trade-ref",
+                    "source trade ref must point under records/06-trades/ and use .md",
+                    f"source_trade_refs[{index}].ref_path",
+                )
+            )
+            continue
         source_paths.add(ref_path)
         trade_path = resolve_repository_ref(root, ref_path)
         if not trade_path.is_file():

@@ -20,7 +20,6 @@ from .domain import (
     number,
     repo_root_for,
     repository_ref_error,
-    resolve_ref,
     resolve_repository_ref,
 )
 from .errors import ValidationFinding
@@ -86,6 +85,7 @@ def validate_trade_file(path: Path) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
     findings.extend(_validate_schema(path, front))
     findings.extend(_check_removed_fields(path, front))
+    findings.extend(_check_removed_hash_fields_recursive(path, front))
     findings.extend(_check_policy_and_calendar_context(path, front))
     findings.extend(_check_reference_refs(path, front))
     findings.extend(_check_ticker(path, front))
@@ -230,14 +230,18 @@ def _check_calendar_refs_block(path: Path, value: object) -> list[ValidationFind
 def _check_reference_refs(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
     specs = {
+        "research_ref": (("records/05-research/",), (".md",)),
         "policy_ref": (("records/01-policy/",), (".md",)),
         "portfolio_exposure_ref": (("records/_portfolio-exposure/",), (".yaml", ".yml")),
     }
     for field, (prefixes, suffixes) in specs.items():
+        value = front.get(field)
+        if isinstance(value, str):
+            value = {"ref_path": value}
         findings.extend(
             _check_repository_ref(
                 path,
-                front.get(field),
+                value,
                 location=field,
                 code="trade.reference-ref",
                 prefixes=prefixes,
@@ -754,7 +758,11 @@ def _load_referenced_research(
     research_ref = front.get("research_ref")
     if not isinstance(research_ref, str):
         return None
-    research_path = resolve_ref(root, research_ref)
+    if repository_ref_error(research_ref, root=root) is not None:
+        return None
+    research_path = resolve_repository_ref(root, research_ref)
+    if not research_ref.startswith("records/05-research/") or research_path.suffix != ".md":
+        return None
     if not research_path.is_file():
         return None
     try:
@@ -941,3 +949,37 @@ def _check_removed_hash_fields(
         for field in sorted(_REMOVED_HASH_FIELDS)
         if field in value
     ]
+
+
+def _check_removed_hash_fields_recursive(
+    path: Path, front: Mapping[str, object]
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    for location, node in _walk_mappings(front, prefix=None):
+        for field in sorted(_REMOVED_HASH_FIELDS):
+            if field in node:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="trade.removed-hash-field",
+                        message=f"{field} is no longer allowed in trade records",
+                        location=f"{location}.{field}" if location else field,
+                    )
+                )
+    return findings
+
+
+def _walk_mappings(
+    value: object, *, prefix: str | None
+) -> Iterable[tuple[str, Mapping[str, object]]]:
+    if isinstance(value, Mapping):
+        location = prefix or ""
+        yield location, value
+        for key, child in value.items():
+            child_prefix = f"{location}.{key}" if location else str(key)
+            yield from _walk_mappings(child, prefix=child_prefix)
+    elif isinstance(value, list):
+        location = prefix or ""
+        for index, child in enumerate(value):
+            yield from _walk_mappings(child, prefix=f"{location}[{index}]")

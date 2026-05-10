@@ -23,8 +23,8 @@ def _minimal_candidates() -> dict[str, object]:
         "ref_path": "records/_config/screening-rules/2026-05-01T000000+0900.yaml",
     }
     return {
-        "run_date": "2026-04-24",
-        "asof_date": "2026-04-24",
+        "run_date": "2026-05-01",
+        "asof_date": "2026-05-01",
         "universe_size": 100,
         "filters": {
             "min_market_cap_oku": 200,
@@ -33,8 +33,8 @@ def _minimal_candidates() -> dict[str, object]:
         },
         "generated_by": "screening-cli-v1",
         "data_sources": ["j-quants-light"],
-        "run_at": "2026-04-24T09:00:00+09:00",
-        "run_id": "screening-20260424",
+        "run_at": "2026-05-01T09:00:00+09:00",
+        "run_id": "screening-20260501",
         "universe_ref": {
             **snapshot,
             "ref_path": "records/_universe-snapshots/2026/05/2026-05-01T192150+0900.yaml",
@@ -43,9 +43,9 @@ def _minimal_candidates() -> dict[str, object]:
             {
                 "ticker": "130A",
                 "name": "Sample Co",
-                "screen_run_id": "screening-20260424",
-                "candidate_id": "candidate-2026-04-24-130A",
-                "candidate_key": "screening-20260424:130A",
+                "screen_run_id": "screening-20260501",
+                "candidate_id": "candidate-2026-05-01-130A",
+                "candidate_key": "screening-20260501:130A",
                 "playbook_screen_result": "hit",
                 "policy_gate_result": "pass",
                 "liquidity_gate_result": "pass",
@@ -63,7 +63,7 @@ def _minimal_candidates() -> dict[str, object]:
                 },
                 "evidence_hits": [
                     {
-                        "evidence_hit_id": "candidate-2026-04-24-130A-valuation-reversion",
+                        "evidence_hit_id": "candidate-2026-05-01-130A-valuation-reversion",
                         "playbook_id": "valuation-reversion",
                         "claim_id": "130A-valuation-reversion",
                         "claim_type": "valuation_reversion",
@@ -100,7 +100,7 @@ class CandidatesValidationTests(unittest.TestCase):
 
     def test_invalid_run_id_pattern_is_flagged(self) -> None:
         payload = _minimal_candidates()
-        payload["run_id"] = "screening-20260424-XYZ"
+        payload["run_id"] = "screening-20260501-XYZ"
         path = self._write(payload)
         try:
             findings = validate_candidates_file(path)
@@ -147,6 +147,18 @@ class CandidatesValidationTests(unittest.TestCase):
         finally:
             path.unlink()
         self.assertIn("candidates.required", {finding.code for finding in findings})
+
+    def test_universe_ref_asof_mismatch_is_flagged(self) -> None:
+        payload = _minimal_candidates()
+        universe_ref = payload["universe_ref"]
+        assert isinstance(universe_ref, dict)
+        universe_ref["ref_path"] = "records/_universe-snapshots/2026/05/2026-05-08T111721+0900.yaml"
+        path = self._write(payload)
+        try:
+            findings = validate_candidates_file(path)
+        finally:
+            path.unlink()
+        self.assertIn("candidates.universe-ref", {finding.code for finding in findings})
 
     def test_missing_required_candidates_field_is_flagged(self) -> None:
         payload = _minimal_candidates()
@@ -195,7 +207,7 @@ class CandidatesValidationTests(unittest.TestCase):
         assert isinstance(candidates, list)
         candidate_entry = candidates[0]
         assert isinstance(candidate_entry, dict)
-        candidate_entry["screen_run_id"] = "screening-20260424-deadbeef"
+        candidate_entry["screen_run_id"] = "screening-20260501-deadbeef"
         path = self._write(payload)
         try:
             codes = {finding.code for finding in validate_candidates_file(path)}
@@ -209,7 +221,7 @@ class CandidatesValidationTests(unittest.TestCase):
         assert isinstance(candidates, list)
         candidate_entry = candidates[0]
         assert isinstance(candidate_entry, dict)
-        candidate_entry["candidate_key"] = "screening-20260424:9999"
+        candidate_entry["candidate_key"] = "screening-20260501:9999"
         path = self._write(payload)
         try:
             codes = {finding.code for finding in validate_candidates_file(path)}
@@ -223,7 +235,7 @@ class CandidatesValidationTests(unittest.TestCase):
         assert isinstance(candidates, list)
         candidate_entry = candidates[0]
         assert isinstance(candidate_entry, dict)
-        candidate_entry["candidate_id"] = "candidate-screening-20260424-deadbeef-130A"
+        candidate_entry["candidate_id"] = "candidate-screening-20260501-deadbeef-130A"
         path = self._write(payload)
         try:
             codes = {finding.code for finding in validate_candidates_file(path)}

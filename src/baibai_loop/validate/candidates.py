@@ -91,7 +91,7 @@ def validate_candidates_file(path: Path) -> list[ValidationFinding]:
         )
     findings.extend(_check_removed_root_fields(path, document))
     findings.extend(_check_removed_hash_fields(path, document))
-    findings.extend(_check_universe_ref(path, document.get("universe_ref")))
+    findings.extend(_check_universe_ref(path, document, document.get("universe_ref")))
     findings.extend(_check_business_lineage(path, document))
     return findings
 
@@ -127,7 +127,9 @@ def _check_removed_hash_fields(path: Path, document: object) -> list[ValidationF
     return findings
 
 
-def _check_universe_ref(path: Path, value: object) -> list[ValidationFinding]:
+def _check_universe_ref(
+    path: Path, document: Mapping[str, Any], value: object
+) -> list[ValidationFinding]:
     if not isinstance(value, Mapping):
         return [
             _finding(
@@ -171,7 +173,78 @@ def _check_universe_ref(path: Path, value: object) -> list[ValidationFinding]:
                 "universe_ref.ref_path",
             )
         ]
+    try:
+        loaded: object = yaml.safe_load(ref_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        return [
+            _finding(
+                path,
+                "candidates.universe-ref",
+                f"failed to parse universe_ref: {exc}",
+                "universe_ref.ref_path",
+            )
+        ]
+    if not isinstance(loaded, Mapping):
+        return [
+            _finding(
+                path,
+                "candidates.universe-ref",
+                "universe_ref must point to a YAML mapping",
+                "universe_ref.ref_path",
+            )
+        ]
+    expected_snapshot_id = _expected_universe_snapshot_id(document)
+    if expected_snapshot_id is not None and loaded.get("snapshot_id") != expected_snapshot_id:
+        return [
+            _finding(
+                path,
+                "candidates.universe-ref",
+                f"universe snapshot_id must equal {expected_snapshot_id}",
+                "universe_ref.ref_path",
+            )
+        ]
+    expected_asof = _expected_universe_asof(document)
+    if expected_asof is not None and str(loaded.get("as_of")) != expected_asof:
+        return [
+            _finding(
+                path,
+                "candidates.universe-ref",
+                f"universe as_of must equal candidates asof_date {expected_asof}",
+                "universe_ref.ref_path",
+            )
+        ]
+    universe_size = document.get("universe_size")
+    if (
+        _is_canonical_candidates_record(path)
+        and universe_size is not None
+        and loaded.get("universe_size") != universe_size
+    ):
+        return [
+            _finding(
+                path,
+                "candidates.universe-ref",
+                f"universe_size must equal {universe_size}",
+                "universe_ref.ref_path",
+            )
+        ]
     return []
+
+
+def _is_canonical_candidates_record(path: Path) -> bool:
+    parts = path.parts
+    return "records" in parts and "04-candidates" in parts
+
+
+def _expected_universe_asof(document: Mapping[str, Any]) -> str | None:
+    asof = document.get("asof_date")
+    return asof if isinstance(asof, str) and asof else None
+
+
+def _expected_universe_snapshot_id(document: Mapping[str, Any]) -> str | None:
+    asof = _expected_universe_asof(document)
+    if asof is None:
+        return None
+    return "universe-" + asof.replace("-", "")
 
 
 def _walk_mappings(

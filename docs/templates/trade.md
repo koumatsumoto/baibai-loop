@@ -21,8 +21,10 @@ trade_execution_state: none | submitted | broker_rejected | cancelled | expired 
 order_intent:
   order_intent_id: intent-YYYYMMDD-XXXX-entry
   decision_event_id: decision-YYYYMMDD-XXXX-research
+  side: buy | sell
   quantity: 100
   order_price_guard_yen: 1000
+  uses_margin: false
   not_submitted_reason: null
 position_sizing_overlay:
   estimated_real_order_notional_yen: 100000

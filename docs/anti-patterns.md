@@ -281,7 +281,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - [ ] research の `policy_overrides` / `decision_revisions` 配列を導入・変更する場合、以下を確認したか:
   - [ ] `policy_overrides[]` は policy field の override だけを表し、decision history を混ぜていない
   - [ ] `decision_revisions[].revision_type` が既知集合に属し、`prior_state_ref` / `prior_state` / `new_state` / `reason` の必須キーが揃う
-  - [ ] `research_decision.outcome: approved` の場合、`candidate_ref` が最新の immutable candidates snapshot の対象 candidate に join できるか
+  - [ ] `research_decision.outcome: approved` の場合、`candidate_ref` が参照した candidates repository file の対象 candidate に join できるか
   - [ ] `external_refs[]` は `records/_external/` 配下の path のみ (validator: `research.external-ref-prefix`)
   - [ ] 連続する commit で `research_decision.outcome: deferred|rejected → approved` に flip した場合、`decision_revisions[].revision_type='decision_flip'` を残す (precheck: `precheck.decision-flip-without-revision`、`baibai-loop-precheck` で git 履歴ベースに検出)
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
