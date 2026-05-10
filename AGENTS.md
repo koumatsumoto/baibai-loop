@@ -13,6 +13,10 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 - data sources / validation / Python 基盤: [`docs/reference/README.md`](./docs/reference/README.md)
 - **失敗パターンと再発防止**: [`docs/anti-patterns.md`](./docs/anti-patterns.md) — 過去の PR レビューで繰り返し指摘された類型集。brief / outlook / research / validator を編集する前に該当節のチェックリストを 1 周すること
 
+## 言語運用
+
+人間向けの運用記録、調査メモ、作業メモ、最終報告は原則日本語で書く。ただし、schema field、ticker、tool output、コード/API 名、固有の英語指標名は自然に英語のままでよい。
+
 ## commit 前 / PR 前の self-review
 
 records / src / docs の変更を含む commit を作る前に、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の対応する anti-pattern (AP-01〜AP-09) のチェックリストを通過させること。特に以下は 100% 防ぐ:
