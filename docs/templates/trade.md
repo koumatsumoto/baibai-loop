@@ -3,12 +3,10 @@ trade_id: trade-YYYYMMDD-XXXX
 ticker: "XXXX"
 name: "..."
 research_ref: records/05-research/YYYY/MM/YYYY-MM-DD-XXXX-<playbook_id>.md
-policy_snapshot:
+policy_ref:
   ref_path: records/01-policy/YYYY/MM/YYYY-MM-DDTHHMMSS+0900-portfolio-policy.md
-  content_sha256: sha256:<64-hex>
-portfolio_exposure_snapshot_ref:
+portfolio_exposure_ref:
   ref_path: records/_portfolio-exposure/YYYY/MM/YYYY-MM-DDTHHMMSS+0900.yaml
-  content_sha256: sha256:<64-hex>
 position_state: none | open | closed
 review_state: not_due | scheduled | completed
 trade_execution_state: none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled

@@ -78,11 +78,11 @@ def sync_ledger(
             trade_ref=None,
             decision_event_at=decision_event_at.isoformat(),
             playbook_id=playbook_id,
-            playbook_snapshot=dict(front["playbook_snapshot"])
-            if isinstance(front.get("playbook_snapshot"), Mapping)
+            playbook_ref=dict(front["playbook_ref"])
+            if isinstance(front.get("playbook_ref"), Mapping)
             else None,
-            policy_snapshot=dict(front["policy_snapshot"])
-            if isinstance(front.get("policy_snapshot"), Mapping)
+            policy_ref=dict(front["policy_ref"])
+            if isinstance(front.get("policy_ref"), Mapping)
             else None,
             baseline_price=_float_or_none(candidate.get("last_price"))
             or _float_or_none(candidate.get("baseline_price")),
@@ -123,8 +123,8 @@ def sync_ledger(
             research_ref=str(front.get("research_ref") or ""),
             trade_ref=str(path.relative_to(root)),
             decision_event_at=decision_event_at.isoformat(),
-            policy_snapshot=dict(front["policy_snapshot"])
-            if isinstance(front.get("policy_snapshot"), Mapping)
+            policy_ref=dict(front["policy_ref"])
+            if isinstance(front.get("policy_ref"), Mapping)
             else None,
             tracking=Tracking(mode="post_approval"),
         )

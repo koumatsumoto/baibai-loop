@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import sys
 import tempfile
 import unittest
@@ -15,21 +14,40 @@ from baibai_loop.validate.snapshots import validate_snapshot_integrity
 
 
 class SnapshotIntegrityValidationTests(unittest.TestCase):
-    def test_rejects_snapshot_payload_self_hash(self) -> None:
+    def test_rejects_removed_hash_field(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            snapshot = root / "records/_universe-snapshots/2026/05/universe.yaml"
-            snapshot.parent.mkdir(parents=True)
-            snapshot.write_text(
-                f"snapshot_id: universe-20260501\ncontent_sha256: sha256:{'0' * 64}\nmembers: []\n",
+            research = root / "records/05-research/2026/05/research.md"
+            research.parent.mkdir(parents=True)
+            hash_key = "content_" + "sha256"
+            research.write_text(
+                "---\n"
+                "policy_ref:\n"
+                "  ref_path: records/01-policy/2026/05/policy.yaml\n"
+                f"  {hash_key}: sha256:{'0' * 64}\n"
+                "---\n",
                 encoding="utf-8",
             )
 
             findings = validate_snapshot_integrity(root)
 
-        self.assertIn("snapshot.self-hash", {finding.code for finding in findings})
+        self.assertIn("reference.removed-hash-field", {finding.code for finding in findings})
 
-    def test_rejects_snapshot_reference_hash_mismatch(self) -> None:
+    def test_rejects_missing_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            research = root / "records/05-research/2026/05/research.md"
+            research.parent.mkdir(parents=True)
+            research.write_text(
+                "---\npolicy_ref:\n  ref_path: records/01-policy/2026/05/policy.yaml\n---\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.ref-not-found", {finding.code for finding in findings})
+
+    def test_accepts_valid_repository_reference(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             policy = root / "records/01-policy/2026/05/policy.yaml"
@@ -38,33 +56,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
             research = root / "records/05-research/2026/05/research.md"
             research.parent.mkdir(parents=True)
             research.write_text(
-                "---\n"
-                "portfolio_policy_snapshot:\n"
-                "  ref_path: records/01-policy/2026/05/policy.yaml\n"
-                f"  content_sha256: sha256:{'1' * 64}\n"
-                "---\n",
-                encoding="utf-8",
-            )
-
-            findings = validate_snapshot_integrity(root)
-
-        self.assertIn("snapshot.hash-mismatch", {finding.code for finding in findings})
-
-    def test_accepts_valid_snapshot_reference(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            policy = root / "records/01-policy/2026/05/policy.yaml"
-            policy.parent.mkdir(parents=True)
-            policy.write_text("policy_id: portfolio-policy\n", encoding="utf-8")
-            digest = hashlib.sha256(policy.read_bytes()).hexdigest()
-            research = root / "records/05-research/2026/05/research.md"
-            research.parent.mkdir(parents=True)
-            research.write_text(
-                "---\n"
-                "portfolio_policy_snapshot:\n"
-                "  ref_path: records/01-policy/2026/05/policy.yaml\n"
-                f"  content_sha256: sha256:{digest}\n"
-                "---\n",
+                "---\npolicy_ref:\n  ref_path: records/01-policy/2026/05/policy.yaml\n---\n",
                 encoding="utf-8",
             )
 
@@ -72,23 +64,19 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
 
         self.assertEqual(findings, [])
 
-    def test_rejects_out_of_range_approval_rule_max_valid_days(self) -> None:
+    def test_rejects_path_traversal_reference(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            approval = root / "records/_approval-rules/2026-05-01T000000+0900.yaml"
-            approval.parent.mkdir(parents=True)
-            approval.write_text(
-                "registry_id: approval-rules-test\n"
-                "effective_from: '2026-05-01T00:00:00+09:00'\n"
-                "approval_rules:\n"
-                "- approval_rule_id: bad-rule\n"
-                "  max_valid_days: 0\n",
+            research = root / "records/05-research/2026/05/research.md"
+            research.parent.mkdir(parents=True)
+            research.write_text(
+                "---\npolicy_ref:\n  ref_path: ../outside.yaml\n---\n",
                 encoding="utf-8",
             )
 
             findings = validate_snapshot_integrity(root)
 
-        self.assertIn("approval-rule.max-valid-days", {finding.code for finding in findings})
+        self.assertIn("reference.ref-path", {finding.code for finding in findings})
 
 
 if __name__ == "__main__":

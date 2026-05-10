@@ -20,14 +20,15 @@ last_reviewed: 2026-05-04
 | `records/07-reviews/` | `YYYY/MM/YYYY-MM-DD-<ticker>.md` or `YYYY/retro-YYYYMM.md` |
 | `records/_playbooks/` | `<playbook-slug>-v<n>.md` |
 
-## Index And Changelog Policy
+## Index And Reference Policy
 
 Brief / outlook / candidates / research / trades / reviews は event records であり、
-`_index.yaml` や `_changelog.jsonl` を持たない。正本は file path、record 内の snapshot
+`_index.yaml` や `_changelog.jsonl` を持たない。正本は file path、record 内の repository
 refs、CLI の `--asof` / explicit path で決まる。
 
-Snapshot 系 support area は content hash と changelog が必要な場合だけ `_changelog.jsonl`
-を持つ。mutable latest index を足して current state の解釈を二重化しない。
+Support area も content hash audit と changelog を持たない。判断時に参照した repo 内
+file path を record に残し、変更履歴は git に一本化する。mutable latest index を足して
+current state の解釈を二重化しない。
 
 ## Slugs
 

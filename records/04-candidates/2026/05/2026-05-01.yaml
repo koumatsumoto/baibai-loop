@@ -14,9 +14,8 @@ data_sources:
 run_at: "2026-05-07T00:19:30.298788+09:00"
 run_id: "screening-20260501"
 requires_decision_coverage: true
-universe_snapshot_ref:
+universe_ref:
   ref_path: records/_universe-snapshots/2026/05/2026-05-01T192150+0900.yaml
-  content_sha256: "sha256:4970c273616712bea3b3fb177f02d11eb2f2fa053920c7e227dd67b8cc88c8ad"
 candidates:
 - ticker: "1301"
   name: "極洋"

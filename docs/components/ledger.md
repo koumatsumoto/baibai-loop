@@ -7,7 +7,7 @@
 - `records/05-research/**/*.md` の `research_decision` を decision event として正規化する
 - selected / deferred / rejected / not_reviewed の candidate-level event を追跡する
 - approved-but-not-submitted、submitted、filled、broker rejected などの execution state を trade lineage と接続する
-- `baseline_price` と tracking horizon を market data snapshot から更新する
+- `baseline_price` と tracking horizon を market data file から更新する
 - correction は既存行の書き換えではなく `event_kind: correction` の追加 event で表す
 
 ## 2. ファイル構造
@@ -30,8 +30,8 @@ JSONL は 1 行 1 event。current state は同じ `decision_event_id` / correcti
 - `not_reviewed_reason`: `candidate_decision: not_reviewed` の理由。代表値は `review_capacity`、`screening_no_hit_anchor`、`screening_false_negative`。screening false-negative scan 由来では `classification` の値を保持する。
 - `research_decision`: `{outcome, posture, reason...}`
 - `trade_execution_state`: `none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled`
-- `playbook_id` / `playbook_snapshot`
-- `policy_snapshot`
+- `playbook_id` / `playbook_ref`
+- `policy_ref`
 - `conviction_tier`
 - `independent_evidence_count`
 - `tracking`

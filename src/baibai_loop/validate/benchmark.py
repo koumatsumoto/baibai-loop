@@ -154,7 +154,7 @@ def validate_benchmark_manifest_file(path: Path) -> list[ValidationFinding]:
 
 
 def _check_required(path: Path, manifest: Mapping[str, object]) -> list[ValidationFinding]:
-    required = ("benchmark_id", "manifest_version", "input_snapshots", "fixtures")
+    required = ("benchmark_id", "manifest_version", "input_refs", "fixtures")
     return [
         _finding(path, "benchmark.required", f"missing required manifest field: {field}", field)
         for field in required

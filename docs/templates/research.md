@@ -2,17 +2,14 @@
 ticker: "XXXX"
 name: "..."
 playbook_id: valuation-reversion
-playbook_snapshot:
+playbook_ref:
   ref_path: records/_playbooks/valuation-reversion/YYYY-MM-DDTHHMMSS+0900.md
-  content_sha256: sha256:<64-hex>
   effective_from: "YYYY-MM-DDTHH:MM:SS+09:00"
-policy_snapshot:
+policy_ref:
   ref_path: records/01-policy/YYYY/MM/YYYY-MM-DDTHHMMSS+0900-portfolio-policy.md
-  content_sha256: sha256:<64-hex>
   effective_from: "YYYY-MM-DDTHH:MM:SS+09:00"
-portfolio_exposure_snapshot_ref:
+portfolio_exposure_ref:
   ref_path: records/_portfolio-exposure/YYYY/MM/YYYY-MM-DDTHHMMSS+0900.yaml
-  content_sha256: sha256:<64-hex>
   as_of: "YYYY-MM-DDTHH:MM:SS+09:00"
 candidate_ref:
   candidates_ref: records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml
@@ -141,6 +138,6 @@ Why now × why this stock。主要 evidence、payoff、反対仮説、macro regi
 - **paper proxy size**:
 - **estimated real order notional**:
 - **binding cap**:
-- **portfolio exposure snapshot**:
+- **portfolio exposure ref**:
 
 参照: [`/docs/components/research.md`](/docs/components/research.md), [`/docs/screening/principles.md`](/docs/screening/principles.md), [`/records/_playbooks/`](/records/_playbooks/)

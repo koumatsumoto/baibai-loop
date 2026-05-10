@@ -19,8 +19,6 @@ from baibai_loop.validate.research import (
     validate_research_file,
 )
 
-_DIGEST = "sha256:" + "a" * 64
-
 _DEFAULT_BODY = """
 # Research
 
@@ -65,10 +63,9 @@ text
 """
 
 
-def _snapshot(ref_path: str, digest: str = _DIGEST) -> dict[str, object]:
+def _snapshot(ref_path: str) -> dict[str, object]:
     return {
         "ref_path": ref_path,
-        "content_sha256": digest,
         "effective_from": "2026-05-01T00:00:00+09:00",
     }
 
@@ -86,17 +83,17 @@ def _minimal_research_front_matter() -> dict[str, object]:
         "ticker": "2767",
         "name": "Sample Co",
         "playbook_id": "valuation-reversion",
-        "playbook_snapshot": _snapshot(
+        "playbook_ref": _snapshot(
             "records/_playbooks/valuation-reversion/2026-05-01T000000+0900.md"
         ),
-        "policy_snapshot": _snapshot(
+        "policy_ref": _snapshot(
             "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"
         ),
-        "portfolio_exposure_snapshot_ref": _snapshot(
+        "portfolio_exposure_ref": _snapshot(
             "records/_portfolio-exposure/2026/05/2026-05-05T133000+0900.yaml"
         ),
         "policy_applicability": "active",
-        "calendars_snapshot": _calendar_snapshots(),
+        "calendar_refs": _calendar_snapshots(),
         "candidate_ref": {
             "candidates_ref": "records/04-candidates/2026/05/2026-05-01.yaml",
             "screen_run_id": "screening-20260501",
@@ -233,11 +230,11 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.policy-applicability", codes)
 
-    def test_missing_calendars_snapshot_is_flagged(self) -> None:
+    def test_missing_calendar_refs_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
-        del front["calendars_snapshot"]
+        del front["calendar_refs"]
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.calendars-snapshot", codes)
+        self.assertIn("research.calendar-refs", codes)
 
     def test_unknown_outcome_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
@@ -937,13 +934,6 @@ class ResearchValidationTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            (approval_root / "_changelog.jsonl").write_text(
-                (
-                    '{"event_at":"2026-05-01T00:00:00+09:00",'
-                    '"snapshot_path":"records/_approval-rules/2026-05-06T000000+0900.yaml"}\n'
-                ),
-                encoding="utf-8",
-            )
             front = _minimal_research_front_matter()
             front["recorded_at"] = "2026-05-05T20:00:00+09:00"
             front["research_evidence_hits"].append(
@@ -958,7 +948,6 @@ class ResearchValidationTests(unittest.TestCase):
                     "source_refs": [
                         {
                             "ref_path": "records/_external/test.md",
-                            "content_sha256": _DIGEST,
                         }
                     ],
                 }
@@ -977,11 +966,15 @@ class ResearchValidationTests(unittest.TestCase):
 
         self.assertIn("research.approval-rule-active", codes)
 
-    def test_snapshot_hash_must_be_full_sha256(self) -> None:
+    def test_removed_hash_field_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
-        front["playbook_snapshot"] = _snapshot("records/_playbooks/valuation-reversion/x.md", "bad")
+        hash_key = "content_" + "sha256"
+        front["playbook_ref"] = {
+            "ref_path": "records/_playbooks/valuation-reversion/x.md",
+            hash_key: "sha256:bad",
+        }
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.snapshot-hash", codes)
+        self.assertIn("research.removed-hash-field", codes)
 
     def test_invalid_ticker_pattern_is_flagged(self) -> None:
         front = _minimal_research_front_matter()

@@ -21,7 +21,6 @@ from baibai_loop.validate.errors import ValidationFinding
 def _make_candidates_payload() -> dict[str, object]:
     snapshot = {
         "ref_path": "records/_config/screening-rules/2026-05-01T000000+0900.yaml",
-        "content_sha256": "sha256:" + "1" * 64,
     }
     return {
         "run_date": "2026-04-24",
@@ -32,7 +31,7 @@ def _make_candidates_payload() -> dict[str, object]:
         "data_sources": ["j-quants-light"],
         "run_at": "2026-04-24T09:00:00+09:00",
         "run_id": "screening-20260424",
-        "universe_snapshot_ref": {
+        "universe_ref": {
             **snapshot,
             "ref_path": "records/_universe-snapshots/2026/04/2026-04-24.yaml",
         },
@@ -182,32 +181,26 @@ def _make_research_text() -> str:
             "ticker": "2767",
             "name": "Sample",
             "playbook_id": "valuation-reversion",
-            "playbook_snapshot": {
+            "playbook_ref": {
                 "ref_path": "records/_playbooks/valuation-reversion/2026-05-01T000000+0900.md",
-                "content_sha256": "sha256:" + "1" * 64,
             },
-            "policy_snapshot": {
+            "policy_ref": {
                 "ref_path": "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md",
-                "content_sha256": "sha256:" + "2" * 64,
             },
             "policy_applicability": "active",
-            "calendars_snapshot": {
+            "calendar_refs": {
                 "business_days": {
                     "ref_path": "records/_calendars/business-days/2026-05.yaml",
-                    "content_sha256": "sha256:" + "4" * 64,
                 },
                 "events": {
                     "ref_path": "records/_calendars/events/2026-05.yaml",
-                    "content_sha256": "sha256:" + "5" * 64,
                 },
                 "corporate_actions": {
                     "ref_path": "records/_calendars/corporate-actions/2026-05.yaml",
-                    "content_sha256": "sha256:" + "6" * 64,
                 },
             },
-            "portfolio_exposure_snapshot_ref": {
+            "portfolio_exposure_ref": {
                 "ref_path": "records/_portfolio-exposure/2026/05/2026-05-05T133000+0900.yaml",
-                "content_sha256": "sha256:" + "3" * 64,
             },
             "research_decision": {"outcome": "approved", "posture": "act_now"},
             "candidate_ref": {

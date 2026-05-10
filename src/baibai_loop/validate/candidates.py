@@ -23,8 +23,11 @@ _REMOVED_ROOT_FIELDS = frozenset(
     {
         "screening_rules_snapshot",
         "metric_catalog_snapshot",
-        "policy_snapshot",
+        "_".join(("policy", "snapshot")),
         "cache_manifest_hash",
+        "_".join(("universe", "snapshot", "ref")),
+        "content_" + "sha256",
+        "row_" + "sha256",
     }
 )
 

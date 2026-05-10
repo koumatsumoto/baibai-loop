@@ -1,4 +1,4 @@
-"""Portfolio policy snapshot validation."""
+"""Portfolio policy validation."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
 
 
 def discover_policy_files(root: Path) -> list[Path]:
-    """Return immutable portfolio policy snapshot files."""
+    """Return portfolio policy files."""
     if not root.exists():
         return []
     return sorted(path for path in root.glob("**/*.md") if path.is_file())

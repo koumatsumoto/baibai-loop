@@ -2,28 +2,22 @@
 ticker: '6310'
 name: 井関農機
 playbook_id: cashflow-yield-discount
-playbook_snapshot:
+playbook_ref:
   ref_path: records/_playbooks/cashflow-yield-discount/2026-05-01T000000+0900.md
-  content_sha256: sha256:d5f498eacc64dd045922d944d6417e21657f7e8f8a4e641162f3cefafc544248
   effective_from: '2026-05-01T00:00:00+09:00'
-policy_snapshot:
+policy_ref:
   ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
-  content_sha256: sha256:49f20536a65f4e56091c93277215f640acd537a1a9ab032515e9df90c527e766
   effective_from: '2026-05-01T00:00:00+09:00'
 policy_applicability: active
-calendars_snapshot:
+calendar_refs:
   business_days:
     ref_path: records/_calendars/business-days/2026-05.yaml
-    content_sha256: sha256:cd3ddf5dcb6b4de0595547c033d9be68920272be45bf7a358f42465caa17c273
   events:
     ref_path: records/_calendars/events/2026-05.yaml
-    content_sha256: sha256:583cf61a16375dfedb766659911daa435b9b8f9d40cd1e26721d3b734ffb0ea6
   corporate_actions:
     ref_path: records/_calendars/corporate-actions/2026-05.yaml
-    content_sha256: sha256:5b1f2487807f590acdc5784ac2e84a851aa7264a03c1ffc3f84c5ebfbdcd761c
-portfolio_exposure_snapshot_ref:
+portfolio_exposure_ref:
   ref_path: records/_portfolio-exposure/2026/05/2026-05-05T203000+0900.yaml
-  content_sha256: sha256:fe16419b85c5a1c29dff609beb06643e87cb6a208ea2581ffebd31e481bc428a
 selected_supporting_evidence_refs:
 - source: candidate
   evidence_hit_id: candidate-2026-05-01-6310-cashflow-yield-discount
@@ -69,7 +63,6 @@ macro_regime_gate:
 policy_overrides: []
 external_refs:
 - ref_path: records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
-  content_sha256: sha256:852861e52b0021222477ccd3409cb6d603ddd36837ae5e63ec7ae98124bfb3c5
 candidate_evidence_decisions:
 - evidence_hit_id: candidate-2026-05-01-6310-cashflow-yield-discount
   effective_sizing_eligible: true
@@ -90,7 +83,6 @@ research_evidence_hits:
   sizing_eligible: false
   source_refs:
   - ref_path: records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
-    content_sha256: sha256:852861e52b0021222477ccd3409cb6d603ddd36837ae5e63ec7ae98124bfb3c5
   recorded_at: '2026-05-05T20:10:00+09:00'
 independent_evidence_count: 2
 raw_playbook_concurrence_count: 2

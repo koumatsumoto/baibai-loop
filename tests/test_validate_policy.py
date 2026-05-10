@@ -15,7 +15,7 @@ from baibai_loop.validate.policy import discover_policy_files, validate_policy_f
 
 
 class PolicyValidationTests(unittest.TestCase):
-    def test_discovers_policy_snapshots(self) -> None:
+    def test_discovers_policy_refs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             policy = root / "2026/05/2026-05-01T000000+0900-portfolio-policy.md"
@@ -24,7 +24,7 @@ class PolicyValidationTests(unittest.TestCase):
 
             self.assertEqual(discover_policy_files(root), [policy])
 
-    def test_accepts_repository_policy_snapshot(self) -> None:
+    def test_accepts_repository_policy_ref(self) -> None:
         findings = validate_policy_file(
             ROOT / "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"
         )

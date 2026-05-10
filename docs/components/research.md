@@ -6,7 +6,7 @@ Baibai-Loop の **research / investment memo** の運用仕様。candidates × o
 
 - `records/04-candidates/` の immutable screen output から、深掘りする ticker / playbook を選ぶ
 - `records/03-outlook/` と security exposure を使い、macro regime gate を確定する
-- Portfolio policy と portfolio exposure snapshot に照らして、採用可否と sizing を決める
+- Portfolio policy と portfolio exposure file に照らして、採用可否と sizing を決める
 - thesis payoff を構造化し、target / stop / expected upside / downside / risk reward / time horizon を検査する
 - risk / contradicting evidence を必ず確認し、割安 trap を避ける
 - Decision register と trade order intent へ接続する
@@ -15,10 +15,10 @@ Baibai-Loop の **research / investment memo** の運用仕様。candidates × o
 
 1. 直近の `records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml` を読む
 2. `playbook_screen_result`, `policy_gate_result`, `liquidity_gate_result`, `macro_regime_gate_result` を分けて確認する
-3. `records/03-outlook/` の `sectors` / `exposure_buckets` と universe snapshot の `security_exposures[]` を確認する
+3. `records/03-outlook/` の `sectors` / `exposure_buckets` と universe file の `security_exposures[]` を確認する
 4. `candidate_evidence_decisions[]` で research recorded_at 時点の `effective_sizing_eligible` を再評価する
 5. `selected_supporting_evidence_refs[]` に candidate / research の採用 evidence を明示する
-6. thesis payoff と portfolio exposure snapshot に照らし、`research_decision` を確定する
+6. thesis payoff と portfolio exposure file に照らし、`research_decision` を確定する
 
 候補は一度の selection で 3-5 銘柄までに絞る。複数 playbook hit は優先度を上げる材料だが、sizing count には `effective_sizing_eligible` と `independence_component_id` の再評価後の値だけを使う。
 
@@ -35,9 +35,9 @@ records/05-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook_id>.md
 Front matter の形は [`../templates/research.md`](../templates/research.md) を正とする。主な必須 field は次の通り。
 
 - `ticker` / `name`
-- `playbook_id` / `playbook_snapshot`
-- `policy_snapshot`
-- `portfolio_exposure_snapshot_ref`
+- `playbook_id` / `playbook_ref`
+- `policy_ref`
+- `portfolio_exposure_ref`
 - `candidate_ref`
 - `research_decision`
 - `macro_regime_gate`
@@ -49,7 +49,7 @@ Front matter の形は [`../templates/research.md`](../templates/research.md) �
 - `position_sizing_overlay`
 - `thesis_payoff`
 
-Snapshot ref は immutable dated path と `content_sha256` を持つ。Snapshot file 自身に自己 hash は持たせない。
+Repository ref は `ref_path` で判断時に参照した repo 内 file を指す。byte-level hash は持たせない。
 
 `candidate_ref` は `candidates_ref`, `screen_run_id`, `ticker`, `candidate_id` を必須とする。
 `screen_run_id` は参照先 candidates YAML の root `run_id` および candidate row の `screen_run_id`
@@ -134,7 +134,7 @@ Position size は次の順で決める。
 uv run baibai-loop-validate --target research
 ```
 
-Validation は front matter schema、playbook body schema、snapshot refs、decision consistency、macro regime gate、evidence count、thesis payoff を検査する。
+Validation は front matter schema、playbook body schema、repository refs、decision consistency、macro regime gate、evidence count、thesis payoff を検査する。
 
 ## 12. Trade / Review への接続
 

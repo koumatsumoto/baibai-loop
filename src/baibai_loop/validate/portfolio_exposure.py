@@ -1,8 +1,7 @@
-"""Portfolio exposure snapshot validation."""
+"""Portfolio exposure file validation."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
@@ -10,12 +9,18 @@ from pathlib import Path
 
 import yaml
 
-from .domain import load_markdown_front_matter, number, repo_root_for, resolve_ref, sha256_file
+from .domain import (
+    load_markdown_front_matter,
+    number,
+    repo_root_for,
+    repository_ref_error,
+    resolve_repository_ref,
+)
 from .errors import ValidationFinding
 
 
 def discover_portfolio_exposure_files(root: Path) -> list[Path]:
-    """Return portfolio exposure snapshot files."""
+    """Return portfolio exposure files."""
     if not root.exists():
         return []
     return sorted(path for path in root.glob("**/*.yaml") if path.is_file())
@@ -31,7 +36,7 @@ def validate_portfolio_exposure_file(path: Path) -> list[ValidationFinding]:
                 severity="error",
                 target=path,
                 code="portfolio-exposure.parse",
-                message=f"failed to read portfolio exposure snapshot: {exc}",
+                message=f"failed to read portfolio exposure file: {exc}",
             )
         ]
     if not isinstance(raw, Mapping):
@@ -40,7 +45,7 @@ def validate_portfolio_exposure_file(path: Path) -> list[ValidationFinding]:
                 severity="error",
                 target=path,
                 code="portfolio-exposure.root",
-                message="portfolio exposure snapshot must be a mapping",
+                message="portfolio exposure file must be a mapping",
             )
         ]
     findings: list[ValidationFinding] = []
@@ -153,22 +158,23 @@ def _check_decision_register_sources(
             continue
         ref_path = ref.get("ref_path")
         decision_event_id = ref.get("decision_event_id")
-        row_sha256 = ref.get("row_sha256")
-        if not (
-            isinstance(ref_path, str)
-            and isinstance(decision_event_id, str)
-            and isinstance(row_sha256, str)
-        ):
+        findings.extend(
+            _check_removed_hash_fields(path, ref, f"source_decision_register_refs[{index}]")
+        )
+        ref_error = repository_ref_error(ref_path)
+        if ref_error is not None or not isinstance(decision_event_id, str):
             findings.append(
                 _finding(
                     path,
                     "portfolio-exposure.source-decision-register-ref",
-                    "source decision ref requires ref_path, decision_event_id, and row_sha256",
+                    "source decision ref requires repository-relative ref_path "
+                    "and decision_event_id",
                     f"source_decision_register_refs[{index}]",
                 )
             )
             continue
-        ledger_path = resolve_ref(root, ref_path)
+        assert isinstance(ref_path, str)
+        ledger_path = resolve_repository_ref(root, ref_path)
         if not ledger_path.is_file():
             findings.append(
                 _finding(
@@ -190,16 +196,7 @@ def _check_decision_register_sources(
                 )
             )
             continue
-        row_payload, actual_hash = row
-        if actual_hash != row_sha256:
-            findings.append(
-                _finding(
-                    path,
-                    "portfolio-exposure.source-decision-register-hash",
-                    "source decision row_sha256 does not match JSONL row bytes",
-                    f"source_decision_register_refs[{index}].row_sha256",
-                )
-            )
+        row_payload = row
         order_intent = row_payload.get("order_intent")
         if not isinstance(order_intent, Mapping):
             findings.append(
@@ -228,8 +225,8 @@ def _check_decision_register_sources(
 
 def _find_decision_register_row(
     ledger_path: Path, decision_event_id: str
-) -> tuple[Mapping[str, object], str] | None:
-    for raw_line in ledger_path.read_text(encoding="utf-8").splitlines(keepends=True):
+) -> Mapping[str, object] | None:
+    for raw_line in ledger_path.read_text(encoding="utf-8").splitlines():
         if not raw_line.strip():
             continue
         try:
@@ -240,8 +237,7 @@ def _find_decision_register_row(
             continue
         if payload.get("decision_event_id") != decision_event_id:
             continue
-        digest = "sha256:" + hashlib.sha256(raw_line.encode("utf-8")).hexdigest()
-        return payload, digest
+        return payload
     return None
 
 
@@ -306,19 +302,21 @@ def _check_rebuild_from_sources(
             )
             continue
         ref_path = ref.get("ref_path")
-        digest = ref.get("content_sha256")
-        if not isinstance(ref_path, str) or not isinstance(digest, str):
+        findings.extend(_check_removed_hash_fields(path, ref, f"source_trade_refs[{index}]"))
+        ref_error = repository_ref_error(ref_path)
+        if ref_error is not None:
             findings.append(
                 _finding(
                     path,
                     "portfolio-exposure.source-trade-ref",
-                    "source trade ref requires ref_path and content_sha256",
+                    "source trade ref requires repository-relative ref_path",
                     f"source_trade_refs[{index}]",
                 )
             )
             continue
+        assert isinstance(ref_path, str)
         source_paths.add(ref_path)
-        trade_path = resolve_ref(root, ref_path)
+        trade_path = resolve_repository_ref(root, ref_path)
         if not trade_path.is_file():
             findings.append(
                 _finding(
@@ -329,16 +327,6 @@ def _check_rebuild_from_sources(
                 )
             )
             continue
-        actual_digest = sha256_file(trade_path)
-        if actual_digest != digest:
-            findings.append(
-                _finding(
-                    path,
-                    "portfolio-exposure.source-trade-hash",
-                    "source trade content_sha256 does not match file bytes",
-                    f"source_trade_refs[{index}].content_sha256",
-                )
-            )
         try:
             trade = load_markdown_front_matter(trade_path)
         except (OSError, ValueError, yaml.YAMLError) as exc:
@@ -391,7 +379,7 @@ def _check_cap_remaining_fields(
     path: Path,
     snapshot: Mapping[str, object],
 ) -> list[ValidationFinding]:
-    policy = _load_policy_snapshot(path, snapshot.get("as_of"))
+    policy = _load_policy_ref(path, snapshot.get("as_of"))
     if not policy:
         return []
     capital = policy.get("capital_basis")
@@ -564,7 +552,7 @@ def _without_source(order: Mapping[str, object]) -> dict[str, object]:
     return dict(_normalize_order(order))
 
 
-def _load_policy_snapshot(path: Path, as_of_value: object) -> Mapping[str, object]:
+def _load_policy_ref(path: Path, as_of_value: object) -> Mapping[str, object]:
     root = repo_root_for(path)
     as_of = _parse_datetime(as_of_value)
     policy_root = root / "records/01-policy/2026"
@@ -635,3 +623,20 @@ def _finding(path: Path, code: str, message: str, location: str) -> ValidationFi
         message=message,
         location=location,
     )
+
+
+def _check_removed_hash_fields(
+    path: Path,
+    value: Mapping[str, object],
+    location: str,
+) -> list[ValidationFinding]:
+    return [
+        _finding(
+            path,
+            "portfolio-exposure.removed-hash-field",
+            f"{field} is no longer allowed in repository links",
+            f"{location}.{field}",
+        )
+        for field in ("content_" + "sha256", "row_" + "sha256")
+        if field in value
+    ]

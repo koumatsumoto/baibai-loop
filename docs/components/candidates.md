@@ -144,7 +144,7 @@ evidence_hits_summary:
 - ticker は **4 文字の英数字文字列**として quote 必須（先頭 0 落ち防止、英字組入れ対応）
 - 欠損値（例: forward EPS 未公表、EDINET 由来 EV/EBITDA 不在）は明示的に `null`
 - `run_date` は `asof_date` と同値。ファイル path の日付とも一致させる
-- screening rules / metric catalog / policy は git 管理ファイルそのものを正本にし、candidates YAML には content hash snapshot を持たせない
+- screening rules / metric catalog / policy は git 管理ファイルそのものを正本にし、candidates YAML には content hash 付き参照を持たせない
 - `evidence_hits`: 通過した playbook-linked screen を表す field。概念上は evidence hit として扱う。複数 hit 可。表示順は rule config の lane 順に固定し、単一総合 score は持たせない
 - `metrics`: candidate-level の flat な派生値。例: `sales_ttm`, `ocf_ttm`, `edinet_ocf_ttm`, `cash_to_market_cap`, `net_cash_to_market_cap`, `price_to_equity`, `equity_ratio`, `ocf_yield`, `fcf_yield`, `cfo_yoy`, `sales_yoy`, `operating_profit`, `edinet_source_doc_id`, `edinet_source_submit_datetime`, `edinet_source_period_start`, `edinet_source_period_end`, `edinet_failure_reasons`
 - `ocf_ttm` は J-Quants 財務サマリーを TTM 正規化した営業 CF。`edinet_ocf_ttm` は EDINET CSV から抽出した CFO で、`fcf-yield-discount` の `fcf_ttm = edinet_ocf_ttm - capex_ttm` と同じ source family に属する
@@ -160,7 +160,7 @@ evidence_hits_summary:
 
 ### 4.1 traceability の境界
 
-candidates YAML は `run_id` と candidate-level の metric / source metadata を記録する。SQLite の厳密な point-in-time hash audit や policy snapshot は保持しない。必要な運用確認は git 履歴、SQLite coverage 検証、research 時の一次情報確認で行う。
+candidates YAML は `run_id` と candidate-level の metric / source metadata を記録する。SQLite の厳密な point-in-time hash audit や policy file の固定参照は保持しない。必要な運用確認は git 履歴、SQLite coverage 検証、research 時の一次情報確認で行う。
 
 ### 4.2 実行メモの扱い
 

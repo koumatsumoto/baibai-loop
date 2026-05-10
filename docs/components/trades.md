@@ -25,12 +25,10 @@ trade_id: trade-YYYYMMDD-<ticker>
 ticker: "7203"
 name: "トヨタ自動車"
 research_ref: records/05-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook_id>.md
-policy_snapshot:
+policy_ref:
   ref_path: records/01-policy/YYYY/MM/YYYY-MM-DDTHHMMSS+0900-portfolio-policy.md
-  content_sha256: sha256:...
-portfolio_exposure_snapshot_ref:
+portfolio_exposure_ref:
   ref_path: records/_portfolio-exposure/YYYY/MM/YYYY-MM-DDTHHMMSS+0900.yaml
-  content_sha256: sha256:...
 position_state: none | open | closed
 review_state: not_due | scheduled | completed
 trade_execution_state: none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled
@@ -104,7 +102,7 @@ execution_costs:
 
 ## 5. Sizing / Guard
 
-Order quantity は policy snapshot の board lot と guard price から deterministic に算出する。
+Order quantity は `policy_ref` の board lot と guard price から deterministic に算出する。
 
 ```text
 target_quantity = floor(real_order_intent_yen / order_price_guard_yen / board_lot) * board_lot

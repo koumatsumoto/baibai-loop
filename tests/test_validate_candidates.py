@@ -21,7 +21,6 @@ from baibai_loop.validate.candidates import (
 def _minimal_candidates() -> dict[str, object]:
     snapshot = {
         "ref_path": "records/_config/screening-rules/2026-05-01T000000+0900.yaml",
-        "content_sha256": "sha256:" + "1" * 64,
     }
     return {
         "run_date": "2026-04-24",
@@ -36,7 +35,7 @@ def _minimal_candidates() -> dict[str, object]:
         "data_sources": ["j-quants-light"],
         "run_at": "2026-04-24T09:00:00+09:00",
         "run_id": "screening-20260424",
-        "universe_snapshot_ref": {
+        "universe_ref": {
             **snapshot,
             "ref_path": "records/_universe-snapshots/2026/04/2026-04-24.yaml",
         },
@@ -116,7 +115,6 @@ class CandidatesValidationTests(unittest.TestCase):
         payload = _minimal_candidates()
         payload["screening_rules_snapshot"] = {
             "ref_path": "records/_config/screening-rules/2026-05-01T000000+0900.yaml",
-            "content_sha256": "sha256:" + "1" * 64,
         }
         path = self._write(payload)
         try:

@@ -311,7 +311,7 @@ class ScreenedRunDocument:
     run_at: datetime
     run_id: NonEmptyString
     generated_by: str = "screening-cli-v1"
-    universe_snapshot_ref: str | None = None
+    universe_ref: str | None = None
     data_sources: tuple[str, ...] = (
         "j-quants-light",
         "jpx-public-regulation",

@@ -72,7 +72,7 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
                     """\
                     benchmark_id: test
                     manifest_version: 1
-                    input_snapshots: {}
+                    input_refs: {}
                     layers:
                     - layer_id: L1
                       merge_blocker: true
@@ -354,7 +354,7 @@ def _manifest() -> str:
             """\
         benchmark_id: test
         manifest_version: 1
-        input_snapshots: {}
+        input_refs: {}
         layers:
         - layer_id: L1
           merge_blocker: true
@@ -407,7 +407,7 @@ def _manifest_with_expected(
     return (
         "benchmark_id: test\n"
         "manifest_version: 1\n"
-        "input_snapshots: {}\n"
+        "input_refs: {}\n"
         "layers:\n"
         "- layer_id: L1\n"
         "  merge_blocker: true\n"

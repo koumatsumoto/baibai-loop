@@ -28,7 +28,7 @@ class PlaybookSchema:
 
 
 def discover_playbook_schemas(root: Path) -> set[str]:
-    """Return the set of playbook ids with an immutable snapshot schema."""
+    """Return the set of playbook ids with a structured playbook schema."""
     if not root.exists():
         return set()
     return {path.parent.name for path in root.glob("*/body-schema.yaml") if path.is_file()}

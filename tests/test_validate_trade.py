@@ -6,11 +6,9 @@ import yaml
 
 from baibai_loop.validate.trade import discover_trade_files, validate_trade_file
 
-_DIGEST = "sha256:" + "a" * 64
-
 
 def _snapshot(ref_path: str) -> dict[str, object]:
-    return {"ref_path": ref_path, "content_sha256": _DIGEST}
+    return {"ref_path": ref_path}
 
 
 def _calendar_snapshots() -> dict[str, object]:
@@ -26,14 +24,14 @@ def _trade_front(**overrides: object) -> dict[str, object]:
         "trade_id": "trade-20260505-9682",
         "ticker": "9682",
         "research_ref": "records/05-research/2026/05/2026-05-05-9682-sales-discount-growth.md",
-        "policy_snapshot": _snapshot(
+        "policy_ref": _snapshot(
             "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"
         ),
-        "portfolio_exposure_snapshot_ref": _snapshot(
+        "portfolio_exposure_ref": _snapshot(
             "records/_portfolio-exposure/2026/05/2026-05-05T200000+0900.yaml"
         ),
         "policy_applicability": "active",
-        "calendars_snapshot": _calendar_snapshots(),
+        "calendar_refs": _calendar_snapshots(),
         "position_state": "open",
         "current_quantity": 200,
         "review_state": "not_due",
@@ -191,12 +189,12 @@ def test_missing_policy_applicability_is_flagged(tmp_path: Path) -> None:
     assert "trade.policy-applicability" in codes
 
 
-def test_missing_calendars_snapshot_is_flagged(tmp_path: Path) -> None:
+def test_missing_calendar_refs_is_flagged(tmp_path: Path) -> None:
     front = _trade_front()
-    del front["calendars_snapshot"]
+    del front["calendar_refs"]
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.calendars-snapshot" in codes
+    assert "trade.calendar-refs" in codes
 
 
 def test_order_intent_must_join_to_order(tmp_path: Path) -> None:
@@ -415,7 +413,9 @@ def test_trade_intent_must_join_decision_register(tmp_path: Path) -> None:
 
 
 def test_kill_switch_check_is_recomputed_from_events_calendar(tmp_path: Path) -> None:
-    policy = tmp_path / "policy.yaml"
+    policy_ref = "records/01-policy/2026/05/policy.yaml"
+    policy = tmp_path / policy_ref
+    policy.parent.mkdir(parents=True)
     policy.write_text(
         yaml.safe_dump(
             {
@@ -427,7 +427,9 @@ def test_kill_switch_check_is_recomputed_from_events_calendar(tmp_path: Path) ->
         ),
         encoding="utf-8",
     )
-    events = tmp_path / "events.yaml"
+    events_ref = "records/_calendars/events/test.yaml"
+    events = tmp_path / events_ref
+    events.parent.mkdir(parents=True)
     events.write_text(
         yaml.safe_dump(
             {
@@ -444,10 +446,10 @@ def test_kill_switch_check_is_recomputed_from_events_calendar(tmp_path: Path) ->
         encoding="utf-8",
     )
     front = _trade_front(
-        policy_snapshot=_snapshot(str(policy)),
-        calendars_snapshot={
+        policy_ref=_snapshot(policy_ref),
+        calendar_refs={
             "business_days": _snapshot("records/_calendars/business-days/2026-05.yaml"),
-            "events": _snapshot(str(events)),
+            "events": _snapshot(events_ref),
             "corporate_actions": _snapshot("records/_calendars/corporate-actions/2026-05.yaml"),
         },
         kill_switch_check={"boj_eve": False},

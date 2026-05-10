@@ -16,7 +16,7 @@ from .domain import (
     as_list,
     as_mapping,
     load_markdown_front_matter,
-    load_snapshot_mapping,
+    load_reference_mapping,
     number,
     repo_root_for,
     resolve_ref,
@@ -39,7 +39,11 @@ _REMOVED_FRONT_MATTER_FIELDS = {
     "_".join(("real", "order", "notional", "yen")),
     "_".join(("tactical", "capital", "yen")),
     "_".join(("tactical", "concentration", "pct")),
+    "_".join(("policy", "snapshot")),
+    "_".join(("portfolio", "exposure", "snapshot", "ref")),
+    "_".join(("calendars", "snapshot")),
 }
+_REMOVED_HASH_FIELDS = {"content_" + "sha256", "row_" + "sha256"}
 _ORDER_STATES = {
     "submitted",
     "broker_rejected",
@@ -183,58 +187,48 @@ def _check_policy_and_calendar_context(
                 location="policy_applicability",
             )
         )
-    findings.extend(_check_calendar_snapshot_block(path, front.get("calendars_snapshot")))
+    findings.extend(_check_calendar_refs_block(path, front.get("calendar_refs")))
     return findings
 
 
-def _check_calendar_snapshot_block(path: Path, value: object) -> list[ValidationFinding]:
+def _check_calendar_refs_block(path: Path, value: object) -> list[ValidationFinding]:
     if not isinstance(value, Mapping):
         return [
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.calendars-snapshot",
-                message="calendars_snapshot must pin business_days, events, and corporate_actions",
-                location="calendars_snapshot",
+                code="trade.calendar-refs",
+                message="calendar_refs must pin business_days, events, and corporate_actions",
+                location="calendar_refs",
             )
         ]
     findings: list[ValidationFinding] = []
     for key in ("business_days", "events", "corporate_actions"):
         item = value.get(key)
-        location = f"calendars_snapshot.{key}"
+        location = f"calendar_refs.{key}"
         if not isinstance(item, Mapping):
             findings.append(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="trade.calendars-snapshot",
-                    message=f"{location} must be a snapshot ref",
+                    code="trade.calendar-refs",
+                    message=f"{location} must be a repository ref",
                     location=location,
                 )
             )
             continue
         ref_path = item.get("ref_path")
-        digest = item.get("content_sha256")
         if not isinstance(ref_path, str) or not ref_path:
             findings.append(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="trade.calendars-snapshot-ref",
+                    code="trade.calendar-ref",
                     message=f"{location}.ref_path is required",
                     location=f"{location}.ref_path",
                 )
             )
-        if not isinstance(digest, str) or not re.match(r"^sha256:[0-9a-f]{64}$", digest):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="trade.calendars-snapshot-hash",
-                    message=f"{location}.content_sha256 must be sha256:<64 lowercase hex>",
-                    location=f"{location}.content_sha256",
-                )
-            )
+        findings.extend(_check_removed_hash_fields(path, item, location))
     return findings
 
 
@@ -669,9 +663,7 @@ def _load_referenced_research(
 
 def _load_policy(path: Path, front: Mapping[str, object]) -> Mapping[str, Any]:
     try:
-        _policy_path, payload = load_snapshot_mapping(
-            repo_root_for(path), front.get("policy_snapshot")
-        )
+        _policy_path, payload = load_reference_mapping(repo_root_for(path), front.get("policy_ref"))
         return payload
     except (OSError, ValueError, yaml.YAMLError):
         return {}
@@ -716,7 +708,7 @@ def _check_kill_switches(path: Path, front: Mapping[str, object]) -> list[Valida
                     target=path,
                     code="trade.kill-switch-callable",
                     message=f"kill switch has no validator implementation: {callable_id}",
-                    location=f"policy_snapshot.kill_switch.{key}.validator_callable_id",
+                    location=f"policy_ref.kill_switch.{key}.validator_callable_id",
                 )
             )
             continue
@@ -783,9 +775,9 @@ def _validator_configs(policy: Mapping[str, Any]) -> list[tuple[str, Mapping[str
 
 
 def _load_events_calendar(path: Path, front: Mapping[str, object]) -> Mapping[str, Any]:
-    calendars = as_mapping(front.get("calendars_snapshot"))
+    calendars = as_mapping(front.get("calendar_refs"))
     try:
-        _events_path, payload = load_snapshot_mapping(repo_root_for(path), calendars.get("events"))
+        _events_path, payload = load_reference_mapping(repo_root_for(path), calendars.get("events"))
         return payload
     except (OSError, ValueError, yaml.YAMLError):
         return {}
@@ -828,3 +820,21 @@ def _format_path(parts: Iterable[Any]) -> str:
             f"[{part}]" if isinstance(part, int) else f".{part}" if rendered else str(part)
         )
     return "".join(rendered)
+
+
+def _check_removed_hash_fields(
+    path: Path,
+    value: Mapping[str, object],
+    location: str,
+) -> list[ValidationFinding]:
+    return [
+        ValidationFinding(
+            severity="error",
+            target=path,
+            code="trade.removed-hash-field",
+            message=f"{field} is no longer allowed in repository links",
+            location=f"{location}.{field}",
+        )
+        for field in sorted(_REMOVED_HASH_FIELDS)
+        if field in value
+    ]

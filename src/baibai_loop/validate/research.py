@@ -18,7 +18,7 @@ from .domain import (
     as_list,
     as_mapping,
     integer,
-    load_snapshot_mapping,
+    load_reference_mapping,
     number,
     repo_root_for,
 )
@@ -44,7 +44,12 @@ _REMOVED_FRONT_MATTER_FIELDS: tuple[str, ...] = (
     "_".join(("hypothetical", "position", "size", "oku")),
     "_".join(("supporting", "sig" + "nals")),
     "_".join(("adv", "participation", "pct")),
+    "_".join(("playbook", "snapshot")),
+    "_".join(("policy", "snapshot")),
+    "_".join(("portfolio", "exposure", "snapshot", "ref")),
+    "_".join(("calendars", "snapshot")),
 )
+_REMOVED_HASH_FIELDS = {"content_" + "sha256", "row_" + "sha256"}
 _KNOWN_OUTCOMES = {"approved", "deferred", "rejected"}
 _KNOWN_POSTURES = {"act_now", "wait_for_event", "wait_for_capital", "dropped"}
 _KNOWN_GATE_EFFECTS = {"pass", "conditional", "block"}
@@ -144,7 +149,7 @@ def validate_research_parsed(
     findings.extend(_check_corporate_action_invalidation(path, front_matter))
     findings.extend(_check_approval_rules(path, front_matter))
     findings.extend(_check_payoff(path, front_matter))
-    findings.extend(_check_snapshot_refs(path, front_matter))
+    findings.extend(_check_reference_refs(path, front_matter))
     findings.extend(validate_external_refs_file(path, front_matter))
 
     playbook_id = front_matter.get("playbook_id")
@@ -306,58 +311,48 @@ def _check_policy_and_calendar_context(
                 location="policy_applicability",
             )
         )
-    findings.extend(_check_calendar_snapshot_block(path, front_matter.get("calendars_snapshot")))
+    findings.extend(_check_calendar_refs_block(path, front_matter.get("calendar_refs")))
     return findings
 
 
-def _check_calendar_snapshot_block(path: Path, value: object) -> list[ValidationFinding]:
+def _check_calendar_refs_block(path: Path, value: object) -> list[ValidationFinding]:
     if not isinstance(value, Mapping):
         return [
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.calendars-snapshot",
-                message="calendars_snapshot must pin business_days, events, and corporate_actions",
-                location="calendars_snapshot",
+                code="research.calendar-refs",
+                message="calendar_refs must pin business_days, events, and corporate_actions",
+                location="calendar_refs",
             )
         ]
     findings: list[ValidationFinding] = []
     for key in ("business_days", "events", "corporate_actions"):
         item = value.get(key)
-        location = f"calendars_snapshot.{key}"
+        location = f"calendar_refs.{key}"
         if not isinstance(item, Mapping):
             findings.append(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.calendars-snapshot",
-                    message=f"{location} must be a snapshot ref",
+                    code="research.calendar-refs",
+                    message=f"{location} must be a repository ref",
                     location=location,
                 )
             )
             continue
         ref_path = item.get("ref_path")
-        digest = item.get("content_sha256")
         if not isinstance(ref_path, str) or not ref_path:
             findings.append(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.calendars-snapshot-ref",
+                    code="research.calendar-ref",
                     message=f"{location}.ref_path is required",
                     location=f"{location}.ref_path",
                 )
             )
-        if not isinstance(digest, str) or not re.match(r"^sha256:[0-9a-f]{64}$", digest):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.calendars-snapshot-hash",
-                    message=f"{location}.content_sha256 must be sha256:<64 lowercase hex>",
-                    location=f"{location}.content_sha256",
-                )
-            )
+        findings.extend(_check_removed_hash_fields(path, item, location))
     return findings
 
 
@@ -847,25 +842,25 @@ def _check_research_evidence_source_refs(
             )
             continue
         ref_path = ref.get("ref_path")
-        digest = ref.get("content_sha256")
-        if not (
-            isinstance(ref_path, str)
-            and ref_path.startswith("records/_external/")
-            and isinstance(digest, str)
-            and re.match(r"^sha256:[0-9a-f]{64}$", digest)
-        ):
+        if not (isinstance(ref_path, str) and ref_path.startswith("records/_external/")):
             findings.append(
                 ValidationFinding(
                     severity="error",
                     target=path,
                     code="research.sizing-evidence-source-ref",
                     message=(
-                        "sizing-eligible research evidence requires records/_external/ "
-                        "source refs with content_sha256"
+                        "sizing-eligible research evidence requires records/_external/ source refs"
                     ),
                     location=f"research_evidence_hits[{index}].source_refs[{ref_index}]",
                 )
             )
+        findings.extend(
+            _check_removed_hash_fields(
+                path,
+                ref,
+                f"research_evidence_hits[{index}].source_refs[{ref_index}]",
+            )
+        )
     return findings
 
 
@@ -1645,8 +1640,8 @@ def _remaining_cap(exposure: Mapping[str, Any], field: str) -> float | None:
 
 def _load_policy_payload(path: Path, front_matter: Mapping[str, object]) -> Mapping[str, Any]:
     try:
-        _policy_path, payload = load_snapshot_mapping(
-            repo_root_for(path), front_matter.get("policy_snapshot")
+        _policy_path, payload = load_reference_mapping(
+            repo_root_for(path), front_matter.get("policy_ref")
         )
         return payload
     except (OSError, ValueError, yaml.YAMLError):
@@ -1655,8 +1650,8 @@ def _load_policy_payload(path: Path, front_matter: Mapping[str, object]) -> Mapp
 
 def _load_portfolio_exposure(path: Path, front_matter: Mapping[str, object]) -> Mapping[str, Any]:
     try:
-        _snapshot_path, payload = load_snapshot_mapping(
-            repo_root_for(path), front_matter.get("portfolio_exposure_snapshot_ref")
+        _reference_path, payload = load_reference_mapping(
+            repo_root_for(path), front_matter.get("portfolio_exposure_ref")
         )
         return payload
     except (OSError, ValueError, yaml.YAMLError):
@@ -1886,7 +1881,7 @@ def _check_approval_rules(
                         severity="error",
                         target=path,
                         code="research.approval-rule-active",
-                        message="approval_rule_id must reference an active immutable approval rule",
+                        message="approval_rule_id must reference an active approval rule",
                         location=f"research_evidence_hits[{index}].approval_rule_id",
                     )
                 )
@@ -1901,21 +1896,12 @@ def _approval_rule_active(
 ) -> bool:
     approved_dt = _parse_datetime(approved_at)
     record_dt = _parse_datetime(record_at)
-    changelog_events = _approval_rule_changelog_events(root)
     for path in sorted((root / "records/_approval-rules").glob("*.yaml")):
         try:
             raw = _load_yaml(path)
         except (OSError, yaml.YAMLError):
             continue
         if not isinstance(raw, Mapping):
-            continue
-        rel_path = path.relative_to(root).as_posix()
-        event_at = changelog_events.get(rel_path)
-        if event_at is None:
-            continue
-        if record_dt is not None and event_at > record_dt:
-            continue
-        if approved_dt is not None and event_at > approved_dt:
             continue
         rules = raw.get("rules")
         candidates = rules if isinstance(rules, list) else [raw]
@@ -1943,29 +1929,6 @@ def _approval_rule_active(
                     continue
             return True
     return False
-
-
-def _approval_rule_changelog_events(root: Path) -> dict[str, datetime]:
-    changelog = root / "records/_approval-rules/_changelog.jsonl"
-    events: dict[str, datetime] = {}
-    try:
-        lines = changelog.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return events
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(row, Mapping):
-            continue
-        snapshot_path = row.get("snapshot_path")
-        event_at = _parse_datetime(row.get("event_at"))
-        if isinstance(snapshot_path, str) and event_at is not None:
-            events[snapshot_path] = event_at
-    return events
 
 
 def _parse_datetime(value: object) -> datetime | None:
@@ -2039,35 +2002,45 @@ def _check_payoff(path: Path, front_matter: Mapping[str, object]) -> list[Valida
     return findings
 
 
-def _check_snapshot_refs(path: Path, front_matter: Mapping[str, object]) -> list[ValidationFinding]:
+def _check_reference_refs(
+    path: Path, front_matter: Mapping[str, object]
+) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
-    for field in ("playbook_snapshot", "policy_snapshot", "portfolio_exposure_snapshot_ref"):
+    for field in ("playbook_ref", "policy_ref", "portfolio_exposure_ref"):
         value = front_matter.get(field)
         if not isinstance(value, Mapping):
             continue
         ref = value.get("ref_path")
-        digest = value.get("content_sha256")
         if not isinstance(ref, str) or not ref:
             findings.append(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.snapshot-ref",
+                    code="research.reference-ref",
                     message=f"{field}.ref_path is required",
                     location=f"{field}.ref_path",
                 )
             )
-        if not isinstance(digest, str) or not re.match(r"^sha256:[0-9a-f]{64}$", digest):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.snapshot-hash",
-                    message=f"{field}.content_sha256 must be sha256:<64 hex chars>",
-                    location=f"{field}.content_sha256",
-                )
-            )
+        findings.extend(_check_removed_hash_fields(path, value, field))
     return findings
+
+
+def _check_removed_hash_fields(
+    path: Path,
+    value: Mapping[str, object],
+    location: str,
+) -> list[ValidationFinding]:
+    return [
+        ValidationFinding(
+            severity="error",
+            target=path,
+            code="research.removed-hash-field",
+            message=f"{field} is no longer allowed in repository links",
+            location=f"{location}.{field}",
+        )
+        for field in sorted(_REMOVED_HASH_FIELDS)
+        if field in value
+    ]
 
 
 def _number(value: object) -> float | None:

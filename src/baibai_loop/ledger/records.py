@@ -29,8 +29,8 @@ class DecisionRegisterRecord:
     trade_ref: str | None = None
     decision_event_at: str | None = None
     playbook_id: str | None = None
-    playbook_snapshot: dict[str, object] | None = None
-    policy_snapshot: dict[str, object] | None = None
+    playbook_ref: dict[str, object] | None = None
+    policy_ref: dict[str, object] | None = None
     baseline_price: float | None = None
     market_cap_oku: float | None = None
     avg_turnover_oku: float | None = None
