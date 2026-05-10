@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import time
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta
@@ -233,22 +232,16 @@ class JQuantsProvider:
         cursor = start
         while cursor <= end:
             chunk_end = min(cursor + timedelta(days=chunk_days - 1), end)
-            cache_path = self._cache_path(method, {"start_dt": cursor, "end_dt": chunk_end})
-            was_cached = cache_path.exists()
             records.extend(self._load_or_fetch(method, start_dt=cursor, end_dt=chunk_end))
             cursor = chunk_end + timedelta(days=1)
-            # Pace fresh fetches to avoid tripping J-Quants rate limits. Cache
-            # hits skip the sleep so re-runs over already-cached ranges stay fast.
-            if not was_cached and cursor <= end:
+            # Pace provider fetches to avoid tripping J-Quants rate limits.
+            if cursor <= end:
                 time.sleep(self._INTER_CHUNK_SLEEP_SECONDS)
         return records
 
     def _load_or_fetch(self, method: str, **params: Any) -> list[dict[str, Any]]:
         if method not in JQUANTS_CLIENT_V2_METHODS:
             raise JQuantsProviderError(f"unsupported ClientV2 method: {method}")
-        cache_path = self._cache_path(method, params)
-        if cache_path.exists():
-            return _ensure_list(json.loads(cache_path.read_text(encoding="utf-8")))
 
         client = self._get_client()
         call = getattr(client, method, None)
@@ -257,16 +250,7 @@ class JQuantsProvider:
         payload = self._call_with_retry(method, call, **params)
 
         records = _payload_to_records(payload)
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(
-            json.dumps(
-                [_make_json_safe(record) for record in records],
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-            ),
-            encoding="utf-8",
-        )
+        self._store_records(method, records, params)
         return records
 
     def _raise_if_cache_only(self, source: str, requirement: str) -> None:
@@ -275,9 +259,62 @@ class JQuantsProvider:
         sqlite_label = self._sqlite_path.as_posix() if self._sqlite_path is not None else "<none>"
         raise JQuantsProviderError(
             f"SQLite cache incomplete for {source} ({requirement}); "
-            f"sqlite={sqlite_label}. `screening run` is cache-only: refresh or rebuild "
-            "SQLite from existing raw JSON before running screening."
+            f"sqlite={sqlite_label}. `screening run` is cache-only: bootstrap or repair "
+            "SQLite before running screening."
         )
+
+    def _store_records(
+        self,
+        method: str,
+        records: Sequence[Mapping[str, Any]],
+        params: Mapping[str, Any],
+    ) -> None:
+        if self._sqlite_path is None:
+            return
+        from ..sqlite_cache import (
+            store_jquants_daily_bars,
+            store_jquants_earnings_calendar,
+            store_jquants_fin_summaries,
+            store_jquants_market_calendar,
+            store_jquants_master,
+        )
+
+        if method == "get_eq_master":
+            store_jquants_master(self._sqlite_path, records)
+            return
+        if method == "get_eq_earnings_cal":
+            store_jquants_earnings_calendar(self._sqlite_path, records)
+            return
+        if method in {"get_eq_bars_daily_range", "get_fin_summary_range"}:
+            start = params.get("start_dt")
+            end = params.get("end_dt")
+            if not isinstance(start, date) or not isinstance(end, date):
+                return
+            if method == "get_eq_bars_daily_range":
+                store_jquants_daily_bars(
+                    self._sqlite_path,
+                    records,
+                    requested_start=start,
+                    requested_end=end,
+                )
+            else:
+                store_jquants_fin_summaries(
+                    self._sqlite_path,
+                    records,
+                    requested_start=start,
+                    requested_end=end,
+                )
+            return
+        if method == "get_mkt_calendar":
+            start = _parse_yyyymmdd_param(params.get("from_yyyymmdd"))
+            end = _parse_yyyymmdd_param(params.get("to_yyyymmdd"))
+            if start is not None and end is not None:
+                store_jquants_market_calendar(
+                    self._sqlite_path,
+                    records,
+                    requested_start=start,
+                    requested_end=end,
+                )
 
     def _call_with_retry(self, method: str, call: Any, **params: Any) -> Any:
         last_exc: Exception | None = None
@@ -616,6 +653,15 @@ def _parse_date(value: Any) -> date:
     if not value:
         raise JQuantsProviderError("missing date field in payload")
     return date.fromisoformat(str(value)[:10])
+
+
+def _parse_yyyymmdd_param(value: Any) -> date | None:
+    if not isinstance(value, str) or len(value) != 8:
+        return None
+    try:
+        return date(int(value[:4]), int(value[4:6]), int(value[6:]))
+    except ValueError:
+        return None
 
 
 def _parse_optional_date(value: Any) -> date | None:

@@ -18,7 +18,6 @@ from baibai_loop.screening.freshness import (
     detect_edinet_freshness_warnings,
     load_disclosure_events,
 )
-from baibai_loop.screening.providers.edinet import EDINETProvider
 from baibai_loop.screening.schema import FinancialSnapshot
 
 
@@ -93,20 +92,18 @@ class ScreeningFreshnessTests(unittest.TestCase):
             candidate["metrics"]["edinet_source_submit_datetime"]
         )
         self.assertEqual(candidate_source_submit_datetime, "2025-10-15 16:01")
-        edinet_records = EDINETProvider(
-            None,
-            ROOT / "records/_data/raw/screening",
-        ).load_metric_records(date(2026, 5, 1))
-        source_submit_datetime = edinet_records["3678"].source_submit_datetime
-        self.assertEqual(source_submit_datetime, candidate_source_submit_datetime)
-
         events = load_disclosure_events(
-            ROOT / "records/_data/raw/screening/disclosures",
+            _fixture_root(
+                [
+                    {"ticker": "3678", "date": "2026-03-02", "title": "持分取得に関するお知らせ"},
+                    {"ticker": "3678", "date": "2026-03-03", "title": "資金の借入に関するお知らせ"},
+                ]
+            ),
             asof_date=date(2026, 5, 1),
         )
         warnings = detect_edinet_freshness_warnings(
             ticker="3678",
-            financial=_financial(source_submit_datetime),
+            financial=_financial(candidate_source_submit_datetime),
             events_by_ticker=events.events_by_ticker,
             asof_date=date(2026, 5, 1),
         )

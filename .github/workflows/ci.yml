@@ -54,11 +54,5 @@ jobs:
         # 整理した後に有効化する。
         run: uv run baibai-loop-precheck
 
-      - name: Verify raw JSON cache size
-        # Guard against committing a raw JSON file at or above GitHub's 50MB
-        # warning threshold. The SQLite cross-check is skipped because
-        # records/_data/cache/screening/market.sqlite is .gitignored.
-        run: uv run python -m baibai_loop.screening.cli verify-raw-cache
-
       - name: Build package
         run: uv build --wheel

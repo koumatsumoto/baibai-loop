@@ -40,6 +40,7 @@ from baibai_loop.screening.providers.jquants import (
 )
 from baibai_loop.screening.render import JST, build_output_path
 from baibai_loop.screening.schema import SecurityMaster, TTMQuality
+from baibai_loop.screening.sqlite_reader import read_edinet_metrics
 
 
 @dataclass
@@ -270,13 +271,7 @@ class ScreeningCliTests(unittest.TestCase):
                 )
                 self.assertRegex(payload["cache_manifest_hash"], r"^[0-9a-f]{16}$")
                 manifest_path = Path(".cache/screening/manifests") / f"{payload['run_id']}.json"
-                self.assertTrue(manifest_path.exists())
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                self.assertEqual(manifest["run_id"], payload["run_id"])
-                self.assertEqual(
-                    manifest["cache_manifest_hash"],
-                    payload["cache_manifest_hash"],
-                )
+                self.assertFalse(manifest_path.exists())
             finally:
                 os.chdir(cwd)
 
@@ -635,7 +630,7 @@ class ScreeningCliTests(unittest.TestCase):
 
     def test_extract_edinet_metrics_command_writes_parsed_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            cache_dir = Path(tmpdir) / "raw"
+            sqlite_path = Path(tmpdir) / "market.sqlite"
             provider = FakeEDINETProvider(
                 documents=[
                     {
@@ -656,23 +651,24 @@ class ScreeningCliTests(unittest.TestCase):
                 asof_date=date(2026, 4, 24),
                 lookback_days=0,
                 provider=provider,
-                cache_dir=cache_dir,
+                sqlite_path=sqlite_path,
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
-            output_path = cache_dir / "edinet" / "metrics" / "2026-04-24.json"
-            payload = json.loads(output_path.read_text(encoding="utf-8"))
-            self.assertEqual(payload[0]["ticker"], "9682")
-            self.assertEqual(payload[0]["net_cash"], 600.0)
-            self.assertEqual(payload[0]["fcf_ttm"], 700.0)
-            self.assertEqual(payload[0]["source_submit_datetime"], "2026-04-01 12:00")
-            self.assertEqual(payload[0]["source_period_start"], "2025-04-01")
-            self.assertEqual(payload[0]["source_period_end"], "2026-03-31")
-            self.assertIn("1 records", buffer.getvalue())
+            payload = read_edinet_metrics(sqlite_path, date(2026, 4, 24))
+            assert payload is not None
+            record = payload["9682"]
+            self.assertEqual(record.ticker, "9682")
+            self.assertEqual(record.net_cash, 600.0)
+            self.assertEqual(record.fcf_ttm, 700.0)
+            self.assertEqual(record.source_submit_datetime, "2026-04-01 12:00")
+            self.assertEqual(record.source_period_start, date(2025, 4, 1))
+            self.assertEqual(record.source_period_end, date(2026, 3, 31))
+            self.assertIn("1 EDINET metric records", buffer.getvalue())
 
     def test_extract_edinet_metrics_command_returns_zero_for_quality_issues(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            cache_dir = Path(tmpdir) / "raw"
+            sqlite_path = Path(tmpdir) / "market.sqlite"
             provider = FakeEDINETProvider(
                 documents=[
                     {
@@ -691,15 +687,14 @@ class ScreeningCliTests(unittest.TestCase):
                 asof_date=date(2026, 4, 24),
                 lookback_days=0,
                 provider=provider,
-                cache_dir=cache_dir,
+                sqlite_path=sqlite_path,
                 stdout=buffer,
             )
 
             self.assertEqual(exit_code, 0)
-            payload = json.loads(
-                (cache_dir / "edinet" / "metrics" / "2026-04-24.json").read_text(encoding="utf-8")
-            )
-            self.assertIn("debt_assumed_zero", payload[0]["failure_reasons"])
+            payload = read_edinet_metrics(sqlite_path, date(2026, 4, 24))
+            assert payload is not None
+            self.assertIn("debt_assumed_zero", payload["9682"].failure_reasons)
             self.assertIn("1 records with quality issues", buffer.getvalue())
 
 

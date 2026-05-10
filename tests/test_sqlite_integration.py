@@ -299,8 +299,8 @@ class ScreeningRunOverSqliteTests(unittest.TestCase):
             cwd = Path.cwd()
             try:
                 os.chdir(workspace)
-                cache_dir = workspace / "data" / "raw" / "screening"
-                sqlite_dir = workspace / "data" / "cache" / "screening"
+                cache_dir = workspace / ".cache" / "screening"
+                sqlite_dir = workspace / "data" / "screening"
                 sqlite_path = sqlite_dir / "market.sqlite"
                 _populate_screening_fixture(sqlite_path, asof)
 
@@ -351,7 +351,7 @@ class LedgerSyncOverSqliteTests(unittest.TestCase):
         asof = date(2026, 4, 24)
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir)
-            sqlite_dir = workspace / "records" / "_data" / "cache" / "screening"
+            sqlite_dir = workspace / "data" / "screening"
             sqlite_path = sqlite_dir / "market.sqlite"
             _populate_screening_fixture(sqlite_path, asof)
 

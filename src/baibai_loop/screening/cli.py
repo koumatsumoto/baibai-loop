@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import sys
@@ -28,10 +27,8 @@ from .freshness import detect_edinet_freshness_warnings, load_disclosure_events
 from .lineage import (
     build_provider_settings,
     build_run_id,
-    compute_cache_manifest,
-    compute_cache_manifest_hash,
     compute_config_hash,
-    write_manifest,
+    compute_sqlite_fingerprint,
 )
 from .metrics import (
     build_metrics,
@@ -71,13 +68,12 @@ from .schema import (
     TTMQuality,
     normalize_ticker,
 )
-from .sqlite_cache import SQLiteCacheError, is_sqlite_stale, rebuild_from_raw, refresh_from_raw
+from .sqlite_cache import SQLiteCacheError, rebuild_from_raw, store_edinet_metrics
 from .sqlite_coverage import CacheCoverageIssue, verify_screening_sqlite_coverage
 from .tiers import position_tier
 from .universe import (
     build_universe,
 )
-from .verify import DEFAULT_MAX_FILE_SIZE_MB, verify_raw_cache
 
 
 class _NoAliasDumper(yaml.SafeDumper):
@@ -198,7 +194,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     extract_parser = subparsers.add_parser(
         "extract-edinet-metrics",
-        help="extract EDINET type=5 CSV metrics into records/_data/raw/screening/edinet/metrics",
+        help="extract EDINET type=5 CSV metrics into canonical SQLite",
     )
     extract_parser.add_argument("--asof", required=True, help="metrics as-of date (YYYY-MM-DD)")
     extract_parser.add_argument(
@@ -210,10 +206,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     rebuild_parser = subparsers.add_parser(
         "rebuild-cache",
-        help=(
-            "rebuild SQLite cache under records/_data/cache/screening/ "
-            "from records/_data/raw/screening/ JSON"
-        ),
+        help=("legacy migration: rebuild canonical SQLite under data/screening/ from raw JSON"),
     )
     rebuild_parser.add_argument(
         "--raw-dir",
@@ -224,34 +217,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--sqlite-path",
         default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
         help=f"output SQLite path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
-    )
-
-    verify_parser = subparsers.add_parser(
-        "verify-raw-cache",
-        help="check that records/_data/raw/screening/ stays under 50MB per file and matches SQLite",
-    )
-    verify_parser.add_argument(
-        "--raw-dir",
-        default=str(DEFAULT_CACHE_DIR),
-        help=f"raw JSON root (default: {DEFAULT_CACHE_DIR})",
-    )
-    verify_parser.add_argument(
-        "--max-size-mb",
-        type=int,
-        default=DEFAULT_MAX_FILE_SIZE_MB,
-        help=(
-            "fail when any single file is at or above this size in MB "
-            f"(default: {DEFAULT_MAX_FILE_SIZE_MB})"
-        ),
-    )
-    verify_parser.add_argument(
-        "--sqlite-path",
-        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
-        help=(
-            "SQLite cache to cross-check SHA-256 against raw_imports "
-            f"(default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite). "
-            "If the file is missing, the cross-check is skipped silently."
-        ),
     )
 
     coverage_parser = subparsers.add_parser(
@@ -326,14 +291,6 @@ def main(argv: list[str] | None = None) -> int:
             sqlite_path=Path(args.sqlite_path),
         )
 
-    if args.command == "verify-raw-cache":
-        # verify-raw-cache only inspects local files; no API tokens needed.
-        return verify_raw_cache_command(
-            raw_dir=Path(args.raw_dir),
-            max_size_mb=args.max_size_mb,
-            sqlite_path=Path(args.sqlite_path),
-        )
-
     if args.command == "verify-cache-coverage":
         # verify-cache-coverage is local-only and never reads raw JSON or calls providers.
         rules = load_screening_rules(Path(args.rules_path))
@@ -353,17 +310,6 @@ def main(argv: list[str] | None = None) -> int:
     sqlite_path = config.sqlite_cache_dir / "market.sqlite"
     run_asof_date = _parse_iso_date(args.asof) if args.command == "run" else None
     run_rules = load_screening_rules(config.rules_path) if args.command == "run" else None
-    # SQLite is the only range-aware fallback for the JSON chunk cache —
-    # without it, asof-relative chunk filenames force a full 1200-day
-    # refetch whenever asof shifts. Auto-refresh before each `run` so
-    # range queries always hit a fresh derived cache.
-    if args.command == "run" and is_sqlite_stale((config.cache_dir,), sqlite_path):
-        print(f"refreshing SQLite cache from {config.cache_dir}…", file=sys.stderr)
-        try:
-            refresh_from_raw(config.cache_dir, sqlite_path)
-        except SQLiteCacheError as exc:
-            print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
-            return 1
     if args.command == "run":
         assert run_asof_date is not None
         coverage_issues = verify_screening_sqlite_coverage(
@@ -433,7 +379,7 @@ def main(argv: list[str] | None = None) -> int:
             asof_date=_parse_iso_date(args.asof),
             lookback_days=args.lookback_days,
             provider=providers.edinet,
-            cache_dir=config.cache_dir,
+            sqlite_path=sqlite_path,
         )
 
     raise AssertionError(f"unreachable command: {args.command!r}")
@@ -711,18 +657,7 @@ def run_command(
             f"{disclosure_load_result.unsupported_record_count} 件"
         )
 
-    cache_manifest = compute_cache_manifest(config.cache_dir)
-    cache_manifest_hash = compute_cache_manifest_hash(cache_manifest)
-    write_manifest(
-        config.cache_dir / "manifests" / f"{run_id}.json",
-        cache_manifest,
-        run_id=run_id,
-        asof_date=asof_date,
-        config_hash=config_hash,
-        manifest_hash=cache_manifest_hash,
-        generated_at=run_now,
-        sqlite_path=config.sqlite_cache_dir / "market.sqlite",
-    )
+    cache_manifest_hash = compute_sqlite_fingerprint(config.sqlite_cache_dir / "market.sqlite")
 
     data_sources = ["j-quants-light", "jpx-public-regulation"]
     if edinet_by_ticker:
@@ -1344,43 +1279,6 @@ def rebuild_cache_command(
     return 0
 
 
-def verify_raw_cache_command(
-    *,
-    raw_dir: Path,
-    max_size_mb: int,
-    sqlite_path: Path,
-    stdout: TextIO | None = None,
-) -> int:
-    """Walk `raw_dir` and report files that exceed the size threshold or whose
-    SHA-256 differs from `raw_imports.sha256` in the SQLite cache.
-    """
-    out = stdout if stdout is not None else sys.stdout
-    if not raw_dir.exists():
-        print(f"raw JSON directory not found: {raw_dir}", file=sys.stderr)
-        return 1
-
-    sqlite_arg: Path | None = sqlite_path if sqlite_path.exists() else None
-    result = verify_raw_cache(raw_dir, max_size_mb=max_size_mb, sqlite_path=sqlite_arg)
-    print(
-        f"verified {result.file_count} files ({result.total_bytes} bytes); "
-        f"largest single file {result.max_file_size} bytes",
-        file=out,
-    )
-    if result.size_violations:
-        print(f"size violations (>= {max_size_mb}MB):", file=out)
-        for violation in result.size_violations:
-            mb = violation.size / (1024 * 1024)
-            print(f"  {violation.path} ({mb:.1f}MB)", file=out)
-    if result.sqlite_issues:
-        print("SQLite SHA-256 mismatches (run rebuild-cache):", file=out)
-        for issue in result.sqlite_issues:
-            print(
-                f"  {issue.path}: expected {issue.expected_sha256} got {issue.actual_sha256}",
-                file=out,
-            )
-    return 1 if result.has_failures else 0
-
-
 def verify_cache_coverage_command(
     *,
     sqlite_path: Path,
@@ -1432,7 +1330,7 @@ def extract_edinet_metrics_command(
     asof_date: date,
     lookback_days: int,
     provider: EDINETAdapter,
-    cache_dir: Path,
+    sqlite_path: Path,
     stdout: TextIO | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
@@ -1480,14 +1378,10 @@ def extract_edinet_metrics_command(
             quality_issue_count += 1
         records.append(record)
 
-    output_path = cache_dir / "edinet" / "metrics" / f"{asof_date.isoformat()}.json"
     payload = [_metric_record_payload(record) for record in records]
-    write_text_atomic(
-        output_path,
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-    )
+    store_edinet_metrics(sqlite_path, asof_date, payload)
     print(
-        f"wrote {output_path}: {len(records)} records "
+        f"wrote {sqlite_path}: {len(records)} EDINET metric records "
         f"from {len(candidates)} selected filings; "
         f"{hard_failure_count} hard failures; "
         f"{quality_issue_count} records with quality issues",

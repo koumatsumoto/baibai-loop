@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import io
-import json
 import re
 import time
 import zipfile
@@ -136,11 +135,7 @@ class EDINETProvider:
         self._session = session or requests.Session()
         self._sqlite_path = Path(sqlite_path) if sqlite_path is not None else None
         self._cache_only = cache_only
-        self._zip_cache_dir = (
-            self._sqlite_path.parent / "edinet" / "csv_zips"
-            if self._sqlite_path is not None
-            else self._cache_dir / "csv_zips"
-        )
+        self._zip_cache_dir = self._cache_dir / "csv_zips"
 
     def list_documents(self, on_date: date) -> list[dict[str, Any]]:
         if self._sqlite_path is not None:
@@ -150,13 +145,6 @@ class EDINETProvider:
             if cached is not None:
                 return cached
         self._raise_if_cache_only("edinet_documents", on_date.isoformat())
-        cache_path = self._cache_dir / "documents" / f"{on_date.isoformat()}.json"
-        if cache_path.exists():
-            payload = json.loads(cache_path.read_text(encoding="utf-8"))
-            if not isinstance(payload, list):
-                raise EDINETProviderError("cached EDINET document payload must be a list")
-            return _coerce_document_items(payload, source="cached EDINET")
-
         api_key = self._require_api_key("list_documents")
         query = urlencode(
             {
@@ -170,10 +158,14 @@ class EDINETProvider:
         results = data.get("results", [])
         if not isinstance(results, list):
             raise EDINETProviderError("EDINET documents.json returned unexpected results payload")
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(
-            json.dumps(results, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
-        )
+        if self._sqlite_path is not None:
+            from ..sqlite_cache import store_edinet_documents
+
+            store_edinet_documents(
+                self._sqlite_path,
+                on_date,
+                _coerce_document_items(results, source="EDINET documents.json"),
+            )
         return _coerce_document_items(results, source="EDINET documents.json")
 
     def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
@@ -185,15 +177,7 @@ class EDINETProvider:
                 return dict(cached)
         if self._cache_only:
             return {}
-        cache_path = self._cache_dir / "metrics" / f"{asof_date.isoformat()}.json"
-        if not cache_path.exists():
-            return {}
-        payload = json.loads(cache_path.read_text(encoding="utf-8"))
-        if not isinstance(payload, list):
-            raise EDINETProviderError("cached EDINET metric payload must be a list")
-        return {
-            record.ticker: record for record in (normalize_metric_record(item) for item in payload)
-        }
+        return {}
 
     def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
         total = 0

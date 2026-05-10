@@ -22,18 +22,11 @@ dist/
 .plan/
 
 # Screening caches
-# Local legacy raw JSON cache. New runs write to records/_data/raw/screening/,
-# which is git-tracked.
+# Disposable local cache for provider byproducts such as EDINET CSV ZIPs.
 .cache/
-
-# SQLite caches and rebuild temp files derived from records/_data/raw/. The
-# records/_data/raw/ tree itself is git-tracked as the canonical raw JSON source.
+# Legacy pre-#126 cache location. Do not add new runtime data under records/.
 records/_data/cache/
-
-# Per-run lineage manifests are derived artifacts of a screening run; the
-# screened YAML records cache_manifest_hash, so the manifest JSON itself
-# does not need to be in git.
-records/_data/raw/screening/manifests/
+records/_data/raw/screening/
 
 # Local environment files
 .env

@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
+from .sqlite_cache import ensure_sqlite_schema
 from .sqlite_reader import (
     _has_any_import,
-    _parse_chunk_window,
     _range_covered,
     read_edinet_metrics,
     read_jpx_regulations,
@@ -66,10 +66,11 @@ def verify_screening_sqlite_coverage(
             ),
         )
 
+    ensure_sqlite_schema(sqlite_path)
     issues: list[CacheCoverageIssue] = []
     bars_start = asof_date - timedelta(days=1200)
     fin_start = asof_date - timedelta(days=730)
-    jpx_raw_import_covers_asof = False
+    jpx_source_coverage_covers_asof = False
     try:
         conn = sqlite3.connect(sqlite_path)
         try:
@@ -197,10 +198,10 @@ def verify_screening_sqlite_coverage(
                     require_rows=True,
                     enforce_record_count=False,
                 )
-            jpx_raw_import_covers_asof = _raw_import_covers_date(
+            jpx_source_coverage_covers_asof = _source_coverage_covers_date(
                 conn, "jpx_regulation_flags", asof_date
             )
-            if jpx_raw_import_covers_asof:
+            if jpx_source_coverage_covers_asof:
                 _append_table_consistency_issues(
                     conn,
                     issues,
@@ -221,12 +222,12 @@ def verify_screening_sqlite_coverage(
             ),
         )
 
-    if not jpx_raw_import_covers_asof:
+    if not jpx_source_coverage_covers_asof:
         issues.append(
             CacheCoverageIssue(
                 source="jpx_regulation_flags",
                 requirement=asof_date.isoformat(),
-                reason="JPX regulation raw import is not covered in SQLite",
+                reason="JPX regulation source coverage is not covered in SQLite",
             )
         )
     else:
@@ -302,7 +303,7 @@ def _append_table_consistency_issues(
     require_rows: bool,
     enforce_record_count: bool,
 ) -> None:
-    imported_count = _raw_import_record_count(conn, source)
+    imported_count = _source_coverage_record_count(conn, source)
     table_count = _table_row_count(conn, table)
     recorded_count = _recorded_table_row_count(conn, table)
     if recorded_count is None:
@@ -321,7 +322,7 @@ def _append_table_consistency_issues(
                 requirement=requirement,
                 reason=(
                     f"{table} row count ({table_count}) differs from recorded cache_metadata "
-                    f"table_count ({recorded_count}); rebuild SQLite from raw JSON"
+                    f"table_count ({recorded_count}); repair SQLite"
                 ),
             )
         )
@@ -331,7 +332,7 @@ def _append_table_consistency_issues(
             CacheCoverageIssue(
                 source=source,
                 requirement=requirement,
-                reason="raw_imports records zero imported rows for required source",
+                reason="source_coverage records zero imported rows for required source",
             )
         )
         return
@@ -341,8 +342,8 @@ def _append_table_consistency_issues(
                 source=source,
                 requirement=requirement,
                 reason=(
-                    f"{table} row count ({table_count}) is smaller than raw_imports "
-                    f"record_count ({imported_count}); rebuild SQLite from raw JSON"
+                    f"{table} row count ({table_count}) is smaller than source_coverage "
+                    f"record_count ({imported_count}); repair SQLite"
                 ),
             )
         )
@@ -358,17 +359,18 @@ def _append_table_consistency_issues(
         return
 
 
-def _raw_import_record_count(conn: sqlite3.Connection, source: str) -> int:
+def _source_coverage_record_count(conn: sqlite3.Connection, source: str) -> int:
     row = conn.execute(
-        "SELECT COALESCE(SUM(record_count), 0) FROM raw_imports WHERE source = ?",
+        "SELECT COALESCE(SUM(record_count), 0) FROM source_coverage WHERE source = ?",
         (source,),
     ).fetchone()
     return int(row[0] or 0)
 
 
-def _raw_import_covers_date(conn: sqlite3.Connection, source: str, on_date: date) -> bool:
+def _source_coverage_covers_date(conn: sqlite3.Connection, source: str, on_date: date) -> bool:
     row = conn.execute(
-        "SELECT 1 FROM raw_imports WHERE source = ? AND min_date <= ? AND max_date >= ? LIMIT 1",
+        "SELECT 1 FROM source_coverage "
+        "WHERE source = ? AND coverage_start <= ? AND coverage_end >= ? LIMIT 1",
         (source, on_date.isoformat(), on_date.isoformat()),
     ).fetchone()
     return row is not None
@@ -389,17 +391,12 @@ def _recorded_table_row_count(conn: sqlite3.Connection, table: str) -> int | Non
 
 def _raw_import_windows_are_non_overlapping(conn: sqlite3.Connection, source: str) -> bool:
     rows = conn.execute(
-        "SELECT path, min_date, max_date FROM raw_imports WHERE source = ?",
+        "SELECT coverage_start, coverage_end FROM source_coverage WHERE source = ?",
         (source,),
     ).fetchall()
     intervals: list[tuple[date, date]] = []
-    for path_text, min_date, max_date in rows:
-        window = _parse_chunk_window(path_text)
-        if window is not None:
-            start_text, end_text = window
-        elif min_date and max_date:
-            start_text, end_text = str(min_date), str(max_date)
-        else:
+    for start_text, end_text in rows:
+        if not start_text or not end_text:
             return False
         try:
             intervals.append((date.fromisoformat(start_text), date.fromisoformat(end_text)))

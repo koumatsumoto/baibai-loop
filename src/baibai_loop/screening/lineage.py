@@ -94,6 +94,14 @@ def compute_cache_manifest_hash(manifest: CacheManifest) -> str:
     return _short_sha256(_manifest_files_payload(manifest))
 
 
+def compute_sqlite_fingerprint(sqlite_path: Path) -> str:
+    """Return a lightweight deterministic fingerprint for the SQLite store."""
+    summary = compute_sqlite_summary(sqlite_path)
+    if summary is None:
+        return _short_sha256({"sqlite": "missing", "path": sqlite_path.as_posix()})
+    return _short_sha256(summary)
+
+
 def build_run_id(asof_date: date, config_hash: str) -> str:
     suffix = config_hash[:_RUN_ID_SUFFIX_LENGTH]
     return f"screening-{asof_date:%Y%m%d}-{suffix}"
@@ -130,12 +138,7 @@ def write_manifest(
 
 
 def compute_sqlite_summary(sqlite_path: Path | None) -> dict[str, object] | None:
-    """Snapshot the SQLite cache state at run time so the lineage manifest
-    records which derived cache (if any) was available alongside the raw
-    JSON inputs. Returns `None` when the SQLite file is missing — the
-    `cache_manifest_hash` already covers the canonical raw JSON so a
-    missing SQLite is not a lineage failure.
-    """
+    """Snapshot the canonical SQLite state at run time."""
     if sqlite_path is None or not sqlite_path.exists():
         return None
     conn = sqlite3.connect(sqlite_path)
@@ -149,7 +152,7 @@ def compute_sqlite_summary(sqlite_path: Path | None) -> dict[str, object] | None
         try:
             counts_rows = conn.execute(
                 "SELECT source, COUNT(*), COALESCE(SUM(record_count), 0) "
-                "FROM raw_imports GROUP BY source ORDER BY source"
+                "FROM source_coverage GROUP BY source ORDER BY source"
             ).fetchall()
         except sqlite3.OperationalError:
             counts_rows = []
@@ -159,8 +162,8 @@ def compute_sqlite_summary(sqlite_path: Path | None) -> dict[str, object] | None
     return {
         "path": sqlite_path.as_posix(),
         "schema_version": schema_version_row[0] if schema_version_row else None,
-        "imports": [
-            {"source": source, "files": files, "records": records}
+        "coverage": [
+            {"source": source, "windows": files, "records": records}
             for source, files, records in counts_rows
         ],
     }

@@ -183,17 +183,21 @@ class ScreeningLineageTests(unittest.TestCase):
             sqlite_path = Path(tmpdir) / "market.sqlite"
             conn = open_connection(sqlite_path)
             conn.execute(
-                "INSERT INTO raw_imports("
-                "source, path, sha256, imported_at_utc, record_count, min_date, max_date"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO source_coverage("
+                "source, operation, coverage_key, coverage_start, coverage_end, "
+                "requested_start, requested_end, params_json, fetched_at_utc, record_count"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     "jquants_master_snapshots",
-                    "records/_data/raw/screening/jquants/get_eq_master.json",
-                    "0" * 64,
+                    "get_eq_master",
+                    "latest",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "{}",
                     "2026-04-24T00:00:00+00:00",
                     4445,
-                    "2026-04-24",
-                    "2026-04-24",
                 ),
             )
             conn.commit()
@@ -204,10 +208,10 @@ class ScreeningLineageTests(unittest.TestCase):
             self.assertIsNotNone(summary)
             assert summary is not None  # narrow for type checker
             self.assertEqual(summary["path"], sqlite_path.as_posix())
-            self.assertIn(summary["schema_version"], {"v1", "v2", "v3", "v4", "v5", "v6", "v7"})
+            self.assertIn(summary["schema_version"], {"v8"})
             self.assertEqual(
-                summary["imports"],
-                [{"source": "jquants_master_snapshots", "files": 1, "records": 4445}],
+                summary["coverage"],
+                [{"source": "jquants_master_snapshots", "windows": 1, "records": 4445}],
             )
 
     def test_write_manifest_includes_sqlite_summary_when_present(self) -> None:

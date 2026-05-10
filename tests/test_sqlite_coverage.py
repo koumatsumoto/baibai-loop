@@ -204,6 +204,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn = open_connection(sqlite_path)
             _populate_complete_coverage(conn, asof)
             conn.execute("DELETE FROM raw_imports WHERE source = ?", ("jquants_daily_bars",))
+            conn.execute("DELETE FROM source_coverage WHERE source = ?", ("jquants_daily_bars",))
             conn.commit()
             conn.close()
 
@@ -218,6 +219,9 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn = open_connection(sqlite_path)
             _populate_complete_coverage(conn, asof)
             conn.execute("DELETE FROM raw_imports WHERE source = ?", ("jquants_master_snapshots",))
+            conn.execute(
+                "DELETE FROM source_coverage WHERE source = ?", ("jquants_master_snapshots",)
+            )
             conn.execute("DELETE FROM jquants_master_snapshots")
             _add_raw_import(
                 conn,
@@ -338,6 +342,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn = open_connection(sqlite_path)
             _populate_complete_coverage(conn, asof)
             conn.execute("DELETE FROM raw_imports WHERE source = ?", ("jpx_regulation_flags",))
+            conn.execute("DELETE FROM source_coverage WHERE source = ?", ("jpx_regulation_flags",))
             conn.execute(
                 "INSERT INTO jpx_regulation_sources(asof_date, source_name, fetched_at_utc) "
                 "VALUES (?, ?, ?)",
@@ -356,7 +361,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             self.assertTrue(
                 any(
                     issue.source == "jpx_regulation_flags"
-                    and "raw import is not covered" in issue.reason
+                    and "source coverage is not covered" in issue.reason
                     for issue in issues
                 )
             )
