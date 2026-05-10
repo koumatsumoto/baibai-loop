@@ -7,6 +7,7 @@ last_reviewed: 2026-05-04
 related_docs:
   - "../components/reviews.md"
   - "../screening/failure-taxonomy.md"
+  - "./task-runbook.md"
 ---
 
 # Review runbook
@@ -17,7 +18,8 @@ Reviews は trade 後の forward-only 検証と monthly retro を扱います。
 
 1. 対応する trade と research を確認する。
 2. +15 / +30 営業日など、component doc で定義されたタイミングで review を作る。
-3. 成功要因と失敗要因は [`../screening/failure-taxonomy.md`](../screening/failure-taxonomy.md) に合わせて分類する。
+3. 既存保有に決算後の即時 review gate がある場合は、[`task-runbook.md`](./task-runbook.md) に従い、個別タスク issue として管理する。
+4. 成功要因と失敗要因は [`../screening/failure-taxonomy.md`](../screening/failure-taxonomy.md) に合わせて分類する。
 
 ## Monthly retro
 
