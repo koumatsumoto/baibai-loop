@@ -235,6 +235,8 @@ CREATE TABLE IF NOT EXISTS source_coverage(
   raw_record_count INTEGER,
   normalized_record_count INTEGER,
   skipped_record_count INTEGER NOT NULL DEFAULT 0,
+  rejected_record_count INTEGER NOT NULL DEFAULT 0,
+  excluded_record_count INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'ok',
   error TEXT,
   PRIMARY KEY (source, operation, coverage_key)
@@ -275,6 +277,27 @@ class RebuildSummary:
     skipped_files: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class _NormalizedRows:
+    rows: list[tuple[Any, ...]]
+    rejected_count: int = 0
+    excluded_count: int = 0
+
+    @property
+    def skipped_count(self) -> int:
+        return self.rejected_count + self.excluded_count
+
+    @property
+    def status(self) -> str:
+        return "partial" if self.rejected_count else "ok"
+
+    @property
+    def error(self) -> str | None:
+        if not self.rejected_count:
+            return None
+        return f"{self.rejected_count} rejected records during normalization"
+
+
 def open_connection(db_path: Path) -> sqlite3.Connection:
     """Open the SQLite cache, creating tables on first use."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -305,6 +328,14 @@ def _ensure_source_coverage_columns(conn: sqlite3.Connection) -> None:
         ),
         "skipped_record_count": (
             "ALTER TABLE source_coverage ADD COLUMN skipped_record_count INTEGER NOT NULL DEFAULT 0"
+        ),
+        "rejected_record_count": (
+            "ALTER TABLE source_coverage ADD COLUMN rejected_record_count INTEGER "
+            "NOT NULL DEFAULT 0"
+        ),
+        "excluded_record_count": (
+            "ALTER TABLE source_coverage ADD COLUMN excluded_record_count INTEGER "
+            "NOT NULL DEFAULT 0"
         ),
         "status": "ALTER TABLE source_coverage ADD COLUMN status TEXT NOT NULL DEFAULT 'ok'",
         "error": "ALTER TABLE source_coverage ADD COLUMN error TEXT",
@@ -355,7 +386,8 @@ def store_jquants_daily_bars(
     conn = open_connection(db_path)
     try:
         records_list = list(records)
-        rows = list(_iter_bars_rows(records_list))
+        normalized = _bars_rows_with_quality(records_list)
+        rows = normalized.rows
         _delete_date_range(conn, "jquants_daily_bars", "traded_at", requested_start, requested_end)
         _delete_overlapping_source_coverage(
             conn, "jquants_daily_bars", requested_start, requested_end
@@ -385,7 +417,11 @@ def store_jquants_daily_bars(
             params={"start_dt": requested_start.isoformat(), "end_dt": requested_end.isoformat()},
             record_count=len(rows),
             raw_record_count=len(records_list),
-            skipped_record_count=len(records_list) - len(rows),
+            skipped_record_count=normalized.skipped_count,
+            rejected_record_count=normalized.rejected_count,
+            excluded_record_count=normalized.excluded_count,
+            status=normalized.status,
+            error=normalized.error,
         )
         _record_table_integrity(conn)
         conn.commit()
@@ -404,7 +440,8 @@ def store_jquants_fin_summaries(
     conn = open_connection(db_path)
     try:
         records_list = list(records)
-        rows = list(_iter_fin_summary_rows(records_list))
+        normalized = _fin_summary_rows_with_quality(records_list)
+        rows = normalized.rows
         _delete_date_range(
             conn, "jquants_fin_summaries", "disclosed_at", requested_start, requested_end
         )
@@ -436,7 +473,11 @@ def store_jquants_fin_summaries(
             params={"start_dt": requested_start.isoformat(), "end_dt": requested_end.isoformat()},
             record_count=len(rows),
             raw_record_count=len(records_list),
-            skipped_record_count=len(records_list) - len(rows),
+            skipped_record_count=normalized.skipped_count,
+            rejected_record_count=normalized.rejected_count,
+            excluded_record_count=normalized.excluded_count,
+            status=normalized.status,
+            error=normalized.error,
         )
         _record_table_integrity(conn)
         conn.commit()
@@ -449,7 +490,8 @@ def store_jquants_master(db_path: Path, records: Iterable[Mapping[str, Any]]) ->
     conn = open_connection(db_path)
     try:
         records_list = list(records)
-        rows = list(_iter_master_rows(records_list))
+        normalized = _master_rows_with_quality(records_list)
+        rows = normalized.rows
         conn.execute("DELETE FROM jquants_master_snapshots")
         _delete_source_coverage(conn, "jquants_master_snapshots")
         if rows:
@@ -474,7 +516,11 @@ def store_jquants_master(db_path: Path, records: Iterable[Mapping[str, Any]]) ->
             params={},
             record_count=len(rows),
             raw_record_count=len(records_list),
-            skipped_record_count=len(records_list) - len(rows),
+            skipped_record_count=normalized.skipped_count,
+            rejected_record_count=normalized.rejected_count,
+            excluded_record_count=normalized.excluded_count,
+            status=normalized.status,
+            error=normalized.error,
         )
         _record_table_integrity(conn)
         conn.commit()
@@ -493,7 +539,8 @@ def store_jquants_earnings_calendar(
     conn = open_connection(db_path)
     try:
         records_list = list(records)
-        rows = _earnings_calendar_rows(records_list)
+        normalized = _earnings_calendar_rows_with_quality(records_list)
+        rows = normalized.rows
         conn.execute("DELETE FROM jquants_earnings_calendar")
         _delete_source_coverage(conn, "jquants_earnings_calendar")
         if rows:
@@ -525,7 +572,11 @@ def store_jquants_earnings_calendar(
             params=params,
             record_count=len(rows),
             raw_record_count=len(records_list),
-            skipped_record_count=len(records_list) - len(rows),
+            skipped_record_count=normalized.skipped_count,
+            rejected_record_count=normalized.rejected_count,
+            excluded_record_count=normalized.excluded_count,
+            status=normalized.status,
+            error=normalized.error,
         )
         _record_table_integrity(conn)
         conn.commit()
@@ -544,7 +595,8 @@ def store_jquants_market_calendar(
     conn = open_connection(db_path)
     try:
         records_list = list(records)
-        rows = _market_calendar_rows(records_list)
+        normalized = _market_calendar_rows_with_quality(records_list)
+        rows = normalized.rows
         _delete_date_range(conn, "jquants_market_calendar", "day", requested_start, requested_end)
         _delete_overlapping_source_coverage(
             conn, "jquants_market_calendar", requested_start, requested_end
@@ -570,7 +622,11 @@ def store_jquants_market_calendar(
             },
             record_count=len(rows),
             raw_record_count=len(records_list),
-            skipped_record_count=len(records_list) - len(rows),
+            skipped_record_count=normalized.skipped_count,
+            rejected_record_count=normalized.rejected_count,
+            excluded_record_count=normalized.excluded_count,
+            status=normalized.status,
+            error=normalized.error,
         )
         _record_table_integrity(conn)
         conn.commit()
@@ -622,6 +678,9 @@ def store_edinet_metrics(
     db_path: Path,
     asof_date: date,
     records: Iterable[Mapping[str, Any]],
+    *,
+    status: str = "ok",
+    error: str | None = None,
 ) -> int:
     conn = open_connection(db_path)
     try:
@@ -657,6 +716,8 @@ def store_edinet_metrics(
             record_count=len(rows),
             raw_record_count=len(records_list),
             skipped_record_count=len(records_list) - len(rows),
+            status=status,
+            error=error,
         )
         _record_table_integrity(conn)
         conn.commit()
@@ -779,11 +840,11 @@ def refresh_from_raw(raw_dir: Path | Iterable[Path], db_path: Path) -> RebuildSu
     """Refresh SQLite from raw JSON without reparsing files that are already
     imported.
 
-    Raw JSON remains canonical. The common `run` path appends a handful of
-    new cache chunks for a new as-of date, so importing just those files keeps
-    SQLite range-aware without paying the cost of a full 600MB+ rebuild. If an
-    existing raw file was edited or deleted, fall back to `rebuild_from_raw()`
-    so stale rows cannot survive from the previous import.
+    This is a legacy migration/backfill path for disposable raw JSON. The
+    canonical screening input is the normalized SQLite database; provider fetch
+    paths write SQLite directly. If an existing raw file was edited or deleted,
+    fall back to `rebuild_from_raw()` so stale rows cannot survive from the
+    previous import.
     """
     raw_dirs: tuple[Path, ...] = (raw_dir,) if isinstance(raw_dir, Path) else tuple(raw_dir)
     if _sqlite_schema_is_stale(db_path):
@@ -1217,14 +1278,35 @@ def _import_jpx_dir(conn: sqlite3.Connection, jpx_dir: Path, counters: _RebuildC
             raise SQLiteCacheError(f"failed to import {path.name}: {exc}") from exc
 
 
-def _earnings_calendar_rows(records: Iterable[Mapping[str, Any]]) -> list[tuple[Any, ...]]:
+def _code_quality(value: Any) -> tuple[str | None, str]:
+    if value in (None, ""):
+        return None, "rejected"
+    try:
+        ticker, common_code = _parse_with_common_flag(value)
+    except JQuantsProviderError:
+        return None, "rejected"
+    if not common_code:
+        return None, "excluded"
+    return ticker, "ok"
+
+
+def _earnings_calendar_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _NormalizedRows:
     rows: list[tuple[Any, ...]] = []
+    rejected_count = 0
+    excluded_count = 0
     for record in records:
-        ticker = _normalize_ticker_or_none(_first(record, "Code", "code"))
+        ticker, code_status = _code_quality(_first(record, "Code", "code"))
+        if code_status == "rejected":
+            rejected_count += 1
+            continue
+        if code_status == "excluded":
+            excluded_count += 1
+            continue
         announcement_date = _date_iso(
             _first(record, "Date", "date", "AnnouncementDate", "announcement_date")
         )
         if ticker is None or announcement_date is None:
+            rejected_count += 1
             continue
         rows.append(
             (
@@ -1233,14 +1315,20 @@ def _earnings_calendar_rows(records: Iterable[Mapping[str, Any]]) -> list[tuple[
                 json.dumps(record, ensure_ascii=False, sort_keys=True),
             )
         )
-    return rows
+    return _NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
 
 
-def _market_calendar_rows(records: Iterable[Mapping[str, Any]]) -> list[tuple[Any, ...]]:
+def _earnings_calendar_rows(records: Iterable[Mapping[str, Any]]) -> list[tuple[Any, ...]]:
+    return _earnings_calendar_rows_with_quality(records).rows
+
+
+def _market_calendar_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _NormalizedRows:
     rows: list[tuple[Any, ...]] = []
+    rejected_count = 0
     for record in records:
         day = _date_iso(_first(record, "Date", "date"))
         if day is None:
+            rejected_count += 1
             continue
         # Mirror JQuantsProvider: HolidayDivision "1" (営業日) and "2"
         # (半日営業: 大納会など) both count as business days.
@@ -1255,7 +1343,11 @@ def _market_calendar_rows(records: Iterable[Mapping[str, Any]]) -> list[tuple[An
                 json.dumps(record, ensure_ascii=False, sort_keys=True),
             )
         )
-    return rows
+    return _NormalizedRows(rows=rows, rejected_count=rejected_count)
+
+
+def _market_calendar_rows(records: Iterable[Mapping[str, Any]]) -> list[tuple[Any, ...]]:
+    return _market_calendar_rows_with_quality(records).rows
 
 
 def _edinet_document_rows(
@@ -1353,29 +1445,48 @@ def _import_bars_file(conn: sqlite3.Connection, path: Path) -> int:
 def _iter_bars_rows(
     records: Iterable[Mapping[str, Any]],
 ) -> Iterator[tuple[Any, ...]]:
+    yield from _bars_rows_with_quality(records).rows
+
+
+def _bars_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _NormalizedRows:
+    rows: list[tuple[Any, ...]] = []
+    rejected_count = 0
+    excluded_count = 0
     for record in records:
-        ticker = _normalize_ticker_or_none(_first(record, "Code", "code"))
+        ticker, code_status = _code_quality(_first(record, "Code", "code"))
+        if code_status == "rejected":
+            rejected_count += 1
+            continue
+        if code_status == "excluded":
+            excluded_count += 1
+            continue
         traded_at = _date_iso(_first(record, "Date", "date", "TradedAt", "traded_at"))
         if ticker is None or traded_at is None:
+            rejected_count += 1
             continue
-        yield (
-            ticker,
-            traded_at,
-            _to_float(_first(record, "Open", "open", "O", "o")),
-            _to_float(_first(record, "High", "high", "H", "h")),
-            _to_float(_first(record, "Low", "low", "L", "l")),
-            _to_float(_first(record, "Close", "close", "C", "c")),
-            _to_float(_first(record, "Volume", "volume", "Vo", "vo")),
-            _to_float(_first(record, "TurnoverValue", "turnover_value", "Va", "va")),
-            _to_float(_first(record, "AdjustmentOpen", "adjustment_open", "AdjO", "adj_o")),
-            _to_float(_first(record, "AdjustmentHigh", "adjustment_high", "AdjH", "adj_h")),
-            _to_float(_first(record, "AdjustmentLow", "adjustment_low", "AdjL", "adj_l")),
-            _to_float(_first(record, "AdjustmentClose", "adjustment_close", "AdjC", "adj_c")),
-            _to_float(_first(record, "AdjustmentVolume", "adjustment_volume", "AdjVo", "adj_vo")),
-            _to_float(_first(record, "AdjustmentFactor", "adjustment_factor", "AdjFactor")),
-            _to_str_or_none(_first(record, "UpperLimit", "upper_limit", "UL")),
-            _to_str_or_none(_first(record, "LowerLimit", "lower_limit", "LL")),
+        rows.append(
+            (
+                ticker,
+                traded_at,
+                _to_float(_first(record, "Open", "open", "O", "o")),
+                _to_float(_first(record, "High", "high", "H", "h")),
+                _to_float(_first(record, "Low", "low", "L", "l")),
+                _to_float(_first(record, "Close", "close", "C", "c")),
+                _to_float(_first(record, "Volume", "volume", "Vo", "vo")),
+                _to_float(_first(record, "TurnoverValue", "turnover_value", "Va", "va")),
+                _to_float(_first(record, "AdjustmentOpen", "adjustment_open", "AdjO", "adj_o")),
+                _to_float(_first(record, "AdjustmentHigh", "adjustment_high", "AdjH", "adj_h")),
+                _to_float(_first(record, "AdjustmentLow", "adjustment_low", "AdjL", "adj_l")),
+                _to_float(_first(record, "AdjustmentClose", "adjustment_close", "AdjC", "adj_c")),
+                _to_float(
+                    _first(record, "AdjustmentVolume", "adjustment_volume", "AdjVo", "adj_vo")
+                ),
+                _to_float(_first(record, "AdjustmentFactor", "adjustment_factor", "AdjFactor")),
+                _to_str_or_none(_first(record, "UpperLimit", "upper_limit", "UL")),
+                _to_str_or_none(_first(record, "LowerLimit", "lower_limit", "LL")),
+            )
         )
+    return _NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
 
 
 def _import_fin_summary_file(conn: sqlite3.Connection, path: Path) -> int:
@@ -1409,71 +1520,93 @@ def _import_fin_summary_file(conn: sqlite3.Connection, path: Path) -> int:
 def _iter_fin_summary_rows(
     records: Iterable[Mapping[str, Any]],
 ) -> Iterator[tuple[Any, ...]]:
+    yield from _fin_summary_rows_with_quality(records).rows
+
+
+def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _NormalizedRows:
+    rows: list[tuple[Any, ...]] = []
+    rejected_count = 0
+    excluded_count = 0
     for record in records:
-        ticker = _normalize_ticker_or_none(_first(record, "Code", "code"))
+        ticker, quality = _code_quality(_first(record, "Code", "code"))
+        if quality == "rejected":
+            rejected_count += 1
+            continue
+        if quality == "excluded":
+            excluded_count += 1
+            continue
         disclosed_at = _date_iso(
             _first(record, "DisclosedDate", "disclosed_at", "DiscDate", "disc_date", "Date")
         )
         if ticker is None or disclosed_at is None:
+            rejected_count += 1
             continue
-        yield (
-            ticker,
-            disclosed_at,
-            _to_float(_first(record, "ForecastEPS", "forecast_eps", "FEPS")),
-            _to_float(_first(record, "EpsTtm", "eps_ttm", "EPS", "eps")),
-            _to_float(_first(record, "BPS", "bps")),
-            _to_float(
-                _first(
-                    record,
-                    "SharesOutstanding",
-                    "shares_outstanding",
-                    "IssuedShareEquityQuote",
-                    "ShOutFY",
-                    "AvgSh",
-                )
-            ),
-            _to_float(_first(record, "NetSales", "net_sales", "Sales", "sales")),
-            _to_float(
-                _first(
-                    record,
-                    "CashFlowsFromOperatingActivities",
-                    "cash_flows_from_operating_activities",
-                    "OperatingCashFlow",
-                    "operating_cash_flow",
-                    "CFO",
-                    "cfo",
-                )
-            ),
-            _to_float(
-                _first(
-                    record,
-                    "CashAndEquivalents",
-                    "cash_and_equivalents",
-                    "CashEq",
-                    "cash_eq",
-                )
-            ),
-            _to_float(_first(record, "TotalAssets", "total_assets", "TA", "ta")),
-            _to_float(_first(record, "Equity", "equity", "Eq", "eq")),
-            _to_float(_first(record, "OperatingProfit", "operating_profit", "OP")),
-            _to_float(_first(record, "OrdinaryProfit", "ordinary_profit", "OdP")),
-            _to_float(_first(record, "Profit", "profit", "NP")),
-            _to_str_or_none(
-                _first(record, "TypeOfCurrentPeriod", "type_of_current_period", "CurPerType")
-            ),
-            _date_iso(
-                _first(
-                    record, "CurrentFiscalYearEndDate", "current_fiscal_year_end_date", "CurFYEn"
-                )
-            ),
-            _date_iso(
-                _first(record, "CurrentPeriodStartDate", "current_period_start_date", "CurPerSt")
-            ),
-            _date_iso(
-                _first(record, "CurrentPeriodEndDate", "current_period_end_date", "CurPerEn")
-            ),
-            json.dumps(record, ensure_ascii=False, sort_keys=True),
+        rows.append(
+            (
+                ticker,
+                disclosed_at,
+                _to_float(_first(record, "ForecastEPS", "forecast_eps", "FEPS")),
+                _to_float(_first(record, "EpsTtm", "eps_ttm", "EPS", "eps")),
+                _to_float(_first(record, "BPS", "bps")),
+                _to_float(
+                    _first(
+                        record,
+                        "SharesOutstanding",
+                        "shares_outstanding",
+                        "IssuedShareEquityQuote",
+                        "ShOutFY",
+                        "AvgSh",
+                    )
+                ),
+                _to_float(_first(record, "NetSales", "net_sales", "Sales", "sales")),
+                _to_float(
+                    _first(
+                        record,
+                        "CashFlowsFromOperatingActivities",
+                        "cash_flows_from_operating_activities",
+                        "OperatingCashFlow",
+                        "operating_cash_flow",
+                        "CFO",
+                        "cfo",
+                    )
+                ),
+                _to_float(
+                    _first(
+                        record,
+                        "CashAndEquivalents",
+                        "cash_and_equivalents",
+                        "CashEq",
+                        "cash_eq",
+                    )
+                ),
+                _to_float(_first(record, "TotalAssets", "total_assets", "TA", "ta")),
+                _to_float(_first(record, "Equity", "equity", "Eq", "eq")),
+                _to_float(_first(record, "OperatingProfit", "operating_profit", "OP")),
+                _to_float(_first(record, "OrdinaryProfit", "ordinary_profit", "OdP")),
+                _to_float(_first(record, "Profit", "profit", "NP")),
+                _to_str_or_none(
+                    _first(record, "TypeOfCurrentPeriod", "type_of_current_period", "CurPerType")
+                ),
+                _date_iso(
+                    _first(
+                        record,
+                        "CurrentFiscalYearEndDate",
+                        "current_fiscal_year_end_date",
+                        "CurFYEn",
+                    )
+                ),
+                _date_iso(
+                    _first(
+                        record, "CurrentPeriodStartDate", "current_period_start_date", "CurPerSt"
+                    )
+                ),
+                _date_iso(
+                    _first(record, "CurrentPeriodEndDate", "current_period_end_date", "CurPerEn")
+                ),
+                json.dumps(record, ensure_ascii=False, sort_keys=True),
+            )
         )
+    return _NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
 
 
 def _import_master_file(conn: sqlite3.Connection, path: Path) -> int:
@@ -1505,27 +1638,41 @@ def _import_master_file(conn: sqlite3.Connection, path: Path) -> int:
 def _iter_master_rows(
     records: Iterable[Mapping[str, Any]],
 ) -> Iterator[tuple[Any, ...]]:
+    yield from _master_rows_with_quality(records).rows
+
+
+def _master_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _NormalizedRows:
+    rows: list[tuple[Any, ...]] = []
+    rejected_count = 0
+    excluded_count = 0
     for record in records:
-        ticker = _normalize_ticker_or_none(_first(record, "Code", "code"))
-        if ticker is None:
+        ticker, code_status = _code_quality(_first(record, "Code", "code"))
+        if code_status == "rejected":
+            rejected_count += 1
+            continue
+        if code_status == "excluded":
+            excluded_count += 1
             continue
         snapshot_date = _date_iso(_first(record, "Date", "date", "snapshot_date")) or "unknown"
         is_common_stock = _is_common_stock_flag(record)
         sector_raw = _to_str_or_none(
             _first(record, "Sector33CodeName", "sector_33", "Sector33Name", "S33Nm", "S33")
         )
-        yield (
-            snapshot_date,
-            ticker,
-            _to_str_or_none(_first(record, "CompanyName", "company_name", "Name", "CoName")),
-            _to_str_or_none(_first(record, "MarketCodeName", "market_segment", "MktNm", "Mkt")),
-            # J-Quants は同じ TSE 33 セクターを半角中黒 (U+FF65)・全角中黒 (U+30FB) で
-            # 揺らせて返してくる。SQLite に取り込む段階で全角形に正規化し、outlook /
-            # candidates / select の matcher が一意に解決できるようにする。
-            normalize_sector_name(sector_raw) if sector_raw else sector_raw,
-            1 if is_common_stock else 0,
-            json.dumps(record, ensure_ascii=False, sort_keys=True),
+        rows.append(
+            (
+                snapshot_date,
+                ticker,
+                _to_str_or_none(_first(record, "CompanyName", "company_name", "Name", "CoName")),
+                _to_str_or_none(_first(record, "MarketCodeName", "market_segment", "MktNm", "Mkt")),
+                # J-Quants は同じ TSE 33 セクターを半角中黒 (U+FF65)・全角中黒 (U+30FB) で
+                # 揺らせて返してくる。SQLite に取り込む段階で全角形に正規化し、outlook /
+                # candidates / select の matcher が一意に解決できるようにする。
+                normalize_sector_name(sector_raw) if sector_raw else sector_raw,
+                1 if is_common_stock else 0,
+                json.dumps(record, ensure_ascii=False, sort_keys=True),
+            )
         )
+    return _NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
 
 
 def _import_earnings_calendar_file(conn: sqlite3.Connection, path: Path) -> int:
@@ -1752,6 +1899,8 @@ def _record_source_coverage(
     record_count: int,
     raw_record_count: int | None = None,
     skipped_record_count: int = 0,
+    rejected_record_count: int = 0,
+    excluded_record_count: int = 0,
     status: str = "ok",
     error: str | None = None,
     fetched_at_utc: str | None = None,
@@ -1764,8 +1913,9 @@ def _record_source_coverage(
         INSERT OR {conflict_action} INTO source_coverage(
           source, operation, coverage_key, coverage_start, coverage_end,
           requested_start, requested_end, params_json, fetched_at_utc, record_count,
-          raw_record_count, normalized_record_count, skipped_record_count, status, error
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          raw_record_count, normalized_record_count, skipped_record_count,
+          rejected_record_count, excluded_record_count, status, error
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             source,
@@ -1781,6 +1931,8 @@ def _record_source_coverage(
             raw_record_count if raw_record_count is not None else record_count,
             normalized_record_count,
             skipped_record_count,
+            rejected_record_count,
+            excluded_record_count,
             status,
             error,
         ),

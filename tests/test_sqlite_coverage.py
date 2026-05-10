@@ -71,10 +71,13 @@ def _populate_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
         min_date=asof.isoformat(),
         max_date=asof.isoformat(),
     )
-    conn.execute(
+    conn.executemany(
         "INSERT INTO jquants_daily_bars(ticker, traded_at, close, turnover_value) "
         "VALUES (?, ?, ?, ?)",
-        ("1301", asof.isoformat(), 1000.0, 200_000_000.0),
+        [
+            ("1301", (asof - timedelta(days=offset)).isoformat(), 1000.0, 200_000_000.0)
+            for offset in range(5)
+        ],
     )
     _add_raw_import(
         conn,
@@ -84,7 +87,7 @@ def _populate_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
             f"get_eq_bars_daily_range-end_dt-{asof.isoformat()}-"
             f"start_dt-{bars_start.isoformat()}.json"
         ),
-        record_count=1,
+        record_count=5,
         min_date=bars_start.isoformat(),
         max_date=asof.isoformat(),
     )
@@ -163,6 +166,11 @@ def _populate_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
         min_date=asof.isoformat(),
         max_date=asof.isoformat(),
     )
+    conn.execute(
+        "INSERT INTO jpx_regulation_sources(asof_date, source_name, fetched_at_utc) "
+        "VALUES (?, ?, ?)",
+        (asof.isoformat(), "test-source", datetime.now(UTC).isoformat()),
+    )
     _add_raw_import(
         conn,
         source="edinet_metrics",
@@ -197,6 +205,17 @@ class SQLiteCoverageTests(unittest.TestCase):
 
             self.assertEqual(len(issues), 1)
             self.assertEqual(issues[0].source, "sqlite")
+
+    def test_corrupt_sqlite_file_reports_issue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            sqlite_path.write_bytes(b"not a sqlite database")
+
+            issues = verify_screening_sqlite_coverage(sqlite_path, date(2026, 5, 8))
+
+            self.assertEqual(len(issues), 1)
+            self.assertEqual(issues[0].source, "sqlite")
+            self.assertIn("SQLite coverage query failed", issues[0].reason)
 
     def test_complete_required_windows_has_no_issues(self) -> None:
         asof = date(2026, 5, 8)
@@ -257,6 +276,32 @@ class SQLiteCoverageTests(unittest.TestCase):
                 )
             )
 
+    def test_zero_row_earnings_calendar_reports_issue(self) -> None:
+        asof = date(2026, 5, 8)
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            _populate_complete_coverage(conn, asof)
+            conn.execute("DELETE FROM jquants_earnings_calendar")
+            conn.execute("DELETE FROM raw_imports WHERE source = ?", ("jquants_earnings_calendar",))
+            conn.execute(
+                "UPDATE source_coverage SET record_count = ? WHERE source = ?",
+                (0, "jquants_earnings_calendar"),
+            )
+            _record_table_counts(conn)
+            conn.commit()
+            conn.close()
+
+            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+
+            self.assertTrue(
+                any(
+                    issue.source == "jquants_earnings_calendar"
+                    and "zero imported rows" in issue.reason
+                    for issue in issues
+                )
+            )
+
     def test_source_coverage_status_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
         with tempfile.TemporaryDirectory() as tmp:
@@ -280,6 +325,46 @@ class SQLiteCoverageTests(unittest.TestCase):
                     issue.source == "jquants_daily_bars" and "status is not ok" in issue.reason
                     for issue in issues
                 )
+            )
+
+    def test_old_non_ok_source_coverage_outside_required_window_does_not_block(self) -> None:
+        asof = date(2026, 5, 8)
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            _populate_complete_coverage(conn, asof)
+            old_start = asof - timedelta(days=1300)
+            old_end = asof - timedelta(days=1270)
+            conn.execute(
+                "INSERT INTO source_coverage("
+                "source, operation, coverage_key, coverage_start, coverage_end, "
+                "requested_start, requested_end, params_json, fetched_at_utc, record_count, status"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "jquants_daily_bars",
+                    "get_eq_bars_daily_range",
+                    "old-failed",
+                    old_start.isoformat(),
+                    old_end.isoformat(),
+                    old_start.isoformat(),
+                    old_end.isoformat(),
+                    "{}",
+                    datetime.now(UTC).isoformat(),
+                    0,
+                    "failed",
+                ),
+            )
+            conn.commit()
+            conn.close()
+
+            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+
+            self.assertFalse(
+                any(
+                    issue.source == "jquants_daily_bars" and "old-failed" in issue.requirement
+                    for issue in issues
+                ),
+                issues,
             )
 
     def test_skipped_normalized_rows_are_observability_not_fail_fast(self) -> None:
@@ -348,6 +433,29 @@ class SQLiteCoverageTests(unittest.TestCase):
             self.assertTrue(
                 any(
                     issue.source == "jquants_daily_bars" and "row count" in issue.reason
+                    for issue in issues
+                )
+            )
+
+    def test_recent_daily_bars_sparse_history_reports_issue(self) -> None:
+        asof = date(2026, 5, 8)
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            _populate_complete_coverage(conn, asof)
+            conn.execute(
+                "DELETE FROM jquants_daily_bars WHERE traded_at < ?",
+                (asof.isoformat(),),
+            )
+            _record_table_counts(conn)
+            conn.commit()
+            conn.close()
+
+            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+
+            self.assertTrue(
+                any(
+                    issue.source == "jquants_daily_bars" and "recent 30-day window" in issue.reason
                     for issue in issues
                 )
             )
@@ -428,6 +536,79 @@ class SQLiteCoverageTests(unittest.TestCase):
                 )
             )
 
+    def test_stale_jpx_snapshot_reports_issue(self) -> None:
+        asof = date(2026, 5, 8)
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            _populate_complete_coverage(conn, asof)
+            conn.execute(
+                "UPDATE jpx_regulation_sources SET fetched_at_utc = ? WHERE asof_date = ?",
+                ("2026-04-01T00:00:00+00:00", asof.isoformat()),
+            )
+            conn.commit()
+            conn.close()
+
+            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+
+            self.assertTrue(
+                any(
+                    issue.source == "jpx_regulation_flags"
+                    and "fetched_at_utc is stale" in issue.reason
+                    for issue in issues
+                )
+            )
+
+    def test_jpx_source_row_without_fetched_at_reports_issue(self) -> None:
+        asof = date(2026, 5, 8)
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            _populate_complete_coverage(conn, asof)
+            conn.execute(
+                "UPDATE jpx_regulation_sources SET fetched_at_utc = NULL WHERE asof_date = ?",
+                (asof.isoformat(),),
+            )
+            conn.commit()
+            conn.close()
+
+            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+
+            self.assertTrue(
+                any(
+                    issue.source == "jpx_regulation_flags"
+                    and "without fetched_at_utc" in issue.reason
+                    for issue in issues
+                )
+            )
+
+    def test_allow_stale_jpx_suppresses_freshness_issue(self) -> None:
+        asof = date(2026, 5, 8)
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            _populate_complete_coverage(conn, asof)
+            conn.execute(
+                "UPDATE jpx_regulation_sources SET fetched_at_utc = ? WHERE asof_date = ?",
+                ("2026-04-01T00:00:00+00:00", asof.isoformat()),
+            )
+            conn.commit()
+            conn.close()
+
+            issues = verify_screening_sqlite_coverage(
+                sqlite_path,
+                asof,
+                allow_stale_jpx=True,
+            )
+
+            self.assertFalse(
+                any(
+                    issue.source == "jpx_regulation_flags"
+                    and "fetched_at_utc is stale" in issue.reason
+                    for issue in issues
+                )
+            )
+
     def test_orphaned_jpx_source_rows_do_not_satisfy_raw_import_coverage(self) -> None:
         asof = date(2026, 5, 8)
         with tempfile.TemporaryDirectory() as tmp:
@@ -481,6 +662,46 @@ class SQLiteCoverageTests(unittest.TestCase):
             self.assertTrue(
                 any(
                     issue.source == "edinet_metrics" and "coverage query failed" in issue.reason
+                    for issue in issues
+                )
+            )
+
+    def test_required_edinet_failed_status_reports_diagnostic_error(self) -> None:
+        asof = date(2026, 5, 8)
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            _populate_complete_coverage(conn, asof)
+            conn.execute(
+                "INSERT OR REPLACE INTO source_coverage("
+                "source, operation, coverage_key, coverage_start, coverage_end, "
+                "requested_start, requested_end, params_json, fetched_at_utc, record_count, "
+                "status, error"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "edinet_metrics",
+                    "extract_edinet_metrics",
+                    asof.isoformat(),
+                    asof.isoformat(),
+                    asof.isoformat(),
+                    asof.isoformat(),
+                    asof.isoformat(),
+                    "{}",
+                    datetime.now(UTC).isoformat(),
+                    1,
+                    "failed",
+                    "1 EDINET CSV hard failures",
+                ),
+            )
+            conn.commit()
+            conn.close()
+
+            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+
+            self.assertTrue(
+                any(
+                    issue.source == "edinet_metrics"
+                    and "1 EDINET CSV hard failures" in issue.reason
                     for issue in issues
                 )
             )

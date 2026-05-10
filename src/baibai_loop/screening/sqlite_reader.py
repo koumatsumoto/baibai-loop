@@ -381,7 +381,7 @@ def has_jpx_regulation_data(sqlite_path: Path, asof_date: date) -> bool:
         try:
             cur = conn.execute(
                 "SELECT 1 FROM source_coverage WHERE source = ? "
-                "AND coverage_start <= ? AND coverage_end >= ? LIMIT 1",
+                "AND coverage_start <= ? AND coverage_end >= ? AND status = 'ok' LIMIT 1",
                 ("jpx_regulation_flags", asof_date.isoformat(), asof_date.isoformat()),
             )
         except sqlite3.OperationalError:
@@ -393,7 +393,11 @@ def has_jpx_regulation_data(sqlite_path: Path, asof_date: date) -> bool:
 
 def _has_any_import(conn: sqlite3.Connection, source: str) -> bool:
     try:
-        cur = conn.execute("SELECT 1 FROM source_coverage WHERE source = ? LIMIT 1", (source,))
+        cur = conn.execute(
+            "SELECT 1 FROM source_coverage WHERE source = ? "
+            "AND status = 'ok' AND record_count > 0 LIMIT 1",
+            (source,),
+        )
     except sqlite3.OperationalError:
         return False
     return cur.fetchone() is not None
@@ -405,7 +409,7 @@ def _date_imported(conn: sqlite3.Connection, source: str, on_date: date) -> bool
     try:
         cur = conn.execute(
             "SELECT 1 FROM source_coverage WHERE source = ? "
-            "AND coverage_start <= ? AND coverage_end >= ? LIMIT 1",
+            "AND coverage_start <= ? AND coverage_end >= ? AND status = 'ok' LIMIT 1",
             (source, iso, iso),
         )
     except sqlite3.OperationalError:
@@ -424,7 +428,8 @@ def _minmax_covered(conn: sqlite3.Connection, source: str, start: date, end: dat
     try:
         cur = conn.execute(
             "SELECT 1 FROM source_coverage WHERE source = ? "
-            "AND coverage_start <= ? AND coverage_end >= ? LIMIT 1",
+            "AND coverage_start <= ? AND coverage_end >= ? "
+            "AND status = 'ok' AND record_count > 0 LIMIT 1",
             (source, start.isoformat(), end.isoformat()),
         )
     except sqlite3.OperationalError:
@@ -435,14 +440,16 @@ def _minmax_covered(conn: sqlite3.Connection, source: str, start: date, end: dat
 # Filenames are produced from a `sorted(params.items())` join in the
 # provider, so `end_dt` comes before `start_dt` alphabetically.
 _CHUNK_WINDOW_RE = re.compile(r"end_dt-(\d{4}-\d{2}-\d{2}).*?start_dt-(\d{4}-\d{2}-\d{2})")
-_RANGE_SOURCES_REQUIRING_ROWS = frozenset({"jquants_daily_bars", "jquants_market_calendar"})
+_RANGE_SOURCES_REQUIRING_ROWS = frozenset(
+    {"jquants_daily_bars", "jquants_fin_summaries", "jquants_market_calendar"}
+)
 
 
 def _range_covered(conn: sqlite3.Connection, source: str, start: date, end: date) -> bool:
     """True when source_coverage rows collectively span the requested range."""
     try:
         rows = conn.execute(
-            "SELECT coverage_start, coverage_end, record_count "
+            "SELECT coverage_start, coverage_end, record_count, status "
             "FROM source_coverage WHERE source = ?",
             (source,),
         ).fetchall()
@@ -451,7 +458,9 @@ def _range_covered(conn: sqlite3.Connection, source: str, start: date, end: date
     if not rows:
         return False
     intervals: list[tuple[date, date]] = []
-    for coverage_start, coverage_end, record_count in rows:
+    for coverage_start, coverage_end, record_count, status in rows:
+        if status != "ok":
+            continue
         if source in _RANGE_SOURCES_REQUIRING_ROWS and int(record_count or 0) == 0:
             continue
         if not coverage_start or not coverage_end:

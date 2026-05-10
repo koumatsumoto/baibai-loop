@@ -169,7 +169,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--allow-stale-jpx",
         action="store_true",
-        help="allow fetching latest JPX regulation data for a stale backfill asof",
+        help="allow an already-cached stale JPX snapshot for a historical backfill asof",
     )
     run_parser.add_argument(
         "--output-path",
@@ -186,10 +186,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     bootstrap_parser = subparsers.add_parser(
         "bootstrap-cache",
-        help="bootstrap raw caches before provider logic is fully wired",
+        help="bootstrap canonical SQLite inputs for a screening as-of date",
     )
-    bootstrap_parser.add_argument("--start", required=True, help="start date (YYYY-MM-DD)")
-    bootstrap_parser.add_argument("--end", required=True, help="end date (YYYY-MM-DD)")
+    bootstrap_parser.add_argument(
+        "--asof",
+        help="screening target date (YYYY-MM-DD); computes each source window automatically",
+    )
+    bootstrap_parser.add_argument("--start", help="legacy explicit start date (YYYY-MM-DD)")
+    bootstrap_parser.add_argument("--end", help="legacy explicit end date (YYYY-MM-DD)")
 
     extract_parser = subparsers.add_parser(
         "extract-edinet-metrics",
@@ -231,12 +235,25 @@ def build_parser() -> argparse.ArgumentParser:
     coverage_parser.add_argument(
         "--require-edinet-metrics",
         action="store_true",
-        help="require EDINET metrics coverage for --asof",
+        dest="require_edinet_metrics",
+        help="require EDINET metrics coverage for --asof (default)",
     )
+    coverage_parser.add_argument(
+        "--allow-missing-edinet-metrics",
+        action="store_false",
+        dest="require_edinet_metrics",
+        help="legacy/degraded verification only; run still requires EDINET metrics",
+    )
+    coverage_parser.set_defaults(require_edinet_metrics=True)
     coverage_parser.add_argument(
         "--rules-path",
         default=str(DEFAULT_RULES_PATH),
         help=f"screening rules path for required JPX sources (default: {DEFAULT_RULES_PATH})",
+    )
+    coverage_parser.add_argument(
+        "--allow-stale-jpx",
+        action="store_true",
+        help="degraded verification only; allow old JPX fetched_at_utc snapshots",
     )
 
     select_parser = subparsers.add_parser(
@@ -298,6 +315,7 @@ def main(argv: list[str] | None = None) -> int:
             asof_date=_parse_iso_date(args.asof),
             require_edinet_metrics=args.require_edinet_metrics,
             required_jpx_sources=rules.universe.required_jpx_flags,
+            allow_stale_jpx=args.allow_stale_jpx,
         )
 
     try:
@@ -316,6 +334,7 @@ def main(argv: list[str] | None = None) -> int:
             run_asof_date,
             require_edinet_metrics=True,
             required_jpx_sources=run_rules.universe.required_jpx_flags if run_rules else (),
+            allow_stale_jpx=args.allow_stale_jpx,
         )
         if coverage_issues:
             _print_cache_coverage_issues(
@@ -361,12 +380,23 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if args.command == "bootstrap-cache":
+        if args.asof:
+            if args.start or args.end:
+                print("--asof cannot be combined with --start/--end", file=sys.stderr)
+                return 1
+            return bootstrap_cache_command(
+                asof_date=_parse_iso_date(args.asof),
+                providers=providers,
+            )
+        if not args.start or not args.end:
+            print("bootstrap-cache requires --asof, or both --start and --end", file=sys.stderr)
+            return 1
         start = _parse_iso_date(args.start)
         end = _parse_iso_date(args.end)
         if start > end:
             print("--start must be on or before --end", file=sys.stderr)
             return 1
-        return bootstrap_cache_command(start, end, providers)
+        return bootstrap_cache_command(start=start, end=end, providers=providers)
 
     if args.command == "extract-edinet-metrics":
         if args.lookback_days < 0:
@@ -1283,8 +1313,9 @@ def verify_cache_coverage_command(
     *,
     sqlite_path: Path,
     asof_date: date,
-    require_edinet_metrics: bool = False,
+    require_edinet_metrics: bool = True,
     required_jpx_sources: Iterable[str] = (),
+    allow_stale_jpx: bool = False,
     stdout: TextIO | None = None,
 ) -> int:
     """Check whether SQLite can serve every source `screening run` will read.
@@ -1298,6 +1329,7 @@ def verify_cache_coverage_command(
         asof_date,
         require_edinet_metrics=require_edinet_metrics,
         required_jpx_sources=required_jpx_sources,
+        allow_stale_jpx=allow_stale_jpx,
     )
     if issues:
         _print_cache_coverage_issues(issues, asof_date=asof_date, stream=out)
@@ -1320,7 +1352,7 @@ def _print_cache_coverage_issues(
         print(f"  {issue.source} {issue.requirement}: {issue.reason}", file=stream)
     print(
         "screening run is cache-only and will not fall back to raw JSON or provider APIs; "
-        "refresh or rebuild SQLite from existing raw JSON, then rerun coverage verification.",
+        "run bootstrap-cache --asof and extract-edinet-metrics, then rerun coverage verification.",
         file=stream,
     )
 
@@ -1379,7 +1411,13 @@ def extract_edinet_metrics_command(
         records.append(record)
 
     payload = [_metric_record_payload(record) for record in records]
-    store_edinet_metrics(sqlite_path, asof_date, payload)
+    store_edinet_metrics(
+        sqlite_path,
+        asof_date,
+        payload,
+        status="failed" if hard_failure_count else "ok",
+        error=f"{hard_failure_count} EDINET CSV hard failures" if hard_failure_count else None,
+    )
     print(
         f"wrote {sqlite_path}: {len(records)} EDINET metric records "
         f"from {len(candidates)} selected filings; "
@@ -1425,7 +1463,37 @@ def _date_iso(value: date | None) -> str | None:
     return value.isoformat() if value is not None else None
 
 
-def bootstrap_cache_command(start: date, end: date, providers: ProviderBundle) -> int:
+def bootstrap_cache_command(
+    start: date | None = None,
+    end: date | None = None,
+    providers: ProviderBundle | None = None,
+    *,
+    asof_date: date | None = None,
+) -> int:
+    if providers is None:
+        raise ValueError("bootstrap_cache_command requires providers")
+    if asof_date is not None:
+        bars_start = asof_date - timedelta(days=1200)
+        fin_start = asof_date - timedelta(days=730)
+        earnings_end = asof_date + timedelta(days=90)
+        try:
+            providers.jquants.get_eq_master()
+            providers.jquants.get_eq_bars_daily_range(bars_start, asof_date)
+            providers.jquants.get_fin_summary_range(fin_start, asof_date)
+            providers.jquants.get_eq_earnings_cal(asof_date, earnings_end)
+            providers.jquants.get_mkt_calendar(asof_date, asof_date)
+            if providers.edinet is not None:
+                providers.edinet.bootstrap_cache(fin_start, asof_date)
+            try:
+                providers.jpx.bootstrap_cache(asof_date)
+            except JPXProviderError as exc:
+                print(f"warning: jpx bootstrap skipped: {exc}", file=sys.stderr)
+        except (JQuantsProviderError, EDINETProviderError) as exc:
+            print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+        return 0
+    if start is None or end is None:
+        raise ValueError("bootstrap_cache_command requires asof_date or start/end")
     try:
         providers.jquants.bootstrap_cache(start, end)
         if providers.edinet is not None:

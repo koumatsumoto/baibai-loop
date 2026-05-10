@@ -202,13 +202,23 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
         max_date=fin_rows[1][1],
     )
 
-    # Earnings calendar — empty rows but raw_imports must be present so the
-    # SQLite read-through does not fall through to the API.
+    # Earnings calendar — at least one normalized row is required; an empty
+    # covered payload is treated as incomplete so read-through can repair it.
+    earnings_date = asof + timedelta(days=7)
+    conn.execute(
+        "INSERT INTO jquants_earnings_calendar(announcement_date, ticker, raw_json) "
+        "VALUES (?, ?, ?)",
+        (
+            earnings_date.isoformat(),
+            ticker,
+            json.dumps({"Code": f"{ticker}0", "Date": earnings_date.isoformat()}),
+        ),
+    )
     _add_raw_import(
         conn,
         source="jquants_earnings_calendar",
         path="records/_data/raw/screening/jquants/get_eq_earnings_cal.json",
-        record_count=0,
+        record_count=1,
         min_date=asof.isoformat(),
         max_date=(asof + timedelta(days=90)).isoformat(),
     )
@@ -271,9 +281,21 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
         "VALUES (?, ?, ?)",
         [
             (asof.isoformat(), "上場廃止警告", None),
-            (asof.isoformat(), "取引停止", None),
-            (asof.isoformat(), "整理銘柄", None),
-            (asof.isoformat(), "特別注意銘柄", None),
+            (
+                asof.isoformat(),
+                "取引停止",
+                datetime(asof.year, asof.month, asof.day, tzinfo=UTC).isoformat(),
+            ),
+            (
+                asof.isoformat(),
+                "整理銘柄",
+                datetime(asof.year, asof.month, asof.day, tzinfo=UTC).isoformat(),
+            ),
+            (
+                asof.isoformat(),
+                "特別注意銘柄",
+                datetime(asof.year, asof.month, asof.day, tzinfo=UTC).isoformat(),
+            ),
         ],
     )
     _add_raw_import(

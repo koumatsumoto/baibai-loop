@@ -271,9 +271,9 @@ class JQuantsProvider:
             return
 
         cursor = start
-        fetched_any = False
         while cursor <= end:
             chunk_end = min(cursor + timedelta(days=chunk_days - 1), end)
+            did_fetch = False
             if method == "get_eq_bars_daily_range":
                 chunk_is_cached = read_daily_bars(self._sqlite_path, cursor, chunk_end) is not None
             elif method == "get_fin_summary_range":
@@ -284,9 +284,9 @@ class JQuantsProvider:
                 chunk_is_cached = False
             if not chunk_is_cached:
                 self._load_or_fetch(method, start_dt=cursor, end_dt=chunk_end)
-                fetched_any = True
+                did_fetch = True
             cursor = chunk_end + timedelta(days=1)
-            if fetched_any and cursor <= end:
+            if did_fetch and cursor <= end:
                 time.sleep(self._INTER_CHUNK_SLEEP_SECONDS)
 
     def _load_or_fetch(

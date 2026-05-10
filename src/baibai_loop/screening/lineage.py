@@ -151,7 +151,15 @@ def compute_sqlite_summary(sqlite_path: Path | None) -> dict[str, object] | None
             return None
         try:
             counts_rows = conn.execute(
-                "SELECT source, COUNT(*), COALESCE(SUM(record_count), 0) "
+                "SELECT source, COUNT(*), COALESCE(SUM(record_count), 0), "
+                "COALESCE(SUM(COALESCE(raw_record_count, record_count)), 0), "
+                "COALESCE(SUM(COALESCE(normalized_record_count, record_count)), 0), "
+                "COALESCE(SUM(skipped_record_count), 0), "
+                "COALESCE(SUM(rejected_record_count), 0), "
+                "COALESCE(SUM(excluded_record_count), 0), "
+                "GROUP_CONCAT(DISTINCT status), "
+                "COALESCE(SUM(CASE WHEN status != 'ok' THEN 1 ELSE 0 END), 0), "
+                "GROUP_CONCAT(DISTINCT error) "
                 "FROM source_coverage GROUP BY source ORDER BY source"
             ).fetchall()
         except sqlite3.OperationalError:
@@ -163,8 +171,32 @@ def compute_sqlite_summary(sqlite_path: Path | None) -> dict[str, object] | None
         "path": sqlite_path.as_posix(),
         "schema_version": schema_version_row[0] if schema_version_row else None,
         "coverage": [
-            {"source": source, "windows": files, "records": records}
-            for source, files, records in counts_rows
+            {
+                "source": source,
+                "windows": windows,
+                "records": records,
+                "raw_records": raw_records,
+                "normalized_records": normalized_records,
+                "skipped_records": skipped_records,
+                "rejected_records": rejected_records,
+                "excluded_records": excluded_records,
+                "statuses": sorted(statuses.split(",")) if statuses else [],
+                "non_ok_windows": non_ok_windows,
+                "errors": sorted(errors.split(",")) if errors else [],
+            }
+            for (
+                source,
+                windows,
+                records,
+                raw_records,
+                normalized_records,
+                skipped_records,
+                rejected_records,
+                excluded_records,
+                statuses,
+                non_ok_windows,
+                errors,
+            ) in counts_rows
         ],
     }
 

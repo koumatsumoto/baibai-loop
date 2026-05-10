@@ -17,15 +17,15 @@ Screening は `records/04-candidates/` の fact snapshot を生成し、research
 ## Generate candidates
 
 ```bash
-uv run baibai-loop-screening bootstrap-cache --start YYYY-MM-DD --end YYYY-MM-DD
+uv run baibai-loop-screening bootstrap-cache --asof YYYY-MM-DD
 uv run baibai-loop-screening extract-edinet-metrics --asof YYYY-MM-DD --lookback-days 540
-uv run baibai-loop-screening verify-cache-coverage --asof YYYY-MM-DD --require-edinet-metrics
+uv run baibai-loop-screening verify-cache-coverage --asof YYYY-MM-DD
 uv run baibai-loop-screening run --asof YYYY-MM-DD
 ```
 
 生成物の contract は [`../components/candidates.md`](../components/candidates.md) を参照します。
 
-`run` は開始時に SQLite coverage を検証します。SQLite が `--asof` に必要な J-Quants / JPX / EDINET metrics 入力を提供できない場合、`run` は fail-fast し、raw JSON や provider API へフォールバックしません。不足が出た場合は `bootstrap-cache` または `extract-edinet-metrics` で SQLite を補完し、`verify-cache-coverage --require-edinet-metrics` を通してから再実行します。
+`run` は開始時に SQLite coverage を検証します。SQLite が `--asof` に必要な J-Quants / JPX / EDINET metrics 入力を提供できない場合、`run` は fail-fast し、raw JSON や provider API へフォールバックしません。不足が出た場合は `bootstrap-cache --asof` または `extract-edinet-metrics` で SQLite を補完し、`verify-cache-coverage` を通してから再実行します。
 
 JPX 規制情報（特別注意 / 整理 / 取引停止 / 上場廃止警告）は universe の必須 gate です。設定された required source が欠ける場合、`run` は fail-fast し、candidates YAML を生成しません。EDINET 前処理済み metrics も `run` の必須 coverage です。`EDINET_API_KEY` は `extract-edinet-metrics` 実行時だけ必要で、`run` 中に EDINET API へフォールバックしません。
 

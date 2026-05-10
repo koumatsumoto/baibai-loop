@@ -48,7 +48,7 @@ Command:
 
 ```bash
 uv run python -m baibai_loop.screening.cli extract-edinet-metrics --asof 2026-05-01 --lookback-days 540
-uv run python -m baibai_loop.screening.cli verify-cache-coverage --asof 2026-05-01 --require-edinet-metrics
+uv run python -m baibai_loop.screening.cli verify-cache-coverage --asof 2026-05-01
 uv run python -m baibai_loop.screening.cli run --asof 2026-05-01
 ```
 

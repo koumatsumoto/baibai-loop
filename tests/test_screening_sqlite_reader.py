@@ -12,7 +12,12 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.screening.sqlite_cache import open_connection, store_jquants_earnings_calendar
+from baibai_loop.screening.sqlite_cache import (
+    open_connection,
+    store_jquants_daily_bars,
+    store_jquants_earnings_calendar,
+    store_jquants_master,
+)
 from baibai_loop.screening.sqlite_reader import (
     read_daily_bars,
     read_eq_earnings_cal,
@@ -49,6 +54,13 @@ class ReadEqMasterTests(unittest.TestCase):
             conn = open_connection(db)
             conn.commit()
             conn.close()
+            self.assertIsNone(read_eq_master(db))
+
+    def test_returns_none_when_master_coverage_has_zero_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_master(db, [])
+
             self.assertIsNone(read_eq_master(db))
 
     def test_returns_securities_after_import(self) -> None:
@@ -185,6 +197,25 @@ class ReadDailyBarsTests(unittest.TestCase):
 
             self.assertIsNone(read_daily_bars(db, date(2024, 3, 19), date(2024, 4, 18)))
 
+    def test_returns_none_when_source_coverage_status_failed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_daily_bars(
+                db,
+                [{"Code": "13010", "Date": "2024-03-19", "Close": 3790.0}],
+                requested_start=date(2024, 3, 19),
+                requested_end=date(2024, 4, 18),
+            )
+            conn = open_connection(db)
+            conn.execute(
+                "UPDATE source_coverage SET status = ? WHERE source = ?",
+                ("failed", "jquants_daily_bars"),
+            )
+            conn.commit()
+            conn.close()
+
+            self.assertIsNone(read_daily_bars(db, date(2024, 3, 19), date(2024, 4, 18)))
+
 
 class ReadFinSummariesTests(unittest.TestCase):
     def test_returns_summaries_in_range(self) -> None:
@@ -234,6 +265,24 @@ class ReadFinSummariesTests(unittest.TestCase):
             self.assertEqual(summaries[0].eps_ttm, 50.0)
             self.assertEqual(summaries[0].fiscal_period, "2Q")
 
+    def test_returns_none_when_zero_row_chunk_covers_range(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            conn = open_connection(db)
+            _add_raw_import(
+                conn,
+                source="jquants_fin_summaries",
+                path="records/_data/raw/screening/jquants/"
+                "get_fin_summary_range-end_dt-2025-10-28-start_dt-2025-09-28.json",
+                record_count=0,
+                min_date=None,
+                max_date=None,
+            )
+            conn.commit()
+            conn.close()
+
+            self.assertIsNone(read_fin_summaries(db, date(2025, 9, 28), date(2025, 10, 28)))
+
 
 class ReadEqEarningsCalTests(unittest.TestCase):
     def test_returns_none_when_earnings_calendar_not_imported(self) -> None:
@@ -263,6 +312,18 @@ class ReadEqEarningsCalTests(unittest.TestCase):
             records = read_eq_earnings_cal(db, date(2026, 5, 8), date(2026, 8, 6))
 
             self.assertEqual(records, [{"Code": "13010", "Date": "2026-05-15"}])
+
+    def test_returns_none_when_covered_whole_list_has_zero_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_earnings_calendar(
+                db,
+                [],
+                requested_start=date(2026, 5, 8),
+                requested_end=date(2026, 8, 6),
+            )
+
+            self.assertIsNone(read_eq_earnings_cal(db, date(2026, 5, 8), date(2026, 8, 6)))
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -185,8 +185,9 @@ class ScreeningLineageTests(unittest.TestCase):
             conn.execute(
                 "INSERT INTO source_coverage("
                 "source, operation, coverage_key, coverage_start, coverage_end, "
-                "requested_start, requested_end, params_json, fetched_at_utc, record_count"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "requested_start, requested_end, params_json, fetched_at_utc, record_count, "
+                "rejected_record_count, excluded_record_count"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     "jquants_master_snapshots",
                     "get_eq_master",
@@ -198,6 +199,8 @@ class ScreeningLineageTests(unittest.TestCase):
                     "{}",
                     "2026-04-24T00:00:00+00:00",
                     4445,
+                    2,
+                    3,
                 ),
             )
             conn.commit()
@@ -211,7 +214,21 @@ class ScreeningLineageTests(unittest.TestCase):
             self.assertEqual(summary["schema_version"], SCHEMA_VERSION)
             self.assertEqual(
                 summary["coverage"],
-                [{"source": "jquants_master_snapshots", "windows": 1, "records": 4445}],
+                [
+                    {
+                        "source": "jquants_master_snapshots",
+                        "windows": 1,
+                        "records": 4445,
+                        "raw_records": 4445,
+                        "normalized_records": 4445,
+                        "skipped_records": 0,
+                        "rejected_records": 2,
+                        "excluded_records": 3,
+                        "statuses": ["ok"],
+                        "non_ok_windows": 0,
+                        "errors": [],
+                    }
+                ],
             )
 
     def test_write_manifest_includes_sqlite_summary_when_present(self) -> None:

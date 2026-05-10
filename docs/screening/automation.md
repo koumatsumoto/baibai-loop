@@ -18,16 +18,18 @@
 ```bash
 python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 python -m baibai_loop.screening.cli run --asof YYYY-MM-DD --allow-stale-jpx
-python -m baibai_loop.screening.cli bootstrap-cache --start YYYY-MM-DD --end YYYY-MM-DD
+python -m baibai_loop.screening.cli bootstrap-cache --asof YYYY-MM-DD
 python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--outlook path] [--top N]
 python -m baibai_loop.screening.cli extract-edinet-metrics --asof YYYY-MM-DD [--lookback-days N]
 python -m baibai_loop.screening.cli rebuild-cache --raw-dir PATH [--sqlite-path PATH]
 python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--sqlite-path PATH] [--rules-path PATH]
 ```
 
+`bootstrap-cache --asof` は `run --asof` が要求する source 別 window を自動で補完する。具体的には J-Quants master、asof まで 1200 日分の日次足、asof まで 730 日分の財務サマリー、asof から 90 日先までの決算予定 horizon、asof の営業日カレンダ、JPX 規制 snapshot を SQLite に書き込む。`--start/--end` は旧運用の明示 window 用で、通常の screening run 前補完には使わない。
+
 `rebuild-cache` は legacy raw JSON tree から `data/screening/market.sqlite` を再生成する移行用コマンド。通常運用では使わず、provider fetch が SQLite へ直接書き込む。`--raw-dir` は必ず明示し、認識できる legacy raw JSON が 0 件の場合は fail-fast する。rebuild は一時ファイルへ作成してから置換するため、失敗時に既存 SQLite を壊さない。詳細は §11 を参照。
 
-`verify-cache-coverage` は SQLite が `run --asof` で必要な全入力をローカルに提供できるかを検証する。検証対象は J-Quants master、1200 日分の日次足、730 日分の財務サマリー、asof から 90 日先までの決算予定 horizon、asof の営業日カレンダ、asof の JPX 規制 snapshot と rules の `universe.required_jpx_flags` に含まれる source 名。`--require-edinet-metrics` を付けた場合は EDINET metrics も必須入力として検証する。`run` は EDINET metrics を必須として同等の検証を行う。raw JSON の読み込みや provider API 呼び出しは行わない。不足があれば exit 1。
+`verify-cache-coverage` は SQLite が `run --asof` で必要な全入力をローカルに提供できるかを検証する。検証対象は J-Quants master、1200 日分の日次足、730 日分の財務サマリー、asof から 90 日先までの決算予定 horizon、asof の営業日カレンダ、asof の JPX 規制 snapshot と rules の `universe.required_jpx_flags` に含まれる source 名、EDINET metrics。EDINET metrics は既定で必須であり、旧運用の degraded check が必要な場合だけ `--allow-missing-edinet-metrics` を明示する。raw JSON の読み込みや provider API 呼び出しは行わない。不足があれば exit 1。
 
 `extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出して `data/screening/market.sqlite` に保存する。CSV ZIP 本体は再生成可能な cache として `.cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 
@@ -85,7 +87,7 @@ EDINET CSV-derived metrics を更新してから run する標準手順:
 
 ```bash
 python -m baibai_loop.screening.cli extract-edinet-metrics --asof YYYY-MM-DD --lookback-days 540
-python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD --require-edinet-metrics
+python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD
 python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 ```
 
@@ -98,8 +100,8 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 - 特別注意銘柄は `JPX_SPECIAL_CAUTION_INDEX_URL` が設定されていれば、JPX の「個別銘柄信用取引残高表」index から最新の `mtdailyk*.xls` link を解決してから Excel を取得する。index 未設定時は `JPX_SPECIAL_CAUTION_URL` の固定 URL を使う
 - 規制情報の取得失敗は fail-fast
 - `universe.required_jpx_flags` の source が欠ける場合は fail-fast する。JPX 規制除外は universe 定義の一部であり、warning-only では扱わない
-- JPX 公開規制情報は latest snapshot しか取得できないため、cache には `fetched_at_utc` を記録する。cache 読み込み時に `asof` と `fetched_at_utc` が 7 weekday 超乖離していれば warning を出す（祝日は引かない近似）
-- `asof` が実行日から 7 weekday 超過去で、該当日の JPX cache が無い場合、`run` は fail-fast する。運用者が latest snapshot を過去 `asof` に固定するリスクを許容する場合のみ `--allow-stale-jpx` を付ける
+- JPX 公開規制情報は latest snapshot しか取得できないため、SQLite には `fetched_at_utc` を記録する。通常の coverage 検証では `asof` と `fetched_at_utc` が 7 weekday 超乖離していれば fail-fast する（祝日は引かない近似）
+- `screening run` は JPX を取得しない。historical backfill で latest snapshot を過去 `asof` に固定するリスクを許容する場合は、先に `bootstrap-cache --asof` で SQLite に保存し、`verify-cache-coverage --allow-stale-jpx` と `run --allow-stale-jpx` を明示する
 
 ## 7. Date Semantics
 
@@ -137,7 +139,7 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 - `.cache/screening/edinet/csv_zips/` は EDINET `type=5` CSV ZIP の cache。削除しても SQLite の metric rows は残る
 - `.cache/screening/disclosures/**/*.json` は SQLite 正本の対象外に残す任意の disclosure title cache。TDnet / 会社 IR 等から取得した `ticker` / `date` / `title` / `source` / `url` 相当の record を置くと、screening run が EDINET metrics 提出日以降の M&A・借入などの title keyword hit を `freshness_warnings` として candidates YAML に出す。cache が無い場合は `provider_status_lines` に optional unavailable を出す。cache が存在するが JSON 読み込み失敗・未対応 layout・必須 key 欠損がある場合は `provider_status_lines` と `fallback_lines` に件数を出す
 - `records/` は履歴成果物だけを置く。通常運用の raw JSON cache、SQLite、CSV ZIP、一時 manifest は置かない
-- `screening run` は開始時に `verify-cache-coverage --asof --require-edinet-metrics` 相当の coverage 検証を行う。SQLite が不完全な場合は fail-fast し、raw JSON cache や provider API へフォールバックしない
+- `screening run` は開始時に `verify-cache-coverage --asof` 相当の coverage 検証を行う。SQLite が不完全な場合は fail-fast し、raw JSON cache や provider API へフォールバックしない
 - `JQuantsProvider` / `EDINETProvider` / `JPXProvider` は bootstrap / extract 系コマンドでは SQLite miss 後に provider API へ進み、取得結果を SQLite に直接保存する。`screening run` では `cache_only` で構築され、run 中の追加取得を禁止する
 
 ### 11.1 SQLite Schema
@@ -153,7 +155,7 @@ SQLite は以下のテーブルを `data/screening/market.sqlite` に作成す�
 - `edinet_documents(doc_date, doc_id, sec_code, doc_type_code, raw_json)` — 主キー `(doc_date, doc_id)`。`doc_date` はファイル名（`{date}.json`）から復元
 - `edinet_metrics(asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, operating_profit_ttm, depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, net_cash, equity, total_assets, consolidation_basis, ttm_quality_*, source_doc_id, document_type, source_submit_datetime, source_period_start, source_period_end, capex_source, failure_reasons)` — 主キー `(asof_date, ticker)`。`asof_date` はファイル名から復元。Candidate YAML では EDINET raw `ocf_ttm` を `edinet_ocf_ttm` として出し、J-Quants 財務サマリー由来の `ocf_ttm` と区別する。`source_*` は research で一次資料へ戻るための traceability として保持する。`source_period_start/end` は EDINET documents metadata であり、半期報告書では実際の CF 測定期間と一致しないことがある
 - `jpx_regulation_flags(asof_date, source_name, ticker, flag, fetched_at_utc)` — 主キー `(asof_date, source_name, ticker, flag)`。JPX cache の `flags_by_ticker` は source 別の起源を保持しないため、`source_name=flag` として記録
-- `source_coverage(source, operation, coverage_key, coverage_start, coverage_end, requested_start, requested_end, params_json, fetched_at_utc, record_count, raw_record_count, normalized_record_count, skipped_record_count, status, error)` — provider/API request window と正規化結果の coverage 正本。`screening run` の事前検証はこの table と normalized rows を照合し、status 異常があれば fail-fast する。`skipped_record_count` は普通株以外などの意図的除外も含み得るため、単独では fail-fast 条件にしない
+- `source_coverage(source, operation, coverage_key, coverage_start, coverage_end, requested_start, requested_end, params_json, fetched_at_utc, record_count, raw_record_count, normalized_record_count, skipped_record_count, rejected_record_count, excluded_record_count, status, error)` — provider/API request window と正規化結果の coverage 正本。`screening run` の事前検証はこの table と normalized rows を照合し、status 異常があれば fail-fast する。`skipped_record_count` は普通株以外などの意図的除外も含み得るため、単独では fail-fast 条件にしない。監査時は `rejected_record_count` と `excluded_record_count` を分けて確認する
 - `raw_imports(source, path, sha256, imported_at_utc, record_count, min_date, max_date)` — legacy raw JSON migration 用。新規 provider fetch では使わない
 - `cache_metadata(key, value)` — schema version などの KV ストア
 

@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
@@ -46,12 +46,14 @@ from baibai_loop.screening.sqlite_reader import read_edinet_metrics
 @dataclass
 class FakeJQuantsProvider:
     business_day: bool = True
+    calls: list[tuple[str, date | None, date | None]] = field(default_factory=list)
 
     def get_mkt_calendar(self, start: date, end: date) -> list[JQuantsMarketCalendarDay]:
-        del end
+        self.calls.append(("get_mkt_calendar", start, end))
         return [JQuantsMarketCalendarDay(day=start, is_business_day=self.business_day)]
 
     def get_eq_master(self) -> list[SecurityMaster]:
+        self.calls.append(("get_eq_master", None, None))
         return [
             SecurityMaster(
                 code="130A",
@@ -63,7 +65,7 @@ class FakeJQuantsProvider:
         ]
 
     def get_eq_bars_daily_range(self, start: date, end: date) -> list[JQuantsDailyBar]:
-        del start
+        self.calls.append(("get_eq_bars_daily_range", start, end))
         # Span >=800 days so listed_under_6_months (182) and short_history_flag (750)
         # checks both treat the fixture as an established listing.
         total = 800
@@ -79,7 +81,7 @@ class FakeJQuantsProvider:
         ]
 
     def get_fin_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
-        del start, end
+        self.calls.append(("get_fin_summary_range", start, end))
         return [
             JQuantsFinancialSummary(
                 ticker="130A",
@@ -114,11 +116,11 @@ class FakeJQuantsProvider:
         ]
 
     def get_eq_earnings_cal(self, start: date, end: date) -> list[dict[str, str]]:
-        del start, end
+        self.calls.append(("get_eq_earnings_cal", start, end))
         return []
 
     def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
-        del start, end
+        self.calls.append(("bootstrap_cache", start, end))
         return {"ok": 1}
 
 
@@ -126,6 +128,7 @@ class FakeJQuantsProvider:
 class FakeEDINETProvider:
     documents: list[dict[str, object]] | None = None
     zip_by_doc_id: dict[str, bytes] | None = None
+    bootstrap_calls: list[tuple[date, date]] = field(default_factory=list)
 
     def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
         del asof_date
@@ -154,7 +157,7 @@ class FakeEDINETProvider:
         return (self.zip_by_doc_id or {})[doc_id]
 
     def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
-        del start, end
+        self.bootstrap_calls.append((start, end))
         return {"ok": 1}
 
 
@@ -187,6 +190,7 @@ class FakeJPXProvider:
         "整理銘柄",
         "特別注意銘柄",
     )
+    bootstrap_calls: list[date] = field(default_factory=list)
 
     def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot:
         del asof_date
@@ -198,7 +202,7 @@ class FakeJPXProvider:
         return self.cache_exists
 
     def bootstrap_cache(self, asof_date: date) -> dict[str, int]:
-        del asof_date
+        self.bootstrap_calls.append(asof_date)
         if self.fail_bootstrap:
             raise JPXProviderError("missing jpx source")
         return {"ok": 1}
@@ -627,6 +631,58 @@ class ScreeningCliTests(unittest.TestCase):
             ),
         )
         self.assertEqual(exit_code, 0)
+
+    def test_bootstrap_cache_command_asof_uses_source_specific_windows(self) -> None:
+        asof = date(2026, 5, 8)
+        jquants = FakeJQuantsProvider()
+        edinet = FakeEDINETProvider()
+        jpx = FakeJPXProvider()
+
+        exit_code = bootstrap_cache_command(
+            asof_date=asof,
+            providers=ProviderBundle(jquants=jquants, edinet=edinet, jpx=jpx),
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn(("get_eq_master", None, None), jquants.calls)
+        self.assertIn(("get_eq_bars_daily_range", asof - timedelta(days=1200), asof), jquants.calls)
+        self.assertIn(("get_fin_summary_range", asof - timedelta(days=730), asof), jquants.calls)
+        self.assertIn(("get_eq_earnings_cal", asof, asof + timedelta(days=90)), jquants.calls)
+        self.assertIn(("get_mkt_calendar", asof, asof), jquants.calls)
+        self.assertEqual(edinet.bootstrap_calls, [(asof - timedelta(days=730), asof)])
+        self.assertEqual(jpx.bootstrap_calls, [asof])
+
+    def test_main_rejects_bootstrap_asof_with_explicit_window(self) -> None:
+        stderr = io.StringIO()
+        with (
+            patch.dict(os.environ, {"JQUANTS_REFRESH_TOKEN": "token"}),
+            contextlib.redirect_stderr(stderr),
+        ):
+            exit_code = screening_cli.main(
+                [
+                    "bootstrap-cache",
+                    "--asof",
+                    "2026-05-08",
+                    "--start",
+                    "2026-05-01",
+                    "--end",
+                    "2026-05-08",
+                ]
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("--asof cannot be combined", stderr.getvalue())
+
+    def test_main_rejects_partial_bootstrap_window(self) -> None:
+        stderr = io.StringIO()
+        with (
+            patch.dict(os.environ, {"JQUANTS_REFRESH_TOKEN": "token"}),
+            contextlib.redirect_stderr(stderr),
+        ):
+            exit_code = screening_cli.main(["bootstrap-cache", "--start", "2026-05-01"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("requires --asof, or both --start and --end", stderr.getvalue())
 
     def test_extract_edinet_metrics_command_writes_parsed_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
