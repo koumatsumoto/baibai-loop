@@ -12,7 +12,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.screening.sqlite_cache import open_connection
+from baibai_loop.screening.sqlite_cache import open_connection, store_jquants_earnings_calendar
 from baibai_loop.screening.sqlite_reader import (
     read_daily_bars,
     read_eq_earnings_cal,
@@ -250,25 +250,15 @@ class ReadEqEarningsCalTests(unittest.TestCase):
 
             self.assertIsNone(read_eq_earnings_cal(db, date(2026, 5, 8), date(2026, 8, 6)))
 
-    def test_returns_records_from_sparse_whole_list_import(self) -> None:
+    def test_returns_records_from_covered_sparse_whole_list_import(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
-            conn = open_connection(db)
-            conn.execute(
-                "INSERT INTO jquants_earnings_calendar(announcement_date, ticker, raw_json) "
-                "VALUES (?, ?, ?)",
-                ("2026-05-15", "1301", '{"Code": "13010", "Date": "2026-05-15"}'),
+            store_jquants_earnings_calendar(
+                db,
+                [{"Code": "13010", "Date": "2026-05-15"}],
+                requested_start=date(2026, 5, 8),
+                requested_end=date(2026, 8, 6),
             )
-            _add_raw_import(
-                conn,
-                source="jquants_earnings_calendar",
-                path="records/_data/raw/screening/jquants/get_eq_earnings_cal.json",
-                record_count=1,
-                min_date="2026-05-15",
-                max_date="2026-05-15",
-            )
-            conn.commit()
-            conn.close()
 
             records = read_eq_earnings_cal(db, date(2026, 5, 8), date(2026, 8, 6))
 

@@ -123,6 +123,24 @@ def _populate_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
         max_date=earnings_date.isoformat(),
     )
     conn.execute(
+        "INSERT INTO source_coverage("
+        "source, operation, coverage_key, coverage_start, coverage_end, "
+        "requested_start, requested_end, params_json, fetched_at_utc, record_count"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "jquants_earnings_calendar",
+            "get_eq_earnings_cal",
+            "whole-list",
+            asof.isoformat(),
+            (asof + timedelta(days=90)).isoformat(),
+            asof.isoformat(),
+            (asof + timedelta(days=90)).isoformat(),
+            "{}",
+            datetime.now(UTC).isoformat(),
+            1,
+        ),
+    )
+    conn.execute(
         "INSERT INTO jquants_market_calendar(day, is_business_day, raw_json) VALUES (?, ?, ?)",
         (asof.isoformat(), 1, "{}"),
     )
@@ -211,6 +229,59 @@ class SQLiteCoverageTests(unittest.TestCase):
             issues = verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertIn("jquants_daily_bars", {issue.source for issue in issues})
+
+    def test_stale_earnings_calendar_horizon_reports_issue(self) -> None:
+        asof = date(2026, 5, 8)
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            _populate_complete_coverage(conn, asof)
+            conn.execute(
+                "UPDATE source_coverage SET coverage_end = ? WHERE source = ? AND coverage_key = ?",
+                (
+                    (asof + timedelta(days=30)).isoformat(),
+                    "jquants_earnings_calendar",
+                    "whole-list",
+                ),
+            )
+            conn.commit()
+            conn.close()
+
+            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+
+            self.assertTrue(
+                any(
+                    issue.source == "jquants_earnings_calendar"
+                    and "horizon is not covered" in issue.reason
+                    for issue in issues
+                )
+            )
+
+    def test_skipped_normalized_rows_report_issue(self) -> None:
+        asof = date(2026, 5, 8)
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            _populate_complete_coverage(conn, asof)
+            conn.commit()
+            conn.close()
+            conn = open_connection(sqlite_path)
+            conn.execute(
+                "UPDATE source_coverage SET skipped_record_count = 1 WHERE source = ?",
+                ("jquants_daily_bars",),
+            )
+            conn.commit()
+            conn.close()
+
+            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+
+            self.assertTrue(
+                any(
+                    issue.source == "jquants_daily_bars"
+                    and "skipped normalized rows" in issue.reason
+                    for issue in issues
+                )
+            )
 
     def test_zero_row_master_import_reports_incomplete_cache(self) -> None:
         asof = date(2026, 5, 8)

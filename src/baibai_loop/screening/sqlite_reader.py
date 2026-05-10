@@ -196,7 +196,7 @@ def read_eq_earnings_cal(sqlite_path: Path, start: date, end: date) -> list[dict
     ensure_sqlite_schema(sqlite_path)
     conn = sqlite3.connect(sqlite_path)
     try:
-        if not _has_any_import(conn, "jquants_earnings_calendar"):
+        if not _minmax_covered(conn, "jquants_earnings_calendar", start, end):
             return None
         rows = conn.execute(
             "SELECT raw_json FROM jquants_earnings_calendar "
@@ -383,18 +383,6 @@ def has_jpx_regulation_data(sqlite_path: Path, asof_date: date) -> bool:
                 "SELECT 1 FROM source_coverage WHERE source = ? "
                 "AND coverage_start <= ? AND coverage_end >= ? LIMIT 1",
                 ("jpx_regulation_flags", asof_date.isoformat(), asof_date.isoformat()),
-            )
-            if cur.fetchone() is not None:
-                return True
-            cur = conn.execute(
-                "SELECT 1 FROM jpx_regulation_flags WHERE asof_date = ? LIMIT 1",
-                (asof_date.isoformat(),),
-            )
-            if cur.fetchone() is not None:
-                return True
-            cur = conn.execute(
-                "SELECT 1 FROM jpx_regulation_sources WHERE asof_date = ? LIMIT 1",
-                (asof_date.isoformat(),),
             )
         except sqlite3.OperationalError:
             return False

@@ -32,7 +32,7 @@ from .providers.jquants import (
     parse_jquants_code,
 )
 
-SCHEMA_VERSION = "v8"
+SCHEMA_VERSION = "v9"
 
 _REQUIRED_TABLES = (
     "jquants_daily_bars",
@@ -82,6 +82,7 @@ _SINGLE_SNAPSHOT_SOURCES = frozenset(
         "jquants_earnings_calendar",
     }
 )
+_RAW_IMPORT_COVERAGE_MIGRATION_KEY = "source_coverage_raw_import_migration"
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS jquants_daily_bars(
@@ -231,6 +232,11 @@ CREATE TABLE IF NOT EXISTS source_coverage(
   params_json TEXT NOT NULL,
   fetched_at_utc TEXT NOT NULL,
   record_count INTEGER NOT NULL,
+  raw_record_count INTEGER,
+  normalized_record_count INTEGER,
+  skipped_record_count INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'ok',
+  error TEXT,
   PRIMARY KEY (source, operation, coverage_key)
 );
 
@@ -274,6 +280,7 @@ def open_connection(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.executescript(_SCHEMA_SQL)
+    _ensure_source_coverage_columns(conn)
     _migrate_source_coverage_from_raw_imports(conn)
     conn.execute(
         "INSERT OR REPLACE INTO cache_metadata(key, value) VALUES('schema_version', ?)",
@@ -286,11 +293,56 @@ def open_connection(db_path: Path) -> sqlite3.Connection:
 def ensure_sqlite_schema(db_path: Path) -> None:
     """Create or migrate the SQLite schema without importing provider data."""
     conn = open_connection(db_path)
-    try:
-        _record_table_integrity(conn)
-        conn.commit()
-    finally:
-        conn.close()
+    conn.close()
+
+
+def _ensure_source_coverage_columns(conn: sqlite3.Connection) -> None:
+    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(source_coverage)").fetchall()}
+    migrations = {
+        "raw_record_count": "ALTER TABLE source_coverage ADD COLUMN raw_record_count INTEGER",
+        "normalized_record_count": (
+            "ALTER TABLE source_coverage ADD COLUMN normalized_record_count INTEGER"
+        ),
+        "skipped_record_count": (
+            "ALTER TABLE source_coverage ADD COLUMN skipped_record_count INTEGER NOT NULL DEFAULT 0"
+        ),
+        "status": "ALTER TABLE source_coverage ADD COLUMN status TEXT NOT NULL DEFAULT 'ok'",
+        "error": "ALTER TABLE source_coverage ADD COLUMN error TEXT",
+    }
+    for column, statement in migrations.items():
+        if column not in columns:
+            conn.execute(statement)
+
+
+def _delete_source_coverage(conn: sqlite3.Connection, source: str) -> None:
+    conn.execute("DELETE FROM source_coverage WHERE source = ?", (source,))
+
+
+def _delete_overlapping_source_coverage(
+    conn: sqlite3.Connection,
+    source: str,
+    start: date,
+    end: date,
+) -> None:
+    conn.execute(
+        "DELETE FROM source_coverage WHERE source = ? "
+        "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
+        "AND coverage_start <= ? AND coverage_end >= ?",
+        (source, end.isoformat(), start.isoformat()),
+    )
+
+
+def _delete_date_range(
+    conn: sqlite3.Connection,
+    table: str,
+    date_column: str,
+    start: date,
+    end: date,
+) -> None:
+    conn.execute(
+        f"DELETE FROM {table} WHERE {date_column} BETWEEN ? AND ?",
+        (start.isoformat(), end.isoformat()),
+    )
 
 
 def store_jquants_daily_bars(
@@ -302,7 +354,12 @@ def store_jquants_daily_bars(
 ) -> int:
     conn = open_connection(db_path)
     try:
-        rows = list(_iter_bars_rows(records))
+        records_list = list(records)
+        rows = list(_iter_bars_rows(records_list))
+        _delete_date_range(conn, "jquants_daily_bars", "traded_at", requested_start, requested_end)
+        _delete_overlapping_source_coverage(
+            conn, "jquants_daily_bars", requested_start, requested_end
+        )
         if rows:
             conn.executemany(
                 """
@@ -327,6 +384,8 @@ def store_jquants_daily_bars(
             requested_end=requested_end.isoformat(),
             params={"start_dt": requested_start.isoformat(), "end_dt": requested_end.isoformat()},
             record_count=len(rows),
+            raw_record_count=len(records_list),
+            skipped_record_count=len(records_list) - len(rows),
         )
         _record_table_integrity(conn)
         conn.commit()
@@ -344,7 +403,14 @@ def store_jquants_fin_summaries(
 ) -> int:
     conn = open_connection(db_path)
     try:
-        rows = list(_iter_fin_summary_rows(records))
+        records_list = list(records)
+        rows = list(_iter_fin_summary_rows(records_list))
+        _delete_date_range(
+            conn, "jquants_fin_summaries", "disclosed_at", requested_start, requested_end
+        )
+        _delete_overlapping_source_coverage(
+            conn, "jquants_fin_summaries", requested_start, requested_end
+        )
         if rows:
             conn.executemany(
                 """
@@ -369,6 +435,8 @@ def store_jquants_fin_summaries(
             requested_end=requested_end.isoformat(),
             params={"start_dt": requested_start.isoformat(), "end_dt": requested_end.isoformat()},
             record_count=len(rows),
+            raw_record_count=len(records_list),
+            skipped_record_count=len(records_list) - len(rows),
         )
         _record_table_integrity(conn)
         conn.commit()
@@ -380,7 +448,10 @@ def store_jquants_fin_summaries(
 def store_jquants_master(db_path: Path, records: Iterable[Mapping[str, Any]]) -> int:
     conn = open_connection(db_path)
     try:
-        rows = list(_iter_master_rows(records))
+        records_list = list(records)
+        rows = list(_iter_master_rows(records_list))
+        conn.execute("DELETE FROM jquants_master_snapshots")
+        _delete_source_coverage(conn, "jquants_master_snapshots")
         if rows:
             conn.executemany(
                 """
@@ -402,6 +473,8 @@ def store_jquants_master(db_path: Path, records: Iterable[Mapping[str, Any]]) ->
             requested_end=None,
             params={},
             record_count=len(rows),
+            raw_record_count=len(records_list),
+            skipped_record_count=len(records_list) - len(rows),
         )
         _record_table_integrity(conn)
         conn.commit()
@@ -413,10 +486,16 @@ def store_jquants_master(db_path: Path, records: Iterable[Mapping[str, Any]]) ->
 def store_jquants_earnings_calendar(
     db_path: Path,
     records: Iterable[Mapping[str, Any]],
+    *,
+    requested_start: date | None = None,
+    requested_end: date | None = None,
 ) -> int:
     conn = open_connection(db_path)
     try:
-        rows = _earnings_calendar_rows(records)
+        records_list = list(records)
+        rows = _earnings_calendar_rows(records_list)
+        conn.execute("DELETE FROM jquants_earnings_calendar")
+        _delete_source_coverage(conn, "jquants_earnings_calendar")
         if rows:
             conn.executemany(
                 "INSERT OR REPLACE INTO jquants_earnings_calendar("
@@ -425,17 +504,28 @@ def store_jquants_earnings_calendar(
                 rows,
             )
         dates = sorted({row[0] for row in rows})
+        coverage_start = (
+            requested_start.isoformat() if requested_start else dates[0] if dates else None
+        )
+        coverage_end = requested_end.isoformat() if requested_end else dates[-1] if dates else None
+        params = {
+            key: value.isoformat()
+            for key, value in (("start_dt", requested_start), ("end_dt", requested_end))
+            if value is not None
+        }
         _record_source_coverage(
             conn,
             source="jquants_earnings_calendar",
             operation="get_eq_earnings_cal",
             coverage_key="whole-list",
-            coverage_start=dates[0] if dates else None,
-            coverage_end=dates[-1] if dates else None,
-            requested_start=None,
-            requested_end=None,
-            params={},
+            coverage_start=coverage_start,
+            coverage_end=coverage_end,
+            requested_start=requested_start.isoformat() if requested_start else None,
+            requested_end=requested_end.isoformat() if requested_end else None,
+            params=params,
             record_count=len(rows),
+            raw_record_count=len(records_list),
+            skipped_record_count=len(records_list) - len(rows),
         )
         _record_table_integrity(conn)
         conn.commit()
@@ -453,7 +543,12 @@ def store_jquants_market_calendar(
 ) -> int:
     conn = open_connection(db_path)
     try:
-        rows = _market_calendar_rows(records)
+        records_list = list(records)
+        rows = _market_calendar_rows(records_list)
+        _delete_date_range(conn, "jquants_market_calendar", "day", requested_start, requested_end)
+        _delete_overlapping_source_coverage(
+            conn, "jquants_market_calendar", requested_start, requested_end
+        )
         if rows:
             conn.executemany(
                 "INSERT OR REPLACE INTO jquants_market_calendar(day, is_business_day, raw_json) "
@@ -474,6 +569,8 @@ def store_jquants_market_calendar(
                 "to_yyyymmdd": requested_end.strftime("%Y%m%d"),
             },
             record_count=len(rows),
+            raw_record_count=len(records_list),
+            skipped_record_count=len(records_list) - len(rows),
         )
         _record_table_integrity(conn)
         conn.commit()
@@ -489,7 +586,10 @@ def store_edinet_documents(
 ) -> int:
     conn = open_connection(db_path)
     try:
-        rows = _edinet_document_rows(on_date.isoformat(), records)
+        records_list = list(records)
+        rows = _edinet_document_rows(on_date.isoformat(), records_list)
+        conn.execute("DELETE FROM edinet_documents WHERE doc_date = ?", (on_date.isoformat(),))
+        _delete_overlapping_source_coverage(conn, "edinet_documents", on_date, on_date)
         if rows:
             conn.executemany(
                 "INSERT OR REPLACE INTO edinet_documents("
@@ -508,6 +608,8 @@ def store_edinet_documents(
             requested_end=on_date.isoformat(),
             params={"date": on_date.isoformat(), "type": 2},
             record_count=len(rows),
+            raw_record_count=len(records_list),
+            skipped_record_count=len(records_list) - len(rows),
         )
         _record_table_integrity(conn)
         conn.commit()
@@ -523,7 +625,10 @@ def store_edinet_metrics(
 ) -> int:
     conn = open_connection(db_path)
     try:
-        rows = _edinet_metric_rows(asof_date.isoformat(), records)
+        records_list = list(records)
+        rows = _edinet_metric_rows(asof_date.isoformat(), records_list)
+        conn.execute("DELETE FROM edinet_metrics WHERE asof_date = ?", (asof_date.isoformat(),))
+        _delete_overlapping_source_coverage(conn, "edinet_metrics", asof_date, asof_date)
         if rows:
             conn.executemany(
                 "INSERT OR REPLACE INTO edinet_metrics("
@@ -550,6 +655,8 @@ def store_edinet_metrics(
             requested_end=asof_date.isoformat(),
             params={"asof_date": asof_date.isoformat()},
             record_count=len(rows),
+            raw_record_count=len(records_list),
+            skipped_record_count=len(records_list) - len(rows),
         )
         _record_table_integrity(conn)
         conn.commit()
@@ -570,6 +677,14 @@ def store_jpx_regulations(
     fetched_at = fetched_at_utc or datetime.now(UTC).isoformat()
     source_name_tuple = tuple(source_names)
     try:
+        conn.execute(
+            "DELETE FROM jpx_regulation_flags WHERE asof_date = ?", (asof_date.isoformat(),)
+        )
+        conn.execute(
+            "DELETE FROM jpx_regulation_sources WHERE asof_date = ?",
+            (asof_date.isoformat(),),
+        )
+        _delete_overlapping_source_coverage(conn, "jpx_regulation_flags", asof_date, asof_date)
         source_rows = [(asof_date.isoformat(), str(name), fetched_at) for name in source_name_tuple]
         if source_rows:
             conn.executemany(
@@ -606,6 +721,8 @@ def store_jpx_regulations(
             requested_end=asof_date.isoformat(),
             params={"asof_date": asof_date.isoformat(), "source_names": sorted(source_name_tuple)},
             record_count=len(rows),
+            raw_record_count=sum(1 for _ in flags_by_ticker.items()),
+            skipped_record_count=0,
         )
         _record_table_integrity(conn)
         conn.commit()
@@ -628,6 +745,14 @@ def rebuild_from_raw(raw_dir: Path | Iterable[Path], db_path: Path) -> RebuildSu
     derived cache.
     """
     raw_dirs: tuple[Path, ...] = (raw_dir,) if isinstance(raw_dir, Path) else tuple(raw_dir)
+    importable_paths = tuple(
+        path for current_raw_dir in raw_dirs for path in _iter_importable_raw_paths(current_raw_dir)
+    )
+    if not importable_paths:
+        raise SQLiteCacheError(
+            "no importable legacy raw JSON files found; pass --raw-dir explicitly "
+            "or bootstrap SQLite from providers"
+        )
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         prefix=f".{db_path.name}.",
@@ -1607,6 +1732,9 @@ def _record_source_coverage_for_legacy_raw_import(
         requested_end=coverage_end,
         params={"legacy_raw_path": _path_key(path)},
         record_count=record_count,
+        raw_record_count=record_count,
+        skipped_record_count=0,
+        replace=False,
     )
 
 
@@ -1622,14 +1750,22 @@ def _record_source_coverage(
     requested_end: str | None,
     params: Mapping[str, Any],
     record_count: int,
+    raw_record_count: int | None = None,
+    skipped_record_count: int = 0,
+    status: str = "ok",
+    error: str | None = None,
     fetched_at_utc: str | None = None,
+    replace: bool = True,
 ) -> None:
+    normalized_record_count = record_count
+    conflict_action = "REPLACE" if replace else "IGNORE"
     conn.execute(
-        """
-        INSERT OR REPLACE INTO source_coverage(
+        f"""
+        INSERT OR {conflict_action} INTO source_coverage(
           source, operation, coverage_key, coverage_start, coverage_end,
-          requested_start, requested_end, params_json, fetched_at_utc, record_count
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          requested_start, requested_end, params_json, fetched_at_utc, record_count,
+          raw_record_count, normalized_record_count, skipped_record_count, status, error
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             source,
@@ -1642,19 +1778,29 @@ def _record_source_coverage(
             json.dumps(params, ensure_ascii=False, sort_keys=True),
             fetched_at_utc or datetime.now(UTC).isoformat(),
             record_count,
+            raw_record_count if raw_record_count is not None else record_count,
+            normalized_record_count,
+            skipped_record_count,
+            status,
+            error,
         ),
     )
 
 
 def _migrate_source_coverage_from_raw_imports(conn: sqlite3.Connection) -> None:
     try:
-        existing = conn.execute("SELECT 1 FROM source_coverage LIMIT 1").fetchone()
+        migrated = conn.execute(
+            "SELECT value FROM cache_metadata WHERE key = ?",
+            (_RAW_IMPORT_COVERAGE_MIGRATION_KEY,),
+        ).fetchone()
+        if migrated is not None and migrated[0] == SCHEMA_VERSION:
+            return
         rows = conn.execute(
             "SELECT source, path, record_count, min_date, max_date FROM raw_imports"
         ).fetchall()
     except sqlite3.OperationalError:
         return
-    if existing is not None:
+    if not rows:
         return
     for source, path_text, record_count, min_date, max_date in rows:
         _record_source_coverage_for_legacy_raw_import(
@@ -1665,6 +1811,10 @@ def _migrate_source_coverage_from_raw_imports(conn: sqlite3.Connection) -> None:
             min_date=str(min_date) if min_date else None,
             max_date=str(max_date) if max_date else None,
         )
+    conn.execute(
+        "INSERT OR REPLACE INTO cache_metadata(key, value) VALUES(?, ?)",
+        (_RAW_IMPORT_COVERAGE_MIGRATION_KEY, SCHEMA_VERSION),
+    )
 
 
 def _legacy_operation_for_source(source: str) -> str | None:

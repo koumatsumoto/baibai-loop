@@ -14,7 +14,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from baibai_loop.screening.providers.jquants import JQuantsProvider, JQuantsProviderError
-from baibai_loop.screening.sqlite_cache import open_connection
+from baibai_loop.screening.sqlite_cache import open_connection, store_jquants_daily_bars
 
 
 class _RecordingClient:
@@ -245,6 +245,27 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             provider.get_eq_bars_daily_range(date(2024, 3, 19), date(2024, 4, 18))
 
             self.assertGreater(len(client.bars_calls), 0)
+
+    def test_get_bars_fetches_only_missing_sqlite_chunks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "raw"
+            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
+            store_jquants_daily_bars(
+                sqlite_path,
+                [{"Code": "13010", "Date": "2024-03-19", "C": 3790.0, "Va": 1000.0}],
+                requested_start=date(2024, 3, 19),
+                requested_end=date(2024, 4, 18),
+            )
+
+            client = _RecordingClient()
+            provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
+
+            bars = provider.get_eq_bars_daily_range(date(2024, 3, 19), date(2024, 5, 20))
+
+            self.assertNotIn(("2024-03-19", "2024-04-18"), client.bars_calls)
+            self.assertIn(("2024-04-19", "2024-05-19"), client.bars_calls)
+            self.assertIn(("2024-05-20", "2024-05-20"), client.bars_calls)
+            self.assertGreaterEqual(len(bars), 3)
 
     def test_provider_works_when_sqlite_path_is_none(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

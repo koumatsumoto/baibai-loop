@@ -9,6 +9,7 @@ from pathlib import Path
 from .sqlite_cache import ensure_sqlite_schema
 from .sqlite_reader import (
     _has_any_import,
+    _minmax_covered,
     _range_covered,
     read_edinet_metrics,
     read_jpx_regulations,
@@ -34,6 +35,7 @@ _TABLE_COUNT_SQL = {
     "jquants_market_calendar": "SELECT COUNT(*) FROM jquants_market_calendar",
     "jpx_regulation_flags": "SELECT COUNT(*) FROM jpx_regulation_flags",
 }
+_SINGLE_SNAPSHOT_SOURCES = frozenset({"jquants_master_snapshots", "jquants_earnings_calendar"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +85,9 @@ def verify_screening_sqlite_coverage(
                     )
                 )
             else:
+                _append_source_coverage_quality_issues(
+                    conn, issues, source="jquants_master_snapshots"
+                )
                 _append_table_consistency_issues(
                     conn,
                     issues,
@@ -101,6 +106,7 @@ def verify_screening_sqlite_coverage(
                     )
                 )
             else:
+                _append_source_coverage_quality_issues(conn, issues, source="jquants_daily_bars")
                 _append_required_date_rows_issue(
                     conn,
                     issues,
@@ -111,6 +117,7 @@ def verify_screening_sqlite_coverage(
                     end=asof_date,
                     requirement=f"{bars_start.isoformat()}..{asof_date.isoformat()}",
                 )
+                _append_asof_bar_density_issue(conn, issues, asof_date=asof_date)
                 _append_table_consistency_issues(
                     conn,
                     issues,
@@ -131,6 +138,7 @@ def verify_screening_sqlite_coverage(
                     )
                 )
             else:
+                _append_source_coverage_quality_issues(conn, issues, source="jquants_fin_summaries")
                 _append_required_date_rows_issue(
                     conn,
                     issues,
@@ -152,21 +160,25 @@ def verify_screening_sqlite_coverage(
                         conn, "jquants_fin_summaries"
                     ),
                 )
-            if not _has_any_import(conn, "jquants_earnings_calendar"):
+            earnings_end = asof_date + timedelta(days=90)
+            if not _minmax_covered(conn, "jquants_earnings_calendar", asof_date, earnings_end):
                 issues.append(
                     CacheCoverageIssue(
                         source="jquants_earnings_calendar",
-                        requirement="latest imported earnings calendar payload",
-                        reason="earnings calendar payload is not imported in SQLite",
+                        requirement=f"{asof_date.isoformat()}..{earnings_end.isoformat()}",
+                        reason="earnings calendar horizon is not covered in SQLite",
                     )
                 )
             else:
+                _append_source_coverage_quality_issues(
+                    conn, issues, source="jquants_earnings_calendar"
+                )
                 _append_table_consistency_issues(
                     conn,
                     issues,
                     source="jquants_earnings_calendar",
                     table="jquants_earnings_calendar",
-                    requirement="latest imported earnings calendar payload",
+                    requirement=f"{asof_date.isoformat()}..{earnings_end.isoformat()}",
                     require_rows=False,
                     enforce_record_count=True,
                 )
@@ -179,6 +191,9 @@ def verify_screening_sqlite_coverage(
                     )
                 )
             else:
+                _append_source_coverage_quality_issues(
+                    conn, issues, source="jquants_market_calendar"
+                )
                 _append_required_date_rows_issue(
                     conn,
                     issues,
@@ -202,6 +217,7 @@ def verify_screening_sqlite_coverage(
                 conn, "jpx_regulation_flags", asof_date
             )
             if jpx_source_coverage_covers_asof:
+                _append_source_coverage_quality_issues(conn, issues, source="jpx_regulation_flags")
                 _append_table_consistency_issues(
                     conn,
                     issues,
@@ -265,6 +281,25 @@ def verify_screening_sqlite_coverage(
                         reason="EDINET metrics are required but not covered in SQLite",
                     )
                 )
+            else:
+                try:
+                    conn = sqlite3.connect(sqlite_path)
+                    try:
+                        _append_source_coverage_quality_issues(
+                            conn, issues, source="edinet_metrics"
+                        )
+                    finally:
+                        conn.close()
+                except sqlite3.Error as exc:
+                    issues.append(
+                        CacheCoverageIssue(
+                            source="edinet_metrics",
+                            requirement=asof_date.isoformat(),
+                            reason=(
+                                f"EDINET metrics quality query failed: {type(exc).__name__}: {exc}"
+                            ),
+                        )
+                    )
     return tuple(issues)
 
 
@@ -291,6 +326,75 @@ def _append_required_date_rows_issue(
                 reason=f"{table} has no rows in the required date window",
             )
         )
+
+
+def _append_asof_bar_density_issue(
+    conn: sqlite3.Connection,
+    issues: list[CacheCoverageIssue],
+    *,
+    asof_date: date,
+) -> None:
+    asof_iso = asof_date.isoformat()
+    master_row = conn.execute(
+        "SELECT COUNT(DISTINCT ticker) FROM jquants_master_snapshots "
+        "WHERE is_common_stock = 1 AND snapshot_date = ("
+        "SELECT MAX(snapshot_date) FROM jquants_master_snapshots WHERE snapshot_date != 'unknown'"
+        ")"
+    ).fetchone()
+    expected = int(master_row[0] or 0)
+    if expected <= 0:
+        return
+    actual_row = conn.execute(
+        "SELECT COUNT(DISTINCT ticker) FROM jquants_daily_bars "
+        "WHERE traded_at = ? AND close IS NOT NULL",
+        (asof_iso,),
+    ).fetchone()
+    actual = int(actual_row[0] or 0)
+    minimum = max(1, expected // 2)
+    if actual < minimum:
+        issues.append(
+            CacheCoverageIssue(
+                source="jquants_daily_bars",
+                requirement=asof_iso,
+                reason=(
+                    f"daily bars usable ticker count on asof ({actual}) is too small "
+                    f"relative to common-stock master rows ({expected}); repair SQLite"
+                ),
+            )
+        )
+
+
+def _append_source_coverage_quality_issues(
+    conn: sqlite3.Connection,
+    issues: list[CacheCoverageIssue],
+    *,
+    source: str,
+) -> None:
+    rows = conn.execute(
+        "SELECT coverage_key, status, skipped_record_count FROM source_coverage WHERE source = ?",
+        (source,),
+    ).fetchall()
+    for coverage_key, status, skipped_record_count in rows:
+        if status != "ok":
+            issues.append(
+                CacheCoverageIssue(
+                    source=source,
+                    requirement=str(coverage_key),
+                    reason=f"source_coverage status is not ok: {status}",
+                )
+            )
+            continue
+        if int(skipped_record_count or 0) > 0:
+            issues.append(
+                CacheCoverageIssue(
+                    source=source,
+                    requirement=str(coverage_key),
+                    reason=(
+                        "source_coverage skipped normalized rows; repair SQLite "
+                        "or inspect provider payload before screening"
+                    ),
+                )
+            )
 
 
 def _append_table_consistency_issues(
@@ -360,8 +464,9 @@ def _append_table_consistency_issues(
 
 
 def _source_coverage_record_count(conn: sqlite3.Connection, source: str) -> int:
+    aggregate = "MAX" if source in _SINGLE_SNAPSHOT_SOURCES else "SUM"
     row = conn.execute(
-        "SELECT COALESCE(SUM(record_count), 0) FROM source_coverage WHERE source = ?",
+        f"SELECT COALESCE({aggregate}(record_count), 0) FROM source_coverage WHERE source = ?",
         (source,),
     ).fetchone()
     return int(row[0] or 0)

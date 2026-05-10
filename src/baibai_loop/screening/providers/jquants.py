@@ -151,6 +151,15 @@ class JQuantsProvider:
             if cached is not None:
                 return cached
         self._raise_if_cache_only("jquants_daily_bars", f"{start.isoformat()}..{end.isoformat()}")
+        if self._sqlite_path is not None:
+            self._fetch_missing_range_chunks("get_eq_bars_daily_range", start, end)
+            cached = read_daily_bars(self._sqlite_path, start, end)
+            if cached is not None:
+                return cached
+            raise JQuantsProviderError(
+                "SQLite cache remained incomplete after fetching jquants_daily_bars "
+                f"for {start.isoformat()}..{end.isoformat()}"
+            )
         records = self._load_or_fetch_range("get_eq_bars_daily_range", start, end)
         return [bar for record in records if (bar := normalize_daily_bar(record)) is not None]
 
@@ -164,6 +173,15 @@ class JQuantsProvider:
         self._raise_if_cache_only(
             "jquants_fin_summaries", f"{start.isoformat()}..{end.isoformat()}"
         )
+        if self._sqlite_path is not None:
+            self._fetch_missing_range_chunks("get_fin_summary_range", start, end)
+            cached = read_fin_summaries(self._sqlite_path, start, end)
+            if cached is not None:
+                return cached
+            raise JQuantsProviderError(
+                "SQLite cache remained incomplete after fetching jquants_fin_summaries "
+                f"for {start.isoformat()}..{end.isoformat()}"
+            )
         records = self._load_or_fetch_range("get_fin_summary_range", start, end)
         return [
             summary
@@ -181,7 +199,10 @@ class JQuantsProvider:
         self._raise_if_cache_only(
             "jquants_earnings_calendar", f"{start.isoformat()}..{end.isoformat()}"
         )
-        records = self._load_or_fetch("get_eq_earnings_cal")
+        records = self._load_or_fetch(
+            "get_eq_earnings_cal",
+            store_params={"requested_start": start, "requested_end": end},
+        )
         start_iso = start.isoformat()
         end_iso = end.isoformat()
         return [
@@ -239,7 +260,42 @@ class JQuantsProvider:
                 time.sleep(self._INTER_CHUNK_SLEEP_SECONDS)
         return records
 
-    def _load_or_fetch(self, method: str, **params: Any) -> list[dict[str, Any]]:
+    def _fetch_missing_range_chunks(self, method: str, start: date, end: date) -> None:
+        if self._sqlite_path is None:
+            return
+        from ..sqlite_reader import read_daily_bars, read_fin_summaries
+
+        chunk_days = self._RANGE_CHUNK_DAYS.get(method)
+        if chunk_days is None:
+            self._load_or_fetch(method, start_dt=start, end_dt=end)
+            return
+
+        cursor = start
+        fetched_any = False
+        while cursor <= end:
+            chunk_end = min(cursor + timedelta(days=chunk_days - 1), end)
+            if method == "get_eq_bars_daily_range":
+                chunk_is_cached = read_daily_bars(self._sqlite_path, cursor, chunk_end) is not None
+            elif method == "get_fin_summary_range":
+                chunk_is_cached = (
+                    read_fin_summaries(self._sqlite_path, cursor, chunk_end) is not None
+                )
+            else:
+                chunk_is_cached = False
+            if not chunk_is_cached:
+                self._load_or_fetch(method, start_dt=cursor, end_dt=chunk_end)
+                fetched_any = True
+            cursor = chunk_end + timedelta(days=1)
+            if fetched_any and cursor <= end:
+                time.sleep(self._INTER_CHUNK_SLEEP_SECONDS)
+
+    def _load_or_fetch(
+        self,
+        method: str,
+        *,
+        store_params: Mapping[str, Any] | None = None,
+        **params: Any,
+    ) -> list[dict[str, Any]]:
         if method not in JQUANTS_CLIENT_V2_METHODS:
             raise JQuantsProviderError(f"unsupported ClientV2 method: {method}")
 
@@ -250,7 +306,7 @@ class JQuantsProvider:
         payload = self._call_with_retry(method, call, **params)
 
         records = _payload_to_records(payload)
-        self._store_records(method, records, params)
+        self._store_records(method, records, store_params or params)
         return records
 
     def _raise_if_cache_only(self, source: str, requirement: str) -> None:
@@ -283,7 +339,14 @@ class JQuantsProvider:
             store_jquants_master(self._sqlite_path, records)
             return
         if method == "get_eq_earnings_cal":
-            store_jquants_earnings_calendar(self._sqlite_path, records)
+            requested_start = params.get("requested_start")
+            requested_end = params.get("requested_end")
+            store_jquants_earnings_calendar(
+                self._sqlite_path,
+                records,
+                requested_start=requested_start if isinstance(requested_start, date) else None,
+                requested_end=requested_end if isinstance(requested_end, date) else None,
+            )
             return
         if method in {"get_eq_bars_daily_range", "get_fin_summary_range"}:
             start = params.get("start_dt")

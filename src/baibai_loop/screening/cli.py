@@ -16,7 +16,6 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
 from baibai_loop._env import load_project_env
 
 from .config import (
-    DEFAULT_CACHE_DIR,
     DEFAULT_SQLITE_CACHE_DIR,
     ConfigError,
     ScreeningConfig,
@@ -210,8 +209,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     rebuild_parser.add_argument(
         "--raw-dir",
-        default=str(DEFAULT_CACHE_DIR),
-        help=f"raw JSON root (default: {DEFAULT_CACHE_DIR})",
+        required=True,
+        help="legacy raw JSON root to import (required; disposable .cache is not a default)",
     )
     rebuild_parser.add_argument(
         "--sqlite-path",
@@ -315,6 +314,7 @@ def main(argv: list[str] | None = None) -> int:
         coverage_issues = verify_screening_sqlite_coverage(
             sqlite_path,
             run_asof_date,
+            require_edinet_metrics=True,
             required_jpx_sources=run_rules.universe.required_jpx_flags if run_rules else (),
         )
         if coverage_issues:

@@ -23,7 +23,7 @@ from baibai_loop.screening.lineage import (
     write_manifest,
 )
 from baibai_loop.screening.render import JST
-from baibai_loop.screening.sqlite_cache import open_connection
+from baibai_loop.screening.sqlite_cache import SCHEMA_VERSION, open_connection
 
 
 class ScreeningLineageTests(unittest.TestCase):
@@ -208,7 +208,7 @@ class ScreeningLineageTests(unittest.TestCase):
             self.assertIsNotNone(summary)
             assert summary is not None  # narrow for type checker
             self.assertEqual(summary["path"], sqlite_path.as_posix())
-            self.assertIn(summary["schema_version"], {"v8"})
+            self.assertEqual(summary["schema_version"], SCHEMA_VERSION)
             self.assertEqual(
                 summary["coverage"],
                 [{"source": "jquants_master_snapshots", "windows": 1, "records": 4445}],
