@@ -14,7 +14,7 @@ run_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 run_id: "screening-YYYYMMDD"
 candidates:
 - ticker: "130A"
-  candidate_id: candidate-screening-YYYYMMDD-130A
+  candidate_id: candidate-YYYY-MM-DD-130A
   candidate_key: "screening-YYYYMMDD:130A"
   name: "..."
   sector_33: "業種名"

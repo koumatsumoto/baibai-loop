@@ -38,6 +38,11 @@ JSONL は 1 行 1 event。current state は同じ `decision_event_id` / correcti
 
 `decision_event_id` は register 内の join key であり、trade record の `order_intent.order_intent_id`、`orders[].origin_order_intent_id`、review attribution の anchor と接続する。
 
+`candidate_ref` は candidate に紐づく decision event で必須。`candidates_ref`, `screen_run_id`,
+`ticker`, `candidate_id` を持たせる。`screen_run_id` は参照先 candidates YAML の root `run_id`
+および candidate row の `screen_run_id` と一致させる。形式は `screening-YYYYMMDD`。
+`candidate_id` は `candidate-<asof_date>-<ticker>` 形式で、参照先 candidate row と一致させる。
+
 ## 4. Sync
 
 手元では次を実行する。

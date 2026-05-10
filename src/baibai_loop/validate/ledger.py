@@ -81,6 +81,15 @@ def validate_ledger_file(path: Path) -> list[ValidationFinding]:
             )
         findings.extend(_check_required_lineage_fields(path, line_number, record))
         findings.extend(
+            _check_candidate_ref_lineage(
+                path,
+                line_number,
+                record,
+                root=root,
+                candidate_document_cache=candidate_document_cache,
+            )
+        )
+        findings.extend(
             _check_candidate_decision_coverage(
                 path,
                 line_number,
@@ -146,25 +155,16 @@ def _check_candidate_decision_coverage(
 ) -> list[ValidationFinding]:
     if record.get("candidate_decision") != "not_reviewed":
         return []
-    candidate_ref = record.get("candidate_ref")
-    if not isinstance(candidate_ref, dict):
+    loaded = _candidate_ref_document_and_row(
+        record,
+        root=root,
+        candidate_document_cache=candidate_document_cache,
+    )
+    if loaded is None:
         return []
-    candidates_ref = candidate_ref.get("candidates_ref")
-    ticker = candidate_ref.get("ticker")
-    if not isinstance(candidates_ref, str) or not isinstance(ticker, str):
-        return []
-    document = _load_candidate_document(root, candidates_ref, candidate_document_cache)
-    if document is None:
-        return []
+    document, candidate = loaded
     if document.get("requires_decision_coverage") is not True:
         return []
-    candidate = None
-    candidates = document.get("candidates")
-    if isinstance(candidates, list):
-        for item in candidates:
-            if isinstance(item, dict) and item.get("ticker") == ticker:
-                candidate = item
-                break
     if candidate is None:
         return []
     if candidate.get("playbook_screen_result") not in {"hit", "near_threshold"}:
@@ -192,6 +192,119 @@ def _check_candidate_decision_coverage(
             )
         ]
     return []
+
+
+def _check_candidate_ref_lineage(
+    path: Path,
+    line_number: int,
+    record: dict[str, Any],
+    *,
+    root: Path,
+    candidate_document_cache: dict[str, dict[str, Any] | None],
+) -> list[ValidationFinding]:
+    if not isinstance(record.get("candidate_ref"), dict):
+        return []
+    loaded = _candidate_ref_document_and_row(
+        record,
+        root=root,
+        candidate_document_cache=candidate_document_cache,
+    )
+    if loaded is None:
+        return []
+    document, candidate = loaded
+    candidate_ref = record["candidate_ref"]
+    if not isinstance(candidate_ref, dict):
+        return []
+
+    findings: list[ValidationFinding] = []
+    ref_screen_run_id = candidate_ref.get("screen_run_id")
+    document_run_id = document.get("run_id")
+    if not isinstance(ref_screen_run_id, str) or not ref_screen_run_id:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-screen-run-id",
+                message="candidate_ref.screen_run_id is required",
+                location=f"line {line_number}.candidate_ref.screen_run_id",
+            )
+        )
+    elif isinstance(document_run_id, str) and ref_screen_run_id != document_run_id:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-screen-run-id",
+                message="candidate_ref.screen_run_id must match candidate document run_id",
+                location=f"line {line_number}.candidate_ref.screen_run_id",
+            )
+        )
+
+    candidate_id = candidate_ref.get("candidate_id")
+    if not isinstance(candidate_id, str) or not candidate_id:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-candidate-id",
+                message="candidate_ref.candidate_id is required",
+                location=f"line {line_number}.candidate_ref.candidate_id",
+            )
+        )
+    elif candidate is not None and candidate.get("candidate_id") != candidate_id:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-candidate-id",
+                message="candidate_ref.candidate_id must match candidate row candidate_id",
+                location=f"line {line_number}.candidate_ref.candidate_id",
+            )
+        )
+
+    candidate_screen_run_id = candidate.get("screen_run_id") if candidate is not None else None
+    if (
+        isinstance(ref_screen_run_id, str)
+        and candidate is not None
+        and isinstance(candidate_screen_run_id, str)
+        and ref_screen_run_id != candidate_screen_run_id
+    ):
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-screen-run-id",
+                message="candidate_ref.screen_run_id must match candidate row screen_run_id",
+                location=f"line {line_number}.candidate_ref.screen_run_id",
+            )
+        )
+    return findings
+
+
+def _candidate_ref_document_and_row(
+    record: dict[str, Any],
+    *,
+    root: Path,
+    candidate_document_cache: dict[str, dict[str, Any] | None],
+) -> tuple[dict[str, Any], dict[str, Any] | None] | None:
+    candidate_ref = record.get("candidate_ref")
+    if not isinstance(candidate_ref, dict):
+        return None
+    candidates_ref = candidate_ref.get("candidates_ref")
+    ticker = candidate_ref.get("ticker")
+    if not isinstance(candidates_ref, str) or not isinstance(ticker, str):
+        return None
+    document = _load_candidate_document(root, candidates_ref, candidate_document_cache)
+    if document is None:
+        return None
+    candidate = None
+    candidates = document.get("candidates")
+    if isinstance(candidates, list):
+        for item in candidates:
+            if isinstance(item, dict) and item.get("ticker") == ticker:
+                candidate = item
+                break
+    return document, candidate
 
 
 def _load_candidate_document(
@@ -254,10 +367,12 @@ def _check_candidate_coverage_from_candidates(
                 continue
             candidate_id = candidate.get("candidate_id")
             ticker = candidate.get("ticker")
+            screen_run_id = candidate.get("screen_run_id") or document.get("run_id")
             key = (
                 candidates_ref,
                 str(candidate_id) if isinstance(candidate_id, str) else "",
                 str(ticker) if isinstance(ticker, str) else "",
+                str(screen_run_id) if isinstance(screen_run_id, str) else "",
             )
             if key not in covered:
                 findings.append(
@@ -275,8 +390,8 @@ def _check_candidate_coverage_from_candidates(
     return findings
 
 
-def _covered_candidate_refs(records: list[dict[str, Any]]) -> set[tuple[str, str, str]]:
-    covered: set[tuple[str, str, str]] = set()
+def _covered_candidate_refs(records: list[dict[str, Any]]) -> set[tuple[str, str, str, str]]:
+    covered: set[tuple[str, str, str, str]] = set()
     for record in records:
         if record.get("decision_scope") not in {"candidate_screen", "research_memo"}:
             continue
@@ -286,12 +401,14 @@ def _covered_candidate_refs(records: list[dict[str, Any]]) -> set[tuple[str, str
         candidates_ref = candidate_ref.get("candidates_ref")
         ticker = candidate_ref.get("ticker")
         candidate_id = candidate_ref.get("candidate_id")
+        screen_run_id = candidate_ref.get("screen_run_id")
         if isinstance(candidates_ref, str) and isinstance(ticker, str):
             covered.add(
                 (
                     candidates_ref,
                     str(candidate_id) if isinstance(candidate_id, str) else "",
                     ticker,
+                    str(screen_run_id) if isinstance(screen_run_id, str) else "",
                 )
             )
     return covered

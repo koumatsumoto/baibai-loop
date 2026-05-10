@@ -13,9 +13,17 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.screening.providers.edinet import EDINETProvider, EDINETProviderError
+from baibai_loop.screening.providers.edinet import (
+    EDINETProvider,
+    EDINETProviderError,
+    select_document_candidates,
+)
 from baibai_loop.screening.providers.jpx import JPXProvider, JPXProviderError
-from baibai_loop.screening.sqlite_cache import open_connection, store_jpx_regulations
+from baibai_loop.screening.sqlite_cache import (
+    open_connection,
+    store_edinet_documents,
+    store_jpx_regulations,
+)
 from baibai_loop.screening.sqlite_reader import (
     has_jpx_regulation_data,
     read_edinet_documents,
@@ -24,7 +32,7 @@ from baibai_loop.screening.sqlite_reader import (
 )
 
 
-def _add_raw_import(
+def _add_source_coverage(
     conn: sqlite3.Connection,
     *,
     source: str,
@@ -66,7 +74,7 @@ class EDINETSQLiteReaderTests(unittest.TestCase):
                 ") VALUES (?, ?, ?, ?)",
                 ("2026-04-24", "S100ABCD", "13010", "120"),
             )
-            _add_raw_import(conn, source="edinet_documents", date_iso="2026-04-24")
+            _add_source_coverage(conn, source="edinet_documents", date_iso="2026-04-24")
             conn.commit()
             conn.close()
 
@@ -74,6 +82,32 @@ class EDINETSQLiteReaderTests(unittest.TestCase):
             assert docs is not None
             self.assertEqual(len(docs), 1)
             self.assertEqual(docs[0]["docID"], "S100ABCD")
+
+    def test_read_edinet_documents_preserves_description_period_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            store_edinet_documents(
+                sqlite_path,
+                date(2026, 4, 24),
+                [
+                    {
+                        "docID": "S100ABCD",
+                        "secCode": "13010",
+                        "docTypeCode": "120",
+                        "csvFlag": "1",
+                        "xbrlFlag": "1",
+                        "docDescription": "有価証券報告書 2025/04/01-2026/03/31",
+                    }
+                ],
+            )
+
+            docs = read_edinet_documents(sqlite_path, date(2026, 4, 24))
+            assert docs is not None
+            self.assertEqual(docs[0]["docDescription"], "有価証券報告書 2025/04/01-2026/03/31")
+            candidates = select_document_candidates(docs)
+
+            self.assertEqual(candidates["1301"].period_start, date(2025, 4, 1))
+            self.assertEqual(candidates["1301"].period_end, date(2026, 3, 31))
 
     def test_read_edinet_metrics_returns_keyed_records(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -102,7 +136,7 @@ class EDINETSQLiteReaderTests(unittest.TestCase):
                     "2026-03-31",
                 ),
             )
-            _add_raw_import(conn, source="edinet_metrics", date_iso="2026-04-24")
+            _add_source_coverage(conn, source="edinet_metrics", date_iso="2026-04-24")
             conn.commit()
             conn.close()
 
@@ -131,7 +165,7 @@ class JPXSQLiteReaderTests(unittest.TestCase):
                     ("2026-04-24", "取引停止", "1302", "取引停止", None),
                 ],
             )
-            _add_raw_import(conn, source="jpx_regulation_flags", date_iso="2026-04-24")
+            _add_source_coverage(conn, source="jpx_regulation_flags", date_iso="2026-04-24")
             conn.commit()
             conn.close()
 
@@ -152,7 +186,7 @@ class JPXSQLiteReaderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             conn = open_connection(sqlite_path)
-            _add_raw_import(conn, source="jpx_regulation_flags", date_iso="2026-04-24")
+            _add_source_coverage(conn, source="jpx_regulation_flags", date_iso="2026-04-24")
             conn.commit()
             conn.close()
             self.assertTrue(has_jpx_regulation_data(sqlite_path, date(2026, 4, 24)))
@@ -170,7 +204,7 @@ class EDINETProviderReadThroughTests(unittest.TestCase):
                 ") VALUES (?, ?, ?, ?)",
                 ("2026-04-24", "S100A", "13010", "120"),
             )
-            _add_raw_import(conn, source="edinet_documents", date_iso="2026-04-24")
+            _add_source_coverage(conn, source="edinet_documents", date_iso="2026-04-24")
             conn.commit()
             conn.close()
 
@@ -209,7 +243,7 @@ class EDINETProviderReadThroughTests(unittest.TestCase):
                     "2026-03-31",
                 ),
             )
-            _add_raw_import(conn, source="edinet_metrics", date_iso="2026-04-24")
+            _add_source_coverage(conn, source="edinet_metrics", date_iso="2026-04-24")
             conn.commit()
             conn.close()
 
@@ -275,7 +309,7 @@ class JPXProviderReadThroughTests(unittest.TestCase):
                 ") VALUES (?, ?, ?, ?, ?)",
                 ("2026-04-24", "取引停止", "1302", "取引停止", "2026-04-24T00:00:00+00:00"),
             )
-            _add_raw_import(conn, source="jpx_regulation_flags", date_iso="2026-04-24")
+            _add_source_coverage(conn, source="jpx_regulation_flags", date_iso="2026-04-24")
             conn.commit()
             conn.close()
 

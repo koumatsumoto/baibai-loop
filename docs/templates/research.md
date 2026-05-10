@@ -16,9 +16,9 @@ portfolio_exposure_snapshot_ref:
   as_of: "YYYY-MM-DDTHH:MM:SS+09:00"
 candidate_ref:
   candidates_ref: records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml
-  screen_run_id: screening-YYYYMMDD-xxxxxxxx
+  screen_run_id: screening-YYYYMMDD
   ticker: "XXXX"
-  candidate_id: candidate-screening-YYYYMMDD-xxxxxxxx-XXXX
+  candidate_id: candidate-YYYY-MM-DD-XXXX
 research_decision:
   outcome: approved | deferred | rejected
   posture: act_now | wait_for_event | wait_for_capital | dropped

@@ -24,17 +24,17 @@ from .providers.jquants import (
     JQuantsProviderError,
 )
 from .schema import SecurityMaster
-from .sqlite_cache import SQLITE_SCHEMA_VERSION
+from .sqlite_cache import SQLiteSchemaError, validate_current_schema
 
 
 def _connect_current(sqlite_path: Path) -> sqlite3.Connection | None:
+    conn: sqlite3.Connection | None = None
     try:
         conn = sqlite3.connect(sqlite_path)
-        user_version = int(conn.execute("PRAGMA user_version").fetchone()[0] or 0)
-    except sqlite3.Error:
-        return None
-    if user_version != SQLITE_SCHEMA_VERSION:
-        conn.close()
+        validate_current_schema(conn)
+    except (SQLiteSchemaError, sqlite3.Error):
+        if conn is not None:
+            conn.close()
         return None
     return conn
 
@@ -269,7 +269,8 @@ def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, An
             return None
         rows = conn.execute(
             "SELECT doc_id, sec_code, doc_type_code, csv_flag, xbrl_flag, legal_status, "
-            "disclosure_status, withdrawal_status, submit_datetime, period_start, period_end "
+            "disclosure_status, withdrawal_status, submit_datetime, doc_description, "
+            "period_start, period_end "
             "FROM edinet_documents WHERE doc_date = ? ORDER BY doc_id",
             (on_date.isoformat(),),
         ).fetchall()
@@ -288,6 +289,7 @@ def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, An
             "disclosureStatus": disclosure_status,
             "withdrawalStatus": withdrawal_status,
             "submitDateTime": submit_datetime,
+            "docDescription": doc_description,
             "periodStart": period_start,
             "periodEnd": period_end,
         }
@@ -301,6 +303,7 @@ def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, An
             disclosure_status,
             withdrawal_status,
             submit_datetime,
+            doc_description,
             period_start,
             period_end,
         ) in rows

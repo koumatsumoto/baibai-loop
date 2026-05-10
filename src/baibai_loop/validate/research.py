@@ -916,6 +916,28 @@ def _check_candidate_lineage(
         ]
     if not isinstance(document, Mapping):
         return []
+    document_run_id = document.get("run_id")
+    ref_screen_run_id = candidate_ref.get("screen_run_id")
+    if not isinstance(ref_screen_run_id, str) or not ref_screen_run_id:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.candidate-ref-screen-run-id",
+                message="candidate_ref.screen_run_id is required",
+                location="candidate_ref.screen_run_id",
+            )
+        )
+    elif isinstance(document_run_id, str) and ref_screen_run_id != document_run_id:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.candidate-ref-screen-run-id",
+                message="candidate_ref.screen_run_id must match candidate document run_id",
+                location="candidate_ref.screen_run_id",
+            )
+        )
     candidate_row = _candidate_row_for_front(front_matter, document)
     if candidate_row is None:
         findings.append(
@@ -928,6 +950,21 @@ def _check_candidate_lineage(
             )
         )
     else:
+        candidate_screen_run_id = candidate_row.get("screen_run_id")
+        if (
+            isinstance(ref_screen_run_id, str)
+            and isinstance(candidate_screen_run_id, str)
+            and ref_screen_run_id != candidate_screen_run_id
+        ):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.candidate-ref-screen-run-id",
+                    message="candidate_ref.screen_run_id must match candidate row screen_run_id",
+                    location="candidate_ref.screen_run_id",
+                )
+            )
         findings.extend(_check_copied_candidate_fields(path, front_matter, candidate_row))
     selected_candidate_ids = {
         str(item.get("evidence_hit_id"))

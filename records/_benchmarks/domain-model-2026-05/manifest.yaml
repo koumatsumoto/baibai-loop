@@ -53,7 +53,7 @@ fixtures:
   fixture_binding:
     candidates_ref: records/04-candidates/2026/05/2026-05-01.yaml
   expected:
-    run_id: screening-20260501-b2e37953
+    run_id: screening-20260501
 - fixture_id: gate-policy-orthogonal-fields
   layer_id: L2
   fixture_binding:

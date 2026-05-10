@@ -77,7 +77,7 @@ class ScreeningRenderTests(unittest.TestCase):
                 )
             ],
             run_at=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
-            run_id="screening-20260424-a1b2c3d4",
+            run_id="screening-20260424",
             fact_memo_lines=("複数閾値 hit 銘柄はなし",),
             provider_status_lines=("データソース: J-Quants Light + EDINET + JPX",),
             universe_exclusion_lines=("除外件数: 42 銘柄",),
@@ -90,7 +90,7 @@ class ScreeningRenderTests(unittest.TestCase):
 
         self.assertIn('run_date: "2026-04-24"', rendered)
         self.assertIn('asof_date: "2026-04-24"', rendered)
-        self.assertIn('run_id: "screening-20260424-a1b2c3d4"', rendered)
+        self.assertIn('run_id: "screening-20260424"', rendered)
         self.assertIn('ticker: "130A"', rendered)
         self.assertIn("ttm_quality:", rendered)
         self.assertIn("approximated", rendered)
@@ -165,7 +165,7 @@ class ScreeningRenderTests(unittest.TestCase):
                 )
             ],
             run_at=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
-            run_id="screening-20260424-a1b2c3d4",
+            run_id="screening-20260424",
             fact_memo_lines=("[事実 1]", "[事実 2]"),
             provider_status_lines=(
                 "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX",
@@ -178,10 +178,10 @@ class ScreeningRenderTests(unittest.TestCase):
         rendered = render_screened_yaml(document)
 
         payload = yaml.safe_load(rendered)
-        self.assertEqual(payload["run_id"], "screening-20260424-a1b2c3d4")
+        self.assertEqual(payload["run_id"], "screening-20260424")
         self.assertNotIn("screening_rules_snapshot", payload)
         candidate = payload["candidates"][0]
-        self.assertEqual(candidate["screen_run_id"], "screening-20260424-a1b2c3d4")
+        self.assertEqual(candidate["screen_run_id"], "screening-20260424")
         self.assertEqual(candidate["playbook_screen_result"], "hit")
         self.assertEqual(candidate["evidence_hits"][0]["playbook_id"], "valuation-reversion")
         self.assertEqual(candidate["evidence_hits"][0]["decision_role"], "sizing_evidence")
@@ -225,7 +225,7 @@ class ScreeningRenderTests(unittest.TestCase):
                 )
             ],
             run_at=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
-            run_id="screening-20260424-a1b2c3d4",
+            run_id="screening-20260424",
         )
 
         payload = yaml.safe_load(render_screened_yaml(document))
@@ -243,7 +243,7 @@ class ScreeningRenderTests(unittest.TestCase):
             filters={},
             candidates=(),
             run_at=datetime(2026, 4, 24, 0, 0, tzinfo=UTC),
-            run_id="screening-20260424-a1b2c3d4",
+            run_id="screening-20260424",
         )
 
         with self.assertRaises(RenderError):

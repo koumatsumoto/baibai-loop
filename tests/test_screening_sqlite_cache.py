@@ -88,6 +88,176 @@ class SQLiteCacheTest(unittest.TestCase):
                 ),
             )
 
+    def test_daily_bars_source_coverage_counts_persisted_unique_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            rows = store_jquants_daily_bars(
+                db,
+                [
+                    {
+                        "Code": "72030",
+                        "Date": "2026-05-08",
+                        "Close": 1000,
+                        "AdjustmentClose": 1000,
+                    },
+                    {
+                        "Code": "72030",
+                        "Date": "2026-05-08",
+                        "Close": 1001,
+                        "AdjustmentClose": 1001,
+                    },
+                ],
+                requested_start=date(2026, 5, 8),
+                requested_end=date(2026, 5, 8),
+            )
+            conn = sqlite3.connect(db)
+            try:
+                table_count = conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()
+                coverage = conn.execute(
+                    "SELECT record_count FROM source_coverage WHERE source = ?",
+                    ("jquants_daily_bars",),
+                ).fetchone()
+            finally:
+                conn.close()
+
+            self.assertEqual(rows, 1)
+            self.assertEqual(table_count[0], 1)
+            self.assertEqual(coverage, (1,))
+
+    def test_fin_summaries_source_coverage_counts_persisted_unique_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            rows = store_jquants_fin_summaries(
+                db,
+                [
+                    {"Code": "72030", "DisclosedDate": "2026-05-08", "NetSales": 100},
+                    {"Code": "72030", "DisclosedDate": "2026-05-08", "NetSales": 101},
+                ],
+                requested_start=date(2026, 5, 8),
+                requested_end=date(2026, 5, 8),
+            )
+            conn = sqlite3.connect(db)
+            try:
+                table_count = conn.execute("SELECT COUNT(*) FROM jquants_fin_summaries").fetchone()
+                coverage = conn.execute(
+                    "SELECT record_count FROM source_coverage WHERE source = ?",
+                    ("jquants_fin_summaries",),
+                ).fetchone()
+            finally:
+                conn.close()
+
+            self.assertEqual(rows, 1)
+            self.assertEqual(table_count[0], 1)
+            self.assertEqual(coverage, (1,))
+
+    def test_snapshot_and_single_day_stores_count_persisted_unique_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+
+            self.assertEqual(
+                store_jquants_master(
+                    db,
+                    [
+                        {
+                            "Code": "72030",
+                            "Date": "2026-05-08",
+                            "CompanyName": "Toyota",
+                            "MarketCodeName": "Prime",
+                            "Sector33CodeName": "輸送用機器",
+                        },
+                        {
+                            "Code": "72030",
+                            "Date": "2026-05-08",
+                            "CompanyName": "Toyota 2",
+                            "MarketCodeName": "Prime",
+                            "Sector33CodeName": "輸送用機器",
+                        },
+                    ],
+                ),
+                1,
+            )
+            self.assertEqual(
+                store_jquants_earnings_calendar(
+                    db,
+                    [
+                        {"Code": "72030", "Date": "2026-05-08"},
+                        {"Code": "72030", "Date": "2026-05-08"},
+                    ],
+                    requested_start=date(2026, 5, 8),
+                    requested_end=date(2026, 5, 8),
+                ),
+                1,
+            )
+            self.assertEqual(
+                store_jquants_market_calendar(
+                    db,
+                    [
+                        {"Date": "2026-05-08", "HolidayDivision": "1"},
+                        {"Date": "2026-05-08", "HolidayDivision": "0"},
+                    ],
+                    requested_start=date(2026, 5, 8),
+                    requested_end=date(2026, 5, 8),
+                ),
+                1,
+            )
+            self.assertEqual(
+                store_edinet_documents(
+                    db,
+                    date(2026, 5, 8),
+                    [
+                        {"docID": "S100TEST", "secCode": "72030", "docTypeCode": "120"},
+                        {"docID": "S100TEST", "secCode": "72030", "docTypeCode": "120"},
+                    ],
+                ),
+                1,
+            )
+            self.assertEqual(
+                store_edinet_metrics(
+                    db,
+                    date(2026, 5, 8),
+                    [
+                        {"ticker": "7203", "sales_ttm": 1, "failure_reasons": []},
+                        {"ticker": "7203", "sales_ttm": 2, "failure_reasons": []},
+                    ],
+                ),
+                1,
+            )
+            self.assertEqual(
+                store_jpx_regulations(
+                    db,
+                    date(2026, 5, 8),
+                    flags_by_ticker={"7203": ["特別注意銘柄", "特別注意銘柄"]},
+                    source_names=["特別注意銘柄"],
+                ),
+                1,
+            )
+
+            conn = sqlite3.connect(db)
+            try:
+                coverage = dict(
+                    conn.execute(
+                        "SELECT source, record_count FROM source_coverage "
+                        "WHERE source IN ("
+                        "'jquants_master_snapshots', 'jquants_earnings_calendar', "
+                        "'jquants_market_calendar', 'edinet_documents', 'edinet_metrics', "
+                        "'jpx_regulation_flags')"
+                    ).fetchall()
+                )
+            finally:
+                conn.close()
+
+            self.assertEqual(
+                coverage,
+                {
+                    "jquants_master_snapshots": 1,
+                    "jquants_earnings_calendar": 1,
+                    "jquants_market_calendar": 1,
+                    "edinet_documents": 1,
+                    "edinet_metrics": 1,
+                    "jpx_regulation_flags": 1,
+                },
+            )
+
     def test_direct_stores_do_not_persist_raw_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"

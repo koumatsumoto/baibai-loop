@@ -32,15 +32,6 @@ def _make_candidates_payload() -> dict[str, object]:
         "data_sources": ["j-quants-light"],
         "run_at": "2026-04-24T09:00:00+09:00",
         "run_id": "screening-20260424",
-        "screening_rules_snapshot": snapshot,
-        "metric_catalog_snapshot": {
-            **snapshot,
-            "ref_path": "records/_config/metric-catalog/2026-05-01T000000+0900.yaml",
-        },
-        "policy_snapshot": {
-            **snapshot,
-            "ref_path": "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md",
-        },
         "universe_snapshot_ref": {
             **snapshot,
             "ref_path": "records/_universe-snapshots/2026/04/2026-04-24.yaml",

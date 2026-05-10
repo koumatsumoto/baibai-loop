@@ -41,7 +41,7 @@ run_at: "ISO 8601"
 run_id: "screening-YYYYMMDD"
 candidates:
   - ticker: "130A"
-    candidate_id: candidate-screening-YYYYMMDD-130A
+    candidate_id: candidate-YYYY-MM-DD-130A
     candidate_key: "screening-YYYYMMDD:130A"
     name: "..."
     sector_33: "輸送用機器"

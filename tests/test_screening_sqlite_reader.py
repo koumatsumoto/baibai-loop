@@ -26,7 +26,7 @@ from baibai_loop.screening.sqlite_reader import (
 )
 
 
-def _add_raw_import(
+def _add_source_coverage(
     conn: sqlite3.Connection,
     *,
     source: str,
@@ -74,7 +74,7 @@ class ReadEqMasterTests(unittest.TestCase):
                 ") VALUES (?, ?, ?, ?, ?, ?)",
                 ("2026-05-07", "1301", "極洋", "プライム", "水産・農林業", 1),
             )
-            _add_raw_import(
+            _add_source_coverage(
                 conn,
                 source="jquants_master_snapshots",
                 path="records/_data/raw/screening/jquants/get_eq_master.json",
@@ -107,7 +107,7 @@ class ReadEqMasterTests(unittest.TestCase):
                     ("2026-05-07", "1301", "NewName", "プライム", "水産", 1),
                 ],
             )
-            _add_raw_import(
+            _add_source_coverage(
                 conn,
                 source="jquants_master_snapshots",
                 path="m.json",
@@ -130,11 +130,21 @@ class ReadDailyBarsTests(unittest.TestCase):
                 read_daily_bars(Path(tmp) / "missing.sqlite", date(2024, 3, 19), date(2024, 4, 18))
             )
 
+    def test_returns_none_when_schema_column_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            conn = open_connection(db)
+            conn.execute("ALTER TABLE jquants_daily_bars DROP COLUMN upper_limit")
+            conn.commit()
+            conn.close()
+
+            self.assertIsNone(read_daily_bars(db, date(2024, 3, 19), date(2024, 4, 18)))
+
     def test_returns_none_when_range_not_covered(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             conn = open_connection(db)
-            _add_raw_import(
+            _add_source_coverage(
                 conn,
                 source="jquants_daily_bars",
                 path="chunk1.json",
@@ -162,7 +172,7 @@ class ReadDailyBarsTests(unittest.TestCase):
                     ("1301", "2024-04-19", 3900.0, 1500.0, 3900.0, 1.0),
                 ],
             )
-            _add_raw_import(
+            _add_source_coverage(
                 conn,
                 source="jquants_daily_bars",
                 path="chunk.json",
@@ -184,7 +194,7 @@ class ReadDailyBarsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             conn = open_connection(db)
-            _add_raw_import(
+            _add_source_coverage(
                 conn,
                 source="jquants_daily_bars",
                 path="records/_data/raw/screening/jquants/"
@@ -246,7 +256,7 @@ class ReadFinSummariesTests(unittest.TestCase):
                     "2025-09-30",
                 ),
             )
-            _add_raw_import(
+            _add_source_coverage(
                 conn,
                 source="jquants_fin_summaries",
                 path="records/_data/raw/screening/jquants/"
@@ -269,7 +279,7 @@ class ReadFinSummariesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             conn = open_connection(db)
-            _add_raw_import(
+            _add_source_coverage(
                 conn,
                 source="jquants_fin_summaries",
                 path="records/_data/raw/screening/jquants/"

@@ -19,6 +19,14 @@ from jsonschema import Draft202012Validator
 from .errors import ValidationFinding
 
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "candidates.json"
+_REMOVED_ROOT_FIELDS = frozenset(
+    {
+        "screening_rules_snapshot",
+        "metric_catalog_snapshot",
+        "policy_snapshot",
+        "cache_manifest_hash",
+    }
+)
 
 
 def _load_validator() -> Draft202012Validator:
@@ -77,7 +85,23 @@ def validate_candidates_file(path: Path) -> list[ValidationFinding]:
                 location=_format_path(error.absolute_path),
             )
         )
+    findings.extend(_check_removed_root_fields(path, document))
     findings.extend(_check_business_lineage(path, document))
+    return findings
+
+
+def _check_removed_root_fields(path: Path, document: Mapping[str, Any]) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    for field in sorted(_REMOVED_ROOT_FIELDS):
+        if field in document:
+            findings.append(
+                _finding(
+                    path,
+                    "candidates.removed-root-field",
+                    f"{field} is no longer part of candidates output",
+                    field,
+                )
+            )
     return findings
 
 
@@ -86,6 +110,7 @@ def _check_business_lineage(
     document: Mapping[str, Any],
 ) -> list[ValidationFinding]:
     run_id = document.get("run_id")
+    asof_date = document.get("asof_date")
     candidates = document.get("candidates")
     if not isinstance(run_id, str) or not isinstance(candidates, list):
         return []
@@ -120,7 +145,21 @@ def _check_business_lineage(
                 )
             )
         candidate_id = candidate.get("candidate_id")
+        expected_candidate_id = (
+            f"candidate-{asof_date}-{ticker}"
+            if isinstance(asof_date, str) and isinstance(ticker, str)
+            else None
+        )
         if isinstance(candidate_id, str):
+            if candidate_id != expected_candidate_id:
+                findings.append(
+                    _finding(
+                        path,
+                        "candidates.candidate-id",
+                        "candidate_id must equal candidate-<asof_date>-<ticker>",
+                        f"candidates[{candidate_index}].candidate_id",
+                    )
+                )
             if candidate_id in seen_candidate_ids:
                 findings.append(
                     _finding(

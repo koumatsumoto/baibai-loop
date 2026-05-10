@@ -12,7 +12,7 @@ data_sources:
 - "edinet-preprocessed-metrics"
 - "disclosure-title-events"
 run_at: "2026-05-07T00:20:15.222646+09:00"
-run_id: "screening-20260501-9bea884c"
+run_id: "screening-20260501"
 requires_decision_coverage: true
 screening_rules_snapshot:
   ref_path: records/_config/screening-rules/2026-05-01T000000+0900.yaml
@@ -30,9 +30,9 @@ cache_manifest_hash: "ef8cb04d210809c3"
 candidates:
 - ticker: "1332"
   name: "ニッスイ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-1332"
-  candidate_key: "screening-20260501-9bea884c:1332"
+  candidate_key: "screening-20260501:1332"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -134,9 +134,9 @@ candidates:
       sector_return_4w: -0.0995
 - ticker: "141A"
   name: "トライアルホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-141A"
-  candidate_key: "screening-20260501-9bea884c:141A"
+  candidate_key: "screening-20260501:141A"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -240,9 +240,9 @@ candidates:
       ttm_quality: exact
 - ticker: "1429"
   name: "日本アクア"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-1429"
-  candidate_key: "screening-20260501-9bea884c:1429"
+  candidate_key: "screening-20260501:1429"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -351,9 +351,9 @@ candidates:
       condition_b_sigma_gap: -1.9675
 - ticker: "1435"
   name: "ｒｏｂｏｔ　ｈｏｍｅ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-1435"
-  candidate_key: "screening-20260501-9bea884c:1435"
+  candidate_key: "screening-20260501:1435"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -457,9 +457,9 @@ candidates:
       ttm_quality: exact
 - ticker: "1605"
   name: "ＩＮＰＥＸ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-1605"
-  candidate_key: "screening-20260501-9bea884c:1605"
+  candidate_key: "screening-20260501:1605"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -586,9 +586,9 @@ candidates:
       ttm_quality: exact
 - ticker: "1663"
   name: "Ｋ＆Ｏエナジーグループ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-1663"
-  candidate_key: "screening-20260501-9bea884c:1663"
+  candidate_key: "screening-20260501:1663"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -715,9 +715,9 @@ candidates:
       ttm_quality: exact
 - ticker: "1887"
   name: "日本国土開発"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-1887"
-  candidate_key: "screening-20260501-9bea884c:1887"
+  candidate_key: "screening-20260501:1887"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -826,9 +826,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "1909"
   name: "日本ドライケミカル"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-1909"
-  candidate_key: "screening-20260501-9bea884c:1909"
+  candidate_key: "screening-20260501:1909"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -937,9 +937,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "1911"
   name: "住友林業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-1911"
-  candidate_key: "screening-20260501-9bea884c:1911"
+  candidate_key: "screening-20260501:1911"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -1073,9 +1073,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "1941"
   name: "中電工"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-1941"
-  candidate_key: "screening-20260501-9bea884c:1941"
+  candidate_key: "screening-20260501:1941"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -1179,9 +1179,9 @@ candidates:
       ttm_quality: exact
 - ticker: "1946"
   name: "トーエネック"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-1946"
-  candidate_key: "screening-20260501-9bea884c:1946"
+  candidate_key: "screening-20260501:1946"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -1285,9 +1285,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2154"
   name: "オープンアップグループ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2154"
-  candidate_key: "screening-20260501-9bea884c:2154"
+  candidate_key: "screening-20260501:2154"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -1391,9 +1391,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2157"
   name: "コシダカホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2157"
-  candidate_key: "screening-20260501-9bea884c:2157"
+  candidate_key: "screening-20260501:2157"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -1497,9 +1497,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2181"
   name: "パーソルホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2181"
-  candidate_key: "screening-20260501-9bea884c:2181"
+  candidate_key: "screening-20260501:2181"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -1603,9 +1603,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2282"
   name: "日本ハム"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2282"
-  candidate_key: "screening-20260501-9bea884c:2282"
+  candidate_key: "screening-20260501:2282"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -1709,9 +1709,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2379"
   name: "ディップ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2379"
-  candidate_key: "screening-20260501-9bea884c:2379"
+  candidate_key: "screening-20260501:2379"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -1814,9 +1814,9 @@ candidates:
       condition_a_self_range_percentile: 0.0088
 - ticker: "2384"
   name: "ＳＢＳホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2384"
-  candidate_key: "screening-20260501-9bea884c:2384"
+  candidate_key: "screening-20260501:2384"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -1920,9 +1920,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2413"
   name: "エムスリー"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2413"
-  candidate_key: "screening-20260501-9bea884c:2413"
+  candidate_key: "screening-20260501:2413"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -2024,9 +2024,9 @@ candidates:
       condition_b_sigma_gap: -1.0269
 - ticker: "2429"
   name: "ワールドホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2429"
-  candidate_key: "screening-20260501-9bea884c:2429"
+  candidate_key: "screening-20260501:2429"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -2135,9 +2135,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "2432"
   name: "ディー・エヌ・エー"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2432"
-  candidate_key: "screening-20260501-9bea884c:2432"
+  candidate_key: "screening-20260501:2432"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -2241,9 +2241,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2469"
   name: "ヒビノ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2469"
-  candidate_key: "screening-20260501-9bea884c:2469"
+  candidate_key: "screening-20260501:2469"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -2352,9 +2352,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "2491"
   name: "バリューコマース"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2491"
-  candidate_key: "screening-20260501-9bea884c:2491"
+  candidate_key: "screening-20260501:2491"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -2457,9 +2457,9 @@ candidates:
       condition_a_self_range_percentile: 0.0472
 - ticker: "2503"
   name: "キリンホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2503"
-  candidate_key: "screening-20260501-9bea884c:2503"
+  candidate_key: "screening-20260501:2503"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -2563,9 +2563,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2579"
   name: "コカ・コーラ　ボトラーズジャパンホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2579"
-  candidate_key: "screening-20260501-9bea884c:2579"
+  candidate_key: "screening-20260501:2579"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -2669,9 +2669,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2587"
   name: "サントリービバレッジ＆フード"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2587"
-  candidate_key: "screening-20260501-9bea884c:2587"
+  candidate_key: "screening-20260501:2587"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -2799,9 +2799,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2590"
   name: "ダイドーグループホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2590"
-  candidate_key: "screening-20260501-9bea884c:2590"
+  candidate_key: "screening-20260501:2590"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -2929,9 +2929,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2659"
   name: "サンエー"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2659"
-  candidate_key: "screening-20260501-9bea884c:2659"
+  candidate_key: "screening-20260501:2659"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -3035,9 +3035,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2664"
   name: "カワチ薬品"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2664"
-  candidate_key: "screening-20260501-9bea884c:2664"
+  candidate_key: "screening-20260501:2664"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -3217,9 +3217,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2681"
   name: "ゲオホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2681"
-  candidate_key: "screening-20260501-9bea884c:2681"
+  candidate_key: "screening-20260501:2681"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -3328,9 +3328,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "2685"
   name: "アンドエスティＨＤ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2685"
-  candidate_key: "screening-20260501-9bea884c:2685"
+  candidate_key: "screening-20260501:2685"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -3434,9 +3434,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2730"
   name: "エディオン"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2730"
-  candidate_key: "screening-20260501-9bea884c:2730"
+  candidate_key: "screening-20260501:2730"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -3540,9 +3540,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2734"
   name: "サーラコーポレーション"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2734"
-  candidate_key: "screening-20260501-9bea884c:2734"
+  candidate_key: "screening-20260501:2734"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -3646,9 +3646,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2737"
   name: "トーメンデバイス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2737"
-  candidate_key: "screening-20260501-9bea884c:2737"
+  candidate_key: "screening-20260501:2737"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -3757,9 +3757,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "2742"
   name: "ハローズ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2742"
-  candidate_key: "screening-20260501-9bea884c:2742"
+  candidate_key: "screening-20260501:2742"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -3863,9 +3863,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2760"
   name: "東京エレクトロン　デバイス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2760"
-  candidate_key: "screening-20260501-9bea884c:2760"
+  candidate_key: "screening-20260501:2760"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -3969,9 +3969,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2767"
   name: "円谷フィールズホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2767"
-  candidate_key: "screening-20260501-9bea884c:2767"
+  candidate_key: "screening-20260501:2767"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -4080,9 +4080,9 @@ candidates:
       condition_b_sigma_gap: -1.2769
 - ticker: "2780"
   name: "コメ兵ホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2780"
-  candidate_key: "screening-20260501-9bea884c:2780"
+  candidate_key: "screening-20260501:2780"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -4191,9 +4191,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "2784"
   name: "アルフレッサ　ホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2784"
-  candidate_key: "screening-20260501-9bea884c:2784"
+  candidate_key: "screening-20260501:2784"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -4317,9 +4317,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "287A"
   name: "黒田グループ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-287A"
-  candidate_key: "screening-20260501-9bea884c:287A"
+  candidate_key: "screening-20260501:287A"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -4423,9 +4423,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2918"
   name: "わらべや日洋ホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2918"
-  candidate_key: "screening-20260501-9bea884c:2918"
+  candidate_key: "screening-20260501:2918"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -4529,9 +4529,9 @@ candidates:
       ttm_quality: exact
 - ticker: "2931"
   name: "ユーグレナ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2931"
-  candidate_key: "screening-20260501-9bea884c:2931"
+  candidate_key: "screening-20260501:2931"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -4677,9 +4677,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "2982"
   name: "ＡＤワークスグループ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2982"
-  candidate_key: "screening-20260501-9bea884c:2982"
+  candidate_key: "screening-20260501:2982"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -4788,9 +4788,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "2983"
   name: "アールプランナー"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-2983"
-  candidate_key: "screening-20260501-9bea884c:2983"
+  candidate_key: "screening-20260501:2983"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -4899,9 +4899,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "3028"
   name: "アルペン"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3028"
-  candidate_key: "screening-20260501-9bea884c:3028"
+  candidate_key: "screening-20260501:3028"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -5004,9 +5004,9 @@ candidates:
       condition_a_self_range_percentile: 0.1591
 - ticker: "3050"
   name: "ＤＣＭホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3050"
-  candidate_key: "screening-20260501-9bea884c:3050"
+  candidate_key: "screening-20260501:3050"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -5110,9 +5110,9 @@ candidates:
       ttm_quality: exact
 - ticker: "3105"
   name: "日清紡ホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3105"
-  candidate_key: "screening-20260501-9bea884c:3105"
+  candidate_key: "screening-20260501:3105"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -5259,9 +5259,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "3107"
   name: "ダイワボウホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3107"
-  candidate_key: "screening-20260501-9bea884c:3107"
+  candidate_key: "screening-20260501:3107"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -5370,9 +5370,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "3116"
   name: "トヨタ紡織"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3116"
-  candidate_key: "screening-20260501-9bea884c:3116"
+  candidate_key: "screening-20260501:3116"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -5507,9 +5507,9 @@ candidates:
       ttm_quality: exact
 - ticker: "3182"
   name: "オイシックス・ラ・大地"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3182"
-  candidate_key: "screening-20260501-9bea884c:3182"
+  candidate_key: "screening-20260501:3182"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -5612,9 +5612,9 @@ candidates:
       condition_a_self_range_percentile: 0.179
 - ticker: "3196"
   name: "ホットランドホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3196"
-  candidate_key: "screening-20260501-9bea884c:3196"
+  candidate_key: "screening-20260501:3196"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -5717,9 +5717,9 @@ candidates:
       condition_a_self_range_percentile: 0.0851
 - ticker: "3197"
   name: "すかいらーくホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3197"
-  candidate_key: "screening-20260501-9bea884c:3197"
+  candidate_key: "screening-20260501:3197"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -5823,9 +5823,9 @@ candidates:
       ttm_quality: exact
 - ticker: "3222"
   name: "ユナイテッド・スーパーマーケット・ホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3222"
-  candidate_key: "screening-20260501-9bea884c:3222"
+  candidate_key: "screening-20260501:3222"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -5983,9 +5983,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "3284"
   name: "フージャースホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3284"
-  candidate_key: "screening-20260501-9bea884c:3284"
+  candidate_key: "screening-20260501:3284"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -6094,9 +6094,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "3321"
   name: "ミタチ産業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3321"
-  candidate_key: "screening-20260501-9bea884c:3321"
+  candidate_key: "screening-20260501:3321"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -6205,9 +6205,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "3333"
   name: "あさひ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3333"
-  candidate_key: "screening-20260501-9bea884c:3333"
+  candidate_key: "screening-20260501:3333"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -6335,9 +6335,9 @@ candidates:
       ttm_quality: exact
 - ticker: "3350"
   name: "メタプラネット"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3350"
-  candidate_key: "screening-20260501-9bea884c:3350"
+  candidate_key: "screening-20260501:3350"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -6440,9 +6440,9 @@ candidates:
       condition_a_self_range_percentile: 0.1653
 - ticker: "3397"
   name: "トリドールホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3397"
-  candidate_key: "screening-20260501-9bea884c:3397"
+  candidate_key: "screening-20260501:3397"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -6546,9 +6546,9 @@ candidates:
       ttm_quality: exact
 - ticker: "3407"
   name: "旭化成"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3407"
-  candidate_key: "screening-20260501-9bea884c:3407"
+  candidate_key: "screening-20260501:3407"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -6652,9 +6652,9 @@ candidates:
       ttm_quality: exact
 - ticker: "3436"
   name: "ＳＵＭＣＯ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3436"
-  candidate_key: "screening-20260501-9bea884c:3436"
+  candidate_key: "screening-20260501:3436"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -6758,9 +6758,9 @@ candidates:
       ttm_quality: exact
 - ticker: "3479"
   name: "ティーケーピー"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3479"
-  candidate_key: "screening-20260501-9bea884c:3479"
+  candidate_key: "screening-20260501:3479"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -6894,9 +6894,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "3491"
   name: "ＧＡ　ｔｅｃｈｎｏｌｏｇｉｅｓ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3491"
-  candidate_key: "screening-20260501-9bea884c:3491"
+  candidate_key: "screening-20260501:3491"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -7005,9 +7005,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "3539"
   name: "ＪＭホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3539"
-  candidate_key: "screening-20260501-9bea884c:3539"
+  candidate_key: "screening-20260501:3539"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -7111,9 +7111,9 @@ candidates:
       ttm_quality: exact
 - ticker: "3546"
   name: "アレンザホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3546"
-  candidate_key: "screening-20260501-9bea884c:3546"
+  candidate_key: "screening-20260501:3546"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -7217,9 +7217,9 @@ candidates:
       ttm_quality: exact
 - ticker: "3612"
   name: "ワールド"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3612"
-  candidate_key: "screening-20260501-9bea884c:3612"
+  candidate_key: "screening-20260501:3612"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -7353,9 +7353,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "3632"
   name: "グリーホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3632"
-  candidate_key: "screening-20260501-9bea884c:3632"
+  candidate_key: "screening-20260501:3632"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -7510,9 +7510,9 @@ candidates:
       operating_profit: 1468000000.0
 - ticker: "3636"
   name: "三菱総合研究所"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3636"
-  candidate_key: "screening-20260501-9bea884c:3636"
+  candidate_key: "screening-20260501:3636"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -7621,9 +7621,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "3660"
   name: "アイスタイル"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3660"
-  candidate_key: "screening-20260501-9bea884c:3660"
+  candidate_key: "screening-20260501:3660"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -7732,9 +7732,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "3668"
   name: "コロプラ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3668"
-  candidate_key: "screening-20260501-9bea884c:3668"
+  candidate_key: "screening-20260501:3668"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -7837,9 +7837,9 @@ candidates:
       condition_a_self_range_percentile: 0.0845
 - ticker: "3678"
   name: "メディアドゥ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3678"
-  candidate_key: "screening-20260501-9bea884c:3678"
+  candidate_key: "screening-20260501:3678"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -8042,9 +8042,9 @@ candidates:
       operating_profit: 2453000000.0
 - ticker: "3696"
   name: "セレス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3696"
-  candidate_key: "screening-20260501-9bea884c:3696"
+  candidate_key: "screening-20260501:3696"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -8153,9 +8153,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "3697"
   name: "ＳＨＩＦＴ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3697"
-  candidate_key: "screening-20260501-9bea884c:3697"
+  candidate_key: "screening-20260501:3697"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -8264,9 +8264,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "3836"
   name: "アバントグループ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3836"
-  candidate_key: "screening-20260501-9bea884c:3836"
+  candidate_key: "screening-20260501:3836"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -8375,9 +8375,9 @@ candidates:
       condition_b_sigma_gap: -1.3145
 - ticker: "3843"
   name: "フリービット"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3843"
-  candidate_key: "screening-20260501-9bea884c:3843"
+  candidate_key: "screening-20260501:3843"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -8486,9 +8486,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "3844"
   name: "コムチュア"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3844"
-  candidate_key: "screening-20260501-9bea884c:3844"
+  candidate_key: "screening-20260501:3844"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -8590,9 +8590,9 @@ candidates:
       condition_b_sigma_gap: -1.9841
 - ticker: "3903"
   name: "ｇｕｍｉ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3903"
-  candidate_key: "screening-20260501-9bea884c:3903"
+  candidate_key: "screening-20260501:3903"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -8695,9 +8695,9 @@ candidates:
       condition_a_self_range_percentile: 0.1397
 - ticker: "3915"
   name: "テラスカイ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3915"
-  candidate_key: "screening-20260501-9bea884c:3915"
+  candidate_key: "screening-20260501:3915"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -8806,9 +8806,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "3922"
   name: "ＰＲ　ＴＩＭＥＳ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3922"
-  candidate_key: "screening-20260501-9bea884c:3922"
+  candidate_key: "screening-20260501:3922"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -8912,9 +8912,9 @@ candidates:
       ttm_quality: exact
 - ticker: "3932"
   name: "アカツキ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3932"
-  candidate_key: "screening-20260501-9bea884c:3932"
+  candidate_key: "screening-20260501:3932"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -9038,9 +9038,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "3962"
   name: "チェンジホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3962"
-  candidate_key: "screening-20260501-9bea884c:3962"
+  candidate_key: "screening-20260501:3962"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -9173,9 +9173,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "3964"
   name: "オークネット"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3964"
-  candidate_key: "screening-20260501-9bea884c:3964"
+  candidate_key: "screening-20260501:3964"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -9352,9 +9352,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "3968"
   name: "セグエグループ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3968"
-  candidate_key: "screening-20260501-9bea884c:3968"
+  candidate_key: "screening-20260501:3968"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -9463,9 +9463,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "3983"
   name: "オロ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3983"
-  candidate_key: "screening-20260501-9bea884c:3983"
+  candidate_key: "screening-20260501:3983"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -9568,9 +9568,9 @@ candidates:
       condition_a_self_range_percentile: 0.1367
 - ticker: "3984"
   name: "ユーザーローカル"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-3984"
-  candidate_key: "screening-20260501-9bea884c:3984"
+  candidate_key: "screening-20260501:3984"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -9672,9 +9672,9 @@ candidates:
       condition_b_sigma_gap: -1.4437
 - ticker: "4043"
   name: "トクヤマ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4043"
-  candidate_key: "screening-20260501-9bea884c:4043"
+  candidate_key: "screening-20260501:4043"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -9778,9 +9778,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4072"
   name: "電算システムホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4072"
-  candidate_key: "screening-20260501-9bea884c:4072"
+  candidate_key: "screening-20260501:4072"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -9957,9 +9957,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "4088"
   name: "エア・ウォーター"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4088"
-  candidate_key: "screening-20260501-9bea884c:4088"
+  candidate_key: "screening-20260501:4088"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -10063,9 +10063,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4091"
   name: "日本酸素ホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4091"
-  candidate_key: "screening-20260501-9bea884c:4091"
+  candidate_key: "screening-20260501:4091"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -10169,9 +10169,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4095"
   name: "日本パーカライジング"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4095"
-  candidate_key: "screening-20260501-9bea884c:4095"
+  candidate_key: "screening-20260501:4095"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -10295,9 +10295,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "4114"
   name: "日本触媒"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4114"
-  candidate_key: "screening-20260501-9bea884c:4114"
+  candidate_key: "screening-20260501:4114"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -10401,9 +10401,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4151"
   name: "協和キリン"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4151"
-  candidate_key: "screening-20260501-9bea884c:4151"
+  candidate_key: "screening-20260501:4151"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -10505,9 +10505,9 @@ candidates:
       sector_return_4w: -0.053
 - ticker: "4165"
   name: "プレイド"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4165"
-  candidate_key: "screening-20260501-9bea884c:4165"
+  candidate_key: "screening-20260501:4165"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -10610,9 +10610,9 @@ candidates:
       condition_a_self_range_percentile: 0.0361
 - ticker: "4183"
   name: "三井化学"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4183"
-  candidate_key: "screening-20260501-9bea884c:4183"
+  candidate_key: "screening-20260501:4183"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -10716,9 +10716,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4189"
   name: "ＫＨネオケム"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4189"
-  candidate_key: "screening-20260501-9bea884c:4189"
+  candidate_key: "screening-20260501:4189"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -10865,9 +10865,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "4208"
   name: "ＵＢＥ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4208"
-  candidate_key: "screening-20260501-9bea884c:4208"
+  candidate_key: "screening-20260501:4208"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -10971,9 +10971,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4212"
   name: "積水樹脂"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4212"
-  candidate_key: "screening-20260501-9bea884c:4212"
+  candidate_key: "screening-20260501:4212"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -11077,9 +11077,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4220"
   name: "リケンテクノス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4220"
-  candidate_key: "screening-20260501-9bea884c:4220"
+  candidate_key: "screening-20260501:4220"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -11183,9 +11183,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4324"
   name: "電通グループ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4324"
-  candidate_key: "screening-20260501-9bea884c:4324"
+  candidate_key: "screening-20260501:4324"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -11289,9 +11289,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4343"
   name: "イオンファンタジー"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4343"
-  candidate_key: "screening-20260501-9bea884c:4343"
+  candidate_key: "screening-20260501:4343"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -11395,9 +11395,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4362"
   name: "日本精化"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4362"
-  candidate_key: "screening-20260501-9bea884c:4362"
+  candidate_key: "screening-20260501:4362"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -11501,9 +11501,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4368"
   name: "扶桑化学工業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4368"
-  candidate_key: "screening-20260501-9bea884c:4368"
+  candidate_key: "screening-20260501:4368"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -11607,9 +11607,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4371"
   name: "コアコンセプト・テクノロジー"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4371"
-  candidate_key: "screening-20260501-9bea884c:4371"
+  candidate_key: "screening-20260501:4371"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -11712,9 +11712,9 @@ candidates:
       condition_a_self_range_percentile: 0.1857
 - ticker: "4393"
   name: "バンク・オブ・イノベーション"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4393"
-  candidate_key: "screening-20260501-9bea884c:4393"
+  candidate_key: "screening-20260501:4393"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -11817,9 +11817,9 @@ candidates:
       condition_a_self_range_percentile: 0.1744
 - ticker: "4432"
   name: "ウイングアーク１ｓｔ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4432"
-  candidate_key: "screening-20260501-9bea884c:4432"
+  candidate_key: "screening-20260501:4432"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -11921,9 +11921,9 @@ candidates:
       condition_b_sigma_gap: -1.0371
 - ticker: "4443"
   name: "Ｓａｎｓａｎ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4443"
-  candidate_key: "screening-20260501-9bea884c:4443"
+  candidate_key: "screening-20260501:4443"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -12025,9 +12025,9 @@ candidates:
       condition_b_sigma_gap: -1.4724
 - ticker: "4449"
   name: "ギフティ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4449"
-  candidate_key: "screening-20260501-9bea884c:4449"
+  candidate_key: "screening-20260501:4449"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -12130,9 +12130,9 @@ candidates:
       condition_a_self_range_percentile: 0.1625
 - ticker: "4471"
   name: "三洋化成工業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4471"
-  candidate_key: "screening-20260501-9bea884c:4471"
+  candidate_key: "screening-20260501:4471"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -12236,9 +12236,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4477"
   name: "ＢＡＳＥ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4477"
-  candidate_key: "screening-20260501-9bea884c:4477"
+  candidate_key: "screening-20260501:4477"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -12360,9 +12360,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "4493"
   name: "サイバーセキュリティクラウド"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4493"
-  candidate_key: "screening-20260501-9bea884c:4493"
+  candidate_key: "screening-20260501:4493"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -12465,9 +12465,9 @@ candidates:
       condition_a_self_range_percentile: 0.116
 - ticker: "4502"
   name: "武田薬品工業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4502"
-  candidate_key: "screening-20260501-9bea884c:4502"
+  candidate_key: "screening-20260501:4502"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -12594,9 +12594,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4503"
   name: "アステラス製薬"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4503"
-  candidate_key: "screening-20260501-9bea884c:4503"
+  candidate_key: "screening-20260501:4503"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -12723,9 +12723,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4516"
   name: "日本新薬"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4516"
-  candidate_key: "screening-20260501-9bea884c:4516"
+  candidate_key: "screening-20260501:4516"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -12827,9 +12827,9 @@ candidates:
       sector_return_4w: -0.053
 - ticker: "4519"
   name: "中外製薬"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4519"
-  candidate_key: "screening-20260501-9bea884c:4519"
+  candidate_key: "screening-20260501:4519"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -12931,9 +12931,9 @@ candidates:
       sector_return_4w: -0.053
 - ticker: "4523"
   name: "エーザイ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4523"
-  candidate_key: "screening-20260501-9bea884c:4523"
+  candidate_key: "screening-20260501:4523"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -13042,9 +13042,9 @@ candidates:
       sector_return_4w: -0.053
 - ticker: "4528"
   name: "小野薬品工業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4528"
-  candidate_key: "screening-20260501-9bea884c:4528"
+  candidate_key: "screening-20260501:4528"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -13146,9 +13146,9 @@ candidates:
       sector_return_4w: -0.053
 - ticker: "4534"
   name: "持田製薬"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4534"
-  candidate_key: "screening-20260501-9bea884c:4534"
+  candidate_key: "screening-20260501:4534"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -13250,9 +13250,9 @@ candidates:
       sector_return_4w: -0.053
 - ticker: "4536"
   name: "参天製薬"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4536"
-  candidate_key: "screening-20260501-9bea884c:4536"
+  candidate_key: "screening-20260501:4536"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -13354,9 +13354,9 @@ candidates:
       sector_return_4w: -0.053
 - ticker: "4549"
   name: "栄研化学"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4549"
-  candidate_key: "screening-20260501-9bea884c:4549"
+  candidate_key: "screening-20260501:4549"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -13458,9 +13458,9 @@ candidates:
       sector_return_4w: -0.053
 - ticker: "4553"
   name: "東和薬品"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4553"
-  candidate_key: "screening-20260501-9bea884c:4553"
+  candidate_key: "screening-20260501:4553"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -13564,9 +13564,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4568"
   name: "第一三共"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4568"
-  candidate_key: "screening-20260501-9bea884c:4568"
+  candidate_key: "screening-20260501:4568"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -13668,9 +13668,9 @@ candidates:
       sector_return_4w: -0.053
 - ticker: "4569"
   name: "杏林製薬"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4569"
-  candidate_key: "screening-20260501-9bea884c:4569"
+  candidate_key: "screening-20260501:4569"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -13772,9 +13772,9 @@ candidates:
       sector_return_4w: -0.053
 - ticker: "4577"
   name: "ダイト"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4577"
-  candidate_key: "screening-20260501-9bea884c:4577"
+  candidate_key: "screening-20260501:4577"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -13876,9 +13876,9 @@ candidates:
       sector_return_4w: -0.053
 - ticker: "4631"
   name: "ＤＩＣ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4631"
-  candidate_key: "screening-20260501-9bea884c:4631"
+  candidate_key: "screening-20260501:4631"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -14025,9 +14025,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "4633"
   name: "サカタインクス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4633"
-  candidate_key: "screening-20260501-9bea884c:4633"
+  candidate_key: "screening-20260501:4633"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -14131,9 +14131,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4634"
   name: "ａｒｔｉｅｎｃｅ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4634"
-  candidate_key: "screening-20260501-9bea884c:4634"
+  candidate_key: "screening-20260501:4634"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -14237,9 +14237,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4661"
   name: "オリエンタルランド"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4661"
-  candidate_key: "screening-20260501-9bea884c:4661"
+  candidate_key: "screening-20260501:4661"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -14341,9 +14341,9 @@ candidates:
       condition_b_sigma_gap: -1.8822
 - ticker: "4685"
   name: "菱友システムズ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4685"
-  candidate_key: "screening-20260501-9bea884c:4685"
+  candidate_key: "screening-20260501:4685"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -14447,9 +14447,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4689"
   name: "ＬＩＮＥヤフー"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4689"
-  candidate_key: "screening-20260501-9bea884c:4689"
+  candidate_key: "screening-20260501:4689"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -14559,9 +14559,9 @@ candidates:
       operating_profit: 284198000000.0
 - ticker: "4716"
   name: "日本オラクル"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4716"
-  candidate_key: "screening-20260501-9bea884c:4716"
+  candidate_key: "screening-20260501:4716"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -14663,9 +14663,9 @@ candidates:
       condition_b_sigma_gap: -1.7498
 - ticker: "4722"
   name: "フューチャー"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4722"
-  candidate_key: "screening-20260501-9bea884c:4722"
+  candidate_key: "screening-20260501:4722"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -14774,9 +14774,9 @@ candidates:
       condition_b_sigma_gap: -1.1829
 - ticker: "4751"
   name: "サイバーエージェント"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4751"
-  candidate_key: "screening-20260501-9bea884c:4751"
+  candidate_key: "screening-20260501:4751"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -14885,9 +14885,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "4768"
   name: "大塚商会"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4768"
-  candidate_key: "screening-20260501-9bea884c:4768"
+  candidate_key: "screening-20260501:4768"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -15034,9 +15034,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "4784"
   name: "ＧＭＯインターネット"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4784"
-  candidate_key: "screening-20260501-9bea884c:4784"
+  candidate_key: "screening-20260501:4784"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -15139,9 +15139,9 @@ candidates:
       condition_a_self_range_percentile: 0.082
 - ticker: "4848"
   name: "フルキャストホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4848"
-  candidate_key: "screening-20260501-9bea884c:4848"
+  candidate_key: "screening-20260501:4848"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -15250,9 +15250,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "4888"
   name: "ステラファーマ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4888"
-  candidate_key: "screening-20260501-9bea884c:4888"
+  candidate_key: "screening-20260501:4888"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -15354,9 +15354,9 @@ candidates:
       sector_return_4w: -0.053
 - ticker: "4894"
   name: "クオリプス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4894"
-  candidate_key: "screening-20260501-9bea884c:4894"
+  candidate_key: "screening-20260501:4894"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -15458,9 +15458,9 @@ candidates:
       sector_return_4w: -0.053
 - ticker: "4902"
   name: "コニカミノルタ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4902"
-  candidate_key: "screening-20260501-9bea884c:4902"
+  candidate_key: "screening-20260501:4902"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -15595,9 +15595,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4922"
   name: "コーセーホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4922"
-  candidate_key: "screening-20260501-9bea884c:4922"
+  candidate_key: "screening-20260501:4922"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -15700,9 +15700,9 @@ candidates:
       condition_a_self_range_percentile: 0.0555
 - ticker: "4927"
   name: "ポーラ・オルビスホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4927"
-  candidate_key: "screening-20260501-9bea884c:4927"
+  candidate_key: "screening-20260501:4927"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -15805,9 +15805,9 @@ candidates:
       condition_a_self_range_percentile: 0.0996
 - ticker: "4956"
   name: "コニシ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4956"
-  candidate_key: "screening-20260501-9bea884c:4956"
+  candidate_key: "screening-20260501:4956"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -15911,9 +15911,9 @@ candidates:
       ttm_quality: exact
 - ticker: "4979"
   name: "ＯＡＴアグリオ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-4979"
-  candidate_key: "screening-20260501-9bea884c:4979"
+  candidate_key: "screening-20260501:4979"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -16060,9 +16060,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "5020"
   name: "ＥＮＥＯＳホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5020"
-  candidate_key: "screening-20260501-9bea884c:5020"
+  candidate_key: "screening-20260501:5020"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -16166,9 +16166,9 @@ candidates:
       ttm_quality: exact
 - ticker: "5027"
   name: "ＡｎｙＭｉｎｄ　Ｇｒｏｕｐ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5027"
-  candidate_key: "screening-20260501-9bea884c:5027"
+  candidate_key: "screening-20260501:5027"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -16301,9 +16301,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "5032"
   name: "ＡＮＹＣＯＬＯＲ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5032"
-  candidate_key: "screening-20260501-9bea884c:5032"
+  candidate_key: "screening-20260501:5032"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -16406,9 +16406,9 @@ candidates:
       condition_a_self_range_percentile: 0.1758
 - ticker: "5036"
   name: "日本ビジネスシステムズ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5036"
-  candidate_key: "screening-20260501-9bea884c:5036"
+  candidate_key: "screening-20260501:5036"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -16517,9 +16517,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "5076"
   name: "インフロニア・ホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5076"
-  candidate_key: "screening-20260501-9bea884c:5076"
+  candidate_key: "screening-20260501:5076"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -16623,9 +16623,9 @@ candidates:
       ttm_quality: exact
 - ticker: "5101"
   name: "横浜ゴム"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5101"
-  candidate_key: "screening-20260501-9bea884c:5101"
+  candidate_key: "screening-20260501:5101"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -16729,9 +16729,9 @@ candidates:
       ttm_quality: exact
 - ticker: "5105"
   name: "ＴＯＹＯ　ＴＩＲＥ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5105"
-  candidate_key: "screening-20260501-9bea884c:5105"
+  candidate_key: "screening-20260501:5105"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -16878,9 +16878,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "5108"
   name: "ブリヂストン"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5108"
-  candidate_key: "screening-20260501-9bea884c:5108"
+  candidate_key: "screening-20260501:5108"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -16984,9 +16984,9 @@ candidates:
       ttm_quality: exact
 - ticker: "5110"
   name: "住友ゴム工業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5110"
-  candidate_key: "screening-20260501-9bea884c:5110"
+  candidate_key: "screening-20260501:5110"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -17090,9 +17090,9 @@ candidates:
       ttm_quality: exact
 - ticker: "5201"
   name: "ＡＧＣ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5201"
-  candidate_key: "screening-20260501-9bea884c:5201"
+  candidate_key: "screening-20260501:5201"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -17196,9 +17196,9 @@ candidates:
       ttm_quality: exact
 - ticker: "5244"
   name: "ｊｉｇ．ｊｐ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5244"
-  candidate_key: "screening-20260501-9bea884c:5244"
+  candidate_key: "screening-20260501:5244"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -17301,9 +17301,9 @@ candidates:
       condition_a_self_range_percentile: 0.1604
 - ticker: "5288"
   name: "アジアパイルホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5288"
-  candidate_key: "screening-20260501-9bea884c:5288"
+  candidate_key: "screening-20260501:5288"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -17412,9 +17412,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "5301"
   name: "東海カーボン"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5301"
-  candidate_key: "screening-20260501-9bea884c:5301"
+  candidate_key: "screening-20260501:5301"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -17518,9 +17518,9 @@ candidates:
       ttm_quality: exact
 - ticker: "5302"
   name: "日本カーボン"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5302"
-  candidate_key: "screening-20260501-9bea884c:5302"
+  candidate_key: "screening-20260501:5302"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -17624,9 +17624,9 @@ candidates:
       ttm_quality: exact
 - ticker: "5367"
   name: "ニッカトー"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5367"
-  candidate_key: "screening-20260501-9bea884c:5367"
+  candidate_key: "screening-20260501:5367"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -17730,9 +17730,9 @@ candidates:
       ttm_quality: exact
 - ticker: "5401"
   name: "日本製鉄"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5401"
-  candidate_key: "screening-20260501-9bea884c:5401"
+  candidate_key: "screening-20260501:5401"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -17841,9 +17841,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "5408"
   name: "中山製鋼所"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5408"
-  candidate_key: "screening-20260501-9bea884c:5408"
+  candidate_key: "screening-20260501:5408"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -17967,9 +17967,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "5410"
   name: "合同製鐵"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5410"
-  candidate_key: "screening-20260501-9bea884c:5410"
+  candidate_key: "screening-20260501:5410"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -18103,9 +18103,9 @@ candidates:
       ttm_quality: exact
 - ticker: "5423"
   name: "東京製鐵"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5423"
-  candidate_key: "screening-20260501-9bea884c:5423"
+  candidate_key: "screening-20260501:5423"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -18229,9 +18229,9 @@ candidates:
       edinet_failure_reasons: non_consolidated_fallback
 - ticker: "5482"
   name: "愛知製鋼"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5482"
-  candidate_key: "screening-20260501-9bea884c:5482"
+  candidate_key: "screening-20260501:5482"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -18335,9 +18335,9 @@ candidates:
       ttm_quality: exact
 - ticker: "5563"
   name: "新日本電工"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5563"
-  candidate_key: "screening-20260501-9bea884c:5563"
+  candidate_key: "screening-20260501:5563"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -18441,9 +18441,9 @@ candidates:
       ttm_quality: exact
 - ticker: "5578"
   name: "ＡＲアドバンストテクノロジ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5578"
-  candidate_key: "screening-20260501-9bea884c:5578"
+  candidate_key: "screening-20260501:5578"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -18552,9 +18552,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "5659"
   name: "日本精線"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5659"
-  candidate_key: "screening-20260501-9bea884c:5659"
+  candidate_key: "screening-20260501:5659"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -18678,9 +18678,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "5698"
   name: "エンビプロ・ホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5698"
-  candidate_key: "screening-20260501-9bea884c:5698"
+  candidate_key: "screening-20260501:5698"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -18784,9 +18784,9 @@ candidates:
       ttm_quality: exact
 - ticker: "5857"
   name: "ＡＲＥホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5857"
-  candidate_key: "screening-20260501-9bea884c:5857"
+  candidate_key: "screening-20260501:5857"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -18895,9 +18895,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "5938"
   name: "ＬＩＸＩＬ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5938"
-  candidate_key: "screening-20260501-9bea884c:5938"
+  candidate_key: "screening-20260501:5938"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -19001,9 +19001,9 @@ candidates:
       ttm_quality: exact
 - ticker: "5989"
   name: "エイチワン"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-5989"
-  candidate_key: "screening-20260501-9bea884c:5989"
+  candidate_key: "screening-20260501:5989"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -19113,9 +19113,9 @@ candidates:
       operating_profit: 7506000000.0
 - ticker: "6005"
   name: "三浦工業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6005"
-  candidate_key: "screening-20260501-9bea884c:6005"
+  candidate_key: "screening-20260501:6005"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -19219,9 +19219,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6036"
   name: "ＫｅｅＰｅｒ技研"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6036"
-  candidate_key: "screening-20260501-9bea884c:6036"
+  candidate_key: "screening-20260501:6036"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -19324,9 +19324,9 @@ candidates:
       condition_a_self_range_percentile: 0.024
 - ticker: "6058"
   name: "ベクトル"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6058"
-  candidate_key: "screening-20260501-9bea884c:6058"
+  candidate_key: "screening-20260501:6058"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -19430,9 +19430,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6088"
   name: "シグマクシス・ホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6088"
-  candidate_key: "screening-20260501-9bea884c:6088"
+  candidate_key: "screening-20260501:6088"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -19541,9 +19541,9 @@ candidates:
       condition_b_sigma_gap: -1.2027
 - ticker: "6104"
   name: "芝浦機械"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6104"
-  candidate_key: "screening-20260501-9bea884c:6104"
+  candidate_key: "screening-20260501:6104"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -19667,9 +19667,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "6118"
   name: "アイダエンジニアリング"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6118"
-  candidate_key: "screening-20260501-9bea884c:6118"
+  candidate_key: "screening-20260501:6118"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -19793,9 +19793,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "6135"
   name: "牧野フライス製作所"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6135"
-  candidate_key: "screening-20260501-9bea884c:6135"
+  candidate_key: "screening-20260501:6135"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -19899,9 +19899,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6141"
   name: "ＤＭＧ森精機"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6141"
-  candidate_key: "screening-20260501-9bea884c:6141"
+  candidate_key: "screening-20260501:6141"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -20010,9 +20010,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "6143"
   name: "ソディック"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6143"
-  candidate_key: "screening-20260501-9bea884c:6143"
+  candidate_key: "screening-20260501:6143"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -20122,9 +20122,9 @@ candidates:
       operating_profit: 4224000000.0
 - ticker: "6183"
   name: "ベルシステム２４ホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6183"
-  candidate_key: "screening-20260501-9bea884c:6183"
+  candidate_key: "screening-20260501:6183"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -20228,9 +20228,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6208"
   name: "石川製作所"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6208"
-  candidate_key: "screening-20260501-9bea884c:6208"
+  candidate_key: "screening-20260501:6208"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -20339,9 +20339,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "6217"
   name: "津田駒工業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6217"
-  candidate_key: "screening-20260501-9bea884c:6217"
+  candidate_key: "screening-20260501:6217"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -20450,9 +20450,9 @@ candidates:
       operating_profit_loss_narrowing: true
 - ticker: "6227"
   name: "ＡＩメカテック"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6227"
-  candidate_key: "screening-20260501-9bea884c:6227"
+  candidate_key: "screening-20260501:6227"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -20556,9 +20556,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6266"
   name: "タツモ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6266"
-  candidate_key: "screening-20260501-9bea884c:6266"
+  candidate_key: "screening-20260501:6266"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -20705,9 +20705,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "6305"
   name: "日立建機"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6305"
-  candidate_key: "screening-20260501-9bea884c:6305"
+  candidate_key: "screening-20260501:6305"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -20811,9 +20811,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6310"
   name: "井関農機"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6310"
-  candidate_key: "screening-20260501-9bea884c:6310"
+  candidate_key: "screening-20260501:6310"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -20947,9 +20947,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "6326"
   name: "クボタ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6326"
-  candidate_key: "screening-20260501-9bea884c:6326"
+  candidate_key: "screening-20260501:6326"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -21053,9 +21053,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6371"
   name: "椿本チエイン"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6371"
-  candidate_key: "screening-20260501-9bea884c:6371"
+  candidate_key: "screening-20260501:6371"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -21159,9 +21159,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6395"
   name: "タダノ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6395"
-  candidate_key: "screening-20260501-9bea884c:6395"
+  candidate_key: "screening-20260501:6395"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -21270,9 +21270,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "6412"
   name: "平和"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6412"
-  candidate_key: "screening-20260501-9bea884c:6412"
+  candidate_key: "screening-20260501:6412"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -21430,9 +21430,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "6425"
   name: "ユニバーサルエンターテインメント"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6425"
-  candidate_key: "screening-20260501-9bea884c:6425"
+  candidate_key: "screening-20260501:6425"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -21560,9 +21560,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6440"
   name: "ＪＵＫＩ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6440"
-  candidate_key: "screening-20260501-9bea884c:6440"
+  candidate_key: "screening-20260501:6440"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -21666,9 +21666,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6448"
   name: "ブラザー工業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6448"
-  candidate_key: "screening-20260501-9bea884c:6448"
+  candidate_key: "screening-20260501:6448"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -21772,9 +21772,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6470"
   name: "大豊工業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6470"
-  candidate_key: "screening-20260501-9bea884c:6470"
+  candidate_key: "screening-20260501:6470"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -21878,9 +21878,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6471"
   name: "日本精工"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6471"
-  candidate_key: "screening-20260501-9bea884c:6471"
+  candidate_key: "screening-20260501:6471"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -22014,9 +22014,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "6473"
   name: "ジェイテクト"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6473"
-  candidate_key: "screening-20260501-9bea884c:6473"
+  candidate_key: "screening-20260501:6473"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -22120,9 +22120,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6496"
   name: "中北製作所"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6496"
-  candidate_key: "screening-20260501-9bea884c:6496"
+  candidate_key: "screening-20260501:6496"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -22231,9 +22231,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "6523"
   name: "ＰＨＣホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6523"
-  candidate_key: "screening-20260501-9bea884c:6523"
+  candidate_key: "screening-20260501:6523"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -22337,9 +22337,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6547"
   name: "グリーンズ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6547"
-  candidate_key: "screening-20260501-9bea884c:6547"
+  candidate_key: "screening-20260501:6547"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -22473,9 +22473,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "6590"
   name: "芝浦メカトロニクス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6590"
-  candidate_key: "screening-20260501-9bea884c:6590"
+  candidate_key: "screening-20260501:6590"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -22584,9 +22584,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "6619"
   name: "ダブル・スコープ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6619"
-  candidate_key: "screening-20260501-9bea884c:6619"
+  candidate_key: "screening-20260501:6619"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -22689,9 +22689,9 @@ candidates:
       condition_a_self_range_percentile: 0.059
 - ticker: "6627"
   name: "テラプローブ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6627"
-  candidate_key: "screening-20260501-9bea884c:6627"
+  candidate_key: "screening-20260501:6627"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -22795,9 +22795,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6632"
   name: "ＪＶＣケンウッド"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6632"
-  candidate_key: "screening-20260501-9bea884c:6632"
+  candidate_key: "screening-20260501:6632"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -22901,9 +22901,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6724"
   name: "セイコーエプソン"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6724"
-  candidate_key: "screening-20260501-9bea884c:6724"
+  candidate_key: "screening-20260501:6724"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -23007,9 +23007,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6741"
   name: "日本信号"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6741"
-  candidate_key: "screening-20260501-9bea884c:6741"
+  candidate_key: "screening-20260501:6741"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -23113,9 +23113,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6753"
   name: "シャープ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6753"
-  candidate_key: "screening-20260501-9bea884c:6753"
+  candidate_key: "screening-20260501:6753"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -23218,9 +23218,9 @@ candidates:
       condition_a_self_range_percentile: 0.0637
 - ticker: "6758"
   name: "ソニーグループ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6758"
-  candidate_key: "screening-20260501-9bea884c:6758"
+  candidate_key: "screening-20260501:6758"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -23324,9 +23324,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6770"
   name: "アルプスアルパイン"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6770"
-  candidate_key: "screening-20260501-9bea884c:6770"
+  candidate_key: "screening-20260501:6770"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -23430,9 +23430,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6804"
   name: "ホシデン"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6804"
-  candidate_key: "screening-20260501-9bea884c:6804"
+  candidate_key: "screening-20260501:6804"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -23541,9 +23541,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "6817"
   name: "スミダコーポレーション"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6817"
-  candidate_key: "screening-20260501-9bea884c:6817"
+  candidate_key: "screening-20260501:6817"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -23647,9 +23647,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6835"
   name: "アライドテレシスホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6835"
-  candidate_key: "screening-20260501-9bea884c:6835"
+  candidate_key: "screening-20260501:6835"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -23796,9 +23796,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "6849"
   name: "日本光電工業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6849"
-  candidate_key: "screening-20260501-9bea884c:6849"
+  candidate_key: "screening-20260501:6849"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -23901,9 +23901,9 @@ candidates:
       condition_a_self_range_percentile: 0.0
 - ticker: "6932"
   name: "遠藤照明"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6932"
-  candidate_key: "screening-20260501-9bea884c:6932"
+  candidate_key: "screening-20260501:6932"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -24038,9 +24038,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6966"
   name: "三井ハイテック"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6966"
-  candidate_key: "screening-20260501-9bea884c:6966"
+  candidate_key: "screening-20260501:6966"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -24168,9 +24168,9 @@ candidates:
       ttm_quality: exact
 - ticker: "6999"
   name: "ＫＯＡ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-6999"
-  candidate_key: "screening-20260501-9bea884c:6999"
+  candidate_key: "screening-20260501:6999"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -24304,9 +24304,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "7012"
   name: "川崎重工業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7012"
-  candidate_key: "screening-20260501-9bea884c:7012"
+  candidate_key: "screening-20260501:7012"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -24440,9 +24440,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "7047"
   name: "ポート"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7047"
-  candidate_key: "screening-20260501-9bea884c:7047"
+  candidate_key: "screening-20260501:7047"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -24546,9 +24546,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7071"
   name: "アンビスホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7071"
-  candidate_key: "screening-20260501-9bea884c:7071"
+  candidate_key: "screening-20260501:7071"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -24657,9 +24657,9 @@ candidates:
       condition_b_sigma_gap: -1.1643
 - ticker: "7095"
   name: "Ｍａｃｂｅｅ　Ｐｌａｎｅｔ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7095"
-  candidate_key: "screening-20260501-9bea884c:7095"
+  candidate_key: "screening-20260501:7095"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -24762,9 +24762,9 @@ candidates:
       condition_a_self_range_percentile: 0.007
 - ticker: "7102"
   name: "日本車輌製造"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7102"
-  candidate_key: "screening-20260501-9bea884c:7102"
+  candidate_key: "screening-20260501:7102"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -24868,9 +24868,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7202"
   name: "いすゞ自動車"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7202"
-  candidate_key: "screening-20260501-9bea884c:7202"
+  candidate_key: "screening-20260501:7202"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -24974,9 +24974,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7239"
   name: "タチエス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7239"
-  candidate_key: "screening-20260501-9bea884c:7239"
+  candidate_key: "screening-20260501:7239"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -25100,9 +25100,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "7241"
   name: "フタバ産業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7241"
-  candidate_key: "screening-20260501-9bea884c:7241"
+  candidate_key: "screening-20260501:7241"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -25206,9 +25206,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7242"
   name: "カヤバ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7242"
-  candidate_key: "screening-20260501-9bea884c:7242"
+  candidate_key: "screening-20260501:7242"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -25312,9 +25312,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7245"
   name: "大同メタル工業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7245"
-  candidate_key: "screening-20260501-9bea884c:7245"
+  candidate_key: "screening-20260501:7245"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -25418,9 +25418,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7259"
   name: "アイシン"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7259"
-  candidate_key: "screening-20260501-9bea884c:7259"
+  candidate_key: "screening-20260501:7259"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -25524,9 +25524,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7269"
   name: "スズキ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7269"
-  candidate_key: "screening-20260501-9bea884c:7269"
+  candidate_key: "screening-20260501:7269"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -25630,9 +25630,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7270"
   name: "ＳＵＢＡＲＵ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7270"
-  candidate_key: "screening-20260501-9bea884c:7270"
+  candidate_key: "screening-20260501:7270"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -25742,9 +25742,9 @@ candidates:
       operating_profit: 66284000000.0
 - ticker: "7276"
   name: "小糸製作所"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7276"
-  candidate_key: "screening-20260501-9bea884c:7276"
+  candidate_key: "screening-20260501:7276"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -25848,9 +25848,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7278"
   name: "エクセディ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7278"
-  candidate_key: "screening-20260501-9bea884c:7278"
+  candidate_key: "screening-20260501:7278"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -25954,9 +25954,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7279"
   name: "ハイレックスコーポレーション"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7279"
-  candidate_key: "screening-20260501-9bea884c:7279"
+  candidate_key: "screening-20260501:7279"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -26080,9 +26080,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "7283"
   name: "愛三工業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7283"
-  candidate_key: "screening-20260501-9bea884c:7283"
+  candidate_key: "screening-20260501:7283"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -26192,9 +26192,9 @@ candidates:
       operating_profit: 18287000000.0
 - ticker: "7287"
   name: "日本精機"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7287"
-  candidate_key: "screening-20260501-9bea884c:7287"
+  candidate_key: "screening-20260501:7287"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -26298,9 +26298,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7296"
   name: "エフ・シー・シー"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7296"
-  candidate_key: "screening-20260501-9bea884c:7296"
+  candidate_key: "screening-20260501:7296"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -26410,9 +26410,9 @@ candidates:
       operating_profit: 13916000000.0
 - ticker: "7373"
   name: "アイドマ・ホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7373"
-  candidate_key: "screening-20260501-9bea884c:7373"
+  candidate_key: "screening-20260501:7373"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -26539,9 +26539,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7419"
   name: "ノジマ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7419"
-  candidate_key: "screening-20260501-9bea884c:7419"
+  candidate_key: "screening-20260501:7419"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -26650,9 +26650,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "7512"
   name: "イオン北海道"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7512"
-  candidate_key: "screening-20260501-9bea884c:7512"
+  candidate_key: "screening-20260501:7512"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -26756,9 +26756,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7516"
   name: "コーナン商事"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7516"
-  candidate_key: "screening-20260501-9bea884c:7516"
+  candidate_key: "screening-20260501:7516"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -26862,9 +26862,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7613"
   name: "シークス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7613"
-  candidate_key: "screening-20260501-9bea884c:7613"
+  candidate_key: "screening-20260501:7613"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -27011,9 +27011,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "7616"
   name: "コロワイド"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7616"
-  candidate_key: "screening-20260501-9bea884c:7616"
+  candidate_key: "screening-20260501:7616"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -27117,9 +27117,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7649"
   name: "スギホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7649"
-  candidate_key: "screening-20260501-9bea884c:7649"
+  candidate_key: "screening-20260501:7649"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -27223,9 +27223,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7744"
   name: "ノーリツ鋼機"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7744"
-  candidate_key: "screening-20260501-9bea884c:7744"
+  candidate_key: "screening-20260501:7744"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -27335,9 +27335,9 @@ candidates:
       operating_profit: 20815000000.0
 - ticker: "7752"
   name: "リコー"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7752"
-  candidate_key: "screening-20260501-9bea884c:7752"
+  candidate_key: "screening-20260501:7752"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -27441,9 +27441,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7864"
   name: "フジシールインターナショナル"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7864"
-  candidate_key: "screening-20260501-9bea884c:7864"
+  candidate_key: "screening-20260501:7864"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -27547,9 +27547,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7871"
   name: "フクビ化学工業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7871"
-  candidate_key: "screening-20260501-9bea884c:7871"
+  candidate_key: "screening-20260501:7871"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -27673,9 +27673,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "7915"
   name: "ＮＩＳＳＨＡ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7915"
-  candidate_key: "screening-20260501-9bea884c:7915"
+  candidate_key: "screening-20260501:7915"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -27778,9 +27778,9 @@ candidates:
       condition_a_self_range_percentile: 0.1538
 - ticker: "7942"
   name: "ＪＳＰ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7942"
-  candidate_key: "screening-20260501-9bea884c:7942"
+  candidate_key: "screening-20260501:7942"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -27884,9 +27884,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7944"
   name: "ローランド"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7944"
-  candidate_key: "screening-20260501-9bea884c:7944"
+  candidate_key: "screening-20260501:7944"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -27990,9 +27990,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7947"
   name: "エフピコ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7947"
-  candidate_key: "screening-20260501-9bea884c:7947"
+  candidate_key: "screening-20260501:7947"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -28120,9 +28120,9 @@ candidates:
       ttm_quality: exact
 - ticker: "7989"
   name: "立川ブラインド工業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-7989"
-  candidate_key: "screening-20260501-9bea884c:7989"
+  candidate_key: "screening-20260501:7989"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -28246,9 +28246,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "8011"
   name: "三陽商会"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8011"
-  candidate_key: "screening-20260501-9bea884c:8011"
+  candidate_key: "screening-20260501:8011"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -28403,9 +28403,9 @@ candidates:
       operating_profit: 1298000000.0
 - ticker: "8012"
   name: "長瀬産業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8012"
-  candidate_key: "screening-20260501-9bea884c:8012"
+  candidate_key: "screening-20260501:8012"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -28509,9 +28509,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8014"
   name: "蝶理"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8014"
-  candidate_key: "screening-20260501-9bea884c:8014"
+  candidate_key: "screening-20260501:8014"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -28615,9 +28615,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8016"
   name: "オンワードホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8016"
-  candidate_key: "screening-20260501-9bea884c:8016"
+  candidate_key: "screening-20260501:8016"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -28726,9 +28726,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "8020"
   name: "兼松"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8020"
-  candidate_key: "screening-20260501-9bea884c:8020"
+  candidate_key: "screening-20260501:8020"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -28832,9 +28832,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8056"
   name: "ＢＩＰＲＯＧＹ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8056"
-  candidate_key: "screening-20260501-9bea884c:8056"
+  candidate_key: "screening-20260501:8056"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -28938,9 +28938,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8079"
   name: "正栄食品工業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8079"
-  candidate_key: "screening-20260501-9bea884c:8079"
+  candidate_key: "screening-20260501:8079"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -29043,9 +29043,9 @@ candidates:
       condition_a_self_range_percentile: 0.1848
 - ticker: "8084"
   name: "ＲＹＯＤＥＮ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8084"
-  candidate_key: "screening-20260501-9bea884c:8084"
+  candidate_key: "screening-20260501:8084"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -29200,9 +29200,9 @@ candidates:
       operating_profit: 3151000000.0
 - ticker: "8103"
   name: "明和産業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8103"
-  candidate_key: "screening-20260501-9bea884c:8103"
+  candidate_key: "screening-20260501:8103"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -29306,9 +29306,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8133"
   name: "伊藤忠エネクス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8133"
-  candidate_key: "screening-20260501-9bea884c:8133"
+  candidate_key: "screening-20260501:8133"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -29412,9 +29412,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8142"
   name: "トーホー"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8142"
-  candidate_key: "screening-20260501-9bea884c:8142"
+  candidate_key: "screening-20260501:8142"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -29518,9 +29518,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8167"
   name: "リテールパートナーズ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8167"
-  candidate_key: "screening-20260501-9bea884c:8167"
+  candidate_key: "screening-20260501:8167"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -29648,9 +29648,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8179"
   name: "ロイヤルホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8179"
-  candidate_key: "screening-20260501-9bea884c:8179"
+  candidate_key: "screening-20260501:8179"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -29754,9 +29754,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8185"
   name: "チヨダ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8185"
-  candidate_key: "screening-20260501-9bea884c:8185"
+  candidate_key: "screening-20260501:8185"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -29911,9 +29911,9 @@ candidates:
       operating_profit: 1090000000.0
 - ticker: "8194"
   name: "ライフコーポレーション"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8194"
-  candidate_key: "screening-20260501-9bea884c:8194"
+  candidate_key: "screening-20260501:8194"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -30017,9 +30017,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8217"
   name: "オークワ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8217"
-  candidate_key: "screening-20260501-9bea884c:8217"
+  candidate_key: "screening-20260501:8217"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -30147,9 +30147,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8218"
   name: "コメリ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8218"
-  candidate_key: "screening-20260501-9bea884c:8218"
+  candidate_key: "screening-20260501:8218"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -30253,9 +30253,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8244"
   name: "近鉄百貨店"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8244"
-  candidate_key: "screening-20260501-9bea884c:8244"
+  candidate_key: "screening-20260501:8244"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -30359,9 +30359,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8255"
   name: "アクシアル　リテイリング"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8255"
-  candidate_key: "screening-20260501-9bea884c:8255"
+  candidate_key: "screening-20260501:8255"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -30465,9 +30465,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8267"
   name: "イオン"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8267"
-  candidate_key: "screening-20260501-9bea884c:8267"
+  candidate_key: "screening-20260501:8267"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -30571,9 +30571,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8273"
   name: "イズミ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8273"
-  candidate_key: "screening-20260501-9bea884c:8273"
+  candidate_key: "screening-20260501:8273"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -30701,9 +30701,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8278"
   name: "フジ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8278"
-  candidate_key: "screening-20260501-9bea884c:8278"
+  candidate_key: "screening-20260501:8278"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -30807,9 +30807,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8282"
   name: "ケーズホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8282"
-  candidate_key: "screening-20260501-9bea884c:8282"
+  candidate_key: "screening-20260501:8282"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -30913,9 +30913,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8285"
   name: "三谷産業"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8285"
-  candidate_key: "screening-20260501-9bea884c:8285"
+  candidate_key: "screening-20260501:8285"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -31019,9 +31019,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8289"
   name: "Ｏｌｙｍｐｉｃグループ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8289"
-  candidate_key: "screening-20260501-9bea884c:8289"
+  candidate_key: "screening-20260501:8289"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -31125,9 +31125,9 @@ candidates:
       ttm_quality: exact
 - ticker: "8303"
   name: "ＳＢＩ新生銀行"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8303"
-  candidate_key: "screening-20260501-9bea884c:8303"
+  candidate_key: "screening-20260501:8303"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -31230,9 +31230,9 @@ candidates:
       condition_a_self_range_percentile: 0.0761
 - ticker: "8927"
   name: "明豊エンタープライズ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-8927"
-  candidate_key: "screening-20260501-9bea884c:8927"
+  candidate_key: "screening-20260501:8927"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -31366,9 +31366,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "9001"
   name: "東武鉄道"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9001"
-  candidate_key: "screening-20260501-9bea884c:9001"
+  candidate_key: "screening-20260501:9001"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -31472,9 +31472,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9020"
   name: "東日本旅客鉄道"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9020"
-  candidate_key: "screening-20260501-9bea884c:9020"
+  candidate_key: "screening-20260501:9020"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -31578,9 +31578,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9021"
   name: "西日本旅客鉄道"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9021"
-  candidate_key: "screening-20260501-9bea884c:9021"
+  candidate_key: "screening-20260501:9021"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -31684,9 +31684,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9022"
   name: "東海旅客鉄道"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9022"
-  candidate_key: "screening-20260501-9bea884c:9022"
+  candidate_key: "screening-20260501:9022"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -31790,9 +31790,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9023"
   name: "東京地下鉄"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9023"
-  candidate_key: "screening-20260501-9bea884c:9023"
+  candidate_key: "screening-20260501:9023"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -31896,9 +31896,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9044"
   name: "ＮＡＮＫＡＩ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9044"
-  candidate_key: "screening-20260501-9bea884c:9044"
+  candidate_key: "screening-20260501:9044"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -32002,9 +32002,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9064"
   name: "ヤマトホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9064"
-  candidate_key: "screening-20260501-9bea884c:9064"
+  candidate_key: "screening-20260501:9064"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -32108,9 +32108,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9076"
   name: "セイノーホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9076"
-  candidate_key: "screening-20260501-9bea884c:9076"
+  candidate_key: "screening-20260501:9076"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -32214,9 +32214,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9104"
   name: "商船三井"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9104"
-  candidate_key: "screening-20260501-9bea884c:9104"
+  candidate_key: "screening-20260501:9104"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -32320,9 +32320,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9110"
   name: "ＮＳユナイテッド海運"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9110"
-  candidate_key: "screening-20260501-9bea884c:9110"
+  candidate_key: "screening-20260501:9110"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -32426,9 +32426,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9119"
   name: "飯野海運"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9119"
-  candidate_key: "screening-20260501-9bea884c:9119"
+  candidate_key: "screening-20260501:9119"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -32530,9 +32530,9 @@ candidates:
       sector_return_4w: -0.0753
 - ticker: "9147"
   name: "ＮＩＰＰＯＮ　ＥＸＰＲＥＳＳホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9147"
-  candidate_key: "screening-20260501-9bea884c:9147"
+  candidate_key: "screening-20260501:9147"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -32636,9 +32636,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9158"
   name: "シーユーシー"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9158"
-  candidate_key: "screening-20260501-9bea884c:9158"
+  candidate_key: "screening-20260501:9158"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -32827,9 +32827,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "9163"
   name: "ナレルグループ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9163"
-  candidate_key: "screening-20260501-9bea884c:9163"
+  candidate_key: "screening-20260501:9163"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -32933,9 +32933,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9166"
   name: "ＧＥＮＤＡ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9166"
-  candidate_key: "screening-20260501-9bea884c:9166"
+  candidate_key: "screening-20260501:9166"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -33093,9 +33093,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "9168"
   name: "ライズ・コンサルティング・グループ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9168"
-  candidate_key: "screening-20260501-9bea884c:9168"
+  candidate_key: "screening-20260501:9168"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -33229,9 +33229,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9201"
   name: "日本航空"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9201"
-  candidate_key: "screening-20260501-9bea884c:9201"
+  candidate_key: "screening-20260501:9201"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -33366,9 +33366,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9202"
   name: "ＡＮＡホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9202"
-  candidate_key: "screening-20260501-9bea884c:9202"
+  candidate_key: "screening-20260501:9202"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -33532,9 +33532,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "9416"
   name: "ビジョン"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9416"
-  candidate_key: "screening-20260501-9bea884c:9416"
+  candidate_key: "screening-20260501:9416"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -33637,9 +33637,9 @@ candidates:
       condition_a_self_range_percentile: 0.1363
 - ticker: "9418"
   name: "Ｕ−ＮＥＸＴ　ＨＯＬＤＩＮＧＳ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9418"
-  candidate_key: "screening-20260501-9bea884c:9418"
+  candidate_key: "screening-20260501:9418"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -33773,9 +33773,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "9432"
   name: "ＮＴＴ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9432"
-  candidate_key: "screening-20260501-9bea884c:9432"
+  candidate_key: "screening-20260501:9432"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -33879,9 +33879,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9434"
   name: "ソフトバンク"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9434"
-  candidate_key: "screening-20260501-9bea884c:9434"
+  candidate_key: "screening-20260501:9434"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -33985,9 +33985,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9474"
   name: "ゼンリン"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9474"
-  candidate_key: "screening-20260501-9bea884c:9474"
+  candidate_key: "screening-20260501:9474"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -34090,9 +34090,9 @@ candidates:
       condition_a_self_range_percentile: 0.1283
 - ticker: "9503"
   name: "関西電力"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9503"
-  candidate_key: "screening-20260501-9bea884c:9503"
+  candidate_key: "screening-20260501:9503"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -34194,9 +34194,9 @@ candidates:
       sector_return_4w: -0.093
 - ticker: "9505"
   name: "北陸電力"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9505"
-  candidate_key: "screening-20260501-9bea884c:9505"
+  candidate_key: "screening-20260501:9505"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -34298,9 +34298,9 @@ candidates:
       sector_return_4w: -0.093
 - ticker: "9507"
   name: "四国電力"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9507"
-  candidate_key: "screening-20260501-9bea884c:9507"
+  candidate_key: "screening-20260501:9507"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -34402,9 +34402,9 @@ candidates:
       sector_return_4w: -0.093
 - ticker: "9511"
   name: "沖縄電力"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9511"
-  candidate_key: "screening-20260501-9bea884c:9511"
+  candidate_key: "screening-20260501:9511"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -34513,9 +34513,9 @@ candidates:
       sector_return_4w: -0.093
 - ticker: "9531"
   name: "東京瓦斯"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9531"
-  candidate_key: "screening-20260501-9bea884c:9531"
+  candidate_key: "screening-20260501:9531"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -34617,9 +34617,9 @@ candidates:
       sector_return_4w: -0.093
 - ticker: "9532"
   name: "大阪瓦斯"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9532"
-  candidate_key: "screening-20260501-9bea884c:9532"
+  candidate_key: "screening-20260501:9532"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -34721,9 +34721,9 @@ candidates:
       sector_return_4w: -0.093
 - ticker: "9534"
   name: "北海道瓦斯"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9534"
-  candidate_key: "screening-20260501-9bea884c:9534"
+  candidate_key: "screening-20260501:9534"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -34825,9 +34825,9 @@ candidates:
       sector_return_4w: -0.093
 - ticker: "9536"
   name: "西部ガスホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9536"
-  candidate_key: "screening-20260501-9bea884c:9536"
+  candidate_key: "screening-20260501:9536"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -34929,9 +34929,9 @@ candidates:
       sector_return_4w: -0.093
 - ticker: "9556"
   name: "ＩＮＴＬＯＯＰ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9556"
-  candidate_key: "screening-20260501-9bea884c:9556"
+  candidate_key: "screening-20260501:9556"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -35040,9 +35040,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "9603"
   name: "エイチ・アイ・エス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9603"
-  candidate_key: "screening-20260501-9bea884c:9603"
+  candidate_key: "screening-20260501:9603"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -35151,9 +35151,9 @@ candidates:
       condition_b_sigma_gap: -2.117
 - ticker: "9616"
   name: "共立メンテナンス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9616"
-  candidate_key: "screening-20260501-9bea884c:9616"
+  candidate_key: "screening-20260501:9616"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -35256,9 +35256,9 @@ candidates:
       condition_a_self_range_percentile: 0.1493
 - ticker: "9627"
   name: "アインホールディングス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9627"
-  candidate_key: "screening-20260501-9bea884c:9627"
+  candidate_key: "screening-20260501:9627"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -35367,9 +35367,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "9629"
   name: "ピー・シー・エー"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9629"
-  candidate_key: "screening-20260501-9bea884c:9629"
+  candidate_key: "screening-20260501:9629"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -35478,9 +35478,9 @@ candidates:
       condition_b_sigma_gap: -1.215
 - ticker: "9672"
   name: "東京都競馬"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9672"
-  candidate_key: "screening-20260501-9bea884c:9672"
+  candidate_key: "screening-20260501:9672"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -35627,9 +35627,9 @@ candidates:
       edinet_failure_reasons: null
 - ticker: "9692"
   name: "シーイーシー"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9692"
-  candidate_key: "screening-20260501-9bea884c:9692"
+  candidate_key: "screening-20260501:9692"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -35738,9 +35738,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "9715"
   name: "トランス・コスモス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9715"
-  candidate_key: "screening-20260501-9bea884c:9715"
+  candidate_key: "screening-20260501:9715"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -35844,9 +35844,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9722"
   name: "藤田観光"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9722"
-  candidate_key: "screening-20260501-9bea884c:9722"
+  candidate_key: "screening-20260501:9722"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -35950,9 +35950,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9740"
   name: "セントラル警備保障"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9740"
-  candidate_key: "screening-20260501-9bea884c:9740"
+  candidate_key: "screening-20260501:9740"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -36131,9 +36131,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "9743"
   name: "丹青社"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9743"
-  candidate_key: "screening-20260501-9bea884c:9743"
+  candidate_key: "screening-20260501:9743"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -36242,9 +36242,9 @@ candidates:
       operating_profit_loss_narrowing: false
 - ticker: "9755"
   name: "応用地質"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9755"
-  candidate_key: "screening-20260501-9bea884c:9755"
+  candidate_key: "screening-20260501:9755"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -36348,9 +36348,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9759"
   name: "ＮＳＤ"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9759"
-  candidate_key: "screening-20260501-9bea884c:9759"
+  candidate_key: "screening-20260501:9759"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -36452,9 +36452,9 @@ candidates:
       condition_b_sigma_gap: -1.2126
 - ticker: "9948"
   name: "アークス"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9948"
-  candidate_key: "screening-20260501-9bea884c:9948"
+  candidate_key: "screening-20260501:9948"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
@@ -36634,9 +36634,9 @@ candidates:
       ttm_quality: exact
 - ticker: "9974"
   name: "ベルク"
-  screen_run_id: "screening-20260501-9bea884c"
+  screen_run_id: "screening-20260501"
   candidate_id: "candidate-2026-05-01-9974"
-  candidate_key: "screening-20260501-9bea884c:9974"
+  candidate_key: "screening-20260501:9974"
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass

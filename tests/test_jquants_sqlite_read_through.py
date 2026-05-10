@@ -48,7 +48,7 @@ class _RecordingClient:
         return []
 
 
-def _add_raw_import(
+def _add_source_coverage(
     conn: sqlite3.Connection,
     *,
     source: str,
@@ -86,7 +86,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
                 ") VALUES (?, ?, ?, ?, ?, ?)",
                 ("2026-05-07", "1301", "極洋", "プライム", "水産・農林業", 1),
             )
-            _add_raw_import(
+            _add_source_coverage(
                 conn,
                 source="jquants_master_snapshots",
                 record_count=1,
@@ -132,7 +132,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
                 ") VALUES (?, ?, ?, ?, ?)",
                 ("1301", "2024-03-19", 3790.0, 1000.0, 3790.0),
             )
-            _add_raw_import(
+            _add_source_coverage(
                 conn,
                 source="jquants_daily_bars",
                 record_count=1,
@@ -156,7 +156,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
-            _add_raw_import(
+            _add_source_coverage(
                 conn,
                 source="jquants_daily_bars",
                 record_count=0,
@@ -179,7 +179,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
-            _add_raw_import(
+            _add_source_coverage(
                 conn,
                 source="jquants_daily_bars",
                 record_count=0,
@@ -215,7 +215,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
                     ") VALUES (?, ?, ?, ?, ?)",
                     ("1301", traded_at, close, 1000.0, close),
                 )
-            _add_raw_import(
+            _add_source_coverage(
                 conn,
                 source="jquants_daily_bars",
                 record_count=1,
@@ -226,7 +226,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
                     "get_eq_bars_daily_range-end_dt-2024-03-20-start_dt-2024-03-19.json"
                 ),
             )
-            _add_raw_import(
+            _add_source_coverage(
                 conn,
                 source="jquants_daily_bars",
                 record_count=1,

@@ -26,7 +26,7 @@ from .providers.jquants import (
     parse_jquants_code,
 )
 
-SQLITE_SCHEMA_VERSION = 10
+SQLITE_SCHEMA_VERSION = 11
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 _REQUIRED_TABLES = (
@@ -41,6 +41,118 @@ _REQUIRED_TABLES = (
     "jpx_regulation_sources",
     "source_coverage",
 )
+_REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
+    "jquants_daily_bars": (
+        "ticker",
+        "traded_at",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "turnover_value",
+        "adjustment_open",
+        "adjustment_high",
+        "adjustment_low",
+        "adjustment_close",
+        "adjustment_volume",
+        "adjustment_factor",
+        "upper_limit",
+        "lower_limit",
+    ),
+    "jquants_fin_summaries": (
+        "ticker",
+        "disclosed_at",
+        "forecast_eps",
+        "eps_ttm",
+        "bps",
+        "shares_outstanding",
+        "sales",
+        "cfo",
+        "cash_eq",
+        "total_assets",
+        "equity",
+        "operating_profit",
+        "ordinary_profit",
+        "profit",
+        "fiscal_period",
+        "fiscal_year_end",
+        "period_start",
+        "period_end",
+    ),
+    "jquants_master_snapshots": (
+        "snapshot_date",
+        "ticker",
+        "name",
+        "market",
+        "sector_33",
+        "is_common_stock",
+    ),
+    "jquants_earnings_calendar": ("announcement_date", "ticker"),
+    "jquants_market_calendar": ("day", "is_business_day"),
+    "edinet_documents": (
+        "doc_date",
+        "doc_id",
+        "sec_code",
+        "doc_type_code",
+        "csv_flag",
+        "xbrl_flag",
+        "legal_status",
+        "disclosure_status",
+        "withdrawal_status",
+        "submit_datetime",
+        "doc_description",
+        "period_start",
+        "period_end",
+    ),
+    "edinet_metrics": (
+        "asof_date",
+        "ticker",
+        "sales_ttm",
+        "ocf_ttm",
+        "debt",
+        "cash",
+        "ebitda_ttm",
+        "consolidation_basis",
+        "ttm_quality_ev_ebitda",
+        "ttm_quality_p_s",
+        "ttm_quality_pcfr",
+        "operating_profit_ttm",
+        "depreciation_and_amortization_ttm",
+        "capex_ttm",
+        "fcf_ttm",
+        "net_cash",
+        "equity",
+        "total_assets",
+        "ttm_quality_fcf",
+        "ttm_quality_net_cash",
+        "source_doc_id",
+        "document_type",
+        "source_submit_datetime",
+        "source_period_start",
+        "source_period_end",
+        "capex_source",
+        "failure_reasons",
+    ),
+    "jpx_regulation_flags": (
+        "asof_date",
+        "source_name",
+        "ticker",
+        "flag",
+        "fetched_at_utc",
+    ),
+    "jpx_regulation_sources": ("asof_date", "source_name", "fetched_at_utc"),
+    "source_coverage": (
+        "source",
+        "coverage_key",
+        "coverage_start",
+        "coverage_end",
+        "fetched_at_utc",
+        "record_count",
+        "status",
+        "error",
+    ),
+}
 
 _DELETE_DATE_RANGE_SQL = {
     ("jquants_daily_bars", "traded_at"): (
@@ -51,6 +163,38 @@ _DELETE_DATE_RANGE_SQL = {
     ),
     ("jquants_market_calendar", "day"): (
         "DELETE FROM jquants_market_calendar WHERE day BETWEEN ? AND ?"
+    ),
+}
+_COUNT_DATE_RANGE_SQL = {
+    ("jquants_daily_bars", "traded_at"): (
+        "SELECT COUNT(*) FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ?"
+    ),
+    ("jquants_fin_summaries", "disclosed_at"): (
+        "SELECT COUNT(*) FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ?"
+    ),
+    ("jquants_market_calendar", "day"): (
+        "SELECT COUNT(*) FROM jquants_market_calendar WHERE day BETWEEN ? AND ?"
+    ),
+    ("edinet_documents", "doc_date"): (
+        "SELECT COUNT(*) FROM edinet_documents WHERE doc_date BETWEEN ? AND ?"
+    ),
+    ("edinet_metrics", "asof_date"): (
+        "SELECT COUNT(*) FROM edinet_metrics WHERE asof_date BETWEEN ? AND ?"
+    ),
+    ("jpx_regulation_flags", "asof_date"): (
+        "SELECT COUNT(*) FROM jpx_regulation_flags WHERE asof_date BETWEEN ? AND ?"
+    ),
+}
+_COUNT_TABLE_SQL = {
+    "jquants_master_snapshots": "SELECT COUNT(*) FROM jquants_master_snapshots",
+    "jquants_earnings_calendar": "SELECT COUNT(*) FROM jquants_earnings_calendar",
+}
+_EXPLICIT_INDEXES: Mapping[str, tuple[str, tuple[str, ...], bool]] = {
+    "idx_jquants_daily_bars_traded_at": ("jquants_daily_bars", ("traded_at",), False),
+    "idx_source_coverage_source_window": (
+        "source_coverage",
+        ("source", "coverage_start", "coverage_end"),
+        False,
     ),
 }
 _SCHEMA_SQL = """
@@ -131,6 +275,7 @@ CREATE TABLE IF NOT EXISTS edinet_documents(
   disclosure_status TEXT,
   withdrawal_status TEXT,
   submit_datetime TEXT,
+  doc_description TEXT,
   period_start TEXT,
   period_end TEXT,
   PRIMARY KEY (doc_date, doc_id)
@@ -235,7 +380,7 @@ def open_connection(db_path: Path) -> sqlite3.Connection:
     try:
         tables = _existing_tables(conn)
         if tables:
-            _validate_current_schema(conn, tables)
+            validate_current_schema(conn)
         else:
             conn.executescript(_SCHEMA_SQL)
             conn.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION}")
@@ -266,6 +411,78 @@ def _validate_current_schema(conn: sqlite3.Connection, tables: set[str]) -> None
             "screening SQLite schema is incomplete; remove the SQLite file and rebuild it "
             f"(missing tables: {', '.join(missing)})"
         )
+    expected_tables, expected_indexes = _expected_schema_shape()
+    for table, required_columns in _REQUIRED_COLUMNS.items():
+        existing_info = _table_info(conn, table)
+        existing_columns = {column[0] for column in existing_info}
+        missing_columns = sorted(set(required_columns) - existing_columns)
+        if missing_columns:
+            raise SQLiteSchemaError(
+                "screening SQLite schema is incomplete; remove the SQLite file and rebuild it "
+                f"(missing columns in {table}: {', '.join(missing_columns)})"
+            )
+        if existing_info != expected_tables[table]:
+            raise SQLiteSchemaError(
+                "screening SQLite schema is incomplete; remove the SQLite file and rebuild it "
+                f"(table shape mismatch: {table})"
+            )
+    for index_name, expected_index in expected_indexes.items():
+        existing_index = _index_info(conn, expected_index[0], index_name)
+        if existing_index != expected_index:
+            raise SQLiteSchemaError(
+                "screening SQLite schema is incomplete; remove the SQLite file and rebuild it "
+                f"(index shape mismatch: {index_name})"
+            )
+
+
+def validate_current_schema(conn: sqlite3.Connection) -> None:
+    """Validate that an existing screening SQLite connection has the current schema."""
+    _validate_current_schema(conn, _existing_tables(conn))
+
+
+def _expected_schema_shape() -> tuple[
+    dict[str, tuple[tuple[str, str, int, int], ...]],
+    dict[str, tuple[str, tuple[str, ...], bool]],
+]:
+    expected = sqlite3.connect(":memory:")
+    try:
+        expected.executescript(_SCHEMA_SQL)
+        tables = {table: _table_info(expected, table) for table in _REQUIRED_TABLES}
+        indexes: dict[str, tuple[str, tuple[str, ...], bool]] = {}
+        for index_name, (table, _, _) in _EXPLICIT_INDEXES.items():
+            index_info = _index_info(expected, table, index_name)
+            if index_info is None:
+                raise SQLiteSchemaError(f"internal schema definition is missing {index_name}")
+            indexes[index_name] = index_info
+        return tables, indexes
+    finally:
+        expected.close()
+
+
+def _table_info(conn: sqlite3.Connection, table: str) -> tuple[tuple[str, str, int, int], ...]:
+    rows = conn.execute('SELECT name, type, "notnull", pk FROM pragma_table_info(?)', (table,))
+    return tuple(
+        (str(name), str(column_type).upper(), int(notnull or 0), int(pk or 0))
+        for name, column_type, notnull, pk in rows
+    )
+
+
+def _index_info(
+    conn: sqlite3.Connection, table: str, index_name: str
+) -> tuple[str, tuple[str, ...], bool] | None:
+    rows = conn.execute(
+        'SELECT name, "unique", origin FROM pragma_index_list(?)',
+        (table,),
+    ).fetchall()
+    for name, unique, origin in rows:
+        if str(name) != index_name or str(origin) != "c":
+            continue
+        column_rows = conn.execute(
+            "SELECT name FROM pragma_index_info(?) ORDER BY seqno",
+            (index_name,),
+        ).fetchall()
+        return (table, tuple(str(row[0]) for row in column_rows), bool(unique))
+    return None
 
 
 def _delete_source_coverage(conn: sqlite3.Connection, source: str) -> None:
@@ -299,6 +516,25 @@ def _delete_date_range(
     )
 
 
+def _date_range_row_count(
+    conn: sqlite3.Connection,
+    table: str,
+    date_column: str,
+    start: date,
+    end: date,
+) -> int:
+    row = conn.execute(
+        _COUNT_DATE_RANGE_SQL[(table, date_column)],
+        (start.isoformat(), end.isoformat()),
+    ).fetchone()
+    return int(row[0] or 0)
+
+
+def _table_row_count(conn: sqlite3.Connection, table: str) -> int:
+    row = conn.execute(_COUNT_TABLE_SQL[table]).fetchone()
+    return int(row[0] or 0)
+
+
 def store_jquants_daily_bars(
     db_path: Path,
     records: Iterable[Mapping[str, Any]],
@@ -326,6 +562,9 @@ def store_jquants_daily_bars(
                 """,
                 rows,
             )
+        persisted_count = _date_range_row_count(
+            conn, "jquants_daily_bars", "traded_at", requested_start, requested_end
+        )
         _record_source_coverage(
             conn,
             source="jquants_daily_bars",
@@ -338,7 +577,7 @@ def store_jquants_daily_bars(
             requested_start=requested_start.isoformat(),
             requested_end=requested_end.isoformat(),
             params={"start_dt": requested_start.isoformat(), "end_dt": requested_end.isoformat()},
-            record_count=len(rows),
+            record_count=persisted_count,
             raw_record_count=len(records_list),
             skipped_record_count=normalized.skipped_count,
             rejected_record_count=normalized.rejected_count,
@@ -347,7 +586,7 @@ def store_jquants_daily_bars(
             error=normalized.error,
         )
         conn.commit()
-        return len(rows)
+        return persisted_count
     finally:
         conn.close()
 
@@ -381,6 +620,9 @@ def store_jquants_fin_summaries(
                 """,
                 rows,
             )
+        persisted_count = _date_range_row_count(
+            conn, "jquants_fin_summaries", "disclosed_at", requested_start, requested_end
+        )
         _record_source_coverage(
             conn,
             source="jquants_fin_summaries",
@@ -393,7 +635,7 @@ def store_jquants_fin_summaries(
             requested_start=requested_start.isoformat(),
             requested_end=requested_end.isoformat(),
             params={"start_dt": requested_start.isoformat(), "end_dt": requested_end.isoformat()},
-            record_count=len(rows),
+            record_count=persisted_count,
             raw_record_count=len(records_list),
             skipped_record_count=normalized.skipped_count,
             rejected_record_count=normalized.rejected_count,
@@ -402,7 +644,7 @@ def store_jquants_fin_summaries(
             error=normalized.error,
         )
         conn.commit()
-        return len(rows)
+        return persisted_count
     finally:
         conn.close()
 
@@ -424,6 +666,7 @@ def store_jquants_master(db_path: Path, records: Iterable[Mapping[str, Any]]) ->
                 """,
                 rows,
             )
+        persisted_count = _table_row_count(conn, "jquants_master_snapshots")
         dates = sorted({row[0] for row in rows if row[0] != "unknown"})
         _record_source_coverage(
             conn,
@@ -435,7 +678,7 @@ def store_jquants_master(db_path: Path, records: Iterable[Mapping[str, Any]]) ->
             requested_start=None,
             requested_end=None,
             params={},
-            record_count=len(rows),
+            record_count=persisted_count,
             raw_record_count=len(records_list),
             skipped_record_count=normalized.skipped_count,
             rejected_record_count=normalized.rejected_count,
@@ -444,7 +687,7 @@ def store_jquants_master(db_path: Path, records: Iterable[Mapping[str, Any]]) ->
             error=normalized.error,
         )
         conn.commit()
-        return len(rows)
+        return persisted_count
     finally:
         conn.close()
 
@@ -470,6 +713,7 @@ def store_jquants_earnings_calendar(
                 ") VALUES (?, ?)",
                 rows,
             )
+        persisted_count = _table_row_count(conn, "jquants_earnings_calendar")
         dates = sorted({row[0] for row in rows})
         coverage_start = (
             requested_start.isoformat() if requested_start else dates[0] if dates else None
@@ -490,7 +734,7 @@ def store_jquants_earnings_calendar(
             requested_start=requested_start.isoformat() if requested_start else None,
             requested_end=requested_end.isoformat() if requested_end else None,
             params=params,
-            record_count=len(rows),
+            record_count=persisted_count,
             raw_record_count=len(records_list),
             skipped_record_count=normalized.skipped_count,
             rejected_record_count=normalized.rejected_count,
@@ -499,7 +743,7 @@ def store_jquants_earnings_calendar(
             error=normalized.error,
         )
         conn.commit()
-        return len(rows)
+        return persisted_count
     finally:
         conn.close()
 
@@ -526,6 +770,9 @@ def store_jquants_market_calendar(
                 "VALUES (?, ?)",
                 rows,
             )
+        persisted_count = _date_range_row_count(
+            conn, "jquants_market_calendar", "day", requested_start, requested_end
+        )
         _record_source_coverage(
             conn,
             source="jquants_market_calendar",
@@ -539,7 +786,7 @@ def store_jquants_market_calendar(
                 "from_yyyymmdd": requested_start.strftime("%Y%m%d"),
                 "to_yyyymmdd": requested_end.strftime("%Y%m%d"),
             },
-            record_count=len(rows),
+            record_count=persisted_count,
             raw_record_count=len(records_list),
             skipped_record_count=normalized.skipped_count,
             rejected_record_count=normalized.rejected_count,
@@ -548,7 +795,7 @@ def store_jquants_market_calendar(
             error=normalized.error,
         )
         conn.commit()
-        return len(rows)
+        return persisted_count
     finally:
         conn.close()
 
@@ -569,10 +816,13 @@ def store_edinet_documents(
                 "INSERT OR REPLACE INTO edinet_documents("
                 "doc_date, doc_id, sec_code, doc_type_code, csv_flag, xbrl_flag, "
                 "legal_status, disclosure_status, withdrawal_status, submit_datetime, "
-                "period_start, period_end"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "doc_description, period_start, period_end"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
             )
+        persisted_count = _date_range_row_count(
+            conn, "edinet_documents", "doc_date", on_date, on_date
+        )
         _record_source_coverage(
             conn,
             source="edinet_documents",
@@ -583,7 +833,7 @@ def store_edinet_documents(
             requested_start=on_date.isoformat(),
             requested_end=on_date.isoformat(),
             params={"date": on_date.isoformat(), "type": 2},
-            record_count=len(rows),
+            record_count=persisted_count,
             raw_record_count=len(records_list),
             skipped_record_count=len(records_list) - len(rows),
             status="partial" if len(rows) < len(records_list) else "ok",
@@ -594,7 +844,7 @@ def store_edinet_documents(
             ),
         )
         conn.commit()
-        return len(rows)
+        return persisted_count
     finally:
         conn.close()
 
@@ -634,6 +884,9 @@ def store_edinet_metrics(
                 ")",
                 rows,
             )
+        persisted_count = _date_range_row_count(
+            conn, "edinet_metrics", "asof_date", asof_date, asof_date
+        )
         _record_source_coverage(
             conn,
             source="edinet_metrics",
@@ -644,14 +897,14 @@ def store_edinet_metrics(
             requested_start=asof_date.isoformat(),
             requested_end=asof_date.isoformat(),
             params={"asof_date": asof_date.isoformat()},
-            record_count=len(rows),
+            record_count=persisted_count,
             raw_record_count=len(records_list),
             skipped_record_count=skipped_count,
             status=stored_status,
             error=stored_error,
         )
         conn.commit()
-        return len(rows)
+        return persisted_count
     finally:
         conn.close()
 
@@ -712,6 +965,9 @@ def store_jpx_regulations(
                 ") VALUES (?, ?, ?, ?, ?)",
                 rows,
             )
+        persisted_count = _date_range_row_count(
+            conn, "jpx_regulation_flags", "asof_date", asof_date, asof_date
+        )
         _record_source_coverage(
             conn,
             source="jpx_regulation_flags",
@@ -722,7 +978,7 @@ def store_jpx_regulations(
             requested_start=asof_date.isoformat(),
             requested_end=asof_date.isoformat(),
             params={"asof_date": asof_date.isoformat(), "source_names": sorted(source_name_tuple)},
-            record_count=len(rows),
+            record_count=persisted_count,
             raw_record_count=raw_record_count,
             skipped_record_count=0,
             rejected_record_count=rejected_count,
@@ -732,7 +988,7 @@ def store_jpx_regulations(
             ),
         )
         conn.commit()
-        return len(rows)
+        return persisted_count
     finally:
         conn.close()
 
@@ -828,6 +1084,7 @@ def _edinet_document_rows(
                 _to_str_or_none(_first(record, "disclosureStatus", "disclosure_status")),
                 _to_str_or_none(_first(record, "withdrawalStatus", "withdrawal_status")),
                 _to_str_or_none(_first(record, "submitDateTime", "submit_datetime")),
+                _to_str_or_none(_first(record, "docDescription", "doc_description")),
                 _date_iso(_first(record, "periodStart", "period_start")),
                 _date_iso(_first(record, "periodEnd", "period_end")),
             )
