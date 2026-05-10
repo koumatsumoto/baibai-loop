@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import sqlite3
 import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -480,7 +481,7 @@ def run_command(
             asof_date, asof_date + timedelta(days=90)
         )
         jpx_snapshot = providers.jpx.get_regulation_snapshot(asof_date)
-    except (JQuantsProviderError, JPXProviderError) as exc:
+    except (JQuantsProviderError, JPXProviderError, sqlite3.Error) as exc:
         # 型情報を残して root cause を追いやすくする。secret を含みうる 3rd party
         # exception はラップ済みなので str(exc) 表示で安全。
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
@@ -504,19 +505,22 @@ def run_command(
     shares_by_ticker = build_shares_outstanding_index(summaries_by_ticker)
     edinet_load_error: str | None = None
     edinet_by_ticker: Mapping[str, EdinetMetricRecord] = {}
-    if providers.edinet is not None:
-        try:
-            edinet_by_ticker = providers.edinet.load_metric_records(asof_date)
-        except (EDINETProviderError, OSError, ValueError) as exc:
-            # cache 破損 / JSON 不正 / IO 失敗を明示的にログする。pre-existing の
-            # empty cache (FileNotFoundError 相当) は load_metric_records 側で {} を返す
-            # ため、ここに来るのは本質的に異常系のみ。
-            edinet_load_error = f"{type(exc).__name__}: {exc}"
-            print(
-                f"warning: EDINET load_metric_records failed: {edinet_load_error}",
-                file=sys.stderr,
-            )
-            edinet_by_ticker = {}
+    if providers.edinet is None:
+        print("EDINET preprocessed metrics provider is required for screening run", file=sys.stderr)
+        return 1
+    try:
+        edinet_by_ticker = providers.edinet.load_metric_records(asof_date)
+    except (EDINETProviderError, OSError, ValueError) as exc:
+        # cache 破損 / JSON 不正 / IO 失敗は EDINET 必須条件を満たせないため、
+        # preflight 後の race や run_command 直呼びでも YAML 生成へ進めない。
+        edinet_load_error = f"{type(exc).__name__}: {exc}"
+        print(f"EDINET load_metric_records failed: {edinet_load_error}", file=sys.stderr)
+        return 1
+    if not edinet_by_ticker:
+        print(
+            "EDINET preprocessed metrics are required but empty for screening run", file=sys.stderr
+        )
+        return 1
 
     universe_result = build_universe(
         asof_date=asof_date,
@@ -1484,11 +1488,8 @@ def bootstrap_cache_command(
             providers.jquants.get_mkt_calendar(asof_date, asof_date)
             if providers.edinet is not None:
                 providers.edinet.bootstrap_cache(fin_start, asof_date)
-            try:
-                providers.jpx.bootstrap_cache(asof_date)
-            except JPXProviderError as exc:
-                print(f"warning: jpx bootstrap skipped: {exc}", file=sys.stderr)
-        except (JQuantsProviderError, EDINETProviderError) as exc:
+            providers.jpx.bootstrap_cache(asof_date)
+        except (JQuantsProviderError, EDINETProviderError, JPXProviderError, sqlite3.Error) as exc:
             print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
             return 1
         return 0
@@ -1498,13 +1499,8 @@ def bootstrap_cache_command(
         providers.jquants.bootstrap_cache(start, end)
         if providers.edinet is not None:
             providers.edinet.bootstrap_cache(start, end)
-        try:
-            providers.jpx.bootstrap_cache(end)
-        except JPXProviderError as exc:
-            # JPX は run 側で fail-fast 扱いだが、bootstrap では continue する。
-            # ただし silent にせず stderr で運用者に見せる。
-            print(f"warning: jpx bootstrap skipped: {exc}", file=sys.stderr)
-    except (JQuantsProviderError, EDINETProviderError) as exc:
+        providers.jpx.bootstrap_cache(end)
+    except (JQuantsProviderError, EDINETProviderError, JPXProviderError, sqlite3.Error) as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     return 0

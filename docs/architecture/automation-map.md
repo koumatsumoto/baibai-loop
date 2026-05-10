@@ -39,7 +39,7 @@ Automation は人間の投資判断を置き換えるものではなく、fact s
 
 | workflow | trigger | gate |
 | --- | --- | --- |
-| `.github/workflows/ci.yml` | pull request / main push | `uv sync`, Ruff format/check, mypy, pytest coverage, `baibai-loop-validate`, raw cache size check, build |
+| `.github/workflows/ci.yml` | pull request / main push | `uv sync`, Ruff format/check, mypy, tracked raw screening cache block, pytest coverage, `baibai-loop-validate`, build |
 | `.github/workflows/security.yml` | pull request / main push / weekly schedule | Bandit, pip-audit |
 | `.github/workflows/ledger-sync.yml` | weekday schedule / manual dispatch | market data 付き ledger sync と automated PR |
 

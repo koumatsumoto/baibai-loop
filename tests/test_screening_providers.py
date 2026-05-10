@@ -1233,6 +1233,28 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertIsNotNone(rows[0][0])
 
+    def test_jpx_get_regulation_snapshot_rejects_rows_without_code_column(self) -> None:
+        class FakeResponse:
+            status_code = 200
+            content = b"unexpected\n49170\n"
+            headers = {"content-type": "text/csv"}
+
+        class FakeSession:
+            def get(self, url: str, timeout: int) -> FakeResponse:
+                del url, timeout
+                return FakeResponse()
+
+        provider = JPXProvider(
+            Path("/tmp"),
+            regulation_urls={
+                "整理銘柄": "https://www.jpx.co.jp/listing/market-alerts/supervision/list.csv"
+            },
+            session=FakeSession(),
+        )
+
+        with self.assertRaisesRegex(JPXProviderError, "missing JPX code column"):
+            provider.get_regulation_snapshot(date(2026, 4, 24))
+
     def test_jpx_decode_html_text_prefers_content_type_charset(self) -> None:
         # JPX が cp932 ページを Content-Type で告知してきた場合、フォールバックの utf-8
         # が偶然成功して文字化けが残るリスクを避けるため、charset を最優先で試行する。

@@ -677,6 +677,12 @@ def store_edinet_documents(
             record_count=len(rows),
             raw_record_count=len(records_list),
             skipped_record_count=len(records_list) - len(rows),
+            status="partial" if len(rows) < len(records_list) else "ok",
+            error=(
+                f"{len(records_list) - len(rows)} EDINET document rows were skipped"
+                if len(rows) < len(records_list)
+                else None
+            ),
         )
         _record_table_integrity(conn)
         conn.commit()
@@ -697,6 +703,12 @@ def store_edinet_metrics(
     try:
         records_list = list(records)
         rows = _edinet_metric_rows(asof_date.isoformat(), records_list)
+        skipped_count = len(records_list) - len(rows)
+        stored_status = status
+        stored_error = error
+        if status == "ok" and skipped_count:
+            stored_status = "partial"
+            stored_error = f"{skipped_count} EDINET metric rows were skipped"
         conn.execute("DELETE FROM edinet_metrics WHERE asof_date = ?", (asof_date.isoformat(),))
         _delete_overlapping_source_coverage(conn, "edinet_metrics", asof_date, asof_date)
         if rows:
@@ -726,9 +738,9 @@ def store_edinet_metrics(
             params={"asof_date": asof_date.isoformat()},
             record_count=len(rows),
             raw_record_count=len(records_list),
-            skipped_record_count=len(records_list) - len(rows),
-            status=status,
-            error=error,
+            skipped_record_count=skipped_count,
+            status=stored_status,
+            error=stored_error,
         )
         _record_table_integrity(conn)
         conn.commit()
@@ -766,15 +778,26 @@ def store_jpx_regulations(
                 source_rows,
             )
         rows: list[tuple[Any, ...]] = []
+        raw_record_count = 0
+        rejected_count = 0
         for raw_ticker, flags in flags_by_ticker.items():
+            raw_record_count += 1
             ticker = _normalize_ticker_or_none(raw_ticker)
             if ticker is None:
+                rejected_count += 1
                 continue
+            accepted_for_ticker = 0
+            rejected_for_ticker = 0
             for flag in flags:
                 flag_text = _to_str_or_none(flag)
                 if flag_text is None:
+                    rejected_for_ticker += 1
                     continue
                 rows.append((asof_date.isoformat(), flag_text, ticker, flag_text, fetched_at))
+                accepted_for_ticker += 1
+            rejected_count += rejected_for_ticker
+            if accepted_for_ticker == 0 and rejected_for_ticker == 0:
+                rejected_count += 1
         if rows:
             conn.executemany(
                 "INSERT OR REPLACE INTO jpx_regulation_flags("
@@ -793,8 +816,13 @@ def store_jpx_regulations(
             requested_end=asof_date.isoformat(),
             params={"asof_date": asof_date.isoformat(), "source_names": sorted(source_name_tuple)},
             record_count=len(rows),
-            raw_record_count=sum(1 for _ in flags_by_ticker.items()),
+            raw_record_count=raw_record_count,
             skipped_record_count=0,
+            rejected_record_count=rejected_count,
+            status="partial" if rejected_count else "ok",
+            error=(
+                f"{rejected_count} JPX regulation records were rejected" if rejected_count else None
+            ),
         )
         _record_table_integrity(conn)
         conn.commit()

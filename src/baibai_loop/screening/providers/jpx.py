@@ -261,6 +261,7 @@ class JPXProvider:
             if source_name == JPX_SPECIAL_CAUTION_SOURCE_NAME and self._special_caution_index_url:
                 download_url = self._resolve_special_attention_xls_url(asof_date)
             rows = self._download_rows(source_name, download_url)
+            accepted_rows = 0
             for row in rows:
                 ticker_raw = (
                     row.get("ticker")
@@ -270,9 +271,16 @@ class JPXProvider:
                 )
                 flag = row.get("flag") or row.get("規制区分") or row.get("status") or source_name
                 if not ticker_raw:
-                    continue
+                    raise JPXProviderError(
+                        f"missing JPX code column in regulation source {source_name}"
+                    )
                 ticker = parse_jpx_code(ticker_raw)
                 flags.setdefault(ticker, set()).add(str(flag))
+                accepted_rows += 1
+            if rows and accepted_rows == 0:
+                raise JPXProviderError(
+                    f"JPX regulation source produced no usable rows: {source_name}"
+                )
 
         snapshot = JPXRegulationSnapshot(
             flags_by_ticker={

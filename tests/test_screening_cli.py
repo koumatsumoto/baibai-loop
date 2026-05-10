@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -31,7 +32,7 @@ from baibai_loop.screening.cli import (
     select_command,
 )
 from baibai_loop.screening.config import ScreeningConfig
-from baibai_loop.screening.providers.edinet import EdinetMetricRecord
+from baibai_loop.screening.providers.edinet import EdinetMetricRecord, EDINETProviderError
 from baibai_loop.screening.providers.jpx import JPXProviderError, JPXRegulationSnapshot
 from baibai_loop.screening.providers.jquants import (
     JQuantsDailyBar,
@@ -179,6 +180,18 @@ class _FreshnessWarningEDINETProvider(FakeEDINETProvider):
         }
 
 
+class _FailingEDINETProvider(FakeEDINETProvider):
+    def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
+        del asof_date
+        raise EDINETProviderError("broken metrics cache")
+
+
+class _CorruptSQLiteJQuantsProvider(FakeJQuantsProvider):
+    def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
+        del start, end
+        raise sqlite3.DatabaseError("file is not a database")
+
+
 @dataclass
 class FakeJPXProvider:
     fail_bootstrap: bool = False
@@ -323,7 +336,7 @@ class ScreeningCliTests(unittest.TestCase):
             finally:
                 os.chdir(cwd)
 
-    def test_run_command_omits_edinet_source_when_optional_provider_is_absent(self) -> None:
+    def test_run_command_fails_when_required_edinet_provider_is_absent(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
             try:
@@ -337,21 +350,45 @@ class ScreeningCliTests(unittest.TestCase):
                     edinet=None,
                     jpx=FakeJPXProvider(),
                 )
-                exit_code = run_command(
-                    date(2026, 4, 24),
-                    config,
-                    providers,
-                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    exit_code = run_command(
+                        date(2026, 4, 24),
+                        config,
+                        providers,
+                        now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    )
+                self.assertEqual(exit_code, 1)
+                self.assertIn("EDINET preprocessed metrics provider is required", stderr.getvalue())
+                self.assertFalse(build_output_path(date(2026, 4, 24)).exists())
+            finally:
+                os.chdir(cwd)
+
+    def test_run_command_fails_when_required_edinet_load_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = Path.cwd()
+            try:
+                os_path = Path(tmpdir)
+                import os
+
+                os.chdir(os_path)
+                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                providers = ProviderBundle(
+                    jquants=FakeJQuantsProvider(),
+                    edinet=_FailingEDINETProvider(),
+                    jpx=FakeJPXProvider(),
                 )
-                self.assertEqual(exit_code, 2)
-                payload = yaml.safe_load(build_output_path(date(2026, 4, 24)).read_text())
-                self.assertEqual(
-                    payload["data_sources"], ["j-quants-light", "jpx-public-regulation"]
-                )
-                self.assertIn(
-                    "EDINET preprocessed metrics: optional unavailable",
-                    payload["provider_status_lines"],
-                )
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    exit_code = run_command(
+                        date(2026, 4, 24),
+                        config,
+                        providers,
+                        now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    )
+                self.assertEqual(exit_code, 1)
+                self.assertIn("EDINET load_metric_records failed", stderr.getvalue())
+                self.assertFalse(build_output_path(date(2026, 4, 24)).exists())
             finally:
                 os.chdir(cwd)
 
@@ -620,7 +657,7 @@ class ScreeningCliTests(unittest.TestCase):
             finally:
                 os.chdir(cwd)
 
-    def test_bootstrap_cache_command_tolerates_jpx_bootstrap_failure(self) -> None:
+    def test_bootstrap_cache_command_fails_jpx_bootstrap_failure(self) -> None:
         exit_code = bootstrap_cache_command(
             date(2026, 4, 1),
             date(2026, 4, 24),
@@ -630,7 +667,23 @@ class ScreeningCliTests(unittest.TestCase):
                 jpx=FakeJPXProvider(fail_bootstrap=True),
             ),
         )
-        self.assertEqual(exit_code, 0)
+        self.assertEqual(exit_code, 1)
+
+    def test_bootstrap_cache_command_fails_cleanly_on_sqlite_corruption(self) -> None:
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            exit_code = bootstrap_cache_command(
+                date(2026, 4, 1),
+                date(2026, 4, 24),
+                ProviderBundle(
+                    jquants=_CorruptSQLiteJQuantsProvider(),
+                    edinet=FakeEDINETProvider(),
+                    jpx=FakeJPXProvider(),
+                ),
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("DatabaseError: file is not a database", stderr.getvalue())
 
     def test_bootstrap_cache_command_asof_uses_source_specific_windows(self) -> None:
         asof = date(2026, 5, 8)

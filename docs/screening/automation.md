@@ -29,7 +29,7 @@ python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--s
 
 `rebuild-cache` は legacy raw JSON tree から `data/screening/market.sqlite` を再生成する移行用コマンド。通常運用では使わず、provider fetch が SQLite へ直接書き込む。`--raw-dir` は必ず明示し、認識できる legacy raw JSON が 0 件の場合は fail-fast する。rebuild は一時ファイルへ作成してから置換するため、失敗時に既存 SQLite を壊さない。詳細は §11 を参照。
 
-`verify-cache-coverage` は SQLite が `run --asof` で必要な全入力をローカルに提供できるかを検証する。検証対象は J-Quants master、1200 日分の日次足、730 日分の財務サマリー、asof から 90 日先までの決算予定 horizon、asof の営業日カレンダ、asof の JPX 規制 snapshot と rules の `universe.required_jpx_flags` に含まれる source 名、EDINET metrics。EDINET metrics は既定で必須であり、旧運用の degraded check が必要な場合だけ `--allow-missing-edinet-metrics` を明示する。raw JSON の読み込みや provider API 呼び出しは行わない。不足があれば exit 1。
+`verify-cache-coverage` は SQLite が `run --asof` で必要な全入力をローカルに提供できるかを read-only で検証する。検証対象は J-Quants master、1200 日分の日次足、730 日分の財務サマリー、asof から 90 日先までの決算予定 horizon、asof の営業日カレンダ、asof の JPX 規制 snapshot と rules の `universe.required_jpx_flags` に含まれる source 名、EDINET metrics。master は common-stock universe が異常に小さくないこと、日次足と財務サマリーは source_coverage だけでなく SQLite 実データの ticker/date 密度も確認する。EDINET metrics は既定で必須であり、旧運用の degraded check が必要な場合だけ `--allow-missing-edinet-metrics` を明示する。raw JSON の読み込みや provider API 呼び出しは行わず、schema migration も行わない。不足があれば exit 1。
 
 `extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出して `data/screening/market.sqlite` に保存する。CSV ZIP 本体は再生成可能な cache として `.cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 

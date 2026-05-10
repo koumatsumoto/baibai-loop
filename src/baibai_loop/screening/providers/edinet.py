@@ -212,8 +212,9 @@ class EDINETProvider:
         sqlite_label = self._sqlite_path.as_posix() if self._sqlite_path is not None else "<none>"
         raise EDINETProviderError(
             f"SQLite cache incomplete for {source} ({requirement}); "
-            f"sqlite={sqlite_label}. `screening run` is cache-only: refresh or rebuild "
-            "SQLite from existing raw JSON before running screening."
+            f"sqlite={sqlite_label}. `screening run` is cache-only: run "
+            "`bootstrap-cache --asof` / `extract-edinet-metrics` or repair SQLite "
+            "before running screening."
         )
 
     def _request_json(self, url: str) -> dict[str, Any]:

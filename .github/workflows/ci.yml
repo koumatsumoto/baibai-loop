@@ -39,6 +39,14 @@ jobs:
       - name: Type check
         run: uv run mypy
 
+      - name: Block tracked raw screening cache
+        run: |
+          if git ls-files 'records/_data/raw/screening' | grep -q .; then
+            echo 'raw screening cache must not be tracked under records/_data/raw/screening'
+            git ls-files 'records/_data/raw/screening'
+            exit 1
+          fi
+
       - name: Tests with coverage
         run: |
           uv run coverage run -m pytest
