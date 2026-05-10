@@ -51,6 +51,11 @@ Front matter の形は [`../templates/research.md`](../templates/research.md) �
 
 Snapshot ref は immutable dated path と `content_sha256` を持つ。Snapshot file 自身に自己 hash は持たせない。
 
+`candidate_ref` は `candidates_ref`, `screen_run_id`, `ticker`, `candidate_id` を必須とする。
+`screen_run_id` は参照先 candidates YAML の root `run_id` および candidate row の `screen_run_id`
+と一致させる。形式は `screening-YYYYMMDD`。`candidate_id` は
+`candidate-<asof_date>-<ticker>` 形式で、参照先 candidate row と一致させる。
+
 ## 5. research_decision
 
 `research_decision.outcome` は次の 3 値。

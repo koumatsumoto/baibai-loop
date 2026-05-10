@@ -29,7 +29,6 @@ uv run baibai-loop-screening run --asof YYYY-MM-DD
 
 JPX 規制情報（特別注意 / 整理 / 取引停止 / 上場廃止警告）は universe の必須 gate です。設定された required source が欠ける場合、`run` は fail-fast し、candidates YAML を生成しません。EDINET 前処理済み metrics も `run` の必須 coverage です。`EDINET_API_KEY` は `extract-edinet-metrics` 実行時だけ必要で、`run` 中に EDINET API へフォールバックしません。
 
-legacy raw JSON から移行する場合だけ、`uv run baibai-loop-screening rebuild-cache --raw-dir PATH` を使います。`--raw-dir` は必ず明示し、認識できる legacy raw JSON が無い場合は fail-fast します。
 
 ## Select research candidates
 

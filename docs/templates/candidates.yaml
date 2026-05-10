@@ -11,22 +11,11 @@ data_sources:
 - "jpx-public-regulation"
 - "edinet-preprocessed-metrics"
 run_at: "YYYY-MM-DDTHH:MM:SS+09:00"
-run_id: "screening-YYYYMMDD-xxxxxxxx"
-policy_snapshot:
-  ref_path: records/01-policy/YYYY/MM/YYYY-MM-DDTHHMMSS+0900-portfolio-policy.md
-  content_sha256: sha256:<64-hex>
-screening_rules_snapshot:
-  ref_path: records/_config/screening-rules/YYYY-MM-DDTHHMMSS+0900.yaml
-  content_sha256: sha256:<64-hex>
-metric_catalog_snapshot:
-  ref_path: records/_config/metric-catalog/YYYY-MM-DDTHHMMSS+0900.yaml
-  content_sha256: sha256:<64-hex>
-playbook_set_hash: sha256:<64-hex>
-cache_manifest_hash: "fedcba9876543210"
+run_id: "screening-YYYYMMDD"
 candidates:
 - ticker: "130A"
-  candidate_id: candidate-screening-YYYYMMDD-xxxxxxxx-130A
-  candidate_key: "screening-YYYYMMDD-xxxxxxxx:130A"
+  candidate_id: candidate-YYYY-MM-DD-130A
+  candidate_key: "screening-YYYYMMDD:130A"
   name: "..."
   sector_33: "業種名"
   market_cap_oku: 585

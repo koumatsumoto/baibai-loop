@@ -10,20 +10,13 @@
     "asof_date",
     "run_at",
     "run_id",
-    "screening_rules_snapshot",
-    "metric_catalog_snapshot",
-    "policy_snapshot",
-    "universe_snapshot_ref",
     "candidates"
   ],
   "properties": {
     "run_date": {"type": "string"},
     "asof_date": {"type": "string"},
     "run_at": {"type": "string"},
-    "run_id": {"type": "string", "pattern": "^screening-[0-9]{8}-[0-9a-f]{8}$"},
-    "screening_rules_snapshot": {"$ref": "#/$defs/SnapshotRef"},
-    "metric_catalog_snapshot": {"$ref": "#/$defs/SnapshotRef"},
-    "policy_snapshot": {"$ref": "#/$defs/SnapshotRef"},
+    "run_id": {"type": "string", "pattern": "^screening-[0-9]{8}$"},
     "universe_snapshot_ref": {"$ref": "#/$defs/SnapshotRef"},
     "candidates": {
       "type": "array",
@@ -38,7 +31,7 @@
     "SnapshotRef": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["ref_path", "content_sha256"],
+      "required": ["ref_path"],
       "properties": {
         "ref_path": {"type": "string", "minLength": 1},
         "content_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
@@ -64,7 +57,7 @@
         "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
         "name": {"type": "string", "minLength": 1},
         "screen_run_id": {"type": "string", "minLength": 1},
-        "candidate_id": {"type": "string", "minLength": 1},
+        "candidate_id": {"type": "string", "pattern": "^candidate-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9A-Z]{4}$"},
         "candidate_key": {"type": "string", "minLength": 1},
         "playbook_screen_result": {"enum": ["hit", "no_hit", "rank_out", "near_threshold"]},
         "policy_gate_result": {"enum": ["pass", "excluded"]},

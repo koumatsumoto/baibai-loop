@@ -38,6 +38,9 @@ JSONL は 1 行 1 event。current state は同じ `decision_event_id` / correcti
 
 `decision_event_id` は register 内の join key であり、trade record の `order_intent.order_intent_id`、`orders[].origin_order_intent_id`、review attribution の anchor と接続する。
 
+`candidate_ref` は candidate に紐づく decision event で必須。field と照合ルールは
+[`research.md`](./research.md) の candidate_ref 仕様に従う。
+
 ## 4. Sync
 
 手元では次を実行する。

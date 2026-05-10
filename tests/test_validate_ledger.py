@@ -114,15 +114,18 @@ def test_not_reviewed_candidate_validation_reuses_candidate_document(
     candidates_path.parent.mkdir(parents=True)
     candidates_path.write_text(
         "requires_decision_coverage: true\n"
+        "run_id: screening-20260501\n"
         "candidates:\n"
         "- ticker: '9682'\n"
         "  candidate_id: candidate-2026-05-01-9682\n"
+        "  screen_run_id: screening-20260501\n"
         "  playbook_screen_result: hit\n"
         "  policy_gate_result: pass\n"
         "  liquidity_gate_result: pass\n"
         "  macro_regime_gate_result: pass\n"
         "- ticker: '9692'\n"
         "  candidate_id: candidate-2026-05-01-9692\n"
+        "  screen_run_id: screening-20260501\n"
         "  playbook_screen_result: hit\n"
         "  policy_gate_result: pass\n"
         "  liquidity_gate_result: pass\n"
@@ -140,6 +143,7 @@ def test_not_reviewed_candidate_validation_reuses_candidate_document(
             candidate_ref={
                 "candidates_ref": candidate_ref,
                 "candidate_id": f"candidate-2026-05-01-{ticker}",
+                "screen_run_id": "screening-20260501",
                 "ticker": ticker,
             },
             tracking={"mode": "missed_opportunity"},
@@ -165,6 +169,146 @@ def test_not_reviewed_candidate_validation_reuses_candidate_document(
 
     assert findings == []
     assert candidate_reads == 2
+
+
+def test_not_reviewed_candidate_rejects_mismatched_screen_run_id(tmp_path: Path) -> None:
+    candidate_ref = "records/04-candidates/2026/05/2026-05-01.yaml"
+    candidates_path = tmp_path / candidate_ref
+    candidates_path.parent.mkdir(parents=True)
+    candidates_path.write_text(
+        "requires_decision_coverage: true\n"
+        "run_id: screening-20260501\n"
+        "candidates:\n"
+        "- ticker: '9682'\n"
+        "  candidate_id: candidate-2026-05-01-9682\n"
+        "  screen_run_id: screening-20260501\n"
+        "  playbook_screen_result: hit\n"
+        "  policy_gate_result: pass\n"
+        "  liquidity_gate_result: pass\n"
+        "  macro_regime_gate_result: pass\n",
+        encoding="utf-8",
+    )
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
+    _write_jsonl(
+        path,
+        _decision_record(
+            decision_event_id="decision-20260501-9682-not-reviewed",
+            decision_scope="candidate_screen",
+            ticker="9682",
+            candidate_decision="not_reviewed",
+            candidate_ref={
+                "candidates_ref": candidate_ref,
+                "candidate_id": "candidate-2026-05-01-9682",
+                "screen_run_id": "screening-20260508",
+                "ticker": "9682",
+            },
+            tracking={"mode": "missed_opportunity"},
+        ),
+    )
+
+    codes = {finding.code for finding in validate_ledger_file(path)}
+
+    assert "ledger.candidate-ref-screen-run-id" in codes
+
+
+def test_research_memo_candidate_ref_rejects_mismatched_screen_run_id(tmp_path: Path) -> None:
+    candidate_ref = "records/04-candidates/2026/05/2026-05-01.yaml"
+    candidates_path = tmp_path / candidate_ref
+    candidates_path.parent.mkdir(parents=True)
+    candidates_path.write_text(
+        "requires_decision_coverage: true\n"
+        "run_id: screening-20260501\n"
+        "candidates:\n"
+        "- ticker: '9682'\n"
+        "  candidate_id: candidate-2026-05-01-9682\n"
+        "  screen_run_id: screening-20260501\n"
+        "  playbook_screen_result: hit\n"
+        "  policy_gate_result: pass\n"
+        "  liquidity_gate_result: pass\n"
+        "  macro_regime_gate_result: pass\n",
+        encoding="utf-8",
+    )
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
+    _write_jsonl(
+        path,
+        _decision_record(
+            decision_event_id="decision-20260501-9682-research",
+            decision_scope="research_memo",
+            ticker="9682",
+            candidate_decision="selected",
+            candidate_ref={
+                "candidates_ref": candidate_ref,
+                "candidate_id": "candidate-2026-05-01-9682",
+                "screen_run_id": "screening-20260508",
+                "ticker": "9682",
+            },
+        ),
+    )
+
+    codes = {finding.code for finding in validate_ledger_file(path)}
+
+    assert "ledger.candidate-ref-screen-run-id" in codes
+
+
+def test_candidate_ref_requires_screen_run_id(tmp_path: Path) -> None:
+    candidate_ref = "records/04-candidates/2026/05/2026-05-01.yaml"
+    candidates_path = tmp_path / candidate_ref
+    candidates_path.parent.mkdir(parents=True)
+    candidates_path.write_text(
+        "requires_decision_coverage: true\n"
+        "run_id: screening-20260501\n"
+        "candidates:\n"
+        "- ticker: '9682'\n"
+        "  candidate_id: candidate-2026-05-01-9682\n"
+        "  screen_run_id: screening-20260501\n"
+        "  playbook_screen_result: hit\n"
+        "  policy_gate_result: pass\n"
+        "  liquidity_gate_result: pass\n"
+        "  macro_regime_gate_result: pass\n",
+        encoding="utf-8",
+    )
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
+    _write_jsonl(
+        path,
+        _decision_record(
+            decision_event_id="decision-20260501-9682-research",
+            decision_scope="research_memo",
+            ticker="9682",
+            candidate_decision="selected",
+            candidate_ref={
+                "candidates_ref": candidate_ref,
+                "candidate_id": "candidate-2026-05-01-9682",
+                "ticker": "9682",
+            },
+        ),
+    )
+
+    codes = {finding.code for finding in validate_ledger_file(path)}
+
+    assert "ledger.candidate-ref-screen-run-id" in codes
+
+
+def test_candidate_ref_missing_candidates_ref_is_error(tmp_path: Path) -> None:
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
+    _write_jsonl(
+        path,
+        _decision_record(
+            decision_event_id="decision-20260501-9682-research",
+            decision_scope="research_memo",
+            ticker="9682",
+            candidate_decision="selected",
+            candidate_ref={
+                "candidates_ref": "records/04-candidates/2026/05/missing.yaml",
+                "candidate_id": "candidate-2026-05-01-9682",
+                "screen_run_id": "screening-20260501",
+                "ticker": "9682",
+            },
+        ),
+    )
+
+    codes = {finding.code for finding in validate_ledger_file(path)}
+
+    assert "ledger.candidate-ref-missing" in codes
 
 
 def test_candidate_coverage_rejects_disabled_coverage(tmp_path: Path) -> None:

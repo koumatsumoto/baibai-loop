@@ -99,9 +99,9 @@ def _minimal_research_front_matter() -> dict[str, object]:
         "calendars_snapshot": _calendar_snapshots(),
         "candidate_ref": {
             "candidates_ref": "records/04-candidates/2026/05/2026-05-01.yaml",
-            "screen_run_id": "screening-20260501-1234abcd",
+            "screen_run_id": "screening-20260501",
             "ticker": "2767",
-            "candidate_id": "candidate-screening-20260501-1234abcd-2767",
+            "candidate_id": "candidate-2026-05-01-2767",
         },
         "research_decision": {"outcome": "approved", "posture": "act_now"},
         "macro_regime_gate": {
@@ -166,10 +166,12 @@ def _write_candidate_fixture(root: Path) -> None:
     candidates_path.write_text(
         yaml.safe_dump(
             {
+                "run_id": "screening-20260501",
                 "candidates": [
                     {
                         "ticker": "2767",
-                        "candidate_id": "candidate-screening-20260501-1234abcd-2767",
+                        "candidate_id": "candidate-2026-05-01-2767",
+                        "screen_run_id": "screening-20260501",
                         "sector_33": "情報・通信業",
                         "avg_turnover_oku": 2.0,
                         "market_cap_oku": 100,
@@ -183,7 +185,7 @@ def _write_candidate_fixture(root: Path) -> None:
                             }
                         ],
                     }
-                ]
+                ],
             },
             allow_unicode=True,
             sort_keys=False,
@@ -482,14 +484,12 @@ class ResearchValidationTests(unittest.TestCase):
             candidates_path.write_text(
                 yaml.safe_dump(
                     {
-                        "metric_catalog_snapshot": {
-                            "ref_path": str(catalog_path.relative_to(root)),
-                            "content_sha256": _DIGEST,
-                        },
+                        "run_id": "screening-20260501",
                         "candidates": [
                             {
                                 "ticker": "2767",
-                                "candidate_id": "candidate-screening-20260501-1234abcd-2767",
+                                "candidate_id": "candidate-2026-05-01-2767",
+                                "screen_run_id": "screening-20260501",
                                 "evidence_hits": [
                                     {
                                         "evidence_hit_id": "eh-1",
@@ -586,6 +586,120 @@ class ResearchValidationTests(unittest.TestCase):
             }
 
         self.assertIn("research.candidate-ref-missing", codes)
+
+    def test_repository_research_candidate_ref_screen_run_id_must_match(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "src").mkdir()
+            _write_candidate_fixture(root)
+            front = _minimal_research_front_matter()
+            candidate_ref = front["candidate_ref"]
+            assert isinstance(candidate_ref, dict)
+            candidate_ref["screen_run_id"] = "screening-20260508"
+            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
+            research_path.parent.mkdir(parents=True)
+            research_path.write_text(
+                "---\n"
+                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
+                + "---\n"
+                + _DEFAULT_BODY,
+                encoding="utf-8",
+            )
+
+            codes = {
+                finding.code
+                for finding in validate_research_file(
+                    research_path, playbooks_root=ROOT / "records/_playbooks"
+                )
+            }
+
+        self.assertIn("research.candidate-ref-screen-run-id", codes)
+
+    def test_repository_research_candidate_ref_candidate_id_must_match(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "src").mkdir()
+            _write_candidate_fixture(root)
+            front = _minimal_research_front_matter()
+            candidate_ref = front["candidate_ref"]
+            assert isinstance(candidate_ref, dict)
+            candidate_ref["candidate_id"] = "candidate-2026-05-01-9999"
+            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
+            research_path.parent.mkdir(parents=True)
+            research_path.write_text(
+                "---\n"
+                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
+                + "---\n"
+                + _DEFAULT_BODY,
+                encoding="utf-8",
+            )
+
+            codes = {
+                finding.code
+                for finding in validate_research_file(
+                    research_path, playbooks_root=ROOT / "records/_playbooks"
+                )
+            }
+
+        self.assertIn("research.candidate-ref-match", codes)
+
+    def test_repository_research_candidate_ref_requires_screen_run_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "src").mkdir()
+            _write_candidate_fixture(root)
+            front = _minimal_research_front_matter()
+            candidate_ref = front["candidate_ref"]
+            assert isinstance(candidate_ref, dict)
+            del candidate_ref["screen_run_id"]
+            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
+            research_path.parent.mkdir(parents=True)
+            research_path.write_text(
+                "---\n"
+                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
+                + "---\n"
+                + _DEFAULT_BODY,
+                encoding="utf-8",
+            )
+
+            codes = {
+                finding.code
+                for finding in validate_research_file(
+                    research_path, playbooks_root=ROOT / "records/_playbooks"
+                )
+            }
+
+        self.assertIn("research.candidate-ref-screen-run-id", codes)
+
+    def test_repository_research_lineage_runs_without_evidence_decisions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "src").mkdir()
+            _write_candidate_fixture(root)
+            front = _minimal_research_front_matter()
+            del front["candidate_evidence_decisions"]
+            candidate_ref = front["candidate_ref"]
+            assert isinstance(candidate_ref, dict)
+            candidate_ref["screen_run_id"] = "screening-20260508"
+            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
+            research_path.parent.mkdir(parents=True)
+            research_path.write_text(
+                "---\n"
+                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
+                + "---\n"
+                + _DEFAULT_BODY,
+                encoding="utf-8",
+            )
+
+            codes = {
+                finding.code
+                for finding in validate_research_file(
+                    research_path, playbooks_root=ROOT / "records/_playbooks"
+                )
+            }
+
+        self.assertIn("research.required", codes)
+        self.assertIn("research.candidate-ref-screen-run-id", codes)
 
     def test_repository_research_selected_evidence_must_exist_in_candidate_ref(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -21,13 +21,10 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD --allow-stale-jpx
 python -m baibai_loop.screening.cli bootstrap-cache --asof YYYY-MM-DD
 python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--outlook path] [--top N]
 python -m baibai_loop.screening.cli extract-edinet-metrics --asof YYYY-MM-DD [--lookback-days N]
-python -m baibai_loop.screening.cli rebuild-cache --raw-dir PATH [--sqlite-path PATH]
 python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--sqlite-path PATH] [--rules-path PATH]
 ```
 
 `bootstrap-cache --asof` は `run --asof` が要求する source 別 window を自動で補完する。具体的には J-Quants master、asof まで 1200 日分の日次足、asof まで 730 日分の財務サマリー、asof から 90 日先までの決算予定 horizon、asof の営業日カレンダ、JPX 規制 snapshot を SQLite に書き込む。`--start/--end` は旧運用の明示 window 用で、通常の screening run 前補完には使わない。
-
-`rebuild-cache` は legacy raw JSON tree から `data/screening/market.sqlite` を再生成する移行用コマンド。通常運用では使わず、provider fetch が SQLite へ直接書き込む。`--raw-dir` は必ず明示し、認識できる legacy raw JSON が 0 件の場合は fail-fast する。rebuild は一時ファイルへ作成してから置換するため、失敗時に既存 SQLite を壊さない。詳細は §11 を参照。
 
 `verify-cache-coverage` は SQLite が `run --asof` で必要な全入力をローカルに提供できるかを read-only で検証する。検証対象は J-Quants master、1200 日分の日次足、730 日分の財務サマリー、asof から 90 日先までの決算予定 horizon、asof の営業日カレンダ、asof の JPX 規制 snapshot と rules の `universe.required_jpx_flags` に含まれる source 名、EDINET metrics。master は common-stock universe が異常に小さくないこと、日次足と財務サマリーは source_coverage だけでなく SQLite 実データの ticker/date 密度も確認する。EDINET metrics は既定で必須であり、旧運用の degraded check が必要な場合だけ `--allow-missing-edinet-metrics` を明示する。raw JSON の読み込みや provider API 呼び出しは行わず、schema migration も行わない。不足があれば exit 1。
 
@@ -144,21 +141,19 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 
 ### 11.1 SQLite Schema
 
-SQLite は以下のテーブルを `data/screening/market.sqlite` に作成する。`cache_metadata.schema_version` で schema version を管理する。
+SQLite は以下のテーブルを `data/screening/market.sqlite` に作成する。schema は `PRAGMA user_version` で現行版だけをサポートし、古い schema は migrate せず fail-fast する。
 
 - `jquants_daily_bars(ticker, traded_at, open, high, low, close, volume, turnover_value, adjustment_*, upper_limit, lower_limit)` — 主キー `(ticker, traded_at)`、`traded_at` index 付。`is_common_stock=False` の record はスキップ
-- `jquants_fin_summaries(ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, sales, operating_profit, ordinary_profit, profit, cfo, cash_eq, total_assets, equity, fiscal_period, fiscal_year_end, period_start, period_end, raw_json)` — 主キー `(ticker, disclosed_at)`
-- `jquants_master_snapshots(snapshot_date, ticker, name, market, sector_33, is_common_stock, raw_json)` — 主キー `(snapshot_date, ticker)`
-- `jquants_earnings_calendar(announcement_date, ticker, raw_json)` — 主キー `(announcement_date, ticker)`
+- `jquants_fin_summaries(ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, sales, operating_profit, ordinary_profit, profit, cfo, cash_eq, total_assets, equity, fiscal_period, fiscal_year_end, period_start, period_end)` — 主キー `(ticker, disclosed_at)`
+- `jquants_master_snapshots(snapshot_date, ticker, name, market, sector_33, is_common_stock)` — 主キー `(snapshot_date, ticker)`
+- `jquants_earnings_calendar(announcement_date, ticker)` — 主キー `(announcement_date, ticker)`
 - `disclosures` raw JSON（SQLite 未収録）— 任意 cache。`Code` / `Date` / `Title` などの同義 key も reader 側で受け付ける。title keyword scan のみで金額や財務影響は解釈しない。読み取り coverage は `file_count` / `event_count` / `skipped_record_count` / `unsupported_record_count` / `load_errors` として candidates YAML の status / fallback に反映する
-- `jquants_market_calendar(day, is_business_day, raw_json)` — 主キー `(day)`。`HolidayDivision` "1" / "2" を business day=1、それ以外を 0 として記録
-- `edinet_documents(doc_date, doc_id, sec_code, doc_type_code, raw_json)` — 主キー `(doc_date, doc_id)`。`doc_date` はファイル名（`{date}.json`）から復元
+- `jquants_market_calendar(day, is_business_day)` — 主キー `(day)`。`HolidayDivision` "1" / "2" を business day=1、それ以外を 0 として記録
+- `edinet_documents(doc_date, doc_id, sec_code, doc_type_code, csv_flag, xbrl_flag, legal_status, disclosure_status, withdrawal_status, submit_datetime, doc_description, period_start, period_end)` — 主キー `(doc_date, doc_id)`。`doc_date` はファイル名（`{date}.json`）から復元
 - `edinet_metrics(asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, operating_profit_ttm, depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, net_cash, equity, total_assets, consolidation_basis, ttm_quality_*, source_doc_id, document_type, source_submit_datetime, source_period_start, source_period_end, capex_source, failure_reasons)` — 主キー `(asof_date, ticker)`。`asof_date` はファイル名から復元。Candidate YAML では EDINET raw `ocf_ttm` を `edinet_ocf_ttm` として出し、J-Quants 財務サマリー由来の `ocf_ttm` と区別する。`source_*` は research で一次資料へ戻るための traceability として保持する。`source_period_start/end` は EDINET documents metadata であり、半期報告書では実際の CF 測定期間と一致しないことがある
 - `jpx_regulation_flags(asof_date, source_name, ticker, flag, fetched_at_utc)` — 主キー `(asof_date, source_name, ticker, flag)`。JPX cache の `flags_by_ticker` は source 別の起源を保持しないため、`source_name=flag` として記録
-- `source_coverage(source, operation, coverage_key, coverage_start, coverage_end, requested_start, requested_end, params_json, fetched_at_utc, record_count, raw_record_count, normalized_record_count, skipped_record_count, rejected_record_count, excluded_record_count, status, error)` — provider/API request window と正規化結果の coverage 正本。`screening run` の事前検証はこの table と normalized rows を照合し、status 異常があれば fail-fast する。`skipped_record_count` は普通株以外などの意図的除外も含み得るため、単独では fail-fast 条件にしない。監査時は `rejected_record_count` と `excluded_record_count` を分けて確認する
-- `raw_imports(source, path, sha256, imported_at_utc, record_count, min_date, max_date)` — legacy raw JSON migration 用。新規 provider fetch では使わない
-- `cache_metadata(key, value)` — schema version などの KV ストア
+- `source_coverage(source, coverage_key, coverage_start, coverage_end, fetched_at_utc, record_count, status, error)` — provider/API request window の coverage 正本。`screening run` の事前検証はこの table と normalized rows を照合し、status 異常があれば fail-fast する。過去 raw JSON の hash / import audit は保持しない。
 
-### 11.2 Volume と rebuild 時間の目安
+### 11.2 Volume と再生成の考え方
 
-`data/screening/market.sqlite` は local store であり git 管理しない。容量増加は repo 履歴ではなくローカルディスクの問題として扱う。legacy raw JSON からの初回移行が必要な場合だけ `rebuild-cache --raw-dir PATH` を使う。
+`data/screening/market.sqlite` は local store であり git 管理しない。容量増加は repo 履歴ではなくローカルディスクの問題として扱う。SQLite を作り直す場合は raw JSON からの migration ではなく、`bootstrap-cache --asof` と `extract-edinet-metrics --asof` で必要 window を provider から再取得して補完する。

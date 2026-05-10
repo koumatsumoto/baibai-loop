@@ -9,7 +9,6 @@ coverage check and must not fall back to provider APIs.
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 from collections.abc import Mapping
 from datetime import date, timedelta
@@ -25,7 +24,19 @@ from .providers.jquants import (
     JQuantsProviderError,
 )
 from .schema import SecurityMaster
-from .sqlite_cache import ensure_sqlite_schema
+from .sqlite_cache import SQLiteSchemaError, validate_current_schema
+
+
+def _connect_current(sqlite_path: Path) -> sqlite3.Connection | None:
+    conn: sqlite3.Connection | None = None
+    try:
+        conn = sqlite3.connect(sqlite_path)
+        validate_current_schema(conn)
+    except (SQLiteSchemaError, sqlite3.Error):
+        if conn is not None:
+            conn.close()
+        return None
+    return conn
 
 
 def read_eq_master(sqlite_path: Path) -> list[SecurityMaster] | None:
@@ -34,8 +45,9 @@ def read_eq_master(sqlite_path: Path) -> list[SecurityMaster] | None:
     """
     if not sqlite_path.exists():
         return None
-    ensure_sqlite_schema(sqlite_path)
-    conn = sqlite3.connect(sqlite_path)
+    conn = _connect_current(sqlite_path)
+    if conn is None:
+        return None
     try:
         if not _has_any_import(conn, "jquants_master_snapshots"):
             return None
@@ -73,8 +85,9 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
     """
     if not sqlite_path.exists():
         return None
-    ensure_sqlite_schema(sqlite_path)
-    conn = sqlite3.connect(sqlite_path)
+    conn = _connect_current(sqlite_path)
+    if conn is None:
+        return None
     try:
         if not _range_covered(conn, "jquants_daily_bars", start, end):
             return None
@@ -117,8 +130,9 @@ def read_fin_summaries(
     """
     if not sqlite_path.exists():
         return None
-    ensure_sqlite_schema(sqlite_path)
-    conn = sqlite3.connect(sqlite_path)
+    conn = _connect_current(sqlite_path)
+    if conn is None:
+        return None
     try:
         if not _range_covered(conn, "jquants_fin_summaries", start, end):
             return None
@@ -193,13 +207,14 @@ def read_eq_earnings_cal(sqlite_path: Path, start: date, end: date) -> list[dict
     """
     if not sqlite_path.exists():
         return None
-    ensure_sqlite_schema(sqlite_path)
-    conn = sqlite3.connect(sqlite_path)
+    conn = _connect_current(sqlite_path)
+    if conn is None:
+        return None
     try:
         if not _minmax_covered(conn, "jquants_earnings_calendar", start, end):
             return None
         rows = conn.execute(
-            "SELECT raw_json FROM jquants_earnings_calendar "
+            "SELECT ticker, announcement_date FROM jquants_earnings_calendar "
             "WHERE announcement_date BETWEEN ? AND ? "
             "ORDER BY announcement_date, ticker",
             (start.isoformat(), end.isoformat()),
@@ -208,7 +223,7 @@ def read_eq_earnings_cal(sqlite_path: Path, start: date, end: date) -> list[dict
         return None
     finally:
         conn.close()
-    return [json.loads(row[0]) for row in rows]
+    return [{"Code": f"{ticker}0", "Date": announcement_date} for ticker, announcement_date in rows]
 
 
 def read_market_calendar(
@@ -219,8 +234,9 @@ def read_market_calendar(
     """
     if not sqlite_path.exists():
         return None
-    ensure_sqlite_schema(sqlite_path)
-    conn = sqlite3.connect(sqlite_path)
+    conn = _connect_current(sqlite_path)
+    if conn is None:
+        return None
     try:
         if not _range_covered(conn, "jquants_market_calendar", start, end):
             return None
@@ -245,20 +261,53 @@ def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, An
     """
     if not sqlite_path.exists():
         return None
-    ensure_sqlite_schema(sqlite_path)
-    conn = sqlite3.connect(sqlite_path)
+    conn = _connect_current(sqlite_path)
+    if conn is None:
+        return None
     try:
         if not _date_imported(conn, "edinet_documents", on_date):
             return None
         rows = conn.execute(
-            "SELECT raw_json FROM edinet_documents WHERE doc_date = ? ORDER BY doc_id",
+            "SELECT doc_id, sec_code, doc_type_code, csv_flag, xbrl_flag, legal_status, "
+            "disclosure_status, withdrawal_status, submit_datetime, doc_description, "
+            "period_start, period_end "
+            "FROM edinet_documents WHERE doc_date = ? ORDER BY doc_id",
             (on_date.isoformat(),),
         ).fetchall()
     except sqlite3.OperationalError:
         return None
     finally:
         conn.close()
-    return [json.loads(row[0]) for row in rows]
+    return [
+        {
+            "docID": doc_id,
+            "secCode": sec_code,
+            "docTypeCode": doc_type_code,
+            "csvFlag": csv_flag,
+            "xbrlFlag": xbrl_flag,
+            "legalStatus": legal_status,
+            "disclosureStatus": disclosure_status,
+            "withdrawalStatus": withdrawal_status,
+            "submitDateTime": submit_datetime,
+            "docDescription": doc_description,
+            "periodStart": period_start,
+            "periodEnd": period_end,
+        }
+        for (
+            doc_id,
+            sec_code,
+            doc_type_code,
+            csv_flag,
+            xbrl_flag,
+            legal_status,
+            disclosure_status,
+            withdrawal_status,
+            submit_datetime,
+            doc_description,
+            period_start,
+            period_end,
+        ) in rows
+    ]
 
 
 def read_edinet_metrics(
@@ -269,8 +318,9 @@ def read_edinet_metrics(
     """
     if not sqlite_path.exists():
         return None
-    ensure_sqlite_schema(sqlite_path)
-    conn = sqlite3.connect(sqlite_path)
+    conn = _connect_current(sqlite_path)
+    if conn is None:
+        return None
     try:
         if not _date_imported(conn, "edinet_metrics", asof_date):
             return None
@@ -334,8 +384,9 @@ def read_jpx_regulations(sqlite_path: Path, asof_date: date) -> JPXRegulationSna
     """
     if not sqlite_path.exists():
         return None
-    ensure_sqlite_schema(sqlite_path)
-    conn = sqlite3.connect(sqlite_path)
+    conn = _connect_current(sqlite_path)
+    if conn is None:
+        return None
     try:
         if not _date_imported(conn, "jpx_regulation_flags", asof_date):
             return None
@@ -375,8 +426,9 @@ def has_jpx_regulation_data(sqlite_path: Path, asof_date: date) -> bool:
     """
     if not sqlite_path.exists():
         return False
-    ensure_sqlite_schema(sqlite_path)
-    conn = sqlite3.connect(sqlite_path)
+    conn = _connect_current(sqlite_path)
+    if conn is None:
+        return False
     try:
         try:
             cur = conn.execute(
@@ -437,9 +489,6 @@ def _minmax_covered(conn: sqlite3.Connection, source: str, start: date, end: dat
     return cur.fetchone() is not None
 
 
-# Filenames are produced from a `sorted(params.items())` join in the
-# provider, so `end_dt` comes before `start_dt` alphabetically.
-_CHUNK_WINDOW_RE = re.compile(r"end_dt-(\d{4}-\d{2}-\d{2}).*?start_dt-(\d{4}-\d{2}-\d{2})")
 _RANGE_SOURCES_REQUIRING_ROWS = frozenset(
     {"jquants_daily_bars", "jquants_fin_summaries", "jquants_market_calendar"}
 )
@@ -489,17 +538,6 @@ def _range_covered(conn: sqlite3.Connection, source: str, start: date, end: date
         if covered_until >= end:
             return True
     return False
-
-
-def _parse_chunk_window(path_text: str | None) -> tuple[str, str] | None:
-    if not path_text:
-        return None
-    match = _CHUNK_WINDOW_RE.search(path_text)
-    if match is None:
-        return None
-    # Regex captures (end_dt, start_dt) given the alphabetical filename
-    # order. Return as (start, end) for the caller.
-    return match.group(2), match.group(1)
 
 
 def _optional_float(value: object) -> float | None:

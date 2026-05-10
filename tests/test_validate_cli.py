@@ -31,28 +31,18 @@ def _make_candidates_payload() -> dict[str, object]:
         "generated_by": "screening-cli-v1",
         "data_sources": ["j-quants-light"],
         "run_at": "2026-04-24T09:00:00+09:00",
-        "run_id": "screening-20260424-a1b2c3d4",
-        "screening_rules_snapshot": snapshot,
-        "metric_catalog_snapshot": {
-            **snapshot,
-            "ref_path": "records/_config/metric-catalog/2026-05-01T000000+0900.yaml",
-        },
-        "policy_snapshot": {
-            **snapshot,
-            "ref_path": "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md",
-        },
+        "run_id": "screening-20260424",
         "universe_snapshot_ref": {
             **snapshot,
             "ref_path": "records/_universe-snapshots/2026/04/2026-04-24.yaml",
         },
-        "cache_manifest_hash": "9988776655443322",
         "candidates": [
             {
                 "ticker": "2767",
                 "name": "Sample",
-                "screen_run_id": "screening-20260424-a1b2c3d4",
+                "screen_run_id": "screening-20260424",
                 "candidate_id": "candidate-2026-04-24-2767",
-                "candidate_key": "screening-20260424-a1b2c3d4:2767",
+                "candidate_key": "screening-20260424:2767",
                 "playbook_screen_result": "hit",
                 "policy_gate_result": "pass",
                 "liquidity_gate_result": "pass",
@@ -222,7 +212,7 @@ def _make_research_text() -> str:
             "research_decision": {"outcome": "approved", "posture": "act_now"},
             "candidate_ref": {
                 "candidates_ref": "records/04-candidates/2026/04/2026-04-24.yaml",
-                "screen_run_id": "screening-20260424-a1b2c3d4",
+                "screen_run_id": "screening-20260424",
                 "ticker": "2767",
                 "candidate_id": "candidate-2026-04-24-2767",
             },

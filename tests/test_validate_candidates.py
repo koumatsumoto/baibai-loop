@@ -35,28 +35,18 @@ def _minimal_candidates() -> dict[str, object]:
         "generated_by": "screening-cli-v1",
         "data_sources": ["j-quants-light"],
         "run_at": "2026-04-24T09:00:00+09:00",
-        "run_id": "screening-20260424-a1b2c3d4",
-        "screening_rules_snapshot": snapshot,
-        "metric_catalog_snapshot": {
-            **snapshot,
-            "ref_path": "records/_config/metric-catalog/2026-05-01T000000+0900.yaml",
-        },
-        "policy_snapshot": {
-            **snapshot,
-            "ref_path": "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md",
-        },
+        "run_id": "screening-20260424",
         "universe_snapshot_ref": {
             **snapshot,
             "ref_path": "records/_universe-snapshots/2026/04/2026-04-24.yaml",
         },
-        "cache_manifest_hash": "9988776655443322",
         "candidates": [
             {
                 "ticker": "130A",
                 "name": "Sample Co",
-                "screen_run_id": "screening-20260424-a1b2c3d4",
+                "screen_run_id": "screening-20260424",
                 "candidate_id": "candidate-2026-04-24-130A",
-                "candidate_key": "screening-20260424-a1b2c3d4:130A",
+                "candidate_key": "screening-20260424:130A",
                 "playbook_screen_result": "hit",
                 "policy_gate_result": "pass",
                 "liquidity_gate_result": "pass",
@@ -122,22 +112,25 @@ class CandidatesValidationTests(unittest.TestCase):
         self.assertIn("candidates.pattern", codes)
         self.assertIn("run_id", locations)
 
-    def test_short_snapshot_hash_is_flagged(self) -> None:
+    def test_removed_hash_snapshot_fields_are_flagged(self) -> None:
         payload = _minimal_candidates()
-        snapshot = payload["screening_rules_snapshot"]
-        assert isinstance(snapshot, dict)
-        snapshot["content_sha256"] = "abc"
+        payload["screening_rules_snapshot"] = {
+            "ref_path": "records/_config/screening-rules/2026-05-01T000000+0900.yaml",
+            "content_sha256": "sha256:" + "1" * 64,
+        }
         path = self._write(payload)
         try:
             findings = validate_candidates_file(path)
         finally:
             path.unlink()
+        codes = {finding.code for finding in findings}
         locations = {finding.location for finding in findings}
-        self.assertIn("screening_rules_snapshot.content_sha256", locations)
+        self.assertIn("candidates.removed-root-field", codes)
+        self.assertIn("screening_rules_snapshot", locations)
 
-    def test_missing_required_lineage_field_is_flagged(self) -> None:
+    def test_missing_required_candidates_field_is_flagged(self) -> None:
         payload = _minimal_candidates()
-        del payload["screening_rules_snapshot"]
+        del payload["candidates"]
         path = self._write(payload)
         try:
             findings = validate_candidates_file(path)
@@ -196,13 +189,27 @@ class CandidatesValidationTests(unittest.TestCase):
         assert isinstance(candidates, list)
         candidate_entry = candidates[0]
         assert isinstance(candidate_entry, dict)
-        candidate_entry["candidate_key"] = "screening-20260424-a1b2c3d4:9999"
+        candidate_entry["candidate_key"] = "screening-20260424:9999"
         path = self._write(payload)
         try:
             codes = {finding.code for finding in validate_candidates_file(path)}
         finally:
             path.unlink()
         self.assertIn("candidates.candidate-key", codes)
+
+    def test_candidate_id_must_derive_from_asof_date_and_ticker(self) -> None:
+        payload = _minimal_candidates()
+        candidates = payload["candidates"]
+        assert isinstance(candidates, list)
+        candidate_entry = candidates[0]
+        assert isinstance(candidate_entry, dict)
+        candidate_entry["candidate_id"] = "candidate-screening-20260424-deadbeef-130A"
+        path = self._write(payload)
+        try:
+            codes = {finding.code for finding in validate_candidates_file(path)}
+        finally:
+            path.unlink()
+        self.assertIn("candidates.candidate-id", codes)
 
     def test_duplicate_candidate_and_evidence_ids_are_flagged(self) -> None:
         payload = _minimal_candidates()

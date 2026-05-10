@@ -60,6 +60,7 @@ Macro track は売買イベントと独立して `brief -> outlook` を更新し
 - 自動発注は行わない。
 - screening 閾値や playbook を過去データに fit させない。
 - 配当利回り / Rerating Book は対象外にする。
-- SQLite / feature store / BI 基盤を先行導入しない。
+- 汎用 feature store / BI 基盤を先行導入しない。SQLite は screening input の local canonical
+  store としてのみ使う。
 
 詳細な rationale は [`../philosophy.md`](../philosophy.md)、実践ルールは [`../design-principles.md`](../design-principles.md)、成果物ごとの contract は [`../components/README.md`](../components/README.md) を参照します。

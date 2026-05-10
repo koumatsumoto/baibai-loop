@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Mapping
 from datetime import date, timedelta, timezone
 from pathlib import Path
@@ -84,27 +83,8 @@ def _build_front_matter(document: ScreenedRunDocument) -> dict[str, object]:
     front_matter["run_at"] = QuotedString(document.run_at.isoformat())
     front_matter["run_id"] = QuotedString(document.run_id)
     front_matter["requires_decision_coverage"] = True
-    screening_rules_ref = "records/_config/screening-rules/2026-05-01T000000+0900.yaml"
-    metric_catalog_ref = "records/_config/metric-catalog/2026-05-01T000000+0900.yaml"
-    policy_ref = "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"
-    universe_ref = document.universe_snapshot_ref or _default_universe_snapshot_ref(document)
-    front_matter["screening_rules_snapshot"] = {
-        "ref_path": screening_rules_ref,
-        "content_sha256": QuotedString(_content_sha256(screening_rules_ref, document.config_hash)),
-    }
-    front_matter["metric_catalog_snapshot"] = {
-        "ref_path": metric_catalog_ref,
-        "content_sha256": QuotedString(_content_sha256(metric_catalog_ref, document.config_hash)),
-    }
-    front_matter["policy_snapshot"] = {
-        "ref_path": policy_ref,
-        "content_sha256": QuotedString(_content_sha256(policy_ref, document.config_hash)),
-    }
-    front_matter["universe_snapshot_ref"] = {
-        "ref_path": universe_ref,
-        "content_sha256": QuotedString(_content_sha256(universe_ref, document.cache_manifest_hash)),
-    }
-    front_matter["cache_manifest_hash"] = QuotedString(document.cache_manifest_hash)
+    if document.universe_snapshot_ref:
+        front_matter["universe_snapshot_ref"] = {"ref_path": document.universe_snapshot_ref}
     front_matter["candidates"] = [
         _build_candidate_entry(candidate, document) for candidate in document.candidates
     ]
@@ -201,14 +181,6 @@ def _build_candidate_entry(
     return entry
 
 
-def _content_sha256(ref_path: str, fallback_seed: str) -> str:
-    path = Path(ref_path)
-    if path.is_file():
-        return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
-    digest = hashlib.sha256(fallback_seed.encode("utf-8")).hexdigest()
-    return f"sha256:{digest}"
-
-
 def _evidence_family_set(evidence_hit: EvidenceHit) -> list[str]:
     metric_families = {
         "p_s": "valuation",
@@ -240,24 +212,6 @@ def _evidence_family_set(evidence_hit: EvidenceHit) -> list[str]:
             "sales-discount-growth": {"valuation", "fundamental"},
         }.get(evidence_hit.name, {"valuation"})
     return sorted(families)
-
-
-def _default_universe_snapshot_ref(document: ScreenedRunDocument) -> str:
-    directory = (
-        Path("records/_universe-snapshots")
-        / f"{document.asof_date:%Y}"
-        / f"{document.asof_date:%m}"
-    )
-    prefix = f"{document.asof_date:%Y-%m-%d}T"
-    if directory.is_dir():
-        candidates = sorted(directory.glob(f"{prefix}*.yaml"))
-        if candidates:
-            return str(candidates[-1])
-    offset = document.run_at.strftime("%z")
-    return (
-        f"records/_universe-snapshots/{document.asof_date:%Y/%m}/"
-        f"{document.asof_date:%Y-%m-%d}T{document.run_at:%H%M%S}{offset}.yaml"
-    )
 
 
 def _build_freshness_warning(warning: FreshnessWarning) -> dict[str, object]:

@@ -9,7 +9,6 @@ client, so any unexpected fall-through raises and fails the test.
 
 from __future__ import annotations
 
-import json
 import sqlite3
 import sys
 import tempfile
@@ -31,7 +30,7 @@ from baibai_loop.screening.render import JST, build_output_path
 from baibai_loop.screening.sqlite_cache import open_connection
 
 
-def _add_raw_import(
+def _add_source_coverage(
     conn: sqlite3.Connection,
     *,
     source: str,
@@ -40,19 +39,12 @@ def _add_raw_import(
     min_date: str,
     max_date: str,
 ) -> None:
+    fetched_at = datetime.now(UTC).isoformat()
     conn.execute(
-        "INSERT OR REPLACE INTO raw_imports("
-        "source, path, sha256, imported_at_utc, record_count, min_date, max_date"
+        "INSERT OR REPLACE INTO source_coverage("
+        "source, coverage_key, coverage_start, coverage_end, fetched_at_utc, record_count, status"
         ") VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (
-            source,
-            path,
-            "0" * 64,
-            datetime.now(UTC).isoformat(),
-            record_count,
-            min_date,
-            max_date,
-        ),
+        (source, path, min_date, max_date, fetched_at, record_count, "ok"),
     )
 
 
@@ -73,12 +65,13 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     history_end = asof + timedelta(days=forward_days)
     history_days = history_days_back + forward_days + 1
     bars_start = asof - timedelta(days=1200)
+    fin_start = asof - timedelta(days=730)
 
     # Master snapshot
     conn.execute(
         "INSERT INTO jquants_master_snapshots("
-        "snapshot_date, ticker, name, market, sector_33, is_common_stock, raw_json"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "snapshot_date, ticker, name, market, sector_33, is_common_stock"
+        ") VALUES (?, ?, ?, ?, ?, ?)",
         (
             asof.isoformat(),
             ticker,
@@ -86,10 +79,9 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             "Prime",
             "情報・通信業",
             1,
-            json.dumps({"Code": ticker}),
         ),
     )
-    _add_raw_import(
+    _add_source_coverage(
         conn,
         source="jquants_master_snapshots",
         path="records/_data/raw/screening/jquants/get_eq_master.json",
@@ -131,7 +123,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     # Mark the API request bracket the screening run will use; the
     # JQuantsProvider chunks at 31 days but the coverage check tolerates a
     # single import that contains the full window.
-    _add_raw_import(
+    _add_source_coverage(
         conn,
         source="jquants_daily_bars",
         path=(
@@ -140,7 +132,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             f"start_dt-{bars_start.isoformat()}.json"
         ),
         record_count=history_days,
-        min_date=history_start.isoformat(),
+        min_date=bars_start.isoformat(),
         max_date=history_end.isoformat(),
     )
 
@@ -161,7 +153,6 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             None,
             None,
             None,
-            "{}",
         ),
         (
             ticker,
@@ -178,43 +169,40 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             None,
             None,
             None,
-            "{}",
         ),
     ]
     conn.executemany(
         "INSERT INTO jquants_fin_summaries("
         "ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, "
         "sales, operating_profit, ordinary_profit, profit, "
-        "fiscal_period, fiscal_year_end, period_start, period_end, raw_json"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "fiscal_period, fiscal_year_end, period_start, period_end"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         fin_rows,
     )
-    _add_raw_import(
+    _add_source_coverage(
         conn,
         source="jquants_fin_summaries",
         path=(
             f"records/_data/raw/screening/jquants/"
             f"get_fin_summary_range-end_dt-{asof.isoformat()}-"
-            f"start_dt-{bars_start.isoformat()}.json"
+            f"start_dt-{fin_start.isoformat()}.json"
         ),
         record_count=2,
-        min_date=fin_rows[0][1],
-        max_date=fin_rows[1][1],
+        min_date=fin_start.isoformat(),
+        max_date=asof.isoformat(),
     )
 
     # Earnings calendar — at least one normalized row is required; an empty
     # covered payload is treated as incomplete so read-through can repair it.
     earnings_date = asof + timedelta(days=7)
     conn.execute(
-        "INSERT INTO jquants_earnings_calendar(announcement_date, ticker, raw_json) "
-        "VALUES (?, ?, ?)",
+        "INSERT INTO jquants_earnings_calendar(announcement_date, ticker) VALUES (?, ?)",
         (
             earnings_date.isoformat(),
             ticker,
-            json.dumps({"Code": f"{ticker}0", "Date": earnings_date.isoformat()}),
         ),
     )
-    _add_raw_import(
+    _add_source_coverage(
         conn,
         source="jquants_earnings_calendar",
         path="records/_data/raw/screening/jquants/get_eq_earnings_cal.json",
@@ -229,15 +217,14 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
         (
             (history_start + timedelta(days=index)).isoformat(),
             1,
-            json.dumps({"Date": (history_start + timedelta(days=index)).isoformat()}),
         )
         for index in range(history_days)
     ]
     conn.executemany(
-        "INSERT INTO jquants_market_calendar(day, is_business_day, raw_json) VALUES (?, ?, ?)",
+        "INSERT INTO jquants_market_calendar(day, is_business_day) VALUES (?, ?)",
         calendar_rows,
     )
-    _add_raw_import(
+    _add_source_coverage(
         conn,
         source="jquants_market_calendar",
         path="records/_data/raw/screening/jquants/get_mkt_calendar-from_yyyymmdd-X-to_yyyymmdd-Y.json",
@@ -266,7 +253,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             "unavailable",
         ),
     )
-    _add_raw_import(
+    _add_source_coverage(
         conn,
         source="edinet_metrics",
         path=f"records/_data/raw/screening/edinet/metrics/{asof.isoformat()}.json",
@@ -298,7 +285,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             ),
         ],
     )
-    _add_raw_import(
+    _add_source_coverage(
         conn,
         source="jpx_regulation_flags",
         path=f"records/_data/raw/screening/jpx/regulations/{asof.isoformat()}.json",
@@ -361,7 +348,7 @@ class ScreeningRunOverSqliteTests(unittest.TestCase):
                 self.assertTrue(output_path.exists(), "screening YAML should be written")
                 payload = yaml.safe_load(output_path.read_text(encoding="utf-8"))
                 self.assertEqual(payload["asof_date"], asof.isoformat())
-                self.assertRegex(payload["run_id"], rf"^screening-{asof:%Y%m%d}-[0-9a-f]{{8}}$")
+                self.assertEqual(payload["run_id"], f"screening-{asof:%Y%m%d}")
             finally:
                 os.chdir(cwd)
 

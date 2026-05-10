@@ -34,7 +34,7 @@ research_decision:
 candidates_ref: records/04-candidates/2026/05/2026-05-01.yaml
 candidate_ref:
   candidates_ref: records/04-candidates/2026/05/2026-05-01.yaml
-  screen_run_id: screening-20260501-b2e37953
+  screen_run_id: screening-20260501
   ticker: '9692'
   candidate_id: candidate-2026-05-01-9692
 outlook_ref: records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml

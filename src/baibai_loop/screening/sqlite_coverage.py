@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .date_utils import weekday_distance
 from .render import JST
-from .sqlite_cache import SCHEMA_VERSION
+from .sqlite_cache import SQLITE_SCHEMA_VERSION, SQLiteSchemaError, validate_current_schema
 from .sqlite_reader import (
     _has_any_import,
     _minmax_covered,
@@ -35,6 +35,10 @@ _TABLE_COUNT_SQL = {
     "jquants_earnings_calendar": "SELECT COUNT(*) FROM jquants_earnings_calendar",
     "jquants_market_calendar": "SELECT COUNT(*) FROM jquants_market_calendar",
     "jpx_regulation_flags": "SELECT COUNT(*) FROM jpx_regulation_flags",
+}
+_WINDOW_COUNT_SOURCES = {
+    "jquants_daily_bars": ("jquants_daily_bars", "traded_at"),
+    "jquants_fin_summaries": ("jquants_fin_summaries", "disclosed_at"),
 }
 _SINGLE_SNAPSHOT_SOURCES = frozenset({"jquants_master_snapshots", "jquants_earnings_calendar"})
 _JPX_MAX_FETCH_AGE_BUSINESS_DAYS = 7
@@ -94,6 +98,9 @@ def verify_screening_sqlite_coverage(
             schema_issue = _schema_version_issue(conn, sqlite_path)
             if schema_issue is not None:
                 return (schema_issue,)
+            schema_shape_issue = _schema_shape_issue(conn, sqlite_path)
+            if schema_shape_issue is not None:
+                return (schema_shape_issue,)
             if not _has_any_import(conn, "jquants_master_snapshots"):
                 _append_source_coverage_quality_issues(
                     conn, issues, source="jquants_master_snapshots"
@@ -178,9 +185,7 @@ def verify_screening_sqlite_coverage(
                     table="jquants_daily_bars",
                     requirement=f"{bars_start.isoformat()}..{asof_date.isoformat()}",
                     require_rows=True,
-                    enforce_record_count=_raw_import_windows_are_non_overlapping(
-                        conn, "jquants_daily_bars"
-                    ),
+                    enforce_record_count=True,
                 )
             if not _range_covered(conn, "jquants_fin_summaries", fin_start, asof_date):
                 _append_source_coverage_quality_issues(
@@ -222,9 +227,7 @@ def verify_screening_sqlite_coverage(
                     table="jquants_fin_summaries",
                     requirement=f"{fin_start.isoformat()}..{asof_date.isoformat()}",
                     require_rows=True,
-                    enforce_record_count=_raw_import_windows_are_non_overlapping(
-                        conn, "jquants_fin_summaries"
-                    ),
+                    enforce_record_count=True,
                 )
                 _append_fin_summary_density_issue(
                     conn,
@@ -427,21 +430,38 @@ def _connect_readonly(sqlite_path: Path) -> sqlite3.Connection:
 
 def _schema_version_issue(conn: sqlite3.Connection, sqlite_path: Path) -> CacheCoverageIssue | None:
     try:
-        row = conn.execute(
-            "SELECT value FROM cache_metadata WHERE key = 'schema_version'"
-        ).fetchone()
+        row = conn.execute("PRAGMA user_version").fetchone()
     except sqlite3.Error as exc:
         return CacheCoverageIssue(
             source="sqlite",
             requirement=sqlite_path.as_posix(),
-            reason=f"SQLite schema metadata is unavailable: {type(exc).__name__}: {exc}",
+            reason=f"SQLite user_version is unavailable: {type(exc).__name__}: {exc}",
         )
-    if row is None or row[0] != SCHEMA_VERSION:
+    found_version = int(row[0] or 0) if row is not None else 0
+    if found_version != SQLITE_SCHEMA_VERSION:
         found = "<missing>" if row is None else str(row[0])
         return CacheCoverageIssue(
             source="sqlite",
             requirement=sqlite_path.as_posix(),
-            reason=f"SQLite schema_version is {found}; expected {SCHEMA_VERSION}",
+            reason=f"SQLite user_version is {found}; expected {SQLITE_SCHEMA_VERSION}",
+        )
+    return None
+
+
+def _schema_shape_issue(conn: sqlite3.Connection, sqlite_path: Path) -> CacheCoverageIssue | None:
+    try:
+        validate_current_schema(conn)
+    except SQLiteSchemaError as exc:
+        return CacheCoverageIssue(
+            source="sqlite",
+            requirement=sqlite_path.as_posix(),
+            reason=str(exc),
+        )
+    except sqlite3.Error as exc:
+        return CacheCoverageIssue(
+            source="sqlite",
+            requirement=sqlite_path.as_posix(),
+            reason=f"SQLite schema validation failed: {type(exc).__name__}: {exc}",
         )
     return None
 
@@ -578,16 +598,7 @@ def _jpx_source_names(conn: sqlite3.Connection, asof_date: date) -> set[str]:
         "SELECT DISTINCT source_name FROM jpx_regulation_sources WHERE asof_date = ?",
         (asof_date.isoformat(),),
     ).fetchall()
-    if rows:
-        return {str(row[0]) for row in rows if row[0]}
-    # Legacy rows before `jpx_regulation_sources` used `flag` as source_name.
-    # This fallback is valid only while required_jpx_sources stays aligned with
-    # the JPX flag/source labels configured in universe rules.
-    flag_rows = conn.execute(
-        "SELECT DISTINCT source_name FROM jpx_regulation_flags WHERE asof_date = ?",
-        (asof_date.isoformat(),),
-    ).fetchall()
-    return {str(row[0]) for row in flag_rows if row[0]}
+    return {str(row[0]) for row in rows if row[0]}
 
 
 def _append_edinet_metrics_coverage_issues(
@@ -742,12 +753,6 @@ def _append_jpx_freshness_issues(
         (asof_date.isoformat(),),
     ).fetchall()
     if not rows:
-        rows = conn.execute(
-            "SELECT DISTINCT flag, fetched_at_utc FROM jpx_regulation_flags "
-            "WHERE asof_date = ? AND fetched_at_utc IS NOT NULL",
-            (asof_date.isoformat(),),
-        ).fetchall()
-    if not rows:
         issues.append(
             CacheCoverageIssue(
                 source="jpx_regulation_flags",
@@ -814,28 +819,6 @@ def _append_table_consistency_issues(
 ) -> None:
     imported_count = _source_coverage_record_count(conn, source)
     table_count = _table_row_count(conn, table)
-    recorded_count = _recorded_table_row_count(conn, table)
-    if recorded_count is None:
-        issues.append(
-            CacheCoverageIssue(
-                source=source,
-                requirement=requirement,
-                reason=f"cache_metadata table_count for {table} is missing; rebuild SQLite",
-            )
-        )
-        return
-    if table_count != recorded_count:
-        issues.append(
-            CacheCoverageIssue(
-                source=source,
-                requirement=requirement,
-                reason=(
-                    f"{table} row count ({table_count}) differs from recorded cache_metadata "
-                    f"table_count ({recorded_count}); repair SQLite"
-                ),
-            )
-        )
-        return
     if require_rows and imported_count <= 0:
         issues.append(
             CacheCoverageIssue(
@@ -845,13 +828,28 @@ def _append_table_consistency_issues(
             )
         )
         return
-    if enforce_record_count and table_count < imported_count:
+    if enforce_record_count:
+        window_mismatches = _source_window_count_mismatches(conn, source)
+        if window_mismatches:
+            for coverage_key, window_count, expected_count in window_mismatches:
+                issues.append(
+                    CacheCoverageIssue(
+                        source=source,
+                        requirement=str(coverage_key),
+                        reason=(
+                            f"{table} row count in source_coverage window ({window_count}) "
+                            f"does not match source_coverage record_count ({expected_count}); "
+                            "repair SQLite"
+                        ),
+                    )
+                )
+    if enforce_record_count and table_count != imported_count:
         issues.append(
             CacheCoverageIssue(
                 source=source,
                 requirement=requirement,
                 reason=(
-                    f"{table} row count ({table_count}) is smaller than source_coverage "
+                    f"{table} row count ({table_count}) does not match source_coverage "
                     f"record_count ({imported_count}); repair SQLite"
                 ),
             )
@@ -884,6 +882,32 @@ def _source_coverage_record_count(conn: sqlite3.Connection, source: str) -> int:
     return int(row[0] or 0)
 
 
+def _source_window_count_mismatches(
+    conn: sqlite3.Connection, source: str
+) -> tuple[tuple[str, int, int], ...]:
+    table_date_column = _WINDOW_COUNT_SOURCES.get(source)
+    if table_date_column is None:
+        return ()
+    table, date_column = table_date_column
+    rows = conn.execute(
+        "SELECT coverage_key, coverage_start, coverage_end, record_count "
+        "FROM source_coverage WHERE source = ? AND status = 'ok' "
+        "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL",
+        (source,),
+    ).fetchall()
+    mismatches: list[tuple[str, int, int]] = []
+    for coverage_key, coverage_start, coverage_end, record_count in rows:
+        count_row = conn.execute(
+            _REQUIRED_DATE_ROWS_SQL[(table, date_column)],
+            (str(coverage_start), str(coverage_end)),
+        ).fetchone()
+        window_count = int(count_row[0] or 0)
+        expected_count = int(record_count or 0)
+        if window_count != expected_count:
+            mismatches.append((str(coverage_key), window_count, expected_count))
+    return tuple(mismatches)
+
+
 def _source_coverage_covers_date(conn: sqlite3.Connection, source: str, on_date: date) -> bool:
     row = conn.execute(
         "SELECT 1 FROM source_coverage "
@@ -900,42 +924,6 @@ def _has_source_coverage(conn: sqlite3.Connection, source: str) -> bool:
         (source,),
     ).fetchone()
     return row is not None
-
-
-def _recorded_table_row_count(conn: sqlite3.Connection, table: str) -> int | None:
-    row = conn.execute(
-        "SELECT value FROM cache_metadata WHERE key = ?",
-        (f"table_count.{table}",),
-    ).fetchone()
-    if row is None:
-        return None
-    try:
-        return int(row[0])
-    except (TypeError, ValueError):
-        return None
-
-
-def _raw_import_windows_are_non_overlapping(conn: sqlite3.Connection, source: str) -> bool:
-    rows = conn.execute(
-        "SELECT coverage_start, coverage_end FROM source_coverage "
-        "WHERE source = ? AND status = 'ok'",
-        (source,),
-    ).fetchall()
-    intervals: list[tuple[date, date]] = []
-    for start_text, end_text in rows:
-        if not start_text or not end_text:
-            return False
-        try:
-            intervals.append((date.fromisoformat(start_text), date.fromisoformat(end_text)))
-        except ValueError:
-            return False
-    intervals.sort()
-    previous_end: date | None = None
-    for start, end in intervals:
-        if previous_end is not None and start <= previous_end:
-            return False
-        previous_end = end
-    return True
 
 
 def _table_row_count(conn: sqlite3.Connection, table: str) -> int:
