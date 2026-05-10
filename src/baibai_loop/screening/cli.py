@@ -254,7 +254,10 @@ def build_parser() -> argparse.ArgumentParser:
     coverage_parser.add_argument(
         "--allow-stale-jpx",
         action="store_true",
-        help="degraded verification only; allow old JPX fetched_at_utc snapshots",
+        help=(
+            "degraded verification only; allow old JPX fetched_at_utc snapshots "
+            "(use together with run --allow-stale-jpx)"
+        ),
     )
 
     select_parser = subparsers.add_parser(
@@ -1381,7 +1384,25 @@ def extract_edinet_metrics_command(
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
 
-    candidates = select_document_candidates(documents)
+    try:
+        candidates = select_document_candidates(documents)
+    except EDINETProviderError as exc:
+        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    if not candidates:
+        message = (
+            f"no EDINET filings selected for --asof {asof_date.isoformat()} "
+            f"within {start.isoformat()}..{asof_date.isoformat()}"
+        )
+        store_edinet_metrics(
+            sqlite_path,
+            asof_date,
+            [],
+            status="failed",
+            error=message,
+        )
+        print(message, file=sys.stderr)
+        return 1
     records: list[EdinetMetricRecord] = []
     hard_failure_count = 0
     quality_issue_count = 0
@@ -1488,6 +1509,11 @@ def bootstrap_cache_command(
             providers.jquants.get_mkt_calendar(asof_date, asof_date)
             if providers.edinet is not None:
                 providers.edinet.bootstrap_cache(fin_start, asof_date)
+            else:
+                print(
+                    "note: EDINET provider is not configured; skipping EDINET bootstrap",
+                    file=sys.stderr,
+                )
             providers.jpx.bootstrap_cache(asof_date)
         except (JQuantsProviderError, EDINETProviderError, JPXProviderError, sqlite3.Error) as exc:
             print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
@@ -1499,6 +1525,11 @@ def bootstrap_cache_command(
         providers.jquants.bootstrap_cache(start, end)
         if providers.edinet is not None:
             providers.edinet.bootstrap_cache(start, end)
+        else:
+            print(
+                "note: EDINET provider is not configured; skipping EDINET bootstrap",
+                file=sys.stderr,
+            )
         providers.jpx.bootstrap_cache(end)
     except (JQuantsProviderError, EDINETProviderError, JPXProviderError, sqlite3.Error) as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)

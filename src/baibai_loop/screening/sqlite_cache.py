@@ -1018,6 +1018,9 @@ def _rebuild(conn: sqlite3.Connection, raw_dirs: tuple[Path, ...]) -> RebuildSum
 
 
 def _record_table_integrity(conn: sqlite3.Connection) -> None:
+    # Intentionally refresh every canonical table count, not only the table a
+    # store function just touched. `verify-cache-coverage` treats stale metadata
+    # as corruption, so the slightly broader write is safer than partial counts.
     for table in _DATA_TABLES:
         row = conn.execute(_TABLE_COUNT_SQL[table]).fetchone()
         conn.execute(

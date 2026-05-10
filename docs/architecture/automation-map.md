@@ -19,7 +19,11 @@ Automation は人間の投資判断を置き換えるものではなく、fact s
 
 | command | 実装領域 | 責務 |
 | --- | --- | --- |
-| `uv run baibai-loop-screening run --asof YYYY-MM-DD` | `src/baibai_loop/screening/` | J-Quants / EDINET / JPX 由来データから candidates YAML を生成する |
+| `uv run baibai-loop-screening bootstrap-cache --asof YYYY-MM-DD` | `src/baibai_loop/screening/` | screening run に必要な J-Quants / EDINET / JPX window を SQLite 正本へ補完する |
+| `uv run baibai-loop-screening extract-edinet-metrics --asof YYYY-MM-DD` | `src/baibai_loop/screening/` | EDINET CSV から TTM metrics を抽出し SQLite 正本へ保存する |
+| `uv run baibai-loop-screening verify-cache-coverage --asof YYYY-MM-DD` | `src/baibai_loop/screening/` | SQLite 正本が screening run の必須入力を read-only で満たすか検証する |
+| `uv run baibai-loop-screening rebuild-cache --raw-dir PATH` | `src/baibai_loop/screening/` | legacy raw JSON tree から SQLite 正本を初回移行する |
+| `uv run baibai-loop-screening run --asof YYYY-MM-DD` | `src/baibai_loop/screening/` | 完全性検証済み SQLite 正本から candidates YAML を生成する |
 | `uv run baibai-loop-screening select --asof YYYY-MM-DD` | `src/baibai_loop/screening/` | candidates と outlook を突合し、research 候補の ranking を支援する |
 | `uv run baibai-loop-validate` | `src/baibai_loop/validate/` | records と schema の整合性を検証する |
 | `uv run baibai-loop-ledger sync --root .` | `src/baibai_loop/ledger/` | decision event を `records/_ledger/` の JSONL に正規化する |

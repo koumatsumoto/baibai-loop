@@ -369,9 +369,9 @@ def has_jpx_regulation_data(sqlite_path: Path, asof_date: date) -> bool:
     """Return True when `asof_date` has an imported JPX regulation snapshot.
 
     A valid snapshot may have zero flagged tickers for a source such as
-    取引停止. Treat the raw import / source-name rows as cache coverage so
+    取引停止. Treat `source_coverage` as the canonical cache coverage marker so
     stale backfill gating does not force a refetch just because a required
-    source happened to be empty on that date.
+    source returned an empty source-specific table on that date.
     """
     if not sqlite_path.exists():
         return False

@@ -4,7 +4,7 @@ import hashlib
 import json
 import sqlite3
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
@@ -30,6 +30,36 @@ class CacheManifestRecord:
 class CacheManifest:
     cache_root: Path
     files: tuple[CacheManifestRecord, ...]
+
+
+@dataclass(slots=True)
+class _SqliteCoverageAccumulator:
+    source: str
+    windows: int = 0
+    records: int = 0
+    raw_records: int = 0
+    normalized_records: int = 0
+    skipped_records: int = 0
+    rejected_records: int = 0
+    excluded_records: int = 0
+    statuses: set[str] = field(default_factory=set)
+    non_ok_windows: int = 0
+    errors: set[str] = field(default_factory=set)
+
+    def as_payload(self) -> dict[str, object]:
+        return {
+            "source": self.source,
+            "windows": self.windows,
+            "records": self.records,
+            "raw_records": self.raw_records,
+            "normalized_records": self.normalized_records,
+            "skipped_records": self.skipped_records,
+            "rejected_records": self.rejected_records,
+            "excluded_records": self.excluded_records,
+            "statuses": sorted(self.statuses),
+            "non_ok_windows": self.non_ok_windows,
+            "errors": sorted(self.errors),
+        }
 
 
 def build_provider_settings(config: ScreeningConfig) -> dict[str, object]:
@@ -150,54 +180,50 @@ def compute_sqlite_summary(sqlite_path: Path | None) -> dict[str, object] | None
         except sqlite3.OperationalError:
             return None
         try:
-            counts_rows = conn.execute(
-                "SELECT source, COUNT(*), COALESCE(SUM(record_count), 0), "
-                "COALESCE(SUM(COALESCE(raw_record_count, record_count)), 0), "
-                "COALESCE(SUM(COALESCE(normalized_record_count, record_count)), 0), "
-                "COALESCE(SUM(skipped_record_count), 0), "
-                "COALESCE(SUM(rejected_record_count), 0), "
-                "COALESCE(SUM(excluded_record_count), 0), "
-                "GROUP_CONCAT(DISTINCT status), "
-                "COALESCE(SUM(CASE WHEN status != 'ok' THEN 1 ELSE 0 END), 0), "
-                "GROUP_CONCAT(DISTINCT error) "
-                "FROM source_coverage GROUP BY source ORDER BY source"
+            coverage_rows = conn.execute(
+                "SELECT source, record_count, raw_record_count, normalized_record_count, "
+                "skipped_record_count, rejected_record_count, excluded_record_count, "
+                "status, error FROM source_coverage ORDER BY source"
             ).fetchall()
         except sqlite3.OperationalError:
-            counts_rows = []
+            coverage_rows = []
     finally:
         conn.close()
+
+    coverage_by_source: dict[str, _SqliteCoverageAccumulator] = {}
+    for (
+        source,
+        record_count,
+        raw_record_count,
+        normalized_record_count,
+        skipped_record_count,
+        rejected_record_count,
+        excluded_record_count,
+        status,
+        error,
+    ) in coverage_rows:
+        source_key = str(source)
+        entry = coverage_by_source.setdefault(
+            source_key, _SqliteCoverageAccumulator(source=source_key)
+        )
+        records = int(record_count or 0)
+        entry.windows += 1
+        entry.records += records
+        entry.raw_records += int(raw_record_count or records)
+        entry.normalized_records += int(normalized_record_count or records)
+        entry.skipped_records += int(skipped_record_count or 0)
+        entry.rejected_records += int(rejected_record_count or 0)
+        entry.excluded_records += int(excluded_record_count or 0)
+        entry.statuses.add(str(status or "ok"))
+        if status != "ok":
+            entry.non_ok_windows += 1
+        if error:
+            entry.errors.add(str(error))
 
     return {
         "path": sqlite_path.as_posix(),
         "schema_version": schema_version_row[0] if schema_version_row else None,
-        "coverage": [
-            {
-                "source": source,
-                "windows": windows,
-                "records": records,
-                "raw_records": raw_records,
-                "normalized_records": normalized_records,
-                "skipped_records": skipped_records,
-                "rejected_records": rejected_records,
-                "excluded_records": excluded_records,
-                "statuses": sorted(statuses.split(",")) if statuses else [],
-                "non_ok_windows": non_ok_windows,
-                "errors": sorted(errors.split(",")) if errors else [],
-            }
-            for (
-                source,
-                windows,
-                records,
-                raw_records,
-                normalized_records,
-                skipped_records,
-                rejected_records,
-                excluded_records,
-                statuses,
-                non_ok_windows,
-                errors,
-            ) in counts_rows
-        ],
+        "coverage": [entry.as_payload() for entry in coverage_by_source.values()],
     }
 
 

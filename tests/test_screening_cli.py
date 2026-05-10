@@ -669,6 +669,21 @@ class ScreeningCliTests(unittest.TestCase):
         )
         self.assertEqual(exit_code, 1)
 
+    def test_bootstrap_cache_command_asof_fails_jpx_bootstrap_failure(self) -> None:
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            exit_code = bootstrap_cache_command(
+                asof_date=date(2026, 5, 8),
+                providers=ProviderBundle(
+                    jquants=FakeJQuantsProvider(),
+                    edinet=FakeEDINETProvider(),
+                    jpx=FakeJPXProvider(fail_bootstrap=True),
+                ),
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("JPXProviderError: missing jpx source", stderr.getvalue())
+
     def test_bootstrap_cache_command_fails_cleanly_on_sqlite_corruption(self) -> None:
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
@@ -805,6 +820,60 @@ class ScreeningCliTests(unittest.TestCase):
             assert payload is not None
             self.assertIn("debt_assumed_zero", payload["9682"].failure_reasons)
             self.assertIn("1 records with quality issues", buffer.getvalue())
+
+    def test_extract_edinet_metrics_command_fails_when_no_filings_selected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            provider = FakeEDINETProvider(documents=[])
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 24),
+                    lookback_days=0,
+                    provider=provider,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("no EDINET filings selected", stderr.getvalue())
+            row = (
+                sqlite3.connect(sqlite_path)
+                .execute(
+                    "SELECT status, error FROM source_coverage WHERE source = ?",
+                    ("edinet_metrics",),
+                )
+                .fetchone()
+            )
+            self.assertEqual(row[0], "failed")
+            self.assertIn("no EDINET filings selected", row[1])
+
+    def test_extract_edinet_metrics_command_fails_on_invalid_document_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            provider = FakeEDINETProvider(
+                documents=[
+                    {
+                        "docID": "S100TEST",
+                        "secCode": "../../96820",
+                        "docTypeCode": "120",
+                        "csvFlag": "1",
+                        "xbrlFlag": "1",
+                    }
+                ]
+            )
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 24),
+                    lookback_days=0,
+                    provider=provider,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("invalid EDINET secCode", stderr.getvalue())
 
 
 class IndexNextEarningsTests(unittest.TestCase):

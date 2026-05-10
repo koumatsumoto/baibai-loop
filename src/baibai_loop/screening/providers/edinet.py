@@ -33,6 +33,7 @@ CORRECTION_DOC_TYPE_CODES = frozenset({"130", "150", "170"})
 _DOCUMENT_DESCRIPTION_PERIOD_RE = re.compile(
     r"(\d{4}/\d{2}/\d{2})\s*[－~～-]\s*(\d{4}/\d{2}/\d{2})"
 )
+_DOC_ID_RE = re.compile(r"S[0-9A-Z]{3,32}")
 
 
 def _validate_finite(value: float | None) -> float | None:
@@ -188,14 +189,15 @@ class EDINETProvider:
         return {"documents": total}
 
     def download_csv_zip(self, doc_id: str) -> bytes:
-        cache_path = self._zip_cache_dir / f"{doc_id}.zip"
+        safe_doc_id = parse_doc_id(doc_id)
+        cache_path = self._zip_cache_dir / f"{safe_doc_id}.zip"
         if cache_path.exists():
             return cache_path.read_bytes()
-        self._raise_if_cache_only("edinet_csv_zip", doc_id)
+        self._raise_if_cache_only("edinet_csv_zip", safe_doc_id)
 
         api_key = self._require_api_key("download_csv_zip")
         query = urlencode({"type": 5, "Subscription-Key": api_key})
-        url = f"{EDINET_API_BASE}/documents/{doc_id}?{query}"
+        url = f"{EDINET_API_BASE}/documents/{safe_doc_id}?{query}"
         content = self._request_bytes(url)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_bytes(content)
@@ -309,6 +311,13 @@ def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
     )
 
 
+def parse_doc_id(value: object) -> str:
+    raw = str(value or "").strip().upper()
+    if not _DOC_ID_RE.fullmatch(raw):
+        raise EDINETProviderError(f"invalid EDINET docID: {value!r}")
+    return raw
+
+
 def select_document_candidates(
     documents: Sequence[Mapping[str, Any]],
 ) -> dict[str, EdinetDocumentCandidate]:
@@ -325,14 +334,12 @@ def select_document_candidates(
             continue
         if _is_unusable_status(document):
             continue
-        try:
-            ticker = parse_sec_code(_coalesce(document, "secCode", "sec_code"))
-        except EDINETProviderError:
-            continue
+        doc_id = parse_doc_id(raw_doc_id)
+        ticker = parse_sec_code(_coalesce(document, "secCode", "sec_code"))
         period_start, period_end = _document_period(document)
         candidate = EdinetDocumentCandidate(
             ticker=ticker,
-            doc_id=str(raw_doc_id),
+            doc_id=doc_id,
             doc_type_code=raw_type,
             submit_datetime=_to_str_or_none(_coalesce(document, "submitDateTime")),
             period_start=period_start,

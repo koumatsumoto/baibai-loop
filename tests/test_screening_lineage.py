@@ -231,6 +231,42 @@ class ScreeningLineageTests(unittest.TestCase):
                 ],
             )
 
+    def test_compute_sqlite_summary_preserves_error_messages_with_commas(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            conn.execute(
+                "INSERT INTO source_coverage("
+                "source, operation, coverage_key, coverage_start, coverage_end, "
+                "requested_start, requested_end, params_json, fetched_at_utc, record_count, "
+                "status, error"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "edinet_metrics",
+                    "metrics",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "{}",
+                    "2026-04-24T00:00:00+00:00",
+                    0,
+                    "failed",
+                    "no filings selected: a, b, c",
+                ),
+            )
+            conn.commit()
+            conn.close()
+
+            summary = compute_sqlite_summary(sqlite_path)
+
+            self.assertIsNotNone(summary)
+            assert summary is not None
+            coverage = summary["coverage"]
+            assert isinstance(coverage, list)
+            self.assertEqual(coverage[0]["errors"], ["no filings selected: a, b, c"])
+
     def test_write_manifest_includes_sqlite_summary_when_present(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

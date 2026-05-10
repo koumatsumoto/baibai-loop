@@ -256,12 +256,13 @@ class JPXProvider:
             )
 
         flags: dict[str, set[str]] = {}
+        fetched_source_names: list[str] = []
         for source_name, url in self._regulation_urls.items():
             download_url = url
             if source_name == JPX_SPECIAL_CAUTION_SOURCE_NAME and self._special_caution_index_url:
                 download_url = self._resolve_special_attention_xls_url(asof_date)
             rows = self._download_rows(source_name, download_url)
-            accepted_rows = 0
+            fetched_source_names.append(source_name)
             for row in rows:
                 ticker_raw = (
                     row.get("ticker")
@@ -276,17 +277,12 @@ class JPXProvider:
                     )
                 ticker = parse_jpx_code(ticker_raw)
                 flags.setdefault(ticker, set()).add(str(flag))
-                accepted_rows += 1
-            if rows and accepted_rows == 0:
-                raise JPXProviderError(
-                    f"JPX regulation source produced no usable rows: {source_name}"
-                )
 
         snapshot = JPXRegulationSnapshot(
             flags_by_ticker={
                 ticker: tuple(sorted(values)) for ticker, values in sorted(flags.items())
             },
-            source_names=tuple(sorted(self._regulation_urls.keys())),
+            source_names=tuple(sorted(fetched_source_names)),
         )
         if self._sqlite_path is not None:
             from ..sqlite_cache import store_jpx_regulations

@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -26,6 +27,11 @@ _DATA_TABLES = (
     "jpx_regulation_flags",
     "jpx_regulation_sources",
 )
+
+
+def _verify_screening_sqlite_coverage(*args, **kwargs):
+    with patch("baibai_loop.screening.sqlite_coverage._MIN_COMMON_STOCK_MASTER_ROWS", 100):
+        return verify_screening_sqlite_coverage(*args, **kwargs)
 
 
 def _add_raw_import(
@@ -226,7 +232,7 @@ def _record_table_counts(conn: sqlite3.Connection) -> None:
 class SQLiteCoverageTests(unittest.TestCase):
     def test_missing_sqlite_file_reports_issue(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            issues = verify_screening_sqlite_coverage(
+            issues = _verify_screening_sqlite_coverage(
                 Path(tmp) / "missing.sqlite",
                 date(2026, 5, 8),
             )
@@ -239,7 +245,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             sqlite_path = Path(tmp) / "market.sqlite"
             sqlite_path.write_bytes(b"not a sqlite database")
 
-            issues = verify_screening_sqlite_coverage(sqlite_path, date(2026, 5, 8))
+            issues = _verify_screening_sqlite_coverage(sqlite_path, date(2026, 5, 8))
 
             self.assertEqual(len(issues), 1)
             self.assertEqual(issues[0].source, "sqlite")
@@ -254,7 +260,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(
+            issues = _verify_screening_sqlite_coverage(
                 sqlite_path,
                 asof,
                 require_edinet_metrics=True,
@@ -273,7 +279,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertIn("jquants_daily_bars", {issue.source for issue in issues})
 
@@ -294,7 +300,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertTrue(
                 any(
@@ -320,7 +326,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertTrue(
                 any(
@@ -346,7 +352,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertTrue(
                 any(
@@ -385,7 +391,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertFalse(
                 any(
@@ -411,7 +417,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertFalse(
                 any(issue.source == "jquants_daily_bars" for issue in issues),
@@ -441,7 +447,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertIn("jquants_master_snapshots", {issue.source for issue in issues})
             self.assertTrue(any("zero imported rows" in issue.reason for issue in issues))
@@ -460,12 +466,58 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
+
+            self.assertTrue(
+                any(
+                    issue.source == "jquants_master_snapshots"
+                    and "common-stock row count" in issue.reason
+                    for issue in issues
+                )
+            )
+
+    def test_master_below_production_floor_reports_incomplete_cache(self) -> None:
+        asof = date(2026, 5, 8)
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            tickers = tuple(f"{1301 + index:04d}" for index in range(2499))
+            conn.executemany(
+                "INSERT INTO jquants_master_snapshots("
+                "snapshot_date, ticker, name, market, sector_33, is_common_stock, raw_json"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        asof.isoformat(),
+                        ticker,
+                        f"Name {ticker}",
+                        "Prime",
+                        "水産・農林業",
+                        1,
+                        "{}",
+                    )
+                    for ticker in tickers
+                ],
+            )
+            _add_raw_import(
+                conn,
+                source="jquants_master_snapshots",
+                path="records/_data/raw/screening/jquants/get_eq_master.json",
+                record_count=len(tickers),
+                min_date=asof.isoformat(),
+                max_date=asof.isoformat(),
+            )
+            _record_table_counts(conn)
+            conn.commit()
+            conn.close()
+
             issues = verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertTrue(
                 any(
                     issue.source == "jquants_master_snapshots"
                     and "common-stock row count" in issue.reason
+                    and "minimum 2500" in issue.reason
                     for issue in issues
                 )
             )
@@ -480,7 +532,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertTrue(
                 any(
@@ -503,7 +555,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertTrue(
                 any(
@@ -528,7 +580,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertTrue(
                 any(
@@ -551,7 +603,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertTrue(
                 any(
@@ -582,7 +634,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertFalse(
                 any(
@@ -604,7 +656,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertTrue(
                 any(
@@ -623,7 +675,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(
+            issues = _verify_screening_sqlite_coverage(
                 sqlite_path,
                 asof,
                 required_jpx_sources=("取引停止",),
@@ -650,7 +702,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertTrue(
                 any(
@@ -673,7 +725,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertTrue(
                 any(
@@ -696,7 +748,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(
+            issues = _verify_screening_sqlite_coverage(
                 sqlite_path,
                 asof,
                 allow_stale_jpx=True,
@@ -727,7 +779,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(
+            issues = _verify_screening_sqlite_coverage(
                 sqlite_path,
                 asof,
                 required_jpx_sources=("取引停止",),
@@ -754,7 +806,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(
+            issues = _verify_screening_sqlite_coverage(
                 sqlite_path,
                 asof,
                 require_edinet_metrics=True,
@@ -797,7 +849,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertTrue(
                 any(

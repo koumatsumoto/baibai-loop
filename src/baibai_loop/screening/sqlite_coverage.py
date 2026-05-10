@@ -38,7 +38,7 @@ _TABLE_COUNT_SQL = {
 }
 _SINGLE_SNAPSHOT_SOURCES = frozenset({"jquants_master_snapshots", "jquants_earnings_calendar"})
 _JPX_MAX_FETCH_AGE_BUSINESS_DAYS = 7
-_MIN_COMMON_STOCK_MASTER_ROWS = 100
+_MIN_COMMON_STOCK_MASTER_ROWS = 2500
 _DENSITY_BUCKET_DAYS = 120
 
 
@@ -108,6 +108,7 @@ def verify_screening_sqlite_coverage(
                         require_rows=True,
                         enforce_record_count=True,
                     )
+                    _append_master_common_stock_issue(conn, issues, asof_date=asof_date)
                 issues.append(
                     CacheCoverageIssue(
                         source="jquants_master_snapshots",
@@ -579,6 +580,9 @@ def _jpx_source_names(conn: sqlite3.Connection, asof_date: date) -> set[str]:
     ).fetchall()
     if rows:
         return {str(row[0]) for row in rows if row[0]}
+    # Legacy rows before `jpx_regulation_sources` used `flag` as source_name.
+    # This fallback is valid only while required_jpx_sources stays aligned with
+    # the JPX flag/source labels configured in universe rules.
     flag_rows = conn.execute(
         "SELECT DISTINCT source_name FROM jpx_regulation_flags WHERE asof_date = ?",
         (asof_date.isoformat(),),

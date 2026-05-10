@@ -41,9 +41,9 @@ jobs:
 
       - name: Block tracked raw screening cache
         run: |
-          if git ls-files 'records/_data/raw/screening' | grep -q .; then
-            echo 'raw screening cache must not be tracked under records/_data/raw/screening'
-            git ls-files 'records/_data/raw/screening'
+          if git ls-files 'records/_data/raw/screening' 'records/_data/cache' | grep -q .; then
+            echo 'screening cache must not be tracked under records/_data/raw/screening or records/_data/cache'
+            git ls-files 'records/_data/raw/screening' 'records/_data/cache'
             exit 1
           fi
 

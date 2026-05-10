@@ -21,6 +21,7 @@ from baibai_loop.screening.providers.edinet import (
     EDINETProviderError,
     normalize_metric_record,
     parse_csv_zip_metric_record,
+    parse_doc_id,
     parse_sec_code,
     select_document_candidates,
 )
@@ -154,6 +155,39 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(selected["7203"].doc_id, "S100B")
         self.assertNotIn("6758", selected)
         self.assertNotIn("9984", selected)
+
+    def test_select_document_candidates_rejects_invalid_sec_code(self) -> None:
+        with self.assertRaisesRegex(EDINETProviderError, "invalid EDINET secCode"):
+            select_document_candidates(
+                [
+                    {
+                        "docID": "S100A",
+                        "secCode": "../../72030",
+                        "docTypeCode": "120",
+                        "csvFlag": "1",
+                        "xbrlFlag": "1",
+                        "legalStatus": "1",
+                        "disclosureStatus": "0",
+                        "withdrawalStatus": "0",
+                    }
+                ]
+            )
+
+    def test_parse_doc_id_rejects_path_traversal(self) -> None:
+        with self.assertRaisesRegex(EDINETProviderError, "invalid EDINET docID"):
+            parse_doc_id("../../etc/passwd")
+
+    def test_download_csv_zip_rejects_invalid_doc_id_before_cache_path(self) -> None:
+        class ExplodingSession:
+            def get(self, url: str, timeout: int):
+                del url, timeout
+                raise AssertionError("request should not be attempted")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            provider = EDINETProvider("key", Path(tmp), session=ExplodingSession())
+
+            with self.assertRaisesRegex(EDINETProviderError, "invalid EDINET docID"):
+                provider.download_csv_zip("../../etc/passwd")
 
     def test_select_document_candidates_prefers_new_period_over_old_correction(self) -> None:
         selected = select_document_candidates(
