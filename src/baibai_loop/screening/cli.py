@@ -25,10 +25,7 @@ from .date_utils import weekday_distance
 from .filesystem import write_text_atomic
 from .freshness import detect_edinet_freshness_warnings, load_disclosure_events
 from .lineage import (
-    build_provider_settings,
     build_run_id,
-    compute_config_hash,
-    compute_sqlite_fingerprint,
 )
 from .metrics import (
     build_metrics,
@@ -68,7 +65,7 @@ from .schema import (
     TTMQuality,
     normalize_ticker,
 )
-from .sqlite_cache import SQLiteCacheError, rebuild_from_raw, store_edinet_metrics
+from .sqlite_cache import store_edinet_metrics
 from .sqlite_coverage import CacheCoverageIssue, verify_screening_sqlite_coverage
 from .tiers import position_tier
 from .universe import (
@@ -208,21 +205,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="EDINET document-list lookback window in calendar days (default 540)",
     )
 
-    rebuild_parser = subparsers.add_parser(
-        "rebuild-cache",
-        help=("legacy migration: rebuild canonical SQLite under data/screening/ from raw JSON"),
-    )
-    rebuild_parser.add_argument(
-        "--raw-dir",
-        required=True,
-        help="legacy raw JSON root to import (required; disposable .cache is not a default)",
-    )
-    rebuild_parser.add_argument(
-        "--sqlite-path",
-        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
-        help=f"output SQLite path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
-    )
-
     coverage_parser = subparsers.add_parser(
         "verify-cache-coverage",
         help="check that SQLite can serve all local inputs required by screening run",
@@ -304,13 +286,6 @@ def main(argv: list[str] | None = None) -> int:
             top=args.top,
         )
 
-    if args.command == "rebuild-cache":
-        # rebuild-cache reads local raw JSON and writes a SQLite file; no API tokens needed.
-        return rebuild_cache_command(
-            raw_dir=Path(args.raw_dir),
-            sqlite_path=Path(args.sqlite_path),
-        )
-
     if args.command == "verify-cache-coverage":
         # verify-cache-coverage is local-only and never reads raw JSON or calls providers.
         rules = load_screening_rules(Path(args.rules_path))
@@ -332,7 +307,9 @@ def main(argv: list[str] | None = None) -> int:
     run_asof_date = _parse_iso_date(args.asof) if args.command == "run" else None
     run_rules = load_screening_rules(config.rules_path) if args.command == "run" else None
     if args.command == "run":
-        assert run_asof_date is not None
+        if run_asof_date is None:
+            print("--asof is required for run", file=sys.stderr)
+            return 1
         coverage_issues = verify_screening_sqlite_coverage(
             sqlite_path,
             run_asof_date,
@@ -372,7 +349,9 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if args.command == "run":
-        assert run_asof_date is not None
+        if run_asof_date is None:
+            print("--asof is required for run", file=sys.stderr)
+            return 1
         return run_command(
             run_asof_date,
             config,
@@ -444,9 +423,7 @@ def run_command(
         return 1
 
     run_now = now or datetime.now(JST)
-    provider_settings = build_provider_settings(config)
-    config_hash = compute_config_hash(config, provider_settings)
-    run_id = build_run_id(asof_date, config_hash)
+    run_id = build_run_id(asof_date)
     today = run_now.date()
     if (
         not allow_stale_jpx
@@ -694,8 +671,6 @@ def run_command(
             f"{disclosure_load_result.unsupported_record_count} 件"
         )
 
-    cache_manifest_hash = compute_sqlite_fingerprint(config.sqlite_cache_dir / "market.sqlite")
-
     data_sources = ["j-quants-light", "jpx-public-regulation"]
     if edinet_by_ticker:
         data_sources.append("edinet-preprocessed-metrics")
@@ -731,8 +706,6 @@ def run_command(
         run_at=run_now,
         run_id=run_id,
         data_sources=tuple(data_sources),
-        config_hash=config_hash,
-        cache_manifest_hash=cache_manifest_hash,
         fact_memo_lines=tuple(fact_lines),
         provider_status_lines=tuple(provider_status_lines),
         universe_exclusion_lines=tuple(
@@ -1251,69 +1224,6 @@ def _index_next_earnings(
         if ticker not in by_ticker or date_iso < by_ticker[ticker]:
             by_ticker[ticker] = date_iso
     return {ticker: date.fromisoformat(value) for ticker, value in by_ticker.items()}
-
-
-def rebuild_cache_command(
-    *,
-    raw_dir: Path,
-    sqlite_path: Path,
-    stdout: TextIO | None = None,
-) -> int:
-    """Rebuild the SQLite cache from raw JSON. The destination file is removed
-    first so the rebuild is deterministic.
-    """
-    out = stdout if stdout is not None else sys.stdout
-    if not raw_dir.exists():
-        print(f"raw JSON directory not found: {raw_dir}", file=sys.stderr)
-        return 1
-    try:
-        summary = rebuild_from_raw(raw_dir, sqlite_path)
-    except SQLiteCacheError as exc:
-        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
-        return 1
-    print(f"rebuilt {sqlite_path}:", file=out)
-    print(
-        f"  jquants_daily_bars: {summary.daily_bars_files} files / {summary.daily_bars_rows} rows",
-        file=out,
-    )
-    print(
-        f"  jquants_fin_summaries: {summary.fin_summary_files} files / "
-        f"{summary.fin_summary_rows} rows",
-        file=out,
-    )
-    print(
-        f"  jquants_master_snapshots: {summary.master_files} files / {summary.master_rows} rows",
-        file=out,
-    )
-    print(
-        f"  jquants_earnings_calendar: {summary.earnings_calendar_files} files / "
-        f"{summary.earnings_calendar_rows} rows",
-        file=out,
-    )
-    print(
-        f"  jquants_market_calendar: {summary.market_calendar_files} files / "
-        f"{summary.market_calendar_rows} rows",
-        file=out,
-    )
-    print(
-        f"  edinet_documents: {summary.edinet_document_files} files / "
-        f"{summary.edinet_document_rows} rows",
-        file=out,
-    )
-    print(
-        f"  edinet_metrics: {summary.edinet_metric_files} files / "
-        f"{summary.edinet_metric_rows} rows",
-        file=out,
-    )
-    print(
-        f"  jpx_regulation_flags: {summary.jpx_regulation_files} files / "
-        f"{summary.jpx_regulation_rows} rows",
-        file=out,
-    )
-    if summary.skipped_files:
-        joined = ", ".join(summary.skipped_files)
-        print(f"skipped {len(summary.skipped_files)} unrecognized files: {joined}", file=out)
-    return 0
 
 
 def verify_cache_coverage_command(

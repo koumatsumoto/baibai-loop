@@ -310,8 +310,6 @@ class ScreenedRunDocument:
     candidates: tuple[ScreenedCandidate, ...]
     run_at: datetime
     run_id: NonEmptyString
-    config_hash: NonEmptyString
-    cache_manifest_hash: NonEmptyString
     generated_by: str = "screening-cli-v1"
     universe_snapshot_ref: str | None = None
     data_sources: tuple[str, ...] = (

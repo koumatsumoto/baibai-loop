@@ -35,7 +35,7 @@ def _minimal_candidates() -> dict[str, object]:
         "generated_by": "screening-cli-v1",
         "data_sources": ["j-quants-light"],
         "run_at": "2026-04-24T09:00:00+09:00",
-        "run_id": "screening-20260424-a1b2c3d4",
+        "run_id": "screening-20260424",
         "screening_rules_snapshot": snapshot,
         "metric_catalog_snapshot": {
             **snapshot,
@@ -49,14 +49,13 @@ def _minimal_candidates() -> dict[str, object]:
             **snapshot,
             "ref_path": "records/_universe-snapshots/2026/04/2026-04-24.yaml",
         },
-        "cache_manifest_hash": "9988776655443322",
         "candidates": [
             {
                 "ticker": "130A",
                 "name": "Sample Co",
-                "screen_run_id": "screening-20260424-a1b2c3d4",
+                "screen_run_id": "screening-20260424",
                 "candidate_id": "candidate-2026-04-24-130A",
-                "candidate_key": "screening-20260424-a1b2c3d4:130A",
+                "candidate_key": "screening-20260424:130A",
                 "playbook_screen_result": "hit",
                 "policy_gate_result": "pass",
                 "liquidity_gate_result": "pass",
@@ -135,9 +134,9 @@ class CandidatesValidationTests(unittest.TestCase):
         locations = {finding.location for finding in findings}
         self.assertIn("screening_rules_snapshot.content_sha256", locations)
 
-    def test_missing_required_lineage_field_is_flagged(self) -> None:
+    def test_missing_required_candidates_field_is_flagged(self) -> None:
         payload = _minimal_candidates()
-        del payload["screening_rules_snapshot"]
+        del payload["candidates"]
         path = self._write(payload)
         try:
             findings = validate_candidates_file(path)
@@ -196,7 +195,7 @@ class CandidatesValidationTests(unittest.TestCase):
         assert isinstance(candidates, list)
         candidate_entry = candidates[0]
         assert isinstance(candidate_entry, dict)
-        candidate_entry["candidate_key"] = "screening-20260424-a1b2c3d4:9999"
+        candidate_entry["candidate_key"] = "screening-20260424:9999"
         path = self._write(payload)
         try:
             codes = {finding.code for finding in validate_candidates_file(path)}

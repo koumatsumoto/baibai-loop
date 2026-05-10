@@ -282,12 +282,9 @@ class ScreeningCliTests(unittest.TestCase):
                 self.assertIn(
                     "EDINET preprocessed metrics: loaded", payload["provider_status_lines"]
                 )
-                self.assertRegex(payload["run_id"], r"^screening-20260424-[0-9a-f]{8}$")
-                self.assertRegex(
-                    payload["screening_rules_snapshot"]["content_sha256"],
-                    r"^sha256:[0-9a-f]{64}$",
-                )
-                self.assertRegex(payload["cache_manifest_hash"], r"^[0-9a-f]{16}$")
+                self.assertEqual(payload["run_id"], "screening-20260424")
+                self.assertNotIn("screening_rules_snapshot", payload)
+                self.assertNotIn("cache_manifest_hash", payload)
                 manifest_path = Path(".cache/screening/manifests") / f"{payload['run_id']}.json"
                 self.assertFalse(manifest_path.exists())
             finally:

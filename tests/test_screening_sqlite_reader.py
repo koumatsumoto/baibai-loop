@@ -35,11 +35,12 @@ def _add_raw_import(
     min_date: str | None,
     max_date: str | None,
 ) -> None:
+    fetched_at = datetime.now(UTC).isoformat()
     conn.execute(
-        "INSERT OR REPLACE INTO raw_imports("
-        "source, path, sha256, imported_at_utc, record_count, min_date, max_date"
+        "INSERT OR REPLACE INTO source_coverage("
+        "source, coverage_key, coverage_start, coverage_end, fetched_at_utc, record_count, status"
         ") VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (source, path, "0" * 64, datetime.now(UTC).isoformat(), record_count, min_date, max_date),
+        (source, path, min_date, max_date, fetched_at, record_count, "ok"),
     )
 
 
@@ -69,9 +70,9 @@ class ReadEqMasterTests(unittest.TestCase):
             conn = open_connection(db)
             conn.execute(
                 "INSERT INTO jquants_master_snapshots("
-                "snapshot_date, ticker, name, market, sector_33, is_common_stock, raw_json"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?)",
-                ("2026-05-07", "1301", "極洋", "プライム", "水産・農林業", 1, "{}"),
+                "snapshot_date, ticker, name, market, sector_33, is_common_stock"
+                ") VALUES (?, ?, ?, ?, ?, ?)",
+                ("2026-05-07", "1301", "極洋", "プライム", "水産・農林業", 1),
             )
             _add_raw_import(
                 conn,
@@ -99,11 +100,11 @@ class ReadEqMasterTests(unittest.TestCase):
             conn = open_connection(db)
             conn.executemany(
                 "INSERT INTO jquants_master_snapshots("
-                "snapshot_date, ticker, name, market, sector_33, is_common_stock, raw_json"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "snapshot_date, ticker, name, market, sector_33, is_common_stock"
+                ") VALUES (?, ?, ?, ?, ?, ?)",
                 [
-                    ("2026-04-07", "1301", "OldName", "プライム", "水産", 1, "{}"),
-                    ("2026-05-07", "1301", "NewName", "プライム", "水産", 1, "{}"),
+                    ("2026-04-07", "1301", "OldName", "プライム", "水産", 1),
+                    ("2026-05-07", "1301", "NewName", "プライム", "水産", 1),
                 ],
             )
             _add_raw_import(
@@ -226,8 +227,8 @@ class ReadFinSummariesTests(unittest.TestCase):
                 "INSERT INTO jquants_fin_summaries("
                 "ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, "
                 "sales, operating_profit, ordinary_profit, profit, "
-                "fiscal_period, fiscal_year_end, period_start, period_end, raw_json"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "fiscal_period, fiscal_year_end, period_start, period_end"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     "3447",
                     "2025-09-29",
@@ -243,7 +244,6 @@ class ReadFinSummariesTests(unittest.TestCase):
                     "2026-03-31",
                     "2025-04-01",
                     "2025-09-30",
-                    "{}",
                 ),
             )
             _add_raw_import(
@@ -252,8 +252,8 @@ class ReadFinSummariesTests(unittest.TestCase):
                 path="records/_data/raw/screening/jquants/"
                 "get_fin_summary_range-end_dt-2025-10-28-start_dt-2025-09-28.json",
                 record_count=1,
-                min_date="2025-09-29",
-                max_date="2025-09-29",
+                min_date="2025-09-28",
+                max_date="2025-10-28",
             )
             conn.commit()
             conn.close()
@@ -290,9 +290,8 @@ class ReadEqEarningsCalTests(unittest.TestCase):
             db = Path(tmp) / "market.sqlite"
             conn = open_connection(db)
             conn.execute(
-                "INSERT INTO jquants_earnings_calendar(announcement_date, ticker, raw_json) "
-                "VALUES (?, ?, ?)",
-                ("2026-05-15", "1301", '{"Code": "13010", "Date": "2026-05-15"}'),
+                "INSERT INTO jquants_earnings_calendar(announcement_date, ticker) VALUES (?, ?)",
+                ("2026-05-15", "1301"),
             )
             conn.commit()
             conn.close()

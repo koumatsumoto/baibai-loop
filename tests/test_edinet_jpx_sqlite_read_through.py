@@ -30,18 +30,19 @@ def _add_raw_import(
     source: str,
     date_iso: str,
 ) -> None:
+    fetched_at = datetime.now(UTC).isoformat()
     conn.execute(
-        "INSERT OR REPLACE INTO raw_imports("
-        "source, path, sha256, imported_at_utc, record_count, min_date, max_date"
+        "INSERT OR REPLACE INTO source_coverage("
+        "source, coverage_key, coverage_start, coverage_end, fetched_at_utc, record_count, status"
         ") VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
             source,
-            f"records/_data/raw/screening/{source}/{date_iso}.json",
-            "0" * 64,
-            datetime.now(UTC).isoformat(),
+            date_iso,
+            date_iso,
+            date_iso,
+            fetched_at,
             1,
-            date_iso,
-            date_iso,
+            "ok",
         ),
     )
 
@@ -61,9 +62,9 @@ class EDINETSQLiteReaderTests(unittest.TestCase):
             conn = open_connection(sqlite_path)
             conn.execute(
                 "INSERT INTO edinet_documents("
-                "doc_date, doc_id, sec_code, doc_type_code, raw_json"
-                ") VALUES (?, ?, ?, ?, ?)",
-                ("2026-04-24", "S100ABCD", "13010", "120", json.dumps({"docID": "S100ABCD"})),
+                "doc_date, doc_id, sec_code, doc_type_code"
+                ") VALUES (?, ?, ?, ?)",
+                ("2026-04-24", "S100ABCD", "13010", "120"),
             )
             _add_raw_import(conn, source="edinet_documents", date_iso="2026-04-24")
             conn.commit()
@@ -165,9 +166,9 @@ class EDINETProviderReadThroughTests(unittest.TestCase):
             conn = open_connection(sqlite_path)
             conn.execute(
                 "INSERT INTO edinet_documents("
-                "doc_date, doc_id, sec_code, doc_type_code, raw_json"
-                ") VALUES (?, ?, ?, ?, ?)",
-                ("2026-04-24", "S100A", "13010", "120", json.dumps({"docID": "S100A"})),
+                "doc_date, doc_id, sec_code, doc_type_code"
+                ") VALUES (?, ?, ?, ?)",
+                ("2026-04-24", "S100A", "13010", "120"),
             )
             _add_raw_import(conn, source="edinet_documents", date_iso="2026-04-24")
             conn.commit()

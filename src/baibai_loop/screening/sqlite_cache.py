@@ -1,27 +1,21 @@
 """SQLite canonical store for screening inputs.
 
 SQLite is the local source of truth for screening inputs. Provider fetch paths
-write normalized rows and source coverage directly into this database; legacy
-raw JSON import remains only as a migration/backfill command.
+write normalized rows and source coverage directly into this database.
 This module owns:
 
-- the SQLite schema (versioned via `SCHEMA_VERSION`)
+- the current-only SQLite schema (versioned via `PRAGMA user_version`)
 - direct per-source upsert helpers used by providers
 - `source_coverage`, which records request windows that must be present before
   `screening run` can execute
-- legacy `rebuild_from_raw()` for one-time import from old raw JSON trees
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
-import re
 import sqlite3
-import tempfile
-from collections.abc import Iterable, Iterator, Mapping
-from contextlib import suppress
-from dataclasses import dataclass, field
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -32,7 +26,8 @@ from .providers.jquants import (
     parse_jquants_code,
 )
 
-SCHEMA_VERSION = "v9"
+SQLITE_SCHEMA_VERSION = 10
+SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 _REQUIRED_TABLES = (
     "jquants_daily_bars",
@@ -45,37 +40,8 @@ _REQUIRED_TABLES = (
     "jpx_regulation_flags",
     "jpx_regulation_sources",
     "source_coverage",
-    "raw_imports",
-    "cache_metadata",
 )
 
-_DATA_TABLES = tuple(
-    table
-    for table in _REQUIRED_TABLES
-    if table not in {"source_coverage", "raw_imports", "cache_metadata"}
-)
-_TABLE_HAS_ROWS_SQL = {
-    "jquants_daily_bars": "SELECT 1 FROM jquants_daily_bars LIMIT 1",
-    "jquants_fin_summaries": "SELECT 1 FROM jquants_fin_summaries LIMIT 1",
-    "jquants_master_snapshots": "SELECT 1 FROM jquants_master_snapshots LIMIT 1",
-    "jquants_earnings_calendar": "SELECT 1 FROM jquants_earnings_calendar LIMIT 1",
-    "jquants_market_calendar": "SELECT 1 FROM jquants_market_calendar LIMIT 1",
-    "edinet_documents": "SELECT 1 FROM edinet_documents LIMIT 1",
-    "edinet_metrics": "SELECT 1 FROM edinet_metrics LIMIT 1",
-    "jpx_regulation_flags": "SELECT 1 FROM jpx_regulation_flags LIMIT 1",
-    "jpx_regulation_sources": "SELECT 1 FROM jpx_regulation_sources LIMIT 1",
-}
-_TABLE_COUNT_SQL = {
-    "jquants_daily_bars": "SELECT COUNT(*) FROM jquants_daily_bars",
-    "jquants_fin_summaries": "SELECT COUNT(*) FROM jquants_fin_summaries",
-    "jquants_master_snapshots": "SELECT COUNT(*) FROM jquants_master_snapshots",
-    "jquants_earnings_calendar": "SELECT COUNT(*) FROM jquants_earnings_calendar",
-    "jquants_market_calendar": "SELECT COUNT(*) FROM jquants_market_calendar",
-    "edinet_documents": "SELECT COUNT(*) FROM edinet_documents",
-    "edinet_metrics": "SELECT COUNT(*) FROM edinet_metrics",
-    "jpx_regulation_flags": "SELECT COUNT(*) FROM jpx_regulation_flags",
-    "jpx_regulation_sources": "SELECT COUNT(*) FROM jpx_regulation_sources",
-}
 _DELETE_DATE_RANGE_SQL = {
     ("jquants_daily_bars", "traded_at"): (
         "DELETE FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ?"
@@ -87,14 +53,6 @@ _DELETE_DATE_RANGE_SQL = {
         "DELETE FROM jquants_market_calendar WHERE day BETWEEN ? AND ?"
     ),
 }
-_SINGLE_SNAPSHOT_SOURCES = frozenset(
-    {
-        "jquants_master_snapshots",
-        "jquants_earnings_calendar",
-    }
-)
-_RAW_IMPORT_COVERAGE_MIGRATION_KEY = "source_coverage_raw_import_migration"
-
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS jquants_daily_bars(
   ticker TEXT NOT NULL,
@@ -138,7 +96,6 @@ CREATE TABLE IF NOT EXISTS jquants_fin_summaries(
   fiscal_year_end TEXT,
   period_start TEXT,
   period_end TEXT,
-  raw_json TEXT NOT NULL,
   PRIMARY KEY (ticker, disclosed_at)
 );
 
@@ -149,21 +106,18 @@ CREATE TABLE IF NOT EXISTS jquants_master_snapshots(
   market TEXT,
   sector_33 TEXT,
   is_common_stock INTEGER,
-  raw_json TEXT NOT NULL,
   PRIMARY KEY (snapshot_date, ticker)
 );
 
 CREATE TABLE IF NOT EXISTS jquants_earnings_calendar(
   announcement_date TEXT NOT NULL,
   ticker TEXT NOT NULL,
-  raw_json TEXT NOT NULL,
   PRIMARY KEY (announcement_date, ticker)
 );
 
 CREATE TABLE IF NOT EXISTS jquants_market_calendar(
   day TEXT PRIMARY KEY,
-  is_business_day INTEGER NOT NULL,
-  raw_json TEXT NOT NULL
+  is_business_day INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS edinet_documents(
@@ -171,7 +125,14 @@ CREATE TABLE IF NOT EXISTS edinet_documents(
   doc_id TEXT NOT NULL,
   sec_code TEXT,
   doc_type_code TEXT,
-  raw_json TEXT NOT NULL,
+  csv_flag TEXT,
+  xbrl_flag TEXT,
+  legal_status TEXT,
+  disclosure_status TEXT,
+  withdrawal_status TEXT,
+  submit_datetime TEXT,
+  period_start TEXT,
+  period_end TEXT,
   PRIMARY KEY (doc_date, doc_id)
 );
 
@@ -222,70 +183,28 @@ CREATE TABLE IF NOT EXISTS jpx_regulation_sources(
   PRIMARY KEY (asof_date, source_name)
 );
 
-CREATE TABLE IF NOT EXISTS raw_imports(
-  source TEXT NOT NULL,
-  path TEXT PRIMARY KEY,
-  sha256 TEXT NOT NULL,
-  imported_at_utc TEXT NOT NULL,
-  record_count INTEGER NOT NULL,
-  min_date TEXT,
-  max_date TEXT
-);
-
 CREATE TABLE IF NOT EXISTS source_coverage(
   source TEXT NOT NULL,
-  operation TEXT NOT NULL,
   coverage_key TEXT NOT NULL,
   coverage_start TEXT,
   coverage_end TEXT,
-  requested_start TEXT,
-  requested_end TEXT,
-  params_json TEXT NOT NULL,
   fetched_at_utc TEXT NOT NULL,
   record_count INTEGER NOT NULL,
-  raw_record_count INTEGER,
-  normalized_record_count INTEGER,
-  skipped_record_count INTEGER NOT NULL DEFAULT 0,
-  rejected_record_count INTEGER NOT NULL DEFAULT 0,
-  excluded_record_count INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'ok',
   error TEXT,
-  PRIMARY KEY (source, operation, coverage_key)
+  PRIMARY KEY (source, coverage_key)
 );
 
 CREATE INDEX IF NOT EXISTS idx_source_coverage_source_window
   ON source_coverage(source, coverage_start, coverage_end);
-
-CREATE TABLE IF NOT EXISTS cache_metadata(
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-);
 """
 
 
-class SQLiteCacheError(RuntimeError):
-    """Raised when a raw JSON file cannot be imported into SQLite."""
+class SQLiteSchemaError(RuntimeError):
+    """Raised when an existing SQLite cache is not the current schema."""
 
 
-@dataclass(frozen=True, slots=True)
-class RebuildSummary:
-    daily_bars_files: int
-    daily_bars_rows: int
-    fin_summary_files: int
-    fin_summary_rows: int
-    master_files: int
-    master_rows: int
-    earnings_calendar_files: int
-    earnings_calendar_rows: int
-    market_calendar_files: int
-    market_calendar_rows: int
-    edinet_document_files: int
-    edinet_document_rows: int
-    edinet_metric_files: int
-    edinet_metric_rows: int
-    jpx_regulation_files: int
-    jpx_regulation_rows: int
-    skipped_files: tuple[str, ...]
+SQLiteCacheError = SQLiteSchemaError
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,50 +229,43 @@ class _NormalizedRows:
 
 
 def open_connection(db_path: Path) -> sqlite3.Connection:
-    """Open the SQLite cache, creating tables on first use."""
+    """Open the current SQLite cache, creating current tables on first use."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
-    conn.executescript(_SCHEMA_SQL)
-    _ensure_source_coverage_columns(conn)
-    _migrate_source_coverage_from_raw_imports(conn)
-    conn.execute(
-        "INSERT OR REPLACE INTO cache_metadata(key, value) VALUES('schema_version', ?)",
-        (SCHEMA_VERSION,),
-    )
-    conn.commit()
-    return conn
+    try:
+        tables = _existing_tables(conn)
+        if tables:
+            _validate_current_schema(conn, tables)
+        else:
+            conn.executescript(_SCHEMA_SQL)
+            conn.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION}")
+        conn.commit()
+        return conn
+    except Exception:
+        conn.close()
+        raise
 
 
-def ensure_sqlite_schema(db_path: Path) -> None:
-    """Create or migrate the SQLite schema without importing provider data."""
-    conn = open_connection(db_path)
-    conn.close()
-
-
-def _ensure_source_coverage_columns(conn: sqlite3.Connection) -> None:
-    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(source_coverage)").fetchall()}
-    migrations = {
-        "raw_record_count": "ALTER TABLE source_coverage ADD COLUMN raw_record_count INTEGER",
-        "normalized_record_count": (
-            "ALTER TABLE source_coverage ADD COLUMN normalized_record_count INTEGER"
-        ),
-        "skipped_record_count": (
-            "ALTER TABLE source_coverage ADD COLUMN skipped_record_count INTEGER NOT NULL DEFAULT 0"
-        ),
-        "rejected_record_count": (
-            "ALTER TABLE source_coverage ADD COLUMN rejected_record_count INTEGER "
-            "NOT NULL DEFAULT 0"
-        ),
-        "excluded_record_count": (
-            "ALTER TABLE source_coverage ADD COLUMN excluded_record_count INTEGER "
-            "NOT NULL DEFAULT 0"
-        ),
-        "status": "ALTER TABLE source_coverage ADD COLUMN status TEXT NOT NULL DEFAULT 'ok'",
-        "error": "ALTER TABLE source_coverage ADD COLUMN error TEXT",
+def _existing_tables(conn: sqlite3.Connection) -> set[str]:
+    return {
+        str(row[0]) for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
     }
-    for column, statement in migrations.items():
-        if column not in columns:
-            conn.execute(statement)
+
+
+def _validate_current_schema(conn: sqlite3.Connection, tables: set[str]) -> None:
+    user_version = int(conn.execute("PRAGMA user_version").fetchone()[0] or 0)
+    if user_version != SQLITE_SCHEMA_VERSION:
+        raise SQLiteSchemaError(
+            "unsupported screening SQLite schema; remove the SQLite file and rebuild it with "
+            "`bootstrap-cache --asof` and `extract-edinet-metrics` "
+            f"(found user_version={user_version}, expected={SQLITE_SCHEMA_VERSION})"
+        )
+    missing = sorted(set(_REQUIRED_TABLES) - tables)
+    if missing:
+        raise SQLiteSchemaError(
+            "screening SQLite schema is incomplete; remove the SQLite file and rebuild it "
+            f"(missing tables: {', '.join(missing)})"
+        )
 
 
 def _delete_source_coverage(conn: sqlite3.Connection, source: str) -> None:
@@ -434,7 +346,6 @@ def store_jquants_daily_bars(
             status=normalized.status,
             error=normalized.error,
         )
-        _record_table_integrity(conn)
         conn.commit()
         return len(rows)
     finally:
@@ -465,8 +376,8 @@ def store_jquants_fin_summaries(
                 INSERT OR REPLACE INTO jquants_fin_summaries(
                   ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding,
                   sales, cfo, cash_eq, total_assets, equity, operating_profit, ordinary_profit,
-                  profit, fiscal_period, fiscal_year_end, period_start, period_end, raw_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  profit, fiscal_period, fiscal_year_end, period_start, period_end
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )
@@ -490,7 +401,6 @@ def store_jquants_fin_summaries(
             status=normalized.status,
             error=normalized.error,
         )
-        _record_table_integrity(conn)
         conn.commit()
         return len(rows)
     finally:
@@ -509,8 +419,8 @@ def store_jquants_master(db_path: Path, records: Iterable[Mapping[str, Any]]) ->
             conn.executemany(
                 """
                 INSERT OR REPLACE INTO jquants_master_snapshots(
-                  snapshot_date, ticker, name, market, sector_33, is_common_stock, raw_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                  snapshot_date, ticker, name, market, sector_33, is_common_stock
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )
@@ -533,7 +443,6 @@ def store_jquants_master(db_path: Path, records: Iterable[Mapping[str, Any]]) ->
             status=normalized.status,
             error=normalized.error,
         )
-        _record_table_integrity(conn)
         conn.commit()
         return len(rows)
     finally:
@@ -557,8 +466,8 @@ def store_jquants_earnings_calendar(
         if rows:
             conn.executemany(
                 "INSERT OR REPLACE INTO jquants_earnings_calendar("
-                "announcement_date, ticker, raw_json"
-                ") VALUES (?, ?, ?)",
+                "announcement_date, ticker"
+                ") VALUES (?, ?)",
                 rows,
             )
         dates = sorted({row[0] for row in rows})
@@ -589,7 +498,6 @@ def store_jquants_earnings_calendar(
             status=normalized.status,
             error=normalized.error,
         )
-        _record_table_integrity(conn)
         conn.commit()
         return len(rows)
     finally:
@@ -614,8 +522,8 @@ def store_jquants_market_calendar(
         )
         if rows:
             conn.executemany(
-                "INSERT OR REPLACE INTO jquants_market_calendar(day, is_business_day, raw_json) "
-                "VALUES (?, ?, ?)",
+                "INSERT OR REPLACE INTO jquants_market_calendar(day, is_business_day) "
+                "VALUES (?, ?)",
                 rows,
             )
         _record_source_coverage(
@@ -639,7 +547,6 @@ def store_jquants_market_calendar(
             status=normalized.status,
             error=normalized.error,
         )
-        _record_table_integrity(conn)
         conn.commit()
         return len(rows)
     finally:
@@ -660,8 +567,10 @@ def store_edinet_documents(
         if rows:
             conn.executemany(
                 "INSERT OR REPLACE INTO edinet_documents("
-                "doc_date, doc_id, sec_code, doc_type_code, raw_json"
-                ") VALUES (?, ?, ?, ?, ?)",
+                "doc_date, doc_id, sec_code, doc_type_code, csv_flag, xbrl_flag, "
+                "legal_status, disclosure_status, withdrawal_status, submit_datetime, "
+                "period_start, period_end"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
             )
         _record_source_coverage(
@@ -684,7 +593,6 @@ def store_edinet_documents(
                 else None
             ),
         )
-        _record_table_integrity(conn)
         conn.commit()
         return len(rows)
     finally:
@@ -742,7 +650,6 @@ def store_edinet_metrics(
             status=stored_status,
             error=stored_error,
         )
-        _record_table_integrity(conn)
         conn.commit()
         return len(rows)
     finally:
@@ -824,500 +731,10 @@ def store_jpx_regulations(
                 f"{rejected_count} JPX regulation records were rejected" if rejected_count else None
             ),
         )
-        _record_table_integrity(conn)
         conn.commit()
         return len(rows)
     finally:
         conn.close()
-
-
-def rebuild_from_raw(raw_dir: Path | Iterable[Path], db_path: Path) -> RebuildSummary:
-    """Rebuild the SQLite cache from scratch by walking each entry in
-    `raw_dir` (a single Path or an iterable of Paths). Files are dispatched
-    by their parent directory + filename pattern (see `_rebuild`).
-
-    Multiple raw dirs are supported for one-time migration from old local or
-    repository raw JSON trees. Chunk windows may differ between trees, so
-    merging gives the SQLite reader broader coverage.
-
-    The destination file is replaced atomically after a complete successful
-    import, so a parse failure or interruption does not destroy the last-good
-    derived cache.
-    """
-    raw_dirs: tuple[Path, ...] = (raw_dir,) if isinstance(raw_dir, Path) else tuple(raw_dir)
-    importable_paths = tuple(
-        path for current_raw_dir in raw_dirs for path in _iter_importable_raw_paths(current_raw_dir)
-    )
-    if not importable_paths:
-        raise SQLiteCacheError(
-            "no importable legacy raw JSON files found; pass --raw-dir explicitly "
-            "or bootstrap SQLite from providers"
-        )
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        prefix=f".{db_path.name}.",
-        suffix=".tmp",
-        dir=db_path.parent,
-        delete=False,
-    ) as temp_file:
-        temp_path = Path(temp_file.name)
-    conn = open_connection(temp_path)
-    try:
-        summary = _rebuild(conn, raw_dirs)
-        _record_table_integrity(conn)
-        conn.commit()
-        conn.close()
-        temp_path.replace(db_path)
-        return summary
-    except Exception:
-        conn.close()
-        temp_path.unlink(missing_ok=True)
-        raise
-
-
-def refresh_from_raw(raw_dir: Path | Iterable[Path], db_path: Path) -> RebuildSummary:
-    """Refresh SQLite from raw JSON without reparsing files that are already
-    imported.
-
-    This is a legacy migration/backfill path for disposable raw JSON. The
-    canonical screening input is the normalized SQLite database; provider fetch
-    paths write SQLite directly. If an existing raw file was edited or deleted,
-    fall back to `rebuild_from_raw()` so stale rows cannot survive from the
-    previous import.
-    """
-    raw_dirs: tuple[Path, ...] = (raw_dir,) if isinstance(raw_dir, Path) else tuple(raw_dir)
-    if _sqlite_schema_is_stale(db_path):
-        return rebuild_from_raw(raw_dirs, db_path)
-
-    live_raw_files = _live_raw_files_by_path(raw_dirs)
-    live_raw_paths = set(live_raw_files)
-
-    conn = open_connection(db_path)
-    try:
-        imported = _raw_import_sha_by_path(conn)
-        if any(not _path_is_under_any(path_text, raw_dirs) for path_text in imported):
-            conn.close()
-            return rebuild_from_raw(raw_dirs, db_path)
-        if not set(imported).issubset(live_raw_paths):
-            conn.close()
-            return rebuild_from_raw(raw_dirs, db_path)
-        for path_text, previous_sha in imported.items():
-            if live_raw_files[path_text][1] != previous_sha:
-                conn.close()
-                return rebuild_from_raw(raw_dirs, db_path)
-
-        new_path_keys = [
-            path_key for path_key in sorted(live_raw_paths) if path_key not in imported
-        ]
-        if _new_raw_files_require_rebuild(conn, [live_raw_files[key][0] for key in new_path_keys]):
-            conn.close()
-            return rebuild_from_raw(raw_dirs, db_path)
-
-        counters = _RebuildCounters()
-        for path_key in new_path_keys:
-            path = live_raw_files[path_key][0]
-            _import_raw_file(conn, path, counters)
-        _record_table_integrity(conn)
-        conn.commit()
-        return _summary_from_counters(counters)
-    finally:
-        with suppress(sqlite3.Error):
-            conn.close()
-
-
-def is_sqlite_stale(raw_dirs: Iterable[Path], db_path: Path) -> bool:
-    """True when SQLite is missing or out of sync with canonical raw JSON.
-
-    The check is content-based, not mtime-based: raw files may be edited by
-    tools that preserve an old timestamp, and the derived rows must still be
-    rebuilt. Only supported raw files are considered because unknown JSON
-    endpoints are intentionally skipped by the SQLite cache.
-    """
-    raw_dirs_tuple = tuple(raw_dirs)
-    if _sqlite_schema_is_stale(db_path):
-        return True
-    live_raw_files = _live_raw_files_by_path(raw_dirs_tuple)
-    try:
-        conn = sqlite3.connect(db_path)
-        try:
-            imported = _raw_import_sha_by_path(conn)
-        finally:
-            conn.close()
-    except sqlite3.Error:
-        return True
-    if any(not _path_is_under_any(path_text, raw_dirs_tuple) for path_text in imported):
-        return True
-    if set(imported) != set(live_raw_files):
-        return True
-    return any(live_raw_files[path_text][1] != sha for path_text, sha in imported.items())
-
-
-def _sqlite_schema_is_stale(db_path: Path) -> bool:
-    if not db_path.exists():
-        return True
-    try:
-        conn = sqlite3.connect(db_path)
-        try:
-            tables = {
-                str(row[0])
-                for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-            }
-            if any(table not in tables for table in _REQUIRED_TABLES):
-                return True
-            row = conn.execute(
-                "SELECT value FROM cache_metadata WHERE key = 'schema_version'"
-            ).fetchone()
-            if row is None or row[0] != SCHEMA_VERSION:
-                return True
-            import_count = conn.execute("SELECT COUNT(*) FROM raw_imports").fetchone()[0]
-            if import_count == 0:
-                for table in _DATA_TABLES:
-                    if conn.execute(_TABLE_HAS_ROWS_SQL[table]).fetchone() is not None:
-                        return True
-                return False
-            if _table_integrity_is_stale(conn):
-                return True
-        finally:
-            conn.close()
-    except sqlite3.Error:
-        return True
-    return False
-
-
-@dataclass
-class _RebuildCounters:
-    bars_files: int = 0
-    bars_rows: int = 0
-    fin_files: int = 0
-    fin_rows: int = 0
-    master_files: int = 0
-    master_rows: int = 0
-    earnings_files: int = 0
-    earnings_rows: int = 0
-    market_calendar_files: int = 0
-    market_calendar_rows: int = 0
-    edinet_doc_files: int = 0
-    edinet_doc_rows: int = 0
-    edinet_metric_files: int = 0
-    edinet_metric_rows: int = 0
-    jpx_reg_files: int = 0
-    jpx_reg_rows: int = 0
-    skipped: list[str] = field(default_factory=list)
-
-
-def _rebuild(conn: sqlite3.Connection, raw_dirs: tuple[Path, ...]) -> RebuildSummary:
-    counters = _RebuildCounters()
-    for raw_dir in raw_dirs:
-        if not raw_dir.exists():
-            continue
-        _import_jquants_dir(conn, raw_dir / "jquants", counters)
-        _import_edinet_dir(conn, raw_dir / "edinet", counters)
-        _import_jpx_dir(conn, raw_dir / "jpx", counters)
-    conn.commit()
-    return _summary_from_counters(counters)
-
-
-def _record_table_integrity(conn: sqlite3.Connection) -> None:
-    # Intentionally refresh every canonical table count, not only the table a
-    # store function just touched. `verify-cache-coverage` treats stale metadata
-    # as corruption, so the slightly broader write is safer than partial counts.
-    for table in _DATA_TABLES:
-        row = conn.execute(_TABLE_COUNT_SQL[table]).fetchone()
-        conn.execute(
-            "INSERT OR REPLACE INTO cache_metadata(key, value) VALUES(?, ?)",
-            (f"table_count.{table}", str(int(row[0] or 0))),
-        )
-
-
-def _table_integrity_is_stale(conn: sqlite3.Connection) -> bool:
-    for table in _DATA_TABLES:
-        recorded = conn.execute(
-            "SELECT value FROM cache_metadata WHERE key = ?",
-            (f"table_count.{table}",),
-        ).fetchone()
-        if recorded is None:
-            return True
-        try:
-            expected_count = int(recorded[0])
-        except (TypeError, ValueError):
-            return True
-        actual = conn.execute(_TABLE_COUNT_SQL[table]).fetchone()
-        if int(actual[0] or 0) != expected_count:
-            return True
-    return False
-
-
-def _summary_from_counters(counters: _RebuildCounters) -> RebuildSummary:
-    return RebuildSummary(
-        daily_bars_files=counters.bars_files,
-        daily_bars_rows=counters.bars_rows,
-        fin_summary_files=counters.fin_files,
-        fin_summary_rows=counters.fin_rows,
-        master_files=counters.master_files,
-        master_rows=counters.master_rows,
-        earnings_calendar_files=counters.earnings_files,
-        earnings_calendar_rows=counters.earnings_rows,
-        market_calendar_files=counters.market_calendar_files,
-        market_calendar_rows=counters.market_calendar_rows,
-        edinet_document_files=counters.edinet_doc_files,
-        edinet_document_rows=counters.edinet_doc_rows,
-        edinet_metric_files=counters.edinet_metric_files,
-        edinet_metric_rows=counters.edinet_metric_rows,
-        jpx_regulation_files=counters.jpx_reg_files,
-        jpx_regulation_rows=counters.jpx_reg_rows,
-        skipped_files=tuple(counters.skipped),
-    )
-
-
-def _iter_importable_raw_paths(raw_dir: Path) -> Iterator[Path]:
-    jquants_dir = raw_dir / "jquants"
-    if jquants_dir.exists():
-        for path in sorted(jquants_dir.glob("*.json")):
-            if _raw_file_source(path) is not None:
-                yield path
-    for child_dir in (raw_dir / "edinet" / "documents", raw_dir / "edinet" / "metrics"):
-        if child_dir.exists():
-            yield from sorted(child_dir.glob("*.json"))
-    jpx_regulations_dir = raw_dir / "jpx" / "regulations"
-    if jpx_regulations_dir.exists():
-        yield from sorted(jpx_regulations_dir.glob("*.json"))
-
-
-def _path_key(path: Path | str) -> str:
-    return Path(path).resolve(strict=False).as_posix()
-
-
-def _live_raw_files_by_path(raw_dirs: Iterable[Path]) -> dict[str, tuple[Path, str]]:
-    return {
-        _path_key(path): (path, hashlib.sha256(path.read_bytes()).hexdigest())
-        for raw_root in raw_dirs
-        if raw_root.exists()
-        for path in _iter_importable_raw_paths(raw_root)
-    }
-
-
-def _new_raw_files_require_rebuild(conn: sqlite3.Connection, new_paths: Iterable[Path]) -> bool:
-    existing_windows = _raw_import_windows_by_source(conn)
-    existing_sources = set(existing_windows)
-    new_single_snapshot_sources: set[str] = set()
-    new_windows: dict[str, list[tuple[date, date]]] = {}
-    for path in new_paths:
-        source = _raw_file_source(path)
-        if source is None:
-            continue
-        if source in _SINGLE_SNAPSHOT_SOURCES and source in existing_sources:
-            return True
-        if source in _SINGLE_SNAPSHOT_SOURCES:
-            if source in new_single_snapshot_sources:
-                return True
-            new_single_snapshot_sources.add(source)
-            continue
-        window = _request_window_for_file(source, path)
-        if window is None:
-            if source in existing_sources:
-                return True
-            continue
-        for existing_window in existing_windows.get(source, ()):
-            if _windows_overlap(window, existing_window):
-                return True
-        for seen_window in new_windows.get(source, ()):
-            if _windows_overlap(window, seen_window):
-                return True
-        new_windows.setdefault(source, []).append(window)
-    return False
-
-
-def _raw_import_windows_by_source(conn: sqlite3.Connection) -> dict[str, list[tuple[date, date]]]:
-    try:
-        rows = conn.execute("SELECT source, path, min_date, max_date FROM raw_imports").fetchall()
-    except sqlite3.OperationalError:
-        return {}
-    windows_by_source: dict[str, list[tuple[date, date]]] = {}
-    for source, path_text, min_date, max_date in rows:
-        source_text = str(source)
-        window = _request_window_for_file(source_text, Path(str(path_text)))
-        if window is None and min_date and max_date:
-            window = _date_window(str(min_date), str(max_date))
-        if window is not None:
-            windows_by_source.setdefault(source_text, []).append(window)
-        else:
-            windows_by_source.setdefault(source_text, [])
-    return windows_by_source
-
-
-_CHUNK_WINDOW_RE = re.compile(r"end_dt-(\d{4}-\d{2}-\d{2}).*?start_dt-(\d{4}-\d{2}-\d{2})")
-_MKT_CALENDAR_WINDOW_RE = re.compile(r"from_yyyymmdd-(\d{8}).*?to_yyyymmdd-(\d{8})")
-
-
-def _request_window_for_file(source: str, path: Path) -> tuple[date, date] | None:
-    name = path.name
-    if source in {"jquants_daily_bars", "jquants_fin_summaries"}:
-        match = _CHUNK_WINDOW_RE.search(name)
-        if match is None:
-            return None
-        return _date_window(match.group(2), match.group(1))
-    if source == "jquants_market_calendar":
-        match = _MKT_CALENDAR_WINDOW_RE.search(name)
-        if match is None:
-            return None
-        return _date_window(
-            f"{match.group(1)[:4]}-{match.group(1)[4:6]}-{match.group(1)[6:]}",
-            f"{match.group(2)[:4]}-{match.group(2)[4:6]}-{match.group(2)[6:]}",
-        )
-    if source in {"edinet_documents", "edinet_metrics", "jpx_regulation_flags"}:
-        return _date_window(path.stem, path.stem)
-    return None
-
-
-def _date_window(start_text: str, end_text: str) -> tuple[date, date] | None:
-    try:
-        return date.fromisoformat(start_text), date.fromisoformat(end_text)
-    except ValueError:
-        return None
-
-
-def _windows_overlap(left: tuple[date, date], right: tuple[date, date]) -> bool:
-    return left[0] <= right[1] and right[0] <= left[1]
-
-
-def _raw_file_source(path: Path) -> str | None:
-    parent = path.parent
-    name = path.name
-    if parent.name == "jquants":
-        if name.startswith("get_eq_bars_daily_range"):
-            return "jquants_daily_bars"
-        if name.startswith("get_fin_summary_range"):
-            return "jquants_fin_summaries"
-        if name == "get_eq_master.json":
-            return "jquants_master_snapshots"
-        if name.startswith("get_eq_earnings_cal"):
-            return "jquants_earnings_calendar"
-        if name.startswith("get_mkt_calendar"):
-            return "jquants_market_calendar"
-    if parent.name == "documents" and parent.parent.name == "edinet":
-        return "edinet_documents"
-    if parent.name == "metrics" and parent.parent.name == "edinet":
-        return "edinet_metrics"
-    if parent.name == "regulations" and parent.parent.name == "jpx":
-        return "jpx_regulation_flags"
-    return None
-
-
-def _raw_import_sha_by_path(conn: sqlite3.Connection) -> dict[str, str]:
-    try:
-        rows = conn.execute("SELECT path, sha256 FROM raw_imports").fetchall()
-    except sqlite3.OperationalError:
-        return {}
-    return {_path_key(str(path)): str(sha) for path, sha in rows}
-
-
-def _path_is_under(path_text: str, raw_root: Path) -> bool:
-    raw_prefix = _path_key(raw_root).rstrip("/") + "/"
-    return _path_key(path_text).startswith(raw_prefix)
-
-
-def _path_is_under_any(path_text: str, raw_roots: Iterable[Path]) -> bool:
-    return any(_path_is_under(path_text, raw_root) for raw_root in raw_roots)
-
-
-def _import_raw_file(conn: sqlite3.Connection, path: Path, counters: _RebuildCounters) -> None:
-    source = _raw_file_source(path)
-    name = path.name
-    try:
-        if source == "jquants_daily_bars":
-            counters.bars_rows += _import_bars_file(conn, path)
-            counters.bars_files += 1
-        elif source == "jquants_fin_summaries":
-            counters.fin_rows += _import_fin_summary_file(conn, path)
-            counters.fin_files += 1
-        elif source == "jquants_master_snapshots":
-            counters.master_rows += _import_master_file(conn, path)
-            counters.master_files += 1
-        elif source == "jquants_earnings_calendar":
-            counters.earnings_rows += _import_earnings_calendar_file(conn, path)
-            counters.earnings_files += 1
-        elif source == "jquants_market_calendar":
-            counters.market_calendar_rows += _import_market_calendar_file(conn, path)
-            counters.market_calendar_files += 1
-        elif source == "edinet_documents":
-            counters.edinet_doc_rows += _import_edinet_documents_file(conn, path)
-            counters.edinet_doc_files += 1
-        elif source == "edinet_metrics":
-            counters.edinet_metric_rows += _import_edinet_metrics_file(conn, path)
-            counters.edinet_metric_files += 1
-        elif source == "jpx_regulation_flags":
-            counters.jpx_reg_rows += _import_jpx_regulations_file(conn, path)
-            counters.jpx_reg_files += 1
-        else:
-            counters.skipped.append(name)
-    except (JQuantsProviderError, ValueError, KeyError, TypeError) as exc:
-        raise SQLiteCacheError(f"failed to import {path.name}: {exc}") from exc
-
-
-def _import_jquants_dir(
-    conn: sqlite3.Connection, jquants_dir: Path, counters: _RebuildCounters
-) -> None:
-    if not jquants_dir.exists():
-        return
-    for path in sorted(jquants_dir.glob("*.json")):
-        name = path.name
-        try:
-            if name.startswith("get_eq_bars_daily_range"):
-                counters.bars_rows += _import_bars_file(conn, path)
-                counters.bars_files += 1
-            elif name.startswith("get_fin_summary_range"):
-                counters.fin_rows += _import_fin_summary_file(conn, path)
-                counters.fin_files += 1
-            elif name == "get_eq_master.json":
-                counters.master_rows += _import_master_file(conn, path)
-                counters.master_files += 1
-            elif name.startswith("get_eq_earnings_cal"):
-                counters.earnings_rows += _import_earnings_calendar_file(conn, path)
-                counters.earnings_files += 1
-            elif name.startswith("get_mkt_calendar"):
-                counters.market_calendar_rows += _import_market_calendar_file(conn, path)
-                counters.market_calendar_files += 1
-            else:
-                counters.skipped.append(name)
-        except (JQuantsProviderError, ValueError, KeyError, TypeError) as exc:
-            raise SQLiteCacheError(f"failed to import {path.name}: {exc}") from exc
-
-
-def _import_edinet_dir(
-    conn: sqlite3.Connection, edinet_dir: Path, counters: _RebuildCounters
-) -> None:
-    if not edinet_dir.exists():
-        return
-    documents_dir = edinet_dir / "documents"
-    if documents_dir.exists():
-        for path in sorted(documents_dir.glob("*.json")):
-            try:
-                counters.edinet_doc_rows += _import_edinet_documents_file(conn, path)
-                counters.edinet_doc_files += 1
-            except (ValueError, KeyError, TypeError) as exc:
-                raise SQLiteCacheError(f"failed to import {path.name}: {exc}") from exc
-    metrics_dir = edinet_dir / "metrics"
-    if metrics_dir.exists():
-        for path in sorted(metrics_dir.glob("*.json")):
-            try:
-                counters.edinet_metric_rows += _import_edinet_metrics_file(conn, path)
-                counters.edinet_metric_files += 1
-            except (ValueError, KeyError, TypeError) as exc:
-                raise SQLiteCacheError(f"failed to import {path.name}: {exc}") from exc
-
-
-def _import_jpx_dir(conn: sqlite3.Connection, jpx_dir: Path, counters: _RebuildCounters) -> None:
-    if not jpx_dir.exists():
-        return
-    regulations_dir = jpx_dir / "regulations"
-    if not regulations_dir.exists():
-        return
-    for path in sorted(regulations_dir.glob("*.json")):
-        try:
-            counters.jpx_reg_rows += _import_jpx_regulations_file(conn, path)
-            counters.jpx_reg_files += 1
-        except (ValueError, KeyError, TypeError) as exc:
-            raise SQLiteCacheError(f"failed to import {path.name}: {exc}") from exc
 
 
 def _code_quality(value: Any) -> tuple[str | None, str]:
@@ -1354,7 +771,6 @@ def _earnings_calendar_rows_with_quality(records: Iterable[Mapping[str, Any]]) -
             (
                 announcement_date,
                 ticker,
-                json.dumps(record, ensure_ascii=False, sort_keys=True),
             )
         )
     return _NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
@@ -1382,7 +798,6 @@ def _market_calendar_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> 
             (
                 day,
                 is_business_day,
-                json.dumps(record, ensure_ascii=False, sort_keys=True),
             )
         )
     return _NormalizedRows(rows=rows, rejected_count=rejected_count)
@@ -1407,7 +822,14 @@ def _edinet_document_rows(
                 doc_id,
                 _to_str_or_none(_first(record, "secCode", "sec_code")),
                 _to_str_or_none(_first(record, "docTypeCode", "doc_type_code")),
-                json.dumps(record, ensure_ascii=False, sort_keys=True),
+                _to_str_or_none(_first(record, "csvFlag", "csv_flag")),
+                _to_str_or_none(_first(record, "xbrlFlag", "xbrl_flag")),
+                _to_str_or_none(_first(record, "legalStatus", "legal_status")),
+                _to_str_or_none(_first(record, "disclosureStatus", "disclosure_status")),
+                _to_str_or_none(_first(record, "withdrawalStatus", "withdrawal_status")),
+                _to_str_or_none(_first(record, "submitDateTime", "submit_datetime")),
+                _date_iso(_first(record, "periodStart", "period_start")),
+                _date_iso(_first(record, "periodEnd", "period_end")),
             )
         )
     return rows
@@ -1456,40 +878,6 @@ def _edinet_metric_rows(
     return rows
 
 
-def _import_bars_file(conn: sqlite3.Connection, path: Path) -> int:
-    records = _read_json_array(path)
-    rows = list(_iter_bars_rows(records))
-    if not rows:
-        _record_raw_import(conn, "jquants_daily_bars", path, 0, None, None)
-        return 0
-    conn.executemany(
-        """
-        INSERT OR REPLACE INTO jquants_daily_bars(
-          ticker, traded_at, open, high, low, close, volume, turnover_value,
-          adjustment_open, adjustment_high, adjustment_low, adjustment_close,
-          adjustment_volume, adjustment_factor, upper_limit, lower_limit
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        rows,
-    )
-    traded_dates = sorted({row[1] for row in rows})
-    _record_raw_import(
-        conn,
-        "jquants_daily_bars",
-        path,
-        len(rows),
-        traded_dates[0],
-        traded_dates[-1],
-    )
-    return len(rows)
-
-
-def _iter_bars_rows(
-    records: Iterable[Mapping[str, Any]],
-) -> Iterator[tuple[Any, ...]]:
-    yield from _bars_rows_with_quality(records).rows
-
-
 def _bars_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _NormalizedRows:
     rows: list[tuple[Any, ...]] = []
     rejected_count = 0
@@ -1529,40 +917,6 @@ def _bars_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _Normalized
             )
         )
     return _NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
-
-
-def _import_fin_summary_file(conn: sqlite3.Connection, path: Path) -> int:
-    records = _read_json_array(path)
-    rows = list(_iter_fin_summary_rows(records))
-    if not rows:
-        _record_raw_import(conn, "jquants_fin_summaries", path, 0, None, None)
-        return 0
-    conn.executemany(
-        """
-        INSERT OR REPLACE INTO jquants_fin_summaries(
-          ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding,
-          sales, cfo, cash_eq, total_assets, equity, operating_profit, ordinary_profit, profit,
-          fiscal_period, fiscal_year_end, period_start, period_end, raw_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        rows,
-    )
-    disclosed_dates = sorted({row[1] for row in rows})
-    _record_raw_import(
-        conn,
-        "jquants_fin_summaries",
-        path,
-        len(rows),
-        disclosed_dates[0],
-        disclosed_dates[-1],
-    )
-    return len(rows)
-
-
-def _iter_fin_summary_rows(
-    records: Iterable[Mapping[str, Any]],
-) -> Iterator[tuple[Any, ...]]:
-    yield from _fin_summary_rows_with_quality(records).rows
 
 
 def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _NormalizedRows:
@@ -1645,42 +999,9 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _Nor
                 _date_iso(
                     _first(record, "CurrentPeriodEndDate", "current_period_end_date", "CurPerEn")
                 ),
-                json.dumps(record, ensure_ascii=False, sort_keys=True),
             )
         )
     return _NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
-
-
-def _import_master_file(conn: sqlite3.Connection, path: Path) -> int:
-    records = _read_json_array(path)
-    rows = list(_iter_master_rows(records))
-    if not rows:
-        _record_raw_import(conn, "jquants_master_snapshots", path, 0, None, None)
-        return 0
-    conn.executemany(
-        """
-        INSERT OR REPLACE INTO jquants_master_snapshots(
-          snapshot_date, ticker, name, market, sector_33, is_common_stock, raw_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        rows,
-    )
-    snapshot_dates = sorted({row[0] for row in rows})
-    _record_raw_import(
-        conn,
-        "jquants_master_snapshots",
-        path,
-        len(rows),
-        snapshot_dates[0],
-        snapshot_dates[-1],
-    )
-    return len(rows)
-
-
-def _iter_master_rows(
-    records: Iterable[Mapping[str, Any]],
-) -> Iterator[tuple[Any, ...]]:
-    yield from _master_rows_with_quality(records).rows
 
 
 def _master_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _NormalizedRows:
@@ -1711,328 +1032,49 @@ def _master_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _Normaliz
                 # candidates / select の matcher が一意に解決できるようにする。
                 normalize_sector_name(sector_raw) if sector_raw else sector_raw,
                 1 if is_common_stock else 0,
-                json.dumps(record, ensure_ascii=False, sort_keys=True),
             )
         )
     return _NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
-
-
-def _import_earnings_calendar_file(conn: sqlite3.Connection, path: Path) -> int:
-    records = _read_json_array(path)
-    rows = _earnings_calendar_rows(records)
-    if not rows:
-        _record_raw_import(conn, "jquants_earnings_calendar", path, 0, None, None)
-        return 0
-    conn.executemany(
-        "INSERT OR REPLACE INTO jquants_earnings_calendar("
-        "announcement_date, ticker, raw_json"
-        ") VALUES (?, ?, ?)",
-        rows,
-    )
-    dates = sorted({row[0] for row in rows})
-    _record_raw_import(
-        conn,
-        "jquants_earnings_calendar",
-        path,
-        len(rows),
-        dates[0],
-        dates[-1],
-    )
-    return len(rows)
-
-
-def _import_market_calendar_file(conn: sqlite3.Connection, path: Path) -> int:
-    records = _read_json_array(path)
-    rows = _market_calendar_rows(records)
-    if not rows:
-        _record_raw_import(conn, "jquants_market_calendar", path, 0, None, None)
-        return 0
-    conn.executemany(
-        "INSERT OR REPLACE INTO jquants_market_calendar(day, is_business_day, raw_json) "
-        "VALUES (?, ?, ?)",
-        rows,
-    )
-    days = sorted({row[0] for row in rows})
-    _record_raw_import(conn, "jquants_market_calendar", path, len(rows), days[0], days[-1])
-    return len(rows)
-
-
-def _import_edinet_documents_file(conn: sqlite3.Connection, path: Path) -> int:
-    records = _read_json_array(path)
-    # The filename is `{doc_date}.json`; the API payload itself does not
-    # always carry the date so we recover it from the filename stem.
-    doc_date = path.stem
-    rows = _edinet_document_rows(doc_date, records)
-    if not rows:
-        _record_raw_import(conn, "edinet_documents", path, 0, doc_date, doc_date)
-        return 0
-    conn.executemany(
-        "INSERT OR REPLACE INTO edinet_documents("
-        "doc_date, doc_id, sec_code, doc_type_code, raw_json"
-        ") VALUES (?, ?, ?, ?, ?)",
-        rows,
-    )
-    _record_raw_import(conn, "edinet_documents", path, len(rows), doc_date, doc_date)
-    return len(rows)
-
-
-def _import_edinet_metrics_file(conn: sqlite3.Connection, path: Path) -> int:
-    records = _read_json_array(path)
-    asof_date = path.stem
-    rows = _edinet_metric_rows(asof_date, records)
-    if not rows:
-        _record_raw_import(conn, "edinet_metrics", path, 0, asof_date, asof_date)
-        return 0
-    conn.executemany(
-        "INSERT OR REPLACE INTO edinet_metrics("
-        "asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, "
-        "consolidation_basis, ttm_quality_ev_ebitda, ttm_quality_p_s, ttm_quality_pcfr, "
-        "operating_profit_ttm, depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, "
-        "net_cash, equity, total_assets, ttm_quality_fcf, ttm_quality_net_cash, "
-        "source_doc_id, document_type, source_submit_datetime, source_period_start, "
-        "source_period_end, capex_source, failure_reasons"
-        ") VALUES ("
-        "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-        "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
-        ")",
-        rows,
-    )
-    _record_raw_import(conn, "edinet_metrics", path, len(rows), asof_date, asof_date)
-    return len(rows)
-
-
-def _import_jpx_regulations_file(conn: sqlite3.Connection, path: Path) -> int:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, Mapping):
-        raise SQLiteCacheError(f"expected JSON object at {path}")
-    asof_date = path.stem
-    fetched_at_utc = _to_str_or_none(payload.get("fetched_at_utc"))
-    flags_by_ticker = payload.get("flags_by_ticker") or {}
-    if not isinstance(flags_by_ticker, Mapping):
-        raise SQLiteCacheError(f"flags_by_ticker must be an object: {path}")
-    source_names = payload.get("source_names") or []
-    if not isinstance(source_names, list | tuple):
-        raise SQLiteCacheError(f"source_names must be an array: {path}")
-    source_rows = [
-        (asof_date, source_name, fetched_at_utc)
-        for raw_source_name in source_names
-        if (source_name := _to_str_or_none(raw_source_name)) is not None
-    ]
-    if source_rows:
-        conn.executemany(
-            "INSERT OR REPLACE INTO jpx_regulation_sources("
-            "asof_date, source_name, fetched_at_utc"
-            ") VALUES (?, ?, ?)",
-            source_rows,
-        )
-    rows: list[tuple[Any, ...]] = []
-    for raw_ticker, flags in flags_by_ticker.items():
-        ticker = _normalize_ticker_or_none(raw_ticker)
-        if ticker is None:
-            continue
-        if not isinstance(flags, list | tuple):
-            continue
-        for flag in flags:
-            flag_text = _to_str_or_none(flag)
-            if flag_text is None:
-                continue
-            # JPX cache JSON groups flags per ticker without recording the
-            # source URL that produced each flag. Use the flag string as the
-            # source_name so the (asof, source, ticker, flag) PK stays unique
-            # while preserving the natural-language label for downstream UI.
-            rows.append((asof_date, flag_text, ticker, flag_text, fetched_at_utc))
-    if not rows:
-        _record_raw_import(conn, "jpx_regulation_flags", path, 0, asof_date, asof_date)
-        return 0
-    conn.executemany(
-        "INSERT OR REPLACE INTO jpx_regulation_flags("
-        "asof_date, source_name, ticker, flag, fetched_at_utc"
-        ") VALUES (?, ?, ?, ?, ?)",
-        rows,
-    )
-    _record_raw_import(conn, "jpx_regulation_flags", path, len(rows), asof_date, asof_date)
-    return len(rows)
-
-
-def _record_raw_import(
-    conn: sqlite3.Connection,
-    source: str,
-    path: Path,
-    record_count: int,
-    min_date: str | None,
-    max_date: str | None,
-) -> None:
-    sha = hashlib.sha256(path.read_bytes()).hexdigest()
-    conn.execute(
-        """
-        INSERT OR REPLACE INTO raw_imports(
-          source, path, sha256, imported_at_utc, record_count, min_date, max_date
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            source,
-            _path_key(path),
-            sha,
-            datetime.now(UTC).isoformat(),
-            record_count,
-            min_date,
-            max_date,
-        ),
-    )
-    _record_source_coverage_for_legacy_raw_import(
-        conn,
-        source=source,
-        path=path,
-        record_count=record_count,
-        min_date=min_date,
-        max_date=max_date,
-    )
-
-
-def _record_source_coverage_for_legacy_raw_import(
-    conn: sqlite3.Connection,
-    *,
-    source: str,
-    path: Path,
-    record_count: int,
-    min_date: str | None,
-    max_date: str | None,
-) -> None:
-    window = _request_window_for_file(source, path)
-    coverage_start = window[0].isoformat() if window else min_date
-    coverage_end = window[1].isoformat() if window else max_date
-    operation = _legacy_operation_for_source(source)
-    if operation is None:
-        return
-    _record_source_coverage(
-        conn,
-        source=source,
-        operation=operation,
-        coverage_key=(
-            _range_coverage_key(operation, window[0], window[1])
-            if window
-            else path.stem
-            if source in {"edinet_documents", "edinet_metrics", "jpx_regulation_flags"}
-            else path.name
-        ),
-        coverage_start=coverage_start,
-        coverage_end=coverage_end,
-        requested_start=coverage_start,
-        requested_end=coverage_end,
-        params={"legacy_raw_path": _path_key(path)},
-        record_count=record_count,
-        raw_record_count=record_count,
-        skipped_record_count=0,
-        replace=False,
-    )
 
 
 def _record_source_coverage(
     conn: sqlite3.Connection,
     *,
     source: str,
-    operation: str,
     coverage_key: str,
     coverage_start: str | None,
     coverage_end: str | None,
-    requested_start: str | None,
-    requested_end: str | None,
-    params: Mapping[str, Any],
     record_count: int,
-    raw_record_count: int | None = None,
-    skipped_record_count: int = 0,
-    rejected_record_count: int = 0,
-    excluded_record_count: int = 0,
     status: str = "ok",
     error: str | None = None,
     fetched_at_utc: str | None = None,
     replace: bool = True,
+    **_: Any,
 ) -> None:
-    normalized_record_count = record_count
+    """Record the minimal provider coverage needed for preflight checks."""
     conflict_action = "REPLACE" if replace else "IGNORE"
     conn.execute(
         f"""
         INSERT OR {conflict_action} INTO source_coverage(
-          source, operation, coverage_key, coverage_start, coverage_end,
-          requested_start, requested_end, params_json, fetched_at_utc, record_count,
-          raw_record_count, normalized_record_count, skipped_record_count,
-          rejected_record_count, excluded_record_count, status, error
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          source, coverage_key, coverage_start, coverage_end,
+          fetched_at_utc, record_count, status, error
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             source,
-            operation,
             coverage_key,
             coverage_start,
             coverage_end,
-            requested_start,
-            requested_end,
-            json.dumps(params, ensure_ascii=False, sort_keys=True),
             fetched_at_utc or datetime.now(UTC).isoformat(),
             record_count,
-            raw_record_count if raw_record_count is not None else record_count,
-            normalized_record_count,
-            skipped_record_count,
-            rejected_record_count,
-            excluded_record_count,
             status,
             error,
         ),
     )
 
 
-def _migrate_source_coverage_from_raw_imports(conn: sqlite3.Connection) -> None:
-    try:
-        migrated = conn.execute(
-            "SELECT value FROM cache_metadata WHERE key = ?",
-            (_RAW_IMPORT_COVERAGE_MIGRATION_KEY,),
-        ).fetchone()
-        if migrated is not None and migrated[0] == SCHEMA_VERSION:
-            return
-        rows = conn.execute(
-            "SELECT source, path, record_count, min_date, max_date FROM raw_imports"
-        ).fetchall()
-    except sqlite3.OperationalError:
-        return
-    if not rows:
-        return
-    for source, path_text, record_count, min_date, max_date in rows:
-        _record_source_coverage_for_legacy_raw_import(
-            conn,
-            source=str(source),
-            path=Path(str(path_text)),
-            record_count=int(record_count or 0),
-            min_date=str(min_date) if min_date else None,
-            max_date=str(max_date) if max_date else None,
-        )
-    conn.execute(
-        "INSERT OR REPLACE INTO cache_metadata(key, value) VALUES(?, ?)",
-        (_RAW_IMPORT_COVERAGE_MIGRATION_KEY, SCHEMA_VERSION),
-    )
-
-
-def _legacy_operation_for_source(source: str) -> str | None:
-    return {
-        "jquants_daily_bars": "get_eq_bars_daily_range",
-        "jquants_fin_summaries": "get_fin_summary_range",
-        "jquants_master_snapshots": "get_eq_master",
-        "jquants_earnings_calendar": "get_eq_earnings_cal",
-        "jquants_market_calendar": "get_mkt_calendar",
-        "edinet_documents": "documents",
-        "edinet_metrics": "metrics",
-        "jpx_regulation_flags": "regulations",
-    }.get(source)
-
-
 def _range_coverage_key(operation: str, start: date, end: date) -> str:
     return f"{operation}:{start.isoformat()}..{end.isoformat()}"
-
-
-def _read_json_array(path: Path) -> list[Mapping[str, Any]]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, list):
-        raise SQLiteCacheError(f"expected JSON array at {path}, got {type(payload).__name__}")
-    return [item for item in payload if isinstance(item, Mapping)]
 
 
 def _normalize_ticker_or_none(value: Any) -> str | None:

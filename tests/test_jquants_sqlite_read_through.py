@@ -57,18 +57,19 @@ def _add_raw_import(
     max_date: str,
     path: str | None = None,
 ) -> None:
+    fetched_at = datetime.now(UTC).isoformat()
     conn.execute(
-        "INSERT OR REPLACE INTO raw_imports("
-        "source, path, sha256, imported_at_utc, record_count, min_date, max_date"
+        "INSERT OR REPLACE INTO source_coverage("
+        "source, coverage_key, coverage_start, coverage_end, fetched_at_utc, record_count, status"
         ") VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
             source,
-            path or f"records/_data/raw/screening/jquants/{source}.json",
-            "0" * 64,
-            datetime.now(UTC).isoformat(),
-            record_count,
+            path or f"sqlite:{source}",
             min_date,
             max_date,
+            fetched_at,
+            record_count,
+            "ok",
         ),
     )
 
@@ -81,9 +82,9 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             conn = open_connection(sqlite_path)
             conn.execute(
                 "INSERT INTO jquants_master_snapshots("
-                "snapshot_date, ticker, name, market, sector_33, is_common_stock, raw_json"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?)",
-                ("2026-05-07", "1301", "極洋", "プライム", "水産・農林業", 1, "{}"),
+                "snapshot_date, ticker, name, market, sector_33, is_common_stock"
+                ") VALUES (?, ?, ?, ?, ?, ?)",
+                ("2026-05-07", "1301", "極洋", "プライム", "水産・農林業", 1),
             )
             _add_raw_import(
                 conn,
