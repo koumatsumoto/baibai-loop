@@ -52,6 +52,29 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
 
         self.assertIn("benchmark.fixture-duplicate", {finding.code for finding in findings})
 
+    def test_rejects_removed_reference_and_hash_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "manifest.yaml"
+            path.write_text(
+                _manifest().replace(
+                    "input_refs: {}",
+                    "input_refs:\n"
+                    "  policy:\n"
+                    "    ref_path: records/01-policy/2026/05/policy.md\n"
+                    "    content_sha256: sha256:bad\n"
+                    "input_snapshots:\n"
+                    "  policy:\n"
+                    "    ref_path: records/01-policy/2026/05/policy.md",
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(path)
+
+        codes = {finding.code for finding in findings}
+        self.assertIn("benchmark.removed-reference-field", codes)
+        self.assertIn("benchmark.removed-hash-field", codes)
+
     def test_rejects_invalid_fixture_layer(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "manifest.yaml"
@@ -129,6 +152,26 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
             findings = validate_benchmark_manifest_file(manifest)
 
         self.assertIn("benchmark.expected-outcome", {finding.code for finding in findings})
+
+    def test_rejects_fixture_candidates_wrong_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            wrong = root / "records/01-policy/2026/05/policy.yaml"
+            wrong.parent.mkdir(parents=True)
+            wrong.write_text("policy_id: test\n", encoding="utf-8")
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    candidates_ref="records/01-policy/2026/05/policy.yaml",
+                    expected={},
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.fixture-candidates-ref", {finding.code for finding in findings})
 
     def test_rejects_trade_expected_quantity_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -285,6 +285,14 @@ class ScreeningCliTests(unittest.TestCase):
                 self.assertEqual(payload["run_id"], "screening-20260424")
                 self.assertNotIn("screening_rules_snapshot", payload)
                 self.assertNotIn("cache_manifest_hash", payload)
+                universe_ref = payload["universe_ref"]["ref_path"]
+                self.assertTrue(universe_ref.startswith("records/_universe-snapshots/"))
+                universe_path = Path(universe_ref)
+                self.assertTrue(universe_path.exists())
+                universe_payload = yaml.safe_load(universe_path.read_text(encoding="utf-8"))
+                self.assertEqual(universe_payload["snapshot_id"], "universe-20260424")
+                self.assertEqual(universe_payload["as_of"], "2026-04-24")
+                self.assertEqual(universe_payload["universe_size"], payload["universe_size"])
                 manifest_path = Path(".cache/screening/manifests") / f"{payload['run_id']}.json"
                 self.assertFalse(manifest_path.exists())
             finally:

@@ -1099,6 +1099,16 @@ class ResearchValidationTests(unittest.TestCase):
         }
         self.assertIn("external-ref.shape", codes)
 
+    def test_external_refs_reject_wrong_target(self) -> None:
+        front = _minimal_research_front_matter()
+        front["external_refs"] = [
+            {"ref_path": "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"}
+        ]
+        codes = {
+            finding.code for finding in self._findings_for(front) if finding.severity == "error"
+        }
+        self.assertIn("external-ref.target", codes)
+
     def test_sector_concentration_warns_for_three_approved_memos(self) -> None:
         base = _minimal_research_front_matter()
         paths_with_front = [

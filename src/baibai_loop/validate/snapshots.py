@@ -22,6 +22,19 @@ from .errors import ValidationFinding
 
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
 _REMOVED_HASH_FIELDS = frozenset({"content_" + "sha256", "row_" + "sha256"})
+_REMOVED_REFERENCE_FIELDS = frozenset(
+    {
+        "playbook_snapshot",
+        "policy_snapshot",
+        "portfolio_exposure_snapshot_ref",
+        "calendars_snapshot",
+        "universe_snapshot_ref",
+        "input_snapshots",
+        "screening_rules_snapshot",
+        "metric_catalog_snapshot",
+        "cache_manifest_hash",
+    }
+)
 
 _REFERENCE_ROOTS: tuple[Path, ...] = (Path("records"),)
 
@@ -117,6 +130,7 @@ def _check_nested_refs(
     findings: list[ValidationFinding] = []
     for location, node in _walk_mappings(value, prefix=prefix):
         findings.extend(_check_removed_hash_fields(target, node, location=location))
+        findings.extend(_check_removed_reference_fields(target, node, location=location))
         findings.extend(_check_repository_ref(root, target, node, location=location))
     return findings
 
@@ -136,6 +150,25 @@ def _check_removed_hash_fields(
             location=f"{location}.{field}" if location else field,
         )
         for field in sorted(_REMOVED_HASH_FIELDS)
+        if field in node
+    ]
+
+
+def _check_removed_reference_fields(
+    target: Path,
+    node: Mapping[str, object],
+    *,
+    location: str,
+) -> list[ValidationFinding]:
+    return [
+        ValidationFinding(
+            severity="error",
+            target=target,
+            code="reference.removed-reference-field",
+            message=f"{field} has been replaced by repository reference fields",
+            location=f"{location}.{field}" if location else field,
+        )
+        for field in sorted(_REMOVED_REFERENCE_FIELDS)
         if field in node
     ]
 

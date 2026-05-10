@@ -152,6 +152,50 @@ class PortfolioExposureValidationTests(unittest.TestCase):
             {finding.code for finding in findings},
         )
 
+    def test_rejects_root_removed_hash_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "src").mkdir()
+            snapshot = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
+            snapshot.parent.mkdir(parents=True)
+            snapshot.write_text(
+                _snapshot(orders="outstanding_orders: []\n", remaining=1000000)
+                + "row_sha256: sha256:bad\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_portfolio_exposure_file(snapshot)
+
+        self.assertIn(
+            "portfolio-exposure.removed-hash-field",
+            {finding.code for finding in findings},
+        )
+
+    def test_rejects_invalid_decision_register_ref_without_outstanding_orders(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "src").mkdir()
+            snapshot = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
+            snapshot.parent.mkdir(parents=True)
+            snapshot.write_text(
+                _snapshot(
+                    orders="outstanding_orders: []\n",
+                    source_decision_ref=(
+                        "source_decision_register_refs:\n"
+                        "- ref_path: /tmp/research-decisions.jsonl\n"
+                        "  decision_event_id: decision-1\n"
+                    ),
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_portfolio_exposure_file(snapshot)
+
+        self.assertIn(
+            "portfolio-exposure.source-decision-register-ref",
+            {finding.code for finding in findings},
+        )
+
     def test_rejects_decision_register_source_set_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

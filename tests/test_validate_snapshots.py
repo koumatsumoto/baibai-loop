@@ -45,6 +45,26 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
 
         self.assertIn("reference.removed-hash-field", {finding.code for finding in findings})
 
+    def test_rejects_removed_reference_field_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            policy = root / "records/01-policy/2026/05/policy.md"
+            policy.parent.mkdir(parents=True)
+            policy.write_text("---\npolicy_id: portfolio-policy\n---\n", encoding="utf-8")
+            research = root / "records/05-research/2026/05/research.md"
+            research.parent.mkdir(parents=True)
+            research.write_text(
+                "---\npolicy_snapshot:\n  ref_path: records/01-policy/2026/05/policy.md\n---\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn(
+            "reference.removed-reference-field",
+            {finding.code for finding in findings},
+        )
+
     def test_rejects_missing_reference(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

@@ -13,6 +13,20 @@ from .domain import load_markdown_front_matter, resolve_repository_ref
 from .errors import ValidationFinding
 
 _VALID_LAYERS = {"L1", "L2", "L3a", "L3b", "L4", "L5"}
+_REMOVED_HASH_FIELDS = frozenset({"content_" + "sha256", "row_" + "sha256"})
+_REMOVED_REFERENCE_FIELDS = frozenset(
+    {
+        "playbook_snapshot",
+        "policy_snapshot",
+        "portfolio_exposure_snapshot_ref",
+        "calendars_snapshot",
+        "universe_snapshot_ref",
+        "input_snapshots",
+        "screening_rules_snapshot",
+        "metric_catalog_snapshot",
+        "cache_manifest_hash",
+    }
+)
 _REQUIRED_FIXTURE_IDS = {
     "screening-raw-output-anchors",
     "gate-policy-orthogonal-fields",
@@ -143,6 +157,7 @@ def validate_benchmark_manifest_file(path: Path) -> list[ValidationFinding]:
             )
         ]
     findings: list[ValidationFinding] = []
+    findings.extend(_check_removed_reference_fields(path, raw))
     findings.extend(_check_required(path, raw))
     findings.extend(_check_layers(path, raw))
     findings.extend(_check_fixtures(path, raw))
@@ -153,6 +168,39 @@ def validate_benchmark_manifest_file(path: Path) -> list[ValidationFinding]:
     findings.extend(_check_repository_refs(path, raw))
     findings.extend(_check_candidate_fixtures(path))
     findings.extend(_check_fixture_expectations(path, raw))
+    return findings
+
+
+def _check_removed_reference_fields(
+    path: Path, value: object, *, prefix: str = ""
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            location = f"{prefix}.{key}" if prefix else str(key)
+            if key in _REMOVED_HASH_FIELDS:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.removed-hash-field",
+                        f"{key} is no longer allowed in repository references",
+                        location,
+                    )
+                )
+            if key in _REMOVED_REFERENCE_FIELDS:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.removed-reference-field",
+                        f"{key} has been replaced by repository reference fields",
+                        location,
+                    )
+                )
+            findings.extend(_check_removed_reference_fields(path, child, prefix=location))
+    elif isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        for index, child in enumerate(value):
+            location = f"{prefix}[{index}]" if prefix else f"[{index}]"
+            findings.extend(_check_removed_reference_fields(path, child, prefix=location))
     return findings
 
 
@@ -490,6 +538,20 @@ def _check_fixture_expectations(
                     )
                 )
                 continue
+            if not (
+                record_ref.startswith(("records/05-research/", "records/06-trades/"))
+                and record_path.suffix == ".md"
+            ):
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-record-ref",
+                        "fixture record_ref must point under records/05-research/ "
+                        "or records/06-trades/ and use .md",
+                        f"fixtures[{index}].fixture_binding.record_ref",
+                    )
+                )
+                continue
             if not record_path.is_file():
                 findings.append(
                     _finding(
@@ -526,6 +588,19 @@ def _check_fixture_expectations(
                     )
                 )
                 continue
+            if not scan_ref.startswith("records/07-reviews/") or scan_path.suffix not in {
+                ".yaml",
+                ".yml",
+            }:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-scan-ref",
+                        "fixture scan_ref must point under records/07-reviews/ and use YAML",
+                        f"fixtures[{index}].fixture_binding.scan_ref",
+                    )
+                )
+                continue
             if not scan_path.is_file():
                 findings.append(
                     _finding(
@@ -536,7 +611,18 @@ def _check_fixture_expectations(
                     )
                 )
                 continue
-            scan = yaml.safe_load(scan_path.read_text(encoding="utf-8"))
+            try:
+                scan = yaml.safe_load(scan_path.read_text(encoding="utf-8"))
+            except (OSError, yaml.YAMLError) as exc:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-scan-parse",
+                        f"failed to parse fixture scan: {exc}",
+                        f"fixtures[{index}].fixture_binding.scan_ref",
+                    )
+                )
+                continue
             if isinstance(scan, Mapping):
                 findings.extend(_check_scan_expected(path, index, scan, expected))
         if isinstance(candidates_ref, str):
@@ -552,6 +638,22 @@ def _check_fixture_expectations(
                     )
                 )
                 continue
+            if not candidates_ref.startswith(
+                "records/04-candidates/"
+            ) or candidates_path.suffix not in {
+                ".yaml",
+                ".yml",
+            }:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-candidates-ref",
+                        "fixture candidates_ref must point under records/04-candidates/ "
+                        "and use YAML",
+                        f"fixtures[{index}].fixture_binding.candidates_ref",
+                    )
+                )
+                continue
             if not candidates_path.is_file():
                 findings.append(
                     _finding(
@@ -562,7 +664,18 @@ def _check_fixture_expectations(
                     )
                 )
                 continue
-            candidates = yaml.safe_load(candidates_path.read_text(encoding="utf-8"))
+            try:
+                candidates = yaml.safe_load(candidates_path.read_text(encoding="utf-8"))
+            except (OSError, yaml.YAMLError) as exc:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-candidates-parse",
+                        f"failed to parse fixture candidates: {exc}",
+                        f"fixtures[{index}].fixture_binding.candidates_ref",
+                    )
+                )
+                continue
             if isinstance(candidates, Mapping):
                 findings.extend(_check_candidates_expected(path, index, candidates, expected))
         if isinstance(runs_ref, str):
@@ -578,6 +691,19 @@ def _check_fixture_expectations(
                     )
                 )
                 continue
+            if not runs_ref.startswith("records/_benchmarks/") or runs_path.suffix not in {
+                ".yaml",
+                ".yml",
+            }:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-runs-ref",
+                        "fixture runs_ref must point under records/_benchmarks/ and use YAML",
+                        f"fixtures[{index}].fixture_binding.runs_ref",
+                    )
+                )
+                continue
             if not runs_path.is_file():
                 findings.append(
                     _finding(
@@ -588,7 +714,18 @@ def _check_fixture_expectations(
                     )
                 )
                 continue
-            runs = yaml.safe_load(runs_path.read_text(encoding="utf-8"))
+            try:
+                runs = yaml.safe_load(runs_path.read_text(encoding="utf-8"))
+            except (OSError, yaml.YAMLError) as exc:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-runs-parse",
+                        f"failed to parse fixture runs: {exc}",
+                        f"fixtures[{index}].fixture_binding.runs_ref",
+                    )
+                )
+                continue
             if isinstance(runs, Mapping):
                 findings.extend(_check_runs_expected(path, index, runs, expected))
     return findings

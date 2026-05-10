@@ -13,6 +13,20 @@ from baibai_loop.ledger.io import validate_decision_register_jsonl
 from .errors import ValidationFinding
 
 SCHEMA_ROOT = Path(__file__).resolve().parents[3] / "records" / "_schemas"
+_REMOVED_HASH_FIELDS = frozenset({"content_" + "sha256", "row_" + "sha256"})
+_REMOVED_REFERENCE_FIELDS = frozenset(
+    {
+        "playbook_snapshot",
+        "policy_snapshot",
+        "portfolio_exposure_snapshot_ref",
+        "calendars_snapshot",
+        "universe_snapshot_ref",
+        "input_snapshots",
+        "screening_rules_snapshot",
+        "metric_catalog_snapshot",
+        "cache_manifest_hash",
+    }
+)
 
 
 def discover_ledger_files(root: Path) -> list[Path]:
@@ -69,6 +83,7 @@ def validate_ledger_file(path: Path) -> list[ValidationFinding]:
             )
             continue
         records.append(record)
+        findings.extend(_check_removed_reference_fields(path, line_number, record))
         for error in validator.iter_errors(record):
             findings.append(
                 ValidationFinding(
@@ -109,6 +124,45 @@ def validate_ledger_file(path: Path) -> list[ValidationFinding]:
                 )
             )
         findings.extend(_check_candidate_coverage_from_candidates(path, records))
+    return findings
+
+
+def _check_removed_reference_fields(
+    path: Path, line_number: int, value: object, *, prefix: str = ""
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            location = f"{prefix}.{key}" if prefix else str(key)
+            if key in _REMOVED_HASH_FIELDS:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="ledger.removed-hash-field",
+                        message=f"{key} is no longer allowed in repository references",
+                        location=f"line {line_number}.{location}",
+                    )
+                )
+            if key in _REMOVED_REFERENCE_FIELDS:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="ledger.removed-reference-field",
+                        message=f"{key} has been replaced by repository reference fields",
+                        location=f"line {line_number}.{location}",
+                    )
+                )
+            findings.extend(
+                _check_removed_reference_fields(path, line_number, child, prefix=location)
+            )
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            location = f"{prefix}[{index}]" if prefix else f"[{index}]"
+            findings.extend(
+                _check_removed_reference_fields(path, line_number, child, prefix=location)
+            )
     return findings
 
 

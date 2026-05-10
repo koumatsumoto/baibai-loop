@@ -18,6 +18,8 @@ from .domain import (
 )
 from .errors import ValidationFinding
 
+_REMOVED_HASH_FIELDS = frozenset({"content_" + "sha256", "row_" + "sha256"})
+
 
 def discover_portfolio_exposure_files(root: Path) -> list[Path]:
     """Return portfolio exposure files."""
@@ -49,11 +51,28 @@ def validate_portfolio_exposure_file(path: Path) -> list[ValidationFinding]:
             )
         ]
     findings: list[ValidationFinding] = []
+    findings.extend(_check_removed_hash_fields_recursive(path, raw))
     findings.extend(_check_outstanding_orders(path, raw))
     findings.extend(_check_remaining_budget(path, raw))
     findings.extend(_check_rebuild_from_sources(path, raw))
     findings.extend(_check_decision_register_sources(path, raw))
     findings.extend(_check_cap_remaining_fields(path, raw))
+    return findings
+
+
+def _check_removed_hash_fields_recursive(
+    path: Path, value: object, *, prefix: str = ""
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    if isinstance(value, Mapping):
+        findings.extend(_check_removed_hash_fields(path, value, prefix))
+        for key, child in value.items():
+            location = f"{prefix}.{key}" if prefix else str(key)
+            findings.extend(_check_removed_hash_fields_recursive(path, child, prefix=location))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            location = f"{prefix}[{index}]" if prefix else f"[{index}]"
+            findings.extend(_check_removed_hash_fields_recursive(path, child, prefix=location))
     return findings
 
 
@@ -131,7 +150,7 @@ def _check_decision_register_sources(
         and order.get("origin_order_intent_id")
     }
     if not outstanding_intents:
-        return []
+        return _validate_decision_register_ref_shapes(path, snapshot)
     refs = snapshot.get("source_decision_register_refs")
     if not isinstance(refs, list) or not refs:
         return [
@@ -230,6 +249,75 @@ def _check_decision_register_sources(
                 "source_decision_register_refs",
             )
         )
+    return findings
+
+
+def _validate_decision_register_ref_shapes(
+    path: Path, snapshot: Mapping[str, object]
+) -> list[ValidationFinding]:
+    refs = snapshot.get("source_decision_register_refs")
+    if refs is None:
+        return []
+    if not isinstance(refs, list):
+        return [
+            _finding(
+                path,
+                "portfolio-exposure.source-decision-register-ref",
+                "source_decision_register_refs must be a list",
+                "source_decision_register_refs",
+            )
+        ]
+    root = repo_root_for(path)
+    findings: list[ValidationFinding] = []
+    for index, ref in enumerate(refs):
+        if not isinstance(ref, Mapping):
+            findings.append(
+                _finding(
+                    path,
+                    "portfolio-exposure.source-decision-register-ref",
+                    "source_decision_register_refs entries must be mappings",
+                    f"source_decision_register_refs[{index}]",
+                )
+            )
+            continue
+        ref_path = ref.get("ref_path")
+        decision_event_id = ref.get("decision_event_id")
+        findings.extend(
+            _check_removed_hash_fields(path, ref, f"source_decision_register_refs[{index}]")
+        )
+        ref_error = repository_ref_error(ref_path, root=root)
+        if ref_error is not None or not isinstance(decision_event_id, str):
+            findings.append(
+                _finding(
+                    path,
+                    "portfolio-exposure.source-decision-register-ref",
+                    "source decision ref requires repository-relative ref_path "
+                    "and decision_event_id",
+                    f"source_decision_register_refs[{index}]",
+                )
+            )
+            continue
+        assert isinstance(ref_path, str)
+        if not ref_path.startswith("records/_ledger/") or Path(ref_path).suffix != ".jsonl":
+            findings.append(
+                _finding(
+                    path,
+                    "portfolio-exposure.source-decision-register-ref",
+                    "source decision ref must point under records/_ledger/ and use .jsonl",
+                    f"source_decision_register_refs[{index}].ref_path",
+                )
+            )
+            continue
+        ledger_path = resolve_repository_ref(root, ref_path)
+        if not ledger_path.is_file():
+            findings.append(
+                _finding(
+                    path,
+                    "portfolio-exposure.source-decision-register-missing",
+                    f"source decision register does not exist: {ref_path}",
+                    f"source_decision_register_refs[{index}].ref_path",
+                )
+            )
     return findings
 
 
@@ -655,8 +743,8 @@ def _check_removed_hash_fields(
             path,
             "portfolio-exposure.removed-hash-field",
             f"{field} is no longer allowed in repository links",
-            f"{location}.{field}",
+            f"{location}.{field}" if location else field,
         )
-        for field in ("content_" + "sha256", "row_" + "sha256")
+        for field in sorted(_REMOVED_HASH_FIELDS)
         if field in value
     ]

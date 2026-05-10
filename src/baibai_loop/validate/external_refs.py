@@ -53,6 +53,17 @@ def validate_external_refs_file(path: Path, payload: Mapping[str, Any]) -> list[
             continue
         assert isinstance(ref_path, str)
         target = resolve_repository_ref(root, ref_path)
+        if not ref_path.startswith("records/_external/") or target.suffix != ".md":
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="external-ref.target",
+                    message="external refs must point to records/_external/ markdown files",
+                    location=location,
+                )
+            )
+            continue
         if not target.is_file():
             findings.append(
                 ValidationFinding(
@@ -60,6 +71,19 @@ def validate_external_refs_file(path: Path, payload: Mapping[str, Any]) -> list[
                     target=path,
                     code="external-ref.missing",
                     message=f"external ref file does not exist: {ref_path}",
+                    location=location,
+                )
+            )
+            continue
+        try:
+            target.read_text(encoding="utf-8")
+        except OSError as exc:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="external-ref.read",
+                    message=f"failed to read external ref file: {exc}",
                     location=location,
                 )
             )

@@ -57,6 +57,20 @@ def test_validate_ledger_missing_required_field_is_finding(tmp_path: Path) -> No
     assert "ledger.required" in {finding.code for finding in validate_ledger_file(path)}
 
 
+def test_validate_ledger_rejects_removed_reference_and_hash_fields(tmp_path: Path) -> None:
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
+    record = _decision_record(
+        policy_snapshot={"ref_path": "records/01-policy/2026/05/policy.md"},
+        row_sha256="sha256:bad",
+    )
+    _write_jsonl(path, record)
+
+    codes = {finding.code for finding in validate_ledger_file(path)}
+
+    assert "ledger.removed-reference-field" in codes
+    assert "ledger.removed-hash-field" in codes
+
+
 def test_validate_ledger_rejects_bad_decision_scope(tmp_path: Path) -> None:
     path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
     _write_jsonl(path, _decision_record(decision_scope="trade"))
