@@ -15,7 +15,7 @@ if str(SRC) not in sys.path:
 
 from baibai_loop.screening.providers.edinet import EDINETProvider, EDINETProviderError
 from baibai_loop.screening.providers.jpx import JPXProvider, JPXProviderError
-from baibai_loop.screening.sqlite_cache import open_connection
+from baibai_loop.screening.sqlite_cache import open_connection, store_jpx_regulations
 from baibai_loop.screening.sqlite_reader import (
     has_jpx_regulation_data,
     read_edinet_documents,
@@ -288,15 +288,12 @@ class JPXProviderReadThroughTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            conn.execute(
-                "INSERT INTO jpx_regulation_flags("
-                "asof_date, source_name, ticker, flag, fetched_at_utc"
-                ") VALUES (?, ?, ?, ?, ?)",
-                ("2026-04-24", "取引停止", "1302", "取引停止", None),
+            store_jpx_regulations(
+                sqlite_path,
+                date(2026, 4, 24),
+                flags_by_ticker={"1302": ["取引停止"]},
+                source_names=["取引停止"],
             )
-            conn.commit()
-            conn.close()
 
             provider = JPXProvider(cache_dir, sqlite_path=sqlite_path)
 

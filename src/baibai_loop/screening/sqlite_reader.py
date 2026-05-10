@@ -1,16 +1,9 @@
-"""Read-through helpers that pull screening inputs out of the SQLite cache
-written by `rebuild_from_raw()`.
+"""Read helpers that pull screening inputs from the canonical SQLite store.
 
 The functions are deliberately permissive: a missing SQLite file or a source
-that has not been imported yet returns `None` so the caller can fall back to
-the JSON cache (and ultimately the API). They never raise on absence.
-
-Coverage detection uses the `raw_imports` audit table together with the
-J-Quants chunk window encoded in each filename (`...-start_dt-YYYY-MM-DD-
-end_dt-YYYY-MM-DD.json`). The recorded `min_date`/`max_date` cover the data
-dates only, which is too narrow for sparse sources like fin_summaries; the
-filename window is what tells us whether the API request bracket has been
-imported.
+that has not been fetched yet returns `None` so bootstrap/fetch commands can
+populate the missing coverage. `screening run` performs a separate preflight
+coverage check and must not fall back to provider APIs.
 """
 
 from __future__ import annotations
@@ -32,6 +25,7 @@ from .providers.jquants import (
     JQuantsProviderError,
 )
 from .schema import SecurityMaster
+from .sqlite_cache import ensure_sqlite_schema
 
 
 def read_eq_master(sqlite_path: Path) -> list[SecurityMaster] | None:
@@ -40,6 +34,7 @@ def read_eq_master(sqlite_path: Path) -> list[SecurityMaster] | None:
     """
     if not sqlite_path.exists():
         return None
+    ensure_sqlite_schema(sqlite_path)
     conn = sqlite3.connect(sqlite_path)
     try:
         if not _has_any_import(conn, "jquants_master_snapshots"):
@@ -78,6 +73,7 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
     """
     if not sqlite_path.exists():
         return None
+    ensure_sqlite_schema(sqlite_path)
     conn = sqlite3.connect(sqlite_path)
     try:
         if not _range_covered(conn, "jquants_daily_bars", start, end):
@@ -121,6 +117,7 @@ def read_fin_summaries(
     """
     if not sqlite_path.exists():
         return None
+    ensure_sqlite_schema(sqlite_path)
     conn = sqlite3.connect(sqlite_path)
     try:
         if not _range_covered(conn, "jquants_fin_summaries", start, end):
@@ -196,9 +193,10 @@ def read_eq_earnings_cal(sqlite_path: Path, start: date, end: date) -> list[dict
     """
     if not sqlite_path.exists():
         return None
+    ensure_sqlite_schema(sqlite_path)
     conn = sqlite3.connect(sqlite_path)
     try:
-        if not _has_any_import(conn, "jquants_earnings_calendar"):
+        if not _minmax_covered(conn, "jquants_earnings_calendar", start, end):
             return None
         rows = conn.execute(
             "SELECT raw_json FROM jquants_earnings_calendar "
@@ -221,6 +219,7 @@ def read_market_calendar(
     """
     if not sqlite_path.exists():
         return None
+    ensure_sqlite_schema(sqlite_path)
     conn = sqlite3.connect(sqlite_path)
     try:
         if not _range_covered(conn, "jquants_market_calendar", start, end):
@@ -246,6 +245,7 @@ def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, An
     """
     if not sqlite_path.exists():
         return None
+    ensure_sqlite_schema(sqlite_path)
     conn = sqlite3.connect(sqlite_path)
     try:
         if not _date_imported(conn, "edinet_documents", on_date):
@@ -269,6 +269,7 @@ def read_edinet_metrics(
     """
     if not sqlite_path.exists():
         return None
+    ensure_sqlite_schema(sqlite_path)
     conn = sqlite3.connect(sqlite_path)
     try:
         if not _date_imported(conn, "edinet_metrics", asof_date):
@@ -333,6 +334,7 @@ def read_jpx_regulations(sqlite_path: Path, asof_date: date) -> JPXRegulationSna
     """
     if not sqlite_path.exists():
         return None
+    ensure_sqlite_schema(sqlite_path)
     conn = sqlite3.connect(sqlite_path)
     try:
         if not _date_imported(conn, "jpx_regulation_flags", asof_date):
@@ -367,31 +369,20 @@ def has_jpx_regulation_data(sqlite_path: Path, asof_date: date) -> bool:
     """Return True when `asof_date` has an imported JPX regulation snapshot.
 
     A valid snapshot may have zero flagged tickers for a source such as
-    取引停止. Treat the raw import / source-name rows as cache coverage so
+    取引停止. Treat `source_coverage` as the canonical cache coverage marker so
     stale backfill gating does not force a refetch just because a required
-    source happened to be empty on that date.
+    source returned an empty source-specific table on that date.
     """
     if not sqlite_path.exists():
         return False
+    ensure_sqlite_schema(sqlite_path)
     conn = sqlite3.connect(sqlite_path)
     try:
         try:
             cur = conn.execute(
-                "SELECT 1 FROM raw_imports WHERE source = ? "
-                "AND min_date <= ? AND max_date >= ? LIMIT 1",
+                "SELECT 1 FROM source_coverage WHERE source = ? "
+                "AND coverage_start <= ? AND coverage_end >= ? AND status = 'ok' LIMIT 1",
                 ("jpx_regulation_flags", asof_date.isoformat(), asof_date.isoformat()),
-            )
-            if cur.fetchone() is not None:
-                return True
-            cur = conn.execute(
-                "SELECT 1 FROM jpx_regulation_flags WHERE asof_date = ? LIMIT 1",
-                (asof_date.isoformat(),),
-            )
-            if cur.fetchone() is not None:
-                return True
-            cur = conn.execute(
-                "SELECT 1 FROM jpx_regulation_sources WHERE asof_date = ? LIMIT 1",
-                (asof_date.isoformat(),),
             )
         except sqlite3.OperationalError:
             return False
@@ -402,23 +393,23 @@ def has_jpx_regulation_data(sqlite_path: Path, asof_date: date) -> bool:
 
 def _has_any_import(conn: sqlite3.Connection, source: str) -> bool:
     try:
-        cur = conn.execute("SELECT 1 FROM raw_imports WHERE source = ? LIMIT 1", (source,))
+        cur = conn.execute(
+            "SELECT 1 FROM source_coverage WHERE source = ? "
+            "AND status = 'ok' AND record_count > 0 LIMIT 1",
+            (source,),
+        )
     except sqlite3.OperationalError:
         return False
     return cur.fetchone() is not None
 
 
 def _date_imported(conn: sqlite3.Connection, source: str, on_date: date) -> bool:
-    """True when `raw_imports` records that `source` has imported a file
-    whose `[min_date, max_date]` window includes `on_date`. EDINET / JPX
-    chunks are per-date, so this collapses to an equality check on the
-    filename stem captured in `min_date`.
-    """
+    """True when `source_coverage` records `source` for `on_date`."""
     iso = on_date.isoformat()
     try:
         cur = conn.execute(
-            "SELECT 1 FROM raw_imports WHERE source = ? "
-            "AND min_date <= ? AND max_date >= ? LIMIT 1",
+            "SELECT 1 FROM source_coverage WHERE source = ? "
+            "AND coverage_start <= ? AND coverage_end >= ? AND status = 'ok' LIMIT 1",
             (source, iso, iso),
         )
     except sqlite3.OperationalError:
@@ -427,7 +418,7 @@ def _date_imported(conn: sqlite3.Connection, source: str, on_date: date) -> bool
 
 
 def _minmax_covered(conn: sqlite3.Connection, source: str, start: date, end: date) -> bool:
-    """True when at least one raw import brackets the requested range.
+    """True when at least one coverage row brackets the requested range.
 
     Earnings calendar is cached as a whole-list endpoint rather than a
     request-windowed chunk. Sparse dates inside the window are valid, but a
@@ -436,8 +427,9 @@ def _minmax_covered(conn: sqlite3.Connection, source: str, start: date, end: dat
     """
     try:
         cur = conn.execute(
-            "SELECT 1 FROM raw_imports WHERE source = ? "
-            "AND min_date <= ? AND max_date >= ? LIMIT 1",
+            "SELECT 1 FROM source_coverage WHERE source = ? "
+            "AND coverage_start <= ? AND coverage_end >= ? "
+            "AND status = 'ok' AND record_count > 0 LIMIT 1",
             (source, start.isoformat(), end.isoformat()),
         )
     except sqlite3.OperationalError:
@@ -448,19 +440,17 @@ def _minmax_covered(conn: sqlite3.Connection, source: str, start: date, end: dat
 # Filenames are produced from a `sorted(params.items())` join in the
 # provider, so `end_dt` comes before `start_dt` alphabetically.
 _CHUNK_WINDOW_RE = re.compile(r"end_dt-(\d{4}-\d{2}-\d{2}).*?start_dt-(\d{4}-\d{2}-\d{2})")
-_RANGE_SOURCES_REQUIRING_ROWS = frozenset({"jquants_daily_bars", "jquants_market_calendar"})
+_RANGE_SOURCES_REQUIRING_ROWS = frozenset(
+    {"jquants_daily_bars", "jquants_fin_summaries", "jquants_market_calendar"}
+)
 
 
 def _range_covered(conn: sqlite3.Connection, source: str, start: date, end: date) -> bool:
-    """True when raw_imports records for `source` collectively span the
-    requested range. We prefer the chunk window encoded in the filename
-    (the API request bracket) over the data min/max — sparse sources like
-    fin_summaries import a 31-day window even if only a few disclosure
-    dates land inside it.
-    """
+    """True when source_coverage rows collectively span the requested range."""
     try:
         rows = conn.execute(
-            "SELECT path, min_date, max_date, record_count FROM raw_imports WHERE source = ?",
+            "SELECT coverage_start, coverage_end, record_count, status "
+            "FROM source_coverage WHERE source = ?",
             (source,),
         ).fetchall()
     except sqlite3.OperationalError:
@@ -468,20 +458,15 @@ def _range_covered(conn: sqlite3.Connection, source: str, start: date, end: date
     if not rows:
         return False
     intervals: list[tuple[date, date]] = []
-    for path_text, min_date, max_date, record_count in rows:
+    for coverage_start, coverage_end, record_count, status in rows:
+        if status != "ok":
+            continue
         if source in _RANGE_SOURCES_REQUIRING_ROWS and int(record_count or 0) == 0:
             continue
-        window = _parse_chunk_window(path_text)
-        if window is not None:
-            chunk_start_text, chunk_end_text = window
-        else:
-            if not min_date or not max_date:
-                continue
-            chunk_start_text, chunk_end_text = str(min_date), str(max_date)
+        if not coverage_start or not coverage_end:
+            continue
         try:
-            intervals.append(
-                (date.fromisoformat(chunk_start_text), date.fromisoformat(chunk_end_text))
-            )
+            intervals.append((date.fromisoformat(coverage_start), date.fromisoformat(coverage_end)))
         except ValueError:
             continue
     if not intervals:

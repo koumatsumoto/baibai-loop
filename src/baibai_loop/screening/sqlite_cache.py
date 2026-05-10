@@ -1,20 +1,15 @@
-"""SQLite cache layer rebuilt from `records/_data/raw/screening/` raw JSON.
+"""SQLite canonical store for screening inputs.
 
-Issue #45 keeps raw JSON as the canonical, audit-grade source under git, and
-treats SQLite as a derived workspace cache that can be rebuilt at any time.
+SQLite is the local source of truth for screening inputs. Provider fetch paths
+write normalized rows and source coverage directly into this database; legacy
+raw JSON import remains only as a migration/backfill command.
 This module owns:
 
 - the SQLite schema (versioned via `SCHEMA_VERSION`)
-- per-source readers that translate raw JSON into rows
-- the top-level `rebuild_from_raw()` that scans a `records/_data/raw/screening/` tree
-  and writes a fresh SQLite file from scratch
-- the top-level `refresh_from_raw()` that imports only raw JSON files missing
-  from the existing SQLite cache, falling back to a full rebuild when an
-  already-imported raw file changed
-
-Schema/cache-builder v7 (current) covers all five sources: jquants daily bars / fin
-summaries / master / earnings calendar / market calendar, plus EDINET
-documents and metrics, and JPX regulation flags.
+- direct per-source upsert helpers used by providers
+- `source_coverage`, which records request windows that must be present before
+  `screening run` can execute
+- legacy `rebuild_from_raw()` for one-time import from old raw JSON trees
 """
 
 from __future__ import annotations
@@ -37,7 +32,7 @@ from .providers.jquants import (
     parse_jquants_code,
 )
 
-SCHEMA_VERSION = "v7"
+SCHEMA_VERSION = "v9"
 
 _REQUIRED_TABLES = (
     "jquants_daily_bars",
@@ -49,12 +44,15 @@ _REQUIRED_TABLES = (
     "edinet_metrics",
     "jpx_regulation_flags",
     "jpx_regulation_sources",
+    "source_coverage",
     "raw_imports",
     "cache_metadata",
 )
 
 _DATA_TABLES = tuple(
-    table for table in _REQUIRED_TABLES if table not in {"raw_imports", "cache_metadata"}
+    table
+    for table in _REQUIRED_TABLES
+    if table not in {"source_coverage", "raw_imports", "cache_metadata"}
 )
 _TABLE_HAS_ROWS_SQL = {
     "jquants_daily_bars": "SELECT 1 FROM jquants_daily_bars LIMIT 1",
@@ -78,12 +76,24 @@ _TABLE_COUNT_SQL = {
     "jpx_regulation_flags": "SELECT COUNT(*) FROM jpx_regulation_flags",
     "jpx_regulation_sources": "SELECT COUNT(*) FROM jpx_regulation_sources",
 }
+_DELETE_DATE_RANGE_SQL = {
+    ("jquants_daily_bars", "traded_at"): (
+        "DELETE FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ?"
+    ),
+    ("jquants_fin_summaries", "disclosed_at"): (
+        "DELETE FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ?"
+    ),
+    ("jquants_market_calendar", "day"): (
+        "DELETE FROM jquants_market_calendar WHERE day BETWEEN ? AND ?"
+    ),
+}
 _SINGLE_SNAPSHOT_SOURCES = frozenset(
     {
         "jquants_master_snapshots",
         "jquants_earnings_calendar",
     }
 )
+_RAW_IMPORT_COVERAGE_MIGRATION_KEY = "source_coverage_raw_import_migration"
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS jquants_daily_bars(
@@ -222,6 +232,30 @@ CREATE TABLE IF NOT EXISTS raw_imports(
   max_date TEXT
 );
 
+CREATE TABLE IF NOT EXISTS source_coverage(
+  source TEXT NOT NULL,
+  operation TEXT NOT NULL,
+  coverage_key TEXT NOT NULL,
+  coverage_start TEXT,
+  coverage_end TEXT,
+  requested_start TEXT,
+  requested_end TEXT,
+  params_json TEXT NOT NULL,
+  fetched_at_utc TEXT NOT NULL,
+  record_count INTEGER NOT NULL,
+  raw_record_count INTEGER,
+  normalized_record_count INTEGER,
+  skipped_record_count INTEGER NOT NULL DEFAULT 0,
+  rejected_record_count INTEGER NOT NULL DEFAULT 0,
+  excluded_record_count INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'ok',
+  error TEXT,
+  PRIMARY KEY (source, operation, coverage_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_source_coverage_source_window
+  ON source_coverage(source, coverage_start, coverage_end);
+
 CREATE TABLE IF NOT EXISTS cache_metadata(
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -254,11 +288,34 @@ class RebuildSummary:
     skipped_files: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class _NormalizedRows:
+    rows: list[tuple[Any, ...]]
+    rejected_count: int = 0
+    excluded_count: int = 0
+
+    @property
+    def skipped_count(self) -> int:
+        return self.rejected_count + self.excluded_count
+
+    @property
+    def status(self) -> str:
+        return "partial" if self.rejected_count else "ok"
+
+    @property
+    def error(self) -> str | None:
+        if not self.rejected_count:
+            return None
+        return f"{self.rejected_count} rejected records during normalization"
+
+
 def open_connection(db_path: Path) -> sqlite3.Connection:
     """Open the SQLite cache, creating tables on first use."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.executescript(_SCHEMA_SQL)
+    _ensure_source_coverage_columns(conn)
+    _migrate_source_coverage_from_raw_imports(conn)
     conn.execute(
         "INSERT OR REPLACE INTO cache_metadata(key, value) VALUES('schema_version', ?)",
         (SCHEMA_VERSION,),
@@ -267,22 +324,535 @@ def open_connection(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
+def ensure_sqlite_schema(db_path: Path) -> None:
+    """Create or migrate the SQLite schema without importing provider data."""
+    conn = open_connection(db_path)
+    conn.close()
+
+
+def _ensure_source_coverage_columns(conn: sqlite3.Connection) -> None:
+    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(source_coverage)").fetchall()}
+    migrations = {
+        "raw_record_count": "ALTER TABLE source_coverage ADD COLUMN raw_record_count INTEGER",
+        "normalized_record_count": (
+            "ALTER TABLE source_coverage ADD COLUMN normalized_record_count INTEGER"
+        ),
+        "skipped_record_count": (
+            "ALTER TABLE source_coverage ADD COLUMN skipped_record_count INTEGER NOT NULL DEFAULT 0"
+        ),
+        "rejected_record_count": (
+            "ALTER TABLE source_coverage ADD COLUMN rejected_record_count INTEGER "
+            "NOT NULL DEFAULT 0"
+        ),
+        "excluded_record_count": (
+            "ALTER TABLE source_coverage ADD COLUMN excluded_record_count INTEGER "
+            "NOT NULL DEFAULT 0"
+        ),
+        "status": "ALTER TABLE source_coverage ADD COLUMN status TEXT NOT NULL DEFAULT 'ok'",
+        "error": "ALTER TABLE source_coverage ADD COLUMN error TEXT",
+    }
+    for column, statement in migrations.items():
+        if column not in columns:
+            conn.execute(statement)
+
+
+def _delete_source_coverage(conn: sqlite3.Connection, source: str) -> None:
+    conn.execute("DELETE FROM source_coverage WHERE source = ?", (source,))
+
+
+def _delete_overlapping_source_coverage(
+    conn: sqlite3.Connection,
+    source: str,
+    start: date,
+    end: date,
+) -> None:
+    conn.execute(
+        "DELETE FROM source_coverage WHERE source = ? "
+        "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
+        "AND coverage_start <= ? AND coverage_end >= ?",
+        (source, end.isoformat(), start.isoformat()),
+    )
+
+
+def _delete_date_range(
+    conn: sqlite3.Connection,
+    table: str,
+    date_column: str,
+    start: date,
+    end: date,
+) -> None:
+    conn.execute(
+        _DELETE_DATE_RANGE_SQL[(table, date_column)],
+        (start.isoformat(), end.isoformat()),
+    )
+
+
+def store_jquants_daily_bars(
+    db_path: Path,
+    records: Iterable[Mapping[str, Any]],
+    *,
+    requested_start: date,
+    requested_end: date,
+) -> int:
+    conn = open_connection(db_path)
+    try:
+        records_list = list(records)
+        normalized = _bars_rows_with_quality(records_list)
+        rows = normalized.rows
+        _delete_date_range(conn, "jquants_daily_bars", "traded_at", requested_start, requested_end)
+        _delete_overlapping_source_coverage(
+            conn, "jquants_daily_bars", requested_start, requested_end
+        )
+        if rows:
+            conn.executemany(
+                """
+                INSERT OR REPLACE INTO jquants_daily_bars(
+                  ticker, traded_at, open, high, low, close, volume, turnover_value,
+                  adjustment_open, adjustment_high, adjustment_low, adjustment_close,
+                  adjustment_volume, adjustment_factor, upper_limit, lower_limit
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+        _record_source_coverage(
+            conn,
+            source="jquants_daily_bars",
+            operation="get_eq_bars_daily_range",
+            coverage_key=_range_coverage_key(
+                "get_eq_bars_daily_range", requested_start, requested_end
+            ),
+            coverage_start=requested_start.isoformat(),
+            coverage_end=requested_end.isoformat(),
+            requested_start=requested_start.isoformat(),
+            requested_end=requested_end.isoformat(),
+            params={"start_dt": requested_start.isoformat(), "end_dt": requested_end.isoformat()},
+            record_count=len(rows),
+            raw_record_count=len(records_list),
+            skipped_record_count=normalized.skipped_count,
+            rejected_record_count=normalized.rejected_count,
+            excluded_record_count=normalized.excluded_count,
+            status=normalized.status,
+            error=normalized.error,
+        )
+        _record_table_integrity(conn)
+        conn.commit()
+        return len(rows)
+    finally:
+        conn.close()
+
+
+def store_jquants_fin_summaries(
+    db_path: Path,
+    records: Iterable[Mapping[str, Any]],
+    *,
+    requested_start: date,
+    requested_end: date,
+) -> int:
+    conn = open_connection(db_path)
+    try:
+        records_list = list(records)
+        normalized = _fin_summary_rows_with_quality(records_list)
+        rows = normalized.rows
+        _delete_date_range(
+            conn, "jquants_fin_summaries", "disclosed_at", requested_start, requested_end
+        )
+        _delete_overlapping_source_coverage(
+            conn, "jquants_fin_summaries", requested_start, requested_end
+        )
+        if rows:
+            conn.executemany(
+                """
+                INSERT OR REPLACE INTO jquants_fin_summaries(
+                  ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding,
+                  sales, cfo, cash_eq, total_assets, equity, operating_profit, ordinary_profit,
+                  profit, fiscal_period, fiscal_year_end, period_start, period_end, raw_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+        _record_source_coverage(
+            conn,
+            source="jquants_fin_summaries",
+            operation="get_fin_summary_range",
+            coverage_key=_range_coverage_key(
+                "get_fin_summary_range", requested_start, requested_end
+            ),
+            coverage_start=requested_start.isoformat(),
+            coverage_end=requested_end.isoformat(),
+            requested_start=requested_start.isoformat(),
+            requested_end=requested_end.isoformat(),
+            params={"start_dt": requested_start.isoformat(), "end_dt": requested_end.isoformat()},
+            record_count=len(rows),
+            raw_record_count=len(records_list),
+            skipped_record_count=normalized.skipped_count,
+            rejected_record_count=normalized.rejected_count,
+            excluded_record_count=normalized.excluded_count,
+            status=normalized.status,
+            error=normalized.error,
+        )
+        _record_table_integrity(conn)
+        conn.commit()
+        return len(rows)
+    finally:
+        conn.close()
+
+
+def store_jquants_master(db_path: Path, records: Iterable[Mapping[str, Any]]) -> int:
+    conn = open_connection(db_path)
+    try:
+        records_list = list(records)
+        normalized = _master_rows_with_quality(records_list)
+        rows = normalized.rows
+        conn.execute("DELETE FROM jquants_master_snapshots")
+        _delete_source_coverage(conn, "jquants_master_snapshots")
+        if rows:
+            conn.executemany(
+                """
+                INSERT OR REPLACE INTO jquants_master_snapshots(
+                  snapshot_date, ticker, name, market, sector_33, is_common_stock, raw_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+        dates = sorted({row[0] for row in rows if row[0] != "unknown"})
+        _record_source_coverage(
+            conn,
+            source="jquants_master_snapshots",
+            operation="get_eq_master",
+            coverage_key="latest",
+            coverage_start=dates[0] if dates else None,
+            coverage_end=dates[-1] if dates else None,
+            requested_start=None,
+            requested_end=None,
+            params={},
+            record_count=len(rows),
+            raw_record_count=len(records_list),
+            skipped_record_count=normalized.skipped_count,
+            rejected_record_count=normalized.rejected_count,
+            excluded_record_count=normalized.excluded_count,
+            status=normalized.status,
+            error=normalized.error,
+        )
+        _record_table_integrity(conn)
+        conn.commit()
+        return len(rows)
+    finally:
+        conn.close()
+
+
+def store_jquants_earnings_calendar(
+    db_path: Path,
+    records: Iterable[Mapping[str, Any]],
+    *,
+    requested_start: date | None = None,
+    requested_end: date | None = None,
+) -> int:
+    conn = open_connection(db_path)
+    try:
+        records_list = list(records)
+        normalized = _earnings_calendar_rows_with_quality(records_list)
+        rows = normalized.rows
+        conn.execute("DELETE FROM jquants_earnings_calendar")
+        _delete_source_coverage(conn, "jquants_earnings_calendar")
+        if rows:
+            conn.executemany(
+                "INSERT OR REPLACE INTO jquants_earnings_calendar("
+                "announcement_date, ticker, raw_json"
+                ") VALUES (?, ?, ?)",
+                rows,
+            )
+        dates = sorted({row[0] for row in rows})
+        coverage_start = (
+            requested_start.isoformat() if requested_start else dates[0] if dates else None
+        )
+        coverage_end = requested_end.isoformat() if requested_end else dates[-1] if dates else None
+        params = {
+            key: value.isoformat()
+            for key, value in (("start_dt", requested_start), ("end_dt", requested_end))
+            if value is not None
+        }
+        _record_source_coverage(
+            conn,
+            source="jquants_earnings_calendar",
+            operation="get_eq_earnings_cal",
+            coverage_key="whole-list",
+            coverage_start=coverage_start,
+            coverage_end=coverage_end,
+            requested_start=requested_start.isoformat() if requested_start else None,
+            requested_end=requested_end.isoformat() if requested_end else None,
+            params=params,
+            record_count=len(rows),
+            raw_record_count=len(records_list),
+            skipped_record_count=normalized.skipped_count,
+            rejected_record_count=normalized.rejected_count,
+            excluded_record_count=normalized.excluded_count,
+            status=normalized.status,
+            error=normalized.error,
+        )
+        _record_table_integrity(conn)
+        conn.commit()
+        return len(rows)
+    finally:
+        conn.close()
+
+
+def store_jquants_market_calendar(
+    db_path: Path,
+    records: Iterable[Mapping[str, Any]],
+    *,
+    requested_start: date,
+    requested_end: date,
+) -> int:
+    conn = open_connection(db_path)
+    try:
+        records_list = list(records)
+        normalized = _market_calendar_rows_with_quality(records_list)
+        rows = normalized.rows
+        _delete_date_range(conn, "jquants_market_calendar", "day", requested_start, requested_end)
+        _delete_overlapping_source_coverage(
+            conn, "jquants_market_calendar", requested_start, requested_end
+        )
+        if rows:
+            conn.executemany(
+                "INSERT OR REPLACE INTO jquants_market_calendar(day, is_business_day, raw_json) "
+                "VALUES (?, ?, ?)",
+                rows,
+            )
+        _record_source_coverage(
+            conn,
+            source="jquants_market_calendar",
+            operation="get_mkt_calendar",
+            coverage_key=_range_coverage_key("get_mkt_calendar", requested_start, requested_end),
+            coverage_start=requested_start.isoformat(),
+            coverage_end=requested_end.isoformat(),
+            requested_start=requested_start.isoformat(),
+            requested_end=requested_end.isoformat(),
+            params={
+                "from_yyyymmdd": requested_start.strftime("%Y%m%d"),
+                "to_yyyymmdd": requested_end.strftime("%Y%m%d"),
+            },
+            record_count=len(rows),
+            raw_record_count=len(records_list),
+            skipped_record_count=normalized.skipped_count,
+            rejected_record_count=normalized.rejected_count,
+            excluded_record_count=normalized.excluded_count,
+            status=normalized.status,
+            error=normalized.error,
+        )
+        _record_table_integrity(conn)
+        conn.commit()
+        return len(rows)
+    finally:
+        conn.close()
+
+
+def store_edinet_documents(
+    db_path: Path,
+    on_date: date,
+    records: Iterable[Mapping[str, Any]],
+) -> int:
+    conn = open_connection(db_path)
+    try:
+        records_list = list(records)
+        rows = _edinet_document_rows(on_date.isoformat(), records_list)
+        conn.execute("DELETE FROM edinet_documents WHERE doc_date = ?", (on_date.isoformat(),))
+        _delete_overlapping_source_coverage(conn, "edinet_documents", on_date, on_date)
+        if rows:
+            conn.executemany(
+                "INSERT OR REPLACE INTO edinet_documents("
+                "doc_date, doc_id, sec_code, doc_type_code, raw_json"
+                ") VALUES (?, ?, ?, ?, ?)",
+                rows,
+            )
+        _record_source_coverage(
+            conn,
+            source="edinet_documents",
+            operation="documents",
+            coverage_key=on_date.isoformat(),
+            coverage_start=on_date.isoformat(),
+            coverage_end=on_date.isoformat(),
+            requested_start=on_date.isoformat(),
+            requested_end=on_date.isoformat(),
+            params={"date": on_date.isoformat(), "type": 2},
+            record_count=len(rows),
+            raw_record_count=len(records_list),
+            skipped_record_count=len(records_list) - len(rows),
+            status="partial" if len(rows) < len(records_list) else "ok",
+            error=(
+                f"{len(records_list) - len(rows)} EDINET document rows were skipped"
+                if len(rows) < len(records_list)
+                else None
+            ),
+        )
+        _record_table_integrity(conn)
+        conn.commit()
+        return len(rows)
+    finally:
+        conn.close()
+
+
+def store_edinet_metrics(
+    db_path: Path,
+    asof_date: date,
+    records: Iterable[Mapping[str, Any]],
+    *,
+    status: str = "ok",
+    error: str | None = None,
+) -> int:
+    conn = open_connection(db_path)
+    try:
+        records_list = list(records)
+        rows = _edinet_metric_rows(asof_date.isoformat(), records_list)
+        skipped_count = len(records_list) - len(rows)
+        stored_status = status
+        stored_error = error
+        if status == "ok" and skipped_count:
+            stored_status = "partial"
+            stored_error = f"{skipped_count} EDINET metric rows were skipped"
+        conn.execute("DELETE FROM edinet_metrics WHERE asof_date = ?", (asof_date.isoformat(),))
+        _delete_overlapping_source_coverage(conn, "edinet_metrics", asof_date, asof_date)
+        if rows:
+            conn.executemany(
+                "INSERT OR REPLACE INTO edinet_metrics("
+                "asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, "
+                "consolidation_basis, ttm_quality_ev_ebitda, ttm_quality_p_s, "
+                "ttm_quality_pcfr, operating_profit_ttm, depreciation_and_amortization_ttm, "
+                "capex_ttm, fcf_ttm, net_cash, equity, total_assets, ttm_quality_fcf, "
+                "ttm_quality_net_cash, source_doc_id, document_type, source_submit_datetime, "
+                "source_period_start, source_period_end, capex_source, failure_reasons"
+                ") VALUES ("
+                "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+                ")",
+                rows,
+            )
+        _record_source_coverage(
+            conn,
+            source="edinet_metrics",
+            operation="metrics",
+            coverage_key=asof_date.isoformat(),
+            coverage_start=asof_date.isoformat(),
+            coverage_end=asof_date.isoformat(),
+            requested_start=asof_date.isoformat(),
+            requested_end=asof_date.isoformat(),
+            params={"asof_date": asof_date.isoformat()},
+            record_count=len(rows),
+            raw_record_count=len(records_list),
+            skipped_record_count=skipped_count,
+            status=stored_status,
+            error=stored_error,
+        )
+        _record_table_integrity(conn)
+        conn.commit()
+        return len(rows)
+    finally:
+        conn.close()
+
+
+def store_jpx_regulations(
+    db_path: Path,
+    asof_date: date,
+    *,
+    flags_by_ticker: Mapping[str, Iterable[str]],
+    source_names: Iterable[str],
+    fetched_at_utc: str | None = None,
+) -> int:
+    conn = open_connection(db_path)
+    fetched_at = fetched_at_utc or datetime.now(UTC).isoformat()
+    source_name_tuple = tuple(source_names)
+    try:
+        conn.execute(
+            "DELETE FROM jpx_regulation_flags WHERE asof_date = ?", (asof_date.isoformat(),)
+        )
+        conn.execute(
+            "DELETE FROM jpx_regulation_sources WHERE asof_date = ?",
+            (asof_date.isoformat(),),
+        )
+        _delete_overlapping_source_coverage(conn, "jpx_regulation_flags", asof_date, asof_date)
+        source_rows = [(asof_date.isoformat(), str(name), fetched_at) for name in source_name_tuple]
+        if source_rows:
+            conn.executemany(
+                "INSERT OR REPLACE INTO jpx_regulation_sources("
+                "asof_date, source_name, fetched_at_utc"
+                ") VALUES (?, ?, ?)",
+                source_rows,
+            )
+        rows: list[tuple[Any, ...]] = []
+        raw_record_count = 0
+        rejected_count = 0
+        for raw_ticker, flags in flags_by_ticker.items():
+            raw_record_count += 1
+            ticker = _normalize_ticker_or_none(raw_ticker)
+            if ticker is None:
+                rejected_count += 1
+                continue
+            accepted_for_ticker = 0
+            rejected_for_ticker = 0
+            for flag in flags:
+                flag_text = _to_str_or_none(flag)
+                if flag_text is None:
+                    rejected_for_ticker += 1
+                    continue
+                rows.append((asof_date.isoformat(), flag_text, ticker, flag_text, fetched_at))
+                accepted_for_ticker += 1
+            rejected_count += rejected_for_ticker
+            if accepted_for_ticker == 0 and rejected_for_ticker == 0:
+                rejected_count += 1
+        if rows:
+            conn.executemany(
+                "INSERT OR REPLACE INTO jpx_regulation_flags("
+                "asof_date, source_name, ticker, flag, fetched_at_utc"
+                ") VALUES (?, ?, ?, ?, ?)",
+                rows,
+            )
+        _record_source_coverage(
+            conn,
+            source="jpx_regulation_flags",
+            operation="regulations",
+            coverage_key=asof_date.isoformat(),
+            coverage_start=asof_date.isoformat(),
+            coverage_end=asof_date.isoformat(),
+            requested_start=asof_date.isoformat(),
+            requested_end=asof_date.isoformat(),
+            params={"asof_date": asof_date.isoformat(), "source_names": sorted(source_name_tuple)},
+            record_count=len(rows),
+            raw_record_count=raw_record_count,
+            skipped_record_count=0,
+            rejected_record_count=rejected_count,
+            status="partial" if rejected_count else "ok",
+            error=(
+                f"{rejected_count} JPX regulation records were rejected" if rejected_count else None
+            ),
+        )
+        _record_table_integrity(conn)
+        conn.commit()
+        return len(rows)
+    finally:
+        conn.close()
+
+
 def rebuild_from_raw(raw_dir: Path | Iterable[Path], db_path: Path) -> RebuildSummary:
     """Rebuild the SQLite cache from scratch by walking each entry in
     `raw_dir` (a single Path or an iterable of Paths). Files are dispatched
     by their parent directory + filename pattern (see `_rebuild`).
 
-    Multiple raw dirs are supported so the legacy `.cache/screening/` tree
-    can be merged with the canonical `records/_data/raw/screening/` tree
-    in a single SQLite, without forcing the operator to migrate files.
-    Chunk windows differ between the two (legacy was last populated with a
-    different asof), so merging gives the SQLite reader broader coverage.
+    Multiple raw dirs are supported for one-time migration from old local or
+    repository raw JSON trees. Chunk windows may differ between trees, so
+    merging gives the SQLite reader broader coverage.
 
     The destination file is replaced atomically after a complete successful
     import, so a parse failure or interruption does not destroy the last-good
     derived cache.
     """
     raw_dirs: tuple[Path, ...] = (raw_dir,) if isinstance(raw_dir, Path) else tuple(raw_dir)
+    importable_paths = tuple(
+        path for current_raw_dir in raw_dirs for path in _iter_importable_raw_paths(current_raw_dir)
+    )
+    if not importable_paths:
+        raise SQLiteCacheError(
+            "no importable legacy raw JSON files found; pass --raw-dir explicitly "
+            "or bootstrap SQLite from providers"
+        )
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         prefix=f".{db_path.name}.",
@@ -309,11 +879,11 @@ def refresh_from_raw(raw_dir: Path | Iterable[Path], db_path: Path) -> RebuildSu
     """Refresh SQLite from raw JSON without reparsing files that are already
     imported.
 
-    Raw JSON remains canonical. The common `run` path appends a handful of
-    new cache chunks for a new as-of date, so importing just those files keeps
-    SQLite range-aware without paying the cost of a full 600MB+ rebuild. If an
-    existing raw file was edited or deleted, fall back to `rebuild_from_raw()`
-    so stale rows cannot survive from the previous import.
+    This is a legacy migration/backfill path for disposable raw JSON. The
+    canonical screening input is the normalized SQLite database; provider fetch
+    paths write SQLite directly. If an existing raw file was edited or deleted,
+    fall back to `rebuild_from_raw()` so stale rows cannot survive from the
+    previous import.
     """
     raw_dirs: tuple[Path, ...] = (raw_dir,) if isinstance(raw_dir, Path) else tuple(raw_dir)
     if _sqlite_schema_is_stale(db_path):
@@ -448,6 +1018,9 @@ def _rebuild(conn: sqlite3.Connection, raw_dirs: tuple[Path, ...]) -> RebuildSum
 
 
 def _record_table_integrity(conn: sqlite3.Connection) -> None:
+    # Intentionally refresh every canonical table count, not only the table a
+    # store function just touched. `verify-cache-coverage` treats stale metadata
+    # as corruption, so the slightly broader write is safer than partial counts.
     for table in _DATA_TABLES:
         row = conn.execute(_TABLE_COUNT_SQL[table]).fetchone()
         conn.execute(
@@ -747,221 +1320,35 @@ def _import_jpx_dir(conn: sqlite3.Connection, jpx_dir: Path, counters: _RebuildC
             raise SQLiteCacheError(f"failed to import {path.name}: {exc}") from exc
 
 
-def _import_bars_file(conn: sqlite3.Connection, path: Path) -> int:
-    records = _read_json_array(path)
-    rows = list(_iter_bars_rows(records))
-    if not rows:
-        _record_raw_import(conn, "jquants_daily_bars", path, 0, None, None)
-        return 0
-    conn.executemany(
-        """
-        INSERT OR REPLACE INTO jquants_daily_bars(
-          ticker, traded_at, open, high, low, close, volume, turnover_value,
-          adjustment_open, adjustment_high, adjustment_low, adjustment_close,
-          adjustment_volume, adjustment_factor, upper_limit, lower_limit
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        rows,
-    )
-    traded_dates = sorted({row[1] for row in rows})
-    _record_raw_import(
-        conn,
-        "jquants_daily_bars",
-        path,
-        len(rows),
-        traded_dates[0],
-        traded_dates[-1],
-    )
-    return len(rows)
+def _code_quality(value: Any) -> tuple[str | None, str]:
+    if value in (None, ""):
+        return None, "rejected"
+    try:
+        ticker, common_code = _parse_with_common_flag(value)
+    except JQuantsProviderError:
+        return None, "rejected"
+    if not common_code:
+        return None, "excluded"
+    return ticker, "ok"
 
 
-def _iter_bars_rows(
-    records: Iterable[Mapping[str, Any]],
-) -> Iterator[tuple[Any, ...]]:
-    for record in records:
-        ticker = _normalize_ticker_or_none(_first(record, "Code", "code"))
-        traded_at = _date_iso(_first(record, "Date", "date", "TradedAt", "traded_at"))
-        if ticker is None or traded_at is None:
-            continue
-        yield (
-            ticker,
-            traded_at,
-            _to_float(_first(record, "Open", "open", "O", "o")),
-            _to_float(_first(record, "High", "high", "H", "h")),
-            _to_float(_first(record, "Low", "low", "L", "l")),
-            _to_float(_first(record, "Close", "close", "C", "c")),
-            _to_float(_first(record, "Volume", "volume", "Vo", "vo")),
-            _to_float(_first(record, "TurnoverValue", "turnover_value", "Va", "va")),
-            _to_float(_first(record, "AdjustmentOpen", "adjustment_open", "AdjO", "adj_o")),
-            _to_float(_first(record, "AdjustmentHigh", "adjustment_high", "AdjH", "adj_h")),
-            _to_float(_first(record, "AdjustmentLow", "adjustment_low", "AdjL", "adj_l")),
-            _to_float(_first(record, "AdjustmentClose", "adjustment_close", "AdjC", "adj_c")),
-            _to_float(_first(record, "AdjustmentVolume", "adjustment_volume", "AdjVo", "adj_vo")),
-            _to_float(_first(record, "AdjustmentFactor", "adjustment_factor", "AdjFactor")),
-            _to_str_or_none(_first(record, "UpperLimit", "upper_limit", "UL")),
-            _to_str_or_none(_first(record, "LowerLimit", "lower_limit", "LL")),
-        )
-
-
-def _import_fin_summary_file(conn: sqlite3.Connection, path: Path) -> int:
-    records = _read_json_array(path)
-    rows = list(_iter_fin_summary_rows(records))
-    if not rows:
-        _record_raw_import(conn, "jquants_fin_summaries", path, 0, None, None)
-        return 0
-    conn.executemany(
-        """
-        INSERT OR REPLACE INTO jquants_fin_summaries(
-          ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding,
-          sales, cfo, cash_eq, total_assets, equity, operating_profit, ordinary_profit, profit,
-          fiscal_period, fiscal_year_end, period_start, period_end, raw_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        rows,
-    )
-    disclosed_dates = sorted({row[1] for row in rows})
-    _record_raw_import(
-        conn,
-        "jquants_fin_summaries",
-        path,
-        len(rows),
-        disclosed_dates[0],
-        disclosed_dates[-1],
-    )
-    return len(rows)
-
-
-def _iter_fin_summary_rows(
-    records: Iterable[Mapping[str, Any]],
-) -> Iterator[tuple[Any, ...]]:
-    for record in records:
-        ticker = _normalize_ticker_or_none(_first(record, "Code", "code"))
-        disclosed_at = _date_iso(
-            _first(record, "DisclosedDate", "disclosed_at", "DiscDate", "disc_date", "Date")
-        )
-        if ticker is None or disclosed_at is None:
-            continue
-        yield (
-            ticker,
-            disclosed_at,
-            _to_float(_first(record, "ForecastEPS", "forecast_eps", "FEPS")),
-            _to_float(_first(record, "EpsTtm", "eps_ttm", "EPS", "eps")),
-            _to_float(_first(record, "BPS", "bps")),
-            _to_float(
-                _first(
-                    record,
-                    "SharesOutstanding",
-                    "shares_outstanding",
-                    "IssuedShareEquityQuote",
-                    "ShOutFY",
-                    "AvgSh",
-                )
-            ),
-            _to_float(_first(record, "NetSales", "net_sales", "Sales", "sales")),
-            _to_float(
-                _first(
-                    record,
-                    "CashFlowsFromOperatingActivities",
-                    "cash_flows_from_operating_activities",
-                    "OperatingCashFlow",
-                    "operating_cash_flow",
-                    "CFO",
-                    "cfo",
-                )
-            ),
-            _to_float(
-                _first(
-                    record,
-                    "CashAndEquivalents",
-                    "cash_and_equivalents",
-                    "CashEq",
-                    "cash_eq",
-                )
-            ),
-            _to_float(_first(record, "TotalAssets", "total_assets", "TA", "ta")),
-            _to_float(_first(record, "Equity", "equity", "Eq", "eq")),
-            _to_float(_first(record, "OperatingProfit", "operating_profit", "OP")),
-            _to_float(_first(record, "OrdinaryProfit", "ordinary_profit", "OdP")),
-            _to_float(_first(record, "Profit", "profit", "NP")),
-            _to_str_or_none(
-                _first(record, "TypeOfCurrentPeriod", "type_of_current_period", "CurPerType")
-            ),
-            _date_iso(
-                _first(
-                    record, "CurrentFiscalYearEndDate", "current_fiscal_year_end_date", "CurFYEn"
-                )
-            ),
-            _date_iso(
-                _first(record, "CurrentPeriodStartDate", "current_period_start_date", "CurPerSt")
-            ),
-            _date_iso(
-                _first(record, "CurrentPeriodEndDate", "current_period_end_date", "CurPerEn")
-            ),
-            json.dumps(record, ensure_ascii=False, sort_keys=True),
-        )
-
-
-def _import_master_file(conn: sqlite3.Connection, path: Path) -> int:
-    records = _read_json_array(path)
-    rows = list(_iter_master_rows(records))
-    if not rows:
-        _record_raw_import(conn, "jquants_master_snapshots", path, 0, None, None)
-        return 0
-    conn.executemany(
-        """
-        INSERT OR REPLACE INTO jquants_master_snapshots(
-          snapshot_date, ticker, name, market, sector_33, is_common_stock, raw_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        rows,
-    )
-    snapshot_dates = sorted({row[0] for row in rows})
-    _record_raw_import(
-        conn,
-        "jquants_master_snapshots",
-        path,
-        len(rows),
-        snapshot_dates[0],
-        snapshot_dates[-1],
-    )
-    return len(rows)
-
-
-def _iter_master_rows(
-    records: Iterable[Mapping[str, Any]],
-) -> Iterator[tuple[Any, ...]]:
-    for record in records:
-        ticker = _normalize_ticker_or_none(_first(record, "Code", "code"))
-        if ticker is None:
-            continue
-        snapshot_date = _date_iso(_first(record, "Date", "date", "snapshot_date")) or "unknown"
-        is_common_stock = _is_common_stock_flag(record)
-        sector_raw = _to_str_or_none(
-            _first(record, "Sector33CodeName", "sector_33", "Sector33Name", "S33Nm", "S33")
-        )
-        yield (
-            snapshot_date,
-            ticker,
-            _to_str_or_none(_first(record, "CompanyName", "company_name", "Name", "CoName")),
-            _to_str_or_none(_first(record, "MarketCodeName", "market_segment", "MktNm", "Mkt")),
-            # J-Quants は同じ TSE 33 セクターを半角中黒 (U+FF65)・全角中黒 (U+30FB) で
-            # 揺らせて返してくる。SQLite に取り込む段階で全角形に正規化し、outlook /
-            # candidates / select の matcher が一意に解決できるようにする。
-            normalize_sector_name(sector_raw) if sector_raw else sector_raw,
-            1 if is_common_stock else 0,
-            json.dumps(record, ensure_ascii=False, sort_keys=True),
-        )
-
-
-def _import_earnings_calendar_file(conn: sqlite3.Connection, path: Path) -> int:
-    records = _read_json_array(path)
+def _earnings_calendar_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _NormalizedRows:
     rows: list[tuple[Any, ...]] = []
+    rejected_count = 0
+    excluded_count = 0
     for record in records:
-        ticker = _normalize_ticker_or_none(_first(record, "Code", "code"))
+        ticker, code_status = _code_quality(_first(record, "Code", "code"))
+        if code_status == "rejected":
+            rejected_count += 1
+            continue
+        if code_status == "excluded":
+            excluded_count += 1
+            continue
         announcement_date = _date_iso(
             _first(record, "Date", "date", "AnnouncementDate", "announcement_date")
         )
         if ticker is None or announcement_date is None:
+            rejected_count += 1
             continue
         rows.append(
             (
@@ -970,33 +1357,20 @@ def _import_earnings_calendar_file(conn: sqlite3.Connection, path: Path) -> int:
                 json.dumps(record, ensure_ascii=False, sort_keys=True),
             )
         )
-    if not rows:
-        _record_raw_import(conn, "jquants_earnings_calendar", path, 0, None, None)
-        return 0
-    conn.executemany(
-        "INSERT OR REPLACE INTO jquants_earnings_calendar("
-        "announcement_date, ticker, raw_json"
-        ") VALUES (?, ?, ?)",
-        rows,
-    )
-    dates = sorted({row[0] for row in rows})
-    _record_raw_import(
-        conn,
-        "jquants_earnings_calendar",
-        path,
-        len(rows),
-        dates[0],
-        dates[-1],
-    )
-    return len(rows)
+    return _NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
 
 
-def _import_market_calendar_file(conn: sqlite3.Connection, path: Path) -> int:
-    records = _read_json_array(path)
+def _earnings_calendar_rows(records: Iterable[Mapping[str, Any]]) -> list[tuple[Any, ...]]:
+    return _earnings_calendar_rows_with_quality(records).rows
+
+
+def _market_calendar_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _NormalizedRows:
     rows: list[tuple[Any, ...]] = []
+    rejected_count = 0
     for record in records:
         day = _date_iso(_first(record, "Date", "date"))
         if day is None:
+            rejected_count += 1
             continue
         # Mirror JQuantsProvider: HolidayDivision "1" (営業日) and "2"
         # (半日営業: 大納会など) both count as business days.
@@ -1011,24 +1385,17 @@ def _import_market_calendar_file(conn: sqlite3.Connection, path: Path) -> int:
                 json.dumps(record, ensure_ascii=False, sort_keys=True),
             )
         )
-    if not rows:
-        _record_raw_import(conn, "jquants_market_calendar", path, 0, None, None)
-        return 0
-    conn.executemany(
-        "INSERT OR REPLACE INTO jquants_market_calendar(day, is_business_day, raw_json) "
-        "VALUES (?, ?, ?)",
-        rows,
-    )
-    days = sorted({row[0] for row in rows})
-    _record_raw_import(conn, "jquants_market_calendar", path, len(rows), days[0], days[-1])
-    return len(rows)
+    return _NormalizedRows(rows=rows, rejected_count=rejected_count)
 
 
-def _import_edinet_documents_file(conn: sqlite3.Connection, path: Path) -> int:
-    records = _read_json_array(path)
-    # The filename is `{doc_date}.json`; the API payload itself does not
-    # always carry the date so we recover it from the filename stem.
-    doc_date = path.stem
+def _market_calendar_rows(records: Iterable[Mapping[str, Any]]) -> list[tuple[Any, ...]]:
+    return _market_calendar_rows_with_quality(records).rows
+
+
+def _edinet_document_rows(
+    doc_date: str,
+    records: Iterable[Mapping[str, Any]],
+) -> list[tuple[Any, ...]]:
     rows: list[tuple[Any, ...]] = []
     for record in records:
         doc_id = _to_str_or_none(_first(record, "docID", "doc_id"))
@@ -1043,22 +1410,13 @@ def _import_edinet_documents_file(conn: sqlite3.Connection, path: Path) -> int:
                 json.dumps(record, ensure_ascii=False, sort_keys=True),
             )
         )
-    if not rows:
-        _record_raw_import(conn, "edinet_documents", path, 0, doc_date, doc_date)
-        return 0
-    conn.executemany(
-        "INSERT OR REPLACE INTO edinet_documents("
-        "doc_date, doc_id, sec_code, doc_type_code, raw_json"
-        ") VALUES (?, ?, ?, ?, ?)",
-        rows,
-    )
-    _record_raw_import(conn, "edinet_documents", path, len(rows), doc_date, doc_date)
-    return len(rows)
+    return rows
 
 
-def _import_edinet_metrics_file(conn: sqlite3.Connection, path: Path) -> int:
-    records = _read_json_array(path)
-    asof_date = path.stem
+def _edinet_metric_rows(
+    asof_date: str,
+    records: Iterable[Mapping[str, Any]],
+) -> list[tuple[Any, ...]]:
     rows: list[tuple[Any, ...]] = []
     for record in records:
         ticker = _normalize_ticker_or_none(_first(record, "secCode", "ticker", "code", "Code"))
@@ -1095,6 +1453,333 @@ def _import_edinet_metrics_file(conn: sqlite3.Connection, path: Path) -> int:
                 json.dumps(_first(record, "failure_reasons") or (), ensure_ascii=False),
             )
         )
+    return rows
+
+
+def _import_bars_file(conn: sqlite3.Connection, path: Path) -> int:
+    records = _read_json_array(path)
+    rows = list(_iter_bars_rows(records))
+    if not rows:
+        _record_raw_import(conn, "jquants_daily_bars", path, 0, None, None)
+        return 0
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO jquants_daily_bars(
+          ticker, traded_at, open, high, low, close, volume, turnover_value,
+          adjustment_open, adjustment_high, adjustment_low, adjustment_close,
+          adjustment_volume, adjustment_factor, upper_limit, lower_limit
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        rows,
+    )
+    traded_dates = sorted({row[1] for row in rows})
+    _record_raw_import(
+        conn,
+        "jquants_daily_bars",
+        path,
+        len(rows),
+        traded_dates[0],
+        traded_dates[-1],
+    )
+    return len(rows)
+
+
+def _iter_bars_rows(
+    records: Iterable[Mapping[str, Any]],
+) -> Iterator[tuple[Any, ...]]:
+    yield from _bars_rows_with_quality(records).rows
+
+
+def _bars_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _NormalizedRows:
+    rows: list[tuple[Any, ...]] = []
+    rejected_count = 0
+    excluded_count = 0
+    for record in records:
+        ticker, code_status = _code_quality(_first(record, "Code", "code"))
+        if code_status == "rejected":
+            rejected_count += 1
+            continue
+        if code_status == "excluded":
+            excluded_count += 1
+            continue
+        traded_at = _date_iso(_first(record, "Date", "date", "TradedAt", "traded_at"))
+        if ticker is None or traded_at is None:
+            rejected_count += 1
+            continue
+        rows.append(
+            (
+                ticker,
+                traded_at,
+                _to_float(_first(record, "Open", "open", "O", "o")),
+                _to_float(_first(record, "High", "high", "H", "h")),
+                _to_float(_first(record, "Low", "low", "L", "l")),
+                _to_float(_first(record, "Close", "close", "C", "c")),
+                _to_float(_first(record, "Volume", "volume", "Vo", "vo")),
+                _to_float(_first(record, "TurnoverValue", "turnover_value", "Va", "va")),
+                _to_float(_first(record, "AdjustmentOpen", "adjustment_open", "AdjO", "adj_o")),
+                _to_float(_first(record, "AdjustmentHigh", "adjustment_high", "AdjH", "adj_h")),
+                _to_float(_first(record, "AdjustmentLow", "adjustment_low", "AdjL", "adj_l")),
+                _to_float(_first(record, "AdjustmentClose", "adjustment_close", "AdjC", "adj_c")),
+                _to_float(
+                    _first(record, "AdjustmentVolume", "adjustment_volume", "AdjVo", "adj_vo")
+                ),
+                _to_float(_first(record, "AdjustmentFactor", "adjustment_factor", "AdjFactor")),
+                _to_str_or_none(_first(record, "UpperLimit", "upper_limit", "UL")),
+                _to_str_or_none(_first(record, "LowerLimit", "lower_limit", "LL")),
+            )
+        )
+    return _NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
+
+
+def _import_fin_summary_file(conn: sqlite3.Connection, path: Path) -> int:
+    records = _read_json_array(path)
+    rows = list(_iter_fin_summary_rows(records))
+    if not rows:
+        _record_raw_import(conn, "jquants_fin_summaries", path, 0, None, None)
+        return 0
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO jquants_fin_summaries(
+          ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding,
+          sales, cfo, cash_eq, total_assets, equity, operating_profit, ordinary_profit, profit,
+          fiscal_period, fiscal_year_end, period_start, period_end, raw_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        rows,
+    )
+    disclosed_dates = sorted({row[1] for row in rows})
+    _record_raw_import(
+        conn,
+        "jquants_fin_summaries",
+        path,
+        len(rows),
+        disclosed_dates[0],
+        disclosed_dates[-1],
+    )
+    return len(rows)
+
+
+def _iter_fin_summary_rows(
+    records: Iterable[Mapping[str, Any]],
+) -> Iterator[tuple[Any, ...]]:
+    yield from _fin_summary_rows_with_quality(records).rows
+
+
+def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _NormalizedRows:
+    rows: list[tuple[Any, ...]] = []
+    rejected_count = 0
+    excluded_count = 0
+    for record in records:
+        ticker, quality = _code_quality(_first(record, "Code", "code"))
+        if quality == "rejected":
+            rejected_count += 1
+            continue
+        if quality == "excluded":
+            excluded_count += 1
+            continue
+        disclosed_at = _date_iso(
+            _first(record, "DisclosedDate", "disclosed_at", "DiscDate", "disc_date", "Date")
+        )
+        if ticker is None or disclosed_at is None:
+            rejected_count += 1
+            continue
+        rows.append(
+            (
+                ticker,
+                disclosed_at,
+                _to_float(_first(record, "ForecastEPS", "forecast_eps", "FEPS")),
+                _to_float(_first(record, "EpsTtm", "eps_ttm", "EPS", "eps")),
+                _to_float(_first(record, "BPS", "bps")),
+                _to_float(
+                    _first(
+                        record,
+                        "SharesOutstanding",
+                        "shares_outstanding",
+                        "IssuedShareEquityQuote",
+                        "ShOutFY",
+                        "AvgSh",
+                    )
+                ),
+                _to_float(_first(record, "NetSales", "net_sales", "Sales", "sales")),
+                _to_float(
+                    _first(
+                        record,
+                        "CashFlowsFromOperatingActivities",
+                        "cash_flows_from_operating_activities",
+                        "OperatingCashFlow",
+                        "operating_cash_flow",
+                        "CFO",
+                        "cfo",
+                    )
+                ),
+                _to_float(
+                    _first(
+                        record,
+                        "CashAndEquivalents",
+                        "cash_and_equivalents",
+                        "CashEq",
+                        "cash_eq",
+                    )
+                ),
+                _to_float(_first(record, "TotalAssets", "total_assets", "TA", "ta")),
+                _to_float(_first(record, "Equity", "equity", "Eq", "eq")),
+                _to_float(_first(record, "OperatingProfit", "operating_profit", "OP")),
+                _to_float(_first(record, "OrdinaryProfit", "ordinary_profit", "OdP")),
+                _to_float(_first(record, "Profit", "profit", "NP")),
+                _to_str_or_none(
+                    _first(record, "TypeOfCurrentPeriod", "type_of_current_period", "CurPerType")
+                ),
+                _date_iso(
+                    _first(
+                        record,
+                        "CurrentFiscalYearEndDate",
+                        "current_fiscal_year_end_date",
+                        "CurFYEn",
+                    )
+                ),
+                _date_iso(
+                    _first(
+                        record, "CurrentPeriodStartDate", "current_period_start_date", "CurPerSt"
+                    )
+                ),
+                _date_iso(
+                    _first(record, "CurrentPeriodEndDate", "current_period_end_date", "CurPerEn")
+                ),
+                json.dumps(record, ensure_ascii=False, sort_keys=True),
+            )
+        )
+    return _NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
+
+
+def _import_master_file(conn: sqlite3.Connection, path: Path) -> int:
+    records = _read_json_array(path)
+    rows = list(_iter_master_rows(records))
+    if not rows:
+        _record_raw_import(conn, "jquants_master_snapshots", path, 0, None, None)
+        return 0
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO jquants_master_snapshots(
+          snapshot_date, ticker, name, market, sector_33, is_common_stock, raw_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        rows,
+    )
+    snapshot_dates = sorted({row[0] for row in rows})
+    _record_raw_import(
+        conn,
+        "jquants_master_snapshots",
+        path,
+        len(rows),
+        snapshot_dates[0],
+        snapshot_dates[-1],
+    )
+    return len(rows)
+
+
+def _iter_master_rows(
+    records: Iterable[Mapping[str, Any]],
+) -> Iterator[tuple[Any, ...]]:
+    yield from _master_rows_with_quality(records).rows
+
+
+def _master_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _NormalizedRows:
+    rows: list[tuple[Any, ...]] = []
+    rejected_count = 0
+    excluded_count = 0
+    for record in records:
+        ticker, code_status = _code_quality(_first(record, "Code", "code"))
+        if code_status == "rejected":
+            rejected_count += 1
+            continue
+        if code_status == "excluded":
+            excluded_count += 1
+            continue
+        snapshot_date = _date_iso(_first(record, "Date", "date", "snapshot_date")) or "unknown"
+        is_common_stock = _is_common_stock_flag(record)
+        sector_raw = _to_str_or_none(
+            _first(record, "Sector33CodeName", "sector_33", "Sector33Name", "S33Nm", "S33")
+        )
+        rows.append(
+            (
+                snapshot_date,
+                ticker,
+                _to_str_or_none(_first(record, "CompanyName", "company_name", "Name", "CoName")),
+                _to_str_or_none(_first(record, "MarketCodeName", "market_segment", "MktNm", "Mkt")),
+                # J-Quants は同じ TSE 33 セクターを半角中黒 (U+FF65)・全角中黒 (U+30FB) で
+                # 揺らせて返してくる。SQLite に取り込む段階で全角形に正規化し、outlook /
+                # candidates / select の matcher が一意に解決できるようにする。
+                normalize_sector_name(sector_raw) if sector_raw else sector_raw,
+                1 if is_common_stock else 0,
+                json.dumps(record, ensure_ascii=False, sort_keys=True),
+            )
+        )
+    return _NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
+
+
+def _import_earnings_calendar_file(conn: sqlite3.Connection, path: Path) -> int:
+    records = _read_json_array(path)
+    rows = _earnings_calendar_rows(records)
+    if not rows:
+        _record_raw_import(conn, "jquants_earnings_calendar", path, 0, None, None)
+        return 0
+    conn.executemany(
+        "INSERT OR REPLACE INTO jquants_earnings_calendar("
+        "announcement_date, ticker, raw_json"
+        ") VALUES (?, ?, ?)",
+        rows,
+    )
+    dates = sorted({row[0] for row in rows})
+    _record_raw_import(
+        conn,
+        "jquants_earnings_calendar",
+        path,
+        len(rows),
+        dates[0],
+        dates[-1],
+    )
+    return len(rows)
+
+
+def _import_market_calendar_file(conn: sqlite3.Connection, path: Path) -> int:
+    records = _read_json_array(path)
+    rows = _market_calendar_rows(records)
+    if not rows:
+        _record_raw_import(conn, "jquants_market_calendar", path, 0, None, None)
+        return 0
+    conn.executemany(
+        "INSERT OR REPLACE INTO jquants_market_calendar(day, is_business_day, raw_json) "
+        "VALUES (?, ?, ?)",
+        rows,
+    )
+    days = sorted({row[0] for row in rows})
+    _record_raw_import(conn, "jquants_market_calendar", path, len(rows), days[0], days[-1])
+    return len(rows)
+
+
+def _import_edinet_documents_file(conn: sqlite3.Connection, path: Path) -> int:
+    records = _read_json_array(path)
+    # The filename is `{doc_date}.json`; the API payload itself does not
+    # always carry the date so we recover it from the filename stem.
+    doc_date = path.stem
+    rows = _edinet_document_rows(doc_date, records)
+    if not rows:
+        _record_raw_import(conn, "edinet_documents", path, 0, doc_date, doc_date)
+        return 0
+    conn.executemany(
+        "INSERT OR REPLACE INTO edinet_documents("
+        "doc_date, doc_id, sec_code, doc_type_code, raw_json"
+        ") VALUES (?, ?, ?, ?, ?)",
+        rows,
+    )
+    _record_raw_import(conn, "edinet_documents", path, len(rows), doc_date, doc_date)
+    return len(rows)
+
+
+def _import_edinet_metrics_file(conn: sqlite3.Connection, path: Path) -> int:
+    records = _read_json_array(path)
+    asof_date = path.stem
+    rows = _edinet_metric_rows(asof_date, records)
     if not rows:
         _record_raw_import(conn, "edinet_metrics", path, 0, asof_date, asof_date)
         return 0
@@ -1194,6 +1879,153 @@ def _record_raw_import(
             max_date,
         ),
     )
+    _record_source_coverage_for_legacy_raw_import(
+        conn,
+        source=source,
+        path=path,
+        record_count=record_count,
+        min_date=min_date,
+        max_date=max_date,
+    )
+
+
+def _record_source_coverage_for_legacy_raw_import(
+    conn: sqlite3.Connection,
+    *,
+    source: str,
+    path: Path,
+    record_count: int,
+    min_date: str | None,
+    max_date: str | None,
+) -> None:
+    window = _request_window_for_file(source, path)
+    coverage_start = window[0].isoformat() if window else min_date
+    coverage_end = window[1].isoformat() if window else max_date
+    operation = _legacy_operation_for_source(source)
+    if operation is None:
+        return
+    _record_source_coverage(
+        conn,
+        source=source,
+        operation=operation,
+        coverage_key=(
+            _range_coverage_key(operation, window[0], window[1])
+            if window
+            else path.stem
+            if source in {"edinet_documents", "edinet_metrics", "jpx_regulation_flags"}
+            else path.name
+        ),
+        coverage_start=coverage_start,
+        coverage_end=coverage_end,
+        requested_start=coverage_start,
+        requested_end=coverage_end,
+        params={"legacy_raw_path": _path_key(path)},
+        record_count=record_count,
+        raw_record_count=record_count,
+        skipped_record_count=0,
+        replace=False,
+    )
+
+
+def _record_source_coverage(
+    conn: sqlite3.Connection,
+    *,
+    source: str,
+    operation: str,
+    coverage_key: str,
+    coverage_start: str | None,
+    coverage_end: str | None,
+    requested_start: str | None,
+    requested_end: str | None,
+    params: Mapping[str, Any],
+    record_count: int,
+    raw_record_count: int | None = None,
+    skipped_record_count: int = 0,
+    rejected_record_count: int = 0,
+    excluded_record_count: int = 0,
+    status: str = "ok",
+    error: str | None = None,
+    fetched_at_utc: str | None = None,
+    replace: bool = True,
+) -> None:
+    normalized_record_count = record_count
+    conflict_action = "REPLACE" if replace else "IGNORE"
+    conn.execute(
+        f"""
+        INSERT OR {conflict_action} INTO source_coverage(
+          source, operation, coverage_key, coverage_start, coverage_end,
+          requested_start, requested_end, params_json, fetched_at_utc, record_count,
+          raw_record_count, normalized_record_count, skipped_record_count,
+          rejected_record_count, excluded_record_count, status, error
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            source,
+            operation,
+            coverage_key,
+            coverage_start,
+            coverage_end,
+            requested_start,
+            requested_end,
+            json.dumps(params, ensure_ascii=False, sort_keys=True),
+            fetched_at_utc or datetime.now(UTC).isoformat(),
+            record_count,
+            raw_record_count if raw_record_count is not None else record_count,
+            normalized_record_count,
+            skipped_record_count,
+            rejected_record_count,
+            excluded_record_count,
+            status,
+            error,
+        ),
+    )
+
+
+def _migrate_source_coverage_from_raw_imports(conn: sqlite3.Connection) -> None:
+    try:
+        migrated = conn.execute(
+            "SELECT value FROM cache_metadata WHERE key = ?",
+            (_RAW_IMPORT_COVERAGE_MIGRATION_KEY,),
+        ).fetchone()
+        if migrated is not None and migrated[0] == SCHEMA_VERSION:
+            return
+        rows = conn.execute(
+            "SELECT source, path, record_count, min_date, max_date FROM raw_imports"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return
+    if not rows:
+        return
+    for source, path_text, record_count, min_date, max_date in rows:
+        _record_source_coverage_for_legacy_raw_import(
+            conn,
+            source=str(source),
+            path=Path(str(path_text)),
+            record_count=int(record_count or 0),
+            min_date=str(min_date) if min_date else None,
+            max_date=str(max_date) if max_date else None,
+        )
+    conn.execute(
+        "INSERT OR REPLACE INTO cache_metadata(key, value) VALUES(?, ?)",
+        (_RAW_IMPORT_COVERAGE_MIGRATION_KEY, SCHEMA_VERSION),
+    )
+
+
+def _legacy_operation_for_source(source: str) -> str | None:
+    return {
+        "jquants_daily_bars": "get_eq_bars_daily_range",
+        "jquants_fin_summaries": "get_fin_summary_range",
+        "jquants_master_snapshots": "get_eq_master",
+        "jquants_earnings_calendar": "get_eq_earnings_cal",
+        "jquants_market_calendar": "get_mkt_calendar",
+        "edinet_documents": "documents",
+        "edinet_metrics": "metrics",
+        "jpx_regulation_flags": "regulations",
+    }.get(source)
+
+
+def _range_coverage_key(operation: str, start: date, end: date) -> str:
+    return f"{operation}:{start.isoformat()}..{end.isoformat()}"
 
 
 def _read_json_array(path: Path) -> list[Mapping[str, Any]]:

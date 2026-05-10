@@ -23,7 +23,7 @@ from baibai_loop.screening.lineage import (
     write_manifest,
 )
 from baibai_loop.screening.render import JST
-from baibai_loop.screening.sqlite_cache import open_connection
+from baibai_loop.screening.sqlite_cache import SCHEMA_VERSION, open_connection
 
 
 class ScreeningLineageTests(unittest.TestCase):
@@ -183,17 +183,24 @@ class ScreeningLineageTests(unittest.TestCase):
             sqlite_path = Path(tmpdir) / "market.sqlite"
             conn = open_connection(sqlite_path)
             conn.execute(
-                "INSERT INTO raw_imports("
-                "source, path, sha256, imported_at_utc, record_count, min_date, max_date"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO source_coverage("
+                "source, operation, coverage_key, coverage_start, coverage_end, "
+                "requested_start, requested_end, params_json, fetched_at_utc, record_count, "
+                "rejected_record_count, excluded_record_count"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     "jquants_master_snapshots",
-                    "records/_data/raw/screening/jquants/get_eq_master.json",
-                    "0" * 64,
+                    "get_eq_master",
+                    "latest",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "{}",
                     "2026-04-24T00:00:00+00:00",
                     4445,
-                    "2026-04-24",
-                    "2026-04-24",
+                    2,
+                    3,
                 ),
             )
             conn.commit()
@@ -204,11 +211,99 @@ class ScreeningLineageTests(unittest.TestCase):
             self.assertIsNotNone(summary)
             assert summary is not None  # narrow for type checker
             self.assertEqual(summary["path"], sqlite_path.as_posix())
-            self.assertIn(summary["schema_version"], {"v1", "v2", "v3", "v4", "v5", "v6", "v7"})
+            self.assertEqual(summary["schema_version"], SCHEMA_VERSION)
             self.assertEqual(
-                summary["imports"],
-                [{"source": "jquants_master_snapshots", "files": 1, "records": 4445}],
+                summary["coverage"],
+                [
+                    {
+                        "source": "jquants_master_snapshots",
+                        "windows": 1,
+                        "records": 4445,
+                        "raw_records": 4445,
+                        "normalized_records": 4445,
+                        "skipped_records": 0,
+                        "rejected_records": 2,
+                        "excluded_records": 3,
+                        "statuses": ["ok"],
+                        "non_ok_windows": 0,
+                        "errors": [],
+                    }
+                ],
             )
+
+    def test_compute_sqlite_summary_preserves_error_messages_with_commas(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            conn.execute(
+                "INSERT INTO source_coverage("
+                "source, operation, coverage_key, coverage_start, coverage_end, "
+                "requested_start, requested_end, params_json, fetched_at_utc, record_count, "
+                "status, error"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "edinet_metrics",
+                    "metrics",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "{}",
+                    "2026-04-24T00:00:00+00:00",
+                    0,
+                    "failed",
+                    "no filings selected: a, b, c",
+                ),
+            )
+            conn.commit()
+            conn.close()
+
+            summary = compute_sqlite_summary(sqlite_path)
+
+            self.assertIsNotNone(summary)
+            assert summary is not None
+            coverage = summary["coverage"]
+            assert isinstance(coverage, list)
+            self.assertEqual(coverage[0]["errors"], ["no filings selected: a, b, c"])
+
+    def test_compute_sqlite_summary_preserves_explicit_zero_raw_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            conn.execute(
+                "INSERT INTO source_coverage("
+                "source, operation, coverage_key, coverage_start, coverage_end, "
+                "requested_start, requested_end, params_json, fetched_at_utc, record_count, "
+                "raw_record_count, normalized_record_count"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "edinet_metrics",
+                    "metrics",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "{}",
+                    "2026-04-24T00:00:00+00:00",
+                    10,
+                    0,
+                    0,
+                ),
+            )
+            conn.commit()
+            conn.close()
+
+            summary = compute_sqlite_summary(sqlite_path)
+
+            self.assertIsNotNone(summary)
+            assert summary is not None
+            coverage = summary["coverage"]
+            assert isinstance(coverage, list)
+            self.assertEqual(coverage[0]["records"], 10)
+            self.assertEqual(coverage[0]["raw_records"], 0)
+            self.assertEqual(coverage[0]["normalized_records"], 0)
 
     def test_write_manifest_includes_sqlite_summary_when_present(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

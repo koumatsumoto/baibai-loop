@@ -39,6 +39,14 @@ jobs:
       - name: Type check
         run: uv run mypy
 
+      - name: Block tracked raw screening cache
+        run: |
+          if git ls-files 'records/_data/raw/screening' 'records/_data/cache' | grep -q .; then
+            echo 'screening cache must not be tracked under records/_data/raw/screening or records/_data/cache'
+            git ls-files 'records/_data/raw/screening' 'records/_data/cache'
+            exit 1
+          fi
+
       - name: Tests with coverage
         run: |
           uv run coverage run -m pytest
@@ -53,12 +61,6 @@ jobs:
         # warning-only として実行する。--strict は別 PR で outlook を
         # 整理した後に有効化する。
         run: uv run baibai-loop-precheck
-
-      - name: Verify raw JSON cache size
-        # Guard against committing a raw JSON file at or above GitHub's 50MB
-        # warning threshold. The SQLite cross-check is skipped because
-        # records/_data/cache/screening/market.sqlite is .gitignored.
-        run: uv run python -m baibai_loop.screening.cli verify-raw-cache
 
       - name: Build package
         run: uv build --wheel

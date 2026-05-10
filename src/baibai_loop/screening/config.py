@@ -9,14 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from .jpx_sources import JPX_SPECIAL_CAUTION_SOURCE_NAME
 
-# Git-tracked raw JSON cache root. Each per-fetch JSON file is stored verbatim
-# under this path so that another machine can reconstruct the screening input
-# from a fresh `git clone` without re-hitting J-Quants / EDINET / JPX (issue
-# #45). Each file is expected to stay below 50MB so it fits standard Git.
-DEFAULT_CACHE_DIR = Path("records/_data/raw/screening")
-# Gitignored derived caches (SQLite, rebuild temp). Built from the raw JSON
-# under DEFAULT_CACHE_DIR; safe to delete and rebuild on any machine.
-DEFAULT_SQLITE_CACHE_DIR = Path("records/_data/cache/screening")
+# 再生成可能な一時 cache root。CSV ZIP や任意 disclosure title 入力など、
+# SQLite 正本から外れる補助ファイルだけを置く。
+DEFAULT_CACHE_DIR = Path(".cache/screening")
+# screening の local canonical store。provider fetch は raw JSON を経由せず
+# この SQLite に正規化済み rows と source_coverage を直接保存する。
+DEFAULT_SQLITE_CACHE_DIR = Path("data/screening")
 JQUANTS_CLIENT_V2_METHODS = (
     "get_eq_master",
     "get_eq_bars_daily_range",
@@ -99,8 +97,8 @@ class ScreeningConfig(BaseModel):
             missing_names = ", ".join(missing)
             raise ConfigError(f"missing required env vars: {missing_names}")
 
-        # cache_dir は git 追跡対象の canonical raw-data tree に固定する。
-        # env override は chunk lineage を分断するため受け付けない。
+        # cache_dir / sqlite_cache_dir は repo 内の運用規約に固定する。
+        # env override は作業者ごとの local store 分岐を生むため受け付けない。
         cache_dir_value = str(DEFAULT_CACHE_DIR)
         sqlite_cache_dir_value = str(DEFAULT_SQLITE_CACHE_DIR)
         jpx_regulation_urls = {

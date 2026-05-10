@@ -7,7 +7,7 @@ EDINET `type=5` CSV-derived metrics の coverage / precision を確認するた�
 - Source: EDINET API v2 `documents.json?type=2` と `documents/{docID}?type=5`
 - 対象書類: 有価証券報告書 (`120`)、訂正有価証券報告書 (`130`)、四半期報告書 (`140`)、訂正四半期報告書 (`150`)、半期報告書 (`160`)、訂正半期報告書 (`170`)
 - raw XBRL (`type=1`) 直接 parser は非スコープ。CSV-derived metrics の coverage / precision が不十分な場合に別 issue で検討する
-- CSV ZIP 本体は `records/_data/cache/screening/edinet/csv_zips/` の derived cache。git 管理対象は抽出後の `records/_data/raw/screening/edinet/metrics/YYYY-MM-DD.json`
+- CSV ZIP 本体は `.cache/screening/edinet/csv_zips/` の disposable cache。抽出後の metrics は `data/screening/market.sqlite` の `edinet_metrics` と `source_coverage` に保存する
 - 抽出 metric には `source_doc_id`、`document_type`、`source_submit_datetime`、`source_period_start`、`source_period_end` を保持する。research ではこの metadata から対象 EDINET 書類と対象期間へ戻って一次確認する。`source_period_start/end` は EDINET documents metadata 上の書類対象期間であり、半期報告書では metric の測定期間そのものとは限らない
 
 ## 2. Extracted Metrics
@@ -48,7 +48,7 @@ Command:
 
 ```bash
 uv run python -m baibai_loop.screening.cli extract-edinet-metrics --asof 2026-05-01 --lookback-days 540
-uv run python -m baibai_loop.screening.cli rebuild-cache
+uv run python -m baibai_loop.screening.cli verify-cache-coverage --asof 2026-05-01
 uv run python -m baibai_loop.screening.cli run --asof 2026-05-01
 ```
 

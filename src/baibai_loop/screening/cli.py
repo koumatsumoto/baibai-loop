@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
+import sqlite3
 import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -17,7 +17,6 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
 from baibai_loop._env import load_project_env
 
 from .config import (
-    DEFAULT_CACHE_DIR,
     DEFAULT_SQLITE_CACHE_DIR,
     ConfigError,
     ScreeningConfig,
@@ -28,10 +27,8 @@ from .freshness import detect_edinet_freshness_warnings, load_disclosure_events
 from .lineage import (
     build_provider_settings,
     build_run_id,
-    compute_cache_manifest,
-    compute_cache_manifest_hash,
     compute_config_hash,
-    write_manifest,
+    compute_sqlite_fingerprint,
 )
 from .metrics import (
     build_metrics,
@@ -71,13 +68,12 @@ from .schema import (
     TTMQuality,
     normalize_ticker,
 )
-from .sqlite_cache import SQLiteCacheError, is_sqlite_stale, rebuild_from_raw, refresh_from_raw
+from .sqlite_cache import SQLiteCacheError, rebuild_from_raw, store_edinet_metrics
 from .sqlite_coverage import CacheCoverageIssue, verify_screening_sqlite_coverage
 from .tiers import position_tier
 from .universe import (
     build_universe,
 )
-from .verify import DEFAULT_MAX_FILE_SIZE_MB, verify_raw_cache
 
 
 class _NoAliasDumper(yaml.SafeDumper):
@@ -174,7 +170,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--allow-stale-jpx",
         action="store_true",
-        help="allow fetching latest JPX regulation data for a stale backfill asof",
+        help="allow an already-cached stale JPX snapshot for a historical backfill asof",
     )
     run_parser.add_argument(
         "--output-path",
@@ -191,14 +187,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     bootstrap_parser = subparsers.add_parser(
         "bootstrap-cache",
-        help="bootstrap raw caches before provider logic is fully wired",
+        help="bootstrap canonical SQLite inputs for a screening as-of date",
     )
-    bootstrap_parser.add_argument("--start", required=True, help="start date (YYYY-MM-DD)")
-    bootstrap_parser.add_argument("--end", required=True, help="end date (YYYY-MM-DD)")
+    bootstrap_parser.add_argument(
+        "--asof",
+        help="screening target date (YYYY-MM-DD); computes each source window automatically",
+    )
+    bootstrap_parser.add_argument("--start", help="legacy explicit start date (YYYY-MM-DD)")
+    bootstrap_parser.add_argument("--end", help="legacy explicit end date (YYYY-MM-DD)")
 
     extract_parser = subparsers.add_parser(
         "extract-edinet-metrics",
-        help="extract EDINET type=5 CSV metrics into records/_data/raw/screening/edinet/metrics",
+        help="extract EDINET type=5 CSV metrics into canonical SQLite",
     )
     extract_parser.add_argument("--asof", required=True, help="metrics as-of date (YYYY-MM-DD)")
     extract_parser.add_argument(
@@ -210,48 +210,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     rebuild_parser = subparsers.add_parser(
         "rebuild-cache",
-        help=(
-            "rebuild SQLite cache under records/_data/cache/screening/ "
-            "from records/_data/raw/screening/ JSON"
-        ),
+        help=("legacy migration: rebuild canonical SQLite under data/screening/ from raw JSON"),
     )
     rebuild_parser.add_argument(
         "--raw-dir",
-        default=str(DEFAULT_CACHE_DIR),
-        help=f"raw JSON root (default: {DEFAULT_CACHE_DIR})",
+        required=True,
+        help="legacy raw JSON root to import (required; disposable .cache is not a default)",
     )
     rebuild_parser.add_argument(
         "--sqlite-path",
         default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
         help=f"output SQLite path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
-    )
-
-    verify_parser = subparsers.add_parser(
-        "verify-raw-cache",
-        help="check that records/_data/raw/screening/ stays under 50MB per file and matches SQLite",
-    )
-    verify_parser.add_argument(
-        "--raw-dir",
-        default=str(DEFAULT_CACHE_DIR),
-        help=f"raw JSON root (default: {DEFAULT_CACHE_DIR})",
-    )
-    verify_parser.add_argument(
-        "--max-size-mb",
-        type=int,
-        default=DEFAULT_MAX_FILE_SIZE_MB,
-        help=(
-            "fail when any single file is at or above this size in MB "
-            f"(default: {DEFAULT_MAX_FILE_SIZE_MB})"
-        ),
-    )
-    verify_parser.add_argument(
-        "--sqlite-path",
-        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
-        help=(
-            "SQLite cache to cross-check SHA-256 against raw_imports "
-            f"(default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite). "
-            "If the file is missing, the cross-check is skipped silently."
-        ),
     )
 
     coverage_parser = subparsers.add_parser(
@@ -267,12 +236,28 @@ def build_parser() -> argparse.ArgumentParser:
     coverage_parser.add_argument(
         "--require-edinet-metrics",
         action="store_true",
-        help="require EDINET metrics coverage for --asof",
+        dest="require_edinet_metrics",
+        help="require EDINET metrics coverage for --asof (default)",
     )
+    coverage_parser.add_argument(
+        "--allow-missing-edinet-metrics",
+        action="store_false",
+        dest="require_edinet_metrics",
+        help="legacy/degraded verification only; run still requires EDINET metrics",
+    )
+    coverage_parser.set_defaults(require_edinet_metrics=True)
     coverage_parser.add_argument(
         "--rules-path",
         default=str(DEFAULT_RULES_PATH),
         help=f"screening rules path for required JPX sources (default: {DEFAULT_RULES_PATH})",
+    )
+    coverage_parser.add_argument(
+        "--allow-stale-jpx",
+        action="store_true",
+        help=(
+            "degraded verification only; allow old JPX fetched_at_utc snapshots "
+            "(use together with run --allow-stale-jpx)"
+        ),
     )
 
     select_parser = subparsers.add_parser(
@@ -326,14 +311,6 @@ def main(argv: list[str] | None = None) -> int:
             sqlite_path=Path(args.sqlite_path),
         )
 
-    if args.command == "verify-raw-cache":
-        # verify-raw-cache only inspects local files; no API tokens needed.
-        return verify_raw_cache_command(
-            raw_dir=Path(args.raw_dir),
-            max_size_mb=args.max_size_mb,
-            sqlite_path=Path(args.sqlite_path),
-        )
-
     if args.command == "verify-cache-coverage":
         # verify-cache-coverage is local-only and never reads raw JSON or calls providers.
         rules = load_screening_rules(Path(args.rules_path))
@@ -342,6 +319,7 @@ def main(argv: list[str] | None = None) -> int:
             asof_date=_parse_iso_date(args.asof),
             require_edinet_metrics=args.require_edinet_metrics,
             required_jpx_sources=rules.universe.required_jpx_flags,
+            allow_stale_jpx=args.allow_stale_jpx,
         )
 
     try:
@@ -353,23 +331,14 @@ def main(argv: list[str] | None = None) -> int:
     sqlite_path = config.sqlite_cache_dir / "market.sqlite"
     run_asof_date = _parse_iso_date(args.asof) if args.command == "run" else None
     run_rules = load_screening_rules(config.rules_path) if args.command == "run" else None
-    # SQLite is the only range-aware fallback for the JSON chunk cache —
-    # without it, asof-relative chunk filenames force a full 1200-day
-    # refetch whenever asof shifts. Auto-refresh before each `run` so
-    # range queries always hit a fresh derived cache.
-    if args.command == "run" and is_sqlite_stale((config.cache_dir,), sqlite_path):
-        print(f"refreshing SQLite cache from {config.cache_dir}…", file=sys.stderr)
-        try:
-            refresh_from_raw(config.cache_dir, sqlite_path)
-        except SQLiteCacheError as exc:
-            print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
-            return 1
     if args.command == "run":
         assert run_asof_date is not None
         coverage_issues = verify_screening_sqlite_coverage(
             sqlite_path,
             run_asof_date,
+            require_edinet_metrics=True,
             required_jpx_sources=run_rules.universe.required_jpx_flags if run_rules else (),
+            allow_stale_jpx=args.allow_stale_jpx,
         )
         if coverage_issues:
             _print_cache_coverage_issues(
@@ -415,12 +384,23 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if args.command == "bootstrap-cache":
+        if args.asof:
+            if args.start or args.end:
+                print("--asof cannot be combined with --start/--end", file=sys.stderr)
+                return 1
+            return bootstrap_cache_command(
+                asof_date=_parse_iso_date(args.asof),
+                providers=providers,
+            )
+        if not args.start or not args.end:
+            print("bootstrap-cache requires --asof, or both --start and --end", file=sys.stderr)
+            return 1
         start = _parse_iso_date(args.start)
         end = _parse_iso_date(args.end)
         if start > end:
             print("--start must be on or before --end", file=sys.stderr)
             return 1
-        return bootstrap_cache_command(start, end, providers)
+        return bootstrap_cache_command(start=start, end=end, providers=providers)
 
     if args.command == "extract-edinet-metrics":
         if args.lookback_days < 0:
@@ -433,7 +413,7 @@ def main(argv: list[str] | None = None) -> int:
             asof_date=_parse_iso_date(args.asof),
             lookback_days=args.lookback_days,
             provider=providers.edinet,
-            cache_dir=config.cache_dir,
+            sqlite_path=sqlite_path,
         )
 
     raise AssertionError(f"unreachable command: {args.command!r}")
@@ -504,7 +484,7 @@ def run_command(
             asof_date, asof_date + timedelta(days=90)
         )
         jpx_snapshot = providers.jpx.get_regulation_snapshot(asof_date)
-    except (JQuantsProviderError, JPXProviderError) as exc:
+    except (JQuantsProviderError, JPXProviderError, sqlite3.Error) as exc:
         # 型情報を残して root cause を追いやすくする。secret を含みうる 3rd party
         # exception はラップ済みなので str(exc) 表示で安全。
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
@@ -528,19 +508,22 @@ def run_command(
     shares_by_ticker = build_shares_outstanding_index(summaries_by_ticker)
     edinet_load_error: str | None = None
     edinet_by_ticker: Mapping[str, EdinetMetricRecord] = {}
-    if providers.edinet is not None:
-        try:
-            edinet_by_ticker = providers.edinet.load_metric_records(asof_date)
-        except (EDINETProviderError, OSError, ValueError) as exc:
-            # cache 破損 / JSON 不正 / IO 失敗を明示的にログする。pre-existing の
-            # empty cache (FileNotFoundError 相当) は load_metric_records 側で {} を返す
-            # ため、ここに来るのは本質的に異常系のみ。
-            edinet_load_error = f"{type(exc).__name__}: {exc}"
-            print(
-                f"warning: EDINET load_metric_records failed: {edinet_load_error}",
-                file=sys.stderr,
-            )
-            edinet_by_ticker = {}
+    if providers.edinet is None:
+        print("EDINET preprocessed metrics provider is required for screening run", file=sys.stderr)
+        return 1
+    try:
+        edinet_by_ticker = providers.edinet.load_metric_records(asof_date)
+    except (EDINETProviderError, OSError, ValueError) as exc:
+        # cache 破損 / JSON 不正 / IO 失敗は EDINET 必須条件を満たせないため、
+        # preflight 後の race や run_command 直呼びでも YAML 生成へ進めない。
+        edinet_load_error = f"{type(exc).__name__}: {exc}"
+        print(f"EDINET load_metric_records failed: {edinet_load_error}", file=sys.stderr)
+        return 1
+    if not edinet_by_ticker:
+        print(
+            "EDINET preprocessed metrics are required but empty for screening run", file=sys.stderr
+        )
+        return 1
 
     universe_result = build_universe(
         asof_date=asof_date,
@@ -711,18 +694,7 @@ def run_command(
             f"{disclosure_load_result.unsupported_record_count} 件"
         )
 
-    cache_manifest = compute_cache_manifest(config.cache_dir)
-    cache_manifest_hash = compute_cache_manifest_hash(cache_manifest)
-    write_manifest(
-        config.cache_dir / "manifests" / f"{run_id}.json",
-        cache_manifest,
-        run_id=run_id,
-        asof_date=asof_date,
-        config_hash=config_hash,
-        manifest_hash=cache_manifest_hash,
-        generated_at=run_now,
-        sqlite_path=config.sqlite_cache_dir / "market.sqlite",
-    )
+    cache_manifest_hash = compute_sqlite_fingerprint(config.sqlite_cache_dir / "market.sqlite")
 
     data_sources = ["j-quants-light", "jpx-public-regulation"]
     if edinet_by_ticker:
@@ -1344,49 +1316,13 @@ def rebuild_cache_command(
     return 0
 
 
-def verify_raw_cache_command(
-    *,
-    raw_dir: Path,
-    max_size_mb: int,
-    sqlite_path: Path,
-    stdout: TextIO | None = None,
-) -> int:
-    """Walk `raw_dir` and report files that exceed the size threshold or whose
-    SHA-256 differs from `raw_imports.sha256` in the SQLite cache.
-    """
-    out = stdout if stdout is not None else sys.stdout
-    if not raw_dir.exists():
-        print(f"raw JSON directory not found: {raw_dir}", file=sys.stderr)
-        return 1
-
-    sqlite_arg: Path | None = sqlite_path if sqlite_path.exists() else None
-    result = verify_raw_cache(raw_dir, max_size_mb=max_size_mb, sqlite_path=sqlite_arg)
-    print(
-        f"verified {result.file_count} files ({result.total_bytes} bytes); "
-        f"largest single file {result.max_file_size} bytes",
-        file=out,
-    )
-    if result.size_violations:
-        print(f"size violations (>= {max_size_mb}MB):", file=out)
-        for violation in result.size_violations:
-            mb = violation.size / (1024 * 1024)
-            print(f"  {violation.path} ({mb:.1f}MB)", file=out)
-    if result.sqlite_issues:
-        print("SQLite SHA-256 mismatches (run rebuild-cache):", file=out)
-        for issue in result.sqlite_issues:
-            print(
-                f"  {issue.path}: expected {issue.expected_sha256} got {issue.actual_sha256}",
-                file=out,
-            )
-    return 1 if result.has_failures else 0
-
-
 def verify_cache_coverage_command(
     *,
     sqlite_path: Path,
     asof_date: date,
-    require_edinet_metrics: bool = False,
+    require_edinet_metrics: bool = True,
     required_jpx_sources: Iterable[str] = (),
+    allow_stale_jpx: bool = False,
     stdout: TextIO | None = None,
 ) -> int:
     """Check whether SQLite can serve every source `screening run` will read.
@@ -1400,6 +1336,7 @@ def verify_cache_coverage_command(
         asof_date,
         require_edinet_metrics=require_edinet_metrics,
         required_jpx_sources=required_jpx_sources,
+        allow_stale_jpx=allow_stale_jpx,
     )
     if issues:
         _print_cache_coverage_issues(issues, asof_date=asof_date, stream=out)
@@ -1422,7 +1359,7 @@ def _print_cache_coverage_issues(
         print(f"  {issue.source} {issue.requirement}: {issue.reason}", file=stream)
     print(
         "screening run is cache-only and will not fall back to raw JSON or provider APIs; "
-        "refresh or rebuild SQLite from existing raw JSON, then rerun coverage verification.",
+        "run bootstrap-cache --asof and extract-edinet-metrics, then rerun coverage verification.",
         file=stream,
     )
 
@@ -1432,7 +1369,7 @@ def extract_edinet_metrics_command(
     asof_date: date,
     lookback_days: int,
     provider: EDINETAdapter,
-    cache_dir: Path,
+    sqlite_path: Path,
     stdout: TextIO | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
@@ -1444,10 +1381,44 @@ def extract_edinet_metrics_command(
             documents.extend(provider.list_documents(cursor))
             cursor += timedelta(days=1)
     except EDINETProviderError as exc:
-        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        message = f"EDINET document listing failed: {type(exc).__name__}: {exc}"
+        store_edinet_metrics(
+            sqlite_path,
+            asof_date,
+            [],
+            status="failed",
+            error=message,
+        )
+        print(message, file=sys.stderr)
         return 1
 
-    candidates = select_document_candidates(documents)
+    try:
+        candidates = select_document_candidates(documents)
+    except EDINETProviderError as exc:
+        message = f"EDINET document selection failed: {type(exc).__name__}: {exc}"
+        store_edinet_metrics(
+            sqlite_path,
+            asof_date,
+            [],
+            status="failed",
+            error=message,
+        )
+        print(message, file=sys.stderr)
+        return 1
+    if not candidates:
+        message = (
+            f"no EDINET filings selected for --asof {asof_date.isoformat()} "
+            f"within {start.isoformat()}..{asof_date.isoformat()}"
+        )
+        store_edinet_metrics(
+            sqlite_path,
+            asof_date,
+            [],
+            status="failed",
+            error=message,
+        )
+        print(message, file=sys.stderr)
+        return 1
     records: list[EdinetMetricRecord] = []
     hard_failure_count = 0
     quality_issue_count = 0
@@ -1480,14 +1451,16 @@ def extract_edinet_metrics_command(
             quality_issue_count += 1
         records.append(record)
 
-    output_path = cache_dir / "edinet" / "metrics" / f"{asof_date.isoformat()}.json"
     payload = [_metric_record_payload(record) for record in records]
-    write_text_atomic(
-        output_path,
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+    store_edinet_metrics(
+        sqlite_path,
+        asof_date,
+        payload,
+        status="failed" if hard_failure_count else "ok",
+        error=f"{hard_failure_count} EDINET CSV hard failures" if hard_failure_count else None,
     )
     print(
-        f"wrote {output_path}: {len(records)} records "
+        f"wrote {sqlite_path}: {len(records)} EDINET metric records "
         f"from {len(candidates)} selected filings; "
         f"{hard_failure_count} hard failures; "
         f"{quality_issue_count} records with quality issues",
@@ -1531,18 +1504,50 @@ def _date_iso(value: date | None) -> str | None:
     return value.isoformat() if value is not None else None
 
 
-def bootstrap_cache_command(start: date, end: date, providers: ProviderBundle) -> int:
+def bootstrap_cache_command(
+    start: date | None = None,
+    end: date | None = None,
+    providers: ProviderBundle | None = None,
+    *,
+    asof_date: date | None = None,
+) -> int:
+    if providers is None:
+        raise ValueError("bootstrap_cache_command requires providers")
+    if asof_date is not None:
+        bars_start = asof_date - timedelta(days=1200)
+        fin_start = asof_date - timedelta(days=730)
+        earnings_end = asof_date + timedelta(days=90)
+        try:
+            providers.jquants.get_eq_master()
+            providers.jquants.get_eq_bars_daily_range(bars_start, asof_date)
+            providers.jquants.get_fin_summary_range(fin_start, asof_date)
+            providers.jquants.get_eq_earnings_cal(asof_date, earnings_end)
+            providers.jquants.get_mkt_calendar(asof_date, asof_date)
+            if providers.edinet is not None:
+                providers.edinet.bootstrap_cache(fin_start, asof_date)
+            else:
+                print(
+                    "note: EDINET provider is not configured; skipping EDINET bootstrap",
+                    file=sys.stderr,
+                )
+            providers.jpx.bootstrap_cache(asof_date)
+        except (JQuantsProviderError, EDINETProviderError, JPXProviderError, sqlite3.Error) as exc:
+            print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+        return 0
+    if start is None or end is None:
+        raise ValueError("bootstrap_cache_command requires asof_date or start/end")
     try:
         providers.jquants.bootstrap_cache(start, end)
         if providers.edinet is not None:
             providers.edinet.bootstrap_cache(start, end)
-        try:
-            providers.jpx.bootstrap_cache(end)
-        except JPXProviderError as exc:
-            # JPX は run 側で fail-fast 扱いだが、bootstrap では continue する。
-            # ただし silent にせず stderr で運用者に見せる。
-            print(f"warning: jpx bootstrap skipped: {exc}", file=sys.stderr)
-    except (JQuantsProviderError, EDINETProviderError) as exc:
+        else:
+            print(
+                "note: EDINET provider is not configured; skipping EDINET bootstrap",
+                file=sys.stderr,
+            )
+        providers.jpx.bootstrap_cache(end)
+    except (JQuantsProviderError, EDINETProviderError, JPXProviderError, sqlite3.Error) as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     return 0

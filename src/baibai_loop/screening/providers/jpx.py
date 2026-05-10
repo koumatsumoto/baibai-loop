@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import csv
-import json
 import logging
 import re
 from collections.abc import Mapping
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from html.parser import HTMLParser
 from io import BytesIO
 from pathlib import Path
@@ -251,32 +250,19 @@ class JPXProvider:
             if cached is not None:
                 return cached
         self._raise_if_cache_only("jpx_regulation_flags", asof_date.isoformat())
-        cache_path = self._regulation_cache_path(asof_date)
-        if cache_path.exists():
-            payload = json.loads(cache_path.read_text(encoding="utf-8"))
-            schema_version = payload.get("schema_version")
-            if schema_version not in (None, _JPX_CACHE_SCHEMA_VERSION):
-                raise JPXProviderError(f"incompatible JPX cache schema version: {schema_version}")
-            self._warn_if_stale_cache(asof_date, payload)
-            return JPXRegulationSnapshot(
-                flags_by_ticker={
-                    ticker: tuple(flags)
-                    for ticker, flags in payload.get("flags_by_ticker", {}).items()
-                },
-                source_names=tuple(payload.get("source_names", ())),
-            )
-
         if not self._regulation_urls:
             raise JPXProviderError(
                 "JPX regulation data is required but no public CSV/Excel/HTML URL is configured"
             )
 
         flags: dict[str, set[str]] = {}
+        fetched_source_names: list[str] = []
         for source_name, url in self._regulation_urls.items():
             download_url = url
             if source_name == JPX_SPECIAL_CAUTION_SOURCE_NAME and self._special_caution_index_url:
                 download_url = self._resolve_special_attention_xls_url(asof_date)
             rows = self._download_rows(source_name, download_url)
+            fetched_source_names.append(source_name)
             for row in rows:
                 ticker_raw = (
                     row.get("ticker")
@@ -286,7 +272,9 @@ class JPXProvider:
                 )
                 flag = row.get("flag") or row.get("規制区分") or row.get("status") or source_name
                 if not ticker_raw:
-                    continue
+                    raise JPXProviderError(
+                        f"missing JPX code column in regulation source {source_name}"
+                    )
                 ticker = parse_jpx_code(ticker_raw)
                 flags.setdefault(ticker, set()).add(str(flag))
 
@@ -294,23 +282,17 @@ class JPXProvider:
             flags_by_ticker={
                 ticker: tuple(sorted(values)) for ticker, values in sorted(flags.items())
             },
-            source_names=tuple(sorted(self._regulation_urls.keys())),
+            source_names=tuple(sorted(fetched_source_names)),
         )
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(
-            json.dumps(
-                {
-                    "schema_version": _JPX_CACHE_SCHEMA_VERSION,
-                    "fetched_at_utc": datetime.now(UTC).isoformat(),
-                    "flags_by_ticker": snapshot.flags_by_ticker,
-                    "source_names": list(snapshot.source_names),
-                },
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-            ),
-            encoding="utf-8",
-        )
+        if self._sqlite_path is not None:
+            from ..sqlite_cache import store_jpx_regulations
+
+            store_jpx_regulations(
+                self._sqlite_path,
+                asof_date,
+                flags_by_ticker=snapshot.flags_by_ticker,
+                source_names=snapshot.source_names,
+            )
         return snapshot
 
     def has_regulation_cache(self, asof_date: date) -> bool:
@@ -321,7 +303,7 @@ class JPXProvider:
                 return True
         if self._cache_only:
             return False
-        return self._regulation_cache_path(asof_date).exists()
+        return False
 
     def _regulation_cache_path(self, asof_date: date) -> Path:
         return self._cache_dir / "regulations" / f"{asof_date.isoformat()}.json"
@@ -332,8 +314,8 @@ class JPXProvider:
         sqlite_label = self._sqlite_path.as_posix() if self._sqlite_path is not None else "<none>"
         raise JPXProviderError(
             f"SQLite cache incomplete for {source} ({requirement}); "
-            f"sqlite={sqlite_label}. `screening run` is cache-only: refresh or rebuild "
-            "SQLite from existing raw JSON before running screening."
+            f"sqlite={sqlite_label}. `screening run` is cache-only: bootstrap or repair "
+            "SQLite before running screening."
         )
 
     def _warn_if_stale_cache(self, asof_date: date, payload: Mapping[str, object]) -> None:

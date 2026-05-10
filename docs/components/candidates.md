@@ -158,7 +158,7 @@ evidence_hits_summary:
 - `screening_rules_snapshot` / `metric_catalog_snapshot`: immutable dated config snapshot を参照する
 - `policy_snapshot`: screening に適用した policy snapshot
 - `playbook_set_hash`: screening playbook set の full content hash
-- `cache_manifest_hash`: `records/_data/raw/screening/` 配下の provider raw JSON cache の manifest hash
+- `cache_manifest_hash`: `data/screening/market.sqlite` の schema / coverage / row count から作る軽量 fingerprint
 - `evidence_hits`: 通過した playbook-linked screen を表す field。概念上は evidence hit として扱う。複数 hit 可。表示順は rule config の lane 順に固定し、単一総合 score は持たせない
 - `metrics`: candidate-level の flat な派生値。例: `sales_ttm`, `ocf_ttm`, `edinet_ocf_ttm`, `cash_to_market_cap`, `net_cash_to_market_cap`, `price_to_equity`, `equity_ratio`, `ocf_yield`, `fcf_yield`, `cfo_yoy`, `sales_yoy`, `operating_profit`, `edinet_source_doc_id`, `edinet_source_submit_datetime`, `edinet_source_period_start`, `edinet_source_period_end`, `edinet_failure_reasons`
 - `ocf_ttm` は J-Quants 財務サマリーを TTM 正規化した営業 CF。`edinet_ocf_ttm` は EDINET CSV から抽出した CFO で、`fcf-yield-discount` の `fcf_ttm = edinet_ocf_ttm - capex_ttm` と同じ source family に属する
@@ -169,12 +169,12 @@ evidence_hits_summary:
 - `market_cap_oku` / `avg_turnover_oku`: research の position size と流動性確認で使う。universe 閾値は `market_cap_oku >= 100` かつ `avg_turnover_oku >= 1.0`
 - `price_change_60d` / `price_change_4w`: split 影響を排除するため adjustment_close ベースで算出
 - `split_adjustment_flag`: `price_change_60d` と同じ window 内に J-Quants `AdjustmentFactor` が株式分割 / 株式併合の調整を示した場合に `true`
-- `freshness_warnings`: EDINET CSV-derived metrics の提出日以降、候補 `asof_date` までに任意の disclosure title cache (`records/_data/raw/screening/disclosures/**/*.json`) から M&A / 借入 / 社債 / 自己株買い / 設備投資 / 増資 / 減資 / 資本業務提携系の title keyword hit が見つかった場合に出す。同日開示は時刻順を判定できないため保守的に warning 対象に含める。`stale_metric: edinet_metrics` は net cash だけでなく cash / debt / EV / equity / share count / FCF など EDINET-derived metrics 全体の再確認が必要であることを示す。cache が無い場合は provider_status_lines で optional unavailable として明示する
+- `freshness_warnings`: EDINET CSV-derived metrics の提出日以降、候補 `asof_date` までに任意の disclosure title cache (`.cache/screening/disclosures/**/*.json`) から M&A / 借入 / 社債 / 自己株買い / 設備投資 / 増資 / 減資 / 資本業務提携系の title keyword hit が見つかった場合に出す。同日開示は時刻順を判定できないため保守的に warning 対象に含める。`stale_metric: edinet_metrics` は net cash だけでなく cash / debt / EV / equity / share count / FCF など EDINET-derived metrics 全体の再確認が必要であることを示す。cache が無い場合は provider_status_lines で optional unavailable として明示する
 - `sector_relative_strength_percentile`: **sector 単位の percentile**。銘柄個別の同業種内相対強度ではない
 
 ### 4.1 traceability の境界
 
-candidates YAML は `run_id` / snapshot refs / `cache_manifest_hash` で実行時の input を追跡可能にする。ただし J-Quants Light tier は rolling 12 週間が取得上限のため、cache 中身が消えると過去データの再取得は不能。完全な point-in-time 再現性は本 repo のスコープ外とする。
+candidates YAML は `run_id` / snapshot refs / `cache_manifest_hash` で実行時の SQLite input 状態を追跡可能にする。ただし J-Quants Light tier は rolling 12 週間が取得上限のため、SQLite 中身が消えると過去データの再取得は不能。完全な point-in-time 再現性は本 repo のスコープ外とする。
 
 ### 4.2 実行メモの扱い
 

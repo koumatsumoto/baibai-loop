@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -21,6 +21,7 @@ from baibai_loop.screening.providers.edinet import (
     EDINETProviderError,
     normalize_metric_record,
     parse_csv_zip_metric_record,
+    parse_doc_id,
     parse_sec_code,
     select_document_candidates,
 )
@@ -34,6 +35,7 @@ from baibai_loop.screening.providers.jquants import (
     parse_jquants_code,
 )
 from baibai_loop.screening.schema import TTMQuality
+from baibai_loop.screening.sqlite_cache import store_edinet_metrics, store_jpx_regulations
 
 
 class _FixedHtmlSession:
@@ -72,6 +74,13 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_parse_sec_code_rejects_non_zero_suffix(self) -> None:
         with self.assertRaises(EDINETProviderError):
             parse_sec_code("130A1")
+
+    def test_parse_sec_code_sanitizes_control_characters_in_error(self) -> None:
+        with self.assertRaises(EDINETProviderError) as ctx:
+            parse_sec_code("7203\n0")
+
+        self.assertNotIn("\n", str(ctx.exception))
+        self.assertIn("'7203?0'", str(ctx.exception))
 
     def test_parse_jquants_code_supports_zero_suffix(self) -> None:
         self.assertEqual(parse_jquants_code("130A0"), "130A")
@@ -153,6 +162,46 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(selected["7203"].doc_id, "S100B")
         self.assertNotIn("6758", selected)
         self.assertNotIn("9984", selected)
+
+    def test_select_document_candidates_rejects_invalid_sec_code(self) -> None:
+        with self.assertRaisesRegex(EDINETProviderError, "invalid EDINET secCode"):
+            select_document_candidates(
+                [
+                    {
+                        "docID": "S100A",
+                        "secCode": "../../72030",
+                        "docTypeCode": "120",
+                        "csvFlag": "1",
+                        "xbrlFlag": "1",
+                        "legalStatus": "1",
+                        "disclosureStatus": "0",
+                        "withdrawalStatus": "0",
+                    }
+                ]
+            )
+
+    def test_parse_doc_id_rejects_path_traversal(self) -> None:
+        with self.assertRaisesRegex(EDINETProviderError, "invalid EDINET docID"):
+            parse_doc_id("../../etc/passwd")
+
+    def test_parse_doc_id_sanitizes_control_characters_in_error(self) -> None:
+        with self.assertRaises(EDINETProviderError) as ctx:
+            parse_doc_id("S100\nBAD")
+
+        self.assertNotIn("\n", str(ctx.exception))
+        self.assertIn("'S100?BAD'", str(ctx.exception))
+
+    def test_download_csv_zip_rejects_invalid_doc_id_before_cache_path(self) -> None:
+        class ExplodingSession:
+            def get(self, url: str, timeout: int):
+                del url, timeout
+                raise AssertionError("request should not be attempted")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            provider = EDINETProvider("key", Path(tmp), session=ExplodingSession())
+
+            with self.assertRaisesRegex(EDINETProviderError, "invalid EDINET docID"):
+                provider.download_csv_zip("../../etc/passwd")
 
     def test_select_document_candidates_prefers_new_period_over_old_correction(self) -> None:
         selected = select_document_candidates(
@@ -463,15 +512,15 @@ class ScreeningProviderTests(unittest.TestCase):
 
     def test_edinet_provider_reads_cached_metrics_without_api_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            cache_dir = Path(tmpdir) / "raw"
-            metrics_dir = cache_dir / "edinet" / "metrics"
-            metrics_dir.mkdir(parents=True)
-            (metrics_dir / "2026-05-01.json").write_text(
-                json.dumps([{"ticker": "7203", "cash": 100.0, "debt": 10.0}]),
-                encoding="utf-8",
+            cache_dir = Path(tmpdir) / ".cache" / "screening"
+            sqlite_path = Path(tmpdir) / "data" / "screening" / "market.sqlite"
+            store_edinet_metrics(
+                sqlite_path,
+                date(2026, 5, 1),
+                [{"ticker": "7203", "cash": 100.0, "debt": 10.0}],
             )
 
-            provider = EDINETProvider(None, cache_dir)
+            provider = EDINETProvider(None, cache_dir, sqlite_path=sqlite_path)
             records = provider.load_metric_records(date(2026, 5, 1))
 
         self.assertEqual(records["7203"].cash, 100.0)
@@ -713,7 +762,8 @@ class ScreeningProviderTests(unittest.TestCase):
 
         client = FakeClient()
         with tempfile.TemporaryDirectory() as tmp:
-            provider = JQuantsProvider("token", Path(tmp), client=client)
+            sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
+            provider = JQuantsProvider("token", Path(tmp), client=client, sqlite_path=sqlite_path)
             with patch("baibai_loop.screening.providers.jquants.time.sleep", return_value=None):
                 bars = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
 
@@ -742,7 +792,8 @@ class ScreeningProviderTests(unittest.TestCase):
 
         client = FakeClient()
         with tempfile.TemporaryDirectory() as tmp:
-            provider = JQuantsProvider("token", Path(tmp), client=client)
+            sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
+            provider = JQuantsProvider("token", Path(tmp), client=client, sqlite_path=sqlite_path)
             with patch("baibai_loop.screening.providers.jquants.time.sleep") as sleep_first:
                 first = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
             self.assertEqual(len(client.calls), 2)
@@ -1177,17 +1228,19 @@ class ScreeningProviderTests(unittest.TestCase):
         url = "https://www.jpx.co.jp/listing/market-alerts/supervision/"
         with tempfile.TemporaryDirectory() as tmp:
             cache_dir = Path(tmp) / "cache"
-            cache_path = cache_dir / "jpx" / "regulations" / "2026-04-24.json"
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(
-                '{"schema_version": 1, "flags_by_ticker": {"4917": ["整理銘柄"]}, "source_names": ["整理銘柄"]}',
-                encoding="utf-8",
+            sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
+            store_jpx_regulations(
+                sqlite_path,
+                date(2026, 4, 24),
+                flags_by_ticker={"4917": ("整理銘柄",)},
+                source_names=("整理銘柄",),
             )
 
             provider = JPXProvider(
                 cache_dir,
                 regulation_urls={"整理銘柄": url},
                 session=ExplodingSession(),
+                sqlite_path=sqlite_path,
             )
             snapshot = provider.get_regulation_snapshot(date(2026, 4, 24))
 
@@ -1208,159 +1261,47 @@ class ScreeningProviderTests(unittest.TestCase):
         url = "https://www.jpx.co.jp/listing/market-alerts/supervision/list.csv"
         with tempfile.TemporaryDirectory() as tmp:
             cache_dir = Path(tmp) / "cache"
+            sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
             provider = JPXProvider(
                 cache_dir,
                 regulation_urls={"整理銘柄": url},
                 session=FakeSession(),
+                sqlite_path=sqlite_path,
             )
             provider.get_regulation_snapshot(date(2026, 4, 24))
-            cache_path = cache_dir / "jpx" / "regulations" / "2026-04-24.json"
-            payload = json.loads(cache_path.read_text(encoding="utf-8"))
-
-        self.assertEqual(payload["schema_version"], 1)
-        self.assertIn("fetched_at_utc", payload)
-        self.assertEqual(payload["flags_by_ticker"], {"4917": ["整理銘柄"]})
-
-    def test_jpx_get_regulation_snapshot_reads_legacy_cache_without_schema_version(self) -> None:
-        url = "https://www.jpx.co.jp/listing/market-alerts/supervision/"
-        with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "cache"
-            cache_path = cache_dir / "jpx" / "regulations" / "2026-04-24.json"
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(
-                '{"flags_by_ticker": {"4917": ["整理銘柄"]}, "source_names": ["整理銘柄"]}',
-                encoding="utf-8",
+            rows = (
+                sqlite3.connect(sqlite_path)
+                .execute(
+                    "SELECT fetched_at_utc FROM jpx_regulation_sources WHERE asof_date = ?",
+                    ("2026-04-24",),
+                )
+                .fetchall()
             )
 
-            provider = JPXProvider(cache_dir, regulation_urls={"整理銘柄": url})
-            snapshot = provider.get_regulation_snapshot(date(2026, 4, 24))
+        self.assertEqual(len(rows), 1)
+        self.assertIsNotNone(rows[0][0])
 
-        self.assertEqual(snapshot.flags_by_ticker, {"4917": ("整理銘柄",)})
+    def test_jpx_get_regulation_snapshot_rejects_rows_without_code_column(self) -> None:
+        class FakeResponse:
+            status_code = 200
+            content = b"unexpected\n49170\n"
+            headers = {"content-type": "text/csv"}
 
-    def test_jpx_get_regulation_snapshot_reads_cache_without_fetched_at(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "cache"
-            cache_path = cache_dir / "jpx" / "regulations" / "2026-04-24.json"
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(
-                '{"schema_version": 1, "flags_by_ticker": {"4917": ["整理銘柄"]}, "source_names": ["整理銘柄"]}',
-                encoding="utf-8",
-            )
+        class FakeSession:
+            def get(self, url: str, timeout: int) -> FakeResponse:
+                del url, timeout
+                return FakeResponse()
 
-            provider = JPXProvider(cache_dir)
-            snapshot = provider.get_regulation_snapshot(date(2026, 4, 24))
+        provider = JPXProvider(
+            Path("/tmp"),
+            regulation_urls={
+                "整理銘柄": "https://www.jpx.co.jp/listing/market-alerts/supervision/list.csv"
+            },
+            session=FakeSession(),
+        )
 
-        self.assertEqual(snapshot.flags_by_ticker, {"4917": ("整理銘柄",)})
-
-    def test_jpx_get_regulation_snapshot_warns_when_cache_fetch_date_is_stale(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "cache"
-            cache_path = cache_dir / "jpx" / "regulations" / "2026-01-15.json"
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "fetched_at_utc": "2026-04-24T00:00:00+00:00",
-                        "flags_by_ticker": {"4917": ["整理銘柄"]},
-                        "source_names": ["整理銘柄"],
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            provider = JPXProvider(cache_dir)
-            with self.assertLogs("baibai_loop.screening.providers.jpx", level="WARNING") as logs:
-                snapshot = provider.get_regulation_snapshot(date(2026, 1, 15))
-
-        self.assertEqual(snapshot.flags_by_ticker, {"4917": ("整理銘柄",)})
-        self.assertIn("JPX regulation cache may be stale", "\n".join(logs.output))
-
-    def test_jpx_get_regulation_snapshot_warns_just_over_stale_boundary(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "cache"
-            cache_path = cache_dir / "jpx" / "regulations" / "2026-04-14.json"
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "fetched_at_utc": "2026-04-24T00:00:00+00:00",
-                        "flags_by_ticker": {"4917": ["整理銘柄"]},
-                        "source_names": ["整理銘柄"],
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            provider = JPXProvider(cache_dir)
-            with self.assertLogs("baibai_loop.screening.providers.jpx", level="WARNING") as logs:
-                snapshot = provider.get_regulation_snapshot(date(2026, 4, 14))
-
-        self.assertEqual(snapshot.flags_by_ticker, {"4917": ("整理銘柄",)})
-        self.assertIn("weekdays=8", "\n".join(logs.output))
-
-    def test_jpx_get_regulation_snapshot_does_not_warn_at_stale_boundary(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "cache"
-            cache_path = cache_dir / "jpx" / "regulations" / "2026-04-15.json"
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "fetched_at_utc": "2026-04-24T00:00:00+00:00",
-                        "flags_by_ticker": {"4917": ["整理銘柄"]},
-                        "source_names": ["整理銘柄"],
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            provider = JPXProvider(cache_dir)
-            with self.assertNoLogs("baibai_loop.screening.providers.jpx", level="WARNING"):
-                snapshot = provider.get_regulation_snapshot(date(2026, 4, 15))
-
-        self.assertEqual(snapshot.flags_by_ticker, {"4917": ("整理銘柄",)})
-
-    def test_jpx_get_regulation_snapshot_warns_on_invalid_fetched_at(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "cache"
-            cache_path = cache_dir / "jpx" / "regulations" / "2026-04-24.json"
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "fetched_at_utc": "not-a-date",
-                        "flags_by_ticker": {"4917": ["整理銘柄"]},
-                        "source_names": ["整理銘柄"],
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            provider = JPXProvider(cache_dir)
-            with self.assertLogs("baibai_loop.screening.providers.jpx", level="WARNING") as logs:
-                snapshot = provider.get_regulation_snapshot(date(2026, 4, 24))
-
-        self.assertEqual(snapshot.flags_by_ticker, {"4917": ("整理銘柄",)})
-        self.assertIn("invalid fetched_at_utc", "\n".join(logs.output))
-
-    def test_jpx_get_regulation_snapshot_rejects_incompatible_cache_schema(self) -> None:
-        url = "https://www.jpx.co.jp/listing/market-alerts/supervision/"
-        with tempfile.TemporaryDirectory() as tmp:
-            cache_dir = Path(tmp) / "cache"
-            cache_path = cache_dir / "jpx" / "regulations" / "2026-04-24.json"
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(
-                '{"schema_version": 99, "flags_by_ticker": {}, "source_names": []}',
-                encoding="utf-8",
-            )
-
-            provider = JPXProvider(cache_dir, regulation_urls={"整理銘柄": url})
-            with self.assertRaisesRegex(JPXProviderError, "incompatible JPX cache schema version"):
-                provider.get_regulation_snapshot(date(2026, 4, 24))
+        with self.assertRaisesRegex(JPXProviderError, "missing JPX code column"):
+            provider.get_regulation_snapshot(date(2026, 4, 24))
 
     def test_jpx_decode_html_text_prefers_content_type_charset(self) -> None:
         # JPX が cp932 ページを Content-Type で告知してきた場合、フォールバックの utf-8

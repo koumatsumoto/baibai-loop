@@ -4,7 +4,7 @@ import hashlib
 import json
 import sqlite3
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
@@ -30,6 +30,36 @@ class CacheManifestRecord:
 class CacheManifest:
     cache_root: Path
     files: tuple[CacheManifestRecord, ...]
+
+
+@dataclass(slots=True)
+class _SqliteCoverageAccumulator:
+    source: str
+    windows: int = 0
+    records: int = 0
+    raw_records: int = 0
+    normalized_records: int = 0
+    skipped_records: int = 0
+    rejected_records: int = 0
+    excluded_records: int = 0
+    statuses: set[str] = field(default_factory=set)
+    non_ok_windows: int = 0
+    errors: set[str] = field(default_factory=set)
+
+    def as_payload(self) -> dict[str, object]:
+        return {
+            "source": self.source,
+            "windows": self.windows,
+            "records": self.records,
+            "raw_records": self.raw_records,
+            "normalized_records": self.normalized_records,
+            "skipped_records": self.skipped_records,
+            "rejected_records": self.rejected_records,
+            "excluded_records": self.excluded_records,
+            "statuses": sorted(self.statuses),
+            "non_ok_windows": self.non_ok_windows,
+            "errors": sorted(self.errors),
+        }
 
 
 def build_provider_settings(config: ScreeningConfig) -> dict[str, object]:
@@ -94,6 +124,14 @@ def compute_cache_manifest_hash(manifest: CacheManifest) -> str:
     return _short_sha256(_manifest_files_payload(manifest))
 
 
+def compute_sqlite_fingerprint(sqlite_path: Path) -> str:
+    """Return a lightweight deterministic fingerprint for the SQLite store."""
+    summary = compute_sqlite_summary(sqlite_path)
+    if summary is None:
+        return _short_sha256({"sqlite": "missing", "path": sqlite_path.as_posix()})
+    return _short_sha256(summary)
+
+
 def build_run_id(asof_date: date, config_hash: str) -> str:
     suffix = config_hash[:_RUN_ID_SUFFIX_LENGTH]
     return f"screening-{asof_date:%Y%m%d}-{suffix}"
@@ -130,12 +168,7 @@ def write_manifest(
 
 
 def compute_sqlite_summary(sqlite_path: Path | None) -> dict[str, object] | None:
-    """Snapshot the SQLite cache state at run time so the lineage manifest
-    records which derived cache (if any) was available alongside the raw
-    JSON inputs. Returns `None` when the SQLite file is missing — the
-    `cache_manifest_hash` already covers the canonical raw JSON so a
-    missing SQLite is not a lineage failure.
-    """
+    """Snapshot the canonical SQLite state at run time."""
     if sqlite_path is None or not sqlite_path.exists():
         return None
     conn = sqlite3.connect(sqlite_path)
@@ -147,22 +180,52 @@ def compute_sqlite_summary(sqlite_path: Path | None) -> dict[str, object] | None
         except sqlite3.OperationalError:
             return None
         try:
-            counts_rows = conn.execute(
-                "SELECT source, COUNT(*), COALESCE(SUM(record_count), 0) "
-                "FROM raw_imports GROUP BY source ORDER BY source"
+            coverage_rows = conn.execute(
+                "SELECT source, record_count, raw_record_count, normalized_record_count, "
+                "skipped_record_count, rejected_record_count, excluded_record_count, "
+                "status, error FROM source_coverage ORDER BY source"
             ).fetchall()
         except sqlite3.OperationalError:
-            counts_rows = []
+            coverage_rows = []
     finally:
         conn.close()
+
+    coverage_by_source: dict[str, _SqliteCoverageAccumulator] = {}
+    for (
+        source,
+        record_count,
+        raw_record_count,
+        normalized_record_count,
+        skipped_record_count,
+        rejected_record_count,
+        excluded_record_count,
+        status,
+        error,
+    ) in coverage_rows:
+        source_key = str(source)
+        entry = coverage_by_source.setdefault(
+            source_key, _SqliteCoverageAccumulator(source=source_key)
+        )
+        records = int(record_count or 0)
+        entry.windows += 1
+        entry.records += records
+        entry.raw_records += records if raw_record_count is None else int(raw_record_count)
+        entry.normalized_records += (
+            records if normalized_record_count is None else int(normalized_record_count)
+        )
+        entry.skipped_records += int(skipped_record_count or 0)
+        entry.rejected_records += int(rejected_record_count or 0)
+        entry.excluded_records += int(excluded_record_count or 0)
+        entry.statuses.add(str(status or "ok"))
+        if status != "ok":
+            entry.non_ok_windows += 1
+        if error:
+            entry.errors.add(str(error))
 
     return {
         "path": sqlite_path.as_posix(),
         "schema_version": schema_version_row[0] if schema_version_row else None,
-        "imports": [
-            {"source": source, "files": files, "records": records}
-            for source, files, records in counts_rows
-        ],
+        "coverage": [entry.as_payload() for entry in coverage_by_source.values()],
     }
 
 

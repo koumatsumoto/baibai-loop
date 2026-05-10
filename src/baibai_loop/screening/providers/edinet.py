@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import io
-import json
 import re
 import time
 import zipfile
@@ -34,6 +33,7 @@ CORRECTION_DOC_TYPE_CODES = frozenset({"130", "150", "170"})
 _DOCUMENT_DESCRIPTION_PERIOD_RE = re.compile(
     r"(\d{4}/\d{2}/\d{2})\s*[－~～-]\s*(\d{4}/\d{2}/\d{2})"
 )
+_DOC_ID_RE = re.compile(r"S[0-9A-Z]{3,32}")
 
 
 def _validate_finite(value: float | None) -> float | None:
@@ -136,11 +136,7 @@ class EDINETProvider:
         self._session = session or requests.Session()
         self._sqlite_path = Path(sqlite_path) if sqlite_path is not None else None
         self._cache_only = cache_only
-        self._zip_cache_dir = (
-            self._sqlite_path.parent / "edinet" / "csv_zips"
-            if self._sqlite_path is not None
-            else self._cache_dir / "csv_zips"
-        )
+        self._zip_cache_dir = self._cache_dir / "csv_zips"
 
     def list_documents(self, on_date: date) -> list[dict[str, Any]]:
         if self._sqlite_path is not None:
@@ -150,13 +146,6 @@ class EDINETProvider:
             if cached is not None:
                 return cached
         self._raise_if_cache_only("edinet_documents", on_date.isoformat())
-        cache_path = self._cache_dir / "documents" / f"{on_date.isoformat()}.json"
-        if cache_path.exists():
-            payload = json.loads(cache_path.read_text(encoding="utf-8"))
-            if not isinstance(payload, list):
-                raise EDINETProviderError("cached EDINET document payload must be a list")
-            return _coerce_document_items(payload, source="cached EDINET")
-
         api_key = self._require_api_key("list_documents")
         query = urlencode(
             {
@@ -170,10 +159,14 @@ class EDINETProvider:
         results = data.get("results", [])
         if not isinstance(results, list):
             raise EDINETProviderError("EDINET documents.json returned unexpected results payload")
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(
-            json.dumps(results, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
-        )
+        if self._sqlite_path is not None:
+            from ..sqlite_cache import store_edinet_documents
+
+            store_edinet_documents(
+                self._sqlite_path,
+                on_date,
+                _coerce_document_items(results, source="EDINET documents.json"),
+            )
         return _coerce_document_items(results, source="EDINET documents.json")
 
     def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
@@ -185,15 +178,7 @@ class EDINETProvider:
                 return dict(cached)
         if self._cache_only:
             return {}
-        cache_path = self._cache_dir / "metrics" / f"{asof_date.isoformat()}.json"
-        if not cache_path.exists():
-            return {}
-        payload = json.loads(cache_path.read_text(encoding="utf-8"))
-        if not isinstance(payload, list):
-            raise EDINETProviderError("cached EDINET metric payload must be a list")
-        return {
-            record.ticker: record for record in (normalize_metric_record(item) for item in payload)
-        }
+        return {}
 
     def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
         total = 0
@@ -204,14 +189,15 @@ class EDINETProvider:
         return {"documents": total}
 
     def download_csv_zip(self, doc_id: str) -> bytes:
-        cache_path = self._zip_cache_dir / f"{doc_id}.zip"
+        safe_doc_id = parse_doc_id(doc_id)
+        cache_path = self._zip_cache_dir / f"{safe_doc_id}.zip"
         if cache_path.exists():
             return cache_path.read_bytes()
-        self._raise_if_cache_only("edinet_csv_zip", doc_id)
+        self._raise_if_cache_only("edinet_csv_zip", safe_doc_id)
 
         api_key = self._require_api_key("download_csv_zip")
         query = urlencode({"type": 5, "Subscription-Key": api_key})
-        url = f"{EDINET_API_BASE}/documents/{doc_id}?{query}"
+        url = f"{EDINET_API_BASE}/documents/{safe_doc_id}?{query}"
         content = self._request_bytes(url)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_bytes(content)
@@ -228,8 +214,9 @@ class EDINETProvider:
         sqlite_label = self._sqlite_path.as_posix() if self._sqlite_path is not None else "<none>"
         raise EDINETProviderError(
             f"SQLite cache incomplete for {source} ({requirement}); "
-            f"sqlite={sqlite_label}. `screening run` is cache-only: refresh or rebuild "
-            "SQLite from existing raw JSON before running screening."
+            f"sqlite={sqlite_label}. `screening run` is cache-only: run "
+            "`bootstrap-cache --asof` / `extract-edinet-metrics` or repair SQLite "
+            "before running screening."
         )
 
     def _request_json(self, url: str) -> dict[str, Any]:
@@ -324,6 +311,13 @@ def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
     )
 
 
+def parse_doc_id(value: object) -> str:
+    raw = str(value or "").strip().upper()
+    if not _DOC_ID_RE.fullmatch(raw):
+        raise EDINETProviderError(f"invalid EDINET docID: {_safe_error_value(value)}")
+    return raw
+
+
 def select_document_candidates(
     documents: Sequence[Mapping[str, Any]],
 ) -> dict[str, EdinetDocumentCandidate]:
@@ -340,14 +334,12 @@ def select_document_candidates(
             continue
         if _is_unusable_status(document):
             continue
-        try:
-            ticker = parse_sec_code(_coalesce(document, "secCode", "sec_code"))
-        except EDINETProviderError:
-            continue
+        doc_id = parse_doc_id(raw_doc_id)
+        ticker = parse_sec_code(_coalesce(document, "secCode", "sec_code"))
         period_start, period_end = _document_period(document)
         candidate = EdinetDocumentCandidate(
             ticker=ticker,
-            doc_id=str(raw_doc_id),
+            doc_id=doc_id,
             doc_type_code=raw_type,
             submit_datetime=_to_str_or_none(_coalesce(document, "submitDateTime")),
             period_start=period_start,
@@ -756,10 +748,22 @@ def parse_sec_code(sec_code: Any) -> str:
     if len(raw) == 4:
         return normalize_ticker(raw)
     if len(raw) != 5:
-        raise EDINETProviderError(f"invalid EDINET secCode: {sec_code!r}")
+        raise EDINETProviderError(f"invalid EDINET secCode: {_safe_error_value(sec_code)}")
     if raw[-1] != "0":
-        raise EDINETProviderError(f"unsupported EDINET secCode suffix: {sec_code!r}")
+        raise EDINETProviderError(
+            f"unsupported EDINET secCode suffix: {_safe_error_value(sec_code)}"
+        )
     return normalize_ticker(raw[:4])
+
+
+def _safe_error_value(value: object, *, max_length: int = 80) -> str:
+    text = str(value)
+    sanitized = "".join(
+        char if char.isprintable() and char not in "\r\n\t" else "?" for char in text
+    )
+    if len(sanitized) > max_length:
+        sanitized = sanitized[:max_length] + "..."
+    return repr(sanitized)
 
 
 def _parse_ttm_quality(value: Any) -> TTMQuality:

@@ -8,6 +8,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +24,7 @@ from baibai_loop.screening.sqlite_cache import (
     open_connection,
     rebuild_from_raw,
     refresh_from_raw,
+    store_jquants_daily_bars,
 )
 
 
@@ -113,6 +115,39 @@ class OpenConnectionTests(unittest.TestCase):
 
 
 class RebuildFromRawTests(unittest.TestCase):
+    def test_direct_daily_bar_store_replaces_rows_for_same_window(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "cache" / "market.sqlite"
+            start = date.fromisoformat("2026-05-01")
+            end = date.fromisoformat("2026-05-02")
+
+            store_jquants_daily_bars(
+                db,
+                [
+                    _bars_record("13010", "2026-05-01", close=100.0, adj_close=100.0),
+                    _bars_record("13010", "2026-05-02", close=101.0, adj_close=101.0),
+                ],
+                requested_start=start,
+                requested_end=end,
+            )
+            store_jquants_daily_bars(
+                db,
+                [_bars_record("13010", "2026-05-01", close=100.0, adj_close=100.0)],
+                requested_start=start,
+                requested_end=end,
+            )
+
+            with sqlite3.connect(db) as conn:
+                rows = conn.execute(
+                    "SELECT traded_at, close FROM jquants_daily_bars ORDER BY traded_at"
+                ).fetchall()
+                coverage = conn.execute(
+                    "SELECT record_count FROM source_coverage WHERE source = 'jquants_daily_bars'"
+                ).fetchall()
+
+            self.assertEqual(rows, [("2026-05-01", 100.0)])
+            self.assertEqual(coverage, [(1,)])
+
     def test_imports_daily_bars_with_short_keys(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             raw = Path(tmp) / "raw"
@@ -258,15 +293,14 @@ class RebuildFromRawTests(unittest.TestCase):
                 ).fetchall()
             self.assertEqual(rows, [(200.0,)])
 
-    def test_unrecognized_files_are_reported_as_skipped(self) -> None:
+    def test_rebuild_rejects_raw_dir_without_importable_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             raw = Path(tmp) / "raw"
             db = Path(tmp) / "cache" / "market.sqlite"
             _write_json(raw / "jquants" / "get_unknown_endpoint.json", [])
 
-            summary = rebuild_from_raw(raw, db)
-
-            self.assertEqual(summary.skipped_files, ("get_unknown_endpoint.json",))
+            with self.assertRaisesRegex(SQLiteCacheError, "no importable legacy raw JSON"):
+                rebuild_from_raw(raw, db)
 
     def test_imports_earnings_calendar(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

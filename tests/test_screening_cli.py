@@ -4,11 +4,12 @@ import contextlib
 import io
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 import unittest
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
@@ -31,7 +32,7 @@ from baibai_loop.screening.cli import (
     select_command,
 )
 from baibai_loop.screening.config import ScreeningConfig
-from baibai_loop.screening.providers.edinet import EdinetMetricRecord
+from baibai_loop.screening.providers.edinet import EdinetMetricRecord, EDINETProviderError
 from baibai_loop.screening.providers.jpx import JPXProviderError, JPXRegulationSnapshot
 from baibai_loop.screening.providers.jquants import (
     JQuantsDailyBar,
@@ -40,17 +41,21 @@ from baibai_loop.screening.providers.jquants import (
 )
 from baibai_loop.screening.render import JST, build_output_path
 from baibai_loop.screening.schema import SecurityMaster, TTMQuality
+from baibai_loop.screening.sqlite_cache import store_edinet_metrics
+from baibai_loop.screening.sqlite_reader import read_edinet_metrics
 
 
 @dataclass
 class FakeJQuantsProvider:
     business_day: bool = True
+    calls: list[tuple[str, date | None, date | None]] = field(default_factory=list)
 
     def get_mkt_calendar(self, start: date, end: date) -> list[JQuantsMarketCalendarDay]:
-        del end
+        self.calls.append(("get_mkt_calendar", start, end))
         return [JQuantsMarketCalendarDay(day=start, is_business_day=self.business_day)]
 
     def get_eq_master(self) -> list[SecurityMaster]:
+        self.calls.append(("get_eq_master", None, None))
         return [
             SecurityMaster(
                 code="130A",
@@ -62,7 +67,7 @@ class FakeJQuantsProvider:
         ]
 
     def get_eq_bars_daily_range(self, start: date, end: date) -> list[JQuantsDailyBar]:
-        del start
+        self.calls.append(("get_eq_bars_daily_range", start, end))
         # Span >=800 days so listed_under_6_months (182) and short_history_flag (750)
         # checks both treat the fixture as an established listing.
         total = 800
@@ -78,7 +83,7 @@ class FakeJQuantsProvider:
         ]
 
     def get_fin_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
-        del start, end
+        self.calls.append(("get_fin_summary_range", start, end))
         return [
             JQuantsFinancialSummary(
                 ticker="130A",
@@ -113,11 +118,11 @@ class FakeJQuantsProvider:
         ]
 
     def get_eq_earnings_cal(self, start: date, end: date) -> list[dict[str, str]]:
-        del start, end
+        self.calls.append(("get_eq_earnings_cal", start, end))
         return []
 
     def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
-        del start, end
+        self.calls.append(("bootstrap_cache", start, end))
         return {"ok": 1}
 
 
@@ -125,6 +130,7 @@ class FakeJQuantsProvider:
 class FakeEDINETProvider:
     documents: list[dict[str, object]] | None = None
     zip_by_doc_id: dict[str, bytes] | None = None
+    bootstrap_calls: list[tuple[date, date]] = field(default_factory=list)
 
     def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
         del asof_date
@@ -153,7 +159,7 @@ class FakeEDINETProvider:
         return (self.zip_by_doc_id or {})[doc_id]
 
     def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
-        del start, end
+        self.bootstrap_calls.append((start, end))
         return {"ok": 1}
 
 
@@ -175,6 +181,18 @@ class _FreshnessWarningEDINETProvider(FakeEDINETProvider):
         }
 
 
+class _FailingEDINETProvider(FakeEDINETProvider):
+    def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
+        del asof_date
+        raise EDINETProviderError("broken metrics cache")
+
+
+class _CorruptSQLiteJQuantsProvider(FakeJQuantsProvider):
+    def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
+        del start, end
+        raise sqlite3.DatabaseError("file is not a database")
+
+
 @dataclass
 class FakeJPXProvider:
     fail_bootstrap: bool = False
@@ -186,6 +204,7 @@ class FakeJPXProvider:
         "整理銘柄",
         "特別注意銘柄",
     )
+    bootstrap_calls: list[date] = field(default_factory=list)
 
     def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot:
         del asof_date
@@ -197,7 +216,7 @@ class FakeJPXProvider:
         return self.cache_exists
 
     def bootstrap_cache(self, asof_date: date) -> dict[str, int]:
-        del asof_date
+        self.bootstrap_calls.append(asof_date)
         if self.fail_bootstrap:
             raise JPXProviderError("missing jpx source")
         return {"ok": 1}
@@ -270,13 +289,7 @@ class ScreeningCliTests(unittest.TestCase):
                 )
                 self.assertRegex(payload["cache_manifest_hash"], r"^[0-9a-f]{16}$")
                 manifest_path = Path(".cache/screening/manifests") / f"{payload['run_id']}.json"
-                self.assertTrue(manifest_path.exists())
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                self.assertEqual(manifest["run_id"], payload["run_id"])
-                self.assertEqual(
-                    manifest["cache_manifest_hash"],
-                    payload["cache_manifest_hash"],
-                )
+                self.assertFalse(manifest_path.exists())
             finally:
                 os.chdir(cwd)
 
@@ -324,7 +337,7 @@ class ScreeningCliTests(unittest.TestCase):
             finally:
                 os.chdir(cwd)
 
-    def test_run_command_omits_edinet_source_when_optional_provider_is_absent(self) -> None:
+    def test_run_command_fails_when_required_edinet_provider_is_absent(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
             try:
@@ -338,21 +351,45 @@ class ScreeningCliTests(unittest.TestCase):
                     edinet=None,
                     jpx=FakeJPXProvider(),
                 )
-                exit_code = run_command(
-                    date(2026, 4, 24),
-                    config,
-                    providers,
-                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    exit_code = run_command(
+                        date(2026, 4, 24),
+                        config,
+                        providers,
+                        now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    )
+                self.assertEqual(exit_code, 1)
+                self.assertIn("EDINET preprocessed metrics provider is required", stderr.getvalue())
+                self.assertFalse(build_output_path(date(2026, 4, 24)).exists())
+            finally:
+                os.chdir(cwd)
+
+    def test_run_command_fails_when_required_edinet_load_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = Path.cwd()
+            try:
+                os_path = Path(tmpdir)
+                import os
+
+                os.chdir(os_path)
+                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                providers = ProviderBundle(
+                    jquants=FakeJQuantsProvider(),
+                    edinet=_FailingEDINETProvider(),
+                    jpx=FakeJPXProvider(),
                 )
-                self.assertEqual(exit_code, 2)
-                payload = yaml.safe_load(build_output_path(date(2026, 4, 24)).read_text())
-                self.assertEqual(
-                    payload["data_sources"], ["j-quants-light", "jpx-public-regulation"]
-                )
-                self.assertIn(
-                    "EDINET preprocessed metrics: optional unavailable",
-                    payload["provider_status_lines"],
-                )
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    exit_code = run_command(
+                        date(2026, 4, 24),
+                        config,
+                        providers,
+                        now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    )
+                self.assertEqual(exit_code, 1)
+                self.assertIn("EDINET load_metric_records failed", stderr.getvalue())
+                self.assertFalse(build_output_path(date(2026, 4, 24)).exists())
             finally:
                 os.chdir(cwd)
 
@@ -621,7 +658,7 @@ class ScreeningCliTests(unittest.TestCase):
             finally:
                 os.chdir(cwd)
 
-    def test_bootstrap_cache_command_tolerates_jpx_bootstrap_failure(self) -> None:
+    def test_bootstrap_cache_command_fails_jpx_bootstrap_failure(self) -> None:
         exit_code = bootstrap_cache_command(
             date(2026, 4, 1),
             date(2026, 4, 24),
@@ -631,11 +668,94 @@ class ScreeningCliTests(unittest.TestCase):
                 jpx=FakeJPXProvider(fail_bootstrap=True),
             ),
         )
+        self.assertEqual(exit_code, 1)
+
+    def test_bootstrap_cache_command_asof_fails_jpx_bootstrap_failure(self) -> None:
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            exit_code = bootstrap_cache_command(
+                asof_date=date(2026, 5, 8),
+                providers=ProviderBundle(
+                    jquants=FakeJQuantsProvider(),
+                    edinet=FakeEDINETProvider(),
+                    jpx=FakeJPXProvider(fail_bootstrap=True),
+                ),
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("JPXProviderError: missing jpx source", stderr.getvalue())
+
+    def test_bootstrap_cache_command_fails_cleanly_on_sqlite_corruption(self) -> None:
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            exit_code = bootstrap_cache_command(
+                date(2026, 4, 1),
+                date(2026, 4, 24),
+                ProviderBundle(
+                    jquants=_CorruptSQLiteJQuantsProvider(),
+                    edinet=FakeEDINETProvider(),
+                    jpx=FakeJPXProvider(),
+                ),
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("DatabaseError: file is not a database", stderr.getvalue())
+
+    def test_bootstrap_cache_command_asof_uses_source_specific_windows(self) -> None:
+        asof = date(2026, 5, 8)
+        jquants = FakeJQuantsProvider()
+        edinet = FakeEDINETProvider()
+        jpx = FakeJPXProvider()
+
+        exit_code = bootstrap_cache_command(
+            asof_date=asof,
+            providers=ProviderBundle(jquants=jquants, edinet=edinet, jpx=jpx),
+        )
+
         self.assertEqual(exit_code, 0)
+        self.assertIn(("get_eq_master", None, None), jquants.calls)
+        self.assertIn(("get_eq_bars_daily_range", asof - timedelta(days=1200), asof), jquants.calls)
+        self.assertIn(("get_fin_summary_range", asof - timedelta(days=730), asof), jquants.calls)
+        self.assertIn(("get_eq_earnings_cal", asof, asof + timedelta(days=90)), jquants.calls)
+        self.assertIn(("get_mkt_calendar", asof, asof), jquants.calls)
+        self.assertEqual(edinet.bootstrap_calls, [(asof - timedelta(days=730), asof)])
+        self.assertEqual(jpx.bootstrap_calls, [asof])
+
+    def test_main_rejects_bootstrap_asof_with_explicit_window(self) -> None:
+        stderr = io.StringIO()
+        with (
+            patch.dict(os.environ, {"JQUANTS_REFRESH_TOKEN": "token"}),
+            contextlib.redirect_stderr(stderr),
+        ):
+            exit_code = screening_cli.main(
+                [
+                    "bootstrap-cache",
+                    "--asof",
+                    "2026-05-08",
+                    "--start",
+                    "2026-05-01",
+                    "--end",
+                    "2026-05-08",
+                ]
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("--asof cannot be combined", stderr.getvalue())
+
+    def test_main_rejects_partial_bootstrap_window(self) -> None:
+        stderr = io.StringIO()
+        with (
+            patch.dict(os.environ, {"JQUANTS_REFRESH_TOKEN": "token"}),
+            contextlib.redirect_stderr(stderr),
+        ):
+            exit_code = screening_cli.main(["bootstrap-cache", "--start", "2026-05-01"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("requires --asof, or both --start and --end", stderr.getvalue())
 
     def test_extract_edinet_metrics_command_writes_parsed_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            cache_dir = Path(tmpdir) / "raw"
+            sqlite_path = Path(tmpdir) / "market.sqlite"
             provider = FakeEDINETProvider(
                 documents=[
                     {
@@ -656,23 +776,24 @@ class ScreeningCliTests(unittest.TestCase):
                 asof_date=date(2026, 4, 24),
                 lookback_days=0,
                 provider=provider,
-                cache_dir=cache_dir,
+                sqlite_path=sqlite_path,
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
-            output_path = cache_dir / "edinet" / "metrics" / "2026-04-24.json"
-            payload = json.loads(output_path.read_text(encoding="utf-8"))
-            self.assertEqual(payload[0]["ticker"], "9682")
-            self.assertEqual(payload[0]["net_cash"], 600.0)
-            self.assertEqual(payload[0]["fcf_ttm"], 700.0)
-            self.assertEqual(payload[0]["source_submit_datetime"], "2026-04-01 12:00")
-            self.assertEqual(payload[0]["source_period_start"], "2025-04-01")
-            self.assertEqual(payload[0]["source_period_end"], "2026-03-31")
-            self.assertIn("1 records", buffer.getvalue())
+            payload = read_edinet_metrics(sqlite_path, date(2026, 4, 24))
+            assert payload is not None
+            record = payload["9682"]
+            self.assertEqual(record.ticker, "9682")
+            self.assertEqual(record.net_cash, 600.0)
+            self.assertEqual(record.fcf_ttm, 700.0)
+            self.assertEqual(record.source_submit_datetime, "2026-04-01 12:00")
+            self.assertEqual(record.source_period_start, date(2025, 4, 1))
+            self.assertEqual(record.source_period_end, date(2026, 3, 31))
+            self.assertIn("1 EDINET metric records", buffer.getvalue())
 
     def test_extract_edinet_metrics_command_returns_zero_for_quality_issues(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            cache_dir = Path(tmpdir) / "raw"
+            sqlite_path = Path(tmpdir) / "market.sqlite"
             provider = FakeEDINETProvider(
                 documents=[
                     {
@@ -691,16 +812,129 @@ class ScreeningCliTests(unittest.TestCase):
                 asof_date=date(2026, 4, 24),
                 lookback_days=0,
                 provider=provider,
-                cache_dir=cache_dir,
+                sqlite_path=sqlite_path,
                 stdout=buffer,
             )
 
             self.assertEqual(exit_code, 0)
-            payload = json.loads(
-                (cache_dir / "edinet" / "metrics" / "2026-04-24.json").read_text(encoding="utf-8")
-            )
-            self.assertIn("debt_assumed_zero", payload[0]["failure_reasons"])
+            payload = read_edinet_metrics(sqlite_path, date(2026, 4, 24))
+            assert payload is not None
+            self.assertIn("debt_assumed_zero", payload["9682"].failure_reasons)
             self.assertIn("1 records with quality issues", buffer.getvalue())
+
+    def test_extract_edinet_metrics_command_fails_when_no_filings_selected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            provider = FakeEDINETProvider(documents=[])
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 24),
+                    lookback_days=0,
+                    provider=provider,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("no EDINET filings selected", stderr.getvalue())
+            row = (
+                sqlite3.connect(sqlite_path)
+                .execute(
+                    "SELECT status, error FROM source_coverage WHERE source = ?",
+                    ("edinet_metrics",),
+                )
+                .fetchone()
+            )
+            self.assertEqual(row[0], "failed")
+            self.assertIn("no EDINET filings selected", row[1])
+
+    def test_extract_edinet_metrics_command_fails_closed_on_document_listing_error(self) -> None:
+        class FailingListProvider(FakeEDINETProvider):
+            def list_documents(self, on_date: date) -> list[dict[str, object]]:
+                del on_date
+                raise EDINETProviderError("temporary EDINET outage")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            asof = date(2026, 4, 24)
+            store_edinet_metrics(
+                sqlite_path,
+                asof,
+                [{"ticker": "9682", "sales_ttm": 1_000.0}],
+                status="ok",
+            )
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = extract_edinet_metrics_command(
+                    asof_date=asof,
+                    lookback_days=0,
+                    provider=FailingListProvider(),
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("EDINET document listing failed", stderr.getvalue())
+            self.assertIsNone(read_edinet_metrics(sqlite_path, asof))
+            row = (
+                sqlite3.connect(sqlite_path)
+                .execute(
+                    "SELECT status, error FROM source_coverage WHERE source = ? "
+                    "AND coverage_key = ?",
+                    ("edinet_metrics", asof.isoformat()),
+                )
+                .fetchone()
+            )
+            self.assertEqual(row[0], "failed")
+            self.assertIn("EDINET document listing failed", row[1])
+
+    def test_extract_edinet_metrics_command_fails_on_invalid_document_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            asof = date(2026, 4, 24)
+            store_edinet_metrics(
+                sqlite_path,
+                asof,
+                [{"ticker": "9682", "sales_ttm": 1_000.0}],
+                status="ok",
+            )
+            self.assertIsNotNone(read_edinet_metrics(sqlite_path, asof))
+            provider = FakeEDINETProvider(
+                documents=[
+                    {
+                        "docID": "S100TEST",
+                        "secCode": "../../96820",
+                        "docTypeCode": "120",
+                        "csvFlag": "1",
+                        "xbrlFlag": "1",
+                    }
+                ]
+            )
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = extract_edinet_metrics_command(
+                    asof_date=asof,
+                    lookback_days=0,
+                    provider=provider,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("invalid EDINET secCode", stderr.getvalue())
+            self.assertIsNone(read_edinet_metrics(sqlite_path, asof))
+            row = (
+                sqlite3.connect(sqlite_path)
+                .execute(
+                    "SELECT status, error FROM source_coverage WHERE source = ? "
+                    "AND coverage_key = ?",
+                    ("edinet_metrics", asof.isoformat()),
+                )
+                .fetchone()
+            )
+            self.assertEqual(row[0], "failed")
+            self.assertIn("EDINET document selection failed", row[1])
 
 
 class IndexNextEarningsTests(unittest.TestCase):
