@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterator, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -22,17 +23,49 @@ from .errors import ValidationFinding
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
 _REMOVED_HASH_FIELDS = frozenset({"content_" + "sha256", "row_" + "sha256"})
 
-_REFERENCE_ROOTS: tuple[Path, ...] = (
-    Path("records/04-candidates"),
-    Path("records/05-research"),
-    Path("records/06-trades"),
-    Path("records/07-reviews"),
-    Path("records/_benchmarks"),
-    Path("records/_ledger"),
-    Path("records/_portfolio-exposure"),
-)
+_REFERENCE_ROOTS: tuple[Path, ...] = (Path("records"),)
 
 _PARSEABLE_REF_SUFFIXES = frozenset({".yaml", ".yml", ".md", ".jsonl"})
+
+
+@dataclass(frozen=True, slots=True)
+class _ReferenceSpec:
+    prefixes: tuple[str, ...]
+    suffixes: tuple[str, ...]
+    require_front_matter: bool = False
+
+
+_REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
+    ("playbook_ref", _ReferenceSpec(("records/_playbooks/",), (".md",), True)),
+    ("policy_ref", _ReferenceSpec(("records/01-policy/",), (".md",), True)),
+    (
+        "portfolio_exposure_ref",
+        _ReferenceSpec(("records/_portfolio-exposure/",), (".yaml", ".yml")),
+    ),
+    (
+        "calendar_refs.business_days",
+        _ReferenceSpec(("records/_calendars/business-days/",), (".yaml", ".yml")),
+    ),
+    (
+        "calendar_refs.events",
+        _ReferenceSpec(("records/_calendars/events/",), (".yaml", ".yml")),
+    ),
+    (
+        "calendar_refs.corporate_actions",
+        _ReferenceSpec(("records/_calendars/corporate-actions/",), (".yaml", ".yml")),
+    ),
+    (
+        "universe_ref",
+        _ReferenceSpec(("records/_universe-snapshots/",), (".yaml", ".yml")),
+    ),
+    ("market_data_ref", _ReferenceSpec(("records/_market-data/",), (".yaml", ".yml"))),
+    ("source_refs", _ReferenceSpec(("records/_external/",), (".md",))),
+    ("source_trade_refs", _ReferenceSpec(("records/06-trades/",), (".md",), True)),
+    (
+        "source_decision_register_refs",
+        _ReferenceSpec(("records/_ledger/",), (".jsonl",)),
+    ),
+)
 
 
 def validate_reference_integrity(root: Path) -> list[ValidationFinding]:
@@ -117,7 +150,7 @@ def _check_repository_ref(
     ref = node.get("ref_path")
     if ref is None:
         return []
-    error = repository_ref_error(ref)
+    error = repository_ref_error(ref, root=root)
     if error is not None:
         return [
             ValidationFinding(
@@ -140,6 +173,9 @@ def _check_repository_ref(
                 location=f"{location}.ref_path",
             )
         ]
+    findings = _check_reference_spec(target, ref, ref_path, location)
+    if findings:
+        return findings
     if ref_path.suffix in _PARSEABLE_REF_SUFFIXES:
         parsed = _load_structured_payload(ref_path)
         if isinstance(parsed, ValidationFinding):
@@ -153,6 +189,68 @@ def _check_repository_ref(
                 )
             ]
     return []
+
+
+def _check_reference_spec(
+    target: Path,
+    ref: str,
+    ref_path: Path,
+    location: str,
+) -> list[ValidationFinding]:
+    spec = _spec_for_location(location)
+    if spec is None:
+        if ref_path.suffix not in _PARSEABLE_REF_SUFFIXES:
+            return [
+                ValidationFinding(
+                    severity="error",
+                    target=target,
+                    code="reference.ref-suffix",
+                    message=f"repository reference must point to a parseable record file: {ref}",
+                    location=f"{location}.ref_path",
+                )
+            ]
+        return []
+    if not ref.startswith(spec.prefixes):
+        prefixes = ", ".join(spec.prefixes)
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-prefix",
+                message=f"reference must point under {prefixes}: {ref}",
+                location=f"{location}.ref_path",
+            )
+        ]
+    if ref_path.suffix not in spec.suffixes:
+        suffixes = ", ".join(spec.suffixes)
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-suffix",
+                message=f"reference must use suffix {suffixes}: {ref}",
+                location=f"{location}.ref_path",
+            )
+        ]
+    if spec.require_front_matter and _front_matter_payload(ref_path) is None:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-front-matter",
+                message=f"referenced markdown file must have YAML front matter: {ref}",
+                location=f"{location}.ref_path",
+            )
+        ]
+    return []
+
+
+def _spec_for_location(location: str) -> _ReferenceSpec | None:
+    normalized = location.replace("[", ".").replace("]", "")
+    for marker, spec in _REFERENCE_SPECS:
+        if marker in normalized:
+            return spec
+    return None
 
 
 def _load_structured_payload(path: Path) -> object | ValidationFinding:
@@ -171,10 +269,10 @@ def _load_structured_payload(path: Path) -> object | ValidationFinding:
                 return error
         return {}
     if path.suffix == ".md":
-        match = _FRONT_MATTER_RE.match(text)
-        if not match:
+        front_matter = _front_matter_payload(path)
+        if front_matter is None:
             return {}
-        text = match.group(1)
+        return front_matter
     try:
         loaded: object = yaml.safe_load(text)
     except yaml.YAMLError as exc:
@@ -184,6 +282,21 @@ def _load_structured_payload(path: Path) -> object | ValidationFinding:
             code="reference.invalid-yaml",
             message=f"YAML parse failed: {exc}",
         )
+    return loaded
+
+
+def _front_matter_payload(path: Path) -> object | None:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = _FRONT_MATTER_RE.match(text)
+    if not match:
+        return None
+    try:
+        loaded: object = yaml.safe_load(match.group(1))
+    except yaml.YAMLError:
+        return None
     return loaded
 
 

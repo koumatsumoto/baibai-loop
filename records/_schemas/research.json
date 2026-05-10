@@ -26,8 +26,20 @@
   "properties": {
     "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
     "playbook_id": {"type": "string", "minLength": 1},
+    "playbook_ref": {"$ref": "#/$defs/RepositoryRef"},
+    "policy_ref": {"$ref": "#/$defs/RepositoryRef"},
+    "portfolio_exposure_ref": {"$ref": "#/$defs/RepositoryRef"},
     "policy_applicability": {"enum": ["active"]},
-    "calendar_refs": {"type": "object"},
+    "calendar_refs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["business_days", "events", "corporate_actions"],
+      "properties": {
+        "business_days": {"$ref": "#/$defs/RepositoryRef"},
+        "events": {"$ref": "#/$defs/RepositoryRef"},
+        "corporate_actions": {"$ref": "#/$defs/RepositoryRef"}
+      }
+    },
     "research_decision": {
       "type": "object",
       "required": ["outcome", "posture"],
@@ -55,5 +67,17 @@
       }
     },
     "thesis_payoff": {"type": "object"}
+  },
+  "$defs": {
+    "RepositoryRef": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["ref_path"],
+      "properties": {
+        "ref_path": {"type": "string", "minLength": 1},
+        "effective_from": {"type": "string"},
+        "as_of": {"type": "string"}
+      }
+    }
   }
 }

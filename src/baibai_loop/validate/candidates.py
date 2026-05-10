@@ -16,6 +16,7 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
+from .domain import repo_root_for, repository_ref_error, resolve_repository_ref
 from .errors import ValidationFinding
 
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "candidates.json"
@@ -89,6 +90,8 @@ def validate_candidates_file(path: Path) -> list[ValidationFinding]:
             )
         )
     findings.extend(_check_removed_root_fields(path, document))
+    findings.extend(_check_removed_hash_fields(path, document))
+    findings.extend(_check_universe_ref(path, document.get("universe_ref")))
     findings.extend(_check_business_lineage(path, document))
     return findings
 
@@ -106,6 +109,84 @@ def _check_removed_root_fields(path: Path, document: Mapping[str, Any]) -> list[
                 )
             )
     return findings
+
+
+def _check_removed_hash_fields(path: Path, document: object) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    for location, node in _walk_mappings(document, prefix=None):
+        for field in ("content_" + "sha256", "row_" + "sha256"):
+            if field in node:
+                findings.append(
+                    _finding(
+                        path,
+                        "candidates.removed-hash-field",
+                        f"{field} is no longer allowed in candidates output",
+                        f"{location}.{field}" if location else field,
+                    )
+                )
+    return findings
+
+
+def _check_universe_ref(path: Path, value: object) -> list[ValidationFinding]:
+    if not isinstance(value, Mapping):
+        return [
+            _finding(
+                path,
+                "candidates.universe-ref",
+                "universe_ref must be a repository ref mapping",
+                "universe_ref",
+            )
+        ]
+    root = repo_root_for(path)
+    ref = value.get("ref_path")
+    error = repository_ref_error(ref, root=root)
+    if error is not None:
+        return [_finding(path, "candidates.universe-ref", error, "universe_ref.ref_path")]
+    assert isinstance(ref, str)
+    ref_path = resolve_repository_ref(root, ref)
+    if not ref.startswith("records/_universe-snapshots/"):
+        return [
+            _finding(
+                path,
+                "candidates.universe-ref",
+                "universe_ref.ref_path must point under records/_universe-snapshots/",
+                "universe_ref.ref_path",
+            )
+        ]
+    if ref_path.suffix not in {".yaml", ".yml"}:
+        return [
+            _finding(
+                path,
+                "candidates.universe-ref",
+                "universe_ref.ref_path must point to a YAML file",
+                "universe_ref.ref_path",
+            )
+        ]
+    if not ref_path.is_file():
+        return [
+            _finding(
+                path,
+                "candidates.universe-ref",
+                f"referenced universe file does not exist: {ref}",
+                "universe_ref.ref_path",
+            )
+        ]
+    return []
+
+
+def _walk_mappings(
+    value: object, *, prefix: str | None
+) -> Iterable[tuple[str, Mapping[str, object]]]:
+    if isinstance(value, Mapping):
+        location = prefix or ""
+        yield location, value
+        for key, child in value.items():
+            child_prefix = f"{location}.{key}" if location else str(key)
+            yield from _walk_mappings(child, prefix=child_prefix)
+    elif isinstance(value, list):
+        location = prefix or ""
+        for index, child in enumerate(value):
+            yield from _walk_mappings(child, prefix=f"{location}[{index}]")
 
 
 def _check_business_lineage(

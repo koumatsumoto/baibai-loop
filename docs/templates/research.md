@@ -8,6 +8,14 @@ playbook_ref:
 policy_ref:
   ref_path: records/01-policy/YYYY/MM/YYYY-MM-DDTHHMMSS+0900-portfolio-policy.md
   effective_from: "YYYY-MM-DDTHH:MM:SS+09:00"
+policy_applicability: active
+calendar_refs:
+  business_days:
+    ref_path: records/_calendars/business-days/YYYY-MM.yaml
+  events:
+    ref_path: records/_calendars/events/YYYY-MM.yaml
+  corporate_actions:
+    ref_path: records/_calendars/corporate-actions/YYYY-MM.yaml
 portfolio_exposure_ref:
   ref_path: records/_portfolio-exposure/YYYY/MM/YYYY-MM-DDTHHMMSS+0900.yaml
   as_of: "YYYY-MM-DDTHH:MM:SS+09:00"

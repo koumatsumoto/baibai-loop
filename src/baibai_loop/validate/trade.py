@@ -19,7 +19,9 @@ from .domain import (
     load_reference_mapping,
     number,
     repo_root_for,
+    repository_ref_error,
     resolve_ref,
+    resolve_repository_ref,
 )
 from .errors import ValidationFinding
 from .registry import evaluate_kill_switch, has_validator_callable
@@ -85,6 +87,7 @@ def validate_trade_file(path: Path) -> list[ValidationFinding]:
     findings.extend(_validate_schema(path, front))
     findings.extend(_check_removed_fields(path, front))
     findings.extend(_check_policy_and_calendar_context(path, front))
+    findings.extend(_check_reference_refs(path, front))
     findings.extend(_check_ticker(path, front))
     findings.extend(_check_order_ready_shape(path, front))
     findings.extend(_check_research_approval(path, front))
@@ -203,32 +206,132 @@ def _check_calendar_refs_block(path: Path, value: object) -> list[ValidationFind
             )
         ]
     findings: list[ValidationFinding] = []
-    for key in ("business_days", "events", "corporate_actions"):
+    specs = {
+        "business_days": ("records/_calendars/business-days/", (".yaml", ".yml")),
+        "events": ("records/_calendars/events/", (".yaml", ".yml")),
+        "corporate_actions": ("records/_calendars/corporate-actions/", (".yaml", ".yml")),
+    }
+    for key, (prefix, suffixes) in specs.items():
         item = value.get(key)
         location = f"calendar_refs.{key}"
-        if not isinstance(item, Mapping):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="trade.calendar-refs",
-                    message=f"{location} must be a repository ref",
-                    location=location,
-                )
+        findings.extend(
+            _check_repository_ref(
+                path,
+                item,
+                location=location,
+                code="trade.calendar-ref",
+                prefixes=(prefix,),
+                suffixes=suffixes,
             )
-            continue
-        ref_path = item.get("ref_path")
-        if not isinstance(ref_path, str) or not ref_path:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="trade.calendar-ref",
-                    message=f"{location}.ref_path is required",
-                    location=f"{location}.ref_path",
-                )
+        )
+    return findings
+
+
+def _check_reference_refs(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    specs = {
+        "policy_ref": (("records/01-policy/",), (".md",)),
+        "portfolio_exposure_ref": (("records/_portfolio-exposure/",), (".yaml", ".yml")),
+    }
+    for field, (prefixes, suffixes) in specs.items():
+        findings.extend(
+            _check_repository_ref(
+                path,
+                front.get(field),
+                location=field,
+                code="trade.reference-ref",
+                prefixes=prefixes,
+                suffixes=suffixes,
             )
-        findings.extend(_check_removed_hash_fields(path, item, location))
+        )
+    return findings
+
+
+def _check_repository_ref(
+    path: Path,
+    value: object,
+    *,
+    location: str,
+    code: str,
+    prefixes: tuple[str, ...],
+    suffixes: tuple[str, ...],
+) -> list[ValidationFinding]:
+    if not isinstance(value, Mapping):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code=code,
+                message=f"{location} must be a repository ref mapping",
+                location=location,
+            )
+        ]
+    findings = _check_removed_hash_fields(path, value, location)
+    root = repo_root_for(path)
+    ref = value.get("ref_path")
+    error = repository_ref_error(ref, root=root)
+    if error is not None:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code=code,
+                message=error,
+                location=f"{location}.ref_path",
+            )
+        )
+        return findings
+    assert isinstance(ref, str)
+    ref_path = resolve_repository_ref(root, ref)
+    if not ref_path.is_file():
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code=code,
+                message=f"referenced file does not exist: {ref}",
+                location=f"{location}.ref_path",
+            )
+        )
+        return findings
+    if not ref.startswith(prefixes):
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code=code,
+                message=f"{location}.ref_path must point under {', '.join(prefixes)}",
+                location=f"{location}.ref_path",
+            )
+        )
+    if ref_path.suffix not in suffixes:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code=code,
+                message=f"{location}.ref_path must use suffix {', '.join(suffixes)}",
+                location=f"{location}.ref_path",
+            )
+        )
+        return findings
+    try:
+        if ref_path.suffix == ".md":
+            load_reference_mapping(root, value)
+        else:
+            loaded = yaml.safe_load(ref_path.read_text(encoding="utf-8"))
+            if not isinstance(loaded, Mapping):
+                raise ValueError("referenced YAML must be a mapping")
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code=code,
+                message=f"referenced file cannot be parsed: {exc}",
+                location=f"{location}.ref_path",
+            )
+        )
     return findings
 
 

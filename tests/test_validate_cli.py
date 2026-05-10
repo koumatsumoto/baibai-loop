@@ -303,12 +303,29 @@ def _make_research_text() -> str:
 
 
 def _seed_repo(root: Path, *, candidates_overrides: dict[str, object] | None = None) -> None:
+    (root / "src").mkdir(parents=True, exist_ok=True)
     brief_dir = root / "records/02-brief" / "2026" / "04"
     outlook_dir = root / "records/03-outlook" / "2026" / "04"
     candidates_dir = root / "records/04-candidates" / "2026" / "04"
     research_dir = root / "records/05-research" / "2026" / "04"
     playbooks_dir = root / "records/_playbooks"
-    for directory in (brief_dir, outlook_dir, candidates_dir, research_dir, playbooks_dir):
+    support_dirs = (
+        root / "records/_universe-snapshots/2026/04",
+        root / "records/_playbooks/valuation-reversion",
+        root / "records/01-policy/2026/05",
+        root / "records/_calendars/business-days",
+        root / "records/_calendars/events",
+        root / "records/_calendars/corporate-actions",
+        root / "records/_portfolio-exposure/2026/05",
+    )
+    for directory in (
+        brief_dir,
+        outlook_dir,
+        candidates_dir,
+        research_dir,
+        playbooks_dir,
+        *support_dirs,
+    ):
         directory.mkdir(parents=True, exist_ok=True)
 
     payload = _make_candidates_payload()
@@ -326,6 +343,27 @@ def _seed_repo(root: Path, *, candidates_overrides: dict[str, object] | None = N
     )
     (research_dir / "2026-04-25-2767-valuation-reversion.md").write_text(
         _make_research_text(), encoding="utf-8"
+    )
+    (root / "records/_universe-snapshots/2026/04/2026-04-24.yaml").write_text(
+        "snapshot_id: universe-20260424\nmembers: []\n", encoding="utf-8"
+    )
+    (root / "records/_playbooks/valuation-reversion/2026-05-01T000000+0900.md").write_text(
+        "---\nplaybook_id: valuation-reversion\n---\n# Playbook\n", encoding="utf-8"
+    )
+    policy_source = ROOT / "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"
+    (root / "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md").write_text(
+        policy_source.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    (root / "records/_calendars/business-days/2026-05.yaml").write_text(
+        "business_days: []\n", encoding="utf-8"
+    )
+    (root / "records/_calendars/events/2026-05.yaml").write_text("events: []\n", encoding="utf-8")
+    (root / "records/_calendars/corporate-actions/2026-05.yaml").write_text(
+        "events: []\n", encoding="utf-8"
+    )
+    exposure_source = ROOT / "records/_portfolio-exposure/2026/05/2026-05-05T133000+0900.yaml"
+    (root / "records/_portfolio-exposure/2026/05/2026-05-05T133000+0900.yaml").write_text(
+        exposure_source.read_text(encoding="utf-8"), encoding="utf-8"
     )
 
     playbook_schema_dir = playbooks_dir / "valuation-reversion"

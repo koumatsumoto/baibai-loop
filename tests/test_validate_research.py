@@ -236,6 +236,20 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.calendar-refs", codes)
 
+    def test_invalid_policy_ref_is_flagged_by_research_target(self) -> None:
+        front = _minimal_research_front_matter()
+        front["policy_ref"] = {"ref_path": "/tmp/policy.md"}
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.reference-ref", codes)
+
+    def test_wrong_calendar_ref_prefix_is_flagged_by_research_target(self) -> None:
+        front = _minimal_research_front_matter()
+        calendars = front["calendar_refs"]
+        assert isinstance(calendars, dict)
+        calendars["events"] = {"ref_path": "records/_calendars/business-days/2026-05.yaml"}
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.calendar-ref", codes)
+
     def test_unknown_outcome_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
         front["research_decision"] = {"outcome": "maybe", "posture": "act_now"}

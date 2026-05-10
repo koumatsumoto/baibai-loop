@@ -161,7 +161,7 @@ def _check_decision_register_sources(
         findings.extend(
             _check_removed_hash_fields(path, ref, f"source_decision_register_refs[{index}]")
         )
-        ref_error = repository_ref_error(ref_path)
+        ref_error = repository_ref_error(ref_path, root=root)
         if ref_error is not None or not isinstance(decision_event_id, str):
             findings.append(
                 _finding(
@@ -303,7 +303,7 @@ def _check_rebuild_from_sources(
             continue
         ref_path = ref.get("ref_path")
         findings.extend(_check_removed_hash_fields(path, ref, f"source_trade_refs[{index}]"))
-        ref_error = repository_ref_error(ref_path)
+        ref_error = repository_ref_error(ref_path, root=root)
         if ref_error is not None:
             findings.append(
                 _finding(

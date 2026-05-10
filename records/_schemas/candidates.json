@@ -10,6 +10,7 @@
     "asof_date",
     "run_at",
     "run_id",
+    "universe_ref",
     "candidates"
   ],
   "properties": {

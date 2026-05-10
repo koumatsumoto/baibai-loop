@@ -63,6 +63,7 @@ from .schema import (
     ScreenedRunDocument,
     SecurityMaster,
     TTMQuality,
+    UniverseSnapshot,
     normalize_ticker,
 )
 from .sqlite_cache import store_edinet_metrics
@@ -521,6 +522,12 @@ def run_command(
         for security in securities
         if security.is_common_stock and security.code in universe_result.snapshots
     }
+    universe_ref = _write_universe_snapshot(
+        asof_date=asof_date,
+        run_at=run_now,
+        universe_result=universe_result.snapshots,
+        securities_by_ticker=securities_by_ticker,
+    )
     metric_result = build_metrics(
         asof_date=asof_date,
         securities_by_ticker=securities_by_ticker,
@@ -705,6 +712,7 @@ def run_command(
         candidates=tuple(screened_candidates),
         run_at=run_now,
         run_id=run_id,
+        universe_ref=universe_ref,
         data_sources=tuple(data_sources),
         fact_memo_lines=tuple(fact_lines),
         provider_status_lines=tuple(provider_status_lines),
@@ -718,6 +726,70 @@ def run_command(
     yaml_text = render_screened_yaml(document)
     write_text_atomic(output_path, yaml_text)
     return 2 if partial_warning else 0
+
+
+def _write_universe_snapshot(
+    *,
+    asof_date: date,
+    run_at: datetime,
+    universe_result: Mapping[str, UniverseSnapshot],
+    securities_by_ticker: Mapping[str, SecurityMaster],
+) -> str:
+    run_at_jst = run_at.astimezone(JST)
+    ref_path = (
+        Path("records/_universe-snapshots")
+        / f"{asof_date:%Y}"
+        / f"{asof_date:%m}"
+        / f"{asof_date.isoformat()}T{run_at_jst:%H%M%S%z}.yaml"
+    )
+    members: list[dict[str, object]] = []
+    for ticker in sorted(universe_result):
+        snapshot = universe_result[ticker]
+        security = securities_by_ticker.get(ticker)
+        if security is None:
+            continue
+        members.append(
+            {
+                "ticker": ticker,
+                "name": security.name,
+                "sector_33": security.sector_33,
+                "market_cap_oku": snapshot.market_cap_oku,
+                "avg_turnover_oku": snapshot.avg_turnover_oku,
+                "security_exposures": [
+                    {
+                        "exposure_bucket": _default_exposure_bucket(security.sector_33),
+                        "weight_or_materiality": "medium",
+                        "source_refs": [],
+                        "confidence": "low",
+                    }
+                ],
+            }
+        )
+    payload = {
+        "snapshot_id": f"universe-{asof_date:%Y%m%d}",
+        "as_of": asof_date.isoformat(),
+        "run_at": run_at.isoformat(),
+        "universe_size": len(universe_result),
+        "members_recorded": len(members),
+        "members": members,
+    }
+    write_text_atomic(ref_path, yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
+    return ref_path.as_posix()
+
+
+def _default_exposure_bucket(sector_33: str) -> str:
+    external_demand_sectors = {
+        "機械",
+        "電気機器",
+        "輸送用機器",
+        "精密機器",
+        "非鉄金属",
+        "鉄鋼",
+        "海運業",
+    }
+    return (
+        "japan-external-demand" if sector_33 in external_demand_sectors else "japan-domestic-demand"
+    )
 
 
 def select_command(

@@ -136,6 +136,24 @@ def _write_test_repo_sources(root: Path) -> None:
             "---\n\n# Policy\n",
             encoding="utf-8",
         )
+    for rel_path, payload in {
+        "records/_calendars/business-days/2026-05.yaml": {"business_days": ["2026-05-05"]},
+        "records/_calendars/events/2026-05.yaml": {"events": []},
+        "records/_calendars/corporate-actions/2026-05.yaml": {"events": []},
+        "records/_portfolio-exposure/2026/05/2026-05-05T200000+0900.yaml": {
+            "as_of": "2026-05-05T20:00:00+09:00",
+            "remaining_tactical_budget_yen": 1000000,
+            "source_trade_refs": [],
+            "source_decision_register_refs": [],
+        },
+    }.items():
+        source_path = root / rel_path
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        if not source_path.exists():
+            source_path.write_text(
+                yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
+                encoding="utf-8",
+            )
     research_path = root / "records/05-research/2026/05/2026-05-05-9682-sales-discount-growth.md"
     research_path.parent.mkdir(parents=True, exist_ok=True)
     if not research_path.exists():
@@ -195,6 +213,22 @@ def test_missing_calendar_refs_is_flagged(tmp_path: Path) -> None:
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_trade_file(path)}
     assert "trade.calendar-refs" in codes
+
+
+def test_invalid_policy_ref_is_flagged_by_trade_target(tmp_path: Path) -> None:
+    front = _trade_front(policy_ref={"ref_path": "/tmp/policy.md"})
+    path = _write_trade(tmp_path, front)
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.reference-ref" in codes
+
+
+def test_wrong_calendar_ref_prefix_is_flagged_by_trade_target(tmp_path: Path) -> None:
+    calendars = _calendar_snapshots()
+    calendars["events"] = _snapshot("records/_calendars/business-days/2026-05.yaml")
+    front = _trade_front(calendar_refs=calendars)
+    path = _write_trade(tmp_path, front)
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.calendar-ref" in codes
 
 
 def test_order_intent_must_join_to_order(tmp_path: Path) -> None:

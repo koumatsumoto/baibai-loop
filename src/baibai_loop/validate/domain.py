@@ -32,7 +32,7 @@ def resolve_ref(root: Path, ref: str) -> Path:
     return root / ref_path
 
 
-def repository_ref_error(ref: object) -> str | None:
+def repository_ref_error(ref: object, *, root: Path | None = None) -> str | None:
     """Return a reason when a repository reference is not safe to resolve."""
     if not isinstance(ref, str) or not ref:
         return "reference must be a non-empty repository-relative path"
@@ -41,12 +41,17 @@ def repository_ref_error(ref: object) -> str | None:
         return "reference must not be an absolute path"
     if any(part == ".." for part in ref_path.parts):
         return "reference must not contain '..'"
+    if root is not None:
+        root_resolved = root.resolve()
+        target_resolved = (root / ref_path).resolve(strict=False)
+        if target_resolved != root_resolved and root_resolved not in target_resolved.parents:
+            return "reference must resolve inside the repository root"
     return None
 
 
 def resolve_repository_ref(root: Path, ref: str) -> Path:
     """Resolve a safe repository-relative reference."""
-    error = repository_ref_error(ref)
+    error = repository_ref_error(ref, root=root)
     if error is not None:
         raise ValueError(error)
     return root / ref
@@ -70,7 +75,7 @@ def load_reference_mapping(root: Path, reference: object) -> tuple[Path, Mapping
     if not isinstance(reference, Mapping):
         raise ValueError("reference must be a mapping")
     ref = reference.get("ref_path")
-    error = repository_ref_error(ref)
+    error = repository_ref_error(ref, root=root)
     if error is not None:
         raise ValueError(error)
     assert isinstance(ref, str)

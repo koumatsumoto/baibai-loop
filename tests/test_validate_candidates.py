@@ -37,7 +37,7 @@ def _minimal_candidates() -> dict[str, object]:
         "run_id": "screening-20260424",
         "universe_ref": {
             **snapshot,
-            "ref_path": "records/_universe-snapshots/2026/04/2026-04-24.yaml",
+            "ref_path": "records/_universe-snapshots/2026/05/2026-05-01T192150+0900.yaml",
         },
         "candidates": [
             {
@@ -125,6 +125,28 @@ class CandidatesValidationTests(unittest.TestCase):
         locations = {finding.location for finding in findings}
         self.assertIn("candidates.removed-root-field", codes)
         self.assertIn("screening_rules_snapshot", locations)
+
+    def test_nested_removed_hash_field_is_flagged(self) -> None:
+        payload = _minimal_candidates()
+        universe_ref = payload["universe_ref"]
+        assert isinstance(universe_ref, dict)
+        universe_ref["content_" + "sha256"] = "sha256:" + "0" * 64
+        path = self._write(payload)
+        try:
+            findings = validate_candidates_file(path)
+        finally:
+            path.unlink()
+        self.assertIn("candidates.removed-hash-field", {finding.code for finding in findings})
+
+    def test_missing_universe_ref_is_flagged(self) -> None:
+        payload = _minimal_candidates()
+        del payload["universe_ref"]
+        path = self._write(payload)
+        try:
+            findings = validate_candidates_file(path)
+        finally:
+            path.unlink()
+        self.assertIn("candidates.required", {finding.code for finding in findings})
 
     def test_missing_required_candidates_field_is_flagged(self) -> None:
         payload = _minimal_candidates()

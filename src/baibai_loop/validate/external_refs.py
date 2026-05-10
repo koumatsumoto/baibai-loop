@@ -39,7 +39,7 @@ def validate_external_refs_file(path: Path, payload: Mapping[str, Any]) -> list[
                     location=location,
                 )
             )
-        error = repository_ref_error(ref_path)
+        error = repository_ref_error(ref_path, root=root)
         if error is not None:
             findings.append(
                 ValidationFinding(

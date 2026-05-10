@@ -8,7 +8,7 @@ from pathlib import Path
 
 import yaml
 
-from .domain import load_markdown_front_matter, resolve_ref
+from .domain import load_markdown_front_matter, resolve_repository_ref
 from .errors import ValidationFinding
 
 _VALID_LAYERS = {"L1", "L2", "L3a", "L3b", "L4", "L5"}
@@ -387,7 +387,18 @@ def _check_fixture_expectations(
         candidates_ref = binding.get("candidates_ref")
         runs_ref = binding.get("runs_ref")
         if isinstance(record_ref, str):
-            record_path = resolve_ref(root, record_ref)
+            try:
+                record_path = resolve_repository_ref(root, record_ref)
+            except ValueError as exc:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-record-ref",
+                        str(exc),
+                        f"fixtures[{index}].fixture_binding.record_ref",
+                    )
+                )
+                continue
             if not record_path.is_file():
                 findings.append(
                     _finding(
@@ -412,7 +423,18 @@ def _check_fixture_expectations(
                 continue
             findings.extend(_check_record_expected(path, index, record, expected))
         if isinstance(scan_ref, str):
-            scan_path = resolve_ref(root, scan_ref)
+            try:
+                scan_path = resolve_repository_ref(root, scan_ref)
+            except ValueError as exc:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-scan-ref",
+                        str(exc),
+                        f"fixtures[{index}].fixture_binding.scan_ref",
+                    )
+                )
+                continue
             if not scan_path.is_file():
                 findings.append(
                     _finding(
@@ -427,7 +449,18 @@ def _check_fixture_expectations(
             if isinstance(scan, Mapping):
                 findings.extend(_check_scan_expected(path, index, scan, expected))
         if isinstance(candidates_ref, str):
-            candidates_path = resolve_ref(root, candidates_ref)
+            try:
+                candidates_path = resolve_repository_ref(root, candidates_ref)
+            except ValueError as exc:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-candidates-ref",
+                        str(exc),
+                        f"fixtures[{index}].fixture_binding.candidates_ref",
+                    )
+                )
+                continue
             if not candidates_path.is_file():
                 findings.append(
                     _finding(
@@ -442,7 +475,18 @@ def _check_fixture_expectations(
             if isinstance(candidates, Mapping):
                 findings.extend(_check_candidates_expected(path, index, candidates, expected))
         if isinstance(runs_ref, str):
-            runs_path = resolve_ref(root, runs_ref)
+            try:
+                runs_path = resolve_repository_ref(root, runs_ref)
+            except ValueError as exc:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-runs-ref",
+                        str(exc),
+                        f"fixtures[{index}].fixture_binding.runs_ref",
+                    )
+                )
+                continue
             if not runs_path.is_file():
                 findings.append(
                     _finding(
@@ -679,7 +723,10 @@ def _scan_candidate_playbook_result(path: Path, item: Mapping[str, object]) -> o
     ticker = candidate_ref.get("ticker")
     if not isinstance(candidates_ref, str) or not isinstance(ticker, str):
         return None
-    candidates_path = resolve_ref(_repo_root(path), candidates_ref)
+    try:
+        candidates_path = resolve_repository_ref(_repo_root(path), candidates_ref)
+    except ValueError:
+        return None
     if not candidates_path.is_file():
         return None
     candidates = yaml.safe_load(candidates_path.read_text(encoding="utf-8"))
@@ -861,7 +908,17 @@ def _check_selected_research_coverage(
     ledger_ref = expected.get("ledger_ref")
     if not isinstance(ledger_ref, str):
         return []
-    ledger_path = resolve_ref(_repo_root(path), ledger_ref)
+    try:
+        ledger_path = resolve_repository_ref(_repo_root(path), ledger_ref)
+    except ValueError as exc:
+        return [
+            _finding(
+                path,
+                "benchmark.expected-ledger-ref",
+                str(exc),
+                f"fixtures[{index}].expected.ledger_ref",
+            )
+        ]
     records = _load_decision_register_rows(ledger_path)
     covered = {
         str(record.get("ticker"))

@@ -27,6 +27,14 @@ name: "トヨタ自動車"
 research_ref: records/05-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook_id>.md
 policy_ref:
   ref_path: records/01-policy/YYYY/MM/YYYY-MM-DDTHHMMSS+0900-portfolio-policy.md
+policy_applicability: active
+calendar_refs:
+  business_days:
+    ref_path: records/_calendars/business-days/YYYY-MM.yaml
+  events:
+    ref_path: records/_calendars/events/YYYY-MM.yaml
+  corporate_actions:
+    ref_path: records/_calendars/corporate-actions/YYYY-MM.yaml
 portfolio_exposure_ref:
   ref_path: records/_portfolio-exposure/YYYY/MM/YYYY-MM-DDTHHMMSS+0900.yaml
 position_state: none | open | closed
