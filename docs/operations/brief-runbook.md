@@ -3,7 +3,7 @@ title: "Brief runbook"
 summary: "Operational entry point for creating or updating records/02-brief artifacts."
 doc_type: operation
 status: active
-last_reviewed: 2026-05-04
+last_reviewed: 2026-05-10
 related_docs:
   - "../components/brief.md"
   - "../reference/data-sources.md"
@@ -36,6 +36,24 @@ Brief は `records/02-brief/` に置く fact layer です。詳細 contract は 
 - 同じイベントを複数 kind で重複記録しない。週次 brief では該当 kind への link で代替する。
 
 ## After writing
+
+### Third-party verification
+
+Brief を作成・更新したら、作成済み YAML の内容をそのまま信用せず、第三者検証を行う。
+ここでの第三者検証とは、**作成済みドキュメントに記載された各数値・日付・固有事実を個別に元
+source へ再照会し、値・期間・公表日・source status が正しいかを照合する工程**を指す。
+
+- `sources[].url` を再取得し、本文または公式 schedule に該当値が存在することを確認する
+- `layers` / `fact_memos` / `next_events` の値を 1 件ずつ source と突き合わせる
+- 前週比・前月比・bp / % / 円換算は機械計算で再検算する
+- 照合できない値は `fetch_status: failed` / `status: partial|failed` へ落とし、brief の事実値としては使わない
+- spot check では完了扱いにしない。値を持つ field path は全件列挙し、対象外にした field があれば理由を残す
+- 証跡は同じ PR の body / comment に `Third-party verification log` として残す。PR にしない作業では完了報告に同じ内容を残す
+
+Verification log には最低限、`target_path`, `verified_at`, `verifier`, `field_path`,
+`source_id`, `source_url`, `document_value`, `source_value`, `calculation_check`,
+`status`, `action_if_failed` を含める。local draft を `.plan/` に置いてもよいが、
+source of truth にはしない。
 
 ```bash
 uv run baibai-loop-validate

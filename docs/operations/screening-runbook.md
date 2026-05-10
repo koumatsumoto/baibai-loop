@@ -17,12 +17,16 @@ Screening は `records/04-candidates/` の fact snapshot を生成し、research
 ## Generate candidates
 
 ```bash
+uv run baibai-loop-screening rebuild-cache
+uv run baibai-loop-screening verify-cache-coverage --asof YYYY-MM-DD
 uv run baibai-loop-screening run --asof YYYY-MM-DD
 ```
 
 生成物の contract は [`../components/candidates.md`](../components/candidates.md) を参照します。
 
-JPX 規制情報（特別注意 / 整理 / 取引停止 / 上場廃止警告）は universe の必須 gate です。設定された required source が欠ける場合、`run` は fail-fast し、candidates YAML を生成しません。EDINET 前処理済み metrics は任意 source であり、未ロード時は EV/EBITDA などが `unavailable` に degrade します。
+`run` は開始時に SQLite cache を既存 raw JSON から refresh し、その後 SQLite coverage を検証します。SQLite が `--asof` に必要な J-Quants / JPX 入力を提供できない場合、`run` は fail-fast し、raw JSON や provider API へフォールバックしません。不足が出た場合は raw JSON を補完し、`rebuild-cache` / `verify-cache-coverage` を通してから再実行します。
+
+JPX 規制情報（特別注意 / 整理 / 取引停止 / 上場廃止警告）は universe の必須 gate です。設定された required source が欠ける場合、`run` は fail-fast し、candidates YAML を生成しません。EDINET 前処理済み metrics は任意 source であり、未ロード時は EV/EBITDA などが `unavailable` に degrade します。`EDINET_API_KEY` を設定して EDINET metrics を必須入力として運用する場合は、事前に `verify-cache-coverage --asof YYYY-MM-DD --require-edinet-metrics` を通します。
 
 ## Select research candidates
 

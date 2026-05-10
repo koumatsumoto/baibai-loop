@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -11,6 +12,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
+from unittest.mock import patch
 
 import yaml
 
@@ -19,6 +21,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from baibai_loop.screening import cli as screening_cli
 from baibai_loop.screening.cli import (
     ProviderBundle,
     _index_next_earnings,
@@ -201,13 +204,34 @@ class FakeJPXProvider:
 
 
 class ScreeningCliTests(unittest.TestCase):
+    def test_main_run_fails_on_incomplete_sqlite_before_provider_fetch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = Path.cwd()
+            stderr = io.StringIO()
+            try:
+                os.chdir(Path(tmpdir))
+                with (
+                    patch.dict(os.environ, {"JQUANTS_REFRESH_TOKEN": "token"}),
+                    patch.object(
+                        screening_cli.JQuantsProvider,
+                        "_get_client",
+                        side_effect=AssertionError("provider fetch must not be used"),
+                    ),
+                    contextlib.redirect_stderr(stderr),
+                ):
+                    exit_code = screening_cli.main(["run", "--asof", "2026-05-08"])
+            finally:
+                os.chdir(cwd)
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("SQLite cache coverage incomplete", stderr.getvalue())
+            self.assertIn("will not fall back to raw JSON or provider APIs", stderr.getvalue())
+
     def test_run_command_writes_candidates_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
             try:
                 os_path = Path(tmpdir)
-                import os
-
                 os.chdir(os_path)
                 config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
                 providers = ProviderBundle(

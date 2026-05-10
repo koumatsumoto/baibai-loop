@@ -23,11 +23,14 @@ python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--outlook path] [-
 python -m baibai_loop.screening.cli extract-edinet-metrics --asof YYYY-MM-DD [--lookback-days N]
 python -m baibai_loop.screening.cli rebuild-cache [--raw-dir PATH] [--sqlite-path PATH]
 python -m baibai_loop.screening.cli verify-raw-cache [--raw-dir PATH] [--max-size-mb N] [--sqlite-path PATH]
+python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--sqlite-path PATH] [--rules-path PATH]
 ```
 
-`rebuild-cache` は `records/_data/raw/screening/` 配下の git 管理 raw JSON から派生 SQLite cache (`records/_data/cache/screening/market.sqlite`) を再生成する。実行毎に出力ファイルを削除して書き直すため idempotent。詳細は §11 を参照。
+`rebuild-cache` は `records/_data/raw/screening/` 配下の git 管理 raw JSON から派生 SQLite cache (`records/_data/cache/screening/market.sqlite`) を再生成する。rebuild は一時ファイルへ作成してから置換するため、失敗時に既存 SQLite を壊さない。詳細は §11 を参照。
 
 `verify-raw-cache` は `records/_data/raw/screening/` を再帰的に walk し、(1) 1 ファイル `--max-size-mb` 以上のものが無いこと、(2) SQLite (`records/_data/cache/screening/market.sqlite`) が存在する場合は `raw_imports.sha256` と現状ファイルの SHA-256 が一致することを検証する。違反があれば exit 1。CI の `quality` job でも実行され、50MB 超過の commit を merge 前に弾く。
+
+`verify-cache-coverage` は SQLite が `run --asof` で必要な全入力をローカルに提供できるかを検証する。検証対象は J-Quants master、1200 日分の日次足、730 日分の財務サマリー、決算予定 whole-list payload（`run` は asof から 90 日先までを SQLite 内で filter）、asof の営業日カレンダ、asof の JPX 規制 snapshot と rules の `universe.required_jpx_flags` に含まれる source 名。`--require-edinet-metrics` を付けた場合のみ EDINET metrics も必須入力として検証する。raw JSON の読み込みや provider API 呼び出しは行わない。不足があれば exit 1。
 
 `extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出する。出力は `records/_data/raw/screening/edinet/metrics/YYYY-MM-DD.json`。CSV ZIP 本体は再生成可能な derived cache として `records/_data/cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 
@@ -40,7 +43,7 @@ python -m baibai_loop.screening.cli verify-raw-cache [--raw-dir PATH] [--max-siz
 raw cache / SQLite cache の配置先は固定 (env override 廃止):
 
 - raw JSON: `records/_data/raw/screening/`（git 管理対象、hardcoded）
-- SQLite cache: `records/_data/cache/screening/`（gitignore、`run` 開始時に raw JSON から自動 rebuild）
+- SQLite cache: `records/_data/cache/screening/`（gitignore、`run` 開始時に raw JSON から自動 refresh）
 
 任意:
 
@@ -86,6 +89,7 @@ EDINET CSV-derived metrics を更新してから run する標準手順:
 ```bash
 python -m baibai_loop.screening.cli extract-edinet-metrics --asof YYYY-MM-DD --lookback-days 540
 python -m baibai_loop.screening.cli rebuild-cache
+python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD --require-edinet-metrics
 python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 ```
 
@@ -138,7 +142,9 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 - `records/_data/cache/screening/edinet/csv_zips/` は EDINET `type=5` CSV ZIP の derived cache。metrics JSON を再生成するための一時物であり git 管理しない
 - `records/_data/raw/screening/disclosures/**/*.json` は任意の disclosure title cache。TDnet / 会社 IR 等から取得した `ticker` / `date` / `title` / `source` / `url` 相当の record を置くと、screening run が EDINET metrics 提出日以降の M&A・借入などの title keyword hit を `freshness_warnings` として candidates YAML に出す。cache が無い場合は `provider_status_lines` に optional unavailable を出す。cache が存在するが JSON 読み込み失敗・未対応 layout・必須 key 欠損がある場合は `provider_status_lines` と `fallback_lines` に件数を出す
 - `records/_data/raw/screening/manifests/` は run 毎の lineage manifest 出力先。`.gitignore` 対象（`candidates` YAML 側に `cache_manifest_hash` が記録されるため、manifest JSON 自体は git に載せない）
-- `JQuantsProvider` は SQLite (`records/_data/cache/screening/market.sqlite`) が存在し、要求範囲を `raw_imports` の chunk window で覆える場合は SQLite から読む（read-through）。覆えない場合は raw JSON cache → API の順にフォールバックする。SQLite が古い場合は `rebuild-cache` を再実行する
+- `screening run` は開始時に SQLite を raw JSON から refresh し、その後 `verify-cache-coverage --asof` 相当の coverage 検証を行う。SQLite が不完全な場合は fail-fast し、raw JSON cache や provider API へフォールバックしない
+- `JQuantsProvider` / `EDINETProvider` / `JPXProvider` は通常の cache/bootstrap 系コマンドでは既存どおり read-through から raw JSON / API へ進めるが、`screening run` では `cache_only` で構築される。これは coverage 検証をすり抜けた場合でも run 中の追加取得を禁止する二重ガードである
+- SQLite が古い、または raw JSON と `raw_imports.sha256` が一致しない場合は `verify-raw-cache` と `rebuild-cache` / 自動 refresh で同期してから `verify-cache-coverage` を通す
 
 ### 11.1 SQLite Schema
 

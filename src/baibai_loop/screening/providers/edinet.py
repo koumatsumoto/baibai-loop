@@ -129,11 +129,13 @@ class EDINETProvider:
         session: requests.Session | None = None,
         *,
         sqlite_path: Path | None = None,
+        cache_only: bool = False,
     ) -> None:
         self._api_key = api_key
         self._cache_dir = Path(cache_dir) / "edinet"
         self._session = session or requests.Session()
         self._sqlite_path = Path(sqlite_path) if sqlite_path is not None else None
+        self._cache_only = cache_only
         self._zip_cache_dir = (
             self._sqlite_path.parent / "edinet" / "csv_zips"
             if self._sqlite_path is not None
@@ -147,6 +149,7 @@ class EDINETProvider:
             cached = read_edinet_documents(self._sqlite_path, on_date)
             if cached is not None:
                 return cached
+        self._raise_if_cache_only("edinet_documents", on_date.isoformat())
         cache_path = self._cache_dir / "documents" / f"{on_date.isoformat()}.json"
         if cache_path.exists():
             payload = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -180,6 +183,8 @@ class EDINETProvider:
             cached = read_edinet_metrics(self._sqlite_path, asof_date)
             if cached is not None:
                 return dict(cached)
+        if self._cache_only:
+            return {}
         cache_path = self._cache_dir / "metrics" / f"{asof_date.isoformat()}.json"
         if not cache_path.exists():
             return {}
@@ -202,6 +207,7 @@ class EDINETProvider:
         cache_path = self._zip_cache_dir / f"{doc_id}.zip"
         if cache_path.exists():
             return cache_path.read_bytes()
+        self._raise_if_cache_only("edinet_csv_zip", doc_id)
 
         api_key = self._require_api_key("download_csv_zip")
         query = urlencode({"type": 5, "Subscription-Key": api_key})
@@ -215,6 +221,16 @@ class EDINETProvider:
         if not self._api_key:
             raise EDINETProviderError(f"EDINET_API_KEY is required for {operation}")
         return self._api_key
+
+    def _raise_if_cache_only(self, source: str, requirement: str) -> None:
+        if not self._cache_only:
+            return
+        sqlite_label = self._sqlite_path.as_posix() if self._sqlite_path is not None else "<none>"
+        raise EDINETProviderError(
+            f"SQLite cache incomplete for {source} ({requirement}); "
+            f"sqlite={sqlite_label}. `screening run` is cache-only: refresh or rebuild "
+            "SQLite from existing raw JSON before running screening."
+        )
 
     def _request_json(self, url: str) -> dict[str, Any]:
         max_attempts = 3

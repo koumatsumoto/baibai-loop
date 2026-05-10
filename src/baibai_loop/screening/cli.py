@@ -71,7 +71,8 @@ from .schema import (
     TTMQuality,
     normalize_ticker,
 )
-from .sqlite_cache import SQLiteCacheError, is_sqlite_stale, rebuild_from_raw
+from .sqlite_cache import SQLiteCacheError, is_sqlite_stale, rebuild_from_raw, refresh_from_raw
+from .sqlite_coverage import CacheCoverageIssue, verify_screening_sqlite_coverage
 from .tiers import position_tier
 from .universe import (
     build_universe,
@@ -253,6 +254,27 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    coverage_parser = subparsers.add_parser(
+        "verify-cache-coverage",
+        help="check that SQLite can serve all local inputs required by screening run",
+    )
+    coverage_parser.add_argument("--asof", required=True, help="screening target date (YYYY-MM-DD)")
+    coverage_parser.add_argument(
+        "--sqlite-path",
+        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
+        help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
+    )
+    coverage_parser.add_argument(
+        "--require-edinet-metrics",
+        action="store_true",
+        help="require EDINET metrics coverage for --asof",
+    )
+    coverage_parser.add_argument(
+        "--rules-path",
+        default=str(DEFAULT_RULES_PATH),
+        help=f"screening rules path for required JPX sources (default: {DEFAULT_RULES_PATH})",
+    )
+
     select_parser = subparsers.add_parser(
         "select",
         help="rank research candidates by combining candidates with outlook sectors",
@@ -312,6 +334,16 @@ def main(argv: list[str] | None = None) -> int:
             sqlite_path=Path(args.sqlite_path),
         )
 
+    if args.command == "verify-cache-coverage":
+        # verify-cache-coverage is local-only and never reads raw JSON or calls providers.
+        rules = load_screening_rules(Path(args.rules_path))
+        return verify_cache_coverage_command(
+            sqlite_path=Path(args.sqlite_path),
+            asof_date=_parse_iso_date(args.asof),
+            require_edinet_metrics=args.require_edinet_metrics,
+            required_jpx_sources=rules.universe.required_jpx_flags,
+        )
+
     try:
         config = ScreeningConfig.from_env()
     except ConfigError as exc:
@@ -319,28 +351,44 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     sqlite_path = config.sqlite_cache_dir / "market.sqlite"
+    run_asof_date = _parse_iso_date(args.asof) if args.command == "run" else None
+    run_rules = load_screening_rules(config.rules_path) if args.command == "run" else None
     # SQLite is the only range-aware fallback for the JSON chunk cache —
     # without it, asof-relative chunk filenames force a full 1200-day
-    # refetch whenever asof shifts. Auto-rebuild before each `run` so
+    # refetch whenever asof shifts. Auto-refresh before each `run` so
     # range queries always hit a fresh derived cache.
     if args.command == "run" and is_sqlite_stale((config.cache_dir,), sqlite_path):
-        print(f"rebuilding SQLite cache from {config.cache_dir}…", file=sys.stderr)
+        print(f"refreshing SQLite cache from {config.cache_dir}…", file=sys.stderr)
         try:
-            rebuild_from_raw(config.cache_dir, sqlite_path)
+            refresh_from_raw(config.cache_dir, sqlite_path)
         except SQLiteCacheError as exc:
             print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+    if args.command == "run":
+        assert run_asof_date is not None
+        coverage_issues = verify_screening_sqlite_coverage(
+            sqlite_path,
+            run_asof_date,
+            required_jpx_sources=run_rules.universe.required_jpx_flags if run_rules else (),
+        )
+        if coverage_issues:
+            _print_cache_coverage_issues(
+                coverage_issues, asof_date=run_asof_date, stream=sys.stderr
+            )
             return 1
     providers = ProviderBundle(
         jquants=JQuantsProvider(
             config.jquants_refresh_token,
             config.cache_dir,
             sqlite_path=sqlite_path,
+            cache_only=args.command == "run",
         ),
         edinet=(
             EDINETProvider(
                 config.edinet_api_key,
                 config.cache_dir,
                 sqlite_path=sqlite_path,
+                cache_only=args.command == "run",
             )
             if config.edinet_api_key or args.command == "run"
             else None
@@ -350,15 +398,17 @@ def main(argv: list[str] | None = None) -> int:
             regulation_urls=config.jpx_regulation_urls,
             special_caution_index_url=config.jpx_special_caution_index_url,
             sqlite_path=sqlite_path,
+            cache_only=args.command == "run",
         ),
     )
 
     if args.command == "run":
+        assert run_asof_date is not None
         return run_command(
-            _parse_iso_date(args.asof),
+            run_asof_date,
             config,
             providers,
-            rules=load_screening_rules(config.rules_path),
+            rules=run_rules,
             allow_stale_jpx=args.allow_stale_jpx,
             output_path=Path(args.output_path) if args.output_path else None,
             force=args.force,
@@ -1329,6 +1379,52 @@ def verify_raw_cache_command(
                 file=out,
             )
     return 1 if result.has_failures else 0
+
+
+def verify_cache_coverage_command(
+    *,
+    sqlite_path: Path,
+    asof_date: date,
+    require_edinet_metrics: bool = False,
+    required_jpx_sources: Iterable[str] = (),
+    stdout: TextIO | None = None,
+) -> int:
+    """Check whether SQLite can serve every source `screening run` will read.
+
+    This is intentionally local-only: it does not inspect raw JSON files and
+    does not call provider APIs. Refresh/rebuild must happen before this check.
+    """
+    out = stdout if stdout is not None else sys.stdout
+    issues = verify_screening_sqlite_coverage(
+        sqlite_path,
+        asof_date,
+        require_edinet_metrics=require_edinet_metrics,
+        required_jpx_sources=required_jpx_sources,
+    )
+    if issues:
+        _print_cache_coverage_issues(issues, asof_date=asof_date, stream=out)
+        return 1
+    print(
+        f"SQLite cache coverage complete for --asof {asof_date.isoformat()}: {sqlite_path}",
+        file=out,
+    )
+    return 0
+
+
+def _print_cache_coverage_issues(
+    issues: Sequence[CacheCoverageIssue],
+    *,
+    asof_date: date,
+    stream: TextIO,
+) -> None:
+    print(f"SQLite cache coverage incomplete for --asof {asof_date.isoformat()}:", file=stream)
+    for issue in issues:
+        print(f"  {issue.source} {issue.requirement}: {issue.reason}", file=stream)
+    print(
+        "screening run is cache-only and will not fall back to raw JSON or provider APIs; "
+        "refresh or rebuild SQLite from existing raw JSON, then rerun coverage verification.",
+        file=stream,
+    )
 
 
 def extract_edinet_metrics_command(

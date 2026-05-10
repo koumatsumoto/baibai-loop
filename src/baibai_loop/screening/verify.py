@@ -112,7 +112,7 @@ def _check_sqlite_integrity(
             # integrity failure, just nothing to cross-check.
             return ()
         recorded = {
-            row[0]: row[1]
+            _path_key(str(row[0])): row[1]
             for row in conn.execute("SELECT path, sha256 FROM raw_imports").fetchall()
         }
     finally:
@@ -121,7 +121,7 @@ def _check_sqlite_integrity(
     issues: list[SQLiteIntegrityIssue] = []
     for path in files:
         actual_sha = hashlib.sha256(path.read_bytes()).hexdigest()
-        recorded_sha = recorded.get(path.as_posix())
+        recorded_sha = recorded.get(_path_key(path))
         if recorded_sha is None:
             # Not every raw JSON file has to be imported (e.g. earnings cal /
             # market cal are still JSON-only). Treat as informational only;
@@ -137,3 +137,7 @@ def _check_sqlite_integrity(
                 )
             )
     return tuple(issues)
+
+
+def _path_key(path: Path | str) -> str:
+    return Path(path).resolve(strict=False).as_posix()

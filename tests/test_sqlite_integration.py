@@ -210,7 +210,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
         path="records/_data/raw/screening/jquants/get_eq_earnings_cal.json",
         record_count=0,
         min_date=asof.isoformat(),
-        max_date=asof.isoformat(),
+        max_date=(asof + timedelta(days=90)).isoformat(),
     )
 
     # Market calendar — populate the same forward window as bars so the
