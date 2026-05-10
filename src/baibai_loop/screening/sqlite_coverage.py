@@ -14,6 +14,27 @@ from .sqlite_reader import (
     read_jpx_regulations,
 )
 
+_REQUIRED_DATE_ROWS_SQL = {
+    ("jquants_daily_bars", "traded_at"): (
+        "SELECT COUNT(*) FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ?"
+    ),
+    ("jquants_fin_summaries", "disclosed_at"): (
+        "SELECT COUNT(*) FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ?"
+    ),
+    ("jquants_market_calendar", "day"): (
+        "SELECT COUNT(*) FROM jquants_market_calendar WHERE day BETWEEN ? AND ?"
+    ),
+}
+
+_TABLE_COUNT_SQL = {
+    "jquants_daily_bars": "SELECT COUNT(*) FROM jquants_daily_bars",
+    "jquants_fin_summaries": "SELECT COUNT(*) FROM jquants_fin_summaries",
+    "jquants_master_snapshots": "SELECT COUNT(*) FROM jquants_master_snapshots",
+    "jquants_earnings_calendar": "SELECT COUNT(*) FROM jquants_earnings_calendar",
+    "jquants_market_calendar": "SELECT COUNT(*) FROM jquants_market_calendar",
+    "jpx_regulation_flags": "SELECT COUNT(*) FROM jpx_regulation_flags",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class CacheCoverageIssue:
@@ -258,7 +279,7 @@ def _append_required_date_rows_issue(
     requirement: str,
 ) -> None:
     row = conn.execute(
-        f"SELECT COUNT(*) FROM {table} WHERE {date_column} BETWEEN ? AND ?",
+        _REQUIRED_DATE_ROWS_SQL[(table, date_column)],
         (start.isoformat(), end.isoformat()),
     ).fetchone()
     if int(row[0] or 0) == 0:
@@ -394,5 +415,5 @@ def _raw_import_windows_are_non_overlapping(conn: sqlite3.Connection, source: st
 
 
 def _table_row_count(conn: sqlite3.Connection, table: str) -> int:
-    row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+    row = conn.execute(_TABLE_COUNT_SQL[table]).fetchone()
     return int(row[0] or 0)

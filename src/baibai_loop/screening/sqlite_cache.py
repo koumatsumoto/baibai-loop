@@ -56,6 +56,28 @@ _REQUIRED_TABLES = (
 _DATA_TABLES = tuple(
     table for table in _REQUIRED_TABLES if table not in {"raw_imports", "cache_metadata"}
 )
+_TABLE_HAS_ROWS_SQL = {
+    "jquants_daily_bars": "SELECT 1 FROM jquants_daily_bars LIMIT 1",
+    "jquants_fin_summaries": "SELECT 1 FROM jquants_fin_summaries LIMIT 1",
+    "jquants_master_snapshots": "SELECT 1 FROM jquants_master_snapshots LIMIT 1",
+    "jquants_earnings_calendar": "SELECT 1 FROM jquants_earnings_calendar LIMIT 1",
+    "jquants_market_calendar": "SELECT 1 FROM jquants_market_calendar LIMIT 1",
+    "edinet_documents": "SELECT 1 FROM edinet_documents LIMIT 1",
+    "edinet_metrics": "SELECT 1 FROM edinet_metrics LIMIT 1",
+    "jpx_regulation_flags": "SELECT 1 FROM jpx_regulation_flags LIMIT 1",
+    "jpx_regulation_sources": "SELECT 1 FROM jpx_regulation_sources LIMIT 1",
+}
+_TABLE_COUNT_SQL = {
+    "jquants_daily_bars": "SELECT COUNT(*) FROM jquants_daily_bars",
+    "jquants_fin_summaries": "SELECT COUNT(*) FROM jquants_fin_summaries",
+    "jquants_master_snapshots": "SELECT COUNT(*) FROM jquants_master_snapshots",
+    "jquants_earnings_calendar": "SELECT COUNT(*) FROM jquants_earnings_calendar",
+    "jquants_market_calendar": "SELECT COUNT(*) FROM jquants_market_calendar",
+    "edinet_documents": "SELECT COUNT(*) FROM edinet_documents",
+    "edinet_metrics": "SELECT COUNT(*) FROM edinet_metrics",
+    "jpx_regulation_flags": "SELECT COUNT(*) FROM jpx_regulation_flags",
+    "jpx_regulation_sources": "SELECT COUNT(*) FROM jpx_regulation_sources",
+}
 _SINGLE_SNAPSHOT_SOURCES = frozenset(
     {
         "jquants_master_snapshots",
@@ -380,7 +402,7 @@ def _sqlite_schema_is_stale(db_path: Path) -> bool:
             import_count = conn.execute("SELECT COUNT(*) FROM raw_imports").fetchone()[0]
             if import_count == 0:
                 for table in _DATA_TABLES:
-                    if conn.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() is not None:
+                    if conn.execute(_TABLE_HAS_ROWS_SQL[table]).fetchone() is not None:
                         return True
                 return False
             if _table_integrity_is_stale(conn):
@@ -427,7 +449,7 @@ def _rebuild(conn: sqlite3.Connection, raw_dirs: tuple[Path, ...]) -> RebuildSum
 
 def _record_table_integrity(conn: sqlite3.Connection) -> None:
     for table in _DATA_TABLES:
-        row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+        row = conn.execute(_TABLE_COUNT_SQL[table]).fetchone()
         conn.execute(
             "INSERT OR REPLACE INTO cache_metadata(key, value) VALUES(?, ?)",
             (f"table_count.{table}", str(int(row[0] or 0))),
@@ -446,7 +468,7 @@ def _table_integrity_is_stale(conn: sqlite3.Connection) -> bool:
             expected_count = int(recorded[0])
         except (TypeError, ValueError):
             return True
-        actual = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+        actual = conn.execute(_TABLE_COUNT_SQL[table]).fetchone()
         if int(actual[0] or 0) != expected_count:
             return True
     return False
