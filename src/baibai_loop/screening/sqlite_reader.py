@@ -19,7 +19,7 @@ import json
 import re
 import sqlite3
 from collections.abc import Mapping
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -426,9 +426,29 @@ def _date_imported(conn: sqlite3.Connection, source: str, on_date: date) -> bool
     return cur.fetchone() is not None
 
 
+def _minmax_covered(conn: sqlite3.Connection, source: str, start: date, end: date) -> bool:
+    """True when at least one raw import brackets the requested range.
+
+    Earnings calendar is cached as a whole-list endpoint rather than a
+    request-windowed chunk. Sparse dates inside the window are valid, but a
+    stale whole-list file whose actual min/max does not cover the requested
+    horizon must fall back to the JSON/API path.
+    """
+    try:
+        cur = conn.execute(
+            "SELECT 1 FROM raw_imports WHERE source = ? "
+            "AND min_date <= ? AND max_date >= ? LIMIT 1",
+            (source, start.isoformat(), end.isoformat()),
+        )
+    except sqlite3.OperationalError:
+        return False
+    return cur.fetchone() is not None
+
+
 # Filenames are produced from a `sorted(params.items())` join in the
 # provider, so `end_dt` comes before `start_dt` alphabetically.
 _CHUNK_WINDOW_RE = re.compile(r"end_dt-(\d{4}-\d{2}-\d{2}).*?start_dt-(\d{4}-\d{2}-\d{2})")
+_RANGE_SOURCES_REQUIRING_ROWS = frozenset({"jquants_daily_bars", "jquants_market_calendar"})
 
 
 def _range_covered(conn: sqlite3.Connection, source: str, start: date, end: date) -> bool:
@@ -440,30 +460,50 @@ def _range_covered(conn: sqlite3.Connection, source: str, start: date, end: date
     """
     try:
         rows = conn.execute(
-            "SELECT path, min_date, max_date FROM raw_imports WHERE source = ?",
+            "SELECT path, min_date, max_date, record_count FROM raw_imports WHERE source = ?",
             (source,),
         ).fetchall()
     except sqlite3.OperationalError:
         return False
     if not rows:
         return False
-    starts: list[str] = []
-    ends: list[str] = []
-    for path_text, min_date, max_date in rows:
+    intervals: list[tuple[date, date]] = []
+    for path_text, min_date, max_date, record_count in rows:
+        if source in _RANGE_SOURCES_REQUIRING_ROWS and int(record_count or 0) == 0:
+            continue
         window = _parse_chunk_window(path_text)
         if window is not None:
-            chunk_start, chunk_end = window
+            chunk_start_text, chunk_end_text = window
         else:
             if not min_date or not max_date:
                 continue
-            chunk_start, chunk_end = min_date, max_date
-        starts.append(chunk_start)
-        ends.append(chunk_end)
-    if not starts or not ends:
+            chunk_start_text, chunk_end_text = str(min_date), str(max_date)
+        try:
+            intervals.append(
+                (date.fromisoformat(chunk_start_text), date.fromisoformat(chunk_end_text))
+            )
+        except ValueError:
+            continue
+    if not intervals:
         return False
-    earliest = min(starts)
-    latest = max(ends)
-    return earliest <= start.isoformat() and latest >= end.isoformat()
+    intervals.sort()
+    covered_until: date | None = None
+    for chunk_start, chunk_end in intervals:
+        if chunk_end < start:
+            continue
+        if chunk_start > end:
+            break
+        if covered_until is None:
+            if chunk_start > start:
+                return False
+            covered_until = chunk_end
+        elif chunk_start > covered_until + timedelta(days=1):
+            return False
+        else:
+            covered_until = max(covered_until, chunk_end)
+        if covered_until >= end:
+            return True
+    return False
 
 
 def _parse_chunk_window(path_text: str | None) -> tuple[str, str] | None:

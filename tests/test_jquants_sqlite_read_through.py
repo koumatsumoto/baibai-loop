@@ -13,7 +13,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.screening.providers.jquants import JQuantsProvider
+from baibai_loop.screening.providers.jquants import JQuantsProvider, JQuantsProviderError
 from baibai_loop.screening.sqlite_cache import open_connection
 
 
@@ -55,6 +55,7 @@ def _add_raw_import(
     record_count: int,
     min_date: str,
     max_date: str,
+    path: str | None = None,
 ) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO raw_imports("
@@ -62,7 +63,7 @@ def _add_raw_import(
         ") VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
             source,
-            f"records/_data/raw/screening/jquants/{source}.json",
+            path or f"records/_data/raw/screening/jquants/{source}.json",
             "0" * 64,
             datetime.now(UTC).isoformat(),
             record_count,
@@ -169,6 +170,79 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
 
             # Range starts before imported window, so fall through to API/JSON.
             provider.get_eq_bars_daily_range(date(2024, 3, 19), date(2024, 4, 5))
+
+            self.assertGreater(len(client.bars_calls), 0)
+
+    def test_cache_only_raises_when_bars_range_not_covered(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "raw"
+            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            _add_raw_import(
+                conn,
+                source="jquants_daily_bars",
+                record_count=0,
+                min_date="2024-04-01",
+                max_date="2024-04-10",
+            )
+            conn.commit()
+            conn.close()
+
+            client = _RecordingClient()
+            provider = JQuantsProvider(
+                "token",
+                cache_dir,
+                client=client,
+                sqlite_path=sqlite_path,
+                cache_only=True,
+            )
+
+            with self.assertRaisesRegex(JQuantsProviderError, "SQLite cache incomplete"):
+                provider.get_eq_bars_daily_range(date(2024, 3, 19), date(2024, 4, 5))
+
+            self.assertEqual(client.bars_calls, [])
+
+    def test_get_bars_falls_back_when_imported_chunks_have_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "raw"
+            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            for traded_at, close in (("2024-03-19", 3790.0), ("2024-03-25", 3810.0)):
+                conn.execute(
+                    "INSERT INTO jquants_daily_bars("
+                    "ticker, traded_at, close, turnover_value, adjustment_close"
+                    ") VALUES (?, ?, ?, ?, ?)",
+                    ("1301", traded_at, close, 1000.0, close),
+                )
+            _add_raw_import(
+                conn,
+                source="jquants_daily_bars",
+                record_count=1,
+                min_date="2024-03-19",
+                max_date="2024-03-20",
+                path=(
+                    "records/_data/raw/screening/jquants/"
+                    "get_eq_bars_daily_range-end_dt-2024-03-20-start_dt-2024-03-19.json"
+                ),
+            )
+            _add_raw_import(
+                conn,
+                source="jquants_daily_bars",
+                record_count=1,
+                min_date="2024-03-25",
+                max_date="2024-04-18",
+                path=(
+                    "records/_data/raw/screening/jquants/"
+                    "get_eq_bars_daily_range-end_dt-2024-04-18-start_dt-2024-03-25.json"
+                ),
+            )
+            conn.commit()
+            conn.close()
+
+            client = _RecordingClient()
+            provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
+
+            provider.get_eq_bars_daily_range(date(2024, 3, 19), date(2024, 4, 18))
 
             self.assertGreater(len(client.bars_calls), 0)
 

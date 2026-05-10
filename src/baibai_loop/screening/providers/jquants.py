@@ -123,11 +123,13 @@ class JQuantsProvider:
         client: Any | None = None,
         *,
         sqlite_path: Path | None = None,
+        cache_only: bool = False,
     ) -> None:
         self._refresh_token = refresh_token
         self._cache_dir = Path(cache_dir) / "jquants"
         self._client = client
         self._sqlite_path = Path(sqlite_path) if sqlite_path is not None else None
+        self._cache_only = cache_only
 
     def get_eq_master(self) -> list[SecurityMaster]:
         if self._sqlite_path is not None:
@@ -138,6 +140,7 @@ class JQuantsProvider:
             cached = read_eq_master(self._sqlite_path)
             if cached is not None:
                 return cached
+        self._raise_if_cache_only("jquants_master_snapshots", "latest master snapshot")
         records = self._load_or_fetch("get_eq_master")
         return [normalize_security_master(record) for record in records]
 
@@ -148,6 +151,7 @@ class JQuantsProvider:
             cached = read_daily_bars(self._sqlite_path, start, end)
             if cached is not None:
                 return cached
+        self._raise_if_cache_only("jquants_daily_bars", f"{start.isoformat()}..{end.isoformat()}")
         records = self._load_or_fetch_range("get_eq_bars_daily_range", start, end)
         return [bar for record in records if (bar := normalize_daily_bar(record)) is not None]
 
@@ -158,6 +162,9 @@ class JQuantsProvider:
             cached = read_fin_summaries(self._sqlite_path, start, end)
             if cached is not None:
                 return cached
+        self._raise_if_cache_only(
+            "jquants_fin_summaries", f"{start.isoformat()}..{end.isoformat()}"
+        )
         records = self._load_or_fetch_range("get_fin_summary_range", start, end)
         return [
             summary
@@ -172,6 +179,9 @@ class JQuantsProvider:
             cached = read_eq_earnings_cal(self._sqlite_path, start, end)
             if cached is not None:
                 return cached
+        self._raise_if_cache_only(
+            "jquants_earnings_calendar", f"{start.isoformat()}..{end.isoformat()}"
+        )
         records = self._load_or_fetch("get_eq_earnings_cal")
         start_iso = start.isoformat()
         end_iso = end.isoformat()
@@ -192,6 +202,9 @@ class JQuantsProvider:
             cached = read_market_calendar(self._sqlite_path, start, end)
             if cached is not None:
                 return cached
+        self._raise_if_cache_only(
+            "jquants_market_calendar", f"{start.isoformat()}..{end.isoformat()}"
+        )
         # holiday_division フィルタは掛けない。"1"=営業日だけでなく "2"=半日営業 (大納会など)
         # も取引あり扱いすべきで、事前フィルタで "2" を落とすと正しい営業日で asof が
         # reject される。normalize 側で "1"/"2" を営業扱いにする。
@@ -255,6 +268,16 @@ class JQuantsProvider:
             encoding="utf-8",
         )
         return records
+
+    def _raise_if_cache_only(self, source: str, requirement: str) -> None:
+        if not self._cache_only:
+            return
+        sqlite_label = self._sqlite_path.as_posix() if self._sqlite_path is not None else "<none>"
+        raise JQuantsProviderError(
+            f"SQLite cache incomplete for {source} ({requirement}); "
+            f"sqlite={sqlite_label}. `screening run` is cache-only: refresh or rebuild "
+            "SQLite from existing raw JSON before running screening."
+        )
 
     def _call_with_retry(self, method: str, call: Any, **params: Any) -> Any:
         last_exc: Exception | None = None
