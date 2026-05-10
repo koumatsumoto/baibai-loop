@@ -1,0 +1,240 @@
+schema_version: 1
+ai_draft: true
+published_at: "2026-05-10T10:00:00+09:00"
+horizon: "1-6m"
+updated_from: &updated_from
+  - records/02-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
+  - records/02-brief/2026/04/2026-04-19-world-weekly-us-iran-deescalation.yaml
+  - records/02-brief/2026/04/2026-04-24-world-daily-jp-cpi-mar-us-retail.yaml
+  - records/02-brief/2026/04/2026-04-26-world-weekly-jp-cpi-retail.yaml
+  - records/02-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
+  - records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
+  - records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml
+summary: |
+  PART A. 現状の構造分析
+
+  2026-05-10 JST 時点の更新は、5/4 outlook の「高油価 + 米物価粘着 + 日銀様子見 + AI/半導体外需」の骨格を維持しつつ、米 4 月雇用統計と WTI 追加上昇で downside 側の確度をやや上げる。BLS 4 月雇用統計は非農業部門雇用者数 +115,000、失業率 4.3%、平均時給 +3.6% YoY で、雇用は崩れていないが増勢は鈍化した。Fed H.15 では 10Y 4.41%、2Y 3.92% と前週から小幅上昇し、VIX は 17.19 で通常レンジに残る。WTI は 2026-05-04 に $109.76 と前週 $99.89 から +9.9% で、燃料 sensitive sector の逆風を確認する。
+
+  米国はコア PCE +3.2%、CPI +3.3%、一戸建て住宅着工 -14.2% MoM、4 月雇用 +115,000 の組み合わせで、物価粘着と実体減速が同時に残る。米株・クレジット環境は VIX だけでは悪化していないが、金利と原油が同時に上がる局面では valuation re-rating 余地を取りにくい。日本は春闘 5.09%、短観大企業製造業 +17、設備投資 +7.9% が下支えする一方、景気ウォッチャー DI 42.2 と東京コア CPI +1.5% が内需と日銀判断を鈍らせる。外需は USD/JPY 156.76 と円安水準が残り、TSMC / NVIDIA の公式 release で確認できる AI 需要と財務省貿易統計の半導体製造装置・IC 寄与を根拠に supportive を維持する。
+
+  PART B. シナリオ分析
+
+  Base 50%: WTI $100-115、米 CPI / PCE の再鈍化は限定的、Fed / BOJ とも hold を継続し、USD/JPY は 152-160。AI/半導体外需とエネルギー上流を拾い、燃料費・建設コスト sensitive sector を避ける。
+
+  Upside 15%: ホルムズ正常化または油価低下で WTI が $90 台へ戻り、米 CPI が 5/12 に明確に鈍化する。化学、空運、陸運、電気・ガス、不動産の adverse を再評価するが、現時点ではまだ採用しない。
+
+  Downside 30%: 米 CPI / PCE が高止まりし、雇用 +115,000 からさらに減速、WTI $110 超が続く。US bucket adverse、燃料 sensitive sector adverse、外需は AI 関連を除き neutral へ落とす可能性がある。
+
+  Tail 5%: ホルムズ / OPEC+ / 米クレジットの複合ショックで VIX 25 超、HY OAS 拡大、日経平均急落。long-only 新規採用を最小化し、既存候補は research で liquidity と event risk を優先確認する。
+
+  PART C. リスク因子
+
+  1. 米 CPI 5/12 の上振れ: Fed hold 長期化、growth valuation 圧縮。観測: BLS CPI。
+  2. WTI $110 超の定着: 化学、陸運、空運、電気・ガスの margin 圧迫。観測: EIA WTI / Brent。
+  3. 米雇用の追加減速: +115,000 から下振れすると US adverse を強める。観測: 6/5 BLS。
+  4. 日銀 5/12 主な意見の利上げ色: 銀行 supportive / 不動産 adverse を再評価。観測: BOJ。
+  5. USD/JPY 150 割れ: 外需 supportive の一部を neutral 化。観測: ECB / H.10 FX。
+  6. 中国輸出 / PMI 悪化: emerging adverse と日本中間財需要の下押し。観測: NBS / 海関総署系。
+  7. AI capex の失速: 機械 / 電気機器 / 情報・通信の supportive を削る。観測: TSMC / NVIDIA IR。
+  8. クレジット OAS 拡大: valuation discount の trap risk 増加。観測: FRED IG / HY OAS。
+  9. OPEC+ 6/7 の supply 変更: 鉱業 / 石油・石炭と燃料 sensitive の両側を更新。観測: OPEC statement。
+  10. 国内消費の追加悪化: 小売 / サービスを neutral から adverse 側へ。観測: 景気ウォッチャー、CPI。
+
+  PART D. 投資方向性
+
+  主軸は「supportive/neutral の中で、5/8 candidates に valuation / cashflow / sales growth の機械的 hit があり、かつ adverse sector ではない銘柄」。エネルギー上流と AI/半導体外需は macro が支えるが、すでに株価が上がった大型銘柄は research で entry risk を落とす。避ける軸は化学、電気・ガス、陸運、空運、不動産の fuel / rate sensitive。小売、食料品、サービスは neutral だが、米雇用鈍化と国内 DI 悪化を踏まえて、売上成長や CF yield が明確な銘柄だけを拾う。
+
+  PART E. 次回 trigger
+
+  5/12 米 CPI と日銀「主な意見」で Base / Downside の比率を更新する。5/28 BEA PCE と 6/5 米雇用統計で米 stagflation lite 判定を再確認し、6/7 OPEC+ statement と 6/16-17 FOMC で油価・金利の方向を更新する。
+sectors:
+  水産・農林業:
+    status: neutral
+    rationale: 食品需要は defensive だが、燃料費・飼料/物流コストは WTI $109.76 の上昇で逆風。5/4 brief の国内消費指標は強弱混在で、sector 単位では neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  鉱業:
+    status: supportive
+    rationale: ホルムズ閉鎖と EIA STEO の高油価シナリオに加え、WTI $109.76 への追加上昇で上流収益には追い風。米雇用鈍化は需要リスクだが、1-6m では資源価格要因が優位。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  建設業:
+    status: neutral
+    rationale: 国内短観・設備投資は底堅い一方、米住宅着工 -14.2% と原油高による資材・運営コストが逆風。日銀 hold 継続で金利急変は未確認のため neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  食料品:
+    status: neutral
+    rationale: 春闘 5.09% は家計所得を支えるが、景気ウォッチャー DI 42.2 と燃料・包装・物流コスト上昇が重い。価格転嫁力に個社差が大きく sector では neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  繊維製品:
+    status: neutral
+    rationale: 合繊原料・物流費は原油高で逆風だが、USD/JPY 156.76 の円安水準は輸出・海外売上に支え。業種固有の追加 fact が不足し neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  パルプ・紙:
+    status: neutral
+    rationale: 電力・燃料コストは逆風だが、国内紙パ市況や在庫 cycle の一次 fact が不足。cost adverse は認識しつつ、sector gate は neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  化学:
+    status: adverse
+    rationale: ナフサ・燃料費は WTI $109.76 と高油価で圧迫され、IEA のアジア石化需要減退 fact も残る。価格転嫁ラグを踏まえ 1-6m は adverse。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  医薬品:
+    status: neutral
+    rationale: 為替は円安水準で海外売上には支えだが、薬価・パイプライン・大型承認の sector fact は未確認。macro shock への defensive 性を考慮して neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  石油・石炭製品:
+    status: supportive
+    rationale: WTI $109.76 とホルムズ閉鎖継続で在庫評価益・精製マージン・上流持分に追い風。需要減速リスクはあるが、現時点の価格 fact は supportive。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  ゴム製品:
+    status: neutral
+    rationale: 合成ゴム原料は原油高で逆風、国内製造業と自動車輸出金額は支え。需要とコストが相殺し、sector 単位では neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  ガラス・土石製品:
+    status: neutral
+    rationale: 燃料・電力コストは逆風だが、建設・電子部材向け需要は国内設備投資と半導体外需で下支え。決め手不足で neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  鉄鋼:
+    status: supportive
+    rationale: BDI 高値と国内短観・設備投資の底堅さが需要面を支え、円安水準も輸出採算を支える。燃料・原料高は逆風だが、5/4 outlook から supportive を維持。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  非鉄金属:
+    status: neutral
+    rationale: AI/電動化需要は支えになり得るが、銅・アルミ等の市況一次 fact は今回 brief にない。エネルギーコスト上昇もあり neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  金属製品:
+    status: neutral
+    rationale: 国内設備投資と建設需要は支え、原材料・燃料費は逆風。業種固有の価格・受注 fact が不足し neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  機械:
+    status: supportive
+    rationale: TSMC / NVIDIA の公式 release と財務省貿易統計の半導体製造装置・IC 寄与から AI/半導体 capex 軸を維持。米雇用鈍化は景気 risk だが、USD/JPY 156.76 と国内生産予測が支え。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  電気機器:
+    status: supportive
+    rationale: AI/HPC 需要、電子部品・半導体関連外需、円安水準が支える。米金利 10Y 4.41% は valuation 逆風だが、sector gate は supportive 維持。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  輸送用機器:
+    status: neutral
+    rationale: 円安水準と国内製造業 DI は支えだが、米雇用鈍化、燃料・素材コスト、中東向け輸出減少が逆風。自動車数量面の弱さもあり neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  精密機器:
+    status: neutral
+    rationale: 医療・計測・半導体周辺需要は支えだが、米金利上昇と外需鈍化 risk もある。sector 一括で supportive にするだけの fact は不足。
+    source_refs: [records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  その他製品:
+    status: neutral
+    rationale: 構成業種が広く、内需・外需・原材料の mix が分散する。今回 brief の fact だけでは sector 共通方向を引かず neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  電気・ガス業:
+    status: adverse
+    rationale: WTI $109.76 と LNG/原油連動の燃料費が 1-6m の収益を圧迫しやすい。燃料調整ラグと規制料金の制約を踏まえ adverse 維持。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  陸運業:
+    status: adverse
+    rationale: 軽油・ガソリン高はトラック、バス、鉄道電力費に逆風。米雇用鈍化と国内 DI 悪化で需要側の支えも強くなく、adverse 維持。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  海運業:
+    status: neutral
+    rationale: BDI 高値はドライバルクに支えだが、燃料費高と中国・対米輸出弱含みは逆風。事業 mix の差が大きく、sector では neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  空運業:
+    status: adverse
+    rationale: ジェット燃料は WTI / Brent 高値の影響を受け、路線変更・需要鈍化 risk も残る。ヘッジの時間差はあっても 1-6m では adverse。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  倉庫・運輸関連業:
+    status: neutral
+    rationale: 燃料費は逆風だが陸運より直接感応度は低く、倉庫需要・港湾需要は個社 mix に左右される。sector は neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  情報・通信業:
+    status: supportive
+    rationale: AI/クラウド・データセンター需要は TSMC / NVIDIA の公式 release と外需軸で支えられる。米金利上昇は valuation 逆風だが、業種内の AI 関連を中心に supportive。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  卸売業:
+    status: neutral
+    rationale: 総合商社は資源高が支え、非資源・化学・物流はコスト逆風。事業 mix が広く sector では neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  小売業:
+    status: neutral
+    rationale: 春闘は所得を支えるが、景気ウォッチャー DI 42.2 と米雇用鈍化は消費 sentiment の逆風。生活必需・ディスカウント系は個別に拾う余地があるため neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  銀行業:
+    status: neutral
+    rationale: 日銀 hold と東京 CPI +1.5% は利上げ確度を抑える一方、日銀展望のコア CPI +2.8% は利上げ材料。5/12 主な意見待ちで neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  証券、商品先物取引業:
+    status: neutral
+    rationale: VIX 17.19 は通常レンジで取引環境を極端に悪化させていないが、米金利上昇と credit 調整余地は逆風。neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  保険業:
+    status: neutral
+    rationale: 米金利・国内金利は小幅上昇で運用面には支えだが、保険料・損害率の sector fact は不足。neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  その他金融業:
+    status: neutral
+    rationale: 金利上昇は利回り面で支えになり得るが、信用 cost と資金調達 cost は逆風。業種固有 fact が不足し neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  不動産業:
+    status: adverse
+    rationale: 米住宅着工 -14.2% と米金利 10Y 4.41%、日銀利上げ警戒が valuation と資金調達に逆風。原油高による建設・運営 cost もあり adverse。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  サービス業:
+    status: neutral
+    rationale: 人材・教育・レジャー・業務支援で需要感応度が分散する。米雇用鈍化と国内 DI 悪化は逆風だが、個社ごとの差が大きく neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+exposure_buckets:
+  us:
+    status: adverse
+    rationale: コア PCE +3.2%、CPI +3.3%、米住宅着工 -14.2% に、4 月雇用 +115,000 と WTI $109.76 が重なる。金利は 10Y 4.41%、2Y 3.92% で小幅上昇し、1-6m の US equity / credit は adverse 寄り。
+    source_refs: [records/02-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml, records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  japan-domestic:
+    status: neutral
+    rationale: 春闘 5.09% と短観は支えだが、景気ウォッチャー DI 42.2、東京 CPI +1.5%、燃料費高が内需を抑える。日銀 5/12 主な意見待ちで neutral。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  japan-external-demand:
+    status: supportive
+    rationale: USD/JPY 156.76 の円安水準、財務省貿易統計の半導体製造装置・IC 寄与、TSMC / NVIDIA 公式 release の AI 需要で supportive を維持。米雇用鈍化と中国 weakness は risk として残る。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  emerging:
+    status: adverse
+    rationale: 中国 PMI 50.3、輸出伸び鈍化、不動産投資 -11.2% の脆弱性に加え、油価高はエネルギー輸入国に逆風。日本株への接続では中間財需要の下押しとして扱う。
+    source_refs: [records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml, records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+changes:
+  - target: us
+    from_status: adverse
+    to_status: adverse
+    rationale: 4 月雇用 +115,000 と WTI $109.76 を追加確認。物価粘着 + 実体鈍化 + 油価上昇の組み合わせで adverse を維持。
+    source_refs: [records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  - target: 鉱業
+    from_status: supportive
+    to_status: supportive
+    rationale: WTI $109.76 への追加上昇で高油価 exposure の supportive を維持。
+    source_refs: [records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  - target: 化学
+    from_status: adverse
+    to_status: adverse
+    rationale: WTI $109.76 によりナフサ・燃料費 pressure が続くため adverse を維持。
+    source_refs: [records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+  - target: 電気・ガス業
+    from_status: adverse
+    to_status: adverse
+    rationale: 原燃料費上昇と転嫁ラグの組み合わせで adverse を維持。
+    source_refs: [records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-wti-up.yaml]
+next_triggers:
+  - date: "2026-05-12"
+    text: "米 4 月 CPI (BLS、8:30 ET) / 日銀 4/27-28 会合『主な意見』(8:50 JST)"
+  - date: "2026-05-13"
+    text: "米 4 月 PPI (BLS、8:30 ET)"
+  - date: "2026-05-28"
+    text: "BEA 4 月 Personal Income and Outlays / 1Q GDP second estimate"
+  - date: "2026-06-05"
+    text: "米 5 月雇用統計"
+  - date: "2026-06-07"
+    text: "OPEC+ Producing Countries 7 ヶ国会合"
+  - date: "2026-06-16 〜 17"
+    text: "FOMC 会合"
+artifact_provenance:
+  source_refs: *updated_from
+  source_status: ok
+  lineage: brief-derived
+macro_regime:
+  aggregate_status: mixed
+notes: "2026-05-10 JST 時点。市場 asof は日本市場の直近営業日 2026-05-08。前回 2026-05-04 outlook の判定を基準に、BLS 4 月雇用統計と WTI 追加上昇を反映した差分更新。"

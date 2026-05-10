@@ -1,0 +1,233 @@
+schema_version: 1
+kind: world-weekly
+type: periodic
+scope: world
+ai_draft: true
+published_at: "2026-05-10T09:00:00+09:00"
+observation_date: "2026-05-10"
+period:
+  start: "2026-05-04"
+  end: "2026-05-08"
+  market_basis_date: "2026-05-08"
+  note: "指標ごとに直近公表日が異なる。米金利は Fed H.15 2026-05-08 release の 2026-05-07 値、VIX / ECB FX は 2026-05-08、WTI は EIA 2026-05-06 release の 2026-05-04 値"
+references:
+  prev_period: records/02-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
+  latest_monthly: records/02-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
+  latest_daily: records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
+sources:
+  - id: bls-empsit-apr
+    name: BLS Employment Situation April 2026
+    url: https://www.bls.gov/news.release/empsit.nr0.htm
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: bls-empsit-schedule
+    name: BLS Employment Situation Release Schedule
+    url: https://www.bls.gov/schedule/news_release/empsit.htm
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: bls-cpi-schedule
+    name: BLS CPI Release Schedule
+    url: https://www.bls.gov/schedule/news_release/cpi.htm
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: bls-ppi-schedule
+    name: BLS PPI Release Schedule
+    url: https://www.bls.gov/schedule/news_release/ppi.htm
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: bea-schedule
+    name: BEA Release Schedule 2026
+    url: https://www.bea.gov/index.php/news/schedule
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: fed-h15
+    name: Federal Reserve H.15 Selected Interest Rates
+    url: https://www.federalreserve.gov/releases/h15/
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: fed-fomc-cal
+    name: Federal Reserve FOMC Calendars
+    url: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: cboe-vix
+    name: CBOE VIX History CSV
+    url: https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: ecb-fx
+    name: ECB euro reference rates (historical CSV)
+    url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: eia-wti
+    name: EIA Cushing OK WTI Spot Price FOB
+    url: https://www.eia.gov/dnav/pet/hist/RWTCd.htm
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: eia-brent
+    name: EIA Europe Brent Spot Price FOB
+    url: https://www.eia.gov/dnav/pet/hist/RBRTEd.htm
+    accessed_at: "2026-05-10"
+    status: partial
+    note: "本作業時点で表示可能な EIA HTML は 2026-04-20 週までで、5/4-5/8 週の値を確認できず"
+  - id: boj-mpm
+    name: 日本銀行 金融政策決定会合の運営
+    url: https://www.boj.or.jp/mopo/mpmsche_minu/index.htm
+    accessed_at: "2026-05-10"
+    status: ok
+  - id: jpx-stats-daily
+    name: JPX マーケット統計
+    url: https://www.jpx.co.jp/markets/statistics-equities/daily/index.html
+    accessed_at: "2026-05-10"
+    status: failed
+    note: "PDF テキスト抽出ツールが本作業環境に無く、TOPIX / 東証プライム売買代金を抽出できず"
+notes: "2026-05-04 〜 2026-05-08 の週次 brief。2026-05-10 JST 時点で確認できる BLS 4 月雇用統計、米金利、VIX、ECB FX、WTI、次回主要イベントを fact layer として記録する。Brent / TOPIX / 東証プライム売買代金は取得不能または抽出不能として failed / partial を明示する。"
+layers:
+  world:
+    market_indicators:
+      - name: 米10Y利回り
+        value: "4.41%"
+        as_of: "2026-05-07"
+        wow_comment: "前週 brief 表示値 4.40% から +1bp"
+        source_ids: [fed-h15]
+      - name: 米2Y利回り
+        value: "3.92%"
+        as_of: "2026-05-07"
+        wow_comment: "前週 brief 表示値 3.88% から +4bp"
+        source_ids: [fed-h15]
+      - name: 10Y-2Yスプレッド
+        value: "+49bp"
+        as_of: "2026-05-07"
+        wow_comment: "前週 brief 表示値 +52bp から -3bp"
+        source_ids: [fed-h15]
+      - name: VIX
+        value: "17.19"
+        as_of: "2026-05-08"
+        wow_comment: "前週 brief 表示値 16.99 から +0.20pt"
+        source_ids: [cboe-vix]
+      - name: WTI原油
+        value: "$109.76"
+        as_of: "2026-05-04"
+        wow_comment: "前週 brief 表示値 $99.89 から +9.9%"
+        source_ids: [eia-wti]
+      - name: Brent原油
+        value: null
+        wow_comment: "EIA HTML で 5/4-5/8 週の値を確認できず"
+        fetch_status: failed
+        source_ids: [eia-brent]
+    monthly_statistics:
+      - name: 米 非農業部門雇用者数 2026 年 4 月
+        value: "+115,000"
+        previous: "+185,000 (2026-03、改定後)"
+        release_date: "2026-05-08"
+        source_ids: [bls-empsit-apr]
+        note: "2 月は -156,000、3 月は +185,000 へ改定。2 月と 3 月の合計は前回公表比 -16,000"
+      - name: 米 失業率 2026 年 4 月
+        value: "4.3%"
+        previous: "4.3% (2026-03)"
+        release_date: "2026-05-08"
+        source_ids: [bls-empsit-apr]
+      - name: 米 労働参加率 2026 年 4 月
+        value: "61.8%"
+        previous: "61.9% (2026-03)"
+        release_date: "2026-05-08"
+        source_ids: [bls-empsit-apr]
+      - name: 米 平均時給 2026 年 4 月
+        value: "$37.41 (+0.2% MoM、+3.6% YoY)"
+        previous: "$37.35 (2026-03、MoM 計算基準)"
+        release_date: "2026-05-08"
+        source_ids: [bls-empsit-apr]
+    events:
+      - date: "2026-05-08"
+        text: "BLS 4 月雇用統計: 非農業部門雇用者数 +115,000、失業率 4.3%、労働参加率 61.8%、経済的理由によるパートタイム就業者 490 万人"
+        source_ids: [bls-empsit-apr]
+      - date: "2026-05-08"
+        text: "BLS 4 月雇用統計の業種別: health care +37,000、transportation and warehousing +30,000、retail trade +22,000、federal government -9,000、information -13,000"
+        source_ids: [bls-empsit-apr]
+  japan:
+    fx:
+      - name: USD/JPY
+        value: "156.76"
+        as_of: "2026-05-08"
+        wow_comment: "前週 brief 表示値 156.56 から +0.13%。ECB の JPY/EUR (184.37) と USD/EUR (1.1761) から算出"
+        source_ids: [ecb-fx]
+      - name: EUR/JPY
+        value: "184.37"
+        as_of: "2026-05-08"
+        wow_comment: "前週 brief 表示値 183.21 から +0.63%"
+        source_ids: [ecb-fx]
+      - name: AUD/JPY
+        value: "113.39"
+        as_of: "2026-05-08"
+        wow_comment: "前週 brief 表示値 111.91 から +1.32%。ECB の JPY/EUR (184.37) と AUD/EUR (1.6259) から算出"
+        source_ids: [ecb-fx]
+    events:
+      - date: "2026-05-12"
+        text: "日銀 2026-04-27 〜 28 会合の『主な意見』公表予定"
+        source_ids: [boj-mpm]
+  japan_equity:
+    market_indicators:
+      - name: TOPIX
+        value: null
+        wow_comment: "JPX 日次 PDF は取得可だが PDF テキスト抽出ツール無し"
+        fetch_status: failed
+        source_ids: [jpx-stats-daily]
+      - name: 東証プライム売買代金 (日次平均)
+        value: null
+        wow_comment: "同上"
+        fetch_status: failed
+        source_ids: [jpx-stats-daily]
+    sector_movements: null
+    events: []
+    note: "日経平均 / TOPIX の公式値は JPX / Nikkei 公式の機械取得が本作業環境で未完了。candidates 生成は J-Quants 個別銘柄データを別系統で取得する"
+deltas:
+  threshold_breaches:
+    - severity: major
+      indicator: WTI原油
+      from: "$99.89"
+      to: "$109.76"
+      change: "+9.9%"
+  unjudgeable:
+    - Brent原油
+    - TOPIX
+    - 東証プライム売買代金
+  direction_history:
+    - indicator: 米10Y利回り
+      history: "↑↑↑"
+    - indicator: 米2Y利回り
+      history: "↑↑↑"
+    - indicator: VIX
+      history: "↓↑"
+    - indicator: WTI原油
+      history: "↑↑↑"
+    - indicator: USD/JPY
+      history: "↓↑"
+  direction_reversals:
+    - indicator: USD/JPY
+      reversal_date: "2026-05-08"
+      from_direction: down
+      to_direction: up
+      weeks_after_reversal: 1
+fact_memos:
+  - "米 4 月非農業部門雇用者数 +115,000、失業率 4.3%、労働参加率 61.8%、平均時給 +0.2% MoM / +3.6% YoY"
+  - "Fed H.15 2026-05-08 release: 2026-05-07 の米 10Y 4.41%、2Y 3.92%、10Y-2Y +49bp"
+  - "CBOE VIX 2026-05-08 close 17.19"
+  - "ECB 2026-05-08: JPY/EUR 184.37、USD/EUR 1.1761、AUD/EUR 1.6259。機械計算で USD/JPY 156.76、AUD/JPY 113.39"
+  - "EIA WTI 2026-05-04 $109.76。前週 brief 表示値 $99.89 から +9.9%"
+next_events:
+  - date: "2026-05-12"
+    text: "米 4 月 CPI (BLS、8:30 ET) / 日銀 4/27-28 会合『主な意見』(8:50 JST)"
+    source_ids: [bls-cpi-schedule, boj-mpm]
+  - date: "2026-05-13"
+    text: "米 4 月 PPI (BLS、8:30 ET)"
+    source_ids: [bls-ppi-schedule]
+  - date: "2026-05-28"
+    text: "BEA GDP (Second Estimate) and Corporate Profits, 1Q 2026 / Personal Income and Outlays, April 2026"
+    source_ids: [bea-schedule]
+  - date: "2026-06-05"
+    text: "米 5 月雇用統計 (BLS、8:30 ET)"
+    source_ids: [bls-empsit-schedule]
+  - date: "2026-06-16 〜 17"
+    text: "FOMC 会合"
+    source_ids: [fed-fomc-cal]
