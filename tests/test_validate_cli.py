@@ -345,7 +345,14 @@ def _seed_repo(root: Path, *, candidates_overrides: dict[str, object] | None = N
         _make_research_text(), encoding="utf-8"
     )
     (root / "records/_universe-snapshots/2026/04/2026-04-24.yaml").write_text(
-        "snapshot_id: universe-20260424\nas_of: '2026-04-24'\nuniverse_size: 1\nmembers: []\n",
+        "snapshot_id: universe-20260424\n"
+        "as_of: '2026-04-24'\n"
+        "universe_size: 1\n"
+        "members_scope: full_universe\n"
+        "members_recorded: 1\n"
+        "members:\n"
+        "- ticker: '2767'\n"
+        "  sector_33: 情報・通信業\n",
         encoding="utf-8",
     )
     (root / "records/_playbooks/valuation-reversion/2026-05-01T000000+0900.md").write_text(

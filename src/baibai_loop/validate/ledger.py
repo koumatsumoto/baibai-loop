@@ -10,6 +10,7 @@ from jsonschema import Draft202012Validator
 
 from baibai_loop.ledger.io import validate_decision_register_jsonl
 
+from .domain import repository_ref_error, resolve_repository_ref
 from .errors import ValidationFinding
 
 SCHEMA_ROOT = Path(__file__).resolve().parents[3] / "records" / "_schemas"
@@ -25,6 +26,8 @@ _REMOVED_REFERENCE_FIELDS = frozenset(
         "screening_rules_snapshot",
         "metric_catalog_snapshot",
         "cache_manifest_hash",
+        "snapshot_path",
+        "latest_snapshot",
     }
 )
 
@@ -280,6 +283,27 @@ def _check_candidate_ref_lineage(
         return []
 
     findings = []
+    ref_ticker = candidate_ref.get("ticker")
+    if not isinstance(ref_ticker, str) or not ref_ticker:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-ticker",
+                message="candidate_ref.ticker is required",
+                location=f"line {line_number}.candidate_ref.ticker",
+            )
+        )
+    elif ref_ticker != record.get("ticker"):
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-ticker",
+                message="candidate_ref.ticker must match ledger row ticker",
+                location=f"line {line_number}.candidate_ref.ticker",
+            )
+        )
     ref_screen_run_id = candidate_ref.get("screen_run_id")
     document_run_id = document.get("run_id")
     if not isinstance(ref_screen_run_id, str) or not ref_screen_run_id:
@@ -322,6 +346,19 @@ def _check_candidate_ref_lineage(
                 code="ledger.candidate-ref-candidate-id",
                 message="candidate_ref.candidate_id must match candidate row candidate_id",
                 location=f"line {line_number}.candidate_ref.candidate_id",
+            )
+        )
+    elif candidate is None:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-match",
+                message=(
+                    "candidate_ref must match a candidate row by ticker, "
+                    "candidate_id, and screen_run_id"
+                ),
+                location=f"line {line_number}.candidate_ref",
             )
         )
 
@@ -380,7 +417,36 @@ def _candidate_ref_document_findings(
                 )
             ]
         )
-    candidate_path = root / candidates_ref
+    ref_error = repository_ref_error(candidates_ref, root=root)
+    if ref_error is not None:
+        candidate_document_cache[candidates_ref] = None
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-path",
+                message=ref_error,
+                location=f"line {line_number}.candidate_ref.candidates_ref",
+            )
+        ]
+    is_candidate_yaml = candidates_ref.startswith("records/04-candidates/") and Path(
+        candidates_ref
+    ).suffix in {".yaml", ".yml"}
+    if not is_candidate_yaml:
+        candidate_document_cache[candidates_ref] = None
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-target",
+                message=(
+                    "candidate_ref.candidates_ref must point under "
+                    "records/04-candidates/ and use YAML"
+                ),
+                location=f"line {line_number}.candidate_ref.candidates_ref",
+            )
+        ]
+    candidate_path = resolve_repository_ref(root, candidates_ref)
     try:
         raw = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -451,7 +517,12 @@ def _candidate_ref_document_and_row(
     candidates = document.get("candidates")
     if isinstance(candidates, list):
         for item in candidates:
-            if isinstance(item, dict) and item.get("ticker") == ticker:
+            if (
+                isinstance(item, dict)
+                and item.get("ticker") == ticker
+                and item.get("candidate_id") == candidate_ref.get("candidate_id")
+                and item.get("screen_run_id") == candidate_ref.get("screen_run_id")
+            ):
                 candidate = item
                 break
     return document, candidate
@@ -464,7 +535,16 @@ def _load_candidate_document(
 ) -> dict[str, Any] | None:
     if candidates_ref in cache:
         return cache[candidates_ref]
-    candidate_path = root / candidates_ref
+    if repository_ref_error(candidates_ref, root=root) is not None:
+        cache[candidates_ref] = None
+        return None
+    is_candidate_yaml = candidates_ref.startswith("records/04-candidates/") and Path(
+        candidates_ref
+    ).suffix in {".yaml", ".yml"}
+    if not is_candidate_yaml:
+        cache[candidates_ref] = None
+        return None
+    candidate_path = resolve_repository_ref(root, candidates_ref)
     try:
         document = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError):

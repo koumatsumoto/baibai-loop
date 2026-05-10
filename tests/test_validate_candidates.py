@@ -160,6 +160,66 @@ class CandidatesValidationTests(unittest.TestCase):
             path.unlink()
         self.assertIn("candidates.universe-ref", {finding.code for finding in findings})
 
+    def test_canonical_universe_ref_requires_members_to_match_size(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            universe = root / "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
+            universe.parent.mkdir(parents=True)
+            universe.write_text(
+                "snapshot_id: universe-20260501\n"
+                "as_of: '2026-05-01'\n"
+                "universe_size: 100\n"
+                "members_scope: full_universe\n"
+                "members_recorded: 0\n"
+                "members: []\n",
+                encoding="utf-8",
+            )
+            payload = _minimal_candidates()
+            universe_ref = payload["universe_ref"]
+            assert isinstance(universe_ref, dict)
+            universe_ref["ref_path"] = (
+                "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
+            )
+            path = root / "records/04-candidates/2026/05/2026-05-01.yaml"
+            path.parent.mkdir(parents=True)
+            path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
+
+            findings = validate_candidates_file(path)
+
+        self.assertIn("candidates.universe-ref", {finding.code for finding in findings})
+
+    def test_canonical_universe_ref_requires_candidate_ticker_member(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            universe = root / "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
+            universe.parent.mkdir(parents=True)
+            universe.write_text(
+                "snapshot_id: universe-20260501\n"
+                "as_of: '2026-05-01'\n"
+                "universe_size: 100\n"
+                "members_scope: full_universe\n"
+                "members_recorded: 100\n"
+                "members:\n"
+                + "\n".join(
+                    f"- ticker: '{index:04d}'\n  sector_33: 情報・通信業" for index in range(100)
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            payload = _minimal_candidates()
+            universe_ref = payload["universe_ref"]
+            assert isinstance(universe_ref, dict)
+            universe_ref["ref_path"] = (
+                "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
+            )
+            path = root / "records/04-candidates/2026/05/2026-05-01.yaml"
+            path.parent.mkdir(parents=True)
+            path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
+
+            findings = validate_candidates_file(path)
+
+        self.assertIn("candidates.universe-ref", {finding.code for finding in findings})
+
     def test_missing_required_candidates_field_is_flagged(self) -> None:
         payload = _minimal_candidates()
         del payload["candidates"]

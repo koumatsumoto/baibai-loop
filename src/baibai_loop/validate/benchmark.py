@@ -25,6 +25,8 @@ _REMOVED_REFERENCE_FIELDS = frozenset(
         "screening_rules_snapshot",
         "metric_catalog_snapshot",
         "cache_manifest_hash",
+        "snapshot_path",
+        "latest_snapshot",
     }
 )
 _REQUIRED_FIXTURE_IDS = {
@@ -216,25 +218,46 @@ def _check_repository_refs(path: Path, manifest: Mapping[str, object]) -> list[V
         "portfolio_exposure": ("records/_portfolio-exposure/", (".yaml", ".yml")),
     }
     input_refs = manifest.get("input_refs")
-    if isinstance(input_refs, Mapping):
+    if not isinstance(input_refs, Mapping):
+        findings.append(
+            _finding(path, "benchmark.input-ref", "input_refs must be a mapping", "input_refs")
+        )
+    else:
         for key, (prefix, suffixes) in input_specs.items():
             ref = input_refs.get(key)
-            if isinstance(ref, Mapping):
-                findings.extend(
-                    _check_repo_ref(
+            if not isinstance(ref, Mapping):
+                findings.append(
+                    _finding(
                         path,
-                        root,
-                        ref.get("ref_path"),
-                        code="benchmark.input-ref",
-                        location=f"input_refs.{key}.ref_path",
-                        prefix=prefix,
-                        suffixes=suffixes,
+                        "benchmark.input-ref",
+                        f"input_refs.{key} must be a repository ref mapping",
+                        f"input_refs.{key}",
                     )
                 )
+                continue
+            findings.extend(
+                _check_repo_ref(
+                    path,
+                    root,
+                    ref.get("ref_path"),
+                    code="benchmark.input-ref",
+                    location=f"input_refs.{key}.ref_path",
+                    prefix=prefix,
+                    suffixes=suffixes,
+                )
+            )
     playbook_refs = manifest.get("playbook_refs")
     if isinstance(playbook_refs, list):
         for index, ref in enumerate(playbook_refs):
             if not isinstance(ref, Mapping):
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.playbook-ref",
+                        "playbook_refs entries must be repository ref mappings",
+                        f"playbook_refs[{index}]",
+                    )
+                )
                 continue
             findings.extend(
                 _check_repo_ref(

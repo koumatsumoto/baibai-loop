@@ -227,6 +227,81 @@ def _check_universe_ref(
                 "universe_ref.ref_path",
             )
         ]
+    if _is_canonical_candidates_record(path) and isinstance(universe_size, int):
+        findings = _check_universe_members(path, document, loaded, universe_size)
+        if findings:
+            return findings
+    return []
+
+
+def _check_universe_members(
+    path: Path,
+    document: Mapping[str, Any],
+    universe: Mapping[str, Any],
+    universe_size: int,
+) -> list[ValidationFinding]:
+    members = universe.get("members")
+    members_recorded = universe.get("members_recorded")
+    members_scope = universe.get("members_scope")
+    candidates = document.get("candidates")
+    candidate_count = len(candidates) if isinstance(candidates, list) else 0
+    expected_member_count = (
+        universe_size if members_scope in {None, "full_universe"} else candidate_count
+    )
+    if (
+        not isinstance(members, list)
+        or members_recorded != len(members)
+        or len(members) != expected_member_count
+        or universe.get("universe_size") != universe_size
+    ):
+        return [
+            _finding(
+                path,
+                "candidates.universe-ref",
+                "universe members_recorded, members length, and universe_size are inconsistent",
+                "universe_ref.ref_path",
+            )
+        ]
+    member_by_ticker: dict[str, Mapping[str, Any]] = {}
+    for index, member in enumerate(members):
+        if not isinstance(member, Mapping) or not isinstance(member.get("ticker"), str):
+            return [
+                _finding(
+                    path,
+                    "candidates.universe-ref",
+                    "universe members must be mappings with ticker",
+                    f"universe_ref.ref_path.members[{index}]",
+                )
+            ]
+        member_by_ticker[member["ticker"]] = member
+    if not isinstance(candidates, list):
+        return []
+    for index, candidate in enumerate(candidates):
+        if not isinstance(candidate, Mapping):
+            continue
+        ticker = candidate.get("ticker")
+        if not isinstance(ticker, str):
+            continue
+        member = member_by_ticker.get(ticker)
+        if member is None:
+            return [
+                _finding(
+                    path,
+                    "candidates.universe-ref",
+                    f"candidate ticker is missing from universe members: {ticker}",
+                    f"candidates[{index}].ticker",
+                )
+            ]
+        for field in ("sector_33", "market_cap_oku", "avg_turnover_oku"):
+            if field in candidate and member.get(field) != candidate.get(field):
+                return [
+                    _finding(
+                        path,
+                        "candidates.universe-ref",
+                        f"universe member {field} must match candidate row for {ticker}",
+                        f"candidates[{index}].{field}",
+                    )
+                ]
     return []
 
 

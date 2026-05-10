@@ -747,7 +747,7 @@ def _write_universe_snapshot(
         snapshot = universe_result[ticker]
         security = securities_by_ticker.get(ticker)
         if security is None:
-            continue
+            raise RuntimeError(f"missing security master row for universe ticker: {ticker}")
         members.append(
             {
                 "ticker": ticker,
@@ -770,6 +770,7 @@ def _write_universe_snapshot(
         "as_of": asof_date.isoformat(),
         "run_at": run_at.isoformat(),
         "universe_size": len(universe_result),
+        "members_scope": "full_universe",
         "members_recorded": len(members),
         "members": members,
     }

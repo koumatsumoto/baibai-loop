@@ -936,6 +936,38 @@ def _check_candidate_lineage(
         return []
     document_run_id = document.get("run_id")
     ref_screen_run_id = candidate_ref.get("screen_run_id")
+    ref_ticker = candidate_ref.get("ticker")
+    if not isinstance(ref_ticker, str) or not ref_ticker:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.candidate-ref-ticker",
+                message="candidate_ref.ticker is required",
+                location="candidate_ref.ticker",
+            )
+        )
+    elif ref_ticker != front_matter.get("ticker"):
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.candidate-ref-ticker",
+                message="candidate_ref.ticker must match research ticker",
+                location="candidate_ref.ticker",
+            )
+        )
+    ref_candidate_id = candidate_ref.get("candidate_id")
+    if not isinstance(ref_candidate_id, str) or not ref_candidate_id:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.candidate-ref-candidate-id",
+                message="candidate_ref.candidate_id is required",
+                location="candidate_ref.candidate_id",
+            )
+        )
     if not isinstance(ref_screen_run_id, str) or not ref_screen_run_id:
         findings.append(
             ValidationFinding(
@@ -1044,17 +1076,25 @@ def _candidate_row_for_front(
     document: Mapping[str, object],
 ) -> Mapping[str, object] | None:
     candidate_ref = as_mapping(front_matter.get("candidate_ref"))
-    ticker = candidate_ref.get("ticker") or front_matter.get("ticker")
+    ticker = candidate_ref.get("ticker")
     candidate_id = candidate_ref.get("candidate_id")
+    screen_run_id = candidate_ref.get("screen_run_id")
     candidates = document.get("candidates")
-    if not isinstance(candidates, list) or not isinstance(ticker, str):
+    if (
+        not isinstance(candidates, list)
+        or not isinstance(ticker, str)
+        or not isinstance(candidate_id, str)
+        or not isinstance(screen_run_id, str)
+    ):
         return None
     for candidate in candidates:
-        if not isinstance(candidate, Mapping) or candidate.get("ticker") != ticker:
-            continue
-        if isinstance(candidate_id, str) and candidate.get("candidate_id") != candidate_id:
-            continue
-        return candidate
+        if (
+            isinstance(candidate, Mapping)
+            and candidate.get("ticker") == ticker
+            and candidate.get("candidate_id") == candidate_id
+            and candidate.get("screen_run_id") == screen_run_id
+        ):
+            return candidate
     return None
 
 

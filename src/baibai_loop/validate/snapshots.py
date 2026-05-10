@@ -33,6 +33,8 @@ _REMOVED_REFERENCE_FIELDS = frozenset(
         "screening_rules_snapshot",
         "metric_catalog_snapshot",
         "cache_manifest_hash",
+        "snapshot_path",
+        "latest_snapshot",
     }
 )
 
@@ -302,9 +304,25 @@ def _load_structured_payload(path: Path) -> object | ValidationFinding:
                 return error
         return {}
     if path.suffix == ".md":
-        front_matter = _front_matter_payload(path)
-        if front_matter is None:
+        match = _FRONT_MATTER_RE.match(text)
+        if match is None:
+            if text.startswith("---\n"):
+                return ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="reference.invalid-yaml",
+                    message="Markdown front matter is not closed",
+                )
             return {}
+        try:
+            front_matter: object = yaml.safe_load(match.group(1))
+        except yaml.YAMLError as exc:
+            return ValidationFinding(
+                severity="error",
+                target=path,
+                code="reference.invalid-yaml",
+                message=f"Markdown front matter YAML parse failed: {exc}",
+            )
         return front_matter
     try:
         loaded: object = yaml.safe_load(text)

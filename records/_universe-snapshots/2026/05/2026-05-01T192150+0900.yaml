@@ -2,6 +2,7 @@ snapshot_id: universe-20260501
 as_of: '2026-05-01'
 run_at: '2026-05-05T19:21:50.589300+09:00'
 universe_size: 1347
+members_scope: candidates
 members_recorded: 366
 members:
 - ticker: '1301'

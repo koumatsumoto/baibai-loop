@@ -65,6 +65,41 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
             {finding.code for finding in findings},
         )
 
+    def test_rejects_removed_snapshot_path_fallback_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            policy = root / "records/01-policy/2026/05/policy.md"
+            policy.parent.mkdir(parents=True)
+            policy.write_text("---\npolicy_id: portfolio-policy\n---\n", encoding="utf-8")
+            research = root / "records/05-research/2026/05/research.md"
+            research.parent.mkdir(parents=True)
+            research.write_text(
+                "---\n"
+                "policy_ref:\n"
+                "  ref_path: records/01-policy/2026/05/policy.md\n"
+                "  snapshot_path: records/01-policy/2026/05/policy.md\n"
+                "---\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn(
+            "reference.removed-reference-field",
+            {finding.code for finding in findings},
+        )
+
+    def test_rejects_invalid_markdown_front_matter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            research = root / "records/05-research/2026/05/research.md"
+            research.parent.mkdir(parents=True)
+            research.write_text("---\npolicy_ref: [\n---\n# broken\n", encoding="utf-8")
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.invalid-yaml", {finding.code for finding in findings})
+
     def test_rejects_missing_reference(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
