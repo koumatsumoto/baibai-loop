@@ -314,7 +314,7 @@ def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
 def parse_doc_id(value: object) -> str:
     raw = str(value or "").strip().upper()
     if not _DOC_ID_RE.fullmatch(raw):
-        raise EDINETProviderError(f"invalid EDINET docID: {value!r}")
+        raise EDINETProviderError(f"invalid EDINET docID: {_safe_error_value(value)}")
     return raw
 
 
@@ -748,10 +748,22 @@ def parse_sec_code(sec_code: Any) -> str:
     if len(raw) == 4:
         return normalize_ticker(raw)
     if len(raw) != 5:
-        raise EDINETProviderError(f"invalid EDINET secCode: {sec_code!r}")
+        raise EDINETProviderError(f"invalid EDINET secCode: {_safe_error_value(sec_code)}")
     if raw[-1] != "0":
-        raise EDINETProviderError(f"unsupported EDINET secCode suffix: {sec_code!r}")
+        raise EDINETProviderError(
+            f"unsupported EDINET secCode suffix: {_safe_error_value(sec_code)}"
+        )
     return normalize_ticker(raw[:4])
+
+
+def _safe_error_value(value: object, *, max_length: int = 80) -> str:
+    text = str(value)
+    sanitized = "".join(
+        char if char.isprintable() and char not in "\r\n\t" else "?" for char in text
+    )
+    if len(sanitized) > max_length:
+        sanitized = sanitized[:max_length] + "..."
+    return repr(sanitized)
 
 
 def _parse_ttm_quality(value: Any) -> TTMQuality:

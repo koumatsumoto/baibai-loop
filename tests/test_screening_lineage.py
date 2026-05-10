@@ -267,6 +267,44 @@ class ScreeningLineageTests(unittest.TestCase):
             assert isinstance(coverage, list)
             self.assertEqual(coverage[0]["errors"], ["no filings selected: a, b, c"])
 
+    def test_compute_sqlite_summary_preserves_explicit_zero_raw_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            conn.execute(
+                "INSERT INTO source_coverage("
+                "source, operation, coverage_key, coverage_start, coverage_end, "
+                "requested_start, requested_end, params_json, fetched_at_utc, record_count, "
+                "raw_record_count, normalized_record_count"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "edinet_metrics",
+                    "metrics",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "2026-04-24",
+                    "{}",
+                    "2026-04-24T00:00:00+00:00",
+                    10,
+                    0,
+                    0,
+                ),
+            )
+            conn.commit()
+            conn.close()
+
+            summary = compute_sqlite_summary(sqlite_path)
+
+            self.assertIsNotNone(summary)
+            assert summary is not None
+            coverage = summary["coverage"]
+            assert isinstance(coverage, list)
+            self.assertEqual(coverage[0]["records"], 10)
+            self.assertEqual(coverage[0]["raw_records"], 0)
+            self.assertEqual(coverage[0]["normalized_records"], 0)
+
     def test_write_manifest_includes_sqlite_summary_when_present(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

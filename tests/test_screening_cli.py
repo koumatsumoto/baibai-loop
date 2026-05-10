@@ -41,6 +41,7 @@ from baibai_loop.screening.providers.jquants import (
 )
 from baibai_loop.screening.render import JST, build_output_path
 from baibai_loop.screening.schema import SecurityMaster, TTMQuality
+from baibai_loop.screening.sqlite_cache import store_edinet_metrics
 from baibai_loop.screening.sqlite_reader import read_edinet_metrics
 
 
@@ -848,9 +849,57 @@ class ScreeningCliTests(unittest.TestCase):
             self.assertEqual(row[0], "failed")
             self.assertIn("no EDINET filings selected", row[1])
 
+    def test_extract_edinet_metrics_command_fails_closed_on_document_listing_error(self) -> None:
+        class FailingListProvider(FakeEDINETProvider):
+            def list_documents(self, on_date: date) -> list[dict[str, object]]:
+                del on_date
+                raise EDINETProviderError("temporary EDINET outage")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            asof = date(2026, 4, 24)
+            store_edinet_metrics(
+                sqlite_path,
+                asof,
+                [{"ticker": "9682", "sales_ttm": 1_000.0}],
+                status="ok",
+            )
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = extract_edinet_metrics_command(
+                    asof_date=asof,
+                    lookback_days=0,
+                    provider=FailingListProvider(),
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("EDINET document listing failed", stderr.getvalue())
+            self.assertIsNone(read_edinet_metrics(sqlite_path, asof))
+            row = (
+                sqlite3.connect(sqlite_path)
+                .execute(
+                    "SELECT status, error FROM source_coverage WHERE source = ? "
+                    "AND coverage_key = ?",
+                    ("edinet_metrics", asof.isoformat()),
+                )
+                .fetchone()
+            )
+            self.assertEqual(row[0], "failed")
+            self.assertIn("EDINET document listing failed", row[1])
+
     def test_extract_edinet_metrics_command_fails_on_invalid_document_shape(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "market.sqlite"
+            asof = date(2026, 4, 24)
+            store_edinet_metrics(
+                sqlite_path,
+                asof,
+                [{"ticker": "9682", "sales_ttm": 1_000.0}],
+                status="ok",
+            )
+            self.assertIsNotNone(read_edinet_metrics(sqlite_path, asof))
             provider = FakeEDINETProvider(
                 documents=[
                     {
@@ -865,7 +914,7 @@ class ScreeningCliTests(unittest.TestCase):
             stderr = io.StringIO()
             with contextlib.redirect_stderr(stderr):
                 exit_code = extract_edinet_metrics_command(
-                    asof_date=date(2026, 4, 24),
+                    asof_date=asof,
                     lookback_days=0,
                     provider=provider,
                     sqlite_path=sqlite_path,
@@ -874,6 +923,18 @@ class ScreeningCliTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 1)
             self.assertIn("invalid EDINET secCode", stderr.getvalue())
+            self.assertIsNone(read_edinet_metrics(sqlite_path, asof))
+            row = (
+                sqlite3.connect(sqlite_path)
+                .execute(
+                    "SELECT status, error FROM source_coverage WHERE source = ? "
+                    "AND coverage_key = ?",
+                    ("edinet_metrics", asof.isoformat()),
+                )
+                .fetchone()
+            )
+            self.assertEqual(row[0], "failed")
+            self.assertIn("EDINET document selection failed", row[1])
 
 
 class IndexNextEarningsTests(unittest.TestCase):

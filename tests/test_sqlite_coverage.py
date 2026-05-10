@@ -522,6 +522,81 @@ class SQLiteCoverageTests(unittest.TestCase):
                 )
             )
 
+    def test_production_floor_feeds_daily_density_check(self) -> None:
+        asof = date(2026, 5, 8)
+        bars_start = asof - timedelta(days=1200)
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            tickers = tuple(f"{1301 + index:04d}" for index in range(2500))
+            conn.executemany(
+                "INSERT INTO jquants_master_snapshots("
+                "snapshot_date, ticker, name, market, sector_33, is_common_stock, raw_json"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        asof.isoformat(),
+                        ticker,
+                        f"Name {ticker}",
+                        "Prime",
+                        "水産・農林業",
+                        1,
+                        "{}",
+                    )
+                    for ticker in tickers
+                ],
+            )
+            _add_raw_import(
+                conn,
+                source="jquants_master_snapshots",
+                path="records/_data/raw/screening/jquants/get_eq_master.json",
+                record_count=len(tickers),
+                min_date=asof.isoformat(),
+                max_date=asof.isoformat(),
+            )
+            conn.executemany(
+                "INSERT INTO jquants_daily_bars(ticker, traded_at, close, turnover_value) "
+                "VALUES (?, ?, ?, ?)",
+                [(ticker, asof.isoformat(), 1000.0, 200_000_000.0) for ticker in tickers[:100]],
+            )
+            _add_raw_import(
+                conn,
+                source="jquants_daily_bars",
+                path=(
+                    "records/_data/raw/screening/jquants/"
+                    f"get_eq_bars_daily_range-end_dt-{asof.isoformat()}-"
+                    f"start_dt-{bars_start.isoformat()}.json"
+                ),
+                record_count=100,
+                min_date=bars_start.isoformat(),
+                max_date=asof.isoformat(),
+            )
+            _record_table_counts(conn)
+            conn.commit()
+            conn.close()
+
+            issues = verify_screening_sqlite_coverage(
+                sqlite_path,
+                asof,
+                require_edinet_metrics=False,
+                allow_stale_jpx=True,
+            )
+
+            self.assertFalse(
+                any(
+                    issue.source == "jquants_master_snapshots"
+                    and "common-stock row count" in issue.reason
+                    for issue in issues
+                )
+            )
+            self.assertTrue(
+                any(
+                    issue.source == "jquants_daily_bars"
+                    and "relative to common-stock master rows (2500)" in issue.reason
+                    for issue in issues
+                )
+            )
+
     def test_table_count_below_raw_import_count_reports_incomplete_cache(self) -> None:
         asof = date(2026, 5, 8)
         with tempfile.TemporaryDirectory() as tmp:

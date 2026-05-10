@@ -75,6 +75,13 @@ class ScreeningProviderTests(unittest.TestCase):
         with self.assertRaises(EDINETProviderError):
             parse_sec_code("130A1")
 
+    def test_parse_sec_code_sanitizes_control_characters_in_error(self) -> None:
+        with self.assertRaises(EDINETProviderError) as ctx:
+            parse_sec_code("7203\n0")
+
+        self.assertNotIn("\n", str(ctx.exception))
+        self.assertIn("'7203?0'", str(ctx.exception))
+
     def test_parse_jquants_code_supports_zero_suffix(self) -> None:
         self.assertEqual(parse_jquants_code("130A0"), "130A")
 
@@ -176,6 +183,13 @@ class ScreeningProviderTests(unittest.TestCase):
     def test_parse_doc_id_rejects_path_traversal(self) -> None:
         with self.assertRaisesRegex(EDINETProviderError, "invalid EDINET docID"):
             parse_doc_id("../../etc/passwd")
+
+    def test_parse_doc_id_sanitizes_control_characters_in_error(self) -> None:
+        with self.assertRaises(EDINETProviderError) as ctx:
+            parse_doc_id("S100\nBAD")
+
+        self.assertNotIn("\n", str(ctx.exception))
+        self.assertIn("'S100?BAD'", str(ctx.exception))
 
     def test_download_csv_zip_rejects_invalid_doc_id_before_cache_path(self) -> None:
         class ExplodingSession:

@@ -1381,13 +1381,29 @@ def extract_edinet_metrics_command(
             documents.extend(provider.list_documents(cursor))
             cursor += timedelta(days=1)
     except EDINETProviderError as exc:
-        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        message = f"EDINET document listing failed: {type(exc).__name__}: {exc}"
+        store_edinet_metrics(
+            sqlite_path,
+            asof_date,
+            [],
+            status="failed",
+            error=message,
+        )
+        print(message, file=sys.stderr)
         return 1
 
     try:
         candidates = select_document_candidates(documents)
     except EDINETProviderError as exc:
-        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        message = f"EDINET document selection failed: {type(exc).__name__}: {exc}"
+        store_edinet_metrics(
+            sqlite_path,
+            asof_date,
+            [],
+            status="failed",
+            error=message,
+        )
+        print(message, file=sys.stderr)
         return 1
     if not candidates:
         message = (

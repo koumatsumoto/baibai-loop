@@ -209,8 +209,10 @@ def compute_sqlite_summary(sqlite_path: Path | None) -> dict[str, object] | None
         records = int(record_count or 0)
         entry.windows += 1
         entry.records += records
-        entry.raw_records += int(raw_record_count or records)
-        entry.normalized_records += int(normalized_record_count or records)
+        entry.raw_records += records if raw_record_count is None else int(raw_record_count)
+        entry.normalized_records += (
+            records if normalized_record_count is None else int(normalized_record_count)
+        )
         entry.skipped_records += int(skipped_record_count or 0)
         entry.rejected_records += int(rejected_record_count or 0)
         entry.excluded_records += int(excluded_record_count or 0)
