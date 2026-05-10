@@ -371,28 +371,16 @@ def _append_source_coverage_quality_issues(
     source: str,
 ) -> None:
     rows = conn.execute(
-        "SELECT coverage_key, status, skipped_record_count FROM source_coverage WHERE source = ?",
+        "SELECT coverage_key, status FROM source_coverage WHERE source = ?",
         (source,),
     ).fetchall()
-    for coverage_key, status, skipped_record_count in rows:
+    for coverage_key, status in rows:
         if status != "ok":
             issues.append(
                 CacheCoverageIssue(
                     source=source,
                     requirement=str(coverage_key),
                     reason=f"source_coverage status is not ok: {status}",
-                )
-            )
-            continue
-        if int(skipped_record_count or 0) > 0:
-            issues.append(
-                CacheCoverageIssue(
-                    source=source,
-                    requirement=str(coverage_key),
-                    reason=(
-                        "source_coverage skipped normalized rows; repair SQLite "
-                        "or inspect provider payload before screening"
-                    ),
                 )
             )
 

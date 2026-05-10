@@ -257,7 +257,32 @@ class SQLiteCoverageTests(unittest.TestCase):
                 )
             )
 
-    def test_skipped_normalized_rows_report_issue(self) -> None:
+    def test_source_coverage_status_reports_issue(self) -> None:
+        asof = date(2026, 5, 8)
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            _populate_complete_coverage(conn, asof)
+            conn.commit()
+            conn.close()
+            conn = open_connection(sqlite_path)
+            conn.execute(
+                "UPDATE source_coverage SET status = ? WHERE source = ?",
+                ("failed", "jquants_daily_bars"),
+            )
+            conn.commit()
+            conn.close()
+
+            issues = verify_screening_sqlite_coverage(sqlite_path, asof)
+
+            self.assertTrue(
+                any(
+                    issue.source == "jquants_daily_bars" and "status is not ok" in issue.reason
+                    for issue in issues
+                )
+            )
+
+    def test_skipped_normalized_rows_are_observability_not_fail_fast(self) -> None:
         asof = date(2026, 5, 8)
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
@@ -275,12 +300,9 @@ class SQLiteCoverageTests(unittest.TestCase):
 
             issues = verify_screening_sqlite_coverage(sqlite_path, asof)
 
-            self.assertTrue(
-                any(
-                    issue.source == "jquants_daily_bars"
-                    and "skipped normalized rows" in issue.reason
-                    for issue in issues
-                )
+            self.assertFalse(
+                any(issue.source == "jquants_daily_bars" for issue in issues),
+                issues,
             )
 
     def test_zero_row_master_import_reports_incomplete_cache(self) -> None:
