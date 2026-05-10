@@ -76,6 +76,17 @@ _TABLE_COUNT_SQL = {
     "jpx_regulation_flags": "SELECT COUNT(*) FROM jpx_regulation_flags",
     "jpx_regulation_sources": "SELECT COUNT(*) FROM jpx_regulation_sources",
 }
+_DELETE_DATE_RANGE_SQL = {
+    ("jquants_daily_bars", "traded_at"): (
+        "DELETE FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ?"
+    ),
+    ("jquants_fin_summaries", "disclosed_at"): (
+        "DELETE FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ?"
+    ),
+    ("jquants_market_calendar", "day"): (
+        "DELETE FROM jquants_market_calendar WHERE day BETWEEN ? AND ?"
+    ),
+}
 _SINGLE_SNAPSHOT_SOURCES = frozenset(
     {
         "jquants_master_snapshots",
@@ -371,7 +382,7 @@ def _delete_date_range(
     end: date,
 ) -> None:
     conn.execute(
-        f"DELETE FROM {table} WHERE {date_column} BETWEEN ? AND ?",
+        _DELETE_DATE_RANGE_SQL[(table, date_column)],
         (start.isoformat(), end.isoformat()),
     )
 

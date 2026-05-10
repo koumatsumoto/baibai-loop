@@ -517,19 +517,18 @@ def _append_source_coverage_quality_issues(
     start: date | None = None,
     end: date | None = None,
 ) -> None:
-    params: tuple[object, ...]
-    where = "WHERE source = ?"
-    params = (source,)
     if start is not None and end is not None:
-        where += (
-            " AND (coverage_start IS NULL OR coverage_end IS NULL "
-            "OR NOT (coverage_end < ? OR coverage_start > ?))"
-        )
-        params = (source, start.isoformat(), end.isoformat())
-    rows = conn.execute(
-        f"SELECT coverage_key, status, error FROM source_coverage {where}",
-        params,
-    ).fetchall()
+        rows = conn.execute(
+            "SELECT coverage_key, status, error FROM source_coverage WHERE source = ? "
+            "AND (coverage_start IS NULL OR coverage_end IS NULL "
+            "OR NOT (coverage_end < ? OR coverage_start > ?))",
+            (source, start.isoformat(), end.isoformat()),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT coverage_key, status, error FROM source_coverage WHERE source = ?",
+            (source,),
+        ).fetchall()
     for coverage_key, status, error in rows:
         if status != "ok":
             suffix = f": {error}" if error else ""
@@ -683,12 +682,18 @@ def _append_table_consistency_issues(
 
 
 def _source_coverage_record_count(conn: sqlite3.Connection, source: str) -> int:
-    aggregate = "MAX" if source in _SINGLE_SNAPSHOT_SOURCES else "SUM"
-    row = conn.execute(
-        f"SELECT COALESCE({aggregate}(record_count), 0) FROM source_coverage "
-        "WHERE source = ? AND status = 'ok'",
-        (source,),
-    ).fetchone()
+    if source in _SINGLE_SNAPSHOT_SOURCES:
+        row = conn.execute(
+            "SELECT COALESCE(MAX(record_count), 0) FROM source_coverage "
+            "WHERE source = ? AND status = 'ok'",
+            (source,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(record_count), 0) FROM source_coverage "
+            "WHERE source = ? AND status = 'ok'",
+            (source,),
+        ).fetchone()
     return int(row[0] or 0)
 
 
