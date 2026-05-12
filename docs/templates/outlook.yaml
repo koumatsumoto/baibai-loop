@@ -5,7 +5,11 @@ horizon: "1-6m"
 updated_from:
   - records/02-brief/YYYY/MM/...yaml
 summary: >-
-  1 段落で現在のマクロ見解を要約。何が追い風で何が逆風かを明示。
+  PART A-E の multi-paragraph long-form で記述する。PART A では米マクロ、地政学・エネルギー、
+  為替・金融政策、日本マクロ、リスク資産、セクター固有テーマを構造分析し、AI capex / AI demand /
+  cloud / data center / automation / disruption risk が long-hold fallback の質に影響する場合は
+  brief 経由の fact を使って扱う。PART B は Base / Upside / Downside / Tail の 4 シナリオ、
+  PART C は 10+ リスク因子、PART D は 1-6m 投資方向性、PART E は次回 trigger を記述する。
 sectors:
   # 東証 33 業種を全件必須。判定できない場合も status: null + rationale で明示する。
   "水産・農林業":

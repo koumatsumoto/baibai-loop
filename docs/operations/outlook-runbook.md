@@ -18,12 +18,15 @@ Outlook は `records/02-brief/` を source として作る macro analysis layer 
 1. 最新 brief の鮮度を確認する。
 2. 発行日 ±5 営業日の FOMC / BOJ / CPI / PCE / NFP / OPEC+ などの release を確認する。
 3. outlook に入れる fact がすべて brief から辿れるか確認する。
-4. [`../anti-patterns.md`](../anti-patterns.md) の AP-01〜AP-08 を全体 gate として確認する。outlook では特に AP-01, AP-06, AP-07 を重点確認する。
+4. AI capex / AI demand / cloud / data center / automation / disruption risk が、1-6m regime と long-hold fallback の質に影響するかを確認する。
+5. [`../anti-patterns.md`](../anti-patterns.md) の AP-01〜AP-08 を全体 gate として確認する。outlook では特に AP-01, AP-06, AP-07 を重点確認する。
 
 ## Rules
 
 - outlook 内の fact は `source_refs` で brief YAML を参照する。
 - 外部 URL を outlook の正本 source にしない。
+- AI 関連 fact を使う場合も、対応する brief を先に作成または更新し、outlook はその brief を参照する。
+- AI を理由に sector status を上げる場合でも、valuation 過熱、金利、為替、油価、需要鈍化、顧客 capex 循環など他の因子とのバランスを確認する。
 - sector / exposure bucket 判定は [`../components/outlook.md`](../components/outlook.md) の self-review checklist を通す。
 
 ## After writing

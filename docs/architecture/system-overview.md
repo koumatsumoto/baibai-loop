@@ -46,7 +46,7 @@ Macro track は売買イベントと独立して `brief -> outlook` を更新し
 
 ## スコープ
 
-- 基本は 2 か月以内、5-40 営業日のスイングトレードを対象にする。
+- 基本は 2 か月以内、5-40 営業日のスイングトレードを対象にする。ただし、短期 thesis が外れた場合に長期保有へ切り替えられる銘柄を優先する policy を持つ。これは主戦略の holding period を延ばすためではなく、含み損時に損失確定を急がず、資産ロックを受け入れて回収を待てる selection principle である。
 - long-only の裁量支援基盤として扱う。
 - Macro / security-level の判断比重は policy weight として説明し、実際の gate / sizing cap は policy と macro regime gate で扱う。
 - Markdown / YAML と Git を正本にする。
@@ -59,7 +59,7 @@ Macro track は売買イベントと独立して `brief -> outlook` を更新し
 - バックテスト、累積リターン計算、パラメータ最適化は行わない。
 - 自動発注は行わない。
 - screening 閾値や playbook を過去データに fit させない。
-- 配当利回り / Rerating Book は対象外にする。
+- 配当利回り単独の playbook / Rerating Book は対象外にする。配当・自己株買いは、long-hold fallback 時の資産ロック中に収益が見込める preference として research で確認する。
 - 汎用 feature store / BI 基盤を先行導入しない。SQLite は screening input の local canonical
   store としてのみ使う。
 

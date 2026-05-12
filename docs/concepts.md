@@ -12,7 +12,7 @@ related_docs:
 
 # Investment decision concepts
 
-Baibai-Loop は、self-directed な投資判断を forward-only に記録し、あとから検証できるようにするための repository です。投資助言サービス、委任運用システム、規制 compliance system ではありません。IPS や books-and-records 的な考え方は、自己運用の裁量判断を再現可能にするための audit discipline として借ります。
+Baibai-Loop は、self-directed な投資判断を forward-only に記録し、あとから検証できるようにするための repository です。投資助言サービス、委任運用システム、規制 compliance system ではありません。IPS や books-and-records 的な考え方は、自己運用の裁量判断を一貫させ、あとから振り返れるようにするための運用規律として借ります。
 
 目的は、ビジネス価値、つまり「お買い得銘柄を拾う最適な取引戦略」を長期的に改善することです。用語整理は目的ではなく、候補発見、証拠評価、position sizing、実行可否、review attribution、playbook feedback を一貫して扱うための土台です。
 
@@ -71,13 +71,13 @@ Baibai-Loop は次の concept label で repository lifecycle を説明します�
 | research decision and tracking register | `records/_ledger/` |
 | repeatable thesis patterns | `records/_playbooks/` |
 
-`portfolio policy` は governance component としてこの docs set に置きます。現在の lifecycle では、capital / risk / liquidity の判断条件を research、ledger、trades の各 artifact に記録される field で監査します。
+`portfolio policy` は governance component としてこの docs set に置きます。現在の lifecycle では、capital / risk / liquidity の判断条件を research、ledger、trades の各 artifact に記録される field で確認します。履歴が必要な場合は git で確認します。
 
 Long-lived context は main lifecycle には含めません。Slow-moving context を扱う場合は、brief / outlook / research へ重複保持せず、lifecycle 外の参照層として扱います。
 
 ## Responsibility Boundaries
 
-- `portfolio policy` は目的、制約、資本、許容リスク、time horizon、eligible universe、kill switch を扱います。具体的な銘柄 thesis や entry / invalidation / exit は playbook / investment memo が扱います。
+- `portfolio policy` は目的、制約、資本、許容リスク、time horizon、eligible universe、kill switch、swing-first / long-hold-capable value principle を扱います。具体的な銘柄 thesis や entry / invalidation / exit は playbook / investment memo が扱います。
 - `brief` は fact layer です。一次情報、統計、イベントを記録し、解釈や因果推論を書きません。
 - `outlook` は analysis layer です。brief を source として macro / sector regime を読みます。
 - `candidates` は screen fact layer です。ticker-level の pinned repository file を残し、後続の current decision state は上書きしません。

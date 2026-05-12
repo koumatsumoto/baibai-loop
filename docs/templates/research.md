@@ -81,6 +81,11 @@ external_refs: []
 
 Why now × why this stock。主要 evidence、payoff、反対仮説、macro regime gate を一文で結論づける。
 
+- **Swing thesis**: [5-40 営業日で価格回復・catalyst・需給改善により利確できる理由。]
+- **Long-hold fallback**: [短期 thesis が外れた場合でも、長期保有になっても耐えられる可能性が高い balance sheet / cash flow / liquidity / refinancing risk / earnings base の耐久性があり、資産ロックを受け入れて長期保有へ切り替えられるか。固定年数ではなく、売却までの期間が想定より長引いても事業継続性と回収余地が残るか。stop loss / invalidation / kill switch / 事業継続前提の毀損を上書きしないか。]
+- **Capital lock / shareholder return**: [含み損時の資産ロックを受け入れる前提で、配当・自己株買い・安定 shareholder return があるか。配当がない場合は、短期リターン可能性と payoff が十分大きいか。]
+- **AI long-term impact**: [AI の長期機会、長期脅威、今回判断での重み。AI 期待は単独の採用根拠・sizing 根拠にしない。]
+
 ## 2. Macro regime gate
 
 - **aggregate_status**: supportive | neutral | adverse | unknown
