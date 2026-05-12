@@ -12,6 +12,7 @@ import json
 import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -82,10 +83,22 @@ _REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
     ),
 )
 _LIST_REFERENCE_FIELDS = frozenset({"source_trade_refs", "source_decision_register_refs"})
+_SCALAR_REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
+    (
+        "candidates_ref",
+        _ReferenceSpec(
+            ("records/04-candidates/", "records/_benchmarks/"),
+            (".yaml", ".yml"),
+        ),
+    ),
+    ("outlook_ref", _ReferenceSpec(("records/03-outlook/",), (".yaml", ".yml"))),
+)
 
 
 def validate_reference_integrity(root: Path) -> list[ValidationFinding]:
     """Validate repository reference links across records."""
+    _load_structured_payload.cache_clear()
+    _front_matter_payload.cache_clear()
     findings: list[ValidationFinding] = []
     for path in discover_snapshot_validation_files(root):
         if path.suffix == ".jsonl":
@@ -135,6 +148,7 @@ def _check_nested_refs(
         findings.extend(_check_removed_hash_fields(target, node, location=location))
         findings.extend(_check_removed_reference_fields(target, node, location=location))
         findings.extend(_check_reference_field_shapes(target, node, location=location))
+        findings.extend(_check_scalar_reference_fields(root, target, node, location=location))
         findings.extend(_check_repository_ref(root, target, node, location=location))
     return findings
 
@@ -278,6 +292,99 @@ def _check_reference_field_shapes(
     return findings
 
 
+def _check_scalar_reference_fields(
+    root: Path,
+    target: Path,
+    node: Mapping[str, object],
+    *,
+    location: str,
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    for field, value in node.items():
+        spec = _scalar_spec_for_field(field)
+        if spec is None:
+            continue
+        child_location = f"{location}.{field}" if location else str(field)
+        if not isinstance(value, str):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=target,
+                    code="reference.ref-shape",
+                    message=f"{field} must be a repository-relative string path",
+                    location=child_location,
+                )
+            )
+            continue
+        findings.extend(_check_scalar_repository_ref(root, target, value, child_location, spec))
+    return findings
+
+
+def _check_scalar_repository_ref(
+    root: Path,
+    target: Path,
+    ref: str,
+    location: str,
+    spec: _ReferenceSpec,
+) -> list[ValidationFinding]:
+    error = repository_ref_error(ref, root=root)
+    if error is not None:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-path",
+                message=error,
+                location=location,
+            )
+        ]
+    ref_path = resolve_repository_ref(root, ref)
+    if not ref.startswith(spec.prefixes):
+        prefixes = ", ".join(spec.prefixes)
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-prefix",
+                message=f"reference must point under {prefixes}: {ref}",
+                location=location,
+            )
+        ]
+    if ref_path.suffix not in spec.suffixes:
+        suffixes = ", ".join(spec.suffixes)
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-suffix",
+                message=f"reference must use suffix {suffixes}: {ref}",
+                location=location,
+            )
+        ]
+    if not ref_path.is_file():
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-not-found",
+                message=f"referenced file does not exist: {ref}",
+                location=location,
+            )
+        ]
+    parsed = _load_structured_payload(ref_path)
+    if isinstance(parsed, ValidationFinding):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-parse",
+                message=f"referenced file cannot be parsed: {ref}: {parsed.message}",
+                location=location,
+            )
+        ]
+    return []
+
+
 def _is_reference_container_location(location: str) -> bool:
     normalized = location.replace("[", ".").replace("]", "")
     for marker, _spec in _REFERENCE_SPECS:
@@ -286,6 +393,13 @@ def _is_reference_container_location(location: str) -> bool:
         if normalized == marker or normalized.endswith(f".{marker}"):
             return True
     return False
+
+
+def _scalar_spec_for_field(field: str) -> _ReferenceSpec | None:
+    for marker, spec in _SCALAR_REFERENCE_SPECS:
+        if field == marker:
+            return spec
+    return None
 
 
 def _check_reference_spec(
@@ -350,6 +464,7 @@ def _spec_for_location(location: str) -> _ReferenceSpec | None:
     return None
 
 
+@cache
 def _load_structured_payload(path: Path) -> object | ValidationFinding:
     try:
         text = path.read_text(encoding="utf-8")
@@ -398,6 +513,7 @@ def _load_structured_payload(path: Path) -> object | ValidationFinding:
     return loaded
 
 
+@cache
 def _front_matter_payload(path: Path) -> object | None:
     try:
         text = path.read_text(encoding="utf-8")

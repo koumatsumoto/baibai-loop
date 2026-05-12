@@ -239,11 +239,7 @@ def _check_universe_ref(
             )
         ]
     universe_size = document.get("universe_size")
-    if (
-        _is_canonical_candidates_record(path)
-        and universe_size is not None
-        and loaded.get("universe_size") != universe_size
-    ):
+    if universe_size is not None and loaded.get("universe_size") != universe_size:
         return [
             _finding(
                 path,
@@ -305,6 +301,15 @@ def _check_universe_members(
                     "candidates.universe-ref",
                     "universe members must be mappings with ticker",
                     f"universe_ref.ref_path.members[{index}]",
+                )
+            ]
+        if member["ticker"] in member_by_ticker:
+            return [
+                _finding(
+                    path,
+                    "candidates.universe-ref",
+                    f"universe members must have unique ticker values: {member['ticker']}",
+                    f"universe_ref.ref_path.members[{index}].ticker",
                 )
             ]
         member_by_ticker[member["ticker"]] = member

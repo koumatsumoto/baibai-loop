@@ -25,7 +25,7 @@ def _minimal_candidates() -> dict[str, object]:
     return {
         "run_date": "2026-05-01",
         "asof_date": "2026-05-01",
-        "universe_size": 100,
+        "universe_size": 1347,
         "filters": {
             "min_market_cap_oku": 200,
             "min_avg_turnover_oku": 3.0,
@@ -172,6 +172,35 @@ class CandidatesValidationTests(unittest.TestCase):
             path.unlink()
         self.assertIn("candidates.universe-ref", {finding.code for finding in findings})
 
+    def test_universe_ref_size_mismatch_is_flagged_for_non_canonical_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            universe = root / "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
+            universe.parent.mkdir(parents=True)
+            universe.write_text(
+                "snapshot_id: universe-20260501\n"
+                "as_of: '2026-05-01'\n"
+                "universe_size: 99\n"
+                "members_scope: not_recorded\n"
+                "members_recorded: 0\n"
+                "members: []\n",
+                encoding="utf-8",
+            )
+            payload = _minimal_candidates()
+            payload["universe_size"] = 100
+            universe_ref = payload["universe_ref"]
+            assert isinstance(universe_ref, dict)
+            universe_ref["ref_path"] = (
+                "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
+            )
+            path = root / "records/_benchmarks/domain-model/e2e-regeneration/run-candidates.yaml"
+            path.parent.mkdir(parents=True)
+            path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
+
+            findings = validate_candidates_file(path)
+
+        self.assertIn("candidates.universe-ref", {finding.code for finding in findings})
+
     def test_canonical_universe_ref_requires_members_to_match_size(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -187,6 +216,7 @@ class CandidatesValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
             payload = _minimal_candidates()
+            payload["universe_size"] = 100
             universe_ref = payload["universe_ref"]
             assert isinstance(universe_ref, dict)
             universe_ref["ref_path"] = (
@@ -219,6 +249,40 @@ class CandidatesValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
             payload = _minimal_candidates()
+            payload["universe_size"] = 100
+            universe_ref = payload["universe_ref"]
+            assert isinstance(universe_ref, dict)
+            universe_ref["ref_path"] = (
+                "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
+            )
+            path = root / "records/04-candidates/2026/05/2026-05-01.yaml"
+            path.parent.mkdir(parents=True)
+            path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
+
+            findings = validate_candidates_file(path)
+
+        self.assertIn("candidates.universe-ref", {finding.code for finding in findings})
+
+    def test_canonical_universe_ref_rejects_duplicate_member_tickers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            universe = root / "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
+            universe.parent.mkdir(parents=True)
+            universe.write_text(
+                "snapshot_id: universe-20260501\n"
+                "as_of: '2026-05-01'\n"
+                "universe_size: 2\n"
+                "members_scope: full_universe\n"
+                "members_recorded: 2\n"
+                "members:\n"
+                "- ticker: '130A'\n"
+                "  sector_33: 情報・通信業\n"
+                "- ticker: '130A'\n"
+                "  sector_33: 情報・通信業\n",
+                encoding="utf-8",
+            )
+            payload = _minimal_candidates()
+            payload["universe_size"] = 2
             universe_ref = payload["universe_ref"]
             assert isinstance(universe_ref, dict)
             universe_ref["ref_path"] = (
@@ -247,6 +311,7 @@ class CandidatesValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
             payload = _minimal_candidates()
+            payload["universe_size"] = 100
             universe_ref = payload["universe_ref"]
             assert isinstance(universe_ref, dict)
             universe_ref["ref_path"] = (

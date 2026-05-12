@@ -1145,7 +1145,10 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
-            self.assertEqual(payload["candidates_ref"], str(custom))
+            self.assertEqual(
+                payload["candidates_ref"],
+                "records/_benchmarks/e2e/custom-candidates.yaml",
+            )
             self.assertEqual([item["ticker"] for item in payload["candidates"]], ["1111"])
 
     def test_select_recommends_lane_diversified_candidates_before_global_rank(self) -> None:

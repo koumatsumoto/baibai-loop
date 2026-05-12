@@ -313,22 +313,55 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
     def test_rejects_non_mapping_candidates_fixture(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            candidates = root / "records/04-candidates/2026/05/2026-05-01.yaml"
+            candidates = (
+                root / "records/_benchmarks/domain-model/e2e-regeneration/run-candidates.yaml"
+            )
             candidates.parent.mkdir(parents=True)
             candidates.write_text("- not-a-mapping\n", encoding="utf-8")
             manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
             manifest.parent.mkdir(parents=True, exist_ok=True)
-            manifest.write_text(
-                _manifest_with_expected(
-                    candidates_ref="records/04-candidates/2026/05/2026-05-01.yaml",
-                    expected={},
-                ),
-                encoding="utf-8",
-            )
+            manifest.write_text(_manifest(), encoding="utf-8")
 
             findings = validate_benchmark_manifest_file(manifest)
 
-        self.assertIn("benchmark.fixture-candidates-parse", {finding.code for finding in findings})
+        self.assertIn("candidates.non-mapping", {finding.code for finding in findings})
+
+    def test_rejects_candidate_fixture_universe_size_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            universe = root / "records/_universe-snapshots/2026/05/benchmark-universe.yaml"
+            universe.parent.mkdir(parents=True)
+            universe.write_text(
+                "snapshot_id: universe-20260501\n"
+                "as_of: '2026-05-01'\n"
+                "universe_size: 99\n"
+                "members_scope: not_recorded\n"
+                "members_recorded: 0\n"
+                "members: []\n",
+                encoding="utf-8",
+            )
+            candidates = (
+                root / "records/_benchmarks/domain-model/e2e-regeneration/run-candidates.yaml"
+            )
+            candidates.parent.mkdir(parents=True, exist_ok=True)
+            candidates.write_text(
+                "run_date: '2026-05-01'\n"
+                "asof_date: '2026-05-01'\n"
+                "run_at: '2026-05-01T09:00:00+09:00'\n"
+                "run_id: screening-20260501\n"
+                "universe_size: 100\n"
+                "universe_ref:\n"
+                "  ref_path: records/_universe-snapshots/2026/05/benchmark-universe.yaml\n"
+                "candidates: []\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(_manifest(), encoding="utf-8")
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("candidates.universe-ref", {finding.code for finding in findings})
 
     def test_rejects_non_mapping_runs_fixture(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

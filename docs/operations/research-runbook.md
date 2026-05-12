@@ -25,7 +25,7 @@ Research は `records/04-candidates/` と `records/03-outlook/` を統合する 
 
 ## Rules
 
-- `candidates_ref` と `outlook_ref` を必ず実在 path にする。
+- `candidate_ref.candidates_ref` と `outlook_ref` を必ず実在 path にする。`candidate_ref` は `candidates_ref` / `screen_run_id` / `ticker` / `candidate_id` の完全 join key として candidates row に一致させる。
 - Macro regime gate を通らない銘柄を採用しない。
 - 銘柄固有の事実は、業種を問わず会社IRを一次情報として確認し、出典と計算根拠を残す。直近決算短信、
   決算説明資料、Q&A、有価証券報告書 / 統合報告書、中期経営計画、株主還元関連開示を未確認のまま

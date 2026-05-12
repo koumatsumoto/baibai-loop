@@ -863,8 +863,8 @@ def select_command(
     )
     summary = {
         "asof": asof_date.isoformat(),
-        "candidates_ref": str(candidates_path),
-        "outlook_ref": str(resolved_outlook_path),
+        "candidates_ref": _repository_relative_ref(candidates_path),
+        "outlook_ref": _repository_relative_ref(resolved_outlook_path),
         "input_count": len(candidates_fm.candidates),
         "after_outlook_filter": len(ranked_candidates),
         "selection_mode": rules.output.selection_mode,
@@ -878,6 +878,13 @@ def select_command(
     }
     yaml.dump(summary, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
     return 0
+
+
+def _repository_relative_ref(path: Path) -> str:
+    parts = path.resolve().parts
+    if "records" in parts:
+        return Path(*parts[parts.index("records") :]).as_posix()
+    return str(path)
 
 
 def _rules_path_from_env() -> Path:

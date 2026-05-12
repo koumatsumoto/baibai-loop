@@ -17,7 +17,7 @@ requires_decision_coverage: true
 policy_ref:
   ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
 universe_ref:
-  ref_path: records/_universe-snapshots/2026/05/2026-05-01T192150+0900.yaml
+  ref_path: records/_universe-snapshots/2026/05/2026-05-01T001944+0900-benchmark-liquidity-3oku.yaml
 candidates:
 - ticker: "1332"
   name: "ニッスイ"

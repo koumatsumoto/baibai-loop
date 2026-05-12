@@ -150,6 +150,33 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
 
         self.assertIn("reference.ref-shape", {finding.code for finding in findings})
 
+    def test_rejects_absolute_scalar_repository_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            selection = root / "records/_benchmarks/domain-model/e2e/selection.yaml"
+            selection.parent.mkdir(parents=True)
+            selection.write_text("candidates_ref: /tmp/candidates.yaml\n", encoding="utf-8")
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.ref-path", {finding.code for finding in findings})
+
+    def test_accepts_relative_scalar_repository_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            candidates = root / "records/_benchmarks/domain-model/e2e/candidates.yaml"
+            candidates.parent.mkdir(parents=True)
+            candidates.write_text("candidates: []\n", encoding="utf-8")
+            selection = root / "records/_benchmarks/domain-model/e2e/selection.yaml"
+            selection.write_text(
+                "candidates_ref: records/_benchmarks/domain-model/e2e/candidates.yaml\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertEqual(findings, [])
+
     def test_accepts_valid_repository_reference(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

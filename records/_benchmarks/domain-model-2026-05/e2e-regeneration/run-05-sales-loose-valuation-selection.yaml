@@ -1,5 +1,5 @@
 asof: '2026-05-01'
-candidates_ref: /home/kou/baibai-loop/records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-05-sales-loose-valuation-candidates.yaml
+candidates_ref: records/_benchmarks/domain-model-2026-05/e2e-regeneration/run-05-sales-loose-valuation-candidates.yaml
 outlook_ref: records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
 input_count: 390
 after_outlook_filter: 326
