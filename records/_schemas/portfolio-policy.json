@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "portfolio-policy",
-  "title": "Portfolio Policy Snapshot",
+  "title": "Portfolio Policy",
   "type": "object",
   "additionalProperties": true,
   "required": [

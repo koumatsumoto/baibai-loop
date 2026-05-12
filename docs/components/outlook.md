@@ -110,6 +110,7 @@ outlook YAML の構造、必須キー、`sectors` の 33 業種完全性、`expo
 - outlook は **分析層**（philosophy 柱 1）。解釈を書いてよい
 - ただし、根拠となる brief への参照を必ず付ける（`source_refs` / `updated_from`）
 - `summary` は PART A-E (§9.2) を含む long-form の multi-paragraph で現在のマクロ見解を構造的に記述する。1 段落の要約では深さが足りず investor behaviour を支配できないため不可
+- `summary` では AI capex / AI demand / cloud / data center / automation / disruption risk を、long-hold fallback の質に影響し得る長期構造テーマとして確認する。ただし AI 関連 fact を outlook に使う場合も canonical fact layer は brief のみであり、外部 URL を outlook の正本 source にしない
 - 各 sector / exposure bucket の `rationale` は判定根拠を **2 因子以上の検討痕跡を含む 1-3 文** で記述する (cost / revenue / 為替 / 金利 / 業種特有 / 地政学のいずれか 2 つ以上を必ず触れる)。「業種固有 evidence が brief 群から確認できない」一辺倒の rationale が 33 業種中 5 件超なら検討不足の finding (§9.3)
 - `changes` には前回 outlook からの判定変更を `target` / `from_status` / `to_status` / `rationale` で構造化する
 - `next_triggers` は次に outlook を更新すべきイベントを列挙
@@ -173,7 +174,7 @@ outlook YAML は以下を満たさなければ `ai_draft: true → false` の確
 
 `summary` は単一段落ではなく、以下の構造を持つ multi-paragraph で書く:
 
-- **PART A. 現状の構造分析 (axes 5-6)**: 米マクロ / 地政学・エネルギー / 為替・金融政策 / 日本マクロ / リスク資産 / セクター固有テーマ
+- **PART A. 現状の構造分析 (axes 5-6)**: 米マクロ / 地政学・エネルギー / 為替・金融政策 / 日本マクロ / リスク資産 / セクター固有テーマ。AI capex / AI demand / cloud / data center / automation / disruption risk は、長期保有 fallback の質に影響し得る場合にここで扱う
 - **PART B. シナリオ分析 (4 シナリオ)**: Base / Upside / Downside / Tail、確度合計 100%、各 triggering path・sector 帰結・投資方向性
 - **PART C. リスク因子の優先順位 (10+ 件)**: 順位 / リスク / 確度 / 影響度 / 観測指標 / 次の確認日
 - **PART D. 1-6m 投資方向性**: 主軸 / 補助軸 / 避ける軸 / ポートフォリオ偏在管理
@@ -192,6 +193,8 @@ outlook YAML は以下を満たさなければ `ai_draft: true → false` の確
 - [ ] FOMC / BOJ / 主要中央銀行 statement の声明文を直接引用 (内容を要約で済ませない) しているか
 - [ ] 油価 / 為替 / 主要金利 の数値が brief と一致しているか
 - [ ] 思い込みではなく source URL を伴う事実だけで根拠を組み立てているか
+- [ ] AI capex / AI demand / cloud / data center / automation / disruption risk を、long-hold fallback の質に影響し得る長期構造テーマとして確認したか
+- [ ] AI 関連 fact を使う場合、対応する brief を `updated_from` / `source_refs` に含め、outlook で外部 URL を直接 source にしていないか
 - [ ] brief 内の外交イベント (例: 「de-escalation」) と物理的フロー (例: 「ホルムズ閉鎖継続」) を区別し、deep research で cross-check したか
 - [ ] 個別銘柄言及がないか (ある場合は research の責務、削除)
 - [ ] `next_triggers` に主要イベント (FOMC / BOJ / CPI / PCE / 雇用) を網羅しているか

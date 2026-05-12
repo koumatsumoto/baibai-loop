@@ -77,7 +77,7 @@ Long-lived context は main lifecycle には含めません。Slow-moving contex
 
 ## Responsibility Boundaries
 
-- `portfolio policy` は目的、制約、資本、許容リスク、time horizon、eligible universe、kill switch を扱います。具体的な銘柄 thesis や entry / invalidation / exit は playbook / investment memo が扱います。
+- `portfolio policy` は目的、制約、資本、許容リスク、time horizon、eligible universe、kill switch、swing-first / long-hold-capable value principle を扱います。具体的な銘柄 thesis や entry / invalidation / exit は playbook / investment memo が扱います。
 - `brief` は fact layer です。一次情報、統計、イベントを記録し、解釈や因果推論を書きません。
 - `outlook` は analysis layer です。brief を source として macro / sector regime を読みます。
 - `candidates` は screen fact layer です。ticker-level の pinned repository file を残し、後続の current decision state は上書きしません。
