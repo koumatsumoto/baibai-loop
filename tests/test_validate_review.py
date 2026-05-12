@@ -11,6 +11,7 @@ from baibai_loop.validate.review import (
 
 def _review_text(classification: str = "success") -> str:
     return f"""---
+decision_event_id: decision-1
 trade_ref: records/06-trades/2026/04/example.md
 classification: {classification}
 verified_at: "2026-04-30"
@@ -26,9 +27,14 @@ verified_at: "2026-04-30"
 """
 
 
+def _write_referenced_markdown(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("---\nrecord_id: referenced\n---\n# Referenced\n", encoding="utf-8")
+
+
 def test_review_missing_required_front_matter_is_flagged(tmp_path: Path) -> None:
     path = tmp_path / "review.md"
-    path.write_text(_review_text().replace("trade_ref: records/06-trades/2026/04/example.md\n", ""))
+    path.write_text(_review_text().replace("classification: success\n", ""))
     assert "review.required" in {finding.code for finding in validate_review_file(path)}
 
 
@@ -36,6 +42,61 @@ def test_review_unknown_classification_is_flagged(tmp_path: Path) -> None:
     path = tmp_path / "review.md"
     path.write_text(_review_text("unknown"))
     assert "review.enum" in {finding.code for finding in validate_review_file(path)}
+
+
+def test_review_rejects_missing_research_ref_file(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    path = tmp_path / "records/07-reviews/2026/05/review.md"
+    path.parent.mkdir(parents=True)
+    trade = tmp_path / "records/06-trades/2026/04/example.md"
+    _write_referenced_markdown(trade)
+    path.write_text(
+        _review_text().replace(
+            "trade_ref: records/06-trades/2026/04/example.md\n",
+            "research_ref: records/05-research/2026/05/missing.md\n"
+            "trade_ref: records/06-trades/2026/04/example.md\n",
+        ),
+        encoding="utf-8",
+    )
+
+    assert "review.repository-ref" in {finding.code for finding in validate_review_file(path)}
+
+
+def test_review_rejects_trade_ref_wrong_prefix(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    path = tmp_path / "records/07-reviews/2026/05/review.md"
+    path.parent.mkdir(parents=True)
+    wrong_trade = tmp_path / "records/05-research/2026/05/research.md"
+    _write_referenced_markdown(wrong_trade)
+    path.write_text(
+        _review_text().replace(
+            "records/06-trades/2026/04/example.md",
+            "records/05-research/2026/05/research.md",
+        ),
+        encoding="utf-8",
+    )
+
+    assert "review.repository-ref" in {finding.code for finding in validate_review_file(path)}
+
+
+def test_review_accepts_existing_research_and_trade_refs(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    path = tmp_path / "records/07-reviews/2026/05/review.md"
+    path.parent.mkdir(parents=True)
+    research = tmp_path / "records/05-research/2026/05/research.md"
+    trade = tmp_path / "records/06-trades/2026/04/example.md"
+    _write_referenced_markdown(research)
+    _write_referenced_markdown(trade)
+    path.write_text(
+        _review_text().replace(
+            "trade_ref: records/06-trades/2026/04/example.md\n",
+            "research_ref: records/05-research/2026/05/research.md\n"
+            "trade_ref: records/06-trades/2026/04/example.md\n",
+        ),
+        encoding="utf-8",
+    )
+
+    assert validate_review_file(path) == []
 
 
 def test_review_invalid_yaml_is_returned_as_finding(tmp_path: Path) -> None:

@@ -50,11 +50,13 @@ class _ReferenceSpec:
     suffixes: tuple[str, ...]
     require_front_matter: bool = False
     required_mapping_keys: tuple[str, ...] = ()
+    allow_null: bool = False
 
 
 _REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
     ("playbook_ref", _ReferenceSpec(("records/_playbooks/",), (".md",), True)),
     ("policy_ref", _ReferenceSpec(("records/01-policy/",), (".md",), True)),
+    ("latest_policy_ref", _ReferenceSpec(("records/01-policy/",), (".md",), True)),
     (
         "portfolio_exposure_ref",
         _ReferenceSpec(("records/_portfolio-exposure/",), (".yaml", ".yml")),
@@ -85,6 +87,11 @@ _REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
 )
 _LIST_REFERENCE_FIELDS = frozenset({"source_trade_refs", "source_decision_register_refs"})
 _MAPPING_REFERENCE_PARENTS = frozenset({"calendar_refs"})
+_STRING_LIST_REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
+    ("updated_from", _ReferenceSpec(("records/02-brief/",), (".yaml", ".yml"))),
+    ("brief_refs", _ReferenceSpec(("records/02-brief/",), (".yaml", ".yml"))),
+    ("source_refs", _ReferenceSpec(("records/02-brief/",), (".yaml", ".yml"))),
+)
 _SCALAR_REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
     (
         "candidates_ref",
@@ -102,6 +109,8 @@ _SCALAR_REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
             required_mapping_keys=("schema_version", "sectors", "macro_regime"),
         ),
     ),
+    ("research_ref", _ReferenceSpec(("records/05-research/",), (".md",), True, allow_null=True)),
+    ("trade_ref", _ReferenceSpec(("records/06-trades/",), (".md",), True, allow_null=True)),
 )
 
 
@@ -142,7 +151,9 @@ def discover_snapshot_validation_files(root: Path) -> list[Path]:
         files.extend(
             path
             for path in sorted(base.rglob("*"))
-            if path.is_file() and path.suffix in {".yaml", ".yml", ".md", ".jsonl"}
+            if path.is_file()
+            and path.name != "template.md"
+            and path.suffix in {".yaml", ".yml", ".md", ".jsonl"}
         )
     return sorted(set(files))
 
@@ -159,6 +170,7 @@ def _check_nested_refs(
         findings.extend(_check_removed_hash_fields(target, node, location=location))
         findings.extend(_check_removed_reference_fields(target, node, location=location))
         findings.extend(_check_reference_field_shapes(target, node, location=location))
+        findings.extend(_check_string_list_reference_fields(root, target, node, location=location))
         findings.extend(_check_scalar_reference_fields(root, target, node, location=location))
         findings.extend(_check_repository_ref(root, target, node, location=location))
     return findings
@@ -359,6 +371,8 @@ def _check_scalar_reference_fields(
         if spec is None:
             continue
         child_location = f"{location}.{field}" if location else str(field)
+        if value is None and spec.allow_null:
+            continue
         if not isinstance(value, str):
             findings.append(
                 ValidationFinding(
@@ -371,6 +385,51 @@ def _check_scalar_reference_fields(
             )
             continue
         findings.extend(_check_scalar_repository_ref(root, target, value, child_location, spec))
+    return findings
+
+
+def _check_string_list_reference_fields(
+    root: Path,
+    target: Path,
+    node: Mapping[str, object],
+    *,
+    location: str,
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    for field, value in node.items():
+        spec = _string_list_spec_for_field(field)
+        if spec is None:
+            continue
+        child_location = f"{location}.{field}" if location else str(field)
+        if value is None:
+            continue
+        if not isinstance(value, list):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=target,
+                    code="reference.ref-shape",
+                    message=f"{field} must be a list of repository-relative string paths",
+                    location=child_location,
+                )
+            )
+            continue
+        for index, item in enumerate(value):
+            if isinstance(item, Mapping):
+                continue
+            item_location = f"{child_location}[{index}]"
+            if not isinstance(item, str):
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=target,
+                        code="reference.ref-shape",
+                        message=f"{field} entries must be repository-relative string paths",
+                        location=item_location,
+                    )
+                )
+                continue
+            findings.extend(_check_scalar_repository_ref(root, target, item, item_location, spec))
     return findings
 
 
@@ -491,6 +550,13 @@ def _is_reference_container_location(location: str) -> bool:
 
 def _scalar_spec_for_field(field: str) -> _ReferenceSpec | None:
     for marker, spec in _SCALAR_REFERENCE_SPECS:
+        if field == marker:
+            return spec
+    return None
+
+
+def _string_list_spec_for_field(field: str) -> _ReferenceSpec | None:
+    for marker, spec in _STRING_LIST_REFERENCE_SPECS:
         if field == marker:
             return spec
     return None
@@ -659,6 +725,70 @@ def _check_standalone_universe_file(
                 )
             ]
         seen_tickers.add(ticker)
+        exposure_findings = _check_universe_member_exposures(path, member, index)
+        if exposure_findings:
+            return exposure_findings
+    return []
+
+
+def _check_universe_member_exposures(
+    path: Path,
+    member: Mapping[str, object],
+    member_index: int,
+) -> list[ValidationFinding]:
+    exposures = member.get("security_exposures")
+    if exposures is None:
+        return []
+    if not isinstance(exposures, list):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="reference.universe-members",
+                message="security_exposures must be a list",
+                location=f"members[{member_index}].security_exposures",
+            )
+        ]
+    for exposure_index, exposure in enumerate(exposures):
+        if not isinstance(exposure, Mapping):
+            return [
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="reference.universe-members",
+                    message="security_exposures entries must be mappings",
+                    location=f"members[{member_index}].security_exposures[{exposure_index}]",
+                )
+            ]
+        source_refs = exposure.get("source_refs")
+        if source_refs is None:
+            continue
+        if not isinstance(source_refs, list):
+            return [
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="reference.universe-members",
+                    message="security_exposures.source_refs must be a list",
+                    location=(
+                        f"members[{member_index}].security_exposures[{exposure_index}].source_refs"
+                    ),
+                )
+            ]
+        for ref_index, ref in enumerate(source_refs):
+            if not isinstance(ref, Mapping) or "ref_path" not in ref:
+                return [
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="reference.universe-members",
+                        message="security_exposures.source_refs entries must be ref mappings",
+                        location=(
+                            f"members[{member_index}].security_exposures"
+                            f"[{exposure_index}].source_refs[{ref_index}]"
+                        ),
+                    )
+                ]
     return []
 
 

@@ -4,8 +4,6 @@ covered_from: '2026-05-01'
 covered_until: '2026-05-31'
 last_refreshed_at: '2026-05-05T00:00:00+09:00'
 source_status: ok
-source_refs:
-- records/_data/raw/screening/jquants/get_mkt_calendar-from_yyyymmdd-20260501-to_yyyymmdd-20260501.json
 holidays:
 - '2026-05-05'
 - '2026-05-06'

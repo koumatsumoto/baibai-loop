@@ -68,7 +68,7 @@ thesis_payoff:
   invalidation_conditions:
     - stop loss
 sector_33: "情報・通信業"
-ai-draft: true
+ai_draft: true
 published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 external_refs: []
 ---

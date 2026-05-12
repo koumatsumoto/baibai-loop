@@ -298,6 +298,50 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
 
         self.assertIn("reference.ref-parse", {finding.code for finding in findings})
 
+    def test_rejects_missing_string_list_repository_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            outlook = root / "records/03-outlook/2026/05/outlook.yaml"
+            outlook.parent.mkdir(parents=True)
+            outlook.write_text(
+                "updated_from:\n- records/02-brief/2026/05/missing.yaml\nsectors: {}\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.ref-not-found", {finding.code for finding in findings})
+
+    def test_rejects_scalar_research_ref_absolute_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            ledger = root / "records/_ledger/research-decisions/2026-05.jsonl"
+            ledger.parent.mkdir(parents=True)
+            ledger.write_text('{"research_ref":"/tmp/research.md"}\n', encoding="utf-8")
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.ref-path", {finding.code for finding in findings})
+
+    def test_rejects_latest_policy_ref_wrong_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            wrong = root / "records/03-outlook/2026/05/outlook.yaml"
+            wrong.parent.mkdir(parents=True)
+            wrong.write_text("schema_version: 1\n", encoding="utf-8")
+            index = root / "records/01-policy/_index.yaml"
+            index.parent.mkdir(parents=True)
+            index.write_text(
+                "portfolio-policy:\n"
+                "  latest_policy_ref:\n"
+                "    ref_path: records/03-outlook/2026/05/outlook.yaml\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.ref-prefix", {finding.code for finding in findings})
+
     def test_rejects_standalone_universe_duplicate_ticker(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -312,6 +356,29 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 "members:\n"
                 "- ticker: '130A'\n"
                 "- ticker: '130A'\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.universe-members", {finding.code for finding in findings})
+
+    def test_rejects_universe_security_exposure_source_refs_scalar(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            universe = root / "records/_universe-snapshots/2026/05/universe.yaml"
+            universe.parent.mkdir(parents=True)
+            universe.write_text(
+                "snapshot_id: universe-20260501\n"
+                "as_of: '2026-05-01'\n"
+                "universe_size: 1\n"
+                "members_scope: full_universe\n"
+                "members_recorded: 1\n"
+                "members:\n"
+                "- ticker: '130A'\n"
+                "  security_exposures:\n"
+                "  - exposure_bucket: japan-domestic\n"
+                "    source_refs: records/06-trades/wrong.md\n",
                 encoding="utf-8",
             )
 

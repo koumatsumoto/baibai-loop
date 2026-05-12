@@ -152,7 +152,7 @@ def _minimal_research_front_matter() -> dict[str, object]:
         },
         "sector_33": "情報・通信業",
         "avg_turnover_oku": 2.0,
-        "ai-draft": True,
+        "ai_draft": True,
         "published_at": "2026-05-05T20:00:00+09:00",
     }
 

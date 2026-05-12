@@ -134,6 +134,8 @@ def validate_review_file(path: Path) -> list[ValidationFinding]:
                 location=_format_path(error.absolute_path),
             )
         )
+    if code_prefix == "review":
+        findings.extend(_check_review_repository_refs(path, front))
     body = match.group(2)
     for section in required_sections:
         if not re.search(rf"^##\s+{re.escape(section)}\s*$", body, flags=re.MULTILINE):
@@ -147,6 +149,95 @@ def validate_review_file(path: Path) -> list[ValidationFinding]:
                 )
             )
     return findings
+
+
+def _check_review_repository_refs(
+    path: Path,
+    front: Mapping[str, Any],
+) -> list[ValidationFinding]:
+    specs = {
+        "research_ref": ("records/05-research/", (".md",)),
+        "trade_ref": ("records/06-trades/", (".md",)),
+    }
+    root = repo_root_for(path)
+    findings: list[ValidationFinding] = []
+    for field, (prefix, suffixes) in specs.items():
+        value = front.get(field)
+        if value is None:
+            continue
+        error = repository_ref_error(value, root=root)
+        if error is not None:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review.repository-ref",
+                    message=error,
+                    location=field,
+                )
+            )
+            continue
+        assert isinstance(value, str)
+        ref_path = resolve_repository_ref(root, value)
+        if not value.startswith(prefix):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review.repository-ref",
+                    message=f"{field} must point under {prefix}",
+                    location=field,
+                )
+            )
+            continue
+        if ref_path.suffix not in suffixes:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review.repository-ref",
+                    message=f"{field} must use suffix {suffixes}",
+                    location=field,
+                )
+            )
+            continue
+        if not ref_path.is_file():
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review.repository-ref",
+                    message=f"{field} referenced file does not exist: {value}",
+                    location=field,
+                )
+            )
+            continue
+        if _markdown_front_matter(ref_path) is None:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review.repository-ref",
+                    message=f"{field} referenced markdown must have YAML front matter",
+                    location=field,
+                )
+            )
+    return findings
+
+
+def _markdown_front_matter(path: Path) -> Mapping[str, Any] | None:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = _FRONT_MATTER_RE.match(text)
+    if not match:
+        return None
+    try:
+        payload = yaml.safe_load(match.group(1))
+    except yaml.YAMLError:
+        return None
+    return payload if isinstance(payload, Mapping) else None
 
 
 def _validate_review_scan_file(path: Path) -> list[ValidationFinding]:
