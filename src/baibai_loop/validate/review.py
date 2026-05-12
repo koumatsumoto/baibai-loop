@@ -406,7 +406,8 @@ def _check_false_negative_scan(
                 location="start_price_basis",
             )
         )
-    known_decisions = _decision_event_ids(_repo_root(path))
+    known_decisions, decision_findings = _decision_event_ids(_repo_root(path), path)
+    findings.extend(decision_findings)
     for index, item in enumerate(items):
         if not isinstance(item, dict):
             findings.append(
@@ -441,7 +442,8 @@ def _check_missed_opportunity_scan(
     items: list[Any],
 ) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
-    known_decisions = _decision_event_ids(_repo_root(path))
+    known_decisions, decision_findings = _decision_event_ids(_repo_root(path), path)
+    findings.extend(decision_findings)
     for index, item in enumerate(items):
         if isinstance(item, dict):
             findings.extend(_check_scan_decision_anchor(path, item, known_decisions, index))
@@ -478,23 +480,43 @@ def _check_scan_decision_anchor(
     return []
 
 
-def _decision_event_ids(root: Path) -> set[str]:
+def _decision_event_ids(root: Path, target: Path) -> tuple[set[str], list[ValidationFinding]]:
     decisions: set[str] = set()
+    findings: list[ValidationFinding] = []
     for path in sorted((root / "records/_ledger/research-decisions").glob("*.jsonl")):
+        location = path.relative_to(root).as_posix()
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError:
+        except OSError as exc:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=target,
+                    code="review-scan.decision-register-parse",
+                    message=f"failed to read decision register: {exc}",
+                    location=location,
+                )
+            )
             continue
-        for line in lines:
+        for line_no, line in enumerate(lines, start=1):
             if not line.strip():
                 continue
             try:
                 item = json.loads(line)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=target,
+                        code="review-scan.decision-register-parse",
+                        message=f"decision register JSONL parse failed: {exc}",
+                        location=f"{location}:line {line_no}",
+                    )
+                )
                 continue
             if isinstance(item, dict) and isinstance(item.get("decision_event_id"), str):
                 decisions.add(item["decision_event_id"])
-    return decisions
+    return decisions, findings
 
 
 def _repo_root(path: Path) -> Path:

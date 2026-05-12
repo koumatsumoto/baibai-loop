@@ -18,6 +18,7 @@
     "macro_regime_gate",
     "candidate_evidence_decisions",
     "selected_supporting_evidence_refs",
+    "research_evidence_hits",
     "independent_evidence_count",
     "conviction_tier",
     "position_sizing_overlay",

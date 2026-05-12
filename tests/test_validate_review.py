@@ -168,6 +168,27 @@ def test_false_negative_scan_requires_decision_anchor(tmp_path: Path) -> None:
     assert "review-scan.decision-event-missing" in codes
 
 
+def test_false_negative_scan_reports_invalid_decision_register(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    register = tmp_path / "records/_ledger/research-decisions/2026-05.jsonl"
+    register.parent.mkdir(parents=True)
+    register.write_text("{broken\n", encoding="utf-8")
+    scan = tmp_path / "records/07-reviews/screening-false-negative-scan/2026-05.yaml"
+    scan.parent.mkdir(parents=True)
+    scan.write_text(
+        "scan_id: scan-1\n"
+        "start_price_basis: candidate_run_close_adjusted_close\n"
+        "items:\n"
+        "- decision_event_id: decision-1\n"
+        "  start_price_basis: candidate_run_close_adjusted_close\n",
+        encoding="utf-8",
+    )
+
+    codes = {finding.code for finding in validate_review_file(scan)}
+
+    assert "review-scan.decision-register-parse" in codes
+
+
 def test_false_negative_scan_rejects_invalid_market_data_ref(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
     scan = tmp_path / "records/07-reviews/screening-false-negative-scan/2026-05.yaml"

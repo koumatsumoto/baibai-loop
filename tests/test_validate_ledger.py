@@ -120,6 +120,18 @@ def test_candidate_coverage_requires_decision_event_for_hit_candidate(tmp_path: 
     assert "ledger.candidate-decision-coverage" in codes
 
 
+def test_candidate_coverage_reports_invalid_candidates_yaml(tmp_path: Path) -> None:
+    candidates_path = tmp_path / "records/04-candidates/2026/05/2026-05-01.yaml"
+    candidates_path.parent.mkdir(parents=True)
+    candidates_path.write_text("[not a mapping]\n", encoding="utf-8")
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
+    _write_jsonl(path, _decision_record(ticker="2767"))
+
+    codes = {finding.code for finding in validate_ledger_file(path)}
+
+    assert "ledger.candidate-coverage-parse" in codes
+
+
 def test_not_reviewed_candidate_validation_reuses_candidate_document(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -568,11 +568,30 @@ def _check_candidate_coverage_from_candidates(
     covered = _covered_candidate_refs(records)
     findings: list[ValidationFinding] = []
     for candidate_path in sorted(candidates_root.rglob("*.yaml")):
+        location = str(candidate_path.relative_to(root))
         try:
             document = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError):
+        except (OSError, yaml.YAMLError) as exc:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="ledger.candidate-coverage-parse",
+                    message=f"failed to parse candidates file: {exc}",
+                    location=location,
+                )
+            )
             continue
         if not isinstance(document, dict):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="ledger.candidate-coverage-parse",
+                    message="candidates file must be a mapping",
+                    location=location,
+                )
+            )
             continue
         requires = document.get("requires_decision_coverage")
         if requires is False:
@@ -582,7 +601,7 @@ def _check_candidate_coverage_from_candidates(
                     target=path,
                     code="ledger.candidate-coverage-disabled",
                     message="candidate decision coverage must stay enabled for current records",
-                    location=str(candidate_path.relative_to(root)),
+                    location=location,
                 )
             )
             continue

@@ -323,6 +323,60 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
 
         self.assertIn("reference.ref-path", {finding.code for finding in findings})
 
+    def test_rejects_benchmark_runs_ref_missing_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text(
+                "fixtures:\n"
+                "- fixture_binding:\n"
+                "    runs_ref: records/_benchmarks/domain-model/missing-runs.yaml\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.ref-not-found", {finding.code for finding in findings})
+
+    def test_rejects_benchmark_input_ref_wrong_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            wrong = root / "records/03-outlook/2026/05/outlook.yaml"
+            wrong.parent.mkdir(parents=True)
+            wrong.write_text("schema_version: 1\n", encoding="utf-8")
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text(
+                "input_refs:\n  policy:\n    ref_path: records/03-outlook/2026/05/outlook.yaml\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.ref-prefix", {finding.code for finding in findings})
+
+    def test_rejects_outlook_source_refs_mapping_as_string_list_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source = root / "records/_external/source.md"
+            source.parent.mkdir(parents=True)
+            source.write_text("---\ntitle: source\n---\n", encoding="utf-8")
+            outlook = root / "records/03-outlook/2026/05/outlook.yaml"
+            outlook.parent.mkdir(parents=True)
+            outlook.write_text(
+                "schema_version: 1\n"
+                "sectors:\n"
+                "  情報・通信業:\n"
+                "    source_refs:\n"
+                "    - ref_path: records/_external/source.md\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.ref-shape", {finding.code for finding in findings})
+
     def test_rejects_latest_policy_ref_wrong_prefix(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

@@ -492,7 +492,15 @@ def _check_research_approval(path: Path, front: Mapping[str, object]) -> list[Va
         return []
     research = _load_referenced_research(path, front)
     if research is None:
-        return []
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.research-ref-load",
+                message="trade records with execution intent require a readable research_ref",
+                location="research_ref",
+            )
+        ]
     decision = as_mapping(research.get("research_decision"))
     if decision.get("outcome") == "approved":
         return []

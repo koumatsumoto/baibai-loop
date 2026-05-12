@@ -442,6 +442,7 @@ def test_submitted_trade_requires_valid_research_ref_for_order_intent(tmp_path: 
     codes = {finding.code for finding in validate_trade_file(path)}
 
     assert "trade.intent-source" in codes
+    assert "trade.research-ref-load" in codes
 
 
 def test_submitted_trade_requires_entry_legs(tmp_path: Path) -> None:

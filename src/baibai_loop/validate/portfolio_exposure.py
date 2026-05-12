@@ -478,21 +478,24 @@ def _check_rebuild_from_sources(
     source_refs = snapshot.get("source_trade_refs")
     orders = snapshot.get("outstanding_orders")
     root = repo_root_for(path)
-    expected_from_all_trades = _all_outstanding_orders_as_of(root, snapshot.get("as_of"))
+    expected_from_all_trades, all_trade_findings = _all_outstanding_orders_as_of(
+        root, snapshot.get("as_of"), target=path, include_source=True
+    )
+    findings: list[ValidationFinding] = list(all_trade_findings)
     if not isinstance(orders, list):
-        return []
+        return findings
     if not isinstance(source_refs, list) or not source_refs:
         if not orders and not expected_from_all_trades:
-            return []
-        return [
+            return findings
+        findings.append(
             _finding(
                 path,
                 "portfolio-exposure.source-trades-required",
                 "snapshot with outstanding orders must include source_trade_refs",
                 "source_trade_refs",
             )
-        ]
-    findings: list[ValidationFinding] = []
+        )
+        return findings
     rebuilt: list[dict[str, object]] = []
     source_paths: set[str] = set()
     for index, ref in enumerate(source_refs):
@@ -556,8 +559,7 @@ def _check_rebuild_from_sources(
             continue
         rebuilt.extend(_outstanding_orders_from_trade(trade, snapshot.get("as_of")))
     expected_source_paths = {
-        str(item["_source_path"])
-        for item in _all_outstanding_orders_as_of(root, snapshot.get("as_of"), include_source=True)
+        str(item["_source_path"]) for item in expected_from_all_trades if "_source_path" in item
     }
     if expected_source_paths and source_paths != expected_source_paths:
         findings.append(
@@ -594,9 +596,10 @@ def _check_cap_remaining_fields(
     path: Path,
     snapshot: Mapping[str, object],
 ) -> list[ValidationFinding]:
-    policy = _load_policy_ref(path, snapshot.get("as_of"))
+    policy, policy_findings = _load_policy_ref(path, snapshot.get("as_of"))
+    findings: list[ValidationFinding] = list(policy_findings)
     if not policy:
-        return []
+        return findings
     capital = policy.get("capital_basis")
     risk = policy.get("risk_budget")
     if not isinstance(capital, Mapping) or not isinstance(risk, Mapping):
@@ -638,7 +641,6 @@ def _check_cap_remaining_fields(
             exposure_outstanding,
         ),
     }
-    findings: list[ValidationFinding] = []
     for field, expected_value in expected.items():
         if expected_value is None:
             continue
@@ -659,23 +661,34 @@ def _all_outstanding_orders_as_of(
     root: Path,
     as_of_value: object,
     *,
+    target: Path,
     include_source: bool = False,
-) -> list[dict[str, object]]:
+) -> tuple[list[dict[str, object]], list[ValidationFinding]]:
     as_of = _parse_datetime(as_of_value)
     result: list[dict[str, object]] = []
+    findings: list[ValidationFinding] = []
     trades_root = root / "records/06-trades"
     if not trades_root.is_dir():
-        return result
+        return result, findings
     for trade_path in sorted(trades_root.rglob("*.md")):
+        location = str(trade_path.relative_to(root))
         try:
             trade = load_markdown_front_matter(trade_path)
-        except (OSError, ValueError, yaml.YAMLError):
+        except (OSError, ValueError, yaml.YAMLError) as exc:
+            findings.append(
+                _finding(
+                    target,
+                    "portfolio-exposure.trade-source-parse",
+                    f"failed to parse trade source: {exc}",
+                    location,
+                )
+            )
             continue
         for order in _outstanding_orders_from_trade(trade, as_of):
             if include_source:
                 order["_source_path"] = str(trade_path.relative_to(root))
             result.append(order)
-    return result
+    return result, findings
 
 
 def _outstanding_orders_from_trade(
@@ -767,16 +780,28 @@ def _without_source(order: Mapping[str, object]) -> dict[str, object]:
     return dict(_normalize_order(order))
 
 
-def _load_policy_ref(path: Path, as_of_value: object) -> Mapping[str, object]:
+def _load_policy_ref(
+    path: Path, as_of_value: object
+) -> tuple[Mapping[str, object], list[ValidationFinding]]:
     root = repo_root_for(path)
     as_of = _parse_datetime(as_of_value)
     policy_root = root / "records/01-policy/2026"
     best_path: Path | None = None
     best_effective: datetime | None = None
+    findings: list[ValidationFinding] = []
     for candidate in sorted(policy_root.rglob("*.md")):
+        location = str(candidate.relative_to(root))
         try:
             payload = load_markdown_front_matter(candidate)
-        except (OSError, ValueError, yaml.YAMLError):
+        except (OSError, ValueError, yaml.YAMLError) as exc:
+            findings.append(
+                _finding(
+                    path,
+                    "portfolio-exposure.policy-ref-parse",
+                    f"failed to parse policy source: {exc}",
+                    location,
+                )
+            )
             continue
         effective = _parse_datetime(payload.get("effective_from"))
         if effective is None:
@@ -787,11 +812,19 @@ def _load_policy_ref(path: Path, as_of_value: object) -> Mapping[str, object]:
             best_path = candidate
             best_effective = effective
     if best_path is None:
-        return {}
+        return {}, findings
     try:
-        return load_markdown_front_matter(best_path)
-    except (OSError, ValueError, yaml.YAMLError):
-        return {}
+        return load_markdown_front_matter(best_path), findings
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        findings.append(
+            _finding(
+                path,
+                "portfolio-exposure.policy-ref-parse",
+                f"failed to parse selected policy source: {exc}",
+                str(best_path.relative_to(root)),
+            )
+        )
+        return {}, findings
 
 
 def _sum_notional(orders: list[Mapping[str, object]]) -> float:

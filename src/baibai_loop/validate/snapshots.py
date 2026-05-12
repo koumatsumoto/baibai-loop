@@ -61,6 +61,27 @@ _REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
         "portfolio_exposure_ref",
         _ReferenceSpec(("records/_portfolio-exposure/",), (".yaml", ".yml")),
     ),
+    ("input_refs.policy", _ReferenceSpec(("records/01-policy/",), (".md",), True)),
+    (
+        "input_refs.screening_rules",
+        _ReferenceSpec(("records/_config/screening-rules/",), (".yaml", ".yml")),
+    ),
+    (
+        "input_refs.metric_catalog",
+        _ReferenceSpec(("records/_config/metric-catalog/",), (".yaml", ".yml")),
+    ),
+    (
+        "input_refs.exposure_buckets",
+        _ReferenceSpec(("records/_config/exposure-buckets/",), (".yaml", ".yml")),
+    ),
+    (
+        "input_refs.universe",
+        _ReferenceSpec(("records/_universe-snapshots/",), (".yaml", ".yml")),
+    ),
+    (
+        "input_refs.portfolio_exposure",
+        _ReferenceSpec(("records/_portfolio-exposure/",), (".yaml", ".yml")),
+    ),
     (
         "calendar_refs.business_days",
         _ReferenceSpec(("records/_calendars/business-days/",), (".yaml", ".yml")),
@@ -111,6 +132,9 @@ _SCALAR_REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
     ),
     ("research_ref", _ReferenceSpec(("records/05-research/",), (".md",), True, allow_null=True)),
     ("trade_ref", _ReferenceSpec(("records/06-trades/",), (".md",), True, allow_null=True)),
+    ("runs_ref", _ReferenceSpec(("records/_benchmarks/",), (".yaml", ".yml"))),
+    ("scan_ref", _ReferenceSpec(("records/07-reviews/",), (".yaml", ".yml"))),
+    ("ledger_ref", _ReferenceSpec(("records/_ledger/",), (".jsonl",))),
 )
 
 
@@ -221,6 +245,8 @@ def _check_repository_ref(
     *,
     location: str,
 ) -> list[ValidationFinding]:
+    if _is_outlook_record(target) and _location_has_marker(location, "source_refs"):
+        return []
     ref = node.get("ref_path")
     if ref is None:
         if _spec_for_location(location) is not None:
@@ -397,7 +423,7 @@ def _check_string_list_reference_fields(
 ) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
     for field, value in node.items():
-        spec = _string_list_spec_for_field(field)
+        spec = _string_list_spec_for_field(target, field)
         if spec is None:
             continue
         child_location = f"{location}.{field}" if location else str(field)
@@ -415,8 +441,6 @@ def _check_string_list_reference_fields(
             )
             continue
         for index, item in enumerate(value):
-            if isinstance(item, Mapping):
-                continue
             item_location = f"{child_location}[{index}]"
             if not isinstance(item, str):
                 findings.append(
@@ -555,11 +579,22 @@ def _scalar_spec_for_field(field: str) -> _ReferenceSpec | None:
     return None
 
 
-def _string_list_spec_for_field(field: str) -> _ReferenceSpec | None:
+def _string_list_spec_for_field(target: Path, field: str) -> _ReferenceSpec | None:
+    if field == "source_refs" and not _is_outlook_record(target):
+        return None
     for marker, spec in _STRING_LIST_REFERENCE_SPECS:
         if field == marker:
             return spec
     return None
+
+
+def _is_outlook_record(target: Path) -> bool:
+    return "records/03-outlook/" in target.as_posix()
+
+
+def _location_has_marker(location: str, marker: str) -> bool:
+    normalized = location.replace("[", ".").replace("]", "")
+    return normalized == marker or normalized.endswith(f".{marker}") or f".{marker}." in normalized
 
 
 def _check_reference_spec(

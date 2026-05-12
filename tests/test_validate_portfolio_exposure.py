@@ -120,6 +120,27 @@ class PortfolioExposureValidationTests(unittest.TestCase):
             "portfolio-exposure.source-trades-required", {finding.code for finding in findings}
         )
 
+    def test_rebuild_reports_invalid_unreferenced_trade_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "src").mkdir()
+            trade = root / "records/06-trades/2026/05/2026-05-05-9682.md"
+            trade.parent.mkdir(parents=True)
+            trade.write_text("---\ninvalid: [\n---\n", encoding="utf-8")
+            snapshot = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
+            snapshot.parent.mkdir(parents=True)
+            snapshot.write_text(
+                _snapshot(orders="outstanding_orders: []\n", remaining=1000000),
+                encoding="utf-8",
+            )
+
+            findings = validate_portfolio_exposure_file(snapshot)
+
+        self.assertIn(
+            "portfolio-exposure.trade-source-parse",
+            {finding.code for finding in findings},
+        )
+
     def test_requires_decision_register_source_for_outstanding_order(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

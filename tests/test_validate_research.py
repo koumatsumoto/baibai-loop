@@ -218,6 +218,12 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.required", codes)
 
+    def test_missing_research_evidence_hits_is_flagged_by_schema(self) -> None:
+        front = _minimal_research_front_matter()
+        del front["research_evidence_hits"]
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.required", codes)
+
     def test_removed_front_matter_field_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
         front["_".join(("macro", "gate"))] = "neutral"
