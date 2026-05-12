@@ -8,7 +8,7 @@ Baibai-Loop の **research / investment memo** の運用仕様。candidates × o
 - `records/03-outlook/` と security exposure を使い、macro regime gate を確定する
 - Portfolio policy と portfolio exposure file に照らして、採用可否と sizing を決める
 - thesis payoff を構造化し、target / stop / expected upside / downside / risk reward / time horizon を検査する
-- 短期 thesis が外れた場合に長期保有へ切り替えられるか、5 年程度の balance sheet / cash flow / liquidity / refinancing risk / earnings base の耐久性を確認する
+- 短期 thesis が外れた場合に長期保有へ切り替えられるか、balance sheet / cash flow / liquidity / refinancing risk / earnings base の耐久性を確認する
 - AI 長期影響を、long-hold fallback の質を評価する strategic lens として機会・脅威の両面から確認する
 - risk / contradicting evidence を必ず確認し、割安 trap を避ける
 - Decision register と trade order intent へ接続する
@@ -134,7 +134,7 @@ Position size は次の順で決める。
 
 `Thesis` には、短期 swing thesis に加えて以下を必ず 1 行以上で記録する。
 
-- **Long-hold fallback**: 5 年程度の事業継続に耐える balance sheet、cash flow、流動性、借換リスク、収益基盤を確認し、含み損時に資産ロックを受け入れて長期保有へ切り替えられるかを明示する。配当・自己株買い・安定 shareholder return がある場合は、資産ロック中の収益性として優先材料にできる。配当がない場合でも、短期リターン可能性と payoff が十分大きければ採用余地を残す。
+- **Long-hold fallback**: 長期保有になっても耐えられる可能性が高い balance sheet、cash flow、流動性、借換リスク、収益基盤を確認し、含み損時に資産ロックを受け入れて長期保有へ切り替えられるかを明示する。固定年数の条件ではなく、売却までの期間が想定より長引いても事業継続性と回収余地が残るかを確認する。配当・自己株買い・安定 shareholder return がある場合は、資産ロック中の収益性として優先材料にできる。配当がない場合でも、短期リターン可能性と payoff が十分大きければ採用余地を残す。Long-hold fallback は stop loss、invalidation、kill switch、事業継続前提の毀損を上書きしない。
 - **AI long-term impact**: AI の長期機会、長期脅威、今回判断での重みを明示する。AI 期待は単独の採用根拠、position sizing 根拠、macro gate にはしない。
 
 ## 11. Validation

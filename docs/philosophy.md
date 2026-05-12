@@ -159,7 +159,7 @@ outlook がなければ research が作れない。これは、macro regime な�
 
 - **`records/03-outlook/` の集約は手動 + AI**: 自動集約は将来の検討対象。運用負荷を計測してから自動化仕様を決める
 - **Valuation 指標の算出粒度は暫定**: 東証 33 業種、中央値下限 n=10 などの初期値で運用。retro で調整する
-- **Rerating Book（1〜6 か月保有）は対象外**: 主戦略は 5-40 営業日の swing に絞る。ただし、短期 thesis が外れた場合に長期保有へ切り替えられる balance sheet / cash flow の耐久性は、portfolio policy の selection principle として確認する
+- **Rerating Book（1〜6 か月保有）は対象外**: 主戦略は 5-40 営業日の swing に絞る。ただし、短期 thesis が外れた場合に長期保有へ切り替えられる balance sheet / cash flow の耐久性は、portfolio policy の selection principle として確認する。これは固定年数の holding strategy ではなく、売却までの期間が想定より長引いても事業継続性と回収余地が残る銘柄を優先する方針である
 - **Playbook 改訂ルールは緩め**: サンプル数 10 件未満なら playbook 据え置きを許容する。厳密な改訂トリガーは運用後に定める
 
 ## 7. 参考

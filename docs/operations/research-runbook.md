@@ -21,7 +21,7 @@ Research は `records/04-candidates/` と `records/03-outlook/` を統合する 
 1. 最新 candidates と最新 outlook が存在することを確認する。
 2. Macro regime gate は [`screening-runbook.md`](./screening-runbook.md) と [`../screening/macro-gate-procedure.md`](../screening/macro-gate-procedure.md) に従う。
 3. 使用する playbook が [`../components/playbooks.md`](../components/playbooks.md) と `records/_playbooks/` から辿れることを確認する。
-4. Policy の swing-first / long-hold-capable value principle を確認し、短期 thesis が外れた場合でも 5 年程度の長期保有へ切り替えられる候補かを確認する。
+4. Policy の swing-first / long-hold-capable value principle を確認し、短期 thesis が外れた場合でも長期保有へ切り替えられる候補かを確認する。
 5. [`../anti-patterns.md`](../anti-patterns.md) の AP-01〜AP-09 を全体 gate として確認する。特に AP-01, AP-02, AP-03, AP-04, AP-06, AP-08, AP-09 は research で重点確認する。
 
 ## Rules
@@ -31,7 +31,7 @@ Research は `records/04-candidates/` と `records/03-outlook/` を統合する 
 - 銘柄固有の事実は、業種を問わず会社IRを一次情報として確認し、出典と計算根拠を残す。直近決算短信、
   決算説明資料、Q&A、有価証券報告書 / 統合報告書、中期経営計画、株主還元関連開示を未確認のまま
   `research_decision.outcome: approved` にしない。
-- Thesis には long-hold fallback を 1 行以上書く。5 年程度の balance sheet / cash flow / liquidity / refinancing risk / earnings base の耐久性、資産ロック許容、配当・自己株買いなどの shareholder return を確認する。配当がない銘柄は、短期リターン可能性と payoff が大きい場合だけ採用余地を残す。
+- Thesis には long-hold fallback を 1 行以上書く。長期保有になっても耐えられる可能性が高い balance sheet / cash flow / liquidity / refinancing risk / earnings base の耐久性、資産ロック許容、配当・自己株買いなどの shareholder return を確認する。固定年数の条件ではなく、売却までの期間が想定より長引いても事業継続性と回収余地が残るかを確認する。配当がない銘柄は、短期リターン可能性と payoff が大きい場合だけ採用余地を残す。Long-hold fallback は stop loss、invalidation、kill switch、事業継続前提の毀損を上書きしない。
 - Thesis には AI long-term impact を 1 行以上書く。AI の長期機会・長期脅威・今回判断での重みを明示し、AI 期待だけで採用や sizing を正当化しない。
 - 採用判定は `research_decision.outcome` と `research_decision.posture` の意味を [`../components/research.md`](../components/research.md) に合わせる。
 - `research_decision.outcome: deferred` かつ `research_decision.posture: wait_for_event` の場合は、[`task-runbook.md`](./task-runbook.md) に従い、決算後確認タスク issue を作成または既存 issue に紐づける。

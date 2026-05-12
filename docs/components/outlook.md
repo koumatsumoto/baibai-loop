@@ -155,7 +155,7 @@ outlook YAML は以下を満たさなければ `ai_draft: true → false` の確
 - **20+ Tier 1 / Tier 1 準拠の一次情報源を直接根拠**とする。ただし正本フローは以下に厳格に従う:
   - **canonical fact layer は brief のみ**: outlook の `updated_from` および `source_refs` は `records/02-brief/**.yaml` パスのみを許容する (schema で強制)。outlook 直接の外部 URL 引用は禁止
   - **外部 deep research の取扱**: 取得した一次情報を outlook で使う場合、必ず **対応する brief (世界週次 / 日次 / 月次 / event) を同 PR で新規作成または更新**してから、outlook がその brief を `updated_from` / `source_refs` で参照する形に集約する
-  - **sidecar (`outlook-<date>-research-log.md`) の役割は取得ログ**: deep research 中に確認した URL / 取得日 / Tier / key fact をリスト化し、再現性確保と監査用途で残す。outlook の根拠 source としては数えない (= research-log だけで brief を skip するのは設計違反)
+  - **sidecar (`outlook-<date>-research-log.md`) の役割は取得ログ**: deep research 中に確認した URL / 取得日 / Tier / key fact をリスト化し、再照合できるように残す。outlook の根拠 source としては数えない (= research-log だけで brief を skip するのは設計違反)
   - 必要 axis (各 3-5 source、合計 20+):
     - 米マクロ axis: BLS / BEA / FRB / FOMC / Census 等
     - 地政学・エネルギー axis: EIA / IEA / OPEC 等
