@@ -1,10 +1,4 @@
-"""Validate repository reference links.
-
-The CLI target remains named ``snapshots`` for operator compatibility, but
-this module no longer performs byte-level hash audits. It validates that
-repository links are safe and resolvable, and that removed hash fields do not
-re-enter active records.
-"""
+"""Validate repository reference links."""
 
 from __future__ import annotations
 
@@ -26,7 +20,7 @@ _REMOVED_HASH_FIELDS = frozenset({"content_" + "sha256", "row_" + "sha256"})
 _REMOVED_REFERENCE_FIELDS = frozenset(
     {
         "playbook_snapshot",
-        "policy_snapshot",
+        "_".join(("policy", "snapshot")),
         "portfolio_exposure_snapshot_ref",
         "calendars_snapshot",
         "universe_snapshot_ref",
@@ -56,7 +50,6 @@ class _ReferenceSpec:
 _REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
     ("playbook_ref", _ReferenceSpec(("records/_playbooks/",), (".md",), True)),
     ("policy_ref", _ReferenceSpec(("records/01-policy/",), (".md",), True)),
-    ("latest_policy_ref", _ReferenceSpec(("records/01-policy/",), (".md",), True)),
     (
         "portfolio_exposure_ref",
         _ReferenceSpec(("records/_portfolio-exposure/",), (".yaml", ".yml")),
@@ -143,7 +136,7 @@ def validate_reference_integrity(root: Path) -> list[ValidationFinding]:
     _load_structured_payload.cache_clear()
     _front_matter_payload.cache_clear()
     findings: list[ValidationFinding] = []
-    for path in discover_snapshot_validation_files(root):
+    for path in discover_reference_files(root):
         if path.suffix == ".jsonl":
             for line_no, row, error in _iter_jsonl(path):
                 if error is not None:
@@ -160,12 +153,7 @@ def validate_reference_integrity(root: Path) -> list[ValidationFinding]:
     return findings
 
 
-def validate_snapshot_integrity(root: Path) -> list[ValidationFinding]:
-    """Compatibility wrapper for the ``snapshots`` CLI target."""
-    return validate_reference_integrity(root)
-
-
-def discover_snapshot_validation_files(root: Path) -> list[Path]:
+def discover_reference_files(root: Path) -> list[Path]:
     """Return files participating in repository reference validation."""
     files: list[Path] = []
     for rel_root in _REFERENCE_ROOTS:

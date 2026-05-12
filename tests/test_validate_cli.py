@@ -430,6 +430,24 @@ class ValidateCliTests(unittest.TestCase):
             )
             self.assertEqual(exit_code, 0, msg=stderr.getvalue())
 
+    def test_references_target_validates_repository_refs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _seed_repo(root)
+            (root / "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md").unlink()
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            exit_code = run_validation(
+                root=root,
+                targets=("references",),
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("reference.ref-not-found", stderr.getvalue())
+
     def test_main_against_repository_exits_zero(self) -> None:
         # Smoke: run via main() with --root pointed at the actual repo so the
         # CLI matches what CI will execute.

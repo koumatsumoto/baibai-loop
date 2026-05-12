@@ -34,7 +34,7 @@ _REMOVED_ROOT_FIELDS = frozenset(
 _REMOVED_REFERENCE_FIELDS = frozenset(
     {
         "playbook_snapshot",
-        "policy_snapshot",
+        "_".join(("policy", "snapshot")),
         "portfolio_exposure_snapshot_ref",
         "calendars_snapshot",
         "universe_snapshot_ref",

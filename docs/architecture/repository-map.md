@@ -44,7 +44,7 @@ source_paths:
 
 `records/_*` は運用成果物そのものではなく、生成・検証・検証後追跡を支える領域です。重複と drift を避けるため、正本 docs は 1 つに固定します。
 
-通常 record (`01-policy` を除く `02-brief` から `07-reviews`) は event artifact として path
+通常 record (`01-policy` から `07-reviews`) は event artifact として path
 自体を正本にし、mutable latest index は持たない。Support area も `_changelog.jsonl` や
 content hash audit は持たず、record から参照する repo 内 file path と git 履歴を正本にする。
 

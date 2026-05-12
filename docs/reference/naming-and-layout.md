@@ -12,6 +12,7 @@ last_reviewed: 2026-05-04
 
 | path | naming pattern |
 | --- | --- |
+| `records/01-policy/` | `YYYY/MM/YYYY-MM-DDTHHMMSS+0900-portfolio-policy.md` |
 | `records/02-brief/` | `YYYY/MM/YYYY-MM-DD-{kind}-{slug}.yaml` |
 | `records/03-outlook/` | `YYYY/MM/outlook-YYYY-MM-DD-<slug>.yaml` |
 | `records/04-candidates/` | `YYYY/MM/YYYY-MM-DD.yaml` |
@@ -22,7 +23,7 @@ last_reviewed: 2026-05-04
 
 ## Index And Reference Policy
 
-Brief / outlook / candidates / research / trades / reviews は event records であり、
+Policy / brief / outlook / candidates / research / trades / reviews は event records であり、
 `_index.yaml` や `_changelog.jsonl` を持たない。正本は file path、record 内の repository
 refs、CLI の `--asof` / explicit path で決まる。
 

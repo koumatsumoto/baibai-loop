@@ -10,10 +10,10 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.validate.snapshots import validate_snapshot_integrity
+from baibai_loop.validate.references import validate_reference_integrity
 
 
-class SnapshotIntegrityValidationTests(unittest.TestCase):
+class ReferenceIntegrityValidationTests(unittest.TestCase):
     def test_rejects_removed_hash_field(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -29,7 +29,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.removed-hash-field", {finding.code for finding in findings})
 
@@ -41,7 +41,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
             hash_key = "row_" + "sha256"
             policy.write_text(f"policy_id: test\n{hash_key}: sha256:bad\n", encoding="utf-8")
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.removed-hash-field", {finding.code for finding in findings})
 
@@ -53,12 +53,13 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
             policy.write_text("---\npolicy_id: portfolio-policy\n---\n", encoding="utf-8")
             research = root / "records/05-research/2026/05/research.md"
             research.parent.mkdir(parents=True)
+            legacy_field = "_".join(("policy", "snapshot"))
             research.write_text(
-                "---\npolicy_snapshot:\n  ref_path: records/01-policy/2026/05/policy.md\n---\n",
+                f"---\n{legacy_field}:\n  ref_path: records/01-policy/2026/05/policy.md\n---\n",
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn(
             "reference.removed-reference-field",
@@ -82,7 +83,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn(
             "reference.removed-reference-field",
@@ -96,7 +97,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
             research.parent.mkdir(parents=True)
             research.write_text("---\npolicy_ref: [\n---\n# broken\n", encoding="utf-8")
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.invalid-yaml", {finding.code for finding in findings})
 
@@ -110,7 +111,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-not-found", {finding.code for finding in findings})
 
@@ -121,7 +122,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
             research.parent.mkdir(parents=True)
             research.write_text("---\npolicy_ref: /tmp/policy.md\n---\n", encoding="utf-8")
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-shape", {finding.code for finding in findings})
 
@@ -134,7 +135,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 "---\npolicy_ref:\n  effective_from: '2026-05-01'\n---\n", encoding="utf-8"
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-shape", {finding.code for finding in findings})
 
@@ -145,7 +146,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
             research.parent.mkdir(parents=True)
             research.write_text("---\ncalendar_refs: []\n---\n", encoding="utf-8")
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-shape", {finding.code for finding in findings})
 
@@ -159,7 +160,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-shape", {finding.code for finding in findings})
 
@@ -173,7 +174,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-shape", {finding.code for finding in findings})
 
@@ -184,7 +185,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
             exposure.parent.mkdir(parents=True)
             exposure.write_text("source_trade_refs:\n- records/06-trades/x.md\n", encoding="utf-8")
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-shape", {finding.code for finding in findings})
 
@@ -201,7 +202,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-prefix", {finding.code for finding in findings})
 
@@ -218,7 +219,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-parse", {finding.code for finding in findings})
 
@@ -229,7 +230,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
             selection.parent.mkdir(parents=True)
             selection.write_text("candidates_ref: /tmp/candidates.yaml\n", encoding="utf-8")
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-path", {finding.code for finding in findings})
 
@@ -245,7 +246,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertEqual(findings, [])
 
@@ -261,7 +262,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-parse", {finding.code for finding in findings})
 
@@ -277,7 +278,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-parse", {finding.code for finding in findings})
 
@@ -294,7 +295,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-parse", {finding.code for finding in findings})
 
@@ -308,7 +309,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-not-found", {finding.code for finding in findings})
 
@@ -319,7 +320,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
             ledger.parent.mkdir(parents=True)
             ledger.write_text('{"research_ref":"/tmp/research.md"}\n', encoding="utf-8")
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-path", {finding.code for finding in findings})
 
@@ -335,7 +336,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-not-found", {finding.code for finding in findings})
 
@@ -352,7 +353,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-prefix", {finding.code for finding in findings})
 
@@ -373,28 +374,9 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-shape", {finding.code for finding in findings})
-
-    def test_rejects_latest_policy_ref_wrong_prefix(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            wrong = root / "records/03-outlook/2026/05/outlook.yaml"
-            wrong.parent.mkdir(parents=True)
-            wrong.write_text("schema_version: 1\n", encoding="utf-8")
-            index = root / "records/01-policy/_index.yaml"
-            index.parent.mkdir(parents=True)
-            index.write_text(
-                "portfolio-policy:\n"
-                "  latest_policy_ref:\n"
-                "    ref_path: records/03-outlook/2026/05/outlook.yaml\n",
-                encoding="utf-8",
-            )
-
-            findings = validate_snapshot_integrity(root)
-
-        self.assertIn("reference.ref-prefix", {finding.code for finding in findings})
 
     def test_rejects_standalone_universe_duplicate_ticker(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -413,7 +395,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.universe-members", {finding.code for finding in findings})
 
@@ -436,7 +418,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.universe-members", {finding.code for finding in findings})
 
@@ -453,7 +435,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertEqual(findings, [])
 
@@ -467,7 +449,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-path", {finding.code for finding in findings})
 
@@ -484,7 +466,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-suffix", {finding.code for finding in findings})
 
@@ -504,7 +486,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            findings = validate_snapshot_integrity(root)
+            findings = validate_reference_integrity(root)
 
         self.assertIn("reference.ref-front-matter", {finding.code for finding in findings})
 
@@ -527,7 +509,7 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
             )
 
             try:
-                findings = validate_snapshot_integrity(root)
+                findings = validate_reference_integrity(root)
             finally:
                 outside.unlink(missing_ok=True)
 

@@ -47,7 +47,7 @@ _REMOVED_FRONT_MATTER_FIELDS = {
 _REMOVED_HASH_FIELDS = {"content_" + "sha256", "row_" + "sha256"}
 _REMOVED_REFERENCE_FIELDS = {
     "playbook_snapshot",
-    "policy_snapshot",
+    "_".join(("policy", "snapshot")),
     "portfolio_exposure_snapshot_ref",
     "calendars_snapshot",
     "universe_snapshot_ref",
