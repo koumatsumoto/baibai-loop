@@ -52,6 +52,19 @@ _REMOVED_FRONT_MATTER_FIELDS: tuple[str, ...] = (
     "_".join(("calendars", "snapshot")),
 )
 _REMOVED_HASH_FIELDS = {"content_" + "sha256", "row_" + "sha256"}
+_REMOVED_REFERENCE_FIELDS = {
+    "playbook_snapshot",
+    "policy_snapshot",
+    "portfolio_exposure_snapshot_ref",
+    "calendars_snapshot",
+    "universe_snapshot_ref",
+    "input_snapshots",
+    "screening_rules_snapshot",
+    "metric_catalog_snapshot",
+    "cache_manifest_hash",
+    "snapshot_path",
+    "latest_snapshot",
+}
 _KNOWN_OUTCOMES = {"approved", "deferred", "rejected"}
 _KNOWN_POSTURES = {"act_now", "wait_for_event", "wait_for_capital", "dropped"}
 _KNOWN_GATE_EFFECTS = {"pass", "conditional", "block"}
@@ -898,7 +911,7 @@ def _check_candidate_lineage(
         return []
     findings: list[ValidationFinding] = []
     candidate_ref = as_mapping(front_matter.get("candidate_ref"))
-    candidates_ref = candidate_ref.get("candidates_ref") or front_matter.get("candidates_ref")
+    candidates_ref = candidate_ref.get("candidates_ref")
     if not isinstance(candidates_ref, str) or not candidates_ref:
         return [
             ValidationFinding(
@@ -933,7 +946,15 @@ def _check_candidate_lineage(
             )
         ]
     if not isinstance(document, Mapping):
-        return []
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.candidate-ref-parse",
+                message="candidate_ref.candidates_ref must point to a candidates mapping",
+                location="candidate_ref.candidates_ref",
+            )
+        ]
     document_run_id = document.get("run_id")
     ref_screen_run_id = candidate_ref.get("screen_run_id")
     ref_ticker = candidate_ref.get("ticker")
@@ -995,7 +1016,10 @@ def _check_candidate_lineage(
                 severity="error",
                 target=path,
                 code="research.candidate-ref-match",
-                message="candidate_ref must match a candidate row by ticker and candidate_id",
+                message=(
+                    "candidate_ref must match a candidate row by ticker, "
+                    "candidate_id, and screen_run_id"
+                ),
                 location="candidate_ref",
             )
         )
@@ -1242,8 +1266,6 @@ def _load_candidate_hits(
     ref_value: object = (
         candidate_ref.get("candidates_ref") if isinstance(candidate_ref, Mapping) else None
     )
-    if not isinstance(ref_value, str):
-        ref_value = front_matter.get("candidates_ref")
     if not isinstance(ref_value, str) or not ref_value:
         return None
     candidate_path = _resolve_candidate_ref(path, ref_value)
@@ -1885,8 +1907,6 @@ def _load_candidate_document(
     ref_value: object = (
         candidate_ref.get("candidates_ref") if isinstance(candidate_ref, Mapping) else None
     )
-    if not isinstance(ref_value, str):
-        ref_value = front_matter.get("candidates_ref")
     if not isinstance(ref_value, str) or not ref_value:
         return None
     candidate_path = _resolve_candidate_ref(path, ref_value)
@@ -2207,6 +2227,17 @@ def _check_removed_hash_fields_recursive(
                         target=path,
                         code="research.removed-hash-field",
                         message=f"{field} is no longer allowed in research records",
+                        location=f"{location}.{field}" if location else field,
+                    )
+                )
+        for field in sorted(_REMOVED_REFERENCE_FIELDS):
+            if field in node:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="research.removed-reference-field",
+                        message=f"{field} has been replaced by repository reference fields",
                         location=f"{location}.{field}" if location else field,
                     )
                 )

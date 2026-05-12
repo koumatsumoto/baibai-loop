@@ -241,6 +241,16 @@ def test_nested_removed_hash_field_is_flagged(tmp_path: Path) -> None:
     assert "trade.removed-hash-field" in codes
 
 
+def test_nested_removed_reference_field_is_flagged(tmp_path: Path) -> None:
+    front = _trade_front()
+    policy_ref = front["policy_ref"]
+    assert isinstance(policy_ref, dict)
+    policy_ref["snapshot_path"] = "records/01-policy/2026/05/policy.md"
+    path = _write_trade(tmp_path, front)
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.removed-reference-field" in codes
+
+
 def test_order_intent_must_join_to_order(tmp_path: Path) -> None:
     front = _trade_front()
     orders = front["orders"]

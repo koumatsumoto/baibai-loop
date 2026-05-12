@@ -56,7 +56,6 @@ def _seed(root: Path) -> None:
                 "ref_path": "records/01-policy/2026/05/policy.md",
             },
             "research_decision": {"outcome": "approved", "posture": "act_now"},
-            "candidates_ref": str(candidates_path.relative_to(root)),
             "candidate_ref": {
                 "candidates_ref": str(candidates_path.relative_to(root)),
                 "screen_run_id": "screening-20260424",
@@ -147,6 +146,9 @@ def test_sync_ledger_writes_idempotent_decision_register(tmp_path: Path) -> None
     record = json.loads(lines[0])
     assert record["decision_event_id"] == "decision-20260425-2767-research"
     assert record["candidate_decision"] == "selected"
+    assert record["baseline_price"] == 1431.0
+    assert record["market_cap_oku"] == 936.0
+    assert record["avg_turnover_oku"] == 4.9
     assert record["tracking"] == {
         "mode": "post_approval",
         "plus_15bd": None,

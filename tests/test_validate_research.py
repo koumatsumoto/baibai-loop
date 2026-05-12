@@ -242,6 +242,14 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.reference-ref", codes)
 
+    def test_removed_reference_field_is_flagged_by_research_target(self) -> None:
+        front = _minimal_research_front_matter()
+        policy_ref = front["policy_ref"]
+        assert isinstance(policy_ref, dict)
+        policy_ref["snapshot_path"] = "records/01-policy/2026/05/policy.md"
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.removed-reference-field", codes)
+
     def test_wrong_calendar_ref_prefix_is_flagged_by_research_target(self) -> None:
         front = _minimal_research_front_matter()
         calendars = front["calendar_refs"]
@@ -597,6 +605,62 @@ class ResearchValidationTests(unittest.TestCase):
             }
 
         self.assertIn("research.candidate-ref-missing", codes)
+
+    def test_repository_research_does_not_fallback_to_top_level_candidates_ref(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "src").mkdir()
+            _write_candidate_fixture(root)
+            front = _minimal_research_front_matter()
+            front["candidates_ref"] = "records/04-candidates/2026/05/2026-05-01.yaml"
+            candidate_ref = front["candidate_ref"]
+            assert isinstance(candidate_ref, dict)
+            del candidate_ref["candidates_ref"]
+            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
+            research_path.parent.mkdir(parents=True)
+            research_path.write_text(
+                "---\n"
+                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
+                + "---\n"
+                + _DEFAULT_BODY,
+                encoding="utf-8",
+            )
+
+            codes = {
+                finding.code
+                for finding in validate_research_file(
+                    research_path, playbooks_root=ROOT / "records/_playbooks"
+                )
+            }
+
+        self.assertIn("research.candidate-ref-required", codes)
+
+    def test_repository_research_candidate_ref_requires_mapping_document(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "src").mkdir()
+            candidates_path = root / "records/04-candidates/2026/05/2026-05-01.yaml"
+            candidates_path.parent.mkdir(parents=True)
+            candidates_path.write_text("- not-a-mapping\n", encoding="utf-8")
+            front = _minimal_research_front_matter()
+            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
+            research_path.parent.mkdir(parents=True)
+            research_path.write_text(
+                "---\n"
+                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
+                + "---\n"
+                + _DEFAULT_BODY,
+                encoding="utf-8",
+            )
+
+            codes = {
+                finding.code
+                for finding in validate_research_file(
+                    research_path, playbooks_root=ROOT / "records/_playbooks"
+                )
+            }
+
+        self.assertIn("research.candidate-ref-parse", codes)
 
     def test_repository_research_candidate_ref_screen_run_id_must_match(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

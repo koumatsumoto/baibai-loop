@@ -56,8 +56,7 @@ def sync_ledger(
         outcome = str(research_decision.get("outcome") or "deferred")
         candidate_decision = _candidate_decision_from_research(outcome)
         candidate_ref = _mapping_or_none(front.get("candidate_ref"))
-        candidates_ref = str(front.get("candidates_ref") or "")
-        candidate = candidates_index.get(candidates_ref, {}).get(ticker, {})
+        candidate = _candidate_from_ref(candidates_index, candidate_ref)
         plus_15bd, plus_30bd = (
             resolve_tracking_prices(ticker, decision_event_at.date(), calendar, bars)
             if calendar and bars
@@ -292,6 +291,28 @@ def _load_candidates(root: Path) -> dict[str, dict[str, Mapping[str, Any]]]:
                     by_ticker[str(item["ticker"])] = item
         loaded[str(path.relative_to(root))] = by_ticker
     return loaded
+
+
+def _candidate_from_ref(
+    candidates_index: dict[str, dict[str, Mapping[str, Any]]],
+    candidate_ref: Mapping[str, Any] | None,
+) -> Mapping[str, Any]:
+    if candidate_ref is None:
+        return {}
+    candidates_ref = candidate_ref.get("candidates_ref")
+    ticker = candidate_ref.get("ticker")
+    candidate_id = candidate_ref.get("candidate_id")
+    screen_run_id = candidate_ref.get("screen_run_id")
+    if not isinstance(candidates_ref, str) or not isinstance(ticker, str):
+        return {}
+    candidate = candidates_index.get(candidates_ref, {}).get(ticker, {})
+    if not candidate:
+        return {}
+    if isinstance(candidate_id, str) and candidate.get("candidate_id") != candidate_id:
+        return {}
+    if isinstance(screen_run_id, str) and candidate.get("screen_run_id") != screen_run_id:
+        return {}
+    return candidate
 
 
 def _decision_datetime(path: Path, front: Mapping[str, Any]) -> datetime:

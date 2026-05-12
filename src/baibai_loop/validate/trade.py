@@ -45,6 +45,19 @@ _REMOVED_FRONT_MATTER_FIELDS = {
     "_".join(("calendars", "snapshot")),
 }
 _REMOVED_HASH_FIELDS = {"content_" + "sha256", "row_" + "sha256"}
+_REMOVED_REFERENCE_FIELDS = {
+    "playbook_snapshot",
+    "policy_snapshot",
+    "portfolio_exposure_snapshot_ref",
+    "calendars_snapshot",
+    "universe_snapshot_ref",
+    "input_snapshots",
+    "screening_rules_snapshot",
+    "metric_catalog_snapshot",
+    "cache_manifest_hash",
+    "snapshot_path",
+    "latest_snapshot",
+}
 _ORDER_STATES = {
     "submitted",
     "broker_rejected",
@@ -964,6 +977,17 @@ def _check_removed_hash_fields_recursive(
                         target=path,
                         code="trade.removed-hash-field",
                         message=f"{field} is no longer allowed in trade records",
+                        location=f"{location}.{field}" if location else field,
+                    )
+                )
+        for field in sorted(_REMOVED_REFERENCE_FIELDS):
+            if field in node:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="trade.removed-reference-field",
+                        message=f"{field} has been replaced by repository reference fields",
                         location=f"{location}.{field}" if location else field,
                     )
                 )

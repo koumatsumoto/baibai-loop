@@ -173,6 +173,38 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
 
         self.assertIn("benchmark.fixture-candidates-ref", {finding.code for finding in findings})
 
+    def test_rejects_non_string_fixture_ref(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    candidates_ref="{ref_path: records/06-trades/x.md}",
+                    expected={},
+                ).replace(
+                    "    candidates_ref: {ref_path: records/06-trades/x.md}",
+                    "    candidates_ref:\n      ref_path: records/06-trades/x.md",
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.fixture-candidates-ref", {finding.code for finding in findings})
+
+    def test_rejects_non_list_playbook_refs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "manifest.yaml"
+            path.write_text(
+                _manifest() + "playbook_refs: records/_playbooks/test.md\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(path)
+
+        self.assertIn("benchmark.playbook-ref", {finding.code for finding in findings})
+
     def test_rejects_trade_expected_quantity_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

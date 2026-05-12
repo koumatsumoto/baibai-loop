@@ -19,6 +19,21 @@ from .domain import (
 from .errors import ValidationFinding
 
 _REMOVED_HASH_FIELDS = frozenset({"content_" + "sha256", "row_" + "sha256"})
+_REMOVED_REFERENCE_FIELDS = frozenset(
+    {
+        "playbook_snapshot",
+        "policy_snapshot",
+        "portfolio_exposure_snapshot_ref",
+        "calendars_snapshot",
+        "universe_snapshot_ref",
+        "input_snapshots",
+        "screening_rules_snapshot",
+        "metric_catalog_snapshot",
+        "cache_manifest_hash",
+        "snapshot_path",
+        "latest_snapshot",
+    }
+)
 
 
 def discover_portfolio_exposure_files(root: Path) -> list[Path]:
@@ -66,6 +81,7 @@ def _check_removed_hash_fields_recursive(
     findings: list[ValidationFinding] = []
     if isinstance(value, Mapping):
         findings.extend(_check_removed_hash_fields(path, value, prefix))
+        findings.extend(_check_removed_reference_fields(path, value, prefix))
         for key, child in value.items():
             location = f"{prefix}.{key}" if prefix else str(key)
             findings.extend(_check_removed_hash_fields_recursive(path, child, prefix=location))
@@ -74,6 +90,23 @@ def _check_removed_hash_fields_recursive(
             location = f"{prefix}[{index}]" if prefix else f"[{index}]"
             findings.extend(_check_removed_hash_fields_recursive(path, child, prefix=location))
     return findings
+
+
+def _check_removed_reference_fields(
+    path: Path,
+    value: Mapping[str, object],
+    location: str,
+) -> list[ValidationFinding]:
+    return [
+        _finding(
+            path,
+            "portfolio-exposure.removed-reference-field",
+            f"{field} has been replaced by repository reference fields",
+            f"{location}.{field}" if location else field,
+        )
+        for field in sorted(_REMOVED_REFERENCE_FIELDS)
+        if field in value
+    ]
 
 
 def _check_outstanding_orders(

@@ -171,6 +171,25 @@ class PortfolioExposureValidationTests(unittest.TestCase):
             {finding.code for finding in findings},
         )
 
+    def test_rejects_removed_reference_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "src").mkdir()
+            snapshot = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
+            snapshot.parent.mkdir(parents=True)
+            snapshot.write_text(
+                _snapshot(orders="outstanding_orders: []\n", remaining=1000000)
+                + "latest_snapshot: records/_portfolio-exposure/old.yaml\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_portfolio_exposure_file(snapshot)
+
+        self.assertIn(
+            "portfolio-exposure.removed-reference-field",
+            {finding.code for finding in findings},
+        )
+
     def test_rejects_invalid_decision_register_ref_without_outstanding_orders(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

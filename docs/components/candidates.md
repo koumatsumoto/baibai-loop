@@ -189,7 +189,7 @@ candidates YAML は `run_id`、`universe_ref`、candidate-level の metric / sou
 
 ## 6. research への接続
 
-- `records/05-research/` の front matter `candidates_ref` で本ファイルを参照
+- `records/05-research/` の front matter `candidate_ref.candidates_ref` で本ファイルを参照する。`candidate_ref` は `candidates_ref` / `ticker` / `candidate_id` / `screen_run_id` の完全な join key として扱い、research validator が候補ファイル root `run_id` と候補 row の `screen_run_id` / `candidate_id` / `ticker` を照合する
 - 選定プロセス: 最新 `records/04-candidates/` と最新 `records/03-outlook/` を突き合わせ、`outlook` で supportive/neutral の業種/地域の ticker を候補に残す（adverse 除外）
 - 複数 screen hit が重なる候補は research 優先度を上げるが、単一総合 score は作らない
 - `select` は lane 別の primary metric と macro status を使って research triage を支援する。hit 数と時価総額だけでは並べない

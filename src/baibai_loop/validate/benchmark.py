@@ -247,7 +247,16 @@ def _check_repository_refs(path: Path, manifest: Mapping[str, object]) -> list[V
                 )
             )
     playbook_refs = manifest.get("playbook_refs")
-    if isinstance(playbook_refs, list):
+    if playbook_refs is not None and not isinstance(playbook_refs, list):
+        findings.append(
+            _finding(
+                path,
+                "benchmark.playbook-ref",
+                "playbook_refs must be a list of repository ref mappings",
+                "playbook_refs",
+            )
+        )
+    elif isinstance(playbook_refs, list):
         for index, ref in enumerate(playbook_refs):
             if not isinstance(ref, Mapping):
                 findings.append(
@@ -548,6 +557,21 @@ def _check_fixture_expectations(
         scan_ref = binding.get("scan_ref")
         candidates_ref = binding.get("candidates_ref")
         runs_ref = binding.get("runs_ref")
+        for key, value in (
+            ("record_ref", record_ref),
+            ("scan_ref", scan_ref),
+            ("candidates_ref", candidates_ref),
+            ("runs_ref", runs_ref),
+        ):
+            if value is not None and not isinstance(value, str):
+                findings.append(
+                    _finding(
+                        path,
+                        f"benchmark.fixture-{key.replace('_', '-')}",
+                        f"fixture_binding.{key} must be a repository-relative string path",
+                        f"fixtures[{index}].fixture_binding.{key}",
+                    )
+                )
         if isinstance(record_ref, str):
             try:
                 record_path = resolve_repository_ref(root, record_ref)

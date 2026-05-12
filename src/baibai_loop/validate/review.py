@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
 import yaml
 from jsonschema import Draft202012Validator
 
+from .domain import repo_root_for, repository_ref_error, resolve_repository_ref
 from .errors import ValidationFinding
 
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "review.json"
@@ -170,6 +171,7 @@ def _validate_review_scan_file(path: Path) -> list[ValidationFinding]:
             )
         ]
     findings: list[ValidationFinding] = []
+    findings.extend(_check_scan_repository_refs(path, raw))
     if "screening-false-negative-scan" in path.parts:
         items = raw.get("items")
         if not isinstance(items, list):
@@ -196,6 +198,101 @@ def _validate_review_scan_file(path: Path) -> list[ValidationFinding]:
                 )
             ]
         findings.extend(_check_missed_opportunity_scan(path, items))
+    return findings
+
+
+def _check_scan_repository_refs(path: Path, scan: Mapping[str, Any]) -> list[ValidationFinding]:
+    specs = {
+        "market_data_ref": ("records/_market-data/", (".yaml", ".yml")),
+        "universe_ref": ("records/_universe-snapshots/", (".yaml", ".yml")),
+    }
+    root = repo_root_for(path)
+    findings: list[ValidationFinding] = []
+    for field, (prefix, suffixes) in specs.items():
+        value = scan.get(field)
+        if value is None:
+            continue
+        if not isinstance(value, Mapping):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review-scan.repository-ref",
+                    message=f"{field} must be a repository ref mapping",
+                    location=field,
+                )
+            )
+            continue
+        ref = value.get("ref_path")
+        error = repository_ref_error(ref, root=root)
+        if error is not None:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review-scan.repository-ref",
+                    message=error,
+                    location=f"{field}.ref_path",
+                )
+            )
+            continue
+        assert isinstance(ref, str)
+        ref_path = resolve_repository_ref(root, ref)
+        if not ref.startswith(prefix):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review-scan.repository-ref",
+                    message=f"{field}.ref_path must point under {prefix}",
+                    location=f"{field}.ref_path",
+                )
+            )
+        if ref_path.suffix not in suffixes:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review-scan.repository-ref",
+                    message=f"{field}.ref_path must use YAML",
+                    location=f"{field}.ref_path",
+                )
+            )
+            continue
+        if not ref_path.is_file():
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review-scan.repository-ref",
+                    message=f"referenced file does not exist: {ref}",
+                    location=f"{field}.ref_path",
+                )
+            )
+            continue
+        try:
+            loaded = yaml.safe_load(ref_path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as exc:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review-scan.repository-ref",
+                    message=f"referenced file cannot be parsed: {exc}",
+                    location=f"{field}.ref_path",
+                )
+            )
+            continue
+        if not isinstance(loaded, Mapping):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review-scan.repository-ref",
+                    message="referenced YAML must be a mapping",
+                    location=f"{field}.ref_path",
+                )
+            )
     return findings
 
 

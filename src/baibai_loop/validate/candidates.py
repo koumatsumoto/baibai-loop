@@ -31,6 +31,21 @@ _REMOVED_ROOT_FIELDS = frozenset(
         "row_" + "sha256",
     }
 )
+_REMOVED_REFERENCE_FIELDS = frozenset(
+    {
+        "playbook_snapshot",
+        "policy_snapshot",
+        "portfolio_exposure_snapshot_ref",
+        "calendars_snapshot",
+        "universe_snapshot_ref",
+        "input_snapshots",
+        "screening_rules_snapshot",
+        "metric_catalog_snapshot",
+        "cache_manifest_hash",
+        "snapshot_path",
+        "latest_snapshot",
+    }
+)
 
 
 def _load_validator() -> Draft202012Validator:
@@ -121,6 +136,16 @@ def _check_removed_hash_fields(path: Path, document: object) -> list[ValidationF
                         path,
                         "candidates.removed-hash-field",
                         f"{field} is no longer allowed in candidates output",
+                        f"{location}.{field}" if location else field,
+                    )
+                )
+        for field in sorted(_REMOVED_REFERENCE_FIELDS):
+            if field in node:
+                findings.append(
+                    _finding(
+                        path,
+                        "candidates.removed-reference-field",
+                        f"{field} has been replaced by repository reference fields",
                         f"{location}.{field}" if location else field,
                     )
                 )
@@ -243,6 +268,15 @@ def _check_universe_members(
     members = universe.get("members")
     members_recorded = universe.get("members_recorded")
     members_scope = universe.get("members_scope")
+    if members_scope not in {None, "full_universe", "candidates"}:
+        return [
+            _finding(
+                path,
+                "candidates.universe-ref",
+                "universe members_scope must be full_universe or candidates",
+                "universe_ref.ref_path.members_scope",
+            )
+        ]
     candidates = document.get("candidates")
     candidate_count = len(candidates) if isinstance(candidates, list) else 0
     expected_member_count = (
