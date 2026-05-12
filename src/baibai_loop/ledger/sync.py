@@ -179,12 +179,13 @@ def _candidate_screen_records(
                 continue
             candidate_id = candidate.get("candidate_id")
             candidate_id_value = str(candidate_id) if isinstance(candidate_id, str) else ""
-            key = (candidates_ref, candidate_id_value, ticker)
+            candidate_screen_run_id = str(candidate.get("screen_run_id") or screen_run_id)
+            key = (candidates_ref, candidate_id_value, ticker, candidate_screen_run_id)
             if key in covered:
                 continue
             candidate_ref: dict[str, object] = {
                 "candidates_ref": candidates_ref,
-                "screen_run_id": str(candidate.get("screen_run_id") or screen_run_id),
+                "screen_run_id": candidate_screen_run_id,
                 "ticker": ticker,
             }
             if candidate_id_value:
@@ -407,8 +408,8 @@ def _group_by_month(records: list[dict[str, Any]]) -> dict[str, list[dict[str, A
     return grouped
 
 
-def _covered_candidate_refs(records: list[dict[str, Any]]) -> set[tuple[str, str, str]]:
-    covered: set[tuple[str, str, str]] = set()
+def _covered_candidate_refs(records: list[dict[str, Any]]) -> set[tuple[str, str, str, str]]:
+    covered: set[tuple[str, str, str, str]] = set()
     for record in records:
         if record.get("decision_scope") not in {"candidate_screen", "research_memo"}:
             continue
@@ -420,11 +421,13 @@ def _covered_candidate_refs(records: list[dict[str, Any]]) -> set[tuple[str, str
         if not isinstance(candidates_ref, str) or not isinstance(ticker, str):
             continue
         candidate_id = candidate_ref.get("candidate_id")
+        screen_run_id = candidate_ref.get("screen_run_id")
         covered.add(
             (
                 candidates_ref,
                 str(candidate_id) if isinstance(candidate_id, str) else "",
                 ticker,
+                str(screen_run_id) if isinstance(screen_run_id, str) else "",
             )
         )
     return covered

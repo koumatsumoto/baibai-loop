@@ -211,7 +211,6 @@ def _make_research_text() -> str:
             },
             "market_cap_oku": 600,
             "sector_33": "情報・通信業",
-            "candidates_ref": "records/04-candidates/2026/04/2026-04-24.yaml",
             "outlook_ref": "records/03-outlook/2026/04/outlook-2026-04-24-bootstrap.yaml",
             "brief_refs": [],
             "ai_draft": True,

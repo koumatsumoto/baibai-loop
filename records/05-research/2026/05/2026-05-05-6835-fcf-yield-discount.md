@@ -33,7 +33,6 @@ research_decision:
     expires_at: '2026-06-30'
     blocking_conditions:
     - event risk must clear
-candidates_ref: records/04-candidates/2026/05/2026-05-01.yaml
 candidate_ref:
   candidates_ref: records/04-candidates/2026/05/2026-05-01.yaml
   screen_run_id: screening-20260501

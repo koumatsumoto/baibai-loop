@@ -52,6 +52,15 @@ class PortfolioExposureValidationTests(unittest.TestCase):
 
         self.assertIn("portfolio-exposure.remaining-budget", {finding.code for finding in findings})
 
+    def test_rejects_schema_required_field_omissions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "exposure.yaml"
+            path.write_text("outstanding_orders: []\n", encoding="utf-8")
+
+            findings = validate_portfolio_exposure_file(path)
+
+        self.assertIn("portfolio-exposure.required", {finding.code for finding in findings})
+
     def test_rejects_duplicate_order_intent_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "exposure.yaml"

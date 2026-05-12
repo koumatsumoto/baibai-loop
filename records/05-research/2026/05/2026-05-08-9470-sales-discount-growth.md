@@ -25,7 +25,6 @@ research_decision:
   outcome: approved
   posture: act_now
   reason_code: user_position_confirmed_after_screening_and_q1_growth_check
-candidates_ref: records/04-candidates/2026/05/2026-05-01.yaml
 candidate_ref:
   candidates_ref: records/04-candidates/2026/05/2026-05-01.yaml
   screen_run_id: screening-20260501

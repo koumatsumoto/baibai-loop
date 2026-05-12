@@ -249,6 +249,34 @@ def test_sync_ledger_adds_not_reviewed_candidate_screen_events(tmp_path: Path) -
     }
 
 
+def test_sync_ledger_coverage_key_includes_screen_run_id(tmp_path: Path) -> None:
+    _seed(tmp_path)
+    research = tmp_path / "records/05-research/2026/04/2026-04-25-2767-valuation-reversion.md"
+    text = research.read_text(encoding="utf-8")
+    research.write_text(
+        text.replace("screen_run_id: screening-20260424", "screen_run_id: screening-other"),
+        encoding="utf-8",
+    )
+    candidates = tmp_path / "records/04-candidates/2026/04/2026-04-24.yaml"
+    document = yaml.safe_load(candidates.read_text(encoding="utf-8"))
+    document["run_id"] = "screening-20260424"
+    document["run_at"] = "2026-04-24T23:59:59+09:00"
+    document["requires_decision_coverage"] = True
+    row = document["candidates"][0]
+    row["playbook_screen_result"] = "hit"
+    row["policy_gate_result"] = "pass"
+    row["liquidity_gate_result"] = "pass"
+    row["macro_regime_gate_result"] = "pass"
+    candidates.write_text(yaml.safe_dump(document, allow_unicode=True, sort_keys=False))
+
+    result = sync_ledger(tmp_path)
+
+    assert result.decision_count == 2
+    register_path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
+    rows = [json.loads(line) for line in register_path.read_text(encoding="utf-8").splitlines()]
+    assert {row["decision_scope"] for row in rows} == {"research_memo", "candidate_screen"}
+
+
 def test_sync_ledger_adds_false_negative_scan_anchor_events(tmp_path: Path) -> None:
     scan_dir = tmp_path / "records/07-reviews/screening-false-negative-scan"
     scan_dir.mkdir(parents=True)

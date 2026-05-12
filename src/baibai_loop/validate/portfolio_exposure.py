@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import yaml
+from jsonschema import Draft202012Validator
 
 from .domain import (
     load_markdown_front_matter,
@@ -18,6 +19,9 @@ from .domain import (
 )
 from .errors import ValidationFinding
 
+SCHEMA_PATH = (
+    Path(__file__).resolve().parents[3] / "records" / "_schemas" / "portfolio-exposure.json"
+)
 _REMOVED_HASH_FIELDS = frozenset({"content_" + "sha256", "row_" + "sha256"})
 _REMOVED_REFERENCE_FIELDS = frozenset(
     {
@@ -34,6 +38,17 @@ _REMOVED_REFERENCE_FIELDS = frozenset(
         "latest_snapshot",
     }
 )
+
+
+def _load_validator() -> Draft202012Validator:
+    raw = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise RuntimeError(f"unexpected schema root: {SCHEMA_PATH}")
+    Draft202012Validator.check_schema(raw)
+    return Draft202012Validator(raw)
+
+
+_VALIDATOR = _load_validator()
 
 
 def discover_portfolio_exposure_files(root: Path) -> list[Path]:
@@ -66,12 +81,28 @@ def validate_portfolio_exposure_file(path: Path) -> list[ValidationFinding]:
             )
         ]
     findings: list[ValidationFinding] = []
+    findings.extend(_validate_schema(path, raw))
     findings.extend(_check_removed_hash_fields_recursive(path, raw))
     findings.extend(_check_outstanding_orders(path, raw))
     findings.extend(_check_remaining_budget(path, raw))
     findings.extend(_check_rebuild_from_sources(path, raw))
     findings.extend(_check_decision_register_sources(path, raw))
     findings.extend(_check_cap_remaining_fields(path, raw))
+    return findings
+
+
+def _validate_schema(path: Path, snapshot: Mapping[str, object]) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    for error in _VALIDATOR.iter_errors(snapshot):
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code=f"portfolio-exposure.{error.validator or 'invalid'}",
+                message=str(error.message),
+                location=_format_path(error.absolute_path),
+            )
+        )
     return findings
 
 
@@ -764,6 +795,15 @@ def _finding(path: Path, code: str, message: str, location: str) -> ValidationFi
         message=message,
         location=location,
     )
+
+
+def _format_path(parts: Iterable[object]) -> str:
+    rendered: list[str] = []
+    for part in parts:
+        rendered.append(
+            f"[{part}]" if isinstance(part, int) else f".{part}" if rendered else str(part)
+        )
+    return "".join(rendered)
 
 
 def _check_removed_hash_fields(

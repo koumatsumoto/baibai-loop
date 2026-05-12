@@ -260,6 +260,96 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
 
         self.assertIn("benchmark.expected-decision-anchor", {finding.code for finding in findings})
 
+    def test_rejects_scan_decision_event_without_ledger_join(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            scan = root / "records/07-reviews/screening-false-negative-scan/2026-05.yaml"
+            scan.parent.mkdir(parents=True)
+            scan.write_text(
+                "start_price_basis: candidate_run_close_adjusted_close\n"
+                "items:\n"
+                "- scan_item_id: stale-anchor\n"
+                "  ticker: '9999'\n"
+                "  decision_event_id: decision-missing\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    scan_ref="records/07-reviews/screening-false-negative-scan/2026-05.yaml",
+                    expected={
+                        "scan_item_id": "stale-anchor",
+                        "joins_to_decision_event": True,
+                    },
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.expected-decision-join", {finding.code for finding in findings})
+
+    def test_rejects_non_mapping_scan_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            scan = root / "records/07-reviews/screening-false-negative-scan/2026-05.yaml"
+            scan.parent.mkdir(parents=True)
+            scan.write_text("- not-a-mapping\n", encoding="utf-8")
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    scan_ref="records/07-reviews/screening-false-negative-scan/2026-05.yaml",
+                    expected={},
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.fixture-scan-parse", {finding.code for finding in findings})
+
+    def test_rejects_non_mapping_candidates_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            candidates = root / "records/04-candidates/2026/05/2026-05-01.yaml"
+            candidates.parent.mkdir(parents=True)
+            candidates.write_text("- not-a-mapping\n", encoding="utf-8")
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    candidates_ref="records/04-candidates/2026/05/2026-05-01.yaml",
+                    expected={},
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.fixture-candidates-parse", {finding.code for finding in findings})
+
+    def test_rejects_non_mapping_runs_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            runs = root / "records/_benchmarks/domain-model/e2e/runs.yaml"
+            runs.parent.mkdir(parents=True)
+            runs.write_text("- not-a-mapping\n", encoding="utf-8")
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    runs_ref="records/_benchmarks/domain-model/e2e/runs.yaml",
+                    expected={},
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.fixture-runs-parse", {finding.code for finding in findings})
+
     def test_rejects_e2e_selected_ticker_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

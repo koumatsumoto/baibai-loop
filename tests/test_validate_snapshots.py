@@ -114,6 +114,42 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
 
         self.assertIn("reference.ref-not-found", {finding.code for finding in findings})
 
+    def test_rejects_non_mapping_known_reference_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            research = root / "records/05-research/2026/05/research.md"
+            research.parent.mkdir(parents=True)
+            research.write_text("---\npolicy_ref: /tmp/policy.md\n---\n", encoding="utf-8")
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.ref-shape", {finding.code for finding in findings})
+
+    def test_rejects_non_mapping_nested_calendar_reference_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            research = root / "records/05-research/2026/05/research.md"
+            research.parent.mkdir(parents=True)
+            research.write_text(
+                "---\ncalendar_refs:\n  business_days: []\n---\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.ref-shape", {finding.code for finding in findings})
+
+    def test_rejects_non_mapping_list_reference_item(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            exposure = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
+            exposure.parent.mkdir(parents=True)
+            exposure.write_text("source_trade_refs:\n- records/06-trades/x.md\n", encoding="utf-8")
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.ref-shape", {finding.code for finding in findings})
+
     def test_accepts_valid_repository_reference(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

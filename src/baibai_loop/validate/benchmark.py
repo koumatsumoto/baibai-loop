@@ -670,8 +670,17 @@ def _check_fixture_expectations(
                     )
                 )
                 continue
-            if isinstance(scan, Mapping):
-                findings.extend(_check_scan_expected(path, index, scan, expected))
+            if not isinstance(scan, Mapping):
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-scan-parse",
+                        "fixture scan YAML root must be a mapping",
+                        f"fixtures[{index}].fixture_binding.scan_ref",
+                    )
+                )
+                continue
+            findings.extend(_check_scan_expected(path, index, scan, expected))
         if isinstance(candidates_ref, str):
             try:
                 candidates_path = resolve_repository_ref(root, candidates_ref)
@@ -723,8 +732,17 @@ def _check_fixture_expectations(
                     )
                 )
                 continue
-            if isinstance(candidates, Mapping):
-                findings.extend(_check_candidates_expected(path, index, candidates, expected))
+            if not isinstance(candidates, Mapping):
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-candidates-parse",
+                        "fixture candidates YAML root must be a mapping",
+                        f"fixtures[{index}].fixture_binding.candidates_ref",
+                    )
+                )
+                continue
+            findings.extend(_check_candidates_expected(path, index, candidates, expected))
         if isinstance(runs_ref, str):
             try:
                 runs_path = resolve_repository_ref(root, runs_ref)
@@ -773,8 +791,17 @@ def _check_fixture_expectations(
                     )
                 )
                 continue
-            if isinstance(runs, Mapping):
-                findings.extend(_check_runs_expected(path, index, runs, expected))
+            if not isinstance(runs, Mapping):
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-runs-parse",
+                        "fixture runs YAML root must be a mapping",
+                        f"fixtures[{index}].fixture_binding.runs_ref",
+                    )
+                )
+                continue
+            findings.extend(_check_runs_expected(path, index, runs, expected))
     return findings
 
 
@@ -922,14 +949,31 @@ def _check_scan_expected(
             )
     if expected.get("joins_to_decision_event") is True:
         target_items = [scan_item] if isinstance(scan_item, Mapping) else as_list(scan.get("items"))
-        if not any(
-            isinstance(item, Mapping) and item.get("decision_event_id") for item in target_items
-        ):
+        decision_event_ids = [
+            str(item["decision_event_id"])
+            for item in target_items
+            if isinstance(item, Mapping)
+            and isinstance(item.get("decision_event_id"), str)
+            and item.get("decision_event_id")
+        ]
+        if not decision_event_ids:
             findings.append(
                 _finding(
                     path,
                     "benchmark.expected-decision-anchor",
                     "scan fixture item must contain decision_event_id",
+                    f"fixtures[{index}].expected.joins_to_decision_event",
+                )
+            )
+        elif not any(
+            decision_id in _decision_event_ids(_repo_root(path))
+            for decision_id in decision_event_ids
+        ):
+            findings.append(
+                _finding(
+                    path,
+                    "benchmark.expected-decision-join",
+                    "scan fixture decision_event_id must join to the decision register",
                     f"fixtures[{index}].expected.joins_to_decision_event",
                 )
             )
@@ -976,6 +1020,25 @@ def _check_scan_expected(
 
 def as_list(value: object) -> list[object]:
     return value if isinstance(value, list) else []
+
+
+def _decision_event_ids(root: Path) -> set[str]:
+    ids: set[str] = set()
+    for path in sorted((root / "records/_ledger/research-decisions").glob("*.jsonl")):
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, Mapping) and isinstance(row.get("decision_event_id"), str):
+                ids.add(row["decision_event_id"])
+    return ids
 
 
 def _scan_item(scan: Mapping[str, object], scan_item_id: object) -> Mapping[str, object] | None:

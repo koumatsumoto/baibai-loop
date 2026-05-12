@@ -50,6 +50,7 @@ _REMOVED_FRONT_MATTER_FIELDS: tuple[str, ...] = (
     "_".join(("policy", "snapshot")),
     "_".join(("portfolio", "exposure", "snapshot", "ref")),
     "_".join(("calendars", "snapshot")),
+    "candidates_ref",
 )
 _REMOVED_HASH_FIELDS = {"content_" + "sha256", "row_" + "sha256"}
 _REMOVED_REFERENCE_FIELDS = {
@@ -1278,21 +1279,18 @@ def _load_candidate_hits(
     if not isinstance(loaded, Mapping):
         return None
     hits_by_id: dict[str, Mapping[str, Any]] = {}
-    candidates = loaded.get("candidates")
-    if not isinstance(candidates, list):
+    candidate = _candidate_row_for_front(front_matter, loaded)
+    if candidate is None:
         return hits_by_id
-    for candidate in candidates:
-        if not isinstance(candidate, Mapping):
+    hits = candidate.get("evidence_hits")
+    if not isinstance(hits, list):
+        return hits_by_id
+    for hit in hits:
+        if not isinstance(hit, Mapping):
             continue
-        hits = candidate.get("evidence_hits")
-        if not isinstance(hits, list):
-            continue
-        for hit in hits:
-            if not isinstance(hit, Mapping):
-                continue
-            hit_id = hit.get("evidence_hit_id")
-            if isinstance(hit_id, str) and hit_id:
-                hits_by_id[hit_id] = hit
+        hit_id = hit.get("evidence_hit_id")
+        if isinstance(hit_id, str) and hit_id:
+            hits_by_id[hit_id] = hit
     return hits_by_id
 
 

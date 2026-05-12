@@ -81,6 +81,7 @@ _REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
         _ReferenceSpec(("records/_ledger/",), (".jsonl",)),
     ),
 )
+_LIST_REFERENCE_FIELDS = frozenset({"source_trade_refs", "source_decision_register_refs"})
 
 
 def validate_reference_integrity(root: Path) -> list[ValidationFinding]:
@@ -133,6 +134,7 @@ def _check_nested_refs(
     for location, node in _walk_mappings(value, prefix=prefix):
         findings.extend(_check_removed_hash_fields(target, node, location=location))
         findings.extend(_check_removed_reference_fields(target, node, location=location))
+        findings.extend(_check_reference_field_shapes(target, node, location=location))
         findings.extend(_check_repository_ref(root, target, node, location=location))
     return findings
 
@@ -224,6 +226,66 @@ def _check_repository_ref(
                 )
             ]
     return []
+
+
+def _check_reference_field_shapes(
+    target: Path,
+    node: Mapping[str, object],
+    *,
+    location: str,
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    for field, value in node.items():
+        if field == "ref_path":
+            continue
+        child_location = f"{location}.{field}" if location else str(field)
+        if field in _LIST_REFERENCE_FIELDS:
+            if not isinstance(value, list):
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=target,
+                        code="reference.ref-shape",
+                        message=f"{field} must be a list of repository ref mappings",
+                        location=child_location,
+                    )
+                )
+                continue
+            for index, item in enumerate(value):
+                if not isinstance(item, Mapping):
+                    findings.append(
+                        ValidationFinding(
+                            severity="error",
+                            target=target,
+                            code="reference.ref-shape",
+                            message=f"{field} entries must be repository ref mappings",
+                            location=f"{child_location}[{index}]",
+                        )
+                    )
+            continue
+        if field == "source_refs":
+            continue
+        if _is_reference_container_location(child_location) and not isinstance(value, Mapping):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=target,
+                    code="reference.ref-shape",
+                    message=f"{field} must be a repository ref mapping",
+                    location=child_location,
+                )
+            )
+    return findings
+
+
+def _is_reference_container_location(location: str) -> bool:
+    normalized = location.replace("[", ".").replace("]", "")
+    for marker, _spec in _REFERENCE_SPECS:
+        if marker == "source_refs":
+            continue
+        if normalized == marker or normalized.endswith(f".{marker}"):
+            return True
+    return False
 
 
 def _check_reference_spec(

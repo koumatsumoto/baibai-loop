@@ -224,6 +224,12 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.removed-field", codes)
 
+    def test_top_level_candidates_ref_is_flagged_as_removed(self) -> None:
+        front = _minimal_research_front_matter()
+        front["candidates_ref"] = "records/04-candidates/2026/05/2026-05-01.yaml"
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.removed-field", codes)
+
     def test_missing_policy_applicability_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
         del front["policy_applicability"]
@@ -784,6 +790,61 @@ class ResearchValidationTests(unittest.TestCase):
             front = _minimal_research_front_matter()
             front["selected_supporting_evidence_refs"] = [
                 {"source": "candidate", "evidence_hit_id": "missing-evidence"}
+            ]
+            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
+            research_path.parent.mkdir(parents=True)
+            research_path.write_text(
+                "---\n"
+                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
+                + "---\n"
+                + _DEFAULT_BODY,
+                encoding="utf-8",
+            )
+
+            codes = {
+                finding.code
+                for finding in validate_research_file(
+                    research_path, playbooks_root=ROOT / "records/_playbooks"
+                )
+            }
+
+        self.assertIn("research.selected-evidence-missing", codes)
+
+    def test_repository_research_selected_evidence_must_belong_to_candidate_row(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "src").mkdir()
+            _write_candidate_fixture(root)
+            candidates_path = root / "records/04-candidates/2026/05/2026-05-01.yaml"
+            document = yaml.safe_load(candidates_path.read_text(encoding="utf-8"))
+            document["candidates"].append(
+                {
+                    "ticker": "9999",
+                    "candidate_id": "candidate-2026-05-01-9999",
+                    "screen_run_id": "screening-20260501",
+                    "evidence_hits": [
+                        {
+                            "evidence_hit_id": "foreign-evidence",
+                            "independence_component_id": "foreign-component",
+                        }
+                    ],
+                }
+            )
+            candidates_path.write_text(
+                yaml.safe_dump(document, allow_unicode=True, sort_keys=False),
+                encoding="utf-8",
+            )
+            front = _minimal_research_front_matter()
+            front["selected_supporting_evidence_refs"] = [
+                {"source": "candidate", "evidence_hit_id": "foreign-evidence"}
+            ]
+            front["candidate_evidence_decisions"] = [
+                {
+                    "evidence_hit_id": "foreign-evidence",
+                    "effective_sizing_eligible": True,
+                    "evaluated_at": "2026-05-05T20:00:00+09:00",
+                    "reason_code": "source_status_ok",
+                }
             ]
             research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
             research_path.parent.mkdir(parents=True)
