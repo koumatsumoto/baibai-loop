@@ -26,6 +26,7 @@ from .portfolio_exposure import (
     discover_portfolio_exposure_files,
     validate_portfolio_exposure_file,
 )
+from .references import discover_reference_files, validate_reference_integrity
 from .research import (
     discover_research_files,
     load_research_document,
@@ -34,7 +35,6 @@ from .research import (
     validate_research_parsed,
 )
 from .review import discover_review_files, validate_review_file
-from .snapshots import discover_snapshot_validation_files, validate_snapshot_integrity
 from .trade import discover_trade_files, validate_trade_file
 
 type ValidationTarget = Literal[
@@ -48,7 +48,7 @@ type ValidationTarget = Literal[
     "ledger",
     "review",
     "portfolio-exposure",
-    "snapshots",
+    "references",
     "calendar",
 ]
 _TARGETS: tuple[ValidationTarget, ...] = (
@@ -62,7 +62,7 @@ _TARGETS: tuple[ValidationTarget, ...] = (
     "ledger",
     "review",
     "portfolio-exposure",
-    "snapshots",
+    "references",
     "calendar",
 )
 
@@ -143,7 +143,7 @@ def run_validation(
         files = _discover(root, target)
         file_count += len(files)
         for path in files:
-            if target == "snapshots":
+            if target == "references":
                 continue
             if target == "research":
                 doc = research_documents[path]
@@ -162,8 +162,8 @@ def run_validation(
                     )
             else:
                 findings.extend(_validate(root, target, path, known_playbooks))
-        if target == "snapshots":
-            findings.extend(validate_snapshot_integrity(root))
+        if target == "references":
+            findings.extend(validate_reference_integrity(root))
     if research_documents:
         front_matters = [
             (path, doc[0]) for path, doc in research_documents.items() if not isinstance(doc, list)
@@ -210,8 +210,8 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
             return discover_review_files(root / REVIEWS_ROOT)
         case "portfolio-exposure":
             return discover_portfolio_exposure_files(root / PORTFOLIO_EXPOSURE_ROOT)
-        case "snapshots":
-            return discover_snapshot_validation_files(root)
+        case "references":
+            return discover_reference_files(root)
         case "calendar":
             return discover_calendar_files(root / CALENDAR_ROOT)
         case _ as unhandled:  # pragma: no cover
@@ -249,7 +249,7 @@ def _validate(
             return validate_review_file(path)
         case "portfolio-exposure":
             return validate_portfolio_exposure_file(path)
-        case "snapshots":
+        case "references":
             return []
         case "calendar":
             return validate_calendar_file(path)
