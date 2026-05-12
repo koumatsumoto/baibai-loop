@@ -125,6 +125,44 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
 
         self.assertIn("reference.ref-shape", {finding.code for finding in findings})
 
+    def test_rejects_known_reference_mapping_without_ref_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            research = root / "records/05-research/2026/05/research.md"
+            research.parent.mkdir(parents=True)
+            research.write_text(
+                "---\npolicy_ref:\n  effective_from: '2026-05-01'\n---\n", encoding="utf-8"
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.ref-shape", {finding.code for finding in findings})
+
+    def test_rejects_non_mapping_calendar_refs_container(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            research = root / "records/05-research/2026/05/research.md"
+            research.parent.mkdir(parents=True)
+            research.write_text("---\ncalendar_refs: []\n---\n", encoding="utf-8")
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.ref-shape", {finding.code for finding in findings})
+
+    def test_rejects_list_reference_item_without_ref_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            exposure = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
+            exposure.parent.mkdir(parents=True)
+            exposure.write_text(
+                "source_decision_register_refs:\n- decision_event_id: decision-1\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.ref-shape", {finding.code for finding in findings})
+
     def test_rejects_non_mapping_nested_calendar_reference_field(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -149,6 +187,40 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
             findings = validate_snapshot_integrity(root)
 
         self.assertIn("reference.ref-shape", {finding.code for finding in findings})
+
+    def test_rejects_list_reference_item_wrong_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            wrong = root / "records/05-research/2026/05/research.md"
+            wrong.parent.mkdir(parents=True)
+            wrong.write_text("---\nticker: '1111'\n---\n", encoding="utf-8")
+            exposure = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
+            exposure.parent.mkdir(parents=True)
+            exposure.write_text(
+                "source_trade_refs:\n- ref_path: records/05-research/2026/05/research.md\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.ref-prefix", {finding.code for finding in findings})
+
+    def test_rejects_repository_reference_to_non_mapping_yaml(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            universe = root / "records/_universe-snapshots/2026/05/universe.yaml"
+            universe.parent.mkdir(parents=True)
+            universe.write_text("- not-a-mapping\n", encoding="utf-8")
+            candidates = root / "records/04-candidates/2026/05/2026-05-01.yaml"
+            candidates.parent.mkdir(parents=True)
+            candidates.write_text(
+                "universe_ref:\n  ref_path: records/_universe-snapshots/2026/05/universe.yaml\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.ref-parse", {finding.code for finding in findings})
 
     def test_rejects_absolute_scalar_repository_reference(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -176,6 +248,76 @@ class SnapshotIntegrityValidationTests(unittest.TestCase):
             findings = validate_snapshot_integrity(root)
 
         self.assertEqual(findings, [])
+
+    def test_rejects_scalar_candidates_ref_to_non_mapping_yaml(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            candidates = root / "records/_benchmarks/domain-model/e2e/candidates.yaml"
+            candidates.parent.mkdir(parents=True)
+            candidates.write_text("- not-a-mapping\n", encoding="utf-8")
+            selection = root / "records/_benchmarks/domain-model/e2e/selection.yaml"
+            selection.write_text(
+                "candidates_ref: records/_benchmarks/domain-model/e2e/candidates.yaml\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.ref-parse", {finding.code for finding in findings})
+
+    def test_rejects_scalar_candidates_ref_to_wrong_mapping_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            runs = root / "records/_benchmarks/domain-model/e2e/runs.yaml"
+            runs.parent.mkdir(parents=True)
+            runs.write_text("runs: []\n", encoding="utf-8")
+            selection = root / "records/_benchmarks/domain-model/e2e/selection.yaml"
+            selection.write_text(
+                "candidates_ref: records/_benchmarks/domain-model/e2e/runs.yaml\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.ref-parse", {finding.code for finding in findings})
+
+    def test_rejects_scalar_outlook_ref_to_non_mapping_yaml(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            outlook = root / "records/03-outlook/2026/05/outlook.yaml"
+            outlook.parent.mkdir(parents=True)
+            outlook.write_text("- not-a-mapping\n", encoding="utf-8")
+            selection = root / "records/_benchmarks/domain-model/e2e/selection.yaml"
+            selection.parent.mkdir(parents=True)
+            selection.write_text(
+                "outlook_ref: records/03-outlook/2026/05/outlook.yaml\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.ref-parse", {finding.code for finding in findings})
+
+    def test_rejects_standalone_universe_duplicate_ticker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            universe = root / "records/_universe-snapshots/2026/05/universe.yaml"
+            universe.parent.mkdir(parents=True)
+            universe.write_text(
+                "snapshot_id: universe-20260501\n"
+                "as_of: '2026-05-01'\n"
+                "universe_size: 2\n"
+                "members_scope: full_universe\n"
+                "members_recorded: 2\n"
+                "members:\n"
+                "- ticker: '130A'\n"
+                "- ticker: '130A'\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_snapshot_integrity(root)
+
+        self.assertIn("reference.universe-members", {finding.code for finding in findings})
 
     def test_accepts_valid_repository_reference(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

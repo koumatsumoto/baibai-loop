@@ -49,6 +49,7 @@ class _ReferenceSpec:
     prefixes: tuple[str, ...]
     suffixes: tuple[str, ...]
     require_front_matter: bool = False
+    required_mapping_keys: tuple[str, ...] = ()
 
 
 _REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
@@ -83,15 +84,24 @@ _REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
     ),
 )
 _LIST_REFERENCE_FIELDS = frozenset({"source_trade_refs", "source_decision_register_refs"})
+_MAPPING_REFERENCE_PARENTS = frozenset({"calendar_refs"})
 _SCALAR_REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
     (
         "candidates_ref",
         _ReferenceSpec(
             ("records/04-candidates/", "records/_benchmarks/"),
             (".yaml", ".yml"),
+            required_mapping_keys=("candidates",),
         ),
     ),
-    ("outlook_ref", _ReferenceSpec(("records/03-outlook/",), (".yaml", ".yml"))),
+    (
+        "outlook_ref",
+        _ReferenceSpec(
+            ("records/03-outlook/",),
+            (".yaml", ".yml"),
+            required_mapping_keys=("schema_version", "sectors", "macro_regime"),
+        ),
+    ),
 )
 
 
@@ -112,6 +122,7 @@ def validate_reference_integrity(root: Path) -> list[ValidationFinding]:
         if isinstance(parsed, ValidationFinding):
             findings.append(parsed)
             continue
+        findings.extend(_check_standalone_universe_file(root, path, parsed))
         findings.extend(_check_nested_refs(root, path, parsed, prefix=None))
     return findings
 
@@ -200,6 +211,16 @@ def _check_repository_ref(
 ) -> list[ValidationFinding]:
     ref = node.get("ref_path")
     if ref is None:
+        if _spec_for_location(location) is not None:
+            return [
+                ValidationFinding(
+                    severity="error",
+                    target=target,
+                    code="reference.ref-shape",
+                    message="repository ref mapping must include ref_path",
+                    location=f"{location}.ref_path",
+                )
+            ]
         return []
     error = repository_ref_error(ref, root=root)
     if error is not None:
@@ -239,6 +260,16 @@ def _check_repository_ref(
                     location=f"{location}.ref_path",
                 )
             ]
+        if not isinstance(parsed, Mapping):
+            return [
+                ValidationFinding(
+                    severity="error",
+                    target=target,
+                    code="reference.ref-parse",
+                    message=f"referenced file root must be a mapping: {ref}",
+                    location=f"{location}.ref_path",
+                )
+            ]
     return []
 
 
@@ -253,6 +284,18 @@ def _check_reference_field_shapes(
         if field == "ref_path":
             continue
         child_location = f"{location}.{field}" if location else str(field)
+        if field in _MAPPING_REFERENCE_PARENTS:
+            if not isinstance(value, Mapping):
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=target,
+                        code="reference.ref-shape",
+                        message=f"{field} must be a repository ref mapping container",
+                        location=child_location,
+                    )
+                )
+            continue
         if field in _LIST_REFERENCE_FIELDS:
             if not isinstance(value, list):
                 findings.append(
@@ -274,6 +317,17 @@ def _check_reference_field_shapes(
                             code="reference.ref-shape",
                             message=f"{field} entries must be repository ref mappings",
                             location=f"{child_location}[{index}]",
+                        )
+                    )
+                    continue
+                if "ref_path" not in item:
+                    findings.append(
+                        ValidationFinding(
+                            severity="error",
+                            target=target,
+                            code="reference.ref-shape",
+                            message=f"{field} entries must include ref_path",
+                            location=f"{child_location}[{index}].ref_path",
                         )
                     )
             continue
@@ -382,6 +436,46 @@ def _check_scalar_repository_ref(
                 location=location,
             )
         ]
+    shape_findings = _check_referenced_payload_shape(
+        target,
+        parsed,
+        ref,
+        location,
+        spec,
+    )
+    if shape_findings:
+        return shape_findings
+    return []
+
+
+def _check_referenced_payload_shape(
+    target: Path,
+    payload: object,
+    ref: str,
+    location: str,
+    spec: _ReferenceSpec,
+) -> list[ValidationFinding]:
+    if not isinstance(payload, Mapping):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-parse",
+                message=f"referenced file root must be a mapping: {ref}",
+                location=location,
+            )
+        ]
+    missing = [key for key in spec.required_mapping_keys if key not in payload]
+    if missing:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-parse",
+                message=f"referenced file is missing required root keys: {', '.join(missing)}",
+                location=location,
+            )
+        ]
     return []
 
 
@@ -459,9 +553,113 @@ def _check_reference_spec(
 def _spec_for_location(location: str) -> _ReferenceSpec | None:
     normalized = location.replace("[", ".").replace("]", "")
     for marker, spec in _REFERENCE_SPECS:
-        if marker in normalized:
+        if (
+            normalized == marker
+            or normalized.endswith(f".{marker}")
+            or normalized.startswith(f"{marker}.")
+            or f".{marker}." in normalized
+        ):
             return spec
     return None
+
+
+def _check_standalone_universe_file(
+    root: Path, path: Path, payload: object
+) -> list[ValidationFinding]:
+    try:
+        relative = path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        relative = path.as_posix()
+    if not relative.startswith("records/_universe-snapshots/"):
+        return []
+    if not isinstance(payload, Mapping):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="reference.universe-shape",
+                message="universe snapshot must be a YAML mapping",
+            )
+        ]
+    members = payload.get("members")
+    members_recorded = payload.get("members_recorded")
+    universe_size = payload.get("universe_size")
+    members_scope = payload.get("members_scope")
+    if not isinstance(universe_size, int) or universe_size < 0:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="reference.universe-shape",
+                message="universe_size must be a non-negative integer",
+                location="universe_size",
+            )
+        ]
+    if members_scope not in {None, "full_universe", "candidates", "not_recorded"}:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="reference.universe-shape",
+                message="members_scope must be full_universe, candidates, or not_recorded",
+                location="members_scope",
+            )
+        ]
+    if not isinstance(members, list) or members_recorded != len(members):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="reference.universe-members",
+                message="members_recorded must equal members length",
+                location="members_recorded",
+            )
+        ]
+    if members_scope in {None, "full_universe"} and len(members) != universe_size:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="reference.universe-members",
+                message="full_universe members length must equal universe_size",
+                location="members",
+            )
+        ]
+    if members_scope == "not_recorded" and members:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="reference.universe-members",
+                message="not_recorded universe snapshots must not include members",
+                location="members",
+            )
+        ]
+    seen_tickers: set[str] = set()
+    for index, member in enumerate(members):
+        if not isinstance(member, Mapping) or not isinstance(member.get("ticker"), str):
+            return [
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="reference.universe-members",
+                    message="universe members must be mappings with ticker",
+                    location=f"members[{index}]",
+                )
+            ]
+        ticker = member["ticker"]
+        if ticker in seen_tickers:
+            return [
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="reference.universe-members",
+                    message=f"universe member ticker must be unique: {ticker}",
+                    location=f"members[{index}].ticker",
+                )
+            ]
+        seen_tickers.add(ticker)
+    return []
 
 
 @cache

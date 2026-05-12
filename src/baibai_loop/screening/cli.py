@@ -863,8 +863,10 @@ def select_command(
     )
     summary = {
         "asof": asof_date.isoformat(),
-        "candidates_ref": _repository_relative_ref(candidates_path),
-        "outlook_ref": _repository_relative_ref(resolved_outlook_path),
+        "candidates_ref": _repository_relative_ref(candidates_path, anchor=resolved_outlook_path),
+        "outlook_ref": _repository_relative_ref(
+            resolved_outlook_path, anchor=resolved_outlook_path
+        ),
         "input_count": len(candidates_fm.candidates),
         "after_outlook_filter": len(ranked_candidates),
         "selection_mode": rules.output.selection_mode,
@@ -880,11 +882,20 @@ def select_command(
     return 0
 
 
-def _repository_relative_ref(path: Path) -> str:
-    parts = path.resolve().parts
-    if "records" in parts:
-        return Path(*parts[parts.index("records") :]).as_posix()
-    return str(path)
+def _repository_relative_ref(path: Path, *, anchor: Path) -> str:
+    repo_root = _repository_root_from_records_anchor(anchor)
+    try:
+        return path.resolve().relative_to(repo_root.resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def _repository_root_from_records_anchor(path: Path) -> Path:
+    resolved = path.resolve()
+    for parent in (resolved, *resolved.parents):
+        if parent.name == "records":
+            return parent.parent
+    return Path.cwd()
 
 
 def _rules_path_from_env() -> Path:

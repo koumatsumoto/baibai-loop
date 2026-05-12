@@ -278,7 +278,15 @@ def _check_decision_register_sources(
                 )
             )
             continue
-        row = _find_decision_register_row(ledger_path, decision_event_id)
+        row, row_findings = _find_decision_register_row(
+            path,
+            ledger_path,
+            decision_event_id,
+            f"source_decision_register_refs[{index}].ref_path",
+        )
+        findings.extend(row_findings)
+        if row_findings:
+            continue
         if row is None:
             findings.append(
                 _finding(
@@ -386,21 +394,56 @@ def _validate_decision_register_ref_shapes(
 
 
 def _find_decision_register_row(
-    ledger_path: Path, decision_event_id: str
-) -> Mapping[str, object] | None:
-    for raw_line in ledger_path.read_text(encoding="utf-8").splitlines():
+    path: Path,
+    ledger_path: Path,
+    decision_event_id: str,
+    location: str,
+) -> tuple[Mapping[str, object] | None, list[ValidationFinding]]:
+    findings: list[ValidationFinding] = []
+    try:
+        lines = ledger_path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        return None, [
+            _finding(
+                path,
+                "portfolio-exposure.source-decision-register-parse",
+                f"failed to read source decision register: {exc}",
+                location,
+            )
+        ]
+    matched: Mapping[str, object] | None = None
+    for line_no, raw_line in enumerate(lines, start=1):
         if not raw_line.strip():
             continue
         try:
             payload = json.loads(raw_line)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            findings.append(
+                _finding(
+                    path,
+                    "portfolio-exposure.source-decision-register-parse",
+                    f"source decision register JSONL parse failed at line {line_no}: {exc}",
+                    location,
+                )
+            )
             continue
         if not isinstance(payload, Mapping):
+            findings.append(
+                _finding(
+                    path,
+                    "portfolio-exposure.source-decision-register-parse",
+                    f"source decision register line {line_no} must be an object",
+                    location,
+                )
+            )
             continue
-        if payload.get("decision_event_id") != decision_event_id:
-            continue
-        return payload
-    return None
+        if payload.get("decision_event_id") == decision_event_id:
+            matched = payload
+    if findings:
+        return None, findings
+    if matched is not None:
+        return matched, []
+    return None, []
 
 
 def _check_remaining_budget(path: Path, snapshot: Mapping[str, object]) -> list[ValidationFinding]:

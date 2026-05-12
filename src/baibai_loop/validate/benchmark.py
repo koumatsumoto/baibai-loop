@@ -318,7 +318,9 @@ def _check_repo_ref(
         if ref_path.suffix == ".md":
             load_markdown_front_matter(ref_path)
         else:
-            yaml.safe_load(ref_path.read_text(encoding="utf-8"))
+            payload = yaml.safe_load(ref_path.read_text(encoding="utf-8"))
+            if not isinstance(payload, Mapping):
+                raise ValueError("repository ref YAML root must be a mapping")
     except (OSError, ValueError, yaml.YAMLError) as exc:
         return [_finding(path, code, f"repository ref cannot be parsed: {exc}", location)]
     return []
@@ -965,9 +967,16 @@ def _check_scan_expected(
                     f"fixtures[{index}].expected.joins_to_decision_event",
                 )
             )
-        elif not any(
-            decision_id in _decision_event_ids(_repo_root(path))
-            for decision_id in decision_event_ids
+        event_ids, ledger_findings = _decision_event_ids(
+            _repo_root(path),
+            path,
+            f"fixtures[{index}].expected.joins_to_decision_event",
+        )
+        findings.extend(ledger_findings)
+        if ledger_findings:
+            return findings
+        if decision_event_ids and not any(
+            decision_id in event_ids for decision_id in decision_event_ids
         ):
             findings.append(
                 _finding(
@@ -1022,23 +1031,24 @@ def as_list(value: object) -> list[object]:
     return value if isinstance(value, list) else []
 
 
-def _decision_event_ids(root: Path) -> set[str]:
+def _decision_event_ids(
+    root: Path, target: Path, location: str
+) -> tuple[set[str], list[ValidationFinding]]:
     ids: set[str] = set()
+    findings: list[ValidationFinding] = []
     for path in sorted((root / "records/_ledger/research-decisions").glob("*.jsonl")):
-        try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            continue
-        for line in lines:
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(row, Mapping) and isinstance(row.get("decision_event_id"), str):
-                ids.add(row["decision_event_id"])
-    return ids
+        rows, row_findings = _load_decision_register_rows(
+            path,
+            target=target,
+            code="benchmark.decision-register-parse",
+            location=location,
+        )
+        findings.extend(row_findings)
+        for row in rows:
+            decision_event_id = row.get("decision_event_id")
+            if isinstance(decision_event_id, str):
+                ids.add(decision_event_id)
+    return ids, findings
 
 
 def _scan_item(scan: Mapping[str, object], scan_item_id: object) -> Mapping[str, object] | None:
@@ -1257,7 +1267,23 @@ def _check_selected_research_coverage(
                 f"fixtures[{index}].expected.ledger_ref",
             )
         ]
-    records = _load_decision_register_rows(ledger_path)
+    ref_findings = _check_jsonl_repository_ref(
+        path,
+        _repo_root(path),
+        ledger_ref,
+        code="benchmark.expected-ledger-ref",
+        location=f"fixtures[{index}].expected.ledger_ref",
+    )
+    if ref_findings:
+        return ref_findings
+    records, parse_findings = _load_decision_register_rows(
+        ledger_path,
+        target=path,
+        code="benchmark.expected-ledger-ref",
+        location=f"fixtures[{index}].expected.ledger_ref",
+    )
+    if parse_findings:
+        return parse_findings
     covered = {
         str(record.get("ticker"))
         for record in records
@@ -1277,22 +1303,67 @@ def _check_selected_research_coverage(
     ]
 
 
-def _load_decision_register_rows(path: Path) -> list[Mapping[str, object]]:
+def _check_jsonl_repository_ref(
+    path: Path,
+    root: Path,
+    ref: str,
+    *,
+    code: str,
+    location: str,
+) -> list[ValidationFinding]:
+    try:
+        ref_path = resolve_repository_ref(root, ref)
+    except ValueError as exc:
+        return [_finding(path, code, str(exc), location)]
+    if not ref.startswith("records/_ledger/"):
+        return [_finding(path, code, "repository ref must point under records/_ledger/", location)]
+    if ref_path.suffix != ".jsonl":
+        return [_finding(path, code, "repository ref must use suffix .jsonl", location)]
+    if not ref_path.is_file():
+        return [_finding(path, code, f"repository ref does not exist: {ref}", location)]
+    return []
+
+
+def _load_decision_register_rows(
+    path: Path,
+    *,
+    target: Path,
+    code: str,
+    location: str,
+) -> tuple[list[Mapping[str, object]], list[ValidationFinding]]:
     rows: list[Mapping[str, object]] = []
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return rows
-    for line in lines:
+    except OSError as exc:
+        return rows, [_finding(target, code, f"failed to read decision register: {exc}", location)]
+    findings: list[ValidationFinding] = []
+    for line_no, line in enumerate(lines, start=1):
         if not line.strip():
             continue
         try:
             payload = json.loads(line)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            findings.append(
+                _finding(
+                    target,
+                    code,
+                    f"decision register JSONL parse failed at line {line_no}: {exc}",
+                    location,
+                )
+            )
             continue
-        if isinstance(payload, Mapping):
-            rows.append(payload)
-    return rows
+        if not isinstance(payload, Mapping):
+            findings.append(
+                _finding(
+                    target,
+                    code,
+                    f"decision register line {line_no} must be an object",
+                    location,
+                )
+            )
+            continue
+        rows.append(payload)
+    return rows, findings
 
 
 def _e2e_run(

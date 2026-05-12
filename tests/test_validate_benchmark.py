@@ -326,6 +326,26 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
 
         self.assertIn("candidates.non-mapping", {finding.code for finding in findings})
 
+    def test_rejects_non_mapping_input_ref_yaml(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            policy = root / "records/01-policy/2026/05/policy.yaml"
+            policy.parent.mkdir(parents=True)
+            policy.write_text("- not-a-mapping\n", encoding="utf-8")
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest().replace(
+                    "input_refs: {}",
+                    "input_refs:\n  policy:\n    ref_path: records/01-policy/2026/05/policy.yaml",
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.input-ref", {finding.code for finding in findings})
+
     def test_rejects_candidate_fixture_universe_size_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -544,6 +564,71 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
             "benchmark.expected-selected-research-coverage",
             {finding.code for finding in findings},
         )
+
+    def test_rejects_selected_research_coverage_bad_ledger_ref(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            runs = root / "records/_benchmarks/domain-model/e2e/runs.yaml"
+            runs.parent.mkdir(parents=True, exist_ok=True)
+            runs.write_text(
+                "runs:\n"
+                "- run_id: run-01-baseline\n"
+                "  screening_status: partial_quality_warning\n"
+                "  selected_tickers: []\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    runs_ref="records/_benchmarks/domain-model/e2e/runs.yaml",
+                    expected={
+                        "selected_research_coverage": {
+                            "run_id": "run-01-baseline",
+                            "ledger_ref": "records/05-research/not-ledger.yaml",
+                        }
+                    },
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.expected-ledger-ref", {finding.code for finding in findings})
+
+    def test_rejects_selected_research_coverage_invalid_ledger_jsonl(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            runs = root / "records/_benchmarks/domain-model/e2e/runs.yaml"
+            runs.parent.mkdir(parents=True, exist_ok=True)
+            runs.write_text(
+                "runs:\n"
+                "- run_id: run-01-baseline\n"
+                "  screening_status: partial_quality_warning\n"
+                "  selected_tickers: []\n",
+                encoding="utf-8",
+            )
+            ledger = root / "records/_ledger/research-decisions/2026-05.jsonl"
+            ledger.parent.mkdir(parents=True, exist_ok=True)
+            ledger.write_text("{broken\n", encoding="utf-8")
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    runs_ref="records/_benchmarks/domain-model/e2e/runs.yaml",
+                    expected={
+                        "selected_research_coverage": {
+                            "run_id": "run-01-baseline",
+                            "ledger_ref": "records/_ledger/research-decisions/2026-05.jsonl",
+                        }
+                    },
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.expected-ledger-ref", {finding.code for finding in findings})
 
 
 def _manifest() -> str:

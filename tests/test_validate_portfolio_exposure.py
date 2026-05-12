@@ -249,6 +249,64 @@ class PortfolioExposureValidationTests(unittest.TestCase):
             {finding.code for finding in findings},
         )
 
+    def test_rejects_invalid_decision_register_jsonl(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "src").mkdir()
+            ledger = root / "records/_ledger/research-decisions/2026-05.jsonl"
+            ledger.parent.mkdir(parents=True, exist_ok=True)
+            ledger.write_text("{broken\n", encoding="utf-8")
+            snapshot = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
+            snapshot.parent.mkdir(parents=True)
+            snapshot.write_text(
+                _snapshot(
+                    source_decision_ref=(
+                        "source_decision_register_refs:\n"
+                        "- ref_path: records/_ledger/research-decisions/2026-05.jsonl\n"
+                        "  decision_event_id: decision-1\n"
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_portfolio_exposure_file(snapshot)
+
+        self.assertIn(
+            "portfolio-exposure.source-decision-register-parse",
+            {finding.code for finding in findings},
+        )
+
+    def test_rejects_invalid_decision_register_jsonl_after_matching_row(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "src").mkdir()
+            ledger = root / "records/_ledger/research-decisions/2026-05.jsonl"
+            ledger.parent.mkdir(parents=True, exist_ok=True)
+            ledger.write_text(
+                '{"decision_event_id":"decision-1","order_intent":{"order_intent_id":"intent-1"}}\n'
+                "{broken\n",
+                encoding="utf-8",
+            )
+            snapshot = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
+            snapshot.parent.mkdir(parents=True)
+            snapshot.write_text(
+                _snapshot(
+                    source_decision_ref=(
+                        "source_decision_register_refs:\n"
+                        "- ref_path: records/_ledger/research-decisions/2026-05.jsonl\n"
+                        "  decision_event_id: decision-1\n"
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_portfolio_exposure_file(snapshot)
+
+        self.assertIn(
+            "portfolio-exposure.source-decision-register-parse",
+            {finding.code for finding in findings},
+        )
+
 
 def _snapshot(
     *,
