@@ -2,17 +2,22 @@
 ticker: "XXXX"
 name: "..."
 playbook_id: valuation-reversion
-playbook_snapshot:
+playbook_ref:
   ref_path: records/_playbooks/valuation-reversion/YYYY-MM-DDTHHMMSS+0900.md
-  content_sha256: sha256:<64-hex>
   effective_from: "YYYY-MM-DDTHH:MM:SS+09:00"
-policy_snapshot:
+policy_ref:
   ref_path: records/01-policy/YYYY/MM/YYYY-MM-DDTHHMMSS+0900-portfolio-policy.md
-  content_sha256: sha256:<64-hex>
   effective_from: "YYYY-MM-DDTHH:MM:SS+09:00"
-portfolio_exposure_snapshot_ref:
+policy_applicability: active
+calendar_refs:
+  business_days:
+    ref_path: records/_calendars/business-days/YYYY-MM.yaml
+  events:
+    ref_path: records/_calendars/events/YYYY-MM.yaml
+  corporate_actions:
+    ref_path: records/_calendars/corporate-actions/YYYY-MM.yaml
+portfolio_exposure_ref:
   ref_path: records/_portfolio-exposure/YYYY/MM/YYYY-MM-DDTHHMMSS+0900.yaml
-  content_sha256: sha256:<64-hex>
   as_of: "YYYY-MM-DDTHH:MM:SS+09:00"
 candidate_ref:
   candidates_ref: records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml
@@ -46,7 +51,7 @@ raw_evidence_family_count: 1
 sizing_eligible_evidence_family_count: 1
 raw_playbook_concurrence_count: 1
 sizing_eligible_playbook_concurrence_count: 1
-conviction_tier: low | medium | high | blocked
+conviction_tier: low | medium | high
 conviction_tier_path: count_breadth | depth
 position_sizing_overlay:
   paper_proxy_position_size_yen: 1000000
@@ -63,7 +68,7 @@ thesis_payoff:
   invalidation_conditions:
     - stop loss
 sector_33: "情報・通信業"
-ai-draft: true
+ai_draft: true
 published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 external_refs: []
 ---
@@ -141,6 +146,6 @@ Why now × why this stock。主要 evidence、payoff、反対仮説、macro regi
 - **paper proxy size**:
 - **estimated real order notional**:
 - **binding cap**:
-- **portfolio exposure snapshot**:
+- **portfolio exposure ref**:
 
 参照: [`/docs/components/research.md`](/docs/components/research.md), [`/docs/screening/principles.md`](/docs/screening/principles.md), [`/records/_playbooks/`](/records/_playbooks/)

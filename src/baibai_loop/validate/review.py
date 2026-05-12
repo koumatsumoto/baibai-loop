@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
 import yaml
 from jsonschema import Draft202012Validator
 
+from .domain import repo_root_for, repository_ref_error, resolve_repository_ref
 from .errors import ValidationFinding
 
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "review.json"
@@ -133,6 +134,8 @@ def validate_review_file(path: Path) -> list[ValidationFinding]:
                 location=_format_path(error.absolute_path),
             )
         )
+    if code_prefix == "review":
+        findings.extend(_check_review_repository_refs(path, front))
     body = match.group(2)
     for section in required_sections:
         if not re.search(rf"^##\s+{re.escape(section)}\s*$", body, flags=re.MULTILINE):
@@ -146,6 +149,95 @@ def validate_review_file(path: Path) -> list[ValidationFinding]:
                 )
             )
     return findings
+
+
+def _check_review_repository_refs(
+    path: Path,
+    front: Mapping[str, Any],
+) -> list[ValidationFinding]:
+    specs = {
+        "research_ref": ("records/05-research/", (".md",)),
+        "trade_ref": ("records/06-trades/", (".md",)),
+    }
+    root = repo_root_for(path)
+    findings: list[ValidationFinding] = []
+    for field, (prefix, suffixes) in specs.items():
+        value = front.get(field)
+        if value is None:
+            continue
+        error = repository_ref_error(value, root=root)
+        if error is not None:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review.repository-ref",
+                    message=error,
+                    location=field,
+                )
+            )
+            continue
+        assert isinstance(value, str)
+        ref_path = resolve_repository_ref(root, value)
+        if not value.startswith(prefix):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review.repository-ref",
+                    message=f"{field} must point under {prefix}",
+                    location=field,
+                )
+            )
+            continue
+        if ref_path.suffix not in suffixes:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review.repository-ref",
+                    message=f"{field} must use suffix {suffixes}",
+                    location=field,
+                )
+            )
+            continue
+        if not ref_path.is_file():
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review.repository-ref",
+                    message=f"{field} referenced file does not exist: {value}",
+                    location=field,
+                )
+            )
+            continue
+        if _markdown_front_matter(ref_path) is None:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review.repository-ref",
+                    message=f"{field} referenced markdown must have YAML front matter",
+                    location=field,
+                )
+            )
+    return findings
+
+
+def _markdown_front_matter(path: Path) -> Mapping[str, Any] | None:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = _FRONT_MATTER_RE.match(text)
+    if not match:
+        return None
+    try:
+        payload = yaml.safe_load(match.group(1))
+    except yaml.YAMLError:
+        return None
+    return payload if isinstance(payload, Mapping) else None
 
 
 def _validate_review_scan_file(path: Path) -> list[ValidationFinding]:
@@ -170,6 +262,7 @@ def _validate_review_scan_file(path: Path) -> list[ValidationFinding]:
             )
         ]
     findings: list[ValidationFinding] = []
+    findings.extend(_check_scan_repository_refs(path, raw))
     if "screening-false-negative-scan" in path.parts:
         items = raw.get("items")
         if not isinstance(items, list):
@@ -199,6 +292,101 @@ def _validate_review_scan_file(path: Path) -> list[ValidationFinding]:
     return findings
 
 
+def _check_scan_repository_refs(path: Path, scan: Mapping[str, Any]) -> list[ValidationFinding]:
+    specs = {
+        "market_data_ref": ("records/_market-data/", (".yaml", ".yml")),
+        "universe_ref": ("records/_universe-snapshots/", (".yaml", ".yml")),
+    }
+    root = repo_root_for(path)
+    findings: list[ValidationFinding] = []
+    for field, (prefix, suffixes) in specs.items():
+        value = scan.get(field)
+        if value is None:
+            continue
+        if not isinstance(value, Mapping):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review-scan.repository-ref",
+                    message=f"{field} must be a repository ref mapping",
+                    location=field,
+                )
+            )
+            continue
+        ref = value.get("ref_path")
+        error = repository_ref_error(ref, root=root)
+        if error is not None:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review-scan.repository-ref",
+                    message=error,
+                    location=f"{field}.ref_path",
+                )
+            )
+            continue
+        assert isinstance(ref, str)
+        ref_path = resolve_repository_ref(root, ref)
+        if not ref.startswith(prefix):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review-scan.repository-ref",
+                    message=f"{field}.ref_path must point under {prefix}",
+                    location=f"{field}.ref_path",
+                )
+            )
+        if ref_path.suffix not in suffixes:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review-scan.repository-ref",
+                    message=f"{field}.ref_path must use YAML",
+                    location=f"{field}.ref_path",
+                )
+            )
+            continue
+        if not ref_path.is_file():
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review-scan.repository-ref",
+                    message=f"referenced file does not exist: {ref}",
+                    location=f"{field}.ref_path",
+                )
+            )
+            continue
+        try:
+            loaded = yaml.safe_load(ref_path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as exc:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review-scan.repository-ref",
+                    message=f"referenced file cannot be parsed: {exc}",
+                    location=f"{field}.ref_path",
+                )
+            )
+            continue
+        if not isinstance(loaded, Mapping):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="review-scan.repository-ref",
+                    message="referenced YAML must be a mapping",
+                    location=f"{field}.ref_path",
+                )
+            )
+    return findings
+
+
 def _check_false_negative_scan(
     path: Path,
     scan: dict[str, Any],
@@ -218,7 +406,8 @@ def _check_false_negative_scan(
                 location="start_price_basis",
             )
         )
-    known_decisions = _decision_event_ids(_repo_root(path))
+    known_decisions, decision_findings = _decision_event_ids(_repo_root(path), path)
+    findings.extend(decision_findings)
     for index, item in enumerate(items):
         if not isinstance(item, dict):
             findings.append(
@@ -253,7 +442,8 @@ def _check_missed_opportunity_scan(
     items: list[Any],
 ) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
-    known_decisions = _decision_event_ids(_repo_root(path))
+    known_decisions, decision_findings = _decision_event_ids(_repo_root(path), path)
+    findings.extend(decision_findings)
     for index, item in enumerate(items):
         if isinstance(item, dict):
             findings.extend(_check_scan_decision_anchor(path, item, known_decisions, index))
@@ -290,23 +480,43 @@ def _check_scan_decision_anchor(
     return []
 
 
-def _decision_event_ids(root: Path) -> set[str]:
+def _decision_event_ids(root: Path, target: Path) -> tuple[set[str], list[ValidationFinding]]:
     decisions: set[str] = set()
+    findings: list[ValidationFinding] = []
     for path in sorted((root / "records/_ledger/research-decisions").glob("*.jsonl")):
+        location = path.relative_to(root).as_posix()
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError:
+        except OSError as exc:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=target,
+                    code="review-scan.decision-register-parse",
+                    message=f"failed to read decision register: {exc}",
+                    location=location,
+                )
+            )
             continue
-        for line in lines:
+        for line_no, line in enumerate(lines, start=1):
             if not line.strip():
                 continue
             try:
                 item = json.loads(line)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=target,
+                        code="review-scan.decision-register-parse",
+                        message=f"decision register JSONL parse failed: {exc}",
+                        location=f"{location}:line {line_no}",
+                    )
+                )
                 continue
             if isinstance(item, dict) and isinstance(item.get("decision_event_id"), str):
                 decisions.add(item["decision_event_id"])
-    return decisions
+    return decisions, findings
 
 
 def _repo_root(path: Path) -> Path:

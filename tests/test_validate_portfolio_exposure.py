@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import sys
 import tempfile
 import textwrap
@@ -53,6 +52,15 @@ class PortfolioExposureValidationTests(unittest.TestCase):
 
         self.assertIn("portfolio-exposure.remaining-budget", {finding.code for finding in findings})
 
+    def test_rejects_schema_required_field_omissions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "exposure.yaml"
+            path.write_text("outstanding_orders: []\n", encoding="utf-8")
+
+            findings = validate_portfolio_exposure_file(path)
+
+        self.assertIn("portfolio-exposure.required", {finding.code for finding in findings})
+
     def test_rejects_duplicate_order_intent_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "exposure.yaml"
@@ -74,7 +82,6 @@ class PortfolioExposureValidationTests(unittest.TestCase):
             trade = root / "records/06-trades/2026/05/2026-05-05-9682.md"
             trade.parent.mkdir(parents=True)
             trade.write_text(_trade(), encoding="utf-8")
-            digest = "sha256:" + hashlib.sha256(trade.read_bytes()).hexdigest()
             snapshot = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
             snapshot.parent.mkdir(parents=True)
             snapshot.write_text(
@@ -82,7 +89,6 @@ class PortfolioExposureValidationTests(unittest.TestCase):
                     source_trade_ref=(
                         "source_trade_refs:\n"
                         "- ref_path: records/06-trades/2026/05/2026-05-05-9682.md\n"
-                        f"  content_sha256: {digest}\n"
                     ),
                     orders="outstanding_orders: []\n",
                     remaining=1000000,
@@ -114,6 +120,27 @@ class PortfolioExposureValidationTests(unittest.TestCase):
             "portfolio-exposure.source-trades-required", {finding.code for finding in findings}
         )
 
+    def test_rebuild_reports_invalid_unreferenced_trade_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "src").mkdir()
+            trade = root / "records/06-trades/2026/05/2026-05-05-9682.md"
+            trade.parent.mkdir(parents=True)
+            trade.write_text("---\ninvalid: [\n---\n", encoding="utf-8")
+            snapshot = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
+            snapshot.parent.mkdir(parents=True)
+            snapshot.write_text(
+                _snapshot(orders="outstanding_orders: []\n", remaining=1000000),
+                encoding="utf-8",
+            )
+
+            findings = validate_portfolio_exposure_file(snapshot)
+
+        self.assertIn(
+            "portfolio-exposure.trade-source-parse",
+            {finding.code for finding in findings},
+        )
+
     def test_requires_decision_register_source_for_outstanding_order(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -129,7 +156,7 @@ class PortfolioExposureValidationTests(unittest.TestCase):
             {finding.code for finding in findings},
         )
 
-    def test_rejects_decision_register_source_hash_mismatch(self) -> None:
+    def test_rejects_decision_register_removed_hash_field(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             (root / "src").mkdir()
@@ -142,7 +169,7 @@ class PortfolioExposureValidationTests(unittest.TestCase):
                         "source_decision_register_refs:\n"
                         "- ref_path: records/_ledger/research-decisions/2026-05.jsonl\n"
                         "  decision_event_id: decision-1\n"
-                        "  row_sha256: sha256:bad\n"
+                        f"  {'row_' + 'sha256'}: sha256:bad\n"
                     )
                 ),
                 encoding="utf-8",
@@ -151,7 +178,70 @@ class PortfolioExposureValidationTests(unittest.TestCase):
             findings = validate_portfolio_exposure_file(snapshot)
 
         self.assertIn(
-            "portfolio-exposure.source-decision-register-hash",
+            "portfolio-exposure.removed-hash-field",
+            {finding.code for finding in findings},
+        )
+
+    def test_rejects_root_removed_hash_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "src").mkdir()
+            snapshot = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
+            snapshot.parent.mkdir(parents=True)
+            snapshot.write_text(
+                _snapshot(orders="outstanding_orders: []\n", remaining=1000000)
+                + "row_sha256: sha256:bad\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_portfolio_exposure_file(snapshot)
+
+        self.assertIn(
+            "portfolio-exposure.removed-hash-field",
+            {finding.code for finding in findings},
+        )
+
+    def test_rejects_removed_reference_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "src").mkdir()
+            snapshot = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
+            snapshot.parent.mkdir(parents=True)
+            snapshot.write_text(
+                _snapshot(orders="outstanding_orders: []\n", remaining=1000000)
+                + "latest_snapshot: records/_portfolio-exposure/old.yaml\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_portfolio_exposure_file(snapshot)
+
+        self.assertIn(
+            "portfolio-exposure.removed-reference-field",
+            {finding.code for finding in findings},
+        )
+
+    def test_rejects_invalid_decision_register_ref_without_outstanding_orders(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "src").mkdir()
+            snapshot = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
+            snapshot.parent.mkdir(parents=True)
+            snapshot.write_text(
+                _snapshot(
+                    orders="outstanding_orders: []\n",
+                    source_decision_ref=(
+                        "source_decision_register_refs:\n"
+                        "- ref_path: /tmp/research-decisions.jsonl\n"
+                        "  decision_event_id: decision-1\n"
+                    ),
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_portfolio_exposure_file(snapshot)
+
+        self.assertIn(
+            "portfolio-exposure.source-decision-register-ref",
             {finding.code for finding in findings},
         )
 
@@ -159,7 +249,7 @@ class PortfolioExposureValidationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             (root / "src").mkdir()
-            row_hash = _write_decision_register(root, order_intent_id="intent-other")
+            _write_decision_register(root, order_intent_id="intent-other")
             snapshot = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
             snapshot.parent.mkdir(parents=True)
             snapshot.write_text(
@@ -168,7 +258,6 @@ class PortfolioExposureValidationTests(unittest.TestCase):
                         "source_decision_register_refs:\n"
                         "- ref_path: records/_ledger/research-decisions/2026-05.jsonl\n"
                         "  decision_event_id: decision-1\n"
-                        f"  row_sha256: {row_hash}\n"
                     )
                 ),
                 encoding="utf-8",
@@ -178,6 +267,64 @@ class PortfolioExposureValidationTests(unittest.TestCase):
 
         self.assertIn(
             "portfolio-exposure.source-decision-register-set",
+            {finding.code for finding in findings},
+        )
+
+    def test_rejects_invalid_decision_register_jsonl(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "src").mkdir()
+            ledger = root / "records/_ledger/research-decisions/2026-05.jsonl"
+            ledger.parent.mkdir(parents=True, exist_ok=True)
+            ledger.write_text("{broken\n", encoding="utf-8")
+            snapshot = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
+            snapshot.parent.mkdir(parents=True)
+            snapshot.write_text(
+                _snapshot(
+                    source_decision_ref=(
+                        "source_decision_register_refs:\n"
+                        "- ref_path: records/_ledger/research-decisions/2026-05.jsonl\n"
+                        "  decision_event_id: decision-1\n"
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_portfolio_exposure_file(snapshot)
+
+        self.assertIn(
+            "portfolio-exposure.source-decision-register-parse",
+            {finding.code for finding in findings},
+        )
+
+    def test_rejects_invalid_decision_register_jsonl_after_matching_row(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "src").mkdir()
+            ledger = root / "records/_ledger/research-decisions/2026-05.jsonl"
+            ledger.parent.mkdir(parents=True, exist_ok=True)
+            ledger.write_text(
+                '{"decision_event_id":"decision-1","order_intent":{"order_intent_id":"intent-1"}}\n'
+                "{broken\n",
+                encoding="utf-8",
+            )
+            snapshot = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
+            snapshot.parent.mkdir(parents=True)
+            snapshot.write_text(
+                _snapshot(
+                    source_decision_ref=(
+                        "source_decision_register_refs:\n"
+                        "- ref_path: records/_ledger/research-decisions/2026-05.jsonl\n"
+                        "  decision_event_id: decision-1\n"
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_portfolio_exposure_file(snapshot)
+
+        self.assertIn(
+            "portfolio-exposure.source-decision-register-parse",
             {finding.code for finding in findings},
         )
 
@@ -238,7 +385,7 @@ def _trade() -> str:
     )
 
 
-def _write_decision_register(root: Path, *, order_intent_id: str = "intent-1") -> str:
+def _write_decision_register(root: Path, *, order_intent_id: str = "intent-1") -> None:
     ledger = root / "records/_ledger/research-decisions/2026-05.jsonl"
     ledger.parent.mkdir(parents=True)
     row = (
@@ -246,7 +393,6 @@ def _write_decision_register(root: Path, *, order_intent_id: str = "intent-1") -
         f'"order_intent":{{"order_intent_id":"{order_intent_id}"}}}}\n'
     )
     ledger.write_text(row, encoding="utf-8")
-    return "sha256:" + hashlib.sha256(row.encode("utf-8")).hexdigest()
 
 
 if __name__ == "__main__":

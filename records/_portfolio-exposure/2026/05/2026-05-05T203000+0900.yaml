@@ -2,7 +2,6 @@ snapshot_id: portfolio-exposure-20260505-203000
 as_of: '2026-05-05T20:30:00+09:00'
 source_decision_register_refs: []
 source_trade_refs: []
-source_broker_snapshot_refs: []
 positions: []
 exposures: []
 outstanding_orders: []

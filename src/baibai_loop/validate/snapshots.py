@@ -1,211 +1,185 @@
-"""Validate immutable snapshot references."""
+"""Validate repository reference links.
+
+The CLI target remains named ``snapshots`` for operator compatibility, but
+this module no longer performs byte-level hash audits. It validates that
+repository links are safe and resolvable, and that removed hash fields do not
+re-enter active records.
+"""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from collections.abc import Iterator, Mapping
+from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from .domain import repository_ref_error, resolve_repository_ref
 from .errors import ValidationFinding
 
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
-_SHA_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
-
-_SNAPSHOT_ROOTS: tuple[Path, ...] = (
-    Path("records/01-policy/2026"),
-    Path("records/_approval-rules"),
-    Path("records/_calendars/business-days"),
-    Path("records/_calendars/corporate-actions"),
-    Path("records/_calendars/events"),
-    Path("records/_config/exposure-buckets"),
-    Path("records/_config/metric-catalog"),
-    Path("records/_config/screening-rules"),
-    Path("records/_config/sector-baselines"),
-    Path("records/_market-data/2026"),
-    Path("records/_external"),
-    Path("records/_playbooks"),
-    Path("records/_portfolio-exposure/2026"),
-    Path("records/_universe-snapshots/2026"),
+_REMOVED_HASH_FIELDS = frozenset({"content_" + "sha256", "row_" + "sha256"})
+_REMOVED_REFERENCE_FIELDS = frozenset(
+    {
+        "playbook_snapshot",
+        "policy_snapshot",
+        "portfolio_exposure_snapshot_ref",
+        "calendars_snapshot",
+        "universe_snapshot_ref",
+        "input_snapshots",
+        "screening_rules_snapshot",
+        "metric_catalog_snapshot",
+        "cache_manifest_hash",
+        "snapshot_path",
+        "latest_snapshot",
+    }
 )
 
-_REFERENCE_ROOTS: tuple[Path, ...] = (
-    Path("records/_benchmarks"),
-    Path("records/04-candidates"),
-    Path("records/05-research"),
-    Path("records/06-trades"),
-    Path("records/07-reviews"),
-    Path("records/_ledger"),
+_REFERENCE_ROOTS: tuple[Path, ...] = (Path("records"),)
+
+_PARSEABLE_REF_SUFFIXES = frozenset({".yaml", ".yml", ".md", ".jsonl"})
+
+
+@dataclass(frozen=True, slots=True)
+class _ReferenceSpec:
+    prefixes: tuple[str, ...]
+    suffixes: tuple[str, ...]
+    require_front_matter: bool = False
+    required_mapping_keys: tuple[str, ...] = ()
+    allow_null: bool = False
+
+
+_REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
+    ("playbook_ref", _ReferenceSpec(("records/_playbooks/",), (".md",), True)),
+    ("policy_ref", _ReferenceSpec(("records/01-policy/",), (".md",), True)),
+    ("latest_policy_ref", _ReferenceSpec(("records/01-policy/",), (".md",), True)),
+    (
+        "portfolio_exposure_ref",
+        _ReferenceSpec(("records/_portfolio-exposure/",), (".yaml", ".yml")),
+    ),
+    ("input_refs.policy", _ReferenceSpec(("records/01-policy/",), (".md",), True)),
+    (
+        "input_refs.screening_rules",
+        _ReferenceSpec(("records/_config/screening-rules/",), (".yaml", ".yml")),
+    ),
+    (
+        "input_refs.metric_catalog",
+        _ReferenceSpec(("records/_config/metric-catalog/",), (".yaml", ".yml")),
+    ),
+    (
+        "input_refs.exposure_buckets",
+        _ReferenceSpec(("records/_config/exposure-buckets/",), (".yaml", ".yml")),
+    ),
+    (
+        "input_refs.universe",
+        _ReferenceSpec(("records/_universe-snapshots/",), (".yaml", ".yml")),
+    ),
+    (
+        "input_refs.portfolio_exposure",
+        _ReferenceSpec(("records/_portfolio-exposure/",), (".yaml", ".yml")),
+    ),
+    (
+        "calendar_refs.business_days",
+        _ReferenceSpec(("records/_calendars/business-days/",), (".yaml", ".yml")),
+    ),
+    (
+        "calendar_refs.events",
+        _ReferenceSpec(("records/_calendars/events/",), (".yaml", ".yml")),
+    ),
+    (
+        "calendar_refs.corporate_actions",
+        _ReferenceSpec(("records/_calendars/corporate-actions/",), (".yaml", ".yml")),
+    ),
+    (
+        "universe_ref",
+        _ReferenceSpec(("records/_universe-snapshots/",), (".yaml", ".yml")),
+    ),
+    ("market_data_ref", _ReferenceSpec(("records/_market-data/",), (".yaml", ".yml"))),
+    ("source_refs", _ReferenceSpec(("records/_external/",), (".md",))),
+    ("source_trade_refs", _ReferenceSpec(("records/06-trades/",), (".md",), True)),
+    (
+        "source_decision_register_refs",
+        _ReferenceSpec(("records/_ledger/",), (".jsonl",)),
+    ),
+)
+_LIST_REFERENCE_FIELDS = frozenset({"source_trade_refs", "source_decision_register_refs"})
+_MAPPING_REFERENCE_PARENTS = frozenset({"calendar_refs"})
+_STRING_LIST_REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
+    ("updated_from", _ReferenceSpec(("records/02-brief/",), (".yaml", ".yml"))),
+    ("brief_refs", _ReferenceSpec(("records/02-brief/",), (".yaml", ".yml"))),
+    ("source_refs", _ReferenceSpec(("records/02-brief/",), (".yaml", ".yml"))),
+)
+_SCALAR_REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
+    (
+        "candidates_ref",
+        _ReferenceSpec(
+            ("records/04-candidates/", "records/_benchmarks/"),
+            (".yaml", ".yml"),
+            required_mapping_keys=("candidates",),
+        ),
+    ),
+    (
+        "outlook_ref",
+        _ReferenceSpec(
+            ("records/03-outlook/",),
+            (".yaml", ".yml"),
+            required_mapping_keys=("schema_version", "sectors", "macro_regime"),
+        ),
+    ),
+    ("research_ref", _ReferenceSpec(("records/05-research/",), (".md",), True, allow_null=True)),
+    ("trade_ref", _ReferenceSpec(("records/06-trades/",), (".md",), True, allow_null=True)),
+    ("runs_ref", _ReferenceSpec(("records/_benchmarks/",), (".yaml", ".yml"))),
+    ("scan_ref", _ReferenceSpec(("records/07-reviews/",), (".yaml", ".yml"))),
+    ("ledger_ref", _ReferenceSpec(("records/_ledger/",), (".jsonl",))),
 )
 
 
-def validate_snapshot_integrity(root: Path) -> list[ValidationFinding]:
-    """Validate snapshot hash contracts across records."""
+def validate_reference_integrity(root: Path) -> list[ValidationFinding]:
+    """Validate repository reference links across records."""
+    _load_structured_payload.cache_clear()
+    _front_matter_payload.cache_clear()
     findings: list[ValidationFinding] = []
-    findings.extend(_validate_changelogs(root))
-    findings.extend(_validate_snapshot_payloads(root))
-    findings.extend(_validate_snapshot_references(root))
+    for path in discover_snapshot_validation_files(root):
+        if path.suffix == ".jsonl":
+            for line_no, row, error in _iter_jsonl(path):
+                if error is not None:
+                    findings.append(error)
+                    continue
+                findings.extend(_check_nested_refs(root, path, row, prefix=f"line {line_no}"))
+            continue
+        parsed = _load_structured_payload(path)
+        if isinstance(parsed, ValidationFinding):
+            findings.append(parsed)
+            continue
+        findings.extend(_check_standalone_universe_file(root, path, parsed))
+        findings.extend(_check_nested_refs(root, path, parsed, prefix=None))
     return findings
 
 
+def validate_snapshot_integrity(root: Path) -> list[ValidationFinding]:
+    """Compatibility wrapper for the ``snapshots`` CLI target."""
+    return validate_reference_integrity(root)
+
+
 def discover_snapshot_validation_files(root: Path) -> list[Path]:
-    """Return files that participate in snapshot validation for CLI counts."""
+    """Return files participating in repository reference validation."""
     files: list[Path] = []
-    records_root = root / "records"
-    if not records_root.exists():
-        return files
-    files.extend(sorted(records_root.rglob("_changelog.jsonl")))
-    for rel_root in (*_SNAPSHOT_ROOTS, *_REFERENCE_ROOTS):
+    for rel_root in _REFERENCE_ROOTS:
         base = root / rel_root
         if not base.exists():
             continue
         files.extend(
             path
             for path in sorted(base.rglob("*"))
-            if path.is_file() and path.suffix in {".yaml", ".yml", ".md", ".jsonl"}
+            if path.is_file()
+            and path.name != "template.md"
+            and path.suffix in {".yaml", ".yml", ".md", ".jsonl"}
         )
     return sorted(set(files))
-
-
-def _validate_changelogs(root: Path) -> list[ValidationFinding]:
-    findings: list[ValidationFinding] = []
-    for path in sorted((root / "records").rglob("_changelog.jsonl")):
-        for line_no, row, error in _iter_jsonl(path):
-            if error is not None:
-                findings.append(error)
-                continue
-            if row is None:
-                continue
-            findings.extend(_check_snapshot_ref(root, path, row, location=f"line {line_no}"))
-            findings.extend(_check_approval_rule_changelog(root, path, row, line_no))
-    return findings
-
-
-def _check_approval_rule_changelog(
-    root: Path,
-    path: Path,
-    row: Mapping[str, object],
-    line_no: int,
-) -> list[ValidationFinding]:
-    if path != root / "records" / "_approval-rules" / "_changelog.jsonl":
-        return []
-    snapshot_path = row.get("snapshot_path")
-    event_at = row.get("event_at")
-    if not isinstance(snapshot_path, str) or not isinstance(event_at, str):
-        return []
-    expected_at = _timestamp_from_snapshot_name(Path(snapshot_path).name)
-    findings: list[ValidationFinding] = []
-    if expected_at is None or event_at != expected_at:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="approval-rule-changelog.event-at",
-                message="approval-rule changelog event_at must match snapshot path timestamp",
-                location=f"line {line_no}.event_at",
-            )
-        )
-    target = root / snapshot_path
-    parsed = _load_structured_payload(target) if target.is_file() else {}
-    if not isinstance(parsed, Mapping):
-        return findings
-    effective_from = parsed.get("effective_from")
-    if expected_at is not None and effective_from != expected_at:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="approval-rule-changelog.effective-from",
-                message="approval-rule registry effective_from must match snapshot path timestamp",
-                location=f"line {line_no}.snapshot_path",
-            )
-        )
-    return findings
-
-
-def _validate_snapshot_payloads(root: Path) -> list[ValidationFinding]:
-    findings: list[ValidationFinding] = []
-    for rel_root in _SNAPSHOT_ROOTS:
-        base = root / rel_root
-        if not base.exists():
-            continue
-        for path in sorted(base.rglob("*")):
-            if not path.is_file() or path.name.startswith("_"):
-                continue
-            parsed = _load_structured_payload(path)
-            if isinstance(parsed, ValidationFinding):
-                findings.append(parsed)
-                continue
-            if isinstance(parsed, Mapping) and "content_sha256" in parsed:
-                findings.append(
-                    ValidationFinding(
-                        severity="error",
-                        target=path,
-                        code="snapshot.self-hash",
-                        message="snapshot payload must not contain its own content_sha256",
-                        location="content_sha256",
-                    )
-                )
-            if rel_root == Path("records/_approval-rules") and isinstance(parsed, Mapping):
-                findings.extend(_check_approval_rule_registry(path, parsed))
-    return findings
-
-
-def _check_approval_rule_registry(
-    path: Path, payload: Mapping[str, object]
-) -> list[ValidationFinding]:
-    rules = payload.get("approval_rules")
-    if not isinstance(rules, list):
-        return []
-    findings: list[ValidationFinding] = []
-    for index, rule in enumerate(rules):
-        if not isinstance(rule, Mapping):
-            continue
-        max_valid_days = rule.get("max_valid_days")
-        if (
-            isinstance(max_valid_days, bool)
-            or not isinstance(max_valid_days, int)
-            or max_valid_days <= 0
-            or max_valid_days > 365
-        ):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="approval-rule.max-valid-days",
-                    message="approval rule max_valid_days must be in [1, 365]",
-                    location=f"approval_rules[{index}].max_valid_days",
-                )
-            )
-    return findings
-
-
-def _validate_snapshot_references(root: Path) -> list[ValidationFinding]:
-    findings: list[ValidationFinding] = []
-    for rel_root in _REFERENCE_ROOTS:
-        base = root / rel_root
-        if not base.exists():
-            continue
-        for path in sorted(base.rglob("*")):
-            if not path.is_file() or path.suffix not in {".yaml", ".yml", ".md", ".jsonl"}:
-                continue
-            if path.suffix == ".jsonl":
-                for line_no, row, error in _iter_jsonl(path):
-                    if error is not None:
-                        findings.append(error)
-                        continue
-                    findings.extend(_check_nested_refs(root, path, row, prefix=f"line {line_no}"))
-                continue
-            parsed = _load_structured_payload(path)
-            if isinstance(parsed, ValidationFinding):
-                findings.append(parsed)
-                continue
-            findings.extend(_check_nested_refs(root, path, parsed, prefix=None))
-    return findings
 
 
 def _check_nested_refs(
@@ -217,70 +191,643 @@ def _check_nested_refs(
 ) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
     for location, node in _walk_mappings(value, prefix=prefix):
-        findings.extend(_check_snapshot_ref(root, target, node, location=location))
+        findings.extend(_check_removed_hash_fields(target, node, location=location))
+        findings.extend(_check_removed_reference_fields(target, node, location=location))
+        findings.extend(_check_reference_field_shapes(target, node, location=location))
+        findings.extend(_check_string_list_reference_fields(root, target, node, location=location))
+        findings.extend(_check_scalar_reference_fields(root, target, node, location=location))
+        findings.extend(_check_repository_ref(root, target, node, location=location))
     return findings
 
 
-def _check_snapshot_ref(
+def _check_removed_hash_fields(
+    target: Path,
+    node: Mapping[str, object],
+    *,
+    location: str,
+) -> list[ValidationFinding]:
+    return [
+        ValidationFinding(
+            severity="error",
+            target=target,
+            code="reference.removed-hash-field",
+            message=f"{field} is no longer allowed in repository links",
+            location=f"{location}.{field}" if location else field,
+        )
+        for field in sorted(_REMOVED_HASH_FIELDS)
+        if field in node
+    ]
+
+
+def _check_removed_reference_fields(
+    target: Path,
+    node: Mapping[str, object],
+    *,
+    location: str,
+) -> list[ValidationFinding]:
+    return [
+        ValidationFinding(
+            severity="error",
+            target=target,
+            code="reference.removed-reference-field",
+            message=f"{field} has been replaced by repository reference fields",
+            location=f"{location}.{field}" if location else field,
+        )
+        for field in sorted(_REMOVED_REFERENCE_FIELDS)
+        if field in node
+    ]
+
+
+def _check_repository_ref(
     root: Path,
     target: Path,
     node: Mapping[str, object],
     *,
     location: str,
 ) -> list[ValidationFinding]:
-    ref = node.get("ref_path") or node.get("snapshot_path") or node.get("ref")
-    digest = node.get("content_sha256")
-    if ref is None and digest is None:
+    if _is_outlook_record(target) and _location_has_marker(location, "source_refs"):
         return []
-    findings: list[ValidationFinding] = []
-    if not isinstance(ref, str) or not ref:
-        findings.append(
+    ref = node.get("ref_path")
+    if ref is None:
+        if _spec_for_location(location) is not None:
+            return [
+                ValidationFinding(
+                    severity="error",
+                    target=target,
+                    code="reference.ref-shape",
+                    message="repository ref mapping must include ref_path",
+                    location=f"{location}.ref_path",
+                )
+            ]
+        return []
+    error = repository_ref_error(ref, root=root)
+    if error is not None:
+        return [
             ValidationFinding(
                 severity="error",
                 target=target,
-                code="snapshot.ref-missing",
-                message="snapshot reference must include ref_path, snapshot_path, or ref",
-                location=location,
+                code="reference.ref-path",
+                message=error,
+                location=f"{location}.ref_path",
             )
-        )
-        return findings
-    if not isinstance(digest, str) or not _SHA_RE.match(digest):
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=target,
-                code="snapshot.hash-format",
-                message="snapshot reference must include content_sha256: sha256:<64-hex>",
-                location=location,
-            )
-        )
-        return findings
-    ref_path = root / ref
+        ]
+    assert isinstance(ref, str)
+    ref_path = resolve_repository_ref(root, ref)
     if not ref_path.is_file():
-        findings.append(
+        return [
             ValidationFinding(
                 severity="error",
                 target=target,
-                code="snapshot.ref-not-found",
-                message=f"referenced snapshot does not exist: {ref}",
-                location=location,
+                code="reference.ref-not-found",
+                message=f"referenced file does not exist: {ref}",
+                location=f"{location}.ref_path",
             )
-        )
+        ]
+    findings = _check_reference_spec(target, ref, ref_path, location)
+    if findings:
         return findings
-    actual = f"sha256:{_raw_sha256(ref_path)}"
-    if actual != digest:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=target,
-                code="snapshot.hash-mismatch",
-                message=f"{ref} hash is {actual}, not {digest}",
-                location=location,
+    if ref_path.suffix in _PARSEABLE_REF_SUFFIXES:
+        parsed = _load_structured_payload(ref_path)
+        if isinstance(parsed, ValidationFinding):
+            return [
+                ValidationFinding(
+                    severity="error",
+                    target=target,
+                    code="reference.ref-parse",
+                    message=f"referenced file cannot be parsed: {ref}: {parsed.message}",
+                    location=f"{location}.ref_path",
+                )
+            ]
+        if not isinstance(parsed, Mapping):
+            return [
+                ValidationFinding(
+                    severity="error",
+                    target=target,
+                    code="reference.ref-parse",
+                    message=f"referenced file root must be a mapping: {ref}",
+                    location=f"{location}.ref_path",
+                )
+            ]
+    return []
+
+
+def _check_reference_field_shapes(
+    target: Path,
+    node: Mapping[str, object],
+    *,
+    location: str,
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    for field, value in node.items():
+        if field == "ref_path":
+            continue
+        child_location = f"{location}.{field}" if location else str(field)
+        if field in _MAPPING_REFERENCE_PARENTS:
+            if not isinstance(value, Mapping):
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=target,
+                        code="reference.ref-shape",
+                        message=f"{field} must be a repository ref mapping container",
+                        location=child_location,
+                    )
+                )
+            continue
+        if field in _LIST_REFERENCE_FIELDS:
+            if not isinstance(value, list):
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=target,
+                        code="reference.ref-shape",
+                        message=f"{field} must be a list of repository ref mappings",
+                        location=child_location,
+                    )
+                )
+                continue
+            for index, item in enumerate(value):
+                if not isinstance(item, Mapping):
+                    findings.append(
+                        ValidationFinding(
+                            severity="error",
+                            target=target,
+                            code="reference.ref-shape",
+                            message=f"{field} entries must be repository ref mappings",
+                            location=f"{child_location}[{index}]",
+                        )
+                    )
+                    continue
+                if "ref_path" not in item:
+                    findings.append(
+                        ValidationFinding(
+                            severity="error",
+                            target=target,
+                            code="reference.ref-shape",
+                            message=f"{field} entries must include ref_path",
+                            location=f"{child_location}[{index}].ref_path",
+                        )
+                    )
+            continue
+        if field == "source_refs":
+            continue
+        if _is_reference_container_location(child_location) and not isinstance(value, Mapping):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=target,
+                    code="reference.ref-shape",
+                    message=f"{field} must be a repository ref mapping",
+                    location=child_location,
+                )
             )
-        )
     return findings
 
 
+def _check_scalar_reference_fields(
+    root: Path,
+    target: Path,
+    node: Mapping[str, object],
+    *,
+    location: str,
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    for field, value in node.items():
+        spec = _scalar_spec_for_field(field)
+        if spec is None:
+            continue
+        child_location = f"{location}.{field}" if location else str(field)
+        if value is None and spec.allow_null:
+            continue
+        if not isinstance(value, str):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=target,
+                    code="reference.ref-shape",
+                    message=f"{field} must be a repository-relative string path",
+                    location=child_location,
+                )
+            )
+            continue
+        findings.extend(_check_scalar_repository_ref(root, target, value, child_location, spec))
+    return findings
+
+
+def _check_string_list_reference_fields(
+    root: Path,
+    target: Path,
+    node: Mapping[str, object],
+    *,
+    location: str,
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    for field, value in node.items():
+        spec = _string_list_spec_for_field(target, field)
+        if spec is None:
+            continue
+        child_location = f"{location}.{field}" if location else str(field)
+        if value is None:
+            continue
+        if not isinstance(value, list):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=target,
+                    code="reference.ref-shape",
+                    message=f"{field} must be a list of repository-relative string paths",
+                    location=child_location,
+                )
+            )
+            continue
+        for index, item in enumerate(value):
+            item_location = f"{child_location}[{index}]"
+            if not isinstance(item, str):
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=target,
+                        code="reference.ref-shape",
+                        message=f"{field} entries must be repository-relative string paths",
+                        location=item_location,
+                    )
+                )
+                continue
+            findings.extend(_check_scalar_repository_ref(root, target, item, item_location, spec))
+    return findings
+
+
+def _check_scalar_repository_ref(
+    root: Path,
+    target: Path,
+    ref: str,
+    location: str,
+    spec: _ReferenceSpec,
+) -> list[ValidationFinding]:
+    error = repository_ref_error(ref, root=root)
+    if error is not None:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-path",
+                message=error,
+                location=location,
+            )
+        ]
+    ref_path = resolve_repository_ref(root, ref)
+    if not ref.startswith(spec.prefixes):
+        prefixes = ", ".join(spec.prefixes)
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-prefix",
+                message=f"reference must point under {prefixes}: {ref}",
+                location=location,
+            )
+        ]
+    if ref_path.suffix not in spec.suffixes:
+        suffixes = ", ".join(spec.suffixes)
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-suffix",
+                message=f"reference must use suffix {suffixes}: {ref}",
+                location=location,
+            )
+        ]
+    if not ref_path.is_file():
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-not-found",
+                message=f"referenced file does not exist: {ref}",
+                location=location,
+            )
+        ]
+    parsed = _load_structured_payload(ref_path)
+    if isinstance(parsed, ValidationFinding):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-parse",
+                message=f"referenced file cannot be parsed: {ref}: {parsed.message}",
+                location=location,
+            )
+        ]
+    shape_findings = _check_referenced_payload_shape(
+        target,
+        parsed,
+        ref,
+        location,
+        spec,
+    )
+    if shape_findings:
+        return shape_findings
+    return []
+
+
+def _check_referenced_payload_shape(
+    target: Path,
+    payload: object,
+    ref: str,
+    location: str,
+    spec: _ReferenceSpec,
+) -> list[ValidationFinding]:
+    if not isinstance(payload, Mapping):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-parse",
+                message=f"referenced file root must be a mapping: {ref}",
+                location=location,
+            )
+        ]
+    missing = [key for key in spec.required_mapping_keys if key not in payload]
+    if missing:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-parse",
+                message=f"referenced file is missing required root keys: {', '.join(missing)}",
+                location=location,
+            )
+        ]
+    return []
+
+
+def _is_reference_container_location(location: str) -> bool:
+    normalized = location.replace("[", ".").replace("]", "")
+    for marker, _spec in _REFERENCE_SPECS:
+        if marker == "source_refs":
+            continue
+        if normalized == marker or normalized.endswith(f".{marker}"):
+            return True
+    return False
+
+
+def _scalar_spec_for_field(field: str) -> _ReferenceSpec | None:
+    for marker, spec in _SCALAR_REFERENCE_SPECS:
+        if field == marker:
+            return spec
+    return None
+
+
+def _string_list_spec_for_field(target: Path, field: str) -> _ReferenceSpec | None:
+    if field == "source_refs" and not _is_outlook_record(target):
+        return None
+    for marker, spec in _STRING_LIST_REFERENCE_SPECS:
+        if field == marker:
+            return spec
+    return None
+
+
+def _is_outlook_record(target: Path) -> bool:
+    return "records/03-outlook/" in target.as_posix()
+
+
+def _location_has_marker(location: str, marker: str) -> bool:
+    normalized = location.replace("[", ".").replace("]", "")
+    return normalized == marker or normalized.endswith(f".{marker}") or f".{marker}." in normalized
+
+
+def _check_reference_spec(
+    target: Path,
+    ref: str,
+    ref_path: Path,
+    location: str,
+) -> list[ValidationFinding]:
+    spec = _spec_for_location(location)
+    if spec is None:
+        if ref_path.suffix not in _PARSEABLE_REF_SUFFIXES:
+            return [
+                ValidationFinding(
+                    severity="error",
+                    target=target,
+                    code="reference.ref-suffix",
+                    message=f"repository reference must point to a parseable record file: {ref}",
+                    location=f"{location}.ref_path",
+                )
+            ]
+        return []
+    if not ref.startswith(spec.prefixes):
+        prefixes = ", ".join(spec.prefixes)
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-prefix",
+                message=f"reference must point under {prefixes}: {ref}",
+                location=f"{location}.ref_path",
+            )
+        ]
+    if ref_path.suffix not in spec.suffixes:
+        suffixes = ", ".join(spec.suffixes)
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-suffix",
+                message=f"reference must use suffix {suffixes}: {ref}",
+                location=f"{location}.ref_path",
+            )
+        ]
+    if spec.require_front_matter and _front_matter_payload(ref_path) is None:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=target,
+                code="reference.ref-front-matter",
+                message=f"referenced markdown file must have YAML front matter: {ref}",
+                location=f"{location}.ref_path",
+            )
+        ]
+    return []
+
+
+def _spec_for_location(location: str) -> _ReferenceSpec | None:
+    normalized = location.replace("[", ".").replace("]", "")
+    for marker, spec in _REFERENCE_SPECS:
+        if (
+            normalized == marker
+            or normalized.endswith(f".{marker}")
+            or normalized.startswith(f"{marker}.")
+            or f".{marker}." in normalized
+        ):
+            return spec
+    return None
+
+
+def _check_standalone_universe_file(
+    root: Path, path: Path, payload: object
+) -> list[ValidationFinding]:
+    try:
+        relative = path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        relative = path.as_posix()
+    if not relative.startswith("records/_universe-snapshots/"):
+        return []
+    if not isinstance(payload, Mapping):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="reference.universe-shape",
+                message="universe snapshot must be a YAML mapping",
+            )
+        ]
+    members = payload.get("members")
+    members_recorded = payload.get("members_recorded")
+    universe_size = payload.get("universe_size")
+    members_scope = payload.get("members_scope")
+    if not isinstance(universe_size, int) or universe_size < 0:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="reference.universe-shape",
+                message="universe_size must be a non-negative integer",
+                location="universe_size",
+            )
+        ]
+    if members_scope not in {None, "full_universe", "candidates", "not_recorded"}:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="reference.universe-shape",
+                message="members_scope must be full_universe, candidates, or not_recorded",
+                location="members_scope",
+            )
+        ]
+    if not isinstance(members, list) or members_recorded != len(members):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="reference.universe-members",
+                message="members_recorded must equal members length",
+                location="members_recorded",
+            )
+        ]
+    if members_scope in {None, "full_universe"} and len(members) != universe_size:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="reference.universe-members",
+                message="full_universe members length must equal universe_size",
+                location="members",
+            )
+        ]
+    if members_scope == "not_recorded" and members:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="reference.universe-members",
+                message="not_recorded universe snapshots must not include members",
+                location="members",
+            )
+        ]
+    seen_tickers: set[str] = set()
+    for index, member in enumerate(members):
+        if not isinstance(member, Mapping) or not isinstance(member.get("ticker"), str):
+            return [
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="reference.universe-members",
+                    message="universe members must be mappings with ticker",
+                    location=f"members[{index}]",
+                )
+            ]
+        ticker = member["ticker"]
+        if ticker in seen_tickers:
+            return [
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="reference.universe-members",
+                    message=f"universe member ticker must be unique: {ticker}",
+                    location=f"members[{index}].ticker",
+                )
+            ]
+        seen_tickers.add(ticker)
+        exposure_findings = _check_universe_member_exposures(path, member, index)
+        if exposure_findings:
+            return exposure_findings
+    return []
+
+
+def _check_universe_member_exposures(
+    path: Path,
+    member: Mapping[str, object],
+    member_index: int,
+) -> list[ValidationFinding]:
+    exposures = member.get("security_exposures")
+    if exposures is None:
+        return []
+    if not isinstance(exposures, list):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="reference.universe-members",
+                message="security_exposures must be a list",
+                location=f"members[{member_index}].security_exposures",
+            )
+        ]
+    for exposure_index, exposure in enumerate(exposures):
+        if not isinstance(exposure, Mapping):
+            return [
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="reference.universe-members",
+                    message="security_exposures entries must be mappings",
+                    location=f"members[{member_index}].security_exposures[{exposure_index}]",
+                )
+            ]
+        source_refs = exposure.get("source_refs")
+        if source_refs is None:
+            continue
+        if not isinstance(source_refs, list):
+            return [
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="reference.universe-members",
+                    message="security_exposures.source_refs must be a list",
+                    location=(
+                        f"members[{member_index}].security_exposures[{exposure_index}].source_refs"
+                    ),
+                )
+            ]
+        for ref_index, ref in enumerate(source_refs):
+            if not isinstance(ref, Mapping) or "ref_path" not in ref:
+                return [
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="reference.universe-members",
+                        message="security_exposures.source_refs entries must be ref mappings",
+                        location=(
+                            f"members[{member_index}].security_exposures"
+                            f"[{exposure_index}].source_refs[{ref_index}]"
+                        ),
+                    )
+                ]
+    return []
+
+
+@cache
 def _load_structured_payload(path: Path) -> object | ValidationFinding:
     try:
         text = path.read_text(encoding="utf-8")
@@ -288,23 +835,60 @@ def _load_structured_payload(path: Path) -> object | ValidationFinding:
         return ValidationFinding(
             severity="error",
             target=path,
-            code="snapshot.io",
+            code="reference.io",
             message=f"failed to read file: {exc}",
         )
+    if path.suffix == ".jsonl":
+        for _line_no, _row, error in _iter_jsonl(path):
+            if error is not None:
+                return error
+        return {}
     if path.suffix == ".md":
         match = _FRONT_MATTER_RE.match(text)
-        if not match:
+        if match is None:
+            if text.startswith("---\n"):
+                return ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="reference.invalid-yaml",
+                    message="Markdown front matter is not closed",
+                )
             return {}
-        text = match.group(1)
+        try:
+            front_matter: object = yaml.safe_load(match.group(1))
+        except yaml.YAMLError as exc:
+            return ValidationFinding(
+                severity="error",
+                target=path,
+                code="reference.invalid-yaml",
+                message=f"Markdown front matter YAML parse failed: {exc}",
+            )
+        return front_matter
     try:
         loaded: object = yaml.safe_load(text)
     except yaml.YAMLError as exc:
         return ValidationFinding(
             severity="error",
             target=path,
-            code="snapshot.invalid-yaml",
+            code="reference.invalid-yaml",
             message=f"YAML parse failed: {exc}",
         )
+    return loaded
+
+
+@cache
+def _front_matter_payload(path: Path) -> object | None:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = _FRONT_MATTER_RE.match(text)
+    if not match:
+        return None
+    try:
+        loaded: object = yaml.safe_load(match.group(1))
+    except yaml.YAMLError:
+        return None
     return loaded
 
 
@@ -320,7 +904,7 @@ def _iter_jsonl(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="snapshot.io",
+                code="reference.io",
                 message=f"failed to read file: {exc}",
             ),
         )
@@ -337,7 +921,7 @@ def _iter_jsonl(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="snapshot.invalid-jsonl",
+                    code="reference.invalid-jsonl",
                     message=f"JSONL parse failed at line {line_no}: {exc}",
                     location=f"line {line_no}",
                 ),
@@ -350,7 +934,7 @@ def _iter_jsonl(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="snapshot.jsonl-non-mapping",
+                    code="reference.jsonl-non-mapping",
                     message=f"JSONL line {line_no} must be an object",
                     location=f"line {line_no}",
                 ),
@@ -370,15 +954,3 @@ def _walk_mappings(value: Any, *, prefix: str | None) -> Iterator[tuple[str, Map
         location = prefix or "<root>"
         for index, child in enumerate(value):
             yield from _walk_mappings(child, prefix=f"{location}[{index}]")
-
-
-def _raw_sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _timestamp_from_snapshot_name(name: str) -> str | None:
-    match = re.match(r"^(\d{4})-(\d{2})-(\d{2})T(\d{2})(\d{2})(\d{2})([+-]\d{4})", name)
-    if match is None:
-        return None
-    year, month, day, hour, minute, second, offset = match.groups()
-    return f"{year}-{month}-{day}T{hour}:{minute}:{second}{offset[:3]}:{offset[3:]}"

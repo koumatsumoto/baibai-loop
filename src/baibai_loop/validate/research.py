@@ -18,9 +18,11 @@ from .domain import (
     as_list,
     as_mapping,
     integer,
-    load_snapshot_mapping,
+    load_reference_mapping,
     number,
     repo_root_for,
+    repository_ref_error,
+    resolve_repository_ref,
 )
 from .errors import ValidationFinding
 from .external_refs import validate_external_refs_file
@@ -44,7 +46,26 @@ _REMOVED_FRONT_MATTER_FIELDS: tuple[str, ...] = (
     "_".join(("hypothetical", "position", "size", "oku")),
     "_".join(("supporting", "sig" + "nals")),
     "_".join(("adv", "participation", "pct")),
+    "_".join(("playbook", "snapshot")),
+    "_".join(("policy", "snapshot")),
+    "_".join(("portfolio", "exposure", "snapshot", "ref")),
+    "_".join(("calendars", "snapshot")),
+    "candidates_ref",
 )
+_REMOVED_HASH_FIELDS = {"content_" + "sha256", "row_" + "sha256"}
+_REMOVED_REFERENCE_FIELDS = {
+    "playbook_snapshot",
+    "policy_snapshot",
+    "portfolio_exposure_snapshot_ref",
+    "calendars_snapshot",
+    "universe_snapshot_ref",
+    "input_snapshots",
+    "screening_rules_snapshot",
+    "metric_catalog_snapshot",
+    "cache_manifest_hash",
+    "snapshot_path",
+    "latest_snapshot",
+}
 _KNOWN_OUTCOMES = {"approved", "deferred", "rejected"}
 _KNOWN_POSTURES = {"act_now", "wait_for_event", "wait_for_capital", "dropped"}
 _KNOWN_GATE_EFFECTS = {"pass", "conditional", "block"}
@@ -132,6 +153,7 @@ def validate_research_parsed(
     findings: list[ValidationFinding] = []
     findings.extend(_validate_schema(path, front_matter))
     findings.extend(_check_removed_fields(path, front_matter))
+    findings.extend(_check_removed_hash_fields_recursive(path, front_matter))
     findings.extend(_check_policy_and_calendar_context(path, front_matter))
     findings.extend(_check_ticker(path, front_matter))
     findings.extend(_check_playbook(path, front_matter, known_playbooks))
@@ -144,7 +166,7 @@ def validate_research_parsed(
     findings.extend(_check_corporate_action_invalidation(path, front_matter))
     findings.extend(_check_approval_rules(path, front_matter))
     findings.extend(_check_payoff(path, front_matter))
-    findings.extend(_check_snapshot_refs(path, front_matter))
+    findings.extend(_check_reference_refs(path, front_matter))
     findings.extend(validate_external_refs_file(path, front_matter))
 
     playbook_id = front_matter.get("playbook_id")
@@ -306,58 +328,40 @@ def _check_policy_and_calendar_context(
                 location="policy_applicability",
             )
         )
-    findings.extend(_check_calendar_snapshot_block(path, front_matter.get("calendars_snapshot")))
+    findings.extend(_check_calendar_refs_block(path, front_matter.get("calendar_refs")))
     return findings
 
 
-def _check_calendar_snapshot_block(path: Path, value: object) -> list[ValidationFinding]:
+def _check_calendar_refs_block(path: Path, value: object) -> list[ValidationFinding]:
     if not isinstance(value, Mapping):
         return [
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.calendars-snapshot",
-                message="calendars_snapshot must pin business_days, events, and corporate_actions",
-                location="calendars_snapshot",
+                code="research.calendar-refs",
+                message="calendar_refs must pin business_days, events, and corporate_actions",
+                location="calendar_refs",
             )
         ]
     findings: list[ValidationFinding] = []
-    for key in ("business_days", "events", "corporate_actions"):
+    specs = {
+        "business_days": ("records/_calendars/business-days/", (".yaml", ".yml")),
+        "events": ("records/_calendars/events/", (".yaml", ".yml")),
+        "corporate_actions": ("records/_calendars/corporate-actions/", (".yaml", ".yml")),
+    }
+    for key, (prefix, suffixes) in specs.items():
         item = value.get(key)
-        location = f"calendars_snapshot.{key}"
-        if not isinstance(item, Mapping):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.calendars-snapshot",
-                    message=f"{location} must be a snapshot ref",
-                    location=location,
-                )
+        location = f"calendar_refs.{key}"
+        findings.extend(
+            _check_repository_ref(
+                path,
+                item,
+                location=location,
+                code="research.calendar-ref",
+                prefixes=(prefix,),
+                suffixes=suffixes,
             )
-            continue
-        ref_path = item.get("ref_path")
-        digest = item.get("content_sha256")
-        if not isinstance(ref_path, str) or not ref_path:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.calendars-snapshot-ref",
-                    message=f"{location}.ref_path is required",
-                    location=f"{location}.ref_path",
-                )
-            )
-        if not isinstance(digest, str) or not re.match(r"^sha256:[0-9a-f]{64}$", digest):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.calendars-snapshot-hash",
-                    message=f"{location}.content_sha256 must be sha256:<64 lowercase hex>",
-                    location=f"{location}.content_sha256",
-                )
-            )
+        )
     return findings
 
 
@@ -388,7 +392,7 @@ def _check_playbook(
                 severity="error",
                 target=path,
                 code="research.unknown-playbook",
-                message=f"playbook_id must reference a known snapshot family (got {playbook_id!r})",
+                message=f"playbook_id must reference a known playbook family (got {playbook_id!r})",
                 location="playbook_id",
             )
         ]
@@ -620,7 +624,9 @@ def _check_macro_input_source(
                 location=f"macro_regime_gate.inputs[{index}].source_ref",
             )
         ]
-    source_path = _resolve_record_ref(path, ref)
+    source_path = _resolve_record_ref(
+        path, ref, prefixes=("records/03-outlook/",), suffixes=(".yaml", ".yml")
+    )
     if source_path is None:
         return [
             ValidationFinding(
@@ -829,7 +835,7 @@ def _check_research_evidence_source_refs(
                 severity="error",
                 target=path,
                 code="research.sizing-evidence-source-ref",
-                message="sizing-eligible research evidence requires immutable source_refs",
+                message="sizing-eligible research evidence requires repository source_refs",
                 location=f"research_evidence_hits[{index}].source_refs",
             )
         ]
@@ -847,13 +853,22 @@ def _check_research_evidence_source_refs(
             )
             continue
         ref_path = ref.get("ref_path")
-        digest = ref.get("content_sha256")
-        if not (
-            isinstance(ref_path, str)
-            and ref_path.startswith("records/_external/")
-            and isinstance(digest, str)
-            and re.match(r"^sha256:[0-9a-f]{64}$", digest)
-        ):
+        error = repository_ref_error(ref_path, root=repo_root_for(path))
+        if error is not None or not isinstance(ref_path, str):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.sizing-evidence-source-ref",
+                    message=(
+                        "sizing-eligible research evidence requires records/_external/ source refs"
+                    ),
+                    location=f"research_evidence_hits[{index}].source_refs[{ref_index}]",
+                )
+            )
+            continue
+        source_path = resolve_repository_ref(repo_root_for(path), ref_path)
+        if not ref_path.startswith("records/_external/") or source_path.suffix != ".md":
             findings.append(
                 ValidationFinding(
                     severity="error",
@@ -861,11 +876,28 @@ def _check_research_evidence_source_refs(
                     code="research.sizing-evidence-source-ref",
                     message=(
                         "sizing-eligible research evidence requires records/_external/ "
-                        "source refs with content_sha256"
+                        "markdown source refs"
                     ),
                     location=f"research_evidence_hits[{index}].source_refs[{ref_index}]",
                 )
             )
+        elif not source_path.is_file():
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.sizing-evidence-source-ref",
+                    message=f"source ref does not exist: {ref_path}",
+                    location=f"research_evidence_hits[{index}].source_refs[{ref_index}]",
+                )
+            )
+        findings.extend(
+            _check_removed_hash_fields(
+                path,
+                ref,
+                f"research_evidence_hits[{index}].source_refs[{ref_index}]",
+            )
+        )
     return findings
 
 
@@ -880,7 +912,7 @@ def _check_candidate_lineage(
         return []
     findings: list[ValidationFinding] = []
     candidate_ref = as_mapping(front_matter.get("candidate_ref"))
-    candidates_ref = candidate_ref.get("candidates_ref") or front_matter.get("candidates_ref")
+    candidates_ref = candidate_ref.get("candidates_ref")
     if not isinstance(candidates_ref, str) or not candidates_ref:
         return [
             ValidationFinding(
@@ -915,9 +947,49 @@ def _check_candidate_lineage(
             )
         ]
     if not isinstance(document, Mapping):
-        return []
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.candidate-ref-parse",
+                message="candidate_ref.candidates_ref must point to a candidates mapping",
+                location="candidate_ref.candidates_ref",
+            )
+        ]
     document_run_id = document.get("run_id")
     ref_screen_run_id = candidate_ref.get("screen_run_id")
+    ref_ticker = candidate_ref.get("ticker")
+    if not isinstance(ref_ticker, str) or not ref_ticker:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.candidate-ref-ticker",
+                message="candidate_ref.ticker is required",
+                location="candidate_ref.ticker",
+            )
+        )
+    elif ref_ticker != front_matter.get("ticker"):
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.candidate-ref-ticker",
+                message="candidate_ref.ticker must match research ticker",
+                location="candidate_ref.ticker",
+            )
+        )
+    ref_candidate_id = candidate_ref.get("candidate_id")
+    if not isinstance(ref_candidate_id, str) or not ref_candidate_id:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.candidate-ref-candidate-id",
+                message="candidate_ref.candidate_id is required",
+                location="candidate_ref.candidate_id",
+            )
+        )
     if not isinstance(ref_screen_run_id, str) or not ref_screen_run_id:
         findings.append(
             ValidationFinding(
@@ -945,7 +1017,10 @@ def _check_candidate_lineage(
                 severity="error",
                 target=path,
                 code="research.candidate-ref-match",
-                message="candidate_ref must match a candidate row by ticker and candidate_id",
+                message=(
+                    "candidate_ref must match a candidate row by ticker, "
+                    "candidate_id, and screen_run_id"
+                ),
                 location="candidate_ref",
             )
         )
@@ -1026,17 +1101,25 @@ def _candidate_row_for_front(
     document: Mapping[str, object],
 ) -> Mapping[str, object] | None:
     candidate_ref = as_mapping(front_matter.get("candidate_ref"))
-    ticker = candidate_ref.get("ticker") or front_matter.get("ticker")
+    ticker = candidate_ref.get("ticker")
     candidate_id = candidate_ref.get("candidate_id")
+    screen_run_id = candidate_ref.get("screen_run_id")
     candidates = document.get("candidates")
-    if not isinstance(candidates, list) or not isinstance(ticker, str):
+    if (
+        not isinstance(candidates, list)
+        or not isinstance(ticker, str)
+        or not isinstance(candidate_id, str)
+        or not isinstance(screen_run_id, str)
+    ):
         return None
     for candidate in candidates:
-        if not isinstance(candidate, Mapping) or candidate.get("ticker") != ticker:
-            continue
-        if isinstance(candidate_id, str) and candidate.get("candidate_id") != candidate_id:
-            continue
-        return candidate
+        if (
+            isinstance(candidate, Mapping)
+            and candidate.get("ticker") == ticker
+            and candidate.get("candidate_id") == candidate_id
+            and candidate.get("screen_run_id") == screen_run_id
+        ):
+            return candidate
     return None
 
 
@@ -1184,8 +1267,6 @@ def _load_candidate_hits(
     ref_value: object = (
         candidate_ref.get("candidates_ref") if isinstance(candidate_ref, Mapping) else None
     )
-    if not isinstance(ref_value, str):
-        ref_value = front_matter.get("candidates_ref")
     if not isinstance(ref_value, str) or not ref_value:
         return None
     candidate_path = _resolve_candidate_ref(path, ref_value)
@@ -1198,21 +1279,18 @@ def _load_candidate_hits(
     if not isinstance(loaded, Mapping):
         return None
     hits_by_id: dict[str, Mapping[str, Any]] = {}
-    candidates = loaded.get("candidates")
-    if not isinstance(candidates, list):
+    candidate = _candidate_row_for_front(front_matter, loaded)
+    if candidate is None:
         return hits_by_id
-    for candidate in candidates:
-        if not isinstance(candidate, Mapping):
+    hits = candidate.get("evidence_hits")
+    if not isinstance(hits, list):
+        return hits_by_id
+    for hit in hits:
+        if not isinstance(hit, Mapping):
             continue
-        hits = candidate.get("evidence_hits")
-        if not isinstance(hits, list):
-            continue
-        for hit in hits:
-            if not isinstance(hit, Mapping):
-                continue
-            hit_id = hit.get("evidence_hit_id")
-            if isinstance(hit_id, str) and hit_id:
-                hits_by_id[hit_id] = hit
+        hit_id = hit.get("evidence_hit_id")
+        if isinstance(hit_id, str) and hit_id:
+            hits_by_id[hit_id] = hit
     return hits_by_id
 
 
@@ -1277,33 +1355,33 @@ def _expected_evidence_counts(
     }
 
 
-def _resolve_record_ref(path: Path, ref: str) -> Path | None:
-    relative = Path(ref)
-    if relative.is_absolute():
-        return relative if relative.is_file() else None
-    for parent in (path.parent, *path.parents):
-        candidate = parent / relative
-        if candidate.is_file():
-            return candidate
-    candidate = repo_root_for(path) / relative
-    if candidate.is_file():
-        return candidate
-    return None
+def _resolve_record_ref(
+    path: Path,
+    ref: str,
+    *,
+    prefixes: tuple[str, ...],
+    suffixes: tuple[str, ...],
+) -> Path | None:
+    root = repo_root_for(path)
+    if repository_ref_error(ref, root=root) is not None:
+        return None
+    candidate = resolve_repository_ref(root, ref)
+    if not ref.startswith(prefixes) or candidate.suffix not in suffixes:
+        return None
+    return candidate if candidate.is_file() else None
 
 
 def _resolve_candidate_ref(path: Path, ref: str) -> Path | None:
-    relative = Path(ref)
-    if relative.is_absolute():
-        return relative if relative.is_file() else None
-    for parent in (path.parent, *path.parents):
-        candidate = parent / relative
-        if candidate.is_file():
-            return candidate
-    if _is_repository_research_record(path):
-        candidate = repo_root_for(path) / relative
-        if candidate.is_file():
-            return candidate
-    return None
+    root = repo_root_for(path)
+    if repository_ref_error(ref, root=root) is not None:
+        return None
+    candidate = resolve_repository_ref(root, ref)
+    if not ref.startswith("records/04-candidates/") or candidate.suffix not in {
+        ".yaml",
+        ".yml",
+    }:
+        return None
+    return candidate if candidate.is_file() else None
 
 
 def _expected_gate_effect(
@@ -1645,8 +1723,8 @@ def _remaining_cap(exposure: Mapping[str, Any], field: str) -> float | None:
 
 def _load_policy_payload(path: Path, front_matter: Mapping[str, object]) -> Mapping[str, Any]:
     try:
-        _policy_path, payload = load_snapshot_mapping(
-            repo_root_for(path), front_matter.get("policy_snapshot")
+        _policy_path, payload = load_reference_mapping(
+            repo_root_for(path), front_matter.get("policy_ref")
         )
         return payload
     except (OSError, ValueError, yaml.YAMLError):
@@ -1655,8 +1733,8 @@ def _load_policy_payload(path: Path, front_matter: Mapping[str, object]) -> Mapp
 
 def _load_portfolio_exposure(path: Path, front_matter: Mapping[str, object]) -> Mapping[str, Any]:
     try:
-        _snapshot_path, payload = load_snapshot_mapping(
-            repo_root_for(path), front_matter.get("portfolio_exposure_snapshot_ref")
+        _reference_path, payload = load_reference_mapping(
+            repo_root_for(path), front_matter.get("portfolio_exposure_ref")
         )
         return payload
     except (OSError, ValueError, yaml.YAMLError):
@@ -1827,8 +1905,6 @@ def _load_candidate_document(
     ref_value: object = (
         candidate_ref.get("candidates_ref") if isinstance(candidate_ref, Mapping) else None
     )
-    if not isinstance(ref_value, str):
-        ref_value = front_matter.get("candidates_ref")
     if not isinstance(ref_value, str) or not ref_value:
         return None
     candidate_path = _resolve_candidate_ref(path, ref_value)
@@ -1886,7 +1962,7 @@ def _check_approval_rules(
                         severity="error",
                         target=path,
                         code="research.approval-rule-active",
-                        message="approval_rule_id must reference an active immutable approval rule",
+                        message="approval_rule_id must reference an active approval rule",
                         location=f"research_evidence_hits[{index}].approval_rule_id",
                     )
                 )
@@ -1901,21 +1977,12 @@ def _approval_rule_active(
 ) -> bool:
     approved_dt = _parse_datetime(approved_at)
     record_dt = _parse_datetime(record_at)
-    changelog_events = _approval_rule_changelog_events(root)
     for path in sorted((root / "records/_approval-rules").glob("*.yaml")):
         try:
             raw = _load_yaml(path)
         except (OSError, yaml.YAMLError):
             continue
         if not isinstance(raw, Mapping):
-            continue
-        rel_path = path.relative_to(root).as_posix()
-        event_at = changelog_events.get(rel_path)
-        if event_at is None:
-            continue
-        if record_dt is not None and event_at > record_dt:
-            continue
-        if approved_dt is not None and event_at > approved_dt:
             continue
         rules = raw.get("rules")
         candidates = rules if isinstance(rules, list) else [raw]
@@ -1943,29 +2010,6 @@ def _approval_rule_active(
                     continue
             return True
     return False
-
-
-def _approval_rule_changelog_events(root: Path) -> dict[str, datetime]:
-    changelog = root / "records/_approval-rules/_changelog.jsonl"
-    events: dict[str, datetime] = {}
-    try:
-        lines = changelog.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return events
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(row, Mapping):
-            continue
-        snapshot_path = row.get("snapshot_path")
-        event_at = _parse_datetime(row.get("event_at"))
-        if isinstance(snapshot_path, str) and event_at is not None:
-            events[snapshot_path] = event_at
-    return events
 
 
 def _parse_datetime(value: object) -> datetime | None:
@@ -2039,35 +2083,178 @@ def _check_payoff(path: Path, front_matter: Mapping[str, object]) -> list[Valida
     return findings
 
 
-def _check_snapshot_refs(path: Path, front_matter: Mapping[str, object]) -> list[ValidationFinding]:
+def _check_reference_refs(
+    path: Path, front_matter: Mapping[str, object]
+) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
-    for field in ("playbook_snapshot", "policy_snapshot", "portfolio_exposure_snapshot_ref"):
-        value = front_matter.get(field)
-        if not isinstance(value, Mapping):
-            continue
-        ref = value.get("ref_path")
-        digest = value.get("content_sha256")
-        if not isinstance(ref, str) or not ref:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.snapshot-ref",
-                    message=f"{field}.ref_path is required",
-                    location=f"{field}.ref_path",
-                )
+    specs = {
+        "playbook_ref": (("records/_playbooks/",), (".md",)),
+        "policy_ref": (("records/01-policy/",), (".md",)),
+        "portfolio_exposure_ref": (("records/_portfolio-exposure/",), (".yaml", ".yml")),
+    }
+    for field, (prefixes, suffixes) in specs.items():
+        findings.extend(
+            _check_repository_ref(
+                path,
+                front_matter.get(field),
+                location=field,
+                code="research.reference-ref",
+                prefixes=prefixes,
+                suffixes=suffixes,
             )
-        if not isinstance(digest, str) or not re.match(r"^sha256:[0-9a-f]{64}$", digest):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.snapshot-hash",
-                    message=f"{field}.content_sha256 must be sha256:<64 hex chars>",
-                    location=f"{field}.content_sha256",
-                )
-            )
+        )
     return findings
+
+
+def _check_repository_ref(
+    path: Path,
+    value: object,
+    *,
+    location: str,
+    code: str,
+    prefixes: tuple[str, ...],
+    suffixes: tuple[str, ...],
+) -> list[ValidationFinding]:
+    if not isinstance(value, Mapping):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code=code,
+                message=f"{location} must be a repository ref mapping",
+                location=location,
+            )
+        ]
+    findings = _check_removed_hash_fields(path, value, location)
+    root = repo_root_for(path)
+    ref = value.get("ref_path")
+    error = repository_ref_error(ref, root=root)
+    if error is not None:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code=code,
+                message=error,
+                location=f"{location}.ref_path",
+            )
+        )
+        return findings
+    assert isinstance(ref, str)
+    ref_path = resolve_repository_ref(root, ref)
+    if not ref_path.is_file():
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code=code,
+                message=f"referenced file does not exist: {ref}",
+                location=f"{location}.ref_path",
+            )
+        )
+        return findings
+    if not ref.startswith(prefixes):
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code=code,
+                message=f"{location}.ref_path must point under {', '.join(prefixes)}",
+                location=f"{location}.ref_path",
+            )
+        )
+    if ref_path.suffix not in suffixes:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code=code,
+                message=f"{location}.ref_path must use suffix {', '.join(suffixes)}",
+                location=f"{location}.ref_path",
+            )
+        )
+        return findings
+    try:
+        if ref_path.suffix == ".md":
+            load_reference_mapping(root, value)
+        else:
+            loaded = yaml.safe_load(ref_path.read_text(encoding="utf-8"))
+            if not isinstance(loaded, Mapping):
+                raise ValueError("referenced YAML must be a mapping")
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code=code,
+                message=f"referenced file cannot be parsed: {exc}",
+                location=f"{location}.ref_path",
+            )
+        )
+    return findings
+
+
+def _check_removed_hash_fields(
+    path: Path,
+    value: Mapping[str, object],
+    location: str,
+) -> list[ValidationFinding]:
+    return [
+        ValidationFinding(
+            severity="error",
+            target=path,
+            code="research.removed-hash-field",
+            message=f"{field} is no longer allowed in repository links",
+            location=f"{location}.{field}",
+        )
+        for field in sorted(_REMOVED_HASH_FIELDS)
+        if field in value
+    ]
+
+
+def _check_removed_hash_fields_recursive(
+    path: Path, front_matter: Mapping[str, object]
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    for location, node in _walk_mappings(front_matter, prefix=None):
+        for field in sorted(_REMOVED_HASH_FIELDS):
+            if field in node:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="research.removed-hash-field",
+                        message=f"{field} is no longer allowed in research records",
+                        location=f"{location}.{field}" if location else field,
+                    )
+                )
+        for field in sorted(_REMOVED_REFERENCE_FIELDS):
+            if field in node:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="research.removed-reference-field",
+                        message=f"{field} has been replaced by repository reference fields",
+                        location=f"{location}.{field}" if location else field,
+                    )
+                )
+    return findings
+
+
+def _walk_mappings(
+    value: object, *, prefix: str | None
+) -> Iterable[tuple[str, Mapping[str, object]]]:
+    if isinstance(value, Mapping):
+        location = prefix or ""
+        yield location, value
+        for key, child in value.items():
+            child_prefix = f"{location}.{key}" if location else str(key)
+            yield from _walk_mappings(child, prefix=child_prefix)
+    elif isinstance(value, list):
+        location = prefix or ""
+        for index, child in enumerate(value):
+            yield from _walk_mappings(child, prefix=f"{location}[{index}]")
 
 
 def _number(value: object) -> float | None:

@@ -21,12 +21,11 @@ from baibai_loop.validate.candidates import (
 def _minimal_candidates() -> dict[str, object]:
     snapshot = {
         "ref_path": "records/_config/screening-rules/2026-05-01T000000+0900.yaml",
-        "content_sha256": "sha256:" + "1" * 64,
     }
     return {
-        "run_date": "2026-04-24",
-        "asof_date": "2026-04-24",
-        "universe_size": 100,
+        "run_date": "2026-05-01",
+        "asof_date": "2026-05-01",
+        "universe_size": 1347,
         "filters": {
             "min_market_cap_oku": 200,
             "min_avg_turnover_oku": 3.0,
@@ -34,19 +33,19 @@ def _minimal_candidates() -> dict[str, object]:
         },
         "generated_by": "screening-cli-v1",
         "data_sources": ["j-quants-light"],
-        "run_at": "2026-04-24T09:00:00+09:00",
-        "run_id": "screening-20260424",
-        "universe_snapshot_ref": {
+        "run_at": "2026-05-01T09:00:00+09:00",
+        "run_id": "screening-20260501",
+        "universe_ref": {
             **snapshot,
-            "ref_path": "records/_universe-snapshots/2026/04/2026-04-24.yaml",
+            "ref_path": "records/_universe-snapshots/2026/05/2026-05-01T192150+0900.yaml",
         },
         "candidates": [
             {
                 "ticker": "130A",
                 "name": "Sample Co",
-                "screen_run_id": "screening-20260424",
-                "candidate_id": "candidate-2026-04-24-130A",
-                "candidate_key": "screening-20260424:130A",
+                "screen_run_id": "screening-20260501",
+                "candidate_id": "candidate-2026-05-01-130A",
+                "candidate_key": "screening-20260501:130A",
                 "playbook_screen_result": "hit",
                 "policy_gate_result": "pass",
                 "liquidity_gate_result": "pass",
@@ -64,7 +63,7 @@ def _minimal_candidates() -> dict[str, object]:
                 },
                 "evidence_hits": [
                     {
-                        "evidence_hit_id": "candidate-2026-04-24-130A-valuation-reversion",
+                        "evidence_hit_id": "candidate-2026-05-01-130A-valuation-reversion",
                         "playbook_id": "valuation-reversion",
                         "claim_id": "130A-valuation-reversion",
                         "claim_type": "valuation_reversion",
@@ -101,7 +100,7 @@ class CandidatesValidationTests(unittest.TestCase):
 
     def test_invalid_run_id_pattern_is_flagged(self) -> None:
         payload = _minimal_candidates()
-        payload["run_id"] = "screening-20260424-XYZ"
+        payload["run_id"] = "screening-20260501-XYZ"
         path = self._write(payload)
         try:
             findings = validate_candidates_file(path)
@@ -116,7 +115,6 @@ class CandidatesValidationTests(unittest.TestCase):
         payload = _minimal_candidates()
         payload["screening_rules_snapshot"] = {
             "ref_path": "records/_config/screening-rules/2026-05-01T000000+0900.yaml",
-            "content_sha256": "sha256:" + "1" * 64,
         }
         path = self._write(payload)
         try:
@@ -127,6 +125,205 @@ class CandidatesValidationTests(unittest.TestCase):
         locations = {finding.location for finding in findings}
         self.assertIn("candidates.removed-root-field", codes)
         self.assertIn("screening_rules_snapshot", locations)
+
+    def test_nested_removed_hash_field_is_flagged(self) -> None:
+        payload = _minimal_candidates()
+        universe_ref = payload["universe_ref"]
+        assert isinstance(universe_ref, dict)
+        universe_ref["content_" + "sha256"] = "sha256:" + "0" * 64
+        path = self._write(payload)
+        try:
+            findings = validate_candidates_file(path)
+        finally:
+            path.unlink()
+        self.assertIn("candidates.removed-hash-field", {finding.code for finding in findings})
+
+    def test_nested_removed_reference_field_is_flagged(self) -> None:
+        payload = _minimal_candidates()
+        universe_ref = payload["universe_ref"]
+        assert isinstance(universe_ref, dict)
+        universe_ref["snapshot_path"] = "records/_universe-snapshots/2026/05/old.yaml"
+        path = self._write(payload)
+        try:
+            findings = validate_candidates_file(path)
+        finally:
+            path.unlink()
+        self.assertIn("candidates.removed-reference-field", {finding.code for finding in findings})
+
+    def test_missing_universe_ref_is_flagged(self) -> None:
+        payload = _minimal_candidates()
+        del payload["universe_ref"]
+        path = self._write(payload)
+        try:
+            findings = validate_candidates_file(path)
+        finally:
+            path.unlink()
+        self.assertIn("candidates.required", {finding.code for finding in findings})
+
+    def test_universe_ref_asof_mismatch_is_flagged(self) -> None:
+        payload = _minimal_candidates()
+        universe_ref = payload["universe_ref"]
+        assert isinstance(universe_ref, dict)
+        universe_ref["ref_path"] = "records/_universe-snapshots/2026/05/2026-05-08T111721+0900.yaml"
+        path = self._write(payload)
+        try:
+            findings = validate_candidates_file(path)
+        finally:
+            path.unlink()
+        self.assertIn("candidates.universe-ref", {finding.code for finding in findings})
+
+    def test_universe_ref_size_mismatch_is_flagged_for_non_canonical_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            universe = root / "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
+            universe.parent.mkdir(parents=True)
+            universe.write_text(
+                "snapshot_id: universe-20260501\n"
+                "as_of: '2026-05-01'\n"
+                "universe_size: 99\n"
+                "members_scope: not_recorded\n"
+                "members_recorded: 0\n"
+                "members: []\n",
+                encoding="utf-8",
+            )
+            payload = _minimal_candidates()
+            payload["universe_size"] = 100
+            universe_ref = payload["universe_ref"]
+            assert isinstance(universe_ref, dict)
+            universe_ref["ref_path"] = (
+                "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
+            )
+            path = root / "records/_benchmarks/domain-model/e2e-regeneration/run-candidates.yaml"
+            path.parent.mkdir(parents=True)
+            path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
+
+            findings = validate_candidates_file(path)
+
+        self.assertIn("candidates.universe-ref", {finding.code for finding in findings})
+
+    def test_canonical_universe_ref_requires_members_to_match_size(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            universe = root / "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
+            universe.parent.mkdir(parents=True)
+            universe.write_text(
+                "snapshot_id: universe-20260501\n"
+                "as_of: '2026-05-01'\n"
+                "universe_size: 100\n"
+                "members_scope: full_universe\n"
+                "members_recorded: 0\n"
+                "members: []\n",
+                encoding="utf-8",
+            )
+            payload = _minimal_candidates()
+            payload["universe_size"] = 100
+            universe_ref = payload["universe_ref"]
+            assert isinstance(universe_ref, dict)
+            universe_ref["ref_path"] = (
+                "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
+            )
+            path = root / "records/04-candidates/2026/05/2026-05-01.yaml"
+            path.parent.mkdir(parents=True)
+            path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
+
+            findings = validate_candidates_file(path)
+
+        self.assertIn("candidates.universe-ref", {finding.code for finding in findings})
+
+    def test_canonical_universe_ref_requires_candidate_ticker_member(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            universe = root / "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
+            universe.parent.mkdir(parents=True)
+            universe.write_text(
+                "snapshot_id: universe-20260501\n"
+                "as_of: '2026-05-01'\n"
+                "universe_size: 100\n"
+                "members_scope: full_universe\n"
+                "members_recorded: 100\n"
+                "members:\n"
+                + "\n".join(
+                    f"- ticker: '{index:04d}'\n  sector_33: 情報・通信業" for index in range(100)
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            payload = _minimal_candidates()
+            payload["universe_size"] = 100
+            universe_ref = payload["universe_ref"]
+            assert isinstance(universe_ref, dict)
+            universe_ref["ref_path"] = (
+                "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
+            )
+            path = root / "records/04-candidates/2026/05/2026-05-01.yaml"
+            path.parent.mkdir(parents=True)
+            path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
+
+            findings = validate_candidates_file(path)
+
+        self.assertIn("candidates.universe-ref", {finding.code for finding in findings})
+
+    def test_canonical_universe_ref_rejects_duplicate_member_tickers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            universe = root / "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
+            universe.parent.mkdir(parents=True)
+            universe.write_text(
+                "snapshot_id: universe-20260501\n"
+                "as_of: '2026-05-01'\n"
+                "universe_size: 2\n"
+                "members_scope: full_universe\n"
+                "members_recorded: 2\n"
+                "members:\n"
+                "- ticker: '130A'\n"
+                "  sector_33: 情報・通信業\n"
+                "- ticker: '130A'\n"
+                "  sector_33: 情報・通信業\n",
+                encoding="utf-8",
+            )
+            payload = _minimal_candidates()
+            payload["universe_size"] = 2
+            universe_ref = payload["universe_ref"]
+            assert isinstance(universe_ref, dict)
+            universe_ref["ref_path"] = (
+                "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
+            )
+            path = root / "records/04-candidates/2026/05/2026-05-01.yaml"
+            path.parent.mkdir(parents=True)
+            path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
+
+            findings = validate_candidates_file(path)
+
+        self.assertIn("candidates.universe-ref", {finding.code for finding in findings})
+
+    def test_canonical_universe_ref_rejects_unknown_members_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            universe = root / "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
+            universe.parent.mkdir(parents=True)
+            universe.write_text(
+                "snapshot_id: universe-20260501\n"
+                "as_of: '2026-05-01'\n"
+                "universe_size: 100\n"
+                "members_scope: partial\n"
+                "members_recorded: 0\n"
+                "members: []\n",
+                encoding="utf-8",
+            )
+            payload = _minimal_candidates()
+            payload["universe_size"] = 100
+            universe_ref = payload["universe_ref"]
+            assert isinstance(universe_ref, dict)
+            universe_ref["ref_path"] = (
+                "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
+            )
+            path = root / "records/04-candidates/2026/05/2026-05-01.yaml"
+            path.parent.mkdir(parents=True)
+            path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
+
+            findings = validate_candidates_file(path)
+
+        self.assertIn("candidates.universe-ref", {finding.code for finding in findings})
 
     def test_missing_required_candidates_field_is_flagged(self) -> None:
         payload = _minimal_candidates()
@@ -175,7 +372,7 @@ class CandidatesValidationTests(unittest.TestCase):
         assert isinstance(candidates, list)
         candidate_entry = candidates[0]
         assert isinstance(candidate_entry, dict)
-        candidate_entry["screen_run_id"] = "screening-20260424-deadbeef"
+        candidate_entry["screen_run_id"] = "screening-20260501-deadbeef"
         path = self._write(payload)
         try:
             codes = {finding.code for finding in validate_candidates_file(path)}
@@ -189,7 +386,7 @@ class CandidatesValidationTests(unittest.TestCase):
         assert isinstance(candidates, list)
         candidate_entry = candidates[0]
         assert isinstance(candidate_entry, dict)
-        candidate_entry["candidate_key"] = "screening-20260424:9999"
+        candidate_entry["candidate_key"] = "screening-20260501:9999"
         path = self._write(payload)
         try:
             codes = {finding.code for finding in validate_candidates_file(path)}
@@ -203,7 +400,7 @@ class CandidatesValidationTests(unittest.TestCase):
         assert isinstance(candidates, list)
         candidate_entry = candidates[0]
         assert isinstance(candidate_entry, dict)
-        candidate_entry["candidate_id"] = "candidate-screening-20260424-deadbeef-130A"
+        candidate_entry["candidate_id"] = "candidate-screening-20260501-deadbeef-130A"
         path = self._write(payload)
         try:
             codes = {finding.code for finding in validate_candidates_file(path)}

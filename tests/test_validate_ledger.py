@@ -57,6 +57,20 @@ def test_validate_ledger_missing_required_field_is_finding(tmp_path: Path) -> No
     assert "ledger.required" in {finding.code for finding in validate_ledger_file(path)}
 
 
+def test_validate_ledger_rejects_removed_reference_and_hash_fields(tmp_path: Path) -> None:
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
+    record = _decision_record(
+        policy_snapshot={"ref_path": "records/01-policy/2026/05/policy.md"},
+        row_sha256="sha256:bad",
+    )
+    _write_jsonl(path, record)
+
+    codes = {finding.code for finding in validate_ledger_file(path)}
+
+    assert "ledger.removed-reference-field" in codes
+    assert "ledger.removed-hash-field" in codes
+
+
 def test_validate_ledger_rejects_bad_decision_scope(tmp_path: Path) -> None:
     path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
     _write_jsonl(path, _decision_record(decision_scope="trade"))
@@ -104,6 +118,18 @@ def test_candidate_coverage_requires_decision_event_for_hit_candidate(tmp_path: 
     codes = {finding.code for finding in validate_ledger_file(path)}
 
     assert "ledger.candidate-decision-coverage" in codes
+
+
+def test_candidate_coverage_reports_invalid_candidates_yaml(tmp_path: Path) -> None:
+    candidates_path = tmp_path / "records/04-candidates/2026/05/2026-05-01.yaml"
+    candidates_path.parent.mkdir(parents=True)
+    candidates_path.write_text("[not a mapping]\n", encoding="utf-8")
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
+    _write_jsonl(path, _decision_record(ticker="2767"))
+
+    codes = {finding.code for finding in validate_ledger_file(path)}
+
+    assert "ledger.candidate-coverage-parse" in codes
 
 
 def test_not_reviewed_candidate_validation_reuses_candidate_document(
@@ -309,6 +335,57 @@ def test_candidate_ref_missing_candidates_ref_is_error(tmp_path: Path) -> None:
     codes = {finding.code for finding in validate_ledger_file(path)}
 
     assert "ledger.candidate-ref-missing" in codes
+
+
+def test_candidate_ref_rejects_absolute_path(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.yaml"
+    outside.write_text("run_id: screening-20260501\ncandidates: []\n", encoding="utf-8")
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
+    _write_jsonl(
+        path,
+        _decision_record(
+            decision_event_id="decision-20260501-9682-research",
+            decision_scope="research_memo",
+            ticker="9682",
+            candidate_decision="selected",
+            candidate_ref={
+                "candidates_ref": str(outside),
+                "candidate_id": "candidate-2026-05-01-9682",
+                "screen_run_id": "screening-20260501",
+                "ticker": "9682",
+            },
+        ),
+    )
+
+    codes = {finding.code for finding in validate_ledger_file(path)}
+
+    assert "ledger.candidate-ref-path" in codes
+
+
+def test_candidate_ref_rejects_wrong_target(tmp_path: Path) -> None:
+    wrong = tmp_path / "records/02-brief/2026/05/not-candidates.yaml"
+    wrong.parent.mkdir(parents=True)
+    wrong.write_text("run_id: screening-20260501\ncandidates: []\n", encoding="utf-8")
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
+    _write_jsonl(
+        path,
+        _decision_record(
+            decision_event_id="decision-20260501-9682-research",
+            decision_scope="research_memo",
+            ticker="9682",
+            candidate_decision="selected",
+            candidate_ref={
+                "candidates_ref": "records/02-brief/2026/05/not-candidates.yaml",
+                "candidate_id": "candidate-2026-05-01-9682",
+                "screen_run_id": "screening-20260501",
+                "ticker": "9682",
+            },
+        ),
+    )
+
+    codes = {finding.code for finding in validate_ledger_file(path)}
+
+    assert "ledger.candidate-ref-target" in codes
 
 
 def test_candidate_coverage_rejects_disabled_coverage(tmp_path: Path) -> None:

@@ -14,7 +14,7 @@ related_docs:
 
 `portfolio policy` は、自己運用における目的、制約、資本、許容リスク、time horizon、eligible universe、liquidity constraints、kill switch をまとめる統制文書です。CFA の IPS に近い考え方ですが、Baibai-Loop は投資助言サービスではなく、自己判断を後から検証するための audit discipline として使います。
 
-`policy snapshot` は research / trade / ledger に記録された、その判断時点の policy assumptions です。あとで policy が変わっても、当時の判断条件を再現できるようにします。
+`policy_ref` は research / trade / ledger に記録された、その判断時点の policy file link です。あとで policy が変わっても、当時の判断条件を git 履歴と repo 内 file path から確認できるようにします。
 
 ## Evidence Family
 

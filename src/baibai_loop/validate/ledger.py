@@ -10,9 +10,26 @@ from jsonschema import Draft202012Validator
 
 from baibai_loop.ledger.io import validate_decision_register_jsonl
 
+from .domain import repository_ref_error, resolve_repository_ref
 from .errors import ValidationFinding
 
 SCHEMA_ROOT = Path(__file__).resolve().parents[3] / "records" / "_schemas"
+_REMOVED_HASH_FIELDS = frozenset({"content_" + "sha256", "row_" + "sha256"})
+_REMOVED_REFERENCE_FIELDS = frozenset(
+    {
+        "playbook_snapshot",
+        "policy_snapshot",
+        "portfolio_exposure_snapshot_ref",
+        "calendars_snapshot",
+        "universe_snapshot_ref",
+        "input_snapshots",
+        "screening_rules_snapshot",
+        "metric_catalog_snapshot",
+        "cache_manifest_hash",
+        "snapshot_path",
+        "latest_snapshot",
+    }
+)
 
 
 def discover_ledger_files(root: Path) -> list[Path]:
@@ -69,6 +86,7 @@ def validate_ledger_file(path: Path) -> list[ValidationFinding]:
             )
             continue
         records.append(record)
+        findings.extend(_check_removed_reference_fields(path, line_number, record))
         for error in validator.iter_errors(record):
             findings.append(
                 ValidationFinding(
@@ -109,6 +127,45 @@ def validate_ledger_file(path: Path) -> list[ValidationFinding]:
                 )
             )
         findings.extend(_check_candidate_coverage_from_candidates(path, records))
+    return findings
+
+
+def _check_removed_reference_fields(
+    path: Path, line_number: int, value: object, *, prefix: str = ""
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            location = f"{prefix}.{key}" if prefix else str(key)
+            if key in _REMOVED_HASH_FIELDS:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="ledger.removed-hash-field",
+                        message=f"{key} is no longer allowed in repository references",
+                        location=f"line {line_number}.{location}",
+                    )
+                )
+            if key in _REMOVED_REFERENCE_FIELDS:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="ledger.removed-reference-field",
+                        message=f"{key} has been replaced by repository reference fields",
+                        location=f"line {line_number}.{location}",
+                    )
+                )
+            findings.extend(
+                _check_removed_reference_fields(path, line_number, child, prefix=location)
+            )
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            location = f"{prefix}[{index}]" if prefix else f"[{index}]"
+            findings.extend(
+                _check_removed_reference_fields(path, line_number, child, prefix=location)
+            )
     return findings
 
 
@@ -226,6 +283,27 @@ def _check_candidate_ref_lineage(
         return []
 
     findings = []
+    ref_ticker = candidate_ref.get("ticker")
+    if not isinstance(ref_ticker, str) or not ref_ticker:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-ticker",
+                message="candidate_ref.ticker is required",
+                location=f"line {line_number}.candidate_ref.ticker",
+            )
+        )
+    elif ref_ticker != record.get("ticker"):
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-ticker",
+                message="candidate_ref.ticker must match ledger row ticker",
+                location=f"line {line_number}.candidate_ref.ticker",
+            )
+        )
     ref_screen_run_id = candidate_ref.get("screen_run_id")
     document_run_id = document.get("run_id")
     if not isinstance(ref_screen_run_id, str) or not ref_screen_run_id:
@@ -268,6 +346,19 @@ def _check_candidate_ref_lineage(
                 code="ledger.candidate-ref-candidate-id",
                 message="candidate_ref.candidate_id must match candidate row candidate_id",
                 location=f"line {line_number}.candidate_ref.candidate_id",
+            )
+        )
+    elif candidate is None:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-match",
+                message=(
+                    "candidate_ref must match a candidate row by ticker, "
+                    "candidate_id, and screen_run_id"
+                ),
+                location=f"line {line_number}.candidate_ref",
             )
         )
 
@@ -326,7 +417,36 @@ def _candidate_ref_document_findings(
                 )
             ]
         )
-    candidate_path = root / candidates_ref
+    ref_error = repository_ref_error(candidates_ref, root=root)
+    if ref_error is not None:
+        candidate_document_cache[candidates_ref] = None
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-path",
+                message=ref_error,
+                location=f"line {line_number}.candidate_ref.candidates_ref",
+            )
+        ]
+    is_candidate_yaml = candidates_ref.startswith("records/04-candidates/") and Path(
+        candidates_ref
+    ).suffix in {".yaml", ".yml"}
+    if not is_candidate_yaml:
+        candidate_document_cache[candidates_ref] = None
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-target",
+                message=(
+                    "candidate_ref.candidates_ref must point under "
+                    "records/04-candidates/ and use YAML"
+                ),
+                location=f"line {line_number}.candidate_ref.candidates_ref",
+            )
+        ]
+    candidate_path = resolve_repository_ref(root, candidates_ref)
     try:
         raw = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -397,7 +517,12 @@ def _candidate_ref_document_and_row(
     candidates = document.get("candidates")
     if isinstance(candidates, list):
         for item in candidates:
-            if isinstance(item, dict) and item.get("ticker") == ticker:
+            if (
+                isinstance(item, dict)
+                and item.get("ticker") == ticker
+                and item.get("candidate_id") == candidate_ref.get("candidate_id")
+                and item.get("screen_run_id") == candidate_ref.get("screen_run_id")
+            ):
                 candidate = item
                 break
     return document, candidate
@@ -410,7 +535,16 @@ def _load_candidate_document(
 ) -> dict[str, Any] | None:
     if candidates_ref in cache:
         return cache[candidates_ref]
-    candidate_path = root / candidates_ref
+    if repository_ref_error(candidates_ref, root=root) is not None:
+        cache[candidates_ref] = None
+        return None
+    is_candidate_yaml = candidates_ref.startswith("records/04-candidates/") and Path(
+        candidates_ref
+    ).suffix in {".yaml", ".yml"}
+    if not is_candidate_yaml:
+        cache[candidates_ref] = None
+        return None
+    candidate_path = resolve_repository_ref(root, candidates_ref)
     try:
         document = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError):
@@ -434,11 +568,30 @@ def _check_candidate_coverage_from_candidates(
     covered = _covered_candidate_refs(records)
     findings: list[ValidationFinding] = []
     for candidate_path in sorted(candidates_root.rglob("*.yaml")):
+        location = str(candidate_path.relative_to(root))
         try:
             document = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError):
+        except (OSError, yaml.YAMLError) as exc:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="ledger.candidate-coverage-parse",
+                    message=f"failed to parse candidates file: {exc}",
+                    location=location,
+                )
+            )
             continue
         if not isinstance(document, dict):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="ledger.candidate-coverage-parse",
+                    message="candidates file must be a mapping",
+                    location=location,
+                )
+            )
             continue
         requires = document.get("requires_decision_coverage")
         if requires is False:
@@ -448,7 +601,7 @@ def _check_candidate_coverage_from_candidates(
                     target=path,
                     code="ledger.candidate-coverage-disabled",
                     message="candidate decision coverage must stay enabled for current records",
-                    location=str(candidate_path.relative_to(root)),
+                    location=location,
                 )
             )
             continue

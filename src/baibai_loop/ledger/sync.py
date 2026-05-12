@@ -56,8 +56,7 @@ def sync_ledger(
         outcome = str(research_decision.get("outcome") or "deferred")
         candidate_decision = _candidate_decision_from_research(outcome)
         candidate_ref = _mapping_or_none(front.get("candidate_ref"))
-        candidates_ref = str(front.get("candidates_ref") or "")
-        candidate = candidates_index.get(candidates_ref, {}).get(ticker, {})
+        candidate = _candidate_from_ref(candidates_index, candidate_ref)
         plus_15bd, plus_30bd = (
             resolve_tracking_prices(ticker, decision_event_at.date(), calendar, bars)
             if calendar and bars
@@ -78,11 +77,11 @@ def sync_ledger(
             trade_ref=None,
             decision_event_at=decision_event_at.isoformat(),
             playbook_id=playbook_id,
-            playbook_snapshot=dict(front["playbook_snapshot"])
-            if isinstance(front.get("playbook_snapshot"), Mapping)
+            playbook_ref=dict(front["playbook_ref"])
+            if isinstance(front.get("playbook_ref"), Mapping)
             else None,
-            policy_snapshot=dict(front["policy_snapshot"])
-            if isinstance(front.get("policy_snapshot"), Mapping)
+            policy_ref=dict(front["policy_ref"])
+            if isinstance(front.get("policy_ref"), Mapping)
             else None,
             baseline_price=_float_or_none(candidate.get("last_price"))
             or _float_or_none(candidate.get("baseline_price")),
@@ -123,8 +122,8 @@ def sync_ledger(
             research_ref=str(front.get("research_ref") or ""),
             trade_ref=str(path.relative_to(root)),
             decision_event_at=decision_event_at.isoformat(),
-            policy_snapshot=dict(front["policy_snapshot"])
-            if isinstance(front.get("policy_snapshot"), Mapping)
+            policy_ref=dict(front["policy_ref"])
+            if isinstance(front.get("policy_ref"), Mapping)
             else None,
             tracking=Tracking(mode="post_approval"),
         )
@@ -180,12 +179,13 @@ def _candidate_screen_records(
                 continue
             candidate_id = candidate.get("candidate_id")
             candidate_id_value = str(candidate_id) if isinstance(candidate_id, str) else ""
-            key = (candidates_ref, candidate_id_value, ticker)
+            candidate_screen_run_id = str(candidate.get("screen_run_id") or screen_run_id)
+            key = (candidates_ref, candidate_id_value, ticker, candidate_screen_run_id)
             if key in covered:
                 continue
             candidate_ref: dict[str, object] = {
                 "candidates_ref": candidates_ref,
-                "screen_run_id": str(candidate.get("screen_run_id") or screen_run_id),
+                "screen_run_id": candidate_screen_run_id,
                 "ticker": ticker,
             }
             if candidate_id_value:
@@ -294,6 +294,28 @@ def _load_candidates(root: Path) -> dict[str, dict[str, Mapping[str, Any]]]:
     return loaded
 
 
+def _candidate_from_ref(
+    candidates_index: dict[str, dict[str, Mapping[str, Any]]],
+    candidate_ref: Mapping[str, Any] | None,
+) -> Mapping[str, Any]:
+    if candidate_ref is None:
+        return {}
+    candidates_ref = candidate_ref.get("candidates_ref")
+    ticker = candidate_ref.get("ticker")
+    candidate_id = candidate_ref.get("candidate_id")
+    screen_run_id = candidate_ref.get("screen_run_id")
+    if not isinstance(candidates_ref, str) or not isinstance(ticker, str):
+        return {}
+    candidate = candidates_index.get(candidates_ref, {}).get(ticker, {})
+    if not candidate:
+        return {}
+    if isinstance(candidate_id, str) and candidate.get("candidate_id") != candidate_id:
+        return {}
+    if isinstance(screen_run_id, str) and candidate.get("screen_run_id") != screen_run_id:
+        return {}
+    return candidate
+
+
 def _decision_datetime(path: Path, front: Mapping[str, Any]) -> datetime:
     for key in ("recorded_at", "published_at"):
         value = front.get(key)
@@ -386,8 +408,8 @@ def _group_by_month(records: list[dict[str, Any]]) -> dict[str, list[dict[str, A
     return grouped
 
 
-def _covered_candidate_refs(records: list[dict[str, Any]]) -> set[tuple[str, str, str]]:
-    covered: set[tuple[str, str, str]] = set()
+def _covered_candidate_refs(records: list[dict[str, Any]]) -> set[tuple[str, str, str, str]]:
+    covered: set[tuple[str, str, str, str]] = set()
     for record in records:
         if record.get("decision_scope") not in {"candidate_screen", "research_memo"}:
             continue
@@ -399,11 +421,13 @@ def _covered_candidate_refs(records: list[dict[str, Any]]) -> set[tuple[str, str
         if not isinstance(candidates_ref, str) or not isinstance(ticker, str):
             continue
         candidate_id = candidate_ref.get("candidate_id")
+        screen_run_id = candidate_ref.get("screen_run_id")
         covered.add(
             (
                 candidates_ref,
                 str(candidate_id) if isinstance(candidate_id, str) else "",
                 ticker,
+                str(screen_run_id) if isinstance(screen_run_id, str) else "",
             )
         )
     return covered

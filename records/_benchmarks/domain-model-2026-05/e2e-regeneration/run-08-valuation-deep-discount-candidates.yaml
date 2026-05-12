@@ -14,19 +14,10 @@ data_sources:
 run_at: "2026-05-07T00:21:17.331660+09:00"
 run_id: "screening-20260501"
 requires_decision_coverage: true
-screening_rules_snapshot:
-  ref_path: records/_config/screening-rules/2026-05-01T000000+0900.yaml
-  content_sha256: "sha256:cc8e90ecf8e65f8cad0cbcb3a6ca68fd8ecca8d394009edf9b0b81f11d648b1a"
-metric_catalog_snapshot:
-  ref_path: records/_config/metric-catalog/2026-05-01T000000+0900.yaml
-  content_sha256: "sha256:885c23bfdcbed68f538aca3401b92dc8838d1d6f21c49e36e9c55c295a975206"
-policy_snapshot:
+policy_ref:
   ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
-  content_sha256: "sha256:49f20536a65f4e56091c93277215f640acd537a1a9ab032515e9df90c527e766"
-universe_snapshot_ref:
+universe_ref:
   ref_path: records/_universe-snapshots/2026/05/2026-05-01T192150+0900.yaml
-  content_sha256: "sha256:4970c273616712bea3b3fb177f02d11eb2f2fa053920c7e227dd67b8cc88c8ad"
-cache_manifest_hash: "ef8cb04d210809c3"
 candidates:
 - ticker: "1301"
   name: "極洋"

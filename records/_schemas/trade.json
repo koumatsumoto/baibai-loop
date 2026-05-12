@@ -8,10 +8,10 @@
     "trade_id",
     "ticker",
     "research_ref",
-    "policy_snapshot",
+    "policy_ref",
     "policy_applicability",
-    "calendars_snapshot",
-    "portfolio_exposure_snapshot_ref",
+    "calendar_refs",
+    "portfolio_exposure_ref",
     "position_state",
     "review_state",
     "trade_execution_state",
@@ -23,9 +23,20 @@
   "properties": {
     "trade_id": {"type": "string", "minLength": 1},
     "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
-    "research_ref": {"type": "string", "pattern": "^records/05-research/.*\\.md$"},
+    "research_ref": {"type": "string", "pattern": "^records/05-research/[^.][^\\n]*\\.md$"},
+    "policy_ref": {"$ref": "#/$defs/RepositoryRef"},
+    "portfolio_exposure_ref": {"$ref": "#/$defs/RepositoryRef"},
     "policy_applicability": {"enum": ["active"]},
-    "calendars_snapshot": {"type": "object"},
+    "calendar_refs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["business_days", "events", "corporate_actions"],
+      "properties": {
+        "business_days": {"$ref": "#/$defs/RepositoryRef"},
+        "events": {"$ref": "#/$defs/RepositoryRef"},
+        "corporate_actions": {"$ref": "#/$defs/RepositoryRef"}
+      }
+    },
     "position_state": {"enum": ["none", "open", "closed"]},
     "review_state": {"enum": ["not_due", "scheduled", "completed"]},
     "trade_execution_state": {
@@ -54,6 +65,24 @@
       "items": {"type": "object"}
     },
     "executions": {"type": "array"}
+  },
+  "$defs": {
+    "RepositoryRef": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["ref_path"],
+      "not": {
+        "anyOf": [
+          {"required": ["content_sha256"]},
+          {"required": ["row_sha256"]}
+        ]
+      },
+      "properties": {
+        "ref_path": {"type": "string", "minLength": 1, "pattern": "^records/[^\\n]*$"},
+        "effective_from": {"type": "string"},
+        "as_of": {"type": "string"}
+      }
+    }
   },
   "allOf": [
     {

@@ -8,10 +8,27 @@ from pathlib import Path
 
 import yaml
 
-from .domain import load_markdown_front_matter, resolve_ref
+from .candidates import validate_candidates_file
+from .domain import load_markdown_front_matter, resolve_repository_ref
 from .errors import ValidationFinding
 
 _VALID_LAYERS = {"L1", "L2", "L3a", "L3b", "L4", "L5"}
+_REMOVED_HASH_FIELDS = frozenset({"content_" + "sha256", "row_" + "sha256"})
+_REMOVED_REFERENCE_FIELDS = frozenset(
+    {
+        "playbook_snapshot",
+        "policy_snapshot",
+        "portfolio_exposure_snapshot_ref",
+        "calendars_snapshot",
+        "universe_snapshot_ref",
+        "input_snapshots",
+        "screening_rules_snapshot",
+        "metric_catalog_snapshot",
+        "cache_manifest_hash",
+        "snapshot_path",
+        "latest_snapshot",
+    }
+)
 _REQUIRED_FIXTURE_IDS = {
     "screening-raw-output-anchors",
     "gate-policy-orthogonal-fields",
@@ -142,6 +159,7 @@ def validate_benchmark_manifest_file(path: Path) -> list[ValidationFinding]:
             )
         ]
     findings: list[ValidationFinding] = []
+    findings.extend(_check_removed_reference_fields(path, raw))
     findings.extend(_check_required(path, raw))
     findings.extend(_check_layers(path, raw))
     findings.extend(_check_fixtures(path, raw))
@@ -149,12 +167,167 @@ def validate_benchmark_manifest_file(path: Path) -> list[ValidationFinding]:
     findings.extend(_check_required_fixture_ids(path, raw))
     findings.extend(_check_domain_fixture_contracts(path, raw))
     findings.extend(_check_business_invariants(path, raw))
+    findings.extend(_check_repository_refs(path, raw))
+    findings.extend(_check_candidate_fixtures(path))
     findings.extend(_check_fixture_expectations(path, raw))
     return findings
 
 
+def _check_removed_reference_fields(
+    path: Path, value: object, *, prefix: str = ""
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            location = f"{prefix}.{key}" if prefix else str(key)
+            if key in _REMOVED_HASH_FIELDS:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.removed-hash-field",
+                        f"{key} is no longer allowed in repository references",
+                        location,
+                    )
+                )
+            if key in _REMOVED_REFERENCE_FIELDS:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.removed-reference-field",
+                        f"{key} has been replaced by repository reference fields",
+                        location,
+                    )
+                )
+            findings.extend(_check_removed_reference_fields(path, child, prefix=location))
+    elif isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        for index, child in enumerate(value):
+            location = f"{prefix}[{index}]" if prefix else f"[{index}]"
+            findings.extend(_check_removed_reference_fields(path, child, prefix=location))
+    return findings
+
+
+def _check_repository_refs(path: Path, manifest: Mapping[str, object]) -> list[ValidationFinding]:
+    root = _repo_root(path)
+    findings: list[ValidationFinding] = []
+    input_specs = {
+        "policy": ("records/01-policy/", (".md",)),
+        "screening_rules": ("records/_config/screening-rules/", (".yaml", ".yml")),
+        "metric_catalog": ("records/_config/metric-catalog/", (".yaml", ".yml")),
+        "exposure_buckets": ("records/_config/exposure-buckets/", (".yaml", ".yml")),
+        "universe": ("records/_universe-snapshots/", (".yaml", ".yml")),
+        "portfolio_exposure": ("records/_portfolio-exposure/", (".yaml", ".yml")),
+    }
+    input_refs = manifest.get("input_refs")
+    if not isinstance(input_refs, Mapping):
+        findings.append(
+            _finding(path, "benchmark.input-ref", "input_refs must be a mapping", "input_refs")
+        )
+    else:
+        for key, (prefix, suffixes) in input_specs.items():
+            ref = input_refs.get(key)
+            if not isinstance(ref, Mapping):
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.input-ref",
+                        f"input_refs.{key} must be a repository ref mapping",
+                        f"input_refs.{key}",
+                    )
+                )
+                continue
+            findings.extend(
+                _check_repo_ref(
+                    path,
+                    root,
+                    ref.get("ref_path"),
+                    code="benchmark.input-ref",
+                    location=f"input_refs.{key}.ref_path",
+                    prefix=prefix,
+                    suffixes=suffixes,
+                )
+            )
+    playbook_refs = manifest.get("playbook_refs")
+    if playbook_refs is not None and not isinstance(playbook_refs, list):
+        findings.append(
+            _finding(
+                path,
+                "benchmark.playbook-ref",
+                "playbook_refs must be a list of repository ref mappings",
+                "playbook_refs",
+            )
+        )
+    elif isinstance(playbook_refs, list):
+        for index, ref in enumerate(playbook_refs):
+            if not isinstance(ref, Mapping):
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.playbook-ref",
+                        "playbook_refs entries must be repository ref mappings",
+                        f"playbook_refs[{index}]",
+                    )
+                )
+                continue
+            findings.extend(
+                _check_repo_ref(
+                    path,
+                    root,
+                    ref.get("ref_path"),
+                    code="benchmark.playbook-ref",
+                    location=f"playbook_refs[{index}].ref_path",
+                    prefix="records/_playbooks/",
+                    suffixes=(".md",),
+                )
+            )
+    return findings
+
+
+def _check_candidate_fixtures(path: Path) -> list[ValidationFinding]:
+    fixture_dir = path.parent / "e2e-regeneration"
+    if not fixture_dir.is_dir():
+        return []
+    findings: list[ValidationFinding] = []
+    for candidates_path in sorted(fixture_dir.glob("*candidates.yaml")):
+        findings.extend(validate_candidates_file(candidates_path))
+    return findings
+
+
+def _check_repo_ref(
+    path: Path,
+    root: Path,
+    ref: object,
+    *,
+    code: str,
+    location: str,
+    prefix: str,
+    suffixes: tuple[str, ...],
+) -> list[ValidationFinding]:
+    if not isinstance(ref, str):
+        return [_finding(path, code, "repository ref must include ref_path", location)]
+    try:
+        ref_path = resolve_repository_ref(root, ref)
+    except ValueError as exc:
+        return [_finding(path, code, str(exc), location)]
+    if not ref.startswith(prefix):
+        return [_finding(path, code, f"repository ref must point under {prefix}", location)]
+    if ref_path.suffix not in suffixes:
+        return [_finding(path, code, f"repository ref must use suffix {suffixes}", location)]
+    if not ref_path.is_file():
+        return [_finding(path, code, f"repository ref does not exist: {ref}", location)]
+    try:
+        if ref_path.suffix == ".md":
+            load_markdown_front_matter(ref_path)
+        else:
+            payload = yaml.safe_load(ref_path.read_text(encoding="utf-8"))
+            if not isinstance(payload, Mapping):
+                raise ValueError("repository ref YAML root must be a mapping")
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        return [_finding(path, code, f"repository ref cannot be parsed: {exc}", location)]
+    return []
+
+
 def _check_required(path: Path, manifest: Mapping[str, object]) -> list[ValidationFinding]:
-    required = ("benchmark_id", "manifest_version", "input_snapshots", "fixtures")
+    required = ("benchmark_id", "manifest_version", "input_refs", "fixtures")
     return [
         _finding(path, "benchmark.required", f"missing required manifest field: {field}", field)
         for field in required
@@ -386,8 +559,48 @@ def _check_fixture_expectations(
         scan_ref = binding.get("scan_ref")
         candidates_ref = binding.get("candidates_ref")
         runs_ref = binding.get("runs_ref")
+        for key, value in (
+            ("record_ref", record_ref),
+            ("scan_ref", scan_ref),
+            ("candidates_ref", candidates_ref),
+            ("runs_ref", runs_ref),
+        ):
+            if value is not None and not isinstance(value, str):
+                findings.append(
+                    _finding(
+                        path,
+                        f"benchmark.fixture-{key.replace('_', '-')}",
+                        f"fixture_binding.{key} must be a repository-relative string path",
+                        f"fixtures[{index}].fixture_binding.{key}",
+                    )
+                )
         if isinstance(record_ref, str):
-            record_path = resolve_ref(root, record_ref)
+            try:
+                record_path = resolve_repository_ref(root, record_ref)
+            except ValueError as exc:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-record-ref",
+                        str(exc),
+                        f"fixtures[{index}].fixture_binding.record_ref",
+                    )
+                )
+                continue
+            if not (
+                record_ref.startswith(("records/05-research/", "records/06-trades/"))
+                and record_path.suffix == ".md"
+            ):
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-record-ref",
+                        "fixture record_ref must point under records/05-research/ "
+                        "or records/06-trades/ and use .md",
+                        f"fixtures[{index}].fixture_binding.record_ref",
+                    )
+                )
+                continue
             if not record_path.is_file():
                 findings.append(
                     _finding(
@@ -412,7 +625,31 @@ def _check_fixture_expectations(
                 continue
             findings.extend(_check_record_expected(path, index, record, expected))
         if isinstance(scan_ref, str):
-            scan_path = resolve_ref(root, scan_ref)
+            try:
+                scan_path = resolve_repository_ref(root, scan_ref)
+            except ValueError as exc:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-scan-ref",
+                        str(exc),
+                        f"fixtures[{index}].fixture_binding.scan_ref",
+                    )
+                )
+                continue
+            if not scan_ref.startswith("records/07-reviews/") or scan_path.suffix not in {
+                ".yaml",
+                ".yml",
+            }:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-scan-ref",
+                        "fixture scan_ref must point under records/07-reviews/ and use YAML",
+                        f"fixtures[{index}].fixture_binding.scan_ref",
+                    )
+                )
+                continue
             if not scan_path.is_file():
                 findings.append(
                     _finding(
@@ -423,11 +660,58 @@ def _check_fixture_expectations(
                     )
                 )
                 continue
-            scan = yaml.safe_load(scan_path.read_text(encoding="utf-8"))
-            if isinstance(scan, Mapping):
-                findings.extend(_check_scan_expected(path, index, scan, expected))
+            try:
+                scan = yaml.safe_load(scan_path.read_text(encoding="utf-8"))
+            except (OSError, yaml.YAMLError) as exc:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-scan-parse",
+                        f"failed to parse fixture scan: {exc}",
+                        f"fixtures[{index}].fixture_binding.scan_ref",
+                    )
+                )
+                continue
+            if not isinstance(scan, Mapping):
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-scan-parse",
+                        "fixture scan YAML root must be a mapping",
+                        f"fixtures[{index}].fixture_binding.scan_ref",
+                    )
+                )
+                continue
+            findings.extend(_check_scan_expected(path, index, scan, expected))
         if isinstance(candidates_ref, str):
-            candidates_path = resolve_ref(root, candidates_ref)
+            try:
+                candidates_path = resolve_repository_ref(root, candidates_ref)
+            except ValueError as exc:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-candidates-ref",
+                        str(exc),
+                        f"fixtures[{index}].fixture_binding.candidates_ref",
+                    )
+                )
+                continue
+            if not candidates_ref.startswith(
+                "records/04-candidates/"
+            ) or candidates_path.suffix not in {
+                ".yaml",
+                ".yml",
+            }:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-candidates-ref",
+                        "fixture candidates_ref must point under records/04-candidates/ "
+                        "and use YAML",
+                        f"fixtures[{index}].fixture_binding.candidates_ref",
+                    )
+                )
+                continue
             if not candidates_path.is_file():
                 findings.append(
                     _finding(
@@ -438,11 +722,55 @@ def _check_fixture_expectations(
                     )
                 )
                 continue
-            candidates = yaml.safe_load(candidates_path.read_text(encoding="utf-8"))
-            if isinstance(candidates, Mapping):
-                findings.extend(_check_candidates_expected(path, index, candidates, expected))
+            try:
+                candidates = yaml.safe_load(candidates_path.read_text(encoding="utf-8"))
+            except (OSError, yaml.YAMLError) as exc:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-candidates-parse",
+                        f"failed to parse fixture candidates: {exc}",
+                        f"fixtures[{index}].fixture_binding.candidates_ref",
+                    )
+                )
+                continue
+            if not isinstance(candidates, Mapping):
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-candidates-parse",
+                        "fixture candidates YAML root must be a mapping",
+                        f"fixtures[{index}].fixture_binding.candidates_ref",
+                    )
+                )
+                continue
+            findings.extend(_check_candidates_expected(path, index, candidates, expected))
         if isinstance(runs_ref, str):
-            runs_path = resolve_ref(root, runs_ref)
+            try:
+                runs_path = resolve_repository_ref(root, runs_ref)
+            except ValueError as exc:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-runs-ref",
+                        str(exc),
+                        f"fixtures[{index}].fixture_binding.runs_ref",
+                    )
+                )
+                continue
+            if not runs_ref.startswith("records/_benchmarks/") or runs_path.suffix not in {
+                ".yaml",
+                ".yml",
+            }:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-runs-ref",
+                        "fixture runs_ref must point under records/_benchmarks/ and use YAML",
+                        f"fixtures[{index}].fixture_binding.runs_ref",
+                    )
+                )
+                continue
             if not runs_path.is_file():
                 findings.append(
                     _finding(
@@ -453,9 +781,29 @@ def _check_fixture_expectations(
                     )
                 )
                 continue
-            runs = yaml.safe_load(runs_path.read_text(encoding="utf-8"))
-            if isinstance(runs, Mapping):
-                findings.extend(_check_runs_expected(path, index, runs, expected))
+            try:
+                runs = yaml.safe_load(runs_path.read_text(encoding="utf-8"))
+            except (OSError, yaml.YAMLError) as exc:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-runs-parse",
+                        f"failed to parse fixture runs: {exc}",
+                        f"fixtures[{index}].fixture_binding.runs_ref",
+                    )
+                )
+                continue
+            if not isinstance(runs, Mapping):
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-runs-parse",
+                        "fixture runs YAML root must be a mapping",
+                        f"fixtures[{index}].fixture_binding.runs_ref",
+                    )
+                )
+                continue
+            findings.extend(_check_runs_expected(path, index, runs, expected))
     return findings
 
 
@@ -603,14 +951,38 @@ def _check_scan_expected(
             )
     if expected.get("joins_to_decision_event") is True:
         target_items = [scan_item] if isinstance(scan_item, Mapping) else as_list(scan.get("items"))
-        if not any(
-            isinstance(item, Mapping) and item.get("decision_event_id") for item in target_items
-        ):
+        decision_event_ids = [
+            str(item["decision_event_id"])
+            for item in target_items
+            if isinstance(item, Mapping)
+            and isinstance(item.get("decision_event_id"), str)
+            and item.get("decision_event_id")
+        ]
+        if not decision_event_ids:
             findings.append(
                 _finding(
                     path,
                     "benchmark.expected-decision-anchor",
                     "scan fixture item must contain decision_event_id",
+                    f"fixtures[{index}].expected.joins_to_decision_event",
+                )
+            )
+        event_ids, ledger_findings = _decision_event_ids(
+            _repo_root(path),
+            path,
+            f"fixtures[{index}].expected.joins_to_decision_event",
+        )
+        findings.extend(ledger_findings)
+        if ledger_findings:
+            return findings
+        if decision_event_ids and not any(
+            decision_id in event_ids for decision_id in decision_event_ids
+        ):
+            findings.append(
+                _finding(
+                    path,
+                    "benchmark.expected-decision-join",
+                    "scan fixture decision_event_id must join to the decision register",
                     f"fixtures[{index}].expected.joins_to_decision_event",
                 )
             )
@@ -659,6 +1031,26 @@ def as_list(value: object) -> list[object]:
     return value if isinstance(value, list) else []
 
 
+def _decision_event_ids(
+    root: Path, target: Path, location: str
+) -> tuple[set[str], list[ValidationFinding]]:
+    ids: set[str] = set()
+    findings: list[ValidationFinding] = []
+    for path in sorted((root / "records/_ledger/research-decisions").glob("*.jsonl")):
+        rows, row_findings = _load_decision_register_rows(
+            path,
+            target=target,
+            code="benchmark.decision-register-parse",
+            location=location,
+        )
+        findings.extend(row_findings)
+        for row in rows:
+            decision_event_id = row.get("decision_event_id")
+            if isinstance(decision_event_id, str):
+                ids.add(decision_event_id)
+    return ids, findings
+
+
 def _scan_item(scan: Mapping[str, object], scan_item_id: object) -> Mapping[str, object] | None:
     items = scan.get("items")
     if not isinstance(items, list):
@@ -679,7 +1071,10 @@ def _scan_candidate_playbook_result(path: Path, item: Mapping[str, object]) -> o
     ticker = candidate_ref.get("ticker")
     if not isinstance(candidates_ref, str) or not isinstance(ticker, str):
         return None
-    candidates_path = resolve_ref(_repo_root(path), candidates_ref)
+    try:
+        candidates_path = resolve_repository_ref(_repo_root(path), candidates_ref)
+    except ValueError:
+        return None
     if not candidates_path.is_file():
         return None
     candidates = yaml.safe_load(candidates_path.read_text(encoding="utf-8"))
@@ -861,8 +1256,34 @@ def _check_selected_research_coverage(
     ledger_ref = expected.get("ledger_ref")
     if not isinstance(ledger_ref, str):
         return []
-    ledger_path = resolve_ref(_repo_root(path), ledger_ref)
-    records = _load_decision_register_rows(ledger_path)
+    try:
+        ledger_path = resolve_repository_ref(_repo_root(path), ledger_ref)
+    except ValueError as exc:
+        return [
+            _finding(
+                path,
+                "benchmark.expected-ledger-ref",
+                str(exc),
+                f"fixtures[{index}].expected.ledger_ref",
+            )
+        ]
+    ref_findings = _check_jsonl_repository_ref(
+        path,
+        _repo_root(path),
+        ledger_ref,
+        code="benchmark.expected-ledger-ref",
+        location=f"fixtures[{index}].expected.ledger_ref",
+    )
+    if ref_findings:
+        return ref_findings
+    records, parse_findings = _load_decision_register_rows(
+        ledger_path,
+        target=path,
+        code="benchmark.expected-ledger-ref",
+        location=f"fixtures[{index}].expected.ledger_ref",
+    )
+    if parse_findings:
+        return parse_findings
     covered = {
         str(record.get("ticker"))
         for record in records
@@ -882,22 +1303,67 @@ def _check_selected_research_coverage(
     ]
 
 
-def _load_decision_register_rows(path: Path) -> list[Mapping[str, object]]:
+def _check_jsonl_repository_ref(
+    path: Path,
+    root: Path,
+    ref: str,
+    *,
+    code: str,
+    location: str,
+) -> list[ValidationFinding]:
+    try:
+        ref_path = resolve_repository_ref(root, ref)
+    except ValueError as exc:
+        return [_finding(path, code, str(exc), location)]
+    if not ref.startswith("records/_ledger/"):
+        return [_finding(path, code, "repository ref must point under records/_ledger/", location)]
+    if ref_path.suffix != ".jsonl":
+        return [_finding(path, code, "repository ref must use suffix .jsonl", location)]
+    if not ref_path.is_file():
+        return [_finding(path, code, f"repository ref does not exist: {ref}", location)]
+    return []
+
+
+def _load_decision_register_rows(
+    path: Path,
+    *,
+    target: Path,
+    code: str,
+    location: str,
+) -> tuple[list[Mapping[str, object]], list[ValidationFinding]]:
     rows: list[Mapping[str, object]] = []
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return rows
-    for line in lines:
+    except OSError as exc:
+        return rows, [_finding(target, code, f"failed to read decision register: {exc}", location)]
+    findings: list[ValidationFinding] = []
+    for line_no, line in enumerate(lines, start=1):
         if not line.strip():
             continue
         try:
             payload = json.loads(line)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            findings.append(
+                _finding(
+                    target,
+                    code,
+                    f"decision register JSONL parse failed at line {line_no}: {exc}",
+                    location,
+                )
+            )
             continue
-        if isinstance(payload, Mapping):
-            rows.append(payload)
-    return rows
+        if not isinstance(payload, Mapping):
+            findings.append(
+                _finding(
+                    target,
+                    code,
+                    f"decision register line {line_no} must be an object",
+                    location,
+                )
+            )
+            continue
+        rows.append(payload)
+    return rows, findings
 
 
 def _e2e_run(

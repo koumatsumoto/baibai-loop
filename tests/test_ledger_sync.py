@@ -49,16 +49,13 @@ def _seed(root: Path) -> None:
             "ticker": "2767",
             "name": "Sample",
             "playbook_id": "valuation-reversion",
-            "playbook_snapshot": {
+            "playbook_ref": {
                 "ref_path": "records/_playbooks/valuation-reversion/2026-05-01T000000+0900.md",
-                "content_sha256": "sha256:" + "1" * 64,
             },
-            "policy_snapshot": {
+            "policy_ref": {
                 "ref_path": "records/01-policy/2026/05/policy.md",
-                "content_sha256": "sha256:" + "2" * 64,
             },
             "research_decision": {"outcome": "approved", "posture": "act_now"},
-            "candidates_ref": str(candidates_path.relative_to(root)),
             "candidate_ref": {
                 "candidates_ref": str(candidates_path.relative_to(root)),
                 "screen_run_id": "screening-20260424",
@@ -96,9 +93,8 @@ def _seed_trade(root: Path) -> None:
             "ticker": "2767",
             "name": "Sample",
             "research_ref": "records/05-research/2026/04/2026-04-25-2767-valuation-reversion.md",
-            "policy_snapshot": {
+            "policy_ref": {
                 "ref_path": "records/01-policy/2026/05/policy.md",
-                "content_sha256": "sha256:" + "2" * 64,
             },
             "trade_execution_state": "submitted",
             "order_intent": {
@@ -150,6 +146,9 @@ def test_sync_ledger_writes_idempotent_decision_register(tmp_path: Path) -> None
     record = json.loads(lines[0])
     assert record["decision_event_id"] == "decision-20260425-2767-research"
     assert record["candidate_decision"] == "selected"
+    assert record["baseline_price"] == 1431.0
+    assert record["market_cap_oku"] == 936.0
+    assert record["avg_turnover_oku"] == 4.9
     assert record["tracking"] == {
         "mode": "post_approval",
         "plus_15bd": None,
@@ -248,6 +247,34 @@ def test_sync_ledger_adds_not_reviewed_candidate_screen_events(tmp_path: Path) -
         "ticker": "1111",
         "candidate_id": "candidate-2026-04-24-1111",
     }
+
+
+def test_sync_ledger_coverage_key_includes_screen_run_id(tmp_path: Path) -> None:
+    _seed(tmp_path)
+    research = tmp_path / "records/05-research/2026/04/2026-04-25-2767-valuation-reversion.md"
+    text = research.read_text(encoding="utf-8")
+    research.write_text(
+        text.replace("screen_run_id: screening-20260424", "screen_run_id: screening-other"),
+        encoding="utf-8",
+    )
+    candidates = tmp_path / "records/04-candidates/2026/04/2026-04-24.yaml"
+    document = yaml.safe_load(candidates.read_text(encoding="utf-8"))
+    document["run_id"] = "screening-20260424"
+    document["run_at"] = "2026-04-24T23:59:59+09:00"
+    document["requires_decision_coverage"] = True
+    row = document["candidates"][0]
+    row["playbook_screen_result"] = "hit"
+    row["policy_gate_result"] = "pass"
+    row["liquidity_gate_result"] = "pass"
+    row["macro_regime_gate_result"] = "pass"
+    candidates.write_text(yaml.safe_dump(document, allow_unicode=True, sort_keys=False))
+
+    result = sync_ledger(tmp_path)
+
+    assert result.decision_count == 2
+    register_path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
+    rows = [json.loads(line) for line in register_path.read_text(encoding="utf-8").splitlines()]
+    assert {row["decision_scope"] for row in rows} == {"research_memo", "candidate_screen"}
 
 
 def test_sync_ledger_adds_false_negative_scan_anchor_events(tmp_path: Path) -> None:

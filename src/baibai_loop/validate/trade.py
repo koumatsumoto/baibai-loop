@@ -16,10 +16,11 @@ from .domain import (
     as_list,
     as_mapping,
     load_markdown_front_matter,
-    load_snapshot_mapping,
+    load_reference_mapping,
     number,
     repo_root_for,
-    resolve_ref,
+    repository_ref_error,
+    resolve_repository_ref,
 )
 from .errors import ValidationFinding
 from .registry import evaluate_kill_switch, has_validator_callable
@@ -39,6 +40,23 @@ _REMOVED_FRONT_MATTER_FIELDS = {
     "_".join(("real", "order", "notional", "yen")),
     "_".join(("tactical", "capital", "yen")),
     "_".join(("tactical", "concentration", "pct")),
+    "_".join(("policy", "snapshot")),
+    "_".join(("portfolio", "exposure", "snapshot", "ref")),
+    "_".join(("calendars", "snapshot")),
+}
+_REMOVED_HASH_FIELDS = {"content_" + "sha256", "row_" + "sha256"}
+_REMOVED_REFERENCE_FIELDS = {
+    "playbook_snapshot",
+    "policy_snapshot",
+    "portfolio_exposure_snapshot_ref",
+    "calendars_snapshot",
+    "universe_snapshot_ref",
+    "input_snapshots",
+    "screening_rules_snapshot",
+    "metric_catalog_snapshot",
+    "cache_manifest_hash",
+    "snapshot_path",
+    "latest_snapshot",
 }
 _ORDER_STATES = {
     "submitted",
@@ -80,7 +98,9 @@ def validate_trade_file(path: Path) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
     findings.extend(_validate_schema(path, front))
     findings.extend(_check_removed_fields(path, front))
+    findings.extend(_check_removed_hash_fields_recursive(path, front))
     findings.extend(_check_policy_and_calendar_context(path, front))
+    findings.extend(_check_reference_refs(path, front))
     findings.extend(_check_ticker(path, front))
     findings.extend(_check_order_ready_shape(path, front))
     findings.extend(_check_research_approval(path, front))
@@ -183,58 +203,152 @@ def _check_policy_and_calendar_context(
                 location="policy_applicability",
             )
         )
-    findings.extend(_check_calendar_snapshot_block(path, front.get("calendars_snapshot")))
+    findings.extend(_check_calendar_refs_block(path, front.get("calendar_refs")))
     return findings
 
 
-def _check_calendar_snapshot_block(path: Path, value: object) -> list[ValidationFinding]:
+def _check_calendar_refs_block(path: Path, value: object) -> list[ValidationFinding]:
     if not isinstance(value, Mapping):
         return [
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.calendars-snapshot",
-                message="calendars_snapshot must pin business_days, events, and corporate_actions",
-                location="calendars_snapshot",
+                code="trade.calendar-refs",
+                message="calendar_refs must pin business_days, events, and corporate_actions",
+                location="calendar_refs",
             )
         ]
     findings: list[ValidationFinding] = []
-    for key in ("business_days", "events", "corporate_actions"):
+    specs = {
+        "business_days": ("records/_calendars/business-days/", (".yaml", ".yml")),
+        "events": ("records/_calendars/events/", (".yaml", ".yml")),
+        "corporate_actions": ("records/_calendars/corporate-actions/", (".yaml", ".yml")),
+    }
+    for key, (prefix, suffixes) in specs.items():
         item = value.get(key)
-        location = f"calendars_snapshot.{key}"
-        if not isinstance(item, Mapping):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="trade.calendars-snapshot",
-                    message=f"{location} must be a snapshot ref",
-                    location=location,
-                )
+        location = f"calendar_refs.{key}"
+        findings.extend(
+            _check_repository_ref(
+                path,
+                item,
+                location=location,
+                code="trade.calendar-ref",
+                prefixes=(prefix,),
+                suffixes=suffixes,
             )
-            continue
-        ref_path = item.get("ref_path")
-        digest = item.get("content_sha256")
-        if not isinstance(ref_path, str) or not ref_path:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="trade.calendars-snapshot-ref",
-                    message=f"{location}.ref_path is required",
-                    location=f"{location}.ref_path",
-                )
+        )
+    return findings
+
+
+def _check_reference_refs(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    specs = {
+        "research_ref": (("records/05-research/",), (".md",)),
+        "policy_ref": (("records/01-policy/",), (".md",)),
+        "portfolio_exposure_ref": (("records/_portfolio-exposure/",), (".yaml", ".yml")),
+    }
+    for field, (prefixes, suffixes) in specs.items():
+        value = front.get(field)
+        if isinstance(value, str):
+            value = {"ref_path": value}
+        findings.extend(
+            _check_repository_ref(
+                path,
+                value,
+                location=field,
+                code="trade.reference-ref",
+                prefixes=prefixes,
+                suffixes=suffixes,
             )
-        if not isinstance(digest, str) or not re.match(r"^sha256:[0-9a-f]{64}$", digest):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="trade.calendars-snapshot-hash",
-                    message=f"{location}.content_sha256 must be sha256:<64 lowercase hex>",
-                    location=f"{location}.content_sha256",
-                )
+        )
+    return findings
+
+
+def _check_repository_ref(
+    path: Path,
+    value: object,
+    *,
+    location: str,
+    code: str,
+    prefixes: tuple[str, ...],
+    suffixes: tuple[str, ...],
+) -> list[ValidationFinding]:
+    if not isinstance(value, Mapping):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code=code,
+                message=f"{location} must be a repository ref mapping",
+                location=location,
             )
+        ]
+    findings = _check_removed_hash_fields(path, value, location)
+    root = repo_root_for(path)
+    ref = value.get("ref_path")
+    error = repository_ref_error(ref, root=root)
+    if error is not None:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code=code,
+                message=error,
+                location=f"{location}.ref_path",
+            )
+        )
+        return findings
+    assert isinstance(ref, str)
+    ref_path = resolve_repository_ref(root, ref)
+    if not ref_path.is_file():
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code=code,
+                message=f"referenced file does not exist: {ref}",
+                location=f"{location}.ref_path",
+            )
+        )
+        return findings
+    if not ref.startswith(prefixes):
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code=code,
+                message=f"{location}.ref_path must point under {', '.join(prefixes)}",
+                location=f"{location}.ref_path",
+            )
+        )
+    if ref_path.suffix not in suffixes:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code=code,
+                message=f"{location}.ref_path must use suffix {', '.join(suffixes)}",
+                location=f"{location}.ref_path",
+            )
+        )
+        return findings
+    try:
+        if ref_path.suffix == ".md":
+            load_reference_mapping(root, value)
+        else:
+            loaded = yaml.safe_load(ref_path.read_text(encoding="utf-8"))
+            if not isinstance(loaded, Mapping):
+                raise ValueError("referenced YAML must be a mapping")
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code=code,
+                message=f"referenced file cannot be parsed: {exc}",
+                location=f"{location}.ref_path",
+            )
+        )
     return findings
 
 
@@ -378,7 +492,15 @@ def _check_research_approval(path: Path, front: Mapping[str, object]) -> list[Va
         return []
     research = _load_referenced_research(path, front)
     if research is None:
-        return []
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.research-ref-load",
+                message="trade records with execution intent require a readable research_ref",
+                location="research_ref",
+            )
+        ]
     decision = as_mapping(research.get("research_decision"))
     if decision.get("outcome") == "approved":
         return []
@@ -657,7 +779,11 @@ def _load_referenced_research(
     research_ref = front.get("research_ref")
     if not isinstance(research_ref, str):
         return None
-    research_path = resolve_ref(root, research_ref)
+    if repository_ref_error(research_ref, root=root) is not None:
+        return None
+    research_path = resolve_repository_ref(root, research_ref)
+    if not research_ref.startswith("records/05-research/") or research_path.suffix != ".md":
+        return None
     if not research_path.is_file():
         return None
     try:
@@ -669,9 +795,7 @@ def _load_referenced_research(
 
 def _load_policy(path: Path, front: Mapping[str, object]) -> Mapping[str, Any]:
     try:
-        _policy_path, payload = load_snapshot_mapping(
-            repo_root_for(path), front.get("policy_snapshot")
-        )
+        _policy_path, payload = load_reference_mapping(repo_root_for(path), front.get("policy_ref"))
         return payload
     except (OSError, ValueError, yaml.YAMLError):
         return {}
@@ -716,7 +840,7 @@ def _check_kill_switches(path: Path, front: Mapping[str, object]) -> list[Valida
                     target=path,
                     code="trade.kill-switch-callable",
                     message=f"kill switch has no validator implementation: {callable_id}",
-                    location=f"policy_snapshot.kill_switch.{key}.validator_callable_id",
+                    location=f"policy_ref.kill_switch.{key}.validator_callable_id",
                 )
             )
             continue
@@ -783,9 +907,9 @@ def _validator_configs(policy: Mapping[str, Any]) -> list[tuple[str, Mapping[str
 
 
 def _load_events_calendar(path: Path, front: Mapping[str, object]) -> Mapping[str, Any]:
-    calendars = as_mapping(front.get("calendars_snapshot"))
+    calendars = as_mapping(front.get("calendar_refs"))
     try:
-        _events_path, payload = load_snapshot_mapping(repo_root_for(path), calendars.get("events"))
+        _events_path, payload = load_reference_mapping(repo_root_for(path), calendars.get("events"))
         return payload
     except (OSError, ValueError, yaml.YAMLError):
         return {}
@@ -828,3 +952,66 @@ def _format_path(parts: Iterable[Any]) -> str:
             f"[{part}]" if isinstance(part, int) else f".{part}" if rendered else str(part)
         )
     return "".join(rendered)
+
+
+def _check_removed_hash_fields(
+    path: Path,
+    value: Mapping[str, object],
+    location: str,
+) -> list[ValidationFinding]:
+    return [
+        ValidationFinding(
+            severity="error",
+            target=path,
+            code="trade.removed-hash-field",
+            message=f"{field} is no longer allowed in repository links",
+            location=f"{location}.{field}",
+        )
+        for field in sorted(_REMOVED_HASH_FIELDS)
+        if field in value
+    ]
+
+
+def _check_removed_hash_fields_recursive(
+    path: Path, front: Mapping[str, object]
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    for location, node in _walk_mappings(front, prefix=None):
+        for field in sorted(_REMOVED_HASH_FIELDS):
+            if field in node:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="trade.removed-hash-field",
+                        message=f"{field} is no longer allowed in trade records",
+                        location=f"{location}.{field}" if location else field,
+                    )
+                )
+        for field in sorted(_REMOVED_REFERENCE_FIELDS):
+            if field in node:
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="trade.removed-reference-field",
+                        message=f"{field} has been replaced by repository reference fields",
+                        location=f"{location}.{field}" if location else field,
+                    )
+                )
+    return findings
+
+
+def _walk_mappings(
+    value: object, *, prefix: str | None
+) -> Iterable[tuple[str, Mapping[str, object]]]:
+    if isinstance(value, Mapping):
+        location = prefix or ""
+        yield location, value
+        for key, child in value.items():
+            child_prefix = f"{location}.{key}" if location else str(key)
+            yield from _walk_mappings(child, prefix=child_prefix)
+    elif isinstance(value, list):
+        location = prefix or ""
+        for index, child in enumerate(value):
+            yield from _walk_mappings(child, prefix=f"{location}[{index}]")

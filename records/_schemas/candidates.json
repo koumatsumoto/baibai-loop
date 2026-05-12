@@ -10,6 +10,7 @@
     "asof_date",
     "run_at",
     "run_id",
+    "universe_ref",
     "candidates"
   ],
   "properties": {
@@ -17,7 +18,7 @@
     "asof_date": {"type": "string"},
     "run_at": {"type": "string"},
     "run_id": {"type": "string", "pattern": "^screening-[0-9]{8}$"},
-    "universe_snapshot_ref": {"$ref": "#/$defs/SnapshotRef"},
+    "universe_ref": {"$ref": "#/$defs/RepositoryRef"},
     "candidates": {
       "type": "array",
       "items": {"$ref": "#/$defs/Candidate"}
@@ -28,13 +29,18 @@
     }
   },
   "$defs": {
-    "SnapshotRef": {
+    "RepositoryRef": {
       "type": "object",
       "additionalProperties": true,
       "required": ["ref_path"],
+      "not": {
+        "anyOf": [
+          {"required": ["content_sha256"]},
+          {"required": ["row_sha256"]}
+        ]
+      },
       "properties": {
-        "ref_path": {"type": "string", "minLength": 1},
-        "content_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "ref_path": {"type": "string", "minLength": 1, "pattern": "^records/[^\\n]*$"},
         "effective_from": {"type": "string"}
       }
     },

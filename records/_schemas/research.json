@@ -8,15 +8,17 @@
     "ticker",
     "name",
     "playbook_id",
-    "playbook_snapshot",
-    "policy_snapshot",
+    "playbook_ref",
+    "policy_ref",
+    "portfolio_exposure_ref",
     "policy_applicability",
-    "calendars_snapshot",
+    "calendar_refs",
     "research_decision",
     "candidate_ref",
     "macro_regime_gate",
     "candidate_evidence_decisions",
     "selected_supporting_evidence_refs",
+    "research_evidence_hits",
     "independent_evidence_count",
     "conviction_tier",
     "position_sizing_overlay",
@@ -25,8 +27,20 @@
   "properties": {
     "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
     "playbook_id": {"type": "string", "minLength": 1},
+    "playbook_ref": {"$ref": "#/$defs/RepositoryRef"},
+    "policy_ref": {"$ref": "#/$defs/RepositoryRef"},
+    "portfolio_exposure_ref": {"$ref": "#/$defs/RepositoryRef"},
     "policy_applicability": {"enum": ["active"]},
-    "calendars_snapshot": {"type": "object"},
+    "calendar_refs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["business_days", "events", "corporate_actions"],
+      "properties": {
+        "business_days": {"$ref": "#/$defs/RepositoryRef"},
+        "events": {"$ref": "#/$defs/RepositoryRef"},
+        "corporate_actions": {"$ref": "#/$defs/RepositoryRef"}
+      }
+    },
     "research_decision": {
       "type": "object",
       "required": ["outcome", "posture"],
@@ -54,5 +68,23 @@
       }
     },
     "thesis_payoff": {"type": "object"}
+  },
+  "$defs": {
+    "RepositoryRef": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["ref_path"],
+      "not": {
+        "anyOf": [
+          {"required": ["content_sha256"]},
+          {"required": ["row_sha256"]}
+        ]
+      },
+      "properties": {
+        "ref_path": {"type": "string", "minLength": 1, "pattern": "^records/[^\\n]*$"},
+        "effective_from": {"type": "string"},
+        "as_of": {"type": "string"}
+      }
+    }
   }
 }

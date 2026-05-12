@@ -80,7 +80,7 @@ Long-lived context は main lifecycle には含めません。Slow-moving contex
 - `portfolio policy` は目的、制約、資本、許容リスク、time horizon、eligible universe、kill switch を扱います。具体的な銘柄 thesis や entry / invalidation / exit は playbook / investment memo が扱います。
 - `brief` は fact layer です。一次情報、統計、イベントを記録し、解釈や因果推論を書きません。
 - `outlook` は analysis layer です。brief を source として macro / sector regime を読みます。
-- `candidates` は screen fact layer です。ticker-level の immutable raw screen output を残し、後続の current decision state は上書きしません。
+- `candidates` は screen fact layer です。ticker-level の pinned repository file を残し、後続の current decision state は上書きしません。
 - `records/_ledger/` は research decision と tracking event を append-only に記録する正本です。Candidate は screen fact、trades は execution record、reviews は attribution record として分けます。
 - `research` は investment memo です。Evidence count だけでなく、entry、target、stop、expected upside / downside、risk/reward、time horizon、invalidation conditions を検証します。
 - `trades` は execution record です。実際に order / entry した採用判断を扱い、発注しなかった採用・見送り・保留を trade と呼びません。

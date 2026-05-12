@@ -52,6 +52,29 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
 
         self.assertIn("benchmark.fixture-duplicate", {finding.code for finding in findings})
 
+    def test_rejects_removed_reference_and_hash_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "manifest.yaml"
+            path.write_text(
+                _manifest().replace(
+                    "input_refs: {}",
+                    "input_refs:\n"
+                    "  policy:\n"
+                    "    ref_path: records/01-policy/2026/05/policy.md\n"
+                    "    content_sha256: sha256:bad\n"
+                    "input_snapshots:\n"
+                    "  policy:\n"
+                    "    ref_path: records/01-policy/2026/05/policy.md",
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(path)
+
+        codes = {finding.code for finding in findings}
+        self.assertIn("benchmark.removed-reference-field", codes)
+        self.assertIn("benchmark.removed-hash-field", codes)
+
     def test_rejects_invalid_fixture_layer(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "manifest.yaml"
@@ -72,7 +95,7 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
                     """\
                     benchmark_id: test
                     manifest_version: 1
-                    input_snapshots: {}
+                    input_refs: {}
                     layers:
                     - layer_id: L1
                       merge_blocker: true
@@ -130,6 +153,58 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
 
         self.assertIn("benchmark.expected-outcome", {finding.code for finding in findings})
 
+    def test_rejects_fixture_candidates_wrong_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            wrong = root / "records/01-policy/2026/05/policy.yaml"
+            wrong.parent.mkdir(parents=True)
+            wrong.write_text("policy_id: test\n", encoding="utf-8")
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    candidates_ref="records/01-policy/2026/05/policy.yaml",
+                    expected={},
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.fixture-candidates-ref", {finding.code for finding in findings})
+
+    def test_rejects_non_string_fixture_ref(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    candidates_ref="{ref_path: records/06-trades/x.md}",
+                    expected={},
+                ).replace(
+                    "    candidates_ref: {ref_path: records/06-trades/x.md}",
+                    "    candidates_ref:\n      ref_path: records/06-trades/x.md",
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.fixture-candidates-ref", {finding.code for finding in findings})
+
+    def test_rejects_non_list_playbook_refs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "manifest.yaml"
+            path.write_text(
+                _manifest() + "playbook_refs: records/_playbooks/test.md\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(path)
+
+        self.assertIn("benchmark.playbook-ref", {finding.code for finding in findings})
+
     def test_rejects_trade_expected_quantity_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -184,6 +259,149 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
             findings = validate_benchmark_manifest_file(manifest)
 
         self.assertIn("benchmark.expected-decision-anchor", {finding.code for finding in findings})
+
+    def test_rejects_scan_decision_event_without_ledger_join(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            scan = root / "records/07-reviews/screening-false-negative-scan/2026-05.yaml"
+            scan.parent.mkdir(parents=True)
+            scan.write_text(
+                "start_price_basis: candidate_run_close_adjusted_close\n"
+                "items:\n"
+                "- scan_item_id: stale-anchor\n"
+                "  ticker: '9999'\n"
+                "  decision_event_id: decision-missing\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    scan_ref="records/07-reviews/screening-false-negative-scan/2026-05.yaml",
+                    expected={
+                        "scan_item_id": "stale-anchor",
+                        "joins_to_decision_event": True,
+                    },
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.expected-decision-join", {finding.code for finding in findings})
+
+    def test_rejects_non_mapping_scan_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            scan = root / "records/07-reviews/screening-false-negative-scan/2026-05.yaml"
+            scan.parent.mkdir(parents=True)
+            scan.write_text("- not-a-mapping\n", encoding="utf-8")
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    scan_ref="records/07-reviews/screening-false-negative-scan/2026-05.yaml",
+                    expected={},
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.fixture-scan-parse", {finding.code for finding in findings})
+
+    def test_rejects_non_mapping_candidates_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            candidates = (
+                root / "records/_benchmarks/domain-model/e2e-regeneration/run-candidates.yaml"
+            )
+            candidates.parent.mkdir(parents=True)
+            candidates.write_text("- not-a-mapping\n", encoding="utf-8")
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(_manifest(), encoding="utf-8")
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("candidates.non-mapping", {finding.code for finding in findings})
+
+    def test_rejects_non_mapping_input_ref_yaml(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            policy = root / "records/01-policy/2026/05/policy.yaml"
+            policy.parent.mkdir(parents=True)
+            policy.write_text("- not-a-mapping\n", encoding="utf-8")
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest().replace(
+                    "input_refs: {}",
+                    "input_refs:\n  policy:\n    ref_path: records/01-policy/2026/05/policy.yaml",
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.input-ref", {finding.code for finding in findings})
+
+    def test_rejects_candidate_fixture_universe_size_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            universe = root / "records/_universe-snapshots/2026/05/benchmark-universe.yaml"
+            universe.parent.mkdir(parents=True)
+            universe.write_text(
+                "snapshot_id: universe-20260501\n"
+                "as_of: '2026-05-01'\n"
+                "universe_size: 99\n"
+                "members_scope: not_recorded\n"
+                "members_recorded: 0\n"
+                "members: []\n",
+                encoding="utf-8",
+            )
+            candidates = (
+                root / "records/_benchmarks/domain-model/e2e-regeneration/run-candidates.yaml"
+            )
+            candidates.parent.mkdir(parents=True, exist_ok=True)
+            candidates.write_text(
+                "run_date: '2026-05-01'\n"
+                "asof_date: '2026-05-01'\n"
+                "run_at: '2026-05-01T09:00:00+09:00'\n"
+                "run_id: screening-20260501\n"
+                "universe_size: 100\n"
+                "universe_ref:\n"
+                "  ref_path: records/_universe-snapshots/2026/05/benchmark-universe.yaml\n"
+                "candidates: []\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(_manifest(), encoding="utf-8")
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("candidates.universe-ref", {finding.code for finding in findings})
+
+    def test_rejects_non_mapping_runs_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            runs = root / "records/_benchmarks/domain-model/e2e/runs.yaml"
+            runs.parent.mkdir(parents=True)
+            runs.write_text("- not-a-mapping\n", encoding="utf-8")
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    runs_ref="records/_benchmarks/domain-model/e2e/runs.yaml",
+                    expected={},
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.fixture-runs-parse", {finding.code for finding in findings})
 
     def test_rejects_e2e_selected_ticker_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -347,6 +565,71 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
             {finding.code for finding in findings},
         )
 
+    def test_rejects_selected_research_coverage_bad_ledger_ref(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            runs = root / "records/_benchmarks/domain-model/e2e/runs.yaml"
+            runs.parent.mkdir(parents=True, exist_ok=True)
+            runs.write_text(
+                "runs:\n"
+                "- run_id: run-01-baseline\n"
+                "  screening_status: partial_quality_warning\n"
+                "  selected_tickers: []\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    runs_ref="records/_benchmarks/domain-model/e2e/runs.yaml",
+                    expected={
+                        "selected_research_coverage": {
+                            "run_id": "run-01-baseline",
+                            "ledger_ref": "records/05-research/not-ledger.yaml",
+                        }
+                    },
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.expected-ledger-ref", {finding.code for finding in findings})
+
+    def test_rejects_selected_research_coverage_invalid_ledger_jsonl(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            runs = root / "records/_benchmarks/domain-model/e2e/runs.yaml"
+            runs.parent.mkdir(parents=True, exist_ok=True)
+            runs.write_text(
+                "runs:\n"
+                "- run_id: run-01-baseline\n"
+                "  screening_status: partial_quality_warning\n"
+                "  selected_tickers: []\n",
+                encoding="utf-8",
+            )
+            ledger = root / "records/_ledger/research-decisions/2026-05.jsonl"
+            ledger.parent.mkdir(parents=True, exist_ok=True)
+            ledger.write_text("{broken\n", encoding="utf-8")
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    runs_ref="records/_benchmarks/domain-model/e2e/runs.yaml",
+                    expected={
+                        "selected_research_coverage": {
+                            "run_id": "run-01-baseline",
+                            "ledger_ref": "records/_ledger/research-decisions/2026-05.jsonl",
+                        }
+                    },
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.expected-ledger-ref", {finding.code for finding in findings})
+
 
 def _manifest() -> str:
     return (
@@ -354,7 +637,7 @@ def _manifest() -> str:
             """\
         benchmark_id: test
         manifest_version: 1
-        input_snapshots: {}
+        input_refs: {}
         layers:
         - layer_id: L1
           merge_blocker: true
@@ -407,7 +690,7 @@ def _manifest_with_expected(
     return (
         "benchmark_id: test\n"
         "manifest_version: 1\n"
-        "input_snapshots: {}\n"
+        "input_refs: {}\n"
         "layers:\n"
         "- layer_id: L1\n"
         "  merge_blocker: true\n"
