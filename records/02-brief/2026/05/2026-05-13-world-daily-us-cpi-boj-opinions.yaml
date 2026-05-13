@@ -1,0 +1,73 @@
+schema_version: 1
+kind: world-daily
+type: periodic
+scope: world
+ai_draft: true
+published_at: "2026-05-13T08:50:00+09:00"
+observation_date: "2026-05-13"
+references:
+  prev_period: null
+  latest_weekly: records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-nikkei-wti.yaml
+  latest_daily: records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
+  latest_monthly: records/02-brief/2026/03/2026-03-macro-monthly-us-cpi-3p3.yaml
+sources:
+  - id: bls-cpi-apr
+    name: BLS Consumer Price Index April 2026
+    url: https://www.bls.gov/news.release/archives/cpi_05122026.htm
+    accessed_at: "2026-05-13"
+    status: ok
+  - id: boj-opinion-apr
+    name: 日本銀行 金融政策決定会合における主な意見 2026年4月27、28日開催分
+    url: https://www.boj.or.jp/mopo/mpmsche_minu/opinion_2026/opi260428.pdf
+    accessed_at: "2026-05-13"
+    status: ok
+  - id: boj-mpm-schedule
+    name: 日本銀行 金融政策決定会合の運営
+    url: https://www.boj.or.jp/mopo/mpmsche_minu/index.htm
+    accessed_at: "2026-05-13"
+    status: ok
+layers:
+  world:
+    monthly_statistics:
+      - name: 米 CPI-U all items
+        value: "+0.6% MoM SA / +3.8% YoY NSA"
+        previous: "+0.9% MoM SA / +3.3% YoY NSA (2026-03)"
+        release_date: "2026-05-12"
+        source_ids: [bls-cpi-apr]
+      - name: 米 CPI-U all items less food and energy
+        value: "+0.4% MoM SA / +2.8% YoY NSA"
+        previous: "+2.6% YoY NSA (2026-03)"
+        release_date: "2026-05-12"
+        source_ids: [bls-cpi-apr]
+      - name: 米 CPI energy index
+        value: "+3.8% MoM SA / +17.9% YoY NSA"
+        previous: null
+        release_date: "2026-05-12"
+        source_ids: [bls-cpi-apr]
+      - name: 米 CPI food index
+        value: "+0.5% MoM SA / +3.2% YoY NSA"
+        previous: null
+        release_date: "2026-05-12"
+        source_ids: [bls-cpi-apr]
+    events: []
+  japan:
+    events:
+      - date: "2026-05-12"
+        text: "日銀が 2026-04-27 〜 28 会合の『主な意見』を公表"
+        source_ids: [boj-opinion-apr]
+      - date: "2026-06-19"
+        text: "日銀 2026-04-27 〜 28 会合の議事要旨公表予定"
+        source_ids: [boj-mpm-schedule]
+  japan_equity:
+    events: []
+next_events:
+  - date: "2026-06-10"
+    text: "BLS May 2026 CPI release scheduled for 08:30 ET"
+    source_ids: [bls-cpi-apr]
+  - date: "2026-06-15 〜 16"
+    text: "日銀 金融政策決定会合"
+    source_ids: [boj-mpm-schedule]
+  - date: "2026-06-19"
+    text: "日銀 2026-04-27 〜 28 会合の議事要旨公表予定"
+    source_ids: [boj-mpm-schedule]
+notes: "本 daily brief は 2026-05-10 world-weekly 後に公表された米 CPI と日銀『主な意見』の事実追記。解釈・銘柄判断は outlook / research 側に置く。"
