@@ -55,8 +55,13 @@ candidates:
     ev_ebitda: 4.8 | null
     p_s: 0.6 | null
     pcfr: 5.1 | null
+    price_change_1d: -0.018
+    price_change_5d: -0.082
+    price_change_20d: -0.118
     price_change_60d: -0.155
-    price_change_4w: -0.072
+    price_change_4w: -0.118
+    gap_from_52w_low: 0.07
+    turnover_spike_5d: 2.4
     sector_relative_strength_percentile: 0.35
     metrics:
       sales_ttm: 100000000000.0
@@ -155,7 +160,9 @@ evidence_hits_summary:
 - `evidence_hits[].metrics`: screen hit の判定に直接使った値。valuation は `condition_a_metric` などの flat key、cash / CF / sales は lane 固有 key で記録する
 - `ttm_quality`: `EV/EBITDA` / `P/S` / `PCFR` / `OCF yield` / `sales` / `FCF yield` / `net cash` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - `market_cap_oku` / `avg_turnover_oku`: research の position size と流動性確認で使う。universe 閾値は `market_cap_oku >= 100` かつ `avg_turnover_oku >= 1.0`
-- `price_change_60d` / `price_change_4w`: split 影響を排除するため adjustment_close ベースで算出
+- `price_change_1d` / `price_change_5d` / `price_change_20d` / `price_change_60d` / `price_change_4w`: split 影響を排除するため adjustment_close ベースで算出。`price_change_4w` は legacy alias で、短期 dislocation 判定では `price_change_20d` を正本にする
+- `gap_from_52w_low`: asof 以前 252 営業日（履歴が短い場合は取得済み範囲）の adjustment_close 安値からの距離。0 に近いほど直近安値圏
+- `turnover_spike_5d`: 直近 5 営業日の平均売買代金 ÷ その前 20 営業日の平均売買代金。1.0 が通常水準で、1.5 以上は出来高を伴う売られ方として扱う
 - `split_adjustment_flag`: `price_change_60d` と同じ window 内に J-Quants `AdjustmentFactor` が株式分割 / 株式併合の調整を示した場合に `true`
 - `freshness_warnings`: EDINET CSV-derived metrics の提出日以降、候補 `asof_date` までに任意の disclosure title cache (`.cache/screening/disclosures/**/*.json`) から M&A / 借入 / 社債 / 自己株買い / 設備投資 / 増資 / 減資 / 資本業務提携系の title keyword hit が見つかった場合に出す。同日開示は時刻順を判定できないため保守的に warning 対象に含める。`stale_metric: edinet_metrics` は net cash だけでなく cash / debt / EV / equity / share count / FCF など EDINET-derived metrics 全体の再確認が必要であることを示す。cache が無い場合は provider_status_lines で optional unavailable として明示する
 - `sector_relative_strength_percentile`: **sector 単位の percentile**。銘柄個別の同業種内相対強度ではない
@@ -192,8 +199,13 @@ candidates YAML は `run_id`、`universe_ref`、candidate-level の metric / sou
 - `records/05-research/` の front matter `candidate_ref.candidates_ref` で本ファイルを参照する。`candidate_ref` は `candidates_ref` / `ticker` / `candidate_id` / `screen_run_id` の完全な join key として扱い、research validator が候補ファイル root `run_id` と候補 row の `screen_run_id` / `candidate_id` / `ticker` を照合する
 - 選定プロセス: 最新 `records/04-candidates/` と最新 `records/03-outlook/` を突き合わせ、`outlook` で supportive/neutral の業種/地域の ticker を候補に残す（adverse 除外）
 - 複数 screen hit が重なる候補は research 優先度を上げるが、単一総合 score は作らない
-- `select` は lane 別の primary metric と macro status を使って research triage を支援する。hit 数と時価総額だけでは並べない
-- `select` output には `lane_toplists`、`ranked_candidates`、research 着手候補として lane 分散した `candidates` が含まれる。`ranked_candidates` は macro + lane rank + evidence strength のグローバル順位、`candidates` は `output.research_selection_lane_order` に沿って各 lane の上位を重複排除した推奨リスト。`candidates[].recommendation_lane` は lane 分散でその候補を拾った枠、`candidates[].selection_lane` は primary thesis として優先確認する screen。複数 hit 銘柄では両者が異なることがある。`candidates` の件数は CLI `--top` と `output.research_selection_target_max` の小さい方、lane 別件数は `records/_config/screening-rules/2026-05-01T000000+0900.yaml` の `output.lane_toplist_limit` で管理する
+- `select` は lane 別の primary metric、macro status、短期 dislocation、long-hold survivability、過去 research decision を使って research triage を支援する。hit 数と時価総額だけでは並べない
+- `select` output は `queues` と `selection.diagnostics` を正本にする。主な queue は `recommended_research_queue`、`core_value_queue`、`fast_dislocation_queue`、`long_hold_survivability_queue`、`deferred_revisit_queue`、`suppressed_queue`
+- `recommended_research_queue` は research 着手候補。`fast_dislocation_queue` は短期下落と fundamental guard を同時に満たす候補、`core_value_queue` は従来の lane 分散候補、`long_hold_survivability_queue` は短期 thesis が外れた場合にも保有耐性を確認しやすい候補。recommended は sector / lane / queue / previous-candidate cap で、fast-dislocation 一色や過去候補への寄り過ぎを抑える
+- `ranked_candidates` は macro + lane rank + evidence strength のグローバル順位、`lane_toplists` は lane 別上位。research 着手候補の正本は `queues.recommended_research_queue`
+- 各 candidate の `lenses.fast_dislocation` は `price_triggers`、`auxiliary_triggers`、fundamental guard を分けて記録する。急落だけでは eligible にならず、出来高 spike / 52 週安値距離だけでも eligible にならない。fundamental guard は cash-flow / balance-sheet / profitability の family 数も記録し、OCF+FCF だけのような同一 family 重複では財務健全性の十分な裏付けとしない。`freshness_warnings` がある場合、fast confidence は最大 `medium` となり `data_status: stale_fundamental_metrics` を出す。`lenses.long_hold_survivability` は `high|medium|low|unknown` と理由を記録する。`lenses.shareholder_return` は現時点で自動データがなければ `unknown`、`lenses.ai_exposure` は sector proxy の annotation であり採用根拠・sizing 根拠にはしない
+- `prior_research` は ledger から付与する。`deferred` かつ `revisit_after > asof`、または conservative に `deferred` なのに `revisit_after` が無い候補は通常 recommendation から外し、`deferred_revisit_queue` / `suppressed_queue` に出す
+- `select-sweep` は同じ candidates / outlook に複数 selection profile を当て、`strict` / `balanced` / `loose` や任意 YAML profile の閾値を比較する。`recommended[]` には ticker だけでなく recommendation lane、fast confidence、guard count/family count、fast data status、long-hold rating を出し、profile 間の added / removed / changed を見て運用 profile を選ぶ
 - `selected` という語は `select` output の research triage queue だけを指す。raw candidates の row flag ではなく、research approval でも order ready でもない。段階は `screening_selected` → `research_memo` / `candidate_screen.not_reviewed` → `research_approved` → `order_ready` と分けて読む
 - candidates validator は row が orthogonal gate fields を持つことを検査する。Outlook と macro reducer の最終整合は research validator が検査する
 - 詳細: [`research.md`](./research.md) の選定プロセス

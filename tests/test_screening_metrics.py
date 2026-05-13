@@ -148,6 +148,35 @@ class ScreeningMetricsTests(unittest.TestCase):
         )
         self.assertFalse(result.derived["130A"].short_history_flag)
 
+    def test_build_metrics_adds_short_dislocation_fields(self) -> None:
+        asof = date(2026, 4, 24)
+        start = asof - timedelta(days=29)
+        bars = [
+            JQuantsDailyBar(
+                ticker="130A",
+                traded_at=start + timedelta(days=index),
+                close=90.0 if index >= 25 else 100.0,
+                adjustment_close=90.0 if index >= 25 else 100.0,
+                turnover_value=300_000_000.0 if index >= 25 else 100_000_000.0,
+            )
+            for index in range(30)
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": [_summary("130A", asof - timedelta(days=30))]},
+            edinet_by_ticker={},
+        )
+
+        derived = result.derived["130A"]
+        self.assertEqual(derived.price_change_1d, 0.0)
+        self.assertAlmostEqual(derived.price_change_5d or 0.0, -0.1)
+        self.assertAlmostEqual(derived.price_change_20d or 0.0, -0.1)
+        self.assertIsNone(derived.price_change_60d)
+        self.assertEqual(derived.gap_from_52w_low, 0.0)
+        self.assertAlmostEqual(derived.turnover_spike_5d or 0.0, 3.0)
+
     def test_build_metrics_compares_yoy_with_prior_fiscal_period(self) -> None:
         asof = date(2026, 4, 24)
         summaries = [

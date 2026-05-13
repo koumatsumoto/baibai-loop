@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -79,6 +82,16 @@ def _derived(**overrides: object) -> DerivedMetrics:
 
 
 class ScreeningRulesTests(unittest.TestCase):
+    def test_removed_output_selection_mode_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "rules.yaml"
+            payload = RULES.model_dump(mode="json")
+            payload["output"]["selection_mode"] = "lane_toplists"
+            path.write_text(yaml.safe_dump(payload, allow_unicode=True), encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                load_screening_rules(path)
+
     def test_condition_a_hits_when_sector_gap_and_self_range_match(self) -> None:
         result = evaluate_screening(_financial(), _derived(), RULES)
         self.assertTrue(result.pass_fail)

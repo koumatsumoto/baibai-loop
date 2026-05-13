@@ -30,6 +30,7 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 - FCF yield（FCF TTM / market cap、EDINET CSV-derived metrics がある場合のみ）
 - cash-to-market-cap / price-to-equity
 - net-cash-to-market-cap / price-to-equity（EDINET CSV-derived metrics がある場合のみ）
+- price_change_1d / 5d / 20d / 60d、gap_from_52w_low、turnover_spike_5d（select の fast-dislocation lens 用。mechanical screen の hard gate にはしない）
 - 業種中央値（東証 33 業種、n<10 は市場全体 fallback）
 - 過去 3 年自己レンジ（上場 3 年未満は上場来）
 - 詳細: [`valuation-metrics.md`](./valuation-metrics.md)
@@ -103,6 +104,17 @@ P/S が業種中央値比で安く、売上成長が残る銘柄を拾う。営�
 - **最低 1 つ満たせば通過**
 - 複数 screen hit が重なる銘柄は research 優先度を上げる
 - candidates YAML の `evidence_hits[]` に lane 名、playbook、hit reasons、判定に使った metrics を記録する
+
+## 3.8 Selection lens との境界
+
+`fast-dislocation`、`long-hold survivability`、`shareholder return`、`AI exposure` は `select` 側の lens であり、現時点では mechanical screen の新しい hard gate ではない。
+
+- `fast-dislocation` は急落銘柄を拾うが、急落だけでは通さず、OCF / FCF / net cash / equity buffer / sales+profit の fundamental guard を原則 2 件以上、かつ cash-flow / balance-sheet / profitability の guard family を原則 2 系統以上要求する。出来高 spike と 52 週安値距離は補助情報であり、価格下落なしでは fast-dislocation eligible にしない
+- `long-hold survivability` は `high|medium|low|unknown` の annotation。短期 thesis が外れたときの保有耐性を早く見るための補助で、採用可否を単独では決めない
+- `shareholder return` は配当利回り戦略ではなく、保有期間が伸びた場合の fallback evidence。自動データがない場合は `unknown`
+- `AI exposure` は sector proxy の taxonomy。research で AI の長期影響を比較する補助であり、採用根拠・sizing 根拠にはしない
+
+この境界により、`records/04-candidates/` は引き続き事実層として維持し、短期の値動きや過去 research decision を使った research queue 調整は `select` output に閉じる。
 
 ## 4. 出力
 

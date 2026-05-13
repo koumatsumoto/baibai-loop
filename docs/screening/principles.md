@@ -31,6 +31,21 @@ Baibai-Loop のスクリーニングサブシステムの設計原則。Candidat
 
 単一総合 score は持たせない。現行 candidates YAML では `evidence_hits[]` を lane 順に記録するが、概念上は playbook-linked evidence hit として扱う。Research では primary playbook 1 つと supporting evidence を分けて扱う。
 
+### 3.1 Selection queue / lens
+
+Playbook-linked screen は raw candidates を作る事実層、`select` は research queue を作る triage 層として分ける。`select` は以下の queue / lens を使う。
+
+| lens / queue | 目的 | 採用根拠としての扱い |
+| --- | --- | --- |
+| `core_value_queue` | 既存 playbook lane の分散候補を維持する | primary playbook の入口 |
+| `fast_dislocation_queue` | 一時的に売られすぎた候補を早く上位化する | 価格下落 trigger と fundamental guard が必要。出来高 spike / 52 週安値距離は補助情報 |
+| `long_hold_survivability_queue` | 短期 thesis が外れた場合の保有耐性を見える化する | hard gate ではない。`high|medium|low|unknown` annotation |
+| `shareholder_return` | 保有期間が伸びた場合の fallback evidence を将来取り込む | 現時点の自動データ不足時は `unknown` |
+| `ai_exposure` | AI disruption / AI beneficiary の比較補助 | sector proxy。採用・sizing の単独根拠にしない |
+| `prior_research` | deferred / rejected の再登場を抑制し、同じ候補に偏る問題を下げる | ledger の revisit_after / expires_at を尊重 |
+
+Selection profile は `strict` / `balanced` / `loose` を持ち、`select-sweep` で実データ replay してから運用閾値を選ぶ。source code edit ではなく YAML profile で閾値比較できる状態を維持する。
+
 ## 4. 4 軸評価（単一総合点に戻さない）
 
 Research packet で以下の 4 軸を記入する。**合計点は算出しない**:

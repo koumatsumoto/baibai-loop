@@ -66,12 +66,24 @@ from .schema import (
     UniverseSnapshot,
     normalize_ticker,
 )
+from .selection import (
+    CandidateRecord,
+    PreviousCandidates,
+    PriorResearch,
+    build_selection_payload,
+    build_selection_sweep_payload,
+    candidate_record_from_mapping,
+    load_previous_candidates,
+    load_prior_research,
+    load_profile_overrides,
+)
 from .sqlite_cache import store_edinet_metrics
 from .sqlite_coverage import CacheCoverageIssue, verify_screening_sqlite_coverage
-from .tiers import position_tier
 from .universe import (
     build_universe,
 )
+
+type MetricScalar = bool | date | datetime | float | int | str | None
 
 
 class _NoAliasDumper(yaml.SafeDumper):
@@ -129,9 +141,16 @@ class _ScreenedCandidateInput(BaseModel):
     name: str | None = None
     sector_33: str = ""
     market_cap_oku: int | float | None = None
+    avg_turnover_oku: int | float | None = None
+    price_change_1d: float | None = None
+    price_change_5d: float | None = None
+    price_change_20d: float | None = None
+    price_change_60d: float | None = None
+    price_change_4w: float | None = None
+    gap_from_52w_low: float | None = None
+    turnover_spike_5d: float | None = None
     evidence_hits: list[dict[str, object]] = Field(default_factory=list)
-    metrics: dict[str, object] = Field(default_factory=dict)
-    metrics_breakdown: dict[str, object] = Field(default_factory=dict)
+    metrics: dict[str, MetricScalar] = Field(default_factory=dict)
     freshness_warnings: list[dict[str, object]] = Field(default_factory=list)
     next_earnings_date: str | None = None
 
@@ -268,6 +287,59 @@ def build_parser() -> argparse.ArgumentParser:
         default=10,
         help="maximum number of candidates to emit (default 10)",
     )
+    select_parser.add_argument(
+        "--rules-path",
+        default=str(DEFAULT_RULES_PATH),
+        help=f"screening rules path (default: {DEFAULT_RULES_PATH})",
+    )
+    select_parser.add_argument(
+        "--profile",
+        help="selection profile to apply (default: rules.selection.default_profile)",
+    )
+    select_parser.add_argument(
+        "--profile-config",
+        help="optional YAML file with selection profile overrides",
+    )
+
+    sweep_parser = subparsers.add_parser(
+        "select-sweep",
+        help="compare multiple selection profiles on the same candidates/outlook inputs",
+    )
+    sweep_parser.add_argument("--asof", required=True, help="screening target date (YYYY-MM-DD)")
+    sweep_parser.add_argument(
+        "--outlook",
+        help=(
+            "outlook path to apply (default: latest "
+            "records/03-outlook/<YYYY>/<MM>/outlook-*.yaml on or before asof)"
+        ),
+    )
+    sweep_parser.add_argument(
+        "--candidates",
+        help=(
+            "candidates YAML path to rank (default: "
+            "records/04-candidates/<YYYY>/<MM>/<YYYY-MM-DD>.yaml)"
+        ),
+    )
+    sweep_parser.add_argument(
+        "--top",
+        type=int,
+        default=10,
+        help="maximum number of candidates to evaluate per profile (default 10)",
+    )
+    sweep_parser.add_argument(
+        "--profiles",
+        default="strict,balanced,loose",
+        help="comma-separated selection profiles to compare (default: strict,balanced,loose)",
+    )
+    sweep_parser.add_argument(
+        "--rules-path",
+        default=str(DEFAULT_RULES_PATH),
+        help=f"screening rules path (default: {DEFAULT_RULES_PATH})",
+    )
+    sweep_parser.add_argument(
+        "--profile-config",
+        help="optional YAML file with selection profile overrides",
+    )
     return parser
 
 
@@ -285,6 +357,20 @@ def main(argv: list[str] | None = None) -> int:
             candidates_path=Path(args.candidates) if args.candidates else None,
             outlook_path=Path(args.outlook) if args.outlook else None,
             top=args.top,
+            rules=load_screening_rules(Path(args.rules_path)),
+            profile=args.profile,
+            profile_config_path=Path(args.profile_config) if args.profile_config else None,
+        )
+
+    if args.command == "select-sweep":
+        return select_sweep_command(
+            asof_date=_parse_iso_date(args.asof),
+            candidates_path=Path(args.candidates) if args.candidates else None,
+            outlook_path=Path(args.outlook) if args.outlook else None,
+            top=args.top,
+            profiles=_parse_profiles_arg(args.profiles),
+            rules=load_screening_rules(Path(args.rules_path)),
+            profile_config_path=Path(args.profile_config) if args.profile_config else None,
         )
 
     if args.command == "verify-cache-coverage":
@@ -404,6 +490,10 @@ def _parse_iso_date(raw: str) -> date:
         return date.fromisoformat(raw)
     except ValueError as exc:
         raise SystemExit(f"invalid ISO date: {raw}") from exc
+
+
+def _parse_profiles_arg(raw: str) -> tuple[str, ...]:
+    return tuple(profile for item in raw.split(",") if (profile := item.strip()))
 
 
 def run_command(
@@ -599,8 +689,13 @@ def run_command(
                 },
                 market_cap_oku=universe_snapshot.market_cap_oku,
                 avg_turnover_oku=universe_snapshot.avg_turnover_oku,
+                price_change_1d=derived.price_change_1d,
+                price_change_5d=derived.price_change_5d,
+                price_change_20d=derived.price_change_20d,
                 price_change_60d=derived.price_change_60d,
                 price_change_4w=derived.ticker_return_4w,
+                gap_from_52w_low=derived.gap_from_52w_low,
+                turnover_spike_5d=derived.turnover_spike_5d,
                 sector_relative_strength_percentile=derived.sector_relative_strength_percentile,
                 metrics={
                     "sales_ttm": financial.sales_ttm,
@@ -802,6 +897,8 @@ def select_command(
     candidates_root: Path | None = None,
     outlook_root: Path | None = None,
     rules: ScreeningRules | None = None,
+    profile: str | None = None,
+    profile_config_path: Path | None = None,
     stdout: TextIO | None = None,
 ) -> int:
     if top < 1:
@@ -809,77 +906,171 @@ def select_command(
         return 1
 
     out = stdout if stdout is not None else sys.stdout
-    candidates_root = candidates_root or Path("records/04-candidates")
-    outlook_root = outlook_root or Path("records/03-outlook")
     rules = rules or load_screening_rules(_rules_path_from_env())
+    try:
+        inputs = _load_selection_inputs(
+            asof_date=asof_date,
+            candidates_path=candidates_path,
+            outlook_path=outlook_path,
+            candidates_root=candidates_root,
+            outlook_root=outlook_root,
+        )
+        profile_overrides = load_profile_overrides(profile_config_path)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
+    try:
+        payload = build_selection_payload(
+            asof_date=asof_date,
+            candidates=inputs.candidates,
+            sectors_outlook=inputs.sectors_status,
+            rules=rules,
+            top=top,
+            profile=profile,
+            candidates_ref=inputs.candidates_ref,
+            outlook_ref=inputs.outlook_ref,
+            previous_candidates=inputs.previous_candidates,
+            prior_research_by_ticker=inputs.prior_research,
+            profile_overrides=profile_overrides,
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    yaml.dump(payload, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
+    return 0
+
+
+def select_sweep_command(
+    *,
+    asof_date: date,
+    outlook_path: Path | None,
+    candidates_path: Path | None = None,
+    top: int,
+    profiles: Sequence[str],
+    candidates_root: Path | None = None,
+    outlook_root: Path | None = None,
+    rules: ScreeningRules | None = None,
+    profile_config_path: Path | None = None,
+    stdout: TextIO | None = None,
+) -> int:
+    if top < 1:
+        print("--top must be greater than zero", file=sys.stderr)
+        return 1
+    if not profiles:
+        print("--profiles must include at least one profile", file=sys.stderr)
+        return 1
+    out = stdout if stdout is not None else sys.stdout
+    rules = rules or load_screening_rules(_rules_path_from_env())
+    try:
+        inputs = _load_selection_inputs(
+            asof_date=asof_date,
+            candidates_path=candidates_path,
+            outlook_path=outlook_path,
+            candidates_root=candidates_root,
+            outlook_root=outlook_root,
+        )
+        profile_overrides = load_profile_overrides(profile_config_path)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    try:
+        payload = build_selection_sweep_payload(
+            asof_date=asof_date,
+            candidates=inputs.candidates,
+            sectors_outlook=inputs.sectors_status,
+            rules=rules,
+            top=top,
+            profiles=profiles,
+            candidates_ref=inputs.candidates_ref,
+            outlook_ref=inputs.outlook_ref,
+            previous_candidates=inputs.previous_candidates,
+            prior_research_by_ticker=inputs.prior_research,
+            profile_overrides=profile_overrides,
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    yaml.dump(payload, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
+    return 0
+
+
+@dataclass(frozen=True, slots=True)
+class _SelectionInputs:
+    candidates: tuple[CandidateRecord, ...]
+    sectors_status: Mapping[str, str | None]
+    previous_candidates: PreviousCandidates
+    prior_research: Mapping[str, PriorResearch]
+    candidates_ref: str
+    outlook_ref: str
+
+
+def _load_selection_inputs(
+    *,
+    asof_date: date,
+    candidates_path: Path | None,
+    outlook_path: Path | None,
+    candidates_root: Path | None,
+    outlook_root: Path | None,
+) -> _SelectionInputs:
+    resolved_candidates_root = candidates_root or Path("records/04-candidates")
+    resolved_outlook_root = outlook_root or Path("records/03-outlook")
     candidates_path = candidates_path or (
-        candidates_root / f"{asof_date:%Y}" / f"{asof_date:%m}" / f"{asof_date:%Y-%m-%d}.yaml"
+        resolved_candidates_root
+        / f"{asof_date:%Y}"
+        / f"{asof_date:%m}"
+        / f"{asof_date:%Y-%m-%d}.yaml"
     )
     if not candidates_path.exists():
-        print(f"candidates file not found: {candidates_path}", file=sys.stderr)
-        return 1
+        raise ValueError(f"candidates file not found: {candidates_path}")
     try:
         candidates_fm = TypeAdapter(_ScreenedFrontMatter).validate_python(
             _parse_candidates_yaml_payload(candidates_path)
         )
     except (ValidationError, ValueError) as exc:
-        print(f"invalid candidates YAML: {candidates_path}: {exc}", file=sys.stderr)
-        return 1
+        raise ValueError(f"invalid candidates YAML: {candidates_path}: {exc}") from exc
 
-    resolved_outlook_path = outlook_path or _find_latest_outlook(outlook_root, asof_date)
+    resolved_outlook_path = outlook_path or _find_latest_outlook(resolved_outlook_root, asof_date)
     if resolved_outlook_path is None or not resolved_outlook_path.exists():
-        print(
+        raise ValueError(
             "outlook file not found. Pass --outlook <path> or create "
-            "records/03-outlook/<YYYY>/<MM>/outlook-*.yaml",
-            file=sys.stderr,
+            "records/03-outlook/<YYYY>/<MM>/outlook-*.yaml"
         )
-        return 1
     try:
         outlook_fm = TypeAdapter(_OutlookFrontMatter).validate_python(
             _parse_outlook_yaml(resolved_outlook_path)
         )
     except ValidationError as exc:
-        print(f"invalid outlook front matter: {resolved_outlook_path}: {exc}", file=sys.stderr)
-        return 1
+        raise ValueError(f"invalid outlook front matter: {resolved_outlook_path}: {exc}") from exc
 
     sectors_status: Mapping[str, str | None] = {
         sector: judgement.status for sector, judgement in outlook_fm.sectors.items()
     }
-    ranked_candidates = _rank_candidates(candidates_fm.candidates, sectors_status)
-    lane_toplist_limit = rules.output.lane_toplist_limit
-    lane_toplists = _rank_lane_toplists(
-        candidates_fm.candidates, sectors_status, lane_toplist_limit
+    repo_root = _repository_root_from_records_anchor(resolved_outlook_path, warn_on_fallback=True)
+    previous_candidates = load_previous_candidates(
+        resolved_candidates_root,
+        asof_date,
+        current_path=candidates_path,
     )
-    recommendation_limit = _research_recommendation_limit(
-        top=top,
-        configured_max=rules.output.research_selection_target_max,
+    prior_research = load_prior_research(
+        repo_root / "records/_ledger/research-decisions", asof_date
     )
-    research_candidates = _recommended_research_candidates(
-        lane_toplists=lane_toplists,
-        ranked_candidates=ranked_candidates,
-        lane_order=rules.output.research_selection_lane_order,
-        limit=recommendation_limit,
+    candidate_records: tuple[CandidateRecord, ...] = tuple(
+        candidate_record_from_mapping(item.model_dump(mode="python"))
+        for item in candidates_fm.candidates
     )
-    summary = {
-        "asof": asof_date.isoformat(),
-        "candidates_ref": _repository_relative_ref(candidates_path, anchor=resolved_outlook_path),
-        "outlook_ref": _repository_relative_ref(
-            resolved_outlook_path, anchor=resolved_outlook_path
+    return _SelectionInputs(
+        candidates=candidate_records,
+        sectors_status=sectors_status,
+        previous_candidates=previous_candidates,
+        prior_research=prior_research,
+        candidates_ref=_repository_relative_ref(candidates_path, anchor=resolved_outlook_path),
+        outlook_ref=_repository_relative_ref(
+            resolved_outlook_path,
+            anchor=resolved_outlook_path,
         ),
-        "input_count": len(candidates_fm.candidates),
-        "after_outlook_filter": len(ranked_candidates),
-        "selection_mode": rules.output.selection_mode,
-        "research_selection_target_min": rules.output.research_selection_target_min,
-        "research_selection_target_max": rules.output.research_selection_target_max,
-        "research_selection_lane_order": list(rules.output.research_selection_lane_order),
-        "lane_toplist_limit": lane_toplist_limit,
-        "lane_toplists": lane_toplists,
-        "ranked_candidates": ranked_candidates[:top],
-        "candidates": research_candidates,
-    }
-    yaml.dump(summary, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
-    return 0
+    )
 
 
 def _repository_relative_ref(path: Path, *, anchor: Path) -> str:
@@ -890,11 +1081,17 @@ def _repository_relative_ref(path: Path, *, anchor: Path) -> str:
         return str(path)
 
 
-def _repository_root_from_records_anchor(path: Path) -> Path:
+def _repository_root_from_records_anchor(path: Path, *, warn_on_fallback: bool = False) -> Path:
     resolved = path.resolve()
     for parent in (resolved, *resolved.parents):
         if parent.name == "records":
             return parent.parent
+    if warn_on_fallback:
+        print(
+            "warning: could not infer repository root from a records/ anchor; "
+            f"using current working directory for prior research ledger: {Path.cwd()}",
+            file=sys.stderr,
+        )
     return Path.cwd()
 
 
@@ -928,329 +1125,6 @@ def _find_latest_outlook(outlook_root: Path, asof_date: date) -> Path | None:
         if (m := re.search(r"\d{4}-\d{2}-\d{2}", path.name)) and m.group(0) <= asof_iso
     ]
     return eligible[-1] if eligible else None
-
-
-def _rank_candidates(
-    candidates_input: list[_ScreenedCandidateInput],
-    sectors_outlook: Mapping[str, str | None],
-) -> list[dict[str, object]]:
-    ranked: list[tuple[tuple[object, ...], dict[str, object]]] = []
-    for item in candidates_input:
-        sector = item.sector_33
-        outlook_status = sectors_outlook.get(sector)
-        if outlook_status not in {"supportive", "neutral"}:
-            continue
-        eligible_evidence_hits = _sizing_eligible_evidence_hits(item.evidence_hits)
-        if not eligible_evidence_hits:
-            continue
-        market_cap = item.market_cap_oku
-        independent_evidence_count = len(eligible_evidence_hits)
-        selection_lane, selection_metrics, strength_key = _best_selection_evidence(
-            eligible_evidence_hits
-        )
-        sort_key = (
-            _macro_rank(outlook_status),
-            _lane_rank(selection_lane),
-            *strength_key,
-            -independent_evidence_count,
-            item.ticker,
-        )
-        candidate: dict[str, object] = {
-            "ticker": item.ticker,
-            "name": item.name,
-            "sector_33": sector,
-            "outlook_sector": outlook_status,
-            "market_cap_oku": market_cap,
-            "evidence_hits": item.evidence_hits,
-            "independent_evidence_count": independent_evidence_count,
-            "freshness_warnings": item.freshness_warnings,
-            "selection_lane": selection_lane,
-            "selection_metrics": selection_metrics,
-            "next_earnings_date": item.next_earnings_date,
-            "position_tier": position_tier(market_cap),
-        }
-        ranked.append((sort_key, candidate))
-    ranked.sort(key=lambda item: item[0])
-    return [candidate for _, candidate in ranked]
-
-
-def _rank_lane_toplists(
-    candidates_input: list[_ScreenedCandidateInput],
-    sectors_outlook: Mapping[str, str | None],
-    top: int,
-) -> dict[str, list[dict[str, object]]]:
-    ranked_by_lane: dict[str, list[tuple[tuple[object, ...], dict[str, object]]]] = {
-        "valuation-reversion": [],
-        "strict-net-cash-discount": [],
-        "fcf-yield-discount": [],
-        "cash-rich-asset-discount": [],
-        "cashflow-yield-discount": [],
-        "sales-discount-growth": [],
-    }
-    for item in candidates_input:
-        sector = item.sector_33
-        outlook_status = sectors_outlook.get(sector)
-        if outlook_status not in {"supportive", "neutral"}:
-            continue
-        eligible_evidence_hits = _sizing_eligible_evidence_hits(item.evidence_hits)
-        if not eligible_evidence_hits:
-            continue
-        for evidence_hit in eligible_evidence_hits:
-            name = _string_value(evidence_hit.get("name"))
-            if name not in ranked_by_lane:
-                continue
-            metrics = _metric_map(evidence_hit.get("metrics"))
-            sort_key = (
-                _macro_rank(outlook_status),
-                *_evidence_strength_key(name, metrics),
-                -len(eligible_evidence_hits),
-                item.ticker,
-            )
-            ranked_by_lane[name].append(
-                (
-                    sort_key,
-                    _selection_candidate(
-                        item,
-                        sector=sector,
-                        outlook_status=outlook_status,
-                        selection_lane=name,
-                        selection_metrics=metrics,
-                        recommendation_lane=name,
-                    ),
-                )
-            )
-    output: dict[str, list[dict[str, object]]] = {}
-    for name, entries in ranked_by_lane.items():
-        entries.sort(key=lambda item: item[0])
-        output[name] = [candidate for _, candidate in entries[:top]]
-    return output
-
-
-def _research_recommendation_limit(*, top: int, configured_max: int) -> int:
-    return min(top, configured_max) if configured_max > 0 else top
-
-
-def _recommended_research_candidates(
-    *,
-    lane_toplists: Mapping[str, list[dict[str, object]]],
-    ranked_candidates: Sequence[dict[str, object]],
-    lane_order: Sequence[str],
-    limit: int,
-) -> list[dict[str, object]]:
-    if limit < 1:
-        return []
-
-    selected: list[dict[str, object]] = []
-    selected_tickers: set[str] = set()
-
-    for lane in lane_order:
-        if len(selected) >= limit:
-            break
-        for candidate in lane_toplists.get(lane) or []:
-            ticker = _string_value(candidate.get("ticker"))
-            if ticker is None or ticker in selected_tickers:
-                continue
-            selected.append(
-                _research_recommendation_candidate(
-                    candidate,
-                    recommendation_lane=lane,
-                    lane_order=lane_order,
-                )
-            )
-            selected_tickers.add(ticker)
-            break
-
-    for candidate in ranked_candidates:
-        if len(selected) >= limit:
-            break
-        ticker = _string_value(candidate.get("ticker"))
-        if ticker is None or ticker in selected_tickers:
-            continue
-        selected.append(
-            _research_recommendation_candidate(
-                candidate,
-                recommendation_lane="global-rank",
-                lane_order=lane_order,
-            )
-        )
-        selected_tickers.add(ticker)
-
-    return selected
-
-
-def _research_recommendation_candidate(
-    candidate: Mapping[str, object],
-    *,
-    recommendation_lane: str,
-    lane_order: Sequence[str],
-) -> dict[str, object]:
-    output = dict(candidate)
-    output["recommendation_lane"] = recommendation_lane
-    selection_lane, selection_metrics = _primary_evidence_by_lane_order(
-        output.get("evidence_hits"), lane_order
-    )
-    if selection_lane is not None:
-        output["selection_lane"] = selection_lane
-        output["selection_metrics"] = selection_metrics
-    return output
-
-
-def _primary_evidence_by_lane_order(
-    raw_evidence_hits: object,
-    lane_order: Sequence[str],
-) -> tuple[str | None, dict[str, object]]:
-    if not isinstance(raw_evidence_hits, Sequence) or isinstance(raw_evidence_hits, str):
-        return None, {}
-    evidence_by_lane: dict[str, Mapping[str, object]] = {}
-    for evidence_hit in raw_evidence_hits:
-        if not isinstance(evidence_hit, Mapping):
-            continue
-        if not _is_sizing_eligible_evidence(evidence_hit):
-            continue
-        name = _string_value(evidence_hit.get("name"))
-        if name is None:
-            continue
-        evidence_by_lane[name] = evidence_hit
-    for lane in lane_order:
-        evidence_hit = evidence_by_lane.get(lane)
-        if evidence_hit is not None:
-            return lane, _metric_map(evidence_hit.get("metrics"))
-    return None, {}
-
-
-def _best_selection_evidence(
-    evidence_hits: Sequence[Mapping[str, object]],
-) -> tuple[str | None, dict[str, object], tuple[float, ...]]:
-    entries = [
-        (
-            _lane_rank(name),
-            _evidence_strength_key(name, metrics),
-            name,
-            metrics,
-        )
-        for evidence_hit in evidence_hits
-        if (name := _string_value(evidence_hit.get("name"))) is not None
-        for metrics in [_metric_map(evidence_hit.get("metrics"))]
-    ]
-    if not entries:
-        return None, {}, (0.0,)
-    _, strength_key, name, metrics = min(entries, key=lambda item: (item[0], item[1]))
-    return name, metrics, strength_key
-
-
-def _sizing_eligible_evidence_hits(
-    evidence_hits: Sequence[Mapping[str, object]],
-) -> tuple[Mapping[str, object], ...]:
-    return tuple(hit for hit in evidence_hits if _is_sizing_eligible_evidence(hit))
-
-
-def _is_sizing_eligible_evidence(evidence_hit: Mapping[str, object]) -> bool:
-    source_status = evidence_hit.get("source_status")
-    if isinstance(source_status, str) and source_status != "ok":
-        return False
-    return evidence_hit.get("sizing_eligible") is not False
-
-
-def _selection_candidate(
-    item: _ScreenedCandidateInput,
-    *,
-    sector: str,
-    outlook_status: str | None,
-    selection_lane: str | None,
-    selection_metrics: Mapping[str, object],
-    recommendation_lane: str | None = None,
-) -> dict[str, object]:
-    market_cap = item.market_cap_oku
-    eligible_evidence_hits = _sizing_eligible_evidence_hits(item.evidence_hits)
-    return {
-        "ticker": item.ticker,
-        "name": item.name,
-        "sector_33": sector,
-        "outlook_sector": outlook_status,
-        "market_cap_oku": market_cap,
-        "evidence_hits": item.evidence_hits,
-        "independent_evidence_count": len(eligible_evidence_hits),
-        "freshness_warnings": item.freshness_warnings,
-        "selection_lane": selection_lane,
-        "recommendation_lane": recommendation_lane,
-        "selection_metrics": dict(selection_metrics),
-        "next_earnings_date": item.next_earnings_date,
-        "position_tier": position_tier(market_cap),
-    }
-
-
-def _macro_rank(status: str | None) -> int:
-    match status:
-        case "supportive":
-            return 0
-        case "neutral":
-            return 1
-        case _:
-            return 2
-
-
-def _lane_rank(name: str | None) -> int:
-    order = {
-        "valuation-reversion": 0,
-        "strict-net-cash-discount": 1,
-        "fcf-yield-discount": 2,
-        "cash-rich-asset-discount": 3,
-        "cashflow-yield-discount": 4,
-        "sales-discount-growth": 5,
-    }
-    return order.get(name or "", 99)
-
-
-def _evidence_strength_key(name: str, metrics: Mapping[str, object]) -> tuple[float, ...]:
-    match name:
-        case "valuation-reversion":
-            return (
-                _float_or(metrics.get("condition_a_sector_median_gap"), 1.0),
-                _float_or(metrics.get("condition_a_self_range_percentile"), 1.0),
-                _float_or(metrics.get("condition_b_sigma_gap"), 1.0),
-                _float_or(metrics.get("price_change_60d"), 1.0),
-            )
-        case "cash-rich-asset-discount":
-            return (
-                -_float_or(metrics.get("cash_to_market_cap"), 0.0),
-                _float_or(metrics.get("price_to_equity"), 99.0),
-            )
-        case "strict-net-cash-discount":
-            return (
-                -_float_or(metrics.get("net_cash_to_market_cap"), 0.0),
-                _float_or(metrics.get("price_to_equity"), 99.0),
-            )
-        case "cashflow-yield-discount":
-            return (
-                -_float_or(metrics.get("ocf_yield"), 0.0),
-                -_float_or(metrics.get("cfo_yoy"), -99.0),
-            )
-        case "fcf-yield-discount":
-            return (
-                -_float_or(metrics.get("fcf_yield"), 0.0),
-                -_float_or(metrics.get("cfo_yoy"), -99.0),
-            )
-        case "sales-discount-growth":
-            operating_profit = _float_or(metrics.get("operating_profit"), -1.0)
-            return (
-                _float_or(metrics.get("ps_sector_gap"), 1.0),
-                -_float_or(metrics.get("sales_yoy"), 0.0),
-                0.0 if operating_profit >= 0 else 1.0,
-            )
-        case _:
-            return (0.0,)
-
-
-def _metric_map(value: object) -> dict[str, object]:
-    return dict(value) if isinstance(value, Mapping) else {}
-
-
-def _string_value(value: object) -> str | None:
-    return value if isinstance(value, str) else None
-
-
-def _float_or(value: object, default: float) -> float:
-    return float(value) if isinstance(value, (int, float)) else default
 
 
 def _evidence_hits_summary(

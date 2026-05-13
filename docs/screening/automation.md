@@ -19,7 +19,8 @@
 python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 python -m baibai_loop.screening.cli run --asof YYYY-MM-DD --allow-stale-jpx
 python -m baibai_loop.screening.cli bootstrap-cache --asof YYYY-MM-DD
-python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--outlook path] [--top N]
+python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--outlook path] [--top N] [--profile PROFILE]
+python -m baibai_loop.screening.cli select-sweep --asof YYYY-MM-DD [--outlook path] [--top N] [--profiles strict,balanced,loose]
 python -m baibai_loop.screening.cli extract-edinet-metrics --asof YYYY-MM-DD [--lookback-days N]
 python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--sqlite-path PATH] [--rules-path PATH]
 ```
@@ -30,7 +31,7 @@ python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--s
 
 `extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出して `data/screening/market.sqlite` に保存する。CSV ZIP 本体は再生成可能な cache として `.cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 
-`select` は最新 `records/04-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/03-outlook/` を組み合わせて、`outlook` で `adverse` 判定された業種を除外し、lane-specific metric と macro status で候補をランキングする。Hit 数と時価総額だけでは並べない。出力には lane 別の `lane_toplists`、旧来のグローバル順位である `ranked_candidates`、research 着手用に lane 分散した `candidates` が含まれる。`candidates` は `output.research_selection_lane_order` の順に各 lane の上位を重複排除して選び、残枠を `ranked_candidates` で埋める。`recommendation_lane` は lane 分散で拾った枠、`selection_lane` は primary thesis として確認する screen で、複数 hit 銘柄では一致しないことがある。件数は CLI `--top` と `output.research_selection_target_max` の小さい方、`lane_toplists` は `records/_config/screening-rules/2026-05-01T000000+0900.yaml` の `output.lane_toplist_limit` で管理する。`research` の選定プロセス ([`../components/research.md`](../components/research.md) §2.1) をスクリプトで支援する。
+`select` は最新 `records/04-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/03-outlook/` を組み合わせて、`outlook` で `adverse` 判定された業種を除外し、queue 型の research triage を出力する。正本は `queues.recommended_research_queue` と `selection.diagnostics`。`fast_dislocation_queue` は価格下落 trigger と fundamental guard family を同時に要求し、出来高 spike / 52 週安値距離だけでは eligible にしない。`core_value_queue` は既存 playbook lane の分散候補、`long_hold_survivability_queue` は保有耐性の補助 queue。`recommendation_lane` は候補を拾った queue / lane、`selection_lane` は primary thesis として確認する screen で、複数 hit 銘柄では一致しないことがある。`select-sweep` は複数 profile を同じ candidates / outlook に replay し、recommended detail、fast total/emitted count、long-hold count、suppressed count、profile 間 diff、concentration / previous overlap / warnings を比較する。`--profile-config` の未知 key や未知 queue は fail-fast し、typo した profile を「検証済み」と誤認しない。`research` の選定プロセス ([`../components/research.md`](../components/research.md) §2.1) をスクリプトで支援する。
 
 ## 3. Required Env Vars
 
