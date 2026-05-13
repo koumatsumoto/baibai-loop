@@ -126,8 +126,13 @@ def _build_candidate_entry(
     entry["avg_turnover_oku"] = (
         round(candidate.avg_turnover_oku, 1) if candidate.avg_turnover_oku is not None else None
     )
+    entry["price_change_1d"] = _round_ratio(candidate.price_change_1d)
+    entry["price_change_5d"] = _round_ratio(candidate.price_change_5d)
+    entry["price_change_20d"] = _round_ratio(candidate.price_change_20d)
     entry["price_change_60d"] = _round_ratio(candidate.price_change_60d)
     entry["price_change_4w"] = _round_ratio(candidate.price_change_4w)
+    entry["gap_from_52w_low"] = _round_ratio(candidate.gap_from_52w_low)
+    entry["turnover_spike_5d"] = _round_ratio(candidate.turnover_spike_5d)
     entry["sector_relative_strength_percentile"] = _round_ratio(
         candidate.sector_relative_strength_percentile
     )
@@ -194,7 +199,12 @@ def _evidence_family_set(evidence_hit: EvidenceHit) -> list[str]:
         "fcf_yield": "fundamental",
         "cfo_yoy": "fundamental",
         "sector_relative_strength_percentile": "market_derived",
+        "price_change_1d": "market_derived",
+        "price_change_5d": "market_derived",
+        "price_change_20d": "market_derived",
         "price_change_60d": "market_derived",
+        "gap_from_52w_low": "market_derived",
+        "turnover_spike_5d": "market_derived",
     }
     families = {
         family

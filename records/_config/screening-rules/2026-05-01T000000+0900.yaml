@@ -29,6 +29,58 @@ output:
   - cashflow-yield-discount
   - sales-discount-growth
   - valuation-reversion
+selection:
+  default_profile: balanced
+  queue_order:
+  - fast_dislocation_queue
+  - core_value_queue
+  - long_hold_survivability_queue
+  fast_dislocation:
+    enabled: true
+    price_change_1d_max: -0.05
+    price_change_5d_max: -0.08
+    price_change_20d_max: -0.10
+    price_change_60d_max: -0.18
+    gap_from_52w_low_max: 0.15
+    turnover_spike_5d_min: 1.5
+    min_fundamental_guard_count: 1
+    high_confidence_guard_count: 2
+    ocf_yield_min: 0.08
+    fcf_yield_min: 0.05
+    price_to_equity_max: 1.0
+    equity_ratio_min: 0.4
+    net_cash_to_market_cap_min: 0.2
+    sales_yoy_min: 0.0
+    operating_profit_positive_required: true
+  long_hold_survivability:
+    high_min_support_count: 4
+    medium_min_support_count: 2
+    equity_ratio_high_min: 0.5
+    equity_ratio_medium_min: 0.35
+    net_cash_to_market_cap_high_min: 0.2
+    net_cash_to_market_cap_medium_min: 0.0
+    cash_to_market_cap_high_min: 0.3
+    ocf_yield_positive_min: 0.0
+    fcf_yield_positive_min: 0.0
+    min_avg_turnover_oku: 1.0
+  diversity:
+    max_recommended_per_sector: 1
+    max_recommended_per_lane: 2
+    max_previous_candidates_in_recommended: 2
+    previous_overlap_warning_ratio: 0.6
+  ai_exposure_sector_tags:
+    情報・通信業:
+    - ai-enabled-demand
+    - ai-disruption-watch
+    電気機器:
+    - ai-capex-supply-chain
+    - ai-disruption-watch
+    サービス業:
+    - ai-labor-substitution-watch
+    小売業:
+    - ai-demand-forecasting-user
+    機械:
+    - ai-capex-supply-chain
 screening_playbooks:
   valuation-reversion:
     sector_median_gap_max: -0.2

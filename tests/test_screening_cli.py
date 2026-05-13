@@ -30,6 +30,7 @@ from baibai_loop.screening.cli import (
     extract_edinet_metrics_command,
     run_command,
     select_command,
+    select_sweep_command,
 )
 from baibai_loop.screening.config import ScreeningConfig
 from baibai_loop.screening.providers.edinet import EdinetMetricRecord, EDINETProviderError
@@ -1525,6 +1526,276 @@ class SelectCommandTests(unittest.TestCase):
                 [c["ticker"] for c in payload["lane_toplists"]["cash-rich-asset-discount"]],
                 ["1111", "2222"],
             )
+
+    def test_select_fast_dislocation_requires_fundamental_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "price-only drop",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "price_change_5d": -0.12,
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    },
+                    {
+                        "ticker": "2222",
+                        "name": "well guarded drop",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "avg_turnover_oku": 1.5,
+                        "price_change_5d": -0.09,
+                        "turnover_spike_5d": 1.0,
+                        "metrics": {
+                            "equity_ratio": 0.5,
+                            "price_to_equity": 0.9,
+                            "ocf_yield": 0.12,
+                            "fcf_yield": 0.06,
+                            "net_cash_to_market_cap": 0.25,
+                            "sales_yoy": 0.1,
+                            "operating_profit": 10.0,
+                        },
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    },
+                    {
+                        "ticker": "3333",
+                        "name": "deeper drop with thin guard",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "price_change_5d": -0.2,
+                        "metrics": {"ocf_yield": 0.12},
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    },
+                ],
+            )
+            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            fast_queue = payload["queues"]["fast_dislocation_queue"]
+            self.assertEqual([item["ticker"] for item in fast_queue], ["2222", "3333"])
+            self.assertEqual(payload["candidates"][0]["ticker"], "2222")
+            self.assertTrue(payload["candidates"][0]["lenses"]["fast_dislocation"]["eligible"])
+            self.assertIn(
+                "liquidity_pass",
+                payload["candidates"][0]["lenses"]["long_hold_survivability"]["reasons"],
+            )
+
+    def test_select_suppresses_deferred_research_before_revisit_after(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "2222",
+                        "name": "deferred",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cash-rich-asset-discount"}],
+                    },
+                    {
+                        "ticker": "3333",
+                        "name": "active",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cash-rich-asset-discount"}],
+                    },
+                ],
+            )
+            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+            ledger = root / "records/_ledger/research-decisions/2026-04.jsonl"
+            ledger.parent.mkdir(parents=True)
+            ledger.write_text(
+                json.dumps(
+                    {
+                        "ticker": "2222",
+                        "decision_scope": "research_memo",
+                        "decision_event_at": "2026-04-23T10:00:00+09:00",
+                        "decision_event_id": "decision-test-2222",
+                        "research_ref": "records/05-research/test.md",
+                        "research_decision": {
+                            "outcome": "deferred",
+                            "posture": "wait_for_event",
+                            "deferral_reason": "event_pending",
+                            "revisit": {
+                                "revisit_after": "2026-05-01",
+                                "expires_at": "2026-06-30",
+                            },
+                        },
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            self.assertEqual([item["ticker"] for item in payload["candidates"]], ["3333"])
+            self.assertEqual(payload["queues"]["suppressed_queue"][0]["ticker"], "2222")
+            self.assertEqual(
+                payload["queues"]["suppressed_queue"][0]["suppression_reasons"],
+                ["deferred_until_revisit_after"],
+            )
+
+    def test_select_caps_previous_candidates_when_new_alternatives_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            previous_asof = date(2026, 4, 17)
+            previous_tickers = ("1111", "2222", "3333", "4444")
+            self._write_candidates(
+                root / "records/04-candidates",
+                previous_asof,
+                candidates=[
+                    {
+                        "ticker": ticker,
+                        "name": f"previous {ticker}",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cash-rich-asset-discount"}],
+                    }
+                    for ticker in previous_tickers
+                ],
+            )
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "previous strict",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "strict-net-cash-discount"}],
+                    },
+                    {
+                        "ticker": "2222",
+                        "name": "previous fcf",
+                        "sector_33": "電気機器",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "fcf-yield-discount"}],
+                    },
+                    {
+                        "ticker": "3333",
+                        "name": "previous cash rich",
+                        "sector_33": "小売業",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cash-rich-asset-discount"}],
+                    },
+                    {
+                        "ticker": "4444",
+                        "name": "previous cashflow",
+                        "sector_33": "サービス業",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    },
+                    {
+                        "ticker": "5555",
+                        "name": "new sales",
+                        "sector_33": "医薬品",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "sales-discount-growth"}],
+                    },
+                ],
+            )
+            self._write_outlook(
+                root / "records/03-outlook",
+                asof,
+                sectors={
+                    "機械": "neutral",
+                    "電気機器": "neutral",
+                    "小売業": "neutral",
+                    "サービス業": "neutral",
+                    "医薬品": "neutral",
+                },
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            tickers = [item["ticker"] for item in payload["candidates"]]
+            self.assertIn("5555", tickers)
+            self.assertLessEqual(
+                sum(1 for item in payload["candidates"] if item["previous_candidate"]),
+                3,
+            )
+
+    def test_select_sweep_compares_builtin_profiles(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "2222",
+                        "name": "balanced fast lane only",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "price_change_5d": -0.09,
+                        "metrics": {"ocf_yield": 0.09, "operating_profit": 10.0},
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    },
+                ],
+            )
+            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+
+            buffer = io.StringIO()
+            exit_code = select_sweep_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                profiles=("strict", "balanced", "loose"),
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            by_profile = {item["profile"]: item for item in payload["profiles"]}
+            self.assertEqual(by_profile["strict"]["fast_dislocation_count"], 0)
+            self.assertEqual(by_profile["balanced"]["fast_dislocation_tickers"], ["2222"])
+            self.assertEqual(by_profile["loose"]["fast_dislocation_tickers"], ["2222"])
 
     def test_rejects_non_mapping_candidates_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

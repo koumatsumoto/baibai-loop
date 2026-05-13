@@ -180,8 +180,13 @@ class FinancialSnapshot:
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
 class DerivedMetrics:
-    price_change_60d: float | None
-    sector_relative_strength_4w: float | None
+    price_change_1d: float | None = None
+    price_change_5d: float | None = None
+    price_change_20d: float | None = None
+    price_change_60d: float | None = None
+    gap_from_52w_low: float | None = None
+    turnover_spike_5d: float | None = None
+    sector_relative_strength_4w: float | None = None
     sector_median_gap: NullableFloatMap = Field(default_factory=dict)
     self_range_percentile: NullableFloatMap = Field(default_factory=dict)
     sigma_gap: NullableFloatMap = Field(default_factory=dict)
@@ -192,7 +197,12 @@ class DerivedMetrics:
     split_adjustment_flag: bool = False
 
     @field_validator(
+        "price_change_1d",
+        "price_change_5d",
+        "price_change_20d",
         "price_change_60d",
+        "gap_from_52w_low",
+        "turnover_spike_5d",
         "sector_relative_strength_4w",
         "sector_relative_strength_percentile",
         "ticker_return_4w",
@@ -265,8 +275,13 @@ class ScreenedCandidate:
     ttm_quality: Mapping[str, TTMQuality]
     market_cap_oku: int | None = None
     avg_turnover_oku: float | None = None
+    price_change_1d: float | None = None
+    price_change_5d: float | None = None
+    price_change_20d: float | None = None
     price_change_60d: float | None = None
     price_change_4w: float | None = None
+    gap_from_52w_low: float | None = None
+    turnover_spike_5d: float | None = None
     sector_relative_strength_percentile: float | None = None
     metrics: MetricValueMap = Field(default_factory=dict)
     metrics_breakdown: MetricBreakdown = Field(default_factory=dict)
@@ -292,8 +307,13 @@ class ScreenedCandidate:
         "p_s",
         "pcfr",
         "avg_turnover_oku",
+        "price_change_1d",
+        "price_change_5d",
+        "price_change_20d",
         "price_change_60d",
         "price_change_4w",
+        "gap_from_52w_low",
+        "turnover_spike_5d",
         "sector_relative_strength_percentile",
     )
     @classmethod

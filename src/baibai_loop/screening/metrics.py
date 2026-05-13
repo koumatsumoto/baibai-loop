@@ -124,7 +124,12 @@ def build_metrics(
         derived[ticker] = DerivedMetrics(
             sector_median_gap=sector_gaps,
             self_range_percentile=self_percentiles,
+            price_change_1d=_price_change(ticker_bars, 1, asof_date),
+            price_change_5d=_price_change(ticker_bars, 5, asof_date),
+            price_change_20d=_price_change(ticker_bars, 20, asof_date),
             price_change_60d=_price_change(ticker_bars, 60, asof_date),
+            gap_from_52w_low=_gap_from_low(ticker_bars, 252, asof_date),
+            turnover_spike_5d=_turnover_spike(ticker_bars, asof_date),
             sigma_gap=sigma_gaps,
             sector_relative_strength_4w=sector_rs.get(sector),
             sector_relative_strength_percentile=rs_percentiles.get(sector),
@@ -512,16 +517,61 @@ def _price_change(bars: Sequence[JQuantsDailyBar], sessions: int, asof_date: dat
     # Prefer split-adjusted close on both ends so a stock split between the two
     # dates does not show up as a synthetic price drop. Fall back to raw close
     # only when the adjustment field is absent (legacy bars).
-    current = (
-        ordered[-1].adjustment_close
-        if ordered[-1].adjustment_close is not None
-        else ordered[-1].close
-    )
+    current = _adjusted_close(ordered[-1])
     base_bar = ordered[-(sessions + 1)]
-    base = base_bar.adjustment_close if base_bar.adjustment_close is not None else base_bar.close
+    base = _adjusted_close(base_bar)
     if base == 0:
         return None
     return (current / base) - 1.0
+
+
+def _adjusted_close(bar: JQuantsDailyBar) -> float:
+    return bar.adjustment_close if bar.adjustment_close is not None else bar.close
+
+
+def _gap_from_low(
+    bars: Sequence[JQuantsDailyBar],
+    sessions: int,
+    asof_date: date,
+) -> float | None:
+    ordered = sorted(
+        (bar for bar in bars if bar.traded_at <= asof_date), key=lambda item: item.traded_at
+    )
+    if not ordered:
+        return None
+    prices = [_adjusted_close(bar) for bar in ordered[-sessions:]]
+    current = prices[-1]
+    low = min(prices)
+    if low <= 0:
+        return None
+    return (current / low) - 1.0
+
+
+def _turnover_spike(
+    bars: Sequence[JQuantsDailyBar],
+    asof_date: date,
+    latest_sessions: int = 5,
+    baseline_sessions: int = 20,
+) -> float | None:
+    ordered = sorted(
+        (bar for bar in bars if bar.traded_at <= asof_date), key=lambda item: item.traded_at
+    )
+    if len(ordered) < latest_sessions + baseline_sessions:
+        return None
+    latest_values = [
+        bar.turnover_value for bar in ordered[-latest_sessions:] if bar.turnover_value is not None
+    ]
+    baseline_values = [
+        bar.turnover_value
+        for bar in ordered[-(latest_sessions + baseline_sessions) : -latest_sessions]
+        if bar.turnover_value is not None
+    ]
+    if len(latest_values) < latest_sessions or len(baseline_values) < baseline_sessions:
+        return None
+    baseline = mean(baseline_values)
+    if baseline <= 0:
+        return None
+    return mean(latest_values) / baseline
 
 
 def _has_split_adjustment_within_sessions(

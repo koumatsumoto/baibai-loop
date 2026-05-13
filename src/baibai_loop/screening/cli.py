@@ -66,6 +66,17 @@ from .schema import (
     UniverseSnapshot,
     normalize_ticker,
 )
+from .selection import (
+    CandidateRecord,
+    PreviousCandidates,
+    PriorResearch,
+    build_selection_payload,
+    build_selection_sweep_payload,
+    candidate_record_from_mapping,
+    load_previous_candidates,
+    load_prior_research,
+    load_profile_overrides,
+)
 from .sqlite_cache import store_edinet_metrics
 from .sqlite_coverage import CacheCoverageIssue, verify_screening_sqlite_coverage
 from .tiers import position_tier
@@ -129,6 +140,14 @@ class _ScreenedCandidateInput(BaseModel):
     name: str | None = None
     sector_33: str = ""
     market_cap_oku: int | float | None = None
+    avg_turnover_oku: int | float | None = None
+    price_change_1d: float | None = None
+    price_change_5d: float | None = None
+    price_change_20d: float | None = None
+    price_change_60d: float | None = None
+    price_change_4w: float | None = None
+    gap_from_52w_low: float | None = None
+    turnover_spike_5d: float | None = None
     evidence_hits: list[dict[str, object]] = Field(default_factory=list)
     metrics: dict[str, object] = Field(default_factory=dict)
     metrics_breakdown: dict[str, object] = Field(default_factory=dict)
@@ -268,6 +287,59 @@ def build_parser() -> argparse.ArgumentParser:
         default=10,
         help="maximum number of candidates to emit (default 10)",
     )
+    select_parser.add_argument(
+        "--rules-path",
+        default=str(DEFAULT_RULES_PATH),
+        help=f"screening rules path (default: {DEFAULT_RULES_PATH})",
+    )
+    select_parser.add_argument(
+        "--profile",
+        help="selection profile to apply (default: rules.selection.default_profile)",
+    )
+    select_parser.add_argument(
+        "--profile-config",
+        help="optional YAML file with selection profile overrides",
+    )
+
+    sweep_parser = subparsers.add_parser(
+        "select-sweep",
+        help="compare multiple selection profiles on the same candidates/outlook inputs",
+    )
+    sweep_parser.add_argument("--asof", required=True, help="screening target date (YYYY-MM-DD)")
+    sweep_parser.add_argument(
+        "--outlook",
+        help=(
+            "outlook path to apply (default: latest "
+            "records/03-outlook/<YYYY>/<MM>/outlook-*.yaml on or before asof)"
+        ),
+    )
+    sweep_parser.add_argument(
+        "--candidates",
+        help=(
+            "candidates YAML path to rank (default: "
+            "records/04-candidates/<YYYY>/<MM>/<YYYY-MM-DD>.yaml)"
+        ),
+    )
+    sweep_parser.add_argument(
+        "--top",
+        type=int,
+        default=10,
+        help="maximum number of candidates to evaluate per profile (default 10)",
+    )
+    sweep_parser.add_argument(
+        "--profiles",
+        default="strict,balanced,loose",
+        help="comma-separated selection profiles to compare (default: strict,balanced,loose)",
+    )
+    sweep_parser.add_argument(
+        "--rules-path",
+        default=str(DEFAULT_RULES_PATH),
+        help=f"screening rules path (default: {DEFAULT_RULES_PATH})",
+    )
+    sweep_parser.add_argument(
+        "--profile-config",
+        help="optional YAML file with selection profile overrides",
+    )
     return parser
 
 
@@ -285,6 +357,20 @@ def main(argv: list[str] | None = None) -> int:
             candidates_path=Path(args.candidates) if args.candidates else None,
             outlook_path=Path(args.outlook) if args.outlook else None,
             top=args.top,
+            rules=load_screening_rules(Path(args.rules_path)),
+            profile=args.profile,
+            profile_config_path=Path(args.profile_config) if args.profile_config else None,
+        )
+
+    if args.command == "select-sweep":
+        return select_sweep_command(
+            asof_date=_parse_iso_date(args.asof),
+            candidates_path=Path(args.candidates) if args.candidates else None,
+            outlook_path=Path(args.outlook) if args.outlook else None,
+            top=args.top,
+            profiles=_parse_profiles_arg(args.profiles),
+            rules=load_screening_rules(Path(args.rules_path)),
+            profile_config_path=Path(args.profile_config) if args.profile_config else None,
         )
 
     if args.command == "verify-cache-coverage":
@@ -404,6 +490,10 @@ def _parse_iso_date(raw: str) -> date:
         return date.fromisoformat(raw)
     except ValueError as exc:
         raise SystemExit(f"invalid ISO date: {raw}") from exc
+
+
+def _parse_profiles_arg(raw: str) -> tuple[str, ...]:
+    return tuple(profile for item in raw.split(",") if (profile := item.strip()))
 
 
 def run_command(
@@ -599,8 +689,13 @@ def run_command(
                 },
                 market_cap_oku=universe_snapshot.market_cap_oku,
                 avg_turnover_oku=universe_snapshot.avg_turnover_oku,
+                price_change_1d=derived.price_change_1d,
+                price_change_5d=derived.price_change_5d,
+                price_change_20d=derived.price_change_20d,
                 price_change_60d=derived.price_change_60d,
                 price_change_4w=derived.ticker_return_4w,
+                gap_from_52w_low=derived.gap_from_52w_low,
+                turnover_spike_5d=derived.turnover_spike_5d,
                 sector_relative_strength_percentile=derived.sector_relative_strength_percentile,
                 metrics={
                     "sales_ttm": financial.sales_ttm,
@@ -802,6 +897,8 @@ def select_command(
     candidates_root: Path | None = None,
     outlook_root: Path | None = None,
     rules: ScreeningRules | None = None,
+    profile: str | None = None,
+    profile_config_path: Path | None = None,
     stdout: TextIO | None = None,
 ) -> int:
     if top < 1:
@@ -809,77 +906,171 @@ def select_command(
         return 1
 
     out = stdout if stdout is not None else sys.stdout
-    candidates_root = candidates_root or Path("records/04-candidates")
-    outlook_root = outlook_root or Path("records/03-outlook")
     rules = rules or load_screening_rules(_rules_path_from_env())
+    try:
+        inputs = _load_selection_inputs(
+            asof_date=asof_date,
+            candidates_path=candidates_path,
+            outlook_path=outlook_path,
+            candidates_root=candidates_root,
+            outlook_root=outlook_root,
+        )
+        profile_overrides = load_profile_overrides(profile_config_path)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
+    try:
+        payload = build_selection_payload(
+            asof_date=asof_date,
+            candidates=inputs.candidates,
+            sectors_outlook=inputs.sectors_status,
+            rules=rules,
+            top=top,
+            profile=profile,
+            candidates_ref=inputs.candidates_ref,
+            outlook_ref=inputs.outlook_ref,
+            previous_candidates=inputs.previous_candidates,
+            prior_research_by_ticker=inputs.prior_research,
+            profile_overrides=profile_overrides,
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    yaml.dump(payload, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
+    return 0
+
+
+def select_sweep_command(
+    *,
+    asof_date: date,
+    outlook_path: Path | None,
+    candidates_path: Path | None = None,
+    top: int,
+    profiles: Sequence[str],
+    candidates_root: Path | None = None,
+    outlook_root: Path | None = None,
+    rules: ScreeningRules | None = None,
+    profile_config_path: Path | None = None,
+    stdout: TextIO | None = None,
+) -> int:
+    if top < 1:
+        print("--top must be greater than zero", file=sys.stderr)
+        return 1
+    if not profiles:
+        print("--profiles must include at least one profile", file=sys.stderr)
+        return 1
+    out = stdout if stdout is not None else sys.stdout
+    rules = rules or load_screening_rules(_rules_path_from_env())
+    try:
+        inputs = _load_selection_inputs(
+            asof_date=asof_date,
+            candidates_path=candidates_path,
+            outlook_path=outlook_path,
+            candidates_root=candidates_root,
+            outlook_root=outlook_root,
+        )
+        profile_overrides = load_profile_overrides(profile_config_path)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    try:
+        payload = build_selection_sweep_payload(
+            asof_date=asof_date,
+            candidates=inputs.candidates,
+            sectors_outlook=inputs.sectors_status,
+            rules=rules,
+            top=top,
+            profiles=profiles,
+            candidates_ref=inputs.candidates_ref,
+            outlook_ref=inputs.outlook_ref,
+            previous_candidates=inputs.previous_candidates,
+            prior_research_by_ticker=inputs.prior_research,
+            profile_overrides=profile_overrides,
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    yaml.dump(payload, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
+    return 0
+
+
+@dataclass(frozen=True, slots=True)
+class _SelectionInputs:
+    candidates: tuple[CandidateRecord, ...]
+    sectors_status: Mapping[str, str | None]
+    previous_candidates: PreviousCandidates
+    prior_research: Mapping[str, PriorResearch]
+    candidates_ref: str
+    outlook_ref: str
+
+
+def _load_selection_inputs(
+    *,
+    asof_date: date,
+    candidates_path: Path | None,
+    outlook_path: Path | None,
+    candidates_root: Path | None,
+    outlook_root: Path | None,
+) -> _SelectionInputs:
+    resolved_candidates_root = candidates_root or Path("records/04-candidates")
+    resolved_outlook_root = outlook_root or Path("records/03-outlook")
     candidates_path = candidates_path or (
-        candidates_root / f"{asof_date:%Y}" / f"{asof_date:%m}" / f"{asof_date:%Y-%m-%d}.yaml"
+        resolved_candidates_root
+        / f"{asof_date:%Y}"
+        / f"{asof_date:%m}"
+        / f"{asof_date:%Y-%m-%d}.yaml"
     )
     if not candidates_path.exists():
-        print(f"candidates file not found: {candidates_path}", file=sys.stderr)
-        return 1
+        raise ValueError(f"candidates file not found: {candidates_path}")
     try:
         candidates_fm = TypeAdapter(_ScreenedFrontMatter).validate_python(
             _parse_candidates_yaml_payload(candidates_path)
         )
     except (ValidationError, ValueError) as exc:
-        print(f"invalid candidates YAML: {candidates_path}: {exc}", file=sys.stderr)
-        return 1
+        raise ValueError(f"invalid candidates YAML: {candidates_path}: {exc}") from exc
 
-    resolved_outlook_path = outlook_path or _find_latest_outlook(outlook_root, asof_date)
+    resolved_outlook_path = outlook_path or _find_latest_outlook(resolved_outlook_root, asof_date)
     if resolved_outlook_path is None or not resolved_outlook_path.exists():
-        print(
+        raise ValueError(
             "outlook file not found. Pass --outlook <path> or create "
-            "records/03-outlook/<YYYY>/<MM>/outlook-*.yaml",
-            file=sys.stderr,
+            "records/03-outlook/<YYYY>/<MM>/outlook-*.yaml"
         )
-        return 1
     try:
         outlook_fm = TypeAdapter(_OutlookFrontMatter).validate_python(
             _parse_outlook_yaml(resolved_outlook_path)
         )
     except ValidationError as exc:
-        print(f"invalid outlook front matter: {resolved_outlook_path}: {exc}", file=sys.stderr)
-        return 1
+        raise ValueError(f"invalid outlook front matter: {resolved_outlook_path}: {exc}") from exc
 
     sectors_status: Mapping[str, str | None] = {
         sector: judgement.status for sector, judgement in outlook_fm.sectors.items()
     }
-    ranked_candidates = _rank_candidates(candidates_fm.candidates, sectors_status)
-    lane_toplist_limit = rules.output.lane_toplist_limit
-    lane_toplists = _rank_lane_toplists(
-        candidates_fm.candidates, sectors_status, lane_toplist_limit
+    repo_root = _repository_root_from_records_anchor(resolved_outlook_path)
+    previous_candidates = load_previous_candidates(
+        resolved_candidates_root,
+        asof_date,
+        current_path=candidates_path,
     )
-    recommendation_limit = _research_recommendation_limit(
-        top=top,
-        configured_max=rules.output.research_selection_target_max,
+    prior_research = load_prior_research(
+        repo_root / "records/_ledger/research-decisions", asof_date
     )
-    research_candidates = _recommended_research_candidates(
-        lane_toplists=lane_toplists,
-        ranked_candidates=ranked_candidates,
-        lane_order=rules.output.research_selection_lane_order,
-        limit=recommendation_limit,
+    candidate_records: tuple[CandidateRecord, ...] = tuple(
+        candidate_record_from_mapping(item.model_dump(mode="python"))
+        for item in candidates_fm.candidates
     )
-    summary = {
-        "asof": asof_date.isoformat(),
-        "candidates_ref": _repository_relative_ref(candidates_path, anchor=resolved_outlook_path),
-        "outlook_ref": _repository_relative_ref(
-            resolved_outlook_path, anchor=resolved_outlook_path
+    return _SelectionInputs(
+        candidates=candidate_records,
+        sectors_status=sectors_status,
+        previous_candidates=previous_candidates,
+        prior_research=prior_research,
+        candidates_ref=_repository_relative_ref(candidates_path, anchor=resolved_outlook_path),
+        outlook_ref=_repository_relative_ref(
+            resolved_outlook_path,
+            anchor=resolved_outlook_path,
         ),
-        "input_count": len(candidates_fm.candidates),
-        "after_outlook_filter": len(ranked_candidates),
-        "selection_mode": rules.output.selection_mode,
-        "research_selection_target_min": rules.output.research_selection_target_min,
-        "research_selection_target_max": rules.output.research_selection_target_max,
-        "research_selection_lane_order": list(rules.output.research_selection_lane_order),
-        "lane_toplist_limit": lane_toplist_limit,
-        "lane_toplists": lane_toplists,
-        "ranked_candidates": ranked_candidates[:top],
-        "candidates": research_candidates,
-    }
-    yaml.dump(summary, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
-    return 0
+    )
 
 
 def _repository_relative_ref(path: Path, *, anchor: Path) -> str:

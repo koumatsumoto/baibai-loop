@@ -156,6 +156,80 @@ class OutputRules(BaseModel):
         return tuple(value)
 
 
+class FastDislocationRules(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    enabled: bool = True
+    price_change_1d_max: float | None = None
+    price_change_5d_max: float | None = None
+    price_change_20d_max: float | None = None
+    price_change_60d_max: float | None = None
+    gap_from_52w_low_max: float | None = None
+    turnover_spike_5d_min: float | None = None
+    min_fundamental_guard_count: int = Field(default=1, ge=0)
+    high_confidence_guard_count: int = Field(default=2, ge=0)
+    ocf_yield_min: float = Field(default=0.08, ge=0)
+    fcf_yield_min: float = Field(default=0.05, ge=0)
+    price_to_equity_max: float = Field(default=1.0, ge=0)
+    equity_ratio_min: float = Field(default=0.4, ge=0, le=1)
+    net_cash_to_market_cap_min: float = 0.2
+    sales_yoy_min: float = 0.0
+    operating_profit_positive_required: bool = True
+
+
+class LongHoldSurvivabilityRules(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    high_min_support_count: int = Field(default=4, ge=1)
+    medium_min_support_count: int = Field(default=2, ge=1)
+    equity_ratio_high_min: float = Field(default=0.5, ge=0, le=1)
+    equity_ratio_medium_min: float = Field(default=0.35, ge=0, le=1)
+    net_cash_to_market_cap_high_min: float = 0.2
+    net_cash_to_market_cap_medium_min: float = 0.0
+    cash_to_market_cap_high_min: float = Field(default=0.3, ge=0)
+    ocf_yield_positive_min: float = 0.0
+    fcf_yield_positive_min: float = 0.0
+    min_avg_turnover_oku: float = Field(default=1.0, ge=0)
+
+
+class SelectionDiversityRules(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    max_recommended_per_sector: int = Field(default=1, ge=1)
+    max_recommended_per_lane: int = Field(default=2, ge=1)
+    max_previous_candidates_in_recommended: int | None = Field(default=2, ge=0)
+    previous_overlap_warning_ratio: float = Field(default=0.6, ge=0, le=1)
+
+
+class SelectionRules(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    default_profile: str = "balanced"
+    queue_order: tuple[str, ...] = (
+        "fast_dislocation_queue",
+        "core_value_queue",
+        "long_hold_survivability_queue",
+    )
+    fast_dislocation: FastDislocationRules = Field(default_factory=FastDislocationRules)
+    long_hold_survivability: LongHoldSurvivabilityRules = Field(
+        default_factory=LongHoldSurvivabilityRules
+    )
+    diversity: SelectionDiversityRules = Field(default_factory=SelectionDiversityRules)
+    ai_exposure_sector_tags: Mapping[str, tuple[str, ...]] = Field(default_factory=dict)
+
+    @field_validator("queue_order", mode="before")
+    @classmethod
+    def _tuple_queue_order(cls, value: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(value)
+
+    @field_validator("ai_exposure_sector_tags", mode="before")
+    @classmethod
+    def _tuple_ai_exposure_tags(cls, value: Mapping[str, Any] | None) -> dict[str, tuple[str, ...]]:
+        if not value:
+            return {}
+        return {str(sector): tuple(tags) for sector, tags in value.items()}
+
+
 class ScreeningRules(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
@@ -172,6 +246,7 @@ class ScreeningRules(BaseModel):
         | SalesDiscountGrowthLane,
     ]
     output: OutputRules
+    selection: SelectionRules = Field(default_factory=SelectionRules)
 
     @field_validator("screening_playbooks", mode="before")
     @classmethod
