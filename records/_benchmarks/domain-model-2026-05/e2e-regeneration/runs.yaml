@@ -1,19 +1,19 @@
 as_of_requested: '2026-05-06'
 effective_asof: '2026-05-01'
 selected_queue_semantics:
-  screening_selected: ticker list emitted by `baibai-loop-screening select`; this is
-    a research triage queue, not a raw candidates row flag.
-  baseline_core: stable tickers selected by the baseline run and repeated across
-    most parameter sweeps.
+  screening_selected: ticker list emitted by `baibai-loop-screening select`; this
+    is a research triage queue, not a raw candidates row flag.
+  baseline_core: stable tickers selected by the baseline run and repeated across most
+    parameter sweeps.
   liquidity_complement: tickers selected only when liquidity thresholds are raised;
     these improve execution feasibility but do not displace baseline core without
     research confirmation.
   exploration: sales-first or single-evidence names used to probe growth-discount
-    opportunity; they remain small until disconfirming evidence and payoff are
-    confirmed in research.
+    opportunity; they remain small until disconfirming evidence and payoff are confirmed
+    in research.
   research_memo: an investment memo exists under records/05-research.
-  order_ready: approved research plus a valid order intent. The current queue has no
-    order-ready ticker before fresh research confirmation.
+  order_ready: approved research plus a valid order intent. The current queue has
+    no order-ready ticker before fresh research confirmation.
 current_research_strategy:
   source: e2e_selected_queue
   effective_asof: '2026-05-01'
@@ -21,26 +21,28 @@ current_research_strategy:
   baseline_core:
     source_run_id: run-01-baseline
     tickers:
-    - '3632'
+    - '4165'
+    - '1663'
+    - '5410'
     - '6835'
-    - '6932'
-    - '6310'
-    - '9470'
+    - '6118'
     role: core research queue
   liquidity_complement:
     source_run_id: run-02-liquidity-3oku
     tickers:
-    - '5423'
-    - '6266'
-    - '6143'
+    - '9601'
+    - '1663'
     - '5410'
-    - '6817'
+    - '6266'
+    - '6619'
     role: execution feasibility complement
   exploration:
     source_run_id: run-10-sales-first-selection
     tickers:
-    - '6619'
-    - '6753'
+    - '6310'
+    - '9158'
+    - '2931'
+    - '8185'
     role: small growth-discount exploration sleeve
     max_initial_real_order_notional_yen: 75000
     requires_disconfirming_evidence: true
@@ -48,7 +50,7 @@ current_research_strategy:
   promoted_from_exploration:
     tickers:
     - '5410'
-    reason: selected by liquidity stress and sales-first runs
+    reason: selected by baseline, liquidity stress, and sales-first runs
   allocation_guardrails:
     tactical_budget_deployable_pct: 75.0
     reserve_pct: 25.0
@@ -65,13 +67,13 @@ runs:
   screening_status: partial_quality_warning
   candidate_count: 366
   universe_size: 1347
-  after_outlook_filter: 306
+  after_outlook_filter: 307
   selected_tickers:
-  - '3632'
+  - '4165'
+  - '1663'
+  - '5410'
   - '6835'
-  - '6932'
-  - '6310'
-  - '9470'
+  - '6118'
   evidence_hits_summary:
     valuation-reversion: 94
     strict-net-cash-discount: 20
@@ -91,11 +93,11 @@ runs:
   universe_size: 904
   after_outlook_filter: 204
   selected_tickers:
-  - '5423'
-  - '6266'
-  - '6143'
+  - '9601'
+  - '1663'
   - '5410'
-  - '6817'
+  - '6266'
+  - '6619'
   evidence_hits_summary:
     valuation-reversion: 63
     strict-net-cash-discount: 4
@@ -113,13 +115,13 @@ runs:
   screening_status: partial_quality_warning
   candidate_count: 369
   universe_size: 1392
-  after_outlook_filter: 309
+  after_outlook_filter: 310
   selected_tickers:
-  - '3632'
+  - '4165'
+  - '1663'
+  - '5410'
   - '6835'
-  - '6932'
-  - '6310'
-  - '9470'
+  - '6118'
   evidence_hits_summary:
     valuation-reversion: 84
     strict-net-cash-discount: 20
@@ -137,13 +139,13 @@ runs:
   screening_status: partial_quality_warning
   candidate_count: 320
   universe_size: 1347
-  after_outlook_filter: 268
+  after_outlook_filter: 269
   selected_tickers:
-  - '3632'
+  - '4165'
+  - '1663'
+  - '5410'
   - '6835'
-  - '6932'
-  - '6310'
-  - '5036'
+  - '6118'
   evidence_hits_summary:
     valuation-reversion: 94
     strict-net-cash-discount: 20
@@ -161,13 +163,13 @@ runs:
   screening_status: partial_quality_warning
   candidate_count: 390
   universe_size: 1347
-  after_outlook_filter: 326
+  after_outlook_filter: 327
   selected_tickers:
-  - '3632'
+  - '4165'
+  - '1663'
+  - '5410'
   - '6835'
-  - '6932'
-  - '6310'
-  - '9470'
+  - '6118'
   evidence_hits_summary:
     valuation-reversion: 94
     strict-net-cash-discount: 20
@@ -185,13 +187,13 @@ runs:
   screening_status: partial_quality_warning
   candidate_count: 309
   universe_size: 1347
-  after_outlook_filter: 261
+  after_outlook_filter: 262
   selected_tickers:
-  - '3632'
+  - '4165'
+  - '1663'
+  - '5410'
   - '6835'
-  - '6932'
   - '6310'
-  - '9470'
   evidence_hits_summary:
     valuation-reversion: 94
     strict-net-cash-discount: 20
@@ -209,13 +211,13 @@ runs:
   screening_status: partial_quality_warning
   candidate_count: 365
   universe_size: 1347
-  after_outlook_filter: 305
+  after_outlook_filter: 306
   selected_tickers:
-  - '3632'
+  - '4165'
+  - '1663'
+  - '5410'
   - '6835'
-  - '6932'
-  - '6310'
-  - '9470'
+  - '6118'
   evidence_hits_summary:
     valuation-reversion: 94
     strict-net-cash-discount: 20
@@ -235,13 +237,13 @@ runs:
   screening_status: partial_quality_warning
   candidate_count: 338
   universe_size: 1347
-  after_outlook_filter: 279
+  after_outlook_filter: 280
   selected_tickers:
+  - '1663'
+  - '5410'
+  - '4902'
   - '3632'
-  - '6835'
-  - '6932'
-  - '6310'
-  - '9470'
+  - '6118'
   evidence_hits_summary:
     valuation-reversion: 59
     strict-net-cash-discount: 20
@@ -260,13 +262,13 @@ runs:
   screening_status: partial_quality_warning
   candidate_count: 350
   universe_size: 1347
-  after_outlook_filter: 291
+  after_outlook_filter: 292
   selected_tickers:
-  - '3632'
+  - '4165'
+  - '1663'
+  - '5410'
   - '6835'
-  - '6932'
-  - '6310'
-  - '9470'
+  - '6266'
   evidence_hits_summary:
     valuation-reversion: 94
     strict-net-cash-discount: 7
@@ -292,16 +294,16 @@ runs:
   screening_status: partial_quality_warning
   candidate_count: 366
   universe_size: 1347
-  after_outlook_filter: 306
+  after_outlook_filter: 307
   selected_tickers:
-  - '9470'
-  - '6310'
-  - '6835'
-  - '3632'
-  - '6932'
-  - '6619'
-  - '6753'
+  - '4165'
+  - '1663'
   - '5410'
+  - '6310'
+  - '6619'
+  - '9158'
+  - '2931'
+  - '8185'
   evidence_hits_summary:
     valuation-reversion: 94
     strict-net-cash-discount: 20

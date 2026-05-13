@@ -39,6 +39,20 @@ _REQUIRED_FIXTURE_IDS = {
     "e2e-sales-first-selection",
     "e2e-current-research-strategy",
 }
+_DOMAIN_E2E_RUN_IDS = frozenset(
+    {
+        "run-01-baseline",
+        "run-02-liquidity-3oku",
+        "run-03-smallcap-50oku",
+        "run-04-sales-strict-growth",
+        "run-05-sales-loose-valuation",
+        "run-06-cashflow-strict-yield",
+        "run-07-fcf-strict-yield",
+        "run-08-valuation-deep-discount",
+        "run-09-net-cash-strict",
+        "run-10-sales-first-selection",
+    }
+)
 _DOMAIN_FIXTURE_CONTRACTS: dict[str, Mapping[str, object]] = {
     "screening-raw-output-anchors": {
         "layer_id": "L1",
@@ -110,9 +124,9 @@ _DOMAIN_FIXTURE_CONTRACTS: dict[str, Mapping[str, object]] = {
         },
         "expected": {
             "current_strategy": {
-                "baseline_core_tickers": ["3632", "6835", "6932", "6310", "9470"],
-                "liquidity_complement_tickers": ["5423", "6266", "6143", "5410", "6817"],
-                "exploration_tickers": ["6619", "6753"],
+                "baseline_core_tickers": ["4165", "1663", "5410", "6835", "6118"],
+                "liquidity_complement_tickers": ["9601", "1663", "5410", "6266", "6619"],
+                "exploration_tickers": ["6310", "9158", "2931", "8185"],
                 "exploration_max_initial_real_order_notional_yen": 75000,
                 "exploration_requires_disconfirming_evidence": True,
                 "exploration_requires_payoff_confirmation": True,
@@ -169,6 +183,7 @@ def validate_benchmark_manifest_file(path: Path) -> list[ValidationFinding]:
     findings.extend(_check_business_invariants(path, raw))
     findings.extend(_check_repository_refs(path, raw))
     findings.extend(_check_candidate_fixtures(path))
+    findings.extend(_check_selection_fixtures(path))
     findings.extend(_check_fixture_expectations(path, raw))
     return findings
 
@@ -289,6 +304,101 @@ def _check_candidate_fixtures(path: Path) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
     for candidates_path in sorted(fixture_dir.glob("*candidates.yaml")):
         findings.extend(validate_candidates_file(candidates_path))
+    return findings
+
+
+def _check_selection_fixtures(path: Path) -> list[ValidationFinding]:
+    fixture_dir = path.parent / "e2e-regeneration"
+    if not fixture_dir.is_dir():
+        return []
+    findings: list[ValidationFinding] = []
+    for selection_path in sorted(fixture_dir.glob("*selection.yaml")):
+        try:
+            raw: object = yaml.safe_load(selection_path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as exc:
+            findings.append(
+                _finding(
+                    path,
+                    "benchmark.fixture-selection-parse",
+                    f"failed to read selection fixture {selection_path}: {exc}",
+                    selection_path.as_posix(),
+                )
+            )
+            continue
+        if not isinstance(raw, Mapping):
+            findings.append(
+                _finding(
+                    path,
+                    "benchmark.fixture-selection-parse",
+                    "selection fixture must be a mapping",
+                    selection_path.as_posix(),
+                )
+            )
+            continue
+        if "selection_mode" in raw:
+            findings.append(
+                _finding(
+                    path,
+                    "benchmark.fixture-selection-legacy-mode",
+                    "selection fixture must not contain removed selection_mode",
+                    f"{selection_path.as_posix()}.selection_mode",
+                )
+            )
+        if "candidates" in raw:
+            findings.append(
+                _finding(
+                    path,
+                    "benchmark.fixture-selection-legacy-candidates",
+                    "selection fixture must use queues.recommended_research_queue "
+                    "instead of top-level candidates",
+                    f"{selection_path.as_posix()}.candidates",
+                )
+            )
+        queues = raw.get("queues")
+        if not isinstance(queues, Mapping) or not isinstance(
+            queues.get("recommended_research_queue"), list
+        ):
+            findings.append(
+                _finding(
+                    path,
+                    "benchmark.fixture-selection-queues",
+                    "selection fixture must include queues.recommended_research_queue",
+                    f"{selection_path.as_posix()}.queues.recommended_research_queue",
+                )
+            )
+        selection = raw.get("selection")
+        if not isinstance(selection, Mapping):
+            findings.append(
+                _finding(
+                    path,
+                    "benchmark.fixture-selection-selection",
+                    "selection fixture must include selection metadata",
+                    f"{selection_path.as_posix()}.selection",
+                )
+            )
+            continue
+        if not isinstance(selection.get("diagnostics"), Mapping):
+            findings.append(
+                _finding(
+                    path,
+                    "benchmark.fixture-selection-diagnostics",
+                    "selection fixture must include selection.diagnostics",
+                    f"{selection_path.as_posix()}.selection.diagnostics",
+                )
+            )
+        queue_summary = selection.get("queue_summary")
+        if not isinstance(queue_summary, Mapping) or not isinstance(
+            queue_summary.get("recommended_research_queue"), Mapping
+        ):
+            findings.append(
+                _finding(
+                    path,
+                    "benchmark.fixture-selection-queue-summary",
+                    "selection fixture must include "
+                    "selection.queue_summary.recommended_research_queue",
+                    f"{selection_path.as_posix()}.selection.queue_summary.recommended_research_queue",
+                )
+            )
     return findings
 
 
@@ -548,6 +658,7 @@ def _check_fixture_expectations(
         return []
     root = _repo_root(path)
     findings: list[ValidationFinding] = []
+    checked_runs_refs: set[str] = set()
     for index, fixture in enumerate(fixtures):
         if not isinstance(fixture, Mapping):
             continue
@@ -803,6 +914,22 @@ def _check_fixture_expectations(
                     )
                 )
                 continue
+            if runs_ref not in checked_runs_refs:
+                required_run_ids = (
+                    _DOMAIN_E2E_RUN_IDS
+                    if manifest.get("benchmark_id") == "domain-model-2026-05"
+                    else None
+                )
+                findings.extend(
+                    _check_e2e_runs_replay_contract(
+                        path,
+                        index,
+                        runs,
+                        fixture_dir=runs_path.parent,
+                        required_run_ids=required_run_ids,
+                    )
+                )
+                checked_runs_refs.add(runs_ref)
             findings.extend(_check_runs_expected(path, index, runs, expected))
     return findings
 
@@ -1184,6 +1311,229 @@ def _check_runs_expected(
             )
         )
     return findings
+
+
+def _check_e2e_runs_replay_contract(
+    path: Path,
+    index: int,
+    runs_document: Mapping[str, object],
+    *,
+    fixture_dir: Path,
+    required_run_ids: frozenset[str] | None,
+) -> list[ValidationFinding]:
+    runs = runs_document.get("runs")
+    if not isinstance(runs, list):
+        return [
+            _finding(
+                path,
+                "benchmark.fixture-runs-parse",
+                "fixture runs YAML root must include a runs list",
+                f"fixtures[{index}].fixture_binding.runs_ref.runs",
+            )
+        ]
+    findings: list[ValidationFinding] = []
+    seen_run_ids: set[str] = set()
+    for run_index, run in enumerate(runs):
+        if not isinstance(run, Mapping):
+            findings.append(
+                _finding(
+                    path,
+                    "benchmark.fixture-runs-parse",
+                    "fixture runs entries must be mappings",
+                    f"fixtures[{index}].fixture_binding.runs_ref.runs[{run_index}]",
+                )
+            )
+            continue
+        run_id = run.get("run_id")
+        if isinstance(run_id, str):
+            if run_id in seen_run_ids:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-runs-required",
+                        f"fixture runs must not duplicate run_id {run_id}",
+                        f"fixtures[{index}].fixture_binding.runs_ref.runs[{run_index}].run_id",
+                    )
+                )
+            seen_run_ids.add(run_id)
+        findings.extend(
+            _check_e2e_run_replay_contract(
+                path,
+                index,
+                run_index,
+                run,
+                fixture_dir=fixture_dir,
+            )
+        )
+    if required_run_ids is not None:
+        for run_id in sorted(required_run_ids - seen_run_ids):
+            findings.append(
+                _finding(
+                    path,
+                    "benchmark.fixture-runs-required",
+                    f"domain benchmark runs must include {run_id}",
+                    f"fixtures[{index}].fixture_binding.runs_ref.runs",
+                )
+            )
+    return findings
+
+
+def _check_e2e_run_replay_contract(
+    path: Path,
+    index: int,
+    run_index: int,
+    run: Mapping[str, object],
+    *,
+    fixture_dir: Path,
+) -> list[ValidationFinding]:
+    root = _repo_root(path)
+    findings: list[ValidationFinding] = []
+    location = f"fixtures[{index}].fixture_binding.runs_ref.runs[{run_index}]"
+    if not isinstance(run.get("run_id"), str):
+        findings.append(
+            _finding(
+                path,
+                "benchmark.fixture-run-id",
+                "E2E run must include run_id",
+                f"{location}.run_id",
+            )
+        )
+    rules_ref = run.get("rules_path")
+    if not isinstance(rules_ref, str):
+        findings.append(
+            _finding(
+                path,
+                "benchmark.fixture-rules-selection",
+                "E2E run must include rules_path",
+                f"{location}.rules_path",
+            )
+        )
+    else:
+        try:
+            rules_path = resolve_repository_ref(root, rules_ref)
+            if not (
+                rules_path.parent == fixture_dir / "rules"
+                and rules_path.suffix in {".yaml", ".yml"}
+            ):
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-rules-selection",
+                        "E2E run rules_path must point under the same "
+                        "e2e-regeneration/rules/ directory as runs_ref and use YAML",
+                        f"{location}.rules_path",
+                    )
+                )
+            else:
+                raw_rules: object = yaml.safe_load(rules_path.read_text(encoding="utf-8"))
+                if not isinstance(raw_rules, Mapping) or not isinstance(
+                    raw_rules.get("selection"), Mapping
+                ):
+                    findings.append(
+                        _finding(
+                            path,
+                            "benchmark.fixture-rules-selection",
+                            "run rules snapshot must include selection block",
+                            f"{location}.rules_path.selection",
+                        )
+                    )
+        except (OSError, ValueError, yaml.YAMLError) as exc:
+            findings.append(
+                _finding(
+                    path,
+                    "benchmark.fixture-rules-selection",
+                    f"failed to read run rules snapshot: {exc}",
+                    f"{location}.rules_path",
+                )
+            )
+    selection_ref = run.get("selection_path")
+    selected_raw = run.get("selected_tickers")
+    if not isinstance(selection_ref, str):
+        findings.append(
+            _finding(
+                path,
+                "benchmark.fixture-selection-selected-tickers",
+                "E2E run must include selection_path",
+                f"{location}.selection_path",
+            )
+        )
+    if not isinstance(selected_raw, list):
+        findings.append(
+            _finding(
+                path,
+                "benchmark.fixture-selection-selected-tickers",
+                "E2E run must include selected_tickers list",
+                f"{location}.selected_tickers",
+            )
+        )
+    if isinstance(selection_ref, str) and isinstance(selected_raw, list):
+        selected_tickers = [str(ticker) for ticker in selected_raw]
+        try:
+            selection_path = resolve_repository_ref(root, selection_ref)
+            if not (
+                selection_path.parent == fixture_dir
+                and selection_path.name.endswith("-selection.yaml")
+                and selection_path.suffix == ".yaml"
+            ):
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-selection-selected-tickers",
+                        "E2E run selection_path must point under the same "
+                        "e2e-regeneration directory as runs_ref and use *-selection.yaml",
+                        f"{location}.selection_path",
+                    )
+                )
+                return findings
+            raw_selection: object = yaml.safe_load(selection_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, yaml.YAMLError) as exc:
+            findings.append(
+                _finding(
+                    path,
+                    "benchmark.fixture-selection-selected-tickers",
+                    f"failed to read run selection fixture: {exc}",
+                    f"{location}.selection_path",
+                )
+            )
+        else:
+            recommended_queue = _selection_recommended_queue(raw_selection)
+            if recommended_queue is None:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-selection-selected-tickers",
+                        "E2E run selection fixture must include queues.recommended_research_queue",
+                        f"{location}.selection_path.queues.recommended_research_queue",
+                    )
+                )
+                return findings
+            selection_tickers = [
+                str(item.get("ticker"))
+                for item in recommended_queue
+                if isinstance(item, Mapping) and item.get("ticker") is not None
+            ]
+            if selection_tickers != selected_tickers:
+                findings.append(
+                    _finding(
+                        path,
+                        "benchmark.fixture-selection-selected-tickers",
+                        "runs selected_tickers must match selection recommended queue",
+                        f"{location}.selected_tickers",
+                    )
+                )
+    return findings
+
+
+def _selection_recommended_queue(raw_selection: object) -> list[object] | None:
+    if not isinstance(raw_selection, Mapping):
+        return None
+    queues = raw_selection.get("queues")
+    if not isinstance(queues, Mapping):
+        return None
+    recommended = queues.get("recommended_research_queue")
+    if not isinstance(recommended, list):
+        return None
+    return recommended
 
 
 def _check_current_strategy_expected(

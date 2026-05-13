@@ -60,11 +60,11 @@ fixtures:
     run_id: run-01-baseline
     screening_status: partial_quality_warning
     selected_tickers:
-    - '3632'
+    - '4165'
+    - '1663'
+    - '5410'
     - '6835'
-    - '6932'
-    - '6310'
-    - '9470'
+    - '6118'
 - fixture_id: e2e-liquidity-sensitive-selection
   layer_id: L3a
   fixture_binding:
@@ -73,11 +73,11 @@ fixtures:
     run_id: run-02-liquidity-3oku
     screening_status: partial_quality_warning
     selected_tickers:
-    - '5423'
-    - '6266'
-    - '6143'
+    - '9601'
+    - '1663'
     - '5410'
-    - '6817'
+    - '6266'
+    - '6619'
 - fixture_id: e2e-sales-first-selection
   layer_id: L3a
   fixture_binding:
@@ -86,14 +86,14 @@ fixtures:
     run_id: run-10-sales-first-selection
     screening_status: partial_quality_warning
     selected_tickers:
-    - '9470'
-    - '6310'
-    - '6835'
-    - '3632'
-    - '6932'
-    - '6619'
-    - '6753'
+    - '4165'
+    - '1663'
     - '5410'
+    - '6310'
+    - '6619'
+    - '9158'
+    - '2931'
+    - '8185'
 - fixture_id: e2e-current-research-strategy
   layer_id: L3a
   fixture_binding:
@@ -101,20 +101,22 @@ fixtures:
   expected:
     current_strategy:
       baseline_core_tickers:
-      - '3632'
-      - '6835'
-      - '6932'
-      - '6310'
-      - '9470'
-      liquidity_complement_tickers:
-      - '5423'
-      - '6266'
-      - '6143'
+      - '4165'
+      - '1663'
       - '5410'
-      - '6817'
-      exploration_tickers:
+      - '6835'
+      - '6118'
+      liquidity_complement_tickers:
+      - '9601'
+      - '1663'
+      - '5410'
+      - '6266'
       - '6619'
-      - '6753'
+      exploration_tickers:
+      - '6310'
+      - '9158'
+      - '2931'
+      - '8185'
       exploration_max_initial_real_order_notional_yen: 75000
       exploration_requires_disconfirming_evidence: true
       exploration_requires_payoff_confirmation: true
@@ -149,7 +151,8 @@ business_invariants:
     docs, and code paths.
   fixture_binding: rg-old-fields
 - id: reference-links-valid
-  description: Repository reference links resolve to existing files without hash audit fields.
+  description: Repository reference links resolve to existing files without hash audit
+    fields.
   fixture_binding: baibai-loop-validate-snapshots
 - id: evidence-count-deterministic
   description: Conviction and sizing counts are derived from effective sizing-eligible

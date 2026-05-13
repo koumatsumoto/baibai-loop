@@ -42,8 +42,8 @@ uv run baibai-loop-screening select --asof YYYY-MM-DD
 
 出力は `queues` と `selection.diagnostics` を正本にします。
 
-- `queues.recommended_research_queue`: research 着手候補。旧 top-level `candidates` はこの alias
-- `queues.fast_dislocation_queue`: 1d / 5d / 20d / 60d の下落、52 週安値距離、出来高変化のいずれかと、OCF / FCF / net cash / equity buffer / sales+profit の fundamental guard を同時に満たす候補
+- `queues.recommended_research_queue`: research 着手候補
+- `queues.fast_dislocation_queue`: 1d / 5d / 20d / 60d のいずれかで明確に下落し、OCF / FCF / net cash / equity buffer / sales+profit の fundamental guard を同時に満たす候補。guard は cash-flow / balance-sheet / profitability の family 数も見るため、OCF+FCF だけでは eligible にしない。52 週安値距離と出来高 spike は補助情報であり、単独では fast-dislocation eligible にしない
 - `queues.core_value_queue`: 既存 playbook lane の分散候補
 - `queues.long_hold_survivability_queue`: 長期保有耐性が `high|medium` の候補
 - `queues.deferred_revisit_queue` / `queues.suppressed_queue`: ledger 上の deferred / rejected により通常 recommendation から外した候補
@@ -65,7 +65,17 @@ uv run baibai-loop-screening select-sweep \
   --profiles strict,balanced,my-fast-lane
 ```
 
-`select-sweep` では profile ごとの recommended tickers、fast-dislocation tickers、long-hold counts、suppressed count、previous overlap、sector / lane concentration を比較します。運用設定を変える前に、複数 asof の実データで `strict` / `balanced` / `loose` と候補 profile を比較します。
+`select-sweep` では profile ごとの recommended tickers、recommended detail、fast-dislocation top list、fast-dislocation total/emitted count、long-hold total/emitted count、suppressed total/emitted count、profile 間の added / removed / changed、previous overlap、sector / lane concentration を比較します。運用設定を変える前に、複数 asof の実データで `strict` / `balanced` / `loose` と候補 profile を比較します。
+
+Profile を採用する前に、少なくとも以下を表にします。
+
+- `recommended_tickers`: 望ましい thesis の候補が出ているか
+- `fast_dislocation_total_count` と `fast_dislocation_emitted_count`: 閾値が広すぎて fast 候補を量産していないか
+- `recommended[].recommendation_lane`: fast が recommended を埋め尽くしていないか
+- `recommended[].fast_guard_count` / `fast_guard_family_count` / `fast_confidence` / `fast_data_status` / `long_hold_rating`: 売られ過ぎと財務健全性の両方を満たしているか
+- `recommended_diff_vs_first_profile`: ticker 入替だけでなく rank / confidence / lane の変化が妥当か
+- `previous_overlap` と `concentration`: 前回候補・同一 sector / lane への偏りが再発していないか
+- `warnings`: legacy price fallback、invalid numeric metric、high previous overlap が残っていないか
 
 サイロ化を避けるため、既定 profile は `selection.diversity.max_previous_candidates_in_recommended` で前回 candidates 由来の銘柄数に上限を置きます。上限に達した場合、同じ queue 内で新規候補を優先して埋めます。ただし候補が足りず `research_selection_target_min` を下回る場合は、最低件数を満たすために diversity を緩めます。
 

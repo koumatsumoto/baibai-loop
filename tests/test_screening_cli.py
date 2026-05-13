@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 import yaml
@@ -1027,6 +1028,13 @@ class SelectCommandTests(unittest.TestCase):
         )
         return path
 
+    def _recommended(self, payload: dict[str, object]) -> list[dict[str, object]]:
+        queues = payload["queues"]
+        self.assertIsInstance(queues, dict)
+        recommended = queues["recommended_research_queue"]
+        self.assertIsInstance(recommended, list)
+        return cast(list[dict[str, object]], recommended)
+
     def test_filters_adverse_sectors_and_ranks_by_lane_aware_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -1088,7 +1096,7 @@ class SelectCommandTests(unittest.TestCase):
                 [c["ticker"] for c in payload["lane_toplists"]["cash-rich-asset-discount"]],
                 ["3333"],
             )
-            tickers = [c["ticker"] for c in payload["candidates"]]
+            tickers = [c["ticker"] for c in self._recommended(payload)]
             self.assertEqual(tickers, ["3333", "2222"])
             self.assertEqual(
                 payload["research_selection_lane_order"],
@@ -1101,15 +1109,17 @@ class SelectCommandTests(unittest.TestCase):
                     "valuation-reversion",
                 ],
             )
-            self.assertEqual(payload["candidates"][0]["selection_lane"], "cash-rich-asset-discount")
             self.assertEqual(
-                payload["candidates"][0]["recommendation_lane"], "cash-rich-asset-discount"
+                self._recommended(payload)[0]["selection_lane"], "cash-rich-asset-discount"
+            )
+            self.assertEqual(
+                self._recommended(payload)[0]["recommendation_lane"], "cash-rich-asset-discount"
             )
             self.assertEqual(
                 payload["ranked_candidates"][0]["selection_lane"], "valuation-reversion"
             )
-            self.assertEqual(payload["candidates"][0]["position_tier"], "200-500")
-            self.assertEqual(payload["candidates"][1]["position_tier"], "500-1000")
+            self.assertEqual(self._recommended(payload)[0]["position_tier"], "200-500")
+            self.assertEqual(self._recommended(payload)[1]["position_tier"], "500-1000")
 
     def test_select_command_accepts_explicit_candidates_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1150,7 +1160,7 @@ class SelectCommandTests(unittest.TestCase):
                 payload["candidates_ref"],
                 "records/_benchmarks/e2e/custom-candidates.yaml",
             )
-            self.assertEqual([item["ticker"] for item in payload["candidates"]], ["1111"])
+            self.assertEqual([item["ticker"] for item in self._recommended(payload)], ["1111"])
 
     def test_select_recommends_lane_diversified_candidates_before_global_rank(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1206,11 +1216,106 @@ class SelectCommandTests(unittest.TestCase):
                 [c["ticker"] for c in payload["ranked_candidates"]],
                 ["1111", "2222"],
             )
-            self.assertEqual([c["ticker"] for c in payload["candidates"]], ["2222", "1111"])
-            self.assertEqual(payload["candidates"][0]["selection_lane"], "strict-net-cash-discount")
+            self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["2222", "1111"])
             self.assertEqual(
-                payload["candidates"][0]["recommendation_lane"], "strict-net-cash-discount"
+                self._recommended(payload)[0]["selection_lane"], "strict-net-cash-discount"
             )
+            self.assertEqual(
+                self._recommended(payload)[0]["recommendation_lane"], "strict-net-cash-discount"
+            )
+
+    def test_select_enforces_lane_cap_after_primary_lane_normalization(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "primary strict top",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [
+                            {
+                                "name": "strict-net-cash-discount",
+                                "metrics": {
+                                    "net_cash_to_market_cap": 0.8,
+                                    "price_to_equity": 0.7,
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "ticker": "2222",
+                        "name": "fcf queue but primary strict",
+                        "sector_33": "電気機器",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [
+                            {
+                                "name": "strict-net-cash-discount",
+                                "metrics": {
+                                    "net_cash_to_market_cap": 0.4,
+                                    "price_to_equity": 0.7,
+                                },
+                            },
+                            {
+                                "name": "fcf-yield-discount",
+                                "metrics": {"fcf_yield": 0.2},
+                            },
+                        ],
+                    },
+                    {
+                        "ticker": "3333",
+                        "name": "sales alternative",
+                        "sector_33": "小売業",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "sales-discount-growth"}],
+                    },
+                    {
+                        "ticker": "4444",
+                        "name": "cash rich alternative",
+                        "sector_33": "サービス業",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cash-rich-asset-discount"}],
+                    },
+                ],
+            )
+            self._write_outlook(
+                root / "records/03-outlook",
+                asof,
+                sectors={
+                    "機械": "neutral",
+                    "電気機器": "neutral",
+                    "小売業": "neutral",
+                    "サービス業": "neutral",
+                },
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                profile="strict",
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            recommended = self._recommended(payload)
+            self.assertLessEqual(
+                sum(
+                    1
+                    for item in recommended
+                    if item["selection_lane"] == "strict-net-cash-discount"
+                ),
+                1,
+            )
+            self.assertNotIn("2222", [item["ticker"] for item in recommended])
 
     def test_select_preserves_freshness_warnings_across_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1267,7 +1372,7 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
-            self.assertEqual(payload["candidates"][0]["freshness_warnings"], [warning])
+            self.assertEqual(self._recommended(payload)[0]["freshness_warnings"], [warning])
             self.assertEqual(payload["ranked_candidates"][0]["freshness_warnings"], [warning])
             self.assertEqual(
                 payload["lane_toplists"]["strict-net-cash-discount"][0]["freshness_warnings"],
@@ -1336,7 +1441,7 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
-            self.assertEqual([c["ticker"] for c in payload["candidates"]], ["2222"])
+            self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["2222"])
             self.assertEqual([c["ticker"] for c in payload["ranked_candidates"]], ["2222"])
             self.assertEqual(
                 [c["ticker"] for c in payload["lane_toplists"]["strict-net-cash-discount"]],
@@ -1409,11 +1514,13 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
-            self.assertEqual([c["ticker"] for c in payload["candidates"]], ["1111", "2222"])
+            self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["1111", "2222"])
             self.assertEqual(
-                payload["candidates"][1]["recommendation_lane"], "sales-discount-growth"
+                self._recommended(payload)[1]["recommendation_lane"], "sales-discount-growth"
             )
-            self.assertEqual(payload["candidates"][1]["selection_lane"], "strict-net-cash-discount")
+            self.assertEqual(
+                self._recommended(payload)[1]["selection_lane"], "strict-net-cash-discount"
+            )
 
     def test_select_uses_lane_strength_before_market_cap(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1471,12 +1578,14 @@ class SelectCommandTests(unittest.TestCase):
             )
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
-            self.assertEqual([c["ticker"] for c in payload["candidates"]], ["2222", "1111"])
+            self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["2222", "1111"])
             self.assertEqual(
                 [c["ticker"] for c in payload["lane_toplists"]["cash-rich-asset-discount"]],
                 ["2222", "1111"],
             )
-            self.assertEqual(payload["candidates"][0]["selection_lane"], "cash-rich-asset-discount")
+            self.assertEqual(
+                self._recommended(payload)[0]["selection_lane"], "cash-rich-asset-discount"
+            )
 
     def test_select_uses_configured_lane_toplist_limit_independent_from_top(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1521,7 +1630,7 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
             self.assertEqual(payload["lane_toplist_limit"], 5)
-            self.assertEqual(len(payload["candidates"]), 1)
+            self.assertEqual(len(self._recommended(payload)), 1)
             self.assertEqual(
                 [c["ticker"] for c in payload["lane_toplists"]["cash-rich-asset-discount"]],
                 ["1111", "2222"],
@@ -1571,6 +1680,50 @@ class SelectCommandTests(unittest.TestCase):
                         "metrics": {"ocf_yield": 0.12},
                         "evidence_hits": [{"name": "cashflow-yield-discount"}],
                     },
+                    {
+                        "ticker": "4444",
+                        "name": "turnover-only spike",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "turnover_spike_5d": 3.0,
+                        "metrics": {
+                            "ocf_yield": 0.12,
+                            "fcf_yield": 0.06,
+                            "operating_profit": 10.0,
+                        },
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    },
+                    {
+                        "ticker": "4445",
+                        "name": "cash-flow family only",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "price_change_5d": -0.2,
+                        "metrics": {
+                            "ocf_yield": 0.12,
+                            "fcf_yield": 0.06,
+                            "operating_profit": -10.0,
+                        },
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    },
+                    {
+                        "ticker": "5555",
+                        "name": "invalid numeric metrics",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "price_change_5d": -0.2,
+                        "metrics": {
+                            "ocf_yield": "0.12",
+                            "operating_profit": True,
+                            "sales_yoy": "0.2",
+                        },
+                        "evidence_hits": [
+                            {
+                                "name": "cashflow-yield-discount",
+                                "metrics": {"ocf_yield": "0.12"},
+                            }
+                        ],
+                    },
                 ],
             )
             self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
@@ -1588,13 +1741,79 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
             fast_queue = payload["queues"]["fast_dislocation_queue"]
-            self.assertEqual([item["ticker"] for item in fast_queue], ["2222", "3333"])
-            self.assertEqual(payload["candidates"][0]["ticker"], "2222")
-            self.assertTrue(payload["candidates"][0]["lenses"]["fast_dislocation"]["eligible"])
+            self.assertEqual([item["ticker"] for item in fast_queue], ["2222"])
+            self.assertEqual(self._recommended(payload)[0]["ticker"], "2222")
+            self.assertTrue(self._recommended(payload)[0]["lenses"]["fast_dislocation"]["eligible"])
+            self.assertEqual(
+                self._recommended(payload)[0]["lenses"]["fast_dislocation"]["auxiliary_triggers"],
+                [],
+            )
             self.assertIn(
                 "liquidity_pass",
-                payload["candidates"][0]["lenses"]["long_hold_survivability"]["reasons"],
+                self._recommended(payload)[0]["lenses"]["long_hold_survivability"]["reasons"],
             )
+            diagnostics = payload["selection"]["diagnostics"]
+            self.assertIn("invalid_numeric_metric_values", diagnostics["warnings"])
+            self.assertEqual(diagnostics["invalid_numeric_metric_value_count"], 4)
+
+    def test_select_downgrades_fast_dislocation_with_stale_fundamentals(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            warning = {
+                "source_family": "edinet-metrics",
+                "stale_metric": "edinet_metrics",
+                "reason": "material_event_after_edinet_source",
+                "event_date": "2026-03-03",
+                "event_kind": "borrowing",
+                "event_title": "資金の借入に関するお知らせ",
+                "event_source": "tdnet",
+                "event_url": None,
+                "edinet_source_submit_datetime": "2026-03-03 10:00",
+            }
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "2222",
+                        "name": "stale but guarded drop",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "price_change_5d": -0.09,
+                        "freshness_warnings": [warning],
+                        "metrics": {
+                            "equity_ratio": 0.5,
+                            "price_to_equity": 0.9,
+                            "ocf_yield": 0.12,
+                            "fcf_yield": 0.06,
+                            "net_cash_to_market_cap": 0.25,
+                            "sales_yoy": 0.1,
+                            "operating_profit": 10.0,
+                        },
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    },
+                ],
+            )
+            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            lens = payload["queues"]["fast_dislocation_queue"][0]["lenses"]["fast_dislocation"]
+            self.assertTrue(lens["eligible"])
+            self.assertEqual(lens["confidence"], "medium")
+            self.assertEqual(lens["data_status"], "stale_fundamental_metrics")
+            self.assertTrue(lens["stale_fundamental_metrics"])
 
     def test_select_suppresses_deferred_research_before_revisit_after(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1659,11 +1878,142 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
-            self.assertEqual([item["ticker"] for item in payload["candidates"]], ["3333"])
+            self.assertEqual([item["ticker"] for item in self._recommended(payload)], ["3333"])
             self.assertEqual(payload["queues"]["suppressed_queue"][0]["ticker"], "2222")
             self.assertEqual(
                 payload["queues"]["suppressed_queue"][0]["suppression_reasons"],
                 ["deferred_until_revisit_after"],
+            )
+
+    def test_select_suppresses_deferred_research_without_revisit_after(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "2222",
+                        "name": "deferred missing revisit",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cash-rich-asset-discount"}],
+                    },
+                    {
+                        "ticker": "3333",
+                        "name": "active",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cash-rich-asset-discount"}],
+                    },
+                ],
+            )
+            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+            ledger = root / "records/_ledger/research-decisions/2026-04.jsonl"
+            ledger.parent.mkdir(parents=True)
+            ledger.write_text(
+                json.dumps(
+                    {
+                        "ticker": "2222",
+                        "decision_scope": "research_memo",
+                        "decision_event_at": "2026-04-23T10:00:00+09:00",
+                        "decision_event_id": "decision-test-2222",
+                        "research_ref": "records/05-research/test.md",
+                        "research_decision": {
+                            "outcome": "deferred",
+                            "posture": "wait_for_event",
+                            "deferral_reason": "event_pending",
+                        },
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            self.assertEqual([item["ticker"] for item in self._recommended(payload)], ["3333"])
+            self.assertEqual(
+                payload["queues"]["suppressed_queue"][0]["suppression_reasons"],
+                ["deferred_without_revisit_after"],
+            )
+
+    def test_select_suppresses_rejected_research_without_expiry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "2222",
+                        "name": "rejected",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cash-rich-asset-discount"}],
+                    },
+                    {
+                        "ticker": "3333",
+                        "name": "active",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cash-rich-asset-discount"}],
+                    },
+                ],
+            )
+            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+            ledger = root / "records/_ledger/research-decisions/2026-04.jsonl"
+            ledger.parent.mkdir(parents=True)
+            ledger.write_text(
+                json.dumps(
+                    {
+                        "ticker": "2222",
+                        "decision_scope": "research_memo",
+                        "decision_event_at": "2026-04-23T10:00:00+09:00",
+                        "decision_event_id": "decision-test-2222",
+                        "research_ref": "records/05-research/test.md",
+                        "research_decision": {
+                            "outcome": "rejected",
+                            "posture": "avoid",
+                            "reason_code": "thesis_broken",
+                        },
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            self.assertEqual([item["ticker"] for item in self._recommended(payload)], ["3333"])
+            self.assertEqual(payload["queues"]["suppressed_queue"][0]["ticker"], "2222")
+            self.assertEqual(
+                payload["queues"]["suppressed_queue"][0]["suppression_reasons"],
+                ["prior_rejected"],
             )
 
     def test_select_caps_previous_candidates_when_new_alternatives_exist(self) -> None:
@@ -1751,10 +2101,55 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
-            tickers = [item["ticker"] for item in payload["candidates"]]
+            tickers = [item["ticker"] for item in self._recommended(payload)]
             self.assertIn("5555", tickers)
             self.assertLessEqual(
-                sum(1 for item in payload["candidates"] if item["previous_candidate"]),
+                sum(1 for item in self._recommended(payload) if item["previous_candidate"]),
+                2,
+            )
+
+    def test_select_can_bypass_previous_cap_to_reach_minimum_queue_size(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            previous_asof = date(2026, 4, 17)
+            candidates = [
+                {
+                    "ticker": ticker,
+                    "name": f"previous {ticker}",
+                    "sector_33": sector,
+                    "market_cap_oku": 300,
+                    "evidence_hits": [{"name": "cash-rich-asset-discount"}],
+                }
+                for ticker, sector in (
+                    ("1111", "機械"),
+                    ("2222", "電気機器"),
+                    ("3333", "小売業"),
+                )
+            ]
+            self._write_candidates(root / "records/04-candidates", previous_asof, candidates)
+            self._write_candidates(root / "records/04-candidates", asof, candidates)
+            self._write_outlook(
+                root / "records/03-outlook",
+                asof,
+                sectors={"機械": "neutral", "電気機器": "neutral", "小売業": "neutral"},
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            self.assertEqual(len(self._recommended(payload)), 3)
+            self.assertEqual(
+                sum(1 for item in self._recommended(payload) if item["previous_candidate"]),
                 3,
             )
 
@@ -1772,7 +2167,12 @@ class SelectCommandTests(unittest.TestCase):
                         "sector_33": "機械",
                         "market_cap_oku": 300,
                         "price_change_5d": -0.09,
-                        "metrics": {"ocf_yield": 0.09, "operating_profit": 10.0},
+                        "metrics": {
+                            "ocf_yield": 0.09,
+                            "equity_ratio": 0.5,
+                            "price_to_equity": 0.9,
+                            "operating_profit": 10.0,
+                        },
                         "evidence_hits": [{"name": "cashflow-yield-discount"}],
                     },
                 ],
@@ -1796,6 +2196,176 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(by_profile["strict"]["fast_dislocation_count"], 0)
             self.assertEqual(by_profile["balanced"]["fast_dislocation_tickers"], ["2222"])
             self.assertEqual(by_profile["loose"]["fast_dislocation_tickers"], ["2222"])
+            self.assertEqual(
+                by_profile["balanced"]["recommended"][0]["recommendation_lane"],
+                "fast_dislocation_queue",
+            )
+            self.assertEqual(by_profile["balanced"]["recommended"][0]["fast_guard_count"], 2)
+            self.assertEqual(
+                by_profile["balanced"]["recommended_diff_vs_first_profile"]["changed"][0]["ticker"],
+                "2222",
+            )
+            self.assertIn(
+                "recommendation_lane",
+                by_profile["balanced"]["recommended_diff_vs_first_profile"]["changed"][0][
+                    "changed_fields"
+                ],
+            )
+
+    def test_select_sweep_loose_profile_allows_single_guard_family(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "2222",
+                        "name": "single guard family rebound",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "price_change_5d": -0.09,
+                        "metrics": {"ocf_yield": 0.09},
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    },
+                ],
+            )
+            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+
+            buffer = io.StringIO()
+            exit_code = select_sweep_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                profiles=("balanced", "loose"),
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            by_profile = {item["profile"]: item for item in payload["profiles"]}
+            self.assertEqual(by_profile["balanced"]["fast_dislocation_tickers"], [])
+            self.assertEqual(by_profile["loose"]["fast_dislocation_tickers"], ["2222"])
+            self.assertEqual(
+                by_profile["loose"]["recommended"][0]["fast_guard_family_count"],
+                1,
+            )
+
+    def test_select_sweep_rejects_unknown_profile_keys_and_queues(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "2222",
+                        "name": "candidate",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    },
+                ],
+            )
+            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+
+            cases = (
+                ("typo", {"profiles": {"typo": {"fast_dislocation": {"pbr_max": 0.8}}}}),
+                ("bad-queue", {"profiles": {"bad-queue": {"queue_order": ["unknown_queue"]}}}),
+            )
+            for profile_name, profile_config in cases:
+                profile_path = root / f"{profile_name}.yaml"
+                profile_path.write_text(
+                    yaml.safe_dump(profile_config, allow_unicode=True, sort_keys=False),
+                    encoding="utf-8",
+                )
+                buffer = io.StringIO()
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    exit_code = select_sweep_command(
+                        asof_date=asof,
+                        outlook_path=None,
+                        top=10,
+                        profiles=(profile_name,),
+                        candidates_root=root / "records/04-candidates",
+                        outlook_root=root / "records/03-outlook",
+                        profile_config_path=profile_path,
+                        stdout=buffer,
+                    )
+
+                self.assertEqual(exit_code, 1)
+                self.assertRegex(stderr.getvalue(), "extra_forbidden|unknown selection queue")
+
+    def test_select_reports_legacy_price_fallback_only_when_short_returns_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "legacy price fallback",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "price_change_5d": -0.02,
+                        "price_change_4w": -0.12,
+                        "metrics": {
+                            "ocf_yield": 0.1,
+                            "equity_ratio": 0.5,
+                            "price_to_equity": 0.9,
+                        },
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    },
+                    {
+                        "ticker": "2222",
+                        "name": "short returns",
+                        "sector_33": "電気機器",
+                        "market_cap_oku": 300,
+                        "price_change_5d": -0.02,
+                        "price_change_20d": -0.12,
+                        "metrics": {
+                            "ocf_yield": 0.1,
+                            "equity_ratio": 0.5,
+                            "price_to_equity": 0.9,
+                        },
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    },
+                ],
+            )
+            self._write_outlook(
+                root / "records/03-outlook",
+                asof,
+                sectors={"機械": "neutral", "電気機器": "neutral"},
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            diagnostics = payload["selection"]["diagnostics"]
+            self.assertEqual(diagnostics["legacy_price_fallback_candidate_count"], 1)
+            self.assertIn(
+                "fast_dislocation_uses_legacy_price_change_fallback", diagnostics["warnings"]
+            )
+            legacy_lens = payload["queues"]["fast_dislocation_queue"][0]["lenses"][
+                "fast_dislocation"
+            ]
+            self.assertEqual(legacy_lens["price_triggers"][0]["metric"], "price_change_4w")
+            self.assertEqual(legacy_lens["data_status"], "fallback_4w_or_60d")
 
     def test_rejects_non_mapping_candidates_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

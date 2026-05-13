@@ -79,10 +79,11 @@ from .selection import (
 )
 from .sqlite_cache import store_edinet_metrics
 from .sqlite_coverage import CacheCoverageIssue, verify_screening_sqlite_coverage
-from .tiers import position_tier
 from .universe import (
     build_universe,
 )
+
+type MetricScalar = bool | date | datetime | float | int | str | None
 
 
 class _NoAliasDumper(yaml.SafeDumper):
@@ -149,8 +150,7 @@ class _ScreenedCandidateInput(BaseModel):
     gap_from_52w_low: float | None = None
     turnover_spike_5d: float | None = None
     evidence_hits: list[dict[str, object]] = Field(default_factory=list)
-    metrics: dict[str, object] = Field(default_factory=dict)
-    metrics_breakdown: dict[str, object] = Field(default_factory=dict)
+    metrics: dict[str, MetricScalar] = Field(default_factory=dict)
     freshness_warnings: list[dict[str, object]] = Field(default_factory=list)
     next_earnings_date: str | None = None
 
@@ -1047,7 +1047,7 @@ def _load_selection_inputs(
     sectors_status: Mapping[str, str | None] = {
         sector: judgement.status for sector, judgement in outlook_fm.sectors.items()
     }
-    repo_root = _repository_root_from_records_anchor(resolved_outlook_path)
+    repo_root = _repository_root_from_records_anchor(resolved_outlook_path, warn_on_fallback=True)
     previous_candidates = load_previous_candidates(
         resolved_candidates_root,
         asof_date,
@@ -1081,11 +1081,17 @@ def _repository_relative_ref(path: Path, *, anchor: Path) -> str:
         return str(path)
 
 
-def _repository_root_from_records_anchor(path: Path) -> Path:
+def _repository_root_from_records_anchor(path: Path, *, warn_on_fallback: bool = False) -> Path:
     resolved = path.resolve()
     for parent in (resolved, *resolved.parents):
         if parent.name == "records":
             return parent.parent
+    if warn_on_fallback:
+        print(
+            "warning: could not infer repository root from a records/ anchor; "
+            f"using current working directory for prior research ledger: {Path.cwd()}",
+            file=sys.stderr,
+        )
     return Path.cwd()
 
 
@@ -1119,329 +1125,6 @@ def _find_latest_outlook(outlook_root: Path, asof_date: date) -> Path | None:
         if (m := re.search(r"\d{4}-\d{2}-\d{2}", path.name)) and m.group(0) <= asof_iso
     ]
     return eligible[-1] if eligible else None
-
-
-def _rank_candidates(
-    candidates_input: list[_ScreenedCandidateInput],
-    sectors_outlook: Mapping[str, str | None],
-) -> list[dict[str, object]]:
-    ranked: list[tuple[tuple[object, ...], dict[str, object]]] = []
-    for item in candidates_input:
-        sector = item.sector_33
-        outlook_status = sectors_outlook.get(sector)
-        if outlook_status not in {"supportive", "neutral"}:
-            continue
-        eligible_evidence_hits = _sizing_eligible_evidence_hits(item.evidence_hits)
-        if not eligible_evidence_hits:
-            continue
-        market_cap = item.market_cap_oku
-        independent_evidence_count = len(eligible_evidence_hits)
-        selection_lane, selection_metrics, strength_key = _best_selection_evidence(
-            eligible_evidence_hits
-        )
-        sort_key = (
-            _macro_rank(outlook_status),
-            _lane_rank(selection_lane),
-            *strength_key,
-            -independent_evidence_count,
-            item.ticker,
-        )
-        candidate: dict[str, object] = {
-            "ticker": item.ticker,
-            "name": item.name,
-            "sector_33": sector,
-            "outlook_sector": outlook_status,
-            "market_cap_oku": market_cap,
-            "evidence_hits": item.evidence_hits,
-            "independent_evidence_count": independent_evidence_count,
-            "freshness_warnings": item.freshness_warnings,
-            "selection_lane": selection_lane,
-            "selection_metrics": selection_metrics,
-            "next_earnings_date": item.next_earnings_date,
-            "position_tier": position_tier(market_cap),
-        }
-        ranked.append((sort_key, candidate))
-    ranked.sort(key=lambda item: item[0])
-    return [candidate for _, candidate in ranked]
-
-
-def _rank_lane_toplists(
-    candidates_input: list[_ScreenedCandidateInput],
-    sectors_outlook: Mapping[str, str | None],
-    top: int,
-) -> dict[str, list[dict[str, object]]]:
-    ranked_by_lane: dict[str, list[tuple[tuple[object, ...], dict[str, object]]]] = {
-        "valuation-reversion": [],
-        "strict-net-cash-discount": [],
-        "fcf-yield-discount": [],
-        "cash-rich-asset-discount": [],
-        "cashflow-yield-discount": [],
-        "sales-discount-growth": [],
-    }
-    for item in candidates_input:
-        sector = item.sector_33
-        outlook_status = sectors_outlook.get(sector)
-        if outlook_status not in {"supportive", "neutral"}:
-            continue
-        eligible_evidence_hits = _sizing_eligible_evidence_hits(item.evidence_hits)
-        if not eligible_evidence_hits:
-            continue
-        for evidence_hit in eligible_evidence_hits:
-            name = _string_value(evidence_hit.get("name"))
-            if name not in ranked_by_lane:
-                continue
-            metrics = _metric_map(evidence_hit.get("metrics"))
-            sort_key = (
-                _macro_rank(outlook_status),
-                *_evidence_strength_key(name, metrics),
-                -len(eligible_evidence_hits),
-                item.ticker,
-            )
-            ranked_by_lane[name].append(
-                (
-                    sort_key,
-                    _selection_candidate(
-                        item,
-                        sector=sector,
-                        outlook_status=outlook_status,
-                        selection_lane=name,
-                        selection_metrics=metrics,
-                        recommendation_lane=name,
-                    ),
-                )
-            )
-    output: dict[str, list[dict[str, object]]] = {}
-    for name, entries in ranked_by_lane.items():
-        entries.sort(key=lambda item: item[0])
-        output[name] = [candidate for _, candidate in entries[:top]]
-    return output
-
-
-def _research_recommendation_limit(*, top: int, configured_max: int) -> int:
-    return min(top, configured_max) if configured_max > 0 else top
-
-
-def _recommended_research_candidates(
-    *,
-    lane_toplists: Mapping[str, list[dict[str, object]]],
-    ranked_candidates: Sequence[dict[str, object]],
-    lane_order: Sequence[str],
-    limit: int,
-) -> list[dict[str, object]]:
-    if limit < 1:
-        return []
-
-    selected: list[dict[str, object]] = []
-    selected_tickers: set[str] = set()
-
-    for lane in lane_order:
-        if len(selected) >= limit:
-            break
-        for candidate in lane_toplists.get(lane) or []:
-            ticker = _string_value(candidate.get("ticker"))
-            if ticker is None or ticker in selected_tickers:
-                continue
-            selected.append(
-                _research_recommendation_candidate(
-                    candidate,
-                    recommendation_lane=lane,
-                    lane_order=lane_order,
-                )
-            )
-            selected_tickers.add(ticker)
-            break
-
-    for candidate in ranked_candidates:
-        if len(selected) >= limit:
-            break
-        ticker = _string_value(candidate.get("ticker"))
-        if ticker is None or ticker in selected_tickers:
-            continue
-        selected.append(
-            _research_recommendation_candidate(
-                candidate,
-                recommendation_lane="global-rank",
-                lane_order=lane_order,
-            )
-        )
-        selected_tickers.add(ticker)
-
-    return selected
-
-
-def _research_recommendation_candidate(
-    candidate: Mapping[str, object],
-    *,
-    recommendation_lane: str,
-    lane_order: Sequence[str],
-) -> dict[str, object]:
-    output = dict(candidate)
-    output["recommendation_lane"] = recommendation_lane
-    selection_lane, selection_metrics = _primary_evidence_by_lane_order(
-        output.get("evidence_hits"), lane_order
-    )
-    if selection_lane is not None:
-        output["selection_lane"] = selection_lane
-        output["selection_metrics"] = selection_metrics
-    return output
-
-
-def _primary_evidence_by_lane_order(
-    raw_evidence_hits: object,
-    lane_order: Sequence[str],
-) -> tuple[str | None, dict[str, object]]:
-    if not isinstance(raw_evidence_hits, Sequence) or isinstance(raw_evidence_hits, str):
-        return None, {}
-    evidence_by_lane: dict[str, Mapping[str, object]] = {}
-    for evidence_hit in raw_evidence_hits:
-        if not isinstance(evidence_hit, Mapping):
-            continue
-        if not _is_sizing_eligible_evidence(evidence_hit):
-            continue
-        name = _string_value(evidence_hit.get("name"))
-        if name is None:
-            continue
-        evidence_by_lane[name] = evidence_hit
-    for lane in lane_order:
-        evidence_hit = evidence_by_lane.get(lane)
-        if evidence_hit is not None:
-            return lane, _metric_map(evidence_hit.get("metrics"))
-    return None, {}
-
-
-def _best_selection_evidence(
-    evidence_hits: Sequence[Mapping[str, object]],
-) -> tuple[str | None, dict[str, object], tuple[float, ...]]:
-    entries = [
-        (
-            _lane_rank(name),
-            _evidence_strength_key(name, metrics),
-            name,
-            metrics,
-        )
-        for evidence_hit in evidence_hits
-        if (name := _string_value(evidence_hit.get("name"))) is not None
-        for metrics in [_metric_map(evidence_hit.get("metrics"))]
-    ]
-    if not entries:
-        return None, {}, (0.0,)
-    _, strength_key, name, metrics = min(entries, key=lambda item: (item[0], item[1]))
-    return name, metrics, strength_key
-
-
-def _sizing_eligible_evidence_hits(
-    evidence_hits: Sequence[Mapping[str, object]],
-) -> tuple[Mapping[str, object], ...]:
-    return tuple(hit for hit in evidence_hits if _is_sizing_eligible_evidence(hit))
-
-
-def _is_sizing_eligible_evidence(evidence_hit: Mapping[str, object]) -> bool:
-    source_status = evidence_hit.get("source_status")
-    if isinstance(source_status, str) and source_status != "ok":
-        return False
-    return evidence_hit.get("sizing_eligible") is not False
-
-
-def _selection_candidate(
-    item: _ScreenedCandidateInput,
-    *,
-    sector: str,
-    outlook_status: str | None,
-    selection_lane: str | None,
-    selection_metrics: Mapping[str, object],
-    recommendation_lane: str | None = None,
-) -> dict[str, object]:
-    market_cap = item.market_cap_oku
-    eligible_evidence_hits = _sizing_eligible_evidence_hits(item.evidence_hits)
-    return {
-        "ticker": item.ticker,
-        "name": item.name,
-        "sector_33": sector,
-        "outlook_sector": outlook_status,
-        "market_cap_oku": market_cap,
-        "evidence_hits": item.evidence_hits,
-        "independent_evidence_count": len(eligible_evidence_hits),
-        "freshness_warnings": item.freshness_warnings,
-        "selection_lane": selection_lane,
-        "recommendation_lane": recommendation_lane,
-        "selection_metrics": dict(selection_metrics),
-        "next_earnings_date": item.next_earnings_date,
-        "position_tier": position_tier(market_cap),
-    }
-
-
-def _macro_rank(status: str | None) -> int:
-    match status:
-        case "supportive":
-            return 0
-        case "neutral":
-            return 1
-        case _:
-            return 2
-
-
-def _lane_rank(name: str | None) -> int:
-    order = {
-        "valuation-reversion": 0,
-        "strict-net-cash-discount": 1,
-        "fcf-yield-discount": 2,
-        "cash-rich-asset-discount": 3,
-        "cashflow-yield-discount": 4,
-        "sales-discount-growth": 5,
-    }
-    return order.get(name or "", 99)
-
-
-def _evidence_strength_key(name: str, metrics: Mapping[str, object]) -> tuple[float, ...]:
-    match name:
-        case "valuation-reversion":
-            return (
-                _float_or(metrics.get("condition_a_sector_median_gap"), 1.0),
-                _float_or(metrics.get("condition_a_self_range_percentile"), 1.0),
-                _float_or(metrics.get("condition_b_sigma_gap"), 1.0),
-                _float_or(metrics.get("price_change_60d"), 1.0),
-            )
-        case "cash-rich-asset-discount":
-            return (
-                -_float_or(metrics.get("cash_to_market_cap"), 0.0),
-                _float_or(metrics.get("price_to_equity"), 99.0),
-            )
-        case "strict-net-cash-discount":
-            return (
-                -_float_or(metrics.get("net_cash_to_market_cap"), 0.0),
-                _float_or(metrics.get("price_to_equity"), 99.0),
-            )
-        case "cashflow-yield-discount":
-            return (
-                -_float_or(metrics.get("ocf_yield"), 0.0),
-                -_float_or(metrics.get("cfo_yoy"), -99.0),
-            )
-        case "fcf-yield-discount":
-            return (
-                -_float_or(metrics.get("fcf_yield"), 0.0),
-                -_float_or(metrics.get("cfo_yoy"), -99.0),
-            )
-        case "sales-discount-growth":
-            operating_profit = _float_or(metrics.get("operating_profit"), -1.0)
-            return (
-                _float_or(metrics.get("ps_sector_gap"), 1.0),
-                -_float_or(metrics.get("sales_yoy"), 0.0),
-                0.0 if operating_profit >= 0 else 1.0,
-            )
-        case _:
-            return (0.0,)
-
-
-def _metric_map(value: object) -> dict[str, object]:
-    return dict(value) if isinstance(value, Mapping) else {}
-
-
-def _string_value(value: object) -> str | None:
-    return value if isinstance(value, str) else None
-
-
-def _float_or(value: object, default: float) -> float:
-    return float(value) if isinstance(value, (int, float)) else default
 
 
 def _evidence_hits_summary(

@@ -34,15 +34,19 @@ BUILTIN_PROFILE_OVERRIDES: Mapping[str, Mapping[str, object]] = {
             "turnover_spike_5d_min": 2.0,
             "min_fundamental_guard_count": 2,
             "high_confidence_guard_count": 3,
+            "min_fundamental_guard_family_count": 2,
+            "high_confidence_guard_family_count": 2,
             "ocf_yield_min": 0.10,
             "fcf_yield_min": 0.07,
             "equity_ratio_min": 0.45,
             "price_to_equity_max": 1.0,
             "net_cash_to_market_cap_min": 0.25,
+            "sales_yoy_min": 0.05,
         },
         "diversity": {
             "max_recommended_per_sector": 1,
             "max_recommended_per_lane": 1,
+            "max_recommended_per_queue": 2,
             "max_previous_candidates_in_recommended": 2,
         },
     },
@@ -56,16 +60,19 @@ BUILTIN_PROFILE_OVERRIDES: Mapping[str, Mapping[str, object]] = {
             "gap_from_52w_low_max": 0.25,
             "turnover_spike_5d_min": None,
             "min_fundamental_guard_count": 1,
+            "min_fundamental_guard_family_count": 1,
             "high_confidence_guard_count": 2,
             "ocf_yield_min": 0.05,
             "fcf_yield_min": 0.03,
             "equity_ratio_min": 0.35,
             "price_to_equity_max": 1.1,
             "net_cash_to_market_cap_min": 0.10,
+            "sales_yoy_min": 0.03,
         },
         "diversity": {
             "max_recommended_per_sector": 3,
             "max_recommended_per_lane": 3,
+            "max_recommended_per_queue": 4,
             "max_previous_candidates_in_recommended": 4,
         },
     },
@@ -81,7 +88,6 @@ class CandidateRecord:
     avg_turnover_oku: float | None
     evidence_hits: tuple[Mapping[str, object], ...]
     metrics: Mapping[str, object]
-    metrics_breakdown: Mapping[str, object]
     freshness_warnings: tuple[Mapping[str, object], ...]
     next_earnings_date: str | None
     price_change_1d: float | None = None
@@ -107,7 +113,9 @@ class PriorResearch:
     research_ref: str | None
 
     def suppression_reason(self, asof_date: date) -> str | None:
-        if self.outcome == "deferred" and self.revisit_after is not None:
+        if self.outcome == "deferred":
+            if self.revisit_after is None:
+                return "deferred_without_revisit_after"
             if self.revisit_after > asof_date:
                 return "deferred_until_revisit_after"
             return None
@@ -146,7 +154,6 @@ def candidate_record_from_mapping(raw: Mapping[str, object]) -> CandidateRecord:
         avg_turnover_oku=_number(raw.get("avg_turnover_oku")),
         evidence_hits=evidence_hits,
         metrics=_metric_map(raw.get("metrics")),
-        metrics_breakdown=_metric_map(raw.get("metrics_breakdown")),
         freshness_warnings=freshness_warnings,
         next_earnings_date=_string_value(raw.get("next_earnings_date")),
         price_change_1d=_number(raw.get("price_change_1d")),
@@ -157,6 +164,32 @@ def candidate_record_from_mapping(raw: Mapping[str, object]) -> CandidateRecord:
         gap_from_52w_low=_number(raw.get("gap_from_52w_low")),
         turnover_spike_5d=_number(raw.get("turnover_spike_5d")),
     )
+
+
+_EXPECTED_NUMERIC_METRICS = frozenset(
+    {
+        "cash_to_market_cap",
+        "equity_ratio",
+        "fcf_yield",
+        "net_cash_to_market_cap",
+        "ocf_yield",
+        "operating_profit",
+        "price_to_equity",
+        "sales_yoy",
+    }
+)
+_EXPECTED_NUMERIC_EVIDENCE_METRICS = _EXPECTED_NUMERIC_METRICS | frozenset(
+    {
+        "cfo_yoy",
+        "condition_a_sector_median_gap",
+        "condition_a_self_range_percentile",
+        "condition_b_sigma_gap",
+        "fcf_margin",
+        "operating_margin",
+        "price_change_60d",
+        "ps_sector_gap",
+    }
+)
 
 
 def load_profile_overrides(path: Path | None) -> dict[str, Mapping[str, object]]:
@@ -229,11 +262,13 @@ def build_selection_payload(
         lane: [] for lane in rules.lane_order
     }
     suppressed_queue: list[dict[str, object]] = []
+    outlook_filtered_count = 0
 
     for item in candidates:
         outlook_status = sectors_outlook.get(item.sector_33)
         if outlook_status not in SUPPORTED_OUTLOOK_STATUSES:
             continue
+        outlook_filtered_count += 1
         eligible_evidence_hits = _sizing_eligible_evidence_hits(item.evidence_hits)
         if not eligible_evidence_hits:
             continue
@@ -324,6 +359,15 @@ def build_selection_payload(
         min_count=rules.output.research_selection_target_min,
         limit=recommendation_limit,
     )
+    queue_summary = _queue_summary(
+        recommended=recommended,
+        core_value_queue=core_value_queue,
+        fast_dislocation_queue=fast_dislocation_queue,
+        long_hold_queue=long_hold_queue,
+        deferred_revisit_queue=deferred_revisit_queue,
+        suppressed_queue=suppressed_queue,
+        top=top,
+    )
     diagnostics = _diagnostics(
         recommended=recommended,
         ranked_candidates=ranked_candidates,
@@ -336,8 +380,8 @@ def build_selection_payload(
         "candidates_ref": candidates_ref,
         "outlook_ref": outlook_ref,
         "input_count": len(candidates),
-        "after_outlook_filter": len(ranked_candidates),
-        "selection_mode": "queues",
+        "after_outlook_filter": outlook_filtered_count,
+        "after_evidence_filter": len(ranked_candidates),
         "research_selection_target_min": rules.output.research_selection_target_min,
         "research_selection_target_max": rules.output.research_selection_target_max,
         "research_selection_lane_order": list(rules.output.research_selection_lane_order),
@@ -351,12 +395,13 @@ def build_selection_payload(
                 "previous_candidates_ref": previous_candidates.ref_path,
             },
             "input_count": len(candidates),
-            "after_outlook_filter": len(ranked_candidates),
-            "selection_mode": "queues",
+            "after_outlook_filter": outlook_filtered_count,
+            "after_evidence_filter": len(ranked_candidates),
             "research_selection_target_min": rules.output.research_selection_target_min,
             "research_selection_target_max": rules.output.research_selection_target_max,
             "research_selection_lane_order": list(rules.output.research_selection_lane_order),
             "lane_toplist_limit": rules.output.lane_toplist_limit,
+            "queue_summary": queue_summary,
             "diagnostics": diagnostics,
         },
         "queues": {
@@ -369,8 +414,6 @@ def build_selection_payload(
         },
         "lane_toplists": lane_toplists,
         "ranked_candidates": ranked_candidates[:top],
-        # Legacy alias kept for existing CLI users; docs make queues canonical.
-        "candidates": recommended,
     }
 
 
@@ -405,25 +448,64 @@ def build_selection_sweep_payload(
         )
         selection = _mapping(payload.get("selection"))
         queues = _mapping(payload.get("queues"))
+        queue_summary = _mapping(selection.get("queue_summary"))
+        fast_summary = _mapping(queue_summary.get("fast_dislocation_queue"))
+        long_hold_summary = _mapping(queue_summary.get("long_hold_survivability_queue"))
+        diagnostics = _mapping(selection.get("diagnostics"))
         recommended = _dict_sequence(queues.get("recommended_research_queue"))
         fast = _dict_sequence(queues.get("fast_dislocation_queue"))
         long_hold = _dict_sequence(queues.get("long_hold_survivability_queue"))
         suppressed = _dict_sequence(queues.get("suppressed_queue"))
-        diagnostics = _mapping(selection.get("diagnostics"))
         profile_results.append(
             {
                 "profile": profile,
+                "recommended": [
+                    _sweep_candidate_summary(item, rank=index)
+                    for index, item in enumerate(recommended, start=1)
+                ],
                 "recommended_tickers": [_string_value(item.get("ticker")) for item in recommended],
                 "recommended_count": len(recommended),
+                "fast_dislocation": [
+                    _sweep_candidate_summary(item, rank=index)
+                    for index, item in enumerate(fast, start=1)
+                ],
                 "fast_dislocation_tickers": [_string_value(item.get("ticker")) for item in fast],
-                "fast_dislocation_count": len(fast),
-                "long_hold_counts": _long_hold_counts(long_hold),
-                "suppressed_count": len(suppressed),
+                "fast_dislocation_count": _int_or(fast_summary.get("total_count"), len(fast)),
+                "fast_dislocation_total_count": _int_or(fast_summary.get("total_count"), len(fast)),
+                "fast_dislocation_emitted_count": len(fast),
+                "long_hold_tickers": [_string_value(item.get("ticker")) for item in long_hold],
+                "long_hold_counts": dict(_mapping(long_hold_summary.get("rating_counts")))
+                or _long_hold_counts(long_hold),
+                "long_hold_total_count": _int_or(
+                    long_hold_summary.get("total_count"), len(long_hold)
+                ),
+                "long_hold_emitted_count": len(long_hold),
+                "suppressed_count": _int_or(diagnostics.get("suppressed_count"), len(suppressed)),
+                "suppressed_emitted_count": len(suppressed),
                 "previous_overlap": diagnostics.get("previous_overlap"),
                 "concentration": diagnostics.get("concentration"),
                 "warnings": diagnostics.get("warnings"),
             }
         )
+    if profile_results:
+        base_tickers = set(_string_sequence(profile_results[0].get("recommended_tickers")))
+        base_by_ticker = {
+            ticker: item
+            for item in _dict_sequence(profile_results[0].get("recommended"))
+            if (ticker := _string_value(item.get("ticker"))) is not None
+        }
+        for result in profile_results:
+            tickers = set(_string_sequence(result.get("recommended_tickers")))
+            current_by_ticker = {
+                ticker: item
+                for item in _dict_sequence(result.get("recommended"))
+                if (ticker := _string_value(item.get("ticker"))) is not None
+            }
+            result["recommended_diff_vs_first_profile"] = {
+                "added": sorted(tickers - base_tickers),
+                "removed": sorted(base_tickers - tickers),
+                "changed": _sweep_changed_summaries(base_by_ticker, current_by_ticker),
+            }
     return {
         "asof": asof_date.isoformat(),
         "input_refs": {
@@ -487,16 +569,20 @@ def load_previous_candidates(
 ) -> PreviousCandidates:
     if not candidates_root.exists():
         return PreviousCandidates(ref_path=None, tickers=())
-    matches: list[tuple[date, Path]] = []
+    matches: list[tuple[date, int, str, Path]] = []
     for path in candidates_root.glob("*/*/*.yaml"):
         if current_path is not None and path.resolve() == current_path.resolve():
             continue
         parsed = _parse_date(path.stem)
         if parsed is not None and parsed < asof_date:
-            matches.append((parsed, path))
+            try:
+                mtime_ns = path.stat().st_mtime_ns
+            except OSError:
+                mtime_ns = 0
+            matches.append((parsed, mtime_ns, path.as_posix(), path))
     if not matches:
         return PreviousCandidates(ref_path=None, tickers=())
-    _, latest_path = sorted(matches)[-1]
+    _, _, _, latest_path = sorted(matches)[-1]
     payload = yaml.safe_load(latest_path.read_text(encoding="utf-8"))
     if not isinstance(payload, Mapping):
         return PreviousCandidates(ref_path=latest_path.as_posix(), tickers=())
@@ -527,14 +613,16 @@ def _candidate_lenses(item: CandidateRecord, rules: SelectionRules) -> dict[str,
 def _fast_dislocation_lens(item: CandidateRecord, rules: SelectionRules) -> dict[str, object]:
     lane_rules = rules.fast_dislocation
     price_triggers: list[dict[str, object]] = []
+    auxiliary_triggers: list[dict[str, object]] = []
+    change_20d_metric = "price_change_20d"
+    change_20d_value = item.price_change_20d
+    if change_20d_value is None:
+        change_20d_metric = "price_change_4w"
+        change_20d_value = item.price_change_4w
     trigger_specs = (
         ("price_change_1d", item.price_change_1d, lane_rules.price_change_1d_max),
         ("price_change_5d", item.price_change_5d, lane_rules.price_change_5d_max),
-        (
-            "price_change_20d",
-            item.price_change_20d if item.price_change_20d is not None else item.price_change_4w,
-            lane_rules.price_change_20d_max,
-        ),
+        (change_20d_metric, change_20d_value, lane_rules.price_change_20d_max),
         ("price_change_60d", item.price_change_60d, lane_rules.price_change_60d_max),
     )
     for metric, value, threshold in trigger_specs:
@@ -545,7 +633,7 @@ def _fast_dislocation_lens(item: CandidateRecord, rules: SelectionRules) -> dict
         and item.gap_from_52w_low is not None
         and item.gap_from_52w_low <= lane_rules.gap_from_52w_low_max
     ):
-        price_triggers.append(
+        auxiliary_triggers.append(
             {
                 "metric": "gap_from_52w_low",
                 "value": item.gap_from_52w_low,
@@ -557,7 +645,7 @@ def _fast_dislocation_lens(item: CandidateRecord, rules: SelectionRules) -> dict
         and item.turnover_spike_5d is not None
         and item.turnover_spike_5d >= lane_rules.turnover_spike_5d_min
     ):
-        price_triggers.append(
+        auxiliary_triggers.append(
             {
                 "metric": "turnover_spike_5d",
                 "value": item.turnover_spike_5d,
@@ -567,21 +655,36 @@ def _fast_dislocation_lens(item: CandidateRecord, rules: SelectionRules) -> dict
 
     guard_reasons = _fundamental_guard_reasons(item, rules)
     guard_count = len(guard_reasons)
+    guard_families = sorted({_fundamental_guard_family(reason) for reason in guard_reasons})
+    stale_fundamental_metrics = _has_edinet_freshness_warning(item)
     eligible = (
         lane_rules.enabled
         and bool(price_triggers)
         and guard_count >= lane_rules.min_fundamental_guard_count
+        and len(guard_families) >= lane_rules.min_fundamental_guard_family_count
     )
     confidence = "none"
     if eligible:
-        confidence = "high" if guard_count >= lane_rules.high_confidence_guard_count else "medium"
+        high_confidence = (
+            guard_count >= lane_rules.high_confidence_guard_count
+            and len(guard_families) >= lane_rules.high_confidence_guard_family_count
+            and not stale_fundamental_metrics
+        )
+        confidence = "high" if high_confidence else "medium"
+    data_status = _fast_dislocation_data_status(item)
+    if stale_fundamental_metrics:
+        data_status = "stale_fundamental_metrics"
     return {
         "eligible": eligible,
         "confidence": confidence,
         "price_triggers": price_triggers,
+        "auxiliary_triggers": auxiliary_triggers,
         "fundamental_guard_count": guard_count,
+        "fundamental_guard_family_count": len(guard_families),
+        "fundamental_guard_families": guard_families,
         "fundamental_guard_reasons": guard_reasons,
-        "data_status": _fast_dislocation_data_status(item),
+        "stale_fundamental_metrics": stale_fundamental_metrics,
+        "data_status": data_status,
     }
 
 
@@ -605,19 +708,36 @@ def _fundamental_guard_reasons(item: CandidateRecord, rules: SelectionRules) -> 
     operating_profit_ok = not lane_rules.operating_profit_positive_required or (
         _float_or(metrics.get("operating_profit"), -1.0) > 0
     )
-    if (
-        _float_or(metrics.get("sales_yoy"), -99.0) >= lane_rules.sales_yoy_min
-        and operating_profit_ok
-    ):
+    sales_yoy = _number(metrics.get("sales_yoy"))
+    if sales_yoy is not None and sales_yoy >= lane_rules.sales_yoy_min and operating_profit_ok:
         reasons.append("sales_growth_with_profit")
     return reasons
 
 
+def _fundamental_guard_family(reason: str) -> str:
+    if reason in {"fcf_yield", "ocf_yield"}:
+        return "cash_flow"
+    if reason in {"asset_discount_with_equity_buffer", "net_cash_buffer"}:
+        return "balance_sheet"
+    if reason == "sales_growth_with_profit":
+        return "profitability"
+    return "other"
+
+
+def _has_edinet_freshness_warning(item: CandidateRecord) -> bool:
+    return any(
+        _string_value(warning.get("stale_metric")) == "edinet_metrics"
+        for warning in item.freshness_warnings
+    )
+
+
 def _fast_dislocation_data_status(item: CandidateRecord) -> str:
+    if item.price_change_20d is None and item.price_change_4w is not None:
+        return "fallback_4w_or_60d"
     if item.price_change_5d is None and item.price_change_20d is None:
-        if item.price_change_4w is not None or item.price_change_60d is not None:
-            return "fallback_4w_or_60d"
-        return "missing_price_history"
+        return (
+            "fallback_4w_or_60d" if item.price_change_60d is not None else "missing_price_history"
+        )
     return "ok"
 
 
@@ -701,7 +821,7 @@ def _selection_candidate(
     suppression_reasons: Sequence[str],
     previous_candidate: bool,
 ) -> dict[str, object]:
-    return {
+    output: dict[str, object] = {
         "ticker": item.ticker,
         "name": item.name,
         "sector_33": item.sector_33,
@@ -728,6 +848,11 @@ def _selection_candidate(
         "suppressed": suppressed,
         "suppression_reasons": list(suppression_reasons),
     }
+    metric_type_warnings = _numeric_metric_type_warnings(item.metrics, source="metrics")
+    metric_type_warnings.extend(_evidence_metric_type_warnings(item.evidence_hits))
+    if metric_type_warnings:
+        output["metric_type_warnings"] = metric_type_warnings
+    return output
 
 
 def _rank_lane_toplists(
@@ -838,32 +963,10 @@ def _recommended_research_candidates(
     selected_tickers: set[str] = set()
     sector_counts: Counter[str] = Counter()
     lane_counts: Counter[str] = Counter()
+    queue_counts: Counter[str] = Counter()
     previous_candidate_count = 0
 
-    def can_add(candidate: Mapping[str, object], *, enforce_diversity: bool) -> bool:
-        ticker = _string_value(candidate.get("ticker"))
-        if ticker is None or ticker in selected_tickers:
-            return False
-        if not enforce_diversity:
-            return True
-        sector = _string_value(candidate.get("sector_33")) or ""
-        lane = _string_value(candidate.get("selection_lane")) or ""
-        max_sector = diversity_rules.max_recommended_per_sector
-        max_lane = diversity_rules.max_recommended_per_lane
-        max_previous = diversity_rules.max_previous_candidates_in_recommended
-        if (
-            max_previous is not None
-            and candidate.get("previous_candidate") is True
-            and previous_candidate_count >= max_previous
-        ):
-            return False
-        return sector_counts[sector] < max_sector and lane_counts[lane] < max_lane
-
-    def add(candidate: Mapping[str, object]) -> None:
-        nonlocal previous_candidate_count
-        ticker = _string_value(candidate.get("ticker"))
-        if ticker is None:
-            return
+    def normalized_candidate(candidate: Mapping[str, object]) -> dict[str, object]:
         selection_lane, selection_metrics = _primary_evidence_by_lane_order(
             candidate.get("evidence_hits"), lane_order
         )
@@ -871,17 +974,49 @@ def _recommended_research_candidates(
         if selection_lane is not None:
             output["selection_lane"] = selection_lane
             output["selection_metrics"] = selection_metrics
+        return output
+
+    def can_add(candidate: Mapping[str, object], *, enforce_diversity: bool) -> bool:
+        ticker = _string_value(candidate.get("ticker"))
+        if ticker is None or ticker in selected_tickers:
+            return False
+        output = normalized_candidate(candidate)
+        if not enforce_diversity:
+            return True
+        sector = _string_value(candidate.get("sector_33")) or ""
+        lane = _string_value(output.get("selection_lane")) or ""
+        max_sector = diversity_rules.max_recommended_per_sector
+        max_lane = diversity_rules.max_recommended_per_lane
+        max_queue = diversity_rules.max_recommended_per_queue
+        max_previous = diversity_rules.max_previous_candidates_in_recommended
+        if (
+            max_previous is not None
+            and candidate.get("previous_candidate") is True
+            and previous_candidate_count >= max_previous
+        ):
+            return False
+        queue = _string_value(candidate.get("recommendation_lane")) or ""
+        queue_allowed = max_queue is None or queue_counts[queue] < max_queue
+        return sector_counts[sector] < max_sector and lane_counts[lane] < max_lane and queue_allowed
+
+    def add(candidate: Mapping[str, object]) -> None:
+        nonlocal previous_candidate_count
+        ticker = _string_value(candidate.get("ticker"))
+        if ticker is None:
+            return
+        output = normalized_candidate(candidate)
         selected.append(output)
         selected_tickers.add(ticker)
         sector_counts[_string_value(candidate.get("sector_33")) or ""] += 1
         lane_counts[_string_value(output.get("selection_lane")) or ""] += 1
+        queue_counts[_string_value(output.get("recommendation_lane")) or ""] += 1
         if candidate.get("previous_candidate") is True:
             previous_candidate_count += 1
 
     for queue_name in queue_order:
         if len(selected) >= limit:
             break
-        for candidate in queue_map.get(queue_name, ()):
+        for candidate in queue_map[queue_name]:
             if len(selected) >= limit:
                 break
             if can_add(candidate, enforce_diversity=True):
@@ -891,7 +1026,7 @@ def _recommended_research_candidates(
         for queue_name in queue_order:
             if len(selected) >= min(min_count, limit):
                 break
-            for candidate in queue_map.get(queue_name, ()):
+            for candidate in queue_map[queue_name]:
                 if len(selected) >= min(min_count, limit):
                     break
                 if can_add(candidate, enforce_diversity=False):
@@ -930,10 +1065,25 @@ def _diagnostics(
     warnings = []
     if overlap_ratio >= diversity_warning_ratio and recommended_tickers:
         warnings.append("recommended_queue_high_previous_overlap")
-    fallback_count = sum(
+    metric_type_warning_count = sum(
+        len(_dict_sequence(candidate.get("metric_type_warnings")))
+        for candidate in ranked_candidates
+    )
+    if metric_type_warning_count:
+        warnings.append("invalid_numeric_metric_values")
+    short_return_missing_count = sum(
         1
         for candidate in ranked_candidates
         if _fast_lens(candidate).get("data_status") == "fallback_4w_or_60d"
+    )
+    fallback_count = sum(
+        1
+        for candidate in ranked_candidates
+        if _fast_lens(candidate).get("eligible") is True
+        and any(
+            _string_value(trigger.get("metric")) == "price_change_4w"
+            for trigger in _dict_sequence(_fast_lens(candidate).get("price_triggers"))
+        )
     )
     if fallback_count:
         warnings.append("fast_dislocation_uses_legacy_price_change_fallback")
@@ -956,6 +1106,44 @@ def _diagnostics(
         },
         "suppressed_count": sum(1 for candidate in ranked_candidates if candidate["suppressed"]),
         "legacy_price_fallback_candidate_count": fallback_count,
+        "short_return_missing_candidate_count": short_return_missing_count,
+        "invalid_numeric_metric_value_count": metric_type_warning_count,
+    }
+
+
+def _queue_summary(
+    *,
+    recommended: Sequence[dict[str, object]],
+    core_value_queue: Sequence[dict[str, object]],
+    fast_dislocation_queue: Sequence[dict[str, object]],
+    long_hold_queue: Sequence[dict[str, object]],
+    deferred_revisit_queue: Sequence[dict[str, object]],
+    suppressed_queue: Sequence[dict[str, object]],
+    top: int,
+) -> dict[str, object]:
+    return {
+        "recommended_research_queue": _queue_count_summary(recommended, top=top),
+        "core_value_queue": _queue_count_summary(core_value_queue, top=top),
+        "fast_dislocation_queue": _queue_count_summary(fast_dislocation_queue, top=top),
+        "long_hold_survivability_queue": {
+            **_queue_count_summary(long_hold_queue, top=top),
+            "rating_counts": _long_hold_counts(long_hold_queue),
+        },
+        "deferred_revisit_queue": _queue_count_summary(deferred_revisit_queue, top=top),
+        "suppressed_queue": _queue_count_summary(suppressed_queue, top=top),
+    }
+
+
+def _queue_count_summary(
+    candidates: Sequence[Mapping[str, object]], *, top: int
+) -> dict[str, object]:
+    emitted = candidates[:top]
+    return {
+        "total_count": len(candidates),
+        "emitted_count": len(emitted),
+        "emitted_tickers": [
+            ticker for item in emitted if (ticker := _string_value(item.get("ticker"))) is not None
+        ],
     }
 
 
@@ -1008,10 +1196,13 @@ def _fast_guard_count(candidate: Mapping[str, object]) -> int:
 
 
 def _most_negative_price_change(candidate: Mapping[str, object]) -> float:
+    price_change_20d = _number(candidate.get("price_change_20d"))
     values = [
         _number(candidate.get("price_change_1d")),
         _number(candidate.get("price_change_5d")),
-        _number(candidate.get("price_change_20d")),
+        price_change_20d
+        if price_change_20d is not None
+        else _number(candidate.get("price_change_4w")),
         _number(candidate.get("price_change_60d")),
     ]
     available = [value for value in values if value is not None]
@@ -1138,6 +1329,12 @@ def _dict_sequence(value: object) -> tuple[dict[str, object], ...]:
     return tuple(dict(item) for item in value if isinstance(item, Mapping))
 
 
+def _string_sequence(value: object) -> tuple[str, ...]:
+    if not isinstance(value, Sequence) or isinstance(value, str):
+        return ()
+    return tuple(item for item in value if isinstance(item, str))
+
+
 def _mapping_sequence(value: object) -> tuple[Mapping[str, object], ...]:
     if not isinstance(value, Sequence) or isinstance(value, str):
         return ()
@@ -1162,6 +1359,104 @@ def _number(value: object) -> float | None:
     if isinstance(value, int | float):
         return float(value)
     return None
+
+
+def _numeric_metric_type_warnings(
+    metrics: Mapping[str, object],
+    *,
+    source: str,
+    evidence_name: str | None = None,
+    expected_metrics: frozenset[str] = _EXPECTED_NUMERIC_METRICS,
+) -> list[dict[str, object]]:
+    warnings: list[dict[str, object]] = []
+    for key in sorted(expected_metrics):
+        value = metrics.get(key)
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            warning: dict[str, object] = {
+                "source": source,
+                "metric": key,
+                "value_type": type(value).__name__,
+            }
+            if evidence_name is not None:
+                warning["evidence_name"] = evidence_name
+            warnings.append(warning)
+    return warnings
+
+
+def _evidence_metric_type_warnings(
+    evidence_hits: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    warnings: list[dict[str, object]] = []
+    for evidence_hit in evidence_hits:
+        metrics = evidence_hit.get("metrics")
+        if not isinstance(metrics, Mapping):
+            continue
+        warnings.extend(
+            _numeric_metric_type_warnings(
+                metrics,
+                source="evidence_hits.metrics",
+                evidence_name=_string_value(evidence_hit.get("name")),
+                expected_metrics=_EXPECTED_NUMERIC_EVIDENCE_METRICS,
+            )
+        )
+    return warnings
+
+
+def _sweep_candidate_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str, object]:
+    fast_lens = _fast_lens(candidate)
+    long_hold_lens = _long_hold_lens(candidate)
+    return {
+        "rank": rank,
+        "ticker": _string_value(candidate.get("ticker")),
+        "name": _string_value(candidate.get("name")),
+        "selection_lane": _string_value(candidate.get("selection_lane")),
+        "recommendation_lane": _string_value(candidate.get("recommendation_lane")),
+        "fast_confidence": _string_value(fast_lens.get("confidence")),
+        "fast_guard_count": _fast_guard_count(candidate),
+        "fast_guard_family_count": _int_or(fast_lens.get("fundamental_guard_family_count"), 0),
+        "fast_data_status": _string_value(fast_lens.get("data_status")),
+        "stale_fundamental_metrics": fast_lens.get("stale_fundamental_metrics") is True,
+        "long_hold_rating": _string_value(long_hold_lens.get("rating")),
+        "previous_candidate": candidate.get("previous_candidate") is True,
+    }
+
+
+def _sweep_changed_summaries(
+    base_by_ticker: Mapping[str, Mapping[str, object]],
+    current_by_ticker: Mapping[str, Mapping[str, object]],
+) -> list[dict[str, object]]:
+    changed: list[dict[str, object]] = []
+    for ticker in sorted(set(base_by_ticker) & set(current_by_ticker)):
+        base = base_by_ticker[ticker]
+        current = current_by_ticker[ticker]
+        changed_fields = {
+            key
+            for key in (
+                "fast_confidence",
+                "fast_guard_count",
+                "fast_guard_family_count",
+                "fast_data_status",
+                "long_hold_rating",
+                "recommendation_lane",
+                "selection_lane",
+                "rank",
+                "stale_fundamental_metrics",
+            )
+            if base.get(key) != current.get(key)
+        }
+        if not changed_fields:
+            continue
+        changed.append(
+            {
+                "ticker": ticker,
+                "changed_fields": sorted(changed_fields),
+                "from": {key: base.get(key) for key in sorted(changed_fields)},
+                "to": {key: current.get(key) for key in sorted(changed_fields)},
+            }
+        )
+    return changed
 
 
 def _float_or(value: object, default: float) -> float:

@@ -20,7 +20,6 @@ quality:
 output:
   research_selection_target_min: 3
   research_selection_target_max: 5
-  selection_mode: lane_toplists
   lane_toplist_limit: 5
   research_selection_lane_order:
   - strict-net-cash-discount
@@ -40,17 +39,19 @@ selection:
     price_change_1d_max: -0.05
     price_change_5d_max: -0.08
     price_change_20d_max: -0.10
-    price_change_60d_max: -0.18
+    price_change_60d_max: -0.22
     gap_from_52w_low_max: 0.15
     turnover_spike_5d_min: 1.5
-    min_fundamental_guard_count: 1
-    high_confidence_guard_count: 2
+    min_fundamental_guard_count: 2
+    min_fundamental_guard_family_count: 2
+    high_confidence_guard_count: 3
+    high_confidence_guard_family_count: 2
     ocf_yield_min: 0.08
     fcf_yield_min: 0.05
     price_to_equity_max: 1.0
     equity_ratio_min: 0.4
     net_cash_to_market_cap_min: 0.2
-    sales_yoy_min: 0.0
+    sales_yoy_min: 0.05
     operating_profit_positive_required: true
   long_hold_survivability:
     high_min_support_count: 4
@@ -66,6 +67,7 @@ selection:
   diversity:
     max_recommended_per_sector: 1
     max_recommended_per_lane: 2
+    max_recommended_per_queue: 3
     max_previous_candidates_in_recommended: 2
     previous_overlap_warning_ratio: 0.6
   ai_exposure_sector_tags:

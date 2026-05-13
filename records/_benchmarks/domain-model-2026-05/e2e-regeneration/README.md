@@ -32,7 +32,7 @@ uv run baibai-loop-screening select \
 Observed:
 
 - Recommended research tickers in the baseline selection:
-  `3632`, `6835`, `6932`, `6310`, `9470`.
+  `4165`, `1663`, `5410`, `6835`, `6118`.
 - The selected queue is driven by the current screen, outlook, freshness, and
   lane ordering. It is not pinned to any prior research or trade record.
 - `baseline-candidates.yaml` and `run-01-baseline-candidates.yaml` intentionally
@@ -65,17 +65,17 @@ Findings:
   written and validated; `runs.yaml` records this as
   `screening_status: partial_quality_warning` so it is not confused with a
   hard generation failure.
-- The baseline selected research queue is `3632`, `6835`, `6932`, `6310`,
-  `9470`. Increasing target max and moving sales first changes ordering and
+- The baseline selected research queue is `4165`, `1663`, `5410`, `6835`,
+  `6118`. Increasing target max and moving sales first changes ordering and
   broadens the queue to 8 names.
-- Higher liquidity pressure changes the selected queue to `5423`, `6266`,
-  `6143`, `5410`, `6817`, which confirms liquidity policy materially changes
+- Higher liquidity pressure changes the selected queue to `9601`, `1663`,
+  `5410`, `6266`, `6619`, which confirms liquidity policy materially changes
   the investable shortlist rather than preserving prior decisions.
 - Stricter `sales_yoy_min: 0.10` cuts sales-discount-growth hits from 132 to
-  60 and replaces the fifth selected name with `5036`. This confirms the
+  60 while preserving the new queue contract. This confirms the
   sales-growth threshold is a high-impact business knob.
-- Moving sales-discount-growth first and expanding the queue selects `9470`,
-  `6310`, `6835`, `3632`, `6932`, `6619`, `6753`, `5410`. This is the primary
+- Moving sales-discount-growth first and expanding the queue selects `4165`,
+  `1663`, `5410`, `6310`, `6619`, `9158`, `2931`, `8185`. This is the primary
   current-state candidate pool for research diversification.
 
 ## Current Research Strategy
@@ -84,11 +84,11 @@ Findings:
 It is not a raw candidates row flag and it is not equivalent to research approval
 or order readiness.
 
-- Core research queue: `3632`, `6835`, `6932`, `6310`, `9470`.
-- Liquidity complement: `5423`, `6266`, `6143`, `5410`, `6817`.
-- Growth-discount exploration sleeve: `6619`, `6753`; `5410` is promoted to a
-  higher-priority complement because it appears in both the liquidity-stress and
-  sales-first runs.
+- Core research queue: `4165`, `1663`, `5410`, `6835`, `6118`.
+- Liquidity complement: `9601`, `1663`, `5410`, `6266`, `6619`.
+- Growth-discount exploration sleeve: `6310`, `9158`, `2931`, `8185`;
+  `5410` is promoted to a higher-priority complement because it appears in the
+  baseline, liquidity-stress, and sales-first runs.
 - Evidence-count-one names stay small until an investment memo confirms
   disconfirming evidence and payoff. The current strategy caps first orders for
   this sleeve at 75,000 yen and requires research confirmation before order

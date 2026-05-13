@@ -38,7 +38,7 @@ Playbook-linked screen は raw candidates を作る事実層、`select` は rese
 | lens / queue | 目的 | 採用根拠としての扱い |
 | --- | --- | --- |
 | `core_value_queue` | 既存 playbook lane の分散候補を維持する | primary playbook の入口 |
-| `fast_dislocation_queue` | 一時的に売られすぎた候補を早く上位化する | 価格下落だけでは不可。fundamental guard と一次確認が必要 |
+| `fast_dislocation_queue` | 一時的に売られすぎた候補を早く上位化する | 価格下落 trigger と fundamental guard が必要。出来高 spike / 52 週安値距離は補助情報 |
 | `long_hold_survivability_queue` | 短期 thesis が外れた場合の保有耐性を見える化する | hard gate ではない。`high|medium|low|unknown` annotation |
 | `shareholder_return` | 保有期間が伸びた場合の fallback evidence を将来取り込む | 現時点の自動データ不足時は `unknown` |
 | `ai_exposure` | AI disruption / AI beneficiary の比較補助 | sector proxy。採用・sizing の単独根拠にしない |

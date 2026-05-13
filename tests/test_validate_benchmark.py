@@ -326,6 +326,28 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
 
         self.assertIn("candidates.non-mapping", {finding.code for finding in findings})
 
+    def test_rejects_legacy_selection_fixture_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            selection = (
+                root / "records/_benchmarks/domain-model/e2e-regeneration/run-selection.yaml"
+            )
+            selection.parent.mkdir(parents=True)
+            selection.write_text(
+                "selection_mode: lane_toplists\ncandidates: []\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(_manifest(), encoding="utf-8")
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        codes = {finding.code for finding in findings}
+        self.assertIn("benchmark.fixture-selection-legacy-mode", codes)
+        self.assertIn("benchmark.fixture-selection-legacy-candidates", codes)
+        self.assertIn("benchmark.fixture-selection-queues", codes)
+
     def test_rejects_non_mapping_input_ref_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -433,6 +455,370 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
             findings = validate_benchmark_manifest_file(manifest)
 
         self.assertIn("benchmark.expected-selected-tickers", {finding.code for finding in findings})
+
+    def test_rejects_e2e_replay_contract_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            rules = root / "records/_benchmarks/domain-model/e2e/rules/run-rules.yaml"
+            rules.parent.mkdir(parents=True, exist_ok=True)
+            rules.write_text("output: {}\n", encoding="utf-8")
+            selection = root / "records/_benchmarks/domain-model/e2e/run-selection.yaml"
+            selection.write_text(
+                "selection:\n"
+                "  diagnostics: {}\n"
+                "  queue_summary:\n"
+                "    recommended_research_queue: {}\n"
+                "queues:\n"
+                "  recommended_research_queue:\n"
+                "  - ticker: '2222'\n",
+                encoding="utf-8",
+            )
+            runs = root / "records/_benchmarks/domain-model/e2e/runs.yaml"
+            runs.write_text(
+                "runs:\n"
+                "- run_id: run-01-baseline\n"
+                "  screening_status: partial_quality_warning\n"
+                "  selected_tickers: ['1111']\n"
+                "  selection_path: records/_benchmarks/domain-model/e2e/run-selection.yaml\n"
+                "  rules_path: records/_benchmarks/domain-model/e2e/rules/run-rules.yaml\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    runs_ref="records/_benchmarks/domain-model/e2e/runs.yaml",
+                    expected={
+                        "run_id": "run-01-baseline",
+                        "screening_status": "partial_quality_warning",
+                    },
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        codes = {finding.code for finding in findings}
+        self.assertIn("benchmark.fixture-rules-selection", codes)
+        self.assertIn("benchmark.fixture-selection-selected-tickers", codes)
+
+    def test_rejects_e2e_replay_contract_drift_for_unexpected_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            rules_dir = root / "records/_benchmarks/domain-model/e2e-regeneration/rules"
+            rules_dir.mkdir(parents=True, exist_ok=True)
+            (rules_dir / "run-01-rules.yaml").write_text(
+                "selection: {}\n",
+                encoding="utf-8",
+            )
+            (rules_dir / "run-02-rules.yaml").write_text(
+                "output: {}\n",
+                encoding="utf-8",
+            )
+            e2e_dir = root / "records/_benchmarks/domain-model/e2e-regeneration"
+            (e2e_dir / "run-01-selection.yaml").write_text(
+                "queues:\n  recommended_research_queue:\n  - ticker: '1111'\n",
+                encoding="utf-8",
+            )
+            (e2e_dir / "run-02-selection.yaml").write_text(
+                "queues:\n  recommended_research_queue:\n  - ticker: '3333'\n",
+                encoding="utf-8",
+            )
+            runs = e2e_dir / "runs.yaml"
+            runs.write_text(
+                "runs:\n"
+                "- run_id: run-01-baseline\n"
+                "  screening_status: partial_quality_warning\n"
+                "  selected_tickers: ['1111']\n"
+                "  selection_path: "
+                "records/_benchmarks/domain-model/e2e-regeneration/run-01-selection.yaml\n"
+                "  rules_path: "
+                "records/_benchmarks/domain-model/e2e-regeneration/rules/run-01-rules.yaml\n"
+                "- run_id: run-02-not-in-manifest-expected\n"
+                "  screening_status: partial_quality_warning\n"
+                "  selected_tickers: ['2222']\n"
+                "  selection_path: "
+                "records/_benchmarks/domain-model/e2e-regeneration/run-02-selection.yaml\n"
+                "  rules_path: "
+                "records/_benchmarks/domain-model/e2e-regeneration/rules/run-02-rules.yaml\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    runs_ref="records/_benchmarks/domain-model/e2e-regeneration/runs.yaml",
+                    expected={
+                        "run_id": "run-01-baseline",
+                        "screening_status": "partial_quality_warning",
+                    },
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        codes = {finding.code for finding in findings}
+        self.assertIn("benchmark.fixture-rules-selection", codes)
+        self.assertIn("benchmark.fixture-selection-selected-tickers", codes)
+
+    def test_rejects_e2e_replay_contract_missing_required_run_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            runs = root / "records/_benchmarks/domain-model/e2e/runs.yaml"
+            runs.parent.mkdir(parents=True)
+            runs.write_text(
+                "runs:\n- run_id: run-01-baseline\n  screening_status: partial_quality_warning\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    runs_ref="records/_benchmarks/domain-model/e2e/runs.yaml",
+                    expected={
+                        "run_id": "run-01-baseline",
+                        "screening_status": "partial_quality_warning",
+                    },
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        codes = {finding.code for finding in findings}
+        self.assertIn("benchmark.fixture-rules-selection", codes)
+        self.assertIn("benchmark.fixture-selection-selected-tickers", codes)
+
+    def test_rejects_domain_e2e_missing_required_run_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            rules = (
+                root / "records/_benchmarks/domain-model/e2e-regeneration/rules/run-01-rules.yaml"
+            )
+            rules.parent.mkdir(parents=True, exist_ok=True)
+            rules.write_text("selection: {}\n", encoding="utf-8")
+            selection = (
+                root / "records/_benchmarks/domain-model/e2e-regeneration/run-01-selection.yaml"
+            )
+            selection.write_text(
+                "queues:\n  recommended_research_queue:\n  - ticker: '1111'\n",
+                encoding="utf-8",
+            )
+            runs = root / "records/_benchmarks/domain-model/e2e-regeneration/runs.yaml"
+            runs.write_text(
+                "runs:\n"
+                "- run_id: run-01-baseline\n"
+                "  screening_status: partial_quality_warning\n"
+                "  selected_tickers: ['1111']\n"
+                "  selection_path: "
+                "records/_benchmarks/domain-model/e2e-regeneration/run-01-selection.yaml\n"
+                "  rules_path: "
+                "records/_benchmarks/domain-model/e2e-regeneration/rules/run-01-rules.yaml\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    runs_ref="records/_benchmarks/domain-model/e2e-regeneration/runs.yaml",
+                    expected={"run_id": "run-01-baseline"},
+                ).replace("benchmark_id: test", "benchmark_id: domain-model-2026-05"),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.fixture-runs-required", {finding.code for finding in findings})
+
+    def test_rejects_e2e_replay_contract_malformed_empty_selection_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            rules = root / "records/_benchmarks/domain-model/e2e-regeneration/rules/run-rules.yaml"
+            rules.parent.mkdir(parents=True, exist_ok=True)
+            rules.write_text("selection: {}\n", encoding="utf-8")
+            selection = (
+                root / "records/_benchmarks/domain-model/e2e-regeneration/run-selection.yaml"
+            )
+            selection.write_text("queues: {}\n", encoding="utf-8")
+            runs = root / "records/_benchmarks/domain-model/e2e-regeneration/runs.yaml"
+            runs.write_text(
+                "runs:\n"
+                "- run_id: run-01-baseline\n"
+                "  screening_status: partial_quality_warning\n"
+                "  selected_tickers: []\n"
+                "  selection_path: "
+                "records/_benchmarks/domain-model/e2e-regeneration/run-selection.yaml\n"
+                "  rules_path: "
+                "records/_benchmarks/domain-model/e2e-regeneration/rules/run-rules.yaml\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    runs_ref="records/_benchmarks/domain-model/e2e-regeneration/runs.yaml",
+                    expected={"run_id": "run-01-baseline"},
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn(
+            "benchmark.fixture-selection-selected-tickers",
+            {finding.code for finding in findings},
+        )
+
+    def test_rejects_domain_e2e_duplicate_run_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            rules = (
+                root / "records/_benchmarks/domain-model/e2e-regeneration/rules/run-01-rules.yaml"
+            )
+            rules.parent.mkdir(parents=True, exist_ok=True)
+            rules.write_text("selection: {}\n", encoding="utf-8")
+            selection = (
+                root / "records/_benchmarks/domain-model/e2e-regeneration/run-01-selection.yaml"
+            )
+            selection.write_text(
+                "queues:\n  recommended_research_queue:\n  - ticker: '1111'\n",
+                encoding="utf-8",
+            )
+            runs = root / "records/_benchmarks/domain-model/e2e-regeneration/runs.yaml"
+            runs.write_text(
+                "runs:\n"
+                "- run_id: run-01-baseline\n"
+                "  selected_tickers: ['1111']\n"
+                "  selection_path: "
+                "records/_benchmarks/domain-model/e2e-regeneration/run-01-selection.yaml\n"
+                "  rules_path: "
+                "records/_benchmarks/domain-model/e2e-regeneration/rules/run-01-rules.yaml\n"
+                "- run_id: run-01-baseline\n"
+                "  selected_tickers: ['1111']\n"
+                "  selection_path: "
+                "records/_benchmarks/domain-model/e2e-regeneration/run-01-selection.yaml\n"
+                "  rules_path: "
+                "records/_benchmarks/domain-model/e2e-regeneration/rules/run-01-rules.yaml\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    runs_ref="records/_benchmarks/domain-model/e2e-regeneration/runs.yaml",
+                    expected={"run_id": "run-01-baseline"},
+                ).replace("benchmark_id: test", "benchmark_id: domain-model-2026-05"),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.fixture-runs-required", {finding.code for finding in findings})
+
+    def test_rejects_e2e_replay_contract_non_snapshot_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            rules = root / "records/_config/screening-rules/current.yaml"
+            rules.parent.mkdir(parents=True, exist_ok=True)
+            rules.write_text("selection: {}\n", encoding="utf-8")
+            selection = root / "records/_benchmarks/domain-model/e2e-regeneration/run-output.yaml"
+            selection.parent.mkdir(parents=True, exist_ok=True)
+            selection.write_text("queues:\n  recommended_research_queue: []\n", encoding="utf-8")
+            runs = root / "records/_benchmarks/domain-model/e2e-regeneration/runs.yaml"
+            runs.write_text(
+                "runs:\n"
+                "- run_id: run-01-baseline\n"
+                "  selected_tickers: []\n"
+                "  selection_path: records/_benchmarks/domain-model/e2e-regeneration/run-output.yaml\n"
+                "  rules_path: records/_config/screening-rules/current.yaml\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    runs_ref="records/_benchmarks/domain-model/e2e-regeneration/runs.yaml",
+                    expected={"run_id": "run-01-baseline"},
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        codes = {finding.code for finding in findings}
+        self.assertIn("benchmark.fixture-rules-selection", codes)
+        self.assertIn("benchmark.fixture-selection-selected-tickers", codes)
+
+    def test_rejects_e2e_replay_contract_cross_benchmark_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            rules = root / "records/_benchmarks/other/e2e-regeneration/rules/run-rules.yaml"
+            rules.parent.mkdir(parents=True, exist_ok=True)
+            rules.write_text("selection: {}\n", encoding="utf-8")
+            selection = root / "records/_benchmarks/other/e2e-regeneration/run-selection.yaml"
+            selection.parent.mkdir(parents=True, exist_ok=True)
+            selection.write_text("queues:\n  recommended_research_queue: []\n", encoding="utf-8")
+            runs = root / "records/_benchmarks/domain-model/e2e-regeneration/runs.yaml"
+            runs.parent.mkdir(parents=True, exist_ok=True)
+            runs.write_text(
+                "runs:\n"
+                "- run_id: run-01-baseline\n"
+                "  selected_tickers: []\n"
+                "  selection_path: records/_benchmarks/other/e2e-regeneration/run-selection.yaml\n"
+                "  rules_path: records/_benchmarks/other/e2e-regeneration/rules/run-rules.yaml\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    runs_ref="records/_benchmarks/domain-model/e2e-regeneration/runs.yaml",
+                    expected={"run_id": "run-01-baseline"},
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        codes = {finding.code for finding in findings}
+        self.assertIn("benchmark.fixture-rules-selection", codes)
+        self.assertIn("benchmark.fixture-selection-selected-tickers", codes)
+
+    def test_rejects_e2e_replay_contract_selection_yml_extension(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            rules = root / "records/_benchmarks/domain-model/e2e-regeneration/rules/run-rules.yaml"
+            rules.parent.mkdir(parents=True, exist_ok=True)
+            rules.write_text("selection: {}\n", encoding="utf-8")
+            selection = root / "records/_benchmarks/domain-model/e2e-regeneration/run-selection.yml"
+            selection.parent.mkdir(parents=True, exist_ok=True)
+            selection.write_text("queues:\n  recommended_research_queue: []\n", encoding="utf-8")
+            runs = root / "records/_benchmarks/domain-model/e2e-regeneration/runs.yaml"
+            runs.write_text(
+                "runs:\n"
+                "- run_id: run-01-baseline\n"
+                "  selected_tickers: []\n"
+                "  selection_path: records/_benchmarks/domain-model/e2e-regeneration/run-selection.yml\n"
+                "  rules_path: records/_benchmarks/domain-model/e2e-regeneration/rules/run-rules.yaml\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                _manifest_with_expected(
+                    runs_ref="records/_benchmarks/domain-model/e2e-regeneration/runs.yaml",
+                    expected={"run_id": "run-01-baseline"},
+                ),
+                encoding="utf-8",
+            )
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn(
+            "benchmark.fixture-selection-selected-tickers",
+            {finding.code for finding in findings},
+        )
 
     def test_rejects_current_strategy_bucket_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
