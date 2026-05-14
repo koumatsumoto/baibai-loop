@@ -235,15 +235,6 @@ class JQuantsProvider:
         )
         return [normalize_market_calendar(record) for record in records]
 
-    def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
-        return {
-            "eq_master": len(self.get_eq_master()),
-            "bars": len(self.get_eq_bars_daily_range(start, end)),
-            "fin_summary": len(self.get_fin_summary_range(start, end)),
-            "earnings_cal": len(self.get_eq_earnings_cal(start, end)),
-            "market_calendar": len(self.get_mkt_calendar(start, end)),
-        }
-
     def _load_or_fetch_range(self, method: str, start: date, end: date) -> list[dict[str, Any]]:
         chunk_days = self._RANGE_CHUNK_DAYS.get(method)
         if chunk_days is None or (end - start).days < chunk_days:

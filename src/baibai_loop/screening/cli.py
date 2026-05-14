@@ -15,13 +15,13 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
 from baibai_loop._env import load_project_env
+from baibai_loop.date_utils import weekday_distance
 
 from .config import (
     DEFAULT_SQLITE_CACHE_DIR,
     ConfigError,
     ScreeningConfig,
 )
-from .date_utils import weekday_distance
 from .filesystem import write_text_atomic
 from .freshness import detect_edinet_freshness_warnings, load_disclosure_events
 from .lineage import (
@@ -105,8 +105,6 @@ class JQuantsAdapter(Protocol):
     ) -> list[JQuantsFinancialSummary]: ...
 
     def get_eq_earnings_cal(self, start: date, end: date) -> list[dict[str, object]]: ...
-
-    def bootstrap_cache(self, start: date, end: date) -> Mapping[str, int]: ...
 
 
 class EDINETAdapter(Protocol):
@@ -225,10 +223,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bootstrap_parser.add_argument(
         "--asof",
+        required=True,
         help="screening target date (YYYY-MM-DD); computes each source window automatically",
     )
-    bootstrap_parser.add_argument("--start", help="legacy explicit start date (YYYY-MM-DD)")
-    bootstrap_parser.add_argument("--end", help="legacy explicit end date (YYYY-MM-DD)")
 
     extract_parser = subparsers.add_parser(
         "extract-edinet-metrics",
@@ -252,19 +249,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
         help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
     )
-    coverage_parser.add_argument(
-        "--require-edinet-metrics",
-        action="store_true",
-        dest="require_edinet_metrics",
-        help="require EDINET metrics coverage for --asof (default)",
-    )
-    coverage_parser.add_argument(
-        "--allow-missing-edinet-metrics",
-        action="store_false",
-        dest="require_edinet_metrics",
-        help="legacy/degraded verification only; run still requires EDINET metrics",
-    )
-    coverage_parser.set_defaults(require_edinet_metrics=True)
     coverage_parser.add_argument(
         "--rules-path",
         default=str(DEFAULT_RULES_PATH),
@@ -396,7 +380,6 @@ def main(argv: list[str] | None = None) -> int:
         return verify_cache_coverage_command(
             sqlite_path=Path(args.sqlite_path),
             asof_date=_parse_iso_date(args.asof),
-            require_edinet_metrics=args.require_edinet_metrics,
             required_jpx_sources=rules.universe.required_jpx_flags,
             allow_stale_jpx=args.allow_stale_jpx,
         )
@@ -417,7 +400,6 @@ def main(argv: list[str] | None = None) -> int:
         coverage_issues = verify_screening_sqlite_coverage(
             sqlite_path,
             run_asof_date,
-            require_edinet_metrics=True,
             required_jpx_sources=run_rules.universe.required_jpx_flags if run_rules else (),
             allow_stale_jpx=args.allow_stale_jpx,
         )
@@ -467,23 +449,10 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if args.command == "bootstrap-cache":
-        if args.asof:
-            if args.start or args.end:
-                print("--asof cannot be combined with --start/--end", file=sys.stderr)
-                return 1
-            return bootstrap_cache_command(
-                asof_date=_parse_iso_date(args.asof),
-                providers=providers,
-            )
-        if not args.start or not args.end:
-            print("bootstrap-cache requires --asof, or both --start and --end", file=sys.stderr)
-            return 1
-        start = _parse_iso_date(args.start)
-        end = _parse_iso_date(args.end)
-        if start > end:
-            print("--start must be on or before --end", file=sys.stderr)
-            return 1
-        return bootstrap_cache_command(start=start, end=end, providers=providers)
+        return bootstrap_cache_command(
+            asof_date=_parse_iso_date(args.asof),
+            providers=providers,
+        )
 
     if args.command == "extract-edinet-metrics":
         if args.lookback_days < 0:
@@ -1212,7 +1181,6 @@ def verify_cache_coverage_command(
     *,
     sqlite_path: Path,
     asof_date: date,
-    require_edinet_metrics: bool = True,
     required_jpx_sources: Iterable[str] = (),
     allow_stale_jpx: bool = False,
     stdout: TextIO | None = None,
@@ -1226,7 +1194,6 @@ def verify_cache_coverage_command(
     issues = verify_screening_sqlite_coverage(
         sqlite_path,
         asof_date,
-        require_edinet_metrics=require_edinet_metrics,
         required_jpx_sources=required_jpx_sources,
         allow_stale_jpx=allow_stale_jpx,
     )
@@ -1397,48 +1364,27 @@ def _date_iso(value: date | None) -> str | None:
 
 
 def bootstrap_cache_command(
-    start: date | None = None,
-    end: date | None = None,
-    providers: ProviderBundle | None = None,
     *,
-    asof_date: date | None = None,
+    asof_date: date,
+    providers: ProviderBundle,
 ) -> int:
-    if providers is None:
-        raise ValueError("bootstrap_cache_command requires providers")
-    if asof_date is not None:
-        bars_start = asof_date - timedelta(days=1200)
-        fin_start = asof_date - timedelta(days=730)
-        earnings_end = asof_date + timedelta(days=90)
-        try:
-            providers.jquants.get_eq_master()
-            providers.jquants.get_eq_bars_daily_range(bars_start, asof_date)
-            providers.jquants.get_fin_summary_range(fin_start, asof_date)
-            providers.jquants.get_eq_earnings_cal(asof_date, earnings_end)
-            providers.jquants.get_mkt_calendar(asof_date, asof_date)
-            if providers.edinet is not None:
-                providers.edinet.bootstrap_cache(fin_start, asof_date)
-            else:
-                print(
-                    "note: EDINET provider is not configured; skipping EDINET bootstrap",
-                    file=sys.stderr,
-                )
-            providers.jpx.bootstrap_cache(asof_date)
-        except (JQuantsProviderError, EDINETProviderError, JPXProviderError, sqlite3.Error) as exc:
-            print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
-            return 1
-        return 0
-    if start is None or end is None:
-        raise ValueError("bootstrap_cache_command requires asof_date or start/end")
+    bars_start = asof_date - timedelta(days=1200)
+    fin_start = asof_date - timedelta(days=730)
+    earnings_end = asof_date + timedelta(days=90)
     try:
-        providers.jquants.bootstrap_cache(start, end)
+        providers.jquants.get_eq_master()
+        providers.jquants.get_eq_bars_daily_range(bars_start, asof_date)
+        providers.jquants.get_fin_summary_range(fin_start, asof_date)
+        providers.jquants.get_eq_earnings_cal(asof_date, earnings_end)
+        providers.jquants.get_mkt_calendar(asof_date, asof_date)
         if providers.edinet is not None:
-            providers.edinet.bootstrap_cache(start, end)
+            providers.edinet.bootstrap_cache(fin_start, asof_date)
         else:
             print(
                 "note: EDINET provider is not configured; skipping EDINET bootstrap",
                 file=sys.stderr,
             )
-        providers.jpx.bootstrap_cache(end)
+        providers.jpx.bootstrap_cache(asof_date)
     except (JQuantsProviderError, EDINETProviderError, JPXProviderError, sqlite3.Error) as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
