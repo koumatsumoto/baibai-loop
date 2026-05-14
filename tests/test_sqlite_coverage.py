@@ -224,11 +224,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = _verify_screening_sqlite_coverage(
-                sqlite_path,
-                asof,
-                require_edinet_metrics=True,
-            )
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertEqual(issues, ())
 
@@ -771,7 +767,6 @@ class SQLiteCoverageTests(unittest.TestCase):
             issues = verify_screening_sqlite_coverage(
                 sqlite_path,
                 asof,
-                require_edinet_metrics=False,
                 allow_stale_jpx=True,
             )
 
@@ -1073,11 +1068,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            issues = _verify_screening_sqlite_coverage(
-                sqlite_path,
-                asof,
-                require_edinet_metrics=True,
-            )
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertTrue(
                 any(

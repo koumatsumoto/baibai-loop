@@ -123,10 +123,6 @@ class FakeJQuantsProvider:
         self.calls.append(("get_eq_earnings_cal", start, end))
         return []
 
-    def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
-        self.calls.append(("bootstrap_cache", start, end))
-        return {"ok": 1}
-
 
 @dataclass
 class FakeEDINETProvider:
@@ -190,8 +186,7 @@ class _FailingEDINETProvider(FakeEDINETProvider):
 
 
 class _CorruptSQLiteJQuantsProvider(FakeJQuantsProvider):
-    def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
-        del start, end
+    def get_eq_master(self) -> list[SecurityMaster]:
         raise sqlite3.DatabaseError("file is not a database")
 
 
@@ -666,18 +661,6 @@ class ScreeningCliTests(unittest.TestCase):
                 os.chdir(cwd)
 
     def test_bootstrap_cache_command_fails_jpx_bootstrap_failure(self) -> None:
-        exit_code = bootstrap_cache_command(
-            date(2026, 4, 1),
-            date(2026, 4, 24),
-            ProviderBundle(
-                jquants=FakeJQuantsProvider(),
-                edinet=FakeEDINETProvider(),
-                jpx=FakeJPXProvider(fail_bootstrap=True),
-            ),
-        )
-        self.assertEqual(exit_code, 1)
-
-    def test_bootstrap_cache_command_asof_fails_jpx_bootstrap_failure(self) -> None:
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             exit_code = bootstrap_cache_command(
@@ -696,9 +679,8 @@ class ScreeningCliTests(unittest.TestCase):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             exit_code = bootstrap_cache_command(
-                date(2026, 4, 1),
-                date(2026, 4, 24),
-                ProviderBundle(
+                asof_date=date(2026, 5, 8),
+                providers=ProviderBundle(
                     jquants=_CorruptSQLiteJQuantsProvider(),
                     edinet=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
@@ -727,38 +709,6 @@ class ScreeningCliTests(unittest.TestCase):
         self.assertIn(("get_mkt_calendar", asof, asof), jquants.calls)
         self.assertEqual(edinet.bootstrap_calls, [(asof - timedelta(days=730), asof)])
         self.assertEqual(jpx.bootstrap_calls, [asof])
-
-    def test_main_rejects_bootstrap_asof_with_explicit_window(self) -> None:
-        stderr = io.StringIO()
-        with (
-            patch.dict(os.environ, {"JQUANTS_REFRESH_TOKEN": "token"}),
-            contextlib.redirect_stderr(stderr),
-        ):
-            exit_code = screening_cli.main(
-                [
-                    "bootstrap-cache",
-                    "--asof",
-                    "2026-05-08",
-                    "--start",
-                    "2026-05-01",
-                    "--end",
-                    "2026-05-08",
-                ]
-            )
-
-        self.assertEqual(exit_code, 1)
-        self.assertIn("--asof cannot be combined", stderr.getvalue())
-
-    def test_main_rejects_partial_bootstrap_window(self) -> None:
-        stderr = io.StringIO()
-        with (
-            patch.dict(os.environ, {"JQUANTS_REFRESH_TOKEN": "token"}),
-            contextlib.redirect_stderr(stderr),
-        ):
-            exit_code = screening_cli.main(["bootstrap-cache", "--start", "2026-05-01"])
-
-        self.assertEqual(exit_code, 1)
-        self.assertIn("requires --asof, or both --start and --end", stderr.getvalue())
 
     def test_extract_edinet_metrics_command_writes_parsed_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from .date_utils import weekday_distance
+from baibai_loop.date_utils import weekday_distance
+
 from .render import JST
 from .sqlite_cache import SQLITE_SCHEMA_VERSION, SQLiteSchemaError, validate_current_schema
 from .sqlite_reader import (
@@ -57,7 +58,6 @@ def verify_screening_sqlite_coverage(
     sqlite_path: Path,
     asof_date: date,
     *,
-    require_edinet_metrics: bool = True,
     required_jpx_sources: Iterable[str] = (),
     allow_stale_jpx: bool = False,
 ) -> tuple[CacheCoverageIssue, ...]:
@@ -346,23 +346,22 @@ def verify_screening_sqlite_coverage(
                     enforce_record_count=True,
                 )
                 jpx_source_names = _jpx_source_names(conn, asof_date)
-            if require_edinet_metrics:
-                _append_source_coverage_quality_issues(
-                    conn,
-                    issues,
-                    source="edinet_metrics",
-                    start=asof_date,
-                    end=asof_date,
-                )
-                if not _source_coverage_covers_date(conn, "edinet_metrics", asof_date):
-                    issues.append(
-                        CacheCoverageIssue(
-                            source="edinet_metrics",
-                            requirement=asof_date.isoformat(),
-                            reason="EDINET metrics source coverage is not covered in SQLite",
-                        )
+            _append_source_coverage_quality_issues(
+                conn,
+                issues,
+                source="edinet_metrics",
+                start=asof_date,
+                end=asof_date,
+            )
+            if not _source_coverage_covers_date(conn, "edinet_metrics", asof_date):
+                issues.append(
+                    CacheCoverageIssue(
+                        source="edinet_metrics",
+                        requirement=asof_date.isoformat(),
+                        reason="EDINET metrics source coverage is not covered in SQLite",
                     )
-                _append_edinet_metrics_coverage_issues(conn, issues, asof_date=asof_date)
+                )
+            _append_edinet_metrics_coverage_issues(conn, issues, asof_date=asof_date)
         finally:
             conn.close()
     except sqlite3.Error as exc:
