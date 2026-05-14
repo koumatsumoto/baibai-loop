@@ -53,6 +53,8 @@ _DOMAIN_E2E_RUN_IDS = frozenset(
         "run-10-sales-first-selection",
     }
 )
+_SELECTION_FIXTURE_GLOB = "*-selection.yaml"
+_SELECTION_FIXTURE_SUFFIX = "-selection.yaml"
 _DOMAIN_FIXTURE_CONTRACTS: dict[str, Mapping[str, object]] = {
     "screening-raw-output-anchors": {
         "layer_id": "L1",
@@ -313,6 +315,16 @@ def _check_selection_fixtures(path: Path) -> list[ValidationFinding]:
         return []
     findings: list[ValidationFinding] = []
     for selection_path in sorted(fixture_dir.glob("*selection.yaml")):
+        if not selection_path.name.endswith(_SELECTION_FIXTURE_SUFFIX):
+            findings.append(
+                _finding(
+                    path,
+                    "benchmark.fixture-selection-name",
+                    f"selection fixture files must match {_SELECTION_FIXTURE_GLOB}",
+                    selection_path.as_posix(),
+                )
+            )
+            continue
         try:
             raw: object = yaml.safe_load(selection_path.read_text(encoding="utf-8"))
         except (OSError, yaml.YAMLError) as exc:
@@ -1472,7 +1484,7 @@ def _check_e2e_run_replay_contract(
             selection_path = resolve_repository_ref(root, selection_ref)
             if not (
                 selection_path.parent == fixture_dir
-                and selection_path.name.endswith("-selection.yaml")
+                and selection_path.name.endswith(_SELECTION_FIXTURE_SUFFIX)
                 and selection_path.suffix == ".yaml"
             ):
                 findings.append(
@@ -1480,7 +1492,8 @@ def _check_e2e_run_replay_contract(
                         path,
                         "benchmark.fixture-selection-selected-tickers",
                         "E2E run selection_path must point under the same "
-                        "e2e-regeneration directory as runs_ref and use *-selection.yaml",
+                        "e2e-regeneration directory as runs_ref and use "
+                        f"{_SELECTION_FIXTURE_GLOB}",
                         f"{location}.selection_path",
                     )
                 )

@@ -135,10 +135,23 @@ class ProviderBundle:
 
 
 class _ScreenedCandidateInput(BaseModel):
-    model_config = ConfigDict(frozen=True, strict=True)
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
     ticker: str
     name: str | None = None
+    screen_run_id: str | None = None
+    candidate_id: str | None = None
+    candidate_key: str | None = None
+    playbook_screen_result: str | None = None
+    policy_gate_result: str | None = None
+    liquidity_gate_result: str | None = None
+    macro_regime_gate_result: str | None = None
+    per_forward: int | float | None = None
+    per_trailing: int | float | None = None
+    pbr: int | float | None = None
+    ev_ebitda: int | float | None = None
+    p_s: int | float | None = None
+    pcfr: int | float | None = None
     sector_33: str = ""
     market_cap_oku: int | float | None = None
     avg_turnover_oku: int | float | None = None
@@ -149,10 +162,14 @@ class _ScreenedCandidateInput(BaseModel):
     price_change_4w: float | None = None
     gap_from_52w_low: float | None = None
     turnover_spike_5d: float | None = None
+    sector_relative_strength_percentile: float | None = None
     evidence_hits: list[dict[str, object]] = Field(default_factory=list)
     metrics: dict[str, MetricScalar] = Field(default_factory=dict)
+    metrics_breakdown: dict[str, object] = Field(default_factory=dict)
     freshness_warnings: list[dict[str, object]] = Field(default_factory=list)
     next_earnings_date: str | None = None
+    split_adjustment_flag: bool | None = None
+    ttm_quality: dict[str, object] = Field(default_factory=dict)
 
     @field_validator("ticker", mode="before")
     @classmethod

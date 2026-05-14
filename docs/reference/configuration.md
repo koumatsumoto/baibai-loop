@@ -31,10 +31,10 @@ Configuration は runtime boundary です。secret や token の値は docs に�
 
 `records/_config/screening-rules/2026-05-01T000000+0900.yaml` の `selection` block は、research queue を作る triage layer の既定値です。
 
-- `selection.default_profile`: 明示 `--profile` がない場合の profile
-- `selection.fast_dislocation`: 1d / 5d / 20d / 60d 下落、52 週安値距離、出来高 spike、fundamental guard の閾値。fast eligible には価格下落 trigger が必須で、52 週安値距離と出来高 spike は補助 trigger
+- `selection.default_profile`: 明示 `--profile` がない場合の built-in profile。`strict` / `balanced` / `loose` 以外は rules load 時に error
+- `selection.fast_dislocation`: 1d / 5d / 20d / 60d 下落、52 週安値距離、出来高 spike、fundamental guard の閾値。fast eligible には価格下落 trigger が必須で、52 週安値距離と出来高 spike は補助 trigger。built-in profile (`strict` / `balanced` / `loose`) はコード側の閾値を優先し、この YAML block は load-time contract と custom profile のベースとして扱う
 - `selection.long_hold_survivability`: equity ratio、net cash、cash、OCF / FCF、営業利益、流動性から `high|medium|low|unknown` を付ける閾値
-- `selection.diversity`: recommended queue の sector / lane concentration、過去 candidates の混入上限、previous overlap warning
+- `selection.diversity`: recommended queue の sector / lane / recommendation queue concentration、過去 candidates の混入上限、previous overlap warning
 - `selection.ai_exposure_sector_tags`: AI exposure の sector proxy annotation
 
 `select-sweep --profile-config <yaml>` では、次の形で任意 profile を追加できます。

@@ -348,6 +348,27 @@ class BenchmarkManifestValidationTests(unittest.TestCase):
         self.assertIn("benchmark.fixture-selection-legacy-candidates", codes)
         self.assertIn("benchmark.fixture-selection-queues", codes)
 
+    def test_rejects_selection_fixture_name_without_dash_separator(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            selection = (
+                root / "records/_benchmarks/domain-model/e2e-regeneration/baselineselection.yaml"
+            )
+            selection.parent.mkdir(parents=True)
+            selection.write_text(
+                "selection:\n  diagnostics: {}\n  queue_summary:\n"
+                "    recommended_research_queue: {}\n"
+                "queues:\n  recommended_research_queue: []\n",
+                encoding="utf-8",
+            )
+            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(_manifest(), encoding="utf-8")
+
+            findings = validate_benchmark_manifest_file(manifest)
+
+        self.assertIn("benchmark.fixture-selection-name", {finding.code for finding in findings})
+
     def test_rejects_non_mapping_input_ref_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

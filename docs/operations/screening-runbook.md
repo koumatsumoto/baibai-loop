@@ -48,7 +48,7 @@ uv run baibai-loop-screening select --asof YYYY-MM-DD
 - `queues.long_hold_survivability_queue`: 長期保有耐性が `high|medium` の候補
 - `queues.deferred_revisit_queue` / `queues.suppressed_queue`: ledger 上の deferred / rejected により通常 recommendation から外した候補
 
-`selection_lane`、`selection_metrics` を見て primary thesis を決めます。`recommendation_lane` はその候補を拾った queue / lane で、複数 hit 銘柄では `selection_lane` と異なる場合があります。件数は `--top` と `output.research_selection_target_max`、lane 別一覧の件数は `records/_config/screening-rules/2026-05-01T000000+0900.yaml` の `output.lane_toplist_limit` で調整します。
+`selection_lane`、`selection_metrics` を見て primary thesis を決めます。`recommendation_queue` は `fast_dislocation_queue` / `core_value_queue` / `long_hold_survivability_queue` / `global_rank_fallback` のどの経路で recommended に入ったかを表し、queue cap はこの値に対して効きます。`recommendation_lane` は queue 内で拾った lane / fallback 名で、複数 hit 銘柄では `selection_lane` と異なる場合があります。件数は `--top` と `output.research_selection_target_max`、lane 別一覧の件数は `records/_config/screening-rules/2026-05-01T000000+0900.yaml` の `output.lane_toplist_limit` で調整します。
 
 Parameter replay は `select-sweep` で行います。
 
@@ -65,13 +65,13 @@ uv run baibai-loop-screening select-sweep \
   --profiles strict,balanced,my-fast-lane
 ```
 
-`select-sweep` では profile ごとの recommended tickers、recommended detail、fast-dislocation top list、fast-dislocation total/emitted count、long-hold total/emitted count、suppressed total/emitted count、profile 間の added / removed / changed、previous overlap、sector / lane concentration を比較します。運用設定を変える前に、複数 asof の実データで `strict` / `balanced` / `loose` と候補 profile を比較します。
+`select-sweep` では profile ごとの recommended tickers、recommended detail、fast-dislocation top list、fast-dislocation total/emitted count、long-hold total/emitted count、suppressed total/emitted count、profile 間の added / removed / changed、previous overlap、sector / lane / recommendation queue concentration を比較します。運用設定を変える前に、最低 6-8 週の実データで `strict` / `balanced` / `loose` と候補 profile を比較し、直近 1-2 週を hold-out として残します。forward-only 原則に従い、ここでは過去 fit ではなく「profile を採用する前の再現性確認」として扱います。
 
 Profile を採用する前に、少なくとも以下を表にします。
 
 - `recommended_tickers`: 望ましい thesis の候補が出ているか
 - `fast_dislocation_total_count` と `fast_dislocation_emitted_count`: 閾値が広すぎて fast 候補を量産していないか
-- `recommended[].recommendation_lane`: fast が recommended を埋め尽くしていないか
+- `recommended[].recommendation_queue` / `recommendation_lane`: fast や fallback が recommended を埋め尽くしていないか
 - `recommended[].fast_guard_count` / `fast_guard_family_count` / `fast_confidence` / `fast_data_status` / `long_hold_rating`: 売られ過ぎと財務健全性の両方を満たしているか
 - `recommended_diff_vs_first_profile`: ticker 入替だけでなく rank / confidence / lane の変化が妥当か
 - `previous_overlap` と `concentration`: 前回候補・同一 sector / lane への偏りが再発していないか

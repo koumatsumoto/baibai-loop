@@ -9,7 +9,18 @@ from pathlib import Path
 
 import yaml
 
-from .rule_config import ScreeningRules, SelectionDiversityRules, SelectionRules
+from .rule_config import (
+    BUILTIN_SELECTION_PROFILES,
+    CORE_VALUE_QUEUE,
+    DEFERRED_REVISIT_QUEUE,
+    FAST_DISLOCATION_QUEUE,
+    GLOBAL_RANK_FALLBACK,
+    LONG_HOLD_SURVIVABILITY_QUEUE,
+    RECOMMENDATION_QUEUE_NAMES,
+    ScreeningRules,
+    SelectionDiversityRules,
+    SelectionRules,
+)
 from .tiers import position_tier
 
 SUPPORTED_OUTLOOK_STATUSES = {"supportive", "neutral"}
@@ -21,6 +32,35 @@ _LANE_RANK = {
     "cash-rich-asset-discount": 3,
     "cashflow-yield-discount": 4,
     "sales-discount-growth": 5,
+}
+
+BALANCED_PROFILE_OVERRIDES: Mapping[str, object] = {
+    "fast_dislocation": {
+        "price_change_1d_max": -0.05,
+        "price_change_5d_max": -0.08,
+        "price_change_20d_max": -0.10,
+        "price_change_60d_max": -0.22,
+        "gap_from_52w_low_max": 0.15,
+        "turnover_spike_5d_min": 1.5,
+        "min_fundamental_guard_count": 2,
+        "min_fundamental_guard_family_count": 2,
+        "high_confidence_guard_count": 3,
+        "high_confidence_guard_family_count": 2,
+        "ocf_yield_min": 0.08,
+        "fcf_yield_min": 0.05,
+        "price_to_equity_max": 1.0,
+        "equity_ratio_min": 0.4,
+        "net_cash_to_market_cap_min": 0.2,
+        "sales_yoy_min": 0.05,
+        "operating_profit_positive_required": True,
+    },
+    "diversity": {
+        "max_recommended_per_sector": 1,
+        "max_recommended_per_lane": 2,
+        "max_recommended_per_queue": 3,
+        "max_previous_candidates_in_recommended": 2,
+        "previous_overlap_warning_ratio": 0.6,
+    },
 }
 
 BUILTIN_PROFILE_OVERRIDES: Mapping[str, Mapping[str, object]] = {
@@ -50,7 +90,7 @@ BUILTIN_PROFILE_OVERRIDES: Mapping[str, Mapping[str, object]] = {
             "max_previous_candidates_in_recommended": 2,
         },
     },
-    "balanced": {},
+    "balanced": BALANCED_PROFILE_OVERRIDES,
     "loose": {
         "fast_dislocation": {
             "price_change_1d_max": -0.03,
@@ -77,6 +117,9 @@ BUILTIN_PROFILE_OVERRIDES: Mapping[str, Mapping[str, object]] = {
         },
     },
 }
+
+if set(BUILTIN_PROFILE_OVERRIDES) != BUILTIN_SELECTION_PROFILES:
+    raise RuntimeError("BUILTIN_PROFILE_OVERRIDES must match BUILTIN_SELECTION_PROFILES")
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,7 +268,9 @@ def resolve_selection_rules(
         raise ValueError(f"unknown selection profile: {profile}")
     if overrides is not None:
         data = _deep_merge(data, overrides)
-    data["default_profile"] = profile
+    data["default_profile"] = (
+        profile if profile in BUILTIN_SELECTION_PROFILES else base.default_profile
+    )
     return SelectionRules.model_validate(data)
 
 
@@ -340,20 +385,19 @@ def build_selection_payload(
     ]
     core_value_queue = _core_value_queue(
         lane_toplists=lane_toplists,
-        ranked_candidates=ranked_active_candidates,
         lane_order=rules.output.research_selection_lane_order,
     )
     fast_dislocation_queue = _fast_dislocation_queue(ranked_active_candidates)
     long_hold_queue = _long_hold_survivability_queue(ranked_active_candidates)
     queue_map = {
-        "fast_dislocation_queue": fast_dislocation_queue,
-        "core_value_queue": core_value_queue,
-        "long_hold_survivability_queue": long_hold_queue,
+        FAST_DISLOCATION_QUEUE: fast_dislocation_queue,
+        CORE_VALUE_QUEUE: core_value_queue,
+        LONG_HOLD_SURVIVABILITY_QUEUE: long_hold_queue,
     }
     recommended = _recommended_research_candidates(
         queue_map=queue_map,
         queue_order=selection_rules.queue_order,
-        ranked_candidates=core_value_queue,
+        ranked_candidates=ranked_active_candidates,
         lane_order=rules.output.research_selection_lane_order,
         diversity_rules=selection_rules.diversity,
         min_count=rules.output.research_selection_target_min,
@@ -515,6 +559,18 @@ def build_selection_sweep_payload(
             if previous_candidates is not None
             else None,
         },
+        "replay_evaluation_contract": {
+            "minimum_replay_weeks": 6,
+            "holdout_weeks": 2,
+            "forward_return_windows": ["1w", "4w", "8w", "12w"],
+            "tracked_metrics": [
+                "recommended_by_recommendation_queue",
+                "fast_to_core_ratio",
+                "fast_confidence_distribution",
+                "long_hold_rating_distribution",
+                "previous_overlap",
+            ],
+        },
         "profiles": profile_results,
     }
 
@@ -522,7 +578,7 @@ def build_selection_sweep_payload(
 def load_prior_research(ledger_root: Path, asof_date: date) -> dict[str, PriorResearch]:
     if not ledger_root.exists():
         return {}
-    latest: dict[str, tuple[str, PriorResearch]] = {}
+    latest: dict[str, tuple[tuple[str, str], PriorResearch]] = {}
     for path in sorted(ledger_root.glob("*.jsonl")):
         for line in path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
@@ -555,9 +611,10 @@ def load_prior_research(ledger_root: Path, asof_date: date) -> dict[str, PriorRe
                 decision_event_id=_string_value(raw.get("decision_event_id")),
                 research_ref=_string_value(raw.get("research_ref")),
             )
+            event_key = (event_at or "", prior.decision_event_id or "")
             previous = latest.get(ticker)
-            if previous is None or (event_at or "") >= previous[0]:
-                latest[ticker] = (event_at or "", prior)
+            if previous is None or event_key >= previous[0]:
+                latest[ticker] = (event_key, prior)
     return {ticker: prior for ticker, (_, prior) in latest.items()}
 
 
@@ -733,11 +790,15 @@ def _has_edinet_freshness_warning(item: CandidateRecord) -> bool:
 
 def _fast_dislocation_data_status(item: CandidateRecord) -> str:
     if item.price_change_20d is None and item.price_change_4w is not None:
-        return "fallback_4w_or_60d"
+        return "legacy_4w_transition"
     if item.price_change_5d is None and item.price_change_20d is None:
         return (
-            "fallback_4w_or_60d" if item.price_change_60d is not None else "missing_price_history"
+            "short_return_pipeline_missing"
+            if item.price_change_60d is not None
+            else "missing_price_history"
         )
+    if item.price_change_20d is None:
+        return "short_return_pipeline_missing"
     return "ok"
 
 
@@ -748,16 +809,17 @@ def _long_hold_survivability_lens(
     lens_rules = rules.long_hold_survivability
     metrics = item.metrics
     reasons: list[str] = []
-    caution_reasons: list[str] = []
+    missing_reasons: list[str] = []
+    weak_reasons: list[str] = []
     equity_ratio = _number(metrics.get("equity_ratio"))
     if equity_ratio is None:
-        caution_reasons.append("equity_ratio_missing")
+        missing_reasons.append("equity_ratio_missing")
     elif equity_ratio >= lens_rules.equity_ratio_high_min:
         reasons.append("high_equity_ratio")
     elif equity_ratio >= lens_rules.equity_ratio_medium_min:
         reasons.append("medium_equity_ratio")
     else:
-        caution_reasons.append("low_equity_ratio")
+        weak_reasons.append("low_equity_ratio")
 
     net_cash_to_market_cap = _number(metrics.get("net_cash_to_market_cap"))
     if net_cash_to_market_cap is not None and (
@@ -773,30 +835,36 @@ def _long_hold_survivability_lens(
         lens_rules.cash_to_market_cap_high_min
     ):
         reasons.append("cash_buffer")
-    if _float_or(metrics.get("ocf_yield"), -1.0) > lens_rules.ocf_yield_positive_min:
+    ocf_yield = _number(metrics.get("ocf_yield"))
+    if ocf_yield is None:
+        missing_reasons.append("ocf_yield_missing")
+    elif ocf_yield > lens_rules.ocf_yield_positive_min:
         reasons.append("positive_ocf_yield")
     else:
-        caution_reasons.append("weak_or_missing_ocf_yield")
+        weak_reasons.append("weak_ocf_yield")
     if _float_or(metrics.get("fcf_yield"), -1.0) > lens_rules.fcf_yield_positive_min:
         reasons.append("positive_fcf_yield")
-    if _float_or(metrics.get("operating_profit"), -1.0) > 0:
+    operating_profit = _number(metrics.get("operating_profit"))
+    if operating_profit is None:
+        missing_reasons.append("operating_profit_missing")
+    elif operating_profit > 0:
         reasons.append("positive_operating_profit")
     else:
-        caution_reasons.append("operating_profit_not_positive_or_missing")
-    if (
-        item.avg_turnover_oku is not None
-        and item.avg_turnover_oku >= lens_rules.min_avg_turnover_oku
-    ):
+        weak_reasons.append("operating_profit_not_positive")
+    if item.avg_turnover_oku is None:
+        missing_reasons.append("liquidity_missing")
+    elif item.avg_turnover_oku >= lens_rules.min_avg_turnover_oku:
         reasons.append("liquidity_pass")
     else:
-        caution_reasons.append("liquidity_low_or_missing")
+        weak_reasons.append("liquidity_low")
 
     support_count = len(set(reasons))
+    caution_reasons = sorted({*missing_reasons, *weak_reasons})
     if support_count >= lens_rules.high_min_support_count and len(caution_reasons) <= 1:
         rating = "high"
     elif support_count >= lens_rules.medium_min_support_count:
         rating = "medium"
-    elif support_count == 0 and len(caution_reasons) >= 3:
+    elif support_count == 0 and len(missing_reasons) >= 3:
         rating = "unknown"
     else:
         rating = "low"
@@ -804,7 +872,9 @@ def _long_hold_survivability_lens(
         "rating": rating,
         "support_count": support_count,
         "reasons": sorted(set(reasons)),
-        "caution_reasons": sorted(set(caution_reasons)),
+        "missing_reasons": sorted(set(missing_reasons)),
+        "weak_reasons": sorted(set(weak_reasons)),
+        "caution_reasons": caution_reasons,
     }
 
 
@@ -838,6 +908,7 @@ def _selection_candidate(
         "independent_evidence_count": len(_sizing_eligible_evidence_hits(item.evidence_hits)),
         "freshness_warnings": list(item.freshness_warnings),
         "selection_lane": selection_lane,
+        "recommendation_queue": None,
         "recommendation_lane": recommendation_lane,
         "selection_metrics": dict(selection_metrics),
         "next_earnings_date": item.next_earnings_date,
@@ -869,7 +940,6 @@ def _rank_lane_toplists(
 def _core_value_queue(
     *,
     lane_toplists: Mapping[str, list[dict[str, object]]],
-    ranked_candidates: Sequence[dict[str, object]],
     lane_order: Sequence[str],
 ) -> list[dict[str, object]]:
     selected: list[dict[str, object]] = []
@@ -881,15 +951,11 @@ def _core_value_queue(
             ticker = _string_value(candidate.get("ticker"))
             if ticker is None or ticker in selected_tickers:
                 continue
-            selected.append(_with_recommendation_lane(candidate, lane))
+            selected.append(
+                _with_recommendation(candidate, recommendation_queue=CORE_VALUE_QUEUE, lane=lane)
+            )
             selected_tickers.add(ticker)
             break
-    for candidate in ranked_candidates:
-        ticker = _string_value(candidate.get("ticker"))
-        if ticker is None or ticker in selected_tickers:
-            continue
-        selected.append(_with_recommendation_lane(candidate, "global_rank_fallback"))
-        selected_tickers.add(ticker)
     return selected
 
 
@@ -903,7 +969,11 @@ def _fast_dislocation_queue(candidates: Sequence[dict[str, object]]) -> list[dic
                 _most_negative_price_change(candidate),
                 _string_value(candidate.get("ticker")) or "",
             ),
-            _with_recommendation_lane(candidate, "fast_dislocation_queue"),
+            _with_recommendation(
+                candidate,
+                recommendation_queue=FAST_DISLOCATION_QUEUE,
+                lane=FAST_DISLOCATION_QUEUE,
+            ),
         )
         for candidate in candidates
         if _fast_lens(candidate).get("eligible") is True
@@ -930,7 +1000,11 @@ def _long_hold_survivability_queue(
                     -_int_or(lens.get("support_count"), 0),
                     _string_value(candidate.get("ticker")) or "",
                 ),
-                _with_recommendation_lane(candidate, "long_hold_survivability_queue"),
+                _with_recommendation(
+                    candidate,
+                    recommendation_queue=LONG_HOLD_SURVIVABILITY_QUEUE,
+                    lane=LONG_HOLD_SURVIVABILITY_QUEUE,
+                ),
             )
         )
     entries.sort(key=lambda item: item[0])
@@ -943,7 +1017,13 @@ def _deferred_revisit_queue(candidates: Sequence[dict[str, object]]) -> list[dic
         prior = candidate.get("prior_research")
         if not isinstance(prior, Mapping) or prior.get("outcome") != "deferred":
             continue
-        output.append(_with_recommendation_lane(candidate, "deferred_revisit_queue"))
+        output.append(
+            _with_recommendation(
+                candidate,
+                recommendation_queue=DEFERRED_REVISIT_QUEUE,
+                lane=DEFERRED_REVISIT_QUEUE,
+            )
+        )
     return output
 
 
@@ -995,7 +1075,7 @@ def _recommended_research_candidates(
             and previous_candidate_count >= max_previous
         ):
             return False
-        queue = _string_value(candidate.get("recommendation_lane")) or ""
+        queue = _recommendation_queue(candidate)
         queue_allowed = max_queue is None or queue_counts[queue] < max_queue
         return sector_counts[sector] < max_sector and lane_counts[lane] < max_lane and queue_allowed
 
@@ -1009,7 +1089,7 @@ def _recommended_research_candidates(
         selected_tickers.add(ticker)
         sector_counts[_string_value(candidate.get("sector_33")) or ""] += 1
         lane_counts[_string_value(output.get("selection_lane")) or ""] += 1
-        queue_counts[_string_value(output.get("recommendation_lane")) or ""] += 1
+        queue_counts[_recommendation_queue(output)] += 1
         if candidate.get("previous_candidate") is True:
             previous_candidate_count += 1
 
@@ -1022,6 +1102,17 @@ def _recommended_research_candidates(
             if can_add(candidate, enforce_diversity=True):
                 add(candidate)
 
+    for candidate in ranked_candidates:
+        if len(selected) >= limit:
+            break
+        fallback = _with_recommendation(
+            candidate,
+            recommendation_queue=GLOBAL_RANK_FALLBACK,
+            lane=GLOBAL_RANK_FALLBACK,
+        )
+        if can_add(fallback, enforce_diversity=True):
+            add(fallback)
+
     if len(selected) < min_count:
         for queue_name in queue_order:
             if len(selected) >= min(min_count, limit):
@@ -1031,18 +1122,15 @@ def _recommended_research_candidates(
                     break
                 if can_add(candidate, enforce_diversity=False):
                     add(candidate)
-
-    for candidate in ranked_candidates:
-        if len(selected) >= limit:
-            break
-        fallback = _with_recommendation_lane(candidate, "global_rank_fallback")
-        if can_add(fallback, enforce_diversity=True):
-            add(fallback)
     if len(selected) < min_count:
         for candidate in ranked_candidates:
             if len(selected) >= min(min_count, limit):
                 break
-            fallback = _with_recommendation_lane(candidate, "global_rank_fallback")
+            fallback = _with_recommendation(
+                candidate,
+                recommendation_queue=GLOBAL_RANK_FALLBACK,
+                lane=GLOBAL_RANK_FALLBACK,
+            )
             if can_add(fallback, enforce_diversity=False):
                 add(fallback)
     return selected
@@ -1071,10 +1159,13 @@ def _diagnostics(
     )
     if metric_type_warning_count:
         warnings.append("invalid_numeric_metric_values")
-    short_return_missing_count = sum(
-        1
+    fast_data_status_counts = Counter(
+        _string_value(_fast_lens(candidate).get("data_status")) or "unknown"
         for candidate in ranked_candidates
-        if _fast_lens(candidate).get("data_status") == "fallback_4w_or_60d"
+    )
+    short_return_missing_count = sum(
+        fast_data_status_counts[status]
+        for status in ("missing_price_history", "short_return_pipeline_missing")
     )
     fallback_count = sum(
         1
@@ -1087,6 +1178,8 @@ def _diagnostics(
     )
     if fallback_count:
         warnings.append("fast_dislocation_uses_legacy_price_change_fallback")
+    if short_return_missing_count:
+        warnings.append("short_return_price_history_missing")
     return {
         "profile": profile,
         "warnings": warnings,
@@ -1103,10 +1196,14 @@ def _diagnostics(
             "recommended_by_selection_lane": dict(
                 Counter(_string_value(item.get("selection_lane")) or "" for item in recommended)
             ),
+            "recommended_by_recommendation_queue": dict(
+                Counter(_recommendation_queue(item) for item in recommended)
+            ),
         },
         "suppressed_count": sum(1 for candidate in ranked_candidates if candidate["suppressed"]),
         "legacy_price_fallback_candidate_count": fallback_count,
         "short_return_missing_candidate_count": short_return_missing_count,
+        "fast_dislocation_data_status_counts": dict(fast_data_status_counts),
         "invalid_numeric_metric_value_count": metric_type_warning_count,
     }
 
@@ -1155,13 +1252,28 @@ def _long_hold_counts(candidates: Sequence[Mapping[str, object]]) -> dict[str, i
     return dict(counts)
 
 
-def _with_recommendation_lane(
+def _with_recommendation(
     candidate: Mapping[str, object],
-    recommendation_lane: str,
+    *,
+    recommendation_queue: str,
+    lane: str,
 ) -> dict[str, object]:
     output = dict(candidate)
-    output["recommendation_lane"] = recommendation_lane
+    output["recommendation_queue"] = recommendation_queue
+    output["recommendation_lane"] = lane
     return output
+
+
+def _recommendation_queue(candidate: Mapping[str, object]) -> str:
+    queue = _string_value(candidate.get("recommendation_queue"))
+    if queue is not None:
+        return queue
+    lane = _string_value(candidate.get("recommendation_lane"))
+    if lane in RECOMMENDATION_QUEUE_NAMES:
+        return lane
+    if lane:
+        return CORE_VALUE_QUEUE
+    return ""
 
 
 def _fast_lens(candidate: Mapping[str, object]) -> Mapping[str, object]:
@@ -1412,6 +1524,7 @@ def _sweep_candidate_summary(candidate: Mapping[str, object], *, rank: int) -> d
         "ticker": _string_value(candidate.get("ticker")),
         "name": _string_value(candidate.get("name")),
         "selection_lane": _string_value(candidate.get("selection_lane")),
+        "recommendation_queue": _recommendation_queue(candidate),
         "recommendation_lane": _string_value(candidate.get("recommendation_lane")),
         "fast_confidence": _string_value(fast_lens.get("confidence")),
         "fast_guard_count": _fast_guard_count(candidate),
@@ -1439,6 +1552,7 @@ def _sweep_changed_summaries(
                 "fast_guard_family_count",
                 "fast_data_status",
                 "long_hold_rating",
+                "recommendation_queue",
                 "recommendation_lane",
                 "selection_lane",
                 "rank",
