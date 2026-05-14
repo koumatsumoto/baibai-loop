@@ -9,6 +9,27 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 DEFAULT_RULES_PATH = Path("records/_config/screening-rules/2026-05-01T000000+0900.yaml")
 
+CORE_VALUE_QUEUE = "core_value_queue"
+FAST_DISLOCATION_QUEUE = "fast_dislocation_queue"
+LONG_HOLD_SURVIVABILITY_QUEUE = "long_hold_survivability_queue"
+DEFERRED_REVISIT_QUEUE = "deferred_revisit_queue"
+GLOBAL_RANK_FALLBACK = "global_rank_fallback"
+SELECTION_QUEUE_NAMES = frozenset(
+    {
+        CORE_VALUE_QUEUE,
+        FAST_DISLOCATION_QUEUE,
+        LONG_HOLD_SURVIVABILITY_QUEUE,
+    }
+)
+RECOMMENDATION_QUEUE_NAMES = frozenset(
+    {
+        *SELECTION_QUEUE_NAMES,
+        DEFERRED_REVISIT_QUEUE,
+        GLOBAL_RANK_FALLBACK,
+    }
+)
+BUILTIN_SELECTION_PROFILES = frozenset({"strict", "balanced", "loose"})
+
 
 class UniverseRules(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
@@ -177,6 +198,25 @@ class FastDislocationRules(BaseModel):
     sales_yoy_min: float = 0.05
     operating_profit_positive_required: bool = True
 
+    @model_validator(mode="after")
+    def _requires_price_dislocation_trigger(self) -> FastDislocationRules:
+        if not self.enabled:
+            return self
+        if all(
+            threshold is None
+            for threshold in (
+                self.price_change_1d_max,
+                self.price_change_5d_max,
+                self.price_change_20d_max,
+                self.price_change_60d_max,
+            )
+        ):
+            raise ValueError(
+                "fast_dislocation enabled profiles must configure at least one price_change_* "
+                "threshold; gap_from_52w_low and turnover_spike_5d are auxiliary only"
+            )
+        return self
+
 
 class LongHoldSurvivabilityRules(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
@@ -208,9 +248,9 @@ class SelectionRules(BaseModel):
 
     default_profile: str = "balanced"
     queue_order: tuple[str, ...] = (
-        "fast_dislocation_queue",
-        "core_value_queue",
-        "long_hold_survivability_queue",
+        FAST_DISLOCATION_QUEUE,
+        CORE_VALUE_QUEUE,
+        LONG_HOLD_SURVIVABILITY_QUEUE,
     )
     fast_dislocation: FastDislocationRules = Field(default_factory=FastDislocationRules)
     long_hold_survivability: LongHoldSurvivabilityRules = Field(
@@ -224,15 +264,20 @@ class SelectionRules(BaseModel):
     def _tuple_queue_order(cls, value: list[str] | tuple[str, ...]) -> tuple[str, ...]:
         return tuple(value)
 
+    @field_validator("default_profile")
+    @classmethod
+    def _known_default_profile(cls, value: str) -> str:
+        if value not in BUILTIN_SELECTION_PROFILES:
+            raise ValueError(
+                "unknown default selection profile: "
+                f"{value}; expected one of {', '.join(sorted(BUILTIN_SELECTION_PROFILES))}"
+            )
+        return value
+
     @field_validator("queue_order")
     @classmethod
     def _known_queue_order(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        known = {
-            "core_value_queue",
-            "fast_dislocation_queue",
-            "long_hold_survivability_queue",
-        }
-        unknown = sorted(set(value) - known)
+        unknown = sorted(set(value) - SELECTION_QUEUE_NAMES)
         if unknown:
             raise ValueError("unknown selection queue(s): " + ", ".join(unknown))
         return value

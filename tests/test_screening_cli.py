@@ -1116,6 +1116,9 @@ class SelectCommandTests(unittest.TestCase):
                 self._recommended(payload)[0]["recommendation_lane"], "cash-rich-asset-discount"
             )
             self.assertEqual(
+                self._recommended(payload)[0]["recommendation_queue"], "core_value_queue"
+            )
+            self.assertEqual(
                 payload["ranked_candidates"][0]["selection_lane"], "valuation-reversion"
             )
             self.assertEqual(self._recommended(payload)[0]["position_tier"], "200-500")
@@ -1222,6 +1225,9 @@ class SelectCommandTests(unittest.TestCase):
             )
             self.assertEqual(
                 self._recommended(payload)[0]["recommendation_lane"], "strict-net-cash-discount"
+            )
+            self.assertEqual(
+                self._recommended(payload)[0]["recommendation_queue"], "core_value_queue"
             )
 
     def test_select_enforces_lane_cap_after_primary_lane_normalization(self) -> None:
@@ -1446,6 +1452,176 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(
                 [c["ticker"] for c in payload["lane_toplists"]["strict-net-cash-discount"]],
                 ["2222"],
+            )
+
+    def test_select_enforces_queue_cap_by_recommendation_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "fast dislocation",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "price_change_5d": -0.09,
+                        "metrics": {
+                            "ocf_yield": 0.12,
+                            "equity_ratio": 0.5,
+                            "price_to_equity": 0.9,
+                            "operating_profit": 10.0,
+                        },
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    },
+                    {
+                        "ticker": "1112",
+                        "name": "second fast dislocation",
+                        "sector_33": "情報・通信業",
+                        "market_cap_oku": 300,
+                        "price_change_5d": -0.10,
+                        "metrics": {
+                            "ocf_yield": 0.11,
+                            "equity_ratio": 0.5,
+                            "price_to_equity": 0.9,
+                            "operating_profit": 10.0,
+                        },
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    },
+                    {
+                        "ticker": "2222",
+                        "name": "strict core",
+                        "sector_33": "電気機器",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [
+                            {
+                                "name": "strict-net-cash-discount",
+                                "metrics": {
+                                    "net_cash_to_market_cap": 0.8,
+                                    "price_to_equity": 0.7,
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "ticker": "2223",
+                        "name": "second strict core",
+                        "sector_33": "サービス業",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [
+                            {
+                                "name": "strict-net-cash-discount",
+                                "metrics": {
+                                    "net_cash_to_market_cap": 0.7,
+                                    "price_to_equity": 0.8,
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "ticker": "3333",
+                        "name": "long hold first",
+                        "sector_33": "小売業",
+                        "market_cap_oku": 300,
+                        "avg_turnover_oku": 5.0,
+                        "metrics": {
+                            "equity_ratio": 0.6,
+                            "net_cash_to_market_cap": 0.25,
+                            "cash_to_market_cap": 0.35,
+                            "ocf_yield": 0.03,
+                            "fcf_yield": 0.02,
+                            "operating_profit": 10.0,
+                        },
+                        "evidence_hits": [{"name": "valuation-reversion"}],
+                    },
+                    {
+                        "ticker": "3334",
+                        "name": "long hold second",
+                        "sector_33": "卸売業",
+                        "market_cap_oku": 300,
+                        "avg_turnover_oku": 5.0,
+                        "metrics": {
+                            "equity_ratio": 0.55,
+                            "net_cash_to_market_cap": 0.22,
+                            "cash_to_market_cap": 0.31,
+                            "ocf_yield": 0.02,
+                            "fcf_yield": 0.01,
+                            "operating_profit": 10.0,
+                        },
+                        "evidence_hits": [{"name": "valuation-reversion"}],
+                    },
+                ],
+            )
+            self._write_outlook(
+                root / "records/03-outlook",
+                asof,
+                sectors={
+                    "機械": "neutral",
+                    "情報・通信業": "neutral",
+                    "電気機器": "neutral",
+                    "サービス業": "neutral",
+                    "小売業": "neutral",
+                    "卸売業": "neutral",
+                },
+            )
+            profile_path = root / "queue-test-profile.yaml"
+            profile_path.write_text(
+                yaml.safe_dump(
+                    {
+                        "profiles": {
+                            "queue-test": {
+                                "diversity": {
+                                    "max_recommended_per_sector": 10,
+                                    "max_recommended_per_lane": 10,
+                                    "max_recommended_per_queue": 1,
+                                }
+                            }
+                        }
+                    },
+                    allow_unicode=True,
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                profile="queue-test",
+                profile_config_path=profile_path,
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            recommended = self._recommended(payload)
+            queue_counts = {
+                queue: sum(1 for item in recommended if item["recommendation_queue"] == queue)
+                for queue in {
+                    "fast_dislocation_queue",
+                    "core_value_queue",
+                    "long_hold_survivability_queue",
+                    "global_rank_fallback",
+                }
+            }
+            self.assertEqual(
+                queue_counts,
+                {
+                    "fast_dislocation_queue": 1,
+                    "core_value_queue": 1,
+                    "long_hold_survivability_queue": 1,
+                    "global_rank_fallback": 1,
+                },
+            )
+            self.assertIn(
+                "recommended_by_recommendation_queue",
+                payload["selection"]["diagnostics"]["concentration"],
             )
 
     def test_select_separates_recommendation_lane_from_primary_selection_lane(self) -> None:
@@ -1815,6 +1991,64 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(lens["data_status"], "stale_fundamental_metrics")
             self.assertTrue(lens["stale_fundamental_metrics"])
 
+    def test_select_long_hold_lens_splits_missing_and_weak_reasons(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "missing long hold inputs",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    },
+                    {
+                        "ticker": "2222",
+                        "name": "weak long hold inputs",
+                        "sector_33": "電気機器",
+                        "market_cap_oku": 300,
+                        "avg_turnover_oku": 0.5,
+                        "metrics": {
+                            "equity_ratio": 0.1,
+                            "ocf_yield": -0.01,
+                            "operating_profit": -1.0,
+                        },
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    },
+                ],
+            )
+            self._write_outlook(
+                root / "records/03-outlook",
+                asof,
+                sectors={"機械": "neutral", "電気機器": "neutral"},
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            by_ticker = {item["ticker"]: item for item in payload["ranked_candidates"]}
+            missing_lens = by_ticker["1111"]["lenses"]["long_hold_survivability"]
+            weak_lens = by_ticker["2222"]["lenses"]["long_hold_survivability"]
+            self.assertEqual(missing_lens["rating"], "unknown")
+            self.assertIn("equity_ratio_missing", missing_lens["missing_reasons"])
+            self.assertEqual(missing_lens["weak_reasons"], [])
+            self.assertEqual(weak_lens["rating"], "low")
+            self.assertIn("low_equity_ratio", weak_lens["weak_reasons"])
+            self.assertEqual(weak_lens["missing_reasons"], [])
+
     def test_select_suppresses_deferred_research_before_revisit_after(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -2016,6 +2250,81 @@ class SelectCommandTests(unittest.TestCase):
                 ["prior_rejected"],
             )
 
+    def test_select_prior_research_tiebreak_uses_decision_event_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "2222",
+                        "name": "same timestamp",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cash-rich-asset-discount"}],
+                    }
+                ],
+            )
+            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+            ledger = root / "records/_ledger/research-decisions/2026-04.jsonl"
+            ledger.parent.mkdir(parents=True)
+            base_event = {
+                "ticker": "2222",
+                "decision_scope": "research_memo",
+                "decision_event_at": "2026-04-23T10:00:00+09:00",
+                "research_ref": "records/05-research/test.md",
+            }
+            older_id_event = {
+                **base_event,
+                "decision_event_id": "decision-a",
+                "research_decision": {
+                    "outcome": "rejected",
+                    "posture": "avoid",
+                    "reason_code": "thesis_broken",
+                },
+            }
+            newer_id_event = {
+                **base_event,
+                "decision_event_id": "decision-z",
+                "research_decision": {
+                    "outcome": "deferred",
+                    "posture": "wait_for_event",
+                    "deferral_reason": "event_pending",
+                    "revisit": {"revisit_after": "2026-05-01"},
+                },
+            }
+            ledger.write_text(
+                "\n".join(
+                    json.dumps(event, ensure_ascii=False)
+                    for event in (newer_id_event, older_id_event)
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                outlook_path=None,
+                top=10,
+                candidates_root=root / "records/04-candidates",
+                outlook_root=root / "records/03-outlook",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            self.assertEqual(
+                payload["queues"]["suppressed_queue"][0]["suppression_reasons"],
+                ["deferred_until_revisit_after"],
+            )
+            self.assertEqual(
+                payload["queues"]["suppressed_queue"][0]["prior_research"]["decision_event_id"],
+                "decision-z",
+            )
+
     def test_select_caps_previous_candidates_when_new_alternatives_exist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -2192,12 +2501,18 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
+            self.assertEqual(payload["replay_evaluation_contract"]["minimum_replay_weeks"], 6)
+            self.assertEqual(payload["replay_evaluation_contract"]["holdout_weeks"], 2)
             by_profile = {item["profile"]: item for item in payload["profiles"]}
             self.assertEqual(by_profile["strict"]["fast_dislocation_count"], 0)
             self.assertEqual(by_profile["balanced"]["fast_dislocation_tickers"], ["2222"])
             self.assertEqual(by_profile["loose"]["fast_dislocation_tickers"], ["2222"])
             self.assertEqual(
                 by_profile["balanced"]["recommended"][0]["recommendation_lane"],
+                "fast_dislocation_queue",
+            )
+            self.assertEqual(
+                by_profile["balanced"]["recommended"][0]["recommendation_queue"],
                 "fast_dislocation_queue",
             )
             self.assertEqual(by_profile["balanced"]["recommended"][0]["fast_guard_count"], 2)
@@ -2336,12 +2651,25 @@ class SelectCommandTests(unittest.TestCase):
                         },
                         "evidence_hits": [{"name": "cashflow-yield-discount"}],
                     },
+                    {
+                        "ticker": "3333",
+                        "name": "short return pipeline missing",
+                        "sector_33": "小売業",
+                        "market_cap_oku": 300,
+                        "price_change_60d": -0.24,
+                        "metrics": {
+                            "ocf_yield": 0.1,
+                            "equity_ratio": 0.5,
+                            "price_to_equity": 0.9,
+                        },
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    },
                 ],
             )
             self._write_outlook(
                 root / "records/03-outlook",
                 asof,
-                sectors={"機械": "neutral", "電気機器": "neutral"},
+                sectors={"機械": "neutral", "電気機器": "neutral", "小売業": "neutral"},
             )
 
             buffer = io.StringIO()
@@ -2358,14 +2686,22 @@ class SelectCommandTests(unittest.TestCase):
             payload = yaml.safe_load(buffer.getvalue())
             diagnostics = payload["selection"]["diagnostics"]
             self.assertEqual(diagnostics["legacy_price_fallback_candidate_count"], 1)
+            self.assertEqual(diagnostics["short_return_missing_candidate_count"], 1)
             self.assertIn(
                 "fast_dislocation_uses_legacy_price_change_fallback", diagnostics["warnings"]
             )
-            legacy_lens = payload["queues"]["fast_dislocation_queue"][0]["lenses"][
-                "fast_dislocation"
-            ]
+            self.assertIn("short_return_price_history_missing", diagnostics["warnings"])
+            self.assertEqual(
+                diagnostics["fast_dislocation_data_status_counts"]["legacy_4w_transition"], 1
+            )
+            legacy_candidate = next(
+                item
+                for item in payload["queues"]["fast_dislocation_queue"]
+                if item["ticker"] == "1111"
+            )
+            legacy_lens = legacy_candidate["lenses"]["fast_dislocation"]
             self.assertEqual(legacy_lens["price_triggers"][0]["metric"], "price_change_4w")
-            self.assertEqual(legacy_lens["data_status"], "fallback_4w_or_60d")
+            self.assertEqual(legacy_lens["data_status"], "legacy_4w_transition")
 
     def test_rejects_non_mapping_candidates_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2400,3 +2736,38 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 1)
             self.assertIn("invalid candidates YAML", stderr.getvalue())
             self.assertIn("must be a mapping", stderr.getvalue())
+
+    def test_rejects_unknown_candidate_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "typo",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "prcie_change_5d": -0.09,
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    }
+                ],
+            )
+            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+
+            buffer = io.StringIO()
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = select_command(
+                    asof_date=asof,
+                    outlook_path=None,
+                    top=10,
+                    candidates_root=root / "records/04-candidates",
+                    outlook_root=root / "records/03-outlook",
+                    stdout=buffer,
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("extra_forbidden", stderr.getvalue())

@@ -92,6 +92,29 @@ class ScreeningRulesTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_screening_rules(path)
 
+    def test_unknown_default_profile_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "rules.yaml"
+            payload = RULES.model_dump(mode="json")
+            payload["selection"]["default_profile"] = "balnaced"
+            path.write_text(yaml.safe_dump(payload, allow_unicode=True), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "unknown default selection profile"):
+                load_screening_rules(path)
+
+    def test_fast_dislocation_requires_price_change_threshold(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "rules.yaml"
+            payload = RULES.model_dump(mode="json")
+            payload["selection"]["fast_dislocation"]["price_change_1d_max"] = None
+            payload["selection"]["fast_dislocation"]["price_change_5d_max"] = None
+            payload["selection"]["fast_dislocation"]["price_change_20d_max"] = None
+            payload["selection"]["fast_dislocation"]["price_change_60d_max"] = None
+            path.write_text(yaml.safe_dump(payload, allow_unicode=True), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "price_change_"):
+                load_screening_rules(path)
+
     def test_condition_a_hits_when_sector_gap_and_self_range_match(self) -> None:
         result = evaluate_screening(_financial(), _derived(), RULES)
         self.assertTrue(result.pass_fail)
