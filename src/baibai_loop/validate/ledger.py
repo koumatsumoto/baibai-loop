@@ -18,6 +18,7 @@ _REMOVED_HASH_FIELDS = frozenset({"content_" + "sha256", "row_" + "sha256"})
 _REMOVED_REFERENCE_FIELDS = frozenset(
     {
         "playbook_snapshot",
+        "_".join(("candidate", "decision")),
         "_".join(("policy", "snapshot")),
         "_".join(("not", "reviewed", "reason")),
         "_".join(("portfolio", "exposure", "ref")),

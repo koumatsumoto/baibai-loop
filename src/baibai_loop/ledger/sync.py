@@ -54,7 +54,6 @@ def sync_ledger(
         decision_event_at = _decision_datetime(path, front)
         research_decision = _mapping_or_none(front.get("research_decision")) or {}
         outcome = str(research_decision.get("outcome") or "deferred")
-        candidate_decision = _candidate_decision_from_research(outcome)
         candidate_ref = _mapping_or_none(front.get("candidate_ref"))
         candidate = _candidate_from_ref(candidates_index, candidate_ref)
         plus_15bd, plus_30bd = (
@@ -70,7 +69,6 @@ def sync_ledger(
             ticker=ticker,
             name=str(front.get("name") or ""),
             trade_execution_state="none",
-            candidate_decision=candidate_decision,
             research_decision=dict(research_decision),
             candidate_ref=dict(candidate_ref) if candidate_ref else None,
             research_ref=str(path.relative_to(root)),
@@ -223,16 +221,6 @@ def _parse_jst_datetime(value: str) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=JST)
     return parsed.astimezone(JST)
-
-
-def _candidate_decision_from_research(outcome: str) -> str:
-    match outcome:
-        case "approved":
-            return "selected"
-        case "rejected":
-            return "rejected"
-        case _:
-            return "deferred"
 
 
 def _tracking_from_front(

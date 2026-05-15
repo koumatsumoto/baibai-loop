@@ -145,7 +145,7 @@ def test_sync_ledger_writes_idempotent_decision_register(tmp_path: Path) -> None
     assert len(lines) == 1
     record = json.loads(lines[0])
     assert record["decision_event_id"] == "decision-20260425-2767-research"
-    assert record["candidate_decision"] == "selected"
+    assert "candidate_decision" not in record
     assert record["baseline_price"] == 1431.0
     assert record["market_cap_oku"] == 936.0
     assert record["avg_turnover_oku"] == 4.9

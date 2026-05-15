@@ -38,11 +38,7 @@ def build_monthly_retro(root: Path, month: str) -> RetroDraft:
     decisions = read_jsonl(root / "records/_ledger" / "research-decisions" / f"{month}.jsonl")
     reviews, warnings = _load_reviews(root, month)
 
-    approved_decisions = sum(
-        1
-        for record in decisions
-        if _research_outcome(record) == "approved" or record.get("candidate_decision") == "selected"
-    )
+    approved_decisions = sum(1 for record in decisions if _research_outcome(record) == "approved")
     submitted_orders = sum(
         1 for record in decisions if record.get("trade_execution_state") == "submitted"
     )
@@ -55,7 +51,7 @@ def build_monthly_retro(root: Path, month: str) -> RetroDraft:
         1 for review in reviews if review.get("classification") in {"success", "failure"}
     )
     missed_opportunities = sum(
-        1 for record in decisions if record.get("candidate_decision") in {"rejected", "deferred"}
+        1 for record in decisions if _research_outcome(record) in {"rejected", "deferred"}
     )
 
     failure_counts = _count_classes(reviews, "failure_class", _FAILURE_CLASSES)
@@ -169,8 +165,8 @@ def _render_retro(
         f"- Closed positions: {front['closed_positions']} 件",
         f"- Missed opportunities: {front['missed_opportunities']} 件",
         "",
-        "| Ticker | Playbook | Scope | Candidate decision | Research outcome | +15bd | +30bd |",
-        "| --- | --- | --- | --- | --- | ---: | ---: |",
+        "| Ticker | Playbook | Scope | Research outcome | +15bd | +30bd |",
+        "| --- | --- | --- | --- | ---: | ---: |",
         *_decision_rows(decisions),
         "",
         "## 失敗分類の集計",
@@ -211,16 +207,13 @@ def _render_retro(
 
 def _decision_rows(records: Sequence[Mapping[str, Any]]) -> list[str]:
     if not records:
-        return ["| - | - | - | - | - | - | - |"]
-    row_template = (
-        "| {ticker} | {playbook} | {scope} | {candidate} | {outcome} | {plus15} | {plus30} |"
-    )
+        return ["| - | - | - | - | - | - |"]
+    row_template = "| {ticker} | {playbook} | {scope} | {outcome} | {plus15} | {plus30} |"
     return [
         row_template.format(
             ticker=record.get("ticker", ""),
             playbook=record.get("playbook_id", ""),
             scope=record.get("decision_scope", ""),
-            candidate=record.get("candidate_decision", ""),
             outcome=_research_outcome(record) or "",
             plus15=_format_price(_tracking_value(record, "plus_15bd")),
             plus30=_format_price(_tracking_value(record, "plus_30bd")),

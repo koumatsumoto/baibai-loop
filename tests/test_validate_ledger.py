@@ -13,7 +13,6 @@ def _decision_record(**overrides: object) -> dict[str, object]:
         "decision_scope": "research_memo",
         "provenance": "regenerated",
         "ticker": "2767",
-        "candidate_decision": "selected",
         "research_decision": {"outcome": "approved", "posture": "act_now"},
         "tracking": {"mode": "post_approval"},
         "trade_execution_state": "none",
@@ -78,6 +77,16 @@ def test_validate_ledger_rejects_removed_not_reviewed_reason(tmp_path: Path) -> 
     assert "ledger.removed-reference-field" in codes
 
 
+def test_validate_ledger_rejects_removed_candidate_decision(tmp_path: Path) -> None:
+    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
+    record = _decision_record(**{"_".join(("candidate", "decision")): "selected"})
+    _write_jsonl(path, record)
+
+    codes = {finding.code for finding in validate_ledger_file(path)}
+
+    assert "ledger.removed-reference-field" in codes
+
+
 def test_validate_ledger_rejects_bad_decision_scope(tmp_path: Path) -> None:
     path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
     _write_jsonl(path, _decision_record(decision_scope="trade"))
@@ -113,7 +122,6 @@ def test_research_memo_candidate_ref_rejects_mismatched_screen_run_id(tmp_path: 
             decision_event_id="decision-20260501-9682-research",
             decision_scope="research_memo",
             ticker="9682",
-            candidate_decision="selected",
             candidate_ref={
                 "candidates_ref": candidate_ref,
                 "candidate_id": "candidate-2026-05-01-9682",
@@ -151,7 +159,6 @@ def test_candidate_ref_requires_screen_run_id(tmp_path: Path) -> None:
             decision_event_id="decision-20260501-9682-research",
             decision_scope="research_memo",
             ticker="9682",
-            candidate_decision="selected",
             candidate_ref={
                 "candidates_ref": candidate_ref,
                 "candidate_id": "candidate-2026-05-01-9682",
@@ -173,7 +180,6 @@ def test_candidate_ref_missing_candidates_ref_is_error(tmp_path: Path) -> None:
             decision_event_id="decision-20260501-9682-research",
             decision_scope="research_memo",
             ticker="9682",
-            candidate_decision="selected",
             candidate_ref={
                 "candidates_ref": "records/04-candidates/2026/05/missing.yaml",
                 "candidate_id": "candidate-2026-05-01-9682",
@@ -198,7 +204,6 @@ def test_candidate_ref_rejects_absolute_path(tmp_path: Path) -> None:
             decision_event_id="decision-20260501-9682-research",
             decision_scope="research_memo",
             ticker="9682",
-            candidate_decision="selected",
             candidate_ref={
                 "candidates_ref": str(outside),
                 "candidate_id": "candidate-2026-05-01-9682",
@@ -224,7 +229,6 @@ def test_candidate_ref_rejects_wrong_target(tmp_path: Path) -> None:
             decision_event_id="decision-20260501-9682-research",
             decision_scope="research_memo",
             ticker="9682",
-            candidate_decision="selected",
             candidate_ref={
                 "candidates_ref": "records/02-brief/2026/05/not-candidates.yaml",
                 "candidate_id": "candidate-2026-05-01-9682",

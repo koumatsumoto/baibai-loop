@@ -74,7 +74,7 @@ Baibai-Loop では `evidence hit` を使います。`evidence hit` は candidate
 
 ## Decision Register
 
-`decision register` は判断イベントを append-only に記録する register です。Baibai-Loop では `records/_ledger/` が candidate decision、investment memo decision、execution intent、tracking event の正本です。Candidates の screen fact、trades の execution record、reviews の attribution record とは分けます。
+`decision register` は判断イベントを append-only に記録する register です。Baibai-Loop では `records/_ledger/` が investment memo decision、execution intent、tracking event の正本です。Candidates の screen fact、trades の execution record、reviews の attribution record とは分けます。
 
 ## Missed Opportunity
 
