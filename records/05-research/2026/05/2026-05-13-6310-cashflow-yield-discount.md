@@ -16,8 +16,6 @@ calendar_refs:
     ref_path: records/_calendars/events/2026-05.yaml
   corporate_actions:
     ref_path: records/_calendars/corporate-actions/2026-05.yaml
-portfolio_exposure_ref:
-  ref_path: records/_portfolio-exposure/2026/05/2026-05-05T203000+0900.yaml
 selected_supporting_evidence_refs:
 - source: candidate
   evidence_hit_id: candidate-2026-05-08-6310-cashflow-yield-discount

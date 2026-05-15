@@ -107,15 +107,6 @@ def validate_ledger_file(path: Path) -> list[ValidationFinding]:
                 candidate_document_cache=candidate_document_cache,
             )
         )
-        findings.extend(
-            _check_candidate_decision_coverage(
-                path,
-                line_number,
-                record,
-                root=root,
-                candidate_document_cache=candidate_document_cache,
-            )
-        )
     if not parse_errors:
         for message in validate_decision_register_jsonl(path):
             findings.append(
@@ -126,7 +117,6 @@ def validate_ledger_file(path: Path) -> list[ValidationFinding]:
                     message=message,
                 )
             )
-        findings.extend(_check_candidate_coverage_from_candidates(path, records))
     return findings
 
 
@@ -187,7 +177,6 @@ def _check_required_lineage_fields(
     if not isinstance(tracking, dict) or tracking.get("mode") not in {
         "post_approval",
         "re_examination",
-        "missed_opportunity",
         "none",
     }:
         findings.append(
@@ -199,55 +188,6 @@ def _check_required_lineage_fields(
                 location=f"line {line_number}.tracking.mode",
             )
         )
-    return findings
-
-
-def _check_candidate_decision_coverage(
-    path: Path,
-    line_number: int,
-    record: dict[str, Any],
-    *,
-    root: Path,
-    candidate_document_cache: dict[str, dict[str, Any] | None],
-) -> list[ValidationFinding]:
-    if record.get("candidate_decision") != "not_reviewed":
-        return []
-    loaded = _candidate_ref_document_and_row(
-        record,
-        root=root,
-        candidate_document_cache=candidate_document_cache,
-    )
-    if loaded is None:
-        return []
-    document, candidate = loaded
-    if document.get("requires_decision_coverage") is not True:
-        return []
-    if candidate is None:
-        return []
-    if candidate.get("playbook_screen_result") not in {"hit", "near_threshold"}:
-        return [
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="ledger.not-reviewed-coverage",
-                message="not_reviewed rows are only allowed for hit or near-threshold candidates",
-                location=f"line {line_number}.candidate_ref",
-            )
-        ]
-    is_hard_excluded = (
-        candidate.get("policy_gate_result") == "excluded"
-        or candidate.get("liquidity_gate_result") == "excluded"
-    )
-    if is_hard_excluded:
-        return [
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="ledger.not-reviewed-hard-excluded",
-                message="hard-excluded candidates must not be tracked as not_reviewed",
-                location=f"line {line_number}.candidate_ref",
-            )
-        ]
     return []
 
 
@@ -555,122 +495,6 @@ def _load_candidate_document(
         return None
     cache[candidates_ref] = document
     return document
-
-
-def _check_candidate_coverage_from_candidates(
-    path: Path,
-    records: list[dict[str, Any]],
-) -> list[ValidationFinding]:
-    root = _repo_root(path)
-    candidates_root = root / "records/04-candidates"
-    if not candidates_root.is_dir():
-        return []
-    covered = _covered_candidate_refs(records)
-    findings: list[ValidationFinding] = []
-    for candidate_path in sorted(candidates_root.rglob("*.yaml")):
-        location = str(candidate_path.relative_to(root))
-        try:
-            document = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError) as exc:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="ledger.candidate-coverage-parse",
-                    message=f"failed to parse candidates file: {exc}",
-                    location=location,
-                )
-            )
-            continue
-        if not isinstance(document, dict):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="ledger.candidate-coverage-parse",
-                    message="candidates file must be a mapping",
-                    location=location,
-                )
-            )
-            continue
-        requires = document.get("requires_decision_coverage")
-        if requires is False:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="ledger.candidate-coverage-disabled",
-                    message="candidate decision coverage must stay enabled for current records",
-                    location=location,
-                )
-            )
-            continue
-        if requires is not True:
-            continue
-        candidates = document.get("candidates")
-        if not isinstance(candidates, list):
-            continue
-        candidates_ref = str(candidate_path.relative_to(root))
-        for candidate in candidates:
-            if not isinstance(candidate, dict) or not _requires_candidate_decision(candidate):
-                continue
-            candidate_id = candidate.get("candidate_id")
-            ticker = candidate.get("ticker")
-            screen_run_id = candidate.get("screen_run_id") or document.get("run_id")
-            key = (
-                candidates_ref,
-                str(candidate_id) if isinstance(candidate_id, str) else "",
-                str(ticker) if isinstance(ticker, str) else "",
-                str(screen_run_id) if isinstance(screen_run_id, str) else "",
-            )
-            if key not in covered:
-                findings.append(
-                    ValidationFinding(
-                        severity="error",
-                        target=path,
-                        code="ledger.candidate-decision-coverage",
-                        message=(
-                            "post-policy hit or near-threshold candidates require a "
-                            "candidate_screen or research_memo decision event"
-                        ),
-                        location=f"{candidates_ref}:{ticker}",
-                    )
-                )
-    return findings
-
-
-def _covered_candidate_refs(records: list[dict[str, Any]]) -> set[tuple[str, str, str, str]]:
-    covered: set[tuple[str, str, str, str]] = set()
-    for record in records:
-        if record.get("decision_scope") not in {"candidate_screen", "research_memo"}:
-            continue
-        candidate_ref = record.get("candidate_ref")
-        if not isinstance(candidate_ref, dict):
-            continue
-        candidates_ref = candidate_ref.get("candidates_ref")
-        ticker = candidate_ref.get("ticker")
-        candidate_id = candidate_ref.get("candidate_id")
-        screen_run_id = candidate_ref.get("screen_run_id")
-        if isinstance(candidates_ref, str) and isinstance(ticker, str):
-            covered.add(
-                (
-                    candidates_ref,
-                    str(candidate_id) if isinstance(candidate_id, str) else "",
-                    ticker,
-                    str(screen_run_id) if isinstance(screen_run_id, str) else "",
-                )
-            )
-    return covered
-
-
-def _requires_candidate_decision(candidate: dict[str, Any]) -> bool:
-    if candidate.get("playbook_screen_result") not in {"hit", "near_threshold"}:
-        return False
-    if candidate.get("policy_gate_result") == "excluded":
-        return False
-    if candidate.get("liquidity_gate_result") == "excluded":
-        return False
-    return candidate.get("macro_regime_gate_result") != "blocked"
 
 
 def _repo_root(path: Path) -> Path:

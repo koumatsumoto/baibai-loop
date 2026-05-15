@@ -82,7 +82,6 @@ def _build_front_matter(document: ScreenedRunDocument) -> dict[str, object]:
     front_matter["data_sources"] = [QuotedString(source) for source in document.data_sources]
     front_matter["run_at"] = QuotedString(document.run_at.isoformat())
     front_matter["run_id"] = QuotedString(document.run_id)
-    front_matter["requires_decision_coverage"] = True
     if document.universe_ref:
         front_matter["universe_ref"] = {"ref_path": document.universe_ref}
     front_matter["candidates"] = [

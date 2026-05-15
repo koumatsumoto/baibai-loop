@@ -492,7 +492,9 @@ def run_command(
     allow_stale_jpx: bool = False,
     output_path: Path | None = None,
     force: bool = False,
+    stdout: TextIO | None = None,
 ) -> int:
+    out = stdout if stdout is not None else sys.stdout
     output_path = output_path or build_output_path(asof_date)
     rules = rules or load_screening_rules(config.rules_path)
     if output_path.exists() and not force:
@@ -524,20 +526,67 @@ def run_command(
     bars_start_date = asof_date - timedelta(days=1200)
     fin_start_date = asof_date - timedelta(days=730)
     try:
+        print(f"screening run start: asof={asof_date.isoformat()}", file=out, flush=True)
+        print("screening run jquants market_calendar: start", file=out, flush=True)
         calendar_days = providers.jquants.get_mkt_calendar(asof_date, asof_date)
         if not any(day.day == asof_date and day.is_business_day for day in calendar_days):
             print(f"--asof must be a business day: {asof_date.isoformat()}", file=sys.stderr)
             return 1
+        print("screening run jquants eq_master: start", file=out, flush=True)
         securities = providers.jquants.get_eq_master()
+        print(
+            f"screening run jquants eq_master: {len(securities)} row(s)",
+            file=out,
+            flush=True,
+        )
+        print(
+            "screening run jquants daily_bars: "
+            f"{bars_start_date.isoformat()}..{asof_date.isoformat()} start",
+            file=out,
+            flush=True,
+        )
         bars = providers.jquants.get_eq_bars_daily_range(bars_start_date, asof_date)
+        print(
+            f"screening run jquants daily_bars: {len(bars)} row(s)",
+            file=out,
+            flush=True,
+        )
+        print(
+            "screening run jquants fin_summaries: "
+            f"{fin_start_date.isoformat()}..{asof_date.isoformat()} start",
+            file=out,
+            flush=True,
+        )
         summaries = providers.jquants.get_fin_summary_range(fin_start_date, asof_date)
+        print(
+            f"screening run jquants fin_summaries: {len(summaries)} row(s)",
+            file=out,
+            flush=True,
+        )
         # Pull earnings calendar from asof to asof + 90 calendar days (~ 60
         # business days) so research can populate next_earnings_date and
         # surface kill-switch overlaps at packet build time.
+        print(
+            "screening run jquants earnings_calendar: "
+            f"{asof_date.isoformat()}..{(asof_date + timedelta(days=90)).isoformat()} start",
+            file=out,
+            flush=True,
+        )
         earnings_records = providers.jquants.get_eq_earnings_cal(
             asof_date, asof_date + timedelta(days=90)
         )
+        print(
+            f"screening run jquants earnings_calendar: {len(earnings_records)} row(s)",
+            file=out,
+            flush=True,
+        )
+        print("screening run jpx regulation: start", file=out, flush=True)
         jpx_snapshot = providers.jpx.get_regulation_snapshot(asof_date)
+        print(
+            f"screening run jpx regulation: {len(jpx_snapshot.flags_by_ticker)} ticker(s)",
+            file=out,
+            flush=True,
+        )
     except (JQuantsProviderError, JPXProviderError, sqlite3.Error) as exc:
         # 型情報を残して root cause を追いやすくする。secret を含みうる 3rd party
         # exception はラップ済みなので str(exc) 表示で安全。
@@ -566,7 +615,13 @@ def run_command(
         print("EDINET preprocessed metrics provider is required for screening run", file=sys.stderr)
         return 1
     try:
+        print("screening run edinet metrics: load start", file=out, flush=True)
         edinet_by_ticker = providers.edinet.load_metric_records(asof_date)
+        print(
+            f"screening run edinet metrics: {len(edinet_by_ticker)} ticker(s)",
+            file=out,
+            flush=True,
+        )
     except (EDINETProviderError, OSError, ValueError) as exc:
         # cache 破損 / JSON 不正 / IO 失敗は EDINET 必須条件を満たせないため、
         # preflight 後の race や run_command 直呼びでも YAML 生成へ進めない。
@@ -806,6 +861,18 @@ def run_command(
     )
     yaml_text = render_screened_yaml(document)
     write_text_atomic(output_path, yaml_text)
+    status = "partial warning" if partial_warning else "ok"
+    print(
+        "screening run done: "
+        f"status={status}; output={output_path}; "
+        f"universe={universe_size}; candidates={len(screened_candidates)}",
+        file=out,
+        flush=True,
+    )
+    if partial_warning and fallback_lines:
+        print("screening run partial warning reasons:", file=out, flush=True)
+        for line in fallback_lines:
+            print(f"- {line}", file=out, flush=True)
     return 2 if partial_warning else 0
 
 
@@ -1235,10 +1302,25 @@ def extract_edinet_metrics_command(
     start = asof_date - timedelta(days=lookback_days)
     documents: list[dict[str, Any]] = []
     cursor = start
+    listed_days = 0
+    print(
+        "listing EDINET documents "
+        f"{start.isoformat()}..{asof_date.isoformat()} ({lookback_days + 1} day(s))",
+        file=out,
+        flush=True,
+    )
     try:
         while cursor <= asof_date:
             documents.extend(provider.list_documents(cursor))
             cursor += timedelta(days=1)
+            listed_days += 1
+            if listed_days % 30 == 0 or cursor > asof_date:
+                print(
+                    f"listed EDINET documents: {listed_days}/{lookback_days + 1} day(s), "
+                    f"{len(documents)} document(s)",
+                    file=out,
+                    flush=True,
+                )
     except EDINETProviderError as exc:
         message = f"EDINET document listing failed: {type(exc).__name__}: {exc}"
         store_edinet_metrics(
@@ -1278,6 +1360,11 @@ def extract_edinet_metrics_command(
         )
         print(message, file=sys.stderr)
         return 1
+    print(
+        f"selected {len(candidates)} EDINET filing(s) from {len(documents)} document(s)",
+        file=out,
+        flush=True,
+    )
     records: list[EdinetMetricRecord] = []
     hard_failure_count = 0
     quality_issue_count = 0
@@ -1296,6 +1383,7 @@ def extract_edinet_metrics_command(
             )
         except (EDINETProviderError, OSError, ValueError) as exc:
             hard_failure_count += 1
+            error_text = str(exc).replace("\n", " ").replace("\r", " ")[:160]
             record = EdinetMetricRecord(
                 ticker=candidate.ticker,
                 source_doc_id=candidate.doc_id,
@@ -1303,12 +1391,19 @@ def extract_edinet_metrics_command(
                 source_submit_datetime=candidate.submit_datetime,
                 source_period_start=candidate.period_start,
                 source_period_end=candidate.period_end,
-                failure_reasons=(f"csv_parse_failed:{type(exc).__name__}",),
+                failure_reasons=(f"csv_parse_failed:{type(exc).__name__}:{error_text}",),
             )
             parse_failed = True
         if record.failure_reasons and not parse_failed:
             quality_issue_count += 1
         records.append(record)
+        if len(records) % 50 == 0 or len(records) == len(candidates):
+            print(
+                f"parsed EDINET CSV metrics: {len(records)}/{len(candidates)} filing(s); "
+                f"{hard_failure_count} hard failure(s)",
+                file=out,
+                flush=True,
+            )
 
     payload = [_metric_record_payload(record) for record in records]
     store_edinet_metrics(
@@ -1367,27 +1462,95 @@ def bootstrap_cache_command(
     *,
     asof_date: date,
     providers: ProviderBundle,
+    stdout: TextIO | None = None,
 ) -> int:
+    out = stdout if stdout is not None else sys.stdout
     bars_start = asof_date - timedelta(days=1200)
     fin_start = asof_date - timedelta(days=730)
     earnings_end = asof_date + timedelta(days=90)
     try:
-        providers.jquants.get_eq_master()
-        providers.jquants.get_eq_bars_daily_range(bars_start, asof_date)
-        providers.jquants.get_fin_summary_range(fin_start, asof_date)
-        providers.jquants.get_eq_earnings_cal(asof_date, earnings_end)
-        providers.jquants.get_mkt_calendar(asof_date, asof_date)
+        print(f"bootstrap-cache start: asof={asof_date.isoformat()}", file=out, flush=True)
+        print("bootstrap-cache jquants eq_master: start", file=out, flush=True)
+        securities = providers.jquants.get_eq_master()
+        print(
+            f"bootstrap-cache jquants eq_master: {len(securities)} row(s)",
+            file=out,
+            flush=True,
+        )
+        print(
+            "bootstrap-cache jquants daily_bars: "
+            f"{bars_start.isoformat()}..{asof_date.isoformat()} start",
+            file=out,
+            flush=True,
+        )
+        bars = providers.jquants.get_eq_bars_daily_range(bars_start, asof_date)
+        print(
+            f"bootstrap-cache jquants daily_bars: {len(bars)} row(s)",
+            file=out,
+            flush=True,
+        )
+        print(
+            "bootstrap-cache jquants fin_summaries: "
+            f"{fin_start.isoformat()}..{asof_date.isoformat()} start",
+            file=out,
+            flush=True,
+        )
+        summaries = providers.jquants.get_fin_summary_range(fin_start, asof_date)
+        print(
+            f"bootstrap-cache jquants fin_summaries: {len(summaries)} row(s)",
+            file=out,
+            flush=True,
+        )
+        print(
+            "bootstrap-cache jquants earnings_calendar: "
+            f"{asof_date.isoformat()}..{earnings_end.isoformat()} start",
+            file=out,
+            flush=True,
+        )
+        earnings = providers.jquants.get_eq_earnings_cal(asof_date, earnings_end)
+        print(
+            f"bootstrap-cache jquants earnings_calendar: {len(earnings)} row(s)",
+            file=out,
+            flush=True,
+        )
+        print("bootstrap-cache jquants market_calendar: start", file=out, flush=True)
+        calendar = providers.jquants.get_mkt_calendar(asof_date, asof_date)
+        print(
+            f"bootstrap-cache jquants market_calendar: {len(calendar)} row(s)",
+            file=out,
+            flush=True,
+        )
         if providers.edinet is not None:
-            providers.edinet.bootstrap_cache(fin_start, asof_date)
+            print(
+                "bootstrap-cache edinet documents: "
+                f"{fin_start.isoformat()}..{asof_date.isoformat()} start",
+                file=out,
+                flush=True,
+            )
+            edinet_result = providers.edinet.bootstrap_cache(fin_start, asof_date)
+            print(
+                "bootstrap-cache edinet documents: "
+                + ", ".join(f"{key}={value}" for key, value in sorted(edinet_result.items())),
+                file=out,
+                flush=True,
+            )
         else:
             print(
                 "note: EDINET provider is not configured; skipping EDINET bootstrap",
                 file=sys.stderr,
             )
-        providers.jpx.bootstrap_cache(asof_date)
+        print("bootstrap-cache jpx regulation: start", file=out, flush=True)
+        jpx_result = providers.jpx.bootstrap_cache(asof_date)
+        print(
+            "bootstrap-cache jpx regulation: "
+            + ", ".join(f"{key}={value}" for key, value in sorted(jpx_result.items())),
+            file=out,
+            flush=True,
+        )
     except (JQuantsProviderError, EDINETProviderError, JPXProviderError, sqlite3.Error) as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
+    print("bootstrap-cache done", file=out, flush=True)
     return 0
 
 

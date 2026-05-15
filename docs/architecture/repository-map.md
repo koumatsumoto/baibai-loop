@@ -51,14 +51,12 @@ content hash audit は持たず、record から参照する repo 内 file path �
 | path | 正本 docs | 参照 docs | 役割 |
 | --- | --- | --- | --- |
 | `records/_approval-rules/` | [`../components/research.md`](../components/research.md) | this map | analyst asserted evidence を sizing に入れる approval rule files |
-| `records/_benchmarks/` | [`../reference/testing-and-validation.md`](../reference/testing-and-validation.md) | [`automation-map.md`](./automation-map.md) | business regression benchmark manifest |
 | `records/_calendars/` | [`../components/portfolio-policy.md`](../components/portfolio-policy.md) | this map | business day / event / corporate action calendar files |
 | `records/_config/` | [`../screening/principles.md`](../screening/principles.md) | this map | screening rules / metric catalog / exposure bucket config files |
 | `records/_data/` | [`../reference/data-sources.md`](../reference/data-sources.md) | this map | raw / derived data と cache の支援領域 |
 | `records/_ledger/` | [`../components/ledger.md`](../components/ledger.md) | this map | decision register と ledger sync の記録領域 |
 | `records/_market-data/` | [`../components/reviews.md`](../components/reviews.md) | this map | review / missed opportunity 計算用 market data files |
 | `records/_playbooks/` | [`../components/playbooks.md`](../components/playbooks.md) | this map | 運用中 playbook の保存領域 |
-| `records/_portfolio-exposure/` | [`../components/trades.md`](../components/trades.md) | this map | order intent / exposure cap 検査用 portfolio exposure files |
 | `records/_schemas/` | [`../reference/testing-and-validation.md`](../reference/testing-and-validation.md) | [`automation-map.md`](./automation-map.md) | records validation schema の保存領域 |
 | `records/_universe-snapshots/` | [`../components/candidates.md`](../components/candidates.md) | this map | screening universe files |
 

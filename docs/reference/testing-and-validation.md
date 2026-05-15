@@ -6,7 +6,6 @@ status: active
 last_reviewed: 2026-05-04
 source_paths:
   - "../../records/_schemas/"
-  - "../../records/_benchmarks/"
   - "../../src/baibai_loop/validate/"
   - "../../tests/"
 ---
@@ -20,7 +19,6 @@ source_paths:
 | area | 責務 |
 | --- | --- |
 | `records/_schemas/` | YAML / front matter の schema 正本 |
-| `records/_benchmarks/` | business regression benchmark manifest |
 | `src/baibai_loop/validate/` | schema validation と cross-file validation |
 | `tests/test_validate_*.py` | validator の期待挙動 |
 | `.github/workflows/ci.yml` | PR / main push の local parity gate |

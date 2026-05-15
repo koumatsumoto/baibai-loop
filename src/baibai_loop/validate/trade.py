@@ -245,7 +245,6 @@ def _check_reference_refs(path: Path, front: Mapping[str, object]) -> list[Valid
     specs = {
         "research_ref": (("records/05-research/",), (".md",)),
         "policy_ref": (("records/01-policy/",), (".md",)),
-        "portfolio_exposure_ref": (("records/_portfolio-exposure/",), (".yaml", ".yml")),
     }
     for field, (prefixes, suffixes) in specs.items():
         value = front.get(field)

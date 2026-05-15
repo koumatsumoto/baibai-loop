@@ -50,10 +50,6 @@ class _ReferenceSpec:
 _REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
     ("playbook_ref", _ReferenceSpec(("records/_playbooks/",), (".md",), True)),
     ("policy_ref", _ReferenceSpec(("records/01-policy/",), (".md",), True)),
-    (
-        "portfolio_exposure_ref",
-        _ReferenceSpec(("records/_portfolio-exposure/",), (".yaml", ".yml")),
-    ),
     ("input_refs.policy", _ReferenceSpec(("records/01-policy/",), (".md",), True)),
     (
         "input_refs.screening_rules",
@@ -70,10 +66,6 @@ _REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
     (
         "input_refs.universe",
         _ReferenceSpec(("records/_universe-snapshots/",), (".yaml", ".yml")),
-    ),
-    (
-        "input_refs.portfolio_exposure",
-        _ReferenceSpec(("records/_portfolio-exposure/",), (".yaml", ".yml")),
     ),
     (
         "calendar_refs.business_days",
@@ -110,7 +102,7 @@ _SCALAR_REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
     (
         "candidates_ref",
         _ReferenceSpec(
-            ("records/04-candidates/", "records/_benchmarks/"),
+            ("records/04-candidates/",),
             (".yaml", ".yml"),
             required_mapping_keys=("candidates",),
         ),
@@ -125,7 +117,6 @@ _SCALAR_REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
     ),
     ("research_ref", _ReferenceSpec(("records/05-research/",), (".md",), True, allow_null=True)),
     ("trade_ref", _ReferenceSpec(("records/06-trades/",), (".md",), True, allow_null=True)),
-    ("runs_ref", _ReferenceSpec(("records/_benchmarks/",), (".yaml", ".yml"))),
     ("scan_ref", _ReferenceSpec(("records/07-reviews/",), (".yaml", ".yml"))),
     ("ledger_ref", _ReferenceSpec(("records/_ledger/",), (".jsonl",))),
 )

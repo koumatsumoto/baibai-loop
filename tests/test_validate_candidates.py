@@ -193,7 +193,7 @@ class CandidatesValidationTests(unittest.TestCase):
             universe_ref["ref_path"] = (
                 "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
             )
-            path = root / "records/_benchmarks/domain-model/e2e-regeneration/run-candidates.yaml"
+            path = root / "records/04-candidates/2026/05/2026-05-01.yaml"
             path.parent.mkdir(parents=True)
             path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
 

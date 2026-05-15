@@ -255,13 +255,17 @@ class ScreeningCliTests(unittest.TestCase):
                     edinet=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
                 )
-                exit_code = run_command(
-                    date(2026, 4, 24),
-                    config,
-                    providers,
-                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
-                )
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    exit_code = run_command(
+                        date(2026, 4, 24),
+                        config,
+                        providers,
+                        now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    )
                 self.assertEqual(exit_code, 2)
+                self.assertIn("screening run done: status=partial warning", stdout.getvalue())
+                self.assertIn("screening run partial warning reasons:", stdout.getvalue())
                 output_path = build_output_path(date(2026, 4, 24))
                 self.assertTrue(output_path.exists())
                 rendered = output_path.read_text(encoding="utf-8")
@@ -309,7 +313,7 @@ class ScreeningCliTests(unittest.TestCase):
                     edinet=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
                 )
-                output_path = Path("records/_benchmarks/e2e/candidates.yaml")
+                output_path = Path("records/04-candidates/e2e/candidates.yaml")
                 exit_code = run_command(
                     date(2026, 4, 24),
                     config,
@@ -695,13 +699,18 @@ class ScreeningCliTests(unittest.TestCase):
         jquants = FakeJQuantsProvider()
         edinet = FakeEDINETProvider()
         jpx = FakeJPXProvider()
+        buffer = io.StringIO()
 
         exit_code = bootstrap_cache_command(
             asof_date=asof,
             providers=ProviderBundle(jquants=jquants, edinet=edinet, jpx=jpx),
+            stdout=buffer,
         )
 
         self.assertEqual(exit_code, 0)
+        self.assertIn("bootstrap-cache jquants daily_bars", buffer.getvalue())
+        self.assertIn("bootstrap-cache edinet documents", buffer.getvalue())
+        self.assertIn("bootstrap-cache done", buffer.getvalue())
         self.assertIn(("get_eq_master", None, None), jquants.calls)
         self.assertIn(("get_eq_bars_daily_range", asof - timedelta(days=1200), asof), jquants.calls)
         self.assertIn(("get_fin_summary_range", asof - timedelta(days=730), asof), jquants.calls)
@@ -1091,7 +1100,7 @@ class SelectCommandTests(unittest.TestCase):
                     }
                 ],
             )
-            custom = root / "records/_benchmarks/e2e/custom-candidates.yaml"
+            custom = root / "records/04-candidates/e2e/custom-candidates.yaml"
             custom.parent.mkdir(parents=True)
             custom.write_text(canonical.read_text(encoding="utf-8"), encoding="utf-8")
             canonical.unlink()
@@ -1111,7 +1120,7 @@ class SelectCommandTests(unittest.TestCase):
             payload = yaml.safe_load(buffer.getvalue())
             self.assertEqual(
                 payload["candidates_ref"],
-                "records/_benchmarks/e2e/custom-candidates.yaml",
+                "records/04-candidates/e2e/custom-candidates.yaml",
             )
             self.assertEqual([item["ticker"] for item in self._recommended(payload)], ["1111"])
 

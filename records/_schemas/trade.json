@@ -11,7 +11,6 @@
     "policy_ref",
     "policy_applicability",
     "calendar_refs",
-    "portfolio_exposure_ref",
     "position_state",
     "review_state",
     "trade_execution_state",
@@ -25,7 +24,6 @@
     "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
     "research_ref": {"type": "string", "pattern": "^records/05-research/[^.][^\\n]*\\.md$"},
     "policy_ref": {"$ref": "#/$defs/RepositoryRef"},
-    "portfolio_exposure_ref": {"$ref": "#/$defs/RepositoryRef"},
     "policy_applicability": {"enum": ["active"]},
     "calendar_refs": {
       "type": "object",

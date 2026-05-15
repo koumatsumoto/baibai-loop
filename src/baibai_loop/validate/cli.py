@@ -13,7 +13,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal, TextIO, assert_never
 
-from .benchmark import discover_benchmark_manifest_files, validate_benchmark_manifest_file
 from .brief import discover_brief_files, validate_brief_file
 from .calendar import discover_calendar_files, validate_calendar_file
 from .candidates import discover_candidates_files, validate_candidates_file
@@ -22,10 +21,6 @@ from .ledger import discover_ledger_files, validate_ledger_file
 from .outlook import discover_outlook_files, validate_outlook_file
 from .playbook_schema import discover_playbook_schemas
 from .policy import discover_policy_files, validate_policy_file
-from .portfolio_exposure import (
-    discover_portfolio_exposure_files,
-    validate_portfolio_exposure_file,
-)
 from .references import discover_reference_files, validate_reference_integrity
 from .research import (
     discover_research_files,
@@ -40,35 +35,30 @@ from .trade import discover_trade_files, validate_trade_file
 type ValidationTarget = Literal[
     "brief",
     "policy",
-    "benchmark",
     "candidates",
     "outlook",
     "research",
     "trade",
     "ledger",
     "review",
-    "portfolio-exposure",
     "references",
     "calendar",
 ]
 _TARGETS: tuple[ValidationTarget, ...] = (
     "brief",
     "policy",
-    "benchmark",
     "candidates",
     "outlook",
     "research",
     "trade",
     "ledger",
     "review",
-    "portfolio-exposure",
     "references",
     "calendar",
 )
 
 BRIEF_ROOT = Path("records/02-brief")
 POLICY_ROOT = Path("records/01-policy")
-BENCHMARK_ROOT = Path("records/_benchmarks")
 CANDIDATES_ROOT = Path("records/04-candidates")
 OUTLOOK_ROOT = Path("records/03-outlook")
 RESEARCH_ROOT = Path("records/05-research")
@@ -76,7 +66,6 @@ TRADES_ROOT = Path("records/06-trades")
 LEDGER_ROOT = Path("records/_ledger")
 PLAYBOOKS_ROOT = Path("records/_playbooks")
 REVIEWS_ROOT = Path("records/07-reviews")
-PORTFOLIO_EXPOSURE_ROOT = Path("records/_portfolio-exposure")
 CALENDAR_ROOT = Path("records/_calendars")
 
 
@@ -194,8 +183,6 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
             return discover_brief_files(root / BRIEF_ROOT)
         case "policy":
             return discover_policy_files(root / POLICY_ROOT)
-        case "benchmark":
-            return discover_benchmark_manifest_files(root / BENCHMARK_ROOT)
         case "candidates":
             return discover_candidates_files(root / CANDIDATES_ROOT)
         case "outlook":
@@ -208,8 +195,6 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
             return discover_ledger_files(root / LEDGER_ROOT)
         case "review":
             return discover_review_files(root / REVIEWS_ROOT)
-        case "portfolio-exposure":
-            return discover_portfolio_exposure_files(root / PORTFOLIO_EXPOSURE_ROOT)
         case "references":
             return discover_reference_files(root)
         case "calendar":
@@ -229,8 +214,6 @@ def _validate(
             return validate_brief_file(path)
         case "policy":
             return validate_policy_file(path)
-        case "benchmark":
-            return validate_benchmark_manifest_file(path)
         case "candidates":
             return validate_candidates_file(path)
         case "outlook":
@@ -247,8 +230,6 @@ def _validate(
             return validate_ledger_file(path)
         case "review":
             return validate_review_file(path)
-        case "portfolio-exposure":
-            return validate_portfolio_exposure_file(path)
         case "references":
             return []
         case "calendar":

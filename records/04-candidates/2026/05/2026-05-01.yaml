@@ -13,7 +13,6 @@ data_sources:
 - "disclosure-title-events"
 run_at: "2026-05-07T00:19:30.298788+09:00"
 run_id: "screening-20260501"
-requires_decision_coverage: true
 universe_ref:
   ref_path: records/_universe-snapshots/2026/05/2026-05-01T192150+0900.yaml
 candidates:

@@ -40,7 +40,6 @@ Front matter の形は [`../templates/research.md`](../templates/research.md) �
 - `playbook_id` / `playbook_ref`
 - `policy_ref`
 - `policy_applicability`
-- `portfolio_exposure_ref`
 - `candidate_ref`
 - `calendar_refs`
 - `research_decision`

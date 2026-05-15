@@ -89,9 +89,6 @@ def _minimal_research_front_matter() -> dict[str, object]:
         "policy_ref": _snapshot(
             "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"
         ),
-        "portfolio_exposure_ref": _snapshot(
-            "records/_portfolio-exposure/2026/05/2026-05-05T133000+0900.yaml"
-        ),
         "policy_applicability": "active",
         "calendar_refs": _calendar_snapshots(),
         "candidate_ref": {

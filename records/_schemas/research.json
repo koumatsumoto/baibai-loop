@@ -10,7 +10,6 @@
     "playbook_id",
     "playbook_ref",
     "policy_ref",
-    "portfolio_exposure_ref",
     "policy_applicability",
     "calendar_refs",
     "research_decision",
@@ -29,7 +28,6 @@
     "playbook_id": {"type": "string", "minLength": 1},
     "playbook_ref": {"$ref": "#/$defs/RepositoryRef"},
     "policy_ref": {"$ref": "#/$defs/RepositoryRef"},
-    "portfolio_exposure_ref": {"$ref": "#/$defs/RepositoryRef"},
     "policy_applicability": {"enum": ["active"]},
     "calendar_refs": {
       "type": "object",

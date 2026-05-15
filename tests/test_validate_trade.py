@@ -27,9 +27,6 @@ def _trade_front(**overrides: object) -> dict[str, object]:
         "policy_ref": _snapshot(
             "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"
         ),
-        "portfolio_exposure_ref": _snapshot(
-            "records/_portfolio-exposure/2026/05/2026-05-05T200000+0900.yaml"
-        ),
         "policy_applicability": "active",
         "calendar_refs": _calendar_snapshots(),
         "position_state": "open",
@@ -140,12 +137,6 @@ def _write_test_repo_sources(root: Path) -> None:
         "records/_calendars/business-days/2026-05.yaml": {"business_days": ["2026-05-05"]},
         "records/_calendars/events/2026-05.yaml": {"events": []},
         "records/_calendars/corporate-actions/2026-05.yaml": {"events": []},
-        "records/_portfolio-exposure/2026/05/2026-05-05T200000+0900.yaml": {
-            "as_of": "2026-05-05T20:00:00+09:00",
-            "remaining_tactical_budget_yen": 1000000,
-            "source_trade_refs": [],
-            "source_decision_register_refs": [],
-        },
     }.items():
         source_path = root / rel_path
         source_path.parent.mkdir(parents=True, exist_ok=True)

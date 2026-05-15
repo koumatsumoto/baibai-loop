@@ -55,9 +55,7 @@ def build_monthly_retro(root: Path, month: str) -> RetroDraft:
         1 for review in reviews if review.get("classification") in {"success", "failure"}
     )
     missed_opportunities = sum(
-        1
-        for record in decisions
-        if record.get("candidate_decision") in {"rejected", "deferred", "not_reviewed"}
+        1 for record in decisions if record.get("candidate_decision") in {"rejected", "deferred"}
     )
 
     failure_counts = _count_classes(reviews, "failure_class", _FAILURE_CLASSES)

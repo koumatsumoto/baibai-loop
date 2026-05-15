@@ -842,7 +842,11 @@ def _append_table_consistency_issues(
                         ),
                     )
                 )
-    if enforce_record_count and table_count != imported_count:
+    if (
+        enforce_record_count
+        and source not in _WINDOW_COUNT_SOURCES
+        and table_count != imported_count
+    ):
         issues.append(
             CacheCoverageIssue(
                 source=source,
