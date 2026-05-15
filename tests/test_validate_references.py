@@ -66,6 +66,25 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
             {finding.code for finding in findings},
         )
 
+    def test_rejects_removed_portfolio_exposure_reference_field_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            research = root / "records/05-research/2026/05/research.md"
+            research.parent.mkdir(parents=True)
+            legacy_field = "_".join(("portfolio", "exposure", "ref"))
+            research.write_text(
+                f"---\n{legacy_field}:\n"
+                "  ref_path: records/_portfolio-exposure/2026/05/exposure.yaml\n---\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_reference_integrity(root)
+
+        self.assertIn(
+            "reference.removed-reference-field",
+            {finding.code for finding in findings},
+        )
+
     def test_rejects_removed_snapshot_path_fallback_field(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

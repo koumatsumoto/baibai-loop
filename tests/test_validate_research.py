@@ -233,6 +233,14 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.removed-field", codes)
 
+    def test_portfolio_exposure_ref_is_flagged_as_removed(self) -> None:
+        front = _minimal_research_front_matter()
+        front["_".join(("portfolio", "exposure", "ref"))] = {
+            "ref_path": "records/_portfolio-exposure/2026/05/exposure.yaml"
+        }
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.removed-field", codes)
+
     def test_missing_policy_applicability_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
         del front["policy_applicability"]

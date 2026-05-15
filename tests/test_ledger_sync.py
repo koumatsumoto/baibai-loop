@@ -238,7 +238,7 @@ def test_monthly_retro_draft_uses_decision_register_fallback(tmp_path: Path) -> 
     assert draft.path == tmp_path / "records/07-reviews" / "2026" / "retro-202604.md"
     assert "decision-register fallback" in draft.warnings[0]
     assert "price_missing_counts:" in draft.content
-    assert "## Missed opportunity / screening false negative tracking の分析" in draft.content
+    assert "## Missed opportunity tracking の分析" in draft.content
     draft.path.parent.mkdir(parents=True)
     draft.path.write_text(draft.content, encoding="utf-8")
     assert validate_review_file(draft.path) == []

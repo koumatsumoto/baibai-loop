@@ -1,11 +1,11 @@
 # components/reviews.md
 
-Baibai-Loop の **review / attribution** 成分の運用仕様。事後検証、missed opportunity tracking、screening false negative tracking、playbook attribution で feedback loop を閉じる。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md)、概念モデルは [`../concepts.md`](../concepts.md) を参照。
+Baibai-Loop の **review / attribution** 成分の運用仕様。事後検証、missed opportunity tracking、playbook attribution で feedback loop を閉じる。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md)、概念モデルは [`../concepts.md`](../concepts.md) を参照。
 
 ## 1. 役割
 
 - `records/06-trades/` の完結（exit 済み）に対し、**決済後 +15 / +30 営業日レビュー** を作成
-- **月次 retro** で成功/失敗分類、missed opportunity、screening false negative、playbook 改訂判断を扱う
+- **月次 retro** で成功/失敗分類、missed opportunity、playbook 改訂判断を扱う
 - Outcome を evidence hit、macro regime gate、sizing、execution、playbook へ帰属し、次回の screening / investment memo に反映する
 
 ## 2. 種類
@@ -129,14 +129,13 @@ price_missing_counts:
 
 将来の retro で成功/失敗分類の再分類を行う（四半期ごと）。
 
-## 8. Missed opportunity / screening false negative tracking
+## 8. Missed opportunity tracking
 
 - `records/05-research/` で見送り / 保留になった候補、採用したが order submit しなかった候補を、月次 retro で missed opportunity として追跡する
-- Screening で no-hit / rank-out / near-threshold / gate excluded になった universe member が後から相対的に良い成績を出した場合、screening false negative として追跡する
 - **追跡タイミング**: candidate 作成日 +15 / +30 営業日時点を基本に、market / sector baseline に対する relative return も見る
 - **追跡方法**: 月次 retro のタイミングでまとめて実施。日次作業に乗せない
-- Macro regime gate で見送った候補も追跡し、gate 判定が false negative を作っていないか検証する
-- 結果は retro 本文に集計し、playbook / screening threshold / macro regime gate / review capacity のどこを直すべきかに接続する
+- Macro regime gate で見送った候補も追跡し、gate 判定が過度に保守的でないか検証する
+- 結果は retro 本文に集計し、playbook / screening threshold / macro regime gate のどこを直すべきかに接続する
 
 ## 9. Retro での feedback ループ
 
@@ -160,7 +159,7 @@ price_missing_counts:
 | --- | --- | --- |
 | review 下書き生成 | ○ | |
 | net_return_pct / relative return 計算 | ○ | |
-| missed opportunity / false negative の騰落集計 | ○ | |
+| missed opportunity の騰落集計 | ○ | |
 | **失敗分類の確定** | | ○ |
 | **成功分類の確定** | | ○ |
 | **playbook 改訂判断** | | ○ |

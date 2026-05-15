@@ -36,7 +36,7 @@ price_missing_counts:
 - **Submitted orders**: XX 件
 - **Filled positions**: XX 件
 - **Closed positions**: XX 件
-- **Missed opportunities**: XX 件（見送り / 保留 / not reviewed / no hit）
+- **Missed opportunities**: XX 件（見送り / 保留 / 採用後の未発注）
 - **勝敗**: Wins XX / Losses XX（closed trades のみ）
 - **P&L sum**: +X.X% / -X.X%（closed trades の損益率合計）
 - **Wins / Losses 内訳**（該当 trade を列挙）:
@@ -76,15 +76,15 @@ price_missing_counts:
 
 四半期末（3月・6月・9月・12月）の retro で再分類候補を検討する。
 
-## Missed opportunity / screening false negative tracking の分析
+## Missed opportunity tracking の分析
 
-見送り / 保留した候補、および screening false negative 候補について、+15/+30 営業日の仮想パフォーマンスと relative return を集計:
+見送り / 保留した候補、および採用したが発注しなかった候補について、+15/+30 営業日の仮想パフォーマンスと relative return を集計:
 
 | Ticker | 追跡区分 | 見送り理由 / 検出理由 | +15 日騰落 | +30 日騰落 | 判定妥当性 |
 | --- | --- | --- | --- | --- | --- |
-| XXXX | missed opportunity / screening false negative | Macro regime gate adverse | +X% | +X% | 妥当 / 偽陰性 |
+| XXXX | missed opportunity | Macro regime gate adverse | +X% | +X% | 妥当 / 過度に保守的 |
 
-**偽陰性率**: XX/XX 件（見送ったが +30 日で上昇した銘柄の比率）
+**見送り後上昇率**: XX/XX 件（見送ったが +30 日で上昇した銘柄の比率）
 
 **価格欠損件数**: +15bd XX 件 / +30bd XX 件
 

@@ -41,6 +41,7 @@ _REMOVED_FRONT_MATTER_FIELDS = {
     "_".join(("tactical", "capital", "yen")),
     "_".join(("tactical", "concentration", "pct")),
     "_".join(("policy", "snapshot")),
+    "_".join(("portfolio", "exposure", "ref")),
     "_".join(("portfolio", "exposure", "snapshot", "ref")),
     "_".join(("calendars", "snapshot")),
 }
@@ -48,7 +49,8 @@ _REMOVED_HASH_FIELDS = {"content_" + "sha256", "row_" + "sha256"}
 _REMOVED_REFERENCE_FIELDS = {
     "playbook_snapshot",
     "_".join(("policy", "snapshot")),
-    "portfolio_exposure_snapshot_ref",
+    "_".join(("portfolio", "exposure", "ref")),
+    "_".join(("portfolio", "exposure", "snapshot", "ref")),
     "calendars_snapshot",
     "universe_snapshot_ref",
     "input_snapshots",
@@ -110,6 +112,7 @@ def validate_trade_file(path: Path) -> list[ValidationFinding]:
     findings.extend(_check_current_quantity(path, front))
     findings.extend(_check_guarded_notional(path, front))
     findings.extend(_check_intent_recomputed(path, front))
+    findings.extend(_check_portfolio_concentration(path, front))
     findings.extend(_check_kill_switches(path, front))
     findings.extend(_check_entry_legs(path, front))
     return findings
@@ -748,6 +751,141 @@ def _check_intent_recomputed(path: Path, front: Mapping[str, object]) -> list[Va
                 )
             )
     return findings
+
+
+def _check_portfolio_concentration(
+    path: Path, front: Mapping[str, object]
+) -> list[ValidationFinding]:
+    current_notional = _open_trade_notional(front)
+    if current_notional is None or current_notional <= 0:
+        return []
+    policy = _load_policy(path, front)
+    capital = as_mapping(policy.get("capital_basis"))
+    risk = as_mapping(policy.get("risk_budget"))
+    real_capital_yen = number(capital.get("real_capital_yen"))
+    tactical_budget_yen = number(capital.get("tactical_real_budget_yen"))
+    if real_capital_yen is None and tactical_budget_yen is None:
+        return []
+    exposures = _open_trade_exposures(repo_root_for(path))
+    if not exposures:
+        return []
+
+    findings: list[ValidationFinding] = []
+    total = sum(float(item["notional"]) for item in exposures)
+    if tactical_budget_yen is not None and total > tactical_budget_yen + 1:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.portfolio-tactical-budget",
+                message=(
+                    "open trade exposure exceeds portfolio policy tactical_real_budget_yen "
+                    f"({total:g} > {tactical_budget_yen:g})"
+                ),
+                location="position_sizing_overlay",
+            )
+        )
+    if real_capital_yen is None or real_capital_yen <= 0:
+        return findings
+
+    checks = (
+        ("ticker", "max_ticker_real_concentration_pct", "trade.portfolio-ticker-cap"),
+        ("sector_33", "max_sector_real_concentration_pct", "trade.portfolio-sector-cap"),
+        ("playbook_id", "max_playbook_real_concentration_pct", "trade.portfolio-playbook-cap"),
+    )
+    for field, cap_field, code in checks:
+        cap_pct = number(risk.get(cap_field))
+        if cap_pct is None:
+            continue
+        cap_yen = real_capital_yen * cap_pct / 100
+        grouped: dict[str, float] = {}
+        for item in exposures:
+            key = str(item.get(field) or "")
+            if key:
+                grouped[key] = grouped.get(key, 0.0) + float(item["notional"])
+        for key, notional in sorted(grouped.items()):
+            if notional <= cap_yen + 1:
+                continue
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code=code,
+                    message=(
+                        f"{field}={key} open exposure exceeds {cap_field} "
+                        f"({notional:g} > {cap_yen:g})"
+                    ),
+                    location="position_sizing_overlay",
+                )
+            )
+    return findings
+
+
+def _open_trade_exposures(root: Path) -> list[dict[str, float | str]]:
+    trades_root = root / "records/06-trades"
+    if not trades_root.is_dir():
+        return []
+    exposures: list[dict[str, float | str]] = []
+    for trade_path in sorted(trades_root.rglob("*.md")):
+        if trade_path.name.startswith("template"):
+            continue
+        try:
+            front = load_markdown_front_matter(trade_path)
+        except (OSError, ValueError, yaml.YAMLError):
+            continue
+        notional = _open_trade_notional(front)
+        if notional is None or notional <= 0:
+            continue
+        sector_33 = ""
+        research_ref = front.get("research_ref")
+        if isinstance(research_ref, str):
+            try:
+                research_front = load_markdown_front_matter(root / research_ref)
+            except (OSError, ValueError, yaml.YAMLError):
+                research_front = {}
+            sector_33 = str(research_front.get("sector_33") or "")
+        exposures.append(
+            {
+                "ticker": str(front.get("ticker") or ""),
+                "sector_33": sector_33,
+                "playbook_id": str(front.get("playbook_id") or ""),
+                "notional": notional,
+            }
+        )
+    return exposures
+
+
+def _open_trade_notional(front: Mapping[str, Any]) -> float | None:
+    if front.get("position_state") == "closed":
+        return None
+    state = front.get("trade_execution_state")
+    if front.get("position_state") != "open" and state not in {
+        "submitted",
+        "partially_filled",
+        "filled",
+    }:
+        return None
+    entry_notional = 0.0
+    for leg in as_list(front.get("entry_legs")):
+        leg_map = as_mapping(leg)
+        quantity = number(leg_map.get("quantity"))
+        price = number(leg_map.get("average_price_yen"))
+        if quantity is not None and price is not None:
+            entry_notional += quantity * price
+    if entry_notional > 0:
+        return entry_notional
+    sizing = as_mapping(front.get("position_sizing_overlay"))
+    fallback = number(sizing.get("estimated_real_order_notional_yen")) or number(
+        sizing.get("guarded_max_notional_yen")
+    )
+    if fallback is not None:
+        return fallback
+    intent = as_mapping(front.get("order_intent"))
+    quantity = number(intent.get("quantity"))
+    guard = number(intent.get("order_price_guard_yen"))
+    if quantity is not None and guard is not None:
+        return quantity * guard
+    return None
 
 
 def _derive_trade_order(path: Path, front: Mapping[str, object]) -> dict[str, float] | None:

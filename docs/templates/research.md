@@ -148,6 +148,5 @@ Why now × why this stock。主要 evidence、payoff、反対仮説、macro regi
 - **paper proxy size**:
 - **estimated real order notional**:
 - **binding cap**:
-- **portfolio exposure ref**:
 
 参照: [`/docs/components/research.md`](/docs/components/research.md), [`/docs/screening/principles.md`](/docs/screening/principles.md), [`/records/_playbooks/`](/records/_playbooks/)

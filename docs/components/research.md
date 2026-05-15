@@ -6,7 +6,7 @@ Baibai-Loop の **research / investment memo** の運用仕様。candidates × o
 
 - `records/04-candidates/` の pinned repository file から、深掘りする ticker / playbook を選ぶ
 - `records/03-outlook/` と security exposure を使い、macro regime gate を確定する
-- Portfolio policy と portfolio exposure file に照らして、採用可否と sizing を決める
+- Portfolio policy、liquidity、calendar / event risk に照らして、採用可否と sizing を決める
 - thesis payoff を構造化し、target / stop / expected upside / downside / risk reward / time horizon を検査する
 - 短期 thesis が外れた場合に長期保有へ切り替えられるか、balance sheet / cash flow / liquidity / refinancing risk / earnings base の耐久性を確認する
 - AI 長期影響を、long-hold fallback の質を評価する strategic lens として機会・脅威の両面から確認する
@@ -20,11 +20,11 @@ Baibai-Loop の **research / investment memo** の運用仕様。candidates × o
 3. `records/03-outlook/` の `sectors` / `exposure_buckets` と universe file の `security_exposures[]` を確認する
 4. `candidate_evidence_decisions[]` で research recorded_at 時点の `effective_sizing_eligible` を再評価する
 5. `selected_supporting_evidence_refs[]` に candidate / research の採用 evidence を明示する
-6. thesis payoff と portfolio exposure file に照らし、`research_decision` を確定する
+6. thesis payoff、portfolio policy、liquidity cap に照らし、`research_decision` を確定する
 
 候補は一度の selection で 3-5 銘柄までに絞る。複数 playbook hit は優先度を上げる材料だが、sizing count には `effective_sizing_eligible` と `independence_component_id` の再評価後の値だけを使う。
 
-`screening_selected` は research triage queue であり、採用判断ではない。`research_memo` は個別 investment memo が存在する状態、`research_approved` は `research_decision.outcome: approved`、`order_ready` は approved research と有効な order intent がそろった状態を指す。現在の投資方針は E2E regeneration の selected queue を正本にし、baseline で安定して出る 5 銘柄を core、liquidity stress で出る候補を execution-feasibility complement、sales-first でのみ増える single-evidence 候補を小さい exploration sleeve として扱う。evidence count 1 の候補は、反証 evidence と payoff を research で確認するまで大きく張らない。
+`screening_selected` は research triage queue であり、採用判断ではない。`research_memo` は個別 investment memo が存在する状態、`research_approved` は `research_decision.outcome: approved`、`order_ready` は approved research と有効な order intent がそろった状態を指す。現在の投資方針は `baibai-loop-screening select` の `recommended_research_queue` を research 着手候補の正本にし、fast dislocation / core value / long-hold survivability のどの経路で拾われたかを `recommendation_queue` で確認する。evidence count 1 の候補は、反証 evidence と payoff を research で確認するまで大きく張らない。
 
 ## 3. Path と命名
 
@@ -108,8 +108,7 @@ Position size は次の順で決める。
 3. macro regime gate cap
 4. event / calendar cap
 5. liquidity cap
-6. ticker / sector / playbook / economic exposure の cumulative cap
-7. board lot と guard price による rounding
+6. board lot と guard price による rounding
 
 実注文数量は `floor(real_order_intent_yen / order_price_guard_yen / board_lot) * board_lot` で計算する。0 株になる場合は `trade_execution_state: none` と `not_submitted_reason` を記録する。
 

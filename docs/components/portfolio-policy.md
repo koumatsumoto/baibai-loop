@@ -67,7 +67,7 @@ AI 期待は単独の採用根拠、position sizing 根拠、macro gate、valida
 | tactical real budget | 当面の取引に使ってよい実資金の上限。Real capital の一部として扱う |
 | paper proxy capital | 判断の強弱を比較するための仮想資本。実注文額の分母ではない |
 
-Paper proxy capital は、同じ thesis の強弱を比較するための proxy です。実際に何円注文するかは、policy の execution scaling、portfolio exposure、liquidity、board lot、price guard で決まります。
+Paper proxy capital は、同じ thesis の強弱を比較するための proxy です。実際に何円注文するかは、policy の execution scaling、liquidity、board lot、price guard で決まります。
 
 ## Boundary With Playbooks
 

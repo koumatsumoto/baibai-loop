@@ -21,7 +21,8 @@ _REMOVED_REFERENCE_FIELDS = frozenset(
     {
         "playbook_snapshot",
         "_".join(("policy", "snapshot")),
-        "portfolio_exposure_snapshot_ref",
+        "_".join(("portfolio", "exposure", "ref")),
+        "_".join(("portfolio", "exposure", "snapshot", "ref")),
         "calendars_snapshot",
         "universe_snapshot_ref",
         "input_snapshots",

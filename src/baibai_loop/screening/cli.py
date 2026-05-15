@@ -37,6 +37,7 @@ from .providers import EDINETProvider, JPXProvider, JQuantsProvider
 from .providers.edinet import (
     EdinetMetricRecord,
     EDINETProviderError,
+    EDINETRateLimitError,
     parse_csv_zip_metric_record,
     select_document_candidates,
 )
@@ -658,6 +659,7 @@ def run_command(
         run_at=run_now,
         universe_result=universe_result.snapshots,
         securities_by_ticker=securities_by_ticker,
+        output_path=output_path,
     )
     metric_result = build_metrics(
         asof_date=asof_date,
@@ -869,8 +871,13 @@ def run_command(
         file=out,
         flush=True,
     )
-    if partial_warning and fallback_lines:
-        print("screening run partial warning reasons:", file=out, flush=True)
+    if fallback_lines:
+        heading = (
+            "screening run partial warning reasons:"
+            if partial_warning
+            else "screening run notices:"
+        )
+        print(heading, file=out, flush=True)
         for line in fallback_lines:
             print(f"- {line}", file=out, flush=True)
     return 2 if partial_warning else 0
@@ -882,10 +889,11 @@ def _write_universe_snapshot(
     run_at: datetime,
     universe_result: Mapping[str, UniverseSnapshot],
     securities_by_ticker: Mapping[str, SecurityMaster],
+    output_path: Path,
 ) -> str:
     run_at_jst = run_at.astimezone(JST)
     ref_path = (
-        Path("records/_universe-snapshots")
+        _universe_snapshot_root_for_output(output_path)
         / f"{asof_date:%Y}"
         / f"{asof_date:%m}"
         / f"{asof_date.isoformat()}T{run_at_jst:%H%M%S%z}.yaml"
@@ -924,6 +932,20 @@ def _write_universe_snapshot(
     }
     write_text_atomic(ref_path, yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
     return ref_path.as_posix()
+
+
+def _universe_snapshot_root_for_output(output_path: Path) -> Path:
+    path = output_path if not output_path.is_absolute() else _relative_to_cwd(output_path)
+    if path.parts[:2] == ("records", "04-candidates"):
+        return Path("records/_universe-snapshots")
+    return path.parent / "_universe-snapshots"
+
+
+def _relative_to_cwd(path: Path) -> Path:
+    try:
+        return path.resolve().relative_to(Path.cwd().resolve())
+    except ValueError:
+        return path
 
 
 def _default_exposure_bucket(sector_33: str) -> str:
@@ -1381,6 +1403,17 @@ def extract_edinet_metrics_command(
                 period_start=candidate.period_start,
                 period_end=candidate.period_end,
             )
+        except EDINETRateLimitError as exc:
+            message = f"EDINET CSV download rate limited: {type(exc).__name__}: {exc}"
+            store_edinet_metrics(
+                sqlite_path,
+                asof_date,
+                [],
+                status="failed",
+                error=message,
+            )
+            print(message, file=sys.stderr)
+            return 1
         except (EDINETProviderError, OSError, ValueError) as exc:
             hard_failure_count += 1
             error_text = str(exc).replace("\n", " ").replace("\r", " ")[:160]

@@ -84,7 +84,7 @@ Long-lived context は main lifecycle には含めません。Slow-moving contex
 - `records/_ledger/` は research decision と tracking event を append-only に記録する正本です。Candidate は screen fact、trades は execution record、reviews は attribution record として分けます。
 - `research` は investment memo です。Evidence count だけでなく、entry、target、stop、expected upside / downside、risk/reward、time horizon、invalidation conditions を検証します。
 - `trades` は execution record です。実際に order / entry した採用判断を扱い、発注しなかった採用・見送り・保留を trade と呼びません。
-- `reviews` は outcome attribution / feedback layer です。Absolute return だけでなく relative return、missed opportunity、screening false negative、evidence hit outcome、macro regime gate attribution、sizing attribution、execution attribution、playbook feedback を扱います。
+- `reviews` は outcome attribution / feedback layer です。Absolute return だけでなく relative return、missed opportunity、evidence hit outcome、macro regime gate attribution、sizing attribution、execution attribution、playbook feedback を扱います。
 
 ## Evidence Taxonomy
 
@@ -100,6 +100,6 @@ Candidate-level / investment memo の evidence hit では、原則として `fun
 
 Review / retro は勝敗の件数集計ではありません。Outcome を playbook、evidence family、macro regime gate、sizing、execution に帰属させ、次の screening と investment memo を改善する feedback loop です。
 
-見送り、保留、採用したが発注しなかった候補も、missed opportunity として追跡対象になります。Screening が拾わなかった no-hit / rank-out candidates も、後から relative return が大きければ screening false negative として review queue に載せます。
+見送り、保留、採用したが発注しなかった候補も、missed opportunity として追跡対象になります。Screening が拾わなかった銘柄の網羅監査は current lifecycle から外し、必要になった時点で別 issue / PR として再導入します。
 
 この feedback loop が、schema / docs の変更を business value に接続する中心です。

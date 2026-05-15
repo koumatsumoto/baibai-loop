@@ -25,6 +25,8 @@ _REMOVED_ROOT_FIELDS = frozenset(
         "screening_rules_snapshot",
         "metric_catalog_snapshot",
         "_".join(("policy", "snapshot")),
+        "_".join(("portfolio", "exposure", "ref")),
+        "_".join(("portfolio", "exposure", "snapshot", "ref")),
         "cache_manifest_hash",
         "_".join(("universe", "snapshot", "ref")),
         "content_" + "sha256",
@@ -35,7 +37,8 @@ _REMOVED_REFERENCE_FIELDS = frozenset(
     {
         "playbook_snapshot",
         "_".join(("policy", "snapshot")),
-        "portfolio_exposure_snapshot_ref",
+        "_".join(("portfolio", "exposure", "ref")),
+        "_".join(("portfolio", "exposure", "snapshot", "ref")),
         "calendars_snapshot",
         "universe_snapshot_ref",
         "input_snapshots",

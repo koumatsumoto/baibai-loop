@@ -29,6 +29,10 @@ class EDINETProviderError(RuntimeError):
     """Raised when EDINET access or normalization fails."""
 
 
+class EDINETRateLimitError(EDINETProviderError):
+    """Raised when EDINET asks the whole extraction run to back off."""
+
+
 TARGET_DOC_TYPE_CODES = frozenset({"120", "130", "140", "150", "160", "170"})
 CORRECTION_DOC_TYPE_CODES = frozenset({"130", "150", "170"})
 _DOCUMENT_DESCRIPTION_PERIOD_RE = re.compile(
@@ -208,9 +212,14 @@ class EDINETProvider:
             content = self._request_bytes(url)
             if _is_zip_bytes(content):
                 break
-            if _non_zip_response_status(content) == "429" and attempt < max_attempts - 1:
-                time.sleep(3 * (2**attempt))
-                continue
+            if _non_zip_response_status(content) == "429":
+                if attempt < max_attempts - 1:
+                    time.sleep(3 * (2**attempt))
+                    continue
+                raise EDINETRateLimitError(
+                    "EDINET CSV ZIP response was rate limited: "
+                    f"{_non_zip_response_message(content)}"
+                )
             raise EDINETProviderError(
                 f"EDINET CSV ZIP response was not a zip: {_non_zip_response_message(content)}"
             )
@@ -252,6 +261,8 @@ class EDINETProvider:
                 if not isinstance(payload, dict):
                     raise EDINETProviderError("EDINET response JSON must be an object")
                 return payload
+            if response.status_code == 429 and attempt >= max_attempts - 1:
+                raise EDINETRateLimitError("EDINET request rate limited after retries")
             if response.status_code not in {429, 500, 502, 503, 504}:
                 raise EDINETProviderError(
                     f"EDINET request failed with status {response.status_code}"
@@ -273,6 +284,8 @@ class EDINETProvider:
                 ) from None
             if response.status_code < 400:
                 return bytes(response.content)
+            if response.status_code == 429 and attempt >= max_attempts - 1:
+                raise EDINETRateLimitError("EDINET request rate limited after retries")
             if response.status_code not in {429, 500, 502, 503, 504}:
                 raise EDINETProviderError(
                     f"EDINET request failed with status {response.status_code}"

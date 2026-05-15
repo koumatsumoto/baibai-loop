@@ -185,7 +185,7 @@ def _render_retro(
         "| --- | ---: |",
         *_class_rows(front["success_class_counts"]),
         "",
-        "## Missed opportunity / screening false negative tracking の分析",
+        "## Missed opportunity tracking の分析",
         "",
         _missing_price_summary(front["price_missing_counts"]),
         "",

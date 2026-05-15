@@ -48,6 +48,7 @@ _REMOVED_FRONT_MATTER_FIELDS: tuple[str, ...] = (
     "_".join(("adv", "participation", "pct")),
     "_".join(("playbook", "snapshot")),
     "_".join(("policy", "snapshot")),
+    "_".join(("portfolio", "exposure", "ref")),
     "_".join(("portfolio", "exposure", "snapshot", "ref")),
     "_".join(("calendars", "snapshot")),
     "candidates_ref",
@@ -56,7 +57,8 @@ _REMOVED_HASH_FIELDS = {"content_" + "sha256", "row_" + "sha256"}
 _REMOVED_REFERENCE_FIELDS = {
     "playbook_snapshot",
     "_".join(("policy", "snapshot")),
-    "portfolio_exposure_snapshot_ref",
+    "_".join(("portfolio", "exposure", "ref")),
+    "_".join(("portfolio", "exposure", "snapshot", "ref")),
     "calendars_snapshot",
     "universe_snapshot_ref",
     "input_snapshots",

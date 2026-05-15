@@ -19,6 +19,7 @@ if str(SRC) not in sys.path:
 from baibai_loop.screening.providers.edinet import (
     EDINETProvider,
     EDINETProviderError,
+    EDINETRateLimitError,
     normalize_metric_record,
     parse_csv_zip_metric_record,
     parse_doc_id,
@@ -286,6 +287,29 @@ class ScreeningProviderTests(unittest.TestCase):
 
             self.assertEqual(content, expected)
             self.assertEqual((cache / "edinet/csv_zips/S100TEST.zip").read_bytes(), expected)
+
+    def test_download_csv_zip_raises_rate_limit_after_json_retries_without_caching_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp)
+            provider = EDINETProvider(
+                "key",
+                cache,
+                session=_SequenceBytesSession(
+                    [
+                        b'{"StatusCode":"429","message":"Too Many Requests"}',
+                        b'{"StatusCode":"429","message":"Too Many Requests"}',
+                        b'{"StatusCode":"429","message":"Too Many Requests"}',
+                    ]
+                ),
+            )
+
+            with (
+                patch("baibai_loop.screening.providers.edinet.time.sleep"),
+                self.assertRaisesRegex(EDINETRateLimitError, "rate limited"),
+            ):
+                provider.download_csv_zip("S100TEST")
+
+            self.assertFalse((cache / "edinet/csv_zips/S100TEST.zip").exists())
 
     def test_select_document_candidates_prefers_new_period_over_old_correction(self) -> None:
         selected = select_document_candidates(

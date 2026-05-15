@@ -31,6 +31,8 @@ JPX 規制情報（特別注意 / 整理 / 取引停止 / 上場廃止警告）�
 
 `bootstrap-cache` / `extract-edinet-metrics` / `run` は、長時間止まって見えないようにデータソース別の進捗を stdout に出します。`run` の exit code `2` は YAML 生成後の partial warning であり、stdout の `screening run partial warning reasons` を見て EDINET TTM 近似や YoY 欠損の量を確認します。
 
+`--output-path .cache/...` のような scratch 出力では、対応する universe snapshot も出力先の隣に置き、canonical `records/_universe-snapshots/` を汚しません。正式な candidates を残すときだけ `records/04-candidates/` に出力します。
+
 
 ## Select research candidates
 
