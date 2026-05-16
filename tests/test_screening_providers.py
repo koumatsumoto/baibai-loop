@@ -19,6 +19,7 @@ if str(SRC) not in sys.path:
 from baibai_loop.screening.providers.edinet import (
     EDINETProvider,
     EDINETProviderError,
+    EDINETRateLimitError,
     normalize_metric_record,
     parse_csv_zip_metric_record,
     parse_doc_id,
@@ -52,6 +53,23 @@ class _FixedHtmlSession:
                 self.headers = {"content-type": "text/html; charset=UTF-8"}
 
         return _Response(self._content)
+
+
+class _SequenceBytesSession:
+    def __init__(self, contents: list[bytes]) -> None:
+        self._contents = contents
+
+    def get(self, url: str, timeout: int):
+        del url, timeout
+        content = self._contents.pop(0)
+
+        class _Response:
+            def __init__(self, payload: bytes) -> None:
+                self.content = payload
+                self.status_code = 200
+                self.headers = {"content-type": "application/octet-stream"}
+
+        return _Response(content)
 
 
 def _edinet_csv_zip(rows: list[tuple[str, str, str]]) -> bytes:
@@ -180,6 +198,34 @@ class ScreeningProviderTests(unittest.TestCase):
                 ]
             )
 
+    def test_select_document_candidates_skips_missing_sec_code(self) -> None:
+        selected = select_document_candidates(
+            [
+                {
+                    "docID": "S100A",
+                    "secCode": None,
+                    "docTypeCode": "120",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                },
+                {
+                    "docID": "S100B",
+                    "secCode": "72030",
+                    "docTypeCode": "120",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                    "legalStatus": "1",
+                    "disclosureStatus": "0",
+                    "withdrawalStatus": "0",
+                },
+            ]
+        )
+
+        self.assertEqual(tuple(selected), ("7203",))
+
     def test_parse_doc_id_rejects_path_traversal(self) -> None:
         with self.assertRaisesRegex(EDINETProviderError, "invalid EDINET docID"):
             parse_doc_id("../../etc/passwd")
@@ -202,6 +248,68 @@ class ScreeningProviderTests(unittest.TestCase):
 
             with self.assertRaisesRegex(EDINETProviderError, "invalid EDINET docID"):
                 provider.download_csv_zip("../../etc/passwd")
+
+    def test_download_csv_zip_discards_cached_non_zip_and_refetches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp)
+            cached = cache / "edinet/csv_zips/S100TEST.zip"
+            cached.parent.mkdir(parents=True)
+            cached.write_text('{"StatusCode":"429","message":"Too Many Requests"}')
+            expected = _edinet_csv_zip(
+                [("jpcrp_cor:NetSales", "CurrentYearDuration_ConsolidatedMember", "1000")]
+            )
+            provider = EDINETProvider("key", cache, session=_SequenceBytesSession([expected]))
+
+            content = provider.download_csv_zip("S100TEST")
+
+            self.assertEqual(content, expected)
+            self.assertEqual(cached.read_bytes(), expected)
+
+    def test_download_csv_zip_retries_json_rate_limit_without_caching_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp)
+            expected = _edinet_csv_zip(
+                [("jpcrp_cor:NetSales", "CurrentYearDuration_ConsolidatedMember", "1000")]
+            )
+            provider = EDINETProvider(
+                "key",
+                cache,
+                session=_SequenceBytesSession(
+                    [
+                        b'{"StatusCode":"429","message":"Too Many Requests"}',
+                        expected,
+                    ]
+                ),
+            )
+
+            with patch("baibai_loop.screening.providers.edinet.time.sleep"):
+                content = provider.download_csv_zip("S100TEST")
+
+            self.assertEqual(content, expected)
+            self.assertEqual((cache / "edinet/csv_zips/S100TEST.zip").read_bytes(), expected)
+
+    def test_download_csv_zip_raises_rate_limit_after_json_retries_without_caching_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp)
+            provider = EDINETProvider(
+                "key",
+                cache,
+                session=_SequenceBytesSession(
+                    [
+                        b'{"StatusCode":"429","message":"Too Many Requests"}',
+                        b'{"StatusCode":"429","message":"Too Many Requests"}',
+                        b'{"StatusCode":"429","message":"Too Many Requests"}',
+                    ]
+                ),
+            )
+
+            with (
+                patch("baibai_loop.screening.providers.edinet.time.sleep"),
+                self.assertRaisesRegex(EDINETRateLimitError, "rate limited"),
+            ):
+                provider.download_csv_zip("S100TEST")
+
+            self.assertFalse((cache / "edinet/csv_zips/S100TEST.zip").exists())
 
     def test_select_document_candidates_prefers_new_period_over_old_correction(self) -> None:
         selected = select_document_candidates(

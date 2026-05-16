@@ -359,6 +359,33 @@ class SQLiteCoverageTests(unittest.TestCase):
                 )
             )
 
+    def test_daily_bar_rows_outside_required_window_do_not_report_global_count_issue(
+        self,
+    ) -> None:
+        asof = date(2026, 5, 8)
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            _populate_complete_coverage(conn, asof)
+            conn.execute(
+                "INSERT INTO jquants_daily_bars(ticker, traded_at, close, turnover_value) "
+                "VALUES (?, ?, ?, ?)",
+                ("1301", (asof + timedelta(days=1)).isoformat(), 1000.0, 200_000_000.0),
+            )
+            conn.commit()
+            conn.close()
+
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
+
+            self.assertFalse(
+                any(
+                    issue.source == "jquants_daily_bars"
+                    and "row count" in issue.reason
+                    and "source_coverage record_count" in issue.reason
+                    for issue in issues
+                )
+            )
+
     def test_daily_bar_required_window_count_mismatch_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
         with tempfile.TemporaryDirectory() as tmp:

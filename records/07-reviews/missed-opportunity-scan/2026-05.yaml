@@ -1,9 +1,0 @@
-scan_id: missed-opportunity-2026-05
-scan_month: 2026-05
-market_data_ref:
-  ref_path: records/_market-data/2026/05/2026-05-01-close.yaml
-items: []
-thresholds:
-  forward_return_pct: 20.0
-  forward_max_drawup_pct: 30.0
-  primary_relative_return_pct: 5.0

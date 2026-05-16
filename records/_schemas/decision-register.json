@@ -16,14 +16,10 @@
   "properties": {
     "decision_event_id": {"type": "string", "minLength": 1},
     "event_kind": {"enum": ["decision", "correction"]},
-    "decision_scope": {"enum": ["candidate_screen", "research_memo", "trade_execution"]},
+    "decision_scope": {"enum": ["research_memo", "trade_execution"]},
     "provenance": {"enum": ["regenerated", "manual"]},
     "tracking": {"type": "object"},
     "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
-    "candidate_decision": {
-      "enum": ["selected", "deferred", "rejected", "not_reviewed", null]
-    },
-    "not_reviewed_reason": {"type": ["string", "null"], "minLength": 1},
     "research_decision": {"type": ["object", "null"]},
     "trade_execution_state": {
       "enum": ["none", "submitted", "broker_rejected", "cancelled", "expired", "not_filled", "partially_filled", "filled"]

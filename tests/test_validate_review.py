@@ -120,7 +120,7 @@ def test_review_template_is_skipped(tmp_path: Path) -> None:
 
 
 def test_yaml_review_scans_are_discovered(tmp_path: Path) -> None:
-    reviews = tmp_path / "records/07-reviews/screening-false-negative-scan"
+    reviews = tmp_path / "records/07-reviews/playbook-attribution"
     reviews.mkdir(parents=True)
     scan = reviews / "2026-05.yaml"
     scan.write_text("items: []\n", encoding="utf-8")
@@ -128,77 +128,12 @@ def test_yaml_review_scans_are_discovered(tmp_path: Path) -> None:
     assert discover_review_files(tmp_path / "records/07-reviews") == [scan]
 
 
-def test_false_negative_scan_requires_run_close_start_basis(tmp_path: Path) -> None:
+def test_review_scan_rejects_invalid_market_data_ref(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
-    register = tmp_path / "records/_ledger/research-decisions/2026-05.jsonl"
-    register.parent.mkdir(parents=True)
-    register.write_text('{"decision_event_id":"decision-1"}\n', encoding="utf-8")
-    scan = tmp_path / "records/07-reviews/screening-false-negative-scan/2026-05.yaml"
+    scan = tmp_path / "records/07-reviews/playbook-attribution/2026-05.yaml"
     scan.parent.mkdir(parents=True)
     scan.write_text(
-        "scan_id: scan-1\n"
-        "start_price_basis: flagged_at_close\n"
-        "items:\n"
-        "- decision_event_id: decision-1\n"
-        "  start_price_basis: flagged_at_close\n",
-        encoding="utf-8",
-    )
-
-    codes = {finding.code for finding in validate_review_file(scan)}
-
-    assert "review-scan.start-price-basis" in codes
-    assert "review-scan.item-start-price-basis" in codes
-
-
-def test_false_negative_scan_requires_decision_anchor(tmp_path: Path) -> None:
-    (tmp_path / "src").mkdir()
-    scan = tmp_path / "records/07-reviews/screening-false-negative-scan/2026-05.yaml"
-    scan.parent.mkdir(parents=True)
-    scan.write_text(
-        "scan_id: scan-1\n"
-        "start_price_basis: candidate_run_close_adjusted_close\n"
-        "items:\n"
-        "- decision_event_id: missing-decision\n"
-        "  start_price_basis: candidate_run_close_adjusted_close\n",
-        encoding="utf-8",
-    )
-
-    codes = {finding.code for finding in validate_review_file(scan)}
-
-    assert "review-scan.decision-event-missing" in codes
-
-
-def test_false_negative_scan_reports_invalid_decision_register(tmp_path: Path) -> None:
-    (tmp_path / "src").mkdir()
-    register = tmp_path / "records/_ledger/research-decisions/2026-05.jsonl"
-    register.parent.mkdir(parents=True)
-    register.write_text("{broken\n", encoding="utf-8")
-    scan = tmp_path / "records/07-reviews/screening-false-negative-scan/2026-05.yaml"
-    scan.parent.mkdir(parents=True)
-    scan.write_text(
-        "scan_id: scan-1\n"
-        "start_price_basis: candidate_run_close_adjusted_close\n"
-        "items:\n"
-        "- decision_event_id: decision-1\n"
-        "  start_price_basis: candidate_run_close_adjusted_close\n",
-        encoding="utf-8",
-    )
-
-    codes = {finding.code for finding in validate_review_file(scan)}
-
-    assert "review-scan.decision-register-parse" in codes
-
-
-def test_false_negative_scan_rejects_invalid_market_data_ref(tmp_path: Path) -> None:
-    (tmp_path / "src").mkdir()
-    scan = tmp_path / "records/07-reviews/screening-false-negative-scan/2026-05.yaml"
-    scan.parent.mkdir(parents=True)
-    scan.write_text(
-        "scan_id: scan-1\n"
-        "start_price_basis: candidate_run_close_adjusted_close\n"
-        "market_data_ref:\n"
-        "  ref_path: /tmp/market-data.yaml\n"
-        "items: []\n",
+        "scan_id: scan-1\nmarket_data_ref:\n  ref_path: /tmp/market-data.yaml\nitems: []\n",
         encoding="utf-8",
     )
 
@@ -207,16 +142,15 @@ def test_false_negative_scan_rejects_invalid_market_data_ref(tmp_path: Path) -> 
     assert "review-scan.repository-ref" in codes
 
 
-def test_false_negative_scan_rejects_wrong_universe_ref_target(tmp_path: Path) -> None:
+def test_review_scan_rejects_wrong_universe_ref_target(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
-    scan = tmp_path / "records/07-reviews/screening-false-negative-scan/2026-05.yaml"
+    scan = tmp_path / "records/07-reviews/playbook-attribution/2026-05.yaml"
     scan.parent.mkdir(parents=True)
     wrong_ref = tmp_path / "records/_market-data/2026-05.yaml"
     wrong_ref.parent.mkdir(parents=True)
     wrong_ref.write_text("items: []\n", encoding="utf-8")
     scan.write_text(
         "scan_id: scan-1\n"
-        "start_price_basis: candidate_run_close_adjusted_close\n"
         "universe_ref:\n"
         "  ref_path: records/_market-data/2026-05.yaml\n"
         "items: []\n",
@@ -255,7 +189,7 @@ price_missing_counts:
 ## Trade 集計
 ## 失敗分類の集計
 ## 成功分類の集計
-## Missed opportunity / screening false negative tracking の分析
+## Missed opportunity tracking の分析
 ## Macro regime gate 判定精度
 ## Playbook 改訂判断
 ## 次周回の運用変更点

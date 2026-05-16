@@ -1,11 +1,11 @@
 # Ledger
 
-`records/_ledger/` は候補選定、investment memo、execution intent を append-only に正規化する decision register である。Candidates は screen fact を保持し、ledger は判断イベントと tracking state を保持する。
+`records/_ledger/` は investment memo、execution intent を append-only に正規化する decision register である。Candidates は screen fact を保持し、ledger は判断イベントと tracking state を保持する。
 
 ## 1. 役割
 
 - `records/05-research/**/*.md` の `research_decision` を decision event として正規化する
-- selected / deferred / rejected / not_reviewed の candidate-level event を追跡する
+- approved / deferred / rejected の research decision event を追跡する
 - approved-but-not-submitted、submitted、filled、broker rejected などの execution state を trade lineage と接続する
 - `baseline_price` と tracking horizon を market data file から更新する
 - correction は既存行の書き換えではなく `event_kind: correction` の追加 event で表す
@@ -21,13 +21,11 @@ JSONL は 1 行 1 event。current state は同じ `decision_event_id` / correcti
 
 - `decision_event_id`: decision event の安定 ID
 - `event_kind`: `decision | correction`
-- `decision_scope`: `candidate_screen | research_memo | trade_execution`
+- `decision_scope`: `research_memo | trade_execution`
 - `ticker`
 - `candidate_ref`
 - `research_ref`
 - `trade_ref`
-- `candidate_decision`: `selected | deferred | rejected | not_reviewed | null`
-- `not_reviewed_reason`: `candidate_decision: not_reviewed` の理由。代表値は `review_capacity`、`screening_no_hit_anchor`、`screening_false_negative`。screening false-negative scan 由来では `classification` の値を保持する。
 - `research_decision`: `{outcome, posture, reason...}`
 - `trade_execution_state`: `none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled`
 - `playbook_id` / `playbook_ref`

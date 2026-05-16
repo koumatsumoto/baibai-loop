@@ -34,7 +34,11 @@ from baibai_loop.screening.cli import (
     select_sweep_command,
 )
 from baibai_loop.screening.config import ScreeningConfig
-from baibai_loop.screening.providers.edinet import EdinetMetricRecord, EDINETProviderError
+from baibai_loop.screening.providers.edinet import (
+    EdinetMetricRecord,
+    EDINETProviderError,
+    EDINETRateLimitError,
+)
 from baibai_loop.screening.providers.jpx import JPXProviderError, JPXRegulationSnapshot
 from baibai_loop.screening.providers.jquants import (
     JQuantsDailyBar,
@@ -255,13 +259,17 @@ class ScreeningCliTests(unittest.TestCase):
                     edinet=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
                 )
-                exit_code = run_command(
-                    date(2026, 4, 24),
-                    config,
-                    providers,
-                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
-                )
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    exit_code = run_command(
+                        date(2026, 4, 24),
+                        config,
+                        providers,
+                        now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    )
                 self.assertEqual(exit_code, 2)
+                self.assertIn("screening run done: status=partial warning", stdout.getvalue())
+                self.assertIn("screening run partial warning reasons:", stdout.getvalue())
                 output_path = build_output_path(date(2026, 4, 24))
                 self.assertTrue(output_path.exists())
                 rendered = output_path.read_text(encoding="utf-8")
@@ -309,7 +317,7 @@ class ScreeningCliTests(unittest.TestCase):
                     edinet=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
                 )
-                output_path = Path("records/_benchmarks/e2e/candidates.yaml")
+                output_path = Path("records/04-candidates/e2e/candidates.yaml")
                 exit_code = run_command(
                     date(2026, 4, 24),
                     config,
@@ -336,6 +344,39 @@ class ScreeningCliTests(unittest.TestCase):
                     force=True,
                 )
                 self.assertEqual(overwritten, 2)
+            finally:
+                os.chdir(cwd)
+
+    def test_run_command_keeps_scratch_output_snapshots_next_to_output_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = Path.cwd()
+            try:
+                os_path = Path(tmpdir)
+                import os
+
+                os.chdir(os_path)
+                config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
+                providers = ProviderBundle(
+                    jquants=FakeJQuantsProvider(),
+                    edinet=FakeEDINETProvider(),
+                    jpx=FakeJPXProvider(),
+                )
+                output_path = (Path.cwd() / ".cache/simplify/candidates.yaml").resolve()
+
+                exit_code = run_command(
+                    date(2026, 4, 24),
+                    config,
+                    providers,
+                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    output_path=output_path,
+                )
+
+                self.assertEqual(exit_code, 2)
+                payload = yaml.safe_load(output_path.read_text(encoding="utf-8"))
+                universe_ref = payload["universe_ref"]["ref_path"]
+                self.assertTrue(universe_ref.startswith(".cache/simplify/_universe-snapshots/"))
+                self.assertTrue(Path(universe_ref).exists())
+                self.assertFalse(Path("records/_universe-snapshots").exists())
             finally:
                 os.chdir(cwd)
 
@@ -503,6 +544,57 @@ class ScreeningCliTests(unittest.TestCase):
                     "Disclosure title scan 未対応 record/layout: 1 件",
                     payload["fallback_lines"],
                 )
+            finally:
+                os.chdir(cwd)
+
+    def test_run_command_prints_notices_for_non_partial_fallback_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = Path.cwd()
+            try:
+                os_path = Path(tmpdir)
+                import os
+
+                os.chdir(os_path)
+                cache_dir = Path(".cache/screening")
+                disclosure_dir = cache_dir / "disclosures"
+                disclosure_dir.mkdir(parents=True)
+                (disclosure_dir / "mixed.json").write_text(
+                    json.dumps({"events": [{"Code": "130A0", "Date": "2026-03-03"}]}),
+                    encoding="utf-8",
+                )
+                config = ScreeningConfig("token", "key", cache_dir=cache_dir)
+                providers = ProviderBundle(
+                    jquants=FakeJQuantsProvider(),
+                    edinet=_FreshnessWarningEDINETProvider(),
+                    jpx=FakeJPXProvider(),
+                )
+                rules = screening_cli.load_screening_rules(config.rules_path)
+                rules = rules.model_copy(
+                    update={
+                        "quality": rules.quality.model_copy(
+                            update={
+                                "partial_warning_ttm_count": 999,
+                                "partial_warning_ttm_ratio": 999.0,
+                                "partial_warning_yoy_missing_ratio": 999.0,
+                            }
+                        )
+                    }
+                )
+                stdout = io.StringIO()
+
+                exit_code = run_command(
+                    date(2026, 4, 24),
+                    config,
+                    providers,
+                    now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    stdout=stdout,
+                    rules=rules,
+                )
+
+                self.assertEqual(exit_code, 0)
+                output = stdout.getvalue()
+                self.assertIn("screening run notices:", output)
+                self.assertNotIn("screening run partial warning reasons:", output)
             finally:
                 os.chdir(cwd)
 
@@ -695,13 +787,18 @@ class ScreeningCliTests(unittest.TestCase):
         jquants = FakeJQuantsProvider()
         edinet = FakeEDINETProvider()
         jpx = FakeJPXProvider()
+        buffer = io.StringIO()
 
         exit_code = bootstrap_cache_command(
             asof_date=asof,
             providers=ProviderBundle(jquants=jquants, edinet=edinet, jpx=jpx),
+            stdout=buffer,
         )
 
         self.assertEqual(exit_code, 0)
+        self.assertIn("bootstrap-cache jquants daily_bars", buffer.getvalue())
+        self.assertIn("bootstrap-cache edinet documents", buffer.getvalue())
+        self.assertIn("bootstrap-cache done", buffer.getvalue())
         self.assertIn(("get_eq_master", None, None), jquants.calls)
         self.assertIn(("get_eq_bars_daily_range", asof - timedelta(days=1200), asof), jquants.calls)
         self.assertIn(("get_fin_summary_range", asof - timedelta(days=730), asof), jquants.calls)
@@ -892,6 +989,57 @@ class ScreeningCliTests(unittest.TestCase):
             )
             self.assertEqual(row[0], "failed")
             self.assertIn("EDINET document selection failed", row[1])
+
+    def test_extract_edinet_metrics_command_fails_closed_on_csv_rate_limit(self) -> None:
+        class RateLimitedZipProvider(FakeEDINETProvider):
+            def download_csv_zip(self, doc_id: str) -> bytes:
+                del doc_id
+                raise EDINETRateLimitError("too many requests")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            asof = date(2026, 4, 24)
+            store_edinet_metrics(
+                sqlite_path,
+                asof,
+                [{"ticker": "9682", "sales_ttm": 1_000.0}],
+                status="ok",
+            )
+            provider = RateLimitedZipProvider(
+                documents=[
+                    {
+                        "docID": "S100TEST",
+                        "secCode": "96820",
+                        "docTypeCode": "120",
+                        "csvFlag": "1",
+                        "xbrlFlag": "1",
+                    }
+                ]
+            )
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = extract_edinet_metrics_command(
+                    asof_date=asof,
+                    lookback_days=0,
+                    provider=provider,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("EDINET CSV download rate limited", stderr.getvalue())
+            self.assertIsNone(read_edinet_metrics(sqlite_path, asof))
+            row = (
+                sqlite3.connect(sqlite_path)
+                .execute(
+                    "SELECT status, error FROM source_coverage WHERE source = ? "
+                    "AND coverage_key = ?",
+                    ("edinet_metrics", asof.isoformat()),
+                )
+                .fetchone()
+            )
+            self.assertEqual(row[0], "failed")
+            self.assertIn("EDINET CSV download rate limited", row[1])
 
 
 class IndexNextEarningsTests(unittest.TestCase):
@@ -1091,7 +1239,7 @@ class SelectCommandTests(unittest.TestCase):
                     }
                 ],
             )
-            custom = root / "records/_benchmarks/e2e/custom-candidates.yaml"
+            custom = root / "records/04-candidates/e2e/custom-candidates.yaml"
             custom.parent.mkdir(parents=True)
             custom.write_text(canonical.read_text(encoding="utf-8"), encoding="utf-8")
             canonical.unlink()
@@ -1111,7 +1259,7 @@ class SelectCommandTests(unittest.TestCase):
             payload = yaml.safe_load(buffer.getvalue())
             self.assertEqual(
                 payload["candidates_ref"],
-                "records/_benchmarks/e2e/custom-candidates.yaml",
+                "records/04-candidates/e2e/custom-candidates.yaml",
             )
             self.assertEqual([item["ticker"] for item in self._recommended(payload)], ["1111"])
 

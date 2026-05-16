@@ -199,9 +199,6 @@ def _make_research_text() -> str:
                     "ref_path": "records/_calendars/corporate-actions/2026-05.yaml",
                 },
             },
-            "portfolio_exposure_ref": {
-                "ref_path": "records/_portfolio-exposure/2026/05/2026-05-05T133000+0900.yaml",
-            },
             "research_decision": {"outcome": "approved", "posture": "act_now"},
             "candidate_ref": {
                 "candidates_ref": "records/04-candidates/2026/04/2026-04-24.yaml",
@@ -315,7 +312,6 @@ def _seed_repo(root: Path, *, candidates_overrides: dict[str, object] | None = N
         root / "records/_calendars/business-days",
         root / "records/_calendars/events",
         root / "records/_calendars/corporate-actions",
-        root / "records/_portfolio-exposure/2026/05",
     )
     for directory in (
         brief_dir,
@@ -368,11 +364,6 @@ def _seed_repo(root: Path, *, candidates_overrides: dict[str, object] | None = N
     (root / "records/_calendars/corporate-actions/2026-05.yaml").write_text(
         "events: []\n", encoding="utf-8"
     )
-    exposure_source = ROOT / "records/_portfolio-exposure/2026/05/2026-05-05T133000+0900.yaml"
-    (root / "records/_portfolio-exposure/2026/05/2026-05-05T133000+0900.yaml").write_text(
-        exposure_source.read_text(encoding="utf-8"), encoding="utf-8"
-    )
-
     playbook_schema_dir = playbooks_dir / "valuation-reversion"
     playbook_schema_dir.mkdir(parents=True, exist_ok=True)
     schema_source = ROOT / "records/_playbooks" / "valuation-reversion" / "body-schema.yaml"

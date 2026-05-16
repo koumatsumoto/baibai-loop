@@ -23,12 +23,10 @@ def _trade_front(**overrides: object) -> dict[str, object]:
     front: dict[str, object] = {
         "trade_id": "trade-20260505-9682",
         "ticker": "9682",
+        "playbook_id": "sales-discount-growth",
         "research_ref": "records/05-research/2026/05/2026-05-05-9682-sales-discount-growth.md",
         "policy_ref": _snapshot(
             "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"
-        ),
-        "portfolio_exposure_ref": _snapshot(
-            "records/_portfolio-exposure/2026/05/2026-05-05T200000+0900.yaml"
         ),
         "policy_applicability": "active",
         "calendar_refs": _calendar_snapshots(),
@@ -140,12 +138,6 @@ def _write_test_repo_sources(root: Path) -> None:
         "records/_calendars/business-days/2026-05.yaml": {"business_days": ["2026-05-05"]},
         "records/_calendars/events/2026-05.yaml": {"events": []},
         "records/_calendars/corporate-actions/2026-05.yaml": {"events": []},
-        "records/_portfolio-exposure/2026/05/2026-05-05T200000+0900.yaml": {
-            "as_of": "2026-05-05T20:00:00+09:00",
-            "remaining_tactical_budget_yen": 1000000,
-            "source_trade_refs": [],
-            "source_decision_register_refs": [],
-        },
     }.items():
         source_path = root / rel_path
         source_path.parent.mkdir(parents=True, exist_ok=True)
@@ -162,6 +154,7 @@ def _write_test_repo_sources(root: Path) -> None:
             "research_decision:\n"
             "  outcome: approved\n"
             "  posture: act_now\n"
+            "sector_33: 情報・通信業\n"
             "thesis_payoff:\n"
             "  max_entry_price_yen: 1050\n"
             "position_sizing_overlay:\n"
@@ -194,6 +187,13 @@ def test_missing_required_field_is_flagged(tmp_path: Path) -> None:
 
 def test_removed_legacy_field_is_flagged(tmp_path: Path) -> None:
     front = _trade_front(status="open")
+    path = _write_trade(tmp_path, front)
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.removed-field" in codes
+
+
+def test_portfolio_exposure_ref_is_flagged_as_removed(tmp_path: Path) -> None:
+    front = _trade_front(**{"_".join(("portfolio", "exposure", "ref")): {"ref_path": "x"}})
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_trade_file(path)}
     assert "trade.removed-field" in codes
@@ -443,6 +443,71 @@ def test_submitted_trade_requires_valid_research_ref_for_order_intent(tmp_path: 
 
     assert "trade.intent-source" in codes
     assert "trade.research-ref-load" in codes
+
+
+def test_open_trades_must_stay_within_portfolio_concentration_caps(tmp_path: Path) -> None:
+    root = _test_repo_root(tmp_path)
+    policy_path = root / "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"
+    policy_path.parent.mkdir(parents=True, exist_ok=True)
+    policy_path.write_text(
+        "---\n"
+        "capital_basis:\n"
+        "  real_capital_yen: 5000000\n"
+        "  tactical_real_budget_yen: 100000\n"
+        "risk_budget:\n"
+        "  max_ticker_real_concentration_pct: 1.0\n"
+        "  max_sector_real_concentration_pct: 2.0\n"
+        "  max_playbook_real_concentration_pct: 1.0\n"
+        "order_constraints:\n"
+        "  board_lot: 100\n"
+        "unique_constraints:\n"
+        "- id: no-margin-trading\n"
+        "  validator_callable_id: no_margin_trading\n"
+        "---\n\n# Policy\n",
+        encoding="utf-8",
+    )
+    path = _write_trade(tmp_path, _trade_front())
+
+    codes = {finding.code for finding in validate_trade_file(path)}
+
+    assert "trade.portfolio-tactical-budget" in codes
+    assert "trade.portfolio-ticker-cap" in codes
+    assert "trade.portfolio-sector-cap" in codes
+    assert "trade.portfolio-playbook-cap" in codes
+
+
+def test_closed_trade_does_not_report_current_portfolio_concentration_caps(
+    tmp_path: Path,
+) -> None:
+    root = _test_repo_root(tmp_path)
+    policy_path = root / "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"
+    policy_path.parent.mkdir(parents=True, exist_ok=True)
+    policy_path.write_text(
+        "---\n"
+        "capital_basis:\n"
+        "  real_capital_yen: 5000000\n"
+        "  tactical_real_budget_yen: 100000\n"
+        "risk_budget:\n"
+        "  max_ticker_real_concentration_pct: 1.0\n"
+        "order_constraints:\n"
+        "  board_lot: 100\n"
+        "---\n\n# Policy\n",
+        encoding="utf-8",
+    )
+    path = _write_trade(
+        tmp_path,
+        _trade_front(
+            position_state="closed",
+            trade_execution_state="filled",
+            current_quantity=0,
+            review_state="closed",
+        ),
+    )
+
+    codes = {finding.code for finding in validate_trade_file(path)}
+
+    assert "trade.portfolio-tactical-budget" not in codes
+    assert "trade.portfolio-ticker-cap" not in codes
 
 
 def test_submitted_trade_requires_entry_legs(tmp_path: Path) -> None:

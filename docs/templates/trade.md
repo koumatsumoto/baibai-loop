@@ -13,8 +13,6 @@ calendar_refs:
     ref_path: records/_calendars/events/YYYY-MM.yaml
   corporate_actions:
     ref_path: records/_calendars/corporate-actions/YYYY-MM.yaml
-portfolio_exposure_ref:
-  ref_path: records/_portfolio-exposure/YYYY/MM/YYYY-MM-DDTHHMMSS+0900.yaml
 position_state: none | open | closed
 review_state: not_due | scheduled | completed
 trade_execution_state: none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled

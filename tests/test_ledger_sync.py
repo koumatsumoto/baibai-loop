@@ -145,7 +145,7 @@ def test_sync_ledger_writes_idempotent_decision_register(tmp_path: Path) -> None
     assert len(lines) == 1
     record = json.loads(lines[0])
     assert record["decision_event_id"] == "decision-20260425-2767-research"
-    assert record["candidate_decision"] == "selected"
+    assert "candidate_decision" not in record
     assert record["baseline_price"] == 1431.0
     assert record["market_cap_oku"] == 936.0
     assert record["avg_turnover_oku"] == 4.9
@@ -176,148 +176,6 @@ def test_sync_ledger_dry_run_reports_existing_decisions(tmp_path: Path) -> None:
     result = sync_ledger(tmp_path, dry_run=True)
     assert result.decision_count == 1
     assert result.diff_lines == ("+ decision-20260425-2767-research",)
-
-
-def test_sync_ledger_adds_not_reviewed_candidate_screen_events(tmp_path: Path) -> None:
-    candidates_dir = tmp_path / "records/04-candidates" / "2026" / "04"
-    candidates_dir.mkdir(parents=True)
-    (candidates_dir / "2026-04-24.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "run_id": "screening-20260424-test",
-                "asof_date": "2026-04-24",
-                "run_at": "2026-04-24T23:59:59+09:00",
-                "requires_decision_coverage": True,
-                "candidates": [
-                    {
-                        "ticker": "1111",
-                        "name": "Reviewable",
-                        "screen_run_id": "screening-20260424-test",
-                        "candidate_id": "candidate-2026-04-24-1111",
-                        "playbook_screen_result": "hit",
-                        "policy_gate_result": "pass",
-                        "liquidity_gate_result": "pass",
-                        "macro_regime_gate_result": "pass",
-                        "market_cap_oku": 120,
-                        "avg_turnover_oku": 1.5,
-                        "evidence_hits": [
-                            {
-                                "name": "strict-net-cash-discount",
-                                "source_status": "ok",
-                                "sizing_eligible": True,
-                            }
-                        ],
-                    },
-                    {
-                        "ticker": "2222",
-                        "name": "Hard excluded",
-                        "screen_run_id": "screening-20260424-test",
-                        "candidate_id": "candidate-2026-04-24-2222",
-                        "playbook_screen_result": "hit",
-                        "policy_gate_result": "excluded",
-                        "liquidity_gate_result": "pass",
-                        "macro_regime_gate_result": "pass",
-                    },
-                ],
-            },
-            allow_unicode=True,
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-
-    result = sync_ledger(tmp_path)
-
-    assert result.decision_count == 1
-    register_path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
-    rows = [json.loads(line) for line in register_path.read_text(encoding="utf-8").splitlines()]
-    assert len(rows) == 1
-    [record] = rows
-    assert record["decision_scope"] == "candidate_screen"
-    assert record["candidate_decision"] == "not_reviewed"
-    assert record["not_reviewed_reason"] == "review_capacity"
-    assert record["tracking"] == {
-        "mode": "missed_opportunity",
-        "plus_15bd": None,
-        "plus_30bd": None,
-    }
-    assert record["candidate_ref"] == {
-        "candidates_ref": "records/04-candidates/2026/04/2026-04-24.yaml",
-        "screen_run_id": "screening-20260424-test",
-        "ticker": "1111",
-        "candidate_id": "candidate-2026-04-24-1111",
-    }
-
-
-def test_sync_ledger_coverage_key_includes_screen_run_id(tmp_path: Path) -> None:
-    _seed(tmp_path)
-    research = tmp_path / "records/05-research/2026/04/2026-04-25-2767-valuation-reversion.md"
-    text = research.read_text(encoding="utf-8")
-    research.write_text(
-        text.replace("screen_run_id: screening-20260424", "screen_run_id: screening-other"),
-        encoding="utf-8",
-    )
-    candidates = tmp_path / "records/04-candidates/2026/04/2026-04-24.yaml"
-    document = yaml.safe_load(candidates.read_text(encoding="utf-8"))
-    document["run_id"] = "screening-20260424"
-    document["run_at"] = "2026-04-24T23:59:59+09:00"
-    document["requires_decision_coverage"] = True
-    row = document["candidates"][0]
-    row["playbook_screen_result"] = "hit"
-    row["policy_gate_result"] = "pass"
-    row["liquidity_gate_result"] = "pass"
-    row["macro_regime_gate_result"] = "pass"
-    candidates.write_text(yaml.safe_dump(document, allow_unicode=True, sort_keys=False))
-
-    result = sync_ledger(tmp_path)
-
-    assert result.decision_count == 2
-    register_path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
-    rows = [json.loads(line) for line in register_path.read_text(encoding="utf-8").splitlines()]
-    assert {row["decision_scope"] for row in rows} == {"research_memo", "candidate_screen"}
-
-
-def test_sync_ledger_adds_false_negative_scan_anchor_events(tmp_path: Path) -> None:
-    scan_dir = tmp_path / "records/07-reviews/screening-false-negative-scan"
-    scan_dir.mkdir(parents=True)
-    (scan_dir / "2026-04.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "scan_id": "screening-false-negative-2026-04",
-                "scan_month": "2026-04",
-                "start_price_basis": "candidate_run_close_adjusted_close",
-                "items": [
-                    {
-                        "scan_item_id": "screening-false-negative-2026-04-no-hit",
-                        "ticker": "9999",
-                        "decision_event_id": "decision-20260430-9999-no-hit-false-negative",
-                        "classification": "screening_no_hit_anchor",
-                        "flagged_at": "2026-04-30T00:00:00+09:00",
-                    }
-                ],
-            },
-            allow_unicode=True,
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-
-    result = sync_ledger(tmp_path)
-
-    assert result.decision_count == 1
-    assert result.diff_lines == ()
-    register_path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
-    rows = [json.loads(line) for line in register_path.read_text(encoding="utf-8").splitlines()]
-    [record] = rows
-    assert record["decision_event_id"] == "decision-20260430-9999-no-hit-false-negative"
-    assert record["decision_scope"] == "candidate_screen"
-    assert record["candidate_decision"] == "not_reviewed"
-    assert record["not_reviewed_reason"] == "screening_no_hit_anchor"
-    assert record["tracking"] == {
-        "mode": "missed_opportunity",
-        "plus_15bd": None,
-        "plus_30bd": None,
-    }
 
 
 def test_ledger_cli_warns_when_jquants_token_is_missing(tmp_path: Path) -> None:
@@ -380,7 +238,7 @@ def test_monthly_retro_draft_uses_decision_register_fallback(tmp_path: Path) -> 
     assert draft.path == tmp_path / "records/07-reviews" / "2026" / "retro-202604.md"
     assert "decision-register fallback" in draft.warnings[0]
     assert "price_missing_counts:" in draft.content
-    assert "## Missed opportunity / screening false negative tracking の分析" in draft.content
+    assert "## Missed opportunity tracking の分析" in draft.content
     draft.path.parent.mkdir(parents=True)
     draft.path.write_text(draft.content, encoding="utf-8")
     assert validate_review_file(draft.path) == []

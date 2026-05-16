@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import re
 import time
 import zipfile
@@ -26,6 +27,10 @@ _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False)
 
 class EDINETProviderError(RuntimeError):
     """Raised when EDINET access or normalization fails."""
+
+
+class EDINETRateLimitError(EDINETProviderError):
+    """Raised when EDINET asks the whole extraction run to back off."""
 
 
 TARGET_DOC_TYPE_CODES = frozenset({"120", "130", "140", "150", "160", "170"})
@@ -192,13 +197,32 @@ class EDINETProvider:
         safe_doc_id = parse_doc_id(doc_id)
         cache_path = self._zip_cache_dir / f"{safe_doc_id}.zip"
         if cache_path.exists():
-            return cache_path.read_bytes()
+            cached = cache_path.read_bytes()
+            if _is_zip_bytes(cached):
+                return cached
+            cache_path.unlink(missing_ok=True)
         self._raise_if_cache_only("edinet_csv_zip", safe_doc_id)
 
         api_key = self._require_api_key("download_csv_zip")
         query = urlencode({"type": 5, "Subscription-Key": api_key})
         url = f"{EDINET_API_BASE}/documents/{safe_doc_id}?{query}"
-        content = self._request_bytes(url)
+        max_attempts = 3
+        content = b""
+        for attempt in range(max_attempts):
+            content = self._request_bytes(url)
+            if _is_zip_bytes(content):
+                break
+            if _non_zip_response_status(content) == "429":
+                if attempt < max_attempts - 1:
+                    time.sleep(3 * (2**attempt))
+                    continue
+                raise EDINETRateLimitError(
+                    "EDINET CSV ZIP response was rate limited: "
+                    f"{_non_zip_response_message(content)}"
+                )
+            raise EDINETProviderError(
+                f"EDINET CSV ZIP response was not a zip: {_non_zip_response_message(content)}"
+            )
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_bytes(content)
         return content
@@ -237,6 +261,8 @@ class EDINETProvider:
                 if not isinstance(payload, dict):
                     raise EDINETProviderError("EDINET response JSON must be an object")
                 return payload
+            if response.status_code == 429 and attempt >= max_attempts - 1:
+                raise EDINETRateLimitError("EDINET request rate limited after retries")
             if response.status_code not in {429, 500, 502, 503, 504}:
                 raise EDINETProviderError(
                     f"EDINET request failed with status {response.status_code}"
@@ -258,6 +284,8 @@ class EDINETProvider:
                 ) from None
             if response.status_code < 400:
                 return bytes(response.content)
+            if response.status_code == 429 and attempt >= max_attempts - 1:
+                raise EDINETRateLimitError("EDINET request rate limited after retries")
             if response.status_code not in {429, 500, 502, 503, 504}:
                 raise EDINETProviderError(
                     f"EDINET request failed with status {response.status_code}"
@@ -335,7 +363,10 @@ def select_document_candidates(
         if _is_unusable_status(document):
             continue
         doc_id = parse_doc_id(raw_doc_id)
-        ticker = parse_sec_code(_coalesce(document, "secCode", "sec_code"))
+        raw_sec_code = _coalesce(document, "secCode", "sec_code")
+        if _to_str_or_none(raw_sec_code) is None:
+            continue
+        ticker = parse_sec_code(raw_sec_code)
         period_start, period_end = _document_period(document)
         candidate = EdinetDocumentCandidate(
             ticker=ticker,
@@ -448,6 +479,37 @@ def _coerce_document_items(payload: list[Any], *, source: str) -> list[dict[str,
             raise EDINETProviderError(f"{source} contained a non-mapping document item")
         items.append(dict(item))
     return items
+
+
+def _is_zip_bytes(content: bytes) -> bool:
+    return zipfile.is_zipfile(io.BytesIO(content))
+
+
+def _non_zip_response_status(content: bytes) -> str | None:
+    try:
+        payload = json.loads(content.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+    status = payload.get("StatusCode") or payload.get("statusCode") or payload.get("status")
+    return str(status) if status not in (None, "") else None
+
+
+def _non_zip_response_message(content: bytes) -> str:
+    try:
+        payload = json.loads(content.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return "zip_invalid"
+    if not isinstance(payload, Mapping):
+        return "zip_invalid"
+    status = _non_zip_response_status(content)
+    message = _to_str_or_none(payload.get("message")) or _to_str_or_none(payload.get("Message"))
+    if status and message:
+        return f"StatusCode={status} message={_safe_error_value(message)}"
+    if status:
+        return f"StatusCode={status}"
+    return "zip_invalid"
 
 
 def _coalesce(record: Mapping[str, Any], *keys: str) -> Any:

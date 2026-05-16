@@ -89,9 +89,6 @@ def _minimal_research_front_matter() -> dict[str, object]:
         "policy_ref": _snapshot(
             "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"
         ),
-        "portfolio_exposure_ref": _snapshot(
-            "records/_portfolio-exposure/2026/05/2026-05-05T133000+0900.yaml"
-        ),
         "policy_applicability": "active",
         "calendar_refs": _calendar_snapshots(),
         "candidate_ref": {
@@ -233,6 +230,14 @@ class ResearchValidationTests(unittest.TestCase):
     def test_top_level_candidates_ref_is_flagged_as_removed(self) -> None:
         front = _minimal_research_front_matter()
         front["candidates_ref"] = "records/04-candidates/2026/05/2026-05-01.yaml"
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.removed-field", codes)
+
+    def test_portfolio_exposure_ref_is_flagged_as_removed(self) -> None:
+        front = _minimal_research_front_matter()
+        front["_".join(("portfolio", "exposure", "ref"))] = {
+            "ref_path": "records/_portfolio-exposure/2026/05/exposure.yaml"
+        }
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.removed-field", codes)
 

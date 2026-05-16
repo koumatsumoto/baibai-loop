@@ -34,7 +34,6 @@ Automation は人間の投資判断を置き換えるものではなく、fact s
 | support area | 説明 |
 | --- | --- |
 | `records/_schemas/` | records artifact の validation schema |
-| `records/_benchmarks/` | business regression benchmark manifest |
 | `src/baibai_loop/validate/` | schema だけでは表現しにくい cross-file validation |
 | `tests/test_validate_*.py` | validator の期待挙動を固定する tests |
 

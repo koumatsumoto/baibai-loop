@@ -126,6 +126,20 @@ class CandidatesValidationTests(unittest.TestCase):
         self.assertIn("candidates.removed-root-field", codes)
         self.assertIn("screening_rules_snapshot", locations)
 
+    def test_removed_portfolio_exposure_root_field_is_flagged(self) -> None:
+        payload = _minimal_candidates()
+        field = "_".join(("portfolio", "exposure", "ref"))
+        payload[field] = {"ref_path": "records/_portfolio-exposure/2026/05/exposure.yaml"}
+        path = self._write(payload)
+        try:
+            findings = validate_candidates_file(path)
+        finally:
+            path.unlink()
+        codes = {finding.code for finding in findings}
+        locations = {finding.location for finding in findings}
+        self.assertIn("candidates.removed-root-field", codes)
+        self.assertIn(field, locations)
+
     def test_nested_removed_hash_field_is_flagged(self) -> None:
         payload = _minimal_candidates()
         universe_ref = payload["universe_ref"]
@@ -193,7 +207,7 @@ class CandidatesValidationTests(unittest.TestCase):
             universe_ref["ref_path"] = (
                 "records/_universe-snapshots/2026/05/2026-05-01T090000+0900.yaml"
             )
-            path = root / "records/_benchmarks/domain-model/e2e-regeneration/run-candidates.yaml"
+            path = root / "records/04-candidates/2026/05/2026-05-01.yaml"
             path.parent.mkdir(parents=True)
             path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
 

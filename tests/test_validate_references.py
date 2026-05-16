@@ -66,6 +66,25 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
             {finding.code for finding in findings},
         )
 
+    def test_rejects_removed_portfolio_exposure_reference_field_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            research = root / "records/05-research/2026/05/research.md"
+            research.parent.mkdir(parents=True)
+            legacy_field = "_".join(("portfolio", "exposure", "ref"))
+            research.write_text(
+                f"---\n{legacy_field}:\n"
+                "  ref_path: records/_portfolio-exposure/2026/05/exposure.yaml\n---\n",
+                encoding="utf-8",
+            )
+
+            findings = validate_reference_integrity(root)
+
+        self.assertIn(
+            "reference.removed-reference-field",
+            {finding.code for finding in findings},
+        )
+
     def test_rejects_removed_snapshot_path_fallback_field(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -153,9 +172,9 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
     def test_rejects_list_reference_item_without_ref_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            exposure = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
-            exposure.parent.mkdir(parents=True)
-            exposure.write_text(
+            scan = root / "records/07-reviews/references.yaml"
+            scan.parent.mkdir(parents=True)
+            scan.write_text(
                 "source_decision_register_refs:\n- decision_event_id: decision-1\n",
                 encoding="utf-8",
             )
@@ -181,9 +200,9 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
     def test_rejects_non_mapping_list_reference_item(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            exposure = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
-            exposure.parent.mkdir(parents=True)
-            exposure.write_text("source_trade_refs:\n- records/06-trades/x.md\n", encoding="utf-8")
+            scan = root / "records/07-reviews/references.yaml"
+            scan.parent.mkdir(parents=True)
+            scan.write_text("source_trade_refs:\n- records/06-trades/x.md\n", encoding="utf-8")
 
             findings = validate_reference_integrity(root)
 
@@ -195,9 +214,9 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
             wrong = root / "records/05-research/2026/05/research.md"
             wrong.parent.mkdir(parents=True)
             wrong.write_text("---\nticker: '1111'\n---\n", encoding="utf-8")
-            exposure = root / "records/_portfolio-exposure/2026/05/exposure.yaml"
-            exposure.parent.mkdir(parents=True)
-            exposure.write_text(
+            scan = root / "records/07-reviews/references.yaml"
+            scan.parent.mkdir(parents=True)
+            scan.write_text(
                 "source_trade_refs:\n- ref_path: records/05-research/2026/05/research.md\n",
                 encoding="utf-8",
             )
@@ -226,8 +245,8 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
     def test_rejects_absolute_scalar_repository_reference(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            selection = root / "records/_benchmarks/domain-model/e2e/selection.yaml"
-            selection.parent.mkdir(parents=True)
+            selection = root / "records/03-outlook/2026/05/selection.yaml"
+            selection.parent.mkdir(parents=True, exist_ok=True)
             selection.write_text("candidates_ref: /tmp/candidates.yaml\n", encoding="utf-8")
 
             findings = validate_reference_integrity(root)
@@ -237,12 +256,13 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
     def test_accepts_relative_scalar_repository_reference(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            candidates = root / "records/_benchmarks/domain-model/e2e/candidates.yaml"
+            candidates = root / "records/04-candidates/2026/05/candidates.yaml"
             candidates.parent.mkdir(parents=True)
             candidates.write_text("candidates: []\n", encoding="utf-8")
-            selection = root / "records/_benchmarks/domain-model/e2e/selection.yaml"
+            selection = root / "records/03-outlook/2026/05/selection.yaml"
+            selection.parent.mkdir(parents=True, exist_ok=True)
             selection.write_text(
-                "candidates_ref: records/_benchmarks/domain-model/e2e/candidates.yaml\n",
+                "candidates_ref: records/04-candidates/2026/05/candidates.yaml\n",
                 encoding="utf-8",
             )
 
@@ -253,12 +273,13 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
     def test_rejects_scalar_candidates_ref_to_non_mapping_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            candidates = root / "records/_benchmarks/domain-model/e2e/candidates.yaml"
+            candidates = root / "records/04-candidates/2026/05/candidates.yaml"
             candidates.parent.mkdir(parents=True)
             candidates.write_text("- not-a-mapping\n", encoding="utf-8")
-            selection = root / "records/_benchmarks/domain-model/e2e/selection.yaml"
+            selection = root / "records/03-outlook/2026/05/selection.yaml"
+            selection.parent.mkdir(parents=True, exist_ok=True)
             selection.write_text(
-                "candidates_ref: records/_benchmarks/domain-model/e2e/candidates.yaml\n",
+                "candidates_ref: records/04-candidates/2026/05/candidates.yaml\n",
                 encoding="utf-8",
             )
 
@@ -269,12 +290,13 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
     def test_rejects_scalar_candidates_ref_to_wrong_mapping_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            runs = root / "records/_benchmarks/domain-model/e2e/runs.yaml"
+            runs = root / "records/04-candidates/2026/05/runs.yaml"
             runs.parent.mkdir(parents=True)
             runs.write_text("runs: []\n", encoding="utf-8")
-            selection = root / "records/_benchmarks/domain-model/e2e/selection.yaml"
+            selection = root / "records/03-outlook/2026/05/selection.yaml"
+            selection.parent.mkdir(parents=True, exist_ok=True)
             selection.write_text(
-                "candidates_ref: records/_benchmarks/domain-model/e2e/runs.yaml\n",
+                "candidates_ref: records/04-candidates/2026/05/runs.yaml\n",
                 encoding="utf-8",
             )
 
@@ -288,8 +310,8 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
             outlook = root / "records/03-outlook/2026/05/outlook.yaml"
             outlook.parent.mkdir(parents=True)
             outlook.write_text("- not-a-mapping\n", encoding="utf-8")
-            selection = root / "records/_benchmarks/domain-model/e2e/selection.yaml"
-            selection.parent.mkdir(parents=True)
+            selection = root / "records/03-outlook/2026/05/selection.yaml"
+            selection.parent.mkdir(parents=True, exist_ok=True)
             selection.write_text(
                 "outlook_ref: records/03-outlook/2026/05/outlook.yaml\n",
                 encoding="utf-8",
@@ -324,29 +346,13 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
 
         self.assertIn("reference.ref-path", {finding.code for finding in findings})
 
-    def test_rejects_benchmark_runs_ref_missing_file(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
-            manifest.parent.mkdir(parents=True)
-            manifest.write_text(
-                "fixtures:\n"
-                "- fixture_binding:\n"
-                "    runs_ref: records/_benchmarks/domain-model/missing-runs.yaml\n",
-                encoding="utf-8",
-            )
-
-            findings = validate_reference_integrity(root)
-
-        self.assertIn("reference.ref-not-found", {finding.code for finding in findings})
-
-    def test_rejects_benchmark_input_ref_wrong_prefix(self) -> None:
+    def test_rejects_input_ref_wrong_prefix(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             wrong = root / "records/03-outlook/2026/05/outlook.yaml"
             wrong.parent.mkdir(parents=True)
             wrong.write_text("schema_version: 1\n", encoding="utf-8")
-            manifest = root / "records/_benchmarks/domain-model/manifest.yaml"
+            manifest = root / "records/04-candidates/2026/05/manifest.yaml"
             manifest.parent.mkdir(parents=True)
             manifest.write_text(
                 "input_refs:\n  policy:\n    ref_path: records/03-outlook/2026/05/outlook.yaml\n",

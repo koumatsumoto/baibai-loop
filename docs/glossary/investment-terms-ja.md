@@ -74,16 +74,14 @@ Baibai-Loop では `evidence hit` を使います。`evidence hit` は candidate
 
 ## Decision Register
 
-`decision register` は判断イベントを append-only に記録する register です。Baibai-Loop では `records/_ledger/` が candidate decision、investment memo decision、execution intent、tracking event の正本です。Candidates の screen fact、trades の execution record、reviews の attribution record とは分けます。
+`decision register` は判断イベントを append-only に記録する register です。Baibai-Loop では `records/_ledger/` が investment memo decision、execution intent、tracking event の正本です。Candidates の screen fact、trades の execution record、reviews の attribution record とは分けます。
 
-## Missed Opportunity / Screening False Negative
+## Missed Opportunity
 
 `missed opportunity tracking` は、見送り、保留、採用したが発注しなかった候補が後から良い relative return を出したかを追跡する概念です。
-
-`screening false negative tracking` は、screening に入ったが hit しなかった、rank 外だった、または gate で落ちた universe member が後から相対的に良い成績を出したかを追跡する概念です。見送った候補だけでなく、screening rule 自体の取りこぼしを改善するために使います。
 
 ## Relative Return Attribution / Benchmark
 
 `relative return attribution` は、review outcome を absolute return だけでなく market / sector baseline に対する relative return として評価することです。Bull / bear regime の beta を playbook alpha と誤認しないために使います。
 
-`investment benchmark` は TOPIX や業種指数など投資成果の比較対象です。`regression benchmark` は schema / validator / business rule の invariants を検査する fixture 群です。両者は別概念です。
+`investment benchmark` は TOPIX や業種指数など投資成果の比較対象です。

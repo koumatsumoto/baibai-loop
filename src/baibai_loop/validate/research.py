@@ -48,6 +48,7 @@ _REMOVED_FRONT_MATTER_FIELDS: tuple[str, ...] = (
     "_".join(("adv", "participation", "pct")),
     "_".join(("playbook", "snapshot")),
     "_".join(("policy", "snapshot")),
+    "_".join(("portfolio", "exposure", "ref")),
     "_".join(("portfolio", "exposure", "snapshot", "ref")),
     "_".join(("calendars", "snapshot")),
     "candidates_ref",
@@ -56,7 +57,8 @@ _REMOVED_HASH_FIELDS = {"content_" + "sha256", "row_" + "sha256"}
 _REMOVED_REFERENCE_FIELDS = {
     "playbook_snapshot",
     "_".join(("policy", "snapshot")),
-    "portfolio_exposure_snapshot_ref",
+    "_".join(("portfolio", "exposure", "ref")),
+    "_".join(("portfolio", "exposure", "snapshot", "ref")),
     "calendars_snapshot",
     "universe_snapshot_ref",
     "input_snapshots",
@@ -1526,7 +1528,7 @@ def _check_sizing_invariants(
         )
         return findings
 
-    expected = _derive_order_intent(path, front_matter, policy)
+    expected = _derive_order_intent(front_matter, policy)
     checks = {
         "paper_proxy_position_size_yen": expected["paper_proxy_position_size_yen"],
         "real_order_intent_yen": expected["real_order_intent_yen"],
@@ -1646,7 +1648,6 @@ def _check_position_sizing_overlay_shape(
 
 
 def _derive_order_intent(
-    path: Path,
     front_matter: Mapping[str, object],
     policy: Mapping[str, Any],
 ) -> dict[str, float]:
@@ -1658,7 +1659,6 @@ def _derive_order_intent(
     sizing_ladder = as_mapping(as_mapping(policy.get("sizing_ladder")).get(tier))
     scaling = as_mapping(policy.get("execution_scaling"))
     order_constraints = as_mapping(policy.get("order_constraints"))
-    exposure = _load_portfolio_exposure(path, front_matter)
     avg_turnover_oku = number(front_matter.get("avg_turnover_oku"))
 
     paper_default = number(sizing_ladder.get("default_paper_proxy_position_size_yen")) or 0
@@ -1666,10 +1666,6 @@ def _derive_order_intent(
         paper_default,
         number(risk.get("max_paper_proxy_position_size_yen")),
         number(tier_caps.get("max_paper_proxy_position_size_yen")),
-        _remaining_cap(exposure, "ticker_paper_proxy_cap_remaining_yen"),
-        _remaining_cap(exposure, "sector_paper_proxy_cap_remaining_yen"),
-        _remaining_cap(exposure, "playbook_paper_proxy_cap_remaining_yen"),
-        _remaining_cap(exposure, "economic_exposure_paper_proxy_cap_remaining_yen"),
     ]
     paper_yen = min(value for value in paper_caps if value is not None)
     adv_participation_pct = (
@@ -1696,12 +1692,7 @@ def _derive_order_intent(
         number(risk.get("max_real_order_notional_yen")),
         number(tier_caps.get("max_real_order_notional_yen")),
         single_evidence_cap,
-        number(exposure.get("remaining_tactical_real_budget_yen")),
         liquidity_cap,
-        _remaining_cap(exposure, "ticker_real_cap_remaining_yen"),
-        _remaining_cap(exposure, "sector_real_cap_remaining_yen"),
-        _remaining_cap(exposure, "playbook_real_cap_remaining_yen"),
-        _remaining_cap(exposure, "economic_exposure_real_cap_remaining_yen"),
     ]
     real_intent = min(value for value in real_caps if value is not None)
     guard = number(as_mapping(front_matter.get("thesis_payoff")).get("max_entry_price_yen"))
@@ -1716,25 +1707,10 @@ def _derive_order_intent(
     }
 
 
-def _remaining_cap(exposure: Mapping[str, Any], field: str) -> float | None:
-    value = number(exposure.get(field))
-    return value if value is not None else None
-
-
 def _load_policy_payload(path: Path, front_matter: Mapping[str, object]) -> Mapping[str, Any]:
     try:
         _policy_path, payload = load_reference_mapping(
             repo_root_for(path), front_matter.get("policy_ref")
-        )
-        return payload
-    except (OSError, ValueError, yaml.YAMLError):
-        return {}
-
-
-def _load_portfolio_exposure(path: Path, front_matter: Mapping[str, object]) -> Mapping[str, Any]:
-    try:
-        _reference_path, payload = load_reference_mapping(
-            repo_root_for(path), front_matter.get("portfolio_exposure_ref")
         )
         return payload
     except (OSError, ValueError, yaml.YAMLError):
@@ -2090,7 +2066,6 @@ def _check_reference_refs(
     specs = {
         "playbook_ref": (("records/_playbooks/",), (".md",)),
         "policy_ref": (("records/01-policy/",), (".md",)),
-        "portfolio_exposure_ref": (("records/_portfolio-exposure/",), (".yaml", ".yml")),
     }
     for field, (prefixes, suffixes) in specs.items():
         findings.extend(

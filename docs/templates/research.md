@@ -16,9 +16,6 @@ calendar_refs:
     ref_path: records/_calendars/events/YYYY-MM.yaml
   corporate_actions:
     ref_path: records/_calendars/corporate-actions/YYYY-MM.yaml
-portfolio_exposure_ref:
-  ref_path: records/_portfolio-exposure/YYYY/MM/YYYY-MM-DDTHHMMSS+0900.yaml
-  as_of: "YYYY-MM-DDTHH:MM:SS+09:00"
 candidate_ref:
   candidates_ref: records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml
   screen_run_id: screening-YYYYMMDD
@@ -151,6 +148,5 @@ Why now × why this stock。主要 evidence、payoff、反対仮説、macro regi
 - **paper proxy size**:
 - **estimated real order notional**:
 - **binding cap**:
-- **portfolio exposure ref**:
 
 参照: [`/docs/components/research.md`](/docs/components/research.md), [`/docs/screening/principles.md`](/docs/screening/principles.md), [`/records/_playbooks/`](/records/_playbooks/)
