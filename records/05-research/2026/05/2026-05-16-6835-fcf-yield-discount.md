@@ -20,9 +20,17 @@ selected_supporting_evidence_refs:
 - source: candidate
   evidence_hit_id: candidate-2026-05-08-6835-fcf-yield-discount
 research_decision:
-  outcome: approved
-  posture: act_now
-  reason_code: post_q1_profit_net_cash_clear_small_starter
+  outcome: deferred
+  posture: wait_for_event
+  deferral_reason: data_gap
+  revisit:
+    trigger: fy2026_q2_cash_flow_statement
+    revisit_after: '2026-08-14'
+    expires_at: '2026-08-31'
+    blocking_conditions:
+    - Q2 cash-flow statement must confirm FCF / OCF durability.
+    - Inventories and receivables must not keep building against weak sales growth.
+    - Full-year guidance downside risk must remain contained.
 candidate_ref:
   candidates_ref: records/04-candidates/2026/05/2026-05-08.yaml
   screen_run_id: screening-20260508
@@ -37,7 +45,7 @@ brief_refs:
 ai_draft: true
 published_at: '2026-05-16T10:35:00+09:00'
 recorded_at: '2026-05-16T10:35:00+09:00'
-tradable_at: '2026-05-18T09:00:00+09:00'
+tradable_at: null
 macro_regime_gate:
   aggregate_status: supportive
   decision_effect: pass
@@ -54,12 +62,6 @@ policy_overrides: []
 external_refs:
 - ref_path: records/_external/allied-telesis/2026-05-16-fy2026-q1-official-ir.md
 - ref_path: records/_external/deepresearch/2026-05-13-top3-bargain-selection.md
-decision_revisions:
-- revision_type: decision_flip
-  prior_state_ref: records/05-research/2026/05/2026-05-13-6835-fcf-yield-discount.md
-  prior_state: "research_decision.outcome: deferred"
-  new_state: "research_decision.outcome: approved"
-  reason: "FY2026 Q1 で営業増益、純利益増、net cash 維持を確認したため。ただし Q1 CF 非開示のため selected evidence は FCF lane 1 件に絞る。"
 candidate_evidence_decisions:
 - evidence_hit_id: candidate-2026-05-08-6835-cashflow-yield-discount
   effective_sizing_eligible: false
@@ -101,12 +103,15 @@ conviction_tier: medium
 conviction_tier_path: count_breadth
 depth_verification_ref: null
 position_sizing_overlay:
-  paper_proxy_position_size_oku: 0.01
-  paper_proxy_position_size_yen: 1000000
-  real_order_intent_yen: 54000
-  adv_participation_pct: 0.625
+  paper_proxy_position_size_oku: 0.0
+  paper_proxy_position_size_yen: 0
+  real_order_intent_yen: 0
+  adv_participation_pct: 0.0
   sizing_formula_id: policy-v1-paper-to-real-ladder
-counterfactual: null
+counterfactual:
+  if_approved:
+    hypothetical_paper_proxy_position_size_oku: 0.01
+    hypothetical_paper_proxy_position_size_yen: 1000000
 thesis_payoff:
   max_entry_price_yen: 270
   target_price_yen: 340
@@ -116,12 +121,12 @@ thesis_payoff:
   - Q2 cash-flow statement invalidates FCF / OCF durability.
   - Inventories and receivables continue to build while sales growth stalls.
   - Full-year guidance downside risk rises after Q1 outperformance.
-  entry_trigger: post_q1_small_starter
+  entry_trigger: q2_cf_revisit
   expected_upside_pct: 25.93
   expected_downside_pct: 14.81
   risk_reward_ratio: 1.75
 tracking:
-  mode: post_approval
+  mode: re_examination
   plus_15bd: null
   plus_30bd: null
 market_cap_oku: 282
@@ -148,9 +153,9 @@ valuation:
 
 ## Thesis
 
-6835 は Q1 後に小さく追加投入候補化する。2026-05-08 candidates の FCF yield 22.0%、net cash / market cap 37.9%、PER 9.76、EV/EBITDA 3.3 は残しつつ、2026-05-15 Q1 で売上高 +2.3%、営業利益 +19.9%、親会社株主帰属四半期純利益 +95.4% を確認したため、イベント直前リスクは通過した。
+6835 は Q1 後に「買ってもよい小さい候補」までは残ったが、今回は注文しない。2026-05-08 candidates の FCF yield 22.0%、net cash / market cap 37.9%、PER 9.76、EV/EBITDA 3.3 は残しつつ、2026-05-15 Q1 で売上高 +2.3%、営業利益 +19.9%、親会社株主帰属四半期純利益 +95.4% を確認したため、イベント直前リスクは通過した。
 
-ただし、Q1 では CF 計算書が作成されていない。在庫と売上債権も増えているため、cashflow-yield evidence は今回は sizing eligible にしない。starter は policy 由来の単一 evidence cap に従い、270 円以下で 200 株までに抑える。
+ただし、Q1 では CF 計算書が作成されていない。在庫と売上債権も増えており、通期会社計画では営業利益・純利益の減益が残る。配当利回りは 270 円前提で約 3.3% と悪くないが、リスクを下げたい局面であえて資金と注意を使うほどの非対称性はない。判断は `deferred` とし、Q2 CF 後に再確認する。
 
 ## Macro regime gate
 
@@ -171,11 +176,11 @@ valuation:
 | Q1 営業利益 | 1,439 百万円 | +19.9% |
 | Q1 親会社株主帰属四半期純利益 | 1,012 百万円 | +95.4% |
 
-Q1 の利益進捗と net cash は候補化を支持する。反対に、Q1 CF がないため FCF の durability は Q2 で再確認する。
+Q1 の利益進捗と net cash は候補継続を支持する。反対に、Q1 CF がないため FCF の durability は Q2 で再確認する。
 
 ## Capex quality
 
-候補 snapshot の capex tag は `purchase_of_fixed_assets` で取れており、FCF lane は exact。Q1 では CF 計算書がなく capex の最新実績は確認できないため、採用は小さい starter に限定する。
+候補 snapshot の capex tag は `purchase_of_fixed_assets` で取れており、FCF lane は exact。Q1 では CF 計算書がなく capex の最新実績は確認できないため、Q2 まで注文しない。
 
 ## Working capital quality
 
@@ -191,11 +196,11 @@ Q1 の利益進捗と net cash は候補化を支持する。反対に、Q1 CF �
 
 ## Entry
 
-270 円以下で 200 株まで。policy の単一 evidence cap と board lot から real order intent は 54,000 円。270 円を大きく超える場合は追わない。
+新規 entry はしない。270 円以下で 100 株なら損失寄与は限定的だが、Q1 CF 非開示のまま買うほどの edge はない。Q2 CF で OCF / FCF durability が確認できた場合だけ、改めて 270 円以下を上限に検討する。
 
 ## Exit
 
-target は 340 円、stop は 230 円。time horizon は 40 営業日。Q2 CF で FCF / OCF durability が崩れた場合は価格にかかわらず見直す。
+未保有のため exit なし。Q2 CF で FCF / OCF durability が確認できた場合だけ、target 340 円、stop 230 円を改めて使う。
 
 ## Invalidation
 
@@ -205,4 +210,4 @@ target は 340 円、stop は 230 円。time horizon は 40 営業日。Q2 CF �
 
 ## Position size
 
-conviction は medium だが independent evidence は FCF lane 1 件に絞る。paper proxy 1,000,000 円、実資金は policy single-evidence cap と 270 円 price guard により 54,000 円、200 株まで。
+conviction は medium だが、research_decision は deferred。paper proxy、real order intent、ADV participation はすべて 0。Q2 CF 後の follow-up issue #166 で再確認する。
