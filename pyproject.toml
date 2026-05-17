@@ -31,6 +31,7 @@ baibai-loop-screening = "baibai_loop.screening.cli:main"
 baibai-loop-validate = "baibai_loop.validate.cli:main"
 baibai-loop-ledger = "baibai_loop.ledger.cli:main"
 baibai-loop-precheck = "baibai_loop.precheck.cli:main"
+baibai-loop-briefdb = "baibai_loop.briefdb.cli:main"
 
 [dependency-groups]
 dev = [
@@ -67,6 +68,8 @@ packages = ["src/baibai_loop"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/baibai_loop/py.typed" = "baibai_loop/py.typed"
+"src/baibai_loop/briefdb/schema.sql" = "baibai_loop/briefdb/schema.sql"
+"src/baibai_loop/briefdb/indicators.yaml" = "baibai_loop/briefdb/indicators.yaml"
 
 [tool.ruff]
 # Runtime is Python 3.14, but Ruff's 3.14 formatter rewrites
