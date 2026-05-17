@@ -93,9 +93,11 @@ Baibai-Loop は **portfolio policy -> brief -> outlook -> candidates -> research
 
 ## 7. Markdown / YAML 駆動の原則（philosophy 柱 4 の具体化）
 
-- DB / Feature Store を先行導入しない
+- DB / Feature Store を先行導入しない。ただし、brief の定量 fact（経済指標・市場指標・為替・政策金利）のように、前期比・閾値判定・欠損判定を機械計算するほうが運用品質を上げる領域では、ローカル SQLite を正本としてよい
 - front matter（YAML）を揃え、script での後付け抽出を可能にする
 - Git で diff / blame / history を追跡可能にする
+
+この例外は数値時系列に限定する。会合日程、声明文、地政学、関税、OPEC 声明などのイベント・文書系 fact は、定量 DB に混ぜず brief / docs のドキュメント管理に残す。
 
 ## 8. レイヤー分離の運用
 

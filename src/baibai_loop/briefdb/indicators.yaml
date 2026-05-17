@@ -1,0 +1,132 @@
+sources:
+  - source_id: fed-h15
+    name: Federal Reserve H.15
+    provider: Federal Reserve
+    tier: tier1
+    access_method: html-csv
+  - source_id: cboe-vix
+    name: CBOE VIX History
+    provider: CBOE
+    tier: tier1
+    access_method: csv
+  - source_id: eia-brent
+    name: EIA Brent spot price
+    provider: EIA
+    tier: tier1
+    access_method: html
+  - source_id: eia-wti
+    name: EIA WTI spot price
+    provider: EIA
+    tier: tier1
+    access_method: html
+  - source_id: ecb-fx
+    name: ECB euro foreign exchange reference rates
+    provider: ECB
+    tier: tier1
+    access_method: csv-zip
+
+indicators:
+  - indicator_id: us-10y-yield
+    name: 米10Y利回り
+    domain: rates
+    geography: world
+    unit: percent
+    frequency: daily
+    primary_source_id: fed-h15
+    aliases: [米10Y利回り, 米10Y, 米 10Y 利回り]
+  - indicator_id: us-2y-yield
+    name: 米2Y利回り
+    domain: rates
+    geography: world
+    unit: percent
+    frequency: daily
+    primary_source_id: fed-h15
+    aliases: [米2Y利回り, 米2Y, 米 2Y 利回り]
+  - indicator_id: us-10y-2y-spread
+    name: 10Y-2Yスプレッド
+    domain: rates
+    geography: world
+    unit: bp
+    frequency: daily
+    primary_source_id: fed-h15
+    transform_rule: spread
+    aliases: [10Y-2Yスプレッド, 米10Y-2Yスプレッド]
+  - indicator_id: vix
+    name: VIX
+    domain: volatility
+    geography: world
+    unit: index
+    frequency: daily
+    primary_source_id: cboe-vix
+    aliases: [VIX]
+  - indicator_id: brent-crude
+    name: Brent原油
+    domain: energy
+    geography: world
+    unit: usd-per-barrel
+    frequency: daily
+    primary_source_id: eia-brent
+    aliases: [Brent原油, Brent]
+  - indicator_id: wti-crude
+    name: WTI原油
+    domain: energy
+    geography: world
+    unit: usd-per-barrel
+    frequency: daily
+    primary_source_id: eia-wti
+    aliases: [WTI原油, WTI]
+  - indicator_id: usd-jpy
+    name: USD/JPY
+    domain: fx
+    geography: japan
+    unit: jpy-per-usd
+    frequency: daily
+    primary_source_id: ecb-fx
+    transform_rule: cross_fx
+    aliases: [USD/JPY]
+  - indicator_id: eur-jpy
+    name: EUR/JPY
+    domain: fx
+    geography: japan
+    unit: jpy-per-eur
+    frequency: daily
+    primary_source_id: ecb-fx
+    aliases: [EUR/JPY]
+  - indicator_id: aud-jpy
+    name: AUD/JPY
+    domain: fx
+    geography: japan
+    unit: jpy-per-aud
+    frequency: daily
+    primary_source_id: ecb-fx
+    transform_rule: cross_fx
+    aliases: [AUD/JPY]
+
+coverage_requirements:
+  - kind: world-weekly
+    indicator_id: us-10y-yield
+    max_staleness_days: 10
+  - kind: world-weekly
+    indicator_id: us-2y-yield
+    max_staleness_days: 10
+  - kind: world-weekly
+    indicator_id: us-10y-2y-spread
+    max_staleness_days: 10
+  - kind: world-weekly
+    indicator_id: vix
+    max_staleness_days: 10
+  - kind: world-weekly
+    indicator_id: brent-crude
+    max_staleness_days: 10
+  - kind: world-weekly
+    indicator_id: wti-crude
+    max_staleness_days: 10
+  - kind: world-weekly
+    indicator_id: usd-jpy
+    max_staleness_days: 10
+  - kind: world-weekly
+    indicator_id: eur-jpy
+    max_staleness_days: 10
+  - kind: world-weekly
+    indicator_id: aud-jpy
+    max_staleness_days: 10

@@ -9,6 +9,12 @@ Baibai-Loop の **brief / observations** の運用仕様。全体構造は [`../
 - **独立トラック**: 売買ループ（candidates → research → trades → reviews）から独立に積み上がる
 - Macro track の出発点として `records/03-outlook/` の source となる
 
+### 1.1 定量 fact の SQLite 管理
+
+経済指標・市場指標・為替・政策金利などの数値時系列は、`baibai-loop-briefdb` が管理するローカル SQLite を正本にできる。brief YAML は、これらの数値については人間が読むための表示・補助 material として扱う。
+
+この例外は数値時系列に限定する。会合日程、声明文、日銀「主な意見」、地政学、関税、OPEC 声明、イベント本文、文書本文は brief / docs のドキュメント管理に残し、定量 DB へ混ぜない。
+
 ## 2. 種類
 
 ### 2.1 periodic（定期）
