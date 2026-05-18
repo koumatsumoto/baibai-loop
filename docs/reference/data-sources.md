@@ -34,6 +34,8 @@ J-Quants / EDINET から取得したデータは、個人利用・非公開 repo
 
 保存済み cache は、screening 再生成、ledger tracking、monthly retro のための入力証跡として扱う。J-Quants の調整後価格、銘柄マスター、JPX 規制情報などは完全な point-in-time snapshot ではないため、再現性ではなく traceability の補助として使う。
 
+Macro statistics は `baibai-loop-stats` で公式 API / CSV から取得し、`data/stats/macro.sqlite` に保存してよい。この SQLite は brief / outlook の正本ではなく、期間検索・再取得抑制・brief 数値断片生成のための取得 cache として扱う。
+
 ## スコアリング軸
 
 各軸 10 点満点、合計 30 点で評価する。

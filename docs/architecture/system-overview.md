@@ -51,7 +51,7 @@ Macro track は売買イベントと独立して `brief -> outlook` を更新し
 - Macro / security-level の判断比重は policy weight として説明し、実際の gate / sizing cap は policy と macro regime gate で扱う。
 - Markdown / YAML と Git を正本にする。
 - AI 下書きと人間確認を前提に、事実層と分析層を物理的に分ける。
-- CLI は screening、validation、ledger sync の補助に使う。
+- CLI は screening、validation、ledger sync、macro statistics 取得の補助に使う。
 - decision register と reviews は forward-only な検証証跡として扱う。
 
 ## 非目標
@@ -61,6 +61,6 @@ Macro track は売買イベントと独立して `brief -> outlook` を更新し
 - screening 閾値や playbook を過去データに fit させない。
 - 配当利回り単独の playbook / Rerating Book は対象外にする。配当・自己株買いは、long-hold fallback 時の資産ロック中に収益が見込める preference として research で確認する。
 - 汎用 feature store / BI 基盤を先行導入しない。SQLite は screening input の local canonical
-  store としてのみ使う。
+  store と、macro statistics 取得の local cache としてだけ使う。
 
 詳細な rationale は [`../philosophy.md`](../philosophy.md)、実践ルールは [`../design-principles.md`](../design-principles.md)、成果物ごとの contract は [`../components/README.md`](../components/README.md) を参照します。
