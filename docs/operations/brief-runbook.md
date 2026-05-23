@@ -31,6 +31,7 @@ Brief は `records/02-brief/` に置く fact layer です。詳細 contract は 
 
 - brief には解釈、予測、相場観を書かない。
 - 数値は source と取得日を持つ。
+- FRB H.15 / FRED CSV / ECB FX など `baibai-loop-stats` に登録済みの数値時系列は、手入力前に `baibai-loop-stats get` または `brief-fragment` で取得・検算する。
 - Tier 1 取得失敗時の例外運用は [`../reference/data-sources.md`](../reference/data-sources.md) を正本とする。
 - routine な単一統計公表は `macro-monthly` 未作成期間なら `world-daily` に置き、decisive event のときだけ event kind を使う。
 - 同じイベントを複数 kind で重複記録しない。週次 brief では該当 kind への link で代替する。

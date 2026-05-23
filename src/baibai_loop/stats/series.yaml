@@ -1,0 +1,166 @@
+series:
+  - series_id: us.10y
+    name: 米10Y利回り
+    domain: rates
+    geography: us
+    frequency: daily
+    unit: percent
+    provider: frb_h15
+    provider_series_id: RIFLGFCY10_N.B
+    source_id: fed-h15
+    source_url: https://www.federalreserve.gov/datadownload/Output.aspx
+    aliases: [米10Y利回り, 米10Y, US 10Y, DGS10]
+  - series_id: us.2y
+    name: 米2Y利回り
+    domain: rates
+    geography: us
+    frequency: daily
+    unit: percent
+    provider: frb_h15
+    provider_series_id: RIFLGFCY02_N.B
+    source_id: fed-h15
+    source_url: https://www.federalreserve.gov/datadownload/Output.aspx
+    aliases: [米2Y利回り, 米2Y, US 2Y, DGS2]
+  - series_id: us.10y_2y_spread
+    name: 10Y-2Yスプレッド
+    domain: rates
+    geography: us
+    frequency: daily
+    unit: bp
+    provider: frb_h15
+    provider_series_id: RIFLGFCY10_N.B-RIFLGFCY02_N.B
+    source_id: fed-h15
+    source_url: https://www.federalreserve.gov/datadownload/Output.aspx
+    aliases: [10Y-2Yスプレッド, 米10Y-2Yスプレッド, yield spread]
+  - series_id: us.fed_funds.upper
+    name: FF目標レンジ上限
+    domain: policy
+    geography: us
+    frequency: daily
+    unit: percent
+    provider: fred_csv
+    provider_series_id: DFEDTARU
+    source_id: fred-dfedtaru
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFEDTARU
+    aliases: [FF upper, Fed Funds upper, FF目標上限]
+  - series_id: us.fed_funds.lower
+    name: FF目標レンジ下限
+    domain: policy
+    geography: us
+    frequency: daily
+    unit: percent
+    provider: fred_csv
+    provider_series_id: DFEDTARL
+    source_id: fred-dfedtarl
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFEDTARL
+    aliases: [FF lower, Fed Funds lower, FF目標下限]
+  - series_id: us.cpi.headline
+    name: 米CPI総合
+    domain: inflation
+    geography: us
+    frequency: monthly
+    unit: index
+    provider: fred_csv
+    provider_series_id: CPIAUCSL
+    source_id: fred-cpiaucsl
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCSL
+    aliases: [米CPI, US CPI, CPI headline]
+  - series_id: us.cpi.core
+    name: 米コアCPI
+    domain: inflation
+    geography: us
+    frequency: monthly
+    unit: index
+    provider: fred_csv
+    provider_series_id: CPILFESL
+    source_id: fred-cpilfesl
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPILFESL
+    aliases: [米コアCPI, US core CPI, core CPI]
+  - series_id: us.unemployment
+    name: 米失業率
+    domain: labor
+    geography: us
+    frequency: monthly
+    unit: percent
+    provider: fred_csv
+    provider_series_id: UNRATE
+    source_id: fred-unrate
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=UNRATE
+    aliases: [米失業率, unemployment, UNRATE]
+  - series_id: us.nonfarm_payrolls
+    name: 米非農業部門雇用者数
+    domain: labor
+    geography: us
+    frequency: monthly
+    unit: thousand-persons
+    provider: fred_csv
+    provider_series_id: PAYEMS
+    source_id: fred-payems
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=PAYEMS
+    aliases: [米雇用統計, NFP, nonfarm payrolls, PAYEMS]
+  - series_id: vix
+    name: VIX
+    domain: volatility
+    geography: world
+    frequency: daily
+    unit: index
+    provider: fred_csv
+    provider_series_id: VIXCLS
+    source_id: fred-vixcls
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=VIXCLS
+    aliases: [VIX, volatility]
+  - series_id: wti
+    name: WTI原油
+    domain: energy
+    geography: world
+    frequency: daily
+    unit: usd-per-barrel
+    provider: fred_csv
+    provider_series_id: DCOILWTICO
+    source_id: fred-dcoilwtico
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DCOILWTICO
+    aliases: [WTI, WTI原油]
+  - series_id: brent
+    name: Brent原油
+    domain: energy
+    geography: world
+    frequency: daily
+    unit: usd-per-barrel
+    provider: fred_csv
+    provider_series_id: DCOILBRENTEU
+    source_id: fred-dcoilbrenteu
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DCOILBRENTEU
+    aliases: [Brent, Brent原油]
+  - series_id: usd_jpy
+    name: USD/JPY
+    domain: fx
+    geography: japan
+    frequency: daily
+    unit: jpy-per-usd
+    provider: ecb_fx
+    provider_series_id: USDJPY
+    source_id: ecb-fx
+    source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
+    aliases: [USD/JPY, ドル円]
+  - series_id: eur_jpy
+    name: EUR/JPY
+    domain: fx
+    geography: japan
+    frequency: daily
+    unit: jpy-per-eur
+    provider: ecb_fx
+    provider_series_id: EURJPY
+    source_id: ecb-fx
+    source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
+    aliases: [EUR/JPY, ユーロ円]
+  - series_id: aud_jpy
+    name: AUD/JPY
+    domain: fx
+    geography: japan
+    frequency: daily
+    unit: jpy-per-aud
+    provider: ecb_fx
+    provider_series_id: AUDJPY
+    source_id: ecb-fx
+    source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
+    aliases: [AUD/JPY, 豪ドル円]

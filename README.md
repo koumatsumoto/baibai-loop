@@ -84,6 +84,7 @@ directory ごとの責務は [`docs/architecture/repository-map.md`](./docs/arch
 ```bash
 uv run baibai-loop-screening run --asof YYYY-MM-DD
 uv run baibai-loop-screening select --asof YYYY-MM-DD
+uv run baibai-loop-stats search CPI
 uv run baibai-loop-validate
 uv run baibai-loop-ledger sync --root .
 ```

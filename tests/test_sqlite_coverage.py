@@ -177,7 +177,11 @@ def _populate_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
     conn.execute(
         "INSERT INTO jpx_regulation_sources(asof_date, source_name, fetched_at_utc) "
         "VALUES (?, ?, ?)",
-        (asof.isoformat(), "test-source", datetime.now(UTC).isoformat()),
+        (
+            asof.isoformat(),
+            "test-source",
+            datetime.combine(asof, datetime.min.time(), UTC).isoformat(),
+        ),
     )
     _add_source_coverage(
         conn,
