@@ -14,9 +14,13 @@ CREATE TABLE IF NOT EXISTS series(
 );
 
 CREATE TABLE IF NOT EXISTS aliases(
-  alias TEXT PRIMARY KEY,
-  series_id TEXT NOT NULL REFERENCES series(series_id)
+  alias TEXT NOT NULL,
+  series_id TEXT NOT NULL REFERENCES series(series_id),
+  PRIMARY KEY(alias, series_id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_aliases_alias
+  ON aliases(alias);
 
 CREATE TABLE IF NOT EXISTS observations(
   series_id TEXT NOT NULL REFERENCES series(series_id),
@@ -35,6 +39,9 @@ CREATE TABLE IF NOT EXISTS observations(
 CREATE INDEX IF NOT EXISTS idx_observations_series_date
   ON observations(series_id, observed_at);
 
+CREATE INDEX IF NOT EXISTS idx_observations_series_status_date_vintage
+  ON observations(series_id, fetch_status, observed_at, vintage_at);
+
 CREATE TABLE IF NOT EXISTS provider_runs(
   run_id TEXT PRIMARY KEY,
   provider TEXT NOT NULL,
@@ -52,4 +59,4 @@ CREATE TABLE IF NOT EXISTS provider_runs(
 CREATE INDEX IF NOT EXISTS idx_provider_runs_series_range
   ON provider_runs(series_id, range_start, range_end, status);
 
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;

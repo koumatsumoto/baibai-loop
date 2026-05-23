@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
 import sys
 from collections.abc import Iterable
 from datetime import date
@@ -8,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from .db import DEFAULT_DB_PATH
+from .db import DEFAULT_DB_PATH, StatsSchemaError
 from .definitions import SeriesDefinition
 from .providers import StatsProviderError
 from .service import QueryResult, StatsService
@@ -86,7 +87,20 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 print(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), end="")
                 return 0
-    except (KeyError, ValueError, StatsProviderError) as exc:
+    except KeyError as exc:
+        message = exc.args[0] if exc.args else str(exc)
+        print(f"error: {message}", file=sys.stderr)
+        return 1
+    except StatsSchemaError as exc:
+        print(
+            f"error: {exc}; remove the local stats cache and retry if it is disposable",
+            file=sys.stderr,
+        )
+        return 1
+    except (sqlite3.Error, OSError) as exc:
+        print(f"error: unable to open stats db: {args.db}: {exc}", file=sys.stderr)
+        return 1
+    except (ValueError, StatsProviderError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     raise AssertionError(f"unreachable command: {args.command!r}")

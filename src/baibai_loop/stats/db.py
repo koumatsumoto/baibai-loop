@@ -9,9 +9,44 @@ from typing import cast
 
 from .definitions import SeriesDefinition, StatsDefinitions, load_definitions
 
-SQLITE_SCHEMA_VERSION = 1
+SQLITE_SCHEMA_VERSION = 2
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 DEFAULT_DB_PATH = Path("data/stats/macro.sqlite")
+_ROW_COUNT_SQL = {
+    "series": "SELECT COUNT(*) FROM series",
+    "aliases": "SELECT COUNT(*) FROM aliases",
+    "observations": "SELECT COUNT(*) FROM observations",
+    "provider_runs": "SELECT COUNT(*) FROM provider_runs",
+}
+_SERIES_ID_PRUNE_SQL = {
+    "series": (
+        "SELECT series_id FROM series",
+        "DELETE FROM series WHERE series_id = ?",
+    ),
+    "observations": (
+        "SELECT DISTINCT series_id FROM observations",
+        "DELETE FROM observations WHERE series_id = ?",
+    ),
+    "provider_runs": (
+        "SELECT DISTINCT series_id FROM provider_runs",
+        "DELETE FROM provider_runs WHERE series_id = ?",
+    ),
+}
+_MIGRATE_V1_TO_V2_SQL = """
+CREATE TABLE aliases_v2(
+  alias TEXT NOT NULL,
+  series_id TEXT NOT NULL REFERENCES series(series_id),
+  PRIMARY KEY(alias, series_id)
+);
+INSERT OR IGNORE INTO aliases_v2(alias, series_id)
+  SELECT alias, series_id FROM aliases;
+DROP TABLE aliases;
+ALTER TABLE aliases_v2 RENAME TO aliases;
+CREATE INDEX IF NOT EXISTS idx_aliases_alias ON aliases(alias);
+CREATE INDEX IF NOT EXISTS idx_observations_series_status_date_vintage
+  ON observations(series_id, fetch_status, observed_at, vintage_at);
+PRAGMA user_version = 2;
+"""
 
 
 class StatsSchemaError(RuntimeError):
@@ -52,7 +87,7 @@ def open_connection(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
         return initialize_database(db_path)
     conn = _connect(db_path)
     try:
-        validate_current_schema(conn)
+        _ensure_schema(conn)
         seed_definitions(conn, load_definitions())
         conn.commit()
     except BaseException:
@@ -215,7 +250,8 @@ def has_ok_coverage(conn: sqlite3.Connection, series_id: str, start: date, end: 
     row = conn.execute(
         "SELECT 1 FROM provider_runs "
         "WHERE series_id = ? AND status = 'ok' "
-        "AND date(range_start) <= date(?) AND date(range_end) >= date(?) "
+        "AND record_count > 0 "
+        "AND range_start <= ? AND range_end >= ? "
         "ORDER BY finished_at DESC LIMIT 1",
         (series_id, start.isoformat(), end.isoformat()),
     ).fetchone()
@@ -230,14 +266,14 @@ def observations_in_range(
 ) -> tuple[ObservationRecord, ...]:
     rows = conn.execute(
         "SELECT o.* FROM observations o WHERE o.series_id = ? "
-        "AND date(o.observed_at) BETWEEN date(?) AND date(?) "
+        "AND o.observed_at BETWEEN ? AND ? "
         "AND o.fetch_status = 'ok' "
         "AND o.vintage_at = ("
         "SELECT MAX(inner_o.vintage_at) FROM observations inner_o "
         "WHERE inner_o.series_id = o.series_id "
         "AND inner_o.observed_at = o.observed_at "
         "AND inner_o.fetch_status = 'ok'"
-        ") ORDER BY date(o.observed_at)",
+        ") ORDER BY o.observed_at",
         (series_id, start.isoformat(), end.isoformat()),
     ).fetchall()
     return tuple(_observation_from_row(row) for row in rows)
@@ -250,19 +286,18 @@ def latest_observation(
     on_or_before: date | None = None,
     on_or_after: date | None = None,
 ) -> ObservationRecord | None:
-    clauses = ["series_id = ?", "fetch_status = 'ok'"]
-    params: list[str] = [series_id]
-    if on_or_before is not None:
-        clauses.append("date(observed_at) <= date(?)")
-        params.append(on_or_before.isoformat())
-    if on_or_after is not None:
-        clauses.append("date(observed_at) >= date(?)")
-        params.append(on_or_after.isoformat())
     row = conn.execute(
-        "SELECT * FROM observations WHERE "
-        + " AND ".join(clauses)
-        + " ORDER BY date(observed_at) DESC, vintage_at DESC LIMIT 1",
-        tuple(params),
+        "SELECT * FROM observations WHERE series_id = ? AND fetch_status = 'ok' "
+        "AND (? IS NULL OR observed_at <= ?) "
+        "AND (? IS NULL OR observed_at >= ?) "
+        "ORDER BY observed_at DESC, vintage_at DESC LIMIT 1",
+        (
+            series_id,
+            on_or_before.isoformat() if on_or_before is not None else None,
+            on_or_before.isoformat() if on_or_before is not None else None,
+            on_or_after.isoformat() if on_or_after is not None else None,
+            on_or_after.isoformat() if on_or_after is not None else None,
+        ),
     ).fetchone()
     return _observation_from_row(row) if row is not None else None
 
@@ -275,8 +310,8 @@ def previous_observation(
 ) -> ObservationRecord | None:
     row = conn.execute(
         "SELECT * FROM observations WHERE series_id = ? AND fetch_status = 'ok' "
-        "AND date(observed_at) < date(?) "
-        "ORDER BY date(observed_at) DESC, vintage_at DESC LIMIT 1",
+        "AND observed_at < ? "
+        "ORDER BY observed_at DESC, vintage_at DESC LIMIT 1",
         (series_id, before.isoformat()),
     ).fetchone()
     return _observation_from_row(row) if row is not None else None
@@ -293,6 +328,9 @@ def _connect(db_path: Path) -> sqlite3.Connection:
 def _ensure_schema(conn: sqlite3.Connection) -> None:
     version = int(conn.execute("PRAGMA user_version").fetchone()[0])
     if version == SQLITE_SCHEMA_VERSION:
+        return
+    if version == 1:
+        conn.executescript(_MIGRATE_V1_TO_V2_SQL)
         return
     if version != 0:
         raise StatsSchemaError(
@@ -337,9 +375,10 @@ def _observation_from_row(row: sqlite3.Row) -> ObservationRecord:
 
 
 def row_count(conn: sqlite3.Connection, table: str) -> int:
-    if table not in {"series", "aliases", "observations", "provider_runs"}:
+    sql = _ROW_COUNT_SQL.get(table)
+    if sql is None:
         raise ValueError(f"unsupported stats table: {table}")
-    return cast(int, conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+    return cast(int, conn.execute(sql).fetchone()[0])
 
 
 def _delete_rows_not_in(
@@ -348,12 +387,17 @@ def _delete_rows_not_in(
     column: str,
     values: tuple[str, ...],
 ) -> None:
-    if table not in {"series", "observations", "provider_runs"}:
+    sql_pair = _SERIES_ID_PRUNE_SQL.get(table)
+    if sql_pair is None:
         raise ValueError(f"unsupported stats table: {table}")
     if column != "series_id":
         raise ValueError(f"unsupported stats column: {column}")
-    if not values:
-        conn.execute(f"DELETE FROM {table}")
-        return
-    placeholders = ",".join("?" for _ in values)
-    conn.execute(f"DELETE FROM {table} WHERE {column} NOT IN ({placeholders})", values)
+    select_sql, delete_sql = sql_pair
+    allowed = set(values)
+    stale_ids = {
+        str(row["series_id"])
+        for row in conn.execute(select_sql).fetchall()
+        if str(row["series_id"]) not in allowed
+    }
+    for series_id in stale_ids:
+        conn.execute(delete_sql, (series_id,))

@@ -12,11 +12,25 @@ from .db import ObservationRecord
 from .definitions import SeriesDefinition
 
 HTTP_TIMEOUT_SECONDS = 30
+MAX_CSV_RESPONSE_BYTES = 8_000_000
+MAX_ZIP_RESPONSE_BYTES = 16_000_000
+MAX_ECB_CSV_BYTES = 8_000_000
+MAX_ZIP_COMPRESSION_RATIO = 100
+ECB_FX_CSV_NAME = "eurofxref-hist.csv"
 _H15_PACKAGE_SERIES = "bf17364827e38702b42a58cf8eaa3f78"
 
 
 class StatsProviderError(RuntimeError):
     """Raised when a stats provider cannot return requested observations."""
+
+
+class FetchContext:
+    def __init__(self) -> None:
+        self.session = requests.Session()
+        self.bytes_cache: dict[tuple[str, tuple[tuple[str, str], ...]], bytes] = {}
+
+    def close(self) -> None:
+        self.session.close()
 
 
 class _Session(Protocol):
@@ -26,6 +40,7 @@ class _Session(Protocol):
         *,
         params: dict[str, str] | None = None,
         timeout: int,
+        stream: bool = False,
     ) -> requests.Response: ...
 
 
@@ -35,15 +50,37 @@ def fetch_observations(
     start: date,
     end: date,
     session: _Session | None = None,
+    context: FetchContext | None = None,
 ) -> list[ObservationRecord]:
-    http = session or requests.Session()
+    if context is not None:
+        return _fetch_observations_with_session(
+            series,
+            start=start,
+            end=end,
+            session=context.session,
+            context=context,
+        )
+    if session is not None:
+        return _fetch_observations_with_session(series, start=start, end=end, session=session)
+    with requests.Session() as http:
+        return _fetch_observations_with_session(series, start=start, end=end, session=http)
+
+
+def _fetch_observations_with_session(
+    series: SeriesDefinition,
+    *,
+    start: date,
+    end: date,
+    session: _Session,
+    context: FetchContext | None = None,
+) -> list[ObservationRecord]:
     match series.provider:
         case "fred_csv":
-            return _fetch_fred_csv(series, start=start, end=end, session=http)
+            return _fetch_fred_csv(series, start=start, end=end, session=session, context=context)
         case "frb_h15":
-            return _fetch_frb_h15(series, start=start, end=end, session=http)
+            return _fetch_frb_h15(series, start=start, end=end, session=session, context=context)
         case "ecb_fx":
-            return _fetch_ecb_fx(series, start=start, end=end, session=http)
+            return _fetch_ecb_fx(series, start=start, end=end, session=session, context=context)
         case _:
             raise StatsProviderError(f"unsupported stats provider: {series.provider}")
 
@@ -81,8 +118,13 @@ def parse_h15_csv(
     if header_index is None:
         raise StatsProviderError("FRB H.15 CSV missing Time Period header")
     reader = csv.DictReader(lines[header_index:])
+    fieldnames = set(reader.fieldnames or ())
     observations: list[ObservationRecord] = []
     left_id, right_id = _split_provider_series_id(series.provider_series_id)
+    if left_id not in fieldnames:
+        raise StatsProviderError(f"FRB H.15 CSV missing column {left_id}")
+    if right_id is not None and right_id not in fieldnames:
+        raise StatsProviderError(f"FRB H.15 CSV missing column {right_id}")
     for row in reader:
         observed_at_raw = row.get("Time Period")
         if not observed_at_raw:
@@ -112,6 +154,12 @@ def parse_ecb_fx_csv(
     end: date,
 ) -> list[ObservationRecord]:
     reader = csv.DictReader(io.StringIO(text))
+    fieldnames = set(reader.fieldnames or ())
+    required_columns = _required_ecb_fx_columns(series.provider_series_id)
+    missing_columns = required_columns - fieldnames
+    if missing_columns:
+        missing = ", ".join(sorted(missing_columns))
+        raise StatsProviderError(f"ECB FX CSV missing column(s): {missing}")
     observations: list[ObservationRecord] = []
     for row in reader:
         observed_at_raw = row.get("Date")
@@ -148,10 +196,16 @@ def _fetch_fred_csv(
     start: date,
     end: date,
     session: _Session,
+    context: FetchContext | None = None,
 ) -> list[ObservationRecord]:
-    response = session.get(series.source_url, timeout=HTTP_TIMEOUT_SECONDS)
-    _raise_for_response(response, series.source_url)
-    return parse_fred_csv(series, response.text, start=start, end=end)
+    text = _get_text(
+        session,
+        series.source_url,
+        params=None,
+        max_bytes=MAX_CSV_RESPONSE_BYTES,
+        context=context,
+    )
+    return parse_fred_csv(series, text, start=start, end=end)
 
 
 def _fetch_frb_h15(
@@ -160,6 +214,7 @@ def _fetch_frb_h15(
     start: date,
     end: date,
     session: _Session,
+    context: FetchContext | None = None,
 ) -> list[ObservationRecord]:
     params = {
         "rel": "H15",
@@ -172,9 +227,14 @@ def _fetch_frb_h15(
         "layout": "seriescolumn",
         "type": "package",
     }
-    response = session.get(series.source_url, params=params, timeout=HTTP_TIMEOUT_SECONDS)
-    _raise_for_response(response, series.source_url)
-    return parse_h15_csv(series, response.text, start=start, end=end)
+    text = _get_text(
+        session,
+        series.source_url,
+        params=params,
+        max_bytes=MAX_CSV_RESPONSE_BYTES,
+        context=context,
+    )
+    return parse_h15_csv(series, text, start=start, end=end)
 
 
 def _fetch_ecb_fx(
@@ -183,18 +243,92 @@ def _fetch_ecb_fx(
     start: date,
     end: date,
     session: _Session,
+    context: FetchContext | None = None,
 ) -> list[ObservationRecord]:
-    response = session.get(series.source_url, timeout=HTTP_TIMEOUT_SECONDS)
-    _raise_for_response(response, series.source_url)
+    content = _get_bytes(
+        session,
+        series.source_url,
+        params=None,
+        max_bytes=MAX_ZIP_RESPONSE_BYTES,
+        context=context,
+    )
     try:
-        archive = zipfile.ZipFile(io.BytesIO(response.content))
+        archive = zipfile.ZipFile(io.BytesIO(content))
     except zipfile.BadZipFile as exc:
         raise StatsProviderError("ECB FX response is not a ZIP archive") from exc
-    csv_name = next((name for name in archive.namelist() if name.endswith(".csv")), None)
-    if csv_name is None:
-        raise StatsProviderError("ECB FX ZIP missing CSV file")
-    text = archive.read(csv_name).decode("utf-8-sig")
+    with archive:
+        csv_infos = [
+            info
+            for info in archive.infolist()
+            if not info.is_dir() and info.filename.rsplit("/", maxsplit=1)[-1] == ECB_FX_CSV_NAME
+        ]
+        if len(csv_infos) != 1:
+            raise StatsProviderError(f"ECB FX ZIP must contain exactly one {ECB_FX_CSV_NAME}")
+        info = csv_infos[0]
+        if info.file_size > MAX_ECB_CSV_BYTES:
+            raise StatsProviderError(f"ECB FX CSV too large: {info.file_size} bytes")
+        if (
+            info.compress_size
+            and info.file_size / max(info.compress_size, 1) > MAX_ZIP_COMPRESSION_RATIO
+        ):
+            raise StatsProviderError("ECB FX ZIP compression ratio is too high")
+        with archive.open(info) as handle:
+            payload = handle.read(MAX_ECB_CSV_BYTES + 1)
+        if len(payload) > MAX_ECB_CSV_BYTES:
+            raise StatsProviderError(f"ECB FX CSV too large: {len(payload)} bytes")
+    text = payload.decode("utf-8-sig")
     return parse_ecb_fx_csv(series, text, start=start, end=end)
+
+
+def _get_text(
+    session: _Session,
+    url: str,
+    *,
+    params: dict[str, str] | None,
+    max_bytes: int,
+    context: FetchContext | None = None,
+) -> str:
+    content = _get_bytes(session, url, params=params, max_bytes=max_bytes, context=context)
+    return content.decode("utf-8-sig")
+
+
+def _get_bytes(
+    session: _Session,
+    url: str,
+    *,
+    params: dict[str, str] | None,
+    max_bytes: int,
+    context: FetchContext | None = None,
+) -> bytes:
+    key = (url, tuple(sorted((params or {}).items())))
+    if context is not None and key in context.bytes_cache:
+        return context.bytes_cache[key]
+    try:
+        response = session.get(url, params=params, timeout=HTTP_TIMEOUT_SECONDS, stream=True)
+        _raise_for_response(response, url)
+        content_length = response.headers.get("Content-Length")
+        if content_length is not None:
+            try:
+                parsed_length = int(content_length)
+            except ValueError:
+                parsed_length = None
+            if parsed_length is not None and parsed_length > max_bytes:
+                raise StatsProviderError(f"stats response too large: {parsed_length} bytes")
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in response.iter_content(chunk_size=64 * 1024):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > max_bytes:
+                raise StatsProviderError(f"stats response too large: {total} bytes")
+            chunks.append(chunk)
+        content = b"".join(chunks)
+    except requests.RequestException as exc:
+        raise StatsProviderError(f"failed to fetch {url}: {exc}") from exc
+    if context is not None:
+        context.bytes_cache[key] = content
+    return content
 
 
 def _raise_for_response(response: requests.Response, url: str) -> None:
@@ -209,6 +343,18 @@ def _split_provider_series_id(provider_series_id: str) -> tuple[str, str | None]
         return provider_series_id, None
     left, right = provider_series_id.split("-", maxsplit=1)
     return left, right
+
+
+def _required_ecb_fx_columns(provider_series_id: str) -> set[str]:
+    match provider_series_id:
+        case "EURJPY":
+            return {"Date", "JPY"}
+        case "USDJPY":
+            return {"Date", "JPY", "USD"}
+        case "AUDJPY":
+            return {"Date", "JPY", "AUD"}
+        case _:
+            raise StatsProviderError(f"unsupported ECB FX series: {provider_series_id}")
 
 
 def _optional_float(value: str | None) -> float | None:

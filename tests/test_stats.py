@@ -5,12 +5,16 @@ import tempfile
 import unittest
 from datetime import UTC, date, datetime
 from pathlib import Path
+from unittest.mock import patch
+
+import requests
 
 from baibai_loop.stats.cli import main
 from baibai_loop.stats.db import (
     SQLITE_SCHEMA_VERSION,
     ObservationRecord,
     get_series,
+    has_ok_coverage,
     initialize_database,
     insert_observations,
     list_series,
@@ -20,7 +24,13 @@ from baibai_loop.stats.db import (
     row_count,
 )
 from baibai_loop.stats.definitions import SeriesDefinition
-from baibai_loop.stats.providers import parse_ecb_fx_csv, parse_fred_csv, parse_h15_csv
+from baibai_loop.stats.providers import (
+    StatsProviderError,
+    fetch_observations,
+    parse_ecb_fx_csv,
+    parse_fred_csv,
+    parse_h15_csv,
+)
 from baibai_loop.stats.service import StatsService
 
 
@@ -158,6 +168,57 @@ class StatsDBTests(unittest.TestCase):
             self.assertEqual(len(observations), 1)
             self.assertEqual(observations[0].value, 4.41)
 
+    def test_zero_record_provider_run_is_not_cache_coverage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "macro.sqlite"
+            conn = initialize_database(db)
+            try:
+                record_provider_run(
+                    conn,
+                    provider="fred_csv",
+                    series_id="us.cpi.headline",
+                    start=date(2027, 1, 1),
+                    end=date(2027, 3, 31),
+                    started_at=datetime(2026, 5, 1, tzinfo=UTC),
+                    status="ok",
+                    record_count=0,
+                )
+                conn.commit()
+
+                covered = has_ok_coverage(
+                    conn,
+                    "us.cpi.headline",
+                    date(2027, 1, 1),
+                    date(2027, 3, 31),
+                )
+            finally:
+                conn.close()
+
+            self.assertFalse(covered)
+
+    def test_aliases_allow_same_alias_for_multiple_series(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "macro.sqlite"
+            conn = initialize_database(db)
+            try:
+                conn.execute(
+                    "INSERT INTO aliases(alias, series_id) VALUES (?, ?)",
+                    ("CPI", "us.cpi.headline"),
+                )
+                conn.execute(
+                    "INSERT INTO aliases(alias, series_id) VALUES (?, ?)",
+                    ("CPI", "us.cpi.core"),
+                )
+                conn.commit()
+                rows = conn.execute(
+                    "SELECT series_id FROM aliases WHERE alias = ? ORDER BY series_id",
+                    ("CPI",),
+                ).fetchall()
+            finally:
+                conn.close()
+
+            self.assertEqual([row[0] for row in rows], ["us.cpi.core", "us.cpi.headline"])
+
 
 class StatsProviderParserTests(unittest.TestCase):
     def test_parse_fred_csv_filters_range_and_missing_values(self) -> None:
@@ -197,6 +258,13 @@ class StatsProviderParserTests(unittest.TestCase):
         self.assertAlmostEqual(observations[0].value, 51.0)
         self.assertAlmostEqual(observations[1].value, 50.0)
 
+    def test_parse_h15_csv_rejects_missing_required_column(self) -> None:
+        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        text = '"Time Period",OTHER\n2026-05-01,4.39\n'
+
+        with self.assertRaisesRegex(StatsProviderError, "missing column RIFLGFCY10_N.B"):
+            parse_h15_csv(series, text, start=date(2026, 5, 1), end=date(2026, 5, 1))
+
     def test_parse_ecb_fx_csv_computes_cross_rate(self) -> None:
         series = _series("ecb_fx", "USDJPY", unit="jpy-per-usd")
         text = "Date,USD,JPY,AUD\n2026-05-08,1.1761,184.37,1.6259\n"
@@ -210,6 +278,40 @@ class StatsProviderParserTests(unittest.TestCase):
 
         self.assertEqual(len(observations), 1)
         self.assertAlmostEqual(observations[0].value, 156.76, places=2)
+
+    def test_parse_ecb_fx_csv_rejects_missing_required_column(self) -> None:
+        series = _series("ecb_fx", "USDJPY", unit="jpy-per-usd")
+        text = "Date,JPY\n2026-05-08,184.37\n"
+
+        with self.assertRaisesRegex(StatsProviderError, "missing column"):
+            parse_ecb_fx_csv(series, text, start=date(2026, 5, 8), end=date(2026, 5, 8))
+
+    def test_fetch_observations_wraps_request_exception(self) -> None:
+        series = _series("fred_csv", "DGS10")
+
+        with self.assertRaisesRegex(StatsProviderError, "failed to fetch"):
+            fetch_observations(
+                series,
+                start=date(2026, 5, 1),
+                end=date(2026, 5, 1),
+                session=_RaisingSession(),
+            )
+
+    def test_fetch_observations_rejects_oversized_response(self) -> None:
+        series = _series("fred_csv", "DGS10")
+
+        with self.assertRaisesRegex(StatsProviderError, "too large"):
+            fetch_observations(
+                series,
+                start=date(2026, 5, 1),
+                end=date(2026, 5, 1),
+                session=_StaticSession(
+                    _FakeResponse(
+                        b"",
+                        headers={"Content-Length": "9000000"},
+                    )
+                ),
+            )
 
 
 class StatsServiceTests(unittest.TestCase):
@@ -234,6 +336,26 @@ class StatsServiceTests(unittest.TestCase):
             self.assertTrue(result.cache_hit)
             self.assertEqual(len(result.observations), 1)
             self.assertEqual(result.observations[0].value, 4.45)
+
+    def test_get_latest_uses_fresh_cached_observation_before_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "macro.sqlite"
+            observed_at = datetime.now(UTC).date()
+            _write_observation(
+                db,
+                "us.10y",
+                observed_at=observed_at,
+                value=4.45,
+            )
+
+            with patch(
+                "baibai_loop.stats.service.fetch_observations",
+                side_effect=AssertionError("provider should not be called"),
+            ):
+                result = StatsService(db).get_latest("us.10y")
+
+            self.assertTrue(result.cache_hit)
+            self.assertEqual(result.observations[0].observed_at, observed_at)
 
     def test_brief_fragment_uses_cached_world_weekly_series(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -278,6 +400,17 @@ class StatsServiceTests(unittest.TestCase):
                 {item["indicator"] for item in payload["deltas"]["threshold_breaches"]},
             )
 
+    def test_brief_fragment_rejects_reversed_date_range(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "macro.sqlite"
+
+            with self.assertRaisesRegex(ValueError, "--end must be on or after --start"):
+                StatsService(db).brief_fragment(
+                    kind="world-weekly",
+                    start=date(2026, 5, 10),
+                    end=date(2026, 5, 4),
+                )
+
     def test_cli_search_and_cached_get(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "macro.sqlite"
@@ -306,6 +439,15 @@ class StatsServiceTests(unittest.TestCase):
                 ),
                 0,
             )
+
+    def test_cli_handles_bad_db_path_without_traceback(self) -> None:
+        self.assertEqual(main(["list", "--db", "/tmp"]), 1)
+
+    def test_cli_unknown_series_returns_controlled_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "macro.sqlite"
+
+            self.assertEqual(main(["get", "jp.cpi.headline", "--latest", "--db", str(db)]), 1)
 
 
 def _series(provider: str, provider_series_id: str, *, unit: str = "percent") -> SeriesDefinition:
@@ -376,3 +518,42 @@ def _write_observation(
         conn.commit()
     finally:
         conn.close()
+
+
+class _RaisingSession:
+    def get(
+        self,
+        url: str,
+        *,
+        params: dict[str, str] | None = None,
+        timeout: int,
+        stream: bool = False,
+    ) -> object:
+        raise requests.Timeout("simulated timeout")
+
+
+class _StaticSession:
+    def __init__(self, response: _FakeResponse) -> None:
+        self.response = response
+
+    def get(
+        self,
+        url: str,
+        *,
+        params: dict[str, str] | None = None,
+        timeout: int,
+        stream: bool = False,
+    ) -> _FakeResponse:
+        return self.response
+
+
+class _FakeResponse:
+    def __init__(self, content: bytes, *, headers: dict[str, str] | None = None) -> None:
+        self.content = content
+        self.headers = headers or {}
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def iter_content(self, *, chunk_size: int) -> list[bytes]:
+        return [self.content]

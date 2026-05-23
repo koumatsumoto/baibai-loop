@@ -10,10 +10,15 @@ from typing import Any
 from . import db
 from .db import ObservationRecord
 from .definitions import SeriesDefinition
-from .providers import StatsProviderError, fetch_observations
+from .providers import FetchContext, StatsProviderError, fetch_observations
 
 DEFAULT_LATEST_LOOKBACK_DAYS = 370
 DEFAULT_WEEKLY_LOOKBACK_DAYS = 28
+LATEST_CACHE_MAX_AGE_DAYS = {
+    "daily": 7,
+    "weekly": 14,
+    "monthly": 70,
+}
 WORLD_WEEKLY_SERIES = (
     "us.10y",
     "us.2y",
@@ -76,6 +81,16 @@ class StatsService:
 
     def get_latest(self, series_id: str, *, refresh: bool = False) -> QueryResult:
         end = datetime.now(UTC).date()
+        conn = db.open_connection(self.db_path)
+        try:
+            series = db.get_series(conn, series_id)
+            cached_latest = db.latest_observation(conn, series_id, on_or_before=end)
+            if not refresh and cached_latest is not None:
+                max_age = LATEST_CACHE_MAX_AGE_DAYS.get(series.frequency, 370)
+                if cached_latest.observed_at >= end - timedelta(days=max_age):
+                    return QueryResult(series, (cached_latest,), cache_hit=True)
+        finally:
+            conn.close()
         start = end - timedelta(days=DEFAULT_LATEST_LOOKBACK_DAYS)
         result = self.get_range(series_id, start=start, end=end, refresh=refresh)
         if not result.observations:
@@ -96,14 +111,17 @@ class StatsService:
     ) -> dict[str, Any]:
         if kind != "world-weekly":
             raise ValueError(f"unsupported stats brief fragment kind: {kind}")
+        if end < start:
+            raise ValueError("--end must be on or after --start")
         fetch_start = start - timedelta(days=DEFAULT_WEEKLY_LOOKBACK_DAYS)
         conn = db.open_connection(self.db_path)
+        context = FetchContext()
         try:
             items: list[tuple[SeriesDefinition, ObservationRecord, ObservationRecord | None]] = []
             for series_id in WORLD_WEEKLY_SERIES:
                 series = db.get_series(conn, series_id)
                 if refresh or not db.has_ok_coverage(conn, series_id, fetch_start, end):
-                    self._fetch_and_store(conn, series, start=fetch_start, end=end)
+                    self._fetch_and_store(conn, series, start=fetch_start, end=end, context=context)
                 current = db.latest_observation(
                     conn,
                     series_id,
@@ -118,6 +136,7 @@ class StatsService:
                 items.append((series, current, previous))
             return _render_world_weekly_fragment(start=start, end=end, items=items)
         finally:
+            context.close()
             conn.close()
 
     def _fetch_and_store(
@@ -127,10 +146,11 @@ class StatsService:
         *,
         start: date,
         end: date,
+        context: FetchContext | None = None,
     ) -> list[ObservationRecord]:
         started_at = datetime.now(UTC)
         try:
-            observations = fetch_observations(series, start=start, end=end)
+            observations = fetch_observations(series, start=start, end=end, context=context)
             db.insert_observations(conn, observations)
             db.record_provider_run(
                 conn,

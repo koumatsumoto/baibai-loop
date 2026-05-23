@@ -27,11 +27,11 @@ Configuration は runtime boundary です。secret や token の値は docs に�
 | --- | --- | --- |
 | `JQUANTS_REFRESH_TOKEN` | J-Quants API access / ledger sync | `.github/workflows/ledger-sync.yml`, screening / ledger provider |
 | `SCREENING_RULES_PATH` | screening rules / selection profile の既定 YAML path override | `baibai-loop-screening select`, `select-sweep`, `run` |
-| `ESTAT_APP_ID` | e-Stat API access。macro stats の日本統計 adapter を追加するときに使う | `baibai-loop-stats` future provider |
+| `ESTAT_APP_ID` | e-Stat API access。macro stats の日本統計 adapter を追加するときに使う未実装の future provider | `baibai-loop-stats` future provider |
 
 ## Macro statistics cache
 
-`baibai-loop-stats` は、macro regime gate の更新に必要な米日マクロ・市場データを取得し、`data/stats/macro.sqlite` に保存する。SQLite は取得 cache であり、brief / outlook の文書正本ではない。
+`baibai-loop-stats` は、macro regime gate の更新に必要な米国マクロ、FRB/FRED 市場指標、ECB 由来の JPY FX を取得し、`data/stats/macro.sqlite` に保存する。SQLite は取得 cache であり、brief / outlook の文書正本ではない。
 
 ```bash
 uv run baibai-loop-stats search CPI
@@ -39,7 +39,7 @@ uv run baibai-loop-stats get us.10y --start 2026-05-01 --end 2026-05-15
 uv run baibai-loop-stats brief-fragment --kind world-weekly --start 2026-05-04 --end 2026-05-10
 ```
 
-v1 は keyless CSV で取得できる FRB H.15、FRED CSV、ECB FX を優先する。HTML / PDF scraping やニュース本文取得は対象外。
+v1 は keyless CSV で取得できる FRB H.15、FRED CSV、ECB FX を優先する。日本 CPI / BOJ rate などの日本マクロ統計は e-Stat / BOJ の安定 series id と認証運用が固まるまで未実装。HTML / PDF scraping やニュース本文取得は対象外。
 
 ## Screening selection profile
 
