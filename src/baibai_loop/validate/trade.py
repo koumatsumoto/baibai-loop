@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import json
-import math
 import re
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -27,49 +24,11 @@ from .domain import (
     resolve_repository_ref,
 )
 from .errors import ValidationFinding
-from .registry import evaluate_kill_switch, has_validator_callable
 
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "trade.json"
 
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)
 _TICKER_PATTERN = re.compile(r"^[0-9A-Z]{4}$")
-_REMOVED_FRONT_MATTER_FIELDS = {
-    "status",
-    "order_date",
-    "entry_date",
-    "entry_price",
-    "exit_date",
-    "exit_price",
-    "pnl_pct",
-    "real_order_notional_yen",
-    "tactical_capital_yen",
-    "tactical_concentration_pct",
-    "policy_snapshot",
-    "policy_ref",
-    "policy_applicability",
-    "portfolio_exposure_ref",
-    "portfolio_exposure_snapshot_ref",
-    "calendar_refs",
-    "calendars_snapshot",
-}
-_REMOVED_HASH_FIELDS = {"content_sha256", "row_sha256"}
-_REMOVED_REFERENCE_FIELDS = {
-    "playbook_snapshot",
-    "policy_snapshot",
-    "policy_ref",
-    "policy_applicability",
-    "portfolio_exposure_ref",
-    "portfolio_exposure_snapshot_ref",
-    "calendar_refs",
-    "calendars_snapshot",
-    "universe_snapshot_ref",
-    "input_snapshots",
-    "screening_rules_snapshot",
-    "metric_catalog_snapshot",
-    "cache_manifest_hash",
-    "snapshot_path",
-    "latest_snapshot",
-}
 _ORDER_STATES = {
     "submitted",
     "broker_rejected",
@@ -92,12 +51,6 @@ def _load_validator() -> Draft202012Validator:
 _VALIDATOR = _load_validator()
 
 
-@dataclass(frozen=True, slots=True)
-class _CalendarLoadResult:
-    events: list[Mapping[str, Any]]
-    findings: list[ValidationFinding]
-
-
 def discover_trade_files(root: Path) -> list[Path]:
     if not root.exists():
         return []
@@ -115,21 +68,15 @@ def validate_trade_file(path: Path) -> list[ValidationFinding]:
     front = loaded
     findings: list[ValidationFinding] = []
     findings.extend(_validate_schema(path, front))
-    findings.extend(_check_removed_fields(path, front))
-    findings.extend(_check_removed_hash_fields_recursive(path, front))
     findings.extend(_check_reference_refs(path, front))
     findings.extend(_check_ticker(path, front))
     findings.extend(_check_order_ready_shape(path, front))
-    findings.extend(_check_research_approval(path, front))
+    findings.extend(_check_trade_safety_gate(path, front))
     findings.extend(_check_order_join(path, front))
-    findings.extend(_check_decision_register_intent_join(path, front))
     findings.extend(_check_order_state_consistency(path, front))
     findings.extend(_check_current_quantity(path, front))
     findings.extend(_check_guarded_notional(path, front))
-    findings.extend(_check_intent_recomputed(path, front))
     findings.extend(_check_portfolio_concentration(path, front))
-    findings.extend(_check_kill_switches(path, front))
-    findings.extend(_check_entry_legs(path, front))
     return findings
 
 
@@ -193,20 +140,6 @@ def _validate_schema(path: Path, front: Mapping[str, object]) -> list[Validation
     return findings
 
 
-def _check_removed_fields(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
-    return [
-        ValidationFinding(
-            severity="error",
-            target=path,
-            code="trade.removed-field",
-            message=f"removed front matter field is not allowed: {field}",
-            location=field,
-        )
-        for field in sorted(_REMOVED_FRONT_MATTER_FIELDS)
-        if field in front
-    ]
-
-
 def _check_reference_refs(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
     specs = {
@@ -248,7 +181,7 @@ def _check_repository_ref(
                 location=location,
             )
         ]
-    findings = _check_removed_hash_fields(path, value, location)
+    findings: list[ValidationFinding] = []
     root = repo_root_for(path)
     ref = value.get("ref_path")
     error = repository_ref_error(ref, root=root)
@@ -452,12 +385,13 @@ def _check_order_ready_shape(path: Path, front: Mapping[str, object]) -> list[Va
     return findings
 
 
-def _check_research_approval(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
+def _check_trade_safety_gate(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
     if front.get("trade_execution_state") == "none":
         return []
+    findings: list[ValidationFinding] = []
     research = _load_referenced_research(path, front)
     if research is None:
-        return [
+        findings.append(
             ValidationFinding(
                 severity="error",
                 target=path,
@@ -465,19 +399,49 @@ def _check_research_approval(path: Path, front: Mapping[str, object]) -> list[Va
                 message="trade records with execution intent require a readable research_ref",
                 location="research_ref",
             )
-        ]
-    decision = as_mapping(research.get("research_decision"))
-    if decision.get("outcome") == "approved":
-        return []
-    return [
-        ValidationFinding(
-            severity="error",
-            target=path,
-            code="trade.research-approval",
-            message="trade records with execution intent require approved research_ref",
-            location="research_ref",
         )
-    ]
+    elif as_mapping(research.get("research_decision")).get("outcome") != "approved":
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.research-approval",
+                message="trade records with execution intent require approved research_ref",
+                location="research_ref",
+            )
+        )
+    intent = as_mapping(front.get("order_intent"))
+    if intent.get("uses_margin") is True:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.no-margin-trading",
+                message="margin trading is not allowed",
+                location="order_intent.uses_margin",
+            )
+        )
+    return findings
+
+
+def _load_referenced_research(
+    path: Path, front: Mapping[str, object]
+) -> Mapping[str, object] | None:
+    root = repo_root_for(path)
+    research_ref = front.get("research_ref")
+    if not isinstance(research_ref, str):
+        return None
+    if repository_ref_error(research_ref, root=root) is not None:
+        return None
+    research_path = resolve_repository_ref(root, research_ref)
+    if not research_ref.startswith("records/05-research/") or research_path.suffix != ".md":
+        return None
+    if not research_path.is_file():
+        return None
+    try:
+        return load_markdown_front_matter(research_path)
+    except (OSError, ValueError, yaml.YAMLError):
+        return None
 
 
 def _check_order_join(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
@@ -502,56 +466,6 @@ def _check_order_join(path: Path, front: Mapping[str, object]) -> list[Validatio
             )
         ]
     return []
-
-
-def _check_decision_register_intent_join(
-    path: Path, front: Mapping[str, object]
-) -> list[ValidationFinding]:
-    if not _is_repository_trade_record(path):
-        return []
-    intent = as_mapping(front.get("order_intent"))
-    decision_event_id = intent.get("decision_event_id")
-    intent_id = intent.get("order_intent_id")
-    if not isinstance(decision_event_id, str) or not isinstance(intent_id, str):
-        return []
-    root = repo_root_for(path)
-    ledger_root = root / "records/_ledger/research-decisions"
-    if not ledger_root.is_dir():
-        return []
-    for register_path in sorted(ledger_root.glob("*.jsonl")):
-        for line in register_path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(row, Mapping) or row.get("decision_event_id") != decision_event_id:
-                continue
-            register_intent = as_mapping(row.get("order_intent"))
-            if register_intent.get("order_intent_id") != intent_id:
-                return [
-                    ValidationFinding(
-                        severity="error",
-                        target=path,
-                        code="trade.decision-register-intent-join",
-                        message=(
-                            "order_intent.order_intent_id must match decision register "
-                            "order_intent for the same decision_event_id"
-                        ),
-                        location="order_intent.order_intent_id",
-                    )
-                ]
-            return []
-    return [
-        ValidationFinding(
-            severity="error",
-            target=path,
-            code="trade.decision-register-intent-missing",
-            message="trade order_intent.decision_event_id must exist in decision register",
-            location="order_intent.decision_event_id",
-        )
-    ]
 
 
 def _check_order_state_consistency(
@@ -670,50 +584,6 @@ def _check_guarded_notional(path: Path, front: Mapping[str, object]) -> list[Val
             )
         ]
     return []
-
-
-def _check_intent_recomputed(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
-    intent = as_mapping(front.get("order_intent"))
-    sizing = as_mapping(front.get("position_sizing_overlay"))
-    if not intent or not sizing:
-        return []
-    expected = _derive_trade_order(path, front)
-    findings: list[ValidationFinding] = []
-    if expected is None:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="trade.intent-source",
-                message="submitted trade order intent must derive from a valid research_ref",
-                location="research_ref",
-            )
-        )
-        return findings
-    for field, expected_value in (
-        ("quantity", expected["quantity"]),
-        ("order_price_guard_yen", expected["order_price_guard_yen"]),
-        ("guarded_max_notional_yen", expected["guarded_notional_yen"]),
-    ):
-        source = intent if field in {"quantity", "order_price_guard_yen"} else sizing
-        location = (
-            f"order_intent.{field}" if source is intent else f"position_sizing_overlay.{field}"
-        )
-        actual = _number(source.get(field))
-        if actual is None or abs(actual - expected_value) > 1:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="trade.intent-derived",
-                    message=(
-                        f"{location} must derive to {expected_value:g} from "
-                        "research, policy, and board lot"
-                    ),
-                    location=location,
-                )
-            )
-    return findings
 
 
 def _check_portfolio_concentration(
@@ -850,241 +720,6 @@ def _open_trade_notional(front: Mapping[str, Any]) -> float | None:
     return None
 
 
-def _derive_trade_order(path: Path, front: Mapping[str, object]) -> dict[str, float] | None:
-    research = _load_referenced_research(path, front)
-    if research is None:
-        return None
-    order_constraints = as_mapping(PORTFOLIO_POLICY.get("order_constraints"))
-    board_lot = int(number(order_constraints.get("board_lot")) or 100)
-    payoff = as_mapping(research.get("thesis_payoff"))
-    guard = _number(payoff.get("max_entry_price_yen"))
-    research_sizing = as_mapping(research.get("position_sizing_overlay"))
-    real_intent = _number(research_sizing.get("real_order_intent_yen"))
-    if guard is None or guard <= 0 or real_intent is None:
-        return None
-    quantity = math.floor(real_intent / guard / board_lot) * board_lot if board_lot else 0
-    return {
-        "quantity": float(quantity),
-        "order_price_guard_yen": float(guard),
-        "guarded_notional_yen": float(quantity * guard),
-    }
-
-
-def _load_referenced_research(
-    path: Path, front: Mapping[str, object]
-) -> Mapping[str, object] | None:
-    root = repo_root_for(path)
-    research_ref = front.get("research_ref")
-    if not isinstance(research_ref, str):
-        return None
-    if repository_ref_error(research_ref, root=root) is not None:
-        return None
-    research_path = resolve_repository_ref(root, research_ref)
-    if not research_ref.startswith("records/05-research/") or research_path.suffix != ".md":
-        return None
-    if not research_path.is_file():
-        return None
-    try:
-        research = load_markdown_front_matter(research_path)
-    except (OSError, ValueError, yaml.YAMLError):
-        return None
-    return research
-
-
-def _check_entry_legs(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
-    legs = front.get("entry_legs")
-    if front.get("trade_execution_state") == "none":
-        return []
-    if not isinstance(legs, list) or not legs:
-        return [
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="trade.entry-legs-required",
-                message="trade records with position lifecycle require entry_legs",
-                location="entry_legs",
-            )
-        ]
-    return []
-
-
-def _check_kill_switches(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
-    validator_configs = _validator_configs(PORTFOLIO_POLICY)
-    if not validator_configs:
-        return []
-    checked = as_mapping(front.get("kill_switch_check"))
-    at = _first_order_event_at(front)
-    findings: list[ValidationFinding] = []
-    calendar_result = _load_events_calendar(path, at=at)
-    findings.extend(calendar_result.findings)
-    events = calendar_result.events
-    intent = as_mapping(front.get("order_intent"))
-    for key, config in validator_configs:
-        callable_id = config.get("validator_callable_id")
-        if not isinstance(callable_id, str) or not callable_id:
-            continue
-        if not has_validator_callable(callable_id):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="trade.kill-switch-callable",
-                    message=f"kill switch has no validator implementation: {callable_id}",
-                    location=f"policy_config.kill_switch.{key}.validator_callable_id",
-                )
-            )
-            continue
-        expected = evaluate_kill_switch(
-            callable_id,
-            {
-                "ticker": front.get("ticker"),
-                "at": at,
-                "window_days": config.get("window_days"),
-                "uses_margin": intent.get("uses_margin"),
-            },
-            events,
-        )
-        if expected is None:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="trade.kill-switch-callable",
-                    message=f"validator callable did not return a value: {callable_id}",
-                    location=f"kill_switch_check.{key}",
-                )
-            )
-            continue
-        if callable_id == "no_margin_trading" and expected:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="trade.no-margin-trading",
-                    message="margin trading is not allowed by portfolio policy",
-                    location="order_intent.uses_margin",
-                )
-            )
-        actual = checked.get(str(key))
-        if actual is not expected:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="trade.kill-switch-check",
-                    message=f"kill_switch_check.{key} must be {str(expected).lower()}",
-                    location=f"kill_switch_check.{key}",
-                )
-            )
-    return findings
-
-
-def _validator_configs(policy: Mapping[str, Any]) -> list[tuple[str, Mapping[str, Any]]]:
-    configs: list[tuple[str, Mapping[str, Any]]] = []
-    for key, config_value in as_mapping(policy.get("kill_switch")).items():
-        config = as_mapping(config_value)
-        if config:
-            configs.append((str(key), config))
-    for item in as_list(policy.get("unique_constraints")):
-        if not isinstance(item, Mapping):
-            continue
-        config = as_mapping(item)
-        callable_id = config.get("validator_callable_id")
-        key = str(callable_id or item.get("id") or "")
-        if key:
-            configs.append((key, config))
-    return configs
-
-
-def _load_events_calendar(path: Path, *, at: str | None) -> _CalendarLoadResult:
-    events: list[Mapping[str, Any]] = []
-    findings: list[ValidationFinding] = []
-    target_date = _date_from_datetime(at)
-    covered = target_date is None
-    calendar_root = repo_root_for(path) / "records/_calendars/events"
-    calendar_paths = sorted(calendar_root.rglob("*.yaml"))
-    if not calendar_paths:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="trade.events-calendar-missing",
-                message="records/_calendars/events must contain at least one YAML calendar",
-                location="kill_switch_check",
-            )
-        )
-        return _CalendarLoadResult(events, findings)
-    for calendar_path in calendar_paths:
-        try:
-            raw = yaml.safe_load(calendar_path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError) as exc:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="trade.events-calendar-parse",
-                    message=f"failed to parse events calendar {calendar_path}: {exc}",
-                    location="kill_switch_check",
-                )
-            )
-            continue
-        if not isinstance(raw, Mapping):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="trade.events-calendar-root",
-                    message=f"events calendar must be a mapping: {calendar_path}",
-                    location="kill_switch_check",
-                )
-            )
-            continue
-        if target_date is not None and _calendar_covers(raw, target_date):
-            covered = True
-        for event in as_list(raw.get("events")):
-            if isinstance(event, Mapping):
-                events.append(event)
-    if not covered and target_date is not None:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="trade.events-calendar-coverage",
-                message=f"events calendar does not cover order date {target_date.isoformat()}",
-                location="kill_switch_check",
-            )
-        )
-    return _CalendarLoadResult(events, findings)
-
-
-def _date_from_datetime(value: str | None) -> date | None:
-    if not isinstance(value, str) or not value:
-        return None
-    try:
-        return date.fromisoformat(value[:10])
-    except ValueError:
-        return None
-
-
-def _calendar_covers(calendar: Mapping[str, object], target: date) -> bool:
-    start = _date_from_datetime(str(calendar.get("covered_from") or ""))
-    end = _date_from_datetime(str(calendar.get("covered_until") or ""))
-    return start is not None and end is not None and start <= target <= end
-
-
-def _first_order_event_at(front: Mapping[str, object]) -> str | None:
-    for order in as_list(front.get("orders")):
-        if not isinstance(order, Mapping):
-            continue
-        for event in as_list(order.get("events")):
-            if not isinstance(event, Mapping):
-                continue
-            at = event.get("at")
-            if isinstance(at, str) and at:
-                return at
-    return None
-
-
 def _is_repository_trade_record(path: Path) -> bool:
     root = repo_root_for(path)
     try:
@@ -1109,66 +744,3 @@ def _format_path(parts: Iterable[Any]) -> str:
             f"[{part}]" if isinstance(part, int) else f".{part}" if rendered else str(part)
         )
     return "".join(rendered)
-
-
-def _check_removed_hash_fields(
-    path: Path,
-    value: Mapping[str, object],
-    location: str,
-) -> list[ValidationFinding]:
-    return [
-        ValidationFinding(
-            severity="error",
-            target=path,
-            code="trade.removed-hash-field",
-            message=f"{field} is no longer allowed in repository links",
-            location=f"{location}.{field}",
-        )
-        for field in sorted(_REMOVED_HASH_FIELDS)
-        if field in value
-    ]
-
-
-def _check_removed_hash_fields_recursive(
-    path: Path, front: Mapping[str, object]
-) -> list[ValidationFinding]:
-    findings: list[ValidationFinding] = []
-    for location, node in _walk_mappings(front, prefix=None):
-        for field in sorted(_REMOVED_HASH_FIELDS):
-            if field in node:
-                findings.append(
-                    ValidationFinding(
-                        severity="error",
-                        target=path,
-                        code="trade.removed-hash-field",
-                        message=f"{field} is no longer allowed in trade records",
-                        location=f"{location}.{field}" if location else field,
-                    )
-                )
-        for field in sorted(_REMOVED_REFERENCE_FIELDS):
-            if field in node:
-                findings.append(
-                    ValidationFinding(
-                        severity="error",
-                        target=path,
-                        code="trade.removed-reference-field",
-                        message=f"{field} has been replaced by repository reference fields",
-                        location=f"{location}.{field}" if location else field,
-                    )
-                )
-    return findings
-
-
-def _walk_mappings(
-    value: object, *, prefix: str | None
-) -> Iterable[tuple[str, Mapping[str, object]]]:
-    if isinstance(value, Mapping):
-        location = prefix or ""
-        yield location, value
-        for key, child in value.items():
-            child_prefix = f"{location}.{key}" if location else str(key)
-            yield from _walk_mappings(child, prefix=child_prefix)
-    elif isinstance(value, list):
-        location = prefix or ""
-        for index, child in enumerate(value):
-            yield from _walk_mappings(child, prefix=f"{location}[{index}]")

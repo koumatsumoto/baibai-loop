@@ -54,10 +54,6 @@ Baibai-Loop では `evidence hit` を使います。`evidence hit` は candidate
 
 `macro context` は、スクリーニング直前に確認する市場環境の読みです。ロイター等の外部記事や公的統計を材料に、当面の買い場探索で優先する sector / exposure と避ける条件を整理します。
 
-## Security Exposure
-
-`security exposure` は、個別銘柄がどの macro / sector / demand / FX / rate / commodity / cycle exposure を持つかを表す security-level mapping です。東証33業種だけで macro sensitivity を表現できない場合に使います。
-
 ## Position Sizing Overlay / Risk Budget
 
 `position sizing overlay` は、個別候補の position sizing / timing cap に portfolio policy と macro context を重ねる概念です。業界用語としての portfolio-level risk budget overlay とは区別します。

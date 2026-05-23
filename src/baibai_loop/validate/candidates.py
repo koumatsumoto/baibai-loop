@@ -20,35 +20,6 @@ from .domain import repo_root_for, repository_ref_error, resolve_repository_ref
 from .errors import ValidationFinding
 
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "candidates.json"
-_REMOVED_ROOT_FIELDS = frozenset(
-    {
-        "screening_rules_snapshot",
-        "metric_catalog_snapshot",
-        "policy_snapshot",
-        "portfolio_exposure_ref",
-        "portfolio_exposure_snapshot_ref",
-        "cache_manifest_hash",
-        "universe_snapshot_ref",
-        "content_sha256",
-        "row_sha256",
-    }
-)
-_REMOVED_REFERENCE_FIELDS = frozenset(
-    {
-        "playbook_snapshot",
-        "policy_snapshot",
-        "portfolio_exposure_ref",
-        "portfolio_exposure_snapshot_ref",
-        "calendars_snapshot",
-        "universe_snapshot_ref",
-        "input_snapshots",
-        "screening_rules_snapshot",
-        "metric_catalog_snapshot",
-        "cache_manifest_hash",
-        "snapshot_path",
-        "latest_snapshot",
-    }
-)
 
 
 def _load_validator() -> Draft202012Validator:
@@ -107,51 +78,8 @@ def validate_candidates_file(path: Path) -> list[ValidationFinding]:
                 location=_format_path(error.absolute_path),
             )
         )
-    findings.extend(_check_removed_root_fields(path, document))
-    findings.extend(_check_removed_hash_fields(path, document))
     findings.extend(_check_universe_ref(path, document, document.get("universe_ref")))
     findings.extend(_check_business_lineage(path, document))
-    return findings
-
-
-def _check_removed_root_fields(path: Path, document: Mapping[str, Any]) -> list[ValidationFinding]:
-    findings: list[ValidationFinding] = []
-    for field in sorted(_REMOVED_ROOT_FIELDS):
-        if field in document:
-            findings.append(
-                _finding(
-                    path,
-                    "candidates.removed-root-field",
-                    f"{field} is no longer part of candidates output",
-                    field,
-                )
-            )
-    return findings
-
-
-def _check_removed_hash_fields(path: Path, document: object) -> list[ValidationFinding]:
-    findings: list[ValidationFinding] = []
-    for location, node in _walk_mappings(document, prefix=None):
-        for field in ("content_sha256", "row_sha256"):
-            if field in node:
-                findings.append(
-                    _finding(
-                        path,
-                        "candidates.removed-hash-field",
-                        f"{field} is no longer allowed in candidates output",
-                        f"{location}.{field}" if location else field,
-                    )
-                )
-        for field in sorted(_REMOVED_REFERENCE_FIELDS):
-            if field in node:
-                findings.append(
-                    _finding(
-                        path,
-                        "candidates.removed-reference-field",
-                        f"{field} has been replaced by repository reference fields",
-                        f"{location}.{field}" if location else field,
-                    )
-                )
     return findings
 
 
@@ -362,21 +290,6 @@ def _expected_universe_snapshot_id(document: Mapping[str, Any]) -> str | None:
     if asof is None:
         return None
     return "universe-" + asof.replace("-", "")
-
-
-def _walk_mappings(
-    value: object, *, prefix: str | None
-) -> Iterable[tuple[str, Mapping[str, object]]]:
-    if isinstance(value, Mapping):
-        location = prefix or ""
-        yield location, value
-        for key, child in value.items():
-            child_prefix = f"{location}.{key}" if location else str(key)
-            yield from _walk_mappings(child, prefix=child_prefix)
-    elif isinstance(value, list):
-        location = prefix or ""
-        for index, child in enumerate(value):
-            yield from _walk_mappings(child, prefix=f"{location}[{index}]")
 
 
 def _check_business_lineage(

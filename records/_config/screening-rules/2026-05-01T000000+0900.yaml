@@ -70,19 +70,6 @@ selection:
     max_recommended_per_queue: 3
     max_previous_candidates_in_recommended: 2
     previous_overlap_warning_ratio: 0.6
-  ai_exposure_sector_tags:
-    情報・通信業:
-    - ai-enabled-demand
-    - ai-disruption-watch
-    電気機器:
-    - ai-capex-supply-chain
-    - ai-disruption-watch
-    サービス業:
-    - ai-labor-substitution-watch
-    小売業:
-    - ai-demand-forecasting-user
-    機械:
-    - ai-capex-supply-chain
 screening_playbooks:
   valuation-reversion:
     sector_median_gap_max: -0.2

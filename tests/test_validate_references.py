@@ -14,98 +14,6 @@ from baibai_loop.validate.references import validate_reference_integrity
 
 
 class ReferenceIntegrityValidationTests(unittest.TestCase):
-    def test_rejects_removed_hash_field(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            research = root / "records/05-research/2026/05/research.md"
-            research.parent.mkdir(parents=True)
-            hash_key = "content_" + "sha256"
-            research.write_text(
-                "---\n"
-                "playbook_ref:\n"
-                "  ref_path: records/_playbooks/test/2026-05-01T000000+0900.md\n"
-                f"  {hash_key}: sha256:{'0' * 64}\n"
-                "---\n",
-                encoding="utf-8",
-            )
-
-            findings = validate_reference_integrity(root)
-
-        self.assertIn("reference.removed-hash-field", {finding.code for finding in findings})
-
-    def test_rejects_removed_hash_field_in_support_area(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            policy = root / "records/_config/screening-rules/test.yaml"
-            policy.parent.mkdir(parents=True)
-            hash_key = "row_" + "sha256"
-            policy.write_text(f"policy_id: test\n{hash_key}: sha256:bad\n", encoding="utf-8")
-
-            findings = validate_reference_integrity(root)
-
-        self.assertIn("reference.removed-hash-field", {finding.code for finding in findings})
-
-    def test_rejects_removed_reference_field_name(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            research = root / "records/05-research/2026/05/research.md"
-            research.parent.mkdir(parents=True)
-            legacy_field = "_".join(("policy", "snapshot"))
-            research.write_text(
-                f"---\n{legacy_field}:\n  ref_path: docs/portfolio-policy.md\n---\n",
-                encoding="utf-8",
-            )
-
-            findings = validate_reference_integrity(root)
-
-        self.assertIn(
-            "reference.removed-reference-field",
-            {finding.code for finding in findings},
-        )
-
-    def test_rejects_removed_portfolio_exposure_reference_field_name(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            research = root / "records/05-research/2026/05/research.md"
-            research.parent.mkdir(parents=True)
-            legacy_field = "_".join(("portfolio", "exposure", "ref"))
-            research.write_text(
-                f"---\n{legacy_field}:\n"
-                "  ref_path: records/_portfolio-exposure/2026/05/exposure.yaml\n---\n",
-                encoding="utf-8",
-            )
-
-            findings = validate_reference_integrity(root)
-
-        self.assertIn(
-            "reference.removed-reference-field",
-            {finding.code for finding in findings},
-        )
-
-    def test_rejects_removed_snapshot_path_fallback_field(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            playbook = root / "records/_playbooks/test/2026-05-01T000000+0900.md"
-            playbook.parent.mkdir(parents=True)
-            playbook.write_text("---\nplaybook_id: test\n---\n", encoding="utf-8")
-            research = root / "records/05-research/2026/05/research.md"
-            research.parent.mkdir(parents=True)
-            research.write_text(
-                "---\n"
-                "playbook_ref:\n"
-                "  ref_path: records/_playbooks/test/2026-05-01T000000+0900.md\n"
-                "  snapshot_path: records/_playbooks/test/2026-05-01T000000+0900.md\n"
-                "---\n",
-                encoding="utf-8",
-            )
-
-            findings = validate_reference_integrity(root)
-
-        self.assertIn(
-            "reference.removed-reference-field",
-            {finding.code for finding in findings},
-        )
-
     def test_rejects_invalid_markdown_front_matter(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -372,29 +280,6 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
                 "members:\n"
                 "- ticker: '130A'\n"
                 "- ticker: '130A'\n",
-                encoding="utf-8",
-            )
-
-            findings = validate_reference_integrity(root)
-
-        self.assertIn("reference.universe-members", {finding.code for finding in findings})
-
-    def test_rejects_universe_security_exposure_source_refs_scalar(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            universe = root / "records/_universe-snapshots/2026/05/universe.yaml"
-            universe.parent.mkdir(parents=True)
-            universe.write_text(
-                "snapshot_id: universe-20260501\n"
-                "as_of: '2026-05-01'\n"
-                "universe_size: 1\n"
-                "members_scope: full_universe\n"
-                "members_recorded: 1\n"
-                "members:\n"
-                "- ticker: '130A'\n"
-                "  security_exposures:\n"
-                "  - exposure_bucket: japan-domestic\n"
-                "    source_refs: records/06-trades/wrong.md\n",
                 encoding="utf-8",
             )
 

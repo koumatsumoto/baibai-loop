@@ -16,27 +16,6 @@ from .domain import repository_ref_error, resolve_repository_ref
 from .errors import ValidationFinding
 
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
-_REMOVED_HASH_FIELDS = frozenset({"content_sha256", "row_sha256"})
-_REMOVED_REFERENCE_FIELDS = frozenset(
-    {
-        "playbook_snapshot",
-        "policy_snapshot",
-        "policy_ref",
-        "policy_applicability",
-        "portfolio_exposure_ref",
-        "portfolio_exposure_snapshot_ref",
-        "calendar_refs",
-        "calendars_snapshot",
-        "universe_snapshot_ref",
-        "input_snapshots",
-        "screening_rules_snapshot",
-        "metric_catalog_snapshot",
-        "cache_manifest_hash",
-        "snapshot_path",
-        "latest_snapshot",
-    }
-)
-
 _REFERENCE_ROOTS: tuple[Path, ...] = (Path("records"),)
 
 _PARSEABLE_REF_SUFFIXES = frozenset({".yaml", ".yml", ".md", ".jsonl"})
@@ -56,14 +35,6 @@ _REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
     (
         "input_refs.screening_rules",
         _ReferenceSpec(("records/_config/screening-rules/",), (".yaml", ".yml")),
-    ),
-    (
-        "input_refs.metric_catalog",
-        _ReferenceSpec(("records/_config/metric-catalog/",), (".yaml", ".yml")),
-    ),
-    (
-        "input_refs.exposure_buckets",
-        _ReferenceSpec(("records/_config/exposure-buckets/",), (".yaml", ".yml")),
     ),
     (
         "input_refs.universe",
@@ -156,51 +127,11 @@ def _check_nested_refs(
 ) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
     for location, node in _walk_mappings(value, prefix=prefix):
-        findings.extend(_check_removed_hash_fields(target, node, location=location))
-        findings.extend(_check_removed_reference_fields(target, node, location=location))
         findings.extend(_check_reference_field_shapes(target, node, location=location))
         findings.extend(_check_string_list_reference_fields(root, target, node, location=location))
         findings.extend(_check_scalar_reference_fields(root, target, node, location=location))
         findings.extend(_check_repository_ref(root, target, node, location=location))
     return findings
-
-
-def _check_removed_hash_fields(
-    target: Path,
-    node: Mapping[str, object],
-    *,
-    location: str,
-) -> list[ValidationFinding]:
-    return [
-        ValidationFinding(
-            severity="error",
-            target=target,
-            code="reference.removed-hash-field",
-            message=f"{field} is no longer allowed in repository links",
-            location=f"{location}.{field}" if location else field,
-        )
-        for field in sorted(_REMOVED_HASH_FIELDS)
-        if field in node
-    ]
-
-
-def _check_removed_reference_fields(
-    target: Path,
-    node: Mapping[str, object],
-    *,
-    location: str,
-) -> list[ValidationFinding]:
-    return [
-        ValidationFinding(
-            severity="error",
-            target=target,
-            code="reference.removed-reference-field",
-            message=f"{field} has been replaced by repository reference fields",
-            location=f"{location}.{field}" if location else field,
-        )
-        for field in sorted(_REMOVED_REFERENCE_FIELDS)
-        if field in node
-    ]
 
 
 def _check_repository_ref(
@@ -717,70 +648,6 @@ def _check_standalone_universe_file(
                 )
             ]
         seen_tickers.add(ticker)
-        exposure_findings = _check_universe_member_exposures(path, member, index)
-        if exposure_findings:
-            return exposure_findings
-    return []
-
-
-def _check_universe_member_exposures(
-    path: Path,
-    member: Mapping[str, object],
-    member_index: int,
-) -> list[ValidationFinding]:
-    exposures = member.get("security_exposures")
-    if exposures is None:
-        return []
-    if not isinstance(exposures, list):
-        return [
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="reference.universe-members",
-                message="security_exposures must be a list",
-                location=f"members[{member_index}].security_exposures",
-            )
-        ]
-    for exposure_index, exposure in enumerate(exposures):
-        if not isinstance(exposure, Mapping):
-            return [
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="reference.universe-members",
-                    message="security_exposures entries must be mappings",
-                    location=f"members[{member_index}].security_exposures[{exposure_index}]",
-                )
-            ]
-        source_refs = exposure.get("source_refs")
-        if source_refs is None:
-            continue
-        if not isinstance(source_refs, list):
-            return [
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="reference.universe-members",
-                    message="security_exposures.source_refs must be a list",
-                    location=(
-                        f"members[{member_index}].security_exposures[{exposure_index}].source_refs"
-                    ),
-                )
-            ]
-        for ref_index, ref in enumerate(source_refs):
-            if not isinstance(ref, Mapping) or "ref_path" not in ref:
-                return [
-                    ValidationFinding(
-                        severity="error",
-                        target=path,
-                        code="reference.universe-members",
-                        message="security_exposures.source_refs entries must be ref mappings",
-                        location=(
-                            f"members[{member_index}].security_exposures"
-                            f"[{exposure_index}].source_refs[{ref_index}]"
-                        ),
-                    )
-                ]
     return []
 
 

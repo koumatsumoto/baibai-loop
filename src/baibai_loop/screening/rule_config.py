@@ -257,7 +257,6 @@ class SelectionRules(BaseModel):
         default_factory=LongHoldSurvivabilityRules
     )
     diversity: SelectionDiversityRules = Field(default_factory=SelectionDiversityRules)
-    ai_exposure_sector_tags: Mapping[str, tuple[str, ...]] = Field(default_factory=dict)
 
     @field_validator("queue_order", mode="before")
     @classmethod
@@ -281,13 +280,6 @@ class SelectionRules(BaseModel):
         if unknown:
             raise ValueError("unknown selection queue(s): " + ", ".join(unknown))
         return value
-
-    @field_validator("ai_exposure_sector_tags", mode="before")
-    @classmethod
-    def _tuple_ai_exposure_tags(cls, value: Mapping[str, Any] | None) -> dict[str, tuple[str, ...]]:
-        if not value:
-            return {}
-        return {str(sector): tuple(tags) for sector, tags in value.items()}
 
 
 class ScreeningRules(BaseModel):

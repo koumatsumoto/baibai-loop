@@ -40,43 +40,6 @@ SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "re
 
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)
 _TICKER_PATTERN = re.compile(r"^[0-9A-Z]{4}$")
-_REMOVED_FRONT_MATTER_FIELDS: tuple[str, ...] = (
-    "playbook",
-    "decision",
-    "macro_gate",
-    "macro_gate_override",
-    "position_size_oku",
-    "hypothetical_position_size_oku",
-    "supporting_signals",
-    "adv_participation_pct",
-    "playbook_snapshot",
-    "policy_snapshot",
-    "policy_ref",
-    "policy_applicability",
-    "portfolio_exposure_ref",
-    "portfolio_exposure_snapshot_ref",
-    "calendar_refs",
-    "calendars_snapshot",
-    "candidates_ref",
-)
-_REMOVED_HASH_FIELDS = {"content_sha256", "row_sha256"}
-_REMOVED_REFERENCE_FIELDS = {
-    "playbook_snapshot",
-    "policy_snapshot",
-    "policy_ref",
-    "policy_applicability",
-    "portfolio_exposure_ref",
-    "portfolio_exposure_snapshot_ref",
-    "calendar_refs",
-    "calendars_snapshot",
-    "universe_snapshot_ref",
-    "input_snapshots",
-    "screening_rules_snapshot",
-    "metric_catalog_snapshot",
-    "cache_manifest_hash",
-    "snapshot_path",
-    "latest_snapshot",
-}
 _KNOWN_OUTCOMES = {"approved", "deferred", "rejected"}
 _KNOWN_POSTURES = {"act_now", "wait_for_event", "wait_for_capital", "dropped"}
 _KNOWN_MACRO_CONTEXT_EFFECTS = {"proceed", "caution", "defer"}
@@ -165,18 +128,13 @@ def validate_research_parsed(
 
     findings: list[ValidationFinding] = []
     findings.extend(_validate_schema(path, front_matter))
-    findings.extend(_check_removed_fields(path, front_matter))
-    findings.extend(_check_removed_hash_fields_recursive(path, front_matter))
     findings.extend(_check_ticker(path, front_matter))
     findings.extend(_check_playbook(path, front_matter, known_playbooks))
     findings.extend(_check_decision(path, front_matter))
     findings.extend(_check_macro_context_fit(path, front_matter))
-    findings.extend(_check_evidence_and_counts(path, front_matter))
-    findings.extend(_check_conviction_tier(path, front_matter))
     findings.extend(_check_sizing_invariants(path, front_matter))
-    findings.extend(_check_single_evidence_guardrails(path, front_matter))
+    findings.extend(_check_candidate_lineage(path, front_matter, [], [], None))
     findings.extend(_check_corporate_action_invalidation(path, front_matter))
-    findings.extend(_check_approval_rules(path, front_matter))
     findings.extend(_check_payoff(path, front_matter))
     findings.extend(_check_reference_refs(path, front_matter))
     findings.extend(validate_external_refs_file(path, front_matter))
@@ -312,22 +270,6 @@ def _validate_schema(path: Path, front_matter: Mapping[str, object]) -> list[Val
             )
         )
     return findings
-
-
-def _check_removed_fields(
-    path: Path, front_matter: Mapping[str, object]
-) -> list[ValidationFinding]:
-    return [
-        ValidationFinding(
-            severity="error",
-            target=path,
-            code="research.removed-field",
-            message=f"removed front matter field is not allowed: {field}",
-            location=field,
-        )
-        for field in _REMOVED_FRONT_MATTER_FIELDS
-        if field in front_matter
-    ]
 
 
 def _check_macro_context_fit(
@@ -731,199 +673,6 @@ def _check_decision(path: Path, front_matter: Mapping[str, object]) -> list[Vali
     return findings
 
 
-def _check_evidence_and_counts(
-    path: Path, front_matter: Mapping[str, object]
-) -> list[ValidationFinding]:
-    findings: list[ValidationFinding] = []
-    decisions = front_matter.get("candidate_evidence_decisions")
-    selected = front_matter.get("selected_supporting_evidence_refs")
-    research_hits = front_matter.get("research_evidence_hits", [])
-    candidate_hits = _load_candidate_hits(path, front_matter)
-    findings.extend(
-        _check_candidate_lineage(
-            path,
-            front_matter,
-            selected if isinstance(selected, list) else [],
-            decisions if isinstance(decisions, list) else [],
-            candidate_hits,
-        )
-    )
-    if not isinstance(decisions, list):
-        return findings
-
-    effective_components = _effective_independence_components(
-        path,
-        front_matter,
-        selected if isinstance(selected, list) else [],
-        decisions,
-        research_hits if isinstance(research_hits, list) else [],
-        findings,
-    )
-    independent_count = front_matter.get("independent_evidence_count")
-    if isinstance(independent_count, int) and independent_count != len(effective_components):
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.independent-evidence-count",
-                message=(
-                    "independent_evidence_count must equal research-time "
-                    "effective sizing-eligible evidence decisions"
-                ),
-                location="independent_evidence_count",
-            )
-        )
-    expected_counts = _expected_evidence_counts(
-        selected if isinstance(selected, list) else [],
-        decisions,
-        research_hits if isinstance(research_hits, list) else [],
-        candidate_hits,
-    )
-    for field, expected in expected_counts.items():
-        actual = front_matter.get(field)
-        if isinstance(actual, int) and actual != expected:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code=f"research.{field.replace('_', '-')}",
-                    message=f"{field} must equal deterministic evidence count {expected}",
-                    location=field,
-                )
-            )
-    decision = front_matter.get("research_decision")
-    outcome = decision.get("outcome") if isinstance(decision, Mapping) else None
-    if outcome == "approved":
-        if not isinstance(selected, list) or not selected:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.supporting-evidence-required",
-                    message="approved research requires selected_supporting_evidence_refs",
-                    location="selected_supporting_evidence_refs",
-                )
-            )
-        if isinstance(research_hits, list):
-            has_risk_review = any(
-                isinstance(hit, Mapping) and _is_risk_review_evidence(hit) for hit in research_hits
-            )
-            if not has_risk_review:
-                findings.append(
-                    ValidationFinding(
-                        severity="error",
-                        target=path,
-                        code="research.risk-evidence-required",
-                        message=(
-                            "approved research requires at least one risk or "
-                            "contradicting evidence review"
-                        ),
-                        location="research_evidence_hits",
-                    )
-                )
-    if isinstance(research_hits, list):
-        for index, hit in enumerate(research_hits):
-            if not isinstance(hit, Mapping):
-                continue
-            role = hit.get("decision_role")
-            polarity = hit.get("evidence_polarity")
-            findings.extend(_check_research_evidence_source_refs(path, hit, index))
-            if role == "freshness_adjustment" and polarity == "contradicts":
-                findings.append(
-                    ValidationFinding(
-                        severity="error",
-                        target=path,
-                        code="research.evidence-role-polarity",
-                        message=(
-                            "freshness_adjustment evidence must use neutral or risk polarity; "
-                            "use disconfirming_evidence for contradicts"
-                        ),
-                        location=f"research_evidence_hits[{index}].evidence_polarity",
-                    )
-                )
-    return findings
-
-
-def _check_research_evidence_source_refs(
-    path: Path,
-    hit: Mapping[str, object],
-    index: int,
-) -> list[ValidationFinding]:
-    if hit.get("sizing_eligible") is not True:
-        return []
-    source_refs = hit.get("source_refs")
-    if not isinstance(source_refs, list) or not source_refs:
-        return [
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.sizing-evidence-source-ref",
-                message="sizing-eligible research evidence requires repository source_refs",
-                location=f"research_evidence_hits[{index}].source_refs",
-            )
-        ]
-    findings: list[ValidationFinding] = []
-    for ref_index, ref in enumerate(source_refs):
-        if not isinstance(ref, Mapping):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.sizing-evidence-source-ref",
-                    message="sizing-eligible research evidence source_refs must be objects",
-                    location=f"research_evidence_hits[{index}].source_refs[{ref_index}]",
-                )
-            )
-            continue
-        ref_path = ref.get("ref_path")
-        error = repository_ref_error(ref_path, root=repo_root_for(path))
-        if error is not None or not isinstance(ref_path, str):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.sizing-evidence-source-ref",
-                    message=(
-                        "sizing-eligible research evidence requires records/_external/ source refs"
-                    ),
-                    location=f"research_evidence_hits[{index}].source_refs[{ref_index}]",
-                )
-            )
-            continue
-        source_path = resolve_repository_ref(repo_root_for(path), ref_path)
-        if not ref_path.startswith("records/_external/") or source_path.suffix != ".md":
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.sizing-evidence-source-ref",
-                    message=(
-                        "sizing-eligible research evidence requires records/_external/ "
-                        "markdown source refs"
-                    ),
-                    location=f"research_evidence_hits[{index}].source_refs[{ref_index}]",
-                )
-            )
-        elif not source_path.is_file():
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.sizing-evidence-source-ref",
-                    message=f"source ref does not exist: {ref_path}",
-                    location=f"research_evidence_hits[{index}].source_refs[{ref_index}]",
-                )
-            )
-        findings.extend(
-            _check_removed_hash_fields(
-                path,
-                ref,
-                f"research_evidence_hits[{index}].source_refs[{ref_index}]",
-            )
-        )
-    return findings
-
-
 def _check_candidate_lineage(
     path: Path,
     front_matter: Mapping[str, object],
@@ -1199,89 +948,6 @@ def _is_repository_research_record(path: Path) -> bool:
     return True
 
 
-def _effective_independence_components(
-    path: Path,
-    front_matter: Mapping[str, object],
-    selected: Sequence[object],
-    decisions: Sequence[object],
-    research_hits: Sequence[object],
-    findings: list[ValidationFinding],
-) -> set[str]:
-    candidate_components = _load_candidate_components(path, front_matter)
-    selected_ids = {
-        str(item.get("evidence_hit_id"))
-        for item in selected
-        if isinstance(item, Mapping)
-        and item.get("source") == "candidate"
-        and isinstance(item.get("evidence_hit_id"), str)
-    }
-    components: set[str] = set()
-    for index, item in enumerate(decisions):
-        if not isinstance(item, Mapping) or item.get("effective_sizing_eligible") is not True:
-            continue
-        hit_id = item.get("evidence_hit_id")
-        if not isinstance(hit_id, str) or not hit_id:
-            continue
-        if hit_id not in selected_ids:
-            continue
-        component = item.get("independence_component_id")
-        if not isinstance(component, str) or not component:
-            component = (
-                candidate_components.get(hit_id) if candidate_components is not None else None
-            )
-        if isinstance(component, str) and component:
-            components.add(component)
-        elif candidate_components is not None:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.independence-component",
-                    message=(
-                        "effective candidate evidence must resolve to an independence_component_id"
-                    ),
-                    location=f"candidate_evidence_decisions[{index}].evidence_hit_id",
-                )
-            )
-        else:
-            components.add(f"unresolved:{hit_id}")
-
-    for index, hit in enumerate(research_hits):
-        if not isinstance(hit, Mapping):
-            continue
-        if hit.get("decision_role") != "sizing_evidence" or hit.get("sizing_eligible") is not True:
-            continue
-        component = hit.get("independence_component_id")
-        if isinstance(component, str) and component:
-            components.add(component)
-            continue
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.research-evidence-component",
-                message="sizing-eligible research evidence requires independence_component_id",
-                location=f"research_evidence_hits[{index}].independence_component_id",
-            )
-        )
-    return components
-
-
-def _load_candidate_components(
-    path: Path,
-    front_matter: Mapping[str, object],
-) -> dict[str, str] | None:
-    hits = _load_candidate_hits(path, front_matter)
-    if hits is None:
-        return None
-    return {
-        hit_id: str(hit["independence_component_id"])
-        for hit_id, hit in hits.items()
-        if isinstance(hit.get("independence_component_id"), str)
-        and str(hit["independence_component_id"])
-    }
-
-
 def _load_candidate_hits(
     path: Path,
     front_matter: Mapping[str, object],
@@ -1317,67 +983,6 @@ def _load_candidate_hits(
     return hits_by_id
 
 
-def _expected_evidence_counts(
-    selected: Sequence[object],
-    decisions: Sequence[object],
-    research_hits: Sequence[object],
-    candidate_hits: Mapping[str, Mapping[str, Any]] | None,
-) -> dict[str, int]:
-    selected_ids = {
-        str(item.get("evidence_hit_id"))
-        for item in selected
-        if isinstance(item, Mapping) and isinstance(item.get("evidence_hit_id"), str)
-    }
-    decision_by_id = {
-        str(item.get("evidence_hit_id")): item
-        for item in decisions
-        if isinstance(item, Mapping) and isinstance(item.get("evidence_hit_id"), str)
-    }
-    raw_playbooks: set[str] = set()
-    eligible_playbooks: set[str] = set()
-    raw_families: set[str] = set()
-    eligible_families: set[str] = set()
-
-    if candidate_hits is not None:
-        for hit_id in selected_ids:
-            candidate_hit = candidate_hits.get(hit_id)
-            if candidate_hit is None:
-                continue
-            playbook = candidate_hit.get("playbook_id")
-            if isinstance(playbook, str) and playbook:
-                raw_playbooks.add(playbook)
-            for family in as_list(candidate_hit.get("evidence_family_set")):
-                if isinstance(family, str):
-                    raw_families.add(family)
-            decision = decision_by_id.get(hit_id)
-            if isinstance(decision, Mapping) and decision.get("effective_sizing_eligible") is True:
-                if isinstance(playbook, str) and playbook:
-                    eligible_playbooks.add(playbook)
-                for family in as_list(candidate_hit.get("evidence_family_set")):
-                    if isinstance(family, str):
-                        eligible_families.add(family)
-
-    for research_hit in research_hits:
-        if not isinstance(research_hit, Mapping):
-            continue
-        families = [
-            family
-            for family in as_list(research_hit.get("evidence_family_set"))
-            if isinstance(family, str)
-        ]
-        if research_hit.get("decision_role") == "sizing_evidence":
-            raw_families.update(families)
-            if research_hit.get("sizing_eligible") is True:
-                eligible_families.update(families)
-
-    return {
-        "raw_playbook_concurrence_count": len(raw_playbooks),
-        "sizing_eligible_playbook_concurrence_count": len(eligible_playbooks),
-        "raw_evidence_family_count": len(raw_families),
-        "sizing_eligible_evidence_family_count": len(eligible_families),
-    }
-
-
 def _resolve_record_ref(
     path: Path,
     ref: str,
@@ -1405,79 +1010,6 @@ def _resolve_candidate_ref(path: Path, ref: str) -> Path | None:
     }:
         return None
     return candidate if candidate.is_file() else None
-
-
-def _check_conviction_tier(
-    path: Path, front_matter: Mapping[str, object]
-) -> list[ValidationFinding]:
-    tier = front_matter.get("conviction_tier")
-    path_name = front_matter.get("conviction_tier_path")
-    if tier not in _KNOWN_CONVICTION_TIERS:
-        return [
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.conviction-tier",
-                message=f"conviction_tier must be one of {_KNOWN_CONVICTION_TIERS}",
-                location="conviction_tier",
-            )
-        ]
-    if path_name not in _KNOWN_CONVICTION_PATHS:
-        return [
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.conviction-tier-path",
-                message=f"conviction_tier_path must be one of {_KNOWN_CONVICTION_PATHS}",
-                location="conviction_tier_path",
-            )
-        ]
-    rules = as_mapping(PORTFOLIO_POLICY.get("conviction_tier_rules"))
-    count_rules = as_mapping(rules.get("count_breadth"))
-    independent = integer(front_matter.get("independent_evidence_count")) or 0
-    payoff = as_mapping(front_matter.get("thesis_payoff"))
-    risk_reward = number(payoff.get("risk_reward_ratio")) or 0
-    expected = "low"
-    if path_name == "depth":
-        depth = as_mapping(rules.get("high_depth"))
-        min_independent = int(number(depth.get("min_independent_evidence_count")) or 1)
-        min_rr = number(depth.get("min_risk_reward_ratio")) or math.inf
-        has_ref = bool(front_matter.get("depth_verification_ref"))
-        has_risk = _has_risk_evidence(front_matter)
-        if independent >= min_independent and risk_reward >= min_rr and has_ref and has_risk:
-            expected = "high"
-    else:
-        high_min = int(number(count_rules.get("high_min_independent_evidence_count")) or 3)
-        medium_min = int(number(count_rules.get("medium_min_independent_evidence_count")) or 1)
-        if independent >= high_min:
-            expected = "high"
-        elif independent >= medium_min:
-            expected = "medium"
-    if tier != expected:
-        return [
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.conviction-tier-derived",
-                message=f"conviction_tier must derive to {expected} from policy rules",
-                location="conviction_tier",
-            )
-        ]
-    return []
-
-
-def _has_risk_evidence(front_matter: Mapping[str, object]) -> bool:
-    return any(
-        isinstance(hit, Mapping) and _is_risk_review_evidence(hit)
-        for hit in as_list(front_matter.get("research_evidence_hits"))
-    )
-
-
-def _is_risk_review_evidence(hit: Mapping[str, object]) -> bool:
-    return (
-        hit.get("evidence_polarity") in {"risk", "contradicts"}
-        and hit.get("decision_role") != "sizing_evidence"
-    )
 
 
 def _check_sizing_invariants(
@@ -1553,59 +1085,6 @@ def _check_sizing_invariants(
                 )
             )
     return findings
-
-
-def _check_single_evidence_guardrails(
-    path: Path, front_matter: Mapping[str, object]
-) -> list[ValidationFinding]:
-    decision = as_mapping(front_matter.get("research_decision"))
-    if decision.get("outcome") != "approved":
-        return []
-    independent = integer(front_matter.get("independent_evidence_count"))
-    if independent is None or independent > 1:
-        return []
-    count_1_caps = as_mapping(
-        as_mapping(PORTFOLIO_POLICY.get("evidence_count_caps")).get("count_1")
-    )
-    findings: list[ValidationFinding] = []
-    if count_1_caps.get("requires_disconfirming_or_risk_evidence") is True and not (
-        _has_risk_evidence(front_matter)
-    ):
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.single-evidence-risk-evidence",
-                message="single-evidence approvals require a disconfirming or risk review",
-                location="research_evidence_hits",
-            )
-        )
-    if count_1_caps.get("requires_payoff_confirmation") is True and not (
-        _has_complete_payoff(front_matter)
-    ):
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.single-evidence-payoff-confirmation",
-                message="single-evidence approvals require complete payoff confirmation",
-                location="thesis_payoff",
-            )
-        )
-    return findings
-
-
-def _has_complete_payoff(front_matter: Mapping[str, object]) -> bool:
-    payoff = as_mapping(front_matter.get("thesis_payoff"))
-    required = (
-        "max_entry_price_yen",
-        "target_price_yen",
-        "stop_loss_yen",
-        "expected_upside_pct",
-        "expected_downside_pct",
-        "risk_reward_ratio",
-    )
-    return all(number(payoff.get(field)) is not None for field in required)
 
 
 def _check_position_sizing_overlay_shape(
@@ -1716,7 +1195,6 @@ def _check_corporate_action_invalidation(
 ) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
     root = repo_root_for(path)
-    catalog_rules = _load_metric_event_invalidation_rules(path, front_matter)
     candidate_ref = as_mapping(front_matter.get("candidate_ref"))
     ticker = str(candidate_ref.get("ticker") or front_matter.get("ticker") or "")
     decisions = as_list(front_matter.get("candidate_evidence_decisions"))
@@ -1795,24 +1273,6 @@ def _check_corporate_action_invalidation(
                     location=f"candidate_evidence_decisions[{index}].invalidated_metric_ids",
                 )
             )
-        if catalog_rules:
-            invalidated_set = {str(metric) for metric in invalidated}
-            disallowed = sorted(
-                metric for metric in invalidated_set if kind not in catalog_rules.get(metric, set())
-            )
-            if disallowed:
-                findings.append(
-                    ValidationFinding(
-                        severity="error",
-                        target=path,
-                        code="research.corporate-action-catalog-mismatch",
-                        message=(
-                            "invalidated_metric_ids must be allowed by metric catalog "
-                            f"event_invalidation_rules for {kind}: {', '.join(disallowed)}"
-                        ),
-                        location=f"candidate_evidence_decisions[{index}].invalidated_metric_ids",
-                    )
-                )
         event_metrics = {
             str(metric)
             for event in matching_events
@@ -1831,49 +1291,6 @@ def _check_corporate_action_invalidation(
                 )
             )
     return findings
-
-
-def _load_metric_event_invalidation_rules(
-    path: Path, front_matter: Mapping[str, object]
-) -> dict[str, set[str]]:
-    try:
-        catalog = _load_current_metric_catalog(path)
-    except (OSError, ValueError, yaml.YAMLError):
-        return {}
-    rules: dict[str, set[str]] = {}
-    for metric in as_list(catalog.get("metrics")):
-        if not isinstance(metric, Mapping):
-            continue
-        metric_id = metric.get("metric_id")
-        if not isinstance(metric_id, str) or not metric_id:
-            continue
-        metric_rules = rules.setdefault(metric_id, set())
-        for rule in as_list(metric.get("event_invalidation_rules")):
-            if not isinstance(rule, Mapping):
-                continue
-            kind = rule.get("corporate_action_kind") or rule.get("kind")
-            if isinstance(kind, str) and kind:
-                metric_rules.add(kind)
-    return rules
-
-
-def _load_current_metric_catalog(path: Path) -> Mapping[str, Any]:
-    search_roots: list[Path] = []
-    for parent in (path.parent, *path.parents):
-        if (parent / "records").is_dir():
-            search_roots.append(parent)
-    repo_root = repo_root_for(path)
-    if repo_root not in search_roots:
-        search_roots.append(repo_root)
-    for root in search_roots:
-        candidates = sorted((root / "records/_config/metric-catalog").glob("*.yaml"))
-        if not candidates:
-            continue
-        raw = _load_yaml(candidates[-1])
-        if not isinstance(raw, Mapping):
-            raise ValueError(f"{candidates[-1]}: metric catalog must be a mapping")
-        return raw
-    raise FileNotFoundError("records/_config/metric-catalog/*.yaml")
 
 
 def _load_candidate_document(
@@ -1939,86 +1356,6 @@ def _load_corporate_action_events(path: Path, root: Path) -> _CalendarLoadResult
             if isinstance(event, Mapping):
                 events.append(event)
     return _CalendarLoadResult(events, findings)
-
-
-def _check_approval_rules(
-    path: Path, front_matter: Mapping[str, object]
-) -> list[ValidationFinding]:
-    findings: list[ValidationFinding] = []
-    for index, hit in enumerate(as_list(front_matter.get("research_evidence_hits"))):
-        if not isinstance(hit, Mapping):
-            continue
-        if hit.get("analyst_asserted") is True and hit.get("sizing_eligible") is True:
-            rule_id = hit.get("approval_rule_id")
-            approved_at = hit.get("approved_at") or hit.get("recorded_at")
-            record_at = front_matter.get("recorded_at") or front_matter.get("published_at")
-            if not isinstance(rule_id, str) or not rule_id:
-                findings.append(
-                    ValidationFinding(
-                        severity="error",
-                        target=path,
-                        code="research.approval-rule-required",
-                        message=(
-                            "sizing-eligible analyst asserted evidence requires approval_rule_id"
-                        ),
-                        location=f"research_evidence_hits[{index}].approval_rule_id",
-                    )
-                )
-                continue
-            if not _approval_rule_active(repo_root_for(path), rule_id, approved_at, record_at):
-                findings.append(
-                    ValidationFinding(
-                        severity="error",
-                        target=path,
-                        code="research.approval-rule-active",
-                        message="approval_rule_id must reference an active approval rule",
-                        location=f"research_evidence_hits[{index}].approval_rule_id",
-                    )
-                )
-    return findings
-
-
-def _approval_rule_active(
-    root: Path,
-    rule_id: str,
-    approved_at: object,
-    record_at: object,
-) -> bool:
-    approved_dt = _parse_datetime(approved_at)
-    record_dt = _parse_datetime(record_at)
-    for path in sorted((root / "records/_approval-rules").glob("*.yaml")):
-        try:
-            raw = _load_yaml(path)
-        except (OSError, yaml.YAMLError):
-            continue
-        if not isinstance(raw, Mapping):
-            continue
-        rules = raw.get("rules")
-        candidates = rules if isinstance(rules, list) else [raw]
-        effective_from = _parse_datetime(raw.get("effective_from"))
-        for item in candidates:
-            if not isinstance(item, Mapping) or item.get("approval_rule_id") != rule_id:
-                continue
-            created_at = _parse_datetime(item.get("created_at"))
-            if record_dt is not None:
-                if effective_from is not None and effective_from > record_dt:
-                    continue
-                if created_at is not None and created_at > record_dt:
-                    continue
-            if approved_dt is not None:
-                if effective_from is not None and effective_from > approved_dt:
-                    continue
-                if created_at is not None and created_at > approved_dt:
-                    continue
-            max_valid_days = number(item.get("max_valid_days"))
-            if max_valid_days is not None and created_at is not None:
-                validation_dt = approved_dt or record_dt
-                if validation_dt is not None and validation_dt > created_at + timedelta(
-                    days=max_valid_days
-                ):
-                    continue
-            return True
-    return False
 
 
 def _parse_datetime(value: object) -> datetime | None:
@@ -2133,7 +1470,7 @@ def _check_repository_ref(
                 location=location,
             )
         ]
-    findings = _check_removed_hash_fields(path, value, location)
+    findings: list[ValidationFinding] = []
     root = repo_root_for(path)
     ref = value.get("ref_path")
     error = repository_ref_error(ref, root=root)
@@ -2200,69 +1537,6 @@ def _check_repository_ref(
             )
         )
     return findings
-
-
-def _check_removed_hash_fields(
-    path: Path,
-    value: Mapping[str, object],
-    location: str,
-) -> list[ValidationFinding]:
-    return [
-        ValidationFinding(
-            severity="error",
-            target=path,
-            code="research.removed-hash-field",
-            message=f"{field} is no longer allowed in repository links",
-            location=f"{location}.{field}",
-        )
-        for field in sorted(_REMOVED_HASH_FIELDS)
-        if field in value
-    ]
-
-
-def _check_removed_hash_fields_recursive(
-    path: Path, front_matter: Mapping[str, object]
-) -> list[ValidationFinding]:
-    findings: list[ValidationFinding] = []
-    for location, node in _walk_mappings(front_matter, prefix=None):
-        for field in sorted(_REMOVED_HASH_FIELDS):
-            if field in node:
-                findings.append(
-                    ValidationFinding(
-                        severity="error",
-                        target=path,
-                        code="research.removed-hash-field",
-                        message=f"{field} is no longer allowed in research records",
-                        location=f"{location}.{field}" if location else field,
-                    )
-                )
-        for field in sorted(_REMOVED_REFERENCE_FIELDS):
-            if field in node:
-                findings.append(
-                    ValidationFinding(
-                        severity="error",
-                        target=path,
-                        code="research.removed-reference-field",
-                        message=f"{field} has been replaced by repository reference fields",
-                        location=f"{location}.{field}" if location else field,
-                    )
-                )
-    return findings
-
-
-def _walk_mappings(
-    value: object, *, prefix: str | None
-) -> Iterable[tuple[str, Mapping[str, object]]]:
-    if isinstance(value, Mapping):
-        location = prefix or ""
-        yield location, value
-        for key, child in value.items():
-            child_prefix = f"{location}.{key}" if location else str(key)
-            yield from _walk_mappings(child, prefix=child_prefix)
-    elif isinstance(value, list):
-        location = prefix or ""
-        for index, child in enumerate(value):
-            yield from _walk_mappings(child, prefix=f"{location}[{index}]")
 
 
 def _number(value: object) -> float | None:

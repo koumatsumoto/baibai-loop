@@ -172,7 +172,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] `valid_until` を過ぎている場合、更新するか stale 前提のまま使う理由を selection / research で確認したか
 - [ ] research の `macro_context_ref` / `candidate_ref.candidates_ref` が valid パスかつ実在するか
 - [ ] `macro_context_fit.fit` と `macro_context_fit.decision_effect` が thesis / sizing / required checks に反映されているか
-- [ ] **機械化チェック**: macro context 編集後に `uv run baibai-loop-precheck` と `uv run baibai-loop-validate` を実行したか
+- [ ] **機械化チェック**: macro context 編集後に `uv run baibai-loop-validate` を実行したか
 
 ## 7. AP-07: 公表日 / 期間 / source の最新性確認を skip する
 
@@ -262,7 +262,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] `decision_revisions[].revision_type` が既知集合に属し、`prior_state_ref` / `prior_state` / `new_state` / `reason` の必須キーが揃う
   - [ ] `research_decision.outcome: approved` の場合、`candidate_ref` が参照した candidates repository file の対象 candidate に join できるか
   - [ ] `external_refs[]` は `records/_external/` 配下の path のみ (validator: `research.external-ref-prefix`)
-  - [ ] 連続する commit で `research_decision.outcome: deferred|rejected → approved` に flip した場合、`decision_revisions[].revision_type='decision_flip'` を残す (precheck: `precheck.decision-flip-without-revision`、`baibai-loop-precheck` で git 履歴ベースに検出)
+  - [ ] 連続する commit で `research_decision.outcome: deferred|rejected → approved` に flip した場合、PR review で thesis / event / sizing の変更理由を確認する
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を

@@ -46,7 +46,7 @@ flowchart LR
 | 問い | 意味 | 例 |
 | --- | --- | --- |
 | Responsibility | 何を担う artifact か | observation, view, screen output, investment memo, execution, attribution |
-| Granularity | どの粒度を扱うか | macro, market, sector, exposure bucket, security-level, portfolio |
+| Granularity | どの粒度を扱うか | macro, market, sector, security-level, portfolio |
 | Evidence family | どの種類の証拠を使うか | macroeconomic, policy/geopolitical, fundamental, valuation, market-derived, positioning/liquidity, catalyst |
 | Evidence quality / provenance | 証拠の品質・出所・鮮度をどう扱うか | source status, source refs, freshness warning, lineage, external refs |
 | Decision role | 判断にどう効くか | input, screen, gate, thesis evidence, risk overlay, trigger, attribution |

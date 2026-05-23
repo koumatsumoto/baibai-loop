@@ -110,59 +110,6 @@ class CandidatesValidationTests(unittest.TestCase):
         self.assertIn("candidates.pattern", codes)
         self.assertIn("run_id", locations)
 
-    def test_removed_hash_snapshot_fields_are_flagged(self) -> None:
-        payload = _minimal_candidates()
-        payload["screening_rules_snapshot"] = {
-            "ref_path": "records/_config/screening-rules/2026-05-01T000000+0900.yaml",
-        }
-        path = self._write(payload)
-        try:
-            findings = validate_candidates_file(path)
-        finally:
-            path.unlink()
-        codes = {finding.code for finding in findings}
-        locations = {finding.location for finding in findings}
-        self.assertIn("candidates.removed-root-field", codes)
-        self.assertIn("screening_rules_snapshot", locations)
-
-    def test_removed_portfolio_exposure_root_field_is_flagged(self) -> None:
-        payload = _minimal_candidates()
-        field = "_".join(("portfolio", "exposure", "ref"))
-        payload[field] = {"ref_path": "records/_portfolio-exposure/2026/05/exposure.yaml"}
-        path = self._write(payload)
-        try:
-            findings = validate_candidates_file(path)
-        finally:
-            path.unlink()
-        codes = {finding.code for finding in findings}
-        locations = {finding.location for finding in findings}
-        self.assertIn("candidates.removed-root-field", codes)
-        self.assertIn(field, locations)
-
-    def test_nested_removed_hash_field_is_flagged(self) -> None:
-        payload = _minimal_candidates()
-        universe_ref = payload["universe_ref"]
-        assert isinstance(universe_ref, dict)
-        universe_ref["content_" + "sha256"] = "sha256:" + "0" * 64
-        path = self._write(payload)
-        try:
-            findings = validate_candidates_file(path)
-        finally:
-            path.unlink()
-        self.assertIn("candidates.removed-hash-field", {finding.code for finding in findings})
-
-    def test_nested_removed_reference_field_is_flagged(self) -> None:
-        payload = _minimal_candidates()
-        universe_ref = payload["universe_ref"]
-        assert isinstance(universe_ref, dict)
-        universe_ref["snapshot_path"] = "records/_universe-snapshots/2026/05/old.yaml"
-        path = self._write(payload)
-        try:
-            findings = validate_candidates_file(path)
-        finally:
-            path.unlink()
-        self.assertIn("candidates.removed-reference-field", {finding.code for finding in findings})
-
     def test_missing_universe_ref_is_flagged(self) -> None:
         payload = _minimal_candidates()
         del payload["universe_ref"]
