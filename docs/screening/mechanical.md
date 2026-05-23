@@ -187,6 +187,6 @@ JPX 規制情報は universe 定義の一部であり、必須 source が欠け�
 - [`principles.md`](./principles.md): スクリーニング原則
 - [`universe-rules.md`](./universe-rules.md): universe 境界条件
 - [`valuation-metrics.md`](./valuation-metrics.md): 指標算出仕様
-- [`macro-gate-procedure.md`](./macro-gate-procedure.md): research 側の Macro regime gate
+- [`../components/macro-context.md`](../components/macro-context.md): screening 前の macro context
 - [`../components/candidates.md`](../components/candidates.md): candidates 運用仕様
 - [`../components/research.md`](../components/research.md): research 選定プロセス

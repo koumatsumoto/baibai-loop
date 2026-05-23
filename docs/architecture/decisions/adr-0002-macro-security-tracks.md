@@ -11,6 +11,8 @@ related_docs:
 
 # ADR 0002: macro track と security-level trade loop の分離
 
+> 2026-05 更新: 旧 `brief -> outlook` track と macro gate fields は廃止し、`records/01-macro-context/` を screening / research の判断前提として使う。
+
 ## Status
 
 Accepted
@@ -21,10 +23,10 @@ Accepted
 
 ## Decision
 
-Baibai-Loop は独立した macro track (`records/02-brief/` -> `records/03-outlook/`) と、売買に連動する security-level trade loop (`records/04-candidates/` -> `records/05-research/` -> `records/06-trades/` -> `records/07-reviews/`) を分ける。統合点は `records/05-research/` とする。
+Baibai-Loop は、スクリーニング前に必要に応じて作成する `records/01-macro-context/` と、売買に連動する security-level trade loop (`records/04-candidates/` -> `records/05-research/` -> `records/06-trades/` -> `records/07-reviews/`) を分ける。統合点は screening selection と `records/05-research/` とする。
 
-`records/04-candidates/` の macro gate fields は screening-time fact として保存する。最新 outlook との最終整合は candidates を後から書き換えず、`select` output と `records/05-research/` の macro reducer で確認する。
+`records/04-candidates/` は機械スクリーニング結果を保存し、macro context との整合は `select` output と `records/05-research/` の `macro_context_fit` で確認する。
 
 ## Rationale
 
-この分離により、macro の鮮度を trade cadence から独立して維持しつつ、個別銘柄 research の前に明確な gate を置ける。Macro 76% / security-level 24% は attention / review time / cognitive budget の policy weight として扱い、research は outlook を bypass できない。
+この分離により、macro を定期 record として増やし続けず、買い場探索に必要な局面でだけ判断前提を明文化できる。Macro context は hard gate ではなく、sector / exposure の優先度と避ける条件を示す運用 input として扱う。

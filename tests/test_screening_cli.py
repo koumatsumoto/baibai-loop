@@ -1113,15 +1113,45 @@ class SelectCommandTests(unittest.TestCase):
         path.write_text(payload, encoding="utf-8")
         return path
 
-    def _write_outlook(self, root: Path, asof: date, sectors: dict[str, str | None]) -> Path:
-        path = root / f"{asof:%Y}" / f"{asof:%m}" / f"outlook-{asof:%Y-%m-%d}-bootstrap.yaml"
+    def _write_macro_context(self, root: Path, asof: date, sectors: dict[str, str | None]) -> Path:
+        path = root / f"{asof:%Y}" / f"{asof:%m}" / f"macro-context-{asof:%Y-%m-%d}-test.yaml"
         path.parent.mkdir(parents=True, exist_ok=True)
-        sectors_payload = {
-            sector: {"status": status, "rationale": "test", "source_refs": []}
-            for sector, status in sectors.items()
+        stance_by_status = {
+            "tailwind": "tailwind",
+            "neutral": "neutral",
+            "headwind": "headwind",
+            None: "neutral",
         }
+        sectors_payload = [
+            {
+                "id": f"sector-{index}",
+                "scope": "sector_33",
+                "key": sector,
+                "stance": stance_by_status[status],
+                "strength": "medium",
+                "confidence": "medium",
+                "rationale": "test",
+            }
+            for index, (sector, status) in enumerate(sectors.items(), start=1)
+        ]
         path.write_text(
-            yaml.safe_dump({"sectors": sectors_payload}, allow_unicode=True, sort_keys=False),
+            yaml.safe_dump(
+                {
+                    "kind": "macro-context",
+                    "context_id": f"macro-context-{asof:%Y-%m-%d}-test",
+                    "as_of": asof.isoformat(),
+                    "valid_until": (asof + timedelta(days=7)).isoformat(),
+                    "published_at": f"{asof.isoformat()}T00:00:00+09:00",
+                    "summary": "test",
+                    "inputs": {"articles": [], "stats_series": []},
+                    "sector_tilts": {"items": sectors_payload},
+                    "research_questions": ["test question"],
+                    "refresh_triggers": ["test trigger"],
+                    "changes_since_previous": [],
+                },
+                allow_unicode=True,
+                sort_keys=False,
+            ),
             encoding="utf-8",
         )
         return path
@@ -1133,7 +1163,7 @@ class SelectCommandTests(unittest.TestCase):
         self.assertIsInstance(recommended, list)
         return cast(list[dict[str, object]], recommended)
 
-    def test_filters_adverse_sectors_and_ranks_by_lane_aware_evidence(self) -> None:
+    def test_applies_macro_context_without_dropping_headwind_sectors(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -1143,7 +1173,7 @@ class SelectCommandTests(unittest.TestCase):
                 candidates=[
                     {
                         "ticker": "1111",
-                        "name": "adverse exclude",
+                        "name": "headwind exclude",
                         "sector_33": "石油・石炭製品",
                         "market_cap_oku": 2000,
                         "evidence_hits": [{"name": "valuation-reversion"}],
@@ -1168,34 +1198,42 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(
-                root / "records/03-outlook",
+            self._write_macro_context(
+                root / "records/01-macro-context",
                 asof,
                 sectors={
-                    "石油・石炭製品": "adverse",
+                    "石油・石炭製品": "headwind",
                     "電気機器": "neutral",
-                    "機械": "supportive",
+                    "機械": "tailwind",
                 },
             )
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
             self.assertEqual(payload["input_count"], 3)
-            self.assertEqual(payload["after_outlook_filter"], 2)
+            self.assertEqual(payload["after_macro_context_check"], 3)
+            self.assertEqual(
+                payload["macro_context_summary"]["research_questions"],
+                ["test question"],
+            )
+            self.assertEqual(
+                payload["selection"]["macro_context_summary"]["refresh_triggers"],
+                ["test trigger"],
+            )
             self.assertEqual(
                 [c["ticker"] for c in payload["lane_toplists"]["cash-rich-asset-discount"]],
                 ["3333"],
             )
             tickers = [c["ticker"] for c in self._recommended(payload)]
-            self.assertEqual(tickers, ["3333", "2222"])
+            self.assertEqual(tickers, ["3333", "2222", "1111"])
             self.assertEqual(
                 payload["research_selection_lane_order"],
                 [
@@ -1243,15 +1281,17 @@ class SelectCommandTests(unittest.TestCase):
             custom.parent.mkdir(parents=True)
             custom.write_text(canonical.read_text(encoding="utf-8"), encoding="utf-8")
             canonical.unlink()
-            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "supportive"})
+            self._write_macro_context(
+                root / "records/01-macro-context", asof, sectors={"機械": "tailwind"}
+            )
 
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 candidates_path=custom,
                 top=10,
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -1295,8 +1335,8 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(
-                root / "records/03-outlook",
+            self._write_macro_context(
+                root / "records/01-macro-context",
                 asof,
                 sectors={"機械": "neutral"},
             )
@@ -1304,10 +1344,10 @@ class SelectCommandTests(unittest.TestCase):
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -1386,8 +1426,8 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(
-                root / "records/03-outlook",
+            self._write_macro_context(
+                root / "records/01-macro-context",
                 asof,
                 sectors={
                     "機械": "neutral",
@@ -1400,11 +1440,11 @@ class SelectCommandTests(unittest.TestCase):
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 profile="strict",
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -1458,8 +1498,8 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(
-                root / "records/03-outlook",
+            self._write_macro_context(
+                root / "records/01-macro-context",
                 asof,
                 sectors={"機械": "neutral"},
             )
@@ -1467,10 +1507,10 @@ class SelectCommandTests(unittest.TestCase):
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -1527,8 +1567,8 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(
-                root / "records/03-outlook",
+            self._write_macro_context(
+                root / "records/01-macro-context",
                 asof,
                 sectors={"機械": "neutral"},
             )
@@ -1536,10 +1576,10 @@ class SelectCommandTests(unittest.TestCase):
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -1652,8 +1692,8 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(
-                root / "records/03-outlook",
+            self._write_macro_context(
+                root / "records/01-macro-context",
                 asof,
                 sectors={
                     "機械": "neutral",
@@ -1687,12 +1727,12 @@ class SelectCommandTests(unittest.TestCase):
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 profile="queue-test",
                 profile_config_path=profile_path,
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -1770,8 +1810,8 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(
-                root / "records/03-outlook",
+            self._write_macro_context(
+                root / "records/01-macro-context",
                 asof,
                 sectors={"機械": "neutral"},
             )
@@ -1779,10 +1819,10 @@ class SelectCommandTests(unittest.TestCase):
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -1836,18 +1876,18 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(
-                root / "records/03-outlook",
+            self._write_macro_context(
+                root / "records/01-macro-context",
                 asof,
                 sectors={"機械": "neutral"},
             )
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
@@ -1885,8 +1925,8 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(
-                root / "records/03-outlook",
+            self._write_macro_context(
+                root / "records/01-macro-context",
                 asof,
                 sectors={"機械": "neutral"},
             )
@@ -1894,10 +1934,10 @@ class SelectCommandTests(unittest.TestCase):
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=1,
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -2000,15 +2040,17 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+            self._write_macro_context(
+                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+            )
 
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -2069,15 +2111,17 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+            self._write_macro_context(
+                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+            )
 
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -2119,8 +2163,8 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(
-                root / "records/03-outlook",
+            self._write_macro_context(
+                root / "records/01-macro-context",
                 asof,
                 sectors={"機械": "neutral", "電気機器": "neutral"},
             )
@@ -2128,10 +2172,10 @@ class SelectCommandTests(unittest.TestCase):
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -2171,7 +2215,9 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+            self._write_macro_context(
+                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+            )
             ledger = root / "records/_ledger/research-decisions/2026-04.jsonl"
             ledger.parent.mkdir(parents=True)
             ledger.write_text(
@@ -2201,10 +2247,10 @@ class SelectCommandTests(unittest.TestCase):
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -2241,7 +2287,9 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+            self._write_macro_context(
+                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+            )
             ledger = root / "records/_ledger/research-decisions/2026-04.jsonl"
             ledger.parent.mkdir(parents=True)
             ledger.write_text(
@@ -2267,10 +2315,10 @@ class SelectCommandTests(unittest.TestCase):
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -2306,7 +2354,9 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+            self._write_macro_context(
+                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+            )
             ledger = root / "records/_ledger/research-decisions/2026-04.jsonl"
             ledger.parent.mkdir(parents=True)
             ledger.write_text(
@@ -2332,10 +2382,10 @@ class SelectCommandTests(unittest.TestCase):
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -2365,7 +2415,9 @@ class SelectCommandTests(unittest.TestCase):
                     }
                 ],
             )
-            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+            self._write_macro_context(
+                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+            )
             ledger = root / "records/_ledger/research-decisions/2026-04.jsonl"
             ledger.parent.mkdir(parents=True)
             base_event = {
@@ -2405,10 +2457,10 @@ class SelectCommandTests(unittest.TestCase):
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -2484,8 +2536,8 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(
-                root / "records/03-outlook",
+            self._write_macro_context(
+                root / "records/01-macro-context",
                 asof,
                 sectors={
                     "機械": "neutral",
@@ -2499,10 +2551,10 @@ class SelectCommandTests(unittest.TestCase):
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -2536,8 +2588,8 @@ class SelectCommandTests(unittest.TestCase):
             ]
             self._write_candidates(root / "records/04-candidates", previous_asof, candidates)
             self._write_candidates(root / "records/04-candidates", asof, candidates)
-            self._write_outlook(
-                root / "records/03-outlook",
+            self._write_macro_context(
+                root / "records/01-macro-context",
                 asof,
                 sectors={"機械": "neutral", "電気機器": "neutral", "小売業": "neutral"},
             )
@@ -2545,10 +2597,10 @@ class SelectCommandTests(unittest.TestCase):
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -2584,16 +2636,18 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+            self._write_macro_context(
+                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+            )
 
             buffer = io.StringIO()
             exit_code = select_sweep_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 profiles=("strict", "balanced", "loose"),
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -2644,16 +2698,18 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+            self._write_macro_context(
+                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+            )
 
             buffer = io.StringIO()
             exit_code = select_sweep_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 profiles=("balanced", "loose"),
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -2684,7 +2740,9 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+            self._write_macro_context(
+                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+            )
 
             cases = (
                 ("typo", {"profiles": {"typo": {"fast_dislocation": {"pbr_max": 0.8}}}}),
@@ -2701,11 +2759,11 @@ class SelectCommandTests(unittest.TestCase):
                 with contextlib.redirect_stderr(stderr):
                     exit_code = select_sweep_command(
                         asof_date=asof,
-                        outlook_path=None,
+                        macro_context_path=None,
                         top=10,
                         profiles=(profile_name,),
                         candidates_root=root / "records/04-candidates",
-                        outlook_root=root / "records/03-outlook",
+                        macro_context_root=root / "records/01-macro-context",
                         profile_config_path=profile_path,
                         stdout=buffer,
                     )
@@ -2764,8 +2822,8 @@ class SelectCommandTests(unittest.TestCase):
                     },
                 ],
             )
-            self._write_outlook(
-                root / "records/03-outlook",
+            self._write_macro_context(
+                root / "records/01-macro-context",
                 asof,
                 sectors={"機械": "neutral", "電気機器": "neutral", "小売業": "neutral"},
             )
@@ -2773,10 +2831,10 @@ class SelectCommandTests(unittest.TestCase):
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
-                outlook_path=None,
+                macro_context_path=None,
                 top=10,
                 candidates_root=root / "records/04-candidates",
-                outlook_root=root / "records/03-outlook",
+                macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
 
@@ -2818,22 +2876,102 @@ class SelectCommandTests(unittest.TestCase):
                 yaml.safe_dump([{"ticker": "1111"}], allow_unicode=True),
                 encoding="utf-8",
             )
-            self._write_outlook(root / "records/03-outlook", asof, sectors={})
+            self._write_macro_context(root / "records/01-macro-context", asof, sectors={})
 
             buffer = io.StringIO()
             stderr = io.StringIO()
             with contextlib.redirect_stderr(stderr):
                 exit_code = select_command(
                     asof_date=asof,
-                    outlook_path=None,
+                    macro_context_path=None,
                     top=10,
                     candidates_root=root / "records/04-candidates",
-                    outlook_root=root / "records/03-outlook",
+                    macro_context_root=root / "records/01-macro-context",
                     stdout=buffer,
                 )
             self.assertEqual(exit_code, 1)
             self.assertIn("invalid candidates YAML", stderr.getvalue())
             self.assertIn("must be a mapping", stderr.getvalue())
+
+    def test_select_rejects_future_macro_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "candidate",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    }
+                ],
+            )
+            self._write_macro_context(
+                root / "records/01-macro-context",
+                date(2026, 5, 1),
+                sectors={"機械": "neutral"},
+            )
+
+            buffer = io.StringIO()
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = select_command(
+                    asof_date=asof,
+                    macro_context_path=(
+                        root / "records/01-macro-context/2026/05/macro-context-2026-05-01-test.yaml"
+                    ),
+                    top=10,
+                    candidates_root=root / "records/04-candidates",
+                    macro_context_root=root / "records/01-macro-context",
+                    stdout=buffer,
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("macro context as_of is after screening asof", stderr.getvalue())
+
+    def test_select_rejects_stale_macro_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 5, 20)
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "candidate",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    }
+                ],
+            )
+            self._write_macro_context(
+                root / "records/01-macro-context",
+                date(2026, 5, 1),
+                sectors={"機械": "neutral"},
+            )
+
+            buffer = io.StringIO()
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = select_command(
+                    asof_date=asof,
+                    macro_context_path=(
+                        root / "records/01-macro-context/2026/05/macro-context-2026-05-01-test.yaml"
+                    ),
+                    top=10,
+                    candidates_root=root / "records/04-candidates",
+                    macro_context_root=root / "records/01-macro-context",
+                    stdout=buffer,
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("macro context is stale for screening asof", stderr.getvalue())
 
     def test_rejects_unknown_candidate_field(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2853,17 +2991,19 @@ class SelectCommandTests(unittest.TestCase):
                     }
                 ],
             )
-            self._write_outlook(root / "records/03-outlook", asof, sectors={"機械": "neutral"})
+            self._write_macro_context(
+                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+            )
 
             buffer = io.StringIO()
             stderr = io.StringIO()
             with contextlib.redirect_stderr(stderr):
                 exit_code = select_command(
                     asof_date=asof,
-                    outlook_path=None,
+                    macro_context_path=None,
                     top=10,
                     candidates_root=root / "records/04-candidates",
-                    outlook_root=root / "records/03-outlook",
+                    macro_context_root=root / "records/01-macro-context",
                     stdout=buffer,
                 )
 

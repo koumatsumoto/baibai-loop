@@ -1285,7 +1285,7 @@ def _master_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _Normaliz
                 _to_str_or_none(_first(record, "CompanyName", "company_name", "Name", "CoName")),
                 _to_str_or_none(_first(record, "MarketCodeName", "market_segment", "MktNm", "Mkt")),
                 # J-Quants は同じ TSE 33 セクターを半角中黒 (U+FF65)・全角中黒 (U+30FB) で
-                # 揺らせて返してくる。SQLite に取り込む段階で全角形に正規化し、outlook /
+                # 揺らせて返してくる。SQLite に取り込む段階で全角形に正規化し、macro context /
                 # candidates / select の matcher が一意に解決できるようにする。
                 normalize_sector_name(sector_raw) if sector_raw else sector_raw,
                 1 if is_common_stock else 0,

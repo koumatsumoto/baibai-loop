@@ -1,11 +1,11 @@
 # components/research.md
 
-Baibai-Loop の **research / investment memo** の運用仕様。candidates × outlook × portfolio policy から選定した個別銘柄について、thesis、payoff、反証、entry / exit / invalidation、position size を検証する。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md)、概念モデルは [`../concepts.md`](../concepts.md) を参照。
+Baibai-Loop の **research / investment memo** の運用仕様。candidates × macro context × portfolio policy から選定した個別銘柄について、thesis、payoff、反証、entry / exit / invalidation、position size を検証する。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md)、概念モデルは [`../concepts.md`](../concepts.md) を参照。
 
 ## 1. 役割
 
 - `records/04-candidates/` の pinned repository file から、深掘りする ticker / playbook を選ぶ
-- `records/03-outlook/` と security exposure を使い、macro regime gate を確定する
+- `records/01-macro-context/` と security exposure を使い、macro context fit を確認する
 - Portfolio policy、liquidity、calendar / event risk に照らして、採用可否と sizing を決める
 - thesis payoff を構造化し、target / stop / expected upside / downside / risk reward / time horizon を検査する
 - 短期 thesis が外れた場合に長期保有へ切り替えられるか、balance sheet / cash flow / liquidity / refinancing risk / earnings base の耐久性を確認する
@@ -16,8 +16,8 @@ Baibai-Loop の **research / investment memo** の運用仕様。candidates × o
 ## 2. 選定プロセス
 
 1. 直近の `records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml` を読む
-2. `playbook_screen_result`, `policy_gate_result`, `liquidity_gate_result`, `macro_regime_gate_result` を分けて確認する
-3. `records/03-outlook/` の `sectors` / `exposure_buckets` と universe file の `security_exposures[]` を確認する
+2. `playbook_screen_result`, `policy_gate_result`, `liquidity_gate_result` を分けて確認する
+3. `records/01-macro-context/` の `sector_tilts` と候補の `sector_33` を確認する
 4. `candidate_evidence_decisions[]` で research recorded_at 時点の `effective_sizing_eligible` を再評価する
 5. `selected_supporting_evidence_refs[]` に candidate / research の採用 evidence を明示する
 6. thesis payoff、portfolio policy、liquidity cap に照らし、`research_decision` を確定する
@@ -38,12 +38,10 @@ Front matter の形は [`../templates/research.md`](../templates/research.md) �
 
 - `ticker` / `name`
 - `playbook_id` / `playbook_ref`
-- `policy_ref`
-- `policy_applicability`
 - `candidate_ref`
-- `calendar_refs`
 - `research_decision`
-- `macro_regime_gate`
+- `macro_context_ref`
+- `macro_context_fit`
 - `candidate_evidence_decisions`
 - `selected_supporting_evidence_refs`
 - `research_evidence_hits`
@@ -65,19 +63,19 @@ Repository ref は `ref_path` で判断時に参照した repo 内 file を指�
 
 - `approved`: 今すぐ採用してよい
 - `deferred`: thesis は通るが、event / capital / regime / data gap で待つ
-- `rejected`: thesis または gate が通らない
+- `rejected`: thesis または必須確認が通らない
 
 `posture` は `act_now | wait_for_event | wait_for_capital | dropped`。`approved` は `act_now` のみ。`rejected` は `rejection_reason`、`deferred` かつ待機姿勢の場合は `deferral_reason` と revisit 条件を持つ。
 
-## 6. Macro Regime Gate
+## 6. Macro Context Fit
 
-`macro_regime_gate.decision_effect` は `pass | conditional | block`。
+`macro_context_fit.decision_effect` は `proceed | caution | defer`。
 
-- `pass`: policy と payoff 条件を満たせば採用可
-- `conditional`: blocking condition または低 sizing cap を必須にする
-- `block`: approved 不可
+- `proceed`: policy と payoff 条件を満たせば採用可
+- `caution`: 追加確認、低 sizing、event 待ちなどの条件を明示して採用可
+- `defer`: macro context 上の前提が弱く、approved 不可
 
-複数 macro input は reducer で合成し、record の値は validator が再計算値と一致検査する。unknown / expired / low confidence exposure は conservative に扱う。
+Macro context は hard gate ではないが、`defer` の場合は `research_decision.outcome: approved` にしない。unknown / stale / low confidence sector tilt は conservative に扱い、`required_checks[]` に追加確認を残す。
 
 ## 7. Evidence And Conviction
 
@@ -97,7 +95,7 @@ Long-only の計算式は次で固定する。
 - `risk_reward_ratio = expected_upside_pct / expected_downside_pct`
 - `stop_loss_yen < max_entry_price_yen < target_price_yen`
 
-Portfolio policy の minimum payoff を下回る場合は `policy_overrides[]` を要求する。Override 可否は policy rule で定義し、未定義 rule は default error とする。
+Payoff が弱い場合は `research_decision`、`macro_context_fit.required_checks`、`macro_context_fit.sizing_caution`、および `position_sizing_overlay` に反映する。Policy の具体閾値は `policy_config.py` を正本とし、未実装 field を追加して補わない。
 
 ## 9. Position Size
 
@@ -105,7 +103,7 @@ Position size は次の順で決める。
 
 1. conviction tier の default sizing ladder
 2. thesis payoff / minimum payoff
-3. macro regime gate cap
+3. macro context による caution / cap
 4. event / calendar cap
 5. liquidity cap
 6. board lot と guard price による rounding
@@ -117,7 +115,7 @@ Position size は次の順で決める。
 本文は playbook ごとの body schema に従う。共通の観点は次の通り。
 
 1. Thesis
-2. Macro regime gate
+2. Macro context
 3. Valuation snapshot
 4. 一時的割安の原因仮説
 5. 反対仮説
@@ -133,7 +131,7 @@ Position size は次の順で決める。
 `Thesis` には、短期 swing thesis に加えて以下を必ず 1 行以上で記録する。
 
 - **Long-hold fallback**: 長期保有になっても耐えられる可能性が高い balance sheet、cash flow、流動性、借換リスク、収益基盤を確認し、含み損時に資産ロックを受け入れて長期保有へ切り替えられるかを明示する。固定年数の条件ではなく、売却までの期間が想定より長引いても事業継続性と回収余地が残るかを確認する。配当・自己株買い・安定 shareholder return がある場合は、資産ロック中の収益性として優先材料にできる。配当がない場合でも、短期リターン可能性と payoff が十分大きければ採用余地を残す。Long-hold fallback は stop loss、invalidation、kill switch、事業継続前提の毀損を上書きしない。
-- **AI long-term impact**: AI の長期機会、長期脅威、今回判断での重みを明示する。AI 期待は単独の採用根拠、position sizing 根拠、macro gate にはしない。
+- **AI long-term impact**: AI の長期機会、長期脅威、今回判断での重みを明示する。AI 期待は単独の採用根拠、position sizing 根拠、macro context fit にはしない。
 
 ## 11. Validation
 
@@ -141,8 +139,8 @@ Position size は次の順で決める。
 uv run baibai-loop-validate --target research
 ```
 
-Validation は front matter schema、playbook body schema、repository refs、decision consistency、macro regime gate、evidence count、thesis payoff を検査する。
+Validation は front matter schema、playbook body schema、repository refs、decision consistency、macro context fit、evidence count、thesis payoff を検査する。
 
 ## 12. Trade / Review への接続
 
-Approved memo は decision register に `decision_scope: research_memo` として記録される。実行する場合は `order_intent` を decision register に作り、`records/06-trades/` の `orders[].origin_order_intent_id` と join する。Outcome は review / retro で evidence、macro regime gate、sizing、execution、playbook へ帰属する。
+Approved memo は decision register に `decision_scope: research_memo` として記録される。実行する場合は `order_intent` を decision register に作り、`records/06-trades/` の `orders[].origin_order_intent_id` と join する。Outcome は review / retro で evidence、macro context fit、sizing、execution、playbook へ帰属する。

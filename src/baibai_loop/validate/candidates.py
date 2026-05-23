@@ -24,21 +24,21 @@ _REMOVED_ROOT_FIELDS = frozenset(
     {
         "screening_rules_snapshot",
         "metric_catalog_snapshot",
-        "_".join(("policy", "snapshot")),
-        "_".join(("portfolio", "exposure", "ref")),
-        "_".join(("portfolio", "exposure", "snapshot", "ref")),
+        "policy_snapshot",
+        "portfolio_exposure_ref",
+        "portfolio_exposure_snapshot_ref",
         "cache_manifest_hash",
-        "_".join(("universe", "snapshot", "ref")),
-        "content_" + "sha256",
-        "row_" + "sha256",
+        "universe_snapshot_ref",
+        "content_sha256",
+        "row_sha256",
     }
 )
 _REMOVED_REFERENCE_FIELDS = frozenset(
     {
         "playbook_snapshot",
-        "_".join(("policy", "snapshot")),
-        "_".join(("portfolio", "exposure", "ref")),
-        "_".join(("portfolio", "exposure", "snapshot", "ref")),
+        "policy_snapshot",
+        "portfolio_exposure_ref",
+        "portfolio_exposure_snapshot_ref",
         "calendars_snapshot",
         "universe_snapshot_ref",
         "input_snapshots",
@@ -132,7 +132,7 @@ def _check_removed_root_fields(path: Path, document: Mapping[str, Any]) -> list[
 def _check_removed_hash_fields(path: Path, document: object) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
     for location, node in _walk_mappings(document, prefix=None):
-        for field in ("content_" + "sha256", "row_" + "sha256"):
+        for field in ("content_sha256", "row_sha256"):
             if field in node:
                 findings.append(
                     _finding(

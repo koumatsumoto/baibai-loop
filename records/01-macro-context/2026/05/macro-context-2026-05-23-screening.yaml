@@ -1,0 +1,49 @@
+kind: macro-context
+context_id: macro-context-2026-05-23-screening
+as_of: '2026-05-23'
+valid_until: '2026-05-30'
+published_at: '2026-05-23T00:00:00+09:00'
+summary: >
+  スクリーニング前に確認する現在の macro context。詳細な記事本文は保存せず、
+  外部記事と統計 series を判断材料として参照する。現時点では過度に強い macro
+  gate は置かず、個別銘柄の割安性と財務 quality を優先する。
+inputs:
+  articles:
+    - source: Reuters
+      title: Market and macro headlines reviewed before screening
+      url: https://www.reuters.com/markets/
+      published_at: '2026-05-23T00:00:00+09:00'
+      used_for: global market tone and sector risk scan
+  stats_series:
+    - series_id: usd_jpy
+      window: 1m
+      used_for: currency-sensitive exporter and importer context
+    - series_id: nikkei_225
+      window: 1m
+      used_for: broad Japan equity risk appetite context
+sector_tilts:
+  items:
+    - id: information-communication-neutral
+      scope: sector_33
+      key: 情報・通信業
+      stance: neutral
+      strength: medium
+      confidence: medium
+      rationale: recurring revenue と valuation dislocation を個別に確認する。macro context は除外要因にしない。
+    - id: machinery-mixed
+      scope: sector_33
+      key: 機械
+      stance: mixed
+      strength: medium
+      confidence: low
+      rationale: 外需・為替・設備投資 cycle の影響が分かれるため、個別の受注・利益率・財務余力で確認する。
+research_questions:
+  - 候補銘柄の安さは一時的な価格下落か、構造的な毀損か。
+  - macro context が headwind の場合でも、財務余力と valuation safety margin で吸収できるか。
+  - 次回決算や material event が近く、待つべき理由がないか。
+refresh_triggers:
+  - FOMC、BOJ、CPI、雇用統計など主要 macro event 後
+  - 為替、金利、原油、日経平均が screening 判断を変える程度に動いたとき
+  - スクリーニング候補が特定 sector に偏り、macro 前提を深掘りする必要が出たとき
+changes_since_previous:
+  - brief/outlook を廃止し、screening 前確認用の単一 macro context に統合した。

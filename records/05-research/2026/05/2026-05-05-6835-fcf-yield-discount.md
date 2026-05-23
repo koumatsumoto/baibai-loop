@@ -5,17 +5,6 @@ playbook_id: fcf-yield-discount
 playbook_ref:
   ref_path: records/_playbooks/fcf-yield-discount/2026-05-01T000000+0900.md
   effective_from: '2026-05-01T00:00:00+09:00'
-policy_ref:
-  ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
-  effective_from: '2026-05-01T00:00:00+09:00'
-policy_applicability: active
-calendar_refs:
-  business_days:
-    ref_path: records/_calendars/business-days/2026-05.yaml
-  events:
-    ref_path: records/_calendars/events/2026-05.yaml
-  corporate_actions:
-    ref_path: records/_calendars/corporate-actions/2026-05.yaml
 selected_supporting_evidence_refs:
 - source: candidate
   evidence_hit_id: candidate-2026-05-01-6835-fcf-yield-discount
@@ -36,28 +25,10 @@ candidate_ref:
   screen_run_id: screening-20260501
   ticker: '6835'
   candidate_id: candidate-2026-05-01-6835
-outlook_ref: records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
-brief_refs:
-- records/02-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
-- records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
 ai_draft: true
 published_at: '2026-05-05T20:15:00+09:00'
 recorded_at: '2026-05-05T20:15:00+09:00'
 tradable_at: '2026-05-18T09:00:00+09:00'
-macro_regime_gate:
-  aggregate_status: supportive
-  decision_effect: pass
-  source_scope: sector
-  reducer_id: macro-regime-reducer-v1
-  inputs:
-  - scope: sector
-    key: 電気機器
-    status: supportive
-    source_ref: records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
-    valid_until: '2026-05-13'
-    weight_or_materiality: high
-    confidence: high
-policy_overrides: []
 external_refs:
 - ref_path: records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
 candidate_evidence_decisions:
@@ -133,6 +104,14 @@ valuation:
   primary_metric:
   - fcf_yield
   - ocf_yield
+macro_context_ref: records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml
+macro_context_fit:
+  context_freshness: current
+  fit: not_matched
+  decision_effect: proceed
+  required_checks: []
+  sizing_caution:
+  - migrated_from_legacy_macro_context
 ---
 
 # Research: 2026-05-05 6835 アライドテレシスホールディングス fcf-yield-discount
@@ -145,13 +124,13 @@ valuation:
 
 6835 アライドテレシスホールディングスは、2026-05-01 candidates で `fcf-yield-discount` と `cashflow-yield-discount` が同時 hit した。FCF yield 22.6%、OCF yield 24.5%、PER 9.5、EV/EBITDA 3.2、net cash / market cap 38.9% で、今回の「お買い得を拾う」目的にかなり合う。機械的には FCF lane 1/11 で、9682 より割安軸は明確。ただし 2026-05-15 15:30 に 1Q 決算予定があるため、5/5 時点の結論は deferred。1Q 通過後に FCF / OCF thesis が崩れなければ追加候補とする。
 
-## Macro regime gate
+## Macro context
 
-- **判定**: supportive
+- **判定**: not_matched
 - **業種**: 電気機器
-- **outlook_ref**: records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
-- **根拠**: outlook は AI / HPC / データセンター向け部品需要を背景に電気機器を supportive としている。アライドテレシスはネットワーク機器・ソリューション企業で、データセンター部品というより企業・公共向けネットワーク投資に近い。
-- **保守側判定**: supportive。ただし採用理由は macro ではなく、FCF / OCF / net cash の同時成立。
+- **macro_context_ref**: records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml
+- **根拠**: macro context は電気機器に sector tilt を置いていない。アライドテレシスはネットワーク機器・ソリューション企業で、データセンター部品というより企業・公共向けネットワーク投資に近い。
+- **保守側判定**: not_matched。ただし採用理由は macro ではなく、FCF / OCF / net cash の同時成立。
 
 ### Portfolio macro risk budget
 
@@ -180,7 +159,7 @@ valuation:
 | EV/EBITDA | 3.2 | 補助 |
 | Net cash / market cap | 38.9% | 財務余力 |
 
-新 screening selection では、6835 は after-outlook global rank 41/307、fcf-yield-discount lane 1/11、cashflow-yield-discount lane 10/148。価格が 262 円で 100 株 26,200 円と小さく、残余資金を無理に使わず starter position を作れる点も実資金運用に合う。
+新 screening selection では、6835 は after-macro-context global rank 41/307、fcf-yield-discount lane 1/11、cashflow-yield-discount lane 10/148。価格が 262 円で 100 株 26,200 円と小さく、残余資金を無理に使わず starter position を作れる点も実資金運用に合う。
 
 Source:
 
@@ -246,7 +225,7 @@ Source:
 - capex が一時的に低かっただけで、通常投資を戻すと FCF が薄くなる。
 - net cash が事業再編・投資・株主還元で急減する。
 - 売上成長が止まり、低 multiple が構造的な低成長 discount と判明する。
-- 電気機器 gate が adverse に悪化する。
+- Macro context が headwind に悪化する。
 
 ## Position size
 

@@ -52,9 +52,6 @@ def _seed(root: Path) -> None:
             "playbook_ref": {
                 "ref_path": "records/_playbooks/valuation-reversion/2026-05-01T000000+0900.md",
             },
-            "policy_ref": {
-                "ref_path": "records/01-policy/2026/05/policy.md",
-            },
             "research_decision": {"outcome": "approved", "posture": "act_now"},
             "candidate_ref": {
                 "candidates_ref": str(candidates_path.relative_to(root)),
@@ -93,9 +90,6 @@ def _seed_trade(root: Path) -> None:
             "ticker": "2767",
             "name": "Sample",
             "research_ref": "records/05-research/2026/04/2026-04-25-2767-valuation-reversion.md",
-            "policy_ref": {
-                "ref_path": "records/01-policy/2026/05/policy.md",
-            },
             "trade_execution_state": "submitted",
             "order_intent": {
                 "order_intent_id": "intent-20260425-2767-buy",

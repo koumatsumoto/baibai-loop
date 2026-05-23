@@ -56,7 +56,7 @@ def test_validate_ledger_missing_required_field_is_finding(tmp_path: Path) -> No
 def test_validate_ledger_rejects_removed_reference_and_hash_fields(tmp_path: Path) -> None:
     path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
     record = _decision_record(
-        **{"_".join(("policy", "snapshot")): {"ref_path": "records/01-policy/2026/05/policy.md"}},
+        **{"_".join(("policy", "snapshot")): {"ref_path": "docs/portfolio-policy.md"}},
         row_sha256="sha256:bad",
     )
     _write_jsonl(path, record)
@@ -111,8 +111,7 @@ def test_research_memo_candidate_ref_rejects_mismatched_screen_run_id(tmp_path: 
         "  screen_run_id: screening-20260501\n"
         "  playbook_screen_result: hit\n"
         "  policy_gate_result: pass\n"
-        "  liquidity_gate_result: pass\n"
-        "  macro_regime_gate_result: pass\n",
+        "  liquidity_gate_result: pass\n",
         encoding="utf-8",
     )
     path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
@@ -148,8 +147,7 @@ def test_candidate_ref_requires_screen_run_id(tmp_path: Path) -> None:
         "  screen_run_id: screening-20260501\n"
         "  playbook_screen_result: hit\n"
         "  policy_gate_result: pass\n"
-        "  liquidity_gate_result: pass\n"
-        "  macro_regime_gate_result: pass\n",
+        "  liquidity_gate_result: pass\n",
         encoding="utf-8",
     )
     path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
@@ -219,7 +217,7 @@ def test_candidate_ref_rejects_absolute_path(tmp_path: Path) -> None:
 
 
 def test_candidate_ref_rejects_wrong_target(tmp_path: Path) -> None:
-    wrong = tmp_path / "records/02-brief/2026/05/not-candidates.yaml"
+    wrong = tmp_path / "records/01-macro-context/2026/05/not-candidates.yaml"
     wrong.parent.mkdir(parents=True)
     wrong.write_text("run_id: screening-20260501\ncandidates: []\n", encoding="utf-8")
     path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
@@ -230,7 +228,7 @@ def test_candidate_ref_rejects_wrong_target(tmp_path: Path) -> None:
             decision_scope="research_memo",
             ticker="9682",
             candidate_ref={
-                "candidates_ref": "records/02-brief/2026/05/not-candidates.yaml",
+                "candidates_ref": "records/01-macro-context/2026/05/not-candidates.yaml",
                 "candidate_id": "candidate-2026-05-01-9682",
                 "screen_run_id": "screening-20260501",
                 "ticker": "9682",

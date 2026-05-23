@@ -5,17 +5,6 @@ playbook_id: fcf-yield-discount
 playbook_ref:
   ref_path: records/_playbooks/fcf-yield-discount/2026-05-01T000000+0900.md
   effective_from: '2026-05-01T00:00:00+09:00'
-policy_ref:
-  ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
-  effective_from: '2026-05-01T00:00:00+09:00'
-policy_applicability: active
-calendar_refs:
-  business_days:
-    ref_path: records/_calendars/business-days/2026-05.yaml
-  events:
-    ref_path: records/_calendars/events/2026-05.yaml
-  corporate_actions:
-    ref_path: records/_calendars/corporate-actions/2026-05.yaml
 selected_supporting_evidence_refs:
 - source: candidate
   evidence_hit_id: candidate-2026-05-08-7613-cashflow-yield-discount
@@ -31,29 +20,10 @@ candidate_ref:
   screen_run_id: screening-20260508
   ticker: '7613'
   candidate_id: candidate-2026-05-08-7613
-outlook_ref: records/03-outlook/2026/05/outlook-2026-05-10-post-us-jobs-nikkei-wti.yaml
-brief_refs:
-- records/02-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
-- records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
-- records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-nikkei-wti.yaml
-- records/02-brief/2026/05/2026-05-13-world-daily-us-cpi-boj-opinions.yaml
 ai_draft: true
 published_at: '2026-05-16T10:40:00+09:00'
 recorded_at: '2026-05-16T10:40:00+09:00'
 tradable_at: null
-macro_regime_gate:
-  aggregate_status: neutral
-  decision_effect: pass
-  source_scope: sector
-  reducer_id: macro-regime-reducer-v1
-  inputs:
-  - scope: sector
-    key: 卸売業
-    status: neutral
-    source_ref: records/03-outlook/2026/05/outlook-2026-05-10-post-us-jobs-nikkei-wti.yaml
-    weight_or_materiality: medium
-    confidence: low
-policy_overrides: []
 external_refs:
 - ref_path: records/_external/siix/2026-05-16-fy2026-q1-official-ir.md
 candidate_evidence_decisions:
@@ -142,6 +112,14 @@ valuation:
   primary_metric:
   - fcf_yield
   - ocf_yield
+macro_context_ref: records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml
+macro_context_fit:
+  context_freshness: current
+  fit: not_matched
+  decision_effect: proceed
+  required_checks: []
+  sizing_caution:
+  - migrated_from_legacy_macro_context
 ---
 
 # Research: 2026-05-16 7613 シークス fcf-yield-discount
@@ -152,12 +130,12 @@ valuation:
 
 net debt と棚卸資産は悪化していない。そこは継続 watch に値するが、Q1 CF 計算書がなく FCF durability を確認できず、6835 のような利益進捗と net cash の組み合わせもない。6310 より debt risk は軽いが、営業利益減益と FX-adjusted 減収を見て、今回の追加投入順位からは落とす。
 
-## Macro regime gate
+## Macro context
 
-- 判定: neutral / pass。
+- 判定: not_matched / proceed。
 - Sector: 卸売業。
-- Source: `outlook-2026-05-10-post-us-jobs-nikkei-wti.yaml`。
-- 注意: 卸売業は商社 mix が広く、sector 一括 supportive ではない。macro は採用を押し上げない。
+- Source: `records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml`。
+- 注意: 卸売業は商社 mix が広く、sector 一括 tailwind ではない。macro は採用を押し上げない。
 
 ## FCF snapshot
 

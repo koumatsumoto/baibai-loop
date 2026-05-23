@@ -5,17 +5,6 @@ playbook_id: sales-discount-growth
 playbook_ref:
   ref_path: records/_playbooks/sales-discount-growth/2026-05-01T000000+0900.md
   effective_from: '2026-05-01T00:00:00+09:00'
-policy_ref:
-  ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
-  effective_from: '2026-05-01T00:00:00+09:00'
-policy_applicability: active
-calendar_refs:
-  business_days:
-    ref_path: records/_calendars/business-days/2026-05.yaml
-  events:
-    ref_path: records/_calendars/events/2026-05.yaml
-  corporate_actions:
-    ref_path: records/_calendars/corporate-actions/2026-05.yaml
 selected_supporting_evidence_refs:
 - source: candidate
   evidence_hit_id: candidate-2026-05-01-9692-sales-discount-growth
@@ -28,28 +17,10 @@ candidate_ref:
   screen_run_id: screening-20260501
   ticker: '9692'
   candidate_id: candidate-2026-05-01-9692
-outlook_ref: records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
-brief_refs:
-- records/02-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
-- records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
 ai_draft: false
 published_at: '2026-05-05T20:05:00+09:00'
 recorded_at: '2026-05-05T20:05:00+09:00'
 tradable_at: '2026-05-07T09:00:00+09:00'
-macro_regime_gate:
-  aggregate_status: supportive
-  decision_effect: pass
-  source_scope: sector
-  reducer_id: macro-regime-reducer-v1
-  inputs:
-  - scope: sector
-    key: 情報・通信業
-    status: supportive
-    source_ref: records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
-    valid_until: '2026-05-13'
-    weight_or_materiality: high
-    confidence: medium
-policy_overrides: []
 external_refs:
 - ref_path: records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
 candidate_evidence_decisions:
@@ -130,6 +101,14 @@ valuation:
   equity_ratio: 0.6848
   primary_metric:
   - p_s
+macro_context_ref: records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml
+macro_context_fit:
+  context_freshness: current
+  fit: neutral
+  decision_effect: proceed
+  required_checks: []
+  sizing_caution:
+  - migrated_from_legacy_macro_context
 ---
 
 # リサーチ: 2026-05-05 9692 CEC sales-discount-growth
@@ -140,11 +119,11 @@ CEC は、リファクタリング前に承認済みだったメモを現在の 
 
 2026-05-01 candidate snapshot 上では、DTS より仮説は強い。P/S 1.03、売上 YoY +17.2%、OCF yield 8.59%、net cash / market cap 36.61%、配当支えがある。ただし単一銘柄としては控えめなサイズに留め、tactical allocation を大きく張る位置づけではない。
 
-## Macro regime gate（マクロ・セクターゲート）
+## Macro context
 
-- Gate: supportive / pass。
+- Fit: neutral / proceed。
 - Sector: 情報・通信業。
-- 参照: `records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml`。
+- 参照: `records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml`。
 - CEC は DX / cloud / security spending の恩恵を受けるが、direct AI beta は過大評価しない。
 
 ## Sales / P/S snapshot（売上・P/S）
@@ -189,7 +168,7 @@ CEC は営業黒字のため、赤字縮小は gate 条件ではない。OCF yie
 
 - 売上成長が鈍化し、P/S discount が正当化される。
 - OCF が弱まり、配当支えの信頼度が下がる。
-- Sector gate が supportive から neutral / adverse に悪化する。
+- Macro context が headwind に悪化する。
 
 ## Position size（ポジションサイズ）
 

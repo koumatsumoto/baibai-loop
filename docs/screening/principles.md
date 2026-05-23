@@ -1,20 +1,20 @@
 # screening/principles.md
 
-Baibai-Loop のスクリーニングサブシステムの設計原則。Candidates、outlook、investment memo のフローに対応するルール集。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md)、概念モデルは [`../concepts.md`](../concepts.md) を参照。
+Baibai-Loop のスクリーニングサブシステムの設計原則。Candidates、macro context、investment memo のフローに対応するルール集。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md)、概念モデルは [`../concepts.md`](../concepts.md) を参照。
 
 ## 1. Decision lifecycle との接続
 
 | Lifecycle artifact | スクリーニング側の対応 | この原則集での位置付け |
 | --- | --- | --- |
 | `records/04-candidates/` | 機械的ふるい | [`mechanical.md`](./mechanical.md) で仕様化 |
-| `records/03-outlook/` | Macro regime gate の source | [`macro-gate-procedure.md`](./macro-gate-procedure.md) で手順化 |
+| `records/01-macro-context/` | screening 前の macro context | [`../components/macro-context.md`](../components/macro-context.md) |
 | `records/05-research/` | Playbook + thesis payoff + 採用判定 | 本ファイル + Playbook 本体 |
 
-## 2. Macro policy weight と macro regime gate
+## 2. Macro Context
 
 - **マクロ 76% / security-level 24%** は attention / review time / cognitive budget の policy weight として扱う。
-- Validator-visible な採用可否と sizing cap は macro regime gate と portfolio policy が担う。
-- Gate 判定は outlook → investment memo の接続で行う（[`macro-gate-procedure.md`](./macro-gate-procedure.md)）。
+- Macro context は hard gate ではなく、screening / research の確認観点として使う。
+- Validator-visible な sizing cap は portfolio policy と research 判断で扱う。
 
 ## 3. Playbook 定義（概要）
 
@@ -98,10 +98,9 @@ Research packet で以下の 4 軸を記入する。**合計点は算出しな�
 - **決算発表日またぎエントリー禁止**
 - **日銀金融政策決定会合の前日エントリー禁止**
 - **FOMC 前日エントリー禁止**
-- **macro regime gate が `block` の銘柄**（outlook と policy から adverse / expired / unknown を判定）
-- **outlook が未作成なら macro regime gate 判定不能なので entry 不可**
+- **macro context が stale なまま research へ進めること**（必要なら先に更新する）
 
-保有中に outlook が更新され macro regime gate が `block` または policy 上の conditional cap に転じた場合、即時 exit / sizing 見直しを検討。
+保有中に macro context が変わった場合、exit / sizing 見直しの必要性を research / review で確認する。
 
 ## 7. Position sizing
 
@@ -142,16 +141,16 @@ position は **paper proxy layer (1 億円仮想資本)** と **real layer (実�
 `../components/research.md` の「AI の役割境界（packet 項目単位）」節を参照。核心:
 
 - **AI 可**: Thesis / valuation snapshot / 仮説ドラフト / catalyst ドラフト / price reaction / positioning / liquidity 取得 / 株主還元確認ドラフト / evidence 寄与度初期評価
-- **人間のみ**: Macro regime gate 判定確定 / 一次ソース URL 確認 / 最終採用判定 / 失敗分類確定
+- **人間のみ**: Macro context の前提確認 / 一次ソース URL 確認 / 最終採用判定 / 失敗分類確定
 
 ## 10. 参考
 
-- [`../philosophy.md`](../philosophy.md): 思想（macro regime discipline、事実と分析の分離、feedback loop 先行、markdown 駆動）
+- [`../philosophy.md`](../philosophy.md): 思想（macro context discipline、事実と分析の分離、feedback loop 先行、markdown 駆動）
 - [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
 - [`../components/research.md`](../components/research.md): research 運用仕様
 - [`failure-taxonomy.md`](./failure-taxonomy.md): 失敗分類詳細
 - [`universe-rules.md`](./universe-rules.md): universe 境界条件
 - [`valuation-metrics.md`](./valuation-metrics.md): 指標算出仕様
 - [`mechanical.md`](./mechanical.md): 機械的ふるい仕様
-- [`macro-gate-procedure.md`](./macro-gate-procedure.md): Macro regime gate 判定手順
+- [`../components/macro-context.md`](../components/macro-context.md): Macro context contract
 - [`/records/_playbooks/`](/records/_playbooks/): playbook 本体

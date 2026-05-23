@@ -44,10 +44,10 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
 - [短期 catalyst の種別と freshness 上限]
 
-### 2.4 Macro regime gate 条件
+### 2.4 Macro context 条件
 
-- 業種/地域のマクロ gate が `supportive` または `neutral`
-- `adverse` は採用不可
+- Macro context の sector tilt が `tailwind` / `neutral` / `mixed`、または未定義でも個別 thesis と valuation safety margin で説明できる
+- `headwind` は自動棄却ではなく、research の `required_checks` / `sizing_caution` に明示する
 
 ### 2.5 Universe 条件
 
@@ -61,9 +61,9 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 - 空売り残高 / 日々公表信用 / 特別注意 / 貸借状態の評価
 - 踏み上げリスクと逆回転リスクの両面評価
 
-### 3.2 Macro supportive（二重確認）
+### 3.2 Macro tailwind（二重確認）
 
-- outlook の業種/地域判定を再確認
+- macro context の sector tilt と個別銘柄への効き方を再確認
 
 ### 3.3 Relative strength
 
@@ -73,7 +73,7 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
 - [業績下方修正]
 - [業種中央値切り下がり]
-- [マクロゲート adverse 反転]
+- [Macro context が headwind に反転]
 - [出来高を伴わない下落継続]
 
 ## 5. Exit 戦略
@@ -99,7 +99,7 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 [`/docs/components/research.md`](/docs/components/research.md) の AI 境界表を継承。核心:
 
 - **AI 可**: Thesis / valuation / 仮説ドラフト / catalyst / price / positioning-liquidity
-- **人間のみ**: Macro regime gate 確定 / 一次ソース URL 確認 / 最終採用判定
+- **人間のみ**: Macro context の最終解釈 / 一次ソース URL 確認 / 最終採用判定
 
 ## 9. 改訂履歴
 

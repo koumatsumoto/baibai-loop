@@ -13,14 +13,13 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal, TextIO, assert_never
 
-from .brief import discover_brief_files, validate_brief_file
 from .calendar import discover_calendar_files, validate_calendar_file
 from .candidates import discover_candidates_files, validate_candidates_file
 from .errors import ValidationFinding
 from .ledger import discover_ledger_files, validate_ledger_file
-from .outlook import discover_outlook_files, validate_outlook_file
+from .macro_context import discover_macro_context_files, validate_macro_context_file
 from .playbook_schema import discover_playbook_schemas
-from .policy import discover_policy_files, validate_policy_file
+from .policy import validate_policy_file
 from .references import discover_reference_files, validate_reference_integrity
 from .research import (
     discover_research_files,
@@ -33,10 +32,9 @@ from .review import discover_review_files, validate_review_file
 from .trade import discover_trade_files, validate_trade_file
 
 type ValidationTarget = Literal[
-    "brief",
+    "macro-context",
     "policy",
     "candidates",
-    "outlook",
     "research",
     "trade",
     "ledger",
@@ -45,10 +43,9 @@ type ValidationTarget = Literal[
     "calendar",
 ]
 _TARGETS: tuple[ValidationTarget, ...] = (
-    "brief",
+    "macro-context",
     "policy",
     "candidates",
-    "outlook",
     "research",
     "trade",
     "ledger",
@@ -57,10 +54,9 @@ _TARGETS: tuple[ValidationTarget, ...] = (
     "calendar",
 )
 
-BRIEF_ROOT = Path("records/02-brief")
-POLICY_ROOT = Path("records/01-policy")
+MACRO_CONTEXT_ROOT = Path("records/01-macro-context")
+POLICY_PATH = Path("docs/portfolio-policy.md")
 CANDIDATES_ROOT = Path("records/04-candidates")
-OUTLOOK_ROOT = Path("records/03-outlook")
 RESEARCH_ROOT = Path("records/05-research")
 TRADES_ROOT = Path("records/06-trades")
 LEDGER_ROOT = Path("records/_ledger")
@@ -179,14 +175,12 @@ def run_validation(
 
 def _discover(root: Path, target: ValidationTarget) -> list[Path]:
     match target:
-        case "brief":
-            return discover_brief_files(root / BRIEF_ROOT)
+        case "macro-context":
+            return discover_macro_context_files(root / MACRO_CONTEXT_ROOT)
         case "policy":
-            return discover_policy_files(root / POLICY_ROOT)
+            return [root / POLICY_PATH]
         case "candidates":
             return discover_candidates_files(root / CANDIDATES_ROOT)
-        case "outlook":
-            return discover_outlook_files(root / OUTLOOK_ROOT)
         case "research":
             return discover_research_files(root / RESEARCH_ROOT)
         case "trade":
@@ -210,14 +204,12 @@ def _validate(
     known_playbooks: frozenset[str],
 ) -> list[ValidationFinding]:
     match target:
-        case "brief":
-            return validate_brief_file(path)
+        case "macro-context":
+            return validate_macro_context_file(path)
         case "policy":
             return validate_policy_file(path)
         case "candidates":
             return validate_candidates_file(path)
-        case "outlook":
-            return validate_outlook_file(path)
         case "research":
             return validate_research_file(
                 path,

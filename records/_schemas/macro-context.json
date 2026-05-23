@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "macro-context",
+  "title": "Macro Context",
+  "description": "Schema for records/01-macro-context/**/*.yaml.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "context_id",
+    "as_of",
+    "valid_until",
+    "published_at",
+    "summary",
+    "inputs",
+    "sector_tilts",
+    "research_questions",
+    "refresh_triggers",
+    "changes_since_previous"
+  ],
+  "properties": {
+    "kind": {"const": "macro-context"},
+    "context_id": {"type": "string", "pattern": "^macro-context-[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9-]+$"},
+    "as_of": {"type": "string", "format": "date"},
+    "valid_until": {"type": "string", "format": "date"},
+    "published_at": {"type": "string", "minLength": 1},
+    "summary": {"type": "string", "minLength": 1},
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["articles", "stats_series"],
+      "properties": {
+        "articles": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/ArticleInput"}
+        },
+        "stats_series": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/StatsSeriesInput"}
+        }
+      }
+    },
+    "sector_tilts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/ContextItem"}
+        }
+      }
+    },
+    "research_questions": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "refresh_triggers": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "changes_since_previous": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "$defs": {
+    "ArticleInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "title", "url", "published_at", "used_for"],
+      "properties": {
+        "source": {"type": "string", "minLength": 1},
+        "title": {"type": "string", "minLength": 1},
+        "url": {"type": "string", "minLength": 1},
+        "published_at": {"type": "string", "minLength": 1},
+        "used_for": {"type": "string", "minLength": 1}
+      }
+    },
+    "StatsSeriesInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["series_id", "window", "used_for"],
+      "properties": {
+        "series_id": {"type": "string", "minLength": 1},
+        "window": {"type": "string", "minLength": 1},
+        "used_for": {"type": "string", "minLength": 1}
+      }
+    },
+    "ContextItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "scope", "key", "stance", "strength", "confidence", "rationale"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "scope": {"const": "sector_33"},
+        "key": {"type": "string", "minLength": 1},
+        "stance": {"enum": ["tailwind", "neutral", "mixed", "headwind"]},
+        "strength": {"enum": ["low", "medium", "high"]},
+        "confidence": {"enum": ["low", "medium", "high"]},
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

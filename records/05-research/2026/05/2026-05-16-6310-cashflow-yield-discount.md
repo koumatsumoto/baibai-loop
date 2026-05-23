@@ -5,17 +5,6 @@ playbook_id: cashflow-yield-discount
 playbook_ref:
   ref_path: records/_playbooks/cashflow-yield-discount/2026-05-01T000000+0900.md
   effective_from: '2026-05-01T00:00:00+09:00'
-policy_ref:
-  ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
-  effective_from: '2026-05-01T00:00:00+09:00'
-policy_applicability: active
-calendar_refs:
-  business_days:
-    ref_path: records/_calendars/business-days/2026-05.yaml
-  events:
-    ref_path: records/_calendars/events/2026-05.yaml
-  corporate_actions:
-    ref_path: records/_calendars/corporate-actions/2026-05.yaml
 selected_supporting_evidence_refs:
 - source: candidate
   evidence_hit_id: candidate-2026-05-08-6310-cashflow-yield-discount
@@ -31,29 +20,10 @@ candidate_ref:
   screen_run_id: screening-20260508
   ticker: '6310'
   candidate_id: candidate-2026-05-08-6310
-outlook_ref: records/03-outlook/2026/05/outlook-2026-05-10-post-us-jobs-nikkei-wti.yaml
-brief_refs:
-- records/02-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
-- records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
-- records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-nikkei-wti.yaml
-- records/02-brief/2026/05/2026-05-13-world-daily-us-cpi-boj-opinions.yaml
 ai_draft: true
 published_at: '2026-05-16T10:30:00+09:00'
 recorded_at: '2026-05-16T10:30:00+09:00'
 tradable_at: null
-macro_regime_gate:
-  aggregate_status: supportive
-  decision_effect: pass
-  source_scope: sector
-  reducer_id: macro-regime-reducer-v1
-  inputs:
-  - scope: sector
-    key: 機械
-    status: supportive
-    source_ref: records/03-outlook/2026/05/outlook-2026-05-10-post-us-jobs-nikkei-wti.yaml
-    weight_or_materiality: high
-    confidence: low
-policy_overrides: []
 external_refs:
 - ref_path: records/_external/iseki/2026-05-16-fy2026-q1-official-ir.md
 - ref_path: records/_external/deepresearch/2026-05-13-top3-bargain-selection.md
@@ -142,6 +112,14 @@ valuation:
   primary_metric:
   - ocf_yield
   - p_s
+macro_context_ref: records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml
+macro_context_fit:
+  context_freshness: current
+  fit: mixed
+  decision_effect: proceed
+  required_checks: []
+  sizing_caution:
+  - migrated_from_legacy_macro_context
 ---
 
 # Research: 2026-05-16 6310 井関農機 cashflow-yield-discount
@@ -152,12 +130,12 @@ valuation:
 
 Long-hold fallback は低-中のまま。P/S 0.22、PBR 0.55 は割安だが、農機の薄い margin、在庫、販売金融、金利感応度を上回る cash conversion がまだ見えていない。
 
-## Macro regime gate
+## Macro context
 
-- 判定: supportive / pass。
+- 判定: mixed / proceed。
 - Sector: 機械。
-- Source: `outlook-2026-05-10-post-us-jobs-nikkei-wti.yaml`。
-- 注意: outlook の機械 supportive は半導体製造装置・外需設備投資の色が強い。井関農機への直接度は低いため、macro gate はこの rejection を覆さない。
+- Source: `records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml`。
+- 注意: macro context の機械 mixed は半導体製造装置・外需設備投資の色が強い。井関農機への直接度は低いため、macro context fit はこの rejection を覆さない。
 
 ## Cashflow snapshot
 

@@ -11,25 +11,12 @@ def _snapshot(ref_path: str) -> dict[str, object]:
     return {"ref_path": ref_path}
 
 
-def _calendar_snapshots() -> dict[str, object]:
-    return {
-        "business_days": _snapshot("records/_calendars/business-days/2026-05.yaml"),
-        "events": _snapshot("records/_calendars/events/2026-05.yaml"),
-        "corporate_actions": _snapshot("records/_calendars/corporate-actions/2026-05.yaml"),
-    }
-
-
 def _trade_front(**overrides: object) -> dict[str, object]:
     front: dict[str, object] = {
         "trade_id": "trade-20260505-9682",
         "ticker": "9682",
         "playbook_id": "sales-discount-growth",
         "research_ref": "records/05-research/2026/05/2026-05-05-9682-sales-discount-growth.md",
-        "policy_ref": _snapshot(
-            "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"
-        ),
-        "policy_applicability": "active",
-        "calendar_refs": _calendar_snapshots(),
         "position_state": "open",
         "current_quantity": 200,
         "review_state": "not_due",
@@ -121,22 +108,13 @@ def _is_trade_dir(path: Path) -> bool:
 
 def _write_test_repo_sources(root: Path) -> None:
     (root / "src").mkdir(parents=True, exist_ok=True)
-    policy_path = root / "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"
-    policy_path.parent.mkdir(parents=True, exist_ok=True)
-    if not policy_path.exists():
-        policy_path.write_text(
-            "---\n"
-            "order_constraints:\n"
-            "  board_lot: 100\n"
-            "unique_constraints:\n"
-            "- id: no-margin-trading\n"
-            "  validator_callable_id: no_margin_trading\n"
-            "---\n\n# Policy\n",
-            encoding="utf-8",
-        )
     for rel_path, payload in {
         "records/_calendars/business-days/2026-05.yaml": {"business_days": ["2026-05-05"]},
-        "records/_calendars/events/2026-05.yaml": {"events": []},
+        "records/_calendars/events/2026-05.yaml": {
+            "covered_from": "2026-05-01",
+            "covered_until": "2026-05-31",
+            "events": [],
+        },
         "records/_calendars/corporate-actions/2026-05.yaml": {"events": []},
     }.items():
         source_path = root / rel_path
@@ -199,38 +177,6 @@ def test_portfolio_exposure_ref_is_flagged_as_removed(tmp_path: Path) -> None:
     assert "trade.removed-field" in codes
 
 
-def test_missing_policy_applicability_is_flagged(tmp_path: Path) -> None:
-    front = _trade_front()
-    del front["policy_applicability"]
-    path = _write_trade(tmp_path, front)
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.policy-applicability" in codes
-
-
-def test_missing_calendar_refs_is_flagged(tmp_path: Path) -> None:
-    front = _trade_front()
-    del front["calendar_refs"]
-    path = _write_trade(tmp_path, front)
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.calendar-refs" in codes
-
-
-def test_invalid_policy_ref_is_flagged_by_trade_target(tmp_path: Path) -> None:
-    front = _trade_front(policy_ref={"ref_path": "/tmp/policy.md"})
-    path = _write_trade(tmp_path, front)
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.reference-ref" in codes
-
-
-def test_wrong_calendar_ref_prefix_is_flagged_by_trade_target(tmp_path: Path) -> None:
-    calendars = _calendar_snapshots()
-    calendars["events"] = _snapshot("records/_calendars/business-days/2026-05.yaml")
-    front = _trade_front(calendar_refs=calendars)
-    path = _write_trade(tmp_path, front)
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.calendar-ref" in codes
-
-
 def test_nested_removed_hash_field_is_flagged(tmp_path: Path) -> None:
     front = _trade_front()
     order_intent = front["order_intent"]
@@ -243,9 +189,9 @@ def test_nested_removed_hash_field_is_flagged(tmp_path: Path) -> None:
 
 def test_nested_removed_reference_field_is_flagged(tmp_path: Path) -> None:
     front = _trade_front()
-    policy_ref = front["policy_ref"]
-    assert isinstance(policy_ref, dict)
-    policy_ref["snapshot_path"] = "records/01-policy/2026/05/policy.md"
+    order_intent = front["order_intent"]
+    assert isinstance(order_intent, dict)
+    order_intent["snapshot_path"] = "records/06-trades/2026/05/trade.md"
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_trade_file(path)}
     assert "trade.removed-reference-field" in codes
@@ -446,27 +392,25 @@ def test_submitted_trade_requires_valid_research_ref_for_order_intent(tmp_path: 
 
 
 def test_open_trades_must_stay_within_portfolio_concentration_caps(tmp_path: Path) -> None:
-    root = _test_repo_root(tmp_path)
-    policy_path = root / "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"
-    policy_path.parent.mkdir(parents=True, exist_ok=True)
-    policy_path.write_text(
-        "---\n"
-        "capital_basis:\n"
-        "  real_capital_yen: 5000000\n"
-        "  tactical_real_budget_yen: 100000\n"
-        "risk_budget:\n"
-        "  max_ticker_real_concentration_pct: 1.0\n"
-        "  max_sector_real_concentration_pct: 2.0\n"
-        "  max_playbook_real_concentration_pct: 1.0\n"
-        "order_constraints:\n"
-        "  board_lot: 100\n"
-        "unique_constraints:\n"
-        "- id: no-margin-trading\n"
-        "  validator_callable_id: no_margin_trading\n"
-        "---\n\n# Policy\n",
-        encoding="utf-8",
-    )
-    path = _write_trade(tmp_path, _trade_front())
+    front = _trade_front(current_quantity=3000)
+    front["position_sizing_overlay"] = {
+        "estimated_real_order_notional_yen": 3150000,
+        "guarded_max_notional_yen": 3150000,
+    }
+    intent = front["order_intent"]
+    assert isinstance(intent, dict)
+    front["order_intent"] = {**intent, "quantity": 3000, "order_price_guard_yen": 1050}
+    front["entry_legs"] = [
+        {
+            "entry_leg_id": "entry-20260505-9682-1",
+            "research_ref": "records/05-research/2026/05/2026-05-05-9682-sales-discount-growth.md",
+            "order_id": "order-20260505-9682-entry",
+            "quantity": 3000,
+            "average_price_yen": 1050,
+            "conviction_tier": "medium",
+        }
+    ]
+    path = _write_trade(tmp_path, front)
 
     codes = {finding.code for finding in validate_trade_file(path)}
 
@@ -479,21 +423,6 @@ def test_open_trades_must_stay_within_portfolio_concentration_caps(tmp_path: Pat
 def test_closed_trade_does_not_report_current_portfolio_concentration_caps(
     tmp_path: Path,
 ) -> None:
-    root = _test_repo_root(tmp_path)
-    policy_path = root / "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"
-    policy_path.parent.mkdir(parents=True, exist_ok=True)
-    policy_path.write_text(
-        "---\n"
-        "capital_basis:\n"
-        "  real_capital_yen: 5000000\n"
-        "  tactical_real_budget_yen: 100000\n"
-        "risk_budget:\n"
-        "  max_ticker_real_concentration_pct: 1.0\n"
-        "order_constraints:\n"
-        "  board_lot: 100\n"
-        "---\n\n# Policy\n",
-        encoding="utf-8",
-    )
     path = _write_trade(
         tmp_path,
         _trade_front(
@@ -533,21 +462,7 @@ def test_trade_intent_must_join_decision_register(tmp_path: Path) -> None:
 
 
 def test_kill_switch_check_is_recomputed_from_events_calendar(tmp_path: Path) -> None:
-    policy_ref = "records/01-policy/2026/05/policy.yaml"
-    policy = tmp_path / policy_ref
-    policy.parent.mkdir(parents=True)
-    policy.write_text(
-        yaml.safe_dump(
-            {
-                "kill_switch": {
-                    "boj_eve": {"validator_callable_id": "boj_eve_window"},
-                }
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-    events_ref = "records/_calendars/events/test.yaml"
+    events_ref = "records/_calendars/events/2026-05.yaml"
     events = tmp_path / events_ref
     events.parent.mkdir(parents=True)
     events.write_text(
@@ -566,17 +481,41 @@ def test_kill_switch_check_is_recomputed_from_events_calendar(tmp_path: Path) ->
         encoding="utf-8",
     )
     front = _trade_front(
-        policy_ref=_snapshot(policy_ref),
-        calendar_refs={
-            "business_days": _snapshot("records/_calendars/business-days/2026-05.yaml"),
-            "events": _snapshot(events_ref),
-            "corporate_actions": _snapshot("records/_calendars/corporate-actions/2026-05.yaml"),
-        },
         kill_switch_check={"boj_eve": False},
     )
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_trade_file(path)}
     assert "trade.kill-switch-check" in codes
+
+
+def test_kill_switch_requires_events_calendar(tmp_path: Path) -> None:
+    path = _write_trade(tmp_path)
+    events = tmp_path / "records/_calendars/events/2026-05.yaml"
+    events.unlink()
+
+    codes = {finding.code for finding in validate_trade_file(path)}
+
+    assert "trade.events-calendar-missing" in codes
+
+
+def test_kill_switch_requires_calendar_coverage(tmp_path: Path) -> None:
+    path = _write_trade(tmp_path)
+    events = tmp_path / "records/_calendars/events/2026-05.yaml"
+    events.write_text(
+        yaml.safe_dump(
+            {
+                "covered_from": "2026-04-01",
+                "covered_until": "2026-04-30",
+                "events": [],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    codes = {finding.code for finding in validate_trade_file(path)}
+
+    assert "trade.events-calendar-coverage" in codes
 
 
 def test_no_margin_trading_constraint_rejects_margin_usage(tmp_path: Path) -> None:

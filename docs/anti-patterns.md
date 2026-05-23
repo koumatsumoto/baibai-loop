@@ -4,11 +4,11 @@ baibai-loop での AI agent 作業で観測された失敗パターン集と、�
 PR で繰り返し指摘される類型は本ドキュメントに集約し、self-review の strict gate として運用する。
 
 このドキュメントは事後分析のためではなく **作業前 / commit 前 / PR 前のチェックリスト** として
-読まれることを意図する。新規 brief / outlook / research を書く前に必ず該当節を読み返すこと。
+読まれることを意図する。新規 macro context / research を書く前に必ず該当節を読み返すこと。
 
 ## 0. 全 anti-pattern 共通の根本原因
 
-PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで合計 21 件の指摘を
+PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビューで合計 21 件の指摘を
 受けた。共通する根本原因は以下:
 
 1. **一次情報を確認せずに二次情報・推測で書く**
@@ -16,7 +16,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 3. **データの「異常さ」に対して原因 cross-check を skip する**
 4. **schema / 実装の意味を読まずに「だろう」で書く**
 5. **fact 層と分析層の境界を曖昧にする**
-6. **依存関係 (brief → outlook → research) の整合性を意識しない**
+6. **依存関係 (macro context → research) の整合性を意識しない**
 7. **公表日 / source の最新性 / source の粒度を確認しない**
 8. **schema validator の抜け道を意識しない**
 
@@ -35,7 +35,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
   して書いた (実際は press release では未記載、要 transcript / 10-K)
 - 6590 芝浦メカトロニクス の顧客を TSMC / Samsung / Kioxia と断定した (公式製品ページで
   確認できるのは製品領域までで、顧客別売上比率は有報未確認)
-- OPEC+ 5/3 statement を outlook / brief 作成日 (5/4) に確認していなかった
+- OPEC+ 5/3 statement を旧 outlook / brief 作成日 (5/4) に確認していなかった
 
 ### 根本原因
 - 自分の事前知識ベースで「だろう」と書く habit
@@ -56,7 +56,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
       一次値と明確に区別して `(外部 estimate, source: ...)` の形で書いているか
 - [ ] 銘柄固有の事業構造 (顧客 / 地域 / 親会社取引比率) を断定する場合、有価証券報告書 / 決算
       説明資料 / 統合報告書のいずれかに直接 URL でリンクしているか。リンクなしの断定は禁止
-- [ ] outlook / brief の発行日付近に大型 statement (FOMC / BOJ / OPEC+ / CPI / PCE) が予定
+- [ ] macro context の発行日付近に大型 statement (FOMC / BOJ / OPEC+ / CPI / PCE) が予定
       されていれば、発行前に「最新版が出ていないか」を schedule で確認したか
 
 ## 2. AP-02: 数値計算を機械的に検算しない
@@ -111,9 +111,9 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - candidates の `sector_relative_strength_percentile: 1.0` を「同業種内で最も強い銘柄」と
   解釈。実装は `_rank_to_percentiles` で sector level の rank (electronics sector が全 33
   業種中で強い) を返す。個別銘柄の同業種内相対強度ではない
-- candidates / outlook YAML schema の追加プロパティ可否を確認せず `note` / `previous_change`
+- candidates / macro context YAML schema の追加プロパティ可否を確認せず `note` / `previous_change`
   を勝手に追加 → validate error
-- outlook YAML schema の `source_refs` が brief YAML パスに限定されることを確認せず
+- 旧 outlook YAML schema の `source_refs` が brief YAML パスに限定されることを確認せず
   research-log.md を指定 → validate error
 
 ### 根本原因
@@ -123,100 +123,79 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 
 ### 再発防止チェックリスト
 
-- [ ] candidates / outlook / brief / research の field を新規に解釈・記述する前に、対応する
+- [ ] candidates / macro context / research の field を新規に解釈・記述する前に、対応する
       JSON schema (`records/_schemas/*.json`) を読み返したか
 - [ ] 計算系 field (percentile / rank / change / hit) は src 実装 (`src/baibai_loop/screening/`)
       で計算ロジックを確認したか
-- [ ] 既存ファイル (4/24 candidates、4/24 bootstrap outlook、4/25 research) のサンプル形式に
+- [ ] 既存ファイル (candidates、macro context、research) のサンプル形式に
       従っているか、独自構造を勝手に追加していないか
 - [ ] `additionalProperties: false` の object に独自 key を追加していないか
 
 ## 5. AP-05: fact 層と分析層の境界を曖昧にする
 
 ### 観測された症状
-- brief の `note` / `fact_memos` / `events` に「FOMC タカ派ホールドの正当化材料」「需要側
+- 旧 brief の `note` / `fact_memos` / `events` に「FOMC タカ派ホールドの正当化材料」「需要側
   冷却の early evidence hit」「油価高値圏粘着の構造要因」「122 条効果が顕在化」などの解釈・因果
   推論・意味付け表現を書いた (docs/design-principles.md §4.3 で禁止)
 
 ### 根本原因
-- brief = 事実層 / outlook = 分析層 の境界を意識せず、便利な要約として書く
+- 旧 brief = 事実層 / outlook = 分析層 の境界を意識せず、便利な要約として書く
 - design-principles.md §4.3 の禁止表現リスト (「示唆」「背景」「受けて」「意味する」) を
   読み返さない
 
 ### 再発防止チェックリスト
 
-- [ ] brief の地の文に以下の表現が含まれていないか:
+- [ ] candidates などの事実層に以下のような解釈表現が含まれていないか:
   - [ ] 「示唆する」「観測される」「受けて」「背景に」「意味する」
   - [ ] 「正当化材料」「early evidence hit」「顕在化」「構造要因」
   - [ ] 「注目すべき」「重要な」「焦点となる」 (Major/Notable は閾値ラベルでありこの意味では
         使わない)
-- [ ] brief は `数値 + 公表日 + 機械的前期比 + source URL` のみで構成されているか
-- [ ] 解釈・因果推論・予測は outlook の summary / rationale に移したか
-- [ ] outlook で fact を引用するときは brief パスを `source_refs` で必ず参照しているか
+- [ ] candidates などの事実層に解釈・因果推論・予測を混ぜていないか
+- [ ] 解釈・因果推論・予測は macro context / research の分析層に移したか
+- [ ] macro context で使った外部記事・統計は source metadata として残し、記事本文や網羅的 fact を repo に蓄積していないか
 
-## 6. AP-06: 依存関係 (brief → outlook → research) の整合性を skip する
+## 6. AP-06: 依存関係 (macro context → candidates → research) の整合性を skip する
 
 ### 観測された症状
-- outlook が米コア PCE +3.2% を引用するが、brief (`2026-03-macro-monthly-us-cpi-3p3.yaml`) では
-  `unreleased` のまま放置。fact layer を skip して analysis layer に最新値を直接入れた
-- outlook の sector rationale で TSMC / NVIDIA / EIA / ホルムズ等の deep research fact を
-  使用しているのに、対応する brief への `source_refs` 参照が抜けていた (35 箇所)
-- emerging.source_refs が空のまま中国 PMI / 輸出 / 不動産を rationale に書いていた
+- macro context が stale / future / scope mismatch なのに、そのまま screening / research に使った
+- macro context の sector tilt と candidates の業種・exposure を確認せず、headwind を tailwind と同列に扱った
+- research で macro context の caution を読み飛ばし、追加確認や低 sizing の条件を残さなかった
 
 ### 根本原因
-- 「outlook で書いてしまえば伝わる」と判断して brief 経由を skip
-- source_refs の意味 (= research が macro_regime_gate を再構成するための trace) を忘れる
-- design-principles.md の柱 (事実層と分析層の物理分離、updated_from は判定根拠列挙) を
-  運用で守らない
+- macro context は hard gate ではないため「見なくてもよい」と誤解する
+- screening 前提の鮮度、対象 sector、tailwind / headwind を確認しない
+- design-principles.md の柱 (事実層と分析層の物理分離、macro context は判断前提) を運用で守らない
 
 ### 再発防止チェックリスト
 
-- [ ] outlook で引用する **すべての fact** について、対応する brief YAML が存在するか
-- [ ] 存在しない fact は、outlook 作成と同じ commit で **新規 brief を追加**してから引用
-- [ ] outlook の各 sector / exposure bucket / changes の `rationale` に出てくる fact 引用について、
-      対応する brief パスが `source_refs` に含まれているか機械的に対応関係を確認
-- [ ] **fact item は `status: ok` の `source_id` を少なくとも 1 つ持つこと**。`status: failed`
-      / `partial` の source だけを根拠にして fact 値を入れていないか
-  - `failed` source は「Tier 1 を試行したが取れなかった」記録として残してよいが、その値の
-    根拠としては機能しない。値を入れるなら **同じ事実を取得できた `status: ok` の二次
-    source を別 id で宣言**し、`source_ids` に併記する (例: `china-customs-toplevel:
-    failed` + `tradingeconomics-cn-exports: ok` の併記、Tier 2 明示)
-  - 一次が取れない期間が続くなら、`reference/data-sources.md` 側で恒常的代替経路を Tier 1 準拠扱い
-    に格上げするか、Tier 2 / 補助外運用を明示する
-- [ ] research の `outlook_ref` / `brief_refs` / `candidate_ref.candidates_ref` の 3 ref が valid パス
-      かつ実在するか
-- [ ] `updated_from` は「全 brief」ではなく「判定に効いた canonical input 集」であることを
-      意識して列挙しているか
-- [ ] outlook の正本フローを守っているか: **canonical fact layer は brief のみ**。outlook
-      の `updated_from` / `source_refs` は `records/02-brief/**.yaml` のみで、外部 URL を
-      直接書かない。sidecar `outlook-<date>-research-log.md` は取得ログであり source 数
-      にも数えない (詳細は [`components/outlook.md`](./components/outlook.md) §9.1)
-- [ ] **機械化チェック**: outlook 編集後に `uv run baibai-loop-precheck` を実行し、rationale 中の
-      数値・bp・億円トークンが `source_refs` に列挙された brief で見つかることを確認したか。
-      新規 outlook なら `--strict` で 0 件を目指す。precheck は同時に research の
-      `research_decision.outcome: deferred|rejected → approved` flip で `decision_revisions[].revision_type='decision_flip'` 不在も検出する
+- [ ] screening 前に使う `records/01-macro-context/` が asof より未来ではないか
+- [ ] `valid_until` を過ぎている場合、更新するか stale 前提のまま使う理由を selection / research で確認したか
+- [ ] research の `macro_context_ref` / `candidate_ref.candidates_ref` が valid パスかつ実在するか
+- [ ] `macro_context_fit.fit` と `macro_context_fit.decision_effect` が thesis / sizing / required checks に反映されているか
+- [ ] **機械化チェック**: macro context 編集後に `uv run baibai-loop-precheck` と `uv run baibai-loop-validate` を実行したか
 
 ## 7. AP-07: 公表日 / 期間 / source の最新性確認を skip する
 
 ### 観測された症状
 - 米 4 月 PCE 公表予定を「5/30 前後」と書いた (BEA schedule で確認した正確な日付は
   2026-05-28 8:30 EDT)
-- outlook 5/4 公開時に OPEC+ 5/3 statement を反映しなかった
+- 旧 outlook 5/4 公開時に OPEC+ 5/3 statement を反映しなかった
 - next_events に source_ids を紐付けず、BLS schedule などの一次情報を素通り
 
 ### 根本原因
 - 「だいたいの日付」感覚で next_events に書いてしまう
 - 発行直前の重要 release (前日・当日) を「まだ早すぎる」と勝手に判断して skip
-- source_ids 紐付けを必須運用していない
+- source metadata と確認対象 release の紐付けを必須運用していない
 
 ### 再発防止チェックリスト
 
-- [ ] outlook / brief 内の **すべての日付** について、source の publish schedule か
+- [ ] macro context / research 内の **すべての日付** について、source の publish schedule か
       release date を WebFetch で再確認したか
-- [ ] outlook 発行日 ± 5 営業日に予定された FOMC / BOJ / CPI / PCE / NFP / OPEC+ のいずれかが
+- [ ] macro context 発行日 ± 5 営業日に予定された FOMC / BOJ / CPI / PCE / NFP / OPEC+ のいずれかが
       あれば、最新 release / statement / minutes が出ているかを必ず確認
-- [ ] `next_events` の各 entry に対応する `source_ids` を必ず紐付け (BLS schedule、BEA
-      schedule、Fed FOMC calendar、BOJ schedule)
+- [ ] macro context の `inputs.articles[]` / `inputs.stats_series[]` に、判断へ使った外部記事・統計 series と
+      `used_for` を残したか
+- [ ] 次に更新すべき大型 event は `refresh_triggers[]` に具体的に残したか
 - [ ] 「随時」「○月下旬」「前後」のような曖昧表現を避け、確認できた具体日付を書く
 
 ## 8. AP-08: schema validator の抜け道を意識しない
@@ -298,7 +277,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - 別AIの分析にある EPS 前提、OpenAI 連携日、AI 関連売上、同業倍率、休場日などを、
   会社IR・取引所・candidates で再確認せず research / trade に取り込む
 - 「分析の方向性は合っている」ことと「records に事実として残せる」ことを混同する
-- 直前の `rejected` 判定、最新 candidates からの不在、universe drop、macro regime adverse などの
+- 直前の `rejected` 判定、最新 candidates からの不在、universe drop、macro context headwind などの
   system output を、override log なしに外部分析で上書きする
 - 1 億円 paper proxy と実資金 position を同じ `position_size_pct` に混在させる
 - 祝日中の成行注文を約定済み entry として記録し、entry price を推定で埋める
@@ -328,7 +307,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - [ ] 確認できた事実、修正した数値、未採用の二次情報を research の source verification log に分けて残したか
       (`external_refs[]` ごとに 採用 / 修正 / 未採用 の表で構造化する)
 - [ ] EPS / PER / 配当利回り / target price は公式 EPS・配当予想・株価で再計算したか
-- [ ] 直前の `rejected`、最新 candidates からの不在、universe drop、macro regime adverse、実資金集中度超過などを
+- [ ] 直前の `rejected`、最新 candidates からの不在、universe drop、macro context headwind、実資金集中度超過などを
       上書きする場合、research front matter の `overrides` と本文に prior state / reason / evidence を残したか
 - [ ] 実取引を records に残す場合、1 億円 paper proxy と real capital / real notional /
       real concentration を別 field に分けたか
@@ -341,7 +320,7 @@ PR #68 (2026-05-04 outlook + 6590 research) で 2 ラウンドのレビューで
 - [ ] 注文日が休場日または立会時間外の場合、trade は `orders[].state: submitted` とし、
       executions がない限り約定価格を推定で埋めていないか
 - [ ] 外部市場予測 (例: Gartner / IDC / 証券サイトの同業倍率) は、今回の canonical fact として
-      採用するなら brief / research の source として明示し、未確認なら「判断補助・未採用」として分離したか
+      採用するなら macro context / research の source として明示し、未確認なら「判断補助・未採用」として分離したか
 
 ## 10. PR review で繰り返し指摘される類型の追跡
 
@@ -358,7 +337,6 @@ PR で同じ anti-pattern が 2 ラウンド以上指摘されたら、本ドキ
 
 - 思想・基本方針: [`philosophy.md`](./philosophy.md)
 - 事実 / 分析の分離: [`design-principles.md`](./design-principles.md) §4
-- brief 仕様: [`components/brief.md`](./components/brief.md)
-- outlook 品質基準と self-review: [`components/outlook.md`](./components/outlook.md) §9
+- macro context 仕様: [`components/macro-context.md`](./components/macro-context.md)
 - research 採用判定: [`components/research.md`](./components/research.md)
 - AI agent 規約 (本ドキュメントの参照経路): [`../AGENTS.md`](../AGENTS.md)

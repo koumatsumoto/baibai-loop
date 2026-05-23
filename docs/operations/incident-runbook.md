@@ -12,7 +12,7 @@ Incident は運用中に records 作成や automation が止まった場合の�
 
 ## Source access failure
 
-- brief の Tier 1 取得失敗は [`../reference/data-sources.md`](../reference/data-sources.md) の運用に従う。
+- macro context の Tier 1 取得失敗は [`../reference/data-sources.md`](../reference/data-sources.md) の運用に従う。
 - 値を別 source で埋める場合は、Tier と `status` の扱いを明示する。
 - 取得失敗を `未公表` と混同しない。
 

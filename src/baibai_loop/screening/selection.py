@@ -9,6 +9,8 @@ from pathlib import Path
 
 import yaml
 
+from baibai_loop.macro_context import MacroContext, macro_context_diagnostics
+
 from .rule_config import (
     BUILTIN_SELECTION_PROFILES,
     CORE_VALUE_QUEUE,
@@ -22,8 +24,6 @@ from .rule_config import (
     SelectionRules,
 )
 from .tiers import position_tier
-
-SUPPORTED_OUTLOOK_STATUSES = {"supportive", "neutral"}
 
 _LANE_RANK = {
     "valuation-reversion": 0,
@@ -278,12 +278,12 @@ def build_selection_payload(
     *,
     asof_date: date,
     candidates: Sequence[CandidateRecord],
-    sectors_outlook: Mapping[str, str | None],
+    macro_context: MacroContext | None,
     rules: ScreeningRules,
     top: int,
     profile: str | None,
     candidates_ref: str,
-    outlook_ref: str,
+    macro_context_ref: str | None,
     previous_candidates: PreviousCandidates | None = None,
     prior_research_by_ticker: Mapping[str, PriorResearch] | None = None,
     profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
@@ -307,13 +307,16 @@ def build_selection_payload(
         lane: [] for lane in rules.lane_order
     }
     suppressed_queue: list[dict[str, object]] = []
-    outlook_filtered_count = 0
+    macro_context_checked_count = 0
 
     for item in candidates:
-        outlook_status = sectors_outlook.get(item.sector_33)
-        if outlook_status not in SUPPORTED_OUTLOOK_STATUSES:
-            continue
-        outlook_filtered_count += 1
+        macro_context_checked_count += 1
+        macro_context_result = _candidate_macro_context_result(
+            item,
+            macro_context=macro_context,
+            asof_date=asof_date,
+        )
+        macro_context_alignment = _macro_context_alignment(macro_context_result)
         eligible_evidence_hits = _sizing_eligible_evidence_hits(item.evidence_hits)
         if not eligible_evidence_hits:
             continue
@@ -327,7 +330,8 @@ def build_selection_payload(
         lenses = _candidate_lenses(item, selection_rules)
         candidate = _selection_candidate(
             item,
-            outlook_status=outlook_status,
+            macro_context_result=macro_context_result,
+            macro_context_alignment=macro_context_alignment,
             selection_lane=selection_lane,
             selection_metrics=selection_metrics,
             recommendation_lane=None,
@@ -338,7 +342,7 @@ def build_selection_payload(
             previous_candidate=item.ticker in previous_tickers,
         )
         sort_key = (
-            _macro_rank(outlook_status),
+            _macro_rank(macro_context_alignment),
             _lane_rank(selection_lane),
             *strength_key,
             -len(eligible_evidence_hits),
@@ -353,7 +357,7 @@ def build_selection_payload(
                 continue
             metrics = _metric_map(evidence_hit.get("metrics"))
             lane_sort_key = (
-                _macro_rank(outlook_status),
+                _macro_rank(macro_context_alignment),
                 *_evidence_strength_key(lane_name, metrics),
                 -len(eligible_evidence_hits),
                 item.ticker,
@@ -363,7 +367,8 @@ def build_selection_payload(
                     lane_sort_key,
                     _selection_candidate(
                         item,
-                        outlook_status=outlook_status,
+                        macro_context_result=macro_context_result,
+                        macro_context_alignment=macro_context_alignment,
                         selection_lane=lane_name,
                         selection_metrics=metrics,
                         recommendation_lane=lane_name,
@@ -422,29 +427,31 @@ def build_selection_payload(
     return {
         "asof": asof_date.isoformat(),
         "candidates_ref": candidates_ref,
-        "outlook_ref": outlook_ref,
+        "macro_context_ref": macro_context_ref,
         "input_count": len(candidates),
-        "after_outlook_filter": outlook_filtered_count,
+        "after_macro_context_check": macro_context_checked_count,
         "after_evidence_filter": len(ranked_candidates),
         "research_selection_target_min": rules.output.research_selection_target_min,
         "research_selection_target_max": rules.output.research_selection_target_max,
         "research_selection_lane_order": list(rules.output.research_selection_lane_order),
         "lane_toplist_limit": rules.output.lane_toplist_limit,
+        "macro_context_summary": _macro_context_summary(macro_context),
         "selection": {
             "asof": asof_date.isoformat(),
             "profile": effective_profile,
             "input_refs": {
                 "candidates_ref": candidates_ref,
-                "outlook_ref": outlook_ref,
+                "macro_context_ref": macro_context_ref,
                 "previous_candidates_ref": previous_candidates.ref_path,
             },
             "input_count": len(candidates),
-            "after_outlook_filter": outlook_filtered_count,
+            "after_macro_context_check": macro_context_checked_count,
             "after_evidence_filter": len(ranked_candidates),
             "research_selection_target_min": rules.output.research_selection_target_min,
             "research_selection_target_max": rules.output.research_selection_target_max,
             "research_selection_lane_order": list(rules.output.research_selection_lane_order),
             "lane_toplist_limit": rules.output.lane_toplist_limit,
+            "macro_context_summary": _macro_context_summary(macro_context),
             "queue_summary": queue_summary,
             "diagnostics": diagnostics,
         },
@@ -465,12 +472,12 @@ def build_selection_sweep_payload(
     *,
     asof_date: date,
     candidates: Sequence[CandidateRecord],
-    sectors_outlook: Mapping[str, str | None],
+    macro_context: MacroContext | None,
     rules: ScreeningRules,
     top: int,
     profiles: Sequence[str],
     candidates_ref: str,
-    outlook_ref: str,
+    macro_context_ref: str | None,
     previous_candidates: PreviousCandidates | None = None,
     prior_research_by_ticker: Mapping[str, PriorResearch] | None = None,
     profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
@@ -480,12 +487,12 @@ def build_selection_sweep_payload(
         payload = build_selection_payload(
             asof_date=asof_date,
             candidates=candidates,
-            sectors_outlook=sectors_outlook,
+            macro_context=macro_context,
             rules=rules,
             top=top,
             profile=profile,
             candidates_ref=candidates_ref,
-            outlook_ref=outlook_ref,
+            macro_context_ref=macro_context_ref,
             previous_candidates=previous_candidates,
             prior_research_by_ticker=prior_research_by_ticker,
             profile_overrides=profile_overrides,
@@ -554,11 +561,12 @@ def build_selection_sweep_payload(
         "asof": asof_date.isoformat(),
         "input_refs": {
             "candidates_ref": candidates_ref,
-            "outlook_ref": outlook_ref,
+            "macro_context_ref": macro_context_ref,
             "previous_candidates_ref": previous_candidates.ref_path
             if previous_candidates is not None
             else None,
         },
+        "macro_context_summary": _macro_context_summary(macro_context),
         "replay_evaluation_contract": {
             "minimum_replay_weeks": 6,
             "holdout_weeks": 2,
@@ -881,7 +889,8 @@ def _long_hold_survivability_lens(
 def _selection_candidate(
     item: CandidateRecord,
     *,
-    outlook_status: str | None,
+    macro_context_result: Mapping[str, object],
+    macro_context_alignment: str,
     selection_lane: str | None,
     selection_metrics: Mapping[str, object],
     recommendation_lane: str | None,
@@ -895,7 +904,8 @@ def _selection_candidate(
         "ticker": item.ticker,
         "name": item.name,
         "sector_33": item.sector_33,
-        "outlook_sector": outlook_status,
+        "macro_context_alignment": macro_context_alignment,
+        "macro_context": dict(macro_context_result),
         "market_cap_oku": item.market_cap_oku,
         "price_change_1d": item.price_change_1d,
         "price_change_5d": item.price_change_5d,
@@ -963,7 +973,7 @@ def _fast_dislocation_queue(candidates: Sequence[dict[str, object]]) -> list[dic
     entries = [
         (
             (
-                _macro_rank(_string_value(candidate.get("outlook_sector"))),
+                _macro_rank(_string_value(candidate.get("macro_context_alignment"))),
                 _fast_confidence_rank(candidate),
                 -_fast_guard_count(candidate),
                 _most_negative_price_change(candidate),
@@ -995,7 +1005,7 @@ def _long_hold_survivability_queue(
             (
                 (
                     0 if rating == "high" else 1,
-                    _macro_rank(_string_value(candidate.get("outlook_sector"))),
+                    _macro_rank(_string_value(candidate.get("macro_context_alignment"))),
                     _lane_rank(_string_value(candidate.get("selection_lane"))),
                     -_int_or(lens.get("support_count"), 0),
                     _string_value(candidate.get("ticker")) or "",
@@ -1381,14 +1391,64 @@ def _is_sizing_eligible_evidence(evidence_hit: Mapping[str, object]) -> bool:
     return evidence_hit.get("sizing_eligible") is not False
 
 
+def _candidate_macro_context_result(
+    item: CandidateRecord,
+    *,
+    macro_context: MacroContext | None,
+    asof_date: date,
+) -> dict[str, object]:
+    if macro_context is None:
+        return {
+            "context_id": None,
+            "stale": False,
+            "matched_items": [],
+            "unknown_items": [],
+            "warnings": ["macro_context_missing"],
+        }
+    return macro_context_diagnostics(
+        macro_context,
+        asof_date=asof_date,
+        candidate_sector=item.sector_33,
+    )
+
+
+def _macro_context_summary(macro_context: MacroContext | None) -> dict[str, object] | None:
+    if macro_context is None:
+        return None
+    payload = macro_context.payload
+    return {
+        "context_id": macro_context.context_id,
+        "as_of": macro_context.as_of.isoformat(),
+        "valid_until": macro_context.valid_until.isoformat(),
+        "research_questions": _string_sequence(payload.get("research_questions")),
+        "refresh_triggers": _string_sequence(payload.get("refresh_triggers")),
+    }
+
+
+def _macro_context_alignment(result: Mapping[str, object]) -> str:
+    items = _dict_sequence(result.get("matched_items"))
+    stances = {_string_value(item.get("stance")) for item in items}
+    if stances & {"tailwind"}:
+        return "tailwind"
+    if stances & {"headwind"}:
+        return "headwind"
+    if stances & {"mixed"}:
+        return "mixed"
+    if stances & {"neutral"}:
+        return "neutral"
+    return "not_matched"
+
+
 def _macro_rank(status: str | None) -> int:
     match status:
-        case "supportive":
+        case "tailwind":
             return 0
-        case "neutral":
+        case "neutral" | "mixed" | "not_matched":
             return 1
-        case _:
+        case "headwind":
             return 2
+        case _:
+            return 3
 
 
 def _lane_rank(name: str | None) -> int:

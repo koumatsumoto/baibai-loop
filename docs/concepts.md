@@ -20,9 +20,8 @@ Baibai-Loop は、self-directed な投資判断を forward-only に記録し、�
 
 ```mermaid
 flowchart LR
-  policy["policy: objectives and constraints"] --> brief["brief: observations"]
-  brief --> outlook["outlook: regime view"]
-  outlook --> candidates["candidates: screen output"]
+  policy["policy: objectives and constraints"] --> macro["macro context"]
+  macro --> candidates["candidates: screen output"]
   candidates --> research["research: investment memo"]
   research --> trades["trades: execution record"]
   trades --> reviews["reviews: attribution"]
@@ -33,8 +32,7 @@ flowchart LR
 | Stage | Responsibility | Primary question |
 | --- | --- | --- |
 | policy | objectives and constraints | 何を許し、何を禁じ、どの資本と時間軸で判断するか |
-| brief | observations | 何が起きたか |
-| outlook | regime view | その観測から macro / sector regime をどう読むか |
+| macro context | macro / sector context | 今の市場環境をどう読み、screening 前に何を確認するか |
 | candidates | screen output | どの銘柄が mechanical screen に残ったか |
 | research | investment memo | thesis, risk/reward, invalidation を満たすか |
 | trades | execution record | order / entry した判断がどう約定・保有・決済されたか |
@@ -61,9 +59,8 @@ Baibai-Loop は次の concept label で repository lifecycle を説明します�
 
 | Concept label | Repository location |
 | --- | --- |
-| portfolio policy | [`docs/components/portfolio-policy.md`](./components/portfolio-policy.md) |
-| macro / market observations | `records/02-brief/` |
-| macro / sector regime view | `records/03-outlook/` |
+| portfolio policy | [`docs/portfolio-policy.md`](./portfolio-policy.md) |
+| macro context | `records/01-macro-context/` |
 | security-level screen output | `records/04-candidates/` |
 | investment memo | `records/05-research/` |
 | execution record | `records/06-trades/` |
@@ -73,18 +70,17 @@ Baibai-Loop は次の concept label で repository lifecycle を説明します�
 
 `portfolio policy` は governance component としてこの docs set に置きます。現在の lifecycle では、capital / risk / liquidity の判断条件を research、ledger、trades の各 artifact に記録される field で確認します。履歴が必要な場合は git で確認します。
 
-Long-lived context は main lifecycle には含めません。Slow-moving context を扱う場合は、brief / outlook / research へ重複保持せず、lifecycle 外の参照層として扱います。
+Long-lived context は main lifecycle には含めません。Slow-moving context を扱う場合は、macro context / research へ重複保持せず、lifecycle 外の参照層として扱います。
 
 ## Responsibility Boundaries
 
 - `portfolio policy` は目的、制約、資本、許容リスク、time horizon、eligible universe、kill switch、swing-first / long-hold-capable value principle を扱います。具体的な銘柄 thesis や entry / invalidation / exit は playbook / investment memo が扱います。
-- `brief` は fact layer です。一次情報、統計、イベントを記録し、解釈や因果推論を書きません。
-- `outlook` は analysis layer です。brief を source として macro / sector regime を読みます。
+- `macro context` は analysis layer です。外部記事と統計 series を参照し、screening 前の macro / sector context を読みます。記事本文や監査ログは保存しません。
 - `candidates` は screen fact layer です。ticker-level の pinned repository file を残し、後続の current decision state は上書きしません。
 - `records/_ledger/` は research decision と tracking event を append-only に記録する正本です。Candidate は screen fact、trades は execution record、reviews は attribution record として分けます。
 - `research` は investment memo です。Evidence count だけでなく、entry、target、stop、expected upside / downside、risk/reward、time horizon、invalidation conditions を検証します。
 - `trades` は execution record です。実際に order / entry した採用判断を扱い、発注しなかった採用・見送り・保留を trade と呼びません。
-- `reviews` は outcome attribution / feedback layer です。Absolute return だけでなく relative return、missed opportunity、evidence hit outcome、macro regime gate attribution、sizing attribution、execution attribution、playbook feedback を扱います。
+- `reviews` は outcome attribution / feedback layer です。Absolute return だけでなく relative return、missed opportunity、evidence hit outcome、macro context attribution、sizing attribution、execution attribution、playbook feedback を扱います。
 
 ## Evidence Taxonomy
 
@@ -92,13 +88,13 @@ Long-lived context は main lifecycle には含めません。Slow-moving contex
 
 Artifact-level では `macroeconomic`, `policy/geopolitical`, `fundamental`, `valuation`, `market-derived`, `positioning/liquidity`, `catalyst` を扱います。
 
-Candidate-level / investment memo の evidence hit では、原則として `fundamental`, `valuation`, `market-derived`, `positioning/liquidity`, `catalyst` に限定します。`macroeconomic` と `policy/geopolitical` は macro regime 側で扱います。Schema enum では `market_derived` / `positioning_liquidity` のような ASCII-safe な値を使い、docs 表示名では hyphen / slash を使ってよいです。
+Candidate-level / investment memo の evidence hit では、原則として `fundamental`, `valuation`, `market-derived`, `positioning/liquidity`, `catalyst` に限定します。`macroeconomic` と `policy/geopolitical` は macro context 側で扱います。Schema enum では `market_derived` / `positioning_liquidity` のような ASCII-safe な値を使い、docs 表示名では hyphen / slash を使ってよいです。
 
 `technical` は正準 evidence family ではありません。価格、相対強度、出来高など市場から観測される情報は `market-derived evidence` と呼びます。Short interest、信用残、ADV、特別注意銘柄、流動性制約などは `positioning / liquidity evidence` と呼びます。
 
 ## Feedback Loop
 
-Review / retro は勝敗の件数集計ではありません。Outcome を playbook、evidence family、macro regime gate、sizing、execution に帰属させ、次の screening と investment memo を改善する feedback loop です。
+Review / retro は勝敗の件数集計ではありません。Outcome を playbook、evidence family、macro context、sizing、execution に帰属させ、次の screening と investment memo を改善する feedback loop です。
 
 見送り、保留、採用したが発注しなかった候補も、missed opportunity として追跡対象になります。Screening が拾わなかった銘柄の網羅監査は current lifecycle から外し、必要になった時点で別 issue / PR として再導入します。
 

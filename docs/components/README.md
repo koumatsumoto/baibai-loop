@@ -1,6 +1,6 @@
 ---
 title: "Component contracts"
-summary: "Index of Baibai-Loop artifact contracts. Existing component docs keep their paths and section structure."
+summary: "Index of Baibai-Loop artifact contracts."
 doc_type: component-index
 status: active
 last_reviewed: 2026-05-04
@@ -10,13 +10,12 @@ last_reviewed: 2026-05-04
 
 `docs/components/` は `records/` に残る成果物の contract を扱います。いつ作るか、どの順番で作るかは [`../operations/README.md`](../operations/README.md) に置きます。投資判断プロセス全体の概念モデルは [`../concepts.md`](../concepts.md) を正本とします。
 
-既存 `components/*.md` は AGENTS や anti-patterns から節番号付きで参照されているため、path と節構造を凍結します。Portfolio policy の component 境界は [`portfolio-policy.md`](./portfolio-policy.md) で説明します。
+Portfolio policy は record ではなく docs-managed governance document です。Component 境界は [`portfolio-policy.md`](./portfolio-policy.md) で説明します。
 
 | component | repository location | contract doc |
 | --- | --- | --- |
-| portfolio policy | [`portfolio-policy.md`](./portfolio-policy.md) | [`portfolio-policy.md`](./portfolio-policy.md) |
-| brief | `records/02-brief/` | [`brief.md`](./brief.md) |
-| outlook | `records/03-outlook/` | [`outlook.md`](./outlook.md) |
+| portfolio policy | [`../portfolio-policy.md`](../portfolio-policy.md) | [`portfolio-policy.md`](./portfolio-policy.md) |
+| macro context | `records/01-macro-context/` | [`macro-context.md`](./macro-context.md) |
 | candidates | `records/04-candidates/` | [`candidates.md`](./candidates.md) |
 | research | `records/05-research/` | [`research.md`](./research.md) |
 | trades | `records/06-trades/` | [`trades.md`](./trades.md) |

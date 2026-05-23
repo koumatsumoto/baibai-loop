@@ -1,0 +1,57 @@
+kind: macro-context
+context_id: macro-context-2026-05-04-screening
+as_of: '2026-05-04'
+valid_until: '2026-05-17'
+published_at: '2026-05-04T00:00:00+09:00'
+summary: >
+  2026年5月前半の screening / research に使う migration baseline。
+  旧 brief/outlook を record として残さず、既存の5月運用 record が参照できる
+  単一の macro context として整理する。Macro だけで候補を落とさず、決算日・流動性・
+  財務余力・valuation safety margin を research で確認する。
+inputs:
+  articles:
+    - source: Reuters
+      title: Market and macro headlines reviewed before early-May screening
+      url: https://www.reuters.com/markets/
+      published_at: '2026-05-04T00:00:00+09:00'
+      used_for: early-May global market tone and sector risk scan
+  stats_series:
+    - series_id: usd_jpy
+      window: 1m
+      used_for: exporter and importer sensitivity context
+    - series_id: nikkei_225
+      window: 1m
+      used_for: broad Japan equity risk appetite context
+sector_tilts:
+  items:
+    - id: information-communication-neutral
+      scope: sector_33
+      key: 情報・通信業
+      stance: neutral
+      strength: medium
+      confidence: medium
+      rationale: Recurring revenue and valuation dislocation should be checked at security level.
+    - id: machinery-mixed
+      scope: sector_33
+      key: 機械
+      stance: mixed
+      strength: medium
+      confidence: low
+      rationale: Orders, FX exposure, and capex cycle sensitivity differ by company.
+    - id: services-neutral
+      scope: sector_33
+      key: サービス業
+      stance: neutral
+      strength: medium
+      confidence: medium
+      rationale: Domestic demand and company-specific growth durability dominate macro filtering.
+research_questions:
+  - 価格下落は一時的な需給悪化か、構造的な業績毀損か。
+  - 決算日や corporate action が近く、entry を待つべき理由がないか。
+  - Macro headwind がある場合でも、財務余力と valuation safety margin で吸収できるか。
+refresh_triggers:
+  - FOMC、BOJ、CPI、雇用統計など主要 macro event 後
+  - 為替、金利、原油、日経平均が screening 判断を変える程度に動いたとき
+  - 候補が特定 sector に偏り、macro 前提を深掘りする必要が出たとき
+changes_since_previous:
+  - 旧 brief/outlook の5月前半運用前提を macro context に統合した。

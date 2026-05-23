@@ -32,9 +32,7 @@ source_paths:
 
 | path | レイヤー | 責務 |
 | --- | --- | --- |
-| `records/01-policy/` | policy | portfolio policy files |
-| `records/02-brief/` | fact / macro | brief YAML |
-| `records/03-outlook/` | analysis / macro | outlook YAML |
+| `records/01-macro-context/` | analysis / macro | screening 前に確認する macro context YAML |
 | `records/04-candidates/` | fact / security-level | candidates YAML |
 | `records/05-research/` | analysis / security-level | investment memo Markdown |
 | `records/06-trades/` | downstream | trade record Markdown |
@@ -44,7 +42,7 @@ source_paths:
 
 `records/_*` は運用成果物そのものではなく、生成・検証・検証後追跡を支える領域です。重複と drift を避けるため、正本 docs は 1 つに固定します。
 
-通常 record (`01-policy` から `07-reviews`) は event artifact として path
+通常 record (`01-macro-context` から `07-reviews`) は event artifact として path
 自体を正本にし、mutable latest index は持たない。Support area も `_changelog.jsonl` や
 content hash audit は持たず、record から参照する repo 内 file path と git 履歴を正本にする。
 
@@ -65,7 +63,7 @@ content hash audit は持たず、record から参照する repo 内 file path �
 | path | 責務 |
 | --- | --- |
 | `docs/architecture/` | 現行構造、情報フロー、repository map、automation map、ADR |
-| `docs/components/` | 成果物ごとの contract。既存 `components/*.md` は path と節構造を凍結 |
+| `docs/components/` | 成果物ごとの contract |
 | `docs/operations/` | 運用 runbook の入口。component docs から本文を移動しない |
 | `docs/reference/` | data sources、configuration、layout、testing、Python foundation |
 | `docs/glossary/` | 金融一般の意味と Baibai-Loop 固有語 |

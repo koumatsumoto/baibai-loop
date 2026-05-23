@@ -11,7 +11,7 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 - 運用手順入口: [`docs/operations/README.md`](./docs/operations/README.md)
 - 触る成分の仕様: [`docs/components/`](./docs/components/)
 - data sources / validation / Python 基盤: [`docs/reference/README.md`](./docs/reference/README.md)
-- **失敗パターンと再発防止**: [`docs/anti-patterns.md`](./docs/anti-patterns.md) — 過去の PR レビューで繰り返し指摘された類型集。brief / outlook / research / validator を編集する前に該当節のチェックリストを 1 周すること
+- **失敗パターンと再発防止**: [`docs/anti-patterns.md`](./docs/anti-patterns.md) — 過去の PR レビューで繰り返し指摘された類型集。macro context / research / validator を編集する前に該当節のチェックリストを 1 周すること
 
 ## 言語運用
 
@@ -25,15 +25,13 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 - 数値計算を機械的に検算しない (AP-02)
 - 株価異常値の corporate action 確認を skip する (AP-03)
 - schema / 実装の意味を読まずに推測で解釈する (AP-04)
-- brief に解釈・因果推論を書く (AP-05)
-- outlook fact が brief 経由になっていない (AP-06)
+- macro context の根拠 URL / series / used_for を曖昧にする
 - 公表日 / source の最新性確認を skip する (AP-07)
 - validator の抜け道を意識しない (AP-08)
 - 外部 AI 分析や system output を override せず records に取り込む / paper proxy と実資金集中度を混同する / 注文と約定の状態を区別しない (AP-09)
 
 成分別の詳細チェックリスト:
-- brief 編集時: [`docs/components/brief.md`](./docs/components/brief.md) §7.1
-- outlook 編集時: [`docs/components/outlook.md`](./docs/components/outlook.md) §9.3 self-review チェックリスト
+- macro context 編集時: [`docs/components/macro-context.md`](./docs/components/macro-context.md)
 - research 編集時: [`docs/components/research.md`](./docs/components/research.md) §8.1
 
 メタ運用 (失敗パターンの再発防止):
@@ -44,16 +42,7 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 
 ## 事実と分析の分離
 
-`records/02-brief/` と `records/04-candidates/` は事実層、`records/03-outlook/` と `records/05-research/` は分析層。事実ファイルに解釈・予測・相場観を書かない。詳細は [`docs/design-principles.md`](./docs/design-principles.md)。
-
-## brief 作成前の欠損確認
-
-`records/02-brief/` の `world-weekly` / `world-daily` / `macro-monthly` を新規作成・更新する前に、必ず [`docs/operations/brief-runbook.md`](./docs/operations/brief-runbook.md) の「brief 作成前の欠損確認」を実行する。
-
-- `world-weekly` の対象期間に gap がある場合、現在週を作る前に欠損週を backfill する
-- `world-daily` が存在しても `world-weekly` 欠損の代替にはしない
-- backfill 後、現在週の `references.prev_period` と前週比計算の基準を更新する
-- 欠損を放置したまま commit / PR しない
+`records/04-candidates/` は事実層、`records/01-macro-context/` と `records/05-research/` は分析層。事実ファイルに解釈・予測・相場観を書かない。詳細は [`docs/design-principles.md`](./docs/design-principles.md)。
 
 ## 検証
 
@@ -61,7 +50,7 @@ records / schema の変更を加えたら、コミット前に最低限以下を
 
 ```bash
 uv run baibai-loop-validate
-uv run baibai-loop-precheck   # AP-06 source_refs / rationale 機械チェック
+uv run baibai-loop-precheck
 uv run ruff format --check .
 uv run ruff check .
 uv run mypy
@@ -69,6 +58,6 @@ uv run pytest
 ```
 
 `baibai-loop-precheck` は warning-only で動く。`--strict` を渡すと finding が 1 件でもあれば
-exit 1 になる。新規 outlook を作成・更新するときは strict で通すことを目標にする。
+exit 1 になる。新規 macro context を作成・更新するときは strict で通すことを目標にする。
 
 CI と同じ手順は [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §9 を参照。

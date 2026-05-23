@@ -5,17 +5,6 @@ playbook_id: cashflow-yield-discount
 playbook_ref:
   ref_path: records/_playbooks/cashflow-yield-discount/2026-05-01T000000+0900.md
   effective_from: '2026-05-01T00:00:00+09:00'
-policy_ref:
-  ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
-  effective_from: '2026-05-01T00:00:00+09:00'
-policy_applicability: active
-calendar_refs:
-  business_days:
-    ref_path: records/_calendars/business-days/2026-05.yaml
-  events:
-    ref_path: records/_calendars/events/2026-05.yaml
-  corporate_actions:
-    ref_path: records/_calendars/corporate-actions/2026-05.yaml
 selected_supporting_evidence_refs:
 - source: candidate
   evidence_hit_id: candidate-2026-05-01-6310-cashflow-yield-discount
@@ -36,28 +25,10 @@ candidate_ref:
   screen_run_id: screening-20260501
   ticker: '6310'
   candidate_id: candidate-2026-05-01-6310
-outlook_ref: records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
-brief_refs:
-- records/02-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
-- records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
 ai_draft: true
 published_at: '2026-05-05T20:10:00+09:00'
 recorded_at: '2026-05-05T20:10:00+09:00'
 tradable_at: '2026-05-18T09:00:00+09:00'
-macro_regime_gate:
-  aggregate_status: supportive
-  decision_effect: pass
-  source_scope: sector
-  reducer_id: macro-regime-reducer-v1
-  inputs:
-  - scope: sector
-    key: 機械
-    status: supportive
-    source_ref: records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
-    valid_until: '2026-05-13'
-    weight_or_materiality: high
-    confidence: high
-policy_overrides: []
 external_refs:
 - ref_path: records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
 candidate_evidence_decisions:
@@ -133,6 +104,14 @@ valuation:
   primary_metric:
   - ocf_yield
   - p_s
+macro_context_ref: records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml
+macro_context_fit:
+  context_freshness: current
+  fit: mixed
+  decision_effect: proceed
+  required_checks: []
+  sizing_caution:
+  - migrated_from_legacy_macro_context
 ---
 
 # Research: 2026-05-05 6310 井関農機 cashflow-yield-discount
@@ -145,17 +124,17 @@ valuation:
 
 6310 井関農機は、2026-05-01 candidates で `cashflow-yield-discount` と `sales-discount-growth` が同時 hit した。OCF yield 59.1%、P/S 0.21、PBR 0.53、売上 YoY +10.3% で、今回の「お買い得を拾う」目的に最も合う上位候補の一つ。ただし 2026-05-15 に 1Q 決算発表予定があり、2026-05-05 時点で新規注文は決算またぎ kill switch に近い。decision は deferred とし、1Q 通過後に thesis が崩れなければ 100 株を採用する。
 
-## Macro regime gate
+## Macro context
 
-- **判定**: supportive
+- **判定**: mixed
 - **業種**: 機械
-- **outlook_ref**: records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml
-- **根拠**: outlook は機械を supportive。AI / 半導体製造装置色が強い gate だが、日銀短観の製造業設備投資や生産用機械の底堅さは機械セクター全体の下支えになる。
-- **保守側判定**: supportive。ただし井関農機は農業機械で、半導体装置の直接恩恵は薄い。採用理由は macro より個別の CF / 低 PBR / 低 P/S。
+- **macro_context_ref**: records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml
+- **根拠**: macro context は機械を mixed。AI / 半導体製造装置色が強い context だが、日銀短観の製造業設備投資や生産用機械の底堅さは機械セクター全体の下支えになる。
+- **保守側判定**: mixed。ただし井関農機は農業機械で、半導体装置の直接恩恵は薄い。採用理由は macro より個別の CF / 低 PBR / 低 P/S。
 
 ### Portfolio macro risk budget
 
-6310 は機械 sector supportive だが、半導体製造装置ではなく農業機械で、macro supportive の直接度は低い。さらに 2026-05-05 時点ではホルムズ・油価・米 CPI 前の macro risk が高く、1Q 決算も 2026-05-15 に迫る。OCF lane 1 位という upside は大きいが、1 単元 172,600 円で、総資金 500 万円では 3.45% でも、当面の 100 万円 tactical cap では 17.3% のイベントリスクになる。
+6310 は機械 sector mixed だが、半導体製造装置ではなく農業機械で、macro tailwind の直接度は低い。さらに 2026-05-05 時点ではホルムズ・油価・米 CPI 前の macro risk が高く、1Q 決算も 2026-05-15 に迫る。OCF lane 1 位という upside は大きいが、1 単元 172,600 円で、総資金 500 万円では 3.45% でも、当面の 100 万円 tactical cap では 17.3% のイベントリスクになる。
 
 したがって、5/7 に先行買いを入れる risk / return は 6835 より劣る。買うなら 1Q 通過後に 100 株。5/15 までに market が上がって取り逃すリスクはあるが、OCF の一過性反証を避ける価値の方が大きい。
 
@@ -179,7 +158,7 @@ valuation:
 | Net cash / market cap | -124.2% | net debt、大きな反対仮説 |
 | 有利子負債 | 62,172 百万円 | debt quality 確認必須 |
 
-新 screening selection では、6310 は after-outlook global rank 52/307、cashflow-yield-discount lane 1/148、sales-discount-growth lane 3/114。機械的には 9682 より明確に強い。
+新 screening selection では、6310 は after-macro-context global rank 52/307、cashflow-yield-discount lane 1/148、sales-discount-growth lane 3/114。機械的には 9682 より明確に強い。
 
 Source:
 
@@ -248,7 +227,7 @@ Source:
 - 棚卸資産の再積み上がり、販売金融、売掛金回収遅延で運転資本が悪化する。
 - 有利子負債の重さが意識され、金利上昇や需要悪化で財務余力が削られる。
 - 会社計画が弱く、P/S 0.21 / PBR 0.53 が低収益構造の反映と判明する。
-- 機械 sector gate が adverse に悪化する。
+- Macro context が headwind に悪化する。
 
 ## Position size
 

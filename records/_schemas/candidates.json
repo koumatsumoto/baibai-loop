@@ -56,7 +56,6 @@
         "playbook_screen_result",
         "policy_gate_result",
         "liquidity_gate_result",
-        "macro_regime_gate_result",
         "evidence_hits"
       ],
       "properties": {
@@ -68,7 +67,6 @@
         "playbook_screen_result": {"enum": ["hit", "no_hit", "rank_out", "near_threshold"]},
         "policy_gate_result": {"enum": ["pass", "excluded"]},
         "liquidity_gate_result": {"enum": ["pass", "excluded"]},
-        "macro_regime_gate_result": {"enum": ["pass", "conditional", "blocked"]},
         "evidence_hits": {
           "type": "array",
           "minItems": 1,

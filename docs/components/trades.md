@@ -25,16 +25,6 @@ trade_id: trade-YYYYMMDD-<ticker>
 ticker: "7203"
 name: "トヨタ自動車"
 research_ref: records/05-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook_id>.md
-policy_ref:
-  ref_path: records/01-policy/YYYY/MM/YYYY-MM-DDTHHMMSS+0900-portfolio-policy.md
-policy_applicability: active
-calendar_refs:
-  business_days:
-    ref_path: records/_calendars/business-days/YYYY-MM.yaml
-  events:
-    ref_path: records/_calendars/events/YYYY-MM.yaml
-  corporate_actions:
-    ref_path: records/_calendars/corporate-actions/YYYY-MM.yaml
 position_state: none | open | closed
 review_state: not_due | scheduled | completed
 trade_execution_state: none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled
@@ -108,7 +98,7 @@ execution_costs:
 
 ## 5. Sizing / Guard
 
-Order quantity は `policy_ref` の board lot と guard price から deterministic に算出する。
+Order quantity は code-managed policy config の board lot と guard price から deterministic に算出する。
 
 ```text
 target_quantity = floor(real_order_intent_yen / order_price_guard_yen / board_lot) * board_lot
@@ -143,7 +133,7 @@ uv run baibai-loop-validate --target trade
 
 ### 7.1 Order / Entry
 
-- **Entry reason**: investment memo の thesis / payoff / macro regime gate / policy pass を要約
+- **Entry reason**: investment memo の thesis / payoff / macro context fit / policy pass を要約
 - **Order / Entry triggers**: 実際に order を作った条件
 - **Order log**: order submit / modify / cancel / fill の記録
 - **Position**: paper proxy size、real notional、real / tactical budget concentration、target / stop / time stop
@@ -163,7 +153,7 @@ uv run baibai-loop-validate --target trade
 ## 8. Reviews への接続
 
 - 決済後 +15 営業日、+30 営業日で `records/07-reviews/YYYY/MM/YYYY-MM-DD-<ticker>.md` を作成
-- Review / retro では outcome を evidence hit、macro regime gate、sizing、execution、playbook へ帰属する
+- Review / retro では outcome を evidence hit、macro context fit、sizing、execution、playbook へ帰属する
 
 ## 9. AI の役割境界
 

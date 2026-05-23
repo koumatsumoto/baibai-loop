@@ -20,7 +20,7 @@ related_docs:
 
 - research front matter の `playbook` から参照される thesis pattern / evidence checklist を保持する。
 - 月次 retro で改訂可否を判断できるよう、versioned Markdown として残す。
-- screening 原則、macro regime gate、valuation 指標、investment memo 境界を横断する active rule をまとめる。
+- screening 原則、macro context fit、valuation 指標、investment memo 境界を横断する active rule をまとめる。
 
 ## 非責務
 

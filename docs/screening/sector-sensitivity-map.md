@@ -1,10 +1,10 @@
-# sector-exposure bucket-map.md
+# sector-sensitivity-map.md
 
-東証 33 業種を outlook の 4 exposure bucket (`us` / `japan-domestic` / `japan-external-demand` / `emerging`) に対する **主たる感応度** で分類する参考表。research §2 Macro regime gate / §10 Entry 条件で「業種は neutral だが地域 supportive の追い風を受ける」のような integrated judgement を組み立てる際の出発点として使う。
+東証 33 業種を macro context の `sector_tilts` を書く際の **主たる感応度** で分類する参考表。実装上の hard gate ではなく、macro context 作成時の sector tilt と research の `macro_context_fit` を考えるための補助資料として使う。
 
 ## 1. 位置付け
 
-- ここで言う exposure bucket は outlook が判定する **地域マクロ** であり、企業の所在地ではなく **業績の感応度の中心** を示す
+- ここで言う感応度は企業の所在地ではなく **業績が受けやすい macro driver の中心** を示す
 - 同じ業種の中でも個別企業によって感応度は異なるため、本表は **default mapping**。research では銘柄個別の輸出比率・原価構造・顧客地域を調べて override する
 - 33 業種を以下 3 区分に分ける:
   - **primarily japan-external-demand**: 売上の過半が海外向け、または USD/JPY や米需要に明確に連動
@@ -67,23 +67,23 @@ USD/JPY、米製造業需要、海外建設投資の影響を一次的に受け�
 | 鉱業 | 国内鉱山は限定的、海外鉱山投資・商品市況依存 |
 | その他金融業 | リース・消費者金融・投資 fund など、case by case |
 
-## 3. 使い方 (research での integration)
+## 3. 使い方
 
-1. candidates ticker の `sector_33` を本表で exposure bucket 区分に対応させる
-2. 該当 exposure bucket の outlook 判定 (supportive / neutral / adverse) を確認
-3. **mixed / context-dependent** の業種は、`research §2 Macro regime gate` で銘柄個別の輸出比率や顧客地域を調べて exposure bucket を確定する
-4. 業種 outlook と exposure bucket outlook の両方が **adverse** の場合のみ「採用不可」(両方 neutral 以上は採用可)
-5. 一方が supportive なら追い風として positive、もう一方が neutral なら大きな ambiguous でない限り採用可
+1. Macro context 作成時に、候補が多い `sector_33` の macro driver を本表で確認する
+2. `records/01-macro-context/` の `sector_tilts.items[]` に `tailwind` / `neutral` / `mixed` / `headwind` を必要最小限だけ書く
+3. **mixed / context-dependent** の業種は、research で銘柄個別の輸出比率・顧客地域・原価構造を確認する
+4. `headwind` は自動棄却ではなく、research の `macro_context_fit.required_checks` / `sizing_caution` に反映する
+5. sector tilt が無い業種は `not_matched` として扱い、macro ではなく個別 thesis と valuation safety margin で判断する
 
 ## 4. 限界と更新ポリシー
 
 - 本表は **default mapping** であり、銘柄個別の事実を上書きしない
 - 業種別の輸出比率は構造的に変化するため (例: 海運業の運賃指数、自動車業界の現地生産比率)、半年〜1 年に 1 回のレビューを想定
-- 大手商社 (卸売業) は本表で mixed としているが、実態は外需寄り。個別 research で exposure bucket supportive 適用するのが妥当
+- 大手商社 (卸売業) は本表で mixed としているが、実態は外需寄り。個別 research で銘柄固有の macro sensitivity を確認する
 
 ## 5. 関連
 
-- [`../components/outlook.md`](../components/outlook.md): outlook の exposure bucket 判定ルール
-- [`../components/research.md`](../components/research.md) §2: Macro regime gate での integrated judgement
+- `../components/macro-context.md`: macro context の `sector_tilts` 仕様
+- [`../components/research.md`](../components/research.md): research の `macro_context_fit`
 - [`./universe-rules.md`](./universe-rules.md): universe 境界条件
 - [`./mechanical.md`](./mechanical.md): 機械的ふるい仕様

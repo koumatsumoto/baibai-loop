@@ -8,7 +8,7 @@ source_paths:
   - "../../records/_data/"
 related_docs:
   - "../architecture/repository-map.md"
-  - "../operations/brief-runbook.md"
+  - "../components/macro-context.md"
 ---
 
 # データソース一覧とスコアリング
@@ -19,14 +19,13 @@ Decision lifecycle ([`../architecture/system-overview.md`](../architecture/syste
 
 | Artifact | 用途 | 主なソース |
 | --- | --- | --- |
-| `records/02-brief/` | マクロ事実記録 | Tier 1（日銀・FRB・BLS・BOJ・JPX・FRED 等）+ Tier 2（Reuters / NHK / AP、地政学のみ） |
+| `records/01-macro-context/` | screening 前のマクロ判断前提 | Reuters 等の記事 + Tier 1 / Tier 1 準拠統計 + 必要な market data |
 | `records/04-candidates/` | 銘柄ふるい・valuation 指標 | J-Quants（銘柄一覧・日足・財務サマリー・決算予定日・営業日カレンダ）+ EDINET（財務諸表補完）+ JPX（特別注意 / 整理 / 取引停止 / 上場廃止警告の除外判定） |
-| `records/03-outlook/` | マクロ見解の組み立て | `records/02-brief/` の積み上げ（外部 API 直接参照なし） |
-| `records/05-research/` | 個別銘柄深掘り | J-Quants + EDINET + TDnet（開示文）+ JPX（資本コスト対応開示一覧）+ 必要時 brief 参照 |
+| `records/05-research/` | 個別銘柄深掘り | J-Quants + EDINET + TDnet（開示文）+ JPX（資本コスト対応開示一覧）+ 必要時 macro context 参照 |
 | `records/06-trades/` | 執行記録 | 証券会社からの約定情報（手動記録） |
 | `records/07-reviews/` | 事後検証 | `records/06-trades/` + 対象銘柄の株価推移（J-Quants） |
 
-本ファイルの以下の節は主に **Tier 1 / Tier 2 一次統計**（brief 用）のスコアリングを扱う。screening / research で使う J-Quants / EDINET / TDnet の詳細仕様は [`../screening/valuation-metrics.md`](../screening/valuation-metrics.md) を参照。
+本ファイルの以下の節は主に **Tier 1 / Tier 2 一次統計** と macro context で使う補助ソースのスコアリングを扱う。screening / research で使う J-Quants / EDINET / TDnet の詳細仕様は [`../screening/valuation-metrics.md`](../screening/valuation-metrics.md) を参照。
 
 ## 取得データの保存方針
 
@@ -34,7 +33,7 @@ J-Quants / EDINET から取得したデータは、個人利用・非公開 repo
 
 保存済み cache は、screening 再生成、ledger tracking、monthly retro のための入力証跡として扱う。J-Quants の調整後価格、銘柄マスター、JPX 規制情報などは完全な point-in-time snapshot ではないため、再現性ではなく traceability の補助として使う。
 
-Macro statistics は `baibai-loop-stats` で公式 API / CSV から取得し、`data/stats/macro.sqlite` に保存してよい。この SQLite は brief / outlook の正本ではなく、期間検索・再取得抑制・brief 数値断片生成のための取得 cache として扱う。
+Macro statistics は `baibai-loop-stats` で公式 API / CSV から取得し、`data/stats/macro.sqlite` に保存してよい。この SQLite は macro context の正本ではなく、期間検索・再取得抑制・判断材料確認のための取得 cache として扱う。
 
 ## スコアリング軸
 
@@ -106,10 +105,10 @@ FRED は多くの一次統計の集約先として機能する。Tier 1 の適�
 
 ## Tier 1 の取得失敗時の扱い
 
-Tier 1 / Tier 1 準拠 ソースが作業環境からアクセスできない場合、数値の代替埋めは**行わない**。brief 側で `データ取得失敗` と明示する（詳細は [`../operations/brief-runbook.md`](../operations/brief-runbook.md) を参照）。
+Tier 1 / Tier 1 準拠 ソースが作業環境からアクセスできない場合、数値の代替埋めは**行わない**。macro context では取得できた source と取得できなかった source を分け、取得失敗した値を断定しない。
 
 - Tier 1 で取れない数値を Tier 2 / 補助外で埋めてはならない（一次統計の客観性が失われる）
-- 連続 2 回の brief 作成で同じソースが取得失敗した場合、代替一次ソース（同じ統計を別 URL で配信している一次統計ミラー・集約サイト）の Tier 1 準拠追加を検討する
+- 連続 2 回の macro context 作成で同じソースが取得失敗した場合、代替一次ソース（同じ統計を別 URL で配信している一次統計ミラー・集約サイト）の Tier 1 準拠追加を検討する
 - 検討の結果、恒常的に取れないと判断した指標は、テンプレート側から該当行を落とすか、空欄運用で確定させる
 
 ### 既知の取得経路と代替ルート
@@ -131,7 +130,7 @@ Tier 1 / Tier 1 準拠 ソースが作業環境からアクセスできない場
 
 **Web Archive の使い方**: `https://web.archive.org/web/{TIMESTAMP}/{元 URL}` で snapshot を直接取得できる。`TIMESTAMP` は `YYYYMMDD` 8 桁または `YYYYMMDDHHMMSS` 14 桁。最新値が欲しい場合は観測日寄りのタイムスタンプを指定し、それでも snapshot が古い場合は別シリーズで複数 timestamp を試す。Wayback の snapshot は元ソースのキャッシュであり、引用は元ソース URL（FRED 等）として扱い、Wayback URL を併記する。
 
-**ECB を使う前提**: ECB FX レートは日次 (CET 16:00) であり、週次の H.10 (米 NY noon) と timing が異なる。両者の差は通常 ±0.5 円以内。短期スパンでは互換とみなしてよいが、brief 内で USD/JPY を H.10 と ECB で混在させない（同一 brief 内では基準時刻を揃える）。
+**ECB を使う前提**: ECB FX レートは日次 (CET 16:00) であり、週次の H.10 (米 NY noon) と timing が異なる。両者の差は通常 ±0.5 円以内。短期スパンでは互換とみなしてよいが、macro context 内で USD/JPY を H.10 と ECB で混在させない（同一 macro context 内では基準時刻を揃える）。
 
 **PDF 抽出の前提**: BOJ の総裁記者会見・展望レポート PDF と JPX 日次統計 PDF は CMap encoded Type0 font を使うため、`pdftotext` (poppler-utils) か Python の `pdfminer.six` / `pypdf` が必要。本作業環境にこれらが入っていない場合、TOPIX や BOJ 政策決定本文は数値・本文ともに `データ取得失敗` 扱いになる。
 
@@ -141,7 +140,7 @@ Tier 2 の Reuters / AP News / NHK は、Web 取得ツール側の制約で直�
 
 1. 数値データ（価格・利回り・金利）は Tier 1 のみで完結させる（FRED で多くが賄える）
 2. 地政学イベントなどの事実記述で Tier 2 に届かない場合、CNBC / NPR / CSIS など事実報道中心の媒体を `[補助外]` タグ付きで一時引用してよい
-3. `[補助外]` 引用は暫定であり、次回の週次 brief 作成時に Tier 2 引用への置換を 1 回試みる
+3. `[補助外]` 引用は暫定であり、次回の週次 macro context 作成時に Tier 2 引用への置換を 1 回試みる
 4. **置換試行の打ち切りルール**: 連続 2 回置換に失敗した場合、その引用は `[補助外]` のまま受容して確定させる（恒常的に暫定扱いのまま放置しない）
 5. `[補助外]` 引用でも意見記事・論評は取らず、事実記述部分に限定する
 
@@ -157,10 +156,10 @@ Tier 2 の Reuters / AP News / NHK は、Web 取得ツール側の制約で直�
 
 ### 運用
 
-- brief の `sources` で Tier 1 の URL は `status: failed` (取得不能) として残し、Tier 2 二次集計 URL を別 source id で `status: ok`、`note: "Tier 2 (一次統計の二次集計、Tier 1 一次は本作業環境で未取得)"` で追加する
+- macro context の `sources` で Tier 1 の URL は `status: failed` (取得不能) として残し、Tier 2 二次集計 URL を別 source id で `status: ok`、`note: "Tier 2 (一次統計の二次集計、Tier 1 一次は本作業環境で未取得)"` で追加する
 - fact item の `source_ids` に **両方を併記** し、`status: ok` の Tier 2 source 経由で値を採用する (validator は `status: ok` の source_id が 1 つ以上必要)
-- 数値の前後に「Tier 2 二次集計、Tier 1 で確認できない期間」と注記し、outlook で引用する場合も同等の注記をつける
-- 連続 2 回 (= 2 つの outlook cycle) で Tier 1 が取れない指標は、本ファイルの Tier 1 表に「個別 release URL 解決困難の運用注記」を追加し、暫定状態を可視化する
+- 数値の前後に「Tier 2 二次集計、Tier 1 で確認できない期間」と注記し、macro context で引用する場合も同等の注記をつける
+- 連続 2 回 (= 2 つの macro context cycle) で Tier 1 が取れない指標は、本ファイルの Tier 1 表に「個別 release URL 解決困難の運用注記」を追加し、暫定状態を可視化する
 - 一次統計の数値が二次集計と乖離している場合 (=単一二次集計のみの値) は本例外を適用せず、analysis layer で「報道ベースの参考値」として質的に扱う
 
 ### 現在の例外運用対象 (2026-05-04 時点)
