@@ -94,7 +94,7 @@ J-Quants CashEq proxy の `cash-rich-asset-discount` は、EDINET `net_cash_to_m
 ### 8.1 業種分類粒度
 
 - **東証 33 業種** を初期値として採用
-- 17 業種はマクロ判定（outlook の sectors）で使うことも可能だが、スクリーニングは 33 業種基準
+- 17 業種はマクロ判定（macro context の sector_tilts）で使うことも可能だが、スクリーニングは 33 業種基準
 - 将来 retro で粒度変更する場合は本ファイルを更新
 
 ### 8.2 中央値算出

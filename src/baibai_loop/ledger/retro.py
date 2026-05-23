@@ -23,7 +23,7 @@ _FAILURE_CLASSES = (
     "流動性不足",
     "ルール違反",
 )
-_SUCCESS_CLASSES = ("仮説的中", "catalyst 反応", "macro supportive", "timing 一致")
+_SUCCESS_CLASSES = ("仮説的中", "catalyst 反応", "macro tailwind", "timing 一致")
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,9 +39,7 @@ def build_monthly_retro(root: Path, month: str) -> RetroDraft:
     reviews, warnings = _load_reviews(root, month)
 
     approved_decisions = sum(1 for record in decisions if _research_outcome(record) == "approved")
-    submitted_orders = sum(
-        1 for record in decisions if record.get("trade_execution_state") == "submitted"
-    )
+    submitted_orders = sum(1 for record in decisions if _has_order_submission(record))
     filled_positions = sum(
         1
         for record in decisions
@@ -185,9 +183,9 @@ def _render_retro(
         "",
         _missing_price_summary(front["price_missing_counts"]),
         "",
-        "## Macro regime gate 判定精度",
+        "## Macro context fit 判定精度",
         "",
-        *_macro_regime_lines(decisions),
+        *_macro_context_lines(decisions),
         "",
         "## Playbook 改訂判断",
         "",
@@ -228,14 +226,14 @@ def _class_rows(counts: object) -> list[str]:
     return [f"| {name} | {count} |" for name, count in counts.items()]
 
 
-def _macro_regime_lines(records: Sequence[Mapping[str, Any]]) -> list[str]:
+def _macro_context_lines(records: Sequence[Mapping[str, Any]]) -> list[str]:
     counts = Counter(
-        str(record.get("macro_regime_decision_effect") or "unknown")
+        str(record.get("macro_context_decision_effect") or "unknown")
         for record in records
         if record.get("decision_scope") == "research_memo"
     )
     if not counts:
-        return ["- macro regime gate 別の定量評価は未算出。"]
+        return ["- macro context fit 別の定量評価は未算出。"]
     return [f"- {effect}: {count} 件" for effect, count in sorted(counts.items())]
 
 
@@ -267,6 +265,13 @@ def _research_outcome(record: Mapping[str, Any]) -> str | None:
         outcome = decision.get("outcome")
         return str(outcome) if outcome is not None else None
     return None
+
+
+def _has_order_submission(record: Mapping[str, Any]) -> bool:
+    if record.get("decision_scope") != "trade_execution":
+        return False
+    state = record.get("trade_execution_state")
+    return state in {"submitted", "partially_filled", "filled"}
 
 
 def _tracking_value(record: Mapping[str, Any], key: str) -> object:

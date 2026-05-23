@@ -29,7 +29,7 @@ _GIT_PATH = shutil.which("git")
 
 @dataclass(frozen=True, slots=True)
 class DecisionFlipFinding:
-    """A flip-related precheck finding (mirrors precheck.OutlookFinding shape)."""
+    """A flip-related precheck finding."""
 
     severity: str
     target: Path

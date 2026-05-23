@@ -9,12 +9,10 @@
     "name",
     "playbook_id",
     "playbook_ref",
-    "policy_ref",
-    "policy_applicability",
-    "calendar_refs",
     "research_decision",
     "candidate_ref",
-    "macro_regime_gate",
+    "macro_context_ref",
+    "macro_context_fit",
     "candidate_evidence_decisions",
     "selected_supporting_evidence_refs",
     "research_evidence_hits",
@@ -27,18 +25,6 @@
     "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
     "playbook_id": {"type": "string", "minLength": 1},
     "playbook_ref": {"$ref": "#/$defs/RepositoryRef"},
-    "policy_ref": {"$ref": "#/$defs/RepositoryRef"},
-    "policy_applicability": {"enum": ["active"]},
-    "calendar_refs": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["business_days", "events", "corporate_actions"],
-      "properties": {
-        "business_days": {"$ref": "#/$defs/RepositoryRef"},
-        "events": {"$ref": "#/$defs/RepositoryRef"},
-        "corporate_actions": {"$ref": "#/$defs/RepositoryRef"}
-      }
-    },
     "research_decision": {
       "type": "object",
       "required": ["outcome", "posture"],
@@ -47,7 +33,18 @@
         "posture": {"enum": ["act_now", "wait_for_event", "wait_for_capital", "dropped"]}
       }
     },
-    "macro_regime_gate": {"type": "object"},
+    "macro_context_ref": {"type": "string", "pattern": "^records/01-macro-context/[^\\n]*\\.ya?ml$"},
+    "macro_context_fit": {
+      "type": "object",
+      "required": ["context_freshness", "fit", "decision_effect"],
+      "properties": {
+        "context_freshness": {"enum": ["current", "stale", "future"]},
+        "fit": {"enum": ["tailwind", "neutral", "mixed", "headwind", "not_matched"]},
+        "decision_effect": {"enum": ["proceed", "caution", "defer"]},
+        "required_checks": {"type": "array"},
+        "sizing_caution": {"type": "array"}
+      }
+    },
     "candidate_evidence_decisions": {"type": "array"},
     "research_evidence_hits": {"type": "array"},
     "conviction_tier": {"enum": ["low", "medium", "high"]},

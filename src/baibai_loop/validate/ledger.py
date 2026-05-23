@@ -14,15 +14,18 @@ from .domain import repository_ref_error, resolve_repository_ref
 from .errors import ValidationFinding
 
 SCHEMA_ROOT = Path(__file__).resolve().parents[3] / "records" / "_schemas"
-_REMOVED_HASH_FIELDS = frozenset({"content_" + "sha256", "row_" + "sha256"})
+_REMOVED_HASH_FIELDS = frozenset({"content_sha256", "row_sha256"})
 _REMOVED_REFERENCE_FIELDS = frozenset(
     {
         "playbook_snapshot",
-        "_".join(("candidate", "decision")),
-        "_".join(("policy", "snapshot")),
-        "_".join(("not", "reviewed", "reason")),
-        "_".join(("portfolio", "exposure", "ref")),
-        "_".join(("portfolio", "exposure", "snapshot", "ref")),
+        "candidate_decision",
+        "policy_snapshot",
+        "policy_ref",
+        "policy_applicability",
+        "not_reviewed_reason",
+        "portfolio_exposure_ref",
+        "portfolio_exposure_snapshot_ref",
+        "calendar_refs",
         "calendars_snapshot",
         "universe_snapshot_ref",
         "input_snapshots",

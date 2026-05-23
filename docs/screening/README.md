@@ -19,9 +19,8 @@ last_reviewed: 2026-05-04
 | [`principles.md`](./principles.md) | contract | screening subsystem の設計原則正本 |
 | [`automation.md`](./automation.md) | runbook / automation | screening CLI の使い方と実装境界 |
 | [`failure-taxonomy.md`](./failure-taxonomy.md) | reference | review / retro で使う失敗分類 |
-| [`macro-gate-procedure.md`](./macro-gate-procedure.md) | runbook | outlook から research へ接続する Macro regime gate 手順 |
 | [`mechanical.md`](./mechanical.md) | contract | 機械的ふるいの閾値と rule engine の意味論 |
-| [`sector-exposure bucket-map.md`](./sector-exposure bucket-map.md) | reference | 東証 33 業種と outlook exposure bucket の対応 |
+| [`sector-sensitivity-map.md`](./sector-sensitivity-map.md) | reference | 東証 33 業種と macro context sector tilt の参考分類 |
 | [`universe-rules.md`](./universe-rules.md) | contract | screening universe の境界条件 |
 | [`valuation-metrics.md`](./valuation-metrics.md) | reference | valuation 指標の算出仕様 |
 

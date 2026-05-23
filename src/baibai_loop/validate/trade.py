@@ -6,11 +6,15 @@ import json
 import math
 import re
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 import yaml
 from jsonschema import Draft202012Validator
+
+from baibai_loop.policy_config import PORTFOLIO_POLICY
 
 from .domain import (
     as_list,
@@ -31,26 +35,32 @@ _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)
 _TICKER_PATTERN = re.compile(r"^[0-9A-Z]{4}$")
 _REMOVED_FRONT_MATTER_FIELDS = {
     "status",
-    "_".join(("order", "date")),
-    "_".join(("entry", "date")),
-    "_".join(("entry", "price")),
-    "_".join(("exit", "date")),
-    "_".join(("exit", "price")),
-    "_".join(("pnl", "pct")),
-    "_".join(("real", "order", "notional", "yen")),
-    "_".join(("tactical", "capital", "yen")),
-    "_".join(("tactical", "concentration", "pct")),
-    "_".join(("policy", "snapshot")),
-    "_".join(("portfolio", "exposure", "ref")),
-    "_".join(("portfolio", "exposure", "snapshot", "ref")),
-    "_".join(("calendars", "snapshot")),
+    "order_date",
+    "entry_date",
+    "entry_price",
+    "exit_date",
+    "exit_price",
+    "pnl_pct",
+    "real_order_notional_yen",
+    "tactical_capital_yen",
+    "tactical_concentration_pct",
+    "policy_snapshot",
+    "policy_ref",
+    "policy_applicability",
+    "portfolio_exposure_ref",
+    "portfolio_exposure_snapshot_ref",
+    "calendar_refs",
+    "calendars_snapshot",
 }
-_REMOVED_HASH_FIELDS = {"content_" + "sha256", "row_" + "sha256"}
+_REMOVED_HASH_FIELDS = {"content_sha256", "row_sha256"}
 _REMOVED_REFERENCE_FIELDS = {
     "playbook_snapshot",
-    "_".join(("policy", "snapshot")),
-    "_".join(("portfolio", "exposure", "ref")),
-    "_".join(("portfolio", "exposure", "snapshot", "ref")),
+    "policy_snapshot",
+    "policy_ref",
+    "policy_applicability",
+    "portfolio_exposure_ref",
+    "portfolio_exposure_snapshot_ref",
+    "calendar_refs",
     "calendars_snapshot",
     "universe_snapshot_ref",
     "input_snapshots",
@@ -82,6 +92,12 @@ def _load_validator() -> Draft202012Validator:
 _VALIDATOR = _load_validator()
 
 
+@dataclass(frozen=True, slots=True)
+class _CalendarLoadResult:
+    events: list[Mapping[str, Any]]
+    findings: list[ValidationFinding]
+
+
 def discover_trade_files(root: Path) -> list[Path]:
     if not root.exists():
         return []
@@ -101,7 +117,6 @@ def validate_trade_file(path: Path) -> list[ValidationFinding]:
     findings.extend(_validate_schema(path, front))
     findings.extend(_check_removed_fields(path, front))
     findings.extend(_check_removed_hash_fields_recursive(path, front))
-    findings.extend(_check_policy_and_calendar_context(path, front))
     findings.extend(_check_reference_refs(path, front))
     findings.extend(_check_ticker(path, front))
     findings.extend(_check_order_ready_shape(path, front))
@@ -192,62 +207,10 @@ def _check_removed_fields(path: Path, front: Mapping[str, object]) -> list[Valid
     ]
 
 
-def _check_policy_and_calendar_context(
-    path: Path, front: Mapping[str, object]
-) -> list[ValidationFinding]:
-    findings: list[ValidationFinding] = []
-    if front.get("policy_applicability") != "active":
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="trade.policy-applicability",
-                message="trade records require policy_applicability: active",
-                location="policy_applicability",
-            )
-        )
-    findings.extend(_check_calendar_refs_block(path, front.get("calendar_refs")))
-    return findings
-
-
-def _check_calendar_refs_block(path: Path, value: object) -> list[ValidationFinding]:
-    if not isinstance(value, Mapping):
-        return [
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="trade.calendar-refs",
-                message="calendar_refs must pin business_days, events, and corporate_actions",
-                location="calendar_refs",
-            )
-        ]
-    findings: list[ValidationFinding] = []
-    specs = {
-        "business_days": ("records/_calendars/business-days/", (".yaml", ".yml")),
-        "events": ("records/_calendars/events/", (".yaml", ".yml")),
-        "corporate_actions": ("records/_calendars/corporate-actions/", (".yaml", ".yml")),
-    }
-    for key, (prefix, suffixes) in specs.items():
-        item = value.get(key)
-        location = f"calendar_refs.{key}"
-        findings.extend(
-            _check_repository_ref(
-                path,
-                item,
-                location=location,
-                code="trade.calendar-ref",
-                prefixes=(prefix,),
-                suffixes=suffixes,
-            )
-        )
-    return findings
-
-
 def _check_reference_refs(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
     specs = {
         "research_ref": (("records/05-research/",), (".md",)),
-        "policy_ref": (("records/01-policy/",), (".md",)),
     }
     for field, (prefixes, suffixes) in specs.items():
         value = front.get(field)
@@ -759,9 +722,8 @@ def _check_portfolio_concentration(
     current_notional = _open_trade_notional(front)
     if current_notional is None or current_notional <= 0:
         return []
-    policy = _load_policy(path, front)
-    capital = as_mapping(policy.get("capital_basis"))
-    risk = as_mapping(policy.get("risk_budget"))
+    capital = as_mapping(PORTFOLIO_POLICY.get("capital_basis"))
+    risk = as_mapping(PORTFOLIO_POLICY.get("risk_budget"))
     real_capital_yen = number(capital.get("real_capital_yen"))
     tactical_budget_yen = number(capital.get("tactical_real_budget_yen"))
     if real_capital_yen is None and tactical_budget_yen is None:
@@ -892,8 +854,7 @@ def _derive_trade_order(path: Path, front: Mapping[str, object]) -> dict[str, fl
     research = _load_referenced_research(path, front)
     if research is None:
         return None
-    policy = _load_policy(path, front)
-    order_constraints = as_mapping(policy.get("order_constraints"))
+    order_constraints = as_mapping(PORTFOLIO_POLICY.get("order_constraints"))
     board_lot = int(number(order_constraints.get("board_lot")) or 100)
     payoff = as_mapping(research.get("thesis_payoff"))
     guard = _number(payoff.get("max_entry_price_yen"))
@@ -930,14 +891,6 @@ def _load_referenced_research(
     return research
 
 
-def _load_policy(path: Path, front: Mapping[str, object]) -> Mapping[str, Any]:
-    try:
-        _policy_path, payload = load_reference_mapping(repo_root_for(path), front.get("policy_ref"))
-        return payload
-    except (OSError, ValueError, yaml.YAMLError):
-        return {}
-
-
 def _check_entry_legs(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
     legs = front.get("entry_legs")
     if front.get("trade_execution_state") == "none":
@@ -956,15 +909,15 @@ def _check_entry_legs(path: Path, front: Mapping[str, object]) -> list[Validatio
 
 
 def _check_kill_switches(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
-    policy = _load_policy(path, front)
-    validator_configs = _validator_configs(policy)
+    validator_configs = _validator_configs(PORTFOLIO_POLICY)
     if not validator_configs:
         return []
-    event_payload = _load_events_calendar(path, front)
-    events = [event for event in as_list(event_payload.get("events")) if isinstance(event, Mapping)]
     checked = as_mapping(front.get("kill_switch_check"))
     at = _first_order_event_at(front)
     findings: list[ValidationFinding] = []
+    calendar_result = _load_events_calendar(path, at=at)
+    findings.extend(calendar_result.findings)
+    events = calendar_result.events
     intent = as_mapping(front.get("order_intent"))
     for key, config in validator_configs:
         callable_id = config.get("validator_callable_id")
@@ -977,7 +930,7 @@ def _check_kill_switches(path: Path, front: Mapping[str, object]) -> list[Valida
                     target=path,
                     code="trade.kill-switch-callable",
                     message=f"kill switch has no validator implementation: {callable_id}",
-                    location=f"policy_ref.kill_switch.{key}.validator_callable_id",
+                    location=f"policy_config.kill_switch.{key}.validator_callable_id",
                 )
             )
             continue
@@ -1043,13 +996,80 @@ def _validator_configs(policy: Mapping[str, Any]) -> list[tuple[str, Mapping[str
     return configs
 
 
-def _load_events_calendar(path: Path, front: Mapping[str, object]) -> Mapping[str, Any]:
-    calendars = as_mapping(front.get("calendar_refs"))
+def _load_events_calendar(path: Path, *, at: str | None) -> _CalendarLoadResult:
+    events: list[Mapping[str, Any]] = []
+    findings: list[ValidationFinding] = []
+    target_date = _date_from_datetime(at)
+    covered = target_date is None
+    calendar_root = repo_root_for(path) / "records/_calendars/events"
+    calendar_paths = sorted(calendar_root.rglob("*.yaml"))
+    if not calendar_paths:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.events-calendar-missing",
+                message="records/_calendars/events must contain at least one YAML calendar",
+                location="kill_switch_check",
+            )
+        )
+        return _CalendarLoadResult(events, findings)
+    for calendar_path in calendar_paths:
+        try:
+            raw = yaml.safe_load(calendar_path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as exc:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="trade.events-calendar-parse",
+                    message=f"failed to parse events calendar {calendar_path}: {exc}",
+                    location="kill_switch_check",
+                )
+            )
+            continue
+        if not isinstance(raw, Mapping):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="trade.events-calendar-root",
+                    message=f"events calendar must be a mapping: {calendar_path}",
+                    location="kill_switch_check",
+                )
+            )
+            continue
+        if target_date is not None and _calendar_covers(raw, target_date):
+            covered = True
+        for event in as_list(raw.get("events")):
+            if isinstance(event, Mapping):
+                events.append(event)
+    if not covered and target_date is not None:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="trade.events-calendar-coverage",
+                message=f"events calendar does not cover order date {target_date.isoformat()}",
+                location="kill_switch_check",
+            )
+        )
+    return _CalendarLoadResult(events, findings)
+
+
+def _date_from_datetime(value: str | None) -> date | None:
+    if not isinstance(value, str) or not value:
+        return None
     try:
-        _events_path, payload = load_reference_mapping(repo_root_for(path), calendars.get("events"))
-        return payload
-    except (OSError, ValueError, yaml.YAMLError):
-        return {}
+        return date.fromisoformat(value[:10])
+    except ValueError:
+        return None
+
+
+def _calendar_covers(calendar: Mapping[str, object], target: date) -> bool:
+    start = _date_from_datetime(str(calendar.get("covered_from") or ""))
+    end = _date_from_datetime(str(calendar.get("covered_until") or ""))
+    return start is not None and end is not None and start <= target <= end
 
 
 def _first_order_event_at(front: Mapping[str, object]) -> str | None:

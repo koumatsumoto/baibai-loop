@@ -40,9 +40,9 @@ JPX 規制情報（特別注意 / 整理 / 取引停止 / 上場廃止警告）�
 uv run baibai-loop-screening select --asof YYYY-MM-DD
 ```
 
-`select` は最新 candidates と outlook を組み合わせ、Macro regime gate を支援します。最終採用判断は [`../components/research.md`](../components/research.md) の boundary に従い、人間が確定します。
+`select` は最新 candidates と macro context を組み合わせ、research 候補の triage を支援します。最終採用判断は [`../components/research.md`](../components/research.md) の boundary に従い、人間が確定します。
 
-`select` は `adverse` 業種を除外した上で、lane-specific metric、短期 dislocation、long-hold survivability、過去 research decision を組み合わせて triage します。Hit 数と時価総額だけで機械的に上位化しません。
+`select` は macro context で候補を自動除外せず、lane-specific metric、短期 dislocation、long-hold survivability、過去 research decision を組み合わせて triage します。Hit 数と時価総額だけで機械的に上位化しません。
 
 出力は `queues` と `selection.diagnostics` を正本にします。
 

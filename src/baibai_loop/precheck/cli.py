@@ -8,10 +8,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
-from .decision_flip import scan_research_decision_flips
-from .source_refs import scan_outlook_source_refs
+from baibai_loop.validate.macro_context import (
+    discover_macro_context_files,
+    validate_macro_context_file,
+)
 
-OUTLOOK_ROOT = Path("records/03-outlook")
+from .decision_flip import scan_research_decision_flips
+
+MACRO_CONTEXT_ROOT = Path("records/01-macro-context")
 RESEARCH_ROOT = Path("records/05-research")
 
 
@@ -28,8 +32,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="baibai-loop-precheck",
         description=(
-            "Mechanized self-review for anti-patterns. Currently scans outlook "
-            "rationale ↔ source_refs token consistency (AP-06)."
+            "Mechanized self-review for anti-patterns. Currently checks macro context "
+            "structure and research decision flips."
         ),
     )
     parser.add_argument(
@@ -59,17 +63,21 @@ def run_precheck(*, root: Path, strict: bool, stdout: TextIO, stderr: TextIO) ->
             file=stderr,
         )
         return 1
-    outlook_findings = scan_outlook_source_refs(root / OUTLOOK_ROOT, repo_root=root)
+    macro_context_findings = [
+        finding
+        for path in discover_macro_context_files(root / MACRO_CONTEXT_ROOT)
+        for finding in validate_macro_context_file(path)
+    ]
     flip_findings = scan_research_decision_flips(root / RESEARCH_ROOT, repo_root=root)
     findings: list[_DisplayFinding] = []
-    for outlook_finding in outlook_findings:
+    for macro_finding in macro_context_findings:
         findings.append(
             _DisplayFinding(
-                severity=outlook_finding.severity,
-                target=outlook_finding.target,
-                code=outlook_finding.code,
-                message=outlook_finding.message,
-                location=outlook_finding.location,
+                severity=macro_finding.severity,
+                target=macro_finding.target,
+                code=macro_finding.code,
+                message=macro_finding.message,
+                location=macro_finding.location or "",
             )
         )
     for flip_finding in flip_findings:
@@ -85,7 +93,7 @@ def run_precheck(*, root: Path, strict: bool, stdout: TextIO, stderr: TextIO) ->
     for finding in findings:
         print(_format_finding(finding, root), file=stderr)
     summary = (
-        f"precheck: {len(outlook_findings)} source-ref finding(s), "
+        f"precheck: {len(macro_context_findings)} macro-context finding(s), "
         f"{len(flip_findings)} decision-flip finding(s)"
     )
     print(summary, file=stdout)

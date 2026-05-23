@@ -5,17 +5,6 @@ playbook_id: cashflow-yield-discount
 playbook_ref:
   ref_path: records/_playbooks/cashflow-yield-discount/2026-05-01T000000+0900.md
   effective_from: '2026-05-01T00:00:00+09:00'
-policy_ref:
-  ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
-  effective_from: '2026-05-01T00:00:00+09:00'
-policy_applicability: active
-calendar_refs:
-  business_days:
-    ref_path: records/_calendars/business-days/2026-05.yaml
-  events:
-    ref_path: records/_calendars/events/2026-05.yaml
-  corporate_actions:
-    ref_path: records/_calendars/corporate-actions/2026-05.yaml
 selected_supporting_evidence_refs:
 - source: candidate
   evidence_hit_id: candidate-2026-05-08-4072-cashflow-yield-discount
@@ -39,29 +28,10 @@ candidate_ref:
   screen_run_id: screening-20260508
   ticker: '4072'
   candidate_id: candidate-2026-05-08-4072
-outlook_ref: records/03-outlook/2026/05/outlook-2026-05-10-post-us-jobs-nikkei-wti.yaml
-brief_refs:
-- records/02-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
-- records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
-- records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-nikkei-wti.yaml
-- records/02-brief/2026/05/2026-05-13-world-daily-us-cpi-boj-opinions.yaml
 ai_draft: false
 published_at: '2026-05-13T22:01:48+09:00'
 recorded_at: '2026-05-13T22:01:48+09:00'
 tradable_at: '2026-08-13T09:00:00+09:00'
-macro_regime_gate:
-  aggregate_status: supportive
-  decision_effect: pass
-  source_scope: sector
-  reducer_id: macro-regime-reducer-v1
-  inputs:
-  - scope: sector
-    key: 情報・通信業
-    status: supportive
-    source_ref: records/03-outlook/2026/05/outlook-2026-05-10-post-us-jobs-nikkei-wti.yaml
-    weight_or_materiality: high
-    confidence: low
-policy_overrides: []
 external_refs:
 - ref_path: records/_external/densan-system-hd/2026-05-13-fy2026-q1-official-ir.md
 candidate_evidence_decisions:
@@ -160,6 +130,14 @@ valuation:
   - ocf_yield
   - fcf_yield
   - p_s
+macro_context_ref: records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml
+macro_context_fit:
+  context_freshness: current
+  fit: neutral
+  decision_effect: proceed
+  required_checks: []
+  sizing_caution:
+  - migrated_from_legacy_macro_context
 ---
 
 # Research: 2026-05-13 4072 電算システムホールディングス cashflow-yield-discount
@@ -170,12 +148,12 @@ valuation:
 
 Q1 公式 IR では、売上高 +10.8%、営業利益 +13.2%、情報サービス営業利益 +52.1%、Google ビジネス売上高 +30.6%、通期営業利益進捗 33.6% が確認できた。したがって `reject` ではなく継続 research とする。一方、Q1 では四半期連結キャッシュ・フロー計算書が作成されておらず、収納代行サービスは仕入単価・金利上昇・新規投資で営業減益である。decision は `deferred / wait_for_event` とし、Q2 の半期 CF と価格改定後の margin を待つ。
 
-## Macro regime gate
+## Macro context
 
-- Gate: supportive / pass。
+- Fit: neutral / proceed。
 - Sector: 情報・通信業。
-- 参照: `records/03-outlook/2026/05/outlook-2026-05-10-post-us-jobs-nikkei-wti.yaml`。
-- Outlook は情報・通信業を supportive としている。4072 の Google Workspace / Google Cloud、公共 DX、AI PoC はこの gate と整合する。ただし、今回の採用根拠は AI theme ではなく、cashflow yield、FCF yield、P/S discount、Q1 の事業進捗である。
+- 参照: `records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml`。
+- Macro context は情報・通信業を neutral としている。4072 の Google Workspace / Google Cloud、公共 DX、AI PoC はこの前提と矛盾しない。ただし、今回の採用根拠は AI theme ではなく、cashflow yield、FCF yield、P/S discount、Q1 の事業進捗である。
 
 ## Cashflow snapshot
 
@@ -241,7 +219,7 @@ Q2 で半期営業 CF、FCF、収納代行 margin、価格改定効果が確認�
 - 収納代行サービスの営業減益が価格改定後も続き、仕入単価・金利上昇を価格転嫁できない。
 - Google Workspace / Google Cloud、SI、公共 DX の伸びが鈍化し、情報サービスの営業利益率改善が続かない。
 - 通期営業利益予想 +0.7% の据え置きに対し、Q2 以降の進捗が鈍化する。
-- 情報・通信業の macro gate が adverse へ悪化する。
+- 情報・通信業の macro context fit が headwind へ悪化する。
 
 ## Position size
 

@@ -41,8 +41,8 @@ def build_parser() -> argparse.ArgumentParser:
     refresh_parser.add_argument("--end", required=True, type=date.fromisoformat)
 
     fragment_parser = subparsers.add_parser(
-        "brief-fragment",
-        help="generate a quantitative brief YAML fragment from cached/fetched stats",
+        "macro-fragment",
+        help="generate a quantitative macro context YAML fragment from cached/fetched stats",
     )
     fragment_parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     fragment_parser.add_argument("--kind", required=True)
@@ -78,8 +78,8 @@ def main(argv: list[str] | None = None) -> int:
                     )
                     _print_observations(result)
                 return 0
-            case "brief-fragment":
-                payload = service.brief_fragment(
+            case "macro-fragment":
+                payload = service.macro_fragment(
                     kind=args.kind,
                     start=args.start,
                     end=args.end,

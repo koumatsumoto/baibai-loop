@@ -49,7 +49,6 @@ def _minimal_candidates() -> dict[str, object]:
                 "playbook_screen_result": "hit",
                 "policy_gate_result": "pass",
                 "liquidity_gate_result": "pass",
-                "macro_regime_gate_result": "pass",
                 "sector_33": "情報・通信業",
                 "metrics": {},
                 "ttm_quality": {

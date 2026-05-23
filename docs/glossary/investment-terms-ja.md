@@ -14,7 +14,7 @@ related_docs:
 
 `portfolio policy` は、自己運用における目的、制約、資本、許容リスク、time horizon、eligible universe、liquidity constraints、kill switch をまとめる統制文書です。CFA の IPS に近い考え方ですが、Baibai-Loop は投資助言サービスではなく、自己判断を一貫させるための governance document として使います。
 
-`policy_ref` は research / trade / ledger に記録された、その判断時点の policy file link です。履歴が必要な場合は git で確認します。
+`portfolio policy` は record ではなく、人間が読む governance document です。具体的な資本額、position size、concentration cap、kill switch など validator-visible な閾値は `src/baibai_loop/policy_config.py` で管理し、履歴は git で確認します。
 
 ## Evidence Family
 
@@ -30,7 +30,7 @@ Artifact-level では次を扱います。
 - `positioning/liquidity`
 - `catalyst`
 
-Candidate-level evidence hit では、原則として `fundamental`, `valuation`, `market-derived`, `positioning/liquidity`, `catalyst` に限定します。`macroeconomic` と `policy/geopolitical` は macro regime 側で扱います。
+Candidate-level evidence hit では、原則として `fundamental`, `valuation`, `market-derived`, `positioning/liquidity`, `catalyst` に限定します。`macroeconomic` と `policy/geopolitical` は macro context 側で扱います。
 
 ## Market-Derived
 
@@ -50,11 +50,9 @@ Baibai-Loop では `evidence hit` を使います。`evidence hit` は candidate
 
 `playbook` は、再現可能な投資判断パターンです。Screening rule、investment memo の論点、review attribution をつなぐ repeatable thesis pattern を指します。
 
-## Macro Regime / Macro Regime Gate
+## Macro Context
 
-`macro regime` は outlook から来る市場環境の読みです。
-
-`macro regime gate` は、その regime の下で当該候補が採用可能かを判断する eligibility gate です。`policy weight` は説明補助であり、validator-visible な採用可否と sizing cap は macro regime gate が担います。
+`macro context` は、スクリーニング直前に確認する市場環境の読みです。ロイター等の外部記事や公的統計を材料に、当面の買い場探索で優先する sector / exposure と避ける条件を整理します。
 
 ## Security Exposure
 
@@ -62,7 +60,7 @@ Baibai-Loop では `evidence hit` を使います。`evidence hit` は candidate
 
 ## Position Sizing Overlay / Risk Budget
 
-`position sizing overlay` は、個別候補の position sizing / timing cap に portfolio policy と macro regime を重ねる概念です。業界用語としての portfolio-level risk budget overlay とは区別します。
+`position sizing overlay` は、個別候補の position sizing / timing cap に portfolio policy と macro context を重ねる概念です。業界用語としての portfolio-level risk budget overlay とは区別します。
 
 `paper proxy capital` は判断の強弱を比較するための仮想資本です。Real capital や tactical real budget とは別であり、実注文額は execution scaling から導出します。
 

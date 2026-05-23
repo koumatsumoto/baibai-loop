@@ -21,7 +21,7 @@ outcome:
   execution_costs_yen: 0
   net_return_pct: 0.0
 attribution_targets:
-  - type: evidence_hit | macro_regime_gate | sizing | execution | playbook
+  - type: evidence_hit | macro_context | sizing | execution | playbook
     target_id: "id"
     effect: helped | hurt | neutral | unknown
     confidence: high | medium | low
@@ -56,7 +56,7 @@ structured_field_provenance:
 ### 3.1 分類
 
 - **Classification**: success / failure / invalidated / inconclusive
-- **Primary attribution**: evidence_hit / macro_regime_gate / sizing / execution / playbook
+- **Primary attribution**: evidence_hit / macro_context / sizing / execution / playbook
 - **Confidence**: high / medium / low
 
 ### 3.2 自由記述（必須）
@@ -69,7 +69,7 @@ Review 実施日: YYYY-MM-DD
 
 - exit 後の株価推移: [+X%, 上昇/下降トレンド継続/反転]
 - 同業種の推移: [業種全体との相対パフォーマンス]
-- マクロ環境の変化: [outlook に関連する変化があれば記録]
+- マクロ環境の変化: [macro context に関連する変化があれば記録]
 - 振り返り: [exit タイミングは適切だったか、早すぎた/遅すぎた]
 
 ## 5. +30 営業日レビュー（exit 日 + 30 営業日時点）

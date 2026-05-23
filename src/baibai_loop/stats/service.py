@@ -101,7 +101,7 @@ class StatsService:
             cache_hit=result.cache_hit,
         )
 
-    def brief_fragment(
+    def macro_fragment(
         self,
         *,
         kind: str,
@@ -110,7 +110,7 @@ class StatsService:
         refresh: bool = False,
     ) -> dict[str, Any]:
         if kind != "world-weekly":
-            raise ValueError(f"unsupported stats brief fragment kind: {kind}")
+            raise ValueError(f"unsupported stats macro fragment kind: {kind}")
         if end < start:
             raise ValueError("--end must be on or after --start")
         fetch_start = start - timedelta(days=DEFAULT_WEEKLY_LOOKBACK_DAYS)

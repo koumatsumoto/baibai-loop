@@ -10,15 +10,13 @@ last_reviewed: 2026-05-04
 
 ## Start
 
-1. 直近の作業対象を決める: brief freshness、outlook 更新、screening、research、trade、review。
+1. 直近の作業対象を決める: macro context、screening、research、trade、review。
 2. [`../components/README.md`](../components/README.md) で対象 component の contract を開く。
 3. records を変更する場合は、変更前に該当 runbook と [`../anti-patterns.md`](../anti-patterns.md) の relevant checklist を読む。
 
 ## Freshness
 
-- Macro track は売買イベントと独立に確認する。
-- `records/02-brief/` の鮮度不足があれば [`brief-runbook.md`](./brief-runbook.md) を優先する。
-- 最新 outlook が古い、または重大 event が出た場合は [`outlook-runbook.md`](./outlook-runbook.md) に進む。
+- Macro context は screening 手前で確認し、主要イベントや相場急変があれば更新する。
 
 ## Validation
 

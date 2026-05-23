@@ -18,11 +18,10 @@ Baibai-Loop は、日本株スイングトレードの判断を forward-only に
 
 | Concept | Repository location | レイヤー | 役割 |
 | --- | --- | --- | --- |
-| portfolio policy | [`docs/components/portfolio-policy.md`](../components/portfolio-policy.md) | governance | 目的、制約、資本、許容リスク、time horizon を固定する |
-| observations | `records/02-brief/` | fact | 一次統計、地政学、マーケット指標を事実として蓄積する |
-| regime view | `records/03-outlook/` | analysis | brief を積み上げ、macro / sector regime を判断する |
+| portfolio policy | [`docs/portfolio-policy.md`](../portfolio-policy.md) | governance | 目的、制約、資本、許容リスク、time horizon を固定する |
+| macro context | `records/01-macro-context/` | analysis | 外部記事と統計 series を参照し、screening 前の市場環境を判断する |
 | screen output | `records/04-candidates/` | fact | universe と screening rule から ticker-level raw screen output を記録する |
-| investment memo | `records/05-research/` | analysis | candidates と outlook を統合し、thesis payoff と採用可否を判断する |
+| investment memo | `records/05-research/` | analysis | candidates と macro context を統合し、thesis payoff と採用可否を判断する |
 | execution record | `records/06-trades/` | execution | 実際に order / entry した採用判断の注文、約定、建玉、決済を記録する |
 | attribution review | `records/07-reviews/` | feedback | relative return、missed opportunity、playbook attribution で feedback loop を閉じる |
 
@@ -30,9 +29,8 @@ Baibai-Loop は、日本株スイングトレードの判断を forward-only に
 
 ```mermaid
 flowchart LR
-  policy["portfolio policy"] --> brief["brief: observations"]
-  brief --> outlook["outlook: regime view"]
-  outlook --> candidates["candidates: screen output"]
+  policy["portfolio policy"] --> macro["macro context"]
+  macro --> candidates["candidates: screen output"]
   candidates --> research["research: investment memo"]
   research --> trades["trades: execution record"]
   trades --> reviews["reviews: attribution"]
@@ -40,15 +38,15 @@ flowchart LR
   playbooks --> candidates
 ```
 
-Macro track は売買イベントと独立して `brief -> outlook` を更新します。Security-level track は `candidates -> research -> trades -> reviews` で売買判断と feedback を扱います。統合点は investment memo です。
+Macro context は screening 手前で確認し、必要に応じて深く更新します。Security-level track は `candidates -> research -> trades -> reviews` で売買判断と feedback を扱います。統合点は investment memo です。
 
-`policy weight` としての macro 76 / security-level 24 は attention / review time / cognitive budget の説明補助です。Validator-visible な採用可否と sizing cap は macro regime gate と portfolio policy が担います。
+`policy weight` としての macro 76 / security-level 24 は廃止します。Validator-visible な採用可否と sizing cap は portfolio policy と research 判断が担います。
 
 ## スコープ
 
 - 基本は 2 か月以内、5-40 営業日のスイングトレードを対象にする。ただし、短期 thesis が外れた場合に長期保有へ切り替えられる銘柄を優先する policy を持つ。これは主戦略の holding period を延ばすためではなく、含み損時に損失確定を急がず、資産ロックを受け入れて回収を待てる selection principle である。
 - long-only の裁量支援基盤として扱う。
-- Macro / security-level の判断比重は policy weight として説明し、実際の gate / sizing cap は policy と macro regime gate で扱う。
+- Macro context は hard gate ではなく、screening / research の確認観点として扱う。
 - Markdown / YAML と Git を正本にする。
 - AI 下書きと人間確認を前提に、事実層と分析層を物理的に分ける。
 - CLI は screening、validation、ledger sync、macro statistics 取得の補助に使う。

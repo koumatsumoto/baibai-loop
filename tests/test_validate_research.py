@@ -25,7 +25,7 @@ _DEFAULT_BODY = """
 ## 1. Thesis
 text
 
-## 2. Macro regime gate
+## 2. Macro context
 text
 
 ## 3. Valuation snapshot
@@ -70,14 +70,6 @@ def _snapshot(ref_path: str) -> dict[str, object]:
     }
 
 
-def _calendar_snapshots() -> dict[str, object]:
-    return {
-        "business_days": _snapshot("records/_calendars/business-days/2026-05.yaml"),
-        "events": _snapshot("records/_calendars/events/2026-05.yaml"),
-        "corporate_actions": _snapshot("records/_calendars/corporate-actions/2026-05.yaml"),
-    }
-
-
 def _minimal_research_front_matter() -> dict[str, object]:
     return {
         "ticker": "2767",
@@ -86,11 +78,6 @@ def _minimal_research_front_matter() -> dict[str, object]:
         "playbook_ref": _snapshot(
             "records/_playbooks/valuation-reversion/2026-05-01T000000+0900.md"
         ),
-        "policy_ref": _snapshot(
-            "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"
-        ),
-        "policy_applicability": "active",
-        "calendar_refs": _calendar_snapshots(),
         "candidate_ref": {
             "candidates_ref": "records/04-candidates/2026/05/2026-05-01.yaml",
             "screen_run_id": "screening-20260501",
@@ -98,19 +85,15 @@ def _minimal_research_front_matter() -> dict[str, object]:
             "candidate_id": "candidate-2026-05-01-2767",
         },
         "research_decision": {"outcome": "approved", "posture": "act_now"},
-        "macro_regime_gate": {
-            "aggregate_status": "supportive",
-            "decision_effect": "pass",
-            "inputs": [
-                {
-                    "scope": "sector",
-                    "key": "情報・通信業",
-                    "status": "supportive",
-                    "source_ref": (
-                        "records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml"
-                    ),
-                }
-            ],
+        "macro_context_ref": (
+            "records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml"
+        ),
+        "macro_context_fit": {
+            "context_freshness": "current",
+            "fit": "neutral",
+            "decision_effect": "proceed",
+            "required_checks": [],
+            "sizing_caution": [],
         },
         "candidate_evidence_decisions": [
             {
@@ -211,7 +194,7 @@ class ResearchValidationTests(unittest.TestCase):
 
     def test_missing_required_field_is_flagged_by_schema(self) -> None:
         front = _minimal_research_front_matter()
-        del front["macro_regime_gate"]
+        del front["macro_context_fit"]
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.required", codes)
 
@@ -241,40 +224,6 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.removed-field", codes)
 
-    def test_missing_policy_applicability_is_flagged(self) -> None:
-        front = _minimal_research_front_matter()
-        del front["policy_applicability"]
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.policy-applicability", codes)
-
-    def test_missing_calendar_refs_is_flagged(self) -> None:
-        front = _minimal_research_front_matter()
-        del front["calendar_refs"]
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.calendar-refs", codes)
-
-    def test_invalid_policy_ref_is_flagged_by_research_target(self) -> None:
-        front = _minimal_research_front_matter()
-        front["policy_ref"] = {"ref_path": "/tmp/policy.md"}
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.reference-ref", codes)
-
-    def test_removed_reference_field_is_flagged_by_research_target(self) -> None:
-        front = _minimal_research_front_matter()
-        policy_ref = front["policy_ref"]
-        assert isinstance(policy_ref, dict)
-        policy_ref["snapshot_path"] = "records/01-policy/2026/05/policy.md"
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.removed-reference-field", codes)
-
-    def test_wrong_calendar_ref_prefix_is_flagged_by_research_target(self) -> None:
-        front = _minimal_research_front_matter()
-        calendars = front["calendar_refs"]
-        assert isinstance(calendars, dict)
-        calendars["events"] = {"ref_path": "records/_calendars/business-days/2026-05.yaml"}
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.calendar-ref", codes)
-
     def test_unknown_outcome_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
         front["research_decision"] = {"outcome": "maybe", "posture": "act_now"}
@@ -294,51 +243,56 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.deferral-reason-required", codes)
 
-    def test_blocked_macro_regime_gate_cannot_be_approved(self) -> None:
+    def test_deferred_macro_context_cannot_be_approved(self) -> None:
         front = _minimal_research_front_matter()
-        front["macro_regime_gate"] = {"decision_effect": "block"}
+        macro_fit = front["macro_context_fit"]
+        assert isinstance(macro_fit, dict)
+        macro_fit["decision_effect"] = "defer"
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.blocked-gate-approved", codes)
+        self.assertIn("research.macro-context-defer-approved", codes)
 
-    def test_unknown_macro_regime_gate_effect_is_flagged(self) -> None:
+    def test_future_macro_context_cannot_be_approved(self) -> None:
         front = _minimal_research_front_matter()
-        front["macro_regime_gate"] = {"decision_effect": "wrong"}
+        macro_fit = front["macro_context_fit"]
+        assert isinstance(macro_fit, dict)
+        macro_fit["context_freshness"] = "future"
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.unknown-gate-effect", codes)
+        self.assertIn("research.macro-context-future-approved", codes)
 
-    def test_macro_regime_gate_reduces_inputs_deterministically(self) -> None:
+    def test_macro_context_ref_cannot_be_after_research_date(self) -> None:
         front = _minimal_research_front_matter()
-        front["macro_regime_gate"] = {
-            "aggregate_status": "supportive",
-            "decision_effect": "pass",
-            "inputs": [
-                {
-                    "scope": "sector",
-                    "key": "情報・通信業",
-                    "status": "supportive",
-                    "source_ref": (
-                        "records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml"
-                    ),
-                },
-                {
-                    "scope": "event",
-                    "key": "earnings",
-                    "status": "adverse",
-                    "source_ref": (
-                        "records/03-outlook/2026/05/outlook-2026-05-04-post-fomc-boj-hold.yaml"
-                    ),
-                },
-            ],
-        }
+        front["macro_context_ref"] = (
+            "records/01-macro-context/2026/05/macro-context-2026-05-23-screening.yaml"
+        )
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.macro-aggregate-status", codes)
-        self.assertIn("research.macro-decision-effect", codes)
+        self.assertIn("research.macro-context-ref-future", codes)
 
-    def test_sector_macro_input_must_match_research_sector(self) -> None:
+    def test_macro_context_fit_must_match_sector_tilt(self) -> None:
         front = _minimal_research_front_matter()
-        front["sector_33"] = "機械"
+        macro_fit = front["macro_context_fit"]
+        assert isinstance(macro_fit, dict)
+        macro_fit["fit"] = "tailwind"
+
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.macro-sector-join", codes)
+
+        self.assertIn("research.macro-context-sector-fit", codes)
+
+    def test_macro_context_fit_requires_not_matched_when_sector_has_no_tilt(self) -> None:
+        front = _minimal_research_front_matter()
+        front["sector_33"] = "小売業"
+
+        codes = {finding.code for finding in self._findings_for(front)}
+
+        self.assertIn("research.macro-context-sector-fit", codes)
+
+    def test_unknown_macro_context_effect_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        macro_fit = front["macro_context_fit"]
+        assert isinstance(macro_fit, dict)
+        macro_fit["decision_effect"] = "wrong"
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.enum", codes)
+        self.assertIn("research.macro-context-effect", codes)
 
     def test_independent_evidence_count_uses_effective_decisions(self) -> None:
         front = _minimal_research_front_matter()
@@ -598,6 +552,57 @@ class ResearchValidationTests(unittest.TestCase):
             }
 
         self.assertIn("research.corporate-action-catalog-mismatch", codes)
+
+    def test_corporate_action_invalidation_requires_calendar(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "src").mkdir()
+            _write_candidate_fixture(root)
+            catalog_path = root / "records/_config/metric-catalog/2026-05-01T000000+0900.yaml"
+            catalog_path.parent.mkdir(parents=True)
+            catalog_path.write_text(
+                yaml.safe_dump(
+                    {"metrics": [{"metric_id": "p_s", "event_invalidation_rules": []}]},
+                    allow_unicode=True,
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+            front = _minimal_research_front_matter()
+            front["candidate_evidence_decisions"] = [
+                {
+                    "evidence_hit_id": "eh-1",
+                    "effective_sizing_eligible": False,
+                    "evaluated_at": "2026-05-05T20:00:00+09:00",
+                    "reason_code": "corporate_action_post_snapshot",
+                    "corporate_action_kind": "split",
+                    "invalidated_metric_ids": ["p_s"],
+                }
+            ]
+            front["research_decision"] = {
+                "outcome": "rejected",
+                "posture": "dropped",
+                "rejection_reason": "corporate_action_post_snapshot",
+            }
+            front["independent_evidence_count"] = 0
+            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
+            research_path.parent.mkdir(parents=True)
+            research_path.write_text(
+                "---\n"
+                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
+                + "---\n"
+                + _DEFAULT_BODY,
+                encoding="utf-8",
+            )
+
+            codes = {
+                finding.code
+                for finding in validate_research_file(
+                    research_path, playbooks_root=ROOT / "records/_playbooks"
+                )
+            }
+
+        self.assertIn("research.corporate-action-calendar-missing", codes)
 
     def test_repository_research_requires_existing_candidate_ref(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1237,9 +1242,7 @@ class ResearchValidationTests(unittest.TestCase):
 
     def test_external_refs_reject_wrong_target(self) -> None:
         front = _minimal_research_front_matter()
-        front["external_refs"] = [
-            {"ref_path": "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"}
-        ]
+        front["external_refs"] = [{"ref_path": "docs/portfolio-policy.md"}]
         codes = {
             finding.code for finding in self._findings_for(front) if finding.severity == "error"
         }

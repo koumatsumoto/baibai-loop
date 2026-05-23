@@ -5,17 +5,6 @@ playbook_id: cashflow-yield-discount
 playbook_ref:
   ref_path: records/_playbooks/cashflow-yield-discount/2026-05-01T000000+0900.md
   effective_from: '2026-05-01T00:00:00+09:00'
-policy_ref:
-  ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
-  effective_from: '2026-05-01T00:00:00+09:00'
-policy_applicability: active
-calendar_refs:
-  business_days:
-    ref_path: records/_calendars/business-days/2026-05.yaml
-  events:
-    ref_path: records/_calendars/events/2026-05.yaml
-  corporate_actions:
-    ref_path: records/_calendars/corporate-actions/2026-05.yaml
 selected_supporting_evidence_refs:
 - source: candidate
   evidence_hit_id: candidate-2026-05-08-8255-cashflow-yield-discount
@@ -28,29 +17,10 @@ candidate_ref:
   screen_run_id: screening-20260508
   ticker: '8255'
   candidate_id: candidate-2026-05-08-8255
-outlook_ref: records/03-outlook/2026/05/outlook-2026-05-10-post-us-jobs-nikkei-wti.yaml
-brief_refs:
-- records/02-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
-- records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
-- records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-nikkei-wti.yaml
-- records/02-brief/2026/05/2026-05-13-world-daily-us-cpi-boj-opinions.yaml
 ai_draft: true
 published_at: '2026-05-13T09:15:00+09:00'
 recorded_at: '2026-05-13T09:15:00+09:00'
 tradable_at: '2026-05-13T09:00:00+09:00'
-macro_regime_gate:
-  aggregate_status: neutral
-  decision_effect: pass
-  source_scope: sector
-  reducer_id: macro-regime-reducer-v1
-  inputs:
-  - scope: sector
-    key: 小売業
-    status: neutral
-    source_ref: records/03-outlook/2026/05/outlook-2026-05-10-post-us-jobs-nikkei-wti.yaml
-    weight_or_materiality: medium
-    confidence: medium
-policy_overrides: []
 external_refs:
 - ref_path: records/_external/deepresearch/2026-05-13-top3-bargain-selection.md
 candidate_evidence_decisions:
@@ -118,7 +88,8 @@ thesis_payoff:
   time_horizon_bd: 40
   invalidation_conditions:
   - FY2027 guidance weakness proves structural rather than conservative.
-  - Same-store traffic or gross margin continues to deteriorate after the app stamp removal effect.
+  - Same-store traffic or gross margin continues to deteriorate after the app stamp
+    removal effect.
   - Dividend / benefit catalyst fails to stabilize long-term holder demand.
   entry_trigger: post_earnings_oversold_entry
   expected_upside_pct: 14.56
@@ -148,6 +119,14 @@ valuation:
   - ocf_yield
   - post_earnings_oversold
   - shareholder_return
+macro_context_ref: records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml
+macro_context_fit:
+  context_freshness: current
+  fit: not_matched
+  decision_effect: proceed
+  required_checks: []
+  sizing_caution:
+  - migrated_from_legacy_macro_context
 ---
 
 # Research: 2026-05-13 8255 アクシアル　リテイリング cashflow-yield-discount
@@ -162,11 +141,11 @@ Long-hold fallback は 3 銘柄内で最も強い。食品スーパーは高成�
 
 AI long-term impact は低い。直接の AI 成長銘柄ではないが、物流・店舗オペレーション・在庫管理の効率化余地はある。今回の primary thesis には使わない。
 
-## Macro regime gate
+## Macro context
 
-- 判定: neutral / pass。
+- 判定: not_matched / proceed。
 - Sector: 小売業。
-- Source: `outlook-2026-05-10-post-us-jobs-nikkei-wti.yaml`。
+- Source: `records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml`。
 - 注意: CPI と燃料価格は粗利と販管費に効くため、macro は支援材料ではない。ただし内需食品スーパーで外需ショックへの直接感応度は低く、保有耐性は高い。
 
 ## Oversold check

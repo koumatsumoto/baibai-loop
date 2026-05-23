@@ -190,7 +190,7 @@ price_missing_counts:
 ## 失敗分類の集計
 ## 成功分類の集計
 ## Missed opportunity tracking の分析
-## Macro regime gate 判定精度
+## Macro context fit 判定精度
 ## Playbook 改訂判断
 ## 次周回の運用変更点
 """,

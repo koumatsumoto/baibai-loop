@@ -9,8 +9,8 @@ from typing import Any
 from .domain import repo_root_for, repository_ref_error, resolve_repository_ref
 from .errors import ValidationFinding
 
-_CONTENT_HASH_FIELD = "content_" + "sha256"
-_ROW_HASH_FIELD = "row_" + "sha256"
+_CONTENT_HASH_FIELD = "content_sha256"
+_ROW_HASH_FIELD = "row_sha256"
 
 
 def validate_external_refs_file(path: Path, payload: Mapping[str, Any]) -> list[ValidationFinding]:

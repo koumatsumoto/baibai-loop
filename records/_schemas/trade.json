@@ -8,9 +8,6 @@
     "trade_id",
     "ticker",
     "research_ref",
-    "policy_ref",
-    "policy_applicability",
-    "calendar_refs",
     "position_state",
     "review_state",
     "trade_execution_state",
@@ -23,18 +20,6 @@
     "trade_id": {"type": "string", "minLength": 1},
     "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
     "research_ref": {"type": "string", "pattern": "^records/05-research/[^.][^\\n]*\\.md$"},
-    "policy_ref": {"$ref": "#/$defs/RepositoryRef"},
-    "policy_applicability": {"enum": ["active"]},
-    "calendar_refs": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["business_days", "events", "corporate_actions"],
-      "properties": {
-        "business_days": {"$ref": "#/$defs/RepositoryRef"},
-        "events": {"$ref": "#/$defs/RepositoryRef"},
-        "corporate_actions": {"$ref": "#/$defs/RepositoryRef"}
-      }
-    },
     "position_state": {"enum": ["none", "open", "closed"]},
     "review_state": {"enum": ["not_due", "scheduled", "completed"]},
     "trade_execution_state": {

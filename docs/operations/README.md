@@ -1,6 +1,6 @@
 ---
 title: "Operations index"
-summary: "Runbook entry point for daily cycle, brief, outlook, screening, research, trade, review, and incidents."
+summary: "Runbook entry point for daily cycle, macro context, screening, research, trade, review, and incidents."
 doc_type: operation-index
 status: active
 last_reviewed: 2026-05-04
@@ -13,8 +13,6 @@ last_reviewed: 2026-05-04
 | runbook | 使う場面 |
 | --- | --- |
 | [`daily-cycle.md`](./daily-cycle.md) | 日々の作業入口と freshness 確認 |
-| [`brief-runbook.md`](./brief-runbook.md) | `records/02-brief/` を作る前 |
-| [`outlook-runbook.md`](./outlook-runbook.md) | `records/03-outlook/` を作る前 |
 | [`screening-runbook.md`](./screening-runbook.md) | candidates 生成、select、research 候補選定 |
 | [`research-runbook.md`](./research-runbook.md) | `records/05-research/` を作る前 |
 | [`trade-runbook.md`](./trade-runbook.md) | research 採用後の trade 記録 |
@@ -25,5 +23,5 @@ last_reviewed: 2026-05-04
 ## 原則
 
 - component docs の節番号を壊さない。必要な詳細は component docs へリンクする。
-- fact layer と analysis layer を混ぜない。
+- macro context は screening 前に確認し、必要な場合だけ更新する。
 - records / schema を変更したら [`../reference/testing-and-validation.md`](../reference/testing-and-validation.md) の検証を通す。

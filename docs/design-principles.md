@@ -4,11 +4,11 @@ Baibai-Loop の運用上の設計原則を記述する。本原則は [`philosop
 
 ## 1. Decision lifecycle を前提とする
 
-Baibai-Loop は **portfolio policy -> brief -> outlook -> candidates -> research -> trades -> reviews -> playbooks feedback** の decision lifecycle で運用する。全ての設計判断はこの lifecycle と責務境界を前提とする。詳細は [`architecture/system-overview.md`](./architecture/system-overview.md) と [`concepts.md`](./concepts.md)。
+Baibai-Loop は **portfolio policy -> macro context -> candidates -> research -> trades -> reviews -> playbooks feedback** の decision lifecycle で運用する。全ての設計判断はこの lifecycle と責務境界を前提とする。詳細は [`architecture/system-overview.md`](./architecture/system-overview.md) と [`concepts.md`](./concepts.md)。
 
 ## 2. 分析階層: 世界情勢 → 地域経済 → 個別資産
 
-マクロ track（`records/02-brief/` → `records/03-outlook/`）における調査は、以下の階層で上から順に分析する:
+Macro context（`records/01-macro-context/`）における調査は、以下の階層で上から順に分析する:
 
 1. **世界情勢**: グローバルマクロ・主要中央銀行・コモディティ・地政学
 2. **地域経済**: 対象資産が属する地域の一次統計・金融政策・為替
@@ -23,48 +23,36 @@ Baibai-Loop は **portfolio policy -> brief -> outlook -> candidates -> research
 
 ## 3. 更新サイクルとファイル粒度の一致
 
-データは更新サイクルごとに別ファイルに分離する:
+Macro context は、screening 前に既存 context が stale / scope mismatch / premise break の場合だけ更新する。定期作成を目的化せず、判断前提の鮮度を保つために作る。
 
-- **週次更新**: マーケット指標・地政学速報は週次 brief (`world-weekly`) に記録
-- **日次更新**: 週次まで待つと stale になる一次統計・会合日程・直近 fact は日次 brief (`world-daily`) に記録
-- **月次更新**: CPI / 雇用統計などの月次統計は月次 brief (`macro-monthly`) に記録
-- **イベント時**: FOMC / 日銀 / 主要指標発表は個別 kind で記録（`event` type）
-
-週次/日次の brief は、原則として月次データを再掲せず **月次 brief への参照** で済ませる。例外として、`macro-monthly` がまだ閉じていない期間は `world-daily` が月次級の新規統計を一時的に保持してよい。更新頻度が違うデータを同じファイルに同居させると、毎週の大半が「先週と同じ値」の羅列になり、メンテナンス負荷が非対称に膨らむ。
+外部記事や統計値は source として使うが、記事本文や網羅的な時系列 fact を repo に蓄積しない。ローカルに残すのは screening / research の前提として再利用する macro view と、その view を作るために参照した source metadata だけでよい。
 
 ## 4. 事実と分析の分離（philosophy 柱 1 の具体化）
 
-事実層（brief, candidates）と分析層（outlook, research）を物理的に別ファイル/別ディレクトリに分離する。同一ファイルに混在させない。
+事実層（candidates）と分析層（macro context, research）を物理的に別ファイル/別ディレクトリに分離する。同一ファイルに混在させない。
 
 ### 4.1 ファイル単位の分離
 
 | レイヤー | 扱う対象 | 格納先 | lifecycle role |
 |---|---|---|---|
-| マクロ事実 | グローバル/日本経済の観測値・一次統計引用・機械的計算 | `records/02-brief/` 配下 | observations |
 | Security-level 事実 | スクリーニング通過銘柄・valuation 指標 snapshot | `records/04-candidates/` 配下 | screen output |
-| マクロ分析 | マクロ見解・業種/地域の追い風/中立/逆風評価 | `records/03-outlook/` 配下 | regime view |
+| マクロ分析 | 外部記事・統計を踏まえた screening 前提、業種/地域の追い風/中立/逆風評価 | `records/01-macro-context/` 配下 | macro context |
 | Security-level 分析 | 個別銘柄の深掘り・原因仮説・反対仮説・採用判定 | `records/05-research/` 配下 | investment memo |
 
-### 4.2 事実レイヤー（brief / candidates）に含めてよいもの
+### 4.2 事実レイヤー（candidates）に含めてよいもの
 
-- 一次統計の数値引用（CPI 等）
-- マーケット終値・利回り
-- 前週比・前月比の計算結果
-- brief contract で明示された閾値ルールの適用結果（Major / Notable ラベル等）
-- 過去 N 週の方向履歴（矢印列）
-- 方向反転の機械的検出
 - Valuation 指標の算出結果（`records/04-candidates/` 側）
 
 ### 4.3 事実レイヤーで禁止するもの
 
-- 「〜を示唆する」「〜を受けて」「〜を背景に」等の因果推論表現（brief では [`operations/brief-runbook.md`](./operations/brief-runbook.md) と [`components/brief.md`](./components/brief.md) の fact layer 規則を参照）
+- 「〜を示唆する」「〜を受けて」「〜を背景に」等の因果推論表現
 - 「次の FOMC では〜が予想される」等の予測
 - 「この動きは〜を意味する」等の意味付け
 - 「注目すべき」「重要な」等の重要度評価（Major/Notable は「変化量の統計的大きさ」のラベルであり、重要度評価ではない）
 
 ### 4.4 用語の運用ルール
 
-事実レイヤー（brief, candidates）で使う用語は、解釈を招かない中立的なものを選ぶ:
+事実レイヤー（candidates）で使う用語は、解釈を招かない中立的なものを選ぶ:
 
 - 「連続トレンド」「転換点」のような解釈を帯びる語は使わない
 - 「方向履歴」「方向反転」のように機械的計算結果として中立な語を使う
@@ -73,17 +61,16 @@ Baibai-Loop は **portfolio policy -> brief -> outlook -> candidates -> research
 
 ### 4.5 分析レイヤーにプロセス指示を書かない
 
-分析レイヤー（outlook, research）は判断と根拠を残す場所であり、運用手順そのものを書く場所ではない。
-特に `records/03-outlook/` の `rationale` / `changes.rationale` には、業種・地域見解の根拠だけを書く。
+分析レイヤー（macro context, research）は判断と根拠を残す場所であり、運用手順そのものを書く場所ではない。
+特に `records/01-macro-context/` には、screening 前提として使う macro view と source metadata だけを書く。
 「research では会社IRを確認する」「次回からこの手順で調べる」のようなプロセス指示は
 `docs/components/`、`docs/operations/`、`docs/anti-patterns.md` に置く。
 
-## 5. Macro regime discipline（philosophy 柱 2 の具体化）
+## 5. Macro Context Discipline（philosophy 柱 2 の具体化）
 
 - **マクロ 76% / security-level 24%** は attention / review time / cognitive budget の policy weight として扱う
-- 採用可否と position sizing は prose の総合判断ではなく、macro regime gate と portfolio policy の gate / cap で扱う
-- `records/05-research/` の採用判定では `records/03-outlook/` の macro regime gate 判定を必ず通す
-- 詳細は [`screening/macro-gate-procedure.md`](./screening/macro-gate-procedure.md)
+- Macro context は hard gate ではなく、screening / research の優先順位、追加確認、sizing caution を決める判断前提として扱う
+- `records/05-research/` の採用判定では `records/01-macro-context/` との fit を必ず確認する
 
 ## 6. Feedback loop 先行の原則（philosophy 柱 3 の具体化）
 

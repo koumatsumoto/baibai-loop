@@ -11,6 +11,8 @@ related_docs:
 
 # ADR 0001: 事実と分析の物理分離
 
+> 2026-05 更新: 旧 `brief` / `outlook` は廃止し、macro の事実確認と方向性判断を `records/01-macro-context/` に統合した。
+
 ## Status
 
 Accepted
@@ -21,7 +23,7 @@ Baibai-Loop は AI 下書きを前提にするが、AI が過去の解釈を観�
 
 ## Decision
 
-事実成果物と分析成果物を別 directory に保存する。`records/02-brief/` と `records/04-candidates/` は fact layer、`records/03-outlook/` と `records/05-research/` は analysis layer とする。
+事実成果物と分析成果物を別 directory に保存する。`records/04-candidates/` は screening fact layer、`records/01-macro-context/` と `records/05-research/` は analysis layer とする。
 
 ## Rationale
 

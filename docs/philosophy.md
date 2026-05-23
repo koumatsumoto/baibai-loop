@@ -21,7 +21,7 @@ Baibai-Loop は、日本株スイングトレードの精度を売買反復で�
 
 #### (a) 信念
 
-記録されるべき **事実**（`brief`, `candidates`）と、人間/AI の **解釈**（`outlook`, `research`）は **物理的に別ファイル** として管理する。同一ファイルに混在させない。
+記録されるべき **事実**（`candidates`）と、人間/AI の **解釈**（`macro context`, `research`）は責務を分けて管理する。特に security-level の screening output と投資判断 memo を同一ファイルに混在させない。
 
 #### (b) そう信じる根拠
 
@@ -40,20 +40,20 @@ Baibai-Loop は、日本株スイングトレードの精度を売買反復で�
 
 #### (a) 信念
 
-トレード判断では、security-level の割安さだけでなく、macro / sector regime を必ず gate として扱う。`macro 76% / security-level 24%` は、判断時に割く attention / review time / cognitive budget の policy weight を表す説明補助であり、採用可否や position size を直接計算する比率ではない。
+トレード判断では、security-level の割安さだけでなく、macro / sector context を必ず確認する。`macro 76% / security-level 24%` は、判断時に割く attention / review time / cognitive budget の policy weight を表す説明補助であり、採用可否や position size を直接計算する比率ではない。
 
-Validator-visible な採用可否と sizing cap は、macro regime gate と portfolio policy が担う。
+Validator-visible な採用可否と sizing cap は、portfolio policy config と research の構造 field が担う。Macro context は hard gate ではなく、screening / research の前提、優先 sector/theme、追加で確認すべき question を与える。
 
 #### (b) そう信じる根拠
 
 - **逆風下の割安は構造的 trap**: マクロ逆風業種の個別銘柄が割安でも、構造的に売られ続ける（valuation trap）。短期のリバウンドはあっても中期の戻りが期待できない
 - **Top-down の合理性**: 世界情勢 → 日本経済 → 日本株 の階層で判断することは、マクロショックの transmission パスと一致している
 - **底値狙いの性質**: 「一時的に過剰に売られている」の「過剰」を判定するには、マクロトレンドが追い風であることの確認が前提
-- **実装可能性**: 注意配分は思想として固定し、実際の gate / cap は outlook、portfolio policy、research の構造 field で検査するほうが再現性が高い
+- **実装可能性**: 注意配分は思想として固定し、実際の cap / sizing は policy config と research の構造 field で検査するほうが再現性が高い
 
 #### (c) 却下した対立案
 
-- **Macro を prose の注意喚起だけにする**: macro 逆風下の割安を拾う危険が残る。Macro regime gate と portfolio policy の cap に落とす必要がある
+- **Macro を prose の注意喚起だけにする**: macro 逆風下の割安を拾う危険が残る。Macro context は research questions と fit 判定に落とし、position size は policy config と research overlay で制御する
 - **Macro だけで候補を決める**: 個別銘柄の valuation、fundamental、catalyst、liquidity を活用しきれない。短期スイングには粗すぎる
 - **動的 weight（機械学習による調整）**: candidate 数が 3 桁に満たない 1 人運用では、weight 学習の統計的根拠が出ない。学習データ不足で over-fit するリスク
 - **比率を position sizing の数式にする**: attention policy と execution cap が混ざり、あとから sizing の妥当性を再検証しにくい
@@ -103,8 +103,7 @@ Baibai-Loop は、単純な「事実 → 解釈 → 判断」の 3 層モデル�
 
 ```text
 portfolio policy
-  -> brief
-  -> outlook
+  -> macro context
   -> candidates
   -> research
   -> trades
@@ -113,19 +112,20 @@ portfolio policy
   -> candidates
 ```
 
-- **policy**: 目的、制約、資本、許容リスク、time horizon を固定する
-- **brief / candidates**: fact layer。Macro / market observations と security-level screen output を分ける
-- **outlook / research**: analysis layer。Macro regime view と investment memo を分ける
+- **policy**: 人間向け document と、validator が読む `policy_config.py`。目的、制約、資本、許容リスク、time horizon を固定する
+- **macro context**: screening 前に読む macro / sector 前提。外部記事・統計 series・人間/AI の判断を単一 artifact にまとめる
+- **candidates**: security-level screen output。個別銘柄の候補事実を残す
+- **research**: investment memo。macro context fit、個別 thesis、採用可否、position sizing を判断する
 - **trades**: execution record。order / entry した判断がどう約定・保有・決済されたかを記録する
 - **reviews / playbooks**: outcome attribution を playbook feedback に戻す
 
-階層的 3 層（事実 → 解釈 → 判断）だけだと、macro regime、security-level thesis、execution、review attribution が同じ「判断」層に混ざり、責務が重なる。Lifecycle loop として分けるほうが、どこで候補を拾い、どこで落とし、どこで改善するかを追いやすい。
+階層的 3 層（事実 → 解釈 → 判断）だけだと、macro context、security-level thesis、execution、review attribution が同じ「判断」層に混ざり、責務が重なる。Lifecycle loop として分けるほうが、どこで候補を拾い、どこで落とし、どこで改善するかを追いやすい。
 
 ## 4. なぜ 2 トラック（macro 独立 + security-level 売買ループ）か
 
-### (a) Macro track（独立）
+### (a) Macro context（必要時更新）
 
-`brief → outlook` は **売買イベントと独立に更新される**。CPI / BOJ / FOMC などのマクロイベントは売買の有無に関わらず発生し、記録される必要がある。
+Macro context は **スクリーニング前に必要なら更新する**。CPI / BOJ / FOMC などの macro event 後、または候補銘柄が特定 sector に偏ったときに、外部記事・統計 series・AI/人間の判断をまとめて screening / research の前提にする。
 
 ### (b) Security-level track（売買ループ）
 
@@ -135,10 +135,10 @@ portfolio policy
 
 research は:
 
-- **入力**: 最新 candidates（security-level screen output）+ 最新 outlook（macro regime view）+ portfolio policy
+- **入力**: 最新 candidates（security-level screen output）+ macro context + policy config
 - **出力**: investment memo と採用可否、position sizing、execution への接続
 
-outlook がなければ research が作れない。これは、macro regime なしに個別銘柄を評価しないという柱 2 の帰結である。
+macro context がなければ research の前提を確認できない。これは、macro / sector context なしに個別銘柄を評価しないという柱 2 の帰結である。
 
 ## 5. 用語選定の思想
 
@@ -146,18 +146,17 @@ outlook がなければ research が作れない。これは、macro regime な�
 
 | Artifact | 名前 | 採用理由 | 却下案 |
 | --- | --- | --- | --- |
-| `brief` | brief | 「short fact+points doc」の業界標準語。journal（時系列ログ）より役割に忠実 | journal（log 含意が強い）、record、ledger |
+| `macro context` | macro context | screening 前に読む経済・市場・sector 前提をそのまま表す。不要な brief/outlook 分離より運用しやすい | brief（事実集に寄りすぎる）、outlook（見通しだけに寄りすぎる） |
 | `candidates` | candidates | 機械的ふるいで残った銘柄群というデータの実体を直接表す | screened（動詞由来で粒度不一致）、screening（プロセス感）、filtered |
-| `outlook` | outlook | humble、更新しやすい。1-6m の regime view として役割に忠実 | thesis（重い）、perspective |
 | `research` | investment memo | 業界標準の memo 形式に寄せつつ、repository path としては research を維持できる | deep-dive（2 語）、investigation（堅い）、analysis（generic） |
 | `trades` | execution record | trade / order / fill / cancellation を execution layer として扱える | entry log（entry に偏る）、order log（約定後の position を扱いにくい） |
-| `reviews` | attribution review | outcome を evidence、macro regime gate、sizing、execution、playbook に帰属できる | retro only（事後集計に偏る）、postmortem（失敗だけに見える） |
+| `reviews` | attribution review | outcome を evidence、macro context fit、sizing、execution、playbook に帰属できる | retro only（事後集計に偏る）、postmortem（失敗だけに見える） |
 
 ## 6. 意図的に未自動化のまま残しているもの
 
 完璧を求めず、運用で見えたボトルネックから改善するため、以下は **意図的に手動 + AI 下書き** で運用する。
 
-- **`records/03-outlook/` の集約は手動 + AI**: 自動集約は将来の検討対象。運用負荷を計測してから自動化仕様を決める
+- **`records/01-macro-context/` の作成は screening 前の必要時更新**: 定期生成や網羅蓄積を目的化せず、判断前提が stale / scope mismatch / premise break の場合だけ更新する
 - **Valuation 指標の算出粒度は暫定**: 東証 33 業種、中央値下限 n=10 などの初期値で運用。retro で調整する
 - **Rerating Book（1〜6 か月保有）は対象外**: 主戦略は 5-40 営業日の swing に絞る。ただし、短期 thesis が外れた場合に長期保有へ切り替えられる balance sheet / cash flow の耐久性は、portfolio policy の selection principle として確認する。これは固定年数の holding strategy ではなく、売却までの期間が想定より長引いても事業継続性と回収余地が残る銘柄を優先する方針である
 - **Playbook 改訂ルールは緩め**: サンプル数 10 件未満なら playbook 据え置きを許容する。厳密な改訂トリガーは運用後に定める

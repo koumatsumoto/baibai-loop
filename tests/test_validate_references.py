@@ -22,8 +22,8 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
             hash_key = "content_" + "sha256"
             research.write_text(
                 "---\n"
-                "policy_ref:\n"
-                "  ref_path: records/01-policy/2026/05/policy.yaml\n"
+                "playbook_ref:\n"
+                "  ref_path: records/_playbooks/test/2026-05-01T000000+0900.md\n"
                 f"  {hash_key}: sha256:{'0' * 64}\n"
                 "---\n",
                 encoding="utf-8",
@@ -36,7 +36,7 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
     def test_rejects_removed_hash_field_in_support_area(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            policy = root / "records/01-policy/2026/05/policy.yaml"
+            policy = root / "records/_config/screening-rules/test.yaml"
             policy.parent.mkdir(parents=True)
             hash_key = "row_" + "sha256"
             policy.write_text(f"policy_id: test\n{hash_key}: sha256:bad\n", encoding="utf-8")
@@ -48,14 +48,11 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
     def test_rejects_removed_reference_field_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            policy = root / "records/01-policy/2026/05/policy.md"
-            policy.parent.mkdir(parents=True)
-            policy.write_text("---\npolicy_id: portfolio-policy\n---\n", encoding="utf-8")
             research = root / "records/05-research/2026/05/research.md"
             research.parent.mkdir(parents=True)
             legacy_field = "_".join(("policy", "snapshot"))
             research.write_text(
-                f"---\n{legacy_field}:\n  ref_path: records/01-policy/2026/05/policy.md\n---\n",
+                f"---\n{legacy_field}:\n  ref_path: docs/portfolio-policy.md\n---\n",
                 encoding="utf-8",
             )
 
@@ -88,16 +85,16 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
     def test_rejects_removed_snapshot_path_fallback_field(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            policy = root / "records/01-policy/2026/05/policy.md"
-            policy.parent.mkdir(parents=True)
-            policy.write_text("---\npolicy_id: portfolio-policy\n---\n", encoding="utf-8")
+            playbook = root / "records/_playbooks/test/2026-05-01T000000+0900.md"
+            playbook.parent.mkdir(parents=True)
+            playbook.write_text("---\nplaybook_id: test\n---\n", encoding="utf-8")
             research = root / "records/05-research/2026/05/research.md"
             research.parent.mkdir(parents=True)
             research.write_text(
                 "---\n"
-                "policy_ref:\n"
-                "  ref_path: records/01-policy/2026/05/policy.md\n"
-                "  snapshot_path: records/01-policy/2026/05/policy.md\n"
+                "playbook_ref:\n"
+                "  ref_path: records/_playbooks/test/2026-05-01T000000+0900.md\n"
+                "  snapshot_path: records/_playbooks/test/2026-05-01T000000+0900.md\n"
                 "---\n",
                 encoding="utf-8",
             )
@@ -114,7 +111,7 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
             root = Path(tmpdir)
             research = root / "records/05-research/2026/05/research.md"
             research.parent.mkdir(parents=True)
-            research.write_text("---\npolicy_ref: [\n---\n# broken\n", encoding="utf-8")
+            research.write_text("---\nplaybook_ref: [\n---\n# broken\n", encoding="utf-8")
 
             findings = validate_reference_integrity(root)
 
@@ -126,7 +123,10 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
             research = root / "records/05-research/2026/05/research.md"
             research.parent.mkdir(parents=True)
             research.write_text(
-                "---\npolicy_ref:\n  ref_path: records/01-policy/2026/05/policy.yaml\n---\n",
+                "---\n"
+                "playbook_ref:\n"
+                "  ref_path: records/_playbooks/missing/2026-05-01T000000+0900.md\n"
+                "---\n",
                 encoding="utf-8",
             )
 
@@ -139,7 +139,7 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
             root = Path(tmpdir)
             research = root / "records/05-research/2026/05/research.md"
             research.parent.mkdir(parents=True)
-            research.write_text("---\npolicy_ref: /tmp/policy.md\n---\n", encoding="utf-8")
+            research.write_text("---\nplaybook_ref: /tmp/playbook.md\n---\n", encoding="utf-8")
 
             findings = validate_reference_integrity(root)
 
@@ -151,19 +151,9 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
             research = root / "records/05-research/2026/05/research.md"
             research.parent.mkdir(parents=True)
             research.write_text(
-                "---\npolicy_ref:\n  effective_from: '2026-05-01'\n---\n", encoding="utf-8"
+                "---\nplaybook_ref:\n  playbook_id: test\n---\n",
+                encoding="utf-8",
             )
-
-            findings = validate_reference_integrity(root)
-
-        self.assertIn("reference.ref-shape", {finding.code for finding in findings})
-
-    def test_rejects_non_mapping_calendar_refs_container(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            research = root / "records/05-research/2026/05/research.md"
-            research.parent.mkdir(parents=True)
-            research.write_text("---\ncalendar_refs: []\n---\n", encoding="utf-8")
 
             findings = validate_reference_integrity(root)
 
@@ -176,20 +166,6 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
             scan.parent.mkdir(parents=True)
             scan.write_text(
                 "source_decision_register_refs:\n- decision_event_id: decision-1\n",
-                encoding="utf-8",
-            )
-
-            findings = validate_reference_integrity(root)
-
-        self.assertIn("reference.ref-shape", {finding.code for finding in findings})
-
-    def test_rejects_non_mapping_nested_calendar_reference_field(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            research = root / "records/05-research/2026/05/research.md"
-            research.parent.mkdir(parents=True)
-            research.write_text(
-                "---\ncalendar_refs:\n  business_days: []\n---\n",
                 encoding="utf-8",
             )
 
@@ -245,7 +221,7 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
     def test_rejects_absolute_scalar_repository_reference(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            selection = root / "records/03-outlook/2026/05/selection.yaml"
+            selection = root / "records/04-candidates/2026/05/selection.yaml"
             selection.parent.mkdir(parents=True, exist_ok=True)
             selection.write_text("candidates_ref: /tmp/candidates.yaml\n", encoding="utf-8")
 
@@ -259,7 +235,7 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
             candidates = root / "records/04-candidates/2026/05/candidates.yaml"
             candidates.parent.mkdir(parents=True)
             candidates.write_text("candidates: []\n", encoding="utf-8")
-            selection = root / "records/03-outlook/2026/05/selection.yaml"
+            selection = root / "records/04-candidates/2026/05/selection.yaml"
             selection.parent.mkdir(parents=True, exist_ok=True)
             selection.write_text(
                 "candidates_ref: records/04-candidates/2026/05/candidates.yaml\n",
@@ -276,7 +252,7 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
             candidates = root / "records/04-candidates/2026/05/candidates.yaml"
             candidates.parent.mkdir(parents=True)
             candidates.write_text("- not-a-mapping\n", encoding="utf-8")
-            selection = root / "records/03-outlook/2026/05/selection.yaml"
+            selection = root / "records/04-candidates/2026/05/selection.yaml"
             selection.parent.mkdir(parents=True, exist_ok=True)
             selection.write_text(
                 "candidates_ref: records/04-candidates/2026/05/candidates.yaml\n",
@@ -293,7 +269,7 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
             runs = root / "records/04-candidates/2026/05/runs.yaml"
             runs.parent.mkdir(parents=True)
             runs.write_text("runs: []\n", encoding="utf-8")
-            selection = root / "records/03-outlook/2026/05/selection.yaml"
+            selection = root / "records/04-candidates/2026/05/selection.yaml"
             selection.parent.mkdir(parents=True, exist_ok=True)
             selection.write_text(
                 "candidates_ref: records/04-candidates/2026/05/runs.yaml\n",
@@ -304,16 +280,16 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
 
         self.assertIn("reference.ref-parse", {finding.code for finding in findings})
 
-    def test_rejects_scalar_outlook_ref_to_non_mapping_yaml(self) -> None:
+    def test_rejects_scalar_macro_context_ref_to_non_mapping_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            outlook = root / "records/03-outlook/2026/05/outlook.yaml"
-            outlook.parent.mkdir(parents=True)
-            outlook.write_text("- not-a-mapping\n", encoding="utf-8")
-            selection = root / "records/03-outlook/2026/05/selection.yaml"
+            macro = root / "records/01-macro-context/2026/05/macro-context.yaml"
+            macro.parent.mkdir(parents=True)
+            macro.write_text("- not-a-mapping\n", encoding="utf-8")
+            selection = root / "records/04-candidates/2026/05/selection.yaml"
             selection.parent.mkdir(parents=True, exist_ok=True)
             selection.write_text(
-                "outlook_ref: records/03-outlook/2026/05/outlook.yaml\n",
+                "macro_context_ref: records/01-macro-context/2026/05/macro-context.yaml\n",
                 encoding="utf-8",
             )
 
@@ -321,13 +297,13 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
 
         self.assertIn("reference.ref-parse", {finding.code for finding in findings})
 
-    def test_rejects_missing_string_list_repository_reference(self) -> None:
+    def test_rejects_missing_macro_context_reference(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            outlook = root / "records/03-outlook/2026/05/outlook.yaml"
-            outlook.parent.mkdir(parents=True)
-            outlook.write_text(
-                "updated_from:\n- records/02-brief/2026/05/missing.yaml\nsectors: {}\n",
+            selection = root / "records/04-candidates/2026/05/selection.yaml"
+            selection.parent.mkdir(parents=True)
+            selection.write_text(
+                "macro_context_ref: records/01-macro-context/2026/05/missing.yaml\n",
                 encoding="utf-8",
             )
 
@@ -349,13 +325,15 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
     def test_rejects_input_ref_wrong_prefix(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            wrong = root / "records/03-outlook/2026/05/outlook.yaml"
+            wrong = root / "records/01-macro-context/2026/05/macro-context.yaml"
             wrong.parent.mkdir(parents=True)
-            wrong.write_text("schema_version: 1\n", encoding="utf-8")
+            wrong.write_text("kind: macro-context\n", encoding="utf-8")
             manifest = root / "records/04-candidates/2026/05/manifest.yaml"
             manifest.parent.mkdir(parents=True)
             manifest.write_text(
-                "input_refs:\n  policy:\n    ref_path: records/03-outlook/2026/05/outlook.yaml\n",
+                "input_refs:\n"
+                "  screening_rules:\n"
+                "    ref_path: records/01-macro-context/2026/05/macro-context.yaml\n",
                 encoding="utf-8",
             )
 
@@ -363,26 +341,22 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
 
         self.assertIn("reference.ref-prefix", {finding.code for finding in findings})
 
-    def test_rejects_outlook_source_refs_mapping_as_string_list_shape(self) -> None:
+    def test_rejects_macro_context_ref_missing_required_keys(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            source = root / "records/_external/source.md"
-            source.parent.mkdir(parents=True)
-            source.write_text("---\ntitle: source\n---\n", encoding="utf-8")
-            outlook = root / "records/03-outlook/2026/05/outlook.yaml"
-            outlook.parent.mkdir(parents=True)
-            outlook.write_text(
-                "schema_version: 1\n"
-                "sectors:\n"
-                "  情報・通信業:\n"
-                "    source_refs:\n"
-                "    - ref_path: records/_external/source.md\n",
+            macro = root / "records/01-macro-context/2026/05/macro-context.yaml"
+            macro.parent.mkdir(parents=True)
+            macro.write_text("kind: macro-context\n", encoding="utf-8")
+            selection = root / "records/04-candidates/2026/05/selection.yaml"
+            selection.parent.mkdir(parents=True)
+            selection.write_text(
+                "macro_context_ref: records/01-macro-context/2026/05/macro-context.yaml\n",
                 encoding="utf-8",
             )
 
             findings = validate_reference_integrity(root)
 
-        self.assertIn("reference.ref-shape", {finding.code for finding in findings})
+        self.assertIn("reference.ref-parse", {finding.code for finding in findings})
 
     def test_rejects_standalone_universe_duplicate_ticker(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -431,13 +405,16 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
     def test_accepts_valid_repository_reference(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            policy = root / "records/01-policy/2026/05/policy.md"
-            policy.parent.mkdir(parents=True)
-            policy.write_text("---\npolicy_id: portfolio-policy\n---\n", encoding="utf-8")
+            playbook = root / "records/_playbooks/test/2026-05-01T000000+0900.md"
+            playbook.parent.mkdir(parents=True)
+            playbook.write_text("---\nplaybook_id: test\n---\n# Playbook\n", encoding="utf-8")
             research = root / "records/05-research/2026/05/research.md"
             research.parent.mkdir(parents=True)
             research.write_text(
-                "---\npolicy_ref:\n  ref_path: records/01-policy/2026/05/policy.md\n---\n",
+                "---\n"
+                "playbook_ref:\n"
+                "  ref_path: records/_playbooks/test/2026-05-01T000000+0900.md\n"
+                "---\n",
                 encoding="utf-8",
             )
 
@@ -451,7 +428,7 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
             research = root / "records/05-research/2026/05/research.md"
             research.parent.mkdir(parents=True)
             research.write_text(
-                "---\npolicy_ref:\n  ref_path: ../outside.yaml\n---\n",
+                "---\nplaybook_ref:\n  ref_path: ../outside.md\n---\n",
                 encoding="utf-8",
             )
 
@@ -462,13 +439,13 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
     def test_rejects_wrong_suffix_repository_reference(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            wrong = root / "records/01-policy/2026/05/policy.txt"
+            wrong = root / "records/_playbooks/test/policy.txt"
             wrong.parent.mkdir(parents=True)
             wrong.write_text("[project]\nname = 'x'\n", encoding="utf-8")
             research = root / "records/05-research/2026/05/research.md"
             research.parent.mkdir(parents=True)
             research.write_text(
-                "---\npolicy_ref:\n  ref_path: records/01-policy/2026/05/policy.txt\n---\n",
+                "---\nplaybook_ref:\n  ref_path: records/_playbooks/test/policy.txt\n---\n",
                 encoding="utf-8",
             )
 
@@ -501,7 +478,7 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
             root = Path(tmpdir)
             outside = root.parent / f"{root.name}-outside.yaml"
             outside.write_text("policy_id: outside\n", encoding="utf-8")
-            policy_link = root / "records/01-policy/2026/05/policy.yaml"
+            policy_link = root / "records/_playbooks/test/2026-05-01T000000+0900.md"
             policy_link.parent.mkdir(parents=True)
             try:
                 policy_link.symlink_to(outside)
@@ -510,7 +487,10 @@ class ReferenceIntegrityValidationTests(unittest.TestCase):
             research = root / "records/05-research/2026/05/research.md"
             research.parent.mkdir(parents=True)
             research.write_text(
-                "---\npolicy_ref:\n  ref_path: records/01-policy/2026/05/policy.yaml\n---\n",
+                "---\n"
+                "playbook_ref:\n"
+                "  ref_path: records/_playbooks/test/2026-05-01T000000+0900.md\n"
+                "---\n",
                 encoding="utf-8",
             )
 

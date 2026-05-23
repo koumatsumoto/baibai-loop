@@ -9,12 +9,11 @@ Baibai-Loop は、日本株スイングトレードの戦略立案、スクリ�
 以下の loop を forward-only に回します。概念モデルの正本は [`docs/concepts.md`](./docs/concepts.md) です。
 
 1. portfolio policy で目的・制約・資本・許容リスクを固定する
-2. マクロ事実を蓄積する: `records/02-brief/`
-3. マクロ見解を更新する: `records/03-outlook/`
-4. スクリーニング基準でふるいにかける: `records/04-candidates/`
-5. 個別銘柄を investment memo として深掘り調査する: `records/05-research/`
-6. 条件を満たしたら execution record を残す: `records/06-trades/`
-7. 事後検証と attribution で次回改善に活かす: `records/07-reviews/`
+2. スクリーニング前に macro context を確認する: `records/01-macro-context/`
+3. スクリーニング基準でふるいにかける: `records/04-candidates/`
+4. 個別銘柄を investment memo として深掘り調査する: `records/05-research/`
+5. 条件を満たしたら execution record を残す: `records/06-trades/`
+6. 事後検証と attribution で次回改善に活かす: `records/07-reviews/`
 
 思想は [`docs/philosophy.md`](./docs/philosophy.md)、現行構造は [`docs/architecture/system-overview.md`](./docs/architecture/system-overview.md) を参照してください。
 
@@ -46,12 +45,11 @@ baibai-loop/
 │   ├── screening/
 │   └── templates/
 ├── records/
-│   ├── 01-brief/
-│   ├── 02-outlook/
-│   ├── 03-candidates/
-│   ├── 04-research/
-│   ├── 05-trades/
-│   ├── 06-reviews/
+│   ├── 01-macro-context/
+│   ├── 04-candidates/
+│   ├── 05-research/
+│   ├── 06-trades/
+│   ├── 07-reviews/
 │   ├── _data/
 │   ├── _ledger/
 │   ├── _playbooks/
@@ -83,7 +81,7 @@ directory ごとの責務は [`docs/architecture/repository-map.md`](./docs/arch
 
 ```bash
 uv run baibai-loop-screening run --asof YYYY-MM-DD
-uv run baibai-loop-screening select --asof YYYY-MM-DD
+uv run baibai-loop-screening select --asof YYYY-MM-DD --macro-context records/01-macro-context/YYYY/MM/macro-context-YYYY-MM-DD-slug.yaml
 uv run baibai-loop-stats search CPI
 uv run baibai-loop-validate
 uv run baibai-loop-ledger sync --root .

@@ -16,13 +16,16 @@ from .domain import repository_ref_error, resolve_repository_ref
 from .errors import ValidationFinding
 
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
-_REMOVED_HASH_FIELDS = frozenset({"content_" + "sha256", "row_" + "sha256"})
+_REMOVED_HASH_FIELDS = frozenset({"content_sha256", "row_sha256"})
 _REMOVED_REFERENCE_FIELDS = frozenset(
     {
         "playbook_snapshot",
-        "_".join(("policy", "snapshot")),
-        "_".join(("portfolio", "exposure", "ref")),
-        "_".join(("portfolio", "exposure", "snapshot", "ref")),
+        "policy_snapshot",
+        "policy_ref",
+        "policy_applicability",
+        "portfolio_exposure_ref",
+        "portfolio_exposure_snapshot_ref",
+        "calendar_refs",
         "calendars_snapshot",
         "universe_snapshot_ref",
         "input_snapshots",
@@ -50,8 +53,6 @@ class _ReferenceSpec:
 
 _REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
     ("playbook_ref", _ReferenceSpec(("records/_playbooks/",), (".md",), True)),
-    ("policy_ref", _ReferenceSpec(("records/01-policy/",), (".md",), True)),
-    ("input_refs.policy", _ReferenceSpec(("records/01-policy/",), (".md",), True)),
     (
         "input_refs.screening_rules",
         _ReferenceSpec(("records/_config/screening-rules/",), (".yaml", ".yml")),
@@ -69,18 +70,6 @@ _REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
         _ReferenceSpec(("records/_universe-snapshots/",), (".yaml", ".yml")),
     ),
     (
-        "calendar_refs.business_days",
-        _ReferenceSpec(("records/_calendars/business-days/",), (".yaml", ".yml")),
-    ),
-    (
-        "calendar_refs.events",
-        _ReferenceSpec(("records/_calendars/events/",), (".yaml", ".yml")),
-    ),
-    (
-        "calendar_refs.corporate_actions",
-        _ReferenceSpec(("records/_calendars/corporate-actions/",), (".yaml", ".yml")),
-    ),
-    (
         "universe_ref",
         _ReferenceSpec(("records/_universe-snapshots/",), (".yaml", ".yml")),
     ),
@@ -93,12 +82,8 @@ _REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
     ),
 )
 _LIST_REFERENCE_FIELDS = frozenset({"source_trade_refs", "source_decision_register_refs"})
-_MAPPING_REFERENCE_PARENTS = frozenset({"calendar_refs"})
-_STRING_LIST_REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
-    ("updated_from", _ReferenceSpec(("records/02-brief/",), (".yaml", ".yml"))),
-    ("brief_refs", _ReferenceSpec(("records/02-brief/",), (".yaml", ".yml"))),
-    ("source_refs", _ReferenceSpec(("records/02-brief/",), (".yaml", ".yml"))),
-)
+_MAPPING_REFERENCE_PARENTS: frozenset[str] = frozenset()
+_STRING_LIST_REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = ()
 _SCALAR_REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
     (
         "candidates_ref",
@@ -109,11 +94,11 @@ _SCALAR_REFERENCE_SPECS: tuple[tuple[str, _ReferenceSpec], ...] = (
         ),
     ),
     (
-        "outlook_ref",
+        "macro_context_ref",
         _ReferenceSpec(
-            ("records/03-outlook/",),
+            ("records/01-macro-context/",),
             (".yaml", ".yml"),
-            required_mapping_keys=("schema_version", "sectors", "macro_regime"),
+            required_mapping_keys=("kind", "context_id", "sector_tilts"),
         ),
     ),
     ("research_ref", _ReferenceSpec(("records/05-research/",), (".md",), True, allow_null=True)),
@@ -225,8 +210,6 @@ def _check_repository_ref(
     *,
     location: str,
 ) -> list[ValidationFinding]:
-    if _is_outlook_record(target) and _location_has_marker(location, "source_refs"):
-        return []
     ref = node.get("ref_path")
     if ref is None:
         if _spec_for_location(location) is not None:
@@ -560,16 +543,10 @@ def _scalar_spec_for_field(field: str) -> _ReferenceSpec | None:
 
 
 def _string_list_spec_for_field(target: Path, field: str) -> _ReferenceSpec | None:
-    if field == "source_refs" and not _is_outlook_record(target):
-        return None
     for marker, spec in _STRING_LIST_REFERENCE_SPECS:
         if field == marker:
             return spec
     return None
-
-
-def _is_outlook_record(target: Path) -> bool:
-    return "records/03-outlook/" in target.as_posix()
 
 
 def _location_has_marker(location: str, marker: str) -> bool:

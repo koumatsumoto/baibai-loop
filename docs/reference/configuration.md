@@ -31,12 +31,12 @@ Configuration は runtime boundary です。secret や token の値は docs に�
 
 ## Macro statistics cache
 
-`baibai-loop-stats` は、macro regime gate の更新に必要な米国マクロ、FRB/FRED 市場指標、ECB 由来の JPY FX を取得し、`data/stats/macro.sqlite` に保存する。SQLite は取得 cache であり、brief / outlook の文書正本ではない。
+`baibai-loop-stats` は、macro context 作成時に確認したい米国マクロ、FRB/FRED 市場指標、ECB 由来の JPY FX を取得し、`data/stats/macro.sqlite` に保存する。SQLite は取得 cache であり、macro context の正本ではない。
 
 ```bash
 uv run baibai-loop-stats search CPI
 uv run baibai-loop-stats get us.10y --start 2026-05-01 --end 2026-05-15
-uv run baibai-loop-stats brief-fragment --kind world-weekly --start 2026-05-04 --end 2026-05-10
+uv run baibai-loop-stats macro-fragment --kind world-weekly --start 2026-05-04 --end 2026-05-10
 ```
 
 v1 は keyless CSV で取得できる FRB H.15、FRED CSV、ECB FX を優先する。日本 CPI / BOJ rate などの日本マクロ統計は e-Stat / BOJ の安定 series id と認証運用が固まるまで未実装。HTML / PDF scraping やニュース本文取得は対象外。

@@ -28,7 +28,9 @@ class DecisionRegisterRecord:
     decision_event_at: str | None = None
     playbook_id: str | None = None
     playbook_ref: dict[str, object] | None = None
-    policy_ref: dict[str, object] | None = None
+    macro_context_ref: str | None = None
+    macro_context_fit: dict[str, object] | None = None
+    macro_context_decision_effect: str | None = None
     baseline_price: float | None = None
     market_cap_oku: float | None = None
     avg_turnover_oku: float | None = None

@@ -5,17 +5,6 @@ playbook_id: cashflow-yield-discount
 playbook_ref:
   ref_path: records/_playbooks/cashflow-yield-discount/2026-05-01T000000+0900.md
   effective_from: '2026-05-01T00:00:00+09:00'
-policy_ref:
-  ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
-  effective_from: '2026-05-01T00:00:00+09:00'
-policy_applicability: active
-calendar_refs:
-  business_days:
-    ref_path: records/_calendars/business-days/2026-05.yaml
-  events:
-    ref_path: records/_calendars/events/2026-05.yaml
-  corporate_actions:
-    ref_path: records/_calendars/corporate-actions/2026-05.yaml
 selected_supporting_evidence_refs:
 - source: candidate
   evidence_hit_id: candidate-2026-05-08-3964-cashflow-yield-discount
@@ -39,28 +28,10 @@ candidate_ref:
   screen_run_id: screening-20260508
   ticker: '3964'
   candidate_id: candidate-2026-05-08-3964
-outlook_ref: records/03-outlook/2026/05/outlook-2026-05-10-post-us-jobs-nikkei-wti.yaml
-brief_refs:
-- records/02-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
-- records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
-- records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-nikkei-wti.yaml
 ai_draft: false
 published_at: '2026-05-12T20:42:11+09:00'
 recorded_at: '2026-05-12T20:42:11+09:00'
 tradable_at: '2026-08-10T09:00:00+09:00'
-macro_regime_gate:
-  aggregate_status: supportive
-  decision_effect: pass
-  source_scope: sector
-  reducer_id: macro-regime-reducer-v1
-  inputs:
-  - scope: sector
-    key: 情報・通信業
-    status: supportive
-    source_ref: records/03-outlook/2026/05/outlook-2026-05-10-post-us-jobs-nikkei-wti.yaml
-    weight_or_materiality: high
-    confidence: low
-policy_overrides: []
 external_refs:
 - ref_path: records/_external/aucnet/2026-05-12-fy2026-q1-official-ir.md
 candidate_evidence_decisions:
@@ -148,6 +119,14 @@ valuation:
   - ocf_yield
   - fcf_yield
   - p_s
+macro_context_ref: records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml
+macro_context_fit:
+  context_freshness: current
+  fit: neutral
+  decision_effect: proceed
+  required_checks: []
+  sizing_caution:
+  - migrated_from_legacy_macro_context
 ---
 
 # Research: 2026-05-12 3964 オークネット cashflow-yield-discount
@@ -158,12 +137,12 @@ valuation:
 
 Q1 公式 IR では、売上高 +13.8%、営業利益 +4.6%、通期営業利益予想の上方修正、年間配当予想の上方修正が確認できた。したがって `reject` ではなく継続 research とする。一方、Q1 では四半期連結キャッシュ・フロー計算書が作成されておらず、2025年12月期の強い CFO / FCF が再現可能かは確認できない。decision は `deferred / wait_for_event` とし、Q2 の半期 CF で営業 CF と working capital を確認する。
 
-## Macro regime gate
+## Macro context
 
-- Gate: supportive / pass。
+- Fit: neutral / proceed。
 - Sector: 情報・通信業。
-- 参照: `records/03-outlook/2026/05/outlook-2026-05-10-post-us-jobs-nikkei-wti.yaml`。
-- Outlook は情報・通信業を supportive としている。ただしオークネットの主要 driver は中古デジタル機器、ブランド品、中古車・バイクの循環型マーケットであり、AI / data center theme を直接の買い理由にはしない。AI / データ活用は、オークション運営や在庫流通の補助材料にとどめる。
+- 参照: `records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml`。
+- Macro context は情報・通信業を neutral としている。ただしオークネットの主要 driver は中古デジタル機器、ブランド品、中古車・バイクの循環型マーケットであり、AI / data center theme を直接の買い理由にはしない。AI / データ活用は、オークション運営や在庫流通の補助材料にとどめる。
 
 ## Cashflow snapshot
 

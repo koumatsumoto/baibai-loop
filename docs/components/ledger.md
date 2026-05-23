@@ -29,7 +29,6 @@ JSONL は 1 行 1 event。current state は同じ `decision_event_id` / correcti
 - `research_decision`: `{outcome, posture, reason...}`
 - `trade_execution_state`: `none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled`
 - `playbook_id` / `playbook_ref`
-- `policy_ref`
 - `conviction_tier`
 - `independent_evidence_count`
 - `tracking`

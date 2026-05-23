@@ -7,8 +7,8 @@ Baibai-Loop の **screen output / candidates** の運用仕様。狭義のスク
 - universe（日本株普通株、時価総額 100 億円以上、20 営業日平均売買代金 1 億円以上）に対し、複数の playbook-linked screen で機械的にふるいをかけ、**ticker-level の raw screen output を事実として記録**
 - 事実層のため解釈は入れない（反対仮説・原因仮説は research 側で行う）
 - Investment memo の出発点として、`records/05-research/` の選定入力となる
-- Playbook hit、policy / liquidity / macro regime gate の初期結果は screen fact として残す。後続の選定・見送り・保留判断は candidates を上書きせず、research / ledger / review 側の記録で追跡する
-- candidates の `macro_regime_gate_result` は screening 実行時の pinned rules / input に基づく fact field。最新 outlook との投資判断上の整合は `select` と research の責務であり、candidates YAML を後から書き換えて揃えない
+- Playbook hit、policy / liquidity の初期結果は screen fact として残す。後続の選定・見送り・保留判断は candidates を上書きせず、`select` output / research / ledger / review 側の記録で追跡する
+- Macro context は candidates に状態を保存しない。`select` で sector tilt との alignment を出し、research の `macro_context_fit` で判断への効き方を記録する
 
 ## 2. 頻度
 
@@ -197,7 +197,7 @@ candidates YAML は `run_id`、`universe_ref`、candidate-level の metric / sou
 ## 6. research への接続
 
 - `records/05-research/` の front matter `candidate_ref.candidates_ref` で本ファイルを参照する。`candidate_ref` は `candidates_ref` / `ticker` / `candidate_id` / `screen_run_id` の完全な join key として扱い、research validator が候補ファイル root `run_id` と候補 row の `screen_run_id` / `candidate_id` / `ticker` を照合する
-- 選定プロセス: 最新 `records/04-candidates/` と最新 `records/03-outlook/` を突き合わせ、`outlook` で supportive/neutral の業種/地域の ticker を候補に残す（adverse 除外）
+- 選定プロセス: 最新 `records/04-candidates/` と `records/01-macro-context/` を突き合わせ、macro context を hard gate ではなく research 優先順位・追加確認・sizing caution の診断として使う
 - 複数 screen hit が重なる候補は research 優先度を上げるが、単一総合 score は作らない
 - `select` は lane 別の primary metric、macro status、短期 dislocation、long-hold survivability、過去 research decision を使って research triage を支援する。hit 数と時価総額だけでは並べない
 - `select` output は `queues` と `selection.diagnostics` を正本にする。主な queue は `recommended_research_queue`、`core_value_queue`、`fast_dislocation_queue`、`long_hold_survivability_queue`、`deferred_revisit_queue`、`suppressed_queue`
@@ -205,9 +205,9 @@ candidates YAML は `run_id`、`universe_ref`、candidate-level の metric / sou
 - `ranked_candidates` は macro + lane rank + evidence strength のグローバル順位、`lane_toplists` は lane 別上位。research 着手候補の正本は `queues.recommended_research_queue`
 - 各 candidate の `lenses.fast_dislocation` は `price_triggers`、`auxiliary_triggers`、fundamental guard を分けて記録する。急落だけでは eligible にならず、出来高 spike / 52 週安値距離だけでも eligible にならない。fundamental guard は cash-flow / balance-sheet / profitability の family 数も記録し、OCF+FCF だけのような同一 family 重複では財務健全性の十分な裏付けとしない。`freshness_warnings` がある場合、fast confidence は最大 `medium` となり `data_status: stale_fundamental_metrics` を出す。`lenses.long_hold_survivability` は `high|medium|low|unknown` と理由を記録する。`lenses.shareholder_return` は現時点で自動データがなければ `unknown`、`lenses.ai_exposure` は sector proxy の annotation であり採用根拠・sizing 根拠にはしない
 - `prior_research` は ledger から付与する。`deferred` かつ `revisit_after > asof`、または conservative に `deferred` なのに `revisit_after` が無い候補は通常 recommendation から外し、`deferred_revisit_queue` / `suppressed_queue` に出す
-- `select-sweep` は同じ candidates / outlook に複数 selection profile を当て、`strict` / `balanced` / `loose` や任意 YAML profile の閾値を比較する。`recommended[]` には ticker だけでなく recommendation queue / lane、fast confidence、guard count/family count、fast data status、long-hold rating を出し、profile 間の added / removed / changed を見て運用 profile を選ぶ
+- `select-sweep` は同じ candidates / macro context に複数 selection profile を当て、`strict` / `balanced` / `loose` や任意 YAML profile の閾値を比較する。`recommended[]` には ticker だけでなく recommendation queue / lane、fast confidence、guard count/family count、fast data status、long-hold rating を出し、profile 間の added / removed / changed を見て運用 profile を選ぶ
 - `selected` という語は `select` output の research triage queue だけを指す。raw candidates の row flag ではなく、research approval でも order ready でもない。段階は `screening_selected` → `research_memo` → `research_approved` → `order_ready` と分けて読む
-- candidates validator は row が orthogonal gate fields を持つことを検査する。Outlook と macro reducer の最終整合は research validator が検査する
+- candidates validator は row が orthogonal gate fields を持つことを検査する。Macro context と `macro_context_fit` の整合は research validator が検査する
 - 詳細: [`research.md`](./research.md) の選定プロセス
 - research decision 後の追跡先: [`ledger.md`](./ledger.md)
 
@@ -229,7 +229,7 @@ candidates YAML は `run_id`、`universe_ref`、candidate-level の metric / sou
 
 ## 9. 参考
 
-- [`../philosophy.md`](../philosophy.md): 思想（事実と分析の分離、macro regime discipline）
+- [`../philosophy.md`](../philosophy.md): 思想（事実と分析の分離、macro context discipline）
 - [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
 - [`../concepts.md`](../concepts.md): 投資判断ドメインモデル
 - [`../screening/`](../screening/): スクリーニングサブシステム詳細

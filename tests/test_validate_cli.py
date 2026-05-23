@@ -45,7 +45,6 @@ def _make_candidates_payload() -> dict[str, object]:
                 "playbook_screen_result": "hit",
                 "policy_gate_result": "pass",
                 "liquidity_gate_result": "pass",
-                "macro_regime_gate_result": "pass",
                 "sector_33": "情報・通信業",
                 "metrics": {},
                 "ttm_quality": {
@@ -115,62 +114,34 @@ _TSE_33_SECTORS: tuple[str, ...] = (
 )
 
 
-def _make_outlook_yaml_text() -> str:
-    judgement = {"status": "neutral", "rationale": "neutral", "source_refs": []}
+def _make_macro_context_yaml_text() -> str:
     payload: dict[str, object] = {
-        "schema_version": 1,
-        "ai_draft": True,
-        "published_at": "2026-04-27T09:00:00+09:00",
-        "horizon": "1-6m",
-        "updated_from": ["records/02-brief/2026/04/2026-04-19-world-weekly-x.yaml"],
+        "kind": "macro-context",
+        "context_id": "macro-context-2026-04-24-test",
+        "as_of": "2026-04-24",
+        "valid_until": "2026-05-01",
+        "published_at": "2026-04-24T09:00:00+09:00",
         "summary": "summary",
-        "sectors": {sector: dict(judgement) for sector in _TSE_33_SECTORS},
-        "exposure_buckets": {
-            "us": dict(judgement),
-            "japan-domestic": dict(judgement),
-            "japan-external-demand": {**judgement, "status": "supportive"},
-            "emerging": {**judgement, "status": None},
+        "inputs": {
+            "articles": [],
+            "stats_series": [{"series_id": "usd_jpy", "window": "1m", "used_for": "test"}],
         },
-        "changes": [],
-        "next_triggers": [{"date": "2026-05-12", "text": "BoJ"}],
-    }
-    return yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
-
-
-def _make_brief_yaml_text() -> str:
-    payload: dict[str, object] = {
-        "schema_version": 1,
-        "kind": "world-weekly",
-        "type": "periodic",
-        "scope": "world",
-        "ai_draft": True,
-        "published_at": "2026-04-19T18:00:00+09:00",
-        "observation_date": "2026-04-19",
-        "period": {"start": "2026-04-13", "end": "2026-04-19"},
-        "sources": [
-            {
-                "id": "fed-h15",
-                "name": "Federal Reserve H.15",
-                "url": "https://www.federalreserve.gov/releases/h15/",
-                "accessed_at": "2026-04-19",
-                "status": "ok",
-            }
-        ],
-        "layers": {
-            "world": {
-                "market_indicators": [
-                    {
-                        "name": "米10Y",
-                        "value": "4.31%",
-                        "source_ids": ["fed-h15"],
-                    }
-                ]
-            },
-            "japan": {},
-            "japan_equity": {},
+        "sector_tilts": {
+            "items": [
+                {
+                    "id": "sector-info",
+                    "scope": "sector_33",
+                    "key": "情報・通信業",
+                    "stance": "neutral",
+                    "strength": "medium",
+                    "confidence": "medium",
+                    "rationale": "test",
+                }
+            ]
         },
-        "deltas": {"threshold_breaches": [], "direction_history": []},
-        "next_events": [{"date": "2026-04-28", "text": "FOMC"}],
+        "research_questions": ["question"],
+        "refresh_triggers": ["trigger"],
+        "changes_since_previous": [],
     }
     return yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
 
@@ -184,21 +155,6 @@ def _make_research_text() -> str:
             "playbook_ref": {
                 "ref_path": "records/_playbooks/valuation-reversion/2026-05-01T000000+0900.md",
             },
-            "policy_ref": {
-                "ref_path": "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md",
-            },
-            "policy_applicability": "active",
-            "calendar_refs": {
-                "business_days": {
-                    "ref_path": "records/_calendars/business-days/2026-05.yaml",
-                },
-                "events": {
-                    "ref_path": "records/_calendars/events/2026-05.yaml",
-                },
-                "corporate_actions": {
-                    "ref_path": "records/_calendars/corporate-actions/2026-05.yaml",
-                },
-            },
             "research_decision": {"outcome": "approved", "posture": "act_now"},
             "candidate_ref": {
                 "candidates_ref": "records/04-candidates/2026/04/2026-04-24.yaml",
@@ -208,27 +164,20 @@ def _make_research_text() -> str:
             },
             "market_cap_oku": 600,
             "sector_33": "情報・通信業",
-            "outlook_ref": "records/03-outlook/2026/04/outlook-2026-04-24-bootstrap.yaml",
-            "brief_refs": [],
+            "macro_context_ref": (
+                "records/01-macro-context/2026/04/macro-context-2026-04-24-test.yaml"
+            ),
+            "macro_context_fit": {
+                "context_freshness": "current",
+                "fit": "neutral",
+                "decision_effect": "proceed",
+                "required_checks": [],
+                "sizing_caution": [],
+            },
             "ai_draft": True,
             "published_at": "2026-04-25T22:00:00+09:00",
             "recorded_at": "2026-04-25T22:00:00+09:00",
             "tradable_at": "2026-05-15T09:00:00+09:00",
-            "macro_regime_gate": {
-                "aggregate_status": "neutral",
-                "decision_effect": "pass",
-                "source_scope": "sector",
-                "inputs": [
-                    {
-                        "scope": "sector",
-                        "key": "情報・通信業",
-                        "status": "neutral",
-                        "source_ref": (
-                            "records/03-outlook/2026/04/outlook-2026-04-24-bootstrap.yaml"
-                        ),
-                    }
-                ],
-            },
             "candidate_evidence_decisions": [
                 {
                     "evidence_hit_id": "candidate-2026-04-24-2767-valuation-reversion",
@@ -281,7 +230,7 @@ def _make_research_text() -> str:
         # Research
 
         ## 1. Thesis
-        ## 2. Macro regime gate
+        ## 2. Macro context
         ## 3. Valuation snapshot
         ## 4. 一時的割安の原因仮説
         ## 5. 反対仮説
@@ -300,24 +249,22 @@ def _make_research_text() -> str:
 
 def _seed_repo(root: Path, *, candidates_overrides: dict[str, object] | None = None) -> None:
     (root / "src").mkdir(parents=True, exist_ok=True)
-    brief_dir = root / "records/02-brief" / "2026" / "04"
-    outlook_dir = root / "records/03-outlook" / "2026" / "04"
+    macro_context_dir = root / "records/01-macro-context" / "2026" / "04"
     candidates_dir = root / "records/04-candidates" / "2026" / "04"
-    research_dir = root / "records/05-research" / "2026" / "04"
     playbooks_dir = root / "records/_playbooks"
+    docs_dir = root / "docs"
     support_dirs = (
+        docs_dir,
         root / "records/_universe-snapshots/2026/04",
         root / "records/_playbooks/valuation-reversion",
-        root / "records/01-policy/2026/05",
+        root / "records/05-research/2026/04",
         root / "records/_calendars/business-days",
         root / "records/_calendars/events",
         root / "records/_calendars/corporate-actions",
     )
     for directory in (
-        brief_dir,
-        outlook_dir,
+        macro_context_dir,
         candidates_dir,
-        research_dir,
         playbooks_dir,
         *support_dirs,
     ):
@@ -330,14 +277,14 @@ def _seed_repo(root: Path, *, candidates_overrides: dict[str, object] | None = N
         yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
-    (brief_dir / "2026-04-19-world-weekly-x.yaml").write_text(
-        _make_brief_yaml_text(), encoding="utf-8"
+    (macro_context_dir / "macro-context-2026-04-24-test.yaml").write_text(
+        _make_macro_context_yaml_text(), encoding="utf-8"
     )
-    (outlook_dir / "outlook-2026-04-24-bootstrap.yaml").write_text(
-        _make_outlook_yaml_text(), encoding="utf-8"
-    )
-    (research_dir / "2026-04-25-2767-valuation-reversion.md").write_text(
-        _make_research_text(), encoding="utf-8"
+    (root / "records/05-research/2026/04/2026-04-25-2767-valuation-reversion.md").write_text(
+        "---\n"
+        "macro_context_ref: records/01-macro-context/2026/04/macro-context-2026-04-24-test.yaml\n"
+        "---\n# Research\n",
+        encoding="utf-8",
     )
     (root / "records/_universe-snapshots/2026/04/2026-04-24.yaml").write_text(
         "snapshot_id: universe-20260424\n"
@@ -353,8 +300,8 @@ def _seed_repo(root: Path, *, candidates_overrides: dict[str, object] | None = N
     (root / "records/_playbooks/valuation-reversion/2026-05-01T000000+0900.md").write_text(
         "---\nplaybook_id: valuation-reversion\n---\n# Playbook\n", encoding="utf-8"
     )
-    policy_source = ROOT / "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md"
-    (root / "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md").write_text(
+    policy_source = ROOT / "docs/portfolio-policy.md"
+    (root / "docs/portfolio-policy.md").write_text(
         policy_source.read_text(encoding="utf-8"), encoding="utf-8"
     )
     (root / "records/_calendars/business-days/2026-05.yaml").write_text(
@@ -381,7 +328,7 @@ class ValidateCliTests(unittest.TestCase):
             stderr = io.StringIO()
             exit_code = run_validation(
                 root=root,
-                targets=("brief", "candidates", "outlook", "research", "ledger", "review"),
+                targets=("macro-context", "policy", "candidates", "references"),
                 stdout=stdout,
                 stderr=stderr,
             )
@@ -412,20 +359,38 @@ class ValidateCliTests(unittest.TestCase):
             )
             stdout = io.StringIO()
             stderr = io.StringIO()
-            # candidates は壊れているが target=outlook のみなので通る
+            # candidates は壊れているが target=macro-context のみなので通る
             exit_code = run_validation(
                 root=root,
-                targets=("outlook",),
+                targets=("macro-context",),
                 stdout=stdout,
                 stderr=stderr,
             )
             self.assertEqual(exit_code, 0, msg=stderr.getvalue())
 
+    def test_policy_target_requires_repository_policy_doc(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _seed_repo(root)
+            (root / "docs/portfolio-policy.md").unlink()
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            exit_code = run_validation(
+                root=root,
+                targets=("policy",),
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("policy.io", stderr.getvalue())
+
     def test_references_target_validates_repository_refs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             _seed_repo(root)
-            (root / "records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md").unlink()
+            (root / "records/_universe-snapshots/2026/04/2026-04-24.yaml").unlink()
             stdout = io.StringIO()
             stderr = io.StringIO()
 

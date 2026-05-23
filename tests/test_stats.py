@@ -357,7 +357,7 @@ class StatsServiceTests(unittest.TestCase):
             self.assertTrue(result.cache_hit)
             self.assertEqual(result.observations[0].observed_at, observed_at)
 
-    def test_brief_fragment_uses_cached_world_weekly_series(self) -> None:
+    def test_macro_fragment_uses_cached_world_weekly_series(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "macro.sqlite"
             for series_id, previous, current in (
@@ -386,7 +386,7 @@ class StatsServiceTests(unittest.TestCase):
                     value=current,
                 )
 
-            payload = StatsService(db).brief_fragment(
+            payload = StatsService(db).macro_fragment(
                 kind="world-weekly",
                 start=date(2026, 5, 4),
                 end=date(2026, 5, 10),
@@ -400,12 +400,12 @@ class StatsServiceTests(unittest.TestCase):
                 {item["indicator"] for item in payload["deltas"]["threshold_breaches"]},
             )
 
-    def test_brief_fragment_rejects_reversed_date_range(self) -> None:
+    def test_macro_fragment_rejects_reversed_date_range(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "macro.sqlite"
 
             with self.assertRaisesRegex(ValueError, "--end must be on or after --start"):
-                StatsService(db).brief_fragment(
+                StatsService(db).macro_fragment(
                     kind="world-weekly",
                     start=date(2026, 5, 10),
                     end=date(2026, 5, 4),

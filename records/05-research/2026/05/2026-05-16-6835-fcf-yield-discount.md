@@ -5,17 +5,6 @@ playbook_id: fcf-yield-discount
 playbook_ref:
   ref_path: records/_playbooks/fcf-yield-discount/2026-05-01T000000+0900.md
   effective_from: '2026-05-01T00:00:00+09:00'
-policy_ref:
-  ref_path: records/01-policy/2026/05/2026-05-01T000000+0900-portfolio-policy.md
-  effective_from: '2026-05-01T00:00:00+09:00'
-policy_applicability: active
-calendar_refs:
-  business_days:
-    ref_path: records/_calendars/business-days/2026-05.yaml
-  events:
-    ref_path: records/_calendars/events/2026-05.yaml
-  corporate_actions:
-    ref_path: records/_calendars/corporate-actions/2026-05.yaml
 selected_supporting_evidence_refs:
 - source: candidate
   evidence_hit_id: candidate-2026-05-08-6835-fcf-yield-discount
@@ -36,29 +25,10 @@ candidate_ref:
   screen_run_id: screening-20260508
   ticker: '6835'
   candidate_id: candidate-2026-05-08-6835
-outlook_ref: records/03-outlook/2026/05/outlook-2026-05-10-post-us-jobs-nikkei-wti.yaml
-brief_refs:
-- records/02-brief/2026/05/2026-05-03-world-weekly-fomc-boj-hold.yaml
-- records/02-brief/2026/05/2026-05-04-world-daily-us-pce-cn-trade-hormuz.yaml
-- records/02-brief/2026/05/2026-05-10-world-weekly-us-jobs-nikkei-wti.yaml
-- records/02-brief/2026/05/2026-05-13-world-daily-us-cpi-boj-opinions.yaml
 ai_draft: true
 published_at: '2026-05-16T10:35:00+09:00'
 recorded_at: '2026-05-16T10:35:00+09:00'
 tradable_at: null
-macro_regime_gate:
-  aggregate_status: supportive
-  decision_effect: pass
-  source_scope: sector
-  reducer_id: macro-regime-reducer-v1
-  inputs:
-  - scope: sector
-    key: 電気機器
-    status: supportive
-    source_ref: records/03-outlook/2026/05/outlook-2026-05-10-post-us-jobs-nikkei-wti.yaml
-    weight_or_materiality: high
-    confidence: low
-policy_overrides: []
 external_refs:
 - ref_path: records/_external/allied-telesis/2026-05-16-fy2026-q1-official-ir.md
 - ref_path: records/_external/deepresearch/2026-05-13-top3-bargain-selection.md
@@ -147,6 +117,14 @@ valuation:
   equity_ratio: 0.4378
   primary_metric:
   - fcf_yield
+macro_context_ref: records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml
+macro_context_fit:
+  context_freshness: current
+  fit: not_matched
+  decision_effect: proceed
+  required_checks: []
+  sizing_caution:
+  - migrated_from_legacy_macro_context
 ---
 
 # Research: 2026-05-16 6835 アライドテレシスホールディングス fcf-yield-discount
@@ -157,12 +135,12 @@ valuation:
 
 ただし、Q1 では CF 計算書が作成されていない。在庫と売上債権も増えており、通期会社計画では営業利益・純利益の減益が残る。配当利回りは 270 円前提で約 3.3% と悪くないが、リスクを下げたい局面であえて資金と注意を使うほどの非対称性はない。判断は `deferred` とし、Q2 CF 後に再確認する。
 
-## Macro regime gate
+## Macro context
 
-- 判定: supportive / pass。
+- 判定: not_matched / proceed。
 - Sector: 電気機器。
-- Source: `outlook-2026-05-10-post-us-jobs-nikkei-wti.yaml`。
-- 注意: 電気機器 supportive は AI / 半導体関連の色が強い。6835 はネットワーク機器で直接度は低く、macro gate は pass だが conviction は medium 止まり。
+- Source: `records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml`。
+- 注意: 電気機器 not_matched は AI / 半導体関連の色が強い。6835 はネットワーク機器で直接度は低く、macro context fit は not_matched だが conviction は medium 止まり。
 
 ## FCF snapshot
 

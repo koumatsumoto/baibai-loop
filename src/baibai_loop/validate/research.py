@@ -6,13 +6,16 @@ import json
 import math
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import yaml
 from jsonschema import Draft202012Validator
+
+from baibai_loop.policy_config import PORTFOLIO_POLICY
 
 from .domain import (
     as_list,
@@ -40,25 +43,31 @@ _TICKER_PATTERN = re.compile(r"^[0-9A-Z]{4}$")
 _REMOVED_FRONT_MATTER_FIELDS: tuple[str, ...] = (
     "playbook",
     "decision",
-    "_".join(("macro", "gate")),
-    "_".join(("macro", "gate", "override")),
-    "_".join(("position", "size", "oku")),
-    "_".join(("hypothetical", "position", "size", "oku")),
-    "_".join(("supporting", "sig" + "nals")),
-    "_".join(("adv", "participation", "pct")),
-    "_".join(("playbook", "snapshot")),
-    "_".join(("policy", "snapshot")),
-    "_".join(("portfolio", "exposure", "ref")),
-    "_".join(("portfolio", "exposure", "snapshot", "ref")),
-    "_".join(("calendars", "snapshot")),
+    "macro_gate",
+    "macro_gate_override",
+    "position_size_oku",
+    "hypothetical_position_size_oku",
+    "supporting_signals",
+    "adv_participation_pct",
+    "playbook_snapshot",
+    "policy_snapshot",
+    "policy_ref",
+    "policy_applicability",
+    "portfolio_exposure_ref",
+    "portfolio_exposure_snapshot_ref",
+    "calendar_refs",
+    "calendars_snapshot",
     "candidates_ref",
 )
-_REMOVED_HASH_FIELDS = {"content_" + "sha256", "row_" + "sha256"}
+_REMOVED_HASH_FIELDS = {"content_sha256", "row_sha256"}
 _REMOVED_REFERENCE_FIELDS = {
     "playbook_snapshot",
-    "_".join(("policy", "snapshot")),
-    "_".join(("portfolio", "exposure", "ref")),
-    "_".join(("portfolio", "exposure", "snapshot", "ref")),
+    "policy_snapshot",
+    "policy_ref",
+    "policy_applicability",
+    "portfolio_exposure_ref",
+    "portfolio_exposure_snapshot_ref",
+    "calendar_refs",
     "calendars_snapshot",
     "universe_snapshot_ref",
     "input_snapshots",
@@ -70,7 +79,9 @@ _REMOVED_REFERENCE_FIELDS = {
 }
 _KNOWN_OUTCOMES = {"approved", "deferred", "rejected"}
 _KNOWN_POSTURES = {"act_now", "wait_for_event", "wait_for_capital", "dropped"}
-_KNOWN_GATE_EFFECTS = {"pass", "conditional", "block"}
+_KNOWN_MACRO_CONTEXT_EFFECTS = {"proceed", "caution", "defer"}
+_KNOWN_MACRO_CONTEXT_FRESHNESS = {"current", "stale", "future"}
+_KNOWN_MACRO_CONTEXT_FITS = {"tailwind", "neutral", "mixed", "headwind", "not_matched"}
 _KNOWN_CONVICTION_TIERS = {"low", "medium", "high"}
 _KNOWN_CONVICTION_PATHS = {"count_breadth", "depth"}
 _CANONICAL_SIZING_FIELDS = {
@@ -87,13 +98,13 @@ _RESEARCH_NON_CANONICAL_SIZING_FIELDS = {
     "liquidity_cap_participation_pct",
 }
 _DEPRECATED_VALUATION_FIELDS = {"liquidity_cap_participation_pct"}
-_MACRO_STATUS_PRECEDENCE = {
-    "supportive": 0,
-    "neutral": 1,
-    "unknown": 2,
-    "adverse": 3,
-}
 _YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
+
+@dataclass(frozen=True, slots=True)
+class _CalendarLoadResult:
+    events: list[Mapping[str, Any]]
+    findings: list[ValidationFinding]
 
 
 def _load_yaml(path: Path) -> object:
@@ -156,11 +167,10 @@ def validate_research_parsed(
     findings.extend(_validate_schema(path, front_matter))
     findings.extend(_check_removed_fields(path, front_matter))
     findings.extend(_check_removed_hash_fields_recursive(path, front_matter))
-    findings.extend(_check_policy_and_calendar_context(path, front_matter))
     findings.extend(_check_ticker(path, front_matter))
     findings.extend(_check_playbook(path, front_matter, known_playbooks))
     findings.extend(_check_decision(path, front_matter))
-    findings.extend(_check_gate(path, front_matter))
+    findings.extend(_check_macro_context_fit(path, front_matter))
     findings.extend(_check_evidence_and_counts(path, front_matter))
     findings.extend(_check_conviction_tier(path, front_matter))
     findings.extend(_check_sizing_invariants(path, front_matter))
@@ -292,7 +302,11 @@ def _validate_schema(path: Path, front_matter: Mapping[str, object]) -> list[Val
             ValidationFinding(
                 severity="error",
                 target=path,
-                code=f"research.{error.validator or 'invalid'}",
+                code=(
+                    "research.required"
+                    if error.validator == "anyOf"
+                    else f"research.{error.validator or 'invalid'}"
+                ),
                 message=str(error.message),
                 location=_format_path(error.absolute_path),
             )
@@ -316,55 +330,291 @@ def _check_removed_fields(
     ]
 
 
-def _check_policy_and_calendar_context(
+def _check_macro_context_fit(
     path: Path, front_matter: Mapping[str, object]
 ) -> list[ValidationFinding]:
+    fit = front_matter.get("macro_context_fit")
+    if fit is None:
+        return []
     findings: list[ValidationFinding] = []
-    if front_matter.get("policy_applicability") != "active":
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.policy-applicability",
-                message="investment memos require policy_applicability: active",
-                location="policy_applicability",
-            )
-        )
-    findings.extend(_check_calendar_refs_block(path, front_matter.get("calendar_refs")))
-    return findings
-
-
-def _check_calendar_refs_block(path: Path, value: object) -> list[ValidationFinding]:
-    if not isinstance(value, Mapping):
+    if not isinstance(fit, Mapping):
         return [
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.calendar-refs",
-                message="calendar_refs must pin business_days, events, and corporate_actions",
-                location="calendar_refs",
+                code="research.macro-context-fit",
+                message="macro_context_fit must be a mapping",
+                location="macro_context_fit",
             )
         ]
+    freshness = fit.get("context_freshness")
+    if freshness not in _KNOWN_MACRO_CONTEXT_FRESHNESS:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-context-freshness",
+                message="macro_context_fit.context_freshness must be current, stale, or future",
+                location="macro_context_fit.context_freshness",
+            )
+        )
+    context_fit = fit.get("fit")
+    if context_fit not in _KNOWN_MACRO_CONTEXT_FITS:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-context-fit-value",
+                message=(
+                    "macro_context_fit.fit must be tailwind, neutral, mixed, "
+                    "headwind, or not_matched"
+                ),
+                location="macro_context_fit.fit",
+            )
+        )
+    effect = fit.get("decision_effect")
+    if effect not in _KNOWN_MACRO_CONTEXT_EFFECTS:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-context-effect",
+                message="macro_context_fit.decision_effect must be proceed, caution, or defer",
+                location="macro_context_fit.decision_effect",
+            )
+        )
+    decision = front_matter.get("research_decision")
+    outcome = decision.get("outcome") if isinstance(decision, Mapping) else None
+    if outcome == "approved" and effect == "defer":
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-context-defer-approved",
+                message="approved research cannot use macro_context_fit.decision_effect: defer",
+                location="macro_context_fit.decision_effect",
+            )
+        )
+    if outcome == "approved" and freshness == "future":
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-context-future-approved",
+                message="approved research cannot use a future macro context",
+                location="macro_context_fit.context_freshness",
+            )
+        )
+    ref = front_matter.get("macro_context_ref")
+    if not isinstance(ref, str) or not ref:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-context-ref-required",
+                message="macro_context_fit requires macro_context_ref",
+                location="macro_context_ref",
+            )
+        )
+    else:
+        source_path = _resolve_record_ref(
+            path, ref, prefixes=("records/01-macro-context/",), suffixes=(".yaml", ".yml")
+        )
+        if source_path is None:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.macro-context-ref-missing",
+                    message=f"macro_context_ref does not exist: {ref}",
+                    location="macro_context_ref",
+                )
+            )
+        else:
+            findings.extend(
+                _check_macro_context_dates(
+                    path,
+                    source_path=source_path,
+                    front_matter=front_matter,
+                    context_freshness=freshness if isinstance(freshness, str) else None,
+                    context_fit=context_fit if isinstance(context_fit, str) else None,
+                    decision_effect=effect if isinstance(effect, str) else None,
+                    outcome=outcome if isinstance(outcome, str) else None,
+                )
+            )
+    return findings
+
+
+def _check_macro_context_dates(
+    path: Path,
+    *,
+    source_path: Path,
+    front_matter: Mapping[str, object],
+    context_freshness: str | None,
+    context_fit: str | None,
+    decision_effect: str | None,
+    outcome: str | None,
+) -> list[ValidationFinding]:
+    try:
+        raw = _load_yaml(source_path)
+    except (OSError, yaml.YAMLError) as exc:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-context-ref-parse",
+                message=f"macro_context_ref cannot be parsed: {exc}",
+                location="macro_context_ref",
+            )
+        ]
+    if not isinstance(raw, Mapping):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-context-ref-parse",
+                message="macro_context_ref must point to a mapping YAML",
+                location="macro_context_ref",
+            )
+        ]
+    as_of = _parse_date_value(raw.get("as_of"))
+    valid_until = _parse_date_value(raw.get("valid_until"))
+    research_date = _research_record_date(front_matter)
+    if research_date is None:
+        return []
     findings: list[ValidationFinding] = []
-    specs = {
-        "business_days": ("records/_calendars/business-days/", (".yaml", ".yml")),
-        "events": ("records/_calendars/events/", (".yaml", ".yml")),
-        "corporate_actions": ("records/_calendars/corporate-actions/", (".yaml", ".yml")),
-    }
-    for key, (prefix, suffixes) in specs.items():
-        item = value.get(key)
-        location = f"calendar_refs.{key}"
-        findings.extend(
-            _check_repository_ref(
-                path,
-                item,
-                location=location,
-                code="research.calendar-ref",
-                prefixes=(prefix,),
-                suffixes=suffixes,
+    if as_of is not None and as_of > research_date:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-context-ref-future",
+                message="macro_context_ref.as_of must not be after the research record date",
+                location="macro_context_ref",
+            )
+        )
+    if context_freshness == "current" and (
+        (as_of is not None and as_of > research_date)
+        or (valid_until is not None and valid_until < research_date)
+    ):
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-context-current-window",
+                message=(
+                    "macro_context_fit.context_freshness: current requires research date "
+                    "within macro context window"
+                ),
+                location="macro_context_fit.context_freshness",
+            )
+        )
+    findings.extend(
+        _check_macro_context_sector_fit(
+            path,
+            raw,
+            front_matter=front_matter,
+            context_fit=context_fit,
+            decision_effect=decision_effect,
+            outcome=outcome,
+        )
+    )
+    return findings
+
+
+def _check_macro_context_sector_fit(
+    path: Path,
+    macro_context: Mapping[object, object],
+    *,
+    front_matter: Mapping[str, object],
+    context_fit: str | None,
+    decision_effect: str | None,
+    outcome: str | None,
+) -> list[ValidationFinding]:
+    sector = front_matter.get("sector_33")
+    if not isinstance(sector, str) or not sector:
+        return []
+    expected_fit = _sector_fit_from_macro_context(macro_context, sector)
+    if expected_fit is None:
+        expected_fit = "not_matched"
+    findings: list[ValidationFinding] = []
+    if context_fit is not None and context_fit != expected_fit:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-context-sector-fit",
+                message=(
+                    "macro_context_fit.fit must match macro_context_ref sector_tilts "
+                    f"for sector_33={sector}: expected {expected_fit}, got {context_fit}"
+                ),
+                location="macro_context_fit.fit",
+            )
+        )
+    fit_payload = as_mapping(front_matter.get("macro_context_fit"))
+    sizing_caution = as_list(fit_payload.get("sizing_caution"))
+    if (
+        outcome == "approved"
+        and expected_fit == "headwind"
+        and decision_effect == "proceed"
+        and not sizing_caution
+    ):
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.macro-context-headwind-proceed",
+                message=(
+                    "approved research with a macro headwind cannot proceed without "
+                    "macro_context_fit.sizing_caution"
+                ),
+                location="macro_context_fit.sizing_caution",
             )
         )
     return findings
+
+
+def _sector_fit_from_macro_context(
+    macro_context: Mapping[object, object], sector: str
+) -> str | None:
+    sector_tilts = macro_context.get("sector_tilts")
+    if not isinstance(sector_tilts, Mapping):
+        return None
+    items = sector_tilts.get("items")
+    if not isinstance(items, list):
+        return None
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        if item.get("scope") != "sector_33" or item.get("key") != sector:
+            continue
+        stance = item.get("stance")
+        if isinstance(stance, str) and stance in _KNOWN_MACRO_CONTEXT_FITS:
+            return stance
+    return None
+
+
+def _research_record_date(front_matter: Mapping[str, object]) -> date | None:
+    record_dt = _parse_datetime(front_matter.get("published_at")) or _parse_datetime(
+        front_matter.get("recorded_at")
+    )
+    if record_dt is not None:
+        return record_dt.date()
+    decision = front_matter.get("research_decision")
+    if isinstance(decision, Mapping):
+        decision_dt = _parse_datetime(decision.get("decided_at"))
+        if decision_dt is not None:
+            return decision_dt.date()
+    return None
+
+
+def _parse_date_value(value: object) -> date | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return date.fromisoformat(value[:10])
+    except ValueError:
+        return None
 
 
 def _check_ticker(path: Path, front_matter: Mapping[str, object]) -> list[ValidationFinding]:
@@ -479,235 +729,6 @@ def _check_decision(path: Path, front_matter: Mapping[str, object]) -> list[Vali
             )
         )
     return findings
-
-
-def _check_gate(path: Path, front_matter: Mapping[str, object]) -> list[ValidationFinding]:
-    gate = front_matter.get("macro_regime_gate")
-    if not isinstance(gate, Mapping):
-        return []
-    findings: list[ValidationFinding] = []
-    effect = gate.get("decision_effect")
-    if effect not in _KNOWN_GATE_EFFECTS:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.unknown-gate-effect",
-                message=f"macro_regime_gate.decision_effect must be one of {_KNOWN_GATE_EFFECTS}",
-                location="macro_regime_gate.decision_effect",
-            )
-        )
-    decision = front_matter.get("research_decision")
-    outcome = decision.get("outcome") if isinstance(decision, Mapping) else None
-    if outcome == "approved" and effect == "block":
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.blocked-gate-approved",
-                message="approved research cannot use macro_regime_gate.decision_effect: block",
-                location="macro_regime_gate.decision_effect",
-            )
-        )
-
-    inputs = gate.get("inputs")
-    if not isinstance(inputs, list) or not inputs:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.macro-inputs-required",
-                message="macro_regime_gate.inputs must contain reducer inputs",
-                location="macro_regime_gate.inputs",
-            )
-        )
-        return findings
-
-    statuses: list[str] = []
-    for index, item in enumerate(inputs):
-        if not isinstance(item, Mapping):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.macro-input",
-                    message="macro_regime_gate input must be a mapping",
-                    location=f"macro_regime_gate.inputs[{index}]",
-                )
-            )
-            continue
-        status = item.get("status")
-        if status not in _MACRO_STATUS_PRECEDENCE:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.macro-input-status",
-                    message="macro input status must be supportive, neutral, unknown, or adverse",
-                    location=f"macro_regime_gate.inputs[{index}].status",
-                )
-            )
-            continue
-        statuses.append(str(status))
-        findings.extend(_check_macro_input_record_join(path, front_matter, item, index))
-        findings.extend(_check_macro_input_source(path, item, index))
-    if statuses:
-        expected_status = max(statuses, key=lambda value: _MACRO_STATUS_PRECEDENCE[value])
-        if gate.get("aggregate_status") != expected_status:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.macro-aggregate-status",
-                    message=f"macro aggregate_status must reduce to {expected_status}",
-                    location="macro_regime_gate.aggregate_status",
-                )
-            )
-        expected_effect = _expected_gate_effect(path, front_matter, expected_status)
-        if effect in _KNOWN_GATE_EFFECTS and effect != expected_effect:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.macro-decision-effect",
-                    message=f"macro decision_effect must reduce to {expected_effect}",
-                    location="macro_regime_gate.decision_effect",
-                )
-            )
-    return findings
-
-
-def _check_macro_input_record_join(
-    path: Path,
-    front_matter: Mapping[str, object],
-    item: Mapping[str, object],
-    index: int,
-) -> list[ValidationFinding]:
-    if item.get("scope") != "sector":
-        return []
-    sector = front_matter.get("sector_33")
-    key = item.get("key")
-    if not isinstance(sector, str) or not sector:
-        return [
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.macro-sector-missing",
-                message="sector macro inputs require research sector_33",
-                location="sector_33",
-            )
-        ]
-    if key != sector:
-        return [
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.macro-sector-join",
-                message="scope: sector macro input key must match research sector_33",
-                location=f"macro_regime_gate.inputs[{index}].key",
-            )
-        ]
-    return []
-
-
-def _check_macro_input_source(
-    path: Path,
-    item: Mapping[str, object],
-    index: int,
-) -> list[ValidationFinding]:
-    ref = item.get("source_ref")
-    if not isinstance(ref, str) or not ref:
-        return [
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.macro-source-ref-required",
-                message="macro reducer inputs require source_ref",
-                location=f"macro_regime_gate.inputs[{index}].source_ref",
-            )
-        ]
-    source_path = _resolve_record_ref(
-        path, ref, prefixes=("records/03-outlook/",), suffixes=(".yaml", ".yml")
-    )
-    if source_path is None:
-        return [
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.macro-source-ref-missing",
-                message=f"macro source_ref does not exist: {ref}",
-                location=f"macro_regime_gate.inputs[{index}].source_ref",
-            )
-        ]
-    try:
-        raw = _load_yaml(source_path)
-    except (OSError, yaml.YAMLError) as exc:
-        return [
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.macro-source-ref-parse",
-                message=f"failed to read macro source_ref: {exc}",
-                location=f"macro_regime_gate.inputs[{index}].source_ref",
-            )
-        ]
-    if not isinstance(raw, Mapping):
-        return []
-    expected = _outlook_status_for_input(raw, item)
-    if expected is None:
-        return [
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.macro-source-status-missing",
-                message="macro source_ref must resolve scope/key to an outlook status",
-                location=f"macro_regime_gate.inputs[{index}].source_ref",
-            )
-        ]
-    actual = item.get("status")
-    if actual != expected:
-        return [
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.macro-source-status",
-                message=f"macro input status must match source outlook status {expected}",
-                location=f"macro_regime_gate.inputs[{index}].status",
-            )
-        ]
-    return []
-
-
-def _outlook_status_for_input(
-    outlook: Mapping[str, object],
-    item: Mapping[str, object],
-) -> str | None:
-    scope = item.get("scope")
-    key = item.get("key")
-    if not isinstance(key, str) or not key:
-        return None
-    section_name = {
-        "sector": "sectors",
-        "exposure_bucket": "exposure_buckets",
-        "market": "markets",
-        "event": "events",
-    }.get(str(scope))
-    if section_name is None:
-        return None
-    section = outlook.get(section_name)
-    if isinstance(section, Mapping):
-        value = section.get(key)
-        if isinstance(value, Mapping) and isinstance(value.get("status"), str):
-            return str(value["status"])
-    if isinstance(section, list):
-        for entry in section:
-            if (
-                isinstance(entry, Mapping)
-                and entry.get("key") == key
-                and isinstance(entry.get("status"), str)
-            ):
-                return str(entry["status"])
-    return None
 
 
 def _check_evidence_and_counts(
@@ -1386,22 +1407,6 @@ def _resolve_candidate_ref(path: Path, ref: str) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
-def _expected_gate_effect(
-    path: Path,
-    front_matter: Mapping[str, object],
-    aggregate_status: str,
-) -> str:
-    policy = _load_policy_payload(path, front_matter)
-    adverse_treatment = str(
-        as_mapping(policy.get("macro_regime_policy")).get("adverse_treatment") or "block"
-    )
-    if aggregate_status == "adverse":
-        return "conditional" if adverse_treatment == "conditional" else "block"
-    if aggregate_status == "unknown":
-        return "conditional"
-    return "pass"
-
-
 def _check_conviction_tier(
     path: Path, front_matter: Mapping[str, object]
 ) -> list[ValidationFinding]:
@@ -1427,8 +1432,7 @@ def _check_conviction_tier(
                 location="conviction_tier_path",
             )
         ]
-    policy = _load_policy_payload(path, front_matter)
-    rules = as_mapping(policy.get("conviction_tier_rules"))
+    rules = as_mapping(PORTFOLIO_POLICY.get("conviction_tier_rules"))
     count_rules = as_mapping(rules.get("count_breadth"))
     independent = integer(front_matter.get("independent_evidence_count")) or 0
     payoff = as_mapping(front_matter.get("thesis_payoff"))
@@ -1493,7 +1497,6 @@ def _check_sizing_invariants(
         ]
     sizing = raw_sizing
     findings = _check_position_sizing_overlay_shape(path, front_matter, sizing)
-    policy = _load_policy_payload(path, front_matter)
     if decision.get("outcome") != "approved":
         expected_zero = {
             "paper_proxy_position_size_yen": 0,
@@ -1528,7 +1531,7 @@ def _check_sizing_invariants(
         )
         return findings
 
-    expected = _derive_order_intent(front_matter, policy)
+    expected = _derive_order_intent(front_matter, PORTFOLIO_POLICY)
     checks = {
         "paper_proxy_position_size_yen": expected["paper_proxy_position_size_yen"],
         "real_order_intent_yen": expected["real_order_intent_yen"],
@@ -1561,8 +1564,9 @@ def _check_single_evidence_guardrails(
     independent = integer(front_matter.get("independent_evidence_count"))
     if independent is None or independent > 1:
         return []
-    policy = _load_policy_payload(path, front_matter)
-    count_1_caps = as_mapping(as_mapping(policy.get("evidence_count_caps")).get("count_1"))
+    count_1_caps = as_mapping(
+        as_mapping(PORTFOLIO_POLICY.get("evidence_count_caps")).get("count_1")
+    )
     findings: list[ValidationFinding] = []
     if count_1_caps.get("requires_disconfirming_or_risk_evidence") is True and not (
         _has_risk_evidence(front_matter)
@@ -1707,28 +1711,26 @@ def _derive_order_intent(
     }
 
 
-def _load_policy_payload(path: Path, front_matter: Mapping[str, object]) -> Mapping[str, Any]:
-    try:
-        _policy_path, payload = load_reference_mapping(
-            repo_root_for(path), front_matter.get("policy_ref")
-        )
-        return payload
-    except (OSError, ValueError, yaml.YAMLError):
-        return {}
-
-
 def _check_corporate_action_invalidation(
     path: Path, front_matter: Mapping[str, object]
 ) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
     root = repo_root_for(path)
-    calendars = _load_corporate_action_events(root)
     catalog_rules = _load_metric_event_invalidation_rules(path, front_matter)
     candidate_ref = as_mapping(front_matter.get("candidate_ref"))
     ticker = str(candidate_ref.get("ticker") or front_matter.get("ticker") or "")
+    decisions = as_list(front_matter.get("candidate_evidence_decisions"))
+    needs_calendar = any(
+        isinstance(item, Mapping) and item.get("reason_code") == "corporate_action_post_snapshot"
+        for item in decisions
+    )
+    calendar_result = _load_corporate_action_events(path, root) if needs_calendar else None
+    if calendar_result is not None:
+        findings.extend(calendar_result.findings)
+    calendars = calendar_result.events if calendar_result is not None else []
     ticker_events = [event for event in calendars if event.get("ticker") == ticker]
     candidate_hits = _load_candidate_hits(path, front_matter) or {}
-    for index, item in enumerate(as_list(front_matter.get("candidate_evidence_decisions"))):
+    for index, item in enumerate(decisions):
         if not isinstance(item, Mapping):
             continue
         if item.get("reason_code") != "corporate_action_post_snapshot":
@@ -1893,19 +1895,50 @@ def _load_candidate_document(
     return loaded if isinstance(loaded, Mapping) else None
 
 
-def _load_corporate_action_events(root: Path) -> list[Mapping[str, Any]]:
+def _load_corporate_action_events(path: Path, root: Path) -> _CalendarLoadResult:
     events: list[Mapping[str, Any]] = []
-    for path in sorted((root / "records/_calendars/corporate-actions").glob("*.yaml")):
+    findings: list[ValidationFinding] = []
+    calendar_paths = sorted((root / "records/_calendars/corporate-actions").glob("*.yaml"))
+    if not calendar_paths:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.corporate-action-calendar-missing",
+                message="records/_calendars/corporate-actions must contain a YAML calendar",
+                location="candidate_evidence_decisions",
+            )
+        )
+        return _CalendarLoadResult(events, findings)
+    for calendar_path in calendar_paths:
         try:
-            raw = _load_yaml(path)
-        except (OSError, yaml.YAMLError):
+            raw = _load_yaml(calendar_path)
+        except (OSError, yaml.YAMLError) as exc:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.corporate-action-calendar-parse",
+                    message=f"failed to parse corporate action calendar {calendar_path}: {exc}",
+                    location="candidate_evidence_decisions",
+                )
+            )
             continue
         if not isinstance(raw, Mapping):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.corporate-action-calendar-root",
+                    message=f"corporate action calendar must be a mapping: {calendar_path}",
+                    location="candidate_evidence_decisions",
+                )
+            )
             continue
         for event in as_list(raw.get("events")):
             if isinstance(event, Mapping):
                 events.append(event)
-    return events
+    return _CalendarLoadResult(events, findings)
 
 
 def _check_approval_rules(
@@ -2065,13 +2098,13 @@ def _check_reference_refs(
     findings: list[ValidationFinding] = []
     specs = {
         "playbook_ref": (("records/_playbooks/",), (".md",)),
-        "policy_ref": (("records/01-policy/",), (".md",)),
     }
     for field, (prefixes, suffixes) in specs.items():
+        value = front_matter.get(field)
         findings.extend(
             _check_repository_ref(
                 path,
-                front_matter.get(field),
+                value,
                 location=field,
                 code="research.reference-ref",
                 prefixes=prefixes,

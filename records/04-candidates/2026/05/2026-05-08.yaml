@@ -24,7 +24,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 7.95
   per_trailing: 9.37
   pbr: null
@@ -135,7 +134,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 17.43
   per_trailing: 19.89
   pbr: null
@@ -239,7 +237,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 1012.22
   per_trailing: 124.81
   pbr: null
@@ -345,7 +342,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 12.18
   per_trailing: 71.04
   pbr: null
@@ -450,7 +446,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 9.04
   pbr: 1.61
@@ -556,7 +551,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.45
   pbr: 0.93
@@ -685,7 +679,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.12
   pbr: 1.12
@@ -814,7 +807,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.32
   pbr: 1.36
@@ -925,7 +917,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.85
   pbr: 2.31
@@ -1036,7 +1027,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 11.9
   per_trailing: 12.63
   pbr: null
@@ -1147,7 +1137,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 27.93
   per_trailing: 34.76
   pbr: null
@@ -1273,7 +1262,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 4.25
   per_trailing: 5.18
   pbr: null
@@ -1384,7 +1372,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.26
   pbr: 1.06
@@ -1490,7 +1477,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 12.68
   pbr: 1.48
@@ -1596,7 +1582,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 6.55
   pbr: 0.68
@@ -1702,7 +1687,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 12.97
   per_trailing: 23.19
   pbr: null
@@ -1808,7 +1792,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 21.24
   pbr: null
@@ -1914,7 +1897,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 12.87
   per_trailing: 15.11
   pbr: null
@@ -2050,7 +2032,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 27.14
   pbr: 1.02
@@ -2156,7 +2137,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 18.19
   pbr: 1.15
@@ -2292,7 +2272,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 9.63
   pbr: 0.67
@@ -2403,7 +2382,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 13.79
   pbr: 0.95
@@ -2514,7 +2492,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 19.48
   pbr: 3.6
@@ -2620,7 +2597,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 12.29
   per_trailing: 18.66
   pbr: 1.39
@@ -2731,7 +2707,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 16.03
   pbr: 2.59
@@ -2836,7 +2811,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 15.2
   pbr: 1.85
@@ -2972,7 +2946,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 18.74
   pbr: 2.23
@@ -3076,7 +3049,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 6.95
   pbr: 0.93
@@ -3187,7 +3159,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 17.73
   pbr: null
@@ -3293,7 +3264,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 12.9
   per_trailing: 13.19
   pbr: null
@@ -3404,7 +3374,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: null
   pbr: 0.92
@@ -3509,7 +3478,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 13.71
   pbr: 1.57
@@ -3615,7 +3583,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 23.43
   per_trailing: null
   pbr: null
@@ -3721,7 +3688,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 15.44
   pbr: 1.04
@@ -3851,7 +3817,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: null
   pbr: 1.24
@@ -3981,7 +3946,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 18.56
   pbr: 1.27
@@ -4087,7 +4051,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 21.25
   pbr: 0.59
@@ -4269,7 +4232,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 8.42
   pbr: 0.75
@@ -4405,7 +4367,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.91
   pbr: 1.74
@@ -4511,7 +4472,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 41.73
   per_trailing: 58.16
   pbr: null
@@ -4622,7 +4582,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 15.33
   per_trailing: 18.02
   pbr: 0.97
@@ -4728,7 +4687,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 12.83
   per_trailing: 20.92
   pbr: null
@@ -4834,7 +4792,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.15
   pbr: 1.89
@@ -4945,7 +4902,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 9.44
   pbr: 1.1
@@ -5081,7 +5037,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 13.91
   pbr: 2.06
@@ -5187,7 +5142,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 6.93
   per_trailing: 6.6
   pbr: null
@@ -5298,7 +5252,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 11.83
   per_trailing: 13.32
   pbr: null
@@ -5424,7 +5377,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 14.08
   per_trailing: 22.76
   pbr: null
@@ -5535,7 +5487,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 10.17
   per_trailing: 17.01
   pbr: null
@@ -5641,7 +5592,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 9.03
   pbr: 0.81
@@ -5777,7 +5727,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: null
   pbr: 1.77
@@ -5925,7 +5874,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 5.86
   pbr: 0.96
@@ -6036,7 +5984,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 6.24
   pbr: 1.96
@@ -6147,7 +6094,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 13.42
   per_trailing: 27.16
   pbr: 0.6
@@ -6282,7 +6228,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 9.44
   per_trailing: 14.14
   pbr: null
@@ -6393,7 +6338,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 15.05
   per_trailing: 24.95
   pbr: null
@@ -6504,7 +6448,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.68
   pbr: 0.69
@@ -6610,7 +6553,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 23.61
   pbr: 1.14
@@ -6759,7 +6701,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 9.78
   per_trailing: 13.48
   pbr: null
@@ -6870,7 +6811,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 17.49
   pbr: 0.84
@@ -7007,7 +6947,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 9.54
   per_trailing: 42.68
   pbr: null
@@ -7118,7 +7057,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 13.68
   pbr: 1.43
@@ -7224,7 +7162,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 12.31
   per_trailing: 11.27
   pbr: null
@@ -7329,7 +7266,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 82.12
   pbr: 2.94
@@ -7434,7 +7370,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 40.4
   pbr: 3.61
@@ -7540,7 +7475,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: null
   pbr: 0.81
@@ -7676,7 +7610,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 7.04
   per_trailing: null
   pbr: null
@@ -7787,7 +7720,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 8.09
   per_trailing: 9.53
   pbr: 0.94
@@ -7898,7 +7830,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.46
   pbr: 0.82
@@ -8028,7 +7959,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: null
   pbr: 0.9
@@ -8133,7 +8063,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 15.98
   pbr: 1.21
@@ -8237,7 +8166,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 68.09
   per_trailing: 41.67
   pbr: 3.57
@@ -8343,7 +8271,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 14.38
   per_trailing: 17.3
   pbr: 1.04
@@ -8449,7 +8376,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 5.39
   pbr: 1.31
@@ -8555,7 +8481,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 6.49
   pbr: 2.0
@@ -8666,7 +8591,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 12.17
   per_trailing: null
   pbr: null
@@ -8777,7 +8701,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 9.67
   per_trailing: 27.0
   pbr: null
@@ -8913,7 +8836,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 17.15
   pbr: 1.36
@@ -9019,7 +8941,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 20.25
   pbr: 0.72
@@ -9130,7 +9051,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 8.86
   pbr: 1.17
@@ -9266,7 +9186,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 17.4
   pbr: 2.42
@@ -9372,7 +9291,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 50.84
   pbr: null
@@ -9529,7 +9447,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 10.72
   per_trailing: 8.35
   pbr: null
@@ -9640,7 +9557,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 17.28
   per_trailing: 23.25
   pbr: null
@@ -9751,7 +9667,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 60.28
   pbr: null
@@ -9932,7 +9847,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.55
   pbr: 1.01
@@ -10084,7 +9998,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 12.99
   pbr: 2.47
@@ -10188,7 +10101,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 14.32
   per_trailing: 23.06
   pbr: null
@@ -10299,7 +10211,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 14.92
   per_trailing: 42.53
   pbr: null
@@ -10410,7 +10321,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.08
   pbr: 2.77
@@ -10546,7 +10456,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 11.55
   per_trailing: 13.74
   pbr: null
@@ -10657,7 +10566,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 12.66
   per_trailing: 17.25
   pbr: null
@@ -10768,7 +10676,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 8.75
   per_trailing: 9.27
   pbr: null
@@ -10879,7 +10786,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 1452.08
   pbr: null
@@ -10984,7 +10890,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 8.84
   pbr: null
@@ -11089,7 +10994,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.91
   pbr: 1.87
@@ -11200,7 +11104,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 13.33
   pbr: 3.5
@@ -11306,7 +11209,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.19
   pbr: null
@@ -11432,7 +11334,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 8.69
   pbr: 0.63
@@ -11538,7 +11439,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 8.11
   per_trailing: 9.31
   pbr: null
@@ -11673,7 +11573,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 9.39
   pbr: 2.1
@@ -11852,7 +11751,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.24
   pbr: 4.13
@@ -11963,7 +11861,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 4.28
   per_trailing: 5.55
   pbr: null
@@ -12074,7 +11971,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 13.97
   pbr: 1.1
@@ -12180,7 +12076,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.77
   pbr: 1.27
@@ -12359,7 +12254,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 19.75
   per_trailing: 26.19
   pbr: null
@@ -12465,7 +12359,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 13.23
   per_trailing: 17.38
   pbr: 0.82
@@ -12591,7 +12484,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 21.61
   per_trailing: 22.64
   pbr: 0.83
@@ -12697,7 +12589,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 16.24
   per_trailing: 101.17
   pbr: null
@@ -12803,7 +12694,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 16.84
   per_trailing: 111.63
   pbr: null
@@ -12908,7 +12798,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 17.19
   per_trailing: 31.96
   pbr: null
@@ -13014,7 +12903,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 12.57
   pbr: 1.38
@@ -13163,7 +13051,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 8.43
   per_trailing: 11.01
   pbr: null
@@ -13269,7 +13156,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 15.46
   per_trailing: 28.37
   pbr: null
@@ -13375,7 +13261,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.92
   pbr: 1.18
@@ -13481,7 +13366,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.1
   pbr: 0.43
@@ -13587,7 +13471,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: null
   pbr: 2.11
@@ -13693,7 +13576,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 18.27
   pbr: 6.53
@@ -13829,7 +13711,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 12.67
   pbr: 1.08
@@ -13935,7 +13816,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 9.39
   per_trailing: 10.72
   pbr: 1.01
@@ -14041,7 +13921,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 15.48
   pbr: 4.46
@@ -14152,7 +14031,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.86
   pbr: 2.43
@@ -14258,7 +14136,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 65.24
   pbr: null
@@ -14363,7 +14240,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 38.08
   pbr: 4.22
@@ -14468,7 +14344,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 8.11
   per_trailing: 8.86
   pbr: 0.74
@@ -14574,7 +14449,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 18.34
   pbr: 2.29
@@ -14698,7 +14572,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 20.53
   pbr: 3.91
@@ -14803,7 +14676,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 53.31
   per_trailing: 37.97
   pbr: 1.08
@@ -14909,7 +14781,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.13
   pbr: 2.25
@@ -15015,7 +14886,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 31.77
   per_trailing: 31.54
   pbr: 1.48
@@ -15120,7 +14990,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 16.7
   pbr: 1.37
@@ -15226,7 +15095,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 14.37
   per_trailing: 19.03
   pbr: null
@@ -15337,7 +15205,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 10.87
   per_trailing: 11.27
   pbr: null
@@ -15473,7 +15340,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.69
   pbr: 0.73
@@ -15622,7 +15488,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 9.91
   pbr: 0.96
@@ -15728,7 +15593,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 18.98
   pbr: 0.71
@@ -15834,7 +15698,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 30.15
   pbr: 3.34
@@ -15938,7 +15801,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.78
   pbr: 1.69
@@ -16049,7 +15911,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 11.73
   per_trailing: 58.71
   pbr: 2.18
@@ -16154,7 +16015,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 50.83
   pbr: null
@@ -16265,7 +16125,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: null
   pbr: 1.64
@@ -16376,7 +16235,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 18.84
   per_trailing: 69.03
   pbr: null
@@ -16512,7 +16370,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 18.67
   per_trailing: 19.7
   pbr: null
@@ -16623,7 +16480,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.73
   pbr: 1.83
@@ -16734,7 +16590,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 9.78
   per_trailing: 12.31
   pbr: null
@@ -16840,7 +16695,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 22.05
   pbr: 1.17
@@ -16945,7 +16799,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 30.23
   pbr: 1.76
@@ -17050,7 +16903,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.61
   pbr: 1.02
@@ -17156,7 +17008,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.6
   pbr: 1.43
@@ -17305,7 +17156,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 19.21
   pbr: 1.34
@@ -17416,7 +17266,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 14.21
   per_trailing: 23.05
   pbr: null
@@ -17527,7 +17376,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 25.69
   per_trailing: 26.84
   pbr: null
@@ -17656,7 +17504,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 27.25
   pbr: 1.49
@@ -17791,7 +17638,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.43
   pbr: null
@@ -17896,7 +17742,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 11.06
   per_trailing: 33.22
   pbr: null
@@ -18007,7 +17852,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 9.65
   pbr: 0.99
@@ -18113,7 +17957,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 9.38
   pbr: 1.14
@@ -18262,7 +18105,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 13.35
   pbr: 1.14
@@ -18368,7 +18210,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.64
   pbr: 0.75
@@ -18474,7 +18315,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 17.11
   pbr: 0.8
@@ -18580,7 +18420,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 8.96
   per_trailing: 11.67
   pbr: null
@@ -18715,7 +18554,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 8.37
   per_trailing: 9.05
   pbr: null
@@ -18826,7 +18664,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 12.65
   pbr: 0.8
@@ -18932,7 +18769,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: null
   pbr: null
@@ -19043,7 +18879,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 13.03
   pbr: 0.29
@@ -19249,7 +19084,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 5.24
   pbr: 0.29
@@ -19385,7 +19219,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 16.0
   pbr: 0.43
@@ -19515,7 +19348,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.72
   pbr: 0.76
@@ -19672,7 +19504,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 8.04
   pbr: 0.37
@@ -19776,7 +19607,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 8.92
   pbr: 0.64
@@ -19882,7 +19712,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 16.84
   pbr: 0.78
@@ -19988,7 +19817,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 42.62
   pbr: 0.8
@@ -20094,7 +19922,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 14.18
   per_trailing: 32.01
   pbr: null
@@ -20205,7 +20032,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 18.22
   pbr: 0.91
@@ -20331,7 +20157,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 18.5
   per_trailing: 35.61
   pbr: null
@@ -20437,7 +20262,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 12.02
   per_trailing: 15.7
   pbr: null
@@ -20548,7 +20372,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 12.83
   per_trailing: 66.27
   pbr: null
@@ -20659,7 +20482,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 7.5
   pbr: 0.46
@@ -20770,7 +20592,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 12.92
   pbr: 1.52
@@ -20881,7 +20702,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 60.06
   pbr: 0.74
@@ -20987,7 +20807,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 3.69
   per_trailing: 7.09
   pbr: 0.51
@@ -21099,7 +20918,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 14.18
   per_trailing: 19.11
   pbr: null
@@ -21205,7 +21023,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 8.61
   per_trailing: 11.11
   pbr: null
@@ -21310,7 +21127,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.79
   pbr: 2.85
@@ -21416,7 +21232,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 13.34
   pbr: 3.64
@@ -21521,7 +21336,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 15.05
   per_trailing: 21.94
   pbr: 0.84
@@ -21647,7 +21461,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.71
   pbr: 1.18
@@ -21753,7 +21566,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 13.29
   pbr: 1.47
@@ -21859,7 +21671,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 30.99
   per_trailing: 30.79
   pbr: null
@@ -21970,7 +21781,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 46.88
   per_trailing: null
   pbr: null
@@ -22081,7 +21891,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 40.81
   per_trailing: 22.42
   pbr: null
@@ -22187,7 +21996,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 13.12
   pbr: 1.75
@@ -22336,7 +22144,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 18.83
   per_trailing: 80.78
   pbr: null
@@ -22447,7 +22254,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 16.51
   pbr: 1.34
@@ -22553,7 +22359,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.81
   pbr: 0.55
@@ -22689,7 +22494,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 12.7
   per_trailing: 15.12
   pbr: null
@@ -22795,7 +22599,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 12.26
   per_trailing: 88.82
   pbr: null
@@ -22906,7 +22709,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 22.65
   per_trailing: 10.49
   pbr: 0.71
@@ -23066,7 +22868,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: null
   pbr: 0.5
@@ -23196,7 +22997,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 18.25
   pbr: 0.79
@@ -23302,7 +23102,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 12.03
   pbr: 1.05
@@ -23408,7 +23207,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: null
   pbr: 0.53
@@ -23544,7 +23342,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 32.64
   per_trailing: 48.19
   pbr: null
@@ -23680,7 +23477,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 51.16
   pbr: 0.78
@@ -23786,7 +23582,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 18.07
   per_trailing: 103.13
   pbr: null
@@ -23897,7 +23692,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 19.12
   per_trailing: 27.49
   pbr: null
@@ -24008,7 +23802,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 13.59
   per_trailing: 17.73
   pbr: 1.06
@@ -24119,7 +23912,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 16.32
   per_trailing: 15.96
   pbr: 0.72
@@ -24230,7 +24022,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 63.65
   per_trailing: 183.09
   pbr: null
@@ -24336,7 +24127,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 9.16
   per_trailing: 9.2
   pbr: null
@@ -24472,7 +24262,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 30.56
   per_trailing: 7.45
   pbr: 1.26
@@ -24583,7 +24372,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: null
   pbr: 0.33
@@ -24688,7 +24476,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 7.17
   pbr: 1.44
@@ -24794,7 +24581,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 9.51
   pbr: 1.08
@@ -24900,7 +24686,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 12.53
   per_trailing: 17.01
   pbr: 0.93
@@ -25011,7 +24796,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 42.99
   pbr: 0.92
@@ -25117,7 +24901,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 11.18
   per_trailing: 26.47
   pbr: null
@@ -25223,7 +25006,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 6.91
   per_trailing: 5.43
   pbr: null
@@ -25328,7 +25110,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: null
   pbr: 2.27
@@ -25434,7 +25215,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 124.7
   per_trailing: 111.06
   pbr: null
@@ -25545,7 +25325,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 15.46
   pbr: 0.91
@@ -25651,7 +25430,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 8.74
   pbr: 0.92
@@ -25762,7 +25540,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.82
   pbr: 0.93
@@ -25899,7 +25676,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 11.57
   per_trailing: 58.15
   pbr: 0.67
@@ -26035,7 +25811,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 470.13
   pbr: 0.76
@@ -26177,7 +25952,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 9.76
   pbr: 1.32
@@ -26326,7 +26100,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 18.6
   per_trailing: 36.42
   pbr: 1.35
@@ -26437,7 +26210,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 20.27
   per_trailing: 23.62
   pbr: null
@@ -26548,7 +26320,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 8.51
   pbr: 0.74
@@ -26685,7 +26456,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 40.58
   pbr: 1.13
@@ -26815,7 +26585,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 19.09
   pbr: 0.85
@@ -26921,7 +26690,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 6.07
   per_trailing: 8.29
   pbr: null
@@ -27057,7 +26825,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 12.57
   per_trailing: 15.54
   pbr: null
@@ -27163,7 +26930,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 18.02
   per_trailing: 34.99
   pbr: null
@@ -27304,7 +27070,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 7.08
   per_trailing: 10.09
   pbr: null
@@ -27409,7 +27174,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 4.55
   pbr: 0.64
@@ -27515,7 +27279,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 7.69
   pbr: 0.79
@@ -27651,7 +27414,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 11.57
   per_trailing: 12.47
   pbr: null
@@ -27757,7 +27519,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 9.87
   pbr: 0.95
@@ -27863,7 +27624,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 41.0
   pbr: 0.45
@@ -27999,7 +27759,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.84
   pbr: 1.37
@@ -28105,7 +27864,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 8.96
   per_trailing: 14.04
   pbr: null
@@ -28231,7 +27989,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 5.55
   pbr: 0.64
@@ -28337,7 +28094,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 7.63
   per_trailing: 8.55
   pbr: 0.86
@@ -28443,7 +28199,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 10.66
   per_trailing: 17.35
   pbr: null
@@ -28549,7 +28304,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 9.85
   pbr: 0.75
@@ -28655,7 +28409,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 8.94
   per_trailing: 11.38
   pbr: null
@@ -28761,7 +28514,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 13.65
   per_trailing: 20.62
   pbr: null
@@ -28873,7 +28625,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 25.15
   per_trailing: 31.67
   pbr: 1.12
@@ -28979,7 +28730,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 16.08
   pbr: 1.14
@@ -29085,7 +28835,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 2.73
   per_trailing: 3.01
   pbr: null
@@ -29211,7 +28960,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 7.62
   pbr: 0.7
@@ -29323,7 +29071,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 18.28
   per_trailing: 22.14
   pbr: null
@@ -29429,7 +29176,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 8.4
   per_trailing: 22.53
   pbr: null
@@ -29558,7 +29304,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 9.28
   pbr: 1.49
@@ -29694,7 +29439,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 31.77
   pbr: 1.59
@@ -29830,7 +29574,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 9.24
   pbr: 0.65
@@ -29936,7 +29679,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 8.13
   per_trailing: 11.07
   pbr: null
@@ -30047,7 +29789,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.28
   pbr: 1.53
@@ -30158,7 +29899,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 53.05
   pbr: 0.55
@@ -30263,7 +30003,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 24.86
   pbr: 0.6
@@ -30412,7 +30151,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 117.23
   pbr: 2.85
@@ -30518,7 +30256,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 12.56
   pbr: 1.94
@@ -30624,7 +30361,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 13.91
   pbr: 0.96
@@ -30736,7 +30472,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 12.52
   per_trailing: 16.31
   pbr: null
@@ -30842,7 +30577,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 7.84
   per_trailing: 7.11
   pbr: 0.87
@@ -30948,7 +30682,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 12.79
   per_trailing: 16.02
   pbr: null
@@ -31074,7 +30807,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 6.54
   per_trailing: 8.83
   pbr: 0.72
@@ -31185,7 +30917,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 13.28
   pbr: 1.06
@@ -31291,7 +31022,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.36
   pbr: 0.63
@@ -31397,7 +31127,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 50.68
   pbr: 2.66
@@ -31503,7 +31232,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 12.87
   pbr: 1.16
@@ -31633,7 +31361,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 8.22
   pbr: 0.69
@@ -31769,7 +31496,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 15.3
   per_trailing: 47.17
   pbr: null
@@ -31895,7 +31621,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.38
   pbr: 1.14
@@ -32001,7 +31726,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 19.79
   pbr: 1.43
@@ -32107,7 +31831,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 9.38
   pbr: 0.92
@@ -32264,7 +31987,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 8.69
   pbr: 1.02
@@ -32370,7 +32092,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.04
   pbr: 1.08
@@ -32481,7 +32202,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 33.44
   per_trailing: 26.69
   pbr: null
@@ -32592,7 +32312,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 12.18
   per_trailing: 11.86
   pbr: null
@@ -32703,7 +32422,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.01
   pbr: 2.42
@@ -32839,7 +32557,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.35
   pbr: 1.04
@@ -32945,7 +32662,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 19.6
   per_trailing: 60.19
   pbr: null
@@ -33050,7 +32766,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.5
   pbr: 0.81
@@ -33207,7 +32922,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.66
   pbr: 0.86
@@ -33343,7 +33057,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.2
   pbr: 1.26
@@ -33449,7 +33162,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 15.33
   pbr: 0.96
@@ -33606,7 +33318,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 9.61
   pbr: 1.27
@@ -33742,7 +33453,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 8.62
   per_trailing: 10.11
   pbr: null
@@ -33853,7 +33563,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.99
   pbr: 0.62
@@ -33983,7 +33692,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 23.03
   pbr: 0.72
@@ -34094,7 +33802,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 23.63
   pbr: 2.44
@@ -34200,7 +33907,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 137.92
   pbr: 0.65
@@ -34357,7 +34063,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.58
   pbr: 1.4
@@ -34463,7 +34168,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 122.52
   pbr: 0.43
@@ -34593,7 +34297,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.9
   pbr: 0.62
@@ -34699,7 +34402,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 18.06
   pbr: 1.49
@@ -34805,7 +34507,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.1
   pbr: 0.93
@@ -34911,7 +34612,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 56.98
   pbr: 3.48
@@ -35017,7 +34717,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.75
   pbr: 0.67
@@ -35177,7 +34876,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 21.76
   pbr: 0.78
@@ -35283,7 +34981,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 20.33
   pbr: 1.15
@@ -35389,7 +35086,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.56
   pbr: 0.74
@@ -35495,7 +35191,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: null
   pbr: 1.11
@@ -35601,7 +35296,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 12.18
   pbr: 1.21
@@ -35706,7 +35400,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 6.59
   per_trailing: 15.74
   pbr: null
@@ -35842,7 +35535,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.0
   pbr: 0.9
@@ -35948,7 +35640,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 2.1
   per_trailing: 2.65
   pbr: null
@@ -36059,7 +35750,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.24
   pbr: 0.97
@@ -36164,7 +35854,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 16.61
   pbr: 1.35
@@ -36270,7 +35959,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.02
   pbr: 1.05
@@ -36399,7 +36087,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 6.27
   pbr: 0.67
@@ -36505,7 +36192,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.93
   pbr: 1.2
@@ -36611,7 +36297,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 7.13
   per_trailing: 7.96
   pbr: null
@@ -36722,7 +36407,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 13.42
   pbr: 0.99
@@ -36828,7 +36512,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 41.79
   pbr: 1.0
@@ -36964,7 +36647,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 16.58
   per_trailing: 19.81
   pbr: 0.89
@@ -37070,7 +36752,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 9.32
   pbr: 0.69
@@ -37176,7 +36857,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.9
   pbr: 0.88
@@ -37282,7 +36962,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 7.83
   pbr: 1.01
@@ -37388,7 +37067,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.37
   pbr: 1.01
@@ -37517,7 +37195,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 15.03
   pbr: 1.61
@@ -37623,7 +37300,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 404.82
   pbr: 1.28
@@ -37729,7 +37405,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 7.24
   pbr: 0.62
@@ -37926,7 +37601,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 9.49
   per_trailing: 39.88
   pbr: null
@@ -38032,7 +37706,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 24.64
   pbr: 1.51
@@ -38192,7 +37865,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 8.04
   pbr: 1.38
@@ -38328,7 +38000,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 8.55
   pbr: 1.01
@@ -38495,7 +38166,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 7.92
   pbr: 0.99
@@ -38631,7 +38301,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 6.03
   per_trailing: 6.48
   pbr: null
@@ -38742,7 +38411,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 14.75
   per_trailing: 15.15
   pbr: null
@@ -38853,7 +38521,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 19.36
   per_trailing: 26.28
   pbr: null
@@ -38957,7 +38624,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 11.62
   per_trailing: 11.89
   pbr: null
@@ -39068,7 +38734,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 13.81
   pbr: 0.99
@@ -39204,7 +38869,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 12.1
   pbr: 2.63
@@ -39309,7 +38973,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 15.01
   per_trailing: 28.1
   pbr: null
@@ -39445,7 +39108,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.91
   pbr: 1.26
@@ -39556,7 +39218,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 19.54
   per_trailing: 21.95
   pbr: null
@@ -39662,7 +39323,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 10.48
   per_trailing: 104.11
   pbr: null
@@ -39773,7 +39433,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 17.06
   pbr: 0.96
@@ -39878,7 +39537,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 3.4
   pbr: 0.41
@@ -39982,7 +39640,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 6.14
   pbr: 0.65
@@ -40086,7 +39743,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 8.42
   pbr: 0.4
@@ -40190,7 +39846,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.08
   pbr: 1.28
@@ -40294,7 +39949,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.74
   pbr: 1.23
@@ -40398,7 +40052,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 6.13
   pbr: 0.73
@@ -40502,7 +40155,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.33
   pbr: 0.69
@@ -40606,7 +40258,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 10.18
   pbr: 0.78
@@ -40710,7 +40361,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 8.74
   per_trailing: 39.75
   pbr: null
@@ -40821,7 +40471,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 8.91
   per_trailing: 23.4
   pbr: 1.34
@@ -40932,7 +40581,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 11.21
   per_trailing: 13.77
   pbr: 1.58
@@ -41037,7 +40685,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 14.32
   per_trailing: 18.93
   pbr: null
@@ -41148,7 +40795,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.31
   pbr: 1.41
@@ -41259,7 +40905,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.02
   pbr: 1.51
@@ -41408,7 +41053,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 13.56
   pbr: 2.48
@@ -41519,7 +41163,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.9
   pbr: 1.45
@@ -41630,7 +41273,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 16.23
   pbr: 2.25
@@ -41736,7 +41378,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.0
   pbr: 1.12
@@ -41842,7 +41483,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 13.06
   pbr: 3.28
@@ -41948,7 +41588,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 15.41
   pbr: 0.91
@@ -42160,7 +41799,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.24
   pbr: 1.79
@@ -42271,7 +41909,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.45
   pbr: 0.8
@@ -42377,7 +42014,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 17.26
   per_trailing: 25.34
   pbr: null
@@ -42488,7 +42124,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 13.81
   pbr: 0.88
@@ -42599,7 +42234,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 14.65
   per_trailing: 20.19
   pbr: null
@@ -42710,7 +42344,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 14.59
   pbr: 0.92
@@ -42892,7 +42525,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: 13.37
   per_trailing: 13.01
   pbr: null
@@ -43003,7 +42635,6 @@ candidates:
   playbook_screen_result: hit
   policy_gate_result: pass
   liquidity_gate_result: pass
-  macro_regime_gate_result: pass
   per_forward: null
   per_trailing: 11.19
   pbr: 1.18

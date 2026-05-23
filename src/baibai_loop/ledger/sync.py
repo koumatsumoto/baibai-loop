@@ -53,6 +53,7 @@ def sync_ledger(
         playbook_id = str(front["playbook_id"])
         decision_event_at = _decision_datetime(path, front)
         research_decision = _mapping_or_none(front.get("research_decision")) or {}
+        macro_context_fit = _mapping_or_none(front.get("macro_context_fit"))
         outcome = str(research_decision.get("outcome") or "deferred")
         candidate_ref = _mapping_or_none(front.get("candidate_ref"))
         candidate = _candidate_from_ref(candidates_index, candidate_ref)
@@ -78,8 +79,10 @@ def sync_ledger(
             playbook_ref=dict(front["playbook_ref"])
             if isinstance(front.get("playbook_ref"), Mapping)
             else None,
-            policy_ref=dict(front["policy_ref"])
-            if isinstance(front.get("policy_ref"), Mapping)
+            macro_context_ref=str(front.get("macro_context_ref") or ""),
+            macro_context_fit=dict(macro_context_fit) if macro_context_fit else None,
+            macro_context_decision_effect=str(macro_context_fit.get("decision_effect") or "")
+            if macro_context_fit
             else None,
             baseline_price=_float_or_none(candidate.get("last_price"))
             or _float_or_none(candidate.get("baseline_price")),
@@ -120,9 +123,6 @@ def sync_ledger(
             research_ref=str(front.get("research_ref") or ""),
             trade_ref=str(path.relative_to(root)),
             decision_event_at=decision_event_at.isoformat(),
-            policy_ref=dict(front["policy_ref"])
-            if isinstance(front.get("policy_ref"), Mapping)
-            else None,
             tracking=Tracking(mode="post_approval"),
         )
         records.append(record.to_json())

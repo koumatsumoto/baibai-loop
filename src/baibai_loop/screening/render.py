@@ -113,7 +113,6 @@ def _build_candidate_entry(
     entry["playbook_screen_result"] = "hit"
     entry["policy_gate_result"] = "pass"
     entry["liquidity_gate_result"] = "pass"
-    entry["macro_regime_gate_result"] = "pass"
     entry["per_forward"] = _round_value("per_forward", candidate.per_forward)
     entry["per_trailing"] = _round_value("per_trailing", candidate.per_trailing)
     entry["pbr"] = _round_value("pbr", candidate.pbr)

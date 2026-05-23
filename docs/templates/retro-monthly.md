@@ -15,7 +15,7 @@ failure_class_counts:
 success_class_counts:
   仮説的中: 整数
   catalyst 反応: 整数
-  macro supportive: 整数
+  macro tailwind: 整数
   timing 一致: 整数
 playbook_revision_decision: "据え置き" | "小改訂" | "大幅改訂"
 next_cycle_changes:
@@ -63,7 +63,7 @@ price_missing_counts:
 | --- | --- | --- |
 | 仮説的中 | XX | |
 | catalyst 反応 | XX | |
-| macro supportive | XX | |
+| macro tailwind | XX | |
 | timing 一致 | XX | |
 
 ### 自由記述の頻出キーワード（四半期再分類 input）
@@ -82,18 +82,18 @@ price_missing_counts:
 
 | Ticker | 追跡区分 | 見送り理由 / 検出理由 | +15 日騰落 | +30 日騰落 | 判定妥当性 |
 | --- | --- | --- | --- | --- | --- |
-| XXXX | missed opportunity | Macro regime gate adverse | +X% | +X% | 妥当 / 過度に保守的 |
+| XXXX | missed opportunity | Macro context headwind | +X% | +X% | 妥当 / 過度に保守的 |
 
 **見送り後上昇率**: XX/XX 件（見送ったが +30 日で上昇した銘柄の比率）
 
 **価格欠損件数**: +15bd XX 件 / +30bd XX 件
 
-## Macro regime gate 判定精度
+## Macro context fit 判定精度
 
 - **追い風判定銘柄の +15 日パフォーマンス**: +X.X%（平均）
 - **逆風判定で見送った銘柄の +15 日パフォーマンス**: +X.X%（平均）
-- **gate 判定誤り**（採用時 supportive → 保有中 adverse に反転）: XX 件
-- **outlook の更新頻度が適切だったか**: [定量評価]
+- **fit 判定誤り**（採用時 tailwind / neutral → 保有中 headwind に反転）: XX 件
+- **macro context の更新頻度が適切だったか**: [定量評価]
 
 ## Playbook 改訂判断
 
@@ -119,7 +119,7 @@ price_missing_counts:
 - [変更点 2]
 - [変更点 3]
 
-変更適用対象: [playbook / screening 閾値 / outlook 更新 trigger / research 選定基準 のどれか]
+変更適用対象: [playbook / screening 閾値 / macro context 更新 trigger / research 選定基準 のどれか]
 
 ### Valuation trap の経験
 

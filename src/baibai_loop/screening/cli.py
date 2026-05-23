@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import sqlite3
 import sys
 from collections.abc import Iterable, Mapping, Sequence
@@ -16,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
 
 from baibai_loop._env import load_project_env
 from baibai_loop.date_utils import weekday_distance
+from baibai_loop.macro_context import MacroContext, find_latest_macro_context, load_macro_context
 
 from .config import (
     DEFAULT_SQLITE_CACHE_DIR,
@@ -144,7 +144,6 @@ class _ScreenedCandidateInput(BaseModel):
     playbook_screen_result: str | None = None
     policy_gate_result: str | None = None
     liquidity_gate_result: str | None = None
-    macro_regime_gate_result: str | None = None
     per_forward: int | float | None = None
     per_trailing: int | float | None = None
     pbr: int | float | None = None
@@ -180,18 +179,6 @@ class _ScreenedFrontMatter(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
     candidates: list[_ScreenedCandidateInput] = Field(default_factory=list)
-
-
-class _OutlookJudgement(BaseModel):
-    model_config = ConfigDict(frozen=True, strict=False, extra="allow")
-
-    status: str | None = None
-
-
-class _OutlookFrontMatter(BaseModel):
-    model_config = ConfigDict(frozen=True, strict=False, extra="allow")
-
-    sectors: Mapping[str, _OutlookJudgement] = Field(default_factory=dict)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -266,14 +253,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     select_parser = subparsers.add_parser(
         "select",
-        help="rank research candidates by combining candidates with outlook sectors",
+        help="rank research candidates by combining candidates with macro context",
     )
     select_parser.add_argument("--asof", required=True, help="screening target date (YYYY-MM-DD)")
     select_parser.add_argument(
-        "--outlook",
+        "--macro-context",
         help=(
-            "outlook path to apply (default: latest "
-            "records/03-outlook/<YYYY>/<MM>/outlook-*.yaml on or before asof)"
+            "macro context path to apply (default: latest "
+            "records/01-macro-context/<YYYY>/<MM>/macro-context-*.yaml on or before asof)"
         ),
     )
     select_parser.add_argument(
@@ -305,14 +292,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     sweep_parser = subparsers.add_parser(
         "select-sweep",
-        help="compare multiple selection profiles on the same candidates/outlook inputs",
+        help="compare multiple selection profiles on the same candidates/macro context inputs",
     )
     sweep_parser.add_argument("--asof", required=True, help="screening target date (YYYY-MM-DD)")
     sweep_parser.add_argument(
-        "--outlook",
+        "--macro-context",
         help=(
-            "outlook path to apply (default: latest "
-            "records/03-outlook/<YYYY>/<MM>/outlook-*.yaml on or before asof)"
+            "macro context path to apply (default: latest "
+            "records/01-macro-context/<YYYY>/<MM>/macro-context-*.yaml on or before asof)"
         ),
     )
     sweep_parser.add_argument(
@@ -351,13 +338,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "select":
-        # select reads existing candidates YAML, outlook markdown, and the
+        # select reads existing candidates YAML, macro context YAML, and the
         # local rule config for output parameters; no provider credentials are
         # needed.
         return select_command(
             asof_date=_parse_iso_date(args.asof),
             candidates_path=Path(args.candidates) if args.candidates else None,
-            outlook_path=Path(args.outlook) if args.outlook else None,
+            macro_context_path=Path(args.macro_context) if args.macro_context else None,
             top=args.top,
             rules=load_screening_rules(Path(args.rules_path)),
             profile=args.profile,
@@ -368,7 +355,7 @@ def main(argv: list[str] | None = None) -> int:
         return select_sweep_command(
             asof_date=_parse_iso_date(args.asof),
             candidates_path=Path(args.candidates) if args.candidates else None,
-            outlook_path=Path(args.outlook) if args.outlook else None,
+            macro_context_path=Path(args.macro_context) if args.macro_context else None,
             top=args.top,
             profiles=_parse_profiles_arg(args.profiles),
             rules=load_screening_rules(Path(args.rules_path)),
@@ -966,11 +953,11 @@ def _default_exposure_bucket(sector_33: str) -> str:
 def select_command(
     *,
     asof_date: date,
-    outlook_path: Path | None,
+    macro_context_path: Path | None,
     candidates_path: Path | None = None,
     top: int,
     candidates_root: Path | None = None,
-    outlook_root: Path | None = None,
+    macro_context_root: Path | None = None,
     rules: ScreeningRules | None = None,
     profile: str | None = None,
     profile_config_path: Path | None = None,
@@ -986,9 +973,9 @@ def select_command(
         inputs = _load_selection_inputs(
             asof_date=asof_date,
             candidates_path=candidates_path,
-            outlook_path=outlook_path,
+            macro_context_path=macro_context_path,
             candidates_root=candidates_root,
-            outlook_root=outlook_root,
+            macro_context_root=macro_context_root,
         )
         profile_overrides = load_profile_overrides(profile_config_path)
     except ValueError as exc:
@@ -999,12 +986,12 @@ def select_command(
         payload = build_selection_payload(
             asof_date=asof_date,
             candidates=inputs.candidates,
-            sectors_outlook=inputs.sectors_status,
+            macro_context=inputs.macro_context,
             rules=rules,
             top=top,
             profile=profile,
             candidates_ref=inputs.candidates_ref,
-            outlook_ref=inputs.outlook_ref,
+            macro_context_ref=inputs.macro_context_ref,
             previous_candidates=inputs.previous_candidates,
             prior_research_by_ticker=inputs.prior_research,
             profile_overrides=profile_overrides,
@@ -1019,12 +1006,12 @@ def select_command(
 def select_sweep_command(
     *,
     asof_date: date,
-    outlook_path: Path | None,
+    macro_context_path: Path | None,
     candidates_path: Path | None = None,
     top: int,
     profiles: Sequence[str],
     candidates_root: Path | None = None,
-    outlook_root: Path | None = None,
+    macro_context_root: Path | None = None,
     rules: ScreeningRules | None = None,
     profile_config_path: Path | None = None,
     stdout: TextIO | None = None,
@@ -1041,9 +1028,9 @@ def select_sweep_command(
         inputs = _load_selection_inputs(
             asof_date=asof_date,
             candidates_path=candidates_path,
-            outlook_path=outlook_path,
+            macro_context_path=macro_context_path,
             candidates_root=candidates_root,
-            outlook_root=outlook_root,
+            macro_context_root=macro_context_root,
         )
         profile_overrides = load_profile_overrides(profile_config_path)
     except ValueError as exc:
@@ -1054,12 +1041,12 @@ def select_sweep_command(
         payload = build_selection_sweep_payload(
             asof_date=asof_date,
             candidates=inputs.candidates,
-            sectors_outlook=inputs.sectors_status,
+            macro_context=inputs.macro_context,
             rules=rules,
             top=top,
             profiles=profiles,
             candidates_ref=inputs.candidates_ref,
-            outlook_ref=inputs.outlook_ref,
+            macro_context_ref=inputs.macro_context_ref,
             previous_candidates=inputs.previous_candidates,
             prior_research_by_ticker=inputs.prior_research,
             profile_overrides=profile_overrides,
@@ -1074,23 +1061,23 @@ def select_sweep_command(
 @dataclass(frozen=True, slots=True)
 class _SelectionInputs:
     candidates: tuple[CandidateRecord, ...]
-    sectors_status: Mapping[str, str | None]
+    macro_context: MacroContext | None
     previous_candidates: PreviousCandidates
     prior_research: Mapping[str, PriorResearch]
     candidates_ref: str
-    outlook_ref: str
+    macro_context_ref: str | None
 
 
 def _load_selection_inputs(
     *,
     asof_date: date,
     candidates_path: Path | None,
-    outlook_path: Path | None,
+    macro_context_path: Path | None,
     candidates_root: Path | None,
-    outlook_root: Path | None,
+    macro_context_root: Path | None,
 ) -> _SelectionInputs:
     resolved_candidates_root = candidates_root or Path("records/04-candidates")
-    resolved_outlook_root = outlook_root or Path("records/03-outlook")
+    resolved_macro_context_root = macro_context_root or Path("records/01-macro-context")
     candidates_path = candidates_path or (
         resolved_candidates_root
         / f"{asof_date:%Y}"
@@ -1106,23 +1093,34 @@ def _load_selection_inputs(
     except (ValidationError, ValueError) as exc:
         raise ValueError(f"invalid candidates YAML: {candidates_path}: {exc}") from exc
 
-    resolved_outlook_path = outlook_path or _find_latest_outlook(resolved_outlook_root, asof_date)
-    if resolved_outlook_path is None or not resolved_outlook_path.exists():
+    resolved_macro_context_path = macro_context_path or find_latest_macro_context(
+        resolved_macro_context_root, asof_date
+    )
+    if resolved_macro_context_path is None or not resolved_macro_context_path.exists():
         raise ValueError(
-            "outlook file not found. Pass --outlook <path> or create "
-            "records/03-outlook/<YYYY>/<MM>/outlook-*.yaml"
+            "macro context file not found. Pass --macro-context <path> or create "
+            "records/01-macro-context/<YYYY>/<MM>/macro-context-*.yaml"
         )
     try:
-        outlook_fm = TypeAdapter(_OutlookFrontMatter).validate_python(
-            _parse_outlook_yaml(resolved_outlook_path)
+        macro_context = load_macro_context(resolved_macro_context_path)
+    except ValueError as exc:
+        raise ValueError(f"invalid macro context: {resolved_macro_context_path}: {exc}") from exc
+    if macro_context.as_of > asof_date:
+        raise ValueError(
+            "macro context as_of is after screening asof; create an asof-appropriate "
+            f"context or choose a later --asof: {macro_context.as_of.isoformat()} > "
+            f"{asof_date.isoformat()}"
         )
-    except ValidationError as exc:
-        raise ValueError(f"invalid outlook front matter: {resolved_outlook_path}: {exc}") from exc
+    if macro_context.is_stale_for(asof_date):
+        raise ValueError(
+            "macro context is stale for screening asof; refresh macro context before "
+            f"screening: valid_until {macro_context.valid_until.isoformat()} < "
+            f"{asof_date.isoformat()}"
+        )
 
-    sectors_status: Mapping[str, str | None] = {
-        sector: judgement.status for sector, judgement in outlook_fm.sectors.items()
-    }
-    repo_root = _repository_root_from_records_anchor(resolved_outlook_path, warn_on_fallback=True)
+    repo_root = _repository_root_from_records_anchor(
+        resolved_macro_context_path, warn_on_fallback=True
+    )
     previous_candidates = load_previous_candidates(
         resolved_candidates_root,
         asof_date,
@@ -1137,13 +1135,16 @@ def _load_selection_inputs(
     )
     return _SelectionInputs(
         candidates=candidate_records,
-        sectors_status=sectors_status,
+        macro_context=macro_context,
         previous_candidates=previous_candidates,
         prior_research=prior_research,
-        candidates_ref=_repository_relative_ref(candidates_path, anchor=resolved_outlook_path),
-        outlook_ref=_repository_relative_ref(
-            resolved_outlook_path,
-            anchor=resolved_outlook_path,
+        candidates_ref=_repository_relative_ref(
+            candidates_path,
+            anchor=resolved_macro_context_path,
+        ),
+        macro_context_ref=_repository_relative_ref(
+            resolved_macro_context_path,
+            anchor=resolved_macro_context_path,
         ),
     )
 
@@ -1174,32 +1175,11 @@ def _rules_path_from_env() -> Path:
     return Path(os.environ.get("SCREENING_RULES_PATH") or DEFAULT_RULES_PATH)
 
 
-def _parse_outlook_yaml(path: Path) -> dict[str, object]:
-    document = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(document, dict):
-        raise ValueError(f"outlook YAML root must be a mapping: {path}")
-    return document
-
-
 def _parse_candidates_yaml_payload(path: Path) -> dict[str, object]:
     payload = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError(f"candidates YAML root must be a mapping: {path}")
     return payload
-
-
-def _find_latest_outlook(outlook_root: Path, asof_date: date) -> Path | None:
-    if not outlook_root.exists():
-        return None
-    asof_iso = asof_date.isoformat()
-    matches = sorted(outlook_root.glob("*/*/outlook-*.yaml"))
-    eligible = [
-        path
-        for path in matches
-        # Heuristic: outlook filename contains a YYYY-MM-DD on or before asof.
-        if (m := re.search(r"\d{4}-\d{2}-\d{2}", path.name)) and m.group(0) <= asof_iso
-    ]
-    return eligible[-1] if eligible else None
 
 
 def _evidence_hits_summary(

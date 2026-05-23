@@ -1,33 +1,33 @@
 ---
 title: "Research runbook"
-summary: "Operational entry point for creating records/05-research packets from candidates and outlook."
+summary: "Operational entry point for creating records/05-research packets from candidates and macro context."
 doc_type: operation
 status: active
 last_reviewed: 2026-05-04
 related_docs:
   - "../components/research.md"
   - "../components/candidates.md"
-  - "../components/outlook.md"
+  - "../components/macro-context.md"
   - "./screening-runbook.md"
   - "./task-runbook.md"
 ---
 
 # Research runbook
 
-Research は `records/04-candidates/` と `records/03-outlook/` を統合する analysis layer です。packet の contract、front matter、AI 境界、self-review は [`../components/research.md`](../components/research.md) を正本とします。
+Research は `records/04-candidates/` と `records/01-macro-context/` を統合する analysis layer です。packet の contract、front matter、AI 境界、self-review は [`../components/research.md`](../components/research.md) を正本とします。
 
 ## Before writing
 
-1. 最新 candidates と最新 outlook が存在することを確認する。
-2. Macro regime gate は [`screening-runbook.md`](./screening-runbook.md) と [`../screening/macro-gate-procedure.md`](../screening/macro-gate-procedure.md) に従う。
+1. 最新 candidates と最新 macro context が存在することを確認する。
+2. Macro context は hard gate ではなく、候補の thesis / risk / sector 前提を確認する入力として使う。
 3. 使用する playbook が [`../components/playbooks.md`](../components/playbooks.md) と `records/_playbooks/` から辿れることを確認する。
 4. Policy の swing-first / long-hold-capable value principle を確認し、短期 thesis が外れた場合でも長期保有へ切り替えられる候補かを確認する。
 5. [`../anti-patterns.md`](../anti-patterns.md) の AP-01〜AP-09 を全体 gate として確認する。特に AP-01, AP-02, AP-03, AP-04, AP-06, AP-08, AP-09 は research で重点確認する。
 
 ## Rules
 
-- `candidate_ref.candidates_ref` と `outlook_ref` を必ず実在 path にする。`candidate_ref` は `candidates_ref` / `screen_run_id` / `ticker` / `candidate_id` の完全 join key として candidates row に一致させる。
-- Macro regime gate を通らない銘柄を採用しない。
+- `candidate_ref.candidates_ref` と `macro_context_ref` を必ず実在 path にする。`candidate_ref` は `candidates_ref` / `screen_run_id` / `ticker` / `candidate_id` の完全 join key として candidates row に一致させる。
+- Macro context が headwind の場合も自動却下せず、sizing caution や required checks として扱う。
 - 銘柄固有の事実は、業種を問わず会社IRを一次情報として確認し、出典と計算根拠を残す。直近決算短信、
   決算説明資料、Q&A、有価証券報告書 / 統合報告書、中期経営計画、株主還元関連開示を未確認のまま
   `research_decision.outcome: approved` にしない。

@@ -3,16 +3,6 @@ trade_id: trade-YYYYMMDD-XXXX
 ticker: "XXXX"
 name: "..."
 research_ref: records/05-research/YYYY/MM/YYYY-MM-DD-XXXX-<playbook_id>.md
-policy_ref:
-  ref_path: records/01-policy/YYYY/MM/YYYY-MM-DDTHHMMSS+0900-portfolio-policy.md
-policy_applicability: active
-calendar_refs:
-  business_days:
-    ref_path: records/_calendars/business-days/YYYY-MM.yaml
-  events:
-    ref_path: records/_calendars/events/YYYY-MM.yaml
-  corporate_actions:
-    ref_path: records/_calendars/corporate-actions/YYYY-MM.yaml
 position_state: none | open | closed
 review_state: not_due | scheduled | completed
 trade_execution_state: none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled
@@ -61,7 +51,7 @@ kill_switch_check:
 
 - **Thesis**:
 - **Playbook**:
-- **Macro regime gate**:
+- **Macro context**:
 - **Primary valuation metric**:
 
 ### 1.2 Order intent
@@ -86,7 +76,7 @@ kill_switch_check:
 
 ## 2. 保有中ログ
 
-[重大な変化、macro regime gate、決算、positioning / liquidity、価格、無効化条件の監視。]
+[重大な変化、macro context、決算、positioning / liquidity、価格、無効化条件の監視。]
 
 ## 3. Exit
 

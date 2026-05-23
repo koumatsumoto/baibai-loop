@@ -2,7 +2,7 @@ name: sales-discount-growth
 description: Required H2 sections for sales-discount-growth research markdown.
 body_sections:
 - title_pattern: Thesis
-- title_pattern: Macro regime gate
+- title_pattern: Macro context
 - title_pattern: Sales / P/S snapshot
 - title_pattern: Margin bridge
 - title_pattern: CFO / loss narrowing

@@ -22,7 +22,7 @@ last_reviewed: 2026-05-04
 ```bash
 rg -n 'view_ref|--view|\bview\b|screened|architecture-v1|root playbooks' README.md AGENTS.md docs
 rg -nP '\]\((?!https?://|#|/)[^)]+\.md\)' docs README.md AGENTS.md
-rg -n 'records/03-outlook|records/04-candidates|records/_playbooks' docs README.md AGENTS.md
+rg -n 'records/01-macro-context|records/04-candidates|records/_playbooks' docs README.md AGENTS.md
 rg -n 'docs/' src tests records/_playbooks records/_schemas
 ```
 

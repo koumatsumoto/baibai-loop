@@ -1,6 +1,6 @@
 ---
 title: "Portfolio policy"
-summary: "Self-directed objectives, constraints, capital basis, risk budget, and execution guardrails upstream of briefs and screening."
+summary: "Self-directed objectives, constraints, capital basis, risk budget, and execution guardrails upstream of macro context and screening."
 doc_type: component
 status: active
 last_reviewed: 2026-05-06
@@ -20,7 +20,7 @@ Baibai-Loop は投資助言サービスではありません。Portfolio policy 
 - 投資判断の目的と constraints を明示する。
 - Real capital、tactical real budget、paper proxy capital を分ける。
 - 最大 concentration、liquidity cap、time stop、kill switch、eligible universe を定義する。
-- Macro adverse の扱い、minimum payoff、risk/reward の下限など、research / trade が守る guardrail を定義する。
+- Macro context headwind の扱い、minimum payoff、risk/reward の下限など、research / trade が守る guardrail を定義する。
 - Swing-first / long-hold-capable value strategy を定義し、短期利確と長期保有 fallback の境界を明示する。
 - 後続 artifact が使った policy assumptions を再現できるようにする。
 
@@ -53,11 +53,11 @@ AI は長期では産業規模、需要構造、コスト構造、競争優位�
 
 AI が長期追い風になり得る場合は、下落時に長期保有へ切り替える選択肢の期待値を高める可能性がある。一方で、AI による既存事業の disruption、顧客投資循環の鈍化、valuation 過熱、競争優位の毀損は long-hold fallback を弱める要因として扱う。
 
-AI 期待は単独の採用根拠、position sizing 根拠、macro gate、validator-visible rule にはしない。採用判断は valuation、cash flow、balance sheet、catalyst、競争優位、資本配分、決算鮮度と合わせて行う。
+AI 期待は単独の採用根拠、position sizing 根拠、macro context fit、validator-visible rule にはしない。採用判断は valuation、cash flow、balance sheet、catalyst、競争優位、資本配分、決算鮮度と合わせて行う。
 
 ### Policy field との境界
 
-上記 2 原則は strategic attention principle であり、validator-visible な hard gate / cap / sizing rule ではない。機械検証は capital、risk、liquidity、minimum payoff、macro regime gate などの構造 field に限定し、長期保有 fallback と AI 長期影響の確認は research / outlook の template、runbook、self-review で担保する。
+上記 2 原則は strategic attention principle であり、validator-visible な hard gate / cap / sizing rule ではない。機械検証は capital、risk、liquidity、minimum payoff、macro context fit などの構造 field に限定し、長期保有 fallback と AI 長期影響の確認は research / macro context の template、runbook、self-review で担保する。
 
 ## Capital Concepts
 
@@ -86,4 +86,4 @@ Portfolio policy は「この条件下でどの程度のリスクを許すか」
 
 ## Policy Reference Principle
 
-Portfolio policy は governance component として扱います。現在の lifecycle では、capital / risk / liquidity の判断条件を research、ledger、trades の各 artifact に記録される field で確認します。`policy_ref` は repo 内 policy file への参照であり、履歴は git で確認します。過去背景を policy docs に残さず、現行 policy の正本性を優先します。
+Portfolio policy は governance component として扱います。現在の lifecycle では、capital / risk / liquidity の具体的な閾値は code-managed policy config で管理し、この document は判断方針と背景を説明します。履歴は git で確認します。過去背景を policy docs に残さず、現行 policy の理解しやすさを優先します。

@@ -28,10 +28,10 @@
 
 ### 2.3 マクロ逆風
 
-- **定義**: Macro regime gate 判定の誤り、または gate が保有期間中に反転
+- **定義**: Macro context fit 判定の誤り、または前提が保有期間中に headwind へ反転
 - **典型例**:
-  - 採用時 `supportive` 判定だったが、その後 BOJ / FOMC で trend が変わった
-  - outlook の更新遅れで実態と乖離
+  - 採用時 `tailwind` / `neutral` 判定だったが、その後 BOJ / FOMC で trend が変わった
+  - macro context の更新遅れで実態と乖離
   - 業種 RS が急変、業種全体の売りに巻き込まれた
 
 ### 2.4 ポジショニング / 流動性（positioning / liquidity）
@@ -86,7 +86,7 @@ research 段階の反対仮説（8 例示 + 自由記述）も同じ方式で四
 
 - 仮説的中
 - catalyst 反応
-- macro supportive
+- macro tailwind
 - timing 一致
 
 成功分類も同じ方式で四半期ごとに拡張可能とする。
