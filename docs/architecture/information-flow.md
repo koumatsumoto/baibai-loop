@@ -35,7 +35,7 @@ records/05-research/
 
 - `records/01-macro-context/` は screening 前に確認する macro analysis です。外部記事 URL と stats series を入力メタデータとして残します。
 - `records/04-candidates/` は screening 結果の fact snapshot です。通過理由を分析文として書きません。
-- `records/05-research/` は candidates と macro context の統合点です。候補への参照は `candidate_ref.candidates_ref` / `screen_run_id` / `ticker` / `candidate_id` の完全 join key、macro 文脈への参照は `macro_context_ref` を必須入力として扱います。
+- `records/05-research/` は candidates と macro context の統合点です。候補への参照は `candidate_ref.candidates_ref` と `candidate_ref.ticker`、macro 文脈への参照は `macro_context_ref` を必須入力として扱います。
 - `records/06-trades/` は採用済み research に対する執行記録です。
 - `records/07-reviews/` は forward-only な検証です。retro で playbook や screening rule の改訂判断をします。
 

@@ -9,25 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 DEFAULT_RULES_PATH = Path("records/_config/screening-rules/2026-05-01T000000+0900.yaml")
 
-CORE_VALUE_QUEUE = "core_value_queue"
-FAST_DISLOCATION_QUEUE = "fast_dislocation_queue"
-LONG_HOLD_SURVIVABILITY_QUEUE = "long_hold_survivability_queue"
-DEFERRED_REVISIT_QUEUE = "deferred_revisit_queue"
-GLOBAL_RANK_FALLBACK = "global_rank_fallback"
-SELECTION_QUEUE_NAMES = frozenset(
-    {
-        CORE_VALUE_QUEUE,
-        FAST_DISLOCATION_QUEUE,
-        LONG_HOLD_SURVIVABILITY_QUEUE,
-    }
-)
-RECOMMENDATION_QUEUE_NAMES = frozenset(
-    {
-        *SELECTION_QUEUE_NAMES,
-        DEFERRED_REVISIT_QUEUE,
-        GLOBAL_RANK_FALLBACK,
-    }
-)
 BUILTIN_SELECTION_PROFILES = frozenset({"strict", "balanced", "loose"})
 
 
@@ -163,9 +144,7 @@ class SalesDiscountGrowthLane(BaseModel):
 class OutputRules(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
-    research_selection_target_min: int = Field(ge=0)
     research_selection_target_max: int = Field(ge=0)
-    lane_toplist_limit: int = Field(default=5, ge=1)
     research_selection_lane_order: tuple[str, ...]
 
     @field_validator("research_selection_lane_order", mode="before")
@@ -238,7 +217,6 @@ class SelectionDiversityRules(BaseModel):
 
     max_recommended_per_sector: int = Field(default=1, ge=1)
     max_recommended_per_lane: int = Field(default=2, ge=1)
-    max_recommended_per_queue: int | None = Field(default=3, ge=1)
     max_previous_candidates_in_recommended: int | None = Field(default=2, ge=0)
     previous_overlap_warning_ratio: float = Field(default=0.6, ge=0, le=1)
 
@@ -247,21 +225,11 @@ class SelectionRules(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
     default_profile: str = "balanced"
-    queue_order: tuple[str, ...] = (
-        FAST_DISLOCATION_QUEUE,
-        CORE_VALUE_QUEUE,
-        LONG_HOLD_SURVIVABILITY_QUEUE,
-    )
     fast_dislocation: FastDislocationRules = Field(default_factory=FastDislocationRules)
     long_hold_survivability: LongHoldSurvivabilityRules = Field(
         default_factory=LongHoldSurvivabilityRules
     )
     diversity: SelectionDiversityRules = Field(default_factory=SelectionDiversityRules)
-
-    @field_validator("queue_order", mode="before")
-    @classmethod
-    def _tuple_queue_order(cls, value: list[str] | tuple[str, ...]) -> tuple[str, ...]:
-        return tuple(value)
 
     @field_validator("default_profile")
     @classmethod
@@ -271,14 +239,6 @@ class SelectionRules(BaseModel):
                 "unknown default selection profile: "
                 f"{value}; expected one of {', '.join(sorted(BUILTIN_SELECTION_PROFILES))}"
             )
-        return value
-
-    @field_validator("queue_order")
-    @classmethod
-    def _known_queue_order(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        unknown = sorted(set(value) - SELECTION_QUEUE_NAMES)
-        if unknown:
-            raise ValueError("unknown selection queue(s): " + ", ".join(unknown))
         return value
 
 

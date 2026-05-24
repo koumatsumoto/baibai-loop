@@ -64,7 +64,6 @@ from .schema import (
     ScreenedRunDocument,
     SecurityMaster,
     TTMQuality,
-    UniverseSnapshot,
     normalize_ticker,
 )
 from .selection import (
@@ -138,12 +137,6 @@ class _ScreenedCandidateInput(BaseModel):
 
     ticker: str
     name: str | None = None
-    screen_run_id: str | None = None
-    candidate_id: str | None = None
-    candidate_key: str | None = None
-    playbook_screen_result: str | None = None
-    policy_gate_result: str | None = None
-    liquidity_gate_result: str | None = None
     per_forward: int | float | None = None
     per_trailing: int | float | None = None
     pbr: int | float | None = None
@@ -157,13 +150,11 @@ class _ScreenedCandidateInput(BaseModel):
     price_change_5d: float | None = None
     price_change_20d: float | None = None
     price_change_60d: float | None = None
-    price_change_4w: float | None = None
     gap_from_52w_low: float | None = None
     turnover_spike_5d: float | None = None
     sector_relative_strength_percentile: float | None = None
     evidence_hits: list[dict[str, object]] = Field(default_factory=list)
     metrics: dict[str, MetricScalar] = Field(default_factory=dict)
-    metrics_breakdown: dict[str, object] = Field(default_factory=dict)
     freshness_warnings: list[dict[str, object]] = Field(default_factory=list)
     next_earnings_date: str | None = None
     split_adjustment_flag: bool | None = None
@@ -641,13 +632,6 @@ def run_command(
         for security in securities
         if security.is_common_stock and security.code in universe_result.snapshots
     }
-    universe_ref = _write_universe_snapshot(
-        asof_date=asof_date,
-        run_at=run_now,
-        universe_result=universe_result.snapshots,
-        securities_by_ticker=securities_by_ticker,
-        output_path=output_path,
-    )
     metric_result = build_metrics(
         asof_date=asof_date,
         securities_by_ticker=securities_by_ticker,
@@ -662,7 +646,6 @@ def run_command(
     )
 
     screened_candidates: list[ScreenedCandidate] = []
-    fact_lines: list[str] = []
     for ticker in sorted(universe_result.snapshots):
         result = evaluate_screening(
             metric_result.financials[ticker],
@@ -672,9 +655,6 @@ def run_command(
         )
         if not result.pass_fail:
             continue
-        if len(result.evidence_hits) > 1:
-            evidence_names = ", ".join(evidence_hit.name for evidence_hit in result.evidence_hits)
-            fact_lines.append(f"{ticker}: 複数 evidence_hit hit ({evidence_names})")
         financial = metric_result.financials[ticker]
         derived = metric_result.derived[ticker]
         universe_snapshot = universe_result.snapshots[ticker]
@@ -685,17 +665,6 @@ def run_command(
             events_by_ticker=disclosure_load_result.events_by_ticker,
             asof_date=asof_date,
         )
-        if freshness_warnings:
-            fact_lines.append(
-                f"{ticker}: EDINET freshness warning ({len(freshness_warnings)} material events)"
-            )
-        metrics_breakdown: dict[str, dict[str, float | None]] = {}
-        for metric in ("per_trailing", "pbr", "ev_ebitda", "p_s"):
-            metrics_breakdown[metric] = {
-                "sector_median_gap": derived.sector_median_gap.get(metric),
-                "self_range_percentile": derived.self_range_percentile.get(metric),
-                "sigma_gap": derived.sigma_gap.get(metric),
-            }
         screened_candidates.append(
             ScreenedCandidate(
                 ticker=ticker,
@@ -723,7 +692,6 @@ def run_command(
                 price_change_5d=derived.price_change_5d,
                 price_change_20d=derived.price_change_20d,
                 price_change_60d=derived.price_change_60d,
-                price_change_4w=derived.ticker_return_4w,
                 gap_from_52w_low=derived.gap_from_52w_low,
                 turnover_spike_5d=derived.turnover_spike_5d,
                 sector_relative_strength_percentile=derived.sector_relative_strength_percentile,
@@ -761,7 +729,6 @@ def run_command(
                     "operating_profit_loss_narrowing": (financial.operating_profit_loss_narrowing),
                     "edinet_freshness_warning_count": len(freshness_warnings),
                 },
-                metrics_breakdown=metrics_breakdown,
                 next_earnings_date=next_earnings_by_ticker.get(ticker),
                 split_adjustment_flag=derived.split_adjustment_flag,
                 freshness_warnings=freshness_warnings,
@@ -837,9 +804,7 @@ def run_command(
         candidates=tuple(screened_candidates),
         run_at=run_now,
         run_id=run_id,
-        universe_ref=universe_ref,
         data_sources=tuple(data_sources),
-        fact_memo_lines=tuple(fact_lines),
         provider_status_lines=tuple(provider_status_lines),
         universe_exclusion_lines=tuple(
             f"{reason}: {count} 件" for reason, count in universe_result.exclusion_counts.items()
@@ -868,63 +833,6 @@ def run_command(
         for line in fallback_lines:
             print(f"- {line}", file=out, flush=True)
     return 2 if partial_warning else 0
-
-
-def _write_universe_snapshot(
-    *,
-    asof_date: date,
-    run_at: datetime,
-    universe_result: Mapping[str, UniverseSnapshot],
-    securities_by_ticker: Mapping[str, SecurityMaster],
-    output_path: Path,
-) -> str:
-    run_at_jst = run_at.astimezone(JST)
-    ref_path = (
-        _universe_snapshot_root_for_output(output_path)
-        / f"{asof_date:%Y}"
-        / f"{asof_date:%m}"
-        / f"{asof_date.isoformat()}T{run_at_jst:%H%M%S%z}.yaml"
-    )
-    members: list[dict[str, object]] = []
-    for ticker in sorted(universe_result):
-        snapshot = universe_result[ticker]
-        security = securities_by_ticker.get(ticker)
-        if security is None:
-            raise RuntimeError(f"missing security master row for universe ticker: {ticker}")
-        members.append(
-            {
-                "ticker": ticker,
-                "name": security.name,
-                "sector_33": security.sector_33,
-                "market_cap_oku": snapshot.market_cap_oku,
-                "avg_turnover_oku": snapshot.avg_turnover_oku,
-            }
-        )
-    payload = {
-        "snapshot_id": f"universe-{asof_date:%Y%m%d}",
-        "as_of": asof_date.isoformat(),
-        "run_at": run_at.isoformat(),
-        "universe_size": len(universe_result),
-        "members_scope": "full_universe",
-        "members_recorded": len(members),
-        "members": members,
-    }
-    write_text_atomic(ref_path, yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
-    return ref_path.as_posix()
-
-
-def _universe_snapshot_root_for_output(output_path: Path) -> Path:
-    path = output_path if not output_path.is_absolute() else _relative_to_cwd(output_path)
-    if path.parts[:2] == ("records", "04-candidates"):
-        return Path("records/_universe-snapshots")
-    return path.parent / "_universe-snapshots"
-
-
-def _relative_to_cwd(path: Path) -> Path:
-    try:
-        return path.resolve().relative_to(Path.cwd().resolve())
-    except ValueError:
-        return path
 
 
 def select_command(

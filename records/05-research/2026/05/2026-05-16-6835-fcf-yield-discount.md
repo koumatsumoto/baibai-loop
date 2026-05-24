@@ -5,9 +5,6 @@ playbook_id: fcf-yield-discount
 playbook_ref:
   ref_path: records/_playbooks/fcf-yield-discount/2026-05-01T000000+0900.md
   effective_from: '2026-05-01T00:00:00+09:00'
-selected_supporting_evidence_refs:
-- source: candidate
-  evidence_hit_id: candidate-2026-05-08-6835-fcf-yield-discount
 research_decision:
   outcome: deferred
   posture: wait_for_event
@@ -22,56 +19,11 @@ research_decision:
     - Full-year guidance downside risk must remain contained.
 candidate_ref:
   candidates_ref: records/04-candidates/2026/05/2026-05-08.yaml
-  screen_run_id: screening-20260508
   ticker: '6835'
-  candidate_id: candidate-2026-05-08-6835
 ai_draft: true
 published_at: '2026-05-16T10:35:00+09:00'
 recorded_at: '2026-05-16T10:35:00+09:00'
 tradable_at: null
-external_refs:
-- ref_path: records/_external/allied-telesis/2026-05-16-fy2026-q1-official-ir.md
-- ref_path: records/_external/deepresearch/2026-05-13-top3-bargain-selection.md
-candidate_evidence_decisions:
-- evidence_hit_id: candidate-2026-05-08-6835-cashflow-yield-discount
-  effective_sizing_eligible: false
-  evaluated_at: '2026-05-16T10:35:00+09:00'
-  reason_code: q1_cash_flow_statement_unavailable
-- evidence_hit_id: candidate-2026-05-08-6835-fcf-yield-discount
-  effective_sizing_eligible: true
-  evaluated_at: '2026-05-16T10:35:00+09:00'
-  reason_code: q1_event_risk_cleared_for_small_starter
-research_evidence_hits:
-- evidence_hit_id: research-6835-fy2026-q1-profit-net-cash-supports
-  decision_role: freshness_adjustment
-  evidence_polarity: neutral
-  evidence_family_set:
-  - fundamental
-  source_status: ok
-  analyst_asserted: true
-  sizing_eligible: false
-  source_refs:
-  - ref_path: records/_external/allied-telesis/2026-05-16-fy2026-q1-official-ir.md
-  recorded_at: '2026-05-16T10:35:00+09:00'
-- evidence_hit_id: research-6835-q1-cf-statement-unavailable
-  decision_role: risk_evidence
-  evidence_polarity: risk
-  evidence_family_set:
-  - fundamental
-  source_status: ok
-  analyst_asserted: true
-  sizing_eligible: false
-  source_refs:
-  - ref_path: records/_external/allied-telesis/2026-05-16-fy2026-q1-official-ir.md
-  recorded_at: '2026-05-16T10:35:00+09:00'
-independent_evidence_count: 1
-raw_playbook_concurrence_count: 1
-sizing_eligible_playbook_concurrence_count: 1
-raw_evidence_family_count: 1
-sizing_eligible_evidence_family_count: 1
-conviction_tier: medium
-conviction_tier_path: count_breadth
-depth_verification_ref: null
 position_sizing_overlay:
   paper_proxy_position_size_oku: 0.0
   paper_proxy_position_size_yen: 0
@@ -125,6 +77,10 @@ macro_context_fit:
   required_checks: []
   sizing_caution:
   - migrated_from_legacy_macro_context
+corporate_action_check:
+  checked: true
+  result: none
+  note: Checked during research review.
 ---
 
 # Research: 2026-05-16 6835 アライドテレシスホールディングス fcf-yield-discount
@@ -140,7 +96,7 @@ macro_context_fit:
 - 判定: not_matched / proceed。
 - Sector: 電気機器。
 - Source: `records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml`。
-- 注意: 電気機器 not_matched は AI / 半導体関連の色が強い。6835 はネットワーク機器で直接度は低く、macro context fit は not_matched だが conviction は medium 止まり。
+- 注意: 電気機器 not_matched は AI / 半導体関連の色が強い。6835 はネットワーク機器で直接度は低く、macro context fit は not_matched とする。
 
 ## FCF snapshot
 
@@ -188,4 +144,4 @@ Q1 の利益進捗と net cash は候補継続を支持する。反対に、Q1 C
 
 ## Position size
 
-conviction は medium だが、research_decision は deferred。paper proxy、real order intent、ADV participation はすべて 0。Q2 CF 後の follow-up issue #166 で再確認する。
+research_decision は deferred。paper proxy、real order intent、ADV participation はすべて 0。Q2 CF 後の follow-up issue #166 で再確認する。

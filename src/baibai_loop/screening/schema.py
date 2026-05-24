@@ -17,7 +17,6 @@ _MODEL_CONFIG = ConfigDict(
 _TICKER_PATTERN = r"^[0-9A-Z]{4}$"
 
 type NullableFloatMap = Mapping[str, float | None]
-type MetricBreakdown = Mapping[str, NullableFloatMap]
 type MetricValueMap = Mapping[str, float | int | bool | str | None]
 type Ticker = Annotated[str, Field(pattern=_TICKER_PATTERN)]
 type NonEmptyString = Annotated[str, Field(min_length=1)]
@@ -279,12 +278,10 @@ class ScreenedCandidate:
     price_change_5d: float | None = None
     price_change_20d: float | None = None
     price_change_60d: float | None = None
-    price_change_4w: float | None = None
     gap_from_52w_low: float | None = None
     turnover_spike_5d: float | None = None
     sector_relative_strength_percentile: float | None = None
     metrics: MetricValueMap = Field(default_factory=dict)
-    metrics_breakdown: MetricBreakdown = Field(default_factory=dict)
     next_earnings_date: date | None = None
     split_adjustment_flag: bool = False
     freshness_warnings: tuple[FreshnessWarning, ...] = ()
@@ -311,7 +308,6 @@ class ScreenedCandidate:
         "price_change_5d",
         "price_change_20d",
         "price_change_60d",
-        "price_change_4w",
         "gap_from_52w_low",
         "turnover_spike_5d",
         "sector_relative_strength_percentile",
@@ -331,12 +327,10 @@ class ScreenedRunDocument:
     run_at: datetime
     run_id: NonEmptyString
     generated_by: str = "screening-cli-v1"
-    universe_ref: str | None = None
     data_sources: tuple[str, ...] = (
         "j-quants-light",
         "jpx-public-regulation",
     )
-    fact_memo_lines: tuple[str, ...] = ()
     provider_status_lines: tuple[str, ...] = ()
     universe_exclusion_lines: tuple[str, ...] = ()
     ttm_quality_counts: Mapping[str, int] = Field(default_factory=dict)
@@ -346,7 +340,6 @@ class ScreenedRunDocument:
     @field_validator(
         "candidates",
         "data_sources",
-        "fact_memo_lines",
         "provider_status_lines",
         "universe_exclusion_lines",
         "fallback_lines",

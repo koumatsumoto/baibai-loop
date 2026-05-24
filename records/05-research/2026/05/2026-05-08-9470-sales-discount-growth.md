@@ -5,62 +5,17 @@ playbook_id: sales-discount-growth
 playbook_ref:
   ref_path: records/_playbooks/sales-discount-growth/2026-05-01T000000+0900.md
   effective_from: '2026-05-01T00:00:00+09:00'
-selected_supporting_evidence_refs:
-- source: candidate
-  evidence_hit_id: candidate-2026-05-01-9470-sales-discount-growth
 research_decision:
   outcome: approved
   posture: act_now
   reason_code: user_position_confirmed_after_screening_and_q1_growth_check
 candidate_ref:
   candidates_ref: records/04-candidates/2026/05/2026-05-01.yaml
-  screen_run_id: screening-20260501
   ticker: '9470'
-  candidate_id: candidate-2026-05-01-9470
 ai_draft: false
 published_at: '2026-05-08T00:00:00+09:00'
 recorded_at: '2026-05-08T00:00:00+09:00'
 tradable_at: '2026-05-07T09:00:00+09:00'
-external_refs:
-- ref_path: records/_external/gakken/2026-05-08-fy2026-q1-official-ir.md
-candidate_evidence_decisions:
-- evidence_hit_id: candidate-2026-05-01-9470-sales-discount-growth
-  effective_sizing_eligible: true
-  evaluated_at: '2026-05-08T00:00:00+09:00'
-  reason_code: source_status_ok
-research_evidence_hits:
-- evidence_hit_id: research-9470-fy2026-q1-profit-recovery
-  decision_role: sizing_evidence
-  evidence_polarity: supports
-  evidence_family_set:
-  - fundamental
-  source_status: ok
-  analyst_asserted: true
-  sizing_eligible: true
-  independence_component_id: fy2026-q1-profit-recovery
-  approval_rule_id: analyst-event-evidence-reviewed
-  source_refs:
-  - ref_path: records/_external/gakken/2026-05-08-fy2026-q1-official-ir.md
-  recorded_at: '2026-05-08T00:00:00+09:00'
-- evidence_hit_id: research-9470-risk-review
-  decision_role: risk_evidence
-  evidence_polarity: risk
-  evidence_family_set:
-  - fundamental
-  source_status: ok
-  analyst_asserted: true
-  sizing_eligible: false
-  source_refs:
-  - ref_path: records/_external/gakken/2026-05-08-fy2026-q1-official-ir.md
-  recorded_at: '2026-05-08T00:00:00+09:00'
-independent_evidence_count: 2
-raw_playbook_concurrence_count: 1
-sizing_eligible_playbook_concurrence_count: 1
-raw_evidence_family_count: 2
-sizing_eligible_evidence_family_count: 2
-conviction_tier: medium
-conviction_tier_path: count_breadth
-depth_verification_ref: null
 position_sizing_overlay:
   paper_proxy_position_size_oku: 0.01
   paper_proxy_position_size_yen: 1000000
@@ -109,6 +64,10 @@ macro_context_fit:
   required_checks: []
   sizing_caution:
   - migrated_from_legacy_macro_context
+corporate_action_check:
+  checked: true
+  result: none
+  note: Checked during research review.
 ---
 
 # リサーチ: 2026-05-08 9470 学研ホールディングス sales-discount-growth

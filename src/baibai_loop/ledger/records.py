@@ -34,8 +34,6 @@ class DecisionRegisterRecord:
     baseline_price: float | None = None
     market_cap_oku: float | None = None
     avg_turnover_oku: float | None = None
-    independent_evidence_count: int | None = None
-    conviction_tier: str | None = None
     tracking: Tracking | None = None
 
     def to_json(self) -> dict[str, object]:

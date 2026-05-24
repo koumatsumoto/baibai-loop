@@ -18,9 +18,7 @@ quality:
   partial_warning_yoy_missing_ratio: 0.1
   yoy_deterioration_threshold: -0.3
 output:
-  research_selection_target_min: 3
   research_selection_target_max: 5
-  lane_toplist_limit: 5
   research_selection_lane_order:
   - strict-net-cash-discount
   - fcf-yield-discount
@@ -30,10 +28,6 @@ output:
   - valuation-reversion
 selection:
   default_profile: balanced
-  queue_order:
-  - fast_dislocation_queue
-  - core_value_queue
-  - long_hold_survivability_queue
   fast_dislocation:
     enabled: true
     price_change_1d_max: -0.05
@@ -67,7 +61,6 @@ selection:
   diversity:
     max_recommended_per_sector: 1
     max_recommended_per_lane: 2
-    max_recommended_per_queue: 3
     max_previous_candidates_in_recommended: 2
     previous_overlap_warning_ratio: 0.6
 screening_playbooks:

@@ -44,8 +44,6 @@ Candidate-level evidence hit では、原則として `fundamental`, `valuation`
 
 Baibai-Loop では `evidence hit` を使います。`evidence hit` は candidate / investment memo に現れる、source と provenance を持つ証拠単位です。
 
-`independent evidence count` は、position sizing や conviction の説明で使う相関調整後の証拠数です。単純な evidence hit count ではありません。
-
 ## Playbook
 
 `playbook` は、再現可能な投資判断パターンです。Screening rule、investment memo の論点、review attribution をつなぐ repeatable thesis pattern を指します。

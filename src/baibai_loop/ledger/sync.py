@@ -90,8 +90,6 @@ def sync_ledger(
             or _float_or_none(front.get("market_cap_oku")),
             avg_turnover_oku=_float_or_none(candidate.get("avg_turnover_oku"))
             or _float_or_none(front.get("avg_turnover_oku")),
-            independent_evidence_count=_int_or_none(front.get("independent_evidence_count")),
-            conviction_tier=str(front.get("conviction_tier") or ""),
             tracking=tracking,
         )
         records.append(record.to_json())
@@ -176,18 +174,9 @@ def _candidate_from_ref(
         return {}
     candidates_ref = candidate_ref.get("candidates_ref")
     ticker = candidate_ref.get("ticker")
-    candidate_id = candidate_ref.get("candidate_id")
-    screen_run_id = candidate_ref.get("screen_run_id")
     if not isinstance(candidates_ref, str) or not isinstance(ticker, str):
         return {}
-    candidate = candidates_index.get(candidates_ref, {}).get(ticker, {})
-    if not candidate:
-        return {}
-    if isinstance(candidate_id, str) and candidate.get("candidate_id") != candidate_id:
-        return {}
-    if isinstance(screen_run_id, str) and candidate.get("screen_run_id") != screen_run_id:
-        return {}
-    return candidate
+    return candidates_index.get(candidates_ref, {}).get(ticker, {})
 
 
 def _decision_datetime(path: Path, front: Mapping[str, Any]) -> datetime:
@@ -265,12 +254,4 @@ def _float_or_none(value: object) -> float | None:
         return None
     if isinstance(value, (int, float)):
         return float(value)
-    return None
-
-
-def _int_or_none(value: object) -> int | None:
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, int):
-        return value
     return None

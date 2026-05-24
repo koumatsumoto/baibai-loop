@@ -7,7 +7,6 @@ from pathlib import Path
 import yaml
 
 from .schema import (
-    EvidenceHit,
     FreshnessWarning,
     ScreenedCandidate,
     ScreenedRunDocument,
@@ -82,12 +81,9 @@ def _build_front_matter(document: ScreenedRunDocument) -> dict[str, object]:
     front_matter["data_sources"] = [QuotedString(source) for source in document.data_sources]
     front_matter["run_at"] = QuotedString(document.run_at.isoformat())
     front_matter["run_id"] = QuotedString(document.run_id)
-    if document.universe_ref:
-        front_matter["universe_ref"] = {"ref_path": document.universe_ref}
     front_matter["candidates"] = [
         _build_candidate_entry(candidate, document) for candidate in document.candidates
     ]
-    front_matter["fact_memo_lines"] = [QuotedString(line) for line in document.fact_memo_lines]
     front_matter["provider_status_lines"] = [
         QuotedString(line) for line in document.provider_status_lines
     ]
@@ -106,13 +102,6 @@ def _build_candidate_entry(
     entry: dict[str, object] = {}
     entry["ticker"] = QuotedString(candidate.ticker)
     entry["name"] = QuotedString(candidate.name)
-    candidate_id = f"candidate-{document.asof_date:%Y-%m-%d}-{candidate.ticker}"
-    entry["screen_run_id"] = QuotedString(document.run_id)
-    entry["candidate_id"] = QuotedString(candidate_id)
-    entry["candidate_key"] = QuotedString(f"{document.run_id}:{candidate.ticker}")
-    entry["playbook_screen_result"] = "hit"
-    entry["policy_gate_result"] = "pass"
-    entry["liquidity_gate_result"] = "pass"
     entry["per_forward"] = _round_value("per_forward", candidate.per_forward)
     entry["per_trailing"] = _round_value("per_trailing", candidate.per_trailing)
     entry["pbr"] = _round_value("pbr", candidate.pbr)
@@ -128,21 +117,12 @@ def _build_candidate_entry(
     entry["price_change_5d"] = _round_ratio(candidate.price_change_5d)
     entry["price_change_20d"] = _round_ratio(candidate.price_change_20d)
     entry["price_change_60d"] = _round_ratio(candidate.price_change_60d)
-    entry["price_change_4w"] = _round_ratio(candidate.price_change_4w)
     entry["gap_from_52w_low"] = _round_ratio(candidate.gap_from_52w_low)
     entry["turnover_spike_5d"] = _round_ratio(candidate.turnover_spike_5d)
     entry["sector_relative_strength_percentile"] = _round_ratio(
         candidate.sector_relative_strength_percentile
     )
     entry["metrics"] = _round_metrics(candidate.metrics)
-    entry["metrics_breakdown"] = {
-        metric: {
-            "sector_median_gap": _round_ratio(values.get("sector_median_gap")),
-            "self_range_percentile": _round_ratio(values.get("self_range_percentile")),
-            "sigma_gap": _round_ratio(values.get("sigma_gap")),
-        }
-        for metric, values in candidate.metrics_breakdown.items()
-    }
     entry["next_earnings_date"] = (
         QuotedString(candidate.next_earnings_date.isoformat())
         if candidate.next_earnings_date is not None
@@ -163,63 +143,16 @@ def _build_candidate_entry(
     }
     entry["evidence_hits"] = [
         {
-            "evidence_hit_id": QuotedString(f"{candidate_id}-{evidence_hit.name}"),
             "name": QuotedString(evidence_hit.name),
             "playbook_id": QuotedString(evidence_hit.playbook_id),
-            "claim_id": QuotedString(f"{candidate.ticker}-{evidence_hit.name}"),
-            "claim_type": QuotedString(evidence_hit.name),
-            "evidence_family_set": _evidence_family_set(evidence_hit),
-            "evidence_polarity": "supports",
-            "decision_role": "sizing_evidence",
-            "source_metric_ids": [QuotedString(key) for key in sorted(evidence_hit.metrics)],
             "source_status": "warning" if candidate.freshness_warnings else "ok",
             "sizing_eligible": not candidate.freshness_warnings,
-            "freshness_dependency": "financial_statement",
-            "independence_component_id": QuotedString(evidence_hit.name),
             "reasons": [QuotedString(reason) for reason in evidence_hit.reasons],
             "metrics": _round_metrics(evidence_hit.metrics),
         }
         for evidence_hit in candidate.evidence_hits
     ]
     return entry
-
-
-def _evidence_family_set(evidence_hit: EvidenceHit) -> list[str]:
-    metric_families = {
-        "p_s": "valuation",
-        "ps_sector_gap": "valuation",
-        "sales_yoy": "fundamental",
-        "operating_profit": "fundamental",
-        "net_cash_to_market_cap": "fundamental",
-        "cash_to_market_cap": "fundamental",
-        "price_to_equity": "fundamental",
-        "ocf_yield": "fundamental",
-        "fcf_yield": "fundamental",
-        "cfo_yoy": "fundamental",
-        "sector_relative_strength_percentile": "market_derived",
-        "price_change_1d": "market_derived",
-        "price_change_5d": "market_derived",
-        "price_change_20d": "market_derived",
-        "price_change_60d": "market_derived",
-        "gap_from_52w_low": "market_derived",
-        "turnover_spike_5d": "market_derived",
-    }
-    families = {
-        family
-        for metric in evidence_hit.metrics
-        for family in [metric_families.get(metric)]
-        if family
-    }
-    if not families:
-        families = {
-            "valuation-reversion": {"valuation", "market_derived"},
-            "strict-net-cash-discount": {"fundamental"},
-            "cash-rich-asset-discount": {"fundamental"},
-            "cashflow-yield-discount": {"fundamental"},
-            "fcf-yield-discount": {"fundamental"},
-            "sales-discount-growth": {"valuation", "fundamental"},
-        }.get(evidence_hit.name, {"valuation"})
-    return sorted(families)
 
 
 def _build_freshness_warning(warning: FreshnessWarning) -> dict[str, object]:

@@ -288,16 +288,8 @@ class ScreeningCliTests(unittest.TestCase):
                     "EDINET preprocessed metrics: loaded", payload["provider_status_lines"]
                 )
                 self.assertEqual(payload["run_id"], "screening-20260424")
-                self.assertNotIn("screening_rules_snapshot", payload)
-                self.assertNotIn("cache_manifest_hash", payload)
-                universe_ref = payload["universe_ref"]["ref_path"]
-                self.assertTrue(universe_ref.startswith("records/_universe-snapshots/"))
-                universe_path = Path(universe_ref)
-                self.assertTrue(universe_path.exists())
-                universe_payload = yaml.safe_load(universe_path.read_text(encoding="utf-8"))
-                self.assertEqual(universe_payload["snapshot_id"], "universe-20260424")
-                self.assertEqual(universe_payload["as_of"], "2026-04-24")
-                self.assertEqual(universe_payload["universe_size"], payload["universe_size"])
+                self.assertEqual(payload["filters"]["min_market_cap_oku"], 100)
+                self.assertEqual(payload["candidates"], [])
                 manifest_path = Path(".cache/screening/manifests") / f"{payload['run_id']}.json"
                 self.assertFalse(manifest_path.exists())
             finally:
@@ -347,7 +339,7 @@ class ScreeningCliTests(unittest.TestCase):
             finally:
                 os.chdir(cwd)
 
-    def test_run_command_keeps_scratch_output_snapshots_next_to_output_path(self) -> None:
+    def test_run_command_does_not_write_universe_snapshot_for_scratch_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
             try:
@@ -373,10 +365,8 @@ class ScreeningCliTests(unittest.TestCase):
 
                 self.assertEqual(exit_code, 2)
                 payload = yaml.safe_load(output_path.read_text(encoding="utf-8"))
-                universe_ref = payload["universe_ref"]["ref_path"]
-                self.assertTrue(universe_ref.startswith(".cache/simplify/_universe-snapshots/"))
-                self.assertTrue(Path(universe_ref).exists())
-                self.assertFalse(Path("records/_universe-snapshots").exists())
+                self.assertEqual(payload["run_id"], "screening-20260424")
+                self.assertEqual(output_path.parent, Path(".cache/simplify").resolve())
             finally:
                 os.chdir(cwd)
 
@@ -1157,9 +1147,7 @@ class SelectCommandTests(unittest.TestCase):
         return path
 
     def _recommended(self, payload: dict[str, object]) -> list[dict[str, object]]:
-        queues = payload["queues"]
-        self.assertIsInstance(queues, dict)
-        recommended = queues["recommended_research_queue"]
+        recommended = payload["recommendations"]
         self.assertIsInstance(recommended, list)
         return cast(list[dict[str, object]], recommended)
 
@@ -1228,10 +1216,6 @@ class SelectCommandTests(unittest.TestCase):
                 payload["selection"]["macro_context_summary"]["refresh_triggers"],
                 ["test trigger"],
             )
-            self.assertEqual(
-                [c["ticker"] for c in payload["lane_toplists"]["cash-rich-asset-discount"]],
-                ["3333"],
-            )
             tickers = [c["ticker"] for c in self._recommended(payload)]
             self.assertEqual(tickers, ["3333", "2222", "1111"])
             self.assertEqual(
@@ -1247,15 +1231,6 @@ class SelectCommandTests(unittest.TestCase):
             )
             self.assertEqual(
                 self._recommended(payload)[0]["selection_lane"], "cash-rich-asset-discount"
-            )
-            self.assertEqual(
-                self._recommended(payload)[0]["recommendation_lane"], "cash-rich-asset-discount"
-            )
-            self.assertEqual(
-                self._recommended(payload)[0]["recommendation_queue"], "core_value_queue"
-            )
-            self.assertEqual(
-                payload["ranked_candidates"][0]["selection_lane"], "valuation-reversion"
             )
             self.assertEqual(self._recommended(payload)[0]["position_tier"], "200-500")
             self.assertEqual(self._recommended(payload)[1]["position_tier"], "500-1000")
@@ -1303,7 +1278,7 @@ class SelectCommandTests(unittest.TestCase):
             )
             self.assertEqual([item["ticker"] for item in self._recommended(payload)], ["1111"])
 
-    def test_select_recommends_lane_diversified_candidates_before_global_rank(self) -> None:
+    def test_select_recommends_by_simple_rank_and_diversity(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -1353,20 +1328,8 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
-            self.assertEqual(
-                [c["ticker"] for c in payload["ranked_candidates"]],
-                ["1111", "2222"],
-            )
-            self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["2222", "1111"])
-            self.assertEqual(
-                self._recommended(payload)[0]["selection_lane"], "strict-net-cash-discount"
-            )
-            self.assertEqual(
-                self._recommended(payload)[0]["recommendation_lane"], "strict-net-cash-discount"
-            )
-            self.assertEqual(
-                self._recommended(payload)[0]["recommendation_queue"], "core_value_queue"
-            )
+            self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["1111"])
+            self.assertEqual(self._recommended(payload)[0]["selection_lane"], "valuation-reversion")
 
     def test_select_enforces_lane_cap_after_primary_lane_normalization(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1393,7 +1356,7 @@ class SelectCommandTests(unittest.TestCase):
                     },
                     {
                         "ticker": "2222",
-                        "name": "fcf queue but primary strict",
+                        "name": "fcf candidate but primary strict",
                         "sector_33": "電気機器",
                         "market_cap_oku": 300,
                         "evidence_hits": [
@@ -1517,11 +1480,6 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
             self.assertEqual(self._recommended(payload)[0]["freshness_warnings"], [warning])
-            self.assertEqual(payload["ranked_candidates"][0]["freshness_warnings"], [warning])
-            self.assertEqual(
-                payload["lane_toplists"]["strict-net-cash-discount"][0]["freshness_warnings"],
-                [warning],
-            )
 
     def test_select_excludes_candidates_without_sizing_eligible_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1586,183 +1544,8 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
             self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["2222"])
-            self.assertEqual([c["ticker"] for c in payload["ranked_candidates"]], ["2222"])
-            self.assertEqual(
-                [c["ticker"] for c in payload["lane_toplists"]["strict-net-cash-discount"]],
-                ["2222"],
-            )
 
-    def test_select_enforces_queue_cap_by_recommendation_queue(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            asof = date(2026, 4, 24)
-            self._write_candidates(
-                root / "records/04-candidates",
-                asof,
-                candidates=[
-                    {
-                        "ticker": "1111",
-                        "name": "fast dislocation",
-                        "sector_33": "機械",
-                        "market_cap_oku": 300,
-                        "price_change_5d": -0.09,
-                        "metrics": {
-                            "ocf_yield": 0.12,
-                            "equity_ratio": 0.5,
-                            "price_to_equity": 0.9,
-                            "operating_profit": 10.0,
-                        },
-                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
-                    },
-                    {
-                        "ticker": "1112",
-                        "name": "second fast dislocation",
-                        "sector_33": "情報・通信業",
-                        "market_cap_oku": 300,
-                        "price_change_5d": -0.10,
-                        "metrics": {
-                            "ocf_yield": 0.11,
-                            "equity_ratio": 0.5,
-                            "price_to_equity": 0.9,
-                            "operating_profit": 10.0,
-                        },
-                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
-                    },
-                    {
-                        "ticker": "2222",
-                        "name": "strict core",
-                        "sector_33": "電気機器",
-                        "market_cap_oku": 300,
-                        "evidence_hits": [
-                            {
-                                "name": "strict-net-cash-discount",
-                                "metrics": {
-                                    "net_cash_to_market_cap": 0.8,
-                                    "price_to_equity": 0.7,
-                                },
-                            }
-                        ],
-                    },
-                    {
-                        "ticker": "2223",
-                        "name": "second strict core",
-                        "sector_33": "サービス業",
-                        "market_cap_oku": 300,
-                        "evidence_hits": [
-                            {
-                                "name": "strict-net-cash-discount",
-                                "metrics": {
-                                    "net_cash_to_market_cap": 0.7,
-                                    "price_to_equity": 0.8,
-                                },
-                            }
-                        ],
-                    },
-                    {
-                        "ticker": "3333",
-                        "name": "long hold first",
-                        "sector_33": "小売業",
-                        "market_cap_oku": 300,
-                        "avg_turnover_oku": 5.0,
-                        "metrics": {
-                            "equity_ratio": 0.6,
-                            "net_cash_to_market_cap": 0.25,
-                            "cash_to_market_cap": 0.35,
-                            "ocf_yield": 0.03,
-                            "fcf_yield": 0.02,
-                            "operating_profit": 10.0,
-                        },
-                        "evidence_hits": [{"name": "valuation-reversion"}],
-                    },
-                    {
-                        "ticker": "3334",
-                        "name": "long hold second",
-                        "sector_33": "卸売業",
-                        "market_cap_oku": 300,
-                        "avg_turnover_oku": 5.0,
-                        "metrics": {
-                            "equity_ratio": 0.55,
-                            "net_cash_to_market_cap": 0.22,
-                            "cash_to_market_cap": 0.31,
-                            "ocf_yield": 0.02,
-                            "fcf_yield": 0.01,
-                            "operating_profit": 10.0,
-                        },
-                        "evidence_hits": [{"name": "valuation-reversion"}],
-                    },
-                ],
-            )
-            self._write_macro_context(
-                root / "records/01-macro-context",
-                asof,
-                sectors={
-                    "機械": "neutral",
-                    "情報・通信業": "neutral",
-                    "電気機器": "neutral",
-                    "サービス業": "neutral",
-                    "小売業": "neutral",
-                    "卸売業": "neutral",
-                },
-            )
-            profile_path = root / "queue-test-profile.yaml"
-            profile_path.write_text(
-                yaml.safe_dump(
-                    {
-                        "profiles": {
-                            "queue-test": {
-                                "diversity": {
-                                    "max_recommended_per_sector": 10,
-                                    "max_recommended_per_lane": 10,
-                                    "max_recommended_per_queue": 1,
-                                }
-                            }
-                        }
-                    },
-                    allow_unicode=True,
-                    sort_keys=False,
-                ),
-                encoding="utf-8",
-            )
-
-            buffer = io.StringIO()
-            exit_code = select_command(
-                asof_date=asof,
-                macro_context_path=None,
-                top=10,
-                profile="queue-test",
-                profile_config_path=profile_path,
-                candidates_root=root / "records/04-candidates",
-                macro_context_root=root / "records/01-macro-context",
-                stdout=buffer,
-            )
-
-            self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
-            recommended = self._recommended(payload)
-            queue_counts = {
-                queue: sum(1 for item in recommended if item["recommendation_queue"] == queue)
-                for queue in {
-                    "fast_dislocation_queue",
-                    "core_value_queue",
-                    "long_hold_survivability_queue",
-                    "global_rank_fallback",
-                }
-            }
-            self.assertEqual(
-                queue_counts,
-                {
-                    "fast_dislocation_queue": 1,
-                    "core_value_queue": 1,
-                    "long_hold_survivability_queue": 1,
-                    "global_rank_fallback": 1,
-                },
-            )
-            self.assertIn(
-                "recommended_by_recommendation_queue",
-                payload["selection"]["diagnostics"]["concentration"],
-            )
-
-    def test_select_separates_recommendation_lane_from_primary_selection_lane(self) -> None:
+    def test_select_handles_multi_lane_candidates_with_primary_selection_lane(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -1788,7 +1571,7 @@ class SelectCommandTests(unittest.TestCase):
                     {
                         "ticker": "2222",
                         "name": "strict and sales",
-                        "sector_33": "機械",
+                        "sector_33": "電気機器",
                         "market_cap_oku": 300,
                         "evidence_hits": [
                             {
@@ -1813,7 +1596,7 @@ class SelectCommandTests(unittest.TestCase):
             self._write_macro_context(
                 root / "records/01-macro-context",
                 asof,
-                sectors={"機械": "neutral"},
+                sectors={"機械": "neutral", "電気機器": "neutral"},
             )
 
             buffer = io.StringIO()
@@ -1829,9 +1612,6 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
             self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["1111", "2222"])
-            self.assertEqual(
-                self._recommended(payload)[1]["recommendation_lane"], "sales-discount-growth"
-            )
             self.assertEqual(
                 self._recommended(payload)[1]["selection_lane"], "strict-net-cash-discount"
             )
@@ -1862,7 +1642,7 @@ class SelectCommandTests(unittest.TestCase):
                     {
                         "ticker": "2222",
                         "name": "small strong cash rich",
-                        "sector_33": "機械",
+                        "sector_33": "電気機器",
                         "market_cap_oku": 150,
                         "evidence_hits": [
                             {
@@ -1879,7 +1659,7 @@ class SelectCommandTests(unittest.TestCase):
             self._write_macro_context(
                 root / "records/01-macro-context",
                 asof,
-                sectors={"機械": "neutral"},
+                sectors={"機械": "neutral", "電気機器": "neutral"},
             )
             buffer = io.StringIO()
             exit_code = select_command(
@@ -1894,60 +1674,7 @@ class SelectCommandTests(unittest.TestCase):
             payload = yaml.safe_load(buffer.getvalue())
             self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["2222", "1111"])
             self.assertEqual(
-                [c["ticker"] for c in payload["lane_toplists"]["cash-rich-asset-discount"]],
-                ["2222", "1111"],
-            )
-            self.assertEqual(
                 self._recommended(payload)[0]["selection_lane"], "cash-rich-asset-discount"
-            )
-
-    def test_select_uses_configured_lane_toplist_limit_independent_from_top(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            asof = date(2026, 4, 24)
-            self._write_candidates(
-                root / "records/04-candidates",
-                asof,
-                candidates=[
-                    {
-                        "ticker": "1111",
-                        "name": "first",
-                        "sector_33": "機械",
-                        "market_cap_oku": 150,
-                        "evidence_hits": [{"name": "cash-rich-asset-discount"}],
-                    },
-                    {
-                        "ticker": "2222",
-                        "name": "second",
-                        "sector_33": "機械",
-                        "market_cap_oku": 160,
-                        "evidence_hits": [{"name": "cash-rich-asset-discount"}],
-                    },
-                ],
-            )
-            self._write_macro_context(
-                root / "records/01-macro-context",
-                asof,
-                sectors={"機械": "neutral"},
-            )
-
-            buffer = io.StringIO()
-            exit_code = select_command(
-                asof_date=asof,
-                macro_context_path=None,
-                top=1,
-                candidates_root=root / "records/04-candidates",
-                macro_context_root=root / "records/01-macro-context",
-                stdout=buffer,
-            )
-
-            self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
-            self.assertEqual(payload["lane_toplist_limit"], 5)
-            self.assertEqual(len(self._recommended(payload)), 1)
-            self.assertEqual(
-                [c["ticker"] for c in payload["lane_toplists"]["cash-rich-asset-discount"]],
-                ["1111", "2222"],
             )
 
     def test_select_fast_dislocation_requires_fundamental_guard(self) -> None:
@@ -2056,8 +1783,6 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
-            fast_queue = payload["queues"]["fast_dislocation_queue"]
-            self.assertEqual([item["ticker"] for item in fast_queue], ["2222"])
             self.assertEqual(self._recommended(payload)[0]["ticker"], "2222")
             self.assertTrue(self._recommended(payload)[0]["lenses"]["fast_dislocation"]["eligible"])
             self.assertEqual(
@@ -2127,7 +1852,7 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
-            lens = payload["queues"]["fast_dislocation_queue"][0]["lenses"]["fast_dislocation"]
+            lens = self._recommended(payload)[0]["lenses"]["fast_dislocation"]
             self.assertTrue(lens["eligible"])
             self.assertEqual(lens["confidence"], "medium")
             self.assertEqual(lens["data_status"], "stale_fundamental_metrics")
@@ -2181,7 +1906,7 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
-            by_ticker = {item["ticker"]: item for item in payload["ranked_candidates"]}
+            by_ticker = {item["ticker"]: item for item in self._recommended(payload)}
             missing_lens = by_ticker["1111"]["lenses"]["long_hold_survivability"]
             weak_lens = by_ticker["2222"]["lenses"]["long_hold_survivability"]
             self.assertEqual(missing_lens["rating"], "unknown")
@@ -2257,11 +1982,7 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
             self.assertEqual([item["ticker"] for item in self._recommended(payload)], ["3333"])
-            self.assertEqual(payload["queues"]["suppressed_queue"][0]["ticker"], "2222")
-            self.assertEqual(
-                payload["queues"]["suppressed_queue"][0]["suppression_reasons"],
-                ["deferred_until_revisit_after"],
-            )
+            self.assertEqual(payload["selection"]["diagnostics"]["suppressed_count"], 1)
 
     def test_select_suppresses_deferred_research_without_revisit_after(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2325,10 +2046,7 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
             self.assertEqual([item["ticker"] for item in self._recommended(payload)], ["3333"])
-            self.assertEqual(
-                payload["queues"]["suppressed_queue"][0]["suppression_reasons"],
-                ["deferred_without_revisit_after"],
-            )
+            self.assertEqual(payload["selection"]["diagnostics"]["suppressed_count"], 1)
 
     def test_select_suppresses_rejected_research_without_expiry(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2392,11 +2110,7 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
             self.assertEqual([item["ticker"] for item in self._recommended(payload)], ["3333"])
-            self.assertEqual(payload["queues"]["suppressed_queue"][0]["ticker"], "2222")
-            self.assertEqual(
-                payload["queues"]["suppressed_queue"][0]["suppression_reasons"],
-                ["prior_rejected"],
-            )
+            self.assertEqual(payload["selection"]["diagnostics"]["suppressed_count"], 1)
 
     def test_select_prior_research_tiebreak_uses_decision_event_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2466,14 +2180,7 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
-            self.assertEqual(
-                payload["queues"]["suppressed_queue"][0]["suppression_reasons"],
-                ["deferred_until_revisit_after"],
-            )
-            self.assertEqual(
-                payload["queues"]["suppressed_queue"][0]["prior_research"]["decision_event_id"],
-                "decision-z",
-            )
+            self.assertEqual(payload["selection"]["diagnostics"]["suppressed_count"], 1)
 
     def test_select_caps_previous_candidates_when_new_alternatives_exist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2567,7 +2274,7 @@ class SelectCommandTests(unittest.TestCase):
                 2,
             )
 
-    def test_select_can_bypass_previous_cap_to_reach_minimum_queue_size(self) -> None:
+    def test_select_respects_previous_cap_without_minimum_fill(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -2606,10 +2313,10 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
-            self.assertEqual(len(self._recommended(payload)), 3)
+            self.assertEqual(len(self._recommended(payload)), 2)
             self.assertEqual(
                 sum(1 for item in self._recommended(payload) if item["previous_candidate"]),
-                3,
+                2,
             )
 
     def test_select_sweep_compares_builtin_profiles(self) -> None:
@@ -2653,27 +2360,17 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
-            self.assertEqual(payload["replay_evaluation_contract"]["minimum_replay_weeks"], 6)
-            self.assertEqual(payload["replay_evaluation_contract"]["holdout_weeks"], 2)
             by_profile = {item["profile"]: item for item in payload["profiles"]}
             self.assertEqual(by_profile["strict"]["fast_dislocation_count"], 0)
-            self.assertEqual(by_profile["balanced"]["fast_dislocation_tickers"], ["2222"])
-            self.assertEqual(by_profile["loose"]["fast_dislocation_tickers"], ["2222"])
-            self.assertEqual(
-                by_profile["balanced"]["recommended"][0]["recommendation_lane"],
-                "fast_dislocation_queue",
-            )
-            self.assertEqual(
-                by_profile["balanced"]["recommended"][0]["recommendation_queue"],
-                "fast_dislocation_queue",
-            )
+            self.assertEqual(by_profile["balanced"]["fast_dislocation_count"], 1)
+            self.assertEqual(by_profile["loose"]["fast_dislocation_count"], 1)
             self.assertEqual(by_profile["balanced"]["recommended"][0]["fast_guard_count"], 2)
             self.assertEqual(
                 by_profile["balanced"]["recommended_diff_vs_first_profile"]["changed"][0]["ticker"],
                 "2222",
             )
             self.assertIn(
-                "recommendation_lane",
+                "fast_confidence",
                 by_profile["balanced"]["recommended_diff_vs_first_profile"]["changed"][0][
                     "changed_fields"
                 ],
@@ -2716,14 +2413,14 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
             by_profile = {item["profile"]: item for item in payload["profiles"]}
-            self.assertEqual(by_profile["balanced"]["fast_dislocation_tickers"], [])
-            self.assertEqual(by_profile["loose"]["fast_dislocation_tickers"], ["2222"])
+            self.assertEqual(by_profile["balanced"]["fast_dislocation_count"], 0)
+            self.assertEqual(by_profile["loose"]["fast_dislocation_count"], 1)
             self.assertEqual(
                 by_profile["loose"]["recommended"][0]["fast_guard_family_count"],
                 1,
             )
 
-    def test_select_sweep_rejects_unknown_profile_keys_and_queues(self) -> None:
+    def test_select_sweep_rejects_unknown_profile_keys(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -2744,10 +2441,7 @@ class SelectCommandTests(unittest.TestCase):
                 root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
             )
 
-            cases = (
-                ("typo", {"profiles": {"typo": {"fast_dislocation": {"pbr_max": 0.8}}}}),
-                ("bad-queue", {"profiles": {"bad-queue": {"queue_order": ["unknown_queue"]}}}),
-            )
+            cases = (("typo", {"profiles": {"typo": {"fast_dislocation": {"pbr_max": 0.8}}}}),)
             for profile_name, profile_config in cases:
                 profile_path = root / f"{profile_name}.yaml"
                 profile_path.write_text(
@@ -2769,9 +2463,9 @@ class SelectCommandTests(unittest.TestCase):
                     )
 
                 self.assertEqual(exit_code, 1)
-                self.assertRegex(stderr.getvalue(), "extra_forbidden|unknown selection queue")
+                self.assertIn("extra_forbidden", stderr.getvalue())
 
-    def test_select_reports_legacy_price_fallback_only_when_short_returns_missing(self) -> None:
+    def test_select_reports_short_return_missing_without_legacy_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -2781,11 +2475,10 @@ class SelectCommandTests(unittest.TestCase):
                 candidates=[
                     {
                         "ticker": "1111",
-                        "name": "legacy price fallback",
+                        "name": "short return pipeline missing",
                         "sector_33": "機械",
                         "market_cap_oku": 300,
                         "price_change_5d": -0.02,
-                        "price_change_4w": -0.12,
                         "metrics": {
                             "ocf_yield": 0.1,
                             "equity_ratio": 0.5,
@@ -2841,23 +2534,14 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
             diagnostics = payload["selection"]["diagnostics"]
-            self.assertEqual(diagnostics["legacy_price_fallback_candidate_count"], 1)
-            self.assertEqual(diagnostics["short_return_missing_candidate_count"], 1)
-            self.assertIn(
-                "fast_dislocation_uses_legacy_price_change_fallback", diagnostics["warnings"]
-            )
+            self.assertEqual(diagnostics["short_return_missing_candidate_count"], 2)
             self.assertIn("short_return_price_history_missing", diagnostics["warnings"])
-            self.assertEqual(
-                diagnostics["fast_dislocation_data_status_counts"]["legacy_4w_transition"], 1
+            complete_candidate = next(
+                item for item in self._recommended(payload) if item["ticker"] == "2222"
             )
-            legacy_candidate = next(
-                item
-                for item in payload["queues"]["fast_dislocation_queue"]
-                if item["ticker"] == "1111"
-            )
-            legacy_lens = legacy_candidate["lenses"]["fast_dislocation"]
-            self.assertEqual(legacy_lens["price_triggers"][0]["metric"], "price_change_4w")
-            self.assertEqual(legacy_lens["data_status"], "legacy_4w_transition")
+            fast_lens = complete_candidate["lenses"]["fast_dislocation"]
+            self.assertEqual(fast_lens["price_triggers"][0]["metric"], "price_change_20d")
+            self.assertEqual(fast_lens["data_status"], "ok")
 
     def test_rejects_non_mapping_candidates_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

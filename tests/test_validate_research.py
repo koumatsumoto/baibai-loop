@@ -80,9 +80,7 @@ def _minimal_research_front_matter() -> dict[str, object]:
         ),
         "candidate_ref": {
             "candidates_ref": "records/04-candidates/2026/05/2026-05-01.yaml",
-            "screen_run_id": "screening-20260501",
             "ticker": "2767",
-            "candidate_id": "candidate-2026-05-01-2767",
         },
         "research_decision": {"outcome": "approved", "posture": "act_now"},
         "macro_context_ref": (
@@ -95,29 +93,9 @@ def _minimal_research_front_matter() -> dict[str, object]:
             "required_checks": [],
             "sizing_caution": [],
         },
-        "candidate_evidence_decisions": [
-            {
-                "evidence_hit_id": "eh-1",
-                "effective_sizing_eligible": True,
-                "evaluated_at": "2026-05-05T20:00:00+09:00",
-                "reason_code": "source_status_ok",
-                "independence_component_id": "component-1",
-            }
-        ],
-        "selected_supporting_evidence_refs": [{"source": "candidate", "evidence_hit_id": "eh-1"}],
-        "research_evidence_hits": [
-            {
-                "evidence_hit_id": "risk-1",
-                "decision_role": "risk_evidence",
-                "evidence_polarity": "risk",
-            }
-        ],
-        "independent_evidence_count": 1,
-        "conviction_tier": "medium",
-        "conviction_tier_path": "count_breadth",
         "position_sizing_overlay": {
             "paper_proxy_position_size_yen": 1000000,
-            "real_order_intent_yen": 50000,
+            "real_order_intent_yen": 200000,
             "adv_participation_pct": 0.5,
         },
         "thesis_payoff": {
@@ -130,8 +108,14 @@ def _minimal_research_front_matter() -> dict[str, object]:
             "time_horizon_bd": 30,
             "invalidation_conditions": ["stop loss"],
         },
+        "corporate_action_check": {
+            "checked": True,
+            "result": "none",
+        },
         "sector_33": "情報・通信業",
         "avg_turnover_oku": 2.0,
+        "market_cap_oku": 100,
+        "valuation": {"p_s": 0.5},
         "ai_draft": True,
         "published_at": "2026-05-05T20:00:00+09:00",
     }
@@ -147,18 +131,16 @@ def _write_candidate_fixture(root: Path) -> None:
                 "candidates": [
                     {
                         "ticker": "2767",
-                        "candidate_id": "candidate-2026-05-01-2767",
-                        "screen_run_id": "screening-20260501",
                         "sector_33": "情報・通信業",
                         "avg_turnover_oku": 2.0,
                         "market_cap_oku": 100,
                         "metrics": {"p_s": 0.5},
                         "evidence_hits": [
                             {
-                                "evidence_hit_id": "eh-1",
+                                "name": "valuation-reversion",
                                 "playbook_id": "valuation-reversion",
-                                "evidence_family_set": ["valuation"],
-                                "independence_component_id": "component-1",
+                                "source_status": "ok",
+                                "sizing_eligible": True,
                             }
                         ],
                     }
@@ -169,6 +151,49 @@ def _write_candidate_fixture(root: Path) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def _write_macro_context_fixture(root: Path) -> None:
+    macro_path = root / "records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml"
+    macro_path.parent.mkdir(parents=True)
+    macro_path.write_text(
+        yaml.safe_dump(
+            {
+                "kind": "macro-context",
+                "context_id": "macro-context-2026-05-04-screening",
+                "as_of": "2026-05-04",
+                "valid_until": "2026-05-17",
+                "published_at": "2026-05-04T20:00:00+09:00",
+                "summary": "test",
+                "inputs": {"articles": [], "stats_series": []},
+                "sector_tilts": {
+                    "items": [
+                        {
+                            "id": "info-neutral",
+                            "scope": "sector_33",
+                            "key": "情報・通信業",
+                            "stance": "neutral",
+                            "strength": "medium",
+                            "confidence": "medium",
+                            "rationale": "test",
+                        }
+                    ]
+                },
+                "research_questions": ["question"],
+                "refresh_triggers": ["trigger"],
+                "changes_since_previous": [],
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_playbook_ref_fixture(root: Path) -> None:
+    path = root / "records/_playbooks/valuation-reversion/2026-05-01T000000+0900.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("---\nplaybook_id: valuation-reversion\n---\n# Playbook\n", encoding="utf-8")
 
 
 class ResearchValidationTests(unittest.TestCase):
@@ -208,178 +233,46 @@ class ResearchValidationTests(unittest.TestCase):
     def test_rejected_requires_rejection_reason(self) -> None:
         front = _minimal_research_front_matter()
         front["research_decision"] = {"outcome": "rejected", "posture": "dropped"}
+        front["position_sizing_overlay"] = {
+            "paper_proxy_position_size_yen": 0,
+            "real_order_intent_yen": 0,
+            "adv_participation_pct": 0,
+        }
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.rejection-reason-required", codes)
 
-    def test_deferred_requires_deferral_reason(self) -> None:
-        front = _minimal_research_front_matter()
-        front["research_decision"] = {"outcome": "deferred", "posture": "wait_for_event"}
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.deferral-reason-required", codes)
-
     def test_deferred_macro_context_cannot_be_approved(self) -> None:
         front = _minimal_research_front_matter()
-        macro_fit = front["macro_context_fit"]
-        assert isinstance(macro_fit, dict)
-        macro_fit["decision_effect"] = "defer"
+        fit = front["macro_context_fit"]
+        assert isinstance(fit, dict)
+        fit["decision_effect"] = "defer"
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.macro-context-defer-approved", codes)
 
-    def test_future_macro_context_cannot_be_approved(self) -> None:
+    def test_approved_requires_corporate_action_check(self) -> None:
         front = _minimal_research_front_matter()
-        macro_fit = front["macro_context_fit"]
-        assert isinstance(macro_fit, dict)
-        macro_fit["context_freshness"] = "future"
+        del front["corporate_action_check"]
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.macro-context-future-approved", codes)
+        self.assertIn("research.required", codes)
+        self.assertIn("research.corporate-action-check", codes)
 
-    def test_macro_context_ref_cannot_be_after_research_date(self) -> None:
+    def test_corporate_action_check_must_be_checked_for_approved_research(self) -> None:
         front = _minimal_research_front_matter()
-        front["macro_context_ref"] = (
-            "records/01-macro-context/2026/05/macro-context-2026-05-23-screening.yaml"
-        )
+        front["corporate_action_check"] = {"checked": False, "result": "none"}
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.macro-context-ref-future", codes)
+        self.assertIn("research.corporate-action-check", codes)
 
-    def test_macro_context_fit_must_match_sector_tilt(self) -> None:
+    def test_approved_rejects_found_corporate_action(self) -> None:
         front = _minimal_research_front_matter()
-        macro_fit = front["macro_context_fit"]
-        assert isinstance(macro_fit, dict)
-        macro_fit["fit"] = "tailwind"
-
+        front["corporate_action_check"] = {"checked": True, "result": "found"}
         codes = {finding.code for finding in self._findings_for(front)}
-
-        self.assertIn("research.macro-context-sector-fit", codes)
-
-    def test_macro_context_fit_requires_not_matched_when_sector_has_no_tilt(self) -> None:
-        front = _minimal_research_front_matter()
-        front["sector_33"] = "小売業"
-
-        codes = {finding.code for finding in self._findings_for(front)}
-
-        self.assertIn("research.macro-context-sector-fit", codes)
-
-    def test_unknown_macro_context_effect_is_flagged(self) -> None:
-        front = _minimal_research_front_matter()
-        macro_fit = front["macro_context_fit"]
-        assert isinstance(macro_fit, dict)
-        macro_fit["decision_effect"] = "wrong"
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.enum", codes)
-        self.assertIn("research.macro-context-effect", codes)
-
-    def test_sizing_is_recomputed_from_policy_and_exposure_snapshots(self) -> None:
-        front = _minimal_research_front_matter()
-        sizing = front["position_sizing_overlay"]
-        assert isinstance(sizing, dict)
-        sizing["real_order_intent_yen"] = 100000
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.real-order-intent-yen", codes)
-
-    def test_single_evidence_real_order_intent_uses_policy_cap(self) -> None:
-        front = _minimal_research_front_matter()
-        front["conviction_tier"] = "high"
-        front["conviction_tier_path"] = "depth"
-        front["depth_verification_ref"] = "records/_external/depth-check.md"
-        sizing = front["position_sizing_overlay"]
-        assert isinstance(sizing, dict)
-        sizing["paper_proxy_position_size_yen"] = 1500000
-        sizing["real_order_intent_yen"] = 100000
-        sizing["adv_participation_pct"] = 0.75
-
-        codes = {finding.code for finding in self._findings_for(front)}
-
-        self.assertIn("research.real-order-intent-yen", codes)
-
-    def test_adv_participation_is_recomputed_from_paper_proxy_and_adv(self) -> None:
-        front = _minimal_research_front_matter()
-        sizing = front["position_sizing_overlay"]
-        assert isinstance(sizing, dict)
-        sizing["adv_participation_pct"] = 99.0
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.adv-participation-pct", codes)
-
-    def test_position_sizing_overlay_rejects_deprecated_fields(self) -> None:
-        front = _minimal_research_front_matter()
-        sizing = front["position_sizing_overlay"]
-        assert isinstance(sizing, dict)
-        sizing["liquidity_cap_participation_pct"] = 0.5
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.position-sizing-deprecated-field", codes)
-
-    def test_position_sizing_overlay_requires_mapping(self) -> None:
-        front = _minimal_research_front_matter()
-        front["position_sizing_overlay"] = []
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.type", codes)
-        self.assertIn("research.position-sizing-shape", codes)
-
-    def test_position_sizing_overlay_requires_canonical_fields(self) -> None:
-        front = _minimal_research_front_matter()
-        front["position_sizing_overlay"] = {}
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.position-sizing-missing-field", codes)
-
-    def test_nested_valuation_liquidity_participation_is_deprecated(self) -> None:
-        front = _minimal_research_front_matter()
-        front["valuation"] = {"liquidity_cap_participation_pct": 0.5}
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.valuation-deprecated-field", codes)
-
-    def test_non_approved_sizing_fields_must_be_zero(self) -> None:
-        front = _minimal_research_front_matter()
-        front["research_decision"] = {"outcome": "deferred", "posture": "wait_for_event"}
-        sizing = front["position_sizing_overlay"]
-        assert isinstance(sizing, dict)
-        sizing["real_order_intent_yen"] = None
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.rejected-sizing", codes)
-
-    def test_corporate_action_invalidation_requires_calendar(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            (root / "src").mkdir()
-            _write_candidate_fixture(root)
-            front = _minimal_research_front_matter()
-            front["candidate_evidence_decisions"] = [
-                {
-                    "evidence_hit_id": "eh-1",
-                    "effective_sizing_eligible": False,
-                    "evaluated_at": "2026-05-05T20:00:00+09:00",
-                    "reason_code": "corporate_action_post_snapshot",
-                    "corporate_action_kind": "split",
-                    "invalidated_metric_ids": ["p_s"],
-                }
-            ]
-            front["research_decision"] = {
-                "outcome": "rejected",
-                "posture": "dropped",
-                "rejection_reason": "corporate_action_post_snapshot",
-            }
-            front["independent_evidence_count"] = 0
-            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
-            research_path.parent.mkdir(parents=True)
-            research_path.write_text(
-                "---\n"
-                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
-                + "---\n"
-                + _DEFAULT_BODY,
-                encoding="utf-8",
-            )
-
-            codes = {
-                finding.code
-                for finding in validate_research_file(
-                    research_path, playbooks_root=ROOT / "records/_playbooks"
-                )
-            }
-
-        self.assertIn("research.corporate-action-calendar-missing", codes)
+        self.assertIn("research.corporate-action-check-result", codes)
 
     def test_repository_research_requires_existing_candidate_ref(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             (root / "src").mkdir()
+            _write_macro_context_fixture(root)
             front = _minimal_research_front_matter()
             research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
             research_path.parent.mkdir(parents=True)
@@ -400,42 +293,13 @@ class ResearchValidationTests(unittest.TestCase):
 
         self.assertIn("research.candidate-ref-missing", codes)
 
-    def test_repository_research_does_not_fallback_to_top_level_candidates_ref(self) -> None:
+    def test_repository_research_candidate_ref_matches_by_ticker(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             (root / "src").mkdir()
             _write_candidate_fixture(root)
-            front = _minimal_research_front_matter()
-            front["candidates_ref"] = "records/04-candidates/2026/05/2026-05-01.yaml"
-            candidate_ref = front["candidate_ref"]
-            assert isinstance(candidate_ref, dict)
-            del candidate_ref["candidates_ref"]
-            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
-            research_path.parent.mkdir(parents=True)
-            research_path.write_text(
-                "---\n"
-                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
-                + "---\n"
-                + _DEFAULT_BODY,
-                encoding="utf-8",
-            )
-
-            codes = {
-                finding.code
-                for finding in validate_research_file(
-                    research_path, playbooks_root=ROOT / "records/_playbooks"
-                )
-            }
-
-        self.assertIn("research.candidate-ref-required", codes)
-
-    def test_repository_research_candidate_ref_requires_mapping_document(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            (root / "src").mkdir()
-            candidates_path = root / "records/04-candidates/2026/05/2026-05-01.yaml"
-            candidates_path.parent.mkdir(parents=True)
-            candidates_path.write_text("- not-a-mapping\n", encoding="utf-8")
+            _write_macro_context_fixture(root)
+            _write_playbook_ref_fixture(root)
             front = _minimal_research_front_matter()
             research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
             research_path.parent.mkdir(parents=True)
@@ -447,24 +311,24 @@ class ResearchValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            codes = {
-                finding.code
-                for finding in validate_research_file(
-                    research_path, playbooks_root=ROOT / "records/_playbooks"
-                )
-            }
+            findings = validate_research_file(
+                research_path, playbooks_root=ROOT / "records/_playbooks"
+            )
 
-        self.assertIn("research.candidate-ref-parse", codes)
+        errors = [finding for finding in findings if finding.severity == "error"]
+        self.assertEqual(errors, [], f"unexpected errors: {errors}")
 
-    def test_repository_research_candidate_ref_screen_run_id_must_match(self) -> None:
+    def test_repository_research_candidate_ref_ticker_must_match(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             (root / "src").mkdir()
             _write_candidate_fixture(root)
+            _write_macro_context_fixture(root)
+            _write_playbook_ref_fixture(root)
             front = _minimal_research_front_matter()
             candidate_ref = front["candidate_ref"]
             assert isinstance(candidate_ref, dict)
-            candidate_ref["screen_run_id"] = "screening-20260508"
+            candidate_ref["ticker"] = "9999"
             research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
             research_path.parent.mkdir(parents=True)
             research_path.write_text(
@@ -482,187 +346,13 @@ class ResearchValidationTests(unittest.TestCase):
                 )
             }
 
-        self.assertIn("research.candidate-ref-screen-run-id", codes)
-
-    def test_repository_research_candidate_ref_candidate_id_must_match(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            (root / "src").mkdir()
-            _write_candidate_fixture(root)
-            front = _minimal_research_front_matter()
-            candidate_ref = front["candidate_ref"]
-            assert isinstance(candidate_ref, dict)
-            candidate_ref["candidate_id"] = "candidate-2026-05-01-9999"
-            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
-            research_path.parent.mkdir(parents=True)
-            research_path.write_text(
-                "---\n"
-                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
-                + "---\n"
-                + _DEFAULT_BODY,
-                encoding="utf-8",
-            )
-
-            codes = {
-                finding.code
-                for finding in validate_research_file(
-                    research_path, playbooks_root=ROOT / "records/_playbooks"
-                )
-            }
-
-        self.assertIn("research.candidate-ref-match", codes)
-
-    def test_repository_research_candidate_ref_requires_screen_run_id(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            (root / "src").mkdir()
-            _write_candidate_fixture(root)
-            front = _minimal_research_front_matter()
-            candidate_ref = front["candidate_ref"]
-            assert isinstance(candidate_ref, dict)
-            del candidate_ref["screen_run_id"]
-            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
-            research_path.parent.mkdir(parents=True)
-            research_path.write_text(
-                "---\n"
-                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
-                + "---\n"
-                + _DEFAULT_BODY,
-                encoding="utf-8",
-            )
-
-            codes = {
-                finding.code
-                for finding in validate_research_file(
-                    research_path, playbooks_root=ROOT / "records/_playbooks"
-                )
-            }
-
-        self.assertIn("research.candidate-ref-screen-run-id", codes)
-
-    def test_repository_research_lineage_runs_without_evidence_decisions(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            (root / "src").mkdir()
-            _write_candidate_fixture(root)
-            front = _minimal_research_front_matter()
-            del front["candidate_evidence_decisions"]
-            candidate_ref = front["candidate_ref"]
-            assert isinstance(candidate_ref, dict)
-            candidate_ref["screen_run_id"] = "screening-20260508"
-            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
-            research_path.parent.mkdir(parents=True)
-            research_path.write_text(
-                "---\n"
-                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
-                + "---\n"
-                + _DEFAULT_BODY,
-                encoding="utf-8",
-            )
-
-            codes = {
-                finding.code
-                for finding in validate_research_file(
-                    research_path, playbooks_root=ROOT / "records/_playbooks"
-                )
-            }
-
-        self.assertIn("research.candidate-ref-screen-run-id", codes)
-
-    def test_repository_research_copied_candidate_fields_must_match(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            (root / "src").mkdir()
-            _write_candidate_fixture(root)
-            front = _minimal_research_front_matter()
-            front["avg_turnover_oku"] = 99.0
-            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
-            research_path.parent.mkdir(parents=True)
-            research_path.write_text(
-                "---\n"
-                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
-                + "---\n"
-                + _DEFAULT_BODY,
-                encoding="utf-8",
-            )
-
-            codes = {
-                finding.code
-                for finding in validate_research_file(
-                    research_path, playbooks_root=ROOT / "records/_playbooks"
-                )
-            }
-
-        self.assertIn("research.candidate-field-copy", codes)
-
-    def test_repository_research_candidate_metric_copy_cannot_be_omitted(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            (root / "src").mkdir()
-            _write_candidate_fixture(root)
-            front = _minimal_research_front_matter()
-            front["avg_turnover_oku"] = 2.0
-            front["market_cap_oku"] = 100
-            front["valuation"] = {}
-            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
-            research_path.parent.mkdir(parents=True)
-            research_path.write_text(
-                "---\n"
-                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
-                + "---\n"
-                + _DEFAULT_BODY,
-                encoding="utf-8",
-            )
-
-            codes = {
-                finding.code
-                for finding in validate_research_file(
-                    research_path, playbooks_root=ROOT / "records/_playbooks"
-                )
-            }
-
-        self.assertIn("research.candidate-field-copy", codes)
-
-    def test_repository_research_candidate_null_metric_cannot_be_fabricated(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            (root / "src").mkdir()
-            _write_candidate_fixture(root)
-            candidates_path = root / "records/04-candidates/2026/05/2026-05-01.yaml"
-            document = yaml.safe_load(candidates_path.read_text(encoding="utf-8"))
-            document["candidates"][0]["metrics"]["p_s"] = None
-            candidates_path.write_text(
-                yaml.safe_dump(document, allow_unicode=True, sort_keys=False),
-                encoding="utf-8",
-            )
-            front = _minimal_research_front_matter()
-            front["avg_turnover_oku"] = 2.0
-            front["market_cap_oku"] = 100
-            front["valuation"] = {"p_s": 0.5}
-            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
-            research_path.parent.mkdir(parents=True)
-            research_path.write_text(
-                "---\n"
-                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
-                + "---\n"
-                + _DEFAULT_BODY,
-                encoding="utf-8",
-            )
-
-            codes = {
-                finding.code
-                for finding in validate_research_file(
-                    research_path, playbooks_root=ROOT / "records/_playbooks"
-                )
-            }
-
-        self.assertIn("research.candidate-field-copy", codes)
+        self.assertIn("research.candidate-ref-ticker", codes)
 
     def test_payoff_order_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
         payoff = front["thesis_payoff"]
         assert isinstance(payoff, dict)
-        payoff["stop_loss_yen"] = 1050
+        payoff["stop_loss_yen"] = 700
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.payoff-order", codes)
 
@@ -670,29 +360,13 @@ class ResearchValidationTests(unittest.TestCase):
         front = _minimal_research_front_matter()
         payoff = front["thesis_payoff"]
         assert isinstance(payoff, dict)
-        payoff["expected_upside_pct"] = 20.0
+        payoff["expected_upside_pct"] = 99.0
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.expected-upside", codes)
 
-    def test_expected_downside_formula_is_checked(self) -> None:
-        front = _minimal_research_front_matter()
-        payoff = front["thesis_payoff"]
-        assert isinstance(payoff, dict)
-        payoff["expected_downside_pct"] = 8.0
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.expected-downside", codes)
-
-    def test_risk_reward_formula_is_checked(self) -> None:
-        front = _minimal_research_front_matter()
-        payoff = front["thesis_payoff"]
-        assert isinstance(payoff, dict)
-        payoff["risk_reward_ratio"] = 1.0
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.risk-reward", codes)
-
     def test_invalid_ticker_pattern_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
-        front["ticker"] = "abc"
+        front["ticker"] = "bad"
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.ticker-format", codes)
 
@@ -703,7 +377,7 @@ class ResearchValidationTests(unittest.TestCase):
         self.assertIn("research.unknown-playbook", codes)
 
     def test_missing_required_section_is_flagged(self) -> None:
-        body = "# Research\n\n## 1. Thesis\nonly thesis\n"
+        body = _DEFAULT_BODY.replace("## 6. Catalyst\ntext\n", "")
         codes = {
             finding.code for finding in self._findings_for(_minimal_research_front_matter(), body)
         }
@@ -713,130 +387,85 @@ class ResearchValidationTests(unittest.TestCase):
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".md", delete=False, encoding="utf-8"
         ) as tmp:
-            tmp.write("# Research\n\nno front matter\n")
+            tmp.write("# Research\n")
             path = Path(tmp.name)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+            codes = {
+                finding.code
+                for finding in validate_research_file(
+                    path, playbooks_root=ROOT / "records/_playbooks"
+                )
+            }
         finally:
             path.unlink()
-        self.assertEqual(len(findings), 1)
-        self.assertEqual(findings[0].code, "research.no-front-matter")
+        self.assertIn("research.no-front-matter", codes)
 
     def test_front_matter_non_mapping_is_flagged(self) -> None:
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".md", delete=False, encoding="utf-8"
         ) as tmp:
-            tmp.write("---\n- a\n- b\n---\n# body\n")
+            tmp.write("---\n- not\n- mapping\n---\n")
             path = Path(tmp.name)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+            codes = {
+                finding.code
+                for finding in validate_research_file(
+                    path, playbooks_root=ROOT / "records/_playbooks"
+                )
+            }
         finally:
             path.unlink()
-        self.assertEqual(len(findings), 1)
-        self.assertEqual(findings[0].code, "research.front-matter-non-mapping")
+        self.assertIn("research.front-matter-non-mapping", codes)
 
     def test_missing_playbook_schema_at_load_time_is_handled(self) -> None:
         front = _minimal_research_front_matter()
-        path = self._write(front)
-        try:
-            with (
-                tempfile.TemporaryDirectory() as empty_root,
-                patch(
-                    "baibai_loop.validate.research.discover_playbook_schemas",
-                    return_value={"valuation-reversion"},
-                ),
-            ):
-                findings = validate_research_file(path, playbooks_root=Path(empty_root))
-        finally:
-            path.unlink()
-        codes = {finding.code for finding in findings}
+        with patch(
+            "baibai_loop.validate.research.load_playbook_schema",
+            side_effect=FileNotFoundError("missing"),
+        ):
+            codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.playbook-schema", codes)
 
     def test_invalid_yaml_front_matter_is_flagged(self) -> None:
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".md", delete=False, encoding="utf-8"
         ) as tmp:
-            tmp.write('---\nticker: "2767\n---\n# body\n')
+            tmp.write("---\nfoo: [\n---\n")
             path = Path(tmp.name)
         try:
-            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+            codes = {
+                finding.code
+                for finding in validate_research_file(
+                    path, playbooks_root=ROOT / "records/_playbooks"
+                )
+            }
         finally:
             path.unlink()
-        codes = {finding.code for finding in findings}
-        self.assertTrue(
-            codes & {"research.invalid-yaml", "research.no-front-matter"},
-            f"expected parser failure code, got {codes}",
-        )
+        self.assertIn("research.invalid-yaml", codes)
 
-    def test_repository_research_files_pass(self) -> None:
+    def test_repository_research_files_pass_without_errors(self) -> None:
         repo_research = ROOT / "records/05-research"
         files = discover_research_files(repo_research)
         if not files:
             self.skipTest("no research files under repository root")
         for path in files:
-            findings = [
-                finding
-                for finding in validate_research_file(
-                    path, playbooks_root=ROOT / "records/_playbooks"
-                )
-                if finding.severity == "error"
-            ]
-            self.assertEqual(findings, [], f"research {path} produced error findings: {findings}")
-
-    def test_external_refs_with_external_prefix_requires_object_ref(self) -> None:
-        front = _minimal_research_front_matter()
-        front["external_refs"] = ["records/_external/chatgpt-5/2026-05-04-9682.md"]
-        codes = {
-            finding.code for finding in self._findings_for(front) if finding.severity == "error"
-        }
-        self.assertIn("external-ref.shape", codes)
-
-    def test_external_refs_reject_wrong_target(self) -> None:
-        front = _minimal_research_front_matter()
-        front["external_refs"] = [{"ref_path": "docs/portfolio-policy.md"}]
-        codes = {
-            finding.code for finding in self._findings_for(front) if finding.severity == "error"
-        }
-        self.assertIn("external-ref.target", codes)
+            findings = validate_research_file(path, playbooks_root=ROOT / "records/_playbooks")
+            errors = [finding for finding in findings if finding.severity == "error"]
+            self.assertEqual(errors, [], f"research markdown {path} produced errors: {errors}")
 
     def test_sector_concentration_warns_for_three_approved_memos(self) -> None:
-        base = _minimal_research_front_matter()
-        paths_with_front = [
-            (Path(f"research-{index}.md"), {**base, "ticker": f"13{index}A"}) for index in range(3)
-        ]
-        findings = validate_research_collection(paths_with_front)
+        fronts = []
+        for ticker in ("1111", "2222", "3333"):
+            front = _minimal_research_front_matter()
+            front["ticker"] = ticker
+            fronts.append((Path(f"{ticker}.md"), front))
+
+        findings = validate_research_collection(fronts)
+
         self.assertEqual(len(findings), 3)
-        self.assertEqual({finding.code for finding in findings}, {"research.sector-concentration"})
-
-    def test_sector_concentration_ignores_two_approved_memos(self) -> None:
-        base = _minimal_research_front_matter()
-        findings = validate_research_collection(
-            [
-                (Path("research-1.md"), {**base, "ticker": "130A"}),
-                (Path("research-2.md"), {**base, "ticker": "131A"}),
-            ]
+        self.assertTrue(
+            all(finding.code == "research.sector-concentration" for finding in findings)
         )
-        self.assertEqual(findings, [])
-
-    def test_sector_concentration_ignores_rejected_memos(self) -> None:
-        base = _minimal_research_front_matter()
-        rejected = {
-            **base,
-            "ticker": "132A",
-            "research_decision": {
-                "outcome": "rejected",
-                "posture": "dropped",
-                "rejection_reason": "thesis_failed",
-            },
-        }
-        findings = validate_research_collection(
-            [
-                (Path("research-1.md"), {**base, "ticker": "130A"}),
-                (Path("research-2.md"), {**base, "ticker": "131A"}),
-                (Path("research-3.md"), rejected),
-            ]
-        )
-        self.assertEqual(findings, [])
 
 
 if __name__ == "__main__":

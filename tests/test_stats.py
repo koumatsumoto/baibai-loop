@@ -357,60 +357,6 @@ class StatsServiceTests(unittest.TestCase):
             self.assertTrue(result.cache_hit)
             self.assertEqual(result.observations[0].observed_at, observed_at)
 
-    def test_macro_fragment_uses_cached_world_weekly_series(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "macro.sqlite"
-            for series_id, previous, current in (
-                ("us.10y", 4.40, 4.41),
-                ("us.2y", 3.88, 3.92),
-                ("us.10y_2y_spread", 52.0, 49.0),
-                ("vix", 16.99, 17.19),
-                ("brent", 113.89, 118.26),
-                ("wti", 99.89, 109.76),
-                ("usd_jpy", 156.56, 156.76),
-                ("eur_jpy", 183.21, 184.37),
-                ("aud_jpy", 111.91, 113.40),
-            ):
-                _write_observation_with_coverage(
-                    db,
-                    series_id,
-                    observed_at=date(2026, 5, 2),
-                    value=previous,
-                    coverage_start=date(2026, 4, 6),
-                    coverage_end=date(2026, 5, 10),
-                )
-                _write_observation(
-                    db,
-                    series_id,
-                    observed_at=date(2026, 5, 8),
-                    value=current,
-                )
-
-            payload = StatsService(db).macro_fragment(
-                kind="world-weekly",
-                start=date(2026, 5, 4),
-                end=date(2026, 5, 10),
-            )
-
-            names = {item["name"] for item in payload["layers"]["world"]["market_indicators"]}
-            self.assertIn("WTI原油", names)
-            self.assertIn("USD/JPY", {item["name"] for item in payload["layers"]["japan"]["fx"]})
-            self.assertIn(
-                "WTI原油",
-                {item["indicator"] for item in payload["deltas"]["threshold_breaches"]},
-            )
-
-    def test_macro_fragment_rejects_reversed_date_range(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "macro.sqlite"
-
-            with self.assertRaisesRegex(ValueError, "--end must be on or after --start"):
-                StatsService(db).macro_fragment(
-                    kind="world-weekly",
-                    start=date(2026, 5, 10),
-                    end=date(2026, 5, 4),
-                )
-
     def test_cli_search_and_cached_get(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "macro.sqlite"

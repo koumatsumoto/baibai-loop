@@ -10,7 +10,6 @@
     "asof_date",
     "run_at",
     "run_id",
-    "universe_ref",
     "candidates"
   ],
   "properties": {
@@ -18,7 +17,6 @@
     "asof_date": {"type": "string"},
     "run_at": {"type": "string"},
     "run_id": {"type": "string", "pattern": "^screening-[0-9]{8}$"},
-    "universe_ref": {"$ref": "#/$defs/RepositoryRef"},
     "candidates": {
       "type": "array",
       "items": {"$ref": "#/$defs/Candidate"}
@@ -29,38 +27,17 @@
     }
   },
   "$defs": {
-    "RepositoryRef": {
-      "type": "object",
-      "additionalProperties": true,
-      "required": ["ref_path"],
-      "properties": {
-        "ref_path": {"type": "string", "minLength": 1, "pattern": "^records/[^\\n]*$"},
-        "effective_from": {"type": "string"}
-      }
-    },
     "Candidate": {
       "type": "object",
       "additionalProperties": true,
       "required": [
         "ticker",
         "name",
-        "screen_run_id",
-        "candidate_id",
-        "candidate_key",
-        "playbook_screen_result",
-        "policy_gate_result",
-        "liquidity_gate_result",
         "evidence_hits"
       ],
       "properties": {
         "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
         "name": {"type": "string", "minLength": 1},
-        "screen_run_id": {"type": "string", "minLength": 1},
-        "candidate_id": {"type": "string", "pattern": "^candidate-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9A-Z]{4}$"},
-        "candidate_key": {"type": "string", "minLength": 1},
-        "playbook_screen_result": {"enum": ["hit", "no_hit", "rank_out", "near_threshold"]},
-        "policy_gate_result": {"enum": ["pass", "excluded"]},
-        "liquidity_gate_result": {"enum": ["pass", "excluded"]},
         "evidence_hits": {
           "type": "array",
           "minItems": 1,
@@ -72,33 +49,16 @@
       "type": "object",
       "additionalProperties": true,
       "required": [
-        "evidence_hit_id",
+        "name",
         "playbook_id",
-        "claim_id",
-        "claim_type",
-        "evidence_family_set",
-        "decision_role",
-        "evidence_polarity",
         "source_status",
-        "sizing_eligible",
-        "independence_component_id"
+        "sizing_eligible"
       ],
       "properties": {
-        "evidence_hit_id": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
         "playbook_id": {"type": "string", "minLength": 1},
-        "claim_id": {"type": "string", "minLength": 1},
-        "claim_type": {"type": "string", "minLength": 1},
-        "evidence_family_set": {
-          "type": "array",
-          "items": {"enum": ["valuation", "fundamental", "market_derived", "positioning_liquidity", "macro", "catalyst"]},
-          "minItems": 1,
-          "uniqueItems": true
-        },
-        "decision_role": {"type": "string", "minLength": 1},
-        "evidence_polarity": {"enum": ["supports", "contradicts", "risk", "neutral"]},
         "source_status": {"enum": ["ok", "warning", "stale", "missing"]},
-        "sizing_eligible": {"type": "boolean"},
-        "independence_component_id": {"type": "string", "minLength": 1}
+        "sizing_eligible": {"type": "boolean"}
       }
     }
   }

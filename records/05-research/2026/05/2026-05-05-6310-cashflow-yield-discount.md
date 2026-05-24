@@ -5,11 +5,6 @@ playbook_id: cashflow-yield-discount
 playbook_ref:
   ref_path: records/_playbooks/cashflow-yield-discount/2026-05-01T000000+0900.md
   effective_from: '2026-05-01T00:00:00+09:00'
-selected_supporting_evidence_refs:
-- source: candidate
-  evidence_hit_id: candidate-2026-05-01-6310-cashflow-yield-discount
-- source: candidate
-  evidence_hit_id: candidate-2026-05-01-6310-sales-discount-growth
 research_decision:
   outcome: deferred
   posture: wait_for_event
@@ -22,44 +17,11 @@ research_decision:
     - event risk must clear
 candidate_ref:
   candidates_ref: records/04-candidates/2026/05/2026-05-01.yaml
-  screen_run_id: screening-20260501
   ticker: '6310'
-  candidate_id: candidate-2026-05-01-6310
 ai_draft: true
 published_at: '2026-05-05T20:10:00+09:00'
 recorded_at: '2026-05-05T20:10:00+09:00'
 tradable_at: '2026-05-18T09:00:00+09:00'
-external_refs:
-- ref_path: records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
-candidate_evidence_decisions:
-- evidence_hit_id: candidate-2026-05-01-6310-cashflow-yield-discount
-  effective_sizing_eligible: true
-  evaluated_at: '2026-05-05T20:10:00+09:00'
-  reason_code: source_status_ok
-- evidence_hit_id: candidate-2026-05-01-6310-sales-discount-growth
-  effective_sizing_eligible: true
-  evaluated_at: '2026-05-05T20:10:00+09:00'
-  reason_code: source_status_ok
-research_evidence_hits:
-- evidence_hit_id: research-6310-risk-review
-  decision_role: risk_evidence
-  evidence_polarity: risk
-  evidence_family_set:
-  - fundamental
-  source_status: ok
-  analyst_asserted: true
-  sizing_eligible: false
-  source_refs:
-  - ref_path: records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
-  recorded_at: '2026-05-05T20:10:00+09:00'
-independent_evidence_count: 2
-raw_playbook_concurrence_count: 2
-sizing_eligible_playbook_concurrence_count: 2
-raw_evidence_family_count: 2
-sizing_eligible_evidence_family_count: 2
-conviction_tier: medium
-conviction_tier_path: count_breadth
-depth_verification_ref: null
 position_sizing_overlay:
   paper_proxy_position_size_oku: 0.0
   paper_proxy_position_size_yen: 0
@@ -112,6 +74,10 @@ macro_context_fit:
   required_checks: []
   sizing_caution:
   - migrated_from_legacy_macro_context
+corporate_action_check:
+  checked: true
+  result: none
+  note: Checked during research review.
 ---
 
 # Research: 2026-05-05 6310 井関農機 cashflow-yield-discount
@@ -142,7 +108,7 @@ macro_context_fit:
 
 | external_ref | 採用 / 修正 / 未採用 | この research での扱い |
 | --- | --- | --- |
-| records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md | 採用 | 6310 は OCF lane 1 位だが、5/15 1Q 直前かつ 1 単元 172,600 円の event risk が重いため 5/7 には買わない |
+| deepresearch 2026-05-05 japan-market-reopen-risk | 採用 | 6310 は OCF lane 1 位だが、5/15 1Q 直前かつ 1 単元 172,600 円の event risk が重いため 5/7 には買わない |
 | 同上 | 採用 | 5/8 米雇用、5/12 CPI、5/15 個別決算を通過してから tactical cap を 60-70% へ上げる、という段階投入を採用 |
 
 ## Cashflow snapshot

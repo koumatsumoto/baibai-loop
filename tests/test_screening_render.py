@@ -78,7 +78,6 @@ class ScreeningRenderTests(unittest.TestCase):
             ],
             run_at=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
             run_id="screening-20260424",
-            fact_memo_lines=("複数閾値 hit 銘柄はなし",),
             provider_status_lines=("データソース: J-Quants Light + EDINET + JPX",),
             universe_exclusion_lines=("除外件数: 42 銘柄",),
             ttm_quality_counts={"exact": 1, "approximated": 1, "unavailable": 1},
@@ -96,7 +95,6 @@ class ScreeningRenderTests(unittest.TestCase):
         self.assertIn("approximated", rendered)
         self.assertIn("freshness_warnings:", rendered)
         self.assertIn("ttm_quality_counts:", rendered)
-        self.assertIn("fact_memo_lines:", rendered)
         self.assertIn('- "jpx-public-regulation"', rendered)
 
     def test_render_screened_yaml_matches_canonical_structure(self) -> None:
@@ -141,32 +139,14 @@ class ScreeningRenderTests(unittest.TestCase):
                     },
                     market_cap_oku=585,
                     avg_turnover_oku=2.3,
+                    price_change_20d=-0.072,
                     price_change_60d=-0.155,
-                    price_change_4w=-0.072,
                     sector_relative_strength_percentile=0.35,
-                    metrics_breakdown={
-                        "per_trailing": {
-                            "sector_median_gap": -0.21,
-                            "self_range_percentile": 0.14,
-                            "sigma_gap": -1.4,
-                        },
-                        "pbr": {
-                            "sector_median_gap": -0.18,
-                            "self_range_percentile": 0.20,
-                            "sigma_gap": -1.1,
-                        },
-                        "ev_ebitda": {
-                            "sector_median_gap": None,
-                            "self_range_percentile": None,
-                            "sigma_gap": None,
-                        },
-                    },
                     next_earnings_date=date(2026, 5, 13),
                 )
             ],
             run_at=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
             run_id="screening-20260424",
-            fact_memo_lines=("[事実 1]", "[事実 2]"),
             provider_status_lines=(
                 "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX",
             ),
@@ -179,18 +159,17 @@ class ScreeningRenderTests(unittest.TestCase):
 
         payload = yaml.safe_load(rendered)
         self.assertEqual(payload["run_id"], "screening-20260424")
-        self.assertNotIn("screening_rules_snapshot", payload)
         candidate = payload["candidates"][0]
-        self.assertEqual(candidate["screen_run_id"], "screening-20260424")
-        self.assertEqual(candidate["playbook_screen_result"], "hit")
+        self.assertEqual(candidate["ticker"], "130A")
+        self.assertEqual(candidate["sector_33"], "業種名")
+        self.assertEqual(candidate["price_change_20d"], -0.072)
         self.assertEqual(candidate["evidence_hits"][0]["playbook_id"], "valuation-reversion")
-        self.assertEqual(candidate["evidence_hits"][0]["decision_role"], "sizing_evidence")
         self.assertEqual(
-            candidate["evidence_hits"][0]["evidence_family_set"],
-            ["market_derived"],
+            candidate["evidence_hits"][0]["metrics"]["price_change_60d"],
+            -0.155,
         )
 
-    def test_render_evidence_family_set_depends_on_playbook_metrics(self) -> None:
+    def test_render_evidence_keeps_core_playbook_metrics(self) -> None:
         document = ScreenedRunDocument(
             run_date=date(2026, 4, 24),
             asof_date=date(2026, 4, 24),
@@ -230,10 +209,9 @@ class ScreeningRenderTests(unittest.TestCase):
 
         payload = yaml.safe_load(render_screened_yaml(document))
 
-        self.assertEqual(
-            payload["candidates"][0]["evidence_hits"][0]["evidence_family_set"],
-            ["fundamental", "valuation"],
-        )
+        evidence = payload["candidates"][0]["evidence_hits"][0]
+        self.assertEqual(evidence["playbook_id"], "sales-discount-growth")
+        self.assertEqual(evidence["metrics"]["sales_yoy"], 0.1)
 
     def test_render_requires_jst_run_at(self) -> None:
         document = ScreenedRunDocument(

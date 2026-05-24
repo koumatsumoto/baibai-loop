@@ -86,7 +86,7 @@ class ScreeningRulesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "rules.yaml"
             payload = RULES.model_dump(mode="json")
-            payload["output"]["selection_mode"] = "lane_toplists"
+            payload["output"]["removed_output_field"] = True
             path.write_text(yaml.safe_dump(payload, allow_unicode=True), encoding="utf-8")
 
             with self.assertRaises(ValueError):

@@ -65,19 +65,12 @@ def test_validate_ledger_rejects_bad_ticker_pattern(tmp_path: Path) -> None:
     assert "ledger.pattern" in {finding.code for finding in validate_ledger_file(path)}
 
 
-def test_research_memo_candidate_ref_rejects_mismatched_screen_run_id(tmp_path: Path) -> None:
+def test_candidate_ref_matches_candidate_by_ticker(tmp_path: Path) -> None:
     candidate_ref = "records/04-candidates/2026/05/2026-05-01.yaml"
     candidates_path = tmp_path / candidate_ref
     candidates_path.parent.mkdir(parents=True)
     candidates_path.write_text(
-        "run_id: screening-20260501\n"
-        "candidates:\n"
-        "- ticker: '9682'\n"
-        "  candidate_id: candidate-2026-05-01-9682\n"
-        "  screen_run_id: screening-20260501\n"
-        "  playbook_screen_result: hit\n"
-        "  policy_gate_result: pass\n"
-        "  liquidity_gate_result: pass\n",
+        "run_id: screening-20260501\ncandidates:\n- ticker: '9682'\n",
         encoding="utf-8",
     )
     path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
@@ -89,51 +82,12 @@ def test_research_memo_candidate_ref_rejects_mismatched_screen_run_id(tmp_path: 
             ticker="9682",
             candidate_ref={
                 "candidates_ref": candidate_ref,
-                "candidate_id": "candidate-2026-05-01-9682",
-                "screen_run_id": "screening-20260508",
                 "ticker": "9682",
             },
         ),
     )
 
-    codes = {finding.code for finding in validate_ledger_file(path)}
-
-    assert "ledger.candidate-ref-screen-run-id" in codes
-
-
-def test_candidate_ref_requires_screen_run_id(tmp_path: Path) -> None:
-    candidate_ref = "records/04-candidates/2026/05/2026-05-01.yaml"
-    candidates_path = tmp_path / candidate_ref
-    candidates_path.parent.mkdir(parents=True)
-    candidates_path.write_text(
-        "run_id: screening-20260501\n"
-        "candidates:\n"
-        "- ticker: '9682'\n"
-        "  candidate_id: candidate-2026-05-01-9682\n"
-        "  screen_run_id: screening-20260501\n"
-        "  playbook_screen_result: hit\n"
-        "  policy_gate_result: pass\n"
-        "  liquidity_gate_result: pass\n",
-        encoding="utf-8",
-    )
-    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
-    _write_jsonl(
-        path,
-        _decision_record(
-            decision_event_id="decision-20260501-9682-research",
-            decision_scope="research_memo",
-            ticker="9682",
-            candidate_ref={
-                "candidates_ref": candidate_ref,
-                "candidate_id": "candidate-2026-05-01-9682",
-                "ticker": "9682",
-            },
-        ),
-    )
-
-    codes = {finding.code for finding in validate_ledger_file(path)}
-
-    assert "ledger.candidate-ref-screen-run-id" in codes
+    assert validate_ledger_file(path) == []
 
 
 def test_candidate_ref_missing_candidates_ref_is_error(tmp_path: Path) -> None:
@@ -146,8 +100,6 @@ def test_candidate_ref_missing_candidates_ref_is_error(tmp_path: Path) -> None:
             ticker="9682",
             candidate_ref={
                 "candidates_ref": "records/04-candidates/2026/05/missing.yaml",
-                "candidate_id": "candidate-2026-05-01-9682",
-                "screen_run_id": "screening-20260501",
                 "ticker": "9682",
             },
         ),
@@ -170,8 +122,6 @@ def test_candidate_ref_rejects_absolute_path(tmp_path: Path) -> None:
             ticker="9682",
             candidate_ref={
                 "candidates_ref": str(outside),
-                "candidate_id": "candidate-2026-05-01-9682",
-                "screen_run_id": "screening-20260501",
                 "ticker": "9682",
             },
         ),
@@ -195,8 +145,6 @@ def test_candidate_ref_rejects_wrong_target(tmp_path: Path) -> None:
             ticker="9682",
             candidate_ref={
                 "candidates_ref": "records/01-macro-context/2026/05/not-candidates.yaml",
-                "candidate_id": "candidate-2026-05-01-9682",
-                "screen_run_id": "screening-20260501",
                 "ticker": "9682",
             },
         ),

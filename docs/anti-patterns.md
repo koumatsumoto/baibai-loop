@@ -95,9 +95,9 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 
 ### 再発防止チェックリスト
 
-- [ ] candidates 由来の `price_change_60d` / `price_change_4w` が **±50% を超える銘柄**は、
+- [ ] candidates 由来の `price_change_60d` / `price_change_20d` が **±50% を超える銘柄**は、
       research に進める前に以下を確認:
-  - [ ] EDINET の臨時報告書・有価証券届出書で 60 日 / 4 週 期間内の corporate action
+  - [ ] EDINET の臨時報告書・有価証券届出書で 60 日 / 20 営業日 期間内の corporate action
         (株式分割 / 併合 / 合併 / TOB / 第三者割当) を確認
   - [ ] TDnet / 適時開示で同期間の重要発表を確認
   - [ ] J-Quants の adjustment_factor が分割を反映しているか実装で確認
@@ -239,7 +239,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] cross-field consistency rule は **依存先の field が「数値であること」だけでなく、
       「正値 (> 0) であること」を確認**する。0 / 負値で silently skip する実装は穴になる
 - [ ] front matter の `avg_turnover_oku` が `candidate_ref.candidates_ref` の
-      `screen_run_id` / `ticker` / `candidate_id` 完全一致 row の値と整合しているか
+      `ticker` 一致 row の値と整合しているか
       (現状は research validator が enforce する)
 - [ ] trade order / execution state を導入・変更する場合、以下の corner case を確認したか
       (現状は `src/baibai_loop/validate/trade.py` が enforce する):
@@ -261,7 +261,6 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] `policy_overrides[]` は policy field の override だけを表し、decision history を混ぜていない
   - [ ] `decision_revisions[].revision_type` が既知集合に属し、`prior_state_ref` / `prior_state` / `new_state` / `reason` の必須キーが揃う
   - [ ] `research_decision.outcome: approved` の場合、`candidate_ref` が参照した candidates repository file の対象 candidate に join できるか
-  - [ ] `external_refs[]` は `records/_external/` 配下の path のみ (validator: `research.external-ref-prefix`)
   - [ ] 連続する commit で `research_decision.outcome: deferred|rejected → approved` に flip した場合、PR review で thesis / event / sizing の変更理由を確認する
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
@@ -299,13 +298,9 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
       `rejected` にして、追加確認条件を明示したか
 - [ ] 外部 AI / 二次分析の結論を採用する前に、主要数値を会社IR・決算短信・決算説明資料・Q&A・
       取引所 calendar・candidates のいずれかで再確認したか
-- [ ] 外部 AI セッション・証券レポート・アナリストノートを取り込む場合、生原稿を
-      [`/records/_external/<source>/YYYY-MM-DD-<topic>.md`](/records/_external/) に保存し、
-      research front matter の `external_refs` で参照したか。要約のみで生原稿を残さないのは AP-09 違反
-- [ ] 外部 AI の出力を review 後に修正する場合、生原稿ファイルを上書きせず、修正・未採用の判断は
-      research の verification log に残したか。再取得した別出力なら別ファイルにしたか
+- [ ] 外部 AI セッション・証券レポート・アナリストノートを使う場合、records に原稿管理を増やさず、採用した事実と再計算結果だけを本文に残したか
+- [ ] 外部 AI の出力を review 後に修正する場合、修正・未採用の判断を research 本文の確認ログに残したか
 - [ ] 確認できた事実、修正した数値、未採用の二次情報を research の source verification log に分けて残したか
-      (`external_refs[]` ごとに 採用 / 修正 / 未採用 の表で構造化する)
 - [ ] EPS / PER / 配当利回り / target price は公式 EPS・配当予想・株価で再計算したか
 - [ ] 直前の `rejected`、最新 candidates からの不在、universe drop、macro context headwind、実資金集中度超過などを
       上書きする場合、research front matter の `overrides` と本文に prior state / reason / evidence を残したか

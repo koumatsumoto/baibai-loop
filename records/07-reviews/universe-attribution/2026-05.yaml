@@ -1,7 +1,0 @@
-scan_id: universe-attribution-2026-05
-scan_month: 2026-05
-universe_ref:
-  ref_path: records/_universe-snapshots/2026/05/2026-05-01T192150+0900.yaml
-summary:
-  members_recorded: 366
-  no_hit_false_negative_count: 0

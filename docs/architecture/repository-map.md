@@ -25,7 +25,7 @@ source_paths:
 | `records/` | 運用成果物と運用支援 asset |
 | `src/baibai_loop/` | screening、validation、ledger sync などの CLI 実装 |
 | `tests/` | CLI、provider、schema、validator、ledger の automated tests |
-| `.github/` | CI、security audit、Dependabot、ledger sync workflow |
+| `.github/` | CI、security audit、Dependabot |
 | `pyproject.toml` / `uv.lock` | Python package と dependency lock の正本 |
 
 ## Records
@@ -43,20 +43,17 @@ source_paths:
 `records/_*` は運用成果物そのものではなく、生成・検証・検証後追跡を支える領域です。重複と drift を避けるため、正本 docs は 1 つに固定します。
 
 通常 record (`01-macro-context` から `07-reviews`) は event artifact として path
-自体を正本にし、mutable latest index は持たない。Support area も `_changelog.jsonl` や
-content hash audit は持たず、record から参照する repo 内 file path と git 履歴を正本にする。
+自体を正本にし、mutable latest index は持たない。Support area の変更履歴も git に一本化し、
+Record から参照する repo 内 file path を正本にする。
 
 | path | 正本 docs | 参照 docs | 役割 |
 | --- | --- | --- | --- |
-| `records/_approval-rules/` | [`../components/research.md`](../components/research.md) | this map | analyst asserted evidence を sizing に入れる approval rule files |
-| `records/_calendars/` | [`../components/portfolio-policy.md`](../components/portfolio-policy.md) | this map | business day / event / corporate action calendar files |
 | `records/_config/` | [`../screening/principles.md`](../screening/principles.md) | this map | screening rules and lightweight profile config files |
 | `records/_data/` | [`../reference/data-sources.md`](../reference/data-sources.md) | this map | raw / derived data と cache の支援領域 |
 | `records/_ledger/` | [`../components/ledger.md`](../components/ledger.md) | this map | decision register と ledger sync の記録領域 |
 | `records/_market-data/` | [`../components/reviews.md`](../components/reviews.md) | this map | review / missed opportunity 計算用 market data files |
 | `records/_playbooks/` | [`../components/playbooks.md`](../components/playbooks.md) | this map | 運用中 playbook の保存領域 |
 | `records/_schemas/` | [`../reference/testing-and-validation.md`](../reference/testing-and-validation.md) | [`automation-map.md`](./automation-map.md) | records validation schema の保存領域 |
-| `records/_universe-snapshots/` | [`../components/candidates.md`](../components/candidates.md) | this map | screening universe files |
 
 ## Docs sections
 

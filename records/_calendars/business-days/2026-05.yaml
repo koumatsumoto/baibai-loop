@@ -1,9 +1,0 @@
-calendar_id: jpx-business-days-2026-05
-market: JPX
-covered_from: '2026-05-01'
-covered_until: '2026-05-31'
-last_refreshed_at: '2026-05-05T00:00:00+09:00'
-source_status: ok
-holidays:
-- '2026-05-05'
-- '2026-05-06'

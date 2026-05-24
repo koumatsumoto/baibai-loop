@@ -41,7 +41,6 @@ def _trade_front(**overrides: object) -> dict[str, object]:
                 "order_id": "order-20260505-9682-entry",
                 "quantity": 200,
                 "average_price_yen": 1014,
-                "conviction_tier": "medium",
             }
         ],
         "orders": [
@@ -108,22 +107,6 @@ def _is_trade_dir(path: Path) -> bool:
 
 def _write_test_repo_sources(root: Path) -> None:
     (root / "src").mkdir(parents=True, exist_ok=True)
-    for rel_path, payload in {
-        "records/_calendars/business-days/2026-05.yaml": {"business_days": ["2026-05-05"]},
-        "records/_calendars/events/2026-05.yaml": {
-            "covered_from": "2026-05-01",
-            "covered_until": "2026-05-31",
-            "events": [],
-        },
-        "records/_calendars/corporate-actions/2026-05.yaml": {"events": []},
-    }.items():
-        source_path = root / rel_path
-        source_path.parent.mkdir(parents=True, exist_ok=True)
-        if not source_path.exists():
-            source_path.write_text(
-                yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
-                encoding="utf-8",
-            )
     research_path = root / "records/05-research/2026/05/2026-05-05-9682-sales-discount-growth.md"
     research_path.parent.mkdir(parents=True, exist_ok=True)
     if not research_path.exists():
@@ -335,7 +318,6 @@ def test_open_trades_must_stay_within_portfolio_concentration_caps(tmp_path: Pat
             "order_id": "order-20260505-9682-entry",
             "quantity": 3000,
             "average_price_yen": 1050,
-            "conviction_tier": "medium",
         }
     ]
     path = _write_trade(tmp_path, front)

@@ -5,62 +5,17 @@ playbook_id: sales-discount-growth
 playbook_ref:
   ref_path: records/_playbooks/sales-discount-growth/2026-05-01T000000+0900.md
   effective_from: '2026-05-01T00:00:00+09:00'
-selected_supporting_evidence_refs:
-- source: candidate
-  evidence_hit_id: candidate-2026-05-01-9682-sales-discount-growth
 research_decision:
   outcome: approved
   posture: act_now
   reason_code: pre_refactor_history_restored_and_payoff_pass
 candidate_ref:
   candidates_ref: records/04-candidates/2026/05/2026-05-01.yaml
-  screen_run_id: screening-20260501
   ticker: '9682'
-  candidate_id: candidate-2026-05-01-9682
 ai_draft: false
 published_at: '2026-05-05T13:31:15+09:00'
 recorded_at: '2026-05-05T13:31:15+09:00'
 tradable_at: '2026-05-07T09:00:00+09:00'
-external_refs:
-- ref_path: records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
-candidate_evidence_decisions:
-- evidence_hit_id: candidate-2026-05-01-9682-sales-discount-growth
-  effective_sizing_eligible: true
-  evaluated_at: '2026-05-05T13:31:15+09:00'
-  reason_code: source_status_ok
-research_evidence_hits:
-- evidence_hit_id: research-9682-shareholder-return
-  decision_role: sizing_evidence
-  evidence_polarity: supports
-  evidence_family_set:
-  - catalyst
-  source_status: ok
-  analyst_asserted: true
-  sizing_eligible: true
-  independence_component_id: shareholder-return
-  approval_rule_id: analyst-event-evidence-reviewed
-  source_refs:
-  - ref_path: records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
-  recorded_at: '2026-05-05T13:31:15+09:00'
-- evidence_hit_id: research-9682-risk-review
-  decision_role: risk_evidence
-  evidence_polarity: risk
-  evidence_family_set:
-  - fundamental
-  source_status: ok
-  analyst_asserted: true
-  sizing_eligible: false
-  source_refs:
-  - ref_path: records/_external/deepresearch/2026-05-05-japan-market-reopen-risk.md
-  recorded_at: '2026-05-05T13:31:15+09:00'
-independent_evidence_count: 2
-raw_playbook_concurrence_count: 1
-sizing_eligible_playbook_concurrence_count: 1
-raw_evidence_family_count: 3
-sizing_eligible_evidence_family_count: 3
-conviction_tier: medium
-conviction_tier_path: count_breadth
-depth_verification_ref: null
 position_sizing_overlay:
   paper_proxy_position_size_oku: 0.01
   paper_proxy_position_size_yen: 1000000
@@ -109,6 +64,10 @@ macro_context_fit:
   required_checks: []
   sizing_caution:
   - migrated_from_legacy_macro_context
+corporate_action_check:
+  checked: true
+  result: none
+  note: Checked during research review.
 ---
 
 # リサーチ: 2026-05-05 9682 DTS sales-discount-growth
@@ -117,7 +76,7 @@ macro_context_fit:
 
 DTS は、リファクタリング前に承認済みだったメモを現在の records に戻したもの。過去の git history では、9682 は 2026-05-07 より前にリサーチされ、注文対象になっていた。現在の broker position snapshot では、200 株が 1,010 円で約定している。
 
-仮説は狭い。P/S 1.23、売上 YoY +7.4%、営業黒字、株主還元を根拠にした小さめの情報サービス銘柄トレードであり、高 conviction の rerating 狙いではない。sector tilt は neutral だが、ポジションサイズは抑える。
+仮説は狭い。P/S 1.23、売上 YoY +7.4%、営業黒字、株主還元を根拠にした小さめの情報サービス銘柄トレードであり、大きな rerating 狙いではない。sector tilt は neutral だが、ポジションサイズは抑える。
 
 ## Macro context
 
@@ -154,7 +113,7 @@ DTS は営業黒字のため、赤字縮小は gate 条件ではない。OCF yie
 
 ## Shareholder return（株主還元）
 
-過去リサーチでは、増配と自己株買い / 消却を追加 catalyst として扱っていた。この材料は analyst-confirmed の sizing eligible evidence とし、元の外部確認ログは `records/_external/` 配下に保存されている。
+過去リサーチでは、増配と自己株買い / 消却を追加 catalyst として扱っていた。この材料は analyst-confirmed の補助 evidence として扱う。
 
 ## Entry（エントリー）
 
