@@ -13,14 +13,12 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal, TextIO, assert_never
 
-from .calendar import discover_calendar_files, validate_calendar_file
 from .candidates import discover_candidates_files, validate_candidates_file
 from .errors import ValidationFinding
 from .ledger import discover_ledger_files, validate_ledger_file
 from .macro_context import discover_macro_context_files, validate_macro_context_file
 from .playbook_schema import discover_playbook_schemas
 from .policy import validate_policy_file
-from .references import discover_reference_files, validate_reference_integrity
 from .research import (
     discover_research_files,
     load_research_document,
@@ -39,8 +37,6 @@ type ValidationTarget = Literal[
     "trade",
     "ledger",
     "review",
-    "references",
-    "calendar",
 ]
 _TARGETS: tuple[ValidationTarget, ...] = (
     "macro-context",
@@ -50,8 +46,6 @@ _TARGETS: tuple[ValidationTarget, ...] = (
     "trade",
     "ledger",
     "review",
-    "references",
-    "calendar",
 )
 
 MACRO_CONTEXT_ROOT = Path("records/01-macro-context")
@@ -62,7 +56,6 @@ TRADES_ROOT = Path("records/06-trades")
 LEDGER_ROOT = Path("records/_ledger")
 PLAYBOOKS_ROOT = Path("records/_playbooks")
 REVIEWS_ROOT = Path("records/07-reviews")
-CALENDAR_ROOT = Path("records/_calendars")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -128,8 +121,6 @@ def run_validation(
         files = _discover(root, target)
         file_count += len(files)
         for path in files:
-            if target == "references":
-                continue
             if target == "research":
                 doc = research_documents[path]
                 if isinstance(doc, list):
@@ -147,8 +138,6 @@ def run_validation(
                     )
             else:
                 findings.extend(_validate(root, target, path, known_playbooks))
-        if target == "references":
-            findings.extend(validate_reference_integrity(root))
     if research_documents:
         front_matters = [
             (path, doc[0]) for path, doc in research_documents.items() if not isinstance(doc, list)
@@ -189,10 +178,6 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
             return discover_ledger_files(root / LEDGER_ROOT)
         case "review":
             return discover_review_files(root / REVIEWS_ROOT)
-        case "references":
-            return discover_reference_files(root)
-        case "calendar":
-            return discover_calendar_files(root / CALENDAR_ROOT)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 
@@ -222,10 +207,6 @@ def _validate(
             return validate_ledger_file(path)
         case "review":
             return validate_review_file(path)
-        case "references":
-            return []
-        case "calendar":
-            return validate_calendar_file(path)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 

@@ -3,6 +3,5 @@ review_month: 2026-05
 hit_rate_by_horizon: {}
 forward_return_distribution: {}
 drawdown_distribution: {}
-conviction_tier_breakdown: {}
 evidence_family_breakdown: {}
 source_status_breakdown: {}

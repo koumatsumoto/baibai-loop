@@ -26,8 +26,9 @@ Trade は採用済み research packet に対する執行記録です。自動発
 ## After writing
 
 ```bash
-uv run baibai-loop-validate
 uv run baibai-loop-ledger sync --root .
+uv run baibai-loop-validate --target ledger
+uv run baibai-loop-validate
 ```
 
-validate 後に、`order_intent.order_intent_id` と `orders[].origin_order_intent_id` が join できること、`guarded_max_notional_yen = quantity * order_price_guard_yen` であることを確認する。
+ledger sync 後に ledger target を検証し、最後に full validate を通す。`order_intent.order_intent_id` と `orders[].origin_order_intent_id` が join できること、`guarded_max_notional_yen = quantity * order_price_guard_yen` であることを確認する。

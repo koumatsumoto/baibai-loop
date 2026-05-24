@@ -38,9 +38,9 @@ flowchart LR
   playbooks --> candidates
 ```
 
-Macro context は screening 手前で確認し、必要に応じて深く更新します。Security-level track は `candidates -> research -> trades -> reviews` で売買判断と feedback を扱います。統合点は investment memo です。
+Macro context は screening 手前で確認し、必要に応じて深く更新します。個別銘柄 lifecycle は `candidates -> research -> trades -> reviews` で売買判断と feedback を扱います。統合点は investment memo です。
 
-`policy weight` としての macro 76 / security-level 24 は廃止します。Validator-visible な採用可否と sizing cap は portfolio policy と research 判断が担います。
+採用可否と sizing cap は portfolio policy と research 判断が担います。Macro context は hard gate ではなく、screening 前提と sector 優先度を整理する入力です。
 
 ## スコープ
 

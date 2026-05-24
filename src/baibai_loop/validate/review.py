@@ -269,7 +269,6 @@ def _validate_review_scan_file(path: Path) -> list[ValidationFinding]:
 def _check_scan_repository_refs(path: Path, scan: Mapping[str, Any]) -> list[ValidationFinding]:
     specs = {
         "market_data_ref": ("records/_market-data/", (".yaml", ".yml")),
-        "universe_ref": ("records/_universe-snapshots/", (".yaml", ".yml")),
     }
     root = repo_root_for(path)
     findings: list[ValidationFinding] = []

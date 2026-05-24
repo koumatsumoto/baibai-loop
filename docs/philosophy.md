@@ -40,7 +40,7 @@ Baibai-Loop は、日本株スイングトレードの精度を売買反復で�
 
 #### (a) 信念
 
-トレード判断では、security-level の割安さだけでなく、macro / sector context を必ず確認する。`macro 76% / security-level 24%` は、判断時に割く attention / review time / cognitive budget の policy weight を表す説明補助であり、採用可否や position size を直接計算する比率ではない。
+トレード判断では、security-level の割安さだけでなく、macro / sector context を必ず確認する。
 
 Validator-visible な採用可否と sizing cap は、portfolio policy config と research の構造 field が担う。Macro context は hard gate ではなく、screening / research の前提、優先 sector/theme、追加で確認すべき question を与える。
 
@@ -80,11 +80,11 @@ Validator-visible な採用可否と sizing cap は、portfolio policy config �
 
 #### (a) 信念
 
-DB / Feature Store を先行導入しない。**front matter が揃った Markdown と YAML** を事実・分析の共通基盤とする。script で後付け抽出可能な設計にしておく。
+投資判断 record は **front matter が揃った Markdown と YAML** を正本にする。provider 由来の再生成可能な input/cache は SQLite に閉じ、判断・分析・運用 record は Git で読める形に保つ。
 
 #### (b) そう信じる根拠
 
-- **1 人運用の実行性**: DB 運用は個人で維持しきれない。ファイル + git で完結
+- **1 人運用の実行性**: 判断 record の DB 運用は個人で維持しきれない。ファイル + git で完結
 - **Git との親和性**: diff / blame / history が標準ツールで扱える
 - **AI 支援との親和性**: AI 下書き + 人間最終確認の協働が自然
 - **後付け抽出の可能性**: front matter（YAML）が揃っていれば、script で集計・分析できる
@@ -92,7 +92,7 @@ DB / Feature Store を先行導入しない。**front matter が揃った Markdo
 
 #### (c) 却下した対立案
 
-- **SQLite 早期導入**: schema migration コストで運用開始が遅れる。1 人で schema を進化させながら運用するのは負担大
+- **投資判断 record / Feature Store の SQLite 化**: schema migration コストで運用開始が遅れる。1 人で判断 record の schema を進化させながら運用するのは負担大
 - **JSON / YAML ファイル単独（Markdown なし）**: 人間の readability が低い。運用メモや解釈の記述に向かない
 - **Notion / Airtable 等外部ツール**: vendor lock-in、git 統合困難、料金、AI 支援時の access 手続きなど運用課題が多い
 - **最初から RDB + ORM**: 1 人運用の YAGNI 極致。運用で必要になるまで導入しない
@@ -121,13 +121,13 @@ portfolio policy
 
 階層的 3 層（事実 → 解釈 → 判断）だけだと、macro context、security-level thesis、execution、review attribution が同じ「判断」層に混ざり、責務が重なる。Lifecycle loop として分けるほうが、どこで候補を拾い、どこで落とし、どこで改善するかを追いやすい。
 
-## 4. なぜ 2 トラック（macro 独立 + security-level 売買ループ）か
+## 4. なぜ 2 トラック（macro 独立 + 個別銘柄売買ループ）か
 
 ### (a) Macro context（必要時更新）
 
 Macro context は **スクリーニング前に必要なら更新する**。CPI / BOJ / FOMC などの macro event 後、または候補銘柄が特定 sector に偏ったときに、外部記事・統計 series・AI/人間の判断をまとめて screening / research の前提にする。
 
-### (b) Security-level track（売買ループ）
+### (b) 個別銘柄売買ループ
 
 `candidates → research → trades → reviews` は **売買判断と連動する** ループ。screening 実行 → 選定 → 深掘り → 採用 → 執行 → 検証 → retro feedback。
 
@@ -144,13 +144,13 @@ macro context がなければ research の前提を確認できない。これ�
 
 主要 artifact の名前は、**役割を一語で表す** ことと **投資業界の慣習** を両立する。
 
-| Artifact | 名前 | 採用理由 | 却下案 |
-| --- | --- | --- | --- |
-| `macro context` | macro context | screening 前に読む経済・市場・sector 前提をそのまま表す。不要な brief/outlook 分離より運用しやすい | brief（事実集に寄りすぎる）、outlook（見通しだけに寄りすぎる） |
-| `candidates` | candidates | 機械的ふるいで残った銘柄群というデータの実体を直接表す | screened（動詞由来で粒度不一致）、screening（プロセス感）、filtered |
-| `research` | investment memo | 業界標準の memo 形式に寄せつつ、repository path としては research を維持できる | deep-dive（2 語）、investigation（堅い）、analysis（generic） |
-| `trades` | execution record | trade / order / fill / cancellation を execution layer として扱える | entry log（entry に偏る）、order log（約定後の position を扱いにくい） |
-| `reviews` | attribution review | outcome を evidence、macro context fit、sizing、execution、playbook に帰属できる | retro only（事後集計に偏る）、postmortem（失敗だけに見える） |
+| Artifact | 名前 | 採用理由 |
+| --- | --- | --- |
+| `macro context` | macro context | screening 前に読む経済・市場・sector 前提をそのまま表す |
+| `candidates` | candidates | 機械的ふるいで残った銘柄群というデータの実体を直接表す |
+| `research` | investment memo | 業界標準の memo 形式に寄せつつ、repository path としては research を維持できる |
+| `trades` | execution record | trade / order / fill / cancellation を execution layer として扱える |
+| `reviews` | attribution review | outcome を evidence、macro context fit、sizing、execution、playbook に帰属できる |
 
 ## 6. 意図的に未自動化のまま残しているもの
 

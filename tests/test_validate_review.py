@@ -142,26 +142,6 @@ def test_review_scan_rejects_invalid_market_data_ref(tmp_path: Path) -> None:
     assert "review-scan.repository-ref" in codes
 
 
-def test_review_scan_rejects_wrong_universe_ref_target(tmp_path: Path) -> None:
-    (tmp_path / "src").mkdir()
-    scan = tmp_path / "records/07-reviews/playbook-attribution/2026-05.yaml"
-    scan.parent.mkdir(parents=True)
-    wrong_ref = tmp_path / "records/_market-data/2026-05.yaml"
-    wrong_ref.parent.mkdir(parents=True)
-    wrong_ref.write_text("items: []\n", encoding="utf-8")
-    scan.write_text(
-        "scan_id: scan-1\n"
-        "universe_ref:\n"
-        "  ref_path: records/_market-data/2026-05.yaml\n"
-        "items: []\n",
-        encoding="utf-8",
-    )
-
-    codes = {finding.code for finding in validate_review_file(scan)}
-
-    assert "review-scan.repository-ref" in codes
-
-
 def test_monthly_retro_file_uses_retro_schema(tmp_path: Path) -> None:
     path = tmp_path / "retro-202604.md"
     path.write_text(

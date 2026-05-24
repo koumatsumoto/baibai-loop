@@ -132,7 +132,7 @@ def _check_required_lineage_fields(
                 location=f"line {line_number}.tracking.mode",
             )
         )
-    return []
+    return findings
 
 
 def _check_candidate_ref_lineage(
@@ -161,7 +161,7 @@ def _check_candidate_ref_lineage(
     )
     if loaded is None:
         return []
-    document, candidate = loaded
+    _, candidate = loaded
     candidate_ref = record["candidate_ref"]
     if not isinstance(candidate_ref, dict):
         return []
@@ -188,80 +188,17 @@ def _check_candidate_ref_lineage(
                 location=f"line {line_number}.candidate_ref.ticker",
             )
         )
-    ref_screen_run_id = candidate_ref.get("screen_run_id")
-    document_run_id = document.get("run_id")
-    if not isinstance(ref_screen_run_id, str) or not ref_screen_run_id:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="ledger.candidate-ref-screen-run-id",
-                message="candidate_ref.screen_run_id is required",
-                location=f"line {line_number}.candidate_ref.screen_run_id",
-            )
-        )
-    elif isinstance(document_run_id, str) and ref_screen_run_id != document_run_id:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="ledger.candidate-ref-screen-run-id",
-                message="candidate_ref.screen_run_id must match candidate document run_id",
-                location=f"line {line_number}.candidate_ref.screen_run_id",
-            )
-        )
-
-    candidate_id = candidate_ref.get("candidate_id")
-    if not isinstance(candidate_id, str) or not candidate_id:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="ledger.candidate-ref-candidate-id",
-                message="candidate_ref.candidate_id is required",
-                location=f"line {line_number}.candidate_ref.candidate_id",
-            )
-        )
-    elif candidate is not None and candidate.get("candidate_id") != candidate_id:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="ledger.candidate-ref-candidate-id",
-                message="candidate_ref.candidate_id must match candidate row candidate_id",
-                location=f"line {line_number}.candidate_ref.candidate_id",
-            )
-        )
-    elif candidate is None:
+    if candidate is None:
         findings.append(
             ValidationFinding(
                 severity="error",
                 target=path,
                 code="ledger.candidate-ref-match",
-                message=(
-                    "candidate_ref must match a candidate row by ticker, "
-                    "candidate_id, and screen_run_id"
-                ),
+                message="candidate_ref must match a candidate row by ticker",
                 location=f"line {line_number}.candidate_ref",
             )
         )
 
-    candidate_screen_run_id = candidate.get("screen_run_id") if candidate is not None else None
-    if (
-        isinstance(ref_screen_run_id, str)
-        and candidate is not None
-        and isinstance(candidate_screen_run_id, str)
-        and ref_screen_run_id != candidate_screen_run_id
-    ):
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="ledger.candidate-ref-screen-run-id",
-                message="candidate_ref.screen_run_id must match candidate row screen_run_id",
-                location=f"line {line_number}.candidate_ref.screen_run_id",
-            )
-        )
     return findings
 
 
@@ -401,12 +338,7 @@ def _candidate_ref_document_and_row(
     candidates = document.get("candidates")
     if isinstance(candidates, list):
         for item in candidates:
-            if (
-                isinstance(item, dict)
-                and item.get("ticker") == ticker
-                and item.get("candidate_id") == candidate_ref.get("candidate_id")
-                and item.get("screen_run_id") == candidate_ref.get("screen_run_id")
-            ):
+            if isinstance(item, dict) and item.get("ticker") == ticker:
                 candidate = item
                 break
     return document, candidate

@@ -7,9 +7,7 @@ playbook_ref:
   effective_from: "YYYY-MM-DDTHH:MM:SS+09:00"
 candidate_ref:
   candidates_ref: records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml
-  screen_run_id: screening-YYYYMMDD
   ticker: "XXXX"
-  candidate_id: candidate-YYYY-MM-DD-XXXX
 research_decision:
   outcome: approved | deferred | rejected
   posture: act_now | wait_for_event | wait_for_capital | dropped
@@ -22,26 +20,6 @@ macro_context_fit:
   decision_effect: proceed | caution | defer
   required_checks: []
   sizing_caution: []
-candidate_evidence_decisions:
-  - evidence_hit_id: eh-XXXX
-    effective_sizing_eligible: true
-    evaluated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
-    reason_code: source_status_ok | freshness_expired | corporate_action_post_snapshot | duplicate_dependency | other
-selected_supporting_evidence_refs:
-  - source: candidate
-    evidence_hit_id: eh-XXXX
-research_evidence_hits:
-  - evidence_hit_id: risk-XXXX
-    decision_role: risk_evidence
-    evidence_polarity: risk
-    source_status: ok
-independent_evidence_count: 1
-raw_evidence_family_count: 1
-sizing_eligible_evidence_family_count: 1
-raw_playbook_concurrence_count: 1
-sizing_eligible_playbook_concurrence_count: 1
-conviction_tier: low | medium | high
-conviction_tier_path: count_breadth | depth
 position_sizing_overlay:
   paper_proxy_position_size_yen: 1000000
   real_order_intent_yen: 210000
@@ -56,10 +34,13 @@ thesis_payoff:
   time_horizon_bd: 30
   invalidation_conditions:
     - stop loss
+corporate_action_check:
+  checked: true
+  result: none
+  note: ""
 sector_33: "情報・通信業"
 ai_draft: true
 published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
-external_refs: []
 ---
 
 # Research: YYYY-MM-DD XXXX [銘柄名] [playbook_id]
@@ -136,8 +117,6 @@ Why now × why this stock。主要 evidence、payoff、反対仮説、macro cont
 
 ## 13. Position size
 
-- **conviction_tier**:
-- **conviction_tier_path**:
 - **paper proxy size**:
 - **estimated real order notional**:
 - **binding cap**:

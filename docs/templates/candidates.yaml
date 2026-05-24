@@ -12,12 +12,8 @@ data_sources:
 - "edinet-preprocessed-metrics"
 run_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 run_id: "screening-YYYYMMDD"
-universe_ref:
-  ref_path: records/_universe-snapshots/YYYY/MM/YYYY-MM-DDTHHMMSS+0900.yaml
 candidates:
 - ticker: "130A"
-  candidate_id: candidate-YYYY-MM-DD-130A
-  candidate_key: "screening-YYYYMMDD:130A"
   name: "..."
   sector_33: "業種名"
   market_cap_oku: 585
@@ -28,58 +24,30 @@ candidates:
   ev_ebitda: null
   p_s: 0.6
   pcfr: 5.1
+  price_change_1d: -0.018
+  price_change_5d: -0.082
+  price_change_20d: -0.118
   price_change_60d: -0.155
-  price_change_4w: -0.072
+  gap_from_52w_low: 0.07
+  turnover_spike_5d: 2.4
   sector_relative_strength_percentile: 0.35
   next_earnings_date: "YYYY-MM-DD"
   split_adjustment_flag: false
   metrics:
     sales_ttm: 100000000000.0
     ocf_ttm: 13000000000.0
-    edinet_ocf_ttm: 13000000000.0
-    cash_eq: 32000000000.0
     cash: 32000000000.0
     debt: 12000000000.0
     net_cash: 20000000000.0
     net_cash_to_market_cap: 0.34
-    total_assets: 180000000000.0
-    equity: 72000000000.0
     cash_to_market_cap: 0.42
     price_to_equity: 0.82
     equity_ratio: 0.45
     ocf_yield: 0.13
-    fcf_ttm: 8000000000.0
     fcf_yield: 0.08
-    capex_ttm: 5000000000.0
-    depreciation_and_amortization_ttm: 2000000000.0
-    edinet_source_doc_id: S100XXXX
-    edinet_document_type: "120"
-    edinet_source_submit_datetime: "YYYY-MM-DD HH:MM"
-    edinet_source_period_start: "YYYY-MM-DD"
-    edinet_source_period_end: "YYYY-MM-DD"
-    edinet_capex_source: purchase_of_fixed_assets
-    edinet_failure_reasons: null
     cfo_yoy: 0.08
     sales_yoy: 0.12
     operating_profit: 9000000000.0
-    operating_profit_loss_narrowing: false
-  metrics_breakdown:
-    per_trailing:
-      sector_median_gap: -0.21
-      self_range_percentile: 0.14
-      sigma_gap: -1.4
-    pbr:
-      sector_median_gap: -0.18
-      self_range_percentile: 0.2
-      sigma_gap: -1.1
-    ev_ebitda:
-      sector_median_gap: null
-      self_range_percentile: null
-      sigma_gap: null
-    p_s:
-      sector_median_gap: -0.35
-      self_range_percentile: 0.18
-      sigma_gap: -1.2
   ttm_quality:
     ev_ebitda: unavailable
     p_s: approximated
@@ -88,14 +56,10 @@ candidates:
     sales: approximated
     fcf_yield: exact
     net_cash: exact
+  freshness_warnings: []
   evidence_hits:
   - name: valuation-reversion
     playbook_id: valuation-reversion
-    evidence_hit_id: eh-130A-valuation-reversion
-    primary_family: valuation
-    evidence_family_set: [valuation]
-    correlation_group: valuation_discount
-    independence_component_id: valuation_discount
     source_status: ok
     sizing_eligible: true
     reasons:
@@ -104,72 +68,8 @@ candidates:
       condition_a_metric: per_trailing
       condition_a_sector_median_gap: -0.21
       condition_a_self_range_percentile: 0.14
-  - name: cash-rich-asset-discount
-    playbook_id: cash-rich-asset-discount
-    evidence_hit_id: eh-130A-cash-rich-asset-discount
-    primary_family: balance_sheet
-    evidence_family_set: [balance_sheet]
-    correlation_group: balance_sheet_cash
-    independence_component_id: balance_sheet_cash
-    source_status: ok
-    sizing_eligible: true
-    reasons:
-    - cash_to_market_cap_price_to_equity_and_equity_ratio
-    metrics:
-      cash_to_market_cap: 0.42
-      net_cash_to_market_cap: 0.34
-      debt: 12000000000.0
-      cash: 32000000000.0
-      price_to_equity: 0.82
-      equity_ratio: 0.45
-  - name: strict-net-cash-discount
-    playbook_id: strict-net-cash-discount
-    evidence_hit_id: eh-130A-strict-net-cash-discount
-    primary_family: balance_sheet
-    evidence_family_set: [balance_sheet]
-    correlation_group: balance_sheet_cash
-    independence_component_id: balance_sheet_cash
-    source_status: ok
-    sizing_eligible: true
-    reasons:
-    - net_cash_to_market_cap_price_to_equity_and_equity_ratio
-    metrics:
-      net_cash_to_market_cap: 0.34
-      net_cash: 20000000000.0
-      debt: 12000000000.0
-      cash: 32000000000.0
-      edinet_source_doc_id: S100XXXX
-      edinet_document_type: "120"
-      edinet_source_submit_datetime: "YYYY-MM-DD HH:MM"
-      edinet_source_period_start: "YYYY-MM-DD"
-      edinet_source_period_end: "YYYY-MM-DD"
-  - name: fcf-yield-discount
-    playbook_id: fcf-yield-discount
-    evidence_hit_id: eh-130A-fcf-yield-discount
-    primary_family: fundamental
-    evidence_family_set: [fundamental]
-    correlation_group: cash_flow_yield
-    independence_component_id: cash_flow_yield
-    source_status: ok
-    sizing_eligible: true
-    reasons:
-    - fcf_yield_discount
-    metrics:
-      fcf_yield: 0.08
-      fcf_ttm: 8000000000.0
-      edinet_ocf_ttm: 13000000000.0
-      capex_ttm: 5000000000.0
-      cfo_yoy: 0.08
-      edinet_source_doc_id: S100XXXX
-      edinet_document_type: "120"
-      edinet_source_submit_datetime: "YYYY-MM-DD HH:MM"
-      edinet_source_period_start: "YYYY-MM-DD"
-      edinet_source_period_end: "YYYY-MM-DD"
-fact_memo_lines:
-- "[事実メモ]"
 provider_status_lines:
-- "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX"
-- "EDINET preprocessed metrics: available"
+- "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX + EDINET preprocessed metrics（取得できた場合）"
 universe_exclusion_lines:
 - "universe 除外件数: 上場 182 日未満=0, 売買代金不足=0"
 ttm_quality_counts:
@@ -178,9 +78,9 @@ ttm_quality_counts:
   unavailable: 1
 evidence_hits_summary:
   valuation-reversion: 1
-  strict-net-cash-discount: 1
-  fcf-yield-discount: 1
-  cash-rich-asset-discount: 1
+  strict-net-cash-discount: 0
+  fcf-yield-discount: 0
+  cash-rich-asset-discount: 0
   cashflow-yield-discount: 0
   sales-discount-growth: 0
 fallback_lines:

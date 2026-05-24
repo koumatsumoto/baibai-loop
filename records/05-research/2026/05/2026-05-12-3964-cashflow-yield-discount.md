@@ -5,13 +5,6 @@ playbook_id: cashflow-yield-discount
 playbook_ref:
   ref_path: records/_playbooks/cashflow-yield-discount/2026-05-01T000000+0900.md
   effective_from: '2026-05-01T00:00:00+09:00'
-selected_supporting_evidence_refs:
-- source: candidate
-  evidence_hit_id: candidate-2026-05-08-3964-cashflow-yield-discount
-- source: candidate
-  evidence_hit_id: candidate-2026-05-08-3964-fcf-yield-discount
-- source: candidate
-  evidence_hit_id: candidate-2026-05-08-3964-sales-discount-growth
 research_decision:
   outcome: deferred
   posture: wait_for_event
@@ -25,59 +18,11 @@ research_decision:
     - システム償却費・広告宣伝費増加後も、営業利益率が構造的に悪化していないことを確認する。
 candidate_ref:
   candidates_ref: records/04-candidates/2026/05/2026-05-08.yaml
-  screen_run_id: screening-20260508
   ticker: '3964'
-  candidate_id: candidate-2026-05-08-3964
 ai_draft: false
 published_at: '2026-05-12T20:42:11+09:00'
 recorded_at: '2026-05-12T20:42:11+09:00'
 tradable_at: '2026-08-10T09:00:00+09:00'
-external_refs:
-- ref_path: records/_external/aucnet/2026-05-12-fy2026-q1-official-ir.md
-candidate_evidence_decisions:
-- evidence_hit_id: candidate-2026-05-08-3964-cashflow-yield-discount
-  effective_sizing_eligible: true
-  evaluated_at: '2026-05-12T20:42:11+09:00'
-  reason_code: source_status_ok
-- evidence_hit_id: candidate-2026-05-08-3964-fcf-yield-discount
-  effective_sizing_eligible: true
-  evaluated_at: '2026-05-12T20:42:11+09:00'
-  reason_code: source_status_ok
-- evidence_hit_id: candidate-2026-05-08-3964-sales-discount-growth
-  effective_sizing_eligible: true
-  evaluated_at: '2026-05-12T20:42:11+09:00'
-  reason_code: source_status_ok
-research_evidence_hits:
-- evidence_hit_id: research-3964-fy2026-q1-growth-and-guidance
-  decision_role: freshness_adjustment
-  evidence_polarity: supports
-  evidence_family_set:
-  - fundamental
-  source_status: ok
-  analyst_asserted: true
-  sizing_eligible: false
-  source_refs:
-  - ref_path: records/_external/aucnet/2026-05-12-fy2026-q1-official-ir.md
-  recorded_at: '2026-05-12T20:42:11+09:00'
-- evidence_hit_id: research-3964-q1-cash-flow-gap
-  decision_role: risk_evidence
-  evidence_polarity: risk
-  evidence_family_set:
-  - fundamental
-  source_status: ok
-  analyst_asserted: true
-  sizing_eligible: false
-  source_refs:
-  - ref_path: records/_external/aucnet/2026-05-12-fy2026-q1-official-ir.md
-  recorded_at: '2026-05-12T20:42:11+09:00'
-independent_evidence_count: 3
-raw_playbook_concurrence_count: 3
-sizing_eligible_playbook_concurrence_count: 3
-raw_evidence_family_count: 2
-sizing_eligible_evidence_family_count: 2
-conviction_tier: high
-conviction_tier_path: count_breadth
-depth_verification_ref: null
 position_sizing_overlay:
   paper_proxy_position_size_oku: 0.0
   paper_proxy_position_size_yen: 0
@@ -127,6 +72,10 @@ macro_context_fit:
   required_checks: []
   sizing_caution:
   - migrated_from_legacy_macro_context
+corporate_action_check:
+  checked: true
+  result: none
+  note: Checked during research review.
 ---
 
 # Research: 2026-05-12 3964 オークネット cashflow-yield-discount
@@ -156,7 +105,7 @@ Q1 公式 IR では、売上高 +13.8%、営業利益 +4.6%、通期営業利益
 | Cash / market cap | 39.5% | 補助 |
 | P/S | 0.91 | sales-discount-growth hit |
 
-Source: `records/04-candidates/2026/05/2026-05-08.yaml` and `records/_external/aucnet/2026-05-12-fy2026-q1-official-ir.md`。
+Source: `records/04-candidates/2026/05/2026-05-08.yaml` and 2026-05-12 Aucnet official IR。
 
 Q1 は売上・利益・guidance では positive だが、営業 CF は開示されない。現金及び預金は 2025年12月末 23,104 百万円から 2026年3月末 21,225 百万円へ減少しており、オークション貸勘定、オークション借勘定、未払法人税等が動いている。これだけでは悪化とは判断しないが、2025年12月期の CFO が一過性かどうかを確定する evidence にはならない。
 

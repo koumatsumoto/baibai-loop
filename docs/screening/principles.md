@@ -12,7 +12,6 @@ Baibai-Loop のスクリーニングサブシステムの設計原則。Candidat
 
 ## 2. Macro Context
 
-- **マクロ 76% / security-level 24%** は attention / review time / cognitive budget の policy weight として扱う。
 - Macro context は hard gate ではなく、screening / research の確認観点として使う。
 - Validator-visible な sizing cap は portfolio policy と research 判断で扱う。
 
@@ -31,16 +30,14 @@ Baibai-Loop のスクリーニングサブシステムの設計原則。Candidat
 
 単一総合 score は持たせない。現行 candidates YAML では `evidence_hits[]` を lane 順に記録するが、概念上は playbook-linked evidence hit として扱う。Research では primary playbook 1 つと supporting evidence を分けて扱う。
 
-### 3.1 Selection queue / lens
+### 3.1 Selection lens
 
-Playbook-linked screen は raw candidates を作る事実層、`select` は research queue を作る triage 層として分ける。`select` は以下の queue / lens を使う。
+Playbook-linked screen は raw candidates を作る事実層、`select` は research recommendations を作る triage 層として分ける。`select` は以下の lens を使う。
 
-| lens / queue | 目的 | 採用根拠としての扱い |
+| lens | 目的 | 採用根拠としての扱い |
 | --- | --- | --- |
-| `core_value_queue` | 既存 playbook lane の分散候補を維持する | primary playbook の入口 |
-| `fast_dislocation_queue` | 一時的に売られすぎた候補を早く上位化する | 価格下落 trigger と fundamental guard が必要。出来高 spike / 52 週安値距離は補助情報 |
-| `long_hold_survivability_queue` | 短期 thesis が外れた場合の保有耐性を見える化する | hard gate ではない。`high|medium|low|unknown` annotation |
-| `shareholder_return` | 保有期間が伸びた場合の fallback evidence を将来取り込む | 現時点の自動データ不足時は `unknown` |
+| `fast_dislocation` | 一時的に売られすぎた候補を上位化しやすくする | 価格下落 trigger と fundamental guard が必要。出来高 spike / 52 週安値距離は補助情報 |
+| `long_hold_survivability` | 短期 thesis が外れた場合の保有耐性を見える化する | hard gate ではない。`high|medium|low|unknown` annotation |
 | `prior_research` | deferred / rejected の再登場を抑制し、同じ候補に偏る問題を下げる | ledger の revisit_after / expires_at を尊重 |
 
 Selection profile は `strict` / `balanced` / `loose` を持ち、built-in profile の閾値はコード上の fail-fast 可能な既定値として固定する。`records/_config/screening-rules/` は既定 profile 名と運用順序を指定し、custom profile は `select-sweep --profile-config` の YAML で比較する。運用閾値を変える前に複数 asof の実データ replay と hold-out 確認を行い、typo や補助 trigger だけの fast-dislocation を fail-fast / ineligible にする。

@@ -6,6 +6,7 @@
   "additionalProperties": true,
   "required": [
     "ticker",
+    "name",
     "playbook_id",
     "playbook_ref",
     "research_decision",
@@ -13,10 +14,13 @@
     "macro_context_ref",
     "macro_context_fit",
     "position_sizing_overlay",
-    "thesis_payoff"
+    "thesis_payoff",
+    "corporate_action_check"
   ],
   "properties": {
     "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
+    "name": {"type": "string", "minLength": 1},
+    "sector_33": {"type": "string", "minLength": 1},
     "playbook_id": {"type": "string", "minLength": 1},
     "playbook_ref": {"$ref": "#/$defs/RepositoryRef"},
     "research_decision": {
@@ -39,10 +43,15 @@
         "sizing_caution": {"type": "array"}
       }
     },
-    "candidate_evidence_decisions": {"type": "array"},
-    "research_evidence_hits": {"type": "array"},
-    "conviction_tier": {"enum": ["low", "medium", "high"]},
-    "conviction_tier_path": {"enum": ["count_breadth", "depth"]},
+    "corporate_action_check": {
+      "type": "object",
+      "required": ["checked", "result"],
+      "properties": {
+        "checked": {"type": "boolean"},
+        "result": {"enum": ["none", "found", "not_applicable"]},
+        "note": {"type": "string"}
+      }
+    },
     "position_sizing_overlay": {
       "type": "object",
       "properties": {

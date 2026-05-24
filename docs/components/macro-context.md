@@ -1,7 +1,6 @@
 # components/macro-context.md
 
-Macro context は、スクリーニング前に読む単一の macro analysis artifact です。旧 `brief`
-と `outlook` は廃止し、外部記事・統計 series・AI/人間の判断をここに集約します。
+Macro context は、スクリーニング前に読む単一の macro analysis artifact です。外部記事・統計 series・AI/人間の判断をここに集約します。
 
 ## 目的
 

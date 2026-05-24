@@ -1,6 +1,6 @@
 ---
 title: "Automation map"
-summary: "Map of CLI commands, validators, schema files, tests, CI, and scheduled ledger sync."
+summary: "Map of CLI commands, validators, schema files, tests, and CI."
 doc_type: architecture
 status: active
 last_reviewed: 2026-05-04
@@ -43,6 +43,5 @@ Automation は人間の投資判断を置き換えるものではなく、fact s
 | --- | --- | --- |
 | `.github/workflows/ci.yml` | pull request / main push | `uv sync`, Ruff format/check, mypy, tracked raw screening cache block, pytest coverage, `baibai-loop-validate`, build |
 | `.github/workflows/security.yml` | pull request / main push / weekly schedule | Bandit, pip-audit |
-| `.github/workflows/ledger-sync.yml` | weekday schedule / manual dispatch | market data 付き ledger sync と automated PR |
 
 Python runtime、dependency、quality gate の詳細は [`../reference/python-foundation.md`](../reference/python-foundation.md) を参照します。

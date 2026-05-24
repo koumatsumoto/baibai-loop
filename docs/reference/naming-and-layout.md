@@ -25,9 +25,7 @@ Macro context / candidates / research / trades / reviews は event records で�
 `_index.yaml` や `_changelog.jsonl` を持たない。正本は file path、record 内の repository
 refs、CLI の `--asof` / explicit path で決まる。
 
-Support area も content hash audit と changelog を持たない。判断時に参照した repo 内
-file path を record に残し、変更履歴は git に一本化する。mutable latest index を足して
-current state の解釈を二重化しない。
+Support area も別の changelog を持たない。判断時に参照した repo 内 file path を record に残し、変更履歴は git に一本化する。mutable latest index を足して current state の解釈を二重化しない。
 
 ## Slugs
 

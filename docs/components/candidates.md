@@ -1,34 +1,30 @@
 # components/candidates.md
 
-Baibai-Loop の **screen output / candidates** の運用仕様。狭義のスクリーニング = 機械的ふるいの完了形を指す。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md)、概念モデルは [`../concepts.md`](../concepts.md)、スクリーニング詳細は [`../screening/`](../screening/) 配下を参照。
+Baibai-Loop の **screen output / candidates** の運用仕様。狭義のスクリーニングは、機械的ふるいの完了形を指す。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md)、スクリーニング詳細は [`../screening/`](../screening/) 配下を参照。
 
 ## 1. 役割
 
-- universe（日本株普通株、時価総額 100 億円以上、20 営業日平均売買代金 1 億円以上）に対し、複数の playbook-linked screen で機械的にふるいをかけ、**ticker-level の raw screen output を事実として記録**
-- 事実層のため解釈は入れない（反対仮説・原因仮説は research 側で行う）
-- Investment memo の出発点として、`records/05-research/` の選定入力となる
-- Playbook hit、policy / liquidity の初期結果は screen fact として残す。後続の選定・見送り・保留判断は candidates を上書きせず、`select` output / research / ledger / review 側の記録で追跡する
-- Macro context は candidates に状態を保存しない。`select` で sector tilt との alignment を出し、research の `macro_context_fit` で判断への効き方を記録する
+- universe に対し、複数の playbook-linked screen で機械的にふるいをかけ、ticker-level の raw screen output を事実として記録する
+- 事実層のため、反対仮説・原因仮説・採用判断は書かない
+- `records/05-research/` の出発点として使う
+- Macro context は candidates に保存せず、`select` と research の `macro_context_fit` で扱う
 
-## 2. 頻度
+## 2. Path
 
-- **定期**: 週次 1 回（初期値、retro で調整）
-- 実行タイミング: 週初 / 週末の決まった曜日（例: 毎週月曜朝 or 金曜夕方）
-
-## 3. Path と命名
-
-```
+```text
 records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml
 ```
 
-1 実行 = 1 ファイル（週次運用のため）。
+1 実行 = 1 ファイル。週次運用を基本にする。
 
-## 4. YAML 必須項目
+## 3. YAML Contract
+
+下は最小 contract と主要 field の例。完全な contract は [`../../records/_schemas/candidates.json`](../../records/_schemas/candidates.json) と実 record を正本にし、[`../templates/candidates.yaml`](../templates/candidates.yaml) は手で形を確認するための最小例として扱う。現行 CLI は J-Quants / JPX に加え、利用可能な場合は EDINET preprocessed metrics、JPX public regulation、disclosure title events、sector relative strength、cash / asset / equity / capex 由来の派生指標を追加する。
 
 ```yaml
 run_date: "YYYY-MM-DD"
 asof_date: "YYYY-MM-DD"
-universe_size: 整数
+universe_size: 1347
 filters:
   min_market_cap_oku: 100
   min_avg_turnover_oku: 1.0
@@ -36,102 +32,61 @@ filters:
 generated_by: "screening-cli-v1"
 data_sources:
   - "j-quants-light"
+  - "edinet-preprocessed-metrics"
   - "jpx-public-regulation"
+  - "disclosure-title-events"
 run_at: "ISO 8601"
 run_id: "screening-YYYYMMDD"
-universe_ref:
-  ref_path: records/_universe-snapshots/YYYY/MM/YYYY-MM-DDTHHMMSS+0900.yaml
 candidates:
   - ticker: "130A"
-    candidate_id: candidate-YYYY-MM-DD-130A
-    candidate_key: "screening-YYYYMMDD:130A"
     name: "..."
     sector_33: "輸送用機器"
     market_cap_oku: 1083
     avg_turnover_oku: 12.8
-    per_forward: 8.2 | null
+    per_forward: 8.2
     per_trailing: 9.5
     pbr: 0.72
-    ev_ebitda: 4.8 | null
-    p_s: 0.6 | null
-    pcfr: 5.1 | null
+    ev_ebitda: 4.8
+    p_s: 0.6
+    pcfr: 5.1
     price_change_1d: -0.018
     price_change_5d: -0.082
     price_change_20d: -0.118
     price_change_60d: -0.155
-    price_change_4w: -0.118
+    sector_relative_strength_percentile: 0.35
     gap_from_52w_low: 0.07
     turnover_spike_5d: 2.4
-    sector_relative_strength_percentile: 0.35
     metrics:
       sales_ttm: 100000000000.0
       ocf_ttm: 13000000000.0
-      edinet_ocf_ttm: 13000000000.0
       cash_to_market_cap: 0.42
-      net_cash: null
       net_cash_to_market_cap: null
       price_to_equity: 0.82
       equity_ratio: 0.45
       ocf_yield: 0.13
-      fcf_ttm: 8000000000.0
       fcf_yield: 0.08
-      capex_ttm: 5000000000.0
-      edinet_source_doc_id: S100XXXX
-      edinet_document_type: "120"
-      edinet_source_submit_datetime: "2026-04-01 12:00"
-      edinet_source_period_start: "2025-04-01"
-      edinet_source_period_end: "2026-03-31"
-      edinet_capex_source: purchase_of_fixed_assets
-      edinet_failure_reasons: debt_assumed_zero
       cfo_yoy: 0.08
       sales_yoy: 0.12
       operating_profit: 9000000000.0
-      operating_profit_loss_narrowing: false
-    metrics_breakdown:
-      per_trailing:
-        sector_median_gap: -0.21
-        self_range_percentile: 0.14
-        sigma_gap: -1.4
-      pbr:
-        sector_median_gap: -0.18
-        self_range_percentile: 0.20
-        sigma_gap: -1.1
-      ev_ebitda:
-        sector_median_gap: null
-        self_range_percentile: null
-        sigma_gap: null
-      p_s:
-        sector_median_gap: -0.35
-        self_range_percentile: 0.18
-        sigma_gap: -1.2
+      edinet_ocf_ttm: 13000000000.0
+      cash_eq: 48000000000.0
+      total_assets: 160000000000.0
+      equity: 72000000000.0
+      capex_ttm: 5000000000.0
     ttm_quality:
-      ev_ebitda: exact | approximated | unavailable
-      p_s: exact | approximated | unavailable
-      pcfr: exact | approximated | unavailable
-      ocf_yield: exact | approximated | unavailable
-      sales: exact | approximated | unavailable
-      fcf_yield: exact | approximated | unavailable
-      net_cash: exact | approximated | unavailable
-    next_earnings_date: "YYYY-MM-DD" | null
+      ev_ebitda: exact
+      p_s: exact
+      pcfr: unavailable
+      ocf_yield: exact
+      sales: exact
+      fcf_yield: approximated
+      net_cash: approximated
+    next_earnings_date: "YYYY-MM-DD"
     split_adjustment_flag: false
-    freshness_warnings:
-      - source_family: "edinet-metrics"
-        stale_metric: "edinet_metrics"
-        reason: "material_event_after_edinet_source"
-        event_date: "2026-03-03"
-        event_kind: "borrowing"
-        event_title: "資金の借入に関するお知らせ"
-        event_source: "tdnet-title-cache"
-        event_url: null
-        edinet_source_submit_datetime: "2025-10-15 15:00"
+    freshness_warnings: []
     evidence_hits:
       - name: valuation-reversion
         playbook_id: valuation-reversion
-        evidence_hit_id: eh-130A-valuation-reversion
-        primary_family: valuation
-        evidence_family_set: [valuation]
-        correlation_group: valuation_discount
-        independence_component_id: valuation_discount
         source_status: ok
         sizing_eligible: true
         reasons: [sector_self_range]
@@ -141,99 +96,30 @@ candidates:
           condition_a_self_range_percentile: 0.14
 evidence_hits_summary:
   valuation-reversion: 1
-  strict-net-cash-discount: 0
-  fcf-yield-discount: 0
-  cash-rich-asset-discount: 0
-  cashflow-yield-discount: 0
-  sales-discount-growth: 0
 ```
 
-- ticker は **4 文字の英数字文字列**として quote 必須（先頭 0 落ち防止、英字組入れ対応）
-- 欠損値（例: forward EPS 未公表、EDINET 由来 EV/EBITDA 不在）は明示的に `null`
-- `run_date` は `asof_date` と同値。ファイル path の日付とも一致させる
-- screening rules / policy は git 管理ファイルそのものを正本にし、candidates YAML には content hash 付き参照を持たせない
-- `evidence_hits`: 通過した playbook-linked screen を表す field。概念上は evidence hit として扱う。複数 hit 可。表示順は rule config の lane 順に固定し、単一総合 score は持たせない
-- `metrics`: candidate-level の flat な派生値。例: `sales_ttm`, `ocf_ttm`, `edinet_ocf_ttm`, `cash_to_market_cap`, `net_cash_to_market_cap`, `price_to_equity`, `equity_ratio`, `ocf_yield`, `fcf_yield`, `cfo_yoy`, `sales_yoy`, `operating_profit`, `edinet_source_doc_id`, `edinet_source_submit_datetime`, `edinet_source_period_start`, `edinet_source_period_end`, `edinet_failure_reasons`
-- `ocf_ttm` は J-Quants 財務サマリーを TTM 正規化した営業 CF。`edinet_ocf_ttm` は EDINET CSV から抽出した CFO で、`fcf-yield-discount` の `fcf_ttm = edinet_ocf_ttm - capex_ttm` と同じ source family に属する
-- `edinet_source_*`: EDINET CSV-derived metrics の提出書類 ID、doc type、提出日時、書類 metadata 上の対象期間。research で一次資料へ戻るための traceability であり、strict net-cash / FCF screen hit の `evidence_hits[].metrics` にも同じ source metadata を入れる。半期報告書 / 訂正半期報告書では `source_period_end` が fiscal year end を指すことがあるため、FCF / CFO の測定期間そのものとは限らない
-- `metrics_breakdown`: valuation 指標ごとの `sector_median_gap` / `self_range_percentile` / `sigma_gap`
-- `evidence_hits[].metrics`: screen hit の判定に直接使った値。valuation は `condition_a_metric` などの flat key、cash / CF / sales は lane 固有 key で記録する
-- `ttm_quality`: `EV/EBITDA` / `P/S` / `PCFR` / `OCF yield` / `sales` / `FCF yield` / `net cash` の TTM 品質を `exact` / `approximated` / `unavailable` で明示する
-- `market_cap_oku` / `avg_turnover_oku`: research の position size と流動性確認で使う。universe 閾値は `market_cap_oku >= 100` かつ `avg_turnover_oku >= 1.0`
-- `price_change_1d` / `price_change_5d` / `price_change_20d` / `price_change_60d` / `price_change_4w`: split 影響を排除するため adjustment_close ベースで算出。`price_change_4w` は legacy alias で、短期 dislocation 判定では `price_change_20d` を正本にする
-- `gap_from_52w_low`: asof 以前 252 営業日（履歴が短い場合は取得済み範囲）の adjustment_close 安値からの距離。0 に近いほど直近安値圏
-- `turnover_spike_5d`: 直近 5 営業日の平均売買代金 ÷ その前 20 営業日の平均売買代金。1.0 が通常水準で、1.5 以上は出来高を伴う売られ方として扱う
-- `split_adjustment_flag`: `price_change_60d` と同じ window 内に J-Quants `AdjustmentFactor` が株式分割 / 株式併合の調整を示した場合に `true`
-- `freshness_warnings`: EDINET CSV-derived metrics の提出日以降、候補 `asof_date` までに任意の disclosure title cache (`.cache/screening/disclosures/**/*.json`) から M&A / 借入 / 社債 / 自己株買い / 設備投資 / 増資 / 減資 / 資本業務提携系の title keyword hit が見つかった場合に出す。同日開示は時刻順を判定できないため保守的に warning 対象に含める。`stale_metric: edinet_metrics` は net cash だけでなく cash / debt / EV / equity / share count / FCF など EDINET-derived metrics 全体の再確認が必要であることを示す。cache が無い場合は provider_status_lines で optional unavailable として明示する
-- `sector_relative_strength_percentile`: **sector 単位の percentile**。銘柄個別の同業種内相対強度ではない
+- ticker は 4 文字の英数字文字列として quote 必須
+- 欠損値は `null` で明示する
+- `evidence_hits` は通過した playbook-linked screen。複数 hit 可。単一総合 score は持たせない
+- `metrics` は research で再利用する flat な派生値
+- EDINET / disclosure title events 由来の field は取得できたときだけ出る。欠損時に placeholder を足さない
+- `ttm_quality` は主要 TTM 指標の品質を `exact | approximated | unavailable` で示す
+- `freshness_warnings` は EDINET metrics の後に重要開示がある場合の再確認メモ
 
-### 4.1 traceability の境界
+## 4. Traceability
 
-candidates YAML は `run_id`、`universe_ref`、candidate-level の metric / source metadata を記録する。`universe_ref` は screening universe の repo 内 YAML file link で、hash audit ではなく候補母集団の確認に使う。SQLite の厳密な point-in-time hash audit や policy file の固定参照は保持しない。必要な運用確認は git 履歴、SQLite coverage 検証、research 時の一次情報確認で行う。
+候補母集団の確認は `universe_size`、SQLite coverage、git 履歴で行う。Research では `candidate_ref.candidates_ref` と `candidate_ref.ticker` で候補行へ戻る。
 
-### 4.2 実行メモの扱い
+## 5. Research への接続
 
-`records/04-candidates/` は YAML 正本とし、Markdown 本文は持たない。provider 状態、universe 除外件数、fallback / 部分警告は以下の配列フィールドで保持する。
+- `records/05-research/` の `candidate_ref.candidates_ref` で candidates file を参照する
+- `candidate_ref.ticker` と candidates row の `ticker` を照合する
+- `select` は candidates と macro context を突き合わせ、`recommendations` と `selection.diagnostics` を出す
+- `recommendations` は research 着手候補。`selection_lane`、`selection_metrics`、`lenses.fast_dislocation`、`lenses.long_hold_survivability`、`reason_tags`、`risk_tags` を見て深掘り順を決める
+- `select-sweep` は `strict` / `balanced` / `loose` と任意 profile を比較し、recommended tickers、fast count、long-hold count、suppressed count、previous overlap、sector / lane concentration、profile diff を確認する
 
-- `fact_memo_lines`
-- `provider_status_lines`
-- `universe_exclusion_lines`
-- `fallback_lines`
-- `ttm_quality_counts`
-- `evidence_hits_summary`
+## 6. 事実と分析の分離
 
-### 4.3 schema 検証
-
-[`/records/_schemas/candidates.json`](/records/_schemas/candidates.json) が candidates YAML のコア schema (Draft 2020-12 jsonschema)。手元では `uv run baibai-loop-validate --target candidates` で個別に走らせられる。
-
-## 5. ワークフロー
-
-1. 最新 universe を取得（J-Quants Light + JPX 除外条件適用）
-2. 各 ticker の valuation / cash / CF / sales 指標を算出（[`../screening/valuation-metrics.md`](../screening/valuation-metrics.md) 参照）
-3. playbook-linked screen rules（[`../screening/mechanical.md`](../screening/mechanical.md)）を適用
-4. 通過銘柄を `candidates` 配列として YAML に記録
-5. 補足情報（実行時の provider 状態、除外件数、fallback 等）を事実として配列フィールドに記録
-
-## 6. research への接続
-
-- `records/05-research/` の front matter `candidate_ref.candidates_ref` で本ファイルを参照する。`candidate_ref` は `candidates_ref` / `ticker` / `candidate_id` / `screen_run_id` の完全な join key として扱い、research validator が候補ファイル root `run_id` と候補 row の `screen_run_id` / `candidate_id` / `ticker` を照合する
-- 選定プロセス: 最新 `records/04-candidates/` と `records/01-macro-context/` を突き合わせ、macro context を hard gate ではなく research 優先順位・追加確認・sizing caution の診断として使う
-- 複数 screen hit が重なる候補は research 優先度を上げるが、単一総合 score は作らない
-- `select` は lane 別の primary metric、macro status、短期 dislocation、long-hold survivability、過去 research decision を使って research triage を支援する。hit 数と時価総額だけでは並べない
-- `select` output は `queues` と `selection.diagnostics` を正本にする。主な queue は `recommended_research_queue`、`core_value_queue`、`fast_dislocation_queue`、`long_hold_survivability_queue`、`deferred_revisit_queue`、`suppressed_queue`
-- `recommended_research_queue` は research 着手候補。`fast_dislocation_queue` は短期下落と fundamental guard を同時に満たす候補、`core_value_queue` は従来の lane 分散候補、`long_hold_survivability_queue` は短期 thesis が外れた場合にも保有耐性を確認しやすい候補。recommended は sector / lane / queue / previous-candidate cap で、fast-dislocation 一色や過去候補への寄り過ぎを抑える
-- `ranked_candidates` は macro + lane rank + evidence strength のグローバル順位、`lane_toplists` は lane 別上位。research 着手候補の正本は `queues.recommended_research_queue`
-- 各 candidate の `lenses.fast_dislocation` は `price_triggers`、`auxiliary_triggers`、fundamental guard を分けて記録する。急落だけでは eligible にならず、出来高 spike / 52 週安値距離だけでも eligible にならない。fundamental guard は cash-flow / balance-sheet / profitability の family 数も記録し、OCF+FCF だけのような同一 family 重複では財務健全性の十分な裏付けとしない。`freshness_warnings` がある場合、fast confidence は最大 `medium` となり `data_status: stale_fundamental_metrics` を出す。`lenses.long_hold_survivability` は `high|medium|low|unknown` と理由を記録する。`lenses.shareholder_return` は現時点で自動データがなければ `unknown` とする。`select-sweep` の軽量 annotation として `reason_tags` / `risk_tags` を出し、profile 比較時に候補の理由と注意点を見やすくする
-- `prior_research` は ledger から付与する。`deferred` かつ `revisit_after > asof`、または conservative に `deferred` なのに `revisit_after` が無い候補は通常 recommendation から外し、`deferred_revisit_queue` / `suppressed_queue` に出す
-- `select-sweep` は同じ candidates / macro context に複数 selection profile を当て、`strict` / `balanced` / `loose` や任意 YAML profile の閾値を比較する。`recommended[]` には ticker だけでなく recommendation queue / lane、fast confidence、guard count/family count、fast data status、long-hold rating を出し、profile 間の added / removed / changed を見て運用 profile を選ぶ
-- `selected` という語は `select` output の research triage queue だけを指す。raw candidates の row flag ではなく、research approval でも order ready でもない。段階は `screening_selected` → `research_memo` → `research_approved` → `order_ready` と分けて読む
-- candidates validator は row が orthogonal gate fields を持つことを検査する。Macro context と `macro_context_fit` の整合は research validator が検査する
-- 詳細: [`research.md`](./research.md) の選定プロセス
-- research decision 後の追跡先: [`ledger.md`](./ledger.md)
-
-## 7. 事実と分析の分離
-
-- candidates は **事実層**。数値・screen hit 判定は機械的
+- candidates は事実層。数値・screen hit 判定は機械的
 - 「この銘柄は割安だ」という解釈は research 側で行う
 - 「通過した」ことは事実だが、「採用すべき」は解釈
-
-## 8. AI の役割境界
-
-| 作業 | AI 可 | 人間のみ |
-| --- | --- | --- |
-| valuation / cash / CF / sales 指標の算出 | ○ | 異常値の手動確認 |
-| screen hit 判定 | ○ | |
-| YAML 整備 | ○ | |
-| 数値ソースの一次確認 | ○ | 最終責任 |
-| 最終 commit | | ○ |
-
-## 9. 参考
-
-- [`../philosophy.md`](../philosophy.md): 思想（事実と分析の分離、macro context discipline）
-- [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
-- [`../concepts.md`](../concepts.md): 投資判断ドメインモデル
-- [`../screening/`](../screening/): スクリーニングサブシステム詳細
-- [`../screening/universe-rules.md`](../screening/universe-rules.md): universe 境界条件
-- [`../screening/valuation-metrics.md`](../screening/valuation-metrics.md): 指標算出仕様
-- [`../screening/mechanical.md`](../screening/mechanical.md): 機械的ふるい仕様
-- [`../templates/candidates.yaml`](../templates/candidates.yaml): template

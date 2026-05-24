@@ -68,7 +68,6 @@ Macro context は、screening 前に既存 context が stale / scope mismatch / 
 
 ## 5. Macro Context Discipline（philosophy 柱 2 の具体化）
 
-- **マクロ 76% / security-level 24%** は attention / review time / cognitive budget の policy weight として扱う
 - Macro context は hard gate ではなく、screening / research の優先順位、追加確認、sizing caution を決める判断前提として扱う
 - `records/05-research/` の採用判定では `records/01-macro-context/` との fit を必ず確認する
 
@@ -80,7 +79,8 @@ Macro context は、screening 前に既存 context が stale / scope mismatch / 
 
 ## 7. Markdown / YAML 駆動の原則（philosophy 柱 4 の具体化）
 
-- DB / Feature Store を先行導入しない
+- 投資判断 record は DB / Feature Store 化しない
+- provider 由来の再生成可能な input/cache は SQLite に閉じ、判断 record とは分離する
 - front matter（YAML）を揃え、script での後付け抽出を可能にする
 - Git で diff / blame / history を追跡可能にする
 

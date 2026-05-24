@@ -7,8 +7,6 @@ from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
 
-import yaml
-
 from .db import DEFAULT_DB_PATH, StatsSchemaError
 from .definitions import SeriesDefinition
 from .providers import StatsProviderError
@@ -40,16 +38,6 @@ def build_parser() -> argparse.ArgumentParser:
     refresh_parser.add_argument("--start", required=True, type=date.fromisoformat)
     refresh_parser.add_argument("--end", required=True, type=date.fromisoformat)
 
-    fragment_parser = subparsers.add_parser(
-        "macro-fragment",
-        help="generate a quantitative macro context YAML fragment from cached/fetched stats",
-    )
-    fragment_parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
-    fragment_parser.add_argument("--kind", required=True)
-    fragment_parser.add_argument("--start", required=True, type=date.fromisoformat)
-    fragment_parser.add_argument("--end", required=True, type=date.fromisoformat)
-    fragment_parser.add_argument("--refresh", action="store_true")
-
     return parser
 
 
@@ -77,15 +65,6 @@ def main(argv: list[str] | None = None) -> int:
                         refresh=True,
                     )
                     _print_observations(result)
-                return 0
-            case "macro-fragment":
-                payload = service.macro_fragment(
-                    kind=args.kind,
-                    start=args.start,
-                    end=args.end,
-                    refresh=args.refresh,
-                )
-                print(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), end="")
                 return 0
     except KeyError as exc:
         message = exc.args[0] if exc.args else str(exc)

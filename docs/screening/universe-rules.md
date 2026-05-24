@@ -73,7 +73,7 @@ Baibai-Loop スクリーニングの universe（対象銘柄集合）の境界�
 
 ### 6.5 配列
 
-- 参照は repository ref: `macro_context_ref`, `candidate_ref.candidates_ref`（research では `screen_run_id` / `ticker` / `candidate_id` と組み合わせた完全 join key にする）
+- 参照は repository ref: `macro_context_ref`, `candidate_ref.candidates_ref`（research では `candidate_ref.ticker` と組み合わせて candidates row に一致させる）
 
 ## 7. Universe 更新の運用
 

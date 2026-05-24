@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import json
-import math
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -20,7 +18,6 @@ from baibai_loop.policy_config import PORTFOLIO_POLICY
 from .domain import (
     as_list,
     as_mapping,
-    integer,
     load_reference_mapping,
     number,
     repo_root_for,
@@ -28,7 +25,6 @@ from .domain import (
     resolve_repository_ref,
 )
 from .errors import ValidationFinding
-from .external_refs import validate_external_refs_file
 from .playbook_schema import (
     PlaybookSchemaError,
     discover_playbook_schemas,
@@ -45,8 +41,6 @@ _KNOWN_POSTURES = {"act_now", "wait_for_event", "wait_for_capital", "dropped"}
 _KNOWN_MACRO_CONTEXT_EFFECTS = {"proceed", "caution", "defer"}
 _KNOWN_MACRO_CONTEXT_FRESHNESS = {"current", "stale", "future"}
 _KNOWN_MACRO_CONTEXT_FITS = {"tailwind", "neutral", "mixed", "headwind", "not_matched"}
-_KNOWN_CONVICTION_TIERS = {"low", "medium", "high"}
-_KNOWN_CONVICTION_PATHS = {"count_breadth", "depth"}
 _CANONICAL_SIZING_FIELDS = {
     "paper_proxy_position_size_yen",
     "real_order_intent_yen",
@@ -62,12 +56,6 @@ _RESEARCH_NON_CANONICAL_SIZING_FIELDS = {
 }
 _DEPRECATED_VALUATION_FIELDS = {"liquidity_cap_participation_pct"}
 _YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
-
-
-@dataclass(frozen=True, slots=True)
-class _CalendarLoadResult:
-    events: list[Mapping[str, Any]]
-    findings: list[ValidationFinding]
 
 
 def _load_yaml(path: Path) -> object:
@@ -133,11 +121,10 @@ def validate_research_parsed(
     findings.extend(_check_decision(path, front_matter))
     findings.extend(_check_macro_context_fit(path, front_matter))
     findings.extend(_check_sizing_invariants(path, front_matter))
-    findings.extend(_check_candidate_lineage(path, front_matter, [], [], None))
-    findings.extend(_check_corporate_action_invalidation(path, front_matter))
+    findings.extend(_check_candidate_lineage(path, front_matter))
+    findings.extend(_check_corporate_action_check(path, front_matter))
     findings.extend(_check_payoff(path, front_matter))
     findings.extend(_check_reference_refs(path, front_matter))
-    findings.extend(validate_external_refs_file(path, front_matter))
 
     playbook_id = front_matter.get("playbook_id")
     if isinstance(playbook_id, str) and playbook_id in known_playbooks:
@@ -676,9 +663,6 @@ def _check_decision(path: Path, front_matter: Mapping[str, object]) -> list[Vali
 def _check_candidate_lineage(
     path: Path,
     front_matter: Mapping[str, object],
-    selected: Sequence[object],
-    decisions: Sequence[object],
-    candidate_hits: Mapping[str, Mapping[str, Any]] | None,
 ) -> list[ValidationFinding]:
     if not _is_repository_research_record(path):
         return []
@@ -728,8 +712,6 @@ def _check_candidate_lineage(
                 location="candidate_ref.candidates_ref",
             )
         ]
-    document_run_id = document.get("run_id")
-    ref_screen_run_id = candidate_ref.get("screen_run_id")
     ref_ticker = candidate_ref.get("ticker")
     if not isinstance(ref_ticker, str) or not ref_ticker:
         findings.append(
@@ -751,37 +733,6 @@ def _check_candidate_lineage(
                 location="candidate_ref.ticker",
             )
         )
-    ref_candidate_id = candidate_ref.get("candidate_id")
-    if not isinstance(ref_candidate_id, str) or not ref_candidate_id:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.candidate-ref-candidate-id",
-                message="candidate_ref.candidate_id is required",
-                location="candidate_ref.candidate_id",
-            )
-        )
-    if not isinstance(ref_screen_run_id, str) or not ref_screen_run_id:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.candidate-ref-screen-run-id",
-                message="candidate_ref.screen_run_id is required",
-                location="candidate_ref.screen_run_id",
-            )
-        )
-    elif isinstance(document_run_id, str) and ref_screen_run_id != document_run_id:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.candidate-ref-screen-run-id",
-                message="candidate_ref.screen_run_id must match candidate document run_id",
-                location="candidate_ref.screen_run_id",
-            )
-        )
     candidate_row = _candidate_row_for_front(front_matter, document)
     if candidate_row is None:
         findings.append(
@@ -789,82 +740,12 @@ def _check_candidate_lineage(
                 severity="error",
                 target=path,
                 code="research.candidate-ref-match",
-                message=(
-                    "candidate_ref must match a candidate row by ticker, "
-                    "candidate_id, and screen_run_id"
-                ),
+                message="candidate_ref must match a candidate row by ticker",
                 location="candidate_ref",
             )
         )
     else:
-        candidate_screen_run_id = candidate_row.get("screen_run_id")
-        if (
-            isinstance(ref_screen_run_id, str)
-            and isinstance(candidate_screen_run_id, str)
-            and ref_screen_run_id != candidate_screen_run_id
-        ):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.candidate-ref-screen-run-id",
-                    message="candidate_ref.screen_run_id must match candidate row screen_run_id",
-                    location="candidate_ref.screen_run_id",
-                )
-            )
         findings.extend(_check_copied_candidate_fields(path, front_matter, candidate_row))
-    selected_candidate_ids = {
-        str(item.get("evidence_hit_id"))
-        for item in selected
-        if isinstance(item, Mapping)
-        and item.get("source") == "candidate"
-        and isinstance(item.get("evidence_hit_id"), str)
-    }
-    decision_by_id = {
-        str(item.get("evidence_hit_id")): item
-        for item in decisions
-        if isinstance(item, Mapping) and isinstance(item.get("evidence_hit_id"), str)
-    }
-    decision = as_mapping(front_matter.get("research_decision"))
-    is_approved = decision.get("outcome") == "approved"
-    for evidence_id in sorted(selected_candidate_ids):
-        if candidate_hits is None or evidence_id not in candidate_hits:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.selected-evidence-missing",
-                    message="selected candidate evidence must exist in candidate_ref",
-                    location="selected_supporting_evidence_refs",
-                )
-            )
-            continue
-        decision_item = decision_by_id.get(evidence_id)
-        if decision_item is None:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.selected-evidence-decision",
-                    message=(
-                        "selected candidate evidence requires candidate_evidence_decisions entry"
-                    ),
-                    location="candidate_evidence_decisions",
-                )
-            )
-            continue
-        if is_approved and decision_item.get("effective_sizing_eligible") is not True:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.selected-evidence-not-eligible",
-                    message=(
-                        "approved selected candidate evidence must be effective sizing eligible"
-                    ),
-                    location="candidate_evidence_decisions",
-                )
-            )
     return findings
 
 
@@ -874,23 +755,11 @@ def _candidate_row_for_front(
 ) -> Mapping[str, object] | None:
     candidate_ref = as_mapping(front_matter.get("candidate_ref"))
     ticker = candidate_ref.get("ticker")
-    candidate_id = candidate_ref.get("candidate_id")
-    screen_run_id = candidate_ref.get("screen_run_id")
     candidates = document.get("candidates")
-    if (
-        not isinstance(candidates, list)
-        or not isinstance(ticker, str)
-        or not isinstance(candidate_id, str)
-        or not isinstance(screen_run_id, str)
-    ):
+    if not isinstance(candidates, list) or not isinstance(ticker, str):
         return None
     for candidate in candidates:
-        if (
-            isinstance(candidate, Mapping)
-            and candidate.get("ticker") == ticker
-            and candidate.get("candidate_id") == candidate_id
-            and candidate.get("screen_run_id") == screen_run_id
-        ):
+        if isinstance(candidate, Mapping) and candidate.get("ticker") == ticker:
             return candidate
     return None
 
@@ -946,41 +815,6 @@ def _is_repository_research_record(path: Path) -> bool:
     except ValueError:
         return False
     return True
-
-
-def _load_candidate_hits(
-    path: Path,
-    front_matter: Mapping[str, object],
-) -> dict[str, Mapping[str, Any]] | None:
-    candidate_ref = front_matter.get("candidate_ref")
-    ref_value: object = (
-        candidate_ref.get("candidates_ref") if isinstance(candidate_ref, Mapping) else None
-    )
-    if not isinstance(ref_value, str) or not ref_value:
-        return None
-    candidate_path = _resolve_candidate_ref(path, ref_value)
-    if candidate_path is None:
-        return None
-    try:
-        loaded: object = _load_yaml(candidate_path)
-    except (OSError, yaml.YAMLError):
-        return None
-    if not isinstance(loaded, Mapping):
-        return None
-    hits_by_id: dict[str, Mapping[str, Any]] = {}
-    candidate = _candidate_row_for_front(front_matter, loaded)
-    if candidate is None:
-        return hits_by_id
-    hits = candidate.get("evidence_hits")
-    if not isinstance(hits, list):
-        return hits_by_id
-    for hit in hits:
-        if not isinstance(hit, Mapping):
-            continue
-        hit_id = hit.get("evidence_hit_id")
-        if isinstance(hit_id, str) and hit_id:
-            hits_by_id[hit_id] = hit
-    return hits_by_id
 
 
 def _resolve_record_ref(
@@ -1063,28 +897,7 @@ def _check_sizing_invariants(
         )
         return findings
 
-    expected = _derive_order_intent(front_matter, PORTFOLIO_POLICY)
-    checks = {
-        "paper_proxy_position_size_yen": expected["paper_proxy_position_size_yen"],
-        "real_order_intent_yen": expected["real_order_intent_yen"],
-        "adv_participation_pct": expected["adv_participation_pct"],
-    }
-    for field, derived_expected_value in checks.items():
-        tolerance = 1 if field.endswith("_yen") else 0.0001
-        if not _close(sizing.get(field), derived_expected_value, tolerance=tolerance):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code=f"research.{field.replace('_', '-')}",
-                    message=(
-                        f"{field} must derive to {derived_expected_value:g} "
-                        "from policy and exposure"
-                    ),
-                    location=f"position_sizing_overlay.{field}",
-                )
-            )
-    return findings
+    return findings + _check_approved_position_sizing_limits(path, front_matter, sizing)
 
 
 def _check_position_sizing_overlay_shape(
@@ -1130,167 +943,160 @@ def _check_position_sizing_overlay_shape(
     return findings
 
 
-def _derive_order_intent(
+def _check_approved_position_sizing_limits(
+    path: Path,
     front_matter: Mapping[str, object],
-    policy: Mapping[str, Any],
-) -> dict[str, float]:
-    tier = str(front_matter.get("conviction_tier") or "low")
-    capital = as_mapping(policy.get("capital_basis"))
-    risk = as_mapping(policy.get("risk_budget"))
-    tier_caps = as_mapping(as_mapping(policy.get("conviction_tier_caps")).get(tier))
-    count_1_caps = as_mapping(as_mapping(policy.get("evidence_count_caps")).get("count_1"))
-    sizing_ladder = as_mapping(as_mapping(policy.get("sizing_ladder")).get(tier))
-    scaling = as_mapping(policy.get("execution_scaling"))
-    order_constraints = as_mapping(policy.get("order_constraints"))
-    avg_turnover_oku = number(front_matter.get("avg_turnover_oku"))
-
-    paper_default = number(sizing_ladder.get("default_paper_proxy_position_size_yen")) or 0
-    paper_caps = [
-        paper_default,
-        number(risk.get("max_paper_proxy_position_size_yen")),
-        number(tier_caps.get("max_paper_proxy_position_size_yen")),
-    ]
-    paper_yen = min(value for value in paper_caps if value is not None)
-    adv_participation_pct = (
-        paper_yen / (avg_turnover_oku * 100_000_000) * 100
-        if avg_turnover_oku is not None and avg_turnover_oku > 0
-        else 0.0
-    )
-    scaled_real = paper_yen * ((number(scaling.get("paper_to_real_order_notional_pct")) or 0) / 100)
-
-    adv_pct = number(risk.get("max_adv_participation_pct"))
-    liquidity_cap = (
-        avg_turnover_oku * 100_000_000 * adv_pct / 100
-        if avg_turnover_oku is not None and adv_pct is not None
-        else None
-    )
-    single_evidence_cap = (
-        number(count_1_caps.get("max_real_order_notional_yen"))
-        if (integer(front_matter.get("independent_evidence_count")) or 0) <= 1
-        else None
-    )
-    real_caps = [
-        scaled_real,
-        number(capital.get("tactical_real_budget_yen")),
-        number(risk.get("max_real_order_notional_yen")),
-        number(tier_caps.get("max_real_order_notional_yen")),
-        single_evidence_cap,
-        liquidity_cap,
-    ]
-    real_intent = min(value for value in real_caps if value is not None)
-    guard = number(as_mapping(front_matter.get("thesis_payoff")).get("max_entry_price_yen"))
-    board_lot = int(number(order_constraints.get("board_lot")) or 100)
-    if guard is not None and guard > 0 and board_lot > 0:
-        quantity = math.floor(real_intent / guard / board_lot) * board_lot
-        real_intent = quantity * guard
-    return {
-        "paper_proxy_position_size_yen": float(paper_yen),
-        "real_order_intent_yen": float(real_intent),
-        "adv_participation_pct": round(float(adv_participation_pct), 4),
-    }
-
-
-def _check_corporate_action_invalidation(
-    path: Path, front_matter: Mapping[str, object]
+    sizing: Mapping[str, object],
+    policy: Mapping[str, Any] = PORTFOLIO_POLICY,
 ) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
-    root = repo_root_for(path)
-    candidate_ref = as_mapping(front_matter.get("candidate_ref"))
-    ticker = str(candidate_ref.get("ticker") or front_matter.get("ticker") or "")
-    decisions = as_list(front_matter.get("candidate_evidence_decisions"))
-    needs_calendar = any(
-        isinstance(item, Mapping) and item.get("reason_code") == "corporate_action_post_snapshot"
-        for item in decisions
+    capital = as_mapping(policy.get("capital_basis"))
+    risk = as_mapping(policy.get("risk_budget"))
+    scaling = as_mapping(policy.get("execution_scaling"))
+    avg_turnover_oku = number(front_matter.get("avg_turnover_oku"))
+    paper_yen = number(sizing.get("paper_proxy_position_size_yen"))
+    real_intent = number(sizing.get("real_order_intent_yen"))
+    adv_participation_pct = number(sizing.get("adv_participation_pct"))
+
+    numeric_fields = {
+        "paper_proxy_position_size_yen": paper_yen,
+        "real_order_intent_yen": real_intent,
+        "adv_participation_pct": adv_participation_pct,
+    }
+    for field, value in numeric_fields.items():
+        if value is None or value < 0:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.position-sizing-value",
+                    message=f"position_sizing_overlay.{field} must be a non-negative number",
+                    location=f"position_sizing_overlay.{field}",
+                )
+            )
+    if findings:
+        return findings
+    assert paper_yen is not None
+    assert real_intent is not None
+    assert adv_participation_pct is not None
+    assert avg_turnover_oku is not None
+
+    if paper_yen <= 0:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.paper-proxy-position-size",
+                message="approved research requires positive paper_proxy_position_size_yen",
+                location="position_sizing_overlay.paper_proxy_position_size_yen",
+            )
+        )
+
+    expected_adv = round(
+        paper_yen / (avg_turnover_oku * 100_000_000) * 100 if avg_turnover_oku > 0 else 0.0,
+        4,
     )
-    calendar_result = _load_corporate_action_events(path, root) if needs_calendar else None
-    if calendar_result is not None:
-        findings.extend(calendar_result.findings)
-    calendars = calendar_result.events if calendar_result is not None else []
-    ticker_events = [event for event in calendars if event.get("ticker") == ticker]
-    candidate_hits = _load_candidate_hits(path, front_matter) or {}
-    for index, item in enumerate(decisions):
-        if not isinstance(item, Mapping):
-            continue
-        if item.get("reason_code") != "corporate_action_post_snapshot":
-            continue
-        kind = item.get("corporate_action_kind")
-        invalidated = item.get("invalidated_metric_ids")
-        if not isinstance(kind, str) or not kind:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.corporate-action-kind",
-                    message=(
-                        "corporate_action_post_snapshot decisions require corporate_action_kind"
-                    ),
-                    location=f"candidate_evidence_decisions[{index}].corporate_action_kind",
-                )
+    if not _close(adv_participation_pct, expected_adv, tolerance=0.0001):
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.adv-participation-pct",
+                message=(
+                    "adv_participation_pct must derive from "
+                    "paper_proxy_position_size_yen and avg_turnover_oku"
+                ),
+                location="position_sizing_overlay.adv_participation_pct",
             )
-            continue
-        matching_events = [
-            event
-            for event in ticker_events
-            if event.get("corporate_action_kind") == kind or event.get("event_kind") == kind
-        ]
-        if not matching_events:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.corporate-action-calendar-event",
-                    message=(
-                        "corporate action invalidation requires a pinned matching calendar event"
-                    ),
-                    location=f"candidate_evidence_decisions[{index}].corporate_action_kind",
-                )
+        )
+
+    scaled_real = paper_yen * ((number(scaling.get("paper_to_real_order_notional_pct")) or 0) / 100)
+
+    paper_cap = number(risk.get("max_paper_proxy_position_size_yen"))
+    if paper_cap is not None and paper_yen > paper_cap:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.paper-proxy-position-cap",
+                message=f"paper_proxy_position_size_yen must not exceed policy cap {paper_cap:g}",
+                location="position_sizing_overlay.paper_proxy_position_size_yen",
             )
-        if not isinstance(invalidated, list) or not invalidated:
+        )
+
+    adv_cap_pct = number(risk.get("max_adv_participation_pct"))
+    liquidity_cap = (
+        avg_turnover_oku * 100_000_000 * adv_cap_pct / 100 if adv_cap_pct is not None else None
+    )
+    real_caps = {
+        "paper_to_real_order_notional_pct": scaled_real,
+        "tactical_real_budget_yen": number(capital.get("tactical_real_budget_yen")),
+        "max_real_order_notional_yen": number(risk.get("max_real_order_notional_yen")),
+        "max_adv_participation_pct": liquidity_cap,
+    }
+    for cap_name, cap_value in real_caps.items():
+        if cap_value is not None and real_intent > cap_value + 1:
             findings.append(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.corporate-action-invalidated-metrics",
-                    message=(
-                        "corporate_action_post_snapshot decisions require invalidated_metric_ids"
-                    ),
-                    location=f"candidate_evidence_decisions[{index}].invalidated_metric_ids",
-                )
-            )
-            continue
-        hit_id = item.get("evidence_hit_id")
-        hit = candidate_hits.get(str(hit_id)) if isinstance(hit_id, str) else None
-        source_metrics = {
-            str(metric) for metric in as_list(hit.get("source_metric_ids") if hit else [])
-        }
-        if source_metrics and not (source_metrics & {str(metric) for metric in invalidated}):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.corporate-action-metric-mismatch",
-                    message="invalidated_metric_ids must intersect source_metric_ids",
-                    location=f"candidate_evidence_decisions[{index}].invalidated_metric_ids",
-                )
-            )
-        event_metrics = {
-            str(metric)
-            for event in matching_events
-            for metric in as_list(event.get("invalidates_metrics"))
-        }
-        if event_metrics and not ({str(metric) for metric in invalidated} <= event_metrics):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.corporate-action-calendar-mismatch",
-                    message=(
-                        "invalidated_metric_ids must be covered by pinned corporate-action calendar"
-                    ),
-                    location=f"candidate_evidence_decisions[{index}].invalidated_metric_ids",
+                    code="research.real-order-intent-cap",
+                    message=f"real_order_intent_yen must not exceed {cap_name} cap {cap_value:g}",
+                    location="position_sizing_overlay.real_order_intent_yen",
                 )
             )
     return findings
+
+
+def _check_corporate_action_check(
+    path: Path, front_matter: Mapping[str, object]
+) -> list[ValidationFinding]:
+    decision = as_mapping(front_matter.get("research_decision"))
+    if decision.get("outcome") != "approved":
+        return []
+    check = front_matter.get("corporate_action_check")
+    if not isinstance(check, Mapping):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.corporate-action-check",
+                message="approved research requires corporate_action_check",
+                location="corporate_action_check",
+            )
+        ]
+    if check.get("checked") is not True:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.corporate-action-check",
+                message="corporate_action_check.checked must be true for approved research",
+                location="corporate_action_check.checked",
+            )
+        ]
+    result = check.get("result")
+    if result not in {"none", "found", "not_applicable"}:
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.corporate-action-check-result",
+                message="corporate_action_check.result must be none, found, or not_applicable",
+                location="corporate_action_check.result",
+            )
+        ]
+    if result != "none":
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.corporate-action-check-result",
+                message="approved research requires corporate_action_check.result to be none",
+                location="corporate_action_check.result",
+            )
+        ]
+    return []
 
 
 def _load_candidate_document(
@@ -1310,52 +1116,6 @@ def _load_candidate_document(
     except (OSError, yaml.YAMLError):
         return None
     return loaded if isinstance(loaded, Mapping) else None
-
-
-def _load_corporate_action_events(path: Path, root: Path) -> _CalendarLoadResult:
-    events: list[Mapping[str, Any]] = []
-    findings: list[ValidationFinding] = []
-    calendar_paths = sorted((root / "records/_calendars/corporate-actions").glob("*.yaml"))
-    if not calendar_paths:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="research.corporate-action-calendar-missing",
-                message="records/_calendars/corporate-actions must contain a YAML calendar",
-                location="candidate_evidence_decisions",
-            )
-        )
-        return _CalendarLoadResult(events, findings)
-    for calendar_path in calendar_paths:
-        try:
-            raw = _load_yaml(calendar_path)
-        except (OSError, yaml.YAMLError) as exc:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.corporate-action-calendar-parse",
-                    message=f"failed to parse corporate action calendar {calendar_path}: {exc}",
-                    location="candidate_evidence_decisions",
-                )
-            )
-            continue
-        if not isinstance(raw, Mapping):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.corporate-action-calendar-root",
-                    message=f"corporate action calendar must be a mapping: {calendar_path}",
-                    location="candidate_evidence_decisions",
-                )
-            )
-            continue
-        for event in as_list(raw.get("events")):
-            if isinstance(event, Mapping):
-                events.append(event)
-    return _CalendarLoadResult(events, findings)
 
 
 def _parse_datetime(value: object) -> datetime | None:

@@ -5,75 +5,17 @@ playbook_id: cashflow-yield-discount
 playbook_ref:
   ref_path: records/_playbooks/cashflow-yield-discount/2026-05-01T000000+0900.md
   effective_from: '2026-05-01T00:00:00+09:00'
-selected_supporting_evidence_refs:
-- source: candidate
-  evidence_hit_id: candidate-2026-05-08-8255-cashflow-yield-discount
 research_decision:
   outcome: approved
   posture: act_now
   reason_code: post_earnings_oversold_defensive_cashflow
 candidate_ref:
   candidates_ref: records/04-candidates/2026/05/2026-05-08.yaml
-  screen_run_id: screening-20260508
   ticker: '8255'
-  candidate_id: candidate-2026-05-08-8255
 ai_draft: true
 published_at: '2026-05-13T09:15:00+09:00'
 recorded_at: '2026-05-13T09:15:00+09:00'
 tradable_at: '2026-05-13T09:00:00+09:00'
-external_refs:
-- ref_path: records/_external/deepresearch/2026-05-13-top3-bargain-selection.md
-candidate_evidence_decisions:
-- evidence_hit_id: candidate-2026-05-08-8255-cashflow-yield-discount
-  effective_sizing_eligible: true
-  evaluated_at: '2026-05-13T09:15:00+09:00'
-  reason_code: source_status_ok
-research_evidence_hits:
-- evidence_hit_id: research-8255-fy2026-record-profit-cashflow
-  decision_role: sizing_evidence
-  evidence_polarity: supports
-  evidence_family_set:
-  - fundamental
-  source_status: ok
-  analyst_asserted: true
-  sizing_eligible: true
-  independence_component_id: fy2026-record-profit-cashflow
-  approval_rule_id: analyst-event-evidence-reviewed
-  source_refs:
-  - ref_path: records/_external/deepresearch/2026-05-13-top3-bargain-selection.md
-  recorded_at: '2026-05-13T09:15:00+09:00'
-- evidence_hit_id: research-8255-progressive-dividend-long-hold-benefit
-  decision_role: sizing_evidence
-  evidence_polarity: supports
-  evidence_family_set:
-  - shareholder_return
-  source_status: ok
-  analyst_asserted: true
-  sizing_eligible: true
-  independence_component_id: shareholder-return
-  approval_rule_id: analyst-event-evidence-reviewed
-  source_refs:
-  - ref_path: records/_external/deepresearch/2026-05-13-top3-bargain-selection.md
-  recorded_at: '2026-05-13T09:15:00+09:00'
-- evidence_hit_id: research-8255-fy2027-guidance-margin-risk
-  decision_role: risk_evidence
-  evidence_polarity: risk
-  evidence_family_set:
-  - fundamental
-  source_status: ok
-  analyst_asserted: true
-  sizing_eligible: false
-  source_refs:
-  - ref_path: records/_external/deepresearch/2026-05-13-top3-bargain-selection.md
-  recorded_at: '2026-05-13T09:15:00+09:00'
-independent_evidence_count: 3
-raw_playbook_concurrence_count: 1
-sizing_eligible_playbook_concurrence_count: 1
-raw_evidence_family_count: 2
-sizing_eligible_evidence_family_count: 2
-conviction_tier: high
-conviction_tier_path: count_breadth
-depth_verification_ref: null
 position_sizing_overlay:
   paper_proxy_position_size_oku: 0.015
   paper_proxy_position_size_yen: 1500000
@@ -127,6 +69,10 @@ macro_context_fit:
   required_checks: []
   sizing_caution:
   - migrated_from_legacy_macro_context
+corporate_action_check:
+  checked: true
+  result: none
+  note: Checked during research review.
 ---
 
 # Research: 2026-05-13 8255 アクシアル　リテイリング cashflow-yield-discount
