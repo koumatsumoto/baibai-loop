@@ -50,7 +50,7 @@ content hash audit は持たず、record から参照する repo 内 file path �
 | --- | --- | --- | --- |
 | `records/_approval-rules/` | [`../components/research.md`](../components/research.md) | this map | analyst asserted evidence を sizing に入れる approval rule files |
 | `records/_calendars/` | [`../components/portfolio-policy.md`](../components/portfolio-policy.md) | this map | business day / event / corporate action calendar files |
-| `records/_config/` | [`../screening/principles.md`](../screening/principles.md) | this map | screening rules / metric catalog / exposure bucket config files |
+| `records/_config/` | [`../screening/principles.md`](../screening/principles.md) | this map | screening rules and lightweight profile config files |
 | `records/_data/` | [`../reference/data-sources.md`](../reference/data-sources.md) | this map | raw / derived data と cache の支援領域 |
 | `records/_ledger/` | [`../components/ledger.md`](../components/ledger.md) | this map | decision register と ledger sync の記録領域 |
 | `records/_market-data/` | [`../components/reviews.md`](../components/reviews.md) | this map | review / missed opportunity 計算用 market data files |

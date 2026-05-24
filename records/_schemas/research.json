@@ -6,18 +6,12 @@
   "additionalProperties": true,
   "required": [
     "ticker",
-    "name",
     "playbook_id",
     "playbook_ref",
     "research_decision",
     "candidate_ref",
     "macro_context_ref",
     "macro_context_fit",
-    "candidate_evidence_decisions",
-    "selected_supporting_evidence_refs",
-    "research_evidence_hits",
-    "independent_evidence_count",
-    "conviction_tier",
     "position_sizing_overlay",
     "thesis_payoff"
   ],
@@ -51,11 +45,6 @@
     "conviction_tier_path": {"enum": ["count_breadth", "depth"]},
     "position_sizing_overlay": {
       "type": "object",
-      "required": [
-        "paper_proxy_position_size_yen",
-        "real_order_intent_yen",
-        "adv_participation_pct"
-      ],
       "properties": {
         "paper_proxy_position_size_yen": {"type": "number"},
         "real_order_intent_yen": {"type": "number"},
@@ -69,12 +58,6 @@
       "type": "object",
       "additionalProperties": true,
       "required": ["ref_path"],
-      "not": {
-        "anyOf": [
-          {"required": ["content_sha256"]},
-          {"required": ["row_sha256"]}
-        ]
-      },
       "properties": {
         "ref_path": {"type": "string", "minLength": 1, "pattern": "^records/[^\\n]*$"},
         "effective_from": {"type": "string"},

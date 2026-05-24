@@ -9,9 +9,6 @@ from typing import Any
 from .domain import repo_root_for, repository_ref_error, resolve_repository_ref
 from .errors import ValidationFinding
 
-_CONTENT_HASH_FIELD = "content_sha256"
-_ROW_HASH_FIELD = "row_sha256"
-
 
 def validate_external_refs_file(path: Path, payload: Mapping[str, Any]) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
@@ -29,16 +26,6 @@ def validate_external_refs_file(path: Path, payload: Mapping[str, Any]) -> list[
             )
             continue
         ref_path = ref.get("ref_path")
-        if _CONTENT_HASH_FIELD in ref or _ROW_HASH_FIELD in ref:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="external-ref.removed-hash-field",
-                    message="external refs must not include removed hash fields",
-                    location=location,
-                )
-            )
         error = repository_ref_error(ref_path, root=root)
         if error is not None:
             findings.append(

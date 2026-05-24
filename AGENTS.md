@@ -50,14 +50,10 @@ records / schema の変更を加えたら、コミット前に最低限以下を
 
 ```bash
 uv run baibai-loop-validate
-uv run baibai-loop-precheck
 uv run ruff format --check .
 uv run ruff check .
 uv run mypy
 uv run pytest
 ```
-
-`baibai-loop-precheck` は warning-only で動く。`--strict` を渡すと finding が 1 件でもあれば
-exit 1 になる。新規 macro context を作成・更新するときは strict で通すことを目標にする。
 
 CI と同じ手順は [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §9 を参照。

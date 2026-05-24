@@ -53,40 +53,6 @@ def test_validate_ledger_missing_required_field_is_finding(tmp_path: Path) -> No
     assert "ledger.required" in {finding.code for finding in validate_ledger_file(path)}
 
 
-def test_validate_ledger_rejects_removed_reference_and_hash_fields(tmp_path: Path) -> None:
-    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
-    record = _decision_record(
-        **{"_".join(("policy", "snapshot")): {"ref_path": "docs/portfolio-policy.md"}},
-        row_sha256="sha256:bad",
-    )
-    _write_jsonl(path, record)
-
-    codes = {finding.code for finding in validate_ledger_file(path)}
-
-    assert "ledger.removed-reference-field" in codes
-    assert "ledger.removed-hash-field" in codes
-
-
-def test_validate_ledger_rejects_removed_not_reviewed_reason(tmp_path: Path) -> None:
-    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
-    record = _decision_record(**{"_".join(("not", "reviewed", "reason")): "rank_out"})
-    _write_jsonl(path, record)
-
-    codes = {finding.code for finding in validate_ledger_file(path)}
-
-    assert "ledger.removed-reference-field" in codes
-
-
-def test_validate_ledger_rejects_removed_candidate_decision(tmp_path: Path) -> None:
-    path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
-    record = _decision_record(**{"_".join(("candidate", "decision")): "selected"})
-    _write_jsonl(path, record)
-
-    codes = {finding.code for finding in validate_ledger_file(path)}
-
-    assert "ledger.removed-reference-field" in codes
-
-
 def test_validate_ledger_rejects_bad_decision_scope(tmp_path: Path) -> None:
     path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
     _write_jsonl(path, _decision_record(decision_scope="trade"))

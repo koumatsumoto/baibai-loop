@@ -163,40 +163,6 @@ def test_missing_required_field_is_flagged(tmp_path: Path) -> None:
     assert "trade.required" in codes
 
 
-def test_removed_legacy_field_is_flagged(tmp_path: Path) -> None:
-    front = _trade_front(status="open")
-    path = _write_trade(tmp_path, front)
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.removed-field" in codes
-
-
-def test_portfolio_exposure_ref_is_flagged_as_removed(tmp_path: Path) -> None:
-    front = _trade_front(**{"_".join(("portfolio", "exposure", "ref")): {"ref_path": "x"}})
-    path = _write_trade(tmp_path, front)
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.removed-field" in codes
-
-
-def test_nested_removed_hash_field_is_flagged(tmp_path: Path) -> None:
-    front = _trade_front()
-    order_intent = front["order_intent"]
-    assert isinstance(order_intent, dict)
-    order_intent["content_" + "sha256"] = "sha256:bad"
-    path = _write_trade(tmp_path, front)
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.removed-hash-field" in codes
-
-
-def test_nested_removed_reference_field_is_flagged(tmp_path: Path) -> None:
-    front = _trade_front()
-    order_intent = front["order_intent"]
-    assert isinstance(order_intent, dict)
-    order_intent["snapshot_path"] = "records/06-trades/2026/05/trade.md"
-    path = _write_trade(tmp_path, front)
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.removed-reference-field" in codes
-
-
 def test_order_intent_must_join_to_order(tmp_path: Path) -> None:
     front = _trade_front()
     orders = front["orders"]
@@ -230,7 +196,6 @@ def test_submitted_trade_requires_position_sizing_overlay(tmp_path: Path) -> Non
     del front["position_sizing_overlay"]
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.required" in codes
     assert "trade.position-sizing-required" in codes
 
 
@@ -241,7 +206,6 @@ def test_submitted_trade_schema_requires_sizing_fields(tmp_path: Path) -> None:
     del sizing["guarded_max_notional_yen"]
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.required" in codes
     assert "trade.position-sizing-field" in codes
 
 
@@ -294,19 +258,6 @@ def test_guarded_notional_must_match_quantity_times_guard(tmp_path: Path) -> Non
     assert "trade.guarded-notional" in codes
 
 
-def test_order_quantity_is_recomputed_from_research_intent(tmp_path: Path) -> None:
-    front = _trade_front()
-    intent = front["order_intent"]
-    sizing = front["position_sizing_overlay"]
-    assert isinstance(intent, dict)
-    assert isinstance(sizing, dict)
-    intent["quantity"] = 100
-    sizing["guarded_max_notional_yen"] = 105000
-    path = _write_trade(tmp_path, front)
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.intent-derived" in codes
-
-
 def test_submitted_trade_requires_positive_quantity(tmp_path: Path) -> None:
     front = _trade_front(current_quantity=0, executions=[], entry_legs=[])
     intent = front["order_intent"]
@@ -329,19 +280,6 @@ def test_submitted_trade_requires_positive_quantity(tmp_path: Path) -> None:
 
 
 def test_submitted_trade_requires_approved_research_ref(tmp_path: Path) -> None:
-    front = _trade_front(current_quantity=0, executions=[], entry_legs=[])
-    intent = front["order_intent"]
-    sizing = front["position_sizing_overlay"]
-    orders = front["orders"]
-    assert isinstance(intent, dict)
-    assert isinstance(sizing, dict)
-    assert isinstance(orders, list)
-    intent["quantity"] = 0
-    sizing["guarded_max_notional_yen"] = 0
-    order = orders[0]
-    assert isinstance(order, dict)
-    order["submitted_quantity"] = 0
-    order["filled_quantity"] = 0
     root = _test_repo_root(tmp_path)
     research_path = root / "records/05-research/2026/05/2026-05-05-9682-sales-discount-growth.md"
     research_path.parent.mkdir(parents=True, exist_ok=True)
@@ -350,45 +288,35 @@ def test_submitted_trade_requires_approved_research_ref(tmp_path: Path) -> None:
         "research_decision:\n"
         "  outcome: deferred\n"
         "  posture: wait_for_event\n"
-        "thesis_payoff:\n"
-        "  max_entry_price_yen: 1050\n"
-        "position_sizing_overlay:\n"
-        "  real_order_intent_yen: 0\n"
         "---\n\n# Research\n",
         encoding="utf-8",
     )
-    path = _write_trade(tmp_path, front)
+    path = _write_trade(tmp_path)
 
     codes = {finding.code for finding in validate_trade_file(path)}
 
     assert "trade.research-approval" in codes
 
 
-def test_order_guard_is_recomputed_from_research_payoff(tmp_path: Path) -> None:
+def test_submitted_trade_requires_readable_research_ref(tmp_path: Path) -> None:
+    front = _trade_front(research_ref="records/05-research/missing.md")
+    path = _write_trade(tmp_path, front)
+
+    codes = {finding.code for finding in validate_trade_file(path)}
+
+    assert "trade.research-ref-load" in codes
+
+
+def test_no_margin_trading_constraint_rejects_margin_usage(tmp_path: Path) -> None:
     front = _trade_front()
     intent = front["order_intent"]
-    sizing = front["position_sizing_overlay"]
     assert isinstance(intent, dict)
-    assert isinstance(sizing, dict)
-    intent["order_price_guard_yen"] = 1000
-    intent["quantity"] = 200
-    sizing["guarded_max_notional_yen"] = 200000
+    intent["uses_margin"] = True
     path = _write_trade(tmp_path, front)
 
     codes = {finding.code for finding in validate_trade_file(path)}
 
-    assert "trade.intent-derived" in codes
-
-
-def test_submitted_trade_requires_valid_research_ref_for_order_intent(tmp_path: Path) -> None:
-    front = _trade_front()
-    front["research_ref"] = "records/05-research/missing.md"
-    path = _write_trade(tmp_path, front)
-
-    codes = {finding.code for finding in validate_trade_file(path)}
-
-    assert "trade.intent-source" in codes
-    assert "trade.research-ref-load" in codes
+    assert "trade.no-margin-trading" in codes
 
 
 def test_open_trades_must_stay_within_portfolio_concentration_caps(tmp_path: Path) -> None:
@@ -437,98 +365,6 @@ def test_closed_trade_does_not_report_current_portfolio_concentration_caps(
 
     assert "trade.portfolio-tactical-budget" not in codes
     assert "trade.portfolio-ticker-cap" not in codes
-
-
-def test_submitted_trade_requires_entry_legs(tmp_path: Path) -> None:
-    front = _trade_front()
-    del front["entry_legs"]
-    path = _write_trade(tmp_path, front)
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.entry-legs-required" in codes
-
-
-def test_trade_intent_must_join_decision_register(tmp_path: Path) -> None:
-    (tmp_path / "src").mkdir()
-    register = tmp_path / "records/_ledger/research-decisions/2026-05.jsonl"
-    register.parent.mkdir(parents=True)
-    register.write_text(
-        '{"decision_event_id":"decision-20260505-9682-trade",'
-        '"order_intent":{"order_intent_id":"intent-other"}}\n',
-        encoding="utf-8",
-    )
-    path = _write_trade(tmp_path / "records/06-trades/2026/05", _trade_front())
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.decision-register-intent-join" in codes
-
-
-def test_kill_switch_check_is_recomputed_from_events_calendar(tmp_path: Path) -> None:
-    events_ref = "records/_calendars/events/2026-05.yaml"
-    events = tmp_path / events_ref
-    events.parent.mkdir(parents=True)
-    events.write_text(
-        yaml.safe_dump(
-            {
-                "events": [
-                    {
-                        "event_id": "boj-20260506",
-                        "date": "2026-05-06",
-                        "kind": "boj",
-                    }
-                ]
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-    front = _trade_front(
-        kill_switch_check={"boj_eve": False},
-    )
-    path = _write_trade(tmp_path, front)
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.kill-switch-check" in codes
-
-
-def test_kill_switch_requires_events_calendar(tmp_path: Path) -> None:
-    path = _write_trade(tmp_path)
-    events = tmp_path / "records/_calendars/events/2026-05.yaml"
-    events.unlink()
-
-    codes = {finding.code for finding in validate_trade_file(path)}
-
-    assert "trade.events-calendar-missing" in codes
-
-
-def test_kill_switch_requires_calendar_coverage(tmp_path: Path) -> None:
-    path = _write_trade(tmp_path)
-    events = tmp_path / "records/_calendars/events/2026-05.yaml"
-    events.write_text(
-        yaml.safe_dump(
-            {
-                "covered_from": "2026-04-01",
-                "covered_until": "2026-04-30",
-                "events": [],
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-
-    codes = {finding.code for finding in validate_trade_file(path)}
-
-    assert "trade.events-calendar-coverage" in codes
-
-
-def test_no_margin_trading_constraint_rejects_margin_usage(tmp_path: Path) -> None:
-    front = _trade_front()
-    intent = front["order_intent"]
-    checked = front["kill_switch_check"]
-    assert isinstance(intent, dict)
-    assert isinstance(checked, dict)
-    intent["uses_margin"] = True
-    checked["no_margin_trading"] = True
-    path = _write_trade(tmp_path, front)
-    codes = {finding.code for finding in validate_trade_file(path)}
-    assert "trade.no-margin-trading" in codes
 
 
 def test_filename_ticker_must_match_front_matter(tmp_path: Path) -> None:

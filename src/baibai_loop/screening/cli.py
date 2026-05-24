@@ -898,14 +898,6 @@ def _write_universe_snapshot(
                 "sector_33": security.sector_33,
                 "market_cap_oku": snapshot.market_cap_oku,
                 "avg_turnover_oku": snapshot.avg_turnover_oku,
-                "security_exposures": [
-                    {
-                        "exposure_bucket": _default_exposure_bucket(security.sector_33),
-                        "weight_or_materiality": "medium",
-                        "source_refs": [],
-                        "confidence": "low",
-                    }
-                ],
             }
         )
     payload = {
@@ -933,21 +925,6 @@ def _relative_to_cwd(path: Path) -> Path:
         return path.resolve().relative_to(Path.cwd().resolve())
     except ValueError:
         return path
-
-
-def _default_exposure_bucket(sector_33: str) -> str:
-    external_demand_sectors = {
-        "機械",
-        "電気機器",
-        "輸送用機器",
-        "精密機器",
-        "非鉄金属",
-        "鉄鋼",
-        "海運業",
-    }
-    return (
-        "japan-external-demand" if sector_33 in external_demand_sectors else "japan-domestic-demand"
-    )
 
 
 def select_command(

@@ -5,7 +5,7 @@ Baibai-Loop の **research / investment memo** の運用仕様。candidates × m
 ## 1. 役割
 
 - `records/04-candidates/` の pinned repository file から、深掘りする ticker / playbook を選ぶ
-- `records/01-macro-context/` と security exposure を使い、macro context fit を確認する
+- `records/01-macro-context/` と候補の sector / business context を使い、macro context fit を確認する
 - Portfolio policy、liquidity、calendar / event risk に照らして、採用可否と sizing を決める
 - thesis payoff を構造化し、target / stop / expected upside / downside / risk reward / time horizon を検査する
 - 短期 thesis が外れた場合に長期保有へ切り替えられるか、balance sheet / cash flow / liquidity / refinancing risk / earnings base の耐久性を確認する

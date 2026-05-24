@@ -41,7 +41,6 @@ Playbook-linked screen は raw candidates を作る事実層、`select` は rese
 | `fast_dislocation_queue` | 一時的に売られすぎた候補を早く上位化する | 価格下落 trigger と fundamental guard が必要。出来高 spike / 52 週安値距離は補助情報 |
 | `long_hold_survivability_queue` | 短期 thesis が外れた場合の保有耐性を見える化する | hard gate ではない。`high|medium|low|unknown` annotation |
 | `shareholder_return` | 保有期間が伸びた場合の fallback evidence を将来取り込む | 現時点の自動データ不足時は `unknown` |
-| `ai_exposure` | AI disruption / AI beneficiary の比較補助 | sector proxy。採用・sizing の単独根拠にしない |
 | `prior_research` | deferred / rejected の再登場を抑制し、同じ候補に偏る問題を下げる | ledger の revisit_after / expires_at を尊重 |
 
 Selection profile は `strict` / `balanced` / `loose` を持ち、built-in profile の閾値はコード上の fail-fast 可能な既定値として固定する。`records/_config/screening-rules/` は既定 profile 名と運用順序を指定し、custom profile は `select-sweep --profile-config` の YAML で比較する。運用閾値を変える前に複数 asof の実データ replay と hold-out 確認を行い、typo や補助 trigger だけの fast-dislocation を fail-fast / ineligible にする。

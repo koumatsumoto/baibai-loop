@@ -668,10 +668,6 @@ def _candidate_lenses(item: CandidateRecord, rules: SelectionRules) -> dict[str,
             "data_status": "missing_candidate_metrics",
             "reasons": [],
         },
-        "ai_exposure": {
-            "tags": list(rules.ai_exposure_sector_tags.get(item.sector_33, ())),
-            "data_status": "sector_proxy",
-        },
     }
 
 
@@ -1271,6 +1267,62 @@ def _with_recommendation(
     output = dict(candidate)
     output["recommendation_queue"] = recommendation_queue
     output["recommendation_lane"] = lane
+    output["reason_tags"] = _candidate_reason_tags(output)
+    output["risk_tags"] = _candidate_risk_tags(output)
+    return output
+
+
+def _candidate_reason_tags(candidate: Mapping[str, object]) -> list[str]:
+    tags: list[str] = []
+    queue = _recommendation_queue(candidate)
+    if queue == FAST_DISLOCATION_QUEUE:
+        tags.append("fast_dislocation")
+    elif queue == LONG_HOLD_SURVIVABILITY_QUEUE:
+        tags.append("long_hold_capable")
+    elif queue == DEFERRED_REVISIT_QUEUE:
+        tags.append("deferred_revisit")
+    elif queue == GLOBAL_RANK_FALLBACK:
+        tags.append("fallback_rank")
+    lane = _string_value(candidate.get("recommendation_lane")) or _string_value(
+        candidate.get("selection_lane")
+    )
+    if lane:
+        tags.append(lane)
+    long_hold = _long_hold_lens(candidate)
+    rating = _string_value(long_hold.get("rating"))
+    if rating == "high":
+        tags.append("long_hold_high")
+    fast = _fast_lens(candidate)
+    confidence = _string_value(fast.get("confidence"))
+    if confidence == "high":
+        tags.append("fast_confidence_high")
+    return _dedupe_strings(tags)
+
+
+def _candidate_risk_tags(candidate: Mapping[str, object]) -> list[str]:
+    tags: list[str] = []
+    if candidate.get("previous_candidate") is True:
+        tags.append("previous_candidate")
+    if candidate.get("suppressed") is True:
+        tags.append("suppressed_by_prior_research")
+    if _string_value(candidate.get("next_earnings_date")):
+        tags.append("earnings_scheduled")
+    if candidate.get("freshness_warnings"):
+        tags.append("freshness_warning")
+    fast = _fast_lens(candidate)
+    if fast.get("stale_fundamental_metrics") is True:
+        tags.append("stale_fundamental_metrics")
+    return _dedupe_strings(tags)
+
+
+def _dedupe_strings(values: Sequence[str]) -> list[str]:
+    seen: set[str] = set()
+    output: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        output.append(value)
     return output
 
 
@@ -1593,6 +1645,8 @@ def _sweep_candidate_summary(candidate: Mapping[str, object], *, rank: int) -> d
         "stale_fundamental_metrics": fast_lens.get("stale_fundamental_metrics") is True,
         "long_hold_rating": _string_value(long_hold_lens.get("rating")),
         "previous_candidate": candidate.get("previous_candidate") is True,
+        "reason_tags": list(_string_sequence(candidate.get("reason_tags"))),
+        "risk_tags": list(_string_sequence(candidate.get("risk_tags"))),
     }
 
 
