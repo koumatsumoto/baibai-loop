@@ -1,0 +1,57 @@
+kind: watch-only-list
+updated_at: "2026-05-30T14:10:00+09:00"
+entries:
+  - watch_only_id: watch-20260530-9220
+    ticker: "9220"
+    name: "エフビー介護サービス"
+    market: "東証スタンダード"
+    sector_33: "サービス業"
+    status: active
+    added_on: "2026-05-30"
+    added_reason: "ユーザー指定。低 valuation と配当利回りは気になるが、標準 screening universe 外のため watch-only として漏れ防止する。"
+    classification: "outside-standard-universe"
+    decision_boundary:
+      formal_candidate: false
+      formal_research: false
+      trade_candidate: false
+      promotion_rule: "標準 candidates に入るか、低流動性・小型株の例外扱いを明示承認するまで formal research へ昇格しない。"
+    screening_context:
+      asof: "2026-05-29"
+      system_outcome: "excluded_before_candidates"
+      standard_universe_thresholds:
+        min_market_cap_oku: 100
+        min_avg_turnover_oku_20d: 1.0
+      observed_snapshot:
+        close_yen: 1250
+        market_cap_oku: 30.46
+        avg_turnover_oku_20d: 0.038
+        turnover_oku_on_asof: 0.0223
+        price_change_20d: -0.025
+        price_change_60d: 0.0196
+        gap_from_52w_low: 0.3455
+      exclusion_reasons:
+        - "market_cap_below_standard_universe_minimum"
+        - "avg_turnover_below_standard_universe_minimum"
+        - "not_fast_dislocation_on_2026-05-29"
+    valuation_notes:
+      basis: "2026-05-29 close and locally cached screening inputs"
+      per_trailing: 6.86
+      pbr: 0.78
+      dividend_yield_company_forecast_pct: 3.44
+      company_forecast_dividend_yen: 43
+      note: "見た目は小型 value / dividend watch に近いが、Baibai-Loop の標準 swing universe には適合しない。"
+    review_triggers:
+      - "20営業日平均売買代金が 1 億円に近づく、または標準 universe に入る。"
+      - "時価総額が 100 億円に近づく。"
+      - "次回四半期決算で営業利益率、営業 CF、配当方針に明確な変化が出る。"
+      - "株価が52週安値付近まで下落し、流動性を別途許容する例外検討が必要になる。"
+    source_refs:
+      - label: "2026-05-29 screening run"
+        kind: "local-cli-output"
+        command: "uv run baibai-loop-screening run --asof 2026-05-29"
+      - label: "2026年3月期 決算短信"
+        kind: "company-disclosure"
+        url: "https://f.irbank.net/pdf/20260515/140120260515537901.pdf"
+      - label: "Yahoo!ファイナンス 9220.T"
+        kind: "market-data"
+        url: "https://finance.yahoo.co.jp/quote/9220.T"

@@ -22,6 +22,7 @@ Portfolio policy は record ではなく docs-managed governance document です
 | reviews | `records/07-reviews/` | [`reviews.md`](./reviews.md) |
 | ledger | `records/_ledger/` | [`ledger.md`](./ledger.md) |
 | playbooks | `records/_playbooks/` | [`playbooks.md`](./playbooks.md) |
+| watchlist | `records/_watchlist/` | [`watchlist.md`](./watchlist.md) |
 
 ## 読む順番
 

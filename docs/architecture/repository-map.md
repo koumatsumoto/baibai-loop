@@ -54,6 +54,7 @@ Record から参照する repo 内 file path を正本にする。
 | `records/_market-data/` | [`../components/reviews.md`](../components/reviews.md) | this map | review / missed opportunity 計算用 market data files |
 | `records/_playbooks/` | [`../components/playbooks.md`](../components/playbooks.md) | this map | 運用中 playbook の保存領域 |
 | `records/_schemas/` | [`../reference/testing-and-validation.md`](../reference/testing-and-validation.md) | [`automation-map.md`](./automation-map.md) | records validation schema の保存領域 |
+| `records/_watchlist/` | [`../components/watchlist.md`](../components/watchlist.md) | this map | 標準 universe / formal research 外だが継続確認したい watch-only 銘柄の記録領域 |
 
 ## Docs sections
 
