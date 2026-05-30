@@ -1,5 +1,5 @@
 kind: watch-only-list
-updated_at: "2026-05-30T14:10:00+09:00"
+updated_at: "2026-05-30T15:00:00+09:00"
 entries:
   - watch_only_id: watch-20260530-9220
     ticker: "9220"
@@ -55,3 +55,76 @@ entries:
       - label: "Yahoo!ファイナンス 9220.T"
         kind: "market-data"
         url: "https://finance.yahoo.co.jp/quote/9220.T"
+  - watch_only_id: watch-20260530-3633
+    ticker: "3633"
+    name: "ＧＭＯペパボ"
+    market: "東証スタンダード"
+    sector_33: "情報・通信業"
+    status: active
+    added_on: "2026-05-30"
+    added_reason: "ユーザー指定。Baibai-Loop の短中期トレード対象からは外すが、高配当 carry と金融支援事業除外後の継続事業成長を振り返るため watch-only として残す。"
+    classification: "long-term-dividend-re-rating-watch"
+    review_issue:
+      number: 189
+      url: "https://github.com/koumatsumoto/baibai-loop/issues/189"
+      title: "task: 2026-08-31 3633 GMOペパボを FY2026 Q2 後に確認する"
+      due_on: "2026-08-31"
+    decision_boundary:
+      formal_candidate: false
+      formal_research: false
+      trade_candidate: false
+      promotion_rule: "標準 candidates に入るか、低流動性・小型株の例外扱いを明示承認するまで formal research / trade candidate へ昇格しない。長期配当 watch は review_issue で振り返る。"
+    screening_context:
+      asof: "2026-05-29"
+      system_outcome: "excluded_before_candidates"
+      standard_universe_thresholds:
+        min_market_cap_oku: 100
+        min_avg_turnover_oku_20d: 1.0
+      observed_snapshot:
+        close_yen: 1647
+        market_cap_oku: 90.07
+        avg_turnover_oku_20d: 0.148
+        turnover_oku_on_asof: 0.1077
+        gap_from_52w_low: 0.098
+        gap_from_52w_high: -0.372
+      exclusion_reasons:
+        - "market_cap_below_standard_universe_minimum"
+        - "avg_turnover_below_standard_universe_minimum"
+        - "no_standard_screening_evidence_hit"
+    watch_thesis:
+      horizon: "long-term-dividend-carry"
+      core_question: "金融支援事業除外後の継続事業ベースで、増収増益が続くか。"
+      summary: "短中期 trade ではなく、予想配当利回りと FCF / ネットキャッシュを下値支えにしつつ、ホスティング・ドメイン、EC支援、AI / 法人向けの再成長で株価再評価を待てるかを確認する。"
+    valuation_notes:
+      basis: "2026-05-29 close, local J-Quants cache, EDINET-derived metrics, company disclosures"
+      forward_per_company_forecast: 11.56
+      per_fy2025_actual_eps: 9.76
+      dividend_yield_company_forecast_pct: 5.65
+      company_forecast_dividend_yen: 93
+      fcf_yield_ttm_pct: 14.05
+      note: "2026年1Q時点では継続事業の売上成長が薄く、再評価には2Q以降の売上成長率と営業利益成長率の加速確認が必要。"
+    review_triggers:
+      - "2026年2Qまたは3Qで、金融支援事業除外後の継続事業売上が前年同期比4-5%程度に加速する。"
+      - "2026年2Q以降の営業利益が、継続事業 proxy で二桁増益ペースに乗る。"
+      - "ホスティング / ドメインのストック収益が、EC支援・minne・SUZURI の弱さを吸収する。"
+      - "AI / 法人向け新サービス、固定IPアクセス、ドメイン・サーバー関連オプションの契約数・売上・ARPU に関する開示や説明が増える。"
+      - "配当方針、FCF coverage、ネットキャッシュの前提に変化が出る。"
+    source_refs:
+      - label: "2026-05-29 local J-Quants / EDINET cache"
+        kind: "local-sqlite-cache"
+        path: "data/screening/market.sqlite"
+      - label: "3633 review tracker issue"
+        kind: "github-issue"
+        url: "https://github.com/koumatsumoto/baibai-loop/issues/189"
+      - label: "2026年12月期 第1四半期決算短信"
+        kind: "company-disclosure"
+        url: "https://ssl4.eir-parts.net/doc/3633/tdnet/2811723/00.pdf"
+      - label: "2025年12月期 決算短信"
+        kind: "company-disclosure"
+        url: "https://ssl4.eir-parts.net/doc/3633/tdnet/2755542/00.pdf"
+      - label: "配当・株主優待"
+        kind: "company-ir-page"
+        url: "https://pepabo.com/ir/stock/dividend/"
+      - label: "中長期目標・成長戦略"
+        kind: "company-ir-page"
+        url: "https://pepabo.com/ir/growth-strategy/"
