@@ -69,6 +69,23 @@ structured_field_provenance:
 - `outcome` は pinned market data / baseline snapshot から再計算できる値にする。
 - `attribution_targets` は outcome を evidence、macro context、sizing、execution、playbook のどこへ帰属させるかを構造化する。
 
+### 4.1 Price evidence
+
+Review / retro の価格は J-Quants を primary source とする。J-Quants が subscription / availability 問題で使えない場合は、同一 basis の public daily quote を fallback として使ってよい。その場合、front matter に独自 field を増やさず、本文に `Price evidence` table を置く。
+
+fallback 使用時に残す項目:
+
+| 項目 | 内容 |
+| --- | --- |
+| source_url | 個別銘柄価格 source |
+| fetched_at | 取得日時 |
+| start_date / evaluation_date | 開始日と評価日 |
+| price_basis | `close_unadjusted` / `adjusted_close` / `intraday_last` |
+| benchmark_source_url | market / sector benchmark source |
+| same_basis_note | 銘柄と benchmark の評価日、終値 / 現在値、adjusted / unadjusted の整合 |
+
+daily close と intraday last は混ぜない。約定 P&L の確認は原則 `close_unadjusted`、forward return は corporate action がある場合のみ `adjusted_close` を優先する。期間内に split / reverse split / 大型 corporate action があり、fallback source の adjusted basis が確認できない場合、その review outcome は provisional とし、classification は `inconclusive` 寄りに扱う。
+
 ## 5. 月次 retro の Front matter
 
 ```yaml

@@ -88,6 +88,19 @@ price_missing_counts:
 
 **価格欠損件数**: +15bd XX 件 / +30bd XX 件
 
+### Price evidence
+
+J-Quants 以外の fallback source を使った場合は、評価日と basis が benchmark と揃っていることを残す:
+
+| Field | Value |
+| --- | --- |
+| source_url | |
+| fetched_at | YYYY-MM-DDTHH:MM:SS+09:00 |
+| evaluation_date | YYYY-MM-DD |
+| price_basis | close_unadjusted / adjusted_close / intraday_last |
+| benchmark_source_url | |
+| same_basis_note | |
+
 ## Macro context fit 判定精度
 
 - **追い風判定銘柄の +15 日パフォーマンス**: +X.X%（平均）

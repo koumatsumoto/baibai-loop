@@ -134,6 +134,7 @@ uv run baibai-loop-validate --target trade
 ### 7.1 Order / Entry
 
 - **Entry reason**: investment memo の thesis / payoff / macro context fit / policy pass を要約
+- **Entry preflight summary**: research の `Entry preflight` 結論を確認し、`proceed` / `starter` / `defer` / `exception` の扱いと未解消 blocker がないことを要約する。preflight の計算本体は research 側に置き、trade では再計算しない
 - **Order / Entry triggers**: 実際に order を作った条件
 - **Order log**: order submit / modify / cancel / fill の記録
 - **Position**: paper proxy size、real notional、real / tactical budget concentration、target / stop / time stop
