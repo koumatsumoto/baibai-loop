@@ -53,6 +53,7 @@ kill_switch_check:
 - **Playbook**:
 - **Macro context**:
 - **Primary valuation metric**:
+- **Entry preflight conclusion**: proceed / starter / defer / exception（research の `Entry preflight` 参照）
 
 ### 1.2 Order intent
 

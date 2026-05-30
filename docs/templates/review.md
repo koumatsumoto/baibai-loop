@@ -37,7 +37,7 @@ structured_field_provenance:
 **Trade**: [records/06-trades/YYYY/MM/YYYY-MM-DD-XXXX.md](/records/06-trades/YYYY/MM/YYYY-MM-DD-XXXX.md)
 **Research**: [records/05-research/YYYY/MM/YYYY-MM-DD-XXXX-*.md](/records/05-research/YYYY/MM/YYYY-MM-DD-XXXX-*.md)
 
-## 1. Trade 概要
+## Outcome
 
 - Playbook: [valuation-reversion | strict-net-cash-discount | fcf-yield-discount | cash-rich-asset-discount | cashflow-yield-discount | sales-discount-growth]
 - Decision event: `decision_event_id`
@@ -45,48 +45,40 @@ structured_field_provenance:
 - Return basis: market / sector relative return
 - Execution costs: commission / tax / slippage
 
-## 2. 採用時 thesis の振り返り
+### Price evidence
+
+| Field | Value |
+| --- | --- |
+| source_url | |
+| fetched_at | YYYY-MM-DDTHH:MM:SS+09:00 |
+| start_date | YYYY-MM-DD |
+| evaluation_date | YYYY-MM-DD |
+| price_basis | close_unadjusted / adjusted_close / intraday_last |
+| benchmark_source_url | |
+| same_basis_note | |
+
+## Hypothesis check
 
 - **原 thesis**（research から）: [1-2 段落転写]
 - **実際に起きたこと**: [事実として記述]
 - **Thesis の的中度**: [完全的中 / 部分的中 / 外れ]
 
-## 3. Attribution classification
-
-### 3.1 分類
+## Process check
 
 - **Classification**: success / failure / invalidated / inconclusive
 - **Primary attribution**: evidence_hit / macro_context / sizing / execution / playbook
 - **Confidence**: high / medium / low
+- **Execution / sizing / macro context の確認**: [entry preflight、注文、exit timing の妥当性]
 
-### 3.2 自由記述（必須）
+## Lessons
 
 [判断改善に使う要点。evidence / macro / sizing / execution / playbook のどれに帰属するかを明確にする]
 
-## 4. +15 営業日レビュー（exit 日 + 15 営業日時点）
+## Next actions
 
-Review 実施日: YYYY-MM-DD
-
-- exit 後の株価推移: [+X%, 上昇/下降トレンド継続/反転]
-- 同業種の推移: [業種全体との相対パフォーマンス]
-- マクロ環境の変化: [macro context に関連する変化があれば記録]
-- 振り返り: [exit タイミングは適切だったか、早すぎた/遅すぎた]
-
-## 5. +30 営業日レビュー（exit 日 + 30 営業日時点）
-
-Review 実施日: YYYY-MM-DD
-
-- exit 後の株価推移: [+X%]
-- 1 か月後の整理: [thesis の妥当性、他銘柄との比較]
-- Playbook へのフィードバック候補: [次周回で変更すべきポイント]
-
-## 6. 月次 retro への引き渡し
-
-本 review の要点を月次 retro ([`retro-YYYYMM.md`](/records/07-reviews/YYYY/retro-YYYYMM.md)) でまとめる:
-
-- 成功/失敗分類と自由記述
-- 四半期再分類の input 候補
-- Playbook 改訂提案（あれば）
+- 月次 retro ([`retro-YYYYMM.md`](/records/07-reviews/YYYY/retro-YYYYMM.md)) へ渡す要点:
+- Playbook 改訂提案（あれば）:
+- Follow-up issue（あれば）:
 
 ---
 

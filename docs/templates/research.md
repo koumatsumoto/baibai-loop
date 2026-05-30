@@ -100,6 +100,18 @@ Why now × why this stock。主要 evidence、payoff、反対仮説、macro cont
 
 ## 10. Entry 条件
 
+### Entry preflight
+
+| Check | Value | Source / note |
+| --- | --- | --- |
+| Price window | start: YYYY-MM-DD / entry check: YYYY-MM-DD / basis: close_unadjusted | |
+| Market baseline | Nikkei or TOPIX return: X.X% | |
+| Sector / peer baseline | sector index / peer basket / not_checked: X.X% | not_checked の場合は理由を書く |
+| Relative return | vs market: X.Xpt / vs sector-peer: X.Xpt | |
+| Macro freshness | current / stale / future | stale / future の扱いを書く |
+| Exposure review | after-order sector: X.X% / playbook: X.X% | 分母は `tactical_real_budget_yen`。分子は追加予定 order を含めた同一 sector / playbook の open entry / guarded notional |
+| Action | proceed / starter / defer / exception | 3pt 以上劣後、stale macro、50% 超 exposure の扱いを書く |
+
 - **max entry price**:
 - **guard price**:
 - **quantity / board lot**:

@@ -110,6 +110,28 @@ Position size は次の順で決める。
 12. Invalidation
 13. Position size
 
+### 9.1 Entry preflight
+
+全 playbook の `Entry` section には、発注直前の preflight を置く。これは schema field ではなく、entry 判断を軽く締めるための本文 checklist である。`Price reaction` section がある playbook では詳細をそちらに書いてもよいが、採用判断へ接続する要約は必ず `Entry` に残す。
+
+必須観点:
+
+| 観点 | 記録する内容 |
+| --- | --- |
+| Price window | 比較開始日、entry 判定日、使った終値 / 現在値の basis |
+| Market baseline | Nikkei または TOPIX の close-to-close return |
+| Sector / peer baseline | 原則は sector index。同じ basis で取れない場合は 3-5 社 peer basket。どちらも難しい場合は `not_checked` と理由 |
+| Relative return | 候補銘柄と market / sector / peer の差 |
+| Macro freshness | `macro_context_fit.context_freshness` と、stale / future の扱い |
+| Exposure review | 追加予定 order を含めた同一 `sector_33` または `playbook_id` の open entry / guarded notional が、`tactical_real_budget_yen` の 50% を超えるか |
+| Action | `proceed` / `starter` / `defer` / `exception` のいずれか |
+
+軽量な action rule:
+
+- 候補銘柄が market baseline または sector / peer baseline に 3pt 以上劣後し、明確な near-term catalyst がない場合は、`starter` または `defer` を基本にする。
+- `macro_context_fit.context_freshness: stale` で event-driven thesis ではない場合は、`defer` を基本にする。採用する場合は macro context 更新、低 sizing、または明示的な `exception` 理由を残す。
+- 同一 sector または同一 playbook が tactical budget の 50% を超える exposure review trigger は hard cap ではない。既存 validator の real capital cap とは別に、opportunity cost / thesis overlap を確認するための手動 review trigger として扱う。低相関理由や catalyst 差を説明できない場合は、追加 entry を `starter` に抑えるか `defer` する。
+
 `Thesis` には、短期 swing thesis に加えて以下を必ず 1 行以上で記録する。
 
 - **Long-hold fallback**: 長期保有になっても耐えられる可能性が高い balance sheet、cash flow、流動性、借換リスク、収益基盤を確認し、含み損時に資産ロックを受け入れて長期保有へ切り替えられるかを明示する。固定年数の条件ではなく、売却までの期間が想定より長引いても事業継続性と回収余地が残るかを確認する。配当・自己株買い・安定 shareholder return がある場合は、資産ロック中の収益性として優先材料にできる。配当がない場合でも、短期リターン可能性と payoff が十分大きければ採用余地を残す。Long-hold fallback は stop loss、invalidation、kill switch、事業継続前提の毀損を上書きしない。
