@@ -276,7 +276,10 @@ def build_selection_payload(
     previous_candidates: PreviousCandidates | None = None,
     prior_research_by_ticker: Mapping[str, PriorResearch] | None = None,
     profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
+    detail: str = "summary",
 ) -> dict[str, object]:
+    if detail not in {"summary", "full"}:
+        raise ValueError("detail must be summary or full")
     effective_profile = profile or rules.selection.default_profile
     selection_rules = resolve_selection_rules(
         rules.selection,
@@ -354,17 +357,16 @@ def build_selection_payload(
         diversity_warning_ratio=selection_rules.diversity.previous_overlap_warning_ratio,
         profile=effective_profile,
     )
+    recommendations = (
+        recommended
+        if detail == "full"
+        else [
+            _selection_candidate_summary(candidate, rank=rank)
+            for rank, candidate in enumerate(recommended, start=1)
+        ]
+    )
     return {
-        "asof": asof_date.isoformat(),
-        "candidates_ref": candidates_ref,
-        "macro_context_ref": macro_context_ref,
-        "input_count": len(candidates),
-        "after_macro_context_check": macro_context_checked_count,
-        "after_evidence_filter": len(ranked_candidates),
-        "research_selection_target_max": rules.output.research_selection_target_max,
-        "research_selection_lane_order": list(rules.output.research_selection_lane_order),
-        "macro_context_summary": _macro_context_summary(macro_context),
-        "recommendations": recommended,
+        "recommendations": recommendations,
         "selection": {
             "asof": asof_date.isoformat(),
             "profile": effective_profile,
@@ -373,13 +375,16 @@ def build_selection_payload(
                 "macro_context_ref": macro_context_ref,
                 "previous_candidates_ref": previous_candidates.ref_path,
             },
-            "input_count": len(candidates),
-            "after_macro_context_check": macro_context_checked_count,
-            "after_evidence_filter": len(ranked_candidates),
+            "counts": {
+                "input": len(candidates),
+                "after_macro_context_check": macro_context_checked_count,
+                "after_evidence_filter": len(ranked_candidates),
+            },
             "research_selection_target_max": rules.output.research_selection_target_max,
             "research_selection_lane_order": list(rules.output.research_selection_lane_order),
             "macro_context_summary": _macro_context_summary(macro_context),
             "diagnostics": diagnostics,
+            "detail": detail,
         },
     }
 
@@ -412,6 +417,7 @@ def build_selection_sweep_payload(
             previous_candidates=previous_candidates,
             prior_research_by_ticker=prior_research_by_ticker,
             profile_overrides=profile_overrides,
+            detail="full",
         )
         selection = _mapping(payload.get("selection"))
         diagnostics = _mapping(selection.get("diagnostics"))
@@ -1256,6 +1262,38 @@ def _evidence_metric_type_warnings(
             )
         )
     return warnings
+
+
+def _selection_candidate_summary(
+    candidate: Mapping[str, object], *, rank: int
+) -> dict[str, object]:
+    fast_lens = _fast_lens(candidate)
+    long_hold_lens = _long_hold_lens(candidate)
+    return {
+        "rank": rank,
+        "ticker": _string_value(candidate.get("ticker")),
+        "name": _string_value(candidate.get("name")),
+        "sector_33": _string_value(candidate.get("sector_33")),
+        "selection_lane": _string_value(candidate.get("selection_lane")),
+        "macro_context_alignment": _string_value(candidate.get("macro_context_alignment")),
+        "market_cap_oku": candidate.get("market_cap_oku"),
+        "price_change_5d": candidate.get("price_change_5d"),
+        "price_change_20d": candidate.get("price_change_20d"),
+        "gap_from_52w_low": candidate.get("gap_from_52w_low"),
+        "next_earnings_date": candidate.get("next_earnings_date"),
+        "position_tier": candidate.get("position_tier"),
+        "fast_confidence": _string_value(fast_lens.get("confidence")),
+        "fast_guard_count": _fast_guard_count(candidate),
+        "fast_guard_family_count": _int_or(fast_lens.get("fundamental_guard_family_count"), 0),
+        "fast_data_status": _string_value(fast_lens.get("data_status")),
+        "long_hold_rating": _string_value(long_hold_lens.get("rating")),
+        "prior_research": candidate.get("prior_research"),
+        "previous_candidate": candidate.get("previous_candidate") is True,
+        "suppressed": candidate.get("suppressed") is True,
+        "suppression_reasons": list(_string_sequence(candidate.get("suppression_reasons"))),
+        "reason_tags": list(_string_sequence(candidate.get("reason_tags"))),
+        "risk_tags": list(_string_sequence(candidate.get("risk_tags"))),
+    }
 
 
 def _sweep_candidate_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str, object]:

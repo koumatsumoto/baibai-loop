@@ -9,6 +9,8 @@ class Tracking:
     mode: Literal["post_approval", "re_examination", "none"]
     plus_15bd: float | None = None
     plus_30bd: float | None = None
+    plus_15bd_source: dict[str, object] | None = None
+    plus_30bd_source: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,4 +39,12 @@ class DecisionRegisterRecord:
     tracking: Tracking | None = None
 
     def to_json(self) -> dict[str, object]:
-        return {key: value for key, value in asdict(self).items() if value is not None}
+        payload = asdict(self)
+        tracking = payload.get("tracking")
+        if isinstance(tracking, dict):
+            payload["tracking"] = {
+                key: value
+                for key, value in tracking.items()
+                if value is not None or key in {"plus_15bd", "plus_30bd"}
+            }
+        return {key: value for key, value in payload.items() if value is not None}

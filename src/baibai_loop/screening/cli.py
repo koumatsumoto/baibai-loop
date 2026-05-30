@@ -280,6 +280,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--profile-config",
         help="optional YAML file with selection profile overrides",
     )
+    select_parser.add_argument(
+        "--detail",
+        choices=("summary", "full"),
+        default="summary",
+        help="selection output detail (default: summary)",
+    )
 
     sweep_parser = subparsers.add_parser(
         "select-sweep",
@@ -340,6 +346,7 @@ def main(argv: list[str] | None = None) -> int:
             rules=load_screening_rules(Path(args.rules_path)),
             profile=args.profile,
             profile_config_path=Path(args.profile_config) if args.profile_config else None,
+            detail=args.detail,
         )
 
     if args.command == "select-sweep":
@@ -846,6 +853,7 @@ def select_command(
     rules: ScreeningRules | None = None,
     profile: str | None = None,
     profile_config_path: Path | None = None,
+    detail: str = "summary",
     stdout: TextIO | None = None,
 ) -> int:
     if top < 1:
@@ -880,6 +888,7 @@ def select_command(
             previous_candidates=inputs.previous_candidates,
             prior_research_by_ticker=inputs.prior_research,
             profile_overrides=profile_overrides,
+            detail=detail,
         )
     except ValueError as exc:
         print(str(exc), file=sys.stderr)

@@ -51,10 +51,7 @@ def _trade_front(**overrides: object) -> dict[str, object]:
                 "state": "filled",
                 "submitted_quantity": 200,
                 "filled_quantity": 200,
-                "events": [
-                    {"event_type": "submit", "at": "2026-05-05T09:00:00+09:00"},
-                    {"event_type": "fill", "at": "2026-05-05T09:01:00+09:00"},
-                ],
+                "order_price_guard_yen": 1050,
             }
         ],
         "executions": [
@@ -190,6 +187,51 @@ def test_submitted_trade_schema_requires_sizing_fields(tmp_path: Path) -> None:
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_trade_file(path)}
     assert "trade.position-sizing-field" in codes
+
+
+def test_trade_nested_contract_rejects_unknown_fields(tmp_path: Path) -> None:
+    front = _trade_front()
+    sizing = front["position_sizing_overlay"]
+    assert isinstance(sizing, dict)
+    sizing["extra_size_field"] = 1
+    orders = front["orders"]
+    assert isinstance(orders, list)
+    order = orders[0]
+    assert isinstance(order, dict)
+    order["extra_order_field"] = "unexpected"
+    executions = front["executions"]
+    assert isinstance(executions, list)
+    execution = executions[0]
+    assert isinstance(execution, dict)
+    execution["extra_execution_field"] = "unexpected"
+
+    path = _write_trade(tmp_path, front)
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.additionalProperties" in codes
+
+
+def test_filled_trade_requires_execution_fields(tmp_path: Path) -> None:
+    front = _trade_front()
+    executions = front["executions"]
+    assert isinstance(executions, list)
+    execution = executions[0]
+    assert isinstance(execution, dict)
+    del execution["at"]
+    path = _write_trade(tmp_path, front)
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.required" in codes
+
+
+def test_execution_order_id_must_join_to_order(tmp_path: Path) -> None:
+    front = _trade_front()
+    executions = front["executions"]
+    assert isinstance(executions, list)
+    execution = executions[0]
+    assert isinstance(execution, dict)
+    execution["order_id"] = "order-other"
+    path = _write_trade(tmp_path, front)
+    codes = {finding.code for finding in validate_trade_file(path)}
+    assert "trade.execution-order-join" in codes
 
 
 def test_order_state_is_validated(tmp_path: Path) -> None:

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 
 from baibai_loop.policy_config import PORTFOLIO_POLICY
 
@@ -41,20 +41,18 @@ _KNOWN_POSTURES = {"act_now", "wait_for_event", "wait_for_capital", "dropped"}
 _KNOWN_MACRO_CONTEXT_EFFECTS = {"proceed", "caution", "defer"}
 _KNOWN_MACRO_CONTEXT_FRESHNESS = {"current", "stale", "future"}
 _KNOWN_MACRO_CONTEXT_FITS = {"tailwind", "neutral", "mixed", "headwind", "not_matched"}
+_KNOWN_ENTRY_PREFLIGHT_ACTIONS = {"proceed", "starter", "defer", "exception"}
+_KNOWN_ENTRY_PREFLIGHT_EXCEPTION_BASES = {
+    "near_term_catalyst",
+    "low_sizing",
+    "low_correlation",
+}
+_ENTRY_PREFLIGHT_EFFECTIVE_DATE = date(2026, 6, 1)
 _CANONICAL_SIZING_FIELDS = {
     "paper_proxy_position_size_yen",
     "real_order_intent_yen",
     "adv_participation_pct",
 }
-# These fields are valid in trade-stage records, but are non-canonical inside
-# research-stage position_sizing_overlay.
-_RESEARCH_NON_CANONICAL_SIZING_FIELDS = {
-    "paper_position_size_yen",
-    "estimated_real_order_notional_yen",
-    "guarded_max_notional_yen",
-    "liquidity_cap_participation_pct",
-}
-_DEPRECATED_VALUATION_FIELDS = {"liquidity_cap_participation_pct"}
 _YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 
@@ -77,7 +75,7 @@ def _load_validator() -> Draft202012Validator:
     if not isinstance(raw, dict):
         raise RuntimeError(f"unexpected schema root: {SCHEMA_PATH}")
     Draft202012Validator.check_schema(raw)
-    return Draft202012Validator(raw)
+    return Draft202012Validator(raw, format_checker=FormatChecker())
 
 
 _VALIDATOR = _load_validator()
@@ -120,6 +118,7 @@ def validate_research_parsed(
     findings.extend(_check_playbook(path, front_matter, known_playbooks))
     findings.extend(_check_decision(path, front_matter))
     findings.extend(_check_macro_context_fit(path, front_matter))
+    findings.extend(_check_entry_preflight(path, front_matter))
     findings.extend(_check_sizing_invariants(path, front_matter))
     findings.extend(_check_candidate_lineage(path, front_matter))
     findings.extend(_check_corporate_action_check(path, front_matter))
@@ -374,6 +373,172 @@ def _check_macro_context_fit(
     return findings
 
 
+def _check_entry_preflight(
+    path: Path, front_matter: Mapping[str, object]
+) -> list[ValidationFinding]:
+    decision = front_matter.get("research_decision")
+    outcome = decision.get("outcome") if isinstance(decision, Mapping) else None
+    if outcome != "approved":
+        return []
+    research_date = _research_record_date(front_matter, path=path)
+    if research_date is None or research_date < _ENTRY_PREFLIGHT_EFFECTIVE_DATE:
+        return []
+
+    preflight = front_matter.get("entry_preflight")
+    if not isinstance(preflight, Mapping):
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.entry-preflight-required",
+                message=("approved research dated 2026-06-01 or later requires entry_preflight"),
+                location="entry_preflight",
+            )
+        ]
+
+    findings: list[ValidationFinding] = []
+    action = preflight.get("action")
+    if action not in _KNOWN_ENTRY_PREFLIGHT_ACTIONS:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.entry-preflight-action",
+                message=("entry_preflight.action must be proceed, starter, defer, or exception"),
+                location="entry_preflight.action",
+            )
+        )
+    reason = preflight.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.entry-preflight-reason",
+                message="entry_preflight.reason is required",
+                location="entry_preflight.reason",
+            )
+        )
+
+    preflight_freshness = preflight.get("macro_freshness")
+    macro_fit = as_mapping(front_matter.get("macro_context_fit"))
+    macro_freshness = macro_fit.get("context_freshness")
+    if preflight_freshness not in _KNOWN_MACRO_CONTEXT_FRESHNESS:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.entry-preflight-macro-freshness",
+                message="entry_preflight.macro_freshness must be current, stale, or future",
+                location="entry_preflight.macro_freshness",
+            )
+        )
+    elif isinstance(macro_freshness, str) and preflight_freshness != macro_freshness:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.entry-preflight-macro-freshness-match",
+                message=(
+                    "entry_preflight.macro_freshness must match macro_context_fit.context_freshness"
+                ),
+                location="entry_preflight.macro_freshness",
+            )
+        )
+
+    market_relative = number(preflight.get("market_relative_return_pct"))
+    sector_relative = number(preflight.get("sector_or_peer_relative_return_pct"))
+    exposure = as_mapping(preflight.get("tactical_exposure_after_order"))
+    sector_exposure = number(exposure.get("sector_33_pct"))
+    playbook_exposure = number(exposure.get("playbook_pct"))
+
+    hard_triggers: list[str] = []
+    if preflight_freshness == "future":
+        hard_triggers.append("future macro freshness")
+    if preflight_freshness == "stale":
+        hard_triggers.append("stale macro freshness")
+    if market_relative is not None and market_relative <= -3:
+        hard_triggers.append("market relative return <= -3pt")
+    if sector_relative is not None and sector_relative <= -3:
+        hard_triggers.append("sector/peer relative return <= -3pt")
+    if sector_exposure is not None and sector_exposure > 50:
+        hard_triggers.append("sector exposure > 50% tactical budget")
+    if playbook_exposure is not None and playbook_exposure > 50:
+        hard_triggers.append("playbook exposure > 50% tactical budget")
+
+    if preflight_freshness == "future":
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.entry-preflight-future-approved",
+                message="approved research cannot use future macro freshness in entry_preflight",
+                location="entry_preflight.macro_freshness",
+            )
+        )
+    if action == "proceed" and hard_triggers:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.entry-preflight-proceed-trigger",
+                message=(
+                    "entry_preflight.action: proceed is not allowed with "
+                    + ", ".join(hard_triggers)
+                ),
+                location="entry_preflight.action",
+            )
+        )
+    if action == "exception":
+        basis = as_list(preflight.get("exception_basis"))
+        known_basis = [item for item in basis if item in _KNOWN_ENTRY_PREFLIGHT_EXCEPTION_BASES]
+        if len(known_basis) != len(basis) or not known_basis:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.entry-preflight-exception-basis",
+                    message=(
+                        "entry_preflight.action: exception requires exception_basis "
+                        "from near_term_catalyst, low_sizing, or low_correlation"
+                    ),
+                    location="entry_preflight.exception_basis",
+                )
+            )
+        if "near_term_catalyst" in known_basis and preflight.get("near_term_catalyst") is not True:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.entry-preflight-exception-basis",
+                    message=(
+                        "entry_preflight.exception_basis: near_term_catalyst requires "
+                        "near_term_catalyst: true"
+                    ),
+                    location="entry_preflight.near_term_catalyst",
+                )
+            )
+        if "low_sizing" in known_basis and (
+            sector_exposure is None
+            or playbook_exposure is None
+            or sector_exposure > 25
+            or playbook_exposure > 25
+        ):
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="research.entry-preflight-exception-basis",
+                    message=(
+                        "entry_preflight.exception_basis: low_sizing requires sector "
+                        "and playbook exposure after order <= 25%"
+                    ),
+                    location="entry_preflight.exception_basis",
+                )
+            )
+    return findings
+
+
 def _check_macro_context_dates(
     path: Path,
     *,
@@ -523,7 +688,9 @@ def _sector_fit_from_macro_context(
     return None
 
 
-def _research_record_date(front_matter: Mapping[str, object]) -> date | None:
+def _research_record_date(
+    front_matter: Mapping[str, object], *, path: Path | None = None
+) -> date | None:
     record_dt = _parse_datetime(front_matter.get("published_at")) or _parse_datetime(
         front_matter.get("recorded_at")
     )
@@ -534,6 +701,11 @@ def _research_record_date(front_matter: Mapping[str, object]) -> date | None:
         decision_dt = _parse_datetime(decision.get("decided_at"))
         if decision_dt is not None:
             return decision_dt.date()
+    if path is not None:
+        try:
+            return date.fromisoformat(path.name[:10])
+        except ValueError:
+            return None
     return None
 
 
@@ -906,17 +1078,6 @@ def _check_position_sizing_overlay_shape(
     sizing: Mapping[str, object],
 ) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
-    for field in sorted(_RESEARCH_NON_CANONICAL_SIZING_FIELDS):
-        if field in sizing:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.position-sizing-deprecated-field",
-                    message=f"{field} is not a current position_sizing_overlay field",
-                    location=f"position_sizing_overlay.{field}",
-                )
-            )
     for field in sorted(_CANONICAL_SIZING_FIELDS):
         if field not in sizing:
             findings.append(
@@ -926,18 +1087,6 @@ def _check_position_sizing_overlay_shape(
                     code="research.position-sizing-missing-field",
                     message=f"position_sizing_overlay.{field} is required",
                     location=f"position_sizing_overlay.{field}",
-                )
-            )
-    valuation = as_mapping(front_matter.get("valuation"))
-    for field in sorted(_DEPRECATED_VALUATION_FIELDS):
-        if field in valuation:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="research.valuation-deprecated-field",
-                    message=f"valuation.{field} is not a current research field",
-                    location=f"valuation.{field}",
                 )
             )
     return findings

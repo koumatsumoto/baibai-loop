@@ -19,20 +19,13 @@ research_decision:
 candidate_ref:
   candidates_ref: records/04-candidates/2026/05/2026-05-08.yaml
   ticker: '4072'
-ai_draft: false
 published_at: '2026-05-13T22:01:48+09:00'
 recorded_at: '2026-05-13T22:01:48+09:00'
 tradable_at: '2026-08-13T09:00:00+09:00'
 position_sizing_overlay:
-  paper_proxy_position_size_oku: 0.0
   paper_proxy_position_size_yen: 0
   real_order_intent_yen: 0
   adv_participation_pct: 0.0
-  sizing_formula_id: policy-v1-paper-to-real-ladder
-counterfactual:
-  if_approved:
-    hypothetical_paper_proxy_position_size_oku: 0.015
-    hypothetical_paper_proxy_position_size_yen: 1500000
 thesis_payoff:
   time_horizon_bd: 60
   invalidation_conditions:
@@ -70,8 +63,6 @@ macro_context_fit:
   fit: neutral
   decision_effect: proceed
   required_checks: []
-  sizing_caution:
-  - migrated_from_legacy_macro_context
 corporate_action_check:
   checked: true
   result: none
@@ -164,7 +155,6 @@ Q2 で半期営業 CF、FCF、収納代行 margin、価格改定効果が確認�
 - **decision**: deferred / wait_for_event。
 - **paper proxy size**: 0 円。
 - **real order intent**: 0 円。
-- **hypothetical if approved**: high tier の候補だが、Q2 CF 確認前は注文しない。
 - **binding cap**: data gap。Q1 で営業 CF が開示されていない。
 
 ## Source verification log

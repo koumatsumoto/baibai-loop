@@ -116,9 +116,26 @@ def _minimal_research_front_matter() -> dict[str, object]:
         "avg_turnover_oku": 2.0,
         "market_cap_oku": 100,
         "valuation": {"p_s": 0.5},
-        "ai_draft": True,
         "published_at": "2026-05-05T20:00:00+09:00",
     }
+
+
+def _entry_preflight(**overrides: object) -> dict[str, object]:
+    preflight: dict[str, object] = {
+        "evaluated_on": "2026-06-02",
+        "market_relative_return_pct": 0.0,
+        "sector_or_peer_relative_return_pct": 0.0,
+        "macro_freshness": "current",
+        "tactical_exposure_after_order": {
+            "sector_33_pct": 20.0,
+            "playbook_pct": 20.0,
+        },
+        "near_term_catalyst": False,
+        "action": "proceed",
+        "reason": "relative performance and exposure are acceptable",
+    }
+    preflight.update(overrides)
+    return preflight
 
 
 def _write_candidate_fixture(root: Path) -> None:
@@ -217,11 +234,144 @@ class ResearchValidationTests(unittest.TestCase):
         errors = [finding for finding in findings if finding.severity == "error"]
         self.assertEqual(errors, [], f"unexpected errors: {errors}")
 
+    def test_new_approved_research_requires_entry_preflight(self) -> None:
+        front = _minimal_research_front_matter()
+        front["published_at"] = "2026-06-02T20:00:00+09:00"
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.entry-preflight-required", codes)
+
+    def test_new_approved_research_accepts_valid_entry_preflight(self) -> None:
+        front = _minimal_research_front_matter()
+        front["published_at"] = "2026-06-02T20:00:00+09:00"
+        fit = front["macro_context_fit"]
+        assert isinstance(fit, dict)
+        fit["context_freshness"] = "stale"
+        front["entry_preflight"] = _entry_preflight(
+            macro_freshness="stale",
+            action="starter",
+            reason="macro is stale, so entry is constrained to starter size",
+        )
+        findings = self._findings_for(front)
+        errors = [finding for finding in findings if finding.severity == "error"]
+        self.assertEqual(errors, [], f"unexpected errors: {errors}")
+
+    def test_entry_preflight_rejects_reasonless_proceed_with_relative_lag(self) -> None:
+        front = _minimal_research_front_matter()
+        front["published_at"] = "2026-06-02T20:00:00+09:00"
+        front["entry_preflight"] = _entry_preflight(market_relative_return_pct=-3.1)
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.entry-preflight-proceed-trigger", codes)
+
+    def test_entry_preflight_rejects_stale_macro_proceed(self) -> None:
+        front = _minimal_research_front_matter()
+        front["published_at"] = "2026-06-02T20:00:00+09:00"
+        fit = front["macro_context_fit"]
+        assert isinstance(fit, dict)
+        fit["context_freshness"] = "stale"
+        front["entry_preflight"] = _entry_preflight(macro_freshness="stale")
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.entry-preflight-proceed-trigger", codes)
+
+    def test_entry_preflight_rejects_high_tactical_exposure_proceed(self) -> None:
+        front = _minimal_research_front_matter()
+        front["published_at"] = "2026-06-02T20:00:00+09:00"
+        front["entry_preflight"] = _entry_preflight(
+            tactical_exposure_after_order={"sector_33_pct": 51.0, "playbook_pct": 20.0}
+        )
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.entry-preflight-proceed-trigger", codes)
+
+    def test_entry_preflight_exception_requires_structured_basis(self) -> None:
+        front = _minimal_research_front_matter()
+        front["published_at"] = "2026-06-02T20:00:00+09:00"
+        front["entry_preflight"] = _entry_preflight(
+            market_relative_return_pct=-3.1,
+            action="exception",
+            reason="exception is justified",
+        )
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.entry-preflight-exception-basis", codes)
+
+    def test_entry_preflight_exception_accepts_near_term_catalyst_basis(self) -> None:
+        front = _minimal_research_front_matter()
+        front["published_at"] = "2026-06-02T20:00:00+09:00"
+        fit = front["macro_context_fit"]
+        assert isinstance(fit, dict)
+        fit["context_freshness"] = "stale"
+        front["entry_preflight"] = _entry_preflight(
+            market_relative_return_pct=-3.1,
+            macro_freshness="stale",
+            near_term_catalyst=True,
+            action="exception",
+            exception_basis=["near_term_catalyst"],
+            reason="near-term catalyst can reprice the lag quickly",
+        )
+        errors = [finding for finding in self._findings_for(front) if finding.severity == "error"]
+        self.assertEqual(errors, [], f"unexpected errors: {errors}")
+
+    def test_new_approved_research_uses_filename_date_for_entry_preflight_gate(self) -> None:
+        front = _minimal_research_front_matter()
+        del front["published_at"]
+        path = self._write(front)
+        named_path = path.with_name("2026-06-02-2767-valuation-reversion.md")
+        path.rename(named_path)
+        try:
+            codes = {
+                finding.code
+                for finding in validate_research_file(
+                    named_path, playbooks_root=ROOT / "records/_playbooks"
+                )
+            }
+        finally:
+            named_path.unlink()
+        self.assertIn("research.entry-preflight-required", codes)
+
+    def test_entry_preflight_rejects_invalid_evaluated_on_date(self) -> None:
+        front = _minimal_research_front_matter()
+        front["published_at"] = "2026-06-02T20:00:00+09:00"
+        front["entry_preflight"] = _entry_preflight(evaluated_on="not-a-date")
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.format", codes)
+
+    def test_entry_preflight_rejects_unknown_field(self) -> None:
+        front = _minimal_research_front_matter()
+        front["published_at"] = "2026-06-02T20:00:00+09:00"
+        preflight = _entry_preflight()
+        preflight["extra_preflight_field"] = "unexpected"
+        exposure = preflight["tactical_exposure_after_order"]
+        assert isinstance(exposure, dict)
+        exposure["extra_exposure_field"] = 1
+        front["entry_preflight"] = preflight
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.additionalProperties", codes)
+
     def test_missing_required_field_is_flagged_by_schema(self) -> None:
         front = _minimal_research_front_matter()
         del front["macro_context_fit"]
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.required", codes)
+
+    def test_top_level_research_rejects_unknown_field(self) -> None:
+        front = _minimal_research_front_matter()
+        front["extra_top_level_field"] = "unexpected"
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.additionalProperties", codes)
+
+    def test_position_sizing_overlay_rejects_unknown_field(self) -> None:
+        front = _minimal_research_front_matter()
+        sizing = front["position_sizing_overlay"]
+        assert isinstance(sizing, dict)
+        sizing["extra_size_field"] = 1
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.additionalProperties", codes)
+
+    def test_valuation_rejects_unknown_field(self) -> None:
+        front = _minimal_research_front_matter()
+        valuation = front["valuation"]
+        assert isinstance(valuation, dict)
+        valuation["extra_metric"] = 1
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.additionalProperties", codes)
 
     def test_unknown_outcome_is_flagged(self) -> None:
         front = _minimal_research_front_matter()

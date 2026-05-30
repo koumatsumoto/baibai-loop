@@ -12,17 +12,13 @@ research_decision:
 candidate_ref:
   candidates_ref: records/04-candidates/2026/05/2026-05-01.yaml
   ticker: '9470'
-ai_draft: false
 published_at: '2026-05-08T00:00:00+09:00'
 recorded_at: '2026-05-08T00:00:00+09:00'
 tradable_at: '2026-05-07T09:00:00+09:00'
 position_sizing_overlay:
-  paper_proxy_position_size_oku: 0.01
   paper_proxy_position_size_yen: 1000000
   real_order_intent_yen: 196400
   adv_participation_pct: 0.8333
-  sizing_formula_id: policy-v1-paper-to-real-ladder
-counterfactual: null
 thesis_payoff:
   max_entry_price_yen: 982
   target_price_yen: 1100
@@ -62,8 +58,6 @@ macro_context_fit:
   fit: neutral
   decision_effect: proceed
   required_checks: []
-  sizing_caution:
-  - migrated_from_legacy_macro_context
 corporate_action_check:
   checked: true
   result: none

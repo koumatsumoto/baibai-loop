@@ -204,9 +204,9 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - `adv_participation_pct: 0.585` (100 倍ズレ) を validator が catch しなかった
 - 当初の整合チェックを `avg_turnover_oku` 不在時には silently skip するように実装、
   required field 化を忘れた → 抜け道残存
-- nested の `valuation.liquidity_cap_participation_pct` のような旧 field も reject 対象外だった
+- schema 管理している nested object が未知 field を許しており、current contract 以外の値を取り込めた
 - `research_decision.outcome: rejected` の packet で `position_sizing_overlay.paper_proxy_position_size_yen > 0` を許していたため、
-  hypothetical 値と実建玉値が混在
+  非採用 decision と sizing が矛盾していた
 - `except TypeError, ValueError:` のような Python 2 風に見える except をめぐって、レビューで
   「構文エラー」なのか「Python 3.14 の PEP 758 による複数例外捕捉」なのかが混乱した。
   本 repo では可読性とレビュー容易性を優先し、複数例外捕捉は `except (A, B):` に統一する
@@ -223,19 +223,17 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] 関連 field が **不在** の場合 (skip / error どちらが正しいか)
   - [ ] 関連 field が **null** の場合
   - [ ] 関連 field が **0 / 負値** の場合 (decision との整合性)
-  - [ ] **nested** 旧 field (例: `valuation.liquidity_cap_participation_pct`) を reject するか
+  - [ ] schema 管理している **nested object** が未知 field を許していないか
   - [ ] **既存 packet** (4/25 research 5 件など) が新 rule で breakage しないか、する場合は
         同 commit で fix する
 - [ ] 以下の adv_participation 関連の具体条件を validator が catch するか、test を書いて
       確認する:
   - [ ] `avg_turnover_oku <= 0` は error (整合チェックの分母が成立しない、required な数値
         だけでは抜け道になる)
-  - [ ] `position_sizing_overlay.paper_proxy_position_size_yen == 0` の場合は **`adv_participation_pct == 0`** を要求 (rejected
-        packet で hypothetical 値と取り違えると `position_size 0 / avg_turnover 85.4 *
-        100 = 0` だが `adv: 1.0` のような非ゼロを期待値 0 で skip してしまう穴を塞ぐ)
+  - [ ] `position_sizing_overlay.paper_proxy_position_size_yen == 0` の場合は **`adv_participation_pct == 0`** を要求 (`position_size 0 / avg_turnover 85.4 * 100 = 0` だが `adv: 1.0` のような非ゼロを skip してしまう穴を塞ぐ)
   - [ ] **`research_decision.outcome != 'approved'` の場合は `position_sizing_overlay.paper_proxy_position_size_yen == 0` を要求** (deferred / rejected で
-        正値が残ると actual sizing と hypothetical sizing が混在する)
-  - [ ] `valuation.liquidity_cap_participation_pct` のような旧 nested field は error にする
+        正値が残ると decision と sizing が矛盾する)
+  - [ ] `valuation` / `position_sizing_overlay` のような nested object は current schema の field だけを許す
 - [ ] cross-field consistency rule は **依存先の field が「数値であること」だけでなく、
       「正値 (> 0) であること」を確認**する。0 / 負値で silently skip する実装は穴になる
 - [ ] front matter の `avg_turnover_oku` が `candidate_ref.candidates_ref` の
@@ -254,8 +252,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] `order_price_guard_yen` を置く場合、`order_intent.quantity` /
         `position_sizing_overlay.guarded_max_notional_yen` を記録し、
         `guarded_max_notional_yen = order_price_guard_yen * quantity` と整合させたか
-  - [ ] `position_sizing_overlay.guarded_max_tactical_real_budget_concentration_pct` は
-        guarded notional / tactical real budget * 100 として確認できるか
+  - [ ] guarded notional / tactical real budget * 100 を必要時に再計算できる入力が揃っているか
   - [ ] `position_sizing_overlay.paper_proxy_position_size_yen` / `adv_participation_pct` は paper proxy の検証であり、実資金集中度の検証ではない
 - [ ] research の `policy_overrides` / `decision_revisions` 配列を導入・変更する場合、以下を確認したか:
   - [ ] `policy_overrides[]` は policy field の override だけを表し、decision history を混ぜていない
@@ -314,6 +311,8 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
       本文で理由を明記したか
 - [ ] 注文日が休場日または立会時間外の場合、trade は `orders[].state: submitted` とし、
       executions がない限り約定価格を推定で埋めていないか
+- [ ] 2026-06-01 以降の approved research は `entry_preflight` を持ち、3pt 以上の相対劣後、stale macro、tactical exposure 50% 超を理由なし `proceed` で通していないか。`exception` は `exception_basis` を持つか
+- [ ] fallback price observation は `decision_event_id`、`tracking_horizon`、`target_date`、`resolved_trade_date`、`price_basis`、`source_url`、`fetched_at`、`corporate_action_checked`、`same_basis_group_id`、`provisional` を持ち、basis 不一致を確定評価に使っていないか
 - [ ] 外部市場予測 (例: Gartner / IDC / 証券サイトの同業倍率) は、今回の canonical fact として
       採用するなら macro context / research の source として明示し、未確認なら「判断補助・未採用」として分離したか
 

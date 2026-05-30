@@ -11,10 +11,13 @@ from baibai_loop._env import load_project_env
 from baibai_loop.screening.config import DEFAULT_CACHE_DIR, DEFAULT_SQLITE_CACHE_DIR
 from baibai_loop.screening.providers.jquants import (
     JQuantsDailyBar,
+    JQuantsMarketCalendarDay,
     JQuantsProvider,
     JQuantsProviderError,
 )
+from baibai_loop.screening.sqlite_reader import read_daily_bars, read_market_calendar
 
+from .market_data import PriceObservation, load_fallback_price_observations
 from .retro import build_monthly_retro, write_monthly_retro
 from .sync import sync_ledger
 
@@ -30,7 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync_parser.add_argument(
         "--require-market-data",
         action="store_true",
-        help="fail when J-Quants market data cannot be loaded",
+        help="fail when neither J-Quants data nor fallback observations can be loaded",
     )
     retro_parser = subparsers.add_parser(
         "retro",
@@ -47,19 +50,28 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     load_project_env(args.root)
     if args.command == "sync":
-        calendar, bars, market_warnings = _load_market_data(args.root, os.environ)
-        if args.require_market_data and (not calendar or not bars):
+        calendar, bars, fallback_observations, market_warnings = _load_market_data(
+            args.root, os.environ
+        )
+        usable_market_data = bool((calendar and bars) or fallback_observations)
+        if args.require_market_data and not usable_market_data:
             if market_warnings:
                 for warning in market_warnings:
                     print(f"error: {warning}", file=sys.stderr)
             else:
                 # research packet が無い等で warning も出ないケースを silent にしない。
                 print(
-                    "error: --require-market-data set but no calendar/bars could be loaded",
+                    "error: --require-market-data set but no market data could be loaded",
                     file=sys.stderr,
                 )
             return 1
-        result = sync_ledger(args.root, dry_run=args.dry_run, calendar=calendar, bars=bars)
+        result = sync_ledger(
+            args.root,
+            dry_run=args.dry_run,
+            calendar=calendar,
+            bars=bars,
+            fallback_observations=fallback_observations,
+        )
         for warning in market_warnings:
             print(f"warning: {warning}", file=sys.stderr)
         for warning in result.warnings:
@@ -93,32 +105,61 @@ def main(argv: list[str] | None = None) -> int:
 def _load_market_data(
     root: Path,
     env: Mapping[str, str],
-) -> tuple[tuple[date, ...], tuple[JQuantsDailyBar, ...], tuple[str, ...]]:
-    token = env.get("JQUANTS_REFRESH_TOKEN")
-    if not token:
-        return (), (), ("JQUANTS_REFRESH_TOKEN is unset; tracking prices remain null",)
+) -> tuple[
+    tuple[date, ...],
+    tuple[JQuantsDailyBar, ...],
+    tuple[PriceObservation, ...],
+    tuple[str, ...],
+]:
     decision_dates = _discover_decision_dates(root)
     if not decision_dates:
-        return (), (), ()
+        fallback_observations, fallback_warnings = load_fallback_price_observations(root)
+        return (), (), fallback_observations, fallback_warnings
     start = min(decision_dates) - timedelta(days=10)
     end = max(datetime.now(UTC).date(), max(decision_dates))
-    # cache_dir / sqlite_cache_dir は固定の相対 path (env override 廃止)。
-    # 詳細は screening/config.py の同名コメント参照。`root` 配下に解決する
-    # ことで、test 等で workspace を切り替えるユースケースにも対応する。
-    cache_dir = root / DEFAULT_CACHE_DIR
     sqlite_cache_dir = root / DEFAULT_SQLITE_CACHE_DIR
-    provider = JQuantsProvider(
-        token,
-        cache_dir,
-        sqlite_path=sqlite_cache_dir / "market.sqlite",
-    )
-    try:
-        calendar_days = provider.get_mkt_calendar(min(decision_dates), end)
-        bars = provider.get_eq_bars_daily_range(start, end)
-    except JQuantsProviderError as exc:
-        return (), (), (f"failed to load J-Quants market data; tracking prices remain null: {exc}",)
-    calendar = tuple(day.day for day in calendar_days if day.is_business_day)
-    return calendar, tuple(bars), ()
+    sqlite_path = sqlite_cache_dir / "market.sqlite"
+    calendar_days = read_market_calendar(sqlite_path, min(decision_dates), end)
+    bars = read_daily_bars(sqlite_path, start, end)
+    warnings: list[str] = []
+    token = env.get("JQUANTS_REFRESH_TOKEN")
+    if (calendar_days is None or bars is None) and token:
+        # cache_dir / sqlite_cache_dir は固定の相対 path (env override 廃止)。
+        # 詳細は screening/config.py の同名コメント参照。`root` 配下に解決する
+        # ことで、test 等で workspace を切り替えるユースケースにも対応する。
+        cache_dir = root / DEFAULT_CACHE_DIR
+        provider = JQuantsProvider(
+            token,
+            cache_dir,
+            sqlite_path=sqlite_path,
+        )
+        try:
+            if calendar_days is None:
+                calendar_days = provider.get_mkt_calendar(min(decision_dates), end)
+            if bars is None:
+                bars = provider.get_eq_bars_daily_range(start, end)
+        except JQuantsProviderError as exc:
+            warnings.append(
+                f"failed to load J-Quants market data; fallback observations may be used: {exc}"
+            )
+    elif not token and bars is None:
+        warnings.append("JQUANTS_REFRESH_TOKEN is unset; fallback observations may be used")
+    fallback_observations, fallback_warnings = load_fallback_price_observations(root)
+    warnings.extend(fallback_warnings)
+    calendar = _business_calendar(calendar_days)
+    if not bars and not fallback_observations:
+        warnings.append("no J-Quants bars or fallback price observations were loaded")
+    elif bars and not calendar:
+        warnings.append("J-Quants bars loaded but no business calendar was loaded")
+    return calendar, tuple(bars or ()), fallback_observations, tuple(warnings)
+
+
+def _business_calendar(
+    calendar_days: list[JQuantsMarketCalendarDay] | None,
+) -> tuple[date, ...]:
+    if calendar_days is None:
+        return ()
+    return tuple(day.day for day in calendar_days if day.is_business_day)
 
 
 def _discover_decision_dates(root: Path) -> tuple[date, ...]:

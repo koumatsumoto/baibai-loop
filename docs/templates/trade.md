@@ -25,9 +25,6 @@ orders:
     state: submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled
     submitted_quantity: 100
     filled_quantity: 0
-    events:
-      - event_type: submit
-        at: "YYYY-MM-DDTHH:MM:SS+09:00"
 executions: []
 planned_exit:
   target_price_yen: 1300

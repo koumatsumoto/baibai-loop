@@ -38,8 +38,18 @@ corporate_action_check:
   checked: true
   result: none
   note: ""
+entry_preflight:
+  evaluated_on: "YYYY-MM-DD"
+  market_relative_return_pct: 0.0
+  sector_or_peer_relative_return_pct: 0.0
+  macro_freshness: current
+  tactical_exposure_after_order:
+    sector_33_pct: 0.0
+    playbook_pct: 0.0
+  near_term_catalyst: false
+  action: proceed
+  reason: "[relative return / macro freshness / exposure を踏まえた entry 判断]"
 sector_33: "情報・通信業"
-ai_draft: true
 published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 ---
 

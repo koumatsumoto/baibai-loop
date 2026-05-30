@@ -13,8 +13,9 @@ from baibai_loop.screening.providers.jquants import JQuantsDailyBar
 from baibai_loop.screening.render import JST
 
 from .io import diff_jsonl, write_jsonl
+from .market_data import PriceObservation
 from .records import DecisionRegisterRecord, Tracking
-from .tracking import resolve_tracking_prices
+from .tracking import TrackingPrice, resolve_tracking_prices
 
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)
 _TrackingMode = Literal["post_approval", "re_examination", "none"]
@@ -33,6 +34,7 @@ def sync_ledger(
     dry_run: bool = False,
     calendar: tuple[date, ...] = (),
     bars: tuple[JQuantsDailyBar, ...] = (),
+    fallback_observations: tuple[PriceObservation, ...] = (),
     observed_at: datetime | None = None,
 ) -> SyncResult:
     _ = (observed_at or datetime.now(UTC)).isoformat()
@@ -57,14 +59,18 @@ def sync_ledger(
         outcome = str(research_decision.get("outcome") or "deferred")
         candidate_ref = _mapping_or_none(front.get("candidate_ref"))
         candidate = _candidate_from_ref(candidates_index, candidate_ref)
-        plus_15bd, plus_30bd = (
-            resolve_tracking_prices(ticker, decision_event_at.date(), calendar, bars)
-            if calendar and bars
-            else (None, None)
+        decision_event_id = f"decision-{decision_event_at:%Y%m%d}-{ticker}-research"
+        plus_15bd, plus_30bd = resolve_tracking_prices(
+            ticker,
+            decision_event_id,
+            decision_event_at.date(),
+            calendar,
+            bars,
+            fallback_observations=fallback_observations,
         )
         tracking = _tracking_from_front(front, plus_15bd, plus_30bd, outcome)
         record = DecisionRegisterRecord(
-            decision_event_id=f"decision-{decision_event_at:%Y%m%d}-{ticker}-research",
+            decision_event_id=decision_event_id,
             event_kind="decision",
             decision_scope="research_memo",
             ticker=ticker,
@@ -188,20 +194,6 @@ def _decision_datetime(path: Path, front: Mapping[str, Any]) -> datetime:
 
 
 def _trade_decision_datetime(path: Path, front: Mapping[str, Any]) -> datetime:
-    orders = front.get("orders")
-    if isinstance(orders, list):
-        for order in orders:
-            if not isinstance(order, Mapping):
-                continue
-            events = order.get("events")
-            if not isinstance(events, list):
-                continue
-            for event in events:
-                if not isinstance(event, Mapping):
-                    continue
-                value = event.get("at")
-                if isinstance(value, str):
-                    return _parse_jst_datetime(value)
     return _decision_datetime(path, front)
 
 
@@ -214,8 +206,8 @@ def _parse_jst_datetime(value: str) -> datetime:
 
 def _tracking_from_front(
     front: Mapping[str, Any],
-    plus_15bd: float | None,
-    plus_30bd: float | None,
+    plus_15bd: TrackingPrice | None,
+    plus_30bd: TrackingPrice | None,
     outcome: str,
 ) -> Tracking:
     tracking = _mapping_or_none(front.get("tracking")) or {}
@@ -231,8 +223,18 @@ def _tracking_from_front(
         mode = "post_approval" if outcome == "approved" else "re_examination"
     return Tracking(
         mode=mode,
-        plus_15bd=plus_15bd if plus_15bd is not None else _float_or_none(tracking.get("plus_15bd")),
-        plus_30bd=plus_30bd if plus_30bd is not None else _float_or_none(tracking.get("plus_30bd")),
+        plus_15bd=plus_15bd.price
+        if plus_15bd is not None
+        else _float_or_none(tracking.get("plus_15bd")),
+        plus_30bd=plus_30bd.price
+        if plus_30bd is not None
+        else _float_or_none(tracking.get("plus_30bd")),
+        plus_15bd_source=plus_15bd.source
+        if plus_15bd is not None
+        else _mapping_dict(tracking.get("plus_15bd_source")),
+        plus_30bd_source=plus_30bd.source
+        if plus_30bd is not None
+        else _mapping_dict(tracking.get("plus_30bd_source")),
     )
 
 
@@ -247,6 +249,10 @@ def _group_by_month(records: list[dict[str, Any]]) -> dict[str, list[dict[str, A
 
 def _mapping_or_none(value: object) -> Mapping[str, Any] | None:
     return value if isinstance(value, Mapping) else None
+
+
+def _mapping_dict(value: object) -> dict[str, object] | None:
+    return dict(value) if isinstance(value, Mapping) else None
 
 
 def _float_or_none(value: object) -> float | None:
