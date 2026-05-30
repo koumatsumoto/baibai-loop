@@ -44,7 +44,7 @@ uv run baibai-loop-screening select --asof YYYY-MM-DD
 
 `select` は macro context で候補を自動除外せず、lane-specific metric、短期 dislocation、long-hold survivability、過去 research decision を組み合わせて triage します。Hit 数と時価総額だけで機械的に上位化しません。
 
-出力は `recommendations` と `selection.diagnostics` を正本にします。
+出力は `recommendations` と `selection.diagnostics` を正本にします。default は daily triage 用 summary で、候補の full `lenses` や debug detail が必要な場合だけ `--detail full` を付けます。
 
 - `recommendations`: research 着手候補。`selection_lane` と `selection_metrics` を見て primary thesis を決める。
 - `lenses.fast_dislocation`: 明確な価格下落と fundamental guard を同時に満たすかを示す annotation。rank と reason tag に反映する。

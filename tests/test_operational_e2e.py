@@ -317,7 +317,6 @@ class OperationalE2ETests(unittest.TestCase):
             "avg_turnover_oku": avg_turnover_oku,
             "market_cap_oku": candidate.get("market_cap_oku"),
             "valuation": valuation,
-            "ai_draft": True,
             "published_at": "2026-05-08T20:00:00+09:00",
         }
 
@@ -354,7 +353,7 @@ class OperationalE2ETests(unittest.TestCase):
                     "state": "submitted",
                     "submitted_quantity": quantity,
                     "filled_quantity": 0,
-                    "events": [{"event_type": "submit", "at": "2026-05-08T09:00:00+09:00"}],
+                    "order_price_guard_yen": guard,
                 }
             ],
             "executions": [],

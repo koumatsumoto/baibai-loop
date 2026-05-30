@@ -112,7 +112,23 @@ Position size は次の順で決める。
 
 ### 9.1 Entry preflight
 
-全 playbook の `Entry` section には、発注直前の preflight を置く。これは schema field ではなく、entry 判断を軽く締めるための本文 checklist である。`Price reaction` section がある playbook では詳細をそちらに書いてもよいが、採用判断へ接続する要約は必ず `Entry` に残す。
+全 playbook の `Entry` section には、発注直前の preflight を置く。2026-06-01 以降の `approved` research では、本文 checklist に加えて front matter の `entry_preflight` を validator-visible な正本として残す。`Price reaction` section がある playbook では詳細をそちらに書いてもよいが、採用判断へ接続する要約は必ず `Entry` に残す。
+
+最小 front matter:
+
+```yaml
+entry_preflight:
+  evaluated_on: "YYYY-MM-DD"
+  market_relative_return_pct: 0.0
+  sector_or_peer_relative_return_pct: 0.0
+  macro_freshness: current
+  tactical_exposure_after_order:
+    sector_33_pct: 0.0
+    playbook_pct: 0.0
+  near_term_catalyst: false
+  action: proceed
+  reason: "..."
+```
 
 必須観点:
 
@@ -129,8 +145,9 @@ Position size は次の順で決める。
 軽量な action rule:
 
 - 候補銘柄が market baseline または sector / peer baseline に 3pt 以上劣後し、明確な near-term catalyst がない場合は、`starter` または `defer` を基本にする。
-- `macro_context_fit.context_freshness: stale` で event-driven thesis ではない場合は、`defer` を基本にする。採用する場合は macro context 更新、低 sizing、または明示的な `exception` 理由を残す。
+- `macro_context_fit.context_freshness: stale` で event-driven thesis ではない場合は、`defer` を基本にする。`exception` を使う場合は `exception_basis` に `near_term_catalyst` / `low_sizing` / `low_correlation` のいずれかを構造化して残す。
 - 同一 sector または同一 playbook が tactical budget の 50% を超える exposure review trigger は hard cap ではない。既存 validator の real capital cap とは別に、opportunity cost / thesis overlap を確認するための手動 review trigger として扱う。低相関理由や catalyst 差を説明できない場合は、追加 entry を `starter` に抑えるか `defer` する。
+- validator は 2026-06-01 以降の approved research で、3pt 以上の相対劣後、stale macro、tactical exposure 50% 超を理由なし `proceed` として通さない。`exception` は `exception_basis` がない場合は通さない。
 
 `Thesis` には、短期 swing thesis に加えて以下を必ず 1 行以上で記録する。
 

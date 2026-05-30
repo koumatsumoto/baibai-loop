@@ -71,18 +71,20 @@ structured_field_provenance:
 
 ### 4.1 Price evidence
 
-Review / retro の価格は J-Quants を primary source とする。J-Quants が subscription / availability 問題で使えない場合は、同一 basis の public daily quote を fallback として使ってよい。その場合、front matter に独自 field を増やさず、本文に `Price evidence` table を置く。
+Review / retro の価格は J-Quants を primary source とする。J-Quants が subscription / availability 問題で使えない場合は、同一 basis の public daily quote を fallback として使ってよい。fallback の価格入力は `records/_market-data/` の observation を正本にし、review / retro 本文には `Price evidence` summary を置く。
 
 fallback 使用時に残す項目:
 
 | 項目 | 内容 |
 | --- | --- |
+| decision_event_id | 対象 decision register row |
 | source_url | 個別銘柄価格 source |
 | fetched_at | 取得日時 |
-| start_date / evaluation_date | 開始日と評価日 |
+| target_date / resolved_trade_date | 評価 target と実際に解決した取引日 |
 | price_basis | `close_unadjusted` / `adjusted_close` / `intraday_last` |
-| benchmark_source_url | market / sector benchmark source |
-| same_basis_note | 銘柄と benchmark の評価日、終値 / 現在値、adjusted / unadjusted の整合 |
+| tracking_horizon | `plus_15bd` / `plus_30bd` |
+| same_basis_group_id | 銘柄と benchmark の評価日、終値 / 現在値、adjusted / unadjusted の整合単位 |
+| provisional | basis 不一致、corporate action 未確認、intraday 混在などで確定評価に使えない場合は `true` |
 
 daily close と intraday last は混ぜない。約定 P&L の確認は原則 `close_unadjusted`、forward return は corporate action がある場合のみ `adjusted_close` を優先する。期間内に split / reverse split / 大型 corporate action があり、fallback source の adjusted basis が確認できない場合、その review outcome は provisional とし、classification は `inconclusive` 寄りに扱う。
 

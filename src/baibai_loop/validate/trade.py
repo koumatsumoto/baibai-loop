@@ -73,6 +73,7 @@ def validate_trade_file(path: Path) -> list[ValidationFinding]:
     findings.extend(_check_order_ready_shape(path, front))
     findings.extend(_check_trade_safety_gate(path, front))
     findings.extend(_check_order_join(path, front))
+    findings.extend(_check_execution_join(path, front))
     findings.extend(_check_order_state_consistency(path, front))
     findings.extend(_check_current_quantity(path, front))
     findings.extend(_check_guarded_notional(path, front))
@@ -466,6 +467,29 @@ def _check_order_join(path: Path, front: Mapping[str, object]) -> list[Validatio
             )
         ]
     return []
+
+
+def _check_execution_join(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
+    orders = front.get("orders")
+    executions = front.get("executions")
+    if not isinstance(orders, list) or not isinstance(executions, list):
+        return []
+    order_ids = {order.get("order_id") for order in orders if isinstance(order, Mapping)}
+    findings: list[ValidationFinding] = []
+    for index, execution in enumerate(executions):
+        if not isinstance(execution, Mapping):
+            continue
+        if execution.get("order_id") not in order_ids:
+            findings.append(
+                ValidationFinding(
+                    severity="error",
+                    target=path,
+                    code="trade.execution-order-join",
+                    message="executions[].order_id must join to orders[].order_id",
+                    location=f"executions[{index}].order_id",
+                )
+            )
+    return findings
 
 
 def _check_order_state_consistency(

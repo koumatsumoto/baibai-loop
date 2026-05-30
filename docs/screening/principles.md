@@ -94,7 +94,7 @@ Research packet で以下の 4 軸を記入する。**合計点は算出しな�
 - **決算発表日またぎエントリー禁止**
 - **日銀金融政策決定会合の前日エントリー禁止**
 - **FOMC 前日エントリー禁止**
-- **macro context が stale なまま research へ進めること**（必要なら先に更新する）
+- **macro context が stale / future のまま理由なしに `proceed` すること**。stale で採用する場合は entry preflight で `starter` / `defer` / `exception` とし、macro 更新、低 sizing、near-term catalyst、低相関理由のいずれかを明記する。future macro context は approved 不可。
 
 保有中に macro context が変わった場合、exit / sizing 見直しの必要性を research / review で確認する。
 

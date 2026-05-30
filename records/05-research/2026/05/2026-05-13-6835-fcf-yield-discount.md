@@ -18,20 +18,13 @@ research_decision:
 candidate_ref:
   candidates_ref: records/04-candidates/2026/05/2026-05-08.yaml
   ticker: '6835'
-ai_draft: true
 published_at: '2026-05-13T08:50:00+09:00'
 recorded_at: '2026-05-13T08:50:00+09:00'
 tradable_at: '2026-05-18T09:00:00+09:00'
 position_sizing_overlay:
-  paper_proxy_position_size_oku: 0.0
   paper_proxy_position_size_yen: 0
   real_order_intent_yen: 0
   adv_participation_pct: 0.0
-  sizing_formula_id: policy-v1-paper-to-real-ladder
-counterfactual:
-  if_approved:
-    hypothetical_paper_proxy_position_size_oku: 0.01
-    hypothetical_paper_proxy_position_size_yen: 1000000
 thesis_payoff:
   max_entry_price_yen: 270
   target_price_yen: 340
@@ -72,8 +65,6 @@ macro_context_fit:
   fit: not_matched
   decision_effect: proceed
   required_checks: []
-  sizing_caution:
-  - migrated_from_legacy_macro_context
 corporate_action_check:
   checked: true
   result: none
@@ -153,6 +144,5 @@ Source:
 ## Position size
 
 - decision: deferred。
-- Q1 通過後の counterfactual paper proxy: 1,000,000 円。
 - 実資金 starter: 100 株。5/7 付近の株価 268 円なら約 26,800 円。
 - 初期 sizing は実資金 1% 未満。Q1 cash quality が強い場合のみ 200-300 株へ増やす。

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 
 from baibai_loop.ledger.io import validate_decision_register_jsonl
 
@@ -385,7 +385,7 @@ def _load_validator(path: Path) -> Draft202012Validator:
     if not isinstance(raw, dict):
         raise RuntimeError(f"unexpected schema root: {path}")
     Draft202012Validator.check_schema(raw)
-    return Draft202012Validator(raw)
+    return Draft202012Validator(raw, format_checker=FormatChecker())
 
 
 def _format_path(parts: Iterable[Any]) -> str:

@@ -44,24 +44,14 @@ orders:
     submitted_quantity: 100
     filled_quantity: 0
     order_price_guard_yen: 1050
-    events:
-      - event_id: order-YYYYMMDD-<ticker>-buy-1-submit
-        event_type: submit | modify | cancel | expire | broker_reject | partial_fill | fill
-        at: "YYYY-MM-DDTHH:MM:SS+09:00"
-        quantity: 100
-        price_yen: 1050
 executions: []
 capital_basis:
   real_capital_yen: 5000000
   tactical_real_budget_yen: 1000000
   paper_proxy_capital_yen: 100000000
 position_sizing_overlay:
-  paper_proxy_position_size_oku: 0.01
-  paper_proxy_position_size_pct: 1.0
   estimated_real_order_notional_yen: 210000
   guarded_max_notional_yen: 210000
-  guarded_max_real_concentration_pct: 4.2
-  guarded_max_tactical_real_budget_concentration_pct: 21.0
 planned_exit:
   target_price: 1200
   stop_loss: 950
@@ -94,7 +84,7 @@ execution_costs:
 | `partially_filled` | 一部約定し、残数量が未完了 |
 | `filled` | order が全数量約定 |
 
-`orders[].origin_order_intent_id` は decision register の `order_intent.order_intent_id` と一致させる。broker 側 ID は `external_broker_order_id` として分離する。
+`orders[].origin_order_intent_id` は decision register の `order_intent.order_intent_id` と一致させる。broker 側 ID は `external_broker_order_id` として任意で分離する。
 
 ## 5. Sizing / Guard
 
@@ -136,8 +126,8 @@ uv run baibai-loop-validate --target trade
 - **Entry reason**: investment memo の thesis / payoff / macro context fit / policy pass を要約
 - **Entry preflight summary**: research の `Entry preflight` 結論を確認し、`proceed` / `starter` / `defer` / `exception` の扱いと未解消 blocker がないことを要約する。preflight の計算本体は research 側に置き、trade では再計算しない
 - **Order / Entry triggers**: 実際に order を作った条件
-- **Order log**: order submit / modify / cancel / fill の記録
-- **Position**: paper proxy size、real notional、real / tactical budget concentration、target / stop / time stop
+- **Order state**: `orders[].state` と `executions[]` で現在状態を記録する。submit / modify / cancel / reject の時系列監査ログは残さない
+- **Position**: real notional、guarded notional、target / stop / time stop
 
 ### 7.2 保有中
 

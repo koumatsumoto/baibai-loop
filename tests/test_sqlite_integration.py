@@ -372,11 +372,12 @@ class LedgerSyncOverSqliteTests(unittest.TestCase):
 
             env = {"JQUANTS_REFRESH_TOKEN": "token"}
 
-            calendar, bars, warnings = _load_market_data(workspace, env)
+            calendar, bars, fallback_observations, warnings = _load_market_data(workspace, env)
 
             self.assertEqual(warnings, ())
             self.assertGreater(len(calendar), 0)
             self.assertGreater(len(bars), 0)
+            self.assertEqual(fallback_observations, ())
             self.assertEqual(bars[0].ticker, "130A")
 
 

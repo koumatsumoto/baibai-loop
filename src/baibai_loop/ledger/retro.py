@@ -213,8 +213,8 @@ def _decision_rows(records: Sequence[Mapping[str, Any]]) -> list[str]:
             playbook=record.get("playbook_id", ""),
             scope=record.get("decision_scope", ""),
             outcome=_research_outcome(record) or "",
-            plus15=_format_price(_tracking_value(record, "plus_15bd")),
-            plus30=_format_price(_tracking_value(record, "plus_30bd")),
+            plus15=_format_tracking_value(record, "plus_15bd"),
+            plus30=_format_tracking_value(record, "plus_30bd"),
         )
         for record in records
     ]
@@ -279,6 +279,16 @@ def _tracking_value(record: Mapping[str, Any], key: str) -> object:
     if isinstance(tracking, Mapping):
         return tracking.get(key)
     return None
+
+
+def _format_tracking_value(record: Mapping[str, Any], key: str) -> str:
+    rendered = _format_price(_tracking_value(record, key))
+    if rendered == "-":
+        return rendered
+    source = _tracking_value(record, f"{key}_source")
+    if isinstance(source, Mapping) and source.get("provisional") is True:
+        return f"{rendered} provisional"
+    return rendered
 
 
 def _format_price(value: object) -> str:

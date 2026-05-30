@@ -161,7 +161,7 @@ CLI で自動化されており、実装の正本は [`automation.md`](./automat
 python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 ```
 
-JPX 規制情報は universe 定義の一部であり、必須 source が欠ける場合は candidates YAML を生成しない。EDINET 前処理済み metrics は任意 source であり、未ロード時は EV/EBITDA などを `unavailable` として degrade する。
+JPX 規制情報と EDINET 前処理済み metrics は screening run の必須 input である。いずれかが欠ける場合は candidates YAML を生成せず、`bootstrap-cache` / `extract-edinet-metrics` / `verify-cache-coverage` で SQLite を補完してから再実行する。EDINET metrics が存在する銘柄内で個別 metric が欠ける場合だけ、EV/EBITDA などを `unavailable` として degrade する。
 
 ## 7. Retro での調整
 

@@ -1206,10 +1206,11 @@ class SelectCommandTests(unittest.TestCase):
             )
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
-            self.assertEqual(payload["input_count"], 3)
-            self.assertEqual(payload["after_macro_context_check"], 3)
+            self.assertNotIn("input_count", payload)
+            self.assertEqual(payload["selection"]["counts"]["input"], 3)
+            self.assertEqual(payload["selection"]["counts"]["after_macro_context_check"], 3)
             self.assertEqual(
-                payload["macro_context_summary"]["research_questions"],
+                payload["selection"]["macro_context_summary"]["research_questions"],
                 ["test question"],
             )
             self.assertEqual(
@@ -1219,7 +1220,7 @@ class SelectCommandTests(unittest.TestCase):
             tickers = [c["ticker"] for c in self._recommended(payload)]
             self.assertEqual(tickers, ["3333", "2222", "1111"])
             self.assertEqual(
-                payload["research_selection_lane_order"],
+                payload["selection"]["research_selection_lane_order"],
                 [
                     "strict-net-cash-discount",
                     "fcf-yield-discount",
@@ -1233,6 +1234,22 @@ class SelectCommandTests(unittest.TestCase):
                 self._recommended(payload)[0]["selection_lane"], "cash-rich-asset-discount"
             )
             self.assertEqual(self._recommended(payload)[0]["position_tier"], "200-500")
+            self.assertNotIn("lenses", self._recommended(payload)[0])
+
+            full_buffer = io.StringIO()
+            full_exit_code = select_command(
+                asof_date=asof,
+                macro_context_path=None,
+                top=10,
+                candidates_root=root / "records/04-candidates",
+                macro_context_root=root / "records/01-macro-context",
+                detail="full",
+                stdout=full_buffer,
+            )
+            self.assertEqual(full_exit_code, 0)
+            full_payload = yaml.safe_load(full_buffer.getvalue())
+            self.assertEqual(full_payload["selection"]["detail"], "full")
+            self.assertIn("lenses", self._recommended(full_payload)[0])
             self.assertEqual(self._recommended(payload)[1]["position_tier"], "500-1000")
 
     def test_select_command_accepts_explicit_candidates_path(self) -> None:
@@ -1273,7 +1290,7 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
             self.assertEqual(
-                payload["candidates_ref"],
+                payload["selection"]["input_refs"]["candidates_ref"],
                 "records/04-candidates/e2e/custom-candidates.yaml",
             )
             self.assertEqual([item["ticker"] for item in self._recommended(payload)], ["1111"])
@@ -1323,6 +1340,7 @@ class SelectCommandTests(unittest.TestCase):
                 top=10,
                 candidates_root=root / "records/04-candidates",
                 macro_context_root=root / "records/01-macro-context",
+                detail="full",
                 stdout=buffer,
             )
 
@@ -1474,6 +1492,7 @@ class SelectCommandTests(unittest.TestCase):
                 top=10,
                 candidates_root=root / "records/04-candidates",
                 macro_context_root=root / "records/01-macro-context",
+                detail="full",
                 stdout=buffer,
             )
 
@@ -1538,6 +1557,7 @@ class SelectCommandTests(unittest.TestCase):
                 top=10,
                 candidates_root=root / "records/04-candidates",
                 macro_context_root=root / "records/01-macro-context",
+                detail="full",
                 stdout=buffer,
             )
 
@@ -1606,6 +1626,7 @@ class SelectCommandTests(unittest.TestCase):
                 top=10,
                 candidates_root=root / "records/04-candidates",
                 macro_context_root=root / "records/01-macro-context",
+                detail="full",
                 stdout=buffer,
             )
 
@@ -1668,6 +1689,7 @@ class SelectCommandTests(unittest.TestCase):
                 top=10,
                 candidates_root=root / "records/04-candidates",
                 macro_context_root=root / "records/01-macro-context",
+                detail="full",
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
@@ -1778,6 +1800,7 @@ class SelectCommandTests(unittest.TestCase):
                 top=10,
                 candidates_root=root / "records/04-candidates",
                 macro_context_root=root / "records/01-macro-context",
+                detail="full",
                 stdout=buffer,
             )
 
@@ -1847,6 +1870,7 @@ class SelectCommandTests(unittest.TestCase):
                 top=10,
                 candidates_root=root / "records/04-candidates",
                 macro_context_root=root / "records/01-macro-context",
+                detail="full",
                 stdout=buffer,
             )
 
@@ -1901,6 +1925,7 @@ class SelectCommandTests(unittest.TestCase):
                 top=10,
                 candidates_root=root / "records/04-candidates",
                 macro_context_root=root / "records/01-macro-context",
+                detail="full",
                 stdout=buffer,
             )
 
@@ -2465,7 +2490,7 @@ class SelectCommandTests(unittest.TestCase):
                 self.assertEqual(exit_code, 1)
                 self.assertIn("extra_forbidden", stderr.getvalue())
 
-    def test_select_reports_short_return_missing_without_legacy_fallback(self) -> None:
+    def test_select_reports_short_return_missing_when_pipeline_has_no_data(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -2528,6 +2553,7 @@ class SelectCommandTests(unittest.TestCase):
                 top=10,
                 candidates_root=root / "records/04-candidates",
                 macro_context_root=root / "records/01-macro-context",
+                detail="full",
                 stdout=buffer,
             )
 
