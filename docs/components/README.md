@@ -3,7 +3,7 @@ title: "Component contracts"
 summary: "Index of Baibai-Loop artifact contracts."
 doc_type: component-index
 status: active
-last_reviewed: 2026-05-04
+last_reviewed: 2026-05-30
 ---
 
 # Components
@@ -22,7 +22,6 @@ Portfolio policy は record ではなく docs-managed governance document です
 | reviews | `records/07-reviews/` | [`reviews.md`](./reviews.md) |
 | ledger | `records/_ledger/` | [`ledger.md`](./ledger.md) |
 | playbooks | `records/_playbooks/` | [`playbooks.md`](./playbooks.md) |
-| watchlist | `records/_watchlist/` | [`watchlist.md`](./watchlist.md) |
 
 ## 読む順番
 
