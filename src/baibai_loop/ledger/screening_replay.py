@@ -268,9 +268,12 @@ def _build_week_sweep(
 def _load_bars_for_tickers(sqlite_path: Path, tickers: set[str]) -> tuple[JQuantsDailyBar, ...]:
     if not tickers or not sqlite_path.exists():
         return ()
+    # placeholders is only "?,?,..." markers; ticker values are bound parameters
+    # in conn.execute, so the f-string is not an injection vector. bandit cannot
+    # see the binding, so suppress its B608 false positive here.
     placeholders = ",".join("?" for _ in tickers)
     query = (
-        "SELECT ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor "
+        "SELECT ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor "  # nosec B608
         "FROM jquants_daily_bars "
         f"WHERE ticker IN ({placeholders}) ORDER BY ticker, traded_at"
     )
