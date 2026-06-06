@@ -14,10 +14,16 @@ related_docs:
 
 Reviews は trade 後の forward-only 検証と monthly retro を扱います。contract は [`../components/reviews.md`](../components/reviews.md) を正本とします。
 
+## Due review gate の棚卸し
+
+1. `uv run baibai-loop-ledger review-gates` で、open position の forward review gate（+15bd / +30bd）のうち target 営業日が到来済みで `review_state != completed` のものを列挙する。`--asof YYYY-MM-DD` で評価日を固定できる。
+2. 営業日カレンダは J-Quants market calendar を primary とし、cache に無い場合は Monday-Friday の近似で target を解決する（祝日は控除しない近似 trigger）。
+3. 列挙された gate ごとに individual review を作り、完了したら対応する trade の `review_state` を `completed` に更新する。決算起点の即時 review gate は [`task-runbook.md`](./task-runbook.md) の task issue 側で管理し、本コマンドの forward gate と二重管理しない。
+
 ## Individual review
 
 1. 対応する trade と research を確認する。
-2. +15 / +30 営業日など、component doc で定義されたタイミングで review を作る。
+2. +15 / +30 営業日など、component doc で定義されたタイミングで review を作る。`uv run baibai-loop-ledger benchmark` で、open position の forward return・benchmark proxy return・relative を J-Quants から算出できる（benchmark は日経225 ETF proxy `1321`。詳細は [`../reference/data-sources.md`](../reference/data-sources.md) §Benchmark proxy）。
 3. 価格は J-Quants を primary source とする。取得できない場合は `records/_market-data/` の fallback observation を使い、本文の `Price evidence` に source URL、取得日時、評価日、price basis、benchmark と同一 basis か、provisional かを残す。
 4. daily close と intraday last を混ぜない。corporate action が期間内にあり adjusted basis が確認できない場合は、outcome を provisional とし、classification を急がない。
 5. 既存保有に決算後の即時 review gate がある場合は、[`task-runbook.md`](./task-runbook.md) に従い、個別タスク issue として管理する。
