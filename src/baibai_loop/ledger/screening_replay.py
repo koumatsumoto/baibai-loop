@@ -54,6 +54,7 @@ class WeekSpec:
 class ProfileWeekResult:
     week: date
     profile: str
+    is_holdout: bool
     recommended_tickers: tuple[str, ...]
     recommended: tuple[Mapping[str, object], ...]
     fast_dislocation_count: int
@@ -139,6 +140,7 @@ def run_replay(
                 ProfileWeekResult(
                     week=spec.asof,
                     profile=_string(profile_result.get("profile")),
+                    is_holdout=spec.is_holdout,
                     recommended_tickers=tickers,
                     recommended=recommended,
                     fast_dislocation_count=_int(profile_result.get("fast_dislocation_count")),
@@ -176,6 +178,7 @@ def replay_to_payload(result: ReplayResult) -> dict[str, object]:
             {
                 "week": item.week.isoformat(),
                 "profile": item.profile,
+                "is_holdout": item.is_holdout,
                 "recommended_tickers": list(item.recommended_tickers),
                 "fast_dislocation_count": item.fast_dislocation_count,
                 "long_hold_counts": dict(item.long_hold_counts),

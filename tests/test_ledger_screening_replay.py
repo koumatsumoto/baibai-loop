@@ -48,6 +48,7 @@ def test_replay_to_payload_serializes_weeks() -> None:
             ProfileWeekResult(
                 week=date(2026, 5, 1),
                 profile="balanced",
+                is_holdout=False,
                 recommended_tickers=("9682", "9692"),
                 recommended=(),
                 fast_dislocation_count=37,
