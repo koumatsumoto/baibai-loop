@@ -1,0 +1,136 @@
+kind: macro-context
+context_id: macro-context-2026-06-05-crash-defensive
+as_of: '2026-06-05'
+valid_until: '2026-06-12'
+published_at: '2026-06-06T09:00:00+09:00'
+summary: >
+  2026-06-05 の米国株急落を受けた risk-off 局面の screening 前提。米国は
+  Nasdaq -4.18%（年初来最悪）、S&P500 -2.64%、Dow -1.35%、VIX は +約40% の 21.5 へ
+  急伸、米 10 年債利回りは 4.69%（約16ヶ月ぶり高水準）。震源は (1) AI/半導体の急落
+  （Broadcom の AI チップ見通し失望）と (2) 強い 5 月雇用統計（+17.2万人）による
+  利上げ観測・金利急騰で、Bitcoin -5% / 金 -3.5% と全資産で risk-off。日本株は史上最高値圏
+  （Nikkei ~67,470）で、これまでの下げは AI/半導体に集中（東エレク -6.6%、アドバンテスト -5%、
+  ソフトバンクG -11.3%）し、内需・ディフェンシブは未だ崩れていない。重要なのは、6/5（金）の
+  米国引け -4.18% という最悪の下げを日本市場はまだ織り込んでおらず、月曜 6/8 が初の反応となるため
+  指数全体の gap-down リスクが高いこと。本 context の狙いは「AI/半導体・米金利と無関係なのに
+  月曜の無差別売りで巻き込まれて下げる、財務健全な内需ディフェンシブ」を安全に拾う観点を整理すること。
+  Macro context は hard gate ではなく、個別の割安性・財務 quality・暴落耐性を research で確認する入力とする。
+inputs:
+  articles:
+    - source: CNN Business
+      title: 'Nasdaq, S&P 500 suffer worst day of year as AI stocks tumble and Fed rate-hike odds rise'
+      url: https://www.cnn.com/2026/06/05/markets/stock-market-sell-off-fed
+      published_at: '2026-06-05T00:00:00-04:00'
+      used_for: 6/5 米国売りの規模と要因（AI/半導体 + 利上げ観測）。[補助外] 事実記述に限定
+    - source: TheStreet
+      title: 'Stock Market Today (June 5, 2026): Nasdaq falls 4% as semiconductor slide wipes $1T from markets'
+      url: https://www.thestreet.com/stock-market-today/stock-market-today-dow-jones-sp-500-nasdaq-updates-june-05-2026
+      published_at: '2026-06-05T00:00:00-04:00'
+      used_for: 主要指数の終値水準（Nasdaq -4.18% / S&P -2.64% / Dow -1.35%）。[補助外] 事実記述に限定
+    - source: Trading Economics
+      title: Japan Stock Market Index (JP225) — quote and tech-led pullback
+      url: https://tradingeconomics.com/japan/stock-market
+      published_at: '2026-06-05T00:00:00+09:00'
+      used_for: Nikkei/Topix 水準と日本の AI/半導体主導の調整（東エレク・アドバンテスト・ソフトバンクG）。Tier 2 二次集計
+    - source: Trading Economics
+      title: 'United States — CBOE Volatility Index: VIX'
+      url: https://tradingeconomics.com/united-states/cboe-volatility-index-vix-fed-data.html
+      published_at: '2026-06-05T00:00:00-04:00'
+      used_for: VIX の急伸（~15 → 21.5 へ約+40%）の確認。Tier 2 二次集計
+  stats_series:
+    - series_id: vix
+      window: 1m
+      used_for: risk-off の強度確認。6/5 に 21.5 へ急伸し fear が立った
+    - series_id: us_10y_treasury
+      window: 3m
+      used_for: 金利急騰（4.69% / 約16ヶ月ぶり高水準）。高 PER グロースに逆風、value/ディフェンシブに相対追い風
+    - series_id: usd_jpy
+      window: 1m
+      used_for: 159.9 と 160 の介入警戒ライン近辺。risk-off + 介入リスクで内需 < 外需の安全度を確認
+    - series_id: nikkei_225
+      window: 3m
+      used_for: 史上最高値圏からの初動。月曜 gap-down 余地と内需ディフェンシブの相対耐性を測る基準
+sector_tilts:
+  items:
+    - id: food-defensive-tailwind
+      scope: sector_33
+      key: 食料品
+      stance: tailwind
+      strength: medium
+      confidence: medium
+      rationale: >
+        内需中心で AI/半導体・米金利感応度が低く、景気に左右されにくい cash flow。
+        月曜の無差別売りで巻き込まれた財務健全銘柄は relative に拾いやすい。
+        個別の原材料・円安コストと価格転嫁力は research で確認する。
+    - id: pharma-defensive-tailwind
+      scope: sector_33
+      key: 医薬品
+      stance: tailwind
+      strength: medium
+      confidence: medium
+      rationale: >
+        ディフェンシブな収益構造で景気循環・AI capex 感応度が低い。
+        薬価・パイプラインの個別差は research で確認するが、暴落耐性 lane として優先度が高い。
+    - id: land-transport-domestic-tailwind
+      scope: sector_33
+      key: 陸運業
+      stance: tailwind
+      strength: medium
+      confidence: low
+      rationale: >
+        鉄道・物流の内需 recurring 需要は暴落時に相対耐性。ただし US-Iran 緊張による
+        燃料コスト上昇と、有利子負債の大きい事業者は金利上昇感応度を research で確認する。
+    - id: utilities-defensive-but-rate-sensitive-mixed
+      scope: sector_33
+      key: 電気・ガス業
+      stance: mixed
+      strength: medium
+      confidence: low
+      rationale: >
+        需要はディフェンシブだが bond-proxy 的性格が強く、10 年債 4.69% への金利急騰は逆風。
+        原油高による燃料調達コストも重なるため、財務余力と料金転嫁を個別に確認する。
+    - id: telecom-it-recurring-vs-growth-mixed
+      scope: sector_33
+      key: 情報・通信業
+      stance: mixed
+      strength: medium
+      confidence: low
+      rationale: >
+        通信・SaaS の recurring revenue はディフェンシブだが、同 sector は AI/グロース・
+        半導体隣接も含むため一括りにできない。recurring 収益かつ valuation dislocation かを個別判定する。
+    - id: electric-machinery-semis-headwind
+      scope: sector_33
+      key: 電気機器
+      stance: headwind
+      strength: high
+      confidence: medium
+      rationale: >
+        今回の売りの震源（Broadcom 失望、東エレク -6.6%、アドバンテスト -5%）。
+        「安全な巻き込まれ下げ」ではなく材料起因の下げなので、ディフェンシブ目的では優先しない。
+        例外的に拾うなら net cash と循環耐性を research で厳格に確認する。
+    - id: machinery-capex-cycle-headwind
+      scope: sector_33
+      key: 機械
+      stance: headwind
+      strength: medium
+      confidence: low
+      rationale: >
+        設備投資・半導体 cycle 感応度が高く、AI capex 不安と金利上昇の二重逆風。
+        外需・受注・財務余力を individual に確認し、ディフェンシブ枠では慎重に扱う。
+research_questions:
+  - 候補の安さは月曜の無差別 risk-off による一時的下落か、AI/半導体・米金利に起因する構造的毀損か。
+  - 短期 thesis（暴落後の戻り）が外れても、net cash・高自己資本比率・安定 CF で long-hold に切り替えて待てるか。
+  - 6/8 の gap-down で実際にどこまで売られるか。entry は寄り後の下落を待つべきで、6/5 前提価格で先回りしない。
+  - 円が 160 を超えて介入が入った場合、内需ディフェンシブと外需銘柄でどちらの安全度が高いか。
+  - 次回決算・配当・自己株買いが近く、資産ロック中の収益が見込めるか。
+refresh_triggers:
+  - 6/8（月）の日本市場寄り付き・引けの実反応（gap-down 幅と sector ローテーション）
+  - 円が 160 を突破し為替介入が実施された場合
+  - FOMC / 米金利・雇用統計の続報で利上げ観測がさらに動いた場合
+  - 原油・地政学（US-Iran）が screening 判断を変える程度に動いた場合
+  - VIX が沈静化（<18）して risk-off が一巡した場合
+changes_since_previous:
+  - 2026-05-23 の平時 context から、6/5 米国株急落（Nasdaq 年初来最悪）を受けた risk-off 局面へ更新。
+  - 日本株は史上最高値圏で、下げは AI/半導体に集中。内需ディフェンシブは未調整で、月曜 6/8 の無差別 gap-down が拾い場になりうる。
+  - sector tilt を「ディフェンシブ内需（食料品・医薬品・陸運）= tailwind」「半導体/機械 = headwind」「公益・通信 = mixed」に再設定。
+  - 金利急騰（米 10 年 4.69%）と円 160 接近（介入警戒）を新たな前提に追加。
