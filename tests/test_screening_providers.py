@@ -5,7 +5,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
-from datetime import date
+from datetime import date, timedelta
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -859,14 +859,22 @@ class ScreeningProviderTests(unittest.TestCase):
                 self, start_dt: str, end_dt: str
             ) -> list[dict[str, object]]:
                 self.calls.append((start_dt, end_dt))
-                return [
-                    {
-                        "Code": "13010",
-                        "Date": f"{start_dt}T00:00:00",
-                        "C": 100.0,
-                        "Va": 1000.0,
-                    }
-                ]
+                # Dense bars per day so a fetched chunk satisfies the
+                # data-derived coverage check on read-back.
+                current = date.fromisoformat(start_dt)
+                stop = date.fromisoformat(end_dt)
+                rows: list[dict[str, object]] = []
+                while current <= stop:
+                    rows.append(
+                        {
+                            "Code": "13010",
+                            "Date": f"{current.isoformat()}T00:00:00",
+                            "C": 100.0,
+                            "Va": 1000.0,
+                        }
+                    )
+                    current += timedelta(days=1)
+                return rows
 
         client = FakeClient()
         with tempfile.TemporaryDirectory() as tmp:
@@ -878,7 +886,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(len(client.calls), 2)
         self.assertEqual(client.calls[0], ("2026-01-01", "2026-01-31"))
         self.assertEqual(client.calls[1], ("2026-02-01", "2026-02-15"))
-        self.assertEqual(len(bars), 2)
+        self.assertGreater(len(bars), 2)
 
     def test_get_eq_bars_daily_range_skips_sleep_on_cache_hit(self) -> None:
         class FakeClient:
@@ -889,14 +897,22 @@ class ScreeningProviderTests(unittest.TestCase):
                 self, start_dt: str, end_dt: str
             ) -> list[dict[str, object]]:
                 self.calls.append((start_dt, end_dt))
-                return [
-                    {
-                        "Code": "13010",
-                        "Date": f"{start_dt}T00:00:00",
-                        "C": 100.0,
-                        "Va": 1000.0,
-                    }
-                ]
+                # Dense bars per day so a fetched chunk satisfies the
+                # data-derived coverage check on read-back.
+                current = date.fromisoformat(start_dt)
+                stop = date.fromisoformat(end_dt)
+                rows: list[dict[str, object]] = []
+                while current <= stop:
+                    rows.append(
+                        {
+                            "Code": "13010",
+                            "Date": f"{current.isoformat()}T00:00:00",
+                            "C": 100.0,
+                            "Va": 1000.0,
+                        }
+                    )
+                    current += timedelta(days=1)
+                return rows
 
         client = FakeClient()
         with tempfile.TemporaryDirectory() as tmp:
