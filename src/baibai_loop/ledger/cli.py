@@ -7,6 +7,8 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+import yaml
+
 from baibai_loop._env import load_project_env
 from baibai_loop.screening.config import DEFAULT_CACHE_DIR, DEFAULT_SQLITE_CACHE_DIR
 from baibai_loop.screening.providers.jquants import (
@@ -15,12 +17,14 @@ from baibai_loop.screening.providers.jquants import (
     JQuantsProvider,
     JQuantsProviderError,
 )
+from baibai_loop.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
 from baibai_loop.screening.sqlite_reader import read_daily_bars, read_market_calendar
 
 from .benchmark import NIKKEI225_ETF_PROXY, PortfolioBenchmark, compute_forward_performance
 from .market_data import PriceObservation, load_fallback_price_observations
 from .retro import build_monthly_retro, write_monthly_retro
 from .review_gates import ReviewGate, due_review_gates, weekday_calendar
+from .screening_replay import discover_week_specs, replay_to_payload, run_replay
 from .sync import sync_ledger
 from .trades import load_open_trades
 
@@ -62,6 +66,32 @@ def build_parser() -> argparse.ArgumentParser:
         "--proxy",
         default=NIKKEI225_ETF_PROXY,
         help=f"benchmark ETF proxy ticker (default: {NIKKEI225_ETF_PROXY})",
+    )
+    replay_parser = subparsers.add_parser(
+        "screening-replay",
+        help="replay selection profiles over weekly candidates and score forward return",
+    )
+    replay_parser.add_argument("--root", type=Path, default=Path.cwd())
+    replay_parser.add_argument(
+        "--candidates-root",
+        type=Path,
+        required=True,
+        help="root holding weekly candidate YAML in <YYYY>/<MM>/<YYYY-MM-DD>.yaml layout",
+    )
+    replay_parser.add_argument(
+        "--profiles",
+        default="strict,balanced,loose",
+        help="comma-separated selection profiles (default: strict,balanced,loose)",
+    )
+    replay_parser.add_argument("--top", type=int, default=10, help="candidates per profile")
+    replay_parser.add_argument(
+        "--holdout-weeks", type=int, default=2, help="trailing weeks to flag as hold-out"
+    )
+    replay_parser.add_argument(
+        "--out", type=Path, help="write replay payload YAML to this path instead of stdout"
+    )
+    replay_parser.add_argument(
+        "--rules-path", type=Path, default=DEFAULT_RULES_PATH, help="screening rules path"
     )
     return parser
 
@@ -123,7 +153,42 @@ def main(argv: list[str] | None = None) -> int:
         return _run_review_gates(args.root, _resolve_asof(args.asof))
     if args.command == "benchmark":
         return _run_benchmark(args.root, _resolve_asof(args.asof), args.proxy, os.environ)
+    if args.command == "screening-replay":
+        return _run_screening_replay(args)
     raise AssertionError(f"unreachable command: {args.command!r}")
+
+
+def _run_screening_replay(args: argparse.Namespace) -> int:
+    profiles = [profile.strip() for profile in args.profiles.split(",") if profile.strip()]
+    if not profiles:
+        print("--profiles must include at least one profile", file=sys.stderr)
+        return 1
+    weeks = discover_week_specs(args.candidates_root, holdout_weeks=args.holdout_weeks)
+    if not weeks:
+        print(f"no weekly candidate files under {args.candidates_root}", file=sys.stderr)
+        return 1
+    sqlite_path = args.root / DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"
+    result = run_replay(
+        weeks,
+        profiles=profiles,
+        rules=load_screening_rules(args.rules_path),
+        sqlite_path=sqlite_path,
+        candidates_root=args.candidates_root,
+        ledger_root=args.root / "records",
+        top=args.top,
+    )
+    payload = replay_to_payload(result)
+    payload["weeks_meta"] = [
+        {"week": spec.asof.isoformat(), "is_holdout": spec.is_holdout} for spec in weeks
+    ]
+    text = yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
+    if args.out is not None:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(text, encoding="utf-8")
+        print(f"wrote {args.out}")
+    else:
+        print(text, end="")
+    return 0
 
 
 def _resolve_asof(value: str | None) -> date:
