@@ -19,6 +19,7 @@ from baibai_loop.screening.sqlite_cache import (
     store_jquants_market_calendar,
     store_jquants_master,
 )
+from baibai_loop.screening.sqlite_reader import _range_covered
 
 
 class SQLiteCacheTest(unittest.TestCase):
@@ -149,6 +150,82 @@ class SQLiteCacheTest(unittest.TestCase):
             self.assertEqual(rows, 1)
             self.assertEqual(table_count[0], 1)
             self.assertEqual(coverage, (1,))
+
+    def test_fin_summaries_shifted_chunk_refetch_keeps_coverage_contiguous(self) -> None:
+        """A later bootstrap anchors chunk boundaries at a new asof, so a re-fetch only
+        partially overlaps an existing window. Recording it must merge into the union,
+        not delete-and-shrink the window and orphan its earlier part -- otherwise
+        `_range_covered` reports a gap even though the rows are still present.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_fin_summaries(
+                db,
+                [
+                    {"Code": "72030", "DisclosedDate": "2026-05-13", "NetSales": 100},
+                    {"Code": "72040", "DisclosedDate": "2026-05-27", "NetSales": 200},
+                ],
+                requested_start=date(2026, 5, 12),
+                requested_end=date(2026, 5, 29),
+            )
+            store_jquants_fin_summaries(
+                db,
+                [
+                    {"Code": "72040", "DisclosedDate": "2026-05-27", "NetSales": 200},
+                    {"Code": "72050", "DisclosedDate": "2026-06-02", "NetSales": 300},
+                ],
+                requested_start=date(2026, 5, 19),
+                requested_end=date(2026, 6, 5),
+            )
+            conn = sqlite3.connect(db)
+            try:
+                covered = _range_covered(
+                    conn, "jquants_fin_summaries", date(2026, 5, 12), date(2026, 6, 5)
+                )
+                windows = conn.execute(
+                    "SELECT coverage_start, coverage_end, record_count FROM source_coverage "
+                    "WHERE source = 'jquants_fin_summaries' ORDER BY coverage_start"
+                ).fetchall()
+            finally:
+                conn.close()
+            self.assertTrue(covered)
+            self.assertEqual(windows, [("2026-05-12", "2026-06-05", 3)])
+
+    def test_daily_bars_shifted_chunk_refetch_merges_coverage_window(self) -> None:
+        """The shared coverage-merge path keeps daily_bars source_coverage contiguous
+        so its record-count consistency check stays satisfied after a re-fetch with
+        shifted chunk boundaries."""
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_daily_bars(
+                db,
+                [
+                    {"Code": "72030", "Date": "2026-05-12", "Close": 1000, "AdjustmentClose": 1000},
+                    {"Code": "72030", "Date": "2026-05-27", "Close": 1100, "AdjustmentClose": 1100},
+                ],
+                requested_start=date(2026, 5, 12),
+                requested_end=date(2026, 5, 29),
+            )
+            store_jquants_daily_bars(
+                db,
+                [
+                    {"Code": "72030", "Date": "2026-05-27", "Close": 1100, "AdjustmentClose": 1100},
+                    {"Code": "72030", "Date": "2026-06-02", "Close": 1200, "AdjustmentClose": 1200},
+                ],
+                requested_start=date(2026, 5, 19),
+                requested_end=date(2026, 6, 5),
+            )
+            conn = sqlite3.connect(db)
+            try:
+                windows = conn.execute(
+                    "SELECT coverage_start, coverage_end, record_count FROM source_coverage "
+                    "WHERE source = 'jquants_daily_bars' ORDER BY coverage_start"
+                ).fetchall()
+                table_count = conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(windows, [("2026-05-12", "2026-06-05", 3)])
+            self.assertEqual(table_count, 3)
 
     def test_snapshot_and_single_day_stores_count_persisted_unique_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

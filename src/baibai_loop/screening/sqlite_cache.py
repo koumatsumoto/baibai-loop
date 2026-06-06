@@ -16,7 +16,7 @@ import json
 import sqlite3
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -503,6 +503,73 @@ def _delete_overlapping_source_coverage(
     )
 
 
+def _record_range_source_coverage(
+    conn: sqlite3.Connection,
+    *,
+    source: str,
+    operation: str,
+    table: str,
+    date_column: str,
+    requested_start: date,
+    requested_end: date,
+    status: str,
+    error: str | None,
+) -> int:
+    """Record coverage for a freshly fetched ``[requested_start, requested_end]`` range.
+
+    The fetched range is merged with any overlapping or adjacent ``ok`` coverage
+    window into one contiguous window. Range fetches chunk the request and anchor
+    chunk boundaries at ``asof - N days``, so a later bootstrap shifts those
+    boundaries; a re-fetch whose chunk only partially overlaps an existing window
+    must not delete-and-shrink that window and orphan the rest of it (the bug that
+    left ``_range_covered`` gaps even though the rows were present). ``record_count``
+    is recomputed over the merged window from the rows themselves -- the DB is the
+    source of truth, and the merged window keeps rows preserved outside the
+    fetched range.
+
+    A non-``ok`` fetch is recorded for its own range without merging, so a fetch
+    quality problem stays visible instead of being absorbed into an ``ok`` window.
+    """
+    merged_start, merged_end = requested_start, requested_end
+    if status == "ok":
+        # Treat windows touching within one day as adjacent so the merged window is
+        # contiguous under `_range_covered` (which tolerates a <=1 day gap).
+        window_low = (requested_start - timedelta(days=1)).isoformat()
+        window_high = (requested_end + timedelta(days=1)).isoformat()
+        overlap_predicate = (
+            "source = ? AND status = 'ok' "
+            "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
+            "AND coverage_start <= ? AND coverage_end >= ?"
+        )
+        overlap_params = (source, window_high, window_low)
+        for coverage_start, coverage_end in conn.execute(
+            f"SELECT coverage_start, coverage_end FROM source_coverage WHERE {overlap_predicate}",
+            overlap_params,
+        ).fetchall():
+            try:
+                existing_start = date.fromisoformat(coverage_start)
+                existing_end = date.fromisoformat(coverage_end)
+            except ValueError:
+                continue
+            merged_start = min(merged_start, existing_start)
+            merged_end = max(merged_end, existing_end)
+        conn.execute(f"DELETE FROM source_coverage WHERE {overlap_predicate}", overlap_params)
+    else:
+        _delete_overlapping_source_coverage(conn, source, requested_start, requested_end)
+    persisted_count = _date_range_row_count(conn, table, date_column, merged_start, merged_end)
+    _record_source_coverage(
+        conn,
+        source=source,
+        coverage_key=_range_coverage_key(operation, merged_start, merged_end),
+        coverage_start=merged_start.isoformat(),
+        coverage_end=merged_end.isoformat(),
+        record_count=persisted_count,
+        status=status,
+        error=error,
+    )
+    return persisted_count
+
+
 def _delete_date_range(
     conn: sqlite3.Connection,
     table: str,
@@ -548,9 +615,6 @@ def store_jquants_daily_bars(
         normalized = _bars_rows_with_quality(records_list)
         rows = normalized.rows
         _delete_date_range(conn, "jquants_daily_bars", "traded_at", requested_start, requested_end)
-        _delete_overlapping_source_coverage(
-            conn, "jquants_daily_bars", requested_start, requested_end
-        )
         if rows:
             conn.executemany(
                 """
@@ -562,26 +626,14 @@ def store_jquants_daily_bars(
                 """,
                 rows,
             )
-        persisted_count = _date_range_row_count(
-            conn, "jquants_daily_bars", "traded_at", requested_start, requested_end
-        )
-        _record_source_coverage(
+        persisted_count = _record_range_source_coverage(
             conn,
             source="jquants_daily_bars",
             operation="get_eq_bars_daily_range",
-            coverage_key=_range_coverage_key(
-                "get_eq_bars_daily_range", requested_start, requested_end
-            ),
-            coverage_start=requested_start.isoformat(),
-            coverage_end=requested_end.isoformat(),
-            requested_start=requested_start.isoformat(),
-            requested_end=requested_end.isoformat(),
-            params={"start_dt": requested_start.isoformat(), "end_dt": requested_end.isoformat()},
-            record_count=persisted_count,
-            raw_record_count=len(records_list),
-            skipped_record_count=normalized.skipped_count,
-            rejected_record_count=normalized.rejected_count,
-            excluded_record_count=normalized.excluded_count,
+            table="jquants_daily_bars",
+            date_column="traded_at",
+            requested_start=requested_start,
+            requested_end=requested_end,
             status=normalized.status,
             error=normalized.error,
         )
@@ -606,9 +658,6 @@ def store_jquants_fin_summaries(
         _delete_date_range(
             conn, "jquants_fin_summaries", "disclosed_at", requested_start, requested_end
         )
-        _delete_overlapping_source_coverage(
-            conn, "jquants_fin_summaries", requested_start, requested_end
-        )
         if rows:
             conn.executemany(
                 """
@@ -620,26 +669,14 @@ def store_jquants_fin_summaries(
                 """,
                 rows,
             )
-        persisted_count = _date_range_row_count(
-            conn, "jquants_fin_summaries", "disclosed_at", requested_start, requested_end
-        )
-        _record_source_coverage(
+        persisted_count = _record_range_source_coverage(
             conn,
             source="jquants_fin_summaries",
             operation="get_fin_summary_range",
-            coverage_key=_range_coverage_key(
-                "get_fin_summary_range", requested_start, requested_end
-            ),
-            coverage_start=requested_start.isoformat(),
-            coverage_end=requested_end.isoformat(),
-            requested_start=requested_start.isoformat(),
-            requested_end=requested_end.isoformat(),
-            params={"start_dt": requested_start.isoformat(), "end_dt": requested_end.isoformat()},
-            record_count=persisted_count,
-            raw_record_count=len(records_list),
-            skipped_record_count=normalized.skipped_count,
-            rejected_record_count=normalized.rejected_count,
-            excluded_record_count=normalized.excluded_count,
+            table="jquants_fin_summaries",
+            date_column="disclosed_at",
+            requested_start=requested_start,
+            requested_end=requested_end,
             status=normalized.status,
             error=normalized.error,
         )
@@ -761,36 +798,20 @@ def store_jquants_market_calendar(
         normalized = _market_calendar_rows_with_quality(records_list)
         rows = normalized.rows
         _delete_date_range(conn, "jquants_market_calendar", "day", requested_start, requested_end)
-        _delete_overlapping_source_coverage(
-            conn, "jquants_market_calendar", requested_start, requested_end
-        )
         if rows:
             conn.executemany(
                 "INSERT OR REPLACE INTO jquants_market_calendar(day, is_business_day) "
                 "VALUES (?, ?)",
                 rows,
             )
-        persisted_count = _date_range_row_count(
-            conn, "jquants_market_calendar", "day", requested_start, requested_end
-        )
-        _record_source_coverage(
+        persisted_count = _record_range_source_coverage(
             conn,
             source="jquants_market_calendar",
             operation="get_mkt_calendar",
-            coverage_key=_range_coverage_key("get_mkt_calendar", requested_start, requested_end),
-            coverage_start=requested_start.isoformat(),
-            coverage_end=requested_end.isoformat(),
-            requested_start=requested_start.isoformat(),
-            requested_end=requested_end.isoformat(),
-            params={
-                "from_yyyymmdd": requested_start.strftime("%Y%m%d"),
-                "to_yyyymmdd": requested_end.strftime("%Y%m%d"),
-            },
-            record_count=persisted_count,
-            raw_record_count=len(records_list),
-            skipped_record_count=normalized.skipped_count,
-            rejected_record_count=normalized.rejected_count,
-            excluded_record_count=normalized.excluded_count,
+            table="jquants_market_calendar",
+            date_column="day",
+            requested_start=requested_start,
+            requested_end=requested_end,
             status=normalized.status,
             error=normalized.error,
         )
