@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -17,9 +17,12 @@ from baibai_loop.screening.providers.jquants import (
 )
 from baibai_loop.screening.sqlite_reader import read_daily_bars, read_market_calendar
 
+from .benchmark import NIKKEI225_ETF_PROXY, PortfolioBenchmark, compute_forward_performance
 from .market_data import PriceObservation, load_fallback_price_observations
 from .retro import build_monthly_retro, write_monthly_retro
+from .review_gates import ReviewGate, due_review_gates, weekday_calendar
 from .sync import sync_ledger
+from .trades import load_open_trades
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -43,6 +46,23 @@ def build_parser() -> argparse.ArgumentParser:
     retro_parser.add_argument("--month", required=True, help="target month (YYYY-MM)")
     retro_parser.add_argument("--dry-run", action="store_true", help="print draft to stdout")
     retro_parser.add_argument("--overwrite", action="store_true", help="replace existing draft")
+    gates_parser = subparsers.add_parser(
+        "review-gates",
+        help="list open-position forward review gates (+15bd/+30bd) that are due",
+    )
+    gates_parser.add_argument("--root", type=Path, default=Path.cwd())
+    gates_parser.add_argument("--asof", help="evaluation date (YYYY-MM-DD); defaults to today")
+    benchmark_parser = subparsers.add_parser(
+        "benchmark",
+        help="compute open-position forward return versus the Nikkei 225 ETF proxy",
+    )
+    benchmark_parser.add_argument("--root", type=Path, default=Path.cwd())
+    benchmark_parser.add_argument("--asof", help="evaluation date (YYYY-MM-DD); defaults to today")
+    benchmark_parser.add_argument(
+        "--proxy",
+        default=NIKKEI225_ETF_PROXY,
+        help=f"benchmark ETF proxy ticker (default: {NIKKEI225_ETF_PROXY})",
+    )
     return parser
 
 
@@ -99,7 +119,95 @@ def main(argv: list[str] | None = None) -> int:
         for warning in draft.warnings:
             print(f"warning: {warning}", file=sys.stderr)
         return 0
+    if args.command == "review-gates":
+        return _run_review_gates(args.root, _resolve_asof(args.asof))
+    if args.command == "benchmark":
+        return _run_benchmark(args.root, _resolve_asof(args.asof), args.proxy, os.environ)
     raise AssertionError(f"unreachable command: {args.command!r}")
+
+
+def _resolve_asof(value: str | None) -> date:
+    if value is None:
+        return datetime.now(UTC).date()
+    return date.fromisoformat(value)
+
+
+def _run_review_gates(root: Path, asof: date) -> int:
+    trades = load_open_trades(root)
+    if not trades:
+        print("no open positions")
+        return 0
+    sqlite_path = root / DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"
+    earliest_entry = min(trade.entry_date for trade in trades)
+    calendar_days = read_market_calendar(sqlite_path, earliest_entry, asof)
+    calendar: Sequence[date]
+    if calendar_days is None:
+        # +30bd needs roughly six weeks of forward calendar beyond entry; extend
+        # the weekday fallback so distant targets still resolve to a date.
+        calendar = weekday_calendar(earliest_entry, max(asof, earliest_entry + timedelta(days=70)))
+    else:
+        calendar = tuple(day.day for day in calendar_days if day.is_business_day)
+    gates = due_review_gates(trades, asof, calendar)
+    print(f"asof={asof.isoformat()} open_positions={len(trades)} due_gates={len(gates)}")
+    for gate in gates:
+        print(_format_gate(gate))
+    return 0
+
+
+def _format_gate(gate: ReviewGate) -> str:
+    return (
+        f"due {gate.horizon} target={gate.target_date.isoformat()} "
+        f"{gate.ticker} {gate.name} entry={gate.entry_date.isoformat()} "
+        f"review_state={gate.review_state}"
+    )
+
+
+def _run_benchmark(root: Path, asof: date, proxy: str, env: Mapping[str, str]) -> int:
+    trades = load_open_trades(root)
+    if not trades:
+        print("no open positions")
+        return 0
+    _calendar, bars, _fallback, market_warnings = _load_market_data(root, env)
+    for warning in market_warnings:
+        print(f"warning: {warning}", file=sys.stderr)
+    result = compute_forward_performance(trades, asof, bars, proxy)
+    for line in _format_benchmark(result):
+        print(line)
+    for warning in result.warnings:
+        print(f"warning: {warning}", file=sys.stderr)
+    return 0
+
+
+def _format_benchmark(result: PortfolioBenchmark) -> list[str]:
+    lines = [
+        f"asof={result.asof.isoformat()} benchmark_proxy={result.benchmark_ticker} "
+        f"positions={len(result.positions)}"
+    ]
+    for position in result.positions:
+        lines.append(
+            f"{position.ticker} {position.name} entry={position.entry_date.isoformat()} "
+            f"qty={position.quantity} pnl={_fmt_yen(position.gross_pnl)} "
+            f"ret={_fmt_pct(position.return_ratio)} bm={_fmt_pct(position.benchmark_return)} "
+            f"rel={_fmt_pt(position.relative)}"
+        )
+    lines.append(
+        f"TOTAL notional={result.total_notional:,.0f} pnl={_fmt_yen(result.total_gross_pnl)} "
+        f"ret={_fmt_pct(result.portfolio_return)} bm={_fmt_pct(result.benchmark_return)} "
+        f"rel={_fmt_pt(result.relative)}"
+    )
+    return lines
+
+
+def _fmt_yen(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:+,.0f}"
+
+
+def _fmt_pct(value: float | None) -> str:
+    return "n/a" if value is None else f"{value * 100:+.2f}%"
+
+
+def _fmt_pt(value: float | None) -> str:
+    return "n/a" if value is None else f"{value * 100:+.2f}pt"
 
 
 def _load_market_data(

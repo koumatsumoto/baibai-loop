@@ -31,6 +31,12 @@ Decision lifecycle ([`../architecture/system-overview.md`](../architecture/syste
 
 Review / retro の価格 source は J-Quants を primary とする。J-Quants が subscription / availability 問題で使えない場合だけ、公開 quote の daily close を fallback として使ってよい。fallback を使う場合は、`records/_market-data/` に `decision_event_id`、`ticker`、`tracking_horizon`、`target_date`、`resolved_trade_date`、`price`、`price_basis`、`source_name`、`source_url`、`fetched_at`、`corporate_action_checked`、`same_basis_group_id`、`provisional` を持つ observation を置く。basis が揃わない場合や corporate action の調整が確認できない場合は、確定評価ではなく provisional / inconclusive として扱う。
 
+## Benchmark proxy
+
+forward return の benchmark-relative 評価で使う日経平均は J-Quants に index として収録されていない。そのため benchmark は **同一 universe の ETF proxy `1321`（野村 日経225 ETF）** を canonical proxy とする。`1321` は holdings と同じ `get_eq_bars_daily_range` 呼び出しで取得され、stock と benchmark を 1 source・同一 price basis（`resolve_price_on_or_before` で adjusted 優先、無ければ close_unadjusted）に揃える。
+
+ETF は index を tracking error 込みで追うため、proxy 由来の relative return は index 実値よりやや保守的（数週間で ~0.3pt 弱め）に出る。retro 等で proxy を使う場合は、benchmark が index 実値ではなく ETF proxy である旨を `Price evidence` に明記する。`baibai-loop-ledger benchmark` が open position の forward return / benchmark / relative を算出する。
+
 ## 取得データの保存方針
 
 J-Quants / EDINET から取得したデータは、個人利用・非公開 repository での Baibai-Loop 運用に限り、ローカル cache または永続 cache として保存してよい。外部公開・第三者再配布は行わない。
