@@ -15,6 +15,7 @@ from .sqlite_reader import (
     _daily_bars_covered_by_data,
     _has_any_import,
     _minmax_covered,
+    _minmax_horizon_covered,
     _range_covered,
 )
 
@@ -234,7 +235,18 @@ def verify_screening_sqlite_coverage(
                     end=asof_date,
                 )
             earnings_end = asof_date + timedelta(days=90)
-            if not _minmax_covered(conn, "jquants_earnings_calendar", asof_date, earnings_end):
+            earnings_exact = _minmax_covered(
+                conn, "jquants_earnings_calendar", asof_date, earnings_end
+            )
+            # For historical replay (allow_stale_jpx), fall back to end-only coverage:
+            # the earnings calendar is a live-only endpoint so past asof dates can never
+            # satisfy coverage_start <= asof_date. Accept any fetch whose horizon covers
+            # the 90-day window, even if that fetch post-dates asof.
+            earnings_covered = earnings_exact or (
+                allow_stale_jpx
+                and _minmax_horizon_covered(conn, "jquants_earnings_calendar", earnings_end)
+            )
+            if not earnings_covered:
                 _append_source_coverage_quality_issues(
                     conn,
                     issues,

@@ -212,7 +212,12 @@ def read_eq_earnings_cal(sqlite_path: Path, start: date, end: date) -> list[dict
     if conn is None:
         return None
     try:
-        if not _minmax_covered(conn, "jquants_earnings_calendar", start, end):
+        # Fallback for historical replay: earnings calendar is a live-only endpoint
+        # so past asof dates can't be matched exactly. Accept best-available data
+        # if the forward horizon is covered by a more-recent fetch.
+        exact = _minmax_covered(conn, "jquants_earnings_calendar", start, end)
+        horizon = _minmax_horizon_covered(conn, "jquants_earnings_calendar", end)
+        if not exact and not horizon:
             return None
         rows = conn.execute(
             "SELECT ticker, announcement_date FROM jquants_earnings_calendar "
@@ -484,6 +489,24 @@ def _minmax_covered(conn: sqlite3.Connection, source: str, start: date, end: dat
             "AND coverage_start <= ? AND coverage_end >= ? "
             "AND status = 'ok' AND record_count > 0 LIMIT 1",
             (source, start.isoformat(), end.isoformat()),
+        )
+    except sqlite3.OperationalError:
+        return False
+    return cur.fetchone() is not None
+
+
+def _minmax_horizon_covered(conn: sqlite3.Connection, source: str, end: date) -> bool:
+    """True when any coverage row's end date covers the horizon, regardless of start.
+
+    Used as a relaxed fallback for historical replay: the earnings calendar is a
+    live-only endpoint so the exact start-date cannot be matched for past asof dates.
+    Only checks that the forward horizon is covered by the available data.
+    """
+    try:
+        cur = conn.execute(
+            "SELECT 1 FROM source_coverage WHERE source = ? "
+            "AND coverage_end >= ? AND status = 'ok' AND record_count > 0 LIMIT 1",
+            (source, end.isoformat()),
         )
     except sqlite3.OperationalError:
         return False

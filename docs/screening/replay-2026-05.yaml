@@ -1,0 +1,766 @@
+profiles:
+- strict
+- balanced
+- loose
+horizon_weeks:
+- 1
+- 4
+- 8
+eval_cap: '2026-06-05'
+benchmark_ticker: '1321'
+weeks:
+- week: '2026-05-01'
+  profile: strict
+  is_holdout: false
+  recommended_tickers:
+  - '5410'
+  - '9158'
+  - '3028'
+  - '2767'
+  - '2931'
+  fast_dislocation_count: 9
+  long_hold_counts:
+    high: 296
+    medium: 69
+  suppressed_count: 0
+  previous_overlap:
+    previous_candidates_ref: null
+    overlap_count: 0
+    overlap_ratio: 0.0
+    overlap_tickers: []
+  concentration:
+    recommended_by_sector:
+      鉄鋼: 1
+      サービス業: 1
+      小売業: 1
+      卸売業: 1
+      食料品: 1
+    recommended_by_selection_lane:
+      cashflow-yield-discount: 1
+      cash-rich-asset-discount: 1
+      sales-discount-growth: 1
+      valuation-reversion: 1
+      fcf-yield-discount: 1
+  distributions:
+    selection_lane:
+      cashflow-yield-discount: 1
+      cash-rich-asset-discount: 1
+      sales-discount-growth: 1
+      valuation-reversion: 1
+      fcf-yield-discount: 1
+    fast_confidence:
+      medium: 2
+      none: 3
+    fast_data_status:
+      ok: 5
+    long_hold_rating:
+      high: 5
+  forward_aggregates:
+  - weeks: 1
+    count: 5
+    mean_return: -0.01493461137004656
+    median_return: -0.0024875621890547263
+    mean_relative: -0.06908855641263043
+  - weeks: 4
+    count: 5
+    mean_return: -0.00880083552534945
+    median_return: -0.004319654427645789
+    mean_relative: -0.12257232837445771
+  - weeks: 8
+    count: 0
+    mean_return: null
+    median_return: null
+    mean_relative: null
+- week: '2026-05-01'
+  profile: balanced
+  is_holdout: false
+  recommended_tickers:
+  - '5410'
+  - '9158'
+  - '2767'
+  - '3222'
+  - '9474'
+  fast_dislocation_count: 37
+  long_hold_counts:
+    high: 296
+    medium: 69
+  suppressed_count: 0
+  previous_overlap:
+    previous_candidates_ref: null
+    overlap_count: 0
+    overlap_ratio: 0.0
+    overlap_tickers: []
+  concentration:
+    recommended_by_sector:
+      鉄鋼: 1
+      サービス業: 1
+      卸売業: 1
+      小売業: 1
+      情報・通信業: 1
+    recommended_by_selection_lane:
+      cashflow-yield-discount: 2
+      cash-rich-asset-discount: 1
+      valuation-reversion: 2
+  distributions:
+    selection_lane:
+      cashflow-yield-discount: 2
+      cash-rich-asset-discount: 1
+      valuation-reversion: 2
+    fast_confidence:
+      medium: 3
+      high: 2
+    fast_data_status:
+      ok: 5
+    long_hold_rating:
+      high: 5
+  forward_aggregates:
+  - weeks: 1
+    count: 5
+    mean_return: -0.0042647602953556655
+    median_return: 0.019813519813519812
+    mean_relative: -0.05841870533793954
+  - weeks: 4
+    count: 5
+    mean_return: 0.009571397594550668
+    median_return: 0.0049261083743842365
+    mean_relative: -0.1042000952545576
+  - weeks: 8
+    count: 0
+    mean_return: null
+    median_return: null
+    mean_relative: null
+- week: '2026-05-01'
+  profile: loose
+  is_holdout: false
+  recommended_tickers:
+  - '5410'
+  - '9158'
+  - '3962'
+  - '9168'
+  - '9202'
+  fast_dislocation_count: 130
+  long_hold_counts:
+    high: 296
+    medium: 69
+  suppressed_count: 0
+  previous_overlap:
+    previous_candidates_ref: null
+    overlap_count: 0
+    overlap_ratio: 0.0
+    overlap_tickers: []
+  concentration:
+    recommended_by_sector:
+      鉄鋼: 1
+      サービス業: 2
+      情報・通信業: 1
+      空運業: 1
+    recommended_by_selection_lane:
+      cashflow-yield-discount: 3
+      cash-rich-asset-discount: 1
+      sales-discount-growth: 1
+  distributions:
+    selection_lane:
+      cashflow-yield-discount: 3
+      cash-rich-asset-discount: 1
+      sales-discount-growth: 1
+    fast_confidence:
+      high: 5
+    fast_data_status:
+      ok: 5
+    long_hold_rating:
+      high: 5
+  forward_aggregates:
+  - weeks: 1
+    count: 5
+    mean_return: -0.006115226790036981
+    median_return: 0.001040582726326743
+    mean_relative: -0.06026917183262085
+  - weeks: 4
+    count: 5
+    mean_return: 0.014797524960932321
+    median_return: 0.0389321468298109
+    mean_relative: -0.09897396788817595
+  - weeks: 8
+    count: 0
+    mean_return: null
+    median_return: null
+    mean_relative: null
+- week: '2026-05-08'
+  profile: strict
+  is_holdout: false
+  recommended_tickers:
+  - '5410'
+  - '9158'
+  - '3900'
+  - '1899'
+  - '8173'
+  fast_dislocation_count: 16
+  long_hold_counts:
+    high: 311
+    medium: 57
+  suppressed_count: 2
+  previous_overlap:
+    previous_candidates_ref: .cache/replay/candidates/2026/05/2026-05-01.yaml
+    overlap_count: 2
+    overlap_ratio: 0.4
+    overlap_tickers:
+    - '5410'
+    - '9158'
+  concentration:
+    recommended_by_sector:
+      鉄鋼: 1
+      サービス業: 1
+      情報・通信業: 1
+      建設業: 1
+      小売業: 1
+    recommended_by_selection_lane:
+      cashflow-yield-discount: 1
+      cash-rich-asset-discount: 1
+      valuation-reversion: 1
+      strict-net-cash-discount: 1
+      sales-discount-growth: 1
+  distributions:
+    selection_lane:
+      cashflow-yield-discount: 1
+      cash-rich-asset-discount: 1
+      valuation-reversion: 1
+      strict-net-cash-discount: 1
+      sales-discount-growth: 1
+    fast_confidence:
+      medium: 2
+      none: 3
+    fast_data_status:
+      ok: 5
+    long_hold_rating:
+      high: 5
+  forward_aggregates:
+  - weeks: 1
+    count: 5
+    mean_return: -0.039963296183762216
+    median_return: -0.016285516285516284
+    mean_relative: -0.019841344964250003
+  - weeks: 4
+    count: 5
+    mean_return: -0.0004130481139239639
+    median_return: -0.11088011088011088
+    mean_relative: -0.06291304811392397
+  - weeks: 8
+    count: 0
+    mean_return: null
+    median_return: null
+    mean_relative: null
+- week: '2026-05-08'
+  profile: balanced
+  is_holdout: false
+  recommended_tickers:
+  - '3668'
+  - '5410'
+  - '9319'
+  - '9543'
+  - '6809'
+  fast_dislocation_count: 45
+  long_hold_counts:
+    high: 311
+    medium: 57
+  suppressed_count: 2
+  previous_overlap:
+    previous_candidates_ref: .cache/replay/candidates/2026/05/2026-05-01.yaml
+    overlap_count: 2
+    overlap_ratio: 0.4
+    overlap_tickers:
+    - '3668'
+    - '5410'
+  concentration:
+    recommended_by_sector:
+      情報・通信業: 1
+      鉄鋼: 1
+      倉庫・運輸関連業: 1
+      電気・ガス業: 1
+      電気機器: 1
+    recommended_by_selection_lane:
+      strict-net-cash-discount: 1
+      cashflow-yield-discount: 1
+      valuation-reversion: 2
+      cash-rich-asset-discount: 1
+  distributions:
+    selection_lane:
+      strict-net-cash-discount: 1
+      cashflow-yield-discount: 1
+      valuation-reversion: 2
+      cash-rich-asset-discount: 1
+    fast_confidence:
+      high: 2
+      medium: 3
+    fast_data_status:
+      ok: 5
+    long_hold_rating:
+      high: 5
+  forward_aggregates:
+  - weeks: 1
+    count: 5
+    mean_return: 0.005854457409895236
+    median_return: -0.005154639175257732
+    mean_relative: 0.02597640862940745
+  - weeks: 4
+    count: 5
+    mean_return: -0.048665861429431634
+    median_return: -0.04591029023746702
+    mean_relative: -0.11116586142943163
+  - weeks: 8
+    count: 0
+    mean_return: null
+    median_return: null
+    mean_relative: null
+- week: '2026-05-08'
+  profile: loose
+  is_holdout: false
+  recommended_tickers:
+  - '3668'
+  - '5410'
+  - '9158'
+  - '9168'
+  - '2767'
+  fast_dislocation_count: 138
+  long_hold_counts:
+    high: 311
+    medium: 57
+  suppressed_count: 2
+  previous_overlap:
+    previous_candidates_ref: .cache/replay/candidates/2026/05/2026-05-01.yaml
+    overlap_count: 5
+    overlap_ratio: 1.0
+    overlap_tickers:
+    - '2767'
+    - '3668'
+    - '5410'
+    - '9158'
+    - '9168'
+  concentration:
+    recommended_by_sector:
+      情報・通信業: 1
+      鉄鋼: 1
+      サービス業: 2
+      卸売業: 1
+    recommended_by_selection_lane:
+      strict-net-cash-discount: 1
+      cashflow-yield-discount: 2
+      cash-rich-asset-discount: 1
+      valuation-reversion: 1
+  distributions:
+    selection_lane:
+      strict-net-cash-discount: 1
+      cashflow-yield-discount: 2
+      cash-rich-asset-discount: 1
+      valuation-reversion: 1
+    fast_confidence:
+      high: 5
+    fast_data_status:
+      ok: 5
+    long_hold_rating:
+      high: 5
+  forward_aggregates:
+  - weeks: 1
+    count: 5
+    mean_return: -0.008812503910341577
+    median_return: -0.015503875968992248
+    mean_relative: 0.011309447309170636
+  - weeks: 4
+    count: 5
+    mean_return: 0.006707420926956371
+    median_return: -0.012165450121654502
+    mean_relative: -0.05579257907304362
+  - weeks: 8
+    count: 0
+    mean_return: null
+    median_return: null
+    mean_relative: null
+- week: '2026-05-15'
+  profile: strict
+  is_holdout: false
+  recommended_tickers:
+  - '5410'
+  - '9158'
+  - '6844'
+  - '6418'
+  - '4569'
+  fast_dislocation_count: 40
+  long_hold_counts:
+    high: 516
+    medium: 77
+    low: 2
+  suppressed_count: 1
+  previous_overlap:
+    previous_candidates_ref: .cache/replay/candidates/2026/05/2026-05-08.yaml
+    overlap_count: 2
+    overlap_ratio: 0.4
+    overlap_tickers:
+    - '5410'
+    - '9158'
+  concentration:
+    recommended_by_sector:
+      鉄鋼: 1
+      サービス業: 1
+      電気機器: 1
+      機械: 1
+      医薬品: 1
+    recommended_by_selection_lane:
+      cashflow-yield-discount: 1
+      cash-rich-asset-discount: 1
+      sales-discount-growth: 1
+      strict-net-cash-discount: 1
+      valuation-reversion: 1
+  distributions:
+    selection_lane:
+      cashflow-yield-discount: 1
+      cash-rich-asset-discount: 1
+      sales-discount-growth: 1
+      strict-net-cash-discount: 1
+      valuation-reversion: 1
+    fast_confidence:
+      medium: 2
+      high: 1
+      none: 2
+    fast_data_status:
+      ok: 5
+    long_hold_rating:
+      high: 5
+  forward_aggregates:
+  - weeks: 1
+    count: 5
+    mean_return: 0.016661515133880346
+    median_return: -0.0032
+    mean_relative: -0.013363375967550795
+  - weeks: 4
+    count: 0
+    mean_return: null
+    median_return: null
+    mean_relative: null
+  - weeks: 8
+    count: 0
+    mean_return: null
+    median_return: null
+    mean_relative: null
+- week: '2026-05-15'
+  profile: balanced
+  is_holdout: false
+  recommended_tickers:
+  - '6418'
+  - '5410'
+  - '4569'
+  - '9158'
+  - '3769'
+  fast_dislocation_count: 93
+  long_hold_counts:
+    high: 516
+    medium: 77
+    low: 2
+  suppressed_count: 1
+  previous_overlap:
+    previous_candidates_ref: .cache/replay/candidates/2026/05/2026-05-08.yaml
+    overlap_count: 2
+    overlap_ratio: 0.4
+    overlap_tickers:
+    - '5410'
+    - '9158'
+  concentration:
+    recommended_by_sector:
+      機械: 1
+      鉄鋼: 1
+      医薬品: 1
+      サービス業: 1
+      情報・通信業: 1
+    recommended_by_selection_lane:
+      strict-net-cash-discount: 1
+      cashflow-yield-discount: 1
+      valuation-reversion: 2
+      cash-rich-asset-discount: 1
+  distributions:
+    selection_lane:
+      strict-net-cash-discount: 1
+      cashflow-yield-discount: 1
+      valuation-reversion: 2
+      cash-rich-asset-discount: 1
+    fast_confidence:
+      high: 1
+      medium: 4
+    fast_data_status:
+      ok: 5
+    long_hold_rating:
+      high: 5
+  forward_aggregates:
+  - weeks: 1
+    count: 5
+    mean_return: 0.06071641752596173
+    median_return: 0.08647450110864745
+    mean_relative: 0.03069152642453059
+  - weeks: 4
+    count: 0
+    mean_return: null
+    median_return: null
+    mean_relative: null
+  - weeks: 8
+    count: 0
+    mean_return: null
+    median_return: null
+    mean_relative: null
+- week: '2026-05-15'
+  profile: loose
+  is_holdout: false
+  recommended_tickers:
+  - '6418'
+  - '6430'
+  - '6222'
+  - '9416'
+  - '5410'
+  fast_dislocation_count: 302
+  long_hold_counts:
+    high: 516
+    medium: 77
+    low: 2
+  suppressed_count: 1
+  previous_overlap:
+    previous_candidates_ref: .cache/replay/candidates/2026/05/2026-05-08.yaml
+    overlap_count: 2
+    overlap_ratio: 0.4
+    overlap_tickers:
+    - '5410'
+    - '9416'
+  concentration:
+    recommended_by_sector:
+      機械: 3
+      情報・通信業: 1
+      鉄鋼: 1
+    recommended_by_selection_lane:
+      strict-net-cash-discount: 1
+      cash-rich-asset-discount: 1
+      valuation-reversion: 2
+      cashflow-yield-discount: 1
+  distributions:
+    selection_lane:
+      strict-net-cash-discount: 1
+      cash-rich-asset-discount: 1
+      valuation-reversion: 2
+      cashflow-yield-discount: 1
+    fast_confidence:
+      high: 4
+      medium: 1
+    fast_data_status:
+      ok: 5
+    long_hold_rating:
+      high: 5
+  forward_aggregates:
+  - weeks: 1
+    count: 5
+    mean_return: -0.011129923990474537
+    median_return: -0.02021174205967276
+    mean_relative: -0.041154815091905675
+  - weeks: 4
+    count: 0
+    mean_return: null
+    median_return: null
+    mean_relative: null
+  - weeks: 8
+    count: 0
+    mean_return: null
+    median_return: null
+    mean_relative: null
+- week: '2026-05-29'
+  profile: strict
+  is_holdout: true
+  recommended_tickers:
+  - '5410'
+  - '5535'
+  - '1786'
+  - '9534'
+  - '8131'
+  fast_dislocation_count: 40
+  long_hold_counts:
+    high: 556
+    medium: 85
+    low: 1
+  suppressed_count: 2
+  previous_overlap:
+    previous_candidates_ref: .cache/replay/candidates/2026/05/2026-05-15.yaml
+    overlap_count: 2
+    overlap_ratio: 0.4
+    overlap_tickers:
+    - '1786'
+    - '5410'
+  concentration:
+    recommended_by_sector:
+      鉄鋼: 1
+      不動産業: 1
+      建設業: 1
+      電気・ガス業: 1
+      卸売業: 1
+    recommended_by_selection_lane:
+      cashflow-yield-discount: 1
+      sales-discount-growth: 1
+      strict-net-cash-discount: 1
+      valuation-reversion: 1
+      cash-rich-asset-discount: 1
+  distributions:
+    selection_lane:
+      cashflow-yield-discount: 1
+      sales-discount-growth: 1
+      strict-net-cash-discount: 1
+      valuation-reversion: 1
+      cash-rich-asset-discount: 1
+    fast_confidence:
+      medium: 2
+      high: 3
+    fast_data_status:
+      ok: 5
+    long_hold_rating:
+      high: 5
+  forward_aggregates:
+  - weeks: 1
+    count: 5
+    mean_return: -0.005299606300456759
+    median_return: 0.002652519893899204
+    mean_relative: -0.010926499966594425
+  - weeks: 4
+    count: 0
+    mean_return: null
+    median_return: null
+    mean_relative: null
+  - weeks: 8
+    count: 0
+    mean_return: null
+    median_return: null
+    mean_relative: null
+- week: '2026-05-29'
+  profile: balanced
+  is_holdout: true
+  recommended_tickers:
+  - '2220'
+  - '4839'
+  - '5535'
+  - '5440'
+  - '1434'
+  fast_dislocation_count: 87
+  long_hold_counts:
+    high: 556
+    medium: 85
+    low: 1
+  suppressed_count: 2
+  previous_overlap:
+    previous_candidates_ref: .cache/replay/candidates/2026/05/2026-05-15.yaml
+    overlap_count: 2
+    overlap_ratio: 0.4
+    overlap_tickers:
+    - '2220'
+    - '4839'
+  concentration:
+    recommended_by_sector:
+      食料品: 1
+      情報・通信業: 1
+      不動産業: 1
+      鉄鋼: 1
+      建設業: 1
+    recommended_by_selection_lane:
+      cashflow-yield-discount: 1
+      cash-rich-asset-discount: 1
+      sales-discount-growth: 1
+      valuation-reversion: 2
+  distributions:
+    selection_lane:
+      cashflow-yield-discount: 1
+      cash-rich-asset-discount: 1
+      sales-discount-growth: 1
+      valuation-reversion: 2
+    fast_confidence:
+      high: 3
+      medium: 2
+    fast_data_status:
+      ok: 5
+    long_hold_rating:
+      high: 5
+  forward_aggregates:
+  - weeks: 1
+    count: 5
+    mean_return: -0.014884609544602731
+    median_return: -0.016260162601626018
+    mean_relative: -0.020511503210740398
+  - weeks: 4
+    count: 0
+    mean_return: null
+    median_return: null
+    mean_relative: null
+  - weeks: 8
+    count: 0
+    mean_return: null
+    median_return: null
+    mean_relative: null
+- week: '2026-05-29'
+  profile: loose
+  is_holdout: true
+  recommended_tickers:
+  - '2220'
+  - '4839'
+  - '6430'
+  - '6222'
+  - '4569'
+  fast_dislocation_count: 338
+  long_hold_counts:
+    high: 556
+    medium: 85
+    low: 1
+  suppressed_count: 2
+  previous_overlap:
+    previous_candidates_ref: .cache/replay/candidates/2026/05/2026-05-15.yaml
+    overlap_count: 5
+    overlap_ratio: 1.0
+    overlap_tickers:
+    - '2220'
+    - '4569'
+    - '4839'
+    - '6222'
+    - '6430'
+  concentration:
+    recommended_by_sector:
+      食料品: 1
+      情報・通信業: 1
+      機械: 2
+      医薬品: 1
+    recommended_by_selection_lane:
+      cashflow-yield-discount: 1
+      cash-rich-asset-discount: 2
+      valuation-reversion: 2
+  distributions:
+    selection_lane:
+      cashflow-yield-discount: 1
+      cash-rich-asset-discount: 2
+      valuation-reversion: 2
+    fast_confidence:
+      high: 4
+      medium: 1
+    fast_data_status:
+      ok: 5
+    long_hold_rating:
+      high: 5
+  forward_aggregates:
+  - weeks: 1
+    count: 5
+    mean_return: -0.02598553429395232
+    median_return: -0.016260162601626018
+    mean_relative: -0.031612427960089985
+  - weeks: 4
+    count: 0
+    mean_return: null
+    median_return: null
+    mean_relative: null
+  - weeks: 8
+    count: 0
+    mean_return: null
+    median_return: null
+    mean_relative: null
+weeks_meta:
+- week: '2026-05-01'
+  is_holdout: false
+- week: '2026-05-08'
+  is_holdout: false
+- week: '2026-05-15'
+  is_holdout: false
+- week: '2026-05-29'
+  is_holdout: true
