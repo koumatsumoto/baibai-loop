@@ -536,14 +536,15 @@ def _record_range_source_coverage(
         # contiguous under `_range_covered` (which tolerates a <=1 day gap).
         window_low = (requested_start - timedelta(days=1)).isoformat()
         window_high = (requested_end + timedelta(days=1)).isoformat()
-        overlap_predicate = (
-            "source = ? AND status = 'ok' "
-            "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
-            "AND coverage_start <= ? AND coverage_end >= ?"
-        )
+        # Same bind params and WHERE clause for the select-then-delete pair. The
+        # clause is written out literally in each query (not interpolated) so the
+        # SQL stays a static string and never builds a query from variables.
         overlap_params = (source, window_high, window_low)
         for coverage_start, coverage_end in conn.execute(
-            f"SELECT coverage_start, coverage_end FROM source_coverage WHERE {overlap_predicate}",
+            "SELECT coverage_start, coverage_end FROM source_coverage "
+            "WHERE source = ? AND status = 'ok' "
+            "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
+            "AND coverage_start <= ? AND coverage_end >= ?",
             overlap_params,
         ).fetchall():
             try:
@@ -553,7 +554,13 @@ def _record_range_source_coverage(
                 continue
             merged_start = min(merged_start, existing_start)
             merged_end = max(merged_end, existing_end)
-        conn.execute(f"DELETE FROM source_coverage WHERE {overlap_predicate}", overlap_params)
+        conn.execute(
+            "DELETE FROM source_coverage "
+            "WHERE source = ? AND status = 'ok' "
+            "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
+            "AND coverage_start <= ? AND coverage_end >= ?",
+            overlap_params,
+        )
     else:
         _delete_overlapping_source_coverage(conn, source, requested_start, requested_end)
     persisted_count = _date_range_row_count(conn, table, date_column, merged_start, merged_end)
