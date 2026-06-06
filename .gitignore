@@ -24,9 +24,6 @@ dist/
 # Screening caches
 # Disposable local cache for provider byproducts such as EDINET CSV ZIPs.
 .cache/
-# Legacy pre-#126 cache location. Do not add new runtime data under records/.
-records/_data/cache/
-records/_data/raw/screening/
 
 # Local environment files
 .env
