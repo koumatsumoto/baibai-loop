@@ -95,7 +95,18 @@ def run_replay(
     benchmark proxy, so the cost is independent of universe size.
     """
     sweeps = [
-        (spec, _build_week_sweep(spec, profiles=profiles, rules=rules, top=top)) for spec in weeks
+        (
+            spec,
+            _build_week_sweep(
+                spec,
+                profiles=profiles,
+                rules=rules,
+                top=top,
+                candidates_root=candidates_root,
+                ledger_root=ledger_root,
+            ),
+        )
+        for spec in weeks
     ]
     needed = {benchmark_ticker}
     for _spec, payload in sweeps:
@@ -220,6 +231,8 @@ def _build_week_sweep(
     profiles: Sequence[str],
     rules: ScreeningRules,
     top: int,
+    candidates_root: Path,
+    ledger_root: Path,
 ) -> Mapping[str, object]:
     payload = yaml.safe_load(spec.candidates_path.read_text(encoding="utf-8"))
     if not isinstance(payload, Mapping):
@@ -230,12 +243,13 @@ def _build_week_sweep(
     candidates = tuple(
         candidate_record_from_mapping(item) for item in raw_candidates if isinstance(item, Mapping)
     )
-    candidates_root = spec.candidates_path.parents[2]
+    # previous_candidates is resolved within the replay root so overlap is scoped
+    # to the replay set, while prior_research stays anchored to the real ledger.
     previous_candidates: PreviousCandidates = load_previous_candidates(
         candidates_root, spec.asof, current_path=spec.candidates_path
     )
     prior_research: Mapping[str, PriorResearch] = load_prior_research(
-        spec.candidates_path.parents[3] / "_ledger/research-decisions", spec.asof
+        ledger_root / "_ledger/research-decisions", spec.asof
     )
     return build_selection_sweep_payload(
         asof_date=spec.asof,
