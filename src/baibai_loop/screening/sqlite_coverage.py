@@ -12,6 +12,7 @@ from baibai_loop.date_utils import weekday_distance
 from .render import JST
 from .sqlite_cache import SQLITE_SCHEMA_VERSION, SQLiteSchemaError, validate_current_schema
 from .sqlite_reader import (
+    _daily_bars_covered_by_data,
     _has_any_import,
     _minmax_covered,
     _range_covered,
@@ -137,14 +138,19 @@ def verify_screening_sqlite_coverage(
                     enforce_record_count=True,
                 )
                 _append_master_common_stock_issue(conn, issues, asof_date=asof_date)
-            if not _range_covered(conn, "jquants_daily_bars", bars_start, asof_date):
-                _append_source_coverage_quality_issues(
-                    conn,
-                    issues,
-                    source="jquants_daily_bars",
-                    start=bars_start,
-                    end=asof_date,
-                )
+            # daily_bars completeness is derived from the actual rows. The
+            # quality / density checks below run regardless of the coverage gate
+            # so a grossly incomplete cache reports both the missing window and
+            # the specific density problem, rather than only the first failure.
+            bars_window_covered = _daily_bars_covered_by_data(conn, bars_start, asof_date)
+            _append_source_coverage_quality_issues(
+                conn,
+                issues,
+                source="jquants_daily_bars",
+                start=bars_start,
+                end=asof_date,
+            )
+            if not bars_window_covered:
                 issues.append(
                     CacheCoverageIssue(
                         source="jquants_daily_bars",
@@ -152,41 +158,33 @@ def verify_screening_sqlite_coverage(
                         reason="daily bars request window is not fully covered in SQLite",
                     )
                 )
-            else:
-                _append_source_coverage_quality_issues(
-                    conn,
-                    issues,
-                    source="jquants_daily_bars",
-                    start=bars_start,
-                    end=asof_date,
-                )
-                _append_required_date_rows_issue(
-                    conn,
-                    issues,
-                    source="jquants_daily_bars",
-                    table="jquants_daily_bars",
-                    date_column="traded_at",
-                    start=bars_start,
-                    end=asof_date,
-                    requirement=f"{bars_start.isoformat()}..{asof_date.isoformat()}",
-                )
-                _append_asof_bar_density_issue(conn, issues, asof_date=asof_date)
-                _append_recent_bar_density_issue(conn, issues, asof_date=asof_date)
-                _append_daily_history_density_issue(
-                    conn,
-                    issues,
-                    start=bars_start,
-                    end=asof_date,
-                )
-                _append_table_consistency_issues(
-                    conn,
-                    issues,
-                    source="jquants_daily_bars",
-                    table="jquants_daily_bars",
-                    requirement=f"{bars_start.isoformat()}..{asof_date.isoformat()}",
-                    require_rows=True,
-                    enforce_record_count=True,
-                )
+            _append_required_date_rows_issue(
+                conn,
+                issues,
+                source="jquants_daily_bars",
+                table="jquants_daily_bars",
+                date_column="traded_at",
+                start=bars_start,
+                end=asof_date,
+                requirement=f"{bars_start.isoformat()}..{asof_date.isoformat()}",
+            )
+            _append_asof_bar_density_issue(conn, issues, asof_date=asof_date)
+            _append_recent_bar_density_issue(conn, issues, asof_date=asof_date)
+            _append_daily_history_density_issue(
+                conn,
+                issues,
+                start=bars_start,
+                end=asof_date,
+            )
+            _append_table_consistency_issues(
+                conn,
+                issues,
+                source="jquants_daily_bars",
+                table="jquants_daily_bars",
+                requirement=f"{bars_start.isoformat()}..{asof_date.isoformat()}",
+                require_rows=True,
+                enforce_record_count=True,
+            )
             if not _range_covered(conn, "jquants_fin_summaries", fin_start, asof_date):
                 _append_source_coverage_quality_issues(
                     conn,

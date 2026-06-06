@@ -12,6 +12,7 @@ import json
 import sqlite3
 from collections.abc import Mapping
 from datetime import date, timedelta
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -89,7 +90,7 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
     if conn is None:
         return None
     try:
-        if not _range_covered(conn, "jquants_daily_bars", start, end):
+        if not _daily_bars_covered_by_data(conn, start, end):
             return None
         rows = conn.execute(
             "SELECT ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor "
@@ -495,7 +496,14 @@ _RANGE_SOURCES_REQUIRING_ROWS = frozenset(
 
 
 def _range_covered(conn: sqlite3.Connection, source: str, start: date, end: date) -> bool:
-    """True when source_coverage rows collectively span the requested range."""
+    """True when source_coverage rows collectively span the requested range.
+
+    Used for fetch-provenance sources (financial summaries, market calendar)
+    whose completeness cannot be re-derived from row presence: a missing filing
+    is indistinguishable from "no filing was due". jquants_daily_bars is instead
+    checked by `_daily_bars_covered_by_data`, because every trading day must carry
+    a full-market row set, so its completeness IS observable from the data.
+    """
     try:
         rows = conn.execute(
             "SELECT coverage_start, coverage_end, record_count, status "
@@ -538,6 +546,57 @@ def _range_covered(conn: sqlite3.Connection, source: str, start: date, end: date
         if covered_until >= end:
             return True
     return False
+
+
+# daily_bars completeness is derived from the actual rows (the single source of
+# truth), not source_coverage. Every trading day carries a full-market row set,
+# so a genuinely missing window shows up as a gap between present dates, while an
+# interrupted fetch that left source_coverage holes but already wrote the rows
+# must not trigger a re-fetch of data we hold. The only natural gaps are weekends
+# and the Golden Week / New Year closures (observed max 7d), so a 10-day
+# threshold separates complete history from a missing 31-day fetch chunk.
+_DAILY_BARS_MAX_GAP_DAYS = 10
+_DAILY_BARS_EDGE_TOLERANCE_DAYS = 10
+_DAILY_BARS_COVERAGE_QUERY = (
+    "SELECT DISTINCT traded_at FROM jquants_daily_bars "
+    "WHERE traded_at BETWEEN ? AND ? ORDER BY traded_at"
+)
+
+
+def _daily_bars_covered_by_data(conn: sqlite3.Connection, start: date, end: date) -> bool:
+    """True when the daily_bars rows themselves span `[start, end]`.
+
+    Aggregates the actual table rather than consulting source_coverage, so data
+    already saved is never re-fetched even when its bookkeeping row is missing.
+    Covered means present trading dates reach both ends (within an edge
+    tolerance) with no internal gap wider than a market holiday run.
+    """
+    if start > end:
+        return False
+    try:
+        rows = conn.execute(
+            _DAILY_BARS_COVERAGE_QUERY, (start.isoformat(), end.isoformat())
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return False
+    dates: list[date] = []
+    for (value,) in rows:
+        if not value:
+            continue
+        try:
+            dates.append(date.fromisoformat(value))
+        except (TypeError, ValueError):
+            continue
+    if not dates:
+        return False
+    if (dates[0] - start).days > _DAILY_BARS_EDGE_TOLERANCE_DAYS:
+        return False
+    if (end - dates[-1]).days > _DAILY_BARS_EDGE_TOLERANCE_DAYS:
+        return False
+    return all(
+        (current - previous).days <= _DAILY_BARS_MAX_GAP_DAYS
+        for previous, current in pairwise(dates)
+    )
 
 
 def _optional_float(value: object) -> float | None:

@@ -56,10 +56,12 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     conn = open_connection(sqlite_path)
 
     ticker = "130A"
-    # Cover [asof - 799, asof + 60] so the ledger sync path's
-    # `end = max(now, asof)` stays within the imported window for any
-    # reasonable test wall-clock value.
-    history_days_back = 799
+    # Cover the full [asof - 1200, asof + 60] window: `screening run` requires
+    # 1200 calendar days of daily bars, and coverage is now derived from the
+    # actual rows, so the fixture must really hold them (not just claim coverage
+    # via source_coverage). The +60 keeps the ledger sync path's
+    # `end = max(now, asof)` inside the imported window for any test wall-clock.
+    history_days_back = 1200
     forward_days = 60
     history_start = asof - timedelta(days=history_days_back)
     history_end = asof + timedelta(days=forward_days)

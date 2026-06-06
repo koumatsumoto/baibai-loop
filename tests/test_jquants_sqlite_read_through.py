@@ -4,7 +4,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +41,17 @@ class _RecordingClient:
 
     def get_eq_bars_daily_range(self, start_dt: str, end_dt: str) -> list[dict[str, Any]]:
         self.bars_calls.append((start_dt, end_dt))
-        return [{"Code": "13010", "Date": f"{start_dt}T00:00:00", "C": 999.0, "Va": 0.0}]
+        # Return a dense bar per day so a fetched chunk satisfies the data-derived
+        # coverage check (every trading day present).
+        current = date.fromisoformat(start_dt)
+        end = date.fromisoformat(end_dt)
+        bars: list[dict[str, Any]] = []
+        while current <= end:
+            bars.append(
+                {"Code": "13010", "Date": f"{current.isoformat()}T00:00:00", "C": 999.0, "Va": 0.0}
+            )
+            current += timedelta(days=1)
+        return bars
 
     def get_fin_summary_range(self, start_dt: str, end_dt: str) -> list[dict[str, Any]]:
         self.fin_calls.append((start_dt, end_dt))
@@ -72,6 +82,22 @@ def _add_source_coverage(
             "ok",
         ),
     )
+
+
+def _insert_daily_bars(
+    conn: sqlite3.Connection, ranges: list[tuple[str, str]], *, close: float = 999.0
+) -> None:
+    for start, end in ranges:
+        current = date.fromisoformat(start)
+        stop = date.fromisoformat(end)
+        while current <= stop:
+            conn.execute(
+                "INSERT INTO jquants_daily_bars("
+                "ticker, traded_at, close, turnover_value, adjustment_close"
+                ") VALUES (?, ?, ?, ?, ?)",
+                ("1301", current.isoformat(), close, 1000.0, close),
+            )
+            current += timedelta(days=1)
 
 
 class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
@@ -126,16 +152,13 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
-            conn.execute(
-                "INSERT INTO jquants_daily_bars("
-                "ticker, traded_at, close, turnover_value, adjustment_close"
-                ") VALUES (?, ?, ?, ?, ?)",
-                ("1301", "2024-03-19", 3790.0, 1000.0, 3790.0),
-            )
+            # Dense bars across the whole window: coverage is derived from the
+            # rows, so every trading day must be present to skip the API.
+            _insert_daily_bars(conn, [("2024-03-19", "2024-04-18")], close=3790.0)
             _add_source_coverage(
                 conn,
                 source="jquants_daily_bars",
-                record_count=1,
+                record_count=31,
                 min_date="2024-03-19",
                 max_date="2024-04-18",
             )
@@ -148,7 +171,7 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             bars = provider.get_eq_bars_daily_range(date(2024, 3, 19), date(2024, 4, 18))
 
             self.assertEqual(client.bars_calls, [])
-            self.assertEqual(len(bars), 1)
+            self.assertGreater(len(bars), 1)
             self.assertEqual(bars[0].close, 3790.0)
 
     def test_get_bars_falls_back_when_range_not_covered(self) -> None:
@@ -208,33 +231,30 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
-            for traded_at, close in (("2024-03-19", 3790.0), ("2024-03-25", 3810.0)):
-                conn.execute(
-                    "INSERT INTO jquants_daily_bars("
-                    "ticker, traded_at, close, turnover_value, adjustment_close"
-                    ") VALUES (?, ?, ?, ?, ?)",
-                    ("1301", traded_at, close, 1000.0, close),
-                )
+            # Dense at both ends but a >10-day hole in the middle (2024-03-22..
+            # 2024-04-04), so the data-derived check sees the window as not
+            # covered and the provider refetches.
+            _insert_daily_bars(conn, [("2024-03-19", "2024-03-21"), ("2024-04-05", "2024-04-18")])
             _add_source_coverage(
                 conn,
                 source="jquants_daily_bars",
-                record_count=1,
+                record_count=3,
                 min_date="2024-03-19",
-                max_date="2024-03-20",
+                max_date="2024-03-21",
                 path=(
                     "records/_data/raw/screening/jquants/"
-                    "get_eq_bars_daily_range-end_dt-2024-03-20-start_dt-2024-03-19.json"
+                    "get_eq_bars_daily_range-end_dt-2024-03-21-start_dt-2024-03-19.json"
                 ),
             )
             _add_source_coverage(
                 conn,
                 source="jquants_daily_bars",
-                record_count=1,
-                min_date="2024-03-25",
+                record_count=14,
+                min_date="2024-04-05",
                 max_date="2024-04-18",
                 path=(
                     "records/_data/raw/screening/jquants/"
-                    "get_eq_bars_daily_range-end_dt-2024-04-18-start_dt-2024-03-25.json"
+                    "get_eq_bars_daily_range-end_dt-2024-04-18-start_dt-2024-04-05.json"
                 ),
             )
             conn.commit()
@@ -251,9 +271,18 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
+            # Dense bars for the first chunk so the data-derived check recognizes
+            # it as covered and the provider only fetches the later chunks.
+            first_chunk: list[dict[str, object]] = []
+            current = date(2024, 3, 19)
+            while current <= date(2024, 4, 18):
+                first_chunk.append(
+                    {"Code": "13010", "Date": current.isoformat(), "C": 3790.0, "Va": 1000.0}
+                )
+                current += timedelta(days=1)
             store_jquants_daily_bars(
                 sqlite_path,
-                [{"Code": "13010", "Date": "2024-03-19", "C": 3790.0, "Va": 1000.0}],
+                first_chunk,
                 requested_start=date(2024, 3, 19),
                 requested_end=date(2024, 4, 18),
             )
