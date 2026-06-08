@@ -15,6 +15,8 @@ J-Quants Light プランの正確なレート制限は非公開のため、**実
 
 ## 観測サマリ（2026-06-06）
 
+> **更新（2026-06-06、`b9f4f6c` + coverage merge 後）**: 以下の daily_bars re-fetch コストは **修正前の挙動**。daily_bars の coverage を `source_coverage` ではなく行データから導出するようにし（DB が SSOT、[`../screening/automation.md`](../screening/automation.md) §11.1）、さらに range fetch の coverage 記録を overlapping / adjacent window の union merge に変更した。これにより既存 cache がある asof の bootstrap では daily_bars を再取得せず、財務サマリーも chunk 境界ずれで生じていたギャップを作らない。下記は経緯として残す。
+
 `bootstrap-cache --asof <past>` が 10 分・45 分の timeout でも完了しなかった件の調査。`PYTHONUNBUFFERED=1` で進捗を timestamp 付きログに残し、`source_coverage` テーブルの `fetched_at_utc` を突き合わせた。
 
 - **bootstrap は asof ごとに長期履歴を取り直す**。`bootstrap-cache --asof 2026-05-29` の daily_bars 取得範囲は `2023-02-14..2026-05-29`（約 3.3 年）。`get_eq_bars_daily_range` / `get_fin_summary_range` は `_RANGE_CHUNK_DAYS=31` で 31 日 chunk に分割され、各 chunk は ClientV2 内部で per-day API 呼び出しに fan-out する。3.3 年 ≒ daily_bars 約 40 chunk + fin_summary 約 40 chunk。
@@ -32,11 +34,13 @@ J-Quants Light プランの正確なレート制限は非公開のため、**実
 
 確定の設計判断ではなく candidate。着手時は別 issue にする。
 
-- **coverage-aware skip の強化**: daily_bars は物理的に 2023〜2026 が既に cache 済みでも、`source_coverage` に当該 asof 窓の chunk が `ok` 記録されていないと re-fetch される。物理行の存在から coverage を導出できれば re-fetch を大幅に減らせる可能性。
-- **asof 間 coverage の共有**: 重複する履歴窓を asof ごとに別 coverage key で持つのではなく、窓の union で管理して 2 週目以降の re-fetch を削る。
+- **coverage-aware skip の強化** ✅ 対応済み（`b9f4f6c`）: daily_bars は行データから coverage を導出するようにした。物理行が窓の両端に達していれば `source_coverage` の bookkeeping に穴があっても re-fetch しない。
+- **asof 間 coverage の共有** ✅ 対応済み（coverage merge）: range fetch（日次足 / 財務サマリー / 営業日カレンダ）の coverage 記録を、新規取得窓と overlapping / adjacent な `ok` window の union に merge するようにした。asof ごとに chunk 境界がずれても、一部だけ重なる re-fetch が既存窓を delete-and-shrink して残りを孤立させることがなくなり、財務サマリーの再 bootstrap で偽のギャップが出ない。
 - **必要履歴窓の見直し**: universe / 流動性指標に本当に 3.3 年必要かを確認し、短くできれば chunk 数が減る。
 - **off-peak 実行**: throttling が軽い時間帯に回す。ただし上記のとおり主因は volume なので効果は限定的。
 
 ## 追記ログ
 
 - 2026-06-06: 初版。`#157` の歴史 replay 生成が完了しない調査から、per-asof 長期履歴 re-fetch（~4 分/31日chunk）が律速と特定。
+- 2026-06-06: daily_bars coverage を行データ導出に変更（`b9f4f6c`）。既存 cache がある asof では daily_bars を再取得しない。
+- 2026-06-06: range fetch の coverage 記録を overlapping / adjacent window の union merge に変更。財務サマリーの chunk 境界ずれで `source_coverage` にギャップが残り（行は揃っているのに `_range_covered` が gap 判定）bootstrap が fail-fast する事故を解消。

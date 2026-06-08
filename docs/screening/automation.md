@@ -27,7 +27,7 @@ python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--s
 
 `bootstrap-cache --asof` は `run --asof` が要求する source 別 window を自動で補完する。具体的には J-Quants master、asof まで 1200 日分の日次足、asof まで 730 日分の財務サマリー、asof から 90 日先までの決算予定 horizon、asof の営業日カレンダ、JPX 規制 snapshot を SQLite に書き込む。
 
-`verify-cache-coverage` は SQLite が `run --asof` で必要な全入力をローカルに提供できるかを read-only で検証する。検証対象は J-Quants master、1200 日分の日次足、730 日分の財務サマリー、asof から 90 日先までの決算予定 horizon、asof の営業日カレンダ、asof の JPX 規制 snapshot と rules の `universe.required_jpx_flags` に含まれる source 名、EDINET metrics。master は common-stock universe が異常に小さくないこと、日次足と財務サマリーは source_coverage だけでなく SQLite 実データの ticker/date 密度も確認する。EDINET metrics は常に必須であり、raw JSON の読み込みや provider API 呼び出しは行わず、schema migration も行わない。不足があれば exit 1。
+`verify-cache-coverage` は SQLite が `run --asof` で必要な全入力をローカルに提供できるかを read-only で検証する。検証対象は J-Quants master、1200 日分の日次足、730 日分の財務サマリー、asof から 90 日先までの決算予定 horizon、asof の営業日カレンダ、asof の JPX 規制 snapshot と rules の `universe.required_jpx_flags` に含まれる source 名、EDINET metrics。master は common-stock universe が異常に小さくないこと、日次足は SQLite 実データの行そのものから completeness を判定し（DB が SSOT、後述 §11.1）、財務サマリーは source_coverage の窓で判定する。いずれも ticker/date 密度を追加で確認する。EDINET metrics は常に必須であり、raw JSON の読み込みや provider API 呼び出しは行わず、schema migration も行わない。不足があれば exit 1。
 
 `extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出して `data/screening/market.sqlite` に保存する。CSV ZIP 本体は再生成可能な cache として `.cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 
@@ -144,7 +144,7 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 
 SQLite は以下のテーブルを `data/screening/market.sqlite` に作成する。schema は `PRAGMA user_version` で現行版だけをサポートし、古い schema は migrate せず fail-fast する。
 
-- `jquants_daily_bars(ticker, traded_at, open, high, low, close, volume, turnover_value, adjustment_*, upper_limit, lower_limit)` — 主キー `(ticker, traded_at)`、`traded_at` index 付。`is_common_stock=False` の record はスキップ
+- `jquants_daily_bars(ticker, traded_at, open, high, low, close, volume, turnover_value, adjustment_*, upper_limit, lower_limit)` — 主キー `(ticker, traded_at)`、`traded_at` index 付。`is_common_stock=False` の record はスキップ。**この table は coverage の SSOT であり、completeness は行データから導出する**（全営業日が全市場分の行を持つので欠損は present date 間のギャップとして観測でき、`source_coverage` の bookkeeping に穴があっても行が揃っていれば re-fetch しない）。`source_coverage` は status / record_count の整合チェックにのみ併用する
 - `jquants_fin_summaries(ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, sales, operating_profit, ordinary_profit, profit, cfo, cash_eq, total_assets, equity, fiscal_period, fiscal_year_end, period_start, period_end)` — 主キー `(ticker, disclosed_at)`
 - `jquants_master_snapshots(snapshot_date, ticker, name, market, sector_33, is_common_stock)` — 主キー `(snapshot_date, ticker)`
 - `jquants_earnings_calendar(announcement_date, ticker)` — 主キー `(announcement_date, ticker)`
@@ -153,7 +153,7 @@ SQLite は以下のテーブルを `data/screening/market.sqlite` に作成す�
 - `edinet_documents(doc_date, doc_id, sec_code, doc_type_code, csv_flag, xbrl_flag, legal_status, disclosure_status, withdrawal_status, submit_datetime, doc_description, period_start, period_end)` — 主キー `(doc_date, doc_id)`。`doc_date` はファイル名（`{date}.json`）から復元
 - `edinet_metrics(asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, operating_profit_ttm, depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, net_cash, equity, total_assets, consolidation_basis, ttm_quality_*, source_doc_id, document_type, source_submit_datetime, source_period_start, source_period_end, capex_source, failure_reasons)` — 主キー `(asof_date, ticker)`。`asof_date` はファイル名から復元。Candidate YAML では EDINET raw `ocf_ttm` を `edinet_ocf_ttm` として出し、J-Quants 財務サマリー由来の `ocf_ttm` と区別する。`source_*` は research で一次資料へ戻るための traceability として保持する。`source_period_start/end` は EDINET documents metadata であり、半期報告書では実際の CF 測定期間と一致しないことがある
 - `jpx_regulation_flags(asof_date, source_name, ticker, flag, fetched_at_utc)` — 主キー `(asof_date, source_name, ticker, flag)`。JPX cache の `flags_by_ticker` は source 別の起源を保持しないため、`source_name=flag` として記録
-- `source_coverage(source, coverage_key, coverage_start, coverage_end, fetched_at_utc, record_count, status, error)` — provider/API request window の coverage 正本。`screening run` の事前検証はこの table と normalized rows を照合し、status 異常があれば fail-fast する。過去 raw JSON の hash / import audit は保持しない。
+- `source_coverage(source, coverage_key, coverage_start, coverage_end, fetched_at_utc, record_count, status, error)` — fetch-provenance source（財務サマリー / 営業日カレンダ / 決算予定 / JPX 規制 / EDINET metrics）の coverage 正本。これらは「未取得」と「対象なし」を行の有無から区別できないため source_coverage を gate にする。range fetch（日次足 / 財務サマリー / 営業日カレンダ）の coverage 記録は、新規取得 window を既存の overlapping / adjacent な `ok` window と union に merge して 1 本の連続 window にする。これは chunk 境界が asof（`asof - N 日`）ごとにずれるため、一部だけ重なる re-fetch が既存 window を delete-and-shrink して残りを孤立させ、行は揃っているのに `_range_covered` がギャップと判定する事故を防ぐためである。日次足だけは coverage gate を source_coverage ではなく行データから導出する（上記）。過去 raw JSON の hash / import audit は保持しない。
 
 ### 11.2 Volume と再生成の考え方
 

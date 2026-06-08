@@ -23,6 +23,7 @@ source_paths:
 | `AGENTS.md` | AI agent 向け作業規約と self-review gate |
 | `docs/` | 仕様、運用手順、参照情報、docs governance |
 | `records/` | 運用成果物と運用支援 asset |
+| `data/` | screening / macro stats の local SQLite store（`data/screening/market.sqlite` 等、git 管理外。正本は [`../screening/automation.md`](../screening/automation.md)） |
 | `src/baibai_loop/` | screening、validation、ledger sync などの CLI 実装 |
 | `tests/` | CLI、provider、schema、validator、ledger の automated tests |
 | `.github/` | CI、security audit、Dependabot |
@@ -49,7 +50,6 @@ Record から参照する repo 内 file path を正本にする。
 | path | 正本 docs | 参照 docs | 役割 |
 | --- | --- | --- | --- |
 | `records/_config/` | [`../screening/principles.md`](../screening/principles.md) | this map | screening rules and lightweight profile config files |
-| `records/_data/` | [`../reference/data-sources.md`](../reference/data-sources.md) | this map | raw / derived data と cache の支援領域 |
 | `records/_ledger/` | [`../components/ledger.md`](../components/ledger.md) | this map | decision register と ledger sync の記録領域 |
 | `records/_market-data/` | [`../components/reviews.md`](../components/reviews.md) | this map | review / missed opportunity 計算用 market data files |
 | `records/_playbooks/` | [`../components/playbooks.md`](../components/playbooks.md) | this map | 運用中 playbook の保存領域 |
