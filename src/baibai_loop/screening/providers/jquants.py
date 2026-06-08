@@ -145,11 +145,21 @@ class JQuantsProvider:
 
     def get_eq_bars_daily_range(self, start: date, end: date) -> list[JQuantsDailyBar]:
         if self._sqlite_path is not None:
-            from ..sqlite_reader import read_daily_bars
+            from ..sqlite_reader import latest_daily_bar_date, read_daily_bars
 
             cached = read_daily_bars(self._sqlite_path, start, end)
             if cached is not None:
-                return cached
+                latest = latest_daily_bar_date(self._sqlite_path, start, end)
+                if self._cache_only or latest is None or latest >= end:
+                    return cached
+                # `read_daily_bars` tolerates a holiday-sized edge gap, so an
+                # incremental asof can look covered while its own bar is not yet
+                # stored. On a fetch-capable run, refresh the tail from the last
+                # stored day so newly published trading days are picked up; a
+                # cache-only `screening run` trusts the validated coverage instead.
+                self._load_or_fetch_range("get_eq_bars_daily_range", latest, end)
+                refreshed = read_daily_bars(self._sqlite_path, start, end)
+                return refreshed if refreshed is not None else cached
         self._raise_if_cache_only("jquants_daily_bars", f"{start.isoformat()}..{end.isoformat()}")
         if self._sqlite_path is not None:
             self._fetch_missing_range_chunks("get_eq_bars_daily_range", start, end)

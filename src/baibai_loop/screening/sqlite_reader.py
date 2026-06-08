@@ -123,6 +123,33 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
     return bars
 
 
+def latest_daily_bar_date(sqlite_path: Path, start: date, end: date) -> date | None:
+    """Return the most recent ``traded_at`` stored within ``[start, end]``, or None.
+
+    Lets a fetch-capable bootstrap decide whether it still needs the recent tail:
+    ``read_daily_bars`` tolerates a holiday-sized edge gap, so it can report a
+    window covered while the asof's own bar is not yet stored.
+    """
+    if not sqlite_path.exists():
+        return None
+    conn = _connect_current(sqlite_path)
+    if conn is None:
+        return None
+    try:
+        row = conn.execute(
+            "SELECT MAX(traded_at) FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ?",
+            (start.isoformat(), end.isoformat()),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None or row[0] is None:
+        return None
+    try:
+        return date.fromisoformat(str(row[0]))
+    except ValueError:
+        return None
+
+
 def read_fin_summaries(
     sqlite_path: Path, start: date, end: date
 ) -> list[JQuantsFinancialSummary] | None:
