@@ -174,6 +174,53 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             self.assertGreater(len(bars), 1)
             self.assertEqual(bars[0].close, 3790.0)
 
+    def test_get_bars_refetches_recent_tail_when_asof_ahead_of_cache(self) -> None:
+        """An incremental asof a few days ahead of the cached tail looks covered
+        (the data-derived check tolerates a holiday-sized edge gap), but a
+        fetch-capable run must still pull the new days through the asof so a
+        weekly/daily bootstrap does not silently skip the latest trading day."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "raw"
+            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            _insert_daily_bars(conn, [("2024-04-01", "2024-04-15")])
+            conn.commit()
+            conn.close()
+
+            client = _RecordingClient()
+            provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
+
+            provider.get_eq_bars_daily_range(date(2024, 4, 1), date(2024, 4, 18))
+
+            self.assertTrue(any(end == "2024-04-18" for _, end in client.bars_calls))
+            conn = sqlite3.connect(sqlite_path)
+            try:
+                latest = conn.execute("SELECT MAX(traded_at) FROM jquants_daily_bars").fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(latest, "2024-04-18")
+
+    def test_cache_only_does_not_refetch_tail_behind_asof(self) -> None:
+        """A cache-only screening run trusts the validated coverage and never
+        fetches, even when the cached tail is a few days behind the asof."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "raw"
+            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            _insert_daily_bars(conn, [("2024-04-01", "2024-04-15")])
+            conn.commit()
+            conn.close()
+
+            client = _RecordingClient()
+            provider = JQuantsProvider(
+                "token", cache_dir, client=client, sqlite_path=sqlite_path, cache_only=True
+            )
+
+            bars = provider.get_eq_bars_daily_range(date(2024, 4, 1), date(2024, 4, 18))
+
+            self.assertEqual(client.bars_calls, [])
+            self.assertGreater(len(bars), 1)
+
     def test_get_bars_falls_back_when_range_not_covered(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache_dir = Path(tmp) / "raw"
