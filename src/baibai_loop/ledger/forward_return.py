@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import sqlite3
 import statistics
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
+from pathlib import Path
+from typing import Any
 
 from baibai_loop.screening.providers.jquants import JQuantsDailyBar
 
@@ -165,3 +168,42 @@ def _benchmark_return(
     if entry is None or forward is None or entry.price == 0:
         return None
     return forward.price / entry.price - 1
+
+
+def load_bars_for_tickers(sqlite_path: Path, tickers: set[str]) -> tuple[JQuantsDailyBar, ...]:
+    """Load all cached daily bars for ``tickers`` from the screening SQLite store."""
+    if not tickers or not sqlite_path.exists():
+        return ()
+    # placeholders is only "?,?,..." markers; ticker values are bound parameters
+    # in conn.execute, so the f-string is not an injection vector. bandit cannot
+    # see the binding, so suppress its B608 false positive here.
+    placeholders = ",".join("?" for _ in tickers)
+    query = (
+        "SELECT ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor "  # nosec B608
+        "FROM jquants_daily_bars "
+        f"WHERE ticker IN ({placeholders}) ORDER BY ticker, traded_at"
+    )
+    conn = sqlite3.connect(sqlite_path)
+    try:
+        rows = conn.execute(query, tuple(sorted(tickers))).fetchall()
+    finally:
+        conn.close()
+    bars: list[JQuantsDailyBar] = []
+    for ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor in rows:
+        if close is None or traded_at is None:
+            continue
+        bars.append(
+            JQuantsDailyBar(
+                ticker=str(ticker),
+                traded_at=date.fromisoformat(traded_at),
+                close=float(close),
+                turnover_value=_optional_float(turnover_value),
+                adjustment_close=_optional_float(adjustment_close),
+                adjustment_factor=_optional_float(adjustment_factor),
+            )
+        )
+    return tuple(bars)
+
+
+def _optional_float(value: Any) -> float | None:
+    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None

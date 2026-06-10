@@ -31,6 +31,11 @@ from .market_data import PriceObservation, load_fallback_price_observations
 from .retro import build_monthly_retro, write_monthly_retro
 from .review_gates import ReviewGate, due_review_gates, weekday_calendar
 from .screening_replay import discover_week_specs, replay_to_payload, run_replay
+from .selection_ablation import (
+    ablation_to_payload,
+    render_ablation_summary,
+    run_selection_ablation,
+)
 from .sync import sync_ledger
 from .trades import load_open_trades
 
@@ -124,6 +129,34 @@ def build_parser() -> argparse.ArgumentParser:
     cohort_parser.add_argument(
         "--out", type=Path, help="write cohort payload YAML to this path instead of stdout"
     )
+    ablation_parser = subparsers.add_parser(
+        "selection-ablation",
+        help="replay selection variants that disable one feature each and score forward return",
+    )
+    ablation_parser.add_argument("--root", type=Path, default=Path.cwd())
+    ablation_parser.add_argument(
+        "--candidates-root",
+        type=Path,
+        required=True,
+        help="root holding weekly candidate YAML in <YYYY>/<MM>/<YYYY-MM-DD>.yaml layout",
+    )
+    ablation_parser.add_argument(
+        "--top", type=int, default=5, help="recommended queue size per variant (default 5)"
+    )
+    ablation_parser.add_argument(
+        "--profile", help="selection profile (default: rules.selection.default_profile)"
+    )
+    ablation_parser.add_argument(
+        "--horizons",
+        default="1,4",
+        help="comma-separated forward horizons in calendar weeks (default: 1,4)",
+    )
+    ablation_parser.add_argument(
+        "--rules-path", type=Path, default=DEFAULT_RULES_PATH, help="screening rules path"
+    )
+    ablation_parser.add_argument(
+        "--out", type=Path, help="write ablation payload YAML to this path instead of stdout"
+    )
     return parser
 
 
@@ -188,19 +221,54 @@ def main(argv: list[str] | None = None) -> int:
         return _run_screening_replay(args)
     if args.command == "lane-cohorts":
         return _run_lane_cohorts(args)
+    if args.command == "selection-ablation":
+        return _run_selection_ablation(args)
     raise AssertionError(f"unreachable command: {args.command!r}")
 
 
-def _run_lane_cohorts(args: argparse.Namespace) -> int:
+def _run_selection_ablation(args: argparse.Namespace) -> int:
+    horizons = _parse_horizons(args.horizons)
+    if horizons is None:
+        return 1
+    weeks = discover_week_specs(args.candidates_root)
+    if not weeks:
+        print(f"no weekly candidate files under {args.candidates_root}", file=sys.stderr)
+        return 1
+    sqlite_path = args.root / DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"
+    result = run_selection_ablation(
+        weeks,
+        rules=load_screening_rules(args.rules_path),
+        sqlite_path=sqlite_path,
+        candidates_root=args.candidates_root,
+        ledger_root=args.root / "records",
+        profile=args.profile,
+        top=args.top,
+        horizon_weeks=horizons,
+    )
+    if args.out is not None:
+        text = yaml.safe_dump(ablation_to_payload(result), allow_unicode=True, sort_keys=False)
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(text, encoding="utf-8")
+        print(f"wrote {args.out}")
+    print(render_ablation_summary(result))
+    return 0
+
+
+def _parse_horizons(raw: str) -> tuple[int, ...] | None:
     try:
-        horizons = tuple(
-            int(token.strip()) for token in str(args.horizons).split(",") if token.strip()
-        )
+        horizons = tuple(int(token.strip()) for token in str(raw).split(",") if token.strip())
     except ValueError:
         print("--horizons must be comma-separated integers", file=sys.stderr)
-        return 1
+        return None
     if not horizons or any(weeks < 1 for weeks in horizons):
         print("--horizons must include at least one positive week count", file=sys.stderr)
+        return None
+    return horizons
+
+
+def _run_lane_cohorts(args: argparse.Namespace) -> int:
+    horizons = _parse_horizons(args.horizons)
+    if horizons is None:
         return 1
     weeks = discover_week_specs(args.candidates_root)
     if not weeks:
