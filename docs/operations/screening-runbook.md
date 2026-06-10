@@ -110,6 +110,20 @@ uv run baibai-loop-ledger screening-replay \
 - 歴史週の `bootstrap-cache` は asof ごとに長期履歴を取り直すため、J-Quants throttling 下では 1 週で数時間かかりうる。chunk は resumable なので kill せず完走させる。挙動の詳細は [`../reference/jquants-rate-limits.md`](../reference/jquants-rate-limits.md)。
 - 評価結果と `balanced` 継続可否の判断は [`../screening/replay-2026-05.md`](../screening/replay-2026-05.md) に記録する。
 
+## Lane cohort telemetry
+
+replay が recommended queue（top N）だけを評価するのに対し、`lane-cohorts` は週次 candidates の**全銘柄**を evidence lane 別 cohort として forward return を集計し、playbook 改訂ループの一次資料を作る。
+
+```bash
+uv run baibai-loop-ledger lane-cohorts \
+  --candidates-root records/04-candidates \
+  --horizons 1,4 --out .cache/replay/lane-cohorts-latest.yaml
+```
+
+- lane 抽出は sizing-eligible な evidence hit に限る（selection と同じ意味論: `source_status` が ok 以外の文字列なら除外、`sizing_eligible: false` なら除外）。複数 lane hit は各 cohort に計上し、`all_candidates` baseline を併記する
+- 直近週は eval cap 未到達で `resolved 0` になる。月次 retro 時点で再実行すれば forward-only で埋まる
+- 初回スコアボードと解釈の限界は [`../screening/lane-cohorts-2026-05.md`](../screening/lane-cohorts-2026-05.md)。lane 序列の解釈・playbook 改訂は retro 側で扱う（事実と分析の分離）
+
 ## After running
 
 ```bash

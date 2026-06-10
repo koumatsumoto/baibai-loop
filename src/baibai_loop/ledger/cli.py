@@ -21,6 +21,12 @@ from baibai_loop.screening.rule_config import DEFAULT_RULES_PATH, load_screening
 from baibai_loop.screening.sqlite_reader import read_daily_bars, read_market_calendar
 
 from .benchmark import NIKKEI225_ETF_PROXY, PortfolioBenchmark, compute_forward_performance
+from .lane_cohorts import (
+    DEFAULT_COHORT_HORIZON_WEEKS,
+    lane_cohorts_to_payload,
+    render_lane_cohort_summary,
+    run_lane_cohorts,
+)
 from .market_data import PriceObservation, load_fallback_price_observations
 from .retro import build_monthly_retro, write_monthly_retro
 from .review_gates import ReviewGate, due_review_gates, weekday_calendar
@@ -99,6 +105,25 @@ def build_parser() -> argparse.ArgumentParser:
         default="on",
         help="apply the market regime lens per replay week (default: on)",
     )
+    cohort_parser = subparsers.add_parser(
+        "lane-cohorts",
+        help="aggregate forward returns per evidence lane over all weekly candidates",
+    )
+    cohort_parser.add_argument("--root", type=Path, default=Path.cwd())
+    cohort_parser.add_argument(
+        "--candidates-root",
+        type=Path,
+        required=True,
+        help="root holding weekly candidate YAML in <YYYY>/<MM>/<YYYY-MM-DD>.yaml layout",
+    )
+    cohort_parser.add_argument(
+        "--horizons",
+        default=",".join(str(weeks) for weeks in DEFAULT_COHORT_HORIZON_WEEKS),
+        help="comma-separated forward horizons in calendar weeks (default: 1,4)",
+    )
+    cohort_parser.add_argument(
+        "--out", type=Path, help="write cohort payload YAML to this path instead of stdout"
+    )
     return parser
 
 
@@ -161,7 +186,40 @@ def main(argv: list[str] | None = None) -> int:
         return _run_benchmark(args.root, _resolve_asof(args.asof), args.proxy, os.environ)
     if args.command == "screening-replay":
         return _run_screening_replay(args)
+    if args.command == "lane-cohorts":
+        return _run_lane_cohorts(args)
     raise AssertionError(f"unreachable command: {args.command!r}")
+
+
+def _run_lane_cohorts(args: argparse.Namespace) -> int:
+    try:
+        horizons = tuple(
+            int(token.strip()) for token in str(args.horizons).split(",") if token.strip()
+        )
+    except ValueError:
+        print("--horizons must be comma-separated integers", file=sys.stderr)
+        return 1
+    if not horizons or any(weeks < 1 for weeks in horizons):
+        print("--horizons must include at least one positive week count", file=sys.stderr)
+        return 1
+    weeks = discover_week_specs(args.candidates_root)
+    if not weeks:
+        print(f"no weekly candidate files under {args.candidates_root}", file=sys.stderr)
+        return 1
+    sqlite_path = args.root / DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"
+    result = run_lane_cohorts(
+        weeks,
+        sqlite_path=sqlite_path,
+        horizon_weeks=horizons,
+    )
+    if args.out is not None:
+        payload = lane_cohorts_to_payload(result)
+        text = yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(text, encoding="utf-8")
+        print(f"wrote {args.out}")
+    print(render_lane_cohort_summary(result))
+    return 0
 
 
 def _run_screening_replay(args: argparse.Namespace) -> int:
