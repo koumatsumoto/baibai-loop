@@ -35,7 +35,7 @@ Baibai-Loop をデータ解析基盤として AI / スクリプトが利用す�
 
 - テーブル定義と意味論の正本は [`../screening/automation.md`](../screening/automation.md) §11.1
 - schema は `PRAGMA user_version` で版管理し、破壊的変更は version bump + rebuild(migration はしない)
-- 対象範囲は**全上場銘柄**。時価総額・流動性での絞り込みはテーブルに存在せず、分析時のパラメータである(#222 で screening 側も追従予定)
+- 対象範囲は**全上場銘柄**。時価総額・流動性での絞り込みはテーブルには存在せず、分析側が必要に応じて適用する
 - AI は読み取り専用で SQL を直接発行してよい。書き込みは CLI(bootstrap / extract / run)経由に限る
 
 主要テーブル(詳細は automation.md):
@@ -51,7 +51,7 @@ Baibai-Loop をデータ解析基盤として AI / スクリプトが利用す�
 ## AI の利用モデル
 
 - **L1/L2 は自由に読む**: SQL 直接 + CLI 出力。すべての主張は queryable な事実に遡れる形で書く(AP-01: 一次情報主義)
-- **L3 は下書きまで**: research memo / review の下書きは AI が作ってよいが、最終採用判定・失敗分類確定・macro context 前提確認は人間が行う([`../screening/principles.md`](../screening/principles.md) §9)
+- **L3 は下書きまで**: research memo / review の下書きは AI が作ってよいが、最終採用判定・失敗分類確定・macro context 前提確認は人間が行う([`../components/research.md`](../components/research.md) の「AI の役割境界」)
 - **スコアの扱い**: 基盤が出すスコアは軸別の座標(sector 相対・自己レンジ相対など)であり、売買判定ではない。AI はスコアを根拠の 1 つとして引用し、単独で結論にしない
 
 ## 非目標

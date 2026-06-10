@@ -15,8 +15,8 @@ Baibai-Loop の **research / investment memo** の運用仕様。candidates × m
 
 ## 2. 選定プロセス
 
-1. 最新 macro context と candidates に対して `baibai-loop-screening select-sweep` を実行し、`strict` / `balanced` / `loose` の推薦差分、previous overlap、sector / lane concentration を確認する
-2. 必要な profile を `baibai-loop-screening select --profile ...` で開き、`recommendations` の上位 3-5 銘柄に絞る
+1. 最新 macro context と candidates に対して `baibai-loop-screening select` を実行し、`recommendations`、previous overlap、sector / lane concentration を確認する
+2. `recommendations` の上位 3-5 銘柄に絞る(閾値を試す場合だけ `select-sweep --profile-config` で custom profile を比較する)
 3. 候補行の `evidence_hits[]`、candidate-level metrics、`records/01-macro-context/` の `sector_tilts` と `sector_33` を確認する
 4. thesis payoff、portfolio policy、liquidity cap に照らし、`research_decision` と `position_sizing_overlay` を確定する
 

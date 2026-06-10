@@ -28,7 +28,7 @@ last_reviewed: 2026-05-04
 | `components/` | `records/` に残る成果物の contract | [`components/README.md`](./components/README.md) |
 | `operations/` | いつ、どう作るかの runbook 入口 | [`operations/README.md`](./operations/README.md) |
 | `reference/` | data sources、configuration、layout、validation、Python foundation | [`reference/README.md`](./reference/README.md) |
-| `governance/` | docs 自体を維持するためのルール | [`governance/README.md`](./governance/README.md) |
+| `governance/` | anti-pattern 運用の governance 入口 | [`governance/README.md`](./governance/README.md) |
 | `templates/` | artifact 作成時にコピーする template | [`templates/README.md`](./templates/README.md) |
 | `screening/` | candidates 生成を支える subsystem 詳細 | [`screening/README.md`](./screening/README.md) |
 

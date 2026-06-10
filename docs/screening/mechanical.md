@@ -110,8 +110,8 @@ P/S が業種中央値比で安く、売上成長が残る銘柄を拾う。営�
 `fast_dislocation` と `long_hold_survivability` は `select` 側の lens であり、mechanical screen の hard gate ではない。
 
 - `fast_dislocation` は急落銘柄を拾うが、急落だけでは通さず、OCF / FCF / net cash / equity buffer / sales+profit の fundamental guard を原則 2 件以上、かつ cash-flow / balance-sheet / profitability の guard family を原則 2 系統以上要求する。出来高 spike と 52 週安値距離は補助情報であり、価格下落なしでは eligible にしない
-- `long_hold_survivability` は `high|medium|low|unknown` の annotation。短期 thesis が外れたときの保有耐性を早く見るための補助で、採用可否を単独では決めない。ranking には使わない(2026-05 の selection ablation で ranking 寄与が観測されなかったため、sort key から外して annotation に限定した。[`selection-ablation-2026-05.md`](./selection-ablation-2026-05.md))
-- lane の優先順位は config の `output.research_selection_lane_order` を唯一の正本とし、推奨 queue の順位付けと primary evidence の選択の両方に使う(旧実装はコード内 `_LANE_RANK` と config の 2 つの順序を併存させていた)。順序値の変更は config 編集 + replay / ablation 計測で検証する
+- `long_hold_survivability` は `high|medium|low|unknown` の annotation。短期 thesis が外れたときの保有耐性を早く見るための補助で、採用可否を単独では決めず、ranking にも使わない(ranking 寄与の計測根拠は [`selection-ablation-2026-05.md`](./selection-ablation-2026-05.md))
+- lane の優先順位は config の `output.research_selection_lane_order` を唯一の正本とし、推奨 queue の順位付けと primary evidence の選択の両方に使う。順序値の変更は config 編集 + replay / ablation 計測で検証する
 
 この境界により、`records/04-candidates/` は事実層として維持し、短期の値動きや過去 research decision を使った調整は `select` output の `recommendations` / `selection.diagnostics` / `reason_tags` / `risk_tags` に閉じる。
 
@@ -122,7 +122,7 @@ P/S が業種中央値比で安く、売上成長が残る銘柄を拾う。営�
 - 算出: benchmark proxy（`1321`）の 20/60 営業日リターンと、universe breadth（直近 20 本の自己 MA を上回る銘柄比率）。breadth は事実として記録するだけで、判定には使わない
 - 分類（固定閾値、grid search しない）: `risk_on_rally` = benchmark 20 営業日リターン >= +3% / `risk_off_selloff` = <= -3% / その他 `neutral_range`、算出不能は `unknown`
 - 効果: `risk_on_rally` のときだけ fast_dislocation eligible の ranking boost を中立化する。候補の除外はしない（lens であり gate ではない）。`neutral_range` / `risk_off_selloff` / `unknown` では従来挙動と完全一致
-- 根拠: fast_dislocation は anti-momentum 銘柄（直近の大幅下落銘柄）を選ぶため、指数モメンタムが強い局面では breadth の広狭に関係なく構造的に劣後する。2026-05 は breadth 45% 未満の狭いラリー（指数 +9〜+17%/20bd）で、初期案の「trend + breadth」分類では観測済みの failure regime を拾えなかったため、trend 単独条件に改訂した（経緯と検証は [`regime-lens-replay-2026-05.md`](./regime-lens-replay-2026-05.md)）
+- 根拠: fast_dislocation は anti-momentum 銘柄（直近の大幅下落銘柄）を選ぶため、指数モメンタムが強い局面では breadth の広狭に関係なく構造的に劣後する。このため分類はトレンド単独条件とし、breadth は事実として記録するだけで判定には使わない（検証記録は [`regime-lens-replay-2026-05.md`](./regime-lens-replay-2026-05.md)）
 - snapshot は `selection.diagnostics.market_regime` に記録し、中立化時は `fast_dislocation_boost: neutralized` と warning `fast_dislocation_boost_neutralized_risk_on_rally` を出す
 
 ## 4. 出力

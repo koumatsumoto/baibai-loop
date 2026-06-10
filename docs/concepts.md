@@ -15,7 +15,7 @@ Baibai-Loop は、self-directed な投資判断を forward-only に記録し、�
 
 目的は、ビジネス価値、つまり「お買い得銘柄を拾う最適な取引戦略」を長期的に改善することです。用語整理は目的ではなく、候補発見、証拠評価、position sizing、実行可否、review attribution、playbook feedback を一貫して扱うための土台です。
 
-この decision loop は、データ層(L1: `market.sqlite`)と分析層(L2: 機械的 screen / lens / スコア / forward telemetry)の上で動く判断層(L3)です。3 層モデルの正本は [`architecture/system-overview.md`](architecture/system-overview.md) を参照してください。
+この decision loop は、データ層(L1: `market.sqlite`)と分析層(L2: 機械的 screen / lens / スコア / forward telemetry)の上で動く判断層(L3)です。3 層モデルの正本は [`architecture/system-overview.md`](./architecture/system-overview.md) を参照してください。
 
 ## Decision Loop
 
