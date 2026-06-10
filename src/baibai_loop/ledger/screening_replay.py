@@ -11,6 +11,7 @@ from typing import Any
 import yaml
 
 from baibai_loop.screening.providers.jquants import JQuantsDailyBar
+from baibai_loop.screening.regime import MarketRegimeSnapshot, compute_market_regime
 from baibai_loop.screening.rule_config import ScreeningRules
 from baibai_loop.screening.selection import (
     PreviousCandidates,
@@ -55,6 +56,7 @@ class ProfileWeekResult:
     week: date
     profile: str
     is_holdout: bool
+    market_regime: Mapping[str, object] | None
     recommended_tickers: tuple[str, ...]
     recommended: tuple[Mapping[str, object], ...]
     fast_dislocation_count: int
@@ -73,6 +75,7 @@ class ReplayResult:
     horizon_weeks: tuple[int, ...]
     eval_cap: date | None
     benchmark_ticker: str
+    regime_lens: bool
     results: tuple[ProfileWeekResult, ...]
 
 
@@ -87,6 +90,7 @@ def run_replay(
     top: int = 10,
     horizon_weeks: Sequence[int] = DEFAULT_HORIZON_WEEKS,
     benchmark_ticker: str = NIKKEI225_ETF_PROXY,
+    regime_lens: bool = True,
 ) -> ReplayResult:
     """Replay profile selection over several weeks and score recommended forward return.
 
@@ -94,7 +98,14 @@ def run_replay(
     collected per profile, and forward returns at each horizon are computed from
     cached bars. Bars are read once for the union of recommended tickers plus the
     benchmark proxy, so the cost is independent of universe size.
+
+    ``regime_lens`` toggles the market regime lens per week so a replay can
+    compare lens-on and lens-off rankings over the same recorded candidates.
     """
+    regimes: dict[date, MarketRegimeSnapshot | None] = {
+        spec.asof: compute_market_regime(sqlite_path, spec.asof) if regime_lens else None
+        for spec in weeks
+    }
     sweeps = [
         (
             spec,
@@ -105,6 +116,7 @@ def run_replay(
                 top=top,
                 candidates_root=candidates_root,
                 ledger_root=ledger_root,
+                market_regime=regimes[spec.asof],
             ),
         )
         for spec in weeks
@@ -136,11 +148,13 @@ def run_replay(
                 if eval_cap is not None
                 else ()
             )
+            regime = regimes[spec.asof]
             results.append(
                 ProfileWeekResult(
                     week=spec.asof,
                     profile=_string(profile_result.get("profile")),
                     is_holdout=spec.is_holdout,
+                    market_regime=regime.to_dict() if regime is not None else None,
                     recommended_tickers=tickers,
                     recommended=recommended,
                     fast_dislocation_count=_int(profile_result.get("fast_dislocation_count")),
@@ -158,6 +172,7 @@ def run_replay(
         horizon_weeks=tuple(horizon_weeks),
         eval_cap=eval_cap,
         benchmark_ticker=benchmark_ticker,
+        regime_lens=regime_lens,
         results=tuple(results),
     )
 
@@ -174,11 +189,15 @@ def replay_to_payload(result: ReplayResult) -> dict[str, object]:
         "horizon_weeks": list(result.horizon_weeks),
         "eval_cap": result.eval_cap.isoformat() if result.eval_cap else None,
         "benchmark_ticker": result.benchmark_ticker,
+        "regime_lens": result.regime_lens,
         "weeks": [
             {
                 "week": item.week.isoformat(),
                 "profile": item.profile,
                 "is_holdout": item.is_holdout,
+                "market_regime": dict(item.market_regime)
+                if item.market_regime is not None
+                else None,
                 "recommended_tickers": list(item.recommended_tickers),
                 "fast_dislocation_count": item.fast_dislocation_count,
                 "long_hold_counts": dict(item.long_hold_counts),
@@ -236,6 +255,7 @@ def _build_week_sweep(
     top: int,
     candidates_root: Path,
     ledger_root: Path,
+    market_regime: MarketRegimeSnapshot | None = None,
 ) -> Mapping[str, object]:
     payload = yaml.safe_load(spec.candidates_path.read_text(encoding="utf-8"))
     if not isinstance(payload, Mapping):
@@ -265,6 +285,7 @@ def _build_week_sweep(
         macro_context_ref=None,
         previous_candidates=previous_candidates,
         prior_research_by_ticker=prior_research,
+        market_regime=market_regime,
     )
 
 

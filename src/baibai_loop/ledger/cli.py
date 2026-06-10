@@ -99,6 +99,12 @@ def build_parser() -> argparse.ArgumentParser:
     replay_parser.add_argument(
         "--rules-path", type=Path, default=DEFAULT_RULES_PATH, help="screening rules path"
     )
+    replay_parser.add_argument(
+        "--regime-lens",
+        choices=("on", "off"),
+        default="on",
+        help="apply the market regime lens per replay week (default: on)",
+    )
     cohort_parser = subparsers.add_parser(
         "lane-cohorts",
         help="aggregate forward returns per evidence lane over all weekly candidates",
@@ -234,6 +240,7 @@ def _run_screening_replay(args: argparse.Namespace) -> int:
         candidates_root=args.candidates_root,
         ledger_root=args.root / "records",
         top=args.top,
+        regime_lens=args.regime_lens == "on",
     )
     payload = replay_to_payload(result)
     payload["weeks_meta"] = [

@@ -33,6 +33,8 @@ python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--s
 
 `select` は最新 `records/04-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/01-macro-context/` を組み合わせて、research recommendations を出力する。Macro context は hard gate ではなく、sector / theme の診断として使う。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、full lens / debug detail は `--detail full` で出す。`fast_dislocation` は価格下落 trigger と fundamental guard family を同時に要求し、出来高 spike / 52 週安値距離だけでは eligible にしない。`long_hold_survivability` は保有耐性の補助 lens。`selection_lane` は primary thesis として確認する screen。`select-sweep` は複数 profile を同じ candidates / macro context に replay し、recommended detail、fast count、long-hold count、suppressed count、profile 間 diff、concentration / previous overlap / warnings を比較する。`--profile-config` の未知 key は fail-fast し、typo した profile を「検証済み」と誤認しない。`research` の選定プロセス ([`../components/research.md`](../components/research.md) §2) をスクリプトで支援する。
 
+`select` / `select-sweep` は `data/screening/market.sqlite` が存在すれば market regime snapshot を計算し、`risk_on_rally` の週は fast_dislocation の ranking boost を中立化する（[`mechanical.md`](./mechanical.md) §3.8.1）。`--sqlite-path` で cache 位置を上書き、`--no-regime-lens` で無効化できる。SQLite が無い場合は lens なしで動作し、`selection.diagnostics.market_regime` に `null` を記録する。
+
 ## 3. Required Env Vars
 
 - `JQUANTS_REFRESH_TOKEN`

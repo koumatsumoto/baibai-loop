@@ -44,11 +44,13 @@ def test_replay_to_payload_serializes_weeks() -> None:
         horizon_weeks=(1, 4),
         eval_cap=date(2026, 6, 5),
         benchmark_ticker="1321",
+        regime_lens=True,
         results=(
             ProfileWeekResult(
                 week=date(2026, 5, 1),
                 profile="balanced",
                 is_holdout=False,
+                market_regime={"regime": "risk_on_rally"},
                 recommended_tickers=("9682", "9692"),
                 recommended=(),
                 fast_dislocation_count=37,
@@ -71,6 +73,8 @@ def test_replay_to_payload_serializes_weeks() -> None:
     assert payload["weeks"][0]["recommended_tickers"] == ["9682", "9692"]
     assert payload["weeks"][0]["forward_aggregates"][0]["count"] == 2
     assert payload["weeks"][0]["distributions"]["selection_lane"] == {"sales-discount-growth": 2}
+    assert payload["regime_lens"] is True
+    assert payload["weeks"][0]["market_regime"] == {"regime": "risk_on_rally"}
 
 
 def test_week_spec_defaults_not_holdout() -> None:
