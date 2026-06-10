@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -13,11 +13,8 @@ BUILTIN_SELECTION_PROFILES = frozenset({"balanced"})
 
 
 class UniverseRules(BaseModel):
-    model_config = ConfigDict(frozen=True, strict=True)
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
-    min_market_cap_oku: int = Field(ge=0)
-    min_avg_turnover_oku: float = Field(ge=0)
-    listed_under_days: int = Field(ge=0)
     required_jpx_flags: tuple[str, ...]
 
     @field_validator("required_jpx_flags", mode="before")
@@ -221,10 +218,54 @@ class SelectionDiversityRules(BaseModel):
     previous_overlap_warning_ratio: float = Field(default=0.6, ge=0, le=1)
 
 
+class SelectionLiquidityRules(BaseModel):
+    """Analysis-layer scope parameters applied when ranking research candidates.
+
+    The screen itself covers every common stock; size, liquidity, seasoning,
+    and trading-restriction exclusions are applied here so they stay visible,
+    configurable facts instead of silently narrowing the data.
+    """
+
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+
+    min_market_cap_oku: float = Field(default=100, ge=0)
+    min_avg_turnover_oku: float = Field(default=1.0, ge=0)
+    min_listing_span_days: int = Field(default=182, ge=0)
+    exclude_jpx_flagged: bool = True
+
+    def matches(
+        self,
+        *,
+        market_cap_oku: float | None,
+        avg_turnover_oku: float | None,
+        listing_span_days: float | None,
+        jpx_flags: Sequence[str] | None,
+        required_jpx_flags: frozenset[str],
+        require_facts: bool,
+    ) -> bool:
+        """Single predicate for the investable set, shared by the median
+        population (``require_facts=True``: a missing fact disqualifies) and
+        the selection filter (``require_facts=False``: a missing fact passes
+        and is surfaced separately in diagnostics)."""
+        facts = (market_cap_oku, avg_turnover_oku, listing_span_days, jpx_flags)
+        if require_facts and any(value is None for value in facts):
+            return False
+        if market_cap_oku is not None and market_cap_oku < self.min_market_cap_oku:
+            return False
+        if avg_turnover_oku is not None and avg_turnover_oku < self.min_avg_turnover_oku:
+            return False
+        if listing_span_days is not None and listing_span_days < self.min_listing_span_days:
+            return False
+        return not (
+            self.exclude_jpx_flagged and jpx_flags and required_jpx_flags.intersection(jpx_flags)
+        )
+
+
 class SelectionRules(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
     default_profile: str = "balanced"
+    liquidity: SelectionLiquidityRules = Field(default_factory=SelectionLiquidityRules)
     fast_dislocation: FastDislocationRules = Field(default_factory=FastDislocationRules)
     long_hold_survivability: LongHoldSurvivabilityRules = Field(
         default_factory=LongHoldSurvivabilityRules

@@ -17,6 +17,7 @@ from ._coerce import (
     _metric_map,
     _number,
     _parse_date,
+    _string_sequence,
     _string_value,
 )
 
@@ -28,6 +29,8 @@ class CandidateRecord:
     sector_33: str
     market_cap_oku: float | None
     avg_turnover_oku: float | None
+    listing_span_days: float | None
+    jpx_flags: tuple[str, ...] | None
     evidence_hits: tuple[Mapping[str, object], ...]
     metrics: Mapping[str, object]
     freshness_warnings: tuple[Mapping[str, object], ...]
@@ -93,6 +96,8 @@ def candidate_record_from_mapping(raw: Mapping[str, object]) -> CandidateRecord:
         sector_33=_string_value(raw.get("sector_33")) or "",
         market_cap_oku=_number(raw.get("market_cap_oku")),
         avg_turnover_oku=_number(raw.get("avg_turnover_oku")),
+        listing_span_days=_number(raw.get("listing_span_days")),
+        jpx_flags=(_string_sequence(raw["jpx_flags"]) if "jpx_flags" in raw else None),
         evidence_hits=evidence_hits,
         metrics=_metric_map(raw.get("metrics")),
         freshness_warnings=freshness_warnings,

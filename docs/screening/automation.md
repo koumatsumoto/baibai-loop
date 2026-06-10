@@ -22,6 +22,7 @@ python -m baibai_loop.screening.cli bootstrap-cache --asof YYYY-MM-DD
 python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--macro-context path] [--top N] [--profile PROFILE]
 python -m baibai_loop.screening.cli select-sweep --asof YYYY-MM-DD [--macro-context path] [--top N] [--profiles balanced,my-experiment --profile-config path]
 python -m baibai_loop.screening.cli ticker-profile --ticker XXXX [--asof YYYY-MM-DD]
+python -m baibai_loop.screening.cli market-snapshot [--asof YYYY-MM-DD] [--weeks N]
 python -m baibai_loop.screening.cli extract-edinet-metrics --asof YYYY-MM-DD [--lookback-days N]
 python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--sqlite-path PATH] [--rules-path PATH]
 ```
@@ -35,6 +36,8 @@ python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--s
 `select` は最新 `records/04-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/01-macro-context/` を組み合わせて、research recommendations を出力する。Macro context は hard gate ではなく、sector / theme の診断として使う。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、full lens / debug detail は `--detail full` で出す。`fast_dislocation` は価格下落 trigger と fundamental guard family を同時に要求し、出来高 spike / 52 週安値距離だけでは eligible にしない。`long_hold_survivability` は保有耐性の補助 lens。`selection_lane` は primary thesis として確認する screen。`select-sweep` は複数 profile を同じ candidates / macro context に replay し、recommended detail、fast count、long-hold count、suppressed count、profile 間 diff、concentration / previous overlap / warnings を比較する。`--profile-config` の未知 key は fail-fast し、typo した profile を「検証済み」と誤認しない。`research` の選定プロセス ([`../components/research.md`](../components/research.md) §2) をスクリプトで支援する。
 
 `ticker-profile` は任意の上場銘柄(universe 内外を問わない)について、価格・流動性・対 benchmark / sector 相対・regime・イベント(次回決算日、JPX 規制 flag)・直近 candidates 記録・prior research を 1 つの事実 packet として出力する。valuation は candidates 記録から引用し、再計算しない(記録と矛盾する値を作らないため)。`--asof` 省略時は cache の最新営業日を使う。provider 認証は不要で、market.sqlite と records だけを読む。
+
+`market-snapshot` は週次の regime 履歴(benchmark trend・breadth・regime label)と asof 時点の sector 集計(20/60 営業日リターン中央値・sector 内 breadth)を出力する。regime の閾値・窓は regime module と同一の正本を共有する。macro context 作成時の機械入力としても使う。
 
 `select` / `select-sweep` は `data/screening/market.sqlite` が存在すれば market regime snapshot を計算し、`risk_on_rally` の週は fast_dislocation の ranking boost を中立化する（[`mechanical.md`](./mechanical.md) §3.8.1）。`--sqlite-path` で cache 位置を上書き、`--no-regime-lens` で無効化できる。SQLite が無い場合は lens なしで動作し、`selection.diagnostics.market_regime` に `null` を記録する。
 
@@ -102,7 +105,7 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 - HTML は `https://www.jpx.co.jp/` 配下の許可済み URL に限定し、source-specific parser で fail-fast に扱う
 - 特別注意銘柄は `JPX_SPECIAL_CAUTION_INDEX_URL` が設定されていれば、JPX の「個別銘柄信用取引残高表」index から最新の `mtdailyk*.xls` link を解決してから Excel を取得する。index 未設定時は `JPX_SPECIAL_CAUTION_URL` の固定 URL を使う
 - 規制情報の取得失敗は fail-fast
-- `universe.required_jpx_flags` の source が欠ける場合は fail-fast する。JPX 規制除外は universe 定義の一部であり、warning-only では扱わない
+- `universe.required_jpx_flags` の source が欠ける場合は fail-fast する。JPX 規制 flag は candidates に記録される必須事実であり(除外判断は `selection.liquidity` が担う)、warning-only では扱わない
 - JPX 公開規制情報は latest snapshot しか取得できないため、SQLite には `fetched_at_utc` を記録する。通常の coverage 検証では `asof` と `fetched_at_utc` が 7 weekday 超乖離していれば fail-fast する（祝日は引かない近似）
 - `screening run` は JPX を取得しない。historical backfill で latest snapshot を過去 `asof` に固定するリスクを許容する場合は、先に `bootstrap-cache --asof` で SQLite に保存し、`verify-cache-coverage --allow-stale-jpx` と `run --allow-stale-jpx` を明示する
 
@@ -118,7 +121,7 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 
 閾値の正本は `records/_config/screening-rules/2026-06-10T000000+0900.yaml`。実装側の hardcode は parser default と型定義に留め、運用で変える閾値は YAML に寄せる。
 
-- universe 閾値: 時価総額、平均売買代金、上場日数、JPX 除外 flag
+- scope / 絞り込み: `universe.required_jpx_flags`(記録対象の規制 flag)と `selection.liquidity`(時価総額・平均売買代金・上場期間・JPX 規制の分析層パラメータ)
 - playbook-linked screen 閾値: `valuation-reversion` / `strict-net-cash-discount` / `fcf-yield-discount` / `cash-rich-asset-discount` / `cashflow-yield-discount` / `sales-discount-growth`
 - TTM 期間一致基準: partial period の許容日数差、FY 期間長
 - 品質条件: 売上 YoY、営業利益、営業 CF 悪化、赤字縮小条件

@@ -11,12 +11,11 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 
 ## 2. 入力
 
-### 2.1 Universe
+### 2.1 Scope
 
-- 時価総額 100 億円以上
-- 20 営業日平均売買代金 1 億円以上
-- 上場 182 日以上
-- 特別注意 / 整理銘柄 / 取引停止 / 上場廃止警告を除外
+- 全上場普通株（プライム / スタンダード / グロース、直近 20 営業日以上の bar 履歴）
+- 時価総額・売買代金・上場期間・JPX 規制 flag は除外条件ではなく candidates に記録される事実。research 推奨への絞り込みは `selection.liquidity` が分析層で適用する
+- sector / 市場中央値の比較母集団は `selection.liquidity` を満たす流動性母集団に固定する
 - 詳細: [`universe-rules.md`](./universe-rules.md)
 
 ### 2.2 指標

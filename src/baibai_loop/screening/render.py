@@ -113,6 +113,8 @@ def _build_candidate_entry(
     entry["avg_turnover_oku"] = (
         round(candidate.avg_turnover_oku, 1) if candidate.avg_turnover_oku is not None else None
     )
+    entry["listing_span_days"] = candidate.listing_span_days
+    entry["jpx_flags"] = [QuotedString(flag) for flag in candidate.jpx_flags]
     entry["price_change_1d"] = _round_ratio(candidate.price_change_1d)
     entry["price_change_5d"] = _round_ratio(candidate.price_change_5d)
     entry["price_change_20d"] = _round_ratio(candidate.price_change_20d)

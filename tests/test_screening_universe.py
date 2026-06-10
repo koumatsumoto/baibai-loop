@@ -18,8 +18,8 @@ from baibai_loop.screening.universe import build_universe
 def _bars(
     code: str, close: float = 100.0, turnover: float = 100_000_000.0
 ) -> list[JQuantsDailyBar]:
-    # Span 200 days ending at 2026-04-24 so listing_span >= LISTED_UNDER_DAYS (182).
-    # Only the trailing 20 bars populate turnover/close for universe filters.
+    # Span 200 days ending at 2026-04-24; the trailing 20 bars feed the
+    # turnover / market-cap facts recorded on each snapshot.
     end = date(2026, 4, 24)
     total = 200
     start = end - timedelta(days=total - 1)
@@ -72,7 +72,7 @@ class ScreeningUniverseTests(unittest.TestCase):
         self.assertIn("201A", result.snapshots)
         self.assertEqual(result.snapshots["201A"].market_cap_oku, 200)
 
-    def test_build_universe_excludes_turnover_below_1_oku(self) -> None:
+    def test_build_universe_records_thin_turnover_as_fact(self) -> None:
         security = SecurityMaster(
             code="202A",
             name="Thin Trading",
@@ -87,10 +87,13 @@ class ScreeningUniverseTests(unittest.TestCase):
             shares_outstanding_by_ticker={"202A": 300_000_000.0},
             jpx_flags_by_ticker={},
         )
-        self.assertNotIn("202A", result.snapshots)
-        self.assertEqual(result.exclusion_counts.get("avg_turnover_below_threshold"), 1)
+        # Liquidity is an analysis-layer parameter: the snapshot keeps the fact
+        # instead of excluding the security from the screen scope.
+        self.assertIn("202A", result.snapshots)
+        self.assertEqual(result.snapshots["202A"].avg_turnover_oku, 1.0)
+        self.assertEqual(result.exclusion_counts, {})
 
-    def test_build_universe_excludes_jpx_regulated_security(self) -> None:
+    def test_build_universe_records_jpx_flags_as_fact(self) -> None:
         security = SecurityMaster(
             code="7203",
             name="Sample",
@@ -105,10 +108,13 @@ class ScreeningUniverseTests(unittest.TestCase):
             shares_outstanding_by_ticker={"7203": 400_000_000.0},
             jpx_flags_by_ticker={"7203": ("整理銘柄",)},
         )
-        self.assertNotIn("7203", result.snapshots)
-        self.assertEqual(result.exclusion_counts["jpx_regulation"], 1)
+        # Regulation flags are recorded as facts; the exclusion decision moves
+        # to the selection liquidity rules.
+        self.assertIn("7203", result.snapshots)
+        self.assertEqual(result.snapshots["7203"].jpx_flags, ("整理銘柄",))
+        self.assertEqual(result.exclusion_counts, {})
 
-    def test_build_universe_flags_recent_listing_as_under_6_months(self) -> None:
+    def test_build_universe_records_listing_span_as_fact(self) -> None:
         security = SecurityMaster(
             code="300A",
             name="Newly Listed",
@@ -134,5 +140,33 @@ class ScreeningUniverseTests(unittest.TestCase):
             shares_outstanding_by_ticker={"300A": 400_000_000.0},
             jpx_flags_by_ticker={},
         )
-        self.assertNotIn("300A", result.snapshots)
-        self.assertEqual(result.exclusion_counts.get("listed_under_6_months"), 1)
+        self.assertIn("300A", result.snapshots)
+        self.assertEqual(result.snapshots["300A"].listing_span_days, 90)
+
+    def test_build_universe_excludes_insufficient_bar_history(self) -> None:
+        security = SecurityMaster(
+            code="400A",
+            name="Few Bars",
+            market_segment="Growth",
+            sector_33="情報・通信業",
+            is_common_stock=True,
+        )
+        end = date(2026, 4, 24)
+        bars = [
+            JQuantsDailyBar(
+                ticker="400A",
+                traded_at=end - timedelta(days=10 - idx),
+                close=100.0,
+                turnover_value=300_000_000.0,
+            )
+            for idx in range(10)
+        ]
+        result = build_universe(
+            asof_date=end,
+            securities=[security],
+            bars_by_ticker={"400A": bars},
+            shares_outstanding_by_ticker={"400A": 400_000_000.0},
+            jpx_flags_by_ticker={},
+        )
+        self.assertNotIn("400A", result.snapshots)
+        self.assertEqual(result.exclusion_counts.get("insufficient_bar_history"), 1)

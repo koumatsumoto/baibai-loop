@@ -1,7 +1,4 @@
 universe:
-  min_market_cap_oku: 100
-  min_avg_turnover_oku: 1.0
-  listed_under_days: 182
   required_jpx_flags:
   - 特別注意銘柄
   - 整理銘柄
@@ -32,6 +29,13 @@ output:
   - sales-discount-growth
 selection:
   default_profile: balanced
+  # screen は全普通株を対象にする。規模・流動性・上場期間・JPX 規制の絞り込みは
+  # 分析層のパラメータとしてここで適用する(事実は candidates に記録済み)。
+  liquidity:
+    min_market_cap_oku: 100
+    min_avg_turnover_oku: 1.0
+    min_listing_span_days: 182
+    exclude_jpx_flagged: true
   fast_dislocation:
     enabled: true
     price_change_1d_max: -0.05

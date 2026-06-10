@@ -45,6 +45,7 @@ v1 は keyless CSV で取得できる FRB H.15、FRED CSV、ECB FX を優先す�
 `records/_config/screening-rules/2026-06-10T000000+0900.yaml` の `selection` block は、research recommendations を作る triage layer の既定値です。
 
 - `selection.default_profile`: 明示 `--profile` がない場合の built-in profile。built-in は `balanced` のみで、それ以外は rules load 時に error
+- `selection.liquidity`: research 推奨に適用する規模・流動性・上場期間・JPX 規制の絞り込みパラメータ。screen の scope は全普通株で、絞り込みはこの分析層パラメータだけが担う
 - `selection.fast_dislocation`: 1d / 5d / 20d / 60d 下落、52 週安値距離、出来高 spike、fundamental guard の閾値。fast eligible には価格下落 trigger が必須で、52 週安値距離と出来高 spike は補助 trigger。built-in profile (`balanced`) はコード側の閾値を優先し、この YAML block は load-time contract と custom profile のベースとして扱う
 - `selection.long_hold_survivability`: equity ratio、net cash、cash、OCF / FCF、営業利益、流動性から `high|medium|low|unknown` を付ける閾値
 - `selection.diversity`: recommendations の sector / lane concentration、過去 candidates の混入上限、previous overlap warning

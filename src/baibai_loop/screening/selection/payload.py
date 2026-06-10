@@ -9,7 +9,7 @@ from datetime import date
 from baibai_loop.macro_context import MacroContext
 
 from ..regime import MarketRegime, MarketRegimeSnapshot
-from ..rule_config import ScreeningRules, SelectionDiversityRules
+from ..rule_config import ScreeningRules, SelectionDiversityRules, SelectionLiquidityRules
 from ..tiers import position_tier
 from ._coerce import (
     _dict_sequence,
@@ -96,10 +96,21 @@ def build_selection_payload(
     # first, the inverse of the measured lane quality (lane-cohorts-2026-05).
     lane_order = tuple(rules.output.research_selection_lane_order)
 
+    liquidity = selection_rules.liquidity
+    required_jpx_flags = frozenset(rules.universe.required_jpx_flags)
+    liquidity_excluded_count = 0
+    liquidity_fact_missing_count = 0
+
     ranked_entries: list[tuple[tuple[object, ...], dict[str, object]]] = []
     macro_context_checked_count = 0
 
     for item in candidates:
+        passes, facts_missing = _passes_liquidity(item, liquidity, required_jpx_flags)
+        if facts_missing:
+            liquidity_fact_missing_count += 1
+        if not passes:
+            liquidity_excluded_count += 1
+            continue
         macro_context_checked_count += 1
         macro_context_result = _candidate_macro_context_result(
             item,
@@ -164,6 +175,8 @@ def build_selection_payload(
         profile=effective_profile,
         market_regime=market_regime,
         fast_boost_active=fast_boost_active,
+        liquidity_excluded_count=liquidity_excluded_count,
+        liquidity_fact_missing_count=liquidity_fact_missing_count,
     )
     recommendations = (
         recommended
@@ -185,6 +198,7 @@ def build_selection_payload(
             },
             "counts": {
                 "input": len(candidates),
+                "after_liquidity_filter": len(candidates) - liquidity_excluded_count,
                 "after_macro_context_check": macro_context_checked_count,
                 "after_evidence_filter": len(ranked_candidates),
             },
@@ -396,6 +410,35 @@ def _recommended_research_candidates(
     return selected
 
 
+def _passes_liquidity(
+    item: CandidateRecord,
+    liquidity: SelectionLiquidityRules,
+    required_jpx_flags: frozenset[str],
+) -> tuple[bool, bool]:
+    """Apply the analysis-layer scope parameters to one candidate.
+
+    Returns ``(passes, facts_missing)``. A missing liquidity fact passes the
+    filter (the screen records facts for every common stock, so absence means
+    the input predates the fact or shares data was unavailable) but is counted
+    so degraded inputs stay visible in diagnostics.
+    """
+    facts_missing = (
+        item.market_cap_oku is None
+        or item.avg_turnover_oku is None
+        or item.listing_span_days is None
+        or item.jpx_flags is None
+    )
+    passes = liquidity.matches(
+        market_cap_oku=item.market_cap_oku,
+        avg_turnover_oku=item.avg_turnover_oku,
+        listing_span_days=item.listing_span_days,
+        jpx_flags=item.jpx_flags,
+        required_jpx_flags=required_jpx_flags,
+        require_facts=False,
+    )
+    return passes, facts_missing
+
+
 def _diagnostics(
     *,
     recommended: Sequence[dict[str, object]],
@@ -405,6 +448,8 @@ def _diagnostics(
     profile: str,
     market_regime: MarketRegimeSnapshot | None = None,
     fast_boost_active: bool = True,
+    liquidity_excluded_count: int = 0,
+    liquidity_fact_missing_count: int = 0,
 ) -> dict[str, object]:
     recommended_tickers = {
         ticker for item in recommended if (ticker := _string_value(item.get("ticker"))) is not None
@@ -438,6 +483,8 @@ def _diagnostics(
         "warnings": warnings,
         "market_regime": market_regime.to_dict() if market_regime is not None else None,
         "fast_dislocation_boost": "active" if fast_boost_active else "neutralized",
+        "liquidity_excluded_count": liquidity_excluded_count,
+        "liquidity_fact_missing_count": liquidity_fact_missing_count,
         "previous_overlap": {
             "previous_candidates_ref": previous_candidates.ref_path,
             "overlap_count": len(overlap_tickers),

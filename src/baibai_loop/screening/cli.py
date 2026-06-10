@@ -27,6 +27,7 @@ from .freshness import detect_edinet_freshness_warnings, load_disclosure_events
 from .lineage import (
     build_run_id,
 )
+from .market_snapshot import build_market_snapshot
 from .metrics import (
     build_metrics,
     build_shares_outstanding_index,
@@ -65,6 +66,7 @@ from .schema import (
     ScreenedRunDocument,
     SecurityMaster,
     TTMQuality,
+    UniverseSnapshot,
     normalize_ticker,
 )
 from .selection import (
@@ -83,6 +85,7 @@ from .sqlite_coverage import CacheCoverageIssue, verify_screening_sqlite_coverag
 from .sqlite_reader import latest_daily_bar_date
 from .ticker_profile import build_ticker_profile
 from .universe import (
+    MIN_BAR_HISTORY,
     build_universe,
 )
 
@@ -149,6 +152,8 @@ class _ScreenedCandidateInput(BaseModel):
     sector_33: str = ""
     market_cap_oku: int | float | None = None
     avg_turnover_oku: int | float | None = None
+    listing_span_days: int | None = None
+    jpx_flags: list[str] = Field(default_factory=list)
     price_change_1d: float | None = None
     price_change_5d: float | None = None
     price_change_20d: float | None = None
@@ -356,6 +361,26 @@ def build_parser() -> argparse.ArgumentParser:
         default=".",
         help="repository root for ledger lookups (default: current directory)",
     )
+
+    snapshot_parser = subparsers.add_parser(
+        "market-snapshot",
+        help="emit the market state packet (weekly regime history and sector aggregates)",
+    )
+    snapshot_parser.add_argument(
+        "--asof",
+        help="evaluation date (YYYY-MM-DD; default: latest cached trading day)",
+    )
+    snapshot_parser.add_argument(
+        "--weeks",
+        type=int,
+        default=12,
+        help="number of weekly history points (default: 12)",
+    )
+    snapshot_parser.add_argument(
+        "--sqlite-path",
+        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
+        help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
+    )
     return parser
 
 
@@ -417,6 +442,14 @@ def main(argv: list[str] | None = None) -> int:
             sqlite_path=Path(args.sqlite_path),
             candidates_root=Path(args.candidates_root),
             ledger_root=Path(args.root) / "records",
+        )
+
+    if args.command == "market-snapshot":
+        # market-snapshot reads the SQLite store only; no provider credentials needed.
+        return market_snapshot_command(
+            asof=args.asof,
+            weeks=args.weeks,
+            sqlite_path=Path(args.sqlite_path),
         )
 
     if args.command == "verify-cache-coverage":
@@ -685,10 +718,6 @@ def run_command(
         bars_by_ticker=bars_by_ticker,
         shares_outstanding_by_ticker=shares_by_ticker,
         jpx_flags_by_ticker=jpx_snapshot.flags_by_ticker,
-        min_market_cap_oku=rules.universe.min_market_cap_oku,
-        min_avg_turnover_oku=rules.universe.min_avg_turnover_oku,
-        listed_under_days=rules.universe.listed_under_days,
-        required_jpx_flags=frozenset(rules.universe.required_jpx_flags),
     )
     # is_common_stock フィルタを明示して、同一 4 桁 code に優先株などが混じった場合の
     # dict 上書きを防ぐ (build_universe は非共通株を弾くが、snapshots に残った共通株の
@@ -698,6 +727,7 @@ def run_command(
         for security in securities
         if security.is_common_stock and security.code in universe_result.snapshots
     }
+    median_population = _liquid_median_population(universe_result.snapshots, rules)
     metric_result = build_metrics(
         asof_date=asof_date,
         securities_by_ticker=securities_by_ticker,
@@ -705,6 +735,7 @@ def run_command(
         summaries_by_ticker=summaries_by_ticker,
         edinet_by_ticker=edinet_by_ticker,
         rules=rules,
+        median_population=median_population,
     )
     disclosure_load_result = load_disclosure_events(
         config.cache_dir / "disclosures",
@@ -754,6 +785,8 @@ def run_command(
                 },
                 market_cap_oku=universe_snapshot.market_cap_oku,
                 avg_turnover_oku=universe_snapshot.avg_turnover_oku,
+                listing_span_days=universe_snapshot.listing_span_days,
+                jpx_flags=universe_snapshot.jpx_flags,
                 price_change_1d=derived.price_change_1d,
                 price_change_5d=derived.price_change_5d,
                 price_change_20d=derived.price_change_20d,
@@ -805,20 +838,39 @@ def run_command(
     approx_total = metric_result.ttm_quality_counts.get(
         "approximated", 0
     ) + metric_result.ttm_quality_counts.get("unavailable", 0)
-    required_ttm_non_exact = _required_ttm_non_exact_count(metric_result.financials.values(), rules)
-    partial_warning = universe_size > 0 and (
+    # Quality gates watch data degradation for the investable population so
+    # the wider all-common-stock scope does not dilute the warning ratios.
+    population_financials = [
+        snapshot
+        for ticker, snapshot in metric_result.financials.items()
+        if ticker in median_population
+    ]
+    population_size = len(median_population)
+    required_ttm_non_exact = _required_ttm_non_exact_count(population_financials, rules)
+    population_yoy_missing = sum(
+        1
+        for snapshot in population_financials
+        if snapshot.eps_yoy is None
+        or snapshot.sales_yoy is None
+        or snapshot.operating_profit_yoy is None
+    )
+    partial_warning = population_size > 0 and (
         required_ttm_non_exact >= rules.quality.partial_warning_ttm_count
-        or (required_ttm_non_exact / universe_size) >= rules.quality.partial_warning_ttm_ratio
-        or (metric_result.yoy_missing_count / universe_size)
+        or (required_ttm_non_exact / population_size) >= rules.quality.partial_warning_ttm_ratio
+        or (population_yoy_missing / population_size)
         >= rules.quality.partial_warning_yoy_missing_ratio
     )
     fallback_lines: list[str] = []
     if approx_total:
         fallback_lines.append(f"ttm_quality 非 exact 件数: {approx_total}")
     if required_ttm_non_exact:
-        fallback_lines.append(f"有効 lane 必須 TTM metric 非 exact 件数: {required_ttm_non_exact}")
-    if metric_result.yoy_missing_count:
-        fallback_lines.append(f"業績悪化フィルタ入力欠損: {metric_result.yoy_missing_count} 銘柄")
+        fallback_lines.append(
+            f"有効 lane 必須 TTM metric 非 exact 件数(流動性母集団): {required_ttm_non_exact}"
+        )
+    if population_yoy_missing:
+        fallback_lines.append(
+            f"業績悪化フィルタ入力欠損(流動性母集団): {population_yoy_missing} 銘柄"
+        )
     if edinet_load_error is not None:
         fallback_lines.append(f"EDINET 読み込み失敗: {edinet_load_error}")
     if disclosure_load_result.load_errors:
@@ -858,14 +910,25 @@ def run_command(
     else:
         provider_status_lines.append("Disclosure title material-event scan: optional unavailable")
 
+    cap_null_count = sum(
+        1 for snapshot in universe_result.snapshots.values() if snapshot.market_cap_oku is None
+    )
+    turnover_null_count = sum(
+        1 for snapshot in universe_result.snapshots.values() if snapshot.avg_turnover_oku is None
+    )
+    provider_status_lines.append(
+        f"Median population (selection.liquidity): {population_size} of {universe_size} in scope "
+        f"(market_cap null={cap_null_count}, turnover null={turnover_null_count})"
+    )
+
     document = ScreenedRunDocument(
         run_date=asof_date,
         asof_date=asof_date,
         universe_size=universe_size,
         filters={
-            "min_market_cap_oku": rules.universe.min_market_cap_oku,
-            "min_avg_turnover_oku": rules.universe.min_avg_turnover_oku,
-            "exclude_listed_under_days": rules.universe.listed_under_days,
+            "scope": "all-common-stocks",
+            "markets": "prime/standard/growth",
+            "min_bar_history": MIN_BAR_HISTORY,
         },
         candidates=tuple(screened_candidates),
         run_at=run_now,
@@ -934,6 +997,38 @@ def ticker_profile_command(
         asof_date=asof_date,
         candidates_root=candidates_root,
         ledger_root=ledger_root,
+    )
+    yaml.dump(payload, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
+    return 0
+
+
+def market_snapshot_command(
+    *,
+    asof: str | None,
+    weeks: int,
+    sqlite_path: Path,
+    stdout: TextIO | None = None,
+) -> int:
+    out = stdout if stdout is not None else sys.stdout
+    if weeks < 1:
+        print("--weeks must be greater than zero", file=sys.stderr)
+        return 1
+    if asof is not None:
+        asof_date = _parse_iso_date(asof)
+    else:
+        today = datetime.now(JST).date()
+        resolved = latest_daily_bar_date(sqlite_path, today - timedelta(days=30), today)
+        if resolved is None:
+            print(
+                f"no cached daily bars found to resolve --asof: {sqlite_path}",
+                file=sys.stderr,
+            )
+            return 1
+        asof_date = resolved
+    payload = build_market_snapshot(
+        sqlite_path=sqlite_path,
+        asof_date=asof_date,
+        history_weeks=weeks,
     )
     yaml.dump(payload, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
     return 0
@@ -1187,6 +1282,34 @@ def _parse_candidates_yaml_payload(path: Path) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise ValueError(f"candidates YAML root must be a mapping: {path}")
     return payload
+
+
+def _liquid_median_population(
+    snapshots: Mapping[str, UniverseSnapshot],
+    rules: ScreeningRules,
+) -> frozenset[str]:
+    """Tickers whose facts satisfy the selection liquidity parameters.
+
+    Sector / market medians and sector relative strength compare against this
+    investable population so the screen's relative-valuation judgments stay
+    anchored to liquid comparables while every common stock is evaluated. Uses
+    the base-config liquidity rules; ``--profile-config`` overrides apply only
+    to the selection filter, not to this population.
+    """
+    liquidity = rules.selection.liquidity
+    required_jpx = frozenset(rules.universe.required_jpx_flags)
+    return frozenset(
+        ticker
+        for ticker, snapshot in snapshots.items()
+        if liquidity.matches(
+            market_cap_oku=snapshot.market_cap_oku,
+            avg_turnover_oku=snapshot.avg_turnover_oku,
+            listing_span_days=snapshot.listing_span_days,
+            jpx_flags=snapshot.jpx_flags,
+            required_jpx_flags=required_jpx,
+            require_facts=True,
+        )
+    )
 
 
 def _evidence_hits_summary(

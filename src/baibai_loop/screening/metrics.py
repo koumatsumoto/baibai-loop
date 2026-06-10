@@ -35,7 +35,17 @@ def build_metrics(
     summaries_by_ticker: Mapping[str, Sequence[JQuantsFinancialSummary]],
     edinet_by_ticker: Mapping[str, EdinetMetricRecord],
     rules: ScreeningRules | None = None,
+    median_population: frozenset[str] | None = None,
 ) -> MetricBuildResult:
+    """Build per-ticker financial and derived metrics for the screen scope.
+
+    ``median_population`` restricts the comparison population for sector / market
+    medians and sector relative strength to the given tickers (the investable,
+    liquid set), while metrics are still computed for every ticker in
+    ``securities_by_ticker``. This keeps relative-valuation judgments anchored
+    to investable comparables even though the screen covers all common stocks;
+    ``None`` uses the full scope as the population.
+    """
     rules = rules or load_screening_rules()
     financials: dict[str, FinancialSnapshot] = {}
     latest_prices: dict[str, float] = {}
@@ -53,8 +63,13 @@ def build_metrics(
             rules=rules,
         )
 
+    def _in_population(ticker: str) -> bool:
+        return median_population is None or ticker in median_population
+
     sector_metric_values: dict[str, dict[str, list[float]]] = {}
     for ticker, snapshot in financials.items():
+        if not _in_population(ticker):
+            continue
         sector = securities_by_ticker[ticker].sector_33
         sector_bucket = sector_metric_values.setdefault(
             sector, {metric: [] for metric in VALUATION_METRICS}
@@ -67,8 +82,8 @@ def build_metrics(
     market_metric_values = {
         metric: [
             getattr(snapshot, metric)
-            for snapshot in financials.values()
-            if getattr(snapshot, metric) is not None
+            for ticker, snapshot in financials.items()
+            if _in_population(ticker) and getattr(snapshot, metric) is not None
         ]
         for metric in VALUATION_METRICS
     }
@@ -79,9 +94,13 @@ def build_metrics(
         four_week = _price_change(bars_by_ticker.get(ticker, ()), 20, asof_date)
         if four_week is not None:
             ticker_returns_4w[ticker] = four_week
-            sector_returns.setdefault(security.sector_33, []).append(four_week)
+            if _in_population(ticker):
+                sector_returns.setdefault(security.sector_33, []).append(four_week)
 
-    market_return_4w = mean(ticker_returns_4w.values()) if ticker_returns_4w else None
+    population_returns_4w = [
+        value for ticker, value in ticker_returns_4w.items() if _in_population(ticker)
+    ]
+    market_return_4w = mean(population_returns_4w) if population_returns_4w else None
     sector_rs = {
         sector: (mean(values) - market_return_4w)
         if values and market_return_4w is not None
