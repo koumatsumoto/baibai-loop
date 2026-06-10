@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import date
@@ -67,7 +66,3 @@ def compute_sqlite_summary(sqlite_path: Path | None) -> dict[str, object] | None
         "user_version": user_version,
         "coverage": [entry.as_payload() for entry in coverage_by_source.values()],
     }
-
-
-def dumps_sqlite_summary(summary: dict[str, object]) -> str:
-    return json.dumps(summary, ensure_ascii=False, sort_keys=True)

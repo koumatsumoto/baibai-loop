@@ -1,6 +1,6 @@
 ---
 title: "Reference index"
-summary: "Stable reference entry point for data sources, configuration, naming, validation, glossary, and Python foundation."
+summary: "Stable reference entry point for data sources, configuration, naming, validation, and Python foundation."
 doc_type: reference-index
 status: active
 last_reviewed: 2026-05-04
@@ -18,5 +18,3 @@ last_reviewed: 2026-05-04
 | [`testing-and-validation.md`](./testing-and-validation.md) | `records/_schemas/`、validator、test / CI verification |
 | [`edinet-csv-metrics-coverage.md`](./edinet-csv-metrics-coverage.md) | EDINET `type=5` CSV-derived metrics の coverage / precision 確認 |
 | [`python-foundation.md`](./python-foundation.md) | Python runtime、dependency、quality gate、CI parity |
-
-Glossary は [`../glossary/`](../glossary/) を正本とする。

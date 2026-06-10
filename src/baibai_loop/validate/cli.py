@@ -17,7 +17,6 @@ from .candidates import discover_candidates_files, validate_candidates_file
 from .errors import ValidationFinding
 from .ledger import discover_ledger_files, validate_ledger_file
 from .macro_context import discover_macro_context_files, validate_macro_context_file
-from .market_data import discover_market_data_files, validate_market_data_file
 from .playbook_schema import discover_playbook_schemas
 from .policy import validate_policy_file
 from .research import (
@@ -37,7 +36,6 @@ type ValidationTarget = Literal[
     "research",
     "trade",
     "ledger",
-    "market-data",
     "review",
 ]
 _TARGETS: tuple[ValidationTarget, ...] = (
@@ -47,7 +45,6 @@ _TARGETS: tuple[ValidationTarget, ...] = (
     "research",
     "trade",
     "ledger",
-    "market-data",
     "review",
 )
 
@@ -57,7 +54,6 @@ CANDIDATES_ROOT = Path("records/04-candidates")
 RESEARCH_ROOT = Path("records/05-research")
 TRADES_ROOT = Path("records/06-trades")
 LEDGER_ROOT = Path("records/_ledger")
-MARKET_DATA_ROOT = Path("records/_market-data")
 PLAYBOOKS_ROOT = Path("records/_playbooks")
 REVIEWS_ROOT = Path("records/07-reviews")
 
@@ -180,8 +176,6 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
             return discover_trade_files(root / TRADES_ROOT)
         case "ledger":
             return discover_ledger_files(root / LEDGER_ROOT)
-        case "market-data":
-            return discover_market_data_files(root / MARKET_DATA_ROOT)
         case "review":
             return discover_review_files(root / REVIEWS_ROOT)
         case _ as unhandled:  # pragma: no cover
@@ -211,8 +205,6 @@ def _validate(
             return validate_trade_file(path)
         case "ledger":
             return validate_ledger_file(path)
-        case "market-data":
-            return validate_market_data_file(path)
         case "review":
             return validate_review_file(path)
         case _ as unhandled:  # pragma: no cover

@@ -54,6 +54,17 @@ related_docs:
 - variant は事前列挙した機能スイッチであり、閾値 sweep は行っていない(forward-only 原則)
 - 「queue を変えない機能」は「この 4 週で発動機会がなかった」ことを意味し、機能の論理的不要を直ちに意味しない(prior suppression が典型)。削減判断では発動条件の論理とコード保守コストを併せて評価する
 
+## 2026-06-10 の適用結果
+
+本計測と lane cohorts / replay の実測、および利用状況調査に基づき、以下を適用した(#217):
+
+- `evidence_count` sort 成分を削除(全 variant で queue 無変化)
+- long_hold を sort key から外し annotation に限定(ranking 寄与の観測なし)
+- lane 順序の正本を config `research_selection_lane_order` に一本化(コード内 `_LANE_RANK` を廃止)。順序値は queue 実測を優先して旧 `_LANE_RANK` 順(valuation-reversion 先頭)に据え置き、cohort 実測順への変更はサンプル蓄積後に再判断する
+- built-in selection profile を `balanced` のみに削減(custom profile は `--profile-config` 経由)
+
+適用後の replay(regime lens on、balanced top5、2026-05 4 週)は 1w mean relative -0.48 → +0.75pt / 4w -3.19 → +0.58pt と旧構成を上回った(queue 重複 1〜2/5。multi-hit 候補の primary lane 正規化が統一されたことで diversity cap の効きが変わった効果が大きい。in-sample・小サンプルの限界は他計測と同様)。
+
 ## 再現手順
 
 ```bash

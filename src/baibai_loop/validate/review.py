@@ -241,6 +241,10 @@ def _markdown_front_matter(path: Path) -> Mapping[str, Any] | None:
 
 
 def _validate_review_scan_file(path: Path) -> list[ValidationFinding]:
+    # Scan artifacts (e.g. playbook-attribution YAML) only need to stay
+    # machine-readable; their fields are aggregates the retro recomputes. The
+    # old market_data_ref cross-check validated refs into records/_market-data/,
+    # a fallback store that was never operated, so it never fired.
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
@@ -261,103 +265,7 @@ def _validate_review_scan_file(path: Path) -> list[ValidationFinding]:
                 message="review scan YAML must be a mapping",
             )
         ]
-    findings: list[ValidationFinding] = []
-    findings.extend(_check_scan_repository_refs(path, raw))
-    return findings
-
-
-def _check_scan_repository_refs(path: Path, scan: Mapping[str, Any]) -> list[ValidationFinding]:
-    specs = {
-        "market_data_ref": ("records/_market-data/", (".yaml", ".yml")),
-    }
-    root = repo_root_for(path)
-    findings: list[ValidationFinding] = []
-    for field, (prefix, suffixes) in specs.items():
-        value = scan.get(field)
-        if value is None:
-            continue
-        if not isinstance(value, Mapping):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="review-scan.repository-ref",
-                    message=f"{field} must be a repository ref mapping",
-                    location=field,
-                )
-            )
-            continue
-        ref = value.get("ref_path")
-        error = repository_ref_error(ref, root=root)
-        if error is not None:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="review-scan.repository-ref",
-                    message=error,
-                    location=f"{field}.ref_path",
-                )
-            )
-            continue
-        assert isinstance(ref, str)
-        ref_path = resolve_repository_ref(root, ref)
-        if not ref.startswith(prefix):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="review-scan.repository-ref",
-                    message=f"{field}.ref_path must point under {prefix}",
-                    location=f"{field}.ref_path",
-                )
-            )
-        if ref_path.suffix not in suffixes:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="review-scan.repository-ref",
-                    message=f"{field}.ref_path must use YAML",
-                    location=f"{field}.ref_path",
-                )
-            )
-            continue
-        if not ref_path.is_file():
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="review-scan.repository-ref",
-                    message=f"referenced file does not exist: {ref}",
-                    location=f"{field}.ref_path",
-                )
-            )
-            continue
-        try:
-            loaded = yaml.safe_load(ref_path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError) as exc:
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="review-scan.repository-ref",
-                    message=f"referenced file cannot be parsed: {exc}",
-                    location=f"{field}.ref_path",
-                )
-            )
-            continue
-        if not isinstance(loaded, Mapping):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="review-scan.repository-ref",
-                    message="referenced YAML must be a mapping",
-                    location=f"{field}.ref_path",
-                )
-            )
-    return findings
+    return []
 
 
 def _format_path(parts: Iterable[Any]) -> str:

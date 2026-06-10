@@ -17,7 +17,6 @@ last_reviewed: 2026-05-04
 | 初めて repo を触る人 | [`concepts.md`](./concepts.md) -> [`architecture/system-overview.md`](./architecture/system-overview.md) -> [`philosophy.md`](./philosophy.md) -> [`design-principles.md`](./design-principles.md) | 何を作っているか、なぜこの形か、守る原則を把握する |
 | records を作成する人 | [`operations/README.md`](./operations/README.md) -> [`components/README.md`](./components/README.md) | 手順入口と成果物ごとの contract を確認する |
 | screening / automation を触る人 | [`architecture/automation-map.md`](./architecture/automation-map.md) -> [`screening/README.md`](./screening/README.md) -> [`reference/testing-and-validation.md`](./reference/testing-and-validation.md) | CLI、schema、validation、screening subsystem の境界を確認する |
-| docs を変更する人 | [`governance/docs-style-guide.md`](./governance/docs-style-guide.md) -> [`governance/docs-review-process.md`](./governance/docs-review-process.md) | front matter、link、review 手順を確認する |
 | Python 基盤を変更する人 | [`reference/python-foundation.md`](./reference/python-foundation.md) | runtime、dependency、quality gate、CI と local parity を確認する |
 
 ## 区分
@@ -29,7 +28,6 @@ last_reviewed: 2026-05-04
 | `components/` | `records/` に残る成果物の contract | [`components/README.md`](./components/README.md) |
 | `operations/` | いつ、どう作るかの runbook 入口 | [`operations/README.md`](./operations/README.md) |
 | `reference/` | data sources、configuration、layout、validation、Python foundation | [`reference/README.md`](./reference/README.md) |
-| `glossary/` | 金融一般の意味と Baibai-Loop 固有語 | [`glossary/README.md`](./glossary/README.md) |
 | `governance/` | docs 自体を維持するためのルール | [`governance/README.md`](./governance/README.md) |
 | `templates/` | artifact 作成時にコピーする template | [`templates/README.md`](./templates/README.md) |
 | `screening/` | candidates 生成を支える subsystem 詳細 | [`screening/README.md`](./screening/README.md) |
@@ -43,7 +41,6 @@ last_reviewed: 2026-05-04
 | `records/05-research/` の作成・変更 | [`operations/research-runbook.md`](./operations/research-runbook.md), [`components/research.md`](./components/research.md), [`components/playbooks.md`](./components/playbooks.md) |
 | `records/06-trades/` / `records/07-reviews/` の作成・変更 | [`components/trades.md`](./components/trades.md), [`components/reviews.md`](./components/reviews.md), [`operations/review-runbook.md`](./operations/review-runbook.md) |
 | schema / validator / tests / CI の変更 | [`reference/testing-and-validation.md`](./reference/testing-and-validation.md), [`reference/python-foundation.md`](./reference/python-foundation.md), [`architecture/automation-map.md`](./architecture/automation-map.md) |
-| docs の移動・分割・削除 | [`governance/docs-style-guide.md`](./governance/docs-style-guide.md), [`governance/docs-review-process.md`](./governance/docs-review-process.md) |
 
 ## 正本の境界
 
@@ -52,4 +49,3 @@ last_reviewed: 2026-05-04
 - 失敗パターンの正本は [`anti-patterns.md`](./anti-patterns.md) に残す。governance 側は運用入口を置く。
 - component contract は [`components/`](./components/) に残す。既存 `components/*.md` の path と節構造は凍結する。
 - Root 直下に分散した内容は置かず、参照先は `operations/`, `architecture/`, `reference/` の正本へ寄せる。
-- Glossary は [`glossary/`](./glossary/) を正本とする。

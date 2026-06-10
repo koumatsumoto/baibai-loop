@@ -82,7 +82,7 @@ class OperationalE2ETests(unittest.TestCase):
                 ROOT / "records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml"
             ),
             top=10,
-            profiles=("strict", "balanced", "loose"),
+            profiles=("balanced",),
             candidates_root=ROOT / "records/04-candidates",
             macro_context_root=ROOT / "records/01-macro-context",
             stdout=buffer,
@@ -90,7 +90,7 @@ class OperationalE2ETests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         payload = yaml.safe_load(buffer.getvalue())
         profiles = {profile["profile"]: profile for profile in payload["profiles"]}
-        self.assertEqual(set(profiles), {"strict", "balanced", "loose"})
+        self.assertEqual(set(profiles), {"balanced"})
         recommended_tickers: set[str] = set()
         for profile in profiles.values():
             self.assertEqual(profile["recommended_count"], 5)
@@ -98,10 +98,6 @@ class OperationalE2ETests(unittest.TestCase):
             self.assertTrue(set(profile["recommended_tickers"]) <= candidate_tickers)
             self.assertTrue(set(profile["warnings"]) <= {"recommendations_high_previous_overlap"})
             recommended_tickers.update(str(ticker) for ticker in profile["recommended_tickers"])
-        self.assertNotEqual(
-            profiles["strict"]["recommended_tickers"],
-            profiles["loose"]["recommended_tickers"],
-        )
         recommended_candidates = [
             candidate
             for candidate in candidates_doc["candidates"]

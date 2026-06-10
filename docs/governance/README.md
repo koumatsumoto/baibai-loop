@@ -12,7 +12,4 @@ last_reviewed: 2026-05-04
 
 | doc | 責務 |
 | --- | --- |
-| [`docs-style-guide.md`](./docs-style-guide.md) | front matter、section freeze、link style |
-| [`docs-review-process.md`](./docs-review-process.md) | docs PR の review と verification |
-| [`adr-process.md`](./adr-process.md) | ADR 採番、状態、更新手順 |
 | [`anti-patterns.md`](./anti-patterns.md) | retained canonical の [`../anti-patterns.md`](../anti-patterns.md) をどう運用するか |

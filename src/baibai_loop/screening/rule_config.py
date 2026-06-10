@@ -7,9 +7,9 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-DEFAULT_RULES_PATH = Path("records/_config/screening-rules/2026-05-01T000000+0900.yaml")
+DEFAULT_RULES_PATH = Path("records/_config/screening-rules/2026-06-10T000000+0900.yaml")
 
-BUILTIN_SELECTION_PROFILES = frozenset({"strict", "balanced", "loose"})
+BUILTIN_SELECTION_PROFILES = frozenset({"balanced"})
 
 
 class UniverseRules(BaseModel):

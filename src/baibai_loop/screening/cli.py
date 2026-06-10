@@ -316,8 +316,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sweep_parser.add_argument(
         "--profiles",
-        default="strict,balanced,loose",
-        help="comma-separated selection profiles to compare (default: strict,balanced,loose)",
+        default="balanced",
+        help="comma-separated selection profiles to compare (default: balanced)",
     )
     sweep_parser.add_argument(
         "--rules-path",
