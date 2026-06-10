@@ -116,7 +116,7 @@ evidence_hits_summary:
 - `candidate_ref.ticker` と candidates row の `ticker` を照合する
 - `select` は candidates と macro context を突き合わせ、`recommendations` と `selection.diagnostics` を出す
 - `recommendations` は research 着手候補。default summary では `selection_lane`、macro alignment、long-hold rating、reason / risk tags を見て深掘り順を決める。full lens / debug detail が必要な場合は `select --detail full` を使う
-- `select-sweep` は `strict` / `balanced` / `loose` と任意 profile を比較し、recommended tickers、fast count、long-hold count、suppressed count、previous overlap、sector / lane concentration、profile diff を確認する
+- `select-sweep` は `balanced` と `--profile-config` で定義した任意 profile を比較し、recommended tickers、fast count、long-hold count、suppressed count、previous overlap、sector / lane concentration、profile diff を確認する
 
 ## 6. 事実と分析の分離
 

@@ -3,7 +3,7 @@ title: "Investment decision concepts"
 summary: "Canonical domain model and vocabulary for Baibai-Loop's self-directed investment decision process."
 doc_type: concept
 status: active
-last_reviewed: 2026-05-06
+last_reviewed: 2026-06-10
 related_docs:
   - "components/portfolio-policy.md"
   - "architecture/system-overview.md"
@@ -14,6 +14,8 @@ related_docs:
 Baibai-Loop は、self-directed な投資判断を forward-only に記録し、あとから検証できるようにするための repository です。投資助言サービス、委任運用システム、規制 compliance system ではありません。IPS や books-and-records 的な考え方は、自己運用の裁量判断を一貫させ、あとから振り返れるようにするための運用規律として借ります。
 
 目的は、ビジネス価値、つまり「お買い得銘柄を拾う最適な取引戦略」を長期的に改善することです。用語整理は目的ではなく、候補発見、証拠評価、position sizing、実行可否、review attribution、playbook feedback を一貫して扱うための土台です。
+
+この decision loop は、データ層(L1: `market.sqlite`)と分析層(L2: 機械的 screen / lens / スコア / forward telemetry)の上で動く判断層(L3)です。3 層モデルの正本は [`architecture/system-overview.md`](./architecture/system-overview.md) を参照してください。
 
 ## Decision Loop
 

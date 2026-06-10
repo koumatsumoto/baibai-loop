@@ -3,7 +3,7 @@ title: "System overview"
 summary: "Baibai-Loop architecture and investment decision loop."
 doc_type: architecture
 status: active
-last_reviewed: 2026-05-04
+last_reviewed: 2026-06-10
 related_docs:
   - "../philosophy.md"
   - "../design-principles.md"
@@ -12,7 +12,17 @@ related_docs:
 
 # System overview
 
-Baibai-Loop は、日本株スイングトレードの判断を forward-only に記録し、改善するための decision-support 基盤です。目的は「お買い得銘柄を拾う最適な取引戦略」を、候補発見、証拠評価、position sizing、実行可否、review attribution、playbook feedback の loop で改善することです。
+Baibai-Loop は、日本株の実データを機械的に収集・解析・スコアリングし、その効果を forward 計測で検証し続けるデータ解析基盤です。目的は「お買い得銘柄を拾う最適な取引戦略」を、候補発見、証拠評価、position sizing、実行可否、review attribution、playbook feedback の loop で改善することです。
+
+## 3 層モデル
+
+| 層 | 実体 | 性質 |
+| --- | --- | --- |
+| L1 データ層 | `data/screening/market.sqlite`(J-Quants 価格・財務 / EDINET metrics / JPX 規制) | 全上場銘柄の再現可能な事実。coverage は fail-fast で検証する |
+| L2 分析層 | screen lanes([`../screening/mechanical.md`](../screening/mechanical.md))・selection lenses・軸別スコア・forward telemetry(replay / lane cohorts / ablation) | 決定論的・閾値固定。すべて forward 計測に接続する([`../screening/extending.md`](../screening/extending.md)) |
+| L3 判断層 | `records/`(research / trades / reviews、macro context) | 人間 + AI 下書きの解釈と判断。売買 record が L2 計測の ground truth を供給する |
+
+AI / スクリプトが利用する安定契約は CLI YAML 出力と SQLite schema の 2 面([`../reference/platform-interface.md`](../reference/platform-interface.md))。下表の decision loop は L3 の中を流れ、L1/L2 が全 stage に事実と計測を供給します。L2 の「分析」は決定論的な機械処理であり、その出力(下表で fact レイヤーと記す candidates)は事実として扱います。人間/AI の解釈を伴う analysis レイヤー(macro context、investment memo)は L3 に属します。
 
 正準の概念モデルは [`../concepts.md`](../concepts.md) を参照します。この doc では repository path と concept label を併記します。
 
@@ -49,16 +59,16 @@ Macro context は screening 手前で確認し、必要に応じて深く更新�
 - Macro context は hard gate ではなく、screening / research の確認観点として扱う。
 - Markdown / YAML と Git を正本にする。
 - AI 下書きと人間確認を前提に、事実層と分析層を物理的に分ける。
-- CLI は screening、validation、ledger sync、macro statistics 取得の補助に使う。
+- CLI は screening、selection、validation、ledger sync、forward 計測(replay / lane cohorts / ablation)、macro statistics 取得に使う。
 - decision register と reviews は forward-only な検証証跡として扱う。
 
 ## 非目標
 
-- バックテスト、累積リターン計算、パラメータ最適化は行わない。
-- 自動発注は行わない。
+- バックテスト最適化、パラメータ探索は行わない(行うのは記録済み output の forward 計測のみ)。
+- 機械学習によるスコアリング・予測は行わない。スコアは軸別の座標として出し、単一の合成点や売買指示には畳まない。
+- 自動発注、リアルタイム処理は行わない。
 - screening 閾値や playbook を過去データに fit させない。
 - 配当利回り単独の playbook / Rerating Book は対象外にする。配当・自己株買いは、long-hold fallback 時の資産ロック中に収益が見込める preference として research で確認する。
-- 汎用 feature store / BI 基盤を先行導入しない。SQLite は screening input の local canonical
-  store と、macro statistics 取得の local cache としてだけ使う。
+- 汎用 feature store / BI 基盤、MCP / API server などのサービング層は導入しない。SQLite は market data の local canonical store として使い、AI は CLI と SQL で直接読む。
 
 詳細な rationale は [`../philosophy.md`](../philosophy.md)、実践ルールは [`../design-principles.md`](../design-principles.md)、成果物ごとの contract は [`../components/README.md`](../components/README.md) を参照します。

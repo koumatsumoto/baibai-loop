@@ -51,7 +51,6 @@ Record から参照する repo 内 file path を正本にする。
 | --- | --- | --- | --- |
 | `records/_config/` | [`../screening/principles.md`](../screening/principles.md) | this map | screening rules and lightweight profile config files |
 | `records/_ledger/` | [`../components/ledger.md`](../components/ledger.md) | this map | decision register と ledger sync の記録領域 |
-| `records/_market-data/` | [`../components/reviews.md`](../components/reviews.md) | this map | review / missed opportunity 計算用 market data files |
 | `records/_playbooks/` | [`../components/playbooks.md`](../components/playbooks.md) | this map | 運用中 playbook の保存領域 |
 | `records/_schemas/` | [`../reference/testing-and-validation.md`](../reference/testing-and-validation.md) | [`automation-map.md`](./automation-map.md) | records validation schema の保存領域 |
 

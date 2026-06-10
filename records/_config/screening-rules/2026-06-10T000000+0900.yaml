@@ -19,10 +19,10 @@ quality:
   yoy_deterioration_threshold: -0.3
 output:
   research_selection_target_max: 5
-  # 2026-06-10: lane 順序の正本をこの config に一本化(コード側 _LANE_RANK を廃止)。
-  # 順序値は旧 _LANE_RANK と同一に据え置く。cohort 平均では strict-net-cash /
-  # fcf-yield が強いが、推奨 queue の 2026-05 実測では本順序の方が良く
-  # (1w -0.48 vs -1.34pt)、順序変更はサンプル蓄積後に再判断する。
+  # lane 優先順位の唯一の正本。推奨 queue の順位付けと primary evidence の選択の
+  # 両方に使う。順序値は推奨 queue の forward 計測で最良だったもの
+  # (docs/screening/selection-ablation-2026-05.md)。変更は config 編集 +
+  # replay / ablation 計測で検証してから行う。
   research_selection_lane_order:
   - valuation-reversion
   - strict-net-cash-discount
