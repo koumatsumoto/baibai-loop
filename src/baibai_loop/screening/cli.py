@@ -27,6 +27,7 @@ from .freshness import detect_edinet_freshness_warnings, load_disclosure_events
 from .lineage import (
     build_run_id,
 )
+from .market_snapshot import build_market_snapshot
 from .metrics import (
     build_metrics,
     build_shares_outstanding_index,
@@ -356,6 +357,26 @@ def build_parser() -> argparse.ArgumentParser:
         default=".",
         help="repository root for ledger lookups (default: current directory)",
     )
+
+    snapshot_parser = subparsers.add_parser(
+        "market-snapshot",
+        help="emit the market state packet (weekly regime history and sector aggregates)",
+    )
+    snapshot_parser.add_argument(
+        "--asof",
+        help="evaluation date (YYYY-MM-DD; default: latest cached trading day)",
+    )
+    snapshot_parser.add_argument(
+        "--weeks",
+        type=int,
+        default=12,
+        help="number of weekly history points (default: 12)",
+    )
+    snapshot_parser.add_argument(
+        "--sqlite-path",
+        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
+        help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
+    )
     return parser
 
 
@@ -417,6 +438,14 @@ def main(argv: list[str] | None = None) -> int:
             sqlite_path=Path(args.sqlite_path),
             candidates_root=Path(args.candidates_root),
             ledger_root=Path(args.root) / "records",
+        )
+
+    if args.command == "market-snapshot":
+        # market-snapshot reads the SQLite store only; no provider credentials needed.
+        return market_snapshot_command(
+            asof=args.asof,
+            weeks=args.weeks,
+            sqlite_path=Path(args.sqlite_path),
         )
 
     if args.command == "verify-cache-coverage":
@@ -934,6 +963,38 @@ def ticker_profile_command(
         asof_date=asof_date,
         candidates_root=candidates_root,
         ledger_root=ledger_root,
+    )
+    yaml.dump(payload, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
+    return 0
+
+
+def market_snapshot_command(
+    *,
+    asof: str | None,
+    weeks: int,
+    sqlite_path: Path,
+    stdout: TextIO | None = None,
+) -> int:
+    out = stdout if stdout is not None else sys.stdout
+    if weeks < 1:
+        print("--weeks must be greater than zero", file=sys.stderr)
+        return 1
+    if asof is not None:
+        asof_date = _parse_iso_date(asof)
+    else:
+        today = datetime.now(JST).date()
+        resolved = latest_daily_bar_date(sqlite_path, today - timedelta(days=30), today)
+        if resolved is None:
+            print(
+                f"no cached daily bars found to resolve --asof: {sqlite_path}",
+                file=sys.stderr,
+            )
+            return 1
+        asof_date = resolved
+    payload = build_market_snapshot(
+        sqlite_path=sqlite_path,
+        asof_date=asof_date,
+        history_weeks=weeks,
     )
     yaml.dump(payload, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
     return 0
