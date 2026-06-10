@@ -80,6 +80,8 @@ from .selection import (
 )
 from .sqlite_cache import store_edinet_metrics
 from .sqlite_coverage import CacheCoverageIssue, verify_screening_sqlite_coverage
+from .sqlite_reader import latest_daily_bar_date
+from .ticker_profile import build_ticker_profile
 from .universe import (
     build_universe,
 )
@@ -329,6 +331,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional YAML file with selection profile overrides",
     )
     _add_regime_lens_arguments(sweep_parser)
+
+    profile_parser = subparsers.add_parser(
+        "ticker-profile",
+        help="emit the single-ticker fact packet (price, relative, regime, events, screening)",
+    )
+    profile_parser.add_argument("--ticker", required=True, help="4-character ticker code")
+    profile_parser.add_argument(
+        "--asof",
+        help="evaluation date (YYYY-MM-DD; default: latest cached trading day)",
+    )
+    profile_parser.add_argument(
+        "--sqlite-path",
+        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
+        help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
+    )
+    profile_parser.add_argument(
+        "--candidates-root",
+        default="records/04-candidates",
+        help="root of recorded candidates YAML (default: records/04-candidates)",
+    )
+    profile_parser.add_argument(
+        "--root",
+        default=".",
+        help="repository root for ledger lookups (default: current directory)",
+    )
     return parser
 
 
@@ -379,6 +406,17 @@ def main(argv: list[str] | None = None) -> int:
             rules=load_screening_rules(Path(args.rules_path)),
             profile_config_path=Path(args.profile_config) if args.profile_config else None,
             regime_sqlite_path=None if args.no_regime_lens else Path(args.sqlite_path),
+        )
+
+    if args.command == "ticker-profile":
+        # ticker-profile reads the SQLite store and recorded output only; no
+        # provider credentials are needed.
+        return ticker_profile_command(
+            ticker=args.ticker,
+            asof=args.asof,
+            sqlite_path=Path(args.sqlite_path),
+            candidates_root=Path(args.candidates_root),
+            ledger_root=Path(args.root) / "records",
         )
 
     if args.command == "verify-cache-coverage":
@@ -861,6 +899,44 @@ def run_command(
         for line in fallback_lines:
             print(f"- {line}", file=out, flush=True)
     return 2 if partial_warning else 0
+
+
+def ticker_profile_command(
+    *,
+    ticker: str,
+    asof: str | None,
+    sqlite_path: Path,
+    candidates_root: Path,
+    ledger_root: Path,
+    stdout: TextIO | None = None,
+) -> int:
+    out = stdout if stdout is not None else sys.stdout
+    try:
+        normalized = normalize_ticker(ticker)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    if asof is not None:
+        asof_date = _parse_iso_date(asof)
+    else:
+        today = datetime.now(JST).date()
+        resolved = latest_daily_bar_date(sqlite_path, today - timedelta(days=30), today)
+        if resolved is None:
+            print(
+                f"no cached daily bars found to resolve --asof: {sqlite_path}",
+                file=sys.stderr,
+            )
+            return 1
+        asof_date = resolved
+    payload = build_ticker_profile(
+        sqlite_path=sqlite_path,
+        ticker=normalized,
+        asof_date=asof_date,
+        candidates_root=candidates_root,
+        ledger_root=ledger_root,
+    )
+    yaml.dump(payload, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
+    return 0
 
 
 def select_command(
