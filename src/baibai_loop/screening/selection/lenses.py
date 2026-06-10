@@ -75,9 +75,15 @@ def _fast_dislocation_lens(item: CandidateRecord, rules: SelectionRules) -> dict
     data_status = _fast_dislocation_data_status(item)
     if stale_fundamental_metrics:
         data_status = "stale_fundamental_metrics"
+    # Stabilization: the fast triggers fire on 5-60 day declines; a name whose
+    # latest session is still a down day is a falling knife, one that closed
+    # flat-or-up shows the minimum evidence of a halt. Fixed zero threshold on
+    # the recorded 1-day return — no fitted parameter.
+    stabilized = item.price_change_1d is not None and item.price_change_1d >= 0
     return {
         "eligible": eligible,
         "confidence": confidence,
+        "stabilized": stabilized,
         "price_triggers": price_triggers,
         "auxiliary_triggers": auxiliary_triggers,
         "fundamental_guard_count": guard_count,

@@ -142,14 +142,20 @@ def build_selection_payload(
             suppression_reasons=(suppress_reason,) if suppress_reason else (),
             previous_candidate=item.ticker in previous_tickers,
         )
+        fast_lens = _fast_lens(candidate)
         fast_boosted = (
-            toggles.fast_boost
-            and fast_boost_active
-            and _fast_lens(candidate).get("eligible") is True
+            toggles.fast_boost and fast_boost_active and fast_lens.get("eligible") is True
+        )
+        # Within the fast-boosted group, names whose latest session held
+        # flat-or-up rank ahead of ones still falling (stabilization signal);
+        # outside the group the component is constant and changes nothing.
+        stabilized_rank = (
+            0 if fast_boosted and toggles.stabilization and fast_lens.get("stabilized") else 1
         )
         sort_key = (
             _macro_rank(macro_context_alignment) if toggles.macro else 0,
             0 if fast_boosted else 1,
+            stabilized_rank,
             _lane_order_rank(selection_lane, lane_order) if toggles.lane_rank else 0,
             *(strength_key if toggles.strength else ()),
             item.ticker,

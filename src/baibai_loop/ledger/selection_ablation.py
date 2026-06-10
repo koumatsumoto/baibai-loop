@@ -81,6 +81,7 @@ class AblationVariant:
 DEFAULT_VARIANTS: tuple[AblationVariant, ...] = (
     AblationVariant(name=FULL_VARIANT),
     AblationVariant(name="no_fast_boost", ranking_toggles=RankingToggles(fast_boost=False)),
+    AblationVariant(name="no_stabilization", ranking_toggles=RankingToggles(stabilization=False)),
     AblationVariant(name="no_lane_rank", ranking_toggles=RankingToggles(lane_rank=False)),
     AblationVariant(name="no_strength", ranking_toggles=RankingToggles(strength=False)),
     AblationVariant(name="no_diversity", disable_diversity=True),
