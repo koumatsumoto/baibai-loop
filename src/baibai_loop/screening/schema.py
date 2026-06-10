@@ -67,11 +67,12 @@ class SecurityMaster:
 class UniverseSnapshot:
     market_cap_oku: int | None
     avg_turnover_oku: float | None
-    exclusion_flags: tuple[str, ...] = ()
+    listing_span_days: int | None = None
+    jpx_flags: tuple[str, ...] = ()
 
-    @field_validator("exclusion_flags", mode="before")
+    @field_validator("jpx_flags", mode="before")
     @classmethod
-    def _tuple_exclusion_flags(cls, value: Sequence[str]) -> tuple[str, ...]:
+    def _tuple_jpx_flags(cls, value: Sequence[str]) -> tuple[str, ...]:
         return tuple(value)
 
     @field_validator("avg_turnover_oku")
@@ -274,6 +275,8 @@ class ScreenedCandidate:
     ttm_quality: Mapping[str, TTMQuality]
     market_cap_oku: int | None = None
     avg_turnover_oku: float | None = None
+    listing_span_days: int | None = None
+    jpx_flags: tuple[str, ...] = ()
     price_change_1d: float | None = None
     price_change_5d: float | None = None
     price_change_20d: float | None = None
@@ -286,7 +289,7 @@ class ScreenedCandidate:
     split_adjustment_flag: bool = False
     freshness_warnings: tuple[FreshnessWarning, ...] = ()
 
-    @field_validator("evidence_hits", "freshness_warnings", mode="before")
+    @field_validator("evidence_hits", "freshness_warnings", "jpx_flags", mode="before")
     @classmethod
     def _tuple_sequence(cls, value: Sequence[Any]) -> tuple[Any, ...]:
         return tuple(value)

@@ -1,3 +1,14 @@
+"""Screening scope: every common stock with enough bar history to evaluate.
+
+The data platform keeps facts for the whole market, so the screen evaluates
+all common stocks in the eligible market segments. Size and liquidity are not
+scope conditions: market cap, average turnover, listing span, and JPX
+regulation flags are recorded as facts on each snapshot and applied as
+analysis-layer parameters by selection. The only structural exclusions are
+instrument type (non-common stock), market segment, and a minimal bar-history
+requirement that the metric pipeline needs to compute short-horizon fields.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
@@ -9,8 +20,7 @@ from .providers.jquants import JQuantsDailyBar
 from .schema import SecurityMaster, UniverseSnapshot
 
 ELIGIBLE_MARKETS = {"PRIME", "STANDARD", "GROWTH", "プライム", "スタンダード", "グロース"}
-DEFAULT_LISTED_UNDER_DAYS = 182
-DEFAULT_REQUIRED_JPX_FLAGS = {"特別注意銘柄", "整理銘柄", "取引停止", "上場廃止警告"}
+MIN_BAR_HISTORY = 20
 
 
 @dataclass(frozen=True)
@@ -25,11 +35,6 @@ def build_universe(
     bars_by_ticker: Mapping[str, Sequence[JQuantsDailyBar]],
     shares_outstanding_by_ticker: Mapping[str, float | None],
     jpx_flags_by_ticker: Mapping[str, Sequence[str]],
-    *,
-    min_market_cap_oku: int = 100,
-    min_avg_turnover_oku: float = 1.0,
-    listed_under_days: int = DEFAULT_LISTED_UNDER_DAYS,
-    required_jpx_flags: frozenset[str] = frozenset(DEFAULT_REQUIRED_JPX_FLAGS),
 ) -> UniverseBuildResult:
     snapshots: dict[str, UniverseSnapshot] = {}
     exclusion_counts: dict[str, int] = {}
@@ -43,49 +48,32 @@ def build_universe(
             flags.append("market_out_of_scope")
 
         history = sorted(bars_by_ticker.get(security.code, ()), key=lambda item: item.traded_at)
-        # J-Quants v2 master does not expose listing_date; use the earliest available
-        # daily bar as a listing-span proxy. Bars cache covers asof-1200d, so established
-        # names show ~1200d and recent IPOs show days-since-listing accurately.
-        listing_span_days = (asof_date - history[0].traded_at).days if history else 0
-        if listing_span_days < listed_under_days:
-            flags.append("listed_under_6_months")
-
-        latest = history[-1] if history else None
-        trailing_20 = history[-20:]
-        if len(trailing_20) < 20 or latest is None:
+        if len(history) < MIN_BAR_HISTORY:
             flags.append("insufficient_bar_history")
-            avg_turnover_oku = None
-            market_cap_oku = None
-        else:
-            turnovers = [
-                bar.turnover_value for bar in trailing_20 if bar.turnover_value is not None
-            ]
-            avg_turnover_oku = mean(turnovers) / 100_000_000 if len(turnovers) == 20 else None
-            shares = shares_outstanding_by_ticker.get(security.code)
-            market_cap_oku = (latest.close * shares / 100_000_000) if shares else None
-            if avg_turnover_oku is None:
-                flags.append("missing_turnover_value")
-            elif avg_turnover_oku < min_avg_turnover_oku:
-                flags.append("avg_turnover_below_threshold")
-            if market_cap_oku is None:
-                flags.append("missing_market_cap")
-            elif market_cap_oku < min_market_cap_oku:
-                flags.append("market_cap_below_threshold")
-
-        jpx_flags = tuple(sorted(set(jpx_flags_by_ticker.get(security.code, ()))))
-        if any(flag in required_jpx_flags for flag in jpx_flags):
-            flags.append("jpx_regulation")
-            flags.extend(f"jpx:{flag}" for flag in jpx_flags)
 
         if flags:
             for flag in set(flags):
                 exclusion_counts[flag] = exclusion_counts.get(flag, 0) + 1
             continue
 
+        # J-Quants v2 master does not expose listing_date; use the earliest available
+        # daily bar as a listing-span proxy. Bars cache covers asof-1200d, so established
+        # names show ~1200d and recent IPOs show days-since-listing accurately.
+        listing_span_days = (asof_date - history[0].traded_at).days
+        latest = history[-1]
+        trailing_20 = history[-MIN_BAR_HISTORY:]
+        turnovers = [bar.turnover_value for bar in trailing_20 if bar.turnover_value is not None]
+        avg_turnover_oku = (
+            mean(turnovers) / 100_000_000 if len(turnovers) == MIN_BAR_HISTORY else None
+        )
+        shares = shares_outstanding_by_ticker.get(security.code)
+        market_cap_oku = (latest.close * shares / 100_000_000) if shares else None
+
         snapshots[security.code] = UniverseSnapshot(
             market_cap_oku=round(market_cap_oku) if market_cap_oku is not None else None,
             avg_turnover_oku=round(avg_turnover_oku, 1) if avg_turnover_oku is not None else None,
-            exclusion_flags=(),
+            listing_span_days=listing_span_days,
+            jpx_flags=tuple(sorted(set(jpx_flags_by_ticker.get(security.code, ())))),
         )
 
     return UniverseBuildResult(

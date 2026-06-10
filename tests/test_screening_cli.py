@@ -288,7 +288,7 @@ class ScreeningCliTests(unittest.TestCase):
                     "EDINET preprocessed metrics: loaded", payload["provider_status_lines"]
                 )
                 self.assertEqual(payload["run_id"], "screening-20260424")
-                self.assertEqual(payload["filters"]["min_market_cap_oku"], 100)
+                self.assertEqual(payload["filters"]["scope"], "all-common-stocks")
                 self.assertEqual(payload["candidates"], [])
                 manifest_path = Path(".cache/screening/manifests") / f"{payload['run_id']}.json"
                 self.assertFalse(manifest_path.exists())
@@ -1914,7 +1914,7 @@ class SelectCommandTests(unittest.TestCase):
                         "name": "weak long hold inputs",
                         "sector_33": "電気機器",
                         "market_cap_oku": 300,
-                        "avg_turnover_oku": 0.5,
+                        "avg_turnover_oku": 1.2,
                         "metrics": {
                             "equity_ratio": 0.1,
                             "ocf_yield": -0.01,

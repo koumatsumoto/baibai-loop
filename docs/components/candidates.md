@@ -24,11 +24,11 @@ records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml
 ```yaml
 run_date: "YYYY-MM-DD"
 asof_date: "YYYY-MM-DD"
-universe_size: 1347
+universe_size: 3744
 filters:
-  min_market_cap_oku: 100
-  min_avg_turnover_oku: 1.0
-  exclude_listed_under_days: 182
+  scope: all-common-stocks
+  markets: prime/standard/growth
+  min_bar_history: 20
 generated_by: "screening-cli-v1"
 data_sources:
   - "j-quants-light"
@@ -43,6 +43,8 @@ candidates:
     sector_33: "輸送用機器"
     market_cap_oku: 1083
     avg_turnover_oku: 12.8
+    listing_span_days: 1200
+    jpx_flags: []
     per_forward: 8.2
     per_trailing: 9.5
     pbr: 0.72

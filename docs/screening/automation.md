@@ -105,7 +105,7 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 - HTML は `https://www.jpx.co.jp/` 配下の許可済み URL に限定し、source-specific parser で fail-fast に扱う
 - 特別注意銘柄は `JPX_SPECIAL_CAUTION_INDEX_URL` が設定されていれば、JPX の「個別銘柄信用取引残高表」index から最新の `mtdailyk*.xls` link を解決してから Excel を取得する。index 未設定時は `JPX_SPECIAL_CAUTION_URL` の固定 URL を使う
 - 規制情報の取得失敗は fail-fast
-- `universe.required_jpx_flags` の source が欠ける場合は fail-fast する。JPX 規制除外は universe 定義の一部であり、warning-only では扱わない
+- `universe.required_jpx_flags` の source が欠ける場合は fail-fast する。JPX 規制 flag は candidates に記録される必須事実であり(除外判断は `selection.liquidity` が担う)、warning-only では扱わない
 - JPX 公開規制情報は latest snapshot しか取得できないため、SQLite には `fetched_at_utc` を記録する。通常の coverage 検証では `asof` と `fetched_at_utc` が 7 weekday 超乖離していれば fail-fast する（祝日は引かない近似）
 - `screening run` は JPX を取得しない。historical backfill で latest snapshot を過去 `asof` に固定するリスクを許容する場合は、先に `bootstrap-cache --asof` で SQLite に保存し、`verify-cache-coverage --allow-stale-jpx` と `run --allow-stale-jpx` を明示する
 
@@ -121,7 +121,7 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 
 閾値の正本は `records/_config/screening-rules/2026-06-10T000000+0900.yaml`。実装側の hardcode は parser default と型定義に留め、運用で変える閾値は YAML に寄せる。
 
-- universe 閾値: 時価総額、平均売買代金、上場日数、JPX 除外 flag
+- scope / 絞り込み: `universe.required_jpx_flags`(記録対象の規制 flag)と `selection.liquidity`(時価総額・平均売買代金・上場期間・JPX 規制の分析層パラメータ)
 - playbook-linked screen 閾値: `valuation-reversion` / `strict-net-cash-discount` / `fcf-yield-discount` / `cash-rich-asset-discount` / `cashflow-yield-discount` / `sales-discount-growth`
 - TTM 期間一致基準: partial period の許容日数差、FY 期間長
 - 品質条件: 売上 YoY、営業利益、営業 CF 悪化、赤字縮小条件

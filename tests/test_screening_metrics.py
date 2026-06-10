@@ -740,3 +740,71 @@ class ScreeningMetricsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MedianPopulationTests(unittest.TestCase):
+    def test_sector_median_uses_only_population_tickers(self) -> None:
+        from datetime import date as _date
+
+        from baibai_loop.screening.metrics import build_metrics
+        from baibai_loop.screening.providers.jquants import (
+            JQuantsDailyBar,
+            JQuantsFinancialSummary,
+        )
+        from baibai_loop.screening.schema import SecurityMaster
+
+        asof = _date(2026, 4, 24)
+
+        def bars(code: str, close: float) -> list[JQuantsDailyBar]:
+            from datetime import timedelta
+
+            return [
+                JQuantsDailyBar(
+                    ticker=code,
+                    traded_at=asof - timedelta(days=30 - i),
+                    close=close,
+                    turnover_value=2.0e8,
+                )
+                for i in range(30)
+            ]
+
+        def summary(code: str, eps: float) -> JQuantsFinancialSummary:
+            return JQuantsFinancialSummary(
+                ticker=code,
+                disclosed_at=_date(2026, 2, 1),
+                eps_ttm=eps,
+                type_of_current_period="FY",
+            )
+
+        securities = {
+            code: SecurityMaster(
+                code=code,
+                name=f"name-{code}",
+                market_segment="プライム",
+                sector_33="機械",
+                is_common_stock=True,
+            )
+            # 12 tickers so the sector clears the n>=10 sector-median threshold.
+            for code in [f"11{i:02d}" for i in range(12)]
+        }
+        bars_by = {code: bars(code, close=100.0) for code in securities}
+        # Liquid population PERs are all 10 (eps 10); the out-of-population
+        # ticker has PER 100 (eps 1) and would distort the median if included.
+        summaries = {code: [summary(code, eps=10.0)] for code in securities}
+        summaries["1111"] = [summary("1111", eps=1.0)]
+        population = frozenset(code for code in securities if code != "1111")
+
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker=securities,
+            bars_by_ticker=bars_by,
+            summaries_by_ticker=summaries,
+            edinet_by_ticker={},
+            median_population=population,
+        )
+
+        gap = result.derived["1111"].sector_median_gap.get("per_trailing")
+        assert gap is not None
+        # PER 100 vs liquid-population median 10 -> gap = 9.0; a full-population
+        # median would shift the baseline and lower the gap.
+        self.assertAlmostEqual(gap, 9.0, places=6)
