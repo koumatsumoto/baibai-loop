@@ -106,6 +106,7 @@ uv run baibai-loop-ledger screening-replay \
 
 - forward return は asof + 1w / 4w / 8w を J-Quants 日足から算出し、日経225 ETF proxy `1321` 比の relative を出す。eval cap（cache 最新足）を超える horizon は unresolved として集計から除外する。価格基準は [`../reference/data-sources.md`](../reference/data-sources.md) §Benchmark proxy。
 - replay は macro-agnostic で回す。non-stale macro context が揃わない過去週でも profile 選定機構を比較できる。
+- market regime lens は default で各週に適用される（`--regime-lens off` で従来挙動）。on/off 比較の手順と 2026-05 の検証結果は [`../screening/regime-lens-replay-2026-05.md`](../screening/regime-lens-replay-2026-05.md)。
 - 歴史週の `bootstrap-cache` は asof ごとに長期履歴を取り直すため、J-Quants throttling 下では 1 週で数時間かかりうる。chunk は resumable なので kill せず完走させる。挙動の詳細は [`../reference/jquants-rate-limits.md`](../reference/jquants-rate-limits.md)。
 - 評価結果と `balanced` 継続可否の判断は [`../screening/replay-2026-05.md`](../screening/replay-2026-05.md) に記録する。
 

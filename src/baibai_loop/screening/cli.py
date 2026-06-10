@@ -48,6 +48,7 @@ from .providers.jquants import (
     JQuantsMarketCalendarDay,
     JQuantsProviderError,
 )
+from .regime import MarketRegimeSnapshot, compute_market_regime
 from .render import JST, build_output_path, render_screened_yaml
 from .rule_config import (
     DEFAULT_RULES_PATH,
@@ -286,6 +287,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="summary",
         help="selection output detail (default: summary)",
     )
+    _add_regime_lens_arguments(select_parser)
 
     sweep_parser = subparsers.add_parser(
         "select-sweep",
@@ -326,7 +328,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--profile-config",
         help="optional YAML file with selection profile overrides",
     )
+    _add_regime_lens_arguments(sweep_parser)
     return parser
+
+
+def _add_regime_lens_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--sqlite-path",
+        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
+        help=(
+            "SQLite cache used to compute the market regime lens "
+            f"(default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)"
+        ),
+    )
+    parser.add_argument(
+        "--no-regime-lens",
+        action="store_true",
+        help="skip the market regime lens (fast-dislocation boost stays always on)",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -347,6 +366,7 @@ def main(argv: list[str] | None = None) -> int:
             profile=args.profile,
             profile_config_path=Path(args.profile_config) if args.profile_config else None,
             detail=args.detail,
+            regime_sqlite_path=None if args.no_regime_lens else Path(args.sqlite_path),
         )
 
     if args.command == "select-sweep":
@@ -358,6 +378,7 @@ def main(argv: list[str] | None = None) -> int:
             profiles=_parse_profiles_arg(args.profiles),
             rules=load_screening_rules(Path(args.rules_path)),
             profile_config_path=Path(args.profile_config) if args.profile_config else None,
+            regime_sqlite_path=None if args.no_regime_lens else Path(args.sqlite_path),
         )
 
     if args.command == "verify-cache-coverage":
@@ -854,6 +875,7 @@ def select_command(
     profile: str | None = None,
     profile_config_path: Path | None = None,
     detail: str = "summary",
+    regime_sqlite_path: Path | None = None,
     stdout: TextIO | None = None,
 ) -> int:
     if top < 1:
@@ -888,6 +910,7 @@ def select_command(
             previous_candidates=inputs.previous_candidates,
             prior_research_by_ticker=inputs.prior_research,
             profile_overrides=profile_overrides,
+            market_regime=_load_market_regime(regime_sqlite_path, asof_date),
             detail=detail,
         )
     except ValueError as exc:
@@ -908,6 +931,7 @@ def select_sweep_command(
     macro_context_root: Path | None = None,
     rules: ScreeningRules | None = None,
     profile_config_path: Path | None = None,
+    regime_sqlite_path: Path | None = None,
     stdout: TextIO | None = None,
 ) -> int:
     if top < 1:
@@ -944,12 +968,25 @@ def select_sweep_command(
             previous_candidates=inputs.previous_candidates,
             prior_research_by_ticker=inputs.prior_research,
             profile_overrides=profile_overrides,
+            market_regime=_load_market_regime(regime_sqlite_path, asof_date),
         )
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 1
     yaml.dump(payload, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
     return 0
+
+
+def _load_market_regime(
+    regime_sqlite_path: Path | None,
+    asof_date: date,
+) -> MarketRegimeSnapshot | None:
+    # A missing cache silently disables the lens (selection stays usable on a
+    # checkout without market.sqlite); the diagnostics record market_regime: null
+    # so the degraded mode is visible in the output.
+    if regime_sqlite_path is None:
+        return None
+    return compute_market_regime(regime_sqlite_path, asof_date)
 
 
 @dataclass(frozen=True, slots=True)

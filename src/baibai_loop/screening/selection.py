@@ -11,6 +11,7 @@ import yaml
 
 from baibai_loop.macro_context import MacroContext, macro_context_diagnostics
 
+from .regime import MarketRegime, MarketRegimeSnapshot
 from .rule_config import (
     BUILTIN_SELECTION_PROFILES,
     ScreeningRules,
@@ -276,6 +277,7 @@ def build_selection_payload(
     previous_candidates: PreviousCandidates | None = None,
     prior_research_by_ticker: Mapping[str, PriorResearch] | None = None,
     profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
+    market_regime: MarketRegimeSnapshot | None = None,
     detail: str = "summary",
 ) -> dict[str, object]:
     if detail not in {"summary", "full"}:
@@ -293,6 +295,13 @@ def build_selection_payload(
     prior_research_by_ticker = prior_research_by_ticker or {}
     previous_candidates = previous_candidates or PreviousCandidates(ref_path=None, tickers=())
     previous_tickers = set(previous_candidates.tickers)
+    # The fast-dislocation boost buys falling knives at the top of the queue
+    # while the whole market rallies (replay-2026-05: 4w relative consistently
+    # negative). In risk_on_rally the boost is neutralized; candidates are kept
+    # (lens, not gate) and other ranking components take over.
+    fast_boost_active = (
+        market_regime is None or market_regime.regime is not MarketRegime.RISK_ON_RALLY
+    )
 
     ranked_entries: list[tuple[tuple[object, ...], dict[str, object]]] = []
     macro_context_checked_count = 0
@@ -330,7 +339,7 @@ def build_selection_payload(
         )
         sort_key = (
             _macro_rank(macro_context_alignment),
-            0 if _fast_lens(candidate).get("eligible") is True else 1,
+            0 if fast_boost_active and _fast_lens(candidate).get("eligible") is True else 1,
             _long_hold_rank(candidate),
             _lane_rank(selection_lane),
             *strength_key,
@@ -356,6 +365,8 @@ def build_selection_payload(
         previous_candidates=previous_candidates,
         diversity_warning_ratio=selection_rules.diversity.previous_overlap_warning_ratio,
         profile=effective_profile,
+        market_regime=market_regime,
+        fast_boost_active=fast_boost_active,
     )
     recommendations = (
         recommended
@@ -402,6 +413,7 @@ def build_selection_sweep_payload(
     previous_candidates: PreviousCandidates | None = None,
     prior_research_by_ticker: Mapping[str, PriorResearch] | None = None,
     profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
+    market_regime: MarketRegimeSnapshot | None = None,
 ) -> dict[str, object]:
     profile_results: list[dict[str, object]] = []
     for profile in profiles:
@@ -417,6 +429,7 @@ def build_selection_sweep_payload(
             previous_candidates=previous_candidates,
             prior_research_by_ticker=prior_research_by_ticker,
             profile_overrides=profile_overrides,
+            market_regime=market_regime,
             detail="full",
         )
         selection = _mapping(payload.get("selection"))
@@ -468,6 +481,7 @@ def build_selection_sweep_payload(
             else None,
         },
         "macro_context_summary": _macro_context_summary(macro_context),
+        "market_regime": market_regime.to_dict() if market_regime is not None else None,
         "profiles": profile_results,
     }
 
@@ -879,6 +893,8 @@ def _diagnostics(
     previous_candidates: PreviousCandidates,
     diversity_warning_ratio: float,
     profile: str,
+    market_regime: MarketRegimeSnapshot | None = None,
+    fast_boost_active: bool = True,
 ) -> dict[str, object]:
     recommended_tickers = {
         ticker for item in recommended if (ticker := _string_value(item.get("ticker"))) is not None
@@ -905,9 +921,13 @@ def _diagnostics(
     )
     if short_return_missing_count:
         warnings.append("short_return_price_history_missing")
+    if not fast_boost_active:
+        warnings.append("fast_dislocation_boost_neutralized_risk_on_rally")
     return {
         "profile": profile,
         "warnings": warnings,
+        "market_regime": market_regime.to_dict() if market_regime is not None else None,
+        "fast_dislocation_boost": "active" if fast_boost_active else "neutralized",
         "previous_overlap": {
             "previous_candidates_ref": previous_candidates.ref_path,
             "overlap_count": len(overlap_tickers),

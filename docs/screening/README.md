@@ -20,6 +20,7 @@ last_reviewed: 2026-05-04
 | [`automation.md`](./automation.md) | runbook / automation | screening CLI の使い方と実装境界 |
 | [`failure-taxonomy.md`](./failure-taxonomy.md) | reference | review / retro で使う失敗分類 |
 | [`mechanical.md`](./mechanical.md) | contract | 機械的ふるいの閾値と rule engine の意味論 |
+| [`regime-lens-replay-2026-05.md`](./regime-lens-replay-2026-05.md) | reference | market regime lens の on/off replay 検証 (2026-05) |
 | [`sector-sensitivity-map.md`](./sector-sensitivity-map.md) | reference | 東証 33 業種と macro context sector tilt の参考分類 |
 | [`universe-rules.md`](./universe-rules.md) | contract | screening universe の境界条件 |
 | [`valuation-metrics.md`](./valuation-metrics.md) | reference | valuation 指標の算出仕様 |
