@@ -20,6 +20,7 @@ class RankingToggles:
 
     macro: bool = True
     fast_boost: bool = True
+    stabilization: bool = True
     lane_rank: bool = True
     strength: bool = True
 
