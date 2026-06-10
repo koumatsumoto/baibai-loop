@@ -8,7 +8,7 @@ last_reviewed: 2026-05-04
 
 # Architecture decision records
 
-ADR は GitHub issue や PR コメントに散らばりやすい設計判断を、あとから辿れる短い記録として残します。新規 ADR の形式と更新手順は [`../../governance/adr-process.md`](../../governance/adr-process.md) を参照します。
+ADR は GitHub issue や PR コメントに散らばりやすい設計判断を、あとから辿れる短い記録として残します。新規 ADR は既存 ADR の形式(背景 / 決定 / 影響)に合わせ、連番で追加します。
 
 | ADR | Status | Decision |
 | --- | --- | --- |

@@ -23,9 +23,10 @@ from baibai_loop.screening.sqlite_cache import open_connection
 
 _ASOF = date(2026, 5, 1)
 
-# Fast-eligible under balanced (5d price trigger + two guard families) on the
-# lowest-ranked lane, versus a calm candidate with identical fundamentals on
-# the highest-ranked lane: the fast boost is the only reason the fast one wins.
+# Fast-eligible under balanced (5d price trigger + two guard families) on a
+# low-ranked lane, versus a calm candidate with identical fundamentals on the
+# top-ranked lane (research_selection_lane_order puts strict-net-cash first):
+# the fast boost is the only reason the fast one wins.
 _FAST_CANDIDATE = {
     "ticker": "9999",
     "name": "fast oversold",
@@ -44,7 +45,7 @@ _CALM_CANDIDATE = {
     "market_cap_oku": 500,
     "price_change_5d": 0.01,
     "price_change_20d": 0.02,
-    "evidence_hits": [{"name": "valuation-reversion"}],
+    "evidence_hits": [{"name": "strict-net-cash-discount"}],
     "metrics": {"ocf_yield": 0.12, "net_cash_to_market_cap": 0.3},
 }
 

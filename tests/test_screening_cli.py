@@ -1218,21 +1218,22 @@ class SelectCommandTests(unittest.TestCase):
                 ["test trigger"],
             )
             tickers = [c["ticker"] for c in self._recommended(payload)]
-            self.assertEqual(tickers, ["3333", "2222", "1111"])
+            # All three candidates normalize to the valuation-reversion primary
+            # lane under the configured lane order, so the balanced per-lane cap
+            # (2) drops the third one.
+            self.assertEqual(tickers, ["3333", "2222"])
             self.assertEqual(
                 payload["selection"]["research_selection_lane_order"],
                 [
+                    "valuation-reversion",
                     "strict-net-cash-discount",
                     "fcf-yield-discount",
                     "cash-rich-asset-discount",
                     "cashflow-yield-discount",
                     "sales-discount-growth",
-                    "valuation-reversion",
                 ],
             )
-            self.assertEqual(
-                self._recommended(payload)[0]["selection_lane"], "cash-rich-asset-discount"
-            )
+            self.assertEqual(self._recommended(payload)[0]["selection_lane"], "valuation-reversion")
             self.assertEqual(self._recommended(payload)[0]["position_tier"], "200-500")
             self.assertNotIn("lenses", self._recommended(payload)[0])
 
@@ -1305,14 +1306,14 @@ class SelectCommandTests(unittest.TestCase):
                 candidates=[
                     {
                         "ticker": "1111",
-                        "name": "valuation first in global rank",
+                        "name": "valuation reversion leads the configured lane order",
                         "sector_33": "機械",
                         "market_cap_oku": 600,
                         "evidence_hits": [{"name": "valuation-reversion"}],
                     },
                     {
                         "ticker": "2222",
-                        "name": "strict net cash first in research recommendation",
+                        "name": "strict net cash ranks second in lane order",
                         "sector_33": "機械",
                         "market_cap_oku": 150,
                         "evidence_hits": [
@@ -1346,6 +1347,9 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
+            # research_selection_lane_order is the single lane priority: the
+            # valuation-reversion candidate outranks strict-net-cash, and the
+            # same-sector diversity cap then drops the second 機械 name.
             self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["1111"])
             self.assertEqual(self._recommended(payload)[0]["selection_lane"], "valuation-reversion")
 
@@ -1418,12 +1422,20 @@ class SelectCommandTests(unittest.TestCase):
                 },
             )
 
+            profile_config = root / "selection-profiles.yaml"
+            profile_config.write_text(
+                yaml.safe_dump(
+                    {"profiles": {"balanced": {"diversity": {"max_recommended_per_lane": 1}}}}
+                ),
+                encoding="utf-8",
+            )
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                profile="strict",
+                profile="balanced",
+                profile_config_path=profile_config,
                 candidates_root=root / "records/04-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
@@ -2344,7 +2356,7 @@ class SelectCommandTests(unittest.TestCase):
                 2,
             )
 
-    def test_select_sweep_compares_builtin_profiles(self) -> None:
+    def test_select_sweep_compares_profile_config_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -2371,13 +2383,21 @@ class SelectCommandTests(unittest.TestCase):
             self._write_macro_context(
                 root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
             )
+            profile_config = root / "selection-profiles.yaml"
+            profile_config.write_text(
+                yaml.safe_dump(
+                    {"profiles": {"tighter": {"fast_dislocation": {"price_change_5d_max": -0.12}}}}
+                ),
+                encoding="utf-8",
+            )
 
             buffer = io.StringIO()
             exit_code = select_sweep_command(
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                profiles=("strict", "balanced", "loose"),
+                profiles=("tighter", "balanced"),
+                profile_config_path=profile_config,
                 candidates_root=root / "records/04-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
@@ -2386,9 +2406,8 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(buffer.getvalue())
             by_profile = {item["profile"]: item for item in payload["profiles"]}
-            self.assertEqual(by_profile["strict"]["fast_dislocation_count"], 0)
+            self.assertEqual(by_profile["tighter"]["fast_dislocation_count"], 0)
             self.assertEqual(by_profile["balanced"]["fast_dislocation_count"], 1)
-            self.assertEqual(by_profile["loose"]["fast_dislocation_count"], 1)
             self.assertEqual(by_profile["balanced"]["recommended"][0]["fast_guard_count"], 2)
             self.assertEqual(
                 by_profile["balanced"]["recommended_diff_vs_first_profile"]["changed"][0]["ticker"],
@@ -2401,7 +2420,7 @@ class SelectCommandTests(unittest.TestCase):
                 ],
             )
 
-    def test_select_sweep_loose_profile_allows_single_guard_family(self) -> None:
+    def test_select_sweep_profile_config_allows_single_guard_family(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -2424,12 +2443,29 @@ class SelectCommandTests(unittest.TestCase):
                 root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
             )
 
+            profile_config = root / "selection-profiles.yaml"
+            profile_config.write_text(
+                yaml.safe_dump(
+                    {
+                        "profiles": {
+                            "single-guard": {
+                                "fast_dislocation": {
+                                    "min_fundamental_guard_count": 1,
+                                    "min_fundamental_guard_family_count": 1,
+                                }
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
             buffer = io.StringIO()
             exit_code = select_sweep_command(
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                profiles=("balanced", "loose"),
+                profiles=("balanced", "single-guard"),
+                profile_config_path=profile_config,
                 candidates_root=root / "records/04-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
@@ -2439,9 +2475,9 @@ class SelectCommandTests(unittest.TestCase):
             payload = yaml.safe_load(buffer.getvalue())
             by_profile = {item["profile"]: item for item in payload["profiles"]}
             self.assertEqual(by_profile["balanced"]["fast_dislocation_count"], 0)
-            self.assertEqual(by_profile["loose"]["fast_dislocation_count"], 1)
+            self.assertEqual(by_profile["single-guard"]["fast_dislocation_count"], 1)
             self.assertEqual(
-                by_profile["loose"]["recommended"][0]["fast_guard_family_count"],
+                by_profile["single-guard"]["recommended"][0]["fast_guard_family_count"],
                 1,
             )
 

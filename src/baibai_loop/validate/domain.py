@@ -24,14 +24,6 @@ def repo_root_for(path: Path) -> Path:
     return resolved.parent
 
 
-def resolve_ref(root: Path, ref: str) -> Path:
-    """Resolve a repository-relative reference."""
-    ref_path = Path(ref)
-    if ref_path.is_absolute():
-        return ref_path
-    return root / ref_path
-
-
 def repository_ref_error(ref: object, *, root: Path | None = None) -> str | None:
     """Return a reason when a repository reference is not safe to resolve."""
     if not isinstance(ref, str) or not ref:

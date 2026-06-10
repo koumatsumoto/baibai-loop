@@ -91,8 +91,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     replay_parser.add_argument(
         "--profiles",
-        default="strict,balanced,loose",
-        help="comma-separated selection profiles (default: strict,balanced,loose)",
+        default="balanced",
+        help="comma-separated selection profiles (default: balanced)",
     )
     replay_parser.add_argument("--top", type=int, default=10, help="candidates per profile")
     replay_parser.add_argument(

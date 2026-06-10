@@ -37,7 +37,7 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 
 ## 3. Playbook-linked screen（OR 条件、最低 1 つ満たす）
 
-以下の playbook-linked screen のうち、**最低 1 つ** を満たす銘柄を通過とする。閾値は `records/_config/screening-rules/2026-05-01T000000+0900.yaml` を正本とする。
+以下の playbook-linked screen のうち、**最低 1 つ** を満たす銘柄を通過とする。閾値は `records/_config/screening-rules/2026-06-10T000000+0900.yaml` を正本とする。
 
 ### 3.1 `valuation-reversion`
 
@@ -110,7 +110,8 @@ P/S が業種中央値比で安く、売上成長が残る銘柄を拾う。営�
 `fast_dislocation` と `long_hold_survivability` は `select` 側の lens であり、mechanical screen の hard gate ではない。
 
 - `fast_dislocation` は急落銘柄を拾うが、急落だけでは通さず、OCF / FCF / net cash / equity buffer / sales+profit の fundamental guard を原則 2 件以上、かつ cash-flow / balance-sheet / profitability の guard family を原則 2 系統以上要求する。出来高 spike と 52 週安値距離は補助情報であり、価格下落なしでは eligible にしない
-- `long_hold_survivability` は `high|medium|low|unknown` の annotation。短期 thesis が外れたときの保有耐性を早く見るための補助で、採用可否を単独では決めない
+- `long_hold_survivability` は `high|medium|low|unknown` の annotation。短期 thesis が外れたときの保有耐性を早く見るための補助で、採用可否を単独では決めない。ranking には使わない(2026-05 の selection ablation で ranking 寄与が観測されなかったため、sort key から外して annotation に限定した。[`selection-ablation-2026-05.md`](./selection-ablation-2026-05.md))
+- lane の優先順位は config の `output.research_selection_lane_order` を唯一の正本とし、推奨 queue の順位付けと primary evidence の選択の両方に使う(旧実装はコード内 `_LANE_RANK` と config の 2 つの順序を併存させていた)。順序値の変更は config 編集 + replay / ablation 計測で検証する
 
 この境界により、`records/04-candidates/` は事実層として維持し、短期の値動きや過去 research decision を使った調整は `select` output の `recommendations` / `selection.diagnostics` / `reason_tags` / `risk_tags` に閉じる。
 

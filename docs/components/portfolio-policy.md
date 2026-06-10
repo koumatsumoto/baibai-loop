@@ -6,7 +6,6 @@ status: active
 last_reviewed: 2026-05-06
 related_docs:
   - "../concepts.md"
-  - "../glossary/investment-terms-ja.md"
 ---
 
 # Portfolio policy

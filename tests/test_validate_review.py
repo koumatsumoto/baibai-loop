@@ -128,18 +128,14 @@ def test_yaml_review_scans_are_discovered(tmp_path: Path) -> None:
     assert discover_review_files(tmp_path / "records/07-reviews") == [scan]
 
 
-def test_review_scan_rejects_invalid_market_data_ref(tmp_path: Path) -> None:
-    (tmp_path / "src").mkdir()
+def test_review_scan_rejects_non_mapping_root(tmp_path: Path) -> None:
     scan = tmp_path / "records/07-reviews/playbook-attribution/2026-05.yaml"
     scan.parent.mkdir(parents=True)
-    scan.write_text(
-        "scan_id: scan-1\nmarket_data_ref:\n  ref_path: /tmp/market-data.yaml\nitems: []\n",
-        encoding="utf-8",
-    )
+    scan.write_text("- not\n- a\n- mapping\n", encoding="utf-8")
 
     codes = {finding.code for finding in validate_review_file(scan)}
 
-    assert "review-scan.repository-ref" in codes
+    assert "review-scan.root" in codes
 
 
 def test_monthly_retro_file_uses_retro_schema(tmp_path: Path) -> None:

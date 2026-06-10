@@ -68,7 +68,7 @@ directory ごとの責務は [`docs/architecture/repository-map.md`](./docs/arch
 | 目的 | doc |
 | --- | --- |
 | docs portal | [`docs/README.md`](./docs/README.md) |
-| 概念モデル / 用語 | [`docs/concepts.md`](./docs/concepts.md), [`docs/glossary/`](./docs/glossary/) |
+| 概念モデル / 用語 | [`docs/concepts.md`](./docs/concepts.md) |
 | 現行アーキテクチャ | [`docs/architecture/README.md`](./docs/architecture/README.md) |
 | component contract | [`docs/components/README.md`](./docs/components/README.md) |
 | 運用 runbook | [`docs/operations/README.md`](./docs/operations/README.md) |

@@ -53,22 +53,16 @@ uv run baibai-loop-screening select --asof YYYY-MM-DD
 
 件数は `--top` と `output.research_selection_target_max` で調整します。複数 hit 銘柄では、config の lane order に従って `selection_lane` を選びます。
 
-Parameter replay は `select-sweep` で行います。
-
-```bash
-uv run baibai-loop-screening select-sweep --asof YYYY-MM-DD --profiles strict,balanced,loose
-```
-
-閾値を試す場合は source code を編集せず、YAML profile を渡します。
+Parameter replay は `select-sweep` で行います。built-in profile は `balanced` のみで、閾値を試す場合は source code を編集せず YAML profile を渡します。
 
 ```bash
 uv run baibai-loop-screening select-sweep \
   --asof YYYY-MM-DD \
   --profile-config path/to/selection-profiles.yaml \
-  --profiles strict,balanced,my-fast-lane
+  --profiles balanced,my-fast-lane
 ```
 
-`select-sweep` では profile ごとの recommended tickers、recommended detail、fast-dislocation count、long-hold count、suppressed count、profile 間の added / removed / changed、previous overlap、sector / lane concentration を比較します。運用設定を変える前に、最低 6-8 週の実データで `strict` / `balanced` / `loose` と候補 profile を比較し、直近 1-2 週を hold-out として残します。forward-only 原則に従い、ここでは過去 fit ではなく「profile を採用する前の再現性確認」として扱います。
+`select-sweep` では profile ごとの recommended tickers、recommended detail、fast-dislocation count、long-hold count、suppressed count、profile 間の added / removed / changed、previous overlap、sector / lane concentration を比較します。運用設定を変える前に、最低 6-8 週の実データで `balanced` と候補 profile を比較し、直近 1-2 週を hold-out として残します。forward-only 原則に従い、ここでは過去 fit ではなく「profile を採用する前の再現性確認」として扱います。
 
 Profile を採用する前に、少なくとも以下を表にします。
 
@@ -82,7 +76,7 @@ Profile を採用する前に、少なくとも以下を表にします。
 
 サイロ化を避けるため、既定 profile は `selection.diversity.max_previous_candidates_in_recommended` で前回 candidates 由来の銘柄数に上限を置きます。上限に達した場合は新規候補を優先し、最低件数を満たすための緩和は行いません。
 
-Lane ごとの hit 数は `evidence_hits_summary` で確認します。特定 lane が universe の大きな割合を占める場合は、候補数が増えただけで evidence の識別力が弱い可能性があるため、`records/_config/screening-rules/2026-05-01T000000+0900.yaml` の閾値・sector policy を見直します。
+Lane ごとの hit 数は `evidence_hits_summary` で確認します。特定 lane が universe の大きな割合を占める場合は、候補数が増えただけで evidence の識別力が弱い可能性があるため、`records/_config/screening-rules/2026-06-10T000000+0900.yaml` の閾値・sector policy を見直します。
 
 ## Multi-week replay と forward return
 
@@ -100,7 +94,7 @@ done
 # 2. profile を replay し recommended forward return を集計
 uv run baibai-loop-ledger screening-replay \
   --candidates-root .cache/replay/candidates \
-  --profiles strict,balanced,loose --holdout-weeks 2 \
+  --profiles balanced --holdout-weeks 2 \
   --out .cache/replay/replay-payload.yaml
 ```
 

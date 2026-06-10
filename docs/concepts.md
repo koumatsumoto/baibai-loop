@@ -5,7 +5,6 @@ doc_type: concept
 status: active
 last_reviewed: 2026-05-06
 related_docs:
-  - "glossary/README.md"
   - "components/portfolio-policy.md"
   - "architecture/system-overview.md"
 ---

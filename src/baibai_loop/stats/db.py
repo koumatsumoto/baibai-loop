@@ -302,21 +302,6 @@ def latest_observation(
     return _observation_from_row(row) if row is not None else None
 
 
-def previous_observation(
-    conn: sqlite3.Connection,
-    series_id: str,
-    *,
-    before: date,
-) -> ObservationRecord | None:
-    row = conn.execute(
-        "SELECT * FROM observations WHERE series_id = ? AND fetch_status = 'ok' "
-        "AND observed_at < ? "
-        "ORDER BY observed_at DESC, vintage_at DESC LIMIT 1",
-        (series_id, before.isoformat()),
-    ).fetchone()
-    return _observation_from_row(row) if row is not None else None
-
-
 def _connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)

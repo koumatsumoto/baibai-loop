@@ -17,8 +17,8 @@ _ASOF = date(2026, 5, 29)
 
 # Fast-dislocation eligible under the balanced profile: a 5d price trigger plus
 # two fundamental guards from two families (cash_flow + balance_sheet). The
-# evidence lane sales-discount-growth ranks last in _LANE_RANK so the fast boost
-# is the only reason this candidate can outrank the valuation-reversion one.
+# evidence lane sales-discount-growth ranks low in the configured lane order so
+# the fast boost is the only reason this candidate can outrank the calm one.
 _FAST_CANDIDATE: Mapping[str, object] = {
     "ticker": "9999",
     "name": "fast oversold",
@@ -30,9 +30,9 @@ _FAST_CANDIDATE: Mapping[str, object] = {
     "metrics": {"ocf_yield": 0.12, "net_cash_to_market_cap": 0.3},
 }
 
-# Same fundamentals as the fast candidate (so the long-hold lens ties) but no
-# price decline: without the fast boost the lane rank decides and
-# valuation-reversion outranks sales-discount-growth.
+# Same fundamentals as the fast candidate but no price decline: without the
+# fast boost the configured lane order decides and strict-net-cash-discount
+# outranks sales-discount-growth.
 _CALM_CANDIDATE: Mapping[str, object] = {
     "ticker": "1111",
     "name": "calm value",
@@ -40,7 +40,7 @@ _CALM_CANDIDATE: Mapping[str, object] = {
     "market_cap_oku": 500,
     "price_change_5d": 0.01,
     "price_change_20d": 0.02,
-    "evidence_hits": [{"name": "valuation-reversion"}],
+    "evidence_hits": [{"name": "strict-net-cash-discount"}],
     "metrics": {"ocf_yield": 0.12, "net_cash_to_market_cap": 0.3},
 }
 

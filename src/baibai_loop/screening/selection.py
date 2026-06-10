@@ -20,15 +20,6 @@ from .rule_config import (
 )
 from .tiers import position_tier
 
-_LANE_RANK = {
-    "valuation-reversion": 0,
-    "strict-net-cash-discount": 1,
-    "fcf-yield-discount": 2,
-    "cash-rich-asset-discount": 3,
-    "cashflow-yield-discount": 4,
-    "sales-discount-growth": 5,
-}
-
 BALANCED_PROFILE_OVERRIDES: Mapping[str, object] = {
     "fast_dislocation": {
         "price_change_1d_max": -0.05,
@@ -57,57 +48,11 @@ BALANCED_PROFILE_OVERRIDES: Mapping[str, object] = {
     },
 }
 
+# Only balanced ships as a builtin: the 2026-05 replay found no consistent
+# winner among strict/balanced/loose and only balanced was ever used in
+# operation. Experimental profiles go through --profile-config YAML instead.
 BUILTIN_PROFILE_OVERRIDES: Mapping[str, Mapping[str, object]] = {
-    "strict": {
-        "fast_dislocation": {
-            "price_change_1d_max": -0.07,
-            "price_change_5d_max": -0.12,
-            "price_change_20d_max": -0.15,
-            "price_change_60d_max": -0.25,
-            "gap_from_52w_low_max": 0.10,
-            "turnover_spike_5d_min": 2.0,
-            "min_fundamental_guard_count": 2,
-            "high_confidence_guard_count": 3,
-            "min_fundamental_guard_family_count": 2,
-            "high_confidence_guard_family_count": 2,
-            "ocf_yield_min": 0.10,
-            "fcf_yield_min": 0.07,
-            "equity_ratio_min": 0.45,
-            "price_to_equity_max": 1.0,
-            "net_cash_to_market_cap_min": 0.25,
-            "sales_yoy_min": 0.05,
-        },
-        "diversity": {
-            "max_recommended_per_sector": 1,
-            "max_recommended_per_lane": 1,
-            "max_previous_candidates_in_recommended": 2,
-        },
-    },
     "balanced": BALANCED_PROFILE_OVERRIDES,
-    "loose": {
-        "fast_dislocation": {
-            "price_change_1d_max": -0.03,
-            "price_change_5d_max": -0.05,
-            "price_change_20d_max": -0.08,
-            "price_change_60d_max": -0.12,
-            "gap_from_52w_low_max": 0.25,
-            "turnover_spike_5d_min": None,
-            "min_fundamental_guard_count": 1,
-            "min_fundamental_guard_family_count": 1,
-            "high_confidence_guard_count": 2,
-            "ocf_yield_min": 0.05,
-            "fcf_yield_min": 0.03,
-            "equity_ratio_min": 0.35,
-            "price_to_equity_max": 1.1,
-            "net_cash_to_market_cap_min": 0.10,
-            "sales_yoy_min": 0.03,
-        },
-        "diversity": {
-            "max_recommended_per_sector": 3,
-            "max_recommended_per_lane": 3,
-            "max_previous_candidates_in_recommended": None,
-        },
-    },
 }
 
 if set(BUILTIN_PROFILE_OVERRIDES) != BUILTIN_SELECTION_PROFILES:
@@ -126,10 +71,8 @@ class RankingToggles:
 
     macro: bool = True
     fast_boost: bool = True
-    long_hold: bool = True
     lane_rank: bool = True
     strength: bool = True
-    evidence_count: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,6 +265,11 @@ def build_selection_payload(
         market_regime is None or market_regime.regime is not MarketRegime.RISK_ON_RALLY
     )
     toggles = ranking_toggles or RankingToggles()
+    # Single source of truth for lane priority: the configured
+    # research_selection_lane_order ranks both the queue and the primary
+    # evidence pick. The old hard-coded _LANE_RANK put valuation-reversion
+    # first, the inverse of the measured lane quality (lane-cohorts-2026-05).
+    lane_order = tuple(rules.output.research_selection_lane_order)
 
     ranked_entries: list[tuple[tuple[object, ...], dict[str, object]]] = []
     macro_context_checked_count = 0
@@ -338,7 +286,8 @@ def build_selection_payload(
         if not eligible_evidence_hits:
             continue
         selection_lane, selection_metrics, strength_key = _best_selection_evidence(
-            eligible_evidence_hits
+            eligible_evidence_hits,
+            lane_order=lane_order,
         )
         prior_research = prior_research_by_ticker.get(item.ticker)
         suppress_reason = (
@@ -365,10 +314,8 @@ def build_selection_payload(
         sort_key = (
             _macro_rank(macro_context_alignment) if toggles.macro else 0,
             0 if fast_boosted else 1,
-            _long_hold_rank(candidate) if toggles.long_hold else 0,
-            _lane_rank(selection_lane) if toggles.lane_rank else 0,
+            _lane_order_rank(selection_lane, lane_order) if toggles.lane_rank else 0,
             *(strength_key if toggles.strength else ()),
-            -len(eligible_evidence_hits) if toggles.evidence_count else 0,
             item.ticker,
         )
         ranked_entries.append((sort_key, candidate))
@@ -1049,16 +996,6 @@ def _long_hold_lens(candidate: Mapping[str, object]) -> Mapping[str, object]:
     return lens if isinstance(lens, Mapping) else {}
 
 
-def _long_hold_rank(candidate: Mapping[str, object]) -> int:
-    match _string_value(_long_hold_lens(candidate).get("rating")):
-        case "high":
-            return 0
-        case "medium":
-            return 1
-        case _:
-            return 2
-
-
 def _fast_guard_count(candidate: Mapping[str, object]) -> int:
     count = _fast_lens(candidate).get("fundamental_guard_count")
     return int(count) if isinstance(count, int) else 0
@@ -1093,10 +1030,12 @@ def _primary_evidence_by_lane_order(
 
 def _best_selection_evidence(
     evidence_hits: Sequence[Mapping[str, object]],
+    *,
+    lane_order: Sequence[str],
 ) -> tuple[str | None, dict[str, object], tuple[float, ...]]:
     entries = [
         (
-            _lane_rank(name),
+            _lane_order_rank(name, lane_order),
             _evidence_strength_key(name, metrics),
             name,
             metrics,
@@ -1109,6 +1048,13 @@ def _best_selection_evidence(
         return None, {}, (0.0,)
     _, strength_key, name, metrics = min(entries, key=lambda item: (item[0], item[1]))
     return name, metrics, strength_key
+
+
+def _lane_order_rank(name: str | None, lane_order: Sequence[str]) -> int:
+    try:
+        return lane_order.index(name or "")
+    except ValueError:
+        return len(lane_order)
 
 
 def _sizing_eligible_evidence_hits(
@@ -1182,10 +1128,6 @@ def _macro_rank(status: str | None) -> int:
             return 2
         case _:
             return 3
-
-
-def _lane_rank(name: str | None) -> int:
-    return _LANE_RANK.get(name or "", 99)
 
 
 def _evidence_strength_key(name: str, metrics: Mapping[str, object]) -> tuple[float, ...]:
