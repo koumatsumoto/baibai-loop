@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import sqlite3
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any
 
 import yaml
 
-from baibai_loop.screening.providers.jquants import JQuantsDailyBar
 from baibai_loop.screening.regime import MarketRegimeSnapshot, compute_market_regime
 from baibai_loop.screening.rule_config import ScreeningRules
 from baibai_loop.screening.selection import (
@@ -30,6 +27,7 @@ from .forward_return import (
     aggregate_forward_returns,
     compute_ticker_forward_returns,
     latest_bar_date,
+    load_bars_for_tickers,
 )
 
 # Replay is intentionally macro-agnostic: only 3 weeks have a non-stale macro
@@ -125,7 +123,7 @@ def run_replay(
     for _spec, payload in sweeps:
         for profile_result in _profile_results(payload):
             needed.update(_string_list(profile_result.get("recommended_tickers")))
-    bars = _load_bars_for_tickers(sqlite_path, needed)
+    bars = load_bars_for_tickers(sqlite_path, needed)
     eval_cap = latest_bar_date(bars)
 
     results: list[ProfileWeekResult] = []
@@ -289,40 +287,6 @@ def _build_week_sweep(
     )
 
 
-def _load_bars_for_tickers(sqlite_path: Path, tickers: set[str]) -> tuple[JQuantsDailyBar, ...]:
-    if not tickers or not sqlite_path.exists():
-        return ()
-    # placeholders is only "?,?,..." markers; ticker values are bound parameters
-    # in conn.execute, so the f-string is not an injection vector. bandit cannot
-    # see the binding, so suppress its B608 false positive here.
-    placeholders = ",".join("?" for _ in tickers)
-    query = (
-        "SELECT ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor "  # nosec B608
-        "FROM jquants_daily_bars "
-        f"WHERE ticker IN ({placeholders}) ORDER BY ticker, traded_at"
-    )
-    conn = sqlite3.connect(sqlite_path)
-    try:
-        rows = conn.execute(query, tuple(sorted(tickers))).fetchall()
-    finally:
-        conn.close()
-    bars: list[JQuantsDailyBar] = []
-    for ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor in rows:
-        if close is None or traded_at is None:
-            continue
-        bars.append(
-            JQuantsDailyBar(
-                ticker=str(ticker),
-                traded_at=date.fromisoformat(traded_at),
-                close=float(close),
-                turnover_value=_optional_float(turnover_value),
-                adjustment_close=_optional_float(adjustment_close),
-                adjustment_factor=_optional_float(adjustment_factor),
-            )
-        )
-    return tuple(bars)
-
-
 def _distributions(
     recommended: Sequence[Mapping[str, object]],
 ) -> dict[str, dict[str, int]]:
@@ -363,7 +327,3 @@ def _int_map(value: object) -> dict[str, int]:
     if not isinstance(value, Mapping):
         return {}
     return {str(key): _int(item) for key, item in value.items()}
-
-
-def _optional_float(value: Any) -> float | None:
-    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None

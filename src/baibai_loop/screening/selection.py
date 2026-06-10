@@ -115,6 +115,24 @@ if set(BUILTIN_PROFILE_OVERRIDES) != BUILTIN_SELECTION_PROFILES:
 
 
 @dataclass(frozen=True, slots=True)
+class RankingToggles:
+    """Named on/off switches for each ranking component of the selection sort key.
+
+    All components default to on, which reproduces the production ranking
+    exactly. Turning one off is used by the selection ablation replay to
+    measure that component's contribution to recommended forward return; the
+    production CLI never passes toggles.
+    """
+
+    macro: bool = True
+    fast_boost: bool = True
+    long_hold: bool = True
+    lane_rank: bool = True
+    strength: bool = True
+    evidence_count: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateRecord:
     ticker: str
     name: str | None
@@ -278,6 +296,7 @@ def build_selection_payload(
     prior_research_by_ticker: Mapping[str, PriorResearch] | None = None,
     profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
     market_regime: MarketRegimeSnapshot | None = None,
+    ranking_toggles: RankingToggles | None = None,
     detail: str = "summary",
 ) -> dict[str, object]:
     if detail not in {"summary", "full"}:
@@ -302,6 +321,7 @@ def build_selection_payload(
     fast_boost_active = (
         market_regime is None or market_regime.regime is not MarketRegime.RISK_ON_RALLY
     )
+    toggles = ranking_toggles or RankingToggles()
 
     ranked_entries: list[tuple[tuple[object, ...], dict[str, object]]] = []
     macro_context_checked_count = 0
@@ -337,13 +357,18 @@ def build_selection_payload(
             suppression_reasons=(suppress_reason,) if suppress_reason else (),
             previous_candidate=item.ticker in previous_tickers,
         )
+        fast_boosted = (
+            toggles.fast_boost
+            and fast_boost_active
+            and _fast_lens(candidate).get("eligible") is True
+        )
         sort_key = (
-            _macro_rank(macro_context_alignment),
-            0 if fast_boost_active and _fast_lens(candidate).get("eligible") is True else 1,
-            _long_hold_rank(candidate),
-            _lane_rank(selection_lane),
-            *strength_key,
-            -len(eligible_evidence_hits),
+            _macro_rank(macro_context_alignment) if toggles.macro else 0,
+            0 if fast_boosted else 1,
+            _long_hold_rank(candidate) if toggles.long_hold else 0,
+            _lane_rank(selection_lane) if toggles.lane_rank else 0,
+            *(strength_key if toggles.strength else ()),
+            -len(eligible_evidence_hits) if toggles.evidence_count else 0,
             item.ticker,
         )
         ranked_entries.append((sort_key, candidate))

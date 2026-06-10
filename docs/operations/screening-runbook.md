@@ -124,6 +124,18 @@ uv run baibai-loop-ledger lane-cohorts \
 - 直近週は eval cap 未到達で `resolved 0` になる。月次 retro 時点で再実行すれば forward-only で埋まる
 - 初回スコアボードと解釈の限界は [`../screening/lane-cohorts-2026-05.md`](../screening/lane-cohorts-2026-05.md)。lane 序列の解釈・playbook 改訂は retro 側で扱う（事実と分析の分離）
 
+## Selection ablation
+
+selection の ranking 構成要素や lane を 1 つずつ無効化した variant 群を replay し、各機能の forward return 寄与(`Δfull`)と推奨 queue の重複率を計測する。機能の削減・維持判断の根拠データを作るときに使う。
+
+```bash
+uv run baibai-loop-ledger selection-ablation \
+  --candidates-root .cache/replay/candidates \
+  --out .cache/replay/selection-ablation-latest.yaml
+```
+
+variant は事前列挙した機能スイッチ(閾値 sweep はしない)。計測結果と解釈は [`../screening/selection-ablation-2026-05.md`](../screening/selection-ablation-2026-05.md)。
+
 ## After running
 
 ```bash
