@@ -20,7 +20,7 @@ Baibai-Loop をデータ解析基盤として AI / スクリプトが利用す�
 | --- | --- | --- |
 | `baibai-loop-screening run` | `records/04-candidates/<Y>/<M>/<date>.yaml` | 週次 screen output(事実) |
 | `baibai-loop-screening select` / `select-sweep` | stdout YAML(`recommendations` + `selection.diagnostics`) | research 候補の triage |
-| `baibai-loop-screening ticker-profile` | stdout YAML(1 銘柄の事実 packet) | 個別銘柄リサーチの起点(全上場銘柄対応) |
+| `baibai-loop-screening ticker-profile` | stdout YAML(1 銘柄の事実 packet、保有ポジション集中度を含む) | 個別銘柄リサーチと entry 前チェックの起点(全上場銘柄対応) |
 | `baibai-loop-screening market-snapshot` | stdout YAML(regime 履歴 + sector 集計) | 市況リサーチの起点、macro context の機械入力 |
 | `baibai-loop-ledger screening-replay` | replay payload YAML | profile / lens の forward 計測 |
 | `baibai-loop-ledger lane-cohorts` | lane cohort payload YAML | lane 母集団の forward 計測 |

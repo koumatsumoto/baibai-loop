@@ -25,6 +25,11 @@ from pathlib import Path
 
 import yaml
 
+# ledger.trades is a standalone record reader (no screening dependency), so
+# this import does not create a package cycle; the packet deliberately reads
+# the L3 trade records to expose portfolio-concentration facts.
+from baibai_loop.ledger.trades import load_open_trades
+
 from .regime import compute_market_regime
 from .selection import load_prior_research
 
@@ -90,6 +95,12 @@ def build_ticker_profile(
         },
         "screening": candidates_block,
         "prior_research": prior.to_dict() if prior is not None else None,
+        "portfolio": _portfolio_block(
+            sqlite_path,
+            repo_root=ledger_root.parent,
+            ticker=ticker,
+            sector=sector if isinstance(sector, str) else None,
+        ),
     }
 
 
@@ -195,6 +206,54 @@ def _sector_block(
         "sector_33": sector,
         "peer_count": len(returns),
         "peer_median_return_20d": statistics.median(returns),
+    }
+
+
+def _portfolio_block(
+    sqlite_path: Path,
+    *,
+    repo_root: Path,
+    ticker: str,
+    sector: str | None,
+) -> dict[str, object]:
+    """Concentration facts versus currently open positions.
+
+    Entry notional uses each trade's recorded entry price x quantity (the same
+    basis as the trade contract), so the sector share matches how the retro
+    measures deployed concentration.
+    """
+    trades = load_open_trades(repo_root)
+    positions = []
+    total_notional = 0.0
+    same_sector_notional = 0.0
+    holds_this_ticker = False
+    for trade in trades:
+        master = _load_master_row(sqlite_path, trade.ticker)
+        trade_sector = master.get("sector_33") if master else None
+        notional = trade.entry_price * trade.quantity
+        total_notional += notional
+        if trade.ticker == ticker:
+            holds_this_ticker = True
+        if sector is not None and trade_sector == sector:
+            same_sector_notional += notional
+        positions.append(
+            {
+                "ticker": trade.ticker,
+                "name": trade.name,
+                "sector_33": trade_sector,
+                "entry_notional_yen": round(notional),
+            }
+        )
+    return {
+        "open_position_count": len(positions),
+        "holds_this_ticker": holds_this_ticker,
+        "same_sector_position_count": sum(
+            1 for position in positions if sector is not None and position["sector_33"] == sector
+        ),
+        "same_sector_entry_notional_share": (
+            round(same_sector_notional / total_notional, 4) if total_notional else None
+        ),
+        "open_positions": positions,
     }
 
 

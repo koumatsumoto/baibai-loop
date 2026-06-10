@@ -209,3 +209,49 @@ class TickerProfileCliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PortfolioBlockTests(unittest.TestCase):
+    def test_portfolio_block_reports_sector_concentration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            sqlite_path = root / "market.sqlite"
+            _insert_bars(sqlite_path, "AAAA", [100.0] * 30, end=_ASOF)
+            _insert_reference_rows(sqlite_path)
+            trade_dir = root / "records" / "06-trades" / "2026" / "05"
+            trade_dir.mkdir(parents=True)
+            (trade_dir / "2026-05-13-bbbb.md").write_text(
+                "---\n"
+                "trade_id: trade-1\n"
+                "ticker: 'BBBB'\n"
+                "name: 同業ペア\n"
+                "position_state: open\n"
+                "review_state: scheduled\n"
+                "executions:\n"
+                "- execution_id: exec-1\n"
+                "  side: buy\n"
+                "  quantity: 100\n"
+                "  price_yen: 500\n"
+                "  at: '2026-05-14T09:00:00+09:00'\n"
+                "---\n",
+                encoding="utf-8",
+            )
+
+            packet = build_ticker_profile(
+                sqlite_path=sqlite_path,
+                ticker="AAAA",
+                asof_date=_ASOF,
+                candidates_root=root / "candidates",
+                ledger_root=root / "records",
+            )
+
+            portfolio = packet["portfolio"]
+            assert isinstance(portfolio, dict)
+            self.assertEqual(portfolio["open_position_count"], 1)
+            self.assertFalse(portfolio["holds_this_ticker"])
+            # BBBB shares AAAA's sector (機械) so the whole notional concentrates there.
+            self.assertEqual(portfolio["same_sector_position_count"], 1)
+            self.assertEqual(portfolio["same_sector_entry_notional_share"], 1.0)
+            positions = portfolio["open_positions"]
+            assert isinstance(positions, list)
+            self.assertEqual(positions[0]["entry_notional_yen"], 50000)
