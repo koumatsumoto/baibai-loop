@@ -19,6 +19,7 @@ last_reviewed: 2026-05-04
 | [`principles.md`](./principles.md) | contract | screening subsystem の設計原則正本 |
 | [`automation.md`](./automation.md) | runbook / automation | screening CLI の使い方と実装境界 |
 | [`failure-taxonomy.md`](./failure-taxonomy.md) | reference | review / retro で使う失敗分類 |
+| [`lane-cohorts-2026-05.md`](./lane-cohorts-2026-05.md) | reference | lane 別 cohort forward-return telemetry の初回スコアボード (2026-05) |
 | [`mechanical.md`](./mechanical.md) | contract | 機械的ふるいの閾値と rule engine の意味論 |
 | [`sector-sensitivity-map.md`](./sector-sensitivity-map.md) | reference | 東証 33 業種と macro context sector tilt の参考分類 |
 | [`universe-rules.md`](./universe-rules.md) | contract | screening universe の境界条件 |
