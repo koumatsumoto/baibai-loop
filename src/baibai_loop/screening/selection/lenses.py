@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from baibai_loop.coerce import float_or, optional_float, string_or_none
+
 from ..rule_config import SelectionRules
-from ._coerce import _float_or, _number, _string_value
 from .records import CandidateRecord
 
 
@@ -99,23 +100,23 @@ def _fundamental_guard_reasons(item: CandidateRecord, rules: SelectionRules) -> 
     lane_rules = rules.fast_dislocation
     metrics = item.metrics
     reasons: list[str] = []
-    if _float_or(metrics.get("ocf_yield"), -1.0) >= lane_rules.ocf_yield_min:
+    if float_or(metrics.get("ocf_yield"), -1.0) >= lane_rules.ocf_yield_min:
         reasons.append("ocf_yield")
-    if _float_or(metrics.get("fcf_yield"), -1.0) >= lane_rules.fcf_yield_min:
+    if float_or(metrics.get("fcf_yield"), -1.0) >= lane_rules.fcf_yield_min:
         reasons.append("fcf_yield")
     if (
-        _float_or(metrics.get("price_to_equity"), 99.0) <= lane_rules.price_to_equity_max
-        and _float_or(metrics.get("equity_ratio"), -1.0) >= lane_rules.equity_ratio_min
+        float_or(metrics.get("price_to_equity"), 99.0) <= lane_rules.price_to_equity_max
+        and float_or(metrics.get("equity_ratio"), -1.0) >= lane_rules.equity_ratio_min
     ):
         reasons.append("asset_discount_with_equity_buffer")
-    if _float_or(metrics.get("net_cash_to_market_cap"), -99.0) >= (
+    if float_or(metrics.get("net_cash_to_market_cap"), -99.0) >= (
         lane_rules.net_cash_to_market_cap_min
     ):
         reasons.append("net_cash_buffer")
     operating_profit_ok = not lane_rules.operating_profit_positive_required or (
-        _float_or(metrics.get("operating_profit"), -1.0) > 0
+        float_or(metrics.get("operating_profit"), -1.0) > 0
     )
-    sales_yoy = _number(metrics.get("sales_yoy"))
+    sales_yoy = optional_float(metrics.get("sales_yoy"))
     if sales_yoy is not None and sales_yoy >= lane_rules.sales_yoy_min and operating_profit_ok:
         reasons.append("sales_growth_with_profit")
     return reasons
@@ -133,7 +134,7 @@ def _fundamental_guard_family(reason: str) -> str:
 
 def _has_edinet_freshness_warning(item: CandidateRecord) -> bool:
     return any(
-        _string_value(warning.get("stale_metric")) == "edinet_metrics"
+        string_or_none(warning.get("stale_metric")) == "edinet_metrics"
         for warning in item.freshness_warnings
     )
 
@@ -159,7 +160,7 @@ def _long_hold_survivability_lens(
     reasons: list[str] = []
     missing_reasons: list[str] = []
     weak_reasons: list[str] = []
-    equity_ratio = _number(metrics.get("equity_ratio"))
+    equity_ratio = optional_float(metrics.get("equity_ratio"))
     if equity_ratio is None:
         missing_reasons.append("equity_ratio_missing")
     elif equity_ratio >= lens_rules.equity_ratio_high_min:
@@ -169,7 +170,7 @@ def _long_hold_survivability_lens(
     else:
         weak_reasons.append("low_equity_ratio")
 
-    net_cash_to_market_cap = _number(metrics.get("net_cash_to_market_cap"))
+    net_cash_to_market_cap = optional_float(metrics.get("net_cash_to_market_cap"))
     if net_cash_to_market_cap is not None and (
         net_cash_to_market_cap >= lens_rules.net_cash_to_market_cap_high_min
     ):
@@ -179,20 +180,20 @@ def _long_hold_survivability_lens(
     ):
         reasons.append("non_negative_net_cash")
 
-    if _float_or(metrics.get("cash_to_market_cap"), -1.0) >= (
+    if float_or(metrics.get("cash_to_market_cap"), -1.0) >= (
         lens_rules.cash_to_market_cap_high_min
     ):
         reasons.append("cash_buffer")
-    ocf_yield = _number(metrics.get("ocf_yield"))
+    ocf_yield = optional_float(metrics.get("ocf_yield"))
     if ocf_yield is None:
         missing_reasons.append("ocf_yield_missing")
     elif ocf_yield > lens_rules.ocf_yield_positive_min:
         reasons.append("positive_ocf_yield")
     else:
         weak_reasons.append("weak_ocf_yield")
-    if _float_or(metrics.get("fcf_yield"), -1.0) > lens_rules.fcf_yield_positive_min:
+    if float_or(metrics.get("fcf_yield"), -1.0) > lens_rules.fcf_yield_positive_min:
         reasons.append("positive_fcf_yield")
-    operating_profit = _number(metrics.get("operating_profit"))
+    operating_profit = optional_float(metrics.get("operating_profit"))
     if operating_profit is None:
         missing_reasons.append("operating_profit_missing")
     elif operating_profit > 0:

@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date
 
+from baibai_loop.coerce import dict_sequence, string_or_none, string_sequence
 from baibai_loop.macro_context import MacroContext, macro_context_diagnostics
 
-from ._coerce import _dict_sequence, _string_sequence, _string_value
 from .records import CandidateRecord
 
 
@@ -40,14 +40,14 @@ def _macro_context_summary(macro_context: MacroContext | None) -> dict[str, obje
         "context_id": macro_context.context_id,
         "as_of": macro_context.as_of.isoformat(),
         "valid_until": macro_context.valid_until.isoformat(),
-        "research_questions": _string_sequence(payload.get("research_questions")),
-        "refresh_triggers": _string_sequence(payload.get("refresh_triggers")),
+        "research_questions": string_sequence(payload.get("research_questions")),
+        "refresh_triggers": string_sequence(payload.get("refresh_triggers")),
     }
 
 
 def _macro_context_alignment(result: Mapping[str, object]) -> str:
-    items = _dict_sequence(result.get("matched_items"))
-    stances = {_string_value(item.get("stance")) for item in items}
+    items = dict_sequence(result.get("matched_items"))
+    stances = {string_or_none(item.get("stance")) for item in items}
     if stances & {"tailwind"}:
         return "tailwind"
     if stances & {"headwind"}:

@@ -9,6 +9,8 @@ from typing import Any, TypeIs
 
 import yaml
 
+from baibai_loop.coerce import parse_iso_date
+
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
 
 
@@ -96,7 +98,7 @@ def _entry_basis(front: Mapping[str, Any]) -> tuple[date, int, float] | None:
     total_quantity = 0
     notional = 0.0
     for execution in buys:
-        traded_at = _parse_date(execution.get("at"))
+        traded_at = parse_iso_date(execution.get("at"))
         quantity = execution.get("quantity")
         price = execution.get("price_yen")
         if traded_at is None or not isinstance(quantity, int) or not _is_number(price):
@@ -107,15 +109,6 @@ def _entry_basis(front: Mapping[str, Any]) -> tuple[date, int, float] | None:
     if entry_date is None or total_quantity <= 0:
         return None
     return entry_date, total_quantity, notional / total_quantity
-
-
-def _parse_date(value: object) -> date | None:
-    if not isinstance(value, str) or len(value) < 10:
-        return None
-    try:
-        return date.fromisoformat(value[:10])
-    except ValueError:
-        return None
 
 
 def _is_number(value: object) -> TypeIs[int | float]:

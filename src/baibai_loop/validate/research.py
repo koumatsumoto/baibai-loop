@@ -13,6 +13,7 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator, FormatChecker
 
+from baibai_loop.coerce import optional_float
 from baibai_loop.policy_config import PORTFOLIO_POLICY
 
 from .domain import (
@@ -1283,9 +1284,9 @@ def _check_payoff(path: Path, front_matter: Mapping[str, object]) -> list[Valida
     payoff = front_matter.get("thesis_payoff")
     if not isinstance(payoff, Mapping):
         return []
-    entry = _number(payoff.get("max_entry_price_yen"))
-    target = _number(payoff.get("target_price_yen"))
-    stop = _number(payoff.get("stop_loss_yen"))
+    entry = optional_float(payoff.get("max_entry_price_yen"))
+    target = optional_float(payoff.get("target_price_yen"))
+    stop = optional_float(payoff.get("stop_loss_yen"))
     findings: list[ValidationFinding] = []
     if entry is not None and target is not None and stop is not None:
         if not stop < entry < target:
@@ -1448,16 +1449,8 @@ def _check_repository_ref(
     return findings
 
 
-def _number(value: object) -> float | None:
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    return None
-
-
 def _close(value: object, expected: float, *, tolerance: float) -> bool:
-    number = _number(value)
+    number = optional_float(value)
     return number is not None and abs(number - expected) <= tolerance
 
 

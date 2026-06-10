@@ -7,10 +7,9 @@ from baibai_loop.ledger.forward_return import HorizonAggregate
 from baibai_loop.ledger.screening_replay import (
     ProfileWeekResult,
     ReplayResult,
-    WeekSpec,
-    discover_week_specs,
     replay_to_payload,
 )
+from baibai_loop.ledger.weeks import WeekSpec, discover_week_specs
 
 
 def _write_week(root: Path, asof: date) -> None:

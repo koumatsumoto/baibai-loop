@@ -6,18 +6,18 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import date
 
+from baibai_loop.coerce import (
+    dict_sequence,
+    int_or,
+    mapping_or_empty,
+    string_or_none,
+    string_sequence,
+)
 from baibai_loop.macro_context import MacroContext
 
 from ..regime import MarketRegime, MarketRegimeSnapshot
 from ..rule_config import ScreeningRules, SelectionDiversityRules, SelectionLiquidityRules
 from ..tiers import position_tier
-from ._coerce import (
-    _dict_sequence,
-    _int_or,
-    _mapping,
-    _string_sequence,
-    _string_value,
-)
 from .lenses import _candidate_lenses, _fast_lens
 from .macro_fit import (
     _candidate_macro_context_result,
@@ -249,9 +249,9 @@ def build_selection_sweep_payload(
             market_regime=market_regime,
             detail="full",
         )
-        selection = _mapping(payload.get("selection"))
-        diagnostics = _mapping(selection.get("diagnostics"))
-        recommended = _dict_sequence(payload.get("recommendations"))
+        selection = mapping_or_empty(payload.get("selection"))
+        diagnostics = mapping_or_empty(selection.get("diagnostics"))
+        recommended = dict_sequence(payload.get("recommendations"))
         profile_results.append(
             {
                 "profile": profile,
@@ -259,29 +259,29 @@ def build_selection_sweep_payload(
                     _sweep_candidate_summary(item, rank=index)
                     for index, item in enumerate(recommended, start=1)
                 ],
-                "recommended_tickers": [_string_value(item.get("ticker")) for item in recommended],
+                "recommended_tickers": [string_or_none(item.get("ticker")) for item in recommended],
                 "recommended_count": len(recommended),
-                "fast_dislocation_count": _int_or(diagnostics.get("fast_dislocation_count"), 0),
-                "long_hold_counts": dict(_mapping(diagnostics.get("long_hold_counts"))),
-                "suppressed_count": _int_or(diagnostics.get("suppressed_count"), 0),
+                "fast_dislocation_count": int_or(diagnostics.get("fast_dislocation_count"), 0),
+                "long_hold_counts": dict(mapping_or_empty(diagnostics.get("long_hold_counts"))),
+                "suppressed_count": int_or(diagnostics.get("suppressed_count"), 0),
                 "previous_overlap": diagnostics.get("previous_overlap"),
                 "concentration": diagnostics.get("concentration"),
                 "warnings": diagnostics.get("warnings"),
             }
         )
     if profile_results:
-        base_tickers = set(_string_sequence(profile_results[0].get("recommended_tickers")))
+        base_tickers = set(string_sequence(profile_results[0].get("recommended_tickers")))
         base_by_ticker = {
             ticker: item
-            for item in _dict_sequence(profile_results[0].get("recommended"))
-            if (ticker := _string_value(item.get("ticker"))) is not None
+            for item in dict_sequence(profile_results[0].get("recommended"))
+            if (ticker := string_or_none(item.get("ticker"))) is not None
         }
         for result in profile_results:
-            tickers = set(_string_sequence(result.get("recommended_tickers")))
+            tickers = set(string_sequence(result.get("recommended_tickers")))
             current_by_ticker = {
                 ticker: item
-                for item in _dict_sequence(result.get("recommended"))
-                if (ticker := _string_value(item.get("ticker"))) is not None
+                for item in dict_sequence(result.get("recommended"))
+                if (ticker := string_or_none(item.get("ticker"))) is not None
             }
             result["recommended_diff_vs_first_profile"] = {
                 "added": sorted(tickers - base_tickers),
@@ -376,14 +376,14 @@ def _recommended_research_candidates(
         return output
 
     def can_add(candidate: Mapping[str, object], *, enforce_diversity: bool) -> bool:
-        ticker = _string_value(candidate.get("ticker"))
+        ticker = string_or_none(candidate.get("ticker"))
         if ticker is None or ticker in selected_tickers:
             return False
         output = normalized_candidate(candidate)
         if not enforce_diversity:
             return True
-        sector = _string_value(candidate.get("sector_33")) or ""
-        lane = _string_value(output.get("selection_lane")) or ""
+        sector = string_or_none(candidate.get("sector_33")) or ""
+        lane = string_or_none(output.get("selection_lane")) or ""
         max_sector = diversity_rules.max_recommended_per_sector
         max_lane = diversity_rules.max_recommended_per_lane
         max_previous = diversity_rules.max_previous_candidates_in_recommended
@@ -397,14 +397,14 @@ def _recommended_research_candidates(
 
     def add(candidate: Mapping[str, object]) -> None:
         nonlocal previous_candidate_count
-        ticker = _string_value(candidate.get("ticker"))
+        ticker = string_or_none(candidate.get("ticker"))
         if ticker is None:
             return
         output = normalized_candidate(candidate)
         selected.append(output)
         selected_tickers.add(ticker)
-        sector_counts[_string_value(candidate.get("sector_33")) or ""] += 1
-        lane_counts[_string_value(output.get("selection_lane")) or ""] += 1
+        sector_counts[string_or_none(candidate.get("sector_33")) or ""] += 1
+        lane_counts[string_or_none(output.get("selection_lane")) or ""] += 1
         if candidate.get("previous_candidate") is True:
             previous_candidate_count += 1
 
@@ -458,7 +458,7 @@ def _diagnostics(
     liquidity_fact_missing_count: int = 0,
 ) -> dict[str, object]:
     recommended_tickers = {
-        ticker for item in recommended if (ticker := _string_value(item.get("ticker"))) is not None
+        ticker for item in recommended if (ticker := string_or_none(item.get("ticker"))) is not None
     }
     previous_tickers = set(previous_candidates.tickers)
     overlap_tickers = sorted(recommended_tickers & previous_tickers)
@@ -467,13 +467,12 @@ def _diagnostics(
     if overlap_ratio >= diversity_warning_ratio and recommended_tickers:
         warnings.append("recommendations_high_previous_overlap")
     metric_type_warning_count = sum(
-        len(_dict_sequence(candidate.get("metric_type_warnings")))
-        for candidate in ranked_candidates
+        len(dict_sequence(candidate.get("metric_type_warnings"))) for candidate in ranked_candidates
     )
     if metric_type_warning_count:
         warnings.append("invalid_numeric_metric_values")
     fast_data_status_counts = Counter(
-        _string_value(_fast_lens(candidate).get("data_status")) or "unknown"
+        string_or_none(_fast_lens(candidate).get("data_status")) or "unknown"
         for candidate in ranked_candidates
     )
     short_return_missing_count = sum(
@@ -499,10 +498,10 @@ def _diagnostics(
         },
         "concentration": {
             "recommended_by_sector": dict(
-                Counter(_string_value(item.get("sector_33")) or "" for item in recommended)
+                Counter(string_or_none(item.get("sector_33")) or "" for item in recommended)
             ),
             "recommended_by_selection_lane": dict(
-                Counter(_string_value(item.get("selection_lane")) or "" for item in recommended)
+                Counter(string_or_none(item.get("selection_lane")) or "" for item in recommended)
             ),
         },
         "suppressed_count": sum(1 for candidate in ranked_candidates if candidate["suppressed"]),

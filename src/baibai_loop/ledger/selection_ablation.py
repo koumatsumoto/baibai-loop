@@ -21,8 +21,6 @@ from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 
-import yaml
-
 from baibai_loop.screening.rule_config import ScreeningRules
 from baibai_loop.screening.selection import (
     CandidateRecord,
@@ -39,10 +37,11 @@ from .benchmark import NIKKEI225_ETF_PROXY
 from .forward_return import (
     TickerForwardReturn,
     compute_ticker_forward_returns,
+    format_pct,
     latest_bar_date,
     load_bars_for_tickers,
 )
-from .screening_replay import WeekSpec
+from .weeks import WeekSpec, load_week_candidates
 
 FULL_VARIANT = "full"
 
@@ -251,8 +250,8 @@ def render_ablation_summary(result: AblationResult) -> str:
         )
         lines.append(
             f"{item.variant:<36}{item.horizon_weeks:<3}{item.resolved_count:>4}"
-            f"{_pct(item.mean_relative):>8}{_pct(delta):>8}"
-            f"{_pct(item.mean_overlap_with_full):>9}"
+            f"{format_pct(item.mean_relative):>8}{format_pct(delta):>8}"
+            f"{format_pct(item.mean_overlap_with_full):>9}"
         )
     return "\n".join(lines)
 
@@ -271,14 +270,8 @@ def _load_week_inputs(
     candidates_root: Path,
     ledger_root: Path,
 ) -> _WeekInputs:
-    payload = yaml.safe_load(spec.candidates_path.read_text(encoding="utf-8"))
-    if not isinstance(payload, Mapping):
-        raise ValueError(f"invalid candidates YAML: {spec.candidates_path}")
-    raw_candidates = payload.get("candidates")
-    if not isinstance(raw_candidates, Sequence) or isinstance(raw_candidates, str | bytes):
-        raise ValueError(f"candidates list missing: {spec.candidates_path}")
     candidates = tuple(
-        candidate_record_from_mapping(item) for item in raw_candidates if isinstance(item, Mapping)
+        candidate_record_from_mapping(item) for item in load_week_candidates(spec.candidates_path)
     )
     return _WeekInputs(
         spec=spec,
@@ -370,7 +363,3 @@ def _aggregate_variants(
                 )
             )
     return aggregates
-
-
-def _pct(value: float | None) -> str:
-    return f"{value * 100:+.1f}" if value is not None else "n/a"

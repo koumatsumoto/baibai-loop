@@ -6,8 +6,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any
 
+from baibai_loop.coerce import optional_float
 from baibai_loop.screening.providers.jquants import JQuantsDailyBar
 
 from .benchmark import NIKKEI225_ETF_PROXY
@@ -197,13 +197,13 @@ def load_bars_for_tickers(sqlite_path: Path, tickers: set[str]) -> tuple[JQuants
                 ticker=str(ticker),
                 traded_at=date.fromisoformat(traded_at),
                 close=float(close),
-                turnover_value=_optional_float(turnover_value),
-                adjustment_close=_optional_float(adjustment_close),
-                adjustment_factor=_optional_float(adjustment_factor),
+                turnover_value=optional_float(turnover_value),
+                adjustment_close=optional_float(adjustment_close),
+                adjustment_factor=optional_float(adjustment_factor),
             )
         )
     return tuple(bars)
 
 
-def _optional_float(value: Any) -> float | None:
-    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
+def format_pct(value: float | None) -> str:
+    return f"{value * 100:+.1f}" if value is not None else "n/a"

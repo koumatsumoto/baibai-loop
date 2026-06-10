@@ -19,13 +19,13 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
-import yaml
-
+from baibai_loop.coerce import optional_float
 from baibai_loop.screening.providers.jquants import JQuantsDailyBar
 
 from .benchmark import NIKKEI225_ETF_PROXY
-from .screening_replay import WeekSpec
+from .forward_return import format_pct
 from .tracking import resolve_price_on_or_before
+from .weeks import WeekSpec, load_week_candidates
 
 ALL_CANDIDATES_COHORT = "all_candidates"
 DEFAULT_COHORT_HORIZON_WEEKS: tuple[int, ...] = (1, 4)
@@ -182,24 +182,16 @@ def render_lane_cohort_summary(result: LaneCohortResult) -> str:
             lines.append(
                 f"{week.week.isoformat():<12}{aggregate.lane:<28}{aggregate.horizon_weeks:<3}"
                 f"{aggregate.member_count:>5}{aggregate.resolved_count:>9}"
-                f"{_pct(aggregate.mean_return):>8}{_pct(aggregate.median_return):>8}"
-                f"{_pct(aggregate.mean_relative):>8}{_pct(aggregate.win_rate_vs_benchmark):>6}"
+                f"{format_pct(aggregate.mean_return):>8}{format_pct(aggregate.median_return):>8}"
+                f"{format_pct(aggregate.mean_relative):>8}{format_pct(aggregate.win_rate_vs_benchmark):>6}"
             )
     return "\n".join(lines)
 
 
 def _load_week_cohorts(candidates_path: Path) -> tuple[dict[str, set[str]], int]:
-    payload = yaml.safe_load(candidates_path.read_text(encoding="utf-8"))
-    if not isinstance(payload, Mapping):
-        raise ValueError(f"invalid candidates YAML: {candidates_path}")
-    raw_candidates = payload.get("candidates")
-    if not isinstance(raw_candidates, Sequence) or isinstance(raw_candidates, str | bytes):
-        raise ValueError(f"candidates list missing: {candidates_path}")
     cohorts: dict[str, set[str]] = defaultdict(set)
     candidate_count = 0
-    for raw in raw_candidates:
-        if not isinstance(raw, Mapping):
-            continue
+    for raw in load_week_candidates(candidates_path):
         ticker = raw.get("ticker")
         if not isinstance(ticker, str) or not ticker:
             continue
@@ -339,17 +331,9 @@ def _load_bars_by_ticker(
                 ticker=str(ticker),
                 traded_at=date.fromisoformat(traded_at),
                 close=float(close),
-                turnover_value=_optional_float(turnover_value),
-                adjustment_close=_optional_float(adjustment_close),
-                adjustment_factor=_optional_float(adjustment_factor),
+                turnover_value=optional_float(turnover_value),
+                adjustment_close=optional_float(adjustment_close),
+                adjustment_factor=optional_float(adjustment_factor),
             )
         )
     return dict(bars_by_ticker)
-
-
-def _optional_float(value: object) -> float | None:
-    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
-
-
-def _pct(value: float | None) -> str:
-    return f"{value * 100:+.1f}" if value is not None else "n/a"
