@@ -26,13 +26,13 @@ if str(SRC) not in sys.path:
 from baibai_loop.screening import cli as screening_cli
 from baibai_loop.screening.cli import (
     ProviderBundle,
-    _index_next_earnings,
     bootstrap_cache_command,
     extract_edinet_metrics_command,
     run_command,
     select_command,
     select_sweep_command,
 )
+from baibai_loop.screening.cli.run import _index_next_earnings
 from baibai_loop.screening.config import ScreeningConfig
 from baibai_loop.screening.providers.edinet import (
     EdinetMetricRecord,
