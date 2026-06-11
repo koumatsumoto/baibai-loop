@@ -36,13 +36,13 @@ def compute_exposure(
 ) -> ExposureReport:
     """Aggregate open-position entry notional into sector / playbook / ticker shares.
 
-    Entry notional is the same basis the monthly retro uses to attribute
-    concentration, so the warning threshold reads identically in both places.
-    A ticker missing from the master snapshot falls into the ``unknown`` bucket
-    instead of being dropped: concentration must not shrink because a fact is
-    missing.
+    Notional uses the remaining quantity (``current_quantity`` when recorded,
+    entry quantity otherwise) at entry price — exposure sizes the risk still
+    held, unlike forward review which keeps the entry basis. A ticker missing
+    from the master snapshot falls into the ``unknown`` bucket instead of being
+    dropped: concentration must not shrink because a fact is missing.
     """
-    total_notional = sum(trade.entry_price * trade.quantity for trade in trades)
+    total_notional = sum(_held_notional(trade) for trade in trades)
     by_sector = _buckets(
         trades,
         total_notional,
@@ -76,7 +76,7 @@ def _buckets(
     tickers_by_key: dict[str, set[str]] = defaultdict(set)
     for trade in trades:
         key = key_of(trade)
-        notional_by_key[key] += trade.entry_price * trade.quantity
+        notional_by_key[key] += _held_notional(trade)
         tickers_by_key[key].add(trade.ticker)
     buckets = [
         ExposureBucket(
@@ -89,6 +89,11 @@ def _buckets(
     ]
     buckets.sort(key=lambda bucket: (-bucket.notional, bucket.key))
     return tuple(buckets)
+
+
+def _held_notional(trade: TradeRecord) -> float:
+    quantity = trade.current_quantity if trade.current_quantity is not None else trade.quantity
+    return trade.entry_price * quantity
 
 
 def _threshold_warnings(label: str, buckets: Sequence[ExposureBucket]) -> list[str]:

@@ -13,6 +13,7 @@ def _trade(
     entry_price: float,
     quantity: int,
     playbook_id: str | None = None,
+    current_quantity: int | None = None,
 ) -> TradeRecord:
     return TradeRecord(
         trade_id=f"trade-{ticker}",
@@ -24,6 +25,7 @@ def _trade(
         quantity=quantity,
         entry_price=entry_price,
         playbook_id=playbook_id,
+        current_quantity=current_quantity,
     )
 
 
@@ -70,6 +72,18 @@ def test_compute_exposure_buckets_missing_facts_as_unknown() -> None:
     assert report.by_sector[0].key == "unknown"
     assert report.by_playbook[0].key == "unknown"
     assert report.by_sector[0].share == pytest.approx(1.0)
+
+
+def test_compute_exposure_sizes_partial_exits_by_current_quantity() -> None:
+    trades = [
+        _trade("0001", 1000.0, 200, "a", current_quantity=100),
+        _trade("0002", 1000.0, 100, "b"),
+    ]
+    sectors = {"0001": "機械", "0002": "小売業"}
+    report = compute_exposure(trades, sectors)
+    assert report.total_notional == pytest.approx(200_000.0)
+    assert report.by_ticker[0].share == pytest.approx(0.5)
+    assert report.warnings == ()
 
 
 def test_compute_exposure_handles_zero_notional() -> None:

@@ -32,6 +32,9 @@ class TradeRecord:
     quantity: int
     entry_price: float
     playbook_id: str | None = None
+    # Remaining shares after partial exits; forward review / benchmark keep the
+    # entry basis, while exposure sizes risk on what is still held.
+    current_quantity: int | None = None
 
 
 def load_open_trades(root: Path) -> list[TradeRecord]:
@@ -73,6 +76,7 @@ def _build_trade_record(front: Mapping[str, Any]) -> TradeRecord | None:
         return None
     entry_date, quantity, entry_price = entry
     playbook_id = front.get("playbook_id")
+    current_quantity = front.get("current_quantity")
     return TradeRecord(
         trade_id=trade_id,
         ticker=ticker,
@@ -83,6 +87,11 @@ def _build_trade_record(front: Mapping[str, Any]) -> TradeRecord | None:
         quantity=quantity,
         entry_price=entry_price,
         playbook_id=playbook_id if isinstance(playbook_id, str) else None,
+        current_quantity=(
+            current_quantity
+            if isinstance(current_quantity, int) and not isinstance(current_quantity, bool)
+            else None
+        ),
     )
 
 
