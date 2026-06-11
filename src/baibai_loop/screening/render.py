@@ -124,6 +124,8 @@ def _build_candidate_entry(
     entry["sector_relative_strength_percentile"] = _round_ratio(
         candidate.sector_relative_strength_percentile
     )
+    entry["price_history_sessions_750d"] = candidate.price_history_sessions_750d
+    entry["price_history_coverage_750d"] = _round_ratio(candidate.price_history_coverage_750d)
     entry["metrics"] = _round_metrics(candidate.metrics)
     entry["next_earnings_date"] = (
         QuotedString(candidate.next_earnings_date.isoformat())

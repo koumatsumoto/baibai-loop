@@ -67,6 +67,8 @@ class _ScreenedCandidateInput(BaseModel):
     gap_from_52w_low: float | None = None
     turnover_spike_5d: float | None = None
     sector_relative_strength_percentile: float | None = None
+    price_history_sessions_750d: int | None = None
+    price_history_coverage_750d: float | None = None
     evidence_hits: list[dict[str, object]] = Field(default_factory=list)
     metrics: dict[str, MetricScalar] = Field(default_factory=dict)
     freshness_warnings: list[dict[str, object]] = Field(default_factory=list)

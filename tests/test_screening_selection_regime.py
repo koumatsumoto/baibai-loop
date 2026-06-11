@@ -123,6 +123,53 @@ class SelectionRegimeLensTests(unittest.TestCase):
         payload = self._payload(_snapshot(MarketRegime.RISK_ON_RALLY))
         self.assertEqual(len(self._recommended_tickers(payload)), 2)
 
+    def _recommendations(self, payload: dict[str, object]) -> list[Mapping[str, object]]:
+        recommendations = payload["recommendations"]
+        assert isinstance(recommendations, list)
+        return recommendations
+
+    def test_snapshot_supplies_benchmark_relative_20d_and_laggard_tag(self) -> None:
+        payload = self._payload(_snapshot(MarketRegime.NEUTRAL_RANGE))
+        by_ticker = {item["ticker"]: item for item in self._recommendations(payload)}
+        fast = by_ticker["9999"]
+        self.assertAlmostEqual(float(str(fast["benchmark_relative_20d"])), -0.17)
+        self.assertIn("benchmark_laggard_20d", fast["risk_tags"])
+        calm = by_ticker["1111"]
+        self.assertAlmostEqual(float(str(calm["benchmark_relative_20d"])), -0.03)
+        self.assertIn("benchmark_laggard_20d", calm["risk_tags"])
+
+    def test_without_snapshot_benchmark_relative_20d_degrades_to_none(self) -> None:
+        payload = self._payload(None)
+        for item in self._recommendations(payload):
+            self.assertIsNone(item["benchmark_relative_20d"])
+            self.assertNotIn("benchmark_laggard_20d", item["risk_tags"])
+
+    def test_price_history_gap_tag_marks_old_listing_with_sparse_bars(self) -> None:
+        gappy = dict(_CALM_CANDIDATE)
+        gappy["listing_span_days"] = 1200
+        gappy["price_history_coverage_750d"] = 0.27
+        fresh = dict(_FAST_CANDIDATE)
+        fresh["listing_span_days"] = 300
+        fresh["price_history_coverage_750d"] = 0.27
+        payload = build_selection_payload(
+            asof_date=_ASOF,
+            candidates=(
+                candidate_record_from_mapping(gappy),
+                candidate_record_from_mapping(fresh),
+            ),
+            macro_context=None,
+            rules=self.rules,
+            top=10,
+            profile="balanced",
+            candidates_ref="test.yaml",
+            macro_context_ref=None,
+            market_regime=None,
+        )
+        by_ticker = {item["ticker"]: item for item in self._recommendations(payload)}
+        self.assertIn("price_history_gap", by_ticker["1111"]["risk_tags"])
+        # A genuinely new listing is short_history territory, not a gap.
+        self.assertNotIn("price_history_gap", by_ticker["9999"]["risk_tags"])
+
     def test_sweep_payload_records_market_regime(self) -> None:
         payload = build_selection_sweep_payload(
             asof_date=_ASOF,

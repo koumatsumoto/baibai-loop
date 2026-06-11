@@ -7,7 +7,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-DEFAULT_RULES_PATH = Path("records/_config/screening-rules/2026-06-10T000000+0900.yaml")
+DEFAULT_RULES_PATH = Path("records/_config/screening-rules/2026-06-12T000000+0900.yaml")
 
 BUILTIN_SELECTION_PROFILES = frozenset({"balanced"})
 
@@ -45,6 +45,7 @@ class ValuationReversionLane(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
     playbook_id: str
+    excluded_sectors: tuple[str, ...] = ()
     sector_median_gap_max: float
     self_range_percentile_max: float = Field(ge=0, le=1)
     price_change_60d_max: float
@@ -56,6 +57,11 @@ class ValuationReversionLane(BaseModel):
     @classmethod
     def _tuple_metrics(cls, value: list[str] | tuple[str, ...]) -> tuple[str, ...]:
         return tuple(value)
+
+    @field_validator("excluded_sectors", mode="before")
+    @classmethod
+    def _tuple_excluded_sectors(cls, value: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+        return tuple(value or ())
 
 
 class CashRichLane(BaseModel):

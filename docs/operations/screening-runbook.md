@@ -47,6 +47,7 @@ uv run baibai-loop-screening select --asof YYYY-MM-DD
 出力は `recommendations` と `selection.diagnostics` を正本にします。default は daily triage 用 summary で、候補の full `lenses` や debug detail が必要な場合だけ `--detail full` を付けます。
 
 - `recommendations`: research 着手候補。`selection_lane` と `selection_metrics` を見て primary thesis を決める。
+- `benchmark_relative_20d`: 候補の 20 営業日リターン − benchmark proxy(`1321`)の同期間リターン。entry 前 packet の Nikkei relative return 欄へ機械転記する。`-0.03` 以下の候補には risk tag `benchmark_laggard_20d` が付く(2026-05 retro の「3pt 以上劣後は starter size 限定」ルールの annotation 化。ranking には使わない)。regime snapshot が無い場合は `null`。
 - `lenses.fast_dislocation`: 明確な価格下落と fundamental guard を同時に満たすかを示す annotation。rank と reason tag に反映する。
 - `lenses.long_hold_survivability`: 短期 thesis が外れた場合の保有耐性を `high|medium|low|unknown` で示す annotation。
 - `selection.diagnostics`: suppressed count、previous overlap、sector / lane concentration、fast / long-hold の件数、warnings を確認する。
@@ -76,7 +77,7 @@ Profile を採用する前に、少なくとも以下を表にします。
 
 サイロ化を避けるため、既定 profile は `selection.diversity.max_previous_candidates_in_recommended` で前回 candidates 由来の銘柄数に上限を置きます。上限に達した場合は新規候補を優先し、最低件数を満たすための緩和は行いません。
 
-Lane ごとの hit 数は `evidence_hits_summary` で確認します。特定 lane が universe の大きな割合を占める場合は、候補数が増えただけで evidence の識別力が弱い可能性があるため、`records/_config/screening-rules/2026-06-10T000000+0900.yaml` の閾値・sector policy を見直します。
+Lane ごとの hit 数は `evidence_hits_summary` で確認します。特定 lane が universe の大きな割合を占める場合は、候補数が増えただけで evidence の識別力が弱い可能性があるため、`records/_config/screening-rules/2026-06-12T000000+0900.yaml` の閾値・sector policy を見直します。
 
 ## Multi-week replay と forward return
 

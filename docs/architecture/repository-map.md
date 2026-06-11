@@ -34,7 +34,7 @@ source_paths:
 | path | レイヤー | 責務 |
 | --- | --- | --- |
 | `records/01-macro-context/` | analysis / macro | screening 前に確認する macro context YAML |
-| `records/04-candidates/` | fact / security-level | candidates YAML |
+| `records/04-candidates/` | fact / security-level | candidates YAML(git 追跡しない local store。詳細は [`../components/candidates.md`](../components/candidates.md) §2) |
 | `records/05-research/` | analysis / security-level | investment memo Markdown |
 | `records/06-trades/` | downstream | trade record Markdown |
 | `records/07-reviews/` | downstream | individual review と monthly retro |

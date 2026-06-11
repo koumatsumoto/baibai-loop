@@ -291,6 +291,8 @@ def run_command(
                 gap_from_52w_low=derived.gap_from_52w_low,
                 turnover_spike_5d=derived.turnover_spike_5d,
                 sector_relative_strength_percentile=derived.sector_relative_strength_percentile,
+                price_history_sessions_750d=derived.price_history_sessions_750d,
+                price_history_coverage_750d=derived.price_history_coverage_750d,
                 metrics={
                     "sales_ttm": financial.sales_ttm,
                     "ocf_ttm": financial.ocf_ttm,

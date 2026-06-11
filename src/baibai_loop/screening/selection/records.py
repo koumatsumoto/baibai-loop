@@ -41,6 +41,7 @@ class CandidateRecord:
     price_change_60d: float | None = None
     gap_from_52w_low: float | None = None
     turnover_spike_5d: float | None = None
+    price_history_coverage_750d: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +109,7 @@ def candidate_record_from_mapping(raw: Mapping[str, object]) -> CandidateRecord:
         price_change_60d=optional_float(raw.get("price_change_60d")),
         gap_from_52w_low=optional_float(raw.get("gap_from_52w_low")),
         turnover_spike_5d=optional_float(raw.get("turnover_spike_5d")),
+        price_history_coverage_750d=optional_float(raw.get("price_history_coverage_750d")),
     )
 
 

@@ -513,6 +513,31 @@ class ScreeningRulesTests(unittest.TestCase):
         )
         self.assertIn("sales_discount_excluded_sector", result.null_reasons)
 
+    def test_financial_sector_is_excluded_from_valuation_reversion_lane(self) -> None:
+        result = evaluate_screening(
+            _financial(),
+            _derived(),
+            RULES,
+            sector_33="銀行業",
+        )
+        self.assertNotIn(
+            PLAYBOOK_VALUATION_REVERSION,
+            [evidence_hit.name for evidence_hit in result.evidence_hits],
+        )
+        self.assertIn("valuation_reversion_excluded_sector", result.null_reasons)
+
+    def test_utility_sector_stays_eligible_for_valuation_reversion_lane(self) -> None:
+        result = evaluate_screening(
+            _financial(),
+            _derived(),
+            RULES,
+            sector_33="電気・ガス業",
+        )
+        self.assertIn(
+            PLAYBOOK_VALUATION_REVERSION,
+            [evidence_hit.name for evidence_hit in result.evidence_hits],
+        )
+
     def test_financial_sector_is_excluded_from_cash_rich_lane(self) -> None:
         result = evaluate_screening(
             _financial(cash_to_market_cap=0.45, price_to_equity=0.8, operating_profit=10.0),

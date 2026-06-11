@@ -14,6 +14,16 @@ from baibai_loop.coerce import (
 
 from .lenses import _fast_guard_count, _fast_lens, _long_hold_lens
 
+# 2026-05 retro の運用ルール「Nikkei に 3pt 以上劣後している候補は starter size に
+# 限定する」を事前固定の annotation 閾値として機械化する。ranking には使わない。
+BENCHMARK_LAGGARD_RELATIVE_20D_MAX = -0.03
+
+# 上場 750 暦日以上なのに直近 750 暦日の bar 本数が population 最大の 80% を
+# 下回る銘柄は、自己レンジ / sigma gap が前提にする 3 年履歴に長期ギャップが
+# ある(新規上場は short_history_flag 側で扱う)。事前固定の annotation 閾値。
+PRICE_HISTORY_GAP_COVERAGE_MIN = 0.8
+_PRICE_HISTORY_GAP_MIN_LISTING_SPAN_DAYS = 750
+
 
 def _long_hold_counts(candidates: Sequence[Mapping[str, object]]) -> dict[str, int]:
     counts: Counter[str] = Counter()
@@ -47,6 +57,21 @@ def _candidate_risk_tags(candidate: Mapping[str, object]) -> list[str]:
     tags: list[str] = []
     if candidate.get("previous_candidate") is True:
         tags.append("previous_candidate")
+    benchmark_relative_20d = candidate.get("benchmark_relative_20d")
+    if (
+        isinstance(benchmark_relative_20d, int | float)
+        and benchmark_relative_20d <= BENCHMARK_LAGGARD_RELATIVE_20D_MAX
+    ):
+        tags.append("benchmark_laggard_20d")
+    coverage = candidate.get("price_history_coverage_750d")
+    listing_span_days = candidate.get("listing_span_days")
+    if (
+        isinstance(coverage, int | float)
+        and coverage < PRICE_HISTORY_GAP_COVERAGE_MIN
+        and isinstance(listing_span_days, int | float)
+        and listing_span_days >= _PRICE_HISTORY_GAP_MIN_LISTING_SPAN_DAYS
+    ):
+        tags.append("price_history_gap")
     if candidate.get("suppressed") is True:
         tags.append("suppressed_by_prior_research")
     if string_or_none(candidate.get("next_earnings_date")):
@@ -74,7 +99,9 @@ def _selection_candidate_summary(
         "market_cap_oku": candidate.get("market_cap_oku"),
         "price_change_5d": candidate.get("price_change_5d"),
         "price_change_20d": candidate.get("price_change_20d"),
+        "benchmark_relative_20d": candidate.get("benchmark_relative_20d"),
         "gap_from_52w_low": candidate.get("gap_from_52w_low"),
+        "price_history_coverage_750d": candidate.get("price_history_coverage_750d"),
         "next_earnings_date": candidate.get("next_earnings_date"),
         "position_tier": candidate.get("position_tier"),
         "fast_confidence": string_or_none(fast_lens.get("confidence")),
@@ -99,6 +126,7 @@ def _sweep_candidate_summary(candidate: Mapping[str, object], *, rank: int) -> d
         "ticker": string_or_none(candidate.get("ticker")),
         "name": string_or_none(candidate.get("name")),
         "selection_lane": string_or_none(candidate.get("selection_lane")),
+        "benchmark_relative_20d": candidate.get("benchmark_relative_20d"),
         "fast_confidence": string_or_none(fast_lens.get("confidence")),
         "fast_guard_count": _fast_guard_count(candidate),
         "fast_guard_family_count": int_or(fast_lens.get("fundamental_guard_family_count"), 0),

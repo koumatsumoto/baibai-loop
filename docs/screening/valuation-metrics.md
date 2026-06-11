@@ -118,6 +118,15 @@ J-Quants CashEq proxy の `cash-rich-asset-discount` は、EDINET `net_cash_to_m
 
 Historical EV/EBITDA は、各日の split-adjusted close で時価総額だけを変化させ、最新の発行済株式数・有利子負債・現金・TTM EBITDA を全期間に適用する近似で算出する。式は `(historical_adjustment_close * latest_shares_outstanding + latest_debt - latest_cash) / latest_ebitda_ttm` とし、balance sheet / EBITDA の時系列が無くても EV/EBITDA の定義を保つ。`adjustment_close` が欠損する場合は raw `close` にフォールバックする。必要項目が欠損する場合、EV がゼロ以下、または EBITDA がゼロ以下の場合は `null` とし、`ttm_quality_ev_ebitda = exact` かつ正の EV/EBITDA だけ mechanical 判定に使う。PBR / PER の history も同じ price 基準（adjustment_close 優先）で算出するため、株式分割があっても history は連続になる。
 
+### 9.0 価格履歴の連続性 fact（`price_history_sessions_750d` / `price_history_coverage_750d`）
+
+自己レンジ / sigma gap は直近 750 暦日(≒ 3 年)の bar 履歴を代表的標本として前提にするが、上場が古くても bar 履歴に長期ギャップがある銘柄(上場区分変更・データ供給断など)では、レンジが実質それより短い期間で計算される。これを検出するため、candidates には以下を事実として記録する。
+
+- `price_history_sessions_750d`: 直近 750 暦日のうち bar が存在する営業日数
+- `price_history_coverage_750d`: 上記 / 当日 scope 内の最大値(最も密な銘柄が取引カレンダーの近似)
+
+`short_history_flag`(上場 750 暦日未満)は新規上場を扱い、本 fact は「上場は古いが履歴が疎」な銘柄を扱う。`select` では `listing_span_days >= 750` かつ coverage `< 0.8` の候補に risk tag `price_history_gap` を付ける(annotation のみ。事前固定閾値で、ranking / gate には使わない)。
+
 ### 9.1 `adjustment_close` の中身（dividend / 配当の扱い）
 
 J-Quants の `AdjustmentClose` は **株式分割・株式併合 (reverse split を含む)** を遡及
