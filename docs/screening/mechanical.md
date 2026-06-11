@@ -135,7 +135,7 @@ P/S が業種中央値比で安く、売上成長が残る銘柄を拾う。営�
 records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml
 ```
 
-1 実行 = 1 ファイル（週次運用）
+1 実行 = 1 ファイル（週次運用）。git に積まない local store として履歴をローカル保持する（[`../components/candidates.md`](../components/candidates.md) §2）。
 
 ### 4.2 YAML
 

@@ -57,7 +57,7 @@ Macro context は screening 手前で確認し、必要に応じて深く更新�
 - 基本は 2 か月以内、5-40 営業日のスイングトレードを対象にする。ただし、短期 thesis が外れた場合に長期保有へ切り替えられる銘柄を優先する policy を持つ。これは主戦略の holding period を延ばすためではなく、含み損時に損失確定を急がず、資産ロックを受け入れて回収を待てる selection principle である。
 - long-only の裁量支援基盤として扱う。
 - Macro context は hard gate ではなく、screening / research の確認観点として扱う。
-- Markdown / YAML と Git を正本にする。
+- Markdown / YAML と Git を正本にする。ただし週次 screen output(candidates YAML)は再生成可能な L2 機械出力として local store に置き、git には積まない([`../components/candidates.md`](../components/candidates.md) §2)。
 - AI 下書きと人間確認を前提に、事実層と分析層を物理的に分ける。
 - CLI は screening、selection、validation、ledger sync、forward 計測(replay / lane cohorts / ablation)、macro statistics 取得に使う。
 - decision register と reviews は forward-only な検証証跡として扱う。
