@@ -294,7 +294,6 @@ class SQLiteSchemaError(RuntimeError):
     """Raised when an existing SQLite cache is not the current schema."""
 
 
-SQLiteCacheError = SQLiteSchemaError
 def open_connection(db_path: Path) -> sqlite3.Connection:
     """Open the current SQLite cache, creating current tables on first use."""
     db_path.parent.mkdir(parents=True, exist_ok=True)

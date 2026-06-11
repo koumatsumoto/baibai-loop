@@ -13,8 +13,7 @@ from baibai_loop.validate.domain import (
 )
 from baibai_loop.validate.errors import ValidationFinding
 
-from .macro_context import _KNOWN_MACRO_CONTEXT_FRESHNESS
-from .shared import _research_record_date
+from .shared import _KNOWN_MACRO_CONTEXT_FRESHNESS, _research_record_date
 
 _KNOWN_ENTRY_PREFLIGHT_ACTIONS = {"proceed", "starter", "defer", "exception"}
 _KNOWN_ENTRY_PREFLIGHT_EXCEPTION_BASES = {

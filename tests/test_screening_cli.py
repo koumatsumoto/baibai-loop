@@ -34,6 +34,7 @@ from baibai_loop.screening.cli import (
 )
 from baibai_loop.screening.cli.run import _index_next_earnings
 from baibai_loop.screening.config import ScreeningConfig
+from baibai_loop.screening.providers import JQuantsProvider
 from baibai_loop.screening.providers.edinet import (
     EdinetMetricRecord,
     EDINETProviderError,
@@ -46,6 +47,7 @@ from baibai_loop.screening.providers.jquants import (
     JQuantsMarketCalendarDay,
 )
 from baibai_loop.screening.render import JST, build_output_path
+from baibai_loop.screening.rule_config import load_screening_rules
 from baibai_loop.screening.schema import SecurityMaster, TTMQuality
 from baibai_loop.screening.sqlite_cache import store_edinet_metrics
 from baibai_loop.screening.sqlite_reader import read_edinet_metrics
@@ -233,7 +235,7 @@ class ScreeningCliTests(unittest.TestCase):
                 with (
                     patch.dict(os.environ, {"JQUANTS_REFRESH_TOKEN": "token"}),
                     patch.object(
-                        screening_cli.JQuantsProvider,
+                        JQuantsProvider,
                         "_get_client",
                         side_effect=AssertionError("provider fetch must not be used"),
                     ),
@@ -558,7 +560,7 @@ class ScreeningCliTests(unittest.TestCase):
                     edinet=_FreshnessWarningEDINETProvider(),
                     jpx=FakeJPXProvider(),
                 )
-                rules = screening_cli.load_screening_rules(config.rules_path)
+                rules = load_screening_rules(config.rules_path)
                 rules = rules.model_copy(
                     update={
                         "quality": rules.quality.model_copy(

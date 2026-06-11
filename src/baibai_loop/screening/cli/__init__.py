@@ -1,11 +1,8 @@
 """Screening CLI package.
 
-The public surface mirrors the former single-module CLI: `main` /
-`build_parser` plus the individual command entry points.
+`main` / `build_parser` and the individual command entry points are the
+public surface; submodules group the commands by responsibility.
 """
-
-from baibai_loop.screening.providers import JQuantsProvider
-from baibai_loop.screening.rule_config import load_screening_rules
 
 from .app import build_parser, main
 from .cache import (
@@ -23,12 +20,10 @@ from .query import (
 from .run import run_command
 
 __all__ = [
-    "JQuantsProvider",
     "ProviderBundle",
     "bootstrap_cache_command",
     "build_parser",
     "extract_edinet_metrics_command",
-    "load_screening_rules",
     "main",
     "market_snapshot_command",
     "run_command",

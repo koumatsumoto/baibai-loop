@@ -14,6 +14,7 @@ from baibai_loop.validate.domain import (
 from baibai_loop.validate.errors import ValidationFinding
 
 from .shared import (
+    _KNOWN_MACRO_CONTEXT_FRESHNESS,
     _load_yaml,
     _parse_date_value,
     _research_record_date,
@@ -21,7 +22,6 @@ from .shared import (
 )
 
 _KNOWN_MACRO_CONTEXT_EFFECTS = {"proceed", "caution", "defer"}
-_KNOWN_MACRO_CONTEXT_FRESHNESS = {"current", "stale", "future"}
 _KNOWN_MACRO_CONTEXT_FITS = {"tailwind", "neutral", "mixed", "headwind", "not_matched"}
 
 

@@ -1,4 +1,4 @@
-"""Loaders and small helpers shared across the research validators."""
+"""Loaders, vocabularies, and small helpers shared across the research validators."""
 
 from __future__ import annotations
 
@@ -125,3 +125,6 @@ def _resolve_candidate_ref(path: Path, ref: str) -> Path | None:
     }:
         return None
     return candidate if candidate.is_file() else None
+
+
+_KNOWN_MACRO_CONTEXT_FRESHNESS = {"current", "stale", "future"}

@@ -20,14 +20,14 @@ from .convert import (
     _to_float,
     _to_str_or_none,
 )
-from .coverage import (
+from .schema import open_connection
+from .source_coverage import (
     _delete_date_range,
     _delete_source_coverage,
     _record_range_source_coverage,
     _record_source_coverage,
     _table_row_count,
 )
-from .schema import open_connection
 
 
 def store_jquants_daily_bars(

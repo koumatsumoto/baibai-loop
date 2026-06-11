@@ -9,12 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from .convert import _date_iso, _first, _normalize_ticker_or_none, _to_float, _to_str_or_none
-from .coverage import (
+from .schema import open_connection
+from .source_coverage import (
     _date_range_row_count,
     _delete_overlapping_source_coverage,
     _record_source_coverage,
 )
-from .schema import open_connection
 
 
 def store_edinet_documents(

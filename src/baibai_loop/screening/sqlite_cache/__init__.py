@@ -22,7 +22,6 @@ from .jquants import (
 from .schema import (
     SCHEMA_VERSION,
     SQLITE_SCHEMA_VERSION,
-    SQLiteCacheError,
     SQLiteSchemaError,
     open_connection,
     validate_current_schema,
@@ -31,7 +30,6 @@ from .schema import (
 __all__ = [
     "SCHEMA_VERSION",
     "SQLITE_SCHEMA_VERSION",
-    "SQLiteCacheError",
     "SQLiteSchemaError",
     "open_connection",
     "store_edinet_documents",

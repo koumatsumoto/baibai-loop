@@ -8,7 +8,7 @@ from pathlib import Path
 
 from baibai_loop.screening.sqlite_cache import (
     SQLITE_SCHEMA_VERSION,
-    SQLiteCacheError,
+    SQLiteSchemaError,
     open_connection,
     store_edinet_documents,
     store_edinet_metrics,
@@ -52,7 +52,7 @@ class SQLiteCacheTest(unittest.TestCase):
             finally:
                 conn.close()
 
-            with self.assertRaisesRegex(SQLiteCacheError, "unsupported screening SQLite schema"):
+            with self.assertRaisesRegex(SQLiteSchemaError, "unsupported screening SQLite schema"):
                 open_connection(db)
 
     def test_direct_store_writes_minimal_source_coverage(self) -> None:
