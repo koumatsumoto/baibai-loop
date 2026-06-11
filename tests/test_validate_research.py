@@ -570,7 +570,7 @@ class ResearchValidationTests(unittest.TestCase):
     def test_missing_playbook_schema_at_load_time_is_handled(self) -> None:
         front = _minimal_research_front_matter()
         with patch(
-            "baibai_loop.validate.research.load_playbook_schema",
+            "baibai_loop.validate.research.core.load_playbook_schema",
             side_effect=FileNotFoundError("missing"),
         ):
             codes = {finding.code for finding in self._findings_for(front)}
