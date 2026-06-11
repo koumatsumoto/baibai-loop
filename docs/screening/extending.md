@@ -18,7 +18,7 @@ screening / selection / telemetry に機能を足すときの拡張点と検証�
 
 | レイヤ | 場所 | 拡張の典型 |
 | --- | --- | --- |
-| データ層 | `screening/providers/` + `screening/sqlite_cache.py` | 新しい market data source の取り込み(SQLite に正規化、schema version 更新) |
+| データ層 | `screening/providers/` + `screening/sqlite_cache/` | 新しい market data source の取り込み(SQLite に正規化、schema version 更新) |
 | 指標層 | `screening/metrics.py` + `screening/schema.py` | 新しい財務・価格指標(FinancialSnapshot に field 追加) |
 | screen 層(事実) | `screening/rules.py` + `rule_config.py` + `records/_config/screening-rules/` | 新しい lane(playbook-linked screen) |
 | selection 層(lens) | `screening/selection/` package | 新しい lens・ranking 成分・profile |

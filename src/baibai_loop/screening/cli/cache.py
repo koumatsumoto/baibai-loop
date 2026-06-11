@@ -13,9 +13,9 @@ from baibai_loop.screening.providers.edinet import (
     EdinetMetricRecord,
     EDINETProviderError,
     EDINETRateLimitError,
-    parse_csv_zip_metric_record,
     select_document_candidates,
 )
+from baibai_loop.screening.providers.edinet_csv import parse_csv_zip_metric_record
 from baibai_loop.screening.providers.jpx import JPXProviderError
 from baibai_loop.screening.providers.jquants import (
     JQuantsProviderError,
