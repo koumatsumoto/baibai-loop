@@ -1298,6 +1298,49 @@ class SelectCommandTests(unittest.TestCase):
             )
             self.assertEqual([item["ticker"] for item in self._recommended(payload)], ["1111"])
 
+    def test_select_accepts_price_history_continuity_fields(self) -> None:
+        """run が出力する新しい連続性 fact を select 側 loader が受理する回帰確認。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/04-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "gappy history",
+                        "sector_33": "機械",
+                        "market_cap_oku": 600,
+                        "listing_span_days": 1200,
+                        "price_history_sessions_750d": 130,
+                        "price_history_coverage_750d": 0.27,
+                        "evidence_hits": [{"name": "valuation-reversion"}],
+                    }
+                ],
+            )
+            self._write_macro_context(
+                root / "records/01-macro-context", asof, sectors={"機械": "tailwind"}
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                macro_context_path=None,
+                candidates_path=None,
+                top=10,
+                candidates_root=root / "records/04-candidates",
+                macro_context_root=root / "records/01-macro-context",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            recommended = self._recommended(payload)
+            self.assertEqual(recommended[0]["ticker"], "1111")
+            self.assertEqual(recommended[0]["price_history_coverage_750d"], 0.27)
+            self.assertIn("price_history_gap", recommended[0]["risk_tags"])
+
     def test_select_recommends_by_simple_rank_and_diversity(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

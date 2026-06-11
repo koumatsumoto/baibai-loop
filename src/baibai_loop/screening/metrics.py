@@ -174,10 +174,10 @@ def build_metrics(
             sector_return_4w=mean(sector_returns[sector]) if sector in sector_returns else None,
             short_history_flag=listing_span_days < 750,
             split_adjustment_flag=_has_split_adjustment_within_sessions(ticker_bars, asof_date, 60),
-            price_history_sessions_750d=price_history_sessions.get(ticker),
+            price_history_sessions_750d=price_history_sessions[ticker],
             price_history_coverage_750d=(
                 price_history_sessions[ticker] / max_history_sessions
-                if ticker in price_history_sessions and max_history_sessions > 0
+                if max_history_sessions > 0
                 else None
             ),
         )
