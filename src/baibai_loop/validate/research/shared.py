@@ -16,6 +16,8 @@ from baibai_loop.validate.domain import (
     resolve_repository_ref,
 )
 
+_KNOWN_MACRO_CONTEXT_FRESHNESS = {"current", "stale", "future"}
+
 _YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 
@@ -125,6 +127,3 @@ def _resolve_candidate_ref(path: Path, ref: str) -> Path | None:
     }:
         return None
     return candidate if candidate.is_file() else None
-
-
-_KNOWN_MACRO_CONTEXT_FRESHNESS = {"current", "stale", "future"}
