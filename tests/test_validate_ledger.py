@@ -21,9 +21,12 @@ def _decision_record(**overrides: object) -> dict[str, object]:
     return record
 
 
-def _write_jsonl(path: Path, record: object) -> None:
+def _write_jsonl(path: Path, *records: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
+    path.write_text(
+        "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records),
+        encoding="utf-8",
+    )
 
 
 def test_discover_ledger_files_finds_research_decision_register(tmp_path: Path) -> None:
@@ -90,7 +93,8 @@ def test_candidate_ref_matches_candidate_by_ticker(tmp_path: Path) -> None:
     assert validate_ledger_file(path) == []
 
 
-def test_candidate_ref_missing_candidates_ref_is_error(tmp_path: Path) -> None:
+def test_candidate_ref_missing_candidates_file_warns_once(tmp_path: Path) -> None:
+    """Candidates YAML is a local store; an absent file degrades to one warning."""
     path = tmp_path / "records/_ledger" / "research-decisions" / "2026-05.jsonl"
     _write_jsonl(
         path,
@@ -103,11 +107,23 @@ def test_candidate_ref_missing_candidates_ref_is_error(tmp_path: Path) -> None:
                 "ticker": "9682",
             },
         ),
+        _decision_record(
+            decision_event_id="decision-20260501-9692-research",
+            decision_scope="research_memo",
+            ticker="9692",
+            candidate_ref={
+                "candidates_ref": "records/04-candidates/2026/05/missing.yaml",
+                "ticker": "9692",
+            },
+        ),
     )
 
-    codes = {finding.code for finding in validate_ledger_file(path)}
+    findings = validate_ledger_file(path)
+    missing = [finding for finding in findings if finding.code == "ledger.candidate-ref-missing"]
 
-    assert "ledger.candidate-ref-missing" in codes
+    assert len(missing) == 1
+    assert missing[0].severity == "warning"
+    assert not [finding for finding in findings if finding.severity == "error"]
 
 
 def test_candidate_ref_rejects_absolute_path(tmp_path: Path) -> None:

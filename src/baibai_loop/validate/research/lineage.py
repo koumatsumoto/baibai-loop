@@ -44,8 +44,26 @@ def _check_candidate_lineage(
             ValidationFinding(
                 severity="error",
                 target=path,
+                code="research.candidate-ref-path",
+                message=(
+                    "candidate_ref.candidates_ref must be a repo-relative YAML path "
+                    f"under records/04-candidates/: {candidates_ref}"
+                ),
+                location="candidate_ref.candidates_ref",
+            )
+        ]
+    if not candidate_path.is_file():
+        # Candidates YAML is a local store (kept out of git); on a checkout
+        # without the file the lineage facts cannot be cross-checked.
+        return [
+            ValidationFinding(
+                severity="warning",
+                target=path,
                 code="research.candidate-ref-missing",
-                message=f"candidate_ref.candidates_ref does not exist: {candidates_ref}",
+                message=(
+                    "candidates file is not present on this checkout; lineage checks "
+                    f"skipped (local store): {candidates_ref}"
+                ),
                 location="candidate_ref.candidates_ref",
             )
         ]

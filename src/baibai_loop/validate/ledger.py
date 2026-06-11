@@ -28,6 +28,7 @@ def validate_ledger_file(path: Path) -> list[ValidationFinding]:
     records: list[dict[str, Any]] = []
     root = _repo_root(path)
     candidate_document_cache: dict[str, dict[str, Any] | None] = {}
+    missing_candidate_refs: set[str] = set()
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError as exc:
@@ -88,6 +89,7 @@ def validate_ledger_file(path: Path) -> list[ValidationFinding]:
                 record,
                 root=root,
                 candidate_document_cache=candidate_document_cache,
+                missing_candidate_refs=missing_candidate_refs,
             )
         )
     if not parse_errors:
@@ -142,6 +144,7 @@ def _check_candidate_ref_lineage(
     *,
     root: Path,
     candidate_document_cache: dict[str, dict[str, Any] | None],
+    missing_candidate_refs: set[str],
 ) -> list[ValidationFinding]:
     if not isinstance(record.get("candidate_ref"), dict):
         return []
@@ -151,6 +154,7 @@ def _check_candidate_ref_lineage(
         record,
         root=root,
         candidate_document_cache=candidate_document_cache,
+        missing_candidate_refs=missing_candidate_refs,
     )
     if findings:
         return findings
@@ -209,6 +213,7 @@ def _candidate_ref_document_findings(
     *,
     root: Path,
     candidate_document_cache: dict[str, dict[str, Any] | None],
+    missing_candidate_refs: set[str],
 ) -> list[ValidationFinding]:
     candidate_ref = record.get("candidate_ref")
     if not isinstance(candidate_ref, dict):
@@ -225,19 +230,20 @@ def _candidate_ref_document_findings(
             )
         ]
     if candidates_ref in candidate_document_cache:
-        return (
-            []
-            if candidate_document_cache[candidates_ref] is not None
-            else [
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="ledger.candidate-ref-parse",
-                    message="candidate_ref.candidates_ref failed to load previously",
-                    location=f"line {line_number}.candidate_ref.candidates_ref",
-                )
-            ]
-        )
+        if candidate_document_cache[candidates_ref] is not None:
+            return []
+        if candidates_ref in missing_candidate_refs:
+            # Already reported once per file; the checks stay skipped.
+            return []
+        return [
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="ledger.candidate-ref-parse",
+                message="candidate_ref.candidates_ref failed to load previously",
+                location=f"line {line_number}.candidate_ref.candidates_ref",
+            )
+        ]
     ref_error = repository_ref_error(candidates_ref, root=root)
     if ref_error is not None:
         candidate_document_cache[candidates_ref] = None
@@ -271,13 +277,19 @@ def _candidate_ref_document_findings(
     try:
         raw = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
     except FileNotFoundError:
+        # Candidates YAML is a local store (kept out of git); on a checkout
+        # without the file the lineage facts cannot be cross-checked.
         candidate_document_cache[candidates_ref] = None
+        missing_candidate_refs.add(candidates_ref)
         return [
             ValidationFinding(
-                severity="error",
+                severity="warning",
                 target=path,
                 code="ledger.candidate-ref-missing",
-                message=f"candidate_ref.candidates_ref does not exist: {candidates_ref}",
+                message=(
+                    "candidates file is not present on this checkout; lineage checks "
+                    f"skipped (local store): {candidates_ref}"
+                ),
                 location=f"line {line_number}.candidate_ref.candidates_ref",
             )
         ]

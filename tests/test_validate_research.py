@@ -418,7 +418,8 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.corporate-action-check-result", codes)
 
-    def test_repository_research_requires_existing_candidate_ref(self) -> None:
+    def test_repository_research_warns_when_candidates_file_is_absent_locally(self) -> None:
+        """Candidates YAML is a local store; an absent file degrades to a warning."""
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             (root / "src").mkdir()
@@ -434,14 +435,16 @@ class ResearchValidationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            codes = {
-                finding.code
+            missing = [
+                finding
                 for finding in validate_research_file(
                     research_path, playbooks_root=ROOT / "records/_playbooks"
                 )
-            }
+                if finding.code == "research.candidate-ref-missing"
+            ]
 
-        self.assertIn("research.candidate-ref-missing", codes)
+        self.assertEqual(len(missing), 1)
+        self.assertEqual(missing[0].severity, "warning")
 
     def test_repository_research_candidate_ref_matches_by_ticker(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
