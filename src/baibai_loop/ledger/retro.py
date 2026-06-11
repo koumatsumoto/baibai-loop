@@ -10,6 +10,7 @@ from typing import Any
 
 import yaml
 
+from baibai_loop.coerce import optional_float
 from baibai_loop.screening.filesystem import write_text_atomic
 
 from .io import read_jsonl
@@ -292,15 +293,7 @@ def _format_tracking_value(record: Mapping[str, Any], key: str) -> str:
 
 
 def _format_price(value: object) -> str:
-    numeric = _to_float(value)
+    numeric = optional_float(value)
     if numeric is None:
         return "-"
     return f"{numeric:.2f}"
-
-
-def _to_float(value: object) -> float | None:
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    return None

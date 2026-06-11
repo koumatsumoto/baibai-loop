@@ -10,15 +10,15 @@ from pathlib import Path
 
 import yaml
 
-from ._coerce import (
-    _date_from_datetime_prefix,
-    _dict_sequence,
-    _mapping_sequence,
-    _metric_map,
-    _number,
-    _parse_date,
-    _string_sequence,
-    _string_value,
+from baibai_loop.coerce import (
+    date_from_datetime_prefix,
+    dict_sequence,
+    mapping_sequence,
+    metric_map,
+    optional_float,
+    parse_iso_date,
+    string_or_none,
+    string_sequence,
 )
 
 
@@ -88,26 +88,26 @@ class PreviousCandidates:
 
 
 def candidate_record_from_mapping(raw: Mapping[str, object]) -> CandidateRecord:
-    evidence_hits = tuple(_mapping_sequence(raw.get("evidence_hits")))
-    freshness_warnings = tuple(_mapping_sequence(raw.get("freshness_warnings")))
+    evidence_hits = tuple(mapping_sequence(raw.get("evidence_hits")))
+    freshness_warnings = tuple(mapping_sequence(raw.get("freshness_warnings")))
     return CandidateRecord(
         ticker=str(raw.get("ticker") or ""),
-        name=_string_value(raw.get("name")),
-        sector_33=_string_value(raw.get("sector_33")) or "",
-        market_cap_oku=_number(raw.get("market_cap_oku")),
-        avg_turnover_oku=_number(raw.get("avg_turnover_oku")),
-        listing_span_days=_number(raw.get("listing_span_days")),
-        jpx_flags=(_string_sequence(raw["jpx_flags"]) if "jpx_flags" in raw else None),
+        name=string_or_none(raw.get("name")),
+        sector_33=string_or_none(raw.get("sector_33")) or "",
+        market_cap_oku=optional_float(raw.get("market_cap_oku")),
+        avg_turnover_oku=optional_float(raw.get("avg_turnover_oku")),
+        listing_span_days=optional_float(raw.get("listing_span_days")),
+        jpx_flags=(string_sequence(raw["jpx_flags"]) if "jpx_flags" in raw else None),
         evidence_hits=evidence_hits,
-        metrics=_metric_map(raw.get("metrics")),
+        metrics=metric_map(raw.get("metrics")),
         freshness_warnings=freshness_warnings,
-        next_earnings_date=_string_value(raw.get("next_earnings_date")),
-        price_change_1d=_number(raw.get("price_change_1d")),
-        price_change_5d=_number(raw.get("price_change_5d")),
-        price_change_20d=_number(raw.get("price_change_20d")),
-        price_change_60d=_number(raw.get("price_change_60d")),
-        gap_from_52w_low=_number(raw.get("gap_from_52w_low")),
-        turnover_spike_5d=_number(raw.get("turnover_spike_5d")),
+        next_earnings_date=string_or_none(raw.get("next_earnings_date")),
+        price_change_1d=optional_float(raw.get("price_change_1d")),
+        price_change_5d=optional_float(raw.get("price_change_5d")),
+        price_change_20d=optional_float(raw.get("price_change_20d")),
+        price_change_60d=optional_float(raw.get("price_change_60d")),
+        gap_from_52w_low=optional_float(raw.get("gap_from_52w_low")),
+        turnover_spike_5d=optional_float(raw.get("turnover_spike_5d")),
     )
 
 
@@ -152,11 +152,11 @@ def load_prior_research(ledger_root: Path, asof_date: date) -> dict[str, PriorRe
                 continue
             if raw.get("decision_scope") != "research_memo":
                 continue
-            event_at = _string_value(raw.get("decision_event_at"))
-            event_date = _date_from_datetime_prefix(event_at)
+            event_at = string_or_none(raw.get("decision_event_at"))
+            event_date = date_from_datetime_prefix(event_at)
             if event_date is None or event_date > asof_date:
                 continue
-            ticker = _string_value(raw.get("ticker"))
+            ticker = string_or_none(raw.get("ticker"))
             decision = raw.get("research_decision")
             if ticker is None or not isinstance(decision, Mapping):
                 continue
@@ -164,15 +164,15 @@ def load_prior_research(ledger_root: Path, asof_date: date) -> dict[str, PriorRe
             revisit_map = revisit if isinstance(revisit, Mapping) else {}
             prior = PriorResearch(
                 ticker=ticker,
-                outcome=_string_value(decision.get("outcome")),
-                posture=_string_value(decision.get("posture")),
-                reason_code=_string_value(decision.get("reason_code")),
-                deferral_reason=_string_value(decision.get("deferral_reason")),
-                revisit_after=_parse_date(_string_value(revisit_map.get("revisit_after"))),
-                expires_at=_parse_date(_string_value(revisit_map.get("expires_at"))),
+                outcome=string_or_none(decision.get("outcome")),
+                posture=string_or_none(decision.get("posture")),
+                reason_code=string_or_none(decision.get("reason_code")),
+                deferral_reason=string_or_none(decision.get("deferral_reason")),
+                revisit_after=parse_iso_date(string_or_none(revisit_map.get("revisit_after"))),
+                expires_at=parse_iso_date(string_or_none(revisit_map.get("expires_at"))),
                 decision_event_at=event_at,
-                decision_event_id=_string_value(raw.get("decision_event_id")),
-                research_ref=_string_value(raw.get("research_ref")),
+                decision_event_id=string_or_none(raw.get("decision_event_id")),
+                research_ref=string_or_none(raw.get("research_ref")),
             )
             event_key = (event_at or "", prior.decision_event_id or "")
             previous = latest.get(ticker)
@@ -193,7 +193,7 @@ def load_previous_candidates(
     for path in candidates_root.glob("*/*/*.yaml"):
         if current_path is not None and path.resolve() == current_path.resolve():
             continue
-        parsed = _parse_date(path.stem)
+        parsed = parse_iso_date(path.stem)
         if parsed is not None and parsed < asof_date:
             try:
                 mtime_ns = path.stat().st_mtime_ns
@@ -208,8 +208,8 @@ def load_previous_candidates(
         return PreviousCandidates(ref_path=latest_path.as_posix(), tickers=())
     tickers = tuple(
         ticker
-        for item in _dict_sequence(payload.get("candidates"))
-        if (ticker := _string_value(item.get("ticker"))) is not None
+        for item in dict_sequence(payload.get("candidates"))
+        if (ticker := string_or_none(item.get("ticker"))) is not None
     )
     return PreviousCandidates(ref_path=latest_path.as_posix(), tickers=tickers)
 
@@ -250,7 +250,7 @@ def _evidence_metric_type_warnings(
             _numeric_metric_type_warnings(
                 metrics,
                 source="evidence_hits.metrics",
-                evidence_name=_string_value(evidence_hit.get("name")),
+                evidence_name=string_or_none(evidence_hit.get("name")),
                 expected_metrics=_EXPECTED_NUMERIC_EVIDENCE_METRICS,
             )
         )

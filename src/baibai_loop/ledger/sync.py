@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 import yaml
 
+from baibai_loop.coerce import optional_float
 from baibai_loop.screening.providers.jquants import JQuantsDailyBar
 from baibai_loop.screening.render import JST
 
@@ -90,12 +91,12 @@ def sync_ledger(
             macro_context_decision_effect=str(macro_context_fit.get("decision_effect") or "")
             if macro_context_fit
             else None,
-            baseline_price=_float_or_none(candidate.get("last_price"))
-            or _float_or_none(candidate.get("baseline_price")),
-            market_cap_oku=_float_or_none(candidate.get("market_cap_oku"))
-            or _float_or_none(front.get("market_cap_oku")),
-            avg_turnover_oku=_float_or_none(candidate.get("avg_turnover_oku"))
-            or _float_or_none(front.get("avg_turnover_oku")),
+            baseline_price=optional_float(candidate.get("last_price"))
+            or optional_float(candidate.get("baseline_price")),
+            market_cap_oku=optional_float(candidate.get("market_cap_oku"))
+            or optional_float(front.get("market_cap_oku")),
+            avg_turnover_oku=optional_float(candidate.get("avg_turnover_oku"))
+            or optional_float(front.get("avg_turnover_oku")),
             tracking=tracking,
         )
         records.append(record.to_json())
@@ -225,10 +226,10 @@ def _tracking_from_front(
         mode=mode,
         plus_15bd=plus_15bd.price
         if plus_15bd is not None
-        else _float_or_none(tracking.get("plus_15bd")),
+        else optional_float(tracking.get("plus_15bd")),
         plus_30bd=plus_30bd.price
         if plus_30bd is not None
-        else _float_or_none(tracking.get("plus_30bd")),
+        else optional_float(tracking.get("plus_30bd")),
         plus_15bd_source=plus_15bd.source
         if plus_15bd is not None
         else _mapping_dict(tracking.get("plus_15bd_source")),
@@ -253,11 +254,3 @@ def _mapping_or_none(value: object) -> Mapping[str, Any] | None:
 
 def _mapping_dict(value: object) -> dict[str, object] | None:
     return dict(value) if isinstance(value, Mapping) else None
-
-
-def _float_or_none(value: object) -> float | None:
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    return None

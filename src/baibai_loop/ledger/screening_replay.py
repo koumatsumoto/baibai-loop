@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-import yaml
-
+from baibai_loop.coerce import int_map, int_or, mapping_sequence, string_or_empty, string_sequence
 from baibai_loop.screening.regime import MarketRegimeSnapshot, compute_market_regime
 from baibai_loop.screening.rule_config import ScreeningRules
 from baibai_loop.screening.selection import (
@@ -29,6 +28,7 @@ from .forward_return import (
     latest_bar_date,
     load_bars_for_tickers,
 )
+from .weeks import WeekSpec, load_week_candidates
 
 # Replay is intentionally macro-agnostic: only 3 weeks have a non-stale macro
 # context and fabricating historical contexts would violate the fact/analysis
@@ -40,13 +40,6 @@ DISTRIBUTION_FIELDS: tuple[str, ...] = (
     "fast_data_status",
     "long_hold_rating",
 )
-
-
-@dataclass(frozen=True, slots=True)
-class WeekSpec:
-    asof: date
-    candidates_path: Path
-    is_holdout: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,15 +117,15 @@ def run_replay(
     needed = {benchmark_ticker}
     for _spec, payload in sweeps:
         for profile_result in _profile_results(payload):
-            needed.update(_string_list(profile_result.get("recommended_tickers")))
+            needed.update(string_sequence(profile_result.get("recommended_tickers")))
     bars = load_bars_for_tickers(sqlite_path, needed)
     eval_cap = latest_bar_date(bars)
 
     results: list[ProfileWeekResult] = []
     for spec, payload in sweeps:
         for profile_result in _profile_results(payload):
-            tickers = tuple(_string_list(profile_result.get("recommended_tickers")))
-            recommended = tuple(_mapping_list(profile_result.get("recommended")))
+            tickers = tuple(string_sequence(profile_result.get("recommended_tickers")))
+            recommended = tuple(mapping_sequence(profile_result.get("recommended")))
             forward = (
                 tuple(
                     compute_ticker_forward_returns(
@@ -152,14 +145,14 @@ def run_replay(
             results.append(
                 ProfileWeekResult(
                     week=spec.asof,
-                    profile=_string(profile_result.get("profile")),
+                    profile=string_or_empty(profile_result.get("profile")),
                     is_holdout=spec.is_holdout,
                     market_regime=regime.to_dict() if regime is not None else None,
                     recommended_tickers=tickers,
                     recommended=recommended,
-                    fast_dislocation_count=_int(profile_result.get("fast_dislocation_count")),
-                    long_hold_counts=_int_map(profile_result.get("long_hold_counts")),
-                    suppressed_count=_int(profile_result.get("suppressed_count")),
+                    fast_dislocation_count=int_or(profile_result.get("fast_dislocation_count"), 0),
+                    long_hold_counts=int_map(profile_result.get("long_hold_counts")),
+                    suppressed_count=int_or(profile_result.get("suppressed_count"), 0),
                     previous_overlap=profile_result.get("previous_overlap"),
                     concentration=profile_result.get("concentration"),
                     distributions=_distributions(recommended),
@@ -223,30 +216,6 @@ def replay_to_payload(result: ReplayResult) -> dict[str, object]:
     }
 
 
-def discover_week_specs(candidates_root: Path, holdout_weeks: int = 0) -> list[WeekSpec]:
-    """Discover weekly candidate files under ``candidates_root`` sorted by asof.
-
-    Expects the canonical ``<root>/<YYYY>/<MM>/<YYYY-MM-DD>.yaml`` layout. The
-    last ``holdout_weeks`` weeks are flagged as hold-out so the artifact can
-    separate the tuning window from the evaluation window.
-    """
-    specs: list[WeekSpec] = []
-    for path in sorted(candidates_root.rglob("*.yaml")):
-        try:
-            asof = date.fromisoformat(path.stem)
-        except ValueError:
-            continue
-        specs.append(WeekSpec(asof=asof, candidates_path=path))
-    specs.sort(key=lambda spec: spec.asof)
-    if holdout_weeks > 0:
-        cutoff = len(specs) - holdout_weeks
-        specs = [
-            WeekSpec(spec.asof, spec.candidates_path, is_holdout=index >= cutoff)
-            for index, spec in enumerate(specs)
-        ]
-    return specs
-
-
 def _build_week_sweep(
     spec: WeekSpec,
     *,
@@ -258,14 +227,8 @@ def _build_week_sweep(
     market_regime: MarketRegimeSnapshot | None = None,
     profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
 ) -> Mapping[str, object]:
-    payload = yaml.safe_load(spec.candidates_path.read_text(encoding="utf-8"))
-    if not isinstance(payload, Mapping):
-        raise ValueError(f"invalid candidates YAML: {spec.candidates_path}")
-    raw_candidates = payload.get("candidates")
-    if not isinstance(raw_candidates, Sequence):
-        raise ValueError(f"candidates list missing: {spec.candidates_path}")
     candidates = tuple(
-        candidate_record_from_mapping(item) for item in raw_candidates if isinstance(item, Mapping)
+        candidate_record_from_mapping(item) for item in load_week_candidates(spec.candidates_path)
     )
     # previous_candidates is resolved within the replay root so overlap is scoped
     # to the replay set, while prior_research stays anchored to the real ledger.
@@ -298,36 +261,10 @@ def _distributions(
     for field in DISTRIBUTION_FIELDS:
         counter: Counter[str] = Counter()
         for item in recommended:
-            counter[_string(item.get(field)) or "unknown"] += 1
+            counter[string_or_empty(item.get(field)) or "unknown"] += 1
         distributions[field] = dict(counter)
     return distributions
 
 
-def _profile_results(payload: Mapping[str, object]) -> list[Mapping[str, object]]:
-    return _mapping_list(payload.get("profiles"))
-
-
-def _mapping_list(value: object) -> list[Mapping[str, object]]:
-    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
-        return []
-    return [item for item in value if isinstance(item, Mapping)]
-
-
-def _string_list(value: object) -> list[str]:
-    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
-        return []
-    return [item for item in value if isinstance(item, str)]
-
-
-def _string(value: object) -> str:
-    return value if isinstance(value, str) else ""
-
-
-def _int(value: object) -> int:
-    return value if isinstance(value, int) and not isinstance(value, bool) else 0
-
-
-def _int_map(value: object) -> dict[str, int]:
-    if not isinstance(value, Mapping):
-        return {}
-    return {str(key): _int(item) for key, item in value.items()}
+def _profile_results(payload: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
+    return mapping_sequence(payload.get("profiles"))

@@ -30,7 +30,7 @@ _DATA_TABLES = (
 
 
 def _verify_screening_sqlite_coverage(*args, **kwargs):
-    with patch("baibai_loop.screening.sqlite_coverage._MIN_COMMON_STOCK_MASTER_ROWS", 100):
+    with patch("baibai_loop.screening.sqlite_coverage.jquants._MIN_COMMON_STOCK_MASTER_ROWS", 100):
         return verify_screening_sqlite_coverage(*args, **kwargs)
 
 

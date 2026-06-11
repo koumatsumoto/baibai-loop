@@ -1,0 +1,100 @@
+"""JPX regulation ingest: flags and source freshness rows."""
+
+from __future__ import annotations
+
+from collections.abc import Iterable, Mapping
+from datetime import UTC, date, datetime
+from pathlib import Path
+from typing import Any
+
+from .convert import _normalize_ticker_or_none, _to_str_or_none
+from .schema import open_connection
+from .source_coverage import (
+    _date_range_row_count,
+    _delete_overlapping_source_coverage,
+    _record_source_coverage,
+)
+
+
+def store_jpx_regulations(
+    db_path: Path,
+    asof_date: date,
+    *,
+    flags_by_ticker: Mapping[str, Iterable[str]],
+    source_names: Iterable[str],
+    fetched_at_utc: str | None = None,
+) -> int:
+    conn = open_connection(db_path)
+    fetched_at = fetched_at_utc or datetime.now(UTC).isoformat()
+    source_name_tuple = tuple(source_names)
+    try:
+        conn.execute(
+            "DELETE FROM jpx_regulation_flags WHERE asof_date = ?", (asof_date.isoformat(),)
+        )
+        conn.execute(
+            "DELETE FROM jpx_regulation_sources WHERE asof_date = ?",
+            (asof_date.isoformat(),),
+        )
+        _delete_overlapping_source_coverage(conn, "jpx_regulation_flags", asof_date, asof_date)
+        source_rows = [(asof_date.isoformat(), str(name), fetched_at) for name in source_name_tuple]
+        if source_rows:
+            conn.executemany(
+                "INSERT OR REPLACE INTO jpx_regulation_sources("
+                "asof_date, source_name, fetched_at_utc"
+                ") VALUES (?, ?, ?)",
+                source_rows,
+            )
+        rows: list[tuple[Any, ...]] = []
+        raw_record_count = 0
+        rejected_count = 0
+        for raw_ticker, flags in flags_by_ticker.items():
+            raw_record_count += 1
+            ticker = _normalize_ticker_or_none(raw_ticker)
+            if ticker is None:
+                rejected_count += 1
+                continue
+            accepted_for_ticker = 0
+            rejected_for_ticker = 0
+            for flag in flags:
+                flag_text = _to_str_or_none(flag)
+                if flag_text is None:
+                    rejected_for_ticker += 1
+                    continue
+                rows.append((asof_date.isoformat(), flag_text, ticker, flag_text, fetched_at))
+                accepted_for_ticker += 1
+            rejected_count += rejected_for_ticker
+            if accepted_for_ticker == 0 and rejected_for_ticker == 0:
+                rejected_count += 1
+        if rows:
+            conn.executemany(
+                "INSERT OR REPLACE INTO jpx_regulation_flags("
+                "asof_date, source_name, ticker, flag, fetched_at_utc"
+                ") VALUES (?, ?, ?, ?, ?)",
+                rows,
+            )
+        persisted_count = _date_range_row_count(
+            conn, "jpx_regulation_flags", "asof_date", asof_date, asof_date
+        )
+        _record_source_coverage(
+            conn,
+            source="jpx_regulation_flags",
+            operation="regulations",
+            coverage_key=asof_date.isoformat(),
+            coverage_start=asof_date.isoformat(),
+            coverage_end=asof_date.isoformat(),
+            requested_start=asof_date.isoformat(),
+            requested_end=asof_date.isoformat(),
+            params={"asof_date": asof_date.isoformat(), "source_names": sorted(source_name_tuple)},
+            record_count=persisted_count,
+            raw_record_count=raw_record_count,
+            skipped_record_count=0,
+            rejected_record_count=rejected_count,
+            status="partial" if rejected_count else "ok",
+            error=(
+                f"{rejected_count} JPX regulation records were rejected" if rejected_count else None
+            ),
+        )
+        conn.commit()
+        return persisted_count
+    finally:
+        conn.close()

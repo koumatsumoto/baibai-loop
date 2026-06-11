@@ -21,11 +21,11 @@ from baibai_loop.screening.providers.edinet import (
     EDINETProviderError,
     EDINETRateLimitError,
     normalize_metric_record,
-    parse_csv_zip_metric_record,
     parse_doc_id,
     parse_sec_code,
     select_document_candidates,
 )
+from baibai_loop.screening.providers.edinet_csv import parse_csv_zip_metric_record
 from baibai_loop.screening.providers.jpx import JPXProvider, JPXProviderError
 from baibai_loop.screening.providers.jquants import (
     JQuantsProvider,

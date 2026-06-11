@@ -16,7 +16,7 @@ from baibai_loop.ledger.lane_cohorts import (
     render_lane_cohort_summary,
     run_lane_cohorts,
 )
-from baibai_loop.ledger.screening_replay import WeekSpec
+from baibai_loop.ledger.weeks import WeekSpec
 from baibai_loop.screening.sqlite_cache import open_connection
 
 _ASOF = date(2026, 5, 1)

@@ -8,6 +8,8 @@ from typing import Literal, cast
 
 import yaml
 
+from baibai_loop.coerce import optional_float, parse_iso_date
+
 PriceBasis = Literal["close_unadjusted", "adjusted_close", "intraday_last"]
 TrackingHorizon = Literal["plus_15bd", "plus_30bd"]
 
@@ -101,9 +103,9 @@ def _parse_observation(
 ) -> PriceObservation | None:
     ticker = item.get("ticker")
     decision_event_id = item.get("decision_event_id")
-    target_date = _parse_date(item.get("target_date"))
-    resolved_trade_date = _parse_date(item.get("resolved_trade_date"))
-    price = _number(item.get("price"))
+    target_date = parse_iso_date(item.get("target_date"))
+    resolved_trade_date = parse_iso_date(item.get("resolved_trade_date"))
+    price = optional_float(item.get("price"))
     price_basis = _price_basis(item.get("price_basis"))
     source_name = item.get("source_name")
     source_url = item.get("source_url")
@@ -152,24 +154,7 @@ def _parse_observation(
     )
 
 
-def _parse_date(value: object) -> date | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        return date.fromisoformat(value[:10])
-    except ValueError:
-        return None
-
-
 def _price_basis(value: object) -> PriceBasis | None:
     if isinstance(value, str) and value in _PRICE_BASES:
         return value  # type: ignore[return-value]
-    return None
-
-
-def _number(value: object) -> float | None:
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
     return None

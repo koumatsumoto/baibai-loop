@@ -11,6 +11,7 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
+from baibai_loop.coerce import optional_float
 from baibai_loop.policy_config import PORTFOLIO_POLICY
 
 from .domain import (
@@ -316,7 +317,7 @@ def _check_order_ready_shape(path: Path, front: Mapping[str, object]) -> list[Va
                 )
             )
         for field in ("quantity", "order_price_guard_yen"):
-            if _number(intent.get(field)) is None:
+            if optional_float(intent.get(field)) is None:
                 findings.append(
                     ValidationFinding(
                         severity="error",
@@ -326,7 +327,7 @@ def _check_order_ready_shape(path: Path, front: Mapping[str, object]) -> list[Va
                         location=f"order_intent.{field}",
                     )
                 )
-        quantity = _number(intent.get("quantity"))
+        quantity = optional_float(intent.get("quantity"))
         if quantity is not None and quantity <= 0:
             findings.append(
                 ValidationFinding(
@@ -361,7 +362,7 @@ def _check_order_ready_shape(path: Path, front: Mapping[str, object]) -> list[Va
         )
     else:
         for field in ("estimated_real_order_notional_yen", "guarded_max_notional_yen"):
-            if _number(sizing.get(field)) is None:
+            if optional_float(sizing.get(field)) is None:
                 findings.append(
                     ValidationFinding(
                         severity="error",
@@ -513,8 +514,8 @@ def _check_order_state_consistency(
                     location=f"orders[{index}].state",
                 )
             )
-        submitted = _number(order.get("submitted_quantity"))
-        filled = _number(order.get("filled_quantity"))
+        submitted = optional_float(order.get("submitted_quantity"))
+        filled = optional_float(order.get("filled_quantity"))
         if submitted is not None and filled is not None and filled > submitted:
             findings.append(
                 ValidationFinding(
@@ -548,7 +549,7 @@ def _check_current_quantity(path: Path, front: Mapping[str, object]) -> list[Val
     for execution in as_list(front.get("executions")):
         if not isinstance(execution, Mapping):
             continue
-        quantity = _number(execution.get("quantity")) or 0.0
+        quantity = optional_float(execution.get("quantity")) or 0.0
         side = execution.get("side")
         if side == "buy":
             expected += quantity
@@ -556,8 +557,8 @@ def _check_current_quantity(path: Path, front: Mapping[str, object]) -> list[Val
             expected -= quantity
     for event in as_list(front.get("corporate_action_events")):
         if isinstance(event, Mapping):
-            expected += _number(event.get("delta_quantity")) or 0.0
-    actual = _number(front.get("current_quantity"))
+            expected += optional_float(event.get("delta_quantity")) or 0.0
+    actual = optional_float(front.get("current_quantity"))
     if actual is None:
         return [
             ValidationFinding(
@@ -589,9 +590,9 @@ def _check_guarded_notional(path: Path, front: Mapping[str, object]) -> list[Val
     sizing = front.get("position_sizing_overlay")
     if not isinstance(intent, Mapping) or not isinstance(sizing, Mapping):
         return []
-    quantity = _number(intent.get("quantity"))
-    guard = _number(intent.get("order_price_guard_yen"))
-    guarded = _number(sizing.get("guarded_max_notional_yen"))
+    quantity = optional_float(intent.get("quantity"))
+    guard = optional_float(intent.get("order_price_guard_yen"))
+    guarded = optional_float(sizing.get("guarded_max_notional_yen"))
     if quantity is None or guard is None or guarded is None:
         return []
     expected = quantity * guard
@@ -751,14 +752,6 @@ def _is_repository_trade_record(path: Path) -> bool:
     except ValueError:
         return False
     return True
-
-
-def _number(value: object) -> float | None:
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    return None
 
 
 def _format_path(parts: Iterable[Any]) -> str:

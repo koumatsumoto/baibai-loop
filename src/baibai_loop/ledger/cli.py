@@ -31,7 +31,7 @@ from .lane_cohorts import (
 from .market_data import PriceObservation, load_fallback_price_observations
 from .retro import build_monthly_retro, write_monthly_retro
 from .review_gates import ReviewGate, due_review_gates, weekday_calendar
-from .screening_replay import discover_week_specs, replay_to_payload, run_replay
+from .screening_replay import replay_to_payload, run_replay
 from .selection_ablation import (
     ablation_to_payload,
     render_ablation_summary,
@@ -39,6 +39,7 @@ from .selection_ablation import (
 )
 from .sync import sync_ledger
 from .trades import load_open_trades
+from .weeks import discover_week_specs
 
 
 def build_parser() -> argparse.ArgumentParser:
