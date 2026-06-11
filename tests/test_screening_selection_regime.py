@@ -144,6 +144,32 @@ class SelectionRegimeLensTests(unittest.TestCase):
             self.assertIsNone(item["benchmark_relative_20d"])
             self.assertNotIn("benchmark_laggard_20d", item["risk_tags"])
 
+    def test_price_history_gap_tag_marks_old_listing_with_sparse_bars(self) -> None:
+        gappy = dict(_CALM_CANDIDATE)
+        gappy["listing_span_days"] = 1200
+        gappy["price_history_coverage_750d"] = 0.27
+        fresh = dict(_FAST_CANDIDATE)
+        fresh["listing_span_days"] = 300
+        fresh["price_history_coverage_750d"] = 0.27
+        payload = build_selection_payload(
+            asof_date=_ASOF,
+            candidates=(
+                candidate_record_from_mapping(gappy),
+                candidate_record_from_mapping(fresh),
+            ),
+            macro_context=None,
+            rules=self.rules,
+            top=10,
+            profile="balanced",
+            candidates_ref="test.yaml",
+            macro_context_ref=None,
+            market_regime=None,
+        )
+        by_ticker = {item["ticker"]: item for item in self._recommendations(payload)}
+        self.assertIn("price_history_gap", by_ticker["1111"]["risk_tags"])
+        # A genuinely new listing is short_history territory, not a gap.
+        self.assertNotIn("price_history_gap", by_ticker["9999"]["risk_tags"])
+
     def test_sweep_payload_records_market_regime(self) -> None:
         payload = build_selection_sweep_payload(
             asof_date=_ASOF,

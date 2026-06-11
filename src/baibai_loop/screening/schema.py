@@ -195,6 +195,8 @@ class DerivedMetrics:
     sector_return_4w: float | None = None
     short_history_flag: bool = False
     split_adjustment_flag: bool = False
+    price_history_sessions_750d: int | None = None
+    price_history_coverage_750d: float | None = None
 
     @field_validator(
         "price_change_1d",
@@ -207,6 +209,7 @@ class DerivedMetrics:
         "sector_relative_strength_percentile",
         "ticker_return_4w",
         "sector_return_4w",
+        "price_history_coverage_750d",
     )
     @classmethod
     def _finite_optional_float(cls, value: float | None) -> float | None:
@@ -284,6 +287,8 @@ class ScreenedCandidate:
     gap_from_52w_low: float | None = None
     turnover_spike_5d: float | None = None
     sector_relative_strength_percentile: float | None = None
+    price_history_sessions_750d: int | None = None
+    price_history_coverage_750d: float | None = None
     metrics: MetricValueMap = Field(default_factory=dict)
     next_earnings_date: date | None = None
     split_adjustment_flag: bool = False
@@ -314,6 +319,7 @@ class ScreenedCandidate:
         "gap_from_52w_low",
         "turnover_spike_5d",
         "sector_relative_strength_percentile",
+        "price_history_coverage_750d",
     )
     @classmethod
     def _finite_optional_float(cls, value: float | None) -> float | None:

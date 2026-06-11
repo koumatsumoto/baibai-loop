@@ -148,6 +148,36 @@ class ScreeningMetricsTests(unittest.TestCase):
         )
         self.assertFalse(result.derived["130A"].short_history_flag)
 
+    def test_build_metrics_records_price_history_coverage_for_gappy_ticker(self) -> None:
+        """An old listing whose recent bars resume after a long gap gets low coverage."""
+        asof = date(2026, 4, 24)
+        dense_bars = _daily_bars("1111", asof, 800)
+        # Old bars exist (listing span >= 750d) but only the last 200 days have bars.
+        gappy_bars = [
+            bar
+            for bar in _daily_bars("130A", asof, 800)
+            if bar.traded_at <= asof - timedelta(days=780)
+            or bar.traded_at > asof - timedelta(days=200)
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security(), "1111": _security("1111")},
+            bars_by_ticker={"130A": gappy_bars, "1111": dense_bars},
+            summaries_by_ticker={
+                "130A": [_summary("130A", asof - timedelta(days=30))],
+                "1111": [_summary("1111", asof - timedelta(days=30))],
+            },
+            edinet_by_ticker={},
+        )
+        gappy = result.derived["130A"]
+        dense = result.derived["1111"]
+        self.assertEqual(dense.price_history_coverage_750d, 1.0)
+        self.assertFalse(gappy.short_history_flag)
+        assert gappy.price_history_sessions_750d is not None
+        self.assertEqual(gappy.price_history_sessions_750d, 200)
+        assert gappy.price_history_coverage_750d is not None
+        self.assertLess(gappy.price_history_coverage_750d, 0.8)
+
     def test_build_metrics_adds_short_dislocation_fields(self) -> None:
         asof = date(2026, 4, 24)
         start = asof - timedelta(days=29)

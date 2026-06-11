@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from math import sqrt
 from statistics import mean, median
 
@@ -18,6 +18,11 @@ from .schema import (
 )
 
 VALUATION_METRICS = ("per_trailing", "pbr", "ev_ebitda", "p_s")
+
+# 自己レンジ / sigma gap が前提にする約 3 年の価格履歴窓(暦日)。listing 起点の
+# short_history_flag では検出できない「上場は古いが bar 履歴に長期ギャップがある」
+# 銘柄を、窓内の bar 本数(対 population 最大比)として事実記録するために使う。
+PRICE_HISTORY_WINDOW_DAYS = 750
 
 
 @dataclass(frozen=True)
@@ -109,6 +114,19 @@ def build_metrics(
     }
     rs_percentiles = _rank_to_percentiles(sector_rs)
 
+    history_window_start = asof_date - timedelta(days=PRICE_HISTORY_WINDOW_DAYS)
+    price_history_sessions: dict[str, int] = {
+        ticker: sum(
+            1
+            for bar in bars_by_ticker.get(ticker, ())
+            if history_window_start < bar.traded_at <= asof_date
+        )
+        for ticker in financials
+    }
+    # The densest ticker in scope approximates the full trading calendar for the
+    # window, so coverage is a population-relative ratio with no calendar fetch.
+    max_history_sessions = max(price_history_sessions.values(), default=0)
+
     derived: dict[str, DerivedMetrics] = {}
     for ticker, snapshot in financials.items():
         sector = securities_by_ticker[ticker].sector_33
@@ -156,6 +174,12 @@ def build_metrics(
             sector_return_4w=mean(sector_returns[sector]) if sector in sector_returns else None,
             short_history_flag=listing_span_days < 750,
             split_adjustment_flag=_has_split_adjustment_within_sessions(ticker_bars, asof_date, 60),
+            price_history_sessions_750d=price_history_sessions.get(ticker),
+            price_history_coverage_750d=(
+                price_history_sessions[ticker] / max_history_sessions
+                if ticker in price_history_sessions and max_history_sessions > 0
+                else None
+            ),
         )
 
     ttm_quality_counts = _count_ttm_qualities(list(financials.values()))
