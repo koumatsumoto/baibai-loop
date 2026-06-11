@@ -90,6 +90,11 @@ def build_selection_payload(
         market_regime is None or market_regime.regime is not MarketRegime.RISK_ON_RALLY
     )
     toggles = ranking_toggles or RankingToggles()
+    # Entry-preflight fact from the 2026-05 retro: candidates must carry their
+    # 20-day return relative to the benchmark proxy so the packet check
+    # ("starter size when lagging the index") is fed mechanically. The regime
+    # snapshot already holds the benchmark return; absence degrades to null.
+    benchmark_return_20d = market_regime.benchmark_return_20d if market_regime else None
     # Single source of truth for lane priority: the configured
     # research_selection_lane_order ranks both the queue and the primary
     # evidence pick. The old hard-coded _LANE_RANK put valuation-reversion
@@ -141,6 +146,7 @@ def build_selection_payload(
             suppressed=suppress_reason is not None,
             suppression_reasons=(suppress_reason,) if suppress_reason else (),
             previous_candidate=item.ticker in previous_tickers,
+            benchmark_return_20d=benchmark_return_20d,
         )
         fast_lens = _fast_lens(candidate)
         fast_boosted = (
@@ -315,7 +321,13 @@ def _selection_candidate(
     suppressed: bool,
     suppression_reasons: Sequence[str],
     previous_candidate: bool,
+    benchmark_return_20d: float | None = None,
 ) -> dict[str, object]:
+    benchmark_relative_20d = (
+        item.price_change_20d - benchmark_return_20d
+        if item.price_change_20d is not None and benchmark_return_20d is not None
+        else None
+    )
     output: dict[str, object] = {
         "ticker": item.ticker,
         "name": item.name,
@@ -327,6 +339,7 @@ def _selection_candidate(
         "price_change_5d": item.price_change_5d,
         "price_change_20d": item.price_change_20d,
         "price_change_60d": item.price_change_60d,
+        "benchmark_relative_20d": benchmark_relative_20d,
         "gap_from_52w_low": item.gap_from_52w_low,
         "turnover_spike_5d": item.turnover_spike_5d,
         "evidence_hits": list(item.evidence_hits),

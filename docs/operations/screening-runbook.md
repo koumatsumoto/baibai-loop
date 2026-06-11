@@ -47,6 +47,7 @@ uv run baibai-loop-screening select --asof YYYY-MM-DD
 出力は `recommendations` と `selection.diagnostics` を正本にします。default は daily triage 用 summary で、候補の full `lenses` や debug detail が必要な場合だけ `--detail full` を付けます。
 
 - `recommendations`: research 着手候補。`selection_lane` と `selection_metrics` を見て primary thesis を決める。
+- `benchmark_relative_20d`: 候補の 20 営業日リターン − benchmark proxy(`1321`)の同期間リターン。entry 前 packet の Nikkei relative return 欄へ機械転記する。`-0.03` 以下の候補には risk tag `benchmark_laggard_20d` が付く(2026-05 retro の「3pt 以上劣後は starter size 限定」ルールの annotation 化。ranking には使わない)。regime snapshot が無い場合は `null`。
 - `lenses.fast_dislocation`: 明確な価格下落と fundamental guard を同時に満たすかを示す annotation。rank と reason tag に反映する。
 - `lenses.long_hold_survivability`: 短期 thesis が外れた場合の保有耐性を `high|medium|low|unknown` で示す annotation。
 - `selection.diagnostics`: suppressed count、previous overlap、sector / lane concentration、fast / long-hold の件数、warnings を確認する。

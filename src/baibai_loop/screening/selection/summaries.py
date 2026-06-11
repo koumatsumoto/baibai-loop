@@ -14,6 +14,10 @@ from baibai_loop.coerce import (
 
 from .lenses import _fast_guard_count, _fast_lens, _long_hold_lens
 
+# 2026-05 retro の運用ルール「Nikkei に 3pt 以上劣後している候補は starter size に
+# 限定する」を事前固定の annotation 閾値として機械化する。ranking には使わない。
+BENCHMARK_LAGGARD_RELATIVE_20D_MAX = -0.03
+
 
 def _long_hold_counts(candidates: Sequence[Mapping[str, object]]) -> dict[str, int]:
     counts: Counter[str] = Counter()
@@ -47,6 +51,12 @@ def _candidate_risk_tags(candidate: Mapping[str, object]) -> list[str]:
     tags: list[str] = []
     if candidate.get("previous_candidate") is True:
         tags.append("previous_candidate")
+    benchmark_relative_20d = candidate.get("benchmark_relative_20d")
+    if (
+        isinstance(benchmark_relative_20d, int | float)
+        and benchmark_relative_20d <= BENCHMARK_LAGGARD_RELATIVE_20D_MAX
+    ):
+        tags.append("benchmark_laggard_20d")
     if candidate.get("suppressed") is True:
         tags.append("suppressed_by_prior_research")
     if string_or_none(candidate.get("next_earnings_date")):
@@ -74,6 +84,7 @@ def _selection_candidate_summary(
         "market_cap_oku": candidate.get("market_cap_oku"),
         "price_change_5d": candidate.get("price_change_5d"),
         "price_change_20d": candidate.get("price_change_20d"),
+        "benchmark_relative_20d": candidate.get("benchmark_relative_20d"),
         "gap_from_52w_low": candidate.get("gap_from_52w_low"),
         "next_earnings_date": candidate.get("next_earnings_date"),
         "position_tier": candidate.get("position_tier"),
@@ -99,6 +110,7 @@ def _sweep_candidate_summary(candidate: Mapping[str, object], *, rank: int) -> d
         "ticker": string_or_none(candidate.get("ticker")),
         "name": string_or_none(candidate.get("name")),
         "selection_lane": string_or_none(candidate.get("selection_lane")),
+        "benchmark_relative_20d": candidate.get("benchmark_relative_20d"),
         "fast_confidence": string_or_none(fast_lens.get("confidence")),
         "fast_guard_count": _fast_guard_count(candidate),
         "fast_guard_family_count": int_or(fast_lens.get("fundamental_guard_family_count"), 0),
