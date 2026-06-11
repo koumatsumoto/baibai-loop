@@ -76,7 +76,7 @@ Profile を採用する前に、少なくとも以下を表にします。
 
 サイロ化を避けるため、既定 profile は `selection.diversity.max_previous_candidates_in_recommended` で前回 candidates 由来の銘柄数に上限を置きます。上限に達した場合は新規候補を優先し、最低件数を満たすための緩和は行いません。
 
-Lane ごとの hit 数は `evidence_hits_summary` で確認します。特定 lane が universe の大きな割合を占める場合は、候補数が増えただけで evidence の識別力が弱い可能性があるため、`records/_config/screening-rules/2026-06-10T000000+0900.yaml` の閾値・sector policy を見直します。
+Lane ごとの hit 数は `evidence_hits_summary` で確認します。特定 lane が universe の大きな割合を占める場合は、候補数が増えただけで evidence の識別力が弱い可能性があるため、`records/_config/screening-rules/2026-06-12T000000+0900.yaml` の閾値・sector policy を見直します。
 
 ## Multi-week replay と forward return
 

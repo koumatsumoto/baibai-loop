@@ -52,6 +52,9 @@ def evaluate_screening(
             case "valuation-reversion":
                 if not isinstance(lane, ValuationReversionLane):
                     continue
+                if _is_excluded_sector(sector_33, lane.excluded_sectors):
+                    null_reasons.append("valuation_reversion_excluded_sector")
+                    continue
                 hit = _valuation_reversion(
                     financial,
                     derived,

@@ -42,7 +42,7 @@ v1 は keyless CSV で取得できる FRB H.15、FRED CSV、ECB FX を優先す�
 
 ## Screening selection profile
 
-`records/_config/screening-rules/2026-06-10T000000+0900.yaml` の `selection` block は、research recommendations を作る triage layer の既定値です。
+`records/_config/screening-rules/2026-06-12T000000+0900.yaml` の `selection` block は、research recommendations を作る triage layer の既定値です。
 
 - `selection.default_profile`: 明示 `--profile` がない場合の built-in profile。built-in は `balanced` のみで、それ以外は rules load 時に error
 - `selection.liquidity`: research 推奨に適用する規模・流動性・上場期間・JPX 規制の絞り込みパラメータ。screen の scope は全普通株で、絞り込みはこの分析層パラメータだけが担う

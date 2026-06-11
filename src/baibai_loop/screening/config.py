@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from .jpx_sources import JPX_SPECIAL_CAUTION_SOURCE_NAME
+from .rule_config import DEFAULT_RULES_PATH
 
 # 再生成可能な一時 cache root。CSV ZIP や任意 disclosure title 入力など、
 # SQLite 正本から外れる補助ファイルだけを置く。
@@ -46,7 +47,7 @@ class ScreeningConfig(BaseModel):
     edinet_api_key: str | None = None
     cache_dir: Path = DEFAULT_CACHE_DIR
     sqlite_cache_dir: Path = DEFAULT_SQLITE_CACHE_DIR
-    rules_path: Path = Path("records/_config/screening-rules/2026-06-10T000000+0900.yaml")
+    rules_path: Path = DEFAULT_RULES_PATH
     jpx_regulation_urls: Mapping[str, str] = Field(default_factory=dict)
     jpx_special_caution_index_url: str | None = None
 
@@ -116,12 +117,7 @@ class ScreeningConfig(BaseModel):
                 edinet_api_key=source.get("EDINET_API_KEY") or None,
                 cache_dir=cache_dir_value,
                 sqlite_cache_dir=sqlite_cache_dir_value,
-                rules_path=str(
-                    Path(
-                        source.get("SCREENING_RULES_PATH")
-                        or "records/_config/screening-rules/2026-06-10T000000+0900.yaml"
-                    )
-                ),
+                rules_path=str(Path(source.get("SCREENING_RULES_PATH") or DEFAULT_RULES_PATH)),
                 jpx_regulation_urls=jpx_regulation_urls,
                 jpx_special_caution_index_url=special_caution_index_url,
             )

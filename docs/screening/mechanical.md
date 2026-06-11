@@ -36,7 +36,7 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 
 ## 3. Playbook-linked screen（OR 条件、最低 1 つ満たす）
 
-以下の playbook-linked screen のうち、**最低 1 つ** を満たす銘柄を通過とする。閾値は `records/_config/screening-rules/2026-06-10T000000+0900.yaml` を正本とする。
+以下の playbook-linked screen のうち、**最低 1 つ** を満たす銘柄を通過とする。閾値は `records/_config/screening-rules/2026-06-12T000000+0900.yaml` を正本とする。
 
 ### 3.1 `valuation-reversion`
 
@@ -47,6 +47,8 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 - セクターローテーションによる短期売り
 
 EDINET が無い場合、EV/EBITDA は `unavailable` として判定対象から外す。EDINET があっても EV または EBITDA がゼロ以下の場合は、倍率としての割安解釈が成立しないため EV/EBITDA を `null` とし、この lane では使わない。PER / PBR など利用可能な指標で degrade して評価する。P/S は売上成長と営業赤字条件を伴う `sales-discount-growth` 専用 lane で扱い、valuation-reversion の単独指標にはしない。
+
+銀行・証券・保険・その他金融はこの lane から除外する。金融業の PER / PBR は規制資本・金利環境・与信サイクルの構造要因を含み、事業会社と同じ mean-reversion の前提で機械判定できないため。他 lane と異なり電気・ガス業は除外しない。BS / CF の機械判定が成立しないという他 lane の除外根拠は、相対 valuation の比較には当たらないため。
 
 ### 3.2 `strict-net-cash-discount`
 
