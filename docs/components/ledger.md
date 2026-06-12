@@ -13,7 +13,6 @@
 ## 2. ファイル構造
 
 - `records/_ledger/research-decisions/YYYY-MM.jsonl`: decision register の正本
-- `records/_ledger/updates/YYYY-MM.jsonl`: tracking / correction の補助 event log
 
 JSONL は 1 行 1 event。current state は同じ `decision_event_id` / correction lineage を解決し、対象 ticker / candidate / research / trade ごとに最新の有効 event を読む。
 
@@ -33,8 +32,7 @@ JSONL は 1 行 1 event。current state は同じ `decision_event_id` / correcti
 
 `decision_event_id` は register 内の join key であり、trade record の `order_intent.order_intent_id`、`orders[].origin_order_intent_id`、review attribution の anchor と接続する。
 
-`candidate_ref` は candidate に紐づく decision event で必須。field と照合ルールは
-[`research.md`](./research.md) の candidate_ref 仕様に従う。
+`candidate_ref` は candidate に紐づく decision event に付く補助ポインタ。candidates は git 外の local store のため、参照先ファイルとの照合は行わない。
 
 ## 4. Sync
 

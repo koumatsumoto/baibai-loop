@@ -29,7 +29,7 @@ Decision lifecycle ([`../architecture/system-overview.md`](../architecture/syste
 
 ## Review price fallback
 
-Review / retro の価格 source は J-Quants を primary とする。J-Quants が subscription / availability 問題で使えない場合だけ、公開 quote の daily close を fallback として使ってよい。fallback を使う場合は、`records/_market-data/` に `decision_event_id`、`ticker`、`tracking_horizon`、`target_date`、`resolved_trade_date`、`price`、`price_basis`、`source_name`、`source_url`、`fetched_at`、`corporate_action_checked`、`same_basis_group_id`、`provisional` を持つ observation を置く。basis が揃わない場合や corporate action の調整が確認できない場合は、確定評価ではなく provisional / inconclusive として扱う。
+Review / retro の価格 source は J-Quants(`data/screening/market.sqlite`)を primary とする。J-Quants が subscription / availability 問題で使えない場合だけ、公開 quote の daily close を手動 fallback として使い、review / retro 本文の `Price evidence` に source URL・取得日時・評価日・price basis・benchmark と同一 basis かを残す。basis が揃わない場合や corporate action の調整が確認できない場合は、確定評価ではなく provisional / inconclusive として扱う。
 
 ## Benchmark proxy
 

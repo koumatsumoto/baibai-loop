@@ -14,7 +14,6 @@ from baibai_loop.screening.providers.jquants import JQuantsDailyBar
 from baibai_loop.screening.render import JST
 
 from .io import diff_jsonl, write_jsonl
-from .market_data import PriceObservation
 from .records import DecisionRegisterRecord, Tracking
 from .tracking import TrackingPrice, resolve_tracking_prices
 
@@ -35,7 +34,6 @@ def sync_ledger(
     dry_run: bool = False,
     calendar: tuple[date, ...] = (),
     bars: tuple[JQuantsDailyBar, ...] = (),
-    fallback_observations: tuple[PriceObservation, ...] = (),
     observed_at: datetime | None = None,
 ) -> SyncResult:
     _ = (observed_at or datetime.now(UTC)).isoformat()
@@ -63,11 +61,9 @@ def sync_ledger(
         decision_event_id = f"decision-{decision_event_at:%Y%m%d}-{ticker}-research"
         plus_15bd, plus_30bd = resolve_tracking_prices(
             ticker,
-            decision_event_id,
             decision_event_at.date(),
             calendar,
             bars,
-            fallback_observations=fallback_observations,
         )
         tracking = _tracking_from_front(front, plus_15bd, plus_30bd, outcome)
         record = DecisionRegisterRecord(

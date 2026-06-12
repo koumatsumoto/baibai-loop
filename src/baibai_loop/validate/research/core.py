@@ -19,7 +19,6 @@ from baibai_loop.validate.playbook_schema import (
 )
 
 from .fields import _check_decision, _check_playbook, _check_ticker
-from .lineage import _check_candidate_lineage
 from .macro_context import _check_macro_context_fit
 from .payoff import _check_corporate_action_check, _check_payoff
 from .preflight import _check_entry_preflight
@@ -81,7 +80,6 @@ def validate_research_parsed(
     findings.extend(_check_macro_context_fit(path, front_matter))
     findings.extend(_check_entry_preflight(path, front_matter))
     findings.extend(_check_sizing_invariants(path, front_matter))
-    findings.extend(_check_candidate_lineage(path, front_matter))
     findings.extend(_check_corporate_action_check(path, front_matter))
     findings.extend(_check_payoff(path, front_matter))
     findings.extend(_check_reference_refs(path, front_matter))

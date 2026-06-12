@@ -27,9 +27,8 @@ dist/
 
 # Weekly screen output (candidates). Deterministic L2 output over the SQLite
 # store; history is kept on disk as a local store (same durability posture as
-# data/screening/market.sqlite) and is not tracked in git. Legacy files
-# committed before the full-scope change stay tracked (gitignore does not
-# affect already-tracked paths). See docs/components/candidates.md §2.
+# data/screening/market.sqlite) and is not tracked in git.
+# See docs/components/candidates.md §2.
 records/04-candidates/**/*.yaml
 
 # Local environment files

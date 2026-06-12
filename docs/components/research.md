@@ -46,7 +46,7 @@ Front matter の形は [`../templates/research.md`](../templates/research.md) �
 
 Repository ref は `ref_path` で判断時に参照した repo 内 file を指す。byte-level hash は持たせない。
 
-`candidate_ref` は `candidates_ref`, `ticker` を必須とする。Validator は参照先 candidates YAML の `candidates[].ticker` と一致することを確認する。
+`candidate_ref` は `candidates_ref`, `ticker` を必須とする(schema 検証)。candidates は git 外の local store のため、参照先ファイルとの cross-check は行わない(監査証跡を保持しない方針)。
 
 ## 5. research_decision
 

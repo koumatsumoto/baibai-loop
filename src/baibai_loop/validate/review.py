@@ -242,9 +242,7 @@ def _markdown_front_matter(path: Path) -> Mapping[str, Any] | None:
 
 def _validate_review_scan_file(path: Path) -> list[ValidationFinding]:
     # Scan artifacts (e.g. playbook-attribution YAML) only need to stay
-    # machine-readable; their fields are aggregates the retro recomputes. The
-    # old market_data_ref cross-check validated refs into records/_market-data/,
-    # a fallback store that was never operated, so it never fired.
+    # machine-readable; their fields are aggregates the retro recomputes.
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
