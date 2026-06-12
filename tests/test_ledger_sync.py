@@ -161,114 +161,13 @@ def test_sync_ledger_dry_run_reports_existing_decisions(tmp_path: Path) -> None:
 
 def test_ledger_cli_warns_when_jquants_token_is_missing(tmp_path: Path) -> None:
     _seed(tmp_path)
-    calendar, bars, fallback_observations, warnings = _load_market_data(tmp_path, {})
+    calendar, bars, warnings = _load_market_data(tmp_path, {})
     assert calendar == ()
     assert bars == ()
-    assert fallback_observations == ()
     assert warnings == (
-        "JQUANTS_REFRESH_TOKEN is unset; fallback observations may be used",
-        "no J-Quants bars or fallback price observations were loaded",
+        "JQUANTS_REFRESH_TOKEN is unset and SQLite has no bars",
+        "no J-Quants bars were loaded; tracking prices stay unfilled",
     )
-
-
-def test_sync_ledger_uses_fallback_price_observations(tmp_path: Path) -> None:
-    _seed(tmp_path)
-    market_data_dir = tmp_path / "records/_market-data/2026/05"
-    market_data_dir.mkdir(parents=True)
-    (market_data_dir / "fallback.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "observations": [
-                    {
-                        "decision_event_id": "decision-20260425-2767-research",
-                        "ticker": "2767",
-                        "tracking_horizon": "plus_15bd",
-                        "target_date": "2026-05-15",
-                        "resolved_trade_date": "2026-05-15",
-                        "price": 1500,
-                        "price_basis": "close_unadjusted",
-                        "source_name": "manual",
-                        "source_url": "https://example.com/2767",
-                        "fetched_at": "2026-05-18T18:00:00+09:00",
-                        "corporate_action_checked": True,
-                        "same_basis_group_id": "2026-05-15-close",
-                        "provisional": False,
-                    },
-                    {
-                        "decision_event_id": "decision-20260425-2767-research",
-                        "ticker": "2767",
-                        "tracking_horizon": "plus_30bd",
-                        "target_date": "2026-06-05",
-                        "resolved_trade_date": "2026-06-05",
-                        "price": 1510,
-                        "price_basis": "close_unadjusted",
-                        "source_name": "manual",
-                        "source_url": "https://example.com/2767",
-                        "fetched_at": "2026-06-05T18:00:00+09:00",
-                        "corporate_action_checked": True,
-                        "same_basis_group_id": "2026-06-05-close",
-                        "provisional": True,
-                    },
-                ]
-            },
-            allow_unicode=True,
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-    calendar, bars, fallback_observations, warnings = _load_market_data(tmp_path, {})
-    assert calendar == ()
-    assert bars == ()
-    assert len(fallback_observations) == 2
-    assert warnings == ("JQUANTS_REFRESH_TOKEN is unset; fallback observations may be used",)
-    sync_ledger(tmp_path, fallback_observations=fallback_observations)
-    register_path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
-    record = json.loads(register_path.read_text(encoding="utf-8").splitlines()[0])
-    assert record["tracking"]["plus_15bd"] == 1500
-    assert record["tracking"]["plus_15bd_source"]["source_kind"] == "fallback"
-    assert record["tracking"]["plus_30bd"] == 1510
-    assert record["tracking"]["plus_30bd_source"]["provisional"] is True
-    retro = build_monthly_retro(tmp_path, "2026-04")
-    assert "1510.00 provisional" in retro.content
-
-
-def test_ledger_cli_require_market_data_accepts_fallback_observations(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _seed(tmp_path)
-    market_data_dir = tmp_path / "records/_market-data/2026/05"
-    market_data_dir.mkdir(parents=True)
-    (market_data_dir / "fallback.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "observations": [
-                    {
-                        "decision_event_id": "decision-20260425-2767-research",
-                        "ticker": "2767",
-                        "tracking_horizon": "plus_15bd",
-                        "target_date": "2026-05-15",
-                        "resolved_trade_date": "2026-05-15",
-                        "price": 1500,
-                        "price_basis": "close_unadjusted",
-                        "source_name": "manual",
-                        "source_url": "https://example.com/2767",
-                        "fetched_at": "2026-05-15T18:00:00+09:00",
-                        "corporate_action_checked": True,
-                        "same_basis_group_id": "2026-05-15-close",
-                        "provisional": False,
-                    },
-                ]
-            },
-            allow_unicode=True,
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("JQUANTS_REFRESH_TOKEN", raising=False)
-
-    assert main(["sync", "--root", str(tmp_path), "--dry-run", "--require-market-data"]) == 0
 
 
 def test_ledger_cli_discovers_research_decision_dates(tmp_path: Path) -> None:

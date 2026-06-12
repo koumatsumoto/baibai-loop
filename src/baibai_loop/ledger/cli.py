@@ -33,7 +33,6 @@ from .lane_cohorts import (
     render_lane_cohort_summary,
     run_lane_cohorts,
 )
-from .market_data import PriceObservation, load_fallback_price_observations
 from .retro import build_monthly_retro, write_monthly_retro
 from .review_gates import ReviewGate, due_review_gates, weekday_calendar
 from .screening_replay import replay_to_payload, run_replay
@@ -181,11 +180,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     load_project_env(args.root)
     if args.command == "sync":
-        calendar, bars, fallback_observations, market_warnings = _load_market_data(
-            args.root, os.environ
-        )
-        usable_market_data = bool((calendar and bars) or fallback_observations)
-        if args.require_market_data and not usable_market_data:
+        calendar, bars, market_warnings = _load_market_data(args.root, os.environ)
+        if args.require_market_data and not (calendar and bars):
             if market_warnings:
                 for warning in market_warnings:
                     print(f"error: {warning}", file=sys.stderr)
@@ -201,7 +197,6 @@ def main(argv: list[str] | None = None) -> int:
             dry_run=args.dry_run,
             calendar=calendar,
             bars=bars,
-            fallback_observations=fallback_observations,
         )
         for warning in market_warnings:
             print(f"warning: {warning}", file=sys.stderr)
@@ -416,7 +411,7 @@ def _run_benchmark(root: Path, asof: date, proxy: str, env: Mapping[str, str]) -
     if not trades:
         print("no open positions")
         return 0
-    _calendar, bars, _fallback, market_warnings = _load_market_data(root, env)
+    _calendar, bars, market_warnings = _load_market_data(root, env)
     for warning in market_warnings:
         print(f"warning: {warning}", file=sys.stderr)
     result = compute_forward_performance(trades, asof, bars, proxy)
@@ -465,13 +460,11 @@ def _load_market_data(
 ) -> tuple[
     tuple[date, ...],
     tuple[JQuantsDailyBar, ...],
-    tuple[PriceObservation, ...],
     tuple[str, ...],
 ]:
     decision_dates = _discover_decision_dates(root)
     if not decision_dates:
-        fallback_observations, fallback_warnings = load_fallback_price_observations(root)
-        return (), (), fallback_observations, fallback_warnings
+        return (), (), ()
     start = min(decision_dates) - timedelta(days=10)
     end = max(datetime.now(UTC).date(), max(decision_dates))
     sqlite_cache_dir = root / DEFAULT_SQLITE_CACHE_DIR
@@ -496,19 +489,15 @@ def _load_market_data(
             if bars is None:
                 bars = provider.get_eq_bars_daily_range(start, end)
         except JQuantsProviderError as exc:
-            warnings.append(
-                f"failed to load J-Quants market data; fallback observations may be used: {exc}"
-            )
+            warnings.append(f"failed to load J-Quants market data: {exc}")
     elif not token and bars is None:
-        warnings.append("JQUANTS_REFRESH_TOKEN is unset; fallback observations may be used")
-    fallback_observations, fallback_warnings = load_fallback_price_observations(root)
-    warnings.extend(fallback_warnings)
+        warnings.append("JQUANTS_REFRESH_TOKEN is unset and SQLite has no bars")
     calendar = _business_calendar(calendar_days)
-    if not bars and not fallback_observations:
-        warnings.append("no J-Quants bars or fallback price observations were loaded")
-    elif bars and not calendar:
+    if not bars:
+        warnings.append("no J-Quants bars were loaded; tracking prices stay unfilled")
+    elif not calendar:
         warnings.append("J-Quants bars loaded but no business calendar was loaded")
-    return calendar, tuple(bars or ()), fallback_observations, tuple(warnings)
+    return calendar, tuple(bars or ()), tuple(warnings)
 
 
 def _business_calendar(
