@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import TextIO
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
 from baibai_loop.macro_context import MacroContext, find_latest_macro_context, load_macro_context
 from baibai_loop.screening.market_snapshot import build_market_snapshot
@@ -40,52 +39,6 @@ from baibai_loop.screening.sqlite_reader import latest_daily_bar_date
 from baibai_loop.screening.ticker_profile import build_ticker_profile
 
 from .common import _NoAliasDumper, _parse_iso_date
-
-type MetricScalar = bool | date | datetime | float | int | str | None
-
-
-class _ScreenedCandidateInput(BaseModel):
-    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
-
-    ticker: str
-    name: str | None = None
-    per_forward: int | float | None = None
-    per_trailing: int | float | None = None
-    pbr: int | float | None = None
-    ev_ebitda: int | float | None = None
-    p_s: int | float | None = None
-    pcfr: int | float | None = None
-    sector_33: str = ""
-    market_cap_oku: int | float | None = None
-    avg_turnover_oku: int | float | None = None
-    listing_span_days: int | None = None
-    jpx_flags: list[str] = Field(default_factory=list)
-    price_change_1d: float | None = None
-    price_change_5d: float | None = None
-    price_change_20d: float | None = None
-    price_change_60d: float | None = None
-    gap_from_52w_low: float | None = None
-    turnover_spike_5d: float | None = None
-    sector_relative_strength_percentile: float | None = None
-    price_history_sessions_750d: int | None = None
-    price_history_coverage_750d: float | None = None
-    evidence_hits: list[dict[str, object]] = Field(default_factory=list)
-    metrics: dict[str, MetricScalar] = Field(default_factory=dict)
-    freshness_warnings: list[dict[str, object]] = Field(default_factory=list)
-    next_earnings_date: str | None = None
-    split_adjustment_flag: bool | None = None
-    ttm_quality: dict[str, object] = Field(default_factory=dict)
-
-    @field_validator("ticker", mode="before")
-    @classmethod
-    def _normalize_ticker_field(cls, value: str) -> str:
-        return normalize_ticker(value)
-
-
-class _ScreenedFrontMatter(BaseModel):
-    model_config = ConfigDict(frozen=True, strict=True)
-
-    candidates: list[_ScreenedCandidateInput] = Field(default_factory=list)
 
 
 def ticker_profile_command(
@@ -313,10 +266,8 @@ def _load_selection_inputs(
     if not candidates_path.exists():
         raise ValueError(f"candidates file not found: {candidates_path}")
     try:
-        candidates_fm = TypeAdapter(_ScreenedFrontMatter).validate_python(
-            _parse_candidates_yaml_payload(candidates_path)
-        )
-    except (ValidationError, ValueError) as exc:
+        candidate_records = _load_candidate_records(candidates_path)
+    except ValueError as exc:
         raise ValueError(f"invalid candidates YAML: {candidates_path}: {exc}") from exc
 
     resolved_macro_context_path = macro_context_path or find_latest_macro_context(
@@ -354,10 +305,6 @@ def _load_selection_inputs(
     )
     prior_research = load_prior_research(
         repo_root / "records/_ledger/research-decisions", asof_date
-    )
-    candidate_records: tuple[CandidateRecord, ...] = tuple(
-        candidate_record_from_mapping(item.model_dump(mode="python"))
-        for item in candidates_fm.candidates
     )
     return _SelectionInputs(
         candidates=candidate_records,
@@ -401,8 +348,22 @@ def _rules_path_from_env() -> Path:
     return Path(os.environ.get("SCREENING_RULES_PATH") or DEFAULT_RULES_PATH)
 
 
-def _parse_candidates_yaml_payload(path: Path) -> dict[str, object]:
+def _load_candidate_records(path: Path) -> tuple[CandidateRecord, ...]:
+    """Parse candidates YAML through the one selection-side parsing path.
+
+    Field coercion lives in ``candidate_record_from_mapping`` (shared with the
+    replay loaders), so new screen facts never need a second registration here.
+    Only the structural shape is checked.
+    """
     payload = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
-        raise ValueError(f"candidates YAML root must be a mapping: {path}")
-    return payload
+        raise ValueError("candidates YAML root must be a mapping")
+    raw_candidates = payload.get("candidates", [])
+    if not isinstance(raw_candidates, list):
+        raise ValueError("candidates must be a list")
+    records: list[CandidateRecord] = []
+    for index, item in enumerate(raw_candidates):
+        if not isinstance(item, Mapping) or not str(item.get("ticker") or ""):
+            raise ValueError(f"candidates[{index}] must be a mapping with a ticker")
+        records.append(candidate_record_from_mapping(item))
+    return tuple(records)

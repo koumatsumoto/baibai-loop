@@ -15,9 +15,6 @@ from baibai_loop.screening.config import (
 )
 from baibai_loop.screening.filesystem import write_text_atomic
 from baibai_loop.screening.freshness import detect_edinet_freshness_warnings, load_disclosure_events
-from baibai_loop.screening.lineage import (
-    build_run_id,
-)
 from baibai_loop.screening.metrics import (
     build_metrics,
     build_shares_outstanding_index,
@@ -77,7 +74,7 @@ def run_command(
         return 1
 
     run_now = now or datetime.now(JST)
-    run_id = build_run_id(asof_date)
+    run_id = f"screening-{asof_date:%Y%m%d}"
     today = run_now.date()
     if (
         not allow_stale_jpx

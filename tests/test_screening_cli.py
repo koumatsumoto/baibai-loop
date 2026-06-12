@@ -2764,7 +2764,8 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 1)
             self.assertIn("macro context is stale for screening asof", stderr.getvalue())
 
-    def test_rejects_unknown_candidate_field(self) -> None:
+    def test_tolerates_unknown_candidate_fields(self) -> None:
+        """新しい screen fact を loader が拒否しない(単一 parsing 経路の回帰確認)。"""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -2774,10 +2775,10 @@ class SelectCommandTests(unittest.TestCase):
                 candidates=[
                     {
                         "ticker": "1111",
-                        "name": "typo",
+                        "name": "future fact",
                         "sector_33": "機械",
                         "market_cap_oku": 300,
-                        "prcie_change_5d": -0.09,
+                        "some_future_screen_fact": -0.09,
                         "evidence_hits": [{"name": "cashflow-yield-discount"}],
                     }
                 ],
@@ -2787,16 +2788,15 @@ class SelectCommandTests(unittest.TestCase):
             )
 
             buffer = io.StringIO()
-            stderr = io.StringIO()
-            with contextlib.redirect_stderr(stderr):
-                exit_code = select_command(
-                    asof_date=asof,
-                    macro_context_path=None,
-                    top=10,
-                    candidates_root=root / "records/04-candidates",
-                    macro_context_root=root / "records/01-macro-context",
-                    stdout=buffer,
-                )
+            exit_code = select_command(
+                asof_date=asof,
+                macro_context_path=None,
+                top=10,
+                candidates_root=root / "records/04-candidates",
+                macro_context_root=root / "records/01-macro-context",
+                stdout=buffer,
+            )
 
-            self.assertEqual(exit_code, 1)
-            self.assertIn("extra_forbidden", stderr.getvalue())
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(buffer.getvalue())
+            self.assertEqual(self._recommended(payload)[0]["ticker"], "1111")
