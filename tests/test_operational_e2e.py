@@ -68,6 +68,10 @@ E2E fixture.
 
 
 class OperationalE2ETests(unittest.TestCase):
+    @unittest.skipUnless(
+        (ROOT / "records/04-candidates/2026/05/2026-05-08.yaml").is_file(),
+        "weekly candidates live in the local store; skip where absent",
+    )
     def test_selection_profiles_and_existing_decision_records_validate(self) -> None:
         candidates_path = ROOT / "records/04-candidates/2026/05/2026-05-08.yaml"
         candidates_doc = yaml.safe_load(candidates_path.read_text(encoding="utf-8"))

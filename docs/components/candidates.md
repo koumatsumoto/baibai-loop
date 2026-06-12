@@ -19,8 +19,7 @@ records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml
 
 candidates YAML は **git に積まない local store** として扱う(`.gitignore` 対象)。candidates は L1 SQLite からの決定論的な L2 機械出力であり、全銘柄スコープ化(1 ファイル数 MB)以降、git 履歴に積む価値がない。一方で forward 計測(replay / lane cohorts / missed-opportunity tracking)と `candidate_ref` の lineage 検証は過去ファイルを必要とするため、**履歴はこの path にローカル保持し続け、`data/screening/market.sqlite` と同じ local-canonical 扱いにする**(バックアップを取る場合は両方を対象にする)。
 
-- ファイルが手元に無い checkout では、validator は candidate_ref の lineage 検証を warning 付きで skip する(error にしない)
-- 全銘柄スコープ移行前に commit 済みの過去ファイル(2026-06-08 以前)は、既存 record の参照を壊さないため git に残したままにする
+candidates ファイルは git に一切置かない。`candidate_ref` は record 内の補助ポインタであり、ファイル横断の lineage 検証は行わない(監査証跡を保持しない方針)。
 
 ## 3. YAML Contract
 

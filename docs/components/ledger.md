@@ -13,7 +13,6 @@
 ## 2. ファイル構造
 
 - `records/_ledger/research-decisions/YYYY-MM.jsonl`: decision register の正本
-- `records/_ledger/updates/YYYY-MM.jsonl`: tracking / correction の補助 event log
 
 JSONL は 1 行 1 event。current state は同じ `decision_event_id` / correction lineage を解決し、対象 ticker / candidate / research / trade ごとに最新の有効 event を読む。
 
