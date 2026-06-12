@@ -138,38 +138,6 @@ def _entry_preflight(**overrides: object) -> dict[str, object]:
     return preflight
 
 
-def _write_candidate_fixture(root: Path) -> None:
-    candidates_path = root / "records/04-candidates/2026/05/2026-05-01.yaml"
-    candidates_path.parent.mkdir(parents=True)
-    candidates_path.write_text(
-        yaml.safe_dump(
-            {
-                "run_id": "screening-20260501",
-                "candidates": [
-                    {
-                        "ticker": "2767",
-                        "sector_33": "情報・通信業",
-                        "avg_turnover_oku": 2.0,
-                        "market_cap_oku": 100,
-                        "metrics": {"p_s": 0.5},
-                        "evidence_hits": [
-                            {
-                                "name": "valuation-reversion",
-                                "playbook_id": "valuation-reversion",
-                                "source_status": "ok",
-                                "sizing_eligible": True,
-                            }
-                        ],
-                    }
-                ],
-            },
-            allow_unicode=True,
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-
-
 def _write_macro_context_fixture(root: Path) -> None:
     macro_path = root / "records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml"
     macro_path.parent.mkdir(parents=True)
@@ -417,89 +385,6 @@ class ResearchValidationTests(unittest.TestCase):
         front["corporate_action_check"] = {"checked": True, "result": "found"}
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("research.corporate-action-check-result", codes)
-
-    def test_repository_research_warns_when_candidates_file_is_absent_locally(self) -> None:
-        """Candidates YAML is a local store; an absent file degrades to a warning."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            (root / "src").mkdir()
-            _write_macro_context_fixture(root)
-            front = _minimal_research_front_matter()
-            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
-            research_path.parent.mkdir(parents=True)
-            research_path.write_text(
-                "---\n"
-                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
-                + "---\n"
-                + _DEFAULT_BODY,
-                encoding="utf-8",
-            )
-
-            missing = [
-                finding
-                for finding in validate_research_file(
-                    research_path, playbooks_root=ROOT / "records/_playbooks"
-                )
-                if finding.code == "research.candidate-ref-missing"
-            ]
-
-        self.assertEqual(len(missing), 1)
-        self.assertEqual(missing[0].severity, "warning")
-
-    def test_repository_research_candidate_ref_matches_by_ticker(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            (root / "src").mkdir()
-            _write_candidate_fixture(root)
-            _write_macro_context_fixture(root)
-            _write_playbook_ref_fixture(root)
-            front = _minimal_research_front_matter()
-            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
-            research_path.parent.mkdir(parents=True)
-            research_path.write_text(
-                "---\n"
-                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
-                + "---\n"
-                + _DEFAULT_BODY,
-                encoding="utf-8",
-            )
-
-            findings = validate_research_file(
-                research_path, playbooks_root=ROOT / "records/_playbooks"
-            )
-
-        errors = [finding for finding in findings if finding.severity == "error"]
-        self.assertEqual(errors, [], f"unexpected errors: {errors}")
-
-    def test_repository_research_candidate_ref_ticker_must_match(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            (root / "src").mkdir()
-            _write_candidate_fixture(root)
-            _write_macro_context_fixture(root)
-            _write_playbook_ref_fixture(root)
-            front = _minimal_research_front_matter()
-            candidate_ref = front["candidate_ref"]
-            assert isinstance(candidate_ref, dict)
-            candidate_ref["ticker"] = "9999"
-            research_path = root / "records/05-research/2026/05/2026-05-05-2767.md"
-            research_path.parent.mkdir(parents=True)
-            research_path.write_text(
-                "---\n"
-                + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
-                + "---\n"
-                + _DEFAULT_BODY,
-                encoding="utf-8",
-            )
-
-            codes = {
-                finding.code
-                for finding in validate_research_file(
-                    research_path, playbooks_root=ROOT / "records/_playbooks"
-                )
-            }
-
-        self.assertIn("research.candidate-ref-ticker", codes)
 
     def test_payoff_order_is_flagged(self) -> None:
         front = _minimal_research_front_matter()

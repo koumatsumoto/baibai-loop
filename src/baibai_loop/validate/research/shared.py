@@ -114,22 +114,3 @@ def _resolve_record_ref(
     if not ref.startswith(prefixes) or candidate.suffix not in suffixes:
         return None
     return candidate if candidate.is_file() else None
-
-
-def _resolve_candidate_ref(path: Path, ref: str) -> Path | None:
-    """Resolve a well-formed candidates ref to its repo path.
-
-    Returns ``None`` only for malformed refs. Existence is the caller's
-    concern: candidates YAML is a local store (kept out of git), so a
-    well-formed ref may legitimately point to a file absent on this checkout.
-    """
-    root = repo_root_for(path)
-    if repository_ref_error(ref, root=root) is not None:
-        return None
-    candidate = resolve_repository_ref(root, ref)
-    if not ref.startswith("records/04-candidates/") or candidate.suffix not in {
-        ".yaml",
-        ".yml",
-    }:
-        return None
-    return candidate

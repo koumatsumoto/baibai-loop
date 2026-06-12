@@ -1,7 +1,7 @@
 """Research record validation.
 
 Validates research decision records: JSON schema, field vocabularies,
-macro-context fit, entry preflight, candidate lineage, position sizing,
+macro-context fit, entry preflight, position sizing,
 payoff arithmetic, and reference integrity.
 """
 
