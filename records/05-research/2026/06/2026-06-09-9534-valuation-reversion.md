@@ -103,7 +103,7 @@ tracking:
 - **Swing thesis（discretionary）**: #201 パネルは 9534 を「都市ガスの原料費調整＝pricing power、内需ディフェンシブ、PBR 0.68 / PER 5.74 の割安」として新規採用した。20d -8.2% / 60d -13.8% の調整に対し、低 PBR・低 PER の mean-reversion を 100 株 starter で拾う、というもの。
 - **Data 上の矛盾（must read）**: (i) screening は 9534 を **short 候補（sector_rotation_short_sell, 15.2%ile）** として出しており long の根拠ではない。(ii) 9534 は **net debt −418 億（時価比 −62.9%、有利子負債 512 億）** で、#201 が 3222 USMH を除外した理由（純有利子負債＝BOJ 利上げ直撃）と同型。(iii) 2026-06-08 macro context は電気・ガス業を **headwind**（利上げ bond-proxy 逆風 + 原油高燃料コスト）とし「net cash の厚い個別のみ」と限定しているが、9534 はこれに反する。#201 の「利上げ耐性」評価は macro context・balance sheet と整合しない。
 - **Long-hold fallback**: 限定的。自己資本比率 50.3%、OCF yield は高い（candidate 40.6%）が net debt で利上げ感応が高く、bond-proxy ディスカウント拡大が長期保有の足枷になりうる。原料費調整による pricing power が下支えだが lag があり、原油高局面ではマージンが先に圧迫される。
-- **Capital lock / shareholder return**: PBR 0.68・PER 5.74 の割安と配当が下支え候補。ただし net debt 下の配当余力・還元方針は会社 IR で要確認（本メモでは未検証）。
+- **Capital lock / shareholder return**: PBR 0.68・PER 5.74 の割安と配当が下支え。2026-06-13 IR 確認で年間配当 23 円・連結配当性向 30% 目標（増配）を確認（§Shareholder return）。net debt 下でも payout 30% で還元継続。
 - **AI long-term impact**: 低い。判断には使わない。
 
 ## Macro context
@@ -136,13 +136,19 @@ tracking:
 ## 反対仮説
 
 - **screening は売りシグナル**: evidence_hit は sector_rotation_short_sell。本来の screening 推奨は long ではない。買いは screening を override した discretionary 判断。
-- **net debt × 利上げ**: −418 億の net debt は BOJ 利上げ観測下で逆風。#201 自身が同型の USMH を除外した基準と矛盾する。
+- **net debt × 利上げ**: −418 億の net debt は BOJ 利上げ観測下で逆風。#201 自身が同型の USMH を除外した基準と矛盾する。2026-06-13 IR 確認でも会社は有利子負債削減を優先方針として明示しており、net debt が実在する財務制約であることが裏付けられた。
 - **macro headwind**: 電気・ガス業は macro context で headwind、「net cash の厚い個別のみ」の限定に 9534 は反する。
 - **valuation trap リスク**: 公益の低 PBR は成長性・還元の乏しさを反映した恒常的割安の可能性があり、mean-reversion しない場合がある。
 
 ## Catalyst
 
-明確な near-term catalyst は置かない（candidate の next_earnings_date は null）。margin of safety は低 PBR・低 PER と原料費調整による pricing power だが、後者は lag があり即効性は低い。
+明確な near-term catalyst は置かない（candidate の next_earnings_date は null）。margin of safety は低 PBR・低 PER と原料費調整による pricing power。
+
+**2026-06-13 IR 一次確認**: 原料費調整制度は実在し、2026年3月期中間は同制度による販売単価上昇でガス売上が伸び、売上 +4.9%（713.67 億円）、経常利益 +40.3%（68.63 億円）、自己資本比率 49.4% と業績は改善した。pricing power は lag があるものの実際に効いており、低 PER 5.74 が単なる valuation trap ではなく業績改善を伴う割安である可能性を補強する。ただし net debt と利上げ感応の caveat（下記）は解消しない。
+
+Source:
+
+- https://www.nikkei.com/nkd/company/kessan/?scode=9534
 
 ## Price reaction
 
@@ -154,7 +160,12 @@ avg_turnover_oku 1.5 億円、board lot 100 株。paper proxy 100 万円での A
 
 ## Shareholder return
 
-PBR 0.68・PER 5.74 の割安と配当が下支え候補だが、net debt 下の配当余力・還元方針・原料費調整制度の詳細は会社 IR で要確認（本メモでは未検証）。
+PBR 0.68・PER 5.74 の割安と配当が下支え。**2026-06-13 IR 一次確認**: 年間配当は中間 11.5 円 + 期末 11.5 円 = 23 円（株式分割考慮後ベースで増配）、連結配当性向は 30% を目標水準とする。net debt を抱えつつも payout 30% 目標で還元を継続しており、配当は含み損ロック時の下支えとして機能する。ただし還元の主軸は配当であり、net debt のため自己株買い余地は限定的とみる。
+
+Source:
+
+- https://irbank.net/E04511/dividend
+- https://www.nikkei.com/nkd/company/kessan/?scode=9534
 
 ## Entry
 

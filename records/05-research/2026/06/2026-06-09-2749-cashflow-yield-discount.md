@@ -99,7 +99,7 @@ tracking:
 
 - **Swing thesis**: 2026-06-08 candidates で `cashflow-yield-discount` が hit（OCF yield 11.95%、CFO YoY +49.1%、net cash / market cap 26.2%、自己資本比率 60.0%）。保育・学童は景気非感応の internal demand で、6/8 のような金利・半導体起因の sector rotation 暴落に対し price_change_1d +0.51% と逆行耐性を示した。20d -11.6% / 60d -19.0% の調整に対し、cashflow と net cash が下値を支える starter として 100 株拾う。
 - **Long-hold fallback**: 中程度。net cash（+137 億）、自己資本比率 60.0%、保育の需要 defensive 性が支え。ただし保育は出生数の構造減（2024 に初の 70 万人割れ）という長期逆風があり、補助金・稼働率前提が崩れる場合は長期保有へ逃がさない。
-- **Capital lock / shareholder return**: 配当はあるが PBR 2.23・P/S 1.21 と balance sheet 倍率は割安ではなく、cashflow yield と net cash が主な下支え。含み損ロック時の安心材料は配当より財務健全性に依存する。配当の正確な水準・方針は会社 IR で要確認（本メモでは未検証）。
+- **Capital lock / shareholder return**: 配当はあるが PBR 2.23・P/S 1.21 と balance sheet 倍率は割安ではなく、cashflow yield と net cash が主な下支え。含み損ロック時の安心材料は配当より財務健全性に依存する。2026-06-13 IR 確認で期末配当 12.50 円増額・利回り約1.78% を確認（§Shareholder return）。
 - **AI long-term impact**: 低い。保育オペレーションの効率化余地はあるが、採用根拠・sizing 根拠には使わない。
 
 ## Macro context
@@ -134,11 +134,23 @@ candidate の capex TTM は 151 百万円と軽く、FCF TTM 2,610 百万円 / F
 
 ## Earnings quality
 
-candidate row の sales_yoy +5.3%、operating_profit 6,533 百万円、CFO YoY +49.1%。#201 は「JPHD は近年 過去最高益・net cash・高 ROE で良好、#201 旧版の『減益予想』は陳腐化した前期ガイダンス」と整理した。ただし最新の通期ガイダンス・進捗は会社 IR の一次情報で未検証であり、次回決算で増益基調と利益の質（特別損益依存でないか）を確認する。
+candidate row の sales_yoy +5.3%、operating_profit 6,533 百万円、CFO YoY +49.1%。#201 は「JPHD は近年 過去最高益・net cash・高 ROE で良好、#201 旧版の『減益予想』は陳腐化した前期ガイダンス」と整理した。
+
+**2026-06-13 IR 一次確認**: 2026年3月期 Q3 累計で売上 +7.4% / 営業利益 +8.2% と増収増益基調を確認し、#201 の「近年良好」評価は裏付けられた。一方で Q1 は保育士の処遇改善費用と前期特別利益の剥落で減益となっており、補助金 tailwind が処遇改善コストを伴う点（補助金増＝人件費増の側面）は利益の質の monitoring 対象とする。
+
+Source:
+
+- https://kabutan.jp/stock/finance?code=2749
+- https://www.nikkei.com/nkd/company/kessan/?scode=2749
 
 ## Shareholder return
 
-配当はあるが、正確な配当額・配当方針・優待は会社 IR で要確認（本メモでは未検証）。cashflow yield と net cash を下支えの主軸とし、配当だけを理由に追加買いしない。
+**2026-06-13 IR 一次確認**: 期末配当を 12.50 円へ増額（予想配当利回り 約1.78%）、自己資本比率の改善と有利子負債の削減で財務安定性が向上しており、candidate の net cash（+137 億）と方向が整合する。配当は下支えになるが、cashflow yield と net cash を主軸とし、配当だけを理由に追加買いはしない。
+
+Source:
+
+- https://finance.yahoo.co.jp/quote/2749.T/dividend
+- https://www.jp-holdings.co.jp/ir/
 
 ## Entry
 
