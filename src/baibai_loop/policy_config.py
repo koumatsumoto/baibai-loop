@@ -10,7 +10,7 @@ type PolicyConfig = Mapping[str, Any]
 PORTFOLIO_POLICY: dict[str, Any] = {
     "capital_basis": {
         "real_capital_yen": 5_000_000,
-        "tactical_real_budget_yen": 1_000_000,
+        "tactical_real_budget_yen": 2_000_000,
         "paper_proxy_capital_yen": 100_000_000,
     },
     "risk_budget": {
