@@ -42,7 +42,7 @@ dev = [
 test = [
   "coverage[toml]>=7.14.1",
   "hypothesis>=6.155.2",
-  "pytest>=9.0.0",
+  "pytest>=9.1.0",
   "pytest-mock>=3.15.0",
 ]
 typing = [
@@ -55,11 +55,11 @@ typing = [
 quality = [
   "mutmut>=3.6.0",
   "pre-commit>=4.3.0",
-  "ruff>=0.15.16",
+  "ruff>=0.15.17",
 ]
 security = [
   "bandit[toml]>=1.9.4",
-  "pip-audit>=2.10.0",
+  "pip-audit>=2.10.1",
 ]
 
 [tool.hatch.build.targets.wheel]
