@@ -8,13 +8,26 @@ from baibai_loop.coerce import float_or, optional_float, string_or_none
 
 from ..rule_config import SelectionRules
 from .records import CandidateRecord
+from .structural import StructuralOutlookConfig, classify_structural_outlook
 
 
-def _candidate_lenses(item: CandidateRecord, rules: SelectionRules) -> dict[str, object]:
-    return {
+def _candidate_lenses(
+    item: CandidateRecord,
+    rules: SelectionRules,
+    *,
+    structural_config: StructuralOutlookConfig | None = None,
+) -> dict[str, object]:
+    lenses: dict[str, object] = {
         "fast_dislocation": _fast_dislocation_lens(item, rules),
         "long_hold_survivability": _long_hold_survivability_lens(item, rules),
     }
+    if structural_config is not None:
+        lenses["structural_outlook"] = classify_structural_outlook(
+            ticker=item.ticker,
+            sector_33=item.sector_33,
+            config=structural_config,
+        ).to_dict()
+    return lenses
 
 
 def _fast_dislocation_lens(item: CandidateRecord, rules: SelectionRules) -> dict[str, object]:
@@ -240,6 +253,14 @@ def _long_hold_lens(candidate: Mapping[str, object]) -> Mapping[str, object]:
     if not isinstance(lenses, Mapping):
         return {}
     lens = lenses.get("long_hold_survivability")
+    return lens if isinstance(lens, Mapping) else {}
+
+
+def _structural_lens(candidate: Mapping[str, object]) -> Mapping[str, object]:
+    lenses = candidate.get("lenses")
+    if not isinstance(lenses, Mapping):
+        return {}
+    lens = lenses.get("structural_outlook")
     return lens if isinstance(lens, Mapping) else {}
 
 

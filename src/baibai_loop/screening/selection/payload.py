@@ -40,11 +40,13 @@ from .records import (
     _evidence_metric_type_warnings,
     _numeric_metric_type_warnings,
 )
+from .structural import StructuralOutlookConfig
 from .summaries import (
     _candidate_reason_tags,
     _candidate_risk_tags,
     _long_hold_counts,
     _selection_candidate_summary,
+    _structural_outlook_counts,
     _sweep_candidate_summary,
     _sweep_changed_summaries,
 )
@@ -65,6 +67,7 @@ def build_selection_payload(
     profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
     market_regime: MarketRegimeSnapshot | None = None,
     ranking_toggles: RankingToggles | None = None,
+    structural_config: StructuralOutlookConfig | None = None,
     detail: str = "summary",
 ) -> dict[str, object]:
     if detail not in {"summary", "full"}:
@@ -134,7 +137,7 @@ def build_selection_payload(
         suppress_reason = (
             prior_research.suppression_reason(asof_date) if prior_research is not None else None
         )
-        lenses = _candidate_lenses(item, selection_rules)
+        lenses = _candidate_lenses(item, selection_rules, structural_config=structural_config)
         candidate = _selection_candidate(
             item,
             macro_context_result=macro_context_result,
@@ -237,6 +240,7 @@ def build_selection_sweep_payload(
     prior_research_by_ticker: Mapping[str, PriorResearch] | None = None,
     profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
     market_regime: MarketRegimeSnapshot | None = None,
+    structural_config: StructuralOutlookConfig | None = None,
 ) -> dict[str, object]:
     profile_results: list[dict[str, object]] = []
     for profile in profiles:
@@ -253,6 +257,7 @@ def build_selection_sweep_payload(
             prior_research_by_ticker=prior_research_by_ticker,
             profile_overrides=profile_overrides,
             market_regime=market_regime,
+            structural_config=structural_config,
             detail="full",
         )
         selection = mapping_or_empty(payload.get("selection"))
@@ -524,6 +529,7 @@ def _diagnostics(
             1 for candidate in ranked_candidates if _fast_lens(candidate).get("eligible") is True
         ),
         "long_hold_counts": _long_hold_counts(ranked_candidates),
+        "structural_outlook_counts": _structural_outlook_counts(ranked_candidates),
         "short_return_missing_candidate_count": short_return_missing_count,
         "fast_dislocation_data_status_counts": dict(fast_data_status_counts),
         "invalid_numeric_metric_value_count": metric_type_warning_count,
