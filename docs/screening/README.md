@@ -26,6 +26,7 @@ last_reviewed: 2026-05-04
 | [`selection-ablation-2026-05.md`](./selection-ablation-2026-05.md) | reference | selection 構成要素・lane 別 ablation の効果計測 (2026-05) |
 | [`tuning-2026-06.md`](./tuning-2026-06.md) | reference | 構造変種の replay 計測と外部検証の記録 (2026-06) |
 | [`sector-sensitivity-map.md`](./sector-sensitivity-map.md) | reference | 東証 33 業種と macro context sector tilt の参考分類 |
+| [`structural-outlook.md`](./structural-outlook.md) | reference | structural outlook annotation と candidate scorecard triage の正本 |
 | [`universe-rules.md`](./universe-rules.md) | contract | screening universe の境界条件 |
 | [`valuation-metrics.md`](./valuation-metrics.md) | reference | valuation 指標の算出仕様 |
 

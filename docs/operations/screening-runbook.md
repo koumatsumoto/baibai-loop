@@ -79,6 +79,19 @@ Profile を採用する前に、少なくとも以下を表にします。
 
 Lane ごとの hit 数は `evidence_hits_summary` で確認します。特定 lane が universe の大きな割合を占める場合は、候補数が増えただけで evidence の識別力が弱い可能性があるため、`records/_config/screening-rules/2026-06-12T000000+0900.yaml` の閾値・sector policy を見直します。
 
+## Scorecard triage (AI / structural tilt)
+
+`scorecard` は週次 screen output を、流動性と構造 tilt で絞った shortlist にし、各候補の risk-reward を軸別座標で出す分析層 (L3) の triage です。機械的 screen と `select` の推奨 queue は変更しません。
+
+```bash
+uv run baibai-loop-screening scorecard \
+  --asof YYYY-MM-DD --top 12 \
+  --include-outlook ai_tailwind \
+  --exclude-ticker 1234,5678
+```
+
+`--include-outlook` で残す outlook を選び (既定は `ai_tailwind` と `neutral`)、`--exclude-ticker` で既存保有等を外します。仕様と軸の意味は [`../screening/structural-outlook.md`](../screening/structural-outlook.md) を正本にします。表示順は lexicographic な triage の便宜で、forward 計測した ranking ではありません。採用判断は research と人間に残します。
+
 ## Multi-week replay と forward return
 
 `select-sweep` は 1 週分の profile 比較です。複数週を跨いだ recommended queue の forward return 評価は `baibai-loop-ledger screening-replay` で行います。profile を採用・変更する前に、6-8 週の実データで recommended forward return を benchmark proxy 比で比較し、直近 1-2 週を hold-out として残します。

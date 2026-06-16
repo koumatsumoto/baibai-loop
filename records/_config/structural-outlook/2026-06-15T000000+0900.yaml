@@ -1,0 +1,73 @@
+version: "2026-06-15"
+notes: >-
+  AI / 構造衰退の selection-layer annotation taxonomy。screen gate でも ranking
+  sort-key でも validator rule でもない。research が long-hold quality を AI 構造性で
+  評価し、構造的に縮小する需要を避けるための補助。sector_defaults は東証 33 業種の
+  既定 tilt、ticker_overrides は個別判断（最優先）。AI 期待を採用・sizing・ranking・
+  validator の単独根拠にはしない（docs/portfolio-policy.md）。
+sector_defaults:
+  # AI / 自動化の構造的需要に広く晒される業種を既定で ai_tailwind にする
+  # （半導体・電子部品・AI ハード、ソフト/IT/データセンター、FA・ロボット・
+  # 半導体製造装置、検査/計測/光学）。例外は ticker_overrides で個別に上書きする。
+  電気機器: ai_tailwind
+  情報・通信業: ai_tailwind
+  機械: ai_tailwind
+  精密機器: ai_tailwind
+ticker_overrides:
+  # --- structural_decline: 業種 default では拾えない構造衰退事業を明示除外する ---
+  "6417":
+    outlook: structural_decline
+    note: 三共。パチンコ・パチスロ遊技機。遊技人口と設置台数の構造的減少で長期需要が縮小する。
+  "6412":
+    outlook: structural_decline
+    note: 平和。パチンコ・パチスロ遊技機（+ PGM ゴルフ）。遊技機需要は構造的に縮小する。
+  "6425":
+    outlook: structural_decline
+    note: ユニバーサルエンターテインメント。パチスロ機主体。遊技機需要は構造的に縮小する。
+  "6428":
+    outlook: structural_decline
+    note: オーイズミ。パチスロ周辺機器主体。遊技機関連需要は構造的に縮小する。
+  "8219":
+    outlook: structural_decline
+    note: 青山商事。紳士服小売。スーツ着用機会の構造的減少で主力需要が縮小する。
+  "6430":
+    outlook: structural_decline
+    note: ダイコク電機。主力はパチンコホール向け情報システム・周辺機器で、遊技機市場の構造縮小に連動する。
+  # --- neutral: 業種 default の ai_tailwind を打ち消す。AI 構造勝者ではない事業 ---
+  "4839":
+    outlook: neutral
+    note: WOWOW。有料衛星放送・配信。AI 構造の担い手ではなく、むしろ配信競争の逆風側。
+  "6222":
+    outlook: neutral
+    note: 島精機製作所。コンピュータ横編機（繊維機械）。アパレル設備投資依存で AI 構造の中核ではない。
+  "6262":
+    outlook: neutral
+    note: ペガサスミシン製造。工業用ミシン。アパレル生産設備で AI 構造の担い手ではない。
+  "7860":
+    outlook: neutral
+    note: エイベックス。音楽・エンタメ IP。デジタルだが AI 構造の中核ではない。
+  "3635":
+    outlook: neutral
+    note: コーエーテクモ。ゲーム・IP。デジタルだが AI 構造の勝者として扱わない。
+  "5032":
+    outlook: neutral
+    note: ANYCOLOR。VTuber・ライブエンタメ。デジタルだが AI 構造の担い手ではない。
+  "6413":
+    outlook: neutral
+    note: 理想科学工業。インクジェット印刷機。オフィス印刷需要は構造的に伸び悩み、AI 中核ではない。
+  "9474":
+    outlook: neutral
+    note: ゼンリン。地図データ。自動運転 HD マップ余地はあるが旧来地図出版色が濃く AI 勝者と断定しない。
+  "3660":
+    outlook: neutral
+    note: アイスタイル。@cosme の美容 EC・メディア。AI 構造の中核ではない。
+  "9416":
+    outlook: neutral
+    note: ビジョン。海外 WiFi レンタル・法人通信。AI 構造の担い手ではない。
+  "6730":
+    outlook: neutral
+    note: アクセル。グラフィックス LSI。収益基盤が遊技機向けに偏り、AI エッジ pivot は未確立のため ai_tailwind とはしない。
+  # --- ai_tailwind: 業種 default 外の越境 AI 受益。半導体サプライチェーン等 ---
+  "8150":
+    outlook: ai_tailwind
+    note: 三信電気。半導体・電子部品商社。AI 需要拡大の半導体サプライチェーンに連なる（低マージン中間流通の留意あり）。

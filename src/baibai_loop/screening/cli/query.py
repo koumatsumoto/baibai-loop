@@ -28,13 +28,18 @@ from baibai_loop.screening.selection import (
     CandidateRecord,
     PreviousCandidates,
     PriorResearch,
+    StructuralOutlook,
+    StructuralOutlookConfig,
+    build_scorecard_payload,
     build_selection_payload,
     build_selection_sweep_payload,
     candidate_record_from_mapping,
     load_previous_candidates,
     load_prior_research,
     load_profile_overrides,
+    load_structural_outlook_config,
 )
+from baibai_loop.screening.selection.structural import DEFAULT_STRUCTURAL_OUTLOOK_PATH
 from baibai_loop.screening.sqlite_reader import latest_daily_bar_date
 from baibai_loop.screening.ticker_profile import build_ticker_profile
 
@@ -124,6 +129,7 @@ def select_command(
     profile_config_path: Path | None = None,
     detail: str = "summary",
     regime_sqlite_path: Path | None = None,
+    structural_config_path: Path | None = None,
     stdout: TextIO | None = None,
 ) -> int:
     if top < 1:
@@ -159,6 +165,7 @@ def select_command(
             prior_research_by_ticker=inputs.prior_research,
             profile_overrides=profile_overrides,
             market_regime=_load_market_regime(regime_sqlite_path, asof_date),
+            structural_config=_load_structural_config(structural_config_path),
             detail=detail,
         )
     except ValueError as exc:
@@ -180,6 +187,7 @@ def select_sweep_command(
     rules: ScreeningRules | None = None,
     profile_config_path: Path | None = None,
     regime_sqlite_path: Path | None = None,
+    structural_config_path: Path | None = None,
     stdout: TextIO | None = None,
 ) -> int:
     if top < 1:
@@ -217,12 +225,86 @@ def select_sweep_command(
             prior_research_by_ticker=inputs.prior_research,
             profile_overrides=profile_overrides,
             market_regime=_load_market_regime(regime_sqlite_path, asof_date),
+            structural_config=_load_structural_config(structural_config_path),
         )
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 1
     yaml.dump(payload, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
     return 0
+
+
+def scorecard_command(
+    *,
+    asof_date: date,
+    candidates_path: Path | None = None,
+    candidates_root: Path | None = None,
+    top: int,
+    rules: ScreeningRules | None = None,
+    structural_config_path: Path | None = None,
+    include_outlooks: Sequence[str] | None = None,
+    exclude_tickers: Sequence[str] = (),
+    stdout: TextIO | None = None,
+) -> int:
+    if top < 1:
+        print("--top must be greater than zero", file=sys.stderr)
+        return 1
+    out = stdout if stdout is not None else sys.stdout
+    rules = rules or load_screening_rules(_rules_path_from_env())
+    resolved_root = candidates_root or Path("records/04-candidates")
+    resolved_candidates_path = candidates_path or (
+        resolved_root / f"{asof_date:%Y}" / f"{asof_date:%m}" / f"{asof_date:%Y-%m-%d}.yaml"
+    )
+    if not resolved_candidates_path.exists():
+        print(f"candidates file not found: {resolved_candidates_path}", file=sys.stderr)
+        return 1
+    try:
+        candidate_records = _load_candidate_records(resolved_candidates_path)
+        structural_config = load_structural_outlook_config(
+            structural_config_path or DEFAULT_STRUCTURAL_OUTLOOK_PATH
+        )
+        outlooks = _parse_include_outlooks(include_outlooks)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    payload = build_scorecard_payload(
+        asof_date=asof_date,
+        candidates=candidate_records,
+        rules=rules,
+        structural_config=structural_config,
+        top=top,
+        candidates_ref=_repository_relative_ref(
+            resolved_candidates_path, anchor=resolved_candidates_path
+        ),
+        include_outlooks=outlooks,
+        exclude_tickers=frozenset(ticker for ticker in exclude_tickers if ticker),
+    )
+    yaml.dump(payload, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
+    return 0
+
+
+def _parse_include_outlooks(values: Sequence[str] | None) -> frozenset[StructuralOutlook]:
+    if not values:
+        return frozenset({StructuralOutlook.AI_TAILWIND, StructuralOutlook.NEUTRAL})
+    outlooks: set[StructuralOutlook] = set()
+    for value in values:
+        try:
+            outlooks.add(StructuralOutlook(value))
+        except ValueError as exc:
+            valid = ", ".join(outlook.value for outlook in StructuralOutlook)
+            raise ValueError(
+                f"unknown structural outlook: {value}; expected one of {valid}"
+            ) from exc
+    return frozenset(outlooks)
+
+
+def _load_structural_config(path: Path | None) -> StructuralOutlookConfig | None:
+    # A missing config silently disables the structural-outlook annotation (the
+    # lens is absent), so selection stays usable on a checkout without it.
+    try:
+        return load_structural_outlook_config(path or DEFAULT_STRUCTURAL_OUTLOOK_PATH)
+    except (OSError, ValueError):
+        return None
 
 
 def _load_market_regime(
