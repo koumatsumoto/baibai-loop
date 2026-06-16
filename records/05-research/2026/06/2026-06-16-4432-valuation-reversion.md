@@ -69,6 +69,11 @@ entry_preflight:
   market_relative_return_pct: -14.06
   sector_or_peer_relative_return_pct: 0.0
   macro_freshness: current
+  market_regime:
+    regime: risk_on_rally
+    benchmark_return_20d: 0.0748
+    benchmark_ticker: '1321'
+    evaluated_on: '2026-06-16'
   tactical_exposure_after_order:
     sector_33_pct: 41.39
     playbook_pct: 15.41

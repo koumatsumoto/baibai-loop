@@ -22,6 +22,21 @@ _KNOWN_ENTRY_PREFLIGHT_EXCEPTION_BASES = {
     "low_correlation",
 }
 _ENTRY_PREFLIGHT_EFFECTIVE_DATE = date(2026, 6, 1)
+_REGIME_GATE_EFFECTIVE_DATE = date(2026, 6, 17)
+_KNOWN_MARKET_REGIMES = {
+    "risk_on_rally",
+    "risk_off_selloff",
+    "neutral_range",
+    "unknown",
+}
+# In a risk_on_rally the index trends up while anti-momentum value entries
+# structurally lag it: the screening regime lens only neutralizes the
+# fast-dislocation boost in ranking (lens, not gate), so the recommended book
+# still trailed 1321 in every risk_on_rally week of 2026-05 (entry->now: the
+# contrarian book -1.4pt, the screen's own top5 -8.8pt; regime-lens-replay 4w
+# -4pt). A near_term_catalyst supplies the mean-reversion trigger and a
+# low_correlation basis dilutes the regime bet; without either, defer.
+_RALLY_CONTRARIAN_WAIVER_BASES = {"near_term_catalyst", "low_correlation"}
 
 
 def _check_entry_preflight(
@@ -117,6 +132,40 @@ def _check_entry_preflight(
     if playbook_exposure is not None and playbook_exposure > 50:
         hard_triggers.append("playbook exposure > 50% tactical budget")
 
+    market_regime = as_mapping(preflight.get("market_regime"))
+    regime_label = market_regime.get("regime")
+    if research_date >= _REGIME_GATE_EFFECTIVE_DATE and not market_regime:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.entry-preflight-regime-required",
+                message=(
+                    "approved research dated 2026-06-17 or later requires "
+                    "entry_preflight.market_regime"
+                ),
+                location="entry_preflight.market_regime",
+            )
+        )
+    if regime_label is not None and regime_label not in _KNOWN_MARKET_REGIMES:
+        findings.append(
+            ValidationFinding(
+                severity="error",
+                target=path,
+                code="research.entry-preflight-regime-label",
+                message=(
+                    "entry_preflight.market_regime.regime must be risk_on_rally, "
+                    "risk_off_selloff, neutral_range, or unknown"
+                ),
+                location="entry_preflight.market_regime.regime",
+            )
+        )
+    # A risk_on_rally is a hard trigger: a full-size proceed is disallowed because
+    # the contrarian value entry mechanically lags a trending index. The decision
+    # drops to starter/exception (smaller bet) or defer.
+    if regime_label == "risk_on_rally":
+        hard_triggers.append("market regime risk_on_rally")
+
     if preflight_freshness == "future":
         findings.append(
             ValidationFinding(
@@ -185,6 +234,31 @@ def _check_entry_preflight(
                         "and playbook exposure after order <= 25%"
                     ),
                     location="entry_preflight.exception_basis",
+                )
+            )
+
+    # Discipline nudge (warning, not gate): even a starter-size contrarian entry
+    # trailed the index in every 2026-05 risk_on_rally week. Unless a near-term
+    # catalyst or low-correlation basis justifies it, defer is the better action.
+    near_term_catalyst = preflight.get("near_term_catalyst") is True
+    if (
+        regime_label == "risk_on_rally"
+        and action in {"starter", "exception"}
+        and not near_term_catalyst
+    ):
+        basis = as_list(preflight.get("exception_basis"))
+        if not any(item in _RALLY_CONTRARIAN_WAIVER_BASES for item in basis):
+            findings.append(
+                ValidationFinding(
+                    severity="warning",
+                    target=path,
+                    code="research.entry-preflight-rally-contrarian",
+                    message=(
+                        "risk_on_rally regime with no near_term_catalyst and no "
+                        "low_correlation basis: a contrarian value entry structurally "
+                        "lags a trending index — consider defer"
+                    ),
+                    location="entry_preflight.market_regime",
                 )
             )
     return findings

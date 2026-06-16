@@ -277,6 +277,83 @@ class ResearchValidationTests(unittest.TestCase):
         errors = [finding for finding in self._findings_for(front) if finding.severity == "error"]
         self.assertEqual(errors, [], f"unexpected errors: {errors}")
 
+    def test_entry_preflight_rejects_proceed_in_risk_on_rally(self) -> None:
+        front = _minimal_research_front_matter()
+        front["published_at"] = "2026-06-02T20:00:00+09:00"
+        front["entry_preflight"] = _entry_preflight(
+            market_regime={"regime": "risk_on_rally", "benchmark_return_20d": 0.08},
+            action="proceed",
+        )
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.entry-preflight-proceed-trigger", codes)
+
+    def test_entry_preflight_warns_starter_contrarian_in_risk_on_rally(self) -> None:
+        front = _minimal_research_front_matter()
+        front["published_at"] = "2026-06-02T20:00:00+09:00"
+        front["entry_preflight"] = _entry_preflight(
+            market_regime={"regime": "risk_on_rally", "benchmark_return_20d": 0.08},
+            action="starter",
+            reason="starter size against a rally without a catalyst",
+        )
+        findings = self._findings_for(front)
+        codes = {finding.code for finding in findings}
+        self.assertNotIn("research.entry-preflight-proceed-trigger", codes)
+        self.assertIn("research.entry-preflight-rally-contrarian", codes)
+
+    def test_entry_preflight_allows_starter_in_rally_with_near_term_catalyst(self) -> None:
+        front = _minimal_research_front_matter()
+        front["published_at"] = "2026-06-02T20:00:00+09:00"
+        front["entry_preflight"] = _entry_preflight(
+            market_regime={"regime": "risk_on_rally", "benchmark_return_20d": 0.08},
+            action="starter",
+            near_term_catalyst=True,
+            reason="near-term catalyst can trigger the mean reversion",
+        )
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertNotIn("research.entry-preflight-rally-contrarian", codes)
+
+    def test_entry_preflight_allows_rally_entry_with_low_correlation_basis(self) -> None:
+        front = _minimal_research_front_matter()
+        front["published_at"] = "2026-06-02T20:00:00+09:00"
+        front["entry_preflight"] = _entry_preflight(
+            market_regime={"regime": "risk_on_rally", "benchmark_return_20d": 0.08},
+            action="exception",
+            exception_basis=["low_correlation"],
+            reason="low correlation to the rally leaders dilutes the regime bet",
+        )
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertNotIn("research.entry-preflight-rally-contrarian", codes)
+
+    def test_entry_preflight_neutral_range_proceed_has_no_regime_finding(self) -> None:
+        front = _minimal_research_front_matter()
+        front["published_at"] = "2026-06-02T20:00:00+09:00"
+        front["entry_preflight"] = _entry_preflight(
+            market_regime={"regime": "neutral_range", "benchmark_return_20d": 0.01},
+            action="proceed",
+        )
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertNotIn("research.entry-preflight-proceed-trigger", codes)
+        self.assertNotIn("research.entry-preflight-rally-contrarian", codes)
+
+    def test_entry_preflight_requires_market_regime_from_gate_date(self) -> None:
+        front = _minimal_research_front_matter()
+        front["published_at"] = "2026-06-17T20:00:00+09:00"
+        front["entry_preflight"] = _entry_preflight(action="defer")
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("research.entry-preflight-regime-required", codes)
+
+    def test_entry_preflight_rejects_unknown_regime_label(self) -> None:
+        front = _minimal_research_front_matter()
+        front["published_at"] = "2026-06-02T20:00:00+09:00"
+        preflight = _entry_preflight(action="defer")
+        preflight["market_regime"] = {"regime": "melt_up", "benchmark_return_20d": 0.08}
+        front["entry_preflight"] = preflight
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertTrue(
+            "research.entry-preflight-regime-label" in codes or "research.enum" in codes,
+            f"expected a regime-label finding, got {codes}",
+        )
+
     def test_new_approved_research_uses_filename_date_for_entry_preflight_gate(self) -> None:
         front = _minimal_research_front_matter()
         del front["published_at"]
