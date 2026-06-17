@@ -31,7 +31,7 @@ _FAST_CANDIDATE: Mapping[str, object] = {
 }
 
 # Same fundamentals as the fast candidate but no price decline: without the
-# fast boost the configured lane order decides and strict-net-cash-discount
+# fast boost the configured lane order decides and valuation-reversion
 # outranks sales-discount-growth.
 _CALM_CANDIDATE: Mapping[str, object] = {
     "ticker": "1111",
@@ -40,7 +40,7 @@ _CALM_CANDIDATE: Mapping[str, object] = {
     "market_cap_oku": 500,
     "price_change_5d": 0.01,
     "price_change_20d": 0.02,
-    "evidence_hits": [{"name": "strict-net-cash-discount"}],
+    "evidence_hits": [{"name": "valuation-reversion"}],
     "metrics": {"ocf_yield": 0.12, "net_cash_to_market_cap": 0.3},
 }
 

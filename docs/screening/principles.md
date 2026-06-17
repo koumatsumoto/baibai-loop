@@ -22,9 +22,7 @@ Baibai-Loop のスクリーニングサブシステムの設計原則。Candidat
 | playbook | primary evidence path | 狙い |
 | --- | --- | --- |
 | `valuation-reversion` | PER / PBR / exact かつ正の EV/EBITDA の相対割安、短期急落、sector rotation | 伝統的な valuation mean-reversion |
-| `strict-net-cash-discount` | EDINET cash - debt / market cap と Eq / market cap | 有利子負債を差し引いても財務余力が厚い asset discount 候補 |
-| `fcf-yield-discount` | EDINET CFO - capex / market cap | 設備投資後の現金創出力に対して安い候補 |
-| `cash-rich-asset-discount` | CashEq / market cap と Eq / market cap の厚さ | J-Quants summary で拾える cash-rich / asset discount 候補。ただし EDINET net debt が取れる場合は抑止 |
+| `cash-rich-asset-discount` | CashEq / market cap と Eq / market cap の厚さ (EDINET net cash で contradiction 抑止) | net-cash 系の asset discount。2026-05 lane-cohorts で全 lane 中最強 |
 | `cashflow-yield-discount` | 期間正規化した CFO TTM / market cap | PER では拾いにくい現金創出力の割安 |
 | `sales-discount-growth` | P/S discount + 売上成長維持 | 利益が薄いが売上成長が残る調整銘柄 |
 
@@ -144,7 +142,6 @@ position は **paper proxy layer (1 億円仮想資本)** と **real layer (実�
 - [`../philosophy.md`](../philosophy.md): 思想（macro context discipline、事実と分析の分離、feedback loop 先行、markdown 駆動）
 - [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
 - [`../components/research.md`](../components/research.md): research 運用仕様
-- [`failure-taxonomy.md`](./failure-taxonomy.md): 失敗分類詳細
 - [`universe-rules.md`](./universe-rules.md): universe 境界条件
 - [`valuation-metrics.md`](./valuation-metrics.md): 指標算出仕様
 - [`mechanical.md`](./mechanical.md): 機械的ふるい仕様

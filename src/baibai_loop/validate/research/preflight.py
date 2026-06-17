@@ -36,7 +36,9 @@ _KNOWN_MARKET_REGIMES = {
 # fast-dislocation boost in ranking (lens, not gate), so the recommended book
 # still trailed 1321 in every risk_on_rally week of 2026-05 (entry->eval cap
 # 6/12: the contrarian book -1.4pt, the screen's own top5 -8.8pt;
-# regime-lens-replay 4w -4pt; counterfactual analysis with the 8 approved
+
+
+# backtest-runbook §6 dated index: regime lens 4w -4pt; counterfactual with 8 approved
 # entries showed cumulative rel -27.6pt that a defer rule would have avoided,
 # bootstrap 95% CI [-7.60pt, +0.32pt]). near_term_catalyst supplies the
 # mean-reversion trigger; low_correlation dilutes the regime bet; without

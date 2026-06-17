@@ -97,38 +97,6 @@ class CashflowYieldLane(BaseModel):
         return tuple(value or ())
 
 
-class StrictNetCashLane(BaseModel):
-    model_config = ConfigDict(frozen=True, strict=True)
-
-    playbook_id: str
-    excluded_sectors: tuple[str, ...] = ()
-    net_cash_to_market_cap_min: float
-    price_to_equity_max: float = Field(ge=0)
-    equity_ratio_min: float = Field(ge=0, le=1)
-    operating_profit_positive_required: bool
-
-    @field_validator("excluded_sectors", mode="before")
-    @classmethod
-    def _tuple_excluded_sectors(cls, value: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
-        return tuple(value or ())
-
-
-class FcfYieldLane(BaseModel):
-    model_config = ConfigDict(frozen=True, strict=True)
-
-    playbook_id: str
-    excluded_sectors: tuple[str, ...] = ()
-    fcf_yield_min: float = Field(ge=0)
-    fcf_required: bool
-    cfo_yoy_min: float
-    cfo_yoy_required: bool
-
-    @field_validator("excluded_sectors", mode="before")
-    @classmethod
-    def _tuple_excluded_sectors(cls, value: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
-        return tuple(value or ())
-
-
 class SalesDiscountGrowthLane(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
@@ -297,12 +265,7 @@ class ScreeningRules(BaseModel):
     quality: QualityRules
     screening_playbooks: Mapping[
         str,
-        ValuationReversionLane
-        | CashRichLane
-        | CashflowYieldLane
-        | StrictNetCashLane
-        | FcfYieldLane
-        | SalesDiscountGrowthLane,
+        ValuationReversionLane | CashRichLane | CashflowYieldLane | SalesDiscountGrowthLane,
     ]
     output: OutputRules
     selection: SelectionRules = Field(default_factory=SelectionRules)
@@ -324,10 +287,6 @@ class ScreeningRules(BaseModel):
                     lanes[name] = CashRichLane.model_validate(data)
                 case "cashflow-yield-discount":
                     lanes[name] = CashflowYieldLane.model_validate(data)
-                case "strict-net-cash-discount":
-                    lanes[name] = StrictNetCashLane.model_validate(data)
-                case "fcf-yield-discount":
-                    lanes[name] = FcfYieldLane.model_validate(data)
                 case "sales-discount-growth":
                     lanes[name] = SalesDiscountGrowthLane.model_validate(data)
                 case _:

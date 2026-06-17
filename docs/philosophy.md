@@ -128,7 +128,7 @@ Baibai-Loop の主軸は、全上場銘柄の実データを保持する **デ�
 
 ## 3. なぜ lifecycle loop か（3 層の階層モデルではない）
 
-Baibai-Loop は、単純な「事実 → 解釈 → 判断」の 3 層モデルではなく、portfolio policy から review attribution までの lifecycle loop として扱う。
+Baibai-Loop は、単純な「事実 → 解釈 → 判断」の 3 層モデルではなく、portfolio policy から forward 計測 feedback までの lifecycle loop として扱う。
 
 ```text
 portfolio policy
@@ -136,7 +136,7 @@ portfolio policy
   -> candidates
   -> research
   -> trades
-  -> reviews
+  -> reports (forward 計測 / backtest)
   -> playbooks
   -> candidates
 ```
@@ -146,9 +146,9 @@ portfolio policy
 - **candidates**: security-level screen output。個別銘柄の候補事実を残す
 - **research**: investment memo。macro context fit、個別 thesis、採用可否、position sizing を判断する
 - **trades**: execution record。order / entry した判断がどう約定・保有・決済されたかを記録する
-- **reviews / playbooks**: outcome attribution を playbook feedback に戻す
+- **reports / playbooks**: `baibai-loop-ledger benchmark` / `screening-replay` / `lane-cohorts` / `selection-ablation` で forward 計測した結果を `reports/<asof>-*.md` に dated まとめとして残し、playbook feedback に戻す
 
-階層的 3 層（事実 → 解釈 → 判断）だけだと、macro context、security-level thesis、execution、review attribution が同じ「判断」層に混ざり、責務が重なる。Lifecycle loop として分けるほうが、どこで候補を拾い、どこで落とし、どこで改善するかを追いやすい。
+階層的 3 層（事実 → 解釈 → 判断）だけだと、macro context、security-level thesis、execution、forward 計測 attribution が同じ「判断」層に混ざり、責務が重なる。Lifecycle loop として分けるほうが、どこで候補を拾い、どこで落とし、どこで改善するかを追いやすい。
 
 なお柱 5 の L1/L2/L3 は **infrastructure の層**（データ / 機械的分析 / 判断の置き場所）であり、ここで退けている「判断プロセスの階層 3 層」とは別物である。lifecycle loop は L3 の中を流れ、L1/L2 はその全 stage に事実と計測を供給する。
 
@@ -160,7 +160,7 @@ Macro context は **スクリーニング前に必要なら更新する**。CPI 
 
 ### (b) 個別銘柄売買ループ
 
-`candidates → research → trades → reviews` は **売買判断と連動する** ループ。screening 実行 → 選定 → 深掘り → 採用 → 執行 → 検証 → retro feedback。
+`candidates → research → trades → reports/playbooks` は **売買判断と連動する** ループ。screening 実行 → 選定 → 深掘り → 採用 → 執行 → forward 計測 (ledger CLI) → reports/playbooks feedback。
 
 ### (c) 2 トラックの統合点: research
 
@@ -181,7 +181,7 @@ macro context がなければ research の前提を確認できない。これ�
 | `candidates` | candidates | 機械的ふるいで残った銘柄群というデータの実体を直接表す |
 | `research` | investment memo | 業界標準の memo 形式に寄せつつ、repository path としては research を維持できる |
 | `trades` | execution record | trade / order / fill / cancellation を execution layer として扱える |
-| `reviews` | attribution review | outcome を evidence、macro context fit、sizing、execution、playbook に帰属できる |
+| `reports/` | forward 計測まとめ | `baibai-loop-ledger` の output を ad-hoc に dated まとめとして残し、outcome を evidence / macro context fit / sizing / execution / playbook に帰属できる |
 
 ## 6. 意図的に未自動化のまま残しているもの
 

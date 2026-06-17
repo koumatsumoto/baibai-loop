@@ -30,7 +30,7 @@ JSONL は 1 行 1 event。current state は同じ `decision_event_id` / correcti
 - `playbook_id` / `playbook_ref`
 - `tracking`
 
-`decision_event_id` は register 内の join key であり、trade record の `order_intent.order_intent_id`、`orders[].origin_order_intent_id`、review attribution の anchor と接続する。
+`decision_event_id` は register 内の join key であり、trade record の `order_intent.order_intent_id`、`orders[].origin_order_intent_id` と接続する。
 
 `candidate_ref` は candidate に紐づく decision event に付く補助ポインタ。candidates は git 外の local store のため、参照先ファイルとの照合は行わない。
 
@@ -52,17 +52,7 @@ decision register は [`/records/_schemas/decision-register.json`](/records/_sch
 uv run baibai-loop-validate --target ledger
 ```
 
-## 6. 月次 retro 下書き
-
-ledger と個別 review から月次 retro の下書きを生成する。
-
-```bash
-uv run baibai-loop-ledger retro --root . --month YYYY-MM
-```
-
-出力先は `records/07-reviews/YYYY/retro-YYYYMM.md`。`approved_decisions`, `submitted_orders`, `filled_positions`, `closed_positions`, `missed_opportunities`, `price_missing_counts` を register から集計する。既存ファイルがある場合は上書きしない。確認だけなら `--dry-run` を使う。
-
-## 7. dry-run 出力
+## 6. dry-run 出力
 
 `baibai-loop-ledger sync --dry-run` は次の prefix で差分を表示する。
 

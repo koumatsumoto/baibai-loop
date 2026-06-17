@@ -50,41 +50,21 @@ EDINET が無い場合、EV/EBITDA は `unavailable` として判定対象から
 
 銀行・証券・保険・その他金融はこの lane から除外する。金融業の PER / PBR は規制資本・金利環境・与信サイクルの構造要因を含み、事業会社と同じ mean-reversion の前提で機械判定できないため。他 lane と異なり電気・ガス業は除外しない。BS / CF の機械判定が成立しないという他 lane の除外根拠は、相対 valuation の比較には当たらないため。
 
-### 3.2 `strict-net-cash-discount`
+### 3.2 `cash-rich-asset-discount`
 
-EDINET `type=5` CSV から抽出した cash と interest-bearing debt を使い、`net_cash = cash - debt` を機械的に算出する。J-Quants の CashEq proxy ではなく、より厳密な net cash を使うため、同じ銘柄が `cash-rich-asset-discount` と重なる場合はこの lane を primary にする。
+CashEq / market cap、price-to-equity、equity ratio を使い、cash-rich / asset discount 候補を拾う。J-Quants 財務サマリーと EDINET 双方を input にする。
 
-- `net_cash_to_market_cap` が閾値以上
+- `cash_to_market_cap` が閾値以上
 - `price_to_equity` が閾値以下
 - `equity_ratio` が閾値以上
 - 営業赤字ではない
-- `ttm_quality_net_cash != unavailable`
-- `edinet_failure_reasons` に `debt_assumed_zero` が含まれない
+- EDINET の `net_cash_to_market_cap` が取得できる場合、設定下限を下回る銘柄は除外（J-Quants CashEq が高くても有利子負債を差し引くと net debt な銘柄を排除）
 
-銀行・証券・保険・その他金融、電気・ガス業は除外する。金融業の負債は通常の事業会社の有利子負債と同じ意味で読めず、電気・ガス業は規制・設備投資・燃料費調整を見ないと net cash の下値余地を機械判定しにくいため。
+銀行・証券・保険・その他金融、電気・ガス業は除外する。金融業の balance sheet は意味が異なり、規制設備産業の CashEq / market cap は機械判定として読みにくいため。
 
-### 3.3 `fcf-yield-discount`
+`docs/operations/backtest-runbook.md` §6 の 2026-05 lane-cohorts では 4w mean rel −2.14pt (baseline 比 +5.32pt) で全 lane 中最強。本 lane を維持する根拠データ。
 
-EDINET `type=5` CSV から抽出した営業 CF と設備投資支出を使い、`FCF = EDINET CFO - capex` として FCF yield を算出する。OCF yield だけでは設備投資負担の大きい企業を安く見誤るため、CF 系の中ではこの lane を優先して見る。J-Quants 財務サマリー由来の `ocf_ttm` は別 source のため、FCF evidence の再計算には混ぜない。
-
-- `fcf_yield` が閾値以上
-- FCF がプラス
-- CFO YoY が大きく悪化していない
-- `ttm_quality_fcf_yield = exact`
-
-銀行・証券・保険・その他金融、電気・ガス業は除外する。金融業の営業 CF は通常の事業会社の現金創出力と同じ意味で比較しにくく、電気・ガス業は規制設備産業として capex 解釈を research で個別確認する必要が大きいため。
-
-### 3.4 `cash-rich-asset-discount`
-
-CashEq / market cap、price-to-equity、equity ratio を使い、厳密 net cash ではないが、cash-rich / asset discount 候補を拾う。J-Quants 財務サマリーのみで完結させ、有利子負債は research で一次確認する。
-
-銀行・証券・保険・その他金融はこの lane から除外する。金融業の balance sheet は通常の事業会社と意味が異なり、CashEq / market cap を margin of safety として機械判定しにくいため。
-
-電気・ガス業もこの lane から除外する。規制・設備産業では CashEq / market cap が高くても、有利子負債・設備投資・燃料費調整などを見ないと margin of safety として読みにくいため。
-
-この lane は EDINET metrics が欠ける銘柄の proxy / downgrade として残す。ただし EDINET の `net_cash_to_market_cap` が取得でき、設定値を下回る場合は、CashEq proxy が高くても cash-rich evidence hit を出さない。J-Quants の CashEq だけで「現金が厚い」と見えても、EDINET の有利子負債を差し引くと net debt である銘柄を research 優先候補に上げないためである。EDINET で `strict-net-cash-discount` が成立する銘柄では、research の primary thesis は原則 `strict-net-cash-discount` に寄せる。
-
-### 3.5 `cashflow-yield-discount`
+### 3.3 `cashflow-yield-discount`
 
 期間正規化した CFO TTM から OCF yield を算出し、営業 CF がプラスで、CF 悪化が大きくない銘柄を拾う。TTM が作れない銘柄はこの lane から除外する。
 
@@ -92,40 +72,39 @@ CashEq / market cap、price-to-equity、equity ratio を使い、厳密 net cash
 
 銀行・証券・保険・その他金融、電気・ガス業はこの lane から除外する。金融業の営業 CF は通常の事業会社の現金創出力と同じ意味で比較しにくく、電気・ガス業は設備投資前の OCF yield だけでは割安性を機械判定しにくいため。
 
-この lane は EDINET FCF が作れない銘柄の proxy としても使う。EDINET で `fcf-yield-discount` が成立する銘柄では、research の primary thesis は原則 `fcf-yield-discount` に寄せる。
-
-### 3.6 `sales-discount-growth`
+### 3.4 `sales-discount-growth`
 
 P/S が業種中央値比で安く、売上成長が残る銘柄を拾う。営業赤字銘柄は CFO プラスまたは営業赤字縮小が確認できる場合に限り許容する。
 
 銀行・証券・保険・その他金融はこの lane から除外する。金融業の P/S は通常の事業会社の売上倍率とは意味が異なるため。
 
-### 3.7 OR 条件の意味
+### 3.5 OR 条件の意味
 
 - **最低 1 つ満たせば通過**
 - 複数 screen hit が重なる銘柄は research 優先度を上げる
 - candidates YAML の `evidence_hits[]` に lane 名、playbook、hit reasons、判定に使った metrics を記録する
 
-## 3.8 Selection lens との境界
+## 3.6 Selection lens との境界
 
 `fast_dislocation` と `long_hold_survivability` は `select` 側の lens であり、mechanical screen の hard gate ではない。
 
 - `fast_dislocation` は急落銘柄を拾うが、急落だけでは通さず、OCF / FCF / net cash / equity buffer / sales+profit の fundamental guard を原則 2 件以上、かつ cash-flow / balance-sheet / profitability の guard family を原則 2 系統以上要求する。出来高 spike と 52 週安値距離は補助情報であり、価格下落なしでは eligible にしない
 - fast_dislocation には stabilization annotation が付く(直近 1 営業日リターンが 0 以上 = 下げ止まりの最小限の反証。固定閾値)。fast boost が有効な局面では、stabilized な急落銘柄を未だ下落中の銘柄より上位に置く(boost が regime lens で中立化されている間は不発)。計測経路は selection-ablation の `no_stabilization` variant
-- `long_hold_survivability` は `high|medium|low|unknown` の annotation。短期 thesis が外れたときの保有耐性を早く見るための補助で、採用可否を単独では決めず、ranking にも使わない(ranking 寄与の計測根拠は [`selection-ablation-2026-05.md`](./selection-ablation-2026-05.md))
+- `long_hold_survivability` は `high|medium|low|unknown` の annotation。短期 thesis が外れたときの保有耐性を早く見るための補助で、採用可否を単独では決めず、ranking にも使わない(ranking 寄与の計測手順は [`../operations/backtest-runbook.md`](../operations/backtest-runbook.md) §3-C)
 - `structural_outlook` は `ai_tailwind|neutral|structural_decline` の annotation。候補事業が長期 AI 構造追い風を受けるか、構造的に縮小する需要かを示し、research が long-hold quality を評価する補助にする。`select` の sort_key には使わず(forward 計測規律と「AI を ranking / validator rule にしない」portfolio policy に従う)、`structural_config` が渡されたときだけ `lenses.structural_outlook` と `diagnostics.structural_outlook_counts` に出す。taxonomy の正本は [`structural-outlook.md`](./structural-outlook.md)
 - lane の優先順位は config の `output.research_selection_lane_order` を唯一の正本とし、推奨 queue の順位付けと primary evidence の選択の両方に使う。順序値の変更は config 編集 + replay / ablation 計測で検証する
 
 この境界により、`records/04-candidates/` は事実層として維持し、短期の値動きや過去 research decision を使った調整は `select` output の `recommendations` / `selection.diagnostics` / `reason_tags` / `risk_tags` に閉じる。
 
-### 3.8.1 Market regime lens
+### 3.6.1 Market regime lens
+
 
 `select` / `select-sweep` は、`data/screening/market.sqlite` の daily bars だけから機械的に market regime snapshot を計算し、ranking lens として使う（`--no-regime-lens` で無効化、SQLite が無ければ自動で無効）。
 
 - 算出: benchmark proxy（`1321`）の 20/60 営業日リターンと、universe breadth（直近 20 本の自己 MA を上回る銘柄比率）。breadth は事実として記録するだけで、判定には使わない
 - 分類（固定閾値、grid search しない）: `risk_on_rally` = benchmark 20 営業日リターン >= +3% / `risk_off_selloff` = <= -3% / その他 `neutral_range`、算出不能は `unknown`
 - 効果: `risk_on_rally` のときだけ fast_dislocation eligible の ranking boost を中立化する。候補の除外はしない（lens であり gate ではない）。`neutral_range` / `risk_off_selloff` / `unknown` では従来挙動と完全一致
-- 根拠: fast_dislocation は anti-momentum 銘柄（直近の大幅下落銘柄）を選ぶため、指数モメンタムが強い局面では breadth の広狭に関係なく構造的に劣後する。このため分類はトレンド単独条件とし、breadth は事実として記録するだけで判定には使わない（検証記録は [`regime-lens-replay-2026-05.md`](./regime-lens-replay-2026-05.md)）
+- 根拠: fast_dislocation は anti-momentum 銘柄（直近の大幅下落銘柄）を選ぶため、指数モメンタムが強い局面では breadth の広狭に関係なく構造的に劣後する。このため分類はトレンド単独条件とし、breadth は事実として記録するだけで判定には使わない（検証は [`../operations/backtest-runbook.md`](../operations/backtest-runbook.md) §3-A）
 - snapshot は `selection.diagnostics.market_regime` に記録し、中立化時は `fast_dislocation_boost: neutralized` と warning `fast_dislocation_boost_neutralized_risk_on_rally` を出す
 
 ## 4. 出力

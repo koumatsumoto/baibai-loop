@@ -84,10 +84,9 @@ class ScreeningFreshnessTests(unittest.TestCase):
         playbook_ids = {evidence_hit["playbook_id"] for evidence_hit in candidate["evidence_hits"]}
         self.assertLessEqual(
             {
-                "strict-net-cash-discount",
-                "cash-rich-asset-discount",
-                "sales-discount-growth",
                 "valuation-reversion",
+                "cashflow-yield-discount",
+                "sales-discount-growth",
             },
             playbook_ids,
         )

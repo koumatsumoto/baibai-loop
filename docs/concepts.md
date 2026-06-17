@@ -13,7 +13,7 @@ related_docs:
 
 Baibai-Loop は、self-directed な投資判断を forward-only に記録し、あとから検証できるようにするための repository です。投資助言サービス、委任運用システム、規制 compliance system ではありません。IPS や books-and-records 的な考え方は、自己運用の裁量判断を一貫させ、あとから振り返れるようにするための運用規律として借ります。
 
-目的は、ビジネス価値、つまり「お買い得銘柄を拾う最適な取引戦略」を長期的に改善することです。用語整理は目的ではなく、候補発見、証拠評価、position sizing、実行可否、review attribution、playbook feedback を一貫して扱うための土台です。
+目的は、ビジネス価値、つまり「お買い得銘柄を拾う最適な取引戦略」を長期的に改善することです。用語整理は目的ではなく、候補発見、証拠評価、position sizing、実行可否、forward 計測 (ledger + reports)、playbook feedback を一貫して扱うための土台です。
 
 この decision loop は、データ層(L1: `market.sqlite`)と分析層(L2: 機械的 screen / lens / スコア / forward telemetry)の上で動く判断層(L3)です。3 層モデルの正本は [`architecture/system-overview.md`](./architecture/system-overview.md) を参照してください。
 
@@ -25,8 +25,8 @@ flowchart LR
   macro --> candidates["candidates: screen output"]
   candidates --> research["research: investment memo"]
   research --> trades["trades: execution record"]
-  trades --> reviews["reviews: attribution"]
-  reviews --> playbooks["playbooks: repeatable thesis patterns"]
+  trades --> reports["reports / backtest: forward 計測"]
+  reports --> playbooks["playbooks: repeatable thesis patterns"]
   playbooks --> candidates
 ```
 
@@ -37,7 +37,7 @@ flowchart LR
 | candidates | screen output | どの銘柄が mechanical screen に残ったか |
 | research | investment memo | thesis, risk/reward, invalidation を満たすか |
 | trades | execution record | order / entry した判断がどう約定・保有・決済されたか |
-| reviews | attribution | 結果を何に帰属し、次回何を直すか |
+| reports / backtest | forward 計測 | ledger benchmark / replay の結果を ad-hoc report に残し、何を次回直すか |
 | playbooks | repeatable thesis patterns | どの thesis pattern を強める / 弱める / 改訂するか |
 
 ## Five Questions
@@ -65,7 +65,6 @@ Baibai-Loop は次の concept label で repository lifecycle を説明します�
 | security-level screen output | `records/04-candidates/` |
 | investment memo | `records/05-research/` |
 | execution record | `records/06-trades/` |
-| outcome attribution and feedback review | `records/07-reviews/` |
 | research decision and tracking register | `records/_ledger/` |
 | repeatable thesis patterns | `records/_playbooks/` |
 
@@ -78,10 +77,10 @@ Long-lived context は main lifecycle には含めません。Slow-moving contex
 - `portfolio policy` は目的、制約、資本、許容リスク、time horizon、eligible universe、kill switch、swing-first / long-hold-capable value principle を扱います。具体的な銘柄 thesis や entry / invalidation / exit は playbook / investment memo が扱います。
 - `macro context` は analysis layer です。外部記事と統計 series を参照し、screening 前の macro / sector context を読みます。記事本文や監査ログは保存しません。
 - `candidates` は screen fact layer です。ticker-level の pinned repository file を残し、後続の current decision state は上書きしません。
-- `records/_ledger/` は research decision と tracking event を append-only に記録する正本です。Candidate は screen fact、trades は execution record、reviews は attribution record として分けます。
+- `records/_ledger/` は research decision と tracking event を append-only に記録する正本です。Candidate は screen fact、trades は execution record として分けます。
 - `research` は investment memo です。Evidence count だけでなく、entry、target、stop、expected upside / downside、risk/reward、time horizon、invalidation conditions を検証します。
 - `trades` は execution record です。実際に order / entry した採用判断を扱い、発注しなかった採用・見送り・保留を trade と呼びません。
-- `reviews` は outcome attribution / feedback layer です。Absolute return だけでなく relative return、missed opportunity、evidence hit outcome、macro context attribution、sizing attribution、execution attribution、playbook feedback を扱います。
+- `reports/` は forward 計測 / バックテスト / root cause 分析の ad-hoc 結果を残します。Absolute return だけでなく relative return、evidence hit outcome、macro context attribution、sizing attribution、execution attribution、playbook feedback を `baibai-loop-ledger benchmark` / `screening-replay` / `lane-cohorts` / `selection-ablation` の output で扱います。手順は [`operations/backtest-runbook.md`](./operations/backtest-runbook.md)。
 
 ## Evidence Taxonomy
 
@@ -95,7 +94,7 @@ Candidate-level / investment memo の evidence hit では、原則として `fun
 
 ## Feedback Loop
 
-Review / retro は勝敗の件数集計ではありません。Outcome を playbook、evidence family、macro context、sizing、execution に帰属させ、次の screening と investment memo を改善する feedback loop です。
+Forward 計測 (`ledger benchmark` / `screening-replay` / `lane-cohorts` / `selection-ablation`) と `reports/` での dated まとめは勝敗の件数集計ではありません。Outcome を playbook、evidence family、macro context、sizing、execution に帰属させ、次の screening と investment memo を改善する feedback loop です。
 
 見送り、保留、採用したが発注しなかった候補も、missed opportunity として追跡対象になります。Screening が拾わなかった銘柄の網羅監査は current lifecycle から外し、必要になった時点で別 issue / PR として再導入します。
 

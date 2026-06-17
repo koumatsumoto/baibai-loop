@@ -86,7 +86,7 @@ def build_selection_payload(
     previous_candidates = previous_candidates or PreviousCandidates(ref_path=None, tickers=())
     previous_tickers = set(previous_candidates.tickers)
     # The fast-dislocation boost buys falling knives at the top of the queue
-    # while the whole market rallies (replay-2026-05: 4w relative consistently
+    # while the whole market rallies (2026-05 replay: 4w relative consistently
     # negative). In risk_on_rally the boost is neutralized; candidates are kept
     # (lens, not gate) and other ranking components take over.
     fast_boost_active = (
@@ -100,8 +100,7 @@ def build_selection_payload(
     benchmark_return_20d = market_regime.benchmark_return_20d if market_regime else None
     # Single source of truth for lane priority: the configured
     # research_selection_lane_order ranks both the queue and the primary
-    # evidence pick. The old hard-coded _LANE_RANK put valuation-reversion
-    # first, the inverse of the measured lane quality (lane-cohorts-2026-05).
+    # evidence pick.
     lane_order = tuple(rules.output.research_selection_lane_order)
 
     liquidity = selection_rules.liquidity

@@ -15,7 +15,5 @@ last_reviewed: 2026-05-04
 | [`data-sources.md`](./data-sources.md) | data source tier、取得失敗時の扱い、取得データ cache の保存方針 |
 | [`platform-interface.md`](./platform-interface.md) | AI / スクリプト向けの安定契約(CLI YAML 出力と SQLite schema)と利用モデル |
 | [`configuration.md`](./configuration.md) | runtime config、credentials、environment variable の入口 |
-| [`naming-and-layout.md`](./naming-and-layout.md) | records path、file naming、template link path の規約 |
 | [`testing-and-validation.md`](./testing-and-validation.md) | `records/_schemas/`、validator、test / CI verification |
-| [`edinet-csv-metrics-coverage.md`](./edinet-csv-metrics-coverage.md) | EDINET `type=5` CSV-derived metrics の coverage / precision 確認 |
 | [`python-foundation.md`](./python-foundation.md) | Python runtime、dependency、quality gate、CI parity |

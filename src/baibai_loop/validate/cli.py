@@ -26,7 +26,6 @@ from .research import (
     validate_research_file,
     validate_research_parsed,
 )
-from .review import discover_review_files, validate_review_file
 from .trade import discover_trade_files, validate_trade_file
 
 type ValidationTarget = Literal[
@@ -36,7 +35,6 @@ type ValidationTarget = Literal[
     "research",
     "trade",
     "ledger",
-    "review",
 ]
 _TARGETS: tuple[ValidationTarget, ...] = (
     "macro-context",
@@ -45,7 +43,6 @@ _TARGETS: tuple[ValidationTarget, ...] = (
     "research",
     "trade",
     "ledger",
-    "review",
 )
 
 MACRO_CONTEXT_ROOT = Path("records/01-macro-context")
@@ -55,7 +52,6 @@ RESEARCH_ROOT = Path("records/05-research")
 TRADES_ROOT = Path("records/06-trades")
 LEDGER_ROOT = Path("records/_ledger")
 PLAYBOOKS_ROOT = Path("records/_playbooks")
-REVIEWS_ROOT = Path("records/07-reviews")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -176,8 +172,6 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
             return discover_trade_files(root / TRADES_ROOT)
         case "ledger":
             return discover_ledger_files(root / LEDGER_ROOT)
-        case "review":
-            return discover_review_files(root / REVIEWS_ROOT)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 
@@ -205,8 +199,6 @@ def _validate(
             return validate_trade_file(path)
         case "ledger":
             return validate_ledger_file(path)
-        case "review":
-            return validate_review_file(path)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 

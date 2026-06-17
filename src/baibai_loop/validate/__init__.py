@@ -3,6 +3,5 @@
 from __future__ import annotations
 
 from .errors import ValidationFinding
-from .review import KNOWN_CLASSIFICATIONS
 
-__all__ = ["KNOWN_CLASSIFICATIONS", "ValidationFinding"]
+__all__ = ["ValidationFinding"]

@@ -16,9 +16,7 @@ from baibai_loop.screening.rule_config import load_screening_rules
 from baibai_loop.screening.rules import (
     PLAYBOOK_CASH_RICH,
     PLAYBOOK_CASHFLOW_YIELD,
-    PLAYBOOK_FCF_YIELD,
     PLAYBOOK_SALES_DISCOUNT,
-    PLAYBOOK_STRICT_NET_CASH,
     PLAYBOOK_VALUATION_REVERSION,
     REASON_PRICE_SIGMA,
     REASON_SECTOR_ROTATION,
@@ -239,48 +237,6 @@ class ScreeningRulesTests(unittest.TestCase):
         self.assertFalse(result.pass_fail)
         self.assertIn("valuation_reversion_condition_a_no_metric", result.null_reasons)
 
-    def test_cash_rich_asset_discount_hits(self) -> None:
-        result = evaluate_screening(
-            _financial(cash_to_market_cap=0.45, price_to_equity=0.8, operating_profit=10.0),
-            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
-            RULES,
-        )
-        self.assertIn(
-            PLAYBOOK_CASH_RICH, [evidence_hit.name for evidence_hit in result.evidence_hits]
-        )
-
-    def test_cash_rich_asset_discount_rejects_low_equity_ratio(self) -> None:
-        result = evaluate_screening(
-            _financial(
-                cash_to_market_cap=0.8,
-                price_to_equity=0.8,
-                equity_ratio=0.2,
-                operating_profit=10.0,
-            ),
-            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
-            RULES,
-        )
-        self.assertNotIn(
-            PLAYBOOK_CASH_RICH, [evidence_hit.name for evidence_hit in result.evidence_hits]
-        )
-
-    def test_cash_rich_asset_discount_rejects_edinet_net_debt_contradiction(self) -> None:
-        result = evaluate_screening(
-            _financial(
-                cash_to_market_cap=0.8,
-                price_to_equity=0.8,
-                equity_ratio=0.5,
-                operating_profit=10.0,
-                net_cash_to_market_cap=-0.1,
-            ),
-            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
-            RULES,
-        )
-        self.assertNotIn(
-            PLAYBOOK_CASH_RICH, [evidence_hit.name for evidence_hit in result.evidence_hits]
-        )
-        self.assertIn("cash_rich_edinet_net_cash_contradiction", result.null_reasons)
-
     def test_cashflow_yield_discount_hits(self) -> None:
         result = evaluate_screening(
             _financial(ocf_ttm=100.0, ocf_yield=0.1),
@@ -290,144 +246,6 @@ class ScreeningRulesTests(unittest.TestCase):
         self.assertIn(
             PLAYBOOK_CASHFLOW_YIELD, [evidence_hit.name for evidence_hit in result.evidence_hits]
         )
-
-    def test_strict_net_cash_discount_hits_with_edinet_debt(self) -> None:
-        result = evaluate_screening(
-            _financial(
-                net_cash=120.0,
-                net_cash_to_market_cap=0.35,
-                price_to_equity=0.8,
-                equity_ratio=0.5,
-                operating_profit=10.0,
-            ),
-            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
-            RULES,
-        )
-        self.assertIn(
-            PLAYBOOK_STRICT_NET_CASH, [evidence_hit.name for evidence_hit in result.evidence_hits]
-        )
-
-    def test_strict_net_cash_discount_requires_edinet_quality(self) -> None:
-        result = evaluate_screening(
-            _financial(
-                net_cash=120.0,
-                net_cash_to_market_cap=0.35,
-                price_to_equity=0.8,
-                equity_ratio=0.5,
-                operating_profit=10.0,
-                ttm_quality_net_cash=TTMQuality.UNAVAILABLE,
-            ),
-            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
-            RULES,
-        )
-        self.assertNotIn(
-            PLAYBOOK_STRICT_NET_CASH, [evidence_hit.name for evidence_hit in result.evidence_hits]
-        )
-        self.assertIn("strict_net_cash_unavailable", result.null_reasons)
-
-    def test_strict_net_cash_discount_rejects_assumed_zero_debt(self) -> None:
-        result = evaluate_screening(
-            _financial(
-                net_cash=120.0,
-                net_cash_to_market_cap=0.35,
-                price_to_equity=0.8,
-                equity_ratio=0.5,
-                operating_profit=10.0,
-                edinet_failure_reasons="debt_assumed_zero",
-            ),
-            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
-            RULES,
-        )
-        self.assertNotIn(
-            PLAYBOOK_STRICT_NET_CASH, [evidence_hit.name for evidence_hit in result.evidence_hits]
-        )
-        self.assertIn("strict_net_cash_debt_assumed_zero", result.null_reasons)
-
-    def test_fcf_yield_discount_hits(self) -> None:
-        result = evaluate_screening(
-            _financial(
-                ocf_ttm=999.0,
-                edinet_ocf_ttm=120.0,
-                fcf_ttm=100.0,
-                fcf_yield=0.1,
-                capex_ttm=20.0,
-                cfo_yoy=0.2,
-            ),
-            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
-            RULES,
-        )
-        evidence_hit = next(
-            evidence_hit
-            for evidence_hit in result.evidence_hits
-            if evidence_hit.name == PLAYBOOK_FCF_YIELD
-        )
-        self.assertEqual(evidence_hit.metrics["edinet_ocf_ttm"], 120.0)
-        self.assertNotIn("ocf_ttm", evidence_hit.metrics)
-
-    def test_fcf_yield_discount_filters_unrelated_edinet_failures(self) -> None:
-        result = evaluate_screening(
-            _financial(
-                edinet_ocf_ttm=120.0,
-                fcf_ttm=100.0,
-                fcf_yield=0.1,
-                capex_ttm=20.0,
-                cfo_yoy=0.2,
-                edinet_failure_reasons="debt_assumed_zero,non_consolidated_fallback",
-            ),
-            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
-            RULES,
-        )
-        evidence_hit = next(
-            evidence_hit
-            for evidence_hit in result.evidence_hits
-            if evidence_hit.name == PLAYBOOK_FCF_YIELD
-        )
-        self.assertEqual(
-            evidence_hit.metrics["edinet_failure_reasons"], "non_consolidated_fallback"
-        )
-
-    def test_fcf_yield_discount_rejects_missing_edinet_ocf(self) -> None:
-        result = evaluate_screening(
-            _financial(edinet_ocf_ttm=None, fcf_ttm=100.0, fcf_yield=0.1, cfo_yoy=0.2),
-            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
-            RULES,
-        )
-        self.assertNotIn(
-            PLAYBOOK_FCF_YIELD, [evidence_hit.name for evidence_hit in result.evidence_hits]
-        )
-        self.assertIn("fcf_yield_missing_edinet_ocf", result.null_reasons)
-
-    def test_fcf_yield_discount_rejects_unavailable_quality(self) -> None:
-        result = evaluate_screening(
-            _financial(
-                fcf_ttm=100.0,
-                fcf_yield=0.1,
-                cfo_yoy=0.2,
-                ttm_quality_fcf_yield=TTMQuality.UNAVAILABLE,
-            ),
-            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
-            RULES,
-        )
-        self.assertNotIn(
-            PLAYBOOK_FCF_YIELD, [evidence_hit.name for evidence_hit in result.evidence_hits]
-        )
-        self.assertIn("fcf_yield_ttm_not_exact", result.null_reasons)
-
-    def test_fcf_yield_discount_rejects_approximated_quality(self) -> None:
-        result = evaluate_screening(
-            _financial(
-                fcf_ttm=100.0,
-                fcf_yield=0.1,
-                cfo_yoy=0.2,
-                ttm_quality_fcf_yield=TTMQuality.APPROXIMATED,
-            ),
-            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
-            RULES,
-        )
-        self.assertNotIn(
-            PLAYBOOK_FCF_YIELD, [evidence_hit.name for evidence_hit in result.evidence_hits]
-        )
-        self.assertIn("fcf_yield_ttm_not_exact", result.null_reasons)
 
     def test_cashflow_yield_discount_requires_cfo_yoy_when_configured(self) -> None:
         result = evaluate_screening(
@@ -538,26 +356,44 @@ class ScreeningRulesTests(unittest.TestCase):
             [evidence_hit.name for evidence_hit in result.evidence_hits],
         )
 
-    def test_financial_sector_is_excluded_from_cash_rich_lane(self) -> None:
+    def test_cash_rich_asset_discount_hits(self) -> None:
         result = evaluate_screening(
             _financial(cash_to_market_cap=0.45, price_to_equity=0.8, operating_profit=10.0),
             _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
             RULES,
-            sector_33="銀行業",
         )
-        self.assertNotIn(
+        self.assertIn(
             PLAYBOOK_CASH_RICH, [evidence_hit.name for evidence_hit in result.evidence_hits]
         )
-        self.assertIn("cash_rich_excluded_sector", result.null_reasons)
 
-    def test_utility_sector_is_excluded_from_cash_rich_lane(self) -> None:
+    def test_cash_rich_asset_discount_rejects_low_equity_ratio(self) -> None:
         result = evaluate_screening(
-            _financial(cash_to_market_cap=0.45, price_to_equity=0.8, operating_profit=10.0),
+            _financial(
+                cash_to_market_cap=0.8,
+                price_to_equity=0.8,
+                equity_ratio=0.2,
+                operating_profit=10.0,
+            ),
             _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
             RULES,
-            sector_33="電気・ガス業",
         )
         self.assertNotIn(
             PLAYBOOK_CASH_RICH, [evidence_hit.name for evidence_hit in result.evidence_hits]
         )
-        self.assertIn("cash_rich_excluded_sector", result.null_reasons)
+
+    def test_cash_rich_asset_discount_rejects_edinet_net_debt_contradiction(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                cash_to_market_cap=0.8,
+                price_to_equity=0.8,
+                equity_ratio=0.5,
+                operating_profit=10.0,
+                net_cash_to_market_cap=-0.1,
+            ),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertNotIn(
+            PLAYBOOK_CASH_RICH, [evidence_hit.name for evidence_hit in result.evidence_hits]
+        )
+        self.assertIn("cash_rich_edinet_net_cash_contradiction", result.null_reasons)

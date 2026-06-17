@@ -265,6 +265,18 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
       required 化する
 - [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。
       commit 前に `rg -n "except [A-Za-z0-9_.]+, [A-Za-z0-9_.]+" src tests` が 0 件であることを確認する
+- [ ] **lane / playbook を削減する場合、以下を同 commit で揃える** (PR #246 で 5 名レビューで指摘):
+  - [ ] `records/_playbooks/<lane>/` ディレクトリ削除
+  - [ ] `records/_config/screening-rules/*.yaml` の `screening_playbooks.<lane>` と
+        `research_selection_lane_order` から削除
+  - [ ] `src/baibai_loop/screening/rules.py` の `match` 句 / PLAYBOOK_* / REASON_* / `_<lane>_*` 関数
+  - [ ] `src/baibai_loop/screening/rule_config.py` の `<Lane>Lane` class と Union 型
+        (`screening_playbooks: Mapping[..., A | B | C]`) と `match` 句
+  - [ ] `src/baibai_loop/screening/selection/ranking.py` の sort key match arm
+  - [ ] `src/baibai_loop/ledger/selection_ablation.py` の `_LANES` tuple
+  - [ ] 削除根拠は `docs/operations/backtest-runbook.md` §6 dated index で明示し、
+        lane-cohorts / selection-ablation のサンプルが「removing は安全」と
+        言える数値を残す (PR #246 では cash-rich が誤って削除候補になった反省)
 - [ ] **`entry_preflight.market_regime` のような judgment-gate field を追加する場合、以下の
       bypass パターンを必ず test で塞ぐ** (PR #245 で 5 名レビューで発覚した想定例):
   - [ ] `regime: unknown` のような「データ不在」label で hard_trigger を回避できないか

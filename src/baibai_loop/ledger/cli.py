@@ -21,19 +21,16 @@ from baibai_loop.screening.rule_config import DEFAULT_RULES_PATH, load_screening
 from baibai_loop.screening.selection import load_profile_overrides
 from baibai_loop.screening.sqlite_reader import (
     read_daily_bars,
-    read_eq_master,
     read_market_calendar,
 )
 
 from .benchmark import NIKKEI225_ETF_PROXY, PortfolioBenchmark, compute_forward_performance
-from .exposure import ExposureBucket, ExposureReport, compute_exposure
 from .lane_cohorts import (
     DEFAULT_COHORT_HORIZON_WEEKS,
     lane_cohorts_to_payload,
     render_lane_cohort_summary,
     run_lane_cohorts,
 )
-from .retro import build_monthly_retro, write_monthly_retro
 from .review_gates import ReviewGate, due_review_gates, weekday_calendar
 from .screening_replay import replay_to_payload, run_replay
 from .selection_ablation import (
@@ -59,25 +56,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="fail when neither J-Quants data nor fallback observations can be loaded",
     )
-    retro_parser = subparsers.add_parser(
-        "retro",
-        help="generate a monthly retro draft from ledger JSONL and optional reviews",
-    )
-    retro_parser.add_argument("--root", type=Path, default=Path.cwd())
-    retro_parser.add_argument("--month", required=True, help="target month (YYYY-MM)")
-    retro_parser.add_argument("--dry-run", action="store_true", help="print draft to stdout")
-    retro_parser.add_argument("--overwrite", action="store_true", help="replace existing draft")
     gates_parser = subparsers.add_parser(
         "review-gates",
         help="list open-position forward review gates (+15bd/+30bd) that are due",
     )
     gates_parser.add_argument("--root", type=Path, default=Path.cwd())
     gates_parser.add_argument("--asof", help="evaluation date (YYYY-MM-DD); defaults to today")
-    exposure_parser = subparsers.add_parser(
-        "exposure",
-        help="show open-position deployed notional shares by sector / playbook / ticker",
-    )
-    exposure_parser.add_argument("--root", type=Path, default=Path.cwd())
     benchmark_parser = subparsers.add_parser(
         "benchmark",
         help="compute open-position forward return versus the Nikkei 225 ETF proxy",
@@ -207,28 +191,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(line)
         print(f"decisions={result.decision_count}" + (" dry_run=true" if args.dry_run else ""))
         return 0
-    if args.command == "retro":
-        try:
-            if args.dry_run:
-                draft = build_monthly_retro(args.root, args.month)
-                print(draft.content, end="")
-            else:
-                draft = write_monthly_retro(
-                    args.root,
-                    args.month,
-                    overwrite=args.overwrite,
-                )
-                print(f"wrote {draft.path}")
-        except (FileExistsError, ValueError) as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 1
-        for warning in draft.warnings:
-            print(f"warning: {warning}", file=sys.stderr)
-        return 0
     if args.command == "review-gates":
         return _run_review_gates(args.root, _resolve_asof(args.asof))
-    if args.command == "exposure":
-        return _run_exposure(args.root)
     if args.command == "benchmark":
         return _run_benchmark(args.root, _resolve_asof(args.asof), args.proxy, os.environ)
     if args.command == "screening-replay":
@@ -373,37 +337,6 @@ def _format_gate(gate: ReviewGate) -> str:
         f"{gate.ticker} {gate.name} entry={gate.entry_date.isoformat()} "
         f"review_state={gate.review_state}"
     )
-
-
-def _run_exposure(root: Path) -> int:
-    trades = load_open_trades(root)
-    if not trades:
-        print("no open positions")
-        return 0
-    sqlite_path = root / DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"
-    masters = read_eq_master(sqlite_path) or []
-    sector_by_ticker = {master.code: master.sector_33 for master in masters if master.sector_33}
-    report = compute_exposure(trades, sector_by_ticker)
-    for line in _format_exposure(report, open_positions=len(trades)):
-        print(line)
-    return 0
-
-
-def _format_exposure(report: ExposureReport, *, open_positions: int) -> list[str]:
-    lines = [f"open_positions={open_positions} deployed_notional={report.total_notional:,.0f}"]
-    lines.extend(_format_exposure_buckets("sector", report.by_sector))
-    lines.extend(_format_exposure_buckets("playbook", report.by_playbook))
-    lines.extend(_format_exposure_buckets("ticker", report.by_ticker))
-    lines.extend(f"warning: {warning}" for warning in report.warnings)
-    return lines
-
-
-def _format_exposure_buckets(label: str, buckets: tuple[ExposureBucket, ...]) -> list[str]:
-    return [
-        f"{label} {bucket.key} share={bucket.share * 100:.1f}% "
-        f"notional={bucket.notional:,.0f} tickers={','.join(bucket.tickers)}"
-        for bucket in buckets
-    ]
 
 
 def _run_benchmark(root: Path, asof: date, proxy: str, env: Mapping[str, str]) -> int:

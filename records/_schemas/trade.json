@@ -22,7 +22,6 @@
     "research_ref": {"type": "string", "pattern": "^records/05-research/[^.][^\\n]*\\.md$"},
     "position_state": {"enum": ["none", "open", "closed"]},
     "current_quantity": {"type": "number"},
-    "review_state": {"enum": ["not_due", "scheduled", "completed"]},
     "trade_execution_state": {
       "enum": ["none", "submitted", "broker_rejected", "cancelled", "expired", "not_filled", "partially_filled", "filled"]
     },

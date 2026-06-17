@@ -37,13 +37,12 @@ source_paths:
 | `records/04-candidates/` | fact / security-level | candidates YAML(git 追跡しない local store。詳細は [`../components/candidates.md`](../components/candidates.md) §2) |
 | `records/05-research/` | analysis / security-level | investment memo Markdown |
 | `records/06-trades/` | downstream | trade record Markdown |
-| `records/07-reviews/` | downstream | individual review と monthly retro |
 
 ## Records support areas
 
 `records/_*` は運用成果物そのものではなく、生成・検証・検証後追跡を支える領域です。重複と drift を避けるため、正本 docs は 1 つに固定します。
 
-通常 record (`01-macro-context` から `07-reviews`) は event artifact として path
+通常 record (`01-macro-context` から `06-trades`) は event artifact として path
 自体を正本にし、mutable latest index は持たない。Support area の変更履歴も git に一本化し、
 Record から参照する repo 内 file path を正本にする。
 

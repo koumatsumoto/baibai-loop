@@ -17,13 +17,10 @@ quality:
 output:
   research_selection_target_max: 5
   # lane 優先順位の唯一の正本。推奨 queue の順位付けと primary evidence の選択の
-  # 両方に使う。順序値は推奨 queue の forward 計測で最良だったもの
-  # (docs/screening/selection-ablation-2026-05.md)。変更は config 編集 +
-  # replay / ablation 計測で検証してから行う。
+  # 両方に使う。変更は config 編集 + replay / ablation 計測 (docs/operations/
+  # backtest-runbook.md) で検証してから行う。
   research_selection_lane_order:
   - valuation-reversion
-  - strict-net-cash-discount
-  - fcf-yield-discount
   - cash-rich-asset-discount
   - cashflow-yield-discount
   - sales-discount-growth
@@ -92,18 +89,6 @@ screening_playbooks:
     - pbr
     - ev_ebitda
     playbook_id: valuation-reversion
-  strict-net-cash-discount:
-    excluded_sectors:
-    - 銀行業
-    - 証券・商品先物取引業
-    - 保険業
-    - その他金融業
-    - 電気・ガス業
-    net_cash_to_market_cap_min: 0.3
-    price_to_equity_max: 1.0
-    equity_ratio_min: 0.3
-    operating_profit_positive_required: true
-    playbook_id: strict-net-cash-discount
   cash-rich-asset-discount:
     excluded_sectors:
     - 銀行業
@@ -129,18 +114,6 @@ screening_playbooks:
     cfo_yoy_min: -0.2
     cfo_yoy_required: true
     playbook_id: cashflow-yield-discount
-  fcf-yield-discount:
-    excluded_sectors:
-    - 銀行業
-    - 証券・商品先物取引業
-    - 保険業
-    - その他金融業
-    - 電気・ガス業
-    fcf_yield_min: 0.08
-    fcf_required: true
-    cfo_yoy_min: -0.2
-    cfo_yoy_required: true
-    playbook_id: fcf-yield-discount
   sales-discount-growth:
     excluded_sectors:
     - 銀行業

@@ -5,15 +5,14 @@ doc_type: runbook
 status: active
 last_reviewed: 2026-06-17
 related_docs:
-  - "../screening/replay-2026-05.md"
-  - "../screening/regime-lens-replay-2026-05.md"
-  - "../screening/selection-ablation-2026-05.md"
+  - "../screening/mechanical.md"
   - "../components/research.md"
+  - "../../reports/2026-06-17-trade-strategy-rootcause.md"
 ---
 
 # Backtest runbook
 
-戦略 / screening / judgment gate / playbook lane の forward return を **「いつ、どう測るか」** を統一する。`docs/screening/` 配下の dated 計測 doc（`replay-2026-05.md` 等）はこの runbook の specific instance であり、本 doc は**手順と原則**を正本にする。
+戦略 / screening / judgment gate / playbook lane の forward return を **「いつ、どう測るか」** を統一する。本 doc は**手順と原則**を正本にし、dated 計測ダイジェストは `reports/<YYYY-MM-DD>-*.md` に残す。
 
 ## 1. 何を測れば「意味のあるバックテスト」か
 
@@ -46,7 +45,7 @@ related_docs:
 
 ### Axis A — screening profile replay（既存 CLI）
 
-`baibai-loop-ledger screening-replay` で profile（`balanced` 等）の forward return を benchmark proxy 比で計測。手順は [`../screening/replay-2026-05.md`](../screening/replay-2026-05.md) §再現。
+`baibai-loop-ledger screening-replay` で profile（`balanced` 等）の forward return を benchmark proxy 比で計測。
 
 ```bash
 uv run baibai-loop-ledger screening-replay \
@@ -54,6 +53,8 @@ uv run baibai-loop-ledger screening-replay \
   --regime-lens on --top 10 \
   --out .cache/backtest/<YYYY-MM-DD>-replay.yaml
 ```
+
+事前準備: 対象週の candidates が手元になければ `baibai-loop-screening run --asof <週> --allow-stale-jpx` で再生成し `.cache/replay/candidates/<YYYY>/<MM>/<YYYY-MM-DD>.yaml` に配置。replay は macro-agnostic で動く。eval cap が cache 最新足を超える horizon は unresolved として集計から除外される。
 
 ### Axis B — lane cohorts（既存 CLI）
 
@@ -84,7 +85,7 @@ approved n が 1 桁の段階では mean rel の点推定は不安定。`random.
 
 ### Axis G — regime × lane クロステーブル
 
-`(playbook, regime) -> mean rel` のクロステーブルを出す。regime 別に lane の頑健性が違うはず（fcf-yield-discount は rally で −16pt、valuation-reversion は −0.5pt のように）。
+`(playbook, regime) -> mean rel` のクロステーブルを出す。regime 別に lane の頑健性が違う前提で観察する (2026-05 観測では valuation-reversion が rally に頑健、cashflow-yield が劣後など)。
 
 ## 4. 再現性の手順
 
@@ -105,8 +106,14 @@ approved n が 1 桁の段階では mean rel の点推定は不安定。`random.
 
 ## 6. 直近の実施記録
 
-- 2026-05 screening profile replay: [`../screening/replay-2026-05.md`](../screening/replay-2026-05.md)
-- 2026-05 regime lens on/off: [`../screening/regime-lens-replay-2026-05.md`](../screening/regime-lens-replay-2026-05.md)
-- 2026-05 selection ablation: [`../screening/selection-ablation-2026-05.md`](../screening/selection-ablation-2026-05.md)
-- 2026-05 lane cohorts: [`../screening/lane-cohorts-2026-05.md`](../screening/lane-cohorts-2026-05.md)
-- 2026-06-17 judgment-gate counterfactual / lane × regime cross / bootstrap CI: [`../../reports/2026-06-17-trade-strategy-rootcause.md`](../../reports/2026-06-17-trade-strategy-rootcause.md) §13
+新規エントリは **(asof / 計測内容 / ダイジェスト / 結論への反映)** の 4 列必須。ダイジェスト本文は `reports/<asof>-*.md` に dated まとめとして残し、本表からリンクする。「結論への反映」が **defer** の場合は理由を 1 行で書く (例: 「サンプル不足、forward 蓄積 +N 件で再評価」)。
+
+| asof | 計測内容 | ダイジェスト | 結論への反映 |
+| --- | --- | --- | --- |
+| 2026-05 | screening profile replay (balanced/strict/loose × 4 週) | mean rel 4w 全 profile −5.6〜−12.3pt | `balanced` 据え置き |
+| 2026-05 | regime lens on/off | 4w ON −4.03pt vs OFF −9.26pt | regime lens を default ON 化 |
+| 2026-05 | selection ablation | `evidence_count` / `long_hold` / `prior_suppression` が queue 無変化 | sort 成分整理 (#217) |
+| 2026-05 | lane cohorts | `strict-net-cash` / `fcf-yield` lane が top5 不到達、`cash-rich` が baseline +5.32pt で全 lane 中最強 | `strict-net-cash` / `fcf-yield` 削除、`cash-rich` 維持 (PR #246) |
+| 2026-06-17 | judgment-gate counterfactual / lane × regime cross / bootstrap CI | approved 8 件 rel −3.45pt、95% CI [−7.60, +0.32]、P(<0)=96% | regime gate を judgment 層に実装 (PR #245) |
+
+ダイジェスト本文は [`../../reports/2026-06-17-trade-strategy-rootcause.md`](../../reports/2026-06-17-trade-strategy-rootcause.md) §13、過去の dated 計測 doc は同レポートで上位概念に統合済み。

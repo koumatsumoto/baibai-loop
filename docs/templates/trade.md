@@ -4,7 +4,6 @@ ticker: "XXXX"
 name: "..."
 research_ref: records/05-research/YYYY/MM/YYYY-MM-DD-XXXX-<playbook_id>.md
 position_state: none | open | closed
-review_state: not_due | scheduled | completed
 trade_execution_state: none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled
 order_intent:
   order_intent_id: intent-YYYYMMDD-XXXX-entry
@@ -97,4 +96,3 @@ kill_switch_check:
 
 - +15 営業日 review 予定日:
 - +30 営業日 review 予定日:
-- attribution review: [`records/07-reviews/YYYY/MM/YYYY-MM-DD-XXXX.md`](/records/07-reviews/YYYY/MM/YYYY-MM-DD-XXXX.md)

@@ -83,8 +83,8 @@ def _make_week(root: Path) -> WeekSpec:
                 "ticker": "CCCC",
                 "evidence_hits": [
                     {
-                        "name": "fcf-yield-discount",
-                        "playbook_id": "fcf-yield-discount",
+                        "name": "cashflow-yield-discount",
+                        "playbook_id": "cashflow-yield-discount",
                         "source_status": "degraded",
                     },
                 ],
