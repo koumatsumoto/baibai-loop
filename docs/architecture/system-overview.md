@@ -33,7 +33,6 @@ AI / スクリプトが利用する安定契約は CLI YAML 出力と SQLite sch
 | screen output | `records/04-candidates/` | fact | universe と screening rule から ticker-level raw screen output を記録する |
 | investment memo | `records/05-research/` | analysis | candidates と macro context を統合し、thesis payoff と採用可否を判断する |
 | execution record | `records/06-trades/` | execution | 実際に order / entry した採用判断の注文、約定、建玉、決済を記録する |
-| attribution review | `records/07-reviews/` | feedback | relative return、missed opportunity、playbook attribution で feedback loop を閉じる |
 
 ## Decision Loop
 

@@ -74,7 +74,6 @@ Macro context は、screening 前に既存 context が stale / scope mismatch / 
 ## 6. Feedback loop 先行の原則（philosophy 柱 3 の具体化）
 
 - 完成設計より不完全な loop 1 周を優先
-- `records/07-reviews/retro-YYYYMM.md` で playbook / screening 閾値の改訂判断を行う
 - サンプル数 10 件未満なら playbook 据え置きを許容する
 
 ## 7. Markdown / YAML 駆動の原則（philosophy 柱 4 の具体化）
@@ -114,7 +113,7 @@ Macro context は、screening 前に既存 context が stale / scope mismatch / 
 ### 9.2 代わりにやること（forward-only）
 
 - forward-only な decision register 蓄積 (`records/_ledger/` の判断イベント、entry 後の前進的 attribution)
-- 事前 thesis の文書化 (`records/05-research/`) と事後検証 (`records/07-reviews/`) の対比
+- 事前 thesis の文書化 (`records/05-research/`) と事後 fill/exit (`records/06-trades/`) の対比
 - 月次 retro でのプロセス改善 (playbook 改訂は **サンプル数 10 件以上** を条件に検討)
 
 ### 9.3 根拠

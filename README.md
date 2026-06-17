@@ -23,7 +23,6 @@ AI が利用する安定契約は **CLI の YAML 出力と SQLite schema の 2 �
 3. スクリーニング基準でふるいにかける: `records/04-candidates/`
 4. 個別銘柄を investment memo として深掘り調査する: `records/05-research/`
 5. 条件を満たしたら execution record を残す: `records/06-trades/`
-6. 事後検証と attribution で次回改善に活かす: `records/07-reviews/`
 
 L3 の売買 record が ground truth となって L2 の計測 loop(どの screen・lens が forward return を生んだか)を閉じます。思想は [`docs/philosophy.md`](./docs/philosophy.md)、現行構造は [`docs/architecture/system-overview.md`](./docs/architecture/system-overview.md) を参照してください。
 
@@ -57,7 +56,6 @@ baibai-loop/
 │   ├── 04-candidates/
 │   ├── 05-research/
 │   ├── 06-trades/
-│   ├── 07-reviews/
 │   ├── _config/
 │   ├── _ledger/
 │   ├── _playbooks/

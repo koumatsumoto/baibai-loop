@@ -65,7 +65,6 @@ Baibai-Loop は次の concept label で repository lifecycle を説明します�
 | security-level screen output | `records/04-candidates/` |
 | investment memo | `records/05-research/` |
 | execution record | `records/06-trades/` |
-| outcome attribution and feedback review | `records/07-reviews/` |
 | research decision and tracking register | `records/_ledger/` |
 | repeatable thesis patterns | `records/_playbooks/` |
 

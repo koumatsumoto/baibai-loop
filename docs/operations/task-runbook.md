@@ -6,11 +6,9 @@ status: active
 last_reviewed: 2026-05-10
 related_docs:
   - "./research-runbook.md"
-  - "./review-runbook.md"
   - "../components/research.md"
   - "../components/ledger.md"
   - "../components/trades.md"
-  - "../components/reviews.md"
 ---
 
 # タスク runbook

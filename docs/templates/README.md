@@ -10,8 +10,6 @@ Baibai-Loop 各成分の記入テンプレート集。template をコピーし�
 | `candidates.yaml` | `records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml` | [`/docs/components/candidates.md`](/docs/components/candidates.md) |
 | `research.md` | `records/05-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook>.md` | [`/docs/components/research.md`](/docs/components/research.md) |
 | `trade.md` | `records/06-trades/YYYY/MM/YYYY-MM-DD-<ticker>.md` | [`/docs/components/trades.md`](/docs/components/trades.md) |
-| `review.md` | `records/07-reviews/YYYY/MM/YYYY-MM-DD-<ticker>.md` | [`/docs/components/reviews.md`](/docs/components/reviews.md) |
-| `retro-monthly.md` | `records/07-reviews/YYYY/retro-YYYYMM.md` | [`/docs/components/reviews.md`](/docs/components/reviews.md) |
 | `playbook.md` | `records/_playbooks/<playbook-slug>-v<n>.md` | [`/docs/components/playbooks.md`](/docs/components/playbooks.md) |
 
 ## リンク path 規約（重要）

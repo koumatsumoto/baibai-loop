@@ -144,7 +144,6 @@ position は **paper proxy layer (1 億円仮想資本)** と **real layer (実�
 - [`../philosophy.md`](../philosophy.md): 思想（macro context discipline、事実と分析の分離、feedback loop 先行、markdown 駆動）
 - [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
 - [`../components/research.md`](../components/research.md): research 運用仕様
-- [`failure-taxonomy.md`](./failure-taxonomy.md): 失敗分類詳細
 - [`universe-rules.md`](./universe-rules.md): universe 境界条件
 - [`valuation-metrics.md`](./valuation-metrics.md): 指標算出仕様
 - [`mechanical.md`](./mechanical.md): 機械的ふるい仕様

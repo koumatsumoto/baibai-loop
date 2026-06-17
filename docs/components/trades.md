@@ -7,7 +7,6 @@ Baibai-Loop の **execution record / trades** 成分の運用仕様。investment
 - `records/05-research/` の approved memo から発生した **order intent / order / execution / position** を記録する
 - 実際に order を作った場合のみ `records/06-trades/` を作る
 - 採用したが発注しなかった判断、保留、見送り、未処理候補は decision register / reviews 側で扱う
-- `records/07-reviews/` と playbook attribution の source になる
 
 ## 2. Path と命名
 
@@ -143,7 +142,6 @@ uv run baibai-loop-validate --target trade
 
 ## 8. Reviews への接続
 
-- 決済後 +15 営業日、+30 営業日で `records/07-reviews/YYYY/MM/YYYY-MM-DD-<ticker>.md` を作成
 - Review / retro では outcome を evidence hit、macro context fit、sizing、execution、playbook へ帰属する
 
 ## 9. AI の役割境界
@@ -163,5 +161,4 @@ uv run baibai-loop-validate --target trade
 - [`../philosophy.md`](../philosophy.md): 思想
 - [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
 - [`research.md`](./research.md): source となる research の仕様
-- [`reviews.md`](./reviews.md): 接続先 reviews
 - [`../templates/trade.md`](../templates/trade.md): template

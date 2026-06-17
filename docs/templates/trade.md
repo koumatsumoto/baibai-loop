@@ -97,4 +97,3 @@ kill_switch_check:
 
 - +15 営業日 review 予定日:
 - +30 営業日 review 予定日:
-- attribution review: [`records/07-reviews/YYYY/MM/YYYY-MM-DD-XXXX.md`](/records/07-reviews/YYYY/MM/YYYY-MM-DD-XXXX.md)

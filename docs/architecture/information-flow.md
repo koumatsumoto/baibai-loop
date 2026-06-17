@@ -25,7 +25,7 @@ records/05-research/
                          records/06-trades/
                                 |
                                 v
-                         records/07-reviews/
+                         reports/ (backtest / rootcause / ad-hoc analysis)
                                 |
                                 v
                   records/_playbooks/ and screening rules
@@ -37,8 +37,8 @@ records/05-research/
 - `records/04-candidates/` は screening 結果の fact snapshot です。通過理由を分析文として書きません。
 - `records/05-research/` は candidates と macro context の統合点です。候補への参照は `candidate_ref.candidates_ref` と `candidate_ref.ticker`、macro 文脈への参照は `macro_context_ref` を必須入力として扱います。
 - `records/06-trades/` は採用済み research に対する執行記録です。
-- `records/07-reviews/` は forward-only な検証です。retro で playbook や screening rule の改訂判断をします。
+- `reports/` は forward-only な事後検証 / バックテスト / root cause 分析を残します。判断は ledger / benchmark CLI と `docs/operations/backtest-runbook.md` 手順で行います。
 
 ## Feedback loop
 
-reviews からの学びは、いきなり過去最適化に使いません。月次 retro で失敗分類と再発防止を確認し、必要な場合だけ `records/_playbooks/` や screening docs の改訂 issue / PR に進めます。運用中 playbook の位置付けは [`../components/playbooks.md`](../components/playbooks.md) を参照します。
+事後検証は ad-hoc な report として残し、いきなり過去最適化には使いません。`docs/operations/backtest-runbook.md` の 7 axis に従って計測し、必要な場合だけ `records/_playbooks/` や screening docs の改訂 issue / PR に進めます。運用中 playbook の位置付けは [`../components/playbooks.md`](../components/playbooks.md) を参照します。

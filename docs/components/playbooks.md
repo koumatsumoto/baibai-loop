@@ -8,7 +8,6 @@ source_paths:
   - "../../records/_playbooks/"
 related_docs:
   - "research.md"
-  - "reviews.md"
   - "../templates/README.md"
 ---
 

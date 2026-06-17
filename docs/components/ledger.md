@@ -52,17 +52,7 @@ decision register は [`/records/_schemas/decision-register.json`](/records/_sch
 uv run baibai-loop-validate --target ledger
 ```
 
-## 6. 月次 retro 下書き
-
-ledger と個別 review から月次 retro の下書きを生成する。
-
-```bash
-uv run baibai-loop-ledger retro --root . --month YYYY-MM
-```
-
-出力先は `records/07-reviews/YYYY/retro-YYYYMM.md`。`approved_decisions`, `submitted_orders`, `filled_positions`, `closed_positions`, `missed_opportunities`, `price_missing_counts` を register から集計する。既存ファイルがある場合は上書きしない。確認だけなら `--dry-run` を使う。
-
-## 7. dry-run 出力
+## 6. dry-run 出力
 
 `baibai-loop-ledger sync --dry-run` は次の prefix で差分を表示する。
 

@@ -33,7 +33,6 @@ from .lane_cohorts import (
     render_lane_cohort_summary,
     run_lane_cohorts,
 )
-from .retro import build_monthly_retro, write_monthly_retro
 from .review_gates import ReviewGate, due_review_gates, weekday_calendar
 from .screening_replay import replay_to_payload, run_replay
 from .selection_ablation import (
@@ -59,14 +58,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="fail when neither J-Quants data nor fallback observations can be loaded",
     )
-    retro_parser = subparsers.add_parser(
-        "retro",
-        help="generate a monthly retro draft from ledger JSONL and optional reviews",
-    )
-    retro_parser.add_argument("--root", type=Path, default=Path.cwd())
-    retro_parser.add_argument("--month", required=True, help="target month (YYYY-MM)")
-    retro_parser.add_argument("--dry-run", action="store_true", help="print draft to stdout")
-    retro_parser.add_argument("--overwrite", action="store_true", help="replace existing draft")
     gates_parser = subparsers.add_parser(
         "review-gates",
         help="list open-position forward review gates (+15bd/+30bd) that are due",
@@ -206,24 +197,6 @@ def main(argv: list[str] | None = None) -> int:
             for line in result.diff_lines:
                 print(line)
         print(f"decisions={result.decision_count}" + (" dry_run=true" if args.dry_run else ""))
-        return 0
-    if args.command == "retro":
-        try:
-            if args.dry_run:
-                draft = build_monthly_retro(args.root, args.month)
-                print(draft.content, end="")
-            else:
-                draft = write_monthly_retro(
-                    args.root,
-                    args.month,
-                    overwrite=args.overwrite,
-                )
-                print(f"wrote {draft.path}")
-        except (FileExistsError, ValueError) as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 1
-        for warning in draft.warnings:
-            print(f"warning: {warning}", file=sys.stderr)
         return 0
     if args.command == "review-gates":
         return _run_review_gates(args.root, _resolve_asof(args.asof))
