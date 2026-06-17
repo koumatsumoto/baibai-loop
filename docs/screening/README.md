@@ -18,21 +18,17 @@ last_reviewed: 2026-05-04
 | --- | --- | --- |
 | [`principles.md`](./principles.md) | contract | screening subsystem の設計原則正本 |
 | [`automation.md`](./automation.md) | runbook / automation | screening CLI の使い方と実装境界 |
-| [`failure-taxonomy.md`](./failure-taxonomy.md) | reference | review / retro で使う失敗分類 |
 | [`extending.md`](./extending.md) | reference | 新 lens / lane / telemetry の拡張点と計測ファースト手順 |
-| [`lane-cohorts-2026-05.md`](./lane-cohorts-2026-05.md) | reference | lane 別 cohort forward-return telemetry の初回スコアボード (2026-05) |
 | [`mechanical.md`](./mechanical.md) | contract | 機械的ふるいの閾値と rule engine の意味論 |
-| [`regime-lens-replay-2026-05.md`](./regime-lens-replay-2026-05.md) | reference | market regime lens の on/off replay 検証 (2026-05) |
-| [`selection-ablation-2026-05.md`](./selection-ablation-2026-05.md) | reference | selection 構成要素・lane 別 ablation の効果計測 (2026-05) |
-| [`tuning-2026-06.md`](./tuning-2026-06.md) | reference | 構造変種の replay 計測と外部検証の記録 (2026-06) |
-| [`sector-sensitivity-map.md`](./sector-sensitivity-map.md) | reference | 東証 33 業種と macro context sector tilt の参考分類 |
 | [`structural-outlook.md`](./structural-outlook.md) | reference | structural outlook annotation と candidate scorecard triage の正本 |
 | [`universe-rules.md`](./universe-rules.md) | contract | screening universe の境界条件 |
 | [`valuation-metrics.md`](./valuation-metrics.md) | reference | valuation 指標の算出仕様 |
+
+dated 計測結果（過去の replay / ablation / regime-lens / lane-cohorts）は [`../../docs/operations/backtest-runbook.md`](../operations/backtest-runbook.md) §6 と [`../../reports/`](../../reports/) に統合済み。新しい計測は backtest-runbook の 7 axis に従い `.cache/` で実施する。
 
 ## 上位 docs
 
 - 成果物 contract: [`../components/candidates.md`](../components/candidates.md)
 - research handoff: [`../components/research.md`](../components/research.md)
 - 操作入口: [`../operations/screening-runbook.md`](../operations/screening-runbook.md)
-- automation map: [`../architecture/automation-map.md`](../architecture/automation-map.md)
+- system 全体: [`../architecture/system-overview.md`](../architecture/system-overview.md)

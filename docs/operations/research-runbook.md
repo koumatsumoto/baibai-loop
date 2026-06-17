@@ -71,7 +71,7 @@ failure mode と validator の挙動:
   - `action: proceed` は hard-block（error）
   - `action: starter` で `near_term_catalyst: true` も `exception_basis: [low_correlation]` も無い場合は warning（規律 nudge）
   - `action: exception` で同条件は error（waiver 基拠を明示するか defer する）
-  根拠は `regime-lens-replay-2026-05.md` の 4w mean rel −4pt と `reports/2026-06-17-trade-strategy-rootcause.md` の counterfactual。
+  根拠は `reports/2026-06-17-trade-strategy-rootcause.md` の root-cause analysis と counterfactual。
 
 ## After writing
 

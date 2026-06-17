@@ -6,7 +6,7 @@ status: active
 last_reviewed: 2026-06-10
 related_docs:
   - "./mechanical.md"
-  - "./selection-ablation-2026-05.md"
+  - "../operations/backtest-runbook.md"
   - "../operations/screening-runbook.md"
 ---
 
@@ -44,7 +44,7 @@ screening / selection / telemetry に機能を足すときの拡張点と検証�
 4. 記録済み candidates で ablation を実行し、`Δfull` と overlap を確認して doc 化する
 5. 効果が観測されない成分は入れない(または diagnostics 専用に留める)
 
-regime lens(`screening/regime.py` + payload 配線)が実装の参考例。検証 doc の書き方は [`regime-lens-replay-2026-05.md`](./regime-lens-replay-2026-05.md) と [`selection-ablation-2026-05.md`](./selection-ablation-2026-05.md) を踏襲する。
+regime lens(`screening/regime.py` + payload 配線)が実装の参考例。検証は [`../operations/backtest-runbook.md`](../operations/backtest-runbook.md) の 7 axis に従う。
 
 ## 新しい lane(playbook screen)を追加する手順
 

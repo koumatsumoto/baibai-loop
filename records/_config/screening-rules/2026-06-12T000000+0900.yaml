@@ -17,9 +17,8 @@ quality:
 output:
   research_selection_target_max: 5
   # lane 優先順位の唯一の正本。推奨 queue の順位付けと primary evidence の選択の
-  # 両方に使う。順序値は推奨 queue の forward 計測で最良だったもの
-  # (docs/screening/selection-ablation-2026-05.md)。変更は config 編集 +
-  # replay / ablation 計測で検証してから行う。
+  # 両方に使う。変更は config 編集 + replay / ablation 計測 (docs/operations/
+  # backtest-runbook.md) で検証してから行う。
   research_selection_lane_order:
   - valuation-reversion
   - strict-net-cash-discount
