@@ -306,9 +306,7 @@ def _check_entry_preflight(
     ):
         basis = as_list(preflight.get("exception_basis"))
         if not any(item in _RALLY_CONTRARIAN_WAIVER_BASES for item in basis):
-            severity: Literal["error", "warning"] = (
-                "error" if action == "exception" else "warning"
-            )
+            severity: Literal["error", "warning"] = "error" if action == "exception" else "warning"
             ret20_phrase = (
                 f"benchmark_return_20d={benchmark_return_20d:+.4f} ({benchmark_ticker})"
                 if benchmark_return_20d is not None
