@@ -18,7 +18,6 @@ from baibai_loop.screening.providers.jquants import (
     JQuantsProviderError,
 )
 from baibai_loop.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
-from baibai_loop.screening.selection import load_profile_overrides
 from baibai_loop.screening.sqlite_reader import (
     read_daily_bars,
     read_market_calendar,
@@ -104,11 +103,6 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("on", "off"),
         default="on",
         help="apply the market regime lens per replay week (default: on)",
-    )
-    replay_parser.add_argument(
-        "--profile-config",
-        type=Path,
-        help="optional YAML file with selection profile overrides for the replayed profiles",
     )
     cohort_parser = subparsers.add_parser(
         "lane-cohorts",
@@ -287,7 +281,6 @@ def _run_screening_replay(args: argparse.Namespace) -> int:
         ledger_root=args.root / "records",
         top=args.top,
         regime_lens=args.regime_lens == "on",
-        profile_overrides=load_profile_overrides(args.profile_config),
     )
     payload = replay_to_payload(result)
     payload["weeks_meta"] = [

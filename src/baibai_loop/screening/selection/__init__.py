@@ -3,7 +3,8 @@
 Module map (extension points):
 
 - ``records``: candidate / prior-research record types and loaders
-- ``profiles``: built-in profile overrides and ``--profile-config`` resolution
+- ``profiles``: built-in profile resolution (``balanced`` is the only profile,
+  inlined into ``records/_config/screening-rules/*.yaml``)
 - ``lenses``: per-candidate annotations (fast dislocation, long-hold) — add a
   new lens here and surface it via ``payload``
 - ``ranking``: sort-key components and ``RankingToggles`` (ablation switches)
@@ -18,7 +19,7 @@ The public API below is the stable surface for the CLI, the ledger telemetry
 from __future__ import annotations
 
 from .payload import build_selection_payload, build_selection_sweep_payload
-from .profiles import load_profile_overrides, resolve_selection_rules
+from .profiles import resolve_selection_rules
 from .ranking import RankingToggles
 from .records import (
     CandidateRecord,
@@ -39,6 +40,5 @@ __all__ = [
     "candidate_record_from_mapping",
     "load_previous_candidates",
     "load_prior_research",
-    "load_profile_overrides",
     "resolve_selection_rules",
 ]

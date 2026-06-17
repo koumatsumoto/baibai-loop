@@ -62,9 +62,9 @@ def build_selection_payload(
     macro_context_ref: str | None,
     previous_candidates: PreviousCandidates | None = None,
     prior_research_by_ticker: Mapping[str, PriorResearch] | None = None,
-    profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
     market_regime: MarketRegimeSnapshot | None = None,
     ranking_toggles: RankingToggles | None = None,
+    profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
     detail: str = "summary",
 ) -> dict[str, object]:
     if detail not in {"summary", "full"}:
@@ -234,7 +234,6 @@ def build_selection_sweep_payload(
     macro_context_ref: str | None,
     previous_candidates: PreviousCandidates | None = None,
     prior_research_by_ticker: Mapping[str, PriorResearch] | None = None,
-    profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
     market_regime: MarketRegimeSnapshot | None = None,
 ) -> dict[str, object]:
     profile_results: list[dict[str, object]] = []
@@ -250,7 +249,6 @@ def build_selection_sweep_payload(
             macro_context_ref=macro_context_ref,
             previous_candidates=previous_candidates,
             prior_research_by_ticker=prior_research_by_ticker,
-            profile_overrides=profile_overrides,
             market_regime=market_regime,
             detail="full",
         )
