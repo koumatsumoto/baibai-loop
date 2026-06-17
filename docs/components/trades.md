@@ -25,7 +25,6 @@ ticker: "7203"
 name: "トヨタ自動車"
 research_ref: records/05-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook_id>.md
 position_state: none | open | closed
-review_state: not_due | scheduled | completed
 trade_execution_state: none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled
 order_intent:
   order_intent_id: intent-YYYYMMDD-<ticker>-buy

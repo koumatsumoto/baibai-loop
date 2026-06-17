@@ -19,7 +19,6 @@ def _trade_front(**overrides: object) -> dict[str, object]:
         "research_ref": "records/05-research/2026/05/2026-05-05-9682-sales-discount-growth.md",
         "position_state": "open",
         "current_quantity": 200,
-        "review_state": "not_due",
         "trade_execution_state": "filled",
         "order_intent": {
             "order_intent_id": "intent-20260505-9682-entry",
@@ -381,7 +380,6 @@ def test_closed_trade_does_not_report_current_portfolio_concentration_caps(
             position_state="closed",
             trade_execution_state="filled",
             current_quantity=0,
-            review_state="closed",
         ),
     )
 

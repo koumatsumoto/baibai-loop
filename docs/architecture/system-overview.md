@@ -12,7 +12,7 @@ related_docs:
 
 # System overview
 
-Baibai-Loop は、日本株の実データを機械的に収集・解析・スコアリングし、その効果を forward 計測で検証し続けるデータ解析基盤です。目的は「お買い得銘柄を拾う最適な取引戦略」を、候補発見、証拠評価、position sizing、実行可否、review attribution、playbook feedback の loop で改善することです。
+Baibai-Loop は、日本株の実データを機械的に収集・解析・スコアリングし、その効果を forward 計測で検証し続けるデータ解析基盤です。目的は「お買い得銘柄を拾う最適な取引戦略」を、候補発見、証拠評価、position sizing、実行可否、forward 計測 (ledger + reports)、playbook feedback の loop で改善することです。
 
 ## 3 層モデル
 
@@ -20,7 +20,7 @@ Baibai-Loop は、日本株の実データを機械的に収集・解析・ス�
 | --- | --- | --- |
 | L1 データ層 | `data/screening/market.sqlite`(J-Quants 価格・財務 / EDINET metrics / JPX 規制) | 全上場銘柄の再現可能な事実。coverage は fail-fast で検証する |
 | L2 分析層 | screen lanes([`../screening/mechanical.md`](../screening/mechanical.md))・selection lenses・軸別スコア・forward telemetry(replay / lane cohorts / ablation) | 決定論的・閾値固定。すべて forward 計測に接続する([`../screening/extending.md`](../screening/extending.md)) |
-| L3 判断層 | `records/`(research / trades / reviews、macro context) | 人間 + AI 下書きの解釈と判断。売買 record が L2 計測の ground truth を供給する |
+| L3 判断層 | `records/`(research / trades、macro context) + `reports/` (ad-hoc forward 計測まとめ) | 人間 + AI 下書きの解釈と判断。売買 record が L2 計測の ground truth を供給する |
 
 AI / スクリプトが利用する安定契約は CLI YAML 出力と SQLite schema の 2 面([`../reference/platform-interface.md`](../reference/platform-interface.md))。下表の decision loop は L3 の中を流れ、L1/L2 が全 stage に事実と計測を供給します。L2 の「分析」は決定論的な機械処理であり、その出力(下表で fact レイヤーと記す candidates)は事実として扱います。人間/AI の解釈を伴う analysis レイヤー(macro context、investment memo)は L3 に属します。
 
@@ -42,12 +42,12 @@ flowchart LR
   macro --> candidates["candidates: screen output"]
   candidates --> research["research: investment memo"]
   research --> trades["trades: execution record"]
-  trades --> reviews["reviews: attribution"]
-  reviews --> playbooks["playbooks"]
+  trades --> reports["reports / backtest"]
+  reports --> playbooks["playbooks"]
   playbooks --> candidates
 ```
 
-Macro context は screening 手前で確認し、必要に応じて深く更新します。個別銘柄 lifecycle は `candidates -> research -> trades -> reviews` で売買判断と feedback を扱います。統合点は investment memo です。
+Macro context は screening 手前で確認し、必要に応じて深く更新します。個別銘柄 lifecycle は `candidates -> research -> trades -> reports` で売買判断と forward 計測 feedback を扱います。統合点は investment memo、forward 計測の正本は [`../operations/backtest-runbook.md`](../operations/backtest-runbook.md) です。
 
 採用可否と sizing cap は portfolio policy と research 判断が担います。Macro context は hard gate ではなく、screening 前提と sector 優先度を整理する入力です。
 
@@ -59,7 +59,7 @@ Macro context は screening 手前で確認し、必要に応じて深く更新�
 - Markdown / YAML と Git を正本にする。ただし週次 screen output(candidates YAML)は再生成可能な L2 機械出力として local store に置き、git には積まない([`../components/candidates.md`](../components/candidates.md) §2)。
 - AI 下書きと人間確認を前提に、事実層と分析層を物理的に分ける。
 - CLI は screening、selection、validation、ledger sync、forward 計測(replay / lane cohorts / ablation)、macro statistics 取得に使う。
-- decision register と reviews は forward-only な検証証跡として扱う。
+- decision register と reports/ の forward 計測まとめは forward-only な検証証跡として扱う。
 
 ## 非目標
 

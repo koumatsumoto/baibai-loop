@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .rule_config import (
     CashflowYieldLane,
+    CashRichLane,
     SalesDiscountGrowthLane,
     ScreeningRules,
     ValuationReversionLane,
@@ -9,12 +10,14 @@ from .rule_config import (
 from .schema import DerivedMetrics, EvidenceHit, FinancialSnapshot, ScreeningResult, TTMQuality
 
 PLAYBOOK_VALUATION_REVERSION = "valuation-reversion"
+PLAYBOOK_CASH_RICH = "cash-rich-asset-discount"
 PLAYBOOK_CASHFLOW_YIELD = "cashflow-yield-discount"
 PLAYBOOK_SALES_DISCOUNT = "sales-discount-growth"
 
 REASON_SECTOR_SELF_RANGE = "sector_median_discount_and_self_range_bottom"
 REASON_PRICE_SIGMA = "price_down_60d_and_valuation_sigma_down"
 REASON_SECTOR_ROTATION = "sector_rotation_short_sell"
+REASON_CASH_RICH = "cash_to_market_cap_price_to_equity_and_equity_ratio"
 REASON_CASHFLOW_YIELD = "ocf_yield_discount"
 REASON_SALES_DISCOUNT = "ps_discount_with_sales_growth"
 
@@ -44,6 +47,13 @@ def evaluate_screening(
                     rules.quality.yoy_deterioration_threshold,
                     null_reasons,
                 )
+            case "cash-rich-asset-discount":
+                if not isinstance(lane, CashRichLane):
+                    continue
+                if _is_excluded_sector(sector_33, lane.excluded_sectors):
+                    null_reasons.append("cash_rich_excluded_sector")
+                    continue
+                hit = _cash_rich_asset_discount(financial, lane, null_reasons)
             case "cashflow-yield-discount":
                 if not isinstance(lane, CashflowYieldLane):
                     continue
@@ -189,6 +199,53 @@ def _condition_c(
     return (
         derived.sector_relative_strength_percentile <= lane.sector_relative_strength_percentile_max
         and derived.ticker_return_4w < derived.sector_return_4w
+    )
+
+
+def _cash_rich_asset_discount(
+    financial: FinancialSnapshot,
+    lane: CashRichLane,
+    null_reasons: list[str],
+) -> EvidenceHit | None:
+    if financial.cash_to_market_cap is None:
+        null_reasons.append("cash_rich_missing_cash_to_market_cap")
+        return None
+    if financial.price_to_equity is None:
+        null_reasons.append("cash_rich_missing_price_to_equity")
+        return None
+    if financial.equity_ratio is None:
+        null_reasons.append("cash_rich_missing_equity_ratio")
+        return None
+    if (
+        lane.edinet_net_cash_to_market_cap_min_if_available is not None
+        and financial.net_cash_to_market_cap is not None
+        and financial.net_cash_to_market_cap < lane.edinet_net_cash_to_market_cap_min_if_available
+    ):
+        null_reasons.append("cash_rich_edinet_net_cash_contradiction")
+        return None
+    if lane.operating_profit_positive_required and (
+        financial.operating_profit is None or financial.operating_profit <= 0
+    ):
+        return None
+    if (
+        financial.cash_to_market_cap < lane.cash_to_market_cap_min
+        or financial.price_to_equity > lane.price_to_equity_max
+        or financial.equity_ratio < lane.equity_ratio_min
+    ):
+        return None
+    return EvidenceHit(
+        name=PLAYBOOK_CASH_RICH,
+        playbook_id=lane.playbook_id,
+        reasons=(REASON_CASH_RICH,),
+        metrics={
+            "cash_to_market_cap": financial.cash_to_market_cap,
+            "net_cash_to_market_cap": financial.net_cash_to_market_cap,
+            "debt": financial.debt,
+            "cash": financial.cash,
+            "price_to_equity": financial.price_to_equity,
+            "equity_ratio": financial.equity_ratio,
+            "operating_profit": financial.operating_profit,
+        },
     )
 
 

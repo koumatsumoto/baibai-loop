@@ -106,12 +106,14 @@ approved n が 1 桁の段階では mean rel の点推定は不安定。`random.
 
 ## 6. 直近の実施記録
 
+新規エントリは **(asof / 計測内容 / ダイジェスト / 結論への反映)** の 4 列必須。ダイジェスト本文は `reports/<asof>-*.md` に dated まとめとして残し、本表からリンクする。「結論への反映」が **defer** の場合は理由を 1 行で書く (例: 「サンプル不足、forward 蓄積 +N 件で再評価」)。
+
 | asof | 計測内容 | ダイジェスト | 結論への反映 |
 | --- | --- | --- | --- |
 | 2026-05 | screening profile replay (balanced/strict/loose × 4 週) | mean rel 4w 全 profile −5.6〜−12.3pt | `balanced` 据え置き |
 | 2026-05 | regime lens on/off | 4w ON −4.03pt vs OFF −9.26pt | regime lens を default ON 化 |
 | 2026-05 | selection ablation | `evidence_count` / `long_hold` / `prior_suppression` が queue 無変化 | sort 成分整理 (#217) |
-| 2026-05 | lane cohorts | `strict-net-cash` / `fcf-yield` lane が top5 不到達 | lane 整理候補 |
+| 2026-05 | lane cohorts | `strict-net-cash` / `fcf-yield` lane が top5 不到達、`cash-rich` が baseline +5.32pt で全 lane 中最強 | `strict-net-cash` / `fcf-yield` 削除、`cash-rich` 維持 (PR #246) |
 | 2026-06-17 | judgment-gate counterfactual / lane × regime cross / bootstrap CI | approved 8 件 rel −3.45pt、95% CI [−7.60, +0.32]、P(<0)=96% | regime gate を judgment 層に実装 (PR #245) |
 
 ダイジェスト本文は [`../../reports/2026-06-17-trade-strategy-rootcause.md`](../../reports/2026-06-17-trade-strategy-rootcause.md) §13、過去の dated 計測 doc は同レポートで上位概念に統合済み。

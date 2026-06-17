@@ -30,7 +30,7 @@ JSONL は 1 行 1 event。current state は同じ `decision_event_id` / correcti
 - `playbook_id` / `playbook_ref`
 - `tracking`
 
-`decision_event_id` は register 内の join key であり、trade record の `order_intent.order_intent_id`、`orders[].origin_order_intent_id`、review attribution の anchor と接続する。
+`decision_event_id` は register 内の join key であり、trade record の `order_intent.order_intent_id`、`orders[].origin_order_intent_id` と接続する。
 
 `candidate_ref` は candidate に紐づく decision event に付く補助ポインタ。candidates は git 外の local store のため、参照先ファイルとの照合は行わない。
 

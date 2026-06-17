@@ -4,7 +4,7 @@ Baibai-Loop の運用上の設計原則を記述する。本原則は [`philosop
 
 ## 1. Decision lifecycle を前提とする
 
-Baibai-Loop は **portfolio policy -> macro context -> candidates -> research -> trades -> reviews -> playbooks feedback** の decision lifecycle で運用する。全ての設計判断はこの lifecycle と責務境界を前提とする。詳細は [`architecture/system-overview.md`](./architecture/system-overview.md) と [`concepts.md`](./concepts.md)。
+Baibai-Loop は **portfolio policy -> macro context -> candidates -> research -> trades -> reports (forward 計測) -> playbooks feedback** の decision lifecycle で運用する。全ての設計判断はこの lifecycle と責務境界を前提とする。詳細は [`architecture/system-overview.md`](./architecture/system-overview.md) と [`concepts.md`](./concepts.md)。
 
 ## 2. 分析階層: 世界情勢 → 地域経済 → 個別資産
 
@@ -114,7 +114,7 @@ Macro context は、screening 前に既存 context が stale / scope mismatch / 
 
 - forward-only な decision register 蓄積 (`records/_ledger/` の判断イベント、entry 後の前進的 attribution)
 - 事前 thesis の文書化 (`records/05-research/`) と事後 fill/exit (`records/06-trades/`) の対比
-- 月次 retro でのプロセス改善 (playbook 改訂は **サンプル数 10 件以上** を条件に検討)
+- 月次 forward 計測 (`backtest-runbook` の 7 axis) でのプロセス改善 (playbook 改訂は **サンプル数 10 件以上** を条件に検討)
 
 ### 9.3 根拠
 

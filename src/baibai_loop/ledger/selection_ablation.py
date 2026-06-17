@@ -47,6 +47,7 @@ FULL_VARIANT = "full"
 
 _LANES: tuple[str, ...] = (
     "valuation-reversion",
+    "cash-rich-asset-discount",
     "cashflow-yield-discount",
     "sales-discount-growth",
 )

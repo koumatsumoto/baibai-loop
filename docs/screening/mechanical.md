@@ -50,7 +50,21 @@ EDINET が無い場合、EV/EBITDA は `unavailable` として判定対象から
 
 銀行・証券・保険・その他金融はこの lane から除外する。金融業の PER / PBR は規制資本・金利環境・与信サイクルの構造要因を含み、事業会社と同じ mean-reversion の前提で機械判定できないため。他 lane と異なり電気・ガス業は除外しない。BS / CF の機械判定が成立しないという他 lane の除外根拠は、相対 valuation の比較には当たらないため。
 
-### 3.2 `cashflow-yield-discount`
+### 3.2 `cash-rich-asset-discount`
+
+CashEq / market cap、price-to-equity、equity ratio を使い、cash-rich / asset discount 候補を拾う。J-Quants 財務サマリーと EDINET 双方を input にする。
+
+- `cash_to_market_cap` が閾値以上
+- `price_to_equity` が閾値以下
+- `equity_ratio` が閾値以上
+- 営業赤字ではない
+- EDINET の `net_cash_to_market_cap` が取得できる場合、設定下限を下回る銘柄は除外（J-Quants CashEq が高くても有利子負債を差し引くと net debt な銘柄を排除）
+
+銀行・証券・保険・その他金融、電気・ガス業は除外する。金融業の balance sheet は意味が異なり、規制設備産業の CashEq / market cap は機械判定として読みにくいため。
+
+`docs/operations/backtest-runbook.md` §6 の 2026-05 lane-cohorts では 4w mean rel −2.14pt (baseline 比 +5.32pt) で全 lane 中最強。本 lane を維持する根拠データ。
+
+### 3.3 `cashflow-yield-discount`
 
 期間正規化した CFO TTM から OCF yield を算出し、営業 CF がプラスで、CF 悪化が大きくない銘柄を拾う。TTM が作れない銘柄はこの lane から除外する。
 
@@ -58,21 +72,19 @@ EDINET が無い場合、EV/EBITDA は `unavailable` として判定対象から
 
 銀行・証券・保険・その他金融、電気・ガス業はこの lane から除外する。金融業の営業 CF は通常の事業会社の現金創出力と同じ意味で比較しにくく、電気・ガス業は設備投資前の OCF yield だけでは割安性を機械判定しにくいため。
 
-この lane は EDINET FCF が作れない銘柄の proxy としても使う。EDINET で `fcf-yield-discount` が成立する銘柄では、research の primary thesis は原則 `fcf-yield-discount` に寄せる。
-
-### 3.3 `sales-discount-growth`
+### 3.4 `sales-discount-growth`
 
 P/S が業種中央値比で安く、売上成長が残る銘柄を拾う。営業赤字銘柄は CFO プラスまたは営業赤字縮小が確認できる場合に限り許容する。
 
 銀行・証券・保険・その他金融はこの lane から除外する。金融業の P/S は通常の事業会社の売上倍率とは意味が異なるため。
 
-### 3.4 OR 条件の意味
+### 3.5 OR 条件の意味
 
 - **最低 1 つ満たせば通過**
 - 複数 screen hit が重なる銘柄は research 優先度を上げる
 - candidates YAML の `evidence_hits[]` に lane 名、playbook、hit reasons、判定に使った metrics を記録する
 
-## 3.5 Selection lens との境界
+## 3.6 Selection lens との境界
 
 `fast_dislocation` と `long_hold_survivability` は `select` 側の lens であり、mechanical screen の hard gate ではない。
 
@@ -84,7 +96,7 @@ P/S が業種中央値比で安く、売上成長が残る銘柄を拾う。営�
 
 この境界により、`records/04-candidates/` は事実層として維持し、短期の値動きや過去 research decision を使った調整は `select` output の `recommendations` / `selection.diagnostics` / `reason_tags` / `risk_tags` に閉じる。
 
-### 3.5.1 Market regime lens
+### 3.6.1 Market regime lens
 
 
 `select` / `select-sweep` は、`data/screening/market.sqlite` の daily bars だけから機械的に market regime snapshot を計算し、ranking lens として使う（`--no-regime-lens` で無効化、SQLite が無ければ自動で無効）。

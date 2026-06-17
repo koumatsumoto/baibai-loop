@@ -429,9 +429,9 @@ class ScreeningCliTests(unittest.TestCase):
                 os.chdir(cwd)
 
     @unittest.skip(
-        "fixture needs re-tuning after lane removal (strict-net-cash / fcf-yield / "
-        "cash-rich removed in cleanup); follow-up to regenerate fake financials so "
-        "the remaining cashflow-yield lane hits."
+        "fixture needs re-tuning after lane removal (strict-net-cash / fcf-yield "
+        "removed in cleanup; cash-rich restored); follow-up to regenerate fake "
+        "financials so cashflow-yield / cash-rich lane hits. See #247."
     )
     def test_run_command_emits_edinet_freshness_warnings_from_disclosure_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1233,6 +1233,7 @@ class SelectCommandTests(unittest.TestCase):
                 payload["selection"]["research_selection_lane_order"],
                 [
                     "valuation-reversion",
+                    "cash-rich-asset-discount",
                     "cashflow-yield-discount",
                     "sales-discount-growth",
                 ],

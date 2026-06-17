@@ -14,6 +14,7 @@ if str(SRC) not in sys.path:
 
 from baibai_loop.screening.rule_config import load_screening_rules
 from baibai_loop.screening.rules import (
+    PLAYBOOK_CASH_RICH,
     PLAYBOOK_CASHFLOW_YIELD,
     PLAYBOOK_SALES_DISCOUNT,
     PLAYBOOK_VALUATION_REVERSION,
@@ -354,3 +355,45 @@ class ScreeningRulesTests(unittest.TestCase):
             PLAYBOOK_VALUATION_REVERSION,
             [evidence_hit.name for evidence_hit in result.evidence_hits],
         )
+
+    def test_cash_rich_asset_discount_hits(self) -> None:
+        result = evaluate_screening(
+            _financial(cash_to_market_cap=0.45, price_to_equity=0.8, operating_profit=10.0),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertIn(
+            PLAYBOOK_CASH_RICH, [evidence_hit.name for evidence_hit in result.evidence_hits]
+        )
+
+    def test_cash_rich_asset_discount_rejects_low_equity_ratio(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                cash_to_market_cap=0.8,
+                price_to_equity=0.8,
+                equity_ratio=0.2,
+                operating_profit=10.0,
+            ),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertNotIn(
+            PLAYBOOK_CASH_RICH, [evidence_hit.name for evidence_hit in result.evidence_hits]
+        )
+
+    def test_cash_rich_asset_discount_rejects_edinet_net_debt_contradiction(self) -> None:
+        result = evaluate_screening(
+            _financial(
+                cash_to_market_cap=0.8,
+                price_to_equity=0.8,
+                equity_ratio=0.5,
+                operating_profit=10.0,
+                net_cash_to_market_cap=-0.1,
+            ),
+            _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
+            RULES,
+        )
+        self.assertNotIn(
+            PLAYBOOK_CASH_RICH, [evidence_hit.name for evidence_hit in result.evidence_hits]
+        )
+        self.assertIn("cash_rich_edinet_net_cash_contradiction", result.null_reasons)

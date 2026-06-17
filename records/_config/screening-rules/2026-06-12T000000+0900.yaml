@@ -21,6 +21,7 @@ output:
   # backtest-runbook.md) で検証してから行う。
   research_selection_lane_order:
   - valuation-reversion
+  - cash-rich-asset-discount
   - cashflow-yield-discount
   - sales-discount-growth
 selection:
@@ -88,6 +89,19 @@ screening_playbooks:
     - pbr
     - ev_ebitda
     playbook_id: valuation-reversion
+  cash-rich-asset-discount:
+    excluded_sectors:
+    - 銀行業
+    - 証券・商品先物取引業
+    - 保険業
+    - その他金融業
+    - 電気・ガス業
+    cash_to_market_cap_min: 0.4
+    edinet_net_cash_to_market_cap_min_if_available: 0.0
+    price_to_equity_max: 1.0
+    equity_ratio_min: 0.3
+    operating_profit_positive_required: true
+    playbook_id: cash-rich-asset-discount
   cashflow-yield-discount:
     excluded_sectors:
     - 銀行業

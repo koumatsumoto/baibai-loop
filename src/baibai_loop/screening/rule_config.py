@@ -64,6 +64,23 @@ class ValuationReversionLane(BaseModel):
         return tuple(value or ())
 
 
+class CashRichLane(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    playbook_id: str
+    excluded_sectors: tuple[str, ...] = ()
+    cash_to_market_cap_min: float = Field(ge=0)
+    edinet_net_cash_to_market_cap_min_if_available: float | None = None
+    price_to_equity_max: float = Field(ge=0)
+    equity_ratio_min: float = Field(ge=0, le=1)
+    operating_profit_positive_required: bool
+
+    @field_validator("excluded_sectors", mode="before")
+    @classmethod
+    def _tuple_excluded_sectors(cls, value: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+        return tuple(value or ())
+
+
 class CashflowYieldLane(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
@@ -248,7 +265,7 @@ class ScreeningRules(BaseModel):
     quality: QualityRules
     screening_playbooks: Mapping[
         str,
-        ValuationReversionLane | CashflowYieldLane | SalesDiscountGrowthLane,
+        ValuationReversionLane | CashRichLane | CashflowYieldLane | SalesDiscountGrowthLane,
     ]
     output: OutputRules
     selection: SelectionRules = Field(default_factory=SelectionRules)
@@ -266,6 +283,8 @@ class ScreeningRules(BaseModel):
             match name:
                 case "valuation-reversion":
                     lanes[name] = ValuationReversionLane.model_validate(data)
+                case "cash-rich-asset-discount":
+                    lanes[name] = CashRichLane.model_validate(data)
                 case "cashflow-yield-discount":
                     lanes[name] = CashflowYieldLane.model_validate(data)
                 case "sales-discount-growth":
