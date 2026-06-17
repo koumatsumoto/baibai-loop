@@ -144,6 +144,21 @@
           }
         },
         "near_term_catalyst": {"type": "boolean"},
+        "market_regime": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["regime", "benchmark_return_20d"],
+          "properties": {
+            "regime": {"enum": ["risk_on_rally", "risk_off_selloff", "neutral_range", "unknown"]},
+            "benchmark_return_20d": {"type": ["number", "null"]},
+            "benchmark_ticker": {"type": "string"},
+            "asof": {"type": "string", "format": "date"},
+            "eval_date": {"type": "string", "format": "date"},
+            "benchmark_return_60d": {"type": ["number", "null"]},
+            "breadth_pct_above_ma20": {"type": ["number", "null"]},
+            "breadth_sample_size": {"type": "integer"}
+          }
+        },
         "action": {"enum": ["proceed", "starter", "defer", "exception"]},
         "exception_basis": {
           "type": "array",

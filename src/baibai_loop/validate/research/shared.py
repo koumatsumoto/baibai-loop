@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
@@ -54,6 +55,34 @@ def _research_record_date(
         except ValueError:
             return None
     return None
+
+
+def _gate_boundary_date(front_matter: Mapping[str, object], *, path: Path | None) -> date | None:
+    """Return the latest of published_at / recorded_at / decided_at / filename.
+
+    Standard `_research_record_date` uses the first available source, which lets
+    a backdated `published_at` slip past an effective-date gate. For
+    gate-boundary comparisons specifically, take the latest signal so a wider
+    surface area (including the tamper-resistant filename) governs whether the
+    gate applies. The filename is git-reviewable and the naming convention is
+    enforced elsewhere, so it is the most tamper-resistant source.
+    """
+    candidates: list[date] = []
+    record_dt = _parse_datetime(front_matter.get("published_at"))
+    if record_dt is not None:
+        candidates.append(record_dt.date())
+    recorded_dt = _parse_datetime(front_matter.get("recorded_at"))
+    if recorded_dt is not None:
+        candidates.append(recorded_dt.date())
+    decision = front_matter.get("research_decision")
+    if isinstance(decision, Mapping):
+        decided_dt = _parse_datetime(decision.get("decided_at"))
+        if decided_dt is not None:
+            candidates.append(decided_dt.date())
+    if path is not None:
+        with contextlib.suppress(ValueError):
+            candidates.append(date.fromisoformat(path.name[:10]))
+    return max(candidates) if candidates else None
 
 
 def _parse_date_value(value: object) -> date | None:

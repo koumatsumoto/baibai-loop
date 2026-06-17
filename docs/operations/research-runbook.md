@@ -38,6 +38,41 @@ Research は `records/04-candidates/` と `records/01-macro-context/` を統合�
 - `research_decision.outcome: deferred` かつ `research_decision.posture: wait_for_event` の場合は、[`task-runbook.md`](./task-runbook.md) に従い、決算後確認タスク issue を作成または既存 issue に紐づける。
 - 訂正が必要な場合は既存行を書き換えず、decision register に correction event を追加する。
 
+## Filling entry_preflight.market_regime
+
+2026-06-17 以降の `approved` research は `entry_preflight.market_regime.regime` が必須。値は `screening/regime.py` の判定（benchmark 20bd return の閾値 ±3%）と一致させる。
+
+paste-ready の方法:
+
+```bash
+# 個別銘柄の packet（regime + relative + events）を取得
+uv run baibai-loop-screening ticker-profile --ticker 4432 --asof 2026-06-17
+
+# 市場全体の regime のみ（複数候補をまとめて評価する場合）
+uv run baibai-loop-screening market-snapshot --asof 2026-06-17
+```
+
+出力の `market_regime` block を front matter にコピーし、最低限以下を残す:
+
+```yaml
+market_regime:
+  regime: risk_on_rally        # or risk_off_selloff / neutral_range / unknown
+  benchmark_return_20d: 0.0748  # ratio (not %)
+  benchmark_ticker: "1321"
+  asof: "2026-06-17"
+  eval_date: "2026-06-17"
+```
+
+failure mode と validator の挙動:
+
+- `data/screening/market.sqlite` が無い fresh checkout では `ticker-profile` が空 regime を返す。`uv run baibai-loop-screening bootstrap-cache --asof YYYY-MM-DD` を先に流す。
+- `regime: unknown` で書くと proceed が hard-block される（unknown は「判定できない」を意味し proceed の根拠にはならない）。bootstrap-cache を流すか `action: defer` を選ぶ。
+- `regime: risk_on_rally` のとき:
+  - `action: proceed` は hard-block（error）
+  - `action: starter` で `near_term_catalyst: true` も `exception_basis: [low_correlation]` も無い場合は warning（規律 nudge）
+  - `action: exception` で同条件は error（waiver 基拠を明示するか defer する）
+  根拠は `regime-lens-replay-2026-05.md` の 4w mean rel −4pt と `reports/2026-06-17-trade-strategy-rootcause.md` の counterfactual。
+
 ## After writing
 
 ```bash
