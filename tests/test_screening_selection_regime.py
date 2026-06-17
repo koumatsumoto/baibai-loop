@@ -200,10 +200,6 @@ class RegimeLensCliArgumentTests(unittest.TestCase):
         self.assertTrue(args.no_regime_lens)
         self.assertEqual(args.sqlite_path, "x.sqlite")
 
-    def test_select_sweep_parser_accepts_regime_lens_arguments(self) -> None:
-        args = build_parser().parse_args(["select-sweep", "--asof", "2026-05-29"])
-        self.assertFalse(args.no_regime_lens)
-
 
 if __name__ == "__main__":
     unittest.main()

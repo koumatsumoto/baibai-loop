@@ -27,13 +27,11 @@ from .cache import (
     extract_edinet_metrics_command,
     verify_cache_coverage_command,
 )
-from .common import _parse_iso_date, _parse_profiles_arg
+from .common import _parse_iso_date
 from .providers import ProviderBundle
 from .query import (
     market_snapshot_command,
-    scorecard_command,
     select_command,
-    select_sweep_command,
     ticker_profile_command,
 )
 from .run import run_command
@@ -144,112 +142,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="selection profile to apply (default: rules.selection.default_profile)",
     )
     select_parser.add_argument(
-        "--profile-config",
-        help="optional YAML file with selection profile overrides",
-    )
-    select_parser.add_argument(
         "--detail",
         choices=("summary", "full"),
         default="summary",
         help="selection output detail (default: summary)",
     )
     _add_regime_lens_arguments(select_parser)
-
-    sweep_parser = subparsers.add_parser(
-        "select-sweep",
-        help="compare multiple selection profiles on the same candidates/macro context inputs",
-    )
-    sweep_parser.add_argument("--asof", required=True, help="screening target date (YYYY-MM-DD)")
-    sweep_parser.add_argument(
-        "--macro-context",
-        help=(
-            "macro context path to apply (default: latest "
-            "records/01-macro-context/<YYYY>/<MM>/macro-context-*.yaml on or before asof)"
-        ),
-    )
-    sweep_parser.add_argument(
-        "--candidates",
-        help=(
-            "candidates YAML path to rank (default: "
-            "records/04-candidates/<YYYY>/<MM>/<YYYY-MM-DD>.yaml)"
-        ),
-    )
-    sweep_parser.add_argument(
-        "--top",
-        type=int,
-        default=10,
-        help="maximum number of candidates to evaluate per profile (default 10)",
-    )
-    sweep_parser.add_argument(
-        "--profiles",
-        default="balanced",
-        help="comma-separated selection profiles to compare (default: balanced)",
-    )
-    sweep_parser.add_argument(
-        "--rules-path",
-        default=str(DEFAULT_RULES_PATH),
-        help=f"screening rules path (default: {DEFAULT_RULES_PATH})",
-    )
-    sweep_parser.add_argument(
-        "--profile-config",
-        help="optional YAML file with selection profile overrides",
-    )
-    _add_regime_lens_arguments(sweep_parser)
-
-    scorecard_parser = subparsers.add_parser(
-        "scorecard",
-        help=(
-            "multi-axis L3 triage: liquid, structurally-tilted shortlist with risk-reward "
-            "axes (analysis aid; the canonical screen/select ranking are unchanged)"
-        ),
-    )
-    scorecard_parser.add_argument(
-        "--asof", required=True, help="screening target date (YYYY-MM-DD)"
-    )
-    scorecard_parser.add_argument(
-        "--candidates",
-        help=(
-            "candidates YAML path to triage (default: "
-            "records/04-candidates/<YYYY>/<MM>/<YYYY-MM-DD>.yaml)"
-        ),
-    )
-    scorecard_parser.add_argument(
-        "--candidates-root",
-        default="records/04-candidates",
-        help="root of recorded candidates YAML (default: records/04-candidates)",
-    )
-    scorecard_parser.add_argument(
-        "--top",
-        type=int,
-        default=12,
-        help="maximum number of shortlist candidates to emit (default 12)",
-    )
-    scorecard_parser.add_argument(
-        "--rules-path",
-        default=str(DEFAULT_RULES_PATH),
-        help=f"screening rules path (default: {DEFAULT_RULES_PATH})",
-    )
-    scorecard_parser.add_argument(
-        "--structural-config",
-        help=(
-            "structural outlook taxonomy YAML "
-            "(default: records/_config/structural-outlook/<latest>.yaml)"
-        ),
-    )
-    scorecard_parser.add_argument(
-        "--include-outlook",
-        action="append",
-        choices=("ai_tailwind", "neutral", "structural_decline"),
-        help=(
-            "structural outlook(s) to keep; repeatable "
-            "(default: ai_tailwind and neutral, i.e. drop structural_decline)"
-        ),
-    )
-    scorecard_parser.add_argument(
-        "--exclude-ticker",
-        default="",
-        help="comma-separated tickers to exclude (e.g. current holdings)",
-    )
 
     profile_parser = subparsers.add_parser(
         "ticker-profile",
@@ -330,37 +228,8 @@ def main(argv: list[str] | None = None) -> int:
             top=args.top,
             rules=load_screening_rules(Path(args.rules_path)),
             profile=args.profile,
-            profile_config_path=Path(args.profile_config) if args.profile_config else None,
             detail=args.detail,
             regime_sqlite_path=None if args.no_regime_lens else Path(args.sqlite_path),
-        )
-
-    if args.command == "select-sweep":
-        return select_sweep_command(
-            asof_date=_parse_iso_date(args.asof),
-            candidates_path=Path(args.candidates) if args.candidates else None,
-            macro_context_path=Path(args.macro_context) if args.macro_context else None,
-            top=args.top,
-            profiles=_parse_profiles_arg(args.profiles),
-            rules=load_screening_rules(Path(args.rules_path)),
-            profile_config_path=Path(args.profile_config) if args.profile_config else None,
-            regime_sqlite_path=None if args.no_regime_lens else Path(args.sqlite_path),
-        )
-
-    if args.command == "scorecard":
-        # scorecard reads existing candidates YAML and local config only; no
-        # provider credentials are needed.
-        return scorecard_command(
-            asof_date=_parse_iso_date(args.asof),
-            candidates_path=Path(args.candidates) if args.candidates else None,
-            candidates_root=Path(args.candidates_root),
-            top=args.top,
-            rules=load_screening_rules(Path(args.rules_path)),
-            structural_config_path=(
-                Path(args.structural_config) if args.structural_config else None
-            ),
-            include_outlooks=args.include_outlook,
-            exclude_tickers=_parse_profiles_arg(args.exclude_ticker),
         )
 
     if args.command == "ticker-profile":

@@ -14,7 +14,6 @@ from .providers import ProviderBundle
 from .query import (
     market_snapshot_command,
     select_command,
-    select_sweep_command,
     ticker_profile_command,
 )
 from .run import run_command
@@ -28,7 +27,6 @@ __all__ = [
     "market_snapshot_command",
     "run_command",
     "select_command",
-    "select_sweep_command",
     "ticker_profile_command",
     "verify_cache_coverage_command",
 ]

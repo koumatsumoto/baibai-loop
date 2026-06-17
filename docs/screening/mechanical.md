@@ -91,7 +91,6 @@ P/S が業種中央値比で安く、売上成長が残る銘柄を拾う。営�
 - `fast_dislocation` は急落銘柄を拾うが、急落だけでは通さず、OCF / FCF / net cash / equity buffer / sales+profit の fundamental guard を原則 2 件以上、かつ cash-flow / balance-sheet / profitability の guard family を原則 2 系統以上要求する。出来高 spike と 52 週安値距離は補助情報であり、価格下落なしでは eligible にしない
 - fast_dislocation には stabilization annotation が付く(直近 1 営業日リターンが 0 以上 = 下げ止まりの最小限の反証。固定閾値)。fast boost が有効な局面では、stabilized な急落銘柄を未だ下落中の銘柄より上位に置く(boost が regime lens で中立化されている間は不発)。計測経路は selection-ablation の `no_stabilization` variant
 - `long_hold_survivability` は `high|medium|low|unknown` の annotation。短期 thesis が外れたときの保有耐性を早く見るための補助で、採用可否を単独では決めず、ranking にも使わない(ranking 寄与の計測手順は [`../operations/backtest-runbook.md`](../operations/backtest-runbook.md) §3-C)
-- `structural_outlook` は `ai_tailwind|neutral|structural_decline` の annotation。候補事業が長期 AI 構造追い風を受けるか、構造的に縮小する需要かを示し、research が long-hold quality を評価する補助にする。`select` の sort_key には使わず(forward 計測規律と「AI を ranking / validator rule にしない」portfolio policy に従う)、`structural_config` が渡されたときだけ `lenses.structural_outlook` と `diagnostics.structural_outlook_counts` に出す。taxonomy の正本は [`structural-outlook.md`](./structural-outlook.md)
 - lane の優先順位は config の `output.research_selection_lane_order` を唯一の正本とし、推奨 queue の順位付けと primary evidence の選択の両方に使う。順序値の変更は config 編集 + replay / ablation 計測で検証する
 
 この境界により、`records/04-candidates/` は事実層として維持し、短期の値動きや過去 research decision を使った調整は `select` output の `recommendations` / `selection.diagnostics` / `reason_tags` / `risk_tags` に閉じる。
