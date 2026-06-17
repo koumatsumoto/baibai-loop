@@ -265,6 +265,20 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
       required 化する
 - [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。
       commit 前に `rg -n "except [A-Za-z0-9_.]+, [A-Za-z0-9_.]+" src tests` が 0 件であることを確認する
+- [ ] **`entry_preflight.market_regime` のような judgment-gate field を追加する場合、以下の
+      bypass パターンを必ず test で塞ぐ** (PR #245 で 5 名レビューで発覚した想定例):
+  - [ ] `regime: unknown` のような「データ不在」label で hard_trigger を回避できないか
+        (proceed が通ってしまわないか)
+  - [ ] label と背後の数値 (例 `benchmark_return_20d`) の不整合 (`neutral_range` を装って実際は
+        +10% rally) が catch されるか
+  - [ ] gate 有効日 (`_REGIME_GATE_EFFECTIVE_DATE`) の boundary (前日が gate 対象外、当日が対象)
+        を test しているか
+  - [ ] backdated `published_at` で gate 有効日を回避できないか (filename / recorded_at の
+        max を使うか別関数 `_gate_boundary_date` で防御)
+  - [ ] partial mapping (`market_regime: {benchmark_return_20d: 0.05}` のように `regime` key を
+        欠落させる) が `required` 違反として catch されるか
+  - [ ] `action: exception` × waiver basis (`low_correlation` 等) なしで warning でなく error
+        が出るか (warning だけだと operator が clickthrough で抜けられる)
 
 ## 9. AP-09: 外部 AI 分析を検証せず records に取り込む
 

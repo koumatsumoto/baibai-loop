@@ -73,7 +73,8 @@ entry_preflight:
     regime: risk_on_rally
     benchmark_return_20d: 0.0748
     benchmark_ticker: '1321'
-    evaluated_on: '2026-06-16'
+    asof: '2026-06-16'
+    eval_date: '2026-06-16'
   tactical_exposure_after_order:
     sector_33_pct: 41.39
     playbook_pct: 15.41

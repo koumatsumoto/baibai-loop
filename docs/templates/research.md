@@ -43,12 +43,18 @@ entry_preflight:
   market_relative_return_pct: 0.0
   sector_or_peer_relative_return_pct: 0.0
   macro_freshness: current
+  market_regime:
+    regime: risk_on_rally | risk_off_selloff | neutral_range | unknown
+    benchmark_return_20d: 0.0
+    benchmark_ticker: "1321"
+    asof: "YYYY-MM-DD"
+    eval_date: "YYYY-MM-DD"
   tactical_exposure_after_order:
     sector_33_pct: 0.0
     playbook_pct: 0.0
   near_term_catalyst: false
   action: proceed
-  reason: "[relative return / macro freshness / exposure を踏まえた entry 判断]"
+  reason: "[relative return / macro freshness / exposure / market regime を踏まえた entry 判断]"
 sector_33: "情報・通信業"
 published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 ---
