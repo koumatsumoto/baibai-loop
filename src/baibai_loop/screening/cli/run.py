@@ -32,7 +32,6 @@ from baibai_loop.screening.providers.jquants import (
 from baibai_loop.screening.render import JST, build_output_path, render_screened_yaml
 from baibai_loop.screening.rule_config import (
     CashflowYieldLane,
-    FcfYieldLane,
     SalesDiscountGrowthLane,
     ScreeningRules,
     load_screening_rules,
@@ -508,8 +507,6 @@ def _required_ttm_non_exact_count(
     for lane in rules.screening_playbooks.values():
         if isinstance(lane, CashflowYieldLane) and lane.ttm_cfo_required:
             required_qualities.extend(snapshot.ttm_quality_ocf_yield for snapshot in snapshots)
-        if isinstance(lane, FcfYieldLane) and lane.fcf_required:
-            required_qualities.extend(snapshot.ttm_quality_fcf_yield for snapshot in snapshots)
         if isinstance(lane, SalesDiscountGrowthLane):
             required_qualities.extend(snapshot.ttm_quality_p_s for snapshot in snapshots)
     return sum(1 for quality in required_qualities if quality != TTMQuality.EXACT)

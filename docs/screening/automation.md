@@ -122,7 +122,7 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 閾値の正本は `records/_config/screening-rules/2026-06-12T000000+0900.yaml`。実装側の hardcode は parser default と型定義に留め、運用で変える閾値は YAML に寄せる。
 
 - scope / 絞り込み: `universe.required_jpx_flags`(記録対象の規制 flag)と `selection.liquidity`(時価総額・平均売買代金・上場期間・JPX 規制の分析層パラメータ)
-- playbook-linked screen 閾値: `valuation-reversion` / `strict-net-cash-discount` / `fcf-yield-discount` / `cash-rich-asset-discount` / `cashflow-yield-discount` / `sales-discount-growth`
+- playbook-linked screen 閾値: `valuation-reversion` / `cashflow-yield-discount` / `sales-discount-growth`
 - TTM 期間一致基準: partial period の許容日数差、FY 期間長
 - 品質条件: 売上 YoY、営業利益、営業 CF 悪化、赤字縮小条件
 - `EV/EBITDA` は `ttm_quality = exact` かつ EV / EBITDA がどちらも正のときのみ判定に使う。EDINET が無い場合、または EV / EBITDA がゼロ以下の場合は `unavailable` / `null` として他 metric で degrade する

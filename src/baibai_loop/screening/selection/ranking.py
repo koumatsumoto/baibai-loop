@@ -99,24 +99,9 @@ def _evidence_strength_key(name: str, metrics: Mapping[str, object]) -> tuple[fl
                 float_or(metrics.get("condition_b_sigma_gap"), 1.0),
                 float_or(metrics.get("price_change_60d"), 1.0),
             )
-        case "cash-rich-asset-discount":
-            return (
-                -float_or(metrics.get("cash_to_market_cap"), 0.0),
-                float_or(metrics.get("price_to_equity"), 99.0),
-            )
-        case "strict-net-cash-discount":
-            return (
-                -float_or(metrics.get("net_cash_to_market_cap"), 0.0),
-                float_or(metrics.get("price_to_equity"), 99.0),
-            )
         case "cashflow-yield-discount":
             return (
                 -float_or(metrics.get("ocf_yield"), 0.0),
-                -float_or(metrics.get("cfo_yoy"), -99.0),
-            )
-        case "fcf-yield-discount":
-            return (
-                -float_or(metrics.get("fcf_yield"), 0.0),
                 -float_or(metrics.get("cfo_yoy"), -99.0),
             )
         case "sales-discount-growth":

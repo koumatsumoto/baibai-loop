@@ -1,40 +1,22 @@
 from __future__ import annotations
 
-from datetime import date
-
 from .rule_config import (
     CashflowYieldLane,
-    CashRichLane,
-    FcfYieldLane,
     SalesDiscountGrowthLane,
     ScreeningRules,
-    StrictNetCashLane,
     ValuationReversionLane,
 )
 from .schema import DerivedMetrics, EvidenceHit, FinancialSnapshot, ScreeningResult, TTMQuality
 
 PLAYBOOK_VALUATION_REVERSION = "valuation-reversion"
-PLAYBOOK_CASH_RICH = "cash-rich-asset-discount"
 PLAYBOOK_CASHFLOW_YIELD = "cashflow-yield-discount"
-PLAYBOOK_STRICT_NET_CASH = "strict-net-cash-discount"
-PLAYBOOK_FCF_YIELD = "fcf-yield-discount"
 PLAYBOOK_SALES_DISCOUNT = "sales-discount-growth"
 
 REASON_SECTOR_SELF_RANGE = "sector_median_discount_and_self_range_bottom"
 REASON_PRICE_SIGMA = "price_down_60d_and_valuation_sigma_down"
 REASON_SECTOR_ROTATION = "sector_rotation_short_sell"
-REASON_CASH_RICH = "cash_to_market_cap_price_to_equity_and_equity_ratio"
 REASON_CASHFLOW_YIELD = "ocf_yield_discount"
-REASON_STRICT_NET_CASH = "net_cash_to_market_cap_price_to_equity_and_equity_ratio"
-REASON_FCF_YIELD = "fcf_yield_discount"
 REASON_SALES_DISCOUNT = "ps_discount_with_sales_growth"
-
-_FCF_FAILURE_REASON_PREFIXES = (
-    "csv_parse_failed",
-    "non_consolidated_fallback",
-    "tag_not_found:capex",
-    "tag_not_found:ocf",
-)
 
 
 def evaluate_screening(
@@ -62,13 +44,6 @@ def evaluate_screening(
                     rules.quality.yoy_deterioration_threshold,
                     null_reasons,
                 )
-            case "cash-rich-asset-discount":
-                if not isinstance(lane, CashRichLane):
-                    continue
-                if _is_excluded_sector(sector_33, lane.excluded_sectors):
-                    null_reasons.append("cash_rich_excluded_sector")
-                    continue
-                hit = _cash_rich_asset_discount(financial, lane, null_reasons)
             case "cashflow-yield-discount":
                 if not isinstance(lane, CashflowYieldLane):
                     continue
@@ -76,20 +51,6 @@ def evaluate_screening(
                     null_reasons.append("cashflow_yield_excluded_sector")
                     continue
                 hit = _cashflow_yield_discount(financial, lane, null_reasons)
-            case "strict-net-cash-discount":
-                if not isinstance(lane, StrictNetCashLane):
-                    continue
-                if _is_excluded_sector(sector_33, lane.excluded_sectors):
-                    null_reasons.append("strict_net_cash_excluded_sector")
-                    continue
-                hit = _strict_net_cash_discount(financial, lane, null_reasons)
-            case "fcf-yield-discount":
-                if not isinstance(lane, FcfYieldLane):
-                    continue
-                if _is_excluded_sector(sector_33, lane.excluded_sectors):
-                    null_reasons.append("fcf_yield_excluded_sector")
-                    continue
-                hit = _fcf_yield_discount(financial, lane, null_reasons)
             case "sales-discount-growth":
                 if not isinstance(lane, SalesDiscountGrowthLane):
                     continue
@@ -231,53 +192,6 @@ def _condition_c(
     )
 
 
-def _cash_rich_asset_discount(
-    financial: FinancialSnapshot,
-    lane: CashRichLane,
-    null_reasons: list[str],
-) -> EvidenceHit | None:
-    if financial.cash_to_market_cap is None:
-        null_reasons.append("cash_rich_missing_cash_to_market_cap")
-        return None
-    if financial.price_to_equity is None:
-        null_reasons.append("cash_rich_missing_price_to_equity")
-        return None
-    if financial.equity_ratio is None:
-        null_reasons.append("cash_rich_missing_equity_ratio")
-        return None
-    if (
-        lane.edinet_net_cash_to_market_cap_min_if_available is not None
-        and financial.net_cash_to_market_cap is not None
-        and financial.net_cash_to_market_cap < lane.edinet_net_cash_to_market_cap_min_if_available
-    ):
-        null_reasons.append("cash_rich_edinet_net_cash_contradiction")
-        return None
-    if lane.operating_profit_positive_required and (
-        financial.operating_profit is None or financial.operating_profit <= 0
-    ):
-        return None
-    if (
-        financial.cash_to_market_cap < lane.cash_to_market_cap_min
-        or financial.price_to_equity > lane.price_to_equity_max
-        or financial.equity_ratio < lane.equity_ratio_min
-    ):
-        return None
-    return EvidenceHit(
-        name=PLAYBOOK_CASH_RICH,
-        playbook_id=lane.playbook_id,
-        reasons=(REASON_CASH_RICH,),
-        metrics={
-            "cash_to_market_cap": financial.cash_to_market_cap,
-            "net_cash_to_market_cap": financial.net_cash_to_market_cap,
-            "debt": financial.debt,
-            "cash": financial.cash,
-            "price_to_equity": financial.price_to_equity,
-            "equity_ratio": financial.equity_ratio,
-            "operating_profit": financial.operating_profit,
-        },
-    )
-
-
 def _cashflow_yield_discount(
     financial: FinancialSnapshot,
     lane: CashflowYieldLane,
@@ -305,106 +219,6 @@ def _cashflow_yield_discount(
             "ocf_ttm": financial.ocf_ttm,
             "cfo_yoy": financial.cfo_yoy,
             "ttm_quality": financial.ttm_quality_ocf_yield.value,
-        },
-    )
-
-
-def _strict_net_cash_discount(
-    financial: FinancialSnapshot,
-    lane: StrictNetCashLane,
-    null_reasons: list[str],
-) -> EvidenceHit | None:
-    if financial.ttm_quality_net_cash == TTMQuality.UNAVAILABLE:
-        null_reasons.append("strict_net_cash_unavailable")
-        return None
-    if _has_edinet_failure_reason(financial, "debt_assumed_zero"):
-        null_reasons.append("strict_net_cash_debt_assumed_zero")
-        return None
-    if financial.net_cash_to_market_cap is None:
-        null_reasons.append("strict_net_cash_missing_net_cash_to_market_cap")
-        return None
-    if financial.price_to_equity is None:
-        null_reasons.append("strict_net_cash_missing_price_to_equity")
-        return None
-    if financial.equity_ratio is None:
-        null_reasons.append("strict_net_cash_missing_equity_ratio")
-        return None
-    if lane.operating_profit_positive_required and (
-        financial.operating_profit is None or financial.operating_profit <= 0
-    ):
-        return None
-    if (
-        financial.net_cash_to_market_cap < lane.net_cash_to_market_cap_min
-        or financial.price_to_equity > lane.price_to_equity_max
-        or financial.equity_ratio < lane.equity_ratio_min
-    ):
-        return None
-    return EvidenceHit(
-        name=PLAYBOOK_STRICT_NET_CASH,
-        playbook_id=lane.playbook_id,
-        reasons=(REASON_STRICT_NET_CASH,),
-        metrics={
-            "net_cash": financial.net_cash,
-            "net_cash_to_market_cap": financial.net_cash_to_market_cap,
-            "debt": financial.debt,
-            "cash": financial.cash,
-            "price_to_equity": financial.price_to_equity,
-            "equity_ratio": financial.equity_ratio,
-            "operating_profit": financial.operating_profit,
-            "ttm_quality": financial.ttm_quality_net_cash.value,
-            "edinet_source_doc_id": financial.edinet_source_doc_id,
-            "edinet_document_type": financial.edinet_document_type,
-            "edinet_source_submit_datetime": financial.edinet_source_submit_datetime,
-            "edinet_source_period_start": _date_iso(financial.edinet_source_period_start),
-            "edinet_source_period_end": _date_iso(financial.edinet_source_period_end),
-            "edinet_failure_reasons": financial.edinet_failure_reasons,
-        },
-    )
-
-
-def _fcf_yield_discount(
-    financial: FinancialSnapshot,
-    lane: FcfYieldLane,
-    null_reasons: list[str],
-) -> EvidenceHit | None:
-    if financial.ttm_quality_fcf_yield != TTMQuality.EXACT:
-        null_reasons.append("fcf_yield_ttm_not_exact")
-        return None
-    if lane.fcf_required and financial.fcf_ttm is None:
-        null_reasons.append("fcf_yield_missing_fcf")
-        return None
-    if financial.edinet_ocf_ttm is None:
-        null_reasons.append("fcf_yield_missing_edinet_ocf")
-        return None
-    if lane.cfo_yoy_required and financial.cfo_yoy is None:
-        null_reasons.append("fcf_yield_missing_cfo_yoy")
-        return None
-    if financial.cfo_yoy is not None and financial.cfo_yoy < lane.cfo_yoy_min:
-        return None
-    if financial.fcf_ttm is None or financial.fcf_ttm <= 0:
-        return None
-    if financial.fcf_yield is None or financial.fcf_yield < lane.fcf_yield_min:
-        return None
-    return EvidenceHit(
-        name=PLAYBOOK_FCF_YIELD,
-        playbook_id=lane.playbook_id,
-        reasons=(REASON_FCF_YIELD,),
-        metrics={
-            "fcf_yield": financial.fcf_yield,
-            "fcf_ttm": financial.fcf_ttm,
-            "edinet_ocf_ttm": financial.edinet_ocf_ttm,
-            "capex_ttm": financial.capex_ttm,
-            "cfo_yoy": financial.cfo_yoy,
-            "ttm_quality": financial.ttm_quality_fcf_yield.value,
-            "edinet_source_doc_id": financial.edinet_source_doc_id,
-            "edinet_document_type": financial.edinet_document_type,
-            "edinet_source_submit_datetime": financial.edinet_source_submit_datetime,
-            "edinet_source_period_start": _date_iso(financial.edinet_source_period_start),
-            "edinet_source_period_end": _date_iso(financial.edinet_source_period_end),
-            "edinet_capex_source": financial.edinet_capex_source,
-            "edinet_failure_reasons": _edinet_failure_reasons_matching(
-                financial, _FCF_FAILURE_REASON_PREFIXES
-            ),
         },
     )
 
@@ -453,32 +267,6 @@ def _sales_operating_profit_gate(
         (financial.ocf_ttm is not None and financial.ocf_ttm > 0)
         or financial.operating_profit_loss_narrowing
     )
-
-
-def _has_edinet_failure_reason(financial: FinancialSnapshot, reason: str) -> bool:
-    return reason in _edinet_failure_reasons(financial)
-
-
-def _edinet_failure_reasons_matching(
-    financial: FinancialSnapshot, prefixes: tuple[str, ...]
-) -> str | None:
-    matched = [
-        reason
-        for reason in _edinet_failure_reasons(financial)
-        if any(reason.startswith(prefix) for prefix in prefixes)
-    ]
-    return ",".join(matched) if matched else None
-
-
-def _edinet_failure_reasons(financial: FinancialSnapshot) -> tuple[str, ...]:
-    reasons = financial.edinet_failure_reasons
-    if reasons is None:
-        return ()
-    return tuple(item.strip() for item in reasons.split(",") if item.strip())
-
-
-def _date_iso(value: date | None) -> str | None:
-    return value.isoformat() if value is not None else None
 
 
 def _has_deterioration(financial: FinancialSnapshot, deterioration_threshold: float) -> bool:

@@ -21,9 +21,6 @@ output:
   # backtest-runbook.md) で検証してから行う。
   research_selection_lane_order:
   - valuation-reversion
-  - strict-net-cash-discount
-  - fcf-yield-discount
-  - cash-rich-asset-discount
   - cashflow-yield-discount
   - sales-discount-growth
 selection:
@@ -91,31 +88,6 @@ screening_playbooks:
     - pbr
     - ev_ebitda
     playbook_id: valuation-reversion
-  strict-net-cash-discount:
-    excluded_sectors:
-    - 銀行業
-    - 証券・商品先物取引業
-    - 保険業
-    - その他金融業
-    - 電気・ガス業
-    net_cash_to_market_cap_min: 0.3
-    price_to_equity_max: 1.0
-    equity_ratio_min: 0.3
-    operating_profit_positive_required: true
-    playbook_id: strict-net-cash-discount
-  cash-rich-asset-discount:
-    excluded_sectors:
-    - 銀行業
-    - 証券・商品先物取引業
-    - 保険業
-    - その他金融業
-    - 電気・ガス業
-    cash_to_market_cap_min: 0.4
-    edinet_net_cash_to_market_cap_min_if_available: 0.0
-    price_to_equity_max: 1.0
-    equity_ratio_min: 0.3
-    operating_profit_positive_required: true
-    playbook_id: cash-rich-asset-discount
   cashflow-yield-discount:
     excluded_sectors:
     - 銀行業
@@ -128,18 +100,6 @@ screening_playbooks:
     cfo_yoy_min: -0.2
     cfo_yoy_required: true
     playbook_id: cashflow-yield-discount
-  fcf-yield-discount:
-    excluded_sectors:
-    - 銀行業
-    - 証券・商品先物取引業
-    - 保険業
-    - その他金融業
-    - 電気・ガス業
-    fcf_yield_min: 0.08
-    fcf_required: true
-    cfo_yoy_min: -0.2
-    cfo_yoy_required: true
-    playbook_id: fcf-yield-discount
   sales-discount-growth:
     excluded_sectors:
     - 銀行業

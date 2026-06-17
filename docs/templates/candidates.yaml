@@ -78,9 +78,6 @@ ttm_quality_counts:
   unavailable: 1
 evidence_hits_summary:
   valuation-reversion: 1
-  strict-net-cash-discount: 0
-  fcf-yield-discount: 0
-  cash-rich-asset-discount: 0
   cashflow-yield-discount: 0
   sales-discount-growth: 0
 fallback_lines:

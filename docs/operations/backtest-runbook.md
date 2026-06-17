@@ -85,7 +85,7 @@ approved n が 1 桁の段階では mean rel の点推定は不安定。`random.
 
 ### Axis G — regime × lane クロステーブル
 
-`(playbook, regime) -> mean rel` のクロステーブルを出す。regime 別に lane の頑健性が違うはず（fcf-yield-discount は rally で −16pt、valuation-reversion は −0.5pt のように）。
+`(playbook, regime) -> mean rel` のクロステーブルを出す。regime 別に lane の頑健性が違う前提で観察する (2026-05 観測では valuation-reversion が rally に頑健、cashflow-yield が劣後など)。
 
 ## 4. 再現性の手順
 
