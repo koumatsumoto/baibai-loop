@@ -15,6 +15,7 @@ if str(SRC) not in sys.path:
 
 from baibai_loop.screening.sqlite_cache import open_connection
 from baibai_loop.screening.sqlite_coverage import verify_screening_sqlite_coverage
+from tests.helpers.screening_sqlite import add_source_coverage as _add_source_coverage
 
 _DATA_TABLES = (
     "jquants_daily_bars",
@@ -32,32 +33,6 @@ _DATA_TABLES = (
 def _verify_screening_sqlite_coverage(*args, **kwargs):
     with patch("baibai_loop.screening.sqlite_coverage.jquants._MIN_COMMON_STOCK_MASTER_ROWS", 100):
         return verify_screening_sqlite_coverage(*args, **kwargs)
-
-
-def _add_source_coverage(
-    conn: sqlite3.Connection,
-    *,
-    source: str,
-    coverage_key: str,
-    record_count: int,
-    min_date: str,
-    max_date: str,
-) -> None:
-    fetched_at = datetime.now(UTC).isoformat()
-    conn.execute(
-        "INSERT OR REPLACE INTO source_coverage("
-        "source, coverage_key, coverage_start, coverage_end, fetched_at_utc, record_count, status"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (
-            source,
-            coverage_key,
-            min_date,
-            max_date,
-            fetched_at,
-            record_count,
-            "ok",
-        ),
-    )
 
 
 def _populate_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:

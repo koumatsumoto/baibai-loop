@@ -9,7 +9,6 @@ client, so any unexpected fall-through raises and fails the test.
 
 from __future__ import annotations
 
-import sqlite3
 import sys
 import tempfile
 import unittest
@@ -28,24 +27,7 @@ from baibai_loop.screening.config import ScreeningConfig
 from baibai_loop.screening.providers import EDINETProvider, JPXProvider, JQuantsProvider
 from baibai_loop.screening.render import JST, build_output_path
 from baibai_loop.screening.sqlite_cache import open_connection
-
-
-def _add_source_coverage(
-    conn: sqlite3.Connection,
-    *,
-    source: str,
-    path: str,
-    record_count: int,
-    min_date: str,
-    max_date: str,
-) -> None:
-    fetched_at = datetime.now(UTC).isoformat()
-    conn.execute(
-        "INSERT OR REPLACE INTO source_coverage("
-        "source, coverage_key, coverage_start, coverage_end, fetched_at_utc, record_count, status"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (source, path, min_date, max_date, fetched_at, record_count, "ok"),
-    )
+from tests.helpers.screening_sqlite import add_source_coverage
 
 
 def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
@@ -83,10 +65,10 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             1,
         ),
     )
-    _add_source_coverage(
+    add_source_coverage(
         conn,
         source="jquants_master_snapshots",
-        path="records/_data/raw/screening/jquants/get_eq_master.json",
+        coverage_key="records/_data/raw/screening/jquants/get_eq_master.json",
         record_count=1,
         min_date=asof.isoformat(),
         max_date=asof.isoformat(),
@@ -125,10 +107,10 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     # Mark the API request bracket the screening run will use; the
     # JQuantsProvider chunks at 31 days but the coverage check tolerates a
     # single import that contains the full window.
-    _add_source_coverage(
+    add_source_coverage(
         conn,
         source="jquants_daily_bars",
-        path=(
+        coverage_key=(
             f"records/_data/raw/screening/jquants/"
             f"get_eq_bars_daily_range-end_dt-{history_end.isoformat()}-"
             f"start_dt-{bars_start.isoformat()}.json"
@@ -181,10 +163,10 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
         ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         fin_rows,
     )
-    _add_source_coverage(
+    add_source_coverage(
         conn,
         source="jquants_fin_summaries",
-        path=(
+        coverage_key=(
             f"records/_data/raw/screening/jquants/"
             f"get_fin_summary_range-end_dt-{asof.isoformat()}-"
             f"start_dt-{fin_start.isoformat()}.json"
@@ -204,10 +186,10 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             ticker,
         ),
     )
-    _add_source_coverage(
+    add_source_coverage(
         conn,
         source="jquants_earnings_calendar",
-        path="records/_data/raw/screening/jquants/get_eq_earnings_cal.json",
+        coverage_key="records/_data/raw/screening/jquants/get_eq_earnings_cal.json",
         record_count=1,
         min_date=asof.isoformat(),
         max_date=(asof + timedelta(days=90)).isoformat(),
@@ -226,10 +208,10 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
         "INSERT INTO jquants_market_calendar(day, is_business_day) VALUES (?, ?)",
         calendar_rows,
     )
-    _add_source_coverage(
+    add_source_coverage(
         conn,
         source="jquants_market_calendar",
-        path="records/_data/raw/screening/jquants/get_mkt_calendar-from_yyyymmdd-X-to_yyyymmdd-Y.json",
+        coverage_key="records/_data/raw/screening/jquants/get_mkt_calendar-from_yyyymmdd-X-to_yyyymmdd-Y.json",
         record_count=history_days,
         min_date=history_start.isoformat(),
         max_date=history_end.isoformat(),
@@ -255,10 +237,10 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             "unavailable",
         ),
     )
-    _add_source_coverage(
+    add_source_coverage(
         conn,
         source="edinet_metrics",
-        path=f"records/_data/raw/screening/edinet/metrics/{asof.isoformat()}.json",
+        coverage_key=f"records/_data/raw/screening/edinet/metrics/{asof.isoformat()}.json",
         record_count=1,
         min_date=asof.isoformat(),
         max_date=asof.isoformat(),
@@ -287,10 +269,10 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             ),
         ],
     )
-    _add_source_coverage(
+    add_source_coverage(
         conn,
         source="jpx_regulation_flags",
-        path=f"records/_data/raw/screening/jpx/regulations/{asof.isoformat()}.json",
+        coverage_key=f"records/_data/raw/screening/jpx/regulations/{asof.isoformat()}.json",
         record_count=0,
         min_date=asof.isoformat(),
         max_date=asof.isoformat(),

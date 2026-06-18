@@ -5,7 +5,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
-from datetime import UTC, date, datetime
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +30,7 @@ from baibai_loop.screening.sqlite_reader import (
     read_edinet_metrics,
     read_jpx_regulations,
 )
+from tests.helpers.screening_sqlite import add_source_coverage
 
 
 def _add_source_coverage(
@@ -38,20 +39,13 @@ def _add_source_coverage(
     source: str,
     date_iso: str,
 ) -> None:
-    fetched_at = datetime.now(UTC).isoformat()
-    conn.execute(
-        "INSERT OR REPLACE INTO source_coverage("
-        "source, coverage_key, coverage_start, coverage_end, fetched_at_utc, record_count, status"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (
-            source,
-            date_iso,
-            date_iso,
-            date_iso,
-            fetched_at,
-            1,
-            "ok",
-        ),
+    add_source_coverage(
+        conn,
+        source=source,
+        coverage_key=date_iso,
+        record_count=1,
+        min_date=date_iso,
+        max_date=date_iso,
     )
 
 
