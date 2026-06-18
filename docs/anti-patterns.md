@@ -350,7 +350,43 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] 外部市場予測 (例: Gartner / IDC / 証券サイトの同業倍率) は、今回の canonical fact として
       採用するなら macro context / research の source として明示し、未確認なら「判断補助・未採用」として分離したか
 
-## 10. PR review で繰り返し指摘される類型の追跡
+## 10. AP-10: hot path の YAML 読み込みを pure-Python loader で書く
+
+### 観測された症状
+
+- `screening-replay` の wall time が 17 秒。cProfile を取るまで「screening のロジックが遅い」と
+  思い込み、YAML パースが 93% を占めていることに気付かなかった
+- `yaml.safe_load(...)` を素朴に使い、libyaml backed の `yaml.CSafeLoader` に切り替えるだけで
+  5 倍速くなる事実を見落とした
+- `src/baibai_loop/validate/research/shared.py` だけが private に
+  `_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)` を持っており、他 14 src 件は
+  pure-Python loader のままだった (知識のサイロ化)
+
+### 根本原因
+
+- `yaml.safe_load` は安全だが、デフォルトで pure-Python loader を使う。`yaml.CSafeLoader` の
+  存在を明示しなければ libyaml の C 実装は呼ばれない
+- hot path の判定を勘で行い、cProfile を取らずに「ロジックの 1 pass 化」「並列化」など
+  micro-optimization を先に検討してしまう
+
+### 再発防止チェックリスト
+
+- [ ] **YAML 読み込みは必ず `from baibai_loop.yaml_io import safe_load` 経由**で書く。
+      `yaml.safe_load(...)` / `yaml.load(...)` を直接呼ぶ src コードは書かない
+- [ ] 新規 src モジュールで YAML 読み込みを足すときは `yaml_io.safe_load` が import されているか
+      確認する。`grep -rn "yaml.safe_load" src/` は常に zero を保つ
+- [ ] perf 候補を挙げる前に **cProfile で実 hot path を確定**する。
+      `python -c "import cProfile; cProfile.run('...')` で cumulative time を取り、
+      改善対象が cumtime の何 % か数字で示す
+- [ ] perf 改善は **before/after で wall time を 5 runs 計測**し、stdev の 3σ を超える
+      改善のみ「意味あり」として PR に取り込む。±1% は noise として defer
+
+### `yaml.dump` 側
+
+`yaml.dump` / `yaml.safe_dump` 側の hot path も同様に `yaml.CSafeDumper` を使えば加速できるが、
+write side は read side ほど呼ばれないため P2 の改善候補 (cli/query.py / ledger/cli.py の 6 箇所)。
+
+## 11. PR review で繰り返し指摘される類型の追跡
 
 PR で同じ anti-pattern が 2 ラウンド以上指摘されたら、本ドキュメントの該当節を強化または
 新節として追加する。直近の事例:
@@ -361,7 +397,7 @@ PR で同じ anti-pattern が 2 ラウンド以上指摘されたら、本ドキ
 | #68 | 2 | AP-01 (TSMC Capex / Sovereign AI 未確認のまま outlook で断定継続)、AP-05 (brief への分析混入)、AP-06 (outlook source_refs と brief 不整合 35 箇所)、AP-07 (OPEC+ 5/3 反映漏れ、PCE 5/28 ではなく 5/30) |
 | #77 | 1 | AP-06 (outlook source_refs と春闘 fact の不整合)、AP-08 (submitted order / paper-real size 分離の validator 死角)、AP-09 (別AI分析で rejected→approved を暗黙 override、注文と約定の状態分離不足) |
 
-## 11. 関連ドキュメント
+## 12. 関連ドキュメント
 
 - 思想・基本方針: [`philosophy.md`](./philosophy.md)
 - 事実 / 分析の分離: [`design-principles.md`](./design-principles.md) §4

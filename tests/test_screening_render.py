@@ -5,8 +5,6 @@ import unittest
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from baibai_loop.yaml_io import safe_load
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -25,6 +23,7 @@ from baibai_loop.screening.schema import (
     TTMQuality,
     normalize_ticker,
 )
+from baibai_loop.yaml_io import safe_load
 
 
 class ScreeningRenderTests(unittest.TestCase):

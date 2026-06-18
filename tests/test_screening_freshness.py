@@ -7,8 +7,6 @@ import unittest
 from datetime import date, datetime
 from pathlib import Path
 
-from baibai_loop.yaml_io import safe_load
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -19,6 +17,7 @@ from baibai_loop.screening.freshness import (
     load_disclosure_events,
 )
 from baibai_loop.screening.schema import FinancialSnapshot
+from baibai_loop.yaml_io import safe_load
 
 
 def _financial(source_submit_datetime: str | None = "2025-10-15 12:00") -> FinancialSnapshot:

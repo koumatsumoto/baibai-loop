@@ -15,8 +15,6 @@ import unittest
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-from baibai_loop.yaml_io import safe_load
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -27,6 +25,7 @@ from baibai_loop.screening.config import ScreeningConfig
 from baibai_loop.screening.providers import EDINETProvider, JPXProvider, JQuantsProvider
 from baibai_loop.screening.render import JST, build_output_path
 from baibai_loop.screening.sqlite_cache import open_connection
+from baibai_loop.yaml_io import safe_load
 from tests.helpers.screening_sqlite import add_source_coverage
 
 
