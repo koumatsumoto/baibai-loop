@@ -17,7 +17,7 @@ from .schema import (
     TTMQuality,
 )
 
-VALUATION_METRICS = ("per_trailing", "pbr", "ev_ebitda", "p_s")
+VALUATION_METRICS = ("per_forward", "per_trailing", "pbr", "ev_ebitda", "p_s")
 
 # 自己レンジ / sigma gap が前提にする約 3 年の価格履歴窓(暦日)。listing 起点の
 # short_history_flag では検出できない「上場は古いが bar 履歴に長期ギャップがある」

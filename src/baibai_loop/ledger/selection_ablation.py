@@ -21,6 +21,7 @@ from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 
+from baibai_loop.screening.regime import MarketRegimeSnapshot, compute_market_regime
 from baibai_loop.screening.rule_config import ScreeningRules
 from baibai_loop.screening.selection import (
     CandidateRecord,
@@ -140,7 +141,12 @@ def run_selection_ablation(
     effective_profile = profile or rules.selection.default_profile
     recommended: dict[tuple[date, str], tuple[str, ...]] = {}
     for spec in weeks:
-        inputs = _load_week_inputs(spec, candidates_root=candidates_root, ledger_root=ledger_root)
+        inputs = _load_week_inputs(
+            spec,
+            candidates_root=candidates_root,
+            ledger_root=ledger_root,
+            sqlite_path=sqlite_path,
+        )
         for variant in variants:
             recommended[(spec.asof, variant.name)] = _recommended_tickers(
                 inputs,
@@ -260,6 +266,7 @@ class _WeekInputs:
     candidates: tuple[CandidateRecord, ...]
     previous_candidates: PreviousCandidates
     prior_research: Mapping[str, PriorResearch]
+    market_regime: MarketRegimeSnapshot | None
 
 
 def _load_week_inputs(
@@ -267,6 +274,8 @@ def _load_week_inputs(
     *,
     candidates_root: Path,
     ledger_root: Path,
+    sqlite_path: Path,
+    regime_lens: bool = True,
 ) -> _WeekInputs:
     candidates = tuple(
         candidate_record_from_mapping(item) for item in load_week_candidates(spec.candidates_path)
@@ -278,6 +287,7 @@ def _load_week_inputs(
             candidates_root, spec.asof, current_path=spec.candidates_path
         ),
         prior_research=load_prior_research(ledger_root / "_ledger/research-decisions", spec.asof),
+        market_regime=compute_market_regime(sqlite_path, spec.asof) if regime_lens else None,
     )
 
 
@@ -309,6 +319,7 @@ def _recommended_tickers(
             {profile: _NO_DIVERSITY_OVERRIDES} if variant.disable_diversity else None
         ),
         ranking_toggles=variant.ranking_toggles,
+        market_regime=inputs.market_regime,
     )
     recommendations = payload.get("recommendations")
     if not isinstance(recommendations, Sequence):

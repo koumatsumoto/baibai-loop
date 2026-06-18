@@ -1233,8 +1233,8 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(
                 payload["selection"]["research_selection_lane_order"],
                 [
-                    "valuation-reversion",
                     "cash-rich-asset-discount",
+                    "valuation-reversion",
                     "cashflow-yield-discount",
                     "sales-discount-growth",
                 ],
@@ -1397,9 +1397,9 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = safe_load(buffer.getvalue())
             # research_selection_lane_order is the single lane priority: the
-            # valuation-reversion candidate outranks strict-net-cash, and the
-            # same-sector diversity cap then drops the second 機械 name.
-            self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["1111"])
+            # valuation-reversion candidate outranks the alternative-lane peers.
+            # Sector cap=2 keeps both 機械 names through to recommended.
+            self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["1111", "2222"])
             self.assertEqual(self._recommended(payload)[0]["selection_lane"], "valuation-reversion")
 
     def test_select_preserves_freshness_warnings_across_outputs(self) -> None:
