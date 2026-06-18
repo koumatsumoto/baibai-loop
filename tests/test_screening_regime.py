@@ -11,7 +11,7 @@ from baibai_loop.screening.regime import (
     classify_market_regime,
     compute_market_regime,
 )
-from baibai_loop.screening.sqlite_cache import open_connection
+from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 
 def _insert_bars(
@@ -21,20 +21,7 @@ def _insert_bars(
     *,
     end: date,
 ) -> None:
-    conn = open_connection(sqlite_path)
-    try:
-        start = end - timedelta(days=len(closes) - 1)
-        conn.executemany(
-            "INSERT OR REPLACE INTO jquants_daily_bars(ticker, traded_at, close, adjustment_close)"
-            " VALUES (?, ?, ?, ?)",
-            [
-                (ticker, (start + timedelta(days=index)).isoformat(), close, close)
-                for index, close in enumerate(closes)
-            ],
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    insert_daily_bars_from_closes(sqlite_path, ticker, closes, end_date=end)
 
 
 def _rising_closes(count: int, *, start: float, step: float) -> list[float]:

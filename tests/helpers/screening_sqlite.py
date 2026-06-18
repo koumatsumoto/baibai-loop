@@ -8,7 +8,10 @@ in real test code.
 from __future__ import annotations
 
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+
+from baibai_loop.screening.sqlite_cache import open_connection
 
 
 def add_source_coverage(
@@ -30,3 +33,43 @@ def add_source_coverage(
         ") VALUES (?, ?, ?, ?, ?, ?, ?)",
         (source, coverage_key, min_date, max_date, fetched_at, record_count, status),
     )
+
+
+def insert_daily_bars_from_closes(
+    sqlite_path: Path,
+    ticker: str,
+    closes: list[float],
+    *,
+    end_date: date,
+    turnover_value: float | None = None,
+) -> None:
+    """Insert ``len(closes)`` consecutive daily bars ending on ``end_date``.
+
+    ``adjustment_close`` mirrors ``close`` (the test fixtures are unadjusted by
+    design). ``turnover_value`` is included only when supplied, so callers that
+    do not need a turnover column do not get a non-NULL row.
+    """
+    start = end_date - timedelta(days=len(closes) - 1)
+    if turnover_value is None:
+        columns = "ticker, traded_at, close, adjustment_close"
+        rows: list[tuple[object, ...]] = [
+            (ticker, (start + timedelta(days=index)).isoformat(), close, close)
+            for index, close in enumerate(closes)
+        ]
+        placeholders = "?, ?, ?, ?"
+    else:
+        columns = "ticker, traded_at, close, adjustment_close, turnover_value"
+        rows = [
+            (ticker, (start + timedelta(days=index)).isoformat(), close, close, turnover_value)
+            for index, close in enumerate(closes)
+        ]
+        placeholders = "?, ?, ?, ?, ?"
+    conn = open_connection(sqlite_path)
+    try:
+        conn.executemany(
+            f"INSERT OR REPLACE INTO jquants_daily_bars({columns}) VALUES ({placeholders})",
+            rows,
+        )
+        conn.commit()
+    finally:
+        conn.close()
