@@ -4,8 +4,9 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from baibai_loop.yaml_io import safe_load
 
 DEFAULT_RULES_PATH = Path("records/_config/screening-rules/2026-06-12T000000+0900.yaml")
 
@@ -309,7 +310,7 @@ class ScreeningRules(BaseModel):
 def load_screening_rules(path: Path = DEFAULT_RULES_PATH) -> ScreeningRules:
     if not path.exists() and not path.is_absolute():
         path = Path(__file__).resolve().parents[3] / path
-    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    payload = safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(payload, Mapping):
         raise ValueError(f"screening rules root must be a mapping: {path}")
     return ScreeningRules.model_validate(payload)

@@ -12,6 +12,7 @@ import yaml
 from jsonschema import Draft202012Validator
 
 from baibai_loop.macro_context import parse_datetime
+from baibai_loop.yaml_io import safe_load
 
 from .errors import ValidationFinding
 
@@ -26,7 +27,7 @@ def discover_macro_context_files(root: Path) -> list[Path]:
 
 def validate_macro_context_file(path: Path) -> list[ValidationFinding]:
     try:
-        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        payload = safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
         return [
             ValidationFinding(

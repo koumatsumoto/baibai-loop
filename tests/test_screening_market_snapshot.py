@@ -6,11 +6,10 @@ import unittest
 from datetime import date, timedelta
 from pathlib import Path
 
-import yaml
-
 from baibai_loop.screening.cli import build_parser, market_snapshot_command
 from baibai_loop.screening.market_snapshot import build_market_snapshot
 from baibai_loop.screening.sqlite_cache import open_connection
+from baibai_loop.yaml_io import safe_load
 
 _ASOF = date(2026, 5, 29)
 
@@ -124,7 +123,7 @@ class MarketSnapshotCliTests(unittest.TestCase):
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             self.assertEqual(payload["asof"], _ASOF.isoformat())
             self.assertEqual(len(payload["points"]), 2)
 

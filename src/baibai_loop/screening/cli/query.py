@@ -35,6 +35,7 @@ from baibai_loop.screening.selection import (
 )
 from baibai_loop.screening.sqlite_reader import latest_daily_bar_date
 from baibai_loop.screening.ticker_profile import build_ticker_profile
+from baibai_loop.yaml_io import safe_load
 
 from .common import _NoAliasDumper, _parse_iso_date
 
@@ -293,7 +294,7 @@ def _load_candidate_records(path: Path) -> tuple[CandidateRecord, ...]:
     replay loaders), so new screen facts never need a second registration here.
     Only the structural shape is checked.
     """
-    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    payload = safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("candidates YAML root must be a mapping")
     raw_candidates = payload.get("candidates", [])

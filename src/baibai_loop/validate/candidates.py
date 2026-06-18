@@ -16,6 +16,8 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
+from baibai_loop.yaml_io import safe_load
+
 from .errors import ValidationFinding
 
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "candidates.json"
@@ -46,7 +48,7 @@ def validate_candidates_file(path: Path) -> list[ValidationFinding]:
             )
         ]
     try:
-        document = yaml.safe_load(text)
+        document = safe_load(text)
     except yaml.YAMLError as exc:
         return [
             ValidationFinding(

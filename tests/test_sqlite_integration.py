@@ -15,7 +15,7 @@ import unittest
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-import yaml
+from baibai_loop.yaml_io import safe_load
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -330,7 +330,7 @@ class ScreeningRunOverSqliteTests(unittest.TestCase):
                 output_path = build_output_path(asof)
                 self.assertIn(exit_code, (0, 2))
                 self.assertTrue(output_path.exists(), "screening YAML should be written")
-                payload = yaml.safe_load(output_path.read_text(encoding="utf-8"))
+                payload = safe_load(output_path.read_text(encoding="utf-8"))
                 self.assertEqual(payload["asof_date"], asof.isoformat())
                 self.assertEqual(payload["run_id"], f"screening-{asof:%Y%m%d}")
             finally:

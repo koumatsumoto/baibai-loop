@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-import yaml
+from baibai_loop.yaml_io import safe_load
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +43,7 @@ def discover_week_specs(candidates_root: Path, holdout_weeks: int = 0) -> list[W
 
 def load_week_candidates(candidates_path: Path) -> tuple[Mapping[str, object], ...]:
     """Load a weekly candidates YAML and return its candidate mappings."""
-    payload = yaml.safe_load(candidates_path.read_text(encoding="utf-8"))
+    payload = safe_load(candidates_path.read_text(encoding="utf-8"))
     if not isinstance(payload, Mapping):
         raise ValueError(f"invalid candidates YAML: {candidates_path}")
     raw_candidates = payload.get("candidates")

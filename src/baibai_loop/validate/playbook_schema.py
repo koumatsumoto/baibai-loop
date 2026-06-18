@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
+from baibai_loop.yaml_io import safe_load
 
 from .errors import ValidationFinding
 
@@ -39,7 +39,7 @@ def load_playbook_schema(root: Path, playbook: str) -> PlaybookSchema:
     schema_path = root / playbook / "body-schema.yaml"
     if not schema_path.exists():
         raise FileNotFoundError(f"playbook schema not found: {schema_path}")
-    raw = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
+    raw = safe_load(schema_path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise PlaybookSchemaError(f"schema root must be a mapping: {schema_path}")
     sections_raw = raw.get("body_sections")

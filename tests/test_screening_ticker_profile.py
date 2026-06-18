@@ -11,6 +11,7 @@ import yaml
 from baibai_loop.screening.cli import build_parser, ticker_profile_command
 from baibai_loop.screening.sqlite_cache import open_connection
 from baibai_loop.screening.ticker_profile import build_ticker_profile
+from baibai_loop.yaml_io import safe_load
 
 _ASOF = date(2026, 5, 29)
 
@@ -201,7 +202,7 @@ class TickerProfileCliTests(unittest.TestCase):
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             self.assertEqual(payload["ticker"], "AAAA")
             price = payload["price"]
             self.assertEqual(price["bar_count"], 30)

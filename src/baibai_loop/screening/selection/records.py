@@ -8,8 +8,6 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-import yaml
-
 from baibai_loop.coerce import (
     date_from_datetime_prefix,
     dict_sequence,
@@ -20,6 +18,7 @@ from baibai_loop.coerce import (
     string_or_none,
     string_sequence,
 )
+from baibai_loop.yaml_io import safe_load
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,7 +219,7 @@ def load_previous_candidates(
     if not matches:
         return PreviousCandidates(ref_path=None, tickers=())
     _, _, _, latest_path = sorted(matches)[-1]
-    payload = yaml.safe_load(latest_path.read_text(encoding="utf-8"))
+    payload = safe_load(latest_path.read_text(encoding="utf-8"))
     if not isinstance(payload, Mapping):
         return PreviousCandidates(ref_path=latest_path.as_posix(), tickers=())
     tickers = tuple(

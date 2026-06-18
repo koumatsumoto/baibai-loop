@@ -14,6 +14,7 @@ from baibai_loop.validate.domain import (
     resolve_repository_ref,
 )
 from baibai_loop.validate.errors import ValidationFinding
+from baibai_loop.yaml_io import safe_load
 
 
 def _check_reference_refs(
@@ -110,7 +111,7 @@ def _check_repository_ref(
         if ref_path.suffix == ".md":
             load_reference_mapping(root, value)
         else:
-            loaded = yaml.safe_load(ref_path.read_text(encoding="utf-8"))
+            loaded = safe_load(ref_path.read_text(encoding="utf-8"))
             if not isinstance(loaded, Mapping):
                 raise ValueError("referenced YAML must be a mapping")
     except (OSError, ValueError, yaml.YAMLError) as exc:
