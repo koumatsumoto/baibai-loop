@@ -4,7 +4,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +15,7 @@ if str(SRC) not in sys.path:
 
 from baibai_loop.screening.providers.jquants import JQuantsProvider, JQuantsProviderError
 from baibai_loop.screening.sqlite_cache import open_connection, store_jquants_daily_bars
+from tests.helpers.screening_sqlite import add_source_coverage
 
 
 class _RecordingClient:
@@ -67,20 +68,13 @@ def _add_source_coverage(
     max_date: str,
     path: str | None = None,
 ) -> None:
-    fetched_at = datetime.now(UTC).isoformat()
-    conn.execute(
-        "INSERT OR REPLACE INTO source_coverage("
-        "source, coverage_key, coverage_start, coverage_end, fetched_at_utc, record_count, status"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (
-            source,
-            path or f"sqlite:{source}",
-            min_date,
-            max_date,
-            fetched_at,
-            record_count,
-            "ok",
-        ),
+    add_source_coverage(
+        conn,
+        source=source,
+        coverage_key=path or f"sqlite:{source}",
+        record_count=record_count,
+        min_date=min_date,
+        max_date=max_date,
     )
 
 

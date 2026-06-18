@@ -116,5 +116,6 @@ approved n が 1 桁の段階では mean rel の点推定は不安定。`random.
 | 2026-05 | lane cohorts | `strict-net-cash` / `fcf-yield` lane が top5 不到達、`cash-rich` が baseline +5.32pt で全 lane 中最強 | `strict-net-cash` / `fcf-yield` 削除、`cash-rich` 維持 (PR #246) |
 | 2026-06-17 | judgment-gate counterfactual / lane × regime cross / bootstrap CI | approved 8 件 rel −3.45pt、95% CI [−7.60, +0.32]、P(<0)=96% | regime gate を judgment 層に実装 (PR #245) |
 | 2026-06-18 | cleanup round 2 (scorecard / structural / breadth / 8w / profile YAML) replay before/after diff | mean rel diff +0.00pt × 3 wave | 削除は forward 計測の no-regression を満たす (PR #248) |
+| 2026-06-18 | cleanup round 3 (HorizonReturn.benchmark_return / concentration diagnostics / add_source_coverage helper) replay diff 6 週 (2026-05-01 〜 2026-06-12) | recommended_tickers 完全一致 6/6 週、mean_relative diff +0.00pt | 削除は forward 計測の no-regression を満たす、6 週 multi-period で検証 |
 
 ダイジェスト本文は [`../../reports/2026-06-17-trade-strategy-rootcause.md`](../../reports/2026-06-17-trade-strategy-rootcause.md) §13、過去の dated 計測 doc は同レポートで上位概念に統合済み。

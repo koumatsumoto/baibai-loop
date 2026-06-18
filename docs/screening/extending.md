@@ -48,7 +48,7 @@ regime lens(`screening/regime.py` + payload 配線)が実装の参考例。検�
 
 ## 新しい lane(playbook screen)を追加する手順
 
-1. `rule_config.py` に lane の Pydantic 設定クラスを追加し、`records/_config/screening-rules/` に**新しい effective-dated YAML** を作って閾値を定義する(既存版は履歴として残す)
+1. `rule_config.py` に lane の Pydantic 設定クラスを追加し、`records/_config/screening-rules/` に**新しい asof-tagged YAML** を作って閾値を定義する(既存版は履歴として残す)
 2. `rules.py` の `evaluate_screening` に評価関数を追加する(null 理由を `null_reasons` に残し、判定の透明性を保つ)
 3. lane の優先順位は config の `output.research_selection_lane_order` に追記する(**コードに順序を書かない**。順序の正本は config 1 箇所)
 4. 数週分の candidates が貯まったら `lane-cohorts` で母集団の forward return を計測し、`selection-ablation` の `drop_lane:<新 lane>` で推奨 queue への寄与を確認する

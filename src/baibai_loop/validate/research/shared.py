@@ -61,11 +61,11 @@ def _gate_boundary_date(front_matter: Mapping[str, object], *, path: Path | None
     """Return the latest of published_at / recorded_at / decided_at / filename.
 
     Standard `_research_record_date` uses the first available source, which lets
-    a backdated `published_at` slip past an effective-date gate. For
-    gate-boundary comparisons specifically, take the latest signal so a wider
-    surface area (including the tamper-resistant filename) governs whether the
-    gate applies. The filename is git-reviewable and the naming convention is
-    enforced elsewhere, so it is the most tamper-resistant source.
+    a backdated `published_at` slip past an asof gate. For gate-boundary
+    comparisons specifically, take the latest signal so a wider surface area
+    (including the tamper-resistant filename) governs whether the gate applies.
+    The filename is git-reviewable and the naming convention is enforced
+    elsewhere, so it is the most tamper-resistant source.
     """
     candidates: list[date] = []
     record_dt = _parse_datetime(front_matter.get("published_at"))

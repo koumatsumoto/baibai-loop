@@ -29,7 +29,6 @@ class HorizonReturn:
     resolved: bool
     price: float | None
     return_ratio: float | None
-    benchmark_return: float | None
     relative: float | None
 
 
@@ -75,7 +74,6 @@ def compute_ticker_forward_returns(
                     resolved=False,
                     price=None,
                     return_ratio=None,
-                    benchmark_return=None,
                     relative=None,
                 )
             )
@@ -100,7 +98,6 @@ def compute_ticker_forward_returns(
                 resolved=True,
                 price=price,
                 return_ratio=return_ratio,
-                benchmark_return=benchmark_return,
                 relative=relative,
             )
         )
