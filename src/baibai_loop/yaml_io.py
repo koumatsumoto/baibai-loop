@@ -26,4 +26,7 @@ _SafeLoader: type[yaml.SafeLoader] = getattr(yaml, "CSafeLoader", yaml.SafeLoade
 
 def safe_load(stream: str | bytes) -> Any:
     """Parse a YAML document with the C-accelerated SafeLoader when available."""
-    return yaml.load(stream, Loader=_SafeLoader)
+    # _SafeLoader is yaml.CSafeLoader (preferred) or yaml.SafeLoader (fallback);
+    # both restrict construction to YAML's safe subset, so this is not the
+    # unsafe yaml.load(stream) the bandit B506 check warns about.
+    return yaml.load(stream, Loader=_SafeLoader)  # nosec B506
