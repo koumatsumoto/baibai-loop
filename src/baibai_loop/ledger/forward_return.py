@@ -19,7 +19,7 @@ from .tracking import resolve_price_on_or_before
 # whose target is after the cached price coverage are reported as unresolved
 # rather than silently dropped, so replay weeks too recent for a horizon do not
 # masquerade as a zero return.
-DEFAULT_HORIZON_WEEKS: tuple[int, ...] = (1, 4, 8)
+DEFAULT_HORIZON_WEEKS: tuple[int, ...] = (1, 4)
 
 
 @dataclass(frozen=True, slots=True)

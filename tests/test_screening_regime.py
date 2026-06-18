@@ -66,27 +66,14 @@ class ComputeMarketRegimeTests(unittest.TestCase):
         asof = date(2026, 5, 29)
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "market.sqlite"
-            # Benchmark up ~5% over the last 20 bars; two of three breadth
-            # tickers close above their own 20-bar moving average.
+            # Benchmark up ~5% over the last 20 bars.
             _insert_bars(sqlite_path, "1321", _rising_closes(25, start=100.0, step=0.25), end=asof)
-            _insert_bars(sqlite_path, "AAAA", _rising_closes(20, start=50.0, step=0.5), end=asof)
-            _insert_bars(sqlite_path, "BBBB", _rising_closes(20, start=80.0, step=0.2), end=asof)
-            _insert_bars(
-                sqlite_path,
-                "CCCC",
-                _rising_closes(20, start=120.0, step=-0.5),
-                end=asof,
-            )
-            snapshot = compute_market_regime(sqlite_path, asof, min_breadth_sample=3)
+            snapshot = compute_market_regime(sqlite_path, asof)
             assert snapshot is not None
             self.assertEqual(snapshot.asof, asof)
             self.assertEqual(snapshot.eval_date, asof)
-            self.assertIsNotNone(snapshot.benchmark_return_20d)
             assert snapshot.benchmark_return_20d is not None
             self.assertGreater(snapshot.benchmark_return_20d, 0.03)
-            self.assertEqual(snapshot.breadth_sample_size, 4)
-            assert snapshot.breadth_pct_above_ma20 is not None
-            self.assertGreaterEqual(snapshot.breadth_pct_above_ma20, 0.55)
             self.assertIs(snapshot.regime, MarketRegime.RISK_ON_RALLY)
 
     def test_compute_degrades_to_unknown_when_history_too_short(self) -> None:
@@ -94,10 +81,9 @@ class ComputeMarketRegimeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "market.sqlite"
             _insert_bars(sqlite_path, "1321", _rising_closes(5, start=100.0, step=1.0), end=asof)
-            snapshot = compute_market_regime(sqlite_path, asof, min_breadth_sample=3)
+            snapshot = compute_market_regime(sqlite_path, asof)
             assert snapshot is not None
             self.assertIsNone(snapshot.benchmark_return_20d)
-            self.assertIsNone(snapshot.breadth_pct_above_ma20)
             self.assertIs(snapshot.regime, MarketRegime.UNKNOWN)
 
     def test_compute_ignores_bars_after_asof(self) -> None:
@@ -116,7 +102,7 @@ class ComputeMarketRegimeTests(unittest.TestCase):
                 conn.commit()
             finally:
                 conn.close()
-            snapshot = compute_market_regime(sqlite_path, asof, min_breadth_sample=1)
+            snapshot = compute_market_regime(sqlite_path, asof)
             assert snapshot is not None
             self.assertEqual(snapshot.eval_date, asof)
             assert snapshot.benchmark_return_20d is not None

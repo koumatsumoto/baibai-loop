@@ -12,16 +12,13 @@ The classification is trend-only by design. Fast-dislocation picks
 anti-momentum names (recent heavy decliners); when benchmark momentum is
 strongly positive those laggards mechanically underperform whether the rally
 is broad or narrow — 2026-05 itself was a narrow rally (benchmark +8.7 to
-+17.4% over 20 bars with breadth below 45%). Breadth is still computed and
-recorded
-as a fact field for diagnostics and future refinement, but it does not gate
-the label.
++17.4% over 20 bars). Breadth was previously recorded as a diagnostic field
+but did not gate the label, so it was removed in cleanup round 2.
 """
 
 from __future__ import annotations
 
 import sqlite3
-from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
 from enum import StrEnum
@@ -37,10 +34,13 @@ SELLOFF_RETURN_20D_MAX = -0.03
 
 TREND_WINDOW_BARS = 20
 LONG_TREND_WINDOW_BARS = 60
+
+# market_snapshot uses these for the weekly history packet (fact layer only,
+# never gates the label). They live here so market_snapshot stays in sync with
+# the regime classifier window.
 BREADTH_MA_WINDOW_BARS = 20
 DEFAULT_MIN_BREADTH_SAMPLE = 100
 
-_BREADTH_LOOKBACK_CALENDAR_DAYS = 60
 _BENCHMARK_LOOKBACK_CALENDAR_DAYS = 150
 
 
@@ -58,8 +58,6 @@ class MarketRegimeSnapshot:
     eval_date: date
     benchmark_return_20d: float | None
     benchmark_return_60d: float | None
-    breadth_pct_above_ma20: float | None
-    breadth_sample_size: int
     regime: MarketRegime
 
     def to_dict(self) -> dict[str, object]:
@@ -69,8 +67,6 @@ class MarketRegimeSnapshot:
             "eval_date": self.eval_date.isoformat(),
             "benchmark_return_20d": self.benchmark_return_20d,
             "benchmark_return_60d": self.benchmark_return_60d,
-            "breadth_pct_above_ma20": self.breadth_pct_above_ma20,
-            "breadth_sample_size": self.breadth_sample_size,
             "regime": self.regime.value,
         }
 
@@ -91,7 +87,6 @@ def compute_market_regime(
     asof_date: date,
     *,
     benchmark_ticker: str = NIKKEI225_ETF_PROXY,
-    min_breadth_sample: int = DEFAULT_MIN_BREADTH_SAMPLE,
 ) -> MarketRegimeSnapshot | None:
     """Compute the regime snapshot from cached daily bars as of ``asof_date``.
 
@@ -102,77 +97,49 @@ def compute_market_regime(
     """
     if not sqlite_path.exists():
         return None
-    benchmark_series = _load_close_series(
+    benchmark_series = _load_benchmark_series(
         sqlite_path,
         asof_date,
-        lookback_days=_BENCHMARK_LOOKBACK_CALENDAR_DAYS,
         ticker=benchmark_ticker,
-    ).get(benchmark_ticker, [])
-    breadth_series = _load_close_series(
-        sqlite_path,
-        asof_date,
-        lookback_days=_BREADTH_LOOKBACK_CALENDAR_DAYS,
     )
-    eval_date = _latest_traded_date(benchmark_series, breadth_series)
-    if eval_date is None:
+    if not benchmark_series:
         return None
+    eval_date = benchmark_series[-1][0]
     benchmark_return_20d = _trailing_return(benchmark_series, TREND_WINDOW_BARS)
     benchmark_return_60d = _trailing_return(benchmark_series, LONG_TREND_WINDOW_BARS)
-    breadth, sample_size = _breadth_above_ma(
-        breadth_series,
-        eval_date,
-        min_sample=min_breadth_sample,
-    )
     return MarketRegimeSnapshot(
         asof=asof_date,
         benchmark_ticker=benchmark_ticker,
         eval_date=eval_date,
         benchmark_return_20d=benchmark_return_20d,
         benchmark_return_60d=benchmark_return_60d,
-        breadth_pct_above_ma20=breadth,
-        breadth_sample_size=sample_size,
         regime=classify_market_regime(benchmark_return_20d),
     )
 
 
-def _load_close_series(
+def _load_benchmark_series(
     sqlite_path: Path,
     asof_date: date,
     *,
-    lookback_days: int,
-    ticker: str | None = None,
-) -> dict[str, list[tuple[date, float]]]:
-    start = asof_date - timedelta(days=lookback_days)
+    ticker: str,
+) -> list[tuple[date, float]]:
+    start = asof_date - timedelta(days=_BENCHMARK_LOOKBACK_CALENDAR_DAYS)
     query = (
-        "SELECT ticker, traded_at, close, adjustment_close FROM jquants_daily_bars "
-        "WHERE traded_at >= ? AND traded_at <= ?"
+        "SELECT traded_at, close, adjustment_close FROM jquants_daily_bars "
+        "WHERE ticker = ? AND traded_at >= ? AND traded_at <= ? ORDER BY traded_at"
     )
-    params: tuple[object, ...] = (start.isoformat(), asof_date.isoformat())
-    if ticker is not None:
-        query += " AND ticker = ?"
-        params = (*params, ticker)
-    query += " ORDER BY ticker, traded_at"
     conn = sqlite3.connect(sqlite_path)
     try:
-        rows = conn.execute(query, params).fetchall()
+        rows = conn.execute(query, (ticker, start.isoformat(), asof_date.isoformat())).fetchall()
     finally:
         conn.close()
-    series: dict[str, list[tuple[date, float]]] = defaultdict(list)
-    for row_ticker, traded_at, close, adjustment_close in rows:
+    series: list[tuple[date, float]] = []
+    for traded_at, close, adjustment_close in rows:
         price = adjustment_close if adjustment_close is not None else close
         if price is None or traded_at is None:
             continue
-        series[str(row_ticker)].append((date.fromisoformat(traded_at), float(price)))
-    return dict(series)
-
-
-def _latest_traded_date(
-    benchmark_series: list[tuple[date, float]],
-    breadth_series: dict[str, list[tuple[date, float]]],
-) -> date | None:
-    dates = [traded_at for traded_at, _ in benchmark_series]
-    dates.extend(traded_at for series in breadth_series.values() for traded_at, _ in series)
-    return max(dates, default=None)
+        series.append((date.fromisoformat(traded_at), float(price)))
+    return series
 
 
 def _trailing_return(series: list[tuple[date, float]], window_bars: int) -> float | None:
@@ -183,24 +150,3 @@ def _trailing_return(series: list[tuple[date, float]], window_bars: int) -> floa
     if past == 0:
         return None
     return current / past - 1
-
-
-def _breadth_above_ma(
-    breadth_series: dict[str, list[tuple[date, float]]],
-    eval_date: date,
-    *,
-    min_sample: int,
-) -> tuple[float | None, int]:
-    above = 0
-    sample = 0
-    for series in breadth_series.values():
-        if len(series) < BREADTH_MA_WINDOW_BARS or series[-1][0] != eval_date:
-            continue
-        window = [price for _, price in series[-BREADTH_MA_WINDOW_BARS:]]
-        moving_average = sum(window) / len(window)
-        sample += 1
-        if series[-1][1] > moving_average:
-            above += 1
-    if sample < min_sample:
-        return None, sample
-    return above / sample, sample

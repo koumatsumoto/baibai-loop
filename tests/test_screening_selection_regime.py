@@ -52,8 +52,6 @@ def _snapshot(regime: MarketRegime) -> MarketRegimeSnapshot:
         eval_date=_ASOF,
         benchmark_return_20d=0.05,
         benchmark_return_60d=0.08,
-        breadth_pct_above_ma20=0.62,
-        breadth_sample_size=1500,
         regime=regime,
     )
 
