@@ -19,7 +19,7 @@ Research は `records/04-candidates/` と `records/01-macro-context/` を統合�
 ## Before writing
 
 1. 最新 candidates と最新 macro context が存在することを確認する。
-2. [`screening-runbook.md`](./screening-runbook.md) の select 手順に従い、`select` の recommendations から着手候補を選ぶ。閾値を試したい場合だけ `select-sweep --profile-config` で custom profile を比較する。
+2. [`screening-runbook.md`](./screening-runbook.md) の select 手順に従い、`select` の recommendations から着手候補を選ぶ。閾値を試したい場合は `records/_config/screening-rules/*.yaml` を直接編集して `select` を再実行し output を diff する。
 3. Macro context は hard gate ではなく、候補の thesis / risk / sector 前提を確認する入力として使う。
 4. 使用する playbook が [`../components/playbooks.md`](../components/playbooks.md) と `records/_playbooks/` から辿れることを確認する。
 5. Policy の swing-first / long-hold-capable value principle を確認し、短期 thesis が外れた場合でも長期保有へ切り替えられる候補かを確認する。

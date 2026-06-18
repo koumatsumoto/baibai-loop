@@ -52,8 +52,6 @@ def _snapshot(regime: MarketRegime) -> MarketRegimeSnapshot:
         eval_date=_ASOF,
         benchmark_return_20d=0.05,
         benchmark_return_60d=0.08,
-        breadth_pct_above_ma20=0.62,
-        breadth_sample_size=1500,
         regime=regime,
     )
 
@@ -199,10 +197,6 @@ class RegimeLensCliArgumentTests(unittest.TestCase):
         )
         self.assertTrue(args.no_regime_lens)
         self.assertEqual(args.sqlite_path, "x.sqlite")
-
-    def test_select_sweep_parser_accepts_regime_lens_arguments(self) -> None:
-        args = build_parser().parse_args(["select-sweep", "--asof", "2026-05-29"])
-        self.assertFalse(args.no_regime_lens)
 
 
 if __name__ == "__main__":

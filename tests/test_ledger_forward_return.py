@@ -29,18 +29,16 @@ def test_compute_ticker_forward_returns_resolves_each_horizon() -> None:
         _bar("9682", asof, 1000.0),
         _bar("9682", date(2026, 4, 17), 1050.0),  # +1w
         _bar("9682", date(2026, 5, 8), 1100.0),  # +4w
-        _bar("9682", date(2026, 6, 5), 1200.0),  # +8w
         _bar("1321", asof, 1000.0),
         _bar("1321", date(2026, 4, 17), 1010.0),
         _bar("1321", date(2026, 5, 8), 1020.0),
-        _bar("1321", date(2026, 6, 5), 1040.0),
     ]
-    result = compute_ticker_forward_returns("9682", asof, bars, eval_cap=date(2026, 6, 5))
+    result = compute_ticker_forward_returns("9682", asof, bars, eval_cap=date(2026, 5, 8))
     by_weeks = {horizon.weeks: horizon for horizon in result.horizons}
     assert by_weeks[1].return_ratio == pytest.approx(0.05)
     assert by_weeks[1].benchmark_return == pytest.approx(0.01)
     assert by_weeks[1].relative == pytest.approx(0.04)
-    assert by_weeks[8].return_ratio == pytest.approx(0.20)
+    assert by_weeks[4].return_ratio == pytest.approx(0.10)
 
 
 def test_compute_ticker_forward_returns_marks_future_horizon_unresolved() -> None:
@@ -51,13 +49,12 @@ def test_compute_ticker_forward_returns_marks_future_horizon_unresolved() -> Non
         _bar("1321", asof, 1000.0),
         _bar("1321", date(2026, 6, 5), 1050.0),
     ]
-    # eval_cap is the last cached bar; +4w / +8w targets are beyond it.
+    # eval_cap is the last cached bar; +4w target is beyond it.
     result = compute_ticker_forward_returns("9682", asof, bars, eval_cap=date(2026, 6, 5))
     by_weeks = {horizon.weeks: horizon for horizon in result.horizons}
     assert by_weeks[1].resolved is True
     assert by_weeks[4].resolved is False
     assert by_weeks[4].return_ratio is None
-    assert by_weeks[8].resolved is False
 
 
 def test_compute_ticker_forward_returns_resolves_target_on_or_before() -> None:

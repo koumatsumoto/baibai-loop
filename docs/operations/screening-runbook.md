@@ -54,24 +54,14 @@ uv run baibai-loop-screening select --asof YYYY-MM-DD
 
 件数は `--top` と `output.research_selection_target_max` で調整します。複数 hit 銘柄では、config の lane order に従って `selection_lane` を選びます。
 
-Parameter replay は `select-sweep` で行います。built-in profile は `balanced` のみで、閾値を試す場合は source code を編集せず YAML profile を渡します。
+Parameter 変更は `records/_config/screening-rules/2026-06-12T000000+0900.yaml` を直接編集して `select` を再実行し、output 差分を比較します。built-in profile は `balanced` のみで、experimental override は `selection-ablation` の `no_diversity` variant のような programmatic 経路のみ残ります (YAML 経由の `--profile-config` は round 2 cleanup で削除済み)。
 
-```bash
-uv run baibai-loop-screening select-sweep \
-  --asof YYYY-MM-DD \
-  --profile-config path/to/selection-profiles.yaml \
-  --profiles balanced,my-fast-lane
-```
-
-`select-sweep` では profile ごとの recommended tickers、recommended detail、fast-dislocation count、long-hold count、suppressed count、profile 間の added / removed / changed、previous overlap、sector / lane concentration を比較します。運用設定を変える前に、最低 6-8 週の実データで `balanced` と候補 profile を比較し、直近 1-2 週を hold-out として残します。forward-only 原則に従い、ここでは過去 fit ではなく「profile を採用する前の再現性確認」として扱います。
-
-Profile を採用する前に、少なくとも以下を表にします。
+Profile を変更する前に、少なくとも以下を表にします。
 
 - `recommended_tickers`: 望ましい thesis の候補が出ているか
 - `fast_dislocation_count`: 閾値が広すぎて fast 候補を量産していないか
 - `recommended[].selection_lane`: 特定 lane が recommended を埋め尽くしていないか
 - `recommended[].fast_guard_count` / `fast_guard_family_count` / `fast_confidence` / `fast_data_status` / `long_hold_rating`: 売られ過ぎと財務健全性の両方を満たしているか
-- `recommended_diff_vs_first_profile`: ticker 入替だけでなく rank / confidence / lane の変化が妥当か
 - `previous_overlap` と `concentration`: 前回候補・同一 sector / lane への偏りが再発していないか
 - `warnings`: `recommendations_high_previous_overlap`、`invalid_numeric_metric_values`、`short_return_price_history_missing` が残っていないか
 
@@ -79,22 +69,9 @@ Profile を採用する前に、少なくとも以下を表にします。
 
 Lane ごとの hit 数は `evidence_hits_summary` で確認します。特定 lane が universe の大きな割合を占める場合は、候補数が増えただけで evidence の識別力が弱い可能性があるため、`records/_config/screening-rules/2026-06-12T000000+0900.yaml` の閾値・sector policy を見直します。
 
-## Scorecard triage (AI / structural tilt)
-
-`scorecard` は週次 screen output を、流動性と構造 tilt で絞った shortlist にし、各候補の risk-reward を軸別座標で出す分析層 (L3) の triage です。機械的 screen と `select` の推奨 queue は変更しません。
-
-```bash
-uv run baibai-loop-screening scorecard \
-  --asof YYYY-MM-DD --top 12 \
-  --include-outlook ai_tailwind \
-  --exclude-ticker 1234,5678
-```
-
-`--include-outlook` で残す outlook を選び (既定は `ai_tailwind` と `neutral`)、`--exclude-ticker` で既存保有等を外します。仕様と軸の意味は [`../screening/structural-outlook.md`](../screening/structural-outlook.md) を正本にします。表示順は lexicographic な triage の便宜で、forward 計測した ranking ではありません。採用判断は research と人間に残します。
-
 ## Multi-week replay と forward return
 
-`select-sweep` は 1 週分の profile 比較です。複数週を跨いだ recommended queue の forward return 評価は `baibai-loop-ledger screening-replay` で行います。profile を採用・変更する前に、6-8 週の実データで recommended forward return を benchmark proxy 比で比較し、直近 1-2 週を hold-out として残します。
+複数週を跨いだ recommended queue の forward return 評価は `baibai-loop-ledger screening-replay` で行います。profile を採用・変更する前に、6-8 週の実データで recommended forward return を benchmark proxy 比で比較し、直近 1-2 週を hold-out として残します。
 
 ```bash
 # 1. 各週の candidates を scratch root に生成（週ごとに J-Quants rate budget が要る）
@@ -112,7 +89,7 @@ uv run baibai-loop-ledger screening-replay \
   --out .cache/replay/replay-payload.yaml
 ```
 
-- forward return は asof + 1w / 4w / 8w を J-Quants 日足から算出し、日経225 ETF proxy `1321` 比の relative を出す。eval cap（cache 最新足）を超える horizon は unresolved として集計から除外する。価格基準は [`../reference/data-sources.md`](../reference/data-sources.md) §Benchmark proxy。
+- forward return は asof + 1w / 4w を J-Quants 日足から算出し、日経225 ETF proxy `1321` 比の relative を出す。eval cap（cache 最新足）を超える horizon は unresolved として集計から除外する。価格基準は [`../reference/data-sources.md`](../reference/data-sources.md) §Benchmark proxy。
 - replay は macro-agnostic で回す。non-stale macro context が揃わない過去週でも profile 選定機構を比較できる。
 - market regime lens は default で各週に適用される（`--regime-lens off` で従来挙動）。on/off 比較の手順は [`./backtest-runbook.md`](./backtest-runbook.md) §3-A。
 - 歴史週の `bootstrap-cache` は asof ごとに長期履歴を取り直すため、J-Quants throttling 下では 1 週で数時間かかりうる。chunk は resumable なので kill せず完走させる。挙動の詳細は [`../reference/jquants-rate-limits.md`](../reference/jquants-rate-limits.md)。

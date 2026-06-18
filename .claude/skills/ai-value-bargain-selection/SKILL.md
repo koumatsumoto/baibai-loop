@@ -16,7 +16,7 @@ description: >-
 
 - **ゴール**: 長期的に企業価値が高まる銘柄のうち最もお買い得なものを選定し、ユーザーに提案する。最終提案はユーザーがレビューして決める（research memo の `approved` は決定後に作る）。
 - **前提の固定**: (a) AI の解釈の広さ（本命AIのみ / AI受益まで広く / RR最優先で範囲不問）、(b) 投資フレーム（swing-value / 長期コンパウンダー / ブレンド）をユーザーに確認する。曖昧なら `AskUserQuestion` で 2 問だけ確認して着手する。
-- **除外**: 既存保有銘柄（`records/06-trades/` から）は「新規」候補から外す。パチンコ機械のような構造的に廃れる事業は `structural_decline` として外す。
+- **除外**: 既存保有銘柄（`records/06-trades/` から）は「新規」候補から外す。パチンコ機械のような構造的に廃れる事業は人間判断で外す。
 
 ## 1. 準備
 
@@ -43,18 +43,17 @@ ls records/04-candidates/*/*/*.yaml | tail -3
 - 合成して `records/01-macro-context/YYYY/MM/macro-context-YYYY-MM-DD-<slug>.yaml` を作る。schema 必須: `kind, context_id, as_of, valid_until, published_at, summary, inputs(articles[]+stats_series[]), sector_tilts.items[](id/scope=sector_33/key/stance∈tailwind|neutral|mixed|headwind/strength/confidence/rationale), research_questions[], refresh_triggers[], changes_since_previous[]`（additionalProperties=false）。`uv run baibai-loop-validate --target macro-context` を通す。
 - `select` は macro `as_of` が candidates asof より新しいと拒否する。mechanical run には asof 以前で valid な context を使い、買い判断の深い分析は最新 context で行う。
 
-## 3. scorecard で AI 傾斜 TOP12 を作る
+## 3. `select` で割安候補 TOP10 を出して人手で TOP12 を確定する
 
-structural-outlook taxonomy（`records/_config/structural-outlook/<ts>.yaml`）と scorecard CLI を使う。仕様は `docs/screening/structural-outlook.md`。
+screening の正本 ranking (`select`) を最新 macro context に対して走らせ、軸別座標 (lane / lenses / market_regime / 流動性除外件数) を含む診断付き payload を取得する。AI 構造性は §4 の一次 IR 深掘りで人間判定する (scorecard / structural-outlook 系のサブシステムは前回 cleanup で削除済み)。
 
 ```bash
-uv run baibai-loop-screening scorecard --asof YYYY-MM-DD --top 16 \
-  --include-outlook ai_tailwind \
-  --exclude-ticker <保有tickerをcomma区切り>
+uv run baibai-loop-screening select --asof YYYY-MM-DD --top 10 --detail full > .cache/select-<asof>.yaml
 ```
 
-- 偽陽性（業種 default で ai_tailwind になるがパチンコ系/旧来放送/繊維機械/印刷等）は `ticker_overrides` で `structural_decline`/`neutral` に、業種外の越境 AI（半導体商社等）は `ai_tailwind` に補正し、taxonomy を実態に合わせて精緻化してから再実行する。
-- scorecard は**軸別座標**（valuation_discount / cashflow_durability / balance_sheet / dislocation / long_hold / structural）を出す。表示順は triage の便宜で verdict ではない。**L3 判断で TOP12 を確定**（割高化済み・低品質・テーマ不一致は人手で外す）。AI 構造性は最終的に §4 の深掘りで確定する。
+- 出力 `recommendations[]` から **既存保有 ticker** と **構造衰退業種 (パチンコ機械 / 旧来繊維機械 / 印刷等)** を skill 側 post-filter で除外し、TOP12 候補を確定する (`select` には除外フラグはない)。
+- `select` は valuation-reversion / cash-rich-asset-discount / cashflow-yield-discount / sales-discount-growth の 4 lane を `evidence_hits` で示し、`selection.diagnostics.market_regime` で benchmark trend (risk_on_rally / neutral_range / risk_off_selloff) を返す。表示順は forward-measured ranking で verdict ではない。
+- 候補に厚みが必要なら `--top 20` まで広げて post-filter 後に 12 件を確保する。
 
 ## 4. TOP12 を一次 IR 深掘り（≤5 subagent / wave）
 
@@ -70,7 +69,7 @@ uv run baibai-loop-screening scorecard --asof YYYY-MM-DD --top 16 \
 
 ## 6. HTML レポート + GitHub Issue で報告
 
-- **HTML レポート**: `km:html-document` で 1 枚物の HTML を作る（内容＝市場 context の深い分析・4 シナリオ・主要リスク・scorecard 軸別座標・4 候補比較・最良 RR の根拠・一次ソース。skill はレイアウト/セキュリティのみ担当）。リポジトリ内（例 `reports/`）に保存して commit する。
+- **HTML レポート**: `km:html-document` で 1 枚物の HTML を作る（内容＝市場 context の深い分析・4 シナリオ・主要リスク・select 軸別座標・4 候補比較・最良 RR の根拠・一次ソース。skill はレイアウト/セキュリティのみ担当）。リポジトリ内（例 `reports/`）に保存して commit する。
 - **GitHub Issue**: 候補/プラン issue を作り、4 候補・最良 1・entry/exit/invalidation・sizing・主要リスクを記載し、**commit 済み HTML レポートのパス/リンクを添付**する。`km:github-workflow` に従う。
 
 ## 7. 検証・PR
@@ -81,7 +80,7 @@ uv run baibai-loop-screening scorecard --asof YYYY-MM-DD --top 16 \
 uv run baibai-loop-validate && uv run ruff format --check . && uv run ruff check . && uv run mypy && uv run pytest
 ```
 
-1 issue = 1 PR、commit で分ける（[[feedback_pr_splitting]]）。基盤追加（structural-outlook / scorecard / select annotation / HTML レポート）と選定成果物・docs を同一 PR に積む。
+1 issue = 1 PR、commit で分ける（[[feedback_pr_splitting]]）。基盤変更と選定成果物・docs を同一 PR に積む。
 
 ## 8. 完了条件
 
@@ -92,7 +91,7 @@ uv run baibai-loop-validate && uv run ruff format --check . && uv run ruff check
 ## 9. 制約（必ず守る）
 
 - **サブエージェント同時起動は最大 5**（[[feedback_subagent_cap]]）。多数対象は wave 化。
-- **AI 期待を単独の採用 / sizing / macro fit / validator rule / ranking sort-key にしない**（`docs/portfolio-policy.md`）。structural_outlook は annotation 専用。
+- **AI 期待を単独の採用 / sizing / macro fit / validator rule / ranking sort-key にしない**（`docs/portfolio-policy.md`）。AI 構造性は §4 の一次 IR 深掘りで人間判定する。
 - **単一の合成スコア・売買指示を出さない**。スコアは軸別座標（`docs/design-principles.md`）。
 - 既存保有と構造衰退（パチンコ機械等）は新規候補から外す。
 - 最終採用判断はユーザー。提案は Issue + HTML レポートで渡し、`approved` research memo は決定後に作る。

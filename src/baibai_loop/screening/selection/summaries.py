@@ -12,7 +12,7 @@ from baibai_loop.coerce import (
     string_sequence,
 )
 
-from .lenses import _fast_guard_count, _fast_lens, _long_hold_lens, _structural_lens
+from .lenses import _fast_guard_count, _fast_lens, _long_hold_lens
 
 # 2026-05 retro の運用ルール「Nikkei に 3pt 以上劣後している候補は starter size に
 # 限定する」を事前固定の annotation 閾値として機械化する。ranking には使わない。
@@ -33,15 +33,6 @@ def _long_hold_counts(candidates: Sequence[Mapping[str, object]]) -> dict[str, i
     return dict(counts)
 
 
-def _structural_outlook_counts(candidates: Sequence[Mapping[str, object]]) -> dict[str, int]:
-    counts: Counter[str] = Counter()
-    for candidate in candidates:
-        outlook = string_or_none(_structural_lens(candidate).get("outlook"))
-        if outlook is not None:
-            counts[outlook] += 1
-    return dict(counts)
-
-
 def _candidate_reason_tags(candidate: Mapping[str, object]) -> list[str]:
     tags: list[str] = []
     if _fast_lens(candidate).get("eligible") is True:
@@ -59,8 +50,6 @@ def _candidate_reason_tags(candidate: Mapping[str, object]) -> list[str]:
     confidence = string_or_none(fast.get("confidence"))
     if confidence == "high":
         tags.append("fast_confidence_high")
-    if string_or_none(_structural_lens(candidate).get("outlook")) == "ai_tailwind":
-        tags.append("ai_tailwind")
     return dedupe_strings(tags)
 
 
@@ -92,8 +81,6 @@ def _candidate_risk_tags(candidate: Mapping[str, object]) -> list[str]:
     fast = _fast_lens(candidate)
     if fast.get("stale_fundamental_metrics") is True:
         tags.append("stale_fundamental_metrics")
-    if string_or_none(_structural_lens(candidate).get("outlook")) == "structural_decline":
-        tags.append("structural_decline")
     return dedupe_strings(tags)
 
 
@@ -122,7 +109,6 @@ def _selection_candidate_summary(
         "fast_guard_family_count": int_or(fast_lens.get("fundamental_guard_family_count"), 0),
         "fast_data_status": string_or_none(fast_lens.get("data_status")),
         "long_hold_rating": string_or_none(long_hold_lens.get("rating")),
-        "structural_outlook": string_or_none(_structural_lens(candidate).get("outlook")),
         "prior_research": candidate.get("prior_research"),
         "previous_candidate": candidate.get("previous_candidate") is True,
         "suppressed": candidate.get("suppressed") is True,

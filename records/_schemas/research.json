@@ -154,9 +154,7 @@
             "benchmark_ticker": {"type": "string"},
             "asof": {"type": "string", "format": "date"},
             "eval_date": {"type": "string", "format": "date"},
-            "benchmark_return_60d": {"type": ["number", "null"]},
-            "breadth_pct_above_ma20": {"type": ["number", "null"]},
-            "breadth_sample_size": {"type": "integer"}
+            "benchmark_return_60d": {"type": ["number", "null"]}
           }
         },
         "action": {"enum": ["proceed", "starter", "defer", "exception"]},

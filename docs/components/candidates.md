@@ -121,7 +121,7 @@ evidence_hits_summary:
 - `records/05-research/` の `candidate_ref.candidates_ref` / `candidate_ref.ticker` で候補行へ戻れるようにする(validator はファイル照合しない)
 - `select` は candidates と macro context を突き合わせ、`recommendations` と `selection.diagnostics` を出す
 - `recommendations` は research 着手候補。default summary では `selection_lane`、macro alignment、long-hold rating、reason / risk tags を見て深掘り順を決める。full lens / debug detail が必要な場合は `select --detail full` を使う
-- `select-sweep` は `balanced` と `--profile-config` で定義した任意 profile を比較し、recommended tickers、fast count、long-hold count、suppressed count、previous overlap、sector / lane concentration、profile diff を確認する
+- 閾値変更は `records/_config/screening-rules/*.yaml` を直接編集し `select` を再実行して output を diff する (`load_profile_overrides` / `--profile-config` 経路は round 2 cleanup で削除済み)
 
 ## 6. 事実と分析の分離
 

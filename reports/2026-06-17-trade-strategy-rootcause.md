@@ -110,7 +110,7 @@ philosophy 柱 2「一時的に過剰に売られている割安を底値で掴�
 
 `src/baibai_loop/validate/research/preflight.py` および `records/_schemas/research.json` を変更:
 
-1. `entry_preflight.market_regime` field を追加（regime / benchmark_return_20d / benchmark_ticker / asof / eval_date / breadth）。2026-06-17 以降の approved research に必須化。フィールド名は `MarketRegimeSnapshot.to_dict()` 出力に揃え、`ticker-profile` / `market-snapshot` CLI 出力をそのまま貼り付けられる。
+1. `entry_preflight.market_regime` field を追加（regime / benchmark_return_20d / benchmark_ticker / asof / eval_date）。2026-06-17 以降の approved research に必須化。フィールド名は `MarketRegimeSnapshot.to_dict()` 出力に揃え、`ticker-profile` / `market-snapshot` CLI 出力をそのまま貼り付けられる。 (注: 2026-06-18 cleanup で breadth 関連 field は record 記録停止、現 schema は 5 fields)
 2. **hard triggers (proceed を error にする)**:
    - `regime: risk_on_rally`
    - `regime: unknown` (データ不在を「proceed の根拠」にさせない。bootstrap-cache を先に実行)

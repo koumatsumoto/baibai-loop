@@ -82,7 +82,6 @@ def run_replay(
     horizon_weeks: Sequence[int] = DEFAULT_HORIZON_WEEKS,
     benchmark_ticker: str = NIKKEI225_ETF_PROXY,
     regime_lens: bool = True,
-    profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
 ) -> ReplayResult:
     """Replay profile selection over several weeks and score recommended forward return.
 
@@ -109,7 +108,6 @@ def run_replay(
                 candidates_root=candidates_root,
                 ledger_root=ledger_root,
                 market_regime=regimes[spec.asof],
-                profile_overrides=profile_overrides,
             ),
         )
         for spec in weeks
@@ -225,7 +223,6 @@ def _build_week_sweep(
     candidates_root: Path,
     ledger_root: Path,
     market_regime: MarketRegimeSnapshot | None = None,
-    profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
 ) -> Mapping[str, object]:
     candidates = tuple(
         candidate_record_from_mapping(item) for item in load_week_candidates(spec.candidates_path)
@@ -250,7 +247,6 @@ def _build_week_sweep(
         previous_candidates=previous_candidates,
         prior_research_by_ticker=prior_research,
         market_regime=market_regime,
-        profile_overrides=profile_overrides,
     )
 
 

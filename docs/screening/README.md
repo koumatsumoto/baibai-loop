@@ -20,7 +20,6 @@ last_reviewed: 2026-05-04
 | [`automation.md`](./automation.md) | runbook / automation | screening CLI の使い方と実装境界 |
 | [`extending.md`](./extending.md) | reference | 新 lens / lane / telemetry の拡張点と計測ファースト手順 |
 | [`mechanical.md`](./mechanical.md) | contract | 機械的ふるいの閾値と rule engine の意味論 |
-| [`structural-outlook.md`](./structural-outlook.md) | reference | structural outlook annotation と candidate scorecard triage の正本 |
 | [`universe-rules.md`](./universe-rules.md) | contract | screening universe の境界条件 |
 | [`valuation-metrics.md`](./valuation-metrics.md) | reference | valuation 指標の算出仕様 |
 

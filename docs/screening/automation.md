@@ -20,7 +20,6 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 python -m baibai_loop.screening.cli run --asof YYYY-MM-DD --allow-stale-jpx
 python -m baibai_loop.screening.cli bootstrap-cache --asof YYYY-MM-DD
 python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--macro-context path] [--top N] [--profile PROFILE]
-python -m baibai_loop.screening.cli select-sweep --asof YYYY-MM-DD [--macro-context path] [--top N] [--profiles balanced,my-experiment --profile-config path]
 python -m baibai_loop.screening.cli ticker-profile --ticker XXXX [--asof YYYY-MM-DD]
 python -m baibai_loop.screening.cli market-snapshot [--asof YYYY-MM-DD] [--weeks N]
 python -m baibai_loop.screening.cli extract-edinet-metrics --asof YYYY-MM-DD [--lookback-days N]
@@ -33,13 +32,13 @@ python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--s
 
 `extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出して `data/screening/market.sqlite` に保存する。CSV ZIP 本体は再生成可能な cache として `.cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 
-`select` は最新 `records/04-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/01-macro-context/` を組み合わせて、research recommendations を出力する。Macro context は hard gate ではなく、sector / theme の診断として使う。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、full lens / debug detail は `--detail full` で出す。`fast_dislocation` は価格下落 trigger と fundamental guard family を同時に要求し、出来高 spike / 52 週安値距離だけでは eligible にしない。`long_hold_survivability` は保有耐性の補助 lens。`selection_lane` は primary thesis として確認する screen。`select-sweep` は複数 profile を同じ candidates / macro context に replay し、recommended detail、fast count、long-hold count、suppressed count、profile 間 diff、concentration / previous overlap / warnings を比較する。`--profile-config` の未知 key は fail-fast し、typo した profile を「検証済み」と誤認しない。`research` の選定プロセス ([`../components/research.md`](../components/research.md) §2) をスクリプトで支援する。
+`select` は最新 `records/04-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/01-macro-context/` を組み合わせて、research recommendations を出力する。Macro context は hard gate ではなく、sector / theme の診断として使う。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、full lens / debug detail は `--detail full` で出す。`fast_dislocation` は価格下落 trigger と fundamental guard family を同時に要求し、出来高 spike / 52 週安値距離だけでは eligible にしない。`long_hold_survivability` は保有耐性の補助 lens。`selection_lane` は primary thesis として確認する screen。閾値変更は `records/_config/screening-rules/*.yaml` を直接編集して再実行し、output を diff する (`load_profile_overrides` / `--profile-config` 経路は round 2 cleanup で削除済み)。`research` の選定プロセス ([`../components/research.md`](../components/research.md) §2) をスクリプトで支援する。
 
 `ticker-profile` は任意の上場銘柄(universe 内外を問わない)について、価格・流動性・対 benchmark / sector 相対・regime・イベント(次回決算日、JPX 規制 flag)・直近 candidates 記録・prior research を 1 つの事実 packet として出力する。valuation は candidates 記録から引用し、再計算しない(記録と矛盾する値を作らないため)。`--asof` 省略時は cache の最新営業日を使う。provider 認証は不要で、market.sqlite と records だけを読む。
 
 `market-snapshot` は週次の regime 履歴(benchmark trend・breadth・regime label)と asof 時点の sector 集計(20/60 営業日リターン中央値・sector 内 breadth)を出力する。regime の閾値・窓は regime module と同一の正本を共有する。macro context 作成時の機械入力としても使う。
 
-`select` / `select-sweep` は `data/screening/market.sqlite` が存在すれば market regime snapshot を計算し、`risk_on_rally` の週は fast_dislocation の ranking boost を中立化する（[`mechanical.md`](./mechanical.md) §3.8.1）。`--sqlite-path` で cache 位置を上書き、`--no-regime-lens` で無効化できる。SQLite が無い場合は lens なしで動作し、`selection.diagnostics.market_regime` に `null` を記録する。
+`select` は `data/screening/market.sqlite` が存在すれば market regime snapshot を計算し、`risk_on_rally` の週は fast_dislocation の ranking boost を中立化する（[`mechanical.md`](./mechanical.md) §3.6.1）。`--sqlite-path` で cache 位置を上書き、`--no-regime-lens` で無効化できる。SQLite が無い場合は lens なしで動作し、`selection.diagnostics.market_regime` に `null` を記録する。
 
 ## 3. Required Env Vars
 
