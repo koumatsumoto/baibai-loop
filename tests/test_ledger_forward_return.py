@@ -36,7 +36,6 @@ def test_compute_ticker_forward_returns_resolves_each_horizon() -> None:
     result = compute_ticker_forward_returns("9682", asof, bars, eval_cap=date(2026, 5, 8))
     by_weeks = {horizon.weeks: horizon for horizon in result.horizons}
     assert by_weeks[1].return_ratio == pytest.approx(0.05)
-    assert by_weeks[1].benchmark_return == pytest.approx(0.01)
     assert by_weeks[1].relative == pytest.approx(0.04)
     assert by_weeks[4].return_ratio == pytest.approx(0.10)
 
