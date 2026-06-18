@@ -26,7 +26,7 @@ Configuration は runtime boundary です。secret や token の値は docs に�
 | input | 用途 | 主な利用箇所 |
 | --- | --- | --- |
 | `JQUANTS_REFRESH_TOKEN` | J-Quants API access / ledger sync | screening / ledger provider |
-| `SCREENING_RULES_PATH` | screening rules / selection profile の既定 YAML path override | `baibai-loop-screening select`, `select-sweep`, `run` |
+| `SCREENING_RULES_PATH` | screening rules / selection profile の既定 YAML path override | `baibai-loop-screening select`, `run` |
 | `ESTAT_APP_ID` | e-Stat API access。macro stats の日本統計 adapter を追加するときに使う未実装の future provider | `baibai-loop-stats` future provider |
 
 ## Macro statistics cache
@@ -50,20 +50,6 @@ v1 は keyless CSV で取得できる FRB H.15、FRED CSV、ECB FX を優先す�
 - `selection.long_hold_survivability`: equity ratio、net cash、cash、OCF / FCF、営業利益、流動性から `high|medium|low|unknown` を付ける閾値
 - `selection.diversity`: recommendations の sector / lane concentration、過去 candidates の混入上限、previous overlap warning
 
-`select-sweep --profile-config <yaml>` では、次の形で任意 profile を追加できます。
-
-```yaml
-profiles:
-  my-fast-lane:
-    fast_dislocation:
-      price_change_5d_max: -0.06
-      min_fundamental_guard_count: 2
-      min_fundamental_guard_family_count: 2
-    diversity:
-      max_recommended_per_sector: 1
-      max_previous_candidates_in_recommended: 2
-```
-
-Profile YAML の未知 key は fail-fast します。閾値名を typo した状態で `select-sweep` を成功扱いにしないためです。
+Profile 比較が必要な場合は、`records/_config/screening-rules/2026-06-12T000000+0900.yaml` を直接編集して `select` を再実行し、output を diff する。built-in は `balanced` 一択で、experimental override は `selection-ablation` の `no_diversity` variant のように programmatic な in-process 経路でだけ提供する (`load_profile_overrides` / `--profile-config` 経路は round 2 cleanup で削除済み)。
 
 実装上の strictness と validation boundary は [`python-foundation.md`](./python-foundation.md) を参照します。

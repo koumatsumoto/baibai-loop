@@ -7,7 +7,7 @@ Baibai-Loop スクリーニングの対象範囲(scope)と、規模・流動性�
 screen の評価対象(scope)は**全上場普通株**とし、規模・流動性・上場期間・規制 flag は除外条件ではなく **candidates に記録される事実**として扱う。research 候補の絞り込み(時価総額・売買代金・上場期間・JPX 規制)は分析層のパラメータ(`selection.liquidity`)として selection 時に適用する。
 
 - データを狭めない: どの銘柄も screening 事実(lane 判定・valuation・流動性)を持つため、ticker-profile や lane-cohorts が universe 外の銘柄も同じ事実で扱える
-- 絞り込みは可視・可変: 何件がどの条件で落ちたかは selection の `diagnostics.liquidity_excluded_count` に出る。閾値は config と `--profile-config` で変更でき、変更は replay / ablation で計測してから採用する
+- 絞り込みは可視・可変: 何件がどの条件で落ちたかは selection の `diagnostics.liquidity_excluded_count` に出る。閾値は `records/_config/screening-rules/*.yaml` を直接編集して変更し、replay / ablation で計測してから採用する
 
 ## 2. Scope(構造的な対象範囲)
 
@@ -41,7 +41,7 @@ research 推奨を作るときに適用する。正本は `records/_config/scree
 
 - 判定は candidates に記録された丸め後の事実(`market_cap_oku` は整数、`avg_turnover_oku` は小数 1 桁)に対して行う(記録された事実 = 判定対象を一致させるため)
 - 事実が `null` の候補(4 fact のいずれか欠損)は filter を通過させ、`diagnostics.liquidity_fact_missing_count` で可視化する(欠損を黙って除外しない)
-- `--profile-config` による liquidity の上書きは selection filter にのみ効く。中央値の比較母集団(§5)は base config で固定
+- `screening-rules.yaml` 直接編集による liquidity の上書きは selection filter にのみ効く。中央値の比較母集団(§5)は base config で固定
 - 日々公表信用指定は除外対象に含めない。research で positioning / liquidity risk として記録する
 - 上場 3 年未満は scope に含め、過去 3 年自己レンジが不足する指標は上場来レンジで代替する
 

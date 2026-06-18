@@ -265,6 +265,14 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
       required 化する
 - [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。
       commit 前に `rg -n "except [A-Za-z0-9_.]+, [A-Za-z0-9_.]+" src tests` が 0 件であることを確認する
+- [ ] **CLI subcommand / selection 機能を削減する場合、以下を同 commit で揃える** (PR #248 で 5 名レビューで指摘):
+  - [ ] `src/baibai_loop/screening/cli/app.py` の subparser + `add_argument` 引数 + `main()` の dispatch
+  - [ ] `src/baibai_loop/screening/cli/{__init__.py,query.py,cache.py,run.py}` の関数 / import
+  - [ ] `src/baibai_loop/screening/cli/common.py` の専用 helper (`_parse_profiles_arg` のような callers が消えた helper)
+  - [ ] `docs/` 全 grep (`rg <subcommand> docs/ records/ reports/`): runbook の bash example、reference の CLI 表、components / screening の説明文、`docs/screening/automation.md` の subcommand 一覧
+  - [ ] `.claude/skills/` 全 grep: skill が当該 CLI を中核に据えていないか
+  - [ ] `docs/reference/configuration.md` の関連節 (env var / profile YAML / 設定例)
+  - [ ] 関連 test fixture (test_screening_cli の sweep / scorecard テスト等)
 - [ ] **lane / playbook を削減する場合、以下を同 commit で揃える** (PR #246 で 5 名レビューで指摘):
   - [ ] `records/_playbooks/<lane>/` ディレクトリ削除
   - [ ] `records/_config/screening-rules/*.yaml` の `screening_playbooks.<lane>` と

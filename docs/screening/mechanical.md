@@ -98,12 +98,12 @@ P/S が業種中央値比で安く、売上成長が残る銘柄を拾う。営�
 ### 3.6.1 Market regime lens
 
 
-`select` / `select-sweep` は、`data/screening/market.sqlite` の daily bars だけから機械的に market regime snapshot を計算し、ranking lens として使う（`--no-regime-lens` で無効化、SQLite が無ければ自動で無効）。
+`select` は、`data/screening/market.sqlite` の daily bars だけから機械的に market regime snapshot を計算し、ranking lens として使う（`--no-regime-lens` で無効化、SQLite が無ければ自動で無効）。
 
-- 算出: benchmark proxy（`1321`）の 20/60 営業日リターンと、universe breadth（直近 20 本の自己 MA を上回る銘柄比率）。breadth は事実として記録するだけで、判定には使わない
+- 算出: benchmark proxy（`1321`）の 20/60 営業日リターン (trend のみ。universe breadth は別 telemetry として `market-snapshot` の weekly history が担当する)
 - 分類（固定閾値、grid search しない）: `risk_on_rally` = benchmark 20 営業日リターン >= +3% / `risk_off_selloff` = <= -3% / その他 `neutral_range`、算出不能は `unknown`
 - 効果: `risk_on_rally` のときだけ fast_dislocation eligible の ranking boost を中立化する。候補の除外はしない（lens であり gate ではない）。`neutral_range` / `risk_off_selloff` / `unknown` では従来挙動と完全一致
-- 根拠: fast_dislocation は anti-momentum 銘柄（直近の大幅下落銘柄）を選ぶため、指数モメンタムが強い局面では breadth の広狭に関係なく構造的に劣後する。このため分類はトレンド単独条件とし、breadth は事実として記録するだけで判定には使わない（検証は [`../operations/backtest-runbook.md`](../operations/backtest-runbook.md) §3-A）
+- 根拠: fast_dislocation は anti-momentum 銘柄（直近の大幅下落銘柄）を選ぶため、指数モメンタムが強い局面では breadth の広狭に関係なく構造的に劣後する。このため分類はトレンド単独条件とする（検証は [`../operations/backtest-runbook.md`](../operations/backtest-runbook.md) §3-A）
 - snapshot は `selection.diagnostics.market_regime` に記録し、中立化時は `fast_dislocation_boost: neutralized` と warning `fast_dislocation_boost_neutralized_risk_on_rally` を出す
 
 ## 4. 出力

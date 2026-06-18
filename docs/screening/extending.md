@@ -29,7 +29,7 @@ screening / selection / telemetry に機能を足すときの拡張点と検証�
 | module | 責務 | 触るとき |
 | --- | --- | --- |
 | `records.py` | candidate / prior-research の型と loader | 入力 field を増やすとき |
-| `profiles.py` | built-in profile(balanced のみ)と `--profile-config` 解決 | 閾値セットの実験経路 |
+| `profiles.py` | built-in `balanced` profile と in-process programmatic override (selection-ablation `no_diversity` で使用) | 閾値セットの実験経路 |
 | `lenses.py` | per-candidate annotation(fast dislocation / long-hold) | **新 lens はここ** |
 | `ranking.py` | sort key 成分と `RankingToggles`(ablation 用スイッチ) | ranking 成分の追加・削除 |
 | `macro_fit.py` | macro context fit 診断(soft、gate にしない) | macro 連携の変更 |

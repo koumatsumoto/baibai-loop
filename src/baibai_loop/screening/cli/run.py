@@ -468,8 +468,9 @@ def _liquid_median_population(
     Sector / market medians and sector relative strength compare against this
     investable population so the screen's relative-valuation judgments stay
     anchored to liquid comparables while every common stock is evaluated. Uses
-    the base-config liquidity rules; ``--profile-config`` overrides apply only
-    to the selection filter, not to this population.
+    the base-config liquidity rules directly; programmatic in-process overrides
+    (e.g. selection-ablation ``no_diversity``) apply only to the selection
+    filter, not to this population.
     """
     liquidity = rules.selection.liquidity
     required_jpx = frozenset(rules.universe.required_jpx_flags)

@@ -19,9 +19,5 @@ def _parse_iso_date(raw: str) -> date:
         raise SystemExit(f"invalid ISO date: {raw}") from exc
 
 
-def _parse_profiles_arg(raw: str) -> tuple[str, ...]:
-    return tuple(profile for item in raw.split(",") if (profile := item.strip()))
-
-
 def _date_iso(value: date | None) -> str | None:
     return value.isoformat() if value is not None else None
