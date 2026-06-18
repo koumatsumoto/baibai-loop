@@ -53,8 +53,6 @@ class ProfileWeekResult:
     fast_dislocation_count: int
     long_hold_counts: Mapping[str, int]
     suppressed_count: int
-    previous_overlap: object
-    concentration: object
     distributions: Mapping[str, Mapping[str, int]]
     forward_returns: tuple[TickerForwardReturn, ...]
     forward_aggregates: tuple[HorizonAggregate, ...]
@@ -151,8 +149,6 @@ def run_replay(
                     fast_dislocation_count=int_or(profile_result.get("fast_dislocation_count"), 0),
                     long_hold_counts=int_map(profile_result.get("long_hold_counts")),
                     suppressed_count=int_or(profile_result.get("suppressed_count"), 0),
-                    previous_overlap=profile_result.get("previous_overlap"),
-                    concentration=profile_result.get("concentration"),
                     distributions=_distributions(recommended),
                     forward_returns=forward,
                     forward_aggregates=tuple(aggregate_forward_returns(forward, horizon_weeks)),
@@ -193,8 +189,6 @@ def replay_to_payload(result: ReplayResult) -> dict[str, object]:
                 "fast_dislocation_count": item.fast_dislocation_count,
                 "long_hold_counts": dict(item.long_hold_counts),
                 "suppressed_count": item.suppressed_count,
-                "previous_overlap": item.previous_overlap,
-                "concentration": item.concentration,
                 "distributions": {
                     field: dict(values) for field, values in item.distributions.items()
                 },

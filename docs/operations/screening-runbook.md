@@ -50,7 +50,7 @@ uv run baibai-loop-screening select --asof YYYY-MM-DD
 - `benchmark_relative_20d`: 候補の 20 営業日リターン − benchmark proxy(`1321`)の同期間リターン。entry 前 packet の Nikkei relative return 欄へ機械転記する。`-0.03` 以下の候補には risk tag `benchmark_laggard_20d` が付く(2026-05 retro の「3pt 以上劣後は starter size 限定」ルールの annotation 化。ranking には使わない)。regime snapshot が無い場合は `null`。
 - `lenses.fast_dislocation`: 明確な価格下落と fundamental guard を同時に満たすかを示す annotation。rank と reason tag に反映する。
 - `lenses.long_hold_survivability`: 短期 thesis が外れた場合の保有耐性を `high|medium|low|unknown` で示す annotation。
-- `selection.diagnostics`: suppressed count、previous overlap、sector / lane concentration、fast / long-hold の件数、warnings を確認する。
+- `selection.diagnostics`: suppressed count、previous overlap、fast / long-hold の件数、warnings を確認する。sector / lane の concentration が必要な場合は `recommended[].sector_33` と `selection_lane` を直接 count する。
 
 件数は `--top` と `output.research_selection_target_max` で調整します。複数 hit 銘柄では、config の lane order に従って `selection_lane` を選びます。
 
@@ -62,7 +62,8 @@ Profile を変更する前に、少なくとも以下を表にします。
 - `fast_dislocation_count`: 閾値が広すぎて fast 候補を量産していないか
 - `recommended[].selection_lane`: 特定 lane が recommended を埋め尽くしていないか
 - `recommended[].fast_guard_count` / `fast_guard_family_count` / `fast_confidence` / `fast_data_status` / `long_hold_rating`: 売られ過ぎと財務健全性の両方を満たしているか
-- `previous_overlap` と `concentration`: 前回候補・同一 sector / lane への偏りが再発していないか
+- `previous_overlap`: 前回候補との重複比率。warning `recommendations_high_previous_overlap` の trigger 元
+- `recommended[].sector_33` / `selection_lane`: 同一 sector / lane への偏りが再発していないか (直接 count)
 - `warnings`: `recommendations_high_previous_overlap`、`invalid_numeric_metric_values`、`short_return_price_history_missing` が残っていないか
 
 サイロ化を避けるため、既定 profile は `selection.diversity.max_previous_candidates_in_recommended` で前回 candidates 由来の銘柄数に上限を置きます。上限に達した場合は新規候補を優先し、最低件数を満たすための緩和は行いません。

@@ -55,8 +55,6 @@ def test_replay_to_payload_serializes_weeks() -> None:
                 fast_dislocation_count=37,
                 long_hold_counts={"high": 1},
                 suppressed_count=4,
-                previous_overlap=None,
-                concentration=None,
                 distributions={"selection_lane": {"sales-discount-growth": 2}},
                 forward_returns=(),
                 forward_aggregates=(

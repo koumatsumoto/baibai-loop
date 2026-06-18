@@ -267,8 +267,6 @@ def build_selection_sweep_payload(
                 "fast_dislocation_count": int_or(diagnostics.get("fast_dislocation_count"), 0),
                 "long_hold_counts": dict(mapping_or_empty(diagnostics.get("long_hold_counts"))),
                 "suppressed_count": int_or(diagnostics.get("suppressed_count"), 0),
-                "previous_overlap": diagnostics.get("previous_overlap"),
-                "concentration": diagnostics.get("concentration"),
                 "warnings": diagnostics.get("warnings"),
             }
         )
@@ -506,15 +504,6 @@ def _diagnostics(
             "previous_candidates_ref": previous_candidates.ref_path,
             "overlap_count": len(overlap_tickers),
             "overlap_ratio": round(overlap_ratio, 4),
-            "overlap_tickers": overlap_tickers,
-        },
-        "concentration": {
-            "recommended_by_sector": dict(
-                Counter(string_or_none(item.get("sector_33")) or "" for item in recommended)
-            ),
-            "recommended_by_selection_lane": dict(
-                Counter(string_or_none(item.get("selection_lane")) or "" for item in recommended)
-            ),
         },
         "suppressed_count": sum(1 for candidate in ranked_candidates if candidate["suppressed"]),
         "fast_dislocation_count": sum(
