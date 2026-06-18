@@ -79,13 +79,19 @@ class AblationVariant:
 DEFAULT_VARIANTS: tuple[AblationVariant, ...] = (
     AblationVariant(name=FULL_VARIANT),
     AblationVariant(name="no_fast_boost", ranking_toggles=RankingToggles(fast_boost=False)),
-    AblationVariant(name="no_stabilization", ranking_toggles=RankingToggles(stabilization=False)),
     AblationVariant(name="no_lane_rank", ranking_toggles=RankingToggles(lane_rank=False)),
     AblationVariant(name="no_strength", ranking_toggles=RankingToggles(strength=False)),
     AblationVariant(name="no_diversity", disable_diversity=True),
-    AblationVariant(name="no_prior_suppression", disable_prior_suppression=True),
     *(AblationVariant(name=f"drop_lane:{lane}", drop_lane=lane) for lane in _LANES),
 )
+# F1 / F3 dead-code cleanup: `no_prior_suppression` and `no_stabilization`
+# variants were removed from DEFAULT_VARIANTS. Both measured Δfull ≈ 0pt
+# across 6 weeks (no_prior_suppression overlap 100% — never altered the queue;
+# no_stabilization recorded Δfull = -0.2pt noise because fast_boost is
+# neutralized 5/6 weeks of 2026-05 by the regime gate, making the
+# stabilization toggle a no-op in production). Keeping them in the default set
+# would just inflate the ablation table without informing decisions; callers
+# that want to re-measure can still construct them ad hoc via AblationVariant.
 
 
 @dataclass(frozen=True, slots=True)
