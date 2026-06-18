@@ -1,6 +1,6 @@
 ---
-title: "Perf 施策 PR 報告 — CSafeLoader 化 + 計測ベース採否判断"
-summary: "screening-replay の wall time を 17.26s → 3.21s (-81%, 5.4x) に短縮。前 PR (#249 cleanup round 3) で挙げた 7 候補のうち、計測した結果 5 件は採用見送りし、CSafeLoader (新発見) と `_insert_bars` consolidation の 2 件を採用。"
+title: "Perf 施策 PR 報告 — CSafeLoader + payload cache + 計測ベース採否判断"
+summary: "screening-replay の wall time を 17.26s → 2.15s (-87.5%, 8.03x) に短縮。前 PR (#249) の 7 候補に加えて R5 review で発見された YAML payload cache を実装。計測結果と保守性 trade-off を実測ベースで判断。"
 doc_type: report
 status: active
 date: 2026-06-18
@@ -11,16 +11,18 @@ related_docs:
 
 # Perf 施策 PR (round 4) 報告
 
-前 PR ([#249](https://github.com/koumatsumoto/baibai-loop/pull/249)) で挙げた 7 perf 候補を、cProfile と wall time 計測で 1 件ずつ採否判断した。
+前 PR ([#249](https://github.com/koumatsumoto/baibai-loop/pull/249)) で挙げた 7 perf 候補と、5 名 review で追加発見された候補を、cProfile と wall time 計測で 1 件ずつ採否判断した。
 
 ## 1. 結果サマリ
 
-| | wall time mean (5 runs) | stdev | 採否 |
-| --- | ---: | ---: | --- |
-| baseline (PR #249 後 main) | 17.264s | 0.229s | — |
-| CSafeLoader 全 reader 化後 | 3.212s | 0.035s | **採用** |
+| Wave | 内容 | wall mean (5 runs) | stdev | 削減 vs prev | 採否 |
+| ---: | --- | ---: | ---: | ---: | :-: |
+| 0 | baseline (PR #249 後 main) | 17.264s | 0.229s | — | — |
+| 1 | + CSafeLoader 全 reader 化 (施策8 NEW) | 3.212s | 0.035s | **-81.4%** | **採用** |
+| 2 | + YAML payload cache (施策9 R5 発見) | 2.151s | 0.017s | **-33.0%** | **採用** |
+| — | (試行) + ProcessPool(4) (施策7-rev R5) | 2.054s | 0.028s | -4.5% | 見送り |
 
-**-14.05s, -81.4% (5.4x faster)**。reviewer 独立検証では `-80.3% (5.07x)` と若干差があるが system load noise 内。出力 YAML は md5 byte-identical。multi-period backtest 6/6 週 recommended_tickers 完全一致。
+**累積 17.264s → 2.151s = -15.11s, -87.5% (8.03x faster)**。reviewer 独立検証では Wave 1 単独で `-80.3% (5.07x)` と若干差があるが system load noise 内。出力 YAML は md5 byte-identical (`0c328d05ec869dea9016f64ed77a5e85`)、multi-period backtest 6/6 週 recommended_tickers 完全一致。
 
 ## 2. 計測手順
 
@@ -70,7 +72,7 @@ CSafeLoader 後の cProfile で cumtime <0.1s (top 25 にも入らず)。改善�
 
 #### 施策2 — `compute_market_regime` の sqlite connection 再利用
 
-12 回 × ~10ms open/close = ~120ms。3.7% 改善は計測可能だが、connection lifetime 管理が複雑化する保守性低下と引き換えに見合わない。defer。
+当初 estimate「12 回 × ~10ms = ~120ms」「3.7% 改善」だったが、R5 review の独立 cProfile 計測で `compute_market_regime` の cumtime は **0.001s (0.013%)** と判明。estimate は ~200x 過大評価していた。defer 判断自体は正解 (改善余地 1.7% 閾値の遥か下) だが、estimate なしで「multiplied X 回」を理由にすると future-self が再追跡する罠になるので、profile せずに見積もる anti-pattern を AP-10 でも codify。
 
 #### 施策3 — `load_bars_for_tickers` indexing 確認
 
@@ -90,7 +92,29 @@ unittest → pytest 移行は影響範囲広大 (~120 箇所)。LOC win 400 + �
 
 #### 施策7 — sweep loop 並列化
 
-`ThreadPoolExecutor(max_workers=8)` で `_build_week_sweep` 並列化を実装→計測したが **3.212s → 3.372s (+5% 悪化)**。CSafeLoader は libyaml 内部で GIL release しているが、Python 側 constructor が GIL bound のため thread parallel 効かず、ThreadPool オーバーヘッドだけ載って negative。`ProcessPoolExecutor` は ~50-100ms 起動コストで 6 weeks 並列効果を吸収できない。revert 済み。
+`ThreadPoolExecutor(max_workers=8)` で `_build_week_sweep` 並列化を実装→計測したが **3.212s → 3.372s (+5% 悪化)**。CSafeLoader は libyaml 内部で GIL release しているが、Python 側 constructor が GIL bound のため thread parallel 効かず、ThreadPool オーバーヘッドだけ載って negative。revert 済み。
+
+#### 施策7-rev — sweep loop 並列化 (ProcessPoolExecutor)
+
+R5 review で「ProcessPool は GIL を回避できる」と指摘されたため再評価。`ProcessPoolExecutor(max_workers=4)` で `_build_week_sweep_for_pool` (pickle 可能な tuple-arg wrapper) を実装。
+
+実測 (5 runs): payload_cache 経由 **2.151s** → +ProcessPool **2.054s** = **-97ms (-4.5%)**。
+
+判断: 3σ noise threshold (1.7%) は超えるが、以下の保守性コストと trade-off で **見送り**:
+- multiprocessing wrapper (_build_week_sweep_for_pool) と tuple-arg pickle 制約
+- payload_cache が worker 間で共有不可 → 各 worker で再 parse 発生
+- pickle overhead で 4MB dict を main プロセスに戻す
+- Mac/Windows fork セマンティクス差分が test 環境で不安定要因
+
+「実測 4.5% 改善は保守性コストに見合わない」を数値で記録した。GIL 理論ではなく実測で defer。
+
+#### 施策9 (R5 NEW) — YAML payload cache **採用**
+
+R5 review が独立 cProfile で発見した最大 win。`run_replay` で `load_week_candidates(N)` と `load_previous_candidates(N+1)` が同じ ~4MB YAML を二重 load していた事実。post-CSafeLoader の hot path は `yaml/constructor.py:get_single_data` (Python-side construction ~1.6s tottime)、これを cache でスキップ。
+
+実装: `dict[Path, Mapping[str, object]]` を `run_replay` スコープで共有、`load_week_candidates(path, *, payload_cache=None)` と `load_previous_candidates(..., *, payload_cache=None)` の両方に optional 引数。外部 caller (CLI) は変更なし。
+
+効果: **2.151s vs 3.212s = -1.06s, -33%**。累積 baseline からは **-87.5% (8.03x faster)**。R5 予測 (3.0→2.0s) と完全一致。
 
 ## 4. 次回 PR への follow-up
 
@@ -110,6 +134,15 @@ reviewer 5 名から indicated 改善候補:
 
 - **R1 (perf claim)**: VERIFIED、5.07x (claim 5.4x は noise 内)、md5 byte-identical no-regression、CSafeLoader present (yaml 6.0.3, `__with_libyaml__=True`)。P0/P1 なし。
 - **R2 (test helper safety)**: 3 モジュールとも behavioral 完全一致、wrapper signature 互換、edge case (空 closes / 0.0 turnover) OK。collision なし。P0/P1 なし。
-- **R3 (yaml migration completeness)**: TBD (running)
-- **R4 (docs alignment)**: P0 = backtest-runbook §6 行追加 + 本 report 作成、P1 = anti-patterns AP-10 + yaml_io docstring 強化 + shared.py 整理
-- **R5 (deferred-candidates audit)**: TBD (running)
+- **R3 (yaml migration completeness)**: 全 41 reader 移行確認、unsafe loader (yaml.load without Loader) ゼロ、resolver semantics divergence なし。P2 = 3 test の import 順 (修正済み)、P3 = shared.py の private \_YAML_LOADER (lru_cache 経由のため統合困難、residual)。
+- **R4 (docs alignment)**: P0 = backtest-runbook §6 行追加 (済) + 本 report 作成 (済)、P1 = anti-patterns AP-10 + yaml_io docstring 強化 (済) + shared.py 整理 (defer)。
+- **R5 (deferred-candidates audit)**: §4.2 estimate ~200x 過大評価を発見 (200-300ms → 実測 <1ms)、**最大 win YAML payload cache を発見** (33% wall time, 採用済 +1.06s 改善)、ProcessPool は実測 4.5% 改善のみで GIL 理論ではなく数値で defer 確定。
+
+## 6. 反映 commit (4 件)
+
+| commit | 内容 |
+| --- | --- |
+| 99b4b6c | perf(yaml): 全 reader を CSafeLoader 経由 (-81.4% wall) |
+| 67716c5 | test(helpers): \_insert_bars 3 module consolidate (-14 LOC) |
+| f966483 | docs(perf): R3 import 順 + AP-10 + yaml_io docstring |
+| eafae57 | perf(replay): payload cache (-33% wall, 累積 8.03x) |
