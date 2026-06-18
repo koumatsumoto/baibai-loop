@@ -75,6 +75,7 @@ class CashRichLane(BaseModel):
     price_to_equity_max: float = Field(ge=0)
     equity_ratio_min: float = Field(ge=0, le=1)
     operating_profit_positive_required: bool
+    operating_profit_yoy_deterioration_threshold: float | None = None
 
     @field_validator("excluded_sectors", mode="before")
     @classmethod
@@ -91,6 +92,8 @@ class CashflowYieldLane(BaseModel):
     ttm_cfo_required: bool
     cfo_yoy_min: float
     cfo_yoy_required: bool
+    operating_profit_yoy_deterioration_threshold: float | None = None
+    fcf_yield_required_positive: bool = False
 
     @field_validator("excluded_sectors", mode="before")
     @classmethod
@@ -106,6 +109,7 @@ class SalesDiscountGrowthLane(BaseModel):
     ps_sector_gap_max: float
     sales_yoy_min: float
     allow_operating_loss_if_cfo_positive_or_loss_narrowing: bool
+    operating_margin_min: float | None = None
 
     @field_validator("excluded_sectors", mode="before")
     @classmethod

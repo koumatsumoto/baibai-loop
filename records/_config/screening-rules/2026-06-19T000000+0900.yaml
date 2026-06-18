@@ -104,17 +104,27 @@ screening_playbooks:
     - ev_ebitda
     playbook_id: valuation-reversion
   cash-rich-asset-discount:
+    # A4: 卸売業の運転資金 (商社・問屋) は J-Quants cash_eq を機械判定で
+    # 膨張させる (2026-06-12 candidates で cash-rich 最大 cluster 49/292)。
+    # 不動産業は land inventory が equity_ratio / cash_to_market_cap を
+    # 歪める。両 sector を除外。reports/2026-06-19-strategy-improvement-ideas.md A4 参照。
     excluded_sectors:
     - 銀行業
     - 証券・商品先物取引業
     - 保険業
     - その他金融業
     - 電気・ガス業
+    - 卸売業
+    - 不動産業
     cash_to_market_cap_min: 0.4
     edinet_net_cash_to_market_cap_min_if_available: 0.0
     price_to_equity_max: 1.0
     equity_ratio_min: 0.3
     operating_profit_positive_required: true
+    # C1: 営業利益の急減 (operating_profit_yoy <= -0.3) で deterioration gate を
+    # 発動。OR-passing 構造で -50% EPS YoY 会社が cash-rich 経由で通る穴を
+    # 塞ぐ。reports/.../ideas.md C1 参照。
+    operating_profit_yoy_deterioration_threshold: -0.3
     playbook_id: cash-rich-asset-discount
   cashflow-yield-discount:
     excluded_sectors:
@@ -127,6 +137,12 @@ screening_playbooks:
     ttm_cfo_required: true
     cfo_yoy_min: -0.2
     cfo_yoy_required: true
+    # C1: cash-rich と同じく deterioration gate を追加。
+    operating_profit_yoy_deterioration_threshold: -0.3
+    # C4: FCF が連続マイナスの重設備会社を排除。OCF+/FCF- (capex 先行) は
+    # 短期 mean-reversion で機械判定しにくく cohort 成績悪化要因。
+    # ideas.md C4 参照。
+    fcf_yield_required_positive: true
     playbook_id: cashflow-yield-discount
   sales-discount-growth:
     excluded_sectors:
@@ -137,4 +153,7 @@ screening_playbooks:
     ps_sector_gap_max: -0.4
     sales_yoy_min: 0.05
     allow_operating_loss_if_cfo_positive_or_loss_narrowing: true
+    # C2: 損失縮小 escape hatch (-100B → -50B が pass) を operating margin
+    # floor で defang。chronic loser を排除。ideas.md C2 参照。
+    operating_margin_min: -0.05
     playbook_id: sales-discount-growth
