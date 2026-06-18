@@ -95,6 +95,12 @@ def run_replay(
         spec.asof: compute_market_regime(sqlite_path, spec.asof) if regime_lens else None
         for spec in weeks
     }
+    # Each weekly YAML is read twice: as the current week's candidates AND as
+    # the previous-week reference for the next week. The dict here lets both
+    # loaders skip the second parse — the post-CSafeLoader hotspot is the
+    # Python-side constructor (~1.6s tottime for 6 weeks), so deduping the parse
+    # is the largest win available without restructuring the loop.
+    payload_cache: dict[Path, Mapping[str, object]] = {}
     sweeps = [
         (
             spec,
@@ -106,6 +112,7 @@ def run_replay(
                 candidates_root=candidates_root,
                 ledger_root=ledger_root,
                 market_regime=regimes[spec.asof],
+                payload_cache=payload_cache,
             ),
         )
         for spec in weeks
@@ -217,14 +224,19 @@ def _build_week_sweep(
     candidates_root: Path,
     ledger_root: Path,
     market_regime: MarketRegimeSnapshot | None = None,
+    payload_cache: dict[Path, Mapping[str, object]] | None = None,
 ) -> Mapping[str, object]:
     candidates = tuple(
-        candidate_record_from_mapping(item) for item in load_week_candidates(spec.candidates_path)
+        candidate_record_from_mapping(item)
+        for item in load_week_candidates(spec.candidates_path, payload_cache=payload_cache)
     )
     # previous_candidates is resolved within the replay root so overlap is scoped
     # to the replay set, while prior_research stays anchored to the real ledger.
     previous_candidates: PreviousCandidates = load_previous_candidates(
-        candidates_root, spec.asof, current_path=spec.candidates_path
+        candidates_root,
+        spec.asof,
+        current_path=spec.candidates_path,
+        payload_cache=payload_cache,
     )
     prior_research: Mapping[str, PriorResearch] = load_prior_research(
         ledger_root / "_ledger/research-decisions", spec.asof
