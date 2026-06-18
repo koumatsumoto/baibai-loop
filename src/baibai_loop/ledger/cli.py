@@ -72,6 +72,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=NIKKEI225_ETF_PROXY,
         help=f"benchmark ETF proxy ticker (default: {NIKKEI225_ETF_PROXY})",
     )
+    benchmark_parser.add_argument(
+        "--exclude-cohort-tags",
+        default="",
+        help=(
+            "comma-separated cohort_tag values to exclude (e.g. "
+            "'pre_refactor_backfill,user_position_confirmed'); empty includes everything"
+        ),
+    )
     replay_parser = subparsers.add_parser(
         "screening-replay",
         help="replay selection profiles over weekly candidates and score forward return",
@@ -188,7 +196,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "review-gates":
         return _run_review_gates(args.root, _resolve_asof(args.asof))
     if args.command == "benchmark":
-        return _run_benchmark(args.root, _resolve_asof(args.asof), args.proxy, os.environ)
+        excluded = tuple(
+            tag.strip() for tag in args.exclude_cohort_tags.split(",") if tag.strip()
+        )
+        return _run_benchmark(
+            args.root,
+            _resolve_asof(args.asof),
+            args.proxy,
+            os.environ,
+            excluded_cohort_tags=excluded,
+        )
     if args.command == "screening-replay":
         return _run_screening_replay(args)
     if args.command == "lane-cohorts":
@@ -332,8 +349,26 @@ def _format_gate(gate: ReviewGate) -> str:
     )
 
 
-def _run_benchmark(root: Path, asof: date, proxy: str, env: Mapping[str, str]) -> int:
+def _run_benchmark(
+    root: Path,
+    asof: date,
+    proxy: str,
+    env: Mapping[str, str],
+    *,
+    excluded_cohort_tags: tuple[str, ...] = (),
+) -> int:
     trades = load_open_trades(root)
+    if excluded_cohort_tags:
+        excluded_set = frozenset(excluded_cohort_tags)
+        before = len(trades)
+        trades = [trade for trade in trades if trade.cohort_tag not in excluded_set]
+        excluded_count = before - len(trades)
+        if excluded_count > 0:
+            print(
+                f"excluded {excluded_count} trade(s) with cohort_tag in "
+                f"{sorted(excluded_set)}",
+                file=sys.stderr,
+            )
     if not trades:
         print("no open positions")
         return 0
