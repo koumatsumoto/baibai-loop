@@ -117,5 +117,6 @@ approved n が 1 桁の段階では mean rel の点推定は不安定。`random.
 | 2026-06-17 | judgment-gate counterfactual / lane × regime cross / bootstrap CI | approved 8 件 rel −3.45pt、95% CI [−7.60, +0.32]、P(<0)=96% | regime gate を judgment 層に実装 (PR #245) |
 | 2026-06-18 | cleanup round 2 (scorecard / structural / breadth / 8w / profile YAML) replay before/after diff | mean rel diff +0.00pt × 3 wave | 削除は forward 計測の no-regression を満たす (PR #248) |
 | 2026-06-18 | cleanup round 3 (HorizonReturn.benchmark_return / concentration diagnostics / add_source_coverage helper) replay diff 6 週 (2026-05-01 〜 2026-06-12) | recommended_tickers 完全一致 6/6 週、mean_relative diff +0.00pt | 削除は forward 計測の no-regression を満たす、6 週 multi-period で検証 |
+| 2026-06-18 | perf (`yaml_io.safe_load` 全 reader 経由化 + run_replay 内 YAML payload cache / `_insert_bars` 3 module 統合) replay diff 6 週 + wall time 5 runs | wall 17.26s → 2.15s (**-87.5%, 8.03x**); recommended_tickers 6/6 完全一致 + 出力 YAML md5 byte-identical | CSafeLoader を `baibai_loop.yaml_io.safe_load` 経由で全 14 src reader に強制、`run_replay` で current/previous の二重 YAML parse を `payload_cache` で dedup (R5 review 発見の最大 win)。1/2/3/4/6/7/7-rev 候補は実測で defer |
 
 ダイジェスト本文は [`../../reports/2026-06-17-trade-strategy-rootcause.md`](../../reports/2026-06-17-trade-strategy-rootcause.md) §13、過去の dated 計測 doc は同レポートで上位概念に統合済み。

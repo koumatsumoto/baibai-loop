@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-import yaml
+from baibai_loop.yaml_io import safe_load
 
 DEFAULT_DEFINITIONS_PATH = Path(__file__).with_name("series.yaml")
 
@@ -49,7 +49,7 @@ class StatsDefinitions:
 
 
 def load_definitions(path: Path = DEFAULT_DEFINITIONS_PATH) -> StatsDefinitions:
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    raw = safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError(f"stats definitions root must be a mapping: {path}")
     return StatsDefinitions(series=tuple(_parse_series(item) for item in _list(raw.get("series"))))

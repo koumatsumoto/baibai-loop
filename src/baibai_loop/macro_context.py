@@ -8,7 +8,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-import yaml
+from baibai_loop.yaml_io import safe_load
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,7 +40,7 @@ def find_latest_macro_context(root: Path, asof_date: date) -> Path | None:
 
 
 def load_macro_context(path: Path) -> MacroContext:
-    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    payload = safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(payload, Mapping):
         raise ValueError(f"macro context YAML root must be a mapping: {path}")
     kind = payload.get("kind")

@@ -7,11 +7,10 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-import yaml
-
 from baibai_loop.coerce import optional_float
 from baibai_loop.screening.providers.jquants import JQuantsDailyBar
 from baibai_loop.screening.render import JST
+from baibai_loop.yaml_io import safe_load
 
 from .io import diff_jsonl, write_jsonl
 from .records import DecisionRegisterRecord, Tracking
@@ -147,7 +146,7 @@ def _parse_research(path: Path) -> tuple[dict[str, Any], str] | None:
     match = _FRONT_MATTER_RE.match(path.read_text(encoding="utf-8"))
     if not match:
         return None
-    front = yaml.safe_load(match.group(1))
+    front = safe_load(match.group(1))
     if not isinstance(front, dict):
         return None
     return front, match.group(2)
@@ -156,7 +155,7 @@ def _parse_research(path: Path) -> tuple[dict[str, Any], str] | None:
 def _load_candidates(root: Path) -> dict[str, dict[str, Mapping[str, Any]]]:
     loaded: dict[str, dict[str, Mapping[str, Any]]] = {}
     for path in sorted((root / "records/04-candidates").rglob("*.yaml")):
-        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        document = safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(document, dict):
             continue
         by_ticker: dict[str, Mapping[str, Any]] = {}

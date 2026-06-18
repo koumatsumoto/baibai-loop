@@ -8,8 +8,6 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-import yaml
-
 from baibai_loop.coerce import (
     date_from_datetime_prefix,
     dict_sequence,
@@ -20,6 +18,7 @@ from baibai_loop.coerce import (
     string_or_none,
     string_sequence,
 )
+from baibai_loop.yaml_io import safe_load
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,7 +202,14 @@ def load_previous_candidates(
     asof_date: date,
     *,
     current_path: Path | None = None,
+    payload_cache: dict[Path, Mapping[str, object]] | None = None,
 ) -> PreviousCandidates:
+    """Resolve the most recent candidates YAML before ``asof_date``.
+
+    ``payload_cache`` lets the caller share parsed payloads with
+    ``load_week_candidates`` so the same YAML is not loaded twice when this
+    function is invoked once per week alongside the per-week sweep.
+    """
     if not candidates_root.exists():
         return PreviousCandidates(ref_path=None, tickers=())
     matches: list[tuple[date, int, str, Path]] = []
@@ -220,7 +226,17 @@ def load_previous_candidates(
     if not matches:
         return PreviousCandidates(ref_path=None, tickers=())
     _, _, _, latest_path = sorted(matches)[-1]
-    payload = yaml.safe_load(latest_path.read_text(encoding="utf-8"))
+    if payload_cache is not None:
+        cache_key = latest_path.resolve()
+        cached = payload_cache.get(cache_key)
+        if cached is not None:
+            payload: object = cached
+        else:
+            payload = safe_load(latest_path.read_text(encoding="utf-8"))
+            if isinstance(payload, Mapping):
+                payload_cache[cache_key] = payload
+    else:
+        payload = safe_load(latest_path.read_text(encoding="utf-8"))
     if not isinstance(payload, Mapping):
         return PreviousCandidates(ref_path=latest_path.as_posix(), tickers=())
     tickers = tuple(

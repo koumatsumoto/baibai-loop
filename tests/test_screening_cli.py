@@ -18,6 +18,8 @@ from unittest.mock import patch
 
 import yaml
 
+from baibai_loop.yaml_io import safe_load
+
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -276,7 +278,7 @@ class ScreeningCliTests(unittest.TestCase):
                 rendered = output_path.read_text(encoding="utf-8")
                 self.assertIn('run_date: "2026-04-24"', rendered)
                 self.assertIn("ttm_quality_counts:", rendered)
-                payload = yaml.safe_load(rendered)
+                payload = safe_load(rendered)
                 self.assertEqual(
                     payload["data_sources"],
                     [
@@ -365,7 +367,7 @@ class ScreeningCliTests(unittest.TestCase):
                 )
 
                 self.assertEqual(exit_code, 2)
-                payload = yaml.safe_load(output_path.read_text(encoding="utf-8"))
+                payload = safe_load(output_path.read_text(encoding="utf-8"))
                 self.assertEqual(payload["run_id"], "screening-20260424")
                 self.assertEqual(output_path.parent, Path(".cache/simplify").resolve())
             finally:
@@ -471,7 +473,7 @@ class ScreeningCliTests(unittest.TestCase):
                 )
 
                 self.assertEqual(exit_code, 2)
-                payload = yaml.safe_load(build_output_path(date(2026, 4, 24)).read_text())
+                payload = safe_load(build_output_path(date(2026, 4, 24)).read_text())
                 self.assertIn("disclosure-title-events", payload["data_sources"])
                 self.assertIn(
                     "Disclosure title material-event scan: 1 events from 1 files "
@@ -525,7 +527,7 @@ class ScreeningCliTests(unittest.TestCase):
                 )
 
                 self.assertEqual(exit_code, 2)
-                payload = yaml.safe_load(build_output_path(date(2026, 4, 24)).read_text())
+                payload = safe_load(build_output_path(date(2026, 4, 24)).read_text())
                 self.assertIn(
                     "Disclosure title material-event scan: 0 events from 2 files "
                     "(skipped=1, unsupported=1, errors=1)",
@@ -1211,7 +1213,7 @@ class SelectCommandTests(unittest.TestCase):
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             self.assertNotIn("input_count", payload)
             self.assertEqual(payload["selection"]["counts"]["input"], 3)
             self.assertEqual(payload["selection"]["counts"]["after_macro_context_check"], 3)
@@ -1252,7 +1254,7 @@ class SelectCommandTests(unittest.TestCase):
                 stdout=full_buffer,
             )
             self.assertEqual(full_exit_code, 0)
-            full_payload = yaml.safe_load(full_buffer.getvalue())
+            full_payload = safe_load(full_buffer.getvalue())
             self.assertEqual(full_payload["selection"]["detail"], "full")
             self.assertIn("lenses", self._recommended(full_payload)[0])
             self.assertEqual(self._recommended(payload)[1]["position_tier"], "500-1000")
@@ -1293,7 +1295,7 @@ class SelectCommandTests(unittest.TestCase):
             )
 
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             self.assertEqual(
                 payload["selection"]["input_refs"]["candidates_ref"],
                 "records/04-candidates/e2e/custom-candidates.yaml",
@@ -1337,7 +1339,7 @@ class SelectCommandTests(unittest.TestCase):
             )
 
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             recommended = self._recommended(payload)
             self.assertEqual(recommended[0]["ticker"], "1111")
             self.assertEqual(recommended[0]["price_history_coverage_750d"], 0.27)
@@ -1393,7 +1395,7 @@ class SelectCommandTests(unittest.TestCase):
             )
 
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             # research_selection_lane_order is the single lane priority: the
             # valuation-reversion candidate outranks strict-net-cash, and the
             # same-sector diversity cap then drops the second 機械 name.
@@ -1455,7 +1457,7 @@ class SelectCommandTests(unittest.TestCase):
             )
 
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             self.assertEqual(self._recommended(payload)[0]["freshness_warnings"], [warning])
 
     def test_select_excludes_candidates_without_sizing_eligible_evidence(self) -> None:
@@ -1520,7 +1522,7 @@ class SelectCommandTests(unittest.TestCase):
             )
 
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["2222"])
 
     def test_select_handles_multi_lane_candidates_with_primary_selection_lane(self) -> None:
@@ -1589,7 +1591,7 @@ class SelectCommandTests(unittest.TestCase):
             )
 
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["1111", "2222"])
             self.assertEqual(self._recommended(payload)[1]["selection_lane"], "valuation-reversion")
 
@@ -1649,7 +1651,7 @@ class SelectCommandTests(unittest.TestCase):
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["2222", "1111"])
             self.assertEqual(
                 self._recommended(payload)[0]["selection_lane"], "cashflow-yield-discount"
@@ -1761,7 +1763,7 @@ class SelectCommandTests(unittest.TestCase):
             )
 
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             self.assertEqual(self._recommended(payload)[0]["ticker"], "2222")
             self.assertTrue(self._recommended(payload)[0]["lenses"]["fast_dislocation"]["eligible"])
             self.assertEqual(
@@ -1831,7 +1833,7 @@ class SelectCommandTests(unittest.TestCase):
             )
 
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             lens = self._recommended(payload)[0]["lenses"]["fast_dislocation"]
             self.assertTrue(lens["eligible"])
             self.assertEqual(lens["confidence"], "medium")
@@ -1886,7 +1888,7 @@ class SelectCommandTests(unittest.TestCase):
             )
 
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             by_ticker = {item["ticker"]: item for item in self._recommended(payload)}
             missing_lens = by_ticker["1111"]["lenses"]["long_hold_survivability"]
             weak_lens = by_ticker["2222"]["lenses"]["long_hold_survivability"]
@@ -1961,7 +1963,7 @@ class SelectCommandTests(unittest.TestCase):
             )
 
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             self.assertEqual([item["ticker"] for item in self._recommended(payload)], ["3333"])
             self.assertEqual(payload["selection"]["diagnostics"]["suppressed_count"], 1)
 
@@ -2025,7 +2027,7 @@ class SelectCommandTests(unittest.TestCase):
             )
 
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             self.assertEqual([item["ticker"] for item in self._recommended(payload)], ["3333"])
             self.assertEqual(payload["selection"]["diagnostics"]["suppressed_count"], 1)
 
@@ -2089,7 +2091,7 @@ class SelectCommandTests(unittest.TestCase):
             )
 
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             self.assertEqual([item["ticker"] for item in self._recommended(payload)], ["3333"])
             self.assertEqual(payload["selection"]["diagnostics"]["suppressed_count"], 1)
 
@@ -2160,7 +2162,7 @@ class SelectCommandTests(unittest.TestCase):
             )
 
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             self.assertEqual(payload["selection"]["diagnostics"]["suppressed_count"], 1)
 
     def test_select_caps_previous_candidates_when_new_alternatives_exist(self) -> None:
@@ -2247,7 +2249,7 @@ class SelectCommandTests(unittest.TestCase):
             )
 
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             tickers = [item["ticker"] for item in self._recommended(payload)]
             self.assertIn("5555", tickers)
             self.assertLessEqual(
@@ -2293,7 +2295,7 @@ class SelectCommandTests(unittest.TestCase):
             )
 
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             self.assertEqual(len(self._recommended(payload)), 2)
             self.assertEqual(
                 sum(1 for item in self._recommended(payload) if item["previous_candidate"]),
@@ -2368,7 +2370,7 @@ class SelectCommandTests(unittest.TestCase):
             )
 
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             diagnostics = payload["selection"]["diagnostics"]
             self.assertEqual(diagnostics["short_return_missing_candidate_count"], 2)
             self.assertIn("short_return_price_history_missing", diagnostics["warnings"])
@@ -2527,5 +2529,5 @@ class SelectCommandTests(unittest.TestCase):
             )
 
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             self.assertEqual(self._recommended(payload)[0]["ticker"], "1111")

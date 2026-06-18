@@ -15,8 +15,6 @@ import unittest
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-import yaml
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -27,6 +25,7 @@ from baibai_loop.screening.config import ScreeningConfig
 from baibai_loop.screening.providers import EDINETProvider, JPXProvider, JQuantsProvider
 from baibai_loop.screening.render import JST, build_output_path
 from baibai_loop.screening.sqlite_cache import open_connection
+from baibai_loop.yaml_io import safe_load
 from tests.helpers.screening_sqlite import add_source_coverage
 
 
@@ -330,7 +329,7 @@ class ScreeningRunOverSqliteTests(unittest.TestCase):
                 output_path = build_output_path(asof)
                 self.assertIn(exit_code, (0, 2))
                 self.assertTrue(output_path.exists(), "screening YAML should be written")
-                payload = yaml.safe_load(output_path.read_text(encoding="utf-8"))
+                payload = safe_load(output_path.read_text(encoding="utf-8"))
                 self.assertEqual(payload["asof_date"], asof.isoformat())
                 self.assertEqual(payload["run_id"], f"screening-{asof:%Y%m%d}")
             finally:

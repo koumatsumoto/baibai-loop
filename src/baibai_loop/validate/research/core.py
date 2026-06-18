@@ -17,6 +17,7 @@ from baibai_loop.validate.playbook_schema import (
     load_playbook_schema,
     validate_research_body,
 )
+from baibai_loop.yaml_io import safe_load
 
 from .fields import _check_decision, _check_playbook, _check_ticker
 from .macro_context import _check_macro_context_fit
@@ -172,7 +173,7 @@ def _load_research_document(
             )
         ]
     try:
-        front_matter = yaml.safe_load(match.group(1))
+        front_matter = safe_load(match.group(1))
     except yaml.YAMLError as exc:
         return [
             ValidationFinding(

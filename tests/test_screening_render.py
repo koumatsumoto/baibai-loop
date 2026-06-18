@@ -5,8 +5,6 @@ import unittest
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-import yaml
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -25,6 +23,7 @@ from baibai_loop.screening.schema import (
     TTMQuality,
     normalize_ticker,
 )
+from baibai_loop.yaml_io import safe_load
 
 
 class ScreeningRenderTests(unittest.TestCase):
@@ -157,7 +156,7 @@ class ScreeningRenderTests(unittest.TestCase):
 
         rendered = render_screened_yaml(document)
 
-        payload = yaml.safe_load(rendered)
+        payload = safe_load(rendered)
         self.assertEqual(payload["run_id"], "screening-20260424")
         candidate = payload["candidates"][0]
         self.assertEqual(candidate["ticker"], "130A")
@@ -207,7 +206,7 @@ class ScreeningRenderTests(unittest.TestCase):
             run_id="screening-20260424",
         )
 
-        payload = yaml.safe_load(render_screened_yaml(document))
+        payload = safe_load(render_screened_yaml(document))
 
         evidence = payload["candidates"][0]["evidence_hits"][0]
         self.assertEqual(evidence["playbook_id"], "sales-discount-growth")

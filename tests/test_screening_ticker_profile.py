@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import tempfile
 import unittest
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 
 import yaml
@@ -11,26 +11,14 @@ import yaml
 from baibai_loop.screening.cli import build_parser, ticker_profile_command
 from baibai_loop.screening.sqlite_cache import open_connection
 from baibai_loop.screening.ticker_profile import build_ticker_profile
+from baibai_loop.yaml_io import safe_load
+from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 _ASOF = date(2026, 5, 29)
 
 
 def _insert_bars(sqlite_path: Path, ticker: str, closes: list[float], *, end: date) -> None:
-    conn = open_connection(sqlite_path)
-    try:
-        start = end - timedelta(days=len(closes) - 1)
-        conn.executemany(
-            "INSERT OR REPLACE INTO jquants_daily_bars"
-            "(ticker, traded_at, close, adjustment_close, turnover_value)"
-            " VALUES (?, ?, ?, ?, ?)",
-            [
-                (ticker, (start + timedelta(days=index)).isoformat(), close, close, 2.0e8)
-                for index, close in enumerate(closes)
-            ],
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    insert_daily_bars_from_closes(sqlite_path, ticker, closes, end_date=end, turnover_value=2.0e8)
 
 
 def _insert_reference_rows(sqlite_path: Path) -> None:
@@ -201,7 +189,7 @@ class TickerProfileCliTests(unittest.TestCase):
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
-            payload = yaml.safe_load(buffer.getvalue())
+            payload = safe_load(buffer.getvalue())
             self.assertEqual(payload["ticker"], "AAAA")
             price = payload["price"]
             self.assertEqual(price["bar_count"], 30)

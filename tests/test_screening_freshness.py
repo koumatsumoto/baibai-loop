@@ -7,8 +7,6 @@ import unittest
 from datetime import date, datetime
 from pathlib import Path
 
-import yaml
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -19,6 +17,7 @@ from baibai_loop.screening.freshness import (
     load_disclosure_events,
 )
 from baibai_loop.screening.schema import FinancialSnapshot
+from baibai_loop.yaml_io import safe_load
 
 
 def _financial(source_submit_datetime: str | None = "2025-10-15 12:00") -> FinancialSnapshot:
@@ -77,7 +76,7 @@ class ScreeningFreshnessTests(unittest.TestCase):
         "weekly candidates live in the local store; skip where absent",
     )
     def test_issue_94_3678_real_candidate_gets_freshness_warnings(self) -> None:
-        payload = yaml.safe_load(
+        payload = safe_load(
             (ROOT / "records/04-candidates/2026/05/2026-05-01.yaml").read_text(encoding="utf-8")
         )
         candidate = next(item for item in payload["candidates"] if item["ticker"] == "3678")

@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-import yaml
+from baibai_loop.yaml_io import safe_load
 
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
 
@@ -50,14 +50,14 @@ def resolve_repository_ref(root: Path, ref: str) -> Path:
 
 
 def load_yaml_file(path: Path) -> object:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+    return safe_load(path.read_text(encoding="utf-8"))
 
 
 def load_markdown_front_matter(path: Path) -> dict[str, Any]:
     match = _FRONT_MATTER_RE.match(path.read_text(encoding="utf-8"))
     if not match:
         raise ValueError(f"{path}: markdown file has no YAML front matter")
-    raw = yaml.safe_load(match.group(1))
+    raw = safe_load(match.group(1))
     if not isinstance(raw, dict):
         raise ValueError(f"{path}: YAML front matter must be a mapping")
     return raw

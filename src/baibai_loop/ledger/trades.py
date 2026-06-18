@@ -7,9 +7,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any, TypeIs
 
-import yaml
-
 from baibai_loop.coerce import parse_iso_date
+from baibai_loop.yaml_io import safe_load
 
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
 
@@ -60,7 +59,7 @@ def _read_front_matter(path: Path) -> Mapping[str, Any] | None:
     match = _FRONT_MATTER_RE.match(path.read_text(encoding="utf-8"))
     if match is None:
         return None
-    payload = yaml.safe_load(match.group(1))
+    payload = safe_load(match.group(1))
     if not isinstance(payload, dict):
         return None
     return payload

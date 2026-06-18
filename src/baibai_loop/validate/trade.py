@@ -13,6 +13,7 @@ from jsonschema import Draft202012Validator
 
 from baibai_loop.coerce import optional_float
 from baibai_loop.policy_config import PORTFOLIO_POLICY
+from baibai_loop.yaml_io import safe_load
 
 from .domain import (
     as_list,
@@ -105,7 +106,7 @@ def _load_front_matter(path: Path) -> dict[str, object] | list[ValidationFinding
             )
         ]
     try:
-        front = yaml.safe_load(match.group(1))
+        front = safe_load(match.group(1))
     except yaml.YAMLError as exc:
         return [
             ValidationFinding(
@@ -236,7 +237,7 @@ def _check_repository_ref(
         if ref_path.suffix == ".md":
             load_reference_mapping(root, value)
         else:
-            loaded = yaml.safe_load(ref_path.read_text(encoding="utf-8"))
+            loaded = safe_load(ref_path.read_text(encoding="utf-8"))
             if not isinstance(loaded, Mapping):
                 raise ValueError("referenced YAML must be a mapping")
     except (OSError, ValueError, yaml.YAMLError) as exc:
