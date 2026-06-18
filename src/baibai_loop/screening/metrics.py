@@ -324,6 +324,17 @@ def _build_financial_snapshot(
         ttm_quality_fcf_yield=edinet.ttm_quality_fcf if edinet else TTMQuality.UNAVAILABLE,
         ttm_quality_net_cash=edinet.ttm_quality_net_cash if edinet else TTMQuality.UNAVAILABLE,
         shares_outstanding=shares_outstanding,
+        accruals_to_assets=_accruals_to_assets(
+            eps_ttm=eps_ttm,
+            shares=shares_outstanding,
+            ocf_ttm=ocf_ttm,
+            total_assets=latest.total_assets if latest else None,
+            prior_total_assets=prior_year.total_assets if prior_year else None,
+        ),
+        net_share_change_yoy=_yoy_ratio(
+            shares_outstanding,
+            prior_year.shares_outstanding if prior_year else None,
+        ),
     )
 
 
@@ -689,6 +700,35 @@ def _yoy_ratio(current: float | None, previous: float | None) -> float | None:
     if current is None or previous is None or previous == 0:
         return None
     return (current / previous) - 1.0
+
+
+def _accruals_to_assets(
+    *,
+    eps_ttm: float | None,
+    shares: float | None,
+    ocf_ttm: float | None,
+    total_assets: float | None,
+    prior_total_assets: float | None,
+) -> float | None:
+    """Sloan (1996) accruals ratio: (NI - CFO) / average total assets.
+
+    NI is approximated as ``eps_ttm * shares_outstanding``; if a true NI line
+    becomes available later (J-Quants `profit` field), prefer it. The
+    denominator uses the average of current and prior-year total assets when
+    both are present, otherwise the current value. Returns None for any
+    missing input or zero denominator.
+    """
+    if eps_ttm is None or shares is None or ocf_ttm is None or total_assets is None:
+        return None
+    net_income = eps_ttm * shares
+    denominator = (
+        (total_assets + prior_total_assets) / 2.0
+        if prior_total_assets is not None and prior_total_assets > 0
+        else total_assets
+    )
+    if denominator <= 0:
+        return None
+    return (net_income - ocf_ttm) / denominator
 
 
 def _loss_narrowing(current: float | None, previous: float | None) -> bool | None:

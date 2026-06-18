@@ -135,6 +135,14 @@ class FinancialSnapshot:
     ttm_quality_fcf_yield: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_net_cash: TTMQuality = TTMQuality.UNAVAILABLE
     shares_outstanding: float | None = None
+    # D2 accruals = (eps_ttm * shares - cfo_ttm) / average total assets — Sloan
+    # 1996. High positive accruals are an earnings-quality flag (reported NI
+    # not converting to cash). None if any input is missing.
+    accruals_to_assets: float | None = None
+    # D3 net share issuance YoY = (shares_now - shares_prior_year) / shares_prior_year.
+    # Positive = dilution, negative = buyback. None if prior-year share count
+    # is missing or zero.
+    net_share_change_yoy: float | None = None
 
     @field_validator(
         "per_forward",
@@ -172,6 +180,8 @@ class FinancialSnapshot:
         "operating_profit_yoy",
         "cfo_yoy",
         "shares_outstanding",
+        "accruals_to_assets",
+        "net_share_change_yoy",
     )
     @classmethod
     def _finite_numeric_fields(cls, value: float | None) -> float | None:
