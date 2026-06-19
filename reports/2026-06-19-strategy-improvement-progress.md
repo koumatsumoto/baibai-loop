@@ -1,6 +1,6 @@
 ---
-title: "Strategy 改善 PR 報告 — 5 Phase 統合"
-summary: "5 並列調査 (reports/2026-06-19-strategy-improvement-ideas.md) で発見した A-F 候補のうち、forward 計測ベースで意味あり / 実装コスト適正 / 保守性 OK の 11 件 を 5 Phase commit で統合。ablation 4w mean rel -10.98pt → -1.89pt (+9.09pt)、benchmark 規律下 cohort rel +1.23pt (back-fill 3 件除外で +2.52pt 解像度向上)。"
+title: "Strategy 改善 PR 報告 — 5 Phase 統合 + Phase 6 fixup"
+summary: "5 並列調査 (reports/2026-06-19-strategy-improvement-ideas.md) で発見した A-F 候補のうち、forward 計測ベースで意味あり / 実装コスト適正 / 保守性 OK の 11 件 を 5 Phase commit で統合し、Phase 6 で 5 名 reviewer の P0 を修正。ablation 4w 改善幅は R1 reviewer 検証で apples-to-apples では **B1 ablation infra bug 修正が +6.6pt、A1-A3 config 改善が +1.1pt (n=10 CI 跨ぎ、統計的有意でない可能性)、合計 +7.7pt**。benchmark 規律下 cohort rel +1.23pt (back-fill 3 件除外で +2.52pt 解像度向上、完全再現)。"
 doc_type: report
 status: active
 date: 2026-06-19
@@ -58,20 +58,23 @@ related_docs:
 
 ## 4. 価値検証の数値 (5 Phase 累積)
 
-### 4.1 ablation full variant (top=5, 6 週 candidates_phase2)
+### 4.1 ablation full variant (top=5, candidates_phase2、R1 検証済 apples-to-apples)
 
-| 計測時点 | 1w mean rel | 4w mean rel |
+R1 reviewer の独立検証で「+9.09pt 改善」claim は **母集合不一致 (6 週 baseline vs 5 週 phase2)** であることが判明。同じ 5 週 candidates_phase2 上で旧コード / B1 fix only / 全 Phase の数値を取り直すと:
+
+| 構成 | 4w mean rel (n=10) | 寄与 |
 |---|---:|---:|
-| PR #249 後 main (旧 baseline) | -1.92pt (n=20) | **-10.98pt** (n=15) |
-| Phase 1 後 (orig 6 weeks) | +0.29pt (n=20) | **-2.44pt** (n=15) |
-| Phase 2 後 (regen 5 weeks) | +2.59pt (n=15) | **-1.89pt** (n=10) |
-| Phase 3 後 (signal record only) | +2.59pt (n=15) | -1.89pt (n=10) |
+| OLD コード (PR #249 後 main) + candidates_phase2 | **-9.6pt** | baseline |
+| + B1 (ablation 内 market_regime) のみ | **-3.0pt** | **+6.6pt** (差分の 86%) |
+| + A1+A2+A3 (lane order / diversity / per_forward) | **-1.9pt** | +1.1pt |
+| Phase 2-5 (rule / signal / cohort / dead code) | **-1.9pt** | +0.0pt (full には現れない) |
+| **真の改善幅** | | **+7.7pt** |
 
-→ **4w で +9.09pt 改善** (PR #249 → Phase 2)、1w で +2.21pt 改善 (PR #249 → Phase 1)。
-
-注意:
-- Phase 1 → Phase 2 で n が変わったのは 2026-05-01 が JPX coverage 不足で regen 失敗のため
-- 4w n=10 は小サンプル、bootstrap CI 必要 (本 PR では未計算)
+注意 (R1 P0 反映):
+- +6.6pt (86%) は B1 **ablation 計測 infra bug 修正** で「正しい数値が出るようになった」分。production の screening-replay は元から market_regime を渡しており実 trade 結果は変化しない
+- A1-A3 の真 config 効果は +1.1pt、n=10 で σ ≈ 5-7pt 想定の 95% CI ±3-4pt を跨ぐので **統計的に有意でない可能性**
+- Phase 2-5 は ablation full mean には現れず、drop_rule / drop_lane 個別 attribution で評価する必要 (本 PR 未計測)
+- 旧 candidates snapshot は phase2 regen で in-place 上書き済 → 次回 PR で `candidates_pre_phase_N/` を git tag で凍結 (AP-08 計測経路保存)、selection_ablation 出力に per-ticker forward returns 追加で bootstrap CI 計算可能化 (R1 P1)
 
 ### 4.2 benchmark (asof 2026-06-12, 全 trade vs 規律下 cohort)
 
