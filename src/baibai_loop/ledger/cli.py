@@ -360,6 +360,21 @@ def _run_benchmark(
     trades = load_open_trades(root)
     if excluded_cohort_tags:
         excluded_set = frozenset(excluded_cohort_tags)
+        observed_tags = frozenset(t.cohort_tag for t in trades if t.cohort_tag is not None)
+        # R4 P0 fix: surface typos. Silently dropping zero trades because the
+        # cohort name does not match any observed tag was a real foot-gun —
+        # the operator believes they're looking at a regulated cohort while
+        # actually reading the unfiltered total. Emit a warning AND return 2
+        # so CI / scripts can flag the bad invocation.
+        unknown_tags = excluded_set - observed_tags
+        if unknown_tags:
+            print(
+                f"warning: --exclude-cohort-tags has no match for "
+                f"{sorted(unknown_tags)} (observed cohort_tag values: "
+                f"{sorted(observed_tags) if observed_tags else 'none'})",
+                file=sys.stderr,
+            )
+            return 2
         before = len(trades)
         trades = [trade for trade in trades if trade.cohort_tag not in excluded_set]
         excluded_count = before - len(trades)
