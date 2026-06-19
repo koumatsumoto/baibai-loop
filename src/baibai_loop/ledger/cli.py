@@ -196,9 +196,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "review-gates":
         return _run_review_gates(args.root, _resolve_asof(args.asof))
     if args.command == "benchmark":
-        excluded = tuple(
-            tag.strip() for tag in args.exclude_cohort_tags.split(",") if tag.strip()
-        )
+        excluded = tuple(tag.strip() for tag in args.exclude_cohort_tags.split(",") if tag.strip())
         return _run_benchmark(
             args.root,
             _resolve_asof(args.asof),
@@ -380,8 +378,7 @@ def _run_benchmark(
         excluded_count = before - len(trades)
         if excluded_count > 0:
             print(
-                f"excluded {excluded_count} trade(s) with cohort_tag in "
-                f"{sorted(excluded_set)}",
+                f"excluded {excluded_count} trade(s) with cohort_tag in {sorted(excluded_set)}",
                 file=sys.stderr,
             )
     if not trades:
