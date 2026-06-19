@@ -34,6 +34,12 @@ class TradeRecord:
     # Remaining shares after partial exits; forward review / benchmark keep the
     # entry basis, while exposure sizes risk on what is still held.
     current_quantity: int | None = None
+    # Cohort tag for forward-measurement filtering. ``None`` for the standard
+    # workflow; back-fill / discretionary-override entries get an explicit
+    # provenance label (e.g. ``pre_refactor_backfill``,
+    # ``user_position_confirmed_after_screening``) so the benchmark CLI can
+    # report the regulated cohort separately from the mixed total.
+    cohort_tag: str | None = None
 
 
 def load_open_trades(root: Path) -> list[TradeRecord]:
@@ -76,6 +82,7 @@ def _build_trade_record(front: Mapping[str, Any]) -> TradeRecord | None:
     entry_date, quantity, entry_price = entry
     playbook_id = front.get("playbook_id")
     current_quantity = front.get("current_quantity")
+    cohort_tag = front.get("cohort_tag")
     return TradeRecord(
         trade_id=trade_id,
         ticker=ticker,
@@ -91,6 +98,7 @@ def _build_trade_record(front: Mapping[str, Any]) -> TradeRecord | None:
             if isinstance(current_quantity, int) and not isinstance(current_quantity, bool)
             else None
         ),
+        cohort_tag=cohort_tag if isinstance(cohort_tag, str) else None,
     )
 
 

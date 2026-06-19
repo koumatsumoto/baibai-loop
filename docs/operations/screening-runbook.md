@@ -54,7 +54,7 @@ uv run baibai-loop-screening select --asof YYYY-MM-DD
 
 件数は `--top` と `output.research_selection_target_max` で調整します。複数 hit 銘柄では、config の lane order に従って `selection_lane` を選びます。
 
-Parameter 変更は `records/_config/screening-rules/2026-06-12T000000+0900.yaml` を直接編集して `select` を再実行し、output 差分を比較します。built-in profile は `balanced` のみで、experimental override は `selection-ablation` の `no_diversity` variant のような programmatic 経路のみ残ります (YAML 経由の `--profile-config` は round 2 cleanup で削除済み)。
+Parameter 変更は `records/_config/screening-rules/2026-06-19T000000+0900.yaml` を直接編集して `select` を再実行し、output 差分を比較します。built-in profile は `balanced` のみで、experimental override は `selection-ablation` の `no_diversity` variant のような programmatic 経路のみ残ります (YAML 経由の `--profile-config` は round 2 cleanup で削除済み)。
 
 Profile を変更する前に、少なくとも以下を表にします。
 
@@ -68,7 +68,7 @@ Profile を変更する前に、少なくとも以下を表にします。
 
 サイロ化を避けるため、既定 profile は `selection.diversity.max_previous_candidates_in_recommended` で前回 candidates 由来の銘柄数に上限を置きます。上限に達した場合は新規候補を優先し、最低件数を満たすための緩和は行いません。
 
-Lane ごとの hit 数は `evidence_hits_summary` で確認します。特定 lane が universe の大きな割合を占める場合は、候補数が増えただけで evidence の識別力が弱い可能性があるため、`records/_config/screening-rules/2026-06-12T000000+0900.yaml` の閾値・sector policy を見直します。
+Lane ごとの hit 数は `evidence_hits_summary` で確認します。特定 lane が universe の大きな割合を占める場合は、候補数が増えただけで evidence の識別力が弱い可能性があるため、`records/_config/screening-rules/2026-06-19T000000+0900.yaml` の閾値・sector policy を見直します。
 
 ## Multi-week replay と forward return
 

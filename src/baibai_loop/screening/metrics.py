@@ -17,7 +17,7 @@ from .schema import (
     TTMQuality,
 )
 
-VALUATION_METRICS = ("per_trailing", "pbr", "ev_ebitda", "p_s")
+VALUATION_METRICS = ("per_forward", "per_trailing", "pbr", "ev_ebitda", "p_s")
 
 # 自己レンジ / sigma gap が前提にする約 3 年の価格履歴窓(暦日)。listing 起点の
 # short_history_flag では検出できない「上場は古いが bar 履歴に長期ギャップがある」
@@ -324,6 +324,17 @@ def _build_financial_snapshot(
         ttm_quality_fcf_yield=edinet.ttm_quality_fcf if edinet else TTMQuality.UNAVAILABLE,
         ttm_quality_net_cash=edinet.ttm_quality_net_cash if edinet else TTMQuality.UNAVAILABLE,
         shares_outstanding=shares_outstanding,
+        accruals_to_assets=_accruals_to_assets(
+            eps_ttm=eps_ttm,
+            shares=shares_outstanding,
+            ocf_ttm=ocf_ttm,
+            total_assets=latest.total_assets if latest else None,
+            prior_total_assets=prior_year.total_assets if prior_year else None,
+        ),
+        net_share_change_yoy=_yoy_ratio(
+            shares_outstanding,
+            prior_year.shares_outstanding if prior_year else None,
+        ),
     )
 
 
@@ -511,7 +522,18 @@ def _valuation_history(
             (price * snapshot.shares_outstanding) / snapshot.sales_ttm for price in prices
         ]
 
+    # R2 P0 fix: per_forward was added to VALUATION_METRICS in Phase 1 but its
+    # history was not populated, so self_range_percentile / sigma_gap for the
+    # new metric were always None and the gate silently fell back to per_trailing.
+    # Reconstruct historical per_forward by holding forecast EPS constant against
+    # the adjusted close history, matching the per_trailing convention.
+    per_forward_history: list[float] = []
+    if snapshot.per_forward is not None and snapshot.per_forward != 0:
+        per_forward_basis = latest_price / snapshot.per_forward
+        if per_forward_basis > 0:
+            per_forward_history = [price / per_forward_basis for price in prices]
     history: dict[str, list[float]] = {
+        "per_forward": per_forward_history,
         "per_trailing": [
             (price / snapshot.eps) for price in prices if snapshot.eps and snapshot.eps > 0
         ],
@@ -689,6 +711,35 @@ def _yoy_ratio(current: float | None, previous: float | None) -> float | None:
     if current is None or previous is None or previous == 0:
         return None
     return (current / previous) - 1.0
+
+
+def _accruals_to_assets(
+    *,
+    eps_ttm: float | None,
+    shares: float | None,
+    ocf_ttm: float | None,
+    total_assets: float | None,
+    prior_total_assets: float | None,
+) -> float | None:
+    """Sloan (1996) accruals ratio: (NI - CFO) / average total assets.
+
+    NI is approximated as ``eps_ttm * shares_outstanding``; if a true NI line
+    becomes available later (J-Quants `profit` field), prefer it. The
+    denominator uses the average of current and prior-year total assets when
+    both are present, otherwise the current value. Returns None for any
+    missing input or zero denominator.
+    """
+    if eps_ttm is None or shares is None or ocf_ttm is None or total_assets is None:
+        return None
+    net_income = eps_ttm * shares
+    denominator = (
+        (total_assets + prior_total_assets) / 2.0
+        if prior_total_assets is not None and prior_total_assets > 0
+        else total_assets
+    )
+    if denominator <= 0:
+        return None
+    return (net_income - ocf_ttm) / denominator
 
 
 def _loss_narrowing(current: float | None, previous: float | None) -> bool | None:

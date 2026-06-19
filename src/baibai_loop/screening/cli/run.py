@@ -320,7 +320,14 @@ def run_command(
                     "sales_yoy": financial.sales_yoy,
                     "cfo_yoy": financial.cfo_yoy,
                     "operating_profit": financial.operating_profit,
+                    "operating_profit_yoy": financial.operating_profit_yoy,
                     "operating_profit_loss_narrowing": (financial.operating_profit_loss_narrowing),
+                    "shares_outstanding": financial.shares_outstanding,
+                    # D2 / D3 new academic signals — surface in candidate
+                    # metrics so the research layer can read them without a
+                    # second cache fetch.
+                    "accruals_to_assets": financial.accruals_to_assets,
+                    "net_share_change_yoy": financial.net_share_change_yoy,
                     "edinet_freshness_warning_count": len(freshness_warnings),
                 },
                 next_earnings_date=next_earnings_by_ticker.get(ticker),

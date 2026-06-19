@@ -36,7 +36,7 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 
 ## 3. Playbook-linked screen（OR 条件、最低 1 つ満たす）
 
-以下の playbook-linked screen のうち、**最低 1 つ** を満たす銘柄を通過とする。閾値は `records/_config/screening-rules/2026-06-12T000000+0900.yaml` を正本とする。
+以下の playbook-linked screen のうち、**最低 1 つ** を満たす銘柄を通過とする。閾値は `records/_config/screening-rules/2026-06-19T000000+0900.yaml` を正本とする。
 
 ### 3.1 `valuation-reversion`
 
@@ -46,7 +46,7 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 - 過去 60 営業日の急落 + valuation 下方乖離
 - セクターローテーションによる短期売り
 
-EDINET が無い場合、EV/EBITDA は `unavailable` として判定対象から外す。EDINET があっても EV または EBITDA がゼロ以下の場合は、倍率としての割安解釈が成立しないため EV/EBITDA を `null` とし、この lane では使わない。PER / PBR など利用可能な指標で degrade して評価する。P/S は売上成長と営業赤字条件を伴う `sales-discount-growth` 専用 lane で扱い、valuation-reversion の単独指標にはしない。
+PER は `per_forward`(会社予想ベース)を primary とし、forecast EPS が未取得の銘柄は `per_trailing` に degrade する。EDINET が無い場合、EV/EBITDA は `unavailable` として判定対象から外す。EDINET があっても EV または EBITDA がゼロ以下の場合は、倍率としての割安解釈が成立しないため EV/EBITDA を `null` とし、この lane では使わない。PER / PBR など利用可能な指標で degrade して評価する。P/S は売上成長と営業赤字条件を伴う `sales-discount-growth` 専用 lane で扱い、valuation-reversion の単独指標にはしない。
 
 銀行・証券・保険・その他金融はこの lane から除外する。金融業の PER / PBR は規制資本・金利環境・与信サイクルの構造要因を含み、事業会社と同じ mean-reversion の前提で機械判定できないため。他 lane と異なり電気・ガス業は除外しない。BS / CF の機械判定が成立しないという他 lane の除外根拠は、相対 valuation の比較には当たらないため。
 
@@ -58,9 +58,10 @@ CashEq / market cap、price-to-equity、equity ratio を使い、cash-rich / ass
 - `price_to_equity` が閾値以下
 - `equity_ratio` が閾値以上
 - 営業赤字ではない
+- `operating_profit_yoy` が `operating_profit_yoy_deterioration_threshold` (-0.3) を下回る銘柄は除外。BS が rich でも営業エンジンが急減速している銘柄を排除する deterioration gate
 - EDINET の `net_cash_to_market_cap` が取得できる場合、設定下限を下回る銘柄は除外（J-Quants CashEq が高くても有利子負債を差し引くと net debt な銘柄を排除）
 
-銀行・証券・保険・その他金融、電気・ガス業は除外する。金融業の balance sheet は意味が異なり、規制設備産業の CashEq / market cap は機械判定として読みにくいため。
+銀行・証券・保険・その他金融、電気・ガス業、卸売業、不動産業は除外する。金融業の BS は意味が異なり、規制設備産業の CashEq / market cap は機械判定として読みにくく、卸売業 (商社・問屋) は運転資金で J-Quants `cash_eq` が機械判定上膨張、不動産業は land inventory が `equity_ratio` / `cash_to_market_cap` を歪めるため。
 
 `docs/operations/backtest-runbook.md` §6 の 2026-05 lane-cohorts では 4w mean rel −2.14pt (baseline 比 +5.32pt) で全 lane 中最強。本 lane を維持する根拠データ。
 
@@ -70,11 +71,17 @@ CashEq / market cap、price-to-equity、equity ratio を使い、cash-rich / ass
 
 この lane は `ocf_yield` だけでは通過させない。comparable period の `cfo_yoy` を確認し、設定された下限を下回る銘柄、または `cfo_yoy_required: true` で `cfo_yoy` が作れない銘柄は除外する。
 
+`operating_profit_yoy` が `operating_profit_yoy_deterioration_threshold` (-0.3) を下回る銘柄も除外。OCF は高いのに営業利益 YoY が急減している銘柄を排除する deterioration gate。
+
+`fcf_yield_required_positive: true` で `fcf_yield` が判定可能 (EDINET 取得済) かつ <= 0 の銘柄は除外。OCF プラスだが capex 先行で FCF マイナス (重設備) は短期 mean-reversion で機械判定しにくく cohort 成績悪化要因のため。EDINET 不在で `fcf_yield is None` の銘柄は data 不在として通過させる。
+
 銀行・証券・保険・その他金融、電気・ガス業はこの lane から除外する。金融業の営業 CF は通常の事業会社の現金創出力と同じ意味で比較しにくく、電気・ガス業は設備投資前の OCF yield だけでは割安性を機械判定しにくいため。
 
 ### 3.4 `sales-discount-growth`
 
 P/S が業種中央値比で安く、売上成長が残る銘柄を拾う。営業赤字銘柄は CFO プラスまたは営業赤字縮小が確認できる場合に限り許容する。
+
+ただし `operating_margin_min` (-0.05) を下回る operating margin (`operating_profit / sales`) を持つ銘柄は除外する。これは「loss narrowing」(-100B → -50B でも条件 pass) の escape hatch を defang する floor で、chronic loser を排除する。`sales > 0` の銘柄でのみ enforce する。
 
 銀行・証券・保険・その他金融はこの lane から除外する。金融業の P/S は通常の事業会社の売上倍率とは意味が異なるため。
 

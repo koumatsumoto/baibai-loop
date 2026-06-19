@@ -21,6 +21,7 @@ from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 
+from baibai_loop.screening.regime import MarketRegimeSnapshot, compute_market_regime
 from baibai_loop.screening.rule_config import ScreeningRules
 from baibai_loop.screening.selection import (
     CandidateRecord,
@@ -78,13 +79,19 @@ class AblationVariant:
 DEFAULT_VARIANTS: tuple[AblationVariant, ...] = (
     AblationVariant(name=FULL_VARIANT),
     AblationVariant(name="no_fast_boost", ranking_toggles=RankingToggles(fast_boost=False)),
-    AblationVariant(name="no_stabilization", ranking_toggles=RankingToggles(stabilization=False)),
     AblationVariant(name="no_lane_rank", ranking_toggles=RankingToggles(lane_rank=False)),
     AblationVariant(name="no_strength", ranking_toggles=RankingToggles(strength=False)),
     AblationVariant(name="no_diversity", disable_diversity=True),
-    AblationVariant(name="no_prior_suppression", disable_prior_suppression=True),
     *(AblationVariant(name=f"drop_lane:{lane}", drop_lane=lane) for lane in _LANES),
 )
+# F1 / F3 dead-code cleanup: `no_prior_suppression` and `no_stabilization`
+# variants were removed from DEFAULT_VARIANTS. Both measured Δfull ≈ 0pt
+# across 6 weeks (no_prior_suppression overlap 100% — never altered the queue;
+# no_stabilization recorded Δfull = -0.2pt noise because fast_boost is
+# neutralized 5/6 weeks of 2026-05 by the regime gate, making the
+# stabilization toggle a no-op in production). Keeping them in the default set
+# would just inflate the ablation table without informing decisions; callers
+# that want to re-measure can still construct them ad hoc via AblationVariant.
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,7 +147,12 @@ def run_selection_ablation(
     effective_profile = profile or rules.selection.default_profile
     recommended: dict[tuple[date, str], tuple[str, ...]] = {}
     for spec in weeks:
-        inputs = _load_week_inputs(spec, candidates_root=candidates_root, ledger_root=ledger_root)
+        inputs = _load_week_inputs(
+            spec,
+            candidates_root=candidates_root,
+            ledger_root=ledger_root,
+            sqlite_path=sqlite_path,
+        )
         for variant in variants:
             recommended[(spec.asof, variant.name)] = _recommended_tickers(
                 inputs,
@@ -260,6 +272,7 @@ class _WeekInputs:
     candidates: tuple[CandidateRecord, ...]
     previous_candidates: PreviousCandidates
     prior_research: Mapping[str, PriorResearch]
+    market_regime: MarketRegimeSnapshot | None
 
 
 def _load_week_inputs(
@@ -267,6 +280,8 @@ def _load_week_inputs(
     *,
     candidates_root: Path,
     ledger_root: Path,
+    sqlite_path: Path,
+    regime_lens: bool = True,
 ) -> _WeekInputs:
     candidates = tuple(
         candidate_record_from_mapping(item) for item in load_week_candidates(spec.candidates_path)
@@ -278,6 +293,7 @@ def _load_week_inputs(
             candidates_root, spec.asof, current_path=spec.candidates_path
         ),
         prior_research=load_prior_research(ledger_root / "_ledger/research-decisions", spec.asof),
+        market_regime=compute_market_regime(sqlite_path, spec.asof) if regime_lens else None,
     )
 
 
@@ -309,6 +325,7 @@ def _recommended_tickers(
             {profile: _NO_DIVERSITY_OVERRIDES} if variant.disable_diversity else None
         ),
         ranking_toggles=variant.ranking_toggles,
+        market_regime=inputs.market_regime,
     )
     recommendations = payload.get("recommendations")
     if not isinstance(recommendations, Sequence):

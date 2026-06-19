@@ -227,6 +227,17 @@ def _cash_rich_asset_discount(
         financial.operating_profit is None or financial.operating_profit <= 0
     ):
         return None
+    # C1: deterioration gate — block when operating_profit_yoy drops past the
+    # configured threshold. Mirrors the valuation-reversion B/C conditions so
+    # an OR-passing lane structure does not let a -50% earnings company sneak
+    # through cash-rich just because its BS still looks rich.
+    if (
+        lane.operating_profit_yoy_deterioration_threshold is not None
+        and financial.operating_profit_yoy is not None
+        and financial.operating_profit_yoy <= lane.operating_profit_yoy_deterioration_threshold
+    ):
+        null_reasons.append("cash_rich_operating_profit_deterioration")
+        return None
     if (
         financial.cash_to_market_cap < lane.cash_to_market_cap_min
         or financial.price_to_equity > lane.price_to_equity_max
@@ -267,6 +278,24 @@ def _cashflow_yield_discount(
         return None
     if financial.ocf_yield is None or financial.ocf_yield < lane.ocf_yield_min:
         return None
+    # C1: deterioration gate — same rationale as cash-rich. OCF can stay high
+    # while the operating engine is decaying year over year; this stops that.
+    if (
+        lane.operating_profit_yoy_deterioration_threshold is not None
+        and financial.operating_profit_yoy is not None
+        and financial.operating_profit_yoy <= lane.operating_profit_yoy_deterioration_threshold
+    ):
+        null_reasons.append("cashflow_yield_operating_profit_deterioration")
+        return None
+    # C4: require FCF > 0. OCF+/FCF- means heavy capex is consuming the cash
+    # the OCF yield advertises; that profile mean-reverts slowly and
+    # underperforms 4w cohorts. fcf_yield is None if the EDINET feed is missing
+    # — only enforce the gate when the data is present.
+    if lane.fcf_yield_required_positive and (
+        financial.fcf_yield is not None and financial.fcf_yield <= 0
+    ):
+        null_reasons.append("cashflow_yield_fcf_negative")
+        return None
     return EvidenceHit(
         name=PLAYBOOK_CASHFLOW_YIELD,
         playbook_id=lane.playbook_id,
@@ -275,6 +304,7 @@ def _cashflow_yield_discount(
             "ocf_yield": financial.ocf_yield,
             "ocf_ttm": financial.ocf_ttm,
             "cfo_yoy": financial.cfo_yoy,
+            "fcf_yield": financial.fcf_yield,
             "ttm_quality": financial.ttm_quality_ocf_yield.value,
         },
     )
@@ -316,6 +346,18 @@ def _sales_operating_profit_gate(
     financial: FinancialSnapshot,
     lane: SalesDiscountGrowthLane,
 ) -> bool:
+    # C2: operating margin floor — kills the "loss narrowing" escape hatch
+    # that admitted chronic losers (e.g. -100B -> -50B counts as "narrowing"
+    # but the absolute margin is still catastrophic). Only enforce when both
+    # operating_profit and sales are known.
+    if (
+        lane.operating_margin_min is not None
+        and financial.operating_profit is not None
+        and financial.sales is not None
+        and financial.sales > 0
+        and (financial.operating_profit / financial.sales) < lane.operating_margin_min
+    ):
+        return False
     if financial.operating_profit is not None and financial.operating_profit >= 0:
         return True
     if not lane.allow_operating_loss_if_cfo_positive_or_loss_narrowing:
