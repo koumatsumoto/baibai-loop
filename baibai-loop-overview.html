@@ -195,15 +195,24 @@ flowchart TB
     end
     sqlite --> screen --> cand --> select --> research
     macro -.確認観点.-> research
-    research --> trades --> reports
-    reports --> telemetry -.改訂根拠.-> screen
+    research --> trades --> telemetry --> reports
+    cand -.lane-cohorts 全候補計測.-> telemetry
+    reports -.改訂根拠.-> screen
 </pre>
         <figcaption>図1: 3 層モデル。L1 の事実の上に L2 の決定論的処理（機械ふるい・candidates 事実 snapshot・select・forward telemetry）が乗り、L3 で人間と AI が解釈・判断する。candidates は records/ に置かれるが正体は L2 の事実出力。点線はゲートではなく入力／フィードバック。</figcaption>
       </figure>
 
       <div class="callout callout-important">
-        <p class="callout-title">candidates の所属：物理は records/、正体は L2 の事実出力</p>
-        <p><code>records/04-candidates/</code> は <code>records/</code> 配下（＝L3 の住所）に置かれますが、その正体は <strong>L2 機械スクリーニングの決定論的な事実出力（fact snapshot）</strong>です。L3 判断層に属するのは macro context・research・trades のような<strong>人間 + AI の解釈・判断</strong>で、candidates はそれらに事実を供給する L2 側の成果物にあたります。「<strong>物理的な置き場所</strong>（records/）」と「<strong>成果物の性質</strong>（L2 の決定論的 fact）」を分けて捉えると整理できます。後述の decision loop 表の「レイヤー」列（fact / analysis / execution …）は、この L1/L2/L3 とは別の軸で各成果物の役割を示すものです。</p>
+        <p class="callout-title">L2 と L3 の見分け方：決定論的な機械出力（fact）か、人間 + AI の解釈（judgment）か</p>
+        <p>層の所属は <strong>物理的な置き場所</strong>ではなく <strong>成果物の性質</strong>で決まります。判定基準はただ一つ、「<strong>人間の判断が入るか</strong>」です。同じ fact／judgment の分離が、銘柄の<strong>生成側</strong>と効果の<strong>計測側</strong>の両方に対称に効きます。</p>
+        <table>
+          <thead><tr><th>局面</th><th>L2（決定論的 fact ＝人間判断なし）</th><th>L3（人間 + AI の judgment）</th></tr></thead>
+          <tbody>
+            <tr><td>銘柄の生成</td><td><strong>candidates</strong>（<code>records/04-candidates/</code>）— 閾値固定の機械ふるい出力</td><td><strong>research</strong> — 採否・thesis の解釈</td></tr>
+            <tr><td>効果の計測</td><td><strong>forward telemetry</strong>（<code>screening-replay</code>／<code>lane-cohorts</code>／<code>selection-ablation</code>）— 固定 horizon・固定 benchmark の機械計測</td><td><strong>reports/</strong> ＋ retro — 数値を読んで「次に何を直すか」を決める解釈</td></tr>
+          </tbody>
+        </table>
+        <p>candidates も telemetry も物理的には記録ディレクトリに置かれますが、中身は人間判断ゼロの決定論的出力なので <strong>L2</strong> です（telemetry の数値は計測の一次資料として扱う）。L3 判断層に属するのは macro context・research・trades・reports のような解釈・判断です。なお後述の decision loop 表の「レイヤー」列（fact / analysis / execution …）は、この L1/L2/L3 とは別軸で各成果物の役割を示すものです。</p>
       </div>
 
       <h3>目的の loop（decision loop）</h3>
