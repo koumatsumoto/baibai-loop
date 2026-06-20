@@ -159,7 +159,7 @@
           </tr>
           <tr>
             <td><strong>L2 分析層</strong></td>
-            <td>screen lanes・selection lenses・軸別スコア・forward telemetry（replay / lane cohorts / ablation）</td>
+            <td>screen lanes・selection lenses・軸別スコア・forward telemetry（replay / lane cohorts / ablation）。機械ふるいの<strong>事実出力 = <code>records/04-candidates/</code></strong>（candidates）</td>
             <td>決定論的・閾値固定の機械処理。すべて forward 計測に接続する</td>
           </tr>
           <tr>
@@ -181,26 +181,30 @@ flowchart TB
     subgraph L1["L1 データ層 — 再現可能な事実"]
       sqlite[(market.sqlite)]
     end
-    subgraph L2["L2 分析層 — 決定論・閾値固定"]
+    subgraph L2["L2 分析層 — 決定論・閾値固定（機械処理とその事実出力）"]
       screen["機械スクリーニング 4 lane"]
+      cand["candidates 事実 snapshot"]
       select["select / lenses / regime lens"]
       telemetry["forward telemetry"]
     end
-    subgraph L3["L3 判断層 — 人間 + AI 下書き"]
+    subgraph L3["L3 判断層 — 人間 + AI の解釈・判断"]
       macro["macro context"]
-      cand["candidates 事実層"]
       research["research investment memo"]
       trades["trades execution record"]
       reports["reports / backtest"]
     end
-    sqlite --> screen --> cand
-    cand --> select --> research
+    sqlite --> screen --> cand --> select --> research
     macro -.確認観点.-> research
     research --> trades --> reports
     reports --> telemetry -.改訂根拠.-> screen
 </pre>
-        <figcaption>図1: 3 層モデル。L1 の事実の上に L2 の決定論的分析が乗り、L3 で人間と AI が判断する。点線は「ゲートではなく入力／フィードバック」を表す。</figcaption>
+        <figcaption>図1: 3 層モデル。L1 の事実の上に L2 の決定論的処理（機械ふるい・candidates 事実 snapshot・select・forward telemetry）が乗り、L3 で人間と AI が解釈・判断する。candidates は records/ に置かれるが正体は L2 の事実出力。点線はゲートではなく入力／フィードバック。</figcaption>
       </figure>
+
+      <div class="callout callout-important">
+        <p class="callout-title">candidates の所属：物理は records/、正体は L2 の事実出力</p>
+        <p><code>records/04-candidates/</code> は <code>records/</code> 配下（＝L3 の住所）に置かれますが、その正体は <strong>L2 機械スクリーニングの決定論的な事実出力（fact snapshot）</strong>です。L3 判断層に属するのは macro context・research・trades のような<strong>人間 + AI の解釈・判断</strong>で、candidates はそれらに事実を供給する L2 側の成果物にあたります。「<strong>物理的な置き場所</strong>（records/）」と「<strong>成果物の性質</strong>（L2 の決定論的 fact）」を分けて捉えると整理できます。後述の decision loop 表の「レイヤー」列（fact / analysis / execution …）は、この L1/L2/L3 とは別の軸で各成果物の役割を示すものです。</p>
+      </div>
 
       <h3>目的の loop（decision loop）</h3>
       <p>個別の作業は、次の 7 ステージを forward-only（過去最適化せず前向きにだけ）に回す 1 本のループに収まります。各ステージは repository 上の特定ディレクトリに対応します。</p>
@@ -226,7 +230,7 @@ flowchart LR
         <tbody>
           <tr><td>portfolio policy</td><td><code>docs/portfolio-policy.md</code></td><td>governance</td><td>何を許し、何を禁じ、どの資本・時間軸で判断するか</td></tr>
           <tr><td>macro context</td><td><code>records/01-macro-context/</code></td><td>analysis</td><td>今の市場環境をどう読み、screening 前に何を確認するか</td></tr>
-          <tr><td>candidates</td><td><code>records/04-candidates/</code></td><td>fact</td><td>どの銘柄が機械ふるいに残ったか</td></tr>
+          <tr><td>candidates</td><td><code>records/04-candidates/</code></td><td>fact（L2 出力）</td><td>どの銘柄が機械ふるいに残ったか</td></tr>
           <tr><td>research</td><td><code>records/05-research/</code></td><td>analysis</td><td>thesis / risk-reward / invalidation を満たすか</td></tr>
           <tr><td>trades</td><td><code>records/06-trades/</code></td><td>execution</td><td>採用判断がどう約定・保有・決済されたか</td></tr>
           <tr><td>reports / backtest</td><td><code>reports/</code> ＋ ledger CLI</td><td>計測</td><td>何が forward return を生んだか、次に何を直すか</td></tr>
