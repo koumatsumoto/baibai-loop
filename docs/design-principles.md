@@ -91,44 +91,56 @@ Macro context は、screening 前に既存 context が stale / scope mismatch / 
 
 再掲を避けることで、同じ情報を複数箇所で管理するコストと矛盾リスクを減らす。
 
-## 9. 非バックテスト原則（forward-only decision-support）
+## 9. 計測の原則：forward-only な backtest と、避ける最適化
 
-本リポジトリは **過去データへのパラメータ最適化** や **戦略累積リターンのシミュレーション**
-を行わない。screening 閾値・playbook 採用条件・position sizing は人間が原則ベースで決め、
-過去データに対する fit や grid search で update しない。
+screening（lane / lens / regime / 閾値）の効果は、過去週を look-ahead を排して replay する
+**forward-only な multi-axis backtest** で検証する。手順の正本は
+[`operations/backtest-runbook.md`](./operations/backtest-runbook.md) の 7 axis
+（screening-replay / lane-cohorts / selection-ablation / judgment-gate counterfactual /
+bootstrap CI / opportunity-cost / regime×lane）であり、lane の追加・削除、lane 順、
+regime lens の有効化などはこの計測を根拠に discrete に改訂する。
 
-### 9.1 やらないことの一覧
+一方、screening 閾値・playbook 採用条件・position sizing の **値そのもの** は人間が原則ベースで
+固定し、過去データへの fit や grid search では update しない。backtest は「固定した仕組みが
+forward でどう効いたか」を測るためのものであって、「過去に最も効いた値を探す」ためのものではない。
+この線引きが forward-only 規律の本体である。
 
-- **バックテスト**: 過去 N 年に対する累積リターン・MaxDD・シャープ計算をしない
-- **パラメータ・サーチ**: `sector_median_gap < -20%`、`self_range bottom 20%` 等の閾値を
-  grid search で fit しない (固定値の恣意性は受け入れる)
-- **生存者調整 / look-ahead 補正のシミュレーション**: backtest をしないので necessitate
-  しない。ただし J-Quants 銘柄 master / 価格調整係数 / JPX 規制データは latest-snapshot
-  で取得しており、完全な PIT snapshot ではない点はデータ層の限界として残る (詳細は
-  [`reference/data-sources.md`](./reference/data-sources.md) §「取得データの保存方針」)
-- **戦略パフォーマンスの track record claim**: 「過去 X 年で年率 Y%」のような report を
-  作らない
-- **アルファ / ベータ / シャープ等の事前計測**: 入る前に「どれだけ稼いだか」を計らない
+### 9.1 backtest でやること（forward-only）
 
-### 9.2 代わりにやること（forward-only）
-
+- screening の multi-axis backtest (`backtest-runbook` の 7 axis)。判断時点 (asof) に存在した
+  情報のみ使い、in-sample / out-of-sample を分けて計測する
 - forward-only な decision register 蓄積 (`records/_ledger/` の判断イベント、entry 後の前進的 attribution)
 - 事前 thesis の文書化 (`records/05-research/`) と事後 fill/exit (`records/06-trades/`) の対比
-- 月次 forward 計測 (`backtest-runbook` の 7 axis) でのプロセス改善 (playbook 改訂は **サンプル数 10 件以上** を条件に検討)
+- 月次 forward 計測でのプロセス改善 (playbook 改訂は **サンプル数 10 件以上** を条件に検討)
+
+### 9.2 やらないこと（避ける最適化・claim）
+
+- **未来データを用いた閾値 grid search / パラメータ最適化**: `sector_median_gap < -20%`、
+  `self_range bottom 20%`、regime 閾値 ±3% 等は事前に固定値で登録する (固定値の恣意性は
+  受け入れる)。観測後に「最も効いた値」へ最適化しない (データスヌーピング回避)
+- **戦略累積リターンの track record claim**: 「過去 X 年で年率 Y%」「MaxDD・シャープ」のような
+  cumulative performance report / 事前のアルファ・ベータ計測を作らない
+- **短期トレード単位の累積 backtest**: trade は forward-only に decision register と fill/exit を
+  対比する。判断 gate の効果は judgment-gate counterfactual (backtest axis D) で個別に測る
+- **生存者調整 / look-ahead 補正のシミュレーション**: cumulative-return backtest をしないので
+  necessitate しない。ただし J-Quants 銘柄 master / 価格調整係数 / JPX 規制データは
+  latest-snapshot 取得であり、完全な PIT snapshot ではない点はデータ層の限界として残る (詳細は
+  [`reference/data-sources.md`](./reference/data-sources.md) §「取得データの保存方針」)
 
 ### 9.3 根拠
 
-- 1 名運用・記録駆動なので、backtest を組めるほどの過去サンプルが入手しにくい (J-Quants
-  Light の rate limit、EDINET の point-in-time 取得制約等)
-- 過去最適化を始めると **データスヌーピング** に陥り、playbook が「過去 fit に向かう」
-  pressure に逆らえない。原則ベースで思想を固定し、forward-only で realistic な
-  performance を観測して playbook を改訂する方が長期 robust
-- バックテスト前提のレビュー指摘 (サバイバビリティ・バイアス、look-ahead bias、データ
-  スヌーピング、ベンチマーク比較不在等) は本原則を採用している限り **原則として該当
-  しない** (= 過去累積リターンの算出を行わないので発生する余地がない)。レビューを
-  受けた際は本 section を参照する。なお、データ層では完全な PIT snapshot を保有して
-  いない (前項 9.1 末尾参照) ため、forward-only であることは backtest 品質を保証する
-  ものではなく、survivorship-correct backtest がスコープ外であることを意味する
+- screening の仕組み (どの lane / lens が forward return を生んだか) は計測しないと改善できない。
+  柱 5「計測ファースト」に従い、multi-axis backtest で価値を実証した施策だけを採用し、発動ゼロの
+  機能を ablation で棚卸しする
+- だが 1 名運用・記録駆動では、閾値を過去に fit できるほどの独立サンプルが入手しにくく (J-Quants
+  Light の rate limit、EDINET の point-in-time 取得制約等)、過去最適化を始めると
+  **データスヌーピング** で「過去 fit に向かう」pressure に逆らえない。値は原則ベースで固定し、
+  forward-only backtest で realistic な効果を観測する方が長期 robust
+- multi-axis backtest を行う以上、look-ahead bias・データスヌーピング・ベンチマーク比較不在・
+  小サンプルといったレビュー指摘は **本基盤にも当てはまる**。これらは backtest-runbook の規律
+  (look-ahead 排除・in/out-of-sample 分離・benchmark proxy 比・bootstrap CI・固定閾値) で扱う。
+  なお完全な PIT snapshot は保有しない (9.2 末尾) ため、forward-only は survivorship-correct な
+  cumulative backtest がスコープ外であることを意味する
 
 ## 10. 参考
 

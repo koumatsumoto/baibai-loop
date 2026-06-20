@@ -222,7 +222,7 @@ flowchart TB
       </div>
 
       <h3>目的の loop（decision loop）</h3>
-      <p>個別の作業は、次の 7 ステージを forward-only（過去最適化せず前向きにだけ）に回す 1 本のループに収まります。各ステージは repository 上の特定ディレクトリに対応します。</p>
+      <p>個別の作業は、次の 7 ステージを forward-only（look-ahead を排し、判断時点 asof の情報だけで計測する規律）に回す 1 本のループに収まります。各ステージは repository 上の特定ディレクトリに対応します。</p>
 
       <figure class="diagram">
         <pre class="mermaid">
@@ -248,14 +248,15 @@ flowchart LR
           <tr><td>candidates</td><td><code>records/04-candidates/</code></td><td>fact（L2 出力）</td><td>どの銘柄が機械ふるいに残ったか</td></tr>
           <tr><td>research</td><td><code>records/05-research/</code></td><td>analysis</td><td>thesis / risk-reward / invalidation を満たすか</td></tr>
           <tr><td>trades</td><td><code>records/06-trades/</code></td><td>execution</td><td>採用判断がどう約定・保有・決済されたか</td></tr>
-          <tr><td>reports / backtest</td><td><code>reports/</code> ＋ ledger CLI</td><td>計測</td><td>何が forward return を生んだか、次に何を直すか</td></tr>
+          <tr><td>reports / backtest</td><td><code>reports/</code> ＋ ledger CLI</td><td>計測（backtest）</td><td>過去週 replay の multi-axis backtest で、何が forward return を生んだか・次に何を直すか</td></tr>
           <tr><td>playbooks</td><td><code>records/_playbooks/</code></td><td>governance</td><td>どの thesis pattern を強める／弱める／改訂するか</td></tr>
         </tbody>
       </table>
 
       <div class="callout callout-warning">
-        <p class="callout-title">あえて「やらない」こと</p>
-        <p>バックテスト最適化・パラメータ探索、機械学習による予測スコアリング、自動発注、リアルタイム処理は<strong>対象外</strong>です。特に「単一の合成スコアや売買指示は出力しない」が中核原則で、スコアは軸別の座標であって判定ではありません。対象は基本 5〜40 営業日（2 か月以内）の long-only スイングですが、短期 thesis が外れた場合に長期保有へ切り替えられる銘柄を優先します。</p>
+        <p class="callout-title">あえて「やらない」こと（ただし screening の backtest は積極的にやる）</p>
+        <p>機械学習による予測スコアリング、自動発注、リアルタイム処理は<strong>対象外</strong>です。「単一の合成スコアや売買指示は出力しない」も中核原則で、スコアは軸別の座標であって判定ではありません。対象は基本 5〜40 営業日（2 か月以内）の long-only スイングで、短期 thesis が外れた場合に長期保有へ切り替えられる銘柄を優先します。</p>
+        <p><strong>バックテストの線引き（よくある誤解）</strong>: これは「バックテストしない」基盤では<strong>ありません</strong>。<strong>screening（lane / lens / regime / 閾値）の効果は、過去週を look-ahead を排して replay する multi-axis backtest（<a href="#s7">§7</a>、<code>backtest-runbook</code> の 7 axis）で積極的に検証</strong>し、その計測結果で lane や閾値を改訂します。避けるのは ① 未来データへの閾値 grid search・パラメータ最適化（data snooping 回避）② 累積リターン / Sharpe / MaxDD の track-record claim ③ trade 単位の累積リターン backtest ── の 3 つだけです。</p>
       </div>
     </section>
 
@@ -644,9 +645,23 @@ uv run baibai-loop-validate</code></pre>
 
     <!-- ===================================================================== -->
     <section>
-      <h2 id="s7">7. フォワード計測ループ：ledger と playbook feedback</h2>
+      <h2 id="s7">7. フォワード計測ループ：ledger・multi-axis backtest・playbook feedback</h2>
 
       <p>loop を閉じるのが forward 計測です。<code>records/_ledger/research-decisions/YYYY-MM.jsonl</code> は append-only の decision register で、research decision（approved/deferred/rejected）と execution state を 1 行 1 event で正規化します。訂正は既存行を書き換えず <code>event_kind: correction</code> の追加 event で表します。<code>decision_event_id</code> が register 内の join key であり、trade record の <code>order_intent_id</code> と接続します。</p>
+
+      <div class="callout callout-important">
+        <p class="callout-title">バックテストの線引き：screening は backtest する／trade 累積は backtest しない</p>
+        <p>「バックテストをしない基盤」という言い回しは正確ではありません。<strong>screening 部分は、過去週を look-ahead を排して replay する multi-axis backtest で積極的に検証します</strong>（手順の正本は <code>docs/operations/backtest-runbook.md</code> の 7 axis）。一方、戦略の累積リターンを過去に fit する種類の backtest はしません。両者を分けるのが forward-only 規律の本体です。</p>
+        <table>
+          <thead><tr><th>対象</th><th>backtest するか</th><th>方法 / 理由</th></tr></thead>
+          <tbody>
+            <tr><td>screening の lane / lens / regime / 閾値の効果</td><td><strong>する</strong></td><td>過去週を forward-only に replay（<code>screening-replay</code> / <code>lane-cohorts</code> / <code>selection-ablation</code> ほか 7 axis）。lane 削除・lane 順・regime lens の default ON 化はこの計測で決定した</td></tr>
+            <tr><td>閾値の grid search・パラメータ最適化</td><td><strong>しない</strong></td><td>未来データへの fit（data snooping）を避ける。regime 閾値 ±3% 等は事前固定し、観測後に最適化しない</td></tr>
+            <tr><td>戦略の累積リターン / Sharpe / MaxDD</td><td><strong>しない</strong></td><td>「過去 X 年で年率 Y%」の track-record claim を出さない（1 名運用でサンプル不足、overfit が必然）</td></tr>
+            <tr><td>短期トレード単位の累積 backtest</td><td><strong>しない</strong></td><td>trade は forward-only に decision register と fill/exit を対比。判断 gate の効果は judgment-gate counterfactual（backtest axis D）で別途計測</td></tr>
+          </tbody>
+        </table>
+      </div>
 
       <p>その上で、4 種類の forward telemetry CLI が「何が forward return を生んだか」を計測します。いずれも勝敗の件数集計ではなく、outcome を playbook / evidence family / macro / sizing / execution に帰属させる feedback です。</p>
       <table>
@@ -759,7 +774,7 @@ uv run pytest</code></pre>
           <tr><td>L1 / L2 / L3</td><td>データ層（再現可能な事実）／ 分析層（決定論的・閾値固定の機械処理）／ 判断層（人間 + AI の解釈・判断）の 3 層。<a href="#s1">§1</a> 参照</td></tr>
           <tr><td>fact / judgment（事実／判断）</td><td>機械が出した事実（人間判断ゼロ）か、人間 + AI の解釈か。L2 と L3 を分ける唯一の基準</td></tr>
           <tr><td>decision loop</td><td>policy → macro → candidates → research → trades → reports → playbooks を一周する改善ループ</td></tr>
-          <tr><td>forward-only</td><td>過去データへ後付けで最適化せず、前向き（将来方向）にだけ効果を計測する原則。バックテスト最適化を禁じる思想</td></tr>
+          <tr><td>forward-only</td><td>look-ahead（未来情報）を排し、判断時点 asof の情報だけで効果を測る規律。screening は過去週を replay して backtest するが、未来データへの閾値最適化（grid search）や累積リターンの track-record claim はしない</td></tr>
           <tr><td>ground truth</td><td>計測の「正解」データ。ここでは実際の売買 record が L2 計測の正解（ground truth）を供給する</td></tr>
           <tr><td>fact snapshot</td><td>ある時点の事実を固定したファイル（candidates など）。後から上書きしない</td></tr>
           <tr><td>swing trade（スイング）</td><td>数日〜数十営業日（基本 5〜40 営業日、2 か月以内）で回す売買スタイル</td></tr>
@@ -875,6 +890,11 @@ uv run pytest</code></pre>
           <tr><td>attribution</td><td>成果（forward return）を playbook / evidence / macro / sizing / execution のどれに帰属させるか</td></tr>
           <tr><td>retro</td><td>月次・四半期の振り返り。hit 数・採用率・lane 別成否を見て閾値や playbook の改訂を議論する</td></tr>
           <tr><td>reports/</td><td>telemetry の数値を解釈して「次に何を直すか」を残す dated まとめ（L3。telemetry 計測そのものは L2）</td></tr>
+          <tr><td>backtest（multi-axis）</td><td>screening の効果を過去週で計測する手順（<code>backtest-runbook</code> の 7 axis: replay / lane-cohorts / ablation / judgment-gate counterfactual / bootstrap CI / opportunity-cost / regime×lane）。trade 累積リターンの backtest とは別物</td></tr>
+          <tr><td>look-ahead bias</td><td>判断時点 asof では知り得ない未来情報を計測に混ぜる誤り。forward 計測はこれを排除する</td></tr>
+          <tr><td>in-sample / out-of-sample</td><td>仮説を作ったデータと検証データを分ける規律。replay では直近 1〜2 週を hold-out（out-of-sample）にして過去 fit の楽観を排す</td></tr>
+          <tr><td>data snooping</td><td>過去データに閾値を fit しすぎて将来に効かない見せかけの最適解を掴む罠。固定閾値 + forward-only で避ける</td></tr>
+          <tr><td>counterfactual</td><td>「もし規律 X を適用していたら結果がどう変わったか」を再構成する計測（judgment-gate counterfactual ＝ backtest axis D）</td></tr>
         </tbody>
       </table>
     </section>

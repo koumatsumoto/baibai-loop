@@ -28,13 +28,13 @@ L3 の売買 record が ground truth となって L2 の計測 loop(どの scree
 
 ## 対象としないこと
 
-- バックテスト最適化、パラメータ探索、playbook の過去データ fit(行うのは forward 計測のみ)
+- 過去データへの閾値 grid search / パラメータ最適化、戦略累積リターン(年率・MaxDD・シャープ)の track-record claim(screening 効果の検証は forward-only な multi-axis backtest で行う。[`docs/operations/backtest-runbook.md`](./docs/operations/backtest-runbook.md))
 - 機械学習によるスコアリング・予測
 - 自動発注、売買推奨(単一の合成スコアや売買指示は出力しない。スコアは軸別の座標であり判定ではない)
 - リアルタイム処理(日次・週次バッチで足りる)
 - 汎用 feature store / BI 基盤、第三者向けサービング
 
-詳細な非バックテスト原則は [`docs/design-principles.md`](./docs/design-principles.md) §9 を参照してください。
+計測の原則(forward-only な backtest と、避ける最適化)は [`docs/design-principles.md`](./docs/design-principles.md) §9 を参照してください。
 
 ## 構成
 

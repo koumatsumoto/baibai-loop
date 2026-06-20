@@ -16,7 +16,7 @@ related_docs:
 
 ## 1. 何を測れば「意味のあるバックテスト」か
 
-`docs/philosophy.md` 柱 5（計測ファースト）に従い、以下を全て満たす:
+`docs/philosophy.md` 柱 5（計測ファースト）と [`../design-principles.md`](../design-principles.md) §9（やる backtest と避ける最適化の線引き）に従い、以下を全て満たす:
 
 1. **forward 計測**: 判断時点（asof）に存在した情報のみ使い、未来情報を予測材料に使わない (look-ahead bias 排除)
 2. **same-basis 価格**: stock / benchmark を同じ価格基準（adjusted close、resolve-on-or-before）で揃える

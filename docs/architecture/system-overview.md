@@ -63,10 +63,10 @@ Macro context は screening 手前で確認し、必要に応じて深く更新�
 
 ## 非目標
 
-- バックテスト最適化、パラメータ探索は行わない(行うのは記録済み output の forward 計測のみ)。
+- 過去データへの閾値 grid search / パラメータ最適化、戦略累積リターンの track-record claim は行わない。screening 効果は forward-only な multi-axis backtest(記録済み output の replay / lane-cohorts / ablation、[`../operations/backtest-runbook.md`](../operations/backtest-runbook.md) の 7 axis)で計測する。
 - 機械学習によるスコアリング・予測は行わない。スコアは軸別の座標として出し、単一の合成点や売買指示には畳まない。
 - 自動発注、リアルタイム処理は行わない。
-- screening 閾値や playbook を過去データに fit させない。
+- screening 閾値や playbook の **値そのもの** を過去データに fit させない(値は原則ベースで固定し、backtest は仕組みの効果計測に使う)。
 - 配当利回り単独の playbook / Rerating Book は対象外にする。配当・自己株買いは、long-hold fallback 時の資産ロック中に収益が見込める preference として research で確認する。
 - 汎用 feature store / BI 基盤、MCP / API server などのサービング層は導入しない。SQLite は market data の local canonical store として使い、AI は CLI と SQL で直接読む。
 
