@@ -136,8 +136,14 @@
         <li><a href="#s7">7. フォワード計測ループ：ledger と playbook feedback</a></li>
         <li><a href="#s8">8. 実例：4432 ウイングアーク1st のたどった経路</a></li>
         <li><a href="#s9">9. 検証基盤と主要 CLI / ディレクトリ早見表</a></li>
+        <li><a href="#glossary">付録: 用語集（Glossary）— 専門用語の早見表</a></li>
       </ul>
     </nav>
+
+    <div class="callout callout-note">
+      <p class="callout-title">読み方のヒント</p>
+      <p>専門用語（<code>forward telemetry</code>・<code>lane-cohorts</code> など）は巻末の <a href="#glossary">付録: 用語集</a> に「このリポジトリでの意味」を一覧化しています。読んでいて詰まったら参照してください。各 screen lane の正式英語名・漢字要約名は <a href="#s3">§3 の対応表</a>にあります。</p>
+    </div>
 
     <!-- ===================================================================== -->
     <section>
@@ -739,6 +745,138 @@ uv run pytest</code></pre>
         <p class="callout-title">一言でまとめると</p>
         <p>Baibai-Loop は「<strong>事実（L1/L2）を決定論的に作り、判断（L3）を人間 + AI に残し、両者を forward 計測で結ぶ</strong>」ループです。スクリーニングは 4 lane の OR 条件という透明な固定ルール、その後段の select・research・trade は段階的に厳しくなる規律（liquidity 絞り込み → lens → kill switch → regime ゲート → 集中度ゲート）で、機械が裁量を縛りながら銘柄を 1 本ずつ通します。そして全ての閾値変更が計測根拠に紐づく――これが「計測経路のない機能は足さない」という設計思想の実装です。</p>
       </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <section>
+      <h2 id="glossary">付録: 用語集（Glossary）</h2>
+      <p>本書とリポジトリで使う専門用語を、<strong>このリポジトリでの意味</strong>に絞って一覧化します（一般的な辞書定義ではなく、Baibai-Loop での使われ方）。各 screen lane の正式英語名・漢字要約名は <a href="#s3">§3 の対応表</a>を参照してください。</p>
+
+      <h3>A. アーキテクチャ・層</h3>
+      <table>
+        <thead><tr><th>用語</th><th>このリポジトリでの意味</th></tr></thead>
+        <tbody>
+          <tr><td>L1 / L2 / L3</td><td>データ層（再現可能な事実）／ 分析層（決定論的・閾値固定の機械処理）／ 判断層（人間 + AI の解釈・判断）の 3 層。<a href="#s1">§1</a> 参照</td></tr>
+          <tr><td>fact / judgment（事実／判断）</td><td>機械が出した事実（人間判断ゼロ）か、人間 + AI の解釈か。L2 と L3 を分ける唯一の基準</td></tr>
+          <tr><td>decision loop</td><td>policy → macro → candidates → research → trades → reports → playbooks を一周する改善ループ</td></tr>
+          <tr><td>forward-only</td><td>過去データへ後付けで最適化せず、前向き（将来方向）にだけ効果を計測する原則。バックテスト最適化を禁じる思想</td></tr>
+          <tr><td>ground truth</td><td>計測の「正解」データ。ここでは実際の売買 record が L2 計測の正解（ground truth）を供給する</td></tr>
+          <tr><td>fact snapshot</td><td>ある時点の事実を固定したファイル（candidates など）。後から上書きしない</td></tr>
+          <tr><td>swing trade（スイング）</td><td>数日〜数十営業日（基本 5〜40 営業日、2 か月以内）で回す売買スタイル</td></tr>
+          <tr><td>long-only</td><td>買い建てのみ（空売りしない）。本基盤は long-only の裁量支援</td></tr>
+        </tbody>
+      </table>
+
+      <h3>B. データ基盤・取得</h3>
+      <table>
+        <thead><tr><th>用語</th><th>このリポジトリでの意味</th></tr></thead>
+        <tbody>
+          <tr><td>J-Quants</td><td>日本株の価格・財務・決算予定・営業日カレンダを提供する API。screening の主データ源</td></tr>
+          <tr><td>EDINET</td><td>金融庁の電子開示システム。有報等の CSV から EV/EBITDA・net cash・FCF などの metrics を抽出</td></tr>
+          <tr><td>JPX</td><td>日本取引所グループ。特別注意・整理・取引停止・上場廃止警告の規制 flag の取得源</td></tr>
+          <tr><td><code>market.sqlite</code></td><td>全上場銘柄の事実を集約した local store（git 非管理・再生成可能）。<code>run</code> はここだけを読む</td></tr>
+          <tr><td>asof</td><td>「いつ時点の」を表す対象営業日。<code>--asof 2026-06-12</code> のように指定する</td></tr>
+          <tr><td>TTM（Trailing Twelve Months）</td><td>直近 12 か月の合計。四半期決算をまたいで期間を揃えるための正規化</td></tr>
+          <tr><td>coverage</td><td>SQLite が <code>run</code> に必要な入力を漏れなく持っているか。<code>verify-cache-coverage</code> で検証</td></tr>
+          <tr><td>fail-fast</td><td>入力不足や異常を検知したら即座に停止し、誤った出力を作らない方針</td></tr>
+          <tr><td>cache_only</td><td><code>run</code> は provider API に触れず SQLite だけで動く構成。事前補完を前提にする</td></tr>
+          <tr><td>bootstrap-cache / extract-edinet-metrics</td><td>provider から SQLite を埋める前処理コマンド（J-Quants/JPX ／ EDINET）</td></tr>
+        </tbody>
+      </table>
+
+      <h3>C. バリュエーション・財務指標</h3>
+      <table>
+        <thead><tr><th>用語</th><th>このリポジトリでの意味</th></tr></thead>
+        <tbody>
+          <tr><td>PER（forward / trailing）</td><td>株価収益率。forward＝会社予想 EPS ベース（優先）、trailing＝実績ベース（予想未公表時）</td></tr>
+          <tr><td>PBR</td><td>株価純資産倍率</td></tr>
+          <tr><td>EV/EBITDA</td><td>事業価値 ÷ 償却前営業利益。負債込みの割安度。EV・EBITDA が共に正のときだけ採用</td></tr>
+          <tr><td>P/S（price-to-sales）</td><td>株価売上高倍率。利益が薄い銘柄の割安度を売上基準で見る</td></tr>
+          <tr><td>PCFR</td><td>株価キャッシュフロー倍率。表示・補助指標</td></tr>
+          <tr><td>OCF yield / FCF yield</td><td>営業 CF 利回り（CFO ÷ 時価総額）／ フリー CF 利回り（FCF ÷ 時価総額）</td></tr>
+          <tr><td>CFO</td><td>営業キャッシュフロー（本業で生んだ現金）。会計利益と別に現金創出力を見る</td></tr>
+          <tr><td>cash-to-market-cap / net-cash-to-market-cap</td><td>現金 ÷ 時価総額 ／ ネットキャッシュ（現金 − 有利子負債）÷ 時価総額</td></tr>
+          <tr><td>price-to-equity / equity_ratio</td><td>株価 ÷ 1 株純資産 ／ 自己資本比率（純資産 ÷ 総資産）</td></tr>
+          <tr><td>業種中央値（33 業種）</td><td>東証 33 業種分類での中央値。相対割安を判定する比較母集団（n&lt;10 は市場全体に fallback）</td></tr>
+          <tr><td>自己レンジ（self range）</td><td>過去 3 年の自社株価レンジ。今がその下位かを見る</td></tr>
+          <tr><td>ADV / adv_participation</td><td>平均売買代金（average daily volume）／ 自分の注文が ADV に占める割合（流動性インパクト）</td></tr>
+          <tr><td>mean reversion（平均回帰）</td><td>行き過ぎた水準が平均へ戻る現象。割安戦略の前提</td></tr>
+          <tr><td>de-rating / マルチプル圧縮</td><td>業績悪化でなく評価倍率の低下で株価が安くなること</td></tr>
+        </tbody>
+      </table>
+
+      <h3>D. スクリーニング（機械ふるい）</h3>
+      <table>
+        <thead><tr><th>用語</th><th>このリポジトリでの意味</th></tr></thead>
+        <tbody>
+          <tr><td>playbook</td><td>再現可能な thesis（投資仮説）の型。screen lane と 1 対 1 で対応する</td></tr>
+          <tr><td>lane（screen lane）</td><td>機械ふるいの判定レーン（4 本）。playbook-linked screen とも言う。<a href="#s3">§3</a> 参照</td></tr>
+          <tr><td>OR 条件</td><td>4 lane のうち最低 1 本を満たせば通過とする論理</td></tr>
+          <tr><td><code>evidence_hits</code></td><td>どの lane に・なぜ hit したか（lane 名・reasons・使った metrics）の記録</td></tr>
+          <tr><td>deterioration gate</td><td>BS/CF は良くても営業利益 YoY が急減（−30% 超）した銘柄を弾く除外ゲート</td></tr>
+          <tr><td>universe</td><td>判定対象の母集団。screen では全上場普通株、絞り込みは分析層（<code>selection.liquidity</code>）が担う</td></tr>
+        </tbody>
+      </table>
+
+      <h3>E. セレクション（select / lens / regime）</h3>
+      <table>
+        <thead><tr><th>用語</th><th>このリポジトリでの意味</th></tr></thead>
+        <tbody>
+          <tr><td>select / triage</td><td>candidates から research 着手候補を絞り込む L2 の段階。最終採用は人間（L3）</td></tr>
+          <tr><td>lens</td><td>候補を「除外」せず「順位付け」に使う観点。gate ではない</td></tr>
+          <tr><td>fast_dislocation</td><td>一時的に売られすぎた候補を上位化する lens（価格急落 + fundamental guard が必要）</td></tr>
+          <tr><td>long_hold_survivability</td><td>短期 thesis が外れた時の保有耐性を <code>high/medium/low/unknown</code> で示す annotation</td></tr>
+          <tr><td>prior_research</td><td>deferred/rejected の再登場を抑制する lens（同じ候補への偏りを下げる）</td></tr>
+          <tr><td>market regime</td><td>指数トレンドの局面分類。<code>risk_on_rally</code>（≥+3%）/ <code>risk_off_selloff</code>（≤−3%）/ <code>neutral_range</code> / <code>unknown</code></td></tr>
+          <tr><td>benchmark proxy（1321）</td><td>日経 225 ETF（証券コード 1321）。相対リターン・regime の基準</td></tr>
+          <tr><td>benchmark_relative_20d</td><td>候補の 20 日リターン − benchmark の 20 日リターン。−0.03 以下で <code>benchmark_laggard_20d</code> tag</td></tr>
+          <tr><td>diversity</td><td>同一 sector / lane / 前回候補への偏りを抑える上限（recommendations の多様性確保）</td></tr>
+          <tr><td>recommendations</td><td>select が出す research 着手候補のリスト（最大 5 件）</td></tr>
+        </tbody>
+      </table>
+
+      <h3>F. リサーチ・トレード</h3>
+      <table>
+        <thead><tr><th>用語</th><th>このリポジトリでの意味</th></tr></thead>
+        <tbody>
+          <tr><td>macro context</td><td>screening 前に確認する市場環境の分析（L3）。hard gate ではなく確認観点</td></tr>
+          <tr><td>investment memo</td><td>個別銘柄の thesis・リスク・sizing をまとめた research packet（<code>records/05-research/</code>）</td></tr>
+          <tr><td>thesis</td><td>「なぜ買うか」の投資仮説</td></tr>
+          <tr><td>catalyst</td><td>株価が見直される契機（決算・新製品・株主還元など）</td></tr>
+          <tr><td>invalidation</td><td>仮説が崩れたと判断する条件（これに該当したら手仕舞い検討）</td></tr>
+          <tr><td>kill switch</td><td>entry 禁止条件（決算またぎ・日銀会合前日・FOMC 前日・stale macro での proceed）</td></tr>
+          <tr><td>entry preflight</td><td>発注前チェック（market regime・相対リターン・集中度・catalyst）</td></tr>
+          <tr><td>action: proceed / starter / defer / exception</td><td>entry の姿勢＝通常 / 少額で開始 / 見送り / 例外（要 waiver 理由）</td></tr>
+          <tr><td>position sizing</td><td>1 銘柄にいくら投入するかの決め方</td></tr>
+          <tr><td>paper proxy / real layer</td><td>1 億円仮想資本での検証尺度 ／ 実資金での集中度管理。別 field・別 validator で扱う</td></tr>
+          <tr><td>concentration（集中度）</td><td>単一銘柄 / sector / playbook への偏り。soft 推奨と hard 上限で管理</td></tr>
+          <tr><td>tactical budget</td><td>「今どこまでリスクを取りに行くか」の一時的な投入上限。実資金全体とは別管理</td></tr>
+          <tr><td>long-hold fallback</td><td>短期で外れた時に長期保有へ切替えて耐えられるか（BS/CF/配当の耐久性）</td></tr>
+          <tr><td>order / execution / fill</td><td>注文 ／ 約定 ／ 全量約定。注文意図と実約定を別 field で区別する</td></tr>
+          <tr><td><code>trade_execution_state</code></td><td>注文の状態（submitted / partially_filled / filled / cancelled / expired / broker_rejected …）</td></tr>
+        </tbody>
+      </table>
+
+      <h3>G. フォワード計測（telemetry）</h3>
+      <table>
+        <thead><tr><th>用語</th><th>このリポジトリでの意味</th></tr></thead>
+        <tbody>
+          <tr><td>forward telemetry</td><td>記録済みの candidates / trades から forward return を<strong>機械計測する仕組みの総称</strong>（replay / lane-cohorts / selection-ablation）。決定論的なので L2</td></tr>
+          <tr><td>ledger / decision register</td><td>research / trade の判断イベントを append-only に正規化した台帳（<code>records/_ledger/…jsonl</code>）</td></tr>
+          <tr><td>ledger benchmark</td><td>実保有 positions の絶対・相対リターンと attribution を出す計測コマンド</td></tr>
+          <tr><td>screening-replay</td><td>過去複数週の recommended queue（select 推奨）の forward return を benchmark 比で集計し、profile 採否を判断</td></tr>
+          <tr><td>lane-cohorts</td><td>週次 candidates の<strong>全銘柄</strong>を evidence lane 別の cohort に分け forward return を集計。replay が推奨上位だけを見るのに対し母集団全体を見る、playbook 改訂の一次資料</td></tr>
+          <tr><td>selection-ablation</td><td>ranking 機能や lane を<strong>1 つずつ無効化</strong>した variant を replay し、各機能の寄与（Δfull）と推奨重複率を計測。閾値 sweep はしない</td></tr>
+          <tr><td>forward return</td><td>asof から 1 週 / 4 週後のリターン。benchmark proxy 比の相対も出す</td></tr>
+          <tr><td>Δfull（delta full）</td><td>ある機能を抜いた variant の forward return が、全機能 on（full）からどれだけ動いたか。<strong>負＝抜くと成績が下がる＝その機能に価値がある</strong></td></tr>
+          <tr><td>cohort</td><td>同じ条件でまとめた銘柄群（例: lane 別 cohort）</td></tr>
+          <tr><td>replay / ablation</td><td>過去データで再現実行する ／ 機能を抜いて差分（寄与）を見る手法</td></tr>
+          <tr><td>holdout</td><td>profile 選定の妥当性確認のため、直近 1〜2 週を集計から外して「未知の週」として残す分</td></tr>
+          <tr><td>attribution</td><td>成果（forward return）を playbook / evidence / macro / sizing / execution のどれに帰属させるか</td></tr>
+          <tr><td>retro</td><td>月次・四半期の振り返り。hit 数・採用率・lane 別成否を見て閾値や playbook の改訂を議論する</td></tr>
+          <tr><td>reports/</td><td>telemetry の数値を解釈して「次に何を直すか」を残す dated まとめ（L3。telemetry 計測そのものは L2）</td></tr>
+        </tbody>
+      </table>
     </section>
 
     <footer class="doc-footer">
