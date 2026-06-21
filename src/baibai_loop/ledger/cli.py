@@ -29,6 +29,7 @@ from .cohort_scorecard import (
     DEFAULT_MIN_RESOLVED,
     render_scorecard_summary,
     run_lane_scorecard,
+    run_proposal_scorecard,
     scorecard_to_payload,
 )
 from .lane_cohorts import (
@@ -170,6 +171,46 @@ def build_parser() -> argparse.ArgumentParser:
     scorecard_parser.add_argument(
         "--out", type=Path, help="write scorecard payload YAML to this path instead of stdout"
     )
+    proposal_parser = subparsers.add_parser(
+        "proposal-scorecard",
+        help="score the recommended queue (proposal level) vs the all-candidates baseline",
+    )
+    proposal_parser.add_argument("--root", type=Path, default=Path.cwd())
+    proposal_parser.add_argument(
+        "--candidates-root",
+        type=Path,
+        required=True,
+        help="root holding weekly candidate YAML in <YYYY>/<MM>/<YYYY-MM-DD>.yaml layout",
+    )
+    proposal_parser.add_argument(
+        "--horizons",
+        default=",".join(str(weeks) for weeks in DEFAULT_COHORT_HORIZON_WEEKS),
+        help="comma-separated forward horizons in calendar weeks (default: 1,4)",
+    )
+    proposal_parser.add_argument(
+        "--top", type=int, default=10, help="recommended queue size per week (default 10)"
+    )
+    proposal_parser.add_argument(
+        "--profile", default="balanced", help="selection profile (default: balanced)"
+    )
+    proposal_parser.add_argument(
+        "--rules-path", type=Path, default=DEFAULT_RULES_PATH, help="screening rules path"
+    )
+    proposal_parser.add_argument(
+        "--min-resolved",
+        type=int,
+        default=DEFAULT_MIN_RESOLVED,
+        help=f"minimum pooled resolved count before a decision (default: {DEFAULT_MIN_RESOLVED})",
+    )
+    proposal_parser.add_argument(
+        "--bootstrap-iterations",
+        type=int,
+        default=DEFAULT_BOOTSTRAP_ITERATIONS,
+        help=f"bootstrap resamples for the CI (default: {DEFAULT_BOOTSTRAP_ITERATIONS})",
+    )
+    proposal_parser.add_argument(
+        "--out", type=Path, help="write scorecard payload YAML to this path instead of stdout"
+    )
     ablation_parser = subparsers.add_parser(
         "selection-ablation",
         help="replay selection variants that disable one feature each and score forward return",
@@ -249,6 +290,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_lane_cohorts(args)
     if args.command == "lane-scorecard":
         return _run_lane_scorecard(args)
+    if args.command == "proposal-scorecard":
+        return _run_proposal_scorecard(args)
     if args.command == "selection-ablation":
         return _run_selection_ablation(args)
     raise AssertionError(f"unreachable command: {args.command!r}")
@@ -331,6 +374,36 @@ def _run_lane_scorecard(args: argparse.Namespace) -> int:
         weeks,
         sqlite_path=sqlite_path,
         horizon_weeks=horizons,
+        min_resolved=args.min_resolved,
+        bootstrap_iterations=args.bootstrap_iterations,
+    )
+    if args.out is not None:
+        text = yaml.safe_dump(scorecard_to_payload(result), allow_unicode=True, sort_keys=False)
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(text, encoding="utf-8")
+        print(f"wrote {args.out}")
+    print(render_scorecard_summary(result))
+    return 0
+
+
+def _run_proposal_scorecard(args: argparse.Namespace) -> int:
+    horizons = _parse_horizons(args.horizons)
+    if horizons is None:
+        return 1
+    weeks = discover_week_specs(args.candidates_root)
+    if not weeks:
+        print(f"no weekly candidate files under {args.candidates_root}", file=sys.stderr)
+        return 1
+    sqlite_path = args.root / DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"
+    result = run_proposal_scorecard(
+        weeks,
+        sqlite_path=sqlite_path,
+        rules=load_screening_rules(args.rules_path),
+        candidates_root=args.candidates_root,
+        ledger_root=args.root / "records",
+        horizon_weeks=horizons,
+        top=args.top,
+        profile=args.profile,
         min_resolved=args.min_resolved,
         bootstrap_iterations=args.bootstrap_iterations,
     )

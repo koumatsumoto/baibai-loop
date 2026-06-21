@@ -219,6 +219,84 @@ class RunScorecardTests(unittest.TestCase):
             good = next(s for s in result.scores if s.lane == "good-lane")
             self.assertIs(good.decision, LaneDecision.REVIEW)
 
+    def test_proposal_recommended_queue_scored_against_baseline(self) -> None:
+        from unittest import mock
+
+        from baibai_loop.ledger.cohort_scorecard import (
+            RECOMMENDED_QUEUE_COHORT,
+            run_proposal_scorecard,
+        )
+        from baibai_loop.ledger.forward_return import HorizonReturn, TickerForwardReturn
+        from baibai_loop.ledger.screening_replay import ProfileWeekResult, ReplayResult
+        from baibai_loop.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
+
+        target = _ASOF + timedelta(days=28)
+        forward = tuple(
+            TickerForwardReturn(
+                ticker=f"G{index:03d}",
+                asof=_ASOF,
+                entry_price=100.0,
+                horizons=(
+                    HorizonReturn(
+                        weeks=4,
+                        target_date=target,
+                        resolved=True,
+                        price=105.0,
+                        return_ratio=0.05,
+                        relative=0.05,
+                    ),
+                ),
+            )
+            for index in range(6)
+        )
+        fake_replay = ReplayResult(
+            profiles=("balanced",),
+            horizon_weeks=(4,),
+            eval_cap=target,
+            benchmark_ticker=_BENCHMARK,
+            regime_lens=True,
+            results=(
+                ProfileWeekResult(
+                    week=_ASOF,
+                    profile="balanced",
+                    is_holdout=False,
+                    market_regime=None,
+                    recommended_tickers=tuple(f"G{index:03d}" for index in range(6)),
+                    recommended=(),
+                    fast_dislocation_count=0,
+                    long_hold_counts={},
+                    suppressed_count=0,
+                    distributions={},
+                    forward_returns=forward,
+                    forward_aggregates=(),
+                ),
+            ),
+        )
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            sqlite_path = self._build_fixture(root)
+            with mock.patch(
+                "baibai_loop.ledger.cohort_scorecard.run_replay", return_value=fake_replay
+            ):
+                result = run_proposal_scorecard(
+                    discover_week_specs(root),
+                    sqlite_path=sqlite_path,
+                    rules=load_screening_rules(DEFAULT_RULES_PATH),
+                    candidates_root=root,
+                    ledger_root=root,
+                    horizon_weeks=[4],
+                    min_resolved=5,
+                    bootstrap_iterations=500,
+                )
+        by_lane = {score.lane: score for score in result.scores}
+        self.assertIn(RECOMMENDED_QUEUE_COHORT, by_lane)
+        self.assertIn(ALL_CANDIDATES_COHORT, by_lane)
+        recommended = by_lane[RECOMMENDED_QUEUE_COHORT]
+        self.assertEqual(recommended.resolved_count, 6)
+        self.assertAlmostEqual(recommended.mean_relative, 0.05, places=6)
+        self.assertAlmostEqual(recommended.baseline_mean_relative, 0.025, places=6)
+        self.assertIs(recommended.decision, LaneDecision.KEEP)
+
 
 if __name__ == "__main__":
     unittest.main()

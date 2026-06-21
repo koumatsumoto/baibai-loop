@@ -21,14 +21,20 @@ from __future__ import annotations
 
 import random
 import statistics
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from baibai_loop.screening.rule_config import ScreeningRules
+
 from .benchmark import NIKKEI225_ETF_PROXY
 from .lane_cohorts import ALL_CANDIDATES_COHORT, DEFAULT_COHORT_HORIZON_WEEKS, pool_lane_relatives
+from .screening_replay import run_replay
 from .weeks import WeekSpec
+
+RECOMMENDED_QUEUE_COHORT = "recommended_queue"
 
 DEFAULT_MIN_RESOLVED = 30
 DEFAULT_BOOTSTRAP_ITERATIONS = 10_000
@@ -106,36 +112,15 @@ def run_lane_scorecard(
         relatives = pooled[(lane, horizon)]
         if not relatives:
             continue
-        baseline_mean = baseline_by_horizon.get(horizon, 0.0)
-        ci_low, ci_high, prob_negative = _bootstrap_mean_ci(
-            relatives,
-            iterations=bootstrap_iterations,
-            seed=bootstrap_seed + horizon,
-        )
-        mean_relative = statistics.fmean(relatives)
-        decision, reason = _decide(
-            lane=lane,
-            resolved=len(relatives),
-            ci_low=ci_low,
-            ci_high=ci_high,
-            baseline_mean=baseline_mean,
-            min_resolved=min_resolved,
-        )
         scores.append(
-            LaneScore(
+            _score_pool(
                 lane=lane,
-                horizon_weeks=horizon,
-                resolved_count=len(relatives),
-                mean_relative=mean_relative,
-                median_relative=statistics.median(relatives),
-                ci_low=ci_low,
-                ci_high=ci_high,
-                prob_mean_negative=prob_negative,
-                win_rate=sum(1 for relative in relatives if relative > 0) / len(relatives),
-                baseline_mean_relative=baseline_mean,
-                edge_vs_baseline=mean_relative - baseline_mean,
-                decision=decision,
-                decision_reason=reason,
+                horizon=horizon,
+                relatives=relatives,
+                baseline_mean=baseline_by_horizon.get(horizon, 0.0),
+                min_resolved=min_resolved,
+                bootstrap_iterations=bootstrap_iterations,
+                bootstrap_seed=bootstrap_seed,
             )
         )
     return ScorecardResult(
@@ -145,6 +130,131 @@ def run_lane_scorecard(
         bootstrap_seed=bootstrap_seed,
         benchmark_ticker=NIKKEI225_ETF_PROXY,
         scores=tuple(scores),
+    )
+
+
+def run_proposal_scorecard(
+    weeks: Sequence[WeekSpec],
+    *,
+    sqlite_path: Path,
+    rules: ScreeningRules,
+    candidates_root: Path,
+    ledger_root: Path,
+    horizon_weeks: Sequence[int] = DEFAULT_COHORT_HORIZON_WEEKS,
+    top: int = 10,
+    profile: str = "balanced",
+    min_resolved: int = DEFAULT_MIN_RESOLVED,
+    bootstrap_iterations: int = DEFAULT_BOOTSTRAP_ITERATIONS,
+    bootstrap_seed: int = DEFAULT_BOOTSTRAP_SEED,
+) -> ScorecardResult:
+    """Score the recommended queue (proposal level) against the all-candidates baseline.
+
+    This is the relevance overlay: it asks whether `select`'s recommended queue —
+    the proposals a human would actually consider trading — beats the average
+    candidate. The recommended queue is the top-N per week, so the pooled N is
+    small (top x resolved weeks); the decision is honestly CI-gated and will read
+    `review` (directional only) when underpowered. The robust screening-quality
+    conclusion stays at the candidate / lane level (`run_lane_scorecard`); this
+    overlay only checks that the robust signal survives into tradeable proposals.
+    """
+    replay = run_replay(
+        weeks,
+        profiles=[profile],
+        rules=rules,
+        sqlite_path=sqlite_path,
+        candidates_root=candidates_root,
+        ledger_root=ledger_root,
+        top=top,
+        horizon_weeks=horizon_weeks,
+    )
+    recommended: dict[int, list[float]] = defaultdict(list)
+    for week_result in replay.results:
+        for forward in week_result.forward_returns:
+            for horizon_return in forward.horizons:
+                if horizon_return.resolved and horizon_return.relative is not None:
+                    recommended[horizon_return.weeks].append(horizon_return.relative)
+    pooled = pool_lane_relatives(weeks, sqlite_path=sqlite_path, horizon_weeks=horizon_weeks)
+    baseline_by_horizon: dict[int, float] = {}
+    for horizon in horizon_weeks:
+        baseline = pooled.get((ALL_CANDIDATES_COHORT, horizon))
+        if baseline:
+            baseline_by_horizon[horizon] = statistics.fmean(baseline)
+    scores: list[LaneScore] = []
+    for horizon in horizon_weeks:
+        baseline = pooled.get((ALL_CANDIDATES_COHORT, horizon))
+        if baseline:
+            scores.append(
+                _score_pool(
+                    lane=ALL_CANDIDATES_COHORT,
+                    horizon=horizon,
+                    relatives=baseline,
+                    baseline_mean=baseline_by_horizon.get(horizon, 0.0),
+                    min_resolved=min_resolved,
+                    bootstrap_iterations=bootstrap_iterations,
+                    bootstrap_seed=bootstrap_seed,
+                )
+            )
+        recommended_pool = recommended.get(horizon)
+        if recommended_pool:
+            scores.append(
+                _score_pool(
+                    lane=RECOMMENDED_QUEUE_COHORT,
+                    horizon=horizon,
+                    relatives=recommended_pool,
+                    baseline_mean=baseline_by_horizon.get(horizon, 0.0),
+                    min_resolved=min_resolved,
+                    bootstrap_iterations=bootstrap_iterations,
+                    bootstrap_seed=bootstrap_seed,
+                )
+            )
+    return ScorecardResult(
+        horizon_weeks=tuple(horizon_weeks),
+        min_resolved=min_resolved,
+        bootstrap_iterations=bootstrap_iterations,
+        bootstrap_seed=bootstrap_seed,
+        benchmark_ticker=NIKKEI225_ETF_PROXY,
+        scores=tuple(scores),
+    )
+
+
+def _score_pool(
+    *,
+    lane: str,
+    horizon: int,
+    relatives: Sequence[float],
+    baseline_mean: float,
+    min_resolved: int,
+    bootstrap_iterations: int,
+    bootstrap_seed: int,
+) -> LaneScore:
+    ci_low, ci_high, prob_negative = _bootstrap_mean_ci(
+        relatives,
+        iterations=bootstrap_iterations,
+        seed=bootstrap_seed + horizon,
+    )
+    mean_relative = statistics.fmean(relatives)
+    decision, reason = _decide(
+        lane=lane,
+        resolved=len(relatives),
+        ci_low=ci_low,
+        ci_high=ci_high,
+        baseline_mean=baseline_mean,
+        min_resolved=min_resolved,
+    )
+    return LaneScore(
+        lane=lane,
+        horizon_weeks=horizon,
+        resolved_count=len(relatives),
+        mean_relative=mean_relative,
+        median_relative=statistics.median(relatives),
+        ci_low=ci_low,
+        ci_high=ci_high,
+        prob_mean_negative=prob_negative,
+        win_rate=sum(1 for relative in relatives if relative > 0) / len(relatives),
+        baseline_mean_relative=baseline_mean,
+        edge_vs_baseline=mean_relative - baseline_mean,
+        decision=decision,
+        decision_reason=reason,
     )
 
 

@@ -43,11 +43,21 @@ baseline 自体が大きく負（この 6 週は screening universe が指数に
 - 効率の爆発は scorecard 側でなく **候補再生成（`run --asof` の full-universe 取得）を多 asof で繰り返す側**。候補が既にあれば評価は速い（レビュー指摘と一致）。
 - よって C2（on-demand 取得）は **多 asof スケールが必要になるまで defer**。現状の candidate-level 大N 評価は 6 週で n≈2800–4400 と既に十分な母数。
 
+## C3: proposal relevance overlay（recommended queue）
+
+`proposal-scorecard` は `select` の recommended queue（top N＝実取引提案単位）を週跨ぎ pool し、candidate 大N baseline と比較する。6 asof 結果:
+
+| cohort | h | n | mean_rel | edge vs baseline | 95% CI | decision |
+| --- | --- | ---: | ---: | --- | --- | --- |
+| recommended_queue | 1 | 20 | +0.02% | +1.71pt | [−3.77, +4.55] | review |
+| recommended_queue | 4 | 15 | −0.97% | +8.16pt | [−7.77, +7.53] | review |
+
+recommended queue は baseline を上回る edge（select が価値を足している方向）だが、**n=15–20 で CI が広く review（directional のみ）**。これは設計どおり: robust な結論は候補大N（`lane-scorecard`）から、proposal は小N の relevance overlay として**分離記載**する。preflight gate の完全な PIT 再構成は本 overlay では機械 proposal（select 通過＝recommended queue）に留め、別 PR 候補とする。
+
 ## スコープと次
 
-- **完了**: C0 評価方法論 ＋ C0-gate（actionable な lane 判定を実証）＋ テスト ＋ 多角検証。
-- **defer**: C2 性能効率（現スケール不要、多 asof で再評価）。
-- **次**: C3 proposal relevance overlay（recommended queue＝実取引提案単位、小N・CI-gated・directional。候補大N の robust 結論と分離記載）。
+- **完了**: C0（`lane-scorecard`, 候補大N の lane keep/kill/review）＋ C0-gate ＋ C3（`proposal-scorecard`, recommended queue の relevance overlay）＋ テスト 13 件 ＋ 多角検証。C1 は「現スケール 8–10s で効率化不要」の所見で完了。
+- **defer（別 PR 候補）**: C2 性能効率（多 asof スケールが必要になった時）、proposal の entry_preflight gate 完全 PIT 再構成。
 
 ## 制約（受け入れ）
 
