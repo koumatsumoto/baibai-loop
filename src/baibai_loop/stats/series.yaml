@@ -164,3 +164,93 @@ series:
     source_id: ecb-fx
     source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
     aliases: [AUD/JPY, 豪ドル円]
+  - series_id: jp.10y
+    name: 日本10Y国債利回り
+    domain: rates
+    geography: japan
+    frequency: monthly
+    unit: percent
+    provider: fred_csv
+    provider_series_id: IRLTLT01JPM156N
+    source_id: fred-irltlt01jpm156n
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=IRLTLT01JPM156N
+    notes: OECD系列でFREDは月次。日次JGBが要る場合はJ-Qu/別providerで後日追加
+    aliases: [日本10Y, JGB10Y, JGB 10Y, 日本国債10年]
+  - series_id: jp.policy_rate
+    name: 日本政策金利(無担保コールON)
+    domain: policy
+    geography: japan
+    frequency: monthly
+    unit: percent
+    provider: fred_csv
+    provider_series_id: IRSTCI01JPM156N
+    source_id: fred-irstci01jpm156n
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=IRSTCI01JPM156N
+    notes: 無担保コールレート(BOJ政策金利の近似)。OECD系列で月次
+    aliases: [日銀政策金利, BOJ policy rate, コールレート, 無担保コール]
+  - series_id: jp.unemployment
+    name: 日本失業率
+    domain: labor
+    geography: japan
+    frequency: monthly
+    unit: percent
+    provider: fred_csv
+    provider_series_id: LRUNTTTTJPM156S
+    source_id: fred-lrunttttjpm156s
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=LRUNTTTTJPM156S
+    aliases: [日本失業率, JP unemployment, 失業率]
+  - series_id: jp.nikkei225
+    name: 日経225
+    domain: equity-index
+    geography: japan
+    frequency: daily
+    unit: index
+    provider: fred_csv
+    provider_series_id: NIKKEI225
+    source_id: fred-nikkei225
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=NIKKEI225
+    aliases: [日経225, 日経平均, Nikkei 225, NIKKEI225]
+  - series_id: credit.us_hy_oas
+    name: 米ハイイールドOAS
+    domain: credit
+    geography: us
+    frequency: daily
+    unit: percent
+    provider: fred_csv
+    provider_series_id: BAMLH0A0HYM2
+    source_id: fred-bamlh0a0hym2
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A0HYM2
+    aliases: [HY OAS, ハイイールドスプレッド, high yield OAS, クレジットスプレッド]
+  - series_id: credit.us_ig_oas
+    name: 米投資適格OAS
+    domain: credit
+    geography: us
+    frequency: daily
+    unit: percent
+    provider: fred_csv
+    provider_series_id: BAMLC0A0CM
+    source_id: fred-bamlc0a0cm
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLC0A0CM
+    aliases: [IG OAS, 投資適格スプレッド, investment grade OAS]
+  - series_id: btc_usd
+    name: ビットコイン価格USD
+    domain: crypto
+    geography: world
+    frequency: daily
+    unit: usd
+    provider: fred_csv
+    provider_series_id: CBBTCUSD
+    source_id: fred-cbbtcusd
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=CBBTCUSD
+    aliases: [BTC, Bitcoin, ビットコイン, BTCUSD]
+  - series_id: usd_index.broad
+    name: 米ドル指数broad
+    domain: fx
+    geography: us
+    frequency: daily
+    unit: index
+    provider: fred_csv
+    provider_series_id: DTWEXBGS
+    source_id: fred-dtwexbgs
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DTWEXBGS
+    aliases: [DXY, ドル指数, dollar index, broad dollar]

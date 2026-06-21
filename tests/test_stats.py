@@ -23,7 +23,7 @@ from baibai_loop.stats.db import (
     record_provider_run,
     row_count,
 )
-from baibai_loop.stats.definitions import SeriesDefinition
+from baibai_loop.stats.definitions import SeriesDefinition, load_definitions
 from baibai_loop.stats.providers import (
     StatsProviderError,
     fetch_observations,
@@ -312,6 +312,36 @@ class StatsProviderParserTests(unittest.TestCase):
                     )
                 ),
             )
+
+    def test_fetch_observations_rejects_unknown_provider(self) -> None:
+        series = _series("nonexistent_provider", "X")
+
+        with self.assertRaisesRegex(
+            StatsProviderError, "unsupported stats provider: nonexistent_provider"
+        ):
+            fetch_observations(series, start=date(2026, 5, 1), end=date(2026, 5, 1))
+
+
+class StatsRegistryTests(unittest.TestCase):
+    def test_new_tier1_series_registered_with_expected_provider_and_domain(self) -> None:
+        by_id = load_definitions().by_id()
+        expected = {
+            "jp.nikkei225": ("fred_csv", "equity-index"),
+            "jp.policy_rate": ("fred_csv", "policy"),
+            "jp.unemployment": ("fred_csv", "labor"),
+            "credit.us_hy_oas": ("fred_csv", "credit"),
+            "btc_usd": ("fred_csv", "crypto"),
+        }
+
+        for series_id, (provider, domain) in expected.items():
+            self.assertIn(series_id, by_id)
+            self.assertEqual(by_id[series_id].provider, provider)
+            self.assertEqual(by_id[series_id].domain, domain)
+
+    def test_every_series_id_maps_to_a_single_provider(self) -> None:
+        series_ids = [series.series_id for series in load_definitions().series]
+
+        self.assertEqual(len(series_ids), len(set(series_ids)))
 
 
 class StatsServiceTests(unittest.TestCase):
