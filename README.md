@@ -9,32 +9,35 @@ Baibai-Loop は、日本株の実データ(価格・財務・開示・規制)を
 | 層 | 実体 | 性質 |
 | --- | --- | --- |
 | L1 データ層 | `data/screening/market.sqlite`(J-Quants 価格・財務 / EDINET metrics / JPX 規制) | 全上場銘柄の再現可能な事実 |
-| L2 分析層 | screen lanes・selection lenses・軸別スコア・forward telemetry(replay / lane cohorts / ablation) | 決定論的・閾値固定の機械的分析 |
-| L3 判断層 | `records/`(research / trades / reviews、macro context) | 人間 + AI 下書きの解釈と判断 |
+| L2 分析層 | screen lanes・selection lenses・軸別スコア・forward backtest(replay / lane cohorts / ablation) | 決定論的・閾値固定の機械的分析 |
+| L3 判断層 | `records/`(research / trades、macro context) + `reports/` | 人間 + AI 下書きの解釈と判断 |
 
 AI が利用する安定契約は **CLI の YAML 出力と SQLite schema の 2 面**です([`docs/reference/platform-interface.md`](./docs/reference/platform-interface.md))。判断と帰責は人間(L3)に残し、AI は L1/L2 の事実に grounded な下書きを作ります。
 
-## 目的の loop
+## 2 つのループ
 
-以下の loop を forward-only に回します。概念モデルの正本は [`docs/concepts.md`](./docs/concepts.md) です。
+Baibai-Loop は単一ループではなく、**運用ループ**（検証済みの screening を適用して売買判断に落とす）と **改善ループ**（その screening を検証・改善する）を分けて回します。概念モデルの正本は [`docs/concepts.md`](./docs/concepts.md) です。
+
+**運用ループ（機会/週次）**:
 
 1. portfolio policy で目的・制約・資本・許容リスクを固定する
 2. スクリーニング前に macro context を確認する: `records/01-macro-context/`
 3. スクリーニング基準でふるいにかける: `records/04-candidates/`
 4. 個別銘柄を investment memo として深掘り調査する: `records/05-research/`
-5. 条件を満たしたら execution record を残す: `records/06-trades/`
+5. 最終選考の銘柄を「いくらで何株」の売買提案として GitHub Issue に上げ、人間が判断する
+6. 約定したら execution record を残す: `records/06-trades/`
 
-L3 の売買 record が ground truth となって L2 の計測 loop(どの screen・lens が forward return を生んだか)を閉じます。思想は [`docs/philosophy.md`](./docs/philosophy.md)、現行構造は [`docs/architecture/system-overview.md`](./docs/architecture/system-overview.md) を参照してください。
+**改善ループ（日次/週次）**: screening が機能しているかは、母数が極小の個人売買結果ではなく **全候補の forward-only backtest(大 N)**で検証します。改善項目は GitHub Issue の改善バックログで管理し、screening rules / playbooks の改訂に落とします。trades は Q2(執行品質)の信号として還流します。思想は [`docs/philosophy.md`](./docs/philosophy.md)、現行構造は [`docs/architecture/system-overview.md`](./docs/architecture/system-overview.md) を参照してください。
 
 ## 対象としないこと
 
-- バックテスト最適化、パラメータ探索、playbook の過去データ fit(行うのは forward 計測のみ)
+- 過去データへの閾値 grid search / パラメータ最適化、戦略累積リターン(年率・MaxDD・シャープ)の track-record claim(screening 効果の検証は forward-only な multi-axis backtest で行う。[`docs/operations/backtest-runbook.md`](./docs/operations/backtest-runbook.md))
 - 機械学習によるスコアリング・予測
 - 自動発注、売買推奨(単一の合成スコアや売買指示は出力しない。スコアは軸別の座標であり判定ではない)
 - リアルタイム処理(日次・週次バッチで足りる)
 - 汎用 feature store / BI 基盤、第三者向けサービング
 
-詳細な非バックテスト原則は [`docs/design-principles.md`](./docs/design-principles.md) §9 を参照してください。
+計測の原則(forward-only な backtest と、避ける最適化)は [`docs/design-principles.md`](./docs/design-principles.md) §9 を参照してください。
 
 ## 構成
 

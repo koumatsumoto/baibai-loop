@@ -1,0 +1,940 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <!--
+    Content Security Policy（meta で有効なディレクティブのみ）。
+    - script-src: 固定 CDN の mermaid パスと、下部 init <script> の sha256 だけを許可（'unsafe-inline' は付けない）。
+    - init <script> を編集したら sha256 を再計算してこの値も差し替える。
+    - 画像が必要な場合のみ img-src を `img-src data:` に変える（inline base64。他は据え置き）。
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src https://cdn.jsdelivr.net/npm/mermaid@11.15.0/ 'sha256-YkkhgzxEOaZrcHmf3yQIu/qB7vf4XZ9n96RSyDSvamI='; style-src 'self' 'unsafe-inline'; img-src 'none'; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <title>Baibai-Loop 全体像：スクリーニングから取引・フォワード計測まで</title>
+  <style>
+    /* ===== テーマ変数（配色やサイズの調整はここを起点に） ===== */
+    :root {
+      --content-width: 1400px;
+      --fg: #1f2328;
+      --fg-muted: #57606a;
+      --bg: #ffffff;
+      --bg-subtle: #f6f8fa;
+      --border: #d0d7de;
+      --accent: #0969da;
+      --note: #0969da;
+      --warning: #9a6700;
+      --important: #8250df;
+      --code-bg: #f6f8fa;
+      --radius: 6px;
+      --space: 16px;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN",
+              "Noto Sans JP", Meiryo, sans-serif;
+      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    }
+
+    /* ===== ベース ===== */
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      color: var(--fg);
+      background: var(--bg);
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.75;
+    }
+
+    /* ===== レイアウト（コンテンツ幅 1400px・中央寄せ） ===== */
+    .container {
+      width: var(--content-width);
+      max-width: 100%;
+      margin: 0 auto;
+      padding: 40px 32px 80px;
+    }
+
+    /* ===== ヘッダ / フッタ ===== */
+    .doc-header { border-bottom: 2px solid var(--border); padding-bottom: 16px; margin-bottom: 32px; }
+    .doc-header h1 { margin: 0 0 8px; }
+    .doc-header .subtitle { margin: 0; color: var(--fg-muted); font-size: 1.05rem; }
+    .doc-header .meta { margin: 8px 0 0; color: var(--fg-muted); font-size: 0.875rem; }
+    .doc-footer { border-top: 1px solid var(--border); margin-top: 48px; padding-top: 16px; color: var(--fg-muted); font-size: 0.875rem; }
+
+    /* ===== 見出し階層（H1 は 1 つ、H2=セクション、H3=サブ） ===== */
+    h1 { font-size: 2rem; line-height: 1.3; }
+    h2 { font-size: 1.5rem; margin-top: 2em; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+    h3 { font-size: 1.2rem; margin-top: 1.6em; }
+    h4 { font-size: 1.02rem; margin: 1.2em 0 0.4em; }
+    h2, h3 { scroll-margin-top: 16px; }
+
+    /* ===== 本文要素 ===== */
+    p, ul, ol { margin: 0 0 var(--space); }
+    li { margin: 4px 0; }
+    a { color: var(--accent); }
+    hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+    .lead { font-size: 1.06rem; }
+
+    /* ===== 目次（長文向け） ===== */
+    .toc { background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 24px; margin-bottom: 32px; }
+    .toc strong { display: block; margin-bottom: 8px; }
+    .toc ul { margin: 0; padding-left: 20px; }
+    .toc ul ul { padding-left: 18px; }
+
+    /* ===== テーブル ===== */
+    table { border-collapse: collapse; width: 100%; margin: 0 0 var(--space); font-size: 0.94rem; }
+    th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+    th { background: var(--bg-subtle); }
+    tbody tr:nth-child(even) { background: var(--bg-subtle); }
+    td.num, th.num { text-align: right; white-space: nowrap; }
+
+    /* ===== コードブロック ===== */
+    pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; overflow-x: auto; }
+    code { font-family: var(--mono); font-size: 0.9em; }
+    p code, li code, td code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+    pre code { background: none; padding: 0; }
+
+    /* ===== Callout（note / warning / important） ===== */
+    .callout { border: 1px solid var(--border); border-left-width: 4px; border-radius: var(--radius); padding: 12px 16px; margin: 0 0 var(--space); background: var(--bg-subtle); }
+    .callout .callout-title { font-weight: 600; margin: 0 0 4px; }
+    .callout-note { border-left-color: var(--note); }
+    .callout-warning { border-left-color: var(--warning); }
+    .callout-important { border-left-color: var(--important); }
+
+    /* ===== 図（Mermaid） ===== */
+    figure.diagram { margin: 0 0 24px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); text-align: center; background: var(--bg); }
+    figure.diagram .mermaid { display: flex; justify-content: center; }
+    figure.diagram figcaption { margin-top: 10px; color: var(--fg-muted); font-size: 0.875rem; }
+
+    /* ===== 印刷 / PDF ===== */
+    @media print {
+      .toc { display: none; }
+      .container { width: auto; max-width: none; padding: 0; }
+      .callout { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      figure.diagram, pre, table, .callout { break-inside: avoid; page-break-inside: avoid; }
+      svg { max-width: 100%; height: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <header class="doc-header">
+      <h1>Baibai-Loop 全体像</h1>
+      <p class="subtitle">日本株の実データ収集 → 機械スクリーニング → リサーチ → 取引執行 → フォワード計測の一連の流れと、その具体ロジック</p>
+      <p class="meta">生成日: 2026-06-20 ／ 対象リポジトリ: baibai-loop（main ブランチ時点）</p>
+    </header>
+
+    <nav class="toc">
+      <strong>目次</strong>
+      <ul>
+        <li><a href="#s1">1. これは何のシステムか（3 層モデルと 2 つのループ）</a></li>
+        <li><a href="#s2">2. L1 データ層：実データの収集パイプライン</a></li>
+        <li><a href="#s3">3. L2 狭義スクリーニング：4 つの機械ふるい（OR 条件）</a></li>
+        <li><a href="#s4">4. L2 リサーチ候補選定（select）：通過銘柄から着手候補へ</a></li>
+        <li><a href="#s5">5. L3 リサーチ：investment memo の判断ロジック</a></li>
+        <li><a href="#s6">6. L3 トレード執行：注文・約定・集中度ゲート</a></li>
+        <li><a href="#s7">7. フォワード計測ループ：ledger と playbook feedback</a></li>
+        <li><a href="#s8">8. 実例：4432 ウイングアーク1st のたどった経路</a></li>
+        <li><a href="#s9">9. 検証基盤と主要 CLI / ディレクトリ早見表</a></li>
+        <li><a href="#glossary">付録: 用語集（Glossary）— 専門用語の早見表</a></li>
+      </ul>
+    </nav>
+
+    <div class="callout callout-note">
+      <p class="callout-title">読み方のヒント</p>
+      <p>専門用語（<code>forward telemetry</code>・<code>lane-cohorts</code> など）は巻末の <a href="#glossary">付録: 用語集</a> に「このリポジトリでの意味」を一覧化しています。読んでいて詰まったら参照してください。各 screen lane の正式英語名・漢字要約名は <a href="#s3">§3 の対応表</a>にあります。</p>
+    </div>
+
+    <!-- ===================================================================== -->
+    <section>
+      <h2 id="s1">1. これは何のシステムか（3 層モデルと 2 つのループ）</h2>
+
+      <p class="lead">Baibai-Loop は、日本株の実データ（価格・財務・開示・規制）を機械的に収集・正規化し、<strong>固定ルールでスクリーニング・スコアリングし、その効果を forward 計測で検証し続けるデータ解析基盤</strong>です。AI と人間はこの基盤の出力を使って銘柄リサーチと売買判断を行います。目的はただ一つ、「お買い得銘柄を拾い、トレード成績を最大化する」ことです。</p>
+
+      <p>設計の中心にあるのは、<strong>事実・分析・判断を物理的に分ける</strong>という規律です。これを 3 層モデルとして表します。</p>
+
+      <table>
+        <thead>
+          <tr><th>層</th><th>実体</th><th>性質</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>L1 データ層</strong></td>
+            <td><code>data/screening/market.sqlite</code>（J-Quants 価格・財務 / EDINET metrics / JPX 規制）</td>
+            <td>全上場銘柄の再現可能な事実。coverage は fail-fast で検証する</td>
+          </tr>
+          <tr>
+            <td><strong>L2 分析層</strong></td>
+            <td>screen lanes・selection lenses・軸別スコア・forward telemetry（replay / lane cohorts / ablation）。機械ふるいの<strong>事実出力 = <code>records/04-candidates/</code></strong>（candidates）</td>
+            <td>決定論的・閾値固定の機械処理。すべて forward 計測に接続する</td>
+          </tr>
+          <tr>
+            <td><strong>L3 判断層</strong></td>
+            <td><code>records/</code>（research / trades、macro context）＋ <code>reports/</code></td>
+            <td>人間 + AI 下書きの解釈と判断。売買 record が L2 計測の ground truth を供給する</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-note">
+        <p class="callout-title">AI が触れる安定契約は 2 面だけ</p>
+        <p>AI / スクリプトが依存してよいインタフェースは、<strong>CLI の YAML 出力</strong>と <strong>SQLite schema</strong> の 2 つに固定されています。判断と帰責は人間（L3）に残し、AI は L1 / L2 の事実に grounded な下書きを作る、という役割分担です。</p>
+      </div>
+
+      <h3>構成要素の呼称と種別（本書で統一して使う名前）</h3>
+      <p>図や本文に出てくる構成要素は、下表の <strong>日本語の概念名</strong>で呼びます（括弧内は実装上の slug ＝ ディレクトリ名・CLI 名）。読み解く鍵は <strong>「機械処理（engine ＝ 動詞）」と「成果物（artifact ＝ 名詞）」を区別する</strong>ことです。たとえば「機械スクリーニング」は処理、その出力である「通過銘柄リスト」は成果物で、別物です。</p>
+      <table>
+        <thead><tr><th>概念名（日本語）</th><th>slug（実装名）</th><th>種別</th><th>層</th><th>役割</th></tr></thead>
+        <tbody>
+          <tr><td>市場データ基盤</td><td><code>market.sqlite</code></td><td>データ store</td><td>L1</td><td>全上場銘柄の実データを集約した正本</td></tr>
+          <tr><td>機械スクリーニング</td><td><code>screening</code></td><td>機械処理</td><td>L2</td><td>4 lane の OR 条件で通過銘柄を機械抽出する</td></tr>
+          <tr><td>通過銘柄リスト</td><td><code>candidates</code></td><td>成果物（事実）</td><td>L2 出力</td><td>スクリーニング通過銘柄の事実 snapshot</td></tr>
+          <tr><td>リサーチ候補選定</td><td><code>select</code></td><td>機械処理</td><td>L2</td><td>通過銘柄から着手候補を lens で絞り順位付けする</td></tr>
+          <tr><td>フォワード計測</td><td><code>forward backtest</code></td><td>機械処理</td><td>L2</td><td>過去週 replay で lane / lens / regime の効果を計測する</td></tr>
+          <tr><td>マクロ環境分析</td><td><code>macro context</code></td><td>分析（判断）</td><td>L3</td><td>スクリーニング前の市場環境の読み</td></tr>
+          <tr><td>個別銘柄リサーチ</td><td><code>research</code></td><td>分析（判断）</td><td>L3</td><td>thesis・採否・sizing を判断する投資メモ</td></tr>
+          <tr><td>売買提案</td><td><code>trade proposal</code></td><td>判断の入口（GitHub Issue）</td><td>L3</td><td>最終選考銘柄の詳細＋銘柄/価格/株数を人間に提案する</td></tr>
+          <tr><td>売買執行記録</td><td><code>trades</code></td><td>執行</td><td>L3</td><td>注文・約定・保有・決済の記録</td></tr>
+          <tr><td>計測レポート</td><td><code>reports</code></td><td>解釈（判断）</td><td>L3</td><td>計測結果を解釈し、次の改訂方針を残す</td></tr>
+          <tr><td>運用方針</td><td><code>portfolio policy</code></td><td>governance</td><td>—</td><td>目的・制約・資本・許容リスク・time horizon</td></tr>
+          <tr><td>戦略プレイブック</td><td><code>playbooks</code></td><td>governance</td><td>—</td><td>再現可能な thesis（投資仮説）の型</td></tr>
+        </tbody>
+      </table>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart TB
+    subgraph L1["L1 データ層 — 再現可能な事実"]
+      sqlite[("市場データ基盤<br/>market.sqlite")]
+    end
+    subgraph L2["L2 分析層 — 決定論・閾値固定の機械処理と事実出力"]
+      screen(["機械スクリーニング<br/>screening"])
+      cand["通過銘柄リスト<br/>candidates"]
+      select(["リサーチ候補選定<br/>select"])
+      telemetry(["フォワード計測<br/>forward backtest"])
+    end
+    subgraph L3["L3 判断層 — 人間 + AI の解釈・判断"]
+      macro["マクロ環境分析<br/>macro context"]
+      research["個別銘柄リサーチ<br/>research"]
+      proposal["売買提案<br/>GitHub Issue"]
+      trades["売買執行記録<br/>trades"]
+      reports["計測レポート<br/>reports"]
+    end
+    sqlite --> screen --> cand --> select --> research
+    macro -.確認観点.-> research
+    research --> proposal --> trades --> telemetry --> reports
+    cand -.全候補計測.-> telemetry
+    reports -.改訂根拠.-> screen
+</pre>
+        <figcaption>図1: 3 層モデルと構成要素。形で種別を表す——円筒＝データ store、角丸＝機械処理（engine）、四角＝成果物・記録（artifact）。L1 の実データを L2 の機械処理（機械スクリーニング → 通過銘柄リスト → リサーチ候補選定／フォワード計測）が決定論的に扱い、L3 で人間 + AI が解釈・判断する。通過銘柄リストは records/ に置かれるが正体は L2 の事実出力。点線はゲートでなく入力／フィードバック。</figcaption>
+      </figure>
+
+      <div class="callout callout-important">
+        <p class="callout-title">L2 と L3 の見分け方：決定論的な機械出力（fact）か、人間 + AI の解釈（judgment）か</p>
+        <p>層の所属は <strong>物理的な置き場所</strong>ではなく <strong>成果物の性質</strong>で決まります。判定基準はただ一つ、「<strong>人間の判断が入るか</strong>」です。同じ fact／judgment の分離が、銘柄の<strong>生成側</strong>と効果の<strong>計測側</strong>の両方に対称に効きます。</p>
+        <table>
+          <thead><tr><th>局面</th><th>L2（決定論的 fact ＝人間判断なし）</th><th>L3（人間 + AI の judgment）</th></tr></thead>
+          <tbody>
+            <tr><td>銘柄の生成</td><td><strong>candidates</strong>（<code>records/04-candidates/</code>）— 閾値固定の機械ふるい出力</td><td><strong>research</strong> — 採否・thesis の解釈</td></tr>
+            <tr><td>効果の計測</td><td><strong>forward telemetry</strong>（<code>screening-replay</code>／<code>lane-cohorts</code>／<code>selection-ablation</code>）— 固定 horizon・固定 benchmark の機械計測</td><td><strong>reports/</strong> ＋ retro — 数値を読んで「次に何を直すか」を決める解釈</td></tr>
+          </tbody>
+        </table>
+        <p>candidates も telemetry も物理的には記録ディレクトリに置かれますが、中身は人間判断ゼロの決定論的出力なので <strong>L2</strong> です（telemetry の数値は計測の一次資料として扱う）。L3 判断層に属するのは macro context・research・trades・reports のような解釈・判断です。なお後述の decision loop 表の「レイヤー」列（fact / analysis / execution …）は、この L1/L2/L3 とは別軸で各成果物の役割を示すものです。</p>
+      </div>
+
+      <h3>2 つのループ（運用ループ ＋ 改善ループ）</h3>
+      <p>Baibai-Loop は<strong>単一ループではありません</strong>。「検証済みの screening system を<strong>適用</strong>して売買判断に落とす<strong>運用ループ</strong>」と、「その system を<strong>検証・改善</strong>する<strong>改善ループ</strong>」を意図的に分けます。両者は接合点「検証済み system（rules / playbooks / config）」ただ 1 点で繋がり、カデンス・データ源・成果物がすべて別です。</p>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart TB
+  subgraph OP["運用ループ — 検証済み system を適用（機会/週次）"]
+    direction LR
+    policy["運用方針<br/>portfolio policy"] --> macro["マクロ環境分析<br/>macro context"] --> screen["機械スクリーニング<br/>screening"] --> cand["通過銘柄リスト<br/>candidates"] --> select["リサーチ候補選定<br/>select"] --> research["個別銘柄リサーチ<br/>research"] --> proposal["売買提案<br/>GitHub Issue"] --> human{"人間判断"} --> trades["売買執行記録<br/>trades"]
+  end
+  subgraph IMP["改善ループ — system を検証・改善（日次/週次）"]
+    direction LR
+    backtest["全候補 backtest<br/>主軸・大N"] --> backlog["改善バックログ<br/>GitHub Issue"]
+    review["設計レビュー<br/>仮説源"] --> backlog
+    backlog --> revise["rules / playbooks<br/>改訂 PR"]
+  end
+  revise -.検証済み system を更新.-> screen
+  trades -.Q2 執行品質の小N信号.-> backlog
+</pre>
+        <figcaption>図2: 2 つのループ。運用ループは検証済み system を適用して売買判断（売買提案 → 人間判断 → 執行）に落とす。改善ループは全候補 backtest（主軸）＋設計レビュー＋trades の Q2 信号で system を改善する。trades は screening 検証でなく Q2 信号として還流。</figcaption>
+      </figure>
+
+      <table>
+        <thead>
+          <tr><th>ステージ（概念名 ／ slug）</th><th>repository 上の場所</th><th>レイヤー</th><th>担う問い</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>運用方針（portfolio policy）</td><td><code>docs/portfolio-policy.md</code></td><td>governance</td><td>何を許し、何を禁じ、どの資本・時間軸で判断するか</td></tr>
+          <tr><td>マクロ環境分析（macro context）</td><td><code>records/01-macro-context/</code></td><td>analysis</td><td>今の市場環境をどう読み、screening 前に何を確認するか</td></tr>
+          <tr><td>通過銘柄リスト（candidates）</td><td><code>records/04-candidates/</code></td><td>fact（L2 出力）</td><td>どの銘柄が機械ふるいに残ったか</td></tr>
+          <tr><td>個別銘柄リサーチ（research）</td><td><code>records/05-research/</code></td><td>analysis</td><td>thesis / risk-reward / invalidation を満たすか</td></tr>
+          <tr><td>売買提案（trade proposal）</td><td>GitHub Issue（records 外）</td><td>判断の入口</td><td>最終選考銘柄を「いくらで何株」で人間に提案し、承認を得る</td></tr>
+          <tr><td>売買執行記録（trades）</td><td><code>records/06-trades/</code></td><td>execution</td><td>採用判断がどう約定・保有・決済されたか（改善には Q2 執行信号として還流）</td></tr>
+          <tr><td>計測レポート（reports / backtest）<br><span style="color:var(--fg-muted)">※改善ループ</span></td><td><code>reports/</code> ＋ ledger CLI</td><td>計測（backtest）</td><td>全候補 backtest で何が forward return を生んだか・次に何を直すか</td></tr>
+          <tr><td>戦略プレイブック（playbooks）<br><span style="color:var(--fg-muted)">※改善ループ</span></td><td><code>records/_playbooks/</code></td><td>governance</td><td>どの thesis pattern を強める／弱める／改訂するか</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-warning">
+        <p class="callout-title">あえて「やらない」こと（ただし screening の backtest は積極的にやる）</p>
+        <p>機械学習による予測スコアリング、自動発注、リアルタイム処理は<strong>対象外</strong>です。「単一の合成スコアや売買指示は出力しない」も中核原則で、スコアは軸別の座標であって判定ではありません。対象は基本 5〜40 営業日（2 か月以内）の long-only スイングで、短期 thesis が外れた場合に長期保有へ切り替えられる銘柄を優先します。</p>
+        <p><strong>バックテストの線引き（よくある誤解）</strong>: これは「バックテストしない」基盤では<strong>ありません</strong>。<strong>screening（lane / lens / regime / 閾値）の効果は、過去週を look-ahead を排して replay する multi-axis backtest（<a href="#s7">§7</a>、<code>backtest-runbook</code> の 7 axis）で積極的に検証</strong>し、その計測結果で lane や閾値を改訂します。避けるのは ① 未来データへの閾値 grid search・パラメータ最適化（data snooping 回避）② 累積リターン / Sharpe / MaxDD の track-record claim ③ trade 単位の累積リターン backtest ── の 3 つだけです。</p>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <section>
+      <h2 id="s2">2. L1 データ層：実データの収集パイプライン</h2>
+
+      <p>すべての出発点は、全上場銘柄の事実を 1 つの local store <code>data/screening/market.sqlite</code> に集約することです（git には載せない再生成可能 store）。データソースは 3 つで、それぞれ専用のキャッシュ補完コマンドを持ちます。</p>
+
+      <table>
+        <thead>
+          <tr><th>ソース</th><th>取得物</th><th>取り込みコマンド</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>J-Quants</strong>（<code>ClientV2</code>）</td>
+            <td>上場一覧・普通株/市場区分/33 業種、日次 OHLCV、財務サマリー・会社予想 EPS、決算予定、営業日カレンダ</td>
+            <td><code>bootstrap-cache --asof</code></td>
+          </tr>
+          <tr>
+            <td><strong>EDINET</strong>（v2 / CSV）</td>
+            <td>有報・四半期・半期報告書の CSV から EV/EBITDA・net cash・FCF・capex 等の前処理済み metrics</td>
+            <td><code>extract-edinet-metrics --asof --lookback-days</code></td>
+          </tr>
+          <tr>
+            <td><strong>JPX</strong>（公開 CSV/Excel/HTML）</td>
+            <td>特別注意銘柄・整理銘柄・取引停止・上場廃止警告の規制 flag</td>
+            <td><code>bootstrap-cache</code>（JPX snapshot を含む）</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>J-Quants から使うメソッドは次の 5 点に固定され、EDINET の対象 docTypeCode は 120/130（有報・訂正）・140/150（四半期）・160/170（半期）に限定されます。</p>
+
+      <table>
+        <thead><tr><th>J-Quants method</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>get_eq_master</code></td><td>上場一覧、普通株判定、市場区分、33 業種、信用銘柄区分</td></tr>
+          <tr><td><code>get_eq_bars_daily_range</code></td><td>日次 OHLCV、20 営業日平均売買代金、60 営業日騰落率、750 営業日自己レンジ</td></tr>
+          <tr><td><code>get_fin_summary_range</code></td><td>財務サマリー、会社予想 EPS、利益系概要値</td></tr>
+          <tr><td><code>get_eq_earnings_cal</code></td><td>決算発表予定</td></tr>
+          <tr><td><code>get_mkt_calendar</code></td><td>営業日カレンダ</td></tr>
+        </tbody>
+      </table>
+
+      <h3>収集 → 検証 → 実行の標準手順</h3>
+      <p>screening の <code>run</code> は <strong>provider API に一切アクセスしません</strong>（<code>cache_only</code> で構築）。事前に SQLite を完全な状態にし、coverage 検証を通してから実行する、という fail-fast 設計です。</p>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart LR
+    jq["J-Quants API"] --> boot["bootstrap-cache --asof"]
+    jpx["JPX 規制情報"] --> boot
+    ed["EDINET API"] --> ext["extract-edinet-metrics"]
+    boot --> sqlite[(market.sqlite)]
+    ext --> sqlite
+    sqlite --> verify["verify-cache-coverage<br/>read-only 完全性検証"]
+    verify -->|不足あり| fail["exit 1<br/>再補完して再試行"]
+    verify -->|OK| run["run --asof<br/>cache_only 実行"]
+    run --> yaml["candidates YAML 生成"]
+    fail -.-> boot
+</pre>
+        <figcaption>図3: データ取得パイプライン。run は SQLite だけを読み、不足があれば YAML を生成せず fail-fast する。</figcaption>
+      </figure>
+
+      <pre><code># EDINET metrics を更新してから screening を回す標準手順
+uv run baibai-loop-screening bootstrap-cache       --asof 2026-06-12
+uv run baibai-loop-screening extract-edinet-metrics --asof 2026-06-12 --lookback-days 540
+uv run baibai-loop-screening verify-cache-coverage  --asof 2026-06-12
+uv run baibai-loop-screening run                    --asof 2026-06-12</code></pre>
+
+      <div class="callout callout-note">
+        <p class="callout-title">なぜ SQLite を「正本」にするのか</p>
+        <p>日次足テーブルは <strong>coverage の SSOT（single source of truth）</strong>で、欠損は「行の歯抜け」として直接観測します。range fetch 系（財務サマリー・カレンダ等）は「未取得」と「対象なし」を行の有無から区別できないため、<code>source_coverage</code> テーブルを別途ゲートに使います。JPX 規制は latest snapshot しか取れないので <code>fetched_at_utc</code> を記録し、asof と 7 営業日超ずれていれば fail-fast します。</p>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <section>
+      <h2 id="s3">3. L2 狭義スクリーニング：4 つの機械ふるい（OR 条件）</h2>
+
+      <p>ここが「スクリーニングプロセスの中核ロジック」です。<code>run</code> は SQLite を入力に、<strong>全上場普通株</strong>（プライム/スタンダード/グロース、直近 20 営業日以上の bar 履歴あり）を母集団として、4 つの playbook-linked lane を評価します。</p>
+
+      <div class="callout callout-important">
+        <p class="callout-title">重要な設計判断：規模・流動性は「除外条件」ではない</p>
+        <p>時価総額・売買代金・上場期間・JPX 規制 flag は、<strong>スクリーニング段階では除外せず candidates に事実として記録するだけ</strong>です。research 推奨への絞り込み（時価総額 100 億円以上、20 日平均売買代金 1 億円以上、上場 182 日以上、規制銘柄除外）は、後続の <code>select</code>（分析層 = <code>selection.liquidity</code>）で初めて適用されます。事実層と分析層を分けるための徹底です。</p>
+      </div>
+
+      <h3>入力指標</h3>
+      <p>各銘柄について、valuation・cash・cashflow・sales・価格変化の指標群を算出します。比較母集団は東証 33 業種の中央値（n&lt;10 は市場全体に fallback）と、過去 3 年の自己レンジです。</p>
+      <ul>
+        <li><strong>valuation</strong>: PER（forward 優先・会社予想ベース、未公表時のみ trailing）、PBR、EV/EBITDA（EDINET 前処理済みかつ EV・EBITDA が共に正のときだけ採用）、P/S、PCFR</li>
+        <li><strong>cashflow</strong>: OCF yield（CFO TTM / 時価総額）、FCF yield（EDINET 由来）</li>
+        <li><strong>balance sheet</strong>: cash-to-market-cap、net-cash-to-market-cap（EDINET 由来）、price-to-equity、equity_ratio</li>
+        <li><strong>price</strong>: price_change 1d / 5d / 20d / 60d、gap_from_52w_low、turnover_spike_5d（これらは select の fast-dislocation lens 用。機械ふるいの hard gate にはしない）</li>
+      </ul>
+
+      <h3>4 lane の OR 判定</h3>
+      <p>下の 4 lane の<strong>うち最低 1 つ</strong>を満たした銘柄が通過です。閾値の正本は <code>records/_config/screening-rules/2026-06-19T000000+0900.yaml</code>。複数 lane に hit した銘柄は research 優先度が上がり、<code>evidence_hits[]</code> に lane 名・playbook・hit 理由・判定に使った metrics が記録されます。</p>
+
+      <p>各 lane は実装上の slug（<code>valuation-reversion</code> など）で呼ばれ、それだけでは直感的に意味が掴めません。本書では各 lane を <strong>① 金融における正式英語名 ② 本質を掴むための漢字要約名</strong>の 2 つをセットで併記します。下表が対応表です。</p>
+
+      <table>
+        <thead>
+          <tr><th>slug（実装名）</th><th>① 正式英語名（金融一般名称）</th><th>② 漢字要約名</th><th>一言で言うと</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>valuation-reversion</code></td>
+            <td>Valuation Mean-Reversion</td>
+            <td>株価評価の平均回帰（割安修正）</td>
+            <td>業種比・自己レンジ比で割安化した株価倍率が、平均水準へ戻るのを狙う</td>
+          </tr>
+          <tr>
+            <td><code>cash-rich-asset-discount</code></td>
+            <td>Cash-Rich Asset Discount</td>
+            <td>現金潤沢・資産割安</td>
+            <td>潤沢な現金・純資産に対して時価総額が小さい銘柄を拾う（広義の net-cash／資産価値割安）</td>
+          </tr>
+          <tr>
+            <td><code>cashflow-yield-discount</code></td>
+            <td>Cash-Flow Yield Discount</td>
+            <td>現金創出力の割安（営業CF利回り割安）</td>
+            <td>営業キャッシュフロー利回り（CFO／時価総額）が高い、現金創出力に対する株価の割安</td>
+          </tr>
+          <tr>
+            <td><code>sales-discount-growth</code></td>
+            <td>Sales-Multiple (P/S) Discount with Growth</td>
+            <td>増収・売上割安（P/S 割安 × 売上成長）</td>
+            <td>P/S が業種比で割安、かつ売上成長が残る、利益は薄い調整銘柄</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart TB
+    universe["全上場普通株<br/>20 営業日以上の bar 履歴"] --> L1
+    universe --> L2
+    universe --> L3
+    universe --> L4
+    L1["株価評価の平均回帰<br/>valuation-reversion<br/>相対割安 + 急落 + rotation"]
+    L2["現金潤沢・資産割安<br/>cash-rich-asset-discount<br/>net-cash / 純資産割安"]
+    L3["現金創出力の割安<br/>cashflow-yield-discount<br/>営業CF利回り"]
+    L4["増収・売上割安<br/>sales-discount-growth<br/>P/S 割安 + 売上成長"]
+    L1 --> OR{"OR: 最低 1 lane を満たす"}
+    L2 --> OR
+    L3 --> OR
+    L4 --> OR
+    OR -->|通過| cand["candidates YAML<br/>evidence_hits 記録"]
+    OR -->|非通過| drop["対象外"]
+</pre>
+        <figcaption>図4: 機械ふるい。4 lane の OR 条件。各 lane は固有の sector 除外と deterioration gate を持つ。</figcaption>
+      </figure>
+
+      <h4>3.1 <code>valuation-reversion</code> ／ Valuation Mean-Reversion ／ 株価評価の平均回帰（割安修正）</h4>
+      <p>「業種中央値比の下方乖離 + 過去自己レンジ下位」「60 営業日の急落 + valuation 下方乖離」「セクターローテーション起因の短期売り」を 1 lane に束ねます。PER は <code>per_forward</code>（会社予想）を primary、未取得時は <code>per_trailing</code> に degrade。EV/EBITDA は exact かつ正のときのみ使用。</p>
+      <table>
+        <thead><tr><th>主な閾値</th><th class="num">値</th></tr></thead>
+        <tbody>
+          <tr><td>sector_median_gap_max（業種中央値比の上限）</td><td class="num">−0.2</td></tr>
+          <tr><td>self_range_percentile_max（自己レンジ下位）</td><td class="num">0.2</td></tr>
+          <tr><td>price_change_60d_max（60 日騰落率）</td><td class="num">−0.15</td></tr>
+          <tr><td>sigma_gap_max</td><td class="num">−1.0</td></tr>
+          <tr><td>除外 sector</td><td class="num">銀行・証券・保険・その他金融</td></tr>
+        </tbody>
+      </table>
+      <p>金融業は規制資本・金利・与信サイクルの構造要因で mean-reversion 前提が成立しないため除外。一方、相対 valuation 比較には支障がないので電気・ガス業はこの lane だけ除外しません。</p>
+
+      <h4>3.2 <code>cash-rich-asset-discount</code> ／ Cash-Rich Asset Discount ／ 現金潤沢・資産割安</h4>
+      <p>BS の厚みで拾う lane。<code>docs/operations/backtest-runbook.md</code> §6 の 2026-05 lane-cohorts で <strong>4 週 mean rel −2.14pt（baseline 比 +5.32pt）と全 lane 中最強</strong>のため、config の lane 優先順位でも先頭に置かれています。</p>
+      <table>
+        <thead><tr><th>条件</th><th class="num">閾値</th></tr></thead>
+        <tbody>
+          <tr><td>cash_to_market_cap ≥</td><td class="num">0.4</td></tr>
+          <tr><td>price_to_equity ≤</td><td class="num">1.0</td></tr>
+          <tr><td>equity_ratio ≥</td><td class="num">0.3</td></tr>
+          <tr><td>営業赤字でない</td><td class="num">必須</td></tr>
+          <tr><td>operating_profit_yoy（deterioration gate）&gt;</td><td class="num">−0.3</td></tr>
+          <tr><td>EDINET net_cash_to_market_cap（取得時）≥</td><td class="num">0.0</td></tr>
+        </tbody>
+      </table>
+      <p>deterioration gate は「BS は rich でも営業エンジンが急減速した銘柄」を排除する後付けゲート。EDINET の net cash 条件は「J-Quants の CashEq が高くても有利子負債を引くと net debt」な銘柄を弾きます。除外 sector は金融に加え、CashEq が機械判定上膨張する卸売業（商社・問屋の運転資金）、land inventory が指標を歪める不動産業、規制設備産業の電気・ガス業。</p>
+
+      <h4>3.3 <code>cashflow-yield-discount</code> ／ Cash-Flow Yield Discount ／ 現金創出力の割安（営業CF利回り割安）</h4>
+      <p>PER では拾いにくい現金創出力を、期間正規化した CFO TTM から OCF yield として評価します。TTM が作れない銘柄はこの lane から除外。</p>
+      <table>
+        <thead><tr><th>条件</th><th class="num">閾値</th></tr></thead>
+        <tbody>
+          <tr><td>ocf_yield ≥</td><td class="num">0.1</td></tr>
+          <tr><td>cfo_yoy ≥（必須）</td><td class="num">−0.2</td></tr>
+          <tr><td>operating_profit_yoy（deterioration gate）&gt;</td><td class="num">−0.3</td></tr>
+          <tr><td>fcf_yield &gt; 0（EDINET 取得時のみ enforce）</td><td class="num">必須</td></tr>
+        </tbody>
+      </table>
+      <p>OCF が高くても営業利益 YoY が急減した銘柄、capex 先行で FCF マイナスの重設備会社（短期 mean-reversion で機械判定しにくい）を排除します。EDINET 不在で FCF が None の銘柄は data 不在として通過させます。除外 sector は金融＋電気・ガス。</p>
+
+      <h4>3.4 <code>sales-discount-growth</code> ／ Sales-Multiple (P/S) Discount with Growth ／ 増収・売上割安</h4>
+      <p>利益は薄いが売上成長が残る調整銘柄を拾います。</p>
+      <table>
+        <thead><tr><th>条件</th><th class="num">閾値</th></tr></thead>
+        <tbody>
+          <tr><td>ps_sector_gap_max（P/S 業種中央値比）</td><td class="num">−0.4</td></tr>
+          <tr><td>sales_yoy ≥</td><td class="num">0.05</td></tr>
+          <tr><td>operating_margin_min（chronic loser floor）</td><td class="num">−0.05</td></tr>
+          <tr><td>営業赤字許容条件</td><td class="num">CFO 正 または 赤字縮小</td></tr>
+        </tbody>
+      </table>
+      <p>「赤字縮小（−100B → −50B でも pass）」という escape hatch を operating margin の floor で defang し、慢性赤字会社を排除します。除外 sector は金融。</p>
+
+      <h3>出力：candidates YAML</h3>
+      <p>1 実行 = 1 ファイル（週次運用）。git には積まない local store として履歴をローカル保持します。candidates は<strong>事実層</strong>なので、「なぜ割安か」「採用すべきか」の解釈は一切書きません。exit code は <code>0</code>=全件成功、<code>1</code>=fail-fast（YAML 未生成）、<code>2</code>=partial warning（生成済みだが欠損明記）。</p>
+      <pre><code>candidates:
+  - ticker: "7203"
+    per_forward: 8.2
+    pbr: 0.72
+    metrics:
+      ocf_yield: 0.13
+      cash_to_market_cap: 0.42
+      net_cash_to_market_cap: 0.21
+    evidence_hits:
+      - name: cashflow-yield-discount
+        playbook_id: cashflow-yield-discount
+        reasons: [ocf_yield_discount]</code></pre>
+    </section>
+
+    <!-- ===================================================================== -->
+    <section>
+      <h2 id="s4">4. L2 リサーチ候補選定（select）：通過銘柄リストから着手候補へ</h2>
+
+      <p><strong>リサーチ候補選定</strong>（<code>select</code>）は、最新の通過銘柄リスト（candidates）とマクロ環境分析（macro context）を組み合わせ、個別銘柄リサーチに着手すべき候補を絞り込む <strong>機械処理（triage 層）</strong>です。通過銘柄リストが「事実の成果物」なら、リサーチ候補選定は「推奨を作る機械処理」。最終採用判断は人間（L3）に残ります。</p>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart LR
+    cand["candidates YAML 全通過銘柄"] --> liq["selection.liquidity<br/>時価総額 / 売買代金 / 上場期間 / 規制で絞り込み"]
+    macro["macro context"] -.診断.-> rank
+    liq --> lens["lens 適用<br/>fast_dislocation / long_hold / prior_research"]
+    regime["market regime lens<br/>benchmark 1321 の trend"] -.boost 中立化.-> rank
+    lens --> rank["ranking + diversity 制約"]
+    rank --> rec["recommendations<br/>最大 5 件 + diagnostics"]
+</pre>
+        <figcaption>図5: select の triage。liquidity 絞り込み → lens → ranking → diversity 制約で recommendations を出力。</figcaption>
+      </figure>
+
+      <h3>3 つの selection lens</h3>
+      <table>
+        <thead><tr><th>lens</th><th>目的</th><th>採用根拠としての扱い</th></tr></thead>
+        <tbody>
+          <tr><td><code>fast_dislocation</code><br>Fast Dislocation<br>短期急落・売られすぎ</td><td>一時的に売られすぎた候補を上位化</td><td>価格下落 trigger ＋ fundamental guard を原則 2 件以上・2 系統以上要求。出来高 spike / 52 週安値距離は補助情報で単独では eligible にしない</td></tr>
+          <tr><td><code>long_hold_survivability</code><br>Long-Hold Survivability<br>長期保有耐性</td><td>短期 thesis が外れた時の保有耐性を可視化</td><td><code>high | medium | low | unknown</code> の annotation。hard gate ではなく ranking にも使わない</td></tr>
+          <tr><td><code>prior_research</code><br>Prior Research<br>既往調査による抑制</td><td>deferred / rejected の再登場を抑制</td><td>ledger の <code>revisit_after</code> / <code>expires_at</code> を尊重</td></tr>
+        </tbody>
+      </table>
+
+      <h3>market regime lens（指数トレンドの中立化）</h3>
+      <p>SQLite の日次足だけから benchmark proxy <code>1321</code>（日経225 ETF）の 20/60 営業日リターンを計算し、相場局面を分類します。固定閾値で grid search はしません。</p>
+      <ul>
+        <li><strong>risk_on_rally</strong>（Risk-On Rally ／ 上昇相場・リスクオン局面、20 日リターン ≥ +3%）：このときだけ fast_dislocation の ranking boost を<strong>中立化</strong>します。anti-momentum な急落銘柄は指数モメンタムが強い局面で構造的に劣後するためです。</li>
+        <li><strong>risk_off_selloff</strong>（Risk-Off Sell-Off ／ 下落相場・リスクオフ局面、≤ −3%）／ <strong>neutral_range</strong>（Neutral Range ／ 中立レンジ・横ばい局面）／ <strong>unknown</strong>（算出不能）：従来挙動と完全一致。</li>
+      </ul>
+      <p>これは<strong>ゲートではなく lens</strong>で、候補の除外はしません。<code>benchmark_relative_20d</code> が −0.03 以下の候補には risk tag <code>benchmark_laggard_20d</code> が付きます（「3pt 以上劣後は starter size 限定」という retro ルールの annotation 化）。</p>
+
+      <h3>diversity 制約と lane 優先順位</h3>
+      <p>1 つの sector / lane / 前回候補に偏らないよう上限を置きます。複数 lane に hit した銘柄の primary thesis は、config の lane 順（<code>cash-rich-asset-discount</code>〔現金潤沢・資産割安〕 &gt; <code>valuation-reversion</code>〔株価評価の平均回帰〕 &gt; <code>cashflow-yield-discount</code>〔現金創出力の割安〕 &gt; <code>sales-discount-growth</code>〔増収・売上割安〕、forward 計測の価値創出順）で決まります。</p>
+      <table>
+        <thead><tr><th>diversity パラメータ</th><th class="num">値</th></tr></thead>
+        <tbody>
+          <tr><td>max_recommended_per_sector</td><td class="num">2</td></tr>
+          <tr><td>max_recommended_per_lane</td><td class="num">2</td></tr>
+          <tr><td>max_previous_candidates_in_recommended</td><td class="num">2</td></tr>
+          <tr><td>research_selection_target_max（推奨件数）</td><td class="num">5</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ===================================================================== -->
+    <section>
+      <h2 id="s5">5. L3 リサーチ：investment memo の判断ロジック</h2>
+
+      <p>research（<code>records/05-research/**/*.md</code>）は、candidates の事実と macro context を統合する<strong>分析層</strong>です。<code>candidate_ref</code> と <code>macro_context_ref</code> を必須入力とし、front matter に構造化した判断、本文に根拠を記述します。AI が下書きできるのは thesis / valuation snapshot / 仮説ドラフト等まで、最終採用判定・一次ソース URL 確認・失敗分類確定は人間のみです。</p>
+
+      <h3>4 軸評価（単一総合点に畳まない）</h3>
+      <p>候補数が少ない段階で統計的 weight 調整の根拠が無く、単一スコアは「なぜ選んだか」の学習信号を壊すため、<strong>合計点は算出しません</strong>。各軸に strong / weak / neutral の寄与度だけを付けます。</p>
+      <table>
+        <thead><tr><th>軸</th><th>評価対象</th></tr></thead>
+        <tbody>
+          <tr><td>Valuation</td><td>PER / PBR / EV-EBITDA / P-S / PCFR / OCF yield / cash-to-market-cap</td></tr>
+          <tr><td>Mean-Reversion</td><td>急落有無 / 自己過去レンジ下位度 / セクターローテーション起因度</td></tr>
+          <tr><td>Catalyst</td><td>有無 / freshness / 種別（経過営業日 + 一次ソース URL）</td></tr>
+          <tr><td>Positioning / liquidity</td><td>空売り残高 / 信用 / 特別注意 / 貸借 / 出来高（絶対値 + 60 日推移）</td></tr>
+        </tbody>
+      </table>
+
+      <h3>原因仮説 + 反対仮説（構造リスク）を必須化</h3>
+      <p>「なぜ一時的に割安か」の原因仮説に加え、<strong>全 packet で反対仮説（構造的な下落理由）を必ず書きます</strong>。構造的成長鈍化・ガバナンス懸念・技術的陳腐化・accounting 警戒・業界需要縮小・ESG/規制・大株主売り圧力・営業 CF 一過性・有利子負債/偶発債務など 10 類型から選びます。割安が「罠」でないことを能動的に反証する仕組みです。</p>
+
+      <h3>Kill switch（entry 不可条件）</h3>
+      <div class="callout callout-warning">
+        <p class="callout-title">以下では entry しない</p>
+        <ul>
+          <li>決算発表日またぎエントリー禁止</li>
+          <li>日銀金融政策決定会合の前日エントリー禁止</li>
+          <li>FOMC 前日エントリー禁止</li>
+          <li>macro context が stale / future のまま理由なく <code>proceed</code> すること（stale 採用時は <code>starter</code> / <code>defer</code> / <code>exception</code> とし理由を明記。future macro は approved 不可）</li>
+        </ul>
+      </div>
+
+      <h3>entry preflight と market regime ゲート</h3>
+      <p>2026-06-17 以降の <code>approved</code> research は <code>entry_preflight.market_regime</code> が必須で、値は <code>screening/regime.py</code> の判定（benchmark 20 営業日リターンの ±3%）と一致させます。validator がここで規律を強制します。</p>
+      <table>
+        <thead><tr><th>regime</th><th>action: proceed</th><th>action: starter</th></tr></thead>
+        <tbody>
+          <tr><td>risk_on_rally</td><td><strong>hard-block（error）</strong></td><td>near_term_catalyst も low_correlation も無ければ warning</td></tr>
+          <tr><td>unknown</td><td>hard-block（判定不能は proceed の根拠にならない）</td><td>—</td></tr>
+          <tr><td>neutral_range / risk_off_selloff</td><td>許可</td><td>許可</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Position sizing — paper proxy と real の二層</h3>
+      <p>position は <strong>paper proxy layer（1 億円仮想資本）</strong>と <strong>real layer（実資金）</strong>の 2 観点で別 field に記録し、validator も別ルールで検証します。paper proxy は検証用の統一尺度、real layer は実際の破滅的集中の管理です。</p>
+      <table>
+        <thead><tr><th>layer</th><th>区分</th><th>soft 推奨</th><th>hard 上限</th></tr></thead>
+        <tbody>
+          <tr><td rowspan="2">paper proxy</td><td>single primary evidence</td><td>最大 1%</td><td rowspan="2"><code>adv_participation ≥ 5%</code> は hard reject</td></tr>
+          <tr><td>複数 independent evidence</td><td>最大 2%</td></tr>
+          <tr><td rowspan="3">real</td><td>単一銘柄集中度</td><td>&lt; 25%</td><td>50%</td></tr>
+          <tr><td>単一 sector_33 集中度</td><td>&lt; 40%</td><td>60%</td></tr>
+          <tr><td>cash 比率</td><td>&gt; 30%</td><td>最低 10%</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-note">
+        <p class="callout-title">long-hold fallback と AI long-term impact</p>
+        <p>thesis には必ず 2 つの観点を 1 行以上書きます。<strong>long-hold fallback</strong>（短期 thesis が外れて長期保有になっても耐えられる BS / CF / 配当・自己株買いの耐久性）と、<strong>AI long-term impact</strong>（AI による長期機会・脅威・今回判断での重み。AI 期待だけで採用や sizing を正当化しない）。</p>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <section>
+      <h2 id="s6">6. L3 トレード執行：注文・約定・集中度ゲート</h2>
+
+      <p>research の採用結論は、まず <strong>売買提案（GitHub Issue）</strong>として「どの銘柄を・いくらで・何株」の具体提案にまとめられ、人間が承認します（提案・承認の場は Issue、その決定の機械正規化は <code>records/_ledger/</code>）。trade（<code>records/06-trades/**/*.md</code>）はその承認済み判断に対する<strong>執行記録</strong>です。自動発注はせず、人間の発注を記録します。発注しなかった採用・見送り・保留は trade と呼びません。約定結果は改善ループへ Q2（執行品質）の信号として還流します。</p>
+
+      <h3>注文と約定を分離して状態管理</h3>
+      <p><code>orders[]</code>（注文意図と broker 状態）と <code>executions[]</code>（実約定の数量・単価・時刻）を分け、<code>order_intent.order_intent_id</code> ↔ <code>orders[].origin_order_intent_id</code> で join します。執行状態は <code>trade_execution_state</code> で表します。</p>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+stateDiagram-v2
+    [*] --> none: order_intent 作成
+    none --> submitted: 発注
+    submitted --> filled: 全量約定
+    submitted --> partially_filled: 一部約定
+    partially_filled --> filled
+    submitted --> not_filled: 未約定
+    submitted --> cancelled: 取消
+    submitted --> expired: 失効
+    submitted --> broker_rejected: broker reject
+    filled --> [*]
+</pre>
+        <figcaption>図6: trade_execution_state の遷移。注文意図・broker 状態・約定を別 field で正直に区別する。</figcaption>
+      </figure>
+
+      <h3>集中度は 2 段ゲートで効く</h3>
+      <table>
+        <thead><tr><th>ゲート</th><th>分母</th><th>内容</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>(a) research preflight</td>
+            <td><code>tactical_real_budget_yen</code></td>
+            <td><code>tactical_exposure_after_order</code> の sector_33 &gt; 50% / playbook &gt; 50% は proceed の hard trigger（→ starter / exception へ）</td>
+          </tr>
+          <tr>
+            <td>(b) trade validator</td>
+            <td>実 capital 全体</td>
+            <td>sector 45% / playbook 35% / ticker 8% 超を <strong>error として gate</strong>（<code>policy_config.py</code>）</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>発注前に <code>order_intent.order_intent_id</code> を確認し、<code>guarded_max_notional_yen = quantity × order_price_guard_yen</code> が成り立つこと、kill switch（earnings_straddle / boj_eve / fomc_eve / no_margin）を正直に記録することを検証します。書き込み後は次を通します。</p>
+      <pre><code>uv run baibai-loop-ledger sync --root .
+uv run baibai-loop-validate --target ledger
+uv run baibai-loop-validate</code></pre>
+    </section>
+
+    <!-- ===================================================================== -->
+    <section>
+      <h2 id="s7">7. フォワード計測ループ：ledger・multi-axis backtest・playbook feedback</h2>
+
+      <p>loop を閉じるのが forward 計測です。<code>records/_ledger/research-decisions/YYYY-MM.jsonl</code> は append-only の decision register で、research decision（approved/deferred/rejected）と execution state を 1 行 1 event で正規化します。訂正は既存行を書き換えず <code>event_kind: correction</code> の追加 event で表します。<code>decision_event_id</code> が register 内の join key であり、trade record の <code>order_intent_id</code> と接続します。</p>
+
+      <div class="callout callout-important">
+        <p class="callout-title">バックテストの線引き：screening は backtest する／trade 累積は backtest しない</p>
+        <p>「バックテストをしない基盤」という言い回しは正確ではありません。<strong>screening 部分は、過去週を look-ahead を排して replay する multi-axis backtest で積極的に検証します</strong>（手順の正本は <code>docs/operations/backtest-runbook.md</code> の 7 axis）。一方、戦略の累積リターンを過去に fit する種類の backtest はしません。両者を分けるのが forward-only 規律の本体です。</p>
+        <table>
+          <thead><tr><th>対象</th><th>backtest するか</th><th>方法 / 理由</th></tr></thead>
+          <tbody>
+            <tr><td>screening の lane / lens / regime / 閾値の効果</td><td><strong>する</strong></td><td>過去週を forward-only に replay（<code>screening-replay</code> / <code>lane-cohorts</code> / <code>selection-ablation</code> ほか 7 axis）。lane 削除・lane 順・regime lens の default ON 化はこの計測で決定した</td></tr>
+            <tr><td>閾値の grid search・パラメータ最適化</td><td><strong>しない</strong></td><td>未来データへの fit（data snooping）を避ける。regime 閾値 ±3% 等は事前固定し、観測後に最適化しない</td></tr>
+            <tr><td>戦略の累積リターン / Sharpe / MaxDD</td><td><strong>しない</strong></td><td>「過去 X 年で年率 Y%」の track-record claim を出さない（1 名運用でサンプル不足、overfit が必然）</td></tr>
+            <tr><td>短期トレード単位の累積 backtest</td><td><strong>しない</strong></td><td>trade は forward-only に decision register と fill/exit を対比。判断 gate の効果は judgment-gate counterfactual（backtest axis D）で別途計測</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>その上で、4 種類の forward telemetry CLI が「何が forward return を生んだか」を計測します。いずれも勝敗の件数集計ではなく、outcome を playbook / evidence family / macro / sizing / execution に帰属させる feedback です。</p>
+      <table>
+        <thead><tr><th>CLI</th><th>計測対象</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>ledger benchmark</code></td><td>実保有 positions の絶対・相対リターンと attribution</td><td>実トレードの事後検証</td></tr>
+          <tr><td><code>screening-replay</code></td><td>recommended queue（top N）の asof+1w/4w forward return（1321 比）</td><td>profile 採否を 6〜8 週の実データで判断、直近 1〜2 週は hold-out</td></tr>
+          <tr><td><code>lane-cohorts</code></td><td>週次 candidates の<strong>全銘柄</strong>を lane 別 cohort で集計</td><td>playbook 改訂の一次資料（どの割安タイプが効いたか）</td></tr>
+          <tr><td><code>selection-ablation</code></td><td>ranking 構成要素・lane を 1 つずつ無効化した variant の Δfull</td><td>機能の削減・維持判断の根拠</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-note">
+        <p class="callout-title">計測が設計判断を駆動する</p>
+        <p>config の lane 順や sector 分散の上限値は、コメントに計測根拠が紐づいています。例：lane 優先順位が <code>cash-rich-asset-discount</code>（現金潤沢・資産割安）先頭なのは 2026-05 lane-cohorts と 2026-06 selection-ablation の <code>drop_lane Δfull</code> が最大だから。diversity の <code>max_recommended_per_sector</code> を 1 → 2 に緩めたのは <code>no_diversity</code> variant が +1.9pt（4w）だったから。「計測経路を 1 行で説明できない機能は足さない」が貫かれています。</p>
+      </div>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart LR
+    research["research approved"] --> ledger["ledger sync<br/>decision register JSONL"]
+    trades["trades 約定"] --> ledger
+    ledger --> fwd["forward telemetry<br/>benchmark / replay / lane-cohorts / ablation"]
+    fwd --> reports["reports dated まとめ"]
+    reports --> playbooks["playbooks / screening rules 改訂"]
+    playbooks -.閾値・lane 順.-> screen["次回 screening"]
+</pre>
+        <figcaption>図7: フィードバックループ。約定と判断が ledger に集まり、forward 計測が次の screening rule / playbook 改訂の根拠になる。</figcaption>
+      </figure>
+    </section>
+
+    <!-- ===================================================================== -->
+    <section>
+      <h2 id="s8">8. 実例：4432 ウイングアーク1st のたどった経路</h2>
+
+      <p>抽象論を具体化するため、リポジトリに記録されている実トレード（2026-06-16 約定）を loop に沿って追います。</p>
+
+      <table>
+        <thead><tr><th>ステージ</th><th>このトレードでの内容</th></tr></thead>
+        <tbody>
+          <tr><td>candidates（2026-06-12）</td><td><code>valuation-reversion</code>（Valuation Mean-Reversion ／ 株価評価の平均回帰）に hit。PER trailing 12.56・PBR 1.74・P/S 2.67、price_change_60d −8.89%、52 週安値圏（gap 0.0）</td></tr>
+          <tr><td>macro context</td><td><code>2026-06-16-record-high-rotation</code>。情報・通信業は stance=mixed（DX 需要は追い風、BOJ 利上げの高 PER 逆風）。fit=mixed / decision_effect=proceed</td></tr>
+          <tr><td>research（investment memo）</td><td>半導体主導の最高値ラリーに非参加で取り残された内需 AI/DX ソフトの mean-reversion thesis。AI 耐性側（売上 63% が電帳法/インボイス/Peppol の規制ロックイン）。long-hold fallback 高（ネットキャッシュ・自己資本比率 64%・配当 4.58%）</td></tr>
+          <tr><td>entry preflight</td><td>market_regime = <strong>risk_on_rally</strong>（benchmark 20d +7.48%）。market relative −14.06pt が hard trigger のため <code>proceed</code> ではなく <code>action: starter</code>。連続イベント週（BOJ 当日 / FOMC 前日）も加味し 100 株に限定</td></tr>
+          <tr><td>trade（execution record）</td><td>100 株 @ 2,340 円で全量約定（filled）。実 notional 234,000 円、実資金比 4.68%。target 2,800 円（+19.66%）/ stop 2,120 円（−9.40%）、RR 2.09、time stop 40 営業日</td></tr>
+          <tr><td>集中度の正直な flag</td><td>約定前 deployed の 56.1% が情報・通信業で ledger が exposure review を警告。policy cap 内だが追加買いは当面回避し starter 維持。playbook は分散方向</td></tr>
+          <tr><td>review / forward 計測へ</td><td>近接 catalyst 7/14 Q1 決算、+15bd / +30bd / time stop の review target を設定</td></tr>
+        </tbody>
+      </table>
+
+      <p>このケースは、<strong>機械ふるい（valuation-reversion hit）→ regime lens（risk_on_rally）→ research の hard trigger 判定 → starter サイズへの自動的な格下げ</strong>という、固定ルールが人間の裁量を規律する流れがそのまま現れた好例です。「半導体ラリーに 14pt 劣後」という定量事実が、フルサイズではなく starter という sizing 判断に直結しています。</p>
+    </section>
+
+    <!-- ===================================================================== -->
+    <section>
+      <h2 id="s9">9. 検証基盤と主要 CLI / ディレクトリ早見表</h2>
+
+      <p>records / schema を変更したら、コミット前に必ず検証一式を通します。validator（<code>src/baibai_loop/validate/</code>）が candidates / research / trade / ledger / macro / policy の schema と業務ルールを強制します。</p>
+      <pre><code>uv run baibai-loop-validate        # records / schema 検証
+uv run ruff format --check .
+uv run ruff check .
+uv run mypy
+uv run pytest</code></pre>
+
+      <h3>主要 CLI</h3>
+      <table>
+        <thead><tr><th>コマンド</th><th>役割</th></tr></thead>
+        <tbody>
+          <tr><td><code>baibai-loop-screening run --asof</code></td><td>機械ふるい実行 → candidates YAML 生成</td></tr>
+          <tr><td><code>baibai-loop-screening select --asof</code></td><td>research 候補の triage（recommendations）</td></tr>
+          <tr><td><code>baibai-loop-screening ticker-profile --ticker</code></td><td>任意銘柄の事実 packet（regime / relative / events）</td></tr>
+          <tr><td><code>baibai-loop-screening market-snapshot</code></td><td>週次 regime 履歴と sector 集計</td></tr>
+          <tr><td><code>baibai-loop-ledger sync --root .</code></td><td>research / trade を decision register に正規化</td></tr>
+          <tr><td><code>baibai-loop-ledger benchmark / screening-replay / lane-cohorts / selection-ablation</code></td><td>forward 計測</td></tr>
+          <tr><td><code>baibai-loop-validate</code></td><td>records / schema 検証</td></tr>
+          <tr><td><code>baibai-loop-stats search</code></td><td>macro 統計 series の取得</td></tr>
+        </tbody>
+      </table>
+
+      <h3>records ディレクトリの責務</h3>
+      <table>
+        <thead><tr><th>ディレクトリ</th><th>レイヤー</th><th>内容</th></tr></thead>
+        <tbody>
+          <tr><td><code>records/01-macro-context/</code></td><td>analysis</td><td>screening 前の市場環境。外部記事 URL と統計 series を参照</td></tr>
+          <tr><td><code>records/04-candidates/</code></td><td>fact</td><td>機械ふるいの通過銘柄 snapshot（git 非管理 local store）</td></tr>
+          <tr><td><code>records/05-research/</code></td><td>analysis</td><td>investment memo（thesis / 4 軸 / 仮説 / sizing）</td></tr>
+          <tr><td><code>records/06-trades/</code></td><td>execution</td><td>注文・約定・保有・決済の執行記録</td></tr>
+          <tr><td><code>records/_ledger/</code></td><td>register</td><td>decision event の append-only 正本（JSONL）</td></tr>
+          <tr><td><code>records/_playbooks/</code></td><td>governance</td><td>4 つの再現可能な thesis pattern 本体</td></tr>
+          <tr><td><code>records/_config/screening-rules/</code></td><td>config</td><td>全閾値の正本 YAML（effective_from 付き）</td></tr>
+          <tr><td><code>records/_schemas/</code></td><td>schema</td><td>各 record の JSON schema</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-important">
+        <p class="callout-title">一言でまとめると</p>
+        <p>Baibai-Loop は <strong>2 つのループ</strong>です。<strong>運用ループ</strong>は、事実（L1/L2）を決定論的に作り、段階的に厳しくなる規律（liquidity 絞り込み → lens → kill switch → regime ゲート → 集中度ゲート）で機械が裁量を縛りながら銘柄を 1 本ずつ通し、最後に「いくらで何株」の売買提案（GitHub Issue）を人間判断に上げます。<strong>改善ループ</strong>は、screening が機能しているかを——母数が極小の個人売買結果ではなく——<strong>全候補の forward-only backtest（大 N）</strong>で検証し、改善項目を GitHub Issue で管理して rules / playbooks を改訂します。trades は screening 検証ではなく Q2（執行品質）の信号として還流します。「計測経路のない機能は足さない」が両ループを貫く設計思想です。</p>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <section>
+      <h2 id="glossary">付録: 用語集（Glossary）</h2>
+      <p>本書とリポジトリで使う専門用語を、<strong>このリポジトリでの意味</strong>に絞って一覧化します（一般的な辞書定義ではなく、Baibai-Loop での使われ方）。<strong>構成要素の正式な呼称（日本語概念名 ＋ slug ＋ 種別）は <a href="#s1">§1 の「構成要素の呼称と種別」表</a>が正本</strong>です。各 screen lane の正式英語名・漢字要約名は <a href="#s3">§3 の対応表</a>を参照してください。</p>
+
+      <h3>A. アーキテクチャ・層</h3>
+      <table>
+        <thead><tr><th>用語</th><th>このリポジトリでの意味</th></tr></thead>
+        <tbody>
+          <tr><td>L1 / L2 / L3</td><td>データ層（再現可能な事実）／ 分析層（決定論的・閾値固定の機械処理）／ 判断層（人間 + AI の解釈・判断）の 3 層。<a href="#s1">§1</a> 参照</td></tr>
+          <tr><td>fact / judgment（事実／判断）</td><td>機械が出した事実（人間判断ゼロ）か、人間 + AI の解釈か。L2 と L3 を分ける唯一の基準</td></tr>
+          <tr><td>decision loop</td><td>policy → macro → candidates → research → trades → reports → playbooks を一周する改善ループ</td></tr>
+          <tr><td>forward-only</td><td>look-ahead（未来情報）を排し、判断時点 asof の情報だけで効果を測る規律。screening は過去週を replay して backtest するが、未来データへの閾値最適化（grid search）や累積リターンの track-record claim はしない</td></tr>
+          <tr><td>ground truth</td><td>計測の「正解」データ。ここでは実際の売買 record が L2 計測の正解（ground truth）を供給する</td></tr>
+          <tr><td>fact snapshot</td><td>ある時点の事実を固定したファイル（candidates など）。後から上書きしない</td></tr>
+          <tr><td>swing trade（スイング）</td><td>数日〜数十営業日（基本 5〜40 営業日、2 か月以内）で回す売買スタイル</td></tr>
+          <tr><td>long-only</td><td>買い建てのみ（空売りしない）。本基盤は long-only の裁量支援</td></tr>
+        </tbody>
+      </table>
+
+      <h3>B. データ基盤・取得</h3>
+      <table>
+        <thead><tr><th>用語</th><th>このリポジトリでの意味</th></tr></thead>
+        <tbody>
+          <tr><td>J-Quants</td><td>日本株の価格・財務・決算予定・営業日カレンダを提供する API。screening の主データ源</td></tr>
+          <tr><td>EDINET</td><td>金融庁の電子開示システム。有報等の CSV から EV/EBITDA・net cash・FCF などの metrics を抽出</td></tr>
+          <tr><td>JPX</td><td>日本取引所グループ。特別注意・整理・取引停止・上場廃止警告の規制 flag の取得源</td></tr>
+          <tr><td><code>market.sqlite</code></td><td>全上場銘柄の事実を集約した local store（git 非管理・再生成可能）。<code>run</code> はここだけを読む</td></tr>
+          <tr><td>asof</td><td>「いつ時点の」を表す対象営業日。<code>--asof 2026-06-12</code> のように指定する</td></tr>
+          <tr><td>TTM（Trailing Twelve Months）</td><td>直近 12 か月の合計。四半期決算をまたいで期間を揃えるための正規化</td></tr>
+          <tr><td>coverage</td><td>SQLite が <code>run</code> に必要な入力を漏れなく持っているか。<code>verify-cache-coverage</code> で検証</td></tr>
+          <tr><td>fail-fast</td><td>入力不足や異常を検知したら即座に停止し、誤った出力を作らない方針</td></tr>
+          <tr><td>cache_only</td><td><code>run</code> は provider API に触れず SQLite だけで動く構成。事前補完を前提にする</td></tr>
+          <tr><td>bootstrap-cache / extract-edinet-metrics</td><td>provider から SQLite を埋める前処理コマンド（J-Quants/JPX ／ EDINET）</td></tr>
+        </tbody>
+      </table>
+
+      <h3>C. バリュエーション・財務指標</h3>
+      <table>
+        <thead><tr><th>用語</th><th>このリポジトリでの意味</th></tr></thead>
+        <tbody>
+          <tr><td>PER（forward / trailing）</td><td>株価収益率。forward＝会社予想 EPS ベース（優先）、trailing＝実績ベース（予想未公表時）</td></tr>
+          <tr><td>PBR</td><td>株価純資産倍率</td></tr>
+          <tr><td>EV/EBITDA</td><td>事業価値 ÷ 償却前営業利益。負債込みの割安度。EV・EBITDA が共に正のときだけ採用</td></tr>
+          <tr><td>P/S（price-to-sales）</td><td>株価売上高倍率。利益が薄い銘柄の割安度を売上基準で見る</td></tr>
+          <tr><td>PCFR</td><td>株価キャッシュフロー倍率。表示・補助指標</td></tr>
+          <tr><td>OCF yield / FCF yield</td><td>営業 CF 利回り（CFO ÷ 時価総額）／ フリー CF 利回り（FCF ÷ 時価総額）</td></tr>
+          <tr><td>CFO</td><td>営業キャッシュフロー（本業で生んだ現金）。会計利益と別に現金創出力を見る</td></tr>
+          <tr><td>cash-to-market-cap / net-cash-to-market-cap</td><td>現金 ÷ 時価総額 ／ ネットキャッシュ（現金 − 有利子負債）÷ 時価総額</td></tr>
+          <tr><td>price-to-equity / equity_ratio</td><td>株価 ÷ 1 株純資産 ／ 自己資本比率（純資産 ÷ 総資産）</td></tr>
+          <tr><td>業種中央値（33 業種）</td><td>東証 33 業種分類での中央値。相対割安を判定する比較母集団（n&lt;10 は市場全体に fallback）</td></tr>
+          <tr><td>自己レンジ（self range）</td><td>過去 3 年の自社株価レンジ。今がその下位かを見る</td></tr>
+          <tr><td>ADV / adv_participation</td><td>平均売買代金（average daily volume）／ 自分の注文が ADV に占める割合（流動性インパクト）</td></tr>
+          <tr><td>mean reversion（平均回帰）</td><td>行き過ぎた水準が平均へ戻る現象。割安戦略の前提</td></tr>
+          <tr><td>de-rating / マルチプル圧縮</td><td>業績悪化でなく評価倍率の低下で株価が安くなること</td></tr>
+        </tbody>
+      </table>
+
+      <h3>D. スクリーニング（機械ふるい）</h3>
+      <table>
+        <thead><tr><th>用語</th><th>このリポジトリでの意味</th></tr></thead>
+        <tbody>
+          <tr><td>playbook</td><td>再現可能な thesis（投資仮説）の型。screen lane と 1 対 1 で対応する</td></tr>
+          <tr><td>lane（screen lane）</td><td>機械ふるいの判定レーン（4 本）。playbook-linked screen とも言う。<a href="#s3">§3</a> 参照</td></tr>
+          <tr><td>OR 条件</td><td>4 lane のうち最低 1 本を満たせば通過とする論理</td></tr>
+          <tr><td><code>evidence_hits</code></td><td>どの lane に・なぜ hit したか（lane 名・reasons・使った metrics）の記録</td></tr>
+          <tr><td>deterioration gate</td><td>BS/CF は良くても営業利益 YoY が急減（−30% 超）した銘柄を弾く除外ゲート</td></tr>
+          <tr><td>universe</td><td>判定対象の母集団。screen では全上場普通株、絞り込みは分析層（<code>selection.liquidity</code>）が担う</td></tr>
+        </tbody>
+      </table>
+
+      <h3>E. セレクション（select / lens / regime）</h3>
+      <table>
+        <thead><tr><th>用語</th><th>このリポジトリでの意味</th></tr></thead>
+        <tbody>
+          <tr><td>リサーチ候補選定（select / triage）</td><td>通過銘柄リスト（candidates）から個別銘柄リサーチ着手候補を絞り込む L2 の機械処理。最終採用は人間（L3）</td></tr>
+          <tr><td>lens</td><td>候補を「除外」せず「順位付け」に使う観点。gate ではない</td></tr>
+          <tr><td>fast_dislocation</td><td>一時的に売られすぎた候補を上位化する lens（価格急落 + fundamental guard が必要）</td></tr>
+          <tr><td>long_hold_survivability</td><td>短期 thesis が外れた時の保有耐性を <code>high/medium/low/unknown</code> で示す annotation</td></tr>
+          <tr><td>prior_research</td><td>deferred/rejected の再登場を抑制する lens（同じ候補への偏りを下げる）</td></tr>
+          <tr><td>market regime</td><td>指数トレンドの局面分類。<code>risk_on_rally</code>（≥+3%）/ <code>risk_off_selloff</code>（≤−3%）/ <code>neutral_range</code> / <code>unknown</code></td></tr>
+          <tr><td>benchmark proxy（1321）</td><td>日経 225 ETF（証券コード 1321）。相対リターン・regime の基準</td></tr>
+          <tr><td>benchmark_relative_20d</td><td>候補の 20 日リターン − benchmark の 20 日リターン。−0.03 以下で <code>benchmark_laggard_20d</code> tag</td></tr>
+          <tr><td>diversity</td><td>同一 sector / lane / 前回候補への偏りを抑える上限（recommendations の多様性確保）</td></tr>
+          <tr><td>recommendations</td><td>select が出す research 着手候補のリスト（最大 5 件）</td></tr>
+        </tbody>
+      </table>
+
+      <h3>F. リサーチ・トレード</h3>
+      <table>
+        <thead><tr><th>用語</th><th>このリポジトリでの意味</th></tr></thead>
+        <tbody>
+          <tr><td>マクロ環境分析（macro context）</td><td>screening 前に確認する市場環境の分析（L3）。hard gate ではなく確認観点</td></tr>
+          <tr><td>個別銘柄リサーチ（research / investment memo）</td><td>個別銘柄の thesis・リスク・sizing をまとめた research packet（<code>records/05-research/</code>）</td></tr>
+          <tr><td>thesis</td><td>「なぜ買うか」の投資仮説</td></tr>
+          <tr><td>catalyst</td><td>株価が見直される契機（決算・新製品・株主還元など）</td></tr>
+          <tr><td>invalidation</td><td>仮説が崩れたと判断する条件（これに該当したら手仕舞い検討）</td></tr>
+          <tr><td>kill switch</td><td>entry 禁止条件（決算またぎ・日銀会合前日・FOMC 前日・stale macro での proceed）</td></tr>
+          <tr><td>entry preflight</td><td>発注前チェック（market regime・相対リターン・集中度・catalyst）</td></tr>
+          <tr><td>action: proceed / starter / defer / exception</td><td>entry の姿勢＝通常 / 少額で開始 / 見送り / 例外（要 waiver 理由）</td></tr>
+          <tr><td>position sizing</td><td>1 銘柄にいくら投入するかの決め方</td></tr>
+          <tr><td>paper proxy / real layer</td><td>1 億円仮想資本での検証尺度 ／ 実資金での集中度管理。別 field・別 validator で扱う</td></tr>
+          <tr><td>concentration（集中度）</td><td>単一銘柄 / sector / playbook への偏り。soft 推奨と hard 上限で管理</td></tr>
+          <tr><td>tactical budget</td><td>「今どこまでリスクを取りに行くか」の一時的な投入上限。実資金全体とは別管理</td></tr>
+          <tr><td>long-hold fallback</td><td>短期で外れた時に長期保有へ切替えて耐えられるか（BS/CF/配当の耐久性）</td></tr>
+          <tr><td>order / execution / fill</td><td>注文 ／ 約定 ／ 全量約定。注文意図と実約定を別 field で区別する</td></tr>
+          <tr><td><code>trade_execution_state</code></td><td>注文の状態（submitted / partially_filled / filled / cancelled / expired / broker_rejected …）</td></tr>
+        </tbody>
+      </table>
+
+      <h3>G. フォワード計測（telemetry）</h3>
+      <table>
+        <thead><tr><th>用語</th><th>このリポジトリでの意味</th></tr></thead>
+        <tbody>
+          <tr><td>forward telemetry</td><td>記録済みの candidates / trades から forward return を<strong>機械計測する仕組みの総称</strong>（replay / lane-cohorts / selection-ablation）。決定論的なので L2</td></tr>
+          <tr><td>ledger / decision register</td><td>research / trade の判断イベントを append-only に正規化した台帳（<code>records/_ledger/…jsonl</code>）</td></tr>
+          <tr><td>ledger benchmark</td><td>実保有 positions の絶対・相対リターンと attribution を出す計測コマンド</td></tr>
+          <tr><td>screening-replay</td><td>過去複数週の recommended queue（select 推奨）の forward return を benchmark 比で集計し、profile 採否を判断</td></tr>
+          <tr><td>lane-cohorts</td><td>週次 candidates の<strong>全銘柄</strong>を evidence lane 別の cohort に分け forward return を集計。replay が推奨上位だけを見るのに対し母集団全体を見る、playbook 改訂の一次資料</td></tr>
+          <tr><td>selection-ablation</td><td>ranking 機能や lane を<strong>1 つずつ無効化</strong>した variant を replay し、各機能の寄与（Δfull）と推奨重複率を計測。閾値 sweep はしない</td></tr>
+          <tr><td>forward return</td><td>asof から 1 週 / 4 週後のリターン。benchmark proxy 比の相対も出す</td></tr>
+          <tr><td>Δfull（delta full）</td><td>ある機能を抜いた variant の forward return が、全機能 on（full）からどれだけ動いたか。<strong>負＝抜くと成績が下がる＝その機能に価値がある</strong></td></tr>
+          <tr><td>cohort</td><td>同じ条件でまとめた銘柄群（例: lane 別 cohort）</td></tr>
+          <tr><td>replay / ablation</td><td>過去データで再現実行する ／ 機能を抜いて差分（寄与）を見る手法</td></tr>
+          <tr><td>holdout</td><td>profile 選定の妥当性確認のため、直近 1〜2 週を集計から外して「未知の週」として残す分</td></tr>
+          <tr><td>attribution</td><td>成果（forward return）を playbook / evidence / macro / sizing / execution のどれに帰属させるか</td></tr>
+          <tr><td>retro</td><td>月次・四半期の振り返り。hit 数・採用率・lane 別成否を見て閾値や playbook の改訂を議論する</td></tr>
+          <tr><td>reports/</td><td>telemetry の数値を解釈して「次に何を直すか」を残す dated まとめ（L3。telemetry 計測そのものは L2）</td></tr>
+          <tr><td>backtest（multi-axis）</td><td>screening の効果を過去週で計測する手順（<code>backtest-runbook</code> の 7 axis: replay / lane-cohorts / ablation / judgment-gate counterfactual / bootstrap CI / opportunity-cost / regime×lane）。trade 累積リターンの backtest とは別物</td></tr>
+          <tr><td>look-ahead bias</td><td>判断時点 asof では知り得ない未来情報を計測に混ぜる誤り。forward 計測はこれを排除する</td></tr>
+          <tr><td>in-sample / out-of-sample</td><td>仮説を作ったデータと検証データを分ける規律。replay では直近 1〜2 週を hold-out（out-of-sample）にして過去 fit の楽観を排す</td></tr>
+          <tr><td>data snooping</td><td>過去データに閾値を fit しすぎて将来に効かない見せかけの最適解を掴む罠。固定閾値 + forward-only で避ける</td></tr>
+          <tr><td>counterfactual</td><td>「もし規律 X を適用していたら結果がどう変わったか」を再構成する計測（judgment-gate counterfactual ＝ backtest axis D）</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="doc-footer">
+      <p>Generated as a single self-contained HTML document. 正本は repository の <code>docs/</code> 配下。本書は 2026-06-20 時点のスナップショット解説。</p>
+    </footer>
+
+  </div>
+
+  <!-- Mermaid（UMD all-in-one を バージョン固定 + SRI で読み込む。完全クライアント側で外部送信なし） -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.min.js" integrity="sha384-yQ4mmBBT+vhTAwjFH0toJXNYJ6O4usWnt6EPIdWwrRvx2V/n5lXuDZQwQFeSFydF" crossorigin="anonymous"></script>
+  <!-- 初期化。この 1 行は CSP の sha256 とバイト一致が必須。編集したら sha256 を再計算して CSP を直す -->
+  <script>mermaid.initialize({startOnLoad:true,securityLevel:'strict',htmlLabels:false});</script>
+</body>
+</html>
