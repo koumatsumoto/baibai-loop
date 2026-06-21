@@ -140,6 +140,72 @@ def run_lane_cohorts(
     )
 
 
+def pool_lane_relatives(
+    weeks: Sequence[WeekSpec],
+    *,
+    sqlite_path: Path,
+    horizon_weeks: Sequence[int] = DEFAULT_COHORT_HORIZON_WEEKS,
+    benchmark_ticker: str = NIKKEI225_ETF_PROXY,
+) -> dict[tuple[str, int], list[float]]:
+    """Pool the raw per-candidate forward relatives per (lane, horizon) across weeks.
+
+    Unlike :func:`run_lane_cohorts`, which keeps per-week lane means, this pools the
+    individual candidate relatives (return minus the benchmark) so a downstream
+    scorecard can compute a large-N bootstrap CI over the whole candidate
+    cross-section. Forward-only: a (week, horizon) only contributes when its target
+    falls on/before the eval cap, and every price resolves on/before its own date.
+    A ticker that appears in several lanes is priced once per (week, horizon).
+    """
+    cohorts_by_week = [(spec, _load_week_cohorts(spec.candidates_path)) for spec in weeks]
+    tickers = {benchmark_ticker}
+    for _spec, (cohorts, _count) in cohorts_by_week:
+        tickers.update(cohorts.get(ALL_CANDIDATES_COHORT, ()))
+    window_start = min((spec.asof for spec in weeks), default=None)
+    if window_start is None:
+        return {}
+    bars_by_ticker = _load_bars_by_ticker(
+        sqlite_path,
+        tickers,
+        start=window_start - timedelta(days=_ENTRY_LOOKBACK_CALENDAR_DAYS),
+    )
+    eval_cap = max(
+        (bars[-1].traded_at for bars in bars_by_ticker.values() if bars),
+        default=None,
+    )
+    pooled: dict[tuple[str, int], list[float]] = defaultdict(list)
+    for spec, (cohorts, _count) in cohorts_by_week:
+        all_members = cohorts.get(ALL_CANDIDATES_COHORT, set())
+        relative_by_horizon: dict[int, dict[str, float]] = {}
+        for horizon in horizon_weeks:
+            target = spec.asof + timedelta(days=horizon * 7)
+            if eval_cap is None or target > eval_cap:
+                continue
+            benchmark_return = _forward_return(
+                benchmark_ticker, spec.asof, target, bars_by_ticker.get(benchmark_ticker, ())
+            )
+            if benchmark_return is None:
+                continue
+            relatives: dict[str, float] = {}
+            for ticker in all_members:
+                outcome = _ticker_outcome(
+                    ticker,
+                    asof=spec.asof,
+                    target=target,
+                    bars=bars_by_ticker.get(ticker, ()),
+                    benchmark_return=benchmark_return,
+                )
+                if outcome is not None:
+                    relatives[ticker] = outcome[1]
+            relative_by_horizon[horizon] = relatives
+        for lane, members in cohorts.items():
+            for horizon, relatives in relative_by_horizon.items():
+                for ticker in sorted(members):
+                    relative = relatives.get(ticker)
+                    if relative is not None:
+                        pooled[(lane, horizon)].append(relative)
+    return dict(pooled)
+
+
 def lane_cohorts_to_payload(result: LaneCohortResult) -> dict[str, object]:
     """Serialize the cohort result into a plain, YAML-friendly mapping."""
     return {
