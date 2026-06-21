@@ -272,7 +272,8 @@ def _bootstrap_mean_ci(
     n = len(sample)
     if n == 0:
         return 0.0, 0.0, 0.0
-    rng = random.Random(seed)
+    # Deterministic statistical bootstrap resampling; not a security/crypto use.
+    rng = random.Random(seed)  # nosec B311
     # Sort to a canonical order so a seeded resample is reproducible regardless of
     # the pool's build order (cohort pooling iterates sets, whose order varies).
     population = sorted(sample)
