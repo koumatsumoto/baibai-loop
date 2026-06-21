@@ -130,7 +130,7 @@
         <li><a href="#s1">1. これは何のシステムか（3 層モデルと decision loop）</a></li>
         <li><a href="#s2">2. L1 データ層：実データの収集パイプライン</a></li>
         <li><a href="#s3">3. L2 狭義スクリーニング：4 つの機械ふるい（OR 条件）</a></li>
-        <li><a href="#s4">4. L2 セレクション：candidates から research 候補への triage</a></li>
+        <li><a href="#s4">4. L2 リサーチ候補選定（select）：通過銘柄から着手候補へ</a></li>
         <li><a href="#s5">5. L3 リサーチ：investment memo の判断ロジック</a></li>
         <li><a href="#s6">6. L3 トレード執行：注文・約定・集中度ゲート</a></li>
         <li><a href="#s7">7. フォワード計測ループ：ledger と playbook feedback</a></li>
@@ -181,31 +181,50 @@
         <p>AI / スクリプトが依存してよいインタフェースは、<strong>CLI の YAML 出力</strong>と <strong>SQLite schema</strong> の 2 つに固定されています。判断と帰責は人間（L3）に残し、AI は L1 / L2 の事実に grounded な下書きを作る、という役割分担です。</p>
       </div>
 
+      <h3>構成要素の呼称と種別（本書で統一して使う名前）</h3>
+      <p>図や本文に出てくる構成要素は、下表の <strong>日本語の概念名</strong>で呼びます（括弧内は実装上の slug ＝ ディレクトリ名・CLI 名）。読み解く鍵は <strong>「機械処理（engine ＝ 動詞）」と「成果物（artifact ＝ 名詞）」を区別する</strong>ことです。たとえば「機械スクリーニング」は処理、その出力である「通過銘柄リスト」は成果物で、別物です。</p>
+      <table>
+        <thead><tr><th>概念名（日本語）</th><th>slug（実装名）</th><th>種別</th><th>層</th><th>役割</th></tr></thead>
+        <tbody>
+          <tr><td>市場データ基盤</td><td><code>market.sqlite</code></td><td>データ store</td><td>L1</td><td>全上場銘柄の実データを集約した正本</td></tr>
+          <tr><td>機械スクリーニング</td><td><code>screening</code></td><td>機械処理</td><td>L2</td><td>4 lane の OR 条件で通過銘柄を機械抽出する</td></tr>
+          <tr><td>通過銘柄リスト</td><td><code>candidates</code></td><td>成果物（事実）</td><td>L2 出力</td><td>スクリーニング通過銘柄の事実 snapshot</td></tr>
+          <tr><td>リサーチ候補選定</td><td><code>select</code></td><td>機械処理</td><td>L2</td><td>通過銘柄から着手候補を lens で絞り順位付けする</td></tr>
+          <tr><td>フォワード計測</td><td><code>forward backtest</code></td><td>機械処理</td><td>L2</td><td>過去週 replay で lane / lens / regime の効果を計測する</td></tr>
+          <tr><td>マクロ環境分析</td><td><code>macro context</code></td><td>分析（判断）</td><td>L3</td><td>スクリーニング前の市場環境の読み</td></tr>
+          <tr><td>個別銘柄リサーチ</td><td><code>research</code></td><td>分析（判断）</td><td>L3</td><td>thesis・採否・sizing を判断する投資メモ</td></tr>
+          <tr><td>売買執行記録</td><td><code>trades</code></td><td>執行</td><td>L3</td><td>注文・約定・保有・決済の記録</td></tr>
+          <tr><td>計測レポート</td><td><code>reports</code></td><td>解釈（判断）</td><td>L3</td><td>計測結果を解釈し、次の改訂方針を残す</td></tr>
+          <tr><td>運用方針</td><td><code>portfolio policy</code></td><td>governance</td><td>—</td><td>目的・制約・資本・許容リスク・time horizon</td></tr>
+          <tr><td>戦略プレイブック</td><td><code>playbooks</code></td><td>governance</td><td>—</td><td>再現可能な thesis（投資仮説）の型</td></tr>
+        </tbody>
+      </table>
+
       <figure class="diagram">
         <pre class="mermaid">
 flowchart TB
     subgraph L1["L1 データ層 — 再現可能な事実"]
-      sqlite[(market.sqlite)]
+      sqlite[("市場データ基盤<br/>market.sqlite")]
     end
-    subgraph L2["L2 分析層 — 決定論・閾値固定（機械処理とその事実出力）"]
-      screen["機械スクリーニング 4 lane"]
-      cand["candidates 事実 snapshot"]
-      select["select / lenses / regime lens"]
-      telemetry["forward telemetry"]
+    subgraph L2["L2 分析層 — 決定論・閾値固定の機械処理と事実出力"]
+      screen(["機械スクリーニング<br/>screening"])
+      cand["通過銘柄リスト<br/>candidates"]
+      select(["リサーチ候補選定<br/>select"])
+      telemetry(["フォワード計測<br/>forward backtest"])
     end
     subgraph L3["L3 判断層 — 人間 + AI の解釈・判断"]
-      macro["macro context"]
-      research["research investment memo"]
-      trades["trades execution record"]
-      reports["reports / backtest"]
+      macro["マクロ環境分析<br/>macro context"]
+      research["個別銘柄リサーチ<br/>research"]
+      trades["売買執行記録<br/>trades"]
+      reports["計測レポート<br/>reports"]
     end
     sqlite --> screen --> cand --> select --> research
     macro -.確認観点.-> research
     research --> trades --> telemetry --> reports
-    cand -.lane-cohorts 全候補計測.-> telemetry
+    cand -.全候補計測.-> telemetry
     reports -.改訂根拠.-> screen
 </pre>
-        <figcaption>図1: 3 層モデル。L1 の事実の上に L2 の決定論的処理（機械ふるい・candidates 事実 snapshot・select・forward telemetry）が乗り、L3 で人間と AI が解釈・判断する。candidates は records/ に置かれるが正体は L2 の事実出力。点線はゲートではなく入力／フィードバック。</figcaption>
+        <figcaption>図1: 3 層モデルと構成要素。形で種別を表す——円筒＝データ store、角丸＝機械処理（engine）、四角＝成果物・記録（artifact）。L1 の実データを L2 の機械処理（機械スクリーニング → 通過銘柄リスト → リサーチ候補選定／フォワード計測）が決定論的に扱い、L3 で人間 + AI が解釈・判断する。通過銘柄リストは records/ に置かれるが正体は L2 の事実出力。点線はゲートでなく入力／フィードバック。</figcaption>
       </figure>
 
       <div class="callout callout-important">
@@ -227,29 +246,29 @@ flowchart TB
       <figure class="diagram">
         <pre class="mermaid">
 flowchart LR
-    policy["policy 目的と制約"] --> macro["macro context 市場環境"]
-    macro --> cand["candidates 機械ふるい"]
-    cand --> research["research 投資メモ"]
-    research --> trades["trades 執行記録"]
-    trades --> reports["reports / backtest 計測"]
-    reports --> playbooks["playbooks 再現可能な型"]
+    policy["運用方針<br/>portfolio policy"] --> macro["マクロ環境分析<br/>macro context"]
+    macro --> cand["通過銘柄リスト<br/>candidates"]
+    cand --> research["個別銘柄リサーチ<br/>research"]
+    research --> trades["売買執行記録<br/>trades"]
+    trades --> reports["計測レポート<br/>reports"]
+    reports --> playbooks["戦略プレイブック<br/>playbooks"]
     playbooks --> cand
 </pre>
-        <figcaption>図2: decision loop。candidates → research → trades が個別銘柄のライフサイクル、reports → playbooks → candidates が改善フィードバック。</figcaption>
+        <figcaption>図2: decision loop。通過銘柄リスト → 個別銘柄リサーチ → 売買執行記録 が個別銘柄のライフサイクル、計測レポート → 戦略プレイブック → 通過銘柄リスト が改善フィードバック。</figcaption>
       </figure>
 
       <table>
         <thead>
-          <tr><th>ステージ</th><th>repository 上の場所</th><th>レイヤー</th><th>担う問い</th></tr>
+          <tr><th>ステージ（概念名 ／ slug）</th><th>repository 上の場所</th><th>レイヤー</th><th>担う問い</th></tr>
         </thead>
         <tbody>
-          <tr><td>portfolio policy</td><td><code>docs/portfolio-policy.md</code></td><td>governance</td><td>何を許し、何を禁じ、どの資本・時間軸で判断するか</td></tr>
-          <tr><td>macro context</td><td><code>records/01-macro-context/</code></td><td>analysis</td><td>今の市場環境をどう読み、screening 前に何を確認するか</td></tr>
-          <tr><td>candidates</td><td><code>records/04-candidates/</code></td><td>fact（L2 出力）</td><td>どの銘柄が機械ふるいに残ったか</td></tr>
-          <tr><td>research</td><td><code>records/05-research/</code></td><td>analysis</td><td>thesis / risk-reward / invalidation を満たすか</td></tr>
-          <tr><td>trades</td><td><code>records/06-trades/</code></td><td>execution</td><td>採用判断がどう約定・保有・決済されたか</td></tr>
-          <tr><td>reports / backtest</td><td><code>reports/</code> ＋ ledger CLI</td><td>計測（backtest）</td><td>過去週 replay の multi-axis backtest で、何が forward return を生んだか・次に何を直すか</td></tr>
-          <tr><td>playbooks</td><td><code>records/_playbooks/</code></td><td>governance</td><td>どの thesis pattern を強める／弱める／改訂するか</td></tr>
+          <tr><td>運用方針（portfolio policy）</td><td><code>docs/portfolio-policy.md</code></td><td>governance</td><td>何を許し、何を禁じ、どの資本・時間軸で判断するか</td></tr>
+          <tr><td>マクロ環境分析（macro context）</td><td><code>records/01-macro-context/</code></td><td>analysis</td><td>今の市場環境をどう読み、screening 前に何を確認するか</td></tr>
+          <tr><td>通過銘柄リスト（candidates）</td><td><code>records/04-candidates/</code></td><td>fact（L2 出力）</td><td>どの銘柄が機械ふるいに残ったか</td></tr>
+          <tr><td>個別銘柄リサーチ（research）</td><td><code>records/05-research/</code></td><td>analysis</td><td>thesis / risk-reward / invalidation を満たすか</td></tr>
+          <tr><td>売買執行記録（trades）</td><td><code>records/06-trades/</code></td><td>execution</td><td>採用判断がどう約定・保有・決済されたか</td></tr>
+          <tr><td>計測レポート（reports / backtest）</td><td><code>reports/</code> ＋ ledger CLI</td><td>計測（backtest）</td><td>過去週 replay の multi-axis backtest で、何が forward return を生んだか・次に何を直すか</td></tr>
+          <tr><td>戦略プレイブック（playbooks）</td><td><code>records/_playbooks/</code></td><td>governance</td><td>どの thesis pattern を強める／弱める／改訂するか</td></tr>
         </tbody>
       </table>
 
@@ -485,9 +504,9 @@ flowchart TB
 
     <!-- ===================================================================== -->
     <section>
-      <h2 id="s4">4. L2 セレクション：candidates から research 候補への triage</h2>
+      <h2 id="s4">4. L2 リサーチ候補選定（select）：通過銘柄リストから着手候補へ</h2>
 
-      <p><code>select</code> は最新の candidates と macro context を組み合わせ、research に着手すべき候補を絞り込む <strong>triage 層</strong>です。candidates が「事実層」なら、select は「推奨を作る分析層」。最終採用判断は人間に残ります。</p>
+      <p><strong>リサーチ候補選定</strong>（<code>select</code>）は、最新の通過銘柄リスト（candidates）とマクロ環境分析（macro context）を組み合わせ、個別銘柄リサーチに着手すべき候補を絞り込む <strong>機械処理（triage 層）</strong>です。通過銘柄リストが「事実の成果物」なら、リサーチ候補選定は「推奨を作る機械処理」。最終採用判断は人間（L3）に残ります。</p>
 
       <figure class="diagram">
         <pre class="mermaid">
