@@ -30,15 +30,15 @@ flowchart LR
   playbooks --> candidates
 ```
 
-| Stage | Responsibility | Primary question |
+| Stage（日本語概念名 / slug） | Responsibility | Primary question |
 | --- | --- | --- |
-| policy | objectives and constraints | 何を許し、何を禁じ、どの資本と時間軸で判断するか |
-| macro context | macro / sector context | 今の市場環境をどう読み、screening 前に何を確認するか |
-| candidates | screen output | どの銘柄が mechanical screen に残ったか |
-| research | investment memo | thesis, risk/reward, invalidation を満たすか |
-| trades | execution record | order / entry した判断がどう約定・保有・決済されたか |
-| reports / backtest | forward 計測 | ledger benchmark / replay の結果を ad-hoc report に残し、何を次回直すか |
-| playbooks | repeatable thesis patterns | どの thesis pattern を強める / 弱める / 改訂するか |
+| 運用方針 (policy) | objectives and constraints | 何を許し、何を禁じ、どの資本と時間軸で判断するか |
+| マクロ環境分析 (macro context) | macro / sector context | 今の市場環境をどう読み、screening 前に何を確認するか |
+| 通過銘柄リスト (candidates) | screen output | どの銘柄が mechanical screen に残ったか |
+| 個別銘柄リサーチ (research) | investment memo | thesis, risk/reward, invalidation を満たすか |
+| 売買執行記録 (trades) | execution record | order / entry した判断がどう約定・保有・決済されたか |
+| 計測レポート (reports / backtest) | forward 計測 | ledger benchmark / replay の結果を ad-hoc report に残し、何を次回直すか |
+| 戦略プレイブック (playbooks) | repeatable thesis patterns | どの thesis pattern を強める / 弱める / 改訂するか |
 
 ## Five Questions
 
@@ -56,17 +56,26 @@ flowchart LR
 
 ## Repository Lifecycle Labels
 
-Baibai-Loop は次の concept label で repository lifecycle を説明します。
+Baibai-Loop は次の concept label で repository lifecycle を説明します。人間向けには **日本語概念名**で呼び、slug（英語名）は識別子として残します。
 
-| Concept label | Repository location |
-| --- | --- |
-| portfolio policy | [`docs/portfolio-policy.md`](./portfolio-policy.md) |
-| macro context | `records/01-macro-context/` |
-| security-level screen output | `records/04-candidates/` |
-| investment memo | `records/05-research/` |
-| execution record | `records/06-trades/` |
-| research decision and tracking register | `records/_ledger/` |
-| repeatable thesis patterns | `records/_playbooks/` |
+| 日本語概念名 | concept label (slug) | Repository location | 種別 |
+| --- | --- | --- | --- |
+| 運用方針 | portfolio policy | [`docs/portfolio-policy.md`](./portfolio-policy.md) | governance |
+| マクロ環境分析 | macro context | `records/01-macro-context/` | 分析（判断 / L3） |
+| 通過銘柄リスト | candidates（security-level screen output） | `records/04-candidates/` | 成果物（事実 / L2 出力） |
+| 個別銘柄リサーチ | research（investment memo） | `records/05-research/` | 分析（判断 / L3） |
+| 売買執行記録 | trades（execution record） | `records/06-trades/` | 執行（L3） |
+| 判断・追跡レジスタ | decision register（ledger） | `records/_ledger/` | 記録（L3） |
+| 戦略プレイブック | playbooks（repeatable thesis patterns） | `records/_playbooks/` | governance |
+
+上表は lifecycle artifact（**成果物 ＝ 名詞**）です。これらを生成・計測する **L2 の機械処理（engine ＝ 動詞）** は別カテゴリで、決定論的・閾値固定で動きます。両者を区別すると構造が掴めます（例:「機械スクリーニング（処理）」とその出力「通過銘柄リスト（成果物）」は別物）。
+
+| 日本語概念名 | slug | 種別 | 役割 |
+| --- | --- | --- | --- |
+| 市場データ基盤 | market.sqlite | データ store（L1） | 全上場銘柄の実データを集約した正本 |
+| 機械スクリーニング | screening | 機械処理（L2） | 4 lane の OR 条件で通過銘柄リストを抽出する |
+| リサーチ候補選定 | select | 機械処理（L2） | 通過銘柄リストから着手候補を lens で絞り順位付けする |
+| フォワード計測 | forward backtest | 機械処理（L2） | screening-replay / lane-cohorts / selection-ablation / benchmark で効果を過去週 replay 計測する |
 
 `portfolio policy` は governance component としてこの docs set に置きます。現在の lifecycle では、capital / risk / liquidity の判断条件を research、ledger、trades の各 artifact に記録される field で確認します。履歴が必要な場合は git で確認します。
 

@@ -784,7 +784,7 @@ uv run pytest</code></pre>
     <!-- ===================================================================== -->
     <section>
       <h2 id="glossary">付録: 用語集（Glossary）</h2>
-      <p>本書とリポジトリで使う専門用語を、<strong>このリポジトリでの意味</strong>に絞って一覧化します（一般的な辞書定義ではなく、Baibai-Loop での使われ方）。各 screen lane の正式英語名・漢字要約名は <a href="#s3">§3 の対応表</a>を参照してください。</p>
+      <p>本書とリポジトリで使う専門用語を、<strong>このリポジトリでの意味</strong>に絞って一覧化します（一般的な辞書定義ではなく、Baibai-Loop での使われ方）。<strong>構成要素の正式な呼称（日本語概念名 ＋ slug ＋ 種別）は <a href="#s1">§1 の「構成要素の呼称と種別」表</a>が正本</strong>です。各 screen lane の正式英語名・漢字要約名は <a href="#s3">§3 の対応表</a>を参照してください。</p>
 
       <h3>A. アーキテクチャ・層</h3>
       <table>
@@ -856,7 +856,7 @@ uv run pytest</code></pre>
       <table>
         <thead><tr><th>用語</th><th>このリポジトリでの意味</th></tr></thead>
         <tbody>
-          <tr><td>select / triage</td><td>candidates から research 着手候補を絞り込む L2 の段階。最終採用は人間（L3）</td></tr>
+          <tr><td>リサーチ候補選定（select / triage）</td><td>通過銘柄リスト（candidates）から個別銘柄リサーチ着手候補を絞り込む L2 の機械処理。最終採用は人間（L3）</td></tr>
           <tr><td>lens</td><td>候補を「除外」せず「順位付け」に使う観点。gate ではない</td></tr>
           <tr><td>fast_dislocation</td><td>一時的に売られすぎた候補を上位化する lens（価格急落 + fundamental guard が必要）</td></tr>
           <tr><td>long_hold_survivability</td><td>短期 thesis が外れた時の保有耐性を <code>high/medium/low/unknown</code> で示す annotation</td></tr>
@@ -873,8 +873,8 @@ uv run pytest</code></pre>
       <table>
         <thead><tr><th>用語</th><th>このリポジトリでの意味</th></tr></thead>
         <tbody>
-          <tr><td>macro context</td><td>screening 前に確認する市場環境の分析（L3）。hard gate ではなく確認観点</td></tr>
-          <tr><td>investment memo</td><td>個別銘柄の thesis・リスク・sizing をまとめた research packet（<code>records/05-research/</code>）</td></tr>
+          <tr><td>マクロ環境分析（macro context）</td><td>screening 前に確認する市場環境の分析（L3）。hard gate ではなく確認観点</td></tr>
+          <tr><td>個別銘柄リサーチ（research / investment memo）</td><td>個別銘柄の thesis・リスク・sizing をまとめた research packet（<code>records/05-research/</code>）</td></tr>
           <tr><td>thesis</td><td>「なぜ買うか」の投資仮説</td></tr>
           <tr><td>catalyst</td><td>株価が見直される契機（決算・新製品・株主還元など）</td></tr>
           <tr><td>invalidation</td><td>仮説が崩れたと判断する条件（これに該当したら手仕舞い検討）</td></tr>

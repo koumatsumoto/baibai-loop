@@ -26,13 +26,13 @@ AI / スクリプトが利用する安定契約は CLI YAML 出力と SQLite sch
 
 正準の概念モデルは [`../concepts.md`](../concepts.md) を参照します。この doc では repository path と concept label を併記します。
 
-| Concept | Repository location | レイヤー | 役割 |
-| --- | --- | --- | --- |
-| portfolio policy | [`docs/portfolio-policy.md`](../portfolio-policy.md) | governance | 目的、制約、資本、許容リスク、time horizon を固定する |
-| macro context | `records/01-macro-context/` | analysis | 外部記事と統計 series を参照し、screening 前の市場環境を判断する |
-| screen output | `records/04-candidates/` | fact | universe と screening rule から ticker-level raw screen output を記録する |
-| investment memo | `records/05-research/` | analysis | candidates と macro context を統合し、thesis payoff と採用可否を判断する |
-| execution record | `records/06-trades/` | execution | 実際に order / entry した採用判断の注文、約定、建玉、決済を記録する |
+| 日本語概念名 | Concept (slug) | Repository location | レイヤー | 役割 |
+| --- | --- | --- | --- | --- |
+| 運用方針 | portfolio policy | [`docs/portfolio-policy.md`](../portfolio-policy.md) | governance | 目的、制約、資本、許容リスク、time horizon を固定する |
+| マクロ環境分析 | macro context | `records/01-macro-context/` | analysis | 外部記事と統計 series を参照し、screening 前の市場環境を判断する |
+| 通過銘柄リスト | candidates（screen output） | `records/04-candidates/` | fact | universe と screening rule から ticker-level raw screen output を記録する |
+| 個別銘柄リサーチ | research（investment memo） | `records/05-research/` | analysis | candidates と macro context を統合し、thesis payoff と採用可否を判断する |
+| 売買執行記録 | trades（execution record） | `records/06-trades/` | execution | 実際に order / entry した採用判断の注文、約定、建玉、決済を記録する |
 
 ## Decision Loop
 
