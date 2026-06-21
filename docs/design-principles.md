@@ -2,9 +2,9 @@
 
 Baibai-Loop の運用上の設計原則を記述する。本原則は [`philosophy.md`](./philosophy.md) の 4 つの柱を具体運用に落とした実践ルールである。構造・schema は [`architecture/system-overview.md`](./architecture/system-overview.md)、日々の運用手順は [`operations/README.md`](./operations/README.md) を参照。
 
-## 1. Decision lifecycle を前提とする
+## 1. 2 つのループを前提とする
 
-Baibai-Loop は **portfolio policy -> macro context -> candidates -> research -> trades -> reports (forward 計測) -> playbooks feedback** の decision lifecycle で運用する。全ての設計判断はこの lifecycle と責務境界を前提とする。詳細は [`architecture/system-overview.md`](./architecture/system-overview.md) と [`concepts.md`](./concepts.md)。
+Baibai-Loop は **運用ループ**（運用方針 → マクロ環境分析 → 機械スクリーニング → 通過銘柄リスト → リサーチ候補選定 → 個別銘柄リサーチ → 売買提案 → 〔人間判断〕→ 売買執行記録）と **改善ループ**（全候補 forward-only backtest ＋ 設計レビュー ＋ trades の Q2 執行信号 → GitHub Issue の改善バックログ → screening rules / playbooks / config の改訂）の 2 つを分けて運用する。全ての設計判断はこの 2 ループと責務境界を前提とする。詳細は [`concepts.md`](./concepts.md) と [`architecture/system-overview.md`](./architecture/system-overview.md)。
 
 ## 2. 分析階層: 世界情勢 → 地域経済 → 個別資産
 

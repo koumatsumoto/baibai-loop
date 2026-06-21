@@ -1,30 +1,28 @@
 ---
 title: "System overview"
-summary: "Baibai-Loop architecture and investment decision loop."
+summary: "Baibai-Loop architecture: the 3-layer infrastructure (data / deterministic analysis / judgment) and the two loops (operating, improvement) that run on it."
 doc_type: architecture
 status: active
-last_reviewed: 2026-06-10
+last_reviewed: 2026-06-21
 related_docs:
+  - "../concepts.md"
   - "../philosophy.md"
   - "../design-principles.md"
-  - "information-flow.md"
 ---
 
 # System overview
 
-Baibai-Loop は、日本株の実データを機械的に収集・解析・スコアリングし、その効果を forward 計測で検証し続けるデータ解析基盤です。目的は「お買い得銘柄を拾う最適な取引戦略」を、候補発見、証拠評価、position sizing、実行可否、forward 計測 (ledger + reports)、playbook feedback の loop で改善することです。
+Baibai-Loop は、日本株の実データを機械的に収集・解析・スコアリングし、その効果を forward-only な backtest で検証し続けるデータ解析基盤です。構造は **3 層インフラ**（データ / 決定論的分析 / 判断）の上で、**2 つのループ**（運用ループ・改善ループ）が動きます。正準の概念モデルとループ詳細は [`../concepts.md`](../concepts.md) を正本とし、この doc は repository path とインフラ層を併記します。
 
-## 3 層モデル
+## 3 層インフラ
 
 | 層 | 実体 | 性質 |
 | --- | --- | --- |
 | L1 データ層 | `data/screening/market.sqlite`(J-Quants 価格・財務 / EDINET metrics / JPX 規制) | 全上場銘柄の再現可能な事実。coverage は fail-fast で検証する |
-| L2 分析層 | screen lanes([`../screening/mechanical.md`](../screening/mechanical.md))・selection lenses・軸別スコア・forward telemetry(replay / lane cohorts / ablation) | 決定論的・閾値固定。すべて forward 計測に接続する([`../screening/extending.md`](../screening/extending.md)) |
-| L3 判断層 | `records/`(research / trades、macro context) + `reports/` (ad-hoc forward 計測まとめ) | 人間 + AI 下書きの解釈と判断。売買 record が L2 計測の ground truth を供給する |
+| L2 分析層 | screen lanes([`../screening/mechanical.md`](../screening/mechanical.md))・selection lenses・軸別スコア・forward backtest(replay / lane cohorts / ablation)。機械ふるいの事実出力 = `records/04-candidates/` | 決定論的・閾値固定の機械処理。すべて forward 計測に接続する([`../screening/extending.md`](../screening/extending.md)) |
+| L3 判断層 | `records/`(research / trades、macro context) + `reports/` (forward 計測の dated まとめ) | 人間 + AI 下書きの解釈と判断。**screening 効果の検証は全候補 backtest（改善ループ・大 N）が担い、trades は Q2 執行品質の信号を供給する** |
 
-AI / スクリプトが利用する安定契約は CLI YAML 出力と SQLite schema の 2 面([`../reference/platform-interface.md`](../reference/platform-interface.md))。下表の decision loop は L3 の中を流れ、L1/L2 が全 stage に事実と計測を供給します。L2 の「分析」は決定論的な機械処理であり、その出力(下表で fact レイヤーと記す candidates)は事実として扱います。人間/AI の解釈を伴う analysis レイヤー(macro context、investment memo)は L3 に属します。
-
-正準の概念モデルは [`../concepts.md`](../concepts.md) を参照します。この doc では repository path と concept label を併記します。
+AI / スクリプトが利用する安定契約は CLI YAML 出力と SQLite schema の 2 面([`../reference/platform-interface.md`](../reference/platform-interface.md))。L2 の「分析」は決定論的な機械処理であり、その出力(candidates・backtest 数値)は事実として扱います。人間 / AI の解釈を伴う analysis レイヤー(macro context、investment memo、reports)は L3 に属します。3 層と 2 ループの判定基準は「人間の判断が入るか」です。
 
 | 日本語概念名 | Concept (slug) | Repository location | レイヤー | 役割 |
 | --- | --- | --- | --- | --- |
@@ -32,24 +30,17 @@ AI / スクリプトが利用する安定契約は CLI YAML 出力と SQLite sch
 | マクロ環境分析 | macro context | `records/01-macro-context/` | analysis | 外部記事と統計 series を参照し、screening 前の市場環境を判断する |
 | 通過銘柄リスト | candidates（screen output） | `records/04-candidates/` | fact | universe と screening rule から ticker-level raw screen output を記録する |
 | 個別銘柄リサーチ | research（investment memo） | `records/05-research/` | analysis | candidates と macro context を統合し、thesis payoff と採用可否を判断する |
+| 売買提案 | trade proposal（GitHub Issue） | （Issue・records 外） | 判断の入口 | 最終選考銘柄の詳細 ＋ 銘柄/価格/株数 提案を人間に上げる |
 | 売買執行記録 | trades（execution record） | `records/06-trades/` | execution | 実際に order / entry した採用判断の注文、約定、建玉、決済を記録する |
 
-## Decision Loop
+## 2 つのループ
 
-```mermaid
-flowchart LR
-  policy["portfolio policy"] --> macro["macro context"]
-  macro --> candidates["candidates: screen output"]
-  candidates --> research["research: investment memo"]
-  research --> trades["trades: execution record"]
-  trades --> reports["reports / backtest"]
-  reports --> playbooks["playbooks"]
-  playbooks --> candidates
-```
+3 層インフラの上で、性質の違う 2 つのループが動きます（中心モデル・カデンス・分離理由は [`../concepts.md`](../concepts.md)）。
 
-Macro context は screening 手前で確認し、必要に応じて深く更新します。個別銘柄 lifecycle は `candidates -> research -> trades -> reports` で売買判断と forward 計測 feedback を扱います。統合点は investment memo、forward 計測の正本は [`../operations/backtest-runbook.md`](../operations/backtest-runbook.md) です。
+- **運用ループ（機会/週次）**: `運用方針 → マクロ環境分析 → 機械スクリーニング → 通過銘柄リスト → リサーチ候補選定 → 個別銘柄リサーチ → 売買提案(GitHub Issue) → 〔人間判断〕→ 売買執行記録`。検証済みの screening system を適用して具体的な売買判断に落とす。screening 論理は改善しない。採用可否と sizing cap は portfolio policy と research 判断が担う。Macro context は hard gate ではなく screening 前提と sector 優先度を整理する入力。
+- **改善ループ（日次/週次）**: 全候補 forward-only backtest（主軸・大 N）＋ 設計レビュー（仮説源）＋ trades（Q2 執行信号）→ **GitHub Issue の改善バックログ** → screening rules / playbooks / config の改訂(PR)。screening 効果の検証主軸は backtest であり、個人の実トレード(極小 N)ではない。forward 計測の正本は [`../operations/backtest-runbook.md`](../operations/backtest-runbook.md)。
 
-採用可否と sizing cap は portfolio policy と research 判断が担います。Macro context は hard gate ではなく、screening 前提と sector 優先度を整理する入力です。
+両ループの接合点は「検証済みの screening system(rules / playbooks / config)」ただ 1 点です。
 
 ## スコープ
 
@@ -57,9 +48,9 @@ Macro context は screening 手前で確認し、必要に応じて深く更新�
 - long-only の裁量支援基盤として扱う。
 - Macro context は hard gate ではなく、screening / research の確認観点として扱う。
 - Markdown / YAML と Git を正本にする。ただし週次 screen output(candidates YAML)は再生成可能な L2 機械出力として local store に置き、git には積まない([`../components/candidates.md`](../components/candidates.md) §2)。
+- 売買提案は GitHub Issue を成果物とし、records/ にディレクトリを持たない。承認結果は ledger と trades record に落とす。
 - AI 下書きと人間確認を前提に、事実層と分析層を物理的に分ける。
-- CLI は screening、selection、validation、ledger sync、forward 計測(replay / lane cohorts / ablation)、macro statistics 取得に使う。
-- decision register と reports/ の forward 計測まとめは forward-only な検証証跡として扱う。
+- CLI は screening、selection、validation、ledger sync、forward backtest(replay / lane cohorts / ablation)、macro statistics 取得に使う。
 
 ## 非目標
 

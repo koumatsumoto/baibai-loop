@@ -102,7 +102,7 @@ Validator-visible な採用可否と sizing cap は、portfolio policy config �
 
 #### (a) 信念
 
-Baibai-Loop の主軸は、全上場銘柄の実データを保持する **データ層(L1)** と、決定論的な screen / lens / 軸別スコアとその forward 計測(replay / lane cohorts / ablation)からなる **分析層(L2)** である。判断層(L3 = records)はこの基盤の消費者であり、同時に計測 loop を閉じる ground truth を供給する。
+Baibai-Loop の主軸は、全上場銘柄の実データを保持する **データ層(L1)** と、決定論的な screen / lens / 軸別スコアとその forward 計測(replay / lane cohorts / ablation)からなる **分析層(L2)** である。判断層(L3 = records)はこの基盤の消費者である。screening 効果の検証は L2 の全候補 backtest(改善ループ・大 N)が担い、trades は Q2 執行品質の信号を供給する。
 
 用語の区別: L2 の「分析」は決定論的な機械処理を指し、その出力(candidates など)は柱 1 の意味では **事実** に属する(解釈を含まず再現可能なため)。柱 1 で「分析」と呼ぶのは人間/AI の解釈(macro context、research)であり、これは L3 に属する。
 
@@ -126,48 +126,25 @@ Baibai-Loop の主軸は、全上場銘柄の実データを保持する **デ�
 - **リアルタイム化**: swing(5-40 営業日)の horizon に板情報や分足は不要。日次・週次バッチが品質検証(coverage fail-fast)と両立する
 - **universe 事前絞り込みの維持**: fact 層を狭めると「分析の問いを変えるたびにデータ取得からやり直す」ことになる。データは広く保持し、絞り込みは分析時のパラメータとして適用する
 
-## 3. なぜ lifecycle loop か（3 層の階層モデルではない）
+## 3. なぜ 2 ループか（単一の自己改善ループではない）
 
-Baibai-Loop は、単純な「事実 → 解釈 → 判断」の 3 層モデルではなく、portfolio policy から forward 計測 feedback までの lifecycle loop として扱う。
+Baibai-Loop は「売買ループを回しながら自己改善する」単一ループではない。**運用ループ**（検証済みの screening system を適用して売買判断に落とす）と、**改善ループ**（その system を検証・改善する）を意図的に分ける。
 
-```text
-portfolio policy
-  -> macro context
-  -> candidates
-  -> research
-  -> trades
-  -> reports (forward 計測 / backtest)
-  -> playbooks
-  -> candidates
-```
+- **運用ループ（機会/週次）**: `運用方針 → マクロ環境分析 → 機械スクリーニング → 通過銘柄リスト → リサーチ候補選定 → 個別銘柄リサーチ → 売買提案(GitHub Issue) → 〔人間判断〕→ 売買執行記録`
+- **改善ループ（日次/週次）**: 全候補 forward-only backtest（主軸）＋ 設計レビュー（仮説源）＋ trades（Q2 執行信号）→ GitHub Issue の改善バックログ → screening rules / playbooks / config の改訂
 
-- **policy**: 人間向け document と、validator が読む `policy_config.py`。目的、制約、資本、許容リスク、time horizon を固定する
-- **macro context**: screening 前に読む macro / sector 前提。外部記事・統計 series・人間/AI の判断を単一 artifact にまとめる
-- **candidates**: security-level screen output。個別銘柄の候補事実を残す
-- **research**: investment memo。macro context fit、個別 thesis、採用可否、position sizing を判断する
-- **trades**: execution record。order / entry した判断がどう約定・保有・決済されたかを記録する
-- **reports / playbooks**: `baibai-loop-ledger benchmark` / `screening-replay` / `lane-cohorts` / `selection-ablation` で forward 計測した結果を `reports/<asof>-*.md` に dated まとめとして残し、playbook feedback に戻す
+分ける理由は **母数** である。screening 論理の良し悪し（Q1）は全候補母集団の backtest（大 N）でしか検証できず、個人の実トレード（極小 N、実測で approved n=8 のとき 95% CI[−7.60, +0.32]）からは判定できない。だから **改善は trades からではなく backtest から駆動**し、trades は screening 検証ではなく Q2（執行品質）の信号として改善ループに還流する。両ループの接合点は「検証済み system（rules / playbooks / config）」ただ 1 点。
 
-階層的 3 層（事実 → 解釈 → 判断）だけだと、macro context、security-level thesis、execution、forward 計測 attribution が同じ「判断」層に混ざり、責務が重なる。Lifecycle loop として分けるほうが、どこで候補を拾い、どこで落とし、どこで改善するかを追いやすい。
+なお柱 5 の L1/L2/L3 は **infrastructure の層**（データ / 機械的分析 / 判断の置き場所）であり、2 ループとは別の軸である。2 ループは L3 の中を流れ、L1/L2 がその全 stage に事実と計測を供給する。正準モデルは [`concepts.md`](./concepts.md) を参照する。
 
-なお柱 5 の L1/L2/L3 は **infrastructure の層**（データ / 機械的分析 / 判断の置き場所）であり、ここで退けている「判断プロセスの階層 3 層」とは別物である。lifecycle loop は L3 の中を流れ、L1/L2 はその全 stage に事実と計測を供給する。
+## 4. なぜ macro context を独立に確認するか
 
-## 4. なぜ 2 トラック（macro 独立 + 個別銘柄売買ループ）か
+運用ループの入力である macro context は **スクリーニング前に必要なら更新する**（定期生成しない）。CPI / BOJ / FOMC などの macro event 後、または候補銘柄が特定 sector に偏ったときに、外部記事・統計 series・AI/人間の判断をまとめて screening / research の前提にする。
 
-### (a) Macro context（必要時更新）
+統合点は research である:
 
-Macro context は **スクリーニング前に必要なら更新する**。CPI / BOJ / FOMC などの macro event 後、または候補銘柄が特定 sector に偏ったときに、外部記事・統計 series・AI/人間の判断をまとめて screening / research の前提にする。
-
-### (b) 個別銘柄売買ループ
-
-`candidates → research → trades → reports/playbooks` は **売買判断と連動する** ループ。screening 実行 → 選定 → 深掘り → 採用 → 執行 → forward 計測 (ledger CLI) → reports/playbooks feedback。
-
-### (c) 2 トラックの統合点: research
-
-research は:
-
-- **入力**: 最新 candidates（security-level screen output）+ macro context + policy config
-- **出力**: investment memo と採用可否、position sizing、execution への接続
+- **入力**: 最新 candidates（screen output）+ macro context + policy config
+- **出力**: investment memo と採用可否、position sizing、売買提案 / execution への接続
 
 macro context がなければ research の前提を確認できない。これは、macro / sector context なしに個別銘柄を評価しないという柱 2 の帰結である。
 
