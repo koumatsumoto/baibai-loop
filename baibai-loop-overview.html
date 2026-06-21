@@ -127,7 +127,7 @@
     <nav class="toc">
       <strong>目次</strong>
       <ul>
-        <li><a href="#s1">1. これは何のシステムか（3 層モデルと decision loop）</a></li>
+        <li><a href="#s1">1. これは何のシステムか（3 層モデルと 2 つのループ）</a></li>
         <li><a href="#s2">2. L1 データ層：実データの収集パイプライン</a></li>
         <li><a href="#s3">3. L2 狭義スクリーニング：4 つの機械ふるい（OR 条件）</a></li>
         <li><a href="#s4">4. L2 リサーチ候補選定（select）：通過銘柄から着手候補へ</a></li>
@@ -147,7 +147,7 @@
 
     <!-- ===================================================================== -->
     <section>
-      <h2 id="s1">1. これは何のシステムか（3 層モデルと decision loop）</h2>
+      <h2 id="s1">1. これは何のシステムか（3 層モデルと 2 つのループ）</h2>
 
       <p class="lead">Baibai-Loop は、日本株の実データ（価格・財務・開示・規制）を機械的に収集・正規化し、<strong>固定ルールでスクリーニング・スコアリングし、その効果を forward 計測で検証し続けるデータ解析基盤</strong>です。AI と人間はこの基盤の出力を使って銘柄リサーチと売買判断を行います。目的はただ一つ、「お買い得銘柄を拾い、トレード成績を最大化する」ことです。</p>
 
@@ -193,6 +193,7 @@
           <tr><td>フォワード計測</td><td><code>forward backtest</code></td><td>機械処理</td><td>L2</td><td>過去週 replay で lane / lens / regime の効果を計測する</td></tr>
           <tr><td>マクロ環境分析</td><td><code>macro context</code></td><td>分析（判断）</td><td>L3</td><td>スクリーニング前の市場環境の読み</td></tr>
           <tr><td>個別銘柄リサーチ</td><td><code>research</code></td><td>分析（判断）</td><td>L3</td><td>thesis・採否・sizing を判断する投資メモ</td></tr>
+          <tr><td>売買提案</td><td><code>trade proposal</code></td><td>判断の入口（GitHub Issue）</td><td>L3</td><td>最終選考銘柄の詳細＋銘柄/価格/株数を人間に提案する</td></tr>
           <tr><td>売買執行記録</td><td><code>trades</code></td><td>執行</td><td>L3</td><td>注文・約定・保有・決済の記録</td></tr>
           <tr><td>計測レポート</td><td><code>reports</code></td><td>解釈（判断）</td><td>L3</td><td>計測結果を解釈し、次の改訂方針を残す</td></tr>
           <tr><td>運用方針</td><td><code>portfolio policy</code></td><td>governance</td><td>—</td><td>目的・制約・資本・許容リスク・time horizon</td></tr>
@@ -215,12 +216,13 @@ flowchart TB
     subgraph L3["L3 判断層 — 人間 + AI の解釈・判断"]
       macro["マクロ環境分析<br/>macro context"]
       research["個別銘柄リサーチ<br/>research"]
+      proposal["売買提案<br/>GitHub Issue"]
       trades["売買執行記録<br/>trades"]
       reports["計測レポート<br/>reports"]
     end
     sqlite --> screen --> cand --> select --> research
     macro -.確認観点.-> research
-    research --> trades --> telemetry --> reports
+    research --> proposal --> trades --> telemetry --> reports
     cand -.全候補計測.-> telemetry
     reports -.改訂根拠.-> screen
 </pre>
@@ -240,21 +242,26 @@ flowchart TB
         <p>candidates も telemetry も物理的には記録ディレクトリに置かれますが、中身は人間判断ゼロの決定論的出力なので <strong>L2</strong> です（telemetry の数値は計測の一次資料として扱う）。L3 判断層に属するのは macro context・research・trades・reports のような解釈・判断です。なお後述の decision loop 表の「レイヤー」列（fact / analysis / execution …）は、この L1/L2/L3 とは別軸で各成果物の役割を示すものです。</p>
       </div>
 
-      <h3>目的の loop（decision loop）</h3>
-      <p>個別の作業は、次の 7 ステージを forward-only（look-ahead を排し、判断時点 asof の情報だけで計測する規律）に回す 1 本のループに収まります。各ステージは repository 上の特定ディレクトリに対応します。</p>
+      <h3>2 つのループ（運用ループ ＋ 改善ループ）</h3>
+      <p>Baibai-Loop は<strong>単一ループではありません</strong>。「検証済みの screening system を<strong>適用</strong>して売買判断に落とす<strong>運用ループ</strong>」と、「その system を<strong>検証・改善</strong>する<strong>改善ループ</strong>」を意図的に分けます。両者は接合点「検証済み system（rules / playbooks / config）」ただ 1 点で繋がり、カデンス・データ源・成果物がすべて別です。</p>
 
       <figure class="diagram">
         <pre class="mermaid">
-flowchart LR
-    policy["運用方針<br/>portfolio policy"] --> macro["マクロ環境分析<br/>macro context"]
-    macro --> cand["通過銘柄リスト<br/>candidates"]
-    cand --> research["個別銘柄リサーチ<br/>research"]
-    research --> trades["売買執行記録<br/>trades"]
-    trades --> reports["計測レポート<br/>reports"]
-    reports --> playbooks["戦略プレイブック<br/>playbooks"]
-    playbooks --> cand
+flowchart TB
+  subgraph OP["運用ループ — 検証済み system を適用（機会/週次）"]
+    direction LR
+    policy["運用方針<br/>portfolio policy"] --> macro["マクロ環境分析<br/>macro context"] --> screen["機械スクリーニング<br/>screening"] --> cand["通過銘柄リスト<br/>candidates"] --> select["リサーチ候補選定<br/>select"] --> research["個別銘柄リサーチ<br/>research"] --> proposal["売買提案<br/>GitHub Issue"] --> human{"人間判断"} --> trades["売買執行記録<br/>trades"]
+  end
+  subgraph IMP["改善ループ — system を検証・改善（日次/週次）"]
+    direction LR
+    backtest["全候補 backtest<br/>主軸・大N"] --> backlog["改善バックログ<br/>GitHub Issue"]
+    review["設計レビュー<br/>仮説源"] --> backlog
+    backlog --> revise["rules / playbooks<br/>改訂 PR"]
+  end
+  revise -.検証済み system を更新.-> screen
+  trades -.Q2 執行品質の小N信号.-> backlog
 </pre>
-        <figcaption>図2: decision loop。通過銘柄リスト → 個別銘柄リサーチ → 売買執行記録 が個別銘柄のライフサイクル、計測レポート → 戦略プレイブック → 通過銘柄リスト が改善フィードバック。</figcaption>
+        <figcaption>図2: 2 つのループ。運用ループは検証済み system を適用して売買判断（売買提案 → 人間判断 → 執行）に落とす。改善ループは全候補 backtest（主軸）＋設計レビュー＋trades の Q2 信号で system を改善する。trades は screening 検証でなく Q2 信号として還流。</figcaption>
       </figure>
 
       <table>
@@ -266,9 +273,10 @@ flowchart LR
           <tr><td>マクロ環境分析（macro context）</td><td><code>records/01-macro-context/</code></td><td>analysis</td><td>今の市場環境をどう読み、screening 前に何を確認するか</td></tr>
           <tr><td>通過銘柄リスト（candidates）</td><td><code>records/04-candidates/</code></td><td>fact（L2 出力）</td><td>どの銘柄が機械ふるいに残ったか</td></tr>
           <tr><td>個別銘柄リサーチ（research）</td><td><code>records/05-research/</code></td><td>analysis</td><td>thesis / risk-reward / invalidation を満たすか</td></tr>
-          <tr><td>売買執行記録（trades）</td><td><code>records/06-trades/</code></td><td>execution</td><td>採用判断がどう約定・保有・決済されたか</td></tr>
-          <tr><td>計測レポート（reports / backtest）</td><td><code>reports/</code> ＋ ledger CLI</td><td>計測（backtest）</td><td>過去週 replay の multi-axis backtest で、何が forward return を生んだか・次に何を直すか</td></tr>
-          <tr><td>戦略プレイブック（playbooks）</td><td><code>records/_playbooks/</code></td><td>governance</td><td>どの thesis pattern を強める／弱める／改訂するか</td></tr>
+          <tr><td>売買提案（trade proposal）</td><td>GitHub Issue（records 外）</td><td>判断の入口</td><td>最終選考銘柄を「いくらで何株」で人間に提案し、承認を得る</td></tr>
+          <tr><td>売買執行記録（trades）</td><td><code>records/06-trades/</code></td><td>execution</td><td>採用判断がどう約定・保有・決済されたか（改善には Q2 執行信号として還流）</td></tr>
+          <tr><td>計測レポート（reports / backtest）<br><span style="color:var(--fg-muted)">※改善ループ</span></td><td><code>reports/</code> ＋ ledger CLI</td><td>計測（backtest）</td><td>全候補 backtest で何が forward return を生んだか・次に何を直すか</td></tr>
+          <tr><td>戦略プレイブック（playbooks）<br><span style="color:var(--fg-muted)">※改善ループ</span></td><td><code>records/_playbooks/</code></td><td>governance</td><td>どの thesis pattern を強める／弱める／改訂するか</td></tr>
         </tbody>
       </table>
 
@@ -618,7 +626,7 @@ flowchart LR
     <section>
       <h2 id="s6">6. L3 トレード執行：注文・約定・集中度ゲート</h2>
 
-      <p>trade（<code>records/06-trades/**/*.md</code>）は、<code>research_decision.outcome: approved</code> な research に対する<strong>執行記録</strong>です。自動発注はせず、人間の発注を記録します。発注しなかった採用・見送り・保留は trade と呼びません。</p>
+      <p>research の採用結論は、まず <strong>売買提案（GitHub Issue）</strong>として「どの銘柄を・いくらで・何株」の具体提案にまとめられ、人間が承認します（提案・承認の場は Issue、その決定の機械正規化は <code>records/_ledger/</code>）。trade（<code>records/06-trades/**/*.md</code>）はその承認済み判断に対する<strong>執行記録</strong>です。自動発注はせず、人間の発注を記録します。発注しなかった採用・見送り・保留は trade と呼びません。約定結果は改善ループへ Q2（執行品質）の信号として還流します。</p>
 
       <h3>注文と約定を分離して状態管理</h3>
       <p><code>orders[]</code>（注文意図と broker 状態）と <code>executions[]</code>（実約定の数量・単価・時刻）を分け、<code>order_intent.order_intent_id</code> ↔ <code>orders[].origin_order_intent_id</code> で join します。執行状態は <code>trade_execution_state</code> で表します。</p>
@@ -777,7 +785,7 @@ uv run pytest</code></pre>
 
       <div class="callout callout-important">
         <p class="callout-title">一言でまとめると</p>
-        <p>Baibai-Loop は「<strong>事実（L1/L2）を決定論的に作り、判断（L3）を人間 + AI に残し、両者を forward 計測で結ぶ</strong>」ループです。スクリーニングは 4 lane の OR 条件という透明な固定ルール、その後段の select・research・trade は段階的に厳しくなる規律（liquidity 絞り込み → lens → kill switch → regime ゲート → 集中度ゲート）で、機械が裁量を縛りながら銘柄を 1 本ずつ通します。そして全ての閾値変更が計測根拠に紐づく――これが「計測経路のない機能は足さない」という設計思想の実装です。</p>
+        <p>Baibai-Loop は <strong>2 つのループ</strong>です。<strong>運用ループ</strong>は、事実（L1/L2）を決定論的に作り、段階的に厳しくなる規律（liquidity 絞り込み → lens → kill switch → regime ゲート → 集中度ゲート）で機械が裁量を縛りながら銘柄を 1 本ずつ通し、最後に「いくらで何株」の売買提案（GitHub Issue）を人間判断に上げます。<strong>改善ループ</strong>は、screening が機能しているかを——母数が極小の個人売買結果ではなく——<strong>全候補の forward-only backtest（大 N）</strong>で検証し、改善項目を GitHub Issue で管理して rules / playbooks を改訂します。trades は screening 検証ではなく Q2（執行品質）の信号として還流します。「計測経路のない機能は足さない」が両ループを貫く設計思想です。</p>
       </div>
     </section>
 
