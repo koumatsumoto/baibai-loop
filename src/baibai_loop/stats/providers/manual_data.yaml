@@ -1,0 +1,30 @@
+# Manually-curated macro observations for series that have no clean free API.
+#
+# WARNING: every value below is HAND-ENTERED and the figures shipped here are
+# UNVERIFIED SAMPLE data, not authoritative readings. Before relying on a value,
+# confirm it against the cited primary source (see source_url on the series in
+# series.yaml) and overwrite the sample. Do not treat these numbers as official.
+#
+# Keyed by provider_series_id -> list of {date: YYYY-MM-DD, value: <number>}.
+# date is the first-of-month for the month the reading covers; value units follow
+# the series unit (count for bankruptcies, index for PMI).
+jp_bankruptcies_tsr:
+  # SAMPLE — 東京商工リサーチ 全国企業倒産状況（負債1000万円以上）月次件数。要・一次ソース照合。
+  - date: 2026-01-01
+    value: 820
+  - date: 2026-02-01
+    value: 786
+  - date: 2026-03-01
+    value: 952
+  - date: 2026-04-01
+    value: 874
+jp_pmi_manufacturing:
+  # SAMPLE — au Jibun Bank / S&P Global 日本製造業PMI（季節調整済、50=拡大・縮小の境界）。要・一次ソース照合。
+  - date: 2026-01-01
+    value: 49.6
+  - date: 2026-02-01
+    value: 48.9
+  - date: 2026-03-01
+    value: 50.1
+  - date: 2026-04-01
+    value: 49.4

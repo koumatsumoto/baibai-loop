@@ -69,6 +69,7 @@ packages = ["src/baibai_loop"]
 "src/baibai_loop/py.typed" = "baibai_loop/py.typed"
 "src/baibai_loop/stats/schema.sql" = "baibai_loop/stats/schema.sql"
 "src/baibai_loop/stats/series.yaml" = "baibai_loop/stats/series.yaml"
+"src/baibai_loop/stats/providers/manual_data.yaml" = "baibai_loop/stats/providers/manual_data.yaml"
 
 [tool.ruff]
 # Runtime is Python 3.14, but Ruff's 3.14 formatter rewrites

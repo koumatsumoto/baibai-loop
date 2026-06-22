@@ -254,3 +254,63 @@ series:
     source_id: fred-dtwexbgs
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DTWEXBGS
     aliases: [DXY, ドル指数, dollar index, broad dollar]
+  - series_id: jp.bankruptcies
+    name: 日本企業倒産件数
+    domain: credit
+    geography: japan
+    frequency: monthly
+    unit: count
+    provider: manual
+    provider_series_id: jp_bankruptcies_tsr
+    source_id: tsr-bankruptcies
+    source_url: https://www.tsr-net.co.jp/data/
+    notes: 東京商工リサーチ 全国企業倒産状況(負債1000万円以上)。manual providerで手動更新
+    aliases: [倒産件数, 企業倒産, 東商リサーチ倒産, bankruptcies]
+  - series_id: jp.pmi_manufacturing
+    name: 日本製造業PMI
+    domain: activity
+    geography: japan
+    frequency: monthly
+    unit: index
+    provider: manual
+    provider_series_id: jp_pmi_manufacturing
+    source_id: spglobal-jp-pmi-mfg
+    source_url: https://www.pmi.spglobal.com/
+    notes: au Jibun Bank / S&P Global 日本製造業PMI(50=拡大縮小の境界)。manual providerで手動更新
+    aliases: [製造業PMI, 日本PMI, JP manufacturing PMI, au Jibun PMI]
+  - series_id: jp.monetary_base
+    name: 日本マネタリーベース
+    domain: monetary
+    geography: japan
+    frequency: monthly
+    unit: jpy-100m
+    provider: boj
+    provider_series_id: "BS01'MABJMTA"
+    source_id: boj-timeseries
+    source_url: https://www.stat-search.boj.or.jp/ssi/mtshtml/csv/bs01_mabjmta_m_en.csv
+    notes: BOJデータコードとCSV URLはstat-searchの実画面で要確認。マネタリーベース平均残高(月次・億円)
+    aliases: [マネタリーベース, monetary base, BOJ monetary base, マネタリーベース平均残高]
+  - series_id: jp.cpi.headline
+    name: 日本CPI総合
+    domain: inflation
+    geography: japan
+    frequency: monthly
+    unit: index
+    provider: estat
+    provider_series_id: "0003427113"
+    source_id: estat-cpi
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+    notes: statsDataIdは要確認(e-Statの全国CPI総合指数)。FRED日本CPI系列が廃止のためe-Statを使用
+    aliases: [日本CPI, JP CPI, CPI総合, 全国CPI]
+  - series_id: jp.foreign_flows
+    name: 海外投資家ネット買い越し額(週次)
+    domain: flows
+    geography: japan
+    frequency: weekly
+    unit: jpy
+    provider: jquants_flows
+    provider_series_id: foreigners_net_value
+    source_id: jquants-trades-spec
+    source_url: https://jpx-jquants.com/ja/spec/eq-investor-types
+    notes: 東証プライムの投資部門別売買状況。海外勢の週次ネット(買い−売り)を公表日付で記録
+    aliases: [海外投資家フロー, 海外勢売買, foreign flows, trades spec, 投資部門別]

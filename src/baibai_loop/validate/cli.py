@@ -16,6 +16,7 @@ from typing import Literal, TextIO, assert_never
 from .candidates import discover_candidates_files, validate_candidates_file
 from .errors import ValidationFinding
 from .ledger import discover_ledger_files, validate_ledger_file
+from .macro_analysis import discover_macro_analysis_files, validate_macro_analysis_file
 from .macro_context import discover_macro_context_files, validate_macro_context_file
 from .playbook_schema import discover_playbook_schemas
 from .policy import validate_policy_file
@@ -30,6 +31,7 @@ from .trade import discover_trade_files, validate_trade_file
 
 type ValidationTarget = Literal[
     "macro-context",
+    "macro-analysis",
     "policy",
     "candidates",
     "research",
@@ -38,6 +40,7 @@ type ValidationTarget = Literal[
 ]
 _TARGETS: tuple[ValidationTarget, ...] = (
     "macro-context",
+    "macro-analysis",
     "policy",
     "candidates",
     "research",
@@ -46,6 +49,7 @@ _TARGETS: tuple[ValidationTarget, ...] = (
 )
 
 MACRO_CONTEXT_ROOT = Path("records/01-macro-context")
+MACRO_ANALYSIS_ROOT = Path("records/02-macro-analysis")
 POLICY_PATH = Path("docs/portfolio-policy.md")
 CANDIDATES_ROOT = Path("records/04-candidates")
 RESEARCH_ROOT = Path("records/05-research")
@@ -162,6 +166,8 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
     match target:
         case "macro-context":
             return discover_macro_context_files(root / MACRO_CONTEXT_ROOT)
+        case "macro-analysis":
+            return discover_macro_analysis_files(root / MACRO_ANALYSIS_ROOT)
         case "policy":
             return [root / POLICY_PATH]
         case "candidates":
@@ -185,6 +191,8 @@ def _validate(
     match target:
         case "macro-context":
             return validate_macro_context_file(path)
+        case "macro-analysis":
+            return validate_macro_analysis_file(path)
         case "policy":
             return validate_policy_file(path)
         case "candidates":

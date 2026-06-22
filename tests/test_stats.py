@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -27,9 +28,13 @@ from baibai_loop.stats.definitions import SeriesDefinition, load_definitions
 from baibai_loop.stats.providers import (
     StatsProviderError,
     fetch_observations,
+    parse_boj_csv,
     parse_ecb_fx_csv,
+    parse_estat_json,
     parse_fred_csv,
     parse_h15_csv,
+    parse_manual_entries,
+    parse_trades_spec,
 )
 from baibai_loop.stats.service import StatsService
 
@@ -61,7 +66,7 @@ class StatsDBTests(unittest.TestCase):
                     "provider_series_id, source_id, source_url"
                     ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
-                        "jp.cpi.headline",
+                        "jp.cpi.stale",
                         "stale",
                         "inflation",
                         "japan",
@@ -75,13 +80,13 @@ class StatsDBTests(unittest.TestCase):
                 )
                 conn.execute(
                     "INSERT INTO aliases(alias, series_id) VALUES (?, ?)",
-                    ("stale alias", "jp.cpi.headline"),
+                    ("stale alias", "jp.cpi.stale"),
                 )
                 insert_observations(
                     conn,
                     [
                         ObservationRecord(
-                            series_id="jp.cpi.headline",
+                            series_id="jp.cpi.stale",
                             observed_at=date(2021, 12, 1),
                             value=100.0,
                             unit="index",
@@ -93,7 +98,7 @@ class StatsDBTests(unittest.TestCase):
                 record_provider_run(
                     conn,
                     provider="fred_csv",
-                    series_id="jp.cpi.headline",
+                    series_id="jp.cpi.stale",
                     start=date(2021, 1, 1),
                     end=date(2021, 12, 31),
                     started_at=datetime(2026, 5, 1, tzinfo=UTC),
@@ -109,20 +114,20 @@ class StatsDBTests(unittest.TestCase):
                 series_ids = {series.series_id for series in list_series(conn)}
                 stale_rows = conn.execute(
                     "SELECT COUNT(*) FROM observations WHERE series_id = ?",
-                    ("jp.cpi.headline",),
+                    ("jp.cpi.stale",),
                 ).fetchone()[0]
                 stale_runs = conn.execute(
                     "SELECT COUNT(*) FROM provider_runs WHERE series_id = ?",
-                    ("jp.cpi.headline",),
+                    ("jp.cpi.stale",),
                 ).fetchone()[0]
                 stale_aliases = conn.execute(
                     "SELECT COUNT(*) FROM aliases WHERE series_id = ?",
-                    ("jp.cpi.headline",),
+                    ("jp.cpi.stale",),
                 ).fetchone()[0]
             finally:
                 conn.close()
 
-            self.assertNotIn("jp.cpi.headline", series_ids)
+            self.assertNotIn("jp.cpi.stale", series_ids)
             self.assertEqual(stale_rows, 0)
             self.assertEqual(stale_runs, 0)
             self.assertEqual(stale_aliases, 0)
@@ -313,6 +318,193 @@ class StatsProviderParserTests(unittest.TestCase):
                 ),
             )
 
+    def test_parse_manual_entries_filters_range_inclusive(self) -> None:
+        series = _series("manual", "jp_pmi_manufacturing", unit="index")
+        raw = {
+            "jp_pmi_manufacturing": [
+                {"date": date(2026, 1, 1), "value": 49.6},
+                {"date": date(2026, 2, 1), "value": 48.9},
+                {"date": date(2026, 3, 1), "value": 50.1},
+            ]
+        }
+
+        observations = parse_manual_entries(
+            series, raw, start=date(2026, 2, 1), end=date(2026, 3, 1)
+        )
+
+        self.assertEqual(
+            [obs.observed_at for obs in observations],
+            [date(2026, 2, 1), date(2026, 3, 1)],
+        )
+        self.assertEqual(observations[0].value, 48.9)
+
+    def test_parse_manual_entries_rejects_unknown_provider_series_id(self) -> None:
+        series = _series("manual", "jp_unknown", unit="count")
+        raw = {"jp_pmi_manufacturing": [{"date": date(2026, 1, 1), "value": 49.6}]}
+
+        with self.assertRaisesRegex(StatsProviderError, "jp_unknown"):
+            parse_manual_entries(series, raw, start=date(2026, 1, 1), end=date(2026, 12, 31))
+
+    def test_parse_manual_entries_accepts_iso_string_date_and_int_value(self) -> None:
+        series = _series("manual", "jp_bankruptcies_tsr", unit="count")
+        raw = {"jp_bankruptcies_tsr": [{"date": "2026-03-01", "value": 950}]}
+
+        observations = parse_manual_entries(
+            series, raw, start=date(2026, 1, 1), end=date(2026, 12, 31)
+        )
+
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0].observed_at, date(2026, 3, 1))
+        self.assertEqual(observations[0].value, 950.0)
+
+    def test_parse_boj_csv_filters_range_and_missing_values(self) -> None:
+        series = _series("boj", "BS01'MABJMTA", unit="jpy-100m")
+        text = "\n".join(
+            [
+                '"Series code","BS01\'MABJMTA"',
+                '"Description","Monetary Base"',
+                '"2026/01","350000"',
+                '"2026/02","NA"',
+                '"2026/03","360000"',
+                '"2026/04","370000"',
+            ]
+        )
+
+        observations = parse_boj_csv(series, text, start=date(2026, 2, 1), end=date(2026, 3, 31))
+
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0].observed_at, date(2026, 3, 1))
+        self.assertEqual(observations[0].value, 360000.0)
+
+    def test_parse_boj_csv_rejects_missing_series_code(self) -> None:
+        series = _series("boj", "BS01'MABJMTA", unit="jpy-100m")
+        text = '"Series code","BS01\'OTHER"\n"2026/01","350000"\n'
+
+        with self.assertRaisesRegex(StatsProviderError, "missing series code"):
+            parse_boj_csv(series, text, start=date(2026, 1, 1), end=date(2026, 1, 31))
+
+    def test_parse_boj_csv_parses_japanese_month_dates(self) -> None:
+        series = _series("boj", "BS01'MABJMTA", unit="jpy-100m")
+        text = "\n".join(
+            [
+                "Series code,BS01'MABJMTA",
+                "2026/01,350000",
+                "2026-02,360000",
+                "2026/03/31,370000",
+            ]
+        )
+
+        observations = parse_boj_csv(series, text, start=date(2026, 1, 1), end=date(2026, 3, 31))
+
+        self.assertEqual(
+            [obs.observed_at for obs in observations],
+            [date(2026, 1, 1), date(2026, 2, 1), date(2026, 3, 31)],
+        )
+        self.assertEqual(observations[0].value, 350000.0)
+
+    def test_parse_estat_json_filters_range_and_skips_nonnumeric(self) -> None:
+        series = _series("estat", "0003427113", unit="index")
+        text = json.dumps(
+            {
+                "GET_STATS_DATA": {
+                    "STATISTICAL_DATA": {
+                        "DATA_INF": {
+                            "VALUE": [
+                                {"@time": "2026000101", "$": "100.1"},
+                                {"@time": "2026000202", "$": "100.8"},
+                                {"@time": "2026000303", "$": "-"},
+                                {"@time": "2026000404", "$": "101.3"},
+                            ]
+                        }
+                    }
+                }
+            }
+        )
+
+        observations = parse_estat_json(series, text, start=date(2026, 2, 1), end=date(2026, 3, 31))
+
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0].observed_at, date(2026, 2, 1))
+        self.assertEqual(observations[0].value, 100.8)
+
+    def test_parse_estat_json_handles_single_value_object(self) -> None:
+        series = _series("estat", "0003427113", unit="index")
+        text = json.dumps(
+            {
+                "GET_STATS_DATA": {
+                    "STATISTICAL_DATA": {
+                        "DATA_INF": {"VALUE": {"@time": "2026000505", "$": "102.0"}}
+                    }
+                }
+            }
+        )
+
+        observations = parse_estat_json(
+            series, text, start=date(2026, 1, 1), end=date(2026, 12, 31)
+        )
+
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0].observed_at, date(2026, 5, 1))
+        self.assertEqual(observations[0].value, 102.0)
+
+    def test_parse_estat_json_rejects_missing_structure(self) -> None:
+        series = _series("estat", "0003427113", unit="index")
+
+        with self.assertRaisesRegex(StatsProviderError, "GET_STATS_DATA"):
+            parse_estat_json(series, "{}", start=date(2026, 1, 1), end=date(2026, 12, 31))
+
+    def test_parse_trades_spec_filters_range_and_uses_foreign_balance(self) -> None:
+        series = _series("jquants_flows", "foreigners_net_value", unit="jpy")
+        rows = [
+            {
+                "PubDate": "2026-05-08",
+                "EnDate": "2026-05-02",
+                "FrgnBuy": 1500,
+                "FrgnSell": 1000,
+                "FrgnBal": 500,
+            },
+            {
+                "PubDate": "2026-05-15",
+                "EnDate": "2026-05-09",
+                "FrgnBuy": 1200,
+                "FrgnSell": 2000,
+                "FrgnBal": -800,
+            },
+            {
+                "PubDate": "2026-05-22",
+                "EnDate": "2026-05-16",
+                "FrgnBuy": 300,
+                "FrgnSell": 100,
+                "FrgnBal": 200,
+            },
+        ]
+
+        observations = parse_trades_spec(
+            series, rows, start=date(2026, 5, 8), end=date(2026, 5, 15)
+        )
+
+        self.assertEqual(len(observations), 2)
+        self.assertEqual(observations[0].observed_at, date(2026, 5, 8))
+        self.assertEqual(observations[0].value, 500.0)
+        self.assertEqual(observations[1].value, -800.0)
+        self.assertEqual(observations[0].unit, "jpy")
+
+    def test_parse_trades_spec_falls_back_to_purchases_minus_sales(self) -> None:
+        series = _series("jquants_flows", "foreigners_net_value", unit="jpy")
+        rows = [{"PubDate": "2026-05-08", "FrgnBuy": 1500, "FrgnSell": 1000}]
+
+        observations = parse_trades_spec(series, rows, start=date(2026, 5, 8), end=date(2026, 5, 8))
+
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0].value, 500.0)
+
+    def test_parse_trades_spec_rejects_missing_foreign_columns(self) -> None:
+        series = _series("jquants_flows", "foreigners_net_value", unit="jpy")
+        rows = [{"PubDate": "2026-05-08", "Section": "TSEPrime"}]
+
+        with self.assertRaisesRegex(StatsProviderError, "missing"):
+            parse_trades_spec(series, rows, start=date(2026, 5, 8), end=date(2026, 5, 8))
+
     def test_fetch_observations_rejects_unknown_provider(self) -> None:
         series = _series("nonexistent_provider", "X")
 
@@ -423,7 +615,7 @@ class StatsServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "macro.sqlite"
 
-            self.assertEqual(main(["get", "jp.cpi.headline", "--latest", "--db", str(db)]), 1)
+            self.assertEqual(main(["get", "jp.cpi.stale", "--latest", "--db", str(db)]), 1)
 
 
 def _series(provider: str, provider_series_id: str, *, unit: str = "percent") -> SeriesDefinition:
