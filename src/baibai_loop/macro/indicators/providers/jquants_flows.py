@@ -4,7 +4,8 @@ import os
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 
-from ...foundation.env import load_project_env
+from baibai_loop.foundation.env import load_project_env
+
 from ..db import ObservationRecord
 from ..definitions import SeriesDefinition
 from .base import (

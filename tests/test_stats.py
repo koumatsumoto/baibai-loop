@@ -13,8 +13,8 @@ from unittest.mock import patch
 import openpyxl
 import requests
 
-from baibai_loop.stats.cli import main
-from baibai_loop.stats.db import (
+from baibai_loop.macro.indicators.cli import main
+from baibai_loop.macro.indicators.db import (
     SQLITE_SCHEMA_VERSION,
     ObservationRecord,
     get_series,
@@ -27,8 +27,8 @@ from baibai_loop.stats.db import (
     record_provider_run,
     row_count,
 )
-from baibai_loop.stats.definitions import SeriesDefinition, load_definitions
-from baibai_loop.stats.providers import (
+from baibai_loop.macro.indicators.definitions import SeriesDefinition, load_definitions
+from baibai_loop.macro.indicators.providers import (
     StatsProviderError,
     fetch_observations,
     parse_boj_xlsx,
@@ -39,7 +39,7 @@ from baibai_loop.stats.providers import (
     parse_manual_entries,
     parse_trades_spec,
 )
-from baibai_loop.stats.service import StatsService
+from baibai_loop.macro.indicators.service import StatsService
 
 
 class StatsDBTests(unittest.TestCase):
@@ -472,7 +472,7 @@ class StatsProviderParserTests(unittest.TestCase):
             parse_estat_json(series, "{}", start=date(2026, 1, 1), end=date(2026, 12, 31))
 
     def test_split_stats_data_id_extracts_narrowing_params(self) -> None:
-        from baibai_loop.stats.providers.estat import _split_stats_data_id
+        from baibai_loop.macro.indicators.providers.estat import _split_stats_data_id
 
         stats_id, narrowing = _split_stats_data_id("0003427113?cdCat01=0001&cdArea=00000&cdTab=1")
 
@@ -480,7 +480,7 @@ class StatsProviderParserTests(unittest.TestCase):
         self.assertEqual(narrowing, {"cdCat01": "0001", "cdArea": "00000", "cdTab": "1"})
 
     def test_split_stats_data_id_without_query_returns_empty_params(self) -> None:
-        from baibai_loop.stats.providers.estat import _split_stats_data_id
+        from baibai_loop.macro.indicators.providers.estat import _split_stats_data_id
 
         self.assertEqual(_split_stats_data_id("0003427113"), ("0003427113", {}))
 
@@ -602,7 +602,7 @@ class StatsServiceTests(unittest.TestCase):
             )
 
             with patch(
-                "baibai_loop.stats.service.fetch_observations",
+                "baibai_loop.macro.indicators.service.fetch_observations",
                 side_effect=AssertionError("provider should not be called"),
             ):
                 result = StatsService(db).get_latest("us.10y")

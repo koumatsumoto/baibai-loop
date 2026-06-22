@@ -30,7 +30,7 @@ classifiers = [
 baibai-loop-screening = "baibai_loop.screening.cli:main"
 baibai-loop-validate = "baibai_loop.validate.cli:main"
 baibai-loop-ledger = "baibai_loop.ledger.cli:main"
-baibai-loop-stats = "baibai_loop.stats.cli:main"
+baibai-loop-indicators = "baibai_loop.macro.indicators.cli:main"
 
 [dependency-groups]
 dev = [
@@ -68,9 +68,9 @@ packages = ["src/baibai_loop"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/baibai_loop/py.typed" = "baibai_loop/py.typed"
-"src/baibai_loop/stats/schema.sql" = "baibai_loop/stats/schema.sql"
-"src/baibai_loop/stats/series.yaml" = "baibai_loop/stats/series.yaml"
-"src/baibai_loop/stats/providers/manual_data.yaml" = "baibai_loop/stats/providers/manual_data.yaml"
+"src/baibai_loop/macro/indicators/schema.sql" = "baibai_loop/macro/indicators/schema.sql"
+"src/baibai_loop/macro/indicators/series.yaml" = "baibai_loop/macro/indicators/series.yaml"
+"src/baibai_loop/macro/indicators/providers/manual_data.yaml" = "baibai_loop/macro/indicators/providers/manual_data.yaml"
 
 [tool.ruff]
 # Runtime is Python 3.14, but Ruff's 3.14 formatter rewrites
@@ -181,12 +181,13 @@ runner = "python -m pytest -q -m 'not slow and not integration'"
 root_package = "baibai_loop"
 
 [[tool.importlinter.contracts]]
-name = "macro statistics layer stays independent of screening/position/validation"
+name = "macro layer stays independent of screening/position/validation"
 type = "forbidden"
-source_modules = ["baibai_loop.stats"]
+source_modules = ["baibai_loop.macro"]
 forbidden_modules = [
   "baibai_loop.screening",
   "baibai_loop.ledger",
+  "baibai_loop.position",
   "baibai_loop.validate",
 ]
 

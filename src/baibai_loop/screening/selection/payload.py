@@ -13,7 +13,7 @@ from baibai_loop.foundation.coerce import (
     string_or_none,
     string_sequence,
 )
-from baibai_loop.macro_context import MacroContext
+from baibai_loop.macro.context import MacroContext
 
 from ..regime import MarketRegime, MarketRegimeSnapshot
 from ..rule_config import ScreeningRules, SelectionDiversityRules, SelectionLiquidityRules

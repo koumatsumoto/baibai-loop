@@ -14,7 +14,7 @@ import yaml
 
 from baibai_loop.foundation.time import JST
 from baibai_loop.foundation.yaml_io import safe_load
-from baibai_loop.macro_context import MacroContext, find_latest_macro_context, load_macro_context
+from baibai_loop.macro.context import MacroContext, find_latest_macro_context, load_macro_context
 from baibai_loop.screening.market_snapshot import build_market_snapshot
 from baibai_loop.screening.regime import MarketRegimeSnapshot, compute_market_regime
 from baibai_loop.screening.rule_config import (

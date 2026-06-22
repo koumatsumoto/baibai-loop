@@ -7,7 +7,8 @@ from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
 
-from ..foundation.env import load_project_env
+from baibai_loop.foundation.env import load_project_env
+
 from .db import DEFAULT_DB_PATH, StatsSchemaError
 from .definitions import SeriesDefinition
 from .providers import StatsProviderError
