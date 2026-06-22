@@ -12,22 +12,39 @@ from .base import (
     MacroDataProvider,
     StatsProviderError,
 )
+from .boj import BojProvider, parse_boj_csv
 from .ecb_fx import EcbFxProvider, parse_ecb_fx_csv
+from .estat import EStatProvider, parse_estat_json
 from .frb_h15 import FrbH15Provider, parse_h15_csv
 from .fred import FredProvider, parse_fred_csv
+from .jquants_flows import JQuantsFlowsProvider, parse_trades_spec
+from .manual import ManualProvider, parse_manual_entries
 
 __all__ = [
     "FetchContext",
     "MacroDataProvider",
     "StatsProviderError",
     "fetch_observations",
+    "parse_boj_csv",
     "parse_ecb_fx_csv",
+    "parse_estat_json",
     "parse_fred_csv",
     "parse_h15_csv",
+    "parse_manual_entries",
+    "parse_trades_spec",
 ]
 
 _PROVIDERS: dict[str, MacroDataProvider] = {
-    provider.name: provider for provider in (FredProvider(), FrbH15Provider(), EcbFxProvider())
+    provider.name: provider
+    for provider in (
+        FredProvider(),
+        FrbH15Provider(),
+        EcbFxProvider(),
+        ManualProvider(),
+        BojProvider(),
+        EStatProvider(),
+        JQuantsFlowsProvider(),
+    )
 }
 
 
