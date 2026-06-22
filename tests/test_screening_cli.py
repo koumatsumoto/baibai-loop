@@ -234,7 +234,7 @@ class ScreeningCliTests(unittest.TestCase):
             try:
                 os.chdir(Path(tmpdir))
                 with (
-                    patch.dict(os.environ, {"JQUANTS_REFRESH_TOKEN": "token"}),
+                    patch.dict(os.environ, {"JQUANTS_API_KEY": "token"}),
                     patch.object(
                         JQuantsProvider,
                         "_get_client",

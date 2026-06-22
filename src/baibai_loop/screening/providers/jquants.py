@@ -117,14 +117,14 @@ class JQuantsProvider:
 
     def __init__(
         self,
-        refresh_token: str,
+        api_key: str,
         cache_dir: Path,
         client: Any | None = None,
         *,
         sqlite_path: Path | None = None,
         cache_only: bool = False,
     ) -> None:
-        self._refresh_token = refresh_token
+        self._api_key = api_key
         self._cache_dir = Path(cache_dir) / "jquants"
         self._client = client
         self._sqlite_path = Path(sqlite_path) if sqlite_path is not None else None
@@ -393,7 +393,7 @@ class JQuantsProvider:
                     break
                 if delay_seconds:
                     time.sleep(delay_seconds)
-        # refresh_token / id_token 等の secret が exception 文字列に含まれる可能性に備えて
+        # api_key / id_token 等の secret が exception 文字列に含まれる可能性に備えて
         # sanitize、さらに `from None` で原因チェーンを切って traceback 漏洩も遮断する。
         sanitized = self._sanitize_secret(str(last_exc)) if last_exc else ""
         exception_name = type(last_exc).__name__ if last_exc else "unknown"
@@ -403,8 +403,8 @@ class JQuantsProvider:
         ) from None
 
     def _sanitize_secret(self, text: str) -> str:
-        if self._refresh_token and self._refresh_token in text:
-            return text.replace(self._refresh_token, "<redacted>")
+        if self._api_key and self._api_key in text:
+            return text.replace(self._api_key, "<redacted>")
         return text
 
     def _cache_path(self, method: str, params: Mapping[str, Any]) -> Path:
@@ -422,7 +422,7 @@ class JQuantsProvider:
             import jquantsapi
         except ModuleNotFoundError as exc:
             raise JQuantsProviderError("jquantsapi is not installed") from exc
-        self._client = jquantsapi.ClientV2(api_key=self._refresh_token)
+        self._client = jquantsapi.ClientV2(api_key=self._api_key)
         return self._client
 
 

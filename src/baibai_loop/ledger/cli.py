@@ -584,7 +584,7 @@ def _load_market_data(
     calendar_days = read_market_calendar(sqlite_path, min(decision_dates), end)
     bars = read_daily_bars(sqlite_path, start, end)
     warnings: list[str] = []
-    token = env.get("JQUANTS_REFRESH_TOKEN")
+    token = env.get("JQUANTS_API_KEY")
     if (calendar_days is None or bars is None) and token:
         # cache_dir / sqlite_cache_dir は固定の相対 path (env override 廃止)。
         # 詳細は screening/config.py の同名コメント参照。`root` 配下に解決する
@@ -603,7 +603,7 @@ def _load_market_data(
         except JQuantsProviderError as exc:
             warnings.append(f"failed to load J-Quants market data: {exc}")
     elif not token and bars is None:
-        warnings.append("JQUANTS_REFRESH_TOKEN is unset and SQLite has no bars")
+        warnings.append("JQUANTS_API_KEY is unset and SQLite has no bars")
     calendar = _business_calendar(calendar_days)
     if not bars:
         warnings.append("no J-Quants bars were loaded; tracking prices stay unfilled")

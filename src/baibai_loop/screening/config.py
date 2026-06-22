@@ -43,7 +43,7 @@ class ConfigError(ValueError):
 class ScreeningConfig(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
-    jquants_refresh_token: str = Field(min_length=1)
+    jquants_api_key: str = Field(min_length=1)
     edinet_api_key: str | None = None
     cache_dir: Path = DEFAULT_CACHE_DIR
     sqlite_cache_dir: Path = DEFAULT_SQLITE_CACHE_DIR
@@ -53,13 +53,13 @@ class ScreeningConfig(BaseModel):
 
     def __init__(
         self,
-        jquants_refresh_token: str | None = None,
+        jquants_api_key: str | None = None,
         edinet_api_key: str | None = None,
         /,
         **data: Any,
     ) -> None:
-        if jquants_refresh_token is not None:
-            data["jquants_refresh_token"] = jquants_refresh_token
+        if jquants_api_key is not None:
+            data["jquants_api_key"] = jquants_api_key
         if edinet_api_key is not None:
             data["edinet_api_key"] = edinet_api_key
         super().__init__(**data)
@@ -93,7 +93,7 @@ class ScreeningConfig(BaseModel):
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> ScreeningConfig:
         source = env if env is not None else os.environ
-        missing = [name for name in ("JQUANTS_REFRESH_TOKEN",) if not source.get(name)]
+        missing = [name for name in ("JQUANTS_API_KEY",) if not source.get(name)]
         if missing:
             missing_names = ", ".join(missing)
             raise ConfigError(f"missing required env vars: {missing_names}")
@@ -113,7 +113,7 @@ class ScreeningConfig(BaseModel):
 
         try:
             return cls(
-                jquants_refresh_token=source["JQUANTS_REFRESH_TOKEN"],
+                jquants_api_key=source["JQUANTS_API_KEY"],
                 edinet_api_key=source.get("EDINET_API_KEY") or None,
                 cache_dir=cache_dir_value,
                 sqlite_cache_dir=sqlite_cache_dir_value,
