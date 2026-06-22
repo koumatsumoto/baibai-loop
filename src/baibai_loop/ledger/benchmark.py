@@ -4,18 +4,16 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 
+from baibai_loop.market.benchmark import (
+    NIKKEI225_ETF_PROXY as NIKKEI225_ETF_PROXY,
+)
+from baibai_loop.market.benchmark import (
+    _benchmark_return,
+    _price_on_or_before,
+)
 from baibai_loop.screening.providers.jquants import JQuantsDailyBar
 
-from .tracking import resolve_price_on_or_before
 from .trades import TradeRecord
-
-# J-Quants does not carry the Nikkei 225 index itself, so forward benchmark-
-# relative return uses an in-universe ETF proxy. 1321 (Nomura Nikkei 225 ETF)
-# is fetched by the same `get_eq_bars_daily_range` call as the holdings, keeping
-# stock and benchmark on one source and price basis. It tracks the index within
-# a small ETF tracking error (~0.3pt over a few weeks), so a proxy-derived
-# relative return is slightly conservative versus the underlying index.
-NIKKEI225_ETF_PROXY = "1321"
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,21 +121,3 @@ def compute_forward_performance(
         positions=tuple(positions),
         warnings=tuple(warnings),
     )
-
-
-def _price_on_or_before(ticker: str, target: date, bars: Sequence[JQuantsDailyBar]) -> float | None:
-    resolved = resolve_price_on_or_before(ticker, target, bars)
-    return resolved.price if resolved is not None else None
-
-
-def _benchmark_return(
-    benchmark_ticker: str,
-    entry_date: date,
-    asof: date,
-    bars: Sequence[JQuantsDailyBar],
-) -> float | None:
-    entry_price = _price_on_or_before(benchmark_ticker, entry_date, bars)
-    eval_price = _price_on_or_before(benchmark_ticker, asof, bars)
-    if entry_price is None or eval_price is None or entry_price == 0:
-        return None
-    return eval_price / entry_price - 1

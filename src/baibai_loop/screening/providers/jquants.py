@@ -3,50 +3,29 @@ from __future__ import annotations
 import time
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta
-from math import isfinite
 from pathlib import Path
 from typing import Any, ClassVar
 
-from pydantic import ConfigDict, field_validator
+from pydantic import field_validator
 from pydantic.dataclasses import dataclass
+
+from baibai_loop.market.bars import (
+    MODEL_CONFIG,
+    validate_finite,
+)
+from baibai_loop.market.bars import (
+    JQuantsDailyBar as JQuantsDailyBar,
+)
 
 from ..config import JQUANTS_CLIENT_V2_METHODS
 from ..schema import SecurityMaster, normalize_ticker
-
-_MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False)
 
 
 class JQuantsProviderError(RuntimeError):
     """Raised when a required J-Quants fetch or normalization fails."""
 
 
-def _validate_finite(value: float | None) -> float | None:
-    if value is not None and not isfinite(value):
-        raise ValueError("numeric values must be finite")
-    return value
-
-
-@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
-class JQuantsDailyBar:
-    ticker: str
-    traded_at: date
-    close: float
-    turnover_value: float | None
-    adjustment_close: float | None = None
-    adjustment_factor: float | None = None
-
-    @field_validator("ticker", mode="before")
-    @classmethod
-    def _normalize_ticker_field(cls, value: str) -> str:
-        return normalize_ticker(value)
-
-    @field_validator("close", "turnover_value", "adjustment_close", "adjustment_factor")
-    @classmethod
-    def _finite_numeric_fields(cls, value: float | None) -> float | None:
-        return _validate_finite(value)
-
-
-@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
+@dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
 class JQuantsFinancialSummary:
     ticker: str
     disclosed_at: date
@@ -88,10 +67,10 @@ class JQuantsFinancialSummary:
     )
     @classmethod
     def _finite_numeric_fields(cls, value: float | None) -> float | None:
-        return _validate_finite(value)
+        return validate_finite(value)
 
 
-@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
+@dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
 class JQuantsMarketCalendarDay:
     day: date
     is_business_day: bool
