@@ -39,6 +39,9 @@ jobs:
       - name: Type check
         run: uv run mypy
 
+      - name: Import contracts
+        run: uv run lint-imports
+
       - name: Block tracked raw screening cache
         run: |
           if git ls-files 'records/_data/raw/screening' 'records/_data/cache' | grep -q .; then
