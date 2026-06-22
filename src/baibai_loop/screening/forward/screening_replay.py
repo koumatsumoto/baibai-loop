@@ -13,6 +13,7 @@ from baibai_loop.foundation.coerce import (
     string_or_empty,
     string_sequence,
 )
+from baibai_loop.position.benchmark import NIKKEI225_ETF_PROXY
 from baibai_loop.screening.regime import MarketRegimeSnapshot, compute_market_regime
 from baibai_loop.screening.rule_config import ScreeningRules
 from baibai_loop.screening.selection import (
@@ -24,7 +25,6 @@ from baibai_loop.screening.selection import (
     load_prior_research,
 )
 
-from .benchmark import NIKKEI225_ETF_PROXY
 from .forward_return import (
     DEFAULT_HORIZON_WEEKS,
     HorizonAggregate,

@@ -7,15 +7,15 @@ from pathlib import Path
 
 import yaml
 
-from baibai_loop.ledger.cohort_scorecard import (
+from baibai_loop.screening.forward.cohort_scorecard import (
     LaneDecision,
     _bootstrap_mean_ci,
     _decide,
     run_lane_scorecard,
     scorecard_to_payload,
 )
-from baibai_loop.ledger.lane_cohorts import ALL_CANDIDATES_COHORT
-from baibai_loop.ledger.weeks import discover_week_specs
+from baibai_loop.screening.forward.lane_cohorts import ALL_CANDIDATES_COHORT
+from baibai_loop.screening.forward.weeks import discover_week_specs
 from baibai_loop.screening.sqlite_cache import open_connection
 
 _ASOF = date(2026, 5, 1)
@@ -222,12 +222,12 @@ class RunScorecardTests(unittest.TestCase):
     def test_proposal_recommended_queue_scored_against_baseline(self) -> None:
         from unittest import mock
 
-        from baibai_loop.ledger.cohort_scorecard import (
+        from baibai_loop.screening.forward.cohort_scorecard import (
             RECOMMENDED_QUEUE_COHORT,
             run_proposal_scorecard,
         )
-        from baibai_loop.ledger.forward_return import HorizonReturn, TickerForwardReturn
-        from baibai_loop.ledger.screening_replay import ProfileWeekResult, ReplayResult
+        from baibai_loop.screening.forward.forward_return import HorizonReturn, TickerForwardReturn
+        from baibai_loop.screening.forward.screening_replay import ProfileWeekResult, ReplayResult
         from baibai_loop.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
 
         target = _ASOF + timedelta(days=28)
@@ -276,7 +276,8 @@ class RunScorecardTests(unittest.TestCase):
             root = Path(raw)
             sqlite_path = self._build_fixture(root)
             with mock.patch(
-                "baibai_loop.ledger.cohort_scorecard.run_replay", return_value=fake_replay
+                "baibai_loop.screening.forward.cohort_scorecard.run_replay",
+                return_value=fake_replay,
             ):
                 result = run_proposal_scorecard(
                     discover_week_specs(root),

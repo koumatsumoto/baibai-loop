@@ -7,7 +7,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from baibai_loop.ledger.io import validate_decision_register_jsonl
+from baibai_loop.position.io import validate_decision_register_jsonl
 
 from .errors import ValidationFinding
 

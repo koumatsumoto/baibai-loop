@@ -27,9 +27,9 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from baibai_loop.position.benchmark import NIKKEI225_ETF_PROXY
 from baibai_loop.screening.rule_config import ScreeningRules
 
-from .benchmark import NIKKEI225_ETF_PROXY
 from .lane_cohorts import ALL_CANDIDATES_COHORT, DEFAULT_COHORT_HORIZON_WEEKS, pool_lane_relatives
 from .screening_replay import run_replay
 from .weeks import WeekSpec

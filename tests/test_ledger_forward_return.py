@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from baibai_loop.ledger.forward_return import (
+from baibai_loop.screening.forward.forward_return import (
     aggregate_forward_returns,
     compute_ticker_forward_returns,
     latest_bar_date,

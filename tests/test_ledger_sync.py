@@ -10,8 +10,8 @@ import pytest
 import yaml
 
 from baibai_loop.ledger.cli import _discover_decision_dates, _load_market_data, main
-from baibai_loop.ledger.io import diff_jsonl, read_jsonl, write_jsonl
-from baibai_loop.ledger.sync import sync_ledger
+from baibai_loop.position.io import diff_jsonl, read_jsonl, write_jsonl
+from baibai_loop.position.sync import sync_ledger
 
 
 def _seed(root: Path) -> None:

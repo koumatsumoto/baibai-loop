@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 
+from baibai_loop.market.bars import JQuantsDailyBar
 from baibai_loop.market.benchmark import (
     NIKKEI225_ETF_PROXY as NIKKEI225_ETF_PROXY,
 )
@@ -11,7 +12,6 @@ from baibai_loop.market.benchmark import (
     _benchmark_return,
     _price_on_or_before,
 )
-from baibai_loop.screening.providers.jquants import JQuantsDailyBar
 
 from .trades import TradeRecord
 

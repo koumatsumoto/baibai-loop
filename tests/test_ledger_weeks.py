@@ -5,7 +5,7 @@ import unittest
 from datetime import date
 from pathlib import Path
 
-from baibai_loop.ledger.weeks import WeekSpec, discover_week_specs, load_week_candidates
+from baibai_loop.screening.forward.weeks import WeekSpec, discover_week_specs, load_week_candidates
 
 
 def _write_week(root: Path, asof: str, body: str) -> Path:

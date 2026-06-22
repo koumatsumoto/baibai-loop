@@ -10,7 +10,7 @@ from typing import Any, Literal
 from baibai_loop.foundation.coerce import optional_float
 from baibai_loop.foundation.time import JST
 from baibai_loop.foundation.yaml_io import safe_load
-from baibai_loop.screening.providers.jquants import JQuantsDailyBar
+from baibai_loop.market.bars import JQuantsDailyBar
 
 from .io import diff_jsonl, write_jsonl
 from .records import DecisionRegisterRecord, Tracking
