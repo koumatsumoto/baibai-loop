@@ -285,10 +285,10 @@ series:
     frequency: monthly
     unit: jpy-100m
     provider: boj
-    provider_series_id: "BS01'MABJMTA"
-    source_id: boj-timeseries
-    source_url: https://www.stat-search.boj.or.jp/ssi/mtshtml/csv/bs01_mabjmta_m_en.csv
-    notes: BOJデータコードとCSV URLはstat-searchの実画面で要確認。マネタリーベース平均残高(月次・億円)
+    provider_series_id: "3"
+    source_id: boj-mblong
+    source_url: https://www.boj.or.jp/statistics/boj/other/mb/mblong.xlsx
+    notes: BOJ長期時系列xlsx(平残シート)のC列=マネタリーベース(月次・億円)。provider_series_idは1始まりの値列番号。live確認済
     aliases: [マネタリーベース, monetary base, BOJ monetary base, マネタリーベース平均残高]
   - series_id: jp.cpi.headline
     name: 日本CPI総合
@@ -297,10 +297,10 @@ series:
     frequency: monthly
     unit: index
     provider: estat
-    provider_series_id: "0003427113"
+    provider_series_id: "0003427113?cdCat01=0001&cdArea=00000&cdTab=1"
     source_id: estat-cpi
     source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
-    notes: statsDataIdは要確認(e-Statの全国CPI総合指数)。FRED日本CPI系列が廃止のためe-Statを使用
+    notes: e-Stat CPI表 0003427113 を cdCat01=0001(総合)・cdArea=00000(全国) で総合・全国に絞る。FRED日本CPI系列が廃止のためe-Statを使用。live確認済
     aliases: [日本CPI, JP CPI, CPI総合, 全国CPI]
   - series_id: jp.foreign_flows
     name: 海外投資家ネット買い越し額(週次)

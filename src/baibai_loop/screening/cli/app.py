@@ -287,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
     providers = ProviderBundle(
         jquants=JQuantsProvider(
-            config.jquants_refresh_token,
+            config.jquants_api_key,
             config.cache_dir,
             sqlite_path=sqlite_path,
             cache_only=args.command == "run",

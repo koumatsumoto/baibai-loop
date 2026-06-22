@@ -16,9 +16,9 @@ from .base import (
 )
 
 # screening と同じ資格情報を使う。env 名は screening 側 (ScreeningConfig.from_env が読む
-# "JQUANTS_REFRESH_TOKEN") と一致させ、stats 用に別 secret を増やさない。
+# "JQUANTS_API_KEY") と一致させ、stats 用に別 secret を増やさない。
 # Env var name (a credential key, not a secret value); B105 false positive.
-_REFRESH_TOKEN_ENV = "JQUANTS_REFRESH_TOKEN"  # nosec B105
+_API_KEY_ENV = "JQUANTS_API_KEY"  # nosec B105
 
 # 投資部門別売買状況は市場区分ごとに 1 週 1 行を返す。区分を絞らないと同一週に複数区分が
 # 並んで単一時系列にならないため、海外勢フローが最も効く東証プライムに固定する。
@@ -70,8 +70,8 @@ class JQuantsFlowsProvider:
         session: HttpSession,
         context: FetchContext | None = None,
     ) -> list[ObservationRecord]:
-        refresh_token = _read_refresh_token()
-        rows = _fetch_trades_spec(refresh_token, start=start, end=end)
+        api_key = _read_api_key()
+        rows = _fetch_trades_spec(api_key, start=start, end=end)
         return parse_trades_spec(series, rows, start=start, end=end)
 
 
@@ -106,23 +106,22 @@ def parse_trades_spec(
     return observations
 
 
-def _read_refresh_token() -> str:
+def _read_api_key() -> str:
     load_project_env()
-    token = os.environ.get(_REFRESH_TOKEN_ENV)
+    token = os.environ.get(_API_KEY_ENV)
     if not token:
         raise StatsProviderError(
-            f"missing {_REFRESH_TOKEN_ENV}; set it in the environment or .env "
-            "to fetch jquants_flows"
+            f"missing {_API_KEY_ENV}; set it in the environment or .env to fetch jquants_flows"
         )
     return token
 
 
-def _fetch_trades_spec(refresh_token: str, *, start: date, end: date) -> list[Mapping[str, object]]:
+def _fetch_trades_spec(api_key: str, *, start: date, end: date) -> list[Mapping[str, object]]:
     try:
         import jquantsapi
     except ModuleNotFoundError as exc:
         raise StatsProviderError("jquantsapi is not installed") from exc
-    client = jquantsapi.ClientV2(api_key=refresh_token)
+    client = jquantsapi.ClientV2(api_key=api_key)
     try:
         frame = client.get_eq_investor_types(
             section=_MARKET_SECTION,
@@ -130,8 +129,8 @@ def _fetch_trades_spec(refresh_token: str, *, start: date, end: date) -> list[Ma
             to_yyyymmdd=end.strftime("%Y%m%d"),
         )
     except Exception as exc:
-        # refresh_token が例外文字列に混入し得るので redact し、from None で原因チェーンも断つ。
-        sanitized = _redact(str(exc), refresh_token)
+        # api_key が例外文字列に混入し得るので redact し、from None で原因チェーンも断つ。
+        sanitized = _redact(str(exc), api_key)
         raise StatsProviderError(
             f"failed to fetch jquants_flows trades_spec: {type(exc).__name__}: {sanitized}"
         ) from None

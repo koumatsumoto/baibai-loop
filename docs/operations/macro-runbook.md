@@ -34,8 +34,8 @@ uv run baibai-loop-stats get jp.policy_rate --latest
 | `frb_h15` | 無認証 CSV（H.15 package） | 米国債金利・スプレッド | 1 package を `FetchContext` で series 横断に 1 回 DL（bulk dedup） |
 | `ecb_fx` | 無認証 ZIP | JPY クロス（USD/EUR/AUD） | ZIP 1 ファイルを横断共有。JPY と基軸通貨の比で算出 |
 | `estat` | API（`ESTAT_APP_ID` 必須） | JP 公式マクロ（CPI・鉱工業生産・小売 等） | appId を env/.env に設定。`statsDataId` は e-Stat で確認。JP CPI の一次ソースはここ |
-| `jquants_flows` | 認証（J-Quants refresh token） | JP 市場内部（海外投資家フロー 等） | screening と同じ credential を共用。週次 trades_spec |
-| `boj` | 無認証 CSV | BOJ 時系列（マネタリーベース・短観 等） | データコードと CSV URL を BOJ stat-search で確認。文字コードは UTF-8/cp932 fallback |
+| `jquants_flows` | 認証（J-Quants API キー `JQUANTS_API_KEY`） | JP 市場内部（海外投資家フロー 等） | screening と同じ credential を共用。週次 trades_spec |
+| `boj` | 無認証 xlsx | BOJ 長期時系列（マネタリーベース 等） | 安定 URL の `mblong.xlsx`（平残シート）を openpyxl で読む。`provider_series_id` は値列番号（C 列=マネタリーベース=3） |
 | `manual` | ローカル file | 倒産件数（東商リサーチ）・PMI（au Jibun/S&P） | clean な無料 API が無い。`providers/manual_data.yaml` に手動更新し、値は必ず一次ソースで検証してから使う |
 
 新ソース追加 = provider モジュールを 1 つ足して `series.yaml` に series を登録するだけ（`src/baibai_loop/stats/providers/` に 1 ファイル）。1 series_id = 1 provider を厳守する。

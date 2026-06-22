@@ -16,7 +16,7 @@ class ScreeningConfigTests(unittest.TestCase):
     def test_from_env_uses_default_cache_dir(self) -> None:
         config = ScreeningConfig.from_env(
             {
-                "JQUANTS_REFRESH_TOKEN": "token",
+                "JQUANTS_API_KEY": "token",
                 "EDINET_API_KEY": "key",
             }
         )
@@ -28,7 +28,7 @@ class ScreeningConfigTests(unittest.TestCase):
         # hardcode 化、stale .env が canonical を見失う regression を防ぐ)。
         config = ScreeningConfig.from_env(
             {
-                "JQUANTS_REFRESH_TOKEN": "token",
+                "JQUANTS_API_KEY": "token",
                 "EDINET_API_KEY": "key",
                 "SCREENING_CACHE_DIR": "/tmp/cache",
             }
@@ -39,7 +39,7 @@ class ScreeningConfigTests(unittest.TestCase):
     def test_from_env_collects_jpx_regulation_urls(self) -> None:
         config = ScreeningConfig.from_env(
             {
-                "JQUANTS_REFRESH_TOKEN": "token",
+                "JQUANTS_API_KEY": "token",
                 "EDINET_API_KEY": "key",
                 "JPX_SPECIAL_CAUTION_URL": "https://example.com/special.csv",
                 "JPX_TRADING_HALT_URL": "https://example.com/halt.csv",
@@ -57,7 +57,7 @@ class ScreeningConfigTests(unittest.TestCase):
     def test_from_env_supports_special_caution_index_url(self) -> None:
         config = ScreeningConfig.from_env(
             {
-                "JQUANTS_REFRESH_TOKEN": "token",
+                "JQUANTS_API_KEY": "token",
                 "EDINET_API_KEY": "key",
                 "JPX_SPECIAL_CAUTION_INDEX_URL": "https://www.jpx.co.jp/markets/statistics-equities/margin/index.html",
             }

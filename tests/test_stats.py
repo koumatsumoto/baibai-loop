@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import io
 import json
 import sqlite3
 import tempfile
 import unittest
+import zipfile
 from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest.mock import patch
 
+import openpyxl
 import requests
 
 from baibai_loop.stats.cli import main
@@ -28,7 +31,7 @@ from baibai_loop.stats.definitions import SeriesDefinition, load_definitions
 from baibai_loop.stats.providers import (
     StatsProviderError,
     fetch_observations,
-    parse_boj_csv,
+    parse_boj_xlsx,
     parse_ecb_fx_csv,
     parse_estat_json,
     parse_fred_csv,
@@ -357,50 +360,65 @@ class StatsProviderParserTests(unittest.TestCase):
         self.assertEqual(observations[0].observed_at, date(2026, 3, 1))
         self.assertEqual(observations[0].value, 950.0)
 
-    def test_parse_boj_csv_filters_range_and_missing_values(self) -> None:
-        series = _series("boj", "BS01'MABJMTA", unit="jpy-100m")
-        text = "\n".join(
+    def test_parse_boj_xlsx_extracts_value_column_and_filters_range(self) -> None:
+        content = _boj_workbook_bytes(
             [
-                '"Series code","BS01\'MABJMTA"',
-                '"Description","Monetary Base"',
-                '"2026/01","350000"',
-                '"2026/02","NA"',
-                '"2026/03","360000"',
-                '"2026/04","370000"',
+                (None, date(2026, 1, 31), 350000.0, 9999.0),
+                (None, date(2026, 2, 28), 360000.0, 9999.0),
+                (None, date(2026, 3, 31), 370000.0, 9999.0),
             ]
         )
+        series = _series("boj", "3", unit="jpy-100m")
 
-        observations = parse_boj_csv(series, text, start=date(2026, 2, 1), end=date(2026, 3, 31))
-
-        self.assertEqual(len(observations), 1)
-        self.assertEqual(observations[0].observed_at, date(2026, 3, 1))
-        self.assertEqual(observations[0].value, 360000.0)
-
-    def test_parse_boj_csv_rejects_missing_series_code(self) -> None:
-        series = _series("boj", "BS01'MABJMTA", unit="jpy-100m")
-        text = '"Series code","BS01\'OTHER"\n"2026/01","350000"\n'
-
-        with self.assertRaisesRegex(StatsProviderError, "missing series code"):
-            parse_boj_csv(series, text, start=date(2026, 1, 1), end=date(2026, 1, 31))
-
-    def test_parse_boj_csv_parses_japanese_month_dates(self) -> None:
-        series = _series("boj", "BS01'MABJMTA", unit="jpy-100m")
-        text = "\n".join(
-            [
-                "Series code,BS01'MABJMTA",
-                "2026/01,350000",
-                "2026-02,360000",
-                "2026/03/31,370000",
-            ]
+        observations = parse_boj_xlsx(
+            series, content, start=date(2026, 2, 1), end=date(2026, 3, 31)
         )
-
-        observations = parse_boj_csv(series, text, start=date(2026, 1, 1), end=date(2026, 3, 31))
 
         self.assertEqual(
-            [obs.observed_at for obs in observations],
-            [date(2026, 1, 1), date(2026, 2, 1), date(2026, 3, 31)],
+            [(obs.observed_at, obs.value) for obs in observations],
+            [(date(2026, 2, 1), 360000.0), (date(2026, 3, 1), 370000.0)],
         )
-        self.assertEqual(observations[0].value, 350000.0)
+
+    def test_parse_boj_xlsx_skips_header_and_valueless_rows(self) -> None:
+        content = _boj_workbook_bytes(
+            [
+                ("マネタリーベース", None, None, None),
+                (None, date(2026, 1, 31), None, None),
+                (None, date(2026, 2, 28), 360000.0, None),
+            ]
+        )
+        series = _series("boj", "3", unit="jpy-100m")
+
+        observations = parse_boj_xlsx(
+            series, content, start=date(2026, 1, 1), end=date(2026, 12, 31)
+        )
+
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0].value, 360000.0)
+
+    def test_parse_boj_xlsx_rejects_non_xlsx_bytes(self) -> None:
+        series = _series("boj", "3", unit="jpy-100m")
+
+        with self.assertRaisesRegex(StatsProviderError, "not a .xlsx"):
+            parse_boj_xlsx(series, b"not a zip", start=date(2026, 1, 1), end=date(2026, 12, 31))
+
+    def test_parse_boj_xlsx_rejects_non_numeric_column_index(self) -> None:
+        content = _boj_workbook_bytes([(None, date(2026, 1, 31), 1.0, 2.0)])
+        series = _series("boj", "BS01'MABJMTA", unit="jpy-100m")
+
+        with self.assertRaisesRegex(StatsProviderError, "1-based column index"):
+            parse_boj_xlsx(series, content, start=date(2026, 1, 1), end=date(2026, 12, 31))
+
+    def test_parse_boj_xlsx_wraps_corrupt_zip_as_provider_error(self) -> None:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("not-a-workbook.txt", "garbage")
+        series = _series("boj", "3", unit="jpy-100m")
+
+        with self.assertRaisesRegex(StatsProviderError, "could not be read"):
+            parse_boj_xlsx(
+                series, buffer.getvalue(), start=date(2026, 1, 1), end=date(2026, 12, 31)
+            )
 
     def test_parse_estat_json_filters_range_and_skips_nonnumeric(self) -> None:
         series = _series("estat", "0003427113", unit="index")
@@ -452,6 +470,19 @@ class StatsProviderParserTests(unittest.TestCase):
 
         with self.assertRaisesRegex(StatsProviderError, "GET_STATS_DATA"):
             parse_estat_json(series, "{}", start=date(2026, 1, 1), end=date(2026, 12, 31))
+
+    def test_split_stats_data_id_extracts_narrowing_params(self) -> None:
+        from baibai_loop.stats.providers.estat import _split_stats_data_id
+
+        stats_id, narrowing = _split_stats_data_id("0003427113?cdCat01=0001&cdArea=00000&cdTab=1")
+
+        self.assertEqual(stats_id, "0003427113")
+        self.assertEqual(narrowing, {"cdCat01": "0001", "cdArea": "00000", "cdTab": "1"})
+
+    def test_split_stats_data_id_without_query_returns_empty_params(self) -> None:
+        from baibai_loop.stats.providers.estat import _split_stats_data_id
+
+        self.assertEqual(_split_stats_data_id("0003427113"), ("0003427113", {}))
 
     def test_parse_trades_spec_filters_range_and_uses_foreign_balance(self) -> None:
         series = _series("jquants_flows", "foreigners_net_value", unit="jpy")
@@ -631,6 +662,16 @@ def _series(provider: str, provider_series_id: str, *, unit: str = "percent") ->
         source_id="test-source",
         source_url="https://example.com/data.csv",
     )
+
+
+def _boj_workbook_bytes(rows: list[tuple[object, ...]]) -> bytes:
+    workbook = openpyxl.Workbook()
+    worksheet = workbook.active
+    for row in rows:
+        worksheet.append(list(row))
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
 
 
 def _write_observation_with_coverage(

@@ -12,7 +12,7 @@ from .base import (
     MacroDataProvider,
     StatsProviderError,
 )
-from .boj import BojProvider, parse_boj_csv
+from .boj import BojProvider, parse_boj_xlsx
 from .ecb_fx import EcbFxProvider, parse_ecb_fx_csv
 from .estat import EStatProvider, parse_estat_json
 from .frb_h15 import FrbH15Provider, parse_h15_csv
@@ -25,7 +25,7 @@ __all__ = [
     "MacroDataProvider",
     "StatsProviderError",
     "fetch_observations",
-    "parse_boj_csv",
+    "parse_boj_xlsx",
     "parse_ecb_fx_csv",
     "parse_estat_json",
     "parse_fred_csv",

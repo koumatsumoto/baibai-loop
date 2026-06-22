@@ -1,34 +1,35 @@
 from __future__ import annotations
 
-import csv
 import io
+import math
+import zipfile
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, datetime
+
+import openpyxl
 
 from ..db import ObservationRecord
 from ..definitions import SeriesDefinition
 from .base import (
-    MAX_CSV_RESPONSE_BYTES,
+    MAX_ZIP_RESPONSE_BYTES,
     FetchContext,
     HttpSession,
     StatsProviderError,
     fetch_bytes,
-    parse_optional_float,
     record_observation,
 )
 
-# BOJ stat-search flags gaps with these tokens; each means "no observation".
-_BOJ_MISSING_VALUES = frozenset({"", "NA", "ND", "*", "."})
-
 
 class BojProvider:
-    """Bank of Japan time-series stat-search CSV (no auth).
+    """Bank of Japan long time-series Excel workbook (no auth).
 
-    The download carries Japanese description rows and is encoded Shift-JIS
-    (cp932), so we fetch raw bytes and decode utf-8-sig first, falling back to
-    cp932 when that fails. Values are keyed off provider_series_id: the column
-    that holds the data code in the header row is the same column that holds
-    values in every date row, so column 0 is always the time period.
+    BOJ publishes stable ``.xlsx`` long-series workbooks (e.g. the monetary base
+    at ``other/mb/mblong.xlsx``); the stat-search interactive CSV is session /
+    cgi based and not a stable GET URL. The first sheet holds the headline series
+    with a month-end date in the date column and values in numbered data columns.
+    ``provider_series_id`` is the 1-based value column (e.g. "3" = Monetary Base
+    in mblong.xlsx). Observations are normalised to the first of the month so they
+    align with the other monthly series (FRED / e-Stat).
     """
 
     name = "boj"
@@ -46,71 +47,77 @@ class BojProvider:
             session,
             series.source_url,
             params=None,
-            max_bytes=MAX_CSV_RESPONSE_BYTES,
+            max_bytes=MAX_ZIP_RESPONSE_BYTES,
             context=context,
         )
-        return parse_boj_csv(series, _decode_boj_csv(content), start=start, end=end)
+        return parse_boj_xlsx(series, content, start=start, end=end)
 
 
-def parse_boj_csv(
-    series: SeriesDefinition, text: str, *, start: date, end: date
+def parse_boj_xlsx(
+    series: SeriesDefinition, content: bytes, *, start: date, end: date
 ) -> list[ObservationRecord]:
-    rows = [[cell.strip() for cell in row] for row in csv.reader(io.StringIO(text))]
-    value_col = _find_value_column(rows, series.provider_series_id)
+    value_col = _value_column_index(series.provider_series_id)
+    if not zipfile.is_zipfile(io.BytesIO(content)):
+        raise StatsProviderError("BOJ response is not a .xlsx (zip) workbook")
     observations: list[ObservationRecord] = []
     saw_date_row = False
-    for row in rows:
-        if not row:
-            continue
-        observed_at = _parse_boj_date(row[0])
-        if observed_at is None:
-            continue
-        saw_date_row = True
-        if value_col >= len(row):
-            continue
-        raw_value = row[value_col]
-        if raw_value in _BOJ_MISSING_VALUES:
-            continue
-        value = parse_optional_float(raw_value)
-        if value is None:
-            continue
-        if start <= observed_at <= end:
-            observations.append(record_observation(series, observed_at=observed_at, value=value))
+    try:
+        workbook = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        try:
+            worksheet = workbook[workbook.sheetnames[0]]
+            for row in worksheet.iter_rows(values_only=True):
+                cells: Sequence[object] = row
+                observed_at = _row_month(cells)
+                if observed_at is None:
+                    continue
+                saw_date_row = True
+                cell = cells[value_col - 1] if value_col - 1 < len(cells) else None
+                value = _cell_float(cell)
+                if value is None:
+                    continue
+                if start <= observed_at <= end:
+                    observations.append(
+                        record_observation(series, observed_at=observed_at, value=value)
+                    )
+        finally:
+            workbook.close()
+    except Exception as exc:
+        # openpyxl / ElementTree raise opaque third-party errors on a corrupt or
+        # non-xlsx workbook (InvalidFileException, ParseError, IndexError on an
+        # empty workbook); convert them so the stats CLI never leaks a traceback.
+        raise StatsProviderError(f"BOJ workbook could not be read: {exc}") from exc
     if not saw_date_row:
-        raise StatsProviderError("BOJ CSV has no parseable date rows")
+        raise StatsProviderError("BOJ workbook has no parseable date rows")
     return observations
 
 
-def _find_value_column(rows: Sequence[Sequence[str]], provider_series_id: str) -> int:
-    # Column 0 holds the time period, so the data code lives in a value column.
-    for row in rows:
-        for index, cell in enumerate(row):
-            if index >= 1 and cell == provider_series_id:
-                return index
-    raise StatsProviderError(f"BOJ CSV missing series code {provider_series_id}")
-
-
-def _parse_boj_date(raw: str) -> date | None:
-    parts = raw.strip().replace("/", "-").split("-")
-    if len(parts) not in {2, 3}:
-        return None
-    year_text = parts[0]
-    if len(year_text) != 4 or not year_text.isdigit():
-        return None
+def _value_column_index(provider_series_id: str) -> int:
     try:
-        year = int(year_text)
-        month = int(parts[1])
-        day = int(parts[2]) if len(parts) == 3 else 1
+        index = int(provider_series_id)
     except ValueError:
-        return None
-    try:
-        return date(year, month, day)
-    except ValueError:
-        return None
+        raise StatsProviderError(
+            f"BOJ provider_series_id must be a 1-based column index: {provider_series_id!r}"
+        ) from None
+    if index < 2:
+        raise StatsProviderError(
+            f"BOJ value column index must be a 1-based value column (>= 2): {index}"
+        )
+    return index
 
 
-def _decode_boj_csv(content: bytes) -> str:
-    try:
-        return content.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        return content.decode("cp932")
+def _row_month(cells: Sequence[object]) -> date | None:
+    for cell in cells:
+        if isinstance(cell, datetime):
+            return date(cell.year, cell.month, 1)
+        if isinstance(cell, date):
+            return date(cell.year, cell.month, 1)
+    return None
+
+
+def _cell_float(cell: object) -> float | None:
+    if isinstance(cell, bool):
+        return None
+    if isinstance(cell, (int, float)):
+        value = float(cell)
+        return value if math.isfinite(value) else None
+    return None

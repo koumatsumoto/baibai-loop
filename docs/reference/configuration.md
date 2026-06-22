@@ -25,9 +25,9 @@ Configuration は runtime boundary です。secret や token の値は docs に�
 
 | input | 用途 | 主な利用箇所 |
 | --- | --- | --- |
-| `JQUANTS_REFRESH_TOKEN` | J-Quants API access / ledger sync | screening / ledger provider |
+| `JQUANTS_API_KEY` | J-Quants API v2 access（ダッシュボード発行の API キー、x-api-key）/ ledger sync | screening / ledger / stats provider |
 | `SCREENING_RULES_PATH` | screening rules / selection profile の既定 YAML path override | `baibai-loop-screening select`, `run` |
-| `ESTAT_APP_ID` | e-Stat API access。macro stats の日本統計 adapter を追加するときに使う未実装の future provider | `baibai-loop-stats` future provider |
+| `ESTAT_APP_ID` | e-Stat API access。日本 CPI 等の公式統計を取得する `estat` provider が使う | `baibai-loop-stats`（estat provider） |
 
 ## Macro statistics cache
 
@@ -38,7 +38,7 @@ uv run baibai-loop-stats search CPI
 uv run baibai-loop-stats get us.10y --start 2026-05-01 --end 2026-05-15
 ```
 
-v1 は keyless CSV で取得できる FRB H.15、FRED CSV、ECB FX を優先する。日本 CPI / BOJ rate などの日本マクロ統計は e-Stat / BOJ の安定 series id と認証運用が固まるまで未実装。HTML / PDF scraping やニュース本文取得は対象外。
+keyless で取得できる FRED CSV / FRB H.15 / ECB FX に加え、日本マクロは `estat`（日本 CPI、要 `ESTAT_APP_ID`）・`boj`（マネタリーベース xlsx、無認証）・`jquants_flows`（海外投資家フロー、要 `JQUANTS_API_KEY`）・`manual`（倒産・PMI、手動 file）で取得する。汎用の HTML / PDF scraping やニュース本文取得は対象外。
 
 ## Screening selection profile
 

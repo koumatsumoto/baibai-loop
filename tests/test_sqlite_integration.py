@@ -304,7 +304,7 @@ class ScreeningRunOverSqliteTests(unittest.TestCase):
                 )
                 providers = ProviderBundle(
                     jquants=JQuantsProvider(
-                        config.jquants_refresh_token,
+                        config.jquants_api_key,
                         config.cache_dir,
                         sqlite_path=sqlite_path,
                     ),
@@ -353,7 +353,7 @@ class LedgerSyncOverSqliteTests(unittest.TestCase):
             research_path.parent.mkdir(parents=True)
             research_path.write_text("---\nticker: 130A\n---\n", encoding="utf-8")
 
-            env = {"JQUANTS_REFRESH_TOKEN": "token"}
+            env = {"JQUANTS_API_KEY": "token"}
 
             calendar, bars, warnings = _load_market_data(workspace, env)
 

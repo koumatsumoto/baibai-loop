@@ -163,7 +163,7 @@ def test_ledger_cli_warns_when_jquants_token_is_missing(tmp_path: Path) -> None:
     assert calendar == ()
     assert bars == ()
     assert warnings == (
-        "JQUANTS_REFRESH_TOKEN is unset and SQLite has no bars",
+        "JQUANTS_API_KEY is unset and SQLite has no bars",
         "no J-Quants bars were loaded; tracking prices stay unfilled",
     )
 
@@ -179,7 +179,7 @@ def test_ledger_cli_require_market_data_fails_without_token(
 ) -> None:
     _seed(tmp_path)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("JQUANTS_REFRESH_TOKEN", raising=False)
+    monkeypatch.delenv("JQUANTS_API_KEY", raising=False)
     assert main(["sync", "--root", str(tmp_path), "--dry-run", "--require-market-data"]) == 1
 
 
@@ -190,15 +190,15 @@ def test_ledger_cli_loads_dotenv_from_root_not_cwd(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     _seed(repo_root)
-    (repo_root / ".env").write_text("JQUANTS_REFRESH_TOKEN=from_root_dotenv\n", encoding="utf-8")
+    (repo_root / ".env").write_text("JQUANTS_API_KEY=from_root_dotenv\n", encoding="utf-8")
 
     other_dir = tmp_path / "elsewhere"
     other_dir.mkdir()
     monkeypatch.chdir(other_dir)
-    monkeypatch.delenv("JQUANTS_REFRESH_TOKEN", raising=False)
+    monkeypatch.delenv("JQUANTS_API_KEY", raising=False)
 
     main(["sync", "--root", str(repo_root), "--dry-run", "--require-market-data"])
-    assert os.environ["JQUANTS_REFRESH_TOKEN"] == "from_root_dotenv"
+    assert os.environ["JQUANTS_API_KEY"] == "from_root_dotenv"
 
 
 def test_ledger_cli_require_market_data_emits_diagnostic_when_no_research(
@@ -207,7 +207,7 @@ def test_ledger_cli_require_market_data_emits_diagnostic_when_no_research(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("JQUANTS_REFRESH_TOKEN", "dummy-token")
+    monkeypatch.setenv("JQUANTS_API_KEY", "dummy-token")
     (tmp_path / "records/05-research").mkdir(parents=True)
     assert main(["sync", "--root", str(tmp_path), "--dry-run", "--require-market-data"]) == 1
     assert "no market data" in capsys.readouterr().err
