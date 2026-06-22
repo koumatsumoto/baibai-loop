@@ -285,10 +285,10 @@ series:
     frequency: monthly
     unit: jpy-100m
     provider: boj
-    provider_series_id: "BS01'MABJMTA"
-    source_id: boj-timeseries
-    source_url: https://www.stat-search.boj.or.jp/ssi/mtshtml/csv/bs01_mabjmta_m_en.csv
-    notes: BOJデータコードとCSV URLはstat-searchの実画面で要確認。マネタリーベース平均残高(月次・億円)
+    provider_series_id: "3"
+    source_id: boj-mblong
+    source_url: https://www.boj.or.jp/statistics/boj/other/mb/mblong.xlsx
+    notes: BOJ長期時系列xlsx(平残シート)のC列=マネタリーベース(月次・億円)。provider_series_idは1始まりの値列番号。live確認済
     aliases: [マネタリーベース, monetary base, BOJ monetary base, マネタリーベース平均残高]
   - series_id: jp.cpi.headline
     name: 日本CPI総合

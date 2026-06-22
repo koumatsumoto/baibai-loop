@@ -71,7 +71,8 @@ def _split_stats_data_id(provider_series_id: str) -> tuple[str, dict[str, str]]:
     narrowing: dict[str, str] = {}
     for pair in query.split("&"):
         key, _, value = pair.partition("=")
-        if key:
+        # skip empty pairs; never let narrowing override the request identity params
+        if key and value and key not in {"appId", "statsDataId"}:
             narrowing[key] = value
     return stats_data_id, narrowing
 
