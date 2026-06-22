@@ -8,7 +8,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from baibai_loop.yaml_io import safe_load
+from baibai_loop.foundation.yaml_io import safe_load
 
 
 @dataclass(frozen=True, slots=True)

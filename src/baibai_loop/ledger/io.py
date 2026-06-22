@@ -5,7 +5,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from baibai_loop.screening.filesystem import write_text_atomic
+from baibai_loop.foundation.filesystem import write_text_atomic
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:

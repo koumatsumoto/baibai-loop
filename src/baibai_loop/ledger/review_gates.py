@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from baibai_loop.date_utils import add_business_days
+from baibai_loop.foundation.date_utils import add_business_days
 
 from .tracking import TrackingHorizon
 from .trades import TradeRecord

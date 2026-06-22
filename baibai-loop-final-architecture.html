@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <!--
+    Content Security Policy（meta で有効なディレクティブのみ）。
+    - 図の操作（ホイール拡縮 / WebP 画像化）に inline script を使うため script-src に 'unsafe-inline' を許可。
+      固定 CDN の mermaid と inline script だけを許可し、外部ホストの script は読み込まない。
+    - img-src blob: は SVG を canvas で画像化する時のローカル blob 用（外部画像は読み込まない）。スクショを埋める時は data: を足す。
+    - connect-src 'none' / default-src 'none' が外部 fetch/XHR/beacon を全面遮断し、データ送信を止める（egress の歯止め）。
+    - mermaid を更新する時は <script src> と script-src のバージョンパス、SRI(integrity) を同時に差し替える。
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src https://cdn.jsdelivr.net/npm/mermaid@11.15.0/ 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src blob:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <title>最終サブシステム分割アーキテクチャ — baibai-loop</title>
+  <!-- ビルドで document-template.css を <style> へ挿入する。内容作成時は本文だけ編集し、このマーカーは残す -->
+  <style>
+/* km:html-document のスタイル。document-template.html の <style> にインライン展開して単一ファイルにする（外部リンクにしない） */
+
+/* ===== テーマ変数（配色やサイズの調整はここを起点に） ===== */
+:root {
+  --content-width: 1400px;
+  --fg: #1f2328;
+  --fg-muted: #57606a;
+  --bg: #ffffff;
+  --bg-subtle: #f6f8fa;
+  --border: #d0d7de;
+  --accent: #0969da;
+  --note: #0969da;
+  --warning: #9a6700;
+  --important: #8250df;
+  --code-bg: #f6f8fa;
+  --radius: 6px;
+  --space: 16px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN",
+          "Noto Sans JP", Meiryo, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* ===== ベース ===== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  color: var(--fg);
+  background: var(--bg);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.75;
+}
+
+/* ===== レイアウト（コンテンツ幅 1400px・中央寄せ） ===== */
+.container {
+  width: var(--content-width);
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 40px 32px 80px;
+}
+
+/* ===== ヘッダ / フッタ ===== */
+.doc-header { border-bottom: 2px solid var(--border); padding-bottom: 16px; margin-bottom: 32px; }
+.doc-header h1 { margin: 0 0 8px; }
+.doc-header .subtitle { margin: 0; color: var(--fg-muted); font-size: 1.05rem; }
+.doc-header .meta { margin: 8px 0 0; color: var(--fg-muted); font-size: 0.875rem; }
+.doc-footer { border-top: 1px solid var(--border); margin-top: 48px; padding-top: 16px; color: var(--fg-muted); font-size: 0.875rem; }
+
+/* ===== 見出し階層（H1 は 1 つ、H2=セクション、H3=サブ） ===== */
+h1 { font-size: 2rem; line-height: 1.3; }
+h2 { font-size: 1.5rem; margin-top: 2em; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 1.2rem; margin-top: 1.6em; }
+h2, h3 { scroll-margin-top: 16px; }
+
+/* ===== 本文要素 ===== */
+p, ul, ol { margin: 0 0 var(--space); }
+li { margin: 4px 0; }
+a { color: var(--accent); }
+hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+/* ===== 目次（長文向け） ===== */
+.toc { background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 24px; margin-bottom: 32px; }
+.toc strong { display: block; margin-bottom: 8px; }
+.toc ul { margin: 0; padding-left: 20px; }
+
+/* ===== テーブル ===== */
+table { border-collapse: collapse; width: 100%; margin: 0 0 var(--space); }
+th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+th { background: var(--bg-subtle); }
+tbody tr:nth-child(even) { background: var(--bg-subtle); }
+
+/* ===== コードブロック ===== */
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; overflow-x: auto; }
+code { font-family: var(--mono); font-size: 0.9em; }
+p code, li code, td code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+pre code { background: none; padding: 0; }
+
+/* ===== Callout（note / warning / important） ===== */
+.callout { border: 1px solid var(--border); border-left-width: 4px; border-radius: var(--radius); padding: 12px 16px; margin: 0 0 var(--space); background: var(--bg-subtle); }
+.callout .callout-title { font-weight: 600; margin: 0 0 4px; }
+.callout-note { border-left-color: var(--note); }
+.callout-warning { border-left-color: var(--warning); }
+.callout-important { border-left-color: var(--important); }
+
+/* ===== 図（Mermaid）。ホイール拡縮・ドラッグ移動・画像化ツールバー付き ===== */
+figure.diagram { position: relative; overflow: hidden; margin: 0 0 24px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); text-align: center; background: var(--bg); }
+figure.diagram .mermaid { display: flex; justify-content: center; cursor: grab; }
+figure.diagram.grabbing .mermaid { cursor: grabbing; }
+figure.diagram svg text { cursor: text; } /* ラベル上はテキスト選択カーソル（余白・ノードは grab で pan） */
+figure.diagram.grabbing { user-select: none; -webkit-user-select: none; } /* pan 中だけ選択を抑止し、通常はテキスト選択可 */
+figure.diagram svg { transition: transform .06s ease-out; flex-shrink: 0; } /* ズームは width/height で行う（ベクタ再描画で鮮明）。flex で縮めない */
+figure.diagram figcaption { margin-top: 10px; color: var(--fg-muted); font-size: 0.875rem; }
+/* 図ごとのツールバー（hover で表示）。JS が動的に挿入する */
+.diagram-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; opacity: 0; transition: opacity .15s; }
+figure.diagram:hover .diagram-tools, figure.diagram:focus-within .diagram-tools { opacity: 1; }
+.diagram-tools button { font-family: inherit; font-size: 0.72rem; line-height: 1.7; padding: 1px 8px; color: var(--fg-muted); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
+.diagram-tools button:hover { color: var(--fg); background: var(--bg-subtle); }
+
+/* ===== 印刷 / PDF ===== */
+@media print {
+  .toc, .diagram-tools { display: none; }
+  .container { width: auto; max-width: none; padding: 0; }
+  .callout { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  figure.diagram, pre, table, .callout { break-inside: avoid; page-break-inside: avoid; }
+  figure.diagram { overflow: visible; }
+  figure.diagram svg { transform: none !important; } /* ズーム自体は JS の beforeprint で自然サイズへ戻す */
+  svg { max-width: 100%; height: auto; }
+}
+
+</style>
+</head>
+<body>
+  <div class="container">
+
+    <header class="doc-header">
+      <h1>最終サブシステム分割アーキテクチャ</h1>
+      <p class="subtitle">#252 / #257 / #258 を統合してクローズする最終 PR の設計 — ASIS / TOBE フォルダ構成比較</p>
+      <p class="meta">生成日: 2026-06-22 ／ 3 観点の対立レビュー（architect / adversary / migration-risk）で練り上げ ／ アーキテクチャレビュー求む</p>
+    </header>
+
+    <nav class="toc">
+      <strong>目次</strong>
+      <ul>
+        <li><a href="#s1">1. エグゼクティブサマリ — 最終 PR が達成すること</a></li>
+        <li><a href="#s2">2. ASIS — 3 サブシステムの非対称性という中心構造</a></li>
+        <li><a href="#s3">3. 設計原則（10 年保守性の根拠）</a></li>
+        <li><a href="#s4">4. TOBE: src 構成（ASIS/TOBE 比較）</a></li>
+        <li><a href="#s5">5. TOBE: docs 構成（ASIS/TOBE 比較）</a></li>
+        <li><a href="#s6">6. サブシステム別の品質改善 ＋ 2 ループ ＋ schema 契約</a></li>
+        <li><a href="#s7">7. AI 即理解メカニズム</a></li>
+        <li><a href="#s8">8. 移行計画と gate</a></li>
+        <li><a href="#s9">9. 設計判断と却下案</a></li>
+        <li><a href="#s10">10. 対立レビューで潰した論点</a></li>
+        <li><a href="#s11">11. オープン論点 — あなたの判断を仰ぐ</a></li>
+      </ul>
+    </nav>
+
+    <section>
+      <h2 id="s1">1. エグゼクティブサマリ — 最終 PR が達成すること</h2>
+      <p>3 つの issue を 1 本の最終 PR で統合してクローズする。狙いは「お買い得銘柄を拾いトレード成績を最大化する」システムを、<strong>サブシステム単位で理解・改善できる</strong>構造へ移すこと。</p>
+
+      <table>
+        <thead><tr><th>issue</th><th>状態</th><th>最終 PR での扱い</th></tr></thead>
+        <tbody>
+          <tr><td><strong>#257</strong> macro capability 化</td><td>実装済み・close 済み（#260/#261/#262）</td><td>サブシステム分割の <strong>macro</strong> ピースとして組み込み、判断層への配線で完遂</td></tr>
+          <tr><td><strong>#252</strong> 運用/改善 2 ループ分離</td><td>docs は実質完了、残骸あり</td><td>overview.html 残骸 3 行 ＋ trade-review 文書化 ＋ records 判断記録</td></tr>
+          <tr><td><strong>#258</strong> src サブシステム再編</td><td>未実装</td><td>本 PR の<strong>本体</strong> — package-by-subsystem ＋ 循環解消 ＋ CLI 分割 ＋ docs 軸一致</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-important">
+        <p class="callout-title">判断基準（ユーザ確定）</p>
+        <p><strong>長期ビジネス価値 × 10 年保守性を最優先</strong>。挙動不変・後方互換・監査・厳密 no-regression parity は制約にしない（価値が上がるならリスクを取り挙動を変える。バグも許容）。<strong>唯一の例外</strong>＝実取引記録（ledger の decision register / trade の決済記録）の正確性は法務・税務で必須なので保全する。</p>
+      </div>
+
+      <p>この基準の下で、3 観点の対立レビューが「churn の割に価値の薄い部分（docs 全面物理移動の一部・7 項目 README 憲章の再記述・consumer のいない front-matter タグ）」と「価値が高く取りこぼせない部分（循環解消・shared 抽出・macro 配線・ledger 分割）」を切り分けた。最終設計はその切り分けを反映している。</p>
+    </section>
+
+    <section>
+      <h2 id="s2">2. ASIS — 3 サブシステムの非対称性という中心構造</h2>
+      <p>3 つの独立した現状分析（src 依存 / docs 構成 / 改善ループ）が、いずれも同じ「<strong>macro・screening・trade の非対称性</strong>」へ収束した。これが再設計の背骨になる。</p>
+
+      <table>
+        <thead><tr><th>観点</th><th>screening</th><th>macro</th><th>trade</th></tr></thead>
+        <tbody>
+          <tr><td>コード</td><td>巨大・自立 12,186 行（本体）＋ 計測 7 本</td><td>#257 で独立完成（stats ＋ analysis）</td><td><strong>ledger に埋没</strong>・追跡系が散在</td></tr>
+          <tr><td>docs</td><td>唯一の subsystem dir（7 docs）</td><td>散在・<strong>入口ゼロ</strong>・runbook 索引外で到達不能</td><td>散在・<strong>品質改善の landing なし</strong>・runbook 37 行 stub</td></tr>
+          <tr><td>品質改善</td><td>大 N backtest（成熟・<strong>参照モデル</strong>）</td><td>N≈1 都度ナレッジ（完成・意図的に非計測）</td><td>review 機構のみ・<strong>専用 runbook 欠落＝最大 gap</strong></td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-warning">
+        <p class="callout-title">レビューが正した重要な事実誤認</p>
+        <p>「trade は薄い（660 行）」は <strong>execution/tracking だけを数えた計測 artifact</strong>。validate（trade 764 ＋ ledger 129 ＋ research 約 1,587…）を co-locate すると <strong>trade ≈ 3,400 行で 2 番目に大きい</strong>。真の非対称は「trade が薄い」ではなく <strong>screening が単一サブシステムとして 14,000 行に一極支配</strong>していること。対称化の根拠はこちらに置く。</p>
+      </div>
+
+      <h3>2.1 構造問題 — screening ↔ ledger の循環と責務混載</h3>
+      <p><code>ledger/</code> が「screening の forward 計測」と「trade の追跡」という 2 サブシステムの責務を混載し、screening との間にパッケージ循環がある。この循環が理解・変更コストの中核。</p>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart LR
+  subgraph SCR["screening パッケージ"]
+    tp["ticker_profile"]
+    prov["providers.jquants（JQuantsDailyBar 型）"]
+    fsr["filesystem / render.JST"]
+  end
+  subgraph LED["ledger パッケージ（計測 ＋ 追跡 が混載）"]
+    trades["trades.load_open_trades"]
+    syncio["sync / io"]
+    meas["計測 7 本（lane_cohorts / replay / ablation …）"]
+  end
+  tp -->|"load_open_trades を読む"| trades
+  meas -->|"resolve_price_on_or_before"| trades
+  syncio -->|"JQuantsDailyBar / JST"| prov
+  syncio -->|"write_text_atomic"| fsr
+</pre>
+        <figcaption>図1: ASIS の循環依存。screening→ledger（上向き）と ledger→screening（下向き）が双方向に張られている</figcaption>
+      </figure>
+
+      <h3>2.2 docs は 4 つの組織軸が混在</h3>
+      <p>docs 49 ファイルは単一の構成原理を持たず、<strong>トピック軸</strong>（architecture / reference / governance / templates）・<strong>成果物軸</strong>（components）・<strong>活動軸</strong>（operations）・<strong>サブシステム軸</strong>（screening のみ）が併存する。サブシステム所属が dir 構造から復元できず、「macro を触る AI」は 5 つの doc と 2 つの records dir を stitch する必要がある（しかも macro-runbook は索引外で発見不能）。</p>
+    </section>
+
+    <section>
+      <h2 id="s3">3. 設計原則（10 年保守性の根拠）</h2>
+      <ol>
+        <li><strong>package-by-subsystem</strong>: 境界を技術レイヤーでなく業務ドメイン（macro/screening/trade）で引く。技術は変わるがドメインは安定 → 10 年スパンで境界が動かない。</li>
+        <li><strong>対称な構造・固有の計器</strong>: 3 サブシステムは「入口・コード・records・品質改善・規律」を同じ骨格で持つ（AI が型で読める）。だが品質改善の<strong>計器</strong>は性質に応じて異なってよい（大 N backtest / N≈1 ナレッジ / 小 N review）。構造の対称化と計器の均質化を混同しない（honesty firewall）。</li>
+        <li><strong>共有層は薄く、hub 化しない</strong>: 実際に複数サブシステムが使うものだけ。<code>shared</code> を新たな結合中心にしない。<em>横断 dispatcher（validate）は shared に置かず独立 top-level に分離</em>（レビューで是正）。</li>
+        <li><strong>schema をステージ間契約の一次構造に</strong>: 3 サブシステムは線形パイプラインで、横断変更（新シグナルが macro→screening→trade を貫く）の追跡に <code>_schemas/</code> 契約が要る。パッケージは契約の帰結。</li>
+        <li><strong>計測経路のない機能を足さない</strong>（CLAUDE.md）: 各品質改善の計器は具体的な「次の決定」を駆動できること。</li>
+        <li><strong>整理・削除を優先、増設を最小化</strong>: 入口は薄い pointer（既存 doc への link）に留め、内容の再記述（rot 源）や consumer のいないタグを足さない。</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2 id="s4">4. TOBE: src 構成（ASIS / TOBE 比較）</h2>
+      <p>技術レイヤー軸からサブシステム軸へ。<code>ledger/</code> を seam で割り、循環を断ち、価格データを共有層へ抽出する。</p>
+
+      <h3>4.1 フォルダ構成 ASIS → TOBE</h3>
+      <pre><code>ASIS（技術レイヤー軸）                    TOBE（サブシステム軸）
+src/baibai_loop/                          src/baibai_loop/
+├─ macro_context.py  macro_analysis.py    ├─ macro/            環境読み capability
+├─ coerce yaml_io date_utils _env         │   ├─ context.py  analysis.py（判断層へ配線）
+├─ policy_config.py                       │   ├─ stats/       （providers 含む）
+├─ screening/   本体+providers+cli         │   └─ validate/    macro_context / macro_analysis
+│              +selection+sqlite_*         ├─ screening/        機械ふるい + forward 計測（Q1）
+├─ ledger/      計測系+追跡系+混載cli  ←2  │   ├─ （本体: providers/cli/selection/sqlite_*）
+│              つのサブシステムが同居      │   ├─ backtest/    （旧 ledger 計測 7 本）
+├─ stats/       macro データ層             │   └─ validate/    candidates
+└─ validate/    全サブシステム横断         ├─ trade/            研究→提案→執行→追跡→review（Q2）
+                                          │   ├─ thesis/      research packet 検証
+                                          │   ├─ execution.py tracking.py sync.py
+                                          │   │              review_gates.py io.py records.py
+                                          │   ├─ benchmark.py 実ポートフォリオ計測
+                                          │   ├─ policy_config.py（shared から移動）
+                                          │   └─ validate/    trade / ledger
+                                          ├─ shared/           薄い共有層（hub 化しない）
+                                          │   ├─ common/      coerce yaml_io date_utils
+                                          │   │              _env filesystem jst
+                                          │   └─ price/       JQuantsDailyBar 型 + price-walk
+                                          └─ validate/         横断 dispatcher（独立 top-level）
+                                                              cli + errors + domain</code></pre>
+
+      <div class="callout callout-note">
+        <p class="callout-title">レビューで是正した 2 点（「薄い shared」を設計自身が破っていた）</p>
+        <p>① <code>validate/cli.py</code> は全 validator を import する<strong>合成ルート（composition root）</strong>。shared に置くと <code>shared→trade→shared</code> の依存逆流になるため、<strong>独立 top-level に残す</strong>（errors/domain だけ shared へ降ろす）。② <code>policy_config</code> の実利用は <strong>trade 系のみ</strong>（screening 未使用）で shared 不適格 → <strong>trade/ へ</strong>。</p>
+      </div>
+
+      <h3>4.2 循環解消（依存は単方向 DAG へ）</h3>
+      <p>価格型・JST・atomic write を <code>shared</code> へ抽出すると、trade→screening のエッジが消える。<code>resolve_price_on_or_before</code>（計測 5 本と追跡が共用する純関数）も <code>shared/price</code> へ。残るのは screening→trade の片方向（保有照合）のみで、これは正当な単方向依存として許容する。</p>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart TB
+  VAL["validate（横断 dispatcher・独立 top-level）"]
+  subgraph MACRO["macro"]
+    m1["context / analysis"]
+    m2["stats（providers）"]
+  end
+  subgraph SCREEN["screening"]
+    s1["fact-engine 本体"]
+    s2["backtest（旧 ledger 計測）"]
+  end
+  subgraph TRADE["trade"]
+    t1["thesis（研究）"]
+    t2["execution / tracking / review"]
+    t3["policy_config"]
+  end
+  subgraph SHARED["shared（薄い sink）"]
+    h1["common"]
+    h2["price（型 + price-walk）"]
+  end
+  MACRO --> SCREEN
+  SCREEN --> TRADE
+  SCREEN -.->|"片方向: 保有照合のみ"| TRADE
+  MACRO --> SHARED
+  SCREEN --> SHARED
+  TRADE --> SHARED
+  VAL --> MACRO
+  VAL --> SCREEN
+  VAL --> TRADE
+</pre>
+        <figcaption>図2: TOBE の依存 DAG。shared は何も import しない sink、validate は全サブシステムを束ねる横断 orchestrator（top-level）。双方向循環は消える</figcaption>
+      </figure>
+
+      <h3>4.3 CLI 再編</h3>
+      <p><code>baibai-loop-ledger</code>（計測 ＋ 追跡を混載 dispatch する実 wart）を廃止。計測サブコマンド（lane-cohorts / screening-replay / selection-ablation …）→ <code>baibai-loop-screening</code> 配下、追跡 ＋ benchmark → <strong><code>baibai-loop-trade</code> 新設</strong>、macro 統計 → <code>baibai-loop-macro</code>。<code>baibai-loop-validate</code> は横断のまま。互換 shim は作らない（CLAUDE.md が CLI 再編を許容、git history が安全網）。</p>
+    </section>
+
+    <section>
+      <h2 id="s5">5. TOBE: docs 構成（ASIS / TOBE 比較）</h2>
+      <p>docs をコードと同じサブシステム軸へ寄せ、認知の二重写像を消す。<strong>ただし入口は「薄い pointer」</strong>（役割の 1 行 ＋ 既存 doc への link）に留め、code/CLI/schema の<strong>再記述はしない</strong>（再記述は rot 源で、現に macro-runbook が索引外で腐っている）。</p>
+
+      <h3>5.1 フォルダ構成 ASIS → TOBE</h3>
+      <pre><code>ASIS（4 軸混在）                          TOBE（サブシステム軸 + 横断 3 層）
+docs/                                     docs/
+├─ README concepts philosophy             ├─ README.md          portal（subsystem 索引を追加）
+│  design-principles anti-patterns        ├─ subsystems/
+│  portfolio-policy                       │   ├─ macro/
+├─ architecture/                          │   │   ├─ README.md  薄い入口（役割 + link 列）
+├─ components/   ←成果物軸                 │   │   ├─ design.md  context+analysis 統合（二分を確定）
+├─ governance/                            │   │   ├─ data-sources.md  provider registry
+├─ operations/   ←活動軸                  │   │   └─ runbook.md
+├─ reference/                             │   ├─ screening/
+├─ screening/    ←唯一の subsystem 軸      │   │   ├─ README.md  薄い入口
+└─ templates/                             │   │   ├─ principles mechanical universe-rules
+                                          │   │   │              valuation-metrics extending
+                                          │   │   ├─ runbook.md  実行
+                                          │   │   ├─ backtest.md 品質改善の計器
+                                          │   │   └─ candidates.md 出力契約
+                                          │   └─ trade/
+                                          │       ├─ README.md  薄い入口
+                                          │       ├─ thesis.md  research packet
+                                          │       ├─ execution.md ledger.md
+                                          │       ├─ review.md  ★品質改善 landing（既存機構の集約）
+                                          │       └─ portfolio-policy.md（重複統合）
+                                          ├─ platform/          横断インフラ
+                                          │   ├─ architecture.md concepts.md automation-map.md
+                                          │   └─ python-foundation testing configuration
+                                          ├─ governance/        規律
+                                          │   └─ philosophy design-principles anti-patterns
+                                          └─ templates/</code></pre>
+
+      <h3>5.2 入口は薄く・重複は削除（reorg ≠ dedup を分ける）</h3>
+      <ul>
+        <li><strong>薄い pointer 入口</strong>: 各 <code>subsystems/&lt;name&gt;/README.md</code> は「役割 1 行 ＋ コード/records/schema/CLI/品質改善/規律への link 列」。7 項目の内容<strong>再記述はしない</strong>（コード移動のたび 3 憲章を手更新する負債を避ける）。</li>
+        <li><strong>重複は dedup（その場で削除、git mv 不要）</strong>: candidates 契約 3 重 / sizing 3 箇所 / CLI 3 綴り（<code>uv run</code> に統一）/ anti-patterns.md 同名衝突。</li>
+        <li><strong>rot 修正</strong>: configuration.md の削除済み実装言及、jquants-rate-limits の change-log 体を完成形へ。</li>
+        <li><strong><code>subsystem:</code> front-matter タグは見送り</strong>: それを読む機械（validator/CI）が無い限り consumer ゼロの YAGNI。入れるなら読む側を同 PR で作る時だけ。</li>
+      </ul>
+
+      <div class="callout callout-warning">
+        <p class="callout-title">移動時に壊れる隠れ結合（migration レビュー発見）</p>
+        <p><code>validate/cli.py</code> に <code>POLICY_PATH = Path("docs/portfolio-policy.md")</code> がハードコードされ、<code>baibai-loop-validate</code> がこの doc を artefact として検証する。docs 移動を「純 git mv」と扱うと validate が落ちる。portfolio-policy の移動は <strong>POLICY_PATH 更新と同一 commit</strong> で行う。dated reports の旧 CLI 名は完成形なので書き換えない。</p>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="s6">6. サブシステム別の品質改善 ＋ 2 ループ ＋ schema 契約</h2>
+      <p>ユーザ要求の核心「各サブシステムごとに品質改善が行える」を、3 サブシステムの<strong>性質の違い</strong>に即して設計する。各サブシステムが<strong>固有の計器</strong>で品質を上げ、<strong>共通の改善ループ</strong>（GitHub Issue → 改訂 PR）へ証拠を流す。これは #252 の Q1/Q2/Q3 直交と一致する。</p>
+
+      <table>
+        <thead><tr><th>サブシステム</th><th>運用での役割</th><th>品質改善の計器</th><th>N</th><th>landing doc</th></tr></thead>
+        <tbody>
+          <tr><td>macro</td><td>環境読み供給（sector / risk / theme lever）</td><td>都度ナレッジ蓄積（registry/runbook 追記）</td><td>N≈1</td><td>subsystems/macro/runbook.md ③</td></tr>
+          <tr><td>screening</td><td>候補生成（機械 fact-engine）</td><td>大 N forward backtest（lane-cohorts / replay / ablation）</td><td>大</td><td>subsystems/screening/backtest.md</td></tr>
+          <tr><td>trade</td><td>執行判断・追跡</td><td>小 N execution review（review_gates → counterfactual → veto）</td><td>小</td><td>subsystems/trade/review.md ★</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-note">
+        <p class="callout-title">trade/review.md は「新儀式」ではなく既存機構の集約</p>
+        <p>最大の gap（trade に品質改善の landing が無い）を埋めるが、発明はしない。既存の <code>review_gates</code>（+15/+30 営業日の due 算出）＋ backtest Axis D（judgment-gate counterfactual）＋ Axis F（opportunity-cost）を 1 枚に<strong>集約</strong>し、Q2 veto を改善バックログへ流す導線を文書化するだけ。これで trade が screening の backtest-runbook と対称の「品質改善 landing」を持つ。</p>
+      </div>
+
+      <h3>6.1 運用ループと改善ループ（#252）</h3>
+      <p>運用ループはサブシステムを<strong>横断</strong>するデータフロー、改善ループは各サブシステムの<strong>固有計器</strong>が共通バックログへ合流する構造。「trades＝screening 検証の ground truth」という旧文言は廃し、trade は Q2 veto/規律として効かせる（screening 効果の再測定にはしない）。</p>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart TB
+  subgraph OP["運用ループ（週次・検証済み system を適用）"]
+    direction LR
+    policy["運用方針"] --> macro["マクロ環境分析"] --> screen["機械スクリーニング"] --> select["候補選定"] --> research["個別リサーチ"] --> proposal["売買提案 Issue"] --> human["人間判断"] --> trade["売買執行"]
+  end
+  subgraph IMP["改善ループ（固有計器 → 共通バックログ）"]
+    direction LR
+    mq["macro: N≈1 ナレッジ"] --> backlog["改善バックログ Issue"]
+    sq["screening: 大N backtest"] --> backlog
+    tq["trade: 小N review"] --> backlog
+    backlog --> revise["改訂 PR"]
+  end
+  revise -.検証済み system を更新.-> screen
+  trade -.Q2 veto 信号.-> tq
+</pre>
+        <figcaption>図3: 運用ループ（横断データフロー）と改善ループ（各サブシステム固有の計器が共通バックログに合流）</figcaption>
+      </figure>
+
+      <h3>6.2 schema をステージ間契約の一次構造に（横断変更の追跡）</h3>
+      <p>3 サブシステムは独立 bounded context でなく線形パイプラインで、ステージ間が <code>_schemas/</code> で結合する。新シグナルが 3 パッケージを貫く「横の変更」を追えるよう、各 schema に producer/consumer マップを付ける。schema こそ stage を書き換えても生き残る安定インターフェース。</p>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart LR
+  ma["macro-analysis.json<br/>（trade_levers）"] -->|"sector/risk lever"| sel["screening: select"]
+  ca["candidates.json"] -->|"通過銘柄"| sel
+  sel --> rs["research.json<br/>（buy thesis）"]
+  rs --> tr["trade.json<br/>（執行記録）"]
+  tr --> dr["decision-register.json<br/>（machine event）"]
+  mc["macro-context.json"] -->|"環境前提"| sel
+</pre>
+        <figcaption>図4: schema を一次構造とした producer/consumer マップ。各 schema が「誰が作り誰が読むか」を固定し、横断変更を追跡可能にする</figcaption>
+      </figure>
+    </section>
+
+    <section>
+      <h2 id="s7">7. AI 即理解メカニズム</h2>
+      <p>「macro を改善して」と指示 → <code>docs/subsystems/macro/README.md</code> 1 枚から設計・コード・records・schema・品質改善・規律へ最短到達。実現手段は<strong>足し算を最小化</strong>する形に削いだ:</p>
+      <ul>
+        <li>subsystem 入口を 3 つ対称に配置（<strong>薄い pointer</strong>。再記述せず link で繋ぐ → rot しない）。</li>
+        <li>README portal と AGENTS.md に「サブシステム名 → 入口」の索引を 1 つ追加（現状は topic 軸のみで subsystem 導線なし）。</li>
+        <li><code>.claude/skills</code>（bargain-selection / ir-research）↔ subsystems docs を相互リンク（現状は未連結の shadow navigation）。</li>
+        <li>schema producer/consumer マップ（§6.2）で横断読者の stitch コストを 1 段に。</li>
+      </ul>
+      <div class="callout callout-note">
+        <p class="callout-title">なぜ「dir を作る」だけで散在が消えるのか（adversary の問いへの回答）</p>
+        <p>screening は subsystem dir を持つのに今も 5 dir に散在している。だから本設計は「物理 dir を作れば解決」とは主張<strong>しない</strong>。到達性は<strong>入口 pointer の link</strong>が担い（code が物理的にどこにあっても link で繋がる）、物理 move が買うのは「縦変更の locality」と「循環除去」だけ。後者（循環除去・ledger 分割）は実価値、前者は macro/trade が大きいので限界利得が小さい — だから物理 move は decoupling が自然に生む再配置 ＋ ledger 分割を主とし、残りはオープン論点（§11）でユーザ判断を仰ぐ。</p>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="s8">8. 移行計画と gate</h2>
+      <p>step 別 commit で進め、各 step で gate を通す。migration レビューが「ローカル green / CI red」になる隠れ結合を 2 つ発見したため、従来の pytest/mypy/ruff/validate に <strong>5 つの gate</strong> を足す。</p>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart TB
+  s1["1. 設計確定: 移送表/patch文字列/docsリンクを機械スキャンで生成"]
+  s2["2. shared 抽出（price 型 + price-walk + common）"]
+  s3["3. ledger seam 分割（計測→screening / 追跡→trade）"]
+  s4["4. tracking 分割 + 循環の向き確定"]
+  s5["5. macro co-locate（stats→macro/stats）"]
+  s6["6. CLI 分割（ledger 廃止 → screening 計測 + trade 新設）"]
+  s7["7. macro_analysis 配線（判断層へ・挙動変更）"]
+  s8["8. docs 再編 + POLICY_PATH 同時更新"]
+  s9["9. #252 仕上げ（overview.html / trade review / records 判断）"]
+  s10["10. 全 gate green + 3 issue close"]
+  s1 --> s2 --> s3 --> s4 --> s5 --> s6 --> s7 --> s8 --> s9 --> s10
+</pre>
+        <figcaption>図5: 移行 step。循環は step3 完了時点で既に acyclic（step4 は向きの確定）。配線(step7)と docs(step8)は挙動・artefact が変わるので独立 commit</figcaption>
+      </figure>
+
+      <table>
+        <thead><tr><th>gate</th><th>何を防ぐ</th><th>発見</th></tr></thead>
+        <tbody>
+          <tr><td><code>uv build --wheel</code></td><td>stats 移動が hatch <code>force-include</code>（schema.sql/series.yaml/manual_data.yaml）を壊す。pytest 等は green のまま build だけ red</td><td>migration C2</td></tr>
+          <tr><td>link / anchor checker</td><td>docs 移動で <code>related_docs</code> 55 行・AGENTS.md 必読 8 本・README 25 箇所のリンク切れ（どの既存 gate も検出しない）</td><td>migration H1</td></tr>
+          <tr><td>patch-string grep</td><td><code>mock.patch("baibai_loop.stats.service…")</code> 等の文字列ターゲット（mypy/ruff 不可視）の rename 漏れ</td><td>migration H2</td></tr>
+          <tr><td>import-cycle check</td><td>循環の再発（CI に該当ツールが無く silent）</td><td>architect / migration</td></tr>
+          <tr><td>CLI parity snapshot</td><td>CLI 統合での arg/default/出力の silent drift（golden が無い）</td><td>migration H3</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2 id="s9">9. 設計判断と却下案</h2>
+      <table>
+        <thead><tr><th>判断</th><th>採用</th><th>却下案と理由</th></tr></thead>
+        <tbody>
+          <tr><td>サブシステム境界</td><td>macro / screening / trade ＋ shared</td><td>技術レイヤー軸（変化に弱い）／マイクロサービス化（1 人運用で YAGNI）</td></tr>
+          <tr><td>research の扱い</td><td>trade に <code>thesis/</code> として畳む</td><td>独立サブシステム化 → 認知負荷増・#258 と不整合。buy thesis は trade 判断の入口</td></tr>
+          <tr><td>validate</td><td>per-subsystem co-locate ＋ dispatcher は独立 top-level</td><td>全部 shared（合成ルートの依存逆流）／全分配（cli dispatch が壊れる）</td></tr>
+          <tr><td>benchmark</td><td>trade へ（<code>TradeRecord</code> import 済み＝依存実態が答え）</td><td>screening/backtest（新たな screening→trade エッジを増やす）</td></tr>
+          <tr><td>docs 入口</td><td>薄い pointer（link のみ）</td><td>7 項目 README 憲章（code/CLI/schema 再記述 → rot 負債・内部矛盾）</td></tr>
+          <tr><td>front-matter タグ</td><td>見送り</td><td>追加 → 読む機械が無く consumer ゼロの YAGNI</td></tr>
+          <tr><td>品質改善の計器</td><td>サブシステムごとに固有（大 N / N≈1 / 小 N）</td><td>全部 backtest に乗せる → macro は N≈1 で統計検証不能（honesty firewall 違反）</td></tr>
+          <tr><td>PR 構成</td><td>1 PR・step 別 commit</td><td>複数 PR → 密結合（同一ファイル）で merge conflict と review コスト増</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2 id="s10">10. 対立レビューで潰した論点</h2>
+      <p>3 観点の独立レビューで設計を壊しにいき、確定した是正を本文に反映済み。主要なものを記録する。</p>
+      <table>
+        <thead><tr><th>レビュー</th><th>指摘</th><th>反映</th></tr></thead>
+        <tbody>
+          <tr><td>architect F1（CRITICAL）</td><td><code>shared/validate/cli</code> は合成ルートで依存逆流。「hub 化しない」原則を自分で破る</td><td>validate dispatcher を独立 top-level に。errors/domain のみ shared</td></tr>
+          <tr><td>architect F2（HIGH）</td><td><code>policy_config</code> は trade 専用で shared 不適格</td><td>trade/ へ移動。docs の portfolio-policy 配置とも軸が一致</td></tr>
+          <tr><td>architect F4（HIGH）</td><td>「trade 薄い」は artifact。真の非対称は screening 一極支配</td><td>§2 で対称化の根拠を screening 支配へ書き換え</td></tr>
+          <tr><td>architect F3 / F5（HIGH）</td><td>パイプラインの契約結合が縦 locality を削る／(A)decoupling と (B)docs reorg を分離せよ</td><td>schema を一次構造化（§6.2）。物理 move は decoupling の副産物＋ledger 分割に絞り、残りは §11 で判断</td></tr>
+          <tr><td>adversary（HIGH×2）</td><td>7 項目憲章は anti-rot 機構ゼロのメンテ負債／<code>subsystem:</code> タグは consumer ゼロ</td><td>入口を薄い pointer に削減、タグは見送り</td></tr>
+          <tr><td>adversary（MEDIUM）</td><td>dedup（削除）≠ reorg（移動）。重複解消に git mv は不要</td><td>docs は「重複削除＋rot 修正」と「軸 reorg」を別 step に分離</td></tr>
+          <tr><td>migration C1/C2（CRITICAL）</td><td>POLICY_PATH ハードコード／hatch force-include — ローカル green/CI red の罠</td><td>§8 に build/link gate 新設、POLICY_PATH を docs 移動と同一 commit</td></tr>
+          <tr><td>migration M2（MEDIUM）</td><td>循環は step3 で既に acyclic、step4 は向き反転にすぎない</td><td>循環チェックを step2/3 の green 条件に前倒し</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-note">
+        <p class="callout-title">macro 配線だけは方針で上書きした</p>
+        <p>adversary/architect は「macro_analysis 配線は parity を持たない新挙動だから別 PR」と推奨した。だがユーザ方針「価値優先・挙動不変にこだわらない」で parity 論は外れ、配線しなければ #257 で作った macro が<strong>判断層に効かない死蔵</strong>になる。→ <strong>この PR で配線する</strong>（独立 commit ＋ 配線後に backtest で方向性を確認 ＋ selection テストが割れないか確認）。残った懸念は「効果の検証経路」で、計測経路は付ける。</p>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="s11">11. オープン論点 — あなたの判断を仰ぐ</h2>
+      <p>設計はレビューで固めたが、価値判断が分かれる 3 点はあなたのアーキテクチャレビューに委ねたい。</p>
+      <table>
+        <thead><tr><th>#</th><th>論点</th><th>私の推奨</th><th>トレードオフ</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>macro_analysis 配線をこの PR で完遂するか</td><td><strong>やる</strong></td><td>長期価値（死蔵回避）↔ 挙動変更・効果は事後検証。方針「価値優先」に整合</td></tr>
+          <tr><td>2</td><td>docs reorg の深さ</td><td><strong>full（サブシステム軸に物理再編）＋ 薄い入口</strong></td><td>あなたの「docs 構成見直し」要求 ↔ レビューは「縦 locality の限界利得が小さい」。最小案（pointer＋削除のみ）なら churn 小</td></tr>
+          <tr><td>3</td><td>1 PR・step 別 commit のスコープ</td><td><strong>1 PR を維持</strong></td><td>密結合で分割は conflict 増 ↔ 巨大でレビュー負荷大。gate で安全化</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-important">
+        <p class="callout-title">レビューしてほしいこと</p>
+        <p>① サブシステム境界（macro/screening/trade ＋ shared）に同意するか。② shared 是正（validate を独立 top-level、policy_config を trade）に同意するか。③ 上の 3 オープン論点の判断。④ trade/review.md を「既存機構の集約」に留める方針でよいか。これらが固まれば <code>km:plan</code> で実装計画 issue に落とし、最終 PR の実装に入ります。</p>
+      </div>
+    </section>
+
+    <footer class="doc-footer">
+      <p>baibai-loop 最終アーキテクチャ設計 — 3 観点の対立レビューで練り上げ。Generated as a single self-contained HTML document.</p>
+    </footer>
+
+  </div>
+
+  <!-- Mermaid（UMD all-in-one を バージョン固定 + SRI で読み込む。直後に挿入される document-template.js が初期化と図操作を行う。完全クライアント側で外部送信なし） -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.min.js" integrity="sha384-yQ4mmBBT+vhTAwjFH0toJXNYJ6O4usWnt6EPIdWwrRvx2V/n5lXuDZQwQFeSFydF" crossorigin="anonymous"></script>
+  <!-- ビルドで document-template.js を <script> へ挿入する。このマーカーは残す -->
+  <script>
+// km:html-document の図操作スクリプト。document-template.html の末尾 <script> にビルドで挿入して単一ファイルにする。
+
+// Mermaid 初期化。htmlLabels:false で図ラベルを <foreignObject>（HTML）ではなく SVG <text> で描く。
+// foreignObject 入り SVG は canvas 描画時に汚染され toBlob が失敗するため、WebP 化を成立させるのに必須。
+mermaid.initialize({ startOnLoad: true, securityLevel: 'strict', htmlLabels: false, flowchart: { htmlLabels: false } });
+
+// 図の操作（完全クライアント側・外部送信なし）。各 figure.diagram に付与する:
+// - マウスホイールで拡大 / 縮小、ドラッグで移動、ダブルクリックでリセット
+// - WebP ボタンで SVG を canvas 経由のラスタ画像にして別タブで開く（ポップアップ抑止時はダウンロード）
+// mermaid は load 時に非同期描画するため、ハンドラは figure に張り SVG はイベント時に都度取得する（描画タイミングに依存しない）。
+(() => {
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  // SVG を指定 MIME のラスタ画像にして別タブで開く。img-src blob: で blob を許可している
+  const openAsImage = (svg, mime, ext) => {
+    const box = svg.viewBox && svg.viewBox.baseVal;
+    const rect = svg.getBoundingClientRect();
+    const w = Math.max(1, Math.round((box && box.width) || rect.width));
+    const h = Math.max(1, Math.round((box && box.height) || rect.height));
+    const clone = svg.cloneNode(true);
+    clone.setAttribute('width', w);
+    clone.setAttribute('height', h);
+    // 画面表示用のズーム/パン（inline の width/height/maxWidth/transform）を画像へ持ち込まない
+    clone.style.width = '';
+    clone.style.height = '';
+    clone.style.maxWidth = '';
+    clone.style.transform = 'none';
+    const xml = new XMLSerializer().serializeToString(clone);
+    const svgUrl = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml;charset=utf-8' }));
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale = 2; // 高解像度化
+        const canvas = document.createElement('canvas');
+        canvas.width = w * scale;
+        canvas.height = h * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          if (!blob) { console.error('diagram export: toBlob が null（canvas 上限超過 / 形式未対応の可能性）'); return; }
+          const url = URL.createObjectURL(blob);
+          const win = window.open(url, '_blank');
+          if (!win) { // ポップアップブロック時はダウンロードにフォールバック
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'diagram.' + ext;
+            a.click();
+          }
+        }, mime);
+      } catch (err) {
+        console.error('diagram export に失敗', err); // 例: foreignObject 等で canvas が汚染された場合
+      } finally {
+        URL.revokeObjectURL(svgUrl);
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(svgUrl); console.error('diagram export: SVG 画像の読み込みに失敗'); };
+    img.src = svgUrl;
+  };
+
+  const enhance = (fig) => {
+    if (fig.dataset.enhanced) return;
+    fig.dataset.enhanced = '1';
+    const view = { scale: 1, x: 0, y: 0 };
+    let base = null; // scale=1 の自然サイズ（初回 apply で記録）
+    const apply = () => {
+      const svg = fig.querySelector('svg');
+      if (!svg) return;
+      if (!base) {
+        const r = svg.getBoundingClientRect();
+        if (r.width < 1) return; // まだ描画されていない
+        base = { w: r.width, h: r.height };
+        svg.style.maxWidth = 'none'; // 拡大時に mermaid の max-width で頭打ちさせない
+      }
+      // ズームは表示サイズ（width/height）で行う → SVG ベクタが解像度に追従し、文字が拡大してもぼけない
+      svg.style.width = (base.w * view.scale) + 'px';
+      svg.style.height = (base.h * view.scale) + 'px';
+      // パンは translate（リサンプルされないので鮮明なまま）
+      svg.style.transform = `translate(${view.x}px, ${view.y}px)`;
+    };
+    const reset = () => { view.scale = 1; view.x = 0; view.y = 0; apply(); };
+
+    // 素のホイールで拡縮する（意図的な設計）。図上ではページスクロールより拡縮を優先する
+    fig.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      view.scale = clamp(view.scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1), 0.2, 8);
+      apply();
+    }, { passive: false });
+
+    let drag = null;
+    fig.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return; // 主ボタンのみ（右/中クリックで pan を始めない）
+      if (e.target.closest('.diagram-tools')) return;
+      // 図ラベル・キャプションのテキスト上では選択を優先し pan しない。余白・ノード・エッジ上だけ pan する
+      if (e.target.closest('text, tspan, foreignObject, figcaption')) return;
+      e.preventDefault(); // 余白からのドラッグでテキスト選択が始まるのを抑止する
+      drag = { x: e.clientX - view.x, y: e.clientY - view.y };
+      try { fig.setPointerCapture(e.pointerId); } catch (_) { /* 非アクティブな pointer は無視 */ }
+      fig.classList.add('grabbing');
+    });
+    fig.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      view.x = e.clientX - drag.x;
+      view.y = e.clientY - drag.y;
+      apply();
+    });
+    const endDrag = () => { drag = null; fig.classList.remove('grabbing'); };
+    fig.addEventListener('pointerup', endDrag);
+    fig.addEventListener('pointercancel', endDrag);
+    window.addEventListener('pointerup', endDrag); // capture 失敗時も、図の外で離せば pan を終える保険
+    fig.addEventListener('dblclick', reset);
+
+    // 印刷時はズーム/パンを一時解除して自然サイズで刷り、印刷後に画面の表示を復元する
+    let savedView = null;
+    window.addEventListener('beforeprint', () => {
+      if (!base) return; // 未操作の図は mermaid の自然描画のまま
+      savedView = { ...view };
+      view.scale = 1; view.x = 0; view.y = 0; apply();
+    });
+    window.addEventListener('afterprint', () => {
+      if (!savedView) return;
+      Object.assign(view, savedView);
+      savedView = null;
+      apply();
+    });
+
+    const tools = document.createElement('div');
+    tools.className = 'diagram-tools';
+    const addButton = (label, onClick) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.addEventListener('click', onClick);
+      tools.appendChild(button);
+    };
+    const withSvg = (fn) => () => { const svg = fig.querySelector('svg'); if (svg) fn(svg); };
+    addButton('WebP', withSvg((svg) => openAsImage(svg, 'image/webp', 'webp')));
+    addButton('リセット', reset);
+    fig.appendChild(tools);
+  };
+
+  // mermaid の描画完了は待たない: figure は静的に存在するので load 時にハンドラを張る
+  window.addEventListener('load', () => {
+    document.querySelectorAll('figure.diagram').forEach(enhance);
+  });
+})();
+
+</script>
+</body>
+</html>

@@ -8,10 +8,10 @@ from pathlib import Path
 
 import yaml
 
+from baibai_loop.foundation.yaml_io import safe_load
 from baibai_loop.screening.cli import build_parser, ticker_profile_command
 from baibai_loop.screening.sqlite_cache import open_connection
 from baibai_loop.screening.ticker_profile import build_ticker_profile
-from baibai_loop.yaml_io import safe_load
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 _ASOF = date(2026, 5, 29)

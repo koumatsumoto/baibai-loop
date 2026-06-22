@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from baibai_loop._env import load_project_env
+from baibai_loop.foundation.env import load_project_env
 
 
 @pytest.fixture

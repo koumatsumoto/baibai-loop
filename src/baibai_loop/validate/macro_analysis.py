@@ -10,9 +10,9 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
+from baibai_loop.foundation.yaml_io import safe_load
 from baibai_loop.macro_context import parse_datetime
 from baibai_loop.stats.definitions import load_definitions
-from baibai_loop.yaml_io import safe_load
 
 from .errors import ValidationFinding
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date
 
-from baibai_loop.coerce import dict_sequence, string_or_none, string_sequence
+from baibai_loop.foundation.coerce import dict_sequence, string_or_none, string_sequence
 from baibai_loop.macro_context import MacroContext, macro_context_diagnostics
 
 from .records import CandidateRecord

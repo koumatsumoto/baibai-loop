@@ -193,12 +193,7 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "shared primitives are an import sink"
 type = "forbidden"
-source_modules = [
-  "baibai_loop.coerce",
-  "baibai_loop.yaml_io",
-  "baibai_loop.date_utils",
-  "baibai_loop._env",
-]
+source_modules = ["baibai_loop.foundation"]
 forbidden_modules = [
   "baibai_loop.screening",
   "baibai_loop.ledger",

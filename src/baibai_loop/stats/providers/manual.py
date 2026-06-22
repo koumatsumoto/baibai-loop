@@ -5,7 +5,7 @@ from datetime import date
 from pathlib import Path
 from typing import cast
 
-from baibai_loop.yaml_io import safe_load
+from baibai_loop.foundation.yaml_io import safe_load
 
 from ..db import ObservationRecord
 from ..definitions import SeriesDefinition

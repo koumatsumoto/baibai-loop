@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from baibai_loop.coerce import float_or, optional_float, string_or_none
+from baibai_loop.foundation.coerce import float_or, optional_float, string_or_none
 
 from ..rule_config import SelectionRules
 from .records import CandidateRecord

@@ -23,11 +23,12 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
+from baibai_loop.foundation.yaml_io import safe_load
+
 # ledger.trades is a standalone record reader (no screening dependency), so
 # this import does not create a package cycle; the packet deliberately reads
 # the L3 trade records to expose portfolio-concentration facts.
 from baibai_loop.ledger.trades import load_open_trades
-from baibai_loop.yaml_io import safe_load
 
 from .regime import compute_market_regime
 from .selection import load_prior_research

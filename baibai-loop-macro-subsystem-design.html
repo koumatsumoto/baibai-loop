@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <!--
+    Content Security Policy（meta で有効なディレクティブのみ）。
+    - 図の操作（ホイール拡縮 / WebP 画像化）に inline script を使うため script-src に 'unsafe-inline' を許可。
+      固定 CDN の mermaid と inline script だけを許可し、外部ホストの script は読み込まない。
+    - img-src blob: は SVG を canvas で画像化する時のローカル blob 用（外部画像は読み込まない）。スクショを埋める時は data: を足す。
+    - connect-src 'none' / default-src 'none' が外部 fetch/XHR/beacon を全面遮断し、データ送信を止める（egress の歯止め）。
+    - mermaid を更新する時は <script src> と script-src のバージョンパス、SRI(integrity) を同時に差し替える。
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src https://cdn.jsdelivr.net/npm/mermaid@11.15.0/ 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src blob:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <title>Baibai-Loop マクロ分析サブシステム — ゼロベース設計（簡略版）</title>
+  <!-- ビルドで document-template.css を <style> へ挿入する。内容作成時は本文だけ編集し、このマーカーは残す -->
+  <style>
+/* km:html-document のスタイル。document-template.html の <style> にインライン展開して単一ファイルにする（外部リンクにしない） */
+
+/* ===== テーマ変数（配色やサイズの調整はここを起点に） ===== */
+:root {
+  --content-width: 1400px;
+  --fg: #1f2328;
+  --fg-muted: #57606a;
+  --bg: #ffffff;
+  --bg-subtle: #f6f8fa;
+  --border: #d0d7de;
+  --accent: #0969da;
+  --note: #0969da;
+  --warning: #9a6700;
+  --important: #8250df;
+  --code-bg: #f6f8fa;
+  --radius: 6px;
+  --space: 16px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN",
+          "Noto Sans JP", Meiryo, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* ===== ベース ===== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  color: var(--fg);
+  background: var(--bg);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.75;
+}
+
+/* ===== レイアウト（コンテンツ幅 1400px・中央寄せ） ===== */
+.container {
+  width: var(--content-width);
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 40px 32px 80px;
+}
+
+/* ===== ヘッダ / フッタ ===== */
+.doc-header { border-bottom: 2px solid var(--border); padding-bottom: 16px; margin-bottom: 32px; }
+.doc-header h1 { margin: 0 0 8px; }
+.doc-header .subtitle { margin: 0; color: var(--fg-muted); font-size: 1.05rem; }
+.doc-header .meta { margin: 8px 0 0; color: var(--fg-muted); font-size: 0.875rem; }
+.doc-footer { border-top: 1px solid var(--border); margin-top: 48px; padding-top: 16px; color: var(--fg-muted); font-size: 0.875rem; }
+
+/* ===== 見出し階層（H1 は 1 つ、H2=セクション、H3=サブ） ===== */
+h1 { font-size: 2rem; line-height: 1.3; }
+h2 { font-size: 1.5rem; margin-top: 2em; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 1.2rem; margin-top: 1.6em; }
+h2, h3 { scroll-margin-top: 16px; }
+
+/* ===== 本文要素 ===== */
+p, ul, ol { margin: 0 0 var(--space); }
+li { margin: 4px 0; }
+a { color: var(--accent); }
+hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+/* ===== 目次（長文向け） ===== */
+.toc { background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 24px; margin-bottom: 32px; }
+.toc strong { display: block; margin-bottom: 8px; }
+.toc ul { margin: 0; padding-left: 20px; }
+
+/* ===== テーブル ===== */
+table { border-collapse: collapse; width: 100%; margin: 0 0 var(--space); }
+th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+th { background: var(--bg-subtle); }
+tbody tr:nth-child(even) { background: var(--bg-subtle); }
+
+/* ===== コードブロック ===== */
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; overflow-x: auto; }
+code { font-family: var(--mono); font-size: 0.9em; }
+p code, li code, td code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+pre code { background: none; padding: 0; }
+
+/* ===== Callout（note / warning / important） ===== */
+.callout { border: 1px solid var(--border); border-left-width: 4px; border-radius: var(--radius); padding: 12px 16px; margin: 0 0 var(--space); background: var(--bg-subtle); }
+.callout .callout-title { font-weight: 600; margin: 0 0 4px; }
+.callout-note { border-left-color: var(--note); }
+.callout-warning { border-left-color: var(--warning); }
+.callout-important { border-left-color: var(--important); }
+
+/* ===== 図（Mermaid）。ホイール拡縮・ドラッグ移動・画像化ツールバー付き ===== */
+figure.diagram { position: relative; overflow: hidden; margin: 0 0 24px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); text-align: center; background: var(--bg); }
+figure.diagram .mermaid { display: flex; justify-content: center; cursor: grab; }
+figure.diagram.grabbing .mermaid { cursor: grabbing; }
+figure.diagram svg text { cursor: text; } /* ラベル上はテキスト選択カーソル（余白・ノードは grab で pan） */
+figure.diagram.grabbing { user-select: none; -webkit-user-select: none; } /* pan 中だけ選択を抑止し、通常はテキスト選択可 */
+figure.diagram svg { transition: transform .06s ease-out; flex-shrink: 0; } /* ズームは width/height で行う（ベクタ再描画で鮮明）。flex で縮めない */
+figure.diagram figcaption { margin-top: 10px; color: var(--fg-muted); font-size: 0.875rem; }
+/* 図ごとのツールバー（hover で表示）。JS が動的に挿入する */
+.diagram-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; opacity: 0; transition: opacity .15s; }
+figure.diagram:hover .diagram-tools, figure.diagram:focus-within .diagram-tools { opacity: 1; }
+.diagram-tools button { font-family: inherit; font-size: 0.72rem; line-height: 1.7; padding: 1px 8px; color: var(--fg-muted); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
+.diagram-tools button:hover { color: var(--fg); background: var(--bg-subtle); }
+
+/* ===== 印刷 / PDF ===== */
+@media print {
+  .toc, .diagram-tools { display: none; }
+  .container { width: auto; max-width: none; padding: 0; }
+  .callout { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  figure.diagram, pre, table, .callout { break-inside: avoid; page-break-inside: avoid; }
+  figure.diagram { overflow: visible; }
+  figure.diagram svg { transform: none !important; } /* ズーム自体は JS の beforeprint で自然サイズへ戻す */
+  svg { max-width: 100%; height: auto; }
+}
+
+</style>
+</head>
+<body>
+  <div class="container">
+
+    <header class="doc-header">
+      <h1>マクロ分析サブシステム — ゼロベース設計</h1>
+      <p class="subtitle">macro を「ループ」にせず capability として持つ簡略構成と、データ取得層の Provider モジュール設計</p>
+      <p class="meta">2026-06-21 ／ 壁打ち収束の <strong>target 設計（提案・未実装）</strong>。既存コードは §7 で当て込む。現状の仕組みは <code>baibai-loop-design-review.html</code> を参照</p>
+    </header>
+
+    <div class="callout callout-important">
+      <p class="callout-title">この版の方針（簡略化）</p>
+      <p>マクロ分析を<strong>無理にループ化すると過剰に複雑</strong>になる。改善は<strong>やりながら都度</strong>でよいので、formal な loop / retro / 成長判定機構は作らない。macro は「ループ」ではなく <strong>capability（データ取得層 ＋ リサーチ実践）</strong>として持つ。データ取得層は <strong>Provider モジュール設計</strong>で各ソースの実装を整理する。狙いの大本は「マクロ環境分析の能力を育て、トレード判断に効く環境読みを供給する」こと。</p>
+    </div>
+
+    <nav class="toc">
+      <strong>目次</strong>
+      <ul>
+        <li><a href="#s1">1. 位置づけ：macro は capability（ループにしない）</a></li>
+        <li><a href="#s2">2. 目的とスコープ境界（広い問い × lever 規律）</a></li>
+        <li><a href="#s3">3. サブシステムの中身（3 種：データ / 分析成果 / ナレッジ）</a></li>
+        <li><a href="#s4">4. データ取得層：Provider モジュール設計</a></li>
+        <li><a href="#s5">5. データソース → 優先度 → 担当 Provider</a></li>
+        <li><a href="#s6">6. screening 接続（screen は macro-blind のまま）</a></li>
+        <li><a href="#s7">7. 既存を当て込む ＋ 進め方</a></li>
+      </ul>
+    </nav>
+
+    <!-- ===================================================================== -->
+    <section>
+      <h2 id="s1">1. 位置づけ：macro は capability（ループにしない）</h2>
+      <p class="lead">マクロ分析は<strong>独立した capability（サブシステム）</strong>として持ちますが、<strong>formal なループにはしません</strong>。retro / calibration / ratchet のような成長判定の機構は置かず、調査方法やナレッジは<strong>使いながら都度洗練</strong>します。ループとして回るのは従来どおり運用ループと改善ループの 2 つで、macro はその<strong>起点に環境読みを供給する capability</strong>です。</p>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart TB
+  subgraph MACRO["マクロ分析サブシステム（capability・ループではない）"]
+    direction LR
+    md["データ取得層<br/>provider モジュール群"] --> mr["環境リサーチ<br/>分析成果 + ナレッジ（都度洗練）"]
+  end
+  subgraph OPS["スクリーニング + トレード"]
+    op["運用ループ<br/>screen → select → research → 提案 → 執行"]
+    imp["改善ループ<br/>backtest keep/kill/review（大N）"]
+  end
+  mr -->|"環境読みを起点供給<br/>sector / risk / theme / hazard"| op
+  imp -.->|"検証済 system を更新"| op
+</pre>
+        <figcaption>図1: 位置づけ。ループとして回るのは運用ループ・改善ループの 2 つ。macro は<strong>ループではなく capability</strong>で、その起点に環境読みを供給する。改善は都度行うので macro 側に formal な自己改善ループは置かない。</figcaption>
+      </figure>
+    </section>
+
+    <!-- ===================================================================== -->
+    <section>
+      <h2 id="s2">2. 目的とスコープ境界（広い問い × lever 規律）</h2>
+      <p>capability の価値は「環境を読んでトレード判断を駆動する」こと。問いは広く許し、規律で接地します。</p>
+      <div class="callout callout-important">
+        <p class="callout-title">スコープ境界：問いは広く、規律は狭く</p>
+        <p>対象は macro / 市場の全域（世界経済・政策・金利・FX・商品・主要 INDEX・crypto / risk-sentiment・セクター・地政学）。ただし <strong>各分析は必ず「トレード上の lever」を名指す</strong>——どの sector を厚 / 薄、gross / cash、theme exposure、entry timing / kill のどれを動かすか。<strong>lever を名指せない問いは repo の対象外</strong>（汎用リサーチ助手化の歯止め）。</p>
+        <ul>
+          <li>「Strategy 社財務 × BTC 長期展望」→「crypto 隣接 JP 銘柄 / risk appetite」に route するなら <strong>in</strong></li>
+          <li>「直近イベントを踏まえた世界経済の長期変化」→「risk posture ＋ sector tilt」に route、<strong>in</strong></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <section>
+      <h2 id="s3">3. サブシステムの中身（3 種：データ / 分析成果 / ナレッジ）</h2>
+      <p>capability が抱えるのは性質の違う 3 種類。<strong>機構ではなく「置き場所の整理」</strong>として捉えます。③ ナレッジは使いながら都度たまるもので、formal な計測はしません。</p>
+      <table>
+        <thead><tr><th>種</th><th>正体</th><th>性質</th></tr></thead>
+        <tbody>
+          <tr><td><strong>① データ</strong></td><td>統計 series（provider 取得・再現可能・provenance 付き）</td><td>事実</td></tr>
+          <tr><td><strong>② 分析成果</strong></td><td>dated・sourced な環境リサーチ（scenario / risk / forward view ＋ <strong>lever</strong>）</td><td>判断・成果</td></tr>
+          <tr><td><strong>③ ナレッジ</strong></td><td>調査方法のコツ・データソース確認手順・lessons（<strong>都度たまる</strong>。playbook 化は必要になってから）</td><td>メタ知識</td></tr>
+        </tbody>
+      </table>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart LR
+  data["① データ<br/>統計 series（provider 取得）"] --> inq["② 分析成果<br/>dated・sourced + lever"]
+  know["③ ナレッジ<br/>調査方法・source 確認手順"] --> inq
+  inq -.学びが都度たまる.-> know
+  inq -->|環境読み| out["→ select / policy / research"]
+</pre>
+        <figcaption>図2: 3 種の関係。データが分析を grounding し、ナレッジが方法を供給、分析の学びは都度ナレッジにたまる（formal な retro なし）。分析成果は環境読みとして運用ループの判断点へ。</figcaption>
+      </figure>
+    </section>
+
+    <!-- ===================================================================== -->
+    <section>
+      <h2 id="s4">4. データ取得層：Provider モジュール設計</h2>
+      <p>データ取得層は <strong>Provider パターン</strong>で組みます。各データソースを<strong>共通 interface を実装する独立モジュール</strong>に隔離し、認証・rate limit・パースなどソース固有の事情をその module 内に閉じ込めます。新ソース追加 = provider モジュールを 1 つ足して series を登録するだけ、に整理します。</p>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart TB
+  subgraph REG["registry"]
+    sd["SeriesDefinition<br/>series_id → provider + provider_series_id + domain + geography"]
+  end
+  subgraph SVC["service / cache（provider 非依存）"]
+    svc["fetch orchestration<br/>coverage 判定 → miss 時のみ provider 呼ぶ → 保存"]
+  end
+  subgraph PROV["Provider モジュール群（共通 interface・実装は各々隔離）"]
+    fred["FredProvider<br/>CSV 無認証"]
+    jq["JQuantsProvider<br/>認証・JP 市場内部"]
+    estat["EStatProvider<br/>e-Stat API"]
+    boj["BojProvider<br/>BOJ 時系列 CSV"]
+    cg["CoinGeckoProvider<br/>crypto"]
+    manual["ManualProvider<br/>倒産 / PMI（手動・scrape）"]
+  end
+  sd --> svc
+  svc -->|"series.provider で選択"| PROV
+  PROV -->|"observations + provenance"| svc
+  svc --> cache[("統計 cache<br/>coverage 追跡")]
+</pre>
+        <figcaption>図3: Provider モジュール設計。registry が series → provider を持ち、provider 非依存の service が coverage を見て miss 時だけ provider を呼び cache に保存する。各 provider は共通 interface（fetch / provenance）を実装し、実装は隔離される。</figcaption>
+      </figure>
+
+      <h3>共通 interface（概念）</h3>
+      <pre><code>class MacroDataProvider(Protocol):
+    name: str
+    # 与えられた series を、開始/終了範囲で取得し observation 列 + provenance を返す
+    def fetch(
+        series: SeriesDefinition, start: date, end: date
+    ) -&gt; Sequence[Observation]: ...
+    # provenance = source_url, fetched_at_utc, frequency（freshness 判定に使う）</code></pre>
+
+      <table>
+        <thead><tr><th>Provider モジュール</th><th>取得方式 / 固有事情（module 内に隔離）</th><th>担当ドメイン</th></tr></thead>
+        <tbody>
+          <tr><td><code>FredProvider</code></td><td>無認証 CSV（fredgraph）。series ID マッピングのみ</td><td>米マクロ・金利・FX・原油 / 金・VIX・クレジット・BTC ＋ JP ミラー</td></tr>
+          <tr><td><code>JQuantsProvider</code></td><td>認証トークン・rate limit。既存 screening 認証を共用</td><td>JP 市場内部（業種指数・海外フロー・信用残・空売り）</td></tr>
+          <tr><td><code>EStatProvider</code></td><td>appId・statsDataId・clunky JSON のパース</td><td>JP 公式マクロ（失業率・CPI・鉱工業生産・小売）</td></tr>
+          <tr><td><code>BojProvider</code></td><td>BOJ 時系列 CSV のコード体系</td><td>政策・短観・money stock・JGB</td></tr>
+          <tr><td><code>CoinGeckoProvider</code></td><td>無料 API</td><td>crypto 詳細</td></tr>
+          <tr><td><code>ManualProvider</code></td><td>clean API 無し。手動入力 / scrape を provenance 付きで取り込む</td><td>倒産件数（東商 / 帝国 DB）・PMI</td></tr>
+        </tbody>
+      </table>
+      <div class="callout callout-note">
+        <p class="callout-title">設計の要点</p>
+        <p>service / cache / registry は <strong>provider に依存しない</strong>。ソースの違い（認証有無・パース・rate limit・手動 fallback）は各 provider module に閉じる。これで「それぞれの実装を整理した状態」になり、Tier の拡張も provider 追加で局所化される。既存 <code>stats/</code> の <code>providers.py</code> ＋ <code>SeriesDefinition</code>（<code>provider</code> / <code>provider_series_id</code>）が、この設計の<strong>そのままの種</strong>。</p>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <section>
+      <h2 id="s5">5. データソース → 優先度 → 担当 Provider</h2>
+      <p>一般金融知識から広く候補を出し（10 ドメイン）、lever × 頻度 × JP 固有性 × 非冗長で序列化し、各 series に担当 provider を割り当てます。</p>
+
+      <h3>候補（10 ドメイン・breadth）</h3>
+      <ul>
+        <li><strong>A 金融政策・金利</strong>: 政策金利(BOJ/Fed/ECB)・JGB 2y/10y/30y・米 2y/10y・2s10s・実質金利/BEI・中銀会合カレンダー</li>
+        <li><strong>B 物価</strong>: コア CPI(JP/US)・PCE・PPI・輸入物価・期待インフレ</li>
+        <li><strong>C 景気・実体</strong>: GDP・PMI(JP/US/中)・鉱工業生産・短観・機械受注・小売・失業率・新規失業保険・倒産件数・住宅着工</li>
+        <li><strong>D 市場内部・センチメント</strong>: 主要 INDEX(日経/TOPIX/S&amp;P/NASDAQ/Russell2000/MSCI/中国/欧州)・TOPIX 33 業種指数・バリュー vs グロース style・VIX/日経 VI・breadth・信用残/信用倍率・空売り比率</li>
+        <li><strong>E 為替</strong>: USD/JPY・EUR/JPY・DXY・実効レート</li>
+        <li><strong>F 商品</strong>: 原油(WTI/Brent)・天然ガス/LNG・銅・金・農産物</li>
+        <li><strong>G crypto</strong>: BTC・ETH・crypto 時価総額・funding rate</li>
+        <li><strong>H フロー・需給</strong>: 海外投資家売買動向・信託/年金フロー・自社株買い・ファンドフロー</li>
+        <li><strong>I 地政学・イベント</strong>: 選挙/政策/関税/紛争カレンダー・決算/指標発表カレンダー</li>
+        <li><strong>J 信用・金融環境</strong>: クレジットスプレッド(IG/HY OAS)・金融環境指数・M2・銀行貸出態度</li>
+      </ul>
+
+      <h3>Tier 1（最初に作る・高頻度で lever 直結）</h3>
+      <table>
+        <thead><tr><th>指標</th><th>動かす lever</th><th>頻度</th><th>担当 Provider</th></tr></thead>
+        <tbody>
+          <tr><td>USD/JPY</td><td>輸出 / 内需 tilt・risk posture</td><td>日次</td><td>Fred（<code>DEXJPUS</code>）</td></tr>
+          <tr><td>JGB10y ＋ 米10y ＋ 2s10s</td><td>金利 regime → value / growth rotation</td><td>日次</td><td>Fred</td></tr>
+          <tr><td>TOPIX 33 業種指数</td><td>sector tilt（screening 直結）</td><td>日次</td><td>JQuants / Jpx</td></tr>
+          <tr><td>バリュー vs グロース style</td><td>value thesis 自体の検証</td><td>日次</td><td>算出 or Fred/外部</td></tr>
+          <tr><td>VIX / 日経 VI</td><td>risk posture</td><td>日次</td><td>Fred（<code>VIXCLS</code>）/ Jpx</td></tr>
+          <tr><td>海外投資家売買動向</td><td>regime・risk posture</td><td>週次</td><td>JQuants（trades_spec）</td></tr>
+          <tr><td>クレジットスプレッド HY/IG OAS</td><td>risk appetite</td><td>日次</td><td>Fred（ICE BofA）</td></tr>
+          <tr><td>政策金利 BOJ / Fed</td><td>regime</td><td>event</td><td>Fred / Boj</td></tr>
+          <tr><td>原油 WTI</td><td>inflation・sector</td><td>日次</td><td>Fred（<code>DCOILWTICO</code>）</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Tier 2 / Tier 3</h3>
+      <ul>
+        <li><strong>Tier 2</strong>（月次 / leading）: PMI(JP/US/中)・CPI(JP/US)・失業率 ＋ 新規失業保険・短観・DXY/EUR/JPY・銅 / 金・<strong>BTC</strong>(CoinGecko or Fred <code>CBBTCUSD</code>)・中銀カレンダー・信用残。担当: Fred / EStat / Boj / JQuants / CoinGecko</li>
+        <li><strong>Tier 3</strong>（slow / 冗長 / 取得困難）: GDP・<strong>倒産件数</strong>（Manual）・鉱工業生産 / 機械受注 / 小売（EStat）・BEI / 実質金利・NFCI / M2・EM / 中国 / STOXX・空売り / put/call・天然ガス / 農産物</li>
+      </ul>
+
+      <div class="callout callout-note">
+        <p class="callout-title">取得の見通し</p>
+        <p><code>Fred</code> ＋ <code>JQuants</code>（両方すでに配線済）＋ <code>EStat</code> / <code>Boj</code>（無料 API・新規 provider）で <strong>Tier 1–2 の約 80% が自動取得可能</strong>。<code>ManualProvider</code> 行きの <strong>倒産件数・PMI</strong> だけが難所（Tier 2–3 なので後回し可）。実装時に FRED 系列 ID と J-Quants 各 endpoint の plan 可用性を検証する。</p>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <section>
+      <h2 id="s6">6. screening 接続（screen は macro-blind のまま）</h2>
+      <p>マクロ読みが銘柄選択に効く形を第一原理から決めます。注入強度は 3 段階で、<strong>機械ふるい <code>run</code> には接続しない</strong>のが最適です。</p>
+      <table>
+        <thead><tr><th>案</th><th>注入点</th><th>評価</th></tr></thead>
+        <tbody>
+          <tr><td><strong>A 注意 / posture overlay</strong></td><td>select（sector 優先）・policy（risk）・research（narrative）のみ。機械ふるいは触らない</td><td><strong>採用</strong></td></tr>
+          <tr><td>B regime 条件付き screen</td><td>regime で lane 重み / 閾値を可変</td><td>却下</td></tr>
+          <tr><td>C universe 硬 gate</td><td>macro で sector を universe から除外</td><td>却下</td></tr>
+        </tbody>
+      </table>
+      <div class="callout callout-warning">
+        <p class="callout-title">B / C を却下する第一原理</p>
+        <p>regime 条件付き閾値は ①パラメータ増＝<code>§9</code> が禁じる data-snooping、②screen 出力が macro 判断に依存すると <strong>lane の大 N backtest が壊れる</strong>（lane alpha を純粋計測できない）、③regime は n≈1 の検証不能判断を validated な fact-engine に注入＝汚染、④value 戦略は「macro に嫌われた割安」を買って勝つので sector 減点は<strong>コア thesis と逆行</strong>。C はさらに fact 層を不完全にする。よって <strong>構造的事実は screen、タイミング / posture 判断は overlay</strong> が境界線。</p>
+      </div>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart TB
+  read["マクロ環境読み<br/>sector tilt / risk posture / theme / hazard"]
+  read -->|"sector 優先（soft-cap）"| select["Select（triage）"]
+  read -->|"risk band / starter"| policy["Policy / preflight"]
+  read -->|"theme / hazard"| research["Research narrative"]
+  sqlite[("market.sqlite")] --> run["機械スクリーニング run<br/>fundamentals 純機械・macro-blind"]
+  run --> cand["candidates（事実）"] --> select
+  select --> research
+</pre>
+        <figcaption>図4: 接続。<code>run</code> は macro-blind のまま、マクロ読みは select（sector soft-cap・hard gate にしない）・policy（risk band）・research（narrative）にだけ効く。avoid sector の割安株も surface はするが減点＋flag され、value-trap を買う能力は残る。</figcaption>
+      </figure>
+    </section>
+
+    <!-- ===================================================================== -->
+    <section>
+      <h2 id="s7">7. 既存を当て込む ＋ 進め方</h2>
+      <p>理想構成が決まって初めて、現コードを当て込みます。</p>
+      <table>
+        <thead><tr><th>種</th><th>既存</th><th>充足</th></tr></thead>
+        <tbody>
+          <tr><td>① データ（Provider 層）</td><td><code>stats/</code>（独立・<code>providers.py</code>・<code>SeriesDefinition</code>・coverage・FRED/Fed/ECB）</td><td>約 70%。provider 追加（EStat/Boj/CoinGecko/Manual）＋ Tier-1 series 登録</td></tr>
+          <tr><td>② 分析成果</td><td><code>records/01-macro-context/</code>（薄）＋ <code>macro_context.py</code>（152 行手動）</td><td>ほぼ新規。dated 成果 ＋ schema（lever 必須）</td></tr>
+          <tr><td>③ ナレッジ</td><td>（ほぼ無）</td><td>新規だが軽量。都度たまるメモ＋必要時 playbook 化</td></tr>
+          <tr><td>接続</td><td>select の <code>macro_fit</code>・<code>macro_context_ref</code>・regime lens</td><td>マクロ読みを消費する形へ再ターゲット</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-note">
+        <p class="callout-title">進め方</p>
+        <p>この target が固まれば、<strong>km:plan で #257 を「L2 機械化 → macro capability / 独立サブシステム」へ作り直して Issue 化</strong>。実装順は <strong>① データ取得層（Provider 設計 ＋ Tier-1 series）→ ② 分析成果 schema（lever 必須）→ ③ ナレッジ（軽量・都度）</strong>を薄く立ち上げ、各段で実運用テスト。<code>stats/</code> の Provider 整理が最初の足場。</p>
+      </div>
+
+      <div class="callout callout-important">
+        <p class="callout-title">この版で簡略化したこと</p>
+        <p>前版にあった「第 3 のループ」「Frame→…→Retro の loop 図」「reuse ratchet / calibration log / 3 柱の成長判定機構」を<strong>削除</strong>。改善は都度行う前提に変更。残した誠実性の原則は 1 つだけ——<strong>macro は判断であって測られた driver ではない（edge 数値・統計的有意・自動売買 score を出さない）</strong>。重さはデータ取得層の Provider 設計に寄せた。</p>
+      </div>
+    </section>
+
+    <footer class="doc-footer">
+      <p>Generated as a single self-contained HTML document. これはマクロ分析サブシステムの target 設計（提案・簡略版）であり現状記述ではない。現状の仕組みは <code>baibai-loop-design-review.html</code>、正本概念モデルは repository <code>docs/concepts.md</code> を参照。本書は 2026-06-21 の壁打ち収束 snapshot。</p>
+    </footer>
+
+  </div>
+
+  <!-- Mermaid（UMD all-in-one を バージョン固定 + SRI で読み込む。直後に挿入される document-template.js が初期化と図操作を行う。完全クライアント側で外部送信なし） -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.min.js" integrity="sha384-yQ4mmBBT+vhTAwjFH0toJXNYJ6O4usWnt6EPIdWwrRvx2V/n5lXuDZQwQFeSFydF" crossorigin="anonymous"></script>
+  <!-- ビルドで document-template.js を <script> へ挿入する。このマーカーは残す -->
+  <script>
+// km:html-document の図操作スクリプト。document-template.html の末尾 <script> にビルドで挿入して単一ファイルにする。
+
+// Mermaid 初期化。htmlLabels:false で図ラベルを <foreignObject>（HTML）ではなく SVG <text> で描く。
+// foreignObject 入り SVG は canvas 描画時に汚染され toBlob が失敗するため、WebP 化を成立させるのに必須。
+mermaid.initialize({ startOnLoad: true, securityLevel: 'strict', htmlLabels: false, flowchart: { htmlLabels: false } });
+
+// 図の操作（完全クライアント側・外部送信なし）。各 figure.diagram に付与する:
+// - マウスホイールで拡大 / 縮小、ドラッグで移動、ダブルクリックでリセット
+// - WebP ボタンで SVG を canvas 経由のラスタ画像にして別タブで開く（ポップアップ抑止時はダウンロード）
+// mermaid は load 時に非同期描画するため、ハンドラは figure に張り SVG はイベント時に都度取得する（描画タイミングに依存しない）。
+(() => {
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  // SVG を指定 MIME のラスタ画像にして別タブで開く。img-src blob: で blob を許可している
+  const openAsImage = (svg, mime, ext) => {
+    const box = svg.viewBox && svg.viewBox.baseVal;
+    const rect = svg.getBoundingClientRect();
+    const w = Math.max(1, Math.round((box && box.width) || rect.width));
+    const h = Math.max(1, Math.round((box && box.height) || rect.height));
+    const clone = svg.cloneNode(true);
+    clone.setAttribute('width', w);
+    clone.setAttribute('height', h);
+    // 画面表示用のズーム/パン（inline の width/height/maxWidth/transform）を画像へ持ち込まない
+    clone.style.width = '';
+    clone.style.height = '';
+    clone.style.maxWidth = '';
+    clone.style.transform = 'none';
+    const xml = new XMLSerializer().serializeToString(clone);
+    const svgUrl = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml;charset=utf-8' }));
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale = 2; // 高解像度化
+        const canvas = document.createElement('canvas');
+        canvas.width = w * scale;
+        canvas.height = h * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          if (!blob) { console.error('diagram export: toBlob が null（canvas 上限超過 / 形式未対応の可能性）'); return; }
+          const url = URL.createObjectURL(blob);
+          const win = window.open(url, '_blank');
+          if (!win) { // ポップアップブロック時はダウンロードにフォールバック
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'diagram.' + ext;
+            a.click();
+          }
+        }, mime);
+      } catch (err) {
+        console.error('diagram export に失敗', err); // 例: foreignObject 等で canvas が汚染された場合
+      } finally {
+        URL.revokeObjectURL(svgUrl);
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(svgUrl); console.error('diagram export: SVG 画像の読み込みに失敗'); };
+    img.src = svgUrl;
+  };
+
+  const enhance = (fig) => {
+    if (fig.dataset.enhanced) return;
+    fig.dataset.enhanced = '1';
+    const view = { scale: 1, x: 0, y: 0 };
+    let base = null; // scale=1 の自然サイズ（初回 apply で記録）
+    const apply = () => {
+      const svg = fig.querySelector('svg');
+      if (!svg) return;
+      if (!base) {
+        const r = svg.getBoundingClientRect();
+        if (r.width < 1) return; // まだ描画されていない
+        base = { w: r.width, h: r.height };
+        svg.style.maxWidth = 'none'; // 拡大時に mermaid の max-width で頭打ちさせない
+      }
+      // ズームは表示サイズ（width/height）で行う → SVG ベクタが解像度に追従し、文字が拡大してもぼけない
+      svg.style.width = (base.w * view.scale) + 'px';
+      svg.style.height = (base.h * view.scale) + 'px';
+      // パンは translate（リサンプルされないので鮮明なまま）
+      svg.style.transform = `translate(${view.x}px, ${view.y}px)`;
+    };
+    const reset = () => { view.scale = 1; view.x = 0; view.y = 0; apply(); };
+
+    // 素のホイールで拡縮する（意図的な設計）。図上ではページスクロールより拡縮を優先する
+    fig.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      view.scale = clamp(view.scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1), 0.2, 8);
+      apply();
+    }, { passive: false });
+
+    let drag = null;
+    fig.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return; // 主ボタンのみ（右/中クリックで pan を始めない）
+      if (e.target.closest('.diagram-tools')) return;
+      // 図ラベル・キャプションのテキスト上では選択を優先し pan しない。余白・ノード・エッジ上だけ pan する
+      if (e.target.closest('text, tspan, foreignObject, figcaption')) return;
+      e.preventDefault(); // 余白からのドラッグでテキスト選択が始まるのを抑止する
+      drag = { x: e.clientX - view.x, y: e.clientY - view.y };
+      try { fig.setPointerCapture(e.pointerId); } catch (_) { /* 非アクティブな pointer は無視 */ }
+      fig.classList.add('grabbing');
+    });
+    fig.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      view.x = e.clientX - drag.x;
+      view.y = e.clientY - drag.y;
+      apply();
+    });
+    const endDrag = () => { drag = null; fig.classList.remove('grabbing'); };
+    fig.addEventListener('pointerup', endDrag);
+    fig.addEventListener('pointercancel', endDrag);
+    window.addEventListener('pointerup', endDrag); // capture 失敗時も、図の外で離せば pan を終える保険
+    fig.addEventListener('dblclick', reset);
+
+    // 印刷時はズーム/パンを一時解除して自然サイズで刷り、印刷後に画面の表示を復元する
+    let savedView = null;
+    window.addEventListener('beforeprint', () => {
+      if (!base) return; // 未操作の図は mermaid の自然描画のまま
+      savedView = { ...view };
+      view.scale = 1; view.x = 0; view.y = 0; apply();
+    });
+    window.addEventListener('afterprint', () => {
+      if (!savedView) return;
+      Object.assign(view, savedView);
+      savedView = null;
+      apply();
+    });
+
+    const tools = document.createElement('div');
+    tools.className = 'diagram-tools';
+    const addButton = (label, onClick) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.addEventListener('click', onClick);
+      tools.appendChild(button);
+    };
+    const withSvg = (fn) => () => { const svg = fig.querySelector('svg'); if (svg) fn(svg); };
+    addButton('WebP', withSvg((svg) => openAsImage(svg, 'image/webp', 'webp')));
+    addButton('リセット', reset);
+    fig.appendChild(tools);
+  };
+
+  // mermaid の描画完了は待たない: figure は静的に存在するので load 時にハンドラを張る
+  window.addEventListener('load', () => {
+    document.querySelectorAll('figure.diagram').forEach(enhance);
+  });
+})();
+
+</script>
+</body>
+</html>

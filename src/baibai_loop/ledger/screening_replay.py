@@ -6,7 +6,13 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from baibai_loop.coerce import int_map, int_or, mapping_sequence, string_or_empty, string_sequence
+from baibai_loop.foundation.coerce import (
+    int_map,
+    int_or,
+    mapping_sequence,
+    string_or_empty,
+    string_sequence,
+)
 from baibai_loop.screening.regime import MarketRegimeSnapshot, compute_market_regime
 from baibai_loop.screening.rule_config import ScreeningRules
 from baibai_loop.screening.selection import (

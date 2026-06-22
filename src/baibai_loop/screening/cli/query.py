@@ -12,10 +12,11 @@ from typing import TextIO
 
 import yaml
 
+from baibai_loop.foundation.time import JST
+from baibai_loop.foundation.yaml_io import safe_load
 from baibai_loop.macro_context import MacroContext, find_latest_macro_context, load_macro_context
 from baibai_loop.screening.market_snapshot import build_market_snapshot
 from baibai_loop.screening.regime import MarketRegimeSnapshot, compute_market_regime
-from baibai_loop.screening.render import JST
 from baibai_loop.screening.rule_config import (
     DEFAULT_RULES_PATH,
     ScreeningRules,
@@ -35,7 +36,6 @@ from baibai_loop.screening.selection import (
 )
 from baibai_loop.screening.sqlite_reader import latest_daily_bar_date
 from baibai_loop.screening.ticker_profile import build_ticker_profile
-from baibai_loop.yaml_io import safe_load
 
 from .common import _NoAliasDumper, _parse_iso_date
 

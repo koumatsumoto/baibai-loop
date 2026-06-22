@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-from baibai_loop.coerce import optional_float
+from baibai_loop.foundation.coerce import optional_float
 from baibai_loop.validate.domain import (
     as_mapping,
 )

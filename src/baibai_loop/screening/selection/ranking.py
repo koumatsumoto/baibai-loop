@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from baibai_loop.coerce import float_or, metric_map, string_or_none
+from baibai_loop.foundation.coerce import float_or, metric_map, string_or_none
 
 
 @dataclass(frozen=True, slots=True)

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from baibai_loop.yaml_io import safe_load
+from baibai_loop.foundation.yaml_io import safe_load
 
 DEFAULT_DEFINITIONS_PATH = Path(__file__).with_name("series.yaml")
 

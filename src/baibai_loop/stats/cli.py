@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
 
-from .._env import load_project_env
+from ..foundation.env import load_project_env
 from .db import DEFAULT_DB_PATH, StatsSchemaError
 from .definitions import SeriesDefinition
 from .providers import StatsProviderError

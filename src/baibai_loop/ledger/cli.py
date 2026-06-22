@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from baibai_loop._env import load_project_env
+from baibai_loop.foundation.env import load_project_env
 from baibai_loop.screening.config import DEFAULT_CACHE_DIR, DEFAULT_SQLITE_CACHE_DIR
 from baibai_loop.screening.providers.jquants import (
     JQuantsDailyBar,

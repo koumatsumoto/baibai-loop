@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <!--
+    Content Security Policy（meta で有効なディレクティブのみ）。
+    - 図の操作（ホイール拡縮 / WebP 画像化）に inline script を使うため script-src に 'unsafe-inline' を許可。
+      固定 CDN の mermaid と inline script だけを許可し、外部ホストの script は読み込まない。
+    - img-src blob: は SVG を canvas で画像化する時のローカル blob 用（外部画像は読み込まない）。スクショを埋める時は data: を足す。
+    - connect-src 'none' / default-src 'none' が外部 fetch/XHR/beacon を全面遮断し、データ送信を止める（egress の歯止め）。
+    - mermaid を更新する時は <script src> と script-src のバージョンパス、SRI(integrity) を同時に差し替える。
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src https://cdn.jsdelivr.net/npm/mermaid@11.15.0/ 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src blob:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <title>ユビキタス言語と概念整理 — baibai-loop</title>
+  <!-- ビルドで document-template.css を <style> へ挿入する。内容作成時は本文だけ編集し、このマーカーは残す -->
+  <style>
+/* km:html-document のスタイル。document-template.html の <style> にインライン展開して単一ファイルにする（外部リンクにしない） */
+
+/* ===== テーマ変数（配色やサイズの調整はここを起点に） ===== */
+:root {
+  --content-width: 1400px;
+  --fg: #1f2328;
+  --fg-muted: #57606a;
+  --bg: #ffffff;
+  --bg-subtle: #f6f8fa;
+  --border: #d0d7de;
+  --accent: #0969da;
+  --note: #0969da;
+  --warning: #9a6700;
+  --important: #8250df;
+  --code-bg: #f6f8fa;
+  --radius: 6px;
+  --space: 16px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN",
+          "Noto Sans JP", Meiryo, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* ===== ベース ===== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  color: var(--fg);
+  background: var(--bg);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.75;
+}
+
+/* ===== レイアウト（コンテンツ幅 1400px・中央寄せ） ===== */
+.container {
+  width: var(--content-width);
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 40px 32px 80px;
+}
+
+/* ===== ヘッダ / フッタ ===== */
+.doc-header { border-bottom: 2px solid var(--border); padding-bottom: 16px; margin-bottom: 32px; }
+.doc-header h1 { margin: 0 0 8px; }
+.doc-header .subtitle { margin: 0; color: var(--fg-muted); font-size: 1.05rem; }
+.doc-header .meta { margin: 8px 0 0; color: var(--fg-muted); font-size: 0.875rem; }
+.doc-footer { border-top: 1px solid var(--border); margin-top: 48px; padding-top: 16px; color: var(--fg-muted); font-size: 0.875rem; }
+
+/* ===== 見出し階層（H1 は 1 つ、H2=セクション、H3=サブ） ===== */
+h1 { font-size: 2rem; line-height: 1.3; }
+h2 { font-size: 1.5rem; margin-top: 2em; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 1.2rem; margin-top: 1.6em; }
+h2, h3 { scroll-margin-top: 16px; }
+
+/* ===== 本文要素 ===== */
+p, ul, ol { margin: 0 0 var(--space); }
+li { margin: 4px 0; }
+a { color: var(--accent); }
+hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+/* ===== 目次（長文向け） ===== */
+.toc { background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 24px; margin-bottom: 32px; }
+.toc strong { display: block; margin-bottom: 8px; }
+.toc ul { margin: 0; padding-left: 20px; }
+
+/* ===== テーブル ===== */
+table { border-collapse: collapse; width: 100%; margin: 0 0 var(--space); }
+th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+th { background: var(--bg-subtle); }
+tbody tr:nth-child(even) { background: var(--bg-subtle); }
+
+/* ===== コードブロック ===== */
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; overflow-x: auto; }
+code { font-family: var(--mono); font-size: 0.9em; }
+p code, li code, td code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+pre code { background: none; padding: 0; }
+
+/* ===== Callout（note / warning / important） ===== */
+.callout { border: 1px solid var(--border); border-left-width: 4px; border-radius: var(--radius); padding: 12px 16px; margin: 0 0 var(--space); background: var(--bg-subtle); }
+.callout .callout-title { font-weight: 600; margin: 0 0 4px; }
+.callout-note { border-left-color: var(--note); }
+.callout-warning { border-left-color: var(--warning); }
+.callout-important { border-left-color: var(--important); }
+
+/* ===== 図（Mermaid）。ホイール拡縮・ドラッグ移動・画像化ツールバー付き ===== */
+figure.diagram { position: relative; overflow: hidden; margin: 0 0 24px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); text-align: center; background: var(--bg); }
+figure.diagram .mermaid { display: flex; justify-content: center; cursor: grab; }
+figure.diagram.grabbing .mermaid { cursor: grabbing; }
+figure.diagram svg text { cursor: text; } /* ラベル上はテキスト選択カーソル（余白・ノードは grab で pan） */
+figure.diagram.grabbing { user-select: none; -webkit-user-select: none; } /* pan 中だけ選択を抑止し、通常はテキスト選択可 */
+figure.diagram svg { transition: transform .06s ease-out; flex-shrink: 0; } /* ズームは width/height で行う（ベクタ再描画で鮮明）。flex で縮めない */
+figure.diagram figcaption { margin-top: 10px; color: var(--fg-muted); font-size: 0.875rem; }
+/* 図ごとのツールバー（hover で表示）。JS が動的に挿入する */
+.diagram-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; opacity: 0; transition: opacity .15s; }
+figure.diagram:hover .diagram-tools, figure.diagram:focus-within .diagram-tools { opacity: 1; }
+.diagram-tools button { font-family: inherit; font-size: 0.72rem; line-height: 1.7; padding: 1px 8px; color: var(--fg-muted); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
+.diagram-tools button:hover { color: var(--fg); background: var(--bg-subtle); }
+
+/* ===== 印刷 / PDF ===== */
+@media print {
+  .toc, .diagram-tools { display: none; }
+  .container { width: auto; max-width: none; padding: 0; }
+  .callout { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  figure.diagram, pre, table, .callout { break-inside: avoid; page-break-inside: avoid; }
+  figure.diagram { overflow: visible; }
+  figure.diagram svg { transform: none !important; } /* ズーム自体は JS の beforeprint で自然サイズへ戻す */
+  svg { max-width: 100%; height: auto; }
+}
+
+</style>
+</head>
+<body>
+  <div class="container">
+
+    <header class="doc-header">
+      <h1>ユビキタス言語と概念整理</h1>
+      <p class="subtitle">サブシステムのモジュール命名を、歴史的経緯でなくドメインの意味から洗い直す — 4 専門家レビューで突き詰めた新フォルダ構成</p>
+      <p class="meta">生成日: 2026-06-22 ／ レビュー: DDD・金融ドメイン・Python 命名・AI 可読性(adversary) の 4 専門家 ／ macro は論点として要判断</p>
+    </header>
+
+    <nav class="toc">
+      <strong>目次</strong>
+      <ul>
+        <li><a href="#s1">1. 結論サマリ</a></li>
+        <li><a href="#s2">2. 命名以前に判明した 4 つの構造事実</a></li>
+        <li><a href="#s3">3. 確立した命名原則</a></li>
+        <li><a href="#s4">4. ユビキタス言語 — 全命名対応表</a></li>
+        <li><a href="#s5">5. 新フォルダ構成（サブシステム別・命名根拠つき）</a></li>
+        <li><a href="#s6">6. 最重要論点 — macro の context/analysis をどうするか</a></li>
+        <li><a href="#s7">7. 4 専門家レビューの統合</a></li>
+        <li><a href="#s8">8. 残る確認事項</a></li>
+      </ul>
+    </nav>
+
+    <section>
+      <h2 id="s1">1. 結論サマリ</h2>
+      <p>サブシステム境界（macro / screening / position ＋ shared ＋ 横断 validation）は確定済み。本書は<strong>その中のモジュール・概念の命名</strong>を、ドメイン（個人バリュー株スイングトレード）の意味から洗い直す。狙いは「名前を見ればドメインでの役割が分かる」状態 ＝ AI がサブシステムを指定されてノイズなく即作業できること。</p>
+
+      <div class="callout callout-important">
+        <p class="callout-title">4 専門家が収束した結論</p>
+        <ul>
+          <li><strong>確定した改名</strong>: <code>ledger</code> を <code>screening/forward</code>（計測）＋ <code>position/decisions</code>（決定記録）に分割／<code>research</code>→<code>thesis</code>／<code>stats</code>→<code>series</code>／<code>price</code>→<code>bars</code>／<code>common</code>→<code>foundation</code>／<code>trade</code>→<code>position</code>／<code>validate</code>→<code>validation</code>（単一 top-level に集約）／<code>policy_config</code>→<code>policy</code>。</li>
+          <li><strong>却下した造語</strong>: <code>sieve</code>（screening 自体がふるい＝同義反復）・<code>triage</code>（CLI <code>select</code> と desync）・<code>conformance</code>（造語・硬い）・各 context への検証 co-locate。</li>
+          <li><strong>奥まで通す</strong>: <code>lane</code>→<code>playbook</code>／<code>payload</code>/<code>packet</code>→具体型名／<code>stats.domain</code> field→<code>category</code>。</li>
+          <li><strong>論点（要判断）</strong>: macro の <code>context</code>/<code>analysis</code> 二分（§6）と、forward 計測層を <code>forward</code> と呼ぶか <code>telemetry</code> を残すか。</li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="s2">2. 命名以前に判明した 4 つの構造事実</h2>
+      <p>DDD レビューが、命名の叩き台を実コード・実 records と突き合わせ、<strong>「命名問題」の半分が実は構造問題</strong>だと明らかにした。名前は構造を映すので、まず構造を正す。</p>
+
+      <table>
+        <thead><tr><th>#</th><th>構造事実</th><th>含意</th></tr></thead>
+        <tbody>
+          <tr><td>A</td><td><code>ledger/</code> は 1 パッケージに <strong>2 つの bounded context が同居</strong>（position 系: sync/gates/benchmark ＝実取引／ screening 自己計測系: replay/cohort/ablation ＝取引でない）</td><td>「名前の悪い 1 概念」でなく screening↔position を跨ぐ god-module。分割が本丸</td></tr>
+          <tr><td>B</td><td><code>macro_analysis</code> の構造化出力（<code>trade_levers</code>/<code>risk_posture</code>）は<strong>死蔵コード</strong>。消費者は自分と validator のみ。screening/selection が読むのは <code>MacroContext</code> だけ（records も裏付け: context 5 件が実駆動 vs analysis 1 件が本日作成・未配線）</td><td>「macro を判断層に効かせる」配線が未完。命名と同時に解決すべき</td></tr>
+          <tr><td>C</td><td>sector-tilt が <strong>2 schema で二重定義</strong>（context: <code>key/stance/strength</code> ／ analysis: <code>lever/target/direction</code>）</td><td>1 ドメイン概念・2 語彙＝教科書的ユビキタス言語違反が records 実体にある</td></tr>
+          <tr><td>D</td><td>validator は <strong>records（公開言語）軸</strong>で編成（01→04→05→06→_ledger）。コードの context 境界ではなく records パイプラインそのもの</td><td>検証は context 間契約＝Published Language。各 context に散らさず単一 gate が正しい</td></tr>
+        </tbody>
+      </table>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart LR
+  subgraph BEFORE["現状: ledger が 2 context を抱える god-module"]
+    L["ledger/"]
+    L --> Lm["replay / cohort / ablation（screening 計測）"]
+    L --> Lp["sync / tracking / benchmark / decisions（position）"]
+  end
+  subgraph AFTER["再編: コード context を records パイプラインに一致"]
+    SF["screening/forward（自己計測）"]
+    PD["position/decisions・tracking・review・benchmark"]
+  end
+  Lm -.->|"移送"| SF
+  Lp -.->|"移送"| PD
+</pre>
+        <figcaption>図1: 構造事実 A の解消。<code>ledger</code> god-module を screening 計測と position に分割し、コードの context 境界を records の context map に一致させる</figcaption>
+      </figure>
+    </section>
+
+    <section>
+      <h2 id="s3">3. 確立した命名原則</h2>
+      <p>4 専門家が異なる角度から同じ原則に至った。これが個々の語を裁く基準になる。</p>
+      <ol>
+        <li><strong>grounded ＞ plain ＞ clever-invented</strong>（AI 可読性）: 平易さ一辺倒でない。判定は「repo に既にある語か」。<code>series</code>/<code>bars</code>/<code>decisions</code>/<code>thesis</code> は型・records に既出だから採る。<code>backtest</code>/<code>stats</code>（誤解・漠然）は捨てる。<code>sieve</code>/<code>conformance</code>（造語）は却下。</li>
+        <li><strong>投資家が話す語・1 概念 1 語</strong>（DDD）: ユビキタス言語は「ドメインエキスパートと開発者が同じ語を使う」こと。投資家は <code>screen</code>/<code>candidate</code>/<code>forward</code>/<code>decision</code>/<code>stance</code>/<code>thesis</code>/<code>regime</code> を話す。比喩語（<code>sieve</code>/<code>triage</code>/<code>lane</code>/<code>lens</code>/<code>payload</code>）は synonym を増やし翻訳コストを生む。</li>
+        <li><strong>誤解語を捨てる</strong>（金融ドメイン）: <code>backtest</code> は historical simulation ＋ track-record を含意するが実体は forward-only の signal-efficacy 分析。<code>quotes</code> は bid/ask の意味で日次足には誤用（→<code>bars</code>）。<code>ledger</code> は会計元帳の含意（→<code>decisions</code>）。</li>
+        <li><strong>縦の整合（package ＋ CLI ＋ records ＋ kind を丸ごと揃えるか、やらないか）</strong>（AI 可読性）: package だけ改名すると「<code>stats</code>→<code>series</code> だが CLI は <code>baibai-loop-stats</code>」という新たな一概念二語を生む。半 rename は無改名より悪い。</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2 id="s4">4. ユビキタス言語 — 全命名対応表</h2>
+      <p>各概念を「現状 → 新名 → ドメインでの意味 → 根拠」で確定する（macro 系は §6 の判断待ち）。</p>
+
+      <h3>4.1 サブシステム（bounded context）</h3>
+      <table>
+        <thead><tr><th>現状</th><th>新名</th><th>ドメインでの意味</th><th>根拠</th></tr></thead>
+        <tbody>
+          <tr><td><code>macro</code></td><td><strong><code>macro</code></strong></td><td>世界経済・市場環境を読み、判断層へ lever を供給（N≈1）</td><td>業界で名詞通用・投資家語。<code>environment</code>/<code>climate</code> は投資家が話さない</td></tr>
+          <tr><td><code>screening</code></td><td><strong><code>screening</code></strong></td><td>全上場から機械的事実で候補をふるい、その論理を forward で測る</td><td>業界確立語。出力 ＝ <code>candidate</code></td></tr>
+          <tr><td><code>trade</code>（ledger 等に分散）</td><td><strong><code>position</code></strong></td><td>建玉の一生（thesis→execution→hold→review）</td><td><code>trade</code> は約定イベント止まり。<code>position</code> は lifecycle。<code>book</code> は範囲過大</td></tr>
+          <tr><td><code>validate</code></td><td><strong><code>validation</code></strong>（単一 top-level）</td><td>records（context 間契約）が schema と規律を守るか検証する gate</td><td><code>ValidationFinding</code> 型・CLI と一致。<code>conformance</code> は造語・硬い。per-context 分散は却下</td></tr>
+          <tr><td>—</td><td><strong><code>shared</code></strong></td><td>複数 context が使う技術基盤（薄い sink）</td><td>下記 foundation ＋ bars</td></tr>
+        </tbody>
+      </table>
+
+      <h3>4.2 screening の中</h3>
+      <table>
+        <thead><tr><th>現状</th><th>新名</th><th>意味</th><th>根拠</th></tr></thead>
+        <tbody>
+          <tr><td><code>ledger</code> 計測 7 本</td><td><strong><code>forward</code></strong>（論点: <code>telemetry</code> 残置案あり）</td><td>記録済み候補の forward returns を lane/regime 別に cross-section 集計（signal-efficacy 分析）</td><td><code>backtest</code> は誤解語（simulation 含意）。<code>forward</code> は forward-only を直接表現し <code>forward_return.py</code> に既出。<code>telemetry</code> は repo に 31 件あるが非金融語</td></tr>
+          <tr><td>本体 rules/metrics</td><td><strong>据え置き</strong>（<code>sieve</code> 却下）</td><td>選別ロジック（fact-engine）</td><td>親 <code>screening</code> がふるい。<code>sieve</code> は同義反復・0 件造語</td></tr>
+          <tr><td><code>selection</code></td><td><strong><code>selection</code></strong>（<code>triage</code> 却下）</td><td>候補 → 推奨の ranking</td><td>コード語彙 <code>ranking</code>/<code>recommendation</code> と一致。CLI <code>select</code> と parity</td></tr>
+          <tr><td><code>lane</code></td><td><strong><code>playbook</code></strong></td><td>選別戦略トラック</td><td>records <code>_playbooks</code> と定数が既に playbook。synonym 解消</td></tr>
+          <tr><td><code>lens</code></td><td><strong><code>signal</code>/<code>score</code></strong>（要確認）</td><td>fast_dislocation / survivability の採点ビュー</td><td>実体は factor score。<code>lens</code> は UX 比喩</td></tr>
+          <tr><td><code>packet</code>/<code>payload</code></td><td><strong>具体型名</strong>（<code>SelectionResult</code> 等 / <code>snapshot</code>）</td><td>週次事実束 / 直列化 DTO</td><td>「袋」語は非ドメイン。中身そのものを命名。既出 <code>market_snapshot</code> に統一</td></tr>
+        </tbody>
+      </table>
+
+      <h3>4.3 position の中</h3>
+      <table>
+        <thead><tr><th>現状</th><th>新名</th><th>意味</th><th>根拠</th></tr></thead>
+        <tbody>
+          <tr><td><code>validate/research</code></td><td><strong><code>thesis</code></strong></td><td>投資仮説（なぜ買うか）</td><td>バリュー投資の標準語。policy/playbook docs で既出。<code>research</code> は macro も使い曖昧</td></tr>
+          <tr><td><code>trades.py</code></td><td><strong><code>execution</code></strong></td><td>約定記録</td><td>建玉 lifecycle の 1 イベント。<code>blotter</code> も業界語だが execution が明快</td></tr>
+          <tr><td><code>tracking.py</code></td><td><strong><code>tracking</code></strong>（price-walk は <code>bars</code> へ）</td><td>保有の forward 追跡</td><td>役割明確。価格歩進は shared へ分離</td></tr>
+          <tr><td><code>ledger</code> register</td><td><strong><code>decisions</code></strong>（decision register）</td><td>append-only の決定イベント（<code>event_kind: decision|correction</code>）</td><td><code>DecisionRegisterRecord</code> と整合。<code>ledger</code>＝複式簿記は誤名。<strong>correction event は保全対象</strong></td></tr>
+          <tr><td><code>review_gates.py</code></td><td><strong><code>review</code></strong></td><td>執行品質レビューの期日と gate</td><td><code>_gates</code> 接尾は冗長</td></tr>
+          <tr><td><code>benchmark.py</code></td><td><strong><code>benchmark</code></strong></td><td>保有の対 INDEX フォワード実績</td><td>業界語。維持</td></tr>
+          <tr><td><code>policy_config.py</code></td><td><strong><code>policy</code></strong>（position 配下）</td><td>portfolio policy（sizing / risk band）</td><td><code>_config</code> はノイズ。shared 誤配置を是正</td></tr>
+        </tbody>
+      </table>
+
+      <h3>4.4 macro の中・shared・横断</h3>
+      <table>
+        <thead><tr><th>現状</th><th>新名</th><th>意味</th><th>根拠</th></tr></thead>
+        <tbody>
+          <tr><td><code>stats</code></td><td><strong><code>series</code></strong>（投資家語 <code>indicators</code>）</td><td>マクロ統計の時系列（FX/flows 含む）</td><td><code>SeriesDefinition</code>/<code>series.yaml</code>/<code>series_id</code> とコード完全一致。superset で安全。<code>stats</code> は漠然</td></tr>
+          <tr><td><code>stats.domain</code> field</td><td><strong><code>category</code></strong>/<code>topic</code></td><td>系列のグルーピング</td><td>DDD「ドメイン」との用語衝突を解消</td></tr>
+          <tr><td><code>providers</code></td><td><strong><code>providers</code></strong>（維持）</td><td>ソース別取得アダプタ</td><td>screening 側も <code>providers/</code>。<code>sources</code> 化は不整合（DDD は sources 推すが一貫性優先）</td></tr>
+          <tr><td><code>common</code>（top-level utils）</td><td><strong><code>foundation</code></strong>（<code>core</code> も可）</td><td>ドメイン非依存プリミティブ</td><td>junk-drawer 名 <code>common</code> を蓄積抑止名へ。ドメイン型を入れない規律</td></tr>
+          <tr><td><code>price</code>/<code>JQuantsDailyBar</code></td><td><strong><code>bars</code></strong></td><td>価格日次足（OHLCV）</td><td>型が既に <code>...DailyBar</code>。<code>quotes</code> は bid/ask 誤用、<code>price</code> はスカラで曖昧</td></tr>
+          <tr><td><code>regime</code>/<code>coverage</code>/<code>freshness</code>/<code>cohort</code></td><td><strong>現状維持</strong></td><td>市場局面 / キャッシュ被覆 / 鮮度 / 収益コホート</td><td>いずれも正規の金融・データ語。比喩でない</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2 id="s5">5. 新フォルダ構成（サブシステム別・命名根拠つき）</h2>
+      <p>前回の横並びツリーは読みづらかったので、<strong>サブシステムごとに分け、各フォルダに「← 旧名 ／ 役割」を併記</strong>する。</p>
+
+      <h3>5.1 macro — 環境を読む</h3>
+      <pre><code>macro/
+├─ （§6 の判断で確定）        ← macro_context / macro_analysis
+├─ series/                    ← stats        経済指標の時系列
+│   ├─ providers/                            ソース別取得（FRED/eStat/BOJ…）
+│   └─ definitions.py（category field ← domain）
+└─（検証は横断 validation/ へ）</code></pre>
+      <p><code>stats</code>→<code>series</code> はコード（<code>SeriesDefinition</code>）と完全一致する grounded な改名。CLI も <code>baibai-loop-series</code> へ縦に揃える。</p>
+
+      <h3>5.2 screening — 機械でふるう</h3>
+      <pre><code>screening/
+├─ rules / metrics / universe / regime …    選別ロジック（fact-engine、据え置き）
+├─ selection/                ← 維持          候補→推奨の ranking（triage 却下）
+├─ forward/                  ← ledger 計測   forward returns の signal-efficacy 分析
+│   （replay / cohort / ablation / forward_return）
+└─（playbook ← lane、signal/score ← lens、具体型 ← packet/payload）</code></pre>
+      <p><code>forward/</code> は <code>backtest</code>（誤解語）でも <code>telemetry</code>（非金融語）でもなく、forward-only という honesty 属性を名前で表す。CLI 計測サブコマンドはここへ。</p>
+
+      <h3>5.3 position — 建玉の一生</h3>
+      <pre><code>position/
+├─ thesis/                   ← validate/research   投資仮説（なぜ買うか）
+├─ execution.py              ← trades              約定記録
+├─ tracking.py               ← tracking            保有の forward 追跡
+├─ decisions/                ← ledger register     決定イベント（保全対象）
+├─ review.py                 ← review_gates        執行品質レビュー
+├─ benchmark.py              ← 維持                対 INDEX 実績
+└─ policy.py                 ← policy_config       portfolio policy（shared から移設）</code></pre>
+      <p><code>ledger</code> god-module を解体し、決定記録（<code>decisions</code>）と計測（<code>screening/forward</code>）を別 context へ。<code>position</code> は records/06-trades と CLI を縦に揃えて改名する。</p>
+
+      <h3>5.4 shared ＋ 横断 validation</h3>
+      <pre><code>shared/
+├─ foundation/               ← common（coerce/yaml_io/date_utils/_env/filesystem/jst）
+└─ bars/                     ← price（JQuantsDailyBar 型 + price-walk）
+
+validation/                  ← validate（単一 top-level・各 context に散らさない）
+├─ cli.py                                    records 公開言語の検証 dispatcher
+├─ findings.py               ← errors        ValidationFinding
+└─（macro / candidates / thesis / trade / decisions の record 別 validator）</code></pre>
+      <p>検証対象は「context 間契約 ＝ records schema」という単一の共有関心なので、<code>validation/</code> 1 つに集約する（per-context <code>conformance/</code> は CI gate を分裂させるノイズ）。</p>
+    </section>
+
+    <section>
+      <h2 id="s6">6. 最重要論点 — macro の context/analysis をどうするか</h2>
+      <p>ここだけ DDD と AI 可読性が<strong>正面衝突</strong>した。両者とも「<code>macro_analysis</code> の lever が死蔵・sector-tilt が二重定義」という同じ事実を見て、逆の結論を出している。</p>
+
+      <table>
+        <thead><tr><th>案</th><th>主張</th><th>根拠</th><th>リスク</th></tr></thead>
+        <tbody>
+          <tr><td><strong>A. 統合</strong>（DDD 既定）</td><td><code>macro_context</code> を唯一の published 成果物に。analysis の推論を rationale として畳み込み、死蔵 <code>trade_levers</code> と <code>02-macro-analysis</code> を<strong>削除</strong></td><td>analysis は死蔵・二重定義・projection 未機械化。「計測経路のない機能を足さない／古い実装を捨てる」哲学に整合</td><td>#257 で作った lever 駆動の野心を捨てる</td></tr>
+          <tr><td><strong>B. 分離維持</strong>（AI 可読性）</td><td><code>premise</code>（前提）＋ <code>judgment</code>（判断）に分け、4 重の区別を保つ</td><td>「screen は macro-blind」不変条件をコードが 4 重に担保。<code>reading</code> 統合で潰すと AI が judgment を premise に置き<strong>正しさを壊す</strong></td><td>死蔵・二重定義を温存（配線しない限り）</td></tr>
+          <tr><td><strong>C. producer→consumer 2 層</strong>（私の統合案・推奨）</td><td><code>judgment</code>（研究イベント・lever 付き・複数）→ <code>stance</code>（published な読み・screening が消費・単数）の生産者→契約関係。sector-tilt 語彙は <code>stance</code> に一本化し、judgment を配線で生かす</td><td>A の「死蔵・二重解消」と B の「分離・不変条件保護」を両立。#257 の lever 価値を活かしつつ macro-blind を守る</td><td>judgment→stance の projection 運用を回す手間</td></tr>
+        </tbody>
+      </table>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart LR
+  subgraph C["案C: judgment → stance の 2 層（推奨）"]
+    j["judgment（研究イベント・複数）<br/>lever / risk_posture / forward_view"]
+    st["stance（published な読み・単数）<br/>sector tilt / risk posture を一本化"]
+    j -->|"projection（roll-up）"| st
+  end
+  st -->|"消費（macro-blind を守る）"| sel["screening: select / policy"]
+  st --> rs["research narrative"]
+</pre>
+        <figcaption>図2: 推奨案 C。複数の judgment（lever 付き研究）が 1 つの stance（現在の読み）へ roll-up し、screening は stance だけを消費する。死蔵・二重定義を解消しつつ #257 の lever を活かす</figcaption>
+      </figure>
+
+      <div class="callout callout-important">
+        <p class="callout-title">あなたに確認したいこと（DDD も「投資家本人の確認で確定」と明記）</p>
+        <p>macro を実際にどう運用しますか。<strong>(i) 複数の研究（テーマ別 judgment）を書き、それを 1 つの現在の読み（stance）に集約していく</strong>なら案 C（私の推奨）。<strong>(ii) その都度 1 つの環境読みを書くだけ</strong>なら案 A（統合・シンプル）。あなたの「価値優先・死蔵を残さない」方針では、A も C も死蔵を解消します（A は削除で、C は配線で）。#257 の「lever でトレード判断を動かす」野心を残すなら C です。</p>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="s7">7. 4 専門家レビューの統合</h2>
+      <p>叩き台 v1 を 4 観点で壊しにいかせ、各々が独立に検証した。</p>
+      <table>
+        <thead><tr><th>専門家</th><th>最も効いた指摘</th></tr></thead>
+        <tbody>
+          <tr><td><strong>DDD</strong></td><td>命名問題の半分は構造問題（§2 の 4 事実）。<code>ledger</code> 分割・macro 死蔵解消・<code>validation</code> 単一化が命名以前の本丸。投資家語・1 概念 1 語を死守せよ</td></tr>
+          <tr><td><strong>金融ドメイン</strong></td><td>docs の「forward-only backtest」は<strong>語義矛盾</strong>（コード docstring は "not a backtest"）。<code>backtest</code> 回避は正、ただし <code>telemetry</code> も非金融語で <code>forward</code> が native。<code>quotes</code>→<code>bars</code>、<code>ledger</code>→会計誤含意</td></tr>
+          <tr><td><strong>Python 命名</strong></td><td>構造判断は正しいが語の格が高すぎる。<code>conformance</code>/<code>sieve</code>/<code>telemetry</code>/<code>triage</code> は平易語へ引き戻せ。本丸は <code>ledger</code> 3 分割で churn は小さい（mock patch 文字列 6 箇所のみ）</td></tr>
+          <tr><td><strong>AI 可読性(adversary)</strong></td><td><code>reading</code> 統合が<strong>最危険</strong>（macro-blind 不変条件を壊す）。「半 rename」が一語二名を生む＝package＋CLI＋records＋kind を縦に揃えよ。原則「grounded ＞ plain ＞ clever」</td></tr>
+        </tbody>
+      </table>
+      <p>4 者は <code>sieve</code> 却下・<code>position</code>・<code>thesis</code>・<code>bars</code>・<code>validation</code> 単一化・<code>ledger</code> 分割で一致。割れたのは macro（§6）と forward 計測層の語（<code>forward</code> 3 票 vs <code>telemetry</code> 残置 1 票 → <code>forward</code> 採用）のみ。</p>
+    </section>
+
+    <section>
+      <h2 id="s8">8. 残る確認事項</h2>
+      <ul>
+        <li><strong>macro の運用</strong>（§6）: 案 A（統合・削除）か案 C（judgment→stance 2 層・配線）か。あなたの運用意図で決まる。</li>
+        <li><strong>forward 計測層の語</strong>: <code>screening/forward</code> で確定してよいか（<code>telemetry</code> は docs に 31 件あるが「forward 計測」へ寄せる）。</li>
+        <li><strong>縦の改名範囲</strong>: <code>stats</code>→<code>series</code>・<code>trade</code>→<code>position</code> は CLI（<code>baibai-loop-stats</code>/<code>-ledger</code>）と records dir（<code>01</code>/<code>06</code>/<code>_ledger</code>）と <code>kind:</code> discriminator まで縦に揃える。この一括改名を最終 PR に含めてよいか。</li>
+        <li><strong><code>foundation</code> か <code>core</code> か</strong>: junk-drawer 抑止はどちらでも効く（微差）。</li>
+      </ul>
+      <div class="callout callout-note">
+        <p class="callout-title">次の一手</p>
+        <p>§6 macro と §8 の確認が取れれば、この命名を前回のサブシステム分割設計に統合し、<code>km:plan</code> で最終 PR の実装計画 issue に落とします。命名は「package ＋ CLI ＋ records ＋ kind を縦に揃える」単位で各 step に織り込みます。</p>
+      </div>
+    </section>
+
+    <footer class="doc-footer">
+      <p>baibai-loop ユビキタス言語 — 4 専門家（DDD / 金融 / Python / AI 可読性）レビューで突き詰め。Generated as a single self-contained HTML document.</p>
+    </footer>
+
+  </div>
+
+  <!-- Mermaid（UMD all-in-one を バージョン固定 + SRI で読み込む。直後に挿入される document-template.js が初期化と図操作を行う。完全クライアント側で外部送信なし） -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.min.js" integrity="sha384-yQ4mmBBT+vhTAwjFH0toJXNYJ6O4usWnt6EPIdWwrRvx2V/n5lXuDZQwQFeSFydF" crossorigin="anonymous"></script>
+  <!-- ビルドで document-template.js を <script> へ挿入する。このマーカーは残す -->
+  <script>
+// km:html-document の図操作スクリプト。document-template.html の末尾 <script> にビルドで挿入して単一ファイルにする。
+
+// Mermaid 初期化。htmlLabels:false で図ラベルを <foreignObject>（HTML）ではなく SVG <text> で描く。
+// foreignObject 入り SVG は canvas 描画時に汚染され toBlob が失敗するため、WebP 化を成立させるのに必須。
+mermaid.initialize({ startOnLoad: true, securityLevel: 'strict', htmlLabels: false, flowchart: { htmlLabels: false } });
+
+// 図の操作（完全クライアント側・外部送信なし）。各 figure.diagram に付与する:
+// - マウスホイールで拡大 / 縮小、ドラッグで移動、ダブルクリックでリセット
+// - WebP ボタンで SVG を canvas 経由のラスタ画像にして別タブで開く（ポップアップ抑止時はダウンロード）
+// mermaid は load 時に非同期描画するため、ハンドラは figure に張り SVG はイベント時に都度取得する（描画タイミングに依存しない）。
+(() => {
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  // SVG を指定 MIME のラスタ画像にして別タブで開く。img-src blob: で blob を許可している
+  const openAsImage = (svg, mime, ext) => {
+    const box = svg.viewBox && svg.viewBox.baseVal;
+    const rect = svg.getBoundingClientRect();
+    const w = Math.max(1, Math.round((box && box.width) || rect.width));
+    const h = Math.max(1, Math.round((box && box.height) || rect.height));
+    const clone = svg.cloneNode(true);
+    clone.setAttribute('width', w);
+    clone.setAttribute('height', h);
+    // 画面表示用のズーム/パン（inline の width/height/maxWidth/transform）を画像へ持ち込まない
+    clone.style.width = '';
+    clone.style.height = '';
+    clone.style.maxWidth = '';
+    clone.style.transform = 'none';
+    const xml = new XMLSerializer().serializeToString(clone);
+    const svgUrl = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml;charset=utf-8' }));
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale = 2; // 高解像度化
+        const canvas = document.createElement('canvas');
+        canvas.width = w * scale;
+        canvas.height = h * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          if (!blob) { console.error('diagram export: toBlob が null（canvas 上限超過 / 形式未対応の可能性）'); return; }
+          const url = URL.createObjectURL(blob);
+          const win = window.open(url, '_blank');
+          if (!win) { // ポップアップブロック時はダウンロードにフォールバック
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'diagram.' + ext;
+            a.click();
+          }
+        }, mime);
+      } catch (err) {
+        console.error('diagram export に失敗', err); // 例: foreignObject 等で canvas が汚染された場合
+      } finally {
+        URL.revokeObjectURL(svgUrl);
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(svgUrl); console.error('diagram export: SVG 画像の読み込みに失敗'); };
+    img.src = svgUrl;
+  };
+
+  const enhance = (fig) => {
+    if (fig.dataset.enhanced) return;
+    fig.dataset.enhanced = '1';
+    const view = { scale: 1, x: 0, y: 0 };
+    let base = null; // scale=1 の自然サイズ（初回 apply で記録）
+    const apply = () => {
+      const svg = fig.querySelector('svg');
+      if (!svg) return;
+      if (!base) {
+        const r = svg.getBoundingClientRect();
+        if (r.width < 1) return; // まだ描画されていない
+        base = { w: r.width, h: r.height };
+        svg.style.maxWidth = 'none'; // 拡大時に mermaid の max-width で頭打ちさせない
+      }
+      // ズームは表示サイズ（width/height）で行う → SVG ベクタが解像度に追従し、文字が拡大してもぼけない
+      svg.style.width = (base.w * view.scale) + 'px';
+      svg.style.height = (base.h * view.scale) + 'px';
+      // パンは translate（リサンプルされないので鮮明なまま）
+      svg.style.transform = `translate(${view.x}px, ${view.y}px)`;
+    };
+    const reset = () => { view.scale = 1; view.x = 0; view.y = 0; apply(); };
+
+    // 素のホイールで拡縮する（意図的な設計）。図上ではページスクロールより拡縮を優先する
+    fig.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      view.scale = clamp(view.scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1), 0.2, 8);
+      apply();
+    }, { passive: false });
+
+    let drag = null;
+    fig.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return; // 主ボタンのみ（右/中クリックで pan を始めない）
+      if (e.target.closest('.diagram-tools')) return;
+      // 図ラベル・キャプションのテキスト上では選択を優先し pan しない。余白・ノード・エッジ上だけ pan する
+      if (e.target.closest('text, tspan, foreignObject, figcaption')) return;
+      e.preventDefault(); // 余白からのドラッグでテキスト選択が始まるのを抑止する
+      drag = { x: e.clientX - view.x, y: e.clientY - view.y };
+      try { fig.setPointerCapture(e.pointerId); } catch (_) { /* 非アクティブな pointer は無視 */ }
+      fig.classList.add('grabbing');
+    });
+    fig.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      view.x = e.clientX - drag.x;
+      view.y = e.clientY - drag.y;
+      apply();
+    });
+    const endDrag = () => { drag = null; fig.classList.remove('grabbing'); };
+    fig.addEventListener('pointerup', endDrag);
+    fig.addEventListener('pointercancel', endDrag);
+    window.addEventListener('pointerup', endDrag); // capture 失敗時も、図の外で離せば pan を終える保険
+    fig.addEventListener('dblclick', reset);
+
+    // 印刷時はズーム/パンを一時解除して自然サイズで刷り、印刷後に画面の表示を復元する
+    let savedView = null;
+    window.addEventListener('beforeprint', () => {
+      if (!base) return; // 未操作の図は mermaid の自然描画のまま
+      savedView = { ...view };
+      view.scale = 1; view.x = 0; view.y = 0; apply();
+    });
+    window.addEventListener('afterprint', () => {
+      if (!savedView) return;
+      Object.assign(view, savedView);
+      savedView = null;
+      apply();
+    });
+
+    const tools = document.createElement('div');
+    tools.className = 'diagram-tools';
+    const addButton = (label, onClick) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.addEventListener('click', onClick);
+      tools.appendChild(button);
+    };
+    const withSvg = (fn) => () => { const svg = fig.querySelector('svg'); if (svg) fn(svg); };
+    addButton('WebP', withSvg((svg) => openAsImage(svg, 'image/webp', 'webp')));
+    addButton('リセット', reset);
+    fig.appendChild(tools);
+  };
+
+  // mermaid の描画完了は待たない: figure は静的に存在するので load 時にハンドラを張る
+  window.addEventListener('load', () => {
+    document.querySelectorAll('figure.diagram').forEach(enhance);
+  });
+})();
+
+</script>
+</body>
+</html>

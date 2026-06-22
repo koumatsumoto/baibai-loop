@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date, timedelta, timezone
+from datetime import date
 from pathlib import Path
 
 import yaml
+
+from baibai_loop.foundation.time import JST
 
 from .schema import (
     FreshnessWarning,
@@ -13,7 +15,6 @@ from .schema import (
     TTMQuality,
 )
 
-JST = timezone(timedelta(hours=9))
 _DECIMAL_PLACES = {
     "per_forward": 2,
     "per_trailing": 2,

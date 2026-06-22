@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from baibai_loop.coerce import (
+from baibai_loop.foundation.coerce import (
     date_from_datetime_prefix,
     dict_sequence,
     mapping_sequence,
@@ -18,7 +18,7 @@ from baibai_loop.coerce import (
     string_or_none,
     string_sequence,
 )
-from baibai_loop.yaml_io import safe_load
+from baibai_loop.foundation.yaml_io import safe_load
 
 
 @dataclass(frozen=True, slots=True)

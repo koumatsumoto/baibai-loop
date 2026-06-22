@@ -4,7 +4,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from baibai_loop.date_utils import add_business_days, weekday_distance
+from baibai_loop.foundation.date_utils import add_business_days, weekday_distance
 
 
 def _calendar(days: int) -> list[date]:

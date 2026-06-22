@@ -16,7 +16,7 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
-from baibai_loop.yaml_io import safe_load
+from baibai_loop.foundation.yaml_io import safe_load
 
 from .errors import ValidationFinding
 

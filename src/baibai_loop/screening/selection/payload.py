@@ -6,7 +6,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import date
 
-from baibai_loop.coerce import (
+from baibai_loop.foundation.coerce import (
     dict_sequence,
     int_or,
     mapping_or_empty,

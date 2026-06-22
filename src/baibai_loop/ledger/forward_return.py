@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
-from baibai_loop.coerce import optional_float
+from baibai_loop.foundation.coerce import optional_float
 from baibai_loop.screening.providers.jquants import JQuantsDailyBar
 
 from .benchmark import NIKKEI225_ETF_PROXY

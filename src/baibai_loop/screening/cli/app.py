@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from baibai_loop._env import load_project_env
+from baibai_loop.foundation.env import load_project_env
 from baibai_loop.screening.config import (
     DEFAULT_SQLITE_CACHE_DIR,
     ConfigError,

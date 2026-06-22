@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Mapping, Sequence
 
-from baibai_loop.coerce import (
+from baibai_loop.foundation.coerce import (
     dedupe_strings,
     int_or,
     string_or_none,

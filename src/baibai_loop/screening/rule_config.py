@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from baibai_loop.yaml_io import safe_load
+from baibai_loop.foundation.yaml_io import safe_load
 
 DEFAULT_RULES_PATH = Path("records/_config/screening-rules/2026-06-19T000000+0900.yaml")
 

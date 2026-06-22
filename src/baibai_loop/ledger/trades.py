@@ -7,8 +7,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any, TypeIs
 
-from baibai_loop.coerce import parse_iso_date
-from baibai_loop.yaml_io import safe_load
+from baibai_loop.foundation.coerce import parse_iso_date
+from baibai_loop.foundation.yaml_io import safe_load
 
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
 

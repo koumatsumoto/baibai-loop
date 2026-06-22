@@ -11,9 +11,9 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
-from baibai_loop.coerce import optional_float
+from baibai_loop.foundation.coerce import optional_float
+from baibai_loop.foundation.yaml_io import safe_load
 from baibai_loop.policy_config import PORTFOLIO_POLICY
-from baibai_loop.yaml_io import safe_load
 
 from .domain import (
     as_list,

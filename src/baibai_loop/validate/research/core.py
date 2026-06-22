@@ -10,6 +10,7 @@ from pathlib import Path
 import yaml
 from jsonschema import Draft202012Validator, FormatChecker
 
+from baibai_loop.foundation.yaml_io import safe_load
 from baibai_loop.validate.errors import ValidationFinding
 from baibai_loop.validate.playbook_schema import (
     PlaybookSchemaError,
@@ -17,7 +18,6 @@ from baibai_loop.validate.playbook_schema import (
     load_playbook_schema,
     validate_research_body,
 )
-from baibai_loop.yaml_io import safe_load
 
 from .fields import _check_decision, _check_playbook, _check_ticker
 from .macro_context import _check_macro_context_fit
