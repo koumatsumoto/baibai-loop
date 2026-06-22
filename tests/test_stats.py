@@ -453,6 +453,19 @@ class StatsProviderParserTests(unittest.TestCase):
         with self.assertRaisesRegex(StatsProviderError, "GET_STATS_DATA"):
             parse_estat_json(series, "{}", start=date(2026, 1, 1), end=date(2026, 12, 31))
 
+    def test_split_stats_data_id_extracts_narrowing_params(self) -> None:
+        from baibai_loop.stats.providers.estat import _split_stats_data_id
+
+        stats_id, narrowing = _split_stats_data_id("0003427113?cdCat01=0001&cdArea=00000&cdTab=1")
+
+        self.assertEqual(stats_id, "0003427113")
+        self.assertEqual(narrowing, {"cdCat01": "0001", "cdArea": "00000", "cdTab": "1"})
+
+    def test_split_stats_data_id_without_query_returns_empty_params(self) -> None:
+        from baibai_loop.stats.providers.estat import _split_stats_data_id
+
+        self.assertEqual(_split_stats_data_id("0003427113"), ("0003427113", {}))
+
     def test_parse_trades_spec_filters_range_and_uses_foreign_balance(self) -> None:
         series = _series("jquants_flows", "foreigners_net_value", unit="jpy")
         rows = [

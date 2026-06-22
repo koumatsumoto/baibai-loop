@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
 
+from .._env import load_project_env
 from .db import DEFAULT_DB_PATH, StatsSchemaError
 from .definitions import SeriesDefinition
 from .providers import StatsProviderError
@@ -42,6 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_project_env()
     args = build_parser().parse_args(argv)
     service = StatsService(args.db)
     try:

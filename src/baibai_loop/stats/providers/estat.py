@@ -44,19 +44,36 @@ class EStatProvider:
         app_id = os.environ.get("ESTAT_APP_ID")
         if not app_id:
             raise StatsProviderError("e-Stat appId not set: export ESTAT_APP_ID")
+        stats_data_id, narrowing = _split_stats_data_id(series.provider_series_id)
+        params = {
+            "appId": app_id,
+            "statsDataId": stats_data_id,
+            "metaGetFlg": "N",
+            "cntGetFlg": "N",
+        }
+        params.update(narrowing)
         text = fetch_text(
             session,
             series.source_url,
-            params={
-                "appId": app_id,
-                "statsDataId": series.provider_series_id,
-                "metaGetFlg": "N",
-                "cntGetFlg": "N",
-            },
+            params=params,
             max_bytes=MAX_CSV_RESPONSE_BYTES,
             context=context,
         )
         return parse_estat_json(series, text, start=start, end=end)
+
+
+def _split_stats_data_id(provider_series_id: str) -> tuple[str, dict[str, str]]:
+    # provider_series_id may carry e-Stat narrowing params after '?', e.g.
+    # "0003427113?cdCat01=0001&cdArea=00000" to select the 全国 総合 CPI cell.
+    if "?" not in provider_series_id:
+        return provider_series_id, {}
+    stats_data_id, query = provider_series_id.split("?", 1)
+    narrowing: dict[str, str] = {}
+    for pair in query.split("&"):
+        key, _, value = pair.partition("=")
+        if key:
+            narrowing[key] = value
+    return stats_data_id, narrowing
 
 
 def parse_estat_json(

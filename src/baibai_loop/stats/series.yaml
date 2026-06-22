@@ -297,10 +297,10 @@ series:
     frequency: monthly
     unit: index
     provider: estat
-    provider_series_id: "0003427113"
+    provider_series_id: "0003427113?cdCat01=0001&cdArea=00000&cdTab=1"
     source_id: estat-cpi
     source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
-    notes: statsDataIdは要確認(e-Statの全国CPI総合指数)。FRED日本CPI系列が廃止のためe-Statを使用
+    notes: e-Stat CPI表 0003427113 を cdCat01=0001(総合)・cdArea=00000(全国) で総合・全国に絞る。FRED日本CPI系列が廃止のためe-Statを使用。live確認済
     aliases: [日本CPI, JP CPI, CPI総合, 全国CPI]
   - series_id: jp.foreign_flows
     name: 海外投資家ネット買い越し額(週次)
