@@ -1,9 +1,9 @@
 ---
 title: "Macro analysis runbook"
-summary: "How the macro analysis capability works: pull stats data, write a macro-analysis record that names trade levers, and feed select / portfolio policy. The mechanical screen stays macro-blind."
+summary: "How the macro analysis capability works: pull stats data and write a macro-context record (an environment read) whose sector tilts feed select / portfolio policy. The mechanical screen stays macro-blind."
 doc_type: operations
 status: active
-last_reviewed: 2026-06-22
+last_reviewed: 2026-06-23
 related_docs:
   - "../concepts.md"
   - "../reference/data-sources.md"
@@ -11,7 +11,7 @@ related_docs:
 
 # Macro analysis runbook
 
-マクロ環境分析は**独立した capability**（データ取得層 ＋ リサーチ実践）であり、formal なループにはしない。改善（調査方法・データソース確認手順のナレッジ）は使いながら都度蓄積する。狙いは「環境を読んでトレード判断に効く環境読みを供給する」こと。抱えるのは性質の違う 3 種：**① データ（事実）／ ② 分析成果（lever 必須の判断）／ ③ ナレッジ（メタ知識）**。
+マクロ環境分析は**独立した capability**（データ取得層 ＋ リサーチ実践）であり、formal なループにはしない。改善（調査方法・データソース確認手順のナレッジ）は使いながら都度蓄積する。狙いは「環境を読んでトレード判断に効く環境読みを供給する」こと。抱えるのは性質の違う 3 種：**① データ（事実）／ ② 環境読み（macro_context record）／ ③ ナレッジ（メタ知識）**。
 
 ## ① データ：stats series を引く
 
@@ -40,22 +40,15 @@ uv run baibai-loop-stats get jp.policy_rate --latest
 
 新ソース追加 = provider モジュールを 1 つ足して `series.yaml` に series を登録するだけ（`src/baibai_loop/stats/providers/` に 1 ファイル）。1 series_id = 1 provider を厳守する。
 
-## ② 分析成果：macro-analysis record を書く
+## ② 環境読み：macro_context record を書く
 
-1 つの問いに対し、dated・sourced な分析を `records/02-macro-analysis/<YYYY>/<MM>/macro-analysis-<YYYY-MM-DD>-<slug>.yaml` に残す。schema は `records/_schemas/macro-analysis.json`、検証は：
+市場局面について、dated・sourced な環境読みを `records/01-macro-context/<YYYY>/<MM>/...yaml` に残す。schema は `records/_schemas/macro-context.json`、検証は：
 
 ```bash
-uv run baibai-loop-validate --target macro-analysis
+uv run baibai-loop-validate --target macro-context
 ```
 
-必須要件（schema/validator が強制）：
-
-- **data_inputs**（≥1）：分析を ① stats series に grounding する。`series_id` は stats registry に存在すること（未登録は warning）。
-- **scenarios**（≥1）・**risks**（≥1）・**forward_view**：深さ。
-- **risk_posture**：`stance`（risk_on/neutral/risk_off）＋ rationale。
-- **trade_levers**（≥1・lever 必須）：各分析は「トレード上の lever」を名指す。`lever ∈ {sector_tilt, risk_posture, theme, timing, universe_attention}`・`target`・`direction`・`rationale`。lever を名指せない問いは対象外（汎用リサーチ助手化の歯止め）。
-
-スコープは広く（世界経済・政策・金利・FX・商品・INDEX・crypto・セクター・地政学）、ただし上記 lever 規律で接地する。
+環境読みは ① stats series に grounding し、**sector tilt**（業種ごとの追い風/向かい風 ＝ `key`/`stance`/`strength`/`confidence`）と市場前提を記す。スコープは広く（世界経済・政策・金利・FX・商品・INDEX・crypto・セクター・地政学）。マクロは N≈1 の判断なので、**edge 数値・統計的有意・lever の機械適用（自動 sizing 倍率）は出さない**。環境読みは次の接続で判断層の背景としてのみ効く。
 
 ## ③ ナレッジ：都度洗練する
 
@@ -65,9 +58,8 @@ uv run baibai-loop-validate --target macro-analysis
 
 マクロ読みは機械スクリーニング `run` には接続しない（`run` は fundamentals の決定的 fact-engine のまま）。効くのは判断層だけ：
 
-- **select**：`macro_analysis.sector_lever(analysis, sector)` が候補セクターの sector_tilt lever を返す。既存の macro-context sector-tilt lens と整合し、avoid セクターの割安株も surface はするが減点・flag（hard gate にしない）。
-- **portfolio policy**：`macro_analysis.risk_posture_sizing_factor(posture)` が risk posture を starter サイズの倍率にする（risk_on=1.0 / neutral=0.75 / risk_off=0.5）。最高値追いをフルサイズで追わせない。
-- **research**：forward_view・themes・hazards を個別 thesis の背景 context に使う。
+- **select**：`macro_context` の sector tilt が候補セクターの追い風/向かい風 lens として効く（`screening/selection/macro_fit`）。avoid セクターの割安株も surface はするが減点・flag（hard gate にしない）。
+- **portfolio policy / research**：環境前提・themes・hazards を sizing 判断や個別 thesis の背景 context に使う。具体の sizing は portfolio policy が決め、マクロは背景に留める（マクロを numeric driver にしない）。
 
 ## 誠実性（honesty firewall）
 
