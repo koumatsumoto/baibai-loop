@@ -42,7 +42,7 @@ python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--s
 
 ## 3. Required Env Vars
 
-- `JQUANTS_REFRESH_TOKEN`
+- `JQUANTS_API_KEY`
 
 cache / SQLite の配置先は固定 (env override 廃止):
 
