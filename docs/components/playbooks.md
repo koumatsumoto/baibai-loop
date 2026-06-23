@@ -3,11 +3,11 @@ title: "Playbooks component"
 summary: "Contract for active playbooks stored under records/_playbooks and referenced by research packets."
 doc_type: component
 status: active
-last_reviewed: 2026-05-04
+last_reviewed: 2026-06-23
 source_paths:
   - "../../records/_playbooks/"
 related_docs:
-  - "research.md"
+  - "thesis.md"
   - "../templates/README.md"
 ---
 

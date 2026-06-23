@@ -3,12 +3,12 @@ title: "タスク runbook"
 summary: "GitHub issue で決算後確認などの運用タスクを管理するための入口。"
 doc_type: operation
 status: active
-last_reviewed: 2026-05-10
+last_reviewed: 2026-06-23
 related_docs:
   - "./research-runbook.md"
-  - "../components/research.md"
-  - "../components/ledger.md"
-  - "../components/trades.md"
+  - "../components/thesis.md"
+  - "../components/decisions.md"
+  - "../components/position.md"
 ---
 
 # タスク runbook

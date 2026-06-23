@@ -3,9 +3,9 @@ title: "Research runbook"
 summary: "Operational entry point for creating records/05-thesis packets from candidates and macro context."
 doc_type: operation
 status: active
-last_reviewed: 2026-05-04
+last_reviewed: 2026-06-23
 related_docs:
-  - "../components/research.md"
+  - "../components/thesis.md"
   - "../components/candidates.md"
   - "../components/macro-context.md"
   - "./screening-runbook.md"
@@ -14,7 +14,7 @@ related_docs:
 
 # Research runbook
 
-Research は `records/04-candidates/` と `records/01-macro-context/` を統合する analysis layer です。packet の contract、front matter、AI 境界、self-review は [`../components/research.md`](../components/research.md) を正本とします。
+Research は `records/04-candidates/` と `records/01-macro-context/` を統合する analysis layer です。packet の contract、front matter、AI 境界、self-review は [`../components/thesis.md`](../components/thesis.md) を正本とします。
 
 ## Before writing
 
@@ -34,7 +34,7 @@ Research は `records/04-candidates/` と `records/01-macro-context/` を統合�
   `thesis_decision.outcome: approved` にしない。
 - Thesis には long-hold fallback を 1 行以上書く。長期保有になっても耐えられる可能性が高い balance sheet / cash flow / liquidity / refinancing risk / earnings base の耐久性、資産ロック許容、配当・自己株買いなどの shareholder return を確認する。固定年数の条件ではなく、売却までの期間が想定より長引いても事業継続性と回収余地が残るかを確認する。配当がない銘柄は、短期リターン可能性と payoff が大きい場合だけ採用余地を残す。Long-hold fallback は stop loss、invalidation、kill switch、事業継続前提の毀損を上書きしない。
 - Thesis には AI long-term impact を 1 行以上書く。AI の長期機会・長期脅威・今回判断での重みを明示し、AI 期待だけで採用や sizing を正当化しない。
-- 採用判定は `thesis_decision.outcome` と `thesis_decision.posture` の意味を [`../components/research.md`](../components/research.md) に合わせる。
+- 採用判定は `thesis_decision.outcome` と `thesis_decision.posture` の意味を [`../components/thesis.md`](../components/thesis.md) に合わせる。
 - `thesis_decision.outcome: deferred` かつ `thesis_decision.posture: wait_for_event` の場合は、[`task-runbook.md`](./task-runbook.md) に従い、決算後確認タスク issue を作成または既存 issue に紐づける。
 - 訂正が必要な場合は既存行を書き換えず、decision register に correction event を追加する。
 

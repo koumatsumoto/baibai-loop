@@ -1,6 +1,6 @@
-# components/trades.md
+# components/position.md
 
-Baibai-Loop の **execution record / trades** 成分の運用仕様。investment memo で採用され、実際に order / entry した判断の注文、約定、建玉、決済を記録する。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md) を参照。
+Baibai-Loop の **position / execution record** 成分の運用仕様。investment memo で採用され、実際に order / entry した判断の注文、約定、建玉、決済を記録する。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md) を参照。
 
 ## 1. 役割
 
@@ -159,5 +159,5 @@ uv run baibai-loop-validation --target position
 
 - [`../philosophy.md`](../philosophy.md): 思想
 - [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
-- [`research.md`](./research.md): source となる research の仕様
-- [`../templates/trade.md`](../templates/trade.md): template
+- [`thesis.md`](./thesis.md): source となる thesis の仕様
+- [`../templates/position.md`](../templates/position.md): template

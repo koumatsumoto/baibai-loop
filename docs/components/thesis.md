@@ -1,6 +1,6 @@
-# components/research.md
+# components/thesis.md
 
-Baibai-Loop の **research / investment memo** の運用仕様。candidates × macro context × portfolio policy から選定した個別銘柄について、thesis、payoff、反証、entry / exit / invalidation、position size を検証する。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md)、概念モデルは [`../concepts.md`](../concepts.md) を参照。
+Baibai-Loop の **thesis / investment memo** の運用仕様。candidates × macro context × portfolio policy から選定した個別銘柄について、thesis、payoff、反証、entry / exit / invalidation、position size を検証する。全体構造は [`../architecture/system-overview.md`](../architecture/system-overview.md)、概念モデルは [`../concepts.md`](../concepts.md) を参照。
 
 ## 1. 役割
 
@@ -32,7 +32,7 @@ records/05-thesis/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook_id>.md
 
 ## 4. Front Matter
 
-Front matter の形は [`../templates/research.md`](../templates/research.md) を正とする。主な必須 field は次の通り。
+Front matter の形は [`../templates/thesis.md`](../templates/thesis.md) を正とする。主な必須 field は次の通り。
 
 - `ticker` / `name`
 - `playbook_id` / `playbook_ref`

@@ -3,7 +3,7 @@ title: "Component contracts"
 summary: "Index of Baibai-Loop artifact contracts."
 doc_type: component-index
 status: active
-last_reviewed: 2026-05-30
+last_reviewed: 2026-06-23
 ---
 
 # Components
@@ -17,9 +17,9 @@ Portfolio policy は record ではなく docs-managed governance document です
 | portfolio policy | [`../portfolio-policy.md`](../portfolio-policy.md) | [`portfolio-policy.md`](./portfolio-policy.md) |
 | macro context | `records/01-macro-context/` | [`macro-context.md`](./macro-context.md) |
 | candidates | `records/04-candidates/` | [`candidates.md`](./candidates.md) |
-| research | `records/05-thesis/` | [`research.md`](./research.md) |
-| trades | `records/06-position/` | [`trades.md`](./trades.md) |
-| ledger | `records/_decisions/` | [`ledger.md`](./ledger.md) |
+| thesis | `records/05-thesis/` | [`thesis.md`](./thesis.md) |
+| position | `records/06-position/` | [`position.md`](./position.md) |
+| decisions | `records/_decisions/` | [`decisions.md`](./decisions.md) |
 | playbooks | `records/_playbooks/` | [`playbooks.md`](./playbooks.md) |
 
 ## 読む順番

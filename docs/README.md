@@ -3,7 +3,7 @@ title: "Baibai-Loop docs portal"
 summary: "Reader-oriented entry point for architecture, component contracts, operations, reference, governance, templates, and screening subsystem docs."
 doc_type: portal
 status: active
-last_reviewed: 2026-05-04
+last_reviewed: 2026-06-23
 ---
 
 # Baibai-Loop docs
@@ -38,8 +38,8 @@ last_reviewed: 2026-05-04
 | --- | --- |
 | `records/01-macro-context/` の作成・変更 | [`components/macro-context.md`](./components/macro-context.md), [`reference/data-sources.md`](./reference/data-sources.md) |
 | `records/04-candidates/` または screening CLI の変更 | [`components/candidates.md`](./components/candidates.md), [`screening/README.md`](./screening/README.md), [`architecture/automation-map.md`](./architecture/automation-map.md) |
-| `records/05-thesis/` の作成・変更 | [`operations/research-runbook.md`](./operations/research-runbook.md), [`components/research.md`](./components/research.md), [`components/playbooks.md`](./components/playbooks.md) |
-| `records/06-position/` の作成・変更 | [`components/trades.md`](./components/trades.md), [`operations/trade-runbook.md`](./operations/trade-runbook.md) |
+| `records/05-thesis/` の作成・変更 | [`operations/research-runbook.md`](./operations/research-runbook.md), [`components/thesis.md`](./components/thesis.md), [`components/playbooks.md`](./components/playbooks.md) |
+| `records/06-position/` の作成・変更 | [`components/position.md`](./components/position.md), [`operations/trade-runbook.md`](./operations/trade-runbook.md) |
 | schema / validator / tests / CI の変更 | [`reference/testing-and-validation.md`](./reference/testing-and-validation.md), [`reference/python-foundation.md`](./reference/python-foundation.md), [`architecture/automation-map.md`](./architecture/automation-map.md) |
 
 ## 正本の境界

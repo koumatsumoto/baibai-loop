@@ -3,10 +3,10 @@ title: "Backtest runbook"
 summary: "Multi-axis backtest 手順。screening / judgment gate / playbook / regime の forward return を、look-ahead を排除した形で再現可能に計測する。"
 doc_type: runbook
 status: active
-last_reviewed: 2026-06-17
+last_reviewed: 2026-06-23
 related_docs:
   - "../screening/mechanical.md"
-  - "../components/research.md"
+  - "../components/thesis.md"
   - "../../reports/2026-06-17-trade-strategy-rootcause.md"
 ---
 

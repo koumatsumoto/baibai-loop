@@ -59,9 +59,9 @@ sector_33: "情報・通信業"
 published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 ---
 
-# Research: YYYY-MM-DD XXXX [銘柄名] [playbook_id]
+# Thesis: YYYY-MM-DD XXXX [銘柄名] [playbook_id]
 
-**成分**: Decision lifecycle の **research / investment memo**（[`/docs/components/research.md`](/docs/components/research.md)）
+**成分**: Decision lifecycle の **thesis / investment memo**（[`/docs/components/thesis.md`](/docs/components/thesis.md)）
 
 ## 1. Thesis
 
@@ -149,4 +149,4 @@ Why now × why this stock。主要 evidence、payoff、反対仮説、macro cont
 - **estimated real order notional**:
 - **binding cap**:
 
-参照: [`/docs/components/research.md`](/docs/components/research.md), [`/docs/screening/principles.md`](/docs/screening/principles.md), [`/records/_playbooks/`](/records/_playbooks/)
+参照: [`/docs/components/thesis.md`](/docs/components/thesis.md), [`/docs/screening/principles.md`](/docs/screening/principles.md), [`/records/_playbooks/`](/records/_playbooks/)

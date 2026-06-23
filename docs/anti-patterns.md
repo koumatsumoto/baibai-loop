@@ -402,5 +402,5 @@ PR で同じ anti-pattern が 2 ラウンド以上指摘されたら、本ドキ
 - 思想・基本方針: [`philosophy.md`](./philosophy.md)
 - 事実 / 分析の分離: [`design-principles.md`](./design-principles.md) §4
 - macro context 仕様: [`components/macro-context.md`](./components/macro-context.md)
-- research 採用判定: [`components/research.md`](./components/research.md)
+- research 採用判定: [`components/thesis.md`](./components/thesis.md)
 - AI agent 規約 (本ドキュメントの参照経路): [`../AGENTS.md`](../AGENTS.md)

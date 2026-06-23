@@ -9,7 +9,7 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
 # Playbook: [playbook 名]
 
-**成分**: `records/_playbooks/` 配下の運用資産。[`/docs/components/research.md`](/docs/components/research.md) の `playbook` front matter で参照される。
+**成分**: `records/_playbooks/` 配下の運用資産。[`/docs/components/thesis.md`](/docs/components/thesis.md) の `playbook` front matter で参照される。
 
 ## 1. 概要
 
@@ -96,7 +96,7 @@ updated_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
 ## 8. AI の役割境界
 
-[`/docs/components/research.md`](/docs/components/research.md) の AI 境界表を継承。核心:
+[`/docs/components/thesis.md`](/docs/components/thesis.md) の AI 境界表を継承。核心:
 
 - **AI 可**: Thesis / valuation / 仮説ドラフト / catalyst / price / positioning-liquidity
 - **人間のみ**: Macro context の最終解釈 / 一次ソース URL 確認 / 最終採用判定

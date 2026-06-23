@@ -3,7 +3,7 @@ title: "Screening subsystem"
 summary: "Index and role map for the screening subsystem docs. Principles remain canonical in principles.md."
 doc_type: subsystem-index
 status: active
-last_reviewed: 2026-05-04
+last_reviewed: 2026-06-23
 ---
 
 # Screening subsystem
@@ -28,6 +28,6 @@ dated 計測結果（過去の replay / ablation / regime-lens / playbook-cohort
 ## 上位 docs
 
 - 成果物 contract: [`../components/candidates.md`](../components/candidates.md)
-- research handoff: [`../components/research.md`](../components/research.md)
+- research handoff: [`../components/thesis.md`](../components/thesis.md)
 - 操作入口: [`../operations/screening-runbook.md`](../operations/screening-runbook.md)
 - system 全体: [`../architecture/system-overview.md`](../architecture/system-overview.md)

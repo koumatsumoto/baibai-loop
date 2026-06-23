@@ -3,15 +3,15 @@ title: "Trade runbook"
 summary: "Operational entry point for recording trades after approved research decisions."
 doc_type: operation
 status: active
-last_reviewed: 2026-05-05
+last_reviewed: 2026-06-23
 related_docs:
-  - "../components/trades.md"
-  - "../components/research.md"
+  - "../components/position.md"
+  - "../components/thesis.md"
 ---
 
 # Trade runbook
 
-Trade は採用済み research packet に対する執行記録です。自動発注は行いません。contract は [`../components/trades.md`](../components/trades.md) を正本とします。
+Trade は採用済み research packet に対する執行記録です。自動発注は行いません。contract は [`../components/position.md`](../components/position.md) を正本とします。
 
 ## Before writing
 

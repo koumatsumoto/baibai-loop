@@ -3,11 +3,11 @@ title: "Screening runbook"
 summary: "Operational entry point for candidates generation, selection, and research handoff."
 doc_type: operation
 status: active
-last_reviewed: 2026-05-13
+last_reviewed: 2026-06-23
 related_docs:
   - "../components/candidates.md"
   - "../screening/README.md"
-  - "../components/research.md"
+  - "../components/thesis.md"
 ---
 
 # Screening runbook
@@ -40,7 +40,7 @@ JPX 規制情報（特別注意 / 整理 / 取引停止 / 上場廃止警告）�
 uv run baibai-loop-screening select --asof YYYY-MM-DD
 ```
 
-`select` は最新 candidates と macro context を組み合わせ、research 候補の triage を支援します。最終採用判断は [`../components/research.md`](../components/research.md) の boundary に従い、人間が確定します。
+`select` は最新 candidates と macro context を組み合わせ、research 候補の triage を支援します。最終採用判断は [`../components/thesis.md`](../components/thesis.md) の boundary に従い、人間が確定します。
 
 `select` は macro context で候補を自動除外せず、playbook-specific metric、短期 dislocation、long-hold survivability、過去 research decision を組み合わせて triage します。Hit 数と時価総額だけで機械的に上位化しません。
 

@@ -186,4 +186,4 @@ JPX 規制情報と EDINET 前処理済み metrics は screening run の必須 i
 - [`valuation-metrics.md`](./valuation-metrics.md): 指標算出仕様
 - [`../components/macro-context.md`](../components/macro-context.md): screening 前の macro context
 - [`../components/candidates.md`](../components/candidates.md): candidates 運用仕様
-- [`../components/research.md`](../components/research.md): research 選定プロセス
+- [`../components/thesis.md`](../components/thesis.md): research 選定プロセス

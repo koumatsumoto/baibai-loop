@@ -1,6 +1,6 @@
-# Ledger
+# Decisions
 
-`records/_decisions/` は investment memo、execution intent を append-only に正規化する decision register である。Candidates は screen fact を保持し、ledger は判断イベントと tracking state を保持する。
+`records/_decisions/` は investment memo、execution intent を append-only に正規化する decision register である。Candidates は screen fact を保持し、decision register は判断イベントと tracking state を保持する。
 
 ## 1. 役割
 
