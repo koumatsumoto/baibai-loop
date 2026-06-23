@@ -17,8 +17,8 @@ from .shared import (
     _KNOWN_MACRO_CONTEXT_FRESHNESS,
     _load_yaml,
     _parse_date_value,
-    _research_record_date,
     _resolve_record_ref,
+    _thesis_record_date,
 )
 
 _KNOWN_MACRO_CONTEXT_EFFECTS = {"proceed", "caution", "defer"}
@@ -37,7 +37,7 @@ def _check_macro_context_fit(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.macro-context-fit",
+                code="thesis.macro-context-fit",
                 message="macro_context_fit must be a mapping",
                 location="macro_context_fit",
             )
@@ -48,7 +48,7 @@ def _check_macro_context_fit(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.macro-context-freshness",
+                code="thesis.macro-context-freshness",
                 message="macro_context_fit.context_freshness must be current, stale, or future",
                 location="macro_context_fit.context_freshness",
             )
@@ -59,7 +59,7 @@ def _check_macro_context_fit(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.macro-context-fit-value",
+                code="thesis.macro-context-fit-value",
                 message=(
                     "macro_context_fit.fit must be tailwind, neutral, mixed, "
                     "headwind, or not_matched"
@@ -73,7 +73,7 @@ def _check_macro_context_fit(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.macro-context-effect",
+                code="thesis.macro-context-effect",
                 message="macro_context_fit.decision_effect must be proceed, caution, or defer",
                 location="macro_context_fit.decision_effect",
             )
@@ -85,7 +85,7 @@ def _check_macro_context_fit(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.macro-context-defer-approved",
+                code="thesis.macro-context-defer-approved",
                 message="approved research cannot use macro_context_fit.decision_effect: defer",
                 location="macro_context_fit.decision_effect",
             )
@@ -95,7 +95,7 @@ def _check_macro_context_fit(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.macro-context-future-approved",
+                code="thesis.macro-context-future-approved",
                 message="approved research cannot use a future macro context",
                 location="macro_context_fit.context_freshness",
             )
@@ -106,7 +106,7 @@ def _check_macro_context_fit(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.macro-context-ref-required",
+                code="thesis.macro-context-ref-required",
                 message="macro_context_fit requires macro_context_ref",
                 location="macro_context_ref",
             )
@@ -120,7 +120,7 @@ def _check_macro_context_fit(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.macro-context-ref-missing",
+                    code="thesis.macro-context-ref-missing",
                     message=f"macro_context_ref does not exist: {ref}",
                     location="macro_context_ref",
                 )
@@ -157,7 +157,7 @@ def _check_macro_context_dates(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.macro-context-ref-parse",
+                code="thesis.macro-context-ref-parse",
                 message=f"macro_context_ref cannot be parsed: {exc}",
                 location="macro_context_ref",
             )
@@ -167,36 +167,36 @@ def _check_macro_context_dates(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.macro-context-ref-parse",
+                code="thesis.macro-context-ref-parse",
                 message="macro_context_ref must point to a mapping YAML",
                 location="macro_context_ref",
             )
         ]
     as_of = _parse_date_value(raw.get("as_of"))
     valid_until = _parse_date_value(raw.get("valid_until"))
-    research_date = _research_record_date(front_matter)
-    if research_date is None:
+    thesis_date = _thesis_record_date(front_matter)
+    if thesis_date is None:
         return []
     findings: list[ValidationFinding] = []
-    if as_of is not None and as_of > research_date:
+    if as_of is not None and as_of > thesis_date:
         findings.append(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.macro-context-ref-future",
+                code="thesis.macro-context-ref-future",
                 message="macro_context_ref.as_of must not be after the research record date",
                 location="macro_context_ref",
             )
         )
     if context_freshness == "current" and (
-        (as_of is not None and as_of > research_date)
-        or (valid_until is not None and valid_until < research_date)
+        (as_of is not None and as_of > thesis_date)
+        or (valid_until is not None and valid_until < thesis_date)
     ):
         findings.append(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.macro-context-current-window",
+                code="thesis.macro-context-current-window",
                 message=(
                     "macro_context_fit.context_freshness: current requires research date "
                     "within macro context window"
@@ -238,7 +238,7 @@ def _check_macro_context_sector_fit(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.macro-context-sector-fit",
+                code="thesis.macro-context-sector-fit",
                 message=(
                     "macro_context_fit.fit must match macro_context_ref sector_tilts "
                     f"for sector_33={sector}: expected {expected_fit}, got {context_fit}"
@@ -258,7 +258,7 @@ def _check_macro_context_sector_fit(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.macro-context-headwind-proceed",
+                code="thesis.macro-context-headwind-proceed",
                 message=(
                     "approved research with a macro headwind cannot proceed without "
                     "macro_context_fit.sizing_caution"

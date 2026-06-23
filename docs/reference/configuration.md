@@ -27,15 +27,15 @@ Configuration は runtime boundary です。secret や token の値は docs に�
 | --- | --- | --- |
 | `JQUANTS_API_KEY` | J-Quants API v2 access（ダッシュボード発行の API キー、x-api-key）/ ledger sync | screening / ledger / stats provider |
 | `SCREENING_RULES_PATH` | screening rules / selection profile の既定 YAML path override | `baibai-loop-screening select`, `run` |
-| `ESTAT_APP_ID` | e-Stat API access。日本 CPI 等の公式統計を取得する `estat` provider が使う | `baibai-loop-indicators`（estat provider） |
+| `ESTAT_APP_ID` | e-Stat API access。日本 CPI 等の公式統計を取得する `estat` provider が使う | `baibai-loop-macro`（estat provider） |
 
 ## Macro statistics cache
 
-`baibai-loop-indicators` は、macro context 作成時に確認したい米国マクロ、FRB/FRED 市場指標、ECB 由来の JPY FX を取得し、`data/stats/macro.sqlite` に保存する。SQLite は取得 cache であり、macro context の正本ではない。
+`baibai-loop-macro` は、macro context 作成時に確認したい米国マクロ、FRB/FRED 市場指標、ECB 由来の JPY FX を取得し、`data/stats/macro.sqlite` に保存する。SQLite は取得 cache であり、macro context の正本ではない。
 
 ```bash
-uv run baibai-loop-indicators search CPI
-uv run baibai-loop-indicators get us.10y --start 2026-05-01 --end 2026-05-15
+uv run baibai-loop-macro search CPI
+uv run baibai-loop-macro get us.10y --start 2026-05-01 --end 2026-05-15
 ```
 
 keyless で取得できる FRED CSV / FRB H.15 / ECB FX に加え、日本マクロは `estat`（日本 CPI、要 `ESTAT_APP_ID`）・`boj`（マネタリーベース xlsx、無認証）・`jquants_flows`（海外投資家フロー、要 `JQUANTS_API_KEY`）・`manual`（倒産・PMI、手動 file）で取得する。汎用の HTML / PDF scraping やニュース本文取得は対象外。

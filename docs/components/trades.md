@@ -99,7 +99,7 @@ guarded_notional_yen = target_quantity * order_price_guard_yen
 
 ## 6. Validator
 
-trade record は `baibai-loop-validation` で `src/baibai_loop/validate/trade.py` が enforce する。
+trade record は `baibai-loop-validation` で `src/baibai_loop/validation/position.py` が enforce する。
 
 ```bash
 uv run baibai-loop-validation --target position

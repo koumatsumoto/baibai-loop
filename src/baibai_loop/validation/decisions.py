@@ -31,7 +31,7 @@ def validate_decisions_file(path: Path) -> list[ValidationFinding]:
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="ledger.io",
+                code="decisions.io",
                 message=f"failed to read file: {exc}",
             )
         ]
@@ -47,7 +47,7 @@ def validate_decisions_file(path: Path) -> list[ValidationFinding]:
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="ledger.invalid-json",
+                    code="decisions.invalid-json",
                     message=str(exc),
                     location=f"line {line_number}",
                 )
@@ -59,7 +59,7 @@ def validate_decisions_file(path: Path) -> list[ValidationFinding]:
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="ledger.non-object",
+                    code="decisions.non-object",
                     message="JSONL line must be an object",
                     location=f"line {line_number}",
                 )
@@ -71,7 +71,7 @@ def validate_decisions_file(path: Path) -> list[ValidationFinding]:
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code=f"ledger.{error.validator or 'invalid'}",
+                    code=f"decisions.{error.validator or 'invalid'}",
                     message=str(error.message),
                     location=f"line {line_number}:{_format_path(error.absolute_path)}",
                 )
@@ -83,7 +83,7 @@ def validate_decisions_file(path: Path) -> list[ValidationFinding]:
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="ledger.decision-register",
+                    code="decisions.decision-register",
                     message=message,
                 )
             )
@@ -104,7 +104,7 @@ def _check_tracking_mode(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="ledger.tracking-mode",
+                code="decisions.tracking-mode",
                 message="decision register rows require tracking.mode",
                 location=f"line {line_number}.tracking.mode",
             )

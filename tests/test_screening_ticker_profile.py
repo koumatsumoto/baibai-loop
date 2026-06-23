@@ -76,7 +76,7 @@ class BuildTickerProfileTests(unittest.TestCase):
             ticker=ticker,
             asof_date=_ASOF,
             candidates_root=root / "candidates",
-            ledger_root=root / "records",
+            records_root=root / "records",
         )
 
     def test_packet_covers_price_relative_events_and_screening(self) -> None:
@@ -169,7 +169,7 @@ class TickerProfileCliTests(unittest.TestCase):
             asof="2026-06-08",
             sqlite_path=Path("/nonexistent.sqlite"),
             candidates_root=Path("/nonexistent"),
-            ledger_root=Path("/nonexistent"),
+            records_root=Path("/nonexistent"),
             stdout=io.StringIO(),
         )
         self.assertEqual(exit_code, 1)
@@ -185,7 +185,7 @@ class TickerProfileCliTests(unittest.TestCase):
                 asof=_ASOF.isoformat(),
                 sqlite_path=sqlite_path,
                 candidates_root=root / "candidates",
-                ledger_root=root / "records",
+                records_root=root / "records",
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
@@ -230,7 +230,7 @@ class PortfolioBlockTests(unittest.TestCase):
                 ticker="AAAA",
                 asof_date=_ASOF,
                 candidates_root=root / "candidates",
-                ledger_root=root / "records",
+                records_root=root / "records",
             )
 
             portfolio = packet["portfolio"]

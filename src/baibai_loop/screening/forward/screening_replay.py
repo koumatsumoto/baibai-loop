@@ -81,7 +81,7 @@ def run_replay(
     rules: ScreeningRules,
     sqlite_path: Path,
     candidates_root: Path,
-    ledger_root: Path,
+    records_root: Path,
     top: int = 10,
     horizon_weeks: Sequence[int] = DEFAULT_HORIZON_WEEKS,
     benchmark_ticker: str = NIKKEI225_ETF_PROXY,
@@ -116,7 +116,7 @@ def run_replay(
                 rules=rules,
                 top=top,
                 candidates_root=candidates_root,
-                ledger_root=ledger_root,
+                records_root=records_root,
                 market_regime=regimes[spec.asof],
                 payload_cache=payload_cache,
             ),
@@ -228,7 +228,7 @@ def _build_week_sweep(
     rules: ScreeningRules,
     top: int,
     candidates_root: Path,
-    ledger_root: Path,
+    records_root: Path,
     market_regime: MarketRegimeSnapshot | None = None,
     payload_cache: dict[Path, Mapping[str, object]] | None = None,
 ) -> Mapping[str, object]:
@@ -237,7 +237,7 @@ def _build_week_sweep(
         for item in load_week_candidates(spec.candidates_path, payload_cache=payload_cache)
     )
     # previous_candidates is resolved within the replay root so overlap is scoped
-    # to the replay set, while prior_research stays anchored to the real ledger.
+    # to the replay set, while prior_research stays anchored to the real decision register.
     previous_candidates: PreviousCandidates = load_previous_candidates(
         candidates_root,
         spec.asof,
@@ -245,7 +245,7 @@ def _build_week_sweep(
         payload_cache=payload_cache,
     )
     prior_research: Mapping[str, PriorResearch] = load_prior_research(
-        ledger_root / "_decisions/thesis-decisions", spec.asof
+        records_root / "_decisions/thesis-decisions", spec.asof
     )
     return build_selection_sweep_payload(
         asof_date=spec.asof,

@@ -134,7 +134,7 @@ def run_selection_ablation(
     rules: ScreeningRules,
     sqlite_path: Path,
     candidates_root: Path,
-    ledger_root: Path,
+    records_root: Path,
     variants: Sequence[AblationVariant] = DEFAULT_VARIANTS,
     profile: str | None = None,
     top: int = 5,
@@ -153,7 +153,7 @@ def run_selection_ablation(
         inputs = _load_week_inputs(
             spec,
             candidates_root=candidates_root,
-            ledger_root=ledger_root,
+            records_root=records_root,
             sqlite_path=sqlite_path,
         )
         for variant in variants:
@@ -282,7 +282,7 @@ def _load_week_inputs(
     spec: WeekSpec,
     *,
     candidates_root: Path,
-    ledger_root: Path,
+    records_root: Path,
     sqlite_path: Path,
     regime_lens: bool = True,
 ) -> _WeekInputs:
@@ -295,7 +295,7 @@ def _load_week_inputs(
         previous_candidates=load_previous_candidates(
             candidates_root, spec.asof, current_path=spec.candidates_path
         ),
-        prior_research=load_prior_research(ledger_root / "_decisions/thesis-decisions", spec.asof),
+        prior_research=load_prior_research(records_root / "_decisions/thesis-decisions", spec.asof),
         market_regime=compute_market_regime(sqlite_path, spec.asof) if regime_lens else None,
     )
 

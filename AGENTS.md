@@ -42,7 +42,7 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 
 ## 事実と分析の分離
 
-`records/04-candidates/` は事実層、`records/01-macro-context/` と `records/05-research/` は分析層。事実ファイルに解釈・予測・相場観を書かない。詳細は [`docs/design-principles.md`](./docs/design-principles.md)。
+`records/04-candidates/` は事実層、`records/01-macro-context/` と `records/05-thesis/` は分析層。事実ファイルに解釈・予測・相場観を書かない。詳細は [`docs/design-principles.md`](./docs/design-principles.md)。
 
 ## 検証
 

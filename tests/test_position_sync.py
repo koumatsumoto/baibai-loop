@@ -11,7 +11,7 @@ import yaml
 
 from baibai_loop.position.cli import _discover_decision_dates, _load_market_data, main
 from baibai_loop.position.io import diff_jsonl, read_jsonl, write_jsonl
-from baibai_loop.position.sync import sync_ledger
+from baibai_loop.position.sync import sync_decisions
 
 
 def _seed(root: Path) -> None:
@@ -113,10 +113,10 @@ def _seed_trade(root: Path) -> None:
     )
 
 
-def test_sync_ledger_writes_idempotent_decision_register(tmp_path: Path) -> None:
+def test_sync_decisions_writes_idempotent_decision_register(tmp_path: Path) -> None:
     _seed(tmp_path)
-    first = sync_ledger(tmp_path)
-    second = sync_ledger(tmp_path)
+    first = sync_decisions(tmp_path)
+    second = sync_decisions(tmp_path)
     assert first.decision_count == 1
     assert second.decision_count == 1
     register_path = tmp_path / "records/_decisions" / "thesis-decisions" / "2026-04.jsonl"
@@ -135,10 +135,10 @@ def test_sync_ledger_writes_idempotent_decision_register(tmp_path: Path) -> None
     }
 
 
-def test_sync_ledger_includes_trade_execution_from_current_contract(tmp_path: Path) -> None:
+def test_sync_decisions_includes_trade_execution_from_current_contract(tmp_path: Path) -> None:
     _seed(tmp_path)
     _seed_trade(tmp_path)
-    result = sync_ledger(tmp_path)
+    result = sync_decisions(tmp_path)
 
     assert result.decision_count == 2
     register_path = tmp_path / "records/_decisions" / "thesis-decisions" / "2026-04.jsonl"
@@ -150,14 +150,14 @@ def test_sync_ledger_includes_trade_execution_from_current_contract(tmp_path: Pa
     assert trade["position_ref"] == "records/06-position/2026/04/2026-04-25-2767.md"
 
 
-def test_sync_ledger_dry_run_reports_existing_decisions(tmp_path: Path) -> None:
+def test_sync_decisions_dry_run_reports_existing_decisions(tmp_path: Path) -> None:
     _seed(tmp_path)
-    result = sync_ledger(tmp_path, dry_run=True)
+    result = sync_decisions(tmp_path, dry_run=True)
     assert result.decision_count == 1
     assert result.diff_lines == ("+ decision-20260425-2767-research",)
 
 
-def test_ledger_cli_warns_when_jquants_token_is_missing(tmp_path: Path) -> None:
+def test_position_cli_warns_when_jquants_token_is_missing(tmp_path: Path) -> None:
     _seed(tmp_path)
     calendar, bars, warnings = _load_market_data(tmp_path, {})
     assert calendar == ()
@@ -168,12 +168,12 @@ def test_ledger_cli_warns_when_jquants_token_is_missing(tmp_path: Path) -> None:
     )
 
 
-def test_ledger_cli_discovers_thesis_decision_dates(tmp_path: Path) -> None:
+def test_position_cli_discovers_thesis_decision_dates(tmp_path: Path) -> None:
     _seed(tmp_path)
     assert _discover_decision_dates(tmp_path) == (date(2026, 4, 25),)
 
 
-def test_ledger_cli_require_market_data_fails_without_token(
+def test_position_cli_require_market_data_fails_without_token(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -183,7 +183,7 @@ def test_ledger_cli_require_market_data_fails_without_token(
     assert main(["sync", "--root", str(tmp_path), "--dry-run", "--require-market-data"]) == 1
 
 
-def test_ledger_cli_loads_dotenv_from_root_not_cwd(
+def test_position_cli_loads_dotenv_from_root_not_cwd(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -201,7 +201,7 @@ def test_ledger_cli_loads_dotenv_from_root_not_cwd(
     assert os.environ["JQUANTS_API_KEY"] == "from_root_dotenv"
 
 
-def test_ledger_cli_require_market_data_emits_diagnostic_when_no_research(
+def test_position_cli_require_market_data_emits_diagnostic_when_no_thesis(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -223,7 +223,7 @@ def test_diff_jsonl_marks_orphan_existing_records(tmp_path: Path) -> None:
     assert diff_jsonl(register_path, []) == ["! decision-20260425-2767-research"]
 
 
-def test_ledger_sync_rewrites_register_from_sources(tmp_path: Path) -> None:
+def test_sync_decisions_rewrites_register_from_sources(tmp_path: Path) -> None:
     register_path = tmp_path / "records/_decisions" / "thesis-decisions" / "2026-04.jsonl"
     register_path.parent.mkdir(parents=True)
     register_path.write_text(

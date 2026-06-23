@@ -172,7 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
     profile_parser.add_argument(
         "--root",
         default=".",
-        help="repository root for ledger lookups (default: current directory)",
+        help="repository root for records lookups (default: current directory)",
     )
 
     snapshot_parser = subparsers.add_parser(
@@ -243,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
             asof=args.asof,
             sqlite_path=Path(args.sqlite_path),
             candidates_root=Path(args.candidates_root),
-            ledger_root=Path(args.root) / "records",
+            records_root=Path(args.root) / "records",
         )
 
     if args.command == "market-snapshot":

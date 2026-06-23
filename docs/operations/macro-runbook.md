@@ -15,13 +15,13 @@ related_docs:
 
 ## ① データ：stats series を引く
 
-統計 series は `baibai-loop-indicators`（Provider モジュール設計、`src/baibai_loop/macro/indicators/`）で再現可能・provenance 付きに取得・キャッシュする。
+統計 series は `baibai-loop-macro`（Provider モジュール設計、`src/baibai_loop/macro/indicators/`）で再現可能・provenance 付きに取得・キャッシュする。
 
 ```bash
-uv run baibai-loop-indicators list --category rates       # 登録 series を見る
-uv run baibai-loop-indicators search 失業率              # 名前/alias/category で検索
-uv run baibai-loop-indicators get jp.nikkei225 --start 2026-05-20 --end 2026-06-22
-uv run baibai-loop-indicators get jp.policy_rate --latest
+uv run baibai-loop-macro list --category rates       # 登録 series を見る
+uv run baibai-loop-macro search 失業率              # 名前/alias/category で検索
+uv run baibai-loop-macro get jp.nikkei225 --start 2026-05-20 --end 2026-06-22
+uv run baibai-loop-macro get jp.policy_rate --latest
 ```
 
 `get` は coverage cache を見て miss のときだけ provider を呼ぶ。同入力なら同出力（決定論）。

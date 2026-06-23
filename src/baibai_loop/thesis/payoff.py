@@ -28,7 +28,7 @@ def _check_payoff(path: Path, front_matter: Mapping[str, object]) -> list[Valida
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.payoff-order",
+                    code="thesis.payoff-order",
                     message=(
                         "long-only payoff must satisfy stop_loss < max_entry_price < target_price"
                     ),
@@ -43,7 +43,7 @@ def _check_payoff(path: Path, front_matter: Mapping[str, object]) -> list[Valida
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.expected-upside",
+                    code="thesis.expected-upside",
                     message=f"expected_upside_pct must equal {expected_upside}",
                     location="thesis_payoff.expected_upside_pct",
                 )
@@ -53,7 +53,7 @@ def _check_payoff(path: Path, front_matter: Mapping[str, object]) -> list[Valida
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.expected-downside",
+                    code="thesis.expected-downside",
                     message=f"expected_downside_pct must equal {expected_downside}",
                     location="thesis_payoff.expected_downside_pct",
                 )
@@ -65,7 +65,7 @@ def _check_payoff(path: Path, front_matter: Mapping[str, object]) -> list[Valida
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.risk-reward",
+                    code="thesis.risk-reward",
                     message=f"risk_reward_ratio must equal {risk_reward}",
                     location="thesis_payoff.risk_reward_ratio",
                 )
@@ -85,7 +85,7 @@ def _check_corporate_action_check(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.corporate-action-check",
+                code="thesis.corporate-action-check",
                 message="approved research requires corporate_action_check",
                 location="corporate_action_check",
             )
@@ -95,7 +95,7 @@ def _check_corporate_action_check(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.corporate-action-check",
+                code="thesis.corporate-action-check",
                 message="corporate_action_check.checked must be true for approved research",
                 location="corporate_action_check.checked",
             )
@@ -106,7 +106,7 @@ def _check_corporate_action_check(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.corporate-action-check-result",
+                code="thesis.corporate-action-check-result",
                 message="corporate_action_check.result must be none, found, or not_applicable",
                 location="corporate_action_check.result",
             )
@@ -116,7 +116,7 @@ def _check_corporate_action_check(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.corporate-action-check-result",
+                code="thesis.corporate-action-check-result",
                 message="approved research requires corporate_action_check.result to be none",
                 location="corporate_action_check.result",
             )

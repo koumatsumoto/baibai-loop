@@ -286,7 +286,7 @@ class RunScorecardTests(unittest.TestCase):
                     sqlite_path=sqlite_path,
                     rules=load_screening_rules(DEFAULT_RULES_PATH),
                     candidates_root=root,
-                    ledger_root=root,
+                    records_root=root,
                     horizon_weeks=[4],
                     min_resolved=5,
                     bootstrap_iterations=500,

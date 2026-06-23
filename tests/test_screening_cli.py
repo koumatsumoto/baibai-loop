@@ -1933,9 +1933,9 @@ class SelectCommandTests(unittest.TestCase):
             self._write_macro_context(
                 root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
             )
-            ledger = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
-            ledger.parent.mkdir(parents=True)
-            ledger.write_text(
+            decisions_path = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
+            decisions_path.parent.mkdir(parents=True)
+            decisions_path.write_text(
                 json.dumps(
                     {
                         "ticker": "2222",
@@ -2001,9 +2001,9 @@ class SelectCommandTests(unittest.TestCase):
             self._write_macro_context(
                 root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
             )
-            ledger = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
-            ledger.parent.mkdir(parents=True)
-            ledger.write_text(
+            decisions_path = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
+            decisions_path.parent.mkdir(parents=True)
+            decisions_path.write_text(
                 json.dumps(
                     {
                         "ticker": "2222",
@@ -2065,9 +2065,9 @@ class SelectCommandTests(unittest.TestCase):
             self._write_macro_context(
                 root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
             )
-            ledger = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
-            ledger.parent.mkdir(parents=True)
-            ledger.write_text(
+            decisions_path = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
+            decisions_path.parent.mkdir(parents=True)
+            decisions_path.write_text(
                 json.dumps(
                     {
                         "ticker": "2222",
@@ -2122,8 +2122,8 @@ class SelectCommandTests(unittest.TestCase):
             self._write_macro_context(
                 root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
             )
-            ledger = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
-            ledger.parent.mkdir(parents=True)
+            decisions_path = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
+            decisions_path.parent.mkdir(parents=True)
             base_event = {
                 "ticker": "2222",
                 "decision_scope": "research_memo",
@@ -2149,7 +2149,7 @@ class SelectCommandTests(unittest.TestCase):
                     "revisit": {"revisit_after": "2026-05-01"},
                 },
             }
-            ledger.write_text(
+            decisions_path.write_text(
                 "\n".join(
                     json.dumps(event, ensure_ascii=False)
                     for event in (newer_id_event, older_id_event)

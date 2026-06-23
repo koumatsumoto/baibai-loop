@@ -133,7 +133,7 @@ class RunSelectionAblationTests(unittest.TestCase):
                 rules=load_screening_rules(DEFAULT_RULES_PATH),
                 sqlite_path=sqlite_path,
                 candidates_root=candidates_root,
-                ledger_root=root / "records",
+                records_root=root / "records",
                 top=1,
                 horizon_weeks=(1,),
             )

@@ -240,7 +240,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
       `ticker` 一致 row の値と整合しているか
       (現状は research validator が enforce する)
 - [ ] trade order / execution state を導入・変更する場合、以下の corner case を確認したか
-      (現状は `src/baibai_loop/validate/trade.py` が enforce する):
+      (現状は `src/baibai_loop/validation/position.py` が enforce する):
   - [ ] `order_intent.order_intent_id` と `orders[].origin_order_intent_id` が join できる
   - [ ] `orders[].state` は `submitted` / `broker_rejected` / `cancelled` / `expired` /
         `not_filled` / `partially_filled` / `filled` のいずれか
@@ -358,7 +358,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   思い込み、YAML パースが 93% を占めていることに気付かなかった
 - `yaml.safe_load(...)` を素朴に使い、libyaml backed の `yaml.CSafeLoader` に切り替えるだけで
   5 倍速くなる事実を見落とした
-- `src/baibai_loop/validate/research/shared.py` だけが private に
+- `src/baibai_loop/thesis/shared.py` だけが private に
   `_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)` を持っており、他 14 src 件は
   pure-Python loader のままだった (知識のサイロ化)
 
@@ -384,7 +384,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 ### `yaml.dump` 側
 
 `yaml.dump` / `yaml.safe_dump` 側の hot path も同様に `yaml.CSafeDumper` を使えば加速できるが、
-write side は read side ほど呼ばれないため P2 の改善候補 (cli/query.py / ledger/cli.py の 6 箇所)。
+write side は read side ほど呼ばれないため P2 の改善候補 (cli/query.py / screening/forward/cli.py の 6 箇所)。
 
 ## 11. PR review で繰り返し指摘される類型の追跡
 

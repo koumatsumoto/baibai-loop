@@ -15,7 +15,7 @@ from baibai_loop.validation.domain import (
 )
 from baibai_loop.validation.errors import ValidationFinding
 
-from .shared import _KNOWN_MACRO_CONTEXT_FRESHNESS, _gate_boundary_date, _research_record_date
+from .shared import _KNOWN_MACRO_CONTEXT_FRESHNESS, _gate_boundary_date, _thesis_record_date
 
 _KNOWN_ENTRY_PREFLIGHT_ACTIONS = {"proceed", "starter", "defer", "exception"}
 _KNOWN_ENTRY_PREFLIGHT_EXCEPTION_BASES = {
@@ -54,8 +54,8 @@ def _check_entry_preflight(
     outcome = decision.get("outcome") if isinstance(decision, Mapping) else None
     if outcome != "approved":
         return []
-    research_date = _research_record_date(front_matter, path=path)
-    if research_date is None or research_date < _ENTRY_PREFLIGHT_EFFECTIVE_DATE:
+    thesis_date = _thesis_record_date(front_matter, path=path)
+    if thesis_date is None or thesis_date < _ENTRY_PREFLIGHT_EFFECTIVE_DATE:
         return []
 
     preflight = front_matter.get("entry_preflight")
@@ -64,7 +64,7 @@ def _check_entry_preflight(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.entry-preflight-required",
+                code="thesis.entry-preflight-required",
                 message=("approved research dated 2026-06-01 or later requires entry_preflight"),
                 location="entry_preflight",
             )
@@ -77,7 +77,7 @@ def _check_entry_preflight(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.entry-preflight-action",
+                code="thesis.entry-preflight-action",
                 message=("entry_preflight.action must be proceed, starter, defer, or exception"),
                 location="entry_preflight.action",
             )
@@ -88,7 +88,7 @@ def _check_entry_preflight(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.entry-preflight-reason",
+                code="thesis.entry-preflight-reason",
                 message="entry_preflight.reason is required",
                 location="entry_preflight.reason",
             )
@@ -102,7 +102,7 @@ def _check_entry_preflight(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.entry-preflight-macro-freshness",
+                code="thesis.entry-preflight-macro-freshness",
                 message="entry_preflight.macro_freshness must be current, stale, or future",
                 location="entry_preflight.macro_freshness",
             )
@@ -112,7 +112,7 @@ def _check_entry_preflight(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.entry-preflight-macro-freshness-match",
+                code="thesis.entry-preflight-macro-freshness-match",
                 message=(
                     "entry_preflight.macro_freshness must match macro_context_fit.context_freshness"
                 ),
@@ -151,7 +151,7 @@ def _check_entry_preflight(
     # published_at on a file actually authored on/after 2026-06-17 cannot evade
     # the gate. Filename is the most tamper-resistant signal because the
     # YYYY-MM-DD naming convention is enforced elsewhere and git-reviewable.
-    gate_date = _gate_boundary_date(front_matter, path=path) or research_date
+    gate_date = _gate_boundary_date(front_matter, path=path) or thesis_date
     regime_gate_applies = gate_date >= _REGIME_GATE_EFFECTIVE_DATE
 
     market_regime_present = isinstance(raw_market_regime, Mapping)
@@ -160,7 +160,7 @@ def _check_entry_preflight(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.entry-preflight-regime-required",
+                code="thesis.entry-preflight-regime-required",
                 message=(
                     "approved research dated 2026-06-17 or later requires "
                     "entry_preflight.market_regime.regime — paste the output of "
@@ -176,7 +176,7 @@ def _check_entry_preflight(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.entry-preflight-regime-label",
+                code="thesis.entry-preflight-regime-label",
                 message=(
                     "entry_preflight.market_regime.regime must be risk_on_rally, "
                     "risk_off_selloff, neutral_range, or unknown"
@@ -202,7 +202,7 @@ def _check_entry_preflight(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.entry-preflight-regime-mismatch",
+                    code="thesis.entry-preflight-regime-mismatch",
                     message=(
                         f"entry_preflight.market_regime.regime '{regime_label}' contradicts "
                         f"benchmark_return_20d={benchmark_return_20d:+.4f} "
@@ -227,7 +227,7 @@ def _check_entry_preflight(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.entry-preflight-future-approved",
+                code="thesis.entry-preflight-future-approved",
                 message="approved research cannot use future macro freshness in entry_preflight",
                 location="entry_preflight.macro_freshness",
             )
@@ -237,7 +237,7 @@ def _check_entry_preflight(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.entry-preflight-proceed-trigger",
+                code="thesis.entry-preflight-proceed-trigger",
                 message=(
                     "entry_preflight.action: proceed is not allowed with "
                     + ", ".join(hard_triggers)
@@ -253,7 +253,7 @@ def _check_entry_preflight(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.entry-preflight-exception-basis",
+                    code="thesis.entry-preflight-exception-basis",
                     message=(
                         "entry_preflight.action: exception requires exception_basis "
                         "from near_term_catalyst, low_sizing, or low_correlation"
@@ -266,7 +266,7 @@ def _check_entry_preflight(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.entry-preflight-exception-basis",
+                    code="thesis.entry-preflight-exception-basis",
                     message=(
                         "entry_preflight.exception_basis: near_term_catalyst requires "
                         "near_term_catalyst: true"
@@ -284,7 +284,7 @@ def _check_entry_preflight(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.entry-preflight-exception-basis",
+                    code="thesis.entry-preflight-exception-basis",
                     message=(
                         "entry_preflight.exception_basis: low_sizing requires sector "
                         "and playbook exposure after order <= 25%"
@@ -319,7 +319,7 @@ def _check_entry_preflight(
                 ValidationFinding(
                     severity=severity,
                     target=path,
-                    code="research.entry-preflight-rally-contrarian",
+                    code="thesis.entry-preflight-rally-contrarian",
                     message=(
                         f"risk_on_rally regime ({ret20_phrase}{asof_phrase}) with no "
                         "near_term_catalyst and no low_correlation basis: a contrarian "

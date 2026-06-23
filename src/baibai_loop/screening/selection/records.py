@@ -154,11 +154,11 @@ _EXPECTED_NUMERIC_EVIDENCE_METRICS = _EXPECTED_NUMERIC_METRICS | frozenset(
 )
 
 
-def load_prior_research(ledger_root: Path, asof_date: date) -> dict[str, PriorResearch]:
-    if not ledger_root.exists():
+def load_prior_research(decisions_root: Path, asof_date: date) -> dict[str, PriorResearch]:
+    if not decisions_root.exists():
         return {}
     latest: dict[str, tuple[tuple[str, str], PriorResearch]] = {}
-    for path in sorted(ledger_root.glob("*.jsonl")):
+    for path in sorted(decisions_root.glob("*.jsonl")):
         for line in path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue

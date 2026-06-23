@@ -206,7 +206,7 @@ class ResearchValidationTests(unittest.TestCase):
         front = _minimal_research_front_matter()
         front["published_at"] = "2026-06-02T20:00:00+09:00"
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.entry-preflight-required", codes)
+        self.assertIn("thesis.entry-preflight-required", codes)
 
     def test_new_approved_research_accepts_valid_entry_preflight(self) -> None:
         front = _minimal_research_front_matter()
@@ -228,7 +228,7 @@ class ResearchValidationTests(unittest.TestCase):
         front["published_at"] = "2026-06-02T20:00:00+09:00"
         front["entry_preflight"] = _entry_preflight(market_relative_return_pct=-3.1)
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.entry-preflight-proceed-trigger", codes)
+        self.assertIn("thesis.entry-preflight-proceed-trigger", codes)
 
     def test_entry_preflight_rejects_stale_macro_proceed(self) -> None:
         front = _minimal_research_front_matter()
@@ -238,7 +238,7 @@ class ResearchValidationTests(unittest.TestCase):
         fit["context_freshness"] = "stale"
         front["entry_preflight"] = _entry_preflight(macro_freshness="stale")
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.entry-preflight-proceed-trigger", codes)
+        self.assertIn("thesis.entry-preflight-proceed-trigger", codes)
 
     def test_entry_preflight_rejects_high_tactical_exposure_proceed(self) -> None:
         front = _minimal_research_front_matter()
@@ -247,7 +247,7 @@ class ResearchValidationTests(unittest.TestCase):
             tactical_exposure_after_order={"sector_33_pct": 51.0, "playbook_pct": 20.0}
         )
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.entry-preflight-proceed-trigger", codes)
+        self.assertIn("thesis.entry-preflight-proceed-trigger", codes)
 
     def test_entry_preflight_exception_requires_structured_basis(self) -> None:
         front = _minimal_research_front_matter()
@@ -258,7 +258,7 @@ class ResearchValidationTests(unittest.TestCase):
             reason="exception is justified",
         )
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.entry-preflight-exception-basis", codes)
+        self.assertIn("thesis.entry-preflight-exception-basis", codes)
 
     def test_entry_preflight_exception_accepts_near_term_catalyst_basis(self) -> None:
         front = _minimal_research_front_matter()
@@ -285,7 +285,7 @@ class ResearchValidationTests(unittest.TestCase):
             action="proceed",
         )
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.entry-preflight-proceed-trigger", codes)
+        self.assertIn("thesis.entry-preflight-proceed-trigger", codes)
 
     def test_entry_preflight_warns_starter_contrarian_in_risk_on_rally(self) -> None:
         front = _minimal_research_front_matter()
@@ -297,8 +297,8 @@ class ResearchValidationTests(unittest.TestCase):
         )
         findings = self._findings_for(front)
         codes = {finding.code for finding in findings}
-        self.assertNotIn("research.entry-preflight-proceed-trigger", codes)
-        self.assertIn("research.entry-preflight-rally-contrarian", codes)
+        self.assertNotIn("thesis.entry-preflight-proceed-trigger", codes)
+        self.assertIn("thesis.entry-preflight-rally-contrarian", codes)
 
     def test_entry_preflight_allows_starter_in_rally_with_near_term_catalyst(self) -> None:
         front = _minimal_research_front_matter()
@@ -310,7 +310,7 @@ class ResearchValidationTests(unittest.TestCase):
             reason="near-term catalyst can trigger the mean reversion",
         )
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertNotIn("research.entry-preflight-rally-contrarian", codes)
+        self.assertNotIn("thesis.entry-preflight-rally-contrarian", codes)
 
     def test_entry_preflight_allows_rally_entry_with_low_correlation_basis(self) -> None:
         front = _minimal_research_front_matter()
@@ -322,7 +322,7 @@ class ResearchValidationTests(unittest.TestCase):
             reason="low correlation to the rally leaders dilutes the regime bet",
         )
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertNotIn("research.entry-preflight-rally-contrarian", codes)
+        self.assertNotIn("thesis.entry-preflight-rally-contrarian", codes)
 
     def test_entry_preflight_neutral_range_proceed_has_no_regime_finding(self) -> None:
         front = _minimal_research_front_matter()
@@ -332,15 +332,15 @@ class ResearchValidationTests(unittest.TestCase):
             action="proceed",
         )
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertNotIn("research.entry-preflight-proceed-trigger", codes)
-        self.assertNotIn("research.entry-preflight-rally-contrarian", codes)
+        self.assertNotIn("thesis.entry-preflight-proceed-trigger", codes)
+        self.assertNotIn("thesis.entry-preflight-rally-contrarian", codes)
 
     def test_entry_preflight_requires_market_regime_from_gate_date(self) -> None:
         front = _minimal_research_front_matter()
         front["published_at"] = "2026-06-17T20:00:00+09:00"
         front["entry_preflight"] = _entry_preflight(action="defer")
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.entry-preflight-regime-required", codes)
+        self.assertIn("thesis.entry-preflight-regime-required", codes)
 
     def test_entry_preflight_rejects_unknown_regime_label(self) -> None:
         front = _minimal_research_front_matter()
@@ -349,7 +349,7 @@ class ResearchValidationTests(unittest.TestCase):
         preflight["market_regime"] = {"regime": "melt_up", "benchmark_return_20d": 0.08}
         front["entry_preflight"] = preflight
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.entry-preflight-regime-label", codes)
+        self.assertIn("thesis.entry-preflight-regime-label", codes)
 
     def test_entry_preflight_rejects_proceed_with_unknown_regime(self) -> None:
         front = _minimal_research_front_matter()
@@ -359,7 +359,7 @@ class ResearchValidationTests(unittest.TestCase):
             action="proceed",
         )
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.entry-preflight-proceed-trigger", codes)
+        self.assertIn("thesis.entry-preflight-proceed-trigger", codes)
 
     def test_entry_preflight_rejects_mislabeled_regime_against_benchmark(self) -> None:
         front = _minimal_research_front_matter()
@@ -369,7 +369,7 @@ class ResearchValidationTests(unittest.TestCase):
             action="proceed",
         )
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.entry-preflight-regime-mismatch", codes)
+        self.assertIn("thesis.entry-preflight-regime-mismatch", codes)
 
     def test_entry_preflight_rejects_partial_market_regime_block(self) -> None:
         front = _minimal_research_front_matter()
@@ -380,14 +380,14 @@ class ResearchValidationTests(unittest.TestCase):
         preflight["market_regime"] = {"benchmark_return_20d": 0.05}
         front["entry_preflight"] = preflight
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.entry-preflight-regime-required", codes)
+        self.assertIn("thesis.entry-preflight-regime-required", codes)
 
     def test_entry_preflight_published_2026_06_16_does_not_require_market_regime(self) -> None:
         front = _minimal_research_front_matter()
         front["published_at"] = "2026-06-16T20:00:00+09:00"
         front["entry_preflight"] = _entry_preflight(action="defer")
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertNotIn("research.entry-preflight-regime-required", codes)
+        self.assertNotIn("thesis.entry-preflight-regime-required", codes)
 
     def test_entry_preflight_filename_date_blocks_backdated_published_at(self) -> None:
         front = _minimal_research_front_matter()
@@ -403,7 +403,7 @@ class ResearchValidationTests(unittest.TestCase):
             }
         finally:
             named.unlink()
-        self.assertIn("research.entry-preflight-regime-required", codes)
+        self.assertIn("thesis.entry-preflight-regime-required", codes)
 
     def test_entry_preflight_defer_in_rally_has_no_warning(self) -> None:
         front = _minimal_research_front_matter()
@@ -413,7 +413,7 @@ class ResearchValidationTests(unittest.TestCase):
             action="defer",
         )
         codes = {f.code for f in self._findings_for(front)}
-        self.assertNotIn("research.entry-preflight-rally-contrarian", codes)
+        self.assertNotIn("thesis.entry-preflight-rally-contrarian", codes)
 
     def test_entry_preflight_exception_with_only_low_sizing_fails_in_rally(self) -> None:
         front = _minimal_research_front_matter()
@@ -427,10 +427,8 @@ class ResearchValidationTests(unittest.TestCase):
         )
         findings = self._findings_for(front)
         codes = {f.code for f in findings}
-        rally_finding = [
-            f for f in findings if f.code == "research.entry-preflight-rally-contrarian"
-        ]
-        self.assertIn("research.entry-preflight-rally-contrarian", codes)
+        rally_finding = [f for f in findings if f.code == "thesis.entry-preflight-rally-contrarian"]
+        self.assertIn("thesis.entry-preflight-rally-contrarian", codes)
         self.assertEqual(
             [f.severity for f in rally_finding],
             ["error"],
@@ -452,14 +450,14 @@ class ResearchValidationTests(unittest.TestCase):
             }
         finally:
             named_path.unlink()
-        self.assertIn("research.entry-preflight-required", codes)
+        self.assertIn("thesis.entry-preflight-required", codes)
 
     def test_entry_preflight_rejects_invalid_evaluated_on_date(self) -> None:
         front = _minimal_research_front_matter()
         front["published_at"] = "2026-06-02T20:00:00+09:00"
         front["entry_preflight"] = _entry_preflight(evaluated_on="not-a-date")
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.format", codes)
+        self.assertIn("thesis.format", codes)
 
     def test_entry_preflight_rejects_unknown_field(self) -> None:
         front = _minimal_research_front_matter()
@@ -471,19 +469,19 @@ class ResearchValidationTests(unittest.TestCase):
         exposure["extra_exposure_field"] = 1
         front["entry_preflight"] = preflight
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.additionalProperties", codes)
+        self.assertIn("thesis.additionalProperties", codes)
 
     def test_missing_required_field_is_flagged_by_schema(self) -> None:
         front = _minimal_research_front_matter()
         del front["macro_context_fit"]
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.required", codes)
+        self.assertIn("thesis.required", codes)
 
     def test_top_level_research_rejects_unknown_field(self) -> None:
         front = _minimal_research_front_matter()
         front["extra_top_level_field"] = "unexpected"
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.additionalProperties", codes)
+        self.assertIn("thesis.additionalProperties", codes)
 
     def test_position_sizing_overlay_rejects_unknown_field(self) -> None:
         front = _minimal_research_front_matter()
@@ -491,7 +489,7 @@ class ResearchValidationTests(unittest.TestCase):
         assert isinstance(sizing, dict)
         sizing["extra_size_field"] = 1
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.additionalProperties", codes)
+        self.assertIn("thesis.additionalProperties", codes)
 
     def test_valuation_rejects_unknown_field(self) -> None:
         front = _minimal_research_front_matter()
@@ -499,14 +497,14 @@ class ResearchValidationTests(unittest.TestCase):
         assert isinstance(valuation, dict)
         valuation["extra_metric"] = 1
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.additionalProperties", codes)
+        self.assertIn("thesis.additionalProperties", codes)
 
     def test_unknown_outcome_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
         front["thesis_decision"] = {"outcome": "maybe", "posture": "act_now"}
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.enum", codes)
-        self.assertIn("research.unknown-outcome", codes)
+        self.assertIn("thesis.enum", codes)
+        self.assertIn("thesis.unknown-outcome", codes)
 
     def test_rejected_requires_rejection_reason(self) -> None:
         front = _minimal_research_front_matter()
@@ -517,7 +515,7 @@ class ResearchValidationTests(unittest.TestCase):
             "adv_participation_pct": 0,
         }
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.rejection-reason-required", codes)
+        self.assertIn("thesis.rejection-reason-required", codes)
 
     def test_deferred_macro_context_cannot_be_approved(self) -> None:
         front = _minimal_research_front_matter()
@@ -525,26 +523,26 @@ class ResearchValidationTests(unittest.TestCase):
         assert isinstance(fit, dict)
         fit["decision_effect"] = "defer"
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.macro-context-defer-approved", codes)
+        self.assertIn("thesis.macro-context-defer-approved", codes)
 
     def test_approved_requires_corporate_action_check(self) -> None:
         front = _minimal_research_front_matter()
         del front["corporate_action_check"]
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.required", codes)
-        self.assertIn("research.corporate-action-check", codes)
+        self.assertIn("thesis.required", codes)
+        self.assertIn("thesis.corporate-action-check", codes)
 
     def test_corporate_action_check_must_be_checked_for_approved_research(self) -> None:
         front = _minimal_research_front_matter()
         front["corporate_action_check"] = {"checked": False, "result": "none"}
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.corporate-action-check", codes)
+        self.assertIn("thesis.corporate-action-check", codes)
 
     def test_approved_rejects_found_corporate_action(self) -> None:
         front = _minimal_research_front_matter()
         front["corporate_action_check"] = {"checked": True, "result": "found"}
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.corporate-action-check-result", codes)
+        self.assertIn("thesis.corporate-action-check-result", codes)
 
     def test_payoff_order_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
@@ -552,7 +550,7 @@ class ResearchValidationTests(unittest.TestCase):
         assert isinstance(payoff, dict)
         payoff["stop_loss_yen"] = 700
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.payoff-order", codes)
+        self.assertIn("thesis.payoff-order", codes)
 
     def test_expected_upside_formula_is_checked(self) -> None:
         front = _minimal_research_front_matter()
@@ -560,26 +558,26 @@ class ResearchValidationTests(unittest.TestCase):
         assert isinstance(payoff, dict)
         payoff["expected_upside_pct"] = 99.0
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.expected-upside", codes)
+        self.assertIn("thesis.expected-upside", codes)
 
     def test_invalid_ticker_pattern_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
         front["ticker"] = "bad"
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.ticker-format", codes)
+        self.assertIn("thesis.ticker-format", codes)
 
     def test_unknown_playbook_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
         front["playbook_id"] = "unknown-playbook"
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.unknown-playbook", codes)
+        self.assertIn("thesis.unknown-playbook", codes)
 
     def test_missing_required_section_is_flagged(self) -> None:
         body = _DEFAULT_BODY.replace("## 6. Catalyst\ntext\n", "")
         codes = {
             finding.code for finding in self._findings_for(_minimal_research_front_matter(), body)
         }
-        self.assertIn("research.missing-section", codes)
+        self.assertIn("thesis.missing-section", codes)
 
     def test_no_front_matter_is_flagged(self) -> None:
         with tempfile.NamedTemporaryFile(
@@ -596,7 +594,7 @@ class ResearchValidationTests(unittest.TestCase):
             }
         finally:
             path.unlink()
-        self.assertIn("research.no-front-matter", codes)
+        self.assertIn("thesis.no-front-matter", codes)
 
     def test_front_matter_non_mapping_is_flagged(self) -> None:
         with tempfile.NamedTemporaryFile(
@@ -613,7 +611,7 @@ class ResearchValidationTests(unittest.TestCase):
             }
         finally:
             path.unlink()
-        self.assertIn("research.front-matter-non-mapping", codes)
+        self.assertIn("thesis.front-matter-non-mapping", codes)
 
     def test_missing_playbook_schema_at_load_time_is_handled(self) -> None:
         front = _minimal_research_front_matter()
@@ -622,7 +620,7 @@ class ResearchValidationTests(unittest.TestCase):
             side_effect=FileNotFoundError("missing"),
         ):
             codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("research.playbook-schema", codes)
+        self.assertIn("thesis.playbook-schema", codes)
 
     def test_invalid_yaml_front_matter_is_flagged(self) -> None:
         with tempfile.NamedTemporaryFile(
@@ -639,7 +637,7 @@ class ResearchValidationTests(unittest.TestCase):
             }
         finally:
             path.unlink()
-        self.assertIn("research.invalid-yaml", codes)
+        self.assertIn("thesis.invalid-yaml", codes)
 
     def test_repository_research_files_pass_without_errors(self) -> None:
         repo_research = ROOT / "records/05-thesis"
@@ -661,9 +659,7 @@ class ResearchValidationTests(unittest.TestCase):
         findings = validate_thesis_collection(fronts)
 
         self.assertEqual(len(findings), 3)
-        self.assertTrue(
-            all(finding.code == "research.sector-concentration" for finding in findings)
-        )
+        self.assertTrue(all(finding.code == "thesis.sector-concentration" for finding in findings))
 
 
 if __name__ == "__main__":

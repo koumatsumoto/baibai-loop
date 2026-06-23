@@ -24,7 +24,7 @@ Automation は人間の投資判断を置き換えるものではなく、fact s
 | `uv run baibai-loop-screening verify-cache-coverage --asof YYYY-MM-DD` | `src/baibai_loop/screening/` | SQLite 正本が screening run の必須入力を read-only で満たすか検証する |
 | `uv run baibai-loop-screening run --asof YYYY-MM-DD` | `src/baibai_loop/screening/` | 完全性検証済み SQLite 正本から candidates YAML を生成する |
 | `uv run baibai-loop-screening select --asof YYYY-MM-DD --macro-context <path>` | `src/baibai_loop/screening/` | candidates と macro context を突合し、research 候補の ranking を支援する |
-| `uv run baibai-loop-validation` | `src/baibai_loop/validate/` | records と schema の整合性を検証する |
+| `uv run baibai-loop-validation` | `src/baibai_loop/validation/` | records と schema の整合性を検証する |
 | `uv run baibai-loop-position sync --root .` | `src/baibai_loop/position/` | decision event を `records/_decisions/` の JSONL に正規化する |
 
 ## Schema and validation
@@ -34,7 +34,7 @@ Automation は人間の投資判断を置き換えるものではなく、fact s
 | support area | 説明 |
 | --- | --- |
 | `records/_schemas/` | records artifact の validation schema |
-| `src/baibai_loop/validate/` | schema だけでは表現しにくい cross-file validation |
+| `src/baibai_loop/validation/` | schema だけでは表現しにくい cross-file validation |
 | `tests/test_validate_*.py` | validator の期待挙動を固定する tests |
 
 ## CI

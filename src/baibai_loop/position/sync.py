@@ -27,7 +27,7 @@ class SyncResult:
     diff_lines: tuple[str, ...]
 
 
-def sync_ledger(
+def sync_decisions(
     root: Path,
     *,
     dry_run: bool = False,
@@ -36,15 +36,15 @@ def sync_ledger(
     observed_at: datetime | None = None,
 ) -> SyncResult:
     _ = (observed_at or datetime.now(UTC)).isoformat()
-    research_root = root / "records/05-thesis"
-    trade_root = root / "records/06-position"
+    thesis_root = root / "records/05-thesis"
+    position_root = root / "records/06-position"
     register_root = root / "records/_decisions/thesis-decisions"
     candidates_index = _load_candidates(root)
     records: list[dict[str, Any]] = []
     warnings: list[str] = []
 
-    for path in sorted(research_root.rglob("*.md")):
-        parsed = _parse_research(path)
+    for path in sorted(thesis_root.rglob("*.md")):
+        parsed = _parse_thesis(path)
         if parsed is None:
             warnings.append(f"skip malformed investment memo: {path}")
             continue
@@ -96,8 +96,8 @@ def sync_ledger(
         )
         records.append(record.to_json())
 
-    for path in sorted(trade_root.rglob("*.md")):
-        parsed = _parse_research(path)
+    for path in sorted(position_root.rglob("*.md")):
+        parsed = _parse_thesis(path)
         if parsed is None:
             warnings.append(f"skip malformed trade record: {path}")
             continue
@@ -142,7 +142,7 @@ def sync_ledger(
     )
 
 
-def _parse_research(path: Path) -> tuple[dict[str, Any], str] | None:
+def _parse_thesis(path: Path) -> tuple[dict[str, Any], str] | None:
     match = _FRONT_MATTER_RE.match(path.read_text(encoding="utf-8"))
     if not match:
         return None

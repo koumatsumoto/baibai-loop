@@ -91,7 +91,7 @@ def _load_front_matter(path: Path) -> dict[str, object] | list[ValidationFinding
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.io",
+                code="position.io",
                 message=f"failed to read file: {exc}",
             )
         ]
@@ -101,7 +101,7 @@ def _load_front_matter(path: Path) -> dict[str, object] | list[ValidationFinding
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.no-front-matter",
+                code="position.no-front-matter",
                 message="trade markdown must start with YAML front matter",
             )
         ]
@@ -112,7 +112,7 @@ def _load_front_matter(path: Path) -> dict[str, object] | list[ValidationFinding
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.invalid-yaml",
+                code="position.invalid-yaml",
                 message=f"front matter YAML parse failed: {exc}",
             )
         ]
@@ -121,7 +121,7 @@ def _load_front_matter(path: Path) -> dict[str, object] | list[ValidationFinding
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.front-matter-non-mapping",
+                code="position.front-matter-non-mapping",
                 message="trade front matter must be a mapping",
             )
         ]
@@ -135,7 +135,7 @@ def _validate_schema(path: Path, front: Mapping[str, object]) -> list[Validation
             ValidationFinding(
                 severity="error",
                 target=path,
-                code=f"trade.{error.validator or 'invalid'}",
+                code=f"position.{error.validator or 'invalid'}",
                 message=str(error.message),
                 location=_format_path(error.absolute_path),
             )
@@ -157,7 +157,7 @@ def _check_reference_refs(path: Path, front: Mapping[str, object]) -> list[Valid
                 path,
                 value,
                 location=field,
-                code="trade.reference-ref",
+                code="position.reference-ref",
                 prefixes=prefixes,
                 suffixes=suffixes,
             )
@@ -260,7 +260,7 @@ def _check_ticker(path: Path, front: Mapping[str, object]) -> list[ValidationFin
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.ticker-format",
+                code="position.ticker-format",
                 message=f"ticker must be 4 alphanumeric uppercase chars (got {ticker!r})",
                 location="ticker",
             )
@@ -270,7 +270,7 @@ def _check_ticker(path: Path, front: Mapping[str, object]) -> list[ValidationFin
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.filename-ticker",
+                code="position.filename-ticker",
                 message="trade filename must end with -<ticker>.md",
                 location="ticker",
             )
@@ -288,7 +288,7 @@ def _check_order_ready_shape(path: Path, front: Mapping[str, object]) -> list[Va
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.order-intent-required",
+                code="position.order-intent-required",
                 message="submitted trade records require order_intent",
                 location="order_intent",
             )
@@ -302,7 +302,7 @@ def _check_order_ready_shape(path: Path, front: Mapping[str, object]) -> list[Va
                     ValidationFinding(
                         severity="error",
                         target=path,
-                        code="trade.order-intent-field",
+                        code="position.order-intent-field",
                         message=f"order_intent.{field} is required",
                         location=f"order_intent.{field}",
                     )
@@ -312,7 +312,7 @@ def _check_order_ready_shape(path: Path, front: Mapping[str, object]) -> list[Va
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="trade.order-intent-side",
+                    code="position.order-intent-side",
                     message="order_intent.side must be buy or sell",
                     location="order_intent.side",
                 )
@@ -323,7 +323,7 @@ def _check_order_ready_shape(path: Path, front: Mapping[str, object]) -> list[Va
                     ValidationFinding(
                         severity="error",
                         target=path,
-                        code="trade.order-intent-field",
+                        code="position.order-intent-field",
                         message=f"order_intent.{field} is required",
                         location=f"order_intent.{field}",
                     )
@@ -334,7 +334,7 @@ def _check_order_ready_shape(path: Path, front: Mapping[str, object]) -> list[Va
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="trade.order-intent-quantity",
+                    code="position.order-intent-quantity",
                     message="trade records with execution intent require order_intent.quantity > 0",
                     location="order_intent.quantity",
                 )
@@ -344,7 +344,7 @@ def _check_order_ready_shape(path: Path, front: Mapping[str, object]) -> list[Va
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="trade.order-intent-field",
+                    code="position.order-intent-field",
                     message="order_intent.uses_margin is required",
                     location="order_intent.uses_margin",
                 )
@@ -356,7 +356,7 @@ def _check_order_ready_shape(path: Path, front: Mapping[str, object]) -> list[Va
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.position-sizing-required",
+                code="position.position-sizing-required",
                 message="submitted trade records require position_sizing_overlay",
                 location="position_sizing_overlay",
             )
@@ -368,7 +368,7 @@ def _check_order_ready_shape(path: Path, front: Mapping[str, object]) -> list[Va
                     ValidationFinding(
                         severity="error",
                         target=path,
-                        code="trade.position-sizing-field",
+                        code="position.position-sizing-field",
                         message=f"position_sizing_overlay.{field} is required",
                         location=f"position_sizing_overlay.{field}",
                     )
@@ -380,7 +380,7 @@ def _check_order_ready_shape(path: Path, front: Mapping[str, object]) -> list[Va
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.orders-required",
+                code="position.orders-required",
                 message="submitted trade records require at least one order",
                 location="orders",
             )
@@ -392,23 +392,23 @@ def _check_trade_safety_gate(path: Path, front: Mapping[str, object]) -> list[Va
     if front.get("execution_state") == "none":
         return []
     findings: list[ValidationFinding] = []
-    research = _load_referenced_research(path, front)
-    if research is None:
+    thesis = _load_referenced_thesis(path, front)
+    if thesis is None:
         findings.append(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.research-ref-load",
+                code="position.thesis-ref-load",
                 message="trade records with execution intent require a readable thesis_ref",
                 location="thesis_ref",
             )
         )
-    elif as_mapping(research.get("thesis_decision")).get("outcome") != "approved":
+    elif as_mapping(thesis.get("thesis_decision")).get("outcome") != "approved":
         findings.append(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.research-approval",
+                code="position.thesis-approval",
                 message="trade records with execution intent require approved thesis_ref",
                 location="thesis_ref",
             )
@@ -419,7 +419,7 @@ def _check_trade_safety_gate(path: Path, front: Mapping[str, object]) -> list[Va
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.no-margin-trading",
+                code="position.no-margin-trading",
                 message="margin trading is not allowed",
                 location="order_intent.uses_margin",
             )
@@ -427,22 +427,20 @@ def _check_trade_safety_gate(path: Path, front: Mapping[str, object]) -> list[Va
     return findings
 
 
-def _load_referenced_research(
-    path: Path, front: Mapping[str, object]
-) -> Mapping[str, object] | None:
+def _load_referenced_thesis(path: Path, front: Mapping[str, object]) -> Mapping[str, object] | None:
     root = repo_root_for(path)
     thesis_ref = front.get("thesis_ref")
     if not isinstance(thesis_ref, str):
         return None
     if repository_ref_error(thesis_ref, root=root) is not None:
         return None
-    research_path = resolve_repository_ref(root, thesis_ref)
-    if not thesis_ref.startswith("records/05-thesis/") or research_path.suffix != ".md":
+    thesis_path = resolve_repository_ref(root, thesis_ref)
+    if not thesis_ref.startswith("records/05-thesis/") or thesis_path.suffix != ".md":
         return None
-    if not research_path.is_file():
+    if not thesis_path.is_file():
         return None
     try:
-        return load_markdown_front_matter(research_path)
+        return load_markdown_front_matter(thesis_path)
     except (OSError, ValueError, yaml.YAMLError):
         return None
 
@@ -463,7 +461,7 @@ def _check_order_join(path: Path, front: Mapping[str, object]) -> list[Validatio
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.order-intent-join",
+                code="position.order-intent-join",
                 message="orders[].origin_order_intent_id must join to order_intent.order_intent_id",
                 location="orders",
             )
@@ -486,7 +484,7 @@ def _check_execution_join(path: Path, front: Mapping[str, object]) -> list[Valid
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="trade.execution-order-join",
+                    code="position.execution-order-join",
                     message="executions[].order_id must join to orders[].order_id",
                     location=f"executions[{index}].order_id",
                 )
@@ -510,7 +508,7 @@ def _check_order_state_consistency(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="trade.order-state",
+                    code="position.order-state",
                     message=f"orders[{index}].state must be one of {_ORDER_STATES}",
                     location=f"orders[{index}].state",
                 )
@@ -522,7 +520,7 @@ def _check_order_state_consistency(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="trade.filled-quantity",
+                    code="position.filled-quantity",
                     message="filled_quantity cannot exceed submitted_quantity",
                     location=f"orders[{index}].filled_quantity",
                 )
@@ -535,7 +533,7 @@ def _check_order_state_consistency(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.position-execution-state",
+                code="position.position-execution-state",
                 message="position_state: none cannot have executions",
                 location="position_state",
             )
@@ -565,7 +563,7 @@ def _check_current_quantity(path: Path, front: Mapping[str, object]) -> list[Val
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.current-quantity-required",
+                code="position.current-quantity-required",
                 message="trade records with a position lifecycle require current_quantity",
                 location="current_quantity",
             )
@@ -575,7 +573,7 @@ def _check_current_quantity(path: Path, front: Mapping[str, object]) -> list[Val
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.current-quantity",
+                code="position.current-quantity",
                 message=(
                     f"current_quantity must equal executions plus corporate action deltas "
                     f"({expected:g})"
@@ -602,7 +600,7 @@ def _check_guarded_notional(path: Path, front: Mapping[str, object]) -> list[Val
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.guarded-notional",
+                code="position.guarded-notional",
                 message=(
                     f"guarded_max_notional_yen must equal quantity * guard price ({expected:g})"
                 ),
@@ -635,7 +633,7 @@ def _check_portfolio_concentration(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="trade.portfolio-tactical-budget",
+                code="position.portfolio-tactical-budget",
                 message=(
                     "open trade exposure exceeds portfolio policy tactical_real_budget_yen "
                     f"({total:g} > {tactical_budget_yen:g})"
@@ -647,9 +645,9 @@ def _check_portfolio_concentration(
         return findings
 
     checks = (
-        ("ticker", "max_ticker_real_concentration_pct", "trade.portfolio-ticker-cap"),
-        ("sector_33", "max_sector_real_concentration_pct", "trade.portfolio-sector-cap"),
-        ("playbook_id", "max_playbook_real_concentration_pct", "trade.portfolio-playbook-cap"),
+        ("ticker", "max_ticker_real_concentration_pct", "position.portfolio-ticker-cap"),
+        ("sector_33", "max_sector_real_concentration_pct", "position.portfolio-sector-cap"),
+        ("playbook_id", "max_playbook_real_concentration_pct", "position.portfolio-playbook-cap"),
     )
     for field, cap_field, code in checks:
         cap_pct = number(risk.get(cap_field))
@@ -698,10 +696,10 @@ def _open_trade_exposures(root: Path) -> list[dict[str, float | str]]:
         thesis_ref = front.get("thesis_ref")
         if isinstance(thesis_ref, str):
             try:
-                research_front = load_markdown_front_matter(root / thesis_ref)
+                thesis_front = load_markdown_front_matter(root / thesis_ref)
             except (OSError, ValueError, yaml.YAMLError):
-                research_front = {}
-            sector_33 = str(research_front.get("sector_33") or "")
+                thesis_front = {}
+            sector_33 = str(thesis_front.get("sector_33") or "")
         exposures.append(
             {
                 "ticker": str(front.get("ticker") or ""),

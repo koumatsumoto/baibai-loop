@@ -16,7 +16,7 @@ from baibai_loop.validation.playbook_schema import (
     PlaybookSchemaError,
     discover_playbook_schemas,
     load_playbook_schema,
-    validate_research_body,
+    validate_thesis_body,
 )
 
 from .fields import _check_decision, _check_playbook, _check_ticker
@@ -94,13 +94,13 @@ def validate_thesis_parsed(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.playbook-schema",
+                    code="thesis.playbook-schema",
                     message=str(exc),
                     location=f"playbook_id:{playbook_id}",
                 )
             )
         else:
-            findings.extend(validate_research_body(path, body, schema))
+            findings.extend(validate_thesis_body(path, body, schema))
     return findings
 
 
@@ -131,7 +131,7 @@ def validate_thesis_collection(
                 ValidationFinding(
                     severity="warning",
                     target=path,
-                    code="research.sector-concentration",
+                    code="thesis.sector-concentration",
                     message=(
                         f"3+ approved investment memos share sector_33={sector}; "
                         "review cumulative exposure"
@@ -158,7 +158,7 @@ def _load_thesis_document(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.io",
+                code="thesis.io",
                 message=f"failed to read file: {exc}",
             )
         ]
@@ -168,7 +168,7 @@ def _load_thesis_document(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.no-front-matter",
+                code="thesis.no-front-matter",
                 message="investment memo markdown must start with `---` YAML front matter",
             )
         ]
@@ -179,7 +179,7 @@ def _load_thesis_document(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.invalid-yaml",
+                code="thesis.invalid-yaml",
                 message=f"front matter YAML parse failed: {exc}",
             )
         ]
@@ -188,7 +188,7 @@ def _load_thesis_document(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.front-matter-non-mapping",
+                code="thesis.front-matter-non-mapping",
                 message="investment memo front matter must be a mapping",
             )
         ]
@@ -207,9 +207,9 @@ def _validate_schema(path: Path, front_matter: Mapping[str, object]) -> list[Val
                 severity="error",
                 target=path,
                 code=(
-                    "research.required"
+                    "thesis.required"
                     if error.validator == "anyOf"
-                    else f"research.{error.validator or 'invalid'}"
+                    else f"thesis.{error.validator or 'invalid'}"
                 ),
                 message=str(error.message),
                 location=_format_path(error.absolute_path),

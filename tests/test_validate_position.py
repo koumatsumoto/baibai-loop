@@ -143,7 +143,7 @@ def test_missing_required_field_is_flagged(tmp_path: Path) -> None:
     del front["position_id"]
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_position_file(path)}
-    assert "trade.required" in codes
+    assert "position.required" in codes
 
 
 def test_order_intent_must_join_to_order(tmp_path: Path) -> None:
@@ -155,7 +155,7 @@ def test_order_intent_must_join_to_order(tmp_path: Path) -> None:
     order["origin_order_intent_id"] = "intent-other"
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_position_file(path)}
-    assert "trade.order-intent-join" in codes
+    assert "position.order-intent-join" in codes
 
 
 def test_submitted_trade_requires_order_intent_fields(tmp_path: Path) -> None:
@@ -163,7 +163,7 @@ def test_submitted_trade_requires_order_intent_fields(tmp_path: Path) -> None:
     front["order_intent"] = {}
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_position_file(path)}
-    assert "trade.order-intent-field" in codes
+    assert "position.order-intent-field" in codes
 
 
 def test_submitted_trade_requires_orders(tmp_path: Path) -> None:
@@ -171,7 +171,7 @@ def test_submitted_trade_requires_orders(tmp_path: Path) -> None:
     front["orders"] = []
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_position_file(path)}
-    assert "trade.orders-required" in codes
+    assert "position.orders-required" in codes
 
 
 def test_submitted_trade_requires_position_sizing_overlay(tmp_path: Path) -> None:
@@ -179,7 +179,7 @@ def test_submitted_trade_requires_position_sizing_overlay(tmp_path: Path) -> Non
     del front["position_sizing_overlay"]
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_position_file(path)}
-    assert "trade.position-sizing-required" in codes
+    assert "position.position-sizing-required" in codes
 
 
 def test_submitted_trade_schema_requires_sizing_fields(tmp_path: Path) -> None:
@@ -189,7 +189,7 @@ def test_submitted_trade_schema_requires_sizing_fields(tmp_path: Path) -> None:
     del sizing["guarded_max_notional_yen"]
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_position_file(path)}
-    assert "trade.position-sizing-field" in codes
+    assert "position.position-sizing-field" in codes
 
 
 def test_trade_nested_contract_rejects_unknown_fields(tmp_path: Path) -> None:
@@ -210,7 +210,7 @@ def test_trade_nested_contract_rejects_unknown_fields(tmp_path: Path) -> None:
 
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_position_file(path)}
-    assert "trade.additionalProperties" in codes
+    assert "position.additionalProperties" in codes
 
 
 def test_filled_trade_requires_execution_fields(tmp_path: Path) -> None:
@@ -222,7 +222,7 @@ def test_filled_trade_requires_execution_fields(tmp_path: Path) -> None:
     del execution["at"]
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_position_file(path)}
-    assert "trade.required" in codes
+    assert "position.required" in codes
 
 
 def test_execution_order_id_must_join_to_order(tmp_path: Path) -> None:
@@ -234,7 +234,7 @@ def test_execution_order_id_must_join_to_order(tmp_path: Path) -> None:
     execution["order_id"] = "order-other"
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_position_file(path)}
-    assert "trade.execution-order-join" in codes
+    assert "position.execution-order-join" in codes
 
 
 def test_order_state_is_validated(tmp_path: Path) -> None:
@@ -246,7 +246,7 @@ def test_order_state_is_validated(tmp_path: Path) -> None:
     order["state"] = "open"
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_position_file(path)}
-    assert "trade.order-state" in codes
+    assert "position.order-state" in codes
 
 
 def test_filled_quantity_cannot_exceed_submitted_quantity(tmp_path: Path) -> None:
@@ -258,14 +258,14 @@ def test_filled_quantity_cannot_exceed_submitted_quantity(tmp_path: Path) -> Non
     order["filled_quantity"] = 300
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_position_file(path)}
-    assert "trade.filled-quantity" in codes
+    assert "position.filled-quantity" in codes
 
 
 def test_position_state_none_cannot_have_executions(tmp_path: Path) -> None:
     front = _trade_front(position_state="none")
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_position_file(path)}
-    assert "trade.position-execution-state" in codes
+    assert "position.position-execution-state" in codes
 
 
 def test_current_quantity_is_recomputed_from_executions(tmp_path: Path) -> None:
@@ -273,7 +273,7 @@ def test_current_quantity_is_recomputed_from_executions(tmp_path: Path) -> None:
     front["current_quantity"] = 100
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_position_file(path)}
-    assert "trade.current-quantity" in codes
+    assert "position.current-quantity" in codes
 
 
 def test_guarded_notional_must_match_quantity_times_guard(tmp_path: Path) -> None:
@@ -283,7 +283,7 @@ def test_guarded_notional_must_match_quantity_times_guard(tmp_path: Path) -> Non
     sizing["guarded_max_notional_yen"] = 202800
     path = _write_trade(tmp_path, front)
     codes = {finding.code for finding in validate_position_file(path)}
-    assert "trade.guarded-notional" in codes
+    assert "position.guarded-notional" in codes
 
 
 def test_submitted_trade_requires_positive_quantity(tmp_path: Path) -> None:
@@ -304,7 +304,7 @@ def test_submitted_trade_requires_positive_quantity(tmp_path: Path) -> None:
 
     codes = {finding.code for finding in validate_position_file(path)}
 
-    assert "trade.order-intent-quantity" in codes
+    assert "position.order-intent-quantity" in codes
 
 
 def test_submitted_trade_requires_approved_thesis_ref(tmp_path: Path) -> None:
@@ -323,7 +323,7 @@ def test_submitted_trade_requires_approved_thesis_ref(tmp_path: Path) -> None:
 
     codes = {finding.code for finding in validate_position_file(path)}
 
-    assert "trade.research-approval" in codes
+    assert "position.thesis-approval" in codes
 
 
 def test_submitted_trade_requires_readable_thesis_ref(tmp_path: Path) -> None:
@@ -332,7 +332,7 @@ def test_submitted_trade_requires_readable_thesis_ref(tmp_path: Path) -> None:
 
     codes = {finding.code for finding in validate_position_file(path)}
 
-    assert "trade.research-ref-load" in codes
+    assert "position.thesis-ref-load" in codes
 
 
 def test_no_margin_trading_constraint_rejects_margin_usage(tmp_path: Path) -> None:
@@ -344,7 +344,7 @@ def test_no_margin_trading_constraint_rejects_margin_usage(tmp_path: Path) -> No
 
     codes = {finding.code for finding in validate_position_file(path)}
 
-    assert "trade.no-margin-trading" in codes
+    assert "position.no-margin-trading" in codes
 
 
 def test_open_trades_must_stay_within_portfolio_concentration_caps(tmp_path: Path) -> None:
@@ -369,10 +369,10 @@ def test_open_trades_must_stay_within_portfolio_concentration_caps(tmp_path: Pat
 
     codes = {finding.code for finding in validate_position_file(path)}
 
-    assert "trade.portfolio-tactical-budget" in codes
-    assert "trade.portfolio-ticker-cap" in codes
-    assert "trade.portfolio-sector-cap" in codes
-    assert "trade.portfolio-playbook-cap" in codes
+    assert "position.portfolio-tactical-budget" in codes
+    assert "position.portfolio-ticker-cap" in codes
+    assert "position.portfolio-sector-cap" in codes
+    assert "position.portfolio-playbook-cap" in codes
 
 
 def test_closed_trade_does_not_report_current_portfolio_concentration_caps(
@@ -389,27 +389,27 @@ def test_closed_trade_does_not_report_current_portfolio_concentration_caps(
 
     codes = {finding.code for finding in validate_position_file(path)}
 
-    assert "trade.portfolio-tactical-budget" not in codes
-    assert "trade.portfolio-ticker-cap" not in codes
+    assert "position.portfolio-tactical-budget" not in codes
+    assert "position.portfolio-ticker-cap" not in codes
 
 
 def test_filename_ticker_must_match_front_matter(tmp_path: Path) -> None:
     path = _write_trade(tmp_path, _trade_front(ticker="1111"))
     codes = {finding.code for finding in validate_position_file(path)}
-    assert "trade.filename-ticker" in codes
+    assert "position.filename-ticker" in codes
 
 
 def test_invalid_ticker_pattern_is_flagged(tmp_path: Path) -> None:
     path = _write_trade(tmp_path, _trade_front(ticker="bad"), name="2026-05-05-bad.md")
     codes = {finding.code for finding in validate_position_file(path)}
-    assert "trade.pattern" in codes
-    assert "trade.ticker-format" in codes
+    assert "position.pattern" in codes
+    assert "position.ticker-format" in codes
 
 
 def test_discover_position_files_skips_template(tmp_path: Path) -> None:
-    trade_root = tmp_path / "records/06-position"
-    trade_root.mkdir(parents=True)
-    (trade_root / "template.md").write_text("placeholder", encoding="utf-8")
+    position_root = tmp_path / "records/06-position"
+    position_root.mkdir(parents=True)
+    (position_root / "template.md").write_text("placeholder", encoding="utf-8")
     valid = _write_trade(tmp_path)
-    discovered = discover_position_files(trade_root)
+    discovered = discover_position_files(position_root)
     assert discovered == [valid]

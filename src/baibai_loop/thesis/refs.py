@@ -31,7 +31,7 @@ def _check_reference_refs(
                 path,
                 value,
                 location=field,
-                code="research.reference-ref",
+                code="thesis.reference-ref",
                 prefixes=prefixes,
                 suffixes=suffixes,
             )

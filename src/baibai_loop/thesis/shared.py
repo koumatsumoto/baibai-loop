@@ -36,7 +36,7 @@ def _load_yaml_cached(path: str, mtime_ns: int, size: int) -> object:
     )
 
 
-def _research_record_date(
+def _thesis_record_date(
     front_matter: Mapping[str, object], *, path: Path | None = None
 ) -> date | None:
     record_dt = _parse_datetime(front_matter.get("published_at")) or _parse_datetime(
@@ -60,7 +60,7 @@ def _research_record_date(
 def _gate_boundary_date(front_matter: Mapping[str, object], *, path: Path | None) -> date | None:
     """Return the latest of published_at / recorded_at / decided_at / filename.
 
-    Standard `_research_record_date` uses the first available source, which lets
+    Standard `_thesis_record_date` uses the first available source, which lets
     a backdated `published_at` slip past an asof gate. For gate-boundary
     comparisons specifically, take the latest signal so a wider surface area
     (including the tamper-resistant filename) governs whether the gate applies.
@@ -120,7 +120,7 @@ def _format_path(parts: Iterable[object]) -> str:
     return "".join(rendered)
 
 
-def _is_repository_research_record(path: Path) -> bool:
+def _is_repository_thesis_record(path: Path) -> bool:
     root = repo_root_for(path)
     try:
         path.resolve().relative_to((root / "records/05-thesis").resolve())

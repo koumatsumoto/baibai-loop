@@ -1,4 +1,4 @@
-"""Weekly candidates discovery and loading shared by the ledger telemetry tools."""
+"""Weekly candidates discovery and loading shared by the forward telemetry tools."""
 
 from __future__ import annotations
 

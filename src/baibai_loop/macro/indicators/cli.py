@@ -16,7 +16,7 @@ from .service import QueryResult, StatsService
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="baibai-loop-indicators")
+    parser = argparse.ArgumentParser(prog="baibai-loop-macro")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     list_parser = subparsers.add_parser("list", help="list registered macro statistics series")

@@ -28,7 +28,7 @@ from baibai_loop.position.benchmark import (
     compute_forward_performance,
 )
 from baibai_loop.position.review import ReviewGate, due_review_gates, weekday_calendar
-from baibai_loop.position.sync import sync_ledger
+from baibai_loop.position.sync import sync_decisions
 from baibai_loop.position.trades import load_open_trades
 
 
@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
             return 1
-        result = sync_ledger(
+        result = sync_decisions(
             args.root,
             dry_run=args.dry_run,
             calendar=calendar,

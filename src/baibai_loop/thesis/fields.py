@@ -20,7 +20,7 @@ def _check_ticker(path: Path, front_matter: Mapping[str, object]) -> list[Valida
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.ticker-format",
+                code="thesis.ticker-format",
                 message=f"ticker must be 4 alphanumeric uppercase chars (got {ticker!r})",
                 location="ticker",
             )
@@ -39,7 +39,7 @@ def _check_playbook(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.unknown-playbook",
+                code="thesis.unknown-playbook",
                 message=f"playbook_id must reference a known playbook family (got {playbook_id!r})",
                 location="playbook_id",
             )
@@ -59,7 +59,7 @@ def _check_decision(path: Path, front_matter: Mapping[str, object]) -> list[Vali
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.unknown-outcome",
+                code="thesis.unknown-outcome",
                 message=f"thesis_decision.outcome must be one of {_KNOWN_OUTCOMES}",
                 location="thesis_decision.outcome",
             )
@@ -69,7 +69,7 @@ def _check_decision(path: Path, front_matter: Mapping[str, object]) -> list[Vali
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.unknown-posture",
+                code="thesis.unknown-posture",
                 message=f"thesis_decision.posture must be one of {_KNOWN_POSTURES}",
                 location="thesis_decision.posture",
             )
@@ -79,7 +79,7 @@ def _check_decision(path: Path, front_matter: Mapping[str, object]) -> list[Vali
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.approved-posture",
+                code="thesis.approved-posture",
                 message="approved research decisions must use posture: act_now",
                 location="thesis_decision.posture",
             )
@@ -89,7 +89,7 @@ def _check_decision(path: Path, front_matter: Mapping[str, object]) -> list[Vali
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.rejection-reason-required",
+                code="thesis.rejection-reason-required",
                 message="rejected research decisions require rejection_reason",
                 location="thesis_decision.rejection_reason",
             )
@@ -99,7 +99,7 @@ def _check_decision(path: Path, front_matter: Mapping[str, object]) -> list[Vali
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.deferred-posture",
+                code="thesis.deferred-posture",
                 message="deferred research decisions must wait for event or capital",
                 location="thesis_decision.posture",
             )
@@ -109,7 +109,7 @@ def _check_decision(path: Path, front_matter: Mapping[str, object]) -> list[Vali
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.deferral-reason-required",
+                code="thesis.deferral-reason-required",
                 message="deferred research decisions require deferral_reason",
                 location="thesis_decision.deferral_reason",
             )
@@ -119,7 +119,7 @@ def _check_decision(path: Path, front_matter: Mapping[str, object]) -> list[Vali
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.rejected-posture",
+                code="thesis.rejected-posture",
                 message="rejected research decisions must use posture: dropped",
                 location="thesis_decision.posture",
             )

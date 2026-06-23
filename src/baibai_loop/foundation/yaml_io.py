@@ -9,7 +9,7 @@ slim build does not silently break.
 All ``src/`` and ``tests/`` readers must import ``safe_load`` from this module
 rather than calling ``yaml.safe_load`` directly. Bypassing the helper silently
 falls back to the pure-Python loader and regresses replay wall time ~5x. The
-single hold-out is ``validate/research/shared.py``, which wraps its loader in
+single hold-out is ``thesis/shared.py``, which wraps its loader in
 ``lru_cache`` keyed by ``(path, mtime_ns, size)`` and needs a path argument the
 stream-based ``safe_load`` here does not expose; the same ``getattr`` pattern
 is used there so both paths get the C loader.

@@ -46,7 +46,7 @@ def ticker_profile_command(
     asof: str | None,
     sqlite_path: Path,
     candidates_root: Path,
-    ledger_root: Path,
+    records_root: Path,
     stdout: TextIO | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
@@ -72,7 +72,7 @@ def ticker_profile_command(
         ticker=normalized,
         asof_date=asof_date,
         candidates_root=candidates_root,
-        ledger_root=ledger_root,
+        records_root=records_root,
     )
     yaml.dump(payload, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
     return 0
@@ -277,7 +277,7 @@ def _repository_root_from_records_anchor(path: Path, *, warn_on_fallback: bool =
     if warn_on_fallback:
         print(
             "warning: could not infer repository root from a records/ anchor; "
-            f"using current working directory for prior research ledger: {Path.cwd()}",
+            f"using current working directory for prior decision register: {Path.cwd()}",
             file=sys.stderr,
         )
     return Path.cwd()

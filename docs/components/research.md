@@ -154,7 +154,7 @@ entry_preflight:
 - 候補銘柄が market baseline または sector / peer baseline に 3pt 以上劣後し、明確な near-term catalyst がない場合は、`starter` または `defer` を基本にする。
 - `macro_context_fit.context_freshness: stale` で event-driven thesis ではない場合は、`defer` を基本にする。`exception` を使う場合は `exception_basis` に `near_term_catalyst` / `low_sizing` / `low_correlation` のいずれかを構造化して残す。
 - 同一 sector または同一 playbook が tactical budget の 50% を超える exposure review trigger は hard cap ではない。既存 validator の real capital cap とは別に、opportunity cost / thesis overlap を確認するための手動 review trigger として扱う。低相関理由や catalyst 差を説明できない場合は、追加 entry を `starter` に抑えるか `defer` する。
-- `market_regime.regime: risk_on_rally` のとき、逆張りバリュー entry は trending index に構造的に劣後する（`reports/2026-06-17-trade-strategy-rootcause.md` の root-cause analysis、backtest-runbook §6 の dated 計測 index）。`proceed` は禁止（hard trigger）。`starter` / `exception` でも `near_term_catalyst: true` または `exception_basis: [low_correlation]` がなければ validator warning（`research.entry-preflight-rally-contrarian`）が出て、`defer` を促す。
+- `market_regime.regime: risk_on_rally` のとき、逆張りバリュー entry は trending index に構造的に劣後する（`reports/2026-06-17-trade-strategy-rootcause.md` の root-cause analysis、backtest-runbook §6 の dated 計測 index）。`proceed` は禁止（hard trigger）。`starter` / `exception` でも `near_term_catalyst: true` または `exception_basis: [low_correlation]` がなければ validator warning（`thesis.entry-preflight-rally-contrarian`）が出て、`defer` を促す。
 - validator は 2026-06-01 以降の approved research で、3pt 以上の相対劣後、stale macro、tactical exposure 50% 超、`risk_on_rally` regime を理由なし `proceed` として通さない。`exception` は `exception_basis` がない場合は通さない。2026-06-17 以降は `entry_preflight.market_regime` 自体が必須。
 
 `Thesis` には、短期 swing thesis に加えて以下を必ず 1 行以上で記録する。

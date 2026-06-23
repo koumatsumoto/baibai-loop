@@ -144,7 +144,7 @@ def run_proposal_scorecard(
     sqlite_path: Path,
     rules: ScreeningRules,
     candidates_root: Path,
-    ledger_root: Path,
+    records_root: Path,
     horizon_weeks: Sequence[int] = DEFAULT_COHORT_HORIZON_WEEKS,
     top: int = 10,
     profile: str = "balanced",
@@ -169,7 +169,7 @@ def run_proposal_scorecard(
         rules=rules,
         sqlite_path=sqlite_path,
         candidates_root=candidates_root,
-        ledger_root=ledger_root,
+        records_root=records_root,
         top=top,
         horizon_weeks=horizon_weeks,
     )

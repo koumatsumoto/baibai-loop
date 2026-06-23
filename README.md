@@ -23,9 +23,9 @@ Baibai-Loop は単一ループではなく、**運用ループ**（検証済み�
 1. portfolio policy で目的・制約・資本・許容リスクを固定する
 2. スクリーニング前に macro context を確認する: `records/01-macro-context/`
 3. スクリーニング基準でふるいにかける: `records/04-candidates/`
-4. 個別銘柄を investment memo として深掘り調査する: `records/05-research/`
+4. 個別銘柄を investment memo として深掘り調査する: `records/05-thesis/`
 5. 最終選考の銘柄を「いくらで何株」の売買提案として GitHub Issue に上げ、人間が判断する
-6. 約定したら execution record を残す: `records/06-trades/`
+6. 約定したら execution record を残す: `records/06-position/`
 
 **改善ループ（日次/週次）**: screening が機能しているかは、母数が極小の個人売買結果ではなく **全候補の forward-only backtest(大 N)**で検証します。改善項目は GitHub Issue の改善バックログで管理し、screening rules / playbooks の改訂に落とします。trades は Q2(執行品質)の信号として還流します。思想は [`docs/philosophy.md`](./docs/philosophy.md)、現行構造は [`docs/architecture/system-overview.md`](./docs/architecture/system-overview.md) を参照してください。
 
@@ -57,10 +57,10 @@ baibai-loop/
 ├── records/
 │   ├── 01-macro-context/
 │   ├── 04-candidates/
-│   ├── 05-research/
-│   ├── 06-trades/
+│   ├── 05-thesis/
+│   ├── 06-position/
 │   ├── _config/
-│   ├── _ledger/
+│   ├── _decisions/
 │   ├── _playbooks/
 │   └── _schemas/
 ├── src/baibai_loop/
@@ -91,9 +91,9 @@ directory ごとの責務は [`docs/architecture/repository-map.md`](./docs/arch
 ```bash
 uv run baibai-loop-screening run --asof YYYY-MM-DD
 uv run baibai-loop-screening select --asof YYYY-MM-DD --macro-context records/01-macro-context/YYYY/MM/macro-context-YYYY-MM-DD-slug.yaml
-uv run baibai-loop-stats search CPI
+uv run baibai-loop-macro search CPI
 uv run baibai-loop-validation
-uv run baibai-loop-ledger sync --root .
+uv run baibai-loop-position sync --root .
 ```
 
 automation の位置付けは [`docs/architecture/automation-map.md`](./docs/architecture/automation-map.md)、validation は [`docs/reference/testing-and-validation.md`](./docs/reference/testing-and-validation.md) を参照してください。

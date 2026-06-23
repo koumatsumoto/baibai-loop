@@ -1,4 +1,4 @@
-"""End-to-end checks that the screening run and ledger sync paths can be
+"""End-to-end checks that the screening run and decision sync paths can be
 served entirely from the SQLite cache, without falling back to any JSON
 file or J-Quants / EDINET / JPX HTTP client.
 
@@ -41,7 +41,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     # Cover the full [asof - 1200, asof + 60] window: `screening run` requires
     # 1200 calendar days of daily bars, and coverage is now derived from the
     # actual rows, so the fixture must really hold them (not just claim coverage
-    # via source_coverage). The +60 keeps the ledger sync path's
+    # via source_coverage). The +60 keeps the decision sync path's
     # `end = max(now, asof)` inside the imported window for any test wall-clock.
     history_days_back = 1200
     forward_days = 60
@@ -196,7 +196,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     )
 
     # Market calendar — populate the same forward window as bars so the
-    # ledger path's `[asof - 10, max(now, asof)]` range is always covered.
+    # decision-register path's `[asof - 10, max(now, asof)]` range is always covered.
     calendar_rows = [
         (
             (history_start + timedelta(days=index)).isoformat(),
@@ -337,7 +337,7 @@ class ScreeningRunOverSqliteTests(unittest.TestCase):
                 os.chdir(cwd)
 
 
-class LedgerSyncOverSqliteTests(unittest.TestCase):
+class DecisionSyncOverSqliteTests(unittest.TestCase):
     def test_sync_resolves_market_data_from_sqlite(self) -> None:
         from baibai_loop.position.cli import _load_market_data
 

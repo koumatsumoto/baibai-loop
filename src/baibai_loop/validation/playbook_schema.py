@@ -65,9 +65,7 @@ def load_playbook_schema(root: Path, playbook: str) -> PlaybookSchema:
     return PlaybookSchema(name=playbook, body_sections=tuple(sections))
 
 
-def validate_research_body(
-    path: Path, body: str, schema: PlaybookSchema
-) -> list[ValidationFinding]:
+def validate_thesis_body(path: Path, body: str, schema: PlaybookSchema) -> list[ValidationFinding]:
     """Check that body markdown contains all required sections defined in schema."""
     findings: list[ValidationFinding] = []
     headings = _extract_h2_headings(body)
@@ -80,7 +78,7 @@ def validate_research_body(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.missing-section",
+                    code="thesis.missing-section",
                     message=(
                         f"required section missing for playbook {schema.name!r}: "
                         f"pattern {section.title_pattern!r}"

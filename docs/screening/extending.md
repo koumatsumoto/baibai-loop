@@ -22,7 +22,7 @@ screening / selection / telemetry に機能を足すときの拡張点と検証�
 | 指標層 | `screening/metrics.py` + `screening/schema.py` | 新しい財務・価格指標(FinancialSnapshot に field 追加) |
 | screen 層(事実) | `screening/rules.py` + `rule_config.py` + `records/_config/screening-rules/` | 新しい playbook screen |
 | selection 層(lens) | `screening/selection/` package | 新しい lens・ranking 成分・profile |
-| telemetry 層 | `ledger/`(replay / playbook_cohorts / selection_ablation / forward_return) | 新しい計測・スコアボード |
+| telemetry 層 | `screening/forward/`(replay / playbook_cohorts / selection_ablation / forward_return) | 新しい計測・スコアボード |
 
 ## selection package の module 構成
 
@@ -40,7 +40,7 @@ screening / selection / telemetry に機能を足すときの拡張点と検証�
 
 1. `lenses.py` に lens 関数を書く(`_candidate_lenses` に登録)。閾値は固定値を事前登録し、根拠を docstring に書く(grid search しない)
 2. ranking に影響させる場合は `ranking.py` の `RankingToggles` に成分スイッチを追加し、`payload.py` の sort key に toggle 付きで組み込む。**default は必ず従来挙動と一致**させ、テストで担保する
-3. `ledger/selection_ablation.py` の `DEFAULT_VARIANTS` に `no_<新成分>` variant を追加する(計測経路の確保)
+3. `screening/forward/selection_ablation.py` の `DEFAULT_VARIANTS` に `no_<新成分>` variant を追加する(計測経路の確保)
 4. 記録済み candidates で ablation を実行し、`Δfull` と overlap を確認して doc 化する
 5. 効果が観測されない成分は入れない(または diagnostics 専用に留める)
 
@@ -55,7 +55,7 @@ regime lens(`screening/regime.py` + payload 配線)が実装の参考例。検�
 
 ## telemetry を追加する手順
 
-- forward return の計算は `ledger/forward_return.py`(`compute_ticker_forward_returns` / `load_bars_for_tickers`)を使う。価格 basis(adjusted close 優先)と eval cap の意味論を変えない
+- forward return の計算は `screening/forward/forward_return.py`(`compute_ticker_forward_returns` / `load_bars_for_tickers`)を使う。価格 basis(adjusted close 優先)と eval cap の意味論を変えない
 - 週次 candidates の走査は `screening_replay.discover_week_specs` / `WeekSpec` を流用する
 - 出力は YAML artifact + stdout サマリの 2 形式(replay / playbook-cohorts / ablation と同じ形)。artifact は機械可読を優先する(AI が読む前提)
 - 結果 doc は「数値表 + 観察された事実 + 解釈の限界」の 3 部構成で `docs/screening/` に残す

@@ -32,7 +32,7 @@ def _check_sizing_invariants(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.position-sizing-shape",
+                code="thesis.position-sizing-shape",
                 message="position_sizing_overlay must be a mapping with canonical sizing fields",
                 location="position_sizing_overlay",
             )
@@ -53,7 +53,7 @@ def _check_sizing_invariants(
                     ValidationFinding(
                         severity="error",
                         target=path,
-                        code="research.rejected-sizing",
+                        code="thesis.rejected-sizing",
                         message=f"{field} must be zero for non-approved decisions",
                         location=f"position_sizing_overlay.{field}",
                     )
@@ -66,7 +66,7 @@ def _check_sizing_invariants(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.adv-participation-input",
+                code="thesis.adv-participation-input",
                 message="avg_turnover_oku is required to derive adv_participation_pct",
                 location="avg_turnover_oku",
             )
@@ -88,7 +88,7 @@ def _check_position_sizing_overlay_shape(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.position-sizing-missing-field",
+                    code="thesis.position-sizing-missing-field",
                     message=f"position_sizing_overlay.{field} is required",
                     location=f"position_sizing_overlay.{field}",
                 )
@@ -122,7 +122,7 @@ def _check_approved_position_sizing_limits(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.position-sizing-value",
+                    code="thesis.position-sizing-value",
                     message=f"position_sizing_overlay.{field} must be a non-negative number",
                     location=f"position_sizing_overlay.{field}",
                 )
@@ -139,7 +139,7 @@ def _check_approved_position_sizing_limits(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.paper-proxy-position-size",
+                code="thesis.paper-proxy-position-size",
                 message="approved research requires positive paper_proxy_position_size_yen",
                 location="position_sizing_overlay.paper_proxy_position_size_yen",
             )
@@ -154,7 +154,7 @@ def _check_approved_position_sizing_limits(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.adv-participation-pct",
+                code="thesis.adv-participation-pct",
                 message=(
                     "adv_participation_pct must derive from "
                     "paper_proxy_position_size_yen and avg_turnover_oku"
@@ -171,7 +171,7 @@ def _check_approved_position_sizing_limits(
             ValidationFinding(
                 severity="error",
                 target=path,
-                code="research.paper-proxy-position-cap",
+                code="thesis.paper-proxy-position-cap",
                 message=f"paper_proxy_position_size_yen must not exceed policy cap {paper_cap:g}",
                 location="position_sizing_overlay.paper_proxy_position_size_yen",
             )
@@ -193,7 +193,7 @@ def _check_approved_position_sizing_limits(
                 ValidationFinding(
                     severity="error",
                     target=path,
-                    code="research.real-order-intent-cap",
+                    code="thesis.real-order-intent-cap",
                     message=f"real_order_intent_yen must not exceed {cap_name} cap {cap_value:g}",
                     location="position_sizing_overlay.real_order_intent_yen",
                 )

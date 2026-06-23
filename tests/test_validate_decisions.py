@@ -34,34 +34,34 @@ def test_discover_decisions_files_finds_thesis_decision_register(tmp_path: Path)
     assert discover_decisions_files(tmp_path / "records/_decisions") == [path]
 
 
-def test_validate_ledger_invalid_json_is_finding(tmp_path: Path) -> None:
+def test_validate_decisions_invalid_json_is_finding(tmp_path: Path) -> None:
     path = tmp_path / "records/_decisions" / "thesis-decisions" / "2026-04.jsonl"
     path.parent.mkdir(parents=True)
     path.write_text("{bad\n", encoding="utf-8")
-    assert "ledger.invalid-json" in {finding.code for finding in validate_decisions_file(path)}
+    assert "decisions.invalid-json" in {finding.code for finding in validate_decisions_file(path)}
 
 
-def test_validate_ledger_non_object_line_is_finding(tmp_path: Path) -> None:
+def test_validate_decisions_non_object_line_is_finding(tmp_path: Path) -> None:
     path = tmp_path / "records/_decisions" / "thesis-decisions" / "2026-04.jsonl"
     _write_jsonl(path, ["not", "object"])
-    assert "ledger.non-object" in {finding.code for finding in validate_decisions_file(path)}
+    assert "decisions.non-object" in {finding.code for finding in validate_decisions_file(path)}
 
 
-def test_validate_ledger_missing_required_field_is_finding(tmp_path: Path) -> None:
+def test_validate_decisions_missing_required_field_is_finding(tmp_path: Path) -> None:
     path = tmp_path / "records/_decisions" / "thesis-decisions" / "2026-04.jsonl"
     record = _decision_record()
     del record["ticker"]
     _write_jsonl(path, record)
-    assert "ledger.required" in {finding.code for finding in validate_decisions_file(path)}
+    assert "decisions.required" in {finding.code for finding in validate_decisions_file(path)}
 
 
-def test_validate_ledger_rejects_bad_decision_scope(tmp_path: Path) -> None:
+def test_validate_decisions_rejects_bad_decision_scope(tmp_path: Path) -> None:
     path = tmp_path / "records/_decisions" / "thesis-decisions" / "2026-04.jsonl"
     _write_jsonl(path, _decision_record(decision_scope="trade"))
-    assert "ledger.enum" in {finding.code for finding in validate_decisions_file(path)}
+    assert "decisions.enum" in {finding.code for finding in validate_decisions_file(path)}
 
 
-def test_validate_ledger_rejects_bad_ticker_pattern(tmp_path: Path) -> None:
+def test_validate_decisions_rejects_bad_ticker_pattern(tmp_path: Path) -> None:
     path = tmp_path / "records/_decisions" / "thesis-decisions" / "2026-04.jsonl"
     _write_jsonl(path, _decision_record(ticker="bad"))
-    assert "ledger.pattern" in {finding.code for finding in validate_decisions_file(path)}
+    assert "decisions.pattern" in {finding.code for finding in validate_decisions_file(path)}

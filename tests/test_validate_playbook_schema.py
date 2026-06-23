@@ -15,7 +15,7 @@ from baibai_loop.validation.playbook_schema import (
     PlaybookSchemaError,
     discover_playbook_schemas,
     load_playbook_schema,
-    validate_research_body,
+    validate_thesis_body,
 )
 
 
@@ -92,9 +92,9 @@ class ResearchBodyValidationTests(unittest.TestCase):
     def test_validate_research_body_finds_missing_required_section(self) -> None:
         schema = load_playbook_schema(ROOT / "records/_playbooks", "valuation-reversion")
         body = "## 1. Thesis\ntext\n"
-        findings = validate_research_body(Path("dummy.md"), body, schema)
+        findings = validate_thesis_body(Path("dummy.md"), body, schema)
         codes = {f.code for f in findings}
-        self.assertIn("research.missing-section", codes)
+        self.assertIn("thesis.missing-section", codes)
         # Thesis is present, so at least one section was satisfied
         missing_messages = [f.message for f in findings]
         self.assertFalse(any("Thesis" in msg for msg in missing_messages))
@@ -111,7 +111,7 @@ class ResearchBodyValidationTests(unittest.TestCase):
             )
             schema = load_playbook_schema(Path(tmpdir), "demo")
             body = "## Required\ntext\n"
-            findings = validate_research_body(Path("dummy.md"), body, schema)
+            findings = validate_thesis_body(Path("dummy.md"), body, schema)
             self.assertEqual(findings, [])
 
 
