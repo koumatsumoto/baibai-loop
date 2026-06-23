@@ -11,8 +11,8 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
+from baibai_loop.foundation.coerce import parse_datetime
 from baibai_loop.foundation.yaml_io import safe_load
-from baibai_loop.macro.context import parse_datetime
 
 from .errors import ValidationFinding
 

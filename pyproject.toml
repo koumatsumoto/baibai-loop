@@ -248,3 +248,20 @@ source_modules = [
   "baibai_loop.position",
 ]
 forbidden_modules = ["baibai_loop.thesis"]
+
+[[tool.importlinter.contracts]]
+name = "validation imports domain contexts only through their entry surface"
+type = "forbidden"
+# validation is the records public-language checker: it walks records, owns
+# ValidationFinding + the _schemas shape checks + cross-record referential
+# checks, and calls each domain context's validation entry (position via
+# decision_register / policy, thesis via validation.cli). Its own modules must
+# not reach into the macro / market / screening peers; those are consumed only
+# transitively through thesis/position, so only direct edges are forbidden.
+source_modules = ["baibai_loop.validation"]
+forbidden_modules = [
+  "baibai_loop.macro",
+  "baibai_loop.market",
+  "baibai_loop.screening",
+]
+allow_indirect_imports = true

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -139,14 +139,5 @@ def _date_from_name(name: str) -> date | None:
     raw = name.split(marker, 1)[1][:10]
     try:
         return date.fromisoformat(raw)
-    except ValueError:
-        return None
-
-
-def parse_datetime(value: object) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
