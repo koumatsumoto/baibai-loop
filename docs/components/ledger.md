@@ -1,10 +1,10 @@
 # Ledger
 
-`records/_ledger/` は investment memo、execution intent を append-only に正規化する decision register である。Candidates は screen fact を保持し、ledger は判断イベントと tracking state を保持する。
+`records/_decisions/` は investment memo、execution intent を append-only に正規化する decision register である。Candidates は screen fact を保持し、ledger は判断イベントと tracking state を保持する。
 
 ## 1. 役割
 
-- `records/05-research/**/*.md` の `research_decision` を decision event として正規化する
+- `records/05-thesis/**/*.md` の `thesis_decision` を decision event として正規化する
 - approved / deferred / rejected の research decision event を追跡する
 - approved-but-not-submitted、submitted、filled、broker rejected などの execution state を trade lineage と接続する
 - `baseline_price` と tracking horizon を market data file から更新する
@@ -12,7 +12,7 @@
 
 ## 2. ファイル構造
 
-- `records/_ledger/research-decisions/YYYY-MM.jsonl`: decision register の正本
+- `records/_decisions/thesis-decisions/YYYY-MM.jsonl`: decision register の正本
 
 JSONL は 1 行 1 event。current state は同じ `decision_event_id` / correction lineage を解決し、対象 ticker / candidate / research / trade ごとに最新の有効 event を読む。
 
@@ -23,10 +23,10 @@ JSONL は 1 行 1 event。current state は同じ `decision_event_id` / correcti
 - `decision_scope`: `research_memo | trade_execution`
 - `ticker`
 - `candidate_ref`
-- `research_ref`
-- `trade_ref`
-- `research_decision`: `{outcome, posture, reason...}`
-- `trade_execution_state`: `none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled`
+- `thesis_ref`
+- `position_ref`
+- `thesis_decision`: `{outcome, posture, reason...}`
+- `execution_state`: `none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled`
 - `playbook_id` / `playbook_ref`
 - `tracking`
 
@@ -46,10 +46,10 @@ uv run baibai-loop-position sync --root .
 
 ## 5. schema 検証
 
-decision register は [`/records/_schemas/decision-register.json`](/records/_schemas/decision-register.json) で検証する。
+decision register は [`/records/_schemas/decision.json`](/records/_schemas/decision.json) で検証する。
 
 ```bash
-uv run baibai-loop-validation --target ledger
+uv run baibai-loop-validation --target decisions
 ```
 
 ## 6. dry-run 出力
@@ -64,4 +64,4 @@ orphan は自動削除しない。必要なら correction event で明示的に 
 
 ## 8. 事故時の扱い
 
-壊れた JSONL 行は `uv run baibai-loop-validation --target ledger` で line を確認し、該当 source artifact から再 sync する。tracking / correction log の誤記録は、新しい correction event で forward-only に修正する。
+壊れた JSONL 行は `uv run baibai-loop-validation --target decisions` で line を確認し、該当 source artifact から再 sync する。tracking / correction log の誤記録は、新しい correction event で forward-only に修正する。

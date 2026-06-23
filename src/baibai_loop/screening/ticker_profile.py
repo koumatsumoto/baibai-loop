@@ -74,7 +74,7 @@ def build_ticker_profile(
     sector = master.get("sector_33") if master else None
     regime = compute_market_regime(sqlite_path, asof_date, benchmark_ticker=benchmark_ticker)
     candidates_block = _load_candidates_entry(candidates_root, ticker, asof_date)
-    prior = load_prior_research(ledger_root / "_ledger/research-decisions", asof_date).get(ticker)
+    prior = load_prior_research(ledger_root / "_decisions/thesis-decisions", asof_date).get(ticker)
     return {
         "ticker": ticker,
         "asof": asof_date.isoformat(),

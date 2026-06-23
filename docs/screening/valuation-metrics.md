@@ -1,6 +1,6 @@
 # screening/valuation-metrics.md
 
-Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。`records/04-candidates/` と `records/05-research/` の両方で参照される指標の前提を確定する。
+Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。`records/04-candidates/` と `records/05-thesis/` の両方で参照される指標の前提を確定する。
 
 ## 1. 使用指標
 
@@ -137,7 +137,7 @@ return ではない)。これ以外のコーポレートアクション (合併�
 - 1-2 ヶ月 horizon の swing trade では現金配当の寄与は 0.3-0.5% / 60 日程度で、playbook
   の利確 / 損切 target (±10-20%) から見れば noise 範囲
 
-トータルリターン視点での portfolio 評価が必要になった場合 (年次 retro 等) は `_ledger/`
+トータルリターン視点での portfolio 評価が必要になった場合 (年次 retro 等) は `_decisions/`
 側で配当落ちを別途加算するか、J-Quants Premium の配当 API 取得を検討する。
 
 ## 10. データソース

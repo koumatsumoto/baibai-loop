@@ -89,7 +89,7 @@ screening system が「うまく機能しているか」を検証し、改善す
 | 運用方針 | portfolio policy | governance | — | 目的・制約・資本・許容リスク・time horizon |
 | 戦略プレイブック | playbooks | governance | — | 再現可能な thesis（投資仮説）の型 |
 
-L1 / L2 / L3 の 3 層インフラ（データ / 機械的分析 / 判断の置き場所）と、2 つのループの関係は [`architecture/system-overview.md`](./architecture/system-overview.md) を参照します。**売買提案は GitHub Issue を成果物とし、records/ にディレクトリを持ちません**。承認結果は `records/_ledger/`（decision register）と `records/06-trades/` に落ちます（Issue = 人間向けの提案 / 承認の場、ledger = その結果の機械正規化、と非重複）。
+L1 / L2 / L3 の 3 層インフラ（データ / 機械的分析 / 判断の置き場所）と、2 つのループの関係は [`architecture/system-overview.md`](./architecture/system-overview.md) を参照します。**売買提案は GitHub Issue を成果物とし、records/ にディレクトリを持ちません**。承認結果は `records/_decisions/`（decision register）と `records/06-position/` に落ちます（Issue = 人間向けの提案 / 承認の場、ledger = その結果の機械正規化、と非重複）。
 
 ## artifact を読む 5 つの問い
 

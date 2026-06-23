@@ -63,7 +63,7 @@ class PriorResearch:
     expires_at: date | None
     decision_event_at: str | None
     decision_event_id: str | None
-    research_ref: str | None
+    thesis_ref: str | None
 
     def suppression_reason(self, asof_date: date) -> str | None:
         if self.outcome == "deferred":
@@ -86,7 +86,7 @@ class PriorResearch:
             "expires_at": self.expires_at.isoformat() if self.expires_at else None,
             "decision_event_at": self.decision_event_at,
             "decision_event_id": self.decision_event_id,
-            "research_ref": self.research_ref,
+            "thesis_ref": self.thesis_ref,
         }
 
 
@@ -173,7 +173,7 @@ def load_prior_research(ledger_root: Path, asof_date: date) -> dict[str, PriorRe
             if event_date is None or event_date > asof_date:
                 continue
             ticker = string_or_none(raw.get("ticker"))
-            decision = raw.get("research_decision")
+            decision = raw.get("thesis_decision")
             if ticker is None or not isinstance(decision, Mapping):
                 continue
             revisit = decision.get("revisit")
@@ -188,7 +188,7 @@ def load_prior_research(ledger_root: Path, asof_date: date) -> dict[str, PriorRe
                 expires_at=parse_iso_date(string_or_none(revisit_map.get("expires_at"))),
                 decision_event_at=event_at,
                 decision_event_id=string_or_none(raw.get("decision_event_id")),
-                research_ref=string_or_none(raw.get("research_ref")),
+                thesis_ref=string_or_none(raw.get("thesis_ref")),
             )
             event_key = (event_at or "", prior.decision_event_id or "")
             previous = latest.get(ticker)

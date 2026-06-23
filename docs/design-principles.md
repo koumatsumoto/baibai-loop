@@ -37,7 +37,7 @@ Macro context は、screening 前に既存 context が stale / scope mismatch / 
 |---|---|---|---|
 | Security-level 事実 | スクリーニング通過銘柄・valuation 指標 snapshot | `records/04-candidates/` 配下 | screen output |
 | マクロ分析 | 外部記事・統計を踏まえた screening 前提、業種/地域の追い風/中立/逆風評価 | `records/01-macro-context/` 配下 | macro context |
-| Security-level 分析 | 個別銘柄の深掘り・原因仮説・反対仮説・採用判定 | `records/05-research/` 配下 | investment memo |
+| Security-level 分析 | 個別銘柄の深掘り・原因仮説・反対仮説・採用判定 | `records/05-thesis/` 配下 | investment memo |
 
 ### 4.2 事実レイヤー（candidates）に含めてよいもの
 
@@ -69,7 +69,7 @@ Macro context は、screening 前に既存 context が stale / scope mismatch / 
 ## 5. Macro Context Discipline（philosophy 柱 2 の具体化）
 
 - Macro context は hard gate ではなく、screening / research の優先順位、追加確認、sizing caution を決める判断前提として扱う
-- `records/05-research/` の採用判定では `records/01-macro-context/` との fit を必ず確認する
+- `records/05-thesis/` の採用判定では `records/01-macro-context/` との fit を必ず確認する
 
 ## 6. Feedback loop 先行の原則（philosophy 柱 3 の具体化）
 
@@ -109,8 +109,8 @@ forward でどう効いたか」を測るためのものであって、「過去
 
 - screening の multi-axis backtest (`backtest-runbook` の 7 axis)。判断時点 (asof) に存在した
   情報のみ使い、in-sample / out-of-sample を分けて計測する
-- forward-only な decision register 蓄積 (`records/_ledger/` の判断イベント、entry 後の前進的 attribution)
-- 事前 thesis の文書化 (`records/05-research/`) と事後 fill/exit (`records/06-trades/`) の対比
+- forward-only な decision register 蓄積 (`records/_decisions/` の判断イベント、entry 後の前進的 attribution)
+- 事前 thesis の文書化 (`records/05-thesis/`) と事後 fill/exit (`records/06-position/`) の対比
 - 月次 forward 計測でのプロセス改善 (playbook 改訂は **サンプル数 10 件以上** を条件に検討)
 
 ### 9.2 やらないこと（避ける最適化・claim）

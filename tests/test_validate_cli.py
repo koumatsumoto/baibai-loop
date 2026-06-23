@@ -98,7 +98,7 @@ def _seed_repo(root: Path, *, candidates_overrides: dict[str, object] | None = N
     support_dirs = (
         docs_dir,
         root / "records/_playbooks/valuation-reversion",
-        root / "records/05-research/2026/04",
+        root / "records/05-thesis/2026/04",
     )
     for directory in (
         macro_context_dir,
@@ -118,7 +118,7 @@ def _seed_repo(root: Path, *, candidates_overrides: dict[str, object] | None = N
     (macro_context_dir / "macro-context-2026-04-24-test.yaml").write_text(
         _make_macro_context_yaml_text(), encoding="utf-8"
     )
-    (root / "records/05-research/2026/04/2026-04-25-2767-valuation-reversion.md").write_text(
+    (root / "records/05-thesis/2026/04/2026-04-25-2767-valuation-reversion.md").write_text(
         "---\n"
         "macro_context_ref: records/01-macro-context/2026/04/macro-context-2026-04-24-test.yaml\n"
         "---\n# Research\n",

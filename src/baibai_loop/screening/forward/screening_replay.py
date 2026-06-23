@@ -245,7 +245,7 @@ def _build_week_sweep(
         payload_cache=payload_cache,
     )
     prior_research: Mapping[str, PriorResearch] = load_prior_research(
-        ledger_root / "_ledger/research-decisions", spec.asof
+        ledger_root / "_decisions/thesis-decisions", spec.asof
     )
     return build_selection_sweep_payload(
         asof_date=spec.asof,

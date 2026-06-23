@@ -18,16 +18,16 @@ Baibai-Loop の **research / investment memo** の運用仕様。candidates × m
 1. 最新 macro context と candidates に対して `baibai-loop-screening select` を実行し、`recommendations`、previous overlap、sector / playbook concentration を確認する。個別銘柄を掘るときは `ticker-profile --ticker XXXX` で事実 packet(相対モメンタム・次回決算日・規制 flag・直近 screening 記録)を起点にする
 2. `recommendations` の上位 3-5 銘柄に絞る (閾値を試す場合は `records/_config/screening-rules/*.yaml` を直接編集して `select` を再実行)
 3. 候補行の `evidence_hits[]`、candidate-level metrics、`records/01-macro-context/` の `sector_tilts` と `sector_33` を確認する
-4. thesis payoff、portfolio policy、liquidity cap に照らし、`research_decision` と `position_sizing_overlay` を確定する
+4. thesis payoff、portfolio policy、liquidity cap に照らし、`thesis_decision` と `position_sizing_overlay` を確定する
 
 候補は一度の selection で 3-5 銘柄までに絞る。複数 playbook hit は優先度を上げる材料だが、sizing は payoff、liquidity、policy cap で決める。
 
-`screening_selected` は `baibai-loop-screening select` の `recommendations` に入った状態であり、採用判断ではない。`research_memo` は個別 investment memo が存在する状態、`research_approved` は `research_decision.outcome: approved`、`order_ready` は approved research と有効な order intent がそろった状態を指す。
+`screening_selected` は `baibai-loop-screening select` の `recommendations` に入った状態であり、採用判断ではない。`research_memo` は個別 investment memo が存在する状態、`research_approved` は `thesis_decision.outcome: approved`、`order_ready` は approved research と有効な order intent がそろった状態を指す。
 
 ## 3. Path と命名
 
 ```
-records/05-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook_id>.md
+records/05-thesis/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook_id>.md
 ```
 
 ## 4. Front Matter
@@ -37,7 +37,7 @@ Front matter の形は [`../templates/research.md`](../templates/research.md) �
 - `ticker` / `name`
 - `playbook_id` / `playbook_ref`
 - `candidate_ref`
-- `research_decision`
+- `thesis_decision`
 - `macro_context_ref`
 - `macro_context_fit`
 - `position_sizing_overlay`
@@ -48,9 +48,9 @@ Repository ref は `ref_path` で判断時に参照した repo 内 file を指�
 
 `candidate_ref` は `candidates_ref`, `ticker` を必須とする(schema 検証)。candidates は git 外の local store のため、参照先ファイルとの cross-check は行わない(監査証跡を保持しない方針)。
 
-## 5. research_decision
+## 5. thesis_decision
 
-`research_decision.outcome` は次の 3 値。
+`thesis_decision.outcome` は次の 3 値。
 
 - `approved`: 今すぐ採用してよい
 - `deferred`: thesis は通るが、event / capital / regime / data gap で待つ
@@ -66,7 +66,7 @@ Repository ref は `ref_path` で判断時に参照した repo 内 file を指�
 - `caution`: 追加確認、低 sizing、event 待ちなどの条件を明示して採用可
 - `defer`: macro context 上の前提が弱く、approved 不可
 
-Macro context は hard gate ではないが、`defer` の場合は `research_decision.outcome: approved` にしない。unknown / stale / low confidence sector tilt は conservative に扱い、`required_checks[]` に追加確認を残す。
+Macro context は hard gate ではないが、`defer` の場合は `thesis_decision.outcome: approved` にしない。unknown / stale / low confidence sector tilt は conservative に扱い、`required_checks[]` に追加確認を残す。
 
 ## 7. Thesis Payoff
 
@@ -77,7 +77,7 @@ Long-only の計算式は次で固定する。
 - `risk_reward_ratio = expected_upside_pct / expected_downside_pct`
 - `stop_loss_yen < max_entry_price_yen < target_price_yen`
 
-Payoff が弱い場合は `research_decision`、`macro_context_fit.required_checks`、`macro_context_fit.sizing_caution`、および `position_sizing_overlay` に反映する。Policy の具体閾値は `position/policy.py` を正本とし、未実装 field を追加して補わない。
+Payoff が弱い場合は `thesis_decision`、`macro_context_fit.required_checks`、`macro_context_fit.sizing_caution`、および `position_sizing_overlay` に反映する。Policy の具体閾値は `position/policy.py` を正本とし、未実装 field を追加して補わない。
 
 ## 8. Position Size
 
@@ -90,7 +90,7 @@ Position size は次の順で決める。
 5. policy cap
 6. board lot と guard price による rounding
 
-実注文数量は `floor(real_order_intent_yen / order_price_guard_yen / board_lot) * board_lot` で計算する。0 株になる場合は `trade_execution_state: none` と `not_submitted_reason` を記録する。
+実注文数量は `floor(real_order_intent_yen / order_price_guard_yen / board_lot) * board_lot` で計算する。0 株になる場合は `execution_state: none` と `not_submitted_reason` を記録する。
 
 ## 9. Body Sections
 
@@ -165,11 +165,11 @@ entry_preflight:
 ## 10. Validation
 
 ```bash
-uv run baibai-loop-validation --target research
+uv run baibai-loop-validation --target thesis
 ```
 
 Validation は front matter schema、playbook body schema、repository refs、decision consistency、macro context fit、corporate action check、thesis payoff、position sizing overlay を検査する。
 
 ## 11. Trade / Review への接続
 
-Approved memo は decision register に `decision_scope: research_memo` として記録される。実行する場合は `order_intent` を decision register に作り、`records/06-trades/` の `orders[].origin_order_intent_id` と join する。Outcome は review / retro で evidence、macro context fit、sizing、execution、playbook へ帰属する。
+Approved memo は decision register に `decision_scope: research_memo` として記録される。実行する場合は `order_intent` を decision register に作り、`records/06-position/` の `orders[].origin_order_intent_id` と join する。Outcome は review / retro で evidence、macro context fit、sizing、execution、playbook へ帰属する。

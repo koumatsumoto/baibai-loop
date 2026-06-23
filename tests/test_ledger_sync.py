@@ -16,7 +16,7 @@ from baibai_loop.position.sync import sync_ledger
 
 def _seed(root: Path) -> None:
     candidates_dir = root / "records/04-candidates" / "2026" / "04"
-    research_dir = root / "records/05-research" / "2026" / "04"
+    research_dir = root / "records/05-thesis" / "2026" / "04"
     candidates_dir.mkdir(parents=True)
     research_dir.mkdir(parents=True)
     candidates_path = candidates_dir / "2026-04-24.yaml"
@@ -48,7 +48,7 @@ def _seed(root: Path) -> None:
             "playbook_ref": {
                 "ref_path": "records/_playbooks/valuation-reversion/2026-05-01T000000+0900.md",
             },
-            "research_decision": {"outcome": "approved", "posture": "act_now"},
+            "thesis_decision": {"outcome": "approved", "posture": "act_now"},
             "candidate_ref": {
                 "candidates_ref": str(candidates_path.relative_to(root)),
                 "ticker": "2767",
@@ -74,15 +74,15 @@ def _seed(root: Path) -> None:
 
 
 def _seed_trade(root: Path) -> None:
-    trade_dir = root / "records/06-trades" / "2026" / "04"
+    trade_dir = root / "records/06-position" / "2026" / "04"
     trade_dir.mkdir(parents=True)
     front = yaml.safe_dump(
         {
-            "trade_id": "trade-20260425-2767",
+            "position_id": "trade-20260425-2767",
             "ticker": "2767",
             "name": "Sample",
-            "research_ref": "records/05-research/2026/04/2026-04-25-2767-valuation-reversion.md",
-            "trade_execution_state": "submitted",
+            "thesis_ref": "records/05-thesis/2026/04/2026-04-25-2767-valuation-reversion.md",
+            "execution_state": "submitted",
             "order_intent": {
                 "order_intent_id": "intent-20260425-2767-buy",
                 "decision_event_id": "decision-20260425-2767-trade",
@@ -119,7 +119,7 @@ def test_sync_ledger_writes_idempotent_decision_register(tmp_path: Path) -> None
     second = sync_ledger(tmp_path)
     assert first.decision_count == 1
     assert second.decision_count == 1
-    register_path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
+    register_path = tmp_path / "records/_decisions" / "thesis-decisions" / "2026-04.jsonl"
     lines = register_path.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1
     record = json.loads(lines[0])
@@ -141,13 +141,13 @@ def test_sync_ledger_includes_trade_execution_from_current_contract(tmp_path: Pa
     result = sync_ledger(tmp_path)
 
     assert result.decision_count == 2
-    register_path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
+    register_path = tmp_path / "records/_decisions" / "thesis-decisions" / "2026-04.jsonl"
     rows = [json.loads(line) for line in register_path.read_text(encoding="utf-8").splitlines()]
     trade = next(row for row in rows if row["decision_scope"] == "trade_execution")
     assert trade["decision_event_id"] == "decision-20260425-2767-trade"
-    assert trade["trade_execution_state"] == "submitted"
+    assert trade["execution_state"] == "submitted"
     assert trade["order_intent"]["order_intent_id"] == "intent-20260425-2767-buy"
-    assert trade["trade_ref"] == "records/06-trades/2026/04/2026-04-25-2767.md"
+    assert trade["position_ref"] == "records/06-position/2026/04/2026-04-25-2767.md"
 
 
 def test_sync_ledger_dry_run_reports_existing_decisions(tmp_path: Path) -> None:
@@ -168,7 +168,7 @@ def test_ledger_cli_warns_when_jquants_token_is_missing(tmp_path: Path) -> None:
     )
 
 
-def test_ledger_cli_discovers_research_decision_dates(tmp_path: Path) -> None:
+def test_ledger_cli_discovers_thesis_decision_dates(tmp_path: Path) -> None:
     _seed(tmp_path)
     assert _discover_decision_dates(tmp_path) == (date(2026, 4, 25),)
 
@@ -208,13 +208,13 @@ def test_ledger_cli_require_market_data_emits_diagnostic_when_no_research(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("JQUANTS_API_KEY", "dummy-token")
-    (tmp_path / "records/05-research").mkdir(parents=True)
+    (tmp_path / "records/05-thesis").mkdir(parents=True)
     assert main(["sync", "--root", str(tmp_path), "--dry-run", "--require-market-data"]) == 1
     assert "no market data" in capsys.readouterr().err
 
 
 def test_diff_jsonl_marks_orphan_existing_records(tmp_path: Path) -> None:
-    register_path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
+    register_path = tmp_path / "records/_decisions" / "thesis-decisions" / "2026-04.jsonl"
     register_path.parent.mkdir(parents=True)
     register_path.write_text(
         json.dumps({"decision_event_id": "decision-20260425-2767-research"}) + "\n",
@@ -224,7 +224,7 @@ def test_diff_jsonl_marks_orphan_existing_records(tmp_path: Path) -> None:
 
 
 def test_ledger_sync_rewrites_register_from_sources(tmp_path: Path) -> None:
-    register_path = tmp_path / "records/_ledger" / "research-decisions" / "2026-04.jsonl"
+    register_path = tmp_path / "records/_decisions" / "thesis-decisions" / "2026-04.jsonl"
     register_path.parent.mkdir(parents=True)
     register_path.write_text(
         json.dumps(
@@ -241,7 +241,7 @@ def test_ledger_sync_rewrites_register_from_sources(tmp_path: Path) -> None:
     incoming = {
         "decision_event_id": "decision-20260425-2767-research",
         "ticker": "2767",
-        "trade_execution_state": "none",
+        "execution_state": "none",
     }
 
     assert diff_jsonl(register_path, [incoming]) == ["~ decision-20260425-2767-research"]

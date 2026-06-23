@@ -4,14 +4,14 @@ Baibai-Loop の **execution record / trades** 成分の運用仕様。investment
 
 ## 1. 役割
 
-- `records/05-research/` の approved memo から発生した **order intent / order / execution / position** を記録する
-- 実際に order を作った場合のみ `records/06-trades/` を作る
+- `records/05-thesis/` の approved memo から発生した **order intent / order / execution / position** を記録する
+- 実際に order を作った場合のみ `records/06-position/` を作る
 - 採用したが発注しなかった判断、保留、見送り、未処理候補は decision register / reviews 側で扱う
 
 ## 2. Path と命名
 
 ```text
-records/06-trades/YYYY/MM/YYYY-MM-DD-<ticker>.md
+records/06-position/YYYY/MM/YYYY-MM-DD-<ticker>.md
 ```
 
 日付は最初の execution event を記録した日。未約定注文でも、最初の order submit 日を使い、後続の約定・取消・決済で改名しない。
@@ -20,12 +20,12 @@ records/06-trades/YYYY/MM/YYYY-MM-DD-<ticker>.md
 
 ```yaml
 ---
-trade_id: trade-YYYYMMDD-<ticker>
+position_id: trade-YYYYMMDD-<ticker>
 ticker: "7203"
 name: "トヨタ自動車"
-research_ref: records/05-research/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook_id>.md
+thesis_ref: records/05-thesis/YYYY/MM/YYYY-MM-DD-<ticker>-<playbook_id>.md
 position_state: none | open | closed
-trade_execution_state: none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled
+execution_state: none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled
 order_intent:
   order_intent_id: intent-YYYYMMDD-<ticker>-buy
   decision_event_id: decision-YYYYMMDD-<ticker>-trade
@@ -69,7 +69,7 @@ execution_costs:
 
 ## 4. State Model
 
-`trade_execution_state` は execution intent の最終状態、`orders[].state` は各 order の状態、`position_state` は executions から検証される建玉状態を表す。
+`execution_state` は execution intent の最終状態、`orders[].state` は各 order の状態、`position_state` は executions から検証される建玉状態を表す。
 
 | state | 意味 |
 | --- | --- |
@@ -93,7 +93,7 @@ target_quantity = floor(real_order_intent_yen / order_price_guard_yen / board_lo
 guarded_notional_yen = target_quantity * order_price_guard_yen
 ```
 
-`guarded_max_notional_yen` は cap 検査の正本であり、`estimated_real_order_notional_yen` は research / decision register から引き継ぐ実注文 intent の推定値である。rounded quantity が cap を超える場合は board lot 単位で減額する。`target_quantity == 0` の場合は trade record を submit せず、decision register 側で `trade_execution_state: none` と `not_submitted_reason: below_board_lot_minimum` を記録する。
+`guarded_max_notional_yen` は cap 検査の正本であり、`estimated_real_order_notional_yen` は research / decision register から引き継ぐ実注文 intent の推定値である。rounded quantity が cap を超える場合は board lot 単位で減額する。`target_quantity == 0` の場合は trade record を submit せず、decision register 側で `execution_state: none` と `not_submitted_reason: below_board_lot_minimum` を記録する。
 
 `capital_basis.real_capital_yen` は実資金全体、`capital_basis.tactical_real_budget_yen` は当面投入する real budget、`capital_basis.paper_proxy_capital_yen` は paper / proxy sizing の仮想資本である。これらを混同しない。
 
@@ -102,7 +102,7 @@ guarded_notional_yen = target_quantity * order_price_guard_yen
 trade record は `baibai-loop-validation` で `src/baibai_loop/validate/trade.py` が enforce する。
 
 ```bash
-uv run baibai-loop-validation --target trade
+uv run baibai-loop-validation --target position
 ```
 
 主な enforced rule:
@@ -110,9 +110,9 @@ uv run baibai-loop-validation --target trade
 - 必須 front matter field の存在
 - ticker 形式と filename との一致
 - `orders[].origin_order_intent_id` と `order_intent.order_intent_id` の join
-- `trade_execution_state != none` の場合、`research_ref` が approved research を参照していること
-- `trade_execution_state != none` の場合、`order_intent.quantity > 0` であること
-- `trade_execution_state != none` の場合、`position_sizing_overlay.estimated_real_order_notional_yen` と `guarded_max_notional_yen` が存在すること
+- `execution_state != none` の場合、`thesis_ref` が approved research を参照していること
+- `execution_state != none` の場合、`order_intent.quantity > 0` であること
+- `execution_state != none` の場合、`position_sizing_overlay.estimated_real_order_notional_yen` と `guarded_max_notional_yen` が存在すること
 - order state 値域と filled quantity consistency
 - `position_state: none` と executions の矛盾検出
 - guarded notional と `quantity * order_price_guard_yen` の一致

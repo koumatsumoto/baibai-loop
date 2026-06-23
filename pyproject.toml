@@ -173,7 +173,7 @@ tests_dir = "tests"
 runner = "python -m pytest -q -m 'not slow and not integration'"
 
 # Import-direction contracts. These encode the subsystem dependency DAG
-# (macro / screening / position / shared / validation) so a relabel that
+# (macro / screening / position / thesis / shared / validation) so a relabel that
 # silently reintroduces a cross-subsystem edge fails CI rather than passing
 # every other gate. Contracts are tightened as the reorg lands; this baseline
 # captures the invariants that already hold and must keep holding.
@@ -231,3 +231,20 @@ forbidden_modules = ["baibai_loop.position"]
 ignore_imports = [
   "baibai_loop.screening.ticker_profile -> baibai_loop.position.trades",
 ]
+
+[[tool.importlinter.contracts]]
+name = "thesis is the top-level domain engine (lower layers do not import it)"
+type = "forbidden"
+# thesis consumes screening.regime + position.policy to gate and size theses, so
+# it sits above every data/analysis layer. Forbid the reverse edges to keep the
+# DAG acyclic; validation is intentionally excluded because validation.cli drives
+# thesis validation (validation -> thesis), while thesis -> validation primitives
+# (errors / domain / playbook_schema) is the allowed upward dependency.
+source_modules = [
+  "baibai_loop.foundation",
+  "baibai_loop.market",
+  "baibai_loop.macro",
+  "baibai_loop.screening",
+  "baibai_loop.position",
+]
+forbidden_modules = ["baibai_loop.thesis"]

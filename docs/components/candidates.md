@@ -6,7 +6,7 @@ Baibai-Loop の **screen output / candidates** の運用仕様。狭義のスク
 
 - universe に対し、複数の playbook-linked screen で機械的にふるいをかけ、ticker-level の raw screen output を事実として記録する
 - 事実層のため、反対仮説・原因仮説・採用判断は書かない
-- `records/05-research/` の出発点として使う
+- `records/05-thesis/` の出発点として使う
 - Macro context は candidates に保存せず、`select` と research の `macro_context_fit` で扱う
 
 ## 2. Path と永続化
@@ -118,7 +118,7 @@ evidence_hits_summary:
 
 ## 5. Research への接続
 
-- `records/05-research/` の `candidate_ref.candidates_ref` / `candidate_ref.ticker` で候補行へ戻れるようにする(validator はファイル照合しない)
+- `records/05-thesis/` の `candidate_ref.candidates_ref` / `candidate_ref.ticker` で候補行へ戻れるようにする(validator はファイル照合しない)
 - `select` は candidates と macro context を突き合わせ、`recommendations` と `selection.diagnostics` を出す
 - `recommendations` は research 着手候補。default summary では `selection_playbook`、macro alignment、long-hold rating、reason / risk tags を見て深掘り順を決める。full lens / debug detail が必要な場合は `select --detail full` を使う
 - 閾値変更は `records/_config/screening-rules/*.yaml` を直接編集し `select` を再実行して output を diff する (`load_profile_overrides` / `--profile-config` 経路は round 2 cleanup で削除済み)

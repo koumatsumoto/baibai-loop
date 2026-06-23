@@ -33,8 +33,8 @@ related_docs:
 | 全上場日足 | `data/screening/market.sqlite` `jquants_daily_bars` | `adjustment_close` 優先、無ければ `close` |
 | benchmark proxy | 同上、ticker `1321`（野村 日経225 ETF） | 同上 |
 | 週次 candidates | `records/04-candidates/<YYYY>/<MM>/<YYYY-MM-DD>.yaml`（local store） | 機械生成 fact |
-| research_memo 判断 ledger | `records/_ledger/research-decisions/<YYYY>-<MM>.jsonl` | 判断時点 fact |
-| 実 trade record | `records/06-trades/**/*.md` | execution fact |
+| research_memo 判断 ledger | `records/_decisions/thesis-decisions/<YYYY>-<MM>.jsonl` | 判断時点 fact |
+| 実 trade record | `records/06-position/**/*.md` | execution fact |
 | open position benchmark | `baibai-loop-position benchmark` | 上記を join |
 
 価格関数の正本は `src/baibai_loop/market/price_walk.py` `resolve_price_on_or_before`。**自前のスクリプトでも必ずこれと同じセマンティクス**（adjusted close 優先、target 日以前の最新 bar）を使うこと。

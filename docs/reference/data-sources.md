@@ -21,8 +21,8 @@ Decision lifecycle ([`../architecture/system-overview.md`](../architecture/syste
 | --- | --- | --- |
 | `records/01-macro-context/` | screening 前のマクロ判断前提 | Reuters 等の記事 + Tier 1 / Tier 1 準拠統計 + 必要な market data |
 | `records/04-candidates/` | 銘柄ふるい・valuation 指標 | J-Quants（銘柄一覧・日足・財務サマリー・決算予定日・営業日カレンダ）+ EDINET（財務諸表補完）+ JPX（特別注意 / 整理 / 取引停止 / 上場廃止警告の除外判定） |
-| `records/05-research/` | 個別銘柄深掘り | J-Quants + EDINET + TDnet（開示文）+ JPX（資本コスト対応開示一覧）+ 必要時 macro context 参照 |
-| `records/06-trades/` | 執行記録 | 証券会社からの約定情報（手動記録） |
+| `records/05-thesis/` | 個別銘柄深掘り | J-Quants + EDINET + TDnet（開示文）+ JPX（資本コスト対応開示一覧）+ 必要時 macro context 参照 |
+| `records/06-position/` | 執行記録 | 証券会社からの約定情報（手動記録） |
 
 本ファイルの主領域は **Tier 1 / Tier 2 一次統計** と macro context で使う補助ソースのスコアリングである。screening / research で使う J-Quants / EDINET / TDnet の詳細仕様は [`../screening/valuation-metrics.md`](../screening/valuation-metrics.md) を参照。
 

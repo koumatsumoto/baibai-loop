@@ -22,7 +22,7 @@ def _bar(ticker: str, traded_at: date, close: float) -> JQuantsDailyBar:
 
 def _trade(ticker: str, entry_date: date, entry_price: float, quantity: int) -> TradeRecord:
     return TradeRecord(
-        trade_id=f"trade-{ticker}",
+        position_id=f"trade-{ticker}",
         ticker=ticker,
         name="Sample",
         position_state="open",

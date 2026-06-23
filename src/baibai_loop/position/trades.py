@@ -17,12 +17,12 @@ _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
 class TradeRecord:
     """Minimal view of a trade record needed for forward review and benchmark.
 
-    Sourced from `records/06-trades/**/*.md` front matter. Entry date / price are
+    Sourced from `records/06-position/**/*.md` front matter. Entry date / price are
     derived from the recorded executions so that forward horizons and P&L use the
     same basis as the trade contract.
     """
 
-    trade_id: str
+    position_id: str
     ticker: str
     name: str
     position_state: str
@@ -49,7 +49,7 @@ def load_open_trades(root: Path) -> list[TradeRecord]:
     benchmark commands only act on positions with a known entry basis.
     """
     trades: list[TradeRecord] = []
-    for path in sorted((root / "records/06-trades").rglob("*.md")):
+    for path in sorted((root / "records/06-position").rglob("*.md")):
         front = _read_front_matter(path)
         if front is None:
             continue
@@ -72,9 +72,9 @@ def _read_front_matter(path: Path) -> Mapping[str, Any] | None:
 
 
 def _build_trade_record(front: Mapping[str, Any]) -> TradeRecord | None:
-    trade_id = front.get("trade_id")
+    position_id = front.get("position_id")
     ticker = front.get("ticker")
-    if not isinstance(trade_id, str) or not isinstance(ticker, str):
+    if not isinstance(position_id, str) or not isinstance(ticker, str):
         return None
     entry = _entry_basis(front)
     if entry is None:
@@ -84,7 +84,7 @@ def _build_trade_record(front: Mapping[str, Any]) -> TradeRecord | None:
     current_quantity = front.get("current_quantity")
     cohort_tag = front.get("cohort_tag")
     return TradeRecord(
-        trade_id=trade_id,
+        position_id=position_id,
         ticker=ticker,
         name=str(front.get("name", "")),
         position_state=str(front.get("position_state", "")),

@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "decision",
+  "title": "Decision Register Row",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "decision_event_id",
+    "event_kind",
+    "decision_scope",
+    "tracking",
+    "ticker",
+    "execution_state"
+  ],
+  "properties": {
+    "decision_event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "event_kind": {
+      "enum": [
+        "decision",
+        "correction"
+      ]
+    },
+    "decision_scope": {
+      "enum": [
+        "research_memo",
+        "trade_execution"
+      ]
+    },
+    "tracking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "post_approval",
+            "re_examination",
+            "none"
+          ]
+        },
+        "plus_15bd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "plus_30bd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "plus_15bd_source": {
+          "$ref": "#/$defs/TrackingSource"
+        },
+        "plus_30bd_source": {
+          "$ref": "#/$defs/TrackingSource"
+        }
+      }
+    },
+    "ticker": {
+      "type": "string",
+      "pattern": "^[0-9A-Z]{4}$"
+    },
+    "thesis_decision": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "execution_state": {
+      "enum": [
+        "none",
+        "submitted",
+        "broker_rejected",
+        "cancelled",
+        "expired",
+        "not_filled",
+        "partially_filled",
+        "filled"
+      ]
+    }
+  },
+  "$defs": {
+    "TrackingSource": {
+      "type": "object",
+      "required": [
+        "source_kind",
+        "price_basis",
+        "resolved_trade_date",
+        "provisional"
+      ],
+      "properties": {
+        "source_kind": {
+          "enum": [
+            "jquants",
+            "fallback"
+          ]
+        },
+        "price_basis": {
+          "enum": [
+            "adjusted_close",
+            "close_unadjusted",
+            "intraday_last"
+          ]
+        },
+        "resolved_trade_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "provisional": {
+          "type": "boolean"
+        },
+        "ref_path": {
+          "type": "string"
+        },
+        "decision_event_id": {
+          "type": "string"
+        },
+        "target_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "source_name": {
+          "type": "string"
+        },
+        "source_url": {
+          "type": "string"
+        },
+        "fetched_at": {
+          "type": "string"
+        },
+        "corporate_action_checked": {
+          "type": "boolean"
+        },
+        "same_basis_group_id": {
+          "type": "string"
+        },
+        "tracking_horizon": {
+          "enum": [
+            "plus_15bd",
+            "plus_30bd"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "source_kind": {
+                "const": "fallback"
+              }
+            },
+            "required": [
+              "source_kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "ref_path",
+              "decision_event_id",
+              "target_date",
+              "source_url",
+              "corporate_action_checked",
+              "same_basis_group_id",
+              "tracking_horizon"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

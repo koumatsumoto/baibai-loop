@@ -1,6 +1,6 @@
 ---
 title: "Research runbook"
-summary: "Operational entry point for creating records/05-research packets from candidates and macro context."
+summary: "Operational entry point for creating records/05-thesis packets from candidates and macro context."
 doc_type: operation
 status: active
 last_reviewed: 2026-05-04
@@ -31,11 +31,11 @@ Research は `records/04-candidates/` と `records/01-macro-context/` を統合�
 - Macro context が headwind の場合も自動却下せず、sizing caution や required checks として扱う。
 - 銘柄固有の事実は、業種を問わず会社IRを一次情報として確認し、出典と計算根拠を残す。直近決算短信、
   決算説明資料、Q&A、有価証券報告書 / 統合報告書、中期経営計画、株主還元関連開示を未確認のまま
-  `research_decision.outcome: approved` にしない。
+  `thesis_decision.outcome: approved` にしない。
 - Thesis には long-hold fallback を 1 行以上書く。長期保有になっても耐えられる可能性が高い balance sheet / cash flow / liquidity / refinancing risk / earnings base の耐久性、資産ロック許容、配当・自己株買いなどの shareholder return を確認する。固定年数の条件ではなく、売却までの期間が想定より長引いても事業継続性と回収余地が残るかを確認する。配当がない銘柄は、短期リターン可能性と payoff が大きい場合だけ採用余地を残す。Long-hold fallback は stop loss、invalidation、kill switch、事業継続前提の毀損を上書きしない。
 - Thesis には AI long-term impact を 1 行以上書く。AI の長期機会・長期脅威・今回判断での重みを明示し、AI 期待だけで採用や sizing を正当化しない。
-- 採用判定は `research_decision.outcome` と `research_decision.posture` の意味を [`../components/research.md`](../components/research.md) に合わせる。
-- `research_decision.outcome: deferred` かつ `research_decision.posture: wait_for_event` の場合は、[`task-runbook.md`](./task-runbook.md) に従い、決算後確認タスク issue を作成または既存 issue に紐づける。
+- 採用判定は `thesis_decision.outcome` と `thesis_decision.posture` の意味を [`../components/research.md`](../components/research.md) に合わせる。
+- `thesis_decision.outcome: deferred` かつ `thesis_decision.posture: wait_for_event` の場合は、[`task-runbook.md`](./task-runbook.md) に従い、決算後確認タスク issue を作成または既存 issue に紐づける。
 - 訂正が必要な場合は既存行を書き換えず、decision register に correction event を追加する。
 
 ## Filling entry_preflight.market_regime
@@ -77,6 +77,6 @@ failure mode と validator の挙動:
 
 ```bash
 uv run baibai-loop-position sync --root .
-uv run baibai-loop-validation --target ledger
+uv run baibai-loop-validation --target decisions
 uv run baibai-loop-validation
 ```

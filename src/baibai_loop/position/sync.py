@@ -36,9 +36,9 @@ def sync_ledger(
     observed_at: datetime | None = None,
 ) -> SyncResult:
     _ = (observed_at or datetime.now(UTC)).isoformat()
-    research_root = root / "records/05-research"
-    trade_root = root / "records/06-trades"
-    register_root = root / "records/_ledger/research-decisions"
+    research_root = root / "records/05-thesis"
+    trade_root = root / "records/06-position"
+    register_root = root / "records/_decisions/thesis-decisions"
     candidates_index = _load_candidates(root)
     records: list[dict[str, Any]] = []
     warnings: list[str] = []
@@ -52,9 +52,9 @@ def sync_ledger(
         ticker = str(front["ticker"])
         playbook_id = str(front["playbook_id"])
         decision_event_at = _decision_datetime(path, front)
-        research_decision = _mapping_or_none(front.get("research_decision")) or {}
+        thesis_decision = _mapping_or_none(front.get("thesis_decision")) or {}
         macro_context_fit = _mapping_or_none(front.get("macro_context_fit"))
-        outcome = str(research_decision.get("outcome") or "deferred")
+        outcome = str(thesis_decision.get("outcome") or "deferred")
         candidate_ref = _mapping_or_none(front.get("candidate_ref"))
         candidate = _candidate_from_ref(candidates_index, candidate_ref)
         decision_event_id = f"decision-{decision_event_at:%Y%m%d}-{ticker}-research"
@@ -71,11 +71,11 @@ def sync_ledger(
             decision_scope="research_memo",
             ticker=ticker,
             name=str(front.get("name") or ""),
-            trade_execution_state="none",
-            research_decision=dict(research_decision),
+            execution_state="none",
+            thesis_decision=dict(thesis_decision),
             candidate_ref=dict(candidate_ref) if candidate_ref else None,
-            research_ref=str(path.relative_to(root)),
-            trade_ref=None,
+            thesis_ref=str(path.relative_to(root)),
+            position_ref=None,
             decision_event_at=decision_event_at.isoformat(),
             playbook_id=playbook_id,
             playbook_ref=dict(front["playbook_ref"])
@@ -118,10 +118,10 @@ def sync_ledger(
             decision_scope="trade_execution",
             ticker=ticker,
             name=str(front.get("name") or ""),
-            trade_execution_state=str(front.get("trade_execution_state") or "none"),
+            execution_state=str(front.get("execution_state") or "none"),
             order_intent=dict(order_intent),
-            research_ref=str(front.get("research_ref") or ""),
-            trade_ref=str(path.relative_to(root)),
+            thesis_ref=str(front.get("thesis_ref") or ""),
+            position_ref=str(path.relative_to(root)),
             decision_event_at=decision_event_at.isoformat(),
             tracking=Tracking(mode="post_approval"),
         )

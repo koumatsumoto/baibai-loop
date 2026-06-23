@@ -25,7 +25,7 @@ Automation は人間の投資判断を置き換えるものではなく、fact s
 | `uv run baibai-loop-screening run --asof YYYY-MM-DD` | `src/baibai_loop/screening/` | 完全性検証済み SQLite 正本から candidates YAML を生成する |
 | `uv run baibai-loop-screening select --asof YYYY-MM-DD --macro-context <path>` | `src/baibai_loop/screening/` | candidates と macro context を突合し、research 候補の ranking を支援する |
 | `uv run baibai-loop-validation` | `src/baibai_loop/validate/` | records と schema の整合性を検証する |
-| `uv run baibai-loop-position sync --root .` | `src/baibai_loop/position/` | decision event を `records/_ledger/` の JSONL に正規化する |
+| `uv run baibai-loop-position sync --root .` | `src/baibai_loop/position/` | decision event を `records/_decisions/` の JSONL に正規化する |
 
 ## Schema and validation
 

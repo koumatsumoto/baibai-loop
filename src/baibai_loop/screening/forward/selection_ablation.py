@@ -295,7 +295,7 @@ def _load_week_inputs(
         previous_candidates=load_previous_candidates(
             candidates_root, spec.asof, current_path=spec.candidates_path
         ),
-        prior_research=load_prior_research(ledger_root / "_ledger/research-decisions", spec.asof),
+        prior_research=load_prior_research(ledger_root / "_decisions/thesis-decisions", spec.asof),
         market_regime=compute_market_regime(sqlite_path, spec.asof) if regime_lens else None,
     )
 

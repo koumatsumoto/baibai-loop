@@ -8,7 +8,7 @@ playbook_ref:
 candidate_ref:
   candidates_ref: records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml
   ticker: "XXXX"
-research_decision:
+thesis_decision:
   outcome: approved | deferred | rejected
   posture: act_now | wait_for_event | wait_for_capital | dropped
   rejection_reason: thesis_failed | corporate_action_post_snapshot | source_stale | policy_block | other

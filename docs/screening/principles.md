@@ -8,7 +8,7 @@ Baibai-Loop のスクリーニングサブシステムの設計原則。Candidat
 | --- | --- | --- |
 | `records/04-candidates/` | 機械的ふるい | [`mechanical.md`](./mechanical.md) で仕様化 |
 | `records/01-macro-context/` | screening 前の macro context | [`../components/macro-context.md`](../components/macro-context.md) |
-| `records/05-research/` | Playbook + thesis payoff + 採用判定 | 本ファイル + Playbook 本体 |
+| `records/05-thesis/` | Playbook + thesis payoff + 採用判定 | 本ファイル + Playbook 本体 |
 
 ## 2. Macro Context
 

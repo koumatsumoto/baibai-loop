@@ -17,9 +17,9 @@ Portfolio policy は record ではなく docs-managed governance document です
 | portfolio policy | [`../portfolio-policy.md`](../portfolio-policy.md) | [`portfolio-policy.md`](./portfolio-policy.md) |
 | macro context | `records/01-macro-context/` | [`macro-context.md`](./macro-context.md) |
 | candidates | `records/04-candidates/` | [`candidates.md`](./candidates.md) |
-| research | `records/05-research/` | [`research.md`](./research.md) |
-| trades | `records/06-trades/` | [`trades.md`](./trades.md) |
-| ledger | `records/_ledger/` | [`ledger.md`](./ledger.md) |
+| research | `records/05-thesis/` | [`research.md`](./research.md) |
+| trades | `records/06-position/` | [`trades.md`](./trades.md) |
+| ledger | `records/_decisions/` | [`ledger.md`](./ledger.md) |
 | playbooks | `records/_playbooks/` | [`playbooks.md`](./playbooks.md) |
 
 ## 読む順番

@@ -1,0 +1,214 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "thesis",
+  "title": "Investment Memo",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ticker",
+    "name",
+    "playbook_id",
+    "playbook_ref",
+    "thesis_decision",
+    "candidate_ref",
+    "macro_context_ref",
+    "macro_context_fit",
+    "position_sizing_overlay",
+    "thesis_payoff",
+    "corporate_action_check"
+  ],
+  "properties": {
+    "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
+    "name": {"type": "string", "minLength": 1},
+    "sector_33": {"type": "string", "minLength": 1},
+    "playbook_id": {"type": "string", "minLength": 1},
+    "playbook_ref": {"$ref": "#/$defs/RepositoryRef"},
+    "candidate_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidates_ref", "ticker"],
+      "properties": {
+        "candidates_ref": {"type": "string", "pattern": "^records/04-candidates/[^\\n]*\\.ya?ml$"},
+        "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"}
+      }
+    },
+    "thesis_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "posture"],
+      "properties": {
+        "outcome": {"enum": ["approved", "deferred", "rejected"]},
+        "posture": {"enum": ["act_now", "wait_for_event", "wait_for_capital", "dropped"]},
+        "reason_code": {"type": "string"},
+        "rejection_reason": {"type": "string"},
+        "deferral_reason": {"type": "string"},
+        "revisit": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "trigger": {"type": "string"},
+            "revisit_after": {"type": "string", "format": "date"},
+            "expires_at": {"type": "string", "format": "date"},
+            "blocking_conditions": {
+              "type": "array",
+              "items": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "macro_context_ref": {"type": "string", "pattern": "^records/01-macro-context/[^\\n]*\\.ya?ml$"},
+    "macro_context_fit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context_freshness", "fit", "decision_effect"],
+      "properties": {
+        "context_freshness": {"enum": ["current", "stale", "future"]},
+        "fit": {"enum": ["tailwind", "neutral", "mixed", "headwind", "not_matched"]},
+        "decision_effect": {"enum": ["proceed", "caution", "defer"]},
+        "required_checks": {"type": "array"},
+        "sizing_caution": {"type": "array"}
+      }
+    },
+    "corporate_action_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checked", "result"],
+      "properties": {
+        "checked": {"type": "boolean"},
+        "result": {"enum": ["none", "found", "not_applicable"]},
+        "note": {"type": "string"}
+      }
+    },
+    "position_sizing_overlay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "paper_proxy_position_size_yen",
+        "real_order_intent_yen",
+        "adv_participation_pct"
+      ],
+      "properties": {
+        "paper_proxy_position_size_yen": {"type": "number"},
+        "real_order_intent_yen": {"type": "number"},
+        "adv_participation_pct": {"type": "number"}
+      }
+    },
+    "valuation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "per_forward": {"type": ["number", "null"]},
+        "per_trailing": {"type": ["number", "null"]},
+        "pbr": {"type": ["number", "null"]},
+        "ev_ebitda": {"type": ["number", "null"]},
+        "p_s": {"type": ["number", "null"]},
+        "pcfr": {"type": ["number", "null"]},
+        "ocf_yield": {"type": ["number", "null"]},
+        "fcf_yield": {"type": ["number", "null"]},
+        "net_cash_to_market_cap": {"type": ["number", "null"]},
+        "cash_to_market_cap": {"type": ["number", "null"]},
+        "price_to_equity": {"type": ["number", "null"]},
+        "equity_ratio": {"type": ["number", "null"]},
+        "primary_metric": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "entry_preflight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evaluated_on",
+        "market_relative_return_pct",
+        "sector_or_peer_relative_return_pct",
+        "macro_freshness",
+        "tactical_exposure_after_order",
+        "near_term_catalyst",
+        "action",
+        "reason"
+      ],
+      "properties": {
+        "evaluated_on": {"type": "string", "format": "date"},
+        "market_relative_return_pct": {"type": "number"},
+        "sector_or_peer_relative_return_pct": {"type": "number"},
+        "macro_freshness": {"enum": ["current", "stale", "future"]},
+        "tactical_exposure_after_order": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sector_33_pct", "playbook_pct"],
+          "properties": {
+            "sector_33_pct": {"type": "number"},
+            "playbook_pct": {"type": "number"}
+          }
+        },
+        "near_term_catalyst": {"type": "boolean"},
+        "market_regime": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["regime", "benchmark_return_20d"],
+          "properties": {
+            "regime": {"enum": ["risk_on_rally", "risk_off_selloff", "neutral_range", "unknown"]},
+            "benchmark_return_20d": {"type": ["number", "null"]},
+            "benchmark_ticker": {"type": "string"},
+            "asof": {"type": "string", "format": "date"},
+            "eval_date": {"type": "string", "format": "date"},
+            "benchmark_return_60d": {"type": ["number", "null"]}
+          }
+        },
+        "action": {"enum": ["proceed", "starter", "defer", "exception"]},
+        "exception_basis": {
+          "type": "array",
+          "items": {"enum": ["near_term_catalyst", "low_sizing", "low_correlation"]},
+          "minItems": 1
+        },
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "thesis_payoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_entry_price_yen": {"type": ["number", "null"]},
+        "target_price_yen": {"type": ["number", "null"]},
+        "stop_loss_yen": {"type": ["number", "null"]},
+        "expected_upside_pct": {"type": ["number", "null"]},
+        "expected_downside_pct": {"type": ["number", "null"]},
+        "risk_reward_ratio": {"type": ["number", "null"]},
+        "time_horizon_bd": {"type": ["number", "null"]},
+        "invalidation_conditions": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "entry_trigger": {"type": "string"}
+      }
+    },
+    "tracking": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {"enum": ["post_approval", "re_examination", "none"]},
+        "plus_15bd": {"type": ["number", "null"]},
+        "plus_30bd": {"type": ["number", "null"]}
+      }
+    },
+    "avg_turnover_oku": {"type": ["number", "null"]},
+    "market_cap_oku": {"type": ["number", "null"]},
+    "published_at": {"type": "string"},
+    "recorded_at": {"type": "string"},
+    "tradable_at": {"type": ["string", "null"]}
+  },
+  "$defs": {
+    "RepositoryRef": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["ref_path"],
+      "properties": {
+        "ref_path": {"type": "string", "minLength": 1, "pattern": "^records/[^\\n]*$"},
+        "effective_from": {"type": "string"},
+        "as_of": {"type": "string"}
+      }
+    }
+  }
+}

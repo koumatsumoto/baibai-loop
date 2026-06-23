@@ -17,7 +17,7 @@ _HORIZON_BUSINESS_DAYS: tuple[tuple[TrackingHorizon, int], ...] = (
 
 @dataclass(frozen=True, slots=True)
 class ReviewGate:
-    trade_id: str
+    position_id: str
     ticker: str
     name: str
     horizon: TrackingHorizon
@@ -49,7 +49,7 @@ def due_review_gates(
                 continue
             gates.append(
                 ReviewGate(
-                    trade_id=trade.trade_id,
+                    position_id=trade.position_id,
                     ticker=trade.ticker,
                     name=trade.name,
                     horizon=horizon,

@@ -205,7 +205,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - 当初の整合チェックを `avg_turnover_oku` 不在時には silently skip するように実装、
   required field 化を忘れた → 抜け道残存
 - schema 管理している nested object が未知 field を許しており、current contract 以外の値を取り込めた
-- `research_decision.outcome: rejected` の packet で `position_sizing_overlay.paper_proxy_position_size_yen > 0` を許していたため、
+- `thesis_decision.outcome: rejected` の packet で `position_sizing_overlay.paper_proxy_position_size_yen > 0` を許していたため、
   非採用 decision と sizing が矛盾していた
 - `except TypeError, ValueError:` のような Python 2 風に見える except をめぐって、レビューで
   「構文エラー」なのか「Python 3.14 の PEP 758 による複数例外捕捉」なのかが混乱した。
@@ -231,7 +231,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] `avg_turnover_oku <= 0` は error (整合チェックの分母が成立しない、required な数値
         だけでは抜け道になる)
   - [ ] `position_sizing_overlay.paper_proxy_position_size_yen == 0` の場合は **`adv_participation_pct == 0`** を要求 (`position_size 0 / avg_turnover 85.4 * 100 = 0` だが `adv: 1.0` のような非ゼロを skip してしまう穴を塞ぐ)
-  - [ ] **`research_decision.outcome != 'approved'` の場合は `position_sizing_overlay.paper_proxy_position_size_yen == 0` を要求** (deferred / rejected で
+  - [ ] **`thesis_decision.outcome != 'approved'` の場合は `position_sizing_overlay.paper_proxy_position_size_yen == 0` を要求** (deferred / rejected で
         正値が残ると decision と sizing が矛盾する)
   - [ ] `valuation` / `position_sizing_overlay` のような nested object は current schema の field だけを許す
 - [ ] cross-field consistency rule は **依存先の field が「数値であること」だけでなく、
@@ -257,8 +257,8 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] research の `policy_overrides` / `decision_revisions` 配列を導入・変更する場合、以下を確認したか:
   - [ ] `policy_overrides[]` は policy field の override だけを表し、decision history を混ぜていない
   - [ ] `decision_revisions[].revision_type` が既知集合に属し、`prior_state_ref` / `prior_state` / `new_state` / `reason` の必須キーが揃う
-  - [ ] `research_decision.outcome: approved` の場合、`candidate_ref` が参照した candidates repository file の対象 candidate に join できるか
-  - [ ] 連続する commit で `research_decision.outcome: deferred|rejected → approved` に flip した場合、PR review で thesis / event / sizing の変更理由を確認する
+  - [ ] `thesis_decision.outcome: approved` の場合、`candidate_ref` が参照した candidates repository file の対象 candidate に join できるか
+  - [ ] 連続する commit で `thesis_decision.outcome: deferred|rejected → approved` に flip した場合、PR review で thesis / event / sizing の変更理由を確認する
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
@@ -325,7 +325,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] research 対象銘柄について、業種を問わず会社IRを確認したか。最低限、直近決算短信 /
       決算説明資料 / Q&A / 有価証券報告書または統合報告書 / 中期経営計画 / 株主還元関連開示を
       確認し、未確認項目を本文に残したか
-- [ ] 会社IR未確認のまま `research_decision.outcome: approved` にしていないか。未確認なら `deferred` または
+- [ ] 会社IR未確認のまま `thesis_decision.outcome: approved` にしていないか。未確認なら `deferred` または
       `rejected` にして、追加確認条件を明示したか
 - [ ] 外部 AI / 二次分析の結論を採用する前に、主要数値を会社IR・決算短信・決算説明資料・Q&A・
       取引所 calendar・candidates のいずれかで再確認したか

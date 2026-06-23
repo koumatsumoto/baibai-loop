@@ -13,44 +13,45 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal, TextIO, assert_never
 
+from baibai_loop.thesis import (
+    discover_thesis_files,
+    load_thesis_document,
+    validate_thesis_collection,
+    validate_thesis_file,
+    validate_thesis_parsed,
+)
+
 from .candidates import discover_candidates_files, validate_candidates_file
+from .decisions import discover_decisions_files, validate_decisions_file
 from .errors import ValidationFinding
-from .ledger import discover_ledger_files, validate_ledger_file
 from .macro_context import discover_macro_context_files, validate_macro_context_file
 from .playbook_schema import discover_playbook_schemas
 from .policy import validate_policy_file
-from .research import (
-    discover_research_files,
-    load_research_document,
-    validate_research_collection,
-    validate_research_file,
-    validate_research_parsed,
-)
-from .trade import discover_trade_files, validate_trade_file
+from .position import discover_position_files, validate_position_file
 
 type ValidationTarget = Literal[
     "macro-context",
     "policy",
     "candidates",
-    "research",
-    "trade",
-    "ledger",
+    "thesis",
+    "position",
+    "decisions",
 ]
 _TARGETS: tuple[ValidationTarget, ...] = (
     "macro-context",
     "policy",
     "candidates",
-    "research",
-    "trade",
-    "ledger",
+    "thesis",
+    "position",
+    "decisions",
 )
 
 MACRO_CONTEXT_ROOT = Path("records/01-macro-context")
 POLICY_PATH = Path("docs/portfolio-policy.md")
 CANDIDATES_ROOT = Path("records/04-candidates")
-RESEARCH_ROOT = Path("records/05-research")
-TRADES_ROOT = Path("records/06-trades")
-LEDGER_ROOT = Path("records/_ledger")
+THESIS_ROOT = Path("records/05-thesis")
+POSITION_ROOT = Path("records/06-position")
+DECISIONS_ROOT = Path("records/_decisions")
 PLAYBOOKS_ROOT = Path("records/_playbooks")
 
 
@@ -99,17 +100,17 @@ def run_validation(
         )
         return 1
 
-    # research validation で playbook schema lookup が必要。1 回だけ discover
-    # して全 research file に再利用する (Phase 2 で packet が増えたときに
+    # thesis validation で playbook schema lookup が必要。1 回だけ discover
+    # して全 thesis file に再利用する (Phase 2 で packet が増えたときに
     # I/O を線形回数に抑える)。
     known_playbooks = frozenset(discover_playbook_schemas(root / PLAYBOOKS_ROOT))
 
-    # research target は per-file 検証と collection 集約の両方で同じ document を
+    # thesis target は per-file 検証と collection 集約の両方で同じ document を
     # 読むため、target ループ前に 1 度 load して再利用する。
-    research_documents: dict[Path, tuple[dict[str, object], str] | list[ValidationFinding]] = {}
-    if "research" in targets:
-        for path in discover_research_files(root / RESEARCH_ROOT):
-            research_documents[path] = load_research_document(path)
+    thesis_documents: dict[Path, tuple[dict[str, object], str] | list[ValidationFinding]] = {}
+    if "thesis" in targets:
+        for path in discover_thesis_files(root / THESIS_ROOT):
+            thesis_documents[path] = load_thesis_document(path)
 
     findings: list[ValidationFinding] = []
     file_count = 0
@@ -117,14 +118,14 @@ def run_validation(
         files = _discover(root, target)
         file_count += len(files)
         for path in files:
-            if target == "research":
-                doc = research_documents[path]
+            if target == "thesis":
+                doc = thesis_documents[path]
                 if isinstance(doc, list):
                     findings.extend(doc)
                 else:
                     front_matter, body = doc
                     findings.extend(
-                        validate_research_parsed(
+                        validate_thesis_parsed(
                             path,
                             front_matter,
                             body,
@@ -134,11 +135,11 @@ def run_validation(
                     )
             else:
                 findings.extend(_validate(root, target, path, known_playbooks))
-    if research_documents:
+    if thesis_documents:
         front_matters = [
-            (path, doc[0]) for path, doc in research_documents.items() if not isinstance(doc, list)
+            (path, doc[0]) for path, doc in thesis_documents.items() if not isinstance(doc, list)
         ]
-        findings.extend(validate_research_collection(front_matters))
+        findings.extend(validate_thesis_collection(front_matters))
 
     error_count = 0
     warning_count = 0
@@ -166,12 +167,12 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
             return [root / POLICY_PATH]
         case "candidates":
             return discover_candidates_files(root / CANDIDATES_ROOT)
-        case "research":
-            return discover_research_files(root / RESEARCH_ROOT)
-        case "trade":
-            return discover_trade_files(root / TRADES_ROOT)
-        case "ledger":
-            return discover_ledger_files(root / LEDGER_ROOT)
+        case "thesis":
+            return discover_thesis_files(root / THESIS_ROOT)
+        case "position":
+            return discover_position_files(root / POSITION_ROOT)
+        case "decisions":
+            return discover_decisions_files(root / DECISIONS_ROOT)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 
@@ -189,16 +190,16 @@ def _validate(
             return validate_policy_file(path)
         case "candidates":
             return validate_candidates_file(path)
-        case "research":
-            return validate_research_file(
+        case "thesis":
+            return validate_thesis_file(
                 path,
                 playbooks_root=root / PLAYBOOKS_ROOT,
                 known_playbooks=known_playbooks,
             )
-        case "trade":
-            return validate_trade_file(path)
-        case "ledger":
-            return validate_ledger_file(path)
+        case "position":
+            return validate_position_file(path)
+        case "decisions":
+            return validate_decisions_file(path)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 

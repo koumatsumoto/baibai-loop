@@ -243,7 +243,7 @@ def _load_selection_inputs(
         current_path=candidates_path,
     )
     prior_research = load_prior_research(
-        repo_root / "records/_ledger/research-decisions", asof_date
+        repo_root / "records/_decisions/thesis-decisions", asof_date
     )
     return _SelectionInputs(
         candidates=candidate_records,

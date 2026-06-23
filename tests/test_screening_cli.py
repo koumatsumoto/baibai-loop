@@ -1933,7 +1933,7 @@ class SelectCommandTests(unittest.TestCase):
             self._write_macro_context(
                 root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
             )
-            ledger = root / "records/_ledger/research-decisions/2026-04.jsonl"
+            ledger = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
             ledger.parent.mkdir(parents=True)
             ledger.write_text(
                 json.dumps(
@@ -1942,8 +1942,8 @@ class SelectCommandTests(unittest.TestCase):
                         "decision_scope": "research_memo",
                         "decision_event_at": "2026-04-23T10:00:00+09:00",
                         "decision_event_id": "decision-test-2222",
-                        "research_ref": "records/05-research/test.md",
-                        "research_decision": {
+                        "thesis_ref": "records/05-thesis/test.md",
+                        "thesis_decision": {
                             "outcome": "deferred",
                             "posture": "wait_for_event",
                             "deferral_reason": "event_pending",
@@ -2001,7 +2001,7 @@ class SelectCommandTests(unittest.TestCase):
             self._write_macro_context(
                 root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
             )
-            ledger = root / "records/_ledger/research-decisions/2026-04.jsonl"
+            ledger = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
             ledger.parent.mkdir(parents=True)
             ledger.write_text(
                 json.dumps(
@@ -2010,8 +2010,8 @@ class SelectCommandTests(unittest.TestCase):
                         "decision_scope": "research_memo",
                         "decision_event_at": "2026-04-23T10:00:00+09:00",
                         "decision_event_id": "decision-test-2222",
-                        "research_ref": "records/05-research/test.md",
-                        "research_decision": {
+                        "thesis_ref": "records/05-thesis/test.md",
+                        "thesis_decision": {
                             "outcome": "deferred",
                             "posture": "wait_for_event",
                             "deferral_reason": "event_pending",
@@ -2065,7 +2065,7 @@ class SelectCommandTests(unittest.TestCase):
             self._write_macro_context(
                 root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
             )
-            ledger = root / "records/_ledger/research-decisions/2026-04.jsonl"
+            ledger = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
             ledger.parent.mkdir(parents=True)
             ledger.write_text(
                 json.dumps(
@@ -2074,8 +2074,8 @@ class SelectCommandTests(unittest.TestCase):
                         "decision_scope": "research_memo",
                         "decision_event_at": "2026-04-23T10:00:00+09:00",
                         "decision_event_id": "decision-test-2222",
-                        "research_ref": "records/05-research/test.md",
-                        "research_decision": {
+                        "thesis_ref": "records/05-thesis/test.md",
+                        "thesis_decision": {
                             "outcome": "rejected",
                             "posture": "avoid",
                             "reason_code": "thesis_broken",
@@ -2122,18 +2122,18 @@ class SelectCommandTests(unittest.TestCase):
             self._write_macro_context(
                 root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
             )
-            ledger = root / "records/_ledger/research-decisions/2026-04.jsonl"
+            ledger = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
             ledger.parent.mkdir(parents=True)
             base_event = {
                 "ticker": "2222",
                 "decision_scope": "research_memo",
                 "decision_event_at": "2026-04-23T10:00:00+09:00",
-                "research_ref": "records/05-research/test.md",
+                "thesis_ref": "records/05-thesis/test.md",
             }
             older_id_event = {
                 **base_event,
                 "decision_event_id": "decision-a",
-                "research_decision": {
+                "thesis_decision": {
                     "outcome": "rejected",
                     "posture": "avoid",
                     "reason_code": "thesis_broken",
@@ -2142,7 +2142,7 @@ class SelectCommandTests(unittest.TestCase):
             newer_id_event = {
                 **base_event,
                 "decision_event_id": "decision-z",
-                "research_decision": {
+                "thesis_decision": {
                     "outcome": "deferred",
                     "posture": "wait_for_event",
                     "deferral_reason": "event_pending",

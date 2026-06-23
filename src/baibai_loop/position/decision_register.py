@@ -20,12 +20,12 @@ class DecisionRegisterRecord:
     decision_scope: Literal["research_memo", "trade_execution"]
     ticker: str
     name: str
-    trade_execution_state: str
-    research_decision: dict[str, object] | None = None
+    execution_state: str
+    thesis_decision: dict[str, object] | None = None
     order_intent: dict[str, object] | None = None
     candidate_ref: dict[str, object] | None = None
-    research_ref: str | None = None
-    trade_ref: str | None = None
+    thesis_ref: str | None = None
+    position_ref: str | None = None
     decision_event_at: str | None = None
     playbook_id: str | None = None
     playbook_ref: dict[str, object] | None = None

@@ -15,7 +15,7 @@ def _trade(
     review_state: str = "scheduled",
 ) -> TradeRecord:
     return TradeRecord(
-        trade_id=f"trade-{ticker}",
+        position_id=f"trade-{ticker}",
         ticker=ticker,
         name="Sample",
         position_state="open",
@@ -52,13 +52,13 @@ def test_due_review_gates_reports_both_horizons_when_due() -> None:
 
 
 def test_load_open_trades_parses_executions(tmp_path: Path) -> None:
-    trade_dir = tmp_path / "records/06-trades/2026/05"
+    trade_dir = tmp_path / "records/06-position/2026/05"
     trade_dir.mkdir(parents=True)
     (trade_dir / "2026-05-07-9682.md").write_text(
         textwrap.dedent(
             """\
             ---
-            trade_id: trade-20260505-9682
+            position_id: trade-20260505-9682
             ticker: '9682'
             name: Sample
             position_state: open
@@ -83,13 +83,13 @@ def test_load_open_trades_parses_executions(tmp_path: Path) -> None:
 
 
 def test_load_open_trades_skips_closed_position(tmp_path: Path) -> None:
-    trade_dir = tmp_path / "records/06-trades/2026/05"
+    trade_dir = tmp_path / "records/06-position/2026/05"
     trade_dir.mkdir(parents=True)
     (trade_dir / "closed.md").write_text(
         textwrap.dedent(
             """\
             ---
-            trade_id: trade-closed
+            position_id: trade-closed
             ticker: '9999'
             position_state: closed
             review_state: completed

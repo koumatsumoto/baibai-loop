@@ -35,21 +35,21 @@ source_paths:
 | --- | --- | --- |
 | `records/01-macro-context/` | analysis / macro | screening 前に確認する macro context YAML |
 | `records/04-candidates/` | fact / security-level | candidates YAML(git 追跡しない local store。詳細は [`../components/candidates.md`](../components/candidates.md) §2) |
-| `records/05-research/` | analysis / security-level | investment memo Markdown |
-| `records/06-trades/` | downstream | trade record Markdown |
+| `records/05-thesis/` | analysis / security-level | investment memo Markdown |
+| `records/06-position/` | downstream | trade record Markdown |
 
 ## Records support areas
 
 `records/_*` は運用成果物そのものではなく、生成・検証・検証後追跡を支える領域です。重複と drift を避けるため、正本 docs は 1 つに固定します。
 
-通常 record (`01-macro-context` から `06-trades`) は event artifact として path
+通常 record (`01-macro-context` から `06-position`) は event artifact として path
 自体を正本にし、mutable latest index は持たない。Support area の変更履歴も git に一本化し、
 Record から参照する repo 内 file path を正本にする。
 
 | path | 正本 docs | 参照 docs | 役割 |
 | --- | --- | --- | --- |
 | `records/_config/` | [`../screening/principles.md`](../screening/principles.md) | this map | screening rules and lightweight profile config files |
-| `records/_ledger/` | [`../components/ledger.md`](../components/ledger.md) | this map | decision register と ledger sync の記録領域 |
+| `records/_decisions/` | [`../components/ledger.md`](../components/ledger.md) | this map | decision register と ledger sync の記録領域 |
 | `records/_playbooks/` | [`../components/playbooks.md`](../components/playbooks.md) | this map | 運用中 playbook の保存領域 |
 | `records/_schemas/` | [`../reference/testing-and-validation.md`](../reference/testing-and-validation.md) | [`automation-map.md`](./automation-map.md) | records validation schema の保存領域 |
 

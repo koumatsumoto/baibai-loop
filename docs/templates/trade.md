@@ -1,10 +1,10 @@
 ---
-trade_id: trade-YYYYMMDD-XXXX
+position_id: trade-YYYYMMDD-XXXX
 ticker: "XXXX"
 name: "..."
-research_ref: records/05-research/YYYY/MM/YYYY-MM-DD-XXXX-<playbook_id>.md
+thesis_ref: records/05-thesis/YYYY/MM/YYYY-MM-DD-XXXX-<playbook_id>.md
 position_state: none | open | closed
-trade_execution_state: none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled
+execution_state: none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled
 order_intent:
   order_intent_id: intent-YYYYMMDD-XXXX-entry
   decision_event_id: decision-YYYYMMDD-XXXX-research
@@ -39,7 +39,7 @@ kill_switch_check:
 
 **成分**: Decision lifecycle の **trades / execution record**（[`/docs/components/trades.md`](/docs/components/trades.md)）
 
-**Research source**: [records/05-research/YYYY/MM/YYYY-MM-DD-*-*.md](...)
+**Research source**: [records/05-thesis/YYYY/MM/YYYY-MM-DD-*-*.md](...)
 
 ## 1. Order / Entry
 
