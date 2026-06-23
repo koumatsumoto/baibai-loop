@@ -94,7 +94,7 @@ tracking:
 
 # Research: 2026-06-09 9534 北海道瓦斯 valuation-reversion
 
-**成分**: Decision lifecycle の **research / investment memo**（[`/docs/components/research.md`](/docs/components/research.md)）
+**成分**: Decision lifecycle の **research / investment memo**（[`/docs/components/thesis.md`](/docs/components/thesis.md)）
 
 本メモは 2026-06-08 暴落後プラン（#201 訂正版）に基づき 2026-06-09 に発注し約定した 9534 の execution を documenting する事後 research である。**重要な前提として、9534 の screening evidence_hit は `valuation-reversion / sector_rotation_short_sell`（=セクター相対が弱い「売り」候補シグナル）であり、買いの screening 根拠ではない。** 買い thesis は #201 専門家パネルの discretionary 判断であり、本メモはその判断と data 上の矛盾点を併記して honest に記録する。
 
@@ -211,4 +211,4 @@ Issue:
 - 実資金 concentration: 74,200 / 5,000,000 = 1.48%。tactical concentration: 74,200 / 2,000,000 = 3.71%。
 - binding cap: paper→real 21% scaled cap（210,000 円）内。caveat（macro headwind・net debt・screen short）が解消されない限り追加買いしない。
 
-参照: [`/docs/components/research.md`](/docs/components/research.md), [`#201`](https://github.com/koumatsumoto/baibai-loop/issues/201), [`#203`](https://github.com/koumatsumoto/baibai-loop/issues/203)
+参照: [`/docs/components/thesis.md`](/docs/components/thesis.md), [`#201`](https://github.com/koumatsumoto/baibai-loop/issues/201), [`#203`](https://github.com/koumatsumoto/baibai-loop/issues/203)

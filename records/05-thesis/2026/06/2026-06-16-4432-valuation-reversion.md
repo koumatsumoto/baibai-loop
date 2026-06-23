@@ -101,7 +101,7 @@ tracking:
 
 # Research: 2026-06-16 4432 ウイングアーク1st valuation-reversion
 
-**成分**: Decision lifecycle の **research / investment memo**（[`/docs/components/research.md`](/docs/components/research.md)）
+**成分**: Decision lifecycle の **research / investment memo**（[`/docs/components/thesis.md`](/docs/components/thesis.md)）
 
 本メモは 2026-06-16 にユーザー指示で 100 株を 2,340 円で約定した 4432 の execution を documenting する research。screening の canonical fact source は 2026-06-12 candidate row（`valuation-reversion` hit）、定性 thesis の出所は本 PR の AI 傾斜選定と 4432 個別の一次 IR 深掘り（事業/財務・モート・AI 耐性の 3 軸）とする。
 
@@ -209,4 +209,4 @@ tracking:
 - 実資金 concentration: 234,000 / 5,000,000 = 4.68%。tactical concentration: 234,000 / 2,000,000 = 11.70%。
 - binding cap: paper→real 21% scaled cap（241,500 円）内。追加買いは情報・通信業の集中（§8）と 7/14 Q1 の確認後に再判断する。
 
-参照: [`/docs/components/research.md`](/docs/components/research.md), [`#242`](https://github.com/koumatsumoto/baibai-loop/pull/242), [`#243`](https://github.com/koumatsumoto/baibai-loop/issues/243)
+参照: [`/docs/components/thesis.md`](/docs/components/thesis.md), [`#242`](https://github.com/koumatsumoto/baibai-loop/pull/242), [`#243`](https://github.com/koumatsumoto/baibai-loop/issues/243)

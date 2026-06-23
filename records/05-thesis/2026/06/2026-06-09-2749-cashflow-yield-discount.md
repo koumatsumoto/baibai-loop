@@ -91,7 +91,7 @@ tracking:
 
 # Research: 2026-06-09 2749 ＪＰホールディングス cashflow-yield-discount
 
-**成分**: Decision lifecycle の **research / investment memo**（[`/docs/components/research.md`](/docs/components/research.md)）
+**成分**: Decision lifecycle の **research / investment memo**（[`/docs/components/thesis.md`](/docs/components/thesis.md)）
 
 本メモは 2026-06-08 暴落後プラン（#201 訂正版）に基づき 2026-06-09 に発注し約定した 2749 の execution を documenting する事後 research であり、screening の canonical fact source は 2026-06-08 candidate row、定性 thesis の出所は #201 専門家パネルとする。
 
@@ -196,4 +196,4 @@ Issue:
 - 実資金 concentration: 59,000 / 5,000,000 = 1.18%。tactical concentration: 59,000 / 2,000,000 = 2.95%。
 - binding cap: paper→real 21% scaled cap（210,000 円）内。追加買いは出生動態・補助金前提と次回決算の確認後に再判断する。
 
-参照: [`/docs/components/research.md`](/docs/components/research.md), [`#201`](https://github.com/koumatsumoto/baibai-loop/issues/201), [`#203`](https://github.com/koumatsumoto/baibai-loop/issues/203)
+参照: [`/docs/components/thesis.md`](/docs/components/thesis.md), [`#201`](https://github.com/koumatsumoto/baibai-loop/issues/201), [`#203`](https://github.com/koumatsumoto/baibai-loop/issues/203)
