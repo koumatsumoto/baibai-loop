@@ -8,7 +8,7 @@ from baibai_loop.market.bars import JQuantsDailyBar
 
 
 @dataclass(frozen=True, slots=True)
-class TrackingPrice:
+class ResolvedPrice:
     price: float
     source: dict[str, object]
 
@@ -17,13 +17,13 @@ def resolve_price_on_or_before(
     ticker: str,
     target: date,
     bars: Sequence[JQuantsDailyBar],
-) -> TrackingPrice | None:
+) -> ResolvedPrice | None:
     candidates = [bar for bar in bars if bar.ticker == ticker and bar.traded_at <= target]
     if not candidates:
         return None
     latest = max(candidates, key=lambda bar: bar.traded_at)
     if latest.adjustment_close is not None:
-        return TrackingPrice(
+        return ResolvedPrice(
             price=latest.adjustment_close,
             source={
                 "source_kind": "jquants",
@@ -32,7 +32,7 @@ def resolve_price_on_or_before(
                 "provisional": False,
             },
         )
-    return TrackingPrice(
+    return ResolvedPrice(
         price=latest.close,
         source={
             "source_kind": "jquants",

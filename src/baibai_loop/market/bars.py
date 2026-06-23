@@ -35,3 +35,9 @@ class JQuantsDailyBar:
     @classmethod
     def _finite_numeric_fields(cls, value: float | None) -> float | None:
         return validate_finite(value)
+
+
+@dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
+class JQuantsMarketCalendarDay:
+    day: date
+    is_business_day: bool

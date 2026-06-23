@@ -218,13 +218,16 @@ name = "position does not import screening (cycle prevention)"
 type = "forbidden"
 source_modules = ["baibai_loop.position"]
 forbidden_modules = ["baibai_loop.screening"]
-# position/cli is the tracking CLI composition root: it loads J-Quants daily
-# bars / market calendar from the screening SQLite cache and passes them into
-# the position-tracking logic to fill forward tracking prices. Only this entry
-# point bridges into screening; every position core module stays screening-free,
-# so the rest of the package keeps the one-way market<-position<-screening DAG.
+
+[[tool.importlinter.contracts]]
+name = "screening does not import position (one-way market<-{screening,position})"
+type = "forbidden"
+source_modules = ["baibai_loop.screening"]
+forbidden_modules = ["baibai_loop.position"]
+# ticker_profile reads open positions to surface portfolio-concentration facts in
+# the candidate packet. position.trades is a standalone trade-record reader
+# (foundation only), so this single holdings-lookup edge does not form a package
+# cycle; price/calendar data both subsystems share now flows through market.
 ignore_imports = [
-  "baibai_loop.position.cli -> baibai_loop.screening.config",
-  "baibai_loop.position.cli -> baibai_loop.screening.providers.jquants",
-  "baibai_loop.position.cli -> baibai_loop.screening.sqlite_reader",
+  "baibai_loop.screening.ticker_profile -> baibai_loop.position.trades",
 ]

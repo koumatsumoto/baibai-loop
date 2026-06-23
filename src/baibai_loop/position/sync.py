@@ -12,9 +12,9 @@ from baibai_loop.foundation.time import JST
 from baibai_loop.foundation.yaml_io import safe_load
 from baibai_loop.market.bars import JQuantsDailyBar
 
+from .decision_register import DecisionRegisterRecord, Tracking
 from .io import diff_jsonl, write_jsonl
-from .records import DecisionRegisterRecord, Tracking
-from .tracking import TrackingPrice, resolve_tracking_prices
+from .tracking import ResolvedPrice, resolve_tracking_prices
 
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)
 _TrackingMode = Literal["post_approval", "re_examination", "none"]
@@ -202,8 +202,8 @@ def _parse_jst_datetime(value: str) -> datetime:
 
 def _tracking_from_front(
     front: Mapping[str, Any],
-    plus_15bd: TrackingPrice | None,
-    plus_30bd: TrackingPrice | None,
+    plus_15bd: ResolvedPrice | None,
+    plus_30bd: ResolvedPrice | None,
     outcome: str,
 ) -> Tracking:
     tracking = _mapping_or_none(front.get("tracking")) or {}

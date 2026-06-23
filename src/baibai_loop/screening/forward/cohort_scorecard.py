@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from baibai_loop.position.benchmark import NIKKEI225_ETF_PROXY
+from baibai_loop.market.benchmark import NIKKEI225_ETF_PROXY
 from baibai_loop.screening.rule_config import ScreeningRules
 
 from .playbook_cohorts import (

@@ -1,4 +1,11 @@
-"""Current-only SQLite schema: DDL, versioning, and shape validation."""
+"""Current-only SQLite schema: DDL, versioning, and shape validation.
+
+This is the single physical store (`market.sqlite`): the market price/calendar
+tables and the screening fundamentals/regulation tables share one file, one
+schema version, and one connection path. Market owns the schema so the
+price-data layer can open and validate the store without importing screening,
+while screening reuses the same DDL for its fundamentals tables.
+"""
 
 from __future__ import annotations
 
@@ -310,6 +317,24 @@ def open_connection(db_path: Path) -> sqlite3.Connection:
     except Exception:
         conn.close()
         raise
+
+
+def _connect_current(sqlite_path: Path) -> sqlite3.Connection | None:
+    """Open an existing store only when it already matches the current schema.
+
+    Returns `None` for a missing/legacy/corrupt file so read helpers degrade to
+    "cache cannot serve this" rather than raising, letting bootstrap/fetch
+    commands populate the missing coverage.
+    """
+    conn: sqlite3.Connection | None = None
+    try:
+        conn = sqlite3.connect(sqlite_path)
+        validate_current_schema(conn)
+    except (SQLiteSchemaError, sqlite3.Error):
+        if conn is not None:
+            conn.close()
+        return None
+    return conn
 
 
 def _existing_tables(conn: sqlite3.Connection) -> set[str]:

@@ -18,25 +18,18 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from baibai_loop.foundation.env import load_project_env
+from baibai_loop.market.bars import JQuantsDailyBar, JQuantsMarketCalendarDay
+from baibai_loop.market.config import DEFAULT_CACHE_DIR, DEFAULT_SQLITE_CACHE_DIR
+from baibai_loop.market.provider import JQuantsMarketProvider, JQuantsProviderError
+from baibai_loop.market.store import read_daily_bars, read_market_calendar
 from baibai_loop.position.benchmark import (
     NIKKEI225_ETF_PROXY,
     PortfolioBenchmark,
     compute_forward_performance,
 )
-from baibai_loop.position.execution import load_open_trades
 from baibai_loop.position.review import ReviewGate, due_review_gates, weekday_calendar
 from baibai_loop.position.sync import sync_ledger
-from baibai_loop.screening.config import DEFAULT_CACHE_DIR, DEFAULT_SQLITE_CACHE_DIR
-from baibai_loop.screening.providers.jquants import (
-    JQuantsDailyBar,
-    JQuantsMarketCalendarDay,
-    JQuantsProvider,
-    JQuantsProviderError,
-)
-from baibai_loop.screening.sqlite_reader import (
-    read_daily_bars,
-    read_market_calendar,
-)
+from baibai_loop.position.trades import load_open_trades
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -265,7 +258,7 @@ def _load_market_data(
         # 詳細は screening/config.py の同名コメント参照。`root` 配下に解決する
         # ことで、test 等で workspace を切り替えるユースケースにも対応する。
         cache_dir = root / DEFAULT_CACHE_DIR
-        provider = JQuantsProvider(
+        provider = JQuantsMarketProvider(
             token,
             cache_dir,
             sqlite_path=sqlite_path,

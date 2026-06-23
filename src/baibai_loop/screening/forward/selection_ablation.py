@@ -21,7 +21,7 @@ from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 
-from baibai_loop.position.benchmark import NIKKEI225_ETF_PROXY
+from baibai_loop.market.benchmark import NIKKEI225_ETF_PROXY
 from baibai_loop.screening.regime import MarketRegimeSnapshot, compute_market_regime
 from baibai_loop.screening.rule_config import ScreeningRules
 from baibai_loop.screening.selection import (

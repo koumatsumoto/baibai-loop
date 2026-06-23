@@ -1,9 +1,10 @@
-"""source_coverage bookkeeping and date-range row maintenance."""
+"""source_coverage bookkeeping, date-range row maintenance, and coverage reads."""
 
 from __future__ import annotations
 
 import sqlite3
 from datetime import UTC, date, datetime, timedelta
+from itertools import pairwise
 from typing import Any
 
 _DELETE_DATE_RANGE_SQL = {
@@ -205,3 +206,112 @@ def _record_source_coverage(
 
 def _range_coverage_key(operation: str, start: date, end: date) -> str:
     return f"{operation}:{start.isoformat()}..{end.isoformat()}"
+
+
+_RANGE_SOURCES_REQUIRING_ROWS = frozenset(
+    {"jquants_daily_bars", "jquants_fin_summaries", "jquants_market_calendar"}
+)
+
+
+def _range_covered(conn: sqlite3.Connection, source: str, start: date, end: date) -> bool:
+    """True when source_coverage rows collectively span the requested range.
+
+    Used for fetch-provenance sources (financial summaries, market calendar)
+    whose completeness cannot be re-derived from row presence: a missing filing
+    is indistinguishable from "no filing was due". jquants_daily_bars is instead
+    checked by `_daily_bars_covered_by_data`, because every trading day must carry
+    a full-market row set, so its completeness IS observable from the data.
+    """
+    try:
+        rows = conn.execute(
+            "SELECT coverage_start, coverage_end, record_count, status "
+            "FROM source_coverage WHERE source = ?",
+            (source,),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return False
+    if not rows:
+        return False
+    intervals: list[tuple[date, date]] = []
+    for coverage_start, coverage_end, record_count, status in rows:
+        if status != "ok":
+            continue
+        if source in _RANGE_SOURCES_REQUIRING_ROWS and int(record_count or 0) == 0:
+            continue
+        if not coverage_start or not coverage_end:
+            continue
+        try:
+            intervals.append((date.fromisoformat(coverage_start), date.fromisoformat(coverage_end)))
+        except ValueError:
+            continue
+    if not intervals:
+        return False
+    intervals.sort()
+    covered_until: date | None = None
+    for chunk_start, chunk_end in intervals:
+        if chunk_end < start:
+            continue
+        if chunk_start > end:
+            break
+        if covered_until is None:
+            if chunk_start > start:
+                return False
+            covered_until = chunk_end
+        elif chunk_start > covered_until + timedelta(days=1):
+            return False
+        else:
+            covered_until = max(covered_until, chunk_end)
+        if covered_until >= end:
+            return True
+    return False
+
+
+# daily_bars completeness is derived from the actual rows (the single source of
+# truth), not source_coverage. Every trading day carries a full-market row set,
+# so a genuinely missing window shows up as a gap between present dates, while an
+# interrupted fetch that left source_coverage holes but already wrote the rows
+# must not trigger a re-fetch of data we hold. The only natural gaps are weekends
+# and the Golden Week / New Year closures (observed max 7d), so a 10-day
+# threshold separates complete history from a missing 31-day fetch chunk.
+_DAILY_BARS_MAX_GAP_DAYS = 10
+_DAILY_BARS_EDGE_TOLERANCE_DAYS = 10
+_DAILY_BARS_COVERAGE_QUERY = (
+    "SELECT DISTINCT traded_at FROM jquants_daily_bars "
+    "WHERE traded_at BETWEEN ? AND ? ORDER BY traded_at"
+)
+
+
+def _daily_bars_covered_by_data(conn: sqlite3.Connection, start: date, end: date) -> bool:
+    """True when the daily_bars rows themselves span `[start, end]`.
+
+    Aggregates the actual table rather than consulting source_coverage, so data
+    already saved is never re-fetched even when its bookkeeping row is missing.
+    Covered means present trading dates reach both ends (within an edge
+    tolerance) with no internal gap wider than a market holiday run.
+    """
+    if start > end:
+        return False
+    try:
+        rows = conn.execute(
+            _DAILY_BARS_COVERAGE_QUERY, (start.isoformat(), end.isoformat())
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return False
+    dates: list[date] = []
+    for (value,) in rows:
+        if not value:
+            continue
+        try:
+            dates.append(date.fromisoformat(value))
+        except (TypeError, ValueError):
+            continue
+    if not dates:
+        return False
+    if (dates[0] - start).days > _DAILY_BARS_EDGE_TOLERANCE_DAYS:
+        return False
+    if (end - dates[-1]).days > _DAILY_BARS_EDGE_TOLERANCE_DAYS:
+        return False
+    return all(
+        (current - previous).days <= _DAILY_BARS_MAX_GAP_DAYS
+        for previous, current in pairwise(dates)
+    )

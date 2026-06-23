@@ -25,10 +25,10 @@ from pathlib import Path
 
 from baibai_loop.foundation.yaml_io import safe_load
 
-# position.execution is a standalone record reader (imports only foundation), so
+# position.trades is a standalone record reader (imports only foundation), so
 # this screening->position import does not create a package cycle; the packet
 # deliberately reads the trade records to expose portfolio-concentration facts.
-from baibai_loop.position.execution import load_open_trades
+from baibai_loop.position.trades import load_open_trades
 
 from .regime import compute_market_regime
 from .selection import load_prior_research

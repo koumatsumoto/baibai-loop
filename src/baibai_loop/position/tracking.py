@@ -6,12 +6,8 @@ from typing import Literal
 
 from baibai_loop.foundation.date_utils import add_business_days
 from baibai_loop.market.bars import JQuantsDailyBar
-from baibai_loop.market.price_walk import (
-    TrackingPrice as TrackingPrice,
-)
-from baibai_loop.market.price_walk import (
-    resolve_price_on_or_before as resolve_price_on_or_before,
-)
+from baibai_loop.market.price_asof import ResolvedPrice as ResolvedPrice
+from baibai_loop.market.price_asof import resolve_price_on_or_before
 
 type TrackingHorizon = Literal["plus_15bd", "plus_30bd"]
 
@@ -21,7 +17,7 @@ def resolve_tracking_prices(
     decision_date: date,
     calendar: Sequence[date],
     bars: Sequence[JQuantsDailyBar],
-) -> tuple[TrackingPrice | None, TrackingPrice | None]:
+) -> tuple[ResolvedPrice | None, ResolvedPrice | None]:
     plus_15_target = add_business_days(decision_date, 15, calendar) if calendar else None
     plus_30_target = add_business_days(decision_date, 30, calendar) if calendar else None
     price_15 = (

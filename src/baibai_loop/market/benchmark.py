@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from datetime import date
 
 from baibai_loop.market.bars import JQuantsDailyBar
-from baibai_loop.market.price_walk import resolve_price_on_or_before
+from baibai_loop.market.price_asof import resolve_price_on_or_before
 
 # J-Quants does not carry the Nikkei 225 index itself, so forward benchmark-
 # relative return uses an in-universe ETF proxy. 1321 (Nomura Nikkei 225 ETF)

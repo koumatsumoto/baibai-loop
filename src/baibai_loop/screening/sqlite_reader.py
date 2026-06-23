@@ -1,9 +1,11 @@
-"""Read helpers that pull screening inputs from the canonical SQLite store.
+"""Read helpers that pull screening fundamentals/regulation inputs from SQLite.
 
 The functions are deliberately permissive: a missing SQLite file or a source
 that has not been fetched yet returns `None` so bootstrap/fetch commands can
 populate the missing coverage. `screening run` performs a separate preflight
-coverage check and must not fall back to provider APIs.
+coverage check and must not fall back to provider APIs. Price/calendar reads
+live in `baibai_loop.market.store`; this module owns master / fin summaries /
+earnings calendar / EDINET / JPX.
 """
 
 from __future__ import annotations
@@ -11,33 +13,24 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Mapping
-from datetime import date, timedelta
-from itertools import pairwise
+from datetime import date
 from pathlib import Path
 from typing import Any
+
+from baibai_loop.market.sqlite import (
+    _connect_current,
+    _optional_date,
+    _optional_float,
+    _range_covered,
+)
 
 from .providers.edinet import EdinetMetricRecord, normalize_metric_record
 from .providers.jpx import JPXRegulationSnapshot
 from .providers.jquants import (
-    JQuantsDailyBar,
     JQuantsFinancialSummary,
-    JQuantsMarketCalendarDay,
     JQuantsProviderError,
 )
 from .schema import SecurityMaster
-from .sqlite_cache import SQLiteSchemaError, validate_current_schema
-
-
-def _connect_current(sqlite_path: Path) -> sqlite3.Connection | None:
-    conn: sqlite3.Connection | None = None
-    try:
-        conn = sqlite3.connect(sqlite_path)
-        validate_current_schema(conn)
-    except (SQLiteSchemaError, sqlite3.Error):
-        if conn is not None:
-            conn.close()
-        return None
-    return conn
 
 
 def read_eq_master(sqlite_path: Path) -> list[SecurityMaster] | None:
@@ -78,76 +71,6 @@ def read_eq_master(sqlite_path: Path) -> list[SecurityMaster] | None:
             )
         )
     return masters
-
-
-def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDailyBar] | None:
-    """Return daily bars for `[start, end]` from SQLite, or `None` if the
-    cache cannot serve the full range.
-    """
-    if not sqlite_path.exists():
-        return None
-    conn = _connect_current(sqlite_path)
-    if conn is None:
-        return None
-    try:
-        if not _daily_bars_covered_by_data(conn, start, end):
-            return None
-        rows = conn.execute(
-            "SELECT ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor "
-            "FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ? "
-            "ORDER BY ticker, traded_at",
-            (start.isoformat(), end.isoformat()),
-        ).fetchall()
-    finally:
-        conn.close()
-
-    bars: list[JQuantsDailyBar] = []
-    for ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor in rows:
-        if close is None or traded_at is None:
-            continue
-        try:
-            bars.append(
-                JQuantsDailyBar(
-                    ticker=str(ticker),
-                    traded_at=date.fromisoformat(traded_at),
-                    close=float(close),
-                    turnover_value=_optional_float(turnover_value),
-                    adjustment_close=_optional_float(adjustment_close),
-                    adjustment_factor=_optional_float(adjustment_factor),
-                )
-            )
-        except (TypeError, ValueError) as exc:
-            raise JQuantsProviderError(
-                f"corrupt SQLite row in jquants_daily_bars for {ticker} on {traded_at}: {exc}"
-            ) from exc
-    return bars
-
-
-def latest_daily_bar_date(sqlite_path: Path, start: date, end: date) -> date | None:
-    """Return the most recent ``traded_at`` stored within ``[start, end]``, or None.
-
-    Lets a fetch-capable bootstrap decide whether it still needs the recent tail:
-    ``read_daily_bars`` tolerates a holiday-sized edge gap, so it can report a
-    window covered while the asof's own bar is not yet stored.
-    """
-    if not sqlite_path.exists():
-        return None
-    conn = _connect_current(sqlite_path)
-    if conn is None:
-        return None
-    try:
-        row = conn.execute(
-            "SELECT MAX(traded_at) FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ?",
-            (start.isoformat(), end.isoformat()),
-        ).fetchone()
-    finally:
-        conn.close()
-    if row is None or row[0] is None:
-        return None
-    try:
-        return date.fromisoformat(str(row[0]))
-    except ValueError:
-        return None
 
 
 def read_fin_summaries(
@@ -257,35 +180,6 @@ def read_eq_earnings_cal(sqlite_path: Path, start: date, end: date) -> list[dict
     finally:
         conn.close()
     return [{"Code": f"{ticker}0", "Date": announcement_date} for ticker, announcement_date in rows]
-
-
-def read_market_calendar(
-    sqlite_path: Path, start: date, end: date
-) -> list[JQuantsMarketCalendarDay] | None:
-    """Return market calendar days for `[start, end]`, or `None` if the
-    cache cannot serve the range.
-    """
-    if not sqlite_path.exists():
-        return None
-    conn = _connect_current(sqlite_path)
-    if conn is None:
-        return None
-    try:
-        if not _range_covered(conn, "jquants_market_calendar", start, end):
-            return None
-        rows = conn.execute(
-            "SELECT day, is_business_day FROM jquants_market_calendar "
-            "WHERE day BETWEEN ? AND ? ORDER BY day",
-            (start.isoformat(), end.isoformat()),
-        ).fetchall()
-    except sqlite3.OperationalError:
-        return None
-    finally:
-        conn.close()
-    return [
-        JQuantsMarketCalendarDay(day=date.fromisoformat(day), is_business_day=bool(flag))
-        for day, flag in rows
-    ]
 
 
 def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, Any]] | None:
@@ -538,130 +432,3 @@ def _minmax_horizon_covered(conn: sqlite3.Connection, source: str, end: date) ->
     except sqlite3.OperationalError:
         return False
     return cur.fetchone() is not None
-
-
-_RANGE_SOURCES_REQUIRING_ROWS = frozenset(
-    {"jquants_daily_bars", "jquants_fin_summaries", "jquants_market_calendar"}
-)
-
-
-def _range_covered(conn: sqlite3.Connection, source: str, start: date, end: date) -> bool:
-    """True when source_coverage rows collectively span the requested range.
-
-    Used for fetch-provenance sources (financial summaries, market calendar)
-    whose completeness cannot be re-derived from row presence: a missing filing
-    is indistinguishable from "no filing was due". jquants_daily_bars is instead
-    checked by `_daily_bars_covered_by_data`, because every trading day must carry
-    a full-market row set, so its completeness IS observable from the data.
-    """
-    try:
-        rows = conn.execute(
-            "SELECT coverage_start, coverage_end, record_count, status "
-            "FROM source_coverage WHERE source = ?",
-            (source,),
-        ).fetchall()
-    except sqlite3.OperationalError:
-        return False
-    if not rows:
-        return False
-    intervals: list[tuple[date, date]] = []
-    for coverage_start, coverage_end, record_count, status in rows:
-        if status != "ok":
-            continue
-        if source in _RANGE_SOURCES_REQUIRING_ROWS and int(record_count or 0) == 0:
-            continue
-        if not coverage_start or not coverage_end:
-            continue
-        try:
-            intervals.append((date.fromisoformat(coverage_start), date.fromisoformat(coverage_end)))
-        except ValueError:
-            continue
-    if not intervals:
-        return False
-    intervals.sort()
-    covered_until: date | None = None
-    for chunk_start, chunk_end in intervals:
-        if chunk_end < start:
-            continue
-        if chunk_start > end:
-            break
-        if covered_until is None:
-            if chunk_start > start:
-                return False
-            covered_until = chunk_end
-        elif chunk_start > covered_until + timedelta(days=1):
-            return False
-        else:
-            covered_until = max(covered_until, chunk_end)
-        if covered_until >= end:
-            return True
-    return False
-
-
-# daily_bars completeness is derived from the actual rows (the single source of
-# truth), not source_coverage. Every trading day carries a full-market row set,
-# so a genuinely missing window shows up as a gap between present dates, while an
-# interrupted fetch that left source_coverage holes but already wrote the rows
-# must not trigger a re-fetch of data we hold. The only natural gaps are weekends
-# and the Golden Week / New Year closures (observed max 7d), so a 10-day
-# threshold separates complete history from a missing 31-day fetch chunk.
-_DAILY_BARS_MAX_GAP_DAYS = 10
-_DAILY_BARS_EDGE_TOLERANCE_DAYS = 10
-_DAILY_BARS_COVERAGE_QUERY = (
-    "SELECT DISTINCT traded_at FROM jquants_daily_bars "
-    "WHERE traded_at BETWEEN ? AND ? ORDER BY traded_at"
-)
-
-
-def _daily_bars_covered_by_data(conn: sqlite3.Connection, start: date, end: date) -> bool:
-    """True when the daily_bars rows themselves span `[start, end]`.
-
-    Aggregates the actual table rather than consulting source_coverage, so data
-    already saved is never re-fetched even when its bookkeeping row is missing.
-    Covered means present trading dates reach both ends (within an edge
-    tolerance) with no internal gap wider than a market holiday run.
-    """
-    if start > end:
-        return False
-    try:
-        rows = conn.execute(
-            _DAILY_BARS_COVERAGE_QUERY, (start.isoformat(), end.isoformat())
-        ).fetchall()
-    except sqlite3.OperationalError:
-        return False
-    dates: list[date] = []
-    for (value,) in rows:
-        if not value:
-            continue
-        try:
-            dates.append(date.fromisoformat(value))
-        except (TypeError, ValueError):
-            continue
-    if not dates:
-        return False
-    if (dates[0] - start).days > _DAILY_BARS_EDGE_TOLERANCE_DAYS:
-        return False
-    if (end - dates[-1]).days > _DAILY_BARS_EDGE_TOLERANCE_DAYS:
-        return False
-    return all(
-        (current - previous).days <= _DAILY_BARS_MAX_GAP_DAYS
-        for previous, current in pairwise(dates)
-    )
-
-
-def _optional_float(value: object) -> float | None:
-    if value is None:
-        return None
-    try:
-        return float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-
-
-def _optional_date(value: object) -> date | None:
-    if value in (None, ""):
-        return None
-    try:
-        return date.fromisoformat(str(value))
-    except ValueError:
-        return None

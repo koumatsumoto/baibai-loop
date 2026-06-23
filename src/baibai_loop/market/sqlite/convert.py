@@ -1,15 +1,13 @@
-"""Normalization primitives shared by the per-source store helpers."""
+"""Normalization primitives shared by the per-source SQLite store/read helpers."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
-from baibai_loop.screening.providers.jquants import (
-    JQuantsProviderError,
-    parse_jquants_code,
-)
+from baibai_loop.market.jquants import JQuantsProviderError, parse_jquants_code
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,3 +107,21 @@ def _date_iso(value: Any) -> str | None:
         return None
     text = str(value)
     return text[:10]
+
+
+def _optional_float(value: object) -> float | None:
+    if isinstance(value, (int, float, str)):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _optional_date(value: object) -> date | None:
+    if value in (None, ""):
+        return None
+    try:
+        return date.fromisoformat(str(value))
+    except ValueError:
+        return None

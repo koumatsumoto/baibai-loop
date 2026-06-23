@@ -8,8 +8,8 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from baibai_loop.foundation.coerce import optional_float
-from baibai_loop.position.benchmark import NIKKEI225_ETF_PROXY
-from baibai_loop.position.tracking import resolve_price_on_or_before
+from baibai_loop.market.benchmark import NIKKEI225_ETF_PROXY
+from baibai_loop.market.price_asof import resolve_price_on_or_before
 from baibai_loop.screening.providers.jquants import JQuantsDailyBar
 
 # Forward horizons for recommended-queue evaluation, in calendar weeks. The

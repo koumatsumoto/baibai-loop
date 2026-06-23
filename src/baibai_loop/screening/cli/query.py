@@ -15,6 +15,7 @@ import yaml
 from baibai_loop.foundation.time import JST
 from baibai_loop.foundation.yaml_io import safe_load
 from baibai_loop.macro.context import MacroContext, find_latest_macro_context, load_macro_context
+from baibai_loop.market.store import latest_daily_bar_date
 from baibai_loop.screening.market_snapshot import build_market_snapshot
 from baibai_loop.screening.regime import MarketRegimeSnapshot, compute_market_regime
 from baibai_loop.screening.rule_config import (
@@ -34,7 +35,6 @@ from baibai_loop.screening.selection import (
     load_previous_candidates,
     load_prior_research,
 )
-from baibai_loop.screening.sqlite_reader import latest_daily_bar_date
 from baibai_loop.screening.ticker_profile import build_ticker_profile
 
 from .common import _NoAliasDumper, _parse_iso_date
