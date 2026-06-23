@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from .errors import ValidationFinding
+from baibai_loop.foundation.errors import ValidationFinding
 
 __all__ = ["ValidationFinding"]

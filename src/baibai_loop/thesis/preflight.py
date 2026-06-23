@@ -7,13 +7,9 @@ from datetime import date
 from pathlib import Path
 from typing import Literal
 
+from baibai_loop.foundation.coerce import list_or_empty, mapping_or_empty, optional_float
+from baibai_loop.foundation.errors import ValidationFinding
 from baibai_loop.screening.regime import RALLY_RETURN_20D_MIN, SELLOFF_RETURN_20D_MAX
-from baibai_loop.validation.domain import (
-    as_list,
-    as_mapping,
-    number,
-)
-from baibai_loop.validation.errors import ValidationFinding
 
 from .shared import _KNOWN_MACRO_CONTEXT_FRESHNESS, _gate_boundary_date, _thesis_record_date
 
@@ -65,7 +61,7 @@ def _check_entry_preflight(
                 severity="error",
                 target=path,
                 code="thesis.entry-preflight-required",
-                message=("approved research dated 2026-06-01 or later requires entry_preflight"),
+                message=("approved thesis dated 2026-06-01 or later requires entry_preflight"),
                 location="entry_preflight",
             )
         ]
@@ -95,7 +91,7 @@ def _check_entry_preflight(
         )
 
     preflight_freshness = preflight.get("macro_freshness")
-    macro_fit = as_mapping(front_matter.get("macro_context_fit"))
+    macro_fit = mapping_or_empty(front_matter.get("macro_context_fit"))
     macro_freshness = macro_fit.get("context_freshness")
     if preflight_freshness not in _KNOWN_MACRO_CONTEXT_FRESHNESS:
         findings.append(
@@ -120,11 +116,11 @@ def _check_entry_preflight(
             )
         )
 
-    market_relative = number(preflight.get("market_relative_return_pct"))
-    sector_relative = number(preflight.get("sector_or_peer_relative_return_pct"))
-    exposure = as_mapping(preflight.get("tactical_exposure_after_order"))
-    sector_exposure = number(exposure.get("sector_33_pct"))
-    playbook_exposure = number(exposure.get("playbook_pct"))
+    market_relative = optional_float(preflight.get("market_relative_return_pct"))
+    sector_relative = optional_float(preflight.get("sector_or_peer_relative_return_pct"))
+    exposure = mapping_or_empty(preflight.get("tactical_exposure_after_order"))
+    sector_exposure = optional_float(exposure.get("sector_33_pct"))
+    playbook_exposure = optional_float(exposure.get("playbook_pct"))
 
     hard_triggers: list[str] = []
     if preflight_freshness == "future":
@@ -141,9 +137,9 @@ def _check_entry_preflight(
         hard_triggers.append("playbook exposure > 50% tactical budget")
 
     raw_market_regime = preflight.get("market_regime")
-    market_regime: Mapping[str, object] = as_mapping(raw_market_regime)
+    market_regime: Mapping[str, object] = mapping_or_empty(raw_market_regime)
     regime_label = market_regime.get("regime")
-    benchmark_return_20d = number(market_regime.get("benchmark_return_20d"))
+    benchmark_return_20d = optional_float(market_regime.get("benchmark_return_20d"))
     regime_asof = market_regime.get("asof") or market_regime.get("eval_date")
     benchmark_ticker = market_regime.get("benchmark_ticker") or "1321"
 
@@ -162,7 +158,7 @@ def _check_entry_preflight(
                 target=path,
                 code="thesis.entry-preflight-regime-required",
                 message=(
-                    "approved research dated 2026-06-17 or later requires "
+                    "approved thesis dated 2026-06-17 or later requires "
                     "entry_preflight.market_regime.regime — paste the output of "
                     "`uv run baibai-loop-screening ticker-profile --ticker <T> --asof <D>` "
                     "regime block, or run `uv run baibai-loop-screening bootstrap-cache` "
@@ -228,7 +224,7 @@ def _check_entry_preflight(
                 severity="error",
                 target=path,
                 code="thesis.entry-preflight-future-approved",
-                message="approved research cannot use future macro freshness in entry_preflight",
+                message="approved thesis cannot use future macro freshness in entry_preflight",
                 location="entry_preflight.macro_freshness",
             )
         )
@@ -246,7 +242,7 @@ def _check_entry_preflight(
             )
         )
     if action == "exception":
-        basis = as_list(preflight.get("exception_basis"))
+        basis = list_or_empty(preflight.get("exception_basis"))
         known_basis = [item for item in basis if item in _KNOWN_ENTRY_PREFLIGHT_EXCEPTION_BASES]
         if len(known_basis) != len(basis) or not known_basis:
             findings.append(
@@ -306,7 +302,7 @@ def _check_entry_preflight(
         and action in {"starter", "exception"}
         and not (near_term_catalyst)
     ):
-        basis = as_list(preflight.get("exception_basis"))
+        basis = list_or_empty(preflight.get("exception_basis"))
         if not any(item in _RALLY_CONTRARIAN_WAIVER_BASES for item in basis):
             severity: Literal["error", "warning"] = "error" if action == "exception" else "warning"
             ret20_phrase = (

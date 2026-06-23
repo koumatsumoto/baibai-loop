@@ -7,14 +7,14 @@ from pathlib import Path
 
 import yaml
 
-from baibai_loop.foundation.yaml_io import safe_load
-from baibai_loop.validation.domain import (
+from baibai_loop.foundation.errors import ValidationFinding
+from baibai_loop.foundation.records_ref import (
     load_reference_mapping,
     repo_root_for,
     repository_ref_error,
     resolve_repository_ref,
 )
-from baibai_loop.validation.errors import ValidationFinding
+from baibai_loop.foundation.yaml_io import safe_load
 
 
 def _check_reference_refs(

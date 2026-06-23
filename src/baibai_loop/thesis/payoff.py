@@ -5,11 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-from baibai_loop.foundation.coerce import optional_float
-from baibai_loop.validation.domain import (
-    as_mapping,
-)
-from baibai_loop.validation.errors import ValidationFinding
+from baibai_loop.foundation.coerce import mapping_or_empty, optional_float
+from baibai_loop.foundation.errors import ValidationFinding
 
 from .shared import _close
 
@@ -76,7 +73,7 @@ def _check_payoff(path: Path, front_matter: Mapping[str, object]) -> list[Valida
 def _check_corporate_action_check(
     path: Path, front_matter: Mapping[str, object]
 ) -> list[ValidationFinding]:
-    decision = as_mapping(front_matter.get("thesis_decision"))
+    decision = mapping_or_empty(front_matter.get("thesis_decision"))
     if decision.get("outcome") != "approved":
         return []
     check = front_matter.get("corporate_action_check")
@@ -86,7 +83,7 @@ def _check_corporate_action_check(
                 severity="error",
                 target=path,
                 code="thesis.corporate-action-check",
-                message="approved research requires corporate_action_check",
+                message="approved thesis requires corporate_action_check",
                 location="corporate_action_check",
             )
         ]
@@ -96,7 +93,7 @@ def _check_corporate_action_check(
                 severity="error",
                 target=path,
                 code="thesis.corporate-action-check",
-                message="corporate_action_check.checked must be true for approved research",
+                message="corporate_action_check.checked must be true for approved thesis",
                 location="corporate_action_check.checked",
             )
         ]
@@ -117,7 +114,7 @@ def _check_corporate_action_check(
                 severity="error",
                 target=path,
                 code="thesis.corporate-action-check-result",
-                message="approved research requires corporate_action_check.result to be none",
+                message="approved thesis requires corporate_action_check.result to be none",
                 location="corporate_action_check.result",
             )
         ]

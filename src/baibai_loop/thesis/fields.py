@@ -6,7 +6,7 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 
-from baibai_loop.validation.errors import ValidationFinding
+from baibai_loop.foundation.errors import ValidationFinding
 
 _TICKER_PATTERN = re.compile(r"^[0-9A-Z]{4}$")
 _KNOWN_OUTCOMES = {"approved", "deferred", "rejected"}
@@ -80,7 +80,7 @@ def _check_decision(path: Path, front_matter: Mapping[str, object]) -> list[Vali
                 severity="error",
                 target=path,
                 code="thesis.approved-posture",
-                message="approved research decisions must use posture: act_now",
+                message="approved thesis decisions must use posture: act_now",
                 location="thesis_decision.posture",
             )
         )
@@ -90,7 +90,7 @@ def _check_decision(path: Path, front_matter: Mapping[str, object]) -> list[Vali
                 severity="error",
                 target=path,
                 code="thesis.rejection-reason-required",
-                message="rejected research decisions require rejection_reason",
+                message="rejected thesis decisions require rejection_reason",
                 location="thesis_decision.rejection_reason",
             )
         )
@@ -100,7 +100,7 @@ def _check_decision(path: Path, front_matter: Mapping[str, object]) -> list[Vali
                 severity="error",
                 target=path,
                 code="thesis.deferred-posture",
-                message="deferred research decisions must wait for event or capital",
+                message="deferred thesis decisions must wait for event or capital",
                 location="thesis_decision.posture",
             )
         )
@@ -110,7 +110,7 @@ def _check_decision(path: Path, front_matter: Mapping[str, object]) -> list[Vali
                 severity="error",
                 target=path,
                 code="thesis.deferral-reason-required",
-                message="deferred research decisions require deferral_reason",
+                message="deferred thesis decisions require deferral_reason",
                 location="thesis_decision.deferral_reason",
             )
         )
@@ -120,7 +120,7 @@ def _check_decision(path: Path, front_matter: Mapping[str, object]) -> list[Vali
                 severity="error",
                 target=path,
                 code="thesis.rejected-posture",
-                message="rejected research decisions must use posture: dropped",
+                message="rejected thesis decisions must use posture: dropped",
                 location="thesis_decision.posture",
             )
         )

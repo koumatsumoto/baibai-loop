@@ -19,7 +19,7 @@ from baibai_loop.screening.sqlite_cache import (
     store_jquants_market_calendar,
     store_jquants_master,
 )
-from baibai_loop.screening.sqlite_reader import _range_covered
+from baibai_loop.screening.sqlite_reader import range_covered
 
 
 class SQLiteCacheTest(unittest.TestCase):
@@ -155,7 +155,7 @@ class SQLiteCacheTest(unittest.TestCase):
         """A later bootstrap anchors chunk boundaries at a new asof, so a re-fetch only
         partially overlaps an existing window. Recording it must merge into the union,
         not delete-and-shrink the window and orphan its earlier part -- otherwise
-        `_range_covered` reports a gap even though the rows are still present.
+        `range_covered` reports a gap even though the rows are still present.
         """
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -179,7 +179,7 @@ class SQLiteCacheTest(unittest.TestCase):
             )
             conn = sqlite3.connect(db)
             try:
-                covered = _range_covered(
+                covered = range_covered(
                     conn, "jquants_fin_summaries", date(2026, 5, 12), date(2026, 6, 5)
                 )
                 windows = conn.execute(

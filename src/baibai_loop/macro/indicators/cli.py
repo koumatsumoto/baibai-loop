@@ -9,17 +9,17 @@ from pathlib import Path
 
 from baibai_loop.foundation.env import load_project_env
 
-from .db import DEFAULT_DB_PATH, StatsSchemaError
+from .db import DEFAULT_DB_PATH, IndicatorsSchemaError
 from .definitions import SeriesDefinition
-from .providers import StatsProviderError
-from .service import QueryResult, StatsService
+from .providers import IndicatorsProviderError
+from .service import IndicatorsService, QueryResult
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-loop-macro")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    list_parser = subparsers.add_parser("list", help="list registered macro statistics series")
+    list_parser = subparsers.add_parser("list", help="list registered macro indicator series")
     list_parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     list_parser.add_argument("--category")
 
@@ -46,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     load_project_env()
     args = build_parser().parse_args(argv)
-    service = StatsService(args.db)
+    service = IndicatorsService(args.db)
     try:
         match args.command:
             case "list":
@@ -73,22 +73,22 @@ def main(argv: list[str] | None = None) -> int:
         message = exc.args[0] if exc.args else str(exc)
         print(f"error: {message}", file=sys.stderr)
         return 1
-    except StatsSchemaError as exc:
+    except IndicatorsSchemaError as exc:
         print(
-            f"error: {exc}; remove the local stats cache and retry if it is disposable",
+            f"error: {exc}; remove the local indicators cache and retry if it is disposable",
             file=sys.stderr,
         )
         return 1
     except (sqlite3.Error, OSError) as exc:
-        print(f"error: unable to open stats db: {args.db}: {exc}", file=sys.stderr)
+        print(f"error: unable to open indicators db: {args.db}: {exc}", file=sys.stderr)
         return 1
-    except (ValueError, StatsProviderError) as exc:
+    except (ValueError, IndicatorsProviderError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     raise AssertionError(f"unreachable command: {args.command!r}")
 
 
-def _run_get(service: StatsService, args: argparse.Namespace) -> QueryResult:
+def _run_get(service: IndicatorsService, args: argparse.Namespace) -> QueryResult:
     if args.latest:
         if args.start is not None or args.end is not None:
             raise ValueError("--latest cannot be combined with --start/--end")

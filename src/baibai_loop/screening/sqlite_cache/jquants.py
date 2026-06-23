@@ -8,20 +8,20 @@ from pathlib import Path
 from typing import Any
 
 from baibai_loop.market.sqlite.convert import (
-    _code_quality,
-    _date_iso,
-    _first,
-    _is_common_stock_flag,
-    _NormalizedRows,
-    _to_float,
-    _to_str_or_none,
+    NormalizedRows,
+    code_quality,
+    date_iso,
+    first,
+    is_common_stock_flag,
+    to_float,
+    to_str_or_none,
 )
 from baibai_loop.market.sqlite.coverage import (
-    _delete_date_range,
-    _delete_source_coverage,
-    _record_range_source_coverage,
-    _record_source_coverage,
-    _table_row_count,
+    delete_date_range,
+    delete_source_coverage,
+    record_range_source_coverage,
+    record_source_coverage,
+    table_row_count,
 )
 from baibai_loop.market.sqlite.schema import open_connection
 from baibai_loop.screening.providers.jquants import (
@@ -41,7 +41,7 @@ def store_jquants_fin_summaries(
         records_list = list(records)
         normalized = _fin_summary_rows_with_quality(records_list)
         rows = normalized.rows
-        _delete_date_range(
+        delete_date_range(
             conn, "jquants_fin_summaries", "disclosed_at", requested_start, requested_end
         )
         if rows:
@@ -55,7 +55,7 @@ def store_jquants_fin_summaries(
                 """,
                 rows,
             )
-        persisted_count = _record_range_source_coverage(
+        persisted_count = record_range_source_coverage(
             conn,
             source="jquants_fin_summaries",
             operation="get_fin_summary_range",
@@ -79,7 +79,7 @@ def store_jquants_master(db_path: Path, records: Iterable[Mapping[str, Any]]) ->
         normalized = _master_rows_with_quality(records_list)
         rows = normalized.rows
         conn.execute("DELETE FROM jquants_master_snapshots")
-        _delete_source_coverage(conn, "jquants_master_snapshots")
+        delete_source_coverage(conn, "jquants_master_snapshots")
         if rows:
             conn.executemany(
                 """
@@ -89,9 +89,9 @@ def store_jquants_master(db_path: Path, records: Iterable[Mapping[str, Any]]) ->
                 """,
                 rows,
             )
-        persisted_count = _table_row_count(conn, "jquants_master_snapshots")
+        persisted_count = table_row_count(conn, "jquants_master_snapshots")
         dates = sorted({row[0] for row in rows if row[0] != "unknown"})
-        _record_source_coverage(
+        record_source_coverage(
             conn,
             source="jquants_master_snapshots",
             operation="get_eq_master",
@@ -128,7 +128,7 @@ def store_jquants_earnings_calendar(
         normalized = _earnings_calendar_rows_with_quality(records_list)
         rows = normalized.rows
         conn.execute("DELETE FROM jquants_earnings_calendar")
-        _delete_source_coverage(conn, "jquants_earnings_calendar")
+        delete_source_coverage(conn, "jquants_earnings_calendar")
         if rows:
             conn.executemany(
                 "INSERT OR REPLACE INTO jquants_earnings_calendar("
@@ -136,7 +136,7 @@ def store_jquants_earnings_calendar(
                 ") VALUES (?, ?)",
                 rows,
             )
-        persisted_count = _table_row_count(conn, "jquants_earnings_calendar")
+        persisted_count = table_row_count(conn, "jquants_earnings_calendar")
         dates = sorted({row[0] for row in rows})
         coverage_start = (
             requested_start.isoformat() if requested_start else dates[0] if dates else None
@@ -147,7 +147,7 @@ def store_jquants_earnings_calendar(
             for key, value in (("start_dt", requested_start), ("end_dt", requested_end))
             if value is not None
         }
-        _record_source_coverage(
+        record_source_coverage(
             conn,
             source="jquants_earnings_calendar",
             operation="get_eq_earnings_cal",
@@ -171,20 +171,20 @@ def store_jquants_earnings_calendar(
         conn.close()
 
 
-def _earnings_calendar_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _NormalizedRows:
+def _earnings_calendar_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedRows:
     rows: list[tuple[Any, ...]] = []
     rejected_count = 0
     excluded_count = 0
     for record in records:
-        ticker, code_status = _code_quality(_first(record, "Code", "code"))
+        ticker, code_status = code_quality(first(record, "Code", "code"))
         if code_status == "rejected":
             rejected_count += 1
             continue
         if code_status == "excluded":
             excluded_count += 1
             continue
-        announcement_date = _date_iso(
-            _first(record, "Date", "date", "AnnouncementDate", "announcement_date")
+        announcement_date = date_iso(
+            first(record, "Date", "date", "AnnouncementDate", "announcement_date")
         )
         if ticker is None or announcement_date is None:
             rejected_count += 1
@@ -195,23 +195,23 @@ def _earnings_calendar_rows_with_quality(records: Iterable[Mapping[str, Any]]) -
                 ticker,
             )
         )
-    return _NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
+    return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
 
 
-def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _NormalizedRows:
+def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedRows:
     rows: list[tuple[Any, ...]] = []
     rejected_count = 0
     excluded_count = 0
     for record in records:
-        ticker, quality = _code_quality(_first(record, "Code", "code"))
+        ticker, quality = code_quality(first(record, "Code", "code"))
         if quality == "rejected":
             rejected_count += 1
             continue
         if quality == "excluded":
             excluded_count += 1
             continue
-        disclosed_at = _date_iso(
-            _first(record, "DisclosedDate", "disclosed_at", "DiscDate", "disc_date", "Date")
+        disclosed_at = date_iso(
+            first(record, "DisclosedDate", "disclosed_at", "DiscDate", "disc_date", "Date")
         )
         if ticker is None or disclosed_at is None:
             rejected_count += 1
@@ -220,11 +220,11 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _Nor
             (
                 ticker,
                 disclosed_at,
-                _to_float(_first(record, "ForecastEPS", "forecast_eps", "FEPS")),
-                _to_float(_first(record, "EpsTtm", "eps_ttm", "EPS", "eps")),
-                _to_float(_first(record, "BPS", "bps")),
-                _to_float(
-                    _first(
+                to_float(first(record, "ForecastEPS", "forecast_eps", "FEPS")),
+                to_float(first(record, "EpsTtm", "eps_ttm", "EPS", "eps")),
+                to_float(first(record, "BPS", "bps")),
+                to_float(
+                    first(
                         record,
                         "SharesOutstanding",
                         "shares_outstanding",
@@ -233,9 +233,9 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _Nor
                         "AvgSh",
                     )
                 ),
-                _to_float(_first(record, "NetSales", "net_sales", "Sales", "sales")),
-                _to_float(
-                    _first(
+                to_float(first(record, "NetSales", "net_sales", "Sales", "sales")),
+                to_float(
+                    first(
                         record,
                         "CashFlowsFromOperatingActivities",
                         "cash_flows_from_operating_activities",
@@ -245,8 +245,8 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _Nor
                         "cfo",
                     )
                 ),
-                _to_float(
-                    _first(
+                to_float(
+                    first(
                         record,
                         "CashAndEquivalents",
                         "cash_and_equivalents",
@@ -254,58 +254,56 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _Nor
                         "cash_eq",
                     )
                 ),
-                _to_float(_first(record, "TotalAssets", "total_assets", "TA", "ta")),
-                _to_float(_first(record, "Equity", "equity", "Eq", "eq")),
-                _to_float(_first(record, "OperatingProfit", "operating_profit", "OP")),
-                _to_float(_first(record, "OrdinaryProfit", "ordinary_profit", "OdP")),
-                _to_float(_first(record, "Profit", "profit", "NP")),
-                _to_str_or_none(
-                    _first(record, "TypeOfCurrentPeriod", "type_of_current_period", "CurPerType")
+                to_float(first(record, "TotalAssets", "total_assets", "TA", "ta")),
+                to_float(first(record, "Equity", "equity", "Eq", "eq")),
+                to_float(first(record, "OperatingProfit", "operating_profit", "OP")),
+                to_float(first(record, "OrdinaryProfit", "ordinary_profit", "OdP")),
+                to_float(first(record, "Profit", "profit", "NP")),
+                to_str_or_none(
+                    first(record, "TypeOfCurrentPeriod", "type_of_current_period", "CurPerType")
                 ),
-                _date_iso(
-                    _first(
+                date_iso(
+                    first(
                         record,
                         "CurrentFiscalYearEndDate",
                         "current_fiscal_year_end_date",
                         "CurFYEn",
                     )
                 ),
-                _date_iso(
-                    _first(
-                        record, "CurrentPeriodStartDate", "current_period_start_date", "CurPerSt"
-                    )
+                date_iso(
+                    first(record, "CurrentPeriodStartDate", "current_period_start_date", "CurPerSt")
                 ),
-                _date_iso(
-                    _first(record, "CurrentPeriodEndDate", "current_period_end_date", "CurPerEn")
+                date_iso(
+                    first(record, "CurrentPeriodEndDate", "current_period_end_date", "CurPerEn")
                 ),
             )
         )
-    return _NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
+    return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
 
 
-def _master_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _NormalizedRows:
+def _master_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedRows:
     rows: list[tuple[Any, ...]] = []
     rejected_count = 0
     excluded_count = 0
     for record in records:
-        ticker, code_status = _code_quality(_first(record, "Code", "code"))
+        ticker, code_status = code_quality(first(record, "Code", "code"))
         if code_status == "rejected":
             rejected_count += 1
             continue
         if code_status == "excluded":
             excluded_count += 1
             continue
-        snapshot_date = _date_iso(_first(record, "Date", "date", "snapshot_date")) or "unknown"
-        is_common_stock = _is_common_stock_flag(record)
-        sector_raw = _to_str_or_none(
-            _first(record, "Sector33CodeName", "sector_33", "Sector33Name", "S33Nm", "S33")
+        snapshot_date = date_iso(first(record, "Date", "date", "snapshot_date")) or "unknown"
+        is_common_stock = is_common_stock_flag(record)
+        sector_raw = to_str_or_none(
+            first(record, "Sector33CodeName", "sector_33", "Sector33Name", "S33Nm", "S33")
         )
         rows.append(
             (
                 snapshot_date,
                 ticker,
-                _to_str_or_none(_first(record, "CompanyName", "company_name", "Name", "CoName")),
-                _to_str_or_none(_first(record, "MarketCodeName", "market_segment", "MktNm", "Mkt")),
+                to_str_or_none(first(record, "CompanyName", "company_name", "Name", "CoName")),
+                to_str_or_none(first(record, "MarketCodeName", "market_segment", "MktNm", "Mkt")),
                 # J-Quants は同じ TSE 33 セクターを半角中黒 (U+FF65)・全角中黒 (U+30FB) で
                 # 揺らせて返してくる。SQLite に取り込む段階で全角形に正規化し、macro context /
                 # candidates / select の matcher が一意に解決できるようにする。
@@ -313,4 +311,4 @@ def _master_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> _Normaliz
                 1 if is_common_stock else 0,
             )
         )
-    return _NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
+    return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)

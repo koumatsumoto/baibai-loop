@@ -7,11 +7,11 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from baibai_loop.market.sqlite.convert import _normalize_ticker_or_none, _to_str_or_none
+from baibai_loop.market.sqlite.convert import normalize_ticker_or_none, to_str_or_none
 from baibai_loop.market.sqlite.coverage import (
-    _date_range_row_count,
-    _delete_overlapping_source_coverage,
-    _record_source_coverage,
+    date_range_row_count,
+    delete_overlapping_source_coverage,
+    record_source_coverage,
 )
 from baibai_loop.market.sqlite.schema import open_connection
 
@@ -35,7 +35,7 @@ def store_jpx_regulations(
             "DELETE FROM jpx_regulation_sources WHERE asof_date = ?",
             (asof_date.isoformat(),),
         )
-        _delete_overlapping_source_coverage(conn, "jpx_regulation_flags", asof_date, asof_date)
+        delete_overlapping_source_coverage(conn, "jpx_regulation_flags", asof_date, asof_date)
         source_rows = [(asof_date.isoformat(), str(name), fetched_at) for name in source_name_tuple]
         if source_rows:
             conn.executemany(
@@ -49,14 +49,14 @@ def store_jpx_regulations(
         rejected_count = 0
         for raw_ticker, flags in flags_by_ticker.items():
             raw_record_count += 1
-            ticker = _normalize_ticker_or_none(raw_ticker)
+            ticker = normalize_ticker_or_none(raw_ticker)
             if ticker is None:
                 rejected_count += 1
                 continue
             accepted_for_ticker = 0
             rejected_for_ticker = 0
             for flag in flags:
-                flag_text = _to_str_or_none(flag)
+                flag_text = to_str_or_none(flag)
                 if flag_text is None:
                     rejected_for_ticker += 1
                     continue
@@ -72,10 +72,10 @@ def store_jpx_regulations(
                 ") VALUES (?, ?, ?, ?, ?)",
                 rows,
             )
-        persisted_count = _date_range_row_count(
+        persisted_count = date_range_row_count(
             conn, "jpx_regulation_flags", "asof_date", asof_date, asof_date
         )
-        _record_source_coverage(
+        record_source_coverage(
             conn,
             source="jpx_regulation_flags",
             operation="regulations",

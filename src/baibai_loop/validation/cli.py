@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal, TextIO, assert_never
 
+from baibai_loop.foundation.errors import ValidationFinding
 from baibai_loop.thesis import (
     discover_thesis_files,
     load_thesis_document,
@@ -20,12 +21,11 @@ from baibai_loop.thesis import (
     validate_thesis_file,
     validate_thesis_parsed,
 )
+from baibai_loop.thesis.playbook_schema import discover_playbook_schemas
 
 from .candidates import discover_candidates_files, validate_candidates_file
 from .decisions import discover_decisions_files, validate_decisions_file
-from .errors import ValidationFinding
 from .macro_context import discover_macro_context_files, validate_macro_context_file
-from .playbook_schema import discover_playbook_schemas
 from .policy import validate_policy_file
 from .position import discover_position_files, validate_position_file
 

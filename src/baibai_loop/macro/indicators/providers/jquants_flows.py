@@ -11,13 +11,13 @@ from ..definitions import SeriesDefinition
 from .base import (
     FetchContext,
     HttpSession,
-    StatsProviderError,
+    IndicatorsProviderError,
     parse_float,
     record_observation,
 )
 
 # screening と同じ資格情報を使う。env 名は screening 側 (ScreeningConfig.from_env が読む
-# "JQUANTS_API_KEY") と一致させ、stats 用に別 secret を増やさない。
+# "JQUANTS_API_KEY") と一致させ、indicators 用に別 secret を増やさない。
 # Env var name (a credential key, not a secret value); B105 false positive.
 _API_KEY_ENV = "JQUANTS_API_KEY"  # nosec B105
 
@@ -86,7 +86,7 @@ def parse_trades_spec(
     columns = _METRIC_COLUMNS.get(series.provider_series_id)
     if columns is None:
         supported = ", ".join(sorted(_METRIC_COLUMNS))
-        raise StatsProviderError(
+        raise IndicatorsProviderError(
             f"unsupported jquants_flows metric {series.provider_series_id!r}; "
             f"supported: {supported}"
         )
@@ -111,7 +111,7 @@ def _read_api_key() -> str:
     load_project_env()
     token = os.environ.get(_API_KEY_ENV)
     if not token:
-        raise StatsProviderError(
+        raise IndicatorsProviderError(
             f"missing {_API_KEY_ENV}; set it in the environment or .env to fetch jquants_flows"
         )
     return token
@@ -121,7 +121,7 @@ def _fetch_trades_spec(api_key: str, *, start: date, end: date) -> list[Mapping[
     try:
         import jquantsapi
     except ModuleNotFoundError as exc:
-        raise StatsProviderError("jquantsapi is not installed") from exc
+        raise IndicatorsProviderError("jquantsapi is not installed") from exc
     client = jquantsapi.ClientV2(api_key=api_key)
     try:
         frame = client.get_eq_investor_types(
@@ -132,7 +132,7 @@ def _fetch_trades_spec(api_key: str, *, start: date, end: date) -> list[Mapping[
     except Exception as exc:
         # api_key が例外文字列に混入し得るので redact し、from None で原因チェーンも断つ。
         sanitized = _redact(str(exc), api_key)
-        raise StatsProviderError(
+        raise IndicatorsProviderError(
             f"failed to fetch jquants_flows trades_spec: {type(exc).__name__}: {sanitized}"
         ) from None
     return _frame_to_rows(frame)
@@ -141,14 +141,14 @@ def _fetch_trades_spec(api_key: str, *, start: date, end: date) -> list[Mapping[
 def _frame_to_rows(frame: object) -> list[Mapping[str, object]]:
     to_dict = getattr(frame, "to_dict", None)
     if not callable(to_dict):
-        raise StatsProviderError("unexpected jquants_flows payload: not a DataFrame")
+        raise IndicatorsProviderError("unexpected jquants_flows payload: not a DataFrame")
     records = to_dict(orient="records")
     if not isinstance(records, list):
-        raise StatsProviderError("unexpected jquants_flows payload: records is not a list")
+        raise IndicatorsProviderError("unexpected jquants_flows payload: records is not a list")
     rows: list[Mapping[str, object]] = []
     for item in records:
         if not isinstance(item, Mapping):
-            raise StatsProviderError("unexpected jquants_flows payload: row is not a mapping")
+            raise IndicatorsProviderError("unexpected jquants_flows payload: row is not a mapping")
         rows.append({str(key): value for key, value in item.items()})
     return rows
 
@@ -159,7 +159,7 @@ def _row_date(row: Mapping[str, object]) -> date:
         raw = _coalesce(row, _END_DATE_KEYS)
     if raw is None:
         tried = ", ".join((*_PUBLISHED_DATE_KEYS, *_END_DATE_KEYS))
-        raise StatsProviderError(f"jquants_flows row missing a date column; tried {tried}")
+        raise IndicatorsProviderError(f"jquants_flows row missing a date column; tried {tried}")
     return _parse_date(raw)
 
 
@@ -178,7 +178,7 @@ def _net_value(
     sell = _coalesce(row, sell_keys)
     if buy is None or sell is None:
         tried = ", ".join((*balance_keys, *buy_keys, *sell_keys))
-        raise StatsProviderError(f"jquants_flows row missing {metric} columns; tried {tried}")
+        raise IndicatorsProviderError(f"jquants_flows row missing {metric} columns; tried {tried}")
     return _coerce_float(buy, column=buy_keys[0]) - _coerce_float(sell, column=sell_keys[0])
 
 
@@ -200,22 +200,24 @@ def _parse_date(value: object) -> date:
         try:
             return date.fromisoformat(value[:10])
         except ValueError as exc:
-            raise StatsProviderError(f"invalid jquants_flows date: {value!r}") from exc
-    raise StatsProviderError(f"jquants_flows date column is not date-like: {value!r}")
+            raise IndicatorsProviderError(f"invalid jquants_flows date: {value!r}") from exc
+    raise IndicatorsProviderError(f"jquants_flows date column is not date-like: {value!r}")
 
 
 def _coerce_float(value: object, *, column: str) -> float:
     if isinstance(value, bool):
-        raise StatsProviderError(f"jquants_flows column {column} is boolean, expected a number")
+        raise IndicatorsProviderError(
+            f"jquants_flows column {column} is boolean, expected a number"
+        )
     if isinstance(value, int):
         return float(value)
     if isinstance(value, float):
         if value != value:  # NaN は欠損なので明示的に弾く
-            raise StatsProviderError(f"jquants_flows column {column} is NaN")
+            raise IndicatorsProviderError(f"jquants_flows column {column} is NaN")
         return value
     if isinstance(value, str):
         return parse_float(value)
-    raise StatsProviderError(f"jquants_flows column {column} is non-numeric: {value!r}")
+    raise IndicatorsProviderError(f"jquants_flows column {column} is non-numeric: {value!r}")
 
 
 def _redact(text: str, secret: str) -> str:

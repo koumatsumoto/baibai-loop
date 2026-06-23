@@ -9,7 +9,7 @@ from .base import (
     MAX_CSV_RESPONSE_BYTES,
     FetchContext,
     HttpSession,
-    StatsProviderError,
+    IndicatorsProviderError,
     fetch_text,
     parse_optional_float,
     record_observation,
@@ -68,15 +68,15 @@ def parse_h15_csv(
         None,
     )
     if header_index is None:
-        raise StatsProviderError("FRB H.15 CSV missing Time Period header")
+        raise IndicatorsProviderError("FRB H.15 CSV missing Time Period header")
     reader = csv.DictReader(lines[header_index:])
     fieldnames = set(reader.fieldnames or ())
     observations: list[ObservationRecord] = []
     left_id, right_id = _split_provider_series_id(series.provider_series_id)
     if left_id not in fieldnames:
-        raise StatsProviderError(f"FRB H.15 CSV missing column {left_id}")
+        raise IndicatorsProviderError(f"FRB H.15 CSV missing column {left_id}")
     if right_id is not None and right_id not in fieldnames:
-        raise StatsProviderError(f"FRB H.15 CSV missing column {right_id}")
+        raise IndicatorsProviderError(f"FRB H.15 CSV missing column {right_id}")
     for row in reader:
         observed_at_raw = row.get("Time Period")
         if not observed_at_raw:

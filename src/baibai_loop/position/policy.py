@@ -40,7 +40,7 @@ _REQUIRED_NUMERIC_PATHS: tuple[tuple[str, ...], ...] = (
 )
 
 
-def validate_policy_config(policy: PolicyConfig = PORTFOLIO_POLICY) -> None:
+def validate_policy(policy: PolicyConfig = PORTFOLIO_POLICY) -> None:
     """Fail fast when a code-owned policy threshold is missing or mistyped."""
 
     for path in _REQUIRED_NUMERIC_PATHS:
@@ -59,4 +59,4 @@ def _value_at(policy: PolicyConfig, path: tuple[str, ...]) -> object:
     return current
 
 
-validate_policy_config()
+validate_policy()

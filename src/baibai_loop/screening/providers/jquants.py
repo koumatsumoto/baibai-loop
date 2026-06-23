@@ -29,13 +29,13 @@ from baibai_loop.market.jquants import (
     JQuantsProviderError as JQuantsProviderError,
 )
 from baibai_loop.market.jquants import (
-    _coalesce_field,
-    _first_value,
-    _parse_date,
-    _parse_jquants_code,
-    _parse_optional_date,
-    _to_float,
-    _to_period,
+    coalesce_field,
+    first_value,
+    parse_date,
+    parse_jquants_code_parts,
+    parse_optional_date,
+    to_float,
+    to_period,
 )
 from baibai_loop.market.jquants import (
     normalize_daily_bar as normalize_daily_bar,
@@ -223,11 +223,11 @@ def normalize_sector_name(value: Any) -> str:
 
 
 def normalize_security_master(record: Mapping[str, Any]) -> SecurityMaster:
-    code, common_code = _parse_jquants_code(
-        _first_value(record, "Code", "code", "LocalCode", "local_code")
+    code, common_code = parse_jquants_code_parts(
+        first_value(record, "Code", "code", "LocalCode", "local_code")
     )
-    name = _first_value(record, "CompanyName", "company_name", "Name", "name", "CoName", "co_name")
-    market_segment = _first_value(
+    name = first_value(record, "CompanyName", "company_name", "Name", "name", "CoName", "co_name")
+    market_segment = first_value(
         record,
         "MarketCodeName",
         "market_segment",
@@ -237,7 +237,7 @@ def normalize_security_master(record: Mapping[str, Any]) -> SecurityMaster:
         "mkt_nm",
     )
     sector_33 = normalize_sector_name(
-        _first_value(
+        first_value(
             record,
             "Sector33CodeName",
             "sector_33",
@@ -252,7 +252,7 @@ def normalize_security_master(record: Mapping[str, Any]) -> SecurityMaster:
     is_common_stock = bool(
         record.get("is_common_stock")
         if "is_common_stock" in record
-        else _first_value(
+        else first_value(
             record, "TypeOfDocument", "SecurityType", "security_type", default="common"
         ).lower()
         in {"common", "common stock", "普通株"}
@@ -269,23 +269,23 @@ def normalize_security_master(record: Mapping[str, Any]) -> SecurityMaster:
 
 
 def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSummary | None:
-    ticker, common_code = _parse_jquants_code(_first_value(record, "Code", "code"))
+    ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
     if not common_code:
         return None
-    # すべて `_coalesce_field` 経由にして 0.0 の数値フィールドを欠損と誤判定しないようにする
+    # すべて `coalesce_field` 経由にして 0.0 の数値フィールドを欠損と誤判定しないようにする
     # (EPS=0 の赤字転換点、Sales=0 の新規事業初期、OP=0 の損益分岐点ちょうど、など)。
     return JQuantsFinancialSummary(
         ticker=ticker,
-        disclosed_at=_parse_date(
-            _first_value(
+        disclosed_at=parse_date(
+            first_value(
                 record, "DisclosedDate", "disclosed_at", "DiscDate", "disc_date", "Date", "date"
             )
         ),
-        forecast_eps=_to_float(
-            _coalesce_field(record, "ForecastEPS", "forecast_eps", "FEPS", "f_eps")
+        forecast_eps=to_float(
+            coalesce_field(record, "ForecastEPS", "forecast_eps", "FEPS", "f_eps")
         ),
-        eps_ttm=_to_float(
-            _coalesce_field(
+        eps_ttm=to_float(
+            coalesce_field(
                 record,
                 "EpsTtm",
                 "eps_ttm",
@@ -295,11 +295,11 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
                 "eps",
             )
         ),
-        bps=_to_float(
-            _coalesce_field(record, "BPS", "bps", "BookValuePerShare", "book_value_per_share")
+        bps=to_float(
+            coalesce_field(record, "BPS", "bps", "BookValuePerShare", "book_value_per_share")
         ),
-        shares_outstanding=_to_float(
-            _coalesce_field(
+        shares_outstanding=to_float(
+            coalesce_field(
                 record,
                 "SharesOutstanding",
                 "shares_outstanding",
@@ -309,9 +309,9 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
                 "AvgSh",
             )
         ),
-        sales=_to_float(_coalesce_field(record, "NetSales", "net_sales", "Sales", "sales")),
-        cfo=_to_float(
-            _coalesce_field(
+        sales=to_float(coalesce_field(record, "NetSales", "net_sales", "Sales", "sales")),
+        cfo=to_float(
+            coalesce_field(
                 record,
                 "CashFlowsFromOperatingActivities",
                 "cash_flows_from_operating_activities",
@@ -321,8 +321,8 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
                 "cfo",
             )
         ),
-        cash_eq=_to_float(
-            _coalesce_field(
+        cash_eq=to_float(
+            coalesce_field(
                 record,
                 "CashAndEquivalents",
                 "cash_and_equivalents",
@@ -330,25 +330,25 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
                 "cash_eq",
             )
         ),
-        total_assets=_to_float(_coalesce_field(record, "TotalAssets", "total_assets", "TA", "ta")),
-        equity=_to_float(_coalesce_field(record, "Equity", "equity", "Eq", "eq")),
-        operating_profit=_to_float(
-            _coalesce_field(record, "OperatingProfit", "operating_profit", "OP")
+        total_assets=to_float(coalesce_field(record, "TotalAssets", "total_assets", "TA", "ta")),
+        equity=to_float(coalesce_field(record, "Equity", "equity", "Eq", "eq")),
+        operating_profit=to_float(
+            coalesce_field(record, "OperatingProfit", "operating_profit", "OP")
         ),
-        ordinary_profit=_to_float(
-            _coalesce_field(record, "OrdinaryProfit", "ordinary_profit", "OdP")
+        ordinary_profit=to_float(
+            coalesce_field(record, "OrdinaryProfit", "ordinary_profit", "OdP")
         ),
-        profit=_to_float(_coalesce_field(record, "Profit", "profit", "NP")),
-        fiscal_period=_to_period(
-            _coalesce_field(record, "TypeOfCurrentPeriod", "type_of_current_period")
+        profit=to_float(coalesce_field(record, "Profit", "profit", "NP")),
+        fiscal_period=to_period(
+            coalesce_field(record, "TypeOfCurrentPeriod", "type_of_current_period")
         ),
-        fiscal_year_end=_parse_optional_date(
-            _coalesce_field(record, "CurrentFiscalYearEndDate", "current_fiscal_year_end_date")
+        fiscal_year_end=parse_optional_date(
+            coalesce_field(record, "CurrentFiscalYearEndDate", "current_fiscal_year_end_date")
         ),
-        period_start=_parse_optional_date(
-            _coalesce_field(record, "CurrentPeriodStartDate", "current_period_start_date")
+        period_start=parse_optional_date(
+            coalesce_field(record, "CurrentPeriodStartDate", "current_period_start_date")
         ),
-        period_end=_parse_optional_date(
-            _coalesce_field(record, "CurrentPeriodEndDate", "current_period_end_date")
+        period_end=parse_optional_date(
+            coalesce_field(record, "CurrentPeriodEndDate", "current_period_end_date")
         ),
     )

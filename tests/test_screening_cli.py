@@ -1142,7 +1142,7 @@ class SelectCommandTests(unittest.TestCase):
                     "valid_until": (asof + timedelta(days=7)).isoformat(),
                     "published_at": f"{asof.isoformat()}T00:00:00+09:00",
                     "summary": "test",
-                    "inputs": {"articles": [], "stats_series": []},
+                    "inputs": {"articles": [], "indicator_series": []},
                     "sector_tilts": {"items": sectors_payload},
                     "research_questions": ["test question"],
                     "refresh_triggers": ["test trigger"],

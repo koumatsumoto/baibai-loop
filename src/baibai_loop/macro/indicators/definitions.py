@@ -28,7 +28,7 @@ class SeriesDefinition:
 
 
 @dataclass(frozen=True)
-class StatsDefinitions:
+class IndicatorDefinitions:
     series: tuple[SeriesDefinition, ...]
 
     def by_id(self) -> dict[str, SeriesDefinition]:
@@ -48,11 +48,13 @@ class StatsDefinitions:
         return tuple(matched)
 
 
-def load_definitions(path: Path = DEFAULT_DEFINITIONS_PATH) -> StatsDefinitions:
+def load_definitions(path: Path = DEFAULT_DEFINITIONS_PATH) -> IndicatorDefinitions:
     raw = safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
-        raise ValueError(f"stats definitions root must be a mapping: {path}")
-    return StatsDefinitions(series=tuple(_parse_series(item) for item in _list(raw.get("series"))))
+        raise ValueError(f"indicator definitions root must be a mapping: {path}")
+    return IndicatorDefinitions(
+        series=tuple(_parse_series(item) for item in _list(raw.get("series")))
+    )
 
 
 def _parse_series(raw: object) -> SeriesDefinition:
@@ -87,7 +89,7 @@ def _list(raw: object) -> list[object]:
 def _required_str(entry: Mapping[str, object], key: str) -> str:
     value = entry.get(key)
     if not isinstance(value, str) or not value:
-        raise ValueError(f"stats definition field {key!r} must be a non-empty string")
+        raise ValueError(f"indicator definition field {key!r} must be a non-empty string")
     return value
 
 
@@ -102,4 +104,4 @@ def _optional_int(entry: Mapping[str, object], key: str) -> int | None:
         return None
     if isinstance(value, int):
         return value
-    raise ValueError(f"stats definition field {key!r} must be an integer")
+    raise ValueError(f"indicator definition field {key!r} must be an integer")

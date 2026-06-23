@@ -12,7 +12,7 @@ from ..definitions import SeriesDefinition
 from .base import (
     FetchContext,
     HttpSession,
-    StatsProviderError,
+    IndicatorsProviderError,
     record_observation,
 )
 
@@ -48,7 +48,7 @@ def parse_manual_entries(
     data = _data_mapping(raw_entries)
     entries = data.get(series.provider_series_id)
     if entries is None:
-        raise StatsProviderError(f"manual data missing series {series.provider_series_id}")
+        raise IndicatorsProviderError(f"manual data missing series {series.provider_series_id}")
     observations: list[ObservationRecord] = []
     for raw_entry in _entry_list(entries):
         entry = _entry_mapping(raw_entry)
@@ -62,19 +62,19 @@ def parse_manual_entries(
 
 def _data_mapping(raw: object) -> Mapping[str, object]:
     if not isinstance(raw, dict):
-        raise StatsProviderError("manual data root must be a mapping")
+        raise IndicatorsProviderError("manual data root must be a mapping")
     return cast(Mapping[str, object], raw)
 
 
 def _entry_list(raw: object) -> list[object]:
     if not isinstance(raw, list):
-        raise StatsProviderError("manual data series entries must be a list")
+        raise IndicatorsProviderError("manual data series entries must be a list")
     return cast(list[object], raw)
 
 
 def _entry_mapping(raw: object) -> Mapping[str, object]:
     if not isinstance(raw, dict):
-        raise StatsProviderError("manual data entry must be a mapping")
+        raise IndicatorsProviderError("manual data entry must be a mapping")
     return cast(Mapping[str, object], raw)
 
 
@@ -83,10 +83,10 @@ def _entry_date(value: object) -> date:
         return date.fromisoformat(value)
     if isinstance(value, date):
         return value
-    raise StatsProviderError(f"manual entry 'date' must be a date or ISO string: {value!r}")
+    raise IndicatorsProviderError(f"manual entry 'date' must be a date or ISO string: {value!r}")
 
 
 def _entry_value(value: object) -> float:
     if isinstance(value, (int, float)):
         return float(value)
-    raise StatsProviderError(f"manual entry 'value' must be numeric: {value!r}")
+    raise IndicatorsProviderError(f"manual entry 'value' must be numeric: {value!r}")

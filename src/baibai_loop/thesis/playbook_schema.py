@@ -1,4 +1,4 @@
-"""Per-playbook schema loader for research markdown body sections."""
+"""Per-playbook schema loader for thesis markdown body sections."""
 
 from __future__ import annotations
 
@@ -6,9 +6,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from baibai_loop.foundation.errors import ValidationFinding
 from baibai_loop.foundation.yaml_io import safe_load
-
-from .errors import ValidationFinding
 
 
 class PlaybookSchemaError(ValueError):

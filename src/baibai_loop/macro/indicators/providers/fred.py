@@ -10,7 +10,7 @@ from .base import (
     MAX_CSV_RESPONSE_BYTES,
     FetchContext,
     HttpSession,
-    StatsProviderError,
+    IndicatorsProviderError,
     fetch_text,
     parse_float,
     record_observation,
@@ -46,7 +46,7 @@ def parse_fred_csv(
 ) -> list[ObservationRecord]:
     reader = csv.DictReader(io.StringIO(text))
     if reader.fieldnames is None or series.provider_series_id not in reader.fieldnames:
-        raise StatsProviderError(f"FRED CSV missing column {series.provider_series_id}")
+        raise IndicatorsProviderError(f"FRED CSV missing column {series.provider_series_id}")
     observations: list[ObservationRecord] = []
     for row in reader:
         observed_at_raw = row.get("observation_date")

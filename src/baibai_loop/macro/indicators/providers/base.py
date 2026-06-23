@@ -13,8 +13,8 @@ MAX_CSV_RESPONSE_BYTES = 8_000_000
 MAX_ZIP_RESPONSE_BYTES = 16_000_000
 
 
-class StatsProviderError(RuntimeError):
-    """Raised when a stats provider cannot return requested observations."""
+class IndicatorsProviderError(RuntimeError):
+    """Raised when an indicator provider cannot return requested observations."""
 
 
 class FetchContext:
@@ -94,7 +94,9 @@ def fetch_bytes(
             except ValueError:
                 parsed_length = None
             if parsed_length is not None and parsed_length > max_bytes:
-                raise StatsProviderError(f"stats response too large: {parsed_length} bytes")
+                raise IndicatorsProviderError(
+                    f"indicator response too large: {parsed_length} bytes"
+                )
         chunks: list[bytes] = []
         total = 0
         for chunk in response.iter_content(chunk_size=64 * 1024):
@@ -102,11 +104,11 @@ def fetch_bytes(
                 continue
             total += len(chunk)
             if total > max_bytes:
-                raise StatsProviderError(f"stats response too large: {total} bytes")
+                raise IndicatorsProviderError(f"indicator response too large: {total} bytes")
             chunks.append(chunk)
         content = b"".join(chunks)
     except requests.RequestException as exc:
-        raise StatsProviderError(f"failed to fetch {url}: {exc}") from exc
+        raise IndicatorsProviderError(f"failed to fetch {url}: {exc}") from exc
     if context is not None:
         context.bytes_cache[key] = content
     return content
@@ -116,14 +118,14 @@ def _raise_for_response(response: requests.Response, url: str) -> None:
     try:
         response.raise_for_status()
     except requests.RequestException as exc:
-        raise StatsProviderError(f"failed to fetch {url}: {exc}") from exc
+        raise IndicatorsProviderError(f"failed to fetch {url}: {exc}") from exc
 
 
 def parse_float(value: str) -> float:
     try:
         return float(value.replace(",", ""))
     except ValueError as exc:
-        raise StatsProviderError(f"invalid numeric value: {value!r}") from exc
+        raise IndicatorsProviderError(f"invalid numeric value: {value!r}") from exc
 
 
 def parse_optional_float(value: str | None) -> float | None:

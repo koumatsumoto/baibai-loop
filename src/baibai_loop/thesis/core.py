@@ -10,18 +10,18 @@ from pathlib import Path
 import yaml
 from jsonschema import Draft202012Validator, FormatChecker
 
+from baibai_loop.foundation.errors import ValidationFinding
 from baibai_loop.foundation.yaml_io import safe_load
-from baibai_loop.validation.errors import ValidationFinding
-from baibai_loop.validation.playbook_schema import (
+
+from .fields import _check_decision, _check_playbook, _check_ticker
+from .macro_context import _check_macro_context_fit
+from .payoff import _check_corporate_action_check, _check_payoff
+from .playbook_schema import (
     PlaybookSchemaError,
     discover_playbook_schemas,
     load_playbook_schema,
     validate_thesis_body,
 )
-
-from .fields import _check_decision, _check_playbook, _check_ticker
-from .macro_context import _check_macro_context_fit
-from .payoff import _check_corporate_action_check, _check_payoff
 from .preflight import _check_entry_preflight
 from .refs import _check_reference_refs
 from .shared import _format_path

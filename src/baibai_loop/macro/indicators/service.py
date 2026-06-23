@@ -25,7 +25,7 @@ class QueryResult:
     cache_hit: bool
 
 
-class StatsService:
+class IndicatorsService:
     def __init__(self, db_path: Path = db.DEFAULT_DB_PATH) -> None:
         self.db_path = db_path
 

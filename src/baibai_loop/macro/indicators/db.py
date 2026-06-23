@@ -7,11 +7,11 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import cast
 
-from .definitions import SeriesDefinition, StatsDefinitions, load_definitions
+from .definitions import IndicatorDefinitions, SeriesDefinition, load_definitions
 
 SQLITE_SCHEMA_VERSION = 2
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
-DEFAULT_DB_PATH = Path("data/stats/macro.sqlite")
+DEFAULT_DB_PATH = Path("data/indicators/macro.sqlite")
 _ROW_COUNT_SQL = {
     "series": "SELECT COUNT(*) FROM series",
     "aliases": "SELECT COUNT(*) FROM aliases",
@@ -49,8 +49,8 @@ PRAGMA user_version = 2;
 """
 
 
-class StatsSchemaError(RuntimeError):
-    """Raised when the stats SQLite schema is missing or unsupported."""
+class IndicatorsSchemaError(RuntimeError):
+    """Raised when the indicator SQLite schema is missing or unsupported."""
 
 
 @dataclass(frozen=True)
@@ -69,7 +69,7 @@ class ObservationRecord:
 def initialize_database(
     db_path: Path = DEFAULT_DB_PATH,
     *,
-    definitions: StatsDefinitions | None = None,
+    definitions: IndicatorDefinitions | None = None,
 ) -> sqlite3.Connection:
     conn = _connect(db_path)
     try:
@@ -99,12 +99,12 @@ def open_connection(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
 def validate_current_schema(conn: sqlite3.Connection) -> None:
     version = int(conn.execute("PRAGMA user_version").fetchone()[0])
     if version != SQLITE_SCHEMA_VERSION:
-        raise StatsSchemaError(
-            f"unsupported stats SQLite schema: {version}; expected {SQLITE_SCHEMA_VERSION}"
+        raise IndicatorsSchemaError(
+            f"unsupported indicator SQLite schema: {version}; expected {SQLITE_SCHEMA_VERSION}"
         )
 
 
-def seed_definitions(conn: sqlite3.Connection, definitions: StatsDefinitions) -> None:
+def seed_definitions(conn: sqlite3.Connection, definitions: IndicatorDefinitions) -> None:
     series_ids = tuple(series.series_id for series in definitions.series)
     conn.execute("DELETE FROM aliases")
     _delete_rows_not_in(conn, "provider_runs", "series_id", series_ids)
@@ -151,7 +151,7 @@ def seed_definitions(conn: sqlite3.Connection, definitions: StatsDefinitions) ->
 def get_series(conn: sqlite3.Connection, series_id: str) -> SeriesDefinition:
     row = conn.execute("SELECT * FROM series WHERE series_id = ?", (series_id,)).fetchone()
     if row is None:
-        raise KeyError(f"unknown stats series: {series_id}")
+        raise KeyError(f"unknown indicator series: {series_id}")
     alias_rows = conn.execute(
         "SELECT alias FROM aliases WHERE series_id = ? ORDER BY alias",
         (series_id,),
@@ -318,8 +318,8 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         conn.executescript(_MIGRATE_V1_TO_V2_SQL)
         return
     if version != 0:
-        raise StatsSchemaError(
-            f"unsupported stats SQLite schema: {version}; expected {SQLITE_SCHEMA_VERSION}"
+        raise IndicatorsSchemaError(
+            f"unsupported indicator SQLite schema: {version}; expected {SQLITE_SCHEMA_VERSION}"
         )
     conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
 
@@ -362,7 +362,7 @@ def _observation_from_row(row: sqlite3.Row) -> ObservationRecord:
 def row_count(conn: sqlite3.Connection, table: str) -> int:
     sql = _ROW_COUNT_SQL.get(table)
     if sql is None:
-        raise ValueError(f"unsupported stats table: {table}")
+        raise ValueError(f"unsupported indicator table: {table}")
     return cast(int, conn.execute(sql).fetchone()[0])
 
 
@@ -374,9 +374,9 @@ def _delete_rows_not_in(
 ) -> None:
     sql_pair = _SERIES_ID_PRUNE_SQL.get(table)
     if sql_pair is None:
-        raise ValueError(f"unsupported stats table: {table}")
+        raise ValueError(f"unsupported indicator table: {table}")
     if column != "series_id":
-        raise ValueError(f"unsupported stats column: {column}")
+        raise ValueError(f"unsupported indicator column: {column}")
     select_sql, delete_sql = sql_pair
     allowed = set(values)
     stale_ids = {

@@ -6,12 +6,9 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from baibai_loop.foundation.coerce import mapping_or_empty, optional_float
+from baibai_loop.foundation.errors import ValidationFinding
 from baibai_loop.position.policy import PORTFOLIO_POLICY
-from baibai_loop.validation.domain import (
-    as_mapping,
-    number,
-)
-from baibai_loop.validation.errors import ValidationFinding
 
 from .shared import _close
 
@@ -26,7 +23,7 @@ def _check_sizing_invariants(
     path: Path, front_matter: Mapping[str, object]
 ) -> list[ValidationFinding]:
     raw_sizing = front_matter.get("position_sizing_overlay")
-    decision = as_mapping(front_matter.get("thesis_decision"))
+    decision = mapping_or_empty(front_matter.get("thesis_decision"))
     if not isinstance(raw_sizing, Mapping):
         return [
             ValidationFinding(
@@ -60,7 +57,7 @@ def _check_sizing_invariants(
                 )
         return findings
 
-    avg_turnover_oku = number(front_matter.get("avg_turnover_oku"))
+    avg_turnover_oku = optional_float(front_matter.get("avg_turnover_oku"))
     if avg_turnover_oku is None or avg_turnover_oku <= 0:
         findings.append(
             ValidationFinding(
@@ -103,13 +100,13 @@ def _check_approved_position_sizing_limits(
     policy: Mapping[str, Any] = PORTFOLIO_POLICY,
 ) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
-    capital = as_mapping(policy.get("capital_basis"))
-    risk = as_mapping(policy.get("risk_budget"))
-    scaling = as_mapping(policy.get("execution_scaling"))
-    avg_turnover_oku = number(front_matter.get("avg_turnover_oku"))
-    paper_yen = number(sizing.get("paper_proxy_position_size_yen"))
-    real_intent = number(sizing.get("real_order_intent_yen"))
-    adv_participation_pct = number(sizing.get("adv_participation_pct"))
+    capital = mapping_or_empty(policy.get("capital_basis"))
+    risk = mapping_or_empty(policy.get("risk_budget"))
+    scaling = mapping_or_empty(policy.get("execution_scaling"))
+    avg_turnover_oku = optional_float(front_matter.get("avg_turnover_oku"))
+    paper_yen = optional_float(sizing.get("paper_proxy_position_size_yen"))
+    real_intent = optional_float(sizing.get("real_order_intent_yen"))
+    adv_participation_pct = optional_float(sizing.get("adv_participation_pct"))
 
     numeric_fields = {
         "paper_proxy_position_size_yen": paper_yen,
@@ -140,7 +137,7 @@ def _check_approved_position_sizing_limits(
                 severity="error",
                 target=path,
                 code="thesis.paper-proxy-position-size",
-                message="approved research requires positive paper_proxy_position_size_yen",
+                message="approved thesis requires positive paper_proxy_position_size_yen",
                 location="position_sizing_overlay.paper_proxy_position_size_yen",
             )
         )
@@ -163,9 +160,11 @@ def _check_approved_position_sizing_limits(
             )
         )
 
-    scaled_real = paper_yen * ((number(scaling.get("paper_to_real_order_notional_pct")) or 0) / 100)
+    scaled_real = paper_yen * (
+        (optional_float(scaling.get("paper_to_real_order_notional_pct")) or 0) / 100
+    )
 
-    paper_cap = number(risk.get("max_paper_proxy_position_size_yen"))
+    paper_cap = optional_float(risk.get("max_paper_proxy_position_size_yen"))
     if paper_cap is not None and paper_yen > paper_cap:
         findings.append(
             ValidationFinding(
@@ -177,14 +176,14 @@ def _check_approved_position_sizing_limits(
             )
         )
 
-    adv_cap_pct = number(risk.get("max_adv_participation_pct"))
+    adv_cap_pct = optional_float(risk.get("max_adv_participation_pct"))
     liquidity_cap = (
         avg_turnover_oku * 100_000_000 * adv_cap_pct / 100 if adv_cap_pct is not None else None
     )
     real_caps = {
         "paper_to_real_order_notional_pct": scaled_real,
-        "tactical_real_budget_yen": number(capital.get("tactical_real_budget_yen")),
-        "max_real_order_notional_yen": number(risk.get("max_real_order_notional_yen")),
+        "tactical_real_budget_yen": optional_float(capital.get("tactical_real_budget_yen")),
+        "max_real_order_notional_yen": optional_float(risk.get("max_real_order_notional_yen")),
         "max_adv_participation_pct": liquidity_cap,
     }
     for cap_name, cap_value in real_caps.items():

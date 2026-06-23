@@ -101,7 +101,7 @@ inputs:
       url: https://www.idc.com/resource-center/blog/7x-growth-in-just-three-years-japans-ai-infrastructure-will-surge-past-5-5-billion-in-2026-idc-reveals/
       published_at: '2026-04-01'
       used_for: 国内 AI/DX 需要の構造拡大（内需 SI/SaaS の息の長い追い風）
-  stats_series:
+  indicator_series:
     - series_id: nikkei_225
       window: 1w
       used_for: 6/15 史上最高値 69,317.50（6/8 安値 64,024 から +8% の V 字）。指数は最高値圏＝押し目ではない

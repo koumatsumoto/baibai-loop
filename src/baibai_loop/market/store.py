@@ -15,10 +15,10 @@ from pathlib import Path
 from baibai_loop.market.bars import JQuantsDailyBar, JQuantsMarketCalendarDay
 from baibai_loop.market.jquants import JQuantsProviderError
 from baibai_loop.market.sqlite import (
-    _connect_current,
-    _daily_bars_covered_by_data,
-    _optional_float,
-    _range_covered,
+    connect_current,
+    daily_bars_covered_by_data,
+    optional_float,
+    range_covered,
 )
 
 
@@ -28,11 +28,11 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
     """
     if not sqlite_path.exists():
         return None
-    conn = _connect_current(sqlite_path)
+    conn = connect_current(sqlite_path)
     if conn is None:
         return None
     try:
-        if not _daily_bars_covered_by_data(conn, start, end):
+        if not daily_bars_covered_by_data(conn, start, end):
             return None
         rows = conn.execute(
             "SELECT ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor "
@@ -53,9 +53,9 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
                     ticker=str(ticker),
                     traded_at=date.fromisoformat(traded_at),
                     close=float(close),
-                    turnover_value=_optional_float(turnover_value),
-                    adjustment_close=_optional_float(adjustment_close),
-                    adjustment_factor=_optional_float(adjustment_factor),
+                    turnover_value=optional_float(turnover_value),
+                    adjustment_close=optional_float(adjustment_close),
+                    adjustment_factor=optional_float(adjustment_factor),
                 )
             )
         except (TypeError, ValueError) as exc:
@@ -74,7 +74,7 @@ def latest_daily_bar_date(sqlite_path: Path, start: date, end: date) -> date | N
     """
     if not sqlite_path.exists():
         return None
-    conn = _connect_current(sqlite_path)
+    conn = connect_current(sqlite_path)
     if conn is None:
         return None
     try:
@@ -100,11 +100,11 @@ def read_market_calendar(
     """
     if not sqlite_path.exists():
         return None
-    conn = _connect_current(sqlite_path)
+    conn = connect_current(sqlite_path)
     if conn is None:
         return None
     try:
-        if not _range_covered(conn, "jquants_market_calendar", start, end):
+        if not range_covered(conn, "jquants_market_calendar", start, end):
             return None
         rows = conn.execute(
             "SELECT day, is_business_day FROM jquants_market_calendar "

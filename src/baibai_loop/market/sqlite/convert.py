@@ -11,7 +11,7 @@ from baibai_loop.market.jquants import JQuantsProviderError, parse_jquants_code
 
 
 @dataclass(frozen=True, slots=True)
-class _NormalizedRows:
+class NormalizedRows:
     rows: list[tuple[Any, ...]]
     rejected_count: int = 0
     excluded_count: int = 0
@@ -31,7 +31,7 @@ class _NormalizedRows:
         return f"{self.rejected_count} rejected records during normalization"
 
 
-def _code_quality(value: Any) -> tuple[str | None, str]:
+def code_quality(value: Any) -> tuple[str | None, str]:
     if value in (None, ""):
         return None, "rejected"
     try:
@@ -43,7 +43,7 @@ def _code_quality(value: Any) -> tuple[str | None, str]:
     return ticker, "ok"
 
 
-def _normalize_ticker_or_none(value: Any) -> str | None:
+def normalize_ticker_or_none(value: Any) -> str | None:
     if value in (None, ""):
         return None
     try:
@@ -65,26 +65,26 @@ def _parse_with_common_flag(value: Any) -> tuple[str, bool]:
     raise JQuantsProviderError(f"invalid J-Quants code: {value!r}")
 
 
-def _is_common_stock_flag(record: Mapping[str, Any]) -> bool:
+def is_common_stock_flag(record: Mapping[str, Any]) -> bool:
     if "is_common_stock" in record:
         return bool(record["is_common_stock"])
-    code = str(_first(record, "Code", "code") or "").strip()
+    code = str(first(record, "Code", "code") or "").strip()
     if len(code) == 5 and not code.endswith("0"):
         return False
-    raw_type = _to_str_or_none(_first(record, "TypeOfDocument", "SecurityType", "security_type"))
+    raw_type = to_str_or_none(first(record, "TypeOfDocument", "SecurityType", "security_type"))
     if raw_type is None:
         return True
     return raw_type.lower() in {"common", "common stock", "普通株"}
 
 
-def _first(record: Mapping[str, Any], *keys: str) -> Any:
+def first(record: Mapping[str, Any], *keys: str) -> Any:
     for key in keys:
         if key in record and record[key] not in (None, ""):
             return record[key]
     return None
 
 
-def _to_float(value: Any) -> float | None:
+def to_float(value: Any) -> float | None:
     if value in (None, "", "-", "null"):
         return None
     try:
@@ -96,20 +96,20 @@ def _to_float(value: Any) -> float | None:
     return result
 
 
-def _to_str_or_none(value: Any) -> str | None:
+def to_str_or_none(value: Any) -> str | None:
     if value in (None, ""):
         return None
     return str(value)
 
 
-def _date_iso(value: Any) -> str | None:
+def date_iso(value: Any) -> str | None:
     if value in (None, ""):
         return None
     text = str(value)
     return text[:10]
 
 
-def _optional_float(value: object) -> float | None:
+def optional_float(value: object) -> float | None:
     if isinstance(value, (int, float, str)):
         try:
             return float(value)
@@ -118,7 +118,7 @@ def _optional_float(value: object) -> float | None:
     return None
 
 
-def _optional_date(value: object) -> date | None:
+def optional_date(value: object) -> date | None:
     if value in (None, ""):
         return None
     try:

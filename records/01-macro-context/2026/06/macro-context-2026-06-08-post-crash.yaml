@@ -33,7 +33,7 @@ inputs:
       url: https://www.nomura.co.jp/wealthstyle/article/0667/
       published_at: '2026-06-08T00:00:00+09:00'
       used_for: 急落が景気・業績下振れを相当織り込む水準という sell-side 見解。[補助外] 事実記述として参照
-  stats_series:
+  indicator_series:
     - series_id: nikkei_225
       window: 1w
       used_for: 6/8 終値 64,024（-3.85%）。YTD 高値 ~68,670 からの調整深度

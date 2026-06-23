@@ -238,8 +238,7 @@ type = "forbidden"
 # thesis consumes screening.regime + position.policy to gate and size theses, so
 # it sits above every data/analysis layer. Forbid the reverse edges to keep the
 # DAG acyclic; validation is intentionally excluded because validation.cli drives
-# thesis validation (validation -> thesis), while thesis -> validation primitives
-# (errors / domain / playbook_schema) is the allowed upward dependency.
+# thesis validation (validation -> thesis).
 source_modules = [
   "baibai_loop.foundation",
   "baibai_loop.market",

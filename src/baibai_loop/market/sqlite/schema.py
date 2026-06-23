@@ -319,7 +319,7 @@ def open_connection(db_path: Path) -> sqlite3.Connection:
         raise
 
 
-def _connect_current(sqlite_path: Path) -> sqlite3.Connection | None:
+def connect_current(sqlite_path: Path) -> sqlite3.Connection | None:
     """Open an existing store only when it already matches the current schema.
 
     Returns `None` for a missing/legacy/corrupt file so read helpers degrade to

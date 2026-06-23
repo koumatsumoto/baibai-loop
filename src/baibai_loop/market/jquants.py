@@ -23,10 +23,10 @@ class JQuantsProviderError(RuntimeError):
 
 def parse_jquants_code(code: Any) -> str:
     """Return the 4-char ticker portion of a J-Quants 5-char issue code."""
-    return _parse_jquants_code(code)[0]
+    return parse_jquants_code_parts(code)[0]
 
 
-def _parse_jquants_code(code: Any) -> tuple[str, bool]:
+def parse_jquants_code_parts(code: Any) -> tuple[str, bool]:
     raw = str(code or "").strip().upper()
     if len(raw) == 4:
         return normalize_ticker(raw), True
@@ -39,12 +39,12 @@ def _parse_jquants_code(code: Any) -> tuple[str, bool]:
 
 
 def normalize_daily_bar(record: Mapping[str, Any]) -> JQuantsDailyBar | None:
-    ticker, common_code = _parse_jquants_code(_first_value(record, "Code", "code"))
+    ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
     if not common_code:
         return None
     # `or` チェーンは 0.0 を falsy 扱いして次キーに進むため、0 close/turnover の銘柄を
     # 欠損と誤判定する。キー存在と非 None を基準に最初の値を取る。
-    close = _to_float(_coalesce_field(record, "Close", "close", "C", "c", "AdjC", "adj_close"))
+    close = to_float(coalesce_field(record, "Close", "close", "C", "c", "AdjC", "adj_close"))
     if close is None:
         # Non-trading day or missing close; treat as absent bar so history stays clean.
         return None
@@ -52,20 +52,20 @@ def normalize_daily_bar(record: Mapping[str, Any]) -> JQuantsDailyBar | None:
     # raw `close` so that latest-day calculations stay on the unadjusted price
     # while historical series can use the adjusted value to avoid jumps at
     # split dates.
-    adjustment_close = _to_float(
-        _coalesce_field(record, "AdjustmentClose", "adjustment_close", "AdjC", "adj_c")
+    adjustment_close = to_float(
+        coalesce_field(record, "AdjustmentClose", "adjustment_close", "AdjC", "adj_c")
     )
-    adjustment_factor = _to_float(
-        _coalesce_field(record, "AdjustmentFactor", "adjustment_factor", "AdjFactor")
+    adjustment_factor = to_float(
+        coalesce_field(record, "AdjustmentFactor", "adjustment_factor", "AdjFactor")
     )
     return JQuantsDailyBar(
         ticker=ticker,
-        traded_at=_parse_date(_first_value(record, "Date", "date", "TradedAt", "traded_at")),
+        traded_at=parse_date(first_value(record, "Date", "date", "TradedAt", "traded_at")),
         close=close,
         adjustment_close=adjustment_close,
         adjustment_factor=adjustment_factor,
-        turnover_value=_to_float(
-            _coalesce_field(
+        turnover_value=to_float(
+            coalesce_field(
                 record,
                 "TurnoverValue",
                 "turnover_value",
@@ -80,7 +80,7 @@ def normalize_daily_bar(record: Mapping[str, Any]) -> JQuantsDailyBar | None:
 
 def normalize_market_calendar(record: Mapping[str, Any]) -> JQuantsMarketCalendarDay:
     return JQuantsMarketCalendarDay(
-        day=_parse_date(_first_value(record, "Date", "date")),
+        day=parse_date(first_value(record, "Date", "date")),
         is_business_day=bool(
             record.get("is_business_day")
             if "is_business_day" in record
@@ -163,7 +163,7 @@ def _stringify_dates(params: Mapping[str, Any]) -> dict[str, Any]:
     return output
 
 
-def _parse_date(value: Any) -> date:
+def parse_date(value: Any) -> date:
     if isinstance(value, datetime):
         return value.date()
     if isinstance(value, date):
@@ -182,19 +182,19 @@ def _parse_yyyymmdd_param(value: Any) -> date | None:
         return None
 
 
-def _parse_optional_date(value: Any) -> date | None:
+def parse_optional_date(value: Any) -> date | None:
     if value in (None, ""):
         return None
-    return _parse_date(value)
+    return parse_date(value)
 
 
-def _to_period(value: Any) -> str | None:
+def to_period(value: Any) -> str | None:
     if value in (None, ""):
         return None
     return str(value).strip().upper()
 
 
-def _to_float(value: Any) -> float | None:
+def to_float(value: Any) -> float | None:
     if value in (None, "", "-", "null"):
         return None
     try:
@@ -208,7 +208,7 @@ def _to_float(value: Any) -> float | None:
     return result
 
 
-def _first_value(record: Mapping[str, Any], *keys: str, default: Any = None) -> Any:
+def first_value(record: Mapping[str, Any], *keys: str, default: Any = None) -> Any:
     for key in keys:
         if key in record and record[key] not in (None, ""):
             return record[key]
@@ -218,7 +218,7 @@ def _first_value(record: Mapping[str, Any], *keys: str, default: Any = None) -> 
     raise JQuantsProviderError(f"missing required field in payload: {joined}")
 
 
-def _coalesce_field(record: Mapping[str, Any], *keys: str) -> Any:
+def coalesce_field(record: Mapping[str, Any], *keys: str) -> Any:
     """Return the first key's value that is explicitly present and non-null/empty.
 
     Unlike chained `or`, this does NOT treat 0 / 0.0 / False as missing — so it is safe

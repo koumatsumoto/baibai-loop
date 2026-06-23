@@ -113,3 +113,7 @@ def parse_datetime(value: object) -> datetime | None:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+
+
+def list_or_empty(value: object) -> list[object]:
+    return value if isinstance(value, list) else []

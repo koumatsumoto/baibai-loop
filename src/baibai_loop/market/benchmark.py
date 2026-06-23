@@ -15,19 +15,19 @@ from baibai_loop.market.price_asof import resolve_price_on_or_before
 NIKKEI225_ETF_PROXY = "1321"
 
 
-def _price_on_or_before(ticker: str, target: date, bars: Sequence[JQuantsDailyBar]) -> float | None:
+def price_on_or_before(ticker: str, target: date, bars: Sequence[JQuantsDailyBar]) -> float | None:
     resolved = resolve_price_on_or_before(ticker, target, bars)
     return resolved.price if resolved is not None else None
 
 
-def _benchmark_return(
+def benchmark_return(
     benchmark_ticker: str,
     entry_date: date,
     asof: date,
     bars: Sequence[JQuantsDailyBar],
 ) -> float | None:
-    entry_price = _price_on_or_before(benchmark_ticker, entry_date, bars)
-    eval_price = _price_on_or_before(benchmark_ticker, asof, bars)
+    entry_price = price_on_or_before(benchmark_ticker, entry_date, bars)
+    eval_price = price_on_or_before(benchmark_ticker, asof, bars)
     if entry_price is None or eval_price is None or entry_price == 0:
         return None
     return eval_price / entry_price - 1

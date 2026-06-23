@@ -1,4 +1,4 @@
-"""Loaders, vocabularies, and small helpers shared across the research validators."""
+"""Loaders, vocabularies, and small helpers shared across the thesis validators."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pathlib import Path
 import yaml
 
 from baibai_loop.foundation.coerce import optional_float
-from baibai_loop.validation.domain import (
+from baibai_loop.foundation.records_ref import (
     repo_root_for,
     repository_ref_error,
     resolve_repository_ref,

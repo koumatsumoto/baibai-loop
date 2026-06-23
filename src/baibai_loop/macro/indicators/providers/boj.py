@@ -14,7 +14,7 @@ from .base import (
     MAX_ZIP_RESPONSE_BYTES,
     FetchContext,
     HttpSession,
-    StatsProviderError,
+    IndicatorsProviderError,
     fetch_bytes,
     record_observation,
 )
@@ -58,7 +58,7 @@ def parse_boj_xlsx(
 ) -> list[ObservationRecord]:
     value_col = _value_column_index(series.provider_series_id)
     if not zipfile.is_zipfile(io.BytesIO(content)):
-        raise StatsProviderError("BOJ response is not a .xlsx (zip) workbook")
+        raise IndicatorsProviderError("BOJ response is not a .xlsx (zip) workbook")
     observations: list[ObservationRecord] = []
     saw_date_row = False
     try:
@@ -84,10 +84,10 @@ def parse_boj_xlsx(
     except Exception as exc:
         # openpyxl / ElementTree raise opaque third-party errors on a corrupt or
         # non-xlsx workbook (InvalidFileException, ParseError, IndexError on an
-        # empty workbook); convert them so the stats CLI never leaks a traceback.
-        raise StatsProviderError(f"BOJ workbook could not be read: {exc}") from exc
+        # empty workbook); convert them so the indicators CLI never leaks a traceback.
+        raise IndicatorsProviderError(f"BOJ workbook could not be read: {exc}") from exc
     if not saw_date_row:
-        raise StatsProviderError("BOJ workbook has no parseable date rows")
+        raise IndicatorsProviderError("BOJ workbook has no parseable date rows")
     return observations
 
 
@@ -95,11 +95,11 @@ def _value_column_index(provider_series_id: str) -> int:
     try:
         index = int(provider_series_id)
     except ValueError:
-        raise StatsProviderError(
+        raise IndicatorsProviderError(
             f"BOJ provider_series_id must be a 1-based column index: {provider_series_id!r}"
         ) from None
     if index < 2:
-        raise StatsProviderError(
+        raise IndicatorsProviderError(
             f"BOJ value column index must be a 1-based value column (>= 2): {index}"
         )
     return index

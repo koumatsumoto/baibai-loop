@@ -7,9 +7,8 @@ from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
 
+from baibai_loop.foundation.errors import ValidationFinding
 from baibai_loop.position.decision_register import validate_decision_register_jsonl
-
-from .errors import ValidationFinding
 
 SCHEMA_ROOT = Path(__file__).resolve().parents[3] / "records" / "_schemas"
 

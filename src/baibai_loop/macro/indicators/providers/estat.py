@@ -12,7 +12,7 @@ from .base import (
     MAX_CSV_RESPONSE_BYTES,
     FetchContext,
     HttpSession,
-    StatsProviderError,
+    IndicatorsProviderError,
     fetch_text,
     parse_float,
     record_observation,
@@ -43,7 +43,7 @@ class EStatProvider:
     ) -> list[ObservationRecord]:
         app_id = os.environ.get("ESTAT_APP_ID")
         if not app_id:
-            raise StatsProviderError("e-Stat appId not set: export ESTAT_APP_ID")
+            raise IndicatorsProviderError("e-Stat appId not set: export ESTAT_APP_ID")
         stats_data_id, narrowing = _split_stats_data_id(series.provider_series_id)
         params = {
             "appId": app_id,
@@ -83,7 +83,7 @@ def parse_estat_json(
     try:
         payload: object = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise StatsProviderError(f"e-Stat response is not valid JSON: {exc}") from exc
+        raise IndicatorsProviderError(f"e-Stat response is not valid JSON: {exc}") from exc
     observations: list[ObservationRecord] = []
     for entry in _extract_value_entries(payload):
         if not isinstance(entry, dict):
@@ -101,7 +101,7 @@ def parse_estat_json(
 
 def _extract_value_entries(payload: object) -> list[object]:
     if not isinstance(payload, dict):
-        raise StatsProviderError("e-Stat response is not a JSON object")
+        raise IndicatorsProviderError("e-Stat response is not a JSON object")
     root = cast(Mapping[str, object], payload)
     get_stats_data = _require_mapping(root.get("GET_STATS_DATA"), "GET_STATS_DATA")
     statistical_data = _require_mapping(get_stats_data.get("STATISTICAL_DATA"), "STATISTICAL_DATA")
@@ -111,12 +111,12 @@ def _extract_value_entries(payload: object) -> list[object]:
         return [value_node]
     if isinstance(value_node, list):
         return cast(list[object], value_node)
-    raise StatsProviderError("e-Stat response missing DATA_INF.VALUE list")
+    raise IndicatorsProviderError("e-Stat response missing DATA_INF.VALUE list")
 
 
 def _require_mapping(node: object, label: str) -> Mapping[str, object]:
     if not isinstance(node, dict):
-        raise StatsProviderError(f"e-Stat response missing {label} object")
+        raise IndicatorsProviderError(f"e-Stat response missing {label} object")
     return cast(Mapping[str, object], node)
 
 

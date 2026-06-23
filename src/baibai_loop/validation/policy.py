@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .errors import ValidationFinding
+from baibai_loop.foundation.errors import ValidationFinding
 
 
 def discover_policy_files(root: Path) -> list[Path]:

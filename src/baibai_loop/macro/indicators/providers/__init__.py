@@ -9,8 +9,8 @@ from ..definitions import SeriesDefinition
 from .base import (
     FetchContext,
     HttpSession,
+    IndicatorsProviderError,
     MacroDataProvider,
-    StatsProviderError,
 )
 from .boj import BojProvider, parse_boj_xlsx
 from .ecb_fx import EcbFxProvider, parse_ecb_fx_csv
@@ -22,8 +22,8 @@ from .manual import ManualProvider, parse_manual_entries
 
 __all__ = [
     "FetchContext",
+    "IndicatorsProviderError",
     "MacroDataProvider",
-    "StatsProviderError",
     "fetch_observations",
     "parse_boj_xlsx",
     "parse_ecb_fx_csv",
@@ -70,5 +70,5 @@ def fetch_observations(
 def _resolve_provider(name: str) -> MacroDataProvider:
     provider = _PROVIDERS.get(name)
     if provider is None:
-        raise StatsProviderError(f"unsupported stats provider: {name}")
+        raise IndicatorsProviderError(f"unsupported indicator provider: {name}")
     return provider

@@ -44,11 +44,11 @@ _COUNT_TABLE_SQL = {
 }
 
 
-def _delete_source_coverage(conn: sqlite3.Connection, source: str) -> None:
+def delete_source_coverage(conn: sqlite3.Connection, source: str) -> None:
     conn.execute("DELETE FROM source_coverage WHERE source = ?", (source,))
 
 
-def _delete_overlapping_source_coverage(
+def delete_overlapping_source_coverage(
     conn: sqlite3.Connection,
     source: str,
     start: date,
@@ -62,7 +62,7 @@ def _delete_overlapping_source_coverage(
     )
 
 
-def _record_range_source_coverage(
+def record_range_source_coverage(
     conn: sqlite3.Connection,
     *,
     source: str,
@@ -81,7 +81,7 @@ def _record_range_source_coverage(
     chunk boundaries at ``asof - N days``, so a later bootstrap shifts those
     boundaries; a re-fetch whose chunk only partially overlaps an existing window
     must not delete-and-shrink that window and orphan the rest of it (the bug that
-    left ``_range_covered`` gaps even though the rows were present). ``record_count``
+    left ``range_covered`` gaps even though the rows were present). ``record_count``
     is recomputed over the merged window from the rows themselves -- the DB is the
     source of truth, and the merged window keeps rows preserved outside the
     fetched range.
@@ -92,7 +92,7 @@ def _record_range_source_coverage(
     merged_start, merged_end = requested_start, requested_end
     if status == "ok":
         # Treat windows touching within one day as adjacent so the merged window is
-        # contiguous under `_range_covered` (which tolerates a <=1 day gap).
+        # contiguous under `range_covered` (which tolerates a <=1 day gap).
         window_low = (requested_start - timedelta(days=1)).isoformat()
         window_high = (requested_end + timedelta(days=1)).isoformat()
         # Same bind params and WHERE clause for the select-then-delete pair. The
@@ -121,9 +121,9 @@ def _record_range_source_coverage(
             overlap_params,
         )
     else:
-        _delete_overlapping_source_coverage(conn, source, requested_start, requested_end)
-    persisted_count = _date_range_row_count(conn, table, date_column, merged_start, merged_end)
-    _record_source_coverage(
+        delete_overlapping_source_coverage(conn, source, requested_start, requested_end)
+    persisted_count = date_range_row_count(conn, table, date_column, merged_start, merged_end)
+    record_source_coverage(
         conn,
         source=source,
         coverage_key=_range_coverage_key(operation, merged_start, merged_end),
@@ -136,7 +136,7 @@ def _record_range_source_coverage(
     return persisted_count
 
 
-def _delete_date_range(
+def delete_date_range(
     conn: sqlite3.Connection,
     table: str,
     date_column: str,
@@ -149,7 +149,7 @@ def _delete_date_range(
     )
 
 
-def _date_range_row_count(
+def date_range_row_count(
     conn: sqlite3.Connection,
     table: str,
     date_column: str,
@@ -163,12 +163,12 @@ def _date_range_row_count(
     return int(row[0] or 0)
 
 
-def _table_row_count(conn: sqlite3.Connection, table: str) -> int:
+def table_row_count(conn: sqlite3.Connection, table: str) -> int:
     row = conn.execute(_COUNT_TABLE_SQL[table]).fetchone()
     return int(row[0] or 0)
 
 
-def _record_source_coverage(
+def record_source_coverage(
     conn: sqlite3.Connection,
     *,
     source: str,
@@ -213,13 +213,13 @@ _RANGE_SOURCES_REQUIRING_ROWS = frozenset(
 )
 
 
-def _range_covered(conn: sqlite3.Connection, source: str, start: date, end: date) -> bool:
+def range_covered(conn: sqlite3.Connection, source: str, start: date, end: date) -> bool:
     """True when source_coverage rows collectively span the requested range.
 
     Used for fetch-provenance sources (financial summaries, market calendar)
     whose completeness cannot be re-derived from row presence: a missing filing
     is indistinguishable from "no filing was due". jquants_daily_bars is instead
-    checked by `_daily_bars_covered_by_data`, because every trading day must carry
+    checked by `daily_bars_covered_by_data`, because every trading day must carry
     a full-market row set, so its completeness IS observable from the data.
     """
     try:
@@ -281,7 +281,7 @@ _DAILY_BARS_COVERAGE_QUERY = (
 )
 
 
-def _daily_bars_covered_by_data(conn: sqlite3.Connection, start: date, end: date) -> bool:
+def daily_bars_covered_by_data(conn: sqlite3.Connection, start: date, end: date) -> bool:
     """True when the daily_bars rows themselves span `[start, end]`.
 
     Aggregates the actual table rather than consulting source_coverage, so data

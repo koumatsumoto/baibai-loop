@@ -150,7 +150,7 @@ def _write_macro_context_fixture(root: Path) -> None:
                 "valid_until": "2026-05-17",
                 "published_at": "2026-05-04T20:00:00+09:00",
                 "summary": "test",
-                "inputs": {"articles": [], "stats_series": []},
+                "inputs": {"articles": [], "indicator_series": []},
                 "sector_tilts": {
                     "items": [
                         {

@@ -7,11 +7,8 @@ from pathlib import Path
 
 import yaml
 
-from baibai_loop.validation.domain import (
-    as_list,
-    as_mapping,
-)
-from baibai_loop.validation.errors import ValidationFinding
+from baibai_loop.foundation.coerce import list_or_empty, mapping_or_empty
+from baibai_loop.foundation.errors import ValidationFinding
 
 from .shared import (
     _KNOWN_MACRO_CONTEXT_FRESHNESS,
@@ -86,7 +83,7 @@ def _check_macro_context_fit(
                 severity="error",
                 target=path,
                 code="thesis.macro-context-defer-approved",
-                message="approved research cannot use macro_context_fit.decision_effect: defer",
+                message="approved thesis cannot use macro_context_fit.decision_effect: defer",
                 location="macro_context_fit.decision_effect",
             )
         )
@@ -96,7 +93,7 @@ def _check_macro_context_fit(
                 severity="error",
                 target=path,
                 code="thesis.macro-context-future-approved",
-                message="approved research cannot use a future macro context",
+                message="approved thesis cannot use a future macro context",
                 location="macro_context_fit.context_freshness",
             )
         )
@@ -184,7 +181,7 @@ def _check_macro_context_dates(
                 severity="error",
                 target=path,
                 code="thesis.macro-context-ref-future",
-                message="macro_context_ref.as_of must not be after the research record date",
+                message="macro_context_ref.as_of must not be after the thesis record date",
                 location="macro_context_ref",
             )
         )
@@ -198,7 +195,7 @@ def _check_macro_context_dates(
                 target=path,
                 code="thesis.macro-context-current-window",
                 message=(
-                    "macro_context_fit.context_freshness: current requires research date "
+                    "macro_context_fit.context_freshness: current requires thesis date "
                     "within macro context window"
                 ),
                 location="macro_context_fit.context_freshness",
@@ -246,8 +243,8 @@ def _check_macro_context_sector_fit(
                 location="macro_context_fit.fit",
             )
         )
-    fit_payload = as_mapping(front_matter.get("macro_context_fit"))
-    sizing_caution = as_list(fit_payload.get("sizing_caution"))
+    fit_payload = mapping_or_empty(front_matter.get("macro_context_fit"))
+    sizing_caution = list_or_empty(fit_payload.get("sizing_caution"))
     if (
         outcome == "approved"
         and expected_fit == "headwind"
@@ -260,7 +257,7 @@ def _check_macro_context_sector_fit(
                 target=path,
                 code="thesis.macro-context-headwind-proceed",
                 message=(
-                    "approved research with a macro headwind cannot proceed without "
+                    "approved thesis with a macro headwind cannot proceed without "
                     "macro_context_fit.sizing_caution"
                 ),
                 location="macro_context_fit.sizing_caution",

@@ -18,10 +18,10 @@ from pathlib import Path
 from typing import Any
 
 from baibai_loop.market.sqlite import (
-    _connect_current,
-    _optional_date,
-    _optional_float,
-    _range_covered,
+    connect_current,
+    optional_date,
+    optional_float,
+    range_covered,
 )
 
 from .providers.edinet import EdinetMetricRecord, normalize_metric_record
@@ -39,7 +39,7 @@ def read_eq_master(sqlite_path: Path) -> list[SecurityMaster] | None:
     """
     if not sqlite_path.exists():
         return None
-    conn = _connect_current(sqlite_path)
+    conn = connect_current(sqlite_path)
     if conn is None:
         return None
     try:
@@ -81,11 +81,11 @@ def read_fin_summaries(
     """
     if not sqlite_path.exists():
         return None
-    conn = _connect_current(sqlite_path)
+    conn = connect_current(sqlite_path)
     if conn is None:
         return None
     try:
-        if not _range_covered(conn, "jquants_fin_summaries", start, end):
+        if not range_covered(conn, "jquants_fin_summaries", start, end):
             return None
         rows = conn.execute(
             "SELECT ticker, disclosed_at, forecast_eps, eps_ttm, bps, "
@@ -126,22 +126,22 @@ def read_fin_summaries(
                 JQuantsFinancialSummary(
                     ticker=str(ticker),
                     disclosed_at=date.fromisoformat(disclosed_at),
-                    forecast_eps=_optional_float(forecast_eps),
-                    eps_ttm=_optional_float(eps_ttm),
-                    bps=_optional_float(bps),
-                    shares_outstanding=_optional_float(shares_outstanding),
-                    sales=_optional_float(sales),
-                    cfo=_optional_float(cfo),
-                    cash_eq=_optional_float(cash_eq),
-                    total_assets=_optional_float(total_assets),
-                    equity=_optional_float(equity),
-                    operating_profit=_optional_float(operating_profit),
-                    ordinary_profit=_optional_float(ordinary_profit),
-                    profit=_optional_float(profit),
+                    forecast_eps=optional_float(forecast_eps),
+                    eps_ttm=optional_float(eps_ttm),
+                    bps=optional_float(bps),
+                    shares_outstanding=optional_float(shares_outstanding),
+                    sales=optional_float(sales),
+                    cfo=optional_float(cfo),
+                    cash_eq=optional_float(cash_eq),
+                    total_assets=optional_float(total_assets),
+                    equity=optional_float(equity),
+                    operating_profit=optional_float(operating_profit),
+                    ordinary_profit=optional_float(ordinary_profit),
+                    profit=optional_float(profit),
                     fiscal_period=fiscal_period if fiscal_period else None,
-                    fiscal_year_end=_optional_date(fiscal_year_end),
-                    period_start=_optional_date(period_start),
-                    period_end=_optional_date(period_end),
+                    fiscal_year_end=optional_date(fiscal_year_end),
+                    period_start=optional_date(period_start),
+                    period_end=optional_date(period_end),
                 )
             )
         except (TypeError, ValueError) as exc:
@@ -158,7 +158,7 @@ def read_eq_earnings_cal(sqlite_path: Path, start: date, end: date) -> list[dict
     """
     if not sqlite_path.exists():
         return None
-    conn = _connect_current(sqlite_path)
+    conn = connect_current(sqlite_path)
     if conn is None:
         return None
     try:
@@ -188,7 +188,7 @@ def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, An
     """
     if not sqlite_path.exists():
         return None
-    conn = _connect_current(sqlite_path)
+    conn = connect_current(sqlite_path)
     if conn is None:
         return None
     try:
@@ -245,7 +245,7 @@ def read_edinet_metrics(
     """
     if not sqlite_path.exists():
         return None
-    conn = _connect_current(sqlite_path)
+    conn = connect_current(sqlite_path)
     if conn is None:
         return None
     try:
@@ -311,7 +311,7 @@ def read_jpx_regulations(sqlite_path: Path, asof_date: date) -> JPXRegulationSna
     """
     if not sqlite_path.exists():
         return None
-    conn = _connect_current(sqlite_path)
+    conn = connect_current(sqlite_path)
     if conn is None:
         return None
     try:
@@ -353,7 +353,7 @@ def has_jpx_regulation_data(sqlite_path: Path, asof_date: date) -> bool:
     """
     if not sqlite_path.exists():
         return False
-    conn = _connect_current(sqlite_path)
+    conn = connect_current(sqlite_path)
     if conn is None:
         return False
     try:

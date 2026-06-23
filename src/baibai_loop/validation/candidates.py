@@ -16,9 +16,8 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
+from baibai_loop.foundation.errors import ValidationFinding
 from baibai_loop.foundation.yaml_io import safe_load
-
-from .errors import ValidationFinding
 
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "candidates.json"
 

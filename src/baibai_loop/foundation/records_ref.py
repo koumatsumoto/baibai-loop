@@ -1,4 +1,10 @@
-"""Shared helpers for domain-model validators."""
+"""Repository-relative reference resolution and record payload loading.
+
+Record payloads point at sibling files by repository-relative path. These
+helpers resolve those refs safely — absolute paths and ``..`` escapes are
+rejected so a ref cannot read outside the repository root — and load the
+referenced YAML document or markdown front matter as a mapping.
+"""
 
 from __future__ import annotations
 
@@ -80,29 +86,3 @@ def load_reference_mapping(root: Path, reference: object) -> tuple[Path, Mapping
             raise ValueError(f"{path}: reference payload must be a mapping")
         payload = dict(raw)
     return path, payload
-
-
-def as_mapping(value: object) -> Mapping[str, Any]:
-    return value if isinstance(value, Mapping) else {}
-
-
-def as_list(value: object) -> list[Any]:
-    return value if isinstance(value, list) else []
-
-
-def number(value: object) -> float | None:
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    return None
-
-
-def integer(value: object) -> int | None:
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-    return None

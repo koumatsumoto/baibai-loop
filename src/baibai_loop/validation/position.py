@@ -11,21 +11,21 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
-from baibai_loop.foundation.coerce import optional_float
-from baibai_loop.foundation.yaml_io import safe_load
-from baibai_loop.position.policy import PORTFOLIO_POLICY
-
-from .domain import (
-    as_list,
-    as_mapping,
+from baibai_loop.foundation.coerce import (
+    list_or_empty,
+    mapping_or_empty,
+    optional_float,
+)
+from baibai_loop.foundation.errors import ValidationFinding
+from baibai_loop.foundation.records_ref import (
     load_markdown_front_matter,
     load_reference_mapping,
-    number,
     repo_root_for,
     repository_ref_error,
     resolve_repository_ref,
 )
-from .errors import ValidationFinding
+from baibai_loop.foundation.yaml_io import safe_load
+from baibai_loop.position.policy import PORTFOLIO_POLICY
 
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "position.json"
 
@@ -403,7 +403,7 @@ def _check_trade_safety_gate(path: Path, front: Mapping[str, object]) -> list[Va
                 location="thesis_ref",
             )
         )
-    elif as_mapping(thesis.get("thesis_decision")).get("outcome") != "approved":
+    elif mapping_or_empty(thesis.get("thesis_decision")).get("outcome") != "approved":
         findings.append(
             ValidationFinding(
                 severity="error",
@@ -413,7 +413,7 @@ def _check_trade_safety_gate(path: Path, front: Mapping[str, object]) -> list[Va
                 location="thesis_ref",
             )
         )
-    intent = as_mapping(front.get("order_intent"))
+    intent = mapping_or_empty(front.get("order_intent"))
     if intent.get("uses_margin") is True:
         findings.append(
             ValidationFinding(
@@ -545,7 +545,7 @@ def _check_current_quantity(path: Path, front: Mapping[str, object]) -> list[Val
     if "current_quantity" not in front and front.get("position_state") == "none":
         return []
     expected = 0.0
-    for execution in as_list(front.get("executions")):
+    for execution in list_or_empty(front.get("executions")):
         if not isinstance(execution, Mapping):
             continue
         quantity = optional_float(execution.get("quantity")) or 0.0
@@ -554,7 +554,7 @@ def _check_current_quantity(path: Path, front: Mapping[str, object]) -> list[Val
             expected += quantity
         elif side == "sell":
             expected -= quantity
-    for event in as_list(front.get("corporate_action_events")):
+    for event in list_or_empty(front.get("corporate_action_events")):
         if isinstance(event, Mapping):
             expected += optional_float(event.get("delta_quantity")) or 0.0
     actual = optional_float(front.get("current_quantity"))
@@ -616,10 +616,10 @@ def _check_portfolio_concentration(
     current_notional = _open_trade_notional(front)
     if current_notional is None or current_notional <= 0:
         return []
-    capital = as_mapping(PORTFOLIO_POLICY.get("capital_basis"))
-    risk = as_mapping(PORTFOLIO_POLICY.get("risk_budget"))
-    real_capital_yen = number(capital.get("real_capital_yen"))
-    tactical_budget_yen = number(capital.get("tactical_real_budget_yen"))
+    capital = mapping_or_empty(PORTFOLIO_POLICY.get("capital_basis"))
+    risk = mapping_or_empty(PORTFOLIO_POLICY.get("risk_budget"))
+    real_capital_yen = optional_float(capital.get("real_capital_yen"))
+    tactical_budget_yen = optional_float(capital.get("tactical_real_budget_yen"))
     if real_capital_yen is None and tactical_budget_yen is None:
         return []
     exposures = _open_trade_exposures(repo_root_for(path))
@@ -650,7 +650,7 @@ def _check_portfolio_concentration(
         ("playbook_id", "max_playbook_real_concentration_pct", "position.portfolio-playbook-cap"),
     )
     for field, cap_field, code in checks:
-        cap_pct = number(risk.get(cap_field))
+        cap_pct = optional_float(risk.get(cap_field))
         if cap_pct is None:
             continue
         cap_yen = real_capital_yen * cap_pct / 100
@@ -722,23 +722,23 @@ def _open_trade_notional(front: Mapping[str, Any]) -> float | None:
     }:
         return None
     entry_notional = 0.0
-    for leg in as_list(front.get("entry_legs")):
-        leg_map = as_mapping(leg)
-        quantity = number(leg_map.get("quantity"))
-        price = number(leg_map.get("average_price_yen"))
+    for leg in list_or_empty(front.get("entry_legs")):
+        leg_map = mapping_or_empty(leg)
+        quantity = optional_float(leg_map.get("quantity"))
+        price = optional_float(leg_map.get("average_price_yen"))
         if quantity is not None and price is not None:
             entry_notional += quantity * price
     if entry_notional > 0:
         return entry_notional
-    sizing = as_mapping(front.get("position_sizing_overlay"))
-    fallback = number(sizing.get("estimated_real_order_notional_yen")) or number(
+    sizing = mapping_or_empty(front.get("position_sizing_overlay"))
+    fallback = optional_float(sizing.get("estimated_real_order_notional_yen")) or optional_float(
         sizing.get("guarded_max_notional_yen")
     )
     if fallback is not None:
         return fallback
-    intent = as_mapping(front.get("order_intent"))
-    quantity = number(intent.get("quantity"))
-    guard = number(intent.get("order_price_guard_yen"))
+    intent = mapping_or_empty(front.get("order_intent"))
+    quantity = optional_float(intent.get("quantity"))
+    guard = optional_float(intent.get("order_price_guard_yen"))
     if quantity is not None and guard is not None:
         return quantity * guard
     return None

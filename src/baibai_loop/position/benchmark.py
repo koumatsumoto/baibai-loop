@@ -9,8 +9,10 @@ from baibai_loop.market.benchmark import (
     NIKKEI225_ETF_PROXY as NIKKEI225_ETF_PROXY,
 )
 from baibai_loop.market.benchmark import (
-    _benchmark_return,
-    _price_on_or_before,
+    benchmark_return as compute_benchmark_return,
+)
+from baibai_loop.market.benchmark import (
+    price_on_or_before,
 )
 
 from .trades import TradeRecord
@@ -65,8 +67,8 @@ def compute_forward_performance(
     benchmark_complete = True
     for trade in trades:
         notional = trade.entry_price * trade.quantity
-        eval_price = _price_on_or_before(trade.ticker, asof, bars)
-        benchmark_return = _benchmark_return(benchmark_ticker, trade.entry_date, asof, bars)
+        eval_price = price_on_or_before(trade.ticker, asof, bars)
+        benchmark_return = compute_benchmark_return(benchmark_ticker, trade.entry_date, asof, bars)
         gross_pnl: float | None = None
         return_ratio: float | None = None
         relative: float | None = None

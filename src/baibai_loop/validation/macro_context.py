@@ -12,9 +12,8 @@ import yaml
 from jsonschema import Draft202012Validator
 
 from baibai_loop.foundation.coerce import parse_datetime
+from baibai_loop.foundation.errors import ValidationFinding
 from baibai_loop.foundation.yaml_io import safe_load
-
-from .errors import ValidationFinding
 
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "macro-context.json"
 
@@ -101,17 +100,17 @@ def _validate_custom(path: Path, payload: Mapping[str, Any]) -> list[ValidationF
         )
     inputs = payload.get("inputs")
     has_article = False
-    has_stat = False
+    has_indicator = False
     if isinstance(inputs, Mapping):
         has_article = bool(inputs.get("articles"))
-        has_stat = bool(inputs.get("stats_series"))
-    if not (has_article or has_stat):
+        has_indicator = bool(inputs.get("indicator_series"))
+    if not (has_article or has_indicator):
         findings.append(
             ValidationFinding(
                 severity="warning",
                 target=path,
                 code="macro-context.inputs-empty",
-                message="macro context should include at least one article or stats input",
+                message="macro context should include at least one article or indicator input",
                 location="inputs",
             )
         )

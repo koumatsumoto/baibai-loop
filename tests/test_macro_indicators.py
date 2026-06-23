@@ -29,7 +29,7 @@ from baibai_loop.macro.indicators.db import (
 )
 from baibai_loop.macro.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_loop.macro.indicators.providers import (
-    StatsProviderError,
+    IndicatorsProviderError,
     fetch_observations,
     parse_boj_xlsx,
     parse_ecb_fx_csv,
@@ -39,10 +39,10 @@ from baibai_loop.macro.indicators.providers import (
     parse_manual_entries,
     parse_trades_spec,
 )
-from baibai_loop.macro.indicators.service import StatsService
+from baibai_loop.macro.indicators.service import IndicatorsService
 
 
-class StatsDBTests(unittest.TestCase):
+class IndicatorsDBTests(unittest.TestCase):
     def test_initialize_database_seeds_series_and_aliases(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "macro.sqlite"
@@ -228,7 +228,7 @@ class StatsDBTests(unittest.TestCase):
             self.assertEqual([row[0] for row in rows], ["us.cpi.core", "us.cpi.headline"])
 
 
-class StatsProviderParserTests(unittest.TestCase):
+class IndicatorsProviderParserTests(unittest.TestCase):
     def test_parse_fred_csv_filters_range_and_missing_values(self) -> None:
         series = _series("fred_csv", "DGS10")
         text = "observation_date,DGS10\n2026-05-01,4.39\n2026-05-02,.\n2026-05-04,4.45\n"
@@ -270,7 +270,7 @@ class StatsProviderParserTests(unittest.TestCase):
         series = _series("frb_h15", "RIFLGFCY10_N.B")
         text = '"Time Period",OTHER\n2026-05-01,4.39\n'
 
-        with self.assertRaisesRegex(StatsProviderError, "missing column RIFLGFCY10_N.B"):
+        with self.assertRaisesRegex(IndicatorsProviderError, "missing column RIFLGFCY10_N.B"):
             parse_h15_csv(series, text, start=date(2026, 5, 1), end=date(2026, 5, 1))
 
     def test_parse_ecb_fx_csv_computes_cross_rate(self) -> None:
@@ -291,13 +291,13 @@ class StatsProviderParserTests(unittest.TestCase):
         series = _series("ecb_fx", "USDJPY", unit="jpy-per-usd")
         text = "Date,JPY\n2026-05-08,184.37\n"
 
-        with self.assertRaisesRegex(StatsProviderError, "missing column"):
+        with self.assertRaisesRegex(IndicatorsProviderError, "missing column"):
             parse_ecb_fx_csv(series, text, start=date(2026, 5, 8), end=date(2026, 5, 8))
 
     def test_fetch_observations_wraps_request_exception(self) -> None:
         series = _series("fred_csv", "DGS10")
 
-        with self.assertRaisesRegex(StatsProviderError, "failed to fetch"):
+        with self.assertRaisesRegex(IndicatorsProviderError, "failed to fetch"):
             fetch_observations(
                 series,
                 start=date(2026, 5, 1),
@@ -308,7 +308,7 @@ class StatsProviderParserTests(unittest.TestCase):
     def test_fetch_observations_rejects_oversized_response(self) -> None:
         series = _series("fred_csv", "DGS10")
 
-        with self.assertRaisesRegex(StatsProviderError, "too large"):
+        with self.assertRaisesRegex(IndicatorsProviderError, "too large"):
             fetch_observations(
                 series,
                 start=date(2026, 5, 1),
@@ -345,7 +345,7 @@ class StatsProviderParserTests(unittest.TestCase):
         series = _series("manual", "jp_unknown", unit="count")
         raw = {"jp_pmi_manufacturing": [{"date": date(2026, 1, 1), "value": 49.6}]}
 
-        with self.assertRaisesRegex(StatsProviderError, "jp_unknown"):
+        with self.assertRaisesRegex(IndicatorsProviderError, "jp_unknown"):
             parse_manual_entries(series, raw, start=date(2026, 1, 1), end=date(2026, 12, 31))
 
     def test_parse_manual_entries_accepts_iso_string_date_and_int_value(self) -> None:
@@ -399,14 +399,14 @@ class StatsProviderParserTests(unittest.TestCase):
     def test_parse_boj_xlsx_rejects_non_xlsx_bytes(self) -> None:
         series = _series("boj", "3", unit="jpy-100m")
 
-        with self.assertRaisesRegex(StatsProviderError, "not a .xlsx"):
+        with self.assertRaisesRegex(IndicatorsProviderError, "not a .xlsx"):
             parse_boj_xlsx(series, b"not a zip", start=date(2026, 1, 1), end=date(2026, 12, 31))
 
     def test_parse_boj_xlsx_rejects_non_numeric_column_index(self) -> None:
         content = _boj_workbook_bytes([(None, date(2026, 1, 31), 1.0, 2.0)])
         series = _series("boj", "BS01'MABJMTA", unit="jpy-100m")
 
-        with self.assertRaisesRegex(StatsProviderError, "1-based column index"):
+        with self.assertRaisesRegex(IndicatorsProviderError, "1-based column index"):
             parse_boj_xlsx(series, content, start=date(2026, 1, 1), end=date(2026, 12, 31))
 
     def test_parse_boj_xlsx_wraps_corrupt_zip_as_provider_error(self) -> None:
@@ -415,7 +415,7 @@ class StatsProviderParserTests(unittest.TestCase):
             archive.writestr("not-a-workbook.txt", "garbage")
         series = _series("boj", "3", unit="jpy-100m")
 
-        with self.assertRaisesRegex(StatsProviderError, "could not be read"):
+        with self.assertRaisesRegex(IndicatorsProviderError, "could not be read"):
             parse_boj_xlsx(
                 series, buffer.getvalue(), start=date(2026, 1, 1), end=date(2026, 12, 31)
             )
@@ -468,7 +468,7 @@ class StatsProviderParserTests(unittest.TestCase):
     def test_parse_estat_json_rejects_missing_structure(self) -> None:
         series = _series("estat", "0003427113", unit="index")
 
-        with self.assertRaisesRegex(StatsProviderError, "GET_STATS_DATA"):
+        with self.assertRaisesRegex(IndicatorsProviderError, "GET_STATS_DATA"):
             parse_estat_json(series, "{}", start=date(2026, 1, 1), end=date(2026, 12, 31))
 
     def test_split_stats_data_id_extracts_narrowing_params(self) -> None:
@@ -533,19 +533,19 @@ class StatsProviderParserTests(unittest.TestCase):
         series = _series("jquants_flows", "foreigners_net_value", unit="jpy")
         rows = [{"PubDate": "2026-05-08", "Section": "TSEPrime"}]
 
-        with self.assertRaisesRegex(StatsProviderError, "missing"):
+        with self.assertRaisesRegex(IndicatorsProviderError, "missing"):
             parse_trades_spec(series, rows, start=date(2026, 5, 8), end=date(2026, 5, 8))
 
     def test_fetch_observations_rejects_unknown_provider(self) -> None:
         series = _series("nonexistent_provider", "X")
 
         with self.assertRaisesRegex(
-            StatsProviderError, "unsupported stats provider: nonexistent_provider"
+            IndicatorsProviderError, "unsupported indicator provider: nonexistent_provider"
         ):
             fetch_observations(series, start=date(2026, 5, 1), end=date(2026, 5, 1))
 
 
-class StatsRegistryTests(unittest.TestCase):
+class IndicatorsRegistryTests(unittest.TestCase):
     def test_new_tier1_series_registered_with_expected_provider_and_category(self) -> None:
         by_id = load_definitions().by_id()
         expected = {
@@ -567,7 +567,7 @@ class StatsRegistryTests(unittest.TestCase):
         self.assertEqual(len(series_ids), len(set(series_ids)))
 
 
-class StatsServiceTests(unittest.TestCase):
+class IndicatorsServiceTests(unittest.TestCase):
     def test_get_range_uses_cache_when_coverage_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "macro.sqlite"
@@ -580,7 +580,7 @@ class StatsServiceTests(unittest.TestCase):
                 coverage_end=date(2026, 5, 15),
             )
 
-            result = StatsService(db).get_range(
+            result = IndicatorsService(db).get_range(
                 "us.10y",
                 start=date(2026, 5, 1),
                 end=date(2026, 5, 15),
@@ -605,7 +605,7 @@ class StatsServiceTests(unittest.TestCase):
                 "baibai_loop.macro.indicators.service.fetch_observations",
                 side_effect=AssertionError("provider should not be called"),
             ):
-                result = StatsService(db).get_latest("us.10y")
+                result = IndicatorsService(db).get_latest("us.10y")
 
             self.assertTrue(result.cache_hit)
             self.assertEqual(result.observations[0].observed_at, observed_at)

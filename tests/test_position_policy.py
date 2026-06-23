@@ -10,19 +10,19 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.position.policy import PORTFOLIO_POLICY, validate_policy_config
+from baibai_loop.position.policy import PORTFOLIO_POLICY, validate_policy
 
 
 class PolicyConfigTests(unittest.TestCase):
     def test_portfolio_policy_config_is_complete(self) -> None:
-        validate_policy_config()
+        validate_policy()
 
     def test_portfolio_policy_config_fails_fast_on_missing_threshold(self) -> None:
         policy = copy.deepcopy(PORTFOLIO_POLICY)
         del policy["risk_budget"]["max_real_order_notional_yen"]
 
         with self.assertRaisesRegex(RuntimeError, "max_real_order_notional_yen"):
-            validate_policy_config(policy)
+            validate_policy(policy)
 
 
 if __name__ == "__main__":

@@ -10,8 +10,8 @@ from pathlib import Path
 from baibai_loop.market.sqlite import (
     SQLITE_SCHEMA_VERSION,
     SQLiteSchemaError,
-    _daily_bars_covered_by_data,
-    _range_covered,
+    daily_bars_covered_by_data,
+    range_covered,
     validate_current_schema,
 )
 from baibai_loop.screening.sqlite_reader import (
@@ -126,7 +126,7 @@ def verify_screening_sqlite_coverage(
             # quality / density checks below run regardless of the coverage gate
             # so a grossly incomplete cache reports both the missing window and
             # the specific density problem, rather than only the first failure.
-            bars_window_covered = _daily_bars_covered_by_data(conn, bars_start, asof_date)
+            bars_window_covered = daily_bars_covered_by_data(conn, bars_start, asof_date)
             _append_source_coverage_quality_issues(
                 conn,
                 issues,
@@ -169,7 +169,7 @@ def verify_screening_sqlite_coverage(
                 require_rows=True,
                 enforce_record_count=True,
             )
-            if not _range_covered(conn, "jquants_fin_summaries", fin_start, asof_date):
+            if not range_covered(conn, "jquants_fin_summaries", fin_start, asof_date):
                 _append_source_coverage_quality_issues(
                     conn,
                     issues,
@@ -270,7 +270,7 @@ def verify_screening_sqlite_coverage(
                     require_rows=True,
                     enforce_record_count=True,
                 )
-            if not _range_covered(conn, "jquants_market_calendar", asof_date, asof_date):
+            if not range_covered(conn, "jquants_market_calendar", asof_date, asof_date):
                 _append_source_coverage_quality_issues(
                     conn,
                     issues,
