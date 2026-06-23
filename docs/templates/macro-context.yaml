@@ -5,7 +5,7 @@ valid_until: 'YYYY-MM-DD'
 published_at: 'YYYY-MM-DDTHH:MM:SS+09:00'
 summary: >
   スクリーニング前に確認した macro context。記事本文は保存せず、外部記事 URL と
-  必要な stats series だけを入力メタデータとして残す。
+  必要な indicator series だけを入力メタデータとして残す。
 inputs:
   articles:
     - source: Reuters
@@ -13,7 +13,7 @@ inputs:
       url: https://example.com/article
       published_at: 'YYYY-MM-DDTHH:MM:SS+09:00'
       used_for: why this article matters
-  stats_series:
+  indicator_series:
     - series_id: usd_jpy
       window: 1m
       used_for: why this series matters

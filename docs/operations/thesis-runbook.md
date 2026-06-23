@@ -1,5 +1,5 @@
 ---
-title: "Research runbook"
+title: "Thesis runbook"
 summary: "Operational entry point for creating records/05-thesis packets from candidates and macro context."
 doc_type: operation
 status: active
@@ -12,9 +12,9 @@ related_docs:
   - "./task-runbook.md"
 ---
 
-# Research runbook
+# Thesis runbook
 
-Research は `records/04-candidates/` と `records/01-macro-context/` を統合する analysis layer です。packet の contract、front matter、AI 境界、self-review は [`../components/thesis.md`](../components/thesis.md) を正本とします。
+Thesis は `records/04-candidates/` と `records/01-macro-context/` を統合する analysis layer です。packet の contract、front matter、AI 境界、self-review は [`../components/thesis.md`](../components/thesis.md) を正本とします。
 
 ## Before writing
 

@@ -156,8 +156,8 @@ macro context がなければ research の前提を確認できない。これ�
 | --- | --- | --- | --- |
 | `macro context` | macro context | マクロ環境分析 | screening 前に読む経済・市場・sector 前提をそのまま表す |
 | `candidates` | screen output | 通過銘柄リスト | 機械的ふるいで残った銘柄群というデータの実体を直接表す |
-| `research` | investment memo | 個別銘柄リサーチ | 業界標準の memo 形式に寄せつつ、repository path としては research を維持できる |
-| `trades` | execution record | 売買執行記録 | trade / order / fill / cancellation を execution layer として扱える |
+| `thesis` | investment memo | 個別銘柄の投資仮説 | investment thesis（投資仮説）という成果物の本質を表し、memo 形式は業界標準に寄せる |
+| `position` | execution record | 売買執行記録 | trade / order / fill / cancellation を execution layer として扱える |
 | `reports/` | forward 計測まとめ | 計測レポート | `baibai-loop-screening` の forward 計測 / `baibai-loop-position benchmark` の output を ad-hoc に dated まとめとして残し、outcome を evidence / macro context fit / sizing / execution / playbook に帰属できる |
 
 成果物（名詞）に対し、それらを生成・計測する **L2 の機械処理（動詞）** は 機械スクリーニング（`screening`）・リサーチ候補選定（`select`）・フォワード計測（`forward backtest`）と呼ぶ。

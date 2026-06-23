@@ -31,7 +31,7 @@ Configuration は runtime boundary です。secret や token の値は docs に�
 
 ## Macro statistics cache
 
-`baibai-loop-macro` は、macro context 作成時に確認したい米国マクロ、FRB/FRED 市場指標、ECB 由来の JPY FX を取得し、`data/stats/macro.sqlite` に保存する。SQLite は取得 cache であり、macro context の正本ではない。
+`baibai-loop-macro` は、macro context 作成時に確認したい米国マクロ、FRB/FRED 市場指標、ECB 由来の JPY FX を取得し、`data/indicators/macro.sqlite` に保存する。SQLite は取得 cache であり、macro context の正本ではない。
 
 ```bash
 uv run baibai-loop-macro search CPI

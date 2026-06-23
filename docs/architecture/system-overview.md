@@ -20,7 +20,7 @@ Baibai-Loop は、日本株の実データを機械的に収集・解析・ス�
 | --- | --- | --- |
 | L1 データ層 | `data/screening/market.sqlite`(J-Quants 価格・財務 / EDINET metrics / JPX 規制) | 全上場銘柄の再現可能な事実。coverage は fail-fast で検証する |
 | L2 分析層 | screen playbooks([`../screening/mechanical.md`](../screening/mechanical.md))・selection lenses・軸別スコア・forward backtest(replay / playbook cohorts / ablation)。機械ふるいの事実出力 = `records/04-candidates/` | 決定論的・閾値固定の機械処理。すべて forward 計測に接続する([`../screening/extending.md`](../screening/extending.md)) |
-| L3 判断層 | `records/`(research / trades、macro context) + `reports/` (forward 計測の dated まとめ) | 人間 + AI 下書きの解釈と判断。**screening 効果の検証は全候補 backtest（改善ループ・大 N）が担い、trades は Q2 執行品質の信号を供給する** |
+| L3 判断層 | `records/`(thesis / position、macro context) + `reports/` (forward 計測の dated まとめ) | 人間 + AI 下書きの解釈と判断。**screening 効果の検証は全候補 backtest（改善ループ・大 N）が担い、trades は Q2 執行品質の信号を供給する** |
 
 AI / スクリプトが利用する安定契約は CLI YAML 出力と SQLite schema の 2 面([`../reference/platform-interface.md`](../reference/platform-interface.md))。L2 の「分析」は決定論的な機械処理であり、その出力(candidates・backtest 数値)は事実として扱います。人間 / AI の解釈を伴う analysis レイヤー(macro context、investment memo、reports)は L3 に属します。3 層と 2 ループの判定基準は「人間の判断が入るか」です。
 
@@ -29,9 +29,9 @@ AI / スクリプトが利用する安定契約は CLI YAML 出力と SQLite sch
 | 運用方針 | portfolio policy | [`docs/portfolio-policy.md`](../portfolio-policy.md) | governance | 目的、制約、資本、許容リスク、time horizon を固定する |
 | マクロ環境分析 | macro context | `records/01-macro-context/` | analysis | 外部記事と統計 series を参照し、screening 前の市場環境を判断する |
 | 通過銘柄リスト | candidates（screen output） | `records/04-candidates/` | fact | universe と screening rule から ticker-level raw screen output を記録する |
-| 個別銘柄リサーチ | research（investment memo） | `records/05-thesis/` | analysis | candidates と macro context を統合し、thesis payoff と採用可否を判断する |
+| 個別銘柄リサーチ | thesis（investment memo） | `records/05-thesis/` | analysis | candidates と macro context を統合し、thesis payoff と採用可否を判断する |
 | 売買提案 | trade proposal（GitHub Issue） | （Issue・records 外） | 判断の入口 | 最終選考銘柄の詳細 ＋ 銘柄/価格/株数 提案を人間に上げる |
-| 売買執行記録 | trades（execution record） | `records/06-position/` | execution | 実際に order / entry した採用判断の注文、約定、建玉、決済を記録する |
+| 売買執行記録 | position（execution record） | `records/06-position/` | execution | 実際に order / entry した採用判断の注文、約定、建玉、決済を記録する |
 
 ## 2 つのループ
 
@@ -48,7 +48,7 @@ AI / スクリプトが利用する安定契約は CLI YAML 出力と SQLite sch
 - long-only の裁量支援基盤として扱う。
 - Macro context は hard gate ではなく、screening / research の確認観点として扱う。
 - Markdown / YAML と Git を正本にする。ただし週次 screen output(candidates YAML)は再生成可能な L2 機械出力として local store に置き、git には積まない([`../components/candidates.md`](../components/candidates.md) §2)。
-- 売買提案は GitHub Issue を成果物とし、records/ にディレクトリを持たない。承認結果は ledger と trades record に落とす。
+- 売買提案は GitHub Issue を成果物とし、records/ にディレクトリを持たない。承認結果は decision register と trade record に落とす。
 - AI 下書きと人間確認を前提に、事実層と分析層を物理的に分ける。
 - CLI は screening、selection、validation、ledger sync、forward backtest(replay / playbook cohorts / ablation)、macro statistics 取得に使う。
 

@@ -81,7 +81,7 @@ Portfolio policy は「この条件下でどの程度のリスクを許すか」
 | repeatable thesis pattern | playbook |
 | evidence checklist | playbook / investment memo |
 | target / stop / invalidation | investment memo |
-| order submission / fill | trades |
+| order submission / fill | position |
 
 ## Policy Reference Principle
 

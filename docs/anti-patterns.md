@@ -193,7 +193,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
       release date を WebFetch で再確認したか
 - [ ] macro context 発行日 ± 5 営業日に予定された FOMC / BOJ / CPI / PCE / NFP / OPEC+ のいずれかが
       あれば、最新 release / statement / minutes が出ているかを必ず確認
-- [ ] macro context の `inputs.articles[]` / `inputs.stats_series[]` に、判断へ使った外部記事・統計 series と
+- [ ] macro context の `inputs.articles[]` / `inputs.indicator_series[]` に、判断へ使った外部記事・統計 series と
       `used_for` を残したか
 - [ ] 次に更新すべき大型 event は `refresh_triggers[]` に具体的に残したか
 - [ ] 「随時」「○月下旬」「前後」のような曖昧表現を避け、確認できた具体日付を書く

@@ -5,7 +5,7 @@ doc_type: operation
 status: active
 last_reviewed: 2026-06-23
 related_docs:
-  - "./research-runbook.md"
+  - "./thesis-runbook.md"
   - "../components/thesis.md"
   - "../components/decisions.md"
   - "../components/position.md"
