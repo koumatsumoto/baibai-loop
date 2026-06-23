@@ -4,8 +4,8 @@ import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 
+from baibai_loop.market.store import read_daily_bars
 from baibai_loop.screening.sqlite_cache import open_connection
-from baibai_loop.screening.sqlite_reader import read_daily_bars
 
 
 def _insert_bars(conn: sqlite3.Connection, ranges: list[tuple[date, date]]) -> None:

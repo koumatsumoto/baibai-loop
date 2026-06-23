@@ -28,9 +28,9 @@ classifiers = [
 
 [project.scripts]
 baibai-loop-screening = "baibai_loop.screening.cli:main"
-baibai-loop-validate = "baibai_loop.validate.cli:main"
-baibai-loop-ledger = "baibai_loop.ledger.cli:main"
-baibai-loop-stats = "baibai_loop.stats.cli:main"
+baibai-loop-validation = "baibai_loop.validation.cli:main"
+baibai-loop-position = "baibai_loop.position.cli:main"
+baibai-loop-macro = "baibai_loop.macro.indicators.cli:main"
 
 [dependency-groups]
 dev = [
@@ -53,6 +53,7 @@ typing = [
   "types-requests>=2.33.0.20260518",
 ]
 quality = [
+  "import-linter>=2.0",
   "mutmut>=3.6.0",
   "pre-commit>=4.3.0",
   "ruff>=0.15.18",
@@ -67,9 +68,9 @@ packages = ["src/baibai_loop"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/baibai_loop/py.typed" = "baibai_loop/py.typed"
-"src/baibai_loop/stats/schema.sql" = "baibai_loop/stats/schema.sql"
-"src/baibai_loop/stats/series.yaml" = "baibai_loop/stats/series.yaml"
-"src/baibai_loop/stats/providers/manual_data.yaml" = "baibai_loop/stats/providers/manual_data.yaml"
+"src/baibai_loop/macro/indicators/schema.sql" = "baibai_loop/macro/indicators/schema.sql"
+"src/baibai_loop/macro/indicators/series.yaml" = "baibai_loop/macro/indicators/series.yaml"
+"src/baibai_loop/macro/indicators/providers/manual_data.yaml" = "baibai_loop/macro/indicators/providers/manual_data.yaml"
 
 [tool.ruff]
 # Runtime is Python 3.14, but Ruff's 3.14 formatter rewrites
@@ -170,3 +171,96 @@ skips = ["B101"]
 paths_to_mutate = ["src/baibai_loop"]
 tests_dir = "tests"
 runner = "python -m pytest -q -m 'not slow and not integration'"
+
+# Import-direction contracts. These encode the subsystem dependency DAG
+# (macro / screening / position / thesis / shared / validation) so a relabel that
+# silently reintroduces a cross-subsystem edge fails CI rather than passing
+# every other gate. Contracts are tightened as the reorg lands; this baseline
+# captures the invariants that already hold and must keep holding.
+[tool.importlinter]
+root_package = "baibai_loop"
+
+[[tool.importlinter.contracts]]
+name = "macro layer stays independent of screening/position/validation"
+type = "forbidden"
+source_modules = ["baibai_loop.macro"]
+forbidden_modules = [
+  "baibai_loop.screening",
+  "baibai_loop.position",
+  "baibai_loop.validation",
+]
+
+[[tool.importlinter.contracts]]
+name = "shared primitives are an import sink"
+type = "forbidden"
+source_modules = ["baibai_loop.foundation"]
+forbidden_modules = [
+  "baibai_loop.screening",
+  "baibai_loop.macro",
+  "baibai_loop.position",
+  "baibai_loop.market",
+  "baibai_loop.validation",
+]
+
+[[tool.importlinter.contracts]]
+name = "market data layer only depends on foundation"
+type = "forbidden"
+source_modules = ["baibai_loop.market"]
+forbidden_modules = [
+  "baibai_loop.screening",
+  "baibai_loop.macro",
+  "baibai_loop.position",
+  "baibai_loop.validation",
+]
+
+[[tool.importlinter.contracts]]
+name = "position does not import screening (cycle prevention)"
+type = "forbidden"
+source_modules = ["baibai_loop.position"]
+forbidden_modules = ["baibai_loop.screening"]
+
+[[tool.importlinter.contracts]]
+name = "screening does not import position (one-way market<-{screening,position})"
+type = "forbidden"
+source_modules = ["baibai_loop.screening"]
+forbidden_modules = ["baibai_loop.position"]
+# ticker_profile reads open positions to surface portfolio-concentration facts in
+# the candidate packet. position.trades is a standalone trade-record reader
+# (foundation only), so this single holdings-lookup edge does not form a package
+# cycle; price/calendar data both subsystems share now flows through market.
+ignore_imports = [
+  "baibai_loop.screening.ticker_profile -> baibai_loop.position.trades",
+]
+
+[[tool.importlinter.contracts]]
+name = "thesis is the top-level domain engine (lower layers do not import it)"
+type = "forbidden"
+# thesis consumes screening.regime + position.policy to gate and size theses, so
+# it sits above every data/analysis layer. Forbid the reverse edges to keep the
+# DAG acyclic; validation is intentionally excluded because validation.cli drives
+# thesis validation (validation -> thesis).
+source_modules = [
+  "baibai_loop.foundation",
+  "baibai_loop.market",
+  "baibai_loop.macro",
+  "baibai_loop.screening",
+  "baibai_loop.position",
+]
+forbidden_modules = ["baibai_loop.thesis"]
+
+[[tool.importlinter.contracts]]
+name = "validation imports domain contexts only through their entry surface"
+type = "forbidden"
+# validation is the records public-language checker: it walks records, owns
+# ValidationFinding + the _schemas shape checks + cross-record referential
+# checks, and calls each domain context's validation entry (position via
+# decision_register / policy, thesis via validation.cli). Its own modules must
+# not reach into the macro / market / screening peers; those are consumed only
+# transitively through thesis/position, so only direct edges are forbidden.
+source_modules = ["baibai_loop.validation"]
+forbidden_modules = [
+  "baibai_loop.macro",
+  "baibai_loop.market",
+  "baibai_loop.screening",
+]
+allow_indirect_imports = true

@@ -12,7 +12,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.validate.candidates import (
+from baibai_loop.validation.candidates import (
     discover_candidates_files,
     validate_candidates_file,
 )

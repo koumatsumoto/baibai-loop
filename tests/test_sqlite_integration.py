@@ -1,4 +1,4 @@
-"""End-to-end checks that the screening run and ledger sync paths can be
+"""End-to-end checks that the screening run and decision sync paths can be
 served entirely from the SQLite cache, without falling back to any JSON
 file or J-Quants / EDINET / JPX HTTP client.
 
@@ -20,12 +20,13 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from baibai_loop.foundation.time import JST
+from baibai_loop.foundation.yaml_io import safe_load
 from baibai_loop.screening.cli import ProviderBundle, run_command
 from baibai_loop.screening.config import ScreeningConfig
 from baibai_loop.screening.providers import EDINETProvider, JPXProvider, JQuantsProvider
-from baibai_loop.screening.render import JST, build_output_path
+from baibai_loop.screening.render import build_output_path
 from baibai_loop.screening.sqlite_cache import open_connection
-from baibai_loop.yaml_io import safe_load
 from tests.helpers.screening_sqlite import add_source_coverage
 
 
@@ -40,7 +41,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     # Cover the full [asof - 1200, asof + 60] window: `screening run` requires
     # 1200 calendar days of daily bars, and coverage is now derived from the
     # actual rows, so the fixture must really hold them (not just claim coverage
-    # via source_coverage). The +60 keeps the ledger sync path's
+    # via source_coverage). The +60 keeps the decision sync path's
     # `end = max(now, asof)` inside the imported window for any test wall-clock.
     history_days_back = 1200
     forward_days = 60
@@ -195,7 +196,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     )
 
     # Market calendar — populate the same forward window as bars so the
-    # ledger path's `[asof - 10, max(now, asof)]` range is always covered.
+    # decision-register path's `[asof - 10, max(now, asof)]` range is always covered.
     calendar_rows = [
         (
             (history_start + timedelta(days=index)).isoformat(),
@@ -336,9 +337,9 @@ class ScreeningRunOverSqliteTests(unittest.TestCase):
                 os.chdir(cwd)
 
 
-class LedgerSyncOverSqliteTests(unittest.TestCase):
+class DecisionSyncOverSqliteTests(unittest.TestCase):
     def test_sync_resolves_market_data_from_sqlite(self) -> None:
-        from baibai_loop.ledger.cli import _load_market_data
+        from baibai_loop.position.cli import _load_market_data
 
         asof = date(2026, 4, 24)
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -349,7 +350,7 @@ class LedgerSyncOverSqliteTests(unittest.TestCase):
 
             # Place a minimal research packet so _load_market_data discovers
             # at least one decision date and triggers J-Quants resolution.
-            research_path = workspace / "records" / "05-research" / f"{asof.isoformat()}-130A.md"
+            research_path = workspace / "records" / "05-thesis" / f"{asof.isoformat()}-130A.md"
             research_path.parent.mkdir(parents=True)
             research_path.write_text("---\nticker: 130A\n---\n", encoding="utf-8")
 

@@ -880,7 +880,7 @@ class ScreeningProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
             provider = JQuantsProvider("token", Path(tmp), client=client, sqlite_path=sqlite_path)
-            with patch("baibai_loop.screening.providers.jquants.time.sleep", return_value=None):
+            with patch("baibai_loop.market.provider.time.sleep", return_value=None):
                 bars = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
 
         self.assertEqual(len(client.calls), 2)
@@ -918,12 +918,12 @@ class ScreeningProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
             provider = JQuantsProvider("token", Path(tmp), client=client, sqlite_path=sqlite_path)
-            with patch("baibai_loop.screening.providers.jquants.time.sleep") as sleep_first:
+            with patch("baibai_loop.market.provider.time.sleep") as sleep_first:
                 first = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
             self.assertEqual(len(client.calls), 2)
             self.assertEqual(sleep_first.call_count, 1)
 
-            with patch("baibai_loop.screening.providers.jquants.time.sleep") as sleep_second:
+            with patch("baibai_loop.market.provider.time.sleep") as sleep_second:
                 second = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
             self.assertEqual(len(client.calls), 2)
             self.assertEqual(sleep_second.call_count, 0)
@@ -946,7 +946,7 @@ class ScreeningProviderTests(unittest.TestCase):
         client = FakeClient()
         with tempfile.TemporaryDirectory() as tmp:
             provider = JQuantsProvider("token", Path(tmp), client=client)
-            with patch("baibai_loop.screening.providers.jquants.time.sleep", return_value=None):
+            with patch("baibai_loop.market.provider.time.sleep", return_value=None):
                 bars = provider.get_eq_bars_daily_range(date(2026, 4, 24), date(2026, 4, 24))
 
         self.assertEqual(client.calls, 3)

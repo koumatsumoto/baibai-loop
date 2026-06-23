@@ -1,6 +1,6 @@
 # screening/valuation-metrics.md
 
-Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。`records/04-candidates/` と `records/05-research/` の両方で参照される指標の前提を確定する。
+Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。`records/04-candidates/` と `records/05-thesis/` の両方で参照される指標の前提を確定する。
 
 ## 1. 使用指標
 
@@ -54,7 +54,7 @@ Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデ
 
 EDINET `type=5` CSV から抽出する。raw XBRL 直接 parse は現時点の非スコープとし、EDINET API が返す CSV ZIP を deterministic な中間データとして使う。J-Quants Light の財務サマリーで取れる項目は優先使用し、不足分を EDINET CSV-derived metrics で補完する。
 
-EV がゼロ以下、または EBITDA がゼロ以下の場合、EV/EBITDA は `null` として valuation-reversion から除外する。負の EV は net cash / cash-rich lane で扱うべき balance sheet evidence であり、負の EBITDA は倍率が「低い」ほど割安という解釈が成立しないため。
+EV がゼロ以下、または EBITDA がゼロ以下の場合、EV/EBITDA は `null` として valuation-reversion から除外する。負の EV は net cash / cash-rich playbook で扱うべき balance sheet evidence であり、負の EBITDA は倍率が「低い」ほど割安という解釈が成立しないため。
 
 ## 6. P/S の算出
 
@@ -137,7 +137,7 @@ return ではない)。これ以外のコーポレートアクション (合併�
 - 1-2 ヶ月 horizon の swing trade では現金配当の寄与は 0.3-0.5% / 60 日程度で、playbook
   の利確 / 損切 target (±10-20%) から見れば noise 範囲
 
-トータルリターン視点での portfolio 評価が必要になった場合 (年次 retro 等) は `_ledger/`
+トータルリターン視点での portfolio 評価が必要になった場合 (年次 retro 等) は `_decisions/`
 側で配当落ちを別途加算するか、J-Quants Premium の配当 API 取得を検討する。
 
 ## 10. データソース
@@ -169,7 +169,7 @@ return ではない)。これ以外のコーポレートアクション (合併�
 - 2024 年以降、EDINET 単体では旧来の四半期報告書に依存した TTM 再構成ができない期間がある
 - TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - `EV/EBITDA` は `ttm_quality_ev_ebitda = exact` かつ EV / EBITDA がどちらも正のときのみ valuation-reversion 判定に使用する
-- `P/S` / `PCFR` / `OCF yield` / `FCF yield` / `Net cash` は、それぞれ lane が要求する品質条件を満たすときのみ mechanical 判定に使う
+- `P/S` / `PCFR` / `OCF yield` / `FCF yield` / `Net cash` は、それぞれ playbook が要求する品質条件を満たすときのみ mechanical 判定に使う
 
 ## 12. 営業利益相当の fallback
 

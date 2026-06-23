@@ -37,7 +37,7 @@ Macro context は、screening 前に既存 context が stale / scope mismatch / 
 |---|---|---|---|
 | Security-level 事実 | スクリーニング通過銘柄・valuation 指標 snapshot | `records/04-candidates/` 配下 | screen output |
 | マクロ分析 | 外部記事・統計を踏まえた screening 前提、業種/地域の追い風/中立/逆風評価 | `records/01-macro-context/` 配下 | macro context |
-| Security-level 分析 | 個別銘柄の深掘り・原因仮説・反対仮説・採用判定 | `records/05-research/` 配下 | investment memo |
+| Security-level 分析 | 個別銘柄の深掘り・原因仮説・反対仮説・採用判定 | `records/05-thesis/` 配下 | investment memo |
 
 ### 4.2 事実レイヤー（candidates）に含めてよいもの
 
@@ -69,7 +69,7 @@ Macro context は、screening 前に既存 context が stale / scope mismatch / 
 ## 5. Macro Context Discipline（philosophy 柱 2 の具体化）
 
 - Macro context は hard gate ではなく、screening / research の優先順位、追加確認、sizing caution を決める判断前提として扱う
-- `records/05-research/` の採用判定では `records/01-macro-context/` との fit を必ず確認する
+- `records/05-thesis/` の採用判定では `records/01-macro-context/` との fit を必ず確認する
 
 ## 6. Feedback loop 先行の原則（philosophy 柱 3 の具体化）
 
@@ -93,11 +93,11 @@ Macro context は、screening 前に既存 context が stale / scope mismatch / 
 
 ## 9. 計測の原則：forward-only な backtest と、避ける最適化
 
-screening（lane / lens / regime / 閾値）の効果は、過去週を look-ahead を排して replay する
+screening（playbook / lens / regime / 閾値）の効果は、過去週を look-ahead を排して replay する
 **forward-only な multi-axis backtest** で検証する。手順の正本は
 [`operations/backtest-runbook.md`](./operations/backtest-runbook.md) の 7 axis
-（screening-replay / lane-cohorts / selection-ablation / judgment-gate counterfactual /
-bootstrap CI / opportunity-cost / regime×lane）であり、lane の追加・削除、lane 順、
+（screening-replay / playbook-cohorts / selection-ablation / judgment-gate counterfactual /
+bootstrap CI / opportunity-cost / regime×playbook）であり、playbook の追加・削除、playbook 順、
 regime lens の有効化などはこの計測を根拠に discrete に改訂する。
 
 一方、screening 閾値・playbook 採用条件・position sizing の **値そのもの** は人間が原則ベースで
@@ -109,8 +109,8 @@ forward でどう効いたか」を測るためのものであって、「過去
 
 - screening の multi-axis backtest (`backtest-runbook` の 7 axis)。判断時点 (asof) に存在した
   情報のみ使い、in-sample / out-of-sample を分けて計測する
-- forward-only な decision register 蓄積 (`records/_ledger/` の判断イベント、entry 後の前進的 attribution)
-- 事前 thesis の文書化 (`records/05-research/`) と事後 fill/exit (`records/06-trades/`) の対比
+- forward-only な decision register 蓄積 (`records/_decisions/` の判断イベント、entry 後の前進的 attribution)
+- 事前 thesis の文書化 (`records/05-thesis/`) と事後 fill/exit (`records/06-position/`) の対比
 - 月次 forward 計測でのプロセス改善 (playbook 改訂は **サンプル数 10 件以上** を条件に検討)
 
 ### 9.2 やらないこと（避ける最適化・claim）
@@ -129,7 +129,7 @@ forward でどう効いたか」を測るためのものであって、「過去
 
 ### 9.3 根拠
 
-- screening の仕組み (どの lane / lens が forward return を生んだか) は計測しないと改善できない。
+- screening の仕組み (どの playbook / lens が forward return を生んだか) は計測しないと改善できない。
   柱 5「計測ファースト」に従い、multi-axis backtest で価値を実証した施策だけを採用し、発動ゼロの
   機能を ablation で棚卸しする
 - だが 1 名運用・記録駆動では、閾値を過去に fit できるほどの独立サンプルが入手しにくく (J-Quants

@@ -6,12 +6,13 @@ import argparse
 import sys
 from pathlib import Path
 
-from baibai_loop._env import load_project_env
+from baibai_loop.foundation.env import load_project_env
 from baibai_loop.screening.config import (
     DEFAULT_SQLITE_CACHE_DIR,
     ConfigError,
     ScreeningConfig,
 )
+from baibai_loop.screening.forward import cli as forward_cli
 from baibai_loop.screening.providers import EDINETProvider, JPXProvider, JQuantsProvider
 from baibai_loop.screening.rule_config import (
     DEFAULT_RULES_PATH,
@@ -171,7 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
     profile_parser.add_argument(
         "--root",
         default=".",
-        help="repository root for ledger lookups (default: current directory)",
+        help="repository root for records lookups (default: current directory)",
     )
 
     snapshot_parser = subparsers.add_parser(
@@ -193,6 +194,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
         help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
     )
+
+    forward_cli.add_subparsers(subparsers)
     return parser
 
 
@@ -240,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
             asof=args.asof,
             sqlite_path=Path(args.sqlite_path),
             candidates_root=Path(args.candidates_root),
-            ledger_root=Path(args.root) / "records",
+            records_root=Path(args.root) / "records",
         )
 
     if args.command == "market-snapshot":
@@ -260,6 +263,11 @@ def main(argv: list[str] | None = None) -> int:
             required_jpx_sources=rules.universe.required_jpx_flags,
             allow_stale_jpx=args.allow_stale_jpx,
         )
+
+    if args.command in forward_cli.FORWARD_COMMANDS:
+        # Forward measurement replays recorded candidates against the SQLite
+        # cache only; no provider credentials are needed.
+        return forward_cli.run_command(args)
 
     try:
         config = ScreeningConfig.from_env()

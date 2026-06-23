@@ -8,7 +8,7 @@ Baibai-Loop のスクリーニングサブシステムの設計原則。Candidat
 | --- | --- | --- |
 | `records/04-candidates/` | 機械的ふるい | [`mechanical.md`](./mechanical.md) で仕様化 |
 | `records/01-macro-context/` | screening 前の macro context | [`../components/macro-context.md`](../components/macro-context.md) |
-| `records/05-research/` | Playbook + thesis payoff + 採用判定 | 本ファイル + Playbook 本体 |
+| `records/05-thesis/` | Playbook + thesis payoff + 採用判定 | 本ファイル + Playbook 本体 |
 
 ## 2. Macro Context
 
@@ -22,11 +22,11 @@ Baibai-Loop のスクリーニングサブシステムの設計原則。Candidat
 | playbook | primary evidence path | 狙い |
 | --- | --- | --- |
 | `valuation-reversion` | PER / PBR / exact かつ正の EV/EBITDA の相対割安、短期急落、sector rotation | 伝統的な valuation mean-reversion |
-| `cash-rich-asset-discount` | CashEq / market cap と Eq / market cap の厚さ (EDINET net cash で contradiction 抑止) | net-cash 系の asset discount。2026-05 lane-cohorts で全 lane 中最強 |
+| `cash-rich-asset-discount` | CashEq / market cap と Eq / market cap の厚さ (EDINET net cash で contradiction 抑止) | net-cash 系の asset discount。2026-05 playbook-cohorts で全 playbook 中最強 |
 | `cashflow-yield-discount` | 期間正規化した CFO TTM / market cap | PER では拾いにくい現金創出力の割安 |
 | `sales-discount-growth` | P/S discount + 売上成長維持 | 利益が薄いが売上成長が残る調整銘柄 |
 
-単一総合 score は持たせない。現行 candidates YAML では `evidence_hits[]` を lane 順に記録するが、概念上は playbook-linked evidence hit として扱う。Research では primary playbook 1 つと supporting evidence を分けて扱う。
+単一総合 score は持たせない。現行 candidates YAML では `evidence_hits[]` を playbook 順に記録するが、概念上は playbook-linked evidence hit として扱う。Research では primary playbook 1 つと supporting evidence を分けて扱う。
 
 ### 3.1 Selection lens
 
@@ -98,7 +98,7 @@ Research packet で以下の 4 軸を記入する。**合計点は算出しな�
 
 ## 7. Position sizing
 
-position は **paper proxy layer (1 億円仮想資本)** と **real layer (実資金)** の 2 つの観点で管理する。research / trade record では両者を別 field に記録し、validator も別 rule でチェックする (詳細は [`../components/trades.md`](../components/trades.md))。
+position は **paper proxy layer (1 億円仮想資本)** と **real layer (実資金)** の 2 つの観点で管理する。research / trade record では両者を別 field に記録し、validator も別 rule でチェックする (詳細は [`../components/position.md`](../components/position.md))。
 
 ### 7.1 Paper proxy layer
 
@@ -132,7 +132,7 @@ position は **paper proxy layer (1 億円仮想資本)** と **real layer (実�
 
 ## 9. AI の役割境界
 
-`../components/research.md` の「AI の役割境界（packet 項目単位）」節を参照。核心:
+`../components/thesis.md` の「AI の役割境界（packet 項目単位）」節を参照。核心:
 
 - **AI 可**: Thesis / valuation snapshot / 仮説ドラフト / catalyst ドラフト / price reaction / positioning / liquidity 取得 / 株主還元確認ドラフト / evidence 寄与度初期評価
 - **人間のみ**: Macro context の前提確認 / 一次ソース URL 確認 / 最終採用判定 / 失敗分類確定
@@ -141,7 +141,7 @@ position は **paper proxy layer (1 億円仮想資本)** と **real layer (実�
 
 - [`../philosophy.md`](../philosophy.md): 思想（macro context discipline、事実と分析の分離、feedback loop 先行、markdown 駆動）
 - [`../architecture/system-overview.md`](../architecture/system-overview.md): 全体構造
-- [`../components/research.md`](../components/research.md): research 運用仕様
+- [`../components/thesis.md`](../components/thesis.md): research 運用仕様
 - [`universe-rules.md`](./universe-rules.md): universe 境界条件
 - [`valuation-metrics.md`](./valuation-metrics.md): 指標算出仕様
 - [`mechanical.md`](./mechanical.md): 機械的ふるい仕様

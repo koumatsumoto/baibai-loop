@@ -21,8 +21,8 @@ Decision lifecycle ([`../architecture/system-overview.md`](../architecture/syste
 | --- | --- | --- |
 | `records/01-macro-context/` | screening 前のマクロ判断前提 | Reuters 等の記事 + Tier 1 / Tier 1 準拠統計 + 必要な market data |
 | `records/04-candidates/` | 銘柄ふるい・valuation 指標 | J-Quants（銘柄一覧・日足・財務サマリー・決算予定日・営業日カレンダ）+ EDINET（財務諸表補完）+ JPX（特別注意 / 整理 / 取引停止 / 上場廃止警告の除外判定） |
-| `records/05-research/` | 個別銘柄深掘り | J-Quants + EDINET + TDnet（開示文）+ JPX（資本コスト対応開示一覧）+ 必要時 macro context 参照 |
-| `records/06-trades/` | 執行記録 | 証券会社からの約定情報（手動記録） |
+| `records/05-thesis/` | 個別銘柄深掘り | J-Quants + EDINET + TDnet（開示文）+ JPX（資本コスト対応開示一覧）+ 必要時 macro context 参照 |
+| `records/06-position/` | 執行記録 | 証券会社からの約定情報（手動記録） |
 
 本ファイルの主領域は **Tier 1 / Tier 2 一次統計** と macro context で使う補助ソースのスコアリングである。screening / research で使う J-Quants / EDINET / TDnet の詳細仕様は [`../screening/valuation-metrics.md`](../screening/valuation-metrics.md) を参照。
 
@@ -34,7 +34,7 @@ Review / retro の価格 source は J-Quants(`data/screening/market.sqlite`)を 
 
 forward return の benchmark-relative 評価で使う日経平均は J-Quants に index として収録されていない。そのため benchmark は **同一 universe の ETF proxy `1321`（野村 日経225 ETF）** を canonical proxy とする。`1321` は holdings と同じ `get_eq_bars_daily_range` 呼び出しで取得され、stock と benchmark を 1 source・同一 price basis（`resolve_price_on_or_before` で adjusted 優先、無ければ close_unadjusted）に揃える。
 
-ETF は index を tracking error 込みで追うため、proxy 由来の relative return は index 実値よりやや保守的（数週間で ~0.3pt 弱め）に出る。retro 等で proxy を使う場合は、benchmark が index 実値ではなく ETF proxy である旨を `Price evidence` に明記する。`baibai-loop-ledger benchmark` が open position の forward return / benchmark / relative を算出する。
+ETF は index を tracking error 込みで追うため、proxy 由来の relative return は index 実値よりやや保守的（数週間で ~0.3pt 弱め）に出る。retro 等で proxy を使う場合は、benchmark が index 実値ではなく ETF proxy である旨を `Price evidence` に明記する。`baibai-loop-position benchmark` が open position の forward return / benchmark / relative を算出する。
 
 ## 取得データの保存方針
 
@@ -44,7 +44,7 @@ J-Quants / EDINET から取得したデータは、個人利用・非公開 repo
 
 J-Quants Light の非公開レート制限と `bootstrap-cache` の per-asof 長期履歴 re-fetch コストの観測メモは [`./jquants-rate-limits.md`](./jquants-rate-limits.md) に蓄積する。歴史週の生成が遅い / 完了しない場合はまずそこを参照する。
 
-Macro statistics は `baibai-loop-stats` で公式 API / CSV から取得し、`data/stats/macro.sqlite` に保存してよい。この SQLite は macro context の正本ではなく、期間検索・再取得抑制・判断材料確認のための取得 cache として扱う。
+Macro statistics は `baibai-loop-macro` で公式 API / CSV から取得し、`data/indicators/macro.sqlite` に保存してよい。この SQLite は macro context の正本ではなく、期間検索・再取得抑制・判断材料確認のための取得 cache として扱う。
 
 ## スコアリング軸
 

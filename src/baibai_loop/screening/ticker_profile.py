@@ -23,11 +23,12 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
-# ledger.trades is a standalone record reader (no screening dependency), so
-# this import does not create a package cycle; the packet deliberately reads
-# the L3 trade records to expose portfolio-concentration facts.
-from baibai_loop.ledger.trades import load_open_trades
-from baibai_loop.yaml_io import safe_load
+from baibai_loop.foundation.yaml_io import safe_load
+
+# position.trades is a standalone record reader (imports only foundation), so
+# this screening->position import does not create a package cycle; the packet
+# deliberately reads the trade records to expose portfolio-concentration facts.
+from baibai_loop.position.trades import load_open_trades
 
 from .regime import compute_market_regime
 from .selection import load_prior_research
@@ -59,7 +60,7 @@ def build_ticker_profile(
     ticker: str,
     asof_date: date,
     candidates_root: Path,
-    ledger_root: Path,
+    records_root: Path,
     benchmark_ticker: str = _BENCHMARK_TICKER,
 ) -> dict[str, object]:
     """Assemble the fact packet for ``ticker`` as of ``asof_date``."""
@@ -73,7 +74,7 @@ def build_ticker_profile(
     sector = master.get("sector_33") if master else None
     regime = compute_market_regime(sqlite_path, asof_date, benchmark_ticker=benchmark_ticker)
     candidates_block = _load_candidates_entry(candidates_root, ticker, asof_date)
-    prior = load_prior_research(ledger_root / "_ledger/research-decisions", asof_date).get(ticker)
+    prior = load_prior_research(records_root / "_decisions/thesis-decisions", asof_date).get(ticker)
     return {
         "ticker": ticker,
         "asof": asof_date.isoformat(),
@@ -96,7 +97,7 @@ def build_ticker_profile(
         "prior_research": prior.to_dict() if prior is not None else None,
         "portfolio": _portfolio_block(
             sqlite_path,
-            repo_root=ledger_root.parent,
+            repo_root=records_root.parent,
             ticker=ticker,
             sector=sector if isinstance(sector, str) else None,
         ),
@@ -298,7 +299,7 @@ def _load_candidates_entry(
     else:
         block["note"] = (
             "ticker not present in the recorded candidates output "
-            "(outside the screen scope or no lane hit at that date)"
+            "(outside the screen scope or no playbook hit at that date)"
         )
     return block
 

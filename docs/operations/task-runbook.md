@@ -3,12 +3,12 @@ title: "タスク runbook"
 summary: "GitHub issue で決算後確認などの運用タスクを管理するための入口。"
 doc_type: operation
 status: active
-last_reviewed: 2026-05-10
+last_reviewed: 2026-06-23
 related_docs:
-  - "./research-runbook.md"
-  - "../components/research.md"
-  - "../components/ledger.md"
-  - "../components/trades.md"
+  - "./thesis-runbook.md"
+  - "../components/thesis.md"
+  - "../components/decisions.md"
+  - "../components/position.md"
 ---
 
 # タスク runbook
@@ -19,7 +19,7 @@ GitHub issue は、決算後確認など「将来の特定イベント後に実�
 
 次のいずれかに該当する場合、タスク issue を作成または既存タスク issue に紐づけます。
 
-- `research_decision.outcome: deferred` かつ `research_decision.posture: wait_for_event` の research を作った。
+- `thesis_decision.outcome: deferred` かつ `thesis_decision.posture: wait_for_event` の research を作った。
 - 既存保有に、決算発表後の即時 review gate がある。
 - screening / research の途中で「YYYY-MM-DD の決算後に確認」のような実行日付きの判断待ちが発生した。
 

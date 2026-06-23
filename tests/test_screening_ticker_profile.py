@@ -8,10 +8,10 @@ from pathlib import Path
 
 import yaml
 
+from baibai_loop.foundation.yaml_io import safe_load
 from baibai_loop.screening.cli import build_parser, ticker_profile_command
 from baibai_loop.screening.sqlite_cache import open_connection
 from baibai_loop.screening.ticker_profile import build_ticker_profile
-from baibai_loop.yaml_io import safe_load
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 _ASOF = date(2026, 5, 29)
@@ -76,7 +76,7 @@ class BuildTickerProfileTests(unittest.TestCase):
             ticker=ticker,
             asof_date=_ASOF,
             candidates_root=root / "candidates",
-            ledger_root=root / "records",
+            records_root=root / "records",
         )
 
     def test_packet_covers_price_relative_events_and_screening(self) -> None:
@@ -169,7 +169,7 @@ class TickerProfileCliTests(unittest.TestCase):
             asof="2026-06-08",
             sqlite_path=Path("/nonexistent.sqlite"),
             candidates_root=Path("/nonexistent"),
-            ledger_root=Path("/nonexistent"),
+            records_root=Path("/nonexistent"),
             stdout=io.StringIO(),
         )
         self.assertEqual(exit_code, 1)
@@ -185,7 +185,7 @@ class TickerProfileCliTests(unittest.TestCase):
                 asof=_ASOF.isoformat(),
                 sqlite_path=sqlite_path,
                 candidates_root=root / "candidates",
-                ledger_root=root / "records",
+                records_root=root / "records",
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
@@ -206,11 +206,11 @@ class PortfolioBlockTests(unittest.TestCase):
             sqlite_path = root / "market.sqlite"
             _insert_bars(sqlite_path, "AAAA", [100.0] * 30, end=_ASOF)
             _insert_reference_rows(sqlite_path)
-            trade_dir = root / "records" / "06-trades" / "2026" / "05"
+            trade_dir = root / "records" / "06-position" / "2026" / "05"
             trade_dir.mkdir(parents=True)
             (trade_dir / "2026-05-13-bbbb.md").write_text(
                 "---\n"
-                "trade_id: trade-1\n"
+                "position_id: trade-1\n"
                 "ticker: 'BBBB'\n"
                 "name: 同業ペア\n"
                 "position_state: open\n"
@@ -230,7 +230,7 @@ class PortfolioBlockTests(unittest.TestCase):
                 ticker="AAAA",
                 asof_date=_ASOF,
                 candidates_root=root / "candidates",
-                ledger_root=root / "records",
+                records_root=root / "records",
             )
 
             portfolio = packet["portfolio"]

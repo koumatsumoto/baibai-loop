@@ -170,7 +170,7 @@ class LiquidityPredicateTests(unittest.TestCase):
 
 
 class StabilizationRankTests(unittest.TestCase):
-    """Two fast-eligible candidates in the same lane: the one whose latest
+    """Two fast-eligible candidates in the same playbook: the one whose latest
     session held flat-or-up outranks the one still falling."""
 
     def setUp(self) -> None:

@@ -37,7 +37,7 @@ inputs:
       url: https://tradingeconomics.com/united-states/cboe-volatility-index-vix-fed-data.html
       published_at: '2026-06-05T00:00:00-04:00'
       used_for: VIX の急伸（~15 → 21.5 へ約+40%）の確認。Tier 2 二次集計
-  stats_series:
+  indicator_series:
     - series_id: vix
       window: 1m
       used_for: risk-off の強度確認。6/5 に 21.5 へ急伸し fear が立った

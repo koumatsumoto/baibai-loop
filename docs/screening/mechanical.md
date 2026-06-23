@@ -40,15 +40,15 @@ Baibai-Loop の **狭義のスクリーニング**（機械的ふるい）の仕
 
 ### 3.1 `valuation-reversion`
 
-伝統的な valuation mean-reversion。旧来の 3 条件を 1 つの lane に束ね、`reasons[]` で内訳を残す。
+伝統的な valuation mean-reversion。旧来の 3 条件を 1 つの playbook に束ね、`reasons[]` で内訳を残す。
 
 - 業種中央値比 + 過去自己レンジ下位
 - 過去 60 営業日の急落 + valuation 下方乖離
 - セクターローテーションによる短期売り
 
-PER は `per_forward`(会社予想ベース)を primary とし、forecast EPS が未取得の銘柄は `per_trailing` に degrade する。EDINET が無い場合、EV/EBITDA は `unavailable` として判定対象から外す。EDINET があっても EV または EBITDA がゼロ以下の場合は、倍率としての割安解釈が成立しないため EV/EBITDA を `null` とし、この lane では使わない。PER / PBR など利用可能な指標で degrade して評価する。P/S は売上成長と営業赤字条件を伴う `sales-discount-growth` 専用 lane で扱い、valuation-reversion の単独指標にはしない。
+PER は `per_forward`(会社予想ベース)を primary とし、forecast EPS が未取得の銘柄は `per_trailing` に degrade する。EDINET が無い場合、EV/EBITDA は `unavailable` として判定対象から外す。EDINET があっても EV または EBITDA がゼロ以下の場合は、倍率としての割安解釈が成立しないため EV/EBITDA を `null` とし、この playbook では使わない。PER / PBR など利用可能な指標で degrade して評価する。P/S は売上成長と営業赤字条件を伴う `sales-discount-growth` 専用 playbook で扱い、valuation-reversion の単独指標にはしない。
 
-銀行・証券・保険・その他金融はこの lane から除外する。金融業の PER / PBR は規制資本・金利環境・与信サイクルの構造要因を含み、事業会社と同じ mean-reversion の前提で機械判定できないため。他 lane と異なり電気・ガス業は除外しない。BS / CF の機械判定が成立しないという他 lane の除外根拠は、相対 valuation の比較には当たらないため。
+銀行・証券・保険・その他金融はこの playbook から除外する。金融業の PER / PBR は規制資本・金利環境・与信サイクルの構造要因を含み、事業会社と同じ mean-reversion の前提で機械判定できないため。他 playbook と異なり電気・ガス業は除外しない。BS / CF の機械判定が成立しないという他 playbook の除外根拠は、相対 valuation の比較には当たらないため。
 
 ### 3.2 `cash-rich-asset-discount`
 
@@ -63,19 +63,19 @@ CashEq / market cap、price-to-equity、equity ratio を使い、cash-rich / ass
 
 銀行・証券・保険・その他金融、電気・ガス業、卸売業、不動産業は除外する。金融業の BS は意味が異なり、規制設備産業の CashEq / market cap は機械判定として読みにくく、卸売業 (商社・問屋) は運転資金で J-Quants `cash_eq` が機械判定上膨張、不動産業は land inventory が `equity_ratio` / `cash_to_market_cap` を歪めるため。
 
-`docs/operations/backtest-runbook.md` §6 の 2026-05 lane-cohorts では 4w mean rel −2.14pt (baseline 比 +5.32pt) で全 lane 中最強。本 lane を維持する根拠データ。
+`docs/operations/backtest-runbook.md` §6 の 2026-05 playbook-cohorts では 4w mean rel −2.14pt (baseline 比 +5.32pt) で全 playbook 中最強。本 playbook を維持する根拠データ。
 
 ### 3.3 `cashflow-yield-discount`
 
-期間正規化した CFO TTM から OCF yield を算出し、営業 CF がプラスで、CF 悪化が大きくない銘柄を拾う。TTM が作れない銘柄はこの lane から除外する。
+期間正規化した CFO TTM から OCF yield を算出し、営業 CF がプラスで、CF 悪化が大きくない銘柄を拾う。TTM が作れない銘柄はこの playbook から除外する。
 
-この lane は `ocf_yield` だけでは通過させない。comparable period の `cfo_yoy` を確認し、設定された下限を下回る銘柄、または `cfo_yoy_required: true` で `cfo_yoy` が作れない銘柄は除外する。
+この playbook は `ocf_yield` だけでは通過させない。comparable period の `cfo_yoy` を確認し、設定された下限を下回る銘柄、または `cfo_yoy_required: true` で `cfo_yoy` が作れない銘柄は除外する。
 
 `operating_profit_yoy` が `operating_profit_yoy_deterioration_threshold` (-0.3) を下回る銘柄も除外。OCF は高いのに営業利益 YoY が急減している銘柄を排除する deterioration gate。
 
 `fcf_yield_required_positive: true` で `fcf_yield` が判定可能 (EDINET 取得済) かつ <= 0 の銘柄は除外。OCF プラスだが capex 先行で FCF マイナス (重設備) は短期 mean-reversion で機械判定しにくく cohort 成績悪化要因のため。EDINET 不在で `fcf_yield is None` の銘柄は data 不在として通過させる。
 
-銀行・証券・保険・その他金融、電気・ガス業はこの lane から除外する。金融業の営業 CF は通常の事業会社の現金創出力と同じ意味で比較しにくく、電気・ガス業は設備投資前の OCF yield だけでは割安性を機械判定しにくいため。
+銀行・証券・保険・その他金融、電気・ガス業はこの playbook から除外する。金融業の営業 CF は通常の事業会社の現金創出力と同じ意味で比較しにくく、電気・ガス業は設備投資前の OCF yield だけでは割安性を機械判定しにくいため。
 
 ### 3.4 `sales-discount-growth`
 
@@ -83,13 +83,13 @@ P/S が業種中央値比で安く、売上成長が残る銘柄を拾う。営�
 
 ただし `operating_margin_min` (-0.05) を下回る operating margin (`operating_profit / sales`) を持つ銘柄は除外する。これは「loss narrowing」(-100B → -50B でも条件 pass) の escape hatch を defang する floor で、chronic loser を排除する。`sales > 0` の銘柄でのみ enforce する。
 
-銀行・証券・保険・その他金融はこの lane から除外する。金融業の P/S は通常の事業会社の売上倍率とは意味が異なるため。
+銀行・証券・保険・その他金融はこの playbook から除外する。金融業の P/S は通常の事業会社の売上倍率とは意味が異なるため。
 
 ### 3.5 OR 条件の意味
 
 - **最低 1 つ満たせば通過**
 - 複数 screen hit が重なる銘柄は research 優先度を上げる
-- candidates YAML の `evidence_hits[]` に lane 名、playbook、hit reasons、判定に使った metrics を記録する
+- candidates YAML の `evidence_hits[]` に playbook 名、hit reasons、判定に使った metrics を記録する
 
 ## 3.6 Selection lens との境界
 
@@ -98,7 +98,7 @@ P/S が業種中央値比で安く、売上成長が残る銘柄を拾う。営�
 - `fast_dislocation` は急落銘柄を拾うが、急落だけでは通さず、OCF / FCF / net cash / equity buffer / sales+profit の fundamental guard を原則 2 件以上、かつ cash-flow / balance-sheet / profitability の guard family を原則 2 系統以上要求する。出来高 spike と 52 週安値距離は補助情報であり、価格下落なしでは eligible にしない
 - fast_dislocation には stabilization annotation が付く(直近 1 営業日リターンが 0 以上 = 下げ止まりの最小限の反証。固定閾値)。fast boost が有効な局面では、stabilized な急落銘柄を未だ下落中の銘柄より上位に置く(boost が regime lens で中立化されている間は不発)。計測経路は selection-ablation の `no_stabilization` variant
 - `long_hold_survivability` は `high|medium|low|unknown` の annotation。短期 thesis が外れたときの保有耐性を早く見るための補助で、採用可否を単独では決めず、ranking にも使わない(ranking 寄与の計測手順は [`../operations/backtest-runbook.md`](../operations/backtest-runbook.md) §3-C)
-- lane の優先順位は config の `output.research_selection_lane_order` を唯一の正本とし、推奨 queue の順位付けと primary evidence の選択の両方に使う。順序値の変更は config 編集 + replay / ablation 計測で検証する
+- playbook の優先順位は config の `output.research_selection_playbook_order` を唯一の正本とし、推奨 queue の順位付けと primary evidence の選択の両方に使う。順序値の変更は config 編集 + replay / ablation 計測で検証する
 
 この境界により、`records/04-candidates/` は事実層として維持し、短期の値動きや過去 research decision を使った調整は `select` output の `recommendations` / `selection.diagnostics` / `reason_tags` / `risk_tags` に閉じる。
 
@@ -169,7 +169,7 @@ JPX 規制情報と EDINET 前処理済み metrics は screening run の必須 i
 - **playbook-linked screen 別 hit 数**: 多すぎる / 少なすぎる場合は `screening-rules/<effective_from>.yaml` の閾値調整候補
 - **採用率**: 通過銘柄のうち research で採用された割合
 - **missed opportunity tracking**: 見送り / 保留 / 未実行候補の事後パフォーマンス
-- **lane 別の成功 / 失敗分類**: どの割安タイプが機能したか
+- **playbook 別の成功 / 失敗分類**: どの割安タイプが機能したか
 
 閾値変更は playbook 改訂議論に含める。
 
@@ -186,4 +186,4 @@ JPX 規制情報と EDINET 前処理済み metrics は screening run の必須 i
 - [`valuation-metrics.md`](./valuation-metrics.md): 指標算出仕様
 - [`../components/macro-context.md`](../components/macro-context.md): screening 前の macro context
 - [`../components/candidates.md`](../components/candidates.md): candidates 運用仕様
-- [`../components/research.md`](../components/research.md): research 選定プロセス
+- [`../components/thesis.md`](../components/thesis.md): research 選定プロセス

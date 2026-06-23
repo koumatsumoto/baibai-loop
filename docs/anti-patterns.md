@@ -172,7 +172,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] `valid_until` を過ぎている場合、更新するか stale 前提のまま使う理由を selection / research で確認したか
 - [ ] research の `macro_context_ref` / `candidate_ref.candidates_ref` が valid パスかつ実在するか
 - [ ] `macro_context_fit.fit` と `macro_context_fit.decision_effect` が thesis / sizing / required checks に反映されているか
-- [ ] **機械化チェック**: macro context 編集後に `uv run baibai-loop-validate` を実行したか
+- [ ] **機械化チェック**: macro context 編集後に `uv run baibai-loop-validation` を実行したか
 
 ## 7. AP-07: 公表日 / 期間 / source の最新性確認を skip する
 
@@ -193,7 +193,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
       release date を WebFetch で再確認したか
 - [ ] macro context 発行日 ± 5 営業日に予定された FOMC / BOJ / CPI / PCE / NFP / OPEC+ のいずれかが
       あれば、最新 release / statement / minutes が出ているかを必ず確認
-- [ ] macro context の `inputs.articles[]` / `inputs.stats_series[]` に、判断へ使った外部記事・統計 series と
+- [ ] macro context の `inputs.articles[]` / `inputs.indicator_series[]` に、判断へ使った外部記事・統計 series と
       `used_for` を残したか
 - [ ] 次に更新すべき大型 event は `refresh_triggers[]` に具体的に残したか
 - [ ] 「随時」「○月下旬」「前後」のような曖昧表現を避け、確認できた具体日付を書く
@@ -205,7 +205,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - 当初の整合チェックを `avg_turnover_oku` 不在時には silently skip するように実装、
   required field 化を忘れた → 抜け道残存
 - schema 管理している nested object が未知 field を許しており、current contract 以外の値を取り込めた
-- `research_decision.outcome: rejected` の packet で `position_sizing_overlay.paper_proxy_position_size_yen > 0` を許していたため、
+- `thesis_decision.outcome: rejected` の packet で `position_sizing_overlay.paper_proxy_position_size_yen > 0` を許していたため、
   非採用 decision と sizing が矛盾していた
 - `except TypeError, ValueError:` のような Python 2 風に見える except をめぐって、レビューで
   「構文エラー」なのか「Python 3.14 の PEP 758 による複数例外捕捉」なのかが混乱した。
@@ -231,7 +231,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] `avg_turnover_oku <= 0` は error (整合チェックの分母が成立しない、required な数値
         だけでは抜け道になる)
   - [ ] `position_sizing_overlay.paper_proxy_position_size_yen == 0` の場合は **`adv_participation_pct == 0`** を要求 (`position_size 0 / avg_turnover 85.4 * 100 = 0` だが `adv: 1.0` のような非ゼロを skip してしまう穴を塞ぐ)
-  - [ ] **`research_decision.outcome != 'approved'` の場合は `position_sizing_overlay.paper_proxy_position_size_yen == 0` を要求** (deferred / rejected で
+  - [ ] **`thesis_decision.outcome != 'approved'` の場合は `position_sizing_overlay.paper_proxy_position_size_yen == 0` を要求** (deferred / rejected で
         正値が残ると decision と sizing が矛盾する)
   - [ ] `valuation` / `position_sizing_overlay` のような nested object は current schema の field だけを許す
 - [ ] cross-field consistency rule は **依存先の field が「数値であること」だけでなく、
@@ -240,7 +240,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
       `ticker` 一致 row の値と整合しているか
       (現状は research validator が enforce する)
 - [ ] trade order / execution state を導入・変更する場合、以下の corner case を確認したか
-      (現状は `src/baibai_loop/validate/trade.py` が enforce する):
+      (現状は `src/baibai_loop/validation/position.py` が enforce する):
   - [ ] `order_intent.order_intent_id` と `orders[].origin_order_intent_id` が join できる
   - [ ] `orders[].state` は `submitted` / `broker_rejected` / `cancelled` / `expired` /
         `not_filled` / `partially_filled` / `filled` のいずれか
@@ -257,8 +257,8 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] research の `policy_overrides` / `decision_revisions` 配列を導入・変更する場合、以下を確認したか:
   - [ ] `policy_overrides[]` は policy field の override だけを表し、decision history を混ぜていない
   - [ ] `decision_revisions[].revision_type` が既知集合に属し、`prior_state_ref` / `prior_state` / `new_state` / `reason` の必須キーが揃う
-  - [ ] `research_decision.outcome: approved` の場合、`candidate_ref` が参照した candidates repository file の対象 candidate に join できるか
-  - [ ] 連続する commit で `research_decision.outcome: deferred|rejected → approved` に flip した場合、PR review で thesis / event / sizing の変更理由を確認する
+  - [ ] `thesis_decision.outcome: approved` の場合、`candidate_ref` が参照した candidates repository file の対象 candidate に join できるか
+  - [ ] 連続する commit で `thesis_decision.outcome: deferred|rejected → approved` に flip した場合、PR review で thesis / event / sizing の変更理由を確認する
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
@@ -273,17 +273,17 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] `.claude/skills/` 全 grep: skill が当該 CLI を中核に据えていないか
   - [ ] `docs/reference/configuration.md` の関連節 (env var / profile YAML / 設定例)
   - [ ] 関連 test fixture (test_screening_cli の sweep / scorecard テスト等)
-- [ ] **lane / playbook を削減する場合、以下を同 commit で揃える** (PR #246 で 5 名レビューで指摘):
-  - [ ] `records/_playbooks/<lane>/` ディレクトリ削除
-  - [ ] `records/_config/screening-rules/*.yaml` の `screening_playbooks.<lane>` と
-        `research_selection_lane_order` から削除
-  - [ ] `src/baibai_loop/screening/rules.py` の `match` 句 / PLAYBOOK_* / REASON_* / `_<lane>_*` 関数
-  - [ ] `src/baibai_loop/screening/rule_config.py` の `<Lane>Lane` class と Union 型
+- [ ] **playbook を削減する場合、以下を同 commit で揃える** (PR #246 で 5 名レビューで指摘):
+  - [ ] `records/_playbooks/<playbook>/` ディレクトリ削除
+  - [ ] `records/_config/screening-rules/*.yaml` の `screening_playbooks.<playbook>` と
+        `research_selection_playbook_order` から削除
+  - [ ] `src/baibai_loop/screening/rules.py` の `match` 句 / PLAYBOOK_* / REASON_* / `_<playbook>_*` 関数
+  - [ ] `src/baibai_loop/screening/rule_config.py` の `<Name>Playbook` class と Union 型
         (`screening_playbooks: Mapping[..., A | B | C]`) と `match` 句
   - [ ] `src/baibai_loop/screening/selection/ranking.py` の sort key match arm
-  - [ ] `src/baibai_loop/ledger/selection_ablation.py` の `_LANES` tuple
+  - [ ] `src/baibai_loop/screening/forward/selection_ablation.py` の `_PLAYBOOKS` tuple
   - [ ] 削除根拠は `docs/operations/backtest-runbook.md` §6 dated index で明示し、
-        lane-cohorts / selection-ablation のサンプルが「removing は安全」と
+        playbook-cohorts / selection-ablation のサンプルが「removing は安全」と
         言える数値を残す (PR #246 では cash-rich が誤って削除候補になった反省)
 - [ ] **`entry_preflight.market_regime` のような judgment-gate field を追加する場合、以下の
       bypass パターンを必ず test で塞ぐ** (PR #245 で 5 名レビューで発覚した想定例):
@@ -325,7 +325,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] research 対象銘柄について、業種を問わず会社IRを確認したか。最低限、直近決算短信 /
       決算説明資料 / Q&A / 有価証券報告書または統合報告書 / 中期経営計画 / 株主還元関連開示を
       確認し、未確認項目を本文に残したか
-- [ ] 会社IR未確認のまま `research_decision.outcome: approved` にしていないか。未確認なら `deferred` または
+- [ ] 会社IR未確認のまま `thesis_decision.outcome: approved` にしていないか。未確認なら `deferred` または
       `rejected` にして、追加確認条件を明示したか
 - [ ] 外部 AI / 二次分析の結論を採用する前に、主要数値を会社IR・決算短信・決算説明資料・Q&A・
       取引所 calendar・candidates のいずれかで再確認したか
@@ -358,7 +358,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   思い込み、YAML パースが 93% を占めていることに気付かなかった
 - `yaml.safe_load(...)` を素朴に使い、libyaml backed の `yaml.CSafeLoader` に切り替えるだけで
   5 倍速くなる事実を見落とした
-- `src/baibai_loop/validate/research/shared.py` だけが private に
+- `src/baibai_loop/thesis/shared.py` だけが private に
   `_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)` を持っており、他 14 src 件は
   pure-Python loader のままだった (知識のサイロ化)
 
@@ -384,7 +384,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 ### `yaml.dump` 側
 
 `yaml.dump` / `yaml.safe_dump` 側の hot path も同様に `yaml.CSafeDumper` を使えば加速できるが、
-write side は read side ほど呼ばれないため P2 の改善候補 (cli/query.py / ledger/cli.py の 6 箇所)。
+write side は read side ほど呼ばれないため P2 の改善候補 (cli/query.py / screening/forward/cli.py の 6 箇所)。
 
 ## 11. PR review で繰り返し指摘される類型の追跡
 
@@ -402,5 +402,5 @@ PR で同じ anti-pattern が 2 ラウンド以上指摘されたら、本ドキ
 - 思想・基本方針: [`philosophy.md`](./philosophy.md)
 - 事実 / 分析の分離: [`design-principles.md`](./design-principles.md) §4
 - macro context 仕様: [`components/macro-context.md`](./components/macro-context.md)
-- research 採用判定: [`components/research.md`](./components/research.md)
+- research 採用判定: [`components/thesis.md`](./components/thesis.md)
 - AI agent 規約 (本ドキュメントの参照経路): [`../AGENTS.md`](../AGENTS.md)

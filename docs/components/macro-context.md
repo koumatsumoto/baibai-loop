@@ -30,7 +30,7 @@ Macro context は種類を増やしません。通常はスクリーニング手
 - `context_id`: `macro-context-YYYY-MM-DD-<slug>`
 - `as_of` / `valid_until` / `published_at`: 有効期間と作成時点
 - `inputs.articles`: 外部記事の source / title / url / used_for
-- `inputs.stats_series`: `baibai-loop-stats` 等で確認した series と window
+- `inputs.indicator_series`: `baibai-loop-macro` 等で確認した series と window
 - `sector_tilts.items`: `sector_33` exact match で使う sector tilt
 - `research_questions`: 個別銘柄 research で確認する問い
 - `refresh_triggers`: 次に更新すべき条件
@@ -40,5 +40,5 @@ Macro context は種類を増やしません。通常はスクリーニング手
 
 ```bash
 uv run baibai-loop-screening select --asof YYYY-MM-DD --macro-context records/01-macro-context/YYYY/MM/macro-context-YYYY-MM-DD-slug.yaml
-uv run baibai-loop-validate --target macro-context
+uv run baibai-loop-validation --target macro-context
 ```

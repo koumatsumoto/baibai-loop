@@ -15,10 +15,10 @@ import requests
 from pydantic import ConfigDict, Field
 from pydantic.dataclasses import dataclass
 
-from baibai_loop.date_utils import weekday_distance
+from baibai_loop.foundation.date_utils import weekday_distance
+from baibai_loop.foundation.time import JST
 
 from ..jpx_sources import JPX_SPECIAL_CAUTION_SOURCE_NAME
-from ..render import JST
 from ..schema import normalize_ticker
 
 _JPX_ALLOWED_SCHEME = "https"

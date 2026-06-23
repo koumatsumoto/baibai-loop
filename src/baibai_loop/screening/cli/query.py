@@ -12,10 +12,12 @@ from typing import TextIO
 
 import yaml
 
-from baibai_loop.macro_context import MacroContext, find_latest_macro_context, load_macro_context
+from baibai_loop.foundation.time import JST
+from baibai_loop.foundation.yaml_io import safe_load
+from baibai_loop.macro.context import MacroContext, find_latest_macro_context, load_macro_context
+from baibai_loop.market.store import latest_daily_bar_date
 from baibai_loop.screening.market_snapshot import build_market_snapshot
 from baibai_loop.screening.regime import MarketRegimeSnapshot, compute_market_regime
-from baibai_loop.screening.render import JST
 from baibai_loop.screening.rule_config import (
     DEFAULT_RULES_PATH,
     ScreeningRules,
@@ -33,9 +35,7 @@ from baibai_loop.screening.selection import (
     load_previous_candidates,
     load_prior_research,
 )
-from baibai_loop.screening.sqlite_reader import latest_daily_bar_date
 from baibai_loop.screening.ticker_profile import build_ticker_profile
-from baibai_loop.yaml_io import safe_load
 
 from .common import _NoAliasDumper, _parse_iso_date
 
@@ -46,7 +46,7 @@ def ticker_profile_command(
     asof: str | None,
     sqlite_path: Path,
     candidates_root: Path,
-    ledger_root: Path,
+    records_root: Path,
     stdout: TextIO | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
@@ -72,7 +72,7 @@ def ticker_profile_command(
         ticker=normalized,
         asof_date=asof_date,
         candidates_root=candidates_root,
-        ledger_root=ledger_root,
+        records_root=records_root,
     )
     yaml.dump(payload, out, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
     return 0
@@ -243,7 +243,7 @@ def _load_selection_inputs(
         current_path=candidates_path,
     )
     prior_research = load_prior_research(
-        repo_root / "records/_ledger/research-decisions", asof_date
+        repo_root / "records/_decisions/thesis-decisions", asof_date
     )
     return _SelectionInputs(
         candidates=candidate_records,
@@ -277,7 +277,7 @@ def _repository_root_from_records_anchor(path: Path, *, warn_on_fallback: bool =
     if warn_on_fallback:
         print(
             "warning: could not infer repository root from a records/ anchor; "
-            f"using current working directory for prior research ledger: {Path.cwd()}",
+            f"using current working directory for prior decision register: {Path.cwd()}",
             file=sys.stderr,
         )
     return Path.cwd()

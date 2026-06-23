@@ -11,7 +11,23 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 - 運用手順入口: [`docs/operations/README.md`](./docs/operations/README.md)
 - 触る成分の仕様: [`docs/components/`](./docs/components/)
 - data sources / validation / Python 基盤: [`docs/reference/README.md`](./docs/reference/README.md)
-- **失敗パターンと再発防止**: [`docs/anti-patterns.md`](./docs/anti-patterns.md) — 過去の PR レビューで繰り返し指摘された類型集。macro context / research / validator を編集する前に該当節のチェックリストを 1 周すること
+- **失敗パターンと再発防止**: [`docs/anti-patterns.md`](./docs/anti-patterns.md) — 過去の PR レビューで繰り返し指摘された類型集。macro context / thesis / validator を編集する前に該当節のチェックリストを 1 周すること
+
+## サブシステム索引
+
+サブシステム名（macro / screening / thesis / position など）を指定されたら、この表で src / records / CLI / 品質改善計器を引いて着手する。各 contract の詳細は [`docs/components/`](./docs/components/)、依存構造（7 package・7 import-linter contract）は [`docs/architecture/repository-map.md`](./docs/architecture/repository-map.md) を正本とする。
+
+| subsystem | src | records | CLI | 品質改善計器 |
+| --- | --- | --- | --- | --- |
+| macro | `src/baibai_loop/macro/` | `records/01-macro-context/` | `baibai-loop-macro` | 都度ナレッジ（[`macro-runbook`](./docs/operations/macro-runbook.md) §③、formal loop にしない） |
+| screening | `src/baibai_loop/screening/` | `records/04-candidates/`, `records/_config/` | `baibai-loop-screening` | forward 計測（`screening/forward/`: replay / playbook-cohorts / ablation） |
+| thesis | `src/baibai_loop/thesis/` | `records/05-thesis/`, `records/_playbooks/` | （`baibai-loop-validation --target thesis` 経由） | preflight gate（`thesis/preflight.py`） |
+| position | `src/baibai_loop/position/` | `records/06-position/`, `records/_decisions/` | `baibai-loop-position` | review gate（`position/review.py`、`baibai-loop-position gates`） |
+| market | `src/baibai_loop/market/` | （`data/screening/market.sqlite` ほか、git 外） | — | 価格・calendar data 層（forward 計測の価格基盤） |
+| foundation | `src/baibai_loop/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
+| validation | `src/baibai_loop/validation/` | `records/_schemas/`（検証対象 schema） | `baibai-loop-validation` | records 公開言語の検証器（CI gate） |
+
+品質改善計器は subsystem ごとに性質が違う: screening は forward 計測（大 N の backtest）、macro は formal loop を持たず runbook に都度ナレッジを蓄積、position は実トレードの review gate、thesis は発注前の preflight gate。改善経路の詳細は各 component doc と [`docs/operations/`](./docs/operations/) の runbook を正本とする。
 
 ## 言語運用
 
@@ -32,7 +48,7 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 
 成分別の詳細チェックリスト:
 - macro context 編集時: [`docs/components/macro-context.md`](./docs/components/macro-context.md)
-- research 編集時: [`docs/components/research.md`](./docs/components/research.md) §8.1
+- thesis 編集時: [`docs/components/thesis.md`](./docs/components/thesis.md) §9.1
 
 メタ運用 (失敗パターンの再発防止):
 - 同じ failure mode を 2 回以上 PR review で指摘されたら、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の該当節を強化する
@@ -42,14 +58,14 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 
 ## 事実と分析の分離
 
-`records/04-candidates/` は事実層、`records/01-macro-context/` と `records/05-research/` は分析層。事実ファイルに解釈・予測・相場観を書かない。詳細は [`docs/design-principles.md`](./docs/design-principles.md)。
+`records/04-candidates/` は事実層、`records/01-macro-context/` と `records/05-thesis/` は分析層。事実ファイルに解釈・予測・相場観を書かない。詳細は [`docs/design-principles.md`](./docs/design-principles.md)。
 
 ## 検証
 
 records / schema の変更を加えたら、コミット前に最低限以下を通す。
 
 ```bash
-uv run baibai-loop-validate
+uv run baibai-loop-validation
 uv run ruff format --check .
 uv run ruff check .
 uv run mypy

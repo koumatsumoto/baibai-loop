@@ -1,0 +1,316 @@
+series:
+  - series_id: us.10y
+    name: 米10Y利回り
+    category: rates
+    geography: us
+    frequency: daily
+    unit: percent
+    provider: frb_h15
+    provider_series_id: RIFLGFCY10_N.B
+    source_id: fed-h15
+    source_url: https://www.federalreserve.gov/datadownload/Output.aspx
+    aliases: [米10Y利回り, 米10Y, US 10Y, DGS10]
+  - series_id: us.2y
+    name: 米2Y利回り
+    category: rates
+    geography: us
+    frequency: daily
+    unit: percent
+    provider: frb_h15
+    provider_series_id: RIFLGFCY02_N.B
+    source_id: fed-h15
+    source_url: https://www.federalreserve.gov/datadownload/Output.aspx
+    aliases: [米2Y利回り, 米2Y, US 2Y, DGS2]
+  - series_id: us.10y_2y_spread
+    name: 10Y-2Yスプレッド
+    category: rates
+    geography: us
+    frequency: daily
+    unit: bp
+    provider: frb_h15
+    provider_series_id: RIFLGFCY10_N.B-RIFLGFCY02_N.B
+    source_id: fed-h15
+    source_url: https://www.federalreserve.gov/datadownload/Output.aspx
+    aliases: [10Y-2Yスプレッド, 米10Y-2Yスプレッド, yield spread]
+  - series_id: us.fed_funds.upper
+    name: FF目標レンジ上限
+    category: policy
+    geography: us
+    frequency: daily
+    unit: percent
+    provider: fred_csv
+    provider_series_id: DFEDTARU
+    source_id: fred-dfedtaru
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFEDTARU
+    aliases: [FF upper, Fed Funds upper, FF目標上限]
+  - series_id: us.fed_funds.lower
+    name: FF目標レンジ下限
+    category: policy
+    geography: us
+    frequency: daily
+    unit: percent
+    provider: fred_csv
+    provider_series_id: DFEDTARL
+    source_id: fred-dfedtarl
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFEDTARL
+    aliases: [FF lower, Fed Funds lower, FF目標下限]
+  - series_id: us.cpi.headline
+    name: 米CPI総合
+    category: inflation
+    geography: us
+    frequency: monthly
+    unit: index
+    provider: fred_csv
+    provider_series_id: CPIAUCSL
+    source_id: fred-cpiaucsl
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCSL
+    aliases: [米CPI, US CPI, CPI headline]
+  - series_id: us.cpi.core
+    name: 米コアCPI
+    category: inflation
+    geography: us
+    frequency: monthly
+    unit: index
+    provider: fred_csv
+    provider_series_id: CPILFESL
+    source_id: fred-cpilfesl
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPILFESL
+    aliases: [米コアCPI, US core CPI, core CPI]
+  - series_id: us.unemployment
+    name: 米失業率
+    category: labor
+    geography: us
+    frequency: monthly
+    unit: percent
+    provider: fred_csv
+    provider_series_id: UNRATE
+    source_id: fred-unrate
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=UNRATE
+    aliases: [米失業率, unemployment, UNRATE]
+  - series_id: us.nonfarm_payrolls
+    name: 米非農業部門雇用者数
+    category: labor
+    geography: us
+    frequency: monthly
+    unit: thousand-persons
+    provider: fred_csv
+    provider_series_id: PAYEMS
+    source_id: fred-payems
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=PAYEMS
+    aliases: [米雇用統計, NFP, nonfarm payrolls, PAYEMS]
+  - series_id: vix
+    name: VIX
+    category: volatility
+    geography: world
+    frequency: daily
+    unit: index
+    provider: fred_csv
+    provider_series_id: VIXCLS
+    source_id: fred-vixcls
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=VIXCLS
+    aliases: [VIX, volatility]
+  - series_id: wti
+    name: WTI原油
+    category: energy
+    geography: world
+    frequency: daily
+    unit: usd-per-barrel
+    provider: fred_csv
+    provider_series_id: DCOILWTICO
+    source_id: fred-dcoilwtico
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DCOILWTICO
+    aliases: [WTI, WTI原油]
+  - series_id: brent
+    name: Brent原油
+    category: energy
+    geography: world
+    frequency: daily
+    unit: usd-per-barrel
+    provider: fred_csv
+    provider_series_id: DCOILBRENTEU
+    source_id: fred-dcoilbrenteu
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DCOILBRENTEU
+    aliases: [Brent, Brent原油]
+  - series_id: usd_jpy
+    name: USD/JPY
+    category: fx
+    geography: japan
+    frequency: daily
+    unit: jpy-per-usd
+    provider: ecb_fx
+    provider_series_id: USDJPY
+    source_id: ecb-fx
+    source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
+    aliases: [USD/JPY, ドル円]
+  - series_id: eur_jpy
+    name: EUR/JPY
+    category: fx
+    geography: japan
+    frequency: daily
+    unit: jpy-per-eur
+    provider: ecb_fx
+    provider_series_id: EURJPY
+    source_id: ecb-fx
+    source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
+    aliases: [EUR/JPY, ユーロ円]
+  - series_id: aud_jpy
+    name: AUD/JPY
+    category: fx
+    geography: japan
+    frequency: daily
+    unit: jpy-per-aud
+    provider: ecb_fx
+    provider_series_id: AUDJPY
+    source_id: ecb-fx
+    source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
+    aliases: [AUD/JPY, 豪ドル円]
+  - series_id: jp.10y
+    name: 日本10Y国債利回り
+    category: rates
+    geography: japan
+    frequency: monthly
+    unit: percent
+    provider: fred_csv
+    provider_series_id: IRLTLT01JPM156N
+    source_id: fred-irltlt01jpm156n
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=IRLTLT01JPM156N
+    notes: OECD系列でFREDは月次。日次JGBが要る場合はJ-Qu/別providerで後日追加
+    aliases: [日本10Y, JGB10Y, JGB 10Y, 日本国債10年]
+  - series_id: jp.policy_rate
+    name: 日本政策金利(無担保コールON)
+    category: policy
+    geography: japan
+    frequency: monthly
+    unit: percent
+    provider: fred_csv
+    provider_series_id: IRSTCI01JPM156N
+    source_id: fred-irstci01jpm156n
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=IRSTCI01JPM156N
+    notes: 無担保コールレート(BOJ政策金利の近似)。OECD系列で月次
+    aliases: [日銀政策金利, BOJ policy rate, コールレート, 無担保コール]
+  - series_id: jp.unemployment
+    name: 日本失業率
+    category: labor
+    geography: japan
+    frequency: monthly
+    unit: percent
+    provider: fred_csv
+    provider_series_id: LRUNTTTTJPM156S
+    source_id: fred-lrunttttjpm156s
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=LRUNTTTTJPM156S
+    aliases: [日本失業率, JP unemployment, 失業率]
+  - series_id: jp.nikkei225
+    name: 日経225
+    category: equity-index
+    geography: japan
+    frequency: daily
+    unit: index
+    provider: fred_csv
+    provider_series_id: NIKKEI225
+    source_id: fred-nikkei225
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=NIKKEI225
+    aliases: [日経225, 日経平均, Nikkei 225, NIKKEI225]
+  - series_id: credit.us_hy_oas
+    name: 米ハイイールドOAS
+    category: credit
+    geography: us
+    frequency: daily
+    unit: percent
+    provider: fred_csv
+    provider_series_id: BAMLH0A0HYM2
+    source_id: fred-bamlh0a0hym2
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A0HYM2
+    aliases: [HY OAS, ハイイールドスプレッド, high yield OAS, クレジットスプレッド]
+  - series_id: credit.us_ig_oas
+    name: 米投資適格OAS
+    category: credit
+    geography: us
+    frequency: daily
+    unit: percent
+    provider: fred_csv
+    provider_series_id: BAMLC0A0CM
+    source_id: fred-bamlc0a0cm
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLC0A0CM
+    aliases: [IG OAS, 投資適格スプレッド, investment grade OAS]
+  - series_id: btc_usd
+    name: ビットコイン価格USD
+    category: crypto
+    geography: world
+    frequency: daily
+    unit: usd
+    provider: fred_csv
+    provider_series_id: CBBTCUSD
+    source_id: fred-cbbtcusd
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=CBBTCUSD
+    aliases: [BTC, Bitcoin, ビットコイン, BTCUSD]
+  - series_id: usd_index.broad
+    name: 米ドル指数broad
+    category: fx
+    geography: us
+    frequency: daily
+    unit: index
+    provider: fred_csv
+    provider_series_id: DTWEXBGS
+    source_id: fred-dtwexbgs
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DTWEXBGS
+    aliases: [DXY, ドル指数, dollar index, broad dollar]
+  - series_id: jp.bankruptcies
+    name: 日本企業倒産件数
+    category: credit
+    geography: japan
+    frequency: monthly
+    unit: count
+    provider: manual
+    provider_series_id: jp_bankruptcies_tsr
+    source_id: tsr-bankruptcies
+    source_url: https://www.tsr-net.co.jp/data/
+    notes: 東京商工リサーチ 全国企業倒産状況(負債1000万円以上)。manual providerで手動更新
+    aliases: [倒産件数, 企業倒産, 東商リサーチ倒産, bankruptcies]
+  - series_id: jp.pmi_manufacturing
+    name: 日本製造業PMI
+    category: activity
+    geography: japan
+    frequency: monthly
+    unit: index
+    provider: manual
+    provider_series_id: jp_pmi_manufacturing
+    source_id: spglobal-jp-pmi-mfg
+    source_url: https://www.pmi.spglobal.com/
+    notes: au Jibun Bank / S&P Global 日本製造業PMI(50=拡大縮小の境界)。manual providerで手動更新
+    aliases: [製造業PMI, 日本PMI, JP manufacturing PMI, au Jibun PMI]
+  - series_id: jp.monetary_base
+    name: 日本マネタリーベース
+    category: monetary
+    geography: japan
+    frequency: monthly
+    unit: jpy-100m
+    provider: boj
+    provider_series_id: "3"
+    source_id: boj-mblong
+    source_url: https://www.boj.or.jp/statistics/boj/other/mb/mblong.xlsx
+    notes: BOJ長期時系列xlsx(平残シート)のC列=マネタリーベース(月次・億円)。provider_series_idは1始まりの値列番号。live確認済
+    aliases: [マネタリーベース, monetary base, BOJ monetary base, マネタリーベース平均残高]
+  - series_id: jp.cpi.headline
+    name: 日本CPI総合
+    category: inflation
+    geography: japan
+    frequency: monthly
+    unit: index
+    provider: estat
+    provider_series_id: "0003427113?cdCat01=0001&cdArea=00000&cdTab=1"
+    source_id: estat-cpi
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+    notes: e-Stat CPI表 0003427113 を cdCat01=0001(総合)・cdArea=00000(全国) で総合・全国に絞る。FRED日本CPI系列が廃止のためe-Statを使用。live確認済
+    aliases: [日本CPI, JP CPI, CPI総合, 全国CPI]
+  - series_id: jp.foreign_flows
+    name: 海外投資家ネット買い越し額(週次)
+    category: flows
+    geography: japan
+    frequency: weekly
+    unit: jpy
+    provider: jquants_flows
+    provider_series_id: foreigners_net_value
+    source_id: jquants-trades-spec
+    source_url: https://jpx-jquants.com/ja/spec/eq-investor-types
+    notes: 東証プライムの投資部門別売買状況。海外勢の週次ネット(買い−売り)を公表日付で記録
+    aliases: [海外投資家フロー, 海外勢売買, foreign flows, trades spec, 投資部門別]

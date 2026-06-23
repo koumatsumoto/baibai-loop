@@ -15,7 +15,7 @@ inputs:
       url: https://www.reuters.com/markets/
       published_at: '2026-05-04T00:00:00+09:00'
       used_for: early-May global market tone and sector risk scan
-  stats_series:
+  indicator_series:
     - series_id: usd_jpy
       window: 1m
       used_for: exporter and importer sensitivity context

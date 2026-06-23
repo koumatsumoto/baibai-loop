@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from baibai_loop.yaml_io import safe_load
+from baibai_loop.foundation.yaml_io import safe_load
 
 DEFAULT_RULES_PATH = Path("records/_config/screening-rules/2026-06-19T000000+0900.yaml")
 
@@ -42,7 +42,7 @@ class QualityRules(BaseModel):
     yoy_deterioration_threshold: float
 
 
-class ValuationReversionLane(BaseModel):
+class ValuationReversionPlaybook(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
     playbook_id: str
@@ -65,7 +65,7 @@ class ValuationReversionLane(BaseModel):
         return tuple(value or ())
 
 
-class CashRichLane(BaseModel):
+class CashRichPlaybook(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
     playbook_id: str
@@ -83,7 +83,7 @@ class CashRichLane(BaseModel):
         return tuple(value or ())
 
 
-class CashflowYieldLane(BaseModel):
+class CashflowYieldPlaybook(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
     playbook_id: str
@@ -101,7 +101,7 @@ class CashflowYieldLane(BaseModel):
         return tuple(value or ())
 
 
-class SalesDiscountGrowthLane(BaseModel):
+class SalesDiscountGrowthPlaybook(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
     playbook_id: str
@@ -121,11 +121,11 @@ class OutputRules(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
     research_selection_target_max: int = Field(ge=0)
-    research_selection_lane_order: tuple[str, ...]
+    research_selection_playbook_order: tuple[str, ...]
 
-    @field_validator("research_selection_lane_order", mode="before")
+    @field_validator("research_selection_playbook_order", mode="before")
     @classmethod
-    def _tuple_research_selection_lane_order(
+    def _tuple_research_selection_playbook_order(
         cls, value: list[str] | tuple[str, ...]
     ) -> tuple[str, ...]:
         return tuple(value)
@@ -192,7 +192,7 @@ class SelectionDiversityRules(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
     max_recommended_per_sector: int = Field(default=1, ge=1)
-    max_recommended_per_lane: int = Field(default=2, ge=1)
+    max_recommended_per_playbook: int = Field(default=2, ge=1)
     max_previous_candidates_in_recommended: int | None = Field(default=2, ge=0)
     previous_overlap_warning_ratio: float = Field(default=0.6, ge=0, le=1)
 
@@ -270,7 +270,10 @@ class ScreeningRules(BaseModel):
     quality: QualityRules
     screening_playbooks: Mapping[
         str,
-        ValuationReversionLane | CashRichLane | CashflowYieldLane | SalesDiscountGrowthLane,
+        ValuationReversionPlaybook
+        | CashRichPlaybook
+        | CashflowYieldPlaybook
+        | SalesDiscountGrowthPlaybook,
     ]
     output: OutputRules
     selection: SelectionRules = Field(default_factory=SelectionRules)
@@ -280,34 +283,34 @@ class ScreeningRules(BaseModel):
     def _coerce_screening_playbooks(cls, value: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(value, Mapping):
             raise ValueError("screening_playbooks must be a mapping")
-        lanes: dict[str, Any] = {}
+        playbooks: dict[str, Any] = {}
         for name, raw in value.items():
             if not isinstance(raw, Mapping):
-                raise ValueError(f"evidence_hit lane {name!r} must be a mapping")
+                raise ValueError(f"evidence_hit playbook {name!r} must be a mapping")
             data = dict(raw)
             match name:
                 case "valuation-reversion":
-                    lanes[name] = ValuationReversionLane.model_validate(data)
+                    playbooks[name] = ValuationReversionPlaybook.model_validate(data)
                 case "cash-rich-asset-discount":
-                    lanes[name] = CashRichLane.model_validate(data)
+                    playbooks[name] = CashRichPlaybook.model_validate(data)
                 case "cashflow-yield-discount":
-                    lanes[name] = CashflowYieldLane.model_validate(data)
+                    playbooks[name] = CashflowYieldPlaybook.model_validate(data)
                 case "sales-discount-growth":
-                    lanes[name] = SalesDiscountGrowthLane.model_validate(data)
+                    playbooks[name] = SalesDiscountGrowthPlaybook.model_validate(data)
                 case _:
-                    raise ValueError(f"unknown evidence_hit lane: {name}")
-        return lanes
+                    raise ValueError(f"unknown evidence_hit playbook: {name}")
+        return playbooks
 
     @property
-    def lane_order(self) -> tuple[str, ...]:
+    def playbook_order(self) -> tuple[str, ...]:
         return tuple(self.screening_playbooks.keys())
 
     @model_validator(mode="after")
-    def _validate_output_lane_order(self) -> ScreeningRules:
-        unknown = set(self.output.research_selection_lane_order) - set(self.screening_playbooks)
+    def _validate_output_playbook_order(self) -> ScreeningRules:
+        unknown = set(self.output.research_selection_playbook_order) - set(self.screening_playbooks)
         if unknown:
             joined = ", ".join(sorted(unknown))
-            raise ValueError(f"unknown research selection lane(s): {joined}")
+            raise ValueError(f"unknown research selection playbook(s): {joined}")
         return self
 
 

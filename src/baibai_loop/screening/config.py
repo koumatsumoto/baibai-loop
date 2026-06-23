@@ -7,22 +7,12 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from baibai_loop.market.config import DEFAULT_CACHE_DIR as DEFAULT_CACHE_DIR
+from baibai_loop.market.config import DEFAULT_SQLITE_CACHE_DIR as DEFAULT_SQLITE_CACHE_DIR
+
 from .jpx_sources import JPX_SPECIAL_CAUTION_SOURCE_NAME
 from .rule_config import DEFAULT_RULES_PATH
 
-# 再生成可能な一時 cache root。CSV ZIP や任意 disclosure title 入力など、
-# SQLite 正本から外れる補助ファイルだけを置く。
-DEFAULT_CACHE_DIR = Path(".cache/screening")
-# screening の local canonical store。provider fetch は raw JSON を経由せず
-# この SQLite に正規化済み rows と source_coverage を直接保存する。
-DEFAULT_SQLITE_CACHE_DIR = Path("data/screening")
-JQUANTS_CLIENT_V2_METHODS = (
-    "get_eq_master",
-    "get_eq_bars_daily_range",
-    "get_fin_summary_range",
-    "get_eq_earnings_cal",
-    "get_mkt_calendar",
-)
 YOY_DETERIORATION_THRESHOLD = -0.30
 PARTIAL_WARNING_TTM_RATIO = 0.05
 PARTIAL_WARNING_TTM_COUNT = 20

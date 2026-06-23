@@ -6,14 +6,14 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import date
 
-from baibai_loop.coerce import (
+from baibai_loop.foundation.coerce import (
     dict_sequence,
     int_or,
     mapping_or_empty,
     string_or_none,
     string_sequence,
 )
-from baibai_loop.macro_context import MacroContext
+from baibai_loop.macro.context import MacroContext
 
 from ..regime import MarketRegime, MarketRegimeSnapshot
 from ..rule_config import ScreeningRules, SelectionDiversityRules, SelectionLiquidityRules
@@ -29,8 +29,8 @@ from .profiles import resolve_selection_rules
 from .ranking import (
     RankingToggles,
     _best_selection_evidence,
-    _lane_order_rank,
-    _primary_evidence_by_lane_order,
+    _playbook_order_rank,
+    _primary_evidence_by_playbook_order,
     _sizing_eligible_evidence_hits,
 )
 from .records import (
@@ -95,10 +95,10 @@ def build_selection_payload(
     # ("starter size when lagging the index") is fed mechanically. The regime
     # snapshot already holds the benchmark return; absence degrades to null.
     benchmark_return_20d = market_regime.benchmark_return_20d if market_regime else None
-    # Single source of truth for lane priority: the configured
-    # research_selection_lane_order ranks both the queue and the primary
+    # Single source of truth for playbook priority: the configured
+    # research_selection_playbook_order ranks both the queue and the primary
     # evidence pick.
-    lane_order = tuple(rules.output.research_selection_lane_order)
+    playbook_order = tuple(rules.output.research_selection_playbook_order)
 
     liquidity = selection_rules.liquidity
     required_jpx_flags = frozenset(rules.universe.required_jpx_flags)
@@ -125,9 +125,9 @@ def build_selection_payload(
         eligible_evidence_hits = _sizing_eligible_evidence_hits(item.evidence_hits)
         if not eligible_evidence_hits:
             continue
-        selection_lane, selection_metrics, strength_key = _best_selection_evidence(
+        selection_playbook, selection_metrics, strength_key = _best_selection_evidence(
             eligible_evidence_hits,
-            lane_order=lane_order,
+            playbook_order=playbook_order,
         )
         prior_research = prior_research_by_ticker.get(item.ticker)
         suppress_reason = (
@@ -138,7 +138,7 @@ def build_selection_payload(
             item,
             macro_context_result=macro_context_result,
             macro_context_alignment=macro_context_alignment,
-            selection_lane=selection_lane,
+            selection_playbook=selection_playbook,
             selection_metrics=selection_metrics,
             lenses=lenses,
             prior_research=prior_research,
@@ -161,7 +161,9 @@ def build_selection_payload(
             _macro_rank(macro_context_alignment) if toggles.macro else 0,
             0 if fast_boosted else 1,
             stabilized_rank,
-            _lane_order_rank(selection_lane, lane_order) if toggles.lane_rank else 0,
+            _playbook_order_rank(selection_playbook, playbook_order)
+            if toggles.playbook_rank
+            else 0,
             *(strength_key if toggles.strength else ()),
             item.ticker,
         )
@@ -174,7 +176,7 @@ def build_selection_payload(
     ]
     recommended = _recommended_research_candidates(
         ranked_candidates=ranked_active_candidates,
-        lane_order=rules.output.research_selection_lane_order,
+        playbook_order=rules.output.research_selection_playbook_order,
         diversity_rules=selection_rules.diversity,
         limit=recommendation_limit,
     )
@@ -214,7 +216,9 @@ def build_selection_payload(
                 "after_evidence_filter": len(ranked_candidates),
             },
             "research_selection_target_max": rules.output.research_selection_target_max,
-            "research_selection_lane_order": list(rules.output.research_selection_lane_order),
+            "research_selection_playbook_order": list(
+                rules.output.research_selection_playbook_order
+            ),
             "macro_context_summary": _macro_context_summary(macro_context),
             "diagnostics": diagnostics,
             "detail": detail,
@@ -309,7 +313,7 @@ def _selection_candidate(
     *,
     macro_context_result: Mapping[str, object],
     macro_context_alignment: str,
-    selection_lane: str | None,
+    selection_playbook: str | None,
     selection_metrics: Mapping[str, object],
     lenses: Mapping[str, object],
     prior_research: PriorResearch | None,
@@ -341,7 +345,7 @@ def _selection_candidate(
         "turnover_spike_5d": item.turnover_spike_5d,
         "evidence_hits": list(item.evidence_hits),
         "freshness_warnings": list(item.freshness_warnings),
-        "selection_lane": selection_lane,
+        "selection_playbook": selection_playbook,
         "selection_metrics": dict(selection_metrics),
         "next_earnings_date": item.next_earnings_date,
         "position_tier": position_tier(item.market_cap_oku),
@@ -363,7 +367,7 @@ def _selection_candidate(
 def _recommended_research_candidates(
     *,
     ranked_candidates: Sequence[dict[str, object]],
-    lane_order: Sequence[str],
+    playbook_order: Sequence[str],
     diversity_rules: SelectionDiversityRules,
     limit: int,
 ) -> list[dict[str, object]]:
@@ -372,16 +376,16 @@ def _recommended_research_candidates(
     selected: list[dict[str, object]] = []
     selected_tickers: set[str] = set()
     sector_counts: Counter[str] = Counter()
-    lane_counts: Counter[str] = Counter()
+    playbook_counts: Counter[str] = Counter()
     previous_candidate_count = 0
 
     def normalized_candidate(candidate: Mapping[str, object]) -> dict[str, object]:
-        selection_lane, selection_metrics = _primary_evidence_by_lane_order(
-            candidate.get("evidence_hits"), lane_order
+        selection_playbook, selection_metrics = _primary_evidence_by_playbook_order(
+            candidate.get("evidence_hits"), playbook_order
         )
         output = dict(candidate)
-        if selection_lane is not None:
-            output["selection_lane"] = selection_lane
+        if selection_playbook is not None:
+            output["selection_playbook"] = selection_playbook
             output["selection_metrics"] = selection_metrics
         return output
 
@@ -393,9 +397,9 @@ def _recommended_research_candidates(
         if not enforce_diversity:
             return True
         sector = string_or_none(candidate.get("sector_33")) or ""
-        lane = string_or_none(output.get("selection_lane")) or ""
+        playbook = string_or_none(output.get("selection_playbook")) or ""
         max_sector = diversity_rules.max_recommended_per_sector
-        max_lane = diversity_rules.max_recommended_per_lane
+        max_playbook = diversity_rules.max_recommended_per_playbook
         max_previous = diversity_rules.max_previous_candidates_in_recommended
         if (
             max_previous is not None
@@ -403,7 +407,7 @@ def _recommended_research_candidates(
             and previous_candidate_count >= max_previous
         ):
             return False
-        return sector_counts[sector] < max_sector and lane_counts[lane] < max_lane
+        return sector_counts[sector] < max_sector and playbook_counts[playbook] < max_playbook
 
     def add(candidate: Mapping[str, object]) -> None:
         nonlocal previous_candidate_count
@@ -414,7 +418,7 @@ def _recommended_research_candidates(
         selected.append(output)
         selected_tickers.add(ticker)
         sector_counts[string_or_none(candidate.get("sector_33")) or ""] += 1
-        lane_counts[string_or_none(output.get("selection_lane")) or ""] += 1
+        playbook_counts[string_or_none(output.get("selection_playbook")) or ""] += 1
         if candidate.get("previous_candidate") is True:
             previous_candidate_count += 1
 

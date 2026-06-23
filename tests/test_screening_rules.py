@@ -268,7 +268,7 @@ class ScreeningRulesTests(unittest.TestCase):
             PLAYBOOK_CASHFLOW_YIELD, [evidence_hit.name for evidence_hit in result.evidence_hits]
         )
 
-    def test_financial_sector_is_excluded_from_operating_cashflow_lane(self) -> None:
+    def test_financial_sector_is_excluded_from_operating_cashflow_playbook(self) -> None:
         result = evaluate_screening(
             _financial(ocf_ttm=100.0, ocf_yield=0.1, cfo_yoy=0.2),
             _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
@@ -280,7 +280,7 @@ class ScreeningRulesTests(unittest.TestCase):
         )
         self.assertIn("cashflow_yield_excluded_sector", result.null_reasons)
 
-    def test_utility_sector_is_excluded_from_operating_cashflow_lane(self) -> None:
+    def test_utility_sector_is_excluded_from_operating_cashflow_playbook(self) -> None:
         result = evaluate_screening(
             _financial(ocf_ttm=100.0, ocf_yield=0.1, cfo_yoy=0.2),
             _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
@@ -311,7 +311,7 @@ class ScreeningRulesTests(unittest.TestCase):
             PLAYBOOK_SALES_DISCOUNT, [evidence_hit.name for evidence_hit in result.evidence_hits]
         )
 
-    def test_financial_sector_is_excluded_from_sales_discount_lane(self) -> None:
+    def test_financial_sector_is_excluded_from_sales_discount_playbook(self) -> None:
         result = evaluate_screening(
             _financial(
                 p_s=0.4,
@@ -331,7 +331,7 @@ class ScreeningRulesTests(unittest.TestCase):
         )
         self.assertIn("sales_discount_excluded_sector", result.null_reasons)
 
-    def test_financial_sector_is_excluded_from_valuation_reversion_lane(self) -> None:
+    def test_financial_sector_is_excluded_from_valuation_reversion_playbook(self) -> None:
         result = evaluate_screening(
             _financial(),
             _derived(),
@@ -344,7 +344,7 @@ class ScreeningRulesTests(unittest.TestCase):
         )
         self.assertIn("valuation_reversion_excluded_sector", result.null_reasons)
 
-    def test_utility_sector_stays_eligible_for_valuation_reversion_lane(self) -> None:
+    def test_utility_sector_stays_eligible_for_valuation_reversion_playbook(self) -> None:
         result = evaluate_screening(
             _financial(),
             _derived(),

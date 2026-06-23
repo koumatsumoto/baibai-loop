@@ -3,7 +3,7 @@ title: "Platform interface"
 summary: "AI / スクリプトが基盤を利用するための 2 つの安定契約(CLI YAML 出力と SQLite schema)と利用モデル。"
 doc_type: reference
 status: active
-last_reviewed: 2026-06-10
+last_reviewed: 2026-06-23
 related_docs:
   - "../screening/automation.md"
   - "../screening/extending.md"
@@ -22,10 +22,10 @@ Baibai-Loop をデータ解析基盤として AI / スクリプトが利用す�
 | `baibai-loop-screening select` | stdout YAML(`recommendations` + `selection.diagnostics`) | research 候補の triage |
 | `baibai-loop-screening ticker-profile` | stdout YAML(1 銘柄の事実 packet、保有ポジション集中度を含む) | 個別銘柄リサーチと entry 前チェックの起点(全上場銘柄対応) |
 | `baibai-loop-screening market-snapshot` | stdout YAML(regime 履歴 + sector 集計) | 市況リサーチの起点、macro context の機械入力 |
-| `baibai-loop-ledger screening-replay` | replay payload YAML | profile / lens の forward 計測 |
-| `baibai-loop-ledger lane-cohorts` | lane cohort payload YAML | lane 母集団の forward 計測 |
-| `baibai-loop-ledger selection-ablation` | ablation payload YAML | ranking 機能別の効果計測 |
-| `baibai-loop-stats` | 統計 series cache | macro context の入力 |
+| `baibai-loop-screening screening-replay` | replay payload YAML | profile / lens の forward 計測 |
+| `baibai-loop-screening playbook-cohorts` | playbook cohort payload YAML | playbook 母集団の forward 計測 |
+| `baibai-loop-screening selection-ablation` | ablation payload YAML | ranking 機能別の効果計測 |
+| `baibai-loop-macro` | 統計 series cache | macro context の入力 |
 
 安定性の意味:
 
@@ -53,7 +53,7 @@ Baibai-Loop をデータ解析基盤として AI / スクリプトが利用す�
 ## AI の利用モデル
 
 - **L1/L2 は自由に読む**: SQL 直接 + CLI 出力。すべての主張は queryable な事実に遡れる形で書く(AP-01: 一次情報主義)
-- **L3 は下書きまで**: research memo / review の下書きは AI が作ってよいが、最終採用判定・失敗分類確定・macro context 前提確認は人間が行う([`../components/research.md`](../components/research.md) の「AI の役割境界」)
+- **L3 は下書きまで**: research memo / review の下書きは AI が作ってよいが、最終採用判定・失敗分類確定・macro context 前提確認は人間が行う([`../components/thesis.md`](../components/thesis.md) の「AI の役割境界」)
 - **スコアの扱い**: 基盤が出すスコアは軸別の座標(sector 相対・自己レンジ相対など)であり、売買判定ではない。AI はスコアを根拠の 1 つとして引用し、単独で結論にしない
 
 ## 非目標

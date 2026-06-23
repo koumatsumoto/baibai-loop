@@ -9,6 +9,8 @@ from typing import Annotated, Any
 from pydantic import ConfigDict, Field, field_validator, model_validator
 from pydantic.dataclasses import dataclass
 
+from baibai_loop.market.ticker import normalize_ticker as normalize_ticker
+
 _MODEL_CONFIG = ConfigDict(
     strict=True,
     arbitrary_types_allowed=False,
@@ -21,13 +23,6 @@ type MetricValueMap = Mapping[str, float | int | bool | str | None]
 type Ticker = Annotated[str, Field(pattern=_TICKER_PATTERN)]
 type NonEmptyString = Annotated[str, Field(min_length=1)]
 type NonNegativeInt = Annotated[int, Field(ge=0)]
-
-
-def normalize_ticker(value: str) -> str:
-    ticker = value.strip().upper()
-    if len(ticker) != 4 or not ticker.isalnum():
-        raise ValueError(f"ticker must be a 4-character alphanumeric string: {value!r}")
-    return ticker
 
 
 class TTMQuality(StrEnum):

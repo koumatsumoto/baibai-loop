@@ -16,10 +16,10 @@ quality:
   yoy_deterioration_threshold: -0.3
 output:
   research_selection_target_max: 5
-  # lane 優先順位の唯一の正本。推奨 queue の順位付けと primary evidence の選択の
+  # playbook 優先順位の唯一の正本。推奨 queue の順位付けと primary evidence の選択の
   # 両方に使う。変更は config 編集 + replay / ablation 計測 (docs/operations/
   # backtest-runbook.md) で検証してから行う。
-  research_selection_lane_order:
+  research_selection_playbook_order:
   - valuation-reversion
   - cash-rich-asset-discount
   - cashflow-yield-discount
@@ -65,14 +65,14 @@ selection:
     min_avg_turnover_oku: 1.0
   diversity:
     max_recommended_per_sector: 1
-    max_recommended_per_lane: 2
+    max_recommended_per_playbook: 2
     max_previous_candidates_in_recommended: 2
     previous_overlap_warning_ratio: 0.6
 screening_playbooks:
   valuation-reversion:
     # 金融業の PER / PBR は規制資本・金利環境の構造要因を含み、事業会社と同じ
-    # mean-reversion の前提で機械判定できないため、他 lane と同様に除外する。
-    # 電気・ガス業は BS / CF 機械判定の不成立という他 lane の除外根拠が
+    # mean-reversion の前提で機械判定できないため、他 playbook と同様に除外する。
+    # 電気・ガス業は BS / CF 機械判定の不成立という他 playbook の除外根拠が
     # 相対 valuation には当たらないため除外しない。
     excluded_sectors:
     - 銀行業

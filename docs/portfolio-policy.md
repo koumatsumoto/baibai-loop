@@ -1,6 +1,6 @@
 # Portfolio Policy
 
-この document は、Baibai-Loop の portfolio policy を人間が理解するための説明文書です。具体的な資本額、position size、concentration cap、board lot、kill switch など validator-visible な閾値は `src/baibai_loop/policy_config.py` で管理します。
+この document は、Baibai-Loop の portfolio policy を人間が理解するための説明文書です。具体的な資本額、position size、concentration cap、board lot、kill switch など validator-visible な閾値は `src/baibai_loop/position/policy.py` で管理します。
 
 この policy は自己運用の判断統制に使う portfolio policy であり、投資助言や自動売買ルールではない。
 

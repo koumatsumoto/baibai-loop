@@ -18,13 +18,14 @@ from unittest.mock import patch
 
 import yaml
 
-from baibai_loop.yaml_io import safe_load
+from baibai_loop.foundation.yaml_io import safe_load
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from baibai_loop.foundation.time import JST
 from baibai_loop.screening import cli as screening_cli
 from baibai_loop.screening.cli import (
     ProviderBundle,
@@ -47,7 +48,7 @@ from baibai_loop.screening.providers.jquants import (
     JQuantsFinancialSummary,
     JQuantsMarketCalendarDay,
 )
-from baibai_loop.screening.render import JST, build_output_path
+from baibai_loop.screening.render import build_output_path
 from baibai_loop.screening.rule_config import load_screening_rules
 from baibai_loop.screening.schema import SecurityMaster, TTMQuality
 from baibai_loop.screening.sqlite_cache import store_edinet_metrics
@@ -430,9 +431,9 @@ class ScreeningCliTests(unittest.TestCase):
                 os.chdir(cwd)
 
     @unittest.skip(
-        "fixture needs re-tuning after lane removal (strict-net-cash / fcf-yield "
+        "fixture needs re-tuning after playbook removal (strict-net-cash / fcf-yield "
         "removed in cleanup; cash-rich restored); follow-up to regenerate fake "
-        "financials so cashflow-yield / cash-rich lane hits. See #247."
+        "financials so cashflow-yield / cash-rich playbook hits. See #247."
     )
     def test_run_command_emits_edinet_freshness_warnings_from_disclosure_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1141,7 +1142,7 @@ class SelectCommandTests(unittest.TestCase):
                     "valid_until": (asof + timedelta(days=7)).isoformat(),
                     "published_at": f"{asof.isoformat()}T00:00:00+09:00",
                     "summary": "test",
-                    "inputs": {"articles": [], "stats_series": []},
+                    "inputs": {"articles": [], "indicator_series": []},
                     "sector_tilts": {"items": sectors_payload},
                     "research_questions": ["test question"],
                     "refresh_triggers": ["test trigger"],
@@ -1227,11 +1228,11 @@ class SelectCommandTests(unittest.TestCase):
             )
             tickers = [c["ticker"] for c in self._recommended(payload)]
             # All three candidates normalize to the valuation-reversion primary
-            # lane under the configured lane order, so the balanced per-lane cap
+            # playbook under the configured playbook order, so the balanced per-playbook cap
             # (2) drops the third one.
             self.assertEqual(tickers, ["3333", "2222"])
             self.assertEqual(
-                payload["selection"]["research_selection_lane_order"],
+                payload["selection"]["research_selection_playbook_order"],
                 [
                     "cash-rich-asset-discount",
                     "valuation-reversion",
@@ -1239,7 +1240,9 @@ class SelectCommandTests(unittest.TestCase):
                     "sales-discount-growth",
                 ],
             )
-            self.assertEqual(self._recommended(payload)[0]["selection_lane"], "valuation-reversion")
+            self.assertEqual(
+                self._recommended(payload)[0]["selection_playbook"], "valuation-reversion"
+            )
             self.assertEqual(self._recommended(payload)[0]["position_tier"], "200-500")
             self.assertNotIn("lenses", self._recommended(payload)[0])
 
@@ -1355,14 +1358,14 @@ class SelectCommandTests(unittest.TestCase):
                 candidates=[
                     {
                         "ticker": "1111",
-                        "name": "valuation reversion leads the configured lane order",
+                        "name": "valuation reversion leads the configured playbook order",
                         "sector_33": "機械",
                         "market_cap_oku": 600,
                         "evidence_hits": [{"name": "valuation-reversion"}],
                     },
                     {
                         "ticker": "2222",
-                        "name": "strict net cash ranks second in lane order",
+                        "name": "strict net cash ranks second in playbook order",
                         "sector_33": "機械",
                         "market_cap_oku": 150,
                         "evidence_hits": [
@@ -1396,11 +1399,13 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = safe_load(buffer.getvalue())
-            # research_selection_lane_order is the single lane priority: the
-            # valuation-reversion candidate outranks the alternative-lane peers.
+            # research_selection_playbook_order is the single playbook priority: the
+            # valuation-reversion candidate outranks the alternative-playbook peers.
             # Sector cap=2 keeps both 機械 names through to recommended.
             self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["1111", "2222"])
-            self.assertEqual(self._recommended(payload)[0]["selection_lane"], "valuation-reversion")
+            self.assertEqual(
+                self._recommended(payload)[0]["selection_playbook"], "valuation-reversion"
+            )
 
     def test_select_preserves_freshness_warnings_across_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1525,7 +1530,7 @@ class SelectCommandTests(unittest.TestCase):
             payload = safe_load(buffer.getvalue())
             self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["2222"])
 
-    def test_select_handles_multi_lane_candidates_with_primary_selection_lane(self) -> None:
+    def test_select_handles_multi_playbook_candidates_with_primary_selection_playbook(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -1593,9 +1598,11 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = safe_load(buffer.getvalue())
             self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["1111", "2222"])
-            self.assertEqual(self._recommended(payload)[1]["selection_lane"], "valuation-reversion")
+            self.assertEqual(
+                self._recommended(payload)[1]["selection_playbook"], "valuation-reversion"
+            )
 
-    def test_select_uses_lane_strength_before_market_cap(self) -> None:
+    def test_select_uses_playbook_strength_before_market_cap(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -1654,7 +1661,7 @@ class SelectCommandTests(unittest.TestCase):
             payload = safe_load(buffer.getvalue())
             self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["2222", "1111"])
             self.assertEqual(
-                self._recommended(payload)[0]["selection_lane"], "cashflow-yield-discount"
+                self._recommended(payload)[0]["selection_playbook"], "cashflow-yield-discount"
             )
 
     def test_select_fast_dislocation_requires_fundamental_guard(self) -> None:
@@ -1926,17 +1933,17 @@ class SelectCommandTests(unittest.TestCase):
             self._write_macro_context(
                 root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
             )
-            ledger = root / "records/_ledger/research-decisions/2026-04.jsonl"
-            ledger.parent.mkdir(parents=True)
-            ledger.write_text(
+            decisions_path = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
+            decisions_path.parent.mkdir(parents=True)
+            decisions_path.write_text(
                 json.dumps(
                     {
                         "ticker": "2222",
                         "decision_scope": "research_memo",
                         "decision_event_at": "2026-04-23T10:00:00+09:00",
                         "decision_event_id": "decision-test-2222",
-                        "research_ref": "records/05-research/test.md",
-                        "research_decision": {
+                        "thesis_ref": "records/05-thesis/test.md",
+                        "thesis_decision": {
                             "outcome": "deferred",
                             "posture": "wait_for_event",
                             "deferral_reason": "event_pending",
@@ -1994,17 +2001,17 @@ class SelectCommandTests(unittest.TestCase):
             self._write_macro_context(
                 root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
             )
-            ledger = root / "records/_ledger/research-decisions/2026-04.jsonl"
-            ledger.parent.mkdir(parents=True)
-            ledger.write_text(
+            decisions_path = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
+            decisions_path.parent.mkdir(parents=True)
+            decisions_path.write_text(
                 json.dumps(
                     {
                         "ticker": "2222",
                         "decision_scope": "research_memo",
                         "decision_event_at": "2026-04-23T10:00:00+09:00",
                         "decision_event_id": "decision-test-2222",
-                        "research_ref": "records/05-research/test.md",
-                        "research_decision": {
+                        "thesis_ref": "records/05-thesis/test.md",
+                        "thesis_decision": {
                             "outcome": "deferred",
                             "posture": "wait_for_event",
                             "deferral_reason": "event_pending",
@@ -2058,17 +2065,17 @@ class SelectCommandTests(unittest.TestCase):
             self._write_macro_context(
                 root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
             )
-            ledger = root / "records/_ledger/research-decisions/2026-04.jsonl"
-            ledger.parent.mkdir(parents=True)
-            ledger.write_text(
+            decisions_path = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
+            decisions_path.parent.mkdir(parents=True)
+            decisions_path.write_text(
                 json.dumps(
                     {
                         "ticker": "2222",
                         "decision_scope": "research_memo",
                         "decision_event_at": "2026-04-23T10:00:00+09:00",
                         "decision_event_id": "decision-test-2222",
-                        "research_ref": "records/05-research/test.md",
-                        "research_decision": {
+                        "thesis_ref": "records/05-thesis/test.md",
+                        "thesis_decision": {
                             "outcome": "rejected",
                             "posture": "avoid",
                             "reason_code": "thesis_broken",
@@ -2115,18 +2122,18 @@ class SelectCommandTests(unittest.TestCase):
             self._write_macro_context(
                 root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
             )
-            ledger = root / "records/_ledger/research-decisions/2026-04.jsonl"
-            ledger.parent.mkdir(parents=True)
+            decisions_path = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
+            decisions_path.parent.mkdir(parents=True)
             base_event = {
                 "ticker": "2222",
                 "decision_scope": "research_memo",
                 "decision_event_at": "2026-04-23T10:00:00+09:00",
-                "research_ref": "records/05-research/test.md",
+                "thesis_ref": "records/05-thesis/test.md",
             }
             older_id_event = {
                 **base_event,
                 "decision_event_id": "decision-a",
-                "research_decision": {
+                "thesis_decision": {
                     "outcome": "rejected",
                     "posture": "avoid",
                     "reason_code": "thesis_broken",
@@ -2135,14 +2142,14 @@ class SelectCommandTests(unittest.TestCase):
             newer_id_event = {
                 **base_event,
                 "decision_event_id": "decision-z",
-                "research_decision": {
+                "thesis_decision": {
                     "outcome": "deferred",
                     "posture": "wait_for_event",
                     "deferral_reason": "event_pending",
                     "revisit": {"revisit_after": "2026-05-01"},
                 },
             }
-            ledger.write_text(
+            decisions_path.write_text(
                 "\n".join(
                     json.dumps(event, ensure_ascii=False)
                     for event in (newer_id_event, older_id_event)

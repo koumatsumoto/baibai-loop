@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from .rule_config import (
-    CashflowYieldLane,
-    CashRichLane,
-    SalesDiscountGrowthLane,
+    CashflowYieldPlaybook,
+    CashRichPlaybook,
+    SalesDiscountGrowthPlaybook,
     ScreeningRules,
-    ValuationReversionLane,
+    ValuationReversionPlaybook,
 )
 from .schema import DerivedMetrics, EvidenceHit, FinancialSnapshot, ScreeningResult, TTMQuality
 
@@ -32,42 +32,42 @@ def evaluate_screening(
     evidence_hits: list[EvidenceHit] = []
     null_reasons: list[str] = []
 
-    for name, lane in rules.screening_playbooks.items():
+    for name, playbook in rules.screening_playbooks.items():
         match name:
             case "valuation-reversion":
-                if not isinstance(lane, ValuationReversionLane):
+                if not isinstance(playbook, ValuationReversionPlaybook):
                     continue
-                if _is_excluded_sector(sector_33, lane.excluded_sectors):
+                if _is_excluded_sector(sector_33, playbook.excluded_sectors):
                     null_reasons.append("valuation_reversion_excluded_sector")
                     continue
                 hit = _valuation_reversion(
                     financial,
                     derived,
-                    lane,
+                    playbook,
                     rules.quality.yoy_deterioration_threshold,
                     null_reasons,
                 )
             case "cash-rich-asset-discount":
-                if not isinstance(lane, CashRichLane):
+                if not isinstance(playbook, CashRichPlaybook):
                     continue
-                if _is_excluded_sector(sector_33, lane.excluded_sectors):
+                if _is_excluded_sector(sector_33, playbook.excluded_sectors):
                     null_reasons.append("cash_rich_excluded_sector")
                     continue
-                hit = _cash_rich_asset_discount(financial, lane, null_reasons)
+                hit = _cash_rich_asset_discount(financial, playbook, null_reasons)
             case "cashflow-yield-discount":
-                if not isinstance(lane, CashflowYieldLane):
+                if not isinstance(playbook, CashflowYieldPlaybook):
                     continue
-                if _is_excluded_sector(sector_33, lane.excluded_sectors):
+                if _is_excluded_sector(sector_33, playbook.excluded_sectors):
                     null_reasons.append("cashflow_yield_excluded_sector")
                     continue
-                hit = _cashflow_yield_discount(financial, lane, null_reasons)
+                hit = _cashflow_yield_discount(financial, playbook, null_reasons)
             case "sales-discount-growth":
-                if not isinstance(lane, SalesDiscountGrowthLane):
+                if not isinstance(playbook, SalesDiscountGrowthPlaybook):
                     continue
-                if _is_excluded_sector(sector_33, lane.excluded_sectors):
+                if _is_excluded_sector(sector_33, playbook.excluded_sectors):
                     null_reasons.append("sales_discount_excluded_sector")
                     continue
-                hit = _sales_discount_growth(financial, derived, lane, null_reasons)
+                hit = _sales_discount_growth(financial, derived, playbook, null_reasons)
             case _:  # pragma: no cover - config validator rejects this.
                 hit = None
         if hit is not None:
@@ -93,13 +93,13 @@ def _is_excluded_sector(sector_33: str, excluded_sectors: tuple[str, ...]) -> bo
 def _valuation_reversion(
     financial: FinancialSnapshot,
     derived: DerivedMetrics,
-    lane: ValuationReversionLane,
+    playbook: ValuationReversionPlaybook,
     deterioration_threshold: float,
     null_reasons: list[str],
 ) -> EvidenceHit | None:
     reasons: list[str] = []
     metrics: dict[str, float | int | bool | str | None] = {}
-    hit_metric_a = _condition_a_metric(financial, derived, lane, null_reasons)
+    hit_metric_a = _condition_a_metric(financial, derived, playbook, null_reasons)
     if hit_metric_a is not None:
         reasons.append(REASON_SECTOR_SELF_RANGE)
         metrics["condition_a_metric"] = hit_metric_a
@@ -110,7 +110,7 @@ def _valuation_reversion(
     hit_metric_b = _condition_b_metric(
         financial,
         derived,
-        lane,
+        playbook,
         deterioration_threshold,
         null_reasons,
     )
@@ -119,7 +119,7 @@ def _valuation_reversion(
         metrics["condition_b_metric"] = hit_metric_b
         metrics["price_change_60d"] = derived.price_change_60d
         metrics["condition_b_sigma_gap"] = derived.sigma_gap.get(hit_metric_b)
-    if _condition_c(financial, derived, lane, deterioration_threshold, null_reasons):
+    if _condition_c(financial, derived, playbook, deterioration_threshold, null_reasons):
         reasons.append(REASON_SECTOR_ROTATION)
         metrics["sector_relative_strength_percentile"] = derived.sector_relative_strength_percentile
         metrics["ticker_return_4w"] = derived.ticker_return_4w
@@ -128,7 +128,7 @@ def _valuation_reversion(
         return None
     return EvidenceHit(
         name=PLAYBOOK_VALUATION_REVERSION,
-        playbook_id=lane.playbook_id,
+        playbook_id=playbook.playbook_id,
         reasons=tuple(reasons),
         metrics=metrics,
     )
@@ -137,20 +137,20 @@ def _valuation_reversion(
 def _condition_a_metric(
     financial: FinancialSnapshot,
     derived: DerivedMetrics,
-    lane: ValuationReversionLane,
+    playbook: ValuationReversionPlaybook,
     null_reasons: list[str],
 ) -> str | None:
     if derived.short_history_flag:
         null_reasons.append("valuation_reversion_condition_a_short_history")
         return None
-    for metric in _rule_metrics(financial, lane):
+    for metric in _rule_metrics(financial, playbook):
         sector_gap = derived.sector_median_gap.get(metric)
         self_percentile = derived.self_range_percentile.get(metric)
         if sector_gap is None or self_percentile is None:
             continue
         if (
-            sector_gap <= lane.sector_median_gap_max
-            and self_percentile <= lane.self_range_percentile_max
+            sector_gap <= playbook.sector_median_gap_max
+            and self_percentile <= playbook.self_range_percentile_max
         ):
             return metric
     null_reasons.append("valuation_reversion_condition_a_no_metric")
@@ -160,21 +160,21 @@ def _condition_a_metric(
 def _condition_b_metric(
     financial: FinancialSnapshot,
     derived: DerivedMetrics,
-    lane: ValuationReversionLane,
+    playbook: ValuationReversionPlaybook,
     deterioration_threshold: float,
     null_reasons: list[str],
 ) -> str | None:
     if derived.price_change_60d is None:
         null_reasons.append("valuation_reversion_condition_b_missing_price_change_60d")
         return None
-    if derived.price_change_60d > lane.price_change_60d_max:
+    if derived.price_change_60d > playbook.price_change_60d_max:
         return None
     if _has_deterioration(financial, deterioration_threshold):
         null_reasons.append("valuation_reversion_condition_b_deterioration")
         return None
-    for metric in _rule_metrics(financial, lane):
+    for metric in _rule_metrics(financial, playbook):
         sigma_gap = derived.sigma_gap.get(metric)
-        if sigma_gap is not None and sigma_gap <= lane.sigma_gap_max:
+        if sigma_gap is not None and sigma_gap <= playbook.sigma_gap_max:
             return metric
     null_reasons.append("valuation_reversion_condition_b_no_sigma_gap")
     return None
@@ -183,7 +183,7 @@ def _condition_b_metric(
 def _condition_c(
     financial: FinancialSnapshot,
     derived: DerivedMetrics,
-    lane: ValuationReversionLane,
+    playbook: ValuationReversionPlaybook,
     deterioration_threshold: float,
     null_reasons: list[str],
 ) -> bool:
@@ -197,14 +197,15 @@ def _condition_c(
         null_reasons.append("valuation_reversion_condition_c_missing_4w_returns")
         return False
     return (
-        derived.sector_relative_strength_percentile <= lane.sector_relative_strength_percentile_max
+        derived.sector_relative_strength_percentile
+        <= playbook.sector_relative_strength_percentile_max
         and derived.ticker_return_4w < derived.sector_return_4w
     )
 
 
 def _cash_rich_asset_discount(
     financial: FinancialSnapshot,
-    lane: CashRichLane,
+    playbook: CashRichPlaybook,
     null_reasons: list[str],
 ) -> EvidenceHit | None:
     if financial.cash_to_market_cap is None:
@@ -217,36 +218,37 @@ def _cash_rich_asset_discount(
         null_reasons.append("cash_rich_missing_equity_ratio")
         return None
     if (
-        lane.edinet_net_cash_to_market_cap_min_if_available is not None
+        playbook.edinet_net_cash_to_market_cap_min_if_available is not None
         and financial.net_cash_to_market_cap is not None
-        and financial.net_cash_to_market_cap < lane.edinet_net_cash_to_market_cap_min_if_available
+        and financial.net_cash_to_market_cap
+        < playbook.edinet_net_cash_to_market_cap_min_if_available
     ):
         null_reasons.append("cash_rich_edinet_net_cash_contradiction")
         return None
-    if lane.operating_profit_positive_required and (
+    if playbook.operating_profit_positive_required and (
         financial.operating_profit is None or financial.operating_profit <= 0
     ):
         return None
     # C1: deterioration gate — block when operating_profit_yoy drops past the
     # configured threshold. Mirrors the valuation-reversion B/C conditions so
-    # an OR-passing lane structure does not let a -50% earnings company sneak
+    # an OR-passing playbook structure does not let a -50% earnings company sneak
     # through cash-rich just because its BS still looks rich.
     if (
-        lane.operating_profit_yoy_deterioration_threshold is not None
+        playbook.operating_profit_yoy_deterioration_threshold is not None
         and financial.operating_profit_yoy is not None
-        and financial.operating_profit_yoy <= lane.operating_profit_yoy_deterioration_threshold
+        and financial.operating_profit_yoy <= playbook.operating_profit_yoy_deterioration_threshold
     ):
         null_reasons.append("cash_rich_operating_profit_deterioration")
         return None
     if (
-        financial.cash_to_market_cap < lane.cash_to_market_cap_min
-        or financial.price_to_equity > lane.price_to_equity_max
-        or financial.equity_ratio < lane.equity_ratio_min
+        financial.cash_to_market_cap < playbook.cash_to_market_cap_min
+        or financial.price_to_equity > playbook.price_to_equity_max
+        or financial.equity_ratio < playbook.equity_ratio_min
     ):
         return None
     return EvidenceHit(
         name=PLAYBOOK_CASH_RICH,
-        playbook_id=lane.playbook_id,
+        playbook_id=playbook.playbook_id,
         reasons=(REASON_CASH_RICH,),
         metrics={
             "cash_to_market_cap": financial.cash_to_market_cap,
@@ -262,28 +264,28 @@ def _cash_rich_asset_discount(
 
 def _cashflow_yield_discount(
     financial: FinancialSnapshot,
-    lane: CashflowYieldLane,
+    playbook: CashflowYieldPlaybook,
     null_reasons: list[str],
 ) -> EvidenceHit | None:
     if financial.ttm_quality_ocf_yield == TTMQuality.UNAVAILABLE:
         null_reasons.append("cashflow_yield_ttm_cfo_unavailable")
         return None
-    if lane.ttm_cfo_required and financial.ocf_ttm is None:
+    if playbook.ttm_cfo_required and financial.ocf_ttm is None:
         null_reasons.append("cashflow_yield_missing_ttm_cfo")
         return None
-    if lane.cfo_yoy_required and financial.cfo_yoy is None:
+    if playbook.cfo_yoy_required and financial.cfo_yoy is None:
         null_reasons.append("cashflow_yield_missing_cfo_yoy")
         return None
-    if financial.cfo_yoy is not None and financial.cfo_yoy < lane.cfo_yoy_min:
+    if financial.cfo_yoy is not None and financial.cfo_yoy < playbook.cfo_yoy_min:
         return None
-    if financial.ocf_yield is None or financial.ocf_yield < lane.ocf_yield_min:
+    if financial.ocf_yield is None or financial.ocf_yield < playbook.ocf_yield_min:
         return None
     # C1: deterioration gate — same rationale as cash-rich. OCF can stay high
     # while the operating engine is decaying year over year; this stops that.
     if (
-        lane.operating_profit_yoy_deterioration_threshold is not None
+        playbook.operating_profit_yoy_deterioration_threshold is not None
         and financial.operating_profit_yoy is not None
-        and financial.operating_profit_yoy <= lane.operating_profit_yoy_deterioration_threshold
+        and financial.operating_profit_yoy <= playbook.operating_profit_yoy_deterioration_threshold
     ):
         null_reasons.append("cashflow_yield_operating_profit_deterioration")
         return None
@@ -291,14 +293,14 @@ def _cashflow_yield_discount(
     # the OCF yield advertises; that profile mean-reverts slowly and
     # underperforms 4w cohorts. fcf_yield is None if the EDINET feed is missing
     # — only enforce the gate when the data is present.
-    if lane.fcf_yield_required_positive and (
+    if playbook.fcf_yield_required_positive and (
         financial.fcf_yield is not None and financial.fcf_yield <= 0
     ):
         null_reasons.append("cashflow_yield_fcf_negative")
         return None
     return EvidenceHit(
         name=PLAYBOOK_CASHFLOW_YIELD,
-        playbook_id=lane.playbook_id,
+        playbook_id=playbook.playbook_id,
         reasons=(REASON_CASHFLOW_YIELD,),
         metrics={
             "ocf_yield": financial.ocf_yield,
@@ -313,7 +315,7 @@ def _cashflow_yield_discount(
 def _sales_discount_growth(
     financial: FinancialSnapshot,
     derived: DerivedMetrics,
-    lane: SalesDiscountGrowthLane,
+    playbook: SalesDiscountGrowthPlaybook,
     null_reasons: list[str],
 ) -> EvidenceHit | None:
     ps_gap = derived.sector_median_gap.get("p_s")
@@ -323,13 +325,13 @@ def _sales_discount_growth(
     if financial.sales_yoy is None:
         null_reasons.append("sales_discount_missing_sales_yoy")
         return None
-    if ps_gap > lane.ps_sector_gap_max or financial.sales_yoy < lane.sales_yoy_min:
+    if ps_gap > playbook.ps_sector_gap_max or financial.sales_yoy < playbook.sales_yoy_min:
         return None
-    if not _sales_operating_profit_gate(financial, lane):
+    if not _sales_operating_profit_gate(financial, playbook):
         return None
     return EvidenceHit(
         name=PLAYBOOK_SALES_DISCOUNT,
-        playbook_id=lane.playbook_id,
+        playbook_id=playbook.playbook_id,
         reasons=(REASON_SALES_DISCOUNT,),
         metrics={
             "p_s": financial.p_s,
@@ -344,23 +346,23 @@ def _sales_discount_growth(
 
 def _sales_operating_profit_gate(
     financial: FinancialSnapshot,
-    lane: SalesDiscountGrowthLane,
+    playbook: SalesDiscountGrowthPlaybook,
 ) -> bool:
     # C2: operating margin floor — kills the "loss narrowing" escape hatch
     # that admitted chronic losers (e.g. -100B -> -50B counts as "narrowing"
     # but the absolute margin is still catastrophic). Only enforce when both
     # operating_profit and sales are known.
     if (
-        lane.operating_margin_min is not None
+        playbook.operating_margin_min is not None
         and financial.operating_profit is not None
         and financial.sales is not None
         and financial.sales > 0
-        and (financial.operating_profit / financial.sales) < lane.operating_margin_min
+        and (financial.operating_profit / financial.sales) < playbook.operating_margin_min
     ):
         return False
     if financial.operating_profit is not None and financial.operating_profit >= 0:
         return True
-    if not lane.allow_operating_loss_if_cfo_positive_or_loss_narrowing:
+    if not playbook.allow_operating_loss_if_cfo_positive_or_loss_narrowing:
         return False
     return bool(
         (financial.ocf_ttm is not None and financial.ocf_ttm > 0)
@@ -379,9 +381,11 @@ def _has_deterioration(financial: FinancialSnapshot, deterioration_threshold: fl
     return False
 
 
-def _rule_metrics(financial: FinancialSnapshot, lane: ValuationReversionLane) -> tuple[str, ...]:
+def _rule_metrics(
+    financial: FinancialSnapshot, playbook: ValuationReversionPlaybook
+) -> tuple[str, ...]:
     metrics: list[str] = []
-    for metric in lane.metrics:
+    for metric in playbook.metrics:
         if metric == "ev_ebitda" and financial.ttm_quality_ev_ebitda != TTMQuality.EXACT:
             continue
         if metric == "p_s" and financial.ttm_quality_p_s == TTMQuality.UNAVAILABLE:

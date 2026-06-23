@@ -10,7 +10,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.validate.policy import discover_policy_files, validate_policy_file
+from baibai_loop.validation.policy import discover_policy_files, validate_policy_file
 
 
 class PolicyValidationTests(unittest.TestCase):
@@ -31,7 +31,7 @@ class PolicyValidationTests(unittest.TestCase):
     def test_rejects_missing_heading(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "policy.md"
-            path.write_text("# Different Doc\n\nSee policy_config.py.\n", encoding="utf-8")
+            path.write_text("# Different Doc\n\nSee position/policy.py.\n", encoding="utf-8")
 
             findings = validate_policy_file(path)
 
@@ -57,7 +57,7 @@ class PolicyValidationTests(unittest.TestCase):
 
 
 def _valid_policy_doc() -> str:
-    return "# Portfolio Policy\n\nConcrete thresholds live in `policy_config.py`.\n"
+    return "# Portfolio Policy\n\nConcrete thresholds live in `position/policy.py`.\n"
 
 
 if __name__ == "__main__":
