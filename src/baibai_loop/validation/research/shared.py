@@ -11,7 +11,7 @@ from pathlib import Path
 import yaml
 
 from baibai_loop.foundation.coerce import optional_float
-from baibai_loop.validate.domain import (
+from baibai_loop.validation.domain import (
     repo_root_for,
     repository_ref_error,
     resolve_repository_ref,

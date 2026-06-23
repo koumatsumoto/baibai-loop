@@ -18,7 +18,7 @@ Incident は運用中に records 作成や automation が止まった場合の�
 
 ## Validation failure
 
-1. `uv run baibai-loop-validate` の error path を読む。
+1. `uv run baibai-loop-validation` の error path を読む。
 2. 対応する component doc と schema を確認する。
 3. schema や validator の意味を推測で変えない。必要なら別 issue を起こす。
 

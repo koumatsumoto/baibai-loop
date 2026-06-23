@@ -93,11 +93,11 @@ Macro context は、screening 前に既存 context が stale / scope mismatch / 
 
 ## 9. 計測の原則：forward-only な backtest と、避ける最適化
 
-screening（lane / lens / regime / 閾値）の効果は、過去週を look-ahead を排して replay する
+screening（playbook / lens / regime / 閾値）の効果は、過去週を look-ahead を排して replay する
 **forward-only な multi-axis backtest** で検証する。手順の正本は
 [`operations/backtest-runbook.md`](./operations/backtest-runbook.md) の 7 axis
-（screening-replay / lane-cohorts / selection-ablation / judgment-gate counterfactual /
-bootstrap CI / opportunity-cost / regime×lane）であり、lane の追加・削除、lane 順、
+（screening-replay / playbook-cohorts / selection-ablation / judgment-gate counterfactual /
+bootstrap CI / opportunity-cost / regime×playbook）であり、playbook の追加・削除、playbook 順、
 regime lens の有効化などはこの計測を根拠に discrete に改訂する。
 
 一方、screening 閾値・playbook 採用条件・position sizing の **値そのもの** は人間が原則ベースで
@@ -129,7 +129,7 @@ forward でどう効いたか」を測るためのものであって、「過去
 
 ### 9.3 根拠
 
-- screening の仕組み (どの lane / lens が forward return を生んだか) は計測しないと改善できない。
+- screening の仕組み (どの playbook / lens が forward return を生んだか) は計測しないと改善できない。
   柱 5「計測ファースト」に従い、multi-axis backtest で価値を実証した施策だけを採用し、発動ゼロの
   機能を ablation で棚卸しする
 - だが 1 名運用・記録駆動では、閾値を過去に fit できるほどの独立サンプルが入手しにくく (J-Quants

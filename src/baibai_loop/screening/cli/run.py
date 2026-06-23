@@ -32,8 +32,8 @@ from baibai_loop.screening.providers.jquants import (
 )
 from baibai_loop.screening.render import build_output_path, render_screened_yaml
 from baibai_loop.screening.rule_config import (
-    CashflowYieldLane,
-    SalesDiscountGrowthLane,
+    CashflowYieldPlaybook,
+    SalesDiscountGrowthPlaybook,
     ScreeningRules,
     load_screening_rules,
 )
@@ -368,7 +368,7 @@ def run_command(
         fallback_lines.append(f"ttm_quality 非 exact 件数: {approx_total}")
     if required_ttm_non_exact:
         fallback_lines.append(
-            f"有効 lane 必須 TTM metric 非 exact 件数(流動性母集団): {required_ttm_non_exact}"
+            f"有効 playbook 必須 TTM metric 非 exact 件数(流動性母集団): {required_ttm_non_exact}"
         )
     if population_yoy_missing:
         fallback_lines.append(
@@ -500,7 +500,7 @@ def _evidence_hits_summary(
     candidates: Sequence[ScreenedCandidate],
     rules: ScreeningRules,
 ) -> dict[str, int]:
-    summary = dict.fromkeys(rules.lane_order, 0)
+    summary = dict.fromkeys(rules.playbook_order, 0)
     for candidate in candidates:
         for evidence_hit in candidate.evidence_hits:
             summary[evidence_hit.name] = summary.get(evidence_hit.name, 0) + 1
@@ -513,10 +513,10 @@ def _required_ttm_non_exact_count(
 ) -> int:
     snapshots = tuple(financials)
     required_qualities: list[TTMQuality] = []
-    for lane in rules.screening_playbooks.values():
-        if isinstance(lane, CashflowYieldLane) and lane.ttm_cfo_required:
+    for playbook in rules.screening_playbooks.values():
+        if isinstance(playbook, CashflowYieldPlaybook) and playbook.ttm_cfo_required:
             required_qualities.extend(snapshot.ttm_quality_ocf_yield for snapshot in snapshots)
-        if isinstance(lane, SalesDiscountGrowthLane):
+        if isinstance(playbook, SalesDiscountGrowthPlaybook):
             required_qualities.extend(snapshot.ttm_quality_p_s for snapshot in snapshots)
     return sum(1 for quality in required_qualities if quality != TTMQuality.EXACT)
 

@@ -13,7 +13,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.validate.research import (
+from baibai_loop.validation.research import (
     discover_research_files,
     validate_research_collection,
     validate_research_file,
@@ -618,7 +618,7 @@ class ResearchValidationTests(unittest.TestCase):
     def test_missing_playbook_schema_at_load_time_is_handled(self) -> None:
         front = _minimal_research_front_matter()
         with patch(
-            "baibai_loop.validate.research.core.load_playbook_schema",
+            "baibai_loop.validation.research.core.load_playbook_schema",
             side_effect=FileNotFoundError("missing"),
         ):
             codes = {finding.code for finding in self._findings_for(front)}

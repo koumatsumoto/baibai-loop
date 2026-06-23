@@ -18,12 +18,12 @@ last_reviewed: 2026-05-04
 | --- | --- | --- |
 | [`principles.md`](./principles.md) | contract | screening subsystem の設計原則正本 |
 | [`automation.md`](./automation.md) | runbook / automation | screening CLI の使い方と実装境界 |
-| [`extending.md`](./extending.md) | reference | 新 lens / lane / telemetry の拡張点と計測ファースト手順 |
+| [`extending.md`](./extending.md) | reference | 新 lens / playbook / telemetry の拡張点と計測ファースト手順 |
 | [`mechanical.md`](./mechanical.md) | contract | 機械的ふるいの閾値と rule engine の意味論 |
 | [`universe-rules.md`](./universe-rules.md) | contract | screening universe の境界条件 |
 | [`valuation-metrics.md`](./valuation-metrics.md) | reference | valuation 指標の算出仕様 |
 
-dated 計測結果（過去の replay / ablation / regime-lens / lane-cohorts）は [`../../docs/operations/backtest-runbook.md`](../operations/backtest-runbook.md) §6 と [`../../reports/`](../../reports/) に統合済み。新しい計測は backtest-runbook の 7 axis に従い `.cache/` で実施する。
+dated 計測結果（過去の replay / ablation / regime-lens / playbook-cohorts）は [`../../docs/operations/backtest-runbook.md`](../operations/backtest-runbook.md) §6 と [`../../reports/`](../../reports/) に統合済み。新しい計測は backtest-runbook の 7 axis に従い `.cache/` で実施する。
 
 ## 上位 docs
 

@@ -49,7 +49,7 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 records / schema の変更を加えたら、コミット前に最低限以下を通す。
 
 ```bash
-uv run baibai-loop-validate
+uv run baibai-loop-validation
 uv run ruff format --check .
 uv run ruff check .
 uv run mypy

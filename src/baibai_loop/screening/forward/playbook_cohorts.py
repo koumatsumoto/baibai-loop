@@ -1,9 +1,9 @@
-"""Lane-level cohort forward-return telemetry over weekly candidates.
+"""Playbook-cohort forward-return telemetry over weekly candidates.
 
 The replay pipeline scores only the recommended queue (top N per profile), so
-nobody measures whether each screening lane (playbook) actually produces
-forward return across its full weekly cohort of 300-650 candidates. This
-module aggregates forward returns per evidence lane so the monthly retro and
+nobody measures whether each screening playbook actually produces forward
+return across its full weekly cohort of 300-650 candidates. This module
+aggregates forward returns per evidence playbook so the monthly retro and
 playbook revisions get quantitative footing. It is forward-only measurement of
 recorded screening output — the same stance as the replay — not a backtest or
 parameter search. Aggregates are facts; interpretation stays in the retro.
@@ -37,8 +37,8 @@ _ENTRY_LOOKBACK_CALENDAR_DAYS = 14
 
 
 @dataclass(frozen=True, slots=True)
-class LaneCohortAggregate:
-    lane: str
+class CohortAggregate:
+    cohort: str
     horizon_weeks: int
     member_count: int
     resolved_count: int
@@ -49,34 +49,35 @@ class LaneCohortAggregate:
 
 
 @dataclass(frozen=True, slots=True)
-class LaneCohortWeek:
+class CohortWeek:
     week: date
     candidates_path: str
     candidate_count: int
-    lane_counts: Mapping[str, int]
-    aggregates: tuple[LaneCohortAggregate, ...]
+    playbook_counts: Mapping[str, int]
+    aggregates: tuple[CohortAggregate, ...]
 
 
 @dataclass(frozen=True, slots=True)
-class LaneCohortResult:
+class CohortResult:
     horizon_weeks: tuple[int, ...]
     eval_cap: date | None
     benchmark_ticker: str
-    weeks: tuple[LaneCohortWeek, ...]
+    weeks: tuple[CohortWeek, ...]
 
 
-def run_lane_cohorts(
+def run_playbook_cohorts(
     weeks: Sequence[WeekSpec],
     *,
     sqlite_path: Path,
     horizon_weeks: Sequence[int] = DEFAULT_COHORT_HORIZON_WEEKS,
     benchmark_ticker: str = NIKKEI225_ETF_PROXY,
-) -> LaneCohortResult:
-    """Aggregate forward returns per evidence lane for every candidate of each week.
+) -> CohortResult:
+    """Aggregate forward returns per cohort for every candidate of each week.
 
-    Bars are loaded once for the union of all candidate tickers plus the
-    benchmark, restricted to the evaluation window, and grouped by ticker so the
-    per-ticker price resolution stays linear in that ticker's own bars.
+    Each cohort is one evidence playbook or the all-candidates baseline. Bars are
+    loaded once for the union of all candidate tickers plus the benchmark,
+    restricted to the evaluation window, and grouped by ticker so the per-ticker
+    price resolution stays linear in that ticker's own bars.
     """
     cohorts_by_week = [(spec, _load_week_cohorts(spec.candidates_path)) for spec in weeks]
     tickers = {benchmark_ticker}
@@ -84,7 +85,7 @@ def run_lane_cohorts(
         tickers.update(cohorts.get(ALL_CANDIDATES_COHORT, ()))
     window_start = min((spec.asof for spec in weeks), default=None)
     if window_start is None:
-        return LaneCohortResult(
+        return CohortResult(
             horizon_weeks=tuple(horizon_weeks),
             eval_cap=None,
             benchmark_ticker=benchmark_ticker,
@@ -100,16 +101,16 @@ def run_lane_cohorts(
         default=None,
     )
 
-    week_results: list[LaneCohortWeek] = []
+    week_results: list[CohortWeek] = []
     for spec, (cohorts, candidate_count) in cohorts_by_week:
         relatives_cache: dict[str, dict[int, tuple[float, float] | None]] = {}
-        aggregates: list[LaneCohortAggregate] = []
-        for lane in sorted(cohorts):
-            members = cohorts[lane]
+        aggregates: list[CohortAggregate] = []
+        for cohort in sorted(cohorts):
+            members = cohorts[cohort]
             for horizon in horizon_weeks:
                 aggregates.append(
-                    _aggregate_lane(
-                        lane=lane,
+                    _aggregate_cohort(
+                        cohort=cohort,
                         horizon=horizon,
                         members=members,
                         asof=spec.asof,
@@ -120,19 +121,19 @@ def run_lane_cohorts(
                     )
                 )
         week_results.append(
-            LaneCohortWeek(
+            CohortWeek(
                 week=spec.asof,
                 candidates_path=str(spec.candidates_path),
                 candidate_count=candidate_count,
-                lane_counts={
-                    lane: len(members)
-                    for lane, members in sorted(cohorts.items())
-                    if lane != ALL_CANDIDATES_COHORT
+                playbook_counts={
+                    playbook: len(members)
+                    for playbook, members in sorted(cohorts.items())
+                    if playbook != ALL_CANDIDATES_COHORT
                 },
                 aggregates=tuple(aggregates),
             )
         )
-    return LaneCohortResult(
+    return CohortResult(
         horizon_weeks=tuple(horizon_weeks),
         eval_cap=eval_cap,
         benchmark_ticker=benchmark_ticker,
@@ -140,21 +141,22 @@ def run_lane_cohorts(
     )
 
 
-def pool_lane_relatives(
+def pool_cohort_relatives(
     weeks: Sequence[WeekSpec],
     *,
     sqlite_path: Path,
     horizon_weeks: Sequence[int] = DEFAULT_COHORT_HORIZON_WEEKS,
     benchmark_ticker: str = NIKKEI225_ETF_PROXY,
 ) -> dict[tuple[str, int], list[float]]:
-    """Pool the raw per-candidate forward relatives per (lane, horizon) across weeks.
+    """Pool the raw per-candidate forward relatives per (cohort, horizon) across weeks.
 
-    Unlike :func:`run_lane_cohorts`, which keeps per-week lane means, this pools the
-    individual candidate relatives (return minus the benchmark) so a downstream
-    scorecard can compute a large-N bootstrap CI over the whole candidate
-    cross-section. Forward-only: a (week, horizon) only contributes when its target
-    falls on/before the eval cap, and every price resolves on/before its own date.
-    A ticker that appears in several lanes is priced once per (week, horizon).
+    Unlike :func:`run_playbook_cohorts`, which keeps per-week cohort means, this
+    pools the individual candidate relatives (return minus the benchmark) so a
+    downstream scorecard can compute a large-N bootstrap CI over the whole
+    candidate cross-section. Forward-only: a (week, horizon) only contributes when
+    its target falls on/before the eval cap, and every price resolves on/before its
+    own date. A ticker that appears in several playbooks is priced once per
+    (week, horizon).
     """
     cohorts_by_week = [(spec, _load_week_cohorts(spec.candidates_path)) for spec in weeks]
     tickers = {benchmark_ticker}
@@ -197,16 +199,16 @@ def pool_lane_relatives(
                 if outcome is not None:
                     relatives[ticker] = outcome[1]
             relative_by_horizon[horizon] = relatives
-        for lane, members in cohorts.items():
+        for cohort, members in cohorts.items():
             for horizon, relatives in relative_by_horizon.items():
                 for ticker in sorted(members):
                     relative = relatives.get(ticker)
                     if relative is not None:
-                        pooled[(lane, horizon)].append(relative)
+                        pooled[(cohort, horizon)].append(relative)
     return dict(pooled)
 
 
-def lane_cohorts_to_payload(result: LaneCohortResult) -> dict[str, object]:
+def playbook_cohorts_to_payload(result: CohortResult) -> dict[str, object]:
     """Serialize the cohort result into a plain, YAML-friendly mapping."""
     return {
         "horizon_weeks": list(result.horizon_weeks),
@@ -217,10 +219,10 @@ def lane_cohorts_to_payload(result: LaneCohortResult) -> dict[str, object]:
                 "week": item.week.isoformat(),
                 "candidates_path": item.candidates_path,
                 "candidate_count": item.candidate_count,
-                "lane_counts": dict(item.lane_counts),
+                "playbook_counts": dict(item.playbook_counts),
                 "aggregates": [
                     {
-                        "lane": aggregate.lane,
+                        "cohort": aggregate.cohort,
                         "horizon_weeks": aggregate.horizon_weeks,
                         "member_count": aggregate.member_count,
                         "resolved_count": aggregate.resolved_count,
@@ -237,16 +239,16 @@ def lane_cohorts_to_payload(result: LaneCohortResult) -> dict[str, object]:
     }
 
 
-def render_lane_cohort_summary(result: LaneCohortResult) -> str:
+def render_playbook_cohort_summary(result: CohortResult) -> str:
     """Render a fixed-width scoreboard for stdout triage."""
     lines = [
-        f"{'week':<12}{'lane':<28}{'h':<3}{'n':>5}{'resolved':>9}"
+        f"{'week':<12}{'cohort':<28}{'h':<3}{'n':>5}{'resolved':>9}"
         f"{'mean':>8}{'median':>8}{'rel':>8}{'win':>6}"
     ]
     for week in result.weeks:
         for aggregate in week.aggregates:
             lines.append(
-                f"{week.week.isoformat():<12}{aggregate.lane:<28}{aggregate.horizon_weeks:<3}"
+                f"{week.week.isoformat():<12}{aggregate.cohort:<28}{aggregate.horizon_weeks:<3}"
                 f"{aggregate.member_count:>5}{aggregate.resolved_count:>9}"
                 f"{format_pct(aggregate.mean_return):>8}{format_pct(aggregate.median_return):>8}"
                 f"{format_pct(aggregate.mean_relative):>8}{format_pct(aggregate.win_rate_vs_benchmark):>6}"
@@ -263,18 +265,18 @@ def _load_week_cohorts(candidates_path: Path) -> tuple[dict[str, set[str]], int]
             continue
         candidate_count += 1
         cohorts[ALL_CANDIDATES_COHORT].add(ticker)
-        for lane in _eligible_lanes(raw.get("evidence_hits")):
-            cohorts[lane].add(ticker)
+        for playbook in _eligible_playbooks(raw.get("evidence_hits")):
+            cohorts[playbook].add(ticker)
     return dict(cohorts), candidate_count
 
 
-def _eligible_lanes(raw_evidence_hits: object) -> set[str]:
+def _eligible_playbooks(raw_evidence_hits: object) -> set[str]:
     # Mirrors selection's sizing-eligible evidence semantics: a hit counts
     # unless its source_status is degraded or sizing_eligible is explicitly
     # false, so the cohorts match what selection would actually rank.
     if not isinstance(raw_evidence_hits, Sequence) or isinstance(raw_evidence_hits, str | bytes):
         return set()
-    lanes: set[str] = set()
+    playbooks: set[str] = set()
     for hit in raw_evidence_hits:
         if not isinstance(hit, Mapping):
             continue
@@ -283,15 +285,15 @@ def _eligible_lanes(raw_evidence_hits: object) -> set[str]:
             continue
         if hit.get("sizing_eligible") is False:
             continue
-        lane = hit.get("playbook_id") or hit.get("name")
-        if isinstance(lane, str) and lane:
-            lanes.add(lane)
-    return lanes
+        playbook = hit.get("playbook_id") or hit.get("name")
+        if isinstance(playbook, str) and playbook:
+            playbooks.add(playbook)
+    return playbooks
 
 
-def _aggregate_lane(
+def _aggregate_cohort(
     *,
-    lane: str,
+    cohort: str,
     horizon: int,
     members: set[str],
     asof: date,
@@ -299,7 +301,7 @@ def _aggregate_lane(
     bars_by_ticker: Mapping[str, Sequence[JQuantsDailyBar]],
     benchmark_ticker: str,
     relatives_cache: dict[str, dict[int, tuple[float, float] | None]],
-) -> LaneCohortAggregate:
+) -> CohortAggregate:
     returns: list[float] = []
     relatives: list[float] = []
     target = asof + timedelta(days=horizon * 7)
@@ -323,8 +325,8 @@ def _aggregate_lane(
             return_ratio, relative = outcome
             returns.append(return_ratio)
             relatives.append(relative)
-    return LaneCohortAggregate(
-        lane=lane,
+    return CohortAggregate(
+        cohort=cohort,
         horizon_weeks=horizon,
         member_count=len(members),
         resolved_count=len(returns),

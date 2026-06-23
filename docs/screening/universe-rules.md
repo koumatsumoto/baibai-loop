@@ -6,7 +6,7 @@ Baibai-Loop スクリーニングの対象範囲(scope)と、規模・流動性�
 
 screen の評価対象(scope)は**全上場普通株**とし、規模・流動性・上場期間・規制 flag は除外条件ではなく **candidates に記録される事実**として扱う。research 候補の絞り込み(時価総額・売買代金・上場期間・JPX 規制)は分析層のパラメータ(`selection.liquidity`)として selection 時に適用する。
 
-- データを狭めない: どの銘柄も screening 事実(lane 判定・valuation・流動性)を持つため、ticker-profile や lane-cohorts が universe 外の銘柄も同じ事実で扱える
+- データを狭めない: どの銘柄も screening 事実(playbook 判定・valuation・流動性)を持つため、ticker-profile や playbook-cohorts が universe 外の銘柄も同じ事実で扱える
 - 絞り込みは可視・可変: 何件がどの条件で落ちたかは selection の `diagnostics.liquidity_excluded_count` に出る。閾値は `records/_config/screening-rules/*.yaml` を直接編集して変更し、replay / ablation で計測してから採用する
 
 ## 2. Scope(構造的な対象範囲)

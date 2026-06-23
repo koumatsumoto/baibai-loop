@@ -172,7 +172,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] `valid_until` を過ぎている場合、更新するか stale 前提のまま使う理由を selection / research で確認したか
 - [ ] research の `macro_context_ref` / `candidate_ref.candidates_ref` が valid パスかつ実在するか
 - [ ] `macro_context_fit.fit` と `macro_context_fit.decision_effect` が thesis / sizing / required checks に反映されているか
-- [ ] **機械化チェック**: macro context 編集後に `uv run baibai-loop-validate` を実行したか
+- [ ] **機械化チェック**: macro context 編集後に `uv run baibai-loop-validation` を実行したか
 
 ## 7. AP-07: 公表日 / 期間 / source の最新性確認を skip する
 
@@ -273,17 +273,17 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] `.claude/skills/` 全 grep: skill が当該 CLI を中核に据えていないか
   - [ ] `docs/reference/configuration.md` の関連節 (env var / profile YAML / 設定例)
   - [ ] 関連 test fixture (test_screening_cli の sweep / scorecard テスト等)
-- [ ] **lane / playbook を削減する場合、以下を同 commit で揃える** (PR #246 で 5 名レビューで指摘):
-  - [ ] `records/_playbooks/<lane>/` ディレクトリ削除
-  - [ ] `records/_config/screening-rules/*.yaml` の `screening_playbooks.<lane>` と
-        `research_selection_lane_order` から削除
-  - [ ] `src/baibai_loop/screening/rules.py` の `match` 句 / PLAYBOOK_* / REASON_* / `_<lane>_*` 関数
-  - [ ] `src/baibai_loop/screening/rule_config.py` の `<Lane>Lane` class と Union 型
+- [ ] **playbook を削減する場合、以下を同 commit で揃える** (PR #246 で 5 名レビューで指摘):
+  - [ ] `records/_playbooks/<playbook>/` ディレクトリ削除
+  - [ ] `records/_config/screening-rules/*.yaml` の `screening_playbooks.<playbook>` と
+        `research_selection_playbook_order` から削除
+  - [ ] `src/baibai_loop/screening/rules.py` の `match` 句 / PLAYBOOK_* / REASON_* / `_<playbook>_*` 関数
+  - [ ] `src/baibai_loop/screening/rule_config.py` の `<Name>Playbook` class と Union 型
         (`screening_playbooks: Mapping[..., A | B | C]`) と `match` 句
   - [ ] `src/baibai_loop/screening/selection/ranking.py` の sort key match arm
-  - [ ] `src/baibai_loop/screening/forward/selection_ablation.py` の `_LANES` tuple
+  - [ ] `src/baibai_loop/screening/forward/selection_ablation.py` の `_PLAYBOOKS` tuple
   - [ ] 削除根拠は `docs/operations/backtest-runbook.md` §6 dated index で明示し、
-        lane-cohorts / selection-ablation のサンプルが「removing は安全」と
+        playbook-cohorts / selection-ablation のサンプルが「removing は安全」と
         言える数値を残す (PR #246 では cash-rich が誤って削除候補になった反省)
 - [ ] **`entry_preflight.market_regime` のような judgment-gate field を追加する場合、以下の
       bypass パターンを必ず test で塞ぐ** (PR #245 で 5 名レビューで発覚した想定例):

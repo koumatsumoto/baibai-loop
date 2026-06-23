@@ -7,14 +7,14 @@ from pathlib import Path
 
 import yaml
 
-from baibai_loop.screening.forward.lane_cohorts import (
+from baibai_loop.screening.forward.playbook_cohorts import (
     ALL_CANDIDATES_COHORT,
-    LaneCohortAggregate,
-    LaneCohortResult,
-    LaneCohortWeek,
-    lane_cohorts_to_payload,
-    render_lane_cohort_summary,
-    run_lane_cohorts,
+    CohortAggregate,
+    CohortResult,
+    CohortWeek,
+    playbook_cohorts_to_payload,
+    render_playbook_cohort_summary,
+    run_playbook_cohorts,
 )
 from baibai_loop.screening.forward.weeks import WeekSpec
 from baibai_loop.screening.sqlite_cache import open_connection
@@ -94,8 +94,8 @@ def _make_week(root: Path) -> WeekSpec:
     return WeekSpec(asof=_ASOF, candidates_path=candidates_path)
 
 
-class RunLaneCohortsTests(unittest.TestCase):
-    def test_aggregates_per_lane_with_relative_and_win_rate(self) -> None:
+class RunPlaybookCohortsTests(unittest.TestCase):
+    def test_aggregates_per_cohort_with_relative_and_win_rate(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             sqlite_path = root / "market.sqlite"
@@ -106,30 +106,30 @@ class RunLaneCohortsTests(unittest.TestCase):
             _insert_constant_growth_bars(sqlite_path, "CCCC", entry_price=120.0, weekly_growth=0.0)
             week = _make_week(root / "candidates")
 
-            result = run_lane_cohorts([week], sqlite_path=sqlite_path, horizon_weeks=(1,))
+            result = run_playbook_cohorts([week], sqlite_path=sqlite_path, horizon_weeks=(1,))
 
             self.assertEqual(result.eval_cap, _ASOF + timedelta(days=35))
             self.assertEqual(len(result.weeks), 1)
             week_result = result.weeks[0]
             self.assertEqual(week_result.candidate_count, 3)
-            # BBBB's sales hit is sizing_eligible=false and CCCC's lane is
-            # degraded, so lane cohorts shrink while all_candidates keeps all.
+            # BBBB's sales hit is sizing_eligible=false and CCCC's playbook is
+            # degraded, so playbook cohorts shrink while all_candidates keeps all.
             self.assertEqual(
-                week_result.lane_counts,
+                week_result.playbook_counts,
                 {"cashflow-yield-discount": 1, "sales-discount-growth": 1},
             )
-            by_lane = {aggregate.lane: aggregate for aggregate in week_result.aggregates}
-            self.assertEqual(by_lane[ALL_CANDIDATES_COHORT].member_count, 3)
-            self.assertEqual(by_lane[ALL_CANDIDATES_COHORT].resolved_count, 3)
+            by_cohort = {aggregate.cohort: aggregate for aggregate in week_result.aggregates}
+            self.assertEqual(by_cohort[ALL_CANDIDATES_COHORT].member_count, 3)
+            self.assertEqual(by_cohort[ALL_CANDIDATES_COHORT].resolved_count, 3)
 
-            sales = by_lane["sales-discount-growth"]
+            sales = by_cohort["sales-discount-growth"]
             assert sales.mean_return is not None
             assert sales.mean_relative is not None
             self.assertAlmostEqual(sales.mean_return, 0.05, places=6)
             self.assertAlmostEqual(sales.mean_relative, 0.04, places=6)
             self.assertEqual(sales.win_rate_vs_benchmark, 1.0)
 
-            cashflow = by_lane["cashflow-yield-discount"]
+            cashflow = by_cohort["cashflow-yield-discount"]
             assert cashflow.mean_relative is not None
             self.assertAlmostEqual(cashflow.mean_relative, -0.04, places=6)
             self.assertEqual(cashflow.win_rate_vs_benchmark, 0.0)
@@ -146,10 +146,10 @@ class RunLaneCohortsTests(unittest.TestCase):
             )
             week = _make_week(root / "candidates")
 
-            result = run_lane_cohorts([week], sqlite_path=sqlite_path, horizon_weeks=(1, 4))
+            result = run_playbook_cohorts([week], sqlite_path=sqlite_path, horizon_weeks=(1, 4))
 
             by_key = {
-                (aggregate.lane, aggregate.horizon_weeks): aggregate
+                (aggregate.cohort, aggregate.horizon_weeks): aggregate
                 for aggregate in result.weeks[0].aggregates
             }
             self.assertEqual(by_key[("sales-discount-growth", 1)].resolved_count, 1)
@@ -159,21 +159,21 @@ class RunLaneCohortsTests(unittest.TestCase):
             self.assertIsNone(unresolved.win_rate_vs_benchmark)
 
 
-class LaneCohortPayloadTests(unittest.TestCase):
-    def _result(self) -> LaneCohortResult:
-        return LaneCohortResult(
+class CohortPayloadTests(unittest.TestCase):
+    def _result(self) -> CohortResult:
+        return CohortResult(
             horizon_weeks=(1,),
             eval_cap=date(2026, 6, 5),
             benchmark_ticker="1321",
             weeks=(
-                LaneCohortWeek(
+                CohortWeek(
                     week=_ASOF,
                     candidates_path="x.yaml",
                     candidate_count=2,
-                    lane_counts={"sales-discount-growth": 2},
+                    playbook_counts={"sales-discount-growth": 2},
                     aggregates=(
-                        LaneCohortAggregate(
-                            lane="sales-discount-growth",
+                        CohortAggregate(
+                            cohort="sales-discount-growth",
                             horizon_weeks=1,
                             member_count=2,
                             resolved_count=2,
@@ -188,15 +188,15 @@ class LaneCohortPayloadTests(unittest.TestCase):
         )
 
     def test_payload_serializes_aggregates(self) -> None:
-        payload = lane_cohorts_to_payload(self._result())
+        payload = playbook_cohorts_to_payload(self._result())
         self.assertEqual(payload["eval_cap"], "2026-06-05")
         weeks = payload["weeks"]
         assert isinstance(weeks, list)
-        self.assertEqual(weeks[0]["lane_counts"], {"sales-discount-growth": 2})
+        self.assertEqual(weeks[0]["playbook_counts"], {"sales-discount-growth": 2})
         self.assertEqual(weeks[0]["aggregates"][0]["win_rate_vs_benchmark"], 0.5)
 
     def test_summary_renders_one_row_per_aggregate(self) -> None:
-        summary = render_lane_cohort_summary(self._result())
+        summary = render_playbook_cohort_summary(self._result())
         lines = summary.splitlines()
         self.assertEqual(len(lines), 2)
         self.assertIn("sales-discount-growth", lines[1])

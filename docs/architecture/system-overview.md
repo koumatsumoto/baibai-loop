@@ -19,7 +19,7 @@ Baibai-Loop は、日本株の実データを機械的に収集・解析・ス�
 | 層 | 実体 | 性質 |
 | --- | --- | --- |
 | L1 データ層 | `data/screening/market.sqlite`(J-Quants 価格・財務 / EDINET metrics / JPX 規制) | 全上場銘柄の再現可能な事実。coverage は fail-fast で検証する |
-| L2 分析層 | screen lanes([`../screening/mechanical.md`](../screening/mechanical.md))・selection lenses・軸別スコア・forward backtest(replay / lane cohorts / ablation)。機械ふるいの事実出力 = `records/04-candidates/` | 決定論的・閾値固定の機械処理。すべて forward 計測に接続する([`../screening/extending.md`](../screening/extending.md)) |
+| L2 分析層 | screen playbooks([`../screening/mechanical.md`](../screening/mechanical.md))・selection lenses・軸別スコア・forward backtest(replay / playbook cohorts / ablation)。機械ふるいの事実出力 = `records/04-candidates/` | 決定論的・閾値固定の機械処理。すべて forward 計測に接続する([`../screening/extending.md`](../screening/extending.md)) |
 | L3 判断層 | `records/`(research / trades、macro context) + `reports/` (forward 計測の dated まとめ) | 人間 + AI 下書きの解釈と判断。**screening 効果の検証は全候補 backtest（改善ループ・大 N）が担い、trades は Q2 執行品質の信号を供給する** |
 
 AI / スクリプトが利用する安定契約は CLI YAML 出力と SQLite schema の 2 面([`../reference/platform-interface.md`](../reference/platform-interface.md))。L2 の「分析」は決定論的な機械処理であり、その出力(candidates・backtest 数値)は事実として扱います。人間 / AI の解釈を伴う analysis レイヤー(macro context、investment memo、reports)は L3 に属します。3 層と 2 ループの判定基準は「人間の判断が入るか」です。
@@ -50,11 +50,11 @@ AI / スクリプトが利用する安定契約は CLI YAML 出力と SQLite sch
 - Markdown / YAML と Git を正本にする。ただし週次 screen output(candidates YAML)は再生成可能な L2 機械出力として local store に置き、git には積まない([`../components/candidates.md`](../components/candidates.md) §2)。
 - 売買提案は GitHub Issue を成果物とし、records/ にディレクトリを持たない。承認結果は ledger と trades record に落とす。
 - AI 下書きと人間確認を前提に、事実層と分析層を物理的に分ける。
-- CLI は screening、selection、validation、ledger sync、forward backtest(replay / lane cohorts / ablation)、macro statistics 取得に使う。
+- CLI は screening、selection、validation、ledger sync、forward backtest(replay / playbook cohorts / ablation)、macro statistics 取得に使う。
 
 ## 非目標
 
-- 過去データへの閾値 grid search / パラメータ最適化、戦略累積リターンの track-record claim は行わない。screening 効果は forward-only な multi-axis backtest(記録済み output の replay / lane-cohorts / ablation、[`../operations/backtest-runbook.md`](../operations/backtest-runbook.md) の 7 axis)で計測する。
+- 過去データへの閾値 grid search / パラメータ最適化、戦略累積リターンの track-record claim は行わない。screening 効果は forward-only な multi-axis backtest(記録済み output の replay / playbook-cohorts / ablation、[`../operations/backtest-runbook.md`](../operations/backtest-runbook.md) の 7 axis)で計測する。
 - 機械学習によるスコアリング・予測は行わない。スコアは軸別の座標として出し、単一の合成点や売買指示には畳まない。
 - 自動発注、リアルタイム処理は行わない。
 - screening 閾値や playbook の **値そのもの** を過去データに fit させない(値は原則ベースで固定し、backtest は仕組みの効果計測に使う)。

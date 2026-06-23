@@ -17,7 +17,7 @@ records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml
 
 1 実行 = 1 ファイル。週次運用を基本にする。
 
-candidates YAML は **git に積まない local store** として扱う(`.gitignore` 対象)。candidates は L1 SQLite からの決定論的な L2 機械出力であり、git 履歴に積む価値がない。一方で forward 計測(replay / lane cohorts / missed-opportunity tracking)は過去ファイルを必要とするため、**履歴はこの path にローカル保持し続け、`data/screening/market.sqlite` と同じ local-canonical 扱いにする**(バックアップを取る場合は両方を対象にする)。
+candidates YAML は **git に積まない local store** として扱う(`.gitignore` 対象)。candidates は L1 SQLite からの決定論的な L2 機械出力であり、git 履歴に積む価値がない。一方で forward 計測(replay / playbook cohorts / missed-opportunity tracking)は過去ファイルを必要とするため、**履歴はこの path にローカル保持し続け、`data/screening/market.sqlite` と同じ local-canonical 扱いにする**(バックアップを取る場合は両方を対象にする)。
 
 `candidate_ref` は record 内の補助ポインタであり、ファイル横断の lineage 検証は行わない(監査証跡を保持しない方針)。
 
@@ -120,7 +120,7 @@ evidence_hits_summary:
 
 - `records/05-research/` の `candidate_ref.candidates_ref` / `candidate_ref.ticker` で候補行へ戻れるようにする(validator はファイル照合しない)
 - `select` は candidates と macro context を突き合わせ、`recommendations` と `selection.diagnostics` を出す
-- `recommendations` は research 着手候補。default summary では `selection_lane`、macro alignment、long-hold rating、reason / risk tags を見て深掘り順を決める。full lens / debug detail が必要な場合は `select --detail full` を使う
+- `recommendations` は research 着手候補。default summary では `selection_playbook`、macro alignment、long-hold rating、reason / risk tags を見て深掘り順を決める。full lens / debug detail が必要な場合は `select --detail full` を使う
 - 閾値変更は `records/_config/screening-rules/*.yaml` を直接編集し `select` を再実行して output を diff する (`load_profile_overrides` / `--profile-config` 経路は round 2 cleanup で削除済み)
 
 ## 6. 事実と分析の分離

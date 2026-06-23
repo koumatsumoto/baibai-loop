@@ -57,7 +57,7 @@ jobs:
           uv run coverage xml
 
       - name: Validate artefacts
-        run: uv run baibai-loop-validate
+        run: uv run baibai-loop-validation
 
       - name: Build package
         run: uv build --wheel

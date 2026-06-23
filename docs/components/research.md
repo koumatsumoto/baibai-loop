@@ -15,7 +15,7 @@ Baibai-Loop の **research / investment memo** の運用仕様。candidates × m
 
 ## 2. 選定プロセス
 
-1. 最新 macro context と candidates に対して `baibai-loop-screening select` を実行し、`recommendations`、previous overlap、sector / lane concentration を確認する。個別銘柄を掘るときは `ticker-profile --ticker XXXX` で事実 packet(相対モメンタム・次回決算日・規制 flag・直近 screening 記録)を起点にする
+1. 最新 macro context と candidates に対して `baibai-loop-screening select` を実行し、`recommendations`、previous overlap、sector / playbook concentration を確認する。個別銘柄を掘るときは `ticker-profile --ticker XXXX` で事実 packet(相対モメンタム・次回決算日・規制 flag・直近 screening 記録)を起点にする
 2. `recommendations` の上位 3-5 銘柄に絞る (閾値を試す場合は `records/_config/screening-rules/*.yaml` を直接編集して `select` を再実行)
 3. 候補行の `evidence_hits[]`、candidate-level metrics、`records/01-macro-context/` の `sector_tilts` と `sector_33` を確認する
 4. thesis payoff、portfolio policy、liquidity cap に照らし、`research_decision` と `position_sizing_overlay` を確定する
@@ -165,7 +165,7 @@ entry_preflight:
 ## 10. Validation
 
 ```bash
-uv run baibai-loop-validate --target research
+uv run baibai-loop-validation --target research
 ```
 
 Validation は front matter schema、playbook body schema、repository refs、decision consistency、macro context fit、corporate action check、thesis payoff、position sizing overlay を検査する。

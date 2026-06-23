@@ -25,13 +25,13 @@ related_docs:
 
 - docs の一般説明を置かない。
 - 過去データに fit したパラメータ探索結果を置かない。
-- forward 計測 (lane-cohorts / selection-ablation / screening-replay) 由来の根拠なしに恣意的な閾値変更を行わない。
+- forward 計測 (playbook-cohorts / selection-ablation / screening-replay) 由来の根拠なしに恣意的な閾値変更を行わない。
 
 ## Lifecycle
 
 1. 新規 playbook は [`../templates/playbook.md`](../templates/playbook.md) を元に `records/_playbooks/<slug>-v<n>.md` として作る。
 2. research は front matter の `playbook` で active playbook を参照する。
-3. approved / deferred / rejected decisions は ledger に同期され、`baibai-loop-position benchmark` と `baibai-loop-screening` の forward 計測 (`lane-cohorts` / `selection-ablation`) の input になる。
+3. approved / deferred / rejected decisions は ledger に同期され、`baibai-loop-position benchmark` と `baibai-loop-screening` の forward 計測 (`playbook-cohorts` / `selection-ablation`) の input になる。
 4. 計測結果 (10 件以上のサンプル) を `reports/<asof>-*.md` にダイジェスト化したうえで、playbook 改訂 issue / PR を起こす。
 5. 旧 version は削除せず、research が参照していた当時の rule を追跡できる状態を保つ。
 

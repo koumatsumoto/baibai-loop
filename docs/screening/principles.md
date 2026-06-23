@@ -22,11 +22,11 @@ Baibai-Loop のスクリーニングサブシステムの設計原則。Candidat
 | playbook | primary evidence path | 狙い |
 | --- | --- | --- |
 | `valuation-reversion` | PER / PBR / exact かつ正の EV/EBITDA の相対割安、短期急落、sector rotation | 伝統的な valuation mean-reversion |
-| `cash-rich-asset-discount` | CashEq / market cap と Eq / market cap の厚さ (EDINET net cash で contradiction 抑止) | net-cash 系の asset discount。2026-05 lane-cohorts で全 lane 中最強 |
+| `cash-rich-asset-discount` | CashEq / market cap と Eq / market cap の厚さ (EDINET net cash で contradiction 抑止) | net-cash 系の asset discount。2026-05 playbook-cohorts で全 playbook 中最強 |
 | `cashflow-yield-discount` | 期間正規化した CFO TTM / market cap | PER では拾いにくい現金創出力の割安 |
 | `sales-discount-growth` | P/S discount + 売上成長維持 | 利益が薄いが売上成長が残る調整銘柄 |
 
-単一総合 score は持たせない。現行 candidates YAML では `evidence_hits[]` を lane 順に記録するが、概念上は playbook-linked evidence hit として扱う。Research では primary playbook 1 つと supporting evidence を分けて扱う。
+単一総合 score は持たせない。現行 candidates YAML では `evidence_hits[]` を playbook 順に記録するが、概念上は playbook-linked evidence hit として扱う。Research では primary playbook 1 つと supporting evidence を分けて扱う。
 
 ### 3.1 Selection lens
 

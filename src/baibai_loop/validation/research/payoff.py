@@ -6,10 +6,10 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from baibai_loop.foundation.coerce import optional_float
-from baibai_loop.validate.domain import (
+from baibai_loop.validation.domain import (
     as_mapping,
 )
-from baibai_loop.validate.errors import ValidationFinding
+from baibai_loop.validation.errors import ValidationFinding
 
 from .shared import _close
 

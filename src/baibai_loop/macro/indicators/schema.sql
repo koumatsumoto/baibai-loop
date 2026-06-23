@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS series(
   series_id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  domain TEXT NOT NULL,
+  category TEXT NOT NULL,
   geography TEXT NOT NULL,
   frequency TEXT NOT NULL,
   unit TEXT NOT NULL,

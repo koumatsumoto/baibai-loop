@@ -10,7 +10,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.validate.playbook_schema import (
+from baibai_loop.validation.playbook_schema import (
     PlaybookSchema,
     PlaybookSchemaError,
     discover_playbook_schemas,

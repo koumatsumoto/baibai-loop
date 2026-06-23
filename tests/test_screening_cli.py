@@ -431,9 +431,9 @@ class ScreeningCliTests(unittest.TestCase):
                 os.chdir(cwd)
 
     @unittest.skip(
-        "fixture needs re-tuning after lane removal (strict-net-cash / fcf-yield "
+        "fixture needs re-tuning after playbook removal (strict-net-cash / fcf-yield "
         "removed in cleanup; cash-rich restored); follow-up to regenerate fake "
-        "financials so cashflow-yield / cash-rich lane hits. See #247."
+        "financials so cashflow-yield / cash-rich playbook hits. See #247."
     )
     def test_run_command_emits_edinet_freshness_warnings_from_disclosure_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1228,11 +1228,11 @@ class SelectCommandTests(unittest.TestCase):
             )
             tickers = [c["ticker"] for c in self._recommended(payload)]
             # All three candidates normalize to the valuation-reversion primary
-            # lane under the configured lane order, so the balanced per-lane cap
+            # playbook under the configured playbook order, so the balanced per-playbook cap
             # (2) drops the third one.
             self.assertEqual(tickers, ["3333", "2222"])
             self.assertEqual(
-                payload["selection"]["research_selection_lane_order"],
+                payload["selection"]["research_selection_playbook_order"],
                 [
                     "cash-rich-asset-discount",
                     "valuation-reversion",
@@ -1240,7 +1240,9 @@ class SelectCommandTests(unittest.TestCase):
                     "sales-discount-growth",
                 ],
             )
-            self.assertEqual(self._recommended(payload)[0]["selection_lane"], "valuation-reversion")
+            self.assertEqual(
+                self._recommended(payload)[0]["selection_playbook"], "valuation-reversion"
+            )
             self.assertEqual(self._recommended(payload)[0]["position_tier"], "200-500")
             self.assertNotIn("lenses", self._recommended(payload)[0])
 
@@ -1356,14 +1358,14 @@ class SelectCommandTests(unittest.TestCase):
                 candidates=[
                     {
                         "ticker": "1111",
-                        "name": "valuation reversion leads the configured lane order",
+                        "name": "valuation reversion leads the configured playbook order",
                         "sector_33": "機械",
                         "market_cap_oku": 600,
                         "evidence_hits": [{"name": "valuation-reversion"}],
                     },
                     {
                         "ticker": "2222",
-                        "name": "strict net cash ranks second in lane order",
+                        "name": "strict net cash ranks second in playbook order",
                         "sector_33": "機械",
                         "market_cap_oku": 150,
                         "evidence_hits": [
@@ -1397,11 +1399,13 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = safe_load(buffer.getvalue())
-            # research_selection_lane_order is the single lane priority: the
-            # valuation-reversion candidate outranks the alternative-lane peers.
+            # research_selection_playbook_order is the single playbook priority: the
+            # valuation-reversion candidate outranks the alternative-playbook peers.
             # Sector cap=2 keeps both 機械 names through to recommended.
             self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["1111", "2222"])
-            self.assertEqual(self._recommended(payload)[0]["selection_lane"], "valuation-reversion")
+            self.assertEqual(
+                self._recommended(payload)[0]["selection_playbook"], "valuation-reversion"
+            )
 
     def test_select_preserves_freshness_warnings_across_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1526,7 +1530,7 @@ class SelectCommandTests(unittest.TestCase):
             payload = safe_load(buffer.getvalue())
             self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["2222"])
 
-    def test_select_handles_multi_lane_candidates_with_primary_selection_lane(self) -> None:
+    def test_select_handles_multi_playbook_candidates_with_primary_selection_playbook(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -1594,9 +1598,11 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = safe_load(buffer.getvalue())
             self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["1111", "2222"])
-            self.assertEqual(self._recommended(payload)[1]["selection_lane"], "valuation-reversion")
+            self.assertEqual(
+                self._recommended(payload)[1]["selection_playbook"], "valuation-reversion"
+            )
 
-    def test_select_uses_lane_strength_before_market_cap(self) -> None:
+    def test_select_uses_playbook_strength_before_market_cap(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -1655,7 +1661,7 @@ class SelectCommandTests(unittest.TestCase):
             payload = safe_load(buffer.getvalue())
             self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["2222", "1111"])
             self.assertEqual(
-                self._recommended(payload)[0]["selection_lane"], "cashflow-yield-discount"
+                self._recommended(payload)[0]["selection_playbook"], "cashflow-yield-discount"
             )
 
     def test_select_fast_dislocation_requires_fundamental_guard(self) -> None:

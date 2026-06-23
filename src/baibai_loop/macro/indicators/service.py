@@ -29,10 +29,10 @@ class StatsService:
     def __init__(self, db_path: Path = db.DEFAULT_DB_PATH) -> None:
         self.db_path = db_path
 
-    def list_series(self, *, domain: str | None = None) -> tuple[SeriesDefinition, ...]:
+    def list_series(self, *, category: str | None = None) -> tuple[SeriesDefinition, ...]:
         conn = db.open_connection(self.db_path)
         try:
-            return db.list_series(conn, domain=domain)
+            return db.list_series(conn, category=category)
         finally:
             conn.close()
 

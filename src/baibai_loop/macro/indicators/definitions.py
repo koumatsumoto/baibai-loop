@@ -14,7 +14,7 @@ DEFAULT_DEFINITIONS_PATH = Path(__file__).with_name("series.yaml")
 class SeriesDefinition:
     series_id: str
     name: str
-    domain: str
+    category: str
     geography: str
     frequency: str
     unit: str
@@ -41,7 +41,7 @@ class StatsDefinitions:
         matched: list[SeriesDefinition] = []
         for item in self.series:
             haystack = " ".join(
-                (item.series_id, item.name, item.domain, item.geography, *item.aliases)
+                (item.series_id, item.name, item.category, item.geography, *item.aliases)
             ).casefold()
             if needle in haystack:
                 matched.append(item)
@@ -60,7 +60,7 @@ def _parse_series(raw: object) -> SeriesDefinition:
     return SeriesDefinition(
         series_id=_required_str(entry, "series_id"),
         name=_required_str(entry, "name"),
-        domain=_required_str(entry, "domain"),
+        category=_required_str(entry, "category"),
         geography=_required_str(entry, "geography"),
         frequency=_required_str(entry, "frequency"),
         unit=_required_str(entry, "unit"),

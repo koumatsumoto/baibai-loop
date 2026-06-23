@@ -41,7 +41,7 @@ from .weeks import WeekSpec, load_week_candidates
 # separation. macro context is a soft selection diagnostic, not a gate, so the
 # sweep is replayed with macro_context=None and the artifact notes this.
 DISTRIBUTION_FIELDS: tuple[str, ...] = (
-    "selection_lane",
+    "selection_playbook",
     "fast_confidence",
     "fast_data_status",
     "long_hold_rating",

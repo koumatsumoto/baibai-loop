@@ -11,7 +11,7 @@ Severity = Literal["error", "warning"]
 
 @dataclass(frozen=True, slots=True)
 class ValidationFinding:
-    """A single issue surfaced by ``baibai-loop-validate``.
+    """A single issue surfaced by ``baibai-loop-validation``.
 
     Findings are collected and rendered by the CLI; ``error`` severity drives a
     non-zero exit code so CI can gate merges on schema regressions.

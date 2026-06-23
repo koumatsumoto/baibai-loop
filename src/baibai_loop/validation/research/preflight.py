@@ -8,12 +8,12 @@ from pathlib import Path
 from typing import Literal
 
 from baibai_loop.screening.regime import RALLY_RETURN_20D_MIN, SELLOFF_RETURN_20D_MAX
-from baibai_loop.validate.domain import (
+from baibai_loop.validation.domain import (
     as_list,
     as_mapping,
     number,
 )
-from baibai_loop.validate.errors import ValidationFinding
+from baibai_loop.validation.errors import ValidationFinding
 
 from .shared import _KNOWN_MACRO_CONTEXT_FRESHNESS, _gate_boundary_date, _research_record_date
 

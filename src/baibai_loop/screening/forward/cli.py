@@ -1,7 +1,7 @@
 """Forward-measurement subcommands for `baibai-loop-screening`.
 
 Replay recorded weekly candidates against the SQLite market cache and score
-forward return per evidence lane and selection profile. The commands are
+forward return per evidence playbook and selection profile. The commands are
 local-only (SQLite cache + recorded candidate YAML), so they dispatch without
 provider credentials and `screening/cli/app.py` composes them alongside the
 machine-screening commands.
@@ -20,15 +20,15 @@ from baibai_loop.screening.forward.cohort_scorecard import (
     DEFAULT_BOOTSTRAP_ITERATIONS,
     DEFAULT_MIN_RESOLVED,
     render_scorecard_summary,
-    run_lane_scorecard,
+    run_playbook_scorecard,
     run_proposal_scorecard,
     scorecard_to_payload,
 )
-from baibai_loop.screening.forward.lane_cohorts import (
+from baibai_loop.screening.forward.playbook_cohorts import (
     DEFAULT_COHORT_HORIZON_WEEKS,
-    lane_cohorts_to_payload,
-    render_lane_cohort_summary,
-    run_lane_cohorts,
+    playbook_cohorts_to_payload,
+    render_playbook_cohort_summary,
+    run_playbook_cohorts,
 )
 from baibai_loop.screening.forward.screening_replay import replay_to_payload, run_replay
 from baibai_loop.screening.forward.selection_ablation import (
@@ -42,8 +42,8 @@ from baibai_loop.screening.rule_config import DEFAULT_RULES_PATH, load_screening
 FORWARD_COMMANDS: frozenset[str] = frozenset(
     {
         "screening-replay",
-        "lane-cohorts",
-        "lane-scorecard",
+        "playbook-cohorts",
+        "playbook-scorecard",
         "proposal-scorecard",
         "selection-ablation",
     }
@@ -85,8 +85,8 @@ def add_subparsers(subparsers: argparse._SubParsersAction[argparse.ArgumentParse
         help="apply the market regime lens per replay week (default: on)",
     )
     cohort_parser = subparsers.add_parser(
-        "lane-cohorts",
-        help="aggregate forward returns per evidence lane over all weekly candidates",
+        "playbook-cohorts",
+        help="aggregate forward returns per evidence playbook over all weekly candidates",
     )
     cohort_parser.add_argument("--root", type=Path, default=Path.cwd())
     cohort_parser.add_argument(
@@ -104,8 +104,10 @@ def add_subparsers(subparsers: argparse._SubParsersAction[argparse.ArgumentParse
         "--out", type=Path, help="write cohort payload YAML to this path instead of stdout"
     )
     scorecard_parser = subparsers.add_parser(
-        "lane-scorecard",
-        help="pool candidate forward relatives across weeks into keep/kill/review lane decisions",
+        "playbook-scorecard",
+        help=(
+            "pool candidate forward relatives across weeks into keep/kill/review playbook decisions"
+        ),
     )
     scorecard_parser.add_argument("--root", type=Path, default=Path.cwd())
     scorecard_parser.add_argument(
@@ -123,7 +125,7 @@ def add_subparsers(subparsers: argparse._SubParsersAction[argparse.ArgumentParse
         "--min-resolved",
         type=int,
         default=DEFAULT_MIN_RESOLVED,
-        help=f"minimum pooled resolved count before a lane gets a keep/kill decision "
+        help=f"minimum pooled resolved count before a playbook gets a keep/kill decision "
         f"(default: {DEFAULT_MIN_RESOLVED})",
     )
     scorecard_parser.add_argument(
@@ -209,10 +211,10 @@ def run_command(args: argparse.Namespace) -> int:
     """Dispatch a forward-measurement command parsed by the screening CLI."""
     if args.command == "screening-replay":
         return _run_screening_replay(args)
-    if args.command == "lane-cohorts":
-        return _run_lane_cohorts(args)
-    if args.command == "lane-scorecard":
-        return _run_lane_scorecard(args)
+    if args.command == "playbook-cohorts":
+        return _run_playbook_cohorts(args)
+    if args.command == "playbook-scorecard":
+        return _run_playbook_scorecard(args)
     if args.command == "proposal-scorecard":
         return _run_proposal_scorecard(args)
     if args.command == "selection-ablation":
@@ -260,7 +262,7 @@ def _parse_horizons(raw: str) -> tuple[int, ...] | None:
     return horizons
 
 
-def _run_lane_cohorts(args: argparse.Namespace) -> int:
+def _run_playbook_cohorts(args: argparse.Namespace) -> int:
     horizons = _parse_horizons(args.horizons)
     if horizons is None:
         return 1
@@ -269,22 +271,22 @@ def _run_lane_cohorts(args: argparse.Namespace) -> int:
         print(f"no weekly candidate files under {args.candidates_root}", file=sys.stderr)
         return 1
     sqlite_path = args.root / DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"
-    result = run_lane_cohorts(
+    result = run_playbook_cohorts(
         weeks,
         sqlite_path=sqlite_path,
         horizon_weeks=horizons,
     )
     if args.out is not None:
-        payload = lane_cohorts_to_payload(result)
+        payload = playbook_cohorts_to_payload(result)
         text = yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(text, encoding="utf-8")
         print(f"wrote {args.out}")
-    print(render_lane_cohort_summary(result))
+    print(render_playbook_cohort_summary(result))
     return 0
 
 
-def _run_lane_scorecard(args: argparse.Namespace) -> int:
+def _run_playbook_scorecard(args: argparse.Namespace) -> int:
     horizons = _parse_horizons(args.horizons)
     if horizons is None:
         return 1
@@ -293,7 +295,7 @@ def _run_lane_scorecard(args: argparse.Namespace) -> int:
         print(f"no weekly candidate files under {args.candidates_root}", file=sys.stderr)
         return 1
     sqlite_path = args.root / DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"
-    result = run_lane_scorecard(
+    result = run_playbook_scorecard(
         weeks,
         sqlite_path=sqlite_path,
         horizon_weeks=horizons,

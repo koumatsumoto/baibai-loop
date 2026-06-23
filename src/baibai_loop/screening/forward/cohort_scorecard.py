@@ -1,20 +1,21 @@
-"""Lane scorecard: pool candidate forward relatives across weeks and turn them
-into keep / kill / review decisions for screening lanes.
+"""Playbook scorecard: pool candidate forward relatives across weeks and turn them
+into keep / kill / review decisions for screening playbooks.
 
-`lane-cohorts` reports per-week lane means; it does not pool across weeks, give a
-confidence interval, or compare a lane against the all-candidates baseline. Yet
-the screening-improvement decision — "does this lane add selection value, so keep
-/ strengthen / remove it?" — needs exactly that: the large-N edge of a lane over
-the average candidate, with an interval that says whether the edge is real.
+`playbook-cohorts` reports per-week cohort means; it does not pool across weeks,
+give a confidence interval, or compare a playbook against the all-candidates
+baseline. Yet the screening-improvement decision — "does this playbook add
+selection value, so keep / strengthen / remove it?" — needs exactly that: the
+large-N edge of a playbook over the average candidate, with an interval that says
+whether the edge is real.
 
 This module pools the raw per-candidate relatives (return minus the Nikkei 225
-ETF proxy) per (lane, horizon) across all supplied weeks, computes a deterministic
-bootstrap CI on the lane mean, and compares it against the all-candidates baseline
-mean to emit a forward-only, principle-disciplined decision. Aggregates and
-decisions are facts about recorded screening output; the retro still owns
-interpretation. No threshold is fit to the data — the bootstrap seed and the
-decision cut points are fixed, and grid search is out of scope (design-principles
-§9).
+ETF proxy) per (cohort, horizon) across all supplied weeks, computes a
+deterministic bootstrap CI on the cohort mean, and compares it against the
+all-candidates baseline mean to emit a forward-only, principle-disciplined
+decision. Aggregates and decisions are facts about recorded screening output; the
+retro still owns interpretation. No threshold is fit to the data — the bootstrap
+seed and the decision cut points are fixed, and grid search is out of scope
+(design-principles §9).
 """
 
 from __future__ import annotations
@@ -30,7 +31,11 @@ from pathlib import Path
 from baibai_loop.position.benchmark import NIKKEI225_ETF_PROXY
 from baibai_loop.screening.rule_config import ScreeningRules
 
-from .lane_cohorts import ALL_CANDIDATES_COHORT, DEFAULT_COHORT_HORIZON_WEEKS, pool_lane_relatives
+from .playbook_cohorts import (
+    ALL_CANDIDATES_COHORT,
+    DEFAULT_COHORT_HORIZON_WEEKS,
+    pool_cohort_relatives,
+)
 from .screening_replay import run_replay
 from .weeks import WeekSpec
 
@@ -42,12 +47,12 @@ DEFAULT_BOOTSTRAP_SEED = 20260621
 _CI_ALPHA = 0.05
 
 
-class LaneDecision(Enum):
-    """Screening-improvement decision a lane's forward edge drives.
+class CohortDecision(Enum):
+    """Screening-improvement decision a playbook's forward edge drives.
 
     The decision is the measurement-to-action link: `keep` / `kill_candidate` feed
-    the playbook / lane keep-or-remove retro; `review` flags insufficient or
-    ambiguous evidence; `baseline` marks the all-candidates reference row.
+    the playbook keep-or-remove retro; `review` flags insufficient or ambiguous
+    evidence; `baseline` marks the all-candidates reference row.
     """
 
     KEEP = "keep"
@@ -57,8 +62,8 @@ class LaneDecision(Enum):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class LaneScore:
-    lane: str
+class CohortScore:
+    cohort: str
     horizon_weeks: int
     resolved_count: int
     mean_relative: float
@@ -69,7 +74,7 @@ class LaneScore:
     win_rate: float
     baseline_mean_relative: float
     edge_vs_baseline: float
-    decision: LaneDecision
+    decision: CohortDecision
     decision_reason: str
 
 
@@ -80,10 +85,10 @@ class ScorecardResult:
     bootstrap_iterations: int
     bootstrap_seed: int
     benchmark_ticker: str
-    scores: tuple[LaneScore, ...]
+    scores: tuple[CohortScore, ...]
 
 
-def run_lane_scorecard(
+def run_playbook_scorecard(
     weeks: Sequence[WeekSpec],
     *,
     sqlite_path: Path,
@@ -92,29 +97,29 @@ def run_lane_scorecard(
     bootstrap_iterations: int = DEFAULT_BOOTSTRAP_ITERATIONS,
     bootstrap_seed: int = DEFAULT_BOOTSTRAP_SEED,
 ) -> ScorecardResult:
-    """Score every (lane, horizon) cohort and attach a keep / kill / review decision.
+    """Score every (cohort, horizon) and attach a keep / kill / review decision.
 
-    The lane mean is bootstrapped for a CI; the all-candidates pool (which every
-    candidate joins) provides the baseline the lane must beat to add selection
-    value. A lane is `keep` when its CI sits entirely above the baseline,
+    The cohort mean is bootstrapped for a CI; the all-candidates pool (which every
+    candidate joins) provides the baseline a playbook must beat to add selection
+    value. A playbook is `keep` when its CI sits entirely above the baseline,
     `kill_candidate` when entirely below, and `review` when underpowered or the CI
     spans the baseline. The baseline is treated as a fixed reference (large-N, low
-    variance), so the edge CI is the lane CI shifted by the baseline mean.
+    variance), so the edge CI is the cohort CI shifted by the baseline mean.
     """
-    pooled = pool_lane_relatives(weeks, sqlite_path=sqlite_path, horizon_weeks=horizon_weeks)
+    pooled = pool_cohort_relatives(weeks, sqlite_path=sqlite_path, horizon_weeks=horizon_weeks)
     baseline_by_horizon: dict[int, float] = {}
     for horizon in horizon_weeks:
         baseline = pooled.get((ALL_CANDIDATES_COHORT, horizon))
         if baseline:
             baseline_by_horizon[horizon] = statistics.fmean(baseline)
-    scores: list[LaneScore] = []
-    for lane, horizon in sorted(pooled):
-        relatives = pooled[(lane, horizon)]
+    scores: list[CohortScore] = []
+    for cohort, horizon in sorted(pooled):
+        relatives = pooled[(cohort, horizon)]
         if not relatives:
             continue
         scores.append(
             _score_pool(
-                lane=lane,
+                cohort=cohort,
                 horizon=horizon,
                 relatives=relatives,
                 baseline_mean=baseline_by_horizon.get(horizon, 0.0),
@@ -154,8 +159,9 @@ def run_proposal_scorecard(
     candidate. The recommended queue is the top-N per week, so the pooled N is
     small (top x resolved weeks); the decision is honestly CI-gated and will read
     `review` (directional only) when underpowered. The robust screening-quality
-    conclusion stays at the candidate / lane level (`run_lane_scorecard`); this
-    overlay only checks that the robust signal survives into tradeable proposals.
+    conclusion stays at the candidate / playbook level (`run_playbook_scorecard`);
+    this overlay only checks that the robust signal survives into tradeable
+    proposals.
     """
     replay = run_replay(
         weeks,
@@ -173,19 +179,19 @@ def run_proposal_scorecard(
             for horizon_return in forward.horizons:
                 if horizon_return.resolved and horizon_return.relative is not None:
                     recommended[horizon_return.weeks].append(horizon_return.relative)
-    pooled = pool_lane_relatives(weeks, sqlite_path=sqlite_path, horizon_weeks=horizon_weeks)
+    pooled = pool_cohort_relatives(weeks, sqlite_path=sqlite_path, horizon_weeks=horizon_weeks)
     baseline_by_horizon: dict[int, float] = {}
     for horizon in horizon_weeks:
         baseline = pooled.get((ALL_CANDIDATES_COHORT, horizon))
         if baseline:
             baseline_by_horizon[horizon] = statistics.fmean(baseline)
-    scores: list[LaneScore] = []
+    scores: list[CohortScore] = []
     for horizon in horizon_weeks:
         baseline = pooled.get((ALL_CANDIDATES_COHORT, horizon))
         if baseline:
             scores.append(
                 _score_pool(
-                    lane=ALL_CANDIDATES_COHORT,
+                    cohort=ALL_CANDIDATES_COHORT,
                     horizon=horizon,
                     relatives=baseline,
                     baseline_mean=baseline_by_horizon.get(horizon, 0.0),
@@ -198,7 +204,7 @@ def run_proposal_scorecard(
         if recommended_pool:
             scores.append(
                 _score_pool(
-                    lane=RECOMMENDED_QUEUE_COHORT,
+                    cohort=RECOMMENDED_QUEUE_COHORT,
                     horizon=horizon,
                     relatives=recommended_pool,
                     baseline_mean=baseline_by_horizon.get(horizon, 0.0),
@@ -219,14 +225,14 @@ def run_proposal_scorecard(
 
 def _score_pool(
     *,
-    lane: str,
+    cohort: str,
     horizon: int,
     relatives: Sequence[float],
     baseline_mean: float,
     min_resolved: int,
     bootstrap_iterations: int,
     bootstrap_seed: int,
-) -> LaneScore:
+) -> CohortScore:
     ci_low, ci_high, prob_negative = _bootstrap_mean_ci(
         relatives,
         iterations=bootstrap_iterations,
@@ -234,15 +240,15 @@ def _score_pool(
     )
     mean_relative = statistics.fmean(relatives)
     decision, reason = _decide(
-        lane=lane,
+        cohort=cohort,
         resolved=len(relatives),
         ci_low=ci_low,
         ci_high=ci_high,
         baseline_mean=baseline_mean,
         min_resolved=min_resolved,
     )
-    return LaneScore(
-        lane=lane,
+    return CohortScore(
+        cohort=cohort,
         horizon_weeks=horizon,
         resolved_count=len(relatives),
         mean_relative=mean_relative,
@@ -293,29 +299,29 @@ def _bootstrap_mean_ci(
 
 def _decide(
     *,
-    lane: str,
+    cohort: str,
     resolved: int,
     ci_low: float,
     ci_high: float,
     baseline_mean: float,
     min_resolved: int,
-) -> tuple[LaneDecision, str]:
-    if lane == ALL_CANDIDATES_COHORT:
-        return LaneDecision.BASELINE, "all-candidates baseline (no lane decision)"
+) -> tuple[CohortDecision, str]:
+    if cohort == ALL_CANDIDATES_COHORT:
+        return CohortDecision.BASELINE, "all-candidates baseline (no playbook decision)"
     if resolved < min_resolved:
-        return LaneDecision.REVIEW, f"underpowered: n={resolved} < min_resolved={min_resolved}"
+        return CohortDecision.REVIEW, f"underpowered: n={resolved} < min_resolved={min_resolved}"
     if ci_low > baseline_mean:
         return (
-            LaneDecision.KEEP,
+            CohortDecision.KEEP,
             f"95% CI [{ci_low:+.4f}, {ci_high:+.4f}] sits above baseline {baseline_mean:+.4f}",
         )
     if ci_high < baseline_mean:
         return (
-            LaneDecision.KILL_CANDIDATE,
+            CohortDecision.KILL_CANDIDATE,
             f"95% CI [{ci_low:+.4f}, {ci_high:+.4f}] sits below baseline {baseline_mean:+.4f}",
         )
     return (
-        LaneDecision.REVIEW,
+        CohortDecision.REVIEW,
         f"95% CI [{ci_low:+.4f}, {ci_high:+.4f}] spans baseline {baseline_mean:+.4f}",
     )
 
@@ -330,7 +336,7 @@ def scorecard_to_payload(result: ScorecardResult) -> dict[str, object]:
         "benchmark_ticker": result.benchmark_ticker,
         "scores": [
             {
-                "lane": score.lane,
+                "cohort": score.cohort,
                 "horizon_weeks": score.horizon_weeks,
                 "resolved_count": score.resolved_count,
                 "mean_relative": score.mean_relative,
@@ -352,13 +358,13 @@ def scorecard_to_payload(result: ScorecardResult) -> dict[str, object]:
 def render_scorecard_summary(result: ScorecardResult) -> str:
     """Render a fixed-width scoreboard for stdout triage."""
     header = (
-        f"{'lane':<28}{'h':<3}{'n':>6}{'mean_rel':>10}{'edge':>9}"
+        f"{'cohort':<28}{'h':<3}{'n':>6}{'mean_rel':>10}{'edge':>9}"
         f"{'ci_low':>9}{'ci_high':>9}{'P(<0)':>7}{'win':>6}  decision"
     )
     lines = [header]
     for score in result.scores:
         lines.append(
-            f"{score.lane:<28}{score.horizon_weeks:<3}{score.resolved_count:>6}"
+            f"{score.cohort:<28}{score.horizon_weeks:<3}{score.resolved_count:>6}"
             f"{score.mean_relative * 100:>+9.2f}%{score.edge_vs_baseline * 100:>+8.2f}%"
             f"{score.ci_low * 100:>+8.2f}%{score.ci_high * 100:>+8.2f}%"
             f"{score.prob_mean_negative:>7.2f}{score.win_rate:>6.2f}  {score.decision.value}"

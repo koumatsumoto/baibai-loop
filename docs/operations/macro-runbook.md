@@ -15,13 +15,13 @@ related_docs:
 
 ## ① データ：stats series を引く
 
-統計 series は `baibai-loop-stats`（Provider モジュール設計、`src/baibai_loop/stats/`）で再現可能・provenance 付きに取得・キャッシュする。
+統計 series は `baibai-loop-indicators`（Provider モジュール設計、`src/baibai_loop/macro/indicators/`）で再現可能・provenance 付きに取得・キャッシュする。
 
 ```bash
-uv run baibai-loop-stats list --domain rates       # 登録 series を見る
-uv run baibai-loop-stats search 失業率              # 名前/alias/domain で検索
-uv run baibai-loop-stats get jp.nikkei225 --start 2026-05-20 --end 2026-06-22
-uv run baibai-loop-stats get jp.policy_rate --latest
+uv run baibai-loop-indicators list --category rates       # 登録 series を見る
+uv run baibai-loop-indicators search 失業率              # 名前/alias/category で検索
+uv run baibai-loop-indicators get jp.nikkei225 --start 2026-05-20 --end 2026-06-22
+uv run baibai-loop-indicators get jp.policy_rate --latest
 ```
 
 `get` は coverage cache を見て miss のときだけ provider を呼ぶ。同入力なら同出力（決定論）。
@@ -38,14 +38,14 @@ uv run baibai-loop-stats get jp.policy_rate --latest
 | `boj` | 無認証 xlsx | BOJ 長期時系列（マネタリーベース 等） | 安定 URL の `mblong.xlsx`（平残シート）を openpyxl で読む。`provider_series_id` は値列番号（C 列=マネタリーベース=3） |
 | `manual` | ローカル file | 倒産件数（東商リサーチ）・PMI（au Jibun/S&P） | clean な無料 API が無い。`providers/manual_data.yaml` に手動更新し、値は必ず一次ソースで検証してから使う |
 
-新ソース追加 = provider モジュールを 1 つ足して `series.yaml` に series を登録するだけ（`src/baibai_loop/stats/providers/` に 1 ファイル）。1 series_id = 1 provider を厳守する。
+新ソース追加 = provider モジュールを 1 つ足して `series.yaml` に series を登録するだけ（`src/baibai_loop/macro/indicators/providers/` に 1 ファイル）。1 series_id = 1 provider を厳守する。
 
 ## ② 環境読み：macro_context record を書く
 
 市場局面について、dated・sourced な環境読みを `records/01-macro-context/<YYYY>/<MM>/...yaml` に残す。schema は `records/_schemas/macro-context.json`、検証は：
 
 ```bash
-uv run baibai-loop-validate --target macro-context
+uv run baibai-loop-validation --target macro-context
 ```
 
 環境読みは ① stats series に grounding し、**sector tilt**（業種ごとの追い風/向かい風 ＝ `key`/`stance`/`strength`/`confidence`）と市場前提を記す。スコープは広く（世界経済・政策・金利・FX・商品・INDEX・crypto・セクター・地政学）。マクロは N≈1 の判断なので、**edge 数値・統計的有意・lever の機械適用（自動 sizing 倍率）は出さない**。環境読みは次の接続で判断層の背景としてのみ効く。

@@ -77,6 +77,6 @@ failure mode と validator の挙動:
 
 ```bash
 uv run baibai-loop-position sync --root .
-uv run baibai-loop-validate --target ledger
-uv run baibai-loop-validate
+uv run baibai-loop-validation --target ledger
+uv run baibai-loop-validation
 ```

@@ -13,7 +13,7 @@ Module map (extension points):
 - ``payload``: assembles ranking + diversity + diagnostics into the payload
 
 The public API below is the stable surface for the CLI, the ledger telemetry
-(replay / lane cohorts / ablation), and tests.
+(replay / playbook cohorts / ablation), and tests.
 """
 
 from __future__ import annotations

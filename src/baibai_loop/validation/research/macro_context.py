@@ -7,11 +7,11 @@ from pathlib import Path
 
 import yaml
 
-from baibai_loop.validate.domain import (
+from baibai_loop.validation.domain import (
     as_list,
     as_mapping,
 )
-from baibai_loop.validate.errors import ValidationFinding
+from baibai_loop.validation.errors import ValidationFinding
 
 from .shared import (
     _KNOWN_MACRO_CONTEXT_FRESHNESS,

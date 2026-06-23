@@ -55,7 +55,7 @@ def test_replay_to_payload_serializes_weeks() -> None:
                 fast_dislocation_count=37,
                 long_hold_counts={"high": 1},
                 suppressed_count=4,
-                distributions={"selection_lane": {"sales-discount-growth": 2}},
+                distributions={"selection_playbook": {"sales-discount-growth": 2}},
                 forward_returns=(),
                 forward_aggregates=(
                     HorizonAggregate(
@@ -69,7 +69,9 @@ def test_replay_to_payload_serializes_weeks() -> None:
     assert payload["eval_cap"] == "2026-06-05"
     assert payload["weeks"][0]["recommended_tickers"] == ["9682", "9692"]
     assert payload["weeks"][0]["forward_aggregates"][0]["count"] == 2
-    assert payload["weeks"][0]["distributions"]["selection_lane"] == {"sales-discount-growth": 2}
+    assert payload["weeks"][0]["distributions"]["selection_playbook"] == {
+        "sales-discount-growth": 2
+    }
     assert payload["regime_lens"] is True
     assert payload["weeks"][0]["market_regime"] == {"regime": "risk_on_rally"}
 

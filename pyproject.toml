@@ -28,7 +28,7 @@ classifiers = [
 
 [project.scripts]
 baibai-loop-screening = "baibai_loop.screening.cli:main"
-baibai-loop-validate = "baibai_loop.validate.cli:main"
+baibai-loop-validation = "baibai_loop.validation.cli:main"
 baibai-loop-position = "baibai_loop.position.cli:main"
 baibai-loop-indicators = "baibai_loop.macro.indicators.cli:main"
 
@@ -187,7 +187,7 @@ source_modules = ["baibai_loop.macro"]
 forbidden_modules = [
   "baibai_loop.screening",
   "baibai_loop.position",
-  "baibai_loop.validate",
+  "baibai_loop.validation",
 ]
 
 [[tool.importlinter.contracts]]
@@ -196,10 +196,10 @@ type = "forbidden"
 source_modules = ["baibai_loop.foundation"]
 forbidden_modules = [
   "baibai_loop.screening",
-  "baibai_loop.stats",
-  "baibai_loop.validate",
-  "baibai_loop.macro_context",
-  "baibai_loop.macro_analysis",
+  "baibai_loop.macro",
+  "baibai_loop.position",
+  "baibai_loop.market",
+  "baibai_loop.validation",
 ]
 
 [[tool.importlinter.contracts]]
@@ -208,10 +208,9 @@ type = "forbidden"
 source_modules = ["baibai_loop.market"]
 forbidden_modules = [
   "baibai_loop.screening",
-  "baibai_loop.stats",
-  "baibai_loop.validate",
-  "baibai_loop.macro_context",
-  "baibai_loop.macro_analysis",
+  "baibai_loop.macro",
+  "baibai_loop.position",
+  "baibai_loop.validation",
 ]
 
 [[tool.importlinter.contracts]]

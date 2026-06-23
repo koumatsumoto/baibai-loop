@@ -37,9 +37,9 @@ def _candidate_reason_tags(candidate: Mapping[str, object]) -> list[str]:
     tags: list[str] = []
     if _fast_lens(candidate).get("eligible") is True:
         tags.append("fast_dislocation")
-    lane = string_or_none(candidate.get("selection_lane"))
-    if lane:
-        tags.append(lane)
+    playbook = string_or_none(candidate.get("selection_playbook"))
+    if playbook:
+        tags.append(playbook)
     long_hold = _long_hold_lens(candidate)
     rating = string_or_none(long_hold.get("rating"))
     if rating == "high":
@@ -94,7 +94,7 @@ def _selection_candidate_summary(
         "ticker": string_or_none(candidate.get("ticker")),
         "name": string_or_none(candidate.get("name")),
         "sector_33": string_or_none(candidate.get("sector_33")),
-        "selection_lane": string_or_none(candidate.get("selection_lane")),
+        "selection_playbook": string_or_none(candidate.get("selection_playbook")),
         "macro_context_alignment": string_or_none(candidate.get("macro_context_alignment")),
         "market_cap_oku": candidate.get("market_cap_oku"),
         "price_change_5d": candidate.get("price_change_5d"),
@@ -125,7 +125,7 @@ def _sweep_candidate_summary(candidate: Mapping[str, object], *, rank: int) -> d
         "rank": rank,
         "ticker": string_or_none(candidate.get("ticker")),
         "name": string_or_none(candidate.get("name")),
-        "selection_lane": string_or_none(candidate.get("selection_lane")),
+        "selection_playbook": string_or_none(candidate.get("selection_playbook")),
         "benchmark_relative_20d": candidate.get("benchmark_relative_20d"),
         "fast_confidence": string_or_none(fast_lens.get("confidence")),
         "fast_guard_count": _fast_guard_count(candidate),
@@ -155,7 +155,7 @@ def _sweep_changed_summaries(
                 "fast_guard_family_count",
                 "fast_data_status",
                 "long_hold_rating",
-                "selection_lane",
+                "selection_playbook",
                 "rank",
                 "stale_fundamental_metrics",
             )

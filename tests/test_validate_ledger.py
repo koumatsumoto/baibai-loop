@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from baibai_loop.validate.ledger import discover_ledger_files, validate_ledger_file
+from baibai_loop.validation.ledger import discover_ledger_files, validate_ledger_file
 
 
 def _decision_record(**overrides: object) -> dict[str, object]:

@@ -24,8 +24,8 @@ from baibai_loop.screening.sqlite_cache import open_connection
 _ASOF = date(2026, 5, 1)
 
 # Fast-eligible under balanced (5d price trigger + two guard families) on a
-# low-ranked lane, versus a calm candidate with identical fundamentals on the
-# top-ranked lane (research_selection_lane_order puts valuation-reversion first):
+# low-ranked playbook, versus a calm candidate with identical fundamentals on the
+# top-ranked playbook (research_selection_playbook_order puts valuation-reversion first):
 # the fast boost is the only reason the fast one wins.
 _FAST_CANDIDATE = {
     "ticker": "9999",
@@ -80,11 +80,11 @@ class RankingTogglesTests(unittest.TestCase):
     def test_all_on_keeps_fast_boost_first(self) -> None:
         self.assertEqual(self._tickers(RankingToggles()), ["9999", "1111"])
 
-    def test_fast_boost_off_falls_back_to_lane_rank(self) -> None:
+    def test_fast_boost_off_falls_back_to_playbook_rank(self) -> None:
         self.assertEqual(self._tickers(RankingToggles(fast_boost=False)), ["1111", "9999"])
 
-    def test_lane_rank_off_keeps_fast_boost_dominant(self) -> None:
-        self.assertEqual(self._tickers(RankingToggles(lane_rank=False)), ["9999", "1111"])
+    def test_playbook_rank_off_keeps_fast_boost_dominant(self) -> None:
+        self.assertEqual(self._tickers(RankingToggles(playbook_rank=False)), ["9999", "1111"])
 
 
 def _insert_bars(sqlite_path: Path, ticker: str, *, entry: float, weekly_growth: float) -> None:
@@ -141,11 +141,11 @@ class RunSelectionAblationTests(unittest.TestCase):
             by_variant = {item.variant: item for item in result.week_results}
             self.assertEqual(set(by_variant), {variant.name for variant in DEFAULT_VARIANTS})
             # full keeps the fast boost so the oversold loser leads; ablating the
-            # boost (or dropping its lane) switches to the calm winner.
+            # boost (or dropping its playbook) switches to the calm winner.
             self.assertEqual(by_variant[FULL_VARIANT].recommended_tickers, ("9999",))
             self.assertEqual(by_variant["no_fast_boost"].recommended_tickers, ("1111",))
             self.assertEqual(
-                by_variant["drop_lane:sales-discount-growth"].recommended_tickers, ("1111",)
+                by_variant["drop_playbook:sales-discount-growth"].recommended_tickers, ("1111",)
             )
             self.assertEqual(by_variant["no_fast_boost"].overlap_with_full, 0.0)
             self.assertEqual(by_variant[FULL_VARIANT].overlap_with_full, 1.0)

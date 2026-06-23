@@ -45,7 +45,7 @@ flowchart TB
 | --- | --- | --- |
 | 運用方針 (portfolio policy) | 目的・制約・資本・許容リスク・time horizon を固定する | 何を許し、何を禁じ、どの資本・時間軸で判断するか |
 | マクロ環境分析 (macro context) | screening 前の市場環境を読む | 今の市場環境をどう読み、何を確認するか |
-| 機械スクリーニング (screening) | 4 lane の OR で通過銘柄を機械抽出する | どの銘柄が機械ふるいに残るか |
+| 機械スクリーニング (screening) | 4 playbook の OR で通過銘柄を機械抽出する | どの銘柄が機械ふるいに残るか |
 | 通過銘柄リスト (candidates) | 通過銘柄の事実 snapshot | （事実。解釈を入れない） |
 | リサーチ候補選定 (select) | lens で着手候補を絞り順位付けする | どの候補から深掘りするか |
 | 個別銘柄リサーチ (research) | thesis・risk/reward・invalidation を判断する投資メモ | 採用に値するか |
@@ -63,7 +63,7 @@ screening system が「うまく機能しているか」を検証し、改善す
 
 | 問い | 検証対象 | データ源 | N | 計器 | 帰属 |
 | --- | --- | --- | --- | --- | --- |
-| Q1 論理の質 | lane / lens / regime が forward alpha を生むか | 全候補母集団の過去 replay | 大 | backtest（lane-cohorts / replay / ablation） | 改善ループの主軸 |
+| Q1 論理の質 | playbook / lens / regime が forward alpha を生むか | 全候補母集団の過去 replay | 大 | backtest（playbook-cohorts / replay / ablation） | 改善ループの主軸 |
 | Q2 執行の質 | sizing / timing / exit / kill-switch を正しく運用したか | 自分の実トレード | 極小 | trade review ＋ judgment counterfactual | 改善ループへ Q2 信号として |
 | Q3 個別 thesis | この銘柄の回帰が想定通りか | 個別トレード | n=1 | 事例学習（統計ではない） | 仮説源 |
 
@@ -76,10 +76,10 @@ screening system が「うまく機能しているか」を検証し、改善す
 | 日本語概念名 | slug | 種別 | 層 | 役割 |
 | --- | --- | --- | --- | --- |
 | 市場データ基盤 | market.sqlite | データ store | L1 | 全上場銘柄の実データを集約した正本 |
-| 機械スクリーニング | screening | 機械処理 | L2 | 4 lane の OR 条件で通過銘柄を機械抽出する |
+| 機械スクリーニング | screening | 機械処理 | L2 | 4 playbook の OR 条件で通過銘柄を機械抽出する |
 | 通過銘柄リスト | candidates | 成果物（事実） | L2 出力 | スクリーニング通過銘柄の事実 snapshot |
 | リサーチ候補選定 | select | 機械処理 | L2 | 通過銘柄から着手候補を lens で絞り順位付けする |
-| フォワード計測 | forward backtest | 機械処理 | L2 | 過去週 replay で lane / lens / regime の効果を計測する |
+| フォワード計測 | forward backtest | 機械処理 | L2 | 過去週 replay で playbook / lens / regime の効果を計測する |
 | マクロ環境分析 | macro context | 分析（判断） | L3 | スクリーニング前の市場環境の読み |
 | 個別銘柄リサーチ | research（investment memo） | 分析（判断） | L3 | thesis・採否・sizing を判断する投資メモ |
 | 売買提案 | trade proposal（GitHub Issue） | 判断の入口 | L3 | 最終選考銘柄の詳細 ＋ 銘柄/価格/株数 提案を人間に上げる |
@@ -130,7 +130,7 @@ Candidate-level / investment memo の evidence hit では、原則として `fun
 
 改善ループは勝敗の件数集計ではありません。outcome を playbook・evidence family・macro context・sizing・execution に帰属させ、次の screening と investment memo を改善するためのものです。
 
-- **主軸 = 全候補 forward-only backtest（Q1, 大 N）**。どの lane / lens / regime が forward return を生んだかを、look-ahead を排した過去 replay で測る。
+- **主軸 = 全候補 forward-only backtest（Q1, 大 N）**。どの playbook / lens / regime が forward return を生んだかを、look-ahead を排した過去 replay で測る。
 - **改善の管理 = GitHub Issue の改善バックログ**。トレード結果だけでなく設計レビューも入力になる多角的なバックログ（[root README](../README.md) の宣言と一致）。
 - **trades = Q2（執行品質）の信号**。screening 論理の検証には使わない。見送り・保留・採用したが発注しなかった候補は missed opportunity として Q2 / opportunity-cost 計測の対象にする。
 - backtest は proposal レベルの妥当性検証（株価回帰が想定通りか等）へ拡張し、過去 asof の取得は screening に必要なデータだけを on-demand に sqlite キャッシュする方向（手順・規律は [`operations/backtest-runbook.md`](./operations/backtest-runbook.md) と [`design-principles.md`](./design-principles.md) §9）。

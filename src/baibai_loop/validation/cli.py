@@ -1,4 +1,4 @@
-"""CLI entry point for ``baibai-loop-validate``.
+"""CLI entry point for ``baibai-loop-validation``.
 
 Walks the records tree under ``<root>/records/`` and reports every
 ValidationFinding produced by the per-artefact validators. CI runs this
@@ -55,7 +55,7 @@ PLAYBOOKS_ROOT = Path("records/_playbooks")
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="baibai-loop-validate")
+    parser = argparse.ArgumentParser(prog="baibai-loop-validation")
     parser.add_argument(
         "--root",
         type=Path,

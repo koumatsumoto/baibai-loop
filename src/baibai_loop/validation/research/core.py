@@ -11,8 +11,8 @@ import yaml
 from jsonschema import Draft202012Validator, FormatChecker
 
 from baibai_loop.foundation.yaml_io import safe_load
-from baibai_loop.validate.errors import ValidationFinding
-from baibai_loop.validate.playbook_schema import (
+from baibai_loop.validation.errors import ValidationFinding
+from baibai_loop.validation.playbook_schema import (
     PlaybookSchemaError,
     discover_playbook_schemas,
     load_playbook_schema,

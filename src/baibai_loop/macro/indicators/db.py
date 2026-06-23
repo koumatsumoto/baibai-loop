@@ -113,11 +113,11 @@ def seed_definitions(conn: sqlite3.Connection, definitions: StatsDefinitions) ->
     for series in definitions.series:
         conn.execute(
             "INSERT INTO series("
-            "series_id, name, domain, geography, frequency, unit, provider, provider_series_id, "
+            "series_id, name, category, geography, frequency, unit, provider, provider_series_id, "
             "source_id, source_url, priority, notes"
             ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(series_id) DO UPDATE SET "
-            "name = excluded.name, domain = excluded.domain, geography = excluded.geography, "
+            "name = excluded.name, category = excluded.category, geography = excluded.geography, "
             "frequency = excluded.frequency, unit = excluded.unit, provider = excluded.provider, "
             "provider_series_id = excluded.provider_series_id, source_id = excluded.source_id, "
             "source_url = excluded.source_url, priority = excluded.priority, "
@@ -125,7 +125,7 @@ def seed_definitions(conn: sqlite3.Connection, definitions: StatsDefinitions) ->
             (
                 series.series_id,
                 series.name,
-                series.domain,
+                series.category,
                 series.geography,
                 series.frequency,
                 series.unit,
@@ -160,13 +160,13 @@ def get_series(conn: sqlite3.Connection, series_id: str) -> SeriesDefinition:
 
 
 def list_series(
-    conn: sqlite3.Connection, *, domain: str | None = None
+    conn: sqlite3.Connection, *, category: str | None = None
 ) -> tuple[SeriesDefinition, ...]:
     params: tuple[str, ...] = ()
     sql = "SELECT * FROM series"
-    if domain is not None:
-        sql += " WHERE domain = ?"
-        params = (domain,)
+    if category is not None:
+        sql += " WHERE category = ?"
+        params = (category,)
     sql += " ORDER BY priority, series_id"
     return tuple(_series_from_row(row, aliases=()) for row in conn.execute(sql, params).fetchall())
 
@@ -177,7 +177,7 @@ def search_series(conn: sqlite3.Connection, query: str) -> tuple[SeriesDefinitio
         "SELECT DISTINCT s.* FROM series s "
         "LEFT JOIN aliases a ON a.series_id = s.series_id "
         "WHERE lower(s.series_id) LIKE ? OR lower(s.name) LIKE ? "
-        "OR lower(s.domain) LIKE ? OR lower(s.geography) LIKE ? OR lower(a.alias) LIKE ? "
+        "OR lower(s.category) LIKE ? OR lower(s.geography) LIKE ? OR lower(a.alias) LIKE ? "
         "ORDER BY s.priority, s.series_id",
         (needle, needle, needle, needle, needle),
     ).fetchall()
@@ -328,7 +328,7 @@ def _series_from_row(row: sqlite3.Row, *, aliases: tuple[str, ...]) -> SeriesDef
     return SeriesDefinition(
         series_id=str(row["series_id"]),
         name=str(row["name"]),
-        domain=str(row["domain"]),
+        category=str(row["category"]),
         geography=str(row["geography"]),
         frequency=str(row["frequency"]),
         unit=str(row["unit"]),

@@ -8,13 +8,13 @@ from pathlib import Path
 import yaml
 
 from baibai_loop.screening.forward.cohort_scorecard import (
-    LaneDecision,
+    CohortDecision,
     _bootstrap_mean_ci,
     _decide,
-    run_lane_scorecard,
+    run_playbook_scorecard,
     scorecard_to_payload,
 )
-from baibai_loop.screening.forward.lane_cohorts import ALL_CANDIDATES_COHORT
+from baibai_loop.screening.forward.playbook_cohorts import ALL_CANDIDATES_COHORT
 from baibai_loop.screening.forward.weeks import discover_week_specs
 from baibai_loop.screening.sqlite_cache import open_connection
 
@@ -83,61 +83,61 @@ class BootstrapCiTests(unittest.TestCase):
 
 
 class DecideTests(unittest.TestCase):
-    def test_all_candidates_lane_is_baseline(self) -> None:
+    def test_all_candidates_cohort_is_baseline(self) -> None:
         decision, _ = _decide(
-            lane=ALL_CANDIDATES_COHORT,
+            cohort=ALL_CANDIDATES_COHORT,
             resolved=500,
             ci_low=-0.01,
             ci_high=0.01,
             baseline_mean=0.0,
             min_resolved=30,
         )
-        self.assertIs(decision, LaneDecision.BASELINE)
+        self.assertIs(decision, CohortDecision.BASELINE)
 
-    def test_underpowered_lane_is_review(self) -> None:
+    def test_underpowered_playbook_is_review(self) -> None:
         decision, reason = _decide(
-            lane="cash-rich-asset-discount",
+            cohort="cash-rich-asset-discount",
             resolved=10,
             ci_low=0.05,
             ci_high=0.09,
             baseline_mean=0.0,
             min_resolved=30,
         )
-        self.assertIs(decision, LaneDecision.REVIEW)
+        self.assertIs(decision, CohortDecision.REVIEW)
         self.assertIn("underpowered", reason)
 
     def test_ci_above_baseline_is_keep(self) -> None:
         decision, _ = _decide(
-            lane="cash-rich-asset-discount",
+            cohort="cash-rich-asset-discount",
             resolved=300,
             ci_low=-0.082,
             ci_high=-0.057,
             baseline_mean=-0.091,
             min_resolved=30,
         )
-        self.assertIs(decision, LaneDecision.KEEP)
+        self.assertIs(decision, CohortDecision.KEEP)
 
     def test_ci_below_baseline_is_kill_candidate(self) -> None:
         decision, _ = _decide(
-            lane="weak-lane",
+            cohort="weak-playbook",
             resolved=300,
             ci_low=-0.12,
             ci_high=-0.10,
             baseline_mean=-0.05,
             min_resolved=30,
         )
-        self.assertIs(decision, LaneDecision.KILL_CANDIDATE)
+        self.assertIs(decision, CohortDecision.KILL_CANDIDATE)
 
     def test_ci_spanning_baseline_is_review(self) -> None:
         decision, _ = _decide(
-            lane="valuation-reversion",
+            cohort="valuation-reversion",
             resolved=300,
             ci_low=-0.11,
             ci_high=-0.08,
             baseline_mean=-0.091,
             min_resolved=30,
         )
-        self.assertIs(decision, LaneDecision.REVIEW)
+        self.assertIs(decision, CohortDecision.REVIEW)
 
 
 class RunScorecardTests(unittest.TestCase):
@@ -152,7 +152,7 @@ class RunScorecardTests(unittest.TestCase):
             candidates.append(
                 {
                     "ticker": ticker,
-                    "evidence_hits": [{"name": "good-lane", "playbook_id": "good-lane"}],
+                    "evidence_hits": [{"name": "good-playbook", "playbook_id": "good-playbook"}],
                 }
             )
         for index in range(6):
@@ -161,32 +161,34 @@ class RunScorecardTests(unittest.TestCase):
             candidates.append(
                 {
                     "ticker": ticker,
-                    "evidence_hits": [{"name": "neutral-lane", "playbook_id": "neutral-lane"}],
+                    "evidence_hits": [
+                        {"name": "neutral-playbook", "playbook_id": "neutral-playbook"}
+                    ],
                 }
             )
         _write_candidates(root / "2026" / "05" / "2026-05-01.yaml", candidates)
         return sqlite_path
 
-    def test_lane_beating_baseline_is_kept(self) -> None:
+    def test_playbook_beating_baseline_is_kept(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             sqlite_path = self._build_fixture(root)
-            result = run_lane_scorecard(
+            result = run_playbook_scorecard(
                 discover_week_specs(root),
                 sqlite_path=sqlite_path,
                 horizon_weeks=[4],
                 min_resolved=5,
                 bootstrap_iterations=1000,
             )
-            by_lane = {(s.lane, s.horizon_weeks): s for s in result.scores}
-            good = by_lane[("good-lane", 4)]
+            by_cohort = {(s.cohort, s.horizon_weeks): s for s in result.scores}
+            good = by_cohort[("good-playbook", 4)]
             self.assertEqual(good.resolved_count, 6)
             self.assertAlmostEqual(good.mean_relative, 0.05, places=6)
             self.assertAlmostEqual(good.baseline_mean_relative, 0.025, places=6)
-            self.assertIs(good.decision, LaneDecision.KEEP)
-            neutral = by_lane[("neutral-lane", 4)]
-            self.assertIs(neutral.decision, LaneDecision.KILL_CANDIDATE)
-            self.assertIs(by_lane[(ALL_CANDIDATES_COHORT, 4)].decision, LaneDecision.BASELINE)
+            self.assertIs(good.decision, CohortDecision.KEEP)
+            neutral = by_cohort[("neutral-playbook", 4)]
+            self.assertIs(neutral.decision, CohortDecision.KILL_CANDIDATE)
+            self.assertIs(by_cohort[(ALL_CANDIDATES_COHORT, 4)].decision, CohortDecision.BASELINE)
 
     def test_scorecard_run_is_reproducible(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -194,30 +196,30 @@ class RunScorecardTests(unittest.TestCase):
             sqlite_path = self._build_fixture(root)
             weeks = discover_week_specs(root)
             first = scorecard_to_payload(
-                run_lane_scorecard(
+                run_playbook_scorecard(
                     weeks, sqlite_path=sqlite_path, horizon_weeks=[4], min_resolved=5
                 )
             )
             second = scorecard_to_payload(
-                run_lane_scorecard(
+                run_playbook_scorecard(
                     weeks, sqlite_path=sqlite_path, horizon_weeks=[4], min_resolved=5
                 )
             )
             self.assertEqual(first, second)
 
-    def test_underpowered_lane_is_reviewed(self) -> None:
+    def test_underpowered_playbook_is_reviewed(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             sqlite_path = self._build_fixture(root)
-            result = run_lane_scorecard(
+            result = run_playbook_scorecard(
                 discover_week_specs(root),
                 sqlite_path=sqlite_path,
                 horizon_weeks=[4],
                 min_resolved=100,
                 bootstrap_iterations=500,
             )
-            good = next(s for s in result.scores if s.lane == "good-lane")
-            self.assertIs(good.decision, LaneDecision.REVIEW)
+            good = next(s for s in result.scores if s.cohort == "good-playbook")
+            self.assertIs(good.decision, CohortDecision.REVIEW)
 
     def test_proposal_recommended_queue_scored_against_baseline(self) -> None:
         from unittest import mock
@@ -289,14 +291,14 @@ class RunScorecardTests(unittest.TestCase):
                     min_resolved=5,
                     bootstrap_iterations=500,
                 )
-        by_lane = {score.lane: score for score in result.scores}
-        self.assertIn(RECOMMENDED_QUEUE_COHORT, by_lane)
-        self.assertIn(ALL_CANDIDATES_COHORT, by_lane)
-        recommended = by_lane[RECOMMENDED_QUEUE_COHORT]
+        by_cohort = {score.cohort: score for score in result.scores}
+        self.assertIn(RECOMMENDED_QUEUE_COHORT, by_cohort)
+        self.assertIn(ALL_CANDIDATES_COHORT, by_cohort)
+        recommended = by_cohort[RECOMMENDED_QUEUE_COHORT]
         self.assertEqual(recommended.resolved_count, 6)
         self.assertAlmostEqual(recommended.mean_relative, 0.05, places=6)
         self.assertAlmostEqual(recommended.baseline_mean_relative, 0.025, places=6)
-        self.assertIs(recommended.decision, LaneDecision.KEEP)
+        self.assertIs(recommended.decision, CohortDecision.KEEP)
 
 
 if __name__ == "__main__":

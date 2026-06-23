@@ -13,8 +13,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.validate.cli import _format_finding, main, run_validation
-from baibai_loop.validate.errors import ValidationFinding
+from baibai_loop.validation.cli import _format_finding, main, run_validation
+from baibai_loop.validation.errors import ValidationFinding
 
 
 def _make_candidates_payload() -> dict[str, object]:

@@ -28,7 +28,7 @@ source_paths:
 records / schema / Python 実装を変更したら最低限以下を実行します。
 
 ```bash
-uv run baibai-loop-validate
+uv run baibai-loop-validation
 uv run ruff format --check .
 uv run ruff check .
 uv run mypy

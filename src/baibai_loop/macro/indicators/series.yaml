@@ -1,7 +1,7 @@
 series:
   - series_id: us.10y
     name: 米10Y利回り
-    domain: rates
+    category: rates
     geography: us
     frequency: daily
     unit: percent
@@ -12,7 +12,7 @@ series:
     aliases: [米10Y利回り, 米10Y, US 10Y, DGS10]
   - series_id: us.2y
     name: 米2Y利回り
-    domain: rates
+    category: rates
     geography: us
     frequency: daily
     unit: percent
@@ -23,7 +23,7 @@ series:
     aliases: [米2Y利回り, 米2Y, US 2Y, DGS2]
   - series_id: us.10y_2y_spread
     name: 10Y-2Yスプレッド
-    domain: rates
+    category: rates
     geography: us
     frequency: daily
     unit: bp
@@ -34,7 +34,7 @@ series:
     aliases: [10Y-2Yスプレッド, 米10Y-2Yスプレッド, yield spread]
   - series_id: us.fed_funds.upper
     name: FF目標レンジ上限
-    domain: policy
+    category: policy
     geography: us
     frequency: daily
     unit: percent
@@ -45,7 +45,7 @@ series:
     aliases: [FF upper, Fed Funds upper, FF目標上限]
   - series_id: us.fed_funds.lower
     name: FF目標レンジ下限
-    domain: policy
+    category: policy
     geography: us
     frequency: daily
     unit: percent
@@ -56,7 +56,7 @@ series:
     aliases: [FF lower, Fed Funds lower, FF目標下限]
   - series_id: us.cpi.headline
     name: 米CPI総合
-    domain: inflation
+    category: inflation
     geography: us
     frequency: monthly
     unit: index
@@ -67,7 +67,7 @@ series:
     aliases: [米CPI, US CPI, CPI headline]
   - series_id: us.cpi.core
     name: 米コアCPI
-    domain: inflation
+    category: inflation
     geography: us
     frequency: monthly
     unit: index
@@ -78,7 +78,7 @@ series:
     aliases: [米コアCPI, US core CPI, core CPI]
   - series_id: us.unemployment
     name: 米失業率
-    domain: labor
+    category: labor
     geography: us
     frequency: monthly
     unit: percent
@@ -89,7 +89,7 @@ series:
     aliases: [米失業率, unemployment, UNRATE]
   - series_id: us.nonfarm_payrolls
     name: 米非農業部門雇用者数
-    domain: labor
+    category: labor
     geography: us
     frequency: monthly
     unit: thousand-persons
@@ -100,7 +100,7 @@ series:
     aliases: [米雇用統計, NFP, nonfarm payrolls, PAYEMS]
   - series_id: vix
     name: VIX
-    domain: volatility
+    category: volatility
     geography: world
     frequency: daily
     unit: index
@@ -111,7 +111,7 @@ series:
     aliases: [VIX, volatility]
   - series_id: wti
     name: WTI原油
-    domain: energy
+    category: energy
     geography: world
     frequency: daily
     unit: usd-per-barrel
@@ -122,7 +122,7 @@ series:
     aliases: [WTI, WTI原油]
   - series_id: brent
     name: Brent原油
-    domain: energy
+    category: energy
     geography: world
     frequency: daily
     unit: usd-per-barrel
@@ -133,7 +133,7 @@ series:
     aliases: [Brent, Brent原油]
   - series_id: usd_jpy
     name: USD/JPY
-    domain: fx
+    category: fx
     geography: japan
     frequency: daily
     unit: jpy-per-usd
@@ -144,7 +144,7 @@ series:
     aliases: [USD/JPY, ドル円]
   - series_id: eur_jpy
     name: EUR/JPY
-    domain: fx
+    category: fx
     geography: japan
     frequency: daily
     unit: jpy-per-eur
@@ -155,7 +155,7 @@ series:
     aliases: [EUR/JPY, ユーロ円]
   - series_id: aud_jpy
     name: AUD/JPY
-    domain: fx
+    category: fx
     geography: japan
     frequency: daily
     unit: jpy-per-aud
@@ -166,7 +166,7 @@ series:
     aliases: [AUD/JPY, 豪ドル円]
   - series_id: jp.10y
     name: 日本10Y国債利回り
-    domain: rates
+    category: rates
     geography: japan
     frequency: monthly
     unit: percent
@@ -178,7 +178,7 @@ series:
     aliases: [日本10Y, JGB10Y, JGB 10Y, 日本国債10年]
   - series_id: jp.policy_rate
     name: 日本政策金利(無担保コールON)
-    domain: policy
+    category: policy
     geography: japan
     frequency: monthly
     unit: percent
@@ -190,7 +190,7 @@ series:
     aliases: [日銀政策金利, BOJ policy rate, コールレート, 無担保コール]
   - series_id: jp.unemployment
     name: 日本失業率
-    domain: labor
+    category: labor
     geography: japan
     frequency: monthly
     unit: percent
@@ -201,7 +201,7 @@ series:
     aliases: [日本失業率, JP unemployment, 失業率]
   - series_id: jp.nikkei225
     name: 日経225
-    domain: equity-index
+    category: equity-index
     geography: japan
     frequency: daily
     unit: index
@@ -212,7 +212,7 @@ series:
     aliases: [日経225, 日経平均, Nikkei 225, NIKKEI225]
   - series_id: credit.us_hy_oas
     name: 米ハイイールドOAS
-    domain: credit
+    category: credit
     geography: us
     frequency: daily
     unit: percent
@@ -223,7 +223,7 @@ series:
     aliases: [HY OAS, ハイイールドスプレッド, high yield OAS, クレジットスプレッド]
   - series_id: credit.us_ig_oas
     name: 米投資適格OAS
-    domain: credit
+    category: credit
     geography: us
     frequency: daily
     unit: percent
@@ -234,7 +234,7 @@ series:
     aliases: [IG OAS, 投資適格スプレッド, investment grade OAS]
   - series_id: btc_usd
     name: ビットコイン価格USD
-    domain: crypto
+    category: crypto
     geography: world
     frequency: daily
     unit: usd
@@ -245,7 +245,7 @@ series:
     aliases: [BTC, Bitcoin, ビットコイン, BTCUSD]
   - series_id: usd_index.broad
     name: 米ドル指数broad
-    domain: fx
+    category: fx
     geography: us
     frequency: daily
     unit: index
@@ -256,7 +256,7 @@ series:
     aliases: [DXY, ドル指数, dollar index, broad dollar]
   - series_id: jp.bankruptcies
     name: 日本企業倒産件数
-    domain: credit
+    category: credit
     geography: japan
     frequency: monthly
     unit: count
@@ -268,7 +268,7 @@ series:
     aliases: [倒産件数, 企業倒産, 東商リサーチ倒産, bankruptcies]
   - series_id: jp.pmi_manufacturing
     name: 日本製造業PMI
-    domain: activity
+    category: activity
     geography: japan
     frequency: monthly
     unit: index
@@ -280,7 +280,7 @@ series:
     aliases: [製造業PMI, 日本PMI, JP manufacturing PMI, au Jibun PMI]
   - series_id: jp.monetary_base
     name: 日本マネタリーベース
-    domain: monetary
+    category: monetary
     geography: japan
     frequency: monthly
     unit: jpy-100m
@@ -292,7 +292,7 @@ series:
     aliases: [マネタリーベース, monetary base, BOJ monetary base, マネタリーベース平均残高]
   - series_id: jp.cpi.headline
     name: 日本CPI総合
-    domain: inflation
+    category: inflation
     geography: japan
     frequency: monthly
     unit: index
@@ -304,7 +304,7 @@ series:
     aliases: [日本CPI, JP CPI, CPI総合, 全国CPI]
   - series_id: jp.foreign_flows
     name: 海外投資家ネット買い越し額(週次)
-    domain: flows
+    category: flows
     geography: japan
     frequency: weekly
     unit: jpy

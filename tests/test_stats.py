@@ -65,7 +65,7 @@ class StatsDBTests(unittest.TestCase):
             try:
                 conn.execute(
                     "INSERT INTO series("
-                    "series_id, name, domain, geography, frequency, unit, provider, "
+                    "series_id, name, category, geography, frequency, unit, provider, "
                     "provider_series_id, source_id, source_url"
                     ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
@@ -546,7 +546,7 @@ class StatsProviderParserTests(unittest.TestCase):
 
 
 class StatsRegistryTests(unittest.TestCase):
-    def test_new_tier1_series_registered_with_expected_provider_and_domain(self) -> None:
+    def test_new_tier1_series_registered_with_expected_provider_and_category(self) -> None:
         by_id = load_definitions().by_id()
         expected = {
             "jp.nikkei225": ("fred_csv", "equity-index"),
@@ -556,10 +556,10 @@ class StatsRegistryTests(unittest.TestCase):
             "btc_usd": ("fred_csv", "crypto"),
         }
 
-        for series_id, (provider, domain) in expected.items():
+        for series_id, (provider, category) in expected.items():
             self.assertIn(series_id, by_id)
             self.assertEqual(by_id[series_id].provider, provider)
-            self.assertEqual(by_id[series_id].domain, domain)
+            self.assertEqual(by_id[series_id].category, category)
 
     def test_every_series_id_maps_to_a_single_provider(self) -> None:
         series_ids = [series.series_id for series in load_definitions().series]
@@ -653,7 +653,7 @@ def _series(provider: str, provider_series_id: str, *, unit: str = "percent") ->
     return SeriesDefinition(
         series_id="test.series",
         name="Test Series",
-        domain="test",
+        category="test",
         geography="world",
         frequency="daily",
         unit=unit,

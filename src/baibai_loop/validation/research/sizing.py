@@ -7,11 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from baibai_loop.position.policy import PORTFOLIO_POLICY
-from baibai_loop.validate.domain import (
+from baibai_loop.validation.domain import (
     as_mapping,
     number,
 )
-from baibai_loop.validate.errors import ValidationFinding
+from baibai_loop.validation.errors import ValidationFinding
 
 from .shared import _close
 

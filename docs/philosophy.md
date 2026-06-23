@@ -102,7 +102,7 @@ Validator-visible な採用可否と sizing cap は、portfolio policy config �
 
 #### (a) 信念
 
-Baibai-Loop の主軸は、全上場銘柄の実データを保持する **データ層(L1)** と、決定論的な screen / lens / 軸別スコアとその forward 計測(replay / lane cohorts / ablation)からなる **分析層(L2)** である。判断層(L3 = records)はこの基盤の消費者である。screening 効果の検証は L2 の全候補 backtest(改善ループ・大 N)が担い、trades は Q2 執行品質の信号を供給する。
+Baibai-Loop の主軸は、全上場銘柄の実データを保持する **データ層(L1)** と、決定論的な screen / lens / 軸別スコアとその forward 計測(replay / playbook cohorts / ablation)からなる **分析層(L2)** である。判断層(L3 = records)はこの基盤の消費者である。screening 効果の検証は L2 の全候補 backtest(改善ループ・大 N)が担い、trades は Q2 執行品質の信号を供給する。
 
 用語の区別: L2 の「分析」は決定論的な機械処理を指し、その出力(candidates など)は柱 1 の意味では **事実** に属する(解釈を含まず再現可能なため)。柱 1 で「分析」と呼ぶのは人間/AI の解釈(macro context、research)であり、これは L3 に属する。
 

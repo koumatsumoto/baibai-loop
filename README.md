@@ -92,7 +92,7 @@ directory ごとの責務は [`docs/architecture/repository-map.md`](./docs/arch
 uv run baibai-loop-screening run --asof YYYY-MM-DD
 uv run baibai-loop-screening select --asof YYYY-MM-DD --macro-context records/01-macro-context/YYYY/MM/macro-context-YYYY-MM-DD-slug.yaml
 uv run baibai-loop-stats search CPI
-uv run baibai-loop-validate
+uv run baibai-loop-validation
 uv run baibai-loop-ledger sync --root .
 ```
 
@@ -101,7 +101,7 @@ automation の位置付けは [`docs/architecture/automation-map.md`](./docs/arc
 ## 開発と検証
 
 ```bash
-uv run baibai-loop-validate
+uv run baibai-loop-validation
 uv run ruff format --check .
 uv run ruff check .
 uv run mypy

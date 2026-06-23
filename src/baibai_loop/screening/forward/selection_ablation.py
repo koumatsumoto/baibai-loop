@@ -1,15 +1,15 @@
 """Selection ablation replay: measure what each ranking feature is worth.
 
 Replays the recorded weekly candidates through selection variants that each
-disable one ranking component (fast boost, long-hold, lane rank, evidence
+disable one ranking component (fast boost, long-hold, playbook rank, evidence
 strength, diversity caps, prior-research suppression) or drop one evidence
-lane entirely, then scores every variant's recommended queue by forward
+playbook entirely, then scores every variant's recommended queue by forward
 return versus the benchmark proxy. The deltas against the ``full`` variant
 quantify each feature's contribution to recommended performance, which is the
 evidence base for removing features that do not earn their complexity.
 
 This is forward-only measurement over recorded screening output — the same
-stance as the replay and the lane cohorts — not a parameter search: variants
+stance as the replay and the playbook cohorts — not a parameter search: variants
 are pre-enumerated feature switches, not threshold sweeps.
 """
 
@@ -46,7 +46,7 @@ from .weeks import WeekSpec, load_week_candidates
 
 FULL_VARIANT = "full"
 
-_LANES: tuple[str, ...] = (
+_PLAYBOOKS: tuple[str, ...] = (
     "valuation-reversion",
     "cash-rich-asset-discount",
     "cashflow-yield-discount",
@@ -58,7 +58,7 @@ _LANES: tuple[str, ...] = (
 _NO_DIVERSITY_OVERRIDES: Mapping[str, Mapping[str, object]] = {
     "diversity": {
         "max_recommended_per_sector": 10_000,
-        "max_recommended_per_lane": 10_000,
+        "max_recommended_per_playbook": 10_000,
         "max_previous_candidates_in_recommended": None,
     }
 }
@@ -71,7 +71,7 @@ _ALL_ON_TOGGLES = RankingToggles()
 class AblationVariant:
     name: str
     ranking_toggles: RankingToggles = _ALL_ON_TOGGLES
-    drop_lane: str | None = None
+    drop_playbook: str | None = None
     disable_diversity: bool = False
     disable_prior_suppression: bool = False
 
@@ -79,10 +79,13 @@ class AblationVariant:
 DEFAULT_VARIANTS: tuple[AblationVariant, ...] = (
     AblationVariant(name=FULL_VARIANT),
     AblationVariant(name="no_fast_boost", ranking_toggles=RankingToggles(fast_boost=False)),
-    AblationVariant(name="no_lane_rank", ranking_toggles=RankingToggles(lane_rank=False)),
+    AblationVariant(name="no_playbook_rank", ranking_toggles=RankingToggles(playbook_rank=False)),
     AblationVariant(name="no_strength", ranking_toggles=RankingToggles(strength=False)),
     AblationVariant(name="no_diversity", disable_diversity=True),
-    *(AblationVariant(name=f"drop_lane:{lane}", drop_lane=lane) for lane in _LANES),
+    *(
+        AblationVariant(name=f"drop_playbook:{playbook}", drop_playbook=playbook)
+        for playbook in _PLAYBOOKS
+    ),
 )
 # F1 / F3 dead-code cleanup: `no_prior_suppression` and `no_stabilization`
 # variants were removed from DEFAULT_VARIANTS. Both measured Δfull ≈ 0pt
@@ -306,8 +309,8 @@ def _recommended_tickers(
     top: int,
 ) -> tuple[str, ...]:
     candidates = inputs.candidates
-    if variant.drop_lane is not None:
-        candidates = tuple(_drop_lane(item, variant.drop_lane) for item in candidates)
+    if variant.drop_playbook is not None:
+        candidates = tuple(_drop_playbook(item, variant.drop_playbook) for item in candidates)
     payload = build_selection_payload(
         asof_date=inputs.spec.asof,
         candidates=candidates,
@@ -337,8 +340,8 @@ def _recommended_tickers(
     )
 
 
-def _drop_lane(item: CandidateRecord, lane: str) -> CandidateRecord:
-    kept = tuple(hit for hit in item.evidence_hits if hit.get("name") != lane)
+def _drop_playbook(item: CandidateRecord, playbook: str) -> CandidateRecord:
+    kept = tuple(hit for hit in item.evidence_hits if hit.get("name") != playbook)
     return replace(item, evidence_hits=kept)
 
 

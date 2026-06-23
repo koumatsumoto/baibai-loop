@@ -17,7 +17,7 @@ _ASOF = date(2026, 5, 29)
 
 # Fast-dislocation eligible under the balanced profile: a 5d price trigger plus
 # two fundamental guards from two families (cash_flow + balance_sheet). The
-# evidence lane sales-discount-growth ranks low in the configured lane order so
+# evidence playbook sales-discount-growth ranks low in the configured playbook order so
 # the fast boost is the only reason this candidate can outrank the calm one.
 _FAST_CANDIDATE: Mapping[str, object] = {
     "ticker": "9999",
@@ -31,7 +31,7 @@ _FAST_CANDIDATE: Mapping[str, object] = {
 }
 
 # Same fundamentals as the fast candidate but no price decline: without the
-# fast boost the configured lane order decides and valuation-reversion
+# fast boost the configured playbook order decides and valuation-reversion
 # outranks sales-discount-growth.
 _CALM_CANDIDATE: Mapping[str, object] = {
     "ticker": "1111",

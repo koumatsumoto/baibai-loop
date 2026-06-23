@@ -44,7 +44,7 @@ J-Quants / EDINET から取得したデータは、個人利用・非公開 repo
 
 J-Quants Light の非公開レート制限と `bootstrap-cache` の per-asof 長期履歴 re-fetch コストの観測メモは [`./jquants-rate-limits.md`](./jquants-rate-limits.md) に蓄積する。歴史週の生成が遅い / 完了しない場合はまずそこを参照する。
 
-Macro statistics は `baibai-loop-stats` で公式 API / CSV から取得し、`data/stats/macro.sqlite` に保存してよい。この SQLite は macro context の正本ではなく、期間検索・再取得抑制・判断材料確認のための取得 cache として扱う。
+Macro statistics は `baibai-loop-indicators` で公式 API / CSV から取得し、`data/stats/macro.sqlite` に保存してよい。この SQLite は macro context の正本ではなく、期間検索・再取得抑制・判断材料確認のための取得 cache として扱う。
 
 ## スコアリング軸
 

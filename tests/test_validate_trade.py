@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from baibai_loop.validate.trade import discover_trade_files, validate_trade_file
+from baibai_loop.validation.trade import discover_trade_files, validate_trade_file
 
 
 def _snapshot(ref_path: str) -> dict[str, object]:

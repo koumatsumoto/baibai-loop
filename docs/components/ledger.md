@@ -49,7 +49,7 @@ uv run baibai-loop-position sync --root .
 decision register は [`/records/_schemas/decision-register.json`](/records/_schemas/decision-register.json) で検証する。
 
 ```bash
-uv run baibai-loop-validate --target ledger
+uv run baibai-loop-validation --target ledger
 ```
 
 ## 6. dry-run 出力
@@ -64,4 +64,4 @@ orphan は自動削除しない。必要なら correction event で明示的に 
 
 ## 8. 事故時の扱い
 
-壊れた JSONL 行は `uv run baibai-loop-validate --target ledger` で line を確認し、該当 source artifact から再 sync する。tracking / correction log の誤記録は、新しい correction event で forward-only に修正する。
+壊れた JSONL 行は `uv run baibai-loop-validation --target ledger` で line を確認し、該当 source artifact から再 sync する。tracking / correction log の誤記録は、新しい correction event で forward-only に修正する。

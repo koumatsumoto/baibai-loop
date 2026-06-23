@@ -16,12 +16,12 @@ from .service import QueryResult, StatsService
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="baibai-loop-stats")
+    parser = argparse.ArgumentParser(prog="baibai-loop-indicators")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     list_parser = subparsers.add_parser("list", help="list registered macro statistics series")
     list_parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
-    list_parser.add_argument("--domain")
+    list_parser.add_argument("--category")
 
     search_parser = subparsers.add_parser("search", help="search registered series")
     search_parser.add_argument("query")
@@ -50,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         match args.command:
             case "list":
-                _print_series(service.list_series(domain=args.domain))
+                _print_series(service.list_series(category=args.category))
                 return 0
             case "search":
                 _print_series(service.search(args.query))
@@ -101,7 +101,7 @@ def _run_get(service: StatsService, args: argparse.Namespace) -> QueryResult:
 def _print_series(series: Iterable[SeriesDefinition]) -> None:
     for item in series:
         print(
-            f"{item.series_id}\t{item.name}\t{item.domain}\t{item.geography}\t"
+            f"{item.series_id}\t{item.name}\t{item.category}\t{item.geography}\t"
             f"{item.frequency}\t{item.unit}\t{item.provider}"
         )
 

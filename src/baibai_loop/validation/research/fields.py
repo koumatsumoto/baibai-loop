@@ -6,7 +6,7 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 
-from baibai_loop.validate.errors import ValidationFinding
+from baibai_loop.validation.errors import ValidationFinding
 
 _TICKER_PATTERN = re.compile(r"^[0-9A-Z]{4}$")
 _KNOWN_OUTCOMES = {"approved", "deferred", "rejected"}
