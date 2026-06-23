@@ -77,7 +77,7 @@ Long-only の計算式は次で固定する。
 - `risk_reward_ratio = expected_upside_pct / expected_downside_pct`
 - `stop_loss_yen < max_entry_price_yen < target_price_yen`
 
-Payoff が弱い場合は `research_decision`、`macro_context_fit.required_checks`、`macro_context_fit.sizing_caution`、および `position_sizing_overlay` に反映する。Policy の具体閾値は `policy_config.py` を正本とし、未実装 field を追加して補わない。
+Payoff が弱い場合は `research_decision`、`macro_context_fit.required_checks`、`macro_context_fit.sizing_caution`、および `position_sizing_overlay` に反映する。Policy の具体閾値は `position/policy.py` を正本とし、未実装 field を追加して補わない。
 
 ## 8. Position Size
 

@@ -4,8 +4,8 @@ import textwrap
 from datetime import date
 from pathlib import Path
 
-from baibai_loop.position.review_gates import due_review_gates, weekday_calendar
-from baibai_loop.position.trades import TradeRecord, load_open_trades
+from baibai_loop.position.execution import TradeRecord, load_open_trades
+from baibai_loop.position.review import due_review_gates, weekday_calendar
 
 
 def _trade(

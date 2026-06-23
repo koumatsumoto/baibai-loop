@@ -13,7 +13,7 @@ from baibai_loop.market.benchmark import (
     _price_on_or_before,
 )
 
-from .trades import TradeRecord
+from .execution import TradeRecord
 
 
 @dataclass(frozen=True, slots=True)

@@ -36,13 +36,13 @@ def validate_policy_file(path: Path) -> list[ValidationFinding]:
                 message="portfolio policy document must contain '# Portfolio Policy'",
             )
         ]
-    if "policy_config.py" not in text:
+    if "position/policy.py" not in text:
         return [
             ValidationFinding(
                 severity="warning",
                 target=path,
                 code="policy.code-config-note",
-                message="portfolio policy should point concrete thresholds to policy_config.py",
+                message="portfolio policy should point concrete thresholds to position/policy.py",
             )
         ]
     return []

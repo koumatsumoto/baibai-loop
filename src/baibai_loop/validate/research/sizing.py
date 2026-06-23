@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from baibai_loop.policy_config import PORTFOLIO_POLICY
+from baibai_loop.position.policy import PORTFOLIO_POLICY
 from baibai_loop.validate.domain import (
     as_mapping,
     number,

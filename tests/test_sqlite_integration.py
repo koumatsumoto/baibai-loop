@@ -339,7 +339,7 @@ class ScreeningRunOverSqliteTests(unittest.TestCase):
 
 class LedgerSyncOverSqliteTests(unittest.TestCase):
     def test_sync_resolves_market_data_from_sqlite(self) -> None:
-        from baibai_loop.ledger.cli import _load_market_data
+        from baibai_loop.position.cli import _load_market_data
 
         asof = date(2026, 4, 24)
         with tempfile.TemporaryDirectory() as tmpdir:

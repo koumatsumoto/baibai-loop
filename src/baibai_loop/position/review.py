@@ -6,8 +6,8 @@ from datetime import date, timedelta
 
 from baibai_loop.foundation.date_utils import add_business_days
 
+from .execution import TradeRecord
 from .tracking import TrackingHorizon
-from .trades import TradeRecord
 
 _HORIZON_BUSINESS_DAYS: tuple[tuple[TrackingHorizon, int], ...] = (
     ("plus_15bd", 15),

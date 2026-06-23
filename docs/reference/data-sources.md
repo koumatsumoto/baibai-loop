@@ -34,7 +34,7 @@ Review / retro の価格 source は J-Quants(`data/screening/market.sqlite`)を 
 
 forward return の benchmark-relative 評価で使う日経平均は J-Quants に index として収録されていない。そのため benchmark は **同一 universe の ETF proxy `1321`（野村 日経225 ETF）** を canonical proxy とする。`1321` は holdings と同じ `get_eq_bars_daily_range` 呼び出しで取得され、stock と benchmark を 1 source・同一 price basis（`resolve_price_on_or_before` で adjusted 優先、無ければ close_unadjusted）に揃える。
 
-ETF は index を tracking error 込みで追うため、proxy 由来の relative return は index 実値よりやや保守的（数週間で ~0.3pt 弱め）に出る。retro 等で proxy を使う場合は、benchmark が index 実値ではなく ETF proxy である旨を `Price evidence` に明記する。`baibai-loop-ledger benchmark` が open position の forward return / benchmark / relative を算出する。
+ETF は index を tracking error 込みで追うため、proxy 由来の relative return は index 実値よりやや保守的（数週間で ~0.3pt 弱め）に出る。retro 等で proxy を使う場合は、benchmark が index 実値ではなく ETF proxy である旨を `Price evidence` に明記する。`baibai-loop-position benchmark` が open position の forward return / benchmark / relative を算出する。
 
 ## 取得データの保存方針
 

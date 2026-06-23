@@ -5,7 +5,7 @@ from datetime import date
 import pytest
 
 from baibai_loop.position.benchmark import compute_forward_performance
-from baibai_loop.position.trades import TradeRecord
+from baibai_loop.position.execution import TradeRecord
 from baibai_loop.screening.providers.jquants import JQuantsDailyBar
 
 

@@ -29,7 +29,7 @@ classifiers = [
 [project.scripts]
 baibai-loop-screening = "baibai_loop.screening.cli:main"
 baibai-loop-validate = "baibai_loop.validate.cli:main"
-baibai-loop-ledger = "baibai_loop.ledger.cli:main"
+baibai-loop-position = "baibai_loop.position.cli:main"
 baibai-loop-indicators = "baibai_loop.macro.indicators.cli:main"
 
 [dependency-groups]
@@ -186,7 +186,6 @@ type = "forbidden"
 source_modules = ["baibai_loop.macro"]
 forbidden_modules = [
   "baibai_loop.screening",
-  "baibai_loop.ledger",
   "baibai_loop.position",
   "baibai_loop.validate",
 ]
@@ -197,7 +196,6 @@ type = "forbidden"
 source_modules = ["baibai_loop.foundation"]
 forbidden_modules = [
   "baibai_loop.screening",
-  "baibai_loop.ledger",
   "baibai_loop.stats",
   "baibai_loop.validate",
   "baibai_loop.macro_context",
@@ -210,7 +208,6 @@ type = "forbidden"
 source_modules = ["baibai_loop.market"]
 forbidden_modules = [
   "baibai_loop.screening",
-  "baibai_loop.ledger",
   "baibai_loop.stats",
   "baibai_loop.validate",
   "baibai_loop.macro_context",
@@ -222,3 +219,13 @@ name = "position does not import screening (cycle prevention)"
 type = "forbidden"
 source_modules = ["baibai_loop.position"]
 forbidden_modules = ["baibai_loop.screening"]
+# position/cli is the tracking CLI composition root: it loads J-Quants daily
+# bars / market calendar from the screening SQLite cache and passes them into
+# the position-tracking logic to fill forward tracking prices. Only this entry
+# point bridges into screening; every position core module stays screening-free,
+# so the rest of the package keeps the one-way market<-position<-screening DAG.
+ignore_imports = [
+  "baibai_loop.position.cli -> baibai_loop.screening.config",
+  "baibai_loop.position.cli -> baibai_loop.screening.providers.jquants",
+  "baibai_loop.position.cli -> baibai_loop.screening.sqlite_reader",
+]

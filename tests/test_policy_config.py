@@ -10,7 +10,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.policy_config import PORTFOLIO_POLICY, validate_policy_config
+from baibai_loop.position.policy import PORTFOLIO_POLICY, validate_policy_config
 
 
 class PolicyConfigTests(unittest.TestCase):

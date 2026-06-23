@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from baibai_loop.ledger.cli import _discover_decision_dates, _load_market_data, main
+from baibai_loop.position.cli import _discover_decision_dates, _load_market_data, main
 from baibai_loop.position.io import diff_jsonl, read_jsonl, write_jsonl
 from baibai_loop.position.sync import sync_ledger
 

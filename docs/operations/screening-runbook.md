@@ -72,7 +72,7 @@ Lane ごとの hit 数は `evidence_hits_summary` で確認します。特定 la
 
 ## Multi-week replay と forward return
 
-複数週を跨いだ recommended queue の forward return 評価は `baibai-loop-ledger screening-replay` で行います。profile を採用・変更する前に、6-8 週の実データで recommended forward return を benchmark proxy 比で比較し、直近 1-2 週を hold-out として残します。
+複数週を跨いだ recommended queue の forward return 評価は `baibai-loop-screening screening-replay` で行います。profile を採用・変更する前に、6-8 週の実データで recommended forward return を benchmark proxy 比で比較し、直近 1-2 週を hold-out として残します。
 
 ```bash
 # 1. 各週の candidates を scratch root に生成（週ごとに J-Quants rate budget が要る）
@@ -84,7 +84,7 @@ for W in 2026-04-10 2026-04-17 2026-04-24 2026-05-15 2026-05-22 2026-05-29; do
 done
 
 # 2. profile を replay し recommended forward return を集計
-uv run baibai-loop-ledger screening-replay \
+uv run baibai-loop-screening screening-replay \
   --candidates-root .cache/replay/candidates \
   --profiles balanced --holdout-weeks 2 \
   --out .cache/replay/replay-payload.yaml
@@ -101,7 +101,7 @@ uv run baibai-loop-ledger screening-replay \
 replay が recommended queue（top N）だけを評価するのに対し、`lane-cohorts` は週次 candidates の**全銘柄**を evidence lane 別 cohort として forward return を集計し、playbook 改訂ループの一次資料を作る。
 
 ```bash
-uv run baibai-loop-ledger lane-cohorts \
+uv run baibai-loop-screening lane-cohorts \
   --candidates-root records/04-candidates \
   --horizons 1,4 --out .cache/replay/lane-cohorts-latest.yaml
 ```
@@ -115,7 +115,7 @@ uv run baibai-loop-ledger lane-cohorts \
 selection の ranking 構成要素や lane を 1 つずつ無効化した variant 群を replay し、各機能の forward return 寄与(`Δfull`)と推奨 queue の重複率を計測する。機能の削減・維持判断の根拠データを作るときに使う。
 
 ```bash
-uv run baibai-loop-ledger selection-ablation \
+uv run baibai-loop-screening selection-ablation \
   --candidates-root .cache/replay/candidates \
   --out .cache/replay/selection-ablation-latest.yaml
 ```

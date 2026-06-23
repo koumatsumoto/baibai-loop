@@ -35,9 +35,9 @@ related_docs:
 | 週次 candidates | `records/04-candidates/<YYYY>/<MM>/<YYYY-MM-DD>.yaml`（local store） | 機械生成 fact |
 | research_memo 判断 ledger | `records/_ledger/research-decisions/<YYYY>-<MM>.jsonl` | 判断時点 fact |
 | 実 trade record | `records/06-trades/**/*.md` | execution fact |
-| open position benchmark | `baibai-loop-ledger benchmark` | 上記を join |
+| open position benchmark | `baibai-loop-position benchmark` | 上記を join |
 
-価格関数の正本は `src/baibai_loop/ledger/tracking.py` `resolve_price_on_or_before`。**自前のスクリプトでも必ずこれと同じセマンティクス**（adjusted close 優先、target 日以前の最新 bar）を使うこと。
+価格関数の正本は `src/baibai_loop/market/price_walk.py` `resolve_price_on_or_before`。**自前のスクリプトでも必ずこれと同じセマンティクス**（adjusted close 優先、target 日以前の最新 bar）を使うこと。
 
 ## 3. 7 axis backtest 手順
 
@@ -45,10 +45,10 @@ related_docs:
 
 ### Axis A — screening profile replay（既存 CLI）
 
-`baibai-loop-ledger screening-replay` で profile（`balanced` 等）の forward return を benchmark proxy 比で計測。
+`baibai-loop-screening screening-replay` で profile（`balanced` 等）の forward return を benchmark proxy 比で計測。
 
 ```bash
-uv run baibai-loop-ledger screening-replay \
+uv run baibai-loop-screening screening-replay \
   --candidates-root .cache/replay/candidates \
   --regime-lens on --top 10 \
   --out .cache/backtest/<YYYY-MM-DD>-replay.yaml
@@ -58,11 +58,11 @@ uv run baibai-loop-ledger screening-replay \
 
 ### Axis B — lane cohorts（既存 CLI）
 
-`baibai-loop-ledger lane-cohorts` で各 playbook lane の **全銘柄** の forward return を集計。recommended queue に乗らない lane の cohort 品質を見る。
+`baibai-loop-screening lane-cohorts` で各 playbook lane の **全銘柄** の forward return を集計。recommended queue に乗らない lane の cohort 品質を見る。
 
 ### Axis C — selection ablation（既存 CLI）
 
-`baibai-loop-ledger selection-ablation` で ranking 成分（fast_boost / long_hold / lane_rank / strength / diversity 等）と各 lane の `Δfull` を計測。死荷重の検出と lane 順序の検証。
+`baibai-loop-screening selection-ablation` で ranking 成分（fast_boost / long_hold / lane_rank / strength / diversity 等）と各 lane の `Δfull` を計測。死荷重の検出と lane 順序の検証。
 
 ### Axis D — judgment-gate counterfactual（本 runbook 新規）
 

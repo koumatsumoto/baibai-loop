@@ -39,7 +39,7 @@ JSONL は 1 行 1 event。current state は同じ `decision_event_id` / correcti
 手元では次を実行する。
 
 ```bash
-uv run baibai-loop-ledger sync --root .
+uv run baibai-loop-position sync --root .
 ```
 
 同じ入力からの再実行は同じ `decision_event_id` を更新対象として扱い、重複行を作らない。判断の訂正や無効化が必要な場合は correction event を追加する。
@@ -54,7 +54,7 @@ uv run baibai-loop-validate --target ledger
 
 ## 6. dry-run 出力
 
-`baibai-loop-ledger sync --dry-run` は次の prefix で差分を表示する。
+`baibai-loop-position sync --dry-run` は次の prefix で差分を表示する。
 
 - `+ decision_event_id`: 新規 event
 - `~ decision_event_id`: 既存 event の再生成差分

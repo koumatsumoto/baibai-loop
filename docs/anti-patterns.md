@@ -281,7 +281,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] `src/baibai_loop/screening/rule_config.py` の `<Lane>Lane` class と Union 型
         (`screening_playbooks: Mapping[..., A | B | C]`) と `match` 句
   - [ ] `src/baibai_loop/screening/selection/ranking.py` の sort key match arm
-  - [ ] `src/baibai_loop/ledger/selection_ablation.py` の `_LANES` tuple
+  - [ ] `src/baibai_loop/screening/forward/selection_ablation.py` の `_LANES` tuple
   - [ ] 削除根拠は `docs/operations/backtest-runbook.md` §6 dated index で明示し、
         lane-cohorts / selection-ablation のサンプルが「removing は安全」と
         言える数値を残す (PR #246 では cash-rich が誤って削除候補になった反省)
