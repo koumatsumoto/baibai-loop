@@ -61,7 +61,11 @@ class IndicatorsService:
                 observations = self._fetch_and_store(conn, series, start=start, end=end)
             else:
                 observations = list(db.observations_in_range(conn, series_id, start, end))
-            return QueryResult(series, tuple(observations), cache_hit=cache_hit)
+            # Providers return observations in source order (ECB FX is newest-first);
+            # normalize to ascending observed_at so callers get a stable chronology
+            # regardless of cache-hit vs provider-fetch path.
+            ordered = sorted(observations, key=lambda item: item.observed_at)
+            return QueryResult(series, tuple(ordered), cache_hit=cache_hit)
         finally:
             conn.close()
 

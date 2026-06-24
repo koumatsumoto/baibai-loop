@@ -27,7 +27,7 @@ AI / スクリプトが利用する安定契約は CLI YAML 出力と SQLite sch
 | 日本語概念名 | Concept (slug) | Repository location | レイヤー | 役割 |
 | --- | --- | --- | --- | --- |
 | 運用方針 | portfolio policy | [`docs/portfolio-policy.md`](../portfolio-policy.md) | governance | 目的、制約、資本、許容リスク、time horizon を固定する |
-| マクロ環境分析 | macro context | `records/01-macro-context/` | analysis | 外部記事と統計 series を参照し、screening 前の市場環境を判断する |
+| マクロ環境分析 | macro context | `records/01-macro-context/` | analysis | 外部記事と指標 series を参照し、screening 前の市場環境を判断する |
 | 通過銘柄リスト | candidates（screen output） | `records/04-candidates/` | fact | universe と screening rule から ticker-level raw screen output を記録する |
 | 個別銘柄リサーチ | thesis（investment memo） | `records/05-thesis/` | analysis | candidates と macro context を統合し、thesis payoff と採用可否を判断する |
 | 売買提案 | trade proposal（GitHub Issue） | （Issue・records 外） | 判断の入口 | 最終選考銘柄の詳細 ＋ 銘柄/価格/株数 提案を人間に上げる |
@@ -50,7 +50,7 @@ AI / スクリプトが利用する安定契約は CLI YAML 出力と SQLite sch
 - Markdown / YAML と Git を正本にする。ただし週次 screen output(candidates YAML)は再生成可能な L2 機械出力として local store に置き、git には積まない([`../components/candidates.md`](../components/candidates.md) §2)。
 - 売買提案は GitHub Issue を成果物とし、records/ にディレクトリを持たない。承認結果は decision register と trade record に落とす。
 - AI 下書きと人間確認を前提に、事実層と分析層を物理的に分ける。
-- CLI は screening、selection、validation、ledger sync、forward backtest(replay / playbook cohorts / ablation)、macro statistics 取得に使う。
+- CLI は screening、selection、validation、position sync、forward backtest(replay / playbook cohorts / ablation)、macro indicators 取得に使う。
 
 ## 非目標
 

@@ -33,4 +33,4 @@ uv run baibai-loop-validation --target decisions
 uv run baibai-loop-validation
 ```
 
-ledger sync 後に decisions target を検証し、最後に full validate を通す。`order_intent.order_intent_id` と `orders[].origin_order_intent_id` が join できること、`guarded_max_notional_yen = quantity * order_price_guard_yen` であることを確認する。
+position sync 後に decisions target を検証し、最後に full validate を通す。`order_intent.order_intent_id` と `orders[].origin_order_intent_id` が join できること、`guarded_max_notional_yen = quantity * order_price_guard_yen` であることを確認する。

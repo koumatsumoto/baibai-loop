@@ -40,11 +40,11 @@ ETF は index を tracking error 込みで追うため、proxy 由来の relativ
 
 J-Quants / EDINET から取得したデータは、個人利用・非公開 repository での Baibai-Loop 運用に限り、ローカル cache または永続 cache として保存してよい。外部公開・第三者再配布は行わない。screening の正本 local store は `data/screening/market.sqlite`、削除可能な byproduct cache は `.cache/` に置き、いずれも `records/` 配下には置かない（`records/` は履歴成果物専用。SQLite layout の正本は [`../screening/automation.md`](../screening/automation.md)）。
 
-保存済み cache は、screening 再生成、ledger tracking、monthly retro のための入力証跡として扱う。J-Quants の調整後価格、銘柄マスター、JPX 規制情報などは完全な point-in-time snapshot ではないため、再現性ではなく traceability の補助として使う。
+保存済み cache は、screening 再生成、forward tracking、monthly retro のための入力証跡として扱う。J-Quants の調整後価格、銘柄マスター、JPX 規制情報などは完全な point-in-time snapshot ではないため、再現性ではなく traceability の補助として使う。
 
 J-Quants Light の非公開レート制限と `bootstrap-cache` の per-asof 長期履歴 re-fetch コストの観測メモは [`./jquants-rate-limits.md`](./jquants-rate-limits.md) に蓄積する。歴史週の生成が遅い / 完了しない場合はまずそこを参照する。
 
-Macro statistics は `baibai-loop-macro` で公式 API / CSV から取得し、`data/indicators/macro.sqlite` に保存してよい。この SQLite は macro context の正本ではなく、期間検索・再取得抑制・判断材料確認のための取得 cache として扱う。
+Macro indicators は `baibai-loop-macro` で公式 API / CSV から取得し、`data/indicators/macro.sqlite` に保存してよい。この SQLite は macro context の正本ではなく、期間検索・再取得抑制・判断材料確認のための取得 cache として扱う。
 
 ## スコアリング軸
 

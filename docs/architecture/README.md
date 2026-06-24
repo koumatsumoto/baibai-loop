@@ -16,4 +16,4 @@ last_reviewed: 2026-06-21
 | --- | --- |
 | [`system-overview.md`](./system-overview.md) | 3 層インフラ（データ / 決定論的分析 / 判断）と、その上で動く 2 ループ（運用ループ / 改善ループ） |
 | [`repository-map.md`](./repository-map.md) | root、`records/`、`records/_*`、`docs/`、`src/`、`tests`、`.github/` の責務 |
-| [`automation-map.md`](./automation-map.md) | CLI、validator、ledger sync、schema、tests、CI の位置付け |
+| [`automation-map.md`](./automation-map.md) | CLI、validator、position sync、schema、tests、CI の位置付け |

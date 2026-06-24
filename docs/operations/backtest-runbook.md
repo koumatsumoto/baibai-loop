@@ -33,7 +33,7 @@ related_docs:
 | 全上場日足 | `data/screening/market.sqlite` `jquants_daily_bars` | `adjustment_close` 優先、無ければ `close` |
 | benchmark proxy | 同上、ticker `1321`（野村 日経225 ETF） | 同上 |
 | 週次 candidates | `records/04-candidates/<YYYY>/<MM>/<YYYY-MM-DD>.yaml`（local store） | 機械生成 fact |
-| research_memo 判断 ledger | `records/_decisions/thesis-decisions/<YYYY>-<MM>.jsonl` | 判断時点 fact |
+| research_memo 判断 decisions | `records/_decisions/thesis-decisions/<YYYY>-<MM>.jsonl` | 判断時点 fact |
 | 実 trade record | `records/06-position/**/*.md` | execution fact |
 | open position benchmark | `baibai-loop-position benchmark` | 上記を join |
 
@@ -66,7 +66,7 @@ uv run baibai-loop-screening screening-replay \
 
 ### Axis D — judgment-gate counterfactual（本 runbook 新規）
 
-ledger の research_memo decision に対し、validator の gate（market_regime / market_relative_return / macro_freshness / tactical_exposure）を後付けで適用し、「gate ON だったら何件が defer/starter になり、cumulative rel がどう変わったか」を構築する。
+decisions の research_memo decision に対し、validator の gate（market_regime / market_relative_return / macro_freshness / tactical_exposure）を後付けで適用し、「gate ON だったら何件が defer/starter になり、cumulative rel がどう変わったか」を構築する。
 
 ```bash
 .venv/bin/python .cache/backtest_multi_axis.py   # 雛形は本 PR (#245) の .cache/ にある

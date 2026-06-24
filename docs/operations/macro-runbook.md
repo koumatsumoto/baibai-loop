@@ -1,6 +1,6 @@
 ---
 title: "Macro analysis runbook"
-summary: "How the macro analysis capability works: pull stats data and write a macro-context record (an environment read) whose sector tilts feed select / portfolio policy. The mechanical screen stays macro-blind."
+summary: "How the macro analysis capability works: pull indicator series data and write a macro-context record (an environment read) whose sector tilts feed select / portfolio policy. The mechanical screen stays macro-blind."
 doc_type: operations
 status: active
 last_reviewed: 2026-06-23
@@ -13,9 +13,9 @@ related_docs:
 
 マクロ環境分析は**独立した capability**（データ取得層 ＋ リサーチ実践）であり、formal なループにはしない。改善（調査方法・データソース確認手順のナレッジ）は使いながら都度蓄積する。狙いは「環境を読んでトレード判断に効く環境読みを供給する」こと。抱えるのは性質の違う 3 種：**① データ（事実）／ ② 環境読み（macro_context record）／ ③ ナレッジ（メタ知識）**。
 
-## ① データ：stats series を引く
+## ① データ：indicator series を引く
 
-統計 series は `baibai-loop-macro`（Provider モジュール設計、`src/baibai_loop/macro/indicators/`）で再現可能・provenance 付きに取得・キャッシュする。
+指標 series は `baibai-loop-macro`（Provider モジュール設計、`src/baibai_loop/macro/indicators/`）で再現可能・provenance 付きに取得・キャッシュする。
 
 ```bash
 uv run baibai-loop-macro list --category rates       # 登録 series を見る
@@ -48,7 +48,9 @@ uv run baibai-loop-macro get jp.policy_rate --latest
 uv run baibai-loop-validation --target macro-context
 ```
 
-環境読みは ① stats series に grounding し、**sector tilt**（業種ごとの追い風/向かい風 ＝ `key`/`stance`/`strength`/`confidence`）と市場前提を記す。スコープは広く（世界経済・政策・金利・FX・商品・INDEX・crypto・セクター・地政学）。マクロは N≈1 の判断なので、**edge 数値・統計的有意・lever の機械適用（自動 sizing 倍率）は出さない**。環境読みは次の接続で判断層の背景としてのみ効く。
+環境読みは ① indicator series に grounding し、**sector tilt**（業種ごとの追い風/向かい風 ＝ `key`/`stance`/`strength`/`confidence`）と市場前提を記す。スコープは広く（世界経済・政策・金利・FX・商品・INDEX・crypto・セクター・地政学）。マクロは N≈1 の判断なので、**edge 数値・統計的有意・lever の機械適用（自動 sizing 倍率）は出さない**。環境読みは次の接続で判断層の背景としてのみ効く。
+
+**分析の独立性**: 環境読みは、過去の客観的「事実」（価格・指標・イベント等のデータ）は前提にしてよいが、過去の macro_context record の「分析・結論」（前回の sector tilt や相場観）は前提にしない。建玉（position）は分析に持ち込まない。一次情報と指標から解釈をゼロベースで組み立てる。確証バイアス・アンカリングと、保有を正当化する motivated reasoning を避けるための規律であり、N≈1 で forward 検証が効かないマクロでは独立性が質の生命線になる。過去 context との連続性は `changes_since_previous` に、独立した結論が出た後で事後に接続する。
 
 ## ③ ナレッジ：都度洗練する
 

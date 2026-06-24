@@ -25,5 +25,5 @@ Incident は運用中に records 作成や automation が止まった場合の�
 ## Automation failure
 
 - screening CLI failure は [`../screening/automation.md`](../screening/automation.md) と [`../architecture/automation-map.md`](../architecture/automation-map.md) を確認する。
-- ledger sync failure は [`../components/decisions.md`](../components/decisions.md) を確認する。
+- position sync failure は [`../components/decisions.md`](../components/decisions.md) を確認する。
 - CI / local parity は [`../reference/python-foundation.md`](../reference/python-foundation.md) を確認する。

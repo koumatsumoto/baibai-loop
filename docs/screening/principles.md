@@ -36,7 +36,7 @@ Playbook-linked screen は raw candidates を作る事実層、`select` は rese
 | --- | --- | --- |
 | `fast_dislocation` | 一時的に売られすぎた候補を上位化しやすくする | 価格下落 trigger と fundamental guard が必要。出来高 spike / 52 週安値距離は補助情報 |
 | `long_hold_survivability` | 短期 thesis が外れた場合の保有耐性を見える化する | hard gate ではない。`high|medium|low|unknown` annotation |
-| `prior_research` | deferred / rejected の再登場を抑制し、同じ候補に偏る問題を下げる | ledger の revisit_after / expires_at を尊重 |
+| `prior_research` | deferred / rejected の再登場を抑制し、同じ候補に偏る問題を下げる | decisions の revisit_after / expires_at を尊重 |
 
 Selection profile の built-in は `balanced` のみとする。built-in の選択肢は、profile 間の優劣が forward 計測で示されない限り増やさない。閾値変更は `records/_config/screening-rules/*.yaml` を直接編集して `select` を再実行し output を diff する (`load_profile_overrides` / `--profile-config` 経路は round 2 cleanup で削除済み)。programmatic な override が必要な計測 (e.g. selection-ablation の `no_diversity`) は `build_selection_payload(profile_overrides=...)` で in-process に渡す。運用閾値を変える前に複数 asof の実データ replay と hold-out 確認を行い、typo や補助 trigger だけの fast-dislocation を fail-fast / ineligible にする。
 

@@ -553,6 +553,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
             "jp.policy_rate": ("fred_csv", "policy"),
             "jp.unemployment": ("fred_csv", "labor"),
             "credit.us_hy_oas": ("fred_csv", "credit"),
+            "credit.us_ccc_oas": ("fred_csv", "credit"),
             "btc_usd": ("fred_csv", "crypto"),
         }
 
@@ -566,8 +567,49 @@ class IndicatorsRegistryTests(unittest.TestCase):
 
         self.assertEqual(len(series_ids), len(set(series_ids)))
 
+    def test_us_equity_indices_registered(self) -> None:
+        by_id = load_definitions().by_id()
+        for series_id in ("us.sp500", "us.nasdaq", "us.dow"):
+            self.assertIn(series_id, by_id)
+            self.assertEqual(by_id[series_id].category, "equity-index")
+            self.assertEqual(by_id[series_id].provider, "fred_csv")
+
 
 class IndicatorsServiceTests(unittest.TestCase):
+    def test_get_range_normalizes_provider_order_to_ascending(self) -> None:
+        # ECB FX (and any newest-first provider) returns observations descending;
+        # get_range must normalize to ascending observed_at on the provider-fetch path.
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "macro.sqlite"
+            initialize_database(db).close()
+            descending = [
+                ObservationRecord(
+                    series_id="us.10y",
+                    observed_at=date(2026, 5, day),
+                    value=value,
+                    unit="percent",
+                    source_url="https://example.com/data.csv",
+                    vintage_at=datetime.now(UTC),
+                )
+                for day, value in ((3, 4.45), (2, 4.41), (1, 4.39))
+            ]
+            with patch(
+                "baibai_loop.macro.indicators.service.fetch_observations",
+                return_value=descending,
+            ):
+                result = IndicatorsService(db).get_range(
+                    "us.10y",
+                    start=date(2026, 5, 1),
+                    end=date(2026, 5, 3),
+                    refresh=True,
+                )
+
+            observed_dates = [obs.observed_at for obs in result.observations]
+            self.assertEqual(
+                observed_dates,
+                [date(2026, 5, 1), date(2026, 5, 2), date(2026, 5, 3)],
+            )
+
     def test_get_range_uses_cache_when_coverage_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "macro.sqlite"

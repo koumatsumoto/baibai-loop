@@ -25,7 +25,7 @@ Baibai-Loop をデータ解析基盤として AI / スクリプトが利用す�
 | `baibai-loop-screening screening-replay` | replay payload YAML | profile / lens の forward 計測 |
 | `baibai-loop-screening playbook-cohorts` | playbook cohort payload YAML | playbook 母集団の forward 計測 |
 | `baibai-loop-screening selection-ablation` | ablation payload YAML | ranking 機能別の効果計測 |
-| `baibai-loop-macro` | 統計 series cache | macro context の入力 |
+| `baibai-loop-macro` | 指標 series cache | macro context の入力 |
 
 安定性の意味:
 

@@ -1,0 +1,203 @@
+kind: macro-context
+context_id: macro-context-2026-06-24-us-selloff-private-credit
+as_of: '2026-06-24'
+valid_until: '2026-07-01'
+published_at: '2026-06-24T18:00:00+09:00'
+summary: >
+  「米国株が大きく下がっている」という市場認識を一次情報で検証すると、実態は暴落ではなく
+  最高値圏からの浅い調整である。真の天井（S&P500 7,609.78・Nasdaq 27,093.90、いずれも6/2）
+  から S&P -3.2%・Nasdaq -5.6%・Dow -1% で 10% 調整に未達。下落は半導体個別（Nvidia -14.5%、
+  Broadcom -20%）に集中し、Russell2000 は 6/23 も逆行高で最高値圏、equal-weight が cap-weight を
+  逆転。6月の3波（6/5 Broadcom AI失望＋強雇用で SOX -10%、6/17 FOMC 利上げバイアス、6/23 韓国
+  半導体株発のテック売り）はいずれも「半導体・AIグロース → バリュー・小型」の健全なセクター
+  ローテーションで、無差別なデレバレッジではない。VIX 19・米HY OAS 2.65%/IG 0.74% とパニックも
+  信用ストレスも価格に出ていない。したがって現時点の判定は「弱気入りではない調整」（確信度 ~70%）。
+  ただし真のリスクは「下がっていること」でなく「下がっていないのに火薬が過去最大」という非対称性に
+  ある。表面の平穏の裏で、CTA/systematic の最大 $800B 売り余地（GS 警告）、CAPE 42.8（ドットコム
+  射程）、Mag7 が S&P の 33.8% という史上最悪の集中、そして Fed プット不在（CPI +4.2%、ドット年末
+  3.8%）が積み上がる。最重要の構造要因はプライベートクレジット問題で、これは AI ディスラプションが
+  株式（半導体・SaaS）と信用（ダイレクトレンディングの 19%＝$500B超が SaaS 借り手、$600-750B が
+  「AI 破壊テーゼ」で引受）を同根で貫く点にある。BDC 償還ゲートは業界全体（Apollo 請求 16.8%、
+  Blue Owl は run-off 清算、上場 BDC は NAV -25〜-34%）に広がる一方、公開クレジットはタイトで未伝播。
+  ただし今回 registry に追加した CCC OAS で測ると CCC 9.47% vs HY 2.65%（デコンプレッション 6.82%pt）
+  と、最低格付層（プライベートクレジット借り手に最も近い公開信用層）には既にストレスの萌芽がある。
+  プライベートクレジットは「一時的 vs 構造的」の二者択一ではなく「構造的トレンドだが伝播は slow-burn」
+  ── 急性システミック危機（LTCM 型）は 1 ヶ月では低確率だが、数四半期かけて公開市場・銀行（NDFI 与信
+  ~$262B）へ波及する慢性リスク。最類似の歴史は 2007 年8月クオンツ・クエイク（信用が水面下で割れ・
+  ファンドがデレバレッジ・株は最高値圏で横ばい）で、それが 2008 本格危機の前震だった史実が尾部 30% を
+  正当化する（ただしサブプライムとは規模が一桁違うため割引）。日本株への含意は「円が master variable」:
+  円キャリー $500bn が 2024/8 暴落水準 161 に滞留し、BOJ 7月追加利上げ観測と重なる。リスクオフ局面では
+  日本の半導体は米 SOX の 2.5-3 倍感応、日経は S&P の 1.3-1.8 倍（円高が重なれば 2 倍超）で増幅される。
+  本 context は hard gate ではなく、各銘柄の個別 valuation・下値・FX/信用感応を research で確認する入力。
+inputs:
+  articles:
+    - source: Federal Reserve (公式)
+      title: FOMC statement (June 2026, rates held 3.50-3.75%, dots to 3.8%)
+      url: https://www.federalreserve.gov/newsevents/pressreleases/monetary20260617a.htm
+      published_at: '2026-06-17'
+      used_for: 6/17 据置だがドット利下げ削除・年末3.8%(利上げバイアス)。Fedプット不在の根拠
+    - source: Federal Reserve (公式 SEP)
+      title: FOMC Summary of Economic Projections (dot plot, June 2026)
+      url: https://www.federalreserve.gov/monetarypolicy/files/fomcprojtabl20260617.pdf
+      published_at: '2026-06-17'
+      used_for: ドット中央値3.8%・9名が利上げ予想。割引率上昇の長期グロース逆風
+    - source: TheStreet
+      title: 'Stock Market Today (June 23, 2026): Nasdaq/S&P fall as Asia tech selloff hits semiconductors'
+      url: https://www.thestreet.com/stock-market-today/stock-market-today-dow-jones-sp-500-nasdaq-updates-june-23-2026
+      published_at: '2026-06-23'
+      used_for: 6/23 韓国半導体株発のテック売り(Nvidia -3.2%)、Dow逆行高=ローテーション
+    - source: Financial Stability Board (公式)
+      title: Report on Vulnerabilities in Private Credit
+      url: https://www.fsb.org/uploads/P060526.pdf
+      published_at: '2026-05-06'
+      used_for: PC市場$1.5-2T・銀行エクスポージャー$220B・セクター集中。システミック脆弱性の一次評価
+    - source: BIS (公式 Quarterly Review)
+      title: Private credit's software lending meets AI disruption
+      url: https://www.bis.org/publ/qtrpdf/r_qt2603v.htm
+      published_at: '2026-03-01'
+      used_for: SaaS融資$500B超(19%)・AIディスラプションでSaaS借り手毀損。株と信用の同根性
+    - source: AltsWire
+      title: Apollo Debt Solutions BDC caps Q2 redemptions at 5% as requests hit 16.8%
+      url: https://altswire.com/apollo-debt-solutions-bdc-caps-q2-redemptions-at-5-as-withdrawal-requests-hit-16-8/
+      published_at: '2026-06-01'
+      used_for: BDC償還ゲートの業界全体への広がり(retail wrapper流動性ミスマッチ)
+    - source: CNBC
+      title: 'Private credit ''zero-loss fantasy'' is coming to an end as defaults rise'
+      url: https://www.cnbc.com/2026/03/25/private-credit-defaults-loan-quality-debt-risk-systemic-ai-disruption.html
+      published_at: '2026-03-25'
+      used_for: デフォルト率上昇・mark-to-market回避の終焉。構造的トレンドの根拠
+    - source: CNBC
+      title: BOJ raises rate to 1% amid historic inflation
+      url: https://www.cnbc.com/2026/06/16/boj-rate-hike-historic-inflation.html
+      published_at: '2026-06-16'
+      used_for: 6/16 BOJ 1%利上げ。7月追加利上げ観測=円・キャリーの分水嶺
+    - source: BIS (公式 Bulletin No 90)
+      title: The market turbulence and carry trade unwind of August 2024
+      url: https://www.bis.org/publ/bisbull90.pdf
+      published_at: '2024-08-01'
+      used_for: 2024/8 円キャリー巻戻し(日経-12%単日→数日でV字)。今回161滞留の先例
+    - source: NBER (Khandani-Lo)
+      title: What Happened to the Quants in August 2007
+      url: https://www.nber.org/system/files/working_papers/w14465/w14465.pdf
+      published_at: '2008-11-01'
+      used_for: 2007クオンツクエイク(信用水面下・株は横ばい)=最類似。2008前震だった史実
+  indicator_series:
+    - series_id: us.sp500
+      window: 1m
+      used_for: 真の天井7,609.78(6/2)から6/22 7,473で約-1.8%。指数は最高値圏=「暴落」否定の核心
+    - series_id: us.nasdaq
+      window: 1m
+      used_for: 天井27,093.9(6/2)から-5.6%。最も深い主要指数だが10%調整未達
+    - series_id: vix
+      window: 1m
+      used_for: 6/22 17.28(6/23報道19.5)。バックワーデーション未確認=パニック未到来
+    - series_id: credit.us_hy_oas
+      window: 3m
+      used_for: 2.65%歴史的タイト。株ストレスを信用が未確認=弱気入り否定の最強証拠
+    - series_id: credit.us_ccc_oas
+      window: 3m
+      used_for: 6/22 9.47% vs HY2.65%(差6.82pt)。最低格付層=PC借り手に既にストレス萌芽。伝播の早期警戒
+    - series_id: us.10y
+      window: 3m
+      used_for: 4.46% higher-for-longer。割引率上昇で長期グロース逆風、Fedプット不在
+    - series_id: usd_jpy
+      window: 1m
+      used_for: 6/23 161.5。160介入ゾーン突破・キャリー$500bn滞留。リスクオフで円高テールの加速装置
+    - series_id: jp.nikkei225
+      window: 1w
+      used_for: 6/22 72,354最高値→6/23 69,788(-3.5%)。米半導体・円の増幅プロキシ(SOXの2.5-3倍)
+    - series_id: btc_usd
+      window: 1m
+      used_for: 6/22 63,933(6/15 66,232から軟化)。リスク選好の総合温度計
+sector_tilts:
+  items:
+    - id: electric-machinery-semis-soxbeta-mixed
+      scope: sector_33
+      key: 電気機器
+      stance: mixed
+      strength: high
+      confidence: medium
+      rationale: >
+        日本の半導体は米SOX日次の2.5-3倍感応(Broadcom発SOX-2%日に東エレク-6.6%/アドバンテスト-5%)。
+        円安161が外貨建て収益を膨らませ①回復シナリオでは牽引役だが、SOX高感応・Section232半導体関税
+        (7/1見直し)・円反転で③④リスクオフでは-15〜-25%と最も脆弱。長期はAI capex実需(TSMC FY26+30%)が
+        下支え。強さで一部利確、starter+分割が妥当。
+    - id: banks-boj-hike-tailwind
+      scope: sector_33
+      key: 銀行業
+      stance: tailwind
+      strength: medium
+      confidence: medium
+      rationale: >
+        BOJ 6/16の1%利上げ＋JGBカーブスティープ化でNII追い風。①②では相対アウトパフォーム(「高め長め」の
+        オフェンシブ表現)。ただし信用イベント(③④)では世界金融株と共に下落(下げ幅は半導体より浅い)。
+        PBR改革の資本効率改善銘柄を個別に見る。
+    - id: insurance-rate-beneficiary-tailwind
+      scope: sector_33
+      key: 保険業
+      stance: tailwind
+      strength: medium
+      confidence: low
+      rationale: 金利上昇は運用利回り・含み益に追い風。資本政策・還元を個別確認する。
+    - id: real-estate-jgb-headwind
+      scope: sector_33
+      key: 不動産業
+      stance: headwind
+      strength: medium
+      confidence: medium
+      rationale: BOJ利上げ・JGB超長期金利上昇は不動産/REITのバリュエーションと資金調達に逆風。高負債は回避。
+    - id: autos-section232-yen-headwind
+      scope: sector_33
+      key: 輸送用機器
+      stance: headwind
+      strength: medium
+      confidence: medium
+      rationale: >
+        Section 232自動車関税が継続し業績に打撃。円161からのリスクオフ反転リスクも重なり、
+        FX中立の機会からは外す。
+    - id: it-services-saas-ai-disruption-mixed
+      scope: sector_33
+      key: 情報・通信業
+      stance: mixed
+      strength: medium
+      confidence: low
+      rationale: >
+        国内DX需要は構造追い風だが、米プライベートクレジットで顕在化したSaaSのAIディスラプション
+        懸念が連想で波及しうる(リカーリング収益モデルへの疑念)。BOJ利上げの高PERグロース逆風も。
+        recurring収益かつvaluation dislocationかを個別判定する。
+    - id: food-defensive-low-beta-tailwind
+      scope: sector_33
+      key: 食料品
+      stance: tailwind
+      strength: low
+      confidence: medium
+      rationale: >
+        内需中心・低βでAI/半導体・米金利感応度が低い。リスクオフ・円高局面の相対避難先。
+        原材料コストと価格転嫁力は個別に確認する。
+    - id: pharma-defensive-low-beta-tailwind
+      scope: sector_33
+      key: 医薬品
+      stance: tailwind
+      strength: low
+      confidence: low
+      rationale: ディフェンシブ・低βで景気/AI capex感応度が低くリスクオフ耐性。薬価・パイプラインは個別確認。
+research_questions:
+  - 候補銘柄の米SOX/AI感応度はどれか。半導体調整・CTA $800B systematic売りが着火した場合の毀損幅を定量化できるか。
+  - 円161からのキャリー巻戻し(2024/8型)の最悪シナリオで、輸出株と内需株のどちらが下値保護を持つか。
+  - BOJ 7月追加利上げの感応度(高負債/bond-proxy/グロースか、銀行/保険の受益か)。
+  - プライベートクレジット/SaaS のAIディスラプション連想が国内情報・通信業の個別銘柄に及ぶか(recurring収益の質)。
+  - 下値保護(net cash/営業CF/自己資本比率/株主還元)と、HY OAS 3%超・VIXバックワーデーション・BDC NAV切下げの早期警戒に対する耐性。
+  - 50万円・単元100株で買え、tactical budget 200万円内で分散とpolicy cap(8% ticker等)を満たすか。
+refresh_triggers:
+  - 2026-07-01 Section 232 半導体関税の市場見直し（SOX・東エレク・アドバンテストに直撃）
+  - 2026-07-14 米6月CPI ＋ 大手銀行決算(NDFI/private-credit エクスポージャー開示)。CPI>4.4%なら③へ
+  - 2026-07-16 TSMC/ASML 決算(AI capexベルウェザー)、7/28 ARCC(BDC健全性)、7/29-30 MSFT/Meta(AI capex命題)
+  - 2026-07-28〜29 FOMC・7/30-31 BOJ会合(追加利上げ=円/キャリー分水嶺)
+  - HY OAS が 3.0% を上抜け加速、CCC-HY デコンプレッション拡大、または BDC 新規償還ゲート/NAV切下げ
+  - USD/JPY が 158→155 を高速で割る、VIX がバックワーデーション入り、GS警告の$800B systematic売りが着火
+changes_since_previous:
+  - 2026-06-16 の「record-high-rotation（最高値圏のリリーフラリー後）」context から、6/22 に日経72,354・米株も最高値圏をつけた後の 6/23 半導体主導の調整局面へ更新。
+  - 分析軸に「プライベートクレジット/信用システミックリスク」を新規追加。AIディスラプションが株式(半導体・SaaS)と信用(ダイレクトレンディングのSaaS借り手)を同根で貫く構造を中心に据えた。
+  - 基盤に米株指数(us.sp500/us.nasdaq/us.dow)とCCC OAS(credit.us_ccc_oas)を追加し、米株の真の天井検証とCCC-HYデコンプレッション(6.82pt)による信用伝播の早期警戒を初めて計測可能にした。
+  - 相場判定を「最高値圏のリリーフラリー後」から「最高値圏の浅い調整＋健全ローテーション、ただし火薬は過去最大の非対称性」へ精緻化。1ヶ月後はベース68%調整・尾部32%リスクオフ。
+  - 円を master variable に格上げ(キャリー$500bn・161滞留・BOJ7月利上げ観測)。半導体=mixed(SOX 2.5-3倍感応)、銀行/保険=tailwind(BOJ利上げ受益)、内需ディフェンシブ=tailwind(リスクオフ避難先)に再設定。
