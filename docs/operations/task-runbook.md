@@ -13,7 +13,7 @@ related_docs:
 
 # タスク runbook
 
-GitHub issue は、決算後確認など「将来の特定イベント後に実行する作業」の運用タスク一覧として使います。投資判断の正本は records / ledger に残し、issue には実行漏れを防ぐための期限、確認項目、更新先を記録します。
+GitHub issue は、決算後確認など「将来の特定イベント後に実行する作業」の運用タスク一覧として使います。投資判断の正本は records / decisions に残し、issue には実行漏れを防ぐための期限、確認項目、更新先を記録します。
 
 ## 対象
 
@@ -94,9 +94,9 @@ YYYY-MM-DD の <イベント> 後に、以下を確認する。
 
 ## 更新先
 
-- research:
-- trade:
-- ledger:
+- thesis:
+- position:
+- decisions:
 - review:
 ```
 
@@ -104,8 +104,8 @@ YYYY-MM-DD の <イベント> 後に、以下を確認する。
 
 1. 会社の一次 IR を確認する。
 2. issue の確認項目に沿って判断を決める。
-3. 必要な records / ledger / review を更新する。
+3. 必要な records / decisions / review を更新する。
 4. issue に更新先 path と判断結果をコメントする。
 5. タスクが完了したら issue を close する。
 
-issue だけに判断結果を残して終わらせません。投資判断、保有判断、見送り理由は records / ledger / review へ戻します。
+issue だけに判断結果を残して終わらせません。投資判断、保有判断、見送り理由は records / decisions / review へ戻します。

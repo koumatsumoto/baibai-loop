@@ -13,7 +13,7 @@ source_paths:
 
 # Automation map
 
-Automation は人間の投資判断を置き換えるものではなく、fact snapshot の生成、schema 検証、ledger 正規化、CI 再現性を支える補助です。
+Automation は人間の投資判断を置き換えるものではなく、fact snapshot の生成、schema 検証、decisions 正規化、CI 再現性を支える補助です。
 
 ## CLI
 

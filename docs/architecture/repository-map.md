@@ -23,7 +23,7 @@ source_paths:
 | `AGENTS.md` | AI agent 向け作業規約と self-review gate |
 | `docs/` | 仕様、運用手順、参照情報、docs governance |
 | `records/` | 運用成果物と運用支援 asset |
-| `data/` | screening / macro stats の local SQLite store（`data/screening/market.sqlite` 等、git 管理外。正本は [`../screening/automation.md`](../screening/automation.md)） |
+| `data/` | screening / macro 指標 の local SQLite store（`data/screening/market.sqlite` 等、git 管理外。正本は [`../screening/automation.md`](../screening/automation.md)） |
 | `src/baibai_loop/` | 7 subsystem package の実装（下記 Source subsystems） |
 | `tests/` | CLI、provider、schema、validator、decision sync、position tracking の automated tests |
 | `.github/` | CI、security audit、Dependabot |

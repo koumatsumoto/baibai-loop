@@ -118,7 +118,7 @@ Candidate-level / investment memo の evidence hit では、原則として `fun
 ## 責務境界
 
 - **運用方針 (portfolio policy)** は目的・制約・資本・許容リスク・time horizon・eligible universe・kill switch・swing-first / long-hold-capable value principle を扱う。具体的な銘柄 thesis や entry / invalidation / exit は playbook / investment memo が扱う。
-- **マクロ環境分析 (macro context)** は analysis layer。外部記事と統計 series を参照し、screening 前の macro / sector context を読む。記事本文や監査ログは保存しない。
+- **マクロ環境分析 (macro context)** は analysis layer。外部記事と指標 series を参照し、screening 前の macro / sector context を読む。記事本文や監査ログは保存しない。
 - **通過銘柄リスト (candidates)** は screen fact layer。ticker-level の pinned file を残し、解釈・予測・相場観を書かない。
 - **個別銘柄リサーチ (thesis)** は investment memo。evidence count だけでなく、entry・target・stop・expected upside / downside・risk/reward・time horizon・invalidation を検証する。
 - **売買提案 (trade proposal)** は research の採用結論を **portfolio 視点の具体提案**（どの銘柄を・いくらで・何株、集中度・timing を含む）に落とし、GitHub Issue で人間に上げる入口。発注しなかった採用・見送り・保留は trade ではない。

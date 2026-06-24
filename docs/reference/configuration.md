@@ -25,11 +25,11 @@ Configuration は runtime boundary です。secret や token の値は docs に�
 
 | input | 用途 | 主な利用箇所 |
 | --- | --- | --- |
-| `JQUANTS_API_KEY` | J-Quants API v2 access（ダッシュボード発行の API キー、x-api-key）/ ledger sync | screening / ledger / stats provider |
+| `JQUANTS_API_KEY` | J-Quants API v2 access（ダッシュボード発行の API キー、x-api-key）/ position sync | screening / position / indicator provider |
 | `SCREENING_RULES_PATH` | screening rules / selection profile の既定 YAML path override | `baibai-loop-screening select`, `run` |
 | `ESTAT_APP_ID` | e-Stat API access。日本 CPI 等の公式統計を取得する `estat` provider が使う | `baibai-loop-macro`（estat provider） |
 
-## Macro statistics cache
+## Macro indicators cache
 
 `baibai-loop-macro` は、macro context 作成時に確認したい米国マクロ、FRB/FRED 市場指標、ECB 由来の JPY FX を取得し、`data/indicators/macro.sqlite` に保存する。SQLite は取得 cache であり、macro context の正本ではない。
 

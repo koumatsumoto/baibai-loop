@@ -139,7 +139,7 @@ Baibai-Loop は「売買ループを回しながら自己改善する」単一�
 
 ## 4. なぜ macro context を独立に確認するか
 
-運用ループの入力である macro context は **スクリーニング前に必要なら更新する**（定期生成しない）。CPI / BOJ / FOMC などの macro event 後、または候補銘柄が特定 sector に偏ったときに、外部記事・統計 series・AI/人間の判断をまとめて screening / research の前提にする。
+運用ループの入力である macro context は **スクリーニング前に必要なら更新する**（定期生成しない）。CPI / BOJ / FOMC などの macro event 後、または候補銘柄が特定 sector に偏ったときに、外部記事・指標 series・AI/人間の判断をまとめて screening / research の前提にする。
 
 統合点は research である:
 

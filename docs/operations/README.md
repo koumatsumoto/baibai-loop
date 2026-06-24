@@ -16,7 +16,7 @@ last_reviewed: 2026-06-23
 | [`thesis-runbook.md`](./thesis-runbook.md) | `records/05-thesis/` を作る前 |
 | [`position-runbook.md`](./position-runbook.md) | research 採用後の trade 記録 |
 | [`task-runbook.md`](./task-runbook.md) | 決算後確認など将来イベント後に実行する GitHub issue タスク管理 |
-| [`incident-runbook.md`](./incident-runbook.md) | source 取得失敗、validator failure、ledger sync failure |
+| [`incident-runbook.md`](./incident-runbook.md) | source 取得失敗、validator failure、position sync failure |
 | [`backtest-runbook.md`](./backtest-runbook.md) | 7 axis backtest 手順と過去計測の dated index |
 
 ## 原則
