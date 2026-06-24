@@ -38,16 +38,18 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     conn = open_connection(sqlite_path)
 
     ticker = "130A"
-    # Cover the full [asof - 1200, asof + 60] window: `screening run` requires
-    # 1200 calendar days of daily bars, and coverage is now derived from the
-    # actual rows, so the fixture must really hold them (not just claim coverage
-    # via source_coverage). The +60 keeps the decision sync path's
-    # `end = max(now, asof)` inside the imported window for any test wall-clock.
+    # Cover [asof - 1200, max(asof + 60, today + 5)]: `screening run` requires
+    # 1200 calendar days of daily bars, and coverage is derived from the actual
+    # rows, so the fixture must really hold them (not just claim coverage via
+    # source_coverage). The forward window extends to today so the decision sync
+    # path's `end = max(now, asof)` stays inside the imported window for any test
+    # wall-clock — a fixed asof + 60 expires once the real clock passes that date.
     history_days_back = 1200
     forward_days = 60
     history_start = asof - timedelta(days=history_days_back)
-    history_end = asof + timedelta(days=forward_days)
-    history_days = history_days_back + forward_days + 1
+    today = datetime.now(UTC).date()
+    history_end = max(asof + timedelta(days=forward_days), today + timedelta(days=5))
+    history_days = (history_end - history_start).days + 1
     bars_start = asof - timedelta(days=1200)
     fin_start = asof - timedelta(days=730)
 
@@ -349,12 +351,14 @@ class DecisionSyncOverSqliteTests(unittest.TestCase):
             _populate_screening_fixture(sqlite_path, asof)
 
             # Place a minimal research packet so _load_market_data discovers
-            # at least one decision date and triggers J-Quants resolution.
+            # at least one decision date and resolves market data from SQLite.
             research_path = workspace / "records" / "05-thesis" / f"{asof.isoformat()}-130A.md"
             research_path.parent.mkdir(parents=True)
             research_path.write_text("---\nticker: 130A\n---\n", encoding="utf-8")
 
-            env = {"JQUANTS_API_KEY": "token"}
+            # The SQLite fixture holds bars and market calendar, so resolution
+            # stays fully offline — no JQUANTS_API_KEY, no external J-Quants call.
+            env: dict[str, str] = {}
 
             calendar, bars, warnings = _load_market_data(workspace, env)
 
