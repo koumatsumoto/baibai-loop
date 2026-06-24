@@ -210,6 +210,40 @@ series:
     source_id: fred-nikkei225
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=NIKKEI225
     aliases: [日経225, 日経平均, Nikkei 225, NIKKEI225]
+  - series_id: us.sp500
+    name: S&P500
+    category: equity-index
+    geography: us
+    frequency: daily
+    unit: index
+    provider: fred_csv
+    provider_series_id: SP500
+    source_id: fred-sp500
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500
+    notes: FRED SP500は直近約10年のみ保持(ライセンス制約)。直近の調整・下落分析には十分
+    aliases: [S&P500, SP500, エスアンドピー500, 米国株, 米国株指数]
+  - series_id: us.nasdaq
+    name: NASDAQ総合
+    category: equity-index
+    geography: us
+    frequency: daily
+    unit: index
+    provider: fred_csv
+    provider_series_id: NASDAQCOM
+    source_id: fred-nasdaqcom
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=NASDAQCOM
+    aliases: [NASDAQ, ナスダック, NASDAQCOM, Nasdaq Composite, ナスダック総合]
+  - series_id: us.dow
+    name: ダウ工業株30種
+    category: equity-index
+    geography: us
+    frequency: daily
+    unit: index
+    provider: fred_csv
+    provider_series_id: DJIA
+    source_id: fred-djia
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DJIA
+    aliases: [ダウ, Dow, DJIA, Dow Jones, ダウ平均, ダウ工業株30種]
   - series_id: credit.us_hy_oas
     name: 米ハイイールドOAS
     category: credit
@@ -232,6 +266,18 @@ series:
     source_id: fred-bamlc0a0cm
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLC0A0CM
     aliases: [IG OAS, 投資適格スプレッド, investment grade OAS]
+  - series_id: credit.us_ccc_oas
+    name: 米CCC以下ハイイールドOAS
+    category: credit
+    geography: us
+    frequency: daily
+    unit: percent
+    provider: fred_csv
+    provider_series_id: BAMLH0A3HYC
+    source_id: fred-bamlh0a3hyc
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A3HYC
+    notes: HY内最低格付(CCC以下)のOAS。プライベートクレジット/SaaS借り手の信用ストレスが公開市場へ伝播する早期警戒。HY全体OASとのデコンプレッションを監視
+    aliases: [CCC OAS, CCCスプレッド, ハイイールドCCC, distressed credit]
   - series_id: btc_usd
     name: ビットコイン価格USD
     category: crypto
