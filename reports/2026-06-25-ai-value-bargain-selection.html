@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src https://cdn.jsdelivr.net/npm/mermaid@11.15.0/ 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src blob:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <title>AI バリュー・バーゲン銘柄選定 — 2026-06-26 寄り指値プラン</title>
+  <style>
+/* km:html-document のスタイル。document-template.html の <style> にインライン展開して単一ファイルにする（外部リンクにしない） */
+
+/* ===== テーマ変数（配色やサイズの調整はここを起点に） ===== */
+:root {
+  --content-width: 1400px;
+  --fg: #1f2328;
+  --fg-muted: #57606a;
+  --bg: #ffffff;
+  --bg-subtle: #f6f8fa;
+  --border: #d0d7de;
+  --accent: #0969da;
+  --note: #0969da;
+  --warning: #9a6700;
+  --important: #8250df;
+  --code-bg: #f6f8fa;
+  --radius: 6px;
+  --space: 16px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN",
+          "Noto Sans JP", Meiryo, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* ===== ベース ===== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  color: var(--fg);
+  background: var(--bg);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.75;
+}
+
+/* ===== レイアウト（コンテンツ幅 1400px・中央寄せ） ===== */
+.container {
+  width: var(--content-width);
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 40px 32px 80px;
+}
+
+/* ===== ヘッダ / フッタ ===== */
+.doc-header { border-bottom: 2px solid var(--border); padding-bottom: 16px; margin-bottom: 32px; }
+.doc-header h1 { margin: 0 0 8px; }
+.doc-header .subtitle { margin: 0; color: var(--fg-muted); font-size: 1.05rem; }
+.doc-header .meta { margin: 8px 0 0; color: var(--fg-muted); font-size: 0.875rem; }
+.doc-footer { border-top: 1px solid var(--border); margin-top: 48px; padding-top: 16px; color: var(--fg-muted); font-size: 0.875rem; }
+
+/* ===== 見出し階層（H1 は 1 つ、H2=セクション、H3=サブ） ===== */
+h1 { font-size: 2rem; line-height: 1.3; }
+h2 { font-size: 1.5rem; margin-top: 2em; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 1.2rem; margin-top: 1.6em; }
+h2, h3 { scroll-margin-top: 16px; }
+
+/* ===== 本文要素 ===== */
+p, ul, ol { margin: 0 0 var(--space); }
+li { margin: 4px 0; }
+a { color: var(--accent); }
+hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+/* ===== 目次（長文向け） ===== */
+.toc { background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 24px; margin-bottom: 32px; }
+.toc strong { display: block; margin-bottom: 8px; }
+.toc ul { margin: 0; padding-left: 20px; }
+
+/* ===== テーブル ===== */
+table { border-collapse: collapse; width: 100%; margin: 0 0 var(--space); }
+th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+th { background: var(--bg-subtle); }
+tbody tr:nth-child(even) { background: var(--bg-subtle); }
+
+/* ===== コードブロック ===== */
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; overflow-x: auto; }
+code { font-family: var(--mono); font-size: 0.9em; }
+p code, li code, td code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+pre code { background: none; padding: 0; }
+
+/* ===== Callout（note / warning / important） ===== */
+.callout { border: 1px solid var(--border); border-left-width: 4px; border-radius: var(--radius); padding: 12px 16px; margin: 0 0 var(--space); background: var(--bg-subtle); }
+.callout .callout-title { font-weight: 600; margin: 0 0 4px; }
+.callout-note { border-left-color: var(--note); }
+.callout-warning { border-left-color: var(--warning); }
+.callout-important { border-left-color: var(--important); }
+
+/* ===== 図（Mermaid）。ホイール拡縮・ドラッグ移動・画像化ツールバー付き ===== */
+figure.diagram { position: relative; overflow: hidden; margin: 0 0 24px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); text-align: center; background: var(--bg); }
+figure.diagram .mermaid { display: flex; justify-content: center; cursor: grab; }
+figure.diagram.grabbing .mermaid { cursor: grabbing; }
+figure.diagram svg text { cursor: text; } /* ラベル上はテキスト選択カーソル（余白・ノードは grab で pan） */
+figure.diagram.grabbing { user-select: none; -webkit-user-select: none; } /* pan 中だけ選択を抑止し、通常はテキスト選択可 */
+figure.diagram svg { transition: transform .06s ease-out; flex-shrink: 0; } /* ズームは width/height で行う（ベクタ再描画で鮮明）。flex で縮めない */
+figure.diagram figcaption { margin-top: 10px; color: var(--fg-muted); font-size: 0.875rem; }
+/* 図ごとのツールバー（hover で表示）。JS が動的に挿入する */
+.diagram-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; opacity: 0; transition: opacity .15s; }
+figure.diagram:hover .diagram-tools, figure.diagram:focus-within .diagram-tools { opacity: 1; }
+.diagram-tools button { font-family: inherit; font-size: 0.72rem; line-height: 1.7; padding: 1px 8px; color: var(--fg-muted); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
+.diagram-tools button:hover { color: var(--fg); background: var(--bg-subtle); }
+
+/* ===== 印刷 / PDF ===== */
+@media print {
+  .toc, .diagram-tools { display: none; }
+  .container { width: auto; max-width: none; padding: 0; }
+  .callout { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  figure.diagram, pre, table, .callout { break-inside: avoid; page-break-inside: avoid; }
+  figure.diagram { overflow: visible; }
+  figure.diagram svg { transform: none !important; } /* ズーム自体は JS の beforeprint で自然サイズへ戻す */
+  svg { max-width: 100%; height: auto; }
+}
+
+</style>
+</head>
+<body>
+  <div class="container">
+
+    <header class="doc-header">
+      <h1>AI バリュー・バーゲン銘柄選定</h1>
+      <p class="subtitle">最高値圏 risk-on melt-up の中で、取り残された「割安 × 下値保護 × 本物の AI/DX 構造価値」を1銘柄に絞り、2026-06-26 寄りの具体的指値まで落とす</p>
+      <p class="meta">マクロ分析・スクリーニング as_of: 2026-06-25（大引け） / 発注プラン: 2026-06-26 9:00 / regime: risk_on_rally</p>
+    </header>
+
+    <nav class="toc">
+      <strong>目次</strong>
+      <ul>
+        <li><a href="#order">0. 結論 — 2026-06-26 寄り 指値プラン</a></li>
+        <li><a href="#macro">1. マクロ環境（6/25 大引け・一から）</a></li>
+        <li><a href="#scenarios">2. 4 シナリオと主要リスク</a></li>
+        <li><a href="#screening">3. スクリーニング（point-in-time, asof 6/25）</a></li>
+        <li><a href="#finalists">4. 4 finalists 軸別比較と value-trap 判別</a></li>
+        <li><a href="#best">5. 最良 RR — 9715 トランスコスモス</a></li>
+        <li><a href="#improve">6. 基盤改善（#28・本 run の学び）</a></li>
+        <li><a href="#sources">7. 一次ソース</a></li>
+      </ul>
+    </nav>
+
+    <section>
+      <h2 id="order">0. 結論 — 2026-06-26 寄り 指値プラン</h2>
+      <div class="callout callout-important">
+        <p class="callout-title">提案（最終判断はユーザー）</p>
+        <table>
+          <tbody>
+            <tr><th>銘柄</th><td><strong>9715 トランスコスモス</strong>（東証プライム / サービス業・DX/BPO）</td></tr>
+            <tr><th>指値（買い）</th><td><strong>¥3,600</strong>（6/25 終値 ¥3,625 のわずか下。寄りの軟化で約定、melt-up の laggard を強さに追わない）</td></tr>
+            <tr><th>株数</th><td><strong>100 株</strong>（単元）= 約定額 <strong>¥360,000</strong></td></tr>
+            <tr><th>target</th><td>¥4,300（<strong>+19.4%</strong>）— PER 10→12-13 の de-rating 巻戻し＋バリュー broaden。中間 ¥4,085（52週高値, +13%）</td></tr>
+            <tr><th>stop / invalidation</th><td>¥3,350（52週安値 ¥3,415 割れ・<strong>−6.9%</strong>）／ FY27 OP ガイダンス下方・中国セグメント顕著悪化で thesis 棄却</td></tr>
+            <tr><th>リスクリワード</th><td><strong>約 2.8x</strong>（上値 +19.4% / 下値 −6.9%）＋ 配当利回り約 4.0% のキャリー</td></tr>
+            <tr><th>policy 適合</th><td>1注文上限 ¥500,000 ✓ ／ ticker 8%（¥5,000,000×8%=¥400,000）✓ ／ tactical ¥2,000,000 内 ✓ ／ 単元100 ✓</td></tr>
+          </tbody>
+        </table>
+        <p><strong>約定しない場合</strong>: ¥3,700 超で寄り堅調なら追わず、押し目を待つ（laggard を強さに追わないのが本 thesis の規律）。</p>
+      </div>
+      <p>選定軸: <strong>割安</strong>（de-rating であって業績崩壊でない）× <strong>下値保護</strong>（net cash / 営業CF / 自己資本比率 / 還元）× <strong>macro fit</strong>（米半導体β・円キャリー低感応、内需リフレ）× <strong>本物の AI/DX 構造価値</strong>（後付けでない）。最高値圏・割高・狭い breadth の melt-up では euphoric な大型半導体を ATH で追うのは「お買い得」と対極であり、取り残された cheap な AI/DX 受益（net-cash 下支え）を選ぶ。</p>
+    </section>
+
+    <section>
+      <h2 id="macro">1. マクロ環境（6/25 大引け・一から）</h2>
+      <p>直近1週間で相場の物語が2度反転した。過去の自リポジトリの解釈・建玉は前提にせず、6/25 時点の一次情報からゼロベースで読み直した（過去の「事実=価格・指標・イベント」のみ前提）。</p>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart TD
+    A["6/23 AI ROI 懐疑<br/>米半導体・メモリ急落<br/>S&amp;P -1.44% / Nasdaq -2.21%"] --> B["6/24 引け後 Micron 決算<br/>Q3 売上 41.5B / Q4 ガイド 50B<br/>take-or-pay 100B / 供給制約 FY2028"]
+    B --> C["6/25 リスクオン急反転<br/>日経 +4.61%（72,366）<br/>半導体牽引（アドバンテスト +11〜15%）"]
+    D["米イラン停戦枠組<br/>原油 76ドル割れ＝開戦来安値"] --> C
+    C --> E{"最高値圏・割高・狭い breadth<br/>AI バブル警戒（top5=S&amp;P 3割超）"}
+    E -->|"euphoric 半導体を ATH 追い"| F["NG: お買い得でない<br/>give-back リスク大"]
+    E -->|"割安 × 下値保護 × 本物 AI/DX × 低半導体β"| G["OK: 取り残された<br/>cheap AI/DX 受益を拾う"]
+</pre>
+        <figcaption>図1: 6/23→6/25 の regime flip と選定ロジック。AI 供給制約スーパーサイクル確認 × 原油急落でリスクオンへ急反転。だが上昇の質は最高値圏・割高・集中ゆえ、お買い得は euphoric 半導体の外にある。</figcaption>
+      </figure>
+
+      <h3>主要指標（一次・実値検算済み）</h3>
+      <table>
+        <thead><tr><th>指標</th><th>値（6/25 基準）</th><th>含意</th></tr></thead>
+        <tbody>
+          <tr><td>日経平均</td><td>72,366（+4.61%, +3,185）。6/22 最高値 72,831 → 6/24 69,175 → 6/25 急反発</td><td>最高値圏へ復帰。半導体集中の melt-up</td></tr>
+          <tr><td>米株（6/24）</td><td>S&amp;P 7,358 / Nasdaq 25,477 / Dow 51,849。6/23 は -1.44% / -2.21%</td><td>AI ROI 懐疑の調整 → Micron で下げ止まり</td></tr>
+          <tr><td>Micron Q3</td><td>売上 41.5B（前年比4倍）、Q4 ガイド 50B（コンセンサス +6-7B）、take-or-pay 100B、供給は FY2028 まで逼迫</td><td>AI メモリ supply-constrained supercycle 確認</td></tr>
+          <tr><td>原油</td><td>76ドル割れ＝開戦来安値（米イラン 60日停戦・ホルムズ再開合意）</td><td>輸入依存の日本にディスインフレ・内需追い風</td></tr>
+          <tr><td>Fed</td><td>3.50-3.75% で4会合連続据置だがドット利上げ方向（18人中9人）。BofA 75bp 利上げ（9/10/12月）、7月 "in play"。インフレ 3.6%/3.3% へ上方修正</td><td>タカ派化。growth/長 duration 逆風、バリュー/金融が相対優位</td></tr>
+          <tr><td>BOJ</td><td>1.0% へ利上げ（7-1, 1995年来最高）、継続姿勢。春闘 +5.1〜5.3%、35年来の労働逼迫</td><td>銀行/保険 tailwind、内需リフレ、自動化/省力化の構造需要</td></tr>
+          <tr><td>USD/JPY</td><td>~160.3（介入ゾーン）</td><td>原油安＋BOJ 利上げの円高圧力と、キャリー巻戻しの非対称下方が併存</td></tr>
+          <tr><td>クレジット / VIX</td><td>HY OAS ~263bp へ tighten、VIX 18.63</td><td>risk appetite 維持。リスクオフ強度は限定的だが完全な平穏でもない</td></tr>
+          <tr><td>AI バブル警戒</td><td>S&amp;P 上位5社で3割超（dot-com 以来の割高）、hyperscaler capex 725B→1T（2027）</td><td>最高値圏の集中・割高。下値保護を効かせた防御的参加が妥当</td></tr>
+        </tbody>
+      </table>
+      <div class="callout callout-note">
+        <p class="callout-title">独立性原則の実証</p>
+        <p>本 run 開始時点の committed macro-context（「下落継続・バリュー退避」）は、6/25 大引けの実態（+4.61% のリスクオン急反転・Micron 決算）で<strong>事実が覆った</strong>。過去の解釈を前提にせず一次情報から読み直したことで、誤った前提での選定を回避した。これが「マクロ分析を一から」の核心。</p>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="scenarios">2. 4 シナリオと主要リスク</h2>
+      <table>
+        <thead><tr><th>シナリオ</th><th>確度</th><th>筋書き</th><th>勝ち筋</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Base</strong></td><td>55%</td><td>AI capex スーパーサイクル継続（Micron 確認・供給制約 2028）、原油低位（停戦維持）、内需リフレ（賃金・消費）。日経は新高値を窺うが breadth broaden。BOJ 緩やかに利上げ、Fed 据置〜小幅利上げ</td><td>AI/DX 受益＋内需リフレ・バリュー＋金融</td></tr>
+          <tr><td><strong>Bull</strong></td><td>15%</td><td>原油一段安・最終合意署名、インフレ rollover、AI が software/自動化へ broaden、円安定 ~155。広範な melt-up でバリューがキャッチアップ</td><td>取り残されたバリュー＋AI/DX オプション</td></tr>
+          <tr><td><strong>Bear</strong></td><td>20%</td><td>Fed 7月利上げ（インフレ 3.6% 粘着）、米長期金利上昇、AI 割高が rate shock で崩れ半導体が 6/25 の上げを吐き出す。リスクオフだが内需・低 duration・バリューは相対耐性</td><td>下値保護の効いた割安・net-cash 銘柄が持ちこたえる</td></tr>
+          <tr><td><strong>Tail</strong></td><td>10%</td><td>停戦崩壊 → ホルムズ再閉鎖 → 原油 100-120ドル → スタグフレーション＋円キャリー巻戻し（160→145）→ 日経単日 -10%+（2024/8 型）</td><td>net cash・清算価値・内需ディフェンシブが生存</td></tr>
+        </tbody>
+      </table>
+      <p><strong>主要リスク（10+）</strong>: ① Fed 7月利上げ／粘着インフレ ② AI capex digestion・ROI 懐疑の再来（6/23 型） ③ 円キャリー巻戻し（160 介入ゾーン） ④ 停戦崩壊→原油 spike ⑤ 最高値圏バリュエーションの mean-reversion ⑥ BOJ 想定超の利上げ→高 PER/REIT/不動産 de-rating ⑦ 少数半導体依存の狭い breadth（アドバンテスト単独で日経 +1,100円）の脆さ ⑧ プライベートクレジット slow-burn（2028 満期 wall） ⑨ Section 232 半導体/自動車関税（7/1 見直し） ⑩ 中国・台湾の半導体規制 ⑪ メモリ supercycle がバブルなら反転は激烈 ⑫ 円高（BOJ＋原油安）による輸出採算悪化。</p>
+      <p>→ 尾部（Tail/Bear）が現実味を持つからこそ、最高値圏でも<strong>下値保護（net cash・CF・還元）</strong>を最優先軸に据える。</p>
+    </section>
+
+    <section>
+      <h2 id="screening">3. スクリーニング（point-in-time, asof 6/25）</h2>
+      <p>cache を 6/25 へ拡張（J-Quants daily_bars 〜6/25・EDINET 3,965 metric records）→ <code>run</code>（universe 3,744 / candidates 1,638）→ <code>select</code>（recommended 5 / regime risk_on_rally）。select は forward-measured ranking で verdict ではない。AI 構造性は §4 の一次 IR で人間判定する。</p>
+
+      <h3>select 推奨 5（#28 拡張で valuation・下値・value-trap シグナルを出力に転記）</h3>
+      <table>
+        <thead><tr><th>#</th><th>銘柄</th><th>playbook</th><th>PER_t</th><th>EV/EBITDA</th><th>ncash/mc</th><th>ocf / fcf_y</th><th>op_yoy</th><th>所見</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>4839 WOWOW</td><td>cash-rich</td><td>21.5</td><td>-</td><td>-(debt0)</td><td>0.19 / 0.05</td><td>-0.28</td><td>PBR 0.40・資産割安だが OP 減益。来期 OP -65.6% ガイド</td></tr>
+          <tr><td>2</td><td>3932 アカツキ</td><td>cash-rich</td><td>7.3</td><td>13.5</td><td>0.41</td><td>0.06 / -0.00</td><td>+0.90</td><td>PER 7.3 でも FCF≈0・EV/EBITDA 13.5・来期非開示＝罠</td></tr>
+          <tr><td>3</td><td>4507 塩野義製薬</td><td>valuation-rev</td><td>11.3</td><td>-</td><td>-</td><td>0.09 / -</td><td>+0.06</td><td>ディフェンシブ割安・増収増益。mega-cap・AI 薄い</td></tr>
+          <tr><td>4</td><td>2594 キーコーヒー</td><td>sales-disc</td><td>42.6</td><td>25.5</td><td>-0.28</td><td>-0.08 / -0.11</td><td>+1.22</td><td>割高・営業CF マイナス・ネット負債。除外</td></tr>
+          <tr><td>5</td><td>2593 伊藤園</td><td>sales-disc</td><td>105.6</td><td>12.3</td><td>0.06</td><td>0.05 / -</td><td>-0.06</td><td>PER 105・減益。バリューでない。除外</td></tr>
+        </tbody>
+      </table>
+      <p>推奨5は AI/DX 色が薄いため、全 1,638 候補から「AI/DX セクター × 3&lt;PER&lt;14 × net_cash/mc&gt;0.20 × ocf&gt;0.08 × 自己資本&gt;0.5 × op_yoy&gt;-0.10」で補完スキャン（<strong>58 hits</strong>）。6804 ホシデン・9715 トランスコスモス・6384 昭和真空・7722 国際計測器 等を §4 へ繰り上げた。</p>
+    </section>
+
+    <section>
+      <h2 id="finalists">4. 4 finalists 軸別比較と value-trap 判別</h2>
+      <p>軸を単一スコアに畳まず横並びにする。決め手は<strong>フォワード品質</strong>: trailing が割安でも「減益ガイダンス・FCF≈0・ガイド非開示」は value trap として減点する。一次 IR と EDINET 一次指標で検算した。</p>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart TD
+    U["universe 3,744"] --> C["candidates 1,638"]
+    C --> S["select 推奨 5"]
+    C --> SC["AI/DX value scan 58"]
+    S --> P["finalists 4"]
+    SC --> P
+    P --> VT{"フォワード品質ゲート<br/>op_yoy / fcf / FY27 ガイド"}
+    VT -->|"減益ガイド・FCF≈0・非開示"| X["value trap で除外<br/>6804 / 7722 / 4839 / 3932"]
+    VT -->|"増収増益・net cash・本物 AI/DX"| W["最良 RR: 9715 トランスコスモス"]
+</pre>
+        <figcaption>図2: 選定ファネル。trailing 割安の罠（ピーク循環・低 CF 変換・ガイド非開示）をフォワード品質ゲートで弾き、増収増益かつ net-cash・本物 AI/DX の 9715 を最良 RR に。</figcaption>
+      </figure>
+
+      <table>
+        <thead><tr><th>銘柄</th><th>PER_t</th><th>EV/EBITDA</th><th>ncash/mc</th><th>ocf/fcf_y</th><th>op_yoy(FY26)</th><th>FY27 ガイダンス</th><th>AI/DX 構造性</th><th>判定</th></tr></thead>
+        <tbody>
+          <tr><td><strong>9715 トランスコスモス</strong></td><td>10.4</td><td><strong>4.0</strong></td><td><strong>0.48</strong></td><td>0.13 / 0.10</td><td>+14%</td><td><strong>増収増益</strong>（売上+4.1%/OP+1.5%）</td><td>生成AI×BPO（本物・労働逼迫追風）</td><td><strong>★ 最良</strong></td></tr>
+          <tr><td>4507 塩野義製薬</td><td>11.3</td><td>-</td><td>-（IFRS抽出失敗）</td><td>0.09 / -</td><td>+6%</td><td>着実増収（新製品・M&amp;A）</td><td>AI創薬（薄い）・ディフェンシブ</td><td>○ 次点</td></tr>
+          <tr><td>6384 昭和真空</td><td>13.2</td><td>4.9</td><td>0.44</td><td>0.17 / 0.15</td><td>+40%</td><td>減収だが受注回復（B/B&gt;1）</td><td>半導体/真空装置（AI capex）</td><td>△ 小型・高値圏</td></tr>
+          <tr><td>3932 アカツキ</td><td>7.3</td><td><strong>13.5</strong></td><td>0.41</td><td><strong>0.06 / -0.00</strong></td><td>+90%</td><td><strong>非開示</strong>（ヒット依存）</td><td>ゲーム（AI薄い）・低CF変換</td><td>✗ 罠</td></tr>
+        </tbody>
+      </table>
+      <p><strong>除外の根拠（一次データ）</strong>: 6804 ホシデンは FY26 OP +42% でも Switch2 ピークで FY27 減益ガイド・任天堂 78% 依存。7722 国際計測器は FY27 OP -30% ガイド。両者は trailing 割安（EV/EBITDA 3.5/2.1）でもピーク循環。3932 は PER 7.3 でも FCF≈0・EV/EBITDA 13.5・来期非開示。4839 は OP -65.6% ガイドで配信転換が未証明。<strong>これらは #28 拡張により op_yoy / fcf_yield / ev_ebitda が select 出力に直接出るため、ticker-profile を別途引かずとも triage で弾けるようになった。</strong></p>
+    </section>
+
+    <section>
+      <h2 id="best">5. 最良 RR — 9715 トランスコスモス</h2>
+      <table>
+        <tbody>
+          <tr><th>お買い得</th><td>PER 10.4・<strong>EV/EBITDA 4.0</strong>・PCFR 7.7・P/S 0.40。52週安値圏（終値 ¥3,625 vs 安値 ¥3,415、gap 0.06）。<strong>rel60d -45%</strong>＝melt-up に大幅劣後＝de-rating であって業績崩壊でない（FY27 +1.5% OP）</td></tr>
+          <tr><th>下値保護</th><td><strong>net cash ¥760億（時価総額 ¥1,590億の 48%）</strong>、自己資本比率 0.62、ocf_yield 0.13、fcf_yield 0.10、<strong>配当利回り約 4.0%</strong>（¥145 予定・性向 40%・増配基調）、BPO の recurring 収益。EDINET 抽出クリーン＝データ品質高</td></tr>
+          <tr><th>AI/DX 構造価値</th><td>生成AI を CX/BPO に実装し「テクノロジーソリューション企業」へ転換（CX プラットフォーム trans-DX for Support）。日本の構造的労働逼迫 × AI 自動化が長期需要。AI が企業価値を高める実体（margin・競争力・需要）であって後付けでない</td></tr>
+          <tr><th>macro fit</th><td>内需 DX で米半導体β・円キャリー感応が低い。賃金上昇は BPO 価格転嫁で追い風。最高値圏 risk-on の中で「割安 × 下値 × 本物 AI/DX」の防御的参加</td></tr>
+          <tr><th>catalyst</th><td>FY1Q 決算（夏）、AI/DX 採用拡大、net cash × PBR≈1.0 での資本還元余地（TSE 改革文脈）</td></tr>
+          <tr><th>リスク / invalidation</th><td>中国子会社の減速（売上・採算ドラッグ）、中計再失敗（2023-2025 は中国停滞・コスト高で未達）、OP ガイダンス下方。¥3,350 割れ or これらの顕在化で thesis 棄却</td></tr>
+        </tbody>
+      </table>
+      <div class="callout callout-warning">
+        <p class="callout-title">なぜ 9715 が 4507 塩野義（次点）に勝るか</p>
+        <p>4507 も増収増益・ディフェンシブ割安で堅いが、¥2.4兆の mega-cap で上値が限定的、AI 角度が薄く、EDINET 抽出失敗で net cash が未確認。9715 は中型（¥1,590億）で<strong>net cash が時価総額の 48%</strong>と下値が厚く、生成AI×BPO の構造性が明確で、52週安値圏の dislocation により上値余地（RR 2.8x）が大きい。低リスク選好なら 4507、最良 RR なら 9715。</p>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="improve">6. 基盤改善（#28・本 run の学び）</h2>
+      <p>運用テスト中に気づいた基盤の不足を同一 PR に取り込んだ（各改善は forward 計測経路を1行で説明・test でロック・全 gate green）。</p>
+      <ol>
+        <li><strong>valuation passthrough</strong>: select recommendations に per_trailing / per_forward / pbr を転記（triage で割安度を即判断）。</li>
+        <li><strong>下値保護転記</strong>: cash_to_market_cap / net_cash_to_market_cap / equity_ratio / ocf_yield（net-net / cash-rich の下値判断）。</li>
+        <li><strong>value-trap シグナル拡張</strong>: ev_ebitda / p_s / pcfr ＋ operating_profit_yoy / sales_yoy / fcf_yield を転記。cheap な trailing PER が減益・低 CF 変換を隠す罠を select 出力から直接弾ける（本 run で 3932 の罠・6804/7722 のピーク循環を ticker-profile なしで判別）。</li>
+      </ol>
+      <div class="callout callout-note">
+        <p class="callout-title">follow-up 候補（本 PR には混ぜない）</p>
+        <p>EDINET 抽出失敗（debt_assumed_zero 9.8%、IFRS reporter の tag_not_found 例: 4507）で net_cash 等が null になる。per_forward も全候補 null（J-Quants forecast 未取込）で、value-trap 判別の本丸はフォワード EPS。いずれも別 issue 化候補。</p>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="sources">7. 一次ソース（抜粋）</h2>
+      <ul>
+        <li>Trading Economics — Nikkei 225 6/25 +4.61%（72,366）</li>
+        <li>TheStreet — US 6/23-24 半導体 selloff / Micron 前</li>
+        <li>TechTimes / CNBC — Micron Q3 2026（$41.5B / $50B ガイド / $100B take-or-pay / 供給制約 FY2028）、SK Hynix +12%</li>
+        <li>Federal Reserve / CNBC / BofA — 6/17 FOMC 据置・タカ派ドット、75bp 利上げ見通し、インフレ 3.6%/3.3%</li>
+        <li>Trading Economics / Equiti — BOJ 1.0% 利上げ（7-1）、USD/JPY ~160.3</li>
+        <li>CNN / PBS / NPR — 米イラン 60日停戦・ホルムズ再開、原油 76ドル割れ</li>
+        <li>OECD Outlook 2026 / BOJ — 内需主導・春闘 +5.1〜5.3%・労働逼迫</li>
+        <li>Fortune / NPR — AI バブル警戒（S&amp;P top5 3割超・capex 725B→1T）</li>
+        <li>会社 IR（gamebiz / Yahoo!ファイナンス / 株探 / みんかぶ / IR BANK 等）— 各社 FY26 実績・FY27 ガイダンス・配当</li>
+        <li>EDINET type=5 財務 CSV（3,965 filings）・J-Quants daily_bars/fin_summaries（〜6/25）= 数値の一次・検算基盤</li>
+      </ul>
+      <div class="callout callout-important">
+        <p class="callout-title">ディスクレーマ</p>
+        <p>本レポートは screening 基盤と一次情報に基づく<strong>提案</strong>であり投資助言ではない。最終的な売買判断はユーザーが行う。指値・target・stop は計画値であり、寄り前のギャップ・出来高・ニュースで調整しうる。<code>approved</code> な research memo は決定後に作成する。</p>
+      </div>
+    </section>
+
+    <footer class="doc-footer">
+      <p>baibai-loop — AI バリュー・バーゲン銘柄選定 / as_of 2026-06-25 / 発注プラン 2026-06-26。Generated as a single self-contained HTML document.</p>
+    </footer>
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.min.js" integrity="sha384-yQ4mmBBT+vhTAwjFH0toJXNYJ6O4usWnt6EPIdWwrRvx2V/n5lXuDZQwQFeSFydF" crossorigin="anonymous"></script>
+  <script>
+// km:html-document の図操作スクリプト。document-template.html の末尾 <script> にビルドで挿入して単一ファイルにする。
+
+// Mermaid 初期化。htmlLabels:false で図ラベルを <foreignObject>（HTML）ではなく SVG <text> で描く。
+// foreignObject 入り SVG は canvas 描画時に汚染され toBlob が失敗するため、WebP 化を成立させるのに必須。
+mermaid.initialize({ startOnLoad: true, securityLevel: 'strict', htmlLabels: false, flowchart: { htmlLabels: false } });
+
+// 図の操作（完全クライアント側・外部送信なし）。各 figure.diagram に付与する:
+// - マウスホイールで拡大 / 縮小、ドラッグで移動、ダブルクリックでリセット
+// - WebP ボタンで SVG を canvas 経由のラスタ画像にして別タブで開く（ポップアップ抑止時はダウンロード）
+// mermaid は load 時に非同期描画するため、ハンドラは figure に張り SVG はイベント時に都度取得する（描画タイミングに依存しない）。
+(() => {
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  // SVG を指定 MIME のラスタ画像にして別タブで開く。img-src blob: で blob を許可している
+  const openAsImage = (svg, mime, ext) => {
+    const box = svg.viewBox && svg.viewBox.baseVal;
+    const rect = svg.getBoundingClientRect();
+    const w = Math.max(1, Math.round((box && box.width) || rect.width));
+    const h = Math.max(1, Math.round((box && box.height) || rect.height));
+    const clone = svg.cloneNode(true);
+    clone.setAttribute('width', w);
+    clone.setAttribute('height', h);
+    // 画面表示用のズーム/パン（inline の width/height/maxWidth/transform）を画像へ持ち込まない
+    clone.style.width = '';
+    clone.style.height = '';
+    clone.style.maxWidth = '';
+    clone.style.transform = 'none';
+    const xml = new XMLSerializer().serializeToString(clone);
+    const svgUrl = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml;charset=utf-8' }));
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale = 2; // 高解像度化
+        const canvas = document.createElement('canvas');
+        canvas.width = w * scale;
+        canvas.height = h * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          if (!blob) { console.error('diagram export: toBlob が null（canvas 上限超過 / 形式未対応の可能性）'); return; }
+          const url = URL.createObjectURL(blob);
+          const win = window.open(url, '_blank');
+          if (!win) { // ポップアップブロック時はダウンロードにフォールバック
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'diagram.' + ext;
+            a.click();
+          }
+        }, mime);
+      } catch (err) {
+        console.error('diagram export に失敗', err); // 例: foreignObject 等で canvas が汚染された場合
+      } finally {
+        URL.revokeObjectURL(svgUrl);
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(svgUrl); console.error('diagram export: SVG 画像の読み込みに失敗'); };
+    img.src = svgUrl;
+  };
+
+  const enhance = (fig) => {
+    if (fig.dataset.enhanced) return;
+    fig.dataset.enhanced = '1';
+    const view = { scale: 1, x: 0, y: 0 };
+    let base = null; // scale=1 の自然サイズ（初回 apply で記録）
+    const apply = () => {
+      const svg = fig.querySelector('svg');
+      if (!svg) return;
+      if (!base) {
+        const r = svg.getBoundingClientRect();
+        if (r.width < 1) return; // まだ描画されていない
+        base = { w: r.width, h: r.height };
+        svg.style.maxWidth = 'none'; // 拡大時に mermaid の max-width で頭打ちさせない
+      }
+      // ズームは表示サイズ（width/height）で行う → SVG ベクタが解像度に追従し、文字が拡大してもぼけない
+      svg.style.width = (base.w * view.scale) + 'px';
+      svg.style.height = (base.h * view.scale) + 'px';
+      // パンは translate（リサンプルされないので鮮明なまま）
+      svg.style.transform = `translate(${view.x}px, ${view.y}px)`;
+    };
+    const reset = () => { view.scale = 1; view.x = 0; view.y = 0; apply(); };
+
+    // 素のホイールで拡縮する（意図的な設計）。図上ではページスクロールより拡縮を優先する
+    fig.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      view.scale = clamp(view.scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1), 0.2, 8);
+      apply();
+    }, { passive: false });
+
+    let drag = null;
+    fig.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return; // 主ボタンのみ（右/中クリックで pan を始めない）
+      if (e.target.closest('.diagram-tools')) return;
+      // 図ラベル・キャプションのテキスト上では選択を優先し pan しない。余白・ノード・エッジ上だけ pan する
+      if (e.target.closest('text, tspan, foreignObject, figcaption')) return;
+      e.preventDefault(); // 余白からのドラッグでテキスト選択が始まるのを抑止する
+      drag = { x: e.clientX - view.x, y: e.clientY - view.y };
+      try { fig.setPointerCapture(e.pointerId); } catch (_) { /* 非アクティブな pointer は無視 */ }
+      fig.classList.add('grabbing');
+    });
+    fig.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      view.x = e.clientX - drag.x;
+      view.y = e.clientY - drag.y;
+      apply();
+    });
+    const endDrag = () => { drag = null; fig.classList.remove('grabbing'); };
+    fig.addEventListener('pointerup', endDrag);
+    fig.addEventListener('pointercancel', endDrag);
+    window.addEventListener('pointerup', endDrag); // capture 失敗時も、図の外で離せば pan を終える保険
+    fig.addEventListener('dblclick', reset);
+
+    // 印刷時はズーム/パンを一時解除して自然サイズで刷り、印刷後に画面の表示を復元する
+    let savedView = null;
+    window.addEventListener('beforeprint', () => {
+      if (!base) return; // 未操作の図は mermaid の自然描画のまま
+      savedView = { ...view };
+      view.scale = 1; view.x = 0; view.y = 0; apply();
+    });
+    window.addEventListener('afterprint', () => {
+      if (!savedView) return;
+      Object.assign(view, savedView);
+      savedView = null;
+      apply();
+    });
+
+    const tools = document.createElement('div');
+    tools.className = 'diagram-tools';
+    const addButton = (label, onClick) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.addEventListener('click', onClick);
+      tools.appendChild(button);
+    };
+    const withSvg = (fn) => () => { const svg = fig.querySelector('svg'); if (svg) fn(svg); };
+    addButton('WebP', withSvg((svg) => openAsImage(svg, 'image/webp', 'webp')));
+    addButton('リセット', reset);
+    fig.appendChild(tools);
+  };
+
+  // mermaid の描画完了は待たない: figure は静的に存在するので load 時にハンドラを張る
+  window.addEventListener('load', () => {
+    document.querySelectorAll('figure.diagram').forEach(enhance);
+  });
+})();
+
+</script>
+</body>
+</html>
