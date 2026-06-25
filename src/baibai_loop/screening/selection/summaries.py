@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 from baibai_loop.foundation.coerce import (
     dedupe_strings,
     int_or,
+    mapping_or_empty,
     string_or_none,
     string_sequence,
 )
@@ -89,6 +90,7 @@ def _selection_candidate_summary(
 ) -> dict[str, object]:
     fast_lens = _fast_lens(candidate)
     long_hold_lens = _long_hold_lens(candidate)
+    metrics = mapping_or_empty(candidate.get("metrics"))
     return {
         "rank": rank,
         "ticker": string_or_none(candidate.get("ticker")),
@@ -97,6 +99,23 @@ def _selection_candidate_summary(
         "selection_playbook": string_or_none(candidate.get("selection_playbook")),
         "macro_context_alignment": string_or_none(candidate.get("macro_context_alignment")),
         "market_cap_oku": candidate.get("market_cap_oku"),
+        # valuation: triage 時に割安度を即判断できるよう転記する。ticker-profile を別途引かずに済む
+        "per_trailing": candidate.get("per_trailing"),
+        "per_forward": candidate.get("per_forward"),
+        "pbr": candidate.get("pbr"),
+        "ev_ebitda": candidate.get("ev_ebitda"),
+        "p_s": candidate.get("p_s"),
+        "pcfr": candidate.get("pcfr"),
+        # downside protection: net-net / cash-rich の下値判断に使う財務指標
+        "cash_to_market_cap": metrics.get("cash_to_market_cap"),
+        "net_cash_to_market_cap": metrics.get("net_cash_to_market_cap"),
+        "equity_ratio": metrics.get("equity_ratio"),
+        "ocf_yield": metrics.get("ocf_yield"),
+        # earnings momentum + cash conversion: 割安な trailing PER が減益・低 cash 変換を
+        # 隠す value trap を triage で弾くための質シグナル
+        "operating_profit_yoy": metrics.get("operating_profit_yoy"),
+        "sales_yoy": metrics.get("sales_yoy"),
+        "fcf_yield": metrics.get("fcf_yield"),
         "price_change_5d": candidate.get("price_change_5d"),
         "price_change_20d": candidate.get("price_change_20d"),
         "benchmark_relative_20d": candidate.get("benchmark_relative_20d"),
