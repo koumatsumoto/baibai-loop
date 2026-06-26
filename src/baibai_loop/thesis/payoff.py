@@ -20,53 +20,60 @@ def _check_payoff(path: Path, front_matter: Mapping[str, object]) -> list[Valida
     stop = optional_float(payoff.get("stop_loss_yen"))
     findings: list[ValidationFinding] = []
     if entry is not None and target is not None and stop is not None:
-        if not stop < entry < target:
+        # Require positive, ordered prices. The 0 < guard also keeps a malformed
+        # entry of 0 from reaching the division below: a validator must report a
+        # finding, never crash with ZeroDivisionError on record data.
+        if not 0 < stop < entry < target:
             findings.append(
                 ValidationFinding(
                     severity="error",
                     target=path,
                     code="thesis.payoff-order",
                     message=(
-                        "long-only payoff must satisfy stop_loss < max_entry_price < target_price"
+                        "long-only payoff must satisfy 0 < stop_loss < max_entry_price "
+                        "< target_price"
                     ),
                     location="thesis_payoff",
                 )
             )
-        expected_upside = round((target / entry - 1) * 100, 2)
-        expected_downside = round((1 - stop / entry) * 100, 2)
-        risk_reward = round(expected_upside / expected_downside, 2) if expected_downside else None
-        if not _close(payoff.get("expected_upside_pct"), expected_upside, tolerance=0.01):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="thesis.expected-upside",
-                    message=f"expected_upside_pct must equal {expected_upside}",
-                    location="thesis_payoff.expected_upside_pct",
-                )
+        if entry > 0:
+            expected_upside = round((target / entry - 1) * 100, 2)
+            expected_downside = round((1 - stop / entry) * 100, 2)
+            risk_reward = (
+                round(expected_upside / expected_downside, 2) if expected_downside else None
             )
-        if not _close(payoff.get("expected_downside_pct"), expected_downside, tolerance=0.01):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="thesis.expected-downside",
-                    message=f"expected_downside_pct must equal {expected_downside}",
-                    location="thesis_payoff.expected_downside_pct",
+            if not _close(payoff.get("expected_upside_pct"), expected_upside, tolerance=0.01):
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="thesis.expected-upside",
+                        message=f"expected_upside_pct must equal {expected_upside}",
+                        location="thesis_payoff.expected_upside_pct",
+                    )
                 )
-            )
-        if risk_reward is not None and not _close(
-            payoff.get("risk_reward_ratio"), risk_reward, tolerance=0.01
-        ):
-            findings.append(
-                ValidationFinding(
-                    severity="error",
-                    target=path,
-                    code="thesis.risk-reward",
-                    message=f"risk_reward_ratio must equal {risk_reward}",
-                    location="thesis_payoff.risk_reward_ratio",
+            if not _close(payoff.get("expected_downside_pct"), expected_downside, tolerance=0.01):
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="thesis.expected-downside",
+                        message=f"expected_downside_pct must equal {expected_downside}",
+                        location="thesis_payoff.expected_downside_pct",
+                    )
                 )
-            )
+            if risk_reward is not None and not _close(
+                payoff.get("risk_reward_ratio"), risk_reward, tolerance=0.01
+            ):
+                findings.append(
+                    ValidationFinding(
+                        severity="error",
+                        target=path,
+                        code="thesis.risk-reward",
+                        message=f"risk_reward_ratio must equal {risk_reward}",
+                        location="thesis_payoff.risk_reward_ratio",
+                    )
+                )
     return findings
 
 
