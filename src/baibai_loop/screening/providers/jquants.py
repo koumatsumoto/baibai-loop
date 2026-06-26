@@ -281,8 +281,22 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
                 record, "DisclosedDate", "disclosed_at", "DiscDate", "disc_date", "Date", "date"
             )
         ),
+        # 年次(FY)開示では当期 ForecastEPS が空になり、新年度ガイダンスは
+        # NextYearForecast* に入る。fall back して、最新開示が本決算の銘柄でも
+        # forecast_eps(=各時点で最良の forward EPS)が埋まるようにする。
         forecast_eps=to_float(
-            coalesce_field(record, "ForecastEPS", "forecast_eps", "FEPS", "f_eps")
+            coalesce_field(
+                record,
+                "ForecastEPS",
+                "forecast_eps",
+                "FEPS",
+                "f_eps",
+                "NextYearForecastEarningsPerShare",
+                "NextYearForecastEPS",
+                "next_year_forecast_eps",
+                "NextYearFEPS",
+                "NextFEPS",
+            )
         ),
         eps_ttm=to_float(
             coalesce_field(

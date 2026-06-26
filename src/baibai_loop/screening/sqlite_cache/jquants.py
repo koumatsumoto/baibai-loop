@@ -220,7 +220,21 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> Norm
             (
                 ticker,
                 disclosed_at,
-                to_float(first(record, "ForecastEPS", "forecast_eps", "FEPS")),
+                # 年次(FY)開示は当期 ForecastEPS が空で、新年度ガイダンスは
+                # NextYearForecast* に入る。fall back して本決算銘柄の forward EPS を拾う。
+                to_float(
+                    first(
+                        record,
+                        "ForecastEPS",
+                        "forecast_eps",
+                        "FEPS",
+                        "NextYearForecastEarningsPerShare",
+                        "NextYearForecastEPS",
+                        "next_year_forecast_eps",
+                        "NextYearFEPS",
+                        "NextFEPS",
+                    )
+                ),
                 to_float(first(record, "EpsTtm", "eps_ttm", "EPS", "eps")),
                 to_float(first(record, "BPS", "bps")),
                 to_float(
