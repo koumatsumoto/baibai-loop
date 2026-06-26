@@ -81,10 +81,12 @@ uv run baibai-loop-screening select --asof YYYY-MM-DD --top 10 --detail full > .
 - 「割安の理由」は **de-rating（需給・全体安・中計未達などで株価が崩れたが業績は崩壊していない）と earnings-collapse（業績そのものが崩れている）を切り分ける**。買うのは前者。
 - 4 銘柄 + 最良 1 銘柄を確定し、各々に entry/target/stop/invalidation と policy 準拠の sizing（`src/baibai_loop/position/policy.py` の `PORTFOLIO_POLICY`: tactical ¥2,000,000・1注文上限 ¥500,000・8% ticker cap=¥5,000,000×8%=¥400,000・board lot 100）を付す。`expected_upside=(target/entry-1)*100`、`expected_downside=(1-stop/entry)*100`、`RR=upside/downside`（AP-02 で検算）。
 - **具体的な指値プラン**: entry は最新終値基準の指値（laggard を強さに追わないなら終値のわずか下）。board-lot 丸めで 1注文上限・ticker cap 内に収め、「約定しない場合」のルール（押し目待ち等）も書く。
+- **RR は market regime で調整する（最重要・甘くしない）**: `target÷stop` のボトムアップ RR は<strong>ベストケース</strong>。市場が最高値圏（regime=risk_on_rally かつ指数が ATH 圏）なら、(a) 上方は限定的・低確率（バリュエーション過熱・mean-reversion）、(b) 下方はテール厚め（Bear/Tail、単日ギャップでキャリー巻戻し −10%+）として **upside/downside をシナリオ別・β調整・ギャップ込みで引き直す**。`tight stop はギャップで機能しない`前提に立ち、実質の下値境界は<strong>ネットキャッシュ/ファンダ床</strong>（net cash/株 ＋ distressed 事業価値）に置く。確率加重の期待リターンと分布の歪み（左テール）も出す。**最高値圏では「待つ／小さく段階建て」が最良 RR のことが多い**。RR を綺麗な単一倍率で誇張しない。
 
 ## 6. HTML レポート + PR で報告
 
-- **HTML レポート**: `km:html-document` で 1 枚物の HTML を作る（内容＝市場 context の深い分析・4 シナリオ・主要リスク・select 軸別座標・4 候補比較・最良 RR の根拠・**26日寄りの具体的指値**・一次ソース。skill はレイアウト/セキュリティのみ担当）。`reports/YYYY-MM-DD-ai-value-bargain-selection.html` に保存して **commit する**（root の `/baibai-loop-*.html` は gitignore 対象なので `reports/` 配下に置く）。
+- **HTML レポート**: `km:html-document` で 1 枚物の HTML を作る（内容＝市場 context の深い分析・4 シナリオ・主要リスク・select 軸別座標・4 候補比較・最良 RR の根拠・**26日寄りの具体的指値**・**リスクリワードの正直な評価（必須・下記）**・一次ソース。skill はレイアウト/セキュリティのみ担当）。`reports/YYYY-MM-DD-ai-value-bargain-selection.html` に保存して **commit する**（root の `/baibai-loop-*.html` は gitignore 対象なので `reports/` 配下に置く）。
+  - **「リスクリワードの正直な評価」は毎回必須セクション**: ボトムアップ RR（target÷stop）はベストケースと明記し、market regime（最高値圏か）でテール・ギャップ・β調整した**上昇余地と下落余地**、ネットキャッシュ/ファンダ床、確率加重期待リターンと分布の歪み（左テール）を出す。RR を綺麗な単一倍率で誇張しない（§5 の RR 規律を結果に必ず反映する）。
 - **PR で添付**: `km:github-workflow` で PR を作り、commit 済み HTML レポートを PR の差分に含める（＝添付）。PR body には 4 候補・最良 1・entry/target/stop/invalidation・sizing・主要リスクの markdown サマリを self-contained に書く（GitHub 上で読めるよう、レポートのリンクだけに依存しない）。必要なら proposal Issue も併設する。
 
 ## 7. 検証・PR
@@ -101,7 +103,8 @@ uv run baibai-loop-validation && uv run ruff format --check . && uv run ruff che
 
 - AI 構造性が本物で、足元 de-rating で割安、下値保護のある銘柄を、一次 IR 出典つきで 4 つに絞り、最良 RR 1 つを根拠つきで選んだ。
 - 深い macro context（多角・Tier-1 多数・シナリオ・リスク）が RR の前提として揃い、validate を通った。
-- HTML レポートと GitHub Issue でユーザーがレビューできる形になっている。検証（validate/ruff/mypy/pytest）が緑。
+- **リスクリワードを regime 調整・ギャップ込み・ファンダ床で正直に評価し、結果（レポート・提案）に必ず含めた**（ボトムアップの単一倍率で誇張していない。最高値圏なら「待つ／小さく段階建て」の選択肢も提示した）。
+- HTML レポートと PR でユーザーがレビューできる形になっている。検証（validate/ruff/mypy/pytest）が緑。
 
 ## 9. 制約（必ず守る）
 
