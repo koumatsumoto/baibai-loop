@@ -58,6 +58,12 @@ class MarketRegimeSnapshot:
     eval_date: date
     benchmark_return_20d: float | None
     benchmark_return_60d: float | None
+    # Benchmark gap below its high over the regime lookback window (<=0; 0 = at
+    # the high). A fact-layer field, never gates the label. When this is ~0 with
+    # regime=risk_on_rally the index is extended near its highs (最高値圏): risk-
+    # reward judgement must then stress the downside (tail/gap), not read the
+    # trailing target/stop ratio as the real RR.
+    benchmark_gap_from_high: float | None
     regime: MarketRegime
 
     def to_dict(self) -> dict[str, object]:
@@ -67,6 +73,7 @@ class MarketRegimeSnapshot:
             "eval_date": self.eval_date.isoformat(),
             "benchmark_return_20d": self.benchmark_return_20d,
             "benchmark_return_60d": self.benchmark_return_60d,
+            "benchmark_gap_from_high": self.benchmark_gap_from_high,
             "regime": self.regime.value,
         }
 
@@ -113,6 +120,7 @@ def compute_market_regime(
         eval_date=eval_date,
         benchmark_return_20d=benchmark_return_20d,
         benchmark_return_60d=benchmark_return_60d,
+        benchmark_gap_from_high=_gap_from_high(benchmark_series),
         regime=classify_market_regime(benchmark_return_20d),
     )
 
@@ -150,3 +158,18 @@ def _trailing_return(series: list[tuple[date, float]], window_bars: int) -> floa
     if past == 0:
         return None
     return current / past - 1
+
+
+def _gap_from_high(series: list[tuple[date, float]]) -> float | None:
+    """Current close vs the highest close over the loaded window (<=0).
+
+    0 means the benchmark sits at its window high (最高値圏). Computed over the
+    same ~150-calendar-day lookback the trend windows use, so it reads "near a
+    recent high", not strictly an all-time high.
+    """
+    if not series:
+        return None
+    high = max(price for _, price in series)
+    if high <= 0:
+        return None
+    return series[-1][1] / high - 1
