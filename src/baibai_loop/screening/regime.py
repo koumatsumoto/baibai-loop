@@ -41,7 +41,13 @@ LONG_TREND_WINDOW_BARS = 60
 BREADTH_MA_WINDOW_BARS = 20
 DEFAULT_MIN_BREADTH_SAMPLE = 100
 
-_BENCHMARK_LOOKBACK_CALENDAR_DAYS = 150
+# 52 trading-day weeks for the benchmark gap-from-high, matching the per-ticker
+# 52w convention in ticker_profile. The trend windows above read only the tail of
+# the series, so loading the longer window does not change the 20d/60d returns.
+_WEEK_52_WINDOW_BARS = 252
+# Load enough calendar history to cover _WEEK_52_WINDOW_BARS trading days for the
+# 52-week high (252 sessions ~ 353 calendar days; add buffer for holidays).
+_BENCHMARK_LOOKBACK_CALENDAR_DAYS = 400
 
 
 class MarketRegime(StrEnum):
@@ -161,15 +167,16 @@ def _trailing_return(series: list[tuple[date, float]], window_bars: int) -> floa
 
 
 def _gap_from_high(series: list[tuple[date, float]]) -> float | None:
-    """Current close vs the highest close over the loaded window (<=0).
+    """Current close vs the highest close over the trailing 52 weeks (<=0).
 
-    0 means the benchmark sits at its window high (最高値圏). Computed over the
-    same ~150-calendar-day lookback the trend windows use, so it reads "near a
-    recent high", not strictly an all-time high.
+    0 means the benchmark sits at its 52-week high (最高値圏). Using the 52-week
+    window (not just the recent few months) avoids a false "at the high" read when
+    the index is near a recent local high but still below its 52-week high.
     """
     if not series:
         return None
-    high = max(price for _, price in series)
+    window = series[-_WEEK_52_WINDOW_BARS:]
+    high = max(price for _, price in window)
     if high <= 0:
         return None
-    return series[-1][1] / high - 1
+    return window[-1][1] / high - 1

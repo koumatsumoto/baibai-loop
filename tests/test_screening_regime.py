@@ -81,6 +81,23 @@ class ComputeMarketRegimeTests(unittest.TestCase):
             self.assertLess(snapshot.benchmark_gap_from_high, 0.0)
             self.assertAlmostEqual(snapshot.benchmark_gap_from_high, 104.0 / 109.5 - 1, places=6)
 
+    def test_compute_gap_from_high_uses_full_52w_window_not_recent_months(self) -> None:
+        asof = date(2026, 5, 29)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            # Peak (200) ~210 bars ago, then a long decline to 147.75. A short
+            # few-month window would miss the earlier peak and understate the gap;
+            # the 52-week window must anchor on 200.
+            closes = [
+                *_rising_closes(50, start=100.0, step=2.0),
+                *[200.0 - 0.25 * i for i in range(210)],
+            ]
+            _insert_bars(sqlite_path, "1321", closes, end=asof)
+            snapshot = compute_market_regime(sqlite_path, asof)
+            assert snapshot is not None
+            assert snapshot.benchmark_gap_from_high is not None
+            self.assertAlmostEqual(snapshot.benchmark_gap_from_high, 147.75 / 200.0 - 1, places=6)
+
     def test_compute_degrades_to_unknown_when_history_too_short(self) -> None:
         asof = date(2026, 5, 29)
         with tempfile.TemporaryDirectory() as tmpdir:
