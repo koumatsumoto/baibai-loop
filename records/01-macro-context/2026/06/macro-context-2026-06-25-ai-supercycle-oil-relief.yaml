@@ -115,7 +115,7 @@ inputs:
     - series_id: vix
       window: 1m
       used_for: 6/25 18.63（株高でも僅かに bid＝mild caution）。リスクオフ強度は限定的だが完全な平穏でもない
-    - series_id: boj_policy_rate
+    - series_id: jp.policy_rate
       window: 6m
       used_for: 1.0% へ利上げ済み・継続姿勢。銀行/保険の利鞘改善、高 PER growth/REIT/不動産の discount 逆風
 sector_tilts:

@@ -9,7 +9,7 @@ series:
     provider_series_id: RIFLGFCY10_N.B
     source_id: fed-h15
     source_url: https://www.federalreserve.gov/datadownload/Output.aspx
-    aliases: [米10Y利回り, 米10Y, US 10Y, DGS10]
+    aliases: [米10Y利回り, 米10Y, US 10Y, DGS10, us_10y_treasury]
   - series_id: us.2y
     name: 米2Y利回り
     category: rates
@@ -42,7 +42,7 @@ series:
     provider_series_id: DFEDTARU
     source_id: fred-dfedtaru
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFEDTARU
-    aliases: [FF upper, Fed Funds upper, FF目標上限]
+    aliases: [FF upper, Fed Funds upper, FF目標上限, fed_funds_rate]
   - series_id: us.fed_funds.lower
     name: FF目標レンジ下限
     category: policy
@@ -130,7 +130,7 @@ series:
     provider_series_id: DCOILBRENTEU
     source_id: fred-dcoilbrenteu
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DCOILBRENTEU
-    aliases: [Brent, Brent原油]
+    aliases: [Brent, Brent原油, brent_oil]
   - series_id: usd_jpy
     name: USD/JPY
     category: fx
@@ -175,7 +175,7 @@ series:
     source_id: fred-irltlt01jpm156n
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=IRLTLT01JPM156N
     notes: OECD系列でFREDは月次。日次JGBが要る場合はJ-Qu/別providerで後日追加
-    aliases: [日本10Y, JGB10Y, JGB 10Y, 日本国債10年]
+    aliases: [日本10Y, JGB10Y, JGB 10Y, 日本国債10年, jgb_10y]
   - series_id: jp.policy_rate
     name: 日本政策金利(無担保コールON)
     category: policy
@@ -187,7 +187,7 @@ series:
     source_id: fred-irstci01jpm156n
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=IRSTCI01JPM156N
     notes: 無担保コールレート(BOJ政策金利の近似)。OECD系列で月次
-    aliases: [日銀政策金利, BOJ policy rate, コールレート, 無担保コール]
+    aliases: [日銀政策金利, BOJ policy rate, コールレート, 無担保コール, boj_policy_rate]
   - series_id: jp.unemployment
     name: 日本失業率
     category: labor
@@ -209,7 +209,7 @@ series:
     provider_series_id: NIKKEI225
     source_id: fred-nikkei225
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=NIKKEI225
-    aliases: [日経225, 日経平均, Nikkei 225, NIKKEI225]
+    aliases: [日経225, 日経平均, Nikkei 225, NIKKEI225, nikkei_225]
   - series_id: us.sp500
     name: S&P500
     category: equity-index
