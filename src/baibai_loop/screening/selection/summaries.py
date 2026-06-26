@@ -99,6 +99,8 @@ def _selection_candidate_summary(
         "selection_playbook": string_or_none(candidate.get("selection_playbook")),
         "macro_context_alignment": string_or_none(candidate.get("macro_context_alignment")),
         "market_cap_oku": candidate.get("market_cap_oku"),
+        # liquidity: 5% ADV 参加上限で発注可能サイズを判断し、約定できない薄商いを弾く
+        "avg_turnover_oku": candidate.get("avg_turnover_oku"),
         # valuation: triage 時に割安度を即判断できるよう転記する。ticker-profile を別途引かずに済む
         "per_trailing": candidate.get("per_trailing"),
         "per_forward": candidate.get("per_forward"),
@@ -118,6 +120,8 @@ def _selection_candidate_summary(
         "fcf_yield": metrics.get("fcf_yield"),
         "price_change_5d": candidate.get("price_change_5d"),
         "price_change_20d": candidate.get("price_change_20d"),
+        # dislocation 深度: 売られすぎ度の主要 window。fast/long-hold lens と RR の前提
+        "price_change_60d": candidate.get("price_change_60d"),
         "benchmark_relative_20d": candidate.get("benchmark_relative_20d"),
         "gap_from_52w_low": candidate.get("gap_from_52w_low"),
         "price_history_coverage_750d": candidate.get("price_history_coverage_750d"),

@@ -334,6 +334,7 @@ def _selection_candidate(
         "macro_context_alignment": macro_context_alignment,
         "macro_context": dict(macro_context_result),
         "market_cap_oku": item.market_cap_oku,
+        "avg_turnover_oku": item.avg_turnover_oku,
         "per_trailing": item.per_trailing,
         "per_forward": item.per_forward,
         "pbr": item.pbr,

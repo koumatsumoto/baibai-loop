@@ -71,6 +71,8 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
                     pbr=0.4,
                     ev_ebitda=6.5,
                     p_s=0.37,
+                    avg_turnover_oku=3.5,
+                    price_change_60d=-0.26,
                     metrics={
                         "cash_to_market_cap": 0.93,
                         "equity_ratio": 0.74,
@@ -96,6 +98,9 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
         self.assertEqual(rec["operating_profit_yoy"], -0.28)
         self.assertEqual(rec["sales_yoy"], 0.00)
         self.assertEqual(rec["fcf_yield"], 0.05)
+        # liquidity + 60d dislocation depth for order feasibility and oversold read
+        self.assertEqual(rec["avg_turnover_oku"], 3.5)
+        self.assertEqual(rec["price_change_60d"], -0.26)
 
     def test_filter_excludes_small_thin_recent_and_flagged(self) -> None:
         payload = self._payload(
