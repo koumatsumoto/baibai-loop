@@ -430,11 +430,6 @@ class ScreeningCliTests(unittest.TestCase):
             finally:
                 os.chdir(cwd)
 
-    @unittest.skip(
-        "fixture needs re-tuning after playbook removal (strict-net-cash / fcf-yield "
-        "removed in cleanup; cash-rich restored); follow-up to regenerate fake "
-        "financials so cashflow-yield / cash-rich playbook hits. See #247."
-    )
     def test_run_command_emits_edinet_freshness_warnings_from_disclosure_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             cwd = Path.cwd()
