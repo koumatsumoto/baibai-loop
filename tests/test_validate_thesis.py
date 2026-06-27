@@ -552,6 +552,16 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("thesis.payoff-order", codes)
 
+    def test_zero_entry_price_is_flagged_without_crash(self) -> None:
+        # A malformed max_entry_price_yen of 0 must produce a payoff-order finding,
+        # not crash the validator with ZeroDivisionError on the target/entry division.
+        front = _minimal_research_front_matter()
+        payoff = front["thesis_payoff"]
+        assert isinstance(payoff, dict)
+        payoff["max_entry_price_yen"] = 0
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("thesis.payoff-order", codes)
+
     def test_expected_upside_formula_is_checked(self) -> None:
         front = _minimal_research_front_matter()
         payoff = front["thesis_payoff"]
