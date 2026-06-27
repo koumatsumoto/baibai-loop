@@ -360,3 +360,75 @@ series:
     source_url: https://jpx-jquants.com/ja/spec/eq-investor-types
     notes: 東証プライムの投資部門別売買状況。海外勢の週次ネット(買い−売り)を公表日付で記録
     aliases: [海外投資家フロー, 海外勢売買, foreign flows, trades spec, 投資部門別]
+  - series_id: us.real_10y
+    name: 米10Y実質金利(TIPS)
+    category: rates
+    geography: us
+    frequency: daily
+    unit: percent
+    provider: fred_csv
+    provider_series_id: DFII10
+    source_id: fred-dfii10
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFII10
+    notes: 10年物価連動国債(TIPS)利回り=実質金利。無利回り資産(金/BTC)と長期グロースの割引率の中核ドライバー。上昇=向かい風
+    aliases: [米10Y実質金利, 実質金利, real yield, TIPS 10Y, DFII10]
+  - series_id: us.breakeven_10y
+    name: 米10Y期待インフレ(BEI)
+    category: inflation
+    geography: us
+    frequency: daily
+    unit: percent
+    provider: fred_csv
+    provider_series_id: T10YIE
+    source_id: fred-t10yie
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=T10YIE
+    notes: 10年ブレークイーブンインフレ率(名目10Y−実質10Y)。名目=実質+期待インフレの分解に使う。実質金利と対で読む
+    aliases: [期待インフレ, ブレークイーブン, breakeven, BEI, T10YIE]
+  - series_id: us.fed_assets
+    name: FRB総資産(バランスシート)
+    category: monetary
+    geography: us
+    frequency: weekly
+    unit: usd-million
+    provider: fred_csv
+    provider_series_id: WALCL
+    source_id: fred-walcl
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=WALCL
+    notes: FRB連結総資産(週次・水曜, 百万ドル)。グローバル流動性の中核でQT/QEの量的スタンス。net liquidity = 総資産 − RRP − TGA の第1項
+    aliases: [FRBバランスシート, Fed balance sheet, FRB総資産, WALCL, 中銀資産]
+  - series_id: us.reverse_repo
+    name: FRBリバースレポ残高(ON RRP)
+    category: monetary
+    geography: us
+    frequency: daily
+    unit: usd-billion
+    provider: fred_csv
+    provider_series_id: RRPONTSYD
+    source_id: fred-rrpontsyd
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=RRPONTSYD
+    notes: 翌日物リバースレポ残高(十億ドル)。net liquidity の控除項(資金を市場から吸収)。枯渇=流動性の追い風が剥落
+    aliases: [リバースレポ, ON RRP, reverse repo, RRP, RRPONTSYD]
+  - series_id: us.m2
+    name: 米M2マネーサプライ
+    category: monetary
+    geography: us
+    frequency: monthly
+    unit: usd-billion
+    provider: fred_csv
+    provider_series_id: M2SL
+    source_id: fred-m2sl
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=M2SL
+    notes: M2マネーストック(月次・季調, 十億ドル)。流動性トレンドの基礎で、リスク資産に約10週先行する経験則の基軸
+    aliases: [M2, マネーサプライ, money supply, M2SL, マネーストック]
+  - series_id: us.nfci
+    name: シカゴ連銀全米金融環境指数(NFCI)
+    category: financial-conditions
+    geography: us
+    frequency: weekly
+    unit: index
+    provider: fred_csv
+    provider_series_id: NFCI
+    source_id: fred-nfci
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=NFCI
+    notes: 105+指標の合成金融環境指数(0=平均, 正=引締/負=緩和)。VIX・クレジットOASを1本に束ねる単一ゲージ。リスクオン/オフの合成温度計
+    aliases: [NFCI, 金融環境指数, financial conditions, シカゴ連銀NFCI]

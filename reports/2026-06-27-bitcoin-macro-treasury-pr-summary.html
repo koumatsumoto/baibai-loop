@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PR 内容説明 — ビットコイン中長期マクロ分析・汎用指標・macro-analysis スキル</title>
+<style>
+  :root{--bg:#0f1115;--panel:#171a21;--panel2:#1e222b;--ink:#e7ebf0;--mut:#9aa4b2;--line:#2a2f3a;
+        --acc:#5b9cff;--good:#3fb27f;--warn:#e0a13a;--bad:#e06a6a;--chip:#222836;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Hiragino Sans","Noto Sans JP",sans-serif;line-height:1.7;font-size:15px}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 22px 80px}
+  h1{font-size:26px;line-height:1.35;margin:0 0 6px}
+  h2{font-size:20px;margin:38px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:16px;margin:22px 0 8px;color:#cdd6e2}
+  p{margin:10px 0}
+  a{color:var(--acc);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{background:#11151c;border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-family:"SF Mono",Menlo,Consolas,monospace;font-size:.86em;color:#cfe0ff}
+  .sub{color:var(--mut);font-size:13.5px}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 8px}
+  .chip{background:var(--chip);border:1px solid var(--line);border-radius:999px;padding:3px 11px;font-size:12.5px;color:#c6d0de}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:16px 0}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+  .card{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .card h3{margin-top:0}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#10141b;color:#bcc7d6;font-weight:600}
+  td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .tag{display:inline-block;border-radius:5px;padding:1px 7px;font-size:11.5px;font-weight:600}
+  .t-bull{background:rgba(63,178,127,.16);color:#7fe0b0;border:1px solid #2f6b51}
+  .t-base{background:rgba(91,156,255,.16);color:#a9c8ff;border:1px solid #36537f}
+  .t-bear{background:rgba(224,161,58,.16);color:#f0c878;border:1px solid #7a5e2a}
+  .t-tail{background:rgba(224,106,106,.16);color:#f0a0a0;border:1px solid #7a3a3a}
+  .callout{border-left:3px solid var(--acc);background:#141a24;border-radius:0 8px 8px 0;padding:12px 16px;margin:14px 0}
+  .callout.good{border-color:var(--good);background:#121d18}
+  .callout.warn{border-color:var(--warn);background:#1f1a12}
+  ul{margin:8px 0 8px 2px;padding-left:20px}
+  li{margin:5px 0}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13.5px}
+  .kv div:nth-child(odd){color:var(--mut)}
+  .foot{color:var(--mut);font-size:12.5px;margin-top:30px;border-top:1px solid var(--line);padding-top:14px}
+  .pill{font-size:11px;padding:1px 6px;border-radius:4px;background:#1c2330;border:1px solid var(--line);color:#9fb0c4}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>ビットコイン中長期マクロ分析 ＋ 汎用マクロ指標 ＋ <code>macro-analysis</code> スキル</h1>
+  <div class="sub">PR 内容説明レポート（自動生成の説明用 HTML）・2026-06-27</div>
+  <div class="meta">
+    <span class="chip">branch: task/macro-analysis-skill-btc-outlook</span>
+    <span class="chip">commits: 5</span>
+    <span class="chip">pytest 40 passed</span>
+    <span class="chip">validation 0 error</span>
+    <span class="chip">ruff / mypy clean</span>
+  </div>
+
+  <div class="panel">
+    <strong>この PR が届けるもの（3 本立て）</strong>
+    <div class="grid" style="margin-top:10px">
+      <div class="card"><h3>① 分析</h3><p class="sub">基盤を使った BTC の中長期（6–24ヶ月）経済分析と、ビットコイントレジャリー企業（Strategy 等）の財務トラジェクトリ。<br><code>reports/2026-06-27-bitcoin-macro-treasury-outlook.md</code></p></div>
+      <div class="card"><h3>② 汎用基盤改善</h3><p class="sub">全リスク資産に効く 6 マクロ series ＋ 4 つの汎用分析レンズ。BTC トレジャリー固有（mNAV 等）は<strong>意図的に基盤へ入れない</strong>。</p></div>
+      <div class="card"><h3>③ 方法のスキル化</h3><p class="sub">マクロ分析の操作＋<strong>公開前の敵対的 self-check ゲート</strong>＋自己改善ループを <code>macro-analysis</code> スキルに固定。</p></div>
+    </div>
+  </div>
+
+  <h2>1. BTC 中長期（6–24ヶ月）の経済観</h2>
+  <p>結論は <strong>「流動性は静かに supportive へ傾くが、高い実質金利・強いドル・トレジャリー需要の崩落が相殺する綱引き」</strong>。中心はレンジ（$50k–80k）で、実質金利が転換すれば上方に効きやすい<em>コイルド・スプリング</em>構図。</p>
+
+  <h3>現状（基盤 series で grounding）</h3>
+  <table>
+    <tr><th>指標</th><th>値</th><th>読み</th></tr>
+    <tr><td><code>btc_usd</code></td><td class="num">$59,996 (6/26)</td><td>2025/10 天井 ~$126,080 から <strong>−52%</strong>。MVRV-Z ≈ 0.4（euphoria 剥落）</td></tr>
+    <tr><td><code>us.m2</code></td><td class="num">$23.05T</td><td>前年比 <strong>+4.7%</strong>（12ヶ月）、月次は直近加速（5月 +$248B）</td></tr>
+    <tr><td><code>us.fed_assets</code></td><td class="num">$6.74T</td><td>2024年来 QT で $7.26T→$6.74T 縮小後、<strong>直近下げ止まり</strong>＝QT 実質終了の兆し</td></tr>
+    <tr><td><code>us.reverse_repo</code></td><td class="num">$6.4B</td><td><strong>枯渇</strong>（2023 の $2.5T を消尽）＝追加の自動緩衝なし</td></tr>
+    <tr><td><code>us.real_10y</code></td><td class="num">2.19%</td><td>高位の実質金利＝無利回り資産の機会費用大（向かい風）</td></tr>
+    <tr><td><code>us.nfci</code></td><td class="num">−0.52</td><td>マイナス＝金融環境はまだ緩和的（信用ストレス未広範化）</td></tr>
+    <tr><td><code>usd_index.broad</code> / <code>usd_jpy</code></td><td class="num">120.4 / 161.7</td><td>強いドル＋円キャリーの分水嶺（リスクオフ増幅）</td></tr>
+  </table>
+  <p class="sub">house-view（<code>macro-context-2026-06-24</code>: higher-for-longer・信用ストレス slow-burn・円 master variable）の BTC への延伸。BTC は「リスク選好の総合温度計」で、その温度計がリスクオフへ振れた局面。</p>
+
+  <h3>4 シナリオ（主観確率・N≈1）</h3>
+  <table>
+    <tr><th>シナリオ</th><th>確率</th><th>BTC レンジ</th><th>主因/トリガー</th></tr>
+    <tr><td><span class="tag t-bull">強気</span></td><td class="num">30%</td><td class="num">$90k–130k+</td><td>実質金利低下（<code>us.real_10y</code>&lt;2%）or 信用ストレスが Fed 緩和を強制＋流動性が ~10週ラグで伝播</td></tr>
+    <tr><td><span class="tag t-base">ベース</span></td><td class="num">40%</td><td class="num">$50k–80k</td><td>higher-for-longer 持続。流動性追い風 vs 実質金利・需要構造の綱引き</td></tr>
+    <tr><td><span class="tag t-bear">弱気</span></td><td class="num">22%</td><td class="num">$35k–55k</td><td>リスクオフ（円キャリー巻戻し・信用ストレス顕在化）＋DAT 強制売却の伝播</td></tr>
+    <tr><td><span class="tag t-tail">テール</span></td><td class="num">8%</td><td class="num">$20k–35k</td><td>信用システミック危機（2008型）or DAT 連鎖清算</td></tr>
+  </table>
+
+  <h2>2. ビットコイントレジャリー企業の財務 ―「今後どうなるか」</h2>
+  <div class="callout warn">
+    <strong>モデルは構造的転換点。</strong> Strategy（MSTR）の mNAV は株式（diluted）ベースで <strong>0.63×</strong>＝プレミアム消滅で<strong>増資 flywheel が逆回転</strong>。BTC が平均取得 $75,646 を下回り含み損 ~$13B。
+  </div>
+  <div class="grid">
+    <div class="card"><h3>Strategy のバランスシート</h3><div class="kv">
+      <div>BTC 保有</div><div>847,363（平均取得 $75,646）</div>
+      <div>簿価 / 時価</div><div>$64.1B / ~$51.1B（含み損 ~$13B）</div>
+      <div>mNAV</div><div>EV 0.99× / diluted 0.63× / basic 0.58×</div>
+      <div>負債</div><div>~$8B（転換社債、プットは 2028 集中）</div>
+      <div>優先株配当</div><div>~$1.2B/年 vs ソフト売上 ~$477M（<strong>2.5倍</strong>、計算 1.2/0.477）</div>
+    </div></div>
+    <div class="card"><h3>flywheel の逆回転</h3><p class="sub">ディスカウントでは<strong>普通株 ATM は BTC/株を破壊して実質停止</strong>、資金は優先株に偏るが mNAV&lt;1 で割高化（STRC 11.5%）。$1.2B の現金配当 bleed が準備金を蝕む。急性破綻より<strong>数四半期〜年単位の slow-burn</strong>（無担保・分散満期ゆえ即時マージンは効きにくい）。</p></div>
+  </div>
+  <h3>業界全体と伝播</h3>
+  <ul>
+    <li><strong>需要の崩落</strong>: 非 Strategy トレジャリーの 30日購入は 69,000→<strong>~1,000 BTC（−99%）</strong>、購入シェア <strong>95%→2%</strong>。限界買い手が消失。</li>
+    <li><strong>淘汰</strong>: 高資本コスト・小型・高レバの新興 DAT はディストレス/解散/被買収。MARA は既に債務対応で 15,133 BTC 売却。Metaplanet（3350）mNAV ~0.9。</li>
+    <li><strong>生存</strong>: Strategy は最低資本コストで「売らず耐える」設計だが、mNAV&lt;1 が長引けば<strong>成長停止＋希薄化＋現金取崩しの縮小均衡</strong>。</li>
+    <li><strong>新しい構造的テール</strong>: トレジャリーの純売り手化（リフレキシブな下方増幅）。ただし無担保・分散満期で 2022 型の即死カスケードより「慢性的な上値の重し」。</li>
+  </ul>
+  <p class="sub">※ mNAV・転換社債・Strategy 固有財務は<strong>特殊すぎるため基盤に入れず</strong>、レポート側に閉じる（ユーザ指示のスコープ）。</p>
+
+  <h2>3. マクロ基盤への汎用的改善</h2>
+  <h3>追加した 6 series（全 FRED 無認証・live 検証済・全リスク資産に効く）</h3>
+  <table>
+    <tr><th>series_id</th><th>FRED</th><th>最新値</th><th>レンズ</th></tr>
+    <tr><td><code>us.real_10y</code></td><td>DFII10</td><td class="num">2.19%</td><td>実質金利・store-of-value</td></tr>
+    <tr><td><code>us.breakeven_10y</code></td><td>T10YIE</td><td class="num">2.20%</td><td>同上（名目=実質+期待インフレ分解）</td></tr>
+    <tr><td><code>us.fed_assets</code></td><td>WALCL</td><td class="num">$6.74T</td><td>グローバル流動性</td></tr>
+    <tr><td><code>us.reverse_repo</code></td><td>RRPONTSYD</td><td class="num">$6.4B</td><td>同上（net liquidity 控除項）</td></tr>
+    <tr><td><code>us.m2</code></td><td>M2SL</td><td class="num">$23.05T</td><td>同上（~10週先行）</td></tr>
+    <tr><td><code>us.nfci</code></td><td>NFCI</td><td class="num">−0.52</td><td>金融環境の合成ゲージ</td></tr>
+  </table>
+  <p>registry は 32 → <strong>38 series</strong>。runbook §③ に <strong>4 つの汎用分析レンズ</strong>（①グローバル流動性 ②実質金利・store-of-value ③金融環境合成 ④リスク選好温度計）を明文化。</p>
+  <div class="callout">
+    <strong>スコープ規律</strong>: 汎用指標だけを基盤へ。BTC トレジャリー固有（mNAV・転換社債・Strategy 財務）は基盤に入れない。<span class="pill">grep でリーク 0 件を確認</span>
+  </div>
+  <p class="sub">既知 gap / follow-up: <strong>金</strong>（FRED の LBMA 系列が 2025/5 廃止・代替不在 → stooq 等の非 FRED provider が必要）、<strong>SOX</strong>（proprietary index で FRED 非対応）。</p>
+
+  <h2>4. <code>macro-analysis</code> スキル（方法＋品質ゲート＋自己改善）</h2>
+  <p>マクロ分析の操作（パネル取得・4レンズ）と、<strong>公開前の敵対的 self-check ゲート（13 項目）</strong>を固定。誤りを防ぐ核は次の通り。</p>
+  <div class="grid">
+    <div class="card"><h3>ゲートの核</h3><ul style="font-size:13px">
+      <li><strong>反証テーブル</strong>: 各結論に「反証するならどの series か／実値は反証側に振れていないか」を強制（attestation→artifact）</li>
+      <li><strong>標準窓</strong>: YoY≥13ヶ月／QT全区間 等を結論前に固定（窓 cherry-pick 禁止）</li>
+      <li>series 鮮度・廃止／単位・level vs YoY／比率の検算／provenance／ベースレート／レンズ間矛盾の調停／release 鮮度／validator 実行</li>
+    </ul></div>
+    <div class="card"><h3>自己改善ループ（kaizen）</h3><p class="sub">専用儀式を足さず、唯一 teeth を持つ §3 ゲートに<strong>掃き出しチェックを同居</strong>。<code>KAIZEN.md</code>（未反映 backlog）→ 再現する欠陥のみ <code>SKILL.md</code> へ畳み、fold=1 commit で git history を安全網にする。</p></div>
+  </div>
+
+  <h2>5. 品質プロセス ― 多角的・敵対的レビュー＋ドッグフーディング</h2>
+  <p>スキルを <strong>5 つのサブエージェントで敵対的に評価</strong>（規約適合／ゲートのレッドチーム／kaizen 堅牢性／実用性＋コマンド検証／スコープ削除）。主要 findings を統合して大改稿。</p>
+  <div class="callout good">
+    <strong>ドッグフーディングが自分のミスを検出。</strong> 完成したスキルで PR を再レビューしたところ、§3-2「標準窓」ゲートが <strong>レポートの残存ミス</strong>を捕捉:
+    <ul style="margin-top:6px">
+      <li><strong>M2「前年比~6%」は誤り</strong> → 8ヶ月の伸びを YoY と誤記。proper な 12ヶ月窓で再計算し <strong>+4.7%</strong> に訂正（計算: 1028.7/21775.8）。</li>
+      <li><strong>WALCL「再拡大」は 6ヶ月窓だけの主張</strong> → 2年窓では QT で $7.26T→$6.74T 縮小、直近やっと下げ止まり＝「QT 終了の兆し」へ framing 修正。</li>
+      <li>friction（<code>fed_assets</code> の scientific notation 桁誤読）を KAIZEN → §2 へ畳み込み（ループ初稼働＝「0-for-1」批判への実体反証）。</li>
+    </ul>
+  </div>
+
+  <h2>6. 検証と申し送り</h2>
+  <div class="grid">
+    <div class="card"><h3>通過した検証</h3><ul style="font-size:13px">
+      <li><code>uv run pytest</code> macro: 40 passed</li>
+      <li><code>baibai-loop-validation</code>: 0 error（既存 <code>sox_semiconductor</code> warning は本 PR 起因でない）</li>
+      <li><code>ruff format/check</code>・<code>mypy</code>: clean</li>
+      <li>新 6 series は <code>--latest</code> で live fetch 確認済</li>
+    </ul></div>
+    <div class="card"><h3>follow-up 候補</h3><ul style="font-size:13px">
+      <li>金 series: 非 FRED provider（stooq 等）の追加で store-of-value レンズを完成</li>
+      <li>net liquidity: TGA（<code>WTREGEN</code>）を registry へ追加して恒等式を完備</li>
+      <li>既存 record の <code>sox_semiconductor</code> 未登録 warning の解消方針</li>
+    </ul></div>
+  </div>
+
+  <div class="callout">
+    <strong>honesty firewall / 限界</strong>: マクロ・BTC とも N≈1。本 PR は edge 数値・統計的有意・自動 sizing を出さない。シナリオ確率は主観。トレジャリー財務は公開情報ベースで、非公開の lender 交渉・私的契約は不可視。転換社債の正確な額面は一次（10-Q）未確認。
+  </div>
+
+  <div class="foot">
+    関連ファイル:
+    <code>reports/2026-06-27-bitcoin-macro-treasury-outlook.md</code>（分析本体）・
+    <code>src/baibai_loop/macro/indicators/series.yaml</code>（+6 series）・
+    <code>docs/operations/macro-runbook.md</code>（汎用レンズ）・
+    <code>.claude/skills/macro-analysis/</code>（SKILL.md ＋ KAIZEN.md）。<br>
+    本 HTML は PR の内容説明用に生成した補助資料。一次資料は上記の Markdown / YAML。
+  </div>
+
+</div>
+</body>
+</html>
