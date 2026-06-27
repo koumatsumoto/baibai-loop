@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, date, datetime
 from typing import Protocol
 
@@ -40,6 +41,7 @@ class HttpSession(Protocol):
         url: str,
         *,
         params: dict[str, str] | None = None,
+        headers: Mapping[str, str] | None = None,
         timeout: int,
         stream: bool = False,
     ) -> requests.Response: ...
@@ -67,9 +69,12 @@ def fetch_text(
     *,
     params: dict[str, str] | None,
     max_bytes: int,
+    headers: Mapping[str, str] | None = None,
     context: FetchContext | None = None,
 ) -> str:
-    content = fetch_bytes(session, url, params=params, max_bytes=max_bytes, context=context)
+    content = fetch_bytes(
+        session, url, params=params, max_bytes=max_bytes, headers=headers, context=context
+    )
     return content.decode("utf-8-sig")
 
 
@@ -79,13 +84,16 @@ def fetch_bytes(
     *,
     params: dict[str, str] | None,
     max_bytes: int,
+    headers: Mapping[str, str] | None = None,
     context: FetchContext | None = None,
 ) -> bytes:
     key = (url, tuple(sorted((params or {}).items())))
     if context is not None and key in context.bytes_cache:
         return context.bytes_cache[key]
     try:
-        response = session.get(url, params=params, timeout=HTTP_TIMEOUT_SECONDS, stream=True)
+        response = session.get(
+            url, params=params, headers=headers, timeout=HTTP_TIMEOUT_SECONDS, stream=True
+        )
         _raise_for_response(response, url)
         content_length = response.headers.get("Content-Length")
         if content_length is not None:
