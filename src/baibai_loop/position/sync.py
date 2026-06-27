@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -33,9 +33,7 @@ def sync_decisions(
     dry_run: bool = False,
     calendar: tuple[date, ...] = (),
     bars: tuple[JQuantsDailyBar, ...] = (),
-    observed_at: datetime | None = None,
 ) -> SyncResult:
-    _ = (observed_at or datetime.now(UTC)).isoformat()
     thesis_root = root / "records/05-thesis"
     position_root = root / "records/06-position"
     register_root = root / "records/_decisions/thesis-decisions"

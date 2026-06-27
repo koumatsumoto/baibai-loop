@@ -90,3 +90,27 @@ def test_compute_forward_performance_warns_on_missing_benchmark() -> None:
     assert result.benchmark_return is None
     assert result.relative is None
     assert any("benchmark" in warning for warning in result.warnings)
+
+
+def test_compute_forward_performance_portfolio_return_none_when_a_position_is_unpriced() -> None:
+    # One position cannot be priced at asof (only a future bar exists). Its notional
+    # would otherwise dilute portfolio_return toward 0; the aggregate must be None
+    # (all-or-nothing, like benchmark_return) while the priced position is unaffected.
+    trades = [
+        _trade("0001", date(2026, 5, 7), 1000.0, 100),
+        _trade("0002", date(2026, 5, 7), 1000.0, 100),
+    ]
+    bars = [
+        _bar("0001", date(2026, 5, 7), 1000.0),
+        _bar("0001", date(2026, 6, 5), 1100.0),
+        _bar("0002", date(2026, 7, 1), 1200.0),  # only after asof -> unpriced at asof
+        _bar("1321", date(2026, 5, 7), 1000.0),
+        _bar("1321", date(2026, 6, 5), 1050.0),
+    ]
+    result = compute_forward_performance(trades, date(2026, 6, 5), bars)
+    assert result.portfolio_return is None
+    assert result.benchmark_return == pytest.approx(0.05)
+    assert result.relative is None
+    assert any("0002" in warning for warning in result.warnings)
+    priced = next(pos for pos in result.positions if pos.ticker == "0001")
+    assert priced.return_ratio == pytest.approx(0.10)

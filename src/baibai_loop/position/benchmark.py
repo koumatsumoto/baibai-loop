@@ -65,6 +65,7 @@ def compute_forward_performance(
     total_notional = 0.0
     total_gross_pnl = 0.0
     benchmark_complete = True
+    portfolio_complete = True
     for trade in trades:
         notional = trade.entry_price * trade.quantity
         eval_price = price_on_or_before(trade.ticker, asof, bars)
@@ -73,6 +74,11 @@ def compute_forward_performance(
         return_ratio: float | None = None
         relative: float | None = None
         if eval_price is None:
+            # A position whose notional stays in total_notional but whose pnl is
+            # unknown would silently dilute portfolio_return toward 0; mirror the
+            # benchmark's all-or-nothing rule so the aggregate is None (not a
+            # diluted, falsely-low number) when any position cannot be priced.
+            portfolio_complete = False
             warnings.append(f"no price on or before {asof.isoformat()} for {trade.ticker}")
         else:
             gross_pnl = (eval_price - trade.entry_price) * trade.quantity
@@ -103,7 +109,9 @@ def compute_forward_performance(
                 relative=relative,
             )
         )
-    portfolio_return = total_gross_pnl / total_notional if total_notional > 0 else None
+    portfolio_return = (
+        total_gross_pnl / total_notional if total_notional > 0 and portfolio_complete else None
+    )
     benchmark_return = (
         weighted_benchmark / total_notional if total_notional > 0 and benchmark_complete else None
     )
