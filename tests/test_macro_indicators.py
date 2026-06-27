@@ -6,6 +6,7 @@ import sqlite3
 import tempfile
 import unittest
 import zipfile
+from collections.abc import Mapping
 from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -38,6 +39,7 @@ from baibai_loop.macro.indicators.providers import (
     parse_h15_csv,
     parse_manual_entries,
     parse_trades_spec,
+    parse_yahoo_chart,
 )
 from baibai_loop.macro.indicators.service import IndicatorsService
 
@@ -471,6 +473,49 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         with self.assertRaisesRegex(IndicatorsProviderError, "GET_STATS_DATA"):
             parse_estat_json(series, "{}", start=date(2026, 1, 1), end=date(2026, 12, 31))
 
+    def test_parse_yahoo_chart_filters_range_and_skips_null_close(self) -> None:
+        series = _series("yahoo", "GC=F", unit="usd-per-oz")
+
+        def ts(year: int, month: int, day: int) -> int:
+            return int(datetime(year, month, day, 14, 30, tzinfo=UTC).timestamp())
+
+        text = json.dumps(
+            {
+                "chart": {
+                    "error": None,
+                    "result": [
+                        {
+                            "timestamp": [ts(2026, 5, 1), ts(2026, 5, 4), ts(2026, 5, 5)],
+                            "indicators": {"quote": [{"close": [4000.0, None, 4050.5]}]},
+                        }
+                    ],
+                }
+            }
+        )
+
+        observations = parse_yahoo_chart(series, text, start=date(2026, 5, 4), end=date(2026, 5, 5))
+
+        self.assertEqual([obs.observed_at for obs in observations], [date(2026, 5, 5)])
+        self.assertEqual(observations[0].value, 4050.5)
+
+    def test_parse_yahoo_chart_rejects_error_payload(self) -> None:
+        series = _series("yahoo", "BADSYM", unit="index")
+        text = json.dumps(
+            {"chart": {"result": None, "error": {"code": "Not Found", "description": "no data"}}}
+        )
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "Yahoo chart error"):
+            parse_yahoo_chart(series, text, start=date(2026, 5, 1), end=date(2026, 5, 1))
+
+    def test_parse_yahoo_chart_rejects_missing_quote(self) -> None:
+        series = _series("yahoo", "GC=F", unit="usd-per-oz")
+        text = json.dumps(
+            {"chart": {"error": None, "result": [{"timestamp": [1], "indicators": {}}]}}
+        )
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "missing quote"):
+            parse_yahoo_chart(series, text, start=date(2026, 5, 1), end=date(2026, 5, 2))
+
     def test_split_stats_data_id_extracts_narrowing_params(self) -> None:
         from baibai_loop.macro.indicators.providers.estat import _split_stats_data_id
 
@@ -777,6 +822,7 @@ class _RaisingSession:
         url: str,
         *,
         params: dict[str, str] | None = None,
+        headers: Mapping[str, str] | None = None,
         timeout: int,
         stream: bool = False,
     ) -> object:
@@ -792,6 +838,7 @@ class _StaticSession:
         url: str,
         *,
         params: dict[str, str] | None = None,
+        headers: Mapping[str, str] | None = None,
         timeout: int,
         stream: bool = False,
     ) -> _FakeResponse:

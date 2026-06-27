@@ -36,11 +36,13 @@ KAIZEN は §3 末尾の掃き出しチェックで回す（§5）。
 cd /home/kou/baibai-loop
 # latest パネル
 for s in \
-  us.m2 us.fed_assets us.reverse_repo \
-  us.real_10y us.breakeven_10y us.10y us.2y \
-  us.nfci vix credit.us_hy_oas credit.us_ig_oas credit.us_ccc_oas \
-  usd_index.broad usd_jpy btc_usd \
-  us.sp500 us.nasdaq jp.nikkei225 ; do
+  us.m2 us.fed_assets us.reverse_repo us.tga \
+  us.real_10y us.breakeven_10y us.10y us.2y us.10y_3m_spread \
+  us.cpi.core us.pce.core us.inflation_5y5y \
+  us.nfci vix us.move credit.us_hy_oas credit.us_ig_oas credit.us_ccc_oas \
+  usd_index.broad usd_jpy btc_usd gold copper \
+  us.initial_claims us.industrial_production \
+  us.sp500 us.nasdaq us.russell2000 us.sox jp.nikkei225 ; do
   uv run baibai-loop-macro get "$s" --latest 2>&1 | tail -1
 done
 # 方向が論点の series は range で（窓は §3 の標準窓。日付はそのまま走る）
@@ -51,16 +53,17 @@ uv run baibai-loop-macro get btc_usd       --start "$(date -d '3 months ago' +%F
 
 注意:
 - `us.m2` / `us.fed_assets` は **level**。「前年比/加速」を語るなら YoY を自分で計算する（§3-4）。
-- **net liquidity を断言するなら TGA も引く**（FRED `WTREGEN` を ad hoc）。引かないなら成分（FRB 総資産・RRP）の向きのみ述べ、「net liquidity が増/減」と断定しない（§3-1 の反証漏れを防ぐ）。
+- **net liquidity = `us.fed_assets` − `us.reverse_repo` − `us.tga`** の 3 成分を揃えて読む（**単位注意: `us.reverse_repo` は十億ドル、`us.fed_assets`/`us.tga` は百万ドル**＝換算して引く）。1 成分でも欠けたまま「net liquidity が増/減」と断定しない（§3-1 の反証漏れを防ぐ）。
 - `us.sp500` / `us.nasdaq` / `jp.nikkei225` / `us.2y` / `usd_jpy` は **context anchor**（リスク資産・カーブ・キャリーの背景）で、下の 4 レンズの直接入力ではない。
 - `us.fed_assets` 等の大きな値は scientific notation で出る（`6.73564e+06` = 6,735,640 百万ドル = $6.74T）。桁を取り違えない。
 
 | レンズ | 束ねて引く series |
 | --- | --- |
-| グローバル流動性 | `us.fed_assets`・`us.reverse_repo`・`us.m2` |
-| 実質金利・store-of-value | `us.real_10y`・`us.breakeven_10y`・`usd_index.broad` |
-| 金融環境の合成 | `us.nfci`・`vix`・`credit.us_*_oas` |
+| グローバル流動性 | `us.fed_assets`・`us.reverse_repo`・`us.tga`・`us.m2` |
+| 実質金利・store-of-value | `us.real_10y`・`us.breakeven_10y`・`usd_index.broad`・`gold` |
+| 金融環境の合成 | `us.nfci`・`vix`・`us.move`・`credit.us_*_oas` |
 | リスク選好の温度計 | `btc_usd`・`vix`・`credit.us_hy_oas`/`credit.us_ccc_oas`・`us.nfci` |
+| 景気サイクル・breadth | `us.initial_claims`・`us.industrial_production`・`copper`・`us.russell2000`・`us.10y_3m_spread`・`us.sox` |
 
 **各レンズが何を意味するか（読み方）は [runbook §③「汎用分析レンズ」](../../../docs/operations/macro-runbook.md) が正本。** ここでは「どの ID を束ねて引くか」だけ示す。
 

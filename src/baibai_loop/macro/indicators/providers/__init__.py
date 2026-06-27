@@ -19,6 +19,7 @@ from .frb_h15 import FrbH15Provider, parse_h15_csv
 from .fred import FredProvider, parse_fred_csv
 from .jquants_flows import JQuantsFlowsProvider, parse_trades_spec
 from .manual import ManualProvider, parse_manual_entries
+from .yahoo import YahooChartProvider, parse_yahoo_chart
 
 __all__ = [
     "FetchContext",
@@ -32,6 +33,7 @@ __all__ = [
     "parse_h15_csv",
     "parse_manual_entries",
     "parse_trades_spec",
+    "parse_yahoo_chart",
 ]
 
 _PROVIDERS: dict[str, MacroDataProvider] = {
@@ -44,6 +46,7 @@ _PROVIDERS: dict[str, MacroDataProvider] = {
         BojProvider(),
         EStatProvider(),
         JQuantsFlowsProvider(),
+        YahooChartProvider(),
     )
 }
 
