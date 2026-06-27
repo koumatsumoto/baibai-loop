@@ -56,6 +56,10 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 - 一次情報 (Tier 1) が継続的に取得困難な指標は [`docs/reference/data-sources.md`](./docs/reference/data-sources.md) §「一次統計の数値で Tier 1 取得が困難な場合の Tier 2 例外運用」に従い、`status: failed` Tier 1 と `status: ok` Tier 2 を併記する
 - Python 構文を review で指摘する前に、必ず [`pyproject.toml`](./pyproject.toml) の `requires-python` / Ruff `target-version` と [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §3 を確認する。この repo は Python 3.14 固定だが、Ruff は `target-version = "py313"` にして PEP 758 の `except T1, T2:` へ自動整形されないようにしている。複数例外捕捉は必ず `except (T1, T2):` と書く
 
+## 銘柄提示時の TradingView リンク
+
+このリポジトリで ticker（証券コード）を提案・提示するときは、必ず TradingView チャート URL `https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A<code>`（`:` は `%3A`）を Markdown リンクで併記する。WSL / Windows では `powershell.exe -NoProfile -Command "Start-Process '<url>'"` で既定ブラウザにも開く（`explorer.exe` / `cmd start` は query 付き URL を壊すので使わない）。focus 銘柄（最終候補・推し）は自動で開き、screening の大量一覧はリンクは全件・ブラウザ起動は focus 分だけにする。手順の詳細は [`.claude/skills/tradingview-open/SKILL.md`](./.claude/skills/tradingview-open/SKILL.md)。
+
 ## 事実と分析の分離
 
 `records/04-candidates/` は事実層、`records/01-macro-context/` と `records/05-thesis/` は分析層。事実ファイルに解釈・予測・相場観を書かない。詳細は [`docs/design-principles.md`](./docs/design-principles.md)。
