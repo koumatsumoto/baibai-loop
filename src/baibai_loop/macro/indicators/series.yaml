@@ -432,3 +432,135 @@ series:
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=NFCI
     notes: 105+指標の合成金融環境指数(0=平均, 正=引締/負=緩和)。VIX・クレジットOASを1本に束ねる単一ゲージ。リスクオン/オフの合成温度計
     aliases: [NFCI, 金融環境指数, financial conditions, シカゴ連銀NFCI]
+  - series_id: us.pce.core
+    name: 米コアPCE価格指数
+    category: inflation
+    geography: us
+    frequency: monthly
+    unit: index
+    provider: fred_csv
+    provider_series_id: PCEPILFE
+    source_id: fred-pcepilfe
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=PCEPILFE
+    notes: 食品・エネルギー除くPCE価格指数(月次)。FRBが2%目標で参照する最重要インフレ指標。CPIより政策含意が直接的
+    aliases: [コアPCE, PCE core, PCEPILFE, 米PCE, FRB目標インフレ]
+  - series_id: us.inflation_5y5y
+    name: 米5年5年先期待インフレ
+    category: inflation
+    geography: us
+    frequency: daily
+    unit: percent
+    provider: fred_csv
+    provider_series_id: T5YIFR
+    source_id: fred-t5yifr
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=T5YIFR
+    notes: 5年5年先フォワード期待インフレ率。長期インフレ期待のアンカー度合いをFRBが注視する。breakevenの長期版
+    aliases: [5y5y, 5年5年先, forward inflation, T5YIFR, 長期期待インフレ]
+  - series_id: us.initial_claims
+    name: 米新規失業保険申請件数
+    category: labor
+    geography: us
+    frequency: weekly
+    unit: count
+    provider: fred_csv
+    provider_series_id: ICSA
+    source_id: fred-icsa
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=ICSA
+    notes: 週次・季調済の新規失業保険申請。労働市場の高頻度先行指標で月次雇用統計に先行。急増は景気後退の早期警戒
+    aliases: [新規失業保険, initial claims, jobless claims, ICSA, 失業保険申請]
+  - series_id: us.industrial_production
+    name: 米鉱工業生産指数
+    category: activity
+    geography: us
+    frequency: monthly
+    unit: index
+    provider: fred_csv
+    provider_series_id: INDPRO
+    source_id: fred-indpro
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=INDPRO
+    notes: 鉱工業生産指数(月次)。実体経済の生産活動ゲージ。製造業循環・景気局面の判断に使う
+    aliases: [鉱工業生産, industrial production, INDPRO, 米生産]
+  - series_id: us.10y_3m_spread
+    name: 米10Y-3Mスプレッド
+    category: rates
+    geography: us
+    frequency: daily
+    unit: percent
+    provider: fred_csv
+    provider_series_id: T10Y3M
+    source_id: fred-t10y3m
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=T10Y3M
+    notes: 10年-3ヶ月国債スプレッド。FRBが最重視する景気後退の先行シグナル(逆イールド)。10Y-2Yとは別に監視する
+    aliases: [10Y-3Mスプレッド, 逆イールド, recession spread, T10Y3M, 10年3ヶ月]
+  - series_id: us.tga
+    name: 米財務省一般勘定(TGA)
+    category: monetary
+    geography: us
+    frequency: weekly
+    unit: usd-million
+    provider: fred_csv
+    provider_series_id: WTREGEN
+    source_id: fred-wtregen
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=WTREGEN
+    notes: 財務省一般勘定残高(週次・百万ドル)。net liquidity = FRB総資産 − RRP − TGA の控除項。TGA積み上げは市場から流動性を吸収する
+    aliases: [TGA, 財務省一般勘定, Treasury General Account, WTREGEN]
+  - series_id: gold
+    name: 金先物(COMEX, USD/oz)
+    category: commodity
+    geography: world
+    frequency: daily
+    unit: usd-per-oz
+    provider: yahoo
+    provider_series_id: GC=F
+    source_id: yahoo-gc-f
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/GC=F
+    notes: COMEX金先物フロント限月(日次終値)。実質金利・ドル・債務貨幣化のstore-of-value温度計。BTCと並べてデジタルゴールド命題を読む。FRED LBMA系列廃止のためYahooで取得
+    aliases: [金, ゴールド, gold, XAU, 金価格, gold_futures]
+  - series_id: copper
+    name: 銅先物(COMEX, USD/lb)
+    category: commodity
+    geography: world
+    frequency: daily
+    unit: usd-per-lb
+    provider: yahoo
+    provider_series_id: HG=F
+    source_id: yahoo-hg-f
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/HG=F
+    notes: COMEX銅先物フロント限月(日次終値)。世界景気の先行ゲージ(Dr.Copper)。銅/金レシオでリスク選好・成長期待を読む
+    aliases: [銅, copper, HG, Dr Copper, 銅価格]
+  - series_id: us.move
+    name: MOVE指数(米国債ボラティリティ)
+    category: volatility
+    geography: us
+    frequency: daily
+    unit: index
+    provider: yahoo
+    provider_series_id: ^MOVE
+    source_id: yahoo-move
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/%5EMOVE
+    notes: ICE BofA MOVE指数(米国債の予想変動率)。債券版VIX。金利ボラ上昇は流動性・リスク資産の逆風。VIX(株)・OAS(信用)と別軸の早期警戒
+    aliases: [MOVE, 債券VIX, bond volatility, MOVE指数, 金利ボラ]
+  - series_id: us.russell2000
+    name: ラッセル2000(米小型株)
+    category: equity-index
+    geography: us
+    frequency: daily
+    unit: index
+    provider: yahoo
+    provider_series_id: ^RUT
+    source_id: yahoo-rut
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/%5ERUT
+    notes: 米小型株指数(日次)。大型グロース/小型バリューのローテーション・市場breadth・内需循環の温度計。S&P500との相対で局面を読む
+    aliases: [ラッセル2000, Russell 2000, RUT, 米小型株, small caps]
+  - series_id: us.sox
+    name: フィラデルフィア半導体指数(SOX)
+    category: equity-index
+    geography: us
+    frequency: daily
+    unit: index
+    provider: yahoo
+    provider_series_id: ^SOX
+    source_id: yahoo-sox
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/%5ESOX
+    notes: PHLX半導体指数(日次)。AI/半導体サイクルの先行ゲージで、日本の半導体株は本指数に高感応。proprietary指数でFRED非対応のためYahooで取得
+    aliases: [SOX, 半導体指数, sox_semiconductor, フィラデルフィア半導体, PHLX Semiconductor]
