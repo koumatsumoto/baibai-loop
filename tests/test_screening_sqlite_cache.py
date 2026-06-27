@@ -151,6 +151,44 @@ class SQLiteCacheTest(unittest.TestCase):
             self.assertEqual(table_count[0], 1)
             self.assertEqual(coverage, (1,))
 
+    def test_fin_summaries_forecast_eps_uses_short_keys_with_next_year_fallback(self) -> None:
+        # ClientV2 fin-summary payloads use short keys: FEPS (current-FY forecast) is
+        # empty on full-year disclosures, where guidance moves to NxFEPS. The stored
+        # forecast_eps (the per_forward basis) must take NxFEPS on FY rows and keep
+        # FEPS on interim rows.
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_fin_summaries(
+                db,
+                [
+                    {
+                        "Code": "97150",
+                        "DisclosedDate": "2026-04-30",
+                        "FEPS": "",
+                        "NxFEPS": "360.26",
+                    },
+                    {
+                        "Code": "72030",
+                        "DisclosedDate": "2026-05-13",
+                        "FEPS": "306.89",
+                        "NxFEPS": "",
+                    },
+                ],
+                requested_start=date(2026, 4, 30),
+                requested_end=date(2026, 5, 13),
+            )
+            conn = sqlite3.connect(db)
+            try:
+                stored = dict(
+                    conn.execute(
+                        "SELECT ticker, forecast_eps FROM jquants_fin_summaries"
+                    ).fetchall()
+                )
+            finally:
+                conn.close()
+            self.assertEqual(stored["9715"], 360.26)
+            self.assertEqual(stored["7203"], 306.89)
+
     def test_fin_summaries_shifted_chunk_refetch_keeps_coverage_contiguous(self) -> None:
         """A later bootstrap anchors chunk boundaries at a new asof, so a re-fetch only
         partially overlaps an existing window. Recording it must merge into the union,
