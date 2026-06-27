@@ -53,6 +53,7 @@ uv run baibai-loop-macro get btc_usd       --start "$(date -d '3 months ago' +%F
 - `us.m2` / `us.fed_assets` は **level**。「前年比/加速」を語るなら YoY を自分で計算する（§3-4）。
 - **net liquidity を断言するなら TGA も引く**（FRED `WTREGEN` を ad hoc）。引かないなら成分（FRB 総資産・RRP）の向きのみ述べ、「net liquidity が増/減」と断定しない（§3-1 の反証漏れを防ぐ）。
 - `us.sp500` / `us.nasdaq` / `jp.nikkei225` / `us.2y` / `usd_jpy` は **context anchor**（リスク資産・カーブ・キャリーの背景）で、下の 4 レンズの直接入力ではない。
+- `us.fed_assets` 等の大きな値は scientific notation で出る（`6.73564e+06` = 6,735,640 百万ドル = $6.74T）。桁を取り違えない。
 
 | レンズ | 束ねて引く series |
 | --- | --- |
