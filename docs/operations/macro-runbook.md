@@ -30,7 +30,7 @@ uv run baibai-loop-macro get jp.policy_rate --latest
 
 | Provider | 取得 | 担当ドメイン | 確認手順・既知の caveat |
 | --- | --- | --- | --- |
-| `fred_csv` | 無認証 CSV | 米マクロ・金利・FX・原油/金・VIX・クレジット OAS・BTC ＋ JP ミラー | 系列 ID を `fredgraph.csv?id=<ID>` の header 列で実 fetch 確認。**JP 系列は OECD 由来で月次/lag・廃止がある**（例: `JPNCPIALLMINMEI`・`CPALTT01JPM659N` は 2021 で停止）。日次が要る JP は別 provider |
+| `fred_csv` | 無認証 CSV | 米マクロ・金利・実質金利/期待インフレ・FX・原油・VIX・クレジット OAS・BTC・流動性(FRB資産/RRP/M2)・金融環境(NFCI) ＋ JP ミラー | 系列 ID を `fredgraph.csv?id=<ID>` の header 列で実 fetch 確認。**FRED 系列は廃止がある**（JP OECD 系列 `JPNCPIALLMINMEI`・`CPALTT01JPM659N` は 2021 停止、**金 LBMA `GOLDAMGBD228NLBM` は 2025/5 停止・FRED に代替の clean な金系列が不在**）。日次 JP・金スポットは非 FRED provider が要る |
 | `frb_h15` | 無認証 CSV（H.15 package） | 米国債金利・スプレッド | 1 package を `FetchContext` で series 横断に 1 回 DL（bulk dedup） |
 | `ecb_fx` | 無認証 ZIP | JPY クロス（USD/EUR/AUD） | ZIP 1 ファイルを横断共有。JPY と基軸通貨の比で算出 |
 | `estat` | API（`ESTAT_APP_ID` 必須） | JP 公式マクロ（CPI・鉱工業生産・小売 等） | appId を env/.env に設定。`statsDataId` は e-Stat で確認。JP CPI の一次ソースはここ |
@@ -55,6 +55,15 @@ uv run baibai-loop-validation --target macro-context
 ## ③ ナレッジ：都度洗練する
 
 調査方法のコツ・source 確認手順・lessons は、リサーチを重ねるたびに上の registry と本 runbook に追記する（playbook 化は反復する問いタイプが現れてから）。formal な retro / calibration 機構は持たない。
+
+### 汎用分析レンズ（指標の束ね方）
+
+個別 series は単体でなく、以下のレンズに束ねて環境読みに使う。いずれも全リスク資産に効く汎用フレームで、流動性・実質金利に感応する資産（growth 株・新興・コモディティ・crypto）で特に鋭く出る。1 枚のパネルで横断的に読む（`baibai-loop-macro get` を束ねる）。操作手順・**公開前の敵対的 self-check ゲート**・スキル自身の改善ループは skill [`macro-analysis`](../../.claude/skills/macro-analysis/SKILL.md) に集約する。
+
+1. **グローバル流動性**: net liquidity ≈ `us.fed_assets`(FRB総資産) − `us.reverse_repo`(ON RRP) − TGA。`us.m2` の前年比はリスク資産に約10週先行する経験則の基軸。QT/QE の量的スタンスと RRP の枯渇/再構築を合わせ「流動性のトレンドとエンジンの有無」を読む（TGA は未登録。必要時 FRED `WTREGEN` 等を ad hoc 併用）。
+2. **実質金利・store-of-value**: `us.real_10y`(実質金利) + `us.breakeven_10y`(期待インフレ) + `usd_index.broad`(ドル)。名目 `us.10y` = 実質 + 期待インフレ に分解し「割引率上昇が実質金利由来か期待インフレ由来か」を見る。実質金利上昇＋強いドルは無利回り資産（金・BTC）と長期グロースの一様な向かい風。
+3. **金融環境の合成**: `us.nfci`(0=平均, 正=引締/負=緩和)を `vix`・クレジット OAS と突き合わせる。NFCI がまだ緩和的なのに特定資産が荒れる局面は「広範化前の局所ストレス（slow-burn）」と読む。
+4. **リスク選好の温度計**: `btc_usd` + `vix` + `credit.us_hy_oas`/`credit.us_ccc_oas` + `us.nfci` を 1 枚のパネルで見る。BTC は最も流動性・リスク選好に感応するため先行温度計になりやすい（ただし単独の numeric driver にはしない＝誠実性ファイアウォール）。
 
 ## 接続：判断層にだけ効かせる（screen は macro-blind）
 
