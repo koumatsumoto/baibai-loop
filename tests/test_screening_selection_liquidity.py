@@ -57,6 +57,51 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
         assert isinstance(diagnostics, Mapping)
         return diagnostics
 
+    def test_recommendation_surfaces_valuation_downside_and_value_trap_signals(self) -> None:
+        # The recommendation summary must carry headline valuation (per/pbr/ev_ebitda/p_s),
+        # downside-protection metrics (cash/net-cash/equity/ocf), and the value-trap
+        # discriminators (earnings momentum + cash conversion) so triage can reject a
+        # cheap trailing PER that masks declining or non-cash earnings, without a
+        # separate ticker-profile call per candidate.
+        payload = self._payload(
+            [
+                _candidate(
+                    "4839",
+                    per_trailing=21.48,
+                    pbr=0.4,
+                    ev_ebitda=6.5,
+                    p_s=0.37,
+                    avg_turnover_oku=3.5,
+                    price_change_60d=-0.26,
+                    metrics={
+                        "cash_to_market_cap": 0.93,
+                        "equity_ratio": 0.74,
+                        "ocf_yield": 0.19,
+                        "operating_profit_yoy": -0.28,
+                        "sales_yoy": 0.00,
+                        "fcf_yield": 0.05,
+                    },
+                )
+            ]
+        )
+        recommendations = payload["recommendations"]
+        assert isinstance(recommendations, list)
+        rec = next(item for item in recommendations if item["ticker"] == "4839")
+        self.assertEqual(rec["per_trailing"], 21.48)
+        self.assertEqual(rec["pbr"], 0.4)
+        self.assertEqual(rec["ev_ebitda"], 6.5)
+        self.assertEqual(rec["p_s"], 0.37)
+        self.assertEqual(rec["cash_to_market_cap"], 0.93)
+        self.assertEqual(rec["equity_ratio"], 0.74)
+        self.assertEqual(rec["ocf_yield"], 0.19)
+        # value-trap discriminators: declining OP yoy and weak cash conversion
+        self.assertEqual(rec["operating_profit_yoy"], -0.28)
+        self.assertEqual(rec["sales_yoy"], 0.00)
+        self.assertEqual(rec["fcf_yield"], 0.05)
+        # liquidity + 60d dislocation depth for order feasibility and oversold read
+        self.assertEqual(rec["avg_turnover_oku"], 3.5)
+        self.assertEqual(rec["price_change_60d"], -0.26)
+
     def test_filter_excludes_small_thin_recent_and_flagged(self) -> None:
         payload = self._payload(
             [

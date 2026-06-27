@@ -52,6 +52,7 @@ def _snapshot(regime: MarketRegime) -> MarketRegimeSnapshot:
         eval_date=_ASOF,
         benchmark_return_20d=0.05,
         benchmark_return_60d=0.08,
+        benchmark_gap_from_high=-0.02,
         regime=regime,
     )
 

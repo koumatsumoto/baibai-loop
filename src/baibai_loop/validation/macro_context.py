@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from datetime import date
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,29 @@ from baibai_loop.foundation.errors import ValidationFinding
 from baibai_loop.foundation.yaml_io import safe_load
 
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "macro-context.json"
+# Canonical macro-series registry. Read as data (not imported) so this validator
+# stays inside the import-direction contract (validation must not import macro),
+# the same way it reads the JSON schema above.
+_SERIES_REGISTRY_PATH = Path(__file__).resolve().parents[1] / "macro" / "indicators" / "series.yaml"
+
+
+@lru_cache(maxsize=1)
+def _registered_series_ids() -> frozenset[str]:
+    """series.yaml に登録された series_id と alias の集合。macro-context の
+    indicator_series.series_id がここに無ければ refresh / grounding で解決できない。"""
+    raw = safe_load(_SERIES_REGISTRY_PATH.read_text(encoding="utf-8"))
+    ids: set[str] = set()
+    if isinstance(raw, Mapping):
+        for series in raw.get("series") or []:
+            if not isinstance(series, Mapping):
+                continue
+            series_id = series.get("series_id")
+            if isinstance(series_id, str):
+                ids.add(series_id)
+            for alias in series.get("aliases") or []:
+                if isinstance(alias, str):
+                    ids.add(alias)
+    return frozenset(ids)
 
 
 def discover_macro_context_files(root: Path) -> list[Path]:
@@ -114,6 +138,26 @@ def _validate_custom(path: Path, payload: Mapping[str, Any]) -> list[ValidationF
                 location="inputs",
             )
         )
+    if isinstance(inputs, Mapping):
+        indicator_series = inputs.get("indicator_series")
+        if isinstance(indicator_series, list):
+            registered = _registered_series_ids()
+            for index, item in enumerate(indicator_series):
+                series_id = item.get("series_id") if isinstance(item, Mapping) else None
+                if isinstance(series_id, str) and series_id not in registered:
+                    findings.append(
+                        ValidationFinding(
+                            severity="warning",
+                            target=path,
+                            code="macro-context.unregistered-indicator-series",
+                            message=(
+                                f"indicator_series.series_id '{series_id}' is not a registered "
+                                "macro series (macro/indicators/series.yaml); refresh / grounding "
+                                "cannot resolve it"
+                            ),
+                            location=f"inputs.indicator_series[{index}].series_id",
+                        )
+                    )
     if not payload.get("research_questions"):
         findings.append(
             ValidationFinding(

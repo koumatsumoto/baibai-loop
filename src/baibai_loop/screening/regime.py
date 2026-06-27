@@ -41,7 +41,13 @@ LONG_TREND_WINDOW_BARS = 60
 BREADTH_MA_WINDOW_BARS = 20
 DEFAULT_MIN_BREADTH_SAMPLE = 100
 
-_BENCHMARK_LOOKBACK_CALENDAR_DAYS = 150
+# 52 trading-day weeks for the benchmark gap-from-high, matching the per-ticker
+# 52w convention in ticker_profile. The trend windows above read only the tail of
+# the series, so loading the longer window does not change the 20d/60d returns.
+_WEEK_52_WINDOW_BARS = 252
+# Load enough calendar history to cover _WEEK_52_WINDOW_BARS trading days for the
+# 52-week high (252 sessions ~ 353 calendar days; add buffer for holidays).
+_BENCHMARK_LOOKBACK_CALENDAR_DAYS = 400
 
 
 class MarketRegime(StrEnum):
@@ -58,6 +64,12 @@ class MarketRegimeSnapshot:
     eval_date: date
     benchmark_return_20d: float | None
     benchmark_return_60d: float | None
+    # Benchmark gap below its high over the regime lookback window (<=0; 0 = at
+    # the high). A fact-layer field, never gates the label. When this is ~0 with
+    # regime=risk_on_rally the index is extended near its highs (最高値圏): risk-
+    # reward judgement must then stress the downside (tail/gap), not read the
+    # trailing target/stop ratio as the real RR.
+    benchmark_gap_from_high: float | None
     regime: MarketRegime
 
     def to_dict(self) -> dict[str, object]:
@@ -67,6 +79,7 @@ class MarketRegimeSnapshot:
             "eval_date": self.eval_date.isoformat(),
             "benchmark_return_20d": self.benchmark_return_20d,
             "benchmark_return_60d": self.benchmark_return_60d,
+            "benchmark_gap_from_high": self.benchmark_gap_from_high,
             "regime": self.regime.value,
         }
 
@@ -113,6 +126,7 @@ def compute_market_regime(
         eval_date=eval_date,
         benchmark_return_20d=benchmark_return_20d,
         benchmark_return_60d=benchmark_return_60d,
+        benchmark_gap_from_high=_gap_from_high(benchmark_series),
         regime=classify_market_regime(benchmark_return_20d),
     )
 
@@ -150,3 +164,19 @@ def _trailing_return(series: list[tuple[date, float]], window_bars: int) -> floa
     if past == 0:
         return None
     return current / past - 1
+
+
+def _gap_from_high(series: list[tuple[date, float]]) -> float | None:
+    """Current close vs the highest close over the trailing 52 weeks (<=0).
+
+    0 means the benchmark sits at its 52-week high (最高値圏). Using the 52-week
+    window (not just the recent few months) avoids a false "at the high" read when
+    the index is near a recent local high but still below its 52-week high.
+    """
+    if not series:
+        return None
+    window = series[-_WEEK_52_WINDOW_BARS:]
+    high = max(price for _, price in window)
+    if high <= 0:
+        return None
+    return window[-1][1] / high - 1

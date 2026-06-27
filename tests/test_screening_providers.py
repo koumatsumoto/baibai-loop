@@ -821,6 +821,36 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(summary.shares_outstanding, 1000000.0)
         self.assertEqual(summary.operating_profit, 1840000000.0)
 
+    def test_normalize_financial_summary_falls_back_to_next_year_forecast(self) -> None:
+        # Full-year (FY) disclosures leave the current-period ForecastEPS empty and
+        # carry the new-year guidance in NextYearForecast*; forecast_eps (the basis
+        # for per_forward) must still populate from the next-year forecast.
+        fy = normalize_financial_summary(
+            {
+                "Code": "97150",
+                "DiscDate": "2026-05-13T00:00:00",
+                "NextYearForecastEarningsPerShare": "145.0",
+                "EarningsPerShare": "349.18",
+            }
+        )
+        assert fy is not None
+        self.assertEqual(fy.forecast_eps, 145.0)
+        self.assertEqual(fy.eps_ttm, 349.18)
+
+    def test_normalize_financial_summary_prefers_current_forecast_over_next_year(self) -> None:
+        # Mid-year (Q1-Q3) disclosures carry the current-FY forecast; it takes
+        # priority over any next-year field so forecast_eps stays the nearest forecast.
+        q3 = normalize_financial_summary(
+            {
+                "Code": "97150",
+                "DiscDate": "2026-02-13T00:00:00",
+                "ForecastEPS": "300.0",
+                "NextYearForecastEarningsPerShare": "145.0",
+            }
+        )
+        assert q3 is not None
+        self.assertEqual(q3.forecast_eps, 300.0)
+
     def test_normalize_financial_summary_preserves_fiscal_period_fields(self) -> None:
         summary = normalize_financial_summary(
             {
