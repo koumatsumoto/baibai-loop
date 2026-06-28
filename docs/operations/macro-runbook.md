@@ -66,6 +66,8 @@ uv run baibai-loop-validation --target macro-context
 
 **分析の独立性**: 環境読みは、過去の客観的「事実」（価格・指標・イベント等のデータ）は前提にしてよいが、過去の macro_context record の「分析・結論」（前回の sector tilt や相場観）は前提にしない。建玉（position）は分析に持ち込まない。一次情報と指標から解釈をゼロベースで組み立てる。確証バイアス・アンカリングと、保有を正当化する motivated reasoning を避けるための規律であり、N≈1 で forward 検証が効かないマクロでは独立性が質の生命線になる。過去 context との連続性は `changes_since_previous` に、独立した結論が出た後で事後に接続する。
 
+**更新トリガーと前提検証**: macro-context は定期生成せず、**screening 前**（select が鮮度ある context を hard precondition にする）・**主要イベント後**（FOMC/BOJ/ECB/米CPI・PCE・NFP/地政学ショック）・**前回 `refresh_triggers` の発火**、で必要時に更新する（基準 cadence は `valid_until = as_of + 7日` の実質週次）。次回更新時に前回の `refresh_triggers` が発火したか（前提が崩れたか）を `changes_since_previous` に記録する ── これは予測の当否を測る forward calibration ではなく、前提の鮮度を追う検証で、誠実性ファイアウォール（マクロは track record を出さない）を守る。人が読む共有が要るときは、同一リサーチから HTML レポートを併産する（skill §4.5）。
+
 ## ③ ナレッジ：都度洗練する
 
 調査方法のコツ・source 確認手順・lessons は、リサーチを重ねるたびに上の registry と本 runbook に追記する（playbook 化は反復する問いタイプが現れてから）。formal な retro / calibration 機構は持たない。
