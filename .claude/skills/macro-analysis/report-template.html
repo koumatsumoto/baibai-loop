@@ -1,0 +1,388 @@
+<!-- macro-analysis skill のレポート雛形。構造(12セクション・percentileバッジ・カラーコード・カード/表/タイムライン/確率バー・外部依存ゼロ)を再利用し、各値は baibai-loop-macro の最新 series で更新する。埋め込み値は作成時点の実例。 -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>マクロ経済環境レポート — 2026-06-27</title>
+<style>
+  :root{
+    --bg:#eef1f5; --card:#ffffff; --ink:#1a1d23; --muted:#5b6470; --line:#e2e6ea;
+    --navy:#16314f; --navy2:#244a73; --accent:#2563a8;
+    --pos:#15795a; --posbg:#e5f4ee; --neg:#b5362b; --negbg:#fbe9e7;
+    --neu:#9a6a06; --neubg:#fbf2dd;
+    --shadow:0 1px 3px rgba(20,40,70,.08),0 4px 18px rgba(20,40,70,.06);
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Kaku Gothic ProN","Noto Sans JP",Meiryo,sans-serif;
+    line-height:1.7;font-size:15px;letter-spacing:.01em}
+  .wrap{max-width:1200px;margin:0 auto;padding:0 22px 80px}
+  a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+  h2{font-size:1.32rem;margin:2.6em 0 .2em;padding-bottom:.35em;border-bottom:2px solid var(--navy);display:flex;align-items:baseline;gap:.5em}
+  h2 .num{font-size:.78rem;color:#fff;background:var(--navy);border-radius:5px;padding:.12em .6em;font-weight:700;letter-spacing:.05em}
+  h3{font-size:1.04rem;margin:1.5em 0 .4em;color:var(--navy2)}
+  p{margin:.55em 0} small{color:var(--muted)} .lede{color:var(--muted);font-size:.96rem}
+
+  header{background:linear-gradient(135deg,var(--navy) 0%,var(--navy2) 100%);color:#fff;padding:34px 0 30px;margin-bottom:8px;box-shadow:var(--shadow)}
+  header .wrap{padding-bottom:0}
+  .eyebrow{font-size:.72rem;letter-spacing:.28em;text-transform:uppercase;color:#9fc0e4;font-weight:700}
+  header h1{font-size:1.9rem;margin:.18em 0 .15em;font-weight:800}
+  .regime{font-size:1.06rem;color:#dce8f4;font-weight:600}
+  .meta-row{display:flex;flex-wrap:wrap;gap:8px 26px;margin-top:16px;font-size:.82rem;color:#bdd3ea}
+  .meta-row b{color:#fff;font-weight:600}
+
+  .meterbox{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 24px;margin-top:18px;box-shadow:var(--shadow)}
+  .meter{position:relative;height:14px;border-radius:8px;margin:34px 0 8px;background:linear-gradient(90deg,#b5362b 0%,#d98324 28%,#cfae3a 50%,#7fae4f 72%,#15795a 100%)}
+  .meter .needle{position:absolute;top:-9px;width:4px;height:32px;background:#16314f;border-radius:2px;box-shadow:0 0 0 3px #fff,0 2px 6px rgba(0,0,0,.3)}
+  .meter .lbl{position:absolute;top:-28px;transform:translateX(-50%);font-size:.74rem;font-weight:700;color:var(--navy);white-space:nowrap}
+  .meter-scale{display:flex;justify-content:space-between;font-size:.72rem;color:var(--muted);font-weight:600}
+
+  .summary{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--navy);border-radius:10px;padding:18px 24px;margin-top:18px;box-shadow:var(--shadow)}
+  .summary p:first-child{margin-top:0} .summary p:last-child{margin-bottom:0}
+  .kbd{background:#eef3f8;border:1px solid #d4e0ec;border-radius:4px;padding:.04em .4em;font-size:.92em;font-weight:600;color:var(--navy2)}
+
+  .lens-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(345px,1fr));gap:16px;margin-top:16px}
+  .lcard{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:16px 18px;box-shadow:var(--shadow)}
+  .lcard h4{margin:0 0 4px;font-size:1rem;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .verdict{font-size:.74rem;font-weight:800;padding:.16em .6em;border-radius:20px;letter-spacing:.02em}
+  .v-pos{background:var(--posbg);color:var(--pos)} .v-neg{background:var(--negbg);color:var(--neg)}
+  .v-neu{background:var(--neubg);color:var(--neu)} .v-mix{background:#eae6f4;color:#6b46a8}
+  .lcard .take{font-size:.9rem;color:#33404e;margin:.3em 0 .7em}
+  table.kv{width:100%;border-collapse:collapse;font-size:.84rem}
+  table.kv td{padding:5px 2px;border-bottom:1px solid #f0f2f5;vertical-align:middle}
+  table.kv td:first-child{color:var(--muted);white-space:nowrap;padding-right:8px}
+  table.kv td.val{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+  table.kv td.pc{text-align:right;width:80px;white-space:nowrap}
+  .pctl{display:inline-block;font-size:.68rem;font-weight:700;padding:.08em .4em;border-radius:4px;font-variant-numeric:tabular-nums}
+  .pc-hi{background:var(--negbg);color:var(--neg)} .pc-mid{background:#eef1f5;color:var(--muted)} .pc-lo{background:var(--posbg);color:var(--pos)}
+  .chip{display:inline-block;font-size:.67rem;font-weight:700;padding:.05em .42em;border-radius:4px;margin-left:4px;vertical-align:middle}
+  .tag-pos{background:var(--posbg);color:var(--pos)} .tag-neg{background:var(--negbg);color:var(--neg)} .tag-neu{background:var(--neubg);color:var(--neu)}
+
+  .tbl{width:100%;border-collapse:collapse;margin-top:12px;font-size:.87rem;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:var(--shadow)}
+  .tbl th{background:var(--navy);color:#fff;text-align:left;padding:9px 12px;font-size:.79rem;font-weight:600}
+  .tbl td{padding:9px 12px;border-top:1px solid var(--line);vertical-align:top}
+  .tbl tr:nth-child(even) td{background:#fafbfc}
+  .tbl td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .tbl .hl td{background:#fbf4f4}
+
+  .timeline{position:relative;margin:22px 0 8px;padding-left:6px}
+  .timeline::before{content:"";position:absolute;left:9px;top:6px;bottom:6px;width:2px;background:var(--line)}
+  .tl-item{position:relative;padding:0 0 16px 30px}
+  .tl-item::before{content:"";position:absolute;left:4px;top:5px;width:12px;height:12px;border-radius:50%;background:var(--accent);border:2px solid #fff;box-shadow:0 0 0 2px var(--line)}
+  .tl-item.hot::before{background:var(--neg)} .tl-item.cool::before{background:var(--pos)}
+  .tl-date{font-size:.76rem;font-weight:800;color:var(--navy2)} .tl-body{font-size:.88rem}
+
+  .scen{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 18px;margin-top:12px;box-shadow:var(--shadow)}
+  .scen-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .scen-name{font-weight:800;font-size:.98rem} .scen-prob{margin-left:auto;font-weight:800;font-size:1.05rem;font-variant-numeric:tabular-nums}
+  .pbar{height:9px;border-radius:6px;background:#eef1f5;overflow:hidden;margin:8px 0 6px} .pbar i{display:block;height:100%;border-radius:6px}
+  .scen p{margin:.35em 0 0;font-size:.88rem;color:#33404e} .stance{font-size:.72rem;font-weight:800;padding:.12em .55em;border-radius:5px}
+
+  .sect-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:14px}
+  .sect-col{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;box-shadow:var(--shadow)}
+  .sect-col h4{margin:0 0 8px;font-size:.92rem;padding-bottom:6px;border-bottom:2px solid}
+  .sect-col.pos h4{border-color:var(--pos);color:var(--pos)} .sect-col.neu h4{border-color:var(--neu);color:var(--neu)} .sect-col.neg h4{border-color:var(--neg);color:var(--neg)}
+  .sect-col ul{margin:0;padding-left:0;list-style:none} .sect-col li{font-size:.83rem;padding:4px 0;border-bottom:1px solid #f3f5f7} .sect-col li:last-child{border-bottom:none}
+
+  .risks{columns:2;column-gap:22px;margin-top:12px;padding-left:0}
+  .risks li{break-inside:avoid;background:var(--card);border:1px solid var(--line);border-left:3px solid var(--neg);border-radius:7px;padding:9px 13px;margin-bottom:10px;font-size:.85rem;list-style:none;box-shadow:var(--shadow)}
+  .risks li b{color:var(--navy2)}
+
+  .bbar{display:flex;height:22px;border-radius:5px;overflow:hidden;margin:6px 0;font-size:.7rem;font-weight:700;color:#fff}
+  .bbar span{display:flex;align-items:center;justify-content:center;white-space:nowrap}
+
+  .callout{background:#f4f8fc;border:1px solid #d6e4f0;border-radius:9px;padding:13px 17px;margin:14px 0;font-size:.88rem} .callout b{color:var(--navy2)}
+  .warn{background:#fbf2ee;border:1px solid #eccabd;border-radius:9px;padding:13px 17px;margin:14px 0;font-size:.88rem} .warn b{color:var(--neg)}
+  .disclaimer{background:#fbf9f4;border:1px solid #ece2cc;border-radius:9px;padding:16px 20px;margin-top:16px;font-size:.83rem;color:#5a5042}
+  footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);font-size:.78rem;color:var(--muted)}
+  .src{font-size:.76rem;color:var(--muted)}
+  @media(max-width:760px){.sect-grid{grid-template-columns:1fr}.risks{columns:1}header h1{font-size:1.5rem}}
+  @media print{body{background:#fff}.lcard,.scen,.tbl,.summary,.meterbox,.sect-col,.risks li,header{box-shadow:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="eyebrow">Baibai-Loop · Macro Environment Read</div>
+    <h1>マクロ経済環境レポート</h1>
+    <div class="regime">リフレ的ブーム × グローバル同期タカ派化 × 割高な株式 × 中東停戦後の移行期</div>
+    <div class="meta-row">
+      <span>作成 <b>2026-06-27</b></span>
+      <span>データ as-of <b>2026-05〜06-27</b></span>
+      <span>基盤 <b>baibai-loop-macro</b>（FRED / FRB / ECB / BOJ / Yahoo / multpl）</span>
+      <span>percentile は <b>2010〜 / 2015〜</b> 実測分布</span>
+      <span>中国・ポジショニング等は <b>Tier-1 web</b></span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="meterbox">
+    <strong style="color:var(--navy2)">リスク・レジーム・メーター</strong>
+    <div class="meter">
+      <span class="needle" style="left:63%"></span>
+      <span class="lbl" style="left:63%">選別的リスクオン（割高・末端剥落・引き締めバイアス）</span>
+    </div>
+    <div class="meter-scale"><span>強いリスクオフ</span><span>中立</span><span>強いリスクオン</span></div>
+    <p class="lede" style="margin-top:14px">
+      指数は最高値圏だが、針を中央寄りに引き戻す要因が3つ ─ ①<b>株式 ERP がマイナス</b>（GAAP益回り 3.18% &lt; 10y 4.40%、CAPE 40.7）、
+      ②<b>実質金利 98%ile</b>・グローバル中銀の同期引き締め（Fed/BOJ/ECB）、③末端の剥落（BTC −38%・CCC 89%ile）。VIX も実は 65%ile で「無警戒」ではない。
+    </p>
+  </div>
+
+  <div class="summary">
+    <p><b>一言の局面規定 —</b> 景気は再加速（NFP +17.2万・Dr.Copper +17.7%・鉱工業生産底打ち・Russell/SOX 最高値圏、ただし実質GDP +2.1% はトレンド成長で過熱ではない）、
+    インフレは 2026 イラン戦争の供給ショックで高止まり（PCE コア YoY <b>3.4%</b>）。<b>Fed・BOJ・ECB が揃ってタカ派化</b>
+    （dot 3.4→3.8%／BOJ 1.00%／ECB 2.25%）。実質金利 <b>2.19%（98%ile）</b>・ドル高・円安 161 が併存する
+    <b>「リフレ的ブーム＋世界同期引き締め」</b>の局面。</p>
+    <p><b>株は強いが“安くはない” —</b> 名目成長＋AI＋流動性で最高値圏だが、<span class="kbd">GAAP益回り 3.18% &lt; 10y 4.40%</span>＝
+    債券に対するクッションが消滅（<b>ERP ≈ −1.22%</b>、CAPE 40.7 はドットコム期 ~44 に迫る）。<b>上昇継続にはバリュエーションが重し</b>で、
+    リスクリワードは下方非対称。無利回り資産は実質金利が支配し金 −23%・BTC −38%（最弱）。</p>
+    <p><b>分岐点 —</b> 6/18 米・イラン停戦枠組みで原油 −31%（WTI 114→79）。インフレ鈍化（Philadelphia Fed SPF：
+    ヘッドライン CPI Q2 6.0%→Q3 3.0%）が確認されれば Fed 利上げ見送り（シナリオ A）。確認前の賃金粘着／中東再燃なら
+    追加利上げ・ショック（B+D）。<b>割高ゆえ、株は「危機」でなく「失望」だけでも下押しされうる。</b></p>
+  </div>
+
+  <h2><span class="num">01</span>キー指標ダッシュボード（値 ＋ 歴史的 percentile）</h2>
+  <p class="lede">「高い/低い/タイト」を印象でなく実測分布の <b>percentile</b>（赤=上位/緑=下位）と z-score で定量化する。窓は credit/real_10y/VIX/NFCI/2s10s が 2010〜、金利水準・ドルが 2015〜。</p>
+
+  <div class="lens-grid">
+    <div class="lcard">
+      <h4>① グローバル流動性 <span class="verdict v-neu">中立〜やや追い風（脆い）</span></h4>
+      <div class="take">QT は 2025/12 終了 → 2026 reserve management 購入で FRB 資産 +0.20兆ドル。M2 YoY 加速。だが RRP 枯渇でバッファ消失、TGA 吸収。名目流動性 ＞ 実質（M2 +5.6% − インフレ 3.4% ＝ 実質 +2.2%）。</div>
+      <table class="kv">
+        <tr><td>M2 YoY（5/1）</td><td class="val">+5.6%</td><td class="pc"><span class="pctl pc-mid">加速</span></td></tr>
+        <tr><td>FRB 総資産（6/24）</td><td class="val">$6.736兆</td><td class="pc"><span class="pctl pc-mid">底+0.20兆</span></td></tr>
+        <tr><td>ON RRP（6/26）</td><td class="val">$6.4億</td><td class="pc"><span class="pctl pc-lo">枯渇</span></td></tr>
+        <tr><td>TGA（6/24）</td><td class="val">$9,187億</td><td class="pc"><span class="pctl pc-hi">吸収</span></td></tr>
+        <tr><td>純流動性（試算）</td><td class="val">≈$5.81兆</td><td class="pc"><span class="pctl pc-mid">横ばい</span></td></tr>
+      </table>
+    </div>
+
+    <div class="lcard">
+      <h4>② 実質金利・store-of-value <span class="verdict v-neg">強い引き締め・逆風</span></h4>
+      <div class="take">実質 10y は <b>98%ile（2010〜ほぼ最高、z+1.78）</b>。割引率上昇は実質金利由来＝無利回り資産・長期グロースに質の悪い逆風。名目 4.40% ＝ 実質 2.19% ＋ 期待 2.20%。</div>
+      <table class="kv">
+        <tr><td>実質 10y（6/25）</td><td class="val">2.19%</td><td class="pc"><span class="pctl pc-hi">98%ile</span></td></tr>
+        <tr><td>期待インフレ 10y</td><td class="val">2.20%</td><td class="pc"><span class="pctl pc-mid">アンカー</span></td></tr>
+        <tr><td>ドル指数 broad（6/18）</td><td class="val">120.4</td><td class="pc"><span class="pctl pc-hi">74%ile</span></td></tr>
+        <tr><td>金 / 銀（6/26-27）</td><td class="val">4,079 / 59.2</td><td class="pc"><span class="pctl pc-mid">金銀比 68.9</span></td></tr>
+        <tr><td>金（ピーク比）</td><td class="val">−23%</td><td class="pc"><span class="pctl pc-mid">1月高値</span></td></tr>
+      </table>
+    </div>
+
+    <div class="lcard">
+      <h4>③ 金融環境の合成 <span class="verdict v-mix">中立〜緩和だが末端に亀裂</span></h4>
+      <div class="take">IG/HY OAS は歴史的タイト（complacency）だが <b>CCC は 89%ile</b>。NFCI は 45%ile でほぼ中央値（「緩和」は言い過ぎ）。VIX も 65%ile で無警戒ではない。dispersion が進行。</div>
+      <table class="kv">
+        <tr><td>NFCI（6/19）</td><td class="val">−0.52</td><td class="pc"><span class="pctl pc-mid">45%ile</span></td></tr>
+        <tr><td>VIX（6/25）</td><td class="val">18.9</td><td class="pc"><span class="pctl pc-mid">65%ile</span></td></tr>
+        <tr><td>MOVE（6/18）</td><td class="val">65.4</td><td class="pc"><span class="pctl pc-lo">36%ile</span></td></tr>
+        <tr><td>HY / IG OAS</td><td class="val">2.78 / 0.76%</td><td class="pc"><span class="pctl pc-lo">16/10%ile</span></td></tr>
+        <tr><td>CCC OAS（6/25）</td><td class="val">9.68%</td><td class="pc"><span class="pctl pc-hi">89%ile</span></td></tr>
+      </table>
+    </div>
+
+    <div class="lcard">
+      <h4>④ リスク選好の温度計 <span class="verdict v-mix">二極化（質への選好）</span></h4>
+      <div class="take">大型・AI・景気敏感に集中、投機末端（暗号）は ETF 流出で剥落。AAII 強気 44.9%・現金比率 14.2%（39ヶ月連続で平均22.5%割れ）＝個人はフル投資で逆張り警戒域。</div>
+      <table class="kv">
+        <tr><td>BTC（6/26）</td><td class="val">$59,996</td><td class="pc"><span class="pctl pc-hi">ピーク−38%</span></td></tr>
+        <tr><td>SOX（6/26）</td><td class="val">13,204</td><td class="pc"><span class="pctl pc-hi">+62%底比</span></td></tr>
+        <tr><td>Russell2000（6/26）</td><td class="val">3,010</td><td class="pc"><span class="pctl pc-hi">最高値</span></td></tr>
+        <tr><td>AAII 強気 / 現金</td><td class="val">44.9 / 14.2%</td><td class="pc"><span class="pctl pc-hi">楽観</span></td></tr>
+        <tr><td>VIX</td><td class="val">18.9</td><td class="pc"><span class="pctl pc-mid">65%ile</span></td></tr>
+      </table>
+    </div>
+
+    <div class="lcard">
+      <h4>⑤ 景気サイクル・breadth <span class="verdict v-pos">再加速（トレンド成長）</span></h4>
+      <div class="take">逆イールド解消・労働堅調・Dr.Copper・小型株が breadth を裏づけ。ただし 2s10s は 31bp（40%ile）で<b>フラット</b>＝bear flattening、実質GDP +2.1% はトレンド程度で過熱ではない。銅高は供給・AI 主導（後述）。</div>
+      <table class="kv">
+        <tr><td>新規失業保険（6/20）</td><td class="val">21.5万</td><td class="pc"><span class="pctl pc-lo">低位</span></td></tr>
+        <tr><td>NFP（5月, 月差）</td><td class="val">+17.2万</td><td class="pc"><span class="pctl pc-lo">堅調</span></td></tr>
+        <tr><td>実質GDP（年率, 直近Q）</td><td class="val">+2.1%</td><td class="pc"><span class="pctl pc-mid">トレンド</span></td></tr>
+        <tr><td>銅 / 2s10s</td><td class="val">$6.14 / +31bp</td><td class="pc"><span class="pctl pc-mid">40%ile</span></td></tr>
+        <tr><td>失業率（5月）</td><td class="val">4.3%</td><td class="pc"><span class="pctl pc-lo">完全雇用</span></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="callout">
+    <b>クロスチェック（自分のデータ⇄結論） —</b> 名目 10y 4.40% ≈ 実質 2.19% ＋ 期待 2.20%（一致）。
+    純流動性 ＝ 6,735,640 − 6,426（RRP $6.426B換算）− 918,696 ＝ <b>$5,810,518M ≈ $5.81兆</b>。
+    金銀レシオ ＝ 4,079 / 59.2 ＝ <b>68.9</b>（歴史的中央値 ~60-70 圏）。2s10s ＝ 4.40 − 4.09 ＝ +0.31%（基盤 31bp と一致、6か月前 +0.55% から縮小＝フラット化）。
+    <b>VIX 18.9 は絶対では低く見えるが 65%ile（中央値16.8 超）で「無警戒」と読むのは誤り。</b>
+  </div>
+
+  <h2><span class="num">02</span>バリュエーション：株は最高値かつ“クッション消滅”</h2>
+  <p>プロが最初に問うのは「高いか」。<b>株式リスクプレミアム（ERP ＝ 益回り − 10年金利）がマイナス</b>で、株は債券に対する割安マージンを失っている。最高値の更新そのものより、この非対称性が重要。CAPE/PER/益回りは基盤 series（multpl）。</p>
+  <table class="tbl">
+    <tr><th>指標</th><th class="num">値（基盤, 6/27）</th><th>含意</th></tr>
+    <tr><td>S&amp;P500 シラー CAPE</td><td class="num">40.7</td><td>歴史的中央値 16-17 の約 2.5 倍、ドットコム期(~44)に迫る</td></tr>
+    <tr><td>S&amp;P500 PER（GAAP実績, multpl）</td><td class="num">31.45</td><td>GAAP益回り（1/PER）＝ <b>3.18%</b></td></tr>
+    <tr><td>（参考）operating PER（GuruFocus, web）</td><td class="num">~25</td><td>定義差で低め。operating 益回り ≈ 3.99%</td></tr>
+    <tr class="hl"><td><b>ERP（GAAP益回り 3.18% − 10y 4.40%）</b></td><td class="num"><b>−1.22%</b></td><td><b>債券に対しマイナス＝クッション消滅。失望だけで下落しうる</b></td></tr>
+    <tr><td>ERP（operating 益回り基準）</td><td class="num">≈ −0.4%</td><td>定義を変えてもマイナス。割高の結論は不変</td></tr>
+  </table>
+  <div class="warn"><b>So-What —</b> 実質金利 98%ile × ERP マイナスは、株のリスクリワードを下方非対称にする。強気シナリオでも上値はマルチプル拡大ではなく <b>EPS 成長頼み</b>。AI 設備投資の実需が EPS を牽引する限り保つが、成長の失望・金利再上昇・地政学再燃のいずれでもバリュエーションが効いてくる。<span class="src">[基盤 us.sp500_cape/pe/earnings_yield（multpl）。operating PER は GuruFocus]</span></div>
+
+  <h2><span class="num">03</span>グローバル同期タカ派化：3 中銀が同じ起点で引き締め</h2>
+  <p>今期の最大のレジーム特徴は <b>Fed・BOJ・ECB が揃ってタカ派</b>であること。共通の起点は 2026 イラン戦争のエネルギー由来インフレ。政策金利は基盤 series（`ecb.policy_rate`・`jp.policy_rate`・`us.fed_funds.upper`）で追跡。</p>
+  <table class="tbl">
+    <tr><th>中銀</th><th class="num">政策金利</th><th>直近の動き</th><th>スタンス</th></tr>
+    <tr><td><b>Fed</b>（Warsh 新議長）</td><td class="num">3.50–3.75%</td><td>6/17 据え置き。dot 中央値 3.4→<b>3.8%</b>、年内利上げ派 9 人。core 見通し 2.7→3.3%</td><td><span class="chip tag-neg">タカ派据え置き</span></td></tr>
+    <tr><td><b>日銀</b></td><td class="num">1.00%</td><td>6/16 <b>+25bp</b>（1995/9 以来最高、7−1）。Tamura 委員は中立 2% へ更なる利上げを主張</td><td><span class="chip tag-neg">利上げ継続</span></td></tr>
+    <tr><td><b>ECB</b></td><td class="num">2.25%</td><td>6 月 <b>+25bp</b>（2023 以来初の利上げ）。ユーロ圏インフレ 3.2%（5月）、GDP +0.8% に下方修正＝スタグフレ気味</td><td><span class="chip tag-neg">渋々タカ派</span></td></tr>
+    <tr><td><b>中国（PBoC）</b></td><td class="num">据え置き</td><td>様子見。GDP 目標 4.5–5%、製造業 PMI 51.8（5月、4月 52.2 から低下）。「供給強・需要弱」、不動産ドラッグ、輸出 +15%</td><td><span class="chip tag-neu">緩和余地温存</span></td></tr>
+  </table>
+  <div class="callout"><b>含意 —</b> 主要中銀が同時に引き締めバイアスを持つと、グローバル流動性の追い風は細る。<b>Dr.Copper +17.7% を「世界景気の総需要」と単純に読むのは危うい</b>：中国は供給・投資サイドと AI／グリーン・グローバル設備投資が主因で、消費・不動産は弱い。銅高はサイクルの強さ半分・供給/テーマ半分と割り引く。<span class="src">[政策金利は基盤。中国は NBS/IMF/World Bank（web）]</span></div>
+
+  <h2><span class="num">04</span>基軸ナラティブ：2026 イラン戦争と停戦が全レンズを貫く</h2>
+  <p>単一の地政学イベントが基軸。開戦→エネルギー供給ショック→世界的インフレ→3 中銀タカ派化→実質金利・ドル高→無利回り資産の逆風、という連鎖を一本で説明。6/18 停戦枠組みが連鎖を逆回転させ始めた（原油・WTI は基盤 series）。</p>
+  <div class="timeline">
+    <div class="tl-item hot"><div class="tl-date">2026-02-28</div><div class="tl-body">イラン戦争 開戦。直前 WTI <b>$66.7</b>（基盤 2/20）。ホルムズ通航混乱で供給インフレの起点。</div></div>
+    <div class="tl-item hot"><div class="tl-date">2026-04-07</div><div class="tl-body">原油ピーク：<b>WTI $114.6</b>（基盤 series）。エネルギー由来でヘッドライン・インフレが押し上がる。</div></div>
+    <div class="tl-item"><div class="tl-date">2026-05-29</div><div class="tl-body">米・イラン停戦交渉の進展報道で原油急落。リスク資産 rally。</div></div>
+    <div class="tl-item"><div class="tl-date">2026-06-16</div><div class="tl-body"><b>日銀 +25bp → 1.00%</b>。理由は円安＋エネルギー輸入インフレ。中東情勢を注視と明記。</div></div>
+    <div class="tl-item cool"><div class="tl-date">2026-06-17</div><div class="tl-body"><b>FOMC 据え置き 3.50–3.75%</b>（Warsh 初会合）。dot 3.4→<b>3.8%</b>、利上げ派 9 人。</div></div>
+    <div class="tl-item cool"><div class="tl-date">2026-06-18</div><div class="tl-body"><b>米・イラン、戦争終結の枠組みに署名。</b>原油続落、株 rally。湾岸輸出が戦前の約 75% へ回復。</div></div>
+    <div class="tl-item cool"><div class="tl-date">2026-06-22</div><div class="tl-body">WTI <b>$78.9</b>（基盤、ピークから −31%）。供給ショック剥落＝ディスインフレ移行。SPF：ヘッドライン CPI Q2 6.0%→Q3 3.0%。</div></div>
+  </div>
+
+  <h2><span class="num">05</span>レンズ間の矛盾と調停</h2>
+  <table class="tbl">
+    <tr><th style="width:28%">矛盾するレンズ</th><th>裁定（どちらが支配的か）</th></tr>
+    <tr><td><b>① 流動性＝追い風</b> vs <b>② 実質金利98%ile＝逆風</b></td><td>資産で分岐。<b>株</b>は名目成長＋流動性が支配し割引率上昇を相殺＝最高値。<b>無利回り資産（金・BTC）</b>は実質金利が支配＝逆風。「株高×金調整×BTC暴落」の併存を説明。ただし株は ERP マイナスで上値が重い。</td></tr>
+    <tr><td><b>③ 金融環境＝中立〜緩和</b> vs <b>④ 末端＝剥落</b></td><td><b>slow-burn。</b>IG/HY タイト・NFCI 45%ile・VIX 65%ile が崩れない限り広範化しない。先行警告は CCC 89%ile と BTC −38%。VIX が中央値超で燻り始めている点に留意。</td></tr>
+    <tr><td><b>M2 ~10週先行で BTC 追い風</b> vs <b>BTC −38%</b></td><td>BTC では流動性以外が上書き（decouple）。ETF 流出（6月 $36億・YTD $46億）・Strategy の 2022/12 以来初の売却・清算 $18億（6/3）が支配。</td></tr>
+    <tr><td><b>Dr.Copper＝景気再加速</b> vs <b>中国総需要は弱い</b></td><td>銅高は供給制約・AI／グリーン・グローバル設備投資が主因で、中国消費・不動産は弱い。実質GDP +2.1% もトレンド程度。<b>景気シグナルとして半分割り引く。</b></td></tr>
+  </table>
+
+  <h2><span class="num">06</span>資産クラス別：支配ドライバーの分岐</h2>
+  <table class="tbl">
+    <tr><th>資産</th><th style="width:15%">方向</th><th>支配ドライバー</th></tr>
+    <tr><td><b>米株（AI・景気敏感）</b></td><td><span class="chip tag-pos">強気だが上値重い</span></td><td>名目成長＋AI＋流動性 ＞ 割引率。S&amp;P 7,354・SOX +62%。だが <b>ERP −1.22%</b>で上昇は EPS 成長頼み、調整余地も大。</td></tr>
+    <tr><td><b>日本株</b></td><td><span class="chip tag-pos">強気（円が鍵）</span></td><td>円安 161＋半導体循環＋名目成長。日経 69,361。<b>最大リスクは BOJ 利上げ→円高転換→carry unwind。</b></td></tr>
+    <tr><td><b>金 / 銀</b></td><td><span class="chip tag-neu">高値圏もみ合い</span></td><td>逆風（実質金利 98%ile・ドル高）vs 追い風（中銀買い・地政学）。金はピーク −23% も $4,000 底堅い。金銀比 68.9 は中立圏。</td></tr>
+    <tr><td><b>ビットコイン</b></td><td><span class="chip tag-neg">最弱</span></td><td>実質金利↑＋ETF 流出＋投機末端剥落。流動性の追い風を無効化。ピーク −38%。</td></tr>
+    <tr><td><b>米債（長期）</b></td><td><span class="chip tag-neg">利回り高止まり</span></td><td>タカ派 dot＋インフレ＋TGA・term premium。10y 4.40%（93%ile）。カーブはフラット（2s10s 40%ile）。</td></tr>
+    <tr><td><b>ドル / 円</b></td><td><span class="chip tag-neg">ドル高・円安</span></td><td>日米金利差＋エネルギー輸入。USD/JPY 161.65（160 介入警戒）。</td></tr>
+    <tr><td><b>原油</b></td><td><span class="chip tag-neu">停戦で正常化</span></td><td>地政学プレミアム剥落（WTI 114→79）。再燃なら一転スパイク（→D）。</td></tr>
+  </table>
+
+  <h2><span class="num">07</span>ポジショニング／センチメント</h2>
+  <p class="lede">価格だけでなく「誰がどれだけ張っているか」を見る。逆張りの観点では、楽観の極み・低現金は将来の買い余力の薄さを示す。</p>
+  <div class="bbar">
+    <span style="width:44.9%;background:var(--pos)">強気 44.9%</span>
+    <span style="width:25%;background:#9aa3ad">中立 ~25%</span>
+    <span style="width:30.1%;background:var(--neg)">弱気 ~30%</span>
+  </div>
+  <table class="tbl">
+    <tr><th>指標</th><th class="num">値</th><th>読み</th></tr>
+    <tr><td>AAII 強気</td><td class="num">44.9%</td><td>歴史平均 37.5% を上回る（楽観）</td></tr>
+    <tr><td>AAII 現金配分</td><td class="num">14.2%</td><td><b>39ヶ月連続で平均 22.5% を下回る</b>＝個人はフル投資、買い余力が薄い</td></tr>
+    <tr><td>日本・海外投資家フロー</td><td class="num">2025: +¥5.4兆</td><td>復調。直近は週次で売り越し→買い戻しと振れ（carry 動向に感応）<span class="src">[基盤 jp.foreign_flows は方向、年間額は web]</span></td></tr>
+  </table>
+
+  <h2><span class="num">08</span>反証テーブル（結論を否定しに行く）</h2>
+  <table class="tbl">
+    <tr><th style="width:21%">結論</th><th style="width:40%">支持する実値（日付）</th><th>反証候補と現状</th></tr>
+    <tr><td><b>景気は再加速</b></td><td>銅 +17.7%・鉱工業生産 YoY +0.6→+1.7%・claims 21.5万・NFP +17.2万・Russell 最高値</td><td>賃金 3.4%＜インフレ（実質マイナス）・2s10s フラット化・GDP +2.1% はトレンド・中国需要弱。<b>決定的反転はないが「質」は割引く</b><span class="chip tag-pos">維持</span></td></tr>
+    <tr><td><b>インフレ高止まり・再燃</b></td><td>PCE コア 3.4%・CPI コア 2.8%・Fed 見通し 3.3%・ECB/BOJ も同起点</td><td>期待 10y 2.20%・5y5y 2.19%（アンカー）・停戦で原油 −31%・SPF Q3 3.0%。<b>実績高・期待アンカー＝供給由来で剥落含み</b><span class="chip tag-neu">条件付き</span></td></tr>
+    <tr><td><b>株は割高（ERP マイナス）</b></td><td>CAPE 40.7・PER 31.45・GAAP益回り 3.18% &lt; 10y 4.40%・AAII 現金 14.2%</td><td>反証＝AI による EPS 上方修正が続けば「割高でも正当化」。だが益回り&lt;金利は事実で、operating 基準でも ERP マイナス。<b>マルチプル拡大余地は乏しい</b><span class="chip tag-neg">確認</span></td></tr>
+    <tr><td><b>BTC が最弱（流動性無効化）</b></td><td>ピーク −38%・ETF 流出 YTD $46億・Strategy 売却・清算 $18億</td><td>M2 +5.6%・NFCI 緩和は本来追い風。<b>→ 支配は ETF フロー／実質金利／末端剥落。decouple</b><span class="chip tag-neg">確認</span></td></tr>
+    <tr><td><b>金融環境は崩れていない</b></td><td>IG 10%ile・HY 16%ile・NFCI 45%ile・MOVE 36%ile</td><td>CCC 89%ile・VIX 65%ile・BTC −38% は警告。<b>tail から中心へ伝染すれば一変（→C）</b><span class="chip tag-neu">slow-burn</span></td></tr>
+  </table>
+
+  <h2><span class="num">09</span>シナリオ（horizon 3–6 か月）</h2>
+  <p class="lede">確率は<b>主観</b>（N≈1、統計的 edge ではない）。合計 100%・相互排他・網羅。ベースレート「停戦後はディスインフレ」＋直近テープ。ERP マイナスと VIX 65%ile を踏まえ、株高継続 A を中庸に、調整系を相応に置く。</p>
+  <div class="scen">
+    <div class="scen-head"><span class="scen-name">A. ソフトな移行／リフレ継続</span><span class="stance tag-pos">リスクオン継続</span><span class="scen-prob" style="color:var(--pos)">40%</span></div>
+    <div class="pbar"><i style="width:40%;background:var(--pos)"></i></div>
+    <p>停戦定着→原油安定→インフレ Q3 鈍化。Fed 追加利上げ見送り、AI が EPS を牽引。株は上値重いが高値もみ合い〜緩やか上昇、金もみ合い、BTC 底打ち模索。<b>割高ゆえ過度な上値は見込みにくい。</b></p>
+  </div>
+  <div class="scen">
+    <div class="scen-head"><span class="scen-name">B. インフレ再燃／追加利上げ</span><span class="stance tag-neg">引き締め再加速</span><span class="scen-prob" style="color:var(--neg)">25%</span></div>
+    <div class="pbar"><i style="width:25%;background:var(--neg)"></i></div>
+    <p>賃金・サービス粘着、または中東再燃で原油再騰。Fed が dot 通り追加利上げ。実質金利さらに上昇→ ERP マイナスの株が調整、金・BTC 逆風、円一段安・介入。</p>
+  </div>
+  <div class="scen">
+    <div class="scen-head"><span class="scen-name">C. 末端ストレスの広範化</span><span class="stance tag-neg">リスクオフ</span><span class="scen-prob" style="color:var(--neg)">22%</span></div>
+    <div class="pbar"><i style="width:22%;background:#d98324"></i></div>
+    <p>CCC（89%ile）・BTC の剥落が HY・株へ波及。VIX（既に 65%ile）急騰・クレジット拡大。割高 × レバレッジ巻き戻しで調整深度が増す。</p>
+  </div>
+  <div class="scen">
+    <div class="scen-head"><span class="scen-name">D. 地政学ショック再来</span><span class="stance tag-neg">スタグフレ・ショック</span><span class="scen-prob" style="color:var(--neg)">13%</span></div>
+    <div class="pbar"><i style="width:13%;background:#7a1f17"></i></div>
+    <p>停戦崩壊／ホルムズ再封鎖で原油急騰。インフレ再加速＋成長下押し。金急騰、株・リスク資産急落、安全資産買い。裾は厚い。</p>
+  </div>
+
+  <h2><span class="num">10</span>セクター tilt（株式への含意）</h2>
+  <p class="lede">環境読みの背景 lens（hard gate ではない）。マクロを numeric driver にせず、判断層の追い風／向かい風として効かせる。</p>
+  <div class="sect-grid">
+    <div class="sect-col pos"><h4>追い風</h4><ul>
+      <li><b>半導体・AI</b>（SOX 主導・EPS 実需）</li>
+      <li><b>資本財・機械</b>（設備投資・銅）</li>
+      <li><b>銀行・金融</b>（高金利マージン）</li>
+      <li><b>防衛</b>（地政学）</li>
+      <li><b>日本：輸出・インバウンド</b>（円安受益、ただし円高転換に注意）</li>
+    </ul></div>
+    <div class="sect-col neu"><h4>中立</h4><ul>
+      <li><b>大型テック</b>（成長強いが ERP マイナス・割引率↑で相殺）</li>
+      <li><b>素材</b>（銅 vs ドル高・中国需要弱）</li>
+      <li><b>エネルギー</b>（停戦でプレミアム剥落）</li>
+    </ul></div>
+    <div class="sect-col neg"><h4>向かい風</h4><ul>
+      <li><b>高 PER 無収益グロース</b>（実質金利 98%ile）</li>
+      <li><b>長期債プロキシ</b>（REIT・公益）</li>
+      <li><b>暗号関連株</b>（BTC 連動）</li>
+      <li><b>金利感応の消費</b>（実質賃金マイナス）</li>
+      <li><b>日本：高債務・不動産</b>（BOJ 利上げ）</li>
+    </ul></div>
+  </div>
+
+  <h2><span class="num">11</span>主要リスク（監視リスト）</h2>
+  <ul class="risks">
+    <li><b>株式バリュエーション（ERP −1.22%・CAPE 40.7）</b> — 失望・金利・地政学のいずれでもマルチプル収縮</li>
+    <li><b>中東停戦の崩壊・ホルムズ再封鎖</b> — 原油再騰→インフレ・成長ショック（D の引き金）</li>
+    <li><b>3 中銀同期タカ派</b> — Fed dot 9 人・BOJ 中立 2%・ECB 据え置きタカ。世界的に流動性の追い風が細る</li>
+    <li><b>インフレ粘着</b> — 賃金・サービスが下がらずディスインフレ・シナリオ崩壊</li>
+    <li><b>暗号末端の伝染</b> — BTC／CCC（89%ile）の剥落が HY・レバレッジへ波及</li>
+    <li><b>円 161・介入／BOJ 追加利上げ</b> — carry unwind が global risk-off に波及（日本株の最大リスク）</li>
+    <li><b>RRP 枯渇とレポ市場ストレス</b> — バッファ消失で 2019 年型 spike リスク</li>
+    <li><b>AI／半導体の循環ピークアウト</b> — SOX +62% の反動、EPS 失望</li>
+    <li><b>実質金利 98%ile の長期高止まり</b> — 資産バリュエーションの継続圧縮</li>
+    <li><b>中国・需要側の失速</b> — 不動産・消費の弱さが銅・コモディティ・世界成長に波及</li>
+    <li><b>米財政・国債需給</b> — TGA 積み増し・term premium で長期金利上振れ</li>
+    <li><b>実質賃金マイナスの消費圧迫</b> — 名目の強さの裏で実質所得が細る</li>
+  </ul>
+
+  <h2><span class="num">12</span>データ出典・方法論・免責</h2>
+  <h3>基盤 series（baibai-loop-macro、最終実測日）</h3>
+  <p class="src">
+    流動性 us.m2(5/1)・us.fed_assets(6/24)・us.reverse_repo(6/26)・us.tga(6/24)｜金利 us.10y/us.2y/us.real_10y(6/25)・us.breakeven_10y(6/26)・us.10y_2y_spread(6/25)・us.10y_3m_spread(6/26)・us.inflation_5y5y(6/26)｜
+    インフレ us.pce.core/us.cpi.core(5/1)｜金融環境 us.nfci(6/19)・vix(6/23)・us.move(6/18)・credit.us_hy_oas/ig_oas/ccc_oas(6/22-25)｜
+    FX・商品 usd_index.broad(6/18)・usd_jpy(6/24)・gold/copper(6/26)・silver(6/27)・wti/brent(6/22)｜リスク・景気 btc_usd(6/26)・us.initial_claims(6/20)・us.nonfarm_payrolls/us.unemployment/us.industrial_production(5/1)・us.gdp_growth(直近Q)｜
+    政策 us.fed_funds.upper・jp.policy_rate・ecb.policy_rate(6/26)｜バリュエーション us.sp500_cape/us.sp500_pe/us.sp500_earnings_yield(6/27, multpl)｜
+    指数 us.sp500(6/23)・us.nasdaq(6/22)・us.russell2000/us.sox/jp.nikkei225(6/26)｜日本 jp.foreign_flows(6/25)。
+    <br><b>percentile / z-score</b> は各 series の実測分布（credit/real_10y/VIX/NFCI/2s10s = 2010〜、金利水準・ドル = 2015〜）から本レポートで再計算。YoY・純流動性・ERP・金銀レシオ・ピーク比も再計算。
+  </p>
+  <h3>Tier-1 web（基盤に無い指標、source 明記で分離）</h3>
+  <p class="src">
+    政策・地政学の文脈 Federal Reserve・BOJ・ECB・Al Jazeera・CNBC｜インフレ予測 Philadelphia Fed SPF｜
+    operating PER GuruFocus（基盤 multpl は GAAP）｜フロー Investing.com・CoinMarketCap（BTC ETF）・Man/BlackRock（日本フロー額）・AAII（センチメント）｜中国 NBS・IMF・World Bank。
+    <br><b>multpl provider について</b>：CAPE/PER/益回りは multpl.com の HTML スクレイプで、サイト構造変更で壊れうる脆い依存。`--latest` で live 確認する前提で基盤化している。
+  </p>
+  <div class="disclaimer">
+    <b>方法論と免責 —</b> マクロは N≈1 の判断。本レポートは <b>edge 数値・統計的有意・自動 sizing を出さない</b>（誠実性ファイアウォール）。
+    水準評価は絶対値でなく実測分布の percentile を基準にする。シナリオ確率は主観。環境読みは過去の macro-context の「結論」を前提とせず、指標と一次情報からゼロベースで構築（建玉は分析に持ち込まない）。
+    セクター tilt は背景 lens であり hard gate ではない。これは投資助言ではない。
+  </div>
+  <footer>Baibai-Loop マクロ分析基盤 ／ macro-analysis skill の品質ゲート（データ⇄結論整合・窓固定・percentile 定量化・単位検算・provenance 分離・レンズ調停・誠実性）に基づき作成。作成 2026-06-27。</footer>
+</div>
+</body>
+</html>

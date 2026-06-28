@@ -37,7 +37,8 @@ uv run baibai-loop-macro get jp.policy_rate --latest
 | `jquants_flows` | 認証（J-Quants API キー `JQUANTS_API_KEY`） | JP 市場内部（海外投資家フロー 等） | screening と同じ credential を共用。週次 trades_spec |
 | `boj` | 無認証 xlsx | BOJ 長期時系列（マネタリーベース 等） | 安定 URL の `mblong.xlsx`（平残シート）を openpyxl で読む。`provider_series_id` は値列番号（C 列=マネタリーベース=3） |
 | `manual` | ローカル file | 倒産件数（東商リサーチ）・PMI（au Jibun/S&P） | clean な無料 API が無い。`providers/manual_data.yaml` に手動更新し、値は必ず一次ソースで検証してから使う |
-| `yahoo` | 無認証 JSON（chart API） | 金先物(GC=F)・銅(HG=F)・MOVE指数・Russell2000・SOX 等、FRED/官製に無料系列が無いもの | **ブラウザ UA 必須**（default UA は 429）。`provider_series_id` は Yahoo シンボル（`^`/`=` 含む、1 series=1 symbol）。日次終値を timestamp+close で parse |
+| `yahoo` | 無認証 JSON（chart API） | 金先物(GC=F)・銀先物(SI=F)・銅(HG=F)・MOVE指数・Russell2000・SOX 等、FRED/官製に無料系列が無いもの | **ブラウザ UA 必須**（default UA は 429）。`provider_series_id` は Yahoo シンボル（`^`/`=` 含む、1 series=1 symbol）。日次終値を timestamp+close で parse |
+| `multpl` | 無認証 HTML スクレイプ | S&P500 バリュエーション（シラーCAPE・GAAP PER・益回り） | multpl.com の "Current X is Y" 文を正規表現で抽出。**HTML 構造変更で壊れる脆さ**があり、追加・変更時は `--latest` で live 確認必須。現在値1点を返す level 指標で `--latest` 運用。ERP=益回り−名目10y の中核だが公式フィードに無いため採用。脆い依存である自覚をもって最小限に保つ |
 
 新ソース追加 = provider モジュールを 1 つ足して `series.yaml` に series を登録するだけ（`src/baibai_loop/macro/indicators/providers/` に 1 ファイル）。1 series_id = 1 provider を厳守する。
 
@@ -74,10 +75,12 @@ uv run baibai-loop-validation --target macro-context
 個別 series は単体でなく、以下のレンズに束ねて環境読みに使う。いずれも全リスク資産に効く汎用フレームで、流動性・実質金利に感応する資産（growth 株・新興・コモディティ・crypto）で特に鋭く出る。1 枚のパネルで横断的に読む（`baibai-loop-macro get` を束ねる）。操作手順・**公開前の敵対的 self-check ゲート**・スキル自身の改善ループは skill [`macro-analysis`](../../.claude/skills/macro-analysis/SKILL.md) に集約する。
 
 1. **グローバル流動性**: net liquidity ≈ `us.fed_assets`(FRB総資産) − `us.reverse_repo`(ON RRP) − `us.tga`(財務省一般勘定)（**単位換算注意: RRP は十億ドル、FRB総資産/TGA は百万ドル**）。`us.m2` の前年比はリスク資産に約10週先行する経験則の基軸。QT/QE の量的スタンスと RRP・TGA の増減を合わせ「流動性のトレンドとエンジンの有無」を読む。
-2. **実質金利・store-of-value**: `us.real_10y`(実質金利) + `us.breakeven_10y`(期待インフレ) + `usd_index.broad`(ドル) + `gold`(無利回り資産の代表)。名目 `us.10y` = 実質 + 期待インフレ に分解し「割引率上昇が実質金利由来か期待インフレ由来か」を見る。実質金利上昇＋強いドルは無利回り資産（金・BTC）と長期グロースの一様な向かい風。`gold`/`btc_usd` を並べてデジタルゴールド命題を読む。
+2. **実質金利・store-of-value**: `us.real_10y`(実質金利) + `us.breakeven_10y`(期待インフレ) + `usd_index.broad`(ドル) + `gold`(無利回り資産の代表)。名目 `us.10y` = 実質 + 期待インフレ に分解し「割引率上昇が実質金利由来か期待インフレ由来か」を見る。実質金利上昇＋強いドルは無利回り資産（金・BTC）と長期グロースの一様な向かい風。`gold`/`btc_usd` を並べてデジタルゴールド命題を読む。`silver` を加え金銀レシオ（`gold`/`silver`）で実物資産内のリスク選好・産業需要を読む（銀は産業比率が高くベータ大）。
 3. **金融環境の合成**: `us.nfci`(0=平均, 正=引締/負=緩和)を `vix`(株ボラ)・`us.move`(債券ボラ)・クレジット OAS と突き合わせる。NFCI がまだ緩和的なのに特定資産が荒れる局面は「広範化前の局所ストレス（slow-burn）」と読む。
 4. **リスク選好の温度計**: `btc_usd` + `vix` + `credit.us_hy_oas`/`credit.us_ccc_oas` + `us.nfci` を 1 枚のパネルで見る。BTC は最も流動性・リスク選好に感応するため先行温度計になりやすい（ただし単独の numeric driver にはしない＝誠実性ファイアウォール）。
-5. **景気サイクル・breadth**: `us.initial_claims`(週次・労働の先行) + `us.industrial_production` + `copper`(Dr.Copper) + `us.russell2000`(小型株/breadth) + `us.10y_3m_spread`(逆イールド)。`copper`/`gold` レシオと Russell/大型の相対で成長期待・ローテーションを読む。FRB の真のインフレ判断は `us.pce.core`・`us.inflation_5y5y` で確認する。`us.sox` は AI/半導体サイクルと日本半導体株の先行ゲージ。
+5. **景気サイクル・breadth**: `us.initial_claims`(週次・労働の先行) + `us.industrial_production` + `copper`(Dr.Copper) + `us.russell2000`(小型株/breadth) + `us.10y_3m_spread`(逆イールド)。`copper`/`gold` レシオと Russell/大型の相対で成長期待・ローテーションを読む。FRB の真のインフレ判断は `us.pce.core`・`us.inflation_5y5y` で確認する。`us.sox` は AI/半導体サイクルと日本半導体株の先行ゲージ。`us.gdp_growth`(実質GDP前期比年率) で景気の絶対水準も確認する。
+6. **バリュエーション・株式リスクプレミアム**: `us.sp500_earnings_yield`(益回り) − `us.10y`(名目金利) ＝ ERP。`us.sp500_cape`(CAPE)・`us.sp500_pe`(GAAP PER) で長期割高度を見る。**益回り < 名目金利（ERP≤0）は株が債券に対するクッションを失った警戒域**で、最高値更新そのものより ERP の下方非対称を読む。CAPE は歴史的中央値 16-17・ドットコム期 ~44 を基準に位置づける（multpl は operating PER 系列より高めに出る点に注意）。
+7. **グローバル中銀の同期**: `us.fed_funds.upper`(Fed) + `jp.policy_rate`(BOJ) + `ecb.policy_rate`(ECB) のスタンスを束ねる。3 中銀が共通ショック（エネルギー供給インフレ等）に同時反応して引き締め/緩和へ向かう局面は、グローバル流動性の追い風/向かい風を一方向に振る。1 国の利上げでなく**同期**を読む。
 
 ## 接続：判断層にだけ効かせる（screen は macro-blind）
 

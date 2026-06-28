@@ -41,8 +41,10 @@ for s in \
   us.cpi.core us.pce.core us.inflation_5y5y \
   us.nfci vix us.move credit.us_hy_oas credit.us_ig_oas credit.us_ccc_oas \
   usd_index.broad usd_jpy btc_usd gold copper \
-  us.initial_claims us.industrial_production \
-  us.sp500 us.nasdaq us.russell2000 us.sox jp.nikkei225 ; do
+  us.initial_claims us.industrial_production us.gdp_growth \
+  us.sp500 us.nasdaq us.russell2000 us.sox jp.nikkei225 \
+  ecb.policy_rate jp.policy_rate us.fed_funds.upper \
+  silver us.sp500_cape us.sp500_pe us.sp500_earnings_yield ; do
   uv run baibai-loop-macro get "$s" --latest 2>&1 | tail -1
 done
 # 方向が論点の series は range で（窓は §3 の標準窓。日付はそのまま走る）
@@ -56,14 +58,17 @@ uv run baibai-loop-macro get btc_usd       --start "$(date -d '3 months ago' +%F
 - **net liquidity = `us.fed_assets` − `us.reverse_repo` − `us.tga`** の 3 成分を揃えて読む（**単位注意: `us.reverse_repo` は十億ドル、`us.fed_assets`/`us.tga` は百万ドル**＝換算して引く）。1 成分でも欠けたまま「net liquidity が増/減」と断定しない（§3-1 の反証漏れを防ぐ）。
 - `us.sp500` / `us.nasdaq` / `jp.nikkei225` / `us.2y` / `usd_jpy` は **context anchor**（リスク資産・カーブ・キャリーの背景）で、下の 4 レンズの直接入力ではない。
 - `us.fed_assets` 等の大きな値は scientific notation で出る（`6.73564e+06` = 6,735,640 百万ドル = $6.74T）。桁を取り違えない。
+- `get` を**並行起動しない**（複数プロセスを同時実行すると stdout / cache が混線し、無関係な series 値が混入する）。上のループで逐次に引く。`yahoo`/`multpl` の cache miss が混ざるときは各呼び出しを `timeout` でラップする。
 
 | レンズ | 束ねて引く series |
 | --- | --- |
 | グローバル流動性 | `us.fed_assets`・`us.reverse_repo`・`us.tga`・`us.m2` |
-| 実質金利・store-of-value | `us.real_10y`・`us.breakeven_10y`・`usd_index.broad`・`gold` |
+| 実質金利・store-of-value | `us.real_10y`・`us.breakeven_10y`・`usd_index.broad`・`gold`・`silver`（金銀レシオ） |
 | 金融環境の合成 | `us.nfci`・`vix`・`us.move`・`credit.us_*_oas` |
 | リスク選好の温度計 | `btc_usd`・`vix`・`credit.us_hy_oas`/`credit.us_ccc_oas`・`us.nfci` |
-| 景気サイクル・breadth | `us.initial_claims`・`us.industrial_production`・`copper`・`us.russell2000`・`us.10y_3m_spread`・`us.sox` |
+| 景気サイクル・breadth | `us.initial_claims`・`us.industrial_production`・`us.gdp_growth`・`copper`・`us.russell2000`・`us.10y_3m_spread`・`us.sox` |
+| バリュエーション・ERP | `us.sp500_earnings_yield`・`us.sp500_cape`・`us.sp500_pe`・`us.10y`（ERP=益回り−名目10y） |
+| グローバル中銀の同期 | `us.fed_funds.upper`・`jp.policy_rate`・`ecb.policy_rate` |
 
 **各レンズが何を意味するか（読み方）は [runbook §③「汎用分析レンズ」](../../../docs/operations/macro-runbook.md) が正本。** ここでは「どの ID を束ねて引くか」だけ示す。
 
@@ -72,7 +77,7 @@ uv run baibai-loop-macro get btc_usd       --start "$(date -d '3 months ago' +%F
 1. **データ⇄結論の整合（反証テーブルで残す・最重要）**: 各方向コール/結論について、本文か sidecar に 3 列を書く — (a) 結論, (b) 支持する series 実値＋日付＋引いた range, (c) **この結論を反証するならどの series のどの値か／その実値は反証側に振れていないか**。(c) が空 or 実値が反証側を向く結論は書かない。支配的ドライバー（BTC なら流動性）は必ず (c) を埋める。
 2. **トレンドの窓を先に決める（窓 cherry-pick 禁止）**: 方向（加速/減速/横ばい/拡大/枯渇）を語る series は、結論を見る前に信号の自然周期で range を引く — YoY 系 ≥13 か月／QT・QE は QT 開始以降の全区間／BTC・リスク選好 ≥3 か月／金利水準 ≥6 か月。`--latest` 単点・数日 range で方向を断じない。「加速」は変化率自体が上向き（2 階差）であることを range で示す。
 3. **series の鮮度・段差・廃止**: 方向に使う各 series の最終実測日を確認（`--latest` が今日に近いか）。FRED 廃止系列（金 LBMA 2025/5 停止・JP OECD 2021 停止）・release lag・rebase/methodology 変更で、stale な最終値や段差を「横ばい/異常」と誤読していないか。cache hit の決定論は鮮度を保証しない。[AP-03]
-4. **単位・系列種別・基準**: 各数値に種別(level/MoM/YoY/年率/SA・NSA)・単位(%/bp/pt/倍/通貨)・方向コールの基準(長期平均/直近3か月/0ライン)を付したか。`us.m2` は level なので「前年比」を使うなら YoY を計算して残したか。`us.nfci` 等の符号(正=引締)を取り違えていないか。
+4. **単位・系列種別・基準**: 各数値に種別(level/MoM/YoY/年率/SA・NSA)・単位(%/bp/pt/倍/通貨)・方向コールの基準(長期平均/直近3か月/0ライン)を付したか。`us.m2` は level なので「前年比」を使うなら YoY を計算して残したか。`us.nfci` 等の符号(正=引締)を取り違えていないか。**水準コール（高い/低い/タイト/割高/割安）は絶対値でなく実測分布の percentile / z-score で定量化したか**（VIX 18.9 は絶対では低く見えるが 65%ile なら「無警戒」ではない／IG OAS 10%ile と CCC OAS 89%ile の乖離で dispersion を示す）。長期窓を引いて現在値の分位を出す。
 5. **比率・差分の検算（計算を本文に残す）**: 出典の比率を転記せず再計算し、本文に `(計算: A/B=C)` を残したか。出典自体が内部不整合でないか（例: $1.2B/$0.477B≈2.5 ≠ 3.5:1）。[AP-02]
 6. **provenance の混在**: 基盤 series と外部 web を 1 つの数値（例 ドローダウン%）に混ぜていないか。混ぜるなら各値に source を付し、値の不一致（例 BTC 基盤$60k vs web$63-64k）を注記したか。[AP-01]
 7. **テープ前にベースレート**: 確率を出す前に、直近値動きを見ない無条件ベースレート（長期分布/事前確率）を先に書き、直近テープがそれをどれだけ・なぜ動かしたかを明示したか。過去 context の「分析・結論」を前提にしていないか（独立性は runbook ②）。
@@ -88,6 +93,14 @@ uv run baibai-loop-macro get btc_usd       --start "$(date -d '3 months ago' +%F
 - 環境読み → `records/01-macro-context/<YYYY>/<MM>/...yaml`。`inputs.indicator_series[]` に使った series を `series_id`＋`window`＋`used_for` で grounding（series_id は registry 一致必須、未登録は validator が warning）。読みは `sector_tilts`・`research_questions`・`refresh_triggers` へ。screen は macro-blind のまま。
 - 特殊な単発調査（例 暗号資産トレジャリーの財務）→ `reports/<YYYY-MM-DD>-<slug>.md`。基盤に入れない特殊対象はここに閉じる。
 - **編集後に `uv run baibai-loop-validation --target macro-context` を通す**（§3-12）。新しい汎用 series が要るなら `series.yaml` に 1 行足し、必ず `--latest` で live 取得を実 fetch 確認（FRED は廃止系列あり。runbook ①）。
+
+## 4.5 プロ品質 HTML レポート（深い環境レポートを共有するとき）
+
+records/reports の md とは別に、人が読む単一 HTML 環境レポートを出す。雛形は同梱の [`report-template.html`](./report-template.html)（構造の参考実装）で、最新 series 値で各セクションを更新して使う。
+
+- **構成（12セクション）**: ①局面規定＋リスクレジームメーター ②キー指標ダッシュボード（値＋percentile） ③バリュエーション/ERP ④グローバル中銀同期 ⑤基軸ナラティブ（タイムライン） ⑥レンズ間調停 ⑦資産クラス別ドライバー分岐 ⑧ポジショニング ⑨反証テーブル ⑩シナリオ（確率バー） ⑪セクター tilt ⑫主要リスク／出典・免責。
+- **規律**: 単一 HTML・インライン CSS・外部依存ゼロ（オフラインで開く）。水準は percentile バッジで定量化（§3-4）、基盤 series と web を出典で分離（§3-6, web は source 明記）。§3 ゲートを全て通してから書く。脆い provider（`multpl`）の数値は注記する。
+- **出力先と表示**: `.plan/macro-report-<date>.html`（ドラフト）に書き `open-file` skill で既定ブラウザに表示。確定版は records/reports へ。逐次取得（§2 の並行起動禁止）を厳守する。
 
 ## 5. このスキルの自己改善（§3 ゲートを育てる）
 
