@@ -564,3 +564,75 @@ series:
     source_url: https://query1.finance.yahoo.com/v8/finance/chart/%5ESOX
     notes: PHLX半導体指数(日次)。AI/半導体サイクルの先行ゲージで、日本の半導体株は本指数に高感応。proprietary指数でFRED非対応のためYahooで取得
     aliases: [SOX, 半導体指数, sox_semiconductor, フィラデルフィア半導体, PHLX Semiconductor]
+  - series_id: ecb.policy_rate
+    name: ECB預金ファシリティ金利
+    category: policy
+    geography: euro
+    frequency: daily
+    unit: percent
+    provider: fred_csv
+    provider_series_id: ECBDFR
+    source_id: fred-ecbdfr
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=ECBDFR
+    notes: ECB預金ファシリティ金利(現行ECBの主要政策金利)。Fed・BOJと並べてグローバル中銀の同期スタンス(同時引き締め/緩和)を読む。FRED系列は廃止がありlive確認必須
+    aliases: [ECB金利, ECB政策金利, ECB deposit rate, ECBDFR, 欧州中銀金利, ユーロ圏金利]
+  - series_id: silver
+    name: 銀先物(COMEX, USD/oz)
+    category: commodity
+    geography: world
+    frequency: daily
+    unit: usd-per-oz
+    provider: yahoo
+    provider_series_id: SI=F
+    source_id: yahoo-si-f
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/SI=F
+    notes: COMEX銀先物フロント限月(日次終値)。金銀レシオ(gold/silver)で実物資産内のリスク選好・産業需要を読む。金より産業比率が高くベータが大きい
+    aliases: [銀, シルバー, silver, XAG, 銀価格, silver_futures]
+  - series_id: us.gdp_growth
+    name: 米実質GDP成長率(前期比年率)
+    category: activity
+    geography: us
+    frequency: quarterly
+    unit: percent
+    provider: fred_csv
+    provider_series_id: A191RL1Q225SBEA
+    source_id: fred-a191rl1q225sbea
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=A191RL1Q225SBEA
+    notes: 実質GDP前期比年率(SAAR, 季調済)。景気サイクルの絶対水準ゲージ。鉱工業生産・雇用・claimsと合わせ景気局面を判断
+    aliases: [米GDP, GDP成長率, real GDP growth, GDP, 実質GDP, GDPC1]
+  - series_id: us.sp500_cape
+    name: S&P500 シラーCAPE(景気循環調整PER)
+    category: valuation
+    geography: us
+    frequency: daily
+    unit: ratio
+    provider: multpl
+    provider_series_id: shiller-pe
+    source_id: multpl-shiller-pe
+    source_url: https://www.multpl.com/shiller-pe
+    notes: S&P500のシラーCAPE(10年実質EPS平均ベースPER)。株式の長期割高度ゲージ。歴史的中央値16-17、ドットコム期~44。実質金利・益回りと対で株式リスクプレミアムを読む。multpl現在値を日次取得(level指標, --latest運用)
+    aliases: [CAPE, シラーPER, Shiller PE, CAPE比率, 景気循環調整PER]
+  - series_id: us.sp500_pe
+    name: S&P500 PER(GAAP実績)
+    category: valuation
+    geography: us
+    frequency: daily
+    unit: ratio
+    provider: multpl
+    provider_series_id: s-p-500-pe-ratio
+    source_id: multpl-sp500-pe
+    source_url: https://www.multpl.com/s-p-500-pe-ratio
+    notes: S&P500のGAAP実績PER。益回り(1/PER)と10年金利の差が株式リスクプレミアム(ERP)。operating PER(GuruFocus等)より高めに出る点に注意。multpl現在値を日次取得
+    aliases: [S&P500 PER, SP500 PE, 米国株PER, PER, price earnings ratio]
+  - series_id: us.sp500_earnings_yield
+    name: S&P500 益回り
+    category: valuation
+    geography: us
+    frequency: daily
+    unit: percent
+    provider: multpl
+    provider_series_id: s-p-500-earnings-yield
+    source_id: multpl-sp500-ey
+    source_url: https://www.multpl.com/s-p-500-earnings-yield
+    notes: S&P500益回り(1/PER, GAAP実績)。us.10yとの差がERP。益回り<名目金利=株が債券に対しクッション消滅の警戒域。multpl現在値を日次取得
+    aliases: [益回り, earnings yield, S&P500益回り, アーニングスイールド]
