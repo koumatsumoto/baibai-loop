@@ -1,0 +1,258 @@
+kind: macro-context
+context_id: macro-context-2026-06-28-iran-ceasefire-collapse-risk
+as_of: '2026-06-28'
+valid_until: '2026-07-05'
+published_at: '2026-06-28T21:00:00+09:00'
+summary: >
+  スクリーニング前の環境読み（6/28 日曜夜・6/29 寄り前時点）。論点は「2026 Iran war の停戦が崩壊しかけ、
+  6/29 月曜に再エスカレーションを織り込むか」。事実関係: 当戦争は 2025年の単発空爆ではなく 2026/2/28 開戦の
+  本格戦争で、ホルムズ封鎖が約4ヶ月継続。6/17 イスラマバード覚書で60日停戦延長したが、6/26 に CENTCOM が
+  イラン10標的へ報復攻撃、6/27 タンカー Kiku 被弾、6/28 未明にイラン IRGC がクウェート（Ali Al Salem 空軍基地）・
+  バーレーン（米第5艦隊司令部）へミサイル・ドローンで報復しクウェートで死者1・負傷63・空港閉鎖、IRGC は
+  「停戦違反は全外交プロセスを停止させる」と威嚇（web 出典）。
+  現在地（基盤 series・2024-01〜2026-06-26 窓の percentile で水準を定量化）: 市場はまだパニックしていない。
+  VIX 18.89（73%ile＝絶対では低いが相対では無警戒でもない）、MOVE 66.79（8%ile＝債券市場は極端に平穏）、
+  IG OAS 0.76%（9%ile＝超 tight）の一方で CCC OAS 9.68%（93%ile）＝最弱信用だけにストレスという二極化
+  （CCC−IG=8.92%）。USD/JPY 161.65（99%ile＝歴史的円安の極み）、Gold 4078（75%ile）・Silver 59（78%ile）は
+  地政学を一部織込、BTC 59,996（11%ile＝リスク選好は冷却）、Copper 6.14（95%ile＝景気底堅い）。原油は relief で
+  WTI 78.94/Brent 76.49（6/22, FRED）・先物 ~$69/$72（6/26, web）と開戦前水準まで戦争プレミアムが剥落
+  （3/30-31 ピーク WTI$105/Brent$127 から）。米株はバリュエーション極限で ERP=益回り3.18%−米10y4.4%=−1.22%（負）、
+  CAPE 40.7。流動性は net liq≈5.81T で RRP がピーク2.5T超から$64億へ事実上枯渇＝QT のクッション消尽。
+  Fed 3.75%据置だがドット タカ派（7月利上げ in play）、BOJ 1.0%（6月利上げ、web。月次 series は5月0.727%で未反映）、
+  ECB 2.25%＝緩和方向の主要中銀は無い。
+  含意（6/29 と「過剰下落の押し目」）: いまは「高値圏×割高(ERP負)×狭い breadth×地政学テール」が、債券・優良信用の
+  無警戒に支えられた脆い均衡。支配ドライバーは「slow-burn だが、ホルムズ完全封鎖 or 円キャリー巻戻しが一つ着火すれば
+  急変する非対称性」。市場はこの4ヶ月エスカレーション→デエスカレーションのたび V字回復した「慣れ」が無警戒に表れ、
+  これは押し目好機にも油断にもなる。6/29 ベースは限定的ギャップダウン（米株 −0.5〜−1.5%/日経 −1.5〜−3%・68,000 割れトライ）、
+  下方30%でホルムズ封鎖懸念＋原油急騰＋キャリー巻戻しの二重苦（日経 −4〜−6%）、上方15%で外交再開の半導体 V字。
+  日本はホルムズ依存74%・中東95%で世界最脆弱、円99%ile と原油再 spike の輸入インフレ二重苦。「過剰下落を拾う」好機は
+  下方シナリオでこそ訪れ、現時点（VIX 低・原油 relief・信用 tight）はまだ過剰下落ではない。最良 risk-reward は
+  地政学ショック（中東・原油・円・リスクオフ・キャリー巻戻し）で過剰反応的に叩かれるが、下値保護（net-cash/営業CF/還元）で
+  清算価値近辺まで耐え反発する割安日本株を、テール時の過剰反応価格に指値で仕込むこと。Macro は hard gate ではなく
+  各銘柄の個別 valuation・下値・FX/原油/信用感応・catalyst を一次 IR で確認する入力。
+inputs:
+  articles:
+    - source: Wikipedia / Britannica
+      title: 2026 Iran war & ceasefire — Feb 28 2026 onset, Strait of Hormuz blockade, Islamabad Memorandum 60-day truce (Jun 17)
+      url: https://en.wikipedia.org/wiki/2026_Iran_war
+      published_at: '2026-06-28'
+      used_for: 当戦争が2025年単発でなく2026/2/28開戦・ホルムズ封鎖4ヶ月継続・6/17 60日停戦という骨格の確認
+    - source: NPR / Gulf News / Times of Israel
+      title: US and Iran each announce retaliatory strikes; IRGC hits Kuwait (Ali Al Salem) and Bahrain (5th Fleet HQ) Jun 28
+      url: https://www.npr.org/2026/06/27/nx-s1-5872954/us-strikes-iran
+      published_at: '2026-06-28'
+      used_for: 6/26 CENTCOM 報復・6/27 タンカー Kiku・6/28 イラン報復（死者1/負傷63/空港閉鎖）の停戦崩壊リスク
+    - source: Al Jazeera / RFE-RL
+      title: Iran threatens to halt all diplomacy on any ceasefire violation; technical talks set to resume in Switzerland
+      url: https://www.aljazeera.com/news/2026/6/10/iran-strikes-bahrain-and-jordan-in-retaliation-for-us-attacks-in-hormuz
+      published_at: '2026-06-28'
+      used_for: 外交プロセスの両睨み（崩壊威嚇 vs スイス技術交渉再開）。上方/下方シナリオの分岐条件
+    - source: CNBC
+      title: Oil falls as Hormuz transits resume to ~75% of prewar; WTI below $70, Brent ~$72 (Jun 26)
+      url: https://www.cnbc.com/2026/06/26/oil-prices-middle-east-iran-strait-of-hormuz-opec-iraq-wti-brent-crude.html
+      published_at: '2026-06-26'
+      used_for: 原油の戦争プレミアム剥落（先物実勢 ~$69/$72）。FRED 6/22 $78.94/$76.49 との数日ラグの突き合わせ
+    - source: EIA STEO / ING / World Bank
+      title: Hormuz closure scenarios — Brent peak ~$115 Q2, up to $154 (12-wk closure) / $160+ (military escalation)
+      url: https://www.eia.gov/outlooks/steo/
+      published_at: '2026-06-10'
+      used_for: ホルムズ完全封鎖テールの原油価格レンジ（下方シナリオの定量化）
+    - source: CSIS / IEA / Japan Times
+      title: Japan energy exposure — 95% Middle East, ~74% via Hormuz; 80M-bbl reserve release (Mar 16); stagflation risk above $120 Brent
+      url: https://www.csis.org/analysis/what-are-implications-iran-conflict-japan
+      published_at: '2026-06-20'
+      used_for: 日本の供給ショック脆弱性（ホルムズ依存74%・備蓄放出・$120超で GDP −0.6%）。日本株テールの土台
+    - source: Trading Economics / CNBC
+      title: Nikkei −4.2% to 69,360.88 on Jun 26 (worst single-day drop this year, semis profit-taking); S&P 7,354 wk −2%, Nasdaq wk −4.6%
+      url: https://tradingeconomics.com/japan/stock-market
+      published_at: '2026-06-26'
+      used_for: 直近株安の主因が地政学でなく AI・半導体調整であることの確認（高値圏の give-back）
+    - source: CNBC / Federal Reserve / BofA
+      title: Fed holds 3.50-3.75% with hawkish dots (Jul hike in play); BOJ hikes to 1.0% (Jun); record yen weakness near 161
+      url: https://www.cnbc.com/2026/06/17/fed-interest-rate-decision-june-2026.html
+      published_at: '2026-06-18'
+      used_for: 緩和方向の主要中銀不在・引締バイアス。円99%ile とキャリー巻戻しの非対称下方
+  indicator_series:
+    - series_id: vix
+      window: 2.4y
+      used_for: 18.89（73%ile）。絶対では低いが相対では無警戒でない。地政学週明けのリスクオフ強度の起点
+    - series_id: us.move
+      window: 2.4y
+      used_for: 66.79（8%ile）。債券ボラは極端に平穏＝金利市場は地政学を織込まず。VIX との乖離でショックの株式偏在を示す
+    - series_id: wti
+      window: 4m
+      used_for: 6/22 $78.94。開戦前2/26 $65→3/30 $105→relief $79 の軌跡。FRED は数日ラグ（先物実勢 6/26 ~$69）
+    - series_id: brent
+      window: 4m
+      used_for: 6/22 $76.49。3/31 ピーク $126.69 から戦争プレミアム剥落。ホルムズ封鎖再現で $115-154 のテール
+    - series_id: usd_jpy
+      window: 2.4y
+      used_for: 161.65（99%ile）。歴史的円安の極み・介入ゾーン。原油再spikeで輸入インフレ二重苦、リスクオフでキャリー巻戻し非対称
+    - series_id: gold
+      window: 2.4y
+      used_for: 4078.7（75%ile）。安全資産は地政学を一部織込済。さらなるパニックの伸び代は相対的に限定
+    - series_id: silver
+      window: 2.4y
+      used_for: 59.22（78%ile）。gold と同様に高位。産業・安全資産の両面
+    - series_id: copper
+      window: 2.4y
+      used_for: 6.14（95%ile）。景気は底堅い（供給要因含む）。リセッション・シグナルは不在
+    - series_id: btc_usd
+      window: 2.4y
+      used_for: 59,996（11%ile）。リスク選好の温度計は冷却。表面 risk-on と内部の冷えの乖離
+    - series_id: credit.us_ig_oas
+      window: 2.4y
+      used_for: 0.76%（9%ile）。投資適格は超 tight。優良信用は無警戒
+    - series_id: credit.us_hy_oas
+      window: 2.4y
+      used_for: 2.78%（17%ile, tight）。HY 全体は緩い。リスク選好維持
+    - series_id: credit.us_ccc_oas
+      window: 2.4y
+      used_for: 9.68%（93%ile）。最弱格付だけにストレス＝選別的引締・slow-burn テール（CCC−IG=8.92%）
+    - series_id: jp.nikkei225
+      window: 1w
+      used_for: 6/22 最高値 72,831→6/25 72,366(+4.61%)→6/26 69,360.88(−4.2%/−3,005)。半導体集中の give-back・高値圏調整
+    - series_id: us.sp500
+      window: 1w
+      used_for: 7,354.02（週 −2%）。ERP=益回り3.18%−10y4.4%=−1.22%（負）でバリュエーション極限
+    - series_id: us.nasdaq
+      window: 1w
+      used_for: 25,297.6（週 −4.6%）。AI・半導体調整が直近株安の主因（地政学は上乗せ）
+    - series_id: us.sp500_earnings_yield
+      window: 1m
+      used_for: 3.18%。米10y 4.4% を下回り ERP 負。地政学が無くても割高で脆い米株の根拠
+    - series_id: us.10y
+      window: 6m
+      used_for: 4.4%。ERP 計算の基準。順イールド（10y-3m +0.55%）で景気後退シグナルは不在
+    - series_id: us.real_10y
+      window: 6m
+      used_for: 2.19%。実質金利は高位＝store-of-value（金/BTC）への構造逆風だが地政学で金は底堅い
+    - series_id: us.fed_assets
+      window: qt-full
+      used_for: 6.736T。net liquidity=6.736−RRP0.006−TGA0.919≈5.81T の主成分
+    - series_id: us.reverse_repo
+      window: qt-full
+      used_for: $64億（0.006T）。ピーク2.5T超から事実上枯渇＝QT のクッション消尽、ショック緩衝材の喪失
+    - series_id: us.tga
+      window: 3m
+      used_for: 0.919T。net liquidity 計算の控除成分
+    - series_id: us.nfci
+      window: 3m
+      used_for: −0.516（緩和的）。金融環境は総体では緩いが CCC の dispersion と併読すると選別的
+    - series_id: jp.policy_rate
+      window: 6m
+      used_for: 月次5月0.727%（6月1.0%利上げは未反映, web）。BOJ 正常化で銀行/保険 tailwind・PBR<1 見直し
+    - series_id: us.fed_funds.upper
+      window: 6m
+      used_for: 3.75%。据置だがドット タカ派。緩和方向の主要中銀不在の確認
+sector_tilts:
+  items:
+    - id: banks-boj-normalization-geopolitical-resilient-tailwind
+      scope: sector_33
+      key: 銀行業
+      stance: tailwind
+      strength: medium
+      confidence: medium
+      rationale: >
+        BOJ 1.0%・追加利上げ継続で利鞘改善。米半導体β・原油・中東感応が低く地政学耐性が高い。PBR 1 倍割れの資本効率見直し筆頭で
+        下値保護（自己資本・還元）も厚い。尾部の信用イベント（CCC 93%ile のプライベートクレジット伝播）では世界金融株と連れ安に注意。
+    - id: insurance-rate-beneficiary-defensive-tailwind
+      scope: sector_33
+      key: 保険業
+      stance: tailwind
+      strength: medium
+      confidence: medium
+      rationale: 金利上昇で運用利回り・含み益改善。地政学・原油感応が低く PBR<1・資本還元強化の個別が見直し対象。ALM と資本政策を個別確認。
+    - id: foods-defensive-netcash-riskoff-haven-tailwind
+      scope: sector_33
+      key: 食料品
+      stance: tailwind
+      strength: medium
+      confidence: medium
+      rationale: >
+        内需中心・低βで AI/半導体・米金利感応が低くリスクオフの相対避難先。net-cash の優良株は下値保護が厚い。
+        ただし原油・円安は輸入コスト増、原材料インフレの価格転嫁力を個別確認（地政学テールでは原油高がコスト逆風になりうる）。
+    - id: pharma-defensive-low-beta-tailwind
+      scope: sector_33
+      key: 医薬品
+      stance: tailwind
+      strength: low
+      confidence: low
+      rationale: ディフェンシブ・低βでリスクオフ耐性。net-cash・安定CF の個別を選び、減配・一過性益剥落・パイプライン毀損は除外。
+    - id: machinery-automation-semis-beta-pullback-tailwind
+      scope: sector_33
+      key: 機械
+      stance: tailwind
+      strength: medium
+      confidence: medium
+      rationale: >
+        35年来の労働逼迫×AI/自動化で FA・ロボット・省力化機械の構造需要。半導体βで地政学/AI 調整に巻き込まれて過剰下落したら
+        本物の構造性を持つ net-cash 銘柄の押し目好機。防衛関連（有事の構造受益）も内包。
+    - id: semis-spe-overheated-deep-pullback-only-mixed
+      scope: sector_33
+      key: 電気機器
+      stance: mixed
+      strength: high
+      confidence: medium
+      rationale: >
+        AI メモリ supercycle は構造 tailwind だが 6/25 melt-up で最高値圏・極端集中・割高に達し、6/26 −4.2% の give-back が実例。
+        地政学リスクオフ＋AI 調整の二重で叩かれやすい。ATH 追いは避け、深い押し目・選別に限る。対中輸出規制も overhang。
+    - id: mining-oil-gas-supply-shock-beneficiary-tailwind
+      scope: sector_33
+      key: 鉱業
+      stance: tailwind
+      strength: low
+      confidence: medium
+      rationale: >
+        原油・ガス開発（INPEX 等）はホルムズ封鎖・原油再spikeの直接恩恵。ただし「過剰下落を拾う」主題とは方向が逆（有事で上がる側）で、
+        relief 継続なら逆風。ヘッジ的位置づけで主軸ではない。
+    - id: trading-houses-resources-geopolitical-hedge-tailwind
+      scope: sector_33
+      key: 卸売業
+      stance: tailwind
+      strength: low
+      confidence: low
+      rationale: 総合商社は資源・エネルギー権益で原油高耐性。低 PBR・高還元で下値保護。ただし有事恩恵側で「下落拾い」主題とは別軸。
+    - id: real-estate-rate-headwind
+      scope: sector_33
+      key: 不動産業
+      stance: headwind
+      strength: medium
+      confidence: medium
+      rationale: BOJ 利上げ・JGB 超長期金利上昇は不動産/REIT のバリュエーションと資金調達に逆風。高負債は地政学テールで二重に脆い。回避。
+    - id: utilities-oil-spike-regulatory-lag-headwind
+      scope: sector_33
+      key: 電気・ガス業
+      stance: headwind
+      strength: low
+      confidence: low
+      rationale: 原油・LNG 再spikeは燃料費を直撃し規制料金ラグでマージン圧迫。金利上昇も bond-proxy として逆風。地政学テールでは回避寄り。
+    - id: autos-yen-oil-tariff-mixed
+      scope: sector_33
+      key: 輸送用機器
+      stance: mixed
+      strength: medium
+      confidence: low
+      rationale: >
+        原油高はコスト逆風、円は両建て（リスクオフ円高＝輸出益減 vs 平時円安＝益押上げ）、Section 232 関税も overhang。
+        FX/原油中立の割安テーマからは外す。防衛色の強い重工は機械側で評価。
+research_questions:
+  - 候補は地政学ショック（原油再spike・リスクオフ・円キャリー巻戻し）で過剰反応的に叩かれるが、下値保護（net cash/営業CF/自己資本比率/還元）で清算価値近辺まで耐え反発するか。業績崩壊でない de-rating か、value trap（減配・減益ガイド・規制/のれん減損）か。
+  - 中東・原油・FX への感応度は低いか。Brent $120超・USD/JPY 158割れ（キャリー巻戻し）・米半導体(SOX)調整の最悪同時発生での毀損幅を定量化できるか。
+  - 「ここまで下がれば買い」の指値はどこか。直近安値・PBR1倍・net-cash 清算価値・過去 stress 安値から、テール時の過剰反応価格を具体値で。
+  - AI/DX 構造性は加点要素として本物か（具体的製品・受注で。後付け AI ラベルを懐疑的に見抜く）。無くても下値保護×割安×地政学耐性で選好可。
+  - 近接 catalyst（決算・配当・自己株買い・TSE 改革開示・受注）はいつか。7月中下旬 Q1 決算・7/28-29 FOMC・7/30-31 BOJ との時間的整合は。
+  - 50万円・単元100株で買え、tactical budget 内で分散と policy cap（8% ticker 等）を満たすか。
+refresh_triggers:
+  - ホルムズ完全封鎖の現実化 or 通航全面再開（原油 spike $115-154 / relief $70 割れ）
+  - 6/28 報復後のエスカレーション継続（米再報復・イラン追撃）or スイス技術交渉再開＝外交デエスカレーション
+  - USD/JPY が 162 超で為替介入 or 158→155 を高速で割る（キャリー巻戻し・日経単日 -10% の 2024/8 型）
+  - VIX のバックワーデーション入り・MOVE 8%ile からの急騰、CCC−IG dispersion 拡大 or BDC NAV 切下げ（プライベートクレジット公開伝播）
+  - 7/28-29 FOMC（7月利上げ有無）・7/30-31 BOJ・7月中下旬 Q1 決算（銀行 NII・内需ガイダンス・半導体 capex）
+  - Nikkei breadth の一段の崩れ（少数半導体依存の剥落）/ 原油 spike による日本の追加備蓄放出・スタグフレーション織込み
+changes_since_previous:
+  - 2026-06-25 の「ai-supercycle-oil-relief」context の前提（米イラン60日停戦・ホルムズ再開・原油開戦来安値・内需ディスインフレ追い風）が、6/26-28 の再エスカレーション（CENTCOM 報復→タンカー Kiku→イランのクウェート/バーレーン攻撃・死者発生）で逆回転リスク。前 context の refresh_trigger「停戦の崩壊・ホルムズ再閉鎖＝原油再spike」がまさに発火。
+  - 6/26 日経 −4.2%（−3,005、今年最大の下げ）で、前 context が警告した「ATH 追いの give-back リスク」が半導体主導で実現。直近株安の主因は地政学でなく AI・半導体調整で、地政学はそこへ上乗せされる構図。
+  - 現在地を percentile で再定量化（市場はまだパニックしていない＝「過剰下落」は未到来）。VIX 73%ile・MOVE 8%ile の乖離（ショックの株式偏在）、IG 9%ile vs CCC 93%ile の二極化、USD/JPY 99%ile、BTC 11%ile、原油 relief。
+  - セクター tilt を「AI 確認・リスクオン melt-up」から「地政学テール・リスクオフ準備」へ再設定。銀行/保険/食品/医薬（地政学耐性・net-cash・金利受益）=tailwind、機械（FA/自動化、半導体β押し目）=tailwind、電気機器（半導体）=mixed（二重調整で深い押し目のみ）、鉱業/商社=有事ヘッジの加点、不動産/電力/自動車=headwind/mixed。
+  - 最良 risk-reward を「現時点の追随ではなく、下方シナリオ（30%）で過剰反応的に叩かれた割安×下値保護銘柄を、テール時の過剰反応価格に指値で仕込む」設計に置いた。
