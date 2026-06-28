@@ -43,13 +43,16 @@ KAIZEN は §3 末尾の掃き出しチェックで回す（§5）。
 
 ```bash
 cd /home/kou/baibai-loop
-# latest パネル
+# まず registry を確認（固定ループでなく list が登録 series の正本。漏れを防ぐ）
+uv run baibai-loop-macro list                     # 全 series を category/provider 付きで一覧
+uv run baibai-loop-macro list --category energy   # レンズ別に絞る例（energy/credit/fx/rates 等）
+# latest パネル（list と突き合わせ、必要レンズの series を漏れなく束ねる）
 for s in \
   us.m2 us.fed_assets us.reverse_repo us.tga \
   us.real_10y us.breakeven_10y us.10y us.2y us.10y_3m_spread \
   us.cpi.core us.pce.core us.inflation_5y5y \
   us.nfci vix us.move credit.us_hy_oas credit.us_ig_oas credit.us_ccc_oas \
-  usd_index.broad usd_jpy btc_usd gold copper \
+  usd_index.broad usd_jpy btc_usd gold copper wti brent \
   us.initial_claims us.industrial_production us.gdp_growth \
   us.sp500 us.nasdaq us.russell2000 us.sox jp.nikkei225 \
   ecb.policy_rate jp.policy_rate us.fed_funds.upper \
@@ -78,6 +81,7 @@ uv run baibai-loop-macro get btc_usd       --start "$(date -d '3 months ago' +%F
 | 景気サイクル・breadth | `us.initial_claims`・`us.industrial_production`・`us.gdp_growth`・`copper`・`us.russell2000`・`us.10y_3m_spread`・`us.sox` |
 | バリュエーション・ERP | `us.sp500_earnings_yield`・`us.sp500_cape`・`us.sp500_pe`・`us.10y`（ERP=益回り−名目10y） |
 | グローバル中銀の同期 | `us.fed_funds.upper`・`jp.policy_rate`・`ecb.policy_rate` |
+| エネルギー・地政学 | `wti`・`brent`（原油の戦争プレミアム）・`gold`（有事の安全資産）。供給ショック時は `usd_jpy` と併読 |
 
 **各レンズが何を意味するか（読み方）は [runbook §③「汎用分析レンズ」](../../../docs/operations/macro-runbook.md) が正本。** ここでは「どの ID を束ねて引くか」だけ示す。
 
@@ -85,10 +89,10 @@ uv run baibai-loop-macro get btc_usd       --start "$(date -d '3 months ago' +%F
 
 1. **データ⇄結論の整合（反証テーブルで残す・最重要）**: 各方向コール/結論について、本文か sidecar に 3 列を書く — (a) 結論, (b) 支持する series 実値＋日付＋引いた range, (c) **この結論を反証するならどの series のどの値か／その実値は反証側に振れていないか**。(c) が空 or 実値が反証側を向く結論は書かない。支配的ドライバー（BTC なら流動性）は必ず (c) を埋める。
 2. **トレンドの窓を先に決める（窓 cherry-pick 禁止）**: 方向（加速/減速/横ばい/拡大/枯渇）を語る series は、結論を見る前に信号の自然周期で range を引く — YoY 系 ≥13 か月／QT・QE は QT 開始以降の全区間／BTC・リスク選好 ≥3 か月／金利水準 ≥6 か月。`--latest` 単点・数日 range で方向を断じない。「加速」は変化率自体が上向き（2 階差）であることを range で示す。
-3. **series の鮮度・段差・廃止**: 方向に使う各 series の最終実測日を確認（`--latest` が今日に近いか）。FRED 廃止系列（金 LBMA 2025/5 停止・JP OECD 2021 停止）・release lag・rebase/methodology 変更で、stale な最終値や段差を「横ばい/異常」と誤読していないか。cache hit の決定論は鮮度を保証しない。[AP-03]
+3. **series の鮮度・段差・廃止**: 方向に使う各 series の最終実測日を確認（`--latest` が今日に近いか）。FRED 廃止系列（金 LBMA 2025/5 停止・JP OECD 2021 停止）・release lag・rebase/methodology 変更で、stale な最終値や段差を「横ばい/異常」と誤読していないか。**FRED 商品系（`wti`/`brent`=DCOIL系）は数日ラグがあり、地政学急変時は直近の spike/relief を取りこぼす — `refresh` か `yahoo` 先物・EIA STEO と突き合わせ最終実測日を明記する。** cache hit の決定論は鮮度を保証しない。[AP-03]
 4. **単位・系列種別・基準**: 各数値に種別(level/MoM/YoY/年率/SA・NSA)・単位(%/bp/pt/倍/通貨)・方向コールの基準(長期平均/直近3か月/0ライン)を付したか。`us.m2` は level なので「前年比」を使うなら YoY を計算して残したか。`us.nfci` 等の符号(正=引締)を取り違えていないか。**水準コール（高い/低い/タイト/割高/割安）は絶対値でなく実測分布の percentile / z-score で定量化したか**（VIX 18.9 は絶対では低く見えるが 65%ile なら「無警戒」ではない／IG OAS 10%ile と CCC OAS 89%ile の乖離で dispersion を示す）。長期窓を引いて現在値の分位を出す。
 5. **比率・差分の検算（計算を本文に残す）**: 出典の比率を転記せず再計算し、本文に `(計算: A/B=C)` を残したか。出典自体が内部不整合でないか（例: $1.2B/$0.477B≈2.5 ≠ 3.5:1）。[AP-02]
-6. **provenance の混在**: 基盤 series と外部 web を 1 つの数値（例 ドローダウン%）に混ぜていないか。混ぜるなら各値に source を付し、値の不一致（例 BTC 基盤$60k vs web$63-64k）を注記したか。[AP-01]
+6. **provenance の混在**: 基盤 series と外部 web を 1 つの数値（例 ドローダウン%）に混ぜていないか。混ぜるなら各値に source を付し、値の不一致（例 BTC 基盤$60k vs web$63-64k）を注記したか。**パネルに在る series（`usd_jpy`/`vix`/`gold`/株価指数/`wti`/`brent` 等）を WebSearch で取り直さない — 要約由来のズレ（gold 基盤4078 vs web4224 等）が入る。WebSearch は series 化できない出来事（地政学イベント・政策声明）の事実確認に限定し、数値は基盤 series を一次資料にする。** [AP-01]
 7. **テープ前にベースレート**: 確率を出す前に、直近値動きを見ない無条件ベースレート（長期分布/事前確率）を先に書き、直近テープがそれをどれだけ・なぜ動かしたかを明示したか。過去 context の「分析・結論」を前提にしていないか（独立性は runbook ②）。
 8. **レンズ間矛盾の調停**: 4 レンズが矛盾（流動性=追い風だが金融環境=引締 等）していないか。矛盾を「今どちらが支配的か／slow-burn か」で明示裁定し、総合結論が 1 レンズ依存になっていないか。援用する経験則（M2 ~10週先行・実質金利↑＝金/BTC 逆風）が現レジームで反転/decouple していないか一言添えたか。
 9. **直近 release の最新性**: 発行日±5営業日の FOMC/CPI/BOJ/PCE/NFP が出て前提を覆していないか確認したか。[AP-07]

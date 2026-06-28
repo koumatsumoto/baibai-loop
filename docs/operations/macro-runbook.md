@@ -83,6 +83,7 @@ uv run baibai-loop-validation --target macro-context
 5. **景気サイクル・breadth**: `us.initial_claims`(週次・労働の先行) + `us.industrial_production` + `copper`(Dr.Copper) + `us.russell2000`(小型株/breadth) + `us.10y_3m_spread`(逆イールド)。`copper`/`gold` レシオと Russell/大型の相対で成長期待・ローテーションを読む。FRB の真のインフレ判断は `us.pce.core`・`us.inflation_5y5y` で確認する。`us.sox` は AI/半導体サイクルと日本半導体株の先行ゲージ。`us.gdp_growth`(実質GDP前期比年率) で景気の絶対水準も確認する。
 6. **バリュエーション・株式リスクプレミアム**: `us.sp500_earnings_yield`(益回り) − `us.10y`(名目金利) ＝ ERP。`us.sp500_cape`(CAPE)・`us.sp500_pe`(GAAP PER) で長期割高度を見る。**益回り < 名目金利（ERP≤0）は株が債券に対するクッションを失った警戒域**で、最高値更新そのものより ERP の下方非対称を読む。CAPE は歴史的中央値 16-17・ドットコム期 ~44 を基準に位置づける（multpl は operating PER 系列より高めに出る点に注意）。
 7. **グローバル中銀の同期**: `us.fed_funds.upper`(Fed) + `jp.policy_rate`(BOJ) + `ecb.policy_rate`(ECB) のスタンスを束ねる。3 中銀が共通ショック（エネルギー供給インフレ等）に同時反応して引き締め/緩和へ向かう局面は、グローバル流動性の追い風/向かい風を一方向に振る。1 国の利上げでなく**同期**を読む。
+8. **エネルギー・地政学（供給ショック）**: `wti`/`brent`(原油) + `gold`(有事の安全資産)。原油はインフレ期待(`us.breakeven_10y`)・実質金利・中銀同期の交点で、供給ショック（中東・ホルムズ等のチョークポイント）が一巡すると剥落する「戦争プレミアム」を range で読む（例: ピーク→relief）。日本のようにエネルギー輸入依存が高い経済（中東 ~95%・ホルムズ ~74%）では原油 spike が貿易収支・通貨・スタグフレーションに直結するため `usd_jpy` と併読する。FRED 商品系は数日ラグに注意（skill §3-3）。特殊な戦況分析は reports に閉じ、汎用は原油/インフレ交点に限定する。
 
 ## 接続：判断層にだけ効かせる（screen は macro-blind）
 
