@@ -18,6 +18,15 @@ description: >-
 
 マクロは N≈1 の判断。本スキルは edge 数値・統計的有意・自動 sizing を出さない。得るのは再現性と grounding。
 
+## 更新トリガー（いつ環境読みを更新するか）
+
+macro-context は **定期生成しない**（cron 化しない）。次のトリガーで「必要時に」更新する（runbook ②・philosophy「screening 前に stale / 前提崩れの時だけ更新」と整合）:
+- **screening 前**: select は鮮度ある context を hard precondition にする（不在 / `as_of` 未来 / `valid_until < asof`=stale で ERROR）。基準 cadence は `valid_until = as_of + 7日` ＝ 実質週次。
+- **主要イベント後**: FOMC / BOJ / ECB / 米 CPI・PCE・NFP / 地政学ショック（§3-9 の発行日±5営業日と整合）。
+- **前回 `refresh_triggers` の発火**: 前回 context が「前提が崩れる条件」とした事象が起きたとき。
+
+固定 cadence の網羅蓄積を目的化しない。トリガーが無ければ作らない。
+
 ## 1. 手順（end-to-end）
 
 1. **パネルを引く** — §2。方向を語る series は §3 の標準窓で range も引く（`--latest` 単点で方向を断じない）。
@@ -96,7 +105,7 @@ uv run baibai-loop-macro get btc_usd       --start "$(date -d '3 months ago' +%F
 
 ## 4.5 プロ品質 HTML レポート（深い環境レポートを共有するとき）
 
-records/reports の md とは別に、人が読む単一 HTML 環境レポートを出す。雛形は同梱の [`report-template.html`](./report-template.html)（構造の参考実装）で、最新 series 値で各セクションを更新して使う。
+§4 の環境読み（yaml）と **同一リサーチから併産する** 人が読む単一 HTML レポート。1 回のパネル取得＋レンズ＋§3 ゲートから、yaml（機械接続の正本・select に効く）と HTML（人間ビュー）を両方出す（二度手間にしない）。対応: yaml.summary ↔ ①局面規定、yaml.sector_tilts ↔ ⑪セクター tilt、yaml.inputs.indicator_series ↔ ⑫出典。雛形は同梱の [`report-template.html`](./report-template.html)（構造の参考実装）を最新 series 値で更新して使う。
 
 - **構成（12セクション）**: ①局面規定＋リスクレジームメーター ②キー指標ダッシュボード（値＋percentile） ③バリュエーション/ERP ④グローバル中銀同期 ⑤基軸ナラティブ（タイムライン） ⑥レンズ間調停 ⑦資産クラス別ドライバー分岐 ⑧ポジショニング ⑨反証テーブル ⑩シナリオ（確率バー） ⑪セクター tilt ⑫主要リスク／出典・免責。
 - **規律**: 単一 HTML・インライン CSS・外部依存ゼロ（オフラインで開く）。水準は percentile バッジで定量化（§3-4）、基盤 series と web を出典で分離（§3-6, web は source 明記）。§3 ゲートを全て通してから書く。脆い provider（`multpl`）の数値は注記する。
@@ -111,6 +120,7 @@ records/reports の md とは別に、人が読む単一 HTML 環境レポート
 - **掃き出す**: 畳んだ／捨てた項目は KAIZEN.md から消す。fold は **1 commit**（KAIZEN 削除＋SKILL 追記）で残し、理由は commit message に書く。これで KAIZEN.md は常に「未反映だけ」、git history が判断根拠の安全網になる。
 - **置き場**: 手続き的チェック → 本 SKILL §3／データ取得・source 手順の知見 → runbook §③／複数サブシステム横断の普遍的失敗（PR review で 2 回以上の型）→ `docs/anti-patterns.md` へ昇格。
 - `KAIZEN.md` は本スキル同梱の skill-scoped backlog。repo 全体の `.plan/` scratch とは別に、スキルと一緒に travel し SKILL.md から 1 ホップで辿れるよう同梱・commit する。
+- **前提検証（forward calibration ではない）**: 次回更新時に、前回 context の `refresh_triggers` が発火したか（前提が崩れたか）を確認し `changes_since_previous` に記録する。「予測が当たったか」ではなく「前提の鮮度」を追う（誠実性ファイアウォール: マクロは track record を出さない）。発火の早すぎ/遅すぎは `refresh_triggers` 設定の改善に回す。
 
 ## 6. 参照
 - [`macro-runbook.md`](../../../docs/operations/macro-runbook.md): 思想・provider registry・**汎用レンズの読み方（正本）**・接続・誠実性。
