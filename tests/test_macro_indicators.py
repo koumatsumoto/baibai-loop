@@ -38,6 +38,7 @@ from baibai_loop.macro.indicators.providers import (
     parse_fred_csv,
     parse_h15_csv,
     parse_manual_entries,
+    parse_multpl_current,
     parse_trades_spec,
     parse_yahoo_chart,
 )
@@ -515,6 +516,21 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
         with self.assertRaisesRegex(IndicatorsProviderError, "missing quote"):
             parse_yahoo_chart(series, text, start=date(2026, 5, 1), end=date(2026, 5, 2))
+
+    def test_parse_multpl_current_extracts_value(self) -> None:
+        html = (
+            '<meta name="description" content="Current Shiller PE Ratio is 40.70, '
+            'a change of -0.30 from previous market close." />'
+        )
+        self.assertEqual(parse_multpl_current(html, "shiller-pe"), 40.70)
+
+    def test_parse_multpl_current_reads_percent_value(self) -> None:
+        text = "Current S&P 500 Earnings Yield is 3.18%, a change of +2.36 bps."
+        self.assertEqual(parse_multpl_current(text, "s-p-500-earnings-yield"), 3.18)
+
+    def test_parse_multpl_current_rejects_unparseable(self) -> None:
+        with self.assertRaisesRegex(IndicatorsProviderError, "cannot parse current value"):
+            parse_multpl_current("<html>no current sentence here</html>", "shiller-pe")
 
     def test_split_stats_data_id_extracts_narrowing_params(self) -> None:
         from baibai_loop.macro.indicators.providers.estat import _split_stats_data_id
