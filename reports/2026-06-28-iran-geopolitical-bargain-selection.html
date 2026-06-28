@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2026 Iran War マクロ環境と日本株お買い得8銘柄（地政学オーバーシュート押し目）— 2026-06-28</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#1a222c; --panel2:#212c38; --ink:#e8edf2; --mut:#9aa7b4;
+    --line:#2c3a48; --acc:#4ea1ff; --good:#3ecf8e; --warn:#f5b942; --bad:#ff6b6b; --buy:#3ecf8e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,system-ui,sans-serif;line-height:1.7;font-size:15px}
+  .wrap{max-width:1400px;margin:0 auto;padding:32px 28px 80px}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:.2px}
+  h2{font-size:20px;margin:38px 0 14px;padding:8px 0 8px 12px;border-left:4px solid var(--acc);background:linear-gradient(90deg,rgba(78,161,255,.10),transparent)}
+  h3{font-size:16px;margin:20px 0 8px;color:#cfe0f0}
+  .sub{color:var(--mut);font-size:13px;margin:0 0 18px}
+  .disc{background:#2a1f1f;border:1px solid #5a3a3a;color:#f0d0d0;padding:10px 14px;border-radius:8px;font-size:12.5px;margin:14px 0}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0}
+  .grid{display:grid;gap:14px}
+  .g2{grid-template-columns:1fr 1fr}
+  .g3{grid-template-columns:1fr 1fr 1fr}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:1000px){.g2,.g3,.g4{grid-template-columns:1fr}}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}
+  th,td{padding:7px 9px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--mut);font-weight:600;font-size:12px;background:var(--panel2)}
+  td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+  .badge{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap}
+  .b-hi{background:rgba(255,107,107,.18);color:#ff9b9b;border:1px solid #5a3030}
+  .b-mid{background:rgba(245,185,66,.16);color:#ffd27a;border:1px solid #5a4a25}
+  .b-lo{background:rgba(62,207,142,.16);color:#86e7bd;border:1px solid #2c5a44}
+  .b-neu{background:rgba(154,167,180,.14);color:#c2cdd8;border:1px solid #3a4654}
+  .bar{height:22px;border-radius:5px;background:var(--panel2);overflow:hidden;position:relative;border:1px solid var(--line)}
+  .bar>span{display:block;height:100%;}
+  .barlabel{font-size:12px;color:var(--mut);display:flex;justify-content:space-between;margin-bottom:3px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .card h3{margin-top:0;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .tkr{font-size:12px;color:var(--mut);font-weight:400}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:12.5px;margin:8px 0}
+  .kv dt{color:var(--mut)}
+  .kv dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+  .tag{font-size:11px;padding:1px 7px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);color:var(--mut);margin-right:4px}
+  a{color:var(--acc);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .meter{display:flex;height:30px;border-radius:7px;overflow:hidden;border:1px solid var(--line);font-size:11px;font-weight:700;text-align:center}
+  .meter>div{display:flex;align-items:center;justify-content:center;color:#0f1419}
+  .note{font-size:12px;color:var(--mut)}
+  .big{font-size:21px;font-weight:800}
+  .pos{color:var(--good)} .neg{color:var(--bad)} .amb{color:var(--warn)}
+  ul.tight{margin:6px 0;padding-left:20px} ul.tight li{margin:3px 0;font-size:13px}
+  .foot{margin-top:40px;border-top:1px solid var(--line);padding-top:16px;color:var(--mut);font-size:12px}
+  .pill{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:2px 10px;font-size:11.5px;margin:2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>2026 Iran War マクロ環境 ×「過剰下落を拾う」日本株お買い得8銘柄</h1>
+<p class="sub">環境読み as_of 2026-06-28（日）／ 価格基準 2026-06-25 大引け（最新営業日 cache）／ 6/29（月）寄り前 ｜ macro-context: <code>macro-context-2026-06-28-iran-ceasefire-collapse-risk</code></p>
+
+<div class="disc"><b>免責</b>：本資料は1人運用の研究メモであり投資助言ではない。確率・シナリオは主観。edge 数値・統計的有意は提示しない（誠実性ファイアウォール）。指値・RR はベスト/実質の2段で正直に示す。最終判断は人間が行う。数値は基盤 series（機械取得）と一次 IR を相互検算したが、一部は推定（各所に明記）。</div>
+
+<!-- ===================== 1. エグゼクティブサマリ ===================== -->
+<h2>1. 局面規定 — まだ「過剰下落」は来ていない</h2>
+<div class="panel">
+<p>ユーザの「米軍がイラン攻撃」は2025年の単発空爆ではなく、<b>2026/2/28 開戦の「2026 Iran war」</b>（ホルムズ海峡封鎖が約4ヶ月継続）の最新局面。6/26 に CENTCOM がイラン10標的へ報復、6/28 未明にイランがクウェート（Ali Al Salem 空軍基地）・バーレーン（米第5艦隊司令部）へミサイル/ドローンで報復し<b>停戦崩壊の瀬戸際</b>。一方で原油は和平交渉とホルムズ部分再開で<b>戦争プレミアムが剥落</b>（Brent 3月$127→6月$72）。</p>
+<p><b>核心の逆説：市場はまだパニックしていない。</b> 直近の株安（日経 −4.2%・Nasdaq 週−4.6%）の主因は<b>地政学ではなく AI・半導体の利益確定</b>。VIX 18.89（2.4年で73%ile）・MOVE 8%ile（債券は無警戒）・優良信用 IG 9%ile・原油 relief で、地政学プレミアムは金/原油の一部にしか入っていない。</p>
+<h3>リスクレジームメーター（6/28 時点）</h3>
+<div class="meter">
+  <div style="width:34%;background:#3ecf8e">平穏 34%</div>
+  <div style="width:40%;background:#f5b942">脆い均衡 40%</div>
+  <div style="width:26%;background:#ff6b6b">テール着火 26%</div>
+</div>
+<p class="note" style="margin-top:8px">「高値圏 × 割高（米株 ERP=益回り3.18%−10y4.4%=<b>−1.22%</b>）× 狭い breadth × 地政学テール」が、債券・優良信用の無警戒に支えられた<b>脆い均衡</b>。ホルムズ完全封鎖 or 円キャリー巻戻しが1つ着火すれば急変する非対称。<b>「過剰下落を拾う」好機は下方シナリオ（30%）でこそ訪れ、現時点はまだ bargain ではない。</b></p>
+</div>
+
+<!-- ===================== 2. 6/29 シナリオ ===================== -->
+<h2>2. 6/29（月）相場シナリオ（horizon 数営業日・確率は主観）</h2>
+<div class="grid g2">
+  <div class="panel">
+    <h3>米国株（S&amp;P 7,354 / 週−2%）</h3>
+    <div class="barlabel"><span>ベース：限定ギャップダウン −0.5〜−1.5%</span><span>55%</span></div>
+    <div class="bar"><span style="width:55%;background:#f5b942"></span></div>
+    <p class="note">ホルムズ通航継続・原油上値限定・VIX低位で下げは浅い。エネルギー/防衛高、ハイテク/高β安。</p>
+    <div class="barlabel"><span>下方：原油急騰＋リスクオフ拡大 −2〜−4%超</span><span>30%</span></div>
+    <div class="bar"><span style="width:30%;background:#ff6b6b"></span></div>
+    <p class="note">ホルムズ封鎖懸念で CCC（93%ile）信用テール連鎖、ERP負の巻戻し。</p>
+    <div class="barlabel"><span>上方：外交再開シグナルで反発</span><span>15%</span></div>
+    <div class="bar"><span style="width:15%;background:#3ecf8e"></span></div>
+  </div>
+  <div class="panel">
+    <h3>日本株（日経 69,361 / 6/26 −4.2%）</h3>
+    <div class="barlabel"><span>ベース：ギャップダウン −1.5〜−3%（68,000割れトライ）</span><span>55%</span></div>
+    <div class="bar"><span style="width:55%;background:#f5b942"></span></div>
+    <p class="note">米株軟調＋地政学。半導体/輸出安、防衛(三菱重工)/エネルギー(INPEX)/商社高。円は両建て。</p>
+    <div class="barlabel"><span>下方：原油spike＋円キャリー巻戻し −4〜−6%（66,000〜67,000）</span><span>30%</span></div>
+    <div class="bar"><span style="width:30%;background:#ff6b6b"></span></div>
+    <p class="note">ホルムズ依存74%・中東95%で世界最脆弱。3月の備蓄放出局面の再来。<b>＝押し目の本番</b>。</p>
+    <div class="barlabel"><span>上方：外交再開で半導体V字・最高値圏復帰</span><span>15%</span></div>
+    <div class="bar"><span style="width:15%;background:#3ecf8e"></span></div>
+  </div>
+</div>
+
+<!-- ===================== 3. キー指標ダッシュボード ===================== -->
+<h2>3. キー指標ダッシュボード（基盤 series・percentile は 2024-01〜2026-06-26）</h2>
+<div class="panel">
+<table>
+<thead><tr><th>指標</th><th class="r">値（日付）</th><th>percentile</th><th>読み</th></tr></thead>
+<tbody>
+<tr><td>VIX</td><td class="r">18.89（6/25）</td><td><span class="badge b-mid">73%ile</span></td><td>絶対は低いが相対は無警戒でない</td></tr>
+<tr><td>MOVE（債券ボラ）</td><td class="r">66.79（6/26）</td><td><span class="badge b-lo">8%ile</span></td><td>金利市場はテールをほぼゼロ価格 → バスケットと喧嘩</td></tr>
+<tr><td>USD/JPY</td><td class="r">161.65（6/26）</td><td><span class="badge b-hi">99%ile</span></td><td>歴史的円安の極み・介入ゾーン・巻戻し非対称</td></tr>
+<tr><td>WTI / Brent</td><td class="r">$78.9 / $76.5（6/22）</td><td><span class="badge b-neu">relief</span></td><td>3月ピーク$105/$127 から剥落。封鎖再現で$115-154</td></tr>
+<tr><td>Gold / Silver</td><td class="r">4,079 / 59.2（6/26）</td><td><span class="badge b-mid">75 / 78%ile</span></td><td>安全資産は地政学を一部織込済</td></tr>
+<tr><td>IG OAS / CCC OAS</td><td class="r">0.76% / 9.68%</td><td><span class="badge b-lo">9%</span> / <span class="badge b-hi">93%ile</span></td><td>二極化（CCC−IG=8.92%）＝選別的引締・slow-burn</td></tr>
+<tr><td>BTC</td><td class="r">59,996（6/26）</td><td><span class="badge b-lo">11%ile</span></td><td>リスク選好は冷却</td></tr>
+<tr><td>米株 ERP</td><td class="r">−1.22%</td><td><span class="badge b-hi">負</span></td><td>益回り3.18%−10y4.4%。地政学が無くても割高で脆い</td></tr>
+<tr><td>net liquidity</td><td class="r">≈5.81T</td><td><span class="badge b-mid">RRP枯渇</span></td><td>fed_assets6.74T−RRP0.006T−TGA0.92T。QTのクッション消尽</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ===================== 4. 地政学タイムライン ===================== -->
+<h2>4. 2026 Iran War タイムライン（web 出典・準一次）</h2>
+<div class="panel">
+<table>
+<thead><tr><th>日付</th><th>出来事</th></tr></thead>
+<tbody>
+<tr><td class="r">2/28</td><td>米・イスラエルがイラン空爆 → 開戦。イラン報復・ホルムズ封鎖開始</td></tr>
+<tr><td class="r">3/16</td><td>日本政府が石油備蓄8,000万バレル放出（1978年来最大・約45日分）</td></tr>
+<tr><td class="r">3/30-31</td><td>Brent $122-127 / WTI $105（封鎖ピーク、基盤 series 確認）</td></tr>
+<tr><td class="r">6/17</td><td>イスラマバード覚書（トランプ＆ペゼシュキアン）、60日停戦延長</td></tr>
+<tr><td class="r">6/25</td><td>原油 relief で日経 +4.61%（72,366、半導体 melt-up）</td></tr>
+<tr><td class="r">6/26</td><td><b>CENTCOM がイラン10標的へ報復</b>。日経 −4.2%（−3,005、今年最大の下げ・半導体主導）</td></tr>
+<tr><td class="r">6/27</td><td>タンカー Kiku がホルムズで被弾</td></tr>
+<tr><td class="r"><b>6/28</b></td><td><b>イラン IRGC がクウェート・バーレーンへミサイル/ドローン報復（死者1・負傷63・空港閉鎖）。「停戦違反は全外交を停止」と威嚇</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ===================== 5. 反証テーブル ===================== -->
+<h2>5. レンズ間調停と反証テーブル（自分のデータと結論を照合）</h2>
+<div class="panel">
+<table>
+<thead><tr><th>結論</th><th>支持する実値</th><th>反証（実値は反証側か）</th></tr></thead>
+<tbody>
+<tr><td>6/29 はリスクオフ・ギャップダウン</td><td>6/28 イラン報復・死者、6/26 米株/日経安、停戦威嚇</td><td><span class="amb">原油先物6/26 $69へ低下＝供給不安限定／VIX18.89と低位 → 下げが浅い可能性は反証側に振れる。「限定的ギャップダウン」に留める</span></td></tr>
+<tr><td>下げは限定・押し目が入る</td><td>原油relief・VIX低・過去のV字・流動性まだ緩い</td><td><span class="neg">ERP−1.22%・RRP枯渇・CCC93%ile → 一段安を否定しない。テール30%を残す</span></td></tr>
+<tr><td>日本株が米株より脆弱</td><td>円99%ile・ホルムズ74%依存・原油spike直撃</td><td><span class="amb">原油relief継続なら円安は輸出益押上げ。封鎖が現実化しなければ逆。FX両建てを明記</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ===================== 6. 戦略 ===================== -->
+<h2>6. 戦略 —「巻き込まれ過剰下落で叩かれるが反発する net-cash 割安株」を指値で拾う</h2>
+<div class="panel">
+<p>地政学ショック（中東・原油・円キャリー巻戻し・リスクオフ）で<b>過剰反応的に叩かれるが、下値保護（net-cash/営業CF/還元）で清算価値近辺まで耐え反発する割安日本株</b>を、<b>テール時の過剰反応価格に段階建ての指値</b>で仕込む。screening 基盤の `select` ＋ 補完スキャンから地政学耐性 sector を抽出し、12銘柄を一次 IR 深掘り → 敵対レビュー（self＋独立）で4銘柄を除外して8銘柄に確定。</p>
+<p class="note"><b>金融は screening universe 外</b>のため、BOJ 正常化の金利受益（銀行/保険）は今回拾えていない（改善 backlog 化）。母集団は内需・ディフェンシブ・商社・医療・DX。</p>
+</div>
+
+<!-- ===================== 7. 8銘柄サマリ ===================== -->
+<h2>7. 最終8銘柄 — 段階建て指値と2段リスクリワード</h2>
+<div class="disc"><b>RR の読み方</b>：<b>RR_best</b>＝tight stop(−8%)前提のボトムアップ＝<b>ベストケース</b>。<b>RR_real</b>＝gap でファンダ床(−11〜18%)まで落ちうる実質。最高値圏 regime（risk_on_rally）では tight stop はギャップで飛ぶため、<b>正直版は RR_real（平均1.9）</b>。指値は「指値1で約定しなければ指値2へ下げて待つ」段階戦略で、基本各100株（満玉≈¥2.0M、全銘柄8% cap¥400k 内）。</div>
+<div class="panel">
+<table>
+<thead><tr><th>銘柄</th><th>β/流動性</th><th class="r">現値</th><th class="r">指値1</th><th class="r">指値2</th><th class="r">目標</th><th class="r">床</th><th class="r">RR_best</th><th class="r">RR_real</th><th>円感応</th></tr></thead>
+<tbody>
+<tr><td><a href="https://www.tradingview.com/chart/fJupN99c/?symbol=TSE%3A9729">9729 トーカイ</a></td><td><span class="badge b-lo">低β</span> 0.7</td><td class="r">2,320</td><td class="r">2,120</td><td class="r">1,950</td><td class="r">2,700</td><td class="r">1,880</td><td class="r">3.4</td><td class="r"><b>2.4</b></td><td>中立</td></tr>
+<tr><td><a href="https://www.tradingview.com/chart/fJupN99c/?symbol=TSE%3A7844">7844 マーベラス</a></td><td><span class="badge b-hi">高β micro</span> 0.6</td><td class="r">425</td><td class="r">400</td><td class="r">360</td><td class="r">540</td><td class="r">340</td><td class="r">4.4</td><td class="r"><b>2.3</b></td><td>軽long$</td></tr>
+<tr><td><a href="https://www.tradingview.com/chart/fJupN99c/?symbol=TSE%3A9948">9948 アークス</a></td><td><span class="badge b-lo">低β</span> 2.5</td><td class="r">3,340</td><td class="r">3,050</td><td class="r">2,850</td><td class="r">3,750</td><td class="r">2,700</td><td class="r">2.9</td><td class="r"><b>2.0</b></td><td>short$</td></tr>
+<tr><td><a href="https://www.tradingview.com/chart/fJupN99c/?symbol=TSE%3A4694">4694 BML</a></td><td><span class="badge b-lo">低β</span> 3.4</td><td class="r">3,635</td><td class="r">3,350</td><td class="r">3,150</td><td class="r">4,050</td><td class="r">2,950</td><td class="r">2.6</td><td class="r"><b>1.7</b></td><td>中立</td></tr>
+<tr><td><a href="https://www.tradingview.com/chart/fJupN99c/?symbol=TSE%3A9715">9715 トランスコスモス</a></td><td><span class="badge b-mid">中β</span> 2.8</td><td class="r">3,625</td><td class="r">3,350</td><td class="r">3,050</td><td class="r">4,200</td><td class="r">2,850</td><td class="r">3.2</td><td class="r"><b>1.7</b></td><td>short$</td></tr>
+<tr><td><a href="https://www.tradingview.com/chart/fJupN99c/?symbol=TSE%3A2659">2659 サンエー</a></td><td><span class="badge b-lo">低β</span> 5.1</td><td class="r">3,145</td><td class="r">2,800</td><td class="r">2,600</td><td class="r">3,300</td><td class="r">2,500</td><td class="r">2.2</td><td class="r"><b>1.7</b></td><td>short$</td></tr>
+<tr><td><a href="https://www.tradingview.com/chart/fJupN99c/?symbol=TSE%3A9413">9413 テレ東HD</a></td><td><span class="badge b-hi">高β</span> 3.2</td><td class="r">3,470</td><td class="r">3,100</td><td class="r">2,800</td><td class="r">4,000</td><td class="r">2,550</td><td class="r">3.6</td><td class="r"><b>1.6</b></td><td>long$</td></tr>
+<tr><td><a href="https://www.tradingview.com/chart/fJupN99c/?symbol=TSE%3A4507">4507 塩野義</a></td><td><span class="badge b-mid">中β 大型</span> 84.5</td><td class="r">2,718</td><td class="r">2,550</td><td class="r">2,350</td><td class="r">3,100</td><td class="r">2,200</td><td class="r">2.7</td><td class="r"><b>1.6</b></td><td>long$</td></tr>
+</tbody>
+</table>
+<p class="note">平均 <b>RR_best 3.1 / RR_real 1.9</b>。円ネットはほぼ中立（long$ テレ東・塩野義 vs short$ トランスコスモス・アークス・サンエー）。流動性は億円/日（avg turnover）。</p>
+</div>
+
+<!-- ===================== 8. 銘柄カード ===================== -->
+<h2>8. 個別 thesis（一次 IR 検算済み・全社3月決算 FY2026/3）</h2>
+<div class="grid g2">
+
+  <div class="card">
+    <h3>9729 トーカイ <span class="tkr">医療関連サービス・低β</span></h3>
+    <p class="note">寝具リース/リネン・調剤・環境。完全国内ディフェンシブ。<b>最も「素直な de-rating 割安」</b>。</p>
+    <dl class="kv">
+      <dt>FY26 実績</dt><dd>営業益 93.8億 <span class="pos">+14.5%</span>（過去最高）</dd>
+      <dt>FY27 ガイド</dt><dd>営業益 89.9億 <span class="neg">−4.2%</span>（原油コスト）</dd>
+      <dt>バリュ</dt><dd>PBR0.86 / PER12.5 / OCF利回り15%</dd>
+      <dt>下値保護</dt><dd>NC≈時価30% / 自己資本74%</dd>
+      <dt>触媒</dt><dd><b>FY27から性向40%＋累進配当導入＋自社株買い</b>・1Q 8月</dd>
+    </dl>
+    <p class="note"><span class="tag">指値1 2,120</span><span class="tag">床 1,880</span><span class="tag">RR_real 2.4</span> リスク：原油/エネルギーコスト・人口減・記念配依存</p>
+  </div>
+
+  <div class="card">
+    <h3>7844 マーベラス <span class="tkr">ゲーム/エンタメ・高β micro</span></h3>
+    <p class="note">コンソール/モバイルゲーム。ルーンファクトリー新作ヒット。<b>3社一のキャッシュ創出</b>。</p>
+    <dl class="kv">
+      <dt>FY26 実績</dt><dd>売上 <span class="pos">+35.8%</span> / 営業益 <span class="pos">+23.7%</span></dd>
+      <dt>FY27 ガイド</dt><dd>減収だが営業益 <span class="pos">+33.4%</span>（採算改善）</dd>
+      <dt>下値保護</dt><dd>無借金・NC175億・<b>FCF +97億</b>・自己資本78%</dd>
+      <dt>配当</dt><dd>12→15円予想（利回り3.6%、2025減配からの回復）</dd>
+    </dl>
+    <p class="note"><span class="tag">指値1 400</span><span class="tag">床 340</span><span class="tag">RR_real 2.3</span> リスク：<b>micro-cap で stop 約定難</b>・ヒット依存・FCF lumpy → サイズ小</p>
+  </div>
+
+  <div class="card">
+    <h3>9948 アークス <span class="tkr">食品スーパー・低β</span></h3>
+    <p class="note">北海道・東北の SM 最大手。<b>全項目ビートしたのに保守ガイドで売られた "sell the news"</b>。</p>
+    <dl class="kv">
+      <dt>FY26 実績</dt><dd>営業益 <span class="pos">+10.6%</span>・純利 <span class="pos">+12.5%</span>（当初比+7.5%ビート）</dd>
+      <dt>FY27 ガイド</dt><dd>営業益 +2.1%（<b>サンドバッグ濃厚</b>）</dd>
+      <dt>バリュ</dt><dd>PBR<b>0.91〜0.98</b>（簿価近辺・<span class="amb">明確な割れではない</span>）</dd>
+      <dt>下値保護</dt><dd>NC時価35% / <b>営業CF263億(+35.7%)</b> / 性向35%増配余地</dd>
+    </dl>
+    <p class="note"><span class="tag">指値1 3,050</span><span class="tag">床 2,700</span><span class="tag">RR_real 2.0</span> リスク：<b>北海道人口減(trap要素)・薄利2.5%で原油高に脆弱(short-oil)</b></p>
+  </div>
+
+  <div class="card">
+    <h3>4694 BML <span class="tkr">臨床検査・低β</span></h3>
+    <p class="note">臨床検査受託＋検査システム。<b>3社最強の現金要塞・最も安全な暴落退避先</b>。地政学/原油/FX/半導体ゼロ依存。</p>
+    <dl class="kv">
+      <dt>FY26 実績</dt><dd>営業益 <span class="pos">+11.3%</span>・純利 +23.7%（ビート）</dd>
+      <dt>FY27 ガイド</dt><dd>営業益横ばい・純利 <span class="neg">−9.7%</span>（正常化）</dd>
+      <dt>下値保護</dt><dd>現金646億・<b>NC時価43%</b>・営業CF207億(+31%)</dd>
+      <dt>配当</dt><dd>125円据置（減益でも維持）</dd>
+    </dl>
+    <p class="note"><span class="tag">指値1 3,350</span><span class="tag">床 2,950</span><span class="tag">RR_real 1.7</span> リスク：低成長・PER来期~20倍（EPSは割安でない）・遊休現金</p>
+  </div>
+
+  <div class="card">
+    <h3>9715 トランス・コスモス <span class="tkr">CX/BPO/DX・中β</span></h3>
+    <p class="note">デジタルコンタクトセンター/BPO/デジマ/EC。<b>AI/DX はコア事業で本物</b>（margin expansion が自動化成功の実証）。MBO 対象ではない（別会社の誤情報を排除）。</p>
+    <dl class="kv">
+      <dt>FY26 実績</dt><dd>売上 +4.8% / 営業益 <span class="pos">+14.4%</span> / 経常 +21%</dd>
+      <dt>FY27 ガイド</dt><dd>営業益 +1.5% / 経常 <span class="neg">−6.2%</span>（保守）</dd>
+      <dt>バリュ</dt><dd><b>現金控除後 PER≈6倍</b> / NC時価48%</dd>
+      <dt>配当</dt><dd>140→145円<b>連続増配・利回り4.0%</b>（性向40%）</dd>
+    </dl>
+    <p class="note"><span class="tag">指値1 3,350</span><span class="tag">床 2,850</span><span class="tag">RR_real 1.7</span> リスク：<b>AI が BPO の TAM を構造デフレ</b>（受益の方向が両刃）</p>
+  </div>
+
+  <div class="card">
+    <h3>2659 サンエー <span class="tkr">食品スーパー(沖縄)・低β</span></h3>
+    <p class="note">沖縄地盤の小売コングロ。56期連続増収。<b>優良ディフェンシブだが現値は割高</b>＝深い指値で質を拾う。</p>
+    <dl class="kv">
+      <dt>FY26 実績</dt><dd>経常 +1.7%(過去最高)・純利 −6.9%（<b>解体費用の一過性</b>）</dd>
+      <dt>FY27 ガイド</dt><dd>純利 +3.3%（解体費用一巡で回復）</dd>
+      <dt>バリュ</dt><dd>PBR1.24 / PER18（割高 → 指値−11%）</dd>
+      <dt>触媒</dt><dd><b>自社株買い 上限700万株/150億(発行済11.32%)</b>・1Q 7/7</dd>
+    </dl>
+    <p class="note"><span class="tag">指値1 2,800</span><span class="tag">床 2,500</span><span class="tag">RR_real 1.7</span> リスク：<b>台湾近接の観光テール・short-oil・割高</b></p>
+  </div>
+
+  <div class="card">
+    <h3>9413 テレビ東京HD <span class="tkr">メディア/アニメ・高β</span></h3>
+    <p class="note">放送＋アニメ・配信（利益の約58%）。過去最高益・PBR0.84/PER11-12 で本当に割安。<b>ただしこのバスケットには FX が逆</b>。</p>
+    <dl class="kv">
+      <dt>FY26 実績</dt><dd>営業益 114億 <span class="pos">+46.4%</span>（過去最高）</dd>
+      <dt>FY27 ガイド</dt><dd>営業益 +1%<b>横ばい</b>（peak 減速・放送−29%は一過性）</dd>
+      <dt>下値保護</dt><dd>NC時価45% / 自己資本69% / 総還元40%へ格上げ</dd>
+      <dt>FX</dt><dd><b>海外アニメ＝円安追い風／円高(巻戻し)で逆風</b></dd>
+    </dl>
+    <p class="note"><span class="tag">指値1 3,100</span><span class="tag">床 2,550</span><span class="tag">RR_real 1.6</span> リスク：<b>long-USD・China27%・半導体高βの3つが逆向き</b>→深ラダー</p>
+  </div>
+
+  <div class="card">
+    <h3>4507 塩野義 <span class="tkr">医薬・大型・流動性アンカー</span></h3>
+    <p class="note">時価2.4兆・<b>liq84.5億/日でバスケットの流動性アンカー</b>（小型 monoculture を破る）。ディフェンシブ pharma。</p>
+    <dl class="kv">
+      <dt>FY26 実績</dt><dd>売上 +14% / 営業益 +6.5%（会社予想は<span class="neg">未達90%</span>）</dd>
+      <dt>FY27 ガイド</dt><dd>売上+40%だが<b>純利+2.4%（コンセンサス未達）</b></dd>
+      <dt>注意</dt><dd>HIV ロイヤリティ(<b>特許切れ2028-29</b>)を<b>借金で買増し</b>→自己資本88.7%→65.4%・<span class="amb">NC薄い(+270億)</span></dd>
+      <dt>配当</dt><dd>76円・14期連続増配・性向29%（増配余地）</dd>
+    </dl>
+    <p class="note"><span class="tag">指値1 2,550</span><span class="tag">床 2,200</span><span class="tag">RR_real 1.6</span> リスク：<b>特許崖を借金でレバレッジした value-trap 要素</b>→流動性アンカーの対価として小サイズ</p>
+  </div>
+
+</div>
+
+<!-- ===================== 9. RR の正直な評価 ===================== -->
+<h2>9. リスクリワードの正直な評価（敵対レビュー反映・必須）</h2>
+<div class="panel">
+<h3>① RR は2段で読む — 綺麗な単一倍率にしない</h3>
+<p>ボトムアップ <b>RR_best 平均3.1</b> はベストケース（tight stop −8% が機能する前提）。だが entry 指値が約定する時点で既に地政学ショックの渦中で、下方シナリオ（ホルムズ封鎖で日経−6%、円キャリー巻戻しで−10%＝2024/8型）では <b>tight stop はギャップで飛ぶ</b>。ファンダ床（−11〜18%）まで落ちうる <b>RR_real 平均1.9</b> が正直版。<b>stop は価格 tight ではなく「net-cash ファンダ床割れ／業績 invalidation」に置き、価格は段階建て＋サイズで管理</b>（tight 価格 stop は overshoot の底で売る自己矛盾）。</p>
+
+<h3>② 最高値圏 regime（risk_on_rally）の非対称</h3>
+<p>6/25 screening regime は <b>risk_on_rally（benchmark 20d +11.96%・gap_from_high −0.3%）</b>。最高値圏では上方は限定的・低確率、下方はテール厚め。target（mean 回帰）は確率で割り引くべきで、<b>「待つ／段階建て」が最良 RR</b>。指値は現値−6〜19%の段階で、約定しなければ深いテール（指値2）へ。</p>
+
+<h3>③ 円ネットエクスポージャ</h3>
+<p>long-USD（円安追い風）= テレ東・塩野義／short-USD（円高で改善）= トランスコスモス・アークス・サンエー／中立 = マーベラス・BML・トーカイ。<b>ほぼ中立化</b>（明治電機除外で long-USD 偏り緩和）。リスクオフが円高（キャリー巻戻し）を伴う局面では long-USD 2本が逆風、short-USD 3本が相対追い風で相殺。</p>
+
+<h3>④ 見逃しやすいテールリスク（独立レビュー指摘）</h3>
+<ul class="tight">
+<li><b>逆選択的約定</b>：−6〜19%指値はテールでしか埋まらず、埋まった時こそ small-cap value が de-gross で床を試す。約定確率と短期勝率は負相関 → <b>段階建て＋小サイズ＋dry powder</b>で対処。</li>
+<li><b>MOVE 8%ile との喧嘩</b>：債券市場は地政学テールをほぼゼロ価格。地政学 thesis が過大か、MOVE 正常化で巨大 gap か。バスケットは債券テープと逆。</li>
+<li><b>実効分散 N≈2-3</b>：8銘柄が「net-cash×割安×内需×小型」の同ファクター。テールでは大型・質への逃避＋de-grossing で同方向。net-cash はファンダ床は守るが、強制清算の倍率圧縮は守らない。</li>
+<li><b>short-oil 2本</b>：アークス・トーカイは薄利でエネルギーコスト集約 → 原油 spike では「過剰反応の反発」でなくファンダ毀損。床は modeled より低い。</li>
+<li><b>micro-cap の約定性</b>：マーベラス（liq0.6）は tight stop 約定不能 → 成行 stop でなくファンダ床＋小サイズで管理。</li>
+</ul>
+</div>
+
+<!-- ===================== 10. 除外 ===================== -->
+<h2>10. 除外した銘柄（敵対レビューで弾いた）</h2>
+<div class="panel">
+<table>
+<thead><tr><th>銘柄</th><th>screening の見かけ</th><th>除外理由（罠の正体）</th></tr></thead>
+<tbody>
+<tr><td>4301 アミューズ</td><td>PBR<1・現金≒時価・+60%増配</td><td><b>peak 益の錯覚</b>：FY26営業+118.8%は大型ツアー peak、FY27 −66.3%減益。−66%減益に+60%増配は<b>配当破裂</b>＝現金シェルの清算プレー</td></tr>
+<tr><td>3388 明治電機</td><td>現金55%・無借金・EV/営業益3倍</td><td><b>micro-cap trap</b>：liq0.6億/日で −10% gap 時に stop 約定不能。トヨタ依存4割・低成長・触媒は年単位の「万年割安」</td></tr>
+<tr><td>4839 WOWOW</td><td>PBR0.40・現金94%</td><td><b>forward PER≈47倍</b>（21.5は実績嵩上げEPS）。加入者 −8%/年の構造減・経常−56%ガイド・forward 性向142%・還元消極</td></tr>
+<tr><td>3932 アカツキ</td><td>PER7.3・現金/時価0.82</td><td><b>FCF マイナス</b>・営業+90%はコスト/R&amp;D削減・純利+243%はベース効果・現金はM&amp;A流出で<b>実NCは189億</b>・来期予想非開示</td></tr>
+</tbody>
+</table>
+<p class="note">塩野義（特許崖を借金で買い NC 薄）も value-trap 警戒だが、<b>流動性アンカーの対価</b>として小サイズで採用。サンエー（割高）は深い指値で質を拾う前提で採用。</p>
+</div>
+
+<!-- ===================== 11. 出典 ===================== -->
+<h2>11. 主要出典・確度</h2>
+<div class="panel">
+<p class="note"><b>基盤 series（機械取得・一次資料）</b>：FRED（VIX・WTI/Brent・credit OAS・金利・流動性）・Yahoo（MOVE・gold/silver/copper・SOX）・ECB（USD/JPY）・multpl（CAPE/PE/益回り）。<b>screening</b>：J-Quants daily bars（asof 2026-06-25）・EDINET metrics。</p>
+<p class="note"><b>一次 IR（決算短信・適時開示TDnet・会社IR・有報、irbank/日経/kabutan で2ソース検算）</b>：各社 FY2026/3 本決算・FY2027/3 ガイド・配当・BS。screening 値は全社で一次 IR と整合（PER は実績/forward の別、net-cash は gross/net の別に注意）。</p>
+<p class="note"><b>web（series 化できない地政学イベント）</b>：Wikipedia/Britannica（2026 Iran war）・NPR/Gulf News/Times of Israel（6/28 報復）・CNBC（原油・株）・EIA STEO/ING（封鎖シナリオ）・CSIS/IEA/Japan Times（日本エネルギー）。</p>
+<p class="note"><b>推定（要最終確認）</b>：一部短信原本 PDF が CID フォントで自動抽出不能のため irbank 等の準一次転記で代替した項目（営業CF の一部・次回決算日・自社株買い枠）。発注前に会社 IR 原本で最終確認推奨。</p>
+</div>
+
+<div class="foot">
+<p>baibai-loop research memo ｜ macro-context-2026-06-28-iran-ceasefire-collapse-risk ｜ 価格基準 2026-06-25 ｜ 生成 2026-06-28<br>
+本資料は投資助言ではない。指値・目標・床・確率は主観であり、最終判断は人間が行う。RR は RR_real（gap込み）を正とし、最高値圏では「待つ／段階建て／小サイズ」を優先する。</p>
+</div>
+
+</div>
+</body>
+</html>
