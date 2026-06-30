@@ -124,7 +124,7 @@ figure.diagram:hover .diagram-tools, figure.diagram:focus-within .diagram-tools 
 
     <header class="doc-header">
       <h1>AI バリュー・バーゲン銘柄選定 — 7/1 指値プラン</h1>
-      <p class="subtitle">6/30 大引け後の環境読み → スクリーニング → 一次 IR → 金融プロ 2 名クロスレビュー → 複数シミュレーション。高値圏リスクオン回帰の下で「お買い得 × 下値保護」の日本株 8 銘柄を tier 化し、約定する指値で段階的に拾う。</p>
+      <p class="subtitle">6/30 大引け後の環境読み → スクリーニング → 一次 IR → 金融プロ 2 名クロスレビュー → 複数シミュレーション → 厳格な再検証。<strong>結論：8 銘柄すべてピーク利益上の見せかけ割安で RR は高くない。規律上は YEN 現金が優位、long 義務があれば 6932・9715 のみ少額。</strong></p>
       <p class="meta">生成日: 2026-06-30 / 対象セッション: 2026-07-01 / screening asof: 2026-06-30 / 通貨: JPY</p>
     </header>
 
@@ -147,7 +147,7 @@ figure.diagram:hover .diagram-tools, figure.diagram:focus-within .diagram-tools 
 
       <div class="callout callout-important">
         <p class="callout-title">結論（一行）</p>
-        <p>6/26 の半導体主導 −4.2% 押し目は 2 営業日で買い戻され、相場は<strong>高値圏のリスクオンへ回帰</strong>した。全体安由来の「広いお買い得」は乏しく、買えるのは<strong>個別の de-rating（業績は崩壊していないのに株価だけ崩れた割安）</strong>に限られる。よって最良 RR は「ATH の AI 半導体 melt-up を追わず、<strong>net-cash で下値保護された割安日本株を、約定する小幅押し目に段階的に指値で拾い、資金の約 8〜9 割を YEN 現金で温存</strong>」する設計に置く。</p>
+        <p><strong>リスクリワードは「明らかに高い」とは言えない——リスク調整後はむしろ現金が優位。</strong>厳格な再検証で、screening が拾った 8 銘柄は<strong>すべてが FY2026/3 営業利益の複数年ピーク上の見せかけ割安</strong>（低 PER はピーク利益の裏返し）で、しかも<strong>de-rating を閉じる dated catalyst が無く、net cash の還元機構も乏しい</strong>。前回の「期待 +1.7%」は希望的な再レート alpha の産物で、<strong>触媒なし・ピーク利益の反転・Q1 決算（保有窓内）を正直に織り込むと期待リターンは −1.2%・損失確率 57%・現金に勝つ確率 42%</strong>（§6）。よって規律上の base case は<strong>「YEN 現金を厚く保持し、本物の washout を待つ」</strong>。long 義務があってもピーク利益依存が最も弱い <strong>6932・9715 のみ少額（配当/オプション位置づけ）</strong>に留め、6357/7239/6770/6118/3932 は見送る。8 銘柄一括は推奨しない。</p>
       </div>
 
       <p>本レポートは screening 基盤（1,588 候補）→ select 軸別ランキング → 一次 IR 深掘り（12 銘柄）→ 投資ファンド PM 2 名の独立クロスレビュー → シナリオ + モンテカルロ（30,000 試行）を経た最終提案である。ユーザー要望に従い <strong>8 銘柄</strong>を提示するが、2 名のプロ・レビューが独立に「実効分散は見かけより低く（実効 N ≈ 3〜4）、高値圏かつ円 99%ile・NFP 前夜では集中を絞り現金を厚く持つのが最良 RR」へ収束したため、<strong>確信度で 2 tier に分けた執行</strong>を推奨する。</p>
@@ -261,6 +261,7 @@ flowchart TD
 
       <div class="callout callout-important">
         <p class="callout-title">どの価格でいくら指せばよいか（100 株 / 単元・指値・GTC 想定）</p>
+        <p><strong>規律上の base case は §6 の通り「発注せず YEN 現金」。下表は long 義務がある場合の最小版で、ピーク利益依存が弱い 6932・9715 以外（6357/7239/6770/6118/3932）は本物の washout（ピークでない割安）を待つ。</strong></p>
         <p>指値深さは β 調整：低β の Core 錨は終値の小幅下で確実に拾い、高β／自動車／低確信の Satellite は深く置いて<strong>急落時のみ約定</strong>させる（高β から先に刺さる逆選択を回避）。約定率は直近 120 営業日の日中ディップ分布（当日安値 ÷ 前日終値 − 1）から推定。</p>
       </div>
 
@@ -329,8 +330,36 @@ flowchart TD
       <h2 id="s6">6. リスクリワードの正直な評価</h2>
 
       <div class="callout callout-important">
-        <p class="callout-title">bottom-up RR はベストケース</p>
-        <p>§4 の RR 1.3〜2.3（目標÷損切）は<strong>ベストケース</strong>。高値圏（日経 ATH−3.8%・ERP 負・VIX 18）では上方は限定的・低確率、下方は左テールが厚い。以下は regime 調整・ギャップ込み・ファンダ床で引き直した分布。</p>
+        <p class="callout-title">再レビュー(v2)：RR は本当に高いか — 否。8 銘柄すべてピーク利益上の割安</p>
+        <p>厳格な再検証で、<strong>採用 8 銘柄すべてが FY2026/3 の営業利益で複数年ピーク</strong>にあることが判明（一次：決算短信 5 期分）。低 PER は<strong>ピーク利益の裏返し</strong>で、平均回帰は下方向に働きうる。とりわけ循環/スパイク銘柄が危険：</p>
+        <ul>
+          <li><strong>3932 アカツキ</strong>：営業利益率 11.2% → 16.6% → <strong>28.8%</strong>（2 年で約 3 倍・ヒット作スパイク）。PER 7.4 は持続不能なピーク上。</li>
+          <li><strong>7239 タチエス</strong>：売上 293 → 285 → <strong>269B（減少）</strong>なのに営業益ピーク＝出来高減のマージン拡大＝late-cycle。市場の de-rating は正しい可能性。</li>
+          <li><strong>6357 三精</strong>：営業益 2 年で倍増（テーマパーク capex ブーム）＋株価 +64% 反発済＝循環ピーク追い。のれん減損リスク。</li>
+          <li><strong>6770 アルプス</strong>：前期純損失からの回復ピーク。PER 15 でそもそも割安でない。</li>
+        </ul>
+      </div>
+
+      <h3>正直な再シミュレーション（触媒なし・ピーク利益反転・Q1 決算リスクを織込む）</h3>
+      <p>前回の「期待 +1.7%」は、私が置いた<strong>希望的な再レート alpha（+3〜6%）の産物</strong>だった。触媒が無い現実（IR は大半で「catalyst 弱」）に合わせ alpha ≈ 0〜負（ピーク利益の反転）とし、保有窓（〜22 営業日）に入る <strong>Q1 決算（7 月下旬〜8 月上旬）のミス・リスク</strong>を加えると、エッジは消える：</p>
+      <table>
+        <thead><tr><th>前提</th><th>E[r]</th><th>損失確率</th><th>現金に勝つ確率</th><th>CVaR(5%)</th></tr></thead>
+        <tbody>
+          <tr><td>前回（楽観 alpha・決算リスク無視）</td><td>+1.74%</td><td>37%</td><td>—</td><td>−14.6%</td></tr>
+          <tr><td><strong>正直版（触媒なし・ピーク反転・Q1 込み）</strong></td><td><strong>−1.22%</strong></td><td><strong>57%</strong></td><td><strong>42%</strong></td><td><strong>−15.0%</strong></td></tr>
+          <tr><td>β×市場のみ（alpha=0・参考）</td><td>−0.45%</td><td>—</td><td>—</td><td>—</td></tr>
+          <tr><td><strong>現金（BOJ ~1%/年）</strong></td><td><strong>+0.09%</strong></td><td><strong>0%</strong></td><td>—</td><td><strong>0%</strong></td></tr>
+        </tbody>
+      </table>
+      <div class="callout callout-important">
+        <p class="callout-title">結論：この束の RR は高くない。リスク調整後は現金が優位</p>
+        <p>「+1.7% のエッジ」は<strong>仮定した alpha がほぼ全て</strong>。それを剥がすと期待リターンは <strong>−0.5〜−1.2%</strong>、<strong>損失確率 57%・現金に勝つ確率はわずか 42%</strong>。<strong>規律上の base case は「発注せず YEN 現金」</strong>。long 義務があるなら、ピーク利益依存が最も弱い <strong>6932 遠藤照明</strong>（純益はピークでない・内需＝円高ヘッジ・3.6% カバー配当）と <strong>9715 トランスコスモス</strong>（最も緩やかなマージン・「AI が BPO を殺さない」への割安コントラリアン・オプション）のみを<strong>少額（配当/オプション位置づけ、+13% 再レート前提でなく）</strong>で持ち、6357/7239/6770/6118/3932 は<strong>ピーク循環/スパイクのため見送り、本物の washout（ピークでない割安）を待つ</strong>。VIX 18・ERP 負・円 99%ile の複雑系では、最も非対称な「お買い得」は<strong>安い下方ヘッジ／現金で待つこと</strong>。</p>
+      </div>
+
+      <h3>参考：前回（楽観 alpha）版のシナリオ / MC 内訳</h3>
+      <div class="callout callout-note">
+        <p class="callout-title">以下は楽観前提の内訳（正直版は上表）</p>
+        <p>§4 の bottom-up RR 1.3〜2.3（目標÷損切）は<strong>ベストケース</strong>。下表は楽観 alpha 下の regime 調整分布で、<strong>触媒・ピーク利益・決算リスクを織り込むと上の正直版へ劣化する</strong>。</p>
       </div>
 
       <h3>シナリオ別ポートフォリオ・リターン（投下加重・全約定基準）</h3>
