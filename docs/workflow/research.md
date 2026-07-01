@@ -69,7 +69,7 @@ payoff が弱い場合は `thesis_decision`・`macro_context_fit.required_checks
 ## Entry
 
 - **買いは割安ゾーン ∧ FV 下方乖離**を満たす銘柄を長期で積み立てる。押し目（recent decline で割安ゾーンへ入った）を拾ってよい。
-- **Entry preflight**（front matter `entry_preflight`）：比較開始日 / 判定日 / price basis、market（Nikkei/TOPIX）・sector 相対リターン（情報）、macro freshness、追加 order を含めた同一 sector / playbook の exposure review。リスクオン相場での逆張りを禁じる regime trigger は持たない（割安を買うのが本流のため）。`action`（`proceed` / `starter` / `defer`）は、macro freshness が stale で event-driven でなければ `defer`、exposure が cap 近傍なら `starter`、それ以外は `proceed` で駆動する。
+- **Entry preflight**（front matter `entry_preflight`）：比較開始日 / 判定日 / price basis、market（Nikkei/TOPIX）・sector 相対リターン（情報）、macro freshness、追加 order を含めた同一 sector / playbook の exposure review。sector baseline は原則 sector index を使い、同一 basis で取れなければ 3–5 社の peer basket、いずれも不可なら `not_checked` と理由を記録する。リスクオン相場での逆張りを禁じる regime trigger は持たない（割安を買うのが本流のため）。`action`（`proceed` / `starter` / `defer`）は、macro freshness が stale で event-driven でなければ `defer`、exposure が cap 近傍なら `starter`、それ以外は `proceed` で駆動する。
 - sizing は §Position size に従う。
 
 ## Exit

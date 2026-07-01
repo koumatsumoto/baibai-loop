@@ -17,10 +17,12 @@ screen の評価対象（scope）は **全上場普通株** とし、規模・�
 | 条件 | 値 | 理由 |
 | --- | --- | --- |
 | 銘柄種別 | 普通株のみ（ETF / REIT / 優先株を除外） | 事業会社の valuation 判定が対象 |
-| 上場市場 | プライム / スタンダード / グロース | 一般投資家が取引可能 |
+| 上場市場 | プライム / スタンダード / グロース（TOKYO PRO Market は対象外） | 一般投資家が取引可能 |
 | bar 履歴 | 直近 20 営業日以上 | 売買代金・自己レンジ fact の算出に必要な最小データ |
 
-research 候補への絞り込み（時価総額・売買代金・上場期間・JPX 規制）は **分析層のパラメータ `selection.liquidity`**（既定: 時価総額 100 億円以上・20 営業日平均売買代金 1 億円以上・上場 182 日以上・JPX 規制銘柄除外）として `select` 時に適用する。データを狭めない（どの銘柄も screening 事実を持つ）ことで、絞り込みを可視・可変にする。
+research 候補への絞り込み（時価総額・売買代金・上場期間・JPX 規制）は **分析層のパラメータ `selection.liquidity`**（既定: 時価総額 100 億円以上・20 営業日平均売買代金 1 億円以上・上場 182 日以上・JPX 規制銘柄除外）として `select` 時に適用する。データを狭めない（どの銘柄も screening 事実を持つ）ことで、絞り込みを可視・可変にする。除外に使う JPX flag は重篤な 4 種（特別注意銘柄・整理銘柄・取引停止・上場廃止警告、`records/_config/screening-rules/` の `required_jpx_flags`）のみ。信用規制の日々公表などの軽度 flag は除外せず、candidates の事実として記録して research の positioning / liquidity risk で扱う。
+
+candidates YAML（`records/04-candidates/`）は market.sqlite から再生成可能な機械出力として local store に置き git に積まないが、`select` の前回比較・`ticker-profile` の直近記録参照が読むため、market.sqlite と同様にローカル backup の対象にする。
 
 **valuation 比較の母集団**（sector / 市場中央値）は `selection.liquidity` を満たす流動性母集団に固定し、小型・低流動性銘柄の混入で判定が歪まないようにする。
 

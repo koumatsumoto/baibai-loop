@@ -9,4 +9,4 @@
   - ✓ 削除可: 1 度も書かれていない schema field、template だけの records、forward telemetry に置換可能な review/retro 系
   - ✗ 残す: 実取引が絡む order/fill audit、ledger correction event、法務・規制・税務で必須の記録、schema migration log
   - △ 迷ったら: 削除前に `rg <symbol>` で実利用を確認し、「forward 計測経路を 1 行で説明できるか」を self-check。説明できなければ削除候補。判断に迷ったら短く確認する。
-- 機能を増やすより既存機能を整理・削除する方を優先する。`docs/operations/backtest-runbook.md` §6 の dated index のように、削除根拠を計測で示す。
+- 機能を増やすより既存機能を整理・削除する方を優先する。削除根拠は計測・実利用の確認（`rg` での参照有無、運用での使用実績）で示す。

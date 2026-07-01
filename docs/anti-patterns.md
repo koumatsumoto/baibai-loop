@@ -248,11 +248,8 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
         `position_sizing_overlay.guarded_max_notional_yen` を記録し、
         `guarded_max_notional_yen = order_price_guard_yen * quantity` と整合させたか
   - [ ] guarded notional を必要時に再計算できる入力が揃っているか
-- [ ] research の `policy_overrides` / `decision_revisions` 配列を導入・変更する場合、以下を確認したか:
-  - [ ] `policy_overrides[]` は policy field の override だけを表し、decision history を混ぜていない
-  - [ ] `decision_revisions[].revision_type` が既知集合に属し、`prior_state_ref` / `prior_state` / `new_state` / `reason` の必須キーが揃う
-  - [ ] `thesis_decision.outcome: approved` の場合、`candidate_ref` が参照した candidates repository file の対象 candidate に join できるか
-  - [ ] 連続する commit で `thesis_decision.outcome: deferred|rejected → approved` に flip した場合、PR review で thesis / event / sizing の変更理由を確認する
+- [ ] `thesis_decision.outcome: approved` の場合、`candidate_ref` が参照した candidates repository file の対象 candidate に join できるか
+- [ ] 連続する commit で `thesis_decision.outcome: deferred|rejected → approved` に flip した場合、PR review で thesis / event / sizing の変更理由を確認する
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を

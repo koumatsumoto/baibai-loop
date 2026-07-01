@@ -27,7 +27,7 @@ J-Quants Light プランの正確なレート制限は非公開のため、**実
 
 ## 実運用上の含意
 
-- 歴史週 replay（`#157`）の生成は、rate budget の回復を「待つ」問題ではなく、**長期履歴 coverage を一度埋め切る wall-clock** の問題。1 週ずつ長時間（各 1〜数時間）バックグラウンドで流し、resumable な性質を活かして複数セッションに跨いで充足させるのが現実的。
+- 過去 asof の cache 充足（`bootstrap-cache`）は、rate budget の回復を「待つ」問題ではなく、**長期履歴 coverage を一度埋め切る wall-clock** の問題。1 asof ずつ長時間（各 1〜数時間）バックグラウンドで流し、resumable な性質を活かして複数セッションに跨いで充足させるのが現実的。
 - 短い per-step timeout（10〜45 分）で kill すると、その週の coverage が未充足のままになり `run` が fail-fast する。kill せず完走させるか、完了済み chunk を活かして再開する。
 
 ## 改善アイデア（徐々に対処する）

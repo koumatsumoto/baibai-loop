@@ -14,6 +14,8 @@ source_paths:
 
 `records/_schemas/` は records artifact の shape を固定する支援領域です。validator は schema だけでは表現しにくい cross-file rule と path existence を補完します。
 
+YAML front matter の `ticker` は必ず quote する（`"9715"`）。unquoted は int として parse され、schema の `type: string` 違反で validator が error にする（先頭 0 落ちや `130A` のような英字入り code の破損防止）。
+
 ## Boundaries
 
 | area | 責務 |

@@ -21,7 +21,7 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 | screening | `src/baibai_loop/screening/` | `records/04-candidates/`, `records/_config/` | `baibai-loop-screening` | 見積り calibration（保有 outcome。短期 backtest はしない） |
 | thesis | `src/baibai_loop/thesis/` | `records/05-thesis/`, `records/_playbooks/` | （`baibai-loop-validation --target thesis` 経由） | preflight gate（`thesis/preflight.py`） |
 | position | `src/baibai_loop/position/` | `records/06-position/` | `baibai-loop-position` | 見積り calibration（entry 見積り vs 実現） |
-| market | `src/baibai_loop/market/` | （`data/screening/market.sqlite` ほか、git 外） | — | 価格・calendar data 層（forward 計測の価格基盤） |
+| market | `src/baibai_loop/market/` | （`data/screening/market.sqlite` ほか、git 外） | — | 価格・calendar data 層（screening・保有計測の価格基盤） |
 | foundation | `src/baibai_loop/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
 | validation | `src/baibai_loop/validation/` | `records/_schemas/`（検証対象 schema） | `baibai-loop-validation` | records 公開言語の検証器（CI gate） |
 
@@ -33,7 +33,7 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 
 ## commit 前 / PR 前の self-review
 
-records / src / docs の変更を含む commit を作る前に、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の対応する anti-pattern (AP-01〜AP-09) のチェックリストを通過させること。特に以下は 100% 防ぐ:
+records / src / docs の変更を含む commit を作る前に、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の対応する anti-pattern (AP-01〜AP-10) のチェックリストを通過させること。特に以下は 100% 防ぐ:
 
 - 一次情報を直接確認せず二次情報・推測で書く (AP-01)
 - 数値計算を機械的に検算しない (AP-02)
@@ -42,7 +42,7 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 - macro context の根拠 URL / series / used_for を曖昧にする
 - 公表日 / source の最新性確認を skip する (AP-07)
 - validator の抜け道を意識しない (AP-08)
-- 外部 AI 分析や system output を override せず records に取り込む / paper proxy と実資金集中度を混同する / 注文と約定の状態を区別しない (AP-09)
+- 外部 AI 分析や system output を override せず records に取り込む / 集中度の分母を単一プール `real_capital_yen` 簿価で評価しない / 注文と約定の状態を区別しない (AP-09)
 
 成分別の詳細チェックリスト:
 - macro context 編集時: [`docs/workflow/macro.md`](./docs/workflow/macro.md)

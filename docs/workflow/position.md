@@ -61,7 +61,7 @@ estimate_calibration: { entry_expected_upside_pct: 40.0, entry_expected_yield_pc
 ## 保有見直しと見積り calibration
 
 - **定例見直し**：**月次**（積立と同期）と **決算後** に、各保有の `review_valuation`（FV・現値・valuation zone・action）を更新する。割高ゾーン到達なら全売り、割安維持なら保有 / 買増し。決算後見直しが要る保有は GitHub Issue（`task:earnings-review` ラベル、`task: YYYY-MM-DD <ticker> を <event> 後に確認する`）で実行漏れを防ぐ。判断の正本は records に戻す。
-- **見積り calibration**：exit / 決算後に `estimate_calibration` を更新し、entry の見積り（expected upside・期待利回り）と実現結果（realized return・yield・thesis 的中）を突き合わせる。系統的なズレ（macro 読み・FV 推定・耐性判定のどこが外れたか）を次の見積りへ反映する（＝改善ループ、[`../doctrine.md`](../doctrine.md) 柱 3）。
+- **見積り calibration**：exit / 決算後に `estimate_calibration` を更新し、entry の見積り（expected upside・期待利回り）と実現結果（realized return・yield・thesis 的中）を突き合わせる。系統的なズレ（macro 読み・FV 推定・耐性判定のどこが外れたか）を次の見積りへ反映する（＝改善ループ、[`../doctrine.md`](../doctrine.md) 柱 3）。保有の対 benchmark 相対リターンは `uv run baibai-loop-position benchmark`（`1321` proxy、[`../reference/data-sources.md`](../reference/data-sources.md)）で機械算出し、calibration の参考情報にする。
 
 ## Kill switch check
 

@@ -42,7 +42,7 @@ L2 の「分析」は決定論的な機械処理であり、その出力（candi
 - 割安な優良銘柄を **長期で積み立て**、valuation（割高化）で **全売り** する裁量支援基盤。日本個別株のみ（ETF / 投信 / 海外株は扱わない）。long-only・現物。
 - Markdown / YAML と Git を正本にする。ただし週次 screen output（candidates YAML）は再生成可能な L2 機械出力として local store に置き git に積まない。
 - 成果物の機械契約は `records/_schemas/*.json` を正本（contract-of-record）にする。
-- **構造としての非目標**：MCP / API server・第三者向けサービング・部分売却 / リバランスの schema 化・**固定期間の review gate（+15bd / +30bd）**。思想的な非目標（ML スコアリング・短期 forward-backtest・自動発注・口座 / 税制モデル化）は [`doctrine.md`](./doctrine.md) §8 を参照。
+- **構造としての非目標**：MCP / API server・第三者向けサービング・部分売却 / リバランスの schema 化・**固定期間の review gate**。思想的な非目標（ML スコアリング・短期 forward-backtest・自動発注・口座 / 税制モデル化）は [`doctrine.md`](./doctrine.md) §8 を参照。
 
 <a id="repository-map"></a>
 
@@ -79,7 +79,7 @@ L2 の「分析」は決定論的な機械処理であり、その出力（candi
 | `position/` | trade record・保有 price tracking・benchmark-relative return | `baibai-loop-position` |
 | `validation/` | records（公開言語）の検証 dispatcher。domain は entry surface 経由でのみ参照 | `baibai-loop-validation` |
 
-依存方向は `foundation ← market ← {screening, position} ← thesis`（`A ← B` ＝「B が A を import」の向き）。`macro` は `foundation` の上に立つ **独立枝** で spine に属さず、`validation` は `thesis` / `position` を entry surface 経由で駆動する。7 contract は (1) macro 独立、(2) foundation = import sink、(3) market は foundation のみ、(4) position ↛ screening、(5) screening ↛ position、(6) thesis は最上位（下位層を import しない）、(7) validation は entry surface 経由のみ、を強制する。
+依存方向は `foundation ← market ← {screening, position} ← thesis`（`A ← B` ＝「B が A を import」の向き）。`macro` は `foundation` の上に立つ **独立枝** で spine に属さず、`validation` は `thesis` / `position` を entry surface 経由で駆動する。7 contract は (1) macro 独立、(2) foundation = import sink、(3) market は foundation のみ、(4) position ↛ screening、(5) screening ↛ position、(6) thesis は最上位（下位層は thesis を import しない。thesis は screening / position を import してよい）、(7) validation は entry surface 経由のみ、を強制する。
 
 ### Records
 

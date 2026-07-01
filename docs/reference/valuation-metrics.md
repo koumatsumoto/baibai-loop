@@ -89,7 +89,7 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 - **東証 33 業種** を初期値として採用
 - 17 業種はマクロ判定（macro context の sector_tilts）で使うことも可能だが、スクリーニングは 33 業種基準
-- 将来 retro で粒度変更する場合は本ファイルを更新
+- 粒度を変更する場合は本ファイルを更新
 
 ### 8.2 中央値算出
 
@@ -114,7 +114,7 @@ Historical EV/EBITDA は、各日の split-adjusted close で時価総額だけ�
 
 ### 9.0 価格履歴の連続性 fact（`price_history_sessions_750d` / `price_history_coverage_750d`）
 
-自己レンジ / sigma gap は直近 750 暦日(≒ 3 年)の bar 履歴を代表的標本として前提にするが、上場が古くても bar 履歴に長期ギャップがある銘柄(上場区分変更・データ供給断など)では、レンジが実質それより短い期間で計算される。これを検出するため、candidates には以下を事実として記録する。
+自己レンジ / sigma gap は直近 750 本の bar（営業日ベース ≒ 3 年、§9）を代表的標本として前提にするが、上場が古くても bar 履歴に長期ギャップがある銘柄(上場区分変更・データ供給断など)では、レンジが実質それより短い期間で計算される。これを検出するため、candidates には直近 **750 暦日窓**の bar 密度を以下の事実として記録する（窓が暦日なのは、取引カレンダーを fetch せず population 内の最大 bar 数を分母にして密度を出すため）。
 
 - `price_history_sessions_750d`: 直近 750 暦日のうち bar が存在する営業日数
 - `price_history_coverage_750d`: 上記 / 当日 scope 内の最大値(最も密な銘柄が取引カレンダーの近似)
