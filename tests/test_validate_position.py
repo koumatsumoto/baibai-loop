@@ -348,20 +348,20 @@ def test_no_margin_trading_constraint_rejects_margin_usage(tmp_path: Path) -> No
 
 
 def test_open_trades_must_stay_within_portfolio_concentration_caps(tmp_path: Path) -> None:
-    front = _trade_front(current_quantity=3000)
+    front = _trade_front(current_quantity=5000)
     front["position_sizing_overlay"] = {
-        "estimated_real_order_notional_yen": 3150000,
-        "guarded_max_notional_yen": 3150000,
+        "estimated_real_order_notional_yen": 5250000,
+        "guarded_max_notional_yen": 5250000,
     }
     intent = front["order_intent"]
     assert isinstance(intent, dict)
-    front["order_intent"] = {**intent, "quantity": 3000, "order_price_guard_yen": 1050}
+    front["order_intent"] = {**intent, "quantity": 5000, "order_price_guard_yen": 1050}
     front["entry_legs"] = [
         {
             "entry_leg_id": "entry-20260505-9682-1",
             "thesis_ref": "records/05-thesis/2026/05/2026-05-05-9682-sales-discount-growth.md",
             "order_id": "order-20260505-9682-entry",
-            "quantity": 3000,
+            "quantity": 5000,
             "average_price_yen": 1050,
         }
     ]
