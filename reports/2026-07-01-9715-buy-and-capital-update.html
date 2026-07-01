@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src https://cdn.jsdelivr.net/npm/mermaid@11.15.0/ 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src blob:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <title>9715 トランスコスモス 買い判断 + ポートフォリオ資金 ¥10M 更新</title>
+  <style>
+/* km:html-document のスタイル。document-template.html の <style> にインライン展開して単一ファイルにする（外部リンクにしない） */
+
+/* ===== テーマ変数（配色やサイズの調整はここを起点に） ===== */
+:root {
+  --content-width: 1400px;
+  --fg: #1f2328;
+  --fg-muted: #57606a;
+  --bg: #ffffff;
+  --bg-subtle: #f6f8fa;
+  --border: #d0d7de;
+  --accent: #0969da;
+  --note: #0969da;
+  --warning: #9a6700;
+  --important: #8250df;
+  --code-bg: #f6f8fa;
+  --radius: 6px;
+  --space: 16px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN",
+          "Noto Sans JP", Meiryo, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* ===== ベース ===== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  color: var(--fg);
+  background: var(--bg);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.75;
+}
+
+/* ===== レイアウト（コンテンツ幅 1400px・中央寄せ） ===== */
+.container {
+  width: var(--content-width);
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 40px 32px 80px;
+}
+
+/* ===== ヘッダ / フッタ ===== */
+.doc-header { border-bottom: 2px solid var(--border); padding-bottom: 16px; margin-bottom: 32px; }
+.doc-header h1 { margin: 0 0 8px; }
+.doc-header .subtitle { margin: 0; color: var(--fg-muted); font-size: 1.05rem; }
+.doc-header .meta { margin: 8px 0 0; color: var(--fg-muted); font-size: 0.875rem; }
+.doc-footer { border-top: 1px solid var(--border); margin-top: 48px; padding-top: 16px; color: var(--fg-muted); font-size: 0.875rem; }
+
+/* ===== 見出し階層（H1 は 1 つ、H2=セクション、H3=サブ） ===== */
+h1 { font-size: 2rem; line-height: 1.3; }
+h2 { font-size: 1.5rem; margin-top: 2em; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 1.2rem; margin-top: 1.6em; }
+h2, h3 { scroll-margin-top: 16px; }
+
+/* ===== 本文要素 ===== */
+p, ul, ol { margin: 0 0 var(--space); }
+li { margin: 4px 0; }
+a { color: var(--accent); }
+hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+/* ===== 目次（長文向け） ===== */
+.toc { background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 24px; margin-bottom: 32px; }
+.toc strong { display: block; margin-bottom: 8px; }
+.toc ul { margin: 0; padding-left: 20px; }
+
+/* ===== テーブル ===== */
+table { border-collapse: collapse; width: 100%; margin: 0 0 var(--space); }
+th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+th { background: var(--bg-subtle); }
+tbody tr:nth-child(even) { background: var(--bg-subtle); }
+
+/* ===== コードブロック ===== */
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; overflow-x: auto; }
+code { font-family: var(--mono); font-size: 0.9em; }
+p code, li code, td code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+pre code { background: none; padding: 0; }
+
+/* ===== Callout（note / warning / important） ===== */
+.callout { border: 1px solid var(--border); border-left-width: 4px; border-radius: var(--radius); padding: 12px 16px; margin: 0 0 var(--space); background: var(--bg-subtle); }
+.callout .callout-title { font-weight: 600; margin: 0 0 4px; }
+.callout-note { border-left-color: var(--note); }
+.callout-warning { border-left-color: var(--warning); }
+.callout-important { border-left-color: var(--important); }
+
+/* ===== 図（Mermaid）。Ctrl+ホイール / ツールボタンで拡縮・ドラッグ移動・画像化ツールバー付き ===== */
+figure.diagram { position: relative; overflow: hidden; margin: 0 0 24px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); text-align: center; background: var(--bg); }
+figure.diagram .mermaid { display: flex; justify-content: center; cursor: grab; }
+figure.diagram.grabbing .mermaid { cursor: grabbing; }
+figure.diagram svg text { cursor: text; } /* ラベル上はテキスト選択カーソル（余白・ノードは grab で pan） */
+figure.diagram.grabbing { user-select: none; -webkit-user-select: none; } /* pan 中だけ選択を抑止し、通常はテキスト選択可 */
+figure.diagram svg { transition: transform .06s ease-out; flex-shrink: 0; } /* ズームは width/height で行う（ベクタ再描画で鮮明）。flex で縮めない */
+figure.diagram figcaption { margin-top: 10px; color: var(--fg-muted); font-size: 0.875rem; }
+/* 図ごとのツールバー（hover で表示）。JS が動的に挿入する */
+.diagram-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; opacity: 0; transition: opacity .15s; }
+figure.diagram:hover .diagram-tools, figure.diagram:focus-within .diagram-tools { opacity: 1; }
+.diagram-tools button { font-family: inherit; font-size: 0.72rem; line-height: 1.7; padding: 1px 8px; color: var(--fg-muted); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
+.diagram-tools button:hover { color: var(--fg); background: var(--bg-subtle); }
+
+/* ===== 印刷 / PDF ===== */
+@media print {
+  .toc, .diagram-tools { display: none; }
+  .container { width: auto; max-width: none; padding: 0; }
+  .callout { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  figure.diagram, pre, table, .callout { break-inside: avoid; page-break-inside: avoid; }
+  figure.diagram { overflow: visible; }
+  figure.diagram svg { transform: none !important; } /* ズーム自体は JS の beforeprint で自然サイズへ戻す */
+  svg { max-width: 100%; height: auto; }
+}
+
+</style>
+</head>
+<body>
+  <div class="container">
+
+    <header class="doc-header">
+      <h1>9715 トランスコスモス 買い判断 + ポートフォリオ資金 ¥10M 更新</h1>
+      <p class="subtitle">PR #282 の「RR は高くない・現金優位」の結論の下、8 銘柄で唯一ピーク利益トラップでない 9715 のみを来季決算まで深掘りし、patient value+income として 100 株を約定。あわせて real capital を ¥5M → ¥10M（株+現金トータル）へ修正。</p>
+      <p class="meta">生成日: 2026-07-01 / 約定: 2026-07-01 100 株 @¥3,557 / 通貨: JPY</p>
+    </header>
+
+    <nav class="toc">
+      <strong>目次</strong>
+      <ul>
+        <li><a href="#s1">1. サマリー</a></li>
+        <li><a href="#s2">2. なぜ 9715 だけを買ったか</a></li>
+        <li><a href="#s3">3. 来季 FY2027/3 の読み</a></li>
+        <li><a href="#s4">4. リスクリワード（12 ヶ月・honest）</a></li>
+        <li><a href="#s5">5. 約定とサイジング</a></li>
+        <li><a href="#s6">6. ポートフォリオ資金 ¥10M 更新と現状</a></li>
+        <li><a href="#s7">7. リスク・無効化・ソース</a></li>
+      </ul>
+    </nav>
+
+    <section>
+      <h2 id="s1">1. サマリー</h2>
+      <div class="callout callout-important">
+        <p class="callout-title">結論</p>
+        <p>6/30 選定の 8 銘柄は「すべてピーク利益上の見せかけ割安＝RR 高くない・現金優位」（PR #282）。そのうち <strong>9715 トランスコスモスは唯一ピーク利益トラップでない</strong>（利益は緩やかな増勢）名で、来季を深掘りした結果、<strong>会社の慎重ガイド＋beat 体質・中計 営業益 CAGR 11%・配当性向 40% 引上げ・高い FCF 品質・net cash 0.48・低β</strong>が確認できた。<strong>6–12 ヶ月の patient value+income</strong>として <strong>100 株 @¥3,557</strong> を約定（¥355,700）。あわせて portfolio の real capital を <strong>¥5M → ¥10M（株+現金トータル）</strong>へ修正。</p>
+      </div>
+
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart LR
+    A["PR #282: 8 銘柄=ピーク利益上の割安<br/>RR 高くない → 現金優位"] --> B{"9715 のみ<br/>来季を深掘り"}
+    B --> C["ピーク利益トラップでない<br/>慎重ガイド+beat 体質<br/>中計 op CAGR 11%<br/>配当性向 40% 引上げ<br/>net cash 0.48 / β0.15"]
+    C --> D["一定の将来性あり"]
+    D --> E["100 株 @¥3,557 約定<br/>patient value+income"]
+    D --> F["real capital ¥5M→¥10M<br/>tactical ¥2M 維持"]
+</pre>
+        <figcaption>図1: PR #282 の結論から 9715 買い判断・資金更新までの流れ</figcaption>
+      </figure>
+    </section>
+
+    <section>
+      <h2 id="s2">2. なぜ 9715 だけを買ったか</h2>
+      <p>厳格再検証（PR #282）で 8 銘柄すべてが FY2026/3 営業利益の複数年ピーク上の割安と判明し、循環/スパイク株（3932/7239/6357/6770 等）は平均回帰が下方向でリスクリワードが高くなかった。9715 はこの中で<strong>唯一「ピーク利益トラップ」に当たらない</strong>:</p>
+      <ul>
+        <li><strong>利益は緩やかな増勢</strong>（営業利益率 3.9% → 4.2%、スパイクでない）。Q4 の営業益 YoY −2.0億は「人事制度改定の一時金」の一過性で、構造減速ではない（8 四半期連続増収）。</li>
+        <li><strong>慎重ガイド＋beat 体質</strong>: FY26 は期初ガイドを 営業益 +6.8%・純益 <strong>+13.8%</strong> 上回った。FY27 営業益 +1.5% は会社が「新中計の積極投資を織り込んだ<strong>保守的な水準</strong>」と明言。</li>
+        <li><strong>中期成長ロードマップ（dated catalyst）</strong>: 新中計 26-28 は営業益 <strong>CAGR 11%</strong>（¥166億→約¥225億）、ROE 10%+ 維持、営業利益率 +0.6pt。</li>
+        <li><strong>還元強化（dated catalyst）</strong>: <strong>配当性向を 40% へ引上げ（2026年6月配当〜）</strong>、還元総額 ¥160億。「trapped cash」懸念を部分解消。</li>
+        <li><strong>高いキャッシュ品質</strong>: OCF ¥20.76B（OCF/営業益 1.25）、FCF ¥16.31B（FCF yield 10.34% ≫ 配当利回り 4.0%＝配当は FCF で十分カバー）、accruals −0.025（現金利益＞会計利益＝良質）、希薄化なし。net cash ¥76B（時価の 0.48）。</li>
+        <li><strong>低β（0.15）</strong>で高値圏リスクオンの mean-reversion に強く、AI は「ディスラプトされる側でなく実装で受益する側」（NTT Com Digital BPO 5 年 ¥1,000億）。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2 id="s3">3. 来季 FY2027/3 の読み</h2>
+      <table>
+        <thead><tr><th>指標</th><th>FY2026/3 実績</th><th>FY2027/3 会社予想</th><th>コメント</th></tr></thead>
+        <tbody>
+          <tr><td>売上</td><td>¥3,938.7億 (+4.8%)</td><td>¥4,100億 (+4.1%)</td><td>8 四半期連続増収</td></tr>
+          <tr><td>営業益</td><td>¥165.6億 (+14.4%)</td><td>¥168億 (<strong>+1.5%</strong>)</td><td>会社明言「投資先行の保守的水準」</td></tr>
+          <tr><td>経常益</td><td>¥189.7億 (+21.0%)</td><td>¥178億 (−6.2%)</td><td>減少は FX 益剥落（コアでない）</td></tr>
+          <tr><td>純益 / EPS</td><td>¥130.8億 / 349.2円</td><td>¥135億 / 360.3円 (+3.2%)</td><td>beat 体質ゆえ上振れ余地</td></tr>
+          <tr><td>配当</td><td>¥140（性向40%へ）</td><td>¥145（利回り約4.0%）</td><td>配当性向 40%（2026年6月〜）</td></tr>
+        </tbody>
+      </table>
+      <p><strong>セグメント（FY26）</strong>: 国内BPO ¥1,200億（+12.3%・利益率 <strong>7.1%＝高収益エンジン</strong>）／国内CX ¥1,939億（+6.2%・2.8%・+0.6pt 改善）／グローバル ¥1,101億（+7.6%・1.3%・東南アジア大型案件縮小のドラッグ）。中計は「高収益モデルへの転換」で国内CX・グローバルのマージン改善を狙う（未実証）。</p>
+    </section>
+
+    <section>
+      <h2 id="s4">4. リスクリワード（12 ヶ月・honest）</h2>
+      <table>
+        <thead><tr><th>シナリオ</th><th>確率</th><th>12ヶ月 値上がり</th><th>+配当4%</th><th>骨子</th></tr></thead>
+        <tbody>
+          <tr><td>Bull</td><td>30%</td><td>+22%</td><td>+26%</td><td>FY27 beat＋中計信認で 12-13x へ再レート（~¥4,400）</td></tr>
+          <tr><td>Base</td><td>45%</td><td>+11%</td><td>+15%</td><td>アナリスト目標 ¥4,000 へ緩やか再レート</td></tr>
+          <tr><td>Bear</td><td>18%</td><td>−12%</td><td>−8%</td><td>高値圏調整/マージン改善足踏み（net cash・利回りが緩衝）</td></tr>
+          <tr><td>Tail</td><td>7%</td><td>−30%</td><td>−26%</td><td>構造 AI 侵食の確認 or 市場クラッシュ→net-cash 床近辺</td></tr>
+        </tbody>
+      </table>
+      <div class="callout callout-note">
+        <p class="callout-title">正直な評価</p>
+        <p>確率加重 12ヶ月 <strong>≈ +12〜14%（配当込み）</strong>、下方は net cash 0.48・β0.15・4% 利回りでクッション。8 銘柄の束（確率加重 −1.2%）と異なり、9715 単独は cheap（PER 10x・EV/EBIT 4-5x）＋床＋成長計画＋還元 catalyst で<strong>リスク調整後もプラス</strong>。ただし<strong>速いスイングでなく 6–12 ヶ月の patient value+income</strong>で、再レートは中計の信認醸成が要り緩慢になりうる（その間 4% もらって待つ）。薄マージン改善は未実証、AI の人月侵食 overhang は残存。</p>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="s5">5. 約定とサイジング</h2>
+      <ul>
+        <li><strong>約定</strong>: 2026-07-01 に 100 株を <strong>¥3,557</strong> で全量約定（指値 ¥3,560 に対し dip 約定）。実 notional <strong>¥355,700</strong>。</li>
+        <li><strong>entry preflight</strong>: regime は risk_on_rally（benchmark 1321 の 20d +5.27%）で market relative −11.89pt の劣後だが、<strong>β0.15＝low_correlation</strong> で contrarian value entry を正当化（action=exception, exception_basis=[low_correlation]）。</li>
+        <li><strong>target ¥4,000 / stop ¥3,250</strong>（無効化価格 ¥3,050＝net-cash 床近辺）。time stop 2026-12-30。</li>
+        <li><strong>分散方向の add</strong>: 9715 はサービス業で、既存の情報・通信業集中（9682/9692/9470/4432）を悪化させない。</li>
+      </ul>
+      <p>記録: <code>records/05-thesis/2026/07/2026-07-01-9715-cashflow-yield-discount.md</code>（研究メモ）・<code>records/06-position/2026/07/2026-07-01-9715.md</code>（約定）。</p>
+    </section>
+
+    <section>
+      <h2 id="s6">6. ポートフォリオ資金 ¥10M 更新と現状</h2>
+      <div class="callout callout-warning">
+        <p class="callout-title">policy 変更（<code>src/baibai_loop/position/policy.py</code>）</p>
+        <p><strong>real_capital_yen: ¥5,000,000 → ¥10,000,000</strong>（株+現金を含めたトータル）。tactical_real_budget_yen は <strong>¥2,000,000 を維持</strong>（今回明示されたのは総額のみのため surgical に据置。scale が必要なら変更可）。concentration cap は real capital 基準で自動的に倍化: ticker 8%＝¥800k、sector 45%＝¥4.5M、playbook 35%＝¥3.5M。過去の position/thesis 記録は約定時点の audit snapshot として据置（validator は policy を参照するため影響なし）。</p>
+      </div>
+      <table>
+        <thead><tr><th>銘柄</th><th>33業種</th><th>playbook</th><th>notional</th></tr></thead>
+        <tbody>
+          <tr><td>9682 DTS</td><td>情報・通信業</td><td>sales-discount-growth</td><td>¥202,000</td></tr>
+          <tr><td>9692 CEC</td><td>情報・通信業</td><td>sales-discount-growth</td><td>¥195,300</td></tr>
+          <tr><td>9470 学研HD</td><td>情報・通信業</td><td>sales-discount-growth</td><td>¥196,400</td></tr>
+          <tr><td>8255 アクシアル</td><td>小売業</td><td>cashflow-yield-discount</td><td>¥203,000</td></tr>
+          <tr><td>3539 JMHD</td><td>卸売/小売</td><td>cashflow-yield-discount</td><td>¥127,500</td></tr>
+          <tr><td>2749 JPHD</td><td>サービス業</td><td>cashflow-yield-discount</td><td>¥59,000</td></tr>
+          <tr><td>9534 北海道瓦斯</td><td>電気・ガス業</td><td>valuation-reversion</td><td>¥74,200</td></tr>
+          <tr><td>4432 ウイングアーク</td><td>情報・通信業</td><td>valuation-reversion</td><td>¥234,000</td></tr>
+          <tr><td><strong>9715 トランスコスモス（新規）</strong></td><td>サービス業</td><td>cashflow-yield-discount</td><td><strong>¥355,700</strong></td></tr>
+          <tr><td colspan="3"><strong>deployed 合計</strong></td><td><strong>¥1,647,100</strong></td></tr>
+        </tbody>
+      </table>
+      <ul>
+        <li><strong>real ¥10M に対し deployed 16.5% / 現金 dry powder 83.5%（¥8,352,900）</strong>。tactical ¥2M に対しては 82.4%（dry powder ¥35 万）。</li>
+        <li>sector（real 基準）: 情報・通信業 8.28%、サービス業 4.15%、小売/卸 3.31%、電気ガス 0.74%（すべて cap 45% 内）。</li>
+        <li>playbook（real 基準）: cashflow-yield-discount 7.45%、sales-discount-growth 5.94%、valuation-reversion 3.08%（すべて cap 35% 内）。</li>
+      </ul>
+      <div class="callout callout-note">
+        <p class="callout-title">含意</p>
+        <p>¥10M 基準で見ると deployed は 16.5% にすぎず、PR #282 の「高値圏では現金を厚く」という規律とも整合（現金 83.5%）。tactical ¥2M は据置のため、追加のアクティブ枠は約 ¥35 万に低下。tactical を拡げる場合は指示があれば ¥4M 等へ scale する。</p>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="s7">7. リスク・無効化・ソース</h2>
+      <ul>
+        <li><strong>無効化</strong>: 国内BPO のマージン失速／中計 op 成長 &lt;5%・CAGR11% 軌道の崩れ／国内CX のデジタル・席売上の前年割れ（生成AI の人月侵食の顕在化）／配当性向 40% 撤回／¥3,050 割れ。</li>
+        <li><strong>近接 event</strong>: 翌 7/2（木）6 月 NFP（米独立記念日で前倒し、β0.15 で感応低）、8 月上旬 Q1 FY2027 決算（進捗・国内BPO マージン・席売上の確認）。</li>
+        <li><strong>ソース</strong>: <a href="https://www.trans-cosmos.co.jp/ir/library/pdf/2026/pre260430.pdf" rel="noopener noreferrer">2026/3期 本決算説明資料</a>（FY27 予想・中計・セグメント・還元）／<a href="https://irbank.net/E04837/pl" rel="noopener noreferrer">IRBANK 業績</a>／<a href="https://irbank.net/E04837/bs" rel="noopener noreferrer">BS（net cash）</a>。<a href="https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A9715" rel="noopener noreferrer">TradingView 9715</a>。</li>
+      </ul>
+      <div class="callout callout-important">
+        <p class="callout-title">免責</p>
+        <p>本書は自己運用の判断統制のための調査メモであり、投資助言ではない。数値は一次資料に基づくが、Q1 FY2027（8 月上旬）で前提を再確認する。</p>
+      </div>
+    </section>
+
+    <footer class="doc-footer">
+      <p>Generated as a single self-contained HTML document. real capital ¥10M / 9715 filled 100sh @¥3,557 / validation green.</p>
+    </footer>
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.min.js" integrity="sha384-yQ4mmBBT+vhTAwjFH0toJXNYJ6O4usWnt6EPIdWwrRvx2V/n5lXuDZQwQFeSFydF" crossorigin="anonymous"></script>
+  <script>
+// km:html-document の図操作スクリプト。document-template.html の末尾 <script> にビルドで挿入して単一ファイルにする。
+
+// Mermaid 初期化。htmlLabels:false で図ラベルを <foreignObject>（HTML）ではなく SVG <text> で描く。
+// foreignObject 入り SVG は canvas 描画時に汚染され toBlob が失敗するため、WebP 化を成立させるのに必須。
+mermaid.initialize({ startOnLoad: true, securityLevel: 'strict', htmlLabels: false, flowchart: { htmlLabels: false } });
+
+// 図の操作（完全クライアント側・外部送信なし）。各 figure.diagram に付与する:
+// - Ctrl+ホイールまたは ＋ / − ボタンで拡大 / 縮小、ドラッグで移動、ダブルクリック / リセットボタンで初期化
+// - WebP ボタンで SVG を canvas 経由のラスタ画像にして別タブで開く（ポップアップ抑止時はダウンロード）
+// mermaid は load 時に非同期描画するため、ハンドラは figure に張り SVG はイベント時に都度取得する（描画タイミングに依存しない）。
+(() => {
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  // SVG を指定 MIME のラスタ画像にして別タブで開く。img-src blob: で blob を許可している
+  const openAsImage = (svg, mime, ext) => {
+    const box = svg.viewBox && svg.viewBox.baseVal;
+    const rect = svg.getBoundingClientRect();
+    const w = Math.max(1, Math.round((box && box.width) || rect.width));
+    const h = Math.max(1, Math.round((box && box.height) || rect.height));
+    const clone = svg.cloneNode(true);
+    clone.setAttribute('width', w);
+    clone.setAttribute('height', h);
+    // 画面表示用のズーム/パン（inline の width/height/maxWidth/transform）を画像へ持ち込まない
+    clone.style.width = '';
+    clone.style.height = '';
+    clone.style.maxWidth = '';
+    clone.style.transform = 'none';
+    const xml = new XMLSerializer().serializeToString(clone);
+    const svgUrl = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml;charset=utf-8' }));
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale = 2; // 高解像度化
+        const canvas = document.createElement('canvas');
+        canvas.width = w * scale;
+        canvas.height = h * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          if (!blob) { console.error('diagram export: toBlob が null（canvas 上限超過 / 形式未対応の可能性）'); return; }
+          const url = URL.createObjectURL(blob);
+          const win = window.open(url, '_blank');
+          if (!win) { // ポップアップブロック時はダウンロードにフォールバック
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'diagram.' + ext;
+            a.click();
+          }
+        }, mime);
+      } catch (err) {
+        console.error('diagram export に失敗', err); // 例: foreignObject 等で canvas が汚染された場合
+      } finally {
+        URL.revokeObjectURL(svgUrl);
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(svgUrl); console.error('diagram export: SVG 画像の読み込みに失敗'); };
+    img.src = svgUrl;
+  };
+
+  const enhance = (fig) => {
+    if (fig.dataset.enhanced) return;
+    fig.dataset.enhanced = '1';
+    const view = { scale: 1, x: 0, y: 0 };
+    let base = null; // scale=1 の自然サイズ（初回 apply で記録）
+    const apply = () => {
+      const svg = fig.querySelector('svg');
+      if (!svg) return;
+      if (!base) {
+        const r = svg.getBoundingClientRect();
+        if (r.width < 1) return; // まだ描画されていない
+        base = { w: r.width, h: r.height };
+        svg.style.maxWidth = 'none'; // 拡大時に mermaid の max-width で頭打ちさせない
+      }
+      // ズームは表示サイズ（width/height）で行う → SVG ベクタが解像度に追従し、文字が拡大してもぼけない
+      svg.style.width = (base.w * view.scale) + 'px';
+      svg.style.height = (base.h * view.scale) + 'px';
+      // パンは translate（リサンプルされないので鮮明なまま）
+      svg.style.transform = `translate(${view.x}px, ${view.y}px)`;
+    };
+    const reset = () => { view.scale = 1; view.x = 0; view.y = 0; apply(); };
+    const zoomBy = (factor) => { view.scale = clamp(view.scale * factor, 0.2, 8); apply(); };
+
+    // 拡縮は Ctrl+ホイールに限定する。素のホイールはページスクロールに通し、図の上でもスクロールを妨げない
+    fig.addEventListener('wheel', (e) => {
+      if (!e.ctrlKey) return; // 素のホイールはページスクロールに任せる
+      e.preventDefault(); // ブラウザのページ全体ズームを抑止し、図だけを拡縮する
+      view.scale = clamp(view.scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1), 0.2, 8);
+      apply();
+    }, { passive: false });
+
+    let drag = null;
+    fig.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return; // 主ボタンのみ（右/中クリックで pan を始めない）
+      if (e.target.closest('.diagram-tools')) return;
+      // 図ラベル・キャプションのテキスト上では選択を優先し pan しない。余白・ノード・エッジ上だけ pan する
+      if (e.target.closest('text, tspan, foreignObject, figcaption')) return;
+      e.preventDefault(); // 余白からのドラッグでテキスト選択が始まるのを抑止する
+      drag = { x: e.clientX - view.x, y: e.clientY - view.y };
+      try { fig.setPointerCapture(e.pointerId); } catch (_) { /* 非アクティブな pointer は無視 */ }
+      fig.classList.add('grabbing');
+    });
+    fig.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      view.x = e.clientX - drag.x;
+      view.y = e.clientY - drag.y;
+      apply();
+    });
+    const endDrag = () => { drag = null; fig.classList.remove('grabbing'); };
+    fig.addEventListener('pointerup', endDrag);
+    fig.addEventListener('pointercancel', endDrag);
+    window.addEventListener('pointerup', endDrag); // capture 失敗時も、図の外で離せば pan を終える保険
+    fig.addEventListener('dblclick', reset);
+
+    // 印刷時はズーム/パンを一時解除して自然サイズで刷り、印刷後に画面の表示を復元する
+    let savedView = null;
+    window.addEventListener('beforeprint', () => {
+      if (!base) return; // 未操作の図は mermaid の自然描画のまま
+      savedView = { ...view };
+      view.scale = 1; view.x = 0; view.y = 0; apply();
+    });
+    window.addEventListener('afterprint', () => {
+      if (!savedView) return;
+      Object.assign(view, savedView);
+      savedView = null;
+      apply();
+    });
+
+    const tools = document.createElement('div');
+    tools.className = 'diagram-tools';
+    const addButton = (label, onClick, title) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      if (title) button.title = title;
+      button.addEventListener('click', onClick);
+      tools.appendChild(button);
+    };
+    const withSvg = (fn) => () => { const svg = fig.querySelector('svg'); if (svg) fn(svg); };
+    const zoomStep = 1.2;
+    addButton('−', () => zoomBy(1 / zoomStep), '縮小');
+    addButton('＋', () => zoomBy(zoomStep), '拡大');
+    addButton('リセット', reset);
+    addButton('WebP', withSvg((svg) => openAsImage(svg, 'image/webp', 'webp')));
+    fig.appendChild(tools);
+  };
+
+  // mermaid の描画完了は待たない: figure は静的に存在するので load 時にハンドラを張る
+  window.addEventListener('load', () => {
+    document.querySelectorAll('figure.diagram').forEach(enhance);
+  });
+})();
+
+</script>
+</body>
+</html>
