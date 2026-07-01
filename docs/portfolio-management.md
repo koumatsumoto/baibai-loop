@@ -34,7 +34,7 @@ Baibai-Loop は投資助言サービスではない。これは自分の裁量�
 
 ## 割安 / 割高と売買規律
 
-- **買い**：機械 valuation ranking の **割安ゾーン**（業種相対・自己 5 年レンジ相対の percentile、[`reference/valuation-metrics.md`](./reference/valuation-metrics.md)）と、thesis の **個別フェアバリュー（FV）に対する下方乖離**の両方を満たす銘柄を、長期で積み立てる。
+- **買い**：機械 valuation ranking の **割安ゾーン**（業種相対・自己レンジ（約 3 年）相対の percentile、[`reference/valuation-metrics.md`](./reference/valuation-metrics.md)）と、thesis の **個別フェアバリュー（FV）に対する下方乖離**の両方を満たす銘柄を、長期で積み立てる。
 - **売り**：**(a) 割高化（FV 到達・割高ゾーン）** または **(b) 事業の fundamental 毀損**の 2 つだけをトリガーに **全売り**する。部分トリム / リバランスはしない。
 - **価格 stop は撤廃する**。株価の逆行では売らない。想定通りに割高化せず含み損が続いても、塩漬けを許容して事業の回復を待つ。その間の資産ロックは受け入れる。
 - 配当利回りは加点材料。資産ロック中に収益が見込める配当・自己株買い・安定した shareholder return がある銘柄を優先する。

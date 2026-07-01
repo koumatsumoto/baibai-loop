@@ -46,10 +46,9 @@ keyless で取得できる FRED CSV / FRB H.15 / ECB FX に加え、日本マク
 
 - `selection.default_profile`: 明示 `--profile` がない場合の built-in profile。built-in は `balanced` のみで、それ以外は rules load 時に error
 - `selection.liquidity`: research 推奨に適用する規模・流動性・上場期間・JPX 規制の絞り込みパラメータ。screen の scope は全普通株で、絞り込みはこの分析層パラメータだけが担う
-- `selection.fast_dislocation`: 1d / 5d / 20d / 60d 下落、52 週安値距離、出来高 spike、fundamental guard の閾値。fast eligible には価格下落 trigger が必須で、52 週安値距離と出来高 spike は補助 trigger。built-in profile (`balanced`) はコード側の閾値を優先し、この YAML block は load-time contract と custom profile のベースとして扱う
-- `selection.long_hold_survivability`: equity ratio、net cash、cash、OCF / FCF、営業利益、流動性から `high|medium|low|unknown` を付ける閾値
+- `selection.durability`: equity ratio、net cash、cash、OCF / FCF、営業利益、流動性から塩漬け耐性を `high|medium|low|unknown` で付ける閾値。built-in profile (`balanced`) はコード側の閾値を優先し、この YAML block は load-time contract と custom profile のベースとして扱う
 - `selection.diversity`: recommendations の sector / playbook concentration、過去 candidates の混入上限、previous overlap warning
 
-Profile 比較が必要な場合は、`records/_config/screening-rules/2026-06-19T000000+0900.yaml` を直接編集して `select` を再実行し、output を diff する。built-in は `balanced` 一択で、experimental override は `selection-ablation` の `no_diversity` variant のように programmatic な in-process 経路でだけ提供する (`load_profile_overrides` / `--profile-config` 経路は round 2 cleanup で削除済み)。
+Profile 比較が必要な場合は、`records/_config/screening-rules/` の rules 設定を直接編集して `select` を再実行し、output を diff する。built-in は `balanced` 一択。
 
 実装上の strictness と validation boundary は [`python-foundation.md`](./python-foundation.md) を参照します。

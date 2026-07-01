@@ -5,10 +5,8 @@ doc_type: operation
 status: active
 last_reviewed: 2026-06-23
 related_docs:
-  - "./thesis-runbook.md"
-  - "../components/thesis.md"
-  - "../components/decisions.md"
-  - "../components/position.md"
+  - "../workflow/research.md"
+  - "../workflow/position.md"
 ---
 
 # タスク runbook

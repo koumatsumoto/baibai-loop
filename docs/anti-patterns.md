@@ -164,7 +164,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 ### 根本原因
 - macro context は hard gate ではないため「見なくてもよい」と誤解する
 - screening 前提の鮮度、対象 sector、tailwind / headwind を確認しない
-- design-principles.md の柱 (事実層と分析層の物理分離、macro context は判断前提) を運用で守らない
+- doctrine.md の柱 (事実層と分析層の物理分離、macro context は判断前提) を運用で守らない
 
 ### 再発防止チェックリスト
 
@@ -263,7 +263,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] `src/baibai_loop/screening/cli/app.py` の subparser + `add_argument` 引数 + `main()` の dispatch
   - [ ] `src/baibai_loop/screening/cli/{__init__.py,query.py,cache.py,run.py}` の関数 / import
   - [ ] `src/baibai_loop/screening/cli/common.py` の専用 helper (`_parse_profiles_arg` のような callers が消えた helper)
-  - [ ] `docs/` 全 grep (`rg <subcommand> docs/ records/ reports/`): runbook の bash example、reference の CLI 表、components / screening の説明文、`docs/screening/automation.md` の subcommand 一覧
+  - [ ] `docs/` 全 grep (`rg <subcommand> docs/ records/ reports/`): runbook の bash example、reference の CLI 表、components / screening の説明文、`docs/reference/screening-runtime.md` の subcommand 一覧
   - [ ] `.claude/skills/` 全 grep: skill が当該 CLI を中核に据えていないか
   - [ ] `docs/reference/configuration.md` の関連節 (env var / profile YAML / 設定例)
   - [ ] 関連 test fixture (test_screening_cli の sweep / scorecard テスト等)

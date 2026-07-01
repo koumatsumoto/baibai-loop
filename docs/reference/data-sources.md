@@ -7,15 +7,15 @@ last_reviewed: 2026-05-04
 source_paths:
   - "../../data/"
 related_docs:
-  - "../architecture/repository-map.md"
-  - "../components/macro-context.md"
+  - "../architecture.md"
+  - "../workflow/macro.md"
 ---
 
 # データソース一覧とスコアリング
 
 Baibai-Loop で使うデータソースを、客観性を優先した基準で選定して記録する。ニュース媒体の意見に偏らないよう **一次統計（中央銀行・政府・国際機関）中心** で構成し、一次統計で拾えない地政学イベントのみを補助ソースで補完する。
 
-Decision lifecycle ([`../architecture/system-overview.md`](../architecture/system-overview.md)) における各 artifact のデータソース対応:
+Decision lifecycle ([`../architecture.md`](../architecture.md)) における各 artifact のデータソース対応:
 
 | Artifact | 用途 | 主なソース |
 | --- | --- | --- |
@@ -24,7 +24,7 @@ Decision lifecycle ([`../architecture/system-overview.md`](../architecture/syste
 | `records/05-thesis/` | 個別銘柄深掘り | J-Quants + EDINET + TDnet（開示文）+ JPX（資本コスト対応開示一覧）+ 必要時 macro context 参照 |
 | `records/06-position/` | 執行記録 | 証券会社からの約定情報（手動記録） |
 
-本ファイルの主領域は **Tier 1 / Tier 2 一次統計** と macro context で使う補助ソースのスコアリングである。screening / research で使う J-Quants / EDINET / TDnet の詳細仕様は [`../screening/valuation-metrics.md`](../screening/valuation-metrics.md) を参照。
+本ファイルの主領域は **Tier 1 / Tier 2 一次統計** と macro context で使う補助ソースのスコアリングである。screening / research で使う J-Quants / EDINET / TDnet の詳細仕様は [`./valuation-metrics.md`](./valuation-metrics.md) を参照。
 
 ## Review price fallback
 
@@ -38,7 +38,7 @@ ETF は index を tracking error 込みで追うため、proxy 由来の relativ
 
 ## 取得データの保存方針
 
-J-Quants / EDINET から取得したデータは、個人利用・非公開 repository での Baibai-Loop 運用に限り、ローカル cache または永続 cache として保存してよい。外部公開・第三者再配布は行わない。screening の正本 local store は `data/screening/market.sqlite`、削除可能な byproduct cache は `.cache/` に置き、いずれも `records/` 配下には置かない（`records/` は履歴成果物専用。SQLite layout の正本は [`../screening/automation.md`](../screening/automation.md)）。
+J-Quants / EDINET から取得したデータは、個人利用・非公開 repository での Baibai-Loop 運用に限り、ローカル cache または永続 cache として保存してよい。外部公開・第三者再配布は行わない。screening の正本 local store は `data/screening/market.sqlite`、削除可能な byproduct cache は `.cache/` に置き、いずれも `records/` 配下には置かない（`records/` は履歴成果物専用。SQLite layout の正本は [`./screening-runtime.md`](./screening-runtime.md)）。
 
 保存済み cache は、screening 再生成、forward tracking、monthly retro のための入力証跡として扱う。J-Quants の調整後価格、銘柄マスター、JPX 規制情報などは完全な point-in-time snapshot ではないため、再現性ではなく traceability の補助として使う。
 

@@ -1,4 +1,4 @@
-# screening/valuation-metrics.md
+# valuation-metrics — valuation 指標の算出仕様
 
 Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。`records/04-candidates/` と `records/05-thesis/` の両方で参照される指標の前提を確定する。
 
@@ -30,7 +30,7 @@ Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデ
 ### 2.3 会社予想未公表 or 予想レンジ提示銘柄の扱い
 
 - **forward PER なし** として扱い、`per_forward: null`
-- **trailing PER のみで判定**（mechanical.md の閾値判定は trailing で代用）
+- **trailing PER のみで判定**（screen の閾値判定は trailing で代用）
 - research packet の `primary_metric` には trailing を含める
 
 ## 3. Trailing PER の算出
@@ -108,7 +108,7 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 - **対象**: PER / PBR / EV-EBITDA
 - **期間**: 直近 750 営業日（≒ 3 年）
 - **パーセンタイル**: 下位 20% / 下位 50% / 上位 50% / 上位 80%
-- **上場 3 年未満**: 上場来レンジで代替（universe-rules.md 参照）
+- **上場 3 年未満**: 上場来レンジで代替（[`../workflow/screening.md`](../workflow/screening.md) 参照）
 
 Historical EV/EBITDA は、各日の split-adjusted close で時価総額だけを変化させ、最新の発行済株式数・有利子負債・現金・TTM EBITDA を全期間に適用する近似で算出する。式は `(historical_adjustment_close * latest_shares_outstanding + latest_debt - latest_cash) / latest_ebitda_ttm` とし、balance sheet / EBITDA の時系列が無くても EV/EBITDA の定義を保つ。`adjustment_close` が欠損する場合は raw `close` にフォールバックする。必要項目が欠損する場合、EV がゼロ以下、または EBITDA がゼロ以下の場合は `null` とし、`ttm_quality_ev_ebitda = exact` かつ正の EV/EBITDA だけ mechanical 判定に使う。PBR / PER の history も同じ price 基準（adjustment_close 優先）で算出するため、株式分割があっても history は連続になる。
 
@@ -128,17 +128,12 @@ J-Quants の `AdjustmentClose` は **株式分割・株式併合 (reverse split 
 return ではない)。これ以外のコーポレートアクション (合併、株式交換、その他の無償交付
 等) はサポート対象外として **公式 docs に明示** されている (J-Quants daily_quotes API
 リファレンス: <https://jpx.gitbook.io/j-quants-ja/api-reference/daily_quotes>)。本システム
-でも total return ベースには変換せず、`adjustment_close` をそのまま使う。理由:
+でも screening の割安 percentile 判定は total return に変換せず、`adjustment_close`（price-only）で行う。理由:
 
-- `valuation-reversion` playbook の主信号は「short-term の price
-  decline」であり、配当落ちを含めた pure な price 系列で判定するのが thesis と整合
-- 配当落ち分を加算した擬似 total return を使うと、配当利回り高銘柄 (鉄鋼 / 銀行 / 商社等)
-  の `price_change_60d` が本来より small に見え、oversold 判定が遅れる方向にバイアスする
-- 1-2 ヶ月 horizon の swing trade では現金配当の寄与は 0.3-0.5% / 60 日程度で、playbook
-  の利確 / 損切 target (±10-20%) から見れば noise 範囲
+- 割安判定の主信号は price に対する valuation（PBR / PER 等の percentile）であり、配当落ちを含めた pure な price 系列で percentile を出すのが一貫する
+- 配当落ち分を加算した擬似 total return を percentile に使うと、高配当銘柄 (鉄鋼 / 銀行 / 商社等) の相対割安度が本来より small に見えるバイアスがかかる
 
-トータルリターン視点での portfolio 評価が必要になった場合 (年次 retro 等) は `_decisions/`
-側で配当落ちを別途加算するか、J-Quants Premium の配当 API 取得を検討する。
+**長期保有では配当を含む総リターンが重要**なため、配当は screen の price percentile ではなく、research の期待利回り見積り（[`../workflow/research.md`](../workflow/research.md)）と position の realized yield / calibration（[`../workflow/position.md`](../workflow/position.md)）で織り込む。銘柄の総リターン評価が要る場合は J-Quants Premium の配当 API 取得を検討する。
 
 ## 10. データソース
 
@@ -191,8 +186,5 @@ J-Quants の財務サマリーは四半期 disclosure の時系列として扱�
 
 ## 15. 参考
 
-- [`principles.md`](./principles.md): スクリーニング原則
-- [`universe-rules.md`](./universe-rules.md): universe 境界条件
-- [`mechanical.md`](./mechanical.md): 機械的ふるい仕様（閾値 3 種 OR）
-- [`../components/candidates.md`](../components/candidates.md): candidates 運用仕様
-- [`../reference/data-sources.md`](../reference/data-sources.md): データソース Tier 一覧
+- [`../workflow/screening.md`](../workflow/screening.md): universe / playbook screen / candidates
+- [`./data-sources.md`](./data-sources.md): データソース Tier 一覧

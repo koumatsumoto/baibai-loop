@@ -6,7 +6,7 @@ status: active
 last_reviewed: 2026-06-06
 related_docs:
   - "./data-sources.md"
-  - "../operations/screening-runbook.md"
+  - "../workflow/screening.md"
 ---
 
 # J-Quants rate limit observations
@@ -15,7 +15,7 @@ J-Quants Light プランの正確なレート制限は非公開のため、**実
 
 ## 観測サマリ（2026-06-06）
 
-> **更新（2026-06-06、`b9f4f6c` + coverage merge 後）**: 以下の daily_bars re-fetch コストは **修正前の挙動**。daily_bars の coverage を `source_coverage` ではなく行データから導出するようにし（DB が SSOT、[`../screening/automation.md`](../screening/automation.md) §11.1）、さらに range fetch の coverage 記録を overlapping / adjacent window の union merge に変更した。これにより既存 cache がある asof の bootstrap では daily_bars を再取得せず、財務サマリーも chunk 境界ずれで生じていたギャップを作らない。下記は経緯として残す。
+> **更新（2026-06-06、`b9f4f6c` + coverage merge 後）**: 以下の daily_bars re-fetch コストは **修正前の挙動**。daily_bars の coverage を `source_coverage` ではなく行データから導出するようにし（DB が SSOT、[`./screening-runtime.md`](./screening-runtime.md) §11.1）、さらに range fetch の coverage 記録を overlapping / adjacent window の union merge に変更した。これにより既存 cache がある asof の bootstrap では daily_bars を再取得せず、財務サマリーも chunk 境界ずれで生じていたギャップを作らない。下記は経緯として残す。
 
 `bootstrap-cache --asof <past>` が 10 分・45 分の timeout でも完了しなかった件の調査。`PYTHONUNBUFFERED=1` で進捗を timestamp 付きログに残し、`source_coverage` テーブルの `fetched_at_utc` を突き合わせた。
 
