@@ -335,7 +335,7 @@ flowchart LR
       <h2 id="s10">10. screening データ品質の発見（本 run の副産物・修正予定）</h2>
       <div class="callout callout-note">
         <p class="callout-title">一次 IR との突き合わせで発見した機械 screening の歪み 2 件</p>
-        <p>いずれも「一次情報と検算する」規律（AP-01/02/03）が検出し、<strong>両方とも同 PR で修正済み</strong>（分割補正: 開示日以降の adjustment_factor 累積で株数補正、1899 の時価総額 655 億で一次検算と一致。EPS: rolling TTM 合成へ統一、8929 9.8 倍 / 1911 12.9 倍 / 6269 9.6 倍に正常化・合成不能時は null）。加えて select に <code>split_adjustment_recent</code> risk tag を追加。修正後の candidates で select を再実行し、本提案の順位・結論が不変であることを確認した（詳細: issue #289 / #290）。</p>
+        <p>いずれも「一次情報と検算する」規律（AP-01/02/03）が検出し、<strong>両方とも同 PR で修正済み</strong>。修正は「summary 行の実績 per-share 値・株数を、開示日以降の adjustment_factor で asof 基準へ正規化してから合成・比較する」方式に統一（分割を跨ぐ TTM 合成・YoY・株数変化・時価総額を一括で正す）。実データ検証: 1899 時価総額 655 億（一次検算と一致）、8929 trailing 9.8 倍、<strong>1911 は 7.88 倍</strong>（分割前基準の前年 Q1 を換算せず引いていた誤り 12.9 倍も併せて解消・IR 検算 7.6–7.9 倍と一致）、1911 の偽希薄化 +200% → +0.06%。分割を跨ぐ行の予想 EPS は会社の分割考慮慣行が混在し機械判別できないため null に落とす（偽の per_forward を出さない）。加えて select に <code>split_adjustment_recent</code> risk tag を追加。修正後の candidates で select を再実行し、本提案の順位・結論が不変であることを確認した（詳細: issue #289 / #290）。</p>
       </div>
       <ol>
         <li><strong>株式分割の効力日を跨ぐ時価総額の歪み</strong>: 1899 福田組（1:2 分割・効力 7/1 = screening asof 当日）で、時価総額が「分割前株数 × 分割後株価」となり真値の半分（328 億 vs 655 億）。net cash 比率 91%（真値 ~45%）・60 日 −58%・52 週安値も同根の artifact。</li>

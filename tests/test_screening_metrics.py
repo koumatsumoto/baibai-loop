@@ -189,6 +189,87 @@ class ScreeningMetricsTests(unittest.TestCase):
         assert financial.market_cap is not None
         self.assertAlmostEqual(financial.market_cap, 50.0 * 200.0, places=3)
         self.assertAlmostEqual(financial.shares_outstanding or 0.0, 200.0, places=3)
+        # 分割を跨ぐ行の forecast_eps は基準 (分割考慮前/後) を機械判別できないため
+        # None に落ち、per_forward は出ない (偽値を出さない)。
+        self.assertIsNone(financial.per_forward)
+
+    def test_split_crossing_composition_normalizes_per_share_basis(self) -> None:
+        """分割を跨ぐ TTM 合成・YoY・株数変化は、行を asof 基準へ正規化してから行う。
+
+        1911 型の再現: 前年 Q1 (分割前基準 eps 98.65・株数 206M) → 1:3 分割
+        (factor 1/3) → 通期・直近 Q1 は分割後基準。正規化なしだと合成 EPS が
+        27.33+174.13-98.65=102.81 (per_trailing 過大)、net_share_change_yoy が
+        +200% の偽希薄化になる。正規化後は 98.65 x 1/3 = 32.88 を引く。
+        """
+        asof = date(2026, 7, 1)
+        security = _security()
+        bars = []
+        for index in range(400):
+            traded_at = asof - timedelta(days=399 - index)
+            bars.append(
+                JQuantsDailyBar(
+                    ticker="130A",
+                    traded_at=traded_at,
+                    close=1328.0,
+                    turnover_value=300_000_000.0,
+                    adjustment_factor=(1.0 / 3.0 if traded_at == date(2025, 6, 27) else 1.0),
+                )
+            )
+        summaries = [
+            _summary(
+                "130A",
+                date(2025, 4, 30),
+                eps_ttm=98.65,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 3, 31),
+                shares_outstanding=206_068_168.0,
+            ),
+            _summary(
+                "130A",
+                date(2026, 2, 13),
+                eps_ttm=174.13,
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 12, 31),
+                shares_outstanding=618_555_804.0,
+            ),
+            _summary(
+                "130A",
+                date(2026, 5, 7),
+                eps_ttm=27.33,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2026, 12, 31),
+                period_start=date(2026, 1, 1),
+                period_end=date(2026, 3, 31),
+                shares_outstanding=618_555_804.0,
+            ),
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": security},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        financial = result.financials["130A"]
+        normalized_prior_q1 = 98.65 / 3.0
+        expected_eps_ttm = 27.33 + 174.13 - normalized_prior_q1
+        assert financial.per_trailing is not None
+        self.assertAlmostEqual(financial.per_trailing, 1328.0 / expected_eps_ttm, places=4)
+        # eps_yoy は正規化済み累計同士 (27.33 vs 32.88) の比較になる。
+        assert financial.eps_yoy is not None
+        self.assertAlmostEqual(financial.eps_yoy, 27.33 / normalized_prior_q1 - 1.0, places=4)
+        # 分割は希薄化ではない: 正規化後の前年株数は 206.07M x 3 = 618.20M 相当で、
+        # 変化は実際の微増資分 (+0.057%) だけになる (正規化なしだと +200% の偽希薄化)。
+        assert financial.net_share_change_yoy is not None
+        self.assertAlmostEqual(
+            financial.net_share_change_yoy,
+            618_555_804.0 / (206_068_168.0 * 3.0) - 1.0,
+            places=6,
+        )
 
     def test_per_trailing_rolls_quarterly_cumulative_eps_into_ttm(self) -> None:
         """J-Quants の EPS は期中累計なので、四半期開示直後は rolling 合成で TTM に直す。

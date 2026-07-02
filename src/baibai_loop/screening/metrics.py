@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, replace
 from datetime import date, timedelta
 from math import sqrt
 from statistics import mean, median
@@ -63,14 +63,13 @@ def build_metrics(
         latest_prices[ticker] = latest_bar.close
         financials[ticker] = _build_financial_snapshot(
             latest_price=latest_bar.close,
-            summaries=summaries_by_ticker.get(ticker, ()),
-            edinet=edinet_by_ticker.get(ticker),
-            rules=rules,
-            shares_outstanding=_split_adjusted_shares_outstanding(
+            summaries=_normalize_summaries_to_asof_basis(
                 summaries_by_ticker.get(ticker, ()),
                 bars_by_ticker.get(ticker, ()),
                 asof_date,
             ),
+            edinet=edinet_by_ticker.get(ticker),
+            rules=rules,
         )
 
     def _in_population(ticker: str) -> bool:
@@ -203,49 +202,83 @@ def build_metrics(
     )
 
 
-def _split_adjusted_shares_outstanding(
-    summaries: Sequence[JQuantsFinancialSummary],
+def _cumulative_adjustment_factor_after(
     ticker_bars: Sequence[JQuantsDailyBar],
+    after: date,
     asof_date: date,
-) -> float | None:
-    """Return shares outstanding adjusted for splits after the disclosure date.
-
-    株数は直近の財務開示時点の値のため、開示後に分割・併合 (権利落ち)があると
-    「開示時点の株数 x 権利落ち後の価格」で market cap 系の指標が歪む
-    (1:2 分割なら時価総額が半分に見える)。開示日より後・asof 以前の bar の
-    adjustment_factor を累積し、株数を価格と同じ基準へ補正する。
-    """
-    latest = _latest_summary(summaries)
-    if latest is None or latest.shares_outstanding is None:
-        return None
-    shares = latest.shares_outstanding
+) -> float:
+    """`after` より後・asof 以前の bar の adjustment_factor の累積を返す。"""
     factor = 1.0
     for bar in ticker_bars:
-        if bar.traded_at <= latest.disclosed_at or bar.traded_at > asof_date:
+        if bar.traded_at <= after or bar.traded_at > asof_date:
             continue
         if bar.adjustment_factor in (None, 0.0, 1.0):
             continue
         assert bar.adjustment_factor is not None
         factor *= bar.adjustment_factor
-    if factor > 0 and factor != 1.0:
-        return shares / factor
-    return shares
+    return factor
+
+
+def _normalize_summaries_to_asof_basis(
+    summaries: Sequence[JQuantsFinancialSummary],
+    ticker_bars: Sequence[JQuantsDailyBar],
+    asof_date: date,
+) -> Sequence[JQuantsFinancialSummary]:
+    """financial summary 行の per-share 値と株数を asof 時点の株式基準へ換算する。
+
+    J-Quants の財務開示行は as-reported (分割の遡及調整なし) のため、開示後に
+    分割・併合 (権利落ち bar の adjustment_factor) があると、行同士の比較・合成
+    (TTM 合成・YoY・株数変化) や「開示時点株数 x 権利落ち後価格」の market cap で
+    per-share 基準が混在する (1:2 分割なら時価総額が半分・合成 EPS が過大に見える)。
+    各行の開示日より後・asof 以前の adjustment_factor を累積し、実績系の
+    per-share 値 (eps_ttm / bps) には掛け、株数には割って現在基準へ揃える。
+    実績系と株数は同一行内で開示日基準に揃っている (1899/1911 の実データで確認) が、
+    forecast_eps だけは「会社が分割考慮後の値で開示する」慣行が混在し、開示時点の
+    基準を機械では判別できない。分割を跨ぐ行の forecast_eps は正規化せず None に
+    落とす (偽の per_forward を出さない。split_adjustment_recent risk tag が
+    research の手動検算へ誘導する)。
+    """
+    has_adjustment = any(
+        bar.adjustment_factor not in (None, 0.0, 1.0)
+        for bar in ticker_bars
+        if bar.traded_at <= asof_date
+    )
+    if not has_adjustment:
+        return summaries
+    normalized: list[JQuantsFinancialSummary] = []
+    for summary in summaries:
+        factor = _cumulative_adjustment_factor_after(ticker_bars, summary.disclosed_at, asof_date)
+        if factor <= 0 or factor == 1.0:
+            normalized.append(summary)
+            continue
+        normalized.append(
+            replace(
+                summary,
+                eps_ttm=summary.eps_ttm * factor if summary.eps_ttm is not None else None,
+                forecast_eps=None,
+                bps=summary.bps * factor if summary.bps is not None else None,
+                shares_outstanding=(
+                    summary.shares_outstanding / factor
+                    if summary.shares_outstanding is not None
+                    else None
+                ),
+            )
+        )
+    return normalized
 
 
 def build_shares_outstanding_index(
     summaries_by_ticker: Mapping[str, Sequence[JQuantsFinancialSummary]],
-    bars_by_ticker: Mapping[str, Sequence[JQuantsDailyBar]] | None = None,
-    asof_date: date | None = None,
+    bars_by_ticker: Mapping[str, Sequence[JQuantsDailyBar]],
+    asof_date: date,
 ) -> dict[str, float | None]:
     shares: dict[str, float | None] = {}
     for ticker, summaries in summaries_by_ticker.items():
-        if bars_by_ticker is not None and asof_date is not None:
-            shares[ticker] = _split_adjusted_shares_outstanding(
-                summaries, bars_by_ticker.get(ticker, ()), asof_date
-            )
-        else:
-            latest = _latest_summary(summaries)
-            shares[ticker] = latest.shares_outstanding if latest else None
+        normalized = _normalize_summaries_to_asof_basis(
+            summaries, bars_by_ticker.get(ticker, ()), asof_date
+        )
+        latest = _latest_summary(normalized)
+        shares[ticker] = latest.shares_outstanding if latest else None
     return shares
 
 
@@ -272,7 +305,6 @@ def _build_financial_snapshot(
     summaries: Sequence[JQuantsFinancialSummary],
     edinet: EdinetMetricRecord | None,
     rules: ScreeningRules,
-    shares_outstanding: float | None = None,
 ) -> FinancialSnapshot:
     latest = _latest_summary(summaries)
     prior_year = _prior_year_summary(summaries, rules.ttm)
@@ -281,7 +313,8 @@ def _build_financial_snapshot(
     # ならない (Q1 開示だと 3 か月分)。sales / cfo と同じ rolling 合成
     # (直近累計 + 前期通期 - 前年同期間累計) で TTM に直し、通期開示のときだけ
     # そのまま使う。合成できない場合は per_trailing を出さない (単一四半期 EPS で
-    # 割った偽の割高 PER を作らない)。
+    # 割った偽の割高 PER を作らない)。分割を跨ぐ行の per-share 基準は
+    # _normalize_summaries_to_asof_basis が呼び出し側で揃えている前提。
     eps_cumulative = latest.eps_ttm if latest else None
     eps_ttm, eps_quality = _ttm_value(summaries, "eps_ttm", rules.ttm)
     bps = latest.bps if latest else None
@@ -290,8 +323,7 @@ def _build_financial_snapshot(
     pbr = (latest_price / bps) if bps and bps > 0 else None
     operating_profit, operating_profit_source = _select_operating_profit(latest)
     operating_profit_prior_year, _ = _select_operating_profit(prior_year)
-    if shares_outstanding is None:
-        shares_outstanding = latest.shares_outstanding if latest else None
+    shares_outstanding = latest.shares_outstanding if latest else None
     sales_ttm, sales_quality = _ttm_value(summaries, "sales", rules.ttm)
     ocf_ttm, ocf_quality = _ttm_value(summaries, "cfo", rules.ttm)
     edinet_ocf_ttm = edinet.ocf_ttm if edinet else None
@@ -800,18 +832,18 @@ def _loss_narrowing(current: float | None, previous: float | None) -> bool | Non
     return previous < 0 and current > previous
 
 
+_TTM_QUALITY_FIELDS = tuple(
+    field.name for field in fields(FinancialSnapshot) if field.name.startswith("ttm_quality_")
+)
+
+
 def _count_ttm_qualities(snapshots: Sequence[FinancialSnapshot]) -> dict[str, int]:
+    # 集計対象は schema の ttm_quality_* field から導出する (次元を足したとき
+    # ここの列挙更新漏れで集計 telemetry から欠落するのを防ぐ)。
     counts = {quality.value: 0 for quality in TTMQuality}
     for snapshot in snapshots:
-        for quality in (
-            snapshot.ttm_quality_ev_ebitda,
-            snapshot.ttm_quality_p_s,
-            snapshot.ttm_quality_pcfr,
-            snapshot.ttm_quality_ocf_yield,
-            snapshot.ttm_quality_sales,
-            snapshot.ttm_quality_fcf_yield,
-            snapshot.ttm_quality_net_cash,
-        ):
+        for field_name in _TTM_QUALITY_FIELDS:
+            quality: TTMQuality = getattr(snapshot, field_name)
             counts[quality.value] += 1
     return counts
 
