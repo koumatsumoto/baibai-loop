@@ -1,20 +1,20 @@
 ---
 title: "Workflow — macro analysis"
-summary: "マクロ環境分析：指標 series を引き、姿勢（ディフェンシブ / リスクオン）とセクター・AI 前提を読む環境読みを macro-context record に残す。単一ループの入口。"
+summary: "マクロ環境分析：指標データを引き、リスク姿勢（ディフェンシブ / リスクオン）とセクター・AI 前提を読んだ環境認識を macro-context record に残す。単一ループの入口。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-01
+last_reviewed: 2026-07-02
 ---
 
 # Workflow — マクロ環境分析
 
-単一ループ（[`../doctrine.md`](../doctrine.md) §2）の入口。マクロ環境分析は **独立した capability**（データ取得層 ＋ リサーチ実践）であり、formal なループにはしない。狙いは「環境を読んで、**どのリスク姿勢でどのセクターに向かうか** を判断層へ供給する」こと。改善（調査方法・データソース確認手順のナレッジ）は使いながら都度蓄積する。
+単一ループ（[`../doctrine.md`](../doctrine.md) §2）の入口。マクロ環境分析は **独立した機能のまとまり**（データ取得層 + リサーチの実践）であり、形式化した独自ループにはしない。狙いは、環境を読んで「**どのリスク姿勢で、どのセクターに向かうか**」を判断層へ供給すること。改善（調査方法・データソース確認手順の知見）は、使いながらその都度蓄積する。
 
-抱えるのは性質の違う 3 種：**① データ（事実）／ ② 環境読み（macro-context record）／ ③ ナレッジ（メタ知識）**。macro は N≈1 の判断であり、edge 数値・統計的有意・自動 sizing 倍率は出さない（§誠実性）。
+扱うものは性質の異なる 3 種：**① データ（事実）／ ② 環境認識（macro-context record）／ ③ 知見（調べ方のメタ知識）**。マクロは標本数がほぼ 1 の判断であり、優位性の数値・統計的有意性・自動の投入額倍率は出さない（§誠実性）。
 
 ## ① データ：indicator series を引く
 
-指標 series は `baibai-loop-macro`（`src/baibai_loop/macro/indicators/`）で再現可能・provenance 付きに取得・キャッシュする。
+指標データは `baibai-loop-macro`（`src/baibai_loop/macro/indicators/`）で、再現可能かつ出所（provenance）付きで取得・キャッシュする。
 
 ```bash
 uv run baibai-loop-macro list --category rates       # 登録 series を見る
@@ -23,7 +23,7 @@ uv run baibai-loop-macro get jp.nikkei225 --start 2026-05-20 --end 2026-06-22
 uv run baibai-loop-macro get jp.policy_rate --latest
 ```
 
-`get` は coverage cache を見て miss のときだけ provider を呼ぶ。同入力なら同出力（決定論）。
+`get` は取得済み範囲のキャッシュを確認し、不足があるときだけ provider を呼ぶ。同じ入力には同じ出力を返す（決定論）。
 
 ### データソース registry
 
@@ -43,11 +43,11 @@ uv run baibai-loop-macro get jp.policy_rate --latest
 
 ### 運用テスト（series / provider を変更したら必ず回す）
 
-データ層は forward 計測でなく **運用テスト** で品質を担保する。0 件 fail で通す：(1) 全 series スイープ（`list | get --latest`）で error / stale を 0、(2) 桁・単位 sanity、(3) provider ストレス（rate-limit 系を 1 プロセスで refresh し 429 が出ないか）、(4) 派生計算の単位整合（net liquidity = FRB総資産 − RRP − TGA、単位換算を明示）、(5) alias 解決、(6) 決定論、(7) `uv run pytest` と `uv run baibai-loop-validation`。
+データ層の品質は **運用テスト** で担保する。すべて失敗 0 件で通す：(1) 全 series スイープ（`list | get --latest`）で error / stale を 0、(2) 桁・単位の妥当性、(3) provider ストレス（rate-limit 系を 1 プロセスで refresh し 429 が出ないか）、(4) 派生計算の単位整合（net liquidity = FRB総資産 − RRP − TGA、単位換算を明示）、(5) alias 解決、(6) 決定論、(7) `uv run pytest` と `uv run baibai-loop-validation`。
 
-## ② 環境読み：macro-context record を書く
+## ② 環境認識：macro-context record を書く
 
-市場局面について dated・sourced な環境読みを `records/01-macro-context/<YYYY>/<MM>/macro-context-<YYYY-MM-DD>-<slug>.yaml` に残す。schema は `records/_schemas/macro-context.json`（contract-of-record）、検証は `uv run baibai-loop-validation --target macro-context`。
+市場局面についての、日付と出所の明確な環境認識を `records/01-macro-context/<YYYY>/<MM>/macro-context-<YYYY-MM-DD>-<slug>.yaml` に残す。schema は `records/_schemas/macro-context.json`（contract-of-record）、検証は `uv run baibai-loop-validation --target macro-context`。
 
 主な field：
 
@@ -57,15 +57,15 @@ uv run baibai-loop-macro get jp.policy_rate --latest
 - `sector_tilts.items`：`sector_33` exact match で使う姿勢 tilt（`key` / `stance` / `strength` / `confidence`）
 - `research_questions` / `refresh_triggers` / `changes_since_previous`
 
-**record は分析レイヤーであり、手順（プロセス指示）を書かない**。「次回からこう調べる」等のプロセスは本 doc（workflow）に置く。record には screening / research の前提として使う環境読みと source metadata だけを残す。
+**record は分析レイヤーであり、手順（作業の指示）を書かない**。「次回からこう調べる」といった手順の話は本 doc（workflow）に置く。record には、screening / research の前提として使う環境認識と出所のメタデータだけを残す。
 
-**分析の独立性**：環境読みは、過去の客観的事実（価格・指標・イベント）は前提にしてよいが、過去の macro-context record の分析・結論（前回の sector tilt や相場観）は前提にしない。建玉（position）は分析に持ち込まない。一次情報と指標から解釈をゼロベースで組み立てる。過去 context との連続性は結論確定後に `changes_since_previous` へ事後接続する。
+**分析の独立性**：環境認識の前提にしてよいのは過去の客観的事実（価格・指標・イベント）だけで、過去の macro-context record にある分析・結論（前回の sector tilt や相場観）は前提にしない。保有中の建玉も分析に持ち込まない。一次情報と指標から、解釈を毎回ゼロベースで組み立てる。過去の context との連続性は、結論を確定させた後に `changes_since_previous` として事後的に接続する。
 
-**更新トリガー**：macro-context は定期生成せず、**screening 前**（select が鮮度ある context を hard precondition にする）・**主要イベント後**（FOMC/BOJ/ECB/米CPI・PCE・NFP/地政学ショック）・**前回 `refresh_triggers` の発火** で必要時に更新する（基準 cadence は `valid_until = as_of + 7日` の実質週次）。
+**更新のきっかけ**：macro-context は定期的には生成せず、**screening の前**（select は鮮度のある context を前提条件にする）・**主要イベントの後**（FOMC / 日銀会合 / ECB / 米 CPI・PCE・雇用統計 / 地政学ショック）・**前回書いた `refresh_triggers` の発火**、のいずれかで必要になったときに更新する（`valid_until = as_of + 7 日` とするため、実質は週次）。
 
 ## ③ ナレッジ：8 分析レンズ
 
-個別 series は単体でなく、以下のレンズに束ねて環境読みに使う（1 枚のパネルで横断的に読む）。操作手順・公開前の敵対的 self-check ゲートは skill [`macro-analysis`](../../.claude/skills/macro-analysis/SKILL.md) に集約する。
+個別の指標は単体で読まず、以下のレンズに束ねて環境認識に使う（1 枚のパネルとして横断的に読む）。操作手順と公開前の敵対的セルフチェックは skill [`macro-analysis`](../../.claude/skills/macro-analysis/SKILL.md) に集約する。
 
 1. **グローバル流動性**：net liquidity ≈ `us.fed_assets` − `us.reverse_repo` − `us.tga`（単位換算注意）。`us.m2` 前年比はリスク資産に約 10 週先行。
 2. **実質金利・store-of-value**：`us.real_10y` + `us.breakeven_10y` + `usd_index.broad` + `gold`。名目 = 実質 + 期待インフレに分解。
@@ -78,26 +78,26 @@ uv run baibai-loop-macro get jp.policy_rate --latest
 
 ## 姿勢とセクター、AI 中心
 
-環境読みは **リスク姿勢とセクター配分** に落とす（[`../doctrine.md`](../doctrine.md) 柱 2）。
+環境認識は **リスク姿勢とセクター配分** という結論に落とす（[`../doctrine.md`](../doctrine.md) 柱 2）。
 
 - **リスクを取るべきでない局面**（高値圏・ERP≤0・信用二極化・流動性逆風・地政学テール）：**ディフェンシブ** へ寄せ、余力を厚く保つ（[`../portfolio-management.md`](../portfolio-management.md)）。
 - **リスクを取るべき局面**（過度な悲観・割安拡大・流動性追い風）：**追い風セクター** へ配分し、暴落では余力を投下する。
-- **AI は中心セクター**。AI 産業革命を前提に長期の産業成長とマクロを組む。ただし AI 期待を単独の採用/sizing 根拠にはしない。
+- **AI は中心に据えるセクター**。AI による産業革命を前提に、長期の産業成長とマクロ観を組み立てる。ただし AI への期待は、それ単独では採用理由にも投入額の根拠にもしない。
 
 ## 接続：判断層にだけ効かせる（screen は macro-blind）
 
-マクロ読みは機械スクリーニング `run` には接続しない（`run` は fundamentals の決定的 fact-engine のまま）。効くのは判断層だけ：
+マクロの読みは機械スクリーニングの `run` には接続しない（`run` は財務事実だけを扱う決定論的なエンジンのまま）。効かせるのは判断層だけ：
 
-- **select**（[`./screening.md`](./screening.md)）：`sector_tilts` が候補セクターの追い風/向かい風 lens として効く。avoid セクターの割安株も surface はするが減点・flag（hard gate にしない）。
-- **portfolio management / research**：姿勢・themes・hazards を投下 timing・sizing 判断や個別 thesis の背景 context に使う。マクロを numeric driver にしない。
+- **select**（[`./screening.md`](./screening.md)）：`sector_tilts` が候補セクターの追い風 / 向かい風の参考情報として効く。回避としたセクターの割安株も一覧には現れ、注意情報が付くだけで機械的には落とさない。
+- **portfolio management / research**：姿勢・テーマ・警戒事項を、資金を投じるタイミングや投入額の判断、個別 thesis の背景情報に使う。マクロを数値ドライバーにはしない。
 
 ## 誠実性（honesty firewall）
 
-マクロは N≈1 で、screening のような横断 N の forward 統計検証ができない。本 capability は edge 数値・統計的有意・自動売買 score を出さない。得るのは再現性と判断の grounding であって統計的厳密さではない。
+マクロは標本数がほぼ 1 であり、screening のように多数の銘柄を横断する統計検証ができない。この工程は優位性の数値・統計的有意性・自動売買スコアを出さない。ここで得られるのは再現性と、判断を事実に根付かせる基盤であって、統計的な厳密さではない。
 
 ## 参考
 
 - [`../doctrine.md`](../doctrine.md)：思想・柱 2（macro が姿勢を決める）
-- [`../portfolio-management.md`](../portfolio-management.md)：投下 timing・余力
+- [`../portfolio-management.md`](../portfolio-management.md)：資金投下のタイミング・余力
 - [`./screening.md`](./screening.md)：sector_tilts を使う select
 - [`../reference/data-sources.md`](../reference/data-sources.md)：データソース Tier

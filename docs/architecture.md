@@ -3,14 +3,14 @@ title: "Architecture"
 summary: "Baibai-Loop の構造の正本：3 層インフラ（データ / 決定論的分析 / 判断）と単一ループ、repository map、CLI/SQLite の安定契約。"
 doc_type: architecture
 status: active
-last_reviewed: 2026-07-01
+last_reviewed: 2026-07-02
 ---
 
 # Architecture — 構造・repository map・安定契約
 
 Baibai-Loop の **構造** の正本。思想・大戦略は [`doctrine.md`](./doctrine.md)、資本・ポジション管理は [`portfolio-management.md`](./portfolio-management.md)、各工程の手順は [`workflow/`](./workflow/) を参照する。
 
-日本株の実データを機械的に収集・解析・スコアリングし、その割安さを使って長期積立の判断を支える基盤。構造は **3 層インフラ**（データ / 決定論的分析 / 判断）の上を **1 つの長期投資ループ** が流れる。
+日本株の実データを機械的に収集・解析・スコアリングし、割安さの機械判定を土台に長期積立の裁量判断を支える基盤。構造としては、**3 層インフラ**（データ / 決定論的分析 / 判断）の上を **1 つの長期投資ループ**が流れる。
 
 ## 3 層インフラ
 
@@ -30,7 +30,7 @@ L2 の「分析」は決定論的な機械処理であり、その出力（candi
 | --- | --- | --- | --- | --- |
 | 運用方針 | portfolio management | [`docs/portfolio-management.md`](./portfolio-management.md) | governance | 資本・許容リスク・ポジション管理・kill switch |
 | マクロ環境分析 | macro context | `records/01-macro-context/` | analysis | 姿勢・セクター・AI 前提の環境読み |
-| 通過銘柄リスト | candidates | `records/04-candidates/`（git 外の local store） | fact | ticker-level の raw screen output |
+| 通過銘柄リスト | candidates | `records/04-candidates/`（git 外の local store） | fact | screen の生の事実出力（銘柄単位） |
 | 個別銘柄リサーチ | thesis | `records/05-thesis/` | analysis | FV・RR・期待利回り・耐性・採否の投資メモ |
 | 売買提案 | trade proposal | GitHub Issue（records 外） | 判断の入口 | 銘柄 / 価格 / 株数を人間に上げる |
 | 売買執行記録 | position | `records/06-position/` | execution | 注文・約定・保有・全売り決済・calibration |
@@ -39,7 +39,7 @@ L2 の「分析」は決定論的な機械処理であり、その出力（candi
 
 ## スコープと非目標
 
-- 割安な優良銘柄を **長期で積み立て**、valuation（割高化）で **全売り** する裁量支援基盤。日本個別株のみ（ETF / 投信 / 海外株は扱わない）。long-only・現物。
+- 割安な優良銘柄を **長期で積み立て**、valuation（割高化）で **全売り** する裁量支援基盤。日本の個別株のみ（ETF / 投資信託 / 海外株は扱わない）。買い建てのみ・現物のみ。
 - Markdown / YAML と Git を正本にする。ただし週次 screen output（candidates YAML）は再生成可能な L2 機械出力として local store に置き git に積まない。
 - 成果物の機械契約は `records/_schemas/*.json` を正本（contract-of-record）にする。
 - **構造としての非目標**：MCP / API server・第三者向けサービング・部分売却 / リバランスの schema 化・**固定期間の review gate**。思想的な非目標（ML スコアリング・短期 forward-backtest・自動発注・口座 / 税制モデル化）は [`doctrine.md`](./doctrine.md) §8 を参照。
@@ -90,7 +90,7 @@ L2 の「分析」は決定論的な機械処理であり、その出力（candi
 | `records/05-thesis/` | analysis | investment memo Markdown |
 | `records/06-position/` | execution | trade record Markdown |
 
-通常 record は event artifact として path 自体を正本にし、mutable latest index は持たない。
+通常の record は出来事ごとの成果物（event artifact）として path 自体を正本にし、更新され続ける「最新一覧」の index は持たない。
 
 ### Records support areas
 
@@ -123,7 +123,7 @@ Automation は人間の投資判断を置き換えず、fact snapshot 生成・s
 | `baibai-loop-screening market-snapshot` | `screening/` | regime 履歴・sector 集計（macro context の機械入力） |
 | `baibai-loop-macro` | `macro/` | 指標 series を provenance 付きで取得・cache |
 | `baibai-loop-validation` | `validation/` | records と schema の整合を検証 |
-| `baibai-loop-position benchmark` | `position/` | 保有の forward return / benchmark(`1321`) 比を算出 |
+| `baibai-loop-position benchmark` | `position/` | 保有の entry 以降リターンと benchmark（`1321`）比を算出 |
 
 ### Schema and validation
 
@@ -145,7 +145,7 @@ AI / スクリプトが基盤を利用するための安定化対象は **2 面�
 - **契約 1：CLI の YAML 出力** — `run`（candidates 事実）・`select`（recommendations + diagnostics）・`ticker-profile`・`market-snapshot`・`baibai-loop-macro`。field の追加は随時、既存 field の名前と意味は黙って変えない。人間向け整形は stdout サマリに分離する。
 - **契約 2：SQLite schema**（`data/screening/market.sqlite`） — 対象は全上場銘柄、`PRAGMA user_version` で版管理、破壊的変更は version bump + rebuild（migration しない）。**AI は読み取り専用で SQL を直接発行してよく、書き込みは CLI（bootstrap / extract / run）経由に限る**。主要テーブルは `jquants_daily_bars` / `jquants_fin_summaries` / `jquants_master_snapshots` / `edinet_metrics` / `jpx_regulation_flags`、定義の正本は [`reference/screening-runtime.md`](./reference/screening-runtime.md)。
 
-AI の利用モデル：L1/L2 は SQL 直接 + CLI 出力で自由に読み、すべての主張を queryable な事実に遡れる形で書く（AP-01）。L3 は下書きまで（最終採用判定・failure 分類・macro 前提確認は人間）。スコアは軸別座標であり売買判定ではない。
+AI の利用モデル：L1/L2 は SQL 直接発行と CLI 出力で自由に読み、すべての主張を SQL で検証できる事実へ遡れる形で書く（AP-01）。L3 は下書きまで（最終採用判定・failure 分類・macro 前提確認は人間）。スコアは軸別座標であり売買判定ではない。
 
 ## Docs sections
 

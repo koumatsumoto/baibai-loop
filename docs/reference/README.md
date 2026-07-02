@@ -1,6 +1,6 @@
 ---
 title: "Reference index"
-summary: "Stable reference for valuation metrics, screening runtime, data sources, configuration, validation, and Python foundation."
+summary: "valuation 指標・screening 実装・データソース・設定・検証・Python 基盤の、変更頻度の低い参照情報の入口。"
 doc_type: reference-index
 status: active
 last_reviewed: 2026-05-04
@@ -8,7 +8,7 @@ last_reviewed: 2026-05-04
 
 # Reference
 
-`docs/reference/` は日々の runbook から参照される、変更頻度の低い基盤情報を置きます。
+`docs/reference/` には、日々の手順から参照される変更頻度の低い基盤情報を置く。
 
 | doc | 責務 |
 | --- | --- |

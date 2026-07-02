@@ -1,6 +1,6 @@
 ---
 title: "Data sources"
-summary: "Canonical reference for data source tiers, data cache policy, and Tier 1 failure handling."
+summary: "データソースの Tier 分類・キャッシュ方針・Tier 1 取得失敗時の扱いの正本。"
 doc_type: reference
 status: active
 last_reviewed: 2026-05-04

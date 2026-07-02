@@ -1,6 +1,6 @@
 ---
 title: "Configuration reference"
-summary: "Reference for runtime configuration, environment variables, and credentials boundaries."
+summary: "実行時設定・環境変数・認証情報の境界の参照情報。"
 doc_type: reference
 status: active
 last_reviewed: 2026-05-13
@@ -12,7 +12,7 @@ source_paths:
 
 # Configuration
 
-Configuration は runtime boundary です。secret や token の値は docs に書かず、必要な変数名と責務だけを記録します。
+設定は実行時の境界にあたる。secret や token の値は docs に書かず、必要な変数名と責務だけを記録する。
 
 ## Principles
 

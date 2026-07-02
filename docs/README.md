@@ -3,7 +3,7 @@ title: "Baibai-Loop docs portal"
 summary: "思想・構造・運用方針・工程手順・参照情報・失敗パターンへの入口。root README は初見向け概要、判断根拠と手順はこの portal から辿る。"
 doc_type: portal
 status: active
-last_reviewed: 2026-07-01
+last_reviewed: 2026-07-02
 ---
 
 # Baibai-Loop docs
@@ -45,5 +45,5 @@ last_reviewed: 2026-07-01
 
 - 思想・原則・語彙は [`doctrine.md`](./doctrine.md)。安定アンカー `#vocabulary` / `#fact-analysis-separation` を切らない。
 - 構造・repository map・automation は [`architecture.md`](./architecture.md)。安定アンカー `#repository-map` / `#automation`。
-- 成果物の機械契約は `records/_schemas/*.json`（contract-of-record）。工程 doc は field を再転記せず、意味・式・WHY だけを持つ。
+- 成果物の機械契約は `records/_schemas/*.json`（contract-of-record）。工程 doc は field を書き写さず、意味・計算式・設計判断の理由だけを持つ。
 - 失敗パターンの正本は [`anti-patterns.md`](./anti-patterns.md)。AP 番号は維持する。

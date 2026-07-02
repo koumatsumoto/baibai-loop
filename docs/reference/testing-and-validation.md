@@ -1,6 +1,6 @@
 ---
 title: "Testing and validation reference"
-summary: "Reference for records schemas, validator boundaries, tests, and local verification commands."
+summary: "records の schema・validator の責務境界・テスト・ローカル検証コマンドの参照情報。"
 doc_type: reference
 status: active
 last_reviewed: 2026-05-04
@@ -12,7 +12,7 @@ source_paths:
 
 # Testing and validation
 
-`records/_schemas/` は records artifact の shape を固定する支援領域です。validator は schema だけでは表現しにくい cross-file rule と path existence を補完します。
+`records/_schemas/` は records 成果物の形を固定する支援領域。validator は、schema だけでは表現しにくいファイル横断のルールと参照先の実在確認を補完する。
 
 YAML front matter の `ticker` は必ず quote する（`"9715"`）。unquoted は int として parse され、schema の `type: string` 違反で validator が error にする（先頭 0 落ちや `130A` のような英字入り code の破損防止）。
 
