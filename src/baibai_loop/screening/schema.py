@@ -123,6 +123,7 @@ class FinancialSnapshot:
     cfo_yoy: float | None = None
     operating_profit_loss_narrowing: bool | None = None
     ttm_quality_ev_ebitda: TTMQuality = TTMQuality.UNAVAILABLE
+    ttm_quality_per_trailing: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_p_s: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_pcfr: TTMQuality = TTMQuality.UNAVAILABLE
     ttm_quality_ocf_yield: TTMQuality = TTMQuality.UNAVAILABLE

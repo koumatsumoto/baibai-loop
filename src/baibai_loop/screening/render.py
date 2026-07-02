@@ -139,6 +139,7 @@ def _build_candidate_entry(
     ]
     entry["ttm_quality"] = {
         "ev_ebitda": candidate.ttm_quality.get("ev_ebitda", TTMQuality.UNAVAILABLE).value,
+        "per_trailing": candidate.ttm_quality.get("per_trailing", TTMQuality.UNAVAILABLE).value,
         "p_s": candidate.ttm_quality.get("p_s", TTMQuality.UNAVAILABLE).value,
         "pcfr": candidate.ttm_quality.get("pcfr", TTMQuality.UNAVAILABLE).value,
         "ocf_yield": candidate.ttm_quality.get("ocf_yield", TTMQuality.UNAVAILABLE).value,

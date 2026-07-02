@@ -66,6 +66,11 @@ def build_metrics(
             summaries=summaries_by_ticker.get(ticker, ()),
             edinet=edinet_by_ticker.get(ticker),
             rules=rules,
+            shares_outstanding=_split_adjusted_shares_outstanding(
+                summaries_by_ticker.get(ticker, ()),
+                bars_by_ticker.get(ticker, ()),
+                asof_date,
+            ),
         )
 
     def _in_population(ticker: str) -> bool:
@@ -198,13 +203,49 @@ def build_metrics(
     )
 
 
+def _split_adjusted_shares_outstanding(
+    summaries: Sequence[JQuantsFinancialSummary],
+    ticker_bars: Sequence[JQuantsDailyBar],
+    asof_date: date,
+) -> float | None:
+    """Return shares outstanding adjusted for splits after the disclosure date.
+
+    株数は直近の財務開示時点の値のため、開示後に分割・併合 (権利落ち)があると
+    「開示時点の株数 x 権利落ち後の価格」で market cap 系の指標が歪む
+    (1:2 分割なら時価総額が半分に見える)。開示日より後・asof 以前の bar の
+    adjustment_factor を累積し、株数を価格と同じ基準へ補正する。
+    """
+    latest = _latest_summary(summaries)
+    if latest is None or latest.shares_outstanding is None:
+        return None
+    shares = latest.shares_outstanding
+    factor = 1.0
+    for bar in ticker_bars:
+        if bar.traded_at <= latest.disclosed_at or bar.traded_at > asof_date:
+            continue
+        if bar.adjustment_factor in (None, 0.0, 1.0):
+            continue
+        assert bar.adjustment_factor is not None
+        factor *= bar.adjustment_factor
+    if factor > 0 and factor != 1.0:
+        return shares / factor
+    return shares
+
+
 def build_shares_outstanding_index(
     summaries_by_ticker: Mapping[str, Sequence[JQuantsFinancialSummary]],
+    bars_by_ticker: Mapping[str, Sequence[JQuantsDailyBar]] | None = None,
+    asof_date: date | None = None,
 ) -> dict[str, float | None]:
     shares: dict[str, float | None] = {}
     for ticker, summaries in summaries_by_ticker.items():
-        latest = _latest_summary(summaries)
-        shares[ticker] = latest.shares_outstanding if latest else None
+        if bars_by_ticker is not None and asof_date is not None:
+            shares[ticker] = _split_adjusted_shares_outstanding(
+                summaries, bars_by_ticker.get(ticker, ()), asof_date
+            )
+        else:
+            latest = _latest_summary(summaries)
+            shares[ticker] = latest.shares_outstanding if latest else None
     return shares
 
 
@@ -231,18 +272,26 @@ def _build_financial_snapshot(
     summaries: Sequence[JQuantsFinancialSummary],
     edinet: EdinetMetricRecord | None,
     rules: ScreeningRules,
+    shares_outstanding: float | None = None,
 ) -> FinancialSnapshot:
     latest = _latest_summary(summaries)
     prior_year = _prior_year_summary(summaries, rules.ttm)
     forecast_eps = latest.forecast_eps if latest else None
-    eps_ttm = latest.eps_ttm if latest else None
+    # J-Quants の EPS (eps_ttm field) は期中累計で、年度途中の四半期開示では 12 か月分に
+    # ならない (Q1 開示だと 3 か月分)。sales / cfo と同じ rolling 合成
+    # (直近累計 + 前期通期 - 前年同期間累計) で TTM に直し、通期開示のときだけ
+    # そのまま使う。合成できない場合は per_trailing を出さない (単一四半期 EPS で
+    # 割った偽の割高 PER を作らない)。
+    eps_cumulative = latest.eps_ttm if latest else None
+    eps_ttm, eps_quality = _ttm_value(summaries, "eps_ttm", rules.ttm)
     bps = latest.bps if latest else None
     per_forward = (latest_price / forecast_eps) if forecast_eps and forecast_eps > 0 else None
     per_trailing = (latest_price / eps_ttm) if eps_ttm and eps_ttm > 0 else None
     pbr = (latest_price / bps) if bps and bps > 0 else None
     operating_profit, operating_profit_source = _select_operating_profit(latest)
     operating_profit_prior_year, _ = _select_operating_profit(prior_year)
-    shares_outstanding = latest.shares_outstanding if latest else None
+    if shares_outstanding is None:
+        shares_outstanding = latest.shares_outstanding if latest else None
     sales_ttm, sales_quality = _ttm_value(summaries, "sales", rules.ttm)
     ocf_ttm, ocf_quality = _ttm_value(summaries, "cfo", rules.ttm)
     edinet_ocf_ttm = edinet.ocf_ttm if edinet else None
@@ -306,7 +355,7 @@ def _build_financial_snapshot(
         edinet_failure_reasons=edinet_failure_reasons or None,
         operating_profit=operating_profit,
         operating_profit_source=operating_profit_source,
-        eps_yoy=_yoy_ratio(eps_ttm, prior_year.eps_ttm if prior_year else None),
+        eps_yoy=_yoy_ratio(eps_cumulative, prior_year.eps_ttm if prior_year else None),
         sales_yoy=_yoy_ratio(
             latest.sales if latest else None, prior_year.sales if prior_year else None
         ),
@@ -317,6 +366,7 @@ def _build_financial_snapshot(
             operating_profit_prior_year,
         ),
         ttm_quality_ev_ebitda=edinet.ttm_quality_ev_ebitda if edinet else TTMQuality.UNAVAILABLE,
+        ttm_quality_per_trailing=eps_quality,
         ttm_quality_p_s=sales_quality,
         ttm_quality_pcfr=ocf_quality,
         ttm_quality_ocf_yield=ocf_quality,

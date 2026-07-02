@@ -40,6 +40,8 @@ def _summary(
     fiscal_period: str | None = "1Q",
     fiscal_year_end: date | None = date(2026, 3, 31),
     shares_outstanding: float = 400_000_000.0,
+    period_start: date | None = None,
+    period_end: date | None = None,
 ) -> JQuantsFinancialSummary:
     return JQuantsFinancialSummary(
         ticker=code,
@@ -55,6 +57,8 @@ def _summary(
         profit=None,
         fiscal_period=fiscal_period,
         fiscal_year_end=fiscal_year_end,
+        period_start=period_start,
+        period_end=period_end,
     )
 
 
@@ -122,7 +126,17 @@ class ScreeningMetricsTests(unittest.TestCase):
             asof_date=asof,
             securities_by_ticker={"130A": security},
             bars_by_ticker={"130A": base_bars + future_bars},
-            summaries_by_ticker={"130A": [_summary("130A", asof - timedelta(days=30))]},
+            summaries_by_ticker={
+                "130A": [
+                    _summary(
+                        "130A",
+                        asof - timedelta(days=30),
+                        fiscal_period="FY",
+                        period_start=date(2025, 4, 1),
+                        period_end=date(2026, 3, 31),
+                    )
+                ]
+            },
             edinet_by_ticker={},
         )
         self.assertIn("130A", result.financials)
@@ -133,6 +147,127 @@ class ScreeningMetricsTests(unittest.TestCase):
         self.assertAlmostEqual(per_trailing, (100.0 + 399) / 18.0, places=5)
         # short_history_flag must be derived from bars <= asof only. 400d history < 750d ⇒ True.
         self.assertTrue(result.derived["130A"].short_history_flag)
+
+    def test_market_cap_adjusts_shares_for_split_after_disclosure(self) -> None:
+        """開示後の分割 (権利落ち bar の adjustment_factor) を株数へ補正する。
+
+        開示時点の株数 100 株・1:2 分割 (factor 0.5) 後の終値 50 のとき、
+        naive な 100 x 50 = 5,000 ではなく 200 x 50 = 10,000 が market cap。
+        """
+        asof = date(2026, 7, 1)
+        security = _security()
+        bars = []
+        for index in range(30):
+            traded_at = asof - timedelta(days=29 - index)
+            bars.append(
+                JQuantsDailyBar(
+                    ticker="130A",
+                    traded_at=traded_at,
+                    close=100.0 if index < 27 else 50.0,
+                    turnover_value=300_000_000.0,
+                    adjustment_factor=0.5 if index == 27 else 1.0,
+                )
+            )
+        summaries = [
+            _summary(
+                "130A",
+                asof - timedelta(days=20),
+                fiscal_period="FY",
+                period_start=date(2025, 4, 1),
+                period_end=date(2026, 3, 31),
+                shares_outstanding=100.0,
+            )
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": security},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        financial = result.financials["130A"]
+        assert financial.market_cap is not None
+        self.assertAlmostEqual(financial.market_cap, 50.0 * 200.0, places=3)
+        self.assertAlmostEqual(financial.shares_outstanding or 0.0, 200.0, places=3)
+
+    def test_per_trailing_rolls_quarterly_cumulative_eps_into_ttm(self) -> None:
+        """J-Quants の EPS は期中累計なので、四半期開示直後は rolling 合成で TTM に直す。
+
+        直近が Q1 累計 (24.0) のとき、TTM = Q1 累計 + 前期通期 (114.0) - 前年 Q1 累計 (26.0)
+        = 112.0。単一四半期 EPS (24.0) で割った偽の割高 PER を作らない。
+        """
+        asof = date(2026, 7, 1)
+        security = _security()
+        bars = _daily_bars("130A", asof, 30)
+        summaries = [
+            _summary(
+                "130A",
+                date(2025, 5, 15),
+                eps_ttm=26.0,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2026, 2, 6),
+                eps_ttm=114.0,
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 12, 31),
+            ),
+            _summary(
+                "130A",
+                date(2026, 5, 15),
+                eps_ttm=24.0,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2026, 12, 31),
+                period_start=date(2026, 1, 1),
+                period_end=date(2026, 3, 31),
+            ),
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": security},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        financial = result.financials["130A"]
+        latest_close = 100.0 + 29
+        expected_eps_ttm = 24.0 + 114.0 - 26.0
+        assert financial.per_trailing is not None
+        self.assertAlmostEqual(financial.per_trailing, latest_close / expected_eps_ttm, places=5)
+        self.assertEqual(financial.ttm_quality_per_trailing.value, "exact")
+
+    def test_per_trailing_is_null_when_ttm_composition_unavailable(self) -> None:
+        """前期通期・前年同期間が無く合成できないときは per_trailing を出さない。"""
+        asof = date(2026, 7, 1)
+        security = _security()
+        bars = _daily_bars("130A", asof, 30)
+        summaries = [
+            _summary(
+                "130A",
+                date(2026, 5, 15),
+                eps_ttm=24.0,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2026, 12, 31),
+                period_start=date(2026, 1, 1),
+                period_end=date(2026, 3, 31),
+            ),
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": security},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        financial = result.financials["130A"]
+        self.assertIsNone(financial.per_trailing)
+        self.assertEqual(financial.ttm_quality_per_trailing.value, "unavailable")
 
     def test_build_metrics_uses_bars_span_for_short_history_when_established(self) -> None:
         """An established listing (800 days of bars) must not be flagged as short_history."""
@@ -804,6 +939,8 @@ class MedianPopulationTests(unittest.TestCase):
                 disclosed_at=_date(2026, 2, 1),
                 eps_ttm=eps,
                 type_of_current_period="FY",
+                period_start=_date(2025, 1, 1),
+                period_end=_date(2025, 12, 31),
             )
 
         securities = {
