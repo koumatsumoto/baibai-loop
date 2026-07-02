@@ -150,7 +150,11 @@ figure.diagram:hover .diagram-tools, figure.diagram:focus-within .diagram-tools 
       <h2 id="s1">1. 一行結論と提案</h2>
       <div class="callout callout-important">
         <p class="callout-title">提案（最終判断はユーザー）</p>
-        <p><strong>2331 ALSOK 100 株（指値 1,050 円）＋ 8929 青山財産ネットワークス 100 株（指値 1,190 円）、合計約 ¥224,000</strong>（月次予算 ¥20–30 万の下限寄り）。発注は<strong>本日 21:30 JST の米雇用統計を通過した 7/3（金）以降</strong>。第 3 候補 4828 ビジネスエンジニアリングは来月の積立または押し目で追加検討。</p>
+        <p><strong>2331 ALSOK 100 株（指値 1,050 円）＋ 8929 青山財産ネットワークス 100 株（指値 1,190 円）、合計約 ¥224,000</strong>（月次予算 ¥20–30 万の下限寄り）。発注は<strong>7/3（金）以降</strong>、明朝の USD/JPY・日経の反応を確認してから。第 3 候補 4828 ビジネスエンジニアリングは来月の積立または押し目で追加検討。</p>
+      </div>
+      <div class="callout callout-note">
+        <p class="callout-title">✅ 米 6 月雇用統計の実績（7/2 21:30 JST 発表・TradingEconomics / Investing.com の 2 ミラーで検算）</p>
+        <p><strong>NFP +57K</strong>（予想 110–114K・予想レンジ下限 70K も下回る大幅ミス）、5 月 172K → <strong>129K へ下方改定</strong>、失業率 <strong>4.2% へ低下</strong>（労働参加の収縮示唆）、時給 YoY 3.5%（+0.1pt）。refresh trigger「&lt;75K + 失業率 4.4% 超」は<strong>部分発火</strong>（失業率側が不成立）。方向は利上げ織り込みの後退（Bear の実利上げ経路の確率低下）だが、米金利低下 → 円高圧力は極端な円ショートの巻き戻し初動になり得るため監視を強化。<strong>内需・円高無風で選んだ本提案はこの結果に対して頑健 → 提案維持</strong>。円が一気に 158 を割る急伸時のみ撤回して再判断（その場合は温存余力での押し目増額の好機側）。</p>
       </div>
       <p>選定の骨子: 日本株は指数最高値圏だが中身は極端に狭く（半導体 +56% vs 東証スタンダード −1.9%）、<strong>取り残された内需・割安・高還元 cohort</strong> にこそ買い場がある。最大のテール（9 年ぶり極端な円ショートの巻き戻し = 円高スナップバック）に耐える<strong>円高無風の内需 2 銘柄</strong>を、事業の質 → キャッシュフロー → 割安さの順で選んだ。利回りは結果であって選定理由ではない。</p>
       <table>
@@ -280,7 +284,7 @@ flowchart LR
       <table>
         <thead><tr><th>銘柄</th><th>数量</th><th>指値</th><th>発注額</th><th>タイミング</th><th>約定しない場合</th></tr></thead>
         <tbody>
-          <tr><td>2331 ALSOK</td><td>100 株</td><td><strong>1,050 円</strong>（終値 1,052.5 のわずか下・約定確率優先）</td><td>¥105,000</td><td rowspan="2"><strong>7/3（金）以降</strong>。本日 21:30 JST の米 6 月雇用統計（binary event）を跨がない</td><td rowspan="2">翌週まで持ち越し。NFP 大幅サプライズや円急伸（&lt;158）が来た場合は一旦撤回して macro context を更新してから再判断</td></tr>
+          <tr><td>2331 ALSOK</td><td>100 株</td><td><strong>1,050 円</strong>（終値 1,052.5 のわずか下・約定確率優先）</td><td>¥105,000</td><td rowspan="2"><strong>7/3（金）以降</strong>。米 6 月雇用統計（+57K・大幅ミス）は通過済み — 明朝の USD/JPY・日経の反応を確認してから発注</td><td rowspan="2">翌週まで持ち越し。円急伸（&lt;158）が来た場合は一旦撤回して macro context を更新してから再判断（円急伸は温存余力での押し目増額の好機側でもある）</td></tr>
           <tr><td>8929 青山財産</td><td>100 株</td><td><strong>1,190 円</strong>（終値 1,199 のわずか下）</td><td>¥119,000</td></tr>
         </tbody>
       </table>
@@ -331,7 +335,7 @@ flowchart LR
       <h2 id="s10">10. screening データ品質の発見（本 run の副産物・修正予定）</h2>
       <div class="callout callout-note">
         <p class="callout-title">一次 IR との突き合わせで発見した機械 screening の歪み 2 件</p>
-        <p>いずれも「一次情報と検算する」規律（AP-01/02/03）が検出した。基盤の修正 or 警告 flag 追加を同 PR / follow-up で行う。</p>
+        <p>いずれも「一次情報と検算する」規律（AP-01/02/03）が検出し、<strong>両方とも同 PR で修正済み</strong>（分割補正: 開示日以降の adjustment_factor 累積で株数補正、1899 の時価総額 655 億で一次検算と一致。EPS: rolling TTM 合成へ統一、8929 9.8 倍 / 1911 12.9 倍 / 6269 9.6 倍に正常化・合成不能時は null）。加えて select に <code>split_adjustment_recent</code> risk tag を追加。修正後の candidates で select を再実行し、本提案の順位・結論が不変であることを確認した（詳細: issue #289 / #290）。</p>
       </div>
       <ol>
         <li><strong>株式分割の効力日を跨ぐ時価総額の歪み</strong>: 1899 福田組（1:2 分割・効力 7/1 = screening asof 当日）で、時価総額が「分割前株数 × 分割後株価」となり真値の半分（328 億 vs 655 億）。net cash 比率 91%（真値 ~45%）・60 日 −58%・52 週安値も同根の artifact。</li>
@@ -342,7 +346,7 @@ flowchart LR
     <section>
       <h2 id="s11">11. 監視トリガーと次のアクション</h2>
       <ul>
-        <li><strong>本日 21:30 JST 米 6 月雇用統計</strong>: &gt;150K + 時給ホット（利上げ織り込み強化）or &lt;75K（スタグフレ懸念）で macro context を更新してから発注判断。</li>
+        <li><strong>米 6 月雇用統計（通過済み・実績 +57K / 失業率 4.2% / 時給 3.5%）</strong>: 弱い雇用で利上げ織り込みは後退方向。次の分岐は米 6 月 CPI（~7/15）と円の反応 — 米金利低下 → 円高が続くかを監視。</li>
         <li><strong>7/24 Section 122（一律 10% 関税）失効の帰趨</strong> / <strong>7/28–29 FOMC</strong> / <strong>7/30–31 日銀会合</strong>: イベント窓。保有は耐性で受け、新規大口は避ける。</li>
         <li><strong>USD/JPY</strong>: 数日で −5% 超の円急伸 or 150 割れ = Tail 発火 → <strong>温存余力での押し目増額トリガー</strong>（売りではない）。</li>
         <li><strong>TSMC 6 月月次（~7/10）・hyperscaler 決算（7 月末）</strong>: AI capex 実弾の反転チェック。</li>
