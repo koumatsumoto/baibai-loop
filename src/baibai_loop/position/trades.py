@@ -17,7 +17,7 @@ _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
 class TradeRecord:
     """Minimal view of a trade record needed for forward review and benchmark.
 
-    Sourced from `records/06-position/**/*.md` front matter. Entry date / price are
+    Sourced from `records/04-position/**/*.md` front matter. Entry date / price are
     derived from the recorded executions so that forward horizons and P&L use the
     same basis as the trade contract.
     """
@@ -49,7 +49,7 @@ def load_open_trades(root: Path) -> list[TradeRecord]:
     benchmark commands only act on positions with a known entry basis.
     """
     trades: list[TradeRecord] = []
-    for path in sorted((root / "records/06-position").rglob("*.md")):
+    for path in sorted((root / "records/04-position").rglob("*.md")):
         front = _read_front_matter(path)
         if front is None:
             continue

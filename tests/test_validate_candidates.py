@@ -168,7 +168,7 @@ class CandidatesValidationTests(unittest.TestCase):
         self.assertEqual(findings[0].code, "candidates.non-mapping")
 
     def test_repository_candidates_files_pass(self) -> None:
-        repo_candidates = ROOT / "records/04-candidates"
+        repo_candidates = ROOT / "records/02-candidates"
         files = discover_candidates_files(repo_candidates)
         if not files:
             self.skipTest("no candidates files under repository root")

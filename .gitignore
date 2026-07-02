@@ -29,7 +29,7 @@ dist/
 # store; history is kept on disk as a local store (same durability posture as
 # data/screening/market.sqlite) and is not tracked in git.
 # See docs/components/candidates.md §2.
-records/04-candidates/**/*.yaml
+records/02-candidates/**/*.yaml
 
 # Local environment files
 .env

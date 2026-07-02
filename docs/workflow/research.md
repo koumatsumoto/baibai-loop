@@ -8,7 +8,7 @@ last_reviewed: 2026-07-02
 
 # Workflow — 個別銘柄リサーチ（thesis）
 
-単一ループ（[`../doctrine.md`](../doctrine.md) §2）の中核工程。[`./screening.md`](./screening.md) の candidates と [`./macro.md`](./macro.md) の環境認識を材料に個別銘柄を深く調べ、**フェアバリュー（FV）・リスクリワード・期待利回りを見積もり**、**塩漬け耐性**を確認したうえで、採否と投入額を決める投資メモ（`records/05-thesis/`）を書く。運用で磨く中核の技能はこの見積りの精度であり、見積りは実現結果と突き合わせて較正する（[`./position.md`](./position.md)）。
+単一ループ（[`../doctrine.md`](../doctrine.md) §2）の中核工程。[`./screening.md`](./screening.md) の candidates と [`./macro.md`](./macro.md) の環境認識を材料に個別銘柄を深く調べ、**フェアバリュー（FV）・リスクリワード・期待利回りを見積もり**、**塩漬け耐性**を確認したうえで、採否と投入額を決める投資メモ（`records/03-thesis/`）を書く。運用で磨く中核の技能はこの見積りの精度であり、見積りは実現結果と突き合わせて較正する（[`./position.md`](./position.md)）。
 
 契約の正本は `records/_schemas/thesis.json`（front matter の形・必須項目・enum）。本 doc は JSON に書けないもの（見積りの式・enum の意味・設計判断の理由・手順）を持つ。front matter の完全な形は template ではなく schema と実際の record を正とし、本 doc 末尾に最小限の例を置く。
 
@@ -103,7 +103,7 @@ ticker: "XXXX"
 name: "..."
 playbook_id: cashflow-yield-discount
 playbook_ref: { ref_path: records/_playbooks/<archetype>/<version>.md }
-candidate_ref: { candidates_ref: records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml, ticker: "XXXX" }
+candidate_ref: { candidates_ref: records/02-candidates/YYYY/MM/YYYY-MM-DD.yaml, ticker: "XXXX" }
 macro_context_ref: records/01-macro-context/YYYY/MM/macro-context-YYYY-MM-DD-<slug>.yaml
 macro_context_fit: { context_freshness: current, fit: neutral, decision_effect: proceed, required_checks: [], sizing_caution: [] }
 thesis_decision: { outcome: approved, posture: act_now }

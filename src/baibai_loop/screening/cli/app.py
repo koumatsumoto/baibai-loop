@@ -52,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-path",
         help=(
             "write candidates YAML to this path instead of the canonical "
-            "records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml path"
+            "records/02-candidates/YYYY/MM/YYYY-MM-DD.yaml path"
         ),
     )
     run_parser.add_argument(
@@ -123,7 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--candidates",
         help=(
             "candidates YAML path to rank (default: "
-            "records/04-candidates/<YYYY>/<MM>/<YYYY-MM-DD>.yaml)"
+            "records/02-candidates/<YYYY>/<MM>/<YYYY-MM-DD>.yaml)"
         ),
     )
     select_parser.add_argument(
@@ -165,8 +165,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     profile_parser.add_argument(
         "--candidates-root",
-        default="records/04-candidates",
-        help="root of recorded candidates YAML (default: records/04-candidates)",
+        default="records/02-candidates",
+        help="root of recorded candidates YAML (default: records/02-candidates)",
     )
     profile_parser.add_argument(
         "--root",

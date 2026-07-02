@@ -194,7 +194,7 @@ def _load_selection_inputs(
     candidates_root: Path | None,
     macro_context_root: Path | None,
 ) -> _SelectionInputs:
-    resolved_candidates_root = candidates_root or Path("records/04-candidates")
+    resolved_candidates_root = candidates_root or Path("records/02-candidates")
     resolved_macro_context_root = macro_context_root or Path("records/01-macro-context")
     candidates_path = candidates_path or (
         resolved_candidates_root
@@ -242,7 +242,7 @@ def _load_selection_inputs(
         asof_date,
         current_path=candidates_path,
     )
-    prior_research = load_prior_research(repo_root / "records/05-thesis", asof_date)
+    prior_research = load_prior_research(repo_root / "records/03-thesis", asof_date)
     return _SelectionInputs(
         candidates=candidate_records,
         macro_context=macro_context,

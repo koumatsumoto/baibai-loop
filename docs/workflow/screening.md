@@ -8,7 +8,7 @@ last_reviewed: 2026-07-02
 
 # Workflow — 割安 screening
 
-単一ループ（[`../doctrine.md`](../doctrine.md) §2）の「お買い得を機械的に見つける」工程。全上場普通株を対象に **valuation ranking で割安ゾーンを機械抽出**して `records/04-candidates/` に事実を出力し、`select` で深掘りする候補を選り分ける。この工程は決定論的な機械処理（L2）であり、出力は解釈を含まない **事実**。指標算出の仕様は [`../reference/valuation-metrics.md`](../reference/valuation-metrics.md)、CLI / SQLite の実装は [`../reference/screening-runtime.md`](../reference/screening-runtime.md)、契約の正本は `records/_schemas/candidates.json`。
+単一ループ（[`../doctrine.md`](../doctrine.md) §2）の「お買い得を機械的に見つける」工程。全上場普通株を対象に **valuation ranking で割安ゾーンを機械抽出**して `records/02-candidates/` に事実を出力し、`select` で深掘りする候補を選り分ける。この工程は決定論的な機械処理（L2）であり、出力は解釈を含まない **事実**。指標算出の仕様は [`../reference/valuation-metrics.md`](../reference/valuation-metrics.md)、CLI / SQLite の実装は [`../reference/screening-runtime.md`](../reference/screening-runtime.md)、契約の正本は `records/_schemas/candidates.json`。
 
 ## Universe（対象範囲）
 
@@ -22,7 +22,7 @@ screen の評価対象（scope）は **全上場普通株** とし、規模・�
 
 research 候補への絞り込み（時価総額・売買代金・上場期間・JPX 規制）は、**分析層のパラメータ `selection.liquidity`**（既定: 時価総額 100 億円以上・20 営業日平均売買代金 1 億円以上・上場 182 日以上・JPX 規制銘柄の除外）として `select` の時点で適用する。screen の段階でデータを狭めない（どの銘柄も screening の事実を持つ）ことで、絞り込みの条件を目に見える・変更できる形に保つ。除外に使う JPX flag は重篤な 4 種（特別注意銘柄・整理銘柄・取引停止・上場廃止警告、`records/_config/screening-rules/` の `required_jpx_flags`）のみ。信用規制の日々公表のような軽度の flag では除外せず、candidates の事実として記録したうえで research 側の需給・流動性リスクとして扱う。
 
-candidates YAML（`records/04-candidates/`）は market.sqlite から再生成可能な機械出力として local store に置き git に積まないが、`select` の前回比較・`ticker-profile` の直近記録参照が読むため、market.sqlite と同様にローカル backup の対象にする。
+candidates YAML（`records/02-candidates/`）は market.sqlite から再生成可能な機械出力として local store に置き git に積まないが、`select` の前回比較・`ticker-profile` の直近記録参照が読むため、market.sqlite と同様にローカル backup の対象にする。
 
 **valuation 比較の母集団**（sector / 市場中央値）は `selection.liquidity` を満たす流動性母集団に固定し、小型・低流動性銘柄の混入で判定が歪まないようにする。
 
@@ -48,14 +48,14 @@ candidates YAML（`records/04-candidates/`）は market.sqlite から再生成�
 | lens | 目的 | 扱い |
 | --- | --- | --- |
 | `durability`（塩漬け耐性） | 長期保有に耐えるか（ネットキャッシュ・営業 CF 黒字・低負債・借換耐性・配当）を `high\|medium\|low\|unknown` で注記 | 採用の必須確認（[`../portfolio-management.md`](../portfolio-management.md) の耐性ゲート）に接続する入力。ranking には使わない |
-| `prior_research` | 過去の research で deferred / rejected にした候補の再登場を抑え、同じ候補への偏りを下げる | `records/05-thesis/` の判断履歴から機械的に引く |
+| `prior_research` | 過去の research で deferred / rejected にした候補の再登場を抑え、同じ候補への偏りを下げる | `records/03-thesis/` の判断履歴から機械的に引く |
 
 ranking の主キーは **valuation discount（割安度）** とする。組み込みの selection profile は `balanced` のみ。閾値を変えるときは `records/_config/screening-rules/` の設定を編集して `select` を再実行し、出力の差分を確認する。**短期の急落銘柄を上位に押し上げる仕組みや、リスクオン相場で逆張り候補を沈める仕組みは持たない**（保有期間ではなく valuation と耐性で判断するため）。
 
 ## Candidates 出力（事実）
 
 ```text
-records/04-candidates/YYYY/MM/YYYY-MM-DD.yaml
+records/02-candidates/YYYY/MM/YYYY-MM-DD.yaml
 ```
 
 1 回の実行 = 1 ファイル（週次で運用）。candidates は L1 SQLite から決定論的に導かれる L2 出力であり、**git に積まないローカル保存**（`.gitignore` 対象）とする。契約の正本は `records/_schemas/candidates.json`。中心となる field は ticker / name / sector_33 / valuation 指標 / `metrics`（フラットな派生値）/ `ttm_quality` / `evidence_hits[]`（通過した screen・該当理由・判定に使った指標値）。`universe_size` に対象範囲（全普通株 + bar 履歴条件）の銘柄数を記録し、母集団の確認に使う。欠損値は `null` で明示し、単一の総合スコアは持たせない。

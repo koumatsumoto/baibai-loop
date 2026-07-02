@@ -28,7 +28,7 @@
       "additionalProperties": false,
       "required": ["candidates_ref", "ticker"],
       "properties": {
-        "candidates_ref": {"type": "string", "pattern": "^records/04-candidates/[^\\n]*\\.ya?ml$"},
+        "candidates_ref": {"type": "string", "pattern": "^records/02-candidates/[^\\n]*\\.ya?ml$"},
         "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"}
       }
     },

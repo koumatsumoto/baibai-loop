@@ -20,10 +20,10 @@ Baibai-Loop は、割安な優良銘柄を長期で積み立てる 1 つの投�
 
 1. 運用方針で資本・許容リスク・ポジション管理を固定する
 2. マクロ分析で姿勢(ディフェンシブ / リスクオン)とセクター・AI 前提を読む: `records/01-macro-context/`
-3. 割安 screening でふるいにかける: `records/04-candidates/`
-4. 深い個別調査でフェアバリュー・リスクリワード・期待利回りを見積もり、塩漬け耐性を確認する: `records/05-thesis/`
+3. 割安 screening でふるいにかける: `records/02-candidates/`
+4. 深い個別調査でフェアバリュー・リスクリワード・期待利回りを見積もり、塩漬け耐性を確認する: `records/03-thesis/`
 5. 採用銘柄を「いくらで何株」の売買提案として GitHub Issue に上げ、人間が判断する
-6. 約定したら執行記録を残し、割高化・事業毀損で全売りする: `records/06-position/`
+6. 約定したら執行記録を残し、割高化・事業毀損で全売りする: `records/04-position/`
 7. 見積りと実現結果を突き合わせて較正し、次の見積りを磨く
 
 ## 対象としないこと
@@ -53,9 +53,9 @@ baibai-loop/
 │   └── operations/              工程横断の手順(task / incident)
 ├── records/
 │   ├── 01-macro-context/
-│   ├── 04-candidates/
-│   ├── 05-thesis/
-│   ├── 06-position/
+│   ├── 02-candidates/
+│   ├── 03-thesis/
+│   ├── 04-position/
 │   ├── _config/
 │   ├── _playbooks/
 │   └── _schemas/

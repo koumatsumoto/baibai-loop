@@ -352,7 +352,7 @@ class DecisionSyncOverSqliteTests(unittest.TestCase):
 
             # Place a minimal research packet so _load_market_data discovers
             # at least one decision date and resolves market data from SQLite.
-            research_path = workspace / "records" / "05-thesis" / f"{asof.isoformat()}-130A.md"
+            research_path = workspace / "records" / "03-thesis" / f"{asof.isoformat()}-130A.md"
             research_path.parent.mkdir(parents=True)
             research_path.write_text("---\nticker: 130A\n---\n", encoding="utf-8")
 

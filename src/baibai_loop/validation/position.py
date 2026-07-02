@@ -1,4 +1,4 @@
-"""Validate execution records in records/06-position."""
+"""Validate execution records in records/04-position."""
 
 from __future__ import annotations
 
@@ -146,7 +146,7 @@ def _validate_schema(path: Path, front: Mapping[str, object]) -> list[Validation
 def _check_reference_refs(path: Path, front: Mapping[str, object]) -> list[ValidationFinding]:
     findings: list[ValidationFinding] = []
     specs = {
-        "thesis_ref": (("records/05-thesis/",), (".md",)),
+        "thesis_ref": (("records/03-thesis/",), (".md",)),
     }
     for field, (prefixes, suffixes) in specs.items():
         value = front.get(field)
@@ -435,7 +435,7 @@ def _load_referenced_thesis(path: Path, front: Mapping[str, object]) -> Mapping[
     if repository_ref_error(thesis_ref, root=root) is not None:
         return None
     thesis_path = resolve_repository_ref(root, thesis_ref)
-    if not thesis_ref.startswith("records/05-thesis/") or thesis_path.suffix != ".md":
+    if not thesis_ref.startswith("records/03-thesis/") or thesis_path.suffix != ".md":
         return None
     if not thesis_path.is_file():
         return None
@@ -660,7 +660,7 @@ def _check_portfolio_concentration(
 
 
 def _open_trade_exposures(root: Path) -> list[dict[str, float | str]]:
-    trades_root = root / "records/06-position"
+    trades_root = root / "records/04-position"
     if not trades_root.is_dir():
         return []
     exposures: list[dict[str, float | str]] = []
@@ -729,7 +729,7 @@ def _open_trade_notional(front: Mapping[str, Any]) -> float | None:
 def _is_repository_trade_record(path: Path) -> bool:
     root = repo_root_for(path)
     try:
-        path.resolve().relative_to((root / "records/06-position").resolve())
+        path.resolve().relative_to((root / "records/04-position").resolve())
     except ValueError:
         return False
     return True

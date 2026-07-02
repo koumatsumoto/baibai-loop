@@ -17,7 +17,7 @@ Baibai-Loop の **構造** の正本。思想・大戦略は [`doctrine.md`](./d
 | 層 | 実体 | 性質 |
 | --- | --- | --- |
 | L1 データ層 | `data/screening/market.sqlite`（J-Quants 価格・財務 / EDINET metrics / JPX 規制） | 全上場銘柄の再現可能な事実。coverage は fail-fast で検証 |
-| L2 分析層 | screen（valuation ranking）・selection lens・軸別スコア。機械ふるいの事実出力 = `records/04-candidates/` | 決定論的・閾値固定の機械処理。出力は事実 |
+| L2 分析層 | screen（valuation ranking）・selection lens・軸別スコア。機械ふるいの事実出力 = `records/02-candidates/` | 決定論的・閾値固定の機械処理。出力は事実 |
 | L3 判断層 | `records/`（macro context / thesis / position） | 人間 + AI 下書きの解釈と判断。見積り（RR・期待利回り）と採否を決める |
 
 L2 の「分析」は決定論的な機械処理であり、その出力（candidates・軸別スコア）は **事実** として扱う。人間 / AI の解釈を伴う analysis（macro context・thesis）は L3。3 層の判定基準は「人間の判断が入るか」。
@@ -30,10 +30,10 @@ L2 の「分析」は決定論的な機械処理であり、その出力（candi
 | --- | --- | --- | --- | --- |
 | 運用方針 | portfolio management | [`docs/portfolio-management.md`](./portfolio-management.md) | governance | 資本・許容リスク・ポジション管理・kill switch |
 | マクロ環境分析 | macro context | `records/01-macro-context/` | analysis | 姿勢・セクター・AI 前提の環境読み |
-| 通過銘柄リスト | candidates | `records/04-candidates/`（git 外の local store） | fact | screen の生の事実出力（銘柄単位） |
-| 個別銘柄リサーチ | thesis | `records/05-thesis/` | analysis | FV・RR・期待利回り・耐性・採否の投資メモ |
+| 通過銘柄リスト | candidates | `records/02-candidates/`（git 外の local store） | fact | screen の生の事実出力（銘柄単位） |
+| 個別銘柄リサーチ | thesis | `records/03-thesis/` | analysis | FV・RR・期待利回り・耐性・採否の投資メモ |
 | 売買提案 | trade proposal | GitHub Issue（records 外） | 判断の入口 | 銘柄 / 価格 / 株数を人間に上げる |
-| 売買執行記録 | position | `records/06-position/` | execution | 注文・約定・保有・全売り決済・calibration |
+| 売買執行記録 | position | `records/04-position/` | execution | 注文・約定・保有・全売り決済・calibration |
 
 表は各 stage の artifact / record の repository location を示す（engine の `select` 等は L2 機械処理で record を持たない）。役割の詳細は [`doctrine.md#vocabulary`](./doctrine.md#vocabulary)。**売買提案は GitHub Issue を成果物とし、`records/` にディレクトリを持たない**。承認結果は position record に落ちる。
 
@@ -86,9 +86,9 @@ L2 の「分析」は決定論的な機械処理であり、その出力（candi
 | path | レイヤー | 責務 |
 | --- | --- | --- |
 | `records/01-macro-context/` | analysis | screening 前に読む macro context YAML |
-| `records/04-candidates/` | fact | candidates YAML（git 追跡しない local store） |
-| `records/05-thesis/` | analysis | investment memo Markdown |
-| `records/06-position/` | execution | trade record Markdown |
+| `records/02-candidates/` | fact | candidates YAML（git 追跡しない local store） |
+| `records/03-thesis/` | analysis | investment memo Markdown。同一銘柄を再審査した場合は最新 record が正で、置き換えられた旧版は `records/_archive/` へ移す |
+| `records/04-position/` | execution | trade record Markdown |
 
 通常の record は出来事ごとの成果物（event artifact）として path 自体を正本にし、更新され続ける「最新一覧」の index は持たない。
 
@@ -99,6 +99,7 @@ L2 の「分析」は決定論的な機械処理であり、その出力（candi
 | `records/_config/` | [`workflow/screening.md`](./workflow/screening.md) | screening rules と selection profile config |
 | `records/_playbooks/` | [`workflow/playbooks.md`](./workflow/playbooks.md) | 運用中 playbook（value archetype）の保存領域 |
 | `records/_schemas/` | [`reference/testing-and-validation.md`](./reference/testing-and-validation.md) | records validation schema の保存領域 |
+| `records/_archive/` | 本 doc（この表） | 再審査などで置き換えられた過去 record の凍結保管。validator / select の走査対象外で、当時の contract のまま変更せず保持する |
 
 ### records/_schemas — 公開言語の kernel（contract-of-record）
 

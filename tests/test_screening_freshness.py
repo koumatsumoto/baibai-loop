@@ -72,12 +72,12 @@ class ScreeningFreshnessTests(unittest.TestCase):
             self.assertEqual(result.events_by_ticker["3678"][0].title, "資金の借入に関するお知らせ")
 
     @unittest.skipUnless(
-        (ROOT / "records/04-candidates/2026/05/2026-05-01.yaml").is_file(),
+        (ROOT / "records/02-candidates/2026/05/2026-05-01.yaml").is_file(),
         "weekly candidates live in the local store; skip where absent",
     )
     def test_issue_94_3678_real_candidate_gets_freshness_warnings(self) -> None:
         payload = safe_load(
-            (ROOT / "records/04-candidates/2026/05/2026-05-01.yaml").read_text(encoding="utf-8")
+            (ROOT / "records/02-candidates/2026/05/2026-05-01.yaml").read_text(encoding="utf-8")
         )
         candidate = next(item for item in payload["candidates"] if item["ticker"] == "3678")
         playbook_ids = {evidence_hit["playbook_id"] for evidence_hit in candidate["evidence_hits"]}

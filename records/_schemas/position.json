@@ -19,7 +19,7 @@
     "ticker": {"type": "string", "pattern": "^[0-9A-Z]{4}$"},
     "name": {"type": "string"},
     "playbook_id": {"type": "string"},
-    "thesis_ref": {"type": "string", "pattern": "^records/05-thesis/[^.][^\\n]*\\.md$"},
+    "thesis_ref": {"type": "string", "pattern": "^records/03-thesis/[^.][^\\n]*\\.md$"},
     "cohort_tag": {"type": "string", "minLength": 1},
     "position_state": {"enum": ["none", "open", "closed"]},
     "current_quantity": {"type": "number"},

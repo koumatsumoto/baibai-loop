@@ -80,7 +80,7 @@ def _minimal_research_front_matter() -> dict[str, object]:
             "records/_playbooks/valuation-reversion/2026-05-01T000000+0900.md"
         ),
         "candidate_ref": {
-            "candidates_ref": "records/04-candidates/2026/05/2026-05-01.yaml",
+            "candidates_ref": "records/02-candidates/2026/05/2026-05-01.yaml",
             "ticker": "2767",
         },
         "thesis_decision": {"outcome": "approved", "posture": "act_now"},
@@ -652,7 +652,7 @@ class ResearchValidationTests(unittest.TestCase):
         self.assertIn("thesis.invalid-yaml", codes)
 
     def test_repository_research_files_pass_without_errors(self) -> None:
-        repo_research = ROOT / "records/05-thesis"
+        repo_research = ROOT / "records/03-thesis"
         files = discover_thesis_files(repo_research)
         if not files:
             self.skipTest("no research files under repository root")
