@@ -19,6 +19,13 @@ from baibai_loop.foundation.records_ref import (
 
 _KNOWN_MACRO_CONTEXT_FRESHNESS = {"current", "stale", "future"}
 
+# long-hold value 契約の必須 field (durability_gate / fair_value_yen /
+# expected_yield_pct / invalidation_conditions / guarded_max_notional_yen /
+# exposure cap rule) は、この日以降に published された approved record にのみ
+# 要求する。それ以前の record は当時の契約で記録済みの dated artifact であり
+# field を持たない (git history が正本)。
+_LONG_HOLD_EFFECTIVE_DATE = date(2026, 7, 2)
+
 _YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 

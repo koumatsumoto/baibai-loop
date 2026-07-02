@@ -17,11 +17,9 @@ published_at: '2026-07-01T15:30:00+09:00'
 recorded_at: '2026-07-01T15:30:00+09:00'
 tradable_at: '2026-07-01T15:30:00+09:00'
 position_sizing_overlay:
-  paper_proxy_position_size_yen: 1693810
-  real_order_intent_yen: 355700
-  adv_participation_pct: 0.6273
+  estimated_real_order_notional_yen: 355700
+  adv_participation_pct: 0.1317
 market_cap_oku: 1577
-sector_33: サービス業
 avg_turnover_oku: 2.7
 valuation:
   per_forward: 9.98
@@ -45,19 +43,18 @@ macro_context_fit:
   fit: not_matched
   decision_effect: proceed
   required_checks:
-  - サービス業は 6/30 context の sector_tilts に明示 tilt が無い（neutral）。ただし本銘柄の実体は AI/DX 実装受益（CX/BPO の生成AI導入・NTT Com Digital BPO）で、context の情報・通信業 tailwind（AI/DX 受益）の論拠と整合する点を確認する。
+  - サービス業は 6/30 context の sector_tilts に明示 tilt が無い（neutral）。ただし本銘柄の実体は AI/DX 実装受益（CX/BPO の生成AI導入・NTT Com Digital
+    BPO）で、context の情報・通信業 tailwind（AI/DX 受益）の論拠と整合する点を確認する。
   - 指数は高値圏（日経 ATH−3.8%・benchmark 1321 の 20d +5.27%）で、割安は銘柄固有の de-rating（AI-BPO 懸念と成長減速で取り残された低β バリュー）に偏在する。指数の押し目ではない。
   sizing_caution:
   - risk_on_rally_regime_contrarian_entry_waived_by_low_correlation_beta_0_15
   - q1_fy2027_earnings_early_august_event_risk_within_hold_window
 thesis_payoff:
   max_entry_price_yen: 3557
-  target_price_yen: 4000
-  stop_loss_yen: 3250
+  fair_value_yen: 4000
   expected_upside_pct: 12.45
   expected_downside_pct: 8.63
   risk_reward_ratio: 1.44
-  time_horizon_bd: 120
   invalidation_conditions:
   - 国内BPO事業（売上¥1,200億・利益率7.1%＝高収益エンジン）の売上/マージンが失速する。
   - 新中期計画（26-28）の営業利益 CAGR 11% 軌道が崩れ、通期 op 成長が <5% に鈍化する、または計画が撤回される。
@@ -70,39 +67,25 @@ entry_preflight:
   market_relative_return_pct: -11.89
   sector_or_peer_relative_return_pct: 0.0
   macro_freshness: current
-  market_regime:
-    regime: risk_on_rally
-    benchmark_return_20d: 0.0527
-    benchmark_ticker: '1321'
-    asof: '2026-06-30'
-    eval_date: '2026-07-01'
-  tactical_exposure_after_order:
+  exposure_after_order:
     sector_33_pct: 20.74
     playbook_pct: 37.26
   near_term_catalyst: false
-  action: exception
-  exception_basis:
-  - low_correlation
-  reason: >
-    2026-07-01 にユーザー指示で 100 株を 3,557 円で約定（指値 3,560 円に対し dip 約定）。regime は
-    risk_on_rally（benchmark 1321 の 20d +5.27%）で、9715 の 20d は −6.62%＝market relative −11.89pt と
-    大幅劣後（AI-BPO 懸念と成長減速で高値ラリーに取り残された低β バリューの定量裏付け）。通常この局面の
-    contrarian entry は指数に構造的に劣後するが、本銘柄は β=0.15（12 候補中最低）＝low_correlation で
-    regime bet を希薄化するため、action=exception を exception_basis=[low_correlation] で正当化する。
-    sector/peer relative はサービス業セクター指数を Tier1 取得できず not_checked（0.0）。tactical exposure
-    after order はサービス業 20.74% / cashflow-yield-discount 37.26%（分母 tactical 200 万円）で 50% 上限内。
-    実資金基準では ticker 3.56%（cap 8%）・サービス業 4.15%（cap 45%）・playbook 7.45%（cap 35%）で全て内。
-    9715 はサービス業で、既存の deployed 集中（情報・通信業 41%＝9682/9692/9470/4432）を悪化させず分散する。
+  action: proceed
+  reason: '2026-07-01 にユーザー指示で 100 株を 3,557 円で約定（指値 3,560 円に対し dip 約定）。regime は risk_on_rally（benchmark 1321 の 20d
+    +5.27%）で、9715 の 20d は −6.62%＝market relative −11.89pt と 大幅劣後（AI-BPO 懸念と成長減速で高値ラリーに取り残された低β バリューの定量裏付け）。通常この局面の
+    contrarian entry は指数に構造的に劣後するが、本銘柄は β=0.15（12 候補中最低）＝low_correlation で regime bet を希薄化するため、action=exception
+    を exception_basis=[low_correlation] で正当化する。 sector/peer relative はサービス業セクター指数を Tier1 取得できず not_checked（0.0）。tactical
+    exposure after order はサービス業 20.74% / cashflow-yield-discount 37.26%（分母 tactical 200 万円）で 50% 上限内。 実資金基準では ticker
+    3.56%（cap 8%）・サービス業 4.15%（cap 45%）・playbook 7.45%（cap 35%）で全て内。 9715 はサービス業で、既存の deployed 集中（情報・通信業 41%＝9682/9692/9470/4432）を悪化させず分散する。
     近接 catalyst は Q1 FY2027（8月上旬）だが routine ゆえ near_term_catalyst=false とし、low_correlation で waive。
+
+    '
 corporate_action_check:
   checked: true
   result: none
-  note: 2026-06-30 candidate は split_adjustment_flag=false、price_change_60d −8.99% と異常値域でなく、直近 daily bars の
-    adjustment_factor も 1.0。分割・併合・TOB 等の corporate action は確認されない。
-tracking:
-  mode: post_approval
-  plus_15bd: null
-  plus_30bd: null
+  note: 2026-06-30 candidate は split_adjustment_flag=false、price_change_60d −8.99% と異常値域でなく、直近 daily bars の adjustment_factor
+    も 1.0。分割・併合・TOB 等の corporate action は確認されない。
 ---
 
 # Research: 2026-07-01 9715 トランス・コスモス cashflow-yield-discount
@@ -208,7 +191,7 @@ accruals_to_assets −0.0252（**負の accruals ＝ 現金利益が会計利益
 | Macro freshness | current | window 内（[6-30, 7-07]） |
 | Regime | risk_on_rally（1321 20d +5.27%） | 高値圏リスクオン回帰 |
 | Exposure after order | サービス業 20.74% / cashflow-yield-discount 37.26%（分母 tactical 200 万円） | 実資金基準では ticker 7.11%・サービス業 8.29%・playbook 14.9% |
-| Action | exception（exception_basis=[low_correlation]） | risk_on_rally の contrarian entry を β 0.15 の low_correlation で waive |
+| Action | proceed（当時の判定は exception、exception_basis=[low_correlation]） | risk_on_rally の contrarian entry を β 0.15 の low_correlation で waive。regime gate 廃止後の契約では proceed に対応 |
 
 - **約定価格 / guard**: 3,557 円（指値 guard 3,560 円）
 - **quantity / board lot**: 100 株 / 100

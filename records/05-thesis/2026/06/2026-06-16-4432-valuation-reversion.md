@@ -16,9 +16,8 @@ published_at: '2026-06-16T15:30:00+09:00'
 recorded_at: '2026-06-16T15:30:00+09:00'
 tradable_at: '2026-06-16T15:30:00+09:00'
 position_sizing_overlay:
-  paper_proxy_position_size_yen: 1150000
-  real_order_intent_yen: 234000
-  adv_participation_pct: 0.3108
+  estimated_real_order_notional_yen: 234000
+  adv_participation_pct: 0.0632
 market_cap_oku: 825
 sector_33: 情報・通信業
 avg_turnover_oku: 3.7
@@ -44,20 +43,18 @@ macro_context_fit:
   fit: mixed
   decision_effect: proceed
   required_checks:
-  - 情報・通信業は record-high-rotation context で stance=mixed（構造 DX 需要・FX 中立は追い風、BOJ 利上げの discount は高 PER 逆風）。
-    本銘柄は予想 PER 約 11 と既に割安で discount 余地が小さい点を確認する。
+  - 情報・通信業は record-high-rotation context で stance=mixed（構造 DX 需要・FX 中立は追い風、BOJ 利上げの discount は高 PER 逆風）。 本銘柄は予想
+    PER 約 11 と既に割安で discount 余地が小さい点を確認する。
   - 指数は最高値圏で、割安は銘柄固有の de-rating（半導体ラリーに非参加で取り残された内需 AI/DX ソフト）に偏在する。指数の押し目ではない。
   sizing_caution:
   - event_window_starter_boj_fomc_iran_signing
   - sector_33_information_communication_already_dominant_exposure
 thesis_payoff:
   max_entry_price_yen: 2340
-  target_price_yen: 2800
-  stop_loss_yen: 2120
+  fair_value_yen: 2800
   expected_upside_pct: 19.66
-  expected_downside_pct: 9.40
+  expected_downside_pct: 9.4
   risk_reward_ratio: 2.09
-  time_horizon_bd: 40
   invalidation_conditions:
   - 永久ライセンス逓減をクラウド/サブスク成長が相殺できず、増収・営業益が反転する。
   - BI（MotionBoard）が Power BI / Microsoft Fabric / Copilot のバンドルに侵食され、データレジデンシー摩擦も縮小して競争力が毀損する。
@@ -69,34 +66,23 @@ entry_preflight:
   market_relative_return_pct: -14.06
   sector_or_peer_relative_return_pct: 0.0
   macro_freshness: current
-  market_regime:
-    regime: risk_on_rally
-    benchmark_return_20d: 0.0748
-    benchmark_ticker: '1321'
-    asof: '2026-06-16'
-    eval_date: '2026-06-16'
-  tactical_exposure_after_order:
+  exposure_after_order:
     sector_33_pct: 41.39
     playbook_pct: 15.41
   near_term_catalyst: false
   action: starter
-  reason: >
-    2026-06-16 にユーザー指示で 100 株を 2,340 円で約定。market relative は candidate 20d −6.58% に対し
-    benchmark proxy 1321 の 20d +7.48% で −14.06pt と大幅劣後（=半導体主導ラリーに乗らず取り残された
-    内需 AI/DX ソフトという thesis の定量裏付け。hard trigger に該当するため proceed ではなく starter）。
-    sector/peer relative は情報・通信業セクター指数を Tier1 取得できず not_checked（0.0）扱い。macro は current。
-    tactical exposure after order は sector 41.39% / playbook（valuation-reversion）15.41% で 50% 上限内だが、
-    情報・通信業は deployed notional 比で既に最大の集中（後述 §8）。本日 BOJ・明日 FOMC・6/19 イラン署名の
-    連続イベント直前のため 100 株 starter に限定する。
+  reason: '2026-06-16 にユーザー指示で 100 株を 2,340 円で約定。market relative は candidate 20d −6.58% に対し benchmark proxy 1321
+    の 20d +7.48% で −14.06pt と大幅劣後（=半導体主導ラリーに乗らず取り残された 内需 AI/DX ソフトという thesis の定量裏付け。hard trigger に該当するため proceed
+    ではなく starter）。 sector/peer relative は情報・通信業セクター指数を Tier1 取得できず not_checked（0.0）扱い。macro は current。 tactical
+    exposure after order は sector 41.39% / playbook（valuation-reversion）15.41% で 50% 上限内だが、 情報・通信業は deployed notional
+    比で既に最大の集中（後述 §8）。本日 BOJ・明日 FOMC・6/19 イラン署名の 連続イベント直前のため 100 株 starter に限定する。
+
+    '
 corporate_action_check:
   checked: true
   result: none
-  note: candidate 2026-06-12 は split_adjustment_flag=false、price_change_60d −8.89% と異常値域でなく、
-    分割・併合・TOB 等の corporate action は確認されない。
-tracking:
-  mode: post_approval
-  plus_15bd: null
-  plus_30bd: null
+  note: candidate 2026-06-12 は split_adjustment_flag=false、price_change_60d −8.89% と異常値域でなく、 分割・併合・TOB 等の corporate
+    action は確認されない。
 ---
 
 # Research: 2026-06-16 4432 ウイングアーク1st valuation-reversion

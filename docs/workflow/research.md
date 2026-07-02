@@ -84,7 +84,7 @@ AI を中心セクターに据える思想は [`../doctrine.md`](../doctrine.md)
 
 ## Position size
 
-順に決める：(1) thesis payoff / 最低 payoff、(2) 塩漬け耐性、(3) macro caution / cap、(4) liquidity cap、(5) policy cap（[`../portfolio-management.md`](../portfolio-management.md)：ticker 4–6% / sector 30–40%、entry 時 sizing 制約）、(6) board lot と guard price で丸め。0 株になる場合は `execution_state: none` と理由を記録する。
+順に決める：(1) thesis payoff / 最低 payoff、(2) 塩漬け耐性、(3) macro caution / cap、(4) liquidity cap、(5) policy cap（[`../portfolio-management.md`](../portfolio-management.md)：ticker 4–6% / sector 30–40% / playbook 35%、entry 時 sizing 制約）、(6) board lot と guard price で丸め。0 株になる場合は `execution_state: none` と理由を記録する。
 
 ## AI の役割境界
 
@@ -112,7 +112,7 @@ thesis_payoff:
   fair_value_yen: 1400
   expected_upside_pct: 40.0
   expected_downside_pct: 15.0
-  risk_reward_ratio: 2.7
+  risk_reward_ratio: 2.67
   expected_yield_pct: 12.0            # total-return 年率概算（income + FV 収束）
   invalidation_conditions: ["営業CF 2 期連続赤字", "減配", "純有利子負債への転落"]
 durability_gate: { net_cash: true, operating_cf_positive: true, low_leverage: true, refinancing_risk: low, dividend: true, judgment: high }

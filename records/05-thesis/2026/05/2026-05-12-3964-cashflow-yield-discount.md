@@ -23,20 +23,14 @@ published_at: '2026-05-12T20:42:11+09:00'
 recorded_at: '2026-05-12T20:42:11+09:00'
 tradable_at: '2026-08-10T09:00:00+09:00'
 position_sizing_overlay:
-  paper_proxy_position_size_yen: 0
-  real_order_intent_yen: 0
-  adv_participation_pct: 0.0
+  estimated_real_order_notional_yen: 0
+  adv_participation_pct: 0
 thesis_payoff:
-  time_horizon_bd: 60
   invalidation_conditions:
   - Q2 で営業 CF が弱く、2025年12月期 CFO の一過性が示唆される。
   - 取扱高の伸びに対して営業利益率がさらに悪化し、システム償却費・広告宣伝費を吸収できない。
   - 通期予想上方修正後に再下方修正または進捗鈍化が出る。
   entry_trigger: q2_cash_flow_confirmation
-tracking:
-  mode: re_examination
-  plus_15bd: null
-  plus_30bd: null
 market_cap_oku: 585
 sector_33: 情報・通信業
 avg_turnover_oku: 1.8

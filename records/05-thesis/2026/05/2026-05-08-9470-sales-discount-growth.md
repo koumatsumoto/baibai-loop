@@ -16,24 +16,17 @@ published_at: '2026-05-08T00:00:00+09:00'
 recorded_at: '2026-05-08T00:00:00+09:00'
 tradable_at: '2026-05-07T09:00:00+09:00'
 position_sizing_overlay:
-  paper_proxy_position_size_yen: 1000000
-  real_order_intent_yen: 196400
-  adv_participation_pct: 0.8333
+  estimated_real_order_notional_yen: 196400
+  adv_participation_pct: 0.1637
 thesis_payoff:
   max_entry_price_yen: 982
-  target_price_yen: 1100
-  stop_loss_yen: 920
-  time_horizon_bd: 40
+  fair_value_yen: 1100
   invalidation_conditions:
   - 2026-05-15 2Q earnings が売上成長または margin recovery を無効化する。
   entry_trigger: post_entry_review_required
   expected_upside_pct: 12.02
   expected_downside_pct: 6.31
   risk_reward_ratio: 1.9
-tracking:
-  mode: post_approval
-  plus_15bd: null
-  plus_30bd: null
 market_cap_oku: 432
 sector_33: 情報・通信業
 avg_turnover_oku: 1.2

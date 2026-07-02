@@ -16,24 +16,17 @@ published_at: '2026-05-05T13:31:15+09:00'
 recorded_at: '2026-05-05T13:31:15+09:00'
 tradable_at: '2026-05-07T09:00:00+09:00'
 position_sizing_overlay:
-  paper_proxy_position_size_yen: 1000000
-  real_order_intent_yen: 210000
-  adv_participation_pct: 0.2632
+  estimated_real_order_notional_yen: 210000
+  adv_participation_pct: 0.0553
 thesis_payoff:
   max_entry_price_yen: 1050
-  target_price_yen: 1230
-  stop_loss_yen: 950
-  time_horizon_bd: 40
+  fair_value_yen: 1230
   invalidation_conditions:
   - 株主還元 catalyst が織り込まれた後に株価が 950 円を下回る。
   entry_trigger: price_guard_or_revisit
   expected_upside_pct: 17.14
   expected_downside_pct: 9.52
   risk_reward_ratio: 1.8
-tracking:
-  mode: post_approval
-  plus_15bd: null
-  plus_30bd: null
 market_cap_oku: 1663
 sector_33: 情報・通信業
 avg_turnover_oku: 3.8

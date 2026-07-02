@@ -27,13 +27,13 @@ def validate_policy_file(path: Path) -> list[ValidationFinding]:
                 message=f"failed to read file: {exc}",
             )
         ]
-    if "# Portfolio Policy" not in text:
+    if "# Portfolio management" not in text:
         return [
             ValidationFinding(
                 severity="error",
                 target=path,
                 code="policy.heading",
-                message="portfolio policy document must contain '# Portfolio Policy'",
+                message="portfolio policy document must contain '# Portfolio management'",
             )
         ]
     if "position/policy.py" not in text:

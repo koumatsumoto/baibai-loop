@@ -29,7 +29,7 @@ Baibai-Loop は投資助言サービスではない。これは自分の裁量�
 ## ポジション管理
 
 - **銘柄数**：中庸 **15–25 銘柄**。深い個別調査が回る規模と、個別リスクを薄める分散を両立させる。
-- **concentration cap**：単一銘柄 **4–6%**、単一 `sector_33` **30–40%**、ADV 参加率 **5%**。**cap は entry 時の sizing 制約**であり、`real_capital_yen`（簿価）に対する % で評価する。購入後の値上がりで保有時価が cap を超えても縮めない（部分トリムをしないため。cap は維持不変量ではない）。具体閾値は code-managed policy（`src/baibai_loop/position/policy.py`）を正本にし、本 doc は方針を説明する。
+- **concentration cap**：単一銘柄 **4–6%**、単一 `sector_33` **30–40%**、同一 playbook **35%**、ADV 参加率 **5%**。**cap は entry 時の sizing 制約**であり、`real_capital_yen`（簿価）に対する % で評価する。購入後の値上がりで保有時価が cap を超えても縮めない（部分トリムをしないため。cap は維持不変量ではない）。具体閾値は code-managed policy（`src/baibai_loop/position/policy.py`）を正本にし、本 doc は方針を説明する。
 - **sizing**：候補の payoff・macro 姿勢・塩漬け耐性・liquidity・policy cap の順で決め、board lot と guard price で丸める。cap 超過分は board lot 単位で減額する。
 
 ## 割安 / 割高と売買規律
