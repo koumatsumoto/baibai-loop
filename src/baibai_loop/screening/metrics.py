@@ -6,6 +6,8 @@ from datetime import date, timedelta
 from math import sqrt
 from statistics import mean, median
 
+from baibai_loop.market.bars import asof_basis_closes
+
 from .providers.edinet import EdinetMetricRecord
 from .providers.jquants import JQuantsDailyBar, JQuantsFinancialSummary
 from .rule_config import ScreeningRules, TTMRules, load_screening_rules
@@ -566,16 +568,10 @@ def _valuation_history(
         (bar for bar in bars if bar.traded_at <= asof_date),
         key=lambda item: item.traded_at,
     )
-    # Prefer split-adjusted close so price discontinuities at split dates do
-    # not propagate into historical valuation series. PBR/PER history happens
-    # to cancel raw price discontinuities through their proportional form, but
-    # EV/EBITDA carries a constant net-debt offset that does not, so adjusted
-    # close is required for at least that series; using it everywhere keeps
-    # the three histories on the same price basis.
-    prices = [
-        bar.adjustment_close if bar.adjustment_close is not None else bar.close
-        for bar in eligible[-750:]
-    ]
+    # 価格の不連続 (分割) を valuation history に持ち込まないため調整済み系列を使う。
+    # cache の adjustment_close は incremental 取得で基準が混在するため使わず、
+    # 不変イベントの adjustment_factor から asof 基準の系列を自前で組む。
+    prices = asof_basis_closes(eligible[-750:])
     ev_ebitda_history: list[float] = []
     if (
         snapshot.shares_outstanding is not None
@@ -661,19 +657,13 @@ def _price_change(bars: Sequence[JQuantsDailyBar], sessions: int, asof_date: dat
     )
     if len(ordered) <= sessions:
         return None
-    # Prefer split-adjusted close on both ends so a stock split between the two
-    # dates does not show up as a synthetic price drop. Fall back to raw close
-    # only when the adjustment field is absent (legacy bars).
-    current = _adjusted_close(ordered[-1])
-    base_bar = ordered[-(sessions + 1)]
-    base = _adjusted_close(base_bar)
+    # 分割を跨ぐ比較で偽の騰落を出さないよう、adjustment_factor から組んだ
+    # asof 基準系列で両端を比較する (cache の adjustment_close は基準混在のため不使用)。
+    prices = asof_basis_closes(ordered[-(sessions + 1) :])
+    base = prices[0]
     if base == 0:
         return None
-    return (current / base) - 1.0
-
-
-def _adjusted_close(bar: JQuantsDailyBar) -> float:
-    return bar.adjustment_close if bar.adjustment_close is not None else bar.close
+    return (prices[-1] / base) - 1.0
 
 
 def _gap_from_low(
@@ -686,7 +676,7 @@ def _gap_from_low(
     )
     if not ordered:
         return None
-    prices = [_adjusted_close(bar) for bar in ordered[-sessions:]]
+    prices = asof_basis_closes(ordered[-sessions:])
     current = prices[-1]
     low = min(prices)
     if low <= 0:

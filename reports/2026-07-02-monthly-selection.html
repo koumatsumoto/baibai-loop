@@ -237,7 +237,7 @@ flowchart LR
       <h3>8929 青山財産ネットワークス — 見かけの減収に隠れた本業最高益</h3>
       <ul>
         <li><strong>事実</strong>: FY2025/12 は純利益 27.5 億（+13.2%・過去最高）・ROE 25.7%。売上 −8.4% は<strong>税制改正対応で不動産小口化商品（ADVANTAGE CLUB）の販売を意図的に期ズレさせたため</strong>で、高マージンの財産コンサル売上は +45.8%。16 期連続増配（FY2026 予想 DPS 58 円 = 利回り 4.84%・性向 52.5%）。</li>
-        <li><strong>なぜ割安か（de-rating）</strong>: 「減収」ヘッドラインの額面視＋スタンダード小型からの資金流出で 52 週安値。screening の実績 PER 49.5 倍は単一四半期 EPS による artifact で、正しくは <strong>10.4 倍</strong>。</li>
+        <li><strong>なぜ割安か（de-rating）</strong>: 「減収」ヘッドラインの額面視＋スタンダード小型からの資金流出で 52 週安値。screening の実績 PER 49.5 倍は単一四半期 EPS による artifact で、正しくは <strong>約 10 倍</strong>（実績通期 EPS 基準 10.4 倍・rolling TTM 基準 9.8 倍）。</li>
         <li><strong>フェアバリュー 1,500–1,750 円</strong>: 正常化 EPS 115–125 円 × 13–15 倍（資産承継の構造成長・ROE25% のフィー型コンサル）。</li>
         <li><strong>invalidation</strong>: (1) 財産コンサル売上の 2 期連続失速 (2) 税制・規制による小口化ビジネスの恒久毀損 (3) 連続増配ストップ（減配） (4) ROE の持続的な 12% 割れ。</li>
         <li><strong>発注前条件</strong>: 短信 BS で現預金・借入内訳を目視確認（ネットキャッシュ 26% は screening 由来で内訳未検証）。</li>
@@ -292,7 +292,7 @@ flowchart LR
       <ul>
         <li>単一銘柄 cap 6% = ¥600,000 ≫ 各 ¥105,000 / ¥119,000（1.05% / 1.19%）✓</li>
         <li>sector cap 40%: サービス業（ALSOK）= 既保有 9715 + 2749 と合算 ¥520,000 = 5.2% ✓、不動産業（8929）= 新規 1.2% ✓</li>
-        <li>playbook cap 35%: cashflow-yield-discount（ALSOK）合算 6.5% ✓、valuation-reversion（8929）合算 5.5% ✓</li>
+        <li>playbook cap 35%: cashflow-yield-discount（ALSOK 追加後）= 既保有 8255+3539+2749+9715 の ¥745,200 + ¥105,000 = <strong>8.5%</strong> ✓、valuation-reversion（8929 追加後）= 既保有 9534+4432 の ¥308,200 + ¥119,000 = <strong>4.3%</strong> ✓（position records の約定実額から再計算）</li>
         <li>ADV 参加率 5%: ALSOK 0.008%・8929 0.11% ✓（8929 は板が薄いため成行禁止・指値厳守）</li>
         <li>単元 100 株・指値 = 上限価格（order_price_guard）✓。信用・レバレッジ不使用 ✓</li>
       </ul>
@@ -334,12 +334,13 @@ flowchart LR
     <section>
       <h2 id="s10">10. screening データ品質の発見（本 run の副産物・修正予定）</h2>
       <div class="callout callout-note">
-        <p class="callout-title">一次 IR との突き合わせで発見した機械 screening の歪み 2 件</p>
+        <p class="callout-title">一次 IR との突き合わせと徹底レビューで発見した機械 screening の歪み 3 件</p>
         <p>いずれも「一次情報と検算する」規律（AP-01/02/03）が検出し、<strong>両方とも同 PR で修正済み</strong>。修正は「summary 行の実績 per-share 値・株数を、開示日以降の adjustment_factor で asof 基準へ正規化してから合成・比較する」方式に統一（分割を跨ぐ TTM 合成・YoY・株数変化・時価総額を一括で正す）。実データ検証: 1899 時価総額 655 億（一次検算と一致）、8929 trailing 9.8 倍、<strong>1911 は 7.88 倍</strong>（分割前基準の前年 Q1 を換算せず引いていた誤り 12.9 倍も併せて解消・IR 検算 7.6–7.9 倍と一致）、1911 の偽希薄化 +200% → +0.06%。分割を跨ぐ行の予想 EPS は会社の分割考慮慣行が混在し機械判別できないため null に落とす（偽の per_forward を出さない）。加えて select に <code>split_adjustment_recent</code> risk tag を追加。修正後の candidates で select を再実行し、本提案の順位・結論が不変であることを確認した（詳細: issue #289 / #290）。</p>
       </div>
       <ol>
         <li><strong>株式分割の効力日を跨ぐ時価総額の歪み</strong>: 1899 福田組（1:2 分割・効力 7/1 = screening asof 当日）で、時価総額が「分割前株数 × 分割後株価」となり真値の半分（328 億 vs 655 億）。net cash 比率 91%（真値 ~45%）・60 日 −58%・52 週安値も同根の artifact。</li>
-        <li><strong>12 月決算銘柄の trailing PER / YoY が単一四半期ベース</strong>: 8929 / 1911 / 6269 で、trailing PER = 株価 ÷ FY2026 Q1 単四半期 EPS（例: 8929 の 49.5 倍 → 正しくは 10.4 倍）。TTM 集計が新年度 1 四半期のみを年間扱いする劣化パス。「trailing 高 × forward 安」という偽の乖離シグナルが triage を歪めた。</li>
+        <li><strong>12 月決算銘柄の trailing PER / YoY が単一四半期ベース</strong>: 8929 / 1911 / 6269 で、trailing PER = 株価 ÷ FY2026 Q1 単四半期 EPS（例: 8929 の 49.5 倍 → 正しくは約 10 倍）。TTM 集計が新年度 1 四半期のみを年間扱いする劣化パス。「trailing 高 × forward 安」という偽の乖離シグナルが triage を歪めた。</li>
+        <li><strong>価格系列の基準混在（60 日騰落・52 週高安・自己レンジ percentile）</strong>: cache の adjustment_close は incremental 取得のため「分割後に取得した行だけ遡及調整済み」という混在系列になり、1899 の 60 日 −57.9%・5 日 −51.5%・52 週安値ちょうど、はすべてこの偽段差だった。不変イベントの adjustment_factor から asof 基準の系列を自前で組む方式へ全経路（screening・ticker-profile・market-snapshot・regime）を修正。<strong>修正後は 1899 が screen の通過条件を満たさなくなり candidates から消えた</strong>（偽陽性の根元解消。本提案は IR 一次確認で既に 1899 を除外済みのため結論への影響なし）。</li>
       </ol>
     </section>
 

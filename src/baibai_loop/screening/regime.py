@@ -134,7 +134,7 @@ def _load_benchmark_series(
 ) -> list[tuple[date, float]]:
     start = asof_date - timedelta(days=_BENCHMARK_LOOKBACK_CALENDAR_DAYS)
     query = (
-        "SELECT traded_at, close, adjustment_close FROM jquants_daily_bars "
+        "SELECT traded_at, close, adjustment_factor FROM jquants_daily_bars "
         "WHERE ticker = ? AND traded_at >= ? AND traded_at <= ? ORDER BY traded_at"
     )
     conn = sqlite3.connect(sqlite_path)
@@ -142,12 +142,27 @@ def _load_benchmark_series(
         rows = conn.execute(query, (ticker, start.isoformat(), asof_date.isoformat())).fetchall()
     finally:
         conn.close()
-    series: list[tuple[date, float]] = []
-    for traded_at, close, adjustment_close in rows:
-        price = adjustment_close if adjustment_close is not None else close
-        if price is None or traded_at is None:
+    # cache の adjustment_close は incremental 取得で遡及の有無が混在するため使わず、
+    # 不変イベントの adjustment_factor の後方累積で末尾基準の価格系列を組む。
+    raw: list[tuple[date, float, float | None]] = []
+    for traded_at, close, adjustment_factor in rows:
+        if close is None or traded_at is None:
             continue
-        series.append((date.fromisoformat(traded_at), float(price)))
+        raw.append(
+            (
+                date.fromisoformat(traded_at),
+                float(close),
+                float(adjustment_factor) if adjustment_factor is not None else None,
+            )
+        )
+    factor = 1.0
+    series: list[tuple[date, float]] = []
+    for traded_at, close, adjustment_factor in reversed(raw):
+        series.append((traded_at, close * factor))
+        if adjustment_factor not in (None, 0.0, 1.0):
+            assert adjustment_factor is not None
+            factor *= adjustment_factor
+    series.reverse()
     return series
 
 

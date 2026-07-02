@@ -814,7 +814,8 @@ class ScreeningMetricsTests(unittest.TestCase):
         # ends, so price_change_60d should not register a synthetic decline.
         asof = date(2026, 4, 24)
         bars = []
-        # 70 sessions of pre-split history at raw=100, adj=50
+        # 分割前 70 sessions は raw=100。adjustment_close はわざと stale
+        # (raw のまま = incremental cache の未遡及 row) にして無視されることを検証。
         for i in range(70):
             bars.append(
                 JQuantsDailyBar(
@@ -822,10 +823,10 @@ class ScreeningMetricsTests(unittest.TestCase):
                     asof - timedelta(days=70 - i),
                     close=100.0,
                     turnover_value=300_000_000.0,
-                    adjustment_close=50.0,
+                    adjustment_close=100.0,
                 )
             )
-        # Latest bar at raw=adj=50 (post-split day == today)
+        # 権利落ち日 (= asof) の bar に factor 0.5。close は分割後 50。
         bars.append(
             JQuantsDailyBar(
                 "130A",
@@ -833,6 +834,7 @@ class ScreeningMetricsTests(unittest.TestCase):
                 close=50.0,
                 turnover_value=300_000_000.0,
                 adjustment_close=50.0,
+                adjustment_factor=0.5,
             )
         )
         result = build_metrics(
@@ -858,12 +860,12 @@ class ScreeningMetricsTests(unittest.TestCase):
         # which would falsely trip the -15% screening threshold.
         self.assertEqual(derived.price_change_60d, 0.0)
 
-    def test_build_metrics_historical_ev_ebitda_uses_adjusted_close_when_available(self) -> None:
-        # Simulate a 2-for-1 stock split between asof-2 and asof-1 by giving
-        # raw close a discontinuous jump while adjustment_close stays smooth.
-        # Latest close (asof) is the unadjusted post-split price; historical
-        # series should use adjustment_close so the split does not propagate
-        # into self_range_percentile / sigma_gap.
+    def test_build_metrics_historical_ev_ebitda_normalizes_split_via_factor(self) -> None:
+        # 1:2 分割 (権利落ち = asof、factor 0.5) を跨ぐ価格履歴。調整は不変イベントの
+        # adjustment_factor から組む。adjustment_close は incremental cache で
+        # 遡及の有無が混在し series にならないため、わざと stale な値 (raw close の
+        # まま) を入れて「無視されること」を検証する。
+        # 正規化後の履歴 = [160x0.5, 200x0.5, 120] = [80, 100, 120]。
         asof = date(2026, 4, 24)
         bars = [
             JQuantsDailyBar(
@@ -871,14 +873,14 @@ class ScreeningMetricsTests(unittest.TestCase):
                 asof - timedelta(days=2),
                 close=160.0,
                 turnover_value=300_000_000.0,
-                adjustment_close=80.0,
+                adjustment_close=160.0,
             ),
             JQuantsDailyBar(
                 "130A",
                 asof - timedelta(days=1),
                 close=200.0,
                 turnover_value=300_000_000.0,
-                adjustment_close=100.0,
+                adjustment_close=200.0,
             ),
             JQuantsDailyBar(
                 "130A",
@@ -886,6 +888,7 @@ class ScreeningMetricsTests(unittest.TestCase):
                 close=120.0,
                 turnover_value=300_000_000.0,
                 adjustment_close=120.0,
+                adjustment_factor=0.5,
             ),
         ]
         result = build_metrics(

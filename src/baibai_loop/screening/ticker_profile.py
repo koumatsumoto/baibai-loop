@@ -401,26 +401,39 @@ def _load_bars(
     # in conn.execute, so the f-string is not an injection vector.
     placeholders = ",".join("?" for _ in tickers)
     query = (
-        "SELECT ticker, traded_at, close, adjustment_close, turnover_value "  # nosec B608
+        "SELECT ticker, traded_at, close, adjustment_factor, turnover_value "  # nosec B608
         "FROM jquants_daily_bars "
         f"WHERE traded_at >= ? AND traded_at <= ? AND ticker IN ({placeholders}) "
         "ORDER BY ticker, traded_at"
     )
     rows = _query_all(sqlite_path, query, (start.isoformat(), end.isoformat(), *tickers))
-    bars: dict[str, list[_Bar]] = {}
-    for ticker, traded_at, close, adjustment_close, turnover_value in rows:
-        price = adjustment_close if adjustment_close is not None else close
-        if not isinstance(price, int | float) or not isinstance(traded_at, str):
+    # cache の adjustment_close は incremental 取得で遡及の有無が混在するため使わず、
+    # 不変イベントの adjustment_factor の後方累積で末尾基準の価格系列を組む。
+    raw: dict[str, list[tuple[date, float, float | None, float | None]]] = {}
+    for ticker, traded_at, close, adjustment_factor, turnover_value in rows:
+        if not isinstance(close, int | float) or not isinstance(traded_at, str):
             continue
-        bars.setdefault(str(ticker), []).append(
-            _Bar(
-                traded_at=date.fromisoformat(traded_at),
-                price=float(price),
-                turnover_value=(
-                    float(turnover_value) if isinstance(turnover_value, int | float) else None
-                ),
+        raw.setdefault(str(ticker), []).append(
+            (
+                date.fromisoformat(traded_at),
+                float(close),
+                float(adjustment_factor) if isinstance(adjustment_factor, int | float) else None,
+                float(turnover_value) if isinstance(turnover_value, int | float) else None,
             )
         )
+    bars: dict[str, list[_Bar]] = {}
+    for ticker, entries in raw.items():
+        factor = 1.0
+        normalized: list[_Bar] = []
+        for traded_at, close, adjustment_factor, turnover_value in reversed(entries):
+            normalized.append(
+                _Bar(traded_at=traded_at, price=close * factor, turnover_value=turnover_value)
+            )
+            if adjustment_factor not in (None, 0.0, 1.0):
+                assert adjustment_factor is not None
+                factor *= adjustment_factor
+        normalized.reverse()
+        bars[ticker] = normalized
     return bars
 
 
