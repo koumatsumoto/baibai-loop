@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "candidates",
   "title": "Candidates",
-  "description": "Schema for records/04-candidates/**/*.yaml screen output.",
+  "description": "Schema for records/02-candidates/**/*.yaml screen output.",
   "type": "object",
   "additionalProperties": true,
   "required": [

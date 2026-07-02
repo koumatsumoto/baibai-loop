@@ -130,7 +130,7 @@ def _format_path(parts: Iterable[object]) -> str:
 def _is_repository_thesis_record(path: Path) -> bool:
     root = repo_root_for(path)
     try:
-        path.resolve().relative_to((root / "records/05-thesis").resolve())
+        path.resolve().relative_to((root / "records/03-thesis").resolve())
     except ValueError:
         return False
     return True

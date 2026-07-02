@@ -127,7 +127,7 @@ def _check_business_lineage(
 
 
 def discover_candidates_files(root: Path) -> list[Path]:
-    """Return all records/04-candidates/*.yaml files under ``root`` in sorted order."""
+    """Return all records/02-candidates/*.yaml files under ``root`` in sorted order."""
     if not root.exists():
         return []
     return sorted(p for p in root.rglob("*.yaml") if p.is_file())

@@ -206,7 +206,7 @@ class PortfolioBlockTests(unittest.TestCase):
             sqlite_path = root / "market.sqlite"
             _insert_bars(sqlite_path, "AAAA", [100.0] * 30, end=_ASOF)
             _insert_reference_rows(sqlite_path)
-            trade_dir = root / "records" / "06-position" / "2026" / "05"
+            trade_dir = root / "records" / "04-position" / "2026" / "05"
             trade_dir.mkdir(parents=True)
             (trade_dir / "2026-05-13-bbbb.md").write_text(
                 "---\n"

@@ -20,7 +20,7 @@ last_reviewed: 2026-07-02
 ## Path と front matter
 
 ```text
-records/06-position/YYYY/MM/YYYY-MM-DD-<ticker>.md
+records/04-position/YYYY/MM/YYYY-MM-DD-<ticker>.md
 ```
 
 日付は最初の約定イベントの日。front matter の完全な形は `records/_schemas/position.json`（contract-of-record）を正とし、下は形を確認するための最小例。
@@ -29,7 +29,7 @@ records/06-position/YYYY/MM/YYYY-MM-DD-<ticker>.md
 position_id: trade-YYYYMMDD-XXXX
 ticker: "XXXX"
 name: "..."
-thesis_ref: records/05-thesis/YYYY/MM/YYYY-MM-DD-XXXX-<playbook_id>.md
+thesis_ref: records/03-thesis/YYYY/MM/YYYY-MM-DD-XXXX-<playbook_id>.md
 position_state: none | open | closed
 execution_state: none | submitted | broker_rejected | cancelled | expired | not_filled | partially_filled | filled
 order_intent: { order_intent_id: intent-YYYYMMDD-XXXX-entry, side: buy | sell, quantity: 100, order_price_guard_yen: 1000, uses_margin: false }

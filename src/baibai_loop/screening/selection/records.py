@@ -157,7 +157,7 @@ _EXPECTED_NUMERIC_EVIDENCE_METRICS = _EXPECTED_NUMERIC_METRICS | frozenset(
 def load_prior_research(thesis_root: Path, asof_date: date) -> dict[str, PriorResearch]:
     """Return the latest prior research decision per ticker from thesis records.
 
-    Investment memos (`records/05-thesis/`) are the single source of prior
+    Investment memos (`records/03-thesis/`) are the single source of prior
     decisions. The latest record per ticker on or before ``asof_date`` wins,
     ordered by published_at (falling back to the filename date) then filename
     for determinism.

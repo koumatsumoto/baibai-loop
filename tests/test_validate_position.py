@@ -16,7 +16,7 @@ def _trade_front(**overrides: object) -> dict[str, object]:
         "position_id": "trade-20260505-9682",
         "ticker": "9682",
         "playbook_id": "sales-discount-growth",
-        "thesis_ref": "records/05-thesis/2026/05/2026-05-05-9682-sales-discount-growth.md",
+        "thesis_ref": "records/03-thesis/2026/05/2026-05-05-9682-sales-discount-growth.md",
         "position_state": "open",
         "current_quantity": 200,
         "execution_state": "filled",
@@ -36,7 +36,7 @@ def _trade_front(**overrides: object) -> dict[str, object]:
         "entry_legs": [
             {
                 "entry_leg_id": "entry-20260505-9682-1",
-                "thesis_ref": "records/05-thesis/2026/05/2026-05-05-9682-sales-discount-growth.md",
+                "thesis_ref": "records/03-thesis/2026/05/2026-05-05-9682-sales-discount-growth.md",
                 "order_id": "order-20260505-9682-entry",
                 "quantity": 200,
                 "average_price_yen": 1014,
@@ -79,7 +79,7 @@ def _write_trade(
     root = _test_repo_root(tmp_path)
     _write_test_repo_sources(root)
     path = (
-        tmp_path / name if _is_trade_dir(tmp_path) else root / "records/06-position/2026/05" / name
+        tmp_path / name if _is_trade_dir(tmp_path) else root / "records/04-position/2026/05" / name
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = front if front is not None else _trade_front()
@@ -99,12 +99,12 @@ def _test_repo_root(path: Path) -> Path:
 
 def _is_trade_dir(path: Path) -> bool:
     parts = path.parts
-    return "records" in parts and "06-position" in parts
+    return "records" in parts and "04-position" in parts
 
 
 def _write_test_repo_sources(root: Path) -> None:
     (root / "src").mkdir(parents=True, exist_ok=True)
-    research_path = root / "records/05-thesis/2026/05/2026-05-05-9682-sales-discount-growth.md"
+    research_path = root / "records/03-thesis/2026/05/2026-05-05-9682-sales-discount-growth.md"
     research_path.parent.mkdir(parents=True, exist_ok=True)
     if not research_path.exists():
         research_path.write_text(
@@ -300,7 +300,7 @@ def test_submitted_trade_requires_positive_quantity(tmp_path: Path) -> None:
 
 def test_submitted_trade_requires_approved_thesis_ref(tmp_path: Path) -> None:
     root = _test_repo_root(tmp_path)
-    research_path = root / "records/05-thesis/2026/05/2026-05-05-9682-sales-discount-growth.md"
+    research_path = root / "records/03-thesis/2026/05/2026-05-05-9682-sales-discount-growth.md"
     research_path.parent.mkdir(parents=True, exist_ok=True)
     research_path.write_text(
         "---\n"
@@ -318,7 +318,7 @@ def test_submitted_trade_requires_approved_thesis_ref(tmp_path: Path) -> None:
 
 
 def test_submitted_trade_requires_readable_thesis_ref(tmp_path: Path) -> None:
-    front = _trade_front(thesis_ref="records/05-thesis/missing.md")
+    front = _trade_front(thesis_ref="records/03-thesis/missing.md")
     path = _write_trade(tmp_path, front)
 
     codes = {finding.code for finding in validate_position_file(path)}
@@ -350,7 +350,7 @@ def test_open_trades_must_stay_within_portfolio_concentration_caps(tmp_path: Pat
     front["entry_legs"] = [
         {
             "entry_leg_id": "entry-20260505-9682-1",
-            "thesis_ref": "records/05-thesis/2026/05/2026-05-05-9682-sales-discount-growth.md",
+            "thesis_ref": "records/03-thesis/2026/05/2026-05-05-9682-sales-discount-growth.md",
             "order_id": "order-20260505-9682-entry",
             "quantity": 5000,
             "average_price_yen": 1050,
@@ -396,7 +396,7 @@ def test_invalid_ticker_pattern_is_flagged(tmp_path: Path) -> None:
 
 
 def test_discover_position_files_skips_template(tmp_path: Path) -> None:
-    position_root = tmp_path / "records/06-position"
+    position_root = tmp_path / "records/04-position"
     position_root.mkdir(parents=True)
     (position_root / "template.md").write_text("placeholder", encoding="utf-8")
     valid = _write_trade(tmp_path)

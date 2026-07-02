@@ -45,9 +45,9 @@ _TARGETS: tuple[ValidationTarget, ...] = (
 
 MACRO_CONTEXT_ROOT = Path("records/01-macro-context")
 POLICY_PATH = Path("docs/portfolio-management.md")
-CANDIDATES_ROOT = Path("records/04-candidates")
-THESIS_ROOT = Path("records/05-thesis")
-POSITION_ROOT = Path("records/06-position")
+CANDIDATES_ROOT = Path("records/02-candidates")
+THESIS_ROOT = Path("records/03-thesis")
+POSITION_ROOT = Path("records/04-position")
 PLAYBOOKS_ROOT = Path("records/_playbooks")
 
 

@@ -92,13 +92,13 @@ def _make_macro_context_yaml_text() -> str:
 def _seed_repo(root: Path, *, candidates_overrides: dict[str, object] | None = None) -> None:
     (root / "src").mkdir(parents=True, exist_ok=True)
     macro_context_dir = root / "records/01-macro-context" / "2026" / "04"
-    candidates_dir = root / "records/04-candidates" / "2026" / "04"
+    candidates_dir = root / "records/02-candidates" / "2026" / "04"
     playbooks_dir = root / "records/_playbooks"
     docs_dir = root / "docs"
     support_dirs = (
         docs_dir,
         root / "records/_playbooks/valuation-reversion",
-        root / "records/05-thesis/2026/04",
+        root / "records/03-thesis/2026/04",
     )
     for directory in (
         macro_context_dir,
@@ -118,7 +118,7 @@ def _seed_repo(root: Path, *, candidates_overrides: dict[str, object] | None = N
     (macro_context_dir / "macro-context-2026-04-24-test.yaml").write_text(
         _make_macro_context_yaml_text(), encoding="utf-8"
     )
-    (root / "records/05-thesis/2026/04/2026-04-25-2767-valuation-reversion.md").write_text(
+    (root / "records/03-thesis/2026/04/2026-04-25-2767-valuation-reversion.md").write_text(
         "---\n"
         "macro_context_ref: records/01-macro-context/2026/04/macro-context-2026-04-24-test.yaml\n"
         "---\n# Research\n",
@@ -174,7 +174,7 @@ class ValidateCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             _seed_repo(root)
-            (root / "records/04-candidates" / "2026" / "04" / "2026-04-24.yaml").write_text(
+            (root / "records/02-candidates" / "2026" / "04" / "2026-04-24.yaml").write_text(
                 "not-a-mapping\n", encoding="utf-8"
             )
             stdout = io.StringIO()
@@ -249,13 +249,13 @@ class FormatFindingTests(unittest.TestCase):
     def test_format_uses_path_relative_to_root_when_inside(self) -> None:
         finding = ValidationFinding(
             severity="error",
-            target=Path("/repo/records/04-candidates/2026-04-24.yaml"),
+            target=Path("/repo/records/02-candidates/2026-04-24.yaml"),
             code="candidates.required",
             message="missing run_id",
             location="run_id",
         )
         line = _format_finding(finding, Path("/repo"))
-        self.assertIn("records/04-candidates/2026-04-24.yaml", line)
+        self.assertIn("records/02-candidates/2026-04-24.yaml", line)
         self.assertIn("@ run_id", line)
         self.assertIn("[error]", line)
 

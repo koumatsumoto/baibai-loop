@@ -211,7 +211,7 @@ def _business_calendar(
 
 def _discover_decision_dates(root: Path) -> tuple[date, ...]:
     dates: list[date] = []
-    for path in sorted((root / "records/05-thesis").rglob("*.md")):
+    for path in sorted((root / "records/03-thesis").rglob("*.md")):
         try:
             dates.append(date.fromisoformat(path.name[:10]))
         except ValueError:

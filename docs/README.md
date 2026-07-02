@@ -36,9 +36,9 @@ last_reviewed: 2026-07-02
 | 変更内容 | 併せて見る docs |
 | --- | --- |
 | `records/01-macro-context/` | [`workflow/macro.md`](./workflow/macro.md), [`reference/data-sources.md`](./reference/data-sources.md) |
-| `records/04-candidates/` または screening CLI | [`workflow/screening.md`](./workflow/screening.md), [`reference/screening-runtime.md`](./reference/screening-runtime.md), [`architecture.md#automation`](./architecture.md#automation) |
-| `records/05-thesis/` | [`workflow/research.md`](./workflow/research.md), [`workflow/playbooks.md`](./workflow/playbooks.md) |
-| `records/06-position/` | [`workflow/position.md`](./workflow/position.md) |
+| `records/02-candidates/` または screening CLI | [`workflow/screening.md`](./workflow/screening.md), [`reference/screening-runtime.md`](./reference/screening-runtime.md), [`architecture.md#automation`](./architecture.md#automation) |
+| `records/03-thesis/` | [`workflow/research.md`](./workflow/research.md), [`workflow/playbooks.md`](./workflow/playbooks.md) |
+| `records/04-position/` | [`workflow/position.md`](./workflow/position.md) |
 | schema / validator / tests / CI | [`reference/testing-and-validation.md`](./reference/testing-and-validation.md), [`reference/python-foundation.md`](./reference/python-foundation.md), [`architecture.md#automation`](./architecture.md#automation) |
 
 ## 正本の境界

@@ -313,7 +313,7 @@ class ScreeningCliTests(unittest.TestCase):
                     edinet=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
                 )
-                output_path = Path("records/04-candidates/e2e/candidates.yaml")
+                output_path = Path("records/02-candidates/e2e/candidates.yaml")
                 exit_code = run_command(
                     date(2026, 4, 24),
                     config,
@@ -1166,7 +1166,7 @@ class SelectCommandTests(unittest.TestCase):
     ) -> Path:
         """Seed a thesis record that select reads as prior research."""
         day = published_at[:10]
-        path = root / f"records/05-thesis/{day[:4]}/{day[5:7]}/{day}-{ticker}-{slug}.md"
+        path = root / f"records/03-thesis/{day[:4]}/{day[5:7]}/{day}-{ticker}-{slug}.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         front = {
             "ticker": ticker,
@@ -1186,7 +1186,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/04-candidates",
+                root / "records/02-candidates",
                 asof,
                 candidates=[
                     {
@@ -1230,7 +1230,7 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/04-candidates",
+                candidates_root=root / "records/02-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
@@ -1273,7 +1273,7 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/04-candidates",
+                candidates_root=root / "records/02-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 detail="full",
                 stdout=full_buffer,
@@ -1289,7 +1289,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             canonical = self._write_candidates(
-                root / "records/04-candidates",
+                root / "records/02-candidates",
                 asof,
                 candidates=[
                     {
@@ -1301,7 +1301,7 @@ class SelectCommandTests(unittest.TestCase):
                     }
                 ],
             )
-            custom = root / "records/04-candidates/e2e/custom-candidates.yaml"
+            custom = root / "records/02-candidates/e2e/custom-candidates.yaml"
             custom.parent.mkdir(parents=True)
             custom.write_text(canonical.read_text(encoding="utf-8"), encoding="utf-8")
             canonical.unlink()
@@ -1323,7 +1323,7 @@ class SelectCommandTests(unittest.TestCase):
             payload = safe_load(buffer.getvalue())
             self.assertEqual(
                 payload["selection"]["input_refs"]["candidates_ref"],
-                "records/04-candidates/e2e/custom-candidates.yaml",
+                "records/02-candidates/e2e/custom-candidates.yaml",
             )
             self.assertEqual([item["ticker"] for item in self._recommended(payload)], ["1111"])
 
@@ -1333,7 +1333,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/04-candidates",
+                root / "records/02-candidates",
                 asof,
                 candidates=[
                     {
@@ -1358,7 +1358,7 @@ class SelectCommandTests(unittest.TestCase):
                 macro_context_path=None,
                 candidates_path=None,
                 top=10,
-                candidates_root=root / "records/04-candidates",
+                candidates_root=root / "records/02-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
@@ -1375,7 +1375,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/04-candidates",
+                root / "records/02-candidates",
                 asof,
                 candidates=[
                     {
@@ -1413,7 +1413,7 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/04-candidates",
+                candidates_root=root / "records/02-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 detail="full",
                 stdout=buffer,
@@ -1445,7 +1445,7 @@ class SelectCommandTests(unittest.TestCase):
                 "edinet_source_submit_datetime": "2026-03-03 10:00",
             }
             self._write_candidates(
-                root / "records/04-candidates",
+                root / "records/02-candidates",
                 asof,
                 candidates=[
                     {
@@ -1477,7 +1477,7 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/04-candidates",
+                candidates_root=root / "records/02-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 detail="full",
                 stdout=buffer,
@@ -1492,7 +1492,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/04-candidates",
+                root / "records/02-candidates",
                 asof,
                 candidates=[
                     {
@@ -1542,7 +1542,7 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/04-candidates",
+                candidates_root=root / "records/02-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 detail="full",
                 stdout=buffer,
@@ -1557,7 +1557,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/04-candidates",
+                root / "records/02-candidates",
                 asof,
                 candidates=[
                     {
@@ -1611,7 +1611,7 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/04-candidates",
+                candidates_root=root / "records/02-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 detail="full",
                 stdout=buffer,
@@ -1629,7 +1629,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/04-candidates",
+                root / "records/02-candidates",
                 asof,
                 candidates=[
                     {
@@ -1674,7 +1674,7 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/04-candidates",
+                candidates_root=root / "records/02-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 detail="full",
                 stdout=buffer,
@@ -1691,7 +1691,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/04-candidates",
+                root / "records/02-candidates",
                 asof,
                 candidates=[
                     {
@@ -1785,7 +1785,7 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/04-candidates",
+                candidates_root=root / "records/02-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 detail="full",
                 stdout=buffer,
@@ -1808,7 +1808,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/04-candidates",
+                root / "records/02-candidates",
                 asof,
                 candidates=[
                     {
@@ -1844,7 +1844,7 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/04-candidates",
+                candidates_root=root / "records/02-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 detail="full",
                 stdout=buffer,
@@ -1867,7 +1867,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/04-candidates",
+                root / "records/02-candidates",
                 asof,
                 candidates=[
                     {
@@ -1909,7 +1909,7 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/04-candidates",
+                candidates_root=root / "records/02-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
@@ -1924,7 +1924,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/04-candidates",
+                root / "records/02-candidates",
                 asof,
                 candidates=[
                     {
@@ -1962,7 +1962,7 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/04-candidates",
+                candidates_root=root / "records/02-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
@@ -1977,7 +1977,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/04-candidates",
+                root / "records/02-candidates",
                 asof,
                 candidates=[
                     {
@@ -2015,7 +2015,7 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/04-candidates",
+                candidates_root=root / "records/02-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
@@ -2030,7 +2030,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/04-candidates",
+                root / "records/02-candidates",
                 asof,
                 candidates=[
                     {
@@ -2076,7 +2076,7 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/04-candidates",
+                candidates_root=root / "records/02-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
@@ -2092,7 +2092,7 @@ class SelectCommandTests(unittest.TestCase):
             previous_asof = date(2026, 4, 17)
             previous_tickers = ("1111", "2222", "3333", "4444")
             self._write_candidates(
-                root / "records/04-candidates",
+                root / "records/02-candidates",
                 previous_asof,
                 candidates=[
                     {
@@ -2106,7 +2106,7 @@ class SelectCommandTests(unittest.TestCase):
                 ],
             )
             self._write_candidates(
-                root / "records/04-candidates",
+                root / "records/02-candidates",
                 asof,
                 candidates=[
                     {
@@ -2163,7 +2163,7 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/04-candidates",
+                candidates_root=root / "records/02-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
@@ -2196,8 +2196,8 @@ class SelectCommandTests(unittest.TestCase):
                     ("3333", "小売業"),
                 )
             ]
-            self._write_candidates(root / "records/04-candidates", previous_asof, candidates)
-            self._write_candidates(root / "records/04-candidates", asof, candidates)
+            self._write_candidates(root / "records/02-candidates", previous_asof, candidates)
+            self._write_candidates(root / "records/02-candidates", asof, candidates)
             self._write_macro_context(
                 root / "records/01-macro-context",
                 asof,
@@ -2209,7 +2209,7 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/04-candidates",
+                candidates_root=root / "records/02-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
@@ -2228,7 +2228,7 @@ class SelectCommandTests(unittest.TestCase):
             asof = date(2026, 4, 24)
             candidates_path = (
                 root
-                / "records/04-candidates"
+                / "records/02-candidates"
                 / f"{asof:%Y}"
                 / f"{asof:%m}"
                 / f"{asof:%Y-%m-%d}.yaml"
@@ -2248,7 +2248,7 @@ class SelectCommandTests(unittest.TestCase):
                     asof_date=asof,
                     macro_context_path=None,
                     top=10,
-                    candidates_root=root / "records/04-candidates",
+                    candidates_root=root / "records/02-candidates",
                     macro_context_root=root / "records/01-macro-context",
                     stdout=buffer,
                 )
@@ -2261,7 +2261,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/04-candidates",
+                root / "records/02-candidates",
                 asof,
                 candidates=[
                     {
@@ -2288,7 +2288,7 @@ class SelectCommandTests(unittest.TestCase):
                         root / "records/01-macro-context/2026/05/macro-context-2026-05-01-test.yaml"
                     ),
                     top=10,
-                    candidates_root=root / "records/04-candidates",
+                    candidates_root=root / "records/02-candidates",
                     macro_context_root=root / "records/01-macro-context",
                     stdout=buffer,
                 )
@@ -2301,7 +2301,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 5, 20)
             self._write_candidates(
-                root / "records/04-candidates",
+                root / "records/02-candidates",
                 asof,
                 candidates=[
                     {
@@ -2328,7 +2328,7 @@ class SelectCommandTests(unittest.TestCase):
                         root / "records/01-macro-context/2026/05/macro-context-2026-05-01-test.yaml"
                     ),
                     top=10,
-                    candidates_root=root / "records/04-candidates",
+                    candidates_root=root / "records/02-candidates",
                     macro_context_root=root / "records/01-macro-context",
                     stdout=buffer,
                 )
@@ -2342,7 +2342,7 @@ class SelectCommandTests(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/04-candidates",
+                root / "records/02-candidates",
                 asof,
                 candidates=[
                     {
@@ -2364,7 +2364,7 @@ class SelectCommandTests(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/04-candidates",
+                candidates_root=root / "records/02-candidates",
                 macro_context_root=root / "records/01-macro-context",
                 stdout=buffer,
             )
