@@ -12,7 +12,6 @@ from baibai_loop.screening.config import (
     ConfigError,
     ScreeningConfig,
 )
-from baibai_loop.screening.forward import cli as forward_cli
 from baibai_loop.screening.providers import EDINETProvider, JPXProvider, JQuantsProvider
 from baibai_loop.screening.rule_config import (
     DEFAULT_RULES_PATH,
@@ -195,7 +194,6 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
     )
 
-    forward_cli.add_subparsers(subparsers)
     return parser
 
 
@@ -263,11 +261,6 @@ def main(argv: list[str] | None = None) -> int:
             required_jpx_sources=rules.universe.required_jpx_flags,
             allow_stale_jpx=args.allow_stale_jpx,
         )
-
-    if args.command in forward_cli.FORWARD_COMMANDS:
-        # Forward measurement replays recorded candidates against the SQLite
-        # cache only; no provider credentials are needed.
-        return forward_cli.run_command(args)
 
     try:
         config = ScreeningConfig.from_env()

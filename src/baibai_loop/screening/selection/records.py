@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+
+import yaml
 
 from baibai_loop.foundation.coerce import (
     date_from_datetime_prefix,
@@ -18,6 +19,7 @@ from baibai_loop.foundation.coerce import (
     string_or_none,
     string_sequence,
 )
+from baibai_loop.foundation.records_ref import load_markdown_front_matter, repo_root_for
 from baibai_loop.foundation.yaml_io import safe_load
 
 
@@ -61,8 +63,7 @@ class PriorResearch:
     deferral_reason: str | None
     revisit_after: date | None
     expires_at: date | None
-    decision_event_at: str | None
-    decision_event_id: str | None
+    published_at: str | None
     thesis_ref: str | None
 
     def suppression_reason(self, asof_date: date) -> str | None:
@@ -84,8 +85,7 @@ class PriorResearch:
             "deferral_reason": self.deferral_reason,
             "revisit_after": self.revisit_after.isoformat() if self.revisit_after else None,
             "expires_at": self.expires_at.isoformat() if self.expires_at else None,
-            "decision_event_at": self.decision_event_at,
-            "decision_event_id": self.decision_event_id,
+            "published_at": self.published_at,
             "thesis_ref": self.thesis_ref,
         }
 
@@ -154,46 +154,54 @@ _EXPECTED_NUMERIC_EVIDENCE_METRICS = _EXPECTED_NUMERIC_METRICS | frozenset(
 )
 
 
-def load_prior_research(decisions_root: Path, asof_date: date) -> dict[str, PriorResearch]:
-    if not decisions_root.exists():
+def load_prior_research(thesis_root: Path, asof_date: date) -> dict[str, PriorResearch]:
+    """Return the latest prior research decision per ticker from thesis records.
+
+    Investment memos (`records/05-thesis/`) are the single source of prior
+    decisions. The latest record per ticker on or before ``asof_date`` wins,
+    ordered by published_at (falling back to the filename date) then filename
+    for determinism.
+    """
+    if not thesis_root.exists():
         return {}
     latest: dict[str, tuple[tuple[str, str], PriorResearch]] = {}
-    for path in sorted(decisions_root.glob("*.jsonl")):
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                raw = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if raw.get("decision_scope") != "research_memo":
-                continue
-            event_at = string_or_none(raw.get("decision_event_at"))
-            event_date = date_from_datetime_prefix(event_at)
-            if event_date is None or event_date > asof_date:
-                continue
-            ticker = string_or_none(raw.get("ticker"))
-            decision = raw.get("thesis_decision")
-            if ticker is None or not isinstance(decision, Mapping):
-                continue
-            revisit = decision.get("revisit")
-            revisit_map = revisit if isinstance(revisit, Mapping) else {}
-            prior = PriorResearch(
-                ticker=ticker,
-                outcome=string_or_none(decision.get("outcome")),
-                posture=string_or_none(decision.get("posture")),
-                reason_code=string_or_none(decision.get("reason_code")),
-                deferral_reason=string_or_none(decision.get("deferral_reason")),
-                revisit_after=parse_iso_date(string_or_none(revisit_map.get("revisit_after"))),
-                expires_at=parse_iso_date(string_or_none(revisit_map.get("expires_at"))),
-                decision_event_at=event_at,
-                decision_event_id=string_or_none(raw.get("decision_event_id")),
-                thesis_ref=string_or_none(raw.get("thesis_ref")),
-            )
-            event_key = (event_at or "", prior.decision_event_id or "")
-            previous = latest.get(ticker)
-            if previous is None or event_key >= previous[0]:
-                latest[ticker] = (event_key, prior)
+    for path in sorted(thesis_root.rglob("*.md")):
+        try:
+            front = load_markdown_front_matter(path)
+        except (OSError, ValueError, yaml.YAMLError):
+            continue
+        ticker = string_or_none(front.get("ticker"))
+        decision = front.get("thesis_decision")
+        if ticker is None or not isinstance(decision, Mapping):
+            continue
+        published_at = string_or_none(front.get("published_at")) or string_or_none(
+            front.get("recorded_at")
+        )
+        event_date = date_from_datetime_prefix(published_at) or parse_iso_date(path.name[:10])
+        if event_date is None or event_date > asof_date:
+            continue
+        revisit = decision.get("revisit")
+        revisit_map = revisit if isinstance(revisit, Mapping) else {}
+        root = repo_root_for(path)
+        try:
+            thesis_ref = path.resolve().relative_to(root.resolve()).as_posix()
+        except ValueError:
+            thesis_ref = path.as_posix()
+        prior = PriorResearch(
+            ticker=ticker,
+            outcome=string_or_none(decision.get("outcome")),
+            posture=string_or_none(decision.get("posture")),
+            reason_code=string_or_none(decision.get("reason_code")),
+            deferral_reason=string_or_none(decision.get("deferral_reason")),
+            revisit_after=parse_iso_date(string_or_none(revisit_map.get("revisit_after"))),
+            expires_at=parse_iso_date(string_or_none(revisit_map.get("expires_at"))),
+            published_at=published_at,
+            thesis_ref=thesis_ref,
+        )
+        event_key = (event_date.isoformat(), path.name)
+        previous = latest.get(ticker)
+        if previous is None or event_key >= previous[0]:
+            latest[ticker] = (event_key, prior)
     return {ticker: prior for ticker, (_, prior) in latest.items()}
 
 

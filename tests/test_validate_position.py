@@ -120,14 +120,6 @@ def _write_test_repo_sources(root: Path) -> None:
             "---\n\n# Research\n",
             encoding="utf-8",
         )
-    register_path = root / "records/_decisions/thesis-decisions/2026-05.jsonl"
-    register_path.parent.mkdir(parents=True, exist_ok=True)
-    if not register_path.exists():
-        register_path.write_text(
-            '{"decision_event_id":"decision-20260505-9682-trade",'
-            '"order_intent":{"order_intent_id":"intent-20260505-9682-entry"}}\n',
-            encoding="utf-8",
-        )
 
 
 def test_trade_with_filled_order_lifecycle_passes(tmp_path: Path) -> None:

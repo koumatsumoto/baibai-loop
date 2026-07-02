@@ -1155,6 +1155,32 @@ class SelectCommandTests(unittest.TestCase):
         self.assertIsInstance(recommended, list)
         return cast(list[dict[str, object]], recommended)
 
+    def _write_prior_thesis(
+        self,
+        root: Path,
+        *,
+        ticker: str,
+        decision: dict[str, object],
+        published_at: str,
+        slug: str = "cashflow-yield-discount",
+    ) -> Path:
+        """Seed a thesis record that select reads as prior research."""
+        day = published_at[:10]
+        path = root / f"records/05-thesis/{day[:4]}/{day[5:7]}/{day}-{ticker}-{slug}.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        front = {
+            "ticker": ticker,
+            "thesis_decision": decision,
+            "published_at": published_at,
+        }
+        path.write_text(
+            "---\n"
+            + yaml.safe_dump(front, allow_unicode=True, sort_keys=False)
+            + "---\n\n# Research\n",
+            encoding="utf-8",
+        )
+        return path
+
     def test_applies_macro_context_without_dropping_headwind_sectors(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -1928,30 +1954,19 @@ class SelectCommandTests(unittest.TestCase):
             self._write_macro_context(
                 root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
             )
-            decisions_path = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
-            decisions_path.parent.mkdir(parents=True)
-            decisions_path.write_text(
-                json.dumps(
-                    {
-                        "ticker": "2222",
-                        "decision_scope": "research_memo",
-                        "decision_event_at": "2026-04-23T10:00:00+09:00",
-                        "decision_event_id": "decision-test-2222",
-                        "thesis_ref": "records/05-thesis/test.md",
-                        "thesis_decision": {
-                            "outcome": "deferred",
-                            "posture": "wait_for_event",
-                            "deferral_reason": "event_pending",
-                            "revisit": {
-                                "revisit_after": "2026-05-01",
-                                "expires_at": "2026-06-30",
-                            },
-                        },
+            self._write_prior_thesis(
+                root,
+                ticker="2222",
+                decision={
+                    "outcome": "deferred",
+                    "posture": "wait_for_event",
+                    "deferral_reason": "event_pending",
+                    "revisit": {
+                        "revisit_after": "2026-05-01",
+                        "expires_at": "2026-06-30",
                     },
-                    ensure_ascii=False,
-                )
-                + "\n",
-                encoding="utf-8",
+                },
+                published_at="2026-04-23T10:00:00+09:00",
             )
 
             buffer = io.StringIO()
@@ -1996,26 +2011,15 @@ class SelectCommandTests(unittest.TestCase):
             self._write_macro_context(
                 root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
             )
-            decisions_path = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
-            decisions_path.parent.mkdir(parents=True)
-            decisions_path.write_text(
-                json.dumps(
-                    {
-                        "ticker": "2222",
-                        "decision_scope": "research_memo",
-                        "decision_event_at": "2026-04-23T10:00:00+09:00",
-                        "decision_event_id": "decision-test-2222",
-                        "thesis_ref": "records/05-thesis/test.md",
-                        "thesis_decision": {
-                            "outcome": "deferred",
-                            "posture": "wait_for_event",
-                            "deferral_reason": "event_pending",
-                        },
-                    },
-                    ensure_ascii=False,
-                )
-                + "\n",
-                encoding="utf-8",
+            self._write_prior_thesis(
+                root,
+                ticker="2222",
+                decision={
+                    "outcome": "deferred",
+                    "posture": "wait_for_event",
+                    "deferral_reason": "event_pending",
+                },
+                published_at="2026-04-23T10:00:00+09:00",
             )
 
             buffer = io.StringIO()
@@ -2060,26 +2064,15 @@ class SelectCommandTests(unittest.TestCase):
             self._write_macro_context(
                 root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
             )
-            decisions_path = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
-            decisions_path.parent.mkdir(parents=True)
-            decisions_path.write_text(
-                json.dumps(
-                    {
-                        "ticker": "2222",
-                        "decision_scope": "research_memo",
-                        "decision_event_at": "2026-04-23T10:00:00+09:00",
-                        "decision_event_id": "decision-test-2222",
-                        "thesis_ref": "records/05-thesis/test.md",
-                        "thesis_decision": {
-                            "outcome": "rejected",
-                            "posture": "avoid",
-                            "reason_code": "thesis_broken",
-                        },
-                    },
-                    ensure_ascii=False,
-                )
-                + "\n",
-                encoding="utf-8",
+            self._write_prior_thesis(
+                root,
+                ticker="2222",
+                decision={
+                    "outcome": "rejected",
+                    "posture": "dropped",
+                    "reason_code": "thesis_broken",
+                },
+                published_at="2026-04-23T10:00:00+09:00",
             )
 
             buffer = io.StringIO()
@@ -2097,7 +2090,7 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual([item["ticker"] for item in self._recommended(payload)], ["3333"])
             self.assertEqual(payload["selection"]["diagnostics"]["suppressed_count"], 1)
 
-    def test_select_prior_research_tiebreak_uses_decision_event_id(self) -> None:
+    def test_select_prior_research_tiebreak_uses_filename(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -2117,40 +2110,30 @@ class SelectCommandTests(unittest.TestCase):
             self._write_macro_context(
                 root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
             )
-            decisions_path = root / "records/_decisions/thesis-decisions/2026-04.jsonl"
-            decisions_path.parent.mkdir(parents=True)
-            base_event = {
-                "ticker": "2222",
-                "decision_scope": "research_memo",
-                "decision_event_at": "2026-04-23T10:00:00+09:00",
-                "thesis_ref": "records/05-thesis/test.md",
-            }
-            older_id_event = {
-                **base_event,
-                "decision_event_id": "decision-a",
-                "thesis_decision": {
+            # 同日に同一 ticker の record が 2 つある場合、filename 降順の
+            # 後勝ちで最新判断を選ぶ (a=rejected より b=deferred が勝つ)。
+            self._write_prior_thesis(
+                root,
+                ticker="2222",
+                decision={
                     "outcome": "rejected",
-                    "posture": "avoid",
+                    "posture": "dropped",
                     "reason_code": "thesis_broken",
                 },
-            }
-            newer_id_event = {
-                **base_event,
-                "decision_event_id": "decision-z",
-                "thesis_decision": {
+                published_at="2026-04-23T10:00:00+09:00",
+                slug="a-first-take",
+            )
+            self._write_prior_thesis(
+                root,
+                ticker="2222",
+                decision={
                     "outcome": "deferred",
                     "posture": "wait_for_event",
                     "deferral_reason": "event_pending",
                     "revisit": {"revisit_after": "2026-05-01"},
                 },
-            }
-            decisions_path.write_text(
-                "\n".join(
-                    json.dumps(event, ensure_ascii=False)
-                    for event in (newer_id_event, older_id_event)
-                )
-                + "\n",
-                encoding="utf-8",
+                published_at="2026-04-23T10:00:00+09:00",
+                slug="b-revised-take",
             )
 
             buffer = io.StringIO()
