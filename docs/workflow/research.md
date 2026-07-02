@@ -124,6 +124,9 @@ published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
 （field 名・必須項目・enum は `records/_schemas/thesis.json` を正本とする。上は形を確認するための例。）
 
+
+> **本文の必須セクション**: research memo の本文見出しは playbook ごとの `records/_playbooks/<playbook_id>/body-schema.yaml` が正本で、validator が欠落を error にする。新規作成時は同 playbook の直近の approved memo を雛形にすると欠落しない。
+
 ## Validation
 
 ```bash
