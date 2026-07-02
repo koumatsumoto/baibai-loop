@@ -325,6 +325,7 @@ def _selection_candidate(
         "price_history_coverage_750d": item.price_history_coverage_750d,
         "gap_from_52w_low": item.gap_from_52w_low,
         "turnover_spike_5d": item.turnover_spike_5d,
+        "split_adjustment_flag": item.split_adjustment_flag,
         "evidence_hits": list(item.evidence_hits),
         "freshness_warnings": list(item.freshness_warnings),
         "selection_playbook": selection_playbook,

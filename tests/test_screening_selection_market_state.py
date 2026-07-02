@@ -172,6 +172,26 @@ class SelectionMarketStateTests(unittest.TestCase):
         # A genuinely new listing is short_history territory, not a gap.
         self.assertNotIn("price_history_gap", by_ticker["9999"]["risk_tags"])
 
+    def test_split_adjustment_flag_becomes_risk_tag(self) -> None:
+        # 分割・併合直後は market_cap / net_cash 比率が corporate action 未反映で
+        # 歪み得るため、triage 段階で risk tag として必ず表面化させる。
+        split_hit = dict(_CALM_CANDIDATE)
+        split_hit["split_adjustment_flag"] = True
+        payload = build_selection_payload(
+            asof_date=_ASOF,
+            candidates=(candidate_record_from_mapping(split_hit),),
+            macro_context=None,
+            rules=self.rules,
+            top=10,
+            profile="balanced",
+            candidates_ref="test.yaml",
+            macro_context_ref=None,
+            market_regime=None,
+        )
+        item = self._recommendations(payload)[0]
+        self.assertTrue(item["split_adjustment_flag"])
+        self.assertIn("split_adjustment_recent", item["risk_tags"])
+
     def test_sweep_payload_records_market_regime(self) -> None:
         payload = build_selection_sweep_payload(
             asof_date=_ASOF,
