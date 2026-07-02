@@ -16,7 +16,6 @@ PLAYBOOK_SALES_DISCOUNT = "sales-discount-growth"
 
 REASON_SECTOR_SELF_RANGE = "sector_median_discount_and_self_range_bottom"
 REASON_PRICE_SIGMA = "price_down_60d_and_valuation_sigma_down"
-REASON_SECTOR_ROTATION = "sector_rotation_short_sell"
 REASON_CASH_RICH = "cash_to_market_cap_price_to_equity_and_equity_ratio"
 REASON_CASHFLOW_YIELD = "ocf_yield_discount"
 REASON_SALES_DISCOUNT = "ps_discount_with_sales_growth"
@@ -119,11 +118,6 @@ def _valuation_reversion(
         metrics["condition_b_metric"] = hit_metric_b
         metrics["price_change_60d"] = derived.price_change_60d
         metrics["condition_b_sigma_gap"] = derived.sigma_gap.get(hit_metric_b)
-    if _condition_c(financial, derived, playbook, deterioration_threshold, null_reasons):
-        reasons.append(REASON_SECTOR_ROTATION)
-        metrics["sector_relative_strength_percentile"] = derived.sector_relative_strength_percentile
-        metrics["ticker_return_4w"] = derived.ticker_return_4w
-        metrics["sector_return_4w"] = derived.sector_return_4w
     if not reasons:
         return None
     return EvidenceHit(
@@ -178,29 +172,6 @@ def _condition_b_metric(
             return metric
     null_reasons.append("valuation_reversion_condition_b_no_sigma_gap")
     return None
-
-
-def _condition_c(
-    financial: FinancialSnapshot,
-    derived: DerivedMetrics,
-    playbook: ValuationReversionPlaybook,
-    deterioration_threshold: float,
-    null_reasons: list[str],
-) -> bool:
-    if _has_deterioration(financial, deterioration_threshold):
-        null_reasons.append("valuation_reversion_condition_c_deterioration")
-        return False
-    if derived.sector_relative_strength_percentile is None:
-        null_reasons.append("valuation_reversion_condition_c_missing_sector_percentile")
-        return False
-    if derived.ticker_return_4w is None or derived.sector_return_4w is None:
-        null_reasons.append("valuation_reversion_condition_c_missing_4w_returns")
-        return False
-    return (
-        derived.sector_relative_strength_percentile
-        <= playbook.sector_relative_strength_percentile_max
-        and derived.ticker_return_4w < derived.sector_return_4w
-    )
 
 
 def _cash_rich_asset_discount(

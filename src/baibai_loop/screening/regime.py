@@ -1,19 +1,14 @@
 """Market regime snapshot derived mechanically from cached daily bars.
 
-The 2026-05 replay showed the oversold/value tilt structurally lagging the
-benchmark while it rallied (4w relative -5.6 to -12.3pt across all profiles).
-This module classifies the market regime from price facts only (benchmark
-trend) so selection can stop boosting fast-dislocation candidates while the
-index is trending up. The snapshot is a fact-layer artifact: thresholds are
-fixed up front and never fitted to past data, and the label feeds a ranking
-lens, not a hard gate.
+Classifies the market state from price facts only (benchmark trend) as a
+fact-layer artifact: `market-snapshot` の週次履歴、`ticker-profile` の事実
+packet、`select` diagnostics の市場状態 fact として出力し、macro context
+作成の機械入力になる。thresholds are fixed up front and never fitted to past
+data; the label annotates facts and never gates or re-ranks selection
+(期間ではなく valuation と耐性で判断するため、docs/workflow/screening.md)。
 
-The classification is trend-only by design. Fast-dislocation picks
-anti-momentum names (recent heavy decliners); when benchmark momentum is
-strongly positive those laggards mechanically underperform whether the rally
-is broad or narrow — 2026-05 itself was a narrow rally (benchmark +8.7 to
-+17.4% over 20 bars). Breadth was previously recorded as a diagnostic field
-but did not gate the label, so it was removed in cleanup round 2.
+The classification is trend-only by design: breadth や他の内部指標は label を
+gate しない (診断は macro context 側の解釈に委ねる)。
 """
 
 from __future__ import annotations
@@ -26,7 +21,7 @@ from pathlib import Path
 
 NIKKEI225_ETF_PROXY = "1321"
 
-# Pre-registered fixed thresholds (no grid search; see docs/screening/mechanical.md).
+# Pre-registered fixed thresholds (no grid search; docs/workflow/screening.md).
 # +-3% over 20 business days is roughly a +-40% annualized drift, a conventional
 # bar for calling a directional move rather than range noise.
 RALLY_RETURN_20D_MIN = 0.03

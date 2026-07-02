@@ -19,7 +19,6 @@ from baibai_loop.screening.rules import (
     PLAYBOOK_SALES_DISCOUNT,
     PLAYBOOK_VALUATION_REVERSION,
     REASON_PRICE_SIGMA,
-    REASON_SECTOR_ROTATION,
     REASON_SECTOR_SELF_RANGE,
     evaluate_screening,
 )
@@ -100,19 +99,6 @@ class ScreeningRulesTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unknown default selection profile"):
                 load_screening_rules(path)
 
-    def test_fast_dislocation_requires_price_change_threshold(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "rules.yaml"
-            payload = RULES.model_dump(mode="json")
-            payload["selection"]["fast_dislocation"]["price_change_1d_max"] = None
-            payload["selection"]["fast_dislocation"]["price_change_5d_max"] = None
-            payload["selection"]["fast_dislocation"]["price_change_20d_max"] = None
-            payload["selection"]["fast_dislocation"]["price_change_60d_max"] = None
-            path.write_text(yaml.safe_dump(payload, allow_unicode=True), encoding="utf-8")
-
-            with self.assertRaisesRegex(ValueError, "price_change_"):
-                load_screening_rules(path)
-
     def test_condition_a_hits_when_sector_gap_and_self_range_match(self) -> None:
         result = evaluate_screening(_financial(), _derived(), RULES)
         self.assertTrue(result.pass_fail)
@@ -165,7 +151,9 @@ class ScreeningRulesTests(unittest.TestCase):
         )
         self.assertIn(REASON_PRICE_SIGMA, result.evidence_hits[0].reasons)
 
-    def test_condition_c_hits_on_sector_rotation(self) -> None:
+    def test_sector_rotation_alone_does_not_hit(self) -> None:
+        # 相対モメンタム (sector 内劣後) だけでは valuation 条件を満たさないため
+        # evidence hit にならない (割安の判定軸は valuation と耐性のみ)。
         result = evaluate_screening(
             _financial(eps_yoy=0.1, sales_yoy=0.1, operating_profit_yoy=0.1),
             _derived(
@@ -179,7 +167,7 @@ class ScreeningRulesTests(unittest.TestCase):
             ),
             RULES,
         )
-        self.assertIn(REASON_SECTOR_ROTATION, result.evidence_hits[0].reasons)
+        self.assertFalse([hit for hit in result.evidence_hits if hit.name == "valuation-reversion"])
 
     def test_ev_ebitda_participates_when_ttm_quality_is_exact(self) -> None:
         result = evaluate_screening(

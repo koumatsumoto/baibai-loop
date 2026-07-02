@@ -16,14 +16,9 @@ quality:
   yoy_deterioration_threshold: -0.3
 output:
   research_selection_target_max: 5
-  # playbook 優先順位の唯一の正本。推奨 queue の順位付けと primary evidence の選択の
-  # 両方に使う。変更は config 編集 + replay / ablation 計測 (docs/operations/
-  # backtest-runbook.md) で検証してから行う。
-  # 2026-05 playbook-cohorts (docs/operations/backtest-runbook.md §6) と
-  # 2026-06 selection-ablation の drop_playbook Δfull から、forward 計測上は
-  # cash-rich-asset-discount が最も価値創出する playbook (drop_playbook Δfull -1.2pt)。
-  # primary evidence pick (selection/ranking.py) と queue ordering に効くので、
-  # 計測順に並べる。reports/2026-06-19-strategy-improvement-ideas.md A1 参照。
+  # playbook 優先順位の唯一の正本。推奨 queue の順位付けと primary evidence の
+  # 選択の両方に使う。下値保護の裏付けが強い順 (資産・現金 → 相対 valuation →
+  # cash flow → 売上) に並べる。出典: reports/2026-06-19-strategy-improvement-ideas.md A1。
   research_selection_playbook_order:
   - cash-rich-asset-discount
   - valuation-reversion
@@ -38,26 +33,9 @@ selection:
     min_avg_turnover_oku: 1.0
     min_listing_span_days: 182
     exclude_jpx_flagged: true
-  fast_dislocation:
-    enabled: true
-    price_change_1d_max: -0.05
-    price_change_5d_max: -0.08
-    price_change_20d_max: -0.10
-    price_change_60d_max: -0.22
-    gap_from_52w_low_max: 0.15
-    turnover_spike_5d_min: 1.5
-    min_fundamental_guard_count: 2
-    min_fundamental_guard_family_count: 2
-    high_confidence_guard_count: 3
-    high_confidence_guard_family_count: 2
-    ocf_yield_min: 0.08
-    fcf_yield_min: 0.05
-    price_to_equity_max: 1.0
-    equity_ratio_min: 0.4
-    net_cash_to_market_cap_min: 0.2
-    sales_yoy_min: 0.05
-    operating_profit_positive_required: true
-  long_hold_survivability:
+  # 塩漬け耐性 (durability) annotation の事前固定閾値。ranking / gate には使わず、
+  # research の必須ゲート判定 (durability_gate) の機械入力になる。
+  durability:
     high_min_support_count: 4
     medium_min_support_count: 2
     equity_ratio_high_min: 0.5
@@ -69,10 +47,9 @@ selection:
     fcf_yield_positive_min: 0.0
     min_avg_turnover_oku: 1.0
   diversity:
-    # 2026-06 selection-ablation で no_diversity variant Δfull +1.9pt (4w) と
-    # 計測。max_recommended_per_sector=1 では top=5 ranking で良候補を取り
-    # 逃がしていた。2 まで緩和、sector concentration warning で監視に切替。
-    # reports/2026-06-19-strategy-improvement-ideas.md A2 参照。
+    # max_recommended_per_sector=1 では top=5 の推奨で良候補を取り逃がすため
+    # 2 とし、sector 集中は warning で監視する。
+    # 出典: reports/2026-06-19-strategy-improvement-ideas.md A2。
     max_recommended_per_sector: 2
     max_recommended_per_playbook: 2
     max_previous_candidates_in_recommended: 2
@@ -92,11 +69,10 @@ screening_playbooks:
     self_range_percentile_max: 0.2
     price_change_60d_max: -0.15
     sigma_gap_max: -1.0
-    sector_relative_strength_percentile_max: 0.2
-    # docs/screening/valuation-metrics.md は「PER は forward 優先、未公表時は
+    # docs/reference/valuation-metrics.md は「PER は forward 優先、未公表時は
     # trailing」と mandate。per_forward を primary に置き、null 時に
     # per_trailing を fallback として degrade させる。
-    # reports/2026-06-19-strategy-improvement-ideas.md A3 参照。
+    # 出典: reports/2026-06-19-strategy-improvement-ideas.md A3。
     metrics:
     - per_forward
     - per_trailing
@@ -107,7 +83,7 @@ screening_playbooks:
     # A4: 卸売業の運転資金 (商社・問屋) は J-Quants cash_eq を機械判定で
     # 膨張させる (2026-06-12 candidates で cash-rich 最大 cluster 49/292)。
     # 不動産業は land inventory が equity_ratio / cash_to_market_cap を
-    # 歪める。両 sector を除外。reports/2026-06-19-strategy-improvement-ideas.md A4 参照。
+    # 歪める。両 sector を除外。出典: reports/2026-06-19-strategy-improvement-ideas.md A4。
     excluded_sectors:
     - 銀行業
     - 証券・商品先物取引業
@@ -123,7 +99,7 @@ screening_playbooks:
     operating_profit_positive_required: true
     # C1: 営業利益の急減 (operating_profit_yoy <= -0.3) で deterioration gate を
     # 発動。OR-passing 構造で -50% EPS YoY 会社が cash-rich 経由で通る穴を
-    # 塞ぐ。reports/.../ideas.md C1 参照。
+    # 塞ぐ。出典: reports/2026-06-19-strategy-improvement-ideas.md C1。
     operating_profit_yoy_deterioration_threshold: -0.3
     playbook_id: cash-rich-asset-discount
   cashflow-yield-discount:
@@ -140,8 +116,7 @@ screening_playbooks:
     # C1: cash-rich と同じく deterioration gate を追加。
     operating_profit_yoy_deterioration_threshold: -0.3
     # C4: FCF が連続マイナスの重設備会社を排除。OCF+/FCF- (capex 先行) は
-    # 短期 mean-reversion で機械判定しにくく cohort 成績悪化要因。
-    # ideas.md C4 参照。
+    # 割安の実現可能性を機械判定しにくい。出典: ideas.md C4。
     fcf_yield_required_positive: true
     playbook_id: cashflow-yield-discount
   sales-discount-growth:
@@ -154,6 +129,6 @@ screening_playbooks:
     sales_yoy_min: 0.05
     allow_operating_loss_if_cfo_positive_or_loss_narrowing: true
     # C2: 損失縮小 escape hatch (-100B → -50B が pass) を operating margin
-    # floor で defang。chronic loser を排除。ideas.md C2 参照。
+    # floor で defang。chronic loser を排除。出典: ideas.md C2。
     operating_margin_min: -0.05
     playbook_id: sales-discount-growth

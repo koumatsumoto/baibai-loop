@@ -15,13 +15,12 @@ from baibai_loop.screening.selection import (
 
 _ASOF = date(2026, 5, 29)
 
-# Fast-dislocation eligible under the balanced profile: a 5d price trigger plus
-# two fundamental guards from two families (cash_flow + balance_sheet). The
-# evidence playbook sales-discount-growth ranks low in the configured playbook order so
-# the fast boost is the only reason this candidate can outrank the calm one.
-_FAST_CANDIDATE: Mapping[str, object] = {
+# Recent heavy decliner whose evidence playbook (sales-discount-growth) ranks
+# low in the configured playbook order. The decline itself must not move the
+# ranking: 主キーは playbook order + valuation discount strength のみ。
+_DECLINER_CANDIDATE: Mapping[str, object] = {
     "ticker": "9999",
-    "name": "fast oversold",
+    "name": "recent decliner",
     "sector_33": "情報・通信業",
     "market_cap_oku": 500,
     "price_change_5d": -0.10,
@@ -30,9 +29,8 @@ _FAST_CANDIDATE: Mapping[str, object] = {
     "metrics": {"ocf_yield": 0.12, "net_cash_to_market_cap": 0.3},
 }
 
-# Same fundamentals as the fast candidate but no price decline: without the
-# fast boost the configured playbook order decides and valuation-reversion
-# outranks sales-discount-growth.
+# Same fundamentals without the price decline; valuation-reversion outranks
+# sales-discount-growth via the configured playbook order.
 _CALM_CANDIDATE: Mapping[str, object] = {
     "ticker": "1111",
     "name": "calm value",
@@ -57,11 +55,11 @@ def _snapshot(regime: MarketRegime) -> MarketRegimeSnapshot:
     )
 
 
-class SelectionRegimeLensTests(unittest.TestCase):
+class SelectionMarketStateTests(unittest.TestCase):
     def setUp(self) -> None:
         self.rules = load_screening_rules(DEFAULT_RULES_PATH)
         self.candidates = (
-            candidate_record_from_mapping(_FAST_CANDIDATE),
+            candidate_record_from_mapping(_DECLINER_CANDIDATE),
             candidate_record_from_mapping(_CALM_CANDIDATE),
         )
 
@@ -90,49 +88,45 @@ class SelectionRegimeLensTests(unittest.TestCase):
         assert isinstance(diagnostics, Mapping)
         return diagnostics
 
-    def test_without_regime_fast_candidate_keeps_boost(self) -> None:
-        payload = self._payload(None)
-        self.assertEqual(self._recommended_tickers(payload), ["9999", "1111"])
-        diagnostics = self._diagnostics(payload)
-        self.assertEqual(diagnostics["fast_dislocation_boost"], "active")
-        self.assertIsNone(diagnostics["market_regime"])
-
-    def test_neutral_regime_keeps_existing_ranking(self) -> None:
-        payload = self._payload(_snapshot(MarketRegime.NEUTRAL_RANGE))
-        self.assertEqual(self._recommended_tickers(payload), ["9999", "1111"])
-        self.assertEqual(self._diagnostics(payload)["fast_dislocation_boost"], "active")
-
-    def test_selloff_regime_keeps_existing_ranking(self) -> None:
-        payload = self._payload(_snapshot(MarketRegime.RISK_OFF_SELLOFF))
-        self.assertEqual(self._recommended_tickers(payload), ["9999", "1111"])
-
-    def test_rally_regime_neutralizes_fast_boost(self) -> None:
-        payload = self._payload(_snapshot(MarketRegime.RISK_ON_RALLY))
-        self.assertEqual(self._recommended_tickers(payload), ["1111", "9999"])
-        diagnostics = self._diagnostics(payload)
-        self.assertEqual(diagnostics["fast_dislocation_boost"], "neutralized")
-        warnings = diagnostics["warnings"]
-        assert isinstance(warnings, list)
-        self.assertIn("fast_dislocation_boost_neutralized_risk_on_rally", warnings)
-        market_regime = diagnostics["market_regime"]
-        assert isinstance(market_regime, Mapping)
-        self.assertEqual(market_regime["regime"], "risk_on_rally")
-
-    def test_rally_regime_keeps_candidates_instead_of_gating(self) -> None:
-        payload = self._payload(_snapshot(MarketRegime.RISK_ON_RALLY))
-        self.assertEqual(len(self._recommended_tickers(payload)), 2)
-
     def _recommendations(self, payload: dict[str, object]) -> list[Mapping[str, object]]:
         recommendations = payload["recommendations"]
         assert isinstance(recommendations, list)
         return recommendations
 
+    def test_ranking_follows_playbook_order_not_price_decline(self) -> None:
+        # 直近の急落は順位を押し上げない: valuation-reversion (playbook order 上位)
+        # が sales-discount-growth の decliner より先に並ぶ。
+        payload = self._payload(None)
+        self.assertEqual(self._recommended_tickers(payload), ["1111", "9999"])
+
+    def test_ranking_is_invariant_across_market_regimes(self) -> None:
+        # market regime は fact annotation であり、ranking を変えない。
+        expected = ["1111", "9999"]
+        for regime in (
+            MarketRegime.NEUTRAL_RANGE,
+            MarketRegime.RISK_ON_RALLY,
+            MarketRegime.RISK_OFF_SELLOFF,
+        ):
+            payload = self._payload(_snapshot(regime))
+            self.assertEqual(self._recommended_tickers(payload), expected, regime)
+
+    def test_diagnostics_record_market_regime_fact(self) -> None:
+        payload = self._payload(_snapshot(MarketRegime.RISK_ON_RALLY))
+        diagnostics = self._diagnostics(payload)
+        market_regime = diagnostics["market_regime"]
+        assert isinstance(market_regime, Mapping)
+        self.assertEqual(market_regime["regime"], "risk_on_rally")
+
+    def test_diagnostics_market_regime_degrades_to_none(self) -> None:
+        payload = self._payload(None)
+        self.assertIsNone(self._diagnostics(payload)["market_regime"])
+
     def test_snapshot_supplies_benchmark_relative_20d_and_laggard_tag(self) -> None:
         payload = self._payload(_snapshot(MarketRegime.NEUTRAL_RANGE))
         by_ticker = {item["ticker"]: item for item in self._recommendations(payload)}
-        fast = by_ticker["9999"]
-        self.assertAlmostEqual(float(str(fast["benchmark_relative_20d"])), -0.17)
-        self.assertIn("benchmark_laggard_20d", fast["risk_tags"])
+        decliner = by_ticker["9999"]
+        self.assertAlmostEqual(float(str(decliner["benchmark_relative_20d"])), -0.17)
+        self.assertIn("benchmark_laggard_20d", decliner["risk_tags"])
         calm = by_ticker["1111"]
         self.assertAlmostEqual(float(str(calm["benchmark_relative_20d"])), -0.03)
         self.assertIn("benchmark_laggard_20d", calm["risk_tags"])
@@ -143,11 +137,20 @@ class SelectionRegimeLensTests(unittest.TestCase):
             self.assertIsNone(item["benchmark_relative_20d"])
             self.assertNotIn("benchmark_laggard_20d", item["risk_tags"])
 
+    def test_durability_rating_is_annotated(self) -> None:
+        payload = self._payload(None)
+        diagnostics = self._diagnostics(payload)
+        durability_counts = diagnostics["durability_counts"]
+        assert isinstance(durability_counts, Mapping)
+        self.assertEqual(sum(durability_counts.values()), 2)
+        for item in self._recommendations(payload):
+            self.assertIn("durability_rating", item)
+
     def test_price_history_gap_tag_marks_old_listing_with_sparse_bars(self) -> None:
         gappy = dict(_CALM_CANDIDATE)
         gappy["listing_span_days"] = 1200
         gappy["price_history_coverage_750d"] = 0.27
-        fresh = dict(_FAST_CANDIDATE)
+        fresh = dict(_DECLINER_CANDIDATE)
         fresh["listing_span_days"] = 300
         fresh["price_history_coverage_750d"] = 0.27
         payload = build_selection_payload(
@@ -186,17 +189,15 @@ class SelectionRegimeLensTests(unittest.TestCase):
         self.assertEqual(market_regime["regime"], "risk_on_rally")
 
 
-class RegimeLensCliArgumentTests(unittest.TestCase):
-    def test_select_parser_defaults_enable_regime_lens(self) -> None:
+class MarketStateCliArgumentTests(unittest.TestCase):
+    def test_select_parser_has_sqlite_path_default(self) -> None:
         args = build_parser().parse_args(["select", "--asof", "2026-05-29"])
-        self.assertFalse(args.no_regime_lens)
         self.assertTrue(args.sqlite_path.endswith("market.sqlite"))
 
-    def test_select_parser_accepts_no_regime_lens_and_sqlite_path(self) -> None:
+    def test_select_parser_accepts_sqlite_path(self) -> None:
         args = build_parser().parse_args(
-            ["select", "--asof", "2026-05-29", "--no-regime-lens", "--sqlite-path", "x.sqlite"]
+            ["select", "--asof", "2026-05-29", "--sqlite-path", "x.sqlite"]
         )
-        self.assertTrue(args.no_regime_lens)
         self.assertEqual(args.sqlite_path, "x.sqlite")
 
 

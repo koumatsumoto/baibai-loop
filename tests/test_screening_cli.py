@@ -1248,10 +1248,11 @@ class SelectCommandTests(unittest.TestCase):
                 ["test trigger"],
             )
             tickers = [c["ticker"] for c in self._recommended(payload)]
-            # All three candidates normalize to the valuation-reversion primary
-            # playbook under the configured playbook order, so the balanced per-playbook cap
-            # (2) drops the third one.
-            self.assertEqual(tickers, ["3333", "2222"])
+            # macro context は診断 annotation で順位に影響しない (headwind の 1111 も
+            # 落ちない)。3 候補とも primary playbook は valuation-reversion で strength
+            # も同一なので ticker 順に並び、balanced の per-playbook cap (2) が
+            # 3 本目を落とす。
+            self.assertEqual(tickers, ["1111", "2222"])
             self.assertEqual(
                 payload["selection"]["research_selection_playbook_order"],
                 [
@@ -1264,7 +1265,7 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(
                 self._recommended(payload)[0]["selection_playbook"], "valuation-reversion"
             )
-            self.assertEqual(self._recommended(payload)[0]["position_tier"], "200-500")
+            self.assertEqual(self._recommended(payload)[0]["position_tier"], "1000+")
             self.assertNotIn("lenses", self._recommended(payload)[0])
 
             full_buffer = io.StringIO()
@@ -1685,7 +1686,7 @@ class SelectCommandTests(unittest.TestCase):
                 self._recommended(payload)[0]["selection_playbook"], "cashflow-yield-discount"
             )
 
-    def test_select_fast_dislocation_requires_fundamental_guard(self) -> None:
+    def test_select_annotates_durability_and_flags_invalid_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -1792,83 +1793,17 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = safe_load(buffer.getvalue())
-            self.assertEqual(self._recommended(payload)[0]["ticker"], "2222")
-            self.assertTrue(self._recommended(payload)[0]["lenses"]["fast_dislocation"]["eligible"])
-            self.assertEqual(
-                self._recommended(payload)[0]["lenses"]["fast_dislocation"]["auxiliary_triggers"],
-                [],
-            )
+            by_ticker = {item["ticker"]: item for item in self._recommended(payload)}
             self.assertIn(
                 "liquidity_pass",
-                self._recommended(payload)[0]["lenses"]["long_hold_survivability"]["reasons"],
+                by_ticker["2222"]["lenses"]["durability"]["reasons"],
             )
             diagnostics = payload["selection"]["diagnostics"]
             self.assertIn("invalid_numeric_metric_values", diagnostics["warnings"])
             self.assertEqual(diagnostics["invalid_numeric_metric_value_count"], 4)
+            self.assertEqual(sum(diagnostics["durability_counts"].values()), 6)
 
-    def test_select_downgrades_fast_dislocation_with_stale_fundamentals(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            asof = date(2026, 4, 24)
-            warning = {
-                "source_family": "edinet-metrics",
-                "stale_metric": "edinet_metrics",
-                "reason": "material_event_after_edinet_source",
-                "event_date": "2026-03-03",
-                "event_kind": "borrowing",
-                "event_title": "資金の借入に関するお知らせ",
-                "event_source": "tdnet",
-                "event_url": None,
-                "edinet_source_submit_datetime": "2026-03-03 10:00",
-            }
-            self._write_candidates(
-                root / "records/04-candidates",
-                asof,
-                candidates=[
-                    {
-                        "ticker": "2222",
-                        "name": "stale but guarded drop",
-                        "sector_33": "機械",
-                        "market_cap_oku": 300,
-                        "price_change_5d": -0.09,
-                        "freshness_warnings": [warning],
-                        "metrics": {
-                            "equity_ratio": 0.5,
-                            "price_to_equity": 0.9,
-                            "ocf_yield": 0.12,
-                            "fcf_yield": 0.06,
-                            "net_cash_to_market_cap": 0.25,
-                            "sales_yoy": 0.1,
-                            "operating_profit": 10.0,
-                        },
-                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
-                    },
-                ],
-            )
-            self._write_macro_context(
-                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
-            )
-
-            buffer = io.StringIO()
-            exit_code = select_command(
-                asof_date=asof,
-                macro_context_path=None,
-                top=10,
-                candidates_root=root / "records/04-candidates",
-                macro_context_root=root / "records/01-macro-context",
-                detail="full",
-                stdout=buffer,
-            )
-
-            self.assertEqual(exit_code, 0)
-            payload = safe_load(buffer.getvalue())
-            lens = self._recommended(payload)[0]["lenses"]["fast_dislocation"]
-            self.assertTrue(lens["eligible"])
-            self.assertEqual(lens["confidence"], "medium")
-            self.assertEqual(lens["data_status"], "stale_fundamental_metrics")
-            self.assertTrue(lens["stale_fundamental_metrics"])
-
-    def test_select_long_hold_lens_splits_missing_and_weak_reasons(self) -> None:
+    def test_select_durability_lens_splits_missing_and_weak_reasons(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -1918,8 +1853,8 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = safe_load(buffer.getvalue())
             by_ticker = {item["ticker"]: item for item in self._recommended(payload)}
-            missing_lens = by_ticker["1111"]["lenses"]["long_hold_survivability"]
-            weak_lens = by_ticker["2222"]["lenses"]["long_hold_survivability"]
+            missing_lens = by_ticker["1111"]["lenses"]["durability"]
+            weak_lens = by_ticker["2222"]["lenses"]["durability"]
             self.assertEqual(missing_lens["rating"], "unknown")
             self.assertIn("equity_ratio_missing", missing_lens["missing_reasons"])
             self.assertEqual(missing_lens["weak_reasons"], [])
@@ -2286,85 +2221,6 @@ class SelectCommandTests(unittest.TestCase):
                 sum(1 for item in self._recommended(payload) if item["previous_candidate"]),
                 2,
             )
-
-    def test_select_reports_short_return_missing_when_pipeline_has_no_data(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            asof = date(2026, 4, 24)
-            self._write_candidates(
-                root / "records/04-candidates",
-                asof,
-                candidates=[
-                    {
-                        "ticker": "1111",
-                        "name": "short return pipeline missing",
-                        "sector_33": "機械",
-                        "market_cap_oku": 300,
-                        "price_change_5d": -0.02,
-                        "metrics": {
-                            "ocf_yield": 0.1,
-                            "equity_ratio": 0.5,
-                            "price_to_equity": 0.9,
-                        },
-                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
-                    },
-                    {
-                        "ticker": "2222",
-                        "name": "short returns",
-                        "sector_33": "電気機器",
-                        "market_cap_oku": 300,
-                        "price_change_5d": -0.02,
-                        "price_change_20d": -0.12,
-                        "metrics": {
-                            "ocf_yield": 0.1,
-                            "equity_ratio": 0.5,
-                            "price_to_equity": 0.9,
-                        },
-                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
-                    },
-                    {
-                        "ticker": "3333",
-                        "name": "short return pipeline missing",
-                        "sector_33": "小売業",
-                        "market_cap_oku": 300,
-                        "price_change_60d": -0.24,
-                        "metrics": {
-                            "ocf_yield": 0.1,
-                            "equity_ratio": 0.5,
-                            "price_to_equity": 0.9,
-                        },
-                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
-                    },
-                ],
-            )
-            self._write_macro_context(
-                root / "records/01-macro-context",
-                asof,
-                sectors={"機械": "neutral", "電気機器": "neutral", "小売業": "neutral"},
-            )
-
-            buffer = io.StringIO()
-            exit_code = select_command(
-                asof_date=asof,
-                macro_context_path=None,
-                top=10,
-                candidates_root=root / "records/04-candidates",
-                macro_context_root=root / "records/01-macro-context",
-                detail="full",
-                stdout=buffer,
-            )
-
-            self.assertEqual(exit_code, 0)
-            payload = safe_load(buffer.getvalue())
-            diagnostics = payload["selection"]["diagnostics"]
-            self.assertEqual(diagnostics["short_return_missing_candidate_count"], 2)
-            self.assertIn("short_return_price_history_missing", diagnostics["warnings"])
-            complete_candidate = next(
-                item for item in self._recommended(payload) if item["ticker"] == "2222"
-            )
-            fast_lens = complete_candidate["lenses"]["fast_dislocation"]
-            self.assertEqual(fast_lens["price_triggers"][0]["metric"], "price_change_20d")
-            self.assertEqual(fast_lens["data_status"], "ok")
 
     def test_rejects_non_mapping_candidates_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

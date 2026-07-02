@@ -7,16 +7,16 @@ from collections.abc import Mapping, Sequence
 
 from baibai_loop.foundation.coerce import (
     dedupe_strings,
-    int_or,
     mapping_or_empty,
     string_or_none,
     string_sequence,
 )
 
-from .lenses import _fast_guard_count, _fast_lens, _long_hold_lens
+from .lenses import _durability_lens_of
 
-# 2026-05 retro の運用ルール「Nikkei に 3pt 以上劣後している候補は starter size に
-# 限定する」を事前固定の annotation 閾値として機械化する。ranking には使わない。
+# Nikkei に 3pt 以上劣後している候補を事前固定の annotation 閾値で注記する。
+# 割安 (相対劣後) を買うのが本流のため ranking / gate には使わず、entry
+# preflight の情報系列として research 側で参照する。
 BENCHMARK_LAGGARD_RELATIVE_20D_MAX = -0.03
 
 # 上場 750 暦日以上なのに直近 750 暦日の bar 本数が population 最大の 80% を
@@ -26,31 +26,25 @@ PRICE_HISTORY_GAP_COVERAGE_MIN = 0.8
 _PRICE_HISTORY_GAP_MIN_LISTING_SPAN_DAYS = 750
 
 
-def _long_hold_counts(candidates: Sequence[Mapping[str, object]]) -> dict[str, int]:
+def _durability_counts(candidates: Sequence[Mapping[str, object]]) -> dict[str, int]:
     counts: Counter[str] = Counter()
     for candidate in candidates:
-        rating = string_or_none(_long_hold_lens(candidate).get("rating")) or "unknown"
+        rating = string_or_none(_durability_lens_of(candidate).get("rating")) or "unknown"
         counts[rating] += 1
     return dict(counts)
 
 
 def _candidate_reason_tags(candidate: Mapping[str, object]) -> list[str]:
     tags: list[str] = []
-    if _fast_lens(candidate).get("eligible") is True:
-        tags.append("fast_dislocation")
     playbook = string_or_none(candidate.get("selection_playbook"))
     if playbook:
         tags.append(playbook)
-    long_hold = _long_hold_lens(candidate)
-    rating = string_or_none(long_hold.get("rating"))
+    durability = _durability_lens_of(candidate)
+    rating = string_or_none(durability.get("rating"))
     if rating == "high":
-        tags.append("long_hold_high")
+        tags.append("durability_high")
     elif rating == "medium":
-        tags.append("long_hold_medium")
-    fast = _fast_lens(candidate)
-    confidence = string_or_none(fast.get("confidence"))
-    if confidence == "high":
-        tags.append("fast_confidence_high")
+        tags.append("durability_medium")
     return dedupe_strings(tags)
 
 
@@ -79,17 +73,13 @@ def _candidate_risk_tags(candidate: Mapping[str, object]) -> list[str]:
         tags.append("earnings_scheduled")
     if candidate.get("freshness_warnings"):
         tags.append("freshness_warning")
-    fast = _fast_lens(candidate)
-    if fast.get("stale_fundamental_metrics") is True:
-        tags.append("stale_fundamental_metrics")
     return dedupe_strings(tags)
 
 
 def _selection_candidate_summary(
     candidate: Mapping[str, object], *, rank: int
 ) -> dict[str, object]:
-    fast_lens = _fast_lens(candidate)
-    long_hold_lens = _long_hold_lens(candidate)
+    durability_lens = _durability_lens_of(candidate)
     metrics = mapping_or_empty(candidate.get("metrics"))
     return {
         "rank": rank,
@@ -120,18 +110,15 @@ def _selection_candidate_summary(
         "fcf_yield": metrics.get("fcf_yield"),
         "price_change_5d": candidate.get("price_change_5d"),
         "price_change_20d": candidate.get("price_change_20d"),
-        # dislocation 深度: 売られすぎ度の主要 window。fast/long-hold lens と RR の前提
+        # dislocation 深度: 売られすぎ度の主要 window。割安ゾーン入りの経緯と RR の前提
         "price_change_60d": candidate.get("price_change_60d"),
         "benchmark_relative_20d": candidate.get("benchmark_relative_20d"),
         "gap_from_52w_low": candidate.get("gap_from_52w_low"),
         "price_history_coverage_750d": candidate.get("price_history_coverage_750d"),
         "next_earnings_date": candidate.get("next_earnings_date"),
         "position_tier": candidate.get("position_tier"),
-        "fast_confidence": string_or_none(fast_lens.get("confidence")),
-        "fast_guard_count": _fast_guard_count(candidate),
-        "fast_guard_family_count": int_or(fast_lens.get("fundamental_guard_family_count"), 0),
-        "fast_data_status": string_or_none(fast_lens.get("data_status")),
-        "long_hold_rating": string_or_none(long_hold_lens.get("rating")),
+        "durability_rating": string_or_none(durability_lens.get("rating")),
+        "durability_caution_reasons": list(string_sequence(durability_lens.get("caution_reasons"))),
         "prior_research": candidate.get("prior_research"),
         "previous_candidate": candidate.get("previous_candidate") is True,
         "suppressed": candidate.get("suppressed") is True,
@@ -142,20 +129,14 @@ def _selection_candidate_summary(
 
 
 def _sweep_candidate_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str, object]:
-    fast_lens = _fast_lens(candidate)
-    long_hold_lens = _long_hold_lens(candidate)
+    durability_lens = _durability_lens_of(candidate)
     return {
         "rank": rank,
         "ticker": string_or_none(candidate.get("ticker")),
         "name": string_or_none(candidate.get("name")),
         "selection_playbook": string_or_none(candidate.get("selection_playbook")),
         "benchmark_relative_20d": candidate.get("benchmark_relative_20d"),
-        "fast_confidence": string_or_none(fast_lens.get("confidence")),
-        "fast_guard_count": _fast_guard_count(candidate),
-        "fast_guard_family_count": int_or(fast_lens.get("fundamental_guard_family_count"), 0),
-        "fast_data_status": string_or_none(fast_lens.get("data_status")),
-        "stale_fundamental_metrics": fast_lens.get("stale_fundamental_metrics") is True,
-        "long_hold_rating": string_or_none(long_hold_lens.get("rating")),
+        "durability_rating": string_or_none(durability_lens.get("rating")),
         "previous_candidate": candidate.get("previous_candidate") is True,
         "reason_tags": list(string_sequence(candidate.get("reason_tags"))),
         "risk_tags": list(string_sequence(candidate.get("risk_tags"))),
@@ -173,14 +154,9 @@ def _sweep_changed_summaries(
         changed_fields = {
             key
             for key in (
-                "fast_confidence",
-                "fast_guard_count",
-                "fast_guard_family_count",
-                "fast_data_status",
-                "long_hold_rating",
+                "durability_rating",
                 "selection_playbook",
                 "rank",
-                "stale_fundamental_metrics",
             )
             if base.get(key) != current.get(key)
         }

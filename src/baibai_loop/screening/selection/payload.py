@@ -15,19 +15,17 @@ from baibai_loop.foundation.coerce import (
 )
 from baibai_loop.macro.context import MacroContext
 
-from ..regime import MarketRegime, MarketRegimeSnapshot
+from ..regime import MarketRegimeSnapshot
 from ..rule_config import ScreeningRules, SelectionDiversityRules, SelectionLiquidityRules
 from ..tiers import position_tier
-from .lenses import _candidate_lenses, _fast_lens
+from .lenses import _candidate_lenses
 from .macro_fit import (
     _candidate_macro_context_result,
     _macro_context_alignment,
     _macro_context_summary,
-    _macro_rank,
 )
 from .profiles import resolve_selection_rules
 from .ranking import (
-    RankingToggles,
     _best_selection_evidence,
     _playbook_order_rank,
     _primary_evidence_by_playbook_order,
@@ -43,7 +41,7 @@ from .records import (
 from .summaries import (
     _candidate_reason_tags,
     _candidate_risk_tags,
-    _long_hold_counts,
+    _durability_counts,
     _selection_candidate_summary,
     _sweep_candidate_summary,
     _sweep_changed_summaries,
@@ -63,7 +61,6 @@ def build_selection_payload(
     previous_candidates: PreviousCandidates | None = None,
     prior_research_by_ticker: Mapping[str, PriorResearch] | None = None,
     market_regime: MarketRegimeSnapshot | None = None,
-    ranking_toggles: RankingToggles | None = None,
     profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
     detail: str = "summary",
 ) -> dict[str, object]:
@@ -82,18 +79,9 @@ def build_selection_payload(
     prior_research_by_ticker = prior_research_by_ticker or {}
     previous_candidates = previous_candidates or PreviousCandidates(ref_path=None, tickers=())
     previous_tickers = set(previous_candidates.tickers)
-    # The fast-dislocation boost buys falling knives at the top of the queue
-    # while the whole market rallies (2026-05 replay: 4w relative consistently
-    # negative). In risk_on_rally the boost is neutralized; candidates are kept
-    # (lens, not gate) and other ranking components take over.
-    fast_boost_active = (
-        market_regime is None or market_regime.regime is not MarketRegime.RISK_ON_RALLY
-    )
-    toggles = ranking_toggles or RankingToggles()
-    # Entry-preflight fact from the 2026-05 retro: candidates must carry their
-    # 20-day return relative to the benchmark proxy so the packet check
-    # ("starter size when lagging the index") is fed mechanically. The regime
-    # snapshot already holds the benchmark return; absence degrades to null.
+    # Entry preflight は候補の対 benchmark 20 日相対リターンを情報として使うため、
+    # market regime snapshot が持つ benchmark return を候補へ機械転記する。
+    # snapshot が無ければ null に degrade する。
     benchmark_return_20d = market_regime.benchmark_return_20d if market_regime else None
     # Single source of truth for playbook priority: the configured
     # research_selection_playbook_order ranks both the queue and the primary
@@ -147,24 +135,12 @@ def build_selection_payload(
             previous_candidate=item.ticker in previous_tickers,
             benchmark_return_20d=benchmark_return_20d,
         )
-        fast_lens = _fast_lens(candidate)
-        fast_boosted = (
-            toggles.fast_boost and fast_boost_active and fast_lens.get("eligible") is True
-        )
-        # Within the fast-boosted group, names whose latest session held
-        # flat-or-up rank ahead of ones still falling (stabilization signal);
-        # outside the group the component is constant and changes nothing.
-        stabilized_rank = (
-            0 if fast_boosted and toggles.stabilization and fast_lens.get("stabilized") else 1
-        )
+        # 主キーは valuation discount: playbook 優先順で group し、その中を
+        # 各 screen の割安度 strength key で並べる。macro context は診断
+        # annotation であり順位には使わない (docs/workflow/screening.md)。
         sort_key = (
-            _macro_rank(macro_context_alignment) if toggles.macro else 0,
-            0 if fast_boosted else 1,
-            stabilized_rank,
-            _playbook_order_rank(selection_playbook, playbook_order)
-            if toggles.playbook_rank
-            else 0,
-            *(strength_key if toggles.strength else ()),
+            _playbook_order_rank(selection_playbook, playbook_order),
+            *strength_key,
             item.ticker,
         )
         ranked_entries.append((sort_key, candidate))
@@ -187,7 +163,6 @@ def build_selection_payload(
         diversity_warning_ratio=selection_rules.diversity.previous_overlap_warning_ratio,
         profile=effective_profile,
         market_regime=market_regime,
-        fast_boost_active=fast_boost_active,
         liquidity_excluded_count=liquidity_excluded_count,
         liquidity_fact_missing_count=liquidity_fact_missing_count,
     )
@@ -268,8 +243,7 @@ def build_selection_sweep_payload(
                 ],
                 "recommended_tickers": [string_or_none(item.get("ticker")) for item in recommended],
                 "recommended_count": len(recommended),
-                "fast_dislocation_count": int_or(diagnostics.get("fast_dislocation_count"), 0),
-                "long_hold_counts": dict(mapping_or_empty(diagnostics.get("long_hold_counts"))),
+                "durability_counts": dict(mapping_or_empty(diagnostics.get("durability_counts"))),
                 "suppressed_count": int_or(diagnostics.get("suppressed_count"), 0),
                 "warnings": diagnostics.get("warnings"),
             }
@@ -475,7 +449,6 @@ def _diagnostics(
     diversity_warning_ratio: float,
     profile: str,
     market_regime: MarketRegimeSnapshot | None = None,
-    fast_boost_active: bool = True,
     liquidity_excluded_count: int = 0,
     liquidity_fact_missing_count: int = 0,
 ) -> dict[str, object]:
@@ -493,23 +466,10 @@ def _diagnostics(
     )
     if metric_type_warning_count:
         warnings.append("invalid_numeric_metric_values")
-    fast_data_status_counts = Counter(
-        string_or_none(_fast_lens(candidate).get("data_status")) or "unknown"
-        for candidate in ranked_candidates
-    )
-    short_return_missing_count = sum(
-        fast_data_status_counts[status]
-        for status in ("missing_price_history", "short_return_pipeline_missing")
-    )
-    if short_return_missing_count:
-        warnings.append("short_return_price_history_missing")
-    if not fast_boost_active:
-        warnings.append("fast_dislocation_boost_neutralized_risk_on_rally")
     return {
         "profile": profile,
         "warnings": warnings,
         "market_regime": market_regime.to_dict() if market_regime is not None else None,
-        "fast_dislocation_boost": "active" if fast_boost_active else "neutralized",
         "liquidity_excluded_count": liquidity_excluded_count,
         "liquidity_fact_missing_count": liquidity_fact_missing_count,
         "previous_overlap": {
@@ -518,12 +478,7 @@ def _diagnostics(
             "overlap_ratio": round(overlap_ratio, 4),
         },
         "suppressed_count": sum(1 for candidate in ranked_candidates if candidate["suppressed"]),
-        "fast_dislocation_count": sum(
-            1 for candidate in ranked_candidates if _fast_lens(candidate).get("eligible") is True
-        ),
-        "long_hold_counts": _long_hold_counts(ranked_candidates),
-        "short_return_missing_candidate_count": short_return_missing_count,
-        "fast_dislocation_data_status_counts": dict(fast_data_status_counts),
+        "durability_counts": _durability_counts(ranked_candidates),
         "invalid_numeric_metric_value_count": metric_type_warning_count,
     }
 
