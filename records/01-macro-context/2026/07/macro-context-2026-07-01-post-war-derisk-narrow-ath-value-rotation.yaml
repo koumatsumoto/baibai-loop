@@ -156,6 +156,11 @@ inputs:
     url: https://asia.nikkei.com/business/energy/japan-s-utilities-pour-billions-into-power-grid-amid-data-center-growth
     published_at: '2026-06-20'
     used_for: 送配電・系統投資の実弾確認（割安 × AI 受益のインフラ裾野シフト）
+  - source: BLS（TradingEconomics / Investing.com 経由。BLS 本体は fetch 不可のため 2 ミラーで検算）
+    title: Employment Situation June 2026（NFP +57K vs 予想 110-114K・5 月 172K→129K 下方改定・失業率 4.2%・時給 YoY 3.5%）
+    url: https://tradingeconomics.com/united-states/non-farm-payrolls
+    published_at: '2026-07-02'
+    used_for: refresh trigger（本日の NFP）の発火判定。雇用の実弾が予想レンジ下限も下回る弱さ
   indicator_series:
   - series_id: us.sp500_earnings_yield
     window: latest (2026-07-02)
@@ -340,5 +345,5 @@ refresh_triggers:
 changes_since_previous:
   - "前回（06-30 context）の refresh_trigger「Doha 協議の帰趨」は de-escalation 方向に発火: 6/27 に米海軍 JMIC が通航ルートを拡幅し実質再開、6/28 攻撃停止合意、7/1 時点でカタール・パキスタン仲介の間接技術協議が進行。戦争プレミアムはほぼ剥落（Brent $71-74）。"
   - 前回 trigger「USD/JPY 163 超で介入 or 158→155 割れ」は未発火だが 162.7 と警戒ゾーン上限に接近。投機筋円ショートが 9 年ぶり高水準（約 14.6 万枚）に積み上がり、reflexive リスクは前回より増大。
-  - 前回 trigger「6 月 NFP 7/2」は本日 21:30 JST 発表待ち（コンセンサス +100-115K）。発表後に本 context の再評価が必要。
+  - "前回 trigger「6 月 NFP 7/2」の実績: +57K（予想 110-114K・予想レンジ下限 70K も下回る）、5 月 172K→129K へ -43K 下方改定、失業率 4.2% へ低下（労働参加の収縮示唆）、時給 YoY 3.5%（+0.1pt）。トリガー条件「<75K + 失業率 4.4% 超」は失業率側が満たされず部分発火。方向は利上げ織り込み後退（Bear 24% の実利上げ経路の確率低下・Bull やや上昇）だが、時給の粘着はタカ派の口実として残る。雇用の弱さは米金利低下 → 円高方向の圧力で、極端な円ショートの巻き戻し初動になり得る点は監視を強める（USD/JPY 158 割れ・150 割れの既定トリガーは不変）。内需・円高無風を優先した選定はこの print に対して頑健。"
   - "新規に確認した事実: BOJ 6/16 利上げ（1.00%）、5 月米 CPI 総合 4.2%（原油ショック残響）と Fed の dot 上方（3.8%）、SOX の Q2 史上最大上昇と 6/5・7/1 の急落、自社株買い 1-5 月過去最高（16.2 兆円）、Section 122 の 7/24 失効期限。"
