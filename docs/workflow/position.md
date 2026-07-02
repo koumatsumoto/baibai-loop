@@ -48,6 +48,15 @@ estimate_calibration: { entry_expected_upside_pct: 40.0, entry_expected_yield_pc
 
 `execution_state` は執行意図（order_intent）の最終状態、`orders[].state` は個々の注文の状態、`position_state` は約定履歴から検証される建玉の状態。`orders[].origin_order_intent_id` は order_intent と一致させる。`orders[].filled_quantity <= submitted_quantity`。`position_state: none` の record は executions を持たない。
 
+## 期限付き指値（約定待ち）の運用
+
+指値に期限を付けて発注し約定を待つ場合（例: 月末まで有効の GTC 風注文）、record は次の形で管理する:
+
+- **発注時**: `position_state: none`・`execution_state: submitted`・`orders[].state: submitted`・`executions: []` で record を作る。`order_intent.expires_at` に注文期限を入れる。約定価格を推定で埋めない（AP-09）。
+- **期限内のイベント跨ぎ**: 期限までに FOMC・日銀会合・CPI 等を跨ぐ場合は、`macro_context_fit.sizing_caution` にその旨を残し、**約定前の撤回条件**（例: macro context の refresh trigger 発火・円の閾値割れ）を record 本文に明文化する。kill_switch_check は発注時点の判定であり、期限内イベントはこの撤回条件で管理する。
+- **約定時**: `executions[]` / `entry_legs[]` を追記し、`orders[].state: filled`・`execution_state: filled`・`position_state: open`・`current_quantity` を更新する。thesis 側は書き換えない（entry 時の見積りを較正の基準として保存する）。
+- **期限切れ・撤回時**: `orders[].state: expired | cancelled`・`execution_state: expired | cancelled` に更新し、翌月の選定で再評価する。record は削除しない（発注判断自体が較正対象の事実）。
+
 ## 買い・長期保有・押し目での買増し
 
 - **買い**：research が確認した「割安ゾーン ∧ FV より十分に安い」で entry する。指値の上限価格と単元株数で数量を丸める。

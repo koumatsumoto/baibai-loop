@@ -180,7 +180,9 @@ def run_command(
     bars_by_ticker = group_bars_by_ticker(bars)
     summaries_by_ticker = group_summaries_by_ticker(summaries)
     next_earnings_by_ticker = _index_next_earnings(earnings_records, asof_date)
-    shares_by_ticker = build_shares_outstanding_index(summaries_by_ticker)
+    shares_by_ticker = build_shares_outstanding_index(
+        summaries_by_ticker, bars_by_ticker, asof_date
+    )
     edinet_load_error: str | None = None
     edinet_by_ticker: Mapping[str, EdinetMetricRecord] = {}
     if providers.edinet is None:
@@ -270,6 +272,7 @@ def run_command(
                 evidence_hits=result.evidence_hits,
                 ttm_quality={
                     "ev_ebitda": financial.ttm_quality_ev_ebitda,
+                    "per_trailing": financial.ttm_quality_per_trailing,
                     "p_s": financial.ttm_quality_p_s,
                     "pcfr": financial.ttm_quality_pcfr,
                     "ocf_yield": financial.ttm_quality_ocf_yield,

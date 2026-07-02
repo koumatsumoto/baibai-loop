@@ -40,6 +40,8 @@ def _summary(
     fiscal_period: str | None = "1Q",
     fiscal_year_end: date | None = date(2026, 3, 31),
     shares_outstanding: float = 400_000_000.0,
+    period_start: date | None = None,
+    period_end: date | None = None,
 ) -> JQuantsFinancialSummary:
     return JQuantsFinancialSummary(
         ticker=code,
@@ -55,6 +57,8 @@ def _summary(
         profit=None,
         fiscal_period=fiscal_period,
         fiscal_year_end=fiscal_year_end,
+        period_start=period_start,
+        period_end=period_end,
     )
 
 
@@ -122,7 +126,17 @@ class ScreeningMetricsTests(unittest.TestCase):
             asof_date=asof,
             securities_by_ticker={"130A": security},
             bars_by_ticker={"130A": base_bars + future_bars},
-            summaries_by_ticker={"130A": [_summary("130A", asof - timedelta(days=30))]},
+            summaries_by_ticker={
+                "130A": [
+                    _summary(
+                        "130A",
+                        asof - timedelta(days=30),
+                        fiscal_period="FY",
+                        period_start=date(2025, 4, 1),
+                        period_end=date(2026, 3, 31),
+                    )
+                ]
+            },
             edinet_by_ticker={},
         )
         self.assertIn("130A", result.financials)
@@ -133,6 +147,208 @@ class ScreeningMetricsTests(unittest.TestCase):
         self.assertAlmostEqual(per_trailing, (100.0 + 399) / 18.0, places=5)
         # short_history_flag must be derived from bars <= asof only. 400d history < 750d ⇒ True.
         self.assertTrue(result.derived["130A"].short_history_flag)
+
+    def test_market_cap_adjusts_shares_for_split_after_disclosure(self) -> None:
+        """開示後の分割 (権利落ち bar の adjustment_factor) を株数へ補正する。
+
+        開示時点の株数 100 株・1:2 分割 (factor 0.5) 後の終値 50 のとき、
+        naive な 100 x 50 = 5,000 ではなく 200 x 50 = 10,000 が market cap。
+        """
+        asof = date(2026, 7, 1)
+        security = _security()
+        bars = []
+        for index in range(30):
+            traded_at = asof - timedelta(days=29 - index)
+            bars.append(
+                JQuantsDailyBar(
+                    ticker="130A",
+                    traded_at=traded_at,
+                    close=100.0 if index < 27 else 50.0,
+                    turnover_value=300_000_000.0,
+                    adjustment_factor=0.5 if index == 27 else 1.0,
+                )
+            )
+        summaries = [
+            _summary(
+                "130A",
+                asof - timedelta(days=20),
+                fiscal_period="FY",
+                period_start=date(2025, 4, 1),
+                period_end=date(2026, 3, 31),
+                shares_outstanding=100.0,
+            )
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": security},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        financial = result.financials["130A"]
+        assert financial.market_cap is not None
+        self.assertAlmostEqual(financial.market_cap, 50.0 * 200.0, places=3)
+        self.assertAlmostEqual(financial.shares_outstanding or 0.0, 200.0, places=3)
+        # 分割を跨ぐ行の forecast_eps は基準 (分割考慮前/後) を機械判別できないため
+        # None に落ち、per_forward は出ない (偽値を出さない)。
+        self.assertIsNone(financial.per_forward)
+
+    def test_split_crossing_composition_normalizes_per_share_basis(self) -> None:
+        """分割を跨ぐ TTM 合成・YoY・株数変化は、行を asof 基準へ正規化してから行う。
+
+        1911 型の再現: 前年 Q1 (分割前基準 eps 98.65・株数 206M) → 1:3 分割
+        (factor 1/3) → 通期・直近 Q1 は分割後基準。正規化なしだと合成 EPS が
+        27.33+174.13-98.65=102.81 (per_trailing 過大)、net_share_change_yoy が
+        +200% の偽希薄化になる。正規化後は 98.65 x 1/3 = 32.88 を引く。
+        """
+        asof = date(2026, 7, 1)
+        security = _security()
+        bars = []
+        for index in range(400):
+            traded_at = asof - timedelta(days=399 - index)
+            bars.append(
+                JQuantsDailyBar(
+                    ticker="130A",
+                    traded_at=traded_at,
+                    close=1328.0,
+                    turnover_value=300_000_000.0,
+                    adjustment_factor=(1.0 / 3.0 if traded_at == date(2025, 6, 27) else 1.0),
+                )
+            )
+        summaries = [
+            _summary(
+                "130A",
+                date(2025, 4, 30),
+                eps_ttm=98.65,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 3, 31),
+                shares_outstanding=206_068_168.0,
+            ),
+            _summary(
+                "130A",
+                date(2026, 2, 13),
+                eps_ttm=174.13,
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 12, 31),
+                shares_outstanding=618_555_804.0,
+            ),
+            _summary(
+                "130A",
+                date(2026, 5, 7),
+                eps_ttm=27.33,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2026, 12, 31),
+                period_start=date(2026, 1, 1),
+                period_end=date(2026, 3, 31),
+                shares_outstanding=618_555_804.0,
+            ),
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": security},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        financial = result.financials["130A"]
+        normalized_prior_q1 = 98.65 / 3.0
+        expected_eps_ttm = 27.33 + 174.13 - normalized_prior_q1
+        assert financial.per_trailing is not None
+        self.assertAlmostEqual(financial.per_trailing, 1328.0 / expected_eps_ttm, places=4)
+        # eps_yoy は正規化済み累計同士 (27.33 vs 32.88) の比較になる。
+        assert financial.eps_yoy is not None
+        self.assertAlmostEqual(financial.eps_yoy, 27.33 / normalized_prior_q1 - 1.0, places=4)
+        # 分割は希薄化ではない: 正規化後の前年株数は 206.07M x 3 = 618.20M 相当で、
+        # 変化は実際の微増資分 (+0.057%) だけになる (正規化なしだと +200% の偽希薄化)。
+        assert financial.net_share_change_yoy is not None
+        self.assertAlmostEqual(
+            financial.net_share_change_yoy,
+            618_555_804.0 / (206_068_168.0 * 3.0) - 1.0,
+            places=6,
+        )
+
+    def test_per_trailing_rolls_quarterly_cumulative_eps_into_ttm(self) -> None:
+        """J-Quants の EPS は期中累計なので、四半期開示直後は rolling 合成で TTM に直す。
+
+        直近が Q1 累計 (24.0) のとき、TTM = Q1 累計 + 前期通期 (114.0) - 前年 Q1 累計 (26.0)
+        = 112.0。単一四半期 EPS (24.0) で割った偽の割高 PER を作らない。
+        """
+        asof = date(2026, 7, 1)
+        security = _security()
+        bars = _daily_bars("130A", asof, 30)
+        summaries = [
+            _summary(
+                "130A",
+                date(2025, 5, 15),
+                eps_ttm=26.0,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2026, 2, 6),
+                eps_ttm=114.0,
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 12, 31),
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 12, 31),
+            ),
+            _summary(
+                "130A",
+                date(2026, 5, 15),
+                eps_ttm=24.0,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2026, 12, 31),
+                period_start=date(2026, 1, 1),
+                period_end=date(2026, 3, 31),
+            ),
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": security},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        financial = result.financials["130A"]
+        latest_close = 100.0 + 29
+        expected_eps_ttm = 24.0 + 114.0 - 26.0
+        assert financial.per_trailing is not None
+        self.assertAlmostEqual(financial.per_trailing, latest_close / expected_eps_ttm, places=5)
+        self.assertEqual(financial.ttm_quality_per_trailing.value, "exact")
+
+    def test_per_trailing_is_null_when_ttm_composition_unavailable(self) -> None:
+        """前期通期・前年同期間が無く合成できないときは per_trailing を出さない。"""
+        asof = date(2026, 7, 1)
+        security = _security()
+        bars = _daily_bars("130A", asof, 30)
+        summaries = [
+            _summary(
+                "130A",
+                date(2026, 5, 15),
+                eps_ttm=24.0,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2026, 12, 31),
+                period_start=date(2026, 1, 1),
+                period_end=date(2026, 3, 31),
+            ),
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": security},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        financial = result.financials["130A"]
+        self.assertIsNone(financial.per_trailing)
+        self.assertEqual(financial.ttm_quality_per_trailing.value, "unavailable")
 
     def test_build_metrics_uses_bars_span_for_short_history_when_established(self) -> None:
         """An established listing (800 days of bars) must not be flagged as short_history."""
@@ -598,7 +814,8 @@ class ScreeningMetricsTests(unittest.TestCase):
         # ends, so price_change_60d should not register a synthetic decline.
         asof = date(2026, 4, 24)
         bars = []
-        # 70 sessions of pre-split history at raw=100, adj=50
+        # 分割前 70 sessions は raw=100。adjustment_close はわざと stale
+        # (raw のまま = incremental cache の未遡及 row) にして無視されることを検証。
         for i in range(70):
             bars.append(
                 JQuantsDailyBar(
@@ -606,10 +823,10 @@ class ScreeningMetricsTests(unittest.TestCase):
                     asof - timedelta(days=70 - i),
                     close=100.0,
                     turnover_value=300_000_000.0,
-                    adjustment_close=50.0,
+                    adjustment_close=100.0,
                 )
             )
-        # Latest bar at raw=adj=50 (post-split day == today)
+        # 権利落ち日 (= asof) の bar に factor 0.5。close は分割後 50。
         bars.append(
             JQuantsDailyBar(
                 "130A",
@@ -617,6 +834,7 @@ class ScreeningMetricsTests(unittest.TestCase):
                 close=50.0,
                 turnover_value=300_000_000.0,
                 adjustment_close=50.0,
+                adjustment_factor=0.5,
             )
         )
         result = build_metrics(
@@ -642,12 +860,12 @@ class ScreeningMetricsTests(unittest.TestCase):
         # which would falsely trip the -15% screening threshold.
         self.assertEqual(derived.price_change_60d, 0.0)
 
-    def test_build_metrics_historical_ev_ebitda_uses_adjusted_close_when_available(self) -> None:
-        # Simulate a 2-for-1 stock split between asof-2 and asof-1 by giving
-        # raw close a discontinuous jump while adjustment_close stays smooth.
-        # Latest close (asof) is the unadjusted post-split price; historical
-        # series should use adjustment_close so the split does not propagate
-        # into self_range_percentile / sigma_gap.
+    def test_build_metrics_historical_ev_ebitda_normalizes_split_via_factor(self) -> None:
+        # 1:2 分割 (権利落ち = asof、factor 0.5) を跨ぐ価格履歴。調整は不変イベントの
+        # adjustment_factor から組む。adjustment_close は incremental cache で
+        # 遡及の有無が混在し series にならないため、わざと stale な値 (raw close の
+        # まま) を入れて「無視されること」を検証する。
+        # 正規化後の履歴 = [160x0.5, 200x0.5, 120] = [80, 100, 120]。
         asof = date(2026, 4, 24)
         bars = [
             JQuantsDailyBar(
@@ -655,14 +873,14 @@ class ScreeningMetricsTests(unittest.TestCase):
                 asof - timedelta(days=2),
                 close=160.0,
                 turnover_value=300_000_000.0,
-                adjustment_close=80.0,
+                adjustment_close=160.0,
             ),
             JQuantsDailyBar(
                 "130A",
                 asof - timedelta(days=1),
                 close=200.0,
                 turnover_value=300_000_000.0,
-                adjustment_close=100.0,
+                adjustment_close=200.0,
             ),
             JQuantsDailyBar(
                 "130A",
@@ -670,6 +888,7 @@ class ScreeningMetricsTests(unittest.TestCase):
                 close=120.0,
                 turnover_value=300_000_000.0,
                 adjustment_close=120.0,
+                adjustment_factor=0.5,
             ),
         ]
         result = build_metrics(
@@ -804,6 +1023,8 @@ class MedianPopulationTests(unittest.TestCase):
                 disclosed_at=_date(2026, 2, 1),
                 eps_ttm=eps,
                 type_of_current_period="FY",
+                period_start=_date(2025, 1, 1),
+                period_end=_date(2025, 12, 31),
             )
 
         securities = {

@@ -67,6 +67,11 @@ def _candidate_risk_tags(candidate: Mapping[str, object]) -> list[str]:
         and listing_span_days >= _PRICE_HISTORY_GAP_MIN_LISTING_SPAN_DAYS
     ):
         tags.append("price_history_gap")
+    # 分割・併合の直後は master 株数と価格の基準日ずれで market_cap / net_cash 比率 /
+    # 価格変化率の fact が歪み得る (corporate action 未反映)。research 側で AP-03 の
+    # corporate action check を必ず通すよう triage 段階で注意を立てる。
+    if candidate.get("split_adjustment_flag") is True:
+        tags.append("split_adjustment_recent")
     if candidate.get("suppressed") is True:
         tags.append("suppressed_by_prior_research")
     if string_or_none(candidate.get("next_earnings_date")):
@@ -115,6 +120,7 @@ def _selection_candidate_summary(
         "benchmark_relative_20d": candidate.get("benchmark_relative_20d"),
         "gap_from_52w_low": candidate.get("gap_from_52w_low"),
         "price_history_coverage_750d": candidate.get("price_history_coverage_750d"),
+        "split_adjustment_flag": candidate.get("split_adjustment_flag") is True,
         "next_earnings_date": candidate.get("next_earnings_date"),
         "position_tier": candidate.get("position_tier"),
         "durability_rating": string_or_none(durability_lens.get("rating")),

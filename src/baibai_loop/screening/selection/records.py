@@ -43,6 +43,7 @@ class CandidateRecord:
     gap_from_52w_low: float | None = None
     turnover_spike_5d: float | None = None
     price_history_coverage_750d: float | None = None
+    split_adjustment_flag: bool = False
     # Top-level valuation multiples from the screen output. The selection
     # ranking reads cheapness from evidence-hit metrics; the scorecard triage
     # surfaces these headline multiples as a valuation-discount coordinate.
@@ -118,6 +119,7 @@ def candidate_record_from_mapping(raw: Mapping[str, object]) -> CandidateRecord:
         gap_from_52w_low=optional_float(raw.get("gap_from_52w_low")),
         turnover_spike_5d=optional_float(raw.get("turnover_spike_5d")),
         price_history_coverage_750d=optional_float(raw.get("price_history_coverage_750d")),
+        split_adjustment_flag=raw.get("split_adjustment_flag") is True,
         per_trailing=optional_float(raw.get("per_trailing")),
         per_forward=optional_float(raw.get("per_forward")),
         pbr=optional_float(raw.get("pbr")),

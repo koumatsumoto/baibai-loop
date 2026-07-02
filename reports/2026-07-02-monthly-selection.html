@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src https://cdn.jsdelivr.net/npm/mermaid@11.15.0/ 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src blob:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <title>2026-07 月次積立 銘柄選定レポート — ALSOK を最良リスクリワードに選定</title>
+  <style>
+/* km:html-document のスタイル。document-template.html の <style> にインライン展開して単一ファイルにする（外部リンクにしない） */
+
+/* ===== テーマ変数（配色やサイズの調整はここを起点に） ===== */
+:root {
+  --content-width: 1400px;
+  --fg: #1f2328;
+  --fg-muted: #57606a;
+  --bg: #ffffff;
+  --bg-subtle: #f6f8fa;
+  --border: #d0d7de;
+  --accent: #0969da;
+  --note: #0969da;
+  --warning: #9a6700;
+  --important: #8250df;
+  --code-bg: #f6f8fa;
+  --radius: 6px;
+  --space: 16px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN",
+          "Noto Sans JP", Meiryo, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* ===== ベース ===== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  color: var(--fg);
+  background: var(--bg);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.75;
+}
+
+/* ===== レイアウト（コンテンツ幅 1400px・中央寄せ） ===== */
+.container {
+  width: var(--content-width);
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 40px 32px 80px;
+}
+
+/* ===== ヘッダ / フッタ ===== */
+.doc-header { border-bottom: 2px solid var(--border); padding-bottom: 16px; margin-bottom: 32px; }
+.doc-header h1 { margin: 0 0 8px; }
+.doc-header .subtitle { margin: 0; color: var(--fg-muted); font-size: 1.05rem; }
+.doc-header .meta { margin: 8px 0 0; color: var(--fg-muted); font-size: 0.875rem; }
+.doc-footer { border-top: 1px solid var(--border); margin-top: 48px; padding-top: 16px; color: var(--fg-muted); font-size: 0.875rem; }
+
+/* ===== 見出し階層（H1 は 1 つ、H2=セクション、H3=サブ） ===== */
+h1 { font-size: 2rem; line-height: 1.3; }
+h2 { font-size: 1.5rem; margin-top: 2em; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 1.2rem; margin-top: 1.6em; }
+h2, h3 { scroll-margin-top: 16px; }
+
+/* ===== 本文要素 ===== */
+p, ul, ol { margin: 0 0 var(--space); }
+li { margin: 4px 0; }
+a { color: var(--accent); }
+hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+/* ===== 目次（長文向け） ===== */
+.toc { background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 24px; margin-bottom: 32px; }
+.toc strong { display: block; margin-bottom: 8px; }
+.toc ul { margin: 0; padding-left: 20px; }
+
+/* ===== テーブル ===== */
+table { border-collapse: collapse; width: 100%; margin: 0 0 var(--space); }
+th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+th { background: var(--bg-subtle); }
+tbody tr:nth-child(even) { background: var(--bg-subtle); }
+
+/* ===== コードブロック ===== */
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; overflow-x: auto; }
+code { font-family: var(--mono); font-size: 0.9em; }
+p code, li code, td code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+pre code { background: none; padding: 0; }
+
+/* ===== Callout（note / warning / important） ===== */
+.callout { border: 1px solid var(--border); border-left-width: 4px; border-radius: var(--radius); padding: 12px 16px; margin: 0 0 var(--space); background: var(--bg-subtle); }
+.callout .callout-title { font-weight: 600; margin: 0 0 4px; }
+.callout-note { border-left-color: var(--note); }
+.callout-warning { border-left-color: var(--warning); }
+.callout-important { border-left-color: var(--important); }
+
+/* ===== 図（Mermaid）。Ctrl+ホイール / ツールボタンで拡縮・ドラッグ移動・画像化ツールバー付き ===== */
+figure.diagram { position: relative; overflow: hidden; margin: 0 0 24px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); text-align: center; background: var(--bg); }
+figure.diagram .mermaid { display: flex; justify-content: center; cursor: grab; }
+figure.diagram.grabbing .mermaid { cursor: grabbing; }
+figure.diagram svg text { cursor: text; } /* ラベル上はテキスト選択カーソル（余白・ノードは grab で pan） */
+figure.diagram.grabbing { user-select: none; -webkit-user-select: none; } /* pan 中だけ選択を抑止し、通常はテキスト選択可 */
+figure.diagram svg { transition: transform .06s ease-out; flex-shrink: 0; } /* ズームは width/height で行う（ベクタ再描画で鮮明）。flex で縮めない */
+figure.diagram figcaption { margin-top: 10px; color: var(--fg-muted); font-size: 0.875rem; }
+/* 図ごとのツールバー（hover で表示）。JS が動的に挿入する */
+.diagram-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; opacity: 0; transition: opacity .15s; }
+figure.diagram:hover .diagram-tools, figure.diagram:focus-within .diagram-tools { opacity: 1; }
+.diagram-tools button { font-family: inherit; font-size: 0.72rem; line-height: 1.7; padding: 1px 8px; color: var(--fg-muted); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
+.diagram-tools button:hover { color: var(--fg); background: var(--bg-subtle); }
+
+/* ===== 印刷 / PDF ===== */
+@media print {
+  .toc, .diagram-tools { display: none; }
+  .container { width: auto; max-width: none; padding: 0; }
+  .callout { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  figure.diagram, pre, table, .callout { break-inside: avoid; page-break-inside: avoid; }
+  figure.diagram { overflow: visible; }
+  figure.diagram svg { transform: none !important; } /* ズーム自体は JS の beforeprint で自然サイズへ戻す */
+  svg { max-width: 100%; height: auto; }
+}
+
+</style>
+</head>
+<body>
+  <div class="container">
+
+    <header class="doc-header">
+      <h1>2026-07 月次積立 銘柄選定レポート</h1>
+      <p class="subtitle">マクロ分析 → 割安 screening（asof 2026-07-01）→ 一次 IR 深掘り 12 銘柄 → 最終 4 候補 → 最良リスクリワード 1 銘柄（2331 ALSOK）</p>
+      <p class="meta">生成日: 2026-07-02（最終版: 2026-07-03 未明 — NFP 実績・米国セッション初動・4 銘柄の深掘り IR を反映） ／ 予算: 月次 ¥20–30 万（総資本 ¥10,000,000・既保有 9 銘柄 約 ¥165 万） ／ 投資フレーム: 長期積立（価格 stop なし・割高化 or 事業毀損で全売り）</p>
+    </header>
+
+    <nav class="toc">
+      <strong>目次</strong>
+      <ul>
+        <li><a href="#s1">1. 一行結論と提案</a></li>
+        <li><a href="#s2">2. マクロ環境（前提）</a></li>
+        <li><a href="#s3">3. 選定プロセス</a></li>
+        <li><a href="#s4">4. 最終 4 候補の比較</a></li>
+        <li><a href="#s5">5. 各候補の投資仮説</a></li>
+        <li><a href="#s6">6. リスクリワードの正直な評価</a></li>
+        <li><a href="#s7">7. 発注プラン</a></li>
+        <li><a href="#s8">8. 除外銘柄と理由（value trap 検出）</a></li>
+        <li><a href="#s9">9. PM レビュー（8 観点）の結論</a></li>
+        <li><a href="#s10">10. screening データ品質の発見</a></li>
+        <li><a href="#s11">11. 監視トリガーと次のアクション</a></li>
+        <li><a href="#s12">12. 主要出典</a></li>
+      </ul>
+    </nav>
+
+    <section>
+      <h2 id="s1">1. 一行結論と提案</h2>
+      <div class="callout callout-important">
+        <p class="callout-title">提案（最終判断はユーザー）</p>
+        <p><strong>2331 ALSOK 100 株（指値 1,050 円）＋ 8929 青山財産ネットワークス 100 株（指値 1,190 円）、合計約 ¥224,000</strong>（月次予算 ¥20–30 万の下限寄り）。発注は<strong>7/3（金）</strong>、寄り前に USD/JPY（158 割れなら撤回）を確認してから。<strong>4 銘柄の深掘り IR（STAGE 2028・BE 2030 の一次 PDF、8929 の BS 一次確認、NDC 買収の経済性）を経ても 2 銘柄の買い判断は維持</strong>。第 3 候補 4828 は来月首位、ただし 900 円以下への調整時は月内前倒し（§6 の条件付き増額ルール）。</p>
+      </div>
+      <div class="callout callout-note">
+        <p class="callout-title">✅ 米 6 月雇用統計の実績（7/2 21:30 JST 発表・TradingEconomics / Investing.com の 2 ミラーで検算）</p>
+        <p><strong>NFP +57K</strong>（予想 110–114K・予想レンジ下限 70K も下回る大幅ミス）、5 月 172K → <strong>129K へ下方改定</strong>、失業率 <strong>4.2% へ低下</strong>（労働参加の収縮示唆）、時給 YoY 3.5%（+0.1pt）。refresh trigger「&lt;75K + 失業率 4.4% 超」は<strong>部分発火</strong>（失業率側が不成立）。方向は利上げ織り込みの後退（Bear の実利上げ経路の確率低下）だが、米金利低下 → 円高圧力は極端な円ショートの巻き戻し初動になり得るため監視を強化。<strong>内需・円高無風で選んだ本提案はこの結果に対して頑健 → 提案維持</strong>。円が一気に 158 を割る急伸時のみ撤回して再判断（その場合は温存余力での押し目増額の好機側）。</p>
+      </div>
+      <p>選定の骨子: 日本株は指数最高値圏だが中身は極端に狭く（半導体 +56% vs 東証スタンダード −1.9%）、<strong>取り残された内需・割安・高還元 cohort</strong> にこそ買い場がある。最大のテール（9 年ぶり極端な円ショートの巻き戻し = 円高スナップバック）に耐える<strong>円高無風の内需 2 銘柄</strong>を、事業の質 → キャッシュフロー → 割安さの順で選んだ。利回りは結果であって選定理由ではない。</p>
+      <table>
+        <thead><tr><th></th><th>銘柄</th><th>終値(7/1)</th><th>指値</th><th>フェアバリュー</th><th>上値余地</th><th>予想配当利回り</th><th>塩漬け耐性</th></tr></thead>
+        <tbody>
+          <tr><td><strong>★最良</strong></td><td><a href="https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A2331">2331 ALSOK</a></td><td>1,052.5</td><td>1,050</td><td>1,250–1,350</td><td>+19〜28%</td><td>3.14%（DPS 33 円）</td><td>◎ ネットキャッシュ +247 億</td></tr>
+          <tr><td>2</td><td><a href="https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A8929">8929 青山財産</a></td><td>1,199</td><td>1,190</td><td>1,500–1,750</td><td>+25〜46%</td><td>4.84%（DPS 58 円・16 期連続増配）</td><td>◎ 実質ネットキャッシュ・ROE 25%</td></tr>
+          <tr><td>3</td><td><a href="https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A4828">4828 B-EN-G</a></td><td>983</td><td>（来月）</td><td>1,150–1,350</td><td>+17〜37%</td><td>4.3%（性向 50% 方針）</td><td>◎ 無借金・net cash 20%</td></tr>
+          <tr><td>4</td><td><a href="https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A6741">6741 日本信号</a></td><td>1,550</td><td>（条件付き）</td><td>1,700–1,900</td><td>+10〜23%</td><td>3.6%（DOE 2% 下限）</td><td>○ 軽度ネットデット −45 億</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2 id="s2">2. マクロ環境（前提）</h2>
+      <p>正本は <code>records/01-macro-context/2026/07/macro-context-2026-07-01-post-war-derisk-narrow-ath-value-rotation.yaml</code>（Tier-1 一次 25 本 + 基盤 series 26 本で ground、validation 0 error）。要点:</p>
+      <ul>
+        <li><strong>戦争プレミアム剥落</strong>: イラン戦争の原油ショック（4 月 Brent $120.88）はホルムズ実質再開で Brent $71–74 へ（Q2 −30%）。外部環境は 4 月の最悪期から顕著に de-risk。</li>
+        <li><strong>異例のタカ Fed × 米株の歴史的割高</strong>: 5 月 CPI 総合 +4.2%（原油ショック残響）・コア PCE +3.4% に対し FF 3.50–3.75% 据え置き＋年末 dot 3.8%（利上げバイアス）。S&amp;P500 は CAPE 41.7、<strong>ERP = 益回り 3.11% − 10 年 4.44% = −1.33%（マイナス）</strong>。</li>
+        <li><strong>信用の二極化</strong>: IG 76bp / HY 275bp は極タイト、CCC 970bp（CCC/HY = 3.53 倍）とプライベートクレジットへストレス偏在。</li>
+        <li><strong>日本は「狭い最高値」</strong>: 日経 70,475（ATH 圏）だが半導体指数 +56% に対し東証スタンダード −1.9%・グロース −6.8%。<strong>割安バリュー cohort は取り残されている</strong>。自社株買いは 1–5 月 16.2 兆円と過去最高ペース、TSE 低 PBR 是正圧力が re-rating の追い風。</li>
+        <li><strong>最大のテール = 円</strong>: USD/JPY 162.7（1986 年以来）、投機筋円ショート約 14.6 万枚（9 年ぶり水準）。巻き戻せば 2024-08 型の同時安。<strong>→ 内需・円高無風の銘柄を優先する根拠</strong>。</li>
+        <li><strong>AI capex は実弾だが半導体本体は先食い</strong>: big4 の CY2026 capex は合算 $625–720B（ほぼ倍増）・TSMC 月次 +30%。一方 SOX は Q2 に史上最大の四半期上昇。割安 × AI 受益の交点は<strong>インフラ裾野と AI/DX 二次受益の内需</strong>へ。</li>
+      </ul>
+      <figure class="diagram">
+        <pre class="mermaid">
+flowchart LR
+    subgraph シナリオ（主観確率・1〜3か月）
+    B["Base 50%<br/>タカ据え置き×原油ディスインフレ<br/>grind higher"]
+    U["Bull 18%<br/>ディスインフレ加速<br/>利下げ再提示"]
+    R["Bear 24%<br/>コア再加速で実利上げ<br/>AIディレート"]
+    T["Tail 8%<br/>円キャリー巻き戻し／信用事故<br/>ホルムズ再封鎖"]
+    end
+    B --> P["平時積立を継続<br/>(月20-30万の下限寄り)"]
+    U --> P
+    R --> D["余力温存<br/>(押し目増額の弾)"]
+    T --> D
+</pre>
+        <figcaption>図1: シナリオと資金配分の対応 — 上方 68% / 下方 32%。積立は止めず、余力はテールの押し目増額用に温存する</figcaption>
+      </figure>
+    </section>
+
+    <section>
+      <h2 id="s3">3. 選定プロセス</h2>
+      <ol>
+        <li><strong>screening（機械・決定論）</strong>: cache を 2026-07-01 へ拡張し `run` → universe 3,744 銘柄中、通過 1,502（§10 のバグ修正後の確定値。提案時の run は 3,472 通過だったが、偽の trailing PER がセクター中央値を汚染して生んだ約 2,000 件の偽陽性を含んでいた）。`select`（新 macro context 適用）で流動性母集団 471 → 推奨 TOP。修正後データで select を再実行し、推奨順位・最終 4 候補の残存を確認済み。</li>
+        <li><strong>補完スキャン</strong>: macro tilt（電気・ガス / 非鉄 / 建設）× 割安で 9511 沖縄電力・1946 トーエネック・1899 福田組を追加。</li>
+        <li><strong>post-filter</strong>: 既保有 9 銘柄と構造衰退（4839 WOWOW = 有料衛星放送の構造縮小 × forward PER 47）を除外し 12 銘柄を確定。</li>
+        <li><strong>一次 IR 深掘り（4 並列 wave）</strong>: 決算短信・説明資料・適時開示を 2 ソース検算で精査。de-rating / value trap / earnings collapse を切り分け、durability（塩漬け耐性）と invalidation 条件を銘柄ごとに確定。</li>
+        <li><strong>最終絞り込み</strong>: 「割安ゾーン ∧ フェアバリュー下方乖離 ∧ 耐性ゲート合格 ∧ RR ≥ 2 目安」で 4 候補 → PM レビュー（8 観点）→ 最良 1 銘柄。</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2 id="s4">4. 最終 4 候補の比較（単一の合成点には畳まない）</h2>
+      <table>
+        <thead><tr><th>軸</th><th>2331 ALSOK</th><th>8929 青山財産</th><th>4828 B-EN-G</th><th>6741 日本信号</th></tr></thead>
+        <tbody>
+          <tr><td>Valuation（割安）</td><td><strong>strong</strong> 予想PER 13.7・特需剥落織込で −16%</td><td><strong>strong</strong> 実質PER 10.4・52週安値・利回り4.8%</td><td><strong>strong</strong> 予想PER 12.8・高値比−44%（PBR 3.65 は ROE29% が正当化）</td><td>neutral 実績PER 8.3 だが安値比+49%で再評価進行済</td></tr>
+          <tr><td>Durability（塩漬け耐性）</td><td><strong>strong</strong> ネットキャッシュ+247億・自己資本57%・ストック型CF</td><td><strong>strong</strong> 実質ネットキャッシュ・自己資本~40%・ROE25%</td><td><strong>strong</strong> 無借金・net cash 120億=時価20%・自己資本75%</td><td>weak〜neutral 軽度ネットデット−45億（screening の net cash 表示は誤り）</td></tr>
+          <tr><td>Catalyst</td><td><strong>strong</strong> 自社株買い100億進行中（〜9/30）・NDC連結（TOB成立 6/30）</td><td>weak Q2決算（8月）のみ</td><td>neutral Q1決算（8月）・AI機能「ACE」の浸透</td><td>neutral 受注+16%・ただし自社株買い未執行</td></tr>
+          <tr><td>Positioning/流動性</td><td><strong>strong</strong> プライム・ADV 13.7億</td><td>weak スタンダード・ADV 1.1億（発注は指値厳守）</td><td>neutral プライム・ADV 1.8億</td><td>neutral プライム・ADV 3.2億</td></tr>
+          <tr><td>AI/DX の長期影響</td><td>需要を作る側: 警備ロボ REBORG・AIカメラ・省人化需要。<strong>機械警備単価 +7% が実際に通った</strong>＝人手不足×省人化の実測受益</td><td>中立〜受益: 資産承継の構造成長が主。AIはコンサル生産性の追い風</td><td>需要を作る側: mcframe X に生成AI「ACE」実装。製造業DXの構造需要</td><td>需要を作る側: CBTC・駅務無人化・ホームドア＝省人化を売る</td></tr>
+          <tr><td>円高 150 円時</td><td><strong>ほぼ無風</strong>（海外4.7%・赤字）</td><td><strong>ゼロ</strong>（純内需）</td><td>低（海外~4%）</td><td>低（海外~12%）</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2 id="s5">5. 各候補の投資仮説</h2>
+
+      <h3>★ 2331 ALSOK — 増益ガイダンスの寡占ディフェンシブが sell-the-news で −16%</h3>
+      <p><strong>事業内容（業務別売上・会社 IR 一次）</strong>: 国内 2 位の総合警備。FY2026/3 の構成は機械警備 1,841 億（月額課金のストック型・中核）＋ HOME ALSOK 249 億・常駐警備 1,388 億・警備輸送 731 億・<strong>FM/防災 930 億</strong>・介護 552 億・海外 280 億 = 計 5,970 億。5 年トレンドで見ると警備コア（機械+常駐）は低成長（機械 1,765→1,841 億）を<strong>価格改定（+7.0% 浸透）で防衛</strong>する一方、成長は FM/防災（682→930 億 = 5 年 +36%）・介護（416→552 億 = +33%）・海外（158→280 億）が牽引する構図。契約 retention（ホームセキュリティ &gt;95% 目標）が示すとおり解約の少ないリカーリング基盤。</p>
+      <p><strong>将来性（STAGE 2028 を一次 PDF で確認）</strong>: 新中計 AS2028（FY2027–29）の FY2029 目標は<strong>売上 6,800–7,500 億・営業 650–720 億（FY2026 469 億から CAGR +11〜15%）・経常率約 10%・ROE 約 10%・配当性向 40–50%</strong>。Cash allocation は 3 年で成長投資・M&amp;A 900–1,000 億+α、配当 550 億+α。利益成長の柱は DX/AI による BPR（警備報告書の自動作成・巡回の省人化）＝<strong>人手不足を「売る側」かつ「コスト削減側」の両輪</strong>。NDC 買収（TOB 3,730 円・プレミアム 19.9%・全体 836 億 = NDC 純益 50.8 億の <strong>P/E 16.4 倍</strong>と割高ではない）は 5 年 +36% 成長中の防災セグメントへの純増で、営業 79.9 億（+30%）の NDC が中計達成の確度を上げる。<strong>ただし前中計 GD2025 は売上 650 億目標に対し 597 億・経常 65 億に対し 49.9 億と未達</strong>（会社説明「約 2 年遅れ」）— 中計数値は低位〜割引で読むのが誠実。割引いても FY2029 営業 600 億なら EPS ~85–90 円で、現値はその 11.7–12.4 倍。</p>
+      <p><strong>主なリスク</strong>: ①警備員の賃金インフレ &gt; 価格転嫁の逆転（常駐の利益率毀損）②NDC のれん減損・統合失敗（カーライル 49% との JV 運営の複雑さ）③介護の報酬改定（552 億が政策価格に依存）④AI カメラ/クラウド監視のコモディティ化による中抜き（通信キャリア・スタートアップ参入）⑤特需（万博・世界陸上）剥落が想定超過 ⑥中計未達の再演（GD2025 の前例）⑦セコムとの価格競争激化 ⑧大規模警備事故・信用毀損 ⑨金利上昇による調達コスト（軽微・ネットキャッシュ）⑩人口減による長期の警備需要縮小（超長期）。</p>
+      <ul>
+        <li><strong>なぜ割安か（de-rating）</strong>: 万博・世界陸上特需（常駐 +12.6%）の剥落を市場が織り込んだ売り + AI 集中相場でのディフェンシブ資金流出。業績データに崩れはなく、来期ガイダンス（営業 557 億 +18.7%・EPS 76.75 円）は特需剥落を NDC 連結と値上げで吸収する設計。経常率 5 期（8.3→8.9→7.7→7.9→7.8→8.4%）はレンジ内で<strong>ピーク益ではない</strong>。</li>
+        <li><strong>フェアバリュー 1,250–1,350 円（維持・根拠強化）</strong>: EPS 76.75 × 16–18 倍 ≒ 配当割引（DPS 33 円・g≈4.5%・r=7% → ≈1,320 円）。中計を大幅割引しても FY2029 EPS ~85 円 × 15 倍 = 1,275 円で整合。</li>
+        <li><strong>invalidation（全売り条件）</strong>: (1) 機械警備売上の YoY マイナス転落（価格決定力喪失）(2) NDC 統合失敗によるのれん減損 or 営業予想の 10% 超下方修正 (3) 減配・性向 40% 割れへの後退 (4) ネットキャッシュ消失＋自己資本 50% 割れ (5) 警備 OP 率 10.8% → 8% 台への低下。</li>
+      </ul>
+
+      <h3>8929 青山財産ネットワークス — 見かけの減収に隠れた本業最高益</h3>
+      <p><strong>事業内容（短信一次）</strong>: 富裕層・地主向けの財産コンサルティング（相続・事業承継・資産運用、フィー型 118.4 億 = +45.8%、うち相続税理士法人チェスターG 4 社 16.5 億）と、不動産取引（小口化商品 ADVANTAGE CLUB の組成販売・仲介 299.4 億）の二本柱。利益は高マージンのコンサルが牽引。会計事務所・金融機関の紹介ネットワークが顧客獲得チャネルで、承継案件は多年度にわたる反復フィーを生む。</p>
+      <p><strong>BS 一次確認（発注前条件 → クリア）</strong>: FY2025/12 末で現預金 141.0 億 − 有利子負債 62.1 億 = <strong>ネットキャッシュ +78.9 億（時価総額の 26%）</strong>・自己資本比率 44.4%。販売用不動産の積み増し（11.9 → 41.6 億）が営業 CF 急減（66.6 → 9.0 億）の正体だが、短信で会社自ら「<strong>不動産の仕入決済時に ADVANTAGE CLUB を組成し在庫リスクを発生させない方針</strong>」「現金は AC 用不動産の機動的取得資金」と明言 — 期ズレ商品の仕込みであり毀損ではない。「資本コスト約 8% 想定・性向 50%・純資産配当率 11.9%」と資本規律を短信に明記する希少な小型株。のれん+契約関連無形 35 億（チェスター）は純資産 117 億に対し許容内。</p>
+      <p><strong>将来性</strong>: 相続税の課税対象拡大（2015 年改正以降、課税件数は年 15 万件超へ倍増）と団塊世代の資産移転が TAM を構造的に押し上げる。信託銀行より機動的・税理士単体より総合的という中間ポジションで、チェスター買収により相続税申告の川上（年間申告件数国内最大級）を取り込んだ。FY2026 予想は営業 40 億（+3.7%）・EPS 110.52 円と控えめだが、期ズレした AC 在庫 41.6 億の組成売上が上振れ余地。</p>
+      <p><strong>主なリスク</strong>: ①小口化商品（任意組合スキーム）への課税強化・税制改正（最大テール — FY2025 の期ズレはその先例。恒久毀損なら thesis 崩壊）②地価下落・金利上昇による富裕層の不動産投資意欲減退 ③創業社長（蓮見氏）へのキーパーソン依存 ④チェスター統合の人材流出 ⑤スタンダード市場・ADV 1.1 億の流動性（成行禁止・指値厳守）⑥AC 投資家への償還トラブル・レピュテーション ⑦コンサル人材の採用難 ⑧競合参入（信託銀・大手税理士法人の富裕層シフト）⑨在庫方針の逸脱（決済時組成が崩れたら BS リスクに転化）⑩相続税制の抜本改正。</p>
+      <ul>
+        <li><strong>なぜ割安か（de-rating）</strong>: 「減収」ヘッドラインの額面視＋スタンダード小型からの資金流出で 52 週安値。screening の実績 PER 49.5 倍は単一四半期 EPS による artifact で、正しくは <strong>約 10 倍</strong>（実績通期 EPS 基準 10.4 倍・rolling TTM 基準 9.8 倍）。16 期連続増配（FY2026 予想 DPS 58 円 = 利回り 4.84%・性向 52.5%）。</li>
+        <li><strong>フェアバリュー 1,500–1,750 円（維持）</strong>: 正常化 EPS 115–125 円 × 13–15 倍（資産承継の構造成長・ROE 25.7% のフィー型コンサル）。純資産配当率 11.9% は資本コスト 8% を上回り、資本規律の面からも下値は堅い。</li>
+        <li><strong>invalidation</strong>: (1) 財産コンサル売上の 2 期連続失速 (2) 税制・規制による小口化ビジネスの恒久毀損 (3) 連続増配ストップ（減配） (4) ROE の持続的な 12% 割れ (5) 在庫「決済時組成」方針の放棄。</li>
+      </ul>
+
+      <h3>4828 ビジネスエンジニアリング — growth cliff で半値、しかし無借金 × recurring 成長</h3>
+      <p><strong>事業内容</strong>: 製造業特化の DX 企業。①ソリューション（SAP S/4HANA 等の導入 SI）②プロダクト（自社 ERP「mcframe」= 生産管理・原価管理・PLM・IoT。ライセンス +17.3%・クラウド版 mcframe X・生成 AI「ACE」実装済み）③システムサポート（保守・運用）。FY2026/3 は売上 244.4 億・営業 64.1 億（利益率 26.2%）・受注高も過去最高（上期 +18.4%）。無借金・net cash 120 億（時価の 20%）・自己資本 74.7%。</p>
+      <p><strong>将来性（BE 2030 を一次 PDF で確認）</strong>: FY2031/3 目標は<strong>売上 330 億・営業 100 億（利益率 30%）・ROE 20% 以上</strong>。構造が肝: 成長は<strong>ライセンス事業 70 → 120 億（+71%）とグローバル 9 → 22 億</strong>が担い、SAP SI は 127 → 163 億の「安定収益基盤」位置づけ（CAGR ~4%）。つまり<strong>会社自身が SAP 2027 特需を成長エンジンに数えておらず、growth cliff への答えは「高マージンのライセンス比率上昇」</strong>。前中計・経営 Vision 2026 は利益目標を 2 度前倒し達成（営業 19 → 46.7 億 vs 目標 48 億）— ALSOK と対照的な<strong>過達の実績</strong>で、中計の信頼度は高い。mcframe は国産製造業 ERP のデファクト候補ポジションで、製造業の 2027 年問題・原価高対応・AI 活用がいずれも追い風。</p>
+      <p><strong>主なリスク</strong>: ①SAP S/4HANA 移行特需の剥落が想定より早い/深い（SI 163 億計画の未達）②mcframe X（クラウド）移行による既存ライセンスの共食い・単価下落 ③SI 人材の採用難・単価上昇 ④FY2027 から連結する海外 5 社によるミックス劣化 ⑤8 月頭の Q1 決算が前年同期 +37% の高ハードル（短期の失望リスク）⑥生成 AI がパッケージ+SI のビジネスモデル自体を長期で代替 ⑦大口顧客の投資凍結（製造業景気）⑧1:5 分割後の個人需給 ⑨ライセンス 120 億目標の未達（BE2030 の利益はここに依存）⑩円高による製造業顧客の IT 投資減速（間接）。</p>
+      <ul>
+        <li><strong>なぜ割安か</strong>: 2025-12 高値 1,758 円は AI/DX 小型株ブームの過熱（PER ~21.5 倍）。FY2027/3 予想（営業 +7.6%・純益 −5.9% は税一過性剥落）で growth cliff を織り込み −44%。ガイダンス下方修正は一度もなく、下げは valuation 正常化。現 PER 12.8 倍は BE2030 の利益成長（CAGR ~9%）と性向 50% 超（利回り ~4.3%）に対して過小。</li>
+        <li><strong>フェアバリュー 1,150–1,350 円（維持）</strong>: EPS 77 円 × 15–17 倍。BE2030 通り FY2031 営業 100 億なら EPS ~120 円で、現値はその 8 倍強。</li>
+        <li><strong>invalidation</strong>: (1) mcframe ライセンスの 2 四半期連続 YoY マイナス (2) FY2027/3 営業の 60 億未満への下方修正 (3) 営業利益率 20% 割れ (4) 性向 50% 方針の撤回。</li>
+        <li><strong>位置づけ（条件付き前倒しに更新）</strong>: 基本は来月の積立首位候補。ただし<strong>米 AI 株安発の日経調整で 900 円以下まで来た場合は月内でも 100 株を前倒し</strong>（§6 の条件付き増額ルール）。8 月頭の Q1 決算（高いハードル）を通過してからでも遅くない。</li>
+      </ul>
+
+      <h3>6741 日本信号 — 無人化を売る側の再評価途上（条件付き 4 位・今回は見送り）</h3>
+      <p><strong>事業内容（Q3 短信一次）</strong>: 鉄道信号（ATC・連動装置・地方鉄道向け無線式列車制御・設備状態クラウド「Traio」）と道路交通（交通管制・信号灯器・自動運転インフラ協調）の交通運輸インフラ事業、AFC（改札・券売機・タッチ決済改札 = JR 九州で 4 月本格導入）・ホームドア・3D センサ・警備ロボットの ICT ソリューション事業がほぼ半々。顧客は JR・私鉄・警察/自治体 + 海外メトロ（台湾・インド・エジプト・バングラデシュ、ウガンダの交通信号まで）。9M 受注 859.9 億（+16.4%）&gt; 売上 708.1 億で<strong>受注超過 +152 億が受注残を積み上げ中</strong>（残高絶対額は非開示）。</p>
+      <p><strong>将来性</strong>: 中計 Realize-EV100（FY2029 目標: 売上 1,500 億・ROE≥10%・ROIC≥9%）。9M 営業 +113.9% の中身は交通運輸のセグメント利益 +637%（海外案件の採算改善+国内価格改定）で、OP 率 6.0 → 10.3% の改善は構造要因が主。鉄道の保守省力化（Traio・CBTC）・駅務無人化・ホームドア残存需要（国交省目標）・タッチ決済移行と、需要の視界は長い。</p>
+      <p><strong>主なリスク</strong>: ①FY2026 純益 +36.3% は政策保有株の売却益で嵩上げ（FY2027 −13.7% 正常化予想）②鉄道 capex の年度偏重・反転 ③海外メトロ案件の実行リスク（コスト超過・為替）④PBR&lt;1 なのに 2020 年以降自社株買いゼロ — 再評価カタリストが「宣言済み・未執行」のまま（開示から理由を特定できず）⑤軽度ネットデット（screening の net cash 表示は誤りと判明済み）⑥労務費・資材高 ⑦受注の消化能力（人員）制約。</p>
+      <ul>
+        <li><strong>見送りの理由（維持）</strong>: 質は本物だが、52 週安値比 +49% と再評価がかなり進み、上値余地（FV 1,700–1,900 = +10〜23%）は 4 候補で最小。正常化純益 100 億ベース PER 9.7 倍は妥当圏で、資本政策（自社株買い）が動かない限り re-rating の触媒に欠ける。<strong>1,400 円台への押し目で再訪</strong>。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2 id="s6">6. リスクリワードの正直な評価（必須セクション）</h2>
+      <div class="callout callout-warning">
+        <p class="callout-title">ボトムアップ RR はベストケースである</p>
+        <p>下表の「単純 RR」は FV 到達と保守下値のみから機械計算した値で、<strong>市場最高値圏（regime = risk_on_rally、指数 ATH 圏、ERP マイナス）では上方は低確率・下方はテール厚め</strong>に補正して読む必要がある。円ショート 14.6 万枚の巻き戻しは単日ギャップで来るため、指値や浅い損切りでは防御できない — 防御は<strong>銘柄の財務床（ネットキャッシュ・ストック型 CF）と現金余力</strong>で行う。</p>
+      </div>
+      <table>
+        <thead><tr><th></th><th>想定上昇（FV 中心）</th><th>保守下値（判断値）</th><th>単純 RR</th><th>シナリオ加重 E[r]（1 年・配当込み）</th><th>期待利回り（年率・FV 2 年収束）</th></tr></thead>
+        <tbody>
+          <tr><td>2331 ALSOK @1,050</td><td>+23.8%（1,300）</td><td>−9.5%（950 = 発表前水準の下・percentile 追加下落）</td><td><strong>2.5</strong></td><td><strong>約 +10%</strong>（68%×+15% / 24%×−8% / 8%×−14%、β≈0.5–0.6）</td><td>約 +14%（値上がり 11.3% + 配当 3.1%）</td></tr>
+          <tr><td>8929 青山財産 @1,190</td><td>+36.6%（1,625）</td><td>−16%（1,000 = コンサル失速懸念時）</td><td><strong>2.3</strong></td><td><strong>約 +14%</strong>（68%×+20% / 24%×−12% / 8%×−18%）</td><td>約 +22%（値上がり 16.9% + 配当 4.8%）— 楽観側。保守は +12%</td></tr>
+        </tbody>
+      </table>
+      <ul>
+        <li><strong>希望的 alpha を剥がした検算</strong>: ALSOK を控えめ 16 倍で評価しても 1,228 円（+17%）+ 配当 3.1% で期待値は正。8929 を 13 倍でも 1,437 円（+20%）。<strong>どちらも「割高な倍率を祈る」前提なしで期待値が正</strong>。</li>
+        <li><strong>利益の正規化確認</strong>: ALSOK は万博特需の剥落を来期ガイダンスが既に吸収（ピーク益外挿ではない）。8929 の今期最高益は構造成長するフィー収益が源泉で、期ズレの不動産はむしろ戻り側。</li>
+        <li><strong>左テールの明示</strong>: Tail（8%）発火時は内需・低βでも −12〜18% のギャップを想定。価格 stop を置かない前提ゆえ、<strong>この下落は「耐えて買い増す」局面</strong>であり、耐えられる銘柄（ネットキャッシュ・黒字 CF・還元継続）だけを選んだ。両銘柄とも減益局面でも配当維持力が高い（性向 42–53%・CF カバー十分）。</li>
+        <li><strong>機会費用</strong>: 全額待機は上方 68% を取りこぼす。月次レンジ下限（¥22.4 万）の投下 + 余力温存が両にらみの最良バランス。</li>
+      </ul>
+      <h3>7/2 米国セッションの検証と「どこまでリスクを取るか」（最終版で追記）</h3>
+      <p><strong>Nasdaq100 −1.81% は想定内か → 想定内、かつ thesis の追い風</strong>。同日の米国市場は Nasdaq100 −1.81%（Meta −4.3%・Tesla −7.3%・NVDA −1.8%）に対し <strong>Dow は史上最高値 +0.69%</strong>・金融/消費は堅調・VIX ~17.5（平静圏）・S&amp;P −0.17%。これはリスクオフではなく「弱い雇用 → 利上げ余地縮小 → AI 集中銘柄からバリュー/クレジット敏感への<strong>ローテーション</strong>」で、本 context の中核読み（AI/半導体は先食い済み → 取り残された割安 cohort へシフト）がそのまま米国で起きている形。買う対象（内需・割安・高還元）はこのローテーションの<strong>受け皿側</strong>にある。翌営業日の東京は指数（半導体ウェイト大）が下げても、指値には届きやすくなる。なお 7/3 の米国市場は独立記念日振替で休場。</p>
+      <p><strong>リスクテイク水準の敵対的検討（3 案比較）</strong>:</p>
+      <table>
+        <thead><tr><th>案</th><th>内容</th><th>敵対的評価</th><th>判定</th></tr></thead>
+        <tbody>
+          <tr><td>A. 全額待機</td><td>調整を待って 8 月に投下</td><td>上方 68% とローテーション追い風を放棄。日経急落は long-hold では買い場であり、待つ根拠が「怖さ」しかない</td><td><strong>却下（守りすぎ）</strong></td></tr>
+          <tr><td>B. 計画どおり ¥22.4 万</td><td>ALSOK + 8929 各 100 株</td><td>深掘り IR で両銘柄の床・中計・資本規律を一次確認済み。平時投下の設計どおり</td><td><strong>採用</strong></td></tr>
+          <tr><td>C. 3 銘柄 ¥32.2 万へ増額</td><td>4828 を今月に前倒し</td><td>月次予算 20–30 万を平時に 7% 超過する規律違反。4828 は 8 月頭 Q1 決算（前年 +37% の高ハードル）がリスクイベントで、「織り込み直後の反発を追う」より Q1 通過後/押し目の方が RR 良</td><td>却下、ただし<strong>条件付きで復活</strong>（下記）</td></tr>
+        </tbody>
+      </table>
+      <div class="callout callout-important">
+        <p class="callout-title">条件付き増額ルール（守りすぎないための明文化）</p>
+        <p>米 AI 株安発の日経調整が波及し、<strong>4828 が 900 円以下</strong> または <strong>8929 が 1,150 円以下</strong>（指値約定後にさらに −3.4%）まで来た場合は、「調整による割安化」という条件が満たされたものとして<strong>月内でも追加 1 単元（約 +9〜12 万円、月合計 ~¥32 万）を許容</strong>する。逆に円が 158 を割る急伸なら一旦撤回し、macro 更新後に温存余力（月次レンジ外の Tail 用資金）での段階的押し目買いに切り替える — どちらに動いても対応が決まっている状態にしておく。</p>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="s7">7. 発注プラン</h2>
+      <table>
+        <thead><tr><th>銘柄</th><th>数量</th><th>指値</th><th>発注額</th><th>タイミング</th><th>約定しない場合</th></tr></thead>
+        <tbody>
+          <tr><td>2331 ALSOK</td><td>100 株</td><td><strong>1,050 円</strong>（終値 1,052.5 のわずか下・約定確率優先）</td><td>¥105,000</td><td rowspan="2"><strong>7/3（金）以降</strong>。米 6 月雇用統計（+57K・大幅ミス）は通過済み — 明朝の USD/JPY・日経の反応を確認してから発注</td><td rowspan="2">翌週まで持ち越し。円急伸（&lt;158）が来た場合は一旦撤回して macro context を更新してから再判断（円急伸は温存余力での押し目増額の好機側でもある）</td></tr>
+          <tr><td>8929 青山財産</td><td>100 株</td><td><strong>1,190 円</strong>（終値 1,199 のわずか下）</td><td>¥119,000</td></tr>
+        </tbody>
+      </table>
+      <p><strong>policy 準拠の検算</strong>（分母 = real_capital_yen ¥10,000,000 簿価・entry 時制約）:</p>
+      <ul>
+        <li>単一銘柄 cap 6% = ¥600,000 ≫ 各 ¥105,000 / ¥119,000（1.05% / 1.19%）✓</li>
+        <li>sector cap 40%: サービス業（ALSOK）= 既保有 9715 + 2749 と合算 ¥520,000 = 5.2% ✓、不動産業（8929）= 新規 1.2% ✓</li>
+        <li>playbook cap 35%: cashflow-yield-discount（ALSOK 追加後）= 既保有 8255+3539+2749+9715 の ¥745,200 + ¥105,000 = <strong>8.5%</strong> ✓、valuation-reversion（8929 追加後）= 既保有 9534+4432 の ¥308,200 + ¥119,000 = <strong>4.3%</strong> ✓（position records の約定実額から再計算）</li>
+        <li>ADV 参加率 5%: ALSOK 0.008%・8929 0.11% ✓（8929 は板が薄いため成行禁止・指値厳守）</li>
+        <li>単元 100 株・指値 = 上限価格（order_price_guard）✓。信用・レバレッジ不使用 ✓</li>
+      </ul>
+      <p>約定後は新契約の thesis record（`fair_value_yen`・`expected_yield_pct`・`durability_gate`・`invalidation_conditions` 必須）と position record を作成する。</p>
+    </section>
+
+    <section>
+      <h2 id="s8">8. 除外銘柄と理由（value trap 検出の実例）</h2>
+      <table>
+        <thead><tr><th>銘柄</th><th>screening 上の見かけ</th><th>一次 IR で判明した実態</th><th>判定</th></tr></thead>
+        <tbody>
+          <tr><td>5949 ユニプレス</td><td>PBR 0.41・EV/EBITDA 1.6・OCF yield 42%（rank 1）</td><td>開示 3 顧客がすべて日産系で連結売上の 45.8%（グループ推定 ~7 割）。日産は 2 万人削減・17→10 拠点へ構造縮小中。来期は減収減益ガイダンス・2 期連続最終赤字</td><td><strong>value trap</strong>（単一顧客の構造縮小）</td></tr>
+          <tr><td>4839 WOWOW</td><td>PBR 0.41・cash-rich（rank 2）</td><td>有料衛星放送の構造的会員減。forward PER 47 倍 = 来期利益がほぼ消失する見込み</td><td><strong>構造衰退 + earnings collapse</strong></td></tr>
+          <tr><td>1911 住友林業</td><td>予想 PER 8.6・上値 +28〜58%</td><td>ネット有利子負債 5,579 億・FCF −501 億・米国が経常の過半。円高 150 円で経常 −7% 級、米住宅金利に従属</td><td>耐性ゲート不適合（円高テール直撃・レバレッジ）</td></tr>
+          <tr><td>9511 沖縄電力</td><td>PBR 0.37・OCF yield 53%</td><td>自己資本比率 25%・有利子負債 2,957 億へ増加中・FCF 赤字・来期予想「未定」。DC テーマは構想段階</td><td>耐性ゲート不合格（低負債条件 ✗）</td></tr>
+          <tr><td>1899 福田組</td><td>60 日 −57.9%・net cash 91%/時価</td><td><strong>1:2 株式分割（効力 7/1）の未調整 artifact</strong>。真の時価総額 655 億・net cash ~45%。実態は堅実な安定ゼネコンでフェアバリュー圏。DC テーマ記述なし</td><td>データ artifact（§10 参照）・積極根拠なし</td></tr>
+          <tr><td>6269 三井海洋開発</td><td>予想 PER 10.6・60 日 −40%</td><td>大相場の反動 + 原油急落連動。正常化 EPS で見ると現値はほぼフェア（安全余裕最小）</td><td>フェア（RR 不足）</td></tr>
+          <tr><td>2154 オープンアップ</td><td>OCF yield 10%</td><td>売上 −14.7% は英国事業売却の見かけ。ただし 52 週高値圏で割安でなく、IT 派遣に生成 AI 代替の初期兆候</td><td>フェア + AI 代替リスク</td></tr>
+          <tr><td>1946 トーエネック</td><td>予想 PER 11.7・DC/系統の実受注</td><td>質は本物（経常目標 180→260 億へ引き上げ）だが 60 日 +10%・52 週安値比 +91%（自己レンジ 97%ile）と高値追いになる</td><td>質は合格・<strong>割安ゾーン外</strong>（押し目待ちリストへ）</td></tr>
+          <tr><td>7611 / 7352 / 4125 / 6376</td><td>各 lane 通過</td><td>PBR 3.6 で益面の割安なし / 営業益 −35% / 時価 133 億の流動性 / 60 日 +51% の高値追い</td><td>割安度・質・流動性の不足</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2 id="s9">9. PM レビュー（8 観点）の結論</h2>
+      <ul>
+        <li><strong>全体アロケーション</strong>: 投下後の株式 18.7%・円現金 81%。ATH 圏 × 下方 32% の局面での厚い現金は方針どおり（暴落時の弾）。ただし<strong>全資産が円建て</strong>である点は明示しておく（円安継続シナリオでは外貨購買力が劣化。口座制約上、当面は許容）。</li>
+        <li><strong>構築</strong>: 11 銘柄・各 ~1%。1 銘柄の −30% 毀損でも全体 −0.3%。単元制約下で適正。</li>
+        <li><strong>実効分散</strong>: 全保有が〈内需・割安・低β〉ファクターに寄っており実効 N は名目より低い。これは円高テール耐性を最優先した<strong>意図した集中</strong>であり、外需・グロースは関税（7/24 失効の帰趨）と円の方向が見えた押し目で検討する。</li>
+        <li><strong>配当の質</strong>: ALSOK = A（CF カバー 2 倍・連続増配・リカーリング）、8929 = A−（16 期連続増配・性向 52%、BS 内訳の一次確認を発注前条件に）。利回りから選んでいない（イールドチェイス ✗）。</li>
+        <li><strong>約定戦略</strong>: 最小単元のためラダー不能 → 浅指値（約定確率優先）+ 持ち越し/撤回ルールで代替。</li>
+        <li><strong>dry powder</strong>: ✓ 月次レンジ下限の投下で、Tail 発火時（USD/JPY &lt;150・日経 −10〜20%）の増額余力を温存。</li>
+        <li><strong>機会費用</strong>: 上方 68% を取りこぼさない最小限の投下。全額待機・全力投下のどちらtoo も否定。</li>
+        <li><strong>テールとヘッジ</strong>: 最大テール = 円高ギャップ。ヘッジは (a) 円高無風銘柄の選択 (b) 現金 81%。指値・stop では防げないことを設計に織り込み済み。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2 id="s10">10. screening データ品質の発見（本 run の副産物・修正予定）</h2>
+      <div class="callout callout-note">
+        <p class="callout-title">一次 IR との突き合わせと徹底レビューで発見した機械 screening の歪み 3 件</p>
+        <p>いずれも「一次情報と検算する」規律（AP-01/02/03）が検出し、<strong>両方とも同 PR で修正済み</strong>。修正は「summary 行の実績 per-share 値・株数を、開示日以降の adjustment_factor で asof 基準へ正規化してから合成・比較する」方式に統一（分割を跨ぐ TTM 合成・YoY・株数変化・時価総額を一括で正す）。実データ検証: 1899 時価総額 655 億（一次検算と一致）、8929 trailing 9.8 倍、<strong>1911 は 7.88 倍</strong>（分割前基準の前年 Q1 を換算せず引いていた誤り 12.9 倍も併せて解消・IR 検算 7.6–7.9 倍と一致）、1911 の偽希薄化 +200% → +0.06%。分割を跨ぐ行の予想 EPS は会社の分割考慮慣行が混在し機械判別できないため null に落とす（偽の per_forward を出さない）。加えて select に <code>split_adjustment_recent</code> risk tag を追加。修正後の candidates で select を再実行し、本提案の順位・結論が不変であることを確認した（詳細: issue #289 / #290）。</p>
+      </div>
+      <ol>
+        <li><strong>株式分割の効力日を跨ぐ時価総額の歪み</strong>: 1899 福田組（1:2 分割・効力 7/1 = screening asof 当日）で、時価総額が「分割前株数 × 分割後株価」となり真値の半分（328 億 vs 655 億）。net cash 比率 91%（真値 ~45%）・60 日 −58%・52 週安値も同根の artifact。</li>
+        <li><strong>12 月決算銘柄の trailing PER / YoY が単一四半期ベース</strong>: 8929 / 1911 / 6269 で、trailing PER = 株価 ÷ FY2026 Q1 単四半期 EPS（例: 8929 の 49.5 倍 → 正しくは約 10 倍）。TTM 集計が新年度 1 四半期のみを年間扱いする劣化パス。「trailing 高 × forward 安」という偽の乖離シグナルが triage を歪めただけでなく、<strong>過大な PER がセクター中央値を汚染し「セクター比割安」の偽陽性を約 2,000 件量産していた</strong>（run 通過 3,472 → 修正後 1,502。推奨上位と最終 4 候補は修正後も残存・順位不変）。</li>
+        <li><strong>価格系列の基準混在（60 日騰落・52 週高安・自己レンジ percentile）</strong>: cache の adjustment_close は incremental 取得のため「分割後に取得した行だけ遡及調整済み」という混在系列になり、1899 の 60 日 −57.9%・5 日 −51.5%・52 週安値ちょうど、はすべてこの偽段差だった。不変イベントの adjustment_factor から asof 基準の系列を自前で組む方式へ全経路（screening・ticker-profile・market-snapshot・regime）を修正。<strong>修正後は 1899 が screen の通過条件を満たさなくなり candidates から消えた</strong>（偽陽性の根元解消。本提案は IR 一次確認で既に 1899 を除外済みのため結論への影響なし）。</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2 id="s11">11. 監視トリガーと次のアクション</h2>
+      <ul>
+        <li><strong>米 6 月雇用統計（通過済み・実績 +57K / 失業率 4.2% / 時給 3.5%）</strong>: 弱い雇用で利上げ織り込みは後退方向。次の分岐は米 6 月 CPI（~7/15）と円の反応 — 米金利低下 → 円高が続くかを監視。</li>
+        <li><strong>7/24 Section 122（一律 10% 関税）失効の帰趨</strong> / <strong>7/28–29 FOMC</strong> / <strong>7/30–31 日銀会合</strong>: イベント窓。保有は耐性で受け、新規大口は避ける。</li>
+        <li><strong>USD/JPY</strong>: 数日で −5% 超の円急伸 or 150 割れ = Tail 発火 → <strong>温存余力での押し目増額トリガー</strong>（売りではない）。</li>
+        <li><strong>TSMC 6 月月次（~7/10）・hyperscaler 決算（7 月末）</strong>: AI capex 実弾の反転チェック。</li>
+        <li><strong>1946 トーエネック</strong>: 押し目待ちリスト（自己レンジ中位への調整があれば DC/系統テーマの本命として再浮上）。</li>
+        <li><strong>4828 B-EN-G</strong>: 来月の積立首位候補（900 円割れなら前倒し検討）。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2 id="s12">12. 主要出典（一次優先・抜粋）</h2>
+      <ul>
+        <li>macro: BLS CPI（6/10）・BEA PCE（6/25）・FOMC 声明（6/17）・日銀決定会合（6/16）・総務省 CPI（6/19）・財務省介入実績（5/29）・JPX 投資部門別（6/25）・CIT Slip Op. 26-47（5/7）・FSB Private Credit（5/6）ほか — 全出典は macro-context YAML の inputs.articles（25 本）を正本とする。</li>
+        <li>ALSOK: FY2026/3 決算短信・自社株買い決議（2026-05-13）、<strong>中計 STAGE 2028 開示 PDF（2026-05-13・24p を直接読解 — FY2029 目標・GD2025 未達レビュー・cash allocation）</strong>、業務別売上高（会社 IR）、日本ドライケミカル TOB（3,730 円・プレミアム 19.9%・Bloomberg/日経 2026-05-13、成立 6/30）、NDC FY2026/3 実績（純益 50.8 億 → P/E 16.4 倍を検算）。</li>
+        <li>青山財産: FY2025/12 決算短信 PDF（2026-02-06）を直接読解 — <strong>BS 明細（現預金 141.0 億・有利子負債 62.1 億・販売用不動産 41.6 億）と在庫方針・資本規律の記述を一次確認</strong>。</li>
+        <li>B-EN-G: FY2026/3 決算短信（2026-05-12）、<strong>成長戦略 BE 2030 PDF（2025-05-13・17p を直接読解 — FY2031 売上 330 億/営業 100 億/ROE20%、事業区分別目標）</strong>、Q2 説明会書き起こし（logmi）、上方修正開示（2025-11-07・2026-02-06）。</li>
+        <li>日本信号: FY2026/3 Q3 決算短信 PDF（2026-02-03）を直接読解 — 受注・セグメント・政策保有株・CF を一次確認。</li>
+        <li>日本信号・ユニプレス・ゼリア・住友林業・MODEC・沖縄電力・トーエネック・福田組: 各社決算短信 / 適時開示 / 中計（本文中に記載）。</li>
+        <li>screening: `records/02-candidates/2026/07/2026-07-01.yaml`（機械事実・git 外 local store）、select 診断付き出力。</li>
+      </ul>
+      <div class="callout callout-warning">
+        <p class="callout-title">免責</p>
+        <p>本レポートは自己運用の判断記録であり、投資助言ではない。数値は 2026-07-02 時点の一次・準一次情報に基づくが、一部（8929 の BS 内訳等）は発注前の一次確認を条件として明示している。最終的な発注判断はユーザーが行う。</p>
+      </div>
+    </section>
+
+    <footer class="doc-footer">
+      <p>Baibai-Loop 2026-07 monthly selection — generated as a single self-contained HTML document.</p>
+    </footer>
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.min.js" integrity="sha384-yQ4mmBBT+vhTAwjFH0toJXNYJ6O4usWnt6EPIdWwrRvx2V/n5lXuDZQwQFeSFydF" crossorigin="anonymous"></script>
+  <script>
+// km:html-document の図操作スクリプト。document-template.html の末尾 <script> にビルドで挿入して単一ファイルにする。
+
+// Mermaid 初期化。htmlLabels:false で図ラベルを <foreignObject>（HTML）ではなく SVG <text> で描く。
+// foreignObject 入り SVG は canvas 描画時に汚染され toBlob が失敗するため、WebP 化を成立させるのに必須。
+mermaid.initialize({ startOnLoad: true, securityLevel: 'strict', htmlLabels: false, flowchart: { htmlLabels: false } });
+
+// 図の操作（完全クライアント側・外部送信なし）。各 figure.diagram に付与する:
+// - Ctrl+ホイールまたは ＋ / − ボタンで拡大 / 縮小、ドラッグで移動、ダブルクリック / リセットボタンで初期化
+// - WebP ボタンで SVG を canvas 経由のラスタ画像にして別タブで開く（ポップアップ抑止時はダウンロード）
+// mermaid は load 時に非同期描画するため、ハンドラは figure に張り SVG はイベント時に都度取得する（描画タイミングに依存しない）。
+(() => {
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  // SVG を指定 MIME のラスタ画像にして別タブで開く。img-src blob: で blob を許可している
+  const openAsImage = (svg, mime, ext) => {
+    const box = svg.viewBox && svg.viewBox.baseVal;
+    const rect = svg.getBoundingClientRect();
+    const w = Math.max(1, Math.round((box && box.width) || rect.width));
+    const h = Math.max(1, Math.round((box && box.height) || rect.height));
+    const clone = svg.cloneNode(true);
+    clone.setAttribute('width', w);
+    clone.setAttribute('height', h);
+    // 画面表示用のズーム/パン（inline の width/height/maxWidth/transform）を画像へ持ち込まない
+    clone.style.width = '';
+    clone.style.height = '';
+    clone.style.maxWidth = '';
+    clone.style.transform = 'none';
+    const xml = new XMLSerializer().serializeToString(clone);
+    const svgUrl = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml;charset=utf-8' }));
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale = 2; // 高解像度化
+        const canvas = document.createElement('canvas');
+        canvas.width = w * scale;
+        canvas.height = h * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          if (!blob) { console.error('diagram export: toBlob が null（canvas 上限超過 / 形式未対応の可能性）'); return; }
+          const url = URL.createObjectURL(blob);
+          const win = window.open(url, '_blank');
+          if (!win) { // ポップアップブロック時はダウンロードにフォールバック
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'diagram.' + ext;
+            a.click();
+          }
+        }, mime);
+      } catch (err) {
+        console.error('diagram export に失敗', err); // 例: foreignObject 等で canvas が汚染された場合
+      } finally {
+        URL.revokeObjectURL(svgUrl);
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(svgUrl); console.error('diagram export: SVG 画像の読み込みに失敗'); };
+    img.src = svgUrl;
+  };
+
+  const enhance = (fig) => {
+    if (fig.dataset.enhanced) return;
+    fig.dataset.enhanced = '1';
+    const view = { scale: 1, x: 0, y: 0 };
+    let base = null; // scale=1 の自然サイズ（初回 apply で記録）
+    const apply = () => {
+      const svg = fig.querySelector('svg');
+      if (!svg) return;
+      if (!base) {
+        const r = svg.getBoundingClientRect();
+        if (r.width < 1) return; // まだ描画されていない
+        base = { w: r.width, h: r.height };
+        svg.style.maxWidth = 'none'; // 拡大時に mermaid の max-width で頭打ちさせない
+      }
+      // ズームは表示サイズ（width/height）で行う → SVG ベクタが解像度に追従し、文字が拡大してもぼけない
+      svg.style.width = (base.w * view.scale) + 'px';
+      svg.style.height = (base.h * view.scale) + 'px';
+      // パンは translate（リサンプルされないので鮮明なまま）
+      svg.style.transform = `translate(${view.x}px, ${view.y}px)`;
+    };
+    const reset = () => { view.scale = 1; view.x = 0; view.y = 0; apply(); };
+    const zoomBy = (factor) => { view.scale = clamp(view.scale * factor, 0.2, 8); apply(); };
+
+    // 拡縮は Ctrl+ホイールに限定する。素のホイールはページスクロールに通し、図の上でもスクロールを妨げない
+    fig.addEventListener('wheel', (e) => {
+      if (!e.ctrlKey) return; // 素のホイールはページスクロールに任せる
+      e.preventDefault(); // ブラウザのページ全体ズームを抑止し、図だけを拡縮する
+      view.scale = clamp(view.scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1), 0.2, 8);
+      apply();
+    }, { passive: false });
+
+    let drag = null;
+    fig.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return; // 主ボタンのみ（右/中クリックで pan を始めない）
+      if (e.target.closest('.diagram-tools')) return;
+      // 図ラベル・キャプションのテキスト上では選択を優先し pan しない。余白・ノード・エッジ上だけ pan する
+      if (e.target.closest('text, tspan, foreignObject, figcaption')) return;
+      e.preventDefault(); // 余白からのドラッグでテキスト選択が始まるのを抑止する
+      drag = { x: e.clientX - view.x, y: e.clientY - view.y };
+      try { fig.setPointerCapture(e.pointerId); } catch (_) { /* 非アクティブな pointer は無視 */ }
+      fig.classList.add('grabbing');
+    });
+    fig.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      view.x = e.clientX - drag.x;
+      view.y = e.clientY - drag.y;
+      apply();
+    });
+    const endDrag = () => { drag = null; fig.classList.remove('grabbing'); };
+    fig.addEventListener('pointerup', endDrag);
+    fig.addEventListener('pointercancel', endDrag);
+    window.addEventListener('pointerup', endDrag); // capture 失敗時も、図の外で離せば pan を終える保険
+    fig.addEventListener('dblclick', reset);
+
+    // 印刷時はズーム/パンを一時解除して自然サイズで刷り、印刷後に画面の表示を復元する
+    let savedView = null;
+    window.addEventListener('beforeprint', () => {
+      if (!base) return; // 未操作の図は mermaid の自然描画のまま
+      savedView = { ...view };
+      view.scale = 1; view.x = 0; view.y = 0; apply();
+    });
+    window.addEventListener('afterprint', () => {
+      if (!savedView) return;
+      Object.assign(view, savedView);
+      savedView = null;
+      apply();
+    });
+
+    const tools = document.createElement('div');
+    tools.className = 'diagram-tools';
+    const addButton = (label, onClick, title) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      if (title) button.title = title;
+      button.addEventListener('click', onClick);
+      tools.appendChild(button);
+    };
+    const withSvg = (fn) => () => { const svg = fig.querySelector('svg'); if (svg) fn(svg); };
+    const zoomStep = 1.2;
+    addButton('−', () => zoomBy(1 / zoomStep), '縮小');
+    addButton('＋', () => zoomBy(zoomStep), '拡大');
+    addButton('リセット', reset);
+    addButton('WebP', withSvg((svg) => openAsImage(svg, 'image/webp', 'webp')));
+    fig.appendChild(tools);
+  };
+
+  // mermaid の描画完了は待たない: figure は静的に存在するので load 時にハンドラを張る
+  window.addEventListener('load', () => {
+    document.querySelectorAll('figure.diagram').forEach(enhance);
+  });
+})();
+
+</script>
+</body>
+</html>

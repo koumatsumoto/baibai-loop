@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -95,8 +96,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     coverage_parser.add_argument(
         "--rules-path",
-        default=str(DEFAULT_RULES_PATH),
-        help=f"screening rules path for required JPX sources (default: {DEFAULT_RULES_PATH})",
+        default=os.environ.get("SCREENING_RULES_PATH") or str(DEFAULT_RULES_PATH),
+        help=f"screening rules path for required JPX sources "
+        f"(default: SCREENING_RULES_PATH or {DEFAULT_RULES_PATH})",
     )
     coverage_parser.add_argument(
         "--allow-stale-jpx",
@@ -134,8 +136,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     select_parser.add_argument(
         "--rules-path",
-        default=str(DEFAULT_RULES_PATH),
-        help=f"screening rules path (default: {DEFAULT_RULES_PATH})",
+        default=os.environ.get("SCREENING_RULES_PATH") or str(DEFAULT_RULES_PATH),
+        help=f"screening rules path (default: SCREENING_RULES_PATH or {DEFAULT_RULES_PATH})",
     )
     select_parser.add_argument(
         "--profile",

@@ -214,20 +214,39 @@ def _load_series(sqlite_path: Path, *, start: date, end: date) -> dict[str, _Ser
     conn = sqlite3.connect(sqlite_path)
     try:
         rows = conn.execute(
-            "SELECT ticker, traded_at, close, adjustment_close FROM jquants_daily_bars "
+            "SELECT ticker, traded_at, close, adjustment_factor FROM jquants_daily_bars "
             "WHERE traded_at >= ? AND traded_at <= ? ORDER BY ticker, traded_at",
             (start.isoformat(), end.isoformat()),
         ).fetchall()
     finally:
         conn.close()
-    series: dict[str, _Series] = {}
-    for ticker, traded_at, close, adjustment_close in rows:
-        price = adjustment_close if adjustment_close is not None else close
-        if not isinstance(price, int | float) or not isinstance(traded_at, str):
+    # cache の adjustment_close は incremental 取得で遡及の有無が混在するため使わず、
+    # 不変イベントの adjustment_factor の後方累積で末尾基準の価格系列を組む。
+    raw: dict[str, list[tuple[date, float, float | None]]] = {}
+    for ticker, traded_at, close, adjustment_factor in rows:
+        if not isinstance(close, int | float) or not isinstance(traded_at, str):
             continue
-        entry = series.setdefault(str(ticker), _Series(dates=[], prices=[]))
-        entry.dates.append(date.fromisoformat(traded_at))
-        entry.prices.append(float(price))
+        raw.setdefault(str(ticker), []).append(
+            (
+                date.fromisoformat(traded_at),
+                float(close),
+                float(adjustment_factor) if isinstance(adjustment_factor, int | float) else None,
+            )
+        )
+    series: dict[str, _Series] = {}
+    for ticker, entries in raw.items():
+        factor = 1.0
+        dates: list[date] = []
+        prices: list[float] = []
+        for traded_at, close, adjustment_factor in reversed(entries):
+            dates.append(traded_at)
+            prices.append(close * factor)
+            if adjustment_factor not in (None, 0.0, 1.0):
+                assert adjustment_factor is not None
+                factor *= adjustment_factor
+        dates.reverse()
+        prices.reverse()
+        series[ticker] = _Series(dates=dates, prices=prices)
     return series
 
 
