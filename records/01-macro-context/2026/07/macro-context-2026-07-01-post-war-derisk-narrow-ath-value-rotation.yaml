@@ -1,0 +1,344 @@
+kind: macro-context
+context_id: macro-context-2026-07-01-post-war-derisk-narrow-ath-value-rotation
+as_of: '2026-07-01'
+valid_until: '2026-07-08'
+published_at: '2026-07-02T16:30:00+09:00'
+summary: >-
+  イラン戦争の原油ショック（4月 Brent 日中高値 $120.88）は、ホルムズ実質再開と Doha 間接協議の進行で
+  プレミアムがほぼ剥落し（Brent $71-74、Q2 -30%）、外部環境は 4 月の最悪期から顕著に de-risk した。
+  一方で米国は「原油ショックの残響インフレ（5月 CPI 総合 +4.2% / コア PCE +3.4%）× 利上げバイアスの
+  Fed（FF 3.50-3.75% 据え置き・年末 dot 3.8%・Warsh 議長）」という異例のタカ局面にあり、米 10 年 4.44%・
+  実質 2.2% の高止まりの下で S&P500 は CAPE 41.7・益回り 3.11%（ERP = 3.11 - 4.44 = -1.33% とマイナス、
+  計算: multpl 益回り - FRB H.15 10 年）の歴史的割高。信用は IG 76bp / HY 275bp の極タイトに対し
+  CCC 970bp（CCC/HY = 9.70/2.75 = 3.53 倍）と低格付・プライベートクレジットへストレスが偏在する二極化。
+  流動性は M2 増勢継続（May $23.05T、直近 11 か月 +5.1%）・QT 終了（FRB 総資産 6.70T で底打ち微増）・
+  RRP 枯渇（$1.0B）と追い風で、金融環境（NFCI -0.504）も緩和的。日本は日経が 6/18 に 7 万円乗せの
+  ATH 圏（07-01 終値 70,475）だが中身は極端に狭く、半導体指数 +56% に対し東証スタンダード -1.9%・
+  グロース -6.8% と、割安バリュー cohort は取り残されている。BOJ は 6/16 に 1.00% へ利上げ（7/30-31
+  会合の追加利上げ織り込みは約 2 割・年内 9 割超）、CPI 1.5% と割引率ショックは軽い。USD/JPY 162.7 は
+  1986 年以来の円安で、投機筋の円ショートは 9 年ぶり高水準（約 14.6 万枚）＝円高スナップバックが
+  日本株最大の reflexive リスク。自社株買いは 1-5 月 16.2 兆円と過去最高ペース、TSE 資本コスト改革の
+  低 PBR 是正圧力、海外勢の買い（YTD 大幅ネット買い越し）が割安 cohort の構造的な re-rating 追い風。
+  AI capex は実弾で加速（big4 CY2026 合算 $625-720B・ほぼ倍増、TSMC 月次 +30%、NVDA DC +92%）だが、
+  半導体本体は SOX が Q2 に四半期として史上最大の上昇（+74-88% レンジ報道）で先食い済み。割安 × AI
+  受益の交点は電力・送配電・電線・DC 建設・冷却などのインフラ裾野と、AI/DX 二次受益の内需割安株へ
+  シフトした。姿勢: 平時の月次積立レンジ（¥20-30 万）は継続しつつ高値追いはせず、取り残された割安
+  バリュー（低 PBR・ネットキャッシュ・還元）に限定して買い、余力はテール（円急伸・信用イベント・
+  ホルムズ再燃）の押し目増額用に温存する。シナリオ（主観、1-3 か月）: Base 50%（タカ据え置き×原油
+  ディスインフレの grind higher）/ Bull 18%（ディスインフレ加速・利下げ再提示）/ Bear 24%（コア再加速で
+  実利上げ・AI ディレート）/ Tail 8%（円キャリー巻き戻し・プライベートクレジット事故・ホルムズ再封鎖）。
+  本日 7/2 21:30 JST の米 6 月雇用統計（コンセンサス +100-115K・失業率 4.3%、前月 +172K）が直近最大の
+  分岐で、時給の上振れは利上げ織り込みを直接強める。
+inputs:
+  articles:
+  - source: BLS
+    title: Consumer Price Index - May 2026（総合 +4.2% / コア +2.9%）
+    url: https://www.bls.gov/news.release/pdf/cpi.pdf
+    published_at: '2026-06-10'
+    used_for: 米インフレの現在地（原油ショックの残響、コアは相対的に抑制）
+  - source: BEA
+    title: Personal Income and Outlays, May 2026（PCE 総合 +4.1% / コア +3.4%）
+    url: https://www.bea.gov/news/2026/personal-income-and-outlays-may-2026
+    published_at: '2026-06-25'
+    used_for: Fed が見るコア PCE の粘着性の確認
+  - source: FRB
+    title: FOMC statement June 17 2026（FF 3.50-3.75% 据え置き・dot 年末 3.8% へ上方）
+    url: https://www.federalreserve.gov/newsevents/pressreleases/monetary20260617a.htm
+    published_at: '2026-06-17'
+    used_for: 利上げバイアスの Fed という regime 認定
+  - source: CME
+    title: FedWatch（7/28-29 据え置き ~70%・年内 1 回以上利上げ ~2/3 織り込み）
+    url: https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html
+    published_at: '2026-06-29'
+    used_for: 政策金利パスの市場織り込み
+  - source: BLS
+    title: Employment Situation May 2026（NFP +172K・失業率 4.3%）
+    url: https://www.bls.gov/news.release/archives/empsit_06052026.htm
+    published_at: '2026-06-05'
+    used_for: 労働市場の前月実績と 7/2 発表の 6 月分の基準点
+  - source: 日本銀行
+    title: 金融政策決定会合（2026/6/15-16、政策金利 1.00% へ +0.25% 利上げ）
+    url: https://www.boj.or.jp/en/mopo/mpmdeci/mpr_2026/k260616a.pdf
+    published_at: '2026-06-16'
+    used_for: 日本の割引率パス（正常化は遅く・浅く）
+  - source: 総務省統計局
+    title: 全国消費者物価指数 2026 年 5 月分（総合 +1.5% / コア +1.4% / コアコア +1.8%）
+    url: https://www.stat.go.jp/data/cpi/sokuhou/tsuki/index-z.html
+    published_at: '2026-06-19'
+    used_for: 日本のインフレが 2% 割れ（補助金による抑制込み）で割引率ショックが軽いことの確認
+  - source: 財務省
+    title: 外国為替平衡操作の実施状況（4/28-5/27 に 11 兆 7,349 億円・月次過去最大の円買い介入）
+    url: https://www.mof.go.jp/policy/international_policy/reference/feio/index.html
+    published_at: '2026-05-29'
+    used_for: 円 162 台の介入警戒ゾーン認定と円高スナップバックリスク
+  - source: 連合
+    title: 2026 春季生活闘争 第 3 回回答集計（全体 +5.09%・3 年連続 5% 超）
+    url: https://www.jtuc-rengo.or.jp/activity/roudou/shuntou/index2026.html
+    published_at: '2026-04-03'
+    used_for: 名目賃金の強さ（内需・実質賃金プラスの土台）
+  - source: 厚生労働省
+    title: 毎月勤労統計 2026 年 4 月（実質賃金 +1.9%・4 か月連続プラス）
+    url: https://www.mhlw.go.jp/toukei/list/30-1a.html
+    published_at: '2026-06-05'
+    used_for: 内需消費の持続性（秋の補助金剥落で下振れリスクも記録）
+  - source: 内閣府
+    title: 2026 年 1-3 月期 GDP 2 次速報（実質 +1.8% 年率・個人消費 5 四半期連続増）
+    url: https://www.esri.cao.go.jp/jp/sna/menu.html
+    published_at: '2026-06-08'
+    used_for: 日本の景気の現在地（緩慢回復）
+  - source: JPX
+    title: 投資部門別売買状況（海外投資家 6 月第 3 週 +1 兆 562 億円・4 週ぶり買い越し）
+    url: https://www.jpx.co.jp/markets/statistics-equities/investor-type/index.html
+    published_at: '2026-06-25'
+    used_for: 海外勢フローの確認（買い越し基調の継続）
+  - source: 日本経済新聞
+    title: 自社株買い 2026 年 1-5 月 16.2 兆円（前年同期比 +34%・同期間過去最高）
+    url: https://www.nikkei.com/article/DGXZQOUB089RL0Y6A600C2000000/
+    published_at: '2026-06-08'
+    used_for: 割安 cohort の構造的な買い需要（re-rating ドライバー）
+  - source: JPX
+    title: 資本コストや株価を意識した経営の実現に向けた対応（2026/4/28 アップデート）
+    url: https://www.jpx.co.jp/equities/follow-up/02.html
+    published_at: '2026-04-28'
+    used_for: 低 PBR 是正圧力の継続確認
+  - source: SEC (NVIDIA 8-K)
+    title: NVIDIA Q1 FY27（売上 $81.6B +85%・DC $75.2B +92%・Q2 ガイダンス $91B）
+    url: https://www.sec.gov/Archives/edgar/data/0001045810/000104581026000051/q1fy27pr.htm
+    published_at: '2026-05-20'
+    used_for: AI 需要が実弾で加速している（digestion 未入り）ことの確認
+  - source: TSMC
+    title: TSMC May 2026 Revenue（NT$416.98B +30.1% YoY・1-5 月累計 +30.0%）
+    url: https://pr.tsmc.com/english/news/3320
+    published_at: '2026-06-10'
+    used_for: AI/半導体の川上需要の月次モニタリング基準点
+  - source: Meta IR
+    title: Meta Q1 2026 Results（capex $19.84B・FY26 ガイダンス $125-145B へ増額）
+    url: https://investor.atmeta.com/investor-news/press-release-details/2026/Meta-Reports-First-Quarter-2026-Results/default.aspx
+    published_at: '2026-04-29'
+    used_for: hyperscaler capex の増額トレンド（メモリ価格嵩上げの注記込み）
+  - source: EIA
+    title: Short-Term Energy Outlook（6/9。海峡封鎖前提 Brent $95-105 は 6 月末の再開・急落を未織り込みで陳腐化）
+    url: https://www.eia.gov/outlooks/steo/
+    published_at: '2026-06-09'
+    used_for: 原油需給見通し（次回 ~7/8 の大幅下方修正見込みという鮮度注記付き）
+  - source: CNBC
+    title: Oil prices - US-Iran strikes halt / Hormuz talks（Brent $74.28・Q2 -30%）
+    url: https://www.cnbc.com/2026/06/29/oil-prices-wti-brent-crude-us-iran-strikes-strait-hormuz-talks.html
+    published_at: '2026-06-29'
+    used_for: 戦争プレミアム剥落の確認（FRED 系列の 2-3 日ラグを補完）
+  - source: CIT
+    title: Slip Op. 26-47（Section 122 一律 10% 関税を無効判決・7/24 法定失効期限）
+    url: https://www.cit.uscourts.gov/sites/cit/files/26-47.pdf
+    published_at: '2026-05-07'
+    used_for: 対日実効関税の低下余地（非対称アップサイド）と 7/24 イベント窓
+  - source: FSB
+    title: Vulnerabilities in Private Credit（一次 PDF）
+    url: https://www.fsb.org/uploads/P060526.pdf
+    published_at: '2026-05-06'
+    used_for: プライベートクレジットの脆弱性クラスタ（テール監視）
+  - source: Federal Register (BIS)
+    title: Revision to License Review Policy for Advanced Computing Commodities（対中 AI チップ緩和・50% ルール）
+    url: https://www.federalregister.gov/documents/2026/01/15/2026-00789/revision-to-license-review-policy-for-advanced-computing-commodities
+    published_at: '2026-01-15'
+    used_for: 半導体規制の近接リスク後退（MATCH Act 成立が残る構造テール）
+  - source: Japan Times
+    title: Yen carry trade revives（円ショート 11.5 万枚・2017 年以来の水準）
+    url: https://www.japantimes.co.jp/business/2026/06/15/markets/yen-carry-trade-revive/
+    published_at: '2026-06-15'
+    used_for: 円キャリーの積み上がり＝reflexive な巻き戻しリスクの定量把握
+  - source: Wood Mackenzie
+    title: Japan data centers power demand（19TWh(2024)→57-66TWh(2034)・約 3 倍）
+    url: https://www.woodmac.com/press-releases/japan-data-centers-power-demand/
+    published_at: '2026-06-15'
+    used_for: AI インフラ裾野（電力・系統）の複数年需要の定量根拠
+  - source: 日本経済新聞（Nikkei Asia）
+    title: Japan utilities pour billions into power grid amid data center growth（東電 PG 北西千葉 ¥2,000 億超ほか）
+    url: https://asia.nikkei.com/business/energy/japan-s-utilities-pour-billions-into-power-grid-amid-data-center-growth
+    published_at: '2026-06-20'
+    used_for: 送配電・系統投資の実弾確認（割安 × AI 受益のインフラ裾野シフト）
+  indicator_series:
+  - series_id: us.sp500_earnings_yield
+    window: latest (2026-07-02)
+    used_for: ERP = 益回り 3.11% - 10 年 4.44% = -1.33% の算出（歴史的割高の定量化）
+  - series_id: us.10y
+    window: 2026-06 range + latest (4.44%, 2026-06-30)
+    used_for: 割引率と ERP 計算・実質金利高止まりの確認
+  - series_id: us.real_10y
+    window: latest (2.20%, 2026-06-30)
+    used_for: 実質金利 2% 超 = 金・BTC の希薄化ヘッジ巻き戻しドライバー
+  - series_id: us.m2
+    window: 2025-06..2026-05 (14 か月 range)
+    used_for: 流動性の方向（May $23.05T、直近 11 か月 +5.1% と増勢継続）
+  - series_id: us.fed_assets
+    window: 2025-01..2026-06 (週次)
+    used_for: QT 終了・総資産 6.70T 底打ち微増の確認（net liquidity 計算の分子）
+  - series_id: us.reverse_repo
+    window: latest ($1.0B, 2026-07-01)
+    used_for: RRP 枯渇の確認（net liquidity = 6,735,640M - 1,001M - 918,696M ≈ $5.82T）
+  - series_id: us.tga
+    window: latest ($918.7B, 2026-06-24)
+    used_for: net liquidity の控除項
+  - series_id: credit.us_ig_oas
+    window: latest (0.76%, 2026-06-30)
+    used_for: 公募クレジットの極タイト（complacency）確認
+  - series_id: credit.us_hy_oas
+    window: latest (2.75%, 2026-06-30)
+    used_for: HY タイトと CCC との乖離計算の分母
+  - series_id: credit.us_ccc_oas
+    window: latest (9.70%, 2026-06-30)
+    used_for: 低格付ストレスの偏在（CCC/HY = 3.53 倍）＝二極化の定量化
+  - series_id: vix
+    window: 2026-06 range + latest (16.45, 2026-06-30)
+    used_for: 株 vol の無警戒圏確認（6 月レンジ 15.2-23.3 の月末沈静）
+  - series_id: us.move
+    window: latest (66.79, 2026-06-26)
+    used_for: 債券 vol の低位確認
+  - series_id: us.nfci
+    window: latest (-0.504, 2026-06-26)
+    used_for: 金融環境が緩和的（マイナス = 緩い）ことの確認
+  - series_id: usd_jpy
+    window: 3 か月 + latest (162.71, 2026-07-01)
+    used_for: 1986 年以来の円安水準・介入警戒ゾーンの確認
+  - series_id: btc_usd
+    window: 3 か月 range (6 月に約 -20%・21 か月ぶり安値圏)
+    used_for: リスク選好温度計（実質金利高による希薄化ヘッジ巻き戻し。web 値 $58.3K と系列値 $59.9K の乖離は provenance 注記）
+  - series_id: gold
+    window: latest (4075.1, 2026-07-02)
+    used_for: "ATH $5,589 (1 月) 比 -27% の巻き戻し確認（計算: (4075-5589)/5589 = -27.1%）"
+  - series_id: wti
+    window: latest (71.87, 2026-06-29 FRED ラグ)
+    used_for: 戦争プレミアム剥落の確認（一次 web 値 $70.6-74 と併読）
+  - series_id: brent
+    window: latest (71.59, 2026-06-29 FRED ラグ)
+    used_for: 同上（Brent<WTI の逆転は FRED ラグ由来の可能性を注記）
+  - series_id: jp.nikkei225
+    window: 3 か月 + latest (70,475, 2026-07-01)
+    used_for: ATH 圏（6/18 に 7 万乗せ）と狭い上昇の確認
+  - series_id: us.sp500
+    window: latest (7,483, 2026-07-01)
+    used_for: 米株 ATH 圏の確認
+  - series_id: us.sox
+    window: latest (13,353, 2026-07-01)
+    used_for: 半導体 melt-up（Q2 に史上最大の四半期上昇）と 7/1 の -5% 級ボラの確認
+  - series_id: us.sp500_cape
+    window: latest (41.66, 2026-07-02)
+    used_for: 歴史的割高の確認（multpl 由来の脆さを注記）
+  - series_id: us.fed_funds.upper
+    window: latest (3.75%, 2026-07-01)
+    used_for: FF レンジ上限の確認
+  - series_id: jp.policy_rate
+    window: latest (0.727%, 2026-05 月次平均・系列ラグ)
+    used_for: 系列は 5 月平均で 6/16 利上げ後の 1.00% を未反映（BOJ 一次で補正）という鮮度注記
+  - series_id: us.initial_claims
+    window: latest (215K, 2026-06-20)
+    used_for: 解雇は増えていない（労働市場は tight→stuck）ことの確認
+  - series_id: us.10y_3m_spread
+    window: latest (+0.63%, 2026-07-01)
+    used_for: カーブ順イールド（景気後退シグナル不在）の確認
+sector_tilts:
+  items:
+  - id: utilities-dc-power-tailwind
+    scope: sector_33
+    key: 電気・ガス業
+    stance: tailwind
+    strength: medium
+    confidence: high
+    rationale: DC 電力需要が 2034 年までに約 3 倍（19→57-66TWh）、東電 PG ¥2,000 億超・関電系 ¥1,500 億超の系統投資が実弾。原油急落（Brent $71）で燃料コストも改善。AI 受益の中で最も織り込みが薄い裾野。
+  - id: construction-dc-epc-tailwind
+    scope: sector_33
+    key: 建設業
+    stance: tailwind
+    strength: medium
+    confidence: medium
+    rationale: hyperscaler の日本 DC 投資約 ¥4T と系統・変電所工事の複数年需要。労務費インフレは利幅圧迫要因として個別確認が必要。
+  - id: nonferrous-cable-tailwind
+    scope: sector_33
+    key: 非鉄金属
+    stance: tailwind
+    strength: medium
+    confidence: medium
+    rationale: 送配電網増強・DC 建設で電線・電力ケーブル需要が構造増。銅価は 6.16 ドル/lb と高位安定。円安が輸出採算を補助。
+  - id: banks-normalization-tailwind
+    scope: sector_33
+    key: 銀行業
+    stance: tailwind
+    strength: medium
+    confidence: high
+    rationale: BOJ 1.00% 到達・年内追加利上げ 9 割織り込みで NIM 改善が継続。割引率ショックは CPI 1.5% の下で緩慢。
+  - id: insurance-rates-tailwind
+    scope: sector_33
+    key: 保険業
+    stance: tailwind
+    strength: low
+    confidence: medium
+    rationale: 金利正常化の運用利回り改善受益。既に相応に re-rate 済みで強度は低め。
+  - id: electric-appliances-mixed
+    scope: sector_33
+    key: 電気機器
+    stance: mixed
+    strength: medium
+    confidence: high
+    rationale: AI capex は実弾（big4 倍増・TSMC 月次 +30%）だが、半導体・装置は SOX の Q2 史上最大上昇で先食い済みかつ 7/1 に -5% 級のボラ。同 sector 内でも AI 直結の割高群と取り残された割安群が分離しており、銘柄選別が支配的。
+  - id: info-comm-dx-tailwind
+    scope: sector_33
+    key: 情報・通信業
+    stance: tailwind
+    strength: medium
+    confidence: medium
+    rationale: AI/DX の enterprise 需要は二次受益として持続（国内 SI・ソフトは米金利・円の影響が相対的に軽い内需）。半導体 melt-up とは値動きが分離しており割安余地が残る。
+  - id: transport-equip-mixed
+    scope: sector_33
+    key: 輸送用機器
+    stance: mixed
+    strength: medium
+    confidence: medium
+    rationale: 自動車 15%（Section 232・堅牢）は構造ドラッグだが、一律 10%（Section 122）は 7/24 失効・司法無効で対日実効関税の低下余地という非対称アップサイド。円 162 の追い風は円高スナップバックで反転し得る。
+  - id: oil-coal-headwind
+    scope: sector_33
+    key: 石油・石炭製品
+    stance: headwind
+    strength: low
+    confidence: medium
+    rationale: 原油の戦争プレミアム剥落（$121→$71）で在庫評価・精製マージンに逆風。日本全体の交易条件には追い風だが当該 sector には不利。
+  - id: shipping-mixed
+    scope: sector_33
+    key: 海運業
+    stance: mixed
+    strength: low
+    confidence: low
+    rationale: ホルムズ正常化で戦争プレミアム運賃が剥落する一方、通航量は回復方向。方向感の確度が低く個別判断。
+  - id: foods-defensive-neutral
+    scope: sector_33
+    key: 食料品
+    stance: neutral
+    strength: low
+    confidence: medium
+    rationale: 実質賃金 4 か月プラスと値上げ浸透は支えだが、秋の補助金剥落による実質所得下振れリスクと相殺。ディフェンシブとしての保有価値は Tail 局面で発現。
+  - id: retail-domestic-neutral
+    scope: sector_33
+    key: 小売業
+    stance: neutral
+    strength: low
+    confidence: medium
+    rationale: 個人消費 5 四半期連続増が支えだが、輸入コスト（円 162）と実質賃金の秋下振れが利幅の逆風で中立。
+research_questions:
+  - 候補の割安は de-rating（需給・全体安・中計未達で株価だけ崩れた）か earnings-collapse（業績自体の崩壊）か。切り分けの一次根拠（決算・受注・ガイダンス）を確認したか。
+  - 円 162 前提の収益をどれだけ含むか。USD/JPY 150 への円高スナップバック時の EPS 感応度（輸出比率・為替前提・海外資産）を確認し、内需・価格決定力での耐性を優先したか。
+  - AI/DX 受益はインフラ裾野の実受注（系統投資・DC 建設・電線・電力）や enterprise 契約として計測可能か。半導体 melt-up の高値追い・後付け AI ラベルになっていないか。
+  - "塩漬け耐性: ネットキャッシュ / 営業 CF 黒字 / 低有利子負債 / 借換耐性に加え、関税（自動車 15%・金属 50%）と対中露出（MATCH Act テール）の直接影響を確認したか。"
+  - 割安ゾーン percentile × FV 下方乖離の両立を確認し、希望的 alpha を剥がした後の期待値が正で RR ≥ 2 目安を満たすか。FV の利益正常化はサイクル通期（J-Quants 5 期）で行ったか。
+  - イベント窓（本日 7/2 NFP・7/24 Section 122 失効・7/28-29 FOMC・7/30-31 BOJ・8 月中旬 MOU 期限）内の entry は、binary event 直前の建玉配慮（待つ / 小さく建てる）に照らして適切か。
+refresh_triggers:
+  - 本日 7/2 21:30 JST の米 6 月雇用統計 — NFP >150K・時給ホット（利上げ織り込み強化・金利↑）または <75K + 失業率 4.4% 超（スタグフレ懸念のリスクオフ）で発火。
+  - USD/JPY が数日で -5% 超の円急伸 or 150 割れ（キャリー巻き戻し着火・Tail 経路）、または 163-165 明確突破と介入第 2 弾（無秩序変動）。
+  - 7/28-29 FOMC での実利上げ、またはコア PCE ≥3.5% への再加速（Bear 確定・10 年 >4.8%）。
+  - 7/30-31 BOJ のタカ派サプライズ（利上げ or 減額前倒し示唆）による円急伸・割引率ショック。
+  - HY OAS >350bp / VIX >35 / MOVE >120、または BDC の名前付き連鎖デフォルト（プライベートクレジットの公募伝播）。
+  - ホルムズ再封鎖・Doha 決裂・8 月中旬の 60 日 MOU 窓不延長で Brent $100 超へ再燃（スタグフレ Tail）。
+  - 7/24 の Section 122 一律 10% 関税の帰趨（失効 = 輸出株追い風 / 議会延長・別権限再賦課 = 現状維持）。
+  - TSMC 6 月月次（~7/10）の YoY が +30% 台から急減速、または 7 月末の hyperscaler 決算で capex ガイダンス据え置き / 減額・「消化局面」言及（AI 実弾の反転）。
+changes_since_previous:
+  - "前回（06-30 context）の refresh_trigger「Doha 協議の帰趨」は de-escalation 方向に発火: 6/27 に米海軍 JMIC が通航ルートを拡幅し実質再開、6/28 攻撃停止合意、7/1 時点でカタール・パキスタン仲介の間接技術協議が進行。戦争プレミアムはほぼ剥落（Brent $71-74）。"
+  - 前回 trigger「USD/JPY 163 超で介入 or 158→155 割れ」は未発火だが 162.7 と警戒ゾーン上限に接近。投機筋円ショートが 9 年ぶり高水準（約 14.6 万枚）に積み上がり、reflexive リスクは前回より増大。
+  - 前回 trigger「6 月 NFP 7/2」は本日 21:30 JST 発表待ち（コンセンサス +100-115K）。発表後に本 context の再評価が必要。
+  - "新規に確認した事実: BOJ 6/16 利上げ（1.00%）、5 月米 CPI 総合 4.2%（原油ショック残響）と Fed の dot 上方（3.8%）、SOX の Q2 史上最大上昇と 6/5・7/1 の急落、自社株買い 1-5 月過去最高（16.2 兆円）、Section 122 の 7/24 失効期限。"
