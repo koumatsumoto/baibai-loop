@@ -1,10 +1,10 @@
-"""Selection lenses: fast dislocation and long-hold survivability."""
+"""Selection lens: durability (塩漬け耐性) annotation."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 
-from baibai_loop.foundation.coerce import float_or, optional_float, string_or_none
+from baibai_loop.foundation.coerce import float_or, optional_float
 
 from ..rule_config import SelectionRules
 from .records import CandidateRecord
@@ -15,150 +15,15 @@ def _candidate_lenses(
     rules: SelectionRules,
 ) -> dict[str, object]:
     return {
-        "fast_dislocation": _fast_dislocation_lens(item, rules),
-        "long_hold_survivability": _long_hold_survivability_lens(item, rules),
+        "durability": _durability_lens(item, rules),
     }
 
 
-def _fast_dislocation_lens(item: CandidateRecord, rules: SelectionRules) -> dict[str, object]:
-    lens_rules = rules.fast_dislocation
-    price_triggers: list[dict[str, object]] = []
-    auxiliary_triggers: list[dict[str, object]] = []
-    trigger_specs = (
-        ("price_change_1d", item.price_change_1d, lens_rules.price_change_1d_max),
-        ("price_change_5d", item.price_change_5d, lens_rules.price_change_5d_max),
-        ("price_change_20d", item.price_change_20d, lens_rules.price_change_20d_max),
-        ("price_change_60d", item.price_change_60d, lens_rules.price_change_60d_max),
-    )
-    for metric, value, threshold in trigger_specs:
-        if threshold is not None and value is not None and value <= threshold:
-            price_triggers.append({"metric": metric, "value": value, "threshold": threshold})
-    if (
-        lens_rules.gap_from_52w_low_max is not None
-        and item.gap_from_52w_low is not None
-        and item.gap_from_52w_low <= lens_rules.gap_from_52w_low_max
-    ):
-        auxiliary_triggers.append(
-            {
-                "metric": "gap_from_52w_low",
-                "value": item.gap_from_52w_low,
-                "threshold": lens_rules.gap_from_52w_low_max,
-            }
-        )
-    if (
-        lens_rules.turnover_spike_5d_min is not None
-        and item.turnover_spike_5d is not None
-        and item.turnover_spike_5d >= lens_rules.turnover_spike_5d_min
-    ):
-        auxiliary_triggers.append(
-            {
-                "metric": "turnover_spike_5d",
-                "value": item.turnover_spike_5d,
-                "threshold": lens_rules.turnover_spike_5d_min,
-            }
-        )
-
-    guard_reasons = _fundamental_guard_reasons(item, rules)
-    guard_count = len(guard_reasons)
-    guard_families = sorted({_fundamental_guard_family(reason) for reason in guard_reasons})
-    stale_fundamental_metrics = _has_edinet_freshness_warning(item)
-    eligible = (
-        lens_rules.enabled
-        and bool(price_triggers)
-        and guard_count >= lens_rules.min_fundamental_guard_count
-        and len(guard_families) >= lens_rules.min_fundamental_guard_family_count
-    )
-    confidence = "none"
-    if eligible:
-        high_confidence = (
-            guard_count >= lens_rules.high_confidence_guard_count
-            and len(guard_families) >= lens_rules.high_confidence_guard_family_count
-            and not stale_fundamental_metrics
-        )
-        confidence = "high" if high_confidence else "medium"
-    data_status = _fast_dislocation_data_status(item)
-    if stale_fundamental_metrics:
-        data_status = "stale_fundamental_metrics"
-    # Stabilization: the fast triggers fire on 5-60 day declines; a name whose
-    # latest session is still a down day is a falling knife, one that closed
-    # flat-or-up shows the minimum evidence of a halt. Fixed zero threshold on
-    # the recorded 1-day return — no fitted parameter.
-    stabilized = item.price_change_1d is not None and item.price_change_1d >= 0
-    return {
-        "eligible": eligible,
-        "confidence": confidence,
-        "stabilized": stabilized,
-        "price_triggers": price_triggers,
-        "auxiliary_triggers": auxiliary_triggers,
-        "fundamental_guard_count": guard_count,
-        "fundamental_guard_family_count": len(guard_families),
-        "fundamental_guard_families": guard_families,
-        "fundamental_guard_reasons": guard_reasons,
-        "stale_fundamental_metrics": stale_fundamental_metrics,
-        "data_status": data_status,
-    }
-
-
-def _fundamental_guard_reasons(item: CandidateRecord, rules: SelectionRules) -> list[str]:
-    lens_rules = rules.fast_dislocation
-    metrics = item.metrics
-    reasons: list[str] = []
-    if float_or(metrics.get("ocf_yield"), -1.0) >= lens_rules.ocf_yield_min:
-        reasons.append("ocf_yield")
-    if float_or(metrics.get("fcf_yield"), -1.0) >= lens_rules.fcf_yield_min:
-        reasons.append("fcf_yield")
-    if (
-        float_or(metrics.get("price_to_equity"), 99.0) <= lens_rules.price_to_equity_max
-        and float_or(metrics.get("equity_ratio"), -1.0) >= lens_rules.equity_ratio_min
-    ):
-        reasons.append("asset_discount_with_equity_buffer")
-    if float_or(metrics.get("net_cash_to_market_cap"), -99.0) >= (
-        lens_rules.net_cash_to_market_cap_min
-    ):
-        reasons.append("net_cash_buffer")
-    operating_profit_ok = not lens_rules.operating_profit_positive_required or (
-        float_or(metrics.get("operating_profit"), -1.0) > 0
-    )
-    sales_yoy = optional_float(metrics.get("sales_yoy"))
-    if sales_yoy is not None and sales_yoy >= lens_rules.sales_yoy_min and operating_profit_ok:
-        reasons.append("sales_growth_with_profit")
-    return reasons
-
-
-def _fundamental_guard_family(reason: str) -> str:
-    if reason in {"fcf_yield", "ocf_yield"}:
-        return "cash_flow"
-    if reason in {"asset_discount_with_equity_buffer", "net_cash_buffer"}:
-        return "balance_sheet"
-    if reason == "sales_growth_with_profit":
-        return "profitability"
-    return "other"
-
-
-def _has_edinet_freshness_warning(item: CandidateRecord) -> bool:
-    return any(
-        string_or_none(warning.get("stale_metric")) == "edinet_metrics"
-        for warning in item.freshness_warnings
-    )
-
-
-def _fast_dislocation_data_status(item: CandidateRecord) -> str:
-    if item.price_change_5d is None and item.price_change_20d is None:
-        return (
-            "short_return_pipeline_missing"
-            if item.price_change_60d is not None
-            else "missing_price_history"
-        )
-    if item.price_change_20d is None:
-        return "short_return_pipeline_missing"
-    return "ok"
-
-
-def _long_hold_survivability_lens(
+def _durability_lens(
     item: CandidateRecord,
     rules: SelectionRules,
 ) -> dict[str, object]:
-    lens_rules = rules.long_hold_survivability
+    lens_rules = rules.durability
     metrics = item.metrics
     reasons: list[str] = []
     missing_reasons: list[str] = []
@@ -230,22 +95,9 @@ def _long_hold_survivability_lens(
     }
 
 
-def _fast_lens(candidate: Mapping[str, object]) -> Mapping[str, object]:
+def _durability_lens_of(candidate: Mapping[str, object]) -> Mapping[str, object]:
     lenses = candidate.get("lenses")
     if not isinstance(lenses, Mapping):
         return {}
-    lens = lenses.get("fast_dislocation")
+    lens = lenses.get("durability")
     return lens if isinstance(lens, Mapping) else {}
-
-
-def _long_hold_lens(candidate: Mapping[str, object]) -> Mapping[str, object]:
-    lenses = candidate.get("lenses")
-    if not isinstance(lenses, Mapping):
-        return {}
-    lens = lenses.get("long_hold_survivability")
-    return lens if isinstance(lens, Mapping) else {}
-
-
-def _fast_guard_count(candidate: Mapping[str, object]) -> int:
-    count = _fast_lens(candidate).get("fundamental_guard_count")
-    return int(count) if isinstance(count, int) else 0

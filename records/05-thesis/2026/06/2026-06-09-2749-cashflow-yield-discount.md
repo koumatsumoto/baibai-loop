@@ -16,9 +16,8 @@ published_at: '2026-06-09T09:00:00+09:00'
 recorded_at: '2026-06-09T09:00:00+09:00'
 tradable_at: '2026-06-09T09:00:00+09:00'
 position_sizing_overlay:
-  paper_proxy_position_size_yen: 1000000
-  real_order_intent_yen: 59000
-  adv_participation_pct: 0.8333
+  estimated_real_order_notional_yen: 59000
+  adv_participation_pct: 0.0492
 market_cap_oku: 524
 sector_33: サービス業
 avg_turnover_oku: 1.2
@@ -44,19 +43,17 @@ macro_context_fit:
   fit: not_matched
   decision_effect: proceed
   required_checks:
-  - サービス業（保育）は 2026-06-08 macro context の sector_tilts に明示されず not_matched。internal-demand
-    かつ net cash の value として「金利・半導体非感応の domestic net-cash value の overshoot」テーマに乗るかを個別確認する。
+  - サービス業（保育）は 2026-06-08 macro context の sector_tilts に明示されず not_matched。internal-demand かつ net cash の value として「金利・半導体非感応の
+    domestic net-cash value の overshoot」テーマに乗るかを個別確認する。
   - 出生数の構造減（2024 に初の 70 万人割れ）が保育稼働率・補助金前提を中期で崩さないか。
   sizing_caution:
   - discretionary_panel_thesis_starter_only
 thesis_payoff:
   max_entry_price_yen: 590
-  target_price_yen: 680
-  stop_loss_yen: 530
+  fair_value_yen: 680
   expected_upside_pct: 15.25
   expected_downside_pct: 10.17
   risk_reward_ratio: 1.5
-  time_horizon_bd: 40
   invalidation_conditions:
   - 出生数の構造減で保育稼働率・補助金前提が崩れ、営業 CF と増益基調が反転する。
   - cashflow-yield-discount の前提（OCF yield 11.95%、net cash）が次回決算で剥落する。
@@ -67,26 +64,21 @@ entry_preflight:
   market_relative_return_pct: 4.36
   sector_or_peer_relative_return_pct: 0.0
   macro_freshness: current
-  tactical_exposure_after_order:
+  exposure_after_order:
     sector_33_pct: 2.95
     playbook_pct: 19.48
   near_term_catalyst: false
   action: starter
-  reason: >
-    2026-06-09 約定の 100 株 starter。市場相対は 6/8 暴落日（日経 -3.85%）に対し candidate の
-    price_change_1d +0.51% で +4.36pt と逆行耐性を示した。サービス業セクター指数の同期間リターンは
-    Tier1 で取得できず peer relative は not_checked（0.0）扱いだが、sector_relative_strength_percentile
-    81.8%ile で相対的に強い。macro context は current。tactical exposure は sector 2.95% /
-    playbook（cashflow-yield-discount 既存 3539+8255 含む）19.5% で 50% 上限内。discretionary な
-    #201 パネル thesis のため proceed ではなく starter に留める。
+  reason: '2026-06-09 約定の 100 株 starter。市場相対は 6/8 暴落日（日経 -3.85%）に対し candidate の price_change_1d +0.51% で +4.36pt
+    と逆行耐性を示した。サービス業セクター指数の同期間リターンは Tier1 で取得できず peer relative は not_checked（0.0）扱いだが、sector_relative_strength_percentile
+    81.8%ile で相対的に強い。macro context は current。tactical exposure は sector 2.95% / playbook（cashflow-yield-discount
+    既存 3539+8255 含む）19.5% で 50% 上限内。discretionary な #201 パネル thesis のため proceed ではなく starter に留める。
+
+    '
 corporate_action_check:
   checked: true
   result: none
   note: 2026-06-08 candidate は split_adjustment_flag=false。20d/60d 下落 window 内に corporate action は確認されない。
-tracking:
-  mode: post_approval
-  plus_15bd: null
-  plus_30bd: null
 ---
 
 # Research: 2026-06-09 2749 ＪＰホールディングス cashflow-yield-discount

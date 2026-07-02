@@ -16,24 +16,17 @@ published_at: '2026-05-05T20:05:00+09:00'
 recorded_at: '2026-05-05T20:05:00+09:00'
 tradable_at: '2026-05-07T09:00:00+09:00'
 position_sizing_overlay:
-  paper_proxy_position_size_yen: 1000000
-  real_order_intent_yen: 200000
-  adv_participation_pct: 0.7692
+  estimated_real_order_notional_yen: 200000
+  adv_participation_pct: 0.1538
 thesis_payoff:
   max_entry_price_yen: 2000
-  target_price_yen: 2300
-  stop_loss_yen: 1800
-  time_horizon_bd: 40
+  fair_value_yen: 2300
   invalidation_conditions:
   - 成長鈍化が P/S と配当支えを上回る。
   entry_trigger: price_guard_or_revisit
   expected_upside_pct: 15.0
   expected_downside_pct: 10.0
   risk_reward_ratio: 1.5
-tracking:
-  mode: post_approval
-  plus_15bd: null
-  plus_30bd: null
 market_cap_oku: 678
 sector_33: 情報・通信業
 avg_turnover_oku: 1.3

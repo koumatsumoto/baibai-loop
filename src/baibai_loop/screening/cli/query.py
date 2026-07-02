@@ -242,9 +242,7 @@ def _load_selection_inputs(
         asof_date,
         current_path=candidates_path,
     )
-    prior_research = load_prior_research(
-        repo_root / "records/_decisions/thesis-decisions", asof_date
-    )
+    prior_research = load_prior_research(repo_root / "records/05-thesis", asof_date)
     return _SelectionInputs(
         candidates=candidate_records,
         macro_context=macro_context,

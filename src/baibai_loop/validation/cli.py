@@ -24,7 +24,6 @@ from baibai_loop.thesis import (
 from baibai_loop.thesis.playbook_schema import discover_playbook_schemas
 
 from .candidates import discover_candidates_files, validate_candidates_file
-from .decisions import discover_decisions_files, validate_decisions_file
 from .macro_context import discover_macro_context_files, validate_macro_context_file
 from .policy import validate_policy_file
 from .position import discover_position_files, validate_position_file
@@ -35,7 +34,6 @@ type ValidationTarget = Literal[
     "candidates",
     "thesis",
     "position",
-    "decisions",
 ]
 _TARGETS: tuple[ValidationTarget, ...] = (
     "macro-context",
@@ -43,15 +41,13 @@ _TARGETS: tuple[ValidationTarget, ...] = (
     "candidates",
     "thesis",
     "position",
-    "decisions",
 )
 
 MACRO_CONTEXT_ROOT = Path("records/01-macro-context")
-POLICY_PATH = Path("docs/portfolio-policy.md")
+POLICY_PATH = Path("docs/portfolio-management.md")
 CANDIDATES_ROOT = Path("records/04-candidates")
 THESIS_ROOT = Path("records/05-thesis")
 POSITION_ROOT = Path("records/06-position")
-DECISIONS_ROOT = Path("records/_decisions")
 PLAYBOOKS_ROOT = Path("records/_playbooks")
 
 
@@ -171,8 +167,6 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
             return discover_thesis_files(root / THESIS_ROOT)
         case "position":
             return discover_position_files(root / POSITION_ROOT)
-        case "decisions":
-            return discover_decisions_files(root / DECISIONS_ROOT)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 
@@ -198,8 +192,6 @@ def _validate(
             )
         case "position":
             return validate_position_file(path)
-        case "decisions":
-            return validate_decisions_file(path)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 

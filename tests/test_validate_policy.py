@@ -17,14 +17,14 @@ class PolicyValidationTests(unittest.TestCase):
     def test_discovers_policy_docs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            policy = root / "docs/portfolio-policy.md"
+            policy = root / "docs/portfolio-management.md"
             policy.parent.mkdir(parents=True)
             policy.write_text(_valid_policy_doc(), encoding="utf-8")
 
             self.assertEqual(discover_policy_files(root), [policy])
 
     def test_accepts_repository_policy_doc(self) -> None:
-        findings = validate_policy_file(ROOT / "docs/portfolio-policy.md")
+        findings = validate_policy_file(ROOT / "docs/portfolio-management.md")
 
         self.assertEqual(findings, [])
 
@@ -40,7 +40,7 @@ class PolicyValidationTests(unittest.TestCase):
     def test_warns_when_code_config_reference_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "policy.md"
-            path.write_text("# Portfolio Policy\n\nHuman-readable policy.\n", encoding="utf-8")
+            path.write_text("# Portfolio management\n\nHuman-readable policy.\n", encoding="utf-8")
 
             findings = validate_policy_file(path)
 
@@ -57,7 +57,7 @@ class PolicyValidationTests(unittest.TestCase):
 
 
 def _valid_policy_doc() -> str:
-    return "# Portfolio Policy\n\nConcrete thresholds live in `position/policy.py`.\n"
+    return "# Portfolio management\n\nConcrete thresholds live in `position/policy.py`.\n"
 
 
 if __name__ == "__main__":

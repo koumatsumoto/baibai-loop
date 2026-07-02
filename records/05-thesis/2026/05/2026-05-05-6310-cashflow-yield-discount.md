@@ -22,24 +22,17 @@ published_at: '2026-05-05T20:10:00+09:00'
 recorded_at: '2026-05-05T20:10:00+09:00'
 tradable_at: '2026-05-18T09:00:00+09:00'
 position_sizing_overlay:
-  paper_proxy_position_size_yen: 0
-  real_order_intent_yen: 0
-  adv_participation_pct: 0.0
+  estimated_real_order_notional_yen: 0
+  adv_participation_pct: 0
 thesis_payoff:
   max_entry_price_yen: 1750
-  target_price_yen: 2100
-  stop_loss_yen: 1550
-  time_horizon_bd: 40
+  fair_value_yen: 2100
   invalidation_conditions:
   - Post-1Q operating cash-flow thesis deteriorates.
   entry_trigger: price_guard_or_revisit
   expected_upside_pct: 20.0
   expected_downside_pct: 11.43
   risk_reward_ratio: 1.75
-tracking:
-  mode: re_examination
-  plus_15bd: null
-  plus_30bd: null
 market_cap_oku: 397
 sector_33: 機械
 avg_turnover_oku: 2.0

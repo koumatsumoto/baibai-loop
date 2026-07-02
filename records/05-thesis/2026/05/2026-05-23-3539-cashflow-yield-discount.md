@@ -16,14 +16,11 @@ published_at: '2026-05-23T20:43:22+09:00'
 recorded_at: '2026-05-23T20:43:22+09:00'
 tradable_at: '2026-05-25T09:00:00+09:00'
 position_sizing_overlay:
-  paper_proxy_position_size_yen: 1000000
-  real_order_intent_yen: 127500
-  adv_participation_pct: 0.5556
+  estimated_real_order_notional_yen: 127500
+  adv_participation_pct: 0.0708
 thesis_payoff:
   max_entry_price_yen: 1275
-  target_price_yen: 1450
-  stop_loss_yen: 1200
-  time_horizon_bd: 40
+  fair_value_yen: 1450
   invalidation_conditions:
   - 2026-06-12 予定の Q3 決算で既存店・粗利・営業 CF の thesis が崩れる。
   - 食品小売の低価格志向が粗利率を継続的に削り、営業増益が維持できない。
@@ -32,10 +29,6 @@ thesis_payoff:
   expected_upside_pct: 13.73
   expected_downside_pct: 5.88
   risk_reward_ratio: 2.33
-tracking:
-  mode: post_approval
-  plus_15bd: null
-  plus_30bd: null
 market_cap_oku: 677
 sector_33: 小売業
 avg_turnover_oku: 1.8

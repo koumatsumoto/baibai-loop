@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from baibai_loop.foundation.yaml_io import safe_load
 
-DEFAULT_RULES_PATH = Path("records/_config/screening-rules/2026-06-19T000000+0900.yaml")
+DEFAULT_RULES_PATH = Path("records/_config/screening-rules/2026-07-02T000000+0900.yaml")
 
 BUILTIN_SELECTION_PROFILES = frozenset({"balanced"})
 
@@ -51,7 +51,6 @@ class ValuationReversionPlaybook(BaseModel):
     self_range_percentile_max: float = Field(ge=0, le=1)
     price_change_60d_max: float
     sigma_gap_max: float
-    sector_relative_strength_percentile_max: float = Field(ge=0, le=1)
     metrics: tuple[str, ...]
 
     @field_validator("metrics", mode="before")
@@ -131,49 +130,14 @@ class OutputRules(BaseModel):
         return tuple(value)
 
 
-class FastDislocationRules(BaseModel):
-    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+class DurabilityRules(BaseModel):
+    """塩漬け耐性 (durability) annotation の事前固定閾値。
 
-    enabled: bool = True
-    price_change_1d_max: float | None = None
-    price_change_5d_max: float | None = None
-    price_change_20d_max: float | None = None
-    price_change_60d_max: float | None = None
-    gap_from_52w_low_max: float | None = None
-    turnover_spike_5d_min: float | None = None
-    min_fundamental_guard_count: int = Field(default=2, ge=0)
-    min_fundamental_guard_family_count: int = Field(default=2, ge=0)
-    high_confidence_guard_count: int = Field(default=3, ge=0)
-    high_confidence_guard_family_count: int = Field(default=2, ge=0)
-    ocf_yield_min: float = Field(default=0.08, ge=0)
-    fcf_yield_min: float = Field(default=0.05, ge=0)
-    price_to_equity_max: float = Field(default=1.0, ge=0)
-    equity_ratio_min: float = Field(default=0.4, ge=0, le=1)
-    net_cash_to_market_cap_min: float = 0.2
-    sales_yoy_min: float = 0.05
-    operating_profit_positive_required: bool = True
+    価格 stop を置かない long-hold の前提を成立させる耐性シグナル
+    (balance sheet・現金・CF・流動性) を candidates に注記する。
+    ranking / gate には使わず、research の必須ゲート判定の機械入力になる。
+    """
 
-    @model_validator(mode="after")
-    def _requires_price_dislocation_trigger(self) -> FastDislocationRules:
-        if not self.enabled:
-            return self
-        if all(
-            threshold is None
-            for threshold in (
-                self.price_change_1d_max,
-                self.price_change_5d_max,
-                self.price_change_20d_max,
-                self.price_change_60d_max,
-            )
-        ):
-            raise ValueError(
-                "fast_dislocation enabled profiles must configure at least one price_change_* "
-                "threshold; gap_from_52w_low and turnover_spike_5d are auxiliary only"
-            )
-        return self
-
-
-class LongHoldSurvivabilityRules(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
     high_min_support_count: int = Field(default=4, ge=1)
@@ -245,10 +209,7 @@ class SelectionRules(BaseModel):
 
     default_profile: str = "balanced"
     liquidity: SelectionLiquidityRules = Field(default_factory=SelectionLiquidityRules)
-    fast_dislocation: FastDislocationRules = Field(default_factory=FastDislocationRules)
-    long_hold_survivability: LongHoldSurvivabilityRules = Field(
-        default_factory=LongHoldSurvivabilityRules
-    )
+    durability: DurabilityRules = Field(default_factory=DurabilityRules)
     diversity: SelectionDiversityRules = Field(default_factory=SelectionDiversityRules)
 
     @field_validator("default_profile")

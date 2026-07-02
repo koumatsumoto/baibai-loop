@@ -23,20 +23,14 @@ published_at: '2026-05-13T22:01:48+09:00'
 recorded_at: '2026-05-13T22:01:48+09:00'
 tradable_at: '2026-08-13T09:00:00+09:00'
 position_sizing_overlay:
-  paper_proxy_position_size_yen: 0
-  real_order_intent_yen: 0
-  adv_participation_pct: 0.0
+  estimated_real_order_notional_yen: 0
+  adv_participation_pct: 0
 thesis_payoff:
-  time_horizon_bd: 60
   invalidation_conditions:
   - Q2 で営業 CF / FCF が弱く、2025年12月期の OCF / FCF が運転資本の一時要因だった可能性が高まる。
   - 収納代行サービスの営業減益が単価改定後も続き、金利上昇・仕入単価上昇を価格転嫁できない。
   - 情報サービスの Google / SI 成長が鈍化し、通期営業利益 +0.7% 計画を上回る確度が下がる。
   entry_trigger: q2_cash_flow_and_payment_margin_confirmation
-tracking:
-  mode: re_examination
-  plus_15bd: null
-  plus_30bd: null
 market_cap_oku: 315
 sector_33: 情報・通信業
 avg_turnover_oku: 1.2

@@ -71,6 +71,7 @@ def _snapshot(ref_path: str) -> dict[str, object]:
 
 
 def _minimal_research_front_matter() -> dict[str, object]:
+    """Legacy-era approved memo (published before the long-hold effective date)."""
     return {
         "ticker": "2767",
         "name": "Sample Co",
@@ -94,19 +95,16 @@ def _minimal_research_front_matter() -> dict[str, object]:
             "sizing_caution": [],
         },
         "position_sizing_overlay": {
-            "paper_proxy_position_size_yen": 1000000,
-            "real_order_intent_yen": 200000,
-            "adv_participation_pct": 0.5,
+            "estimated_real_order_notional_yen": 200000,
+            "adv_participation_pct": 0.1,
         },
         "thesis_payoff": {
             "max_entry_price_yen": 500,
-            "target_price_yen": 650,
-            "stop_loss_yen": 450,
+            "fair_value_yen": 650,
             "expected_upside_pct": 30.0,
             "expected_downside_pct": 10.0,
             "risk_reward_ratio": 3.0,
-            "time_horizon_bd": 30,
-            "invalidation_conditions": ["stop loss"],
+            "invalidation_conditions": ["営業CF 2 期連続赤字"],
         },
         "corporate_action_check": {
             "checked": True,
@@ -120,65 +118,51 @@ def _minimal_research_front_matter() -> dict[str, object]:
     }
 
 
+def _long_hold_front_matter() -> dict[str, object]:
+    """Approved memo on/after the long-hold effective date (full new contract)."""
+    front = _minimal_research_front_matter()
+    front["published_at"] = "2026-07-02T20:00:00+09:00"
+    front["macro_context_ref"] = (
+        "records/01-macro-context/2026/06/"
+        "macro-context-2026-06-30-overshoot-reverted-ath-risk-on.yaml"
+    )
+    fit = front["macro_context_fit"]
+    assert isinstance(fit, dict)
+    fit["fit"] = "tailwind"
+    payoff = front["thesis_payoff"]
+    assert isinstance(payoff, dict)
+    payoff["expected_yield_pct"] = 12.0
+    sizing = front["position_sizing_overlay"]
+    assert isinstance(sizing, dict)
+    sizing["guarded_max_notional_yen"] = 200000
+    front["durability_gate"] = {
+        "net_cash": True,
+        "operating_cf_positive": True,
+        "low_leverage": True,
+        "refinancing_risk": "low",
+        "dividend": True,
+        "judgment": "high",
+    }
+    front["entry_preflight"] = _entry_preflight(evaluated_on="2026-07-02")
+    return front
+
+
 def _entry_preflight(**overrides: object) -> dict[str, object]:
     preflight: dict[str, object] = {
         "evaluated_on": "2026-06-02",
         "market_relative_return_pct": 0.0,
         "sector_or_peer_relative_return_pct": 0.0,
         "macro_freshness": "current",
-        "tactical_exposure_after_order": {
+        "exposure_after_order": {
             "sector_33_pct": 20.0,
             "playbook_pct": 20.0,
         },
         "near_term_catalyst": False,
         "action": "proceed",
-        "reason": "relative performance and exposure are acceptable",
+        "reason": "macro is fresh and exposure stays inside the caps",
     }
     preflight.update(overrides)
     return preflight
-
-
-def _write_macro_context_fixture(root: Path) -> None:
-    macro_path = root / "records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml"
-    macro_path.parent.mkdir(parents=True)
-    macro_path.write_text(
-        yaml.safe_dump(
-            {
-                "kind": "macro-context",
-                "context_id": "macro-context-2026-05-04-screening",
-                "as_of": "2026-05-04",
-                "valid_until": "2026-05-17",
-                "published_at": "2026-05-04T20:00:00+09:00",
-                "summary": "test",
-                "inputs": {"articles": [], "indicator_series": []},
-                "sector_tilts": {
-                    "items": [
-                        {
-                            "id": "info-neutral",
-                            "scope": "sector_33",
-                            "key": "情報・通信業",
-                            "stance": "neutral",
-                            "strength": "medium",
-                            "confidence": "medium",
-                            "rationale": "test",
-                        }
-                    ]
-                },
-                "research_questions": ["question"],
-                "refresh_triggers": ["trigger"],
-                "changes_since_previous": [],
-            },
-            allow_unicode=True,
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-
-
-def _write_playbook_ref_fixture(root: Path) -> None:
-    path = root / "records/_playbooks/valuation-reversion/2026-05-01T000000+0900.md"
-    path.parent.mkdir(parents=True)
-    path.write_text("---\nplaybook_id: valuation-reversion\n---\n# Playbook\n", encoding="utf-8")
 
 
 class ResearchValidationTests(unittest.TestCase):
@@ -199,6 +183,11 @@ class ResearchValidationTests(unittest.TestCase):
 
     def test_minimal_valid_research_passes(self) -> None:
         findings = self._findings_for(_minimal_research_front_matter())
+        errors = [finding for finding in findings if finding.severity == "error"]
+        self.assertEqual(errors, [], f"unexpected errors: {errors}")
+
+    def test_long_hold_valid_research_passes(self) -> None:
+        findings = self._findings_for(_long_hold_front_matter())
         errors = [finding for finding in findings if finding.severity == "error"]
         self.assertEqual(errors, [], f"unexpected errors: {errors}")
 
@@ -223,13 +212,6 @@ class ResearchValidationTests(unittest.TestCase):
         errors = [finding for finding in findings if finding.severity == "error"]
         self.assertEqual(errors, [], f"unexpected errors: {errors}")
 
-    def test_entry_preflight_rejects_reasonless_proceed_with_relative_lag(self) -> None:
-        front = _minimal_research_front_matter()
-        front["published_at"] = "2026-06-02T20:00:00+09:00"
-        front["entry_preflight"] = _entry_preflight(market_relative_return_pct=-3.1)
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("thesis.entry-preflight-proceed-trigger", codes)
-
     def test_entry_preflight_rejects_stale_macro_proceed(self) -> None:
         front = _minimal_research_front_matter()
         front["published_at"] = "2026-06-02T20:00:00+09:00"
@@ -240,200 +222,57 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("thesis.entry-preflight-proceed-trigger", codes)
 
-    def test_entry_preflight_rejects_high_tactical_exposure_proceed(self) -> None:
-        front = _minimal_research_front_matter()
-        front["published_at"] = "2026-06-02T20:00:00+09:00"
-        front["entry_preflight"] = _entry_preflight(
-            tactical_exposure_after_order={"sector_33_pct": 51.0, "playbook_pct": 20.0}
-        )
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("thesis.entry-preflight-proceed-trigger", codes)
-
-    def test_entry_preflight_exception_requires_structured_basis(self) -> None:
-        front = _minimal_research_front_matter()
-        front["published_at"] = "2026-06-02T20:00:00+09:00"
-        front["entry_preflight"] = _entry_preflight(
-            market_relative_return_pct=-3.1,
-            action="exception",
-            reason="exception is justified",
-        )
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("thesis.entry-preflight-exception-basis", codes)
-
-    def test_entry_preflight_exception_accepts_near_term_catalyst_basis(self) -> None:
+    def test_entry_preflight_allows_stale_proceed_with_near_term_catalyst(self) -> None:
         front = _minimal_research_front_matter()
         front["published_at"] = "2026-06-02T20:00:00+09:00"
         fit = front["macro_context_fit"]
         assert isinstance(fit, dict)
         fit["context_freshness"] = "stale"
         front["entry_preflight"] = _entry_preflight(
-            market_relative_return_pct=-3.1,
             macro_freshness="stale",
             near_term_catalyst=True,
-            action="exception",
-            exception_basis=["near_term_catalyst"],
-            reason="near-term catalyst can reprice the lag quickly",
+            reason="dated near-term catalyst justifies acting on a stale macro read",
         )
-        errors = [finding for finding in self._findings_for(front) if finding.severity == "error"]
-        self.assertEqual(errors, [], f"unexpected errors: {errors}")
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertNotIn("thesis.entry-preflight-proceed-trigger", codes)
 
-    def test_entry_preflight_rejects_proceed_in_risk_on_rally(self) -> None:
+    def test_entry_preflight_relative_lag_is_informational_only(self) -> None:
+        # 割安 (相対劣後)を買うのが本流のため、相対リターンは hard trigger にしない。
         front = _minimal_research_front_matter()
         front["published_at"] = "2026-06-02T20:00:00+09:00"
+        front["entry_preflight"] = _entry_preflight(market_relative_return_pct=-11.9)
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertNotIn("thesis.entry-preflight-proceed-trigger", codes)
+
+    def test_entry_preflight_exposure_cap_blocks_proceed_on_new_records(self) -> None:
+        front = _long_hold_front_matter()
         front["entry_preflight"] = _entry_preflight(
-            market_regime={"regime": "risk_on_rally", "benchmark_return_20d": 0.08},
-            action="proceed",
+            evaluated_on="2026-07-02",
+            exposure_after_order={"sector_33_pct": 45.0, "playbook_pct": 20.0},
         )
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("thesis.entry-preflight-proceed-trigger", codes)
 
-    def test_entry_preflight_warns_starter_contrarian_in_risk_on_rally(self) -> None:
-        front = _minimal_research_front_matter()
-        front["published_at"] = "2026-06-02T20:00:00+09:00"
+    def test_entry_preflight_exposure_cap_allows_starter(self) -> None:
+        front = _long_hold_front_matter()
         front["entry_preflight"] = _entry_preflight(
-            market_regime={"regime": "risk_on_rally", "benchmark_return_20d": 0.08},
+            evaluated_on="2026-07-02",
+            exposure_after_order={"sector_33_pct": 45.0, "playbook_pct": 20.0},
             action="starter",
-            reason="starter size against a rally without a catalyst",
-        )
-        findings = self._findings_for(front)
-        codes = {finding.code for finding in findings}
-        self.assertNotIn("thesis.entry-preflight-proceed-trigger", codes)
-        self.assertIn("thesis.entry-preflight-rally-contrarian", codes)
-
-    def test_entry_preflight_allows_starter_in_rally_with_near_term_catalyst(self) -> None:
-        front = _minimal_research_front_matter()
-        front["published_at"] = "2026-06-02T20:00:00+09:00"
-        front["entry_preflight"] = _entry_preflight(
-            market_regime={"regime": "risk_on_rally", "benchmark_return_20d": 0.08},
-            action="starter",
-            near_term_catalyst=True,
-            reason="near-term catalyst can trigger the mean reversion",
-        )
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertNotIn("thesis.entry-preflight-rally-contrarian", codes)
-
-    def test_entry_preflight_allows_rally_entry_with_low_correlation_basis(self) -> None:
-        front = _minimal_research_front_matter()
-        front["published_at"] = "2026-06-02T20:00:00+09:00"
-        front["entry_preflight"] = _entry_preflight(
-            market_regime={"regime": "risk_on_rally", "benchmark_return_20d": 0.08},
-            action="exception",
-            exception_basis=["low_correlation"],
-            reason="low correlation to the rally leaders dilutes the regime bet",
-        )
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertNotIn("thesis.entry-preflight-rally-contrarian", codes)
-
-    def test_entry_preflight_neutral_range_proceed_has_no_regime_finding(self) -> None:
-        front = _minimal_research_front_matter()
-        front["published_at"] = "2026-06-02T20:00:00+09:00"
-        front["entry_preflight"] = _entry_preflight(
-            market_regime={"regime": "neutral_range", "benchmark_return_20d": 0.01},
-            action="proceed",
+            reason="sector exposure is above the cap, so size down to starter",
         )
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertNotIn("thesis.entry-preflight-proceed-trigger", codes)
-        self.assertNotIn("thesis.entry-preflight-rally-contrarian", codes)
 
-    def test_entry_preflight_requires_market_regime_from_gate_date(self) -> None:
-        front = _minimal_research_front_matter()
-        front["published_at"] = "2026-06-17T20:00:00+09:00"
-        front["entry_preflight"] = _entry_preflight(action="defer")
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("thesis.entry-preflight-regime-required", codes)
-
-    def test_entry_preflight_rejects_unknown_regime_label(self) -> None:
-        front = _minimal_research_front_matter()
-        front["published_at"] = "2026-06-02T20:00:00+09:00"
-        preflight = _entry_preflight(action="defer")
-        preflight["market_regime"] = {"regime": "melt_up", "benchmark_return_20d": 0.08}
-        front["entry_preflight"] = preflight
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("thesis.entry-preflight-regime-label", codes)
-
-    def test_entry_preflight_rejects_proceed_with_unknown_regime(self) -> None:
-        front = _minimal_research_front_matter()
-        front["published_at"] = "2026-06-17T20:00:00+09:00"
-        front["entry_preflight"] = _entry_preflight(
-            market_regime={"regime": "unknown", "benchmark_return_20d": None},
-            action="proceed",
-        )
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("thesis.entry-preflight-proceed-trigger", codes)
-
-    def test_entry_preflight_rejects_mislabeled_regime_against_benchmark(self) -> None:
+    def test_entry_preflight_exposure_cap_not_applied_to_legacy_records(self) -> None:
+        # legacy record の exposure % は当時の分母で記録された事実のため、cap 判定しない。
         front = _minimal_research_front_matter()
         front["published_at"] = "2026-06-02T20:00:00+09:00"
         front["entry_preflight"] = _entry_preflight(
-            market_regime={"regime": "neutral_range", "benchmark_return_20d": 0.10},
-            action="proceed",
+            exposure_after_order={"sector_33_pct": 45.0, "playbook_pct": 20.0}
         )
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("thesis.entry-preflight-regime-mismatch", codes)
-
-    def test_entry_preflight_rejects_partial_market_regime_block(self) -> None:
-        front = _minimal_research_front_matter()
-        front["published_at"] = "2026-06-17T20:00:00+09:00"
-        preflight = _entry_preflight(action="defer")
-        # regime key missing — schema also catches this, but the custom check
-        # must also flag it so future schema loosenings don't open a hole.
-        preflight["market_regime"] = {"benchmark_return_20d": 0.05}
-        front["entry_preflight"] = preflight
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("thesis.entry-preflight-regime-required", codes)
-
-    def test_entry_preflight_published_2026_06_16_does_not_require_market_regime(self) -> None:
-        front = _minimal_research_front_matter()
-        front["published_at"] = "2026-06-16T20:00:00+09:00"
-        front["entry_preflight"] = _entry_preflight(action="defer")
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertNotIn("thesis.entry-preflight-regime-required", codes)
-
-    def test_entry_preflight_filename_date_blocks_backdated_published_at(self) -> None:
-        front = _minimal_research_front_matter()
-        front["published_at"] = "2026-06-16T20:00:00+09:00"
-        front["entry_preflight"] = _entry_preflight(action="defer")
-        path = self._write(front)
-        named = path.with_name("2026-06-20-2767-valuation-reversion.md")
-        path.rename(named)
-        try:
-            codes = {
-                f.code
-                for f in validate_thesis_file(named, playbooks_root=ROOT / "records/_playbooks")
-            }
-        finally:
-            named.unlink()
-        self.assertIn("thesis.entry-preflight-regime-required", codes)
-
-    def test_entry_preflight_defer_in_rally_has_no_warning(self) -> None:
-        front = _minimal_research_front_matter()
-        front["published_at"] = "2026-06-02T20:00:00+09:00"
-        front["entry_preflight"] = _entry_preflight(
-            market_regime={"regime": "risk_on_rally", "benchmark_return_20d": 0.08},
-            action="defer",
-        )
-        codes = {f.code for f in self._findings_for(front)}
-        self.assertNotIn("thesis.entry-preflight-rally-contrarian", codes)
-
-    def test_entry_preflight_exception_with_only_low_sizing_fails_in_rally(self) -> None:
-        front = _minimal_research_front_matter()
-        front["published_at"] = "2026-06-02T20:00:00+09:00"
-        front["entry_preflight"] = _entry_preflight(
-            market_regime={"regime": "risk_on_rally", "benchmark_return_20d": 0.08},
-            action="exception",
-            exception_basis=["low_sizing"],
-            tactical_exposure_after_order={"sector_33_pct": 10.0, "playbook_pct": 10.0},
-            reason="low_sizing only is insufficient in rally per backtest",
-        )
-        findings = self._findings_for(front)
-        codes = {f.code for f in findings}
-        rally_finding = [f for f in findings if f.code == "thesis.entry-preflight-rally-contrarian"]
-        self.assertIn("thesis.entry-preflight-rally-contrarian", codes)
-        self.assertEqual(
-            [f.severity for f in rally_finding],
-            ["error"],
-            f"expected error severity for exception, got {rally_finding}",
-        )
+        self.assertNotIn("thesis.entry-preflight-proceed-trigger", codes)
 
     def test_new_approved_research_uses_filename_date_for_entry_preflight_gate(self) -> None:
         front = _minimal_research_front_matter()
@@ -452,6 +291,22 @@ class ResearchValidationTests(unittest.TestCase):
             named_path.unlink()
         self.assertIn("thesis.entry-preflight-required", codes)
 
+    def test_long_hold_gate_filename_date_blocks_backdated_published_at(self) -> None:
+        front = _long_hold_front_matter()
+        front["published_at"] = "2026-06-16T20:00:00+09:00"
+        del front["durability_gate"]
+        path = self._write(front)
+        named = path.with_name("2026-07-02-2767-valuation-reversion.md")
+        path.rename(named)
+        try:
+            codes = {
+                f.code
+                for f in validate_thesis_file(named, playbooks_root=ROOT / "records/_playbooks")
+            }
+        finally:
+            named.unlink()
+        self.assertIn("thesis.durability-gate-required", codes)
+
     def test_entry_preflight_rejects_invalid_evaluated_on_date(self) -> None:
         front = _minimal_research_front_matter()
         front["published_at"] = "2026-06-02T20:00:00+09:00"
@@ -464,12 +319,90 @@ class ResearchValidationTests(unittest.TestCase):
         front["published_at"] = "2026-06-02T20:00:00+09:00"
         preflight = _entry_preflight()
         preflight["extra_preflight_field"] = "unexpected"
-        exposure = preflight["tactical_exposure_after_order"]
+        exposure = preflight["exposure_after_order"]
         assert isinstance(exposure, dict)
         exposure["extra_exposure_field"] = 1
         front["entry_preflight"] = preflight
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("thesis.additionalProperties", codes)
+
+    def test_entry_preflight_rejects_unknown_action(self) -> None:
+        front = _minimal_research_front_matter()
+        front["published_at"] = "2026-06-02T20:00:00+09:00"
+        front["entry_preflight"] = _entry_preflight(action="exception")
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("thesis.entry-preflight-action", codes)
+
+    # --- long-hold requirements (approved, on/after effective date) ---
+
+    def test_long_hold_requires_fair_value(self) -> None:
+        front = _long_hold_front_matter()
+        payoff = front["thesis_payoff"]
+        assert isinstance(payoff, dict)
+        del payoff["fair_value_yen"]
+        del payoff["expected_upside_pct"]
+        del payoff["risk_reward_ratio"]
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("thesis.fair-value-required", codes)
+
+    def test_long_hold_requires_fair_value_above_entry(self) -> None:
+        front = _long_hold_front_matter()
+        payoff = front["thesis_payoff"]
+        assert isinstance(payoff, dict)
+        payoff["fair_value_yen"] = 450
+        payoff["expected_upside_pct"] = -10.0
+        payoff["risk_reward_ratio"] = -1.0
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("thesis.fair-value-upside", codes)
+
+    def test_long_hold_requires_expected_yield(self) -> None:
+        front = _long_hold_front_matter()
+        payoff = front["thesis_payoff"]
+        assert isinstance(payoff, dict)
+        del payoff["expected_yield_pct"]
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("thesis.expected-yield-required", codes)
+
+    def test_long_hold_requires_invalidation_conditions(self) -> None:
+        front = _long_hold_front_matter()
+        payoff = front["thesis_payoff"]
+        assert isinstance(payoff, dict)
+        payoff["invalidation_conditions"] = []
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("thesis.invalidation-conditions-required", codes)
+
+    def test_long_hold_requires_durability_gate(self) -> None:
+        front = _long_hold_front_matter()
+        del front["durability_gate"]
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("thesis.durability-gate-required", codes)
+
+    def test_long_hold_requires_guarded_max_notional(self) -> None:
+        front = _long_hold_front_matter()
+        sizing = front["position_sizing_overlay"]
+        assert isinstance(sizing, dict)
+        del sizing["guarded_max_notional_yen"]
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("thesis.guarded-notional-required", codes)
+
+    def test_legacy_records_are_exempt_from_long_hold_requirements(self) -> None:
+        front = _minimal_research_front_matter()
+        payoff = front["thesis_payoff"]
+        assert isinstance(payoff, dict)
+        self.assertNotIn("expected_yield_pct", payoff)
+        findings = self._findings_for(front)
+        errors = [finding for finding in findings if finding.severity == "error"]
+        self.assertEqual(errors, [], f"unexpected errors: {errors}")
+
+    def test_durability_gate_rejects_unknown_judgment(self) -> None:
+        front = _long_hold_front_matter()
+        gate = front["durability_gate"]
+        assert isinstance(gate, dict)
+        gate["judgment"] = "great"
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("thesis.enum", codes)
+
+    # --- schema shape ---
 
     def test_missing_required_field_is_flagged_by_schema(self) -> None:
         front = _minimal_research_front_matter()
@@ -487,7 +420,16 @@ class ResearchValidationTests(unittest.TestCase):
         front = _minimal_research_front_matter()
         sizing = front["position_sizing_overlay"]
         assert isinstance(sizing, dict)
-        sizing["extra_size_field"] = 1
+        sizing["paper_proxy_position_size_yen"] = 1000000
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("thesis.additionalProperties", codes)
+
+    def test_thesis_payoff_rejects_removed_swing_fields(self) -> None:
+        front = _minimal_research_front_matter()
+        payoff = front["thesis_payoff"]
+        assert isinstance(payoff, dict)
+        payoff["stop_loss_yen"] = 450
+        payoff["time_horizon_bd"] = 30
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("thesis.additionalProperties", codes)
 
@@ -498,6 +440,8 @@ class ResearchValidationTests(unittest.TestCase):
         valuation["extra_metric"] = 1
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("thesis.additionalProperties", codes)
+
+    # --- decision / macro fit / corporate action ---
 
     def test_unknown_outcome_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
@@ -510,12 +454,21 @@ class ResearchValidationTests(unittest.TestCase):
         front = _minimal_research_front_matter()
         front["thesis_decision"] = {"outcome": "rejected", "posture": "dropped"}
         front["position_sizing_overlay"] = {
-            "paper_proxy_position_size_yen": 0,
-            "real_order_intent_yen": 0,
+            "estimated_real_order_notional_yen": 0,
             "adv_participation_pct": 0,
         }
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("thesis.rejection-reason-required", codes)
+
+    def test_non_approved_requires_zero_sizing(self) -> None:
+        front = _minimal_research_front_matter()
+        front["thesis_decision"] = {
+            "outcome": "rejected",
+            "posture": "dropped",
+            "rejection_reason": "thesis broken",
+        }
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("thesis.rejected-sizing", codes)
 
     def test_deferred_macro_context_cannot_be_approved(self) -> None:
         front = _minimal_research_front_matter()
@@ -544,23 +497,17 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("thesis.corporate-action-check-result", codes)
 
-    def test_payoff_order_is_flagged(self) -> None:
-        front = _minimal_research_front_matter()
-        payoff = front["thesis_payoff"]
-        assert isinstance(payoff, dict)
-        payoff["stop_loss_yen"] = 700
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("thesis.payoff-order", codes)
+    # --- payoff arithmetic ---
 
     def test_zero_entry_price_is_flagged_without_crash(self) -> None:
-        # A malformed max_entry_price_yen of 0 must produce a payoff-order finding,
-        # not crash the validator with ZeroDivisionError on the target/entry division.
+        # A malformed max_entry_price_yen of 0 must produce a payoff-price finding,
+        # not crash the validator with ZeroDivisionError on the fair-value division.
         front = _minimal_research_front_matter()
         payoff = front["thesis_payoff"]
         assert isinstance(payoff, dict)
         payoff["max_entry_price_yen"] = 0
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("thesis.payoff-order", codes)
+        self.assertIn("thesis.payoff-price", codes)
 
     def test_expected_upside_formula_is_checked(self) -> None:
         front = _minimal_research_front_matter()
@@ -569,6 +516,61 @@ class ResearchValidationTests(unittest.TestCase):
         payoff["expected_upside_pct"] = 99.0
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("thesis.expected-upside", codes)
+
+    def test_non_positive_downside_is_flagged(self) -> None:
+        front = _minimal_research_front_matter()
+        payoff = front["thesis_payoff"]
+        assert isinstance(payoff, dict)
+        payoff["expected_downside_pct"] = 0
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("thesis.expected-downside", codes)
+
+    def test_risk_reward_formula_is_checked(self) -> None:
+        front = _minimal_research_front_matter()
+        payoff = front["thesis_payoff"]
+        assert isinstance(payoff, dict)
+        payoff["risk_reward_ratio"] = 9.9
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("thesis.risk-reward", codes)
+
+    # --- sizing invariants ---
+
+    def test_adv_participation_must_derive_from_order_notional(self) -> None:
+        front = _minimal_research_front_matter()
+        sizing = front["position_sizing_overlay"]
+        assert isinstance(sizing, dict)
+        sizing["adv_participation_pct"] = 3.0
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("thesis.adv-participation-pct", codes)
+
+    def test_order_notional_above_ticker_cap_is_flagged(self) -> None:
+        # ticker cap = real_capital_yen 10M x 6% = 600,000
+        front = _minimal_research_front_matter()
+        sizing = front["position_sizing_overlay"]
+        assert isinstance(sizing, dict)
+        sizing["estimated_real_order_notional_yen"] = 700000
+        sizing["adv_participation_pct"] = 0.35
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("thesis.order-notional-cap", codes)
+
+    def test_order_notional_above_liquidity_cap_is_flagged(self) -> None:
+        # liquidity cap = avg_turnover 0.1 oku x 5% = 500,000
+        front = _minimal_research_front_matter()
+        front["avg_turnover_oku"] = 0.1
+        sizing = front["position_sizing_overlay"]
+        assert isinstance(sizing, dict)
+        sizing["estimated_real_order_notional_yen"] = 550000
+        sizing["adv_participation_pct"] = 5.5
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("thesis.order-notional-cap", codes)
+
+    def test_approved_requires_avg_turnover(self) -> None:
+        front = _minimal_research_front_matter()
+        del front["avg_turnover_oku"]
+        codes = {finding.code for finding in self._findings_for(front)}
+        self.assertIn("thesis.adv-participation-input", codes)
+
+    # --- basics ---
 
     def test_invalid_ticker_pattern_is_flagged(self) -> None:
         front = _minimal_research_front_matter()

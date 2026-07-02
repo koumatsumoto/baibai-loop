@@ -19,9 +19,9 @@ class PolicyConfigTests(unittest.TestCase):
 
     def test_portfolio_policy_config_fails_fast_on_missing_threshold(self) -> None:
         policy = copy.deepcopy(PORTFOLIO_POLICY)
-        del policy["risk_budget"]["max_real_order_notional_yen"]
+        del policy["risk_budget"]["max_ticker_real_concentration_pct"]
 
-        with self.assertRaisesRegex(RuntimeError, "max_real_order_notional_yen"):
+        with self.assertRaisesRegex(RuntimeError, "max_ticker_real_concentration_pct"):
             validate_policy(policy)
 
 

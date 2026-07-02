@@ -127,8 +127,8 @@ def _seed_repo(root: Path, *, candidates_overrides: dict[str, object] | None = N
     (root / "records/_playbooks/valuation-reversion/2026-05-01T000000+0900.md").write_text(
         "---\nplaybook_id: valuation-reversion\n---\n# Playbook\n", encoding="utf-8"
     )
-    policy_source = ROOT / "docs/portfolio-policy.md"
-    (root / "docs/portfolio-policy.md").write_text(
+    policy_source = ROOT / "docs/portfolio-management.md"
+    (root / "docs/portfolio-management.md").write_text(
         policy_source.read_text(encoding="utf-8"), encoding="utf-8"
     )
     playbook_schema_dir = playbooks_dir / "valuation-reversion"
@@ -192,7 +192,7 @@ class ValidateCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             _seed_repo(root)
-            (root / "docs/portfolio-policy.md").unlink()
+            (root / "docs/portfolio-management.md").unlink()
             stdout = io.StringIO()
             stderr = io.StringIO()
 

@@ -1,28 +1,10 @@
-"""Ranking components: toggles, evidence choice, playbook order, strength keys."""
+"""Ranking components: evidence choice, playbook order, strength keys."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 
 from baibai_loop.foundation.coerce import float_or, metric_map, string_or_none
-
-
-@dataclass(frozen=True, slots=True)
-class RankingToggles:
-    """Named on/off switches for each ranking component of the selection sort key.
-
-    All components default to on, which reproduces the production ranking
-    exactly. Turning one off is used by the selection ablation replay to
-    measure that component's contribution to recommended forward return; the
-    production CLI never passes toggles.
-    """
-
-    macro: bool = True
-    fast_boost: bool = True
-    stabilization: bool = True
-    playbook_rank: bool = True
-    strength: bool = True
 
 
 def _primary_evidence_by_playbook_order(

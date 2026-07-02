@@ -1,43 +1,41 @@
 # Baibai-Loop
 
-Baibai-Loop は、日本株の実データ(価格・財務・開示・規制)を機械的に収集・正規化し、固定ルールでスクリーニング・スコアリングし、その効果を forward 計測で検証し続ける**データ解析基盤**です。AI と人間はこの基盤の出力を使って銘柄リサーチと売買判断を行います。目的は「お買い得銘柄を拾い、トレード成績を最大化する」ことです。
+Baibai-Loop は、日本株の実データ(価格・財務・開示・規制)を機械的に収集・正規化し、固定ルールで**割安な銘柄を機械抽出**し、深い個別調査で**フェアバリュー・リスクリワード・期待利回りを見積もる**データ解析基盤です。AI と人間はこの基盤の出力を使って、割安な優良銘柄を長期で積み立て、割高化で売る判断を行います。目的は「お買い得な優良銘柄を長期で拾い、資産を積み上げる」ことです。
 
-運用の詳細は [`docs/`](./docs/) を正本とします。初めて読む場合は [`docs/README.md`](./docs/README.md) から入ってください。
+運用の詳細は [`docs/`](./docs/) を正本とします。初めて読む場合は [`docs/doctrine.md`](./docs/doctrine.md) → [`docs/README.md`](./docs/README.md) から入ってください。
 
 ## 3 層モデル
 
 | 層 | 実体 | 性質 |
 | --- | --- | --- |
 | L1 データ層 | `data/screening/market.sqlite`(J-Quants 価格・財務 / EDINET metrics / JPX 規制) | 全上場銘柄の再現可能な事実 |
-| L2 分析層 | screen lanes・selection lenses・軸別スコア・forward backtest(replay / lane cohorts / ablation) | 決定論的・閾値固定の機械的分析 |
-| L3 判断層 | `records/`(research / trades、macro context) + `reports/` | 人間 + AI 下書きの解釈と判断 |
+| L2 分析層 | 割安 valuation ranking・selection lens・軸別スコア | 決定論的・閾値固定の機械的分析 |
+| L3 判断層 | `records/`(macro context / thesis / position) + `reports/` | 人間 + AI 下書きの解釈と判断 |
 
-AI が利用する安定契約は **CLI の YAML 出力と SQLite schema の 2 面**です([`docs/reference/platform-interface.md`](./docs/reference/platform-interface.md))。判断と帰責は人間(L3)に残し、AI は L1/L2 の事実に grounded な下書きを作ります。
+AI が利用する安定契約は **CLI の YAML 出力と SQLite schema の 2 面**です([`docs/architecture.md`](./docs/architecture.md))。判断と帰責は人間(L3)に残し、AI は L1/L2 の事実に grounded な下書きを作ります。
 
-## 2 つのループ
+## 単一ループ
 
-Baibai-Loop は単一ループではなく、**運用ループ**（検証済みの screening を適用して売買判断に落とす）と **改善ループ**（その screening を検証・改善する）を分けて回します。概念モデルの正本は [`docs/concepts.md`](./docs/concepts.md) です。
+Baibai-Loop は、割安な優良銘柄を長期で積み立てる 1 つの投資ループを回し、その中核スキル(リスクリワード・期待利回りの見積り)を実現結果と突き合わせて継続改善します。思想の正本は [`docs/doctrine.md`](./docs/doctrine.md)。
 
-**運用ループ（機会/週次）**:
-
-1. portfolio policy で目的・制約・資本・許容リスクを固定する
-2. スクリーニング前に macro context を確認する: `records/01-macro-context/`
-3. スクリーニング基準でふるいにかける: `records/04-candidates/`
-4. 個別銘柄を investment memo として深掘り調査する: `records/05-thesis/`
-5. 最終選考の銘柄を「いくらで何株」の売買提案として GitHub Issue に上げ、人間が判断する
-6. 約定したら execution record を残す: `records/06-position/`
-
-**改善ループ（日次/週次）**: screening が機能しているかは、母数が極小の個人売買結果ではなく **全候補の forward-only backtest(大 N)**で検証します。改善項目は GitHub Issue の改善バックログで管理し、screening rules / playbooks の改訂に落とします。trades は Q2(執行品質)の信号として還流します。思想は [`docs/philosophy.md`](./docs/philosophy.md)、現行構造は [`docs/architecture/system-overview.md`](./docs/architecture/system-overview.md) を参照してください。
+1. 運用方針で資本・許容リスク・ポジション管理を固定する
+2. マクロ分析で姿勢(ディフェンシブ / リスクオン)とセクター・AI 前提を読む: `records/01-macro-context/`
+3. 割安 screening でふるいにかける: `records/04-candidates/`
+4. 深い個別調査でフェアバリュー・リスクリワード・期待利回りを見積もり、塩漬け耐性を確認する: `records/05-thesis/`
+5. 採用銘柄を「いくらで何株」の売買提案として GitHub Issue に上げ、人間が判断する
+6. 約定したら執行記録を残し、割高化・事業毀損で全売りする: `records/06-position/`
+7. 見積りと実現結果を突き合わせて較正し、次の見積りを磨く
 
 ## 対象としないこと
 
-- 過去データへの閾値 grid search / パラメータ最適化、戦略累積リターン(年率・MaxDD・シャープ)の track-record claim(screening 効果の検証は forward-only な multi-axis backtest で行う。[`docs/operations/backtest-runbook.md`](./docs/operations/backtest-runbook.md))
-- 機械学習によるスコアリング・予測
-- 自動発注、売買推奨(単一の合成スコアや売買指示は出力しない。スコアは軸別の座標であり判定ではない)
-- リアルタイム処理(日次・週次バッチで足りる)
-- 汎用 feature store / BI 基盤、第三者向けサービング
+- 過去データへの閾値 grid search / パラメータ最適化、戦略累積リターン(年率・MaxDD・シャープ)の track-record claim
+- 銘柄全体を対象にした短期 forward-backtest による screen 最適化
+- 機械学習によるスコアリング・予測(単一の合成スコアや売買指示は出力しない。スコアは軸別の座標であり判定ではない)
+- 自動発注、リアルタイム処理
+- ETF / 投信 / 海外株、口座・税制のモデル化
+- 汎用 feature store / MCP / API server
 
-計測の原則(forward-only な backtest と、避ける最適化)は [`docs/design-principles.md`](./docs/design-principles.md) §9 を参照してください。
+原則は [`docs/doctrine.md`](./docs/doctrine.md)、構造は [`docs/architecture.md`](./docs/architecture.md) を参照してください。
 
 ## 構成
 
@@ -46,21 +44,19 @@ baibai-loop/
 ├── README.md
 ├── AGENTS.md
 ├── docs/
-│   ├── README.md
-│   ├── architecture/
-│   ├── components/
-│   ├── operations/
-│   ├── reference/
-│   ├── governance/
-│   ├── screening/
-│   └── templates/
+│   ├── doctrine.md              思想・大戦略・原則・語彙
+│   ├── architecture.md          構造・repository map・CLI/SQLite 契約
+│   ├── portfolio-management.md  資本・ポジション管理
+│   ├── anti-patterns.md         失敗パターン
+│   ├── workflow/                単一ループ各工程の手順
+│   ├── reference/               valuation-metrics・screening-runtime・data/Python 基盤
+│   └── operations/              工程横断の手順(task / incident)
 ├── records/
 │   ├── 01-macro-context/
 │   ├── 04-candidates/
 │   ├── 05-thesis/
 │   ├── 06-position/
 │   ├── _config/
-│   ├── _decisions/
 │   ├── _playbooks/
 │   └── _schemas/
 ├── src/baibai_loop/
@@ -70,21 +66,19 @@ baibai-loop/
 └── uv.lock
 ```
 
-directory ごとの責務は [`docs/architecture/repository-map.md`](./docs/architecture/repository-map.md) を参照してください。
+directory ごとの責務は [`docs/architecture.md#repository-map`](./docs/architecture.md#repository-map) を参照してください。
 
 ## 主要 docs
 
 | 目的 | doc |
 | --- | --- |
 | docs portal | [`docs/README.md`](./docs/README.md) |
-| 概念モデル / 用語 | [`docs/concepts.md`](./docs/concepts.md) |
-| 現行アーキテクチャ | [`docs/architecture/README.md`](./docs/architecture/README.md) |
-| component contract | [`docs/components/README.md`](./docs/components/README.md) |
-| 運用 runbook | [`docs/operations/README.md`](./docs/operations/README.md) |
+| 思想・大戦略・語彙 | [`docs/doctrine.md`](./docs/doctrine.md) |
+| 構造・repository map・CLI/SQLite 契約 | [`docs/architecture.md`](./docs/architecture.md) |
+| 資本・ポジション管理 | [`docs/portfolio-management.md`](./docs/portfolio-management.md) |
+| 各工程の手順 | [`docs/workflow/README.md`](./docs/workflow/README.md) |
 | data sources / validation / Python 基盤 | [`docs/reference/README.md`](./docs/reference/README.md) |
-| anti-pattern 運用 | [`docs/governance/README.md`](./docs/governance/README.md) |
-| screening subsystem | [`docs/screening/README.md`](./docs/screening/README.md) |
-| templates | [`docs/templates/README.md`](./docs/templates/README.md) |
+| 失敗パターン | [`docs/anti-patterns.md`](./docs/anti-patterns.md) |
 
 ## CLI
 
@@ -93,10 +87,10 @@ uv run baibai-loop-screening run --asof YYYY-MM-DD
 uv run baibai-loop-screening select --asof YYYY-MM-DD --macro-context records/01-macro-context/YYYY/MM/macro-context-YYYY-MM-DD-slug.yaml
 uv run baibai-loop-macro search CPI
 uv run baibai-loop-validation
-uv run baibai-loop-position sync --root .
+uv run baibai-loop-position benchmark
 ```
 
-automation の位置付けは [`docs/architecture/automation-map.md`](./docs/architecture/automation-map.md)、validation は [`docs/reference/testing-and-validation.md`](./docs/reference/testing-and-validation.md) を参照してください。
+automation の位置付けは [`docs/architecture.md#automation`](./docs/architecture.md#automation) を参照してください。
 
 ## 開発と検証
 

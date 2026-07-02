@@ -22,7 +22,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 
 これらは「**作業を雑に進めた結果**」であり、コミット前に該当 anti-pattern checklist を 1 周
 すれば全件防げた性質のもの。**速く書くことより正しく書くことを優先する**のが本リポジトリの
-基本方針 (詳しくは [`philosophy.md`](./philosophy.md))。
+基本方針 (詳しくは [`doctrine.md`](./doctrine.md))。
 
 ## 1. AP-01: 一次情報を直接確認せず二次情報・推測で書く
 
@@ -136,11 +136,11 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 ### 観測された症状
 - 旧 brief の `note` / `fact_memos` / `events` に「FOMC タカ派ホールドの正当化材料」「需要側
   冷却の early evidence hit」「油価高値圏粘着の構造要因」「122 条効果が顕在化」などの解釈・因果
-  推論・意味付け表現を書いた (docs/design-principles.md §4.3 で禁止)
+  推論・意味付け表現を書いた (doctrine.md#fact-analysis-separation で禁止)
 
 ### 根本原因
 - 旧 brief = 事実層 / outlook = 分析層 の境界を意識せず、便利な要約として書く
-- design-principles.md §4.3 の禁止表現リスト (「示唆」「背景」「受けて」「意味する」) を
+- doctrine.md#fact-analysis-separation の禁止表現リスト (「示唆」「背景」「受けて」「意味する」) を
   読み返さない
 
 ### 再発防止チェックリスト
@@ -164,7 +164,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 ### 根本原因
 - macro context は hard gate ではないため「見なくてもよい」と誤解する
 - screening 前提の鮮度、対象 sector、tailwind / headwind を確認しない
-- design-principles.md の柱 (事実層と分析層の物理分離、macro context は判断前提) を運用で守らない
+- doctrine.md の柱 (事実層と分析層の物理分離、macro context は判断前提) を運用で守らない
 
 ### 再発防止チェックリスト
 
@@ -205,8 +205,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - 当初の整合チェックを `avg_turnover_oku` 不在時には silently skip するように実装、
   required field 化を忘れた → 抜け道残存
 - schema 管理している nested object が未知 field を許しており、current contract 以外の値を取り込めた
-- `thesis_decision.outcome: rejected` の packet で `position_sizing_overlay.paper_proxy_position_size_yen > 0` を許していたため、
-  非採用 decision と sizing が矛盾していた
+- `thesis_decision.outcome: rejected` の packet に正値の sizing / order が紐づき、非採用 decision と矛盾していた
 - `except TypeError, ValueError:` のような Python 2 風に見える except をめぐって、レビューで
   「構文エラー」なのか「Python 3.14 の PEP 758 による複数例外捕捉」なのかが混乱した。
   本 repo では可読性とレビュー容易性を優先し、複数例外捕捉は `except (A, B):` に統一する
@@ -230,9 +229,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
       確認する:
   - [ ] `avg_turnover_oku <= 0` は error (整合チェックの分母が成立しない、required な数値
         だけでは抜け道になる)
-  - [ ] `position_sizing_overlay.paper_proxy_position_size_yen == 0` の場合は **`adv_participation_pct == 0`** を要求 (`position_size 0 / avg_turnover 85.4 * 100 = 0` だが `adv: 1.0` のような非ゼロを skip してしまう穴を塞ぐ)
-  - [ ] **`thesis_decision.outcome != 'approved'` の場合は `position_sizing_overlay.paper_proxy_position_size_yen == 0` を要求** (deferred / rejected で
-        正値が残ると decision と sizing が矛盾する)
+  - [ ] **`thesis_decision.outcome != 'approved'` の decision に正値の order / sizing が紐づいていないか** (deferred / rejected で正値が残ると decision と矛盾する)
   - [ ] `valuation` / `position_sizing_overlay` のような nested object は current schema の field だけを許す
 - [ ] cross-field consistency rule は **依存先の field が「数値であること」だけでなく、
       「正値 (> 0) であること」を確認**する。0 / 負値で silently skip する実装は穴になる
@@ -246,19 +243,13 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
         `not_filled` / `partially_filled` / `filled` のいずれか
   - [ ] `orders[].filled_quantity <= orders[].submitted_quantity`
   - [ ] `position_state: none` で executions を持たない
-  - [ ] paper proxy size と real capital / real notional / real concentration を別 field に分離
-  - [ ] `capital_basis.real_capital_yen`、`capital_basis.tactical_real_budget_yen`、
-        `capital_basis.paper_proxy_capital_yen` を混同していない
+  - [ ] `capital_basis.real_capital_yen`（単一プール）を実資金集中度の分母に使う
   - [ ] `order_price_guard_yen` を置く場合、`order_intent.quantity` /
         `position_sizing_overlay.guarded_max_notional_yen` を記録し、
         `guarded_max_notional_yen = order_price_guard_yen * quantity` と整合させたか
-  - [ ] guarded notional / tactical real budget * 100 を必要時に再計算できる入力が揃っているか
-  - [ ] `position_sizing_overlay.paper_proxy_position_size_yen` / `adv_participation_pct` は paper proxy の検証であり、実資金集中度の検証ではない
-- [ ] research の `policy_overrides` / `decision_revisions` 配列を導入・変更する場合、以下を確認したか:
-  - [ ] `policy_overrides[]` は policy field の override だけを表し、decision history を混ぜていない
-  - [ ] `decision_revisions[].revision_type` が既知集合に属し、`prior_state_ref` / `prior_state` / `new_state` / `reason` の必須キーが揃う
-  - [ ] `thesis_decision.outcome: approved` の場合、`candidate_ref` が参照した candidates repository file の対象 candidate に join できるか
-  - [ ] 連続する commit で `thesis_decision.outcome: deferred|rejected → approved` に flip した場合、PR review で thesis / event / sizing の変更理由を確認する
+  - [ ] guarded notional を必要時に再計算できる入力が揃っているか
+- [ ] `thesis_decision.outcome: approved` の場合、`candidate_ref` が参照した candidates repository file の対象 candidate に join できるか
+- [ ] 連続する commit で `thesis_decision.outcome: deferred|rejected → approved` に flip した場合、PR review で thesis / event / sizing の変更理由を確認する
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
@@ -269,7 +260,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] `src/baibai_loop/screening/cli/app.py` の subparser + `add_argument` 引数 + `main()` の dispatch
   - [ ] `src/baibai_loop/screening/cli/{__init__.py,query.py,cache.py,run.py}` の関数 / import
   - [ ] `src/baibai_loop/screening/cli/common.py` の専用 helper (`_parse_profiles_arg` のような callers が消えた helper)
-  - [ ] `docs/` 全 grep (`rg <subcommand> docs/ records/ reports/`): runbook の bash example、reference の CLI 表、components / screening の説明文、`docs/screening/automation.md` の subcommand 一覧
+  - [ ] `docs/` 全 grep (`rg <subcommand> docs/ records/ reports/`): runbook の bash example、reference の CLI 表、components / screening の説明文、`docs/reference/screening-runtime.md` の subcommand 一覧
   - [ ] `.claude/skills/` 全 grep: skill が当該 CLI を中核に据えていないか
   - [ ] `docs/reference/configuration.md` の関連節 (env var / profile YAML / 設定例)
   - [ ] 関連 test fixture (test_screening_cli の sweep / scorecard テスト等)
@@ -281,24 +272,11 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] `src/baibai_loop/screening/rule_config.py` の `<Name>Playbook` class と Union 型
         (`screening_playbooks: Mapping[..., A | B | C]`) と `match` 句
   - [ ] `src/baibai_loop/screening/selection/ranking.py` の sort key match arm
-  - [ ] `src/baibai_loop/screening/forward/selection_ablation.py` の `_PLAYBOOKS` tuple
-  - [ ] 削除根拠は `docs/operations/backtest-runbook.md` §6 dated index で明示し、
-        playbook-cohorts / selection-ablation のサンプルが「removing は安全」と
-        言える数値を残す (PR #246 では cash-rich が誤って削除候補になった反省)
-- [ ] **`entry_preflight.market_regime` のような judgment-gate field を追加する場合、以下の
-      bypass パターンを必ず test で塞ぐ** (PR #245 で 5 名レビューで発覚した想定例):
-  - [ ] `regime: unknown` のような「データ不在」label で hard_trigger を回避できないか
-        (proceed が通ってしまわないか)
-  - [ ] label と背後の数値 (例 `benchmark_return_20d`) の不整合 (`neutral_range` を装って実際は
-        +10% rally) が catch されるか
-  - [ ] gate 有効日 (`_REGIME_GATE_EFFECTIVE_DATE`) の boundary (前日が gate 対象外、当日が対象)
-        を test しているか
-  - [ ] backdated `published_at` で gate 有効日を回避できないか (filename / recorded_at の
-        max を使うか別関数 `_gate_boundary_date` で防御)
-  - [ ] partial mapping (`market_regime: {benchmark_return_20d: 0.05}` のように `regime` key を
-        欠落させる) が `required` 違反として catch されるか
-  - [ ] `action: exception` × waiver basis (`low_correlation` 等) なしで warning でなく error
-        が出るか (warning だけだと operator が clickthrough で抜けられる)
+  - [ ] 削除根拠は保有 outcome の calibration で示す (安易な削除で有効な割安タイプを失わない)
+- [ ] **judgment-gate 系の必須 field（`durability_gate` 等）を追加する場合、bypass を test で塞ぐ**:
+  - [ ] data 不在 label で hard trigger を回避できないか
+  - [ ] label と根拠数値の不整合が catch されるか
+  - [ ] `regime` key 欠落のような partial mapping が `required` 違反として catch されるか
 
 ## 9. AP-09: 外部 AI 分析を検証せず records に取り込む
 
@@ -309,7 +287,6 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - 「分析の方向性は合っている」ことと「records に事実として残せる」ことを混同する
 - 直前の `rejected` 判定、最新 candidates からの不在、universe drop、macro context headwind などの
   system output を、override log なしに外部分析で上書きする
-- 1 億円 paper proxy と実資金 position を同じ `position_size_pct` に混在させる
 - 祝日中の成行注文を約定済み entry として記録し、entry price を推定で埋める
 
 ### 根本原因
@@ -317,7 +294,6 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - research 対象は全銘柄で会社IR確認が必須、という前提が弱い
 - source URL が貼られていても、一次情報か二次情報か、本文中に数値が存在するかを確認しない
 - system output を上書きする行為を一級の decision として記録していない
-- paper layer と real execution layer のサイズ概念を分離していない
 - order と execution の状態遷移を trade record で区別しない
 
 ### 再発防止チェックリスト
@@ -335,17 +311,10 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] EPS / PER / 配当利回り / target price は公式 EPS・配当予想・株価で再計算したか
 - [ ] 直前の `rejected`、最新 candidates からの不在、universe drop、macro context headwind、実資金集中度超過などを
       上書きする場合、research front matter の `overrides` と本文に prior state / reason / evidence を残したか
-- [ ] 実取引を records に残す場合、1 億円 paper proxy と real capital / real notional /
-      real concentration を別 field に分けたか
-- [ ] 「投資可能な実資金全体」と「当面の様子見枠」を混同していないか。様子見枠は
-      `tactical_real_budget_yen` として別 field にし、`real_capital_yen` は実資金全体を分母にしたか
-- [ ] `real_concentration_pct` が [`screening/principles.md §7.2`](./screening/principles.md) の hard 上限
-      (単一銘柄 50% / 単一 sector 60% / cash 最低 10%) を超える場合、`overrides` に
-      `type: real_concentration_cap` で記録したか。soft 推奨 (< 25% / < 40% / > 30%) を超える場合も
-      本文で理由を明記したか
+- [ ] 実資金の集中度は `capital_basis.real_capital_yen`（単一プール）を分母に算出したか
+- [ ] `real_concentration` が [`portfolio-management.md`](./portfolio-management.md) / `policy.py` の cap（単一銘柄 4–6% / 単一 sector 30–40%）を超える場合、`overrides` に理由を記録したか
 - [ ] 注文日が休場日または立会時間外の場合、trade は `orders[].state: submitted` とし、
       executions がない限り約定価格を推定で埋めていないか
-- [ ] 2026-06-01 以降の approved research は `entry_preflight` を持ち、3pt 以上の相対劣後、stale macro、tactical exposure 50% 超を理由なし `proceed` で通していないか。`exception` は `exception_basis` を持つか
 - [ ] fallback price observation は `decision_event_id`、`tracking_horizon`、`target_date`、`resolved_trade_date`、`price_basis`、`source_url`、`fetched_at`、`corporate_action_checked`、`same_basis_group_id`、`provisional` を持ち、basis 不一致を確定評価に使っていないか
 - [ ] 外部市場予測 (例: Gartner / IDC / 証券サイトの同業倍率) は、今回の canonical fact として
       採用するなら macro context / research の source として明示し、未確認なら「判断補助・未採用」として分離したか
@@ -354,7 +323,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 
 ### 観測された症状
 
-- `screening-replay` の wall time が 17 秒。cProfile を取るまで「screening のロジックが遅い」と
+- ある CLI の wall time が 17 秒。cProfile を取るまで「ロジックが遅い」と
   思い込み、YAML パースが 93% を占めていることに気付かなかった
 - `yaml.safe_load(...)` を素朴に使い、libyaml backed の `yaml.CSafeLoader` に切り替えるだけで
   5 倍速くなる事実を見落とした
@@ -384,7 +353,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 ### `yaml.dump` 側
 
 `yaml.dump` / `yaml.safe_dump` 側の hot path も同様に `yaml.CSafeDumper` を使えば加速できるが、
-write side は read side ほど呼ばれないため P2 の改善候補 (cli/query.py / screening/forward/cli.py の 6 箇所)。
+write side は read side ほど呼ばれないため P2 の改善候補 (cli/query.py 等)。
 
 ## 11. PR review で繰り返し指摘される類型の追跡
 
@@ -399,8 +368,8 @@ PR で同じ anti-pattern が 2 ラウンド以上指摘されたら、本ドキ
 
 ## 12. 関連ドキュメント
 
-- 思想・基本方針: [`philosophy.md`](./philosophy.md)
-- 事実 / 分析の分離: [`design-principles.md`](./design-principles.md) §4
-- macro context 仕様: [`components/macro-context.md`](./components/macro-context.md)
-- research 採用判定: [`components/thesis.md`](./components/thesis.md)
+- 思想・基本方針: [`doctrine.md`](./doctrine.md)
+- 事実 / 分析の分離: [`doctrine.md#fact-analysis-separation`](./doctrine.md#fact-analysis-separation)
+- macro context 仕様: [`workflow/macro.md`](./workflow/macro.md)
+- research 採用判定: [`workflow/research.md`](./workflow/research.md)
 - AI agent 規約 (本ドキュメントの参照経路): [`../AGENTS.md`](../AGENTS.md)

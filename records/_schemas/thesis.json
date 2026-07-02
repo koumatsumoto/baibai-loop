@@ -84,13 +84,12 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "paper_proxy_position_size_yen",
-        "real_order_intent_yen",
+        "estimated_real_order_notional_yen",
         "adv_participation_pct"
       ],
       "properties": {
-        "paper_proxy_position_size_yen": {"type": "number"},
-        "real_order_intent_yen": {"type": "number"},
+        "estimated_real_order_notional_yen": {"type": "number"},
+        "guarded_max_notional_yen": {"type": "number"},
         "adv_participation_pct": {"type": "number"}
       }
     },
@@ -116,6 +115,26 @@
         }
       }
     },
+    "durability_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "net_cash",
+        "operating_cf_positive",
+        "low_leverage",
+        "refinancing_risk",
+        "judgment"
+      ],
+      "properties": {
+        "net_cash": {"type": "boolean"},
+        "operating_cf_positive": {"type": "boolean"},
+        "low_leverage": {"type": "boolean"},
+        "refinancing_risk": {"enum": ["low", "medium", "high"]},
+        "dividend": {"type": "boolean"},
+        "judgment": {"enum": ["high", "medium", "low"]},
+        "note": {"type": "string"}
+      }
+    },
     "entry_preflight": {
       "type": "object",
       "additionalProperties": false,
@@ -124,7 +143,7 @@
         "market_relative_return_pct",
         "sector_or_peer_relative_return_pct",
         "macro_freshness",
-        "tactical_exposure_after_order",
+        "exposure_after_order",
         "near_term_catalyst",
         "action",
         "reason"
@@ -132,9 +151,9 @@
       "properties": {
         "evaluated_on": {"type": "string", "format": "date"},
         "market_relative_return_pct": {"type": "number"},
-        "sector_or_peer_relative_return_pct": {"type": "number"},
+        "sector_or_peer_relative_return_pct": {"type": ["number", "null"]},
         "macro_freshness": {"enum": ["current", "stale", "future"]},
-        "tactical_exposure_after_order": {
+        "exposure_after_order": {
           "type": "object",
           "additionalProperties": false,
           "required": ["sector_33_pct", "playbook_pct"],
@@ -144,25 +163,7 @@
           }
         },
         "near_term_catalyst": {"type": "boolean"},
-        "market_regime": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["regime", "benchmark_return_20d"],
-          "properties": {
-            "regime": {"enum": ["risk_on_rally", "risk_off_selloff", "neutral_range", "unknown"]},
-            "benchmark_return_20d": {"type": ["number", "null"]},
-            "benchmark_ticker": {"type": "string"},
-            "asof": {"type": "string", "format": "date"},
-            "eval_date": {"type": "string", "format": "date"},
-            "benchmark_return_60d": {"type": ["number", "null"]}
-          }
-        },
-        "action": {"enum": ["proceed", "starter", "defer", "exception"]},
-        "exception_basis": {
-          "type": "array",
-          "items": {"enum": ["near_term_catalyst", "low_sizing", "low_correlation"]},
-          "minItems": 1
-        },
+        "action": {"enum": ["proceed", "starter", "defer"]},
         "reason": {"type": "string", "minLength": 1}
       }
     },
@@ -171,26 +172,16 @@
       "additionalProperties": false,
       "properties": {
         "max_entry_price_yen": {"type": ["number", "null"]},
-        "target_price_yen": {"type": ["number", "null"]},
-        "stop_loss_yen": {"type": ["number", "null"]},
+        "fair_value_yen": {"type": ["number", "null"]},
         "expected_upside_pct": {"type": ["number", "null"]},
         "expected_downside_pct": {"type": ["number", "null"]},
         "risk_reward_ratio": {"type": ["number", "null"]},
-        "time_horizon_bd": {"type": ["number", "null"]},
+        "expected_yield_pct": {"type": ["number", "null"]},
         "invalidation_conditions": {
           "type": "array",
           "items": {"type": "string"}
         },
         "entry_trigger": {"type": "string"}
-      }
-    },
-    "tracking": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "mode": {"enum": ["post_approval", "re_examination", "none"]},
-        "plus_15bd": {"type": ["number", "null"]},
-        "plus_30bd": {"type": ["number", "null"]}
       }
     },
     "avg_turnover_oku": {"type": ["number", "null"]},

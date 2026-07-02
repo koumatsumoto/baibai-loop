@@ -12,7 +12,6 @@ from baibai_loop.screening.config import (
     ConfigError,
     ScreeningConfig,
 )
-from baibai_loop.screening.forward import cli as forward_cli
 from baibai_loop.screening.providers import EDINETProvider, JPXProvider, JQuantsProvider
 from baibai_loop.screening.rule_config import (
     DEFAULT_RULES_PATH,
@@ -148,7 +147,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="summary",
         help="selection output detail (default: summary)",
     )
-    _add_regime_lens_arguments(select_parser)
+    _add_market_state_arguments(select_parser)
 
     profile_parser = subparsers.add_parser(
         "ticker-profile",
@@ -195,23 +194,18 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
     )
 
-    forward_cli.add_subparsers(subparsers)
     return parser
 
 
-def _add_regime_lens_arguments(parser: argparse.ArgumentParser) -> None:
+def _add_market_state_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--sqlite-path",
         default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
         help=(
-            "SQLite cache used to compute the market regime lens "
+            "SQLite cache used to compute the market state fact "
+            "(benchmark return / regime label; absence degrades to null) "
             f"(default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)"
         ),
-    )
-    parser.add_argument(
-        "--no-regime-lens",
-        action="store_true",
-        help="skip the market regime lens (fast-dislocation boost stays always on)",
     )
 
 
@@ -232,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
             rules=load_screening_rules(Path(args.rules_path)),
             profile=args.profile,
             detail=args.detail,
-            regime_sqlite_path=None if args.no_regime_lens else Path(args.sqlite_path),
+            regime_sqlite_path=Path(args.sqlite_path),
         )
 
     if args.command == "ticker-profile":
@@ -263,11 +257,6 @@ def main(argv: list[str] | None = None) -> int:
             required_jpx_sources=rules.universe.required_jpx_flags,
             allow_stale_jpx=args.allow_stale_jpx,
         )
-
-    if args.command in forward_cli.FORWARD_COMMANDS:
-        # Forward measurement replays recorded candidates against the SQLite
-        # cache only; no provider credentials are needed.
-        return forward_cli.run_command(args)
 
     try:
         config = ScreeningConfig.from_env()

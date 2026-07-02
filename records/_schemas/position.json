@@ -110,9 +110,52 @@
       }
     },
     "entry_legs": {"type": "array", "items": {"type": "object"}},
-    "capital_basis": {"type": "object"},
-    "planned_exit": {"type": "object"},
-    "kill_switch_check": {"type": "object"},
+    "corporate_action_events": {"type": "array", "items": {"type": "object"}},
+    "capital_basis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["real_capital_yen"],
+      "properties": {
+        "real_capital_yen": {"type": "number"}
+      }
+    },
+    "review_valuation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["as_of", "valuation_zone", "action"],
+      "properties": {
+        "as_of": {"type": "string", "format": "date"},
+        "fair_value_yen": {"type": ["number", "null"]},
+        "current_price_yen": {"type": ["number", "null"]},
+        "valuation_zone": {"enum": ["cheap", "fair", "rich"]},
+        "action": {"enum": ["hold", "add", "sell"]},
+        "note": {"type": "string"}
+      }
+    },
+    "estimate_calibration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry_expected_upside_pct"],
+      "properties": {
+        "entry_expected_upside_pct": {"type": ["number", "null"]},
+        "entry_expected_yield_pct": {"type": ["number", "null"]},
+        "realized_return_pct": {"type": ["number", "null"]},
+        "realized_yield_pct": {"type": ["number", "null"]},
+        "thesis_held": {"type": ["boolean", "null"]},
+        "note": {"type": "string"}
+      }
+    },
+    "kill_switch_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["earnings_straddle", "boj_eve", "fomc_eve"],
+      "properties": {
+        "earnings_straddle": {"type": "boolean"},
+        "boj_eve": {"type": "boolean"},
+        "fomc_eve": {"type": "boolean"},
+        "note": {"type": "string"}
+      }
+    },
     "accounting": {"type": "object"},
     "execution_costs": {"type": "object"}
   },

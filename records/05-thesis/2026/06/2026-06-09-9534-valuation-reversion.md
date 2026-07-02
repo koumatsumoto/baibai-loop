@@ -16,9 +16,8 @@ published_at: '2026-06-09T09:00:00+09:00'
 recorded_at: '2026-06-09T09:00:00+09:00'
 tradable_at: '2026-06-09T09:00:00+09:00'
 position_sizing_overlay:
-  paper_proxy_position_size_yen: 1000000
-  real_order_intent_yen: 74200
-  adv_participation_pct: 0.6667
+  estimated_real_order_notional_yen: 74200
+  adv_participation_pct: 0.0495
 market_cap_oku: 665
 sector_33: 電気・ガス業
 avg_turnover_oku: 1.5
@@ -44,8 +43,10 @@ macro_context_fit:
   fit: headwind
   decision_effect: caution
   required_checks:
-  - 電気・ガス業は 2026-06-08 macro context で headwind（BOJ 利上げ＝bond-proxy 逆風 + 原油高＝燃料コストの二重逆風、「net cash の厚い個別のみ」）。9534 は net debt（−418 億 / 時価比 −62.9%）でこの但し書きに反するため、利上げ・原料費感応を継続確認する。
-  - screening の evidence_hit は valuation-reversion / sector_rotation_short_sell（=セクター相対が弱い「売り」候補シグナル、15.2%ile）であり、買いの screening 根拠ではない。買い thesis は #201 パネルの discretionary 判断であることを明示する。
+  - 電気・ガス業は 2026-06-08 macro context で headwind（BOJ 利上げ＝bond-proxy 逆風 + 原油高＝燃料コストの二重逆風、「net cash の厚い個別のみ」）。9534
+    は net debt（−418 億 / 時価比 −62.9%）でこの但し書きに反するため、利上げ・原料費感応を継続確認する。
+  - screening の evidence_hit は valuation-reversion / sector_rotation_short_sell（=セクター相対が弱い「売り」候補シグナル、15.2%ile）であり、買いの
+    screening 根拠ではない。買い thesis は
   - 都市ガスの原料費調整（pricing power）が燃料コスト上昇を時間差で転嫁できるか、tariff lag を確認する。
   sizing_caution:
   - macro_headwind_utility_net_debt
@@ -53,12 +54,10 @@ macro_context_fit:
   - discretionary_panel_thesis_starter_only
 thesis_payoff:
   max_entry_price_yen: 742
-  target_price_yen: 850
-  stop_loss_yen: 670
+  fair_value_yen: 850
   expected_upside_pct: 14.56
   expected_downside_pct: 9.7
   risk_reward_ratio: 1.5
-  time_horizon_bd: 40
   invalidation_conditions:
   - BOJ 利上げで net debt 9534 の支払利息・bond-proxy ディスカウントが拡大する。
   - 原油高（Brent $96 近辺）が原料費調整の lag を超えてマージンを圧迫する。
@@ -69,27 +68,21 @@ entry_preflight:
   market_relative_return_pct: 3.06
   sector_or_peer_relative_return_pct: -0.53
   macro_freshness: current
-  tactical_exposure_after_order:
+  exposure_after_order:
     sector_33_pct: 3.71
     playbook_pct: 3.71
   near_term_catalyst: false
   action: starter
-  reason: >
-    2026-06-09 約定の 100 株 starter。市場相対は 6/8 暴落日（日経 -3.85%）に対し candidate の
-    price_change_1d −0.79% で +3.06pt、4 週のセクター相対は ticker_return_4w −8.2% vs
-    sector_return_4w −7.67% で −0.53pt とほぼ中立。macro context は current だが 電気・ガス業は
-    headwind（利上げ + 原油高）で、9534 は net debt のため macro の「net cash の厚い個別のみ」但し書きに
-    反する。さらに screening の evidence_hit は sector_rotation_short_sell（売りシグナル）で買い根拠では
-    ない。これらの caveat を踏まえ proceed ではなく starter に限定する。tactical exposure は sector /
-    playbook とも 3.71% で 50% 上限内。
+  reason: '2026-06-09 約定の 100 株 starter。市場相対は 6/8 暴落日（日経 -3.85%）に対し candidate の price_change_1d −0.79% で +3.06pt、4
+    週のセクター相対は ticker_return_4w −8.2% vs sector_return_4w −7.67% で −0.53pt とほぼ中立。macro context は current だが 電気・ガス業は
+    headwind（利上げ + 原油高）で、9534 は net debt のため macro の「net cash の厚い個別のみ」但し書きに 反する。さらに screening の evidence_hit は sector_rotation_short_sell（売りシグナル）で買い根拠では
+    ない。これらの caveat を踏まえ proceed ではなく starter に限定する。tactical exposure は sector / playbook とも 3.71% で 50% 上限内。
+
+    '
 corporate_action_check:
   checked: true
   result: none
   note: 2026-06-08 candidate は split_adjustment_flag=false。20d/60d 下落 window 内に corporate action は確認されない。
-tracking:
-  mode: post_approval
-  plus_15bd: null
-  plus_30bd: null
 ---
 
 # Research: 2026-06-09 9534 北海道瓦斯 valuation-reversion

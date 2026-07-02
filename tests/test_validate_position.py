@@ -67,7 +67,6 @@ def _trade_front(**overrides: object) -> dict[str, object]:
             "earnings_straddle": False,
             "boj_eve": False,
             "fomc_eve": False,
-            "no_margin_trading": False,
         },
     }
     front.update(overrides)
@@ -117,16 +116,8 @@ def _write_test_repo_sources(root: Path) -> None:
             "thesis_payoff:\n"
             "  max_entry_price_yen: 1050\n"
             "position_sizing_overlay:\n"
-            "  real_order_intent_yen: 210000\n"
+            "  estimated_real_order_notional_yen: 210000\n"
             "---\n\n# Research\n",
-            encoding="utf-8",
-        )
-    register_path = root / "records/_decisions/thesis-decisions/2026-05.jsonl"
-    register_path.parent.mkdir(parents=True, exist_ok=True)
-    if not register_path.exists():
-        register_path.write_text(
-            '{"decision_event_id":"decision-20260505-9682-trade",'
-            '"order_intent":{"order_intent_id":"intent-20260505-9682-entry"}}\n',
             encoding="utf-8",
         )
 
@@ -369,7 +360,6 @@ def test_open_trades_must_stay_within_portfolio_concentration_caps(tmp_path: Pat
 
     codes = {finding.code for finding in validate_position_file(path)}
 
-    assert "position.portfolio-tactical-budget" in codes
     assert "position.portfolio-ticker-cap" in codes
     assert "position.portfolio-sector-cap" in codes
     assert "position.portfolio-playbook-cap" in codes
@@ -389,7 +379,6 @@ def test_closed_trade_does_not_report_current_portfolio_concentration_caps(
 
     codes = {finding.code for finding in validate_position_file(path)}
 
-    assert "position.portfolio-tactical-budget" not in codes
     assert "position.portfolio-ticker-cap" not in codes
 
 

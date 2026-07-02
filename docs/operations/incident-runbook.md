@@ -1,6 +1,6 @@
 ---
 title: "Incident runbook"
-summary: "Operational entry point for source access failures, validation failures, and automation failures."
+summary: "データ取得失敗・validation 失敗・自動処理の失敗に対応するときの入口。"
 doc_type: operation
 status: active
 last_reviewed: 2026-06-23
@@ -8,7 +8,7 @@ last_reviewed: 2026-06-23
 
 # Incident runbook
 
-Incident は運用中に records 作成や automation が止まった場合の入口です。投資判断の代替ではなく、事実生成と検証の再現性を守るために扱います。
+運用中に records の作成や自動処理が止まったときの入口。投資判断の代わりではなく、事実の生成と検証の再現性を守るために扱う。
 
 ## Source access failure
 
@@ -24,6 +24,6 @@ Incident は運用中に records 作成や automation が止まった場合の�
 
 ## Automation failure
 
-- screening CLI failure は [`../screening/automation.md`](../screening/automation.md) と [`../architecture/automation-map.md`](../architecture/automation-map.md) を確認する。
-- position sync failure は [`../components/decisions.md`](../components/decisions.md) を確認する。
+- screening CLI failure は [`../reference/screening-runtime.md`](../reference/screening-runtime.md) と [`../architecture.md#automation`](../architecture.md#automation) を確認する。
+- position 記録の validation failure は [`../workflow/position.md`](../workflow/position.md) を確認する。
 - CI / local parity は [`../reference/python-foundation.md`](../reference/python-foundation.md) を確認する。

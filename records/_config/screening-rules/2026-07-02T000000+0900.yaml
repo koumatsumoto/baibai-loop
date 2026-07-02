@@ -1,0 +1,134 @@
+universe:
+  required_jpx_flags:
+  - 特別注意銘柄
+  - 整理銘柄
+  - 取引停止
+  - 上場廃止警告
+ttm:
+  full_year_min_days: 330
+  full_year_max_days: 370
+  period_length_tolerance_ratio: 0.1
+  period_end_tolerance_days: 45
+quality:
+  partial_warning_ttm_ratio: 0.05
+  partial_warning_ttm_count: 20
+  partial_warning_yoy_missing_ratio: 0.1
+  yoy_deterioration_threshold: -0.3
+output:
+  research_selection_target_max: 5
+  # playbook 優先順位の唯一の正本。推奨 queue の順位付けと primary evidence の
+  # 選択の両方に使う。下値保護の裏付けが強い順 (資産・現金 → 相対 valuation →
+  # cash flow → 売上) に並べる。出典: reports/2026-06-19-strategy-improvement-ideas.md A1。
+  research_selection_playbook_order:
+  - cash-rich-asset-discount
+  - valuation-reversion
+  - cashflow-yield-discount
+  - sales-discount-growth
+selection:
+  default_profile: balanced
+  # screen は全普通株を対象にする。規模・流動性・上場期間・JPX 規制の絞り込みは
+  # 分析層のパラメータとしてここで適用する(事実は candidates に記録済み)。
+  liquidity:
+    min_market_cap_oku: 100
+    min_avg_turnover_oku: 1.0
+    min_listing_span_days: 182
+    exclude_jpx_flagged: true
+  # 塩漬け耐性 (durability) annotation の事前固定閾値。ranking / gate には使わず、
+  # research の必須ゲート判定 (durability_gate) の機械入力になる。
+  durability:
+    high_min_support_count: 4
+    medium_min_support_count: 2
+    equity_ratio_high_min: 0.5
+    equity_ratio_medium_min: 0.35
+    net_cash_to_market_cap_high_min: 0.2
+    net_cash_to_market_cap_medium_min: 0.0
+    cash_to_market_cap_high_min: 0.3
+    ocf_yield_positive_min: 0.0
+    fcf_yield_positive_min: 0.0
+    min_avg_turnover_oku: 1.0
+  diversity:
+    # max_recommended_per_sector=1 では top=5 の推奨で良候補を取り逃がすため
+    # 2 とし、sector 集中は warning で監視する。
+    # 出典: reports/2026-06-19-strategy-improvement-ideas.md A2。
+    max_recommended_per_sector: 2
+    max_recommended_per_playbook: 2
+    max_previous_candidates_in_recommended: 2
+    previous_overlap_warning_ratio: 0.6
+screening_playbooks:
+  valuation-reversion:
+    # 金融業の PER / PBR は規制資本・金利環境の構造要因を含み、事業会社と同じ
+    # mean-reversion の前提で機械判定できないため、他 playbook と同様に除外する。
+    # 電気・ガス業は BS / CF 機械判定の不成立という他 playbook の除外根拠が
+    # 相対 valuation には当たらないため除外しない。
+    excluded_sectors:
+    - 銀行業
+    - 証券・商品先物取引業
+    - 保険業
+    - その他金融業
+    sector_median_gap_max: -0.2
+    self_range_percentile_max: 0.2
+    price_change_60d_max: -0.15
+    sigma_gap_max: -1.0
+    # docs/reference/valuation-metrics.md は「PER は forward 優先、未公表時は
+    # trailing」と mandate。per_forward を primary に置き、null 時に
+    # per_trailing を fallback として degrade させる。
+    # 出典: reports/2026-06-19-strategy-improvement-ideas.md A3。
+    metrics:
+    - per_forward
+    - per_trailing
+    - pbr
+    - ev_ebitda
+    playbook_id: valuation-reversion
+  cash-rich-asset-discount:
+    # A4: 卸売業の運転資金 (商社・問屋) は J-Quants cash_eq を機械判定で
+    # 膨張させる (2026-06-12 candidates で cash-rich 最大 cluster 49/292)。
+    # 不動産業は land inventory が equity_ratio / cash_to_market_cap を
+    # 歪める。両 sector を除外。出典: reports/2026-06-19-strategy-improvement-ideas.md A4。
+    excluded_sectors:
+    - 銀行業
+    - 証券・商品先物取引業
+    - 保険業
+    - その他金融業
+    - 電気・ガス業
+    - 卸売業
+    - 不動産業
+    cash_to_market_cap_min: 0.4
+    edinet_net_cash_to_market_cap_min_if_available: 0.0
+    price_to_equity_max: 1.0
+    equity_ratio_min: 0.3
+    operating_profit_positive_required: true
+    # C1: 営業利益の急減 (operating_profit_yoy <= -0.3) で deterioration gate を
+    # 発動。OR-passing 構造で -50% EPS YoY 会社が cash-rich 経由で通る穴を
+    # 塞ぐ。出典: reports/2026-06-19-strategy-improvement-ideas.md C1。
+    operating_profit_yoy_deterioration_threshold: -0.3
+    playbook_id: cash-rich-asset-discount
+  cashflow-yield-discount:
+    excluded_sectors:
+    - 銀行業
+    - 証券・商品先物取引業
+    - 保険業
+    - その他金融業
+    - 電気・ガス業
+    ocf_yield_min: 0.1
+    ttm_cfo_required: true
+    cfo_yoy_min: -0.2
+    cfo_yoy_required: true
+    # C1: cash-rich と同じく deterioration gate を追加。
+    operating_profit_yoy_deterioration_threshold: -0.3
+    # C4: FCF が連続マイナスの重設備会社を排除。OCF+/FCF- (capex 先行) は
+    # 割安の実現可能性を機械判定しにくい。出典: ideas.md C4。
+    fcf_yield_required_positive: true
+    playbook_id: cashflow-yield-discount
+  sales-discount-growth:
+    excluded_sectors:
+    - 銀行業
+    - 証券・商品先物取引業
+    - 保険業
+    - その他金融業
+    ps_sector_gap_max: -0.4
+    sales_yoy_min: 0.05
+    allow_operating_loss_if_cfo_positive_or_loss_narrowing: true
+    # C2: 損失縮小 escape hatch (-100B → -50B が pass) を operating margin
+    # floor で defang。chronic loser を排除。出典: ideas.md C2。
+    operating_margin_min: -0.05
+    playbook_id: sales-discount-growth

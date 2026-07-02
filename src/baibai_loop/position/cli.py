@@ -1,11 +1,10 @@
 """Command-line entry for position tracking (`baibai-loop-position`).
 
-Sync investment-memo and trade records into the decision register, list due
-forward review gates, and compute open-position benchmark-relative return. The
-commands need J-Quants daily bars / market calendar to fill tracking prices, so
-this entry point is the composition root that loads market data from the
-screening SQLite cache and passes it into the position-tracking logic; the
-position core modules themselves stay free of any screening dependency.
+Computes open-position benchmark-relative return. The command needs J-Quants
+daily bars to price holdings, so this entry point is the composition root that
+loads market data from the screening SQLite cache and passes it into the
+position-tracking logic; the position core modules themselves stay free of any
+screening dependency.
 """
 
 from __future__ import annotations
@@ -13,7 +12,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -27,33 +26,15 @@ from baibai_loop.position.benchmark import (
     PortfolioBenchmark,
     compute_forward_performance,
 )
-from baibai_loop.position.review import ReviewGate, due_review_gates, weekday_calendar
-from baibai_loop.position.sync import sync_decisions
 from baibai_loop.position.trades import load_open_trades
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-loop-position")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    sync_parser = subparsers.add_parser(
-        "sync", help="sync investment memo decisions into the decision register"
-    )
-    sync_parser.add_argument("--root", type=Path, default=Path.cwd())
-    sync_parser.add_argument("--dry-run", action="store_true")
-    sync_parser.add_argument(
-        "--require-market-data",
-        action="store_true",
-        help="fail when neither J-Quants data nor fallback observations can be loaded",
-    )
-    gates_parser = subparsers.add_parser(
-        "review-gates",
-        help="list open-position forward review gates (+15bd/+30bd) that are due",
-    )
-    gates_parser.add_argument("--root", type=Path, default=Path.cwd())
-    gates_parser.add_argument("--asof", help="evaluation date (YYYY-MM-DD); defaults to today")
     benchmark_parser = subparsers.add_parser(
         "benchmark",
-        help="compute open-position forward return versus the Nikkei 225 ETF proxy",
+        help="compute open-position return versus the Nikkei 225 ETF proxy",
     )
     benchmark_parser.add_argument("--root", type=Path, default=Path.cwd())
     benchmark_parser.add_argument("--asof", help="evaluation date (YYYY-MM-DD); defaults to today")
@@ -76,36 +57,6 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     load_project_env(args.root)
-    if args.command == "sync":
-        calendar, bars, market_warnings = _load_market_data(args.root, os.environ)
-        if args.require_market_data and not (calendar and bars):
-            if market_warnings:
-                for warning in market_warnings:
-                    print(f"error: {warning}", file=sys.stderr)
-            else:
-                # research packet が無い等で warning も出ないケースを silent にしない。
-                print(
-                    "error: --require-market-data set but no market data could be loaded",
-                    file=sys.stderr,
-                )
-            return 1
-        result = sync_decisions(
-            args.root,
-            dry_run=args.dry_run,
-            calendar=calendar,
-            bars=bars,
-        )
-        for warning in market_warnings:
-            print(f"warning: {warning}", file=sys.stderr)
-        for warning in result.warnings:
-            print(f"warning: {warning}", file=sys.stderr)
-        if args.dry_run:
-            for line in result.diff_lines:
-                print(line)
-        print(f"decisions={result.decision_count}" + (" dry_run=true" if args.dry_run else ""))
-        return 0
-    if args.command == "review-gates":
-        return _run_review_gates(args.root, _resolve_asof(args.asof))
     if args.command == "benchmark":
         excluded = tuple(tag.strip() for tag in args.exclude_cohort_tags.split(",") if tag.strip())
         return _run_benchmark(
@@ -122,36 +73,6 @@ def _resolve_asof(value: str | None) -> date:
     if value is None:
         return datetime.now(UTC).date()
     return date.fromisoformat(value)
-
-
-def _run_review_gates(root: Path, asof: date) -> int:
-    trades = load_open_trades(root)
-    if not trades:
-        print("no open positions")
-        return 0
-    sqlite_path = root / DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"
-    earliest_entry = min(trade.entry_date for trade in trades)
-    calendar_days = read_market_calendar(sqlite_path, earliest_entry, asof)
-    calendar: Sequence[date]
-    if calendar_days is None:
-        # +30bd needs roughly six weeks of forward calendar beyond entry; extend
-        # the weekday fallback so distant targets still resolve to a date.
-        calendar = weekday_calendar(earliest_entry, max(asof, earliest_entry + timedelta(days=70)))
-    else:
-        calendar = tuple(day.day for day in calendar_days if day.is_business_day)
-    gates = due_review_gates(trades, asof, calendar)
-    print(f"asof={asof.isoformat()} open_positions={len(trades)} due_gates={len(gates)}")
-    for gate in gates:
-        print(_format_gate(gate))
-    return 0
-
-
-def _format_gate(gate: ReviewGate) -> str:
-    return (
-        f"due {gate.horizon} target={gate.target_date.isoformat()} "
-        f"{gate.ticker} {gate.name} entry={gate.entry_date.isoformat()} "
-        f"review_state={gate.review_state}"
-    )
 
 
 def _run_benchmark(
@@ -274,7 +195,7 @@ def _load_market_data(
         warnings.append("JQUANTS_API_KEY is unset and SQLite has no bars")
     calendar = _business_calendar(calendar_days)
     if not bars:
-        warnings.append("no J-Quants bars were loaded; tracking prices stay unfilled")
+        warnings.append("no J-Quants bars were loaded; holding prices stay unfilled")
     elif not calendar:
         warnings.append("J-Quants bars loaded but no business calendar was loaded")
     return calendar, tuple(bars or ()), tuple(warnings)

@@ -1,6 +1,6 @@
 ---
 title: "Python foundation"
-summary: "Canonical reference for Python runtime, dependency policy, linting, typing, validation boundary, tests, security, and CI parity."
+summary: "Python の runtime・依存管理・lint・型検査・validation 境界・テスト・セキュリティ・CI 一致の正本。"
 doc_type: reference
 status: active
 last_reviewed: 2026-05-04

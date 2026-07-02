@@ -619,31 +619,13 @@ def _check_portfolio_concentration(
     capital = mapping_or_empty(PORTFOLIO_POLICY.get("capital_basis"))
     risk = mapping_or_empty(PORTFOLIO_POLICY.get("risk_budget"))
     real_capital_yen = optional_float(capital.get("real_capital_yen"))
-    tactical_budget_yen = optional_float(capital.get("tactical_real_budget_yen"))
-    if real_capital_yen is None and tactical_budget_yen is None:
+    if real_capital_yen is None or real_capital_yen <= 0:
         return []
     exposures = _open_trade_exposures(repo_root_for(path))
     if not exposures:
         return []
 
     findings: list[ValidationFinding] = []
-    total = sum(float(item["notional"]) for item in exposures)
-    if tactical_budget_yen is not None and total > tactical_budget_yen + 1:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="position.portfolio-tactical-budget",
-                message=(
-                    "open trade exposure exceeds portfolio policy tactical_real_budget_yen "
-                    f"({total:g} > {tactical_budget_yen:g})"
-                ),
-                location="position_sizing_overlay",
-            )
-        )
-    if real_capital_yen is None or real_capital_yen <= 0:
-        return findings
-
     checks = (
         ("ticker", "max_ticker_real_concentration_pct", "position.portfolio-ticker-cap"),
         ("sector_33", "max_sector_real_concentration_pct", "position.portfolio-sector-cap"),

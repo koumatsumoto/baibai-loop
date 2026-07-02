@@ -16,27 +16,19 @@ published_at: '2026-05-13T09:15:00+09:00'
 recorded_at: '2026-05-13T09:15:00+09:00'
 tradable_at: '2026-05-13T09:00:00+09:00'
 position_sizing_overlay:
-  paper_proxy_position_size_yen: 1500000
-  real_order_intent_yen: 309000
-  adv_participation_pct: 0.8824
+  estimated_real_order_notional_yen: 309000
+  adv_participation_pct: 0.1818
 thesis_payoff:
   max_entry_price_yen: 1030
-  target_price_yen: 1180
-  stop_loss_yen: 940
-  time_horizon_bd: 40
+  fair_value_yen: 1180
   invalidation_conditions:
   - FY2027 guidance weakness proves structural rather than conservative.
-  - Same-store traffic or gross margin continues to deteriorate after the app stamp
-    removal effect.
+  - Same-store traffic or gross margin continues to deteriorate after the app stamp removal effect.
   - Dividend / benefit catalyst fails to stabilize long-term holder demand.
   entry_trigger: post_earnings_oversold_entry
   expected_upside_pct: 14.56
   expected_downside_pct: 8.74
   risk_reward_ratio: 1.67
-tracking:
-  mode: post_approval
-  plus_15bd: null
-  plus_30bd: null
 market_cap_oku: 938
 sector_33: 小売業
 avg_turnover_oku: 1.7
