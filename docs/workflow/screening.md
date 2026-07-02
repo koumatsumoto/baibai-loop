@@ -70,7 +70,7 @@ uv run baibai-loop-screening run --asof YYYY-MM-DD
 uv run baibai-loop-screening select --asof YYYY-MM-DD --macro-context <path>
 ```
 
-`run` は開始時に SQLite のデータ充足を検証し、不足があれば即座に失敗させる（provider API へはフォールバックしない）。JPX 規制情報と EDINET の前処理済み指標は必須入力。`select` は macro context の `sector_tilts` を追い風 / 向かい風の参考情報として使い（機械的な足切りにはしない）、`recommendations` と `selection.diagnostics` を出力する。手順・env・SQLite schema の実装詳細は [`../reference/screening-runtime.md`](../reference/screening-runtime.md)。
+`run` は開始時に SQLite のデータ充足を検証し、不足があれば即座に失敗させる（provider API へはフォールバックしない）。JPX 規制情報と EDINET の前処理済み指標は必須入力。`select` は macro context の `sector_tilts` を追い風 / 向かい風の参考情報として使い（機械的な足切りにはしない）、`recommendations` と `selection.diagnostics` を出力する。`--macro-context` を省略すると `records/01-macro-context/` の最新 context を自動解決する（`valid_until` が asof より古い context は鮮度切れとして失敗させる）。手順・env・SQLite schema の実装詳細は [`../reference/screening-runtime.md`](../reference/screening-runtime.md)。
 
 ## 事実と分析の分離
 

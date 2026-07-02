@@ -21,9 +21,10 @@ uv run baibai-loop-macro list --category rates       # 登録 series を見る
 uv run baibai-loop-macro search 失業率              # 名前/alias/category で検索
 uv run baibai-loop-macro get jp.nikkei225 --start 2026-05-20 --end 2026-06-22
 uv run baibai-loop-macro get jp.policy_rate --latest
+uv run baibai-loop-macro refresh us.10y --start 2026-06-20 --end 2026-07-02   # provider を強制再取得
 ```
 
-`get` は取得済み範囲のキャッシュを確認し、不足があるときだけ provider を呼ぶ。同じ入力には同じ出力を返す（決定論）。
+`get` は取得済み範囲のキャッシュを確認し、不足があるときだけ provider を呼ぶ。同じ入力には同じ出力を返す（決定論）。**取得済みの窓の中では provider を呼び直さないため、`get --latest` は「キャッシュ上の最新」を返すことに注意**（`observed_at` が数営業日前で止まっていることがある）。環境認識を書く直前は、判断に使う主要 series を `refresh` で直近窓ごと再取得してから `get --latest` を読む。
 
 ### データソース registry
 
