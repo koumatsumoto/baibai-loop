@@ -56,7 +56,9 @@ selection:
     # 8 銘柄で飽和させ、design/confirm の変種比較で confirm 側の成績を落とした
     # (reports/2026-07-04-preregistered-ranking-validation.md)。
     max_recommended_per_playbook: 10
-    max_previous_candidates_in_recommended: 2
+    # E[r] 主キーでは割安上位が月をまたいで持続するのが正常な挙動で、繰越 cap は
+    # 較正リプレイで検証した順位 (previous 中立で計測) を運用で崩す。null = cap なし。
+    max_previous_candidates_in_recommended: null
     previous_overlap_warning_ratio: 0.6
 screening_playbooks:
   valuation-reversion:

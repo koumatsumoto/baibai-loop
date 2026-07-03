@@ -21,6 +21,7 @@ doctrine 柱 5(b) との整合: E[r] は単位 (%/年) と前提 (anchor・実�
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 from statistics import fmean
 
 from .schema import DerivedMetrics, FinancialSnapshot
@@ -90,6 +91,8 @@ def estimate_expected_return(
         return None
 
     upside_blend = fmean(upsides.values())
+    if not isfinite(upside_blend):
+        return None
     upside_capped = _clip(upside_blend, UPSIDE_CAP)
     reversion_annual = REALIZATION_RATE_ANNUAL * upside_capped
 

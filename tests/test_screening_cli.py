@@ -2143,7 +2143,9 @@ class SelectCommandTests(unittest.TestCase):
             payload = safe_load(buffer.getvalue())
             self.assertEqual(payload["selection"]["diagnostics"]["suppressed_count"], 1)
 
-    def test_select_caps_previous_candidates_when_new_alternatives_exist(self) -> None:
+    def test_select_does_not_cap_previous_candidates(self) -> None:
+        """E[r] 主キーでは割安上位の月またぎ持続が正常な挙動なので、
+        previous-candidate cap は掛けない (較正リプレイの計測構成と一致)。"""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -2230,12 +2232,13 @@ class SelectCommandTests(unittest.TestCase):
             payload = safe_load(buffer.getvalue())
             tickers = [item["ticker"] for item in self._recommended(payload)]
             self.assertIn("5555", tickers)
-            self.assertLessEqual(
+            # 繰越候補は cap されず全員通る (新規 5555 も並存)。
+            self.assertEqual(
                 sum(1 for item in self._recommended(payload) if item["previous_candidate"]),
-                2,
+                4,
             )
 
-    def test_select_respects_previous_cap_without_minimum_fill(self) -> None:
+    def test_select_passes_repeated_previous_candidates_through(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -2274,10 +2277,10 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = safe_load(buffer.getvalue())
-            self.assertEqual(len(self._recommended(payload)), 2)
+            self.assertEqual(len(self._recommended(payload)), 3)
             self.assertEqual(
                 sum(1 for item in self._recommended(payload) if item["previous_candidate"]),
-                2,
+                3,
             )
 
     def test_rejects_non_mapping_candidates_yaml(self) -> None:

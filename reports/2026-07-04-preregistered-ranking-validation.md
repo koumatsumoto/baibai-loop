@@ -6,6 +6,8 @@
 
 **判定の一般則**: design と confirm の両方で同方向なら「支持」、片側のみ「不確定」、両側逆は「棄却」。有意性は主張しない（cohort 窓重複のため）。効果量と cohort 勝率のみで判定する。
 
+**盲検性の限定（正直な位置づけ）**: 本基準の固定時点で、full-sample の er_annual IC（WU3 レポート）と現行推奨順の劣後（WU1 baseline）は既に公開・既知だった。したがって本検証の新規性は「design/confirm の時間分割でも方向・効果量が保つか」の頑健性確認であり、完全な事前盲検ではない。また design 末尾 cohort の forward 実現窓は confirm 前半と市場環境を共有する（forward 窓の bleed。12m ではより大きい）。
+
 **H3（ランキング改訂 = 本 WU の実装対象）の採用 3 条件**（すべて design/confirm 両方で充足時のみ採用）:
 
 1. **一次ゲート**: `er_annual` の mean rank IC > 0 かつ IC 正の cohort 率 ≥ 2/3（6m。12m は補助確認）
@@ -25,9 +27,13 @@
 | ②b er_ranked_top10 ≥ 現行順 top10 | +8.0% ≥ +1.8% | +6.6% ≥ +1.6% | ✓ |
 | ③ trap 非悪化 | 12.3% ≤ 26.1% | 10.6% ≤ 29.2% | ✓ |
 
-12m 補助: er_ranked_top10 は design +19.1% / confirm +13.9%（現行推奨 −3.5% / −1.1%）で同方向。
+12m 補助: er_ranked_top10 は design +19.1% / confirm +13.9%（現行推奨 −3.5% / −1.1%）で同方向。issue #295 DoD の decile spread ゲート: er_annual の decile spread（best−worst median excess・6m）は design 平均 +18.1pt（正 22/22 cohort）/ confirm +13.6pt（15/18）。
 
-**diversity cap の変種比較**（E[r] 主キー・top-10・6m mean median excess）: playbook cap=2 は design +8.4% / confirm **+3.7%** と confirm で失速、cap 撤廃は **+7.6% / +7.6%** と両窓で頑健 → sector cap（2）は維持、playbook cap は実質無効化（10）を採用。cap=2 の飽和（推奨 8 銘柄で頭打ち）が baseline で測った害の主因。
+**er_ranked の近似について**: er_ranked は pass_screen × er 非 null 集合の並べ替えで、本番 select の liquidity / sizing_eligible filter・上場廃止銘柄の枠縮小は再現しない近似。本番形の確認は §2 の panel 再構築後 recommended_rank replay が担う（両者は同方向・同水準）。
+
+**diversity cap の変種比較**（E[r] 主キー・top-10・6m mean median excess）: playbook cap=2 は design +8.4% / confirm **+3.7%** と confirm で失速、cap 撤廃は **+7.6% / +7.6%** と両窓で頑健 → sector cap（2）は維持、playbook cap は実質無効化（10）を採用。cap=2 の飽和（推奨 8 銘柄で頭打ち）が baseline で測った害の主因。**この cap 選択は両窓の結果を見た post-hoc 判断であり、cap パラメータについて confirm の out-of-sample 性は消費済み**（H3 本体の 3 条件は margin が大きく影響しない）。採用構成（sector2 + playbook10）の本番形は §2 の表が正で、design 6m top-10 は +6.4% と cap 撤廃変種（+7.6%）よりやや低い。
+
+**previous-candidate cap の整合**: 較正リプレイは previous_candidates を中立化して計測しており、本番の `max_previous_candidates_in_recommended: 2` は「E[r] 上位が月をまたいで持続する」正常な挙動と衝突して検証済み順位を運用で崩す。**計測した構成に本番を一致させるため null（cap なし）に変更**した（suppression = 人間の deferred/rejected 判断による除外は残る。これはリプレイが中立化した人間判断レイヤーで、乖離として本節に記録する）。
 
 ## 2. 採用した変更と本番形の前後比較
 
@@ -57,6 +63,14 @@
 | H8 per_forward > per_trailing | 0.213 vs 0.194 → 0.207 vs 0.201（12m も同方向） | **支持**（差は小・E[r] の収益 anchor は forward 優先で整合） |
 
 診断（変更なしの記録）: `er_population_top10`（screen gate なしの母集団 E[r] 選抜）は design +14.1% / confirm +6.7% と er_ranked（gate 内）以上 — **playbook screen gate は E[r] の上では選抜価値を足していない**。universe gating の再設計は本プログラム外の将来課題として記録する。
+
+## 3.5 運用テスト（現 asof 2026-07-01 の select 前後）
+
+- 旧順（playbook 主キー）top-5: 5949, 4839, 6619, 2168, 2154（先頭の E[r] 4.3%/0.4%/**0.0%**…）
+- 新順（E[r] 主キー）top-5: 4116（E[r] 18.4%）, 4008（14.9%）, 2168（8.5%）, 4559（8.1%）, 3825（5.4%）
+- E[r]=0 の value-trap 形（無配 + 希薄化の 6619）が top-5 から外れ、降順が成立していることを確認。
+
+**監視事項**: confirm 窓で新 top-5（+3.2%）< 新 top-10（+9.5%）の逆転がある — E[r] 極値の最上位が中位より弱い（deep discount の実現減衰と同根の可能性）。月次の再計測で top-5 の劣化を追い、持続するなら E[r] 上位の quality 併用条件を #291 後続で検討する。
 
 ## 4. 検証・再現
 

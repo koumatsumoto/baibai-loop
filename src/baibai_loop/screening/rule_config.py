@@ -156,7 +156,7 @@ class SelectionDiversityRules(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
     max_recommended_per_sector: int = Field(default=1, ge=1)
-    max_recommended_per_playbook: int = Field(default=2, ge=1)
+    max_recommended_per_playbook: int = Field(default=10, ge=1)
     max_previous_candidates_in_recommended: int | None = Field(default=2, ge=0)
     previous_overlap_warning_ratio: float = Field(default=0.6, ge=0, le=1)
 

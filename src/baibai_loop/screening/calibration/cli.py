@@ -126,7 +126,11 @@ def calibration_evaluate_command(
         if (start is None or asof >= start) and (end is None or asof <= end)
     )
     if not asofs:
-        print(f"no panels found under {calibration_dir}", file=sys.stderr)
+        print(
+            f"no panels found under {calibration_dir}"
+            + (" within the requested --start/--end window" if (start or end) else ""),
+            file=sys.stderr,
+        )
         return 1
     consistency_error = _panel_consistency_error(calibration_dir, asofs)
     if consistency_error is not None:
