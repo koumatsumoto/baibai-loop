@@ -17,7 +17,13 @@ from baibai_loop.screening.calibration.forward import ForwardReturnRow
 from baibai_loop.screening.calibration.panel import PanelRow
 
 
-def _panel_row(ticker: str, *, per_trailing: float | None, rank: int | None = None) -> PanelRow:
+def _panel_row(
+    ticker: str,
+    *,
+    per_trailing: float | None,
+    rank: int | None = None,
+    dividend_yield: float | None = None,
+) -> PanelRow:
     return PanelRow(
         asof="2025-06-30",
         ticker=ticker,
@@ -39,6 +45,7 @@ def _panel_row(ticker: str, *, per_trailing: float | None, rank: int | None = No
         cash_to_market_cap=None,
         equity_ratio=None,
         price_to_equity=None,
+        dividend_yield=dividend_yield,
         eps_yoy=None,
         sales_yoy=None,
         operating_profit_yoy=None,
@@ -144,6 +151,37 @@ class EvaluateCohortsTest(unittest.TestCase):
         aggregate = horizon["aggregate"]
         assert isinstance(aggregate, dict)
         self.assertEqual(aggregate["cohort_count"], 1)
+
+    def test_dividend_accrual_shifts_total_return_excess(self) -> None:
+        # 全銘柄 price return 0 の中で、配当利回り 4% の銘柄だけが 6m で
+        # +2% (= 0.04 x 0.5) の total return を持つ。中央値 (=0 近傍) に対する
+        # excess が accrual 分だけ正になることを確認する。
+        panel: list[PanelRow] = []
+        forwards: list[ForwardReturnRow] = []
+        for i in range(120):
+            ticker = f"{2000 + i}"
+            dy = 0.04 if i == 0 else 0.0
+            panel.append(_panel_row(ticker, per_trailing=10.0, dividend_yield=dy))
+            forwards.append(_forward_row(ticker, 0.0))
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+        horizon = result["6m"]
+        assert isinstance(horizon, dict)
+        cohorts = horizon["cohorts"]
+        assert isinstance(cohorts, list)
+        self.assertEqual(len(cohorts), 1)
+        self.assertEqual(cohorts[0]["dividend_yield_coverage"], 120)
+        axes = cohorts[0]["axes"]
+        assert isinstance(axes, dict)
+        dy_axis = axes["dividend_yield"]
+        assert isinstance(dy_axis, dict)
+        deciles = dy_axis["deciles"]
+        assert isinstance(deciles, list)
+        best = deciles[-1]
+        assert isinstance(best, dict)
+        # best decile (配当あり銘柄を含む) の mean excess は accrual 分 > 0
+        mean_excess = best["mean_excess"]
+        assert isinstance(mean_excess, float)
+        self.assertGreater(mean_excess, 0.0)
 
     def test_cohort_skipped_when_population_too_small(self) -> None:
         panel = [_panel_row("1000", per_trailing=10.0)]

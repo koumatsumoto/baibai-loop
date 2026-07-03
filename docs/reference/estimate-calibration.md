@@ -39,7 +39,7 @@ panel には全普通株（universe scope）を記録し、`in_population`（sel
 - 価格は adjustment_factor 累積の asof-basis 正規化（`market/bars.py` の `asof_basis_closes`）。cache の `adjustment_close` は遡及調整が混在するため使わない。
 - horizon は暦日 {3m: 91, 6m: 182, 12m: 365}。target は on-or-before の営業日に解決する。
 - entry / exit とも直近 bar が 15 日超古い場合は取引実態なしとして unresolved / `stale_price` に計数する（上場廃止・長期停止を黙って落とさない・ゼロ扱いしない）。
-- 配当は現状 price-only（DPS 取り込み後に total return 化する。評価の一次基準が母集団中央値対比のため、横断比較では carry がほぼ相殺される）。
+- **total return は配当 accrual 近似**: 銘柄側は price return + entry 時点の実績配当利回り（`dividend_yield`）× 保有年数で近似する（権利落ち月は特定しない。横断比較が目的で、支払月 1–2 か月のずれは cross-section にほぼ影響しない）。`dividend_yield` 欠損は 0 扱いとし、cohort ごとの coverage を評価に開示する。benchmark（1306）は price-only のままの参考値（ETF 分配金 ~2%/年を含まない）。
 
 ## 5. 評価指標
 

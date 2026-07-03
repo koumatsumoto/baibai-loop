@@ -265,6 +265,14 @@ def _normalize_summaries_to_asof_basis(
                 summary,
                 eps_ttm=summary.eps_ttm * factor if summary.eps_ttm is not None else None,
                 forecast_eps=None,
+                # 実績 DPS は per-share 実績と同じ換算。予想 DPS は forecast_eps と
+                # 同じ基準判別不能問題を持つため分割跨ぎ行では None に落とす。
+                dps_actual_annual=(
+                    summary.dps_actual_annual * factor
+                    if summary.dps_actual_annual is not None
+                    else None
+                ),
+                dps_forecast_annual=None,
                 bps=summary.bps * factor if summary.bps is not None else None,
                 shares_outstanding=(
                     summary.shares_outstanding / factor
@@ -327,7 +335,17 @@ def _build_financial_snapshot(
     eps_cumulative = latest.eps_ttm if latest else None
     eps_ttm, eps_quality = _ttm_value(summaries, "eps_ttm", rules.ttm)
     bps = latest.bps if latest else None
+    # 実績年間 DPS は FY 開示にしか載らないため「直近の非 null 行」から取る
+    # (直近 FY の実績年間配当は次の FY 開示まで最新の実績であり続ける)。
+    # 予想年間 DPS は四半期開示が持つので同様に直近非 null 行から取る。
+    dps_actual_annual = _latest_non_null(summaries, "dps_actual_annual")
+    dps_forecast_annual = _latest_non_null(summaries, "dps_forecast_annual")
     per_forward = (latest_price / forecast_eps) if forecast_eps and forecast_eps > 0 else None
+    dividend_yield = (
+        dps_actual_annual / latest_price
+        if dps_actual_annual is not None and latest_price > 0
+        else None
+    )
     per_trailing = (latest_price / eps_ttm) if eps_ttm and eps_ttm > 0 else None
     pbr = (latest_price / bps) if bps and bps > 0 else None
     operating_profit, operating_profit_source = _select_operating_profit(latest)
@@ -360,6 +378,9 @@ def _build_financial_snapshot(
         p_s=_safe_ratio(latest_market_cap, sales_ttm),
         pcfr=_safe_ratio(latest_market_cap, ocf_ttm if ocf_ttm and ocf_ttm > 0 else None),
         eps=eps_ttm,
+        dps_actual_annual=dps_actual_annual,
+        dps_forecast_annual=dps_forecast_annual,
+        dividend_yield=dividend_yield,
         sales_ttm=sales_ttm,
         ocf_ttm=ocf_ttm,
         edinet_ocf_ttm=edinet_ocf_ttm,
@@ -427,6 +448,14 @@ def _build_financial_snapshot(
             prior_year.shares_outstanding if prior_year else None,
         ),
     )
+
+
+def _latest_non_null(summaries: Sequence[JQuantsFinancialSummary], field_name: str) -> float | None:
+    for summary in sorted(summaries, key=lambda item: item.disclosed_at, reverse=True):
+        value = getattr(summary, field_name)
+        if value is not None:
+            return float(value)
+    return None
 
 
 def _latest_summary(summaries: Sequence[JQuantsFinancialSummary]) -> JQuantsFinancialSummary | None:

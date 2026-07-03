@@ -91,7 +91,8 @@ def read_fin_summaries(
             "SELECT ticker, disclosed_at, forecast_eps, eps_ttm, bps, "
             "shares_outstanding, sales, cfo, cash_eq, total_assets, equity, "
             "operating_profit, ordinary_profit, profit, "
-            "fiscal_period, fiscal_year_end, period_start, period_end "
+            "fiscal_period, fiscal_year_end, period_start, period_end, "
+            "dps_actual_annual, dps_forecast_annual "
             "FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ? "
             "ORDER BY ticker, disclosed_at",
             (start.isoformat(), end.isoformat()),
@@ -120,6 +121,8 @@ def read_fin_summaries(
             fiscal_year_end,
             period_start,
             period_end,
+            dps_actual_annual,
+            dps_forecast_annual,
         ) = row
         try:
             summaries.append(
@@ -142,6 +145,8 @@ def read_fin_summaries(
                     fiscal_year_end=optional_date(fiscal_year_end),
                     period_start=optional_date(period_start),
                     period_end=optional_date(period_end),
+                    dps_actual_annual=optional_float(dps_actual_annual),
+                    dps_forecast_annual=optional_float(dps_forecast_annual),
                 )
             )
         except (TypeError, ValueError) as exc:

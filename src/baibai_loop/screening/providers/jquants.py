@@ -71,6 +71,8 @@ class JQuantsFinancialSummary:
     fiscal_year_end: date | None = None
     period_start: date | None = None
     period_end: date | None = None
+    dps_actual_annual: float | None = None
+    dps_forecast_annual: float | None = None
 
     @field_validator("ticker", mode="before")
     @classmethod
@@ -90,6 +92,8 @@ class JQuantsFinancialSummary:
         "operating_profit",
         "ordinary_profit",
         "profit",
+        "dps_actual_annual",
+        "dps_forecast_annual",
     )
     @classmethod
     def _finite_numeric_fields(cls, value: float | None) -> float | None:
@@ -352,4 +356,8 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
         period_end=parse_optional_date(
             coalesce_field(record, "CurrentPeriodEndDate", "current_period_end_date")
         ),
+        # DivAnn=実績年間 DPS。予想年間は FDivAnn (四半期) → NxFDivAnn (本決算の
+        # 進行期ガイダンス) の順で埋める (FEPS→NxFEPS と同型)。
+        dps_actual_annual=to_float(coalesce_field(record, "DivAnn")),
+        dps_forecast_annual=to_float(coalesce_field(record, "FDivAnn", "NxFDivAnn")),
     )
