@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -186,6 +187,39 @@ class EvaluateCohortsTest(unittest.TestCase):
         mean_excess = best["mean_excess"]
         assert isinstance(mean_excess, float)
         self.assertGreater(mean_excess, 0.0)
+
+    def test_er_ranked_virtual_replay_orders_by_er_within_screen_passers(self) -> None:
+        # screen 通過 20 銘柄に er_annual を 0.01..0.20 で与え、er と forward return を
+        # 逆相関にする → er_ranked_top5 は er 上位 = 低リターン側を選ぶので
+        # er_population_top5 と一致し、excess は選抜どおりの値になる。
+        panel: list[PanelRow] = []
+        forwards: list[ForwardReturnRow] = []
+        n = 120
+        for i in range(n):
+            ticker = f"{3000 + i}"
+            row = _panel_row(ticker, per_trailing=10.0, rank=(i + 1 if i < 20 else None))
+            # PanelRow は frozen なので必要 field を差し替えた新 instance を作る。
+            row = replace(row, er_annual=0.20 - 0.001 * i, pass_screen=i < 20)
+            panel.append(row)
+            forwards.append(_forward_row(ticker, 0.001 * i))
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+        horizon = result["6m"]
+        assert isinstance(horizon, dict)
+        cohorts = horizon["cohorts"]
+        assert isinstance(cohorts, list)
+        selection = cohorts[0]["selection"]
+        assert isinstance(selection, dict)
+        er_top5 = selection["er_ranked_top5"]
+        assert isinstance(er_top5, dict)
+        # er 最上位 5 銘柄 = i=0..4 = return 最低群 → 負の excess
+        self.assertEqual(er_top5["n"], 5)
+        median_excess = er_top5["median_excess"]
+        assert isinstance(median_excess, float)
+        self.assertLess(median_excess, 0.0)
+        # er_population は pass_screen に依らないが、er 順は同じ i=0..4。
+        pop_top5 = selection["er_population_top5"]
+        assert isinstance(pop_top5, dict)
+        self.assertEqual(pop_top5["median_excess"], er_top5["median_excess"])
 
     def test_cohort_skipped_when_population_too_small(self) -> None:
         panel = [_panel_row("1000", per_trailing=10.0)]

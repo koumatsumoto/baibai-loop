@@ -89,7 +89,7 @@ flowchart LR
 | 市場データ基盤 | market.sqlite | データ store | L1 | 全上場銘柄の実データの正本 |
 | 機械スクリーニング | screening | 機械処理 | L2 | valuation ranking で割安ゾーンを機械抽出 |
 | 通過銘柄リスト | candidates | 成果物（事実） | L2 出力 | スクリーニング通過銘柄の事実 snapshot |
-| リサーチ候補選定 | select | 機械処理 | L2 | 通過銘柄を lens で絞り、着手順位を付ける |
+| リサーチ候補選定 | select | 機械処理 | L2 | 通過銘柄に機械 E[r] 降順の着手順位と lens 注記を付ける |
 | 個別銘柄リサーチ | thesis | 分析（判断） | L3 | FV・RR・期待利回り・耐性・採否を判断する投資メモ |
 | 戦略プレイブック | playbooks | governance | — | 再現可能な割安 value の型（archetype） |
 | 売買提案 | trade proposal | 判断の入口 | L3 | 銘柄・価格・株数を人間に上げる（GitHub Issue） |

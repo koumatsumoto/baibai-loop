@@ -232,6 +232,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         help="write the evaluation YAML to this path instead of stdout",
     )
+    calibration_evaluate_parser.add_argument(
+        "--start",
+        help="evaluate only cohorts on/after this date (YYYY-MM-DD; design/confirm 分割用)",
+    )
+    calibration_evaluate_parser.add_argument(
+        "--end",
+        help="evaluate only cohorts on/before this date (YYYY-MM-DD)",
+    )
 
     snapshot_parser = subparsers.add_parser(
         "market-snapshot",
@@ -324,6 +332,8 @@ def main(argv: list[str] | None = None) -> int:
             calibration_dir=Path(args.calibration_dir),
             horizons=args.horizons,
             output_path=Path(args.out) if args.out else None,
+            start=_parse_iso_date(args.start) if args.start else None,
+            end=_parse_iso_date(args.end) if args.end else None,
         )
 
     if args.command == "verify-cache-coverage":

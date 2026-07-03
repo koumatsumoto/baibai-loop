@@ -226,6 +226,28 @@ def _evaluate_selection(
             ]
             key = f"{rank_field}_top{top_n}"
             result[key] = _group_stats(values)
+    # 仮想 replay: E[r] 降順の順位付け (H3 の比較対象)。er_ranked は
+    # pass_screen かつ er_annual 非 null の集合を並べ替える (selection_rank が
+    # 通る liquidity / sizing_eligible filter は再現しない近似。本番形の確認は
+    # panel 再構築後の recommended_rank replay が担う)。er_population は
+    # screen gate を外した母集団全体からの選抜 (gate 自体の付加価値の診断)。
+    screen_passers = sorted(
+        (row for row in population if row.pass_screen and row.er_annual is not None),
+        key=lambda row: row.er_annual or 0.0,
+        reverse=True,
+    )
+    population_by_er = sorted(
+        (row for row in population if row.er_annual is not None),
+        key=lambda row: row.er_annual or 0.0,
+        reverse=True,
+    )
+    for top_n in SELECTION_TOP_NS:
+        result[f"er_ranked_top{top_n}"] = _group_stats(
+            [excess[row.ticker] for row in screen_passers[:top_n]]
+        )
+        result[f"er_population_top{top_n}"] = _group_stats(
+            [excess[row.ticker] for row in population_by_er[:top_n]]
+        )
     return result
 
 

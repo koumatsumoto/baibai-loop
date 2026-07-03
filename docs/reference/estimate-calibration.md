@@ -32,7 +32,7 @@ uv run baibai-loop-screening calibration-evaluate --out .cache/calibration-eval.
 - `prior_research_by_ticker={}`・`previous_candidates=None` — thesis record 由来の suppression は published_at ≤ asof の point-in-time チェックを持たず、現在の判断が過去 cohort に漏れるため遮断する。
 - JPX 規制 flag は過去断面が cache に無いため空（規制除外は annotation 数銘柄規模）。
 
-panel には全普通株（universe scope）を記録し、`in_population`（selection.liquidity 通過 = 流動性母集団）を評価の母集団 flag にする。`selection_rank` は diversity cap を実質無効化した割安度そのままの順位、`recommended_rank` は本番 diversity cap 適用の推奨順位（深さ 50）。
+panel には全普通株（universe scope）を記録し、`in_population`（selection.liquidity 通過 = 流動性母集団）を評価の母集団 flag にする。`selection_rank` は diversity cap を実質無効化した本番順位付け（E[r] 主キー）そのままの順位、`recommended_rank` は本番 diversity cap 適用の推奨順位（深さ 50）。評価はこのほかに `er_ranked_topN`（pass_screen × er 非 null 集合の E[r] 降順・仮想 replay）と `er_population_topN`（screen gate なしの母集団選抜・gate の付加価値診断）を出力する。
 
 ## 4. forward return
 

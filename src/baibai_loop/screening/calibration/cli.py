@@ -106,6 +106,8 @@ def calibration_evaluate_command(
     calibration_dir: Path,
     horizons: list[str] | None = None,
     output_path: Path | None = None,
+    start: date | None = None,
+    end: date | None = None,
     stdout: TextIO | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
@@ -114,12 +116,21 @@ def calibration_evaluate_command(
     if unknown:
         print(f"unknown horizon(s): {', '.join(unknown)}", file=sys.stderr)
         return 1
-    asofs = sorted(
+    all_asofs = [
         date.fromisoformat(path.stem.removeprefix("panel-"))
         for path in calibration_dir.glob("panel-*.csv")
+    ]
+    asofs = sorted(
+        asof
+        for asof in all_asofs
+        if (start is None or asof >= start) and (end is None or asof <= end)
     )
     if not asofs:
-        print(f"no panels found under {calibration_dir}", file=sys.stderr)
+        print(
+            f"no panels found under {calibration_dir}"
+            + (" within the requested --start/--end window" if (start or end) else ""),
+            file=sys.stderr,
+        )
         return 1
     consistency_error = _panel_consistency_error(calibration_dir, asofs)
     if consistency_error is not None:
@@ -137,6 +148,10 @@ def calibration_evaluate_command(
     result = evaluate_cohorts(panels, forwards, horizons=horizons)
     payload = {
         "kind": "estimate-calibration-evaluation",
+        "cohort_window": {
+            "start": start.isoformat() if start else None,
+            "end": end.isoformat() if end else None,
+        },
         "cohort_asofs": [asof.isoformat() for asof in asofs],
         "horizons": horizons,
         "trap_excess_threshold": TRAP_EXCESS_THRESHOLD,

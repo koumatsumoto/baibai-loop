@@ -137,6 +137,30 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
         self.assertEqual(self._tickers(payload), {"1111"})
         self.assertEqual(self._diag(payload)["liquidity_fact_missing_count"], 1)
 
+    def test_playbook_cap_binds_via_profile_override(self) -> None:
+        """max_recommended_per_playbook は E[r] 主キー下でも enforcement が生きている。
+
+        既定 rules は 10 (実質無効) だが、override で 1 に絞ると同一 playbook の
+        2 本目が推奨から落ちる。"""
+        payload = build_selection_payload(
+            asof_date=_ASOF,
+            candidates=tuple(
+                candidate_record_from_mapping(item)
+                for item in [
+                    _candidate("1111", sector_33="機械"),
+                    _candidate("2222", sector_33="化学"),
+                ]
+            ),
+            macro_context=None,
+            rules=self.rules,
+            top=10,
+            profile="balanced",
+            candidates_ref="test.yaml",
+            macro_context_ref=None,
+            profile_overrides={"balanced": {"diversity": {"max_recommended_per_playbook": 1}}},
+        )
+        self.assertEqual(self._tickers(payload), {"1111"})
+
     def test_profile_config_can_relax_liquidity(self) -> None:
         payload = build_selection_payload(
             asof_date=_ASOF,

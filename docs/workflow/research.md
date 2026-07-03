@@ -14,7 +14,7 @@ last_reviewed: 2026-07-02
 
 ## 選定プロセス
 
-1. 最新の macro context と candidates に対して `uv run baibai-loop-screening select` を実行し、`recommendations`・durability（塩漬け耐性）の注記・sector / playbook ごとの集中度を確認する。個別銘柄は `ticker-profile --ticker XXXX` の事実 packet を起点にする。
+1. 最新の macro context と candidates に対して `uv run baibai-loop-screening select` を実行し、`recommendations`（機械 E[r] 降順）・E[r] 成分と FV アンカー・durability（塩漬け耐性）の注記・sector / playbook ごとの集中度を確認する。個別銘柄は `ticker-profile --ticker XXXX` の事実 packet を起点にする。
 2. `recommendations` の上位 3–5 銘柄に絞る（閾値を変えて試すときは `records/_config/screening-rules/*.yaml` を編集して `select` を再実行する）。
 3. 各候補の `evidence_hits[]`・candidates の指標・macro context の `sector_tilts` を確認する。
 4. リスクリワード・[`../portfolio-management.md`](../portfolio-management.md) の cap・塩漬け耐性ゲート・流動性に照らして、`thesis_decision` と `position_sizing_overlay` を確定する。

@@ -10,6 +10,7 @@ from baibai_loop.foundation.coerce import (
     dict_sequence,
     int_or,
     mapping_or_empty,
+    optional_float,
     string_or_none,
     string_sequence,
 )
@@ -135,10 +136,15 @@ def build_selection_payload(
             previous_candidate=item.ticker in previous_tickers,
             benchmark_return_20d=benchmark_return_20d,
         )
-        # 主キーは valuation discount: playbook 優先順で group し、その中を
-        # 各 screen の割安度 strength key で並べる。macro context は診断
-        # annotation であり順位には使わない (docs/workflow/screening.md)。
+        # 主キーは機械 E[r] (成分分解付き見積り) の降順:「どれくらいお買い得か」の
+        # 見積りが着手順位を決める (#295 の design/confirm 検証で採用。計測は
+        # reports/2026-07-04-preregistered-ranking-validation.md)。E[r] 欠損の
+        # 候補は後置し、従キーとして playbook 優先順 + 各 screen の強度キーを
+        # 残す。macro context は診断 annotation であり順位には使わない。
+        er_annual = optional_float(item.metrics.get("er_annual"))
         sort_key = (
+            0 if er_annual is not None else 1,
+            -(er_annual or 0.0),
             _playbook_order_rank(selection_playbook, playbook_order),
             *strength_key,
             item.ticker,
