@@ -24,6 +24,7 @@ from baibai_loop.foundation.coerce import int_or, string_or_none
 from baibai_loop.market.store import read_daily_bars
 
 from ..candidate_build import build_screened_candidate
+from ..estimates import estimate_expected_return
 from ..metrics import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
@@ -98,6 +99,10 @@ class PanelRow:
     srp_pbr: float | None
     srp_ev_ebitda: float | None
     srp_p_s: float | None
+    er_annual: float | None
+    er_reversion_annual: float | None
+    er_carry_annual: float | None
+    er_upside_capped: float | None
     pass_screen: bool
     evidence_playbooks: str
     selection_rank: int | None
@@ -226,6 +231,9 @@ def build_panel(
         financial = metric_result.financials[ticker]
         derived = metric_result.derived[ticker]
         snapshot = universe_result.snapshots[ticker]
+        estimate = estimate_expected_return(
+            financial, derived, close=latest_close_by_ticker.get(ticker)
+        )
         rows.append(
             PanelRow(
                 asof=asof_date.isoformat(),
@@ -272,6 +280,10 @@ def build_panel(
                 srp_pbr=derived.self_range_percentile.get("pbr"),
                 srp_ev_ebitda=derived.self_range_percentile.get("ev_ebitda"),
                 srp_p_s=derived.self_range_percentile.get("p_s"),
+                er_annual=estimate.er_annual if estimate else None,
+                er_reversion_annual=estimate.reversion_annual if estimate else None,
+                er_carry_annual=estimate.carry_annual if estimate else None,
+                er_upside_capped=estimate.upside_capped if estimate else None,
                 pass_screen=ticker in evidence_by_ticker,
                 evidence_playbooks="|".join(evidence_by_ticker.get(ticker, ())),
                 selection_rank=selection_rank.get(ticker),

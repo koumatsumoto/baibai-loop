@@ -148,7 +148,9 @@ def build_metrics(
             latest_prices[ticker], ticker_bars, snapshot, asof_date
         )
         sector_gaps: dict[str, float | None] = {}
+        sector_medians: dict[str, float | None] = {}
         self_percentiles: dict[str, float | None] = {}
+        self_medians: dict[str, float | None] = {}
         sigma_gaps: dict[str, float | None] = {}
         for metric in VALUATION_METRICS:
             current = getattr(snapshot, metric)
@@ -157,6 +159,7 @@ def build_metrics(
                 sector_values if len(sector_values) >= 10 else market_metric_values.get(metric, [])
             )
             sector_median = median(baseline) if baseline else None
+            sector_medians[metric] = sector_median
             sector_gaps[metric] = (
                 ((current / sector_median) - 1.0)
                 if current is not None and sector_median not in (None, 0)
@@ -164,6 +167,9 @@ def build_metrics(
             )
             history_values = valuation_history.get(metric, [])
             self_percentiles[metric] = _self_range_percentile(history_values, current)
+            # 自己レンジの中央値倍率。機械 E[r] の保守側 anchor に使う。標本が薄い
+            # 履歴 (直近上場等) の中央値は anchor として不安定なため 100 本を下限にする。
+            self_medians[metric] = median(history_values) if len(history_values) >= 100 else None
             sigma_gaps[metric] = _sigma_gap(history_values, current)
 
         eligible_bars = sorted(
@@ -173,7 +179,9 @@ def build_metrics(
         listing_span_days = (asof_date - eligible_bars[0].traded_at).days if eligible_bars else 0
         derived[ticker] = DerivedMetrics(
             sector_median_gap=sector_gaps,
+            sector_median_value=sector_medians,
             self_range_percentile=self_percentiles,
+            self_range_median=self_medians,
             price_change_1d=_price_change(ticker_bars, 1, asof_date),
             price_change_5d=_price_change(ticker_bars, 5, asof_date),
             price_change_20d=_price_change(ticker_bars, 20, asof_date),
@@ -334,7 +342,27 @@ def _build_financial_snapshot(
     # _normalize_summaries_to_asof_basis が呼び出し側で揃えている前提。
     eps_cumulative = latest.eps_ttm if latest else None
     eps_ttm, eps_quality = _ttm_value(summaries, "eps_ttm", rules.ttm)
-    bps = latest.bps if latest else None
+    # BS 系 fact (bps / cash_eq / equity / total_assets / 株数) は四半期開示に
+    # 載らないことが多く (bps 非 null は FY 開示 ~69% に対し四半期 ~17-20%)、
+    # latest 行だけを見ると四半期行が最新になる断面で PBR 等が季節的に大量欠損
+    # する。直近の非 null 行から carry-forward し (値は asof-basis 正規化済み)、
+    # どの field をいつの開示から引いたかを staleness fact として残す。
+    bps, bps_lag = _carry_forward(summaries, "bps", latest)
+    cash_eq, cash_eq_lag = _carry_forward(summaries, "cash_eq", latest)
+    equity, equity_lag = _carry_forward(summaries, "equity", latest)
+    total_assets, total_assets_lag = _carry_forward(summaries, "total_assets", latest)
+    carried_lags = {
+        "bps": bps_lag,
+        "cash_eq": cash_eq_lag,
+        "equity": equity_lag,
+        "total_assets": total_assets_lag,
+    }
+    bs_carry_forward_fields = ",".join(
+        sorted(name for name, lag in carried_lags.items() if lag is not None and lag > 0)
+    )
+    bs_carry_forward_lag_days = max(
+        (lag for lag in carried_lags.values() if lag is not None), default=None
+    )
     # 実績年間 DPS は FY 開示にしか載らないため「直近の非 null 行」から取る
     # (直近 FY の実績年間配当は次の FY 開示まで最新の実績であり続ける)。
     # 予想年間 DPS は四半期開示が持つので同様に直近非 null 行から取る。
@@ -350,7 +378,7 @@ def _build_financial_snapshot(
     pbr = (latest_price / bps) if bps and bps > 0 else None
     operating_profit, operating_profit_source = _select_operating_profit(latest)
     operating_profit_prior_year, _ = _select_operating_profit(prior_year)
-    shares_outstanding = latest.shares_outstanding if latest else None
+    shares_outstanding, _shares_lag = _carry_forward(summaries, "shares_outstanding", latest)
     sales_ttm, sales_quality = _ttm_value(summaries, "sales", rules.ttm)
     ocf_ttm, ocf_quality = _ttm_value(summaries, "cfo", rules.ttm)
     edinet_ocf_ttm = edinet.ocf_ttm if edinet else None
@@ -386,15 +414,13 @@ def _build_financial_snapshot(
         edinet_ocf_ttm=edinet_ocf_ttm,
         sales=latest.sales if latest else None,
         cfo=latest.cfo if latest else None,
-        cash_eq=latest.cash_eq if latest else None,
-        total_assets=latest.total_assets if latest else None,
-        equity=latest.equity if latest else None,
+        cash_eq=cash_eq,
+        total_assets=total_assets,
+        equity=equity,
         market_cap=latest_market_cap,
-        cash_to_market_cap=_safe_ratio(latest.cash_eq if latest else None, latest_market_cap),
-        price_to_equity=_safe_ratio(latest_market_cap, latest.equity if latest else None),
-        equity_ratio=_safe_ratio(
-            latest.equity if latest else None, latest.total_assets if latest else None
-        ),
+        cash_to_market_cap=_safe_ratio(cash_eq, latest_market_cap),
+        price_to_equity=_safe_ratio(latest_market_cap, equity),
+        equity_ratio=_safe_ratio(equity, total_assets),
         ocf_yield=_safe_ratio(ocf_ttm, latest_market_cap),
         net_cash=net_cash,
         net_cash_to_market_cap=_safe_ratio(net_cash, latest_market_cap),
@@ -440,13 +466,15 @@ def _build_financial_snapshot(
             eps_ttm=eps_ttm,
             shares=shares_outstanding,
             ocf_ttm=ocf_ttm,
-            total_assets=latest.total_assets if latest else None,
+            total_assets=total_assets,
             prior_total_assets=prior_year.total_assets if prior_year else None,
         ),
         net_share_change_yoy=_yoy_ratio(
             shares_outstanding,
             prior_year.shares_outstanding if prior_year else None,
         ),
+        bs_carry_forward_fields=bs_carry_forward_fields or None,
+        bs_carry_forward_lag_days=bs_carry_forward_lag_days,
     )
 
 
@@ -456,6 +484,25 @@ def _latest_non_null(summaries: Sequence[JQuantsFinancialSummary], field_name: s
         if value is not None:
             return float(value)
     return None
+
+
+def _carry_forward(
+    summaries: Sequence[JQuantsFinancialSummary],
+    field_name: str,
+    latest: JQuantsFinancialSummary | None,
+) -> tuple[float | None, int | None]:
+    """直近の非 null 行から値を取り、latest 行からの遅延日数を添える。
+
+    lag 0 = latest 行自身が値を持つ。lag > 0 = carry-forward された staleness。
+    値が窓内のどの行にも無ければ (None, None)。
+    """
+    if latest is None:
+        return None, None
+    for summary in sorted(summaries, key=lambda item: item.disclosed_at, reverse=True):
+        value = getattr(summary, field_name)
+        if value is not None:
+            return float(value), (latest.disclosed_at - summary.disclosed_at).days
+    return None, None
 
 
 def _latest_summary(summaries: Sequence[JQuantsFinancialSummary]) -> JQuantsFinancialSummary | None:

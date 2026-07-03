@@ -255,6 +255,63 @@ class ScreeningMetricsTests(unittest.TestCase):
         # 22 円はそのまま最新の予想として使える。
         self.assertAlmostEqual(financial.dps_forecast_annual or 0.0, 22.0, places=6)
 
+    def test_bs_fields_carry_forward_from_recent_disclosure(self) -> None:
+        """bps 等の BS 系 fact は latest の四半期行に無くても直近 FY 行から
+        carry-forward され、staleness fact が付く。"""
+        asof = date(2026, 1, 30)
+        security = _security()
+        bars = [
+            JQuantsDailyBar(
+                ticker="130A",
+                traded_at=asof - timedelta(days=29 - index),
+                close=100.0,
+                turnover_value=300_000_000.0,
+            )
+            for index in range(30)
+        ]
+        fy = _summary(
+            "130A",
+            asof - timedelta(days=200),
+            fiscal_period="FY",
+            period_start=date(2024, 4, 1),
+            period_end=date(2025, 3, 31),
+        )
+        quarterly = JQuantsFinancialSummary(
+            ticker="130A",
+            disclosed_at=asof - timedelta(days=10),
+            forecast_eps=20.0,
+            eps_ttm=5.0,
+            bps=None,
+            shares_outstanding=None,
+            sales=250_000_000.0,
+            cfo=None,
+            cash_eq=None,
+            total_assets=None,
+            equity=None,
+            operating_profit=50_000_000.0,
+            ordinary_profit=None,
+            profit=None,
+            fiscal_period="3Q",
+            fiscal_year_end=date(2026, 3, 31),
+            period_start=date(2025, 4, 1),
+            period_end=date(2025, 12, 31),
+        )
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": security},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": [fy, quarterly]},
+            edinet_by_ticker={},
+        )
+        financial = result.financials["130A"]
+        # FY 行の bps=120 が carry-forward され PBR が計算できる。
+        assert financial.pbr is not None
+        self.assertAlmostEqual(financial.pbr, 100.0 / 120.0, places=6)
+        fields = financial.bs_carry_forward_fields or ""
+        self.assertIn("bps", fields)
+        assert financial.bs_carry_forward_lag_days is not None
+        self.assertEqual(financial.bs_carry_forward_lag_days, 190)
+
     def test_split_crossing_composition_normalizes_per_share_basis(self) -> None:
         """分割を跨ぐ TTM 合成・YoY・株数変化は、行を asof 基準へ正規化してから行う。
 

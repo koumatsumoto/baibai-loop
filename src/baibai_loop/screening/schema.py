@@ -93,6 +93,11 @@ class FinancialSnapshot:
     dps_actual_annual: float | None = None
     dps_forecast_annual: float | None = None
     dividend_yield: float | None = None
+    # BS 系 fact (bps / cash_eq / equity / total_assets) の carry-forward 記録。
+    # fields = latest 行に無く過去行から引いた field 名 (comma 区切り)、
+    # lag_days = その最大遅延日数 (staleness fact)。
+    bs_carry_forward_fields: str | None = None
+    bs_carry_forward_lag_days: int | None = None
     sales: float | None = None
     cfo: float | None = None
     cash_eq: float | None = None
@@ -204,7 +209,11 @@ class DerivedMetrics:
     turnover_spike_5d: float | None = None
     sector_relative_strength_4w: float | None = None
     sector_median_gap: NullableFloatMap = Field(default_factory=dict)
+    # sector 中央値倍率の絶対値と自己レンジ (750 営業日) の中央値倍率。
+    # 機械 E[r] / FV アンカーの入力 (gap / percentile と違い水準そのもの)。
+    sector_median_value: NullableFloatMap = Field(default_factory=dict)
     self_range_percentile: NullableFloatMap = Field(default_factory=dict)
+    self_range_median: NullableFloatMap = Field(default_factory=dict)
     sigma_gap: NullableFloatMap = Field(default_factory=dict)
     sector_relative_strength_percentile: float | None = None
     ticker_return_4w: float | None = None

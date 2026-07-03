@@ -113,6 +113,15 @@ def _selection_candidate_summary(
         "operating_profit_yoy": metrics.get("operating_profit_yoy"),
         "sales_yoy": metrics.get("sales_yoy"),
         "fcf_yield": metrics.get("fcf_yield"),
+        # 機械 E[r] (成分分解付き見積り・%/年の比率) と FV アンカー。thesis の
+        # FV 見積りの機械的出発点で、単一の合成スコアではない (estimates.py)。
+        "er_annual": metrics.get("er_annual"),
+        "er_reversion_annual": metrics.get("er_reversion_annual"),
+        "er_carry_annual": metrics.get("er_carry_annual"),
+        "er_anchor_metrics": metrics.get("er_anchor_metrics"),
+        "fv_sector_median_yen": metrics.get("fv_sector_median_yen"),
+        "fv_self_range_yen": metrics.get("fv_self_range_yen"),
+        "dividend_yield": metrics.get("dividend_yield"),
         "price_change_5d": candidate.get("price_change_5d"),
         "price_change_20d": candidate.get("price_change_20d"),
         # dislocation 深度: 売られすぎ度の主要 window。割安ゾーン入りの経緯と RR の前提
