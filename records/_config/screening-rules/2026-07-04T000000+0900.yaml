@@ -16,9 +16,10 @@ quality:
   yoy_deterioration_threshold: -0.3
 output:
   research_selection_target_max: 5
-  # playbook 優先順位の唯一の正本。推奨 queue の順位付けと primary evidence の
-  # 選択の両方に使う。下値保護の裏付けが強い順 (資産・現金 → 相対 valuation →
-  # cash flow → 売上) に並べる。出典: reports/2026-06-19-strategy-improvement-ideas.md A1。
+  # playbook 優先順位。推奨 queue の従キー (主キーは機械 E[r] 降順) と
+  # primary evidence の選択に使う。下値保護の裏付けが強い順 (資産・現金 →
+  # 相対 valuation → cash flow → 売上)。主キーの根拠:
+  # reports/2026-07-04-preregistered-ranking-validation.md (H3)。
   research_selection_playbook_order:
   - cash-rich-asset-discount
   - valuation-reversion
@@ -51,7 +52,10 @@ selection:
     # 2 とし、sector 集中は warning で監視する。
     # 出典: reports/2026-06-19-strategy-improvement-ideas.md A2。
     max_recommended_per_sector: 2
-    max_recommended_per_playbook: 2
+    # E[r] 主キー化に伴い playbook cap は実質無効化する (10)。cap=2 は推奨を
+    # 8 銘柄で飽和させ、design/confirm の変種比較で confirm 側の成績を落とした
+    # (reports/2026-07-04-preregistered-ranking-validation.md)。
+    max_recommended_per_playbook: 10
     max_previous_candidates_in_recommended: 2
     previous_overlap_warning_ratio: 0.6
 screening_playbooks:

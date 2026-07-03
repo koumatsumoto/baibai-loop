@@ -1181,6 +1181,64 @@ class SelectCommandTests(unittest.TestCase):
         )
         return path
 
+    def test_er_annual_is_primary_ranking_key(self) -> None:
+        """E[r] を持つ候補は playbook 優先順より前に、E[r] 降順で並ぶ。
+
+        cash-rich (playbook 最優先) だが E[r] の低い 1111 より、
+        valuation-reversion で E[r] の高い 2222 が先頭に来る。E[r] 欠損の
+        3333 は最後尾に落ちる (#295)。
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/02-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "top playbook low er",
+                        "sector_33": "電気機器",
+                        "market_cap_oku": 2000,
+                        "metrics": {"er_annual": 0.02},
+                        "evidence_hits": [{"name": "cash-rich-asset-discount"}],
+                    },
+                    {
+                        "ticker": "2222",
+                        "name": "high er",
+                        "sector_33": "機械",
+                        "market_cap_oku": 600,
+                        "metrics": {"er_annual": 0.09},
+                        "evidence_hits": [{"name": "valuation-reversion"}],
+                    },
+                    {
+                        "ticker": "3333",
+                        "name": "er missing",
+                        "sector_33": "化学",
+                        "market_cap_oku": 400,
+                        "evidence_hits": [{"name": "cash-rich-asset-discount"}],
+                    },
+                ],
+            )
+            self._write_macro_context(
+                root / "records/01-macro-context",
+                asof,
+                sectors={"機械": "neutral"},
+            )
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                macro_context_path=None,
+                top=10,
+                candidates_root=root / "records/02-candidates",
+                macro_context_root=root / "records/01-macro-context",
+                stdout=buffer,
+            )
+            self.assertEqual(exit_code, 0)
+            payload = safe_load(buffer.getvalue())
+            tickers = [c["ticker"] for c in self._recommended(payload)]
+            self.assertEqual(tickers, ["2222", "1111", "3333"])
+
     def test_applies_macro_context_without_dropping_headwind_sectors(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -1249,10 +1307,10 @@ class SelectCommandTests(unittest.TestCase):
             )
             tickers = [c["ticker"] for c in self._recommended(payload)]
             # macro context は診断 annotation で順位に影響しない (headwind の 1111 も
-            # 落ちない)。3 候補とも primary playbook は valuation-reversion で strength
-            # も同一なので ticker 順に並び、balanced の per-playbook cap (2) が
-            # 3 本目を落とす。
-            self.assertEqual(tickers, ["1111", "2222"])
+            # 落ちない)。3 候補とも er_annual 無し・primary playbook は
+            # valuation-reversion で strength も同一なので ticker 順に並ぶ
+            # (per-playbook cap は E[r] 主キー化に伴い実質無効の 10)。
+            self.assertEqual(tickers, ["1111", "2222", "3333"])
             self.assertEqual(
                 payload["selection"]["research_selection_playbook_order"],
                 [
