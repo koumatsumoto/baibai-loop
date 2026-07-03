@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date
 
+from .estimates import ExpectedReturnEstimate, estimate_expected_return
 from .schema import (
     DerivedMetrics,
     EvidenceHit,
@@ -66,7 +67,13 @@ def build_screened_candidate(
         sector_relative_strength_percentile=derived.sector_relative_strength_percentile,
         price_history_sessions_750d=derived.price_history_sessions_750d,
         price_history_coverage_750d=derived.price_history_coverage_750d,
-        metrics=candidate_metrics_map(financial, freshness_warning_count=len(freshness_warnings)),
+        metrics=candidate_metrics_map(
+            financial,
+            freshness_warning_count=len(freshness_warnings),
+            estimate=estimate_expected_return(
+                financial, derived, close=_close_from_snapshot(financial)
+            ),
+        ),
         next_earnings_date=next_earnings_date,
         split_adjustment_flag=derived.split_adjustment_flag,
         freshness_warnings=freshness_warnings,
@@ -77,6 +84,7 @@ def candidate_metrics_map(
     financial: FinancialSnapshot,
     *,
     freshness_warning_count: int,
+    estimate: ExpectedReturnEstimate | None = None,
 ) -> Mapping[str, float | int | bool | str | None]:
     return {
         "sales_ttm": financial.sales_ttm,
@@ -120,7 +128,21 @@ def candidate_metrics_map(
         "accruals_to_assets": financial.accruals_to_assets,
         "net_share_change_yoy": financial.net_share_change_yoy,
         "edinet_freshness_warning_count": freshness_warning_count,
+        # 機械 E[r] (成分分解付き見積り。%/年の比率)。詳細は estimates.py。
+        "er_annual": estimate.er_annual if estimate else None,
+        "er_reversion_annual": estimate.reversion_annual if estimate else None,
+        "er_carry_annual": estimate.carry_annual if estimate else None,
+        "er_upside_capped": estimate.upside_capped if estimate else None,
+        "er_anchor_metrics": estimate.anchor_metrics if estimate else None,
+        "fv_sector_median_yen": estimate.fv_sector_median_yen if estimate else None,
+        "fv_self_range_yen": estimate.fv_self_range_yen if estimate else None,
     }
+
+
+def _close_from_snapshot(financial: FinancialSnapshot) -> float | None:
+    if financial.market_cap is None or not financial.shares_outstanding:
+        return None
+    return financial.market_cap / financial.shares_outstanding
 
 
 def _date_iso(value: date | None) -> str | None:

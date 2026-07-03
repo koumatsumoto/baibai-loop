@@ -65,6 +65,8 @@ AXES: tuple[AxisSpec, ...] = (
     AxisSpec(name="cash_to_market_cap", direction=1),
     AxisSpec(name="equity_ratio", direction=1),
     AxisSpec(name="dividend_yield", direction=1),
+    AxisSpec(name="er_annual", direction=1),
+    AxisSpec(name="er_reversion_annual", direction=1),
     AxisSpec(name="smg_per_forward", direction=-1),
     AxisSpec(name="smg_per_trailing", direction=-1),
     AxisSpec(name="smg_pbr", direction=-1),
@@ -163,6 +165,7 @@ def _evaluate_cohort(
         "selection": _evaluate_selection(population, excess),
         "gates": _evaluate_gates(population, excess),
         "reversion": _evaluate_reversion(population, excess),
+        "er_calibration": _evaluate_er_calibration(population, excess, years=years),
     }
 
 
@@ -300,6 +303,40 @@ def _evaluate_reversion(
             )
         result[axis_name] = {"n": len(entries), "upside_quintiles": quintiles}
     return result
+
+
+def _evaluate_er_calibration(
+    population: Sequence[PanelRow],
+    excess: Mapping[str, float],
+    *,
+    years: float,
+) -> dict[str, object]:
+    """機械 E[r] の予測 vs 実現の座標。
+
+    quintile ごとに「予測リターン (er_annual x 保有年数)」と「実現 median excess」を
+    並べる。excess は対母集団中央値なので、予測側も母集団平均 E[r] を引いた相対値で
+    比較できるよう mean_er_predicted をそのまま出し、読み手が両方を見られる形にする。
+    """
+    entries = [
+        (row.er_annual, excess[row.ticker]) for row in population if row.er_annual is not None
+    ]
+    if len(entries) < MIN_AXIS_SAMPLE:
+        return {}
+    entries.sort(key=lambda item: item[0])
+    quintiles: list[dict[str, object]] = []
+    step = len(entries) / 5
+    for index in range(5):
+        chunk = entries[int(index * step) : int((index + 1) * step)]
+        if not chunk:
+            continue
+        quintiles.append(
+            {
+                "mean_er_predicted": round(fmean(er for er, _ in chunk) * years, 6),
+                "median_excess": round(median(e for _, e in chunk), 6),
+                "n": len(chunk),
+            }
+        )
+    return {"n": len(entries), "horizon_years": years, "er_quintiles": quintiles}
 
 
 def _group_stats(values: Sequence[float]) -> dict[str, object]:

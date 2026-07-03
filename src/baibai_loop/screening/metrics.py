@@ -148,7 +148,9 @@ def build_metrics(
             latest_prices[ticker], ticker_bars, snapshot, asof_date
         )
         sector_gaps: dict[str, float | None] = {}
+        sector_medians: dict[str, float | None] = {}
         self_percentiles: dict[str, float | None] = {}
+        self_medians: dict[str, float | None] = {}
         sigma_gaps: dict[str, float | None] = {}
         for metric in VALUATION_METRICS:
             current = getattr(snapshot, metric)
@@ -157,6 +159,7 @@ def build_metrics(
                 sector_values if len(sector_values) >= 10 else market_metric_values.get(metric, [])
             )
             sector_median = median(baseline) if baseline else None
+            sector_medians[metric] = sector_median
             sector_gaps[metric] = (
                 ((current / sector_median) - 1.0)
                 if current is not None and sector_median not in (None, 0)
@@ -164,6 +167,9 @@ def build_metrics(
             )
             history_values = valuation_history.get(metric, [])
             self_percentiles[metric] = _self_range_percentile(history_values, current)
+            # 自己レンジの中央値倍率。機械 E[r] の保守側 anchor に使う。標本が薄い
+            # 履歴 (直近上場等) の中央値は anchor として不安定なため 100 本を下限にする。
+            self_medians[metric] = median(history_values) if len(history_values) >= 100 else None
             sigma_gaps[metric] = _sigma_gap(history_values, current)
 
         eligible_bars = sorted(
@@ -173,7 +179,9 @@ def build_metrics(
         listing_span_days = (asof_date - eligible_bars[0].traded_at).days if eligible_bars else 0
         derived[ticker] = DerivedMetrics(
             sector_median_gap=sector_gaps,
+            sector_median_value=sector_medians,
             self_range_percentile=self_percentiles,
+            self_range_median=self_medians,
             price_change_1d=_price_change(ticker_bars, 1, asof_date),
             price_change_5d=_price_change(ticker_bars, 5, asof_date),
             price_change_20d=_price_change(ticker_bars, 20, asof_date),
