@@ -82,9 +82,7 @@ def _build_front_matter(document: ScreenedRunDocument) -> dict[str, object]:
     front_matter["data_sources"] = [QuotedString(source) for source in document.data_sources]
     front_matter["run_at"] = QuotedString(document.run_at.isoformat())
     front_matter["run_id"] = QuotedString(document.run_id)
-    front_matter["candidates"] = [
-        _build_candidate_entry(candidate, document) for candidate in document.candidates
-    ]
+    front_matter["candidates"] = [candidate_entry(candidate) for candidate in document.candidates]
     front_matter["provider_status_lines"] = [
         QuotedString(line) for line in document.provider_status_lines
     ]
@@ -97,9 +95,13 @@ def _build_front_matter(document: ScreenedRunDocument) -> dict[str, object]:
     return front_matter
 
 
-def _build_candidate_entry(
-    candidate: ScreenedCandidate, document: ScreenedRunDocument
-) -> dict[str, object]:
+def candidate_entry(candidate: ScreenedCandidate) -> dict[str, object]:
+    """Serialize one candidate to its YAML entry shape.
+
+    calibration の選定リプレイもこの entry を経由して CandidateRecord を作る。
+    本番 select が読む YAML と同じ丸め・同じ key 集合を単一実装で保証するため、
+    ここを迂回して候補 dict を組み立てない。
+    """
     entry: dict[str, object] = {}
     entry["ticker"] = QuotedString(candidate.ticker)
     entry["name"] = QuotedString(candidate.name)

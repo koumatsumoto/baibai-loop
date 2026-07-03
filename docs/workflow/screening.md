@@ -72,6 +72,10 @@ uv run baibai-loop-screening select --asof YYYY-MM-DD --macro-context <path>
 
 `run` は開始時に SQLite のデータ充足を検証し、不足があれば即座に失敗させる（provider API へはフォールバックしない）。JPX 規制情報と EDINET の前処理済み指標は必須入力。`select` は macro context の `sector_tilts` を追い風 / 向かい風の参考情報として使い（機械的な足切りにはしない）、`recommendations` と `selection.diagnostics` を出力する。`--macro-context` を省略すると `records/01-macro-context/` の最新 context を自動解決する（`valid_until` が asof より古い context は鮮度切れとして失敗させる）。手順・env・SQLite schema の実装詳細は [`../reference/screening-runtime.md`](../reference/screening-runtime.md)。
 
+## 長期予測力の計測（estimate calibration）
+
+screen の軸・閾値・select 順位が「3 か月以上先の割安回復」を予測できているかは、`calibration-build` / `calibration-evaluate` の較正リプレイで計測する（[`../reference/estimate-calibration.md`](../reference/estimate-calibration.md)）。ランキング・ゲート・閾値の改訂は、事前登録した仮説をこの計測で design/confirm 分割の両方で確認した場合だけ行う（doctrine 柱 5 の誠実性規律）。
+
 ## 事実と分析の分離
 
 candidates は **事実層**。閾値の適用と screen の該当判定は機械的であり、「なぜ割安なのか」「採用すべきか」の解釈は [`./research.md`](./research.md) 側で行う（[`../doctrine.md#fact-analysis-separation`](../doctrine.md#fact-analysis-separation)）。candidates 本文には因果・予測・相場観を書かない。
@@ -79,6 +83,7 @@ candidates は **事実層**。閾値の適用と screen の該当判定は機�
 ## 参考
 
 - [`../reference/valuation-metrics.md`](../reference/valuation-metrics.md)：指標算出仕様
+- [`../reference/estimate-calibration.md`](../reference/estimate-calibration.md)：長期見積り較正リプレイ
 - [`../reference/screening-runtime.md`](../reference/screening-runtime.md)：CLI / provider / SQLite schema
 - [`./macro.md`](./macro.md)：select が使う sector_tilts
 - [`./research.md`](./research.md)：candidates を起点にした個別調査

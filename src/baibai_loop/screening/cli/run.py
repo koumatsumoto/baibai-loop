@@ -12,11 +12,14 @@ from typing import TextIO
 from baibai_loop.foundation.date_utils import weekday_distance
 from baibai_loop.foundation.filesystem import write_text_atomic
 from baibai_loop.foundation.time import JST
+from baibai_loop.screening.candidate_build import build_screened_candidate
 from baibai_loop.screening.config import (
     ScreeningConfig,
 )
 from baibai_loop.screening.freshness import detect_edinet_freshness_warnings, load_disclosure_events
 from baibai_loop.screening.metrics import (
+    BARS_INPUT_WINDOW_DAYS,
+    FIN_INPUT_WINDOW_DAYS,
     build_metrics,
     build_shares_outstanding_index,
     group_bars_by_ticker,
@@ -43,14 +46,13 @@ from baibai_loop.screening.schema import (
     ScreenedCandidate,
     ScreenedRunDocument,
     TTMQuality,
-    UniverseSnapshot,
 )
 from baibai_loop.screening.universe import (
     MIN_BAR_HISTORY,
     build_universe,
+    liquid_median_population,
 )
 
-from .common import _date_iso
 from .providers import ProviderBundle
 
 
@@ -89,14 +91,11 @@ def run_command(
         )
         return 1
 
-    # bars need 1200d for 3-year self-range percentile and sigma_gap; fin
-    # summaries are only consumed for TTM (latest) and prior-year YoY
-    # (`_prior_year_summary` in metrics.py), which fits comfortably in 24
-    # months of disclosures. Fetching the same 1200d window for both costs
-    # ~26 extra fin chunks over J-Quants Light at ~1-3 min each — by far
-    # the dominant slowdown when raw cache is sparse.
-    bars_start_date = asof_date - timedelta(days=1200)
-    fin_start_date = asof_date - timedelta(days=730)
+    # 窓の正本は metrics.py の BARS_INPUT_WINDOW_DAYS / FIN_INPUT_WINDOW_DAYS
+    # (較正リプレイと共有)。fin を bars と同じ 1200 日にしないのは、J-Quants Light
+    # で ~26 chunk (各 1-3 分) の追加取得コストが支配的になるため。
+    bars_start_date = asof_date - timedelta(days=BARS_INPUT_WINDOW_DAYS)
+    fin_start_date = asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS)
     try:
         print(f"screening run start: asof={asof_date.isoformat()}", file=out, flush=True)
         print("screening run jquants market_calendar: start", file=out, flush=True)
@@ -223,7 +222,7 @@ def run_command(
         for security in securities
         if security.is_common_stock and security.code in universe_result.snapshots
     }
-    median_population = _liquid_median_population(universe_result.snapshots, rules)
+    median_population = liquid_median_population(universe_result.snapshots, rules)
     metric_result = build_metrics(
         asof_date=asof_date,
         securities_by_ticker=securities_by_ticker,
@@ -259,84 +258,15 @@ def run_command(
             asof_date=asof_date,
         )
         screened_candidates.append(
-            ScreenedCandidate(
+            build_screened_candidate(
                 ticker=ticker,
-                name=security.name,
-                per_forward=financial.per_forward,
-                per_trailing=financial.per_trailing,
-                pbr=financial.pbr,
-                ev_ebitda=financial.ev_ebitda,
-                p_s=financial.p_s,
-                pcfr=financial.pcfr,
-                sector_33=security.sector_33,
+                security=security,
+                financial=financial,
+                derived=derived,
+                universe_snapshot=universe_snapshot,
                 evidence_hits=result.evidence_hits,
-                ttm_quality={
-                    "ev_ebitda": financial.ttm_quality_ev_ebitda,
-                    "per_trailing": financial.ttm_quality_per_trailing,
-                    "p_s": financial.ttm_quality_p_s,
-                    "pcfr": financial.ttm_quality_pcfr,
-                    "ocf_yield": financial.ttm_quality_ocf_yield,
-                    "sales": financial.ttm_quality_sales,
-                    "fcf_yield": financial.ttm_quality_fcf_yield,
-                    "net_cash": financial.ttm_quality_net_cash,
-                },
-                market_cap_oku=universe_snapshot.market_cap_oku,
-                avg_turnover_oku=universe_snapshot.avg_turnover_oku,
-                listing_span_days=universe_snapshot.listing_span_days,
-                jpx_flags=universe_snapshot.jpx_flags,
-                price_change_1d=derived.price_change_1d,
-                price_change_5d=derived.price_change_5d,
-                price_change_20d=derived.price_change_20d,
-                price_change_60d=derived.price_change_60d,
-                gap_from_52w_low=derived.gap_from_52w_low,
-                turnover_spike_5d=derived.turnover_spike_5d,
-                sector_relative_strength_percentile=derived.sector_relative_strength_percentile,
-                price_history_sessions_750d=derived.price_history_sessions_750d,
-                price_history_coverage_750d=derived.price_history_coverage_750d,
-                metrics={
-                    "sales_ttm": financial.sales_ttm,
-                    "ocf_ttm": financial.ocf_ttm,
-                    "edinet_ocf_ttm": financial.edinet_ocf_ttm,
-                    "cash_eq": financial.cash_eq,
-                    "total_assets": financial.total_assets,
-                    "equity": financial.equity,
-                    "cash_to_market_cap": financial.cash_to_market_cap,
-                    "price_to_equity": financial.price_to_equity,
-                    "equity_ratio": financial.equity_ratio,
-                    "ocf_yield": financial.ocf_yield,
-                    "net_cash": financial.net_cash,
-                    "net_cash_to_market_cap": financial.net_cash_to_market_cap,
-                    "debt": financial.debt,
-                    "cash": financial.cash,
-                    "fcf_ttm": financial.fcf_ttm,
-                    "fcf_yield": financial.fcf_yield,
-                    "capex_ttm": financial.capex_ttm,
-                    "depreciation_and_amortization_ttm": (
-                        financial.depreciation_and_amortization_ttm
-                    ),
-                    "edinet_source_doc_id": financial.edinet_source_doc_id,
-                    "edinet_document_type": financial.edinet_document_type,
-                    "edinet_source_submit_datetime": financial.edinet_source_submit_datetime,
-                    "edinet_source_period_start": _date_iso(financial.edinet_source_period_start),
-                    "edinet_source_period_end": _date_iso(financial.edinet_source_period_end),
-                    "edinet_capex_source": financial.edinet_capex_source,
-                    "edinet_failure_reasons": financial.edinet_failure_reasons,
-                    "sales_yoy": financial.sales_yoy,
-                    "cfo_yoy": financial.cfo_yoy,
-                    "operating_profit": financial.operating_profit,
-                    "operating_profit_yoy": financial.operating_profit_yoy,
-                    "operating_profit_loss_narrowing": (financial.operating_profit_loss_narrowing),
-                    "shares_outstanding": financial.shares_outstanding,
-                    # D2 / D3 new academic signals — surface in candidate
-                    # metrics so the research layer can read them without a
-                    # second cache fetch.
-                    "accruals_to_assets": financial.accruals_to_assets,
-                    "net_share_change_yoy": financial.net_share_change_yoy,
-                    "edinet_freshness_warning_count": len(freshness_warnings),
-                },
-                next_earnings_date=next_earnings_by_ticker.get(ticker),
-                split_adjustment_flag=derived.split_adjustment_flag,
                 freshness_warnings=freshness_warnings,
+                next_earnings_date=next_earnings_by_ticker.get(ticker),
             )
         )
 
@@ -468,35 +398,6 @@ def run_command(
         for line in fallback_lines:
             print(f"- {line}", file=out, flush=True)
     return 2 if partial_warning else 0
-
-
-def _liquid_median_population(
-    snapshots: Mapping[str, UniverseSnapshot],
-    rules: ScreeningRules,
-) -> frozenset[str]:
-    """Tickers whose facts satisfy the selection liquidity parameters.
-
-    Sector / market medians and sector relative strength compare against this
-    investable population so the screen's relative-valuation judgments stay
-    anchored to liquid comparables while every common stock is evaluated. Uses
-    the base-config liquidity rules directly; programmatic in-process overrides
-    (e.g. selection-ablation ``no_diversity``) apply only to the selection
-    filter, not to this population.
-    """
-    liquidity = rules.selection.liquidity
-    required_jpx = frozenset(rules.universe.required_jpx_flags)
-    return frozenset(
-        ticker
-        for ticker, snapshot in snapshots.items()
-        if liquidity.matches(
-            market_cap_oku=snapshot.market_cap_oku,
-            avg_turnover_oku=snapshot.avg_turnover_oku,
-            listing_span_days=snapshot.listing_span_days,
-            jpx_flags=snapshot.jpx_flags,
-            required_jpx_flags=required_jpx,
-            require_facts=True,
-        )
-    )
 
 
 def _evidence_hits_summary(

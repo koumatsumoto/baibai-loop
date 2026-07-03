@@ -18,14 +18,14 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 | subsystem | src | records | CLI | 品質改善計器 |
 | --- | --- | --- | --- | --- |
 | macro | `src/baibai_loop/macro/` | `records/01-macro-context/` | `baibai-loop-macro` | 見積り calibration（[`workflow/macro.md`](./docs/workflow/macro.md)、formal loop にしない） |
-| screening | `src/baibai_loop/screening/` | `records/02-candidates/`, `records/_config/` | `baibai-loop-screening` | 見積り calibration（保有 outcome。短期 backtest はしない） |
+| screening | `src/baibai_loop/screening/` | `records/02-candidates/`, `records/_config/` | `baibai-loop-screening` | 見積り calibration（保有 outcome + 長期 horizon の較正リプレイ `calibration-build/evaluate`。短期 backtest はしない） |
 | thesis | `src/baibai_loop/thesis/` | `records/03-thesis/`, `records/_playbooks/` | （`baibai-loop-validation --target thesis` 経由） | preflight gate（`thesis/preflight.py`） |
 | position | `src/baibai_loop/position/` | `records/04-position/` | `baibai-loop-position` | 見積り calibration（entry 見積り vs 実現） |
 | market | `src/baibai_loop/market/` | （`data/screening/market.sqlite` ほか、git 外） | — | 価格・calendar data 層（screening・保有計測の価格基盤） |
 | foundation | `src/baibai_loop/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
 | validation | `src/baibai_loop/validation/` | `records/_schemas/`（検証対象 schema） | `baibai-loop-validation` | records 公開言語の検証器（CI gate） |
 
-品質改善は単一の見積り calibration に集約する: entry 時の見積り（RR・期待利回り・FV）を保有の実現結果と突き合わせ、macro 読み・screening 閾値・FV 推定・耐性判定を離散的に改善する（短期 universe backtest はしない）。thesis は発注前の preflight gate を持つ。詳細は各 [`docs/workflow/`](./docs/workflow/) doc を正本とする。
+品質改善は単一の見積り calibration に集約する: entry 時の見積り（RR・期待利回り・FV）を保有の実現結果と突き合わせ、加えて全銘柄の長期 horizon 較正リプレイ（[`docs/reference/estimate-calibration.md`](./docs/reference/estimate-calibration.md)）で見積り手法そのものを較正して、macro 読み・screening 閾値・FV 推定・耐性判定を離散的に改善する（短期 horizon の screen 成績最適化はしない。doctrine 柱 5）。thesis は発注前の preflight gate を持つ。詳細は各 [`docs/workflow/`](./docs/workflow/) doc を正本とする。
 
 ## 言語運用
 

@@ -26,6 +26,13 @@ VALUATION_METRICS = ("per_forward", "per_trailing", "pbr", "ev_ebitda", "p_s")
 # 銘柄を、窓内の bar 本数(対 population 最大比)として事実記録するために使う。
 PRICE_HISTORY_WINDOW_DAYS = 750
 
+# metric 計算の入力窓 (暦日)。bars は 3 年自己レンジ percentile / sigma_gap に
+# 1200 日、fin summaries は TTM 合成と前年同期 YoY に 730 日を要する。本番 run と
+# 較正リプレイ (calibration/panel.py) が同じ値を import する。窓がずれると
+# リプレイは本番と別物の指標を測るため、ここ以外に窓を定義しない。
+BARS_INPUT_WINDOW_DAYS = 1200
+FIN_INPUT_WINDOW_DAYS = 730
+
 
 @dataclass(frozen=True)
 class MetricBuildResult:

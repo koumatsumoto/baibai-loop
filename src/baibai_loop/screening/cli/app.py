@@ -8,6 +8,11 @@ import sys
 from pathlib import Path
 
 from baibai_loop.foundation.env import load_project_env
+from baibai_loop.screening.calibration.cli import (
+    calibration_build_command,
+    calibration_evaluate_command,
+)
+from baibai_loop.screening.calibration.store import DEFAULT_CALIBRATION_DIR
 from baibai_loop.screening.config import (
     DEFAULT_SQLITE_CACHE_DIR,
     ConfigError,
@@ -176,6 +181,58 @@ def build_parser() -> argparse.ArgumentParser:
         help="repository root for records lookups (default: current directory)",
     )
 
+    calibration_build_parser = subparsers.add_parser(
+        "calibration-build",
+        help=(
+            "build point-in-time monthly panels and forward returns for "
+            "estimate calibration (local cache only)"
+        ),
+    )
+    calibration_build_parser.add_argument(
+        "--start", required=True, help="grid start date (YYYY-MM-DD)"
+    )
+    calibration_build_parser.add_argument("--end", required=True, help="grid end date (YYYY-MM-DD)")
+    calibration_build_parser.add_argument(
+        "--sqlite-path",
+        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
+        help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
+    )
+    calibration_build_parser.add_argument(
+        "--rules-path",
+        default=os.environ.get("SCREENING_RULES_PATH") or str(DEFAULT_RULES_PATH),
+        help=f"screening rules path (default: SCREENING_RULES_PATH or {DEFAULT_RULES_PATH})",
+    )
+    calibration_build_parser.add_argument(
+        "--calibration-dir",
+        default=str(DEFAULT_CALIBRATION_DIR),
+        help=f"panel / forward store directory (default: {DEFAULT_CALIBRATION_DIR})",
+    )
+    calibration_build_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="rebuild panels that already exist in the calibration store",
+    )
+
+    calibration_evaluate_parser = subparsers.add_parser(
+        "calibration-evaluate",
+        help="evaluate stored calibration cohorts (rank IC / decile / selection replay)",
+    )
+    calibration_evaluate_parser.add_argument(
+        "--calibration-dir",
+        default=str(DEFAULT_CALIBRATION_DIR),
+        help=f"panel / forward store directory (default: {DEFAULT_CALIBRATION_DIR})",
+    )
+    calibration_evaluate_parser.add_argument(
+        "--horizon",
+        action="append",
+        dest="horizons",
+        help="horizon to evaluate (3m/6m/12m; repeatable; default: all)",
+    )
+    calibration_evaluate_parser.add_argument(
+        "--out",
+        help="write the evaluation YAML to this path instead of stdout",
+    )
+
     snapshot_parser = subparsers.add_parser(
         "market-snapshot",
         help="emit the market state packet (weekly regime history and sector aggregates)",
@@ -248,6 +305,25 @@ def main(argv: list[str] | None = None) -> int:
             asof=args.asof,
             weeks=args.weeks,
             sqlite_path=Path(args.sqlite_path),
+        )
+
+    if args.command == "calibration-build":
+        # calibration-build reads the SQLite store and writes the local
+        # calibration store only; no provider credentials are needed.
+        return calibration_build_command(
+            sqlite_path=Path(args.sqlite_path),
+            calibration_dir=Path(args.calibration_dir),
+            rules=load_screening_rules(Path(args.rules_path)),
+            start=_parse_iso_date(args.start),
+            end=_parse_iso_date(args.end),
+            force=args.force,
+        )
+
+    if args.command == "calibration-evaluate":
+        return calibration_evaluate_command(
+            calibration_dir=Path(args.calibration_dir),
+            horizons=args.horizons,
+            output_path=Path(args.out) if args.out else None,
         )
 
     if args.command == "verify-cache-coverage":

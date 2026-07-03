@@ -13,6 +13,7 @@ last_reviewed: 2026-05-04
 | doc | 責務 |
 | --- | --- |
 | [`valuation-metrics.md`](./valuation-metrics.md) | valuation 指標の算出仕様 |
+| [`estimate-calibration.md`](./estimate-calibration.md) | 長期見積り較正リプレイ（PIT panel / forward return / 評価指標）の実装仕様 |
 | [`screening-runtime.md`](./screening-runtime.md) | screening CLI / provider / EDINET・JPX / SQLite schema の実装仕様 |
 | [`data-sources.md`](./data-sources.md) | data source tier、取得失敗時の扱い、取得データ cache の保存方針 |
 | [`configuration.md`](./configuration.md) | runtime config、credentials、environment variable の入口 |
