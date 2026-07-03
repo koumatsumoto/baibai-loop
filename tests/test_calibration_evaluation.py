@@ -113,9 +113,7 @@ class EvaluateCohortsTest(unittest.TestCase):
             rank = i + 1 if i < 10 else None
             panel.append(_panel_row(ticker, per_trailing=per, rank=rank))
             forwards.append(_forward_row(ticker, ret))
-        result = evaluate_cohorts(
-            {"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"]
-        )
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
         horizon = result["6m"]
         assert isinstance(horizon, dict)
         cohorts = horizon["cohorts"]
@@ -151,9 +149,7 @@ class EvaluateCohortsTest(unittest.TestCase):
     def test_cohort_skipped_when_population_too_small(self) -> None:
         panel = [_panel_row("1000", per_trailing=10.0)]
         forwards = [_forward_row("1000", 0.1)]
-        result = evaluate_cohorts(
-            {"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"]
-        )
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
         horizon = result["6m"]
         assert isinstance(horizon, dict)
         cohorts = horizon["cohorts"]
