@@ -50,8 +50,9 @@ def store_jquants_fin_summaries(
                 INSERT OR REPLACE INTO jquants_fin_summaries(
                   ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding,
                   sales, cfo, cash_eq, total_assets, equity, operating_profit, ordinary_profit,
-                  profit, fiscal_period, fiscal_year_end, period_start, period_end
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  profit, fiscal_period, fiscal_year_end, period_start, period_end,
+                  dps_actual_annual, dps_forecast_annual
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )
@@ -279,6 +280,10 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> Norm
                 date_iso(
                     first(record, "CurrentPeriodEndDate", "current_period_end_date", "CurPerEn")
                 ),
+                # DivAnn=実績年間 DPS (FY 開示)。予想年間は四半期開示の FDivAnn、
+                # 本決算開示では進行期ガイダンスが NxFDivAnn に入る (FEPS→NxFEPS と同型)。
+                to_float(first(record, "DivAnn")),
+                to_float(first(record, "FDivAnn", "NxFDivAnn")),
             )
         )
     return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)

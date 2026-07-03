@@ -88,6 +88,11 @@ class FinancialSnapshot:
     sales_ttm: float | None
     ocf_ttm: float | None
     edinet_ocf_ttm: float | None = None
+    # 直近実績の年間 DPS (asof-basis 正規化済み)・進行期の予想年間 DPS・
+    # 実績配当利回り (dps_actual_annual / 直近終値)。
+    dps_actual_annual: float | None = None
+    dps_forecast_annual: float | None = None
+    dividend_yield: float | None = None
     sales: float | None = None
     cfo: float | None = None
     cash_eq: float | None = None
@@ -150,6 +155,9 @@ class FinancialSnapshot:
         "p_s",
         "pcfr",
         "eps",
+        "dps_actual_annual",
+        "dps_forecast_annual",
+        "dividend_yield",
         "sales_ttm",
         "ocf_ttm",
         "edinet_ocf_ttm",

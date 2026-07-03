@@ -37,6 +37,12 @@ SELECTION_TOP_NS: tuple[int, ...] = (5, 10, 20)
 # threshold と同じ -0.3 を事前固定で用いる) 。
 DETERIORATION_THRESHOLD = -0.3
 
+# total return 近似の配当 accrual: entry 時点の直近実績年間 DPS 利回りを保有年数
+# で按分して price return に加算する (権利落ち月の特定はしない)。銘柄横断の比較が
+# 目的なので、支払月の 1-2 か月のずれは cross-section にほぼ影響しない。
+# dividend_yield 欠損 (開示なし) は 0 として扱い、coverage を cohort に開示する。
+HORIZON_YEARS: Mapping[str, float] = {"3m": 0.25, "6m": 0.5, "12m": 1.0}
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AxisSpec:
@@ -58,6 +64,7 @@ AXES: tuple[AxisSpec, ...] = (
     AxisSpec(name="net_cash_to_market_cap", direction=1),
     AxisSpec(name="cash_to_market_cap", direction=1),
     AxisSpec(name="equity_ratio", direction=1),
+    AxisSpec(name="dividend_yield", direction=1),
     AxisSpec(name="smg_per_forward", direction=-1),
     AxisSpec(name="smg_per_trailing", direction=-1),
     AxisSpec(name="smg_pbr", direction=-1),
@@ -114,21 +121,27 @@ def _evaluate_cohort(
     asof: str,
     horizon: str,
 ) -> dict[str, object] | None:
-    returns: dict[str, float] = {}
+    price_returns: dict[str, float] = {}
     stale_count = 0
     for row in forward_rows:
         if row.horizon != horizon or not row.resolved or row.price_return is None:
             continue
-        returns[row.ticker] = row.price_return
+        price_returns[row.ticker] = row.price_return
         if row.stale_price:
             stale_count += 1
 
-    population = [row for row in panel if row.in_population and row.ticker in returns]
+    population = [row for row in panel if row.in_population and row.ticker in price_returns]
     if len(population) < MIN_AXIS_SAMPLE:
         return None
+    years = HORIZON_YEARS.get(horizon, 0.0)
+    returns = {
+        row.ticker: price_returns[row.ticker] + (row.dividend_yield or 0.0) * years
+        for row in population
+    }
+    dividend_coverage = sum(1 for row in population if row.dividend_yield is not None)
     population_median_return = median(returns[row.ticker] for row in population)
     excess = {row.ticker: returns[row.ticker] - population_median_return for row in population}
-    benchmark_return = returns.get(TOPIX_ETF_PROXY)
+    benchmark_return = price_returns.get(TOPIX_ETF_PROXY)
 
     axes: dict[str, object] = {}
     for spec in AXES:
@@ -140,6 +153,7 @@ def _evaluate_cohort(
         "asof": asof,
         "horizon": horizon,
         "population_resolved": len(population),
+        "dividend_yield_coverage": dividend_coverage,
         "population_median_return": round(population_median_return, 6),
         "benchmark_price_return": (
             round(benchmark_return, 6) if benchmark_return is not None else None

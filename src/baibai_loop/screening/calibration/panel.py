@@ -76,6 +76,7 @@ class PanelRow:
     cash_to_market_cap: float | None
     equity_ratio: float | None
     price_to_equity: float | None
+    dividend_yield: float | None
     eps_yoy: float | None
     sales_yoy: float | None
     operating_profit_yoy: float | None
@@ -249,6 +250,7 @@ def build_panel(
                 cash_to_market_cap=financial.cash_to_market_cap,
                 equity_ratio=financial.equity_ratio,
                 price_to_equity=financial.price_to_equity,
+                dividend_yield=financial.dividend_yield,
                 eps_yoy=financial.eps_yoy,
                 sales_yoy=financial.sales_yoy,
                 operating_profit_yoy=financial.operating_profit_yoy,

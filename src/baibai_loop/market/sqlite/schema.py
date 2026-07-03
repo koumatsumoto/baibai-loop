@@ -13,7 +13,7 @@ import sqlite3
 from collections.abc import Mapping
 from pathlib import Path
 
-SQLITE_SCHEMA_VERSION = 11
+SQLITE_SCHEMA_VERSION = 12
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 _REQUIRED_TABLES = (
@@ -66,6 +66,8 @@ _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
         "fiscal_year_end",
         "period_start",
         "period_end",
+        "dps_actual_annual",
+        "dps_forecast_annual",
     ),
     "jquants_master_snapshots": (
         "snapshot_date",
@@ -192,6 +194,8 @@ CREATE TABLE IF NOT EXISTS jquants_fin_summaries(
   fiscal_year_end TEXT,
   period_start TEXT,
   period_end TEXT,
+  dps_actual_annual REAL,
+  dps_forecast_annual REAL,
   PRIMARY KEY (ticker, disclosed_at)
 );
 

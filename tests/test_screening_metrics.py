@@ -42,6 +42,8 @@ def _summary(
     shares_outstanding: float = 400_000_000.0,
     period_start: date | None = None,
     period_end: date | None = None,
+    dps_actual_annual: float | None = None,
+    dps_forecast_annual: float | None = None,
 ) -> JQuantsFinancialSummary:
     return JQuantsFinancialSummary(
         ticker=code,
@@ -59,6 +61,8 @@ def _summary(
         fiscal_year_end=fiscal_year_end,
         period_start=period_start,
         period_end=period_end,
+        dps_actual_annual=dps_actual_annual,
+        dps_forecast_annual=dps_forecast_annual,
     )
 
 
@@ -192,6 +196,64 @@ class ScreeningMetricsTests(unittest.TestCase):
         # 分割を跨ぐ行の forecast_eps は基準 (分割考慮前/後) を機械判別できないため
         # None に落ち、per_forward は出ない (偽値を出さない)。
         self.assertIsNone(financial.per_forward)
+
+    def test_dividend_fields_split_normalization_and_carry_forward(self) -> None:
+        """実績 DPS は分割跨ぎ行で x factor 換算、予想 DPS は None 化。
+        実績年間 DPS は FY 行にしか載らないため、直近が四半期行でも
+        直近の非 null 行 (FY) から carry-forward して dividend_yield を出す。"""
+        asof = date(2026, 7, 1)
+        security = _security()
+        bars = []
+        for index in range(30):
+            traded_at = asof - timedelta(days=29 - index)
+            bars.append(
+                JQuantsDailyBar(
+                    ticker="130A",
+                    traded_at=traded_at,
+                    close=100.0 if index < 27 else 50.0,
+                    turnover_value=300_000_000.0,
+                    adjustment_factor=0.5 if index == 27 else 1.0,
+                )
+            )
+        summaries = [
+            # FY 行 (分割前開示): DivAnn=40 円 → asof-basis で 20 円。
+            _summary(
+                "130A",
+                asof - timedelta(days=20),
+                fiscal_period="FY",
+                period_start=date(2025, 4, 1),
+                period_end=date(2026, 3, 31),
+                dps_actual_annual=40.0,
+                dps_forecast_annual=44.0,
+            ),
+            # 分割後の 1Q 行: 実績年間 DPS は載らない (None)。
+            _summary(
+                "130A",
+                asof - timedelta(days=1),
+                fiscal_period="1Q",
+                period_start=date(2026, 4, 1),
+                period_end=date(2026, 6, 30),
+                dps_actual_annual=None,
+                dps_forecast_annual=22.0,
+            ),
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": security},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        financial = result.financials["130A"]
+        # FY 行の実績 40 円は分割 (factor 0.5) を跨ぐため 20 円へ換算され、
+        # 直近 1Q 行に実績が無くても carry-forward される。
+        assert financial.dps_actual_annual is not None
+        self.assertAlmostEqual(financial.dps_actual_annual, 20.0, places=6)
+        assert financial.dividend_yield is not None
+        self.assertAlmostEqual(financial.dividend_yield, 20.0 / 50.0, places=6)
+        # 予想 DPS: FY 行 (分割跨ぎ) は None 化されるが、分割後の 1Q 行の
+        # 22 円はそのまま最新の予想として使える。
+        self.assertAlmostEqual(financial.dps_forecast_annual or 0.0, 22.0, places=6)
 
     def test_split_crossing_composition_normalizes_per_share_basis(self) -> None:
         """分割を跨ぐ TTM 合成・YoY・株数変化は、行を asof 基準へ正規化してから行う。

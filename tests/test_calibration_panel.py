@@ -49,11 +49,12 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
         fin_columns = (
             "ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, "
             "sales, cfo, cash_eq, total_assets, equity, operating_profit, ordinary_profit, "
-            "profit, fiscal_period, fiscal_year_end, period_start, period_end"
+            "profit, fiscal_period, fiscal_year_end, period_start, period_end, "
+            "dps_actual_annual, dps_forecast_annual"
         )
         conn.executemany(
             f"INSERT OR REPLACE INTO jquants_fin_summaries({fin_columns}) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     "9001",
@@ -74,6 +75,8 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
                     "2026-03-31",
                     "2025-04-01",
                     "2026-03-31",
+                    4.0,
+                    4.5,
                 ),
                 (
                     "9002",
@@ -94,6 +97,8 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
                     "2026-03-31",
                     "2025-04-01",
                     "2026-03-31",
+                    None,
+                    None,
                 ),
             ],
         )
@@ -141,6 +146,10 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertAlmostEqual(cheap.pbr, 0.5)
             assert cheap.cash_to_market_cap is not None
             self.assertAlmostEqual(cheap.cash_to_market_cap, 0.4)
+            assert cheap.dividend_yield is not None
+            self.assertAlmostEqual(cheap.dividend_yield, 0.04)
+
+            self.assertIsNone(rows_by_ticker["9002"].dividend_yield)
 
             expensive = rows_by_ticker["9002"]
             self.assertTrue(expensive.in_population)

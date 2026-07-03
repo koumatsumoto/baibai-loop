@@ -140,7 +140,7 @@ def calibration_evaluate_command(
         "cohort_asofs": [asof.isoformat() for asof in asofs],
         "horizons": horizons,
         "trap_excess_threshold": TRAP_EXCESS_THRESHOLD,
-        "excess_basis": "population_median_total_return_or_price_return",
+        "excess_basis": "population_median_total_return_dividend_accrual",
         "results": result,
     }
     text = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True, default_flow_style=False)
