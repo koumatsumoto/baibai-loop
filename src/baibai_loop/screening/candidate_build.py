@@ -104,6 +104,8 @@ def candidate_metrics_map(
         "edinet_source_period_end": _date_iso(financial.edinet_source_period_end),
         "edinet_capex_source": financial.edinet_capex_source,
         "edinet_failure_reasons": financial.edinet_failure_reasons,
+        "bs_carry_forward_fields": financial.bs_carry_forward_fields,
+        "bs_carry_forward_lag_days": financial.bs_carry_forward_lag_days,
         "dps_actual_annual": financial.dps_actual_annual,
         "dps_forecast_annual": financial.dps_forecast_annual,
         "dividend_yield": financial.dividend_yield,

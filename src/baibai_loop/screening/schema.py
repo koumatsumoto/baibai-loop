@@ -93,6 +93,11 @@ class FinancialSnapshot:
     dps_actual_annual: float | None = None
     dps_forecast_annual: float | None = None
     dividend_yield: float | None = None
+    # BS 系 fact (bps / cash_eq / equity / total_assets) の carry-forward 記録。
+    # fields = latest 行に無く過去行から引いた field 名 (comma 区切り)、
+    # lag_days = その最大遅延日数 (staleness fact)。
+    bs_carry_forward_fields: str | None = None
+    bs_carry_forward_lag_days: int | None = None
     sales: float | None = None
     cfo: float | None = None
     cash_eq: float | None = None
