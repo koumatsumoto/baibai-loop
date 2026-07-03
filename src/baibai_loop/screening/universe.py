@@ -17,6 +17,7 @@ from datetime import date
 from statistics import mean
 
 from .providers.jquants import JQuantsDailyBar
+from .rule_config import ScreeningRules
 from .schema import SecurityMaster, UniverseSnapshot
 
 ELIGIBLE_MARKETS = {"PRIME", "STANDARD", "GROWTH", "プライム", "スタンダード", "グロース"}
@@ -78,4 +79,32 @@ def build_universe(
 
     return UniverseBuildResult(
         snapshots=snapshots, exclusion_counts=dict(sorted(exclusion_counts.items()))
+    )
+
+
+def liquid_median_population(
+    snapshots: Mapping[str, UniverseSnapshot],
+    rules: ScreeningRules,
+) -> frozenset[str]:
+    """Tickers whose facts satisfy the selection liquidity parameters.
+
+    Sector / market medians and sector relative strength compare against this
+    investable population so the screen's relative-valuation judgments stay
+    anchored to liquid comparables while every common stock is evaluated. Uses
+    the base-config liquidity rules directly; programmatic in-process overrides
+    apply only to the selection filter, not to this population.
+    """
+    liquidity = rules.selection.liquidity
+    required_jpx = frozenset(rules.universe.required_jpx_flags)
+    return frozenset(
+        ticker
+        for ticker, snapshot in snapshots.items()
+        if liquidity.matches(
+            market_cap_oku=snapshot.market_cap_oku,
+            avg_turnover_oku=snapshot.avg_turnover_oku,
+            listing_span_days=snapshot.listing_span_days,
+            jpx_flags=snapshot.jpx_flags,
+            required_jpx_flags=required_jpx,
+            require_facts=True,
+        )
     )
