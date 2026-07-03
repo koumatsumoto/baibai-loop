@@ -17,7 +17,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from baibai_loop.market.bars import asof_basis_closes
-from baibai_loop.market.benchmark import NIKKEI225_ETF_PROXY
+from baibai_loop.market.benchmark import TOPIX_ETF_PROXY
 
 from ..providers.jquants import JQuantsDailyBar
 
@@ -28,8 +28,7 @@ HORIZONS: Mapping[str, int] = {"3m": 91, "6m": 182, "12m": 365}
 # stale_price=True (上場廃止・長期売買停止の疑い) として計上する。
 STALE_PRICE_MAX_LAG_DAYS = 15
 
-TOPIX_ETF_PROXY = "1306"
-BENCHMARK_TICKERS: tuple[str, ...] = (TOPIX_ETF_PROXY, NIKKEI225_ETF_PROXY)
+BENCHMARK_TICKERS: tuple[str, ...] = (TOPIX_ETF_PROXY,)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

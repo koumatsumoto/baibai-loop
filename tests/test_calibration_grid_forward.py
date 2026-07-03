@@ -14,7 +14,7 @@ from baibai_loop.screening.calibration.forward import (
     HORIZONS,
     _ticker_forward_rows,
 )
-from baibai_loop.screening.calibration.grid import month_end_dates
+from baibai_loop.screening.calibration.grid import complete_month_end_dates
 from baibai_loop.screening.providers.jquants import JQuantsDailyBar
 
 
@@ -29,21 +29,42 @@ def _bar(day: date, close: float, factor: float | None = None) -> JQuantsDailyBa
 
 
 class MonthEndDatesTest(unittest.TestCase):
-    def test_month_end_dates_picks_last_qualifying_day_per_month(self) -> None:
+    def test_complete_month_end_dates_picks_last_qualifying_day_per_month(self) -> None:
         day_counts = [
             (date(2025, 1, 30), 4000),
             (date(2025, 1, 31), 4100),
             (date(2025, 2, 27), 4000),
             # 部分データ日 (取込途中断面) は月末営業日として選ばない。
             (date(2025, 2, 28), 100),
+            # 翌月の営業日 = 1-2 月が完全月であることの証拠 (3 月自身は最終
+            # data 月なので cohort にならない)。
+            (date(2025, 3, 3), 4100),
         ]
         self.assertEqual(
-            month_end_dates(day_counts, min_tickers=2000),
+            complete_month_end_dates(day_counts, end=date(2025, 3, 31), min_tickers=2000),
             [date(2025, 1, 31), date(2025, 2, 27)],
         )
 
-    def test_month_end_dates_empty_when_all_below_threshold(self) -> None:
-        self.assertEqual(month_end_dates([(date(2025, 1, 31), 10)], min_tickers=2000), [])
+    def test_complete_month_end_dates_drops_month_truncated_by_end(self) -> None:
+        # end が 2 月の途中 → 2/13 を「月末」と誤認せず 2 月を cohort から落とす。
+        day_counts = [
+            (date(2025, 1, 31), 4100),
+            (date(2025, 2, 13), 4000),
+            (date(2025, 2, 27), 4000),
+            (date(2025, 3, 3), 4100),
+        ]
+        self.assertEqual(
+            complete_month_end_dates(day_counts, end=date(2025, 2, 14), min_tickers=2000),
+            [date(2025, 1, 31)],
+        )
+
+    def test_complete_month_end_dates_empty_when_all_below_threshold(self) -> None:
+        self.assertEqual(
+            complete_month_end_dates(
+                [(date(2025, 1, 31), 10)], end=date(2025, 1, 31), min_tickers=2000
+            ),
+            [],
+        )
 
 
 class ForwardReturnTest(unittest.TestCase):

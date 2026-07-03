@@ -15,7 +15,9 @@ from dataclasses import dataclass
 from math import sqrt
 from statistics import fmean, median
 
-from .forward import TOPIX_ETF_PROXY, ForwardReturnRow
+from baibai_loop.market.benchmark import TOPIX_ETF_PROXY
+
+from .forward import ForwardReturnRow
 from .panel import PanelRow
 
 # 割安 decile / top-N の「バリュートラップ」判定: 母集団中央値に 20pt 以上劣後。
@@ -56,7 +58,6 @@ AXES: tuple[AxisSpec, ...] = (
     AxisSpec(name="net_cash_to_market_cap", direction=1),
     AxisSpec(name="cash_to_market_cap", direction=1),
     AxisSpec(name="equity_ratio", direction=1),
-    AxisSpec(name="dividend_yield", direction=1),
     AxisSpec(name="smg_per_forward", direction=-1),
     AxisSpec(name="smg_per_trailing", direction=-1),
     AxisSpec(name="smg_pbr", direction=-1),

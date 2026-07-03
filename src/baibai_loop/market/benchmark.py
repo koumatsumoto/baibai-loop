@@ -14,6 +14,11 @@ from baibai_loop.market.price_asof import resolve_price_on_or_before
 # relative return is slightly conservative versus the underlying index.
 NIKKEI225_ETF_PROXY = "1321"
 
+# TOPIX proxy used by the estimate-calibration replay: the liquidity population
+# median is the primary excess basis there, so the broad-market TOPIX ETF is
+# the natural secondary reference (price-only; ETF distributions excluded).
+TOPIX_ETF_PROXY = "1306"
+
 
 def price_on_or_before(ticker: str, target: date, bars: Sequence[JQuantsDailyBar]) -> float | None:
     resolved = resolve_price_on_or_before(ticker, target, bars)

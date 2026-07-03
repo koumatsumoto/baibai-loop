@@ -16,6 +16,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass, fields
 from datetime import date, timedelta
+from hashlib import sha256
 from pathlib import Path
 from typing import Literal
 
@@ -24,6 +25,8 @@ from baibai_loop.market.store import read_daily_bars
 
 from ..candidate_build import build_screened_candidate
 from ..metrics import (
+    BARS_INPUT_WINDOW_DAYS,
+    FIN_INPUT_WINDOW_DAYS,
     build_metrics,
     build_shares_outstanding_index,
     group_bars_by_ticker,
@@ -38,16 +41,17 @@ from ..selection.records import candidate_record_from_mapping
 from ..sqlite_reader import read_edinet_metrics, read_eq_master, read_fin_summaries
 from ..universe import build_universe, liquid_median_population
 
-# 本番 run と同じ窓 (cli/run.py)。cache の coverage 床より前はクランプする。
-BARS_WINDOW_DAYS = 1200
-FIN_WINDOW_DAYS = 730
-
 # select リプレイで記録する production-diversity 推奨順位の深さ。
 RECOMMENDED_RANK_DEPTH = 50
 
 
 class CalibrationError(RuntimeError):
     """Raised when the cache cannot serve a point-in-time panel build."""
+
+
+def rules_content_hash(rules: ScreeningRules) -> str:
+    """screening rules の内容 hash (semantic identity)。panel provenance に使う。"""
+    return sha256(rules.model_dump_json().encode("utf-8")).hexdigest()[:16]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -72,7 +76,6 @@ class PanelRow:
     cash_to_market_cap: float | None
     equity_ratio: float | None
     price_to_equity: float | None
-    dividend_yield: float | None
     eps_yoy: float | None
     sales_yoy: float | None
     operating_profit_yoy: float | None
@@ -103,6 +106,10 @@ class PanelRow:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PanelDiagnostics:
     asof: str
+    # panel 構築に使った screening rules の内容 hash。evaluate は全 cohort の
+    # 一致を検証し、rules 改訂後の再構築漏れで新旧 rank が同一評価に混在する
+    # 操作ミスを機械的に検出する。
+    rules_hash: str
     universe_size: int
     population_size: int
     candidates: int
@@ -130,8 +137,8 @@ def build_panel(
     rules: ScreeningRules,
 ) -> PanelBuildResult:
     bars_floor, fin_floor = _coverage_floors(sqlite_path)
-    bars_start = max(bars_floor, asof_date - timedelta(days=BARS_WINDOW_DAYS))
-    fin_start = max(fin_floor, asof_date - timedelta(days=FIN_WINDOW_DAYS))
+    bars_start = max(bars_floor, asof_date - timedelta(days=BARS_INPUT_WINDOW_DAYS))
+    fin_start = max(fin_floor, asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS))
 
     securities = read_eq_master(sqlite_path)
     if securities is None:
@@ -242,7 +249,6 @@ def build_panel(
                 cash_to_market_cap=financial.cash_to_market_cap,
                 equity_ratio=financial.equity_ratio,
                 price_to_equity=financial.price_to_equity,
-                dividend_yield=None,
                 eps_yoy=financial.eps_yoy,
                 sales_yoy=financial.sales_yoy,
                 operating_profit_yoy=financial.operating_profit_yoy,
@@ -274,6 +280,7 @@ def build_panel(
     population_rows = [row for row in rows if row.in_population]
     diagnostics = PanelDiagnostics(
         asof=asof_date.isoformat(),
+        rules_hash=rules_content_hash(rules),
         universe_size=len(universe_result.snapshots),
         population_size=len(median_population),
         candidates=len(screened),
@@ -282,8 +289,8 @@ def build_panel(
         ),
         effective_bars_start=bars_start.isoformat(),
         effective_fin_start=fin_start.isoformat(),
-        bars_window_clamped=bars_start > asof_date - timedelta(days=BARS_WINDOW_DAYS),
-        fin_window_clamped=fin_start > asof_date - timedelta(days=FIN_WINDOW_DAYS),
+        bars_window_clamped=bars_start > asof_date - timedelta(days=BARS_INPUT_WINDOW_DAYS),
+        fin_window_clamped=fin_start > asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS),
         population_per_trailing_nonnull=sum(
             1 for row in population_rows if row.per_trailing is not None
         ),

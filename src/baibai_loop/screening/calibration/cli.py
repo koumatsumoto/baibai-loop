@@ -24,6 +24,7 @@ from .store import (
     panel_path,
     read_forward,
     read_panel,
+    read_panel_meta,
     write_forward,
     write_panel,
 )
@@ -120,6 +121,10 @@ def calibration_evaluate_command(
     if not asofs:
         print(f"no panels found under {calibration_dir}", file=sys.stderr)
         return 1
+    consistency_error = _panel_consistency_error(calibration_dir, asofs)
+    if consistency_error is not None:
+        print(consistency_error, file=sys.stderr)
+        return 1
     panels = {asof.isoformat(): read_panel(calibration_dir, asof) for asof in asofs}
     forwards = {
         asof.isoformat(): (
@@ -146,3 +151,36 @@ def calibration_evaluate_command(
     else:
         print(text, file=out)
     return 0
+
+
+def _panel_consistency_error(calibration_dir: Path, asofs: list[date]) -> str | None:
+    """store の cohort 群が単一の rules・重複のない月次 grid であることを検証する。
+
+    rules 改訂後の再構築漏れ (新旧 rank の混在) と、同一月の重複 cohort
+    (forward 窓が ~96% 重複し集計を二重計上する) を評価前に機械検出する。
+    """
+    hashes: dict[str, list[str]] = {}
+    months: dict[tuple[int, int], list[str]] = {}
+    for asof in asofs:
+        meta = read_panel_meta(calibration_dir, asof)
+        rules_hash = meta.get("rules_hash")
+        key = str(rules_hash) if isinstance(rules_hash, str) and rules_hash else "(missing)"
+        hashes.setdefault(key, []).append(asof.isoformat())
+        months.setdefault((asof.year, asof.month), []).append(asof.isoformat())
+    if len(hashes) > 1 or "(missing)" in hashes:
+        summary = "; ".join(
+            f"{key}: {values[0]}..{values[-1]} ({len(values)})"
+            for key, values in sorted(hashes.items())
+        )
+        return (
+            "panel store mixes rules provenance — rebuild with calibration-build --force. "
+            f"rules_hash groups: {summary}"
+        )
+    duplicated = {month: values for month, values in months.items() if len(values) > 1}
+    if duplicated:
+        listing = "; ".join(
+            f"{year}-{month:02d}: {', '.join(values)}"
+            for (year, month), values in sorted(duplicated.items())
+        )
+        return f"panel store has duplicate cohorts in the same month — remove extras: {listing}"
+    return None

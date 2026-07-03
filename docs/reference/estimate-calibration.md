@@ -17,7 +17,8 @@ uv run baibai-loop-screening calibration-build --start 2023-01-01 --end 2026-04-
 uv run baibai-loop-screening calibration-evaluate --out .cache/calibration-eval.yaml
 ```
 
-- panel / forward は `data/screening/calibration/` に CSV + meta YAML で永続化する（再生成可能な L2 中間物。git に積まない）。既存 panel は skip、`--force` で再構築。
+- panel / forward は `data/screening/calibration/` に CSV + meta YAML で永続化する（再生成可能な L2 中間物。git に積まない）。既存 panel は skip、`--force` で再構築。`calibration-evaluate` の YAML 出力も再生成可能な計測出力であり、CSV store とともに **安定契約 1（CLI YAML 出力）の対象外**（形の正本は本 doc §5）。
+- **provenance ガード**: 各 panel の meta YAML は構築時の screening rules 内容 hash（`rules_hash`）を持ち、evaluate は全 cohort の一致と「同一月の重複 cohort が無いこと」を検証してから集計する（rules 改訂後の再構築漏れ・月中 cohort の混入による二重計上を機械検出する）。grid は「翌月の営業日が data に存在する完全月」だけを cohort にする。
 - forward return は build のたびに再計算する（時間経過で新しく解決する horizon を取り込むため）。
 - 月次グリッドは bars の実在（当日 cross-section ≥ 2,000 銘柄）から月末営業日を導出する。
 

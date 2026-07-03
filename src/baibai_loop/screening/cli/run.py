@@ -18,6 +18,8 @@ from baibai_loop.screening.config import (
 )
 from baibai_loop.screening.freshness import detect_edinet_freshness_warnings, load_disclosure_events
 from baibai_loop.screening.metrics import (
+    BARS_INPUT_WINDOW_DAYS,
+    FIN_INPUT_WINDOW_DAYS,
     build_metrics,
     build_shares_outstanding_index,
     group_bars_by_ticker,
@@ -89,14 +91,11 @@ def run_command(
         )
         return 1
 
-    # bars need 1200d for 3-year self-range percentile and sigma_gap; fin
-    # summaries are only consumed for TTM (latest) and prior-year YoY
-    # (`_prior_year_summary` in metrics.py), which fits comfortably in 24
-    # months of disclosures. Fetching the same 1200d window for both costs
-    # ~26 extra fin chunks over J-Quants Light at ~1-3 min each — by far
-    # the dominant slowdown when raw cache is sparse.
-    bars_start_date = asof_date - timedelta(days=1200)
-    fin_start_date = asof_date - timedelta(days=730)
+    # 窓の正本は metrics.py の BARS_INPUT_WINDOW_DAYS / FIN_INPUT_WINDOW_DAYS
+    # (較正リプレイと共有)。fin を bars と同じ 1200 日にしないのは、J-Quants Light
+    # で ~26 chunk (各 1-3 分) の追加取得コストが支配的になるため。
+    bars_start_date = asof_date - timedelta(days=BARS_INPUT_WINDOW_DAYS)
+    fin_start_date = asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS)
     try:
         print(f"screening run start: asof={asof_date.isoformat()}", file=out, flush=True)
         print("screening run jquants market_calendar: start", file=out, flush=True)
@@ -330,7 +329,7 @@ def run_command(
         data_sources.append("edinet-preprocessed-metrics")
     if disclosure_load_result.file_count:
         data_sources.append("disclosure-title-events")
-    provider_status_lines = ["データソース: J-Quants Light (日足・財務サマリー・業績予想) + JPX"]
+    provider_status_lines = ["データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX"]
     if edinet_by_ticker:
         provider_status_lines.append("EDINET preprocessed metrics: loaded")
     else:

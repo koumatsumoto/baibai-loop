@@ -39,7 +39,6 @@ def _panel_row(ticker: str, *, per_trailing: float | None, rank: int | None = No
         cash_to_market_cap=None,
         equity_ratio=None,
         price_to_equity=None,
-        dividend_yield=None,
         eps_yoy=None,
         sales_yoy=None,
         operating_profit_yoy=None,
