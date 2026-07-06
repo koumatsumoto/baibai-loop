@@ -73,7 +73,9 @@ screening_playbooks:
     - その他金融業
     sector_median_gap_max: -0.2
     self_range_percentile_max: 0.2
-    price_change_60d_max: -0.15
+    # 条件 B は σギャップ × 悪化ゲート。60 日下落は要件にしない — price_change_60d 軸は
+    # 較正で D10 trap 全軸最悪であり、撤廃の非劣性を design/confirm で確認
+    # (reports/2026-07-06-h7-gate-followup-validation.md)。
     sigma_gap_max: -1.0
     # docs/reference/valuation-metrics.md は「PER は forward 優先、未公表時は
     # trailing」と mandate。per_forward を primary に置き、null 時に

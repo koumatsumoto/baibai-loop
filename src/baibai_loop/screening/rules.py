@@ -158,11 +158,9 @@ def _condition_b_metric(
     deterioration_threshold: float,
     null_reasons: list[str],
 ) -> str | None:
-    if derived.price_change_60d is None:
-        null_reasons.append("valuation_reversion_condition_b_missing_price_change_60d")
-        return None
-    if derived.price_change_60d > playbook.price_change_60d_max:
-        return None
+    # 条件 B は σギャップ判定かつ悪化ゲート。60 日下落は要件にしない。price_change_60d
+    # は evidence hit に事実として記録するが判定には使わない
+    # (metrics["price_change_60d"] は None を許容する)。
     if _has_deterioration(financial, deterioration_threshold):
         null_reasons.append("valuation_reversion_condition_b_deterioration")
         return None

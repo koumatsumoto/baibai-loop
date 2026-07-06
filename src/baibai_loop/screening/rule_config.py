@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from baibai_loop.foundation.yaml_io import safe_load
 
-DEFAULT_RULES_PATH = Path("records/_config/screening-rules/2026-07-04T000000+0900.yaml")
+DEFAULT_RULES_PATH = Path("records/_config/screening-rules/2026-07-06T000000+0900.yaml")
 
 BUILTIN_SELECTION_PROFILES = frozenset({"balanced"})
 
@@ -49,7 +49,6 @@ class ValuationReversionPlaybook(BaseModel):
     excluded_sectors: tuple[str, ...] = ()
     sector_median_gap_max: float
     self_range_percentile_max: float = Field(ge=0, le=1)
-    price_change_60d_max: float
     sigma_gap_max: float
     metrics: tuple[str, ...]
 

@@ -115,13 +115,48 @@ class ScreeningRulesTests(unittest.TestCase):
         self.assertNotIn(REASON_SECTOR_SELF_RANGE, valuation.reasons)
         self.assertIn("valuation_reversion_condition_a_short_history", result.null_reasons)
 
-    def test_condition_b_uses_sigma_and_price_drop(self) -> None:
+    def test_condition_b_hits_on_sigma_gap(self) -> None:
         result = evaluate_screening(
             _financial(eps_yoy=0.1, sales_yoy=0.1, operating_profit_yoy=0.1),
             _derived(
                 sector_median_gap={"per_trailing": 0.0},
                 self_range_percentile={"per_trailing": 0.5},
                 sigma_gap={"per_trailing": -1.4},
+            ),
+            RULES,
+        )
+        self.assertIn(REASON_PRICE_SIGMA, result.evidence_hits[0].reasons)
+
+    def test_condition_b_hits_when_price_change_60d_missing(self) -> None:
+        # 60 日下落は要件ではない。price_change_60d が欠損でも σギャップ充足 &
+        # 悪化ゲート非該当なら条件 B は hit し、metrics に None を事実記録する。
+        result = evaluate_screening(
+            _financial(eps_yoy=0.1, sales_yoy=0.1, operating_profit_yoy=0.1),
+            _derived(
+                sector_median_gap={"per_trailing": 0.0},
+                self_range_percentile={"per_trailing": 0.5},
+                sigma_gap={"per_trailing": -1.4},
+                price_change_60d=None,
+            ),
+            RULES,
+        )
+        valuation = next(
+            evidence_hit
+            for evidence_hit in result.evidence_hits
+            if evidence_hit.name == PLAYBOOK_VALUATION_REVERSION
+        )
+        self.assertIn(REASON_PRICE_SIGMA, valuation.reasons)
+        self.assertIsNone(valuation.metrics["price_change_60d"])
+
+    def test_condition_b_hits_when_price_not_down_60d(self) -> None:
+        # 60 日で下落していない (price_change_60d 正) 銘柄でも σギャップ充足なら hit。
+        result = evaluate_screening(
+            _financial(eps_yoy=0.1, sales_yoy=0.1, operating_profit_yoy=0.1),
+            _derived(
+                sector_median_gap={"per_trailing": 0.0},
+                self_range_percentile={"per_trailing": 0.5},
+                sigma_gap={"per_trailing": -1.4},
+                price_change_60d=0.08,
             ),
             RULES,
         )
