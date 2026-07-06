@@ -3,7 +3,7 @@ title: "Architecture"
 summary: "Baibai-Loop の構造の正本：3 層インフラ（データ / 決定論的分析 / 判断）と単一ループ、repository map、CLI/SQLite の安定契約。"
 doc_type: architecture
 status: active
-last_reviewed: 2026-07-02
+last_reviewed: 2026-07-06
 ---
 
 # Architecture — 構造・repository map・安定契約

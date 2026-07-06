@@ -3,7 +3,7 @@ title: "Baibai-Loop docs portal"
 summary: "思想・構造・運用方針・工程手順・参照情報・失敗パターンへの入口。root README は初見向け概要、判断根拠と手順はこの portal から辿る。"
 doc_type: portal
 status: active
-last_reviewed: 2026-07-02
+last_reviewed: 2026-07-06
 ---
 
 # Baibai-Loop docs

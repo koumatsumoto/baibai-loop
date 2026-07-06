@@ -3,7 +3,7 @@ title: "Operations index"
 summary: "工程横断の運用手順（決算後確認タスク、障害対応）の入口。工程ごとの手順は workflow/ を参照。"
 doc_type: operation-index
 status: active
-last_reviewed: 2026-07-01
+last_reviewed: 2026-07-06
 ---
 
 # Operations
