@@ -42,7 +42,7 @@ L2 の「分析」は決定論的な機械処理であり、その出力（candi
 - 割安な優良銘柄を **長期で積み立て**、valuation（割高化）で **全売り** する裁量支援基盤。日本の個別株のみ（ETF / 投資信託 / 海外株は扱わない）。買い建てのみ・現物のみ。
 - Markdown / YAML と Git を正本にする。ただし週次 screen output（candidates YAML）は再生成可能な L2 機械出力として local store に置き git に積まない。
 - 成果物の機械契約は `records/_schemas/*.json` を正本（contract-of-record）にする。
-- **構造としての非目標**：MCP / API server・第三者向けサービング・部分売却 / リバランスの schema 化・**固定期間の review gate**。思想的な非目標（ML スコアリング・短期 forward-backtest・自動発注・口座 / 税制モデル化）は [`doctrine.md`](./doctrine.md) §8 を参照。
+- **構造としての非目標**：MCP / API server・第三者向けサービング・部分売却 / リバランスの schema 化・**固定期間の review gate**。戦略上の非目標（ML スコアリング・短期 forward-backtest・自動発注・口座 / 税制モデル化）は [`doctrine.md`](./doctrine.md) §8 を参照。
 
 <a id="repository-map"></a>
 
