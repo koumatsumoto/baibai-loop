@@ -49,8 +49,8 @@ selection:
     min_avg_turnover_oku: 1.0
   diversity:
     # max_recommended_per_sector=1 では top=5 の推奨で良候補を取り逃がすため
-    # 2 とし、sector 集中は warning で監視する。
-    # 出典: reports/2026-06-19-strategy-improvement-ideas.md A2。
+    # 2 とし、sector 集中は warning で監視する。E[r] 主キー下の変種比較でも
+    # sector cap 2 を維持 (reports/2026-07-04-preregistered-ranking-validation.md)。
     max_recommended_per_sector: 2
     # E[r] 主キー化に伴い playbook cap は実質無効化する (10)。cap=2 は推奨を
     # 8 銘柄で飽和させ、design/confirm の変種比較で confirm 側の成績を落とした
@@ -78,7 +78,6 @@ screening_playbooks:
     # docs/reference/valuation-metrics.md は「PER は forward 優先、未公表時は
     # trailing」と mandate。per_forward を primary に置き、null 時に
     # per_trailing を fallback として degrade させる。
-    # 出典: reports/2026-06-19-strategy-improvement-ideas.md A3。
     metrics:
     - per_forward
     - per_trailing
@@ -86,10 +85,10 @@ screening_playbooks:
     - ev_ebitda
     playbook_id: valuation-reversion
   cash-rich-asset-discount:
-    # A4: 卸売業の運転資金 (商社・問屋) は J-Quants cash_eq を機械判定で
+    # 卸売業の運転資金 (商社・問屋) は J-Quants cash_eq を機械判定で
     # 膨張させる (2026-06-12 candidates で cash-rich 最大 cluster 49/292)。
     # 不動産業は land inventory が equity_ratio / cash_to_market_cap を
-    # 歪める。両 sector を除外。出典: reports/2026-06-19-strategy-improvement-ideas.md A4。
+    # 歪める。両 sector を除外。
     excluded_sectors:
     - 銀行業
     - 証券・商品先物取引業
@@ -103,9 +102,9 @@ screening_playbooks:
     price_to_equity_max: 1.0
     equity_ratio_min: 0.3
     operating_profit_positive_required: true
-    # C1: 営業利益の急減 (operating_profit_yoy <= -0.3) で deterioration gate を
+    # 営業利益の急減 (operating_profit_yoy <= -0.3) で deterioration gate を
     # 発動。OR-passing 構造で -50% EPS YoY 会社が cash-rich 経由で通る穴を
-    # 塞ぐ。出典: reports/2026-06-19-strategy-improvement-ideas.md C1。
+    # 塞ぐ。
     operating_profit_yoy_deterioration_threshold: -0.3
     playbook_id: cash-rich-asset-discount
   cashflow-yield-discount:
