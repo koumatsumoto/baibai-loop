@@ -11,6 +11,15 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 - data sources / validation / Python 基盤: [`docs/reference/README.md`](./docs/reference/README.md)
 - **失敗パターンと再発防止**: [`docs/anti-patterns.md`](./docs/anti-patterns.md) — 過去の PR レビューで繰り返し指摘された類型集。macro context / thesis / validator を編集する前に該当節のチェックリストを 1 周すること
 
+## 運用の 2 サイクル（作業の入口）
+
+日常の作業はほぼ次の 2 サイクルのどちらかに属する。まずどちらのサイクルの作業かを特定し、対応する runbook を正本として進める。
+
+| サイクル | 内容 | 正本 runbook | skill |
+| --- | --- | --- | --- |
+| **月次運用** | マクロ環境認識 → screening → select → research → 取引提案 → 発注記録 → 保有レビュー → 較正の増分再計測 | [`docs/operations/monthly-cycle.md`](./docs/operations/monthly-cycle.md) | `macro-analysis` / `ai-value-bargain-selection` / `ir-research` / `financial-pro-review` |
+| **基盤改善** | 現状計測 → 仮説の事前登録 → design/confirm 検証 → 採用実装 → 運用テスト → dated report → 月次監視 | [`docs/operations/improvement-loop.md`](./docs/operations/improvement-loop.md) | `improvement-loop` |
+
 ## サブシステム索引
 
 サブシステム名（macro / screening / thesis / position など）を指定されたら、この表で src / records / CLI / 品質改善計器を引いて着手する。各工程の詳細は [`docs/workflow/`](./docs/workflow/)、依存構造（7 package・7 import-linter contract）は [`docs/architecture.md#repository-map`](./docs/architecture.md#repository-map) を正本とする。

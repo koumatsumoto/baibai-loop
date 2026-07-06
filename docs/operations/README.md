@@ -12,6 +12,8 @@ last_reviewed: 2026-07-01
 
 | runbook | 使う場面 |
 | --- | --- |
+| [`monthly-cycle.md`](./monthly-cycle.md) | 単一ループを月次で 1 周する e2e 運用（マクロ → screening → research → 提案 → 保有レビュー → 較正） |
+| [`improvement-loop.md`](./improvement-loop.md) | 基盤（screening / select / E[r] / マクロ読み）の精度を計測で改善するサイクル |
 | [`task-runbook.md`](./task-runbook.md) | 決算後確認など将来イベント後に実行する GitHub issue タスク管理 |
 | [`incident-runbook.md`](./incident-runbook.md) | source 取得失敗、validator failure、automation failure |
 

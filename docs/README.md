@@ -15,7 +15,8 @@ last_reviewed: 2026-07-02
 | 読者 | 最初に読む docs | 目的 |
 | --- | --- | --- |
 | 初めて repo を触る人 | [`doctrine.md`](./doctrine.md) → [`architecture.md`](./architecture.md) | 何を信じ何を狙うか、どの構造で動くかを把握する |
-| 運用する人 | [`portfolio-management.md`](./portfolio-management.md) → [`workflow/README.md`](./workflow/README.md) | 資本方針と、単一ループの各工程手順を確認する |
+| 運用する人 | [`operations/monthly-cycle.md`](./operations/monthly-cycle.md) → [`portfolio-management.md`](./portfolio-management.md) → [`workflow/README.md`](./workflow/README.md) | 月次サイクルの e2e 導線と、資本方針・各工程手順を確認する |
+| 基盤を改善する人 | [`operations/improvement-loop.md`](./operations/improvement-loop.md) → [`reference/estimate-calibration.md`](./reference/estimate-calibration.md) | 改善サイクルと較正リプレイの計測仕様を確認する |
 | screening / automation を触る人 | [`architecture.md#automation`](./architecture.md#automation) → [`workflow/screening.md`](./workflow/screening.md) → [`reference/screening-runtime.md`](./reference/screening-runtime.md) | CLI・SQLite・screening 工程・実装仕様を確認する |
 | Python 基盤を変更する人 | [`reference/python-foundation.md`](./reference/python-foundation.md) | runtime・dependency・quality gate・CI parity を確認する |
 
@@ -29,7 +30,7 @@ last_reviewed: 2026-07-02
 | [`anti-patterns.md`](./anti-patterns.md) | 失敗パターンと commit 前チェックリスト |
 | [`workflow/`](./workflow/) | 単一ループ各工程の手順（macro / screening / research / position / playbooks） |
 | [`reference/`](./reference/) | valuation-metrics・screening-runtime・data-sources・python-foundation・configuration・testing-and-validation・jquants-rate-limits |
-| [`operations/`](./operations/) | 工程横断の手順（task-runbook / incident-runbook） |
+| [`operations/`](./operations/) | 工程横断の手順（monthly-cycle / improvement-loop / task-runbook / incident-runbook） |
 
 ## 変更時に併せて更新する docs
 
