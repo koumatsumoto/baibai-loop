@@ -1,6 +1,6 @@
 # Baibai-Loop
 
-Baibai-Loop は、日本株の実データ(価格・財務・開示・規制)を機械的に収集・正規化し、固定ルールで**割安な銘柄を機械抽出**し、深い個別調査で**フェアバリュー・リスクリワード・期待利回りを見積もる**データ解析基盤です。AI と人間はこの基盤の出力を使って、割安な優良銘柄を長期で積み立て、割高化で売る判断を行います。目的は「お買い得な優良銘柄を長期で拾い、資産を積み上げる」ことです。
+Baibai-Loop は、日本株の実データ(価格・財務・開示・規制)を機械的に収集・正規化し、固定ルールで**割安な銘柄を機械抽出**し、深い個別調査で**フェアバリュー・リスクリワード・期待利回りを見積もる**データ解析基盤です。運用モデルは **AI 主導・人間裁定**: AI がマクロ経済分析 → 割安 screening → 個別リサーチ → 売買提案までを主導し、人間が提案を判断して発注します。目的は「お買い得な優良銘柄を長期で拾い、資産を積み上げる」ことです。
 
 運用の詳細は [`docs/`](./docs/) を正本とします。初めて読む場合は [`docs/doctrine.md`](./docs/doctrine.md) → [`docs/README.md`](./docs/README.md) から入ってください。
 
@@ -28,10 +28,12 @@ Baibai-Loop は、割安な優良銘柄を長期で積み立てる 1 つの投�
 
 ## 対象としないこと
 
+現在の戦略(長期積立・割高で全売り・1 人運用)が計測経路を持てない、または必要としない機能の線引きです([`docs/doctrine.md`](./docs/doctrine.md) §8)。
+
 - 過去データへの閾値 grid search / パラメータ最適化、戦略累積リターン(年率・MaxDD・シャープ)の track-record claim
-- 銘柄全体を対象にした短期 forward-backtest による screen 最適化
+- 銘柄全体を対象にした短期(3 か月未満)forward-backtest による screen 最適化(長期 horizon の較正リプレイは正式な計測経路)
 - 機械学習によるスコアリング・予測(単一の合成スコアや売買指示は出力しない。スコアは軸別の座標であり判定ではない)
-- 自動発注、リアルタイム処理
+- 自動発注、リアルタイム処理(発注は人間の裁定。判断材料の生成・分析・提案の作成は AI が主導する)
 - ETF / 投信 / 海外株、口座・税制のモデル化
 - 汎用 feature store / MCP / API server
 
@@ -88,6 +90,8 @@ uv run baibai-loop-screening select --asof YYYY-MM-DD --macro-context records/01
 uv run baibai-loop-macro search CPI
 uv run baibai-loop-validation
 uv run baibai-loop-position benchmark
+uv run baibai-loop-screening calibration-build --start 2022-09-01 --end YYYY-MM-DD
+uv run baibai-loop-screening calibration-evaluate --out .cache/calibration-eval.yaml
 ```
 
 automation の位置付けは [`docs/architecture.md#automation`](./docs/architecture.md#automation) を参照してください。

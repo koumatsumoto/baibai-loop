@@ -57,14 +57,14 @@ uv run baibai-loop-screening run --asof "$ASOF"                      # universe�
 
 ## 3. `select` で割安候補 TOP10 を出して人手で TOP12 を確定する
 
-screening の正本 ranking (`select`) を最新 macro context に対して走らせ、軸別座標 (lane / lenses / market_regime / 流動性除外件数) を含む診断付き payload を取得する。AI 構造性は §4 の一次 IR 深掘りで人間判定する (scorecard / structural-outlook 系のサブシステムは前回 cleanup で削除済み)。
+screening の正本 ranking (`select`) を最新 macro context に対して走らせ、軸別座標 (lenses / market_regime / 流動性除外件数) を含む診断付き payload を取得する。AI 構造性は §4 の一次 IR 深掘りで人間判定する (機械の合成スコアは存在しない)。
 
 ```bash
 uv run baibai-loop-screening select --asof YYYY-MM-DD --top 10 --detail full > .cache/select-<asof>.yaml
 ```
 
 - 出力 `recommendations[]` から **既存保有 ticker** と **構造衰退業種 (パチンコ機械 / 有料衛星放送 / 旧来繊維機械 / 印刷等)** を skill 側 post-filter で除外し、TOP12 候補を確定する (`select` には除外フラグはない)。`split_adjustment_recent` risk tag が付く候補は market_cap / net_cash 比率が corporate action 未反映で歪み得るため、一次 IR で株数基準を必ず検算する (AP-03)。
-- `select` は valuation-reversion / cash-rich-asset-discount / cashflow-yield-discount / sales-discount-growth の 4 screen を `evidence_hits` で示し、`selection.diagnostics.market_regime` で benchmark trend (fact annotation) を返す。表示順は playbook 優先順 × valuation discount の ranking で verdict ではない。recommendations は config の `research_selection_target_max`(5) で cap されるため、広い triage には `--rules-path` で一時 rules を渡す。
+- `select` は valuation-reversion / cash-rich-asset-discount / cashflow-yield-discount / sales-discount-growth の 4 screen を `evidence_hits` で示し、`selection.diagnostics.market_regime` で benchmark trend (fact annotation) を返す。**表示順は機械 E[r] (成分分解付き年率見積り) の降順**が主キー (欠損は後置・従キーは playbook 優先順 + 強度キー。採用根拠は `reports/2026-07-04-preregistered-ranking-validation.md`) で、verdict ではない。E[r] 成分 (reversion/carry) と FV アンカー (`fv_sector_median_yen` / `fv_self_range_yen`) が recommendation に転記されるので、FV 見積りの出発点にする。recommendations は config の `research_selection_target_max`(5) で cap されるため、広い triage には `--rules-path` で一時 rules を渡す。
 - 候補に厚みが必要なら `--top 20` まで広げて post-filter 後に 12 件を確保する。
 - **補完スキャン**: `select` の recommendations は高 precision ゆえ薄い / テーマ（AI/DX）に偏らないことがある。その場合は candidates YAML 全体を直接走査し「AI/DX 関連 sector × 3<PER<14 × net_cash/mc>0.20 × ocf_yield>0.08 × 自己資本>0.5 × op_yoy>-0.10」等で本命候補を補完して TOP12 に繰り上げる。select の forward-measured ランキングを core、補完スキャンを enrich とし、両者を IR で検証する。
 
