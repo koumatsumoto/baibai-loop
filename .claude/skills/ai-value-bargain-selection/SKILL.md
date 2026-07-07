@@ -10,6 +10,8 @@ description: >-
 
 # AI バリュー・バーゲン銘柄選定（Baibai-Loop）
 
+> **正本と操作の分離**: 本 skill は選定フローの〈操作〉（漏斗の順序・判断ノブ・出力形態）を持つ。思想・仕様・契約の正本は docs 側にあり、本 skill はそれを書き写さず参照する — [`doctrine.md`](../../../docs/doctrine.md)（柱 2 / 柱 5）・[`portfolio-management.md`](../../../docs/portfolio-management.md)（資本・cap・耐性ゲート）・[`workflow/screening.md`](../../../docs/workflow/screening.md)・[`workflow/research.md`](../../../docs/workflow/research.md)（FV・RR・見積り式）・[`operations/monthly-cycle.md`](../../../docs/operations/monthly-cycle.md)（月次 e2e 導線）。
+
 長期 AI 構造価値 × 足元割安の日本株を、本リポジトリの screening 基盤で選定し提案する手順。`AGENTS.md` の anti-pattern（AP-01 一次情報 / AP-02 検算 / AP-09 会社 IR 確認）、`docs/portfolio-management.md`（単一プール資本・concentration cap・塩漬け耐性ゲート・割高で全売り）、`docs/doctrine.md` 柱 5（単一合成スコアを出さない＝スコアは軸別座標）、`docs/workflow/research.md`（FV・RR・期待利回りの見積り式と entry/exit 規律）に従う。
 
 ## 0. ゴールと前提
@@ -25,35 +27,24 @@ description: >-
 ls records/04-position/*/*/*.md
 # データ鮮度（最新営業日 = screen の asof）
 python3 -c "import sqlite3;c=sqlite3.connect('data/screening/market.sqlite');print(c.execute('SELECT MAX(traded_at) FROM jquants_daily_bars').fetchone())"
-# 最新 candidates（無ければ下のパイプラインで生成）
+# 最新 candidates（無ければ pipeline で生成）
 ls records/02-candidates/*/*/*.yaml | tail -3
 ```
 
-cache が最新営業日に届いていなければ、その asof まで拡張してから run する（J-Quants throttling 時は直近の完全営業日にフォールバック）。`run` / `select` は cache-only / point-in-time で、API fallback はしない:
-
-```bash
-ASOF=<最新の完全営業日 YYYY-MM-DD>
-uv run baibai-loop-screening bootstrap-cache --asof "$ASOF"
-uv run baibai-loop-screening extract-edinet-metrics --asof "$ASOF"   # 数分かかる（背景実行可）
-uv run baibai-loop-screening verify-cache-coverage --asof "$ASOF"
-uv run baibai-loop-screening run --asof "$ASOF"                      # universe→candidates
-```
+cache が最新営業日に届いていなければ、その asof まで拡張してから run する。screening pipeline（`bootstrap-cache` → `extract-edinet-metrics` → `verify-cache-coverage` → `run`）の実行は [`docs/operations/monthly-cycle.md`](../../../docs/operations/monthly-cycle.md) §2 を正本にする。**skill 固有ノブ**: `ASOF` は最新の完全営業日を使い、J-Quants throttling 時は直近の完全営業日へフォールバックする。`run` / `select` は cache-only / point-in-time で API fallback しない（`extract-edinet-metrics` は数分かかるので背景実行可）。
 
 ## 2. macro context を「深く」作る（リスクリワードの土台）
 
-[[feedback_macro_context_depth]]: 浅い macro は不可。直近の世界情勢を入念に多角的に分析し、RR を判断できる前提にする。トークンは気にせず最大限。
+作成手順・8 レンズ・パネル取得・独立性 / regime-flip・数値検算・公開前の敵対的 self-check は skill [`macro-analysis`](../macro-analysis/SKILL.md)（正本 [`docs/workflow/macro.md`](../../../docs/workflow/macro.md)）に従い、成果物 `records/01-macro-context/YYYY/MM/macro-context-YYYY-MM-DD-<slug>.yaml` を `uv run baibai-loop-validation --target macro-context` で通す。本フロー固有に効く制約だけをここに残す。
 
-- **テーマ別 subagent fan-out**（[[feedback_subagent_cap]] により**同時起動は最大 5**。多ければ wave に分ける）:
+- **深さ基準**（[[feedback_macro_context_depth]]）: 浅い macro は不可。直近の世界情勢を入念に多角的に分析し、RR を判断できる前提にする。各テーマで Tier-1 を多数（20+ 目安・各 URL+公表日）引き、**「割安な日本 AI/DX 株を今買う RR にどう効くか」へ必ず接続**する。テーマ別 fan-out の目安:
   1. AI / 半導体 / データセンター capex サイクル（拡大 or digestion かが AI-tilt の RR を左右）
   2. 米マクロ・Fed・金利・米株（Mag7 集中度含む）
   3. 日本マクロ・BOJ・JGB・USD/JPY・春闘・需給/PBR 改革
   4. 地政学・通商・半導体規制・台湾・原油
   5. クロスアセット・シナリオ（base/bull/bear/tail）・直近急落の post-mortem・invalidation
-- 各 agent に: Tier-1 を多数（20+ 目安、各 URL+公表日）、確認/推定を区別、**「割安な日本 AI/DX 株を今買う RR にどう効くか」へ接続**、を要求。session 制限に備え「partial でも必ず結論を返す」と指示。
-- 合成して `records/01-macro-context/YYYY/MM/macro-context-YYYY-MM-DD-<slug>.yaml` を作る。schema 必須: `kind, context_id, as_of, valid_until, published_at, summary, inputs(articles[]+indicator_series[]), sector_tilts.items[](id/scope=sector_33/key/stance∈tailwind|neutral|mixed|headwind/strength/confidence/rationale), research_questions[], refresh_triggers[], changes_since_previous[]`（additionalProperties=false）。`uv run baibai-loop-validation --target macro-context` を通す。
-- `select` は macro `as_of` が candidates asof より新しいと拒否する。mechanical run には asof 以前で valid な context を使い、買い判断の深い分析は最新 context で行う。macro `as_of` は candidates asof（＝最新の完全営業日）に合わせる。
-- **独立性とregime-flip**（[[feedback_macro_analysis_independence]]）: 過去の自リポジトリの「解釈・結論・tilt・建玉」は前提にせず、最新の一次情報（直近の**大引けまで**）からゼロベースで読む。過去の「事実=価格・指標・イベント」のみ前提可。regime は1日で反転しうる（例: 決算 surprise で AI 懐疑→リスクオン）。intraday に書いた context が大引けで覆ったら**書き直す**。
-- **pivotal な数値は検算する**（AP-02）: 相場観の土台になる1点（例: 指数の単日 +4.6%、信用 spread、原油水準）は複数 Tier-1 で cross-check し、`baibai-loop-macro` の series でも裏取りする。1 ソースの大きな数字を鵜呑みにしない。
+- **fan-out 制約**（[[feedback_subagent_cap]]）: サブエージェント同時起動は最大 5。多ければ wave に分け、各 agent に「partial でも必ず結論を返す」と指示する。
+- **select との鮮度整合**: `select` は macro `as_of` が candidates asof より新しいと拒否する。mechanical run には asof 以前で valid な context を使い、`as_of` は candidates asof（＝最新の完全営業日）に合わせる。買い判断の深い分析は最新 context で行う。
 
 ## 3. `select` で割安候補 TOP10 を出して人手で TOP12 を確定する
 
@@ -66,7 +57,7 @@ uv run baibai-loop-screening select --asof YYYY-MM-DD --top 10 --detail full > .
 - 出力 `recommendations[]` から **既存保有 ticker** と **構造衰退業種 (パチンコ機械 / 有料衛星放送 / 旧来繊維機械 / 印刷等)** を skill 側 post-filter で除外し、TOP12 候補を確定する (`select` には除外フラグはない)。`split_adjustment_recent` risk tag が付く候補は market_cap / net_cash 比率が corporate action 未反映で歪み得るため、一次 IR で株数基準を必ず検算する (AP-03)。
 - `select` は valuation-reversion / cash-rich-asset-discount / cashflow-yield-discount / sales-discount-growth の 4 screen を `evidence_hits` で示し、`selection.diagnostics.market_regime` で benchmark trend (fact annotation) を返す。**表示順は機械 E[r] (成分分解付き年率見積り) の降順**が主キー (欠損は後置・従キーは playbook 優先順 + 強度キー。採用根拠は `reports/2026-07-04-preregistered-ranking-validation.md`) で、verdict ではない。E[r] 成分 (reversion/carry) と FV アンカー (`fv_sector_median_yen` / `fv_self_range_yen`) が recommendation に転記されるので、FV 見積りの出発点にする。recommendations は config の `research_selection_target_max`(5) で cap されるため、広い triage には `--rules-path` で一時 rules を渡す。
 - 候補に厚みが必要なら `--top 20` まで広げて post-filter 後に 12 件を確保する。
-- **補完スキャン**: `select` の recommendations は高 precision ゆえ薄い / テーマ（AI/DX）に偏らないことがある。その場合は candidates YAML 全体を直接走査し「AI/DX 関連 sector × 3<PER<14 × net_cash/mc>0.20 × ocf_yield>0.08 × 自己資本>0.5 × op_yoy>-0.10」等で本命候補を補完して TOP12 に繰り上げる。select の forward-measured ランキングを core、補完スキャンを enrich とし、両者を IR で検証する。
+- **補完スキャン（条件付き・多くの場合は不要）**: `select` は E[r] 降順で `--top 20` まで広げれば TOP12 の core が通常足りる。補完スキャンが要るのは **recommendations が薄い / AI・DX テーマ特化で厚みが不足するとき**だけ。その場合に限り candidates YAML 全体を直接走査し「AI/DX 関連 sector × 3<PER<14 × net_cash/mc>0.20 × ocf_yield>0.08 × 自己資本>0.5 × op_yoy>-0.10」等で本命候補を補完して TOP12 に繰り上げる。select の forward-measured ランキングを core、補完スキャンを enrich とし、両者を IR で検証する。
 
 ## 4. TOP12 を一次 IR 深掘り（≤5 subagent / wave）
 

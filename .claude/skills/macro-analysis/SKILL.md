@@ -43,25 +43,17 @@ KAIZEN は §3 末尾の掃き出しチェックで回す（§5）。
 
 ```bash
 cd /home/kou/baibai-loop
-# まず registry を確認（固定ループでなく list が登録 series の正本。漏れを防ぐ）
-uv run baibai-loop-macro list                     # 全 series を category/provider 付きで一覧
-uv run baibai-loop-macro list --category energy   # レンズ別に絞る例（energy/credit/fx/rates 等）
-# latest パネル（list と突き合わせ、必要レンズの series を漏れなく束ねる）
-# 注意: get --latest は取得済み窓内では provider を呼ばず cache 最新を返す。
-# 環境認識を書く直前は主要 series を refresh --start <直近> --end <today> してから読む
-for s in \
-  us.m2 us.fed_assets us.reverse_repo us.tga \
-  us.real_10y us.breakeven_10y us.10y us.2y us.10y_3m_spread \
-  us.cpi.core us.pce.core us.inflation_5y5y \
-  us.nfci vix us.move credit.us_hy_oas credit.us_ig_oas credit.us_ccc_oas \
-  usd_index.broad usd_jpy btc_usd gold copper wti brent \
-  us.initial_claims us.industrial_production us.gdp_growth \
-  us.sp500 us.nasdaq us.russell2000 us.sox jp.nikkei225 \
-  ecb.policy_rate jp.policy_rate us.fed_funds.upper \
-  silver us.sp500_cape us.sp500_pe us.sp500_earnings_yield ; do
+# registry が登録 series の正本。固定 series リストを skill に持たず list から束ねる（series 追加で skill が陳腐化しない）
+uv run baibai-loop-macro list                     # 全 series を id/name/category/geo/freq/unit/provider で一覧
+uv run baibai-loop-macro list --category energy   # レンズ別に絞る例（rates/credit/fx/energy/liquidity 等）
+# latest パネル: 下の「レンズ→series」表と list を突き合わせ、必要レンズの series を漏れなく束ねて逐次に引く。
+# list の 1 列目が series_id。category ごとに id を取り、1 series ずつ get する（並行起動しない・§2 末尾の注意）:
+for s in $(uv run baibai-loop-macro list --category rates | cut -f1); do
   uv run baibai-loop-macro get "$s" --latest 2>&1 | tail -1
 done
-# 方向が論点の series は range で（窓は §3 の標準窓。日付はそのまま走る）
+# 注意: get --latest は取得済み窓内では provider を呼ばず cache 最新を返す。
+# 環境認識を書く直前は主要 series を refresh --start <直近> --end <today> してから読む。
+# 方向が論点の series は range で（窓は §3 の標準窓。日付はそのまま走る）:
 uv run baibai-loop-macro get us.m2         --start "$(date -d '14 months ago' +%F)" --end "$(date +%F)"
 uv run baibai-loop-macro get us.fed_assets --start 2025-01-01 --end "$(date +%F)"
 uv run baibai-loop-macro get btc_usd       --start "$(date -d '3 months ago' +%F)"  --end "$(date +%F)"

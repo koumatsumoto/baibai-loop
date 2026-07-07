@@ -52,6 +52,13 @@ candidates YAML（`records/02-candidates/`）は market.sqlite から再生成�
 
 ranking の主キーは **valuation discount（割安度）** とする。組み込みの selection profile は `balanced` のみ。閾値を変えるときは `records/_config/screening-rules/` の設定を編集して `select` を再実行し、出力の差分を確認する。**短期の急落銘柄を上位に押し上げる仕組みや、リスクオン相場で逆張り候補を沈める仕組みは持たない**（保有期間ではなく valuation と耐性で判断するため）。
 
+`select` の triage は `records/_config/screening-rules/*.yaml` の `selection` block を契約とする（閾値 baseline の正本は [`../reference/screening-runtime.md`](../reference/screening-runtime.md) §8）。
+
+- `selection.default_profile`：明示 `--profile` がないときの built-in profile。built-in は `balanced` のみで、未知 profile は rules load 時に error にする。
+- `selection.liquidity`：research 推奨に適用する規模・流動性・上場期間・JPX 規制の絞り込み。screen の scope は全普通株のままで、絞り込みはこの分析層パラメータだけが担う。
+- `selection.durability`：塩漬け耐性の閾値。built-in profile はコード側の閾値を優先し、この YAML block は load-time contract と custom profile のベースとして扱う。
+- `selection.diversity`：recommendations の sector / playbook 集中度、過去 candidates の混入上限、previous overlap warning。
+
 ## Candidates 出力（事実）
 
 ```text
@@ -62,15 +69,9 @@ records/02-candidates/YYYY/MM/YYYY-MM-DD.yaml
 
 ## 実行
 
-```bash
-uv run baibai-loop-screening bootstrap-cache --asof YYYY-MM-DD
-uv run baibai-loop-screening extract-edinet-metrics --asof YYYY-MM-DD --lookback-days 540
-uv run baibai-loop-screening verify-cache-coverage --asof YYYY-MM-DD
-uv run baibai-loop-screening run --asof YYYY-MM-DD
-uv run baibai-loop-screening select --asof YYYY-MM-DD --macro-context <path>
-```
+コマンド列（`bootstrap-cache` → `extract-edinet-metrics` → `verify-cache-coverage` → `run` → `select`）の e2e 導線は [`../operations/monthly-cycle.md`](../operations/monthly-cycle.md) §2–3、CLI 引数 / env / SQLite schema の実装仕様は [`../reference/screening-runtime.md`](../reference/screening-runtime.md) を正本にする。ここでは工程の意味だけを記す。
 
-`run` は開始時に SQLite のデータ充足を検証し、不足があれば即座に失敗させる（provider API へはフォールバックしない）。JPX 規制情報と EDINET の前処理済み指標は必須入力。`select` の推奨順位は**機械 E[r]（成分分解付き年率見積り）の降順**を主キーにする（E[r] 欠損は後置・従キーは playbook 優先順 + 強度キー。採用根拠は較正リプレイの design/confirm 検証）。macro context の `sector_tilts` は追い風 / 向かい風の参考情報として使い（機械的な足切りにはしない）、`recommendations` と `selection.diagnostics` を出力する。`--macro-context` を省略すると `records/01-macro-context/` の最新 context を自動解決する（`valid_until` が asof より古い context は鮮度切れとして失敗させる）。手順・env・SQLite schema の実装詳細は [`../reference/screening-runtime.md`](../reference/screening-runtime.md)。
+`run` は開始時に SQLite のデータ充足を検証し、不足があれば即座に失敗させる（provider API へはフォールバックしない）。JPX 規制情報と EDINET の前処理済み指標は必須入力。`select` の推奨順位は**機械 E[r]（成分分解付き年率見積り）の降順**を主キーにする（E[r] 欠損は後置・従キーは playbook 優先順 + 強度キー。採用根拠は較正リプレイの design/confirm 検証）。macro context の `sector_tilts` は追い風 / 向かい風の参考情報として使い（機械的な足切りにはしない）、`recommendations` と `selection.diagnostics` を出力する。`--macro-context` を省略すると `records/01-macro-context/` の最新 context を自動解決する（`valid_until` が asof より古い context は鮮度切れとして失敗させる）。
 
 ## 長期予測力の計測（estimate calibration）
 

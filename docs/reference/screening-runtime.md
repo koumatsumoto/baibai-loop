@@ -54,13 +54,14 @@ cache / SQLite の配置先は固定 (env override 廃止):
 任意 / 事前生成:
 
 - `EDINET_API_KEY`: `extract-edinet-metrics` 実行時に必要。`run` は SQLite の EDINET metrics を必須入力として扱うため、標準運用では `run` 前に EDINET metrics を抽出しておく
+- `SCREENING_RULES_PATH`: `select` / `run` が使う screening rules / selection profile YAML の既定 path override。CLI の明示 `--rules-path` を最優先し、次に env、最後に `records/_config/screening-rules/` の既定を解決する
 - JPX 公開規制情報 URL（CSV / Excel / HTML）。`records/_config/screening-rules/2026-06-19T000000+0900.yaml` の `universe.required_jpx_flags` に含まれる source は必須で、未ロード時は fail-fast し candidates YAML を生成しない:
   - `JPX_SPECIAL_CAUTION_INDEX_URL` 特別注意銘柄の個別銘柄信用取引残高表 index（推奨。日次で変わる `mtdailyk*.xls` を index から解決）
   - `JPX_SPECIAL_CAUTION_URL` 特別注意銘柄の固定 Excel URL
   - `JPX_REORGANIZATION_URL` 整理銘柄
   - `JPX_TRADING_HALT_URL` 取引停止
   - `JPX_DELISTING_WARNING_URL` 上場廃止警告
-- env vars の雛形は repo root の `.env.sample` を参照
+- env vars の雛形は repo root の `.env.sample` を参照。secret（API キー）は repository に commit せず、`.env` の値を docs / issue に貼らない。CI では GitHub Actions secret として渡し、docs には変数名と用途だけを書く
 
 ## 4. J-Quants ClientV2 Methods
 
@@ -167,3 +168,14 @@ SQLite は以下のテーブルを `data/screening/market.sqlite` に作成す�
 ### 11.2 Volume と再生成の考え方
 
 `data/screening/market.sqlite` は local store であり git 管理しない。容量増加は repo 履歴ではなくローカルディスクの問題として扱う。SQLite を作り直す場合は raw JSON からの migration ではなく、`bootstrap-cache --asof` と `extract-edinet-metrics --asof` で必要 window を provider から再取得して補完する。
+
+## 12. J-Quants rate limit と bootstrap コスト
+
+J-Quants Light プランの正確なレート制限は非公開で、挙動は実運用の観測から推測する（確定仕様ではない）。コード側の対処は `src/baibai_loop/screening/providers/jquants.py` の `_RATE_LIMIT_BACKOFF_SECONDS`（最大 600s の 429 backoff）と `_RANGE_CHUNK_DAYS`（range fetch を 31 日 chunk に分割）で扱う。
+
+- `bootstrap-cache --asof <past>` の律速は **per-asof の長期履歴 re-fetch のボリューム** であり、「数分で回復する rate window」でも「日次クォータの枯渇」でもない。1 asof の日次足は asof−1200 暦日、財務サマリーは asof−730 暦日を範囲に取り、`_RANGE_CHUNK_DAYS=31` で 31 日 chunk に分割して ClientV2 内部の per-day API 呼び出しに fan-out する。throttling 下では 31 日 chunk あたり数分規模のスループットになり、1 asof の完全 bootstrap は数時間規模になる。429 backoff はこの volume に上乗せされる。
+- chunk は resumable。`source_coverage` に chunk 単位で `status=ok` を記録し、中断しても完了済み chunk は再取得しない。複数 asof は履歴窓が大きく重複するため、最初の 1 asof の full bootstrap が高コストで、以降の週は非重複 chunk とその週の EDINET だけで安価になる。
+- 既存 cache がある asof では長期履歴を再取得しない。日次足の coverage は行データから導出し（§11.1、DB が SSOT）、range fetch の coverage は overlapping / adjacent window と union merge する（§11.1）。chunk 境界が asof ごとにずれても、行が揃っていれば偽のギャップを作らず re-fetch しない。
+- `run` は cache-only で、coverage が揃えば provider を叩かず高速。歴史 replay の律速は `run` ではなく `bootstrap-cache` / `extract-edinet-metrics` の coverage 充足にある。
+
+過去 asof の cache 充足は「rate budget の回復を待つ」問題ではなく、**長期履歴 coverage を一度埋め切る wall-clock** の問題として扱う。1 asof ずつ長時間バックグラウンドで流し、resumable な性質を活かして複数セッションに跨いで充足させる。短い per-step timeout で kill するとその asof の coverage が未充足のまま `run` が fail-fast するため、kill せず完走させるか完了済み chunk から再開する。

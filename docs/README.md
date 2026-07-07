@@ -29,7 +29,7 @@ last_reviewed: 2026-07-06
 | [`portfolio-management.md`](./portfolio-management.md) | 資本・ポジション管理・cap・積立・余力・kill switch |
 | [`anti-patterns.md`](./anti-patterns.md) | 失敗パターンと commit 前チェックリスト |
 | [`workflow/`](./workflow/) | 単一ループ各工程の手順（macro / screening / research / position / playbooks） |
-| [`reference/`](./reference/) | valuation-metrics・screening-runtime・data-sources・python-foundation・configuration・testing-and-validation・jquants-rate-limits |
+| [`reference/`](./reference/) | valuation-metrics・screening-runtime・data-sources・python-foundation・testing-and-validation |
 | [`operations/`](./operations/) | 工程横断の手順（monthly-cycle / improvement-loop / task-runbook / incident-runbook） |
 
 ## 変更時に併せて更新する docs
@@ -38,6 +38,7 @@ last_reviewed: 2026-07-06
 | --- | --- |
 | `records/01-macro-context/` | [`workflow/macro.md`](./workflow/macro.md), [`reference/data-sources.md`](./reference/data-sources.md) |
 | `records/02-candidates/` または screening CLI | [`workflow/screening.md`](./workflow/screening.md), [`reference/screening-runtime.md`](./reference/screening-runtime.md), [`architecture.md#automation`](./architecture.md#automation) |
+| screening rules / selection profile / env var (`records/_config/screening-rules/`, `.env`) | [`workflow/screening.md`](./workflow/screening.md), [`reference/screening-runtime.md`](./reference/screening-runtime.md) |
 | `records/03-thesis/` | [`workflow/research.md`](./workflow/research.md), [`workflow/playbooks.md`](./workflow/playbooks.md) |
 | `records/04-position/` | [`workflow/position.md`](./workflow/position.md) |
 | schema / validator / tests / CI | [`reference/testing-and-validation.md`](./reference/testing-and-validation.md), [`reference/python-foundation.md`](./reference/python-foundation.md), [`architecture.md#automation`](./architecture.md#automation) |

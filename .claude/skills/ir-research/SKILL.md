@@ -3,17 +3,19 @@ name: ir-research
 description: >-
   日本の上場企業の IR・決算開示（決算短信・配当・通期/来期予想・財務）を一次〜準一次ソースで調べ、
   相互検算して trade の invalidation 判定や research の thesis 検証に使う指標を正確に取得する手順。
-  証券コードの最新決算・配当・業績を records/05-research や records/06-trades の holding-log に
+  証券コードの最新決算・配当・業績を records/03-thesis や records/04-position の保有中ログに
   反映するとき、または「IR を調べて」「決算を確認して」と言われたときに使う。
 ---
 
 # IR 調査の手順（Baibai-Loop）
 
-上場企業の開示を調べて trade/research に反映するときの手順。`AGENTS.md` の anti-pattern（AP-01 一次情報 / AP-02 数値検算 / AP-03 corporate action / AP-04 schema・意味の読み / AP-07 公表日）と整合させる。`docs/reference/data-sources.md` の Tier 分類が上位ルール。
+> **正本と操作の分離**: 本 skill は IR 開示を調べて反映する〈操作〉を持つ。data source の Tier 分類の正本は [`reference/data-sources.md`](../../../docs/reference/data-sources.md)、失敗パターンは [`anti-patterns.md`](../../../docs/anti-patterns.md)。
+
+上場企業の開示を調べて thesis / position record に反映するときの手順。`AGENTS.md` の anti-pattern（AP-01 一次情報 / AP-02 数値検算 / AP-03 corporate action / AP-04 schema・意味の読み / AP-07 公表日）と整合させる。`docs/reference/data-sources.md` の Tier 分類が上位ルール。
 
 ## 0. 大原則
 
-- **candidate row（`records/04-candidates/`）が screening の canonical fact source**。IR 調査はそれを上書きせず、**補強・source 追加・最新化**に使う。差異が出たら override せず honest に flag する（AP-09）。
+- **candidate row（`records/02-candidates/`）が screening の canonical fact source**。IR 調査はそれを上書きせず、**補強・source 追加・最新化**に使う。差異が出たら override せず honest に flag する（AP-09）。
 - 取得した数値には**必ず source URL** を添える。**1 ソースを鵜呑みにせず最低 2 ソースで相互検算**する（AP-01 / AP-02）。
 - 本リポジトリの市況は scenario 設定のことがある。scenario の forward 数値と実 IR が食い違う場合は、どちらが canonical か（通常 candidate row）を明記して併記する。
 - **使うツール**: `WebSearch`（クエリ）→ `WebFetch`（該当ページで数値を確定）。WebFetch は HTTP→HTTPS に upgrade、cross-host redirect は返ってくるので再呼び出し、結果は 15 分キャッシュ。paywall/403 は §4 の fallback へ。
@@ -68,7 +70,7 @@ description: >-
 
 ## 5. 記録への落とし方
 
-- 反映先: 監視・決算イベントは該当 **trade record の `## 2. 保有中ログ` に日付つきで追記**（`docs/components/trades.md` §7.2）。thesis・配当の検証は **research memo の該当節**に「YYYY-MM-DD IR 一次確認」として追記。
+- 反映先: 監視・決算イベントは該当 **position record（`records/04-position/`）の `## 2. 保有中ログ` に日付つきで追記**（[`docs/workflow/position.md`](../../../docs/workflow/position.md)）。thesis・配当の検証は **thesis memo（`records/03-thesis/`）の該当節**に「YYYY-MM-DD IR 一次確認」として追記。
 - 書く内容: **数値 + 出所 URL + 判定（invalidation に touch するか）+ アクション**。
 - 判定の粒度: 「即時 exit を要する構造破綻」か「review レベル（要監視・上値減退）」か「thesis intact（健全）」かを区別する。売上増・累計営業プラス・財務健全なら通常は破綻ではない。
 - candidate row は canonical のまま維持し、IR は補強として併記。scenario と実 IR の差異は明記。
@@ -78,4 +80,4 @@ description: >-
 - 判定に必要な指標が**出所つき**でそろい、最低 2 ソースで矛盾なく検算できている。
 - 対象期（実績/四半期/来期）と corporate action（分割）の取り違えがないことを確認した。
 - 取れなかった項目は「未取得・要短信確認」と明記してある。
-- 反映先（trade holding-log / research）に数値・出所・判定・アクションが記録されている。
+- 反映先（position の保有中ログ / thesis memo）に数値・出所・判定・アクションが記録されている。

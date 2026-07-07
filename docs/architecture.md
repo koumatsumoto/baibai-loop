@@ -159,7 +159,7 @@ AI の利用モデル：L1/L2 は SQL 直接発行と CLI 出力で自由に読�
 | `portfolio-management.md` | 資本・ポジション管理・kill switch |
 | `anti-patterns.md` | 失敗パターンと commit 前チェックリスト |
 | `workflow/` | 単一ループ各工程の手順（macro / screening / research / position / playbooks） |
-| `reference/` | valuation-metrics・screening-runtime・data-sources・python-foundation・configuration・testing-and-validation・jquants-rate-limits |
+| `reference/` | valuation-metrics・screening-runtime・data-sources・python-foundation・testing-and-validation |
 | `operations/` | 工程横断の手順（task-runbook / incident-runbook） |
 
 ## 参考
