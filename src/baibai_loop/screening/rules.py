@@ -15,7 +15,7 @@ PLAYBOOK_CASHFLOW_YIELD = "cashflow-yield-discount"
 PLAYBOOK_SALES_DISCOUNT = "sales-discount-growth"
 
 REASON_SECTOR_SELF_RANGE = "sector_median_discount_and_self_range_bottom"
-REASON_PRICE_SIGMA = "price_down_60d_and_valuation_sigma_down"
+REASON_VALUATION_SIGMA = "valuation_sigma_down"
 REASON_CASH_RICH = "cash_to_market_cap_price_to_equity_and_equity_ratio"
 REASON_CASHFLOW_YIELD = "ocf_yield_discount"
 REASON_SALES_DISCOUNT = "ps_discount_with_sales_growth"
@@ -114,7 +114,7 @@ def _valuation_reversion(
         null_reasons,
     )
     if hit_metric_b is not None:
-        reasons.append(REASON_PRICE_SIGMA)
+        reasons.append(REASON_VALUATION_SIGMA)
         metrics["condition_b_metric"] = hit_metric_b
         metrics["price_change_60d"] = derived.price_change_60d
         metrics["condition_b_sigma_gap"] = derived.sigma_gap.get(hit_metric_b)
@@ -158,11 +158,9 @@ def _condition_b_metric(
     deterioration_threshold: float,
     null_reasons: list[str],
 ) -> str | None:
-    if derived.price_change_60d is None:
-        null_reasons.append("valuation_reversion_condition_b_missing_price_change_60d")
-        return None
-    if derived.price_change_60d > playbook.price_change_60d_max:
-        return None
+    # 条件 B は σギャップ判定かつ悪化ゲート。60 日下落は要件にしない。price_change_60d
+    # は evidence hit に事実として記録するが判定には使わない
+    # (metrics["price_change_60d"] は None を許容する)。
     if _has_deterioration(financial, deterioration_threshold):
         null_reasons.append("valuation_reversion_condition_b_deterioration")
         return None

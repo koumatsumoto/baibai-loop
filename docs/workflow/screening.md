@@ -3,7 +3,7 @@ title: "Workflow — screening"
 summary: "割安 screening：全上場普通株を対象に、playbook 連動の screen で割安ゾーンを機械抽出して candidates の事実を出力し、select で research 候補を選り分ける。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-02
+last_reviewed: 2026-07-06
 ---
 
 # Workflow — 割安 screening
@@ -34,7 +34,7 @@ candidates YAML（`records/02-candidates/`）は market.sqlite から再生成�
 
 以下の割安 screen のうち **最低 1 つ** を満たす銘柄を通過とする。閾値は `records/_config/screening-rules/*.yaml` を正本とする。複数 hit は research 優先度を上げる材料。`evidence_hits[]` に playbook 名・hit reasons・判定 metrics を記録する。
 
-- **`valuation-reversion`**：PER / PBR / 正の EV/EBITDA が業種中央値との比較・過去の自己レンジの下位にあり割安。過去 60 営業日の下落で割安ゾーンへ入った銘柄も含む（長期保有の入口として押し目を拾うためであり、短期売買の signal ではない）。銀行・証券・保険・その他金融は除外（規制資本・与信サイクルの影響で、事業会社と同じ判定ができない）。
+- **`valuation-reversion`**：PER / PBR / 正の EV/EBITDA が業種中央値との比較・過去の自己レンジの下位にあり割安（条件 A）。あるいは自己レンジからの σギャップが大きく（valuation の統計的な割安）、かつ業績悪化ゲートに触れない銘柄（条件 B）。60 営業日の下落は要件にしない（`price_change_60d` は事実として記録するが判定には使わない）。銀行・証券・保険・その他金融は除外（規制資本・与信サイクルの影響で、事業会社と同じ判定ができない）。
 - **`cash-rich-asset-discount`**：現金性資産 / 時価総額・株価純資産倍率・自己資本比率で、現金や資産に対して割安な銘柄を拾う。EDINET のネットキャッシュとの突き合わせで矛盾を抑止する。営業赤字・営業利益の前年比急減（悪化ゲート）は除外。金融・電気ガス・卸売・不動産は除外（バランスシートの意味合いが事業会社と異なる）。
 - **`cashflow-yield-discount`**：期間を正規化した直近 12 か月の営業キャッシュフロー利回り（OCF yield）で、現金創出力に対する割安を拾う。キャッシュフロー悪化（`cfo_yoy` の下限割れ）・営業利益の前年比急減・フリーキャッシュフローのマイナス（重設備型）は除外。金融・電気ガスは除外。
 - **`sales-discount-growth`**：株価売上高倍率（P/S）が業種中央値より安く、売上成長が続いている銘柄。慢性的な赤字企業を弾くため営業利益率の下限を課す。金融は除外。
