@@ -15,7 +15,7 @@ PLAYBOOK_CASHFLOW_YIELD = "cashflow-yield-discount"
 PLAYBOOK_SALES_DISCOUNT = "sales-discount-growth"
 
 REASON_SECTOR_SELF_RANGE = "sector_median_discount_and_self_range_bottom"
-REASON_PRICE_SIGMA = "price_down_60d_and_valuation_sigma_down"
+REASON_VALUATION_SIGMA = "valuation_sigma_down"
 REASON_CASH_RICH = "cash_to_market_cap_price_to_equity_and_equity_ratio"
 REASON_CASHFLOW_YIELD = "ocf_yield_discount"
 REASON_SALES_DISCOUNT = "ps_discount_with_sales_growth"
@@ -114,7 +114,7 @@ def _valuation_reversion(
         null_reasons,
     )
     if hit_metric_b is not None:
-        reasons.append(REASON_PRICE_SIGMA)
+        reasons.append(REASON_VALUATION_SIGMA)
         metrics["condition_b_metric"] = hit_metric_b
         metrics["price_change_60d"] = derived.price_change_60d
         metrics["condition_b_sigma_gap"] = derived.sigma_gap.get(hit_metric_b)

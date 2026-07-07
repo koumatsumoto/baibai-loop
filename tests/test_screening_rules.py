@@ -18,8 +18,8 @@ from baibai_loop.screening.rules import (
     PLAYBOOK_CASHFLOW_YIELD,
     PLAYBOOK_SALES_DISCOUNT,
     PLAYBOOK_VALUATION_REVERSION,
-    REASON_PRICE_SIGMA,
     REASON_SECTOR_SELF_RANGE,
+    REASON_VALUATION_SIGMA,
     evaluate_screening,
 )
 from baibai_loop.screening.schema import DerivedMetrics, FinancialSnapshot, TTMQuality
@@ -125,7 +125,7 @@ class ScreeningRulesTests(unittest.TestCase):
             ),
             RULES,
         )
-        self.assertIn(REASON_PRICE_SIGMA, result.evidence_hits[0].reasons)
+        self.assertIn(REASON_VALUATION_SIGMA, result.evidence_hits[0].reasons)
 
     def test_condition_b_hits_when_price_change_60d_missing(self) -> None:
         # 60 日下落は要件ではない。price_change_60d が欠損でも σギャップ充足 &
@@ -145,7 +145,7 @@ class ScreeningRulesTests(unittest.TestCase):
             for evidence_hit in result.evidence_hits
             if evidence_hit.name == PLAYBOOK_VALUATION_REVERSION
         )
-        self.assertIn(REASON_PRICE_SIGMA, valuation.reasons)
+        self.assertIn(REASON_VALUATION_SIGMA, valuation.reasons)
         self.assertIsNone(valuation.metrics["price_change_60d"])
 
     def test_condition_b_hits_when_price_not_down_60d(self) -> None:
@@ -160,7 +160,7 @@ class ScreeningRulesTests(unittest.TestCase):
             ),
             RULES,
         )
-        self.assertIn(REASON_PRICE_SIGMA, result.evidence_hits[0].reasons)
+        self.assertIn(REASON_VALUATION_SIGMA, result.evidence_hits[0].reasons)
 
     def test_deterioration_blocks_conditions_b_and_c(self) -> None:
         result = evaluate_screening(
@@ -184,7 +184,7 @@ class ScreeningRulesTests(unittest.TestCase):
             ),
             RULES,
         )
-        self.assertIn(REASON_PRICE_SIGMA, result.evidence_hits[0].reasons)
+        self.assertIn(REASON_VALUATION_SIGMA, result.evidence_hits[0].reasons)
 
     def test_sector_rotation_alone_does_not_hit(self) -> None:
         # 相対モメンタム (sector 内劣後) だけでは valuation 条件を満たさないため

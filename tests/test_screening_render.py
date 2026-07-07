@@ -63,7 +63,7 @@ class ScreeningRenderTests(unittest.TestCase):
                         EvidenceHit(
                             name="valuation-reversion",
                             playbook_id="valuation-reversion",
-                            reasons=("price_down_60d_and_valuation_sigma_down",),
+                            reasons=("valuation_sigma_down",),
                         ),
                     ),
                     ttm_quality={
@@ -123,7 +123,7 @@ class ScreeningRenderTests(unittest.TestCase):
                             playbook_id="valuation-reversion",
                             reasons=(
                                 "sector_median_discount_and_self_range_bottom",
-                                "price_down_60d_and_valuation_sigma_down",
+                                "valuation_sigma_down",
                                 "sector_rotation_short_sell",
                             ),
                             metrics={"price_change_60d": -0.155},
