@@ -25,35 +25,24 @@ description: >-
 ls records/04-position/*/*/*.md
 # データ鮮度（最新営業日 = screen の asof）
 python3 -c "import sqlite3;c=sqlite3.connect('data/screening/market.sqlite');print(c.execute('SELECT MAX(traded_at) FROM jquants_daily_bars').fetchone())"
-# 最新 candidates（無ければ下のパイプラインで生成）
+# 最新 candidates（無ければ pipeline で生成）
 ls records/02-candidates/*/*/*.yaml | tail -3
 ```
 
-cache が最新営業日に届いていなければ、その asof まで拡張してから run する（J-Quants throttling 時は直近の完全営業日にフォールバック）。`run` / `select` は cache-only / point-in-time で、API fallback はしない:
-
-```bash
-ASOF=<最新の完全営業日 YYYY-MM-DD>
-uv run baibai-loop-screening bootstrap-cache --asof "$ASOF"
-uv run baibai-loop-screening extract-edinet-metrics --asof "$ASOF"   # 数分かかる（背景実行可）
-uv run baibai-loop-screening verify-cache-coverage --asof "$ASOF"
-uv run baibai-loop-screening run --asof "$ASOF"                      # universe→candidates
-```
+cache が最新営業日に届いていなければ、その asof まで拡張してから run する。screening pipeline（`bootstrap-cache` → `extract-edinet-metrics` → `verify-cache-coverage` → `run`）の実行は [`docs/operations/monthly-cycle.md`](../../../docs/operations/monthly-cycle.md) §2 を正本にする。**skill 固有ノブ**: `ASOF` は最新の完全営業日を使い、J-Quants throttling 時は直近の完全営業日へフォールバックする。`run` / `select` は cache-only / point-in-time で API fallback しない（`extract-edinet-metrics` は数分かかるので背景実行可）。
 
 ## 2. macro context を「深く」作る（リスクリワードの土台）
 
-[[feedback_macro_context_depth]]: 浅い macro は不可。直近の世界情勢を入念に多角的に分析し、RR を判断できる前提にする。トークンは気にせず最大限。
+作成手順・8 レンズ・パネル取得・独立性 / regime-flip・数値検算・公開前の敵対的 self-check は skill [`macro-analysis`](../macro-analysis/SKILL.md)（正本 [`docs/workflow/macro.md`](../../../docs/workflow/macro.md)）に従い、成果物 `records/01-macro-context/YYYY/MM/macro-context-YYYY-MM-DD-<slug>.yaml` を `uv run baibai-loop-validation --target macro-context` で通す。本フロー固有に効く制約だけをここに残す。
 
-- **テーマ別 subagent fan-out**（[[feedback_subagent_cap]] により**同時起動は最大 5**。多ければ wave に分ける）:
+- **深さ基準**（[[feedback_macro_context_depth]]）: 浅い macro は不可。直近の世界情勢を入念に多角的に分析し、RR を判断できる前提にする。各テーマで Tier-1 を多数（20+ 目安・各 URL+公表日）引き、**「割安な日本 AI/DX 株を今買う RR にどう効くか」へ必ず接続**する。テーマ別 fan-out の目安:
   1. AI / 半導体 / データセンター capex サイクル（拡大 or digestion かが AI-tilt の RR を左右）
   2. 米マクロ・Fed・金利・米株（Mag7 集中度含む）
   3. 日本マクロ・BOJ・JGB・USD/JPY・春闘・需給/PBR 改革
   4. 地政学・通商・半導体規制・台湾・原油
   5. クロスアセット・シナリオ（base/bull/bear/tail）・直近急落の post-mortem・invalidation
-- 各 agent に: Tier-1 を多数（20+ 目安、各 URL+公表日）、確認/推定を区別、**「割安な日本 AI/DX 株を今買う RR にどう効くか」へ接続**、を要求。session 制限に備え「partial でも必ず結論を返す」と指示。
-- 合成して `records/01-macro-context/YYYY/MM/macro-context-YYYY-MM-DD-<slug>.yaml` を作る。schema 必須: `kind, context_id, as_of, valid_until, published_at, summary, inputs(articles[]+indicator_series[]), sector_tilts.items[](id/scope=sector_33/key/stance∈tailwind|neutral|mixed|headwind/strength/confidence/rationale), research_questions[], refresh_triggers[], changes_since_previous[]`（additionalProperties=false）。`uv run baibai-loop-validation --target macro-context` を通す。
-- `select` は macro `as_of` が candidates asof より新しいと拒否する。mechanical run には asof 以前で valid な context を使い、買い判断の深い分析は最新 context で行う。macro `as_of` は candidates asof（＝最新の完全営業日）に合わせる。
-- **独立性とregime-flip**（[[feedback_macro_analysis_independence]]）: 過去の自リポジトリの「解釈・結論・tilt・建玉」は前提にせず、最新の一次情報（直近の**大引けまで**）からゼロベースで読む。過去の「事実=価格・指標・イベント」のみ前提可。regime は1日で反転しうる（例: 決算 surprise で AI 懐疑→リスクオン）。intraday に書いた context が大引けで覆ったら**書き直す**。
-- **pivotal な数値は検算する**（AP-02）: 相場観の土台になる1点（例: 指数の単日 +4.6%、信用 spread、原油水準）は複数 Tier-1 で cross-check し、`baibai-loop-macro` の series でも裏取りする。1 ソースの大きな数字を鵜呑みにしない。
+- **fan-out 制約**（[[feedback_subagent_cap]]）: サブエージェント同時起動は最大 5。多ければ wave に分け、各 agent に「partial でも必ず結論を返す」と指示する。
+- **select との鮮度整合**: `select` は macro `as_of` が candidates asof より新しいと拒否する。mechanical run には asof 以前で valid な context を使い、`as_of` は candidates asof（＝最新の完全営業日）に合わせる。買い判断の深い分析は最新 context で行う。
 
 ## 3. `select` で割安候補 TOP10 を出して人手で TOP12 を確定する
 
