@@ -10,6 +10,8 @@ description: >-
 
 # AI バリュー・バーゲン銘柄選定（Baibai-Loop）
 
+> **正本と操作の分離**: 本 skill は選定フローの〈操作〉（漏斗の順序・判断ノブ・出力形態）を持つ。思想・仕様・契約の正本は docs 側にあり、本 skill はそれを書き写さず参照する — [`doctrine.md`](../../../docs/doctrine.md)（柱 2 / 柱 5）・[`portfolio-management.md`](../../../docs/portfolio-management.md)（資本・cap・耐性ゲート）・[`workflow/screening.md`](../../../docs/workflow/screening.md)・[`workflow/research.md`](../../../docs/workflow/research.md)（FV・RR・見積り式）・[`operations/monthly-cycle.md`](../../../docs/operations/monthly-cycle.md)（月次 e2e 導線）。
+
 長期 AI 構造価値 × 足元割安の日本株を、本リポジトリの screening 基盤で選定し提案する手順。`AGENTS.md` の anti-pattern（AP-01 一次情報 / AP-02 検算 / AP-09 会社 IR 確認）、`docs/portfolio-management.md`（単一プール資本・concentration cap・塩漬け耐性ゲート・割高で全売り）、`docs/doctrine.md` 柱 5（単一合成スコアを出さない＝スコアは軸別座標）、`docs/workflow/research.md`（FV・RR・期待利回りの見積り式と entry/exit 規律）に従う。
 
 ## 0. ゴールと前提
@@ -55,7 +57,7 @@ uv run baibai-loop-screening select --asof YYYY-MM-DD --top 10 --detail full > .
 - 出力 `recommendations[]` から **既存保有 ticker** と **構造衰退業種 (パチンコ機械 / 有料衛星放送 / 旧来繊維機械 / 印刷等)** を skill 側 post-filter で除外し、TOP12 候補を確定する (`select` には除外フラグはない)。`split_adjustment_recent` risk tag が付く候補は market_cap / net_cash 比率が corporate action 未反映で歪み得るため、一次 IR で株数基準を必ず検算する (AP-03)。
 - `select` は valuation-reversion / cash-rich-asset-discount / cashflow-yield-discount / sales-discount-growth の 4 screen を `evidence_hits` で示し、`selection.diagnostics.market_regime` で benchmark trend (fact annotation) を返す。**表示順は機械 E[r] (成分分解付き年率見積り) の降順**が主キー (欠損は後置・従キーは playbook 優先順 + 強度キー。採用根拠は `reports/2026-07-04-preregistered-ranking-validation.md`) で、verdict ではない。E[r] 成分 (reversion/carry) と FV アンカー (`fv_sector_median_yen` / `fv_self_range_yen`) が recommendation に転記されるので、FV 見積りの出発点にする。recommendations は config の `research_selection_target_max`(5) で cap されるため、広い triage には `--rules-path` で一時 rules を渡す。
 - 候補に厚みが必要なら `--top 20` まで広げて post-filter 後に 12 件を確保する。
-- **補完スキャン**: `select` の recommendations は高 precision ゆえ薄い / テーマ（AI/DX）に偏らないことがある。その場合は candidates YAML 全体を直接走査し「AI/DX 関連 sector × 3<PER<14 × net_cash/mc>0.20 × ocf_yield>0.08 × 自己資本>0.5 × op_yoy>-0.10」等で本命候補を補完して TOP12 に繰り上げる。select の forward-measured ランキングを core、補完スキャンを enrich とし、両者を IR で検証する。
+- **補完スキャン（条件付き・多くの場合は不要）**: `select` は E[r] 降順で `--top 20` まで広げれば TOP12 の core が通常足りる。補完スキャンが要るのは **recommendations が薄い / AI・DX テーマ特化で厚みが不足するとき**だけ。その場合に限り candidates YAML 全体を直接走査し「AI/DX 関連 sector × 3<PER<14 × net_cash/mc>0.20 × ocf_yield>0.08 × 自己資本>0.5 × op_yoy>-0.10」等で本命候補を補完して TOP12 に繰り上げる。select の forward-measured ランキングを core、補完スキャンを enrich とし、両者を IR で検証する。
 
 ## 4. TOP12 を一次 IR 深掘り（≤5 subagent / wave）
 

@@ -12,6 +12,8 @@ description: >
 
 # 金融プロ（ポートフォリオマネージャー）レビュー
 
+> **正本と操作の分離**: 本 skill は PM 視点のレビュー〈操作〉を持つ。資本・cap・耐性ゲートの正本は [`portfolio-management.md`](../../../docs/portfolio-management.md)、思想は [`doctrine.md`](../../../docs/doctrine.md)、FV・RR・見積り式は [`workflow/research.md`](../../../docs/workflow/research.md)。
+
 投資配分・銘柄選定・トレード提案を、**投資ファンドのシニア・ポートフォリオマネージャー（PM）の運用規律**でレビューする。敵対的レビュー（個別主張を反証・穴を探す）と相補的で、こちらは「**運用論として顧客資金に入れられる設計か**」を問う。
 
 ## なぜ効くか（このレビューの値打ち）

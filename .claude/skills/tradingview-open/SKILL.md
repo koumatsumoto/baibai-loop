@@ -10,6 +10,8 @@ description: >-
 
 # TradingView でチャートを開く（Baibai-Loop）
 
+> **操作専用 skill**: docs 側に対応する仕様正本はなく、URL 組み立てと既定ブラウザ起動の〈操作〉だけを持つ。銘柄提示時に必ずリンクを添える運用ルールは [`operations/monthly-cycle.md`](../../../docs/operations/monthly-cycle.md) §5（取引提案）に従う。
+
 ユーザーは普段 https://jp.tradingview.com/ の保存レイアウト（自分のインジケーター付きチャート）で銘柄を見ている。このリポジトリで銘柄を出すときは、その同じチャートへ即アクセスできるよう、TradingView URL を必ず併記し、既定ブラウザにも開く。
 
 ## URL 形式（canonical）
