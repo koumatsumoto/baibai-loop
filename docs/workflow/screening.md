@@ -52,6 +52,13 @@ candidates YAML（`records/02-candidates/`）は market.sqlite から再生成�
 
 ranking の主キーは **valuation discount（割安度）** とする。組み込みの selection profile は `balanced` のみ。閾値を変えるときは `records/_config/screening-rules/` の設定を編集して `select` を再実行し、出力の差分を確認する。**短期の急落銘柄を上位に押し上げる仕組みや、リスクオン相場で逆張り候補を沈める仕組みは持たない**（保有期間ではなく valuation と耐性で判断するため）。
 
+`select` の triage は `records/_config/screening-rules/*.yaml` の `selection` block を契約とする（閾値 baseline の正本は [`../reference/screening-runtime.md`](../reference/screening-runtime.md) §8）。
+
+- `selection.default_profile`：明示 `--profile` がないときの built-in profile。built-in は `balanced` のみで、未知 profile は rules load 時に error にする。
+- `selection.liquidity`：research 推奨に適用する規模・流動性・上場期間・JPX 規制の絞り込み。screen の scope は全普通株のままで、絞り込みはこの分析層パラメータだけが担う。
+- `selection.durability`：塩漬け耐性の閾値。built-in profile はコード側の閾値を優先し、この YAML block は load-time contract と custom profile のベースとして扱う。
+- `selection.diversity`：recommendations の sector / playbook 集中度、過去 candidates の混入上限、previous overlap warning。
+
 ## Candidates 出力（事実）
 
 ```text

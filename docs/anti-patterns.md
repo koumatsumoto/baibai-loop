@@ -262,7 +262,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] `src/baibai_loop/screening/cli/common.py` の専用 helper (`_parse_profiles_arg` のような callers が消えた helper)
   - [ ] `docs/` 全 grep (`rg <subcommand> docs/ records/ reports/`): runbook の bash example、reference の CLI 表、components / screening の説明文、`docs/reference/screening-runtime.md` の subcommand 一覧
   - [ ] `.claude/skills/` 全 grep: skill が当該 CLI を中核に据えていないか
-  - [ ] `docs/reference/configuration.md` の関連節 (env var / profile YAML / 設定例)
+  - [ ] `docs/reference/screening-runtime.md` §3 (env var) / §8 (rules baseline) と `docs/workflow/screening.md` の selection block 節
   - [ ] 関連 test fixture (test_screening_cli の sweep / scorecard テスト等)
 - [ ] **playbook を削減する場合、以下を同 commit で揃える** (PR #246 で 5 名レビューで指摘):
   - [ ] `records/_playbooks/<playbook>/` ディレクトリ削除

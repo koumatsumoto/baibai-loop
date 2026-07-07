@@ -221,7 +221,7 @@ class MarketStateCliArgumentTests(unittest.TestCase):
         self.assertEqual(args.sqlite_path, "x.sqlite")
 
     def test_select_rules_path_default_honors_env(self) -> None:
-        # docs/reference/configuration.md: SCREENING_RULES_PATH は select にも効く。
+        # docs/reference/screening-runtime.md §3: SCREENING_RULES_PATH は select にも効く。
         # default は build_parser() 呼び出し時に env 解決される。CLI 明示 > env > 既定。
         import os
         import unittest.mock
