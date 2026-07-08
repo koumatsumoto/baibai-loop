@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src https://cdn.jsdelivr.net/npm/mermaid@11.15.0/ 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src blob:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <title>2026-07 月次積立 Round 2 銘柄選定レポート</title>
+  <style>
+/* km:html-document のスタイル。document-template.html の <style> にインライン展開して単一ファイルにする（外部リンクにしない） */
+
+/* ===== テーマ変数（配色やサイズの調整はここを起点に） ===== */
+:root {
+  --content-width: 1400px;
+  --fg: #1f2328;
+  --fg-muted: #57606a;
+  --bg: #ffffff;
+  --bg-subtle: #f6f8fa;
+  --border: #d0d7de;
+  --accent: #0969da;
+  --note: #0969da;
+  --warning: #9a6700;
+  --important: #8250df;
+  --code-bg: #f6f8fa;
+  --radius: 6px;
+  --space: 16px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN",
+          "Noto Sans JP", Meiryo, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* ===== ベース ===== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  color: var(--fg);
+  background: var(--bg);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.75;
+}
+
+/* ===== レイアウト（コンテンツ幅 1400px・中央寄せ） ===== */
+.container {
+  width: var(--content-width);
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 40px 32px 80px;
+}
+
+/* ===== ヘッダ / フッタ ===== */
+.doc-header { border-bottom: 2px solid var(--border); padding-bottom: 16px; margin-bottom: 32px; }
+.doc-header h1 { margin: 0 0 8px; }
+.doc-header .subtitle { margin: 0; color: var(--fg-muted); font-size: 1.05rem; }
+.doc-header .meta { margin: 8px 0 0; color: var(--fg-muted); font-size: 0.875rem; }
+.doc-footer { border-top: 1px solid var(--border); margin-top: 48px; padding-top: 16px; color: var(--fg-muted); font-size: 0.875rem; }
+
+/* ===== 見出し階層（H1 は 1 つ、H2=セクション、H3=サブ） ===== */
+h1 { font-size: 2rem; line-height: 1.3; }
+h2 { font-size: 1.5rem; margin-top: 2em; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 1.2rem; margin-top: 1.6em; }
+h2, h3 { scroll-margin-top: 16px; }
+
+/* ===== 本文要素 ===== */
+p, ul, ol { margin: 0 0 var(--space); }
+li { margin: 4px 0; }
+a { color: var(--accent); }
+hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+/* ===== 目次（長文向け） ===== */
+.toc { background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 24px; margin-bottom: 32px; }
+.toc strong { display: block; margin-bottom: 8px; }
+.toc ul { margin: 0; padding-left: 20px; }
+
+/* ===== テーブル ===== */
+table { border-collapse: collapse; width: 100%; margin: 0 0 var(--space); }
+th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+th { background: var(--bg-subtle); }
+tbody tr:nth-child(even) { background: var(--bg-subtle); }
+
+/* ===== コードブロック ===== */
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; overflow-x: auto; }
+code { font-family: var(--mono); font-size: 0.9em; }
+p code, li code, td code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+pre code { background: none; padding: 0; }
+
+/* ===== Callout（note / warning / important） ===== */
+.callout { border: 1px solid var(--border); border-left-width: 4px; border-radius: var(--radius); padding: 12px 16px; margin: 0 0 var(--space); background: var(--bg-subtle); }
+.callout .callout-title { font-weight: 600; margin: 0 0 4px; }
+.callout-note { border-left-color: var(--note); }
+.callout-warning { border-left-color: var(--warning); }
+.callout-important { border-left-color: var(--important); }
+
+/* ===== 図（Mermaid）。Ctrl+ホイール / ツールボタンで拡縮・ドラッグ移動・画像化ツールバー付き ===== */
+figure.diagram { position: relative; overflow: hidden; margin: 0 0 24px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); text-align: center; background: var(--bg); }
+figure.diagram .mermaid { display: flex; justify-content: center; cursor: grab; }
+figure.diagram.grabbing .mermaid { cursor: grabbing; }
+figure.diagram svg text { cursor: text; } /* ラベル上はテキスト選択カーソル（余白・ノードは grab で pan） */
+figure.diagram.grabbing { user-select: none; -webkit-user-select: none; } /* pan 中だけ選択を抑止し、通常はテキスト選択可 */
+figure.diagram svg { transition: transform .06s ease-out; flex-shrink: 0; } /* ズームは width/height で行う（ベクタ再描画で鮮明）。flex で縮めない */
+figure.diagram figcaption { margin-top: 10px; color: var(--fg-muted); font-size: 0.875rem; }
+/* 図ごとのツールバー（hover で表示）。JS が動的に挿入する */
+.diagram-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; opacity: 0; transition: opacity .15s; }
+figure.diagram:hover .diagram-tools, figure.diagram:focus-within .diagram-tools { opacity: 1; }
+.diagram-tools button { font-family: inherit; font-size: 0.72rem; line-height: 1.7; padding: 1px 8px; color: var(--fg-muted); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
+.diagram-tools button:hover { color: var(--fg); background: var(--bg-subtle); }
+
+/* ===== 印刷 / PDF ===== */
+@media print {
+  .toc, .diagram-tools { display: none; }
+  .container { width: auto; max-width: none; padding: 0; }
+  .callout { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  figure.diagram, pre, table, .callout { break-inside: avoid; page-break-inside: avoid; }
+  figure.diagram { overflow: visible; }
+  figure.diagram svg { transform: none !important; } /* ズーム自体は JS の beforeprint で自然サイズへ戻す */
+  svg { max-width: 100%; height: auto; }
+}
+
+</style>
+</head>
+<body>
+  <div class="container">
+    <header class="doc-header">
+      <h1>2026-07 月次積立 Round 2 銘柄選定レポート</h1>
+      <p class="subtitle">asof 2026-07-08 の価格で再確認し、4887 サワイ GHD を主候補、6088 シグマクシス HD を補助候補に選定する</p>
+      <p class="meta">生成日: 2026-07-09 JST / macro context: 2026-07-06 labor-cooling-oil-normalized-value-rotation / screening asof: 2026-07-08</p>
+    </header>
+
+    <nav class="toc">
+      <strong>目次</strong>
+      <ul>
+        <li><a href="#summary">1. 結論</a></li>
+        <li><a href="#latest">2. 最新 asof と機械出力</a></li>
+        <li><a href="#comparison">3. 4 軸比較</a></li>
+        <li><a href="#rr">4. リスクリワードの正直な評価</a></li>
+        <li><a href="#orders">5. 執行設計</a></li>
+        <li><a href="#excluded">6. 見送り理由</a></li>
+        <li><a href="#review">7. PM レビュー</a></li>
+        <li><a href="#sources">8. 主要ソース</a></li>
+      </ul>
+    </nav>
+
+    <section>
+      <h2 id="summary">1. 結論</h2>
+      <div class="callout callout-important">
+        <p class="callout-title">提案</p>
+        <p><strong>8 月予算で 4887 サワイグループホールディングス 100 株を主提案、6088 シグマクシス・ホールディングス 100 株を小さな補助提案</strong>とする。注文は 2026-08-03 以降、合計上限は 226,000 円（4887: 169,000 円、6088: 57,000 円）。7 月の月次投下枠は 2331 / 8929 の約定待ち 224,000 円でほぼ消化済みのため、7 月中の追加投下は行わない。</p>
+      </div>
+      <p>4 銘柄のうち、買える割安は <strong>4887</strong> と <strong>6088</strong>。4887 は訴訟費用・薬価・粗利低下で売られたが、FY3/27 会社予想は営業利益 +71.1%、訴訟和解 40 億円は費用計上済みで、earnings collapse ではない。6088 は FY3/26 売上未達が大きいが、営業利益は過去最高、ネットキャッシュかつ自社株買い継続で耐性が高い。一方、7095 は 6/12 急落が本決算・来期減益予想に直結し、5410 は FY3/27 EPS -46.6% と減配で、どちらも今回は見送る。</p>
+      <table>
+        <thead><tr><th>順位</th><th>銘柄</th><th>最新終値</th><th>提案指値</th><th>数量</th><th>上限金額</th><th>TradingView</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>4887 サワイ GHD</td><td>1,716 円（2026-07-08）</td><td><strong>1,690 円</strong></td><td>100 株</td><td>169,000 円</td><td><a href="https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A4887" rel="noopener noreferrer">4887 chart</a></td></tr>
+          <tr><td>2</td><td>6088 シグマクシス HD</td><td>580 円（2026-07-08）</td><td><strong>570 円</strong></td><td>100 株</td><td>57,000 円</td><td><a href="https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A6088" rel="noopener noreferrer">6088 chart</a></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2 id="latest">2. 最新 asof と機械出力</h2>
+      <p>J-Quants / EDINET cache を 2026-07-08 まで更新し、coverage 検証を通した。`run` は candidates 1,610 件を生成したが、既存の TTM quality warning により exit code 2（partial warning）。`select` は通常 rules と triage rules の両方で再実行した。</p>
+      <table>
+        <thead><tr><th>ticker</th><th>終値 7/6</th><th>終値 7/8</th><th>7/8 triage順位</th><th>機械 E[r]</th><th>主な注意</th></tr></thead>
+        <tbody>
+          <tr><td>7095</td><td>1,114</td><td>1,100</td><td>6</td><td>10.0%</td><td>本決算・来期減益で 6/12 に -15.8%。顧客集中 40% 超。</td></tr>
+          <tr><td>4887</td><td>1,747.5</td><td>1,716</td><td>9</td><td>9.6%</td><td>訴訟費用 40 億円は費用計上済み。FY3/27 は増益予想。</td></tr>
+          <tr><td>6088</td><td>574</td><td>580</td><td>12</td><td>8.8%</td><td>売上未達は大きいが営業利益は過去最高。PBR 3.3 は高い。</td></tr>
+          <tr><td>5410</td><td>2,667</td><td>2,675</td><td>5</td><td>11.5%</td><td>FY3/27 EPS -46.6%、配当 180→100 円。ピーク循環。</td></tr>
+        </tbody>
+      </table>
+      <div class="callout callout-warning">
+        <p class="callout-title">#313 の影響</p>
+        <p>7/8 の通常 select でも 4116 / 4008 / 8078 が上位に残るが、これは分割前 `dps_actual_annual` を現在株価で割る #313 の carry 膨張バグの影響を受ける。今回の 4 銘柄評価は `dps_forecast_annual` と会社予想を優先して読み替えた。</p>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="comparison">3. 4 軸比較</h2>
+      <table>
+        <thead><tr><th>軸</th><th>7095 Macbee Planet</th><th>4887 サワイ GHD</th><th>6088 シグマクシス HD</th><th>5410 合同製鐵</th></tr></thead>
+        <tbody>
+          <tr><td>Valuation</td><td>PER(f) 7.2、配当 5.0%。ただし FY4/27 も営業 -17.8% 予想で低 PER の質は弱い。</td><td><strong>strong</strong> PER(f) 10.7、FV 2,100〜2,400 円。訴訟費用込みの売りで割安化。</td><td>neutral〜strong PER(f) 10.6、FV 680〜760 円。上値は中程度。</td><td>PBR 0.27 は極端だが EPS 550.56→294.04 円、配当 180→100 円で正常化価値が下がった。</td></tr>
+          <tr><td>Durability</td><td>ネットキャッシュ 30.7 億、自己資本 52.4%。顧客集中と広告規制が重い。</td><td>自己資本比率 49.6%。有利子負債は重いが、後発薬首位・製造基盤・増益予想で保有耐性は中〜高。</td><td><strong>strong</strong> ネットキャッシュ約 51 億、自己資本比率 83.6%、営業 CF 黒字、FCF 黒字。</td><td>自己資本比率 56.3%、FCF は黒字。ただし純有利子負債 275 億、鉄鋼市況・電力・スクラップに循環リスク。</td></tr>
+          <tr><td>Catalyst</td><td>2026-09-10 1Q。55 円配当維持。自社株買いは 4 月に終了済み。</td><td><strong>strong</strong> FY3/27 営業 +71.1% 予想、訴訟和解費用は既に計上。中計の自己株取得は大きく進捗済み。</td><td>自己株買い期限 2026-07-31。FY3/27 営業 +8.8% 予想。</td><td>2026-07-31 1Q。利益下方循環の確認イベントであり、買いカタリストではない。</td></tr>
+          <tr><td>Positioning / liquidity</td><td>ADV 1.7 億、時価 161 億。小型・サービスで板は薄め。</td><td><strong>strong</strong> ADV 9.5 億、時価 1,982 億。注文参加率は 0.018%。</td><td>ADV 2.7 億、時価 499 億。注文参加率は 0.021%。</td><td>ADV 2.7 億、時価 459 億。1 単元 26.8 万円で月次予算を単独消費。</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2 id="rr">4. リスクリワードの正直な評価</h2>
+      <div class="callout callout-warning">
+        <p class="callout-title">最高値圏補正</p>
+        <p>macro regime は選別的リスクオンだが、日経は ATH 圏、米 ERP はマイナスで、上方より左テールを厚く見る。下値床にネットキャッシュを使うのは、還元・実現機構が確認できる場合だけとし、今回は保守下値を事業倍率・決算失望時の価格帯から置いた。</p>
+      </div>
+      <table>
+        <thead><tr><th>銘柄</th><th>entry</th><th>FV 中心</th><th>上値</th><th>保守下値</th><th>下値</th><th>RR</th><th>配当利回り</th><th>年率概算（FV 2 年収束）</th></tr></thead>
+        <tbody>
+          <tr><td>4887</td><td>1,690</td><td>2,250</td><td>+33.1%</td><td>1,450</td><td>-14.2%</td><td><strong>2.33</strong></td><td>3.31%</td><td>18.7%（regime 補正後は 10〜12%）</td></tr>
+          <tr><td>6088</td><td>570</td><td>720</td><td>+26.3%</td><td>500</td><td>-12.3%</td><td><strong>2.14</strong></td><td>4.56%</td><td>17.0%（regime 補正後は 8〜10%）</td></tr>
+          <tr><td>7095</td><td>1,080</td><td>1,400</td><td>+29.6%</td><td>850</td><td>-21.3%</td><td>1.39</td><td>5.09%</td><td>表面は高いが、利益低下・顧客集中で補正後は不十分</td></tr>
+          <tr><td>5410</td><td>2,600</td><td>2,900</td><td>+11.5%</td><td>2,200</td><td>-15.4%</td><td>0.75</td><td>3.85%</td><td>ピーク循環のため採用不可</td></tr>
+        </tbody>
+      </table>
+      <p>4887 の FV は FY3/27 EPS 161.09 円に 13〜15 倍を掛けた 2,100〜2,400 円を中心に置く。これは機械 FV の sector anchor 2,486 円より保守的で、self anchor 1,953 円を下回らない。6088 は FY3/27 EPS 54.67 円に 12.5〜14 倍を掛けた 680〜760 円を中心に置き、機械 anchor（sector 684 / self 801）と整合させる。</p>
+    </section>
+
+    <section>
+      <h2 id="orders">5. 執行設計</h2>
+      <p>注文は 8 月予算で扱う。2026-08-01 は土曜日のため、実際の有効開始は <strong>2026-08-03</strong>。2331 ALSOK と 8929 青山財産の既存 submitted order（合計 224,000 円、期限 2026-07-31）が約定しても、8 月予算 20〜30 万円の範囲でこの提案は独立に実行可能。未約定の場合は、この 2 銘柄を 8 月の第一候補へ繰り上げる。</p>
+      <table>
+        <thead><tr><th>注文</th><th>数量</th><th>指値</th><th>期限</th><th>撤回条件</th></tr></thead>
+        <tbody>
+          <tr><td>4887 buy</td><td>100 株</td><td>1,690 円</td><td>2026-08-31 15:30 JST</td><td>Q1 決算日が注文日から 1 営業日以内に確定した場合は決算通過まで defer。営業利益の会社通期進捗が弱く、FY3/27 予想の据置根拠が崩れた場合は撤回。</td></tr>
+          <tr><td>6088 buy</td><td>100 株</td><td>570 円</td><td>2026-08-31 15:30 JST</td><td>FY3/27 1Q で売上成長が戻らず、FY3/27 営業 66 億円予想の据置根拠が弱い場合は撤回。自己株買い期限後に需給支えが消える点を確認。</td></tr>
+        </tbody>
+      </table>
+      <p><strong>cap 検算</strong>: 4887 は 169,000 円 = real capital 1.69%、6088 は 57,000 円 = 0.57%。合計 226,000 円 = 2.26%。4887 の医薬品 sector は新規 1.69%。6088 追加後のサービス業は既存・submitted を含め約 5.77%。sales-discount-growth playbook は 4887 追加後 7.63%、valuation-reversion playbook は 6088 追加後 4.84%。いずれも cap（ticker 6%、sector 40%、playbook 35%）内。ADV 参加率は 4887 が約 0.018%、6088 が約 0.021% で 5% cap を大きく下回る。</p>
+    </section>
+
+    <section>
+      <h2 id="excluded">6. 見送り理由</h2>
+      <h3>7095 Macbee Planet</h3>
+      <p>最新終値 1,100 円、PER(f) 7.2、配当 5.0% は見た目には強い。しかし 2026-06-12 の急落は、2026-06-11 本決算での創業来初の減収減益と FY4/27 営業 -17.8% 予想への反応だった。既存大型顧客の個別事情、上位顧客 40% 超、広告・医療・個人情報規制、AI による顕在層広告の成長鈍化が同時にあり、これは単なる de-rating ではなく earnings-collapse 寄り。自社株買いは 2026-04 に終了済みで、次の確認イベントは 2026-09-10 1Q。今回は defer。</p>
+      <h3>5410 合同製鐵</h3>
+      <p>最新終値 2,675 円、PBR 0.27 は極端だが、FY3/27 会社予想は営業 -33.8%、EPS -46.6%、年間配当 180→100 円。過去 5 期営業利益は 2024/3 の 178.5 億をピークに 137.5 億、98.1 億へ低下しており、ピーク循環の巻き戻しを PBR だけで買う形になる。政策保有株 149 億・土地 542 億は下支えだが、価値実現機構が弱く、1 単元 26.8 万円で 8 月予算を単独消費する。今回は rejected。</p>
+    </section>
+
+    <section>
+      <h2 id="review">7. PM レビュー</h2>
+      <ul>
+        <li><strong>全体配分</strong>: 既存 open + submitted は 187.1 万円（18.7%）。8 月提案後でも 209.7 万円（21.0%）で、現金余力は十分残る。</li>
+        <li><strong>分散</strong>: 4887 は医薬品で既存保有にない sector、6088 はサービス業だが notional が小さい。情報通信偏重を増やさない点は良い。</li>
+        <li><strong>リスク調整</strong>: 4887 は薬価・品質・訴訟、6088 は人材・案件遅延・投資事業残滓とリスク源泉が異なる。どちらも日経 ATH 圏の beta リスクは残るため、8 月予算の下限寄りに抑える。</li>
+        <li><strong>配当/FCF の質</strong>: 4887 は FY3/26 FCF がマイナスで配当の質は B。6088 はネットキャッシュ・FCF 黒字で A-。利回りから選ぶのではなく、事業の質と割安を先に置く。</li>
+        <li><strong>約定戦略</strong>: 単元が小さい 6088 は starter として使いやすい。4887 は 1 単元 17 万円で主候補に十分。どちらも浅めの指値で、決算直前なら defer。</li>
+        <li><strong>tail</strong>: 円高スナップバック時、4887 は内需・医薬、6088 は内需コンサルで直接の為替感応は小さい。ただし小型割安 factor の同時売りには耐える必要がある。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2 id="sources">8. 主要ソース</h2>
+      <table>
+        <thead><tr><th>銘柄</th><th>一次 / 準一次ソース</th></tr></thead>
+        <tbody>
+          <tr><td>7095</td><td><a href="https://macbee-planet.com/ir/upload_file/tdnrelease/7095_20260611568032_P01_.pdf" rel="noopener noreferrer">2026年4月期 決算短信</a>、<a href="https://macbee-planet.com/ir/upload_file/tdnrelease/7095_20260611568308_P01_.pdf" rel="noopener noreferrer">2026年4月期 決算説明資料</a>、<a href="https://macbee-planet.com/ir/stock_bond/dividends.html" rel="noopener noreferrer">株主還元方針</a>、J-Quants local cache</td></tr>
+          <tr><td>4887</td><td><a href="https://pdf.irpocket.com/C4887/WUpy/b721/LkxD.pdf" rel="noopener noreferrer">2026年3月期 通期決算説明資料</a>、<a href="https://pdf.irpocket.com/C4887/WUpy/XiOE/lXwd.pdf" rel="noopener noreferrer">2026年3月期 決算短信</a>、<a href="https://pdf.irpocket.com/C4887/w4ok/L03S/O4Gs.pdf" rel="noopener noreferrer">旭化成ファーマ訴訟和解</a>、<a href="https://pdf.irpocket.com/C4887/lAG8/QjwN/FJIE.pdf" rel="noopener noreferrer">訴訟損失引当金繰入</a>、J-Quants local cache</td></tr>
+          <tr><td>6088</td><td><a href="https://data.swcms.net/file/sigmaxyz-clump/dam/jcr%3A8b8b1b0e-c558-45f5-a26a-0bc24c1134b1/140120260507518187.pdf" rel="noopener noreferrer">FY3/26 決算短信</a>、<a href="https://data.swcms.net/file/sigmaxyz-clump/dam/jcr%3Aad69b39b-550a-49ba-bcc4-48c24c7c25fd/140120260507518211.pdf" rel="noopener noreferrer">FY3/26 決算補足資料</a>、<a href="https://www.sigmaxyz.com/ja/ir/news/auto_20251104586949/pdfFile.pdf" rel="noopener noreferrer">2025-11-05 業績予想修正</a>、<a href="https://www.sigmaxyz.com/ja/ir/news/auto_20260701585506/pdfFile.pdf" rel="noopener noreferrer">自己株式取得状況</a>、J-Quants local cache</td></tr>
+          <tr><td>5410</td><td><a href="https://contents.xj-storage.jp/xcontents/AS01941/6a6ba757/ad7f/402d/bc81/6bc84ef5d9d0/140120260424510317.pdf" rel="noopener noreferrer">2026年3月期 決算短信</a>、<a href="https://contents.xj-storage.jp/xcontents/AS01941/357a3fdb/01ad/4ca8/b418/4c5ac72cd0be/S100YCUF.pdf" rel="noopener noreferrer">有価証券報告書</a>、IRBANK、J-Quants local cache</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="doc-footer">
+      <p>Generated as a single self-contained HTML document.</p>
+    </footer>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.min.js" integrity="sha384-yQ4mmBBT+vhTAwjFH0toJXNYJ6O4usWnt6EPIdWwrRvx2V/n5lXuDZQwQFeSFydF" crossorigin="anonymous"></script>
+  <script>
+// km:html-document の図操作スクリプト。document-template.html の末尾 <script> にビルドで挿入して単一ファイルにする。
+
+// Mermaid 初期化。htmlLabels:false で図ラベルを <foreignObject>（HTML）ではなく SVG <text> で描く。
+// foreignObject 入り SVG は canvas 描画時に汚染され toBlob が失敗するため、WebP 化を成立させるのに必須。
+mermaid.initialize({ startOnLoad: true, securityLevel: 'strict', htmlLabels: false, flowchart: { htmlLabels: false } });
+
+// 図の操作（完全クライアント側・外部送信なし）。各 figure.diagram に付与する:
+// - Ctrl+ホイールまたは ＋ / − ボタンで拡大 / 縮小、ドラッグで移動、ダブルクリック / リセットボタンで初期化
+// - WebP ボタンで SVG を canvas 経由のラスタ画像にして別タブで開く（ポップアップ抑止時はダウンロード）
+// mermaid は load 時に非同期描画するため、ハンドラは figure に張り SVG はイベント時に都度取得する（描画タイミングに依存しない）。
+(() => {
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  // SVG を指定 MIME のラスタ画像にして別タブで開く。img-src blob: で blob を許可している
+  const openAsImage = (svg, mime, ext) => {
+    const box = svg.viewBox && svg.viewBox.baseVal;
+    const rect = svg.getBoundingClientRect();
+    const w = Math.max(1, Math.round((box && box.width) || rect.width));
+    const h = Math.max(1, Math.round((box && box.height) || rect.height));
+    const clone = svg.cloneNode(true);
+    clone.setAttribute('width', w);
+    clone.setAttribute('height', h);
+    // 画面表示用のズーム/パン（inline の width/height/maxWidth/transform）を画像へ持ち込まない
+    clone.style.width = '';
+    clone.style.height = '';
+    clone.style.maxWidth = '';
+    clone.style.transform = 'none';
+    const xml = new XMLSerializer().serializeToString(clone);
+    const svgUrl = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml;charset=utf-8' }));
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale = 2; // 高解像度化
+        const canvas = document.createElement('canvas');
+        canvas.width = w * scale;
+        canvas.height = h * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          if (!blob) { console.error('diagram export: toBlob が null（canvas 上限超過 / 形式未対応の可能性）'); return; }
+          const url = URL.createObjectURL(blob);
+          const win = window.open(url, '_blank');
+          if (!win) { // ポップアップブロック時はダウンロードにフォールバック
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'diagram.' + ext;
+            a.click();
+          }
+        }, mime);
+      } catch (err) {
+        console.error('diagram export に失敗', err); // 例: foreignObject 等で canvas が汚染された場合
+      } finally {
+        URL.revokeObjectURL(svgUrl);
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(svgUrl); console.error('diagram export: SVG 画像の読み込みに失敗'); };
+    img.src = svgUrl;
+  };
+
+  const enhance = (fig) => {
+    if (fig.dataset.enhanced) return;
+    fig.dataset.enhanced = '1';
+    const view = { scale: 1, x: 0, y: 0 };
+    let base = null; // scale=1 の自然サイズ（初回 apply で記録）
+    const apply = () => {
+      const svg = fig.querySelector('svg');
+      if (!svg) return;
+      if (!base) {
+        const r = svg.getBoundingClientRect();
+        if (r.width < 1) return; // まだ描画されていない
+        base = { w: r.width, h: r.height };
+        svg.style.maxWidth = 'none'; // 拡大時に mermaid の max-width で頭打ちさせない
+      }
+      // ズームは表示サイズ（width/height）で行う → SVG ベクタが解像度に追従し、文字が拡大してもぼけない
+      svg.style.width = (base.w * view.scale) + 'px';
+      svg.style.height = (base.h * view.scale) + 'px';
+      // パンは translate（リサンプルされないので鮮明なまま）
+      svg.style.transform = `translate(${view.x}px, ${view.y}px)`;
+    };
+    const reset = () => { view.scale = 1; view.x = 0; view.y = 0; apply(); };
+    const zoomBy = (factor) => { view.scale = clamp(view.scale * factor, 0.2, 8); apply(); };
+
+    // 拡縮は Ctrl+ホイールに限定する。素のホイールはページスクロールに通し、図の上でもスクロールを妨げない
+    fig.addEventListener('wheel', (e) => {
+      if (!e.ctrlKey) return; // 素のホイールはページスクロールに任せる
+      e.preventDefault(); // ブラウザのページ全体ズームを抑止し、図だけを拡縮する
+      view.scale = clamp(view.scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1), 0.2, 8);
+      apply();
+    }, { passive: false });
+
+    let drag = null;
+    fig.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return; // 主ボタンのみ（右/中クリックで pan を始めない）
+      if (e.target.closest('.diagram-tools')) return;
+      // 図ラベル・キャプションのテキスト上では選択を優先し pan しない。余白・ノード・エッジ上だけ pan する
+      if (e.target.closest('text, tspan, foreignObject, figcaption')) return;
+      e.preventDefault(); // 余白からのドラッグでテキスト選択が始まるのを抑止する
+      drag = { x: e.clientX - view.x, y: e.clientY - view.y };
+      try { fig.setPointerCapture(e.pointerId); } catch (_) { /* 非アクティブな pointer は無視 */ }
+      fig.classList.add('grabbing');
+    });
+    fig.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      view.x = e.clientX - drag.x;
+      view.y = e.clientY - drag.y;
+      apply();
+    });
+    const endDrag = () => { drag = null; fig.classList.remove('grabbing'); };
+    fig.addEventListener('pointerup', endDrag);
+    fig.addEventListener('pointercancel', endDrag);
+    window.addEventListener('pointerup', endDrag); // capture 失敗時も、図の外で離せば pan を終える保険
+    fig.addEventListener('dblclick', reset);
+
+    // 印刷時はズーム/パンを一時解除して自然サイズで刷り、印刷後に画面の表示を復元する
+    let savedView = null;
+    window.addEventListener('beforeprint', () => {
+      if (!base) return; // 未操作の図は mermaid の自然描画のまま
+      savedView = { ...view };
+      view.scale = 1; view.x = 0; view.y = 0; apply();
+    });
+    window.addEventListener('afterprint', () => {
+      if (!savedView) return;
+      Object.assign(view, savedView);
+      savedView = null;
+      apply();
+    });
+
+    const tools = document.createElement('div');
+    tools.className = 'diagram-tools';
+    const addButton = (label, onClick, title) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      if (title) button.title = title;
+      button.addEventListener('click', onClick);
+      tools.appendChild(button);
+    };
+    const withSvg = (fn) => () => { const svg = fig.querySelector('svg'); if (svg) fn(svg); };
+    const zoomStep = 1.2;
+    addButton('−', () => zoomBy(1 / zoomStep), '縮小');
+    addButton('＋', () => zoomBy(zoomStep), '拡大');
+    addButton('リセット', reset);
+    addButton('WebP', withSvg((svg) => openAsImage(svg, 'image/webp', 'webp')));
+    fig.appendChild(tools);
+  };
+
+  // mermaid の描画完了は待たない: figure は静的に存在するので load 時にハンドラを張る
+  window.addEventListener('load', () => {
+    document.querySelectorAll('figure.diagram').forEach(enhance);
+  });
+})();
+
+</script>
+</body>
+</html>
