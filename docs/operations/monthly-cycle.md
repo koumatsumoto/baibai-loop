@@ -54,11 +54,20 @@ uv run baibai-loop-screening run --asof "$ASOF"
 
 ```bash
 uv run baibai-loop-screening select --asof "$ASOF" --detail full > .cache/select-$ASOF.yaml
+# 広域 triage では .cache の一時 rules だけで output.research_selection_target_max を引き上げる
+cp records/_config/screening-rules/2026-07-06T000000+0900.yaml \
+  ".cache/screening-rules-triage-$ASOF.yaml"
+# .cache/screening-rules-triage-$ASOF.yaml の output.research_selection_target_max を必要件数へ編集する
+uv run baibai-loop-screening select --asof "$ASOF" --top 20 \
+  --rules-path ".cache/screening-rules-triage-$ASOF.yaml" \
+  --detail full > ".cache/select-triage-$ASOF.yaml"
 ```
 
 - recommendations は **機械 E[r] 降順**（成分分解 + FV アンカー付き）。durability 注記・sector / playbook 集中度・E[r] 成分を確認する。
+- 広域 triage は `--top` だけでなく、本番 rules YAML を `.cache/screening-rules-triage-$ASOF.yaml` にコピーして `output.research_selection_target_max` を必要件数へ引き上げ、その一時 rules を `--rules-path` で渡す。本番 rules と calibration store は、較正済み baseline と再現性のある本番順位を保つために触らない。
 - 既存保有 ticker と構造衰退業種は skill 側 post-filter で除外する（`select` に除外フラグはない）。
 - `price_change_60d` / percentile が極端な候補は corporate action を確認する（AP-03）。
+- `dps_actual_annual / dps_forecast_annual > 1.5` の候補は、E[r] carry を予想配当基準で読み替える。IR 対象に進める前に、株式分割・併合などの corporate action（AP-03）、特別配当、減配ガイダンスを一次 IR / 適時開示で確認し、実績配当と予想配当の乖離が持続的な carry ではない可能性を潰す。
 
 ## 4. Research（個別リサーチ、skill: `ai-value-bargain-selection` / `ir-research`）
 

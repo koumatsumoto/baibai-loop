@@ -77,6 +77,9 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
                         "cash_to_market_cap": 0.93,
                         "equity_ratio": 0.74,
                         "ocf_yield": 0.19,
+                        "dps_actual_annual": 40.0,
+                        "dps_forecast_annual": 22.0,
+                        "er_dividend_yield": 0.04,
                         "operating_profit_yoy": -0.28,
                         "sales_yoy": 0.00,
                         "fcf_yield": 0.05,
@@ -94,6 +97,10 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
         self.assertEqual(rec["cash_to_market_cap"], 0.93)
         self.assertEqual(rec["equity_ratio"], 0.74)
         self.assertEqual(rec["ocf_yield"], 0.19)
+        # dividend carry triage: actual/forecast DPS の乖離を summary で見られるようにする
+        self.assertEqual(rec["dps_actual_annual"], 40.0)
+        self.assertEqual(rec["dps_forecast_annual"], 22.0)
+        self.assertEqual(rec["er_dividend_yield"], 0.04)
         # value-trap discriminators: declining OP yoy and weak cash conversion
         self.assertEqual(rec["operating_profit_yoy"], -0.28)
         self.assertEqual(rec["sales_yoy"], 0.00)
