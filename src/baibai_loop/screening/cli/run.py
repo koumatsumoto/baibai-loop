@@ -245,8 +245,6 @@ def run_command(
             rules,
             sector_33=securities_by_ticker[ticker].sector_33,
         )
-        if not result.pass_fail:
-            continue
         financial = metric_result.financials[ticker]
         derived = metric_result.derived[ticker]
         universe_snapshot = universe_result.snapshots[ticker]
@@ -264,7 +262,7 @@ def run_command(
                 financial=financial,
                 derived=derived,
                 universe_snapshot=universe_snapshot,
-                evidence_hits=result.evidence_hits,
+                evidence_hits=result.evidence_hits if result.pass_fail else (),
                 freshness_warnings=freshness_warnings,
                 next_earnings_date=next_earnings_by_ticker.get(ticker),
             )

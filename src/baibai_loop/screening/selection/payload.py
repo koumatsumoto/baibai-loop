@@ -93,6 +93,8 @@ def build_selection_payload(
     required_jpx_flags = frozenset(rules.universe.required_jpx_flags)
     liquidity_excluded_count = 0
     liquidity_fact_missing_count = 0
+    evidence_annotated_count = 0
+    er_missing_count = 0
 
     ranked_entries: list[tuple[tuple[object, ...], dict[str, object]]] = []
     macro_context_checked_count = 0
@@ -105,6 +107,10 @@ def build_selection_payload(
             liquidity_excluded_count += 1
             continue
         macro_context_checked_count += 1
+        er_annual = optional_float(item.metrics.get("er_annual"))
+        if er_annual is None:
+            er_missing_count += 1
+            continue
         macro_context_result = _candidate_macro_context_result(
             item,
             macro_context=macro_context,
@@ -112,8 +118,8 @@ def build_selection_payload(
         )
         macro_context_alignment = _macro_context_alignment(macro_context_result)
         eligible_evidence_hits = _sizing_eligible_evidence_hits(item.evidence_hits)
-        if not eligible_evidence_hits:
-            continue
+        if eligible_evidence_hits:
+            evidence_annotated_count += 1
         selection_playbook, selection_metrics, strength_key = _best_selection_evidence(
             eligible_evidence_hits,
             playbook_order=playbook_order,
@@ -139,12 +145,10 @@ def build_selection_payload(
         # 主キーは機械 E[r] (成分分解付き見積り) の降順:「どれくらいお買い得か」の
         # 見積りが着手順位を決める (#295 の design/confirm 検証で採用。計測は
         # reports/2026-07-04-preregistered-ranking-validation.md)。E[r] 欠損の
-        # 候補は後置し、従キーとして playbook 優先順 + 各 screen の強度キーを
-        # 残す。macro context は診断 annotation であり順位には使わない。
-        er_annual = optional_float(item.metrics.get("er_annual"))
+        # 候補は ranking 対象外とし、従キーとして playbook 優先順 + 各 screen の
+        # 強度キーを残す。macro context は診断 annotation であり順位には使わない。
         sort_key = (
-            0 if er_annual is not None else 1,
-            -(er_annual or 0.0),
+            -er_annual,
             _playbook_order_rank(selection_playbook, playbook_order),
             *strength_key,
             item.ticker,
@@ -194,7 +198,9 @@ def build_selection_payload(
                 "input": len(candidates),
                 "after_liquidity_filter": len(candidates) - liquidity_excluded_count,
                 "after_macro_context_check": macro_context_checked_count,
-                "after_evidence_filter": len(ranked_candidates),
+                "after_er_filter": len(ranked_candidates),
+                "evidence_annotated": evidence_annotated_count,
+                "er_missing": er_missing_count,
             },
             "research_selection_target_max": rules.output.research_selection_target_max,
             "research_selection_playbook_order": list(
@@ -386,7 +392,7 @@ def _recommended_research_candidates(
         if not enforce_diversity:
             return True
         sector = string_or_none(candidate.get("sector_33")) or ""
-        playbook = string_or_none(output.get("selection_playbook")) or ""
+        playbook = string_or_none(output.get("selection_playbook"))
         max_sector = diversity_rules.max_recommended_per_sector
         max_playbook = diversity_rules.max_recommended_per_playbook
         max_previous = diversity_rules.max_previous_candidates_in_recommended
@@ -396,7 +402,9 @@ def _recommended_research_candidates(
             and previous_candidate_count >= max_previous
         ):
             return False
-        return sector_counts[sector] < max_sector and playbook_counts[playbook] < max_playbook
+        if sector_counts[sector] >= max_sector:
+            return False
+        return playbook is None or playbook_counts[playbook] < max_playbook
 
     def add(candidate: Mapping[str, object]) -> None:
         nonlocal previous_candidate_count
@@ -407,7 +415,8 @@ def _recommended_research_candidates(
         selected.append(output)
         selected_tickers.add(ticker)
         sector_counts[string_or_none(candidate.get("sector_33")) or ""] += 1
-        playbook_counts[string_or_none(output.get("selection_playbook")) or ""] += 1
+        if (playbook := string_or_none(output.get("selection_playbook"))) is not None:
+            playbook_counts[playbook] += 1
         if candidate.get("previous_candidate") is True:
             previous_candidate_count += 1
 
@@ -426,10 +435,9 @@ def _passes_liquidity(
 ) -> tuple[bool, bool]:
     """Apply the analysis-layer scope parameters to one candidate.
 
-    Returns ``(passes, facts_missing)``. A missing liquidity fact passes the
-    filter (the screen records facts for every common stock, so absence means
-    the input predates the fact or shares data was unavailable) but is counted
-    so degraded inputs stay visible in diagnostics.
+    Returns ``(passes, facts_missing)``. Missing liquidity facts are counted so
+    degraded inputs stay visible in diagnostics, and are excluded because the
+    selection population is the same liquid population used by calibration.
     """
     facts_missing = (
         item.market_cap_oku is None
@@ -443,7 +451,7 @@ def _passes_liquidity(
         listing_span_days=item.listing_span_days,
         jpx_flags=item.jpx_flags,
         required_jpx_flags=required_jpx_flags,
-        require_facts=False,
+        require_facts=True,
     )
     return passes, facts_missing
 

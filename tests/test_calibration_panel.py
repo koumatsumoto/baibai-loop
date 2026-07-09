@@ -154,13 +154,14 @@ class CalibrationPanelTest(unittest.TestCase):
             expensive = rows_by_ticker["9002"]
             self.assertTrue(expensive.in_population)
             self.assertFalse(expensive.pass_screen)
-            self.assertIsNone(expensive.selection_rank)
-            self.assertIsNone(expensive.recommended_rank)
+            self.assertEqual(expensive.selection_rank, 2)
+            self.assertEqual(expensive.recommended_rank, 2)
 
             diagnostics = result.diagnostics
             self.assertEqual(diagnostics.universe_size, 2)
             self.assertEqual(diagnostics.population_size, 2)
-            self.assertEqual(diagnostics.candidates, 1)
+            self.assertEqual(diagnostics.candidates, 2)
+            self.assertEqual(diagnostics.evidence_candidates, 1)
             self.assertEqual(diagnostics.population_per_trailing_nonnull, 2)
 
     def test_panel_and_forward_store_round_trip(self) -> None:
