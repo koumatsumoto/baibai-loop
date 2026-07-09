@@ -132,6 +132,7 @@ def candidate_metrics_map(
         "er_annual": estimate.er_annual if estimate else None,
         "er_reversion_annual": estimate.reversion_annual if estimate else None,
         "er_carry_annual": estimate.carry_annual if estimate else None,
+        "er_dividend_yield": estimate.dividend_yield if estimate else None,
         "er_upside_capped": estimate.upside_capped if estimate else None,
         "er_anchor_metrics": estimate.anchor_metrics if estimate else None,
         "fv_sector_median_yen": estimate.fv_sector_median_yen if estimate else None,

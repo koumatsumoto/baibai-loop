@@ -73,3 +73,61 @@ uv run baibai-loop-screening calibration-evaluate --calibration-dir data/screeni
 2. `docs/operations/monthly-cycle.md` と `ai-value-bargain-selection` skill に、`dps_actual_annual / dps_forecast_annual > 1.5` の self-check を現在形で書く。
 3. `macro-analysis` skill に、WebSearch は日本語 query で unavailable になりやすく、一次 URL 直接取得を優先しつつ必要時は英語 query を使う注意を fold する。
 4. 記載は現状の手順と WHY に限り、2026-07 運用の経緯や作業ログを書かない。
+
+## 5. 検証結果
+
+事前登録後に baseline store と variant store を分けて構築した。baseline は現行 E[r] carry、variant は `dps_forecast_annual / close` を E[r] carry の配当成分に優先する実装である。
+
+```bash
+uv run baibai-loop-screening calibration-build --start 2022-09-01 --end 2026-03-31 --calibration-dir data/screening/calibration-er-carry-baseline --force
+uv run baibai-loop-screening calibration-build --start 2022-09-01 --end 2026-03-31 --calibration-dir data/screening/calibration-er-carry-forecast-dps --force
+uv run baibai-loop-screening calibration-evaluate --calibration-dir data/screening/calibration-er-carry-baseline --horizon 6m --start 2022-09-01 --end 2024-06-30 --out .cache/er-carry-baseline-design-6m.yaml
+uv run baibai-loop-screening calibration-evaluate --calibration-dir data/screening/calibration-er-carry-baseline --horizon 6m --start 2024-07-01 --end 2026-03-31 --out .cache/er-carry-baseline-confirm-6m.yaml
+uv run baibai-loop-screening calibration-evaluate --calibration-dir data/screening/calibration-er-carry-forecast-dps --horizon 6m --start 2022-09-01 --end 2024-06-30 --out .cache/er-carry-forecast-dps-design-6m.yaml
+uv run baibai-loop-screening calibration-evaluate --calibration-dir data/screening/calibration-er-carry-forecast-dps --horizon 6m --start 2024-07-01 --end 2026-03-31 --out .cache/er-carry-forecast-dps-confirm-6m.yaml
+```
+
+| cohort | series | baseline median excess | forecast-DPS median excess | delta | baseline trap | forecast-DPS trap | delta |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| design | er_ranked_top10 | 8.483% | 5.709% | -2.773pt | 12.270% | 10.450% | -1.820pt |
+| design | recommended_rank_top10 | 7.272% | 5.957% | -1.315pt | 11.200% | 11.410% | +0.210pt |
+| confirm | er_ranked_top10 | 7.436% | 4.067% | -3.369pt | 10.560% | 16.110% | +5.550pt |
+| confirm | recommended_rank_top10 | 9.750% | 3.593% | -6.157pt | 11.360% | 15.460% | +4.100pt |
+
+`er_annual` axis の 6m mean rank IC は design 0.2262 → 0.2288、confirm 0.1477 → 0.1474 で大きくは崩れないが、replay 上位の median excess と trap 非悪化 gate を満たさない。したがって、forecast DPS を E[r] carry に広く優先する変更は不採用とする。
+
+全面 forecast 優先の不採用後、原因に近い追加案として `dps_actual_annual / dps_forecast_annual > 1.5` の anomaly guard と、実績 DPS の split 正規化基準を `period_end` / `period_start` に寄せる variant も確認した。これらは事前登録外の post-hoc 追加確認であり、採用 judge の out-of-sample 性は持たない。結果は以下の通りで、いずれも 2.2 の非劣化 gate を満たさない。
+
+| variant | cohort | er_ranked_top10 median delta | er_ranked_top10 trap delta | recommended_top10 median delta | recommended_top10 trap delta | 判定 |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| anomaly guard | design | -2.088pt | +0.000pt | -1.022pt | +1.600pt | 不採用 |
+| anomaly guard | confirm | -1.029pt | +1.660pt | -2.474pt | +1.080pt | 不採用 |
+| period_end 正規化 | design | +0.000pt | +0.000pt | +0.000pt | +0.000pt | spot 不足 |
+| period_end 正規化 | confirm | +0.000pt | +0.000pt | +0.000pt | +0.000pt | spot 不足 |
+| period_start 正規化 | design | -0.898pt | +0.460pt | -0.972pt | +1.830pt | 不採用 |
+| period_start 正規化 | confirm | -1.756pt | +2.770pt | -2.788pt | +1.730pt | 不採用 |
+
+period_start 正規化は 2026-07-08 spot check では 4116 / 4008 / 8078 / 8273 の DPS 膨張を消したが、confirm replay の非劣化 gate を満たさないため採用しない。
+
+## 6. 判定と採用範囲
+
+#313 の E[r] carry 動作変更は、今回の改善ループでは採用しない。理由は、事前登録した forecast-DPS variant と追加確認した狭い variant が、design / confirm の replay 非劣化 gate を満たさないためである。#313 は close せず、次の改善候補として「配当スケジュールまたは corporate-action event を使った actual DPS の精密な asof-basis 化」を #319 で別途検討する。
+
+同一 PR では、低リスクで運用価値がある以下だけを採用する。
+
+- select recommendation summary に `dps_actual_annual` / `dps_forecast_annual` / `er_dividend_yield` を転記し、triage 時に実績・予想の乖離と E[r] carry 入力を目検できるようにする。
+- monthly-cycle と `ai-value-bargain-selection` skill に、DPS 比 1.5 超の候補を forecast 基準で読み替え、corporate action・特別配当・減配ガイダンスを確認する self-check を現在形で記載する。
+- `macro-analysis` skill に、WebSearch の日本語 query unavailable リスクと英語 query / 一次 URL 優先の操作注意を fold する。
+
+## 7. 運用テスト
+
+```bash
+uv run pytest tests/test_screening_metrics.py tests/test_screening_estimates.py tests/test_screening_selection_liquidity.py
+uv run baibai-loop-screening run --asof 2026-07-08 --output-path .cache/candidates-2026-07-08-output-fields.yaml --force
+uv run baibai-loop-screening select --asof 2026-07-08 --candidates .cache/candidates-2026-07-08-output-fields.yaml --top 20 --detail full > .cache/select-2026-07-08-output-fields.yaml
+```
+
+- focused pytest: 39 passed。
+- `run --asof 2026-07-08`: output は `.cache/candidates-2026-07-08-output-fields.yaml`。既存同様の partial warning（TTM quality / 入力欠損）で終了。
+- `select --asof 2026-07-08`: output は `.cache/select-2026-07-08-output-fields.yaml`。full detail の `recommendations[].metrics` に `dps_actual_annual` / `dps_forecast_annual` / `er_dividend_yield` が出ることを確認した。
+- temporary period_start variant の spot check: 4116 は actual DPS 220→55、4008 は 220→44、8078 は 290→58、8273 は 90→30 へ正規化され、carry 膨張は消える。ただし replay gate 不通過のため production には採用しない。
