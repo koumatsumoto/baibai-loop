@@ -185,10 +185,12 @@ class SelectionLiquidityRules(BaseModel):
         required_jpx_flags: frozenset[str],
         require_facts: bool,
     ) -> bool:
-        """Single predicate for the investable set, shared by the median
-        population (``require_facts=True``: a missing fact disqualifies) and
-        the selection filter (``require_facts=False``: a missing fact passes
-        and is surfaced separately in diagnostics)."""
+        """Single predicate for the investable set.
+
+        ``require_facts=True`` disqualifies rows with missing liquidity facts.
+        Selection uses this mode so the ranked population matches the
+        calibration population; diagnostics separately count missing facts.
+        """
         facts = (market_cap_oku, avg_turnover_oku, listing_span_days, jpx_flags)
         if require_facts and any(value is None for value in facts):
             return False

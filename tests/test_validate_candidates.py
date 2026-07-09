@@ -113,7 +113,7 @@ class CandidatesValidationTests(unittest.TestCase):
         locations = {finding.location for finding in findings}
         self.assertTrue(any("ticker" in loc for loc in locations if loc is not None))
 
-    def test_empty_evidence_hits_is_flagged(self) -> None:
+    def test_empty_evidence_hits_is_allowed_for_non_screen_annotations(self) -> None:
         payload = _minimal_candidates()
         candidates = payload["candidates"]
         assert isinstance(candidates, list)
@@ -125,7 +125,7 @@ class CandidatesValidationTests(unittest.TestCase):
             findings = validate_candidates_file(path)
         finally:
             path.unlink()
-        self.assertTrue(any(finding.code.startswith("candidates.") for finding in findings))
+        self.assertEqual(findings, [])
 
     def test_duplicate_candidate_ticker_is_flagged(self) -> None:
         payload = _minimal_candidates()

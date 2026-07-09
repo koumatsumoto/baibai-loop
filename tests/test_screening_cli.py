@@ -293,7 +293,9 @@ class ScreeningCliTests(unittest.TestCase):
                 )
                 self.assertEqual(payload["run_id"], "screening-20260424")
                 self.assertEqual(payload["filters"]["scope"], "all-common-stocks")
-                self.assertEqual(payload["candidates"], [])
+                self.assertEqual(len(payload["candidates"]), 1)
+                self.assertEqual(payload["candidates"][0]["ticker"], "130A")
+                self.assertEqual(payload["candidates"][0]["evidence_hits"], [])
                 manifest_path = Path(".cache/screening/manifests") / f"{payload['run_id']}.json"
                 self.assertFalse(manifest_path.exists())
             finally:
@@ -1103,7 +1105,20 @@ class SelectCommandTests(unittest.TestCase):
     ) -> Path:
         path = root / f"{asof:%Y}" / f"{asof:%m}" / f"{asof:%Y-%m-%d}.yaml"
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = yaml.safe_dump({"candidates": candidates}, allow_unicode=True, sort_keys=False)
+        normalized_candidates: list[dict[str, object]] = []
+        for index, candidate in enumerate(candidates):
+            item = dict(candidate)
+            item.setdefault("market_cap_oku", 300)
+            item.setdefault("avg_turnover_oku", 2.0)
+            item.setdefault("listing_span_days", 1200)
+            item.setdefault("jpx_flags", [])
+            metrics = dict(cast(dict[str, object], item.get("metrics") or {}))
+            metrics.setdefault("er_annual", round(1.0 - index * 0.001, 6))
+            item["metrics"] = metrics
+            normalized_candidates.append(item)
+        payload = yaml.safe_dump(
+            {"candidates": normalized_candidates}, allow_unicode=True, sort_keys=False
+        )
         path.write_text(payload, encoding="utf-8")
         return path
 
@@ -1186,7 +1201,7 @@ class SelectCommandTests(unittest.TestCase):
 
         cash-rich (playbook 最優先) だが E[r] の低い 1111 より、
         valuation-reversion で E[r] の高い 2222 が先頭に来る。E[r] 欠損の
-        3333 は最後尾に落ちる (#295)。
+        3333 は ranking 母集団から外れる (#309)。
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -1216,6 +1231,7 @@ class SelectCommandTests(unittest.TestCase):
                         "name": "er missing",
                         "sector_33": "化学",
                         "market_cap_oku": 400,
+                        "metrics": {"er_annual": None},
                         "evidence_hits": [{"name": "cash-rich-asset-discount"}],
                     },
                 ],
@@ -1237,7 +1253,8 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = safe_load(buffer.getvalue())
             tickers = [c["ticker"] for c in self._recommended(payload)]
-            self.assertEqual(tickers, ["2222", "1111", "3333"])
+            self.assertEqual(tickers, ["2222", "1111"])
+            self.assertEqual(payload["selection"]["counts"]["er_missing"], 1)
 
     def test_applies_macro_context_without_dropping_headwind_sectors(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1307,9 +1324,7 @@ class SelectCommandTests(unittest.TestCase):
             )
             tickers = [c["ticker"] for c in self._recommended(payload)]
             # macro context は診断 annotation で順位に影響しない (headwind の 1111 も
-            # 落ちない)。3 候補とも er_annual 無し・primary playbook は
-            # valuation-reversion で strength も同一なので ticker 順に並ぶ
-            # (per-playbook cap は E[r] 主キー化に伴い実質無効の 10)。
+            # 落ちない)。helper が付ける er_annual 既定値の降順で並ぶ。
             self.assertEqual(tickers, ["1111", "2222", "3333"])
             self.assertEqual(
                 payload["selection"]["research_selection_playbook_order"],
@@ -1545,7 +1560,7 @@ class SelectCommandTests(unittest.TestCase):
             payload = safe_load(buffer.getvalue())
             self.assertEqual(self._recommended(payload)[0]["freshness_warnings"], [warning])
 
-    def test_select_excludes_candidates_without_sizing_eligible_evidence(self) -> None:
+    def test_select_keeps_er_ranked_candidate_without_sizing_eligible_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
@@ -1608,7 +1623,10 @@ class SelectCommandTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             payload = safe_load(buffer.getvalue())
-            self.assertEqual([c["ticker"] for c in self._recommended(payload)], ["2222"])
+            recommended = self._recommended(payload)
+            self.assertEqual([c["ticker"] for c in recommended], ["1111", "2222"])
+            self.assertIsNone(recommended[0]["selection_playbook"])
+            self.assertEqual(recommended[1]["selection_playbook"], "valuation-reversion")
 
     def test_select_handles_multi_playbook_candidates_with_primary_selection_playbook(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1695,6 +1713,7 @@ class SelectCommandTests(unittest.TestCase):
                         "name": "large weak cashflow",
                         "sector_33": "機械",
                         "market_cap_oku": 5000,
+                        "metrics": {"er_annual": 0.05},
                         "evidence_hits": [
                             {
                                 "name": "cashflow-yield-discount",
@@ -1710,6 +1729,7 @@ class SelectCommandTests(unittest.TestCase):
                         "name": "small strong cashflow",
                         "sector_33": "電気機器",
                         "market_cap_oku": 150,
+                        "metrics": {"er_annual": 0.05},
                         "evidence_hits": [
                             {
                                 "name": "cashflow-yield-discount",
@@ -1913,7 +1933,7 @@ class SelectCommandTests(unittest.TestCase):
             by_ticker = {item["ticker"]: item for item in self._recommended(payload)}
             missing_lens = by_ticker["1111"]["lenses"]["durability"]
             weak_lens = by_ticker["2222"]["lenses"]["durability"]
-            self.assertEqual(missing_lens["rating"], "unknown")
+            self.assertEqual(missing_lens["rating"], "low")
             self.assertIn("equity_ratio_missing", missing_lens["missing_reasons"])
             self.assertEqual(missing_lens["weak_reasons"], [])
             self.assertEqual(weak_lens["rating"], "low")

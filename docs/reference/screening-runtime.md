@@ -32,7 +32,7 @@ python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--s
 
 `extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出して `data/screening/market.sqlite` に保存する。CSV ZIP 本体は再生成可能な cache として `.cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 
-`select` は最新 `records/02-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/01-macro-context/` を組み合わせて、research recommendations を出力する。Macro context は hard gate ではなく、sector / theme の診断として使う。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、詳細は `--detail full` で出す。ranking の主キーは機械 E[r]（成分分解付き年率見積り）の降順（欠損は後置・従キーに playbook 優先順 + 割安強度）で、`durability`（塩漬け耐性）annotation を採用の gate へ接続する。`selection_playbook` は primary thesis として確認する screen。閾値変更は `records/_config/screening-rules/` の rules 設定を編集して再実行し output を diff する。`research` の選定プロセス ([`../workflow/research.md`](../workflow/research.md)) をスクリプトで支援する。
+`select` は最新 `records/02-candidates/<YYYY>/<MM>/<asof>.yaml` と `records/01-macro-context/` を組み合わせて、research recommendations を出力する。Macro context は hard gate ではなく、sector / theme の診断として使う。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、詳細は `--detail full` で出す。ranking の主キーは機械 E[r]（成分分解付き年率見積り）の降順（E[r] 欠損は ranking 対象外・従キーに playbook 優先順 + 割安強度）で、`durability`（塩漬け耐性）annotation を採用の gate へ接続する。`selection_playbook` は evidence がある候補だけに付く primary thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。閾値変更は `records/_config/screening-rules/` の rules 設定を編集して再実行し output を diff する。`research` の選定プロセス ([`../workflow/research.md`](../workflow/research.md)) をスクリプトで支援する。
 
 `ticker-profile` は任意の上場銘柄(universe 内外を問わない)について、価格・流動性・対 benchmark / sector 相対・regime・イベント(次回決算日、JPX 規制 flag)・直近 candidates 記録・prior research を 1 つの事実 packet として出力する。valuation は candidates 記録から引用し、再計算しない(記録と矛盾する値を作らないため)。`--asof` 省略時は cache の最新営業日を使う。provider 認証は不要で、market.sqlite と records だけを読む。
 
@@ -40,7 +40,7 @@ python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--s
 
 `market-snapshot` は週次の regime 履歴(benchmark trend・breadth・regime label)と asof 時点の sector 集計(20/60 営業日リターン中央値・sector 内 breadth)を出力する。regime の閾値・窓は regime module と同一の正本を共有する。macro context 作成時の機械入力としても使う。
 
-`select` の ranking は valuation discount を主キーとし、market regime による中立化は行わない（期間ではなく valuation と耐性で判断する）。`market-snapshot` の regime 履歴は macro context の機械入力として使う。`--sqlite-path` で cache 位置を上書きできる。
+`select` の ranking は機械 E[r] を主キーとし、market regime による中立化は行わない（期間ではなく valuation と耐性で判断する）。`market-snapshot` の regime 履歴は macro context の機械入力として使う。`--sqlite-path` で cache 位置を上書きできる。
 
 ## 3. Required Env Vars
 

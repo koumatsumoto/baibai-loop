@@ -15,31 +15,35 @@ from baibai_loop.screening.selection import (
 
 _ASOF = date(2026, 5, 29)
 
-# Recent heavy decliner whose evidence playbook (sales-discount-growth) ranks
-# low in the configured playbook order. The decline itself must not move the
-# ranking: 主キーは playbook order + valuation discount strength のみ。
+# Recent heavy decliner. The decline itself must not move the ranking:
+# 主キーは E[r] で、market-regime / price-decline annotation は順位を変えない。
 _DECLINER_CANDIDATE: Mapping[str, object] = {
     "ticker": "9999",
     "name": "recent decliner",
     "sector_33": "情報・通信業",
     "market_cap_oku": 500,
+    "avg_turnover_oku": 2.0,
+    "listing_span_days": 1200,
+    "jpx_flags": [],
     "price_change_5d": -0.10,
     "price_change_20d": -0.12,
     "evidence_hits": [{"name": "sales-discount-growth"}],
-    "metrics": {"ocf_yield": 0.12, "net_cash_to_market_cap": 0.3},
+    "metrics": {"ocf_yield": 0.12, "net_cash_to_market_cap": 0.3, "er_annual": 0.04},
 }
 
-# Same fundamentals without the price decline; valuation-reversion outranks
-# sales-discount-growth via the configured playbook order.
+# Same fundamentals without the price decline; higher E[r] outranks the decliner.
 _CALM_CANDIDATE: Mapping[str, object] = {
     "ticker": "1111",
     "name": "calm value",
     "sector_33": "機械",
     "market_cap_oku": 500,
+    "avg_turnover_oku": 2.0,
+    "listing_span_days": 1200,
+    "jpx_flags": [],
     "price_change_5d": 0.01,
     "price_change_20d": 0.02,
     "evidence_hits": [{"name": "valuation-reversion"}],
-    "metrics": {"ocf_yield": 0.12, "net_cash_to_market_cap": 0.3},
+    "metrics": {"ocf_yield": 0.12, "net_cash_to_market_cap": 0.3, "er_annual": 0.05},
 }
 
 
@@ -93,9 +97,9 @@ class SelectionMarketStateTests(unittest.TestCase):
         assert isinstance(recommendations, list)
         return recommendations
 
-    def test_ranking_follows_playbook_order_not_price_decline(self) -> None:
-        # 直近の急落は順位を押し上げない: valuation-reversion (playbook order 上位)
-        # が sales-discount-growth の decliner より先に並ぶ。
+    def test_ranking_follows_er_not_price_decline(self) -> None:
+        # 直近の急落は順位を押し上げない: E[r] が高い calm value が
+        # sales-discount-growth の decliner より先に並ぶ。
         payload = self._payload(None)
         self.assertEqual(self._recommended_tickers(payload), ["1111", "9999"])
 

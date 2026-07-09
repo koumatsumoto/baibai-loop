@@ -23,7 +23,7 @@ def _candidate(ticker: str, **overrides: object) -> Mapping[str, object]:
         "listing_span_days": 1200,
         "jpx_flags": [],
         "evidence_hits": [{"name": "cashflow-yield-discount"}],
-        "metrics": {"ocf_yield": 0.11},
+        "metrics": {"ocf_yield": 0.11, "er_annual": 0.05},
     }
     base.update(overrides)
     return base
@@ -80,6 +80,7 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
                         "dps_actual_annual": 40.0,
                         "dps_forecast_annual": 22.0,
                         "er_dividend_yield": 0.04,
+                        "er_annual": 0.05,
                         "operating_profit_yoy": -0.28,
                         "sales_yoy": 0.00,
                         "fcf_yield": 0.05,
@@ -129,7 +130,7 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
         self.assertEqual(counts["input"], 5)
         self.assertEqual(counts["after_liquidity_filter"], 1)
 
-    def test_missing_facts_pass_but_are_counted(self) -> None:
+    def test_missing_facts_are_excluded_but_counted(self) -> None:
         payload = self._payload(
             [
                 _candidate(
@@ -141,8 +142,31 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
                 )
             ]
         )
-        self.assertEqual(self._tickers(payload), {"1111"})
+        self.assertEqual(self._tickers(payload), set())
+        self.assertEqual(self._diag(payload)["liquidity_excluded_count"], 1)
         self.assertEqual(self._diag(payload)["liquidity_fact_missing_count"], 1)
+
+    def test_er_ranked_population_includes_candidate_without_evidence_hits(self) -> None:
+        payload = self._payload(
+            [
+                _candidate(
+                    "1111",
+                    evidence_hits=[],
+                    metrics={"er_annual": 0.12, "ocf_yield": 0.05},
+                ),
+                _candidate(
+                    "2222",
+                    sector_33="化学",
+                    metrics={"er_annual": 0.08, "ocf_yield": 0.11},
+                ),
+            ]
+        )
+
+        recommendations = payload["recommendations"]
+        assert isinstance(recommendations, list)
+        self.assertEqual([item["ticker"] for item in recommendations], ["1111", "2222"])
+        self.assertIsNone(recommendations[0]["selection_playbook"])
+        self.assertEqual(payload["selection"]["counts"]["evidence_annotated"], 1)
 
     def test_playbook_cap_binds_via_profile_override(self) -> None:
         """max_recommended_per_playbook は E[r] 主キー下でも enforcement が生きている。
@@ -167,6 +191,50 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
             profile_overrides={"balanced": {"diversity": {"max_recommended_per_playbook": 1}}},
         )
         self.assertEqual(self._tickers(payload), {"1111"})
+
+    def test_playbook_cap_does_not_bind_candidates_without_evidence_hits(self) -> None:
+        payload = build_selection_payload(
+            asof_date=_ASOF,
+            candidates=tuple(
+                candidate_record_from_mapping(item)
+                for item in [
+                    _candidate(
+                        "1111",
+                        sector_33="機械",
+                        evidence_hits=[],
+                        metrics={"er_annual": 0.07},
+                    ),
+                    _candidate(
+                        "2222",
+                        sector_33="化学",
+                        evidence_hits=[],
+                        metrics={"er_annual": 0.06},
+                    ),
+                ]
+            ),
+            macro_context=None,
+            rules=self.rules,
+            top=10,
+            profile="balanced",
+            candidates_ref="test.yaml",
+            macro_context_ref=None,
+            profile_overrides={"balanced": {"diversity": {"max_recommended_per_playbook": 1}}},
+        )
+        self.assertEqual(self._tickers(payload), {"1111", "2222"})
+
+    def test_er_missing_candidates_are_excluded_from_ranking_population(self) -> None:
+        payload = self._payload(
+            [
+                _candidate("1111", metrics={"er_annual": 0.05}),
+                _candidate("2222", sector_33="化学", metrics={"er_annual": None}),
+            ]
+        )
+
+        self.assertEqual(self._tickers(payload), {"1111"})
+        counts = payload["selection"]["counts"]
+        assert isinstance(counts, Mapping)
+        self.assertEqual(counts["after_er_filter"], 1)
+        self.assertEqual(counts["er_missing"], 1)
 
     def test_profile_config_can_relax_liquidity(self) -> None:
         payload = build_selection_payload(

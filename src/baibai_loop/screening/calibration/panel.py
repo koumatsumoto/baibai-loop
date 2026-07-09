@@ -119,6 +119,7 @@ class PanelDiagnostics:
     universe_size: int
     population_size: int
     candidates: int
+    evidence_candidates: int
     bars_tickers_not_in_master: int
     effective_bars_start: str
     effective_fin_start: str
@@ -190,7 +191,7 @@ def build_panel(
     )
 
     evidence_by_ticker: dict[str, tuple[str, ...]] = {}
-    screened: list[ScreenedCandidate] = []
+    candidates: list[ScreenedCandidate] = []
     for ticker in sorted(universe_result.snapshots):
         result = evaluate_screening(
             metric_result.financials[ticker],
@@ -198,25 +199,24 @@ def build_panel(
             rules,
             sector_33=securities_by_ticker[ticker].sector_33,
         )
-        if not result.pass_fail:
-            continue
-        evidence_by_ticker[ticker] = tuple(hit.name for hit in result.evidence_hits)
-        screened.append(
+        if result.pass_fail:
+            evidence_by_ticker[ticker] = tuple(hit.name for hit in result.evidence_hits)
+        candidates.append(
             build_screened_candidate(
                 ticker=ticker,
                 security=securities_by_ticker[ticker],
                 financial=metric_result.financials[ticker],
                 derived=metric_result.derived[ticker],
                 universe_snapshot=universe_result.snapshots[ticker],
-                evidence_hits=result.evidence_hits,
+                evidence_hits=result.evidence_hits if result.pass_fail else (),
             )
         )
 
     selection_rank = _replay_ranks(
-        asof_date, screened, rules, mode="full_ranking", depth=len(screened)
+        asof_date, candidates, rules, mode="full_ranking", depth=len(candidates)
     )
     recommended_rank = _replay_ranks(
-        asof_date, screened, rules, mode="production_diversity", depth=RECOMMENDED_RANK_DEPTH
+        asof_date, candidates, rules, mode="production_diversity", depth=RECOMMENDED_RANK_DEPTH
     )
 
     latest_close_by_ticker: dict[str, float] = {}
@@ -297,7 +297,8 @@ def build_panel(
         rules_hash=rules_content_hash(rules),
         universe_size=len(universe_result.snapshots),
         population_size=len(median_population),
-        candidates=len(screened),
+        candidates=len(candidates),
+        evidence_candidates=len(evidence_by_ticker),
         bars_tickers_not_in_master=sum(
             1 for ticker in bars_by_ticker if ticker not in securities_by_ticker
         ),
@@ -319,7 +320,7 @@ def build_panel(
 
 def _replay_ranks(
     asof_date: date,
-    screened: list[ScreenedCandidate],
+    candidates: list[ScreenedCandidate],
     rules: ScreeningRules,
     *,
     mode: Literal["full_ranking", "production_diversity"],
@@ -327,14 +328,14 @@ def _replay_ranks(
 ) -> dict[str, int]:
     """Replay the production selection and return ticker -> 1-based rank.
 
-    ``full_ranking`` は diversity cap を実質無効化した「割安度そのままの順位」、
-    ``production_diversity`` は本番の diversity cap を適用した推奨順位。どちらも
-    本番の `build_selection_payload` を通す (順位ロジックの複製をしない) 。
+    ``full_ranking`` は E[r] 降順の全順位、``production_diversity`` は本番 depth
+    内の推奨順位。どちらも本番の `build_selection_payload` を通す (順位ロジックの
+    複製をしない) 。
     """
-    if not screened:
+    if not candidates:
         return {}
-    candidates = [
-        candidate_record_from_mapping(candidate_entry(candidate)) for candidate in screened
+    records = [
+        candidate_record_from_mapping(candidate_entry(candidate)) for candidate in candidates
     ]
     profile = rules.selection.default_profile
     replay_rules = _rules_with_uncapped_target(rules)
@@ -351,7 +352,7 @@ def _replay_ranks(
         }
     payload = build_selection_payload(
         asof_date=asof_date,
-        candidates=candidates,
+        candidates=records,
         macro_context=None,
         rules=replay_rules,
         top=max(depth, 1),

@@ -3,7 +3,7 @@ title: "月次運用サイクル runbook"
 summary: "単一ループを月次で 1 周する e2e 手順の正本。資本更新 → マクロ環境認識 → screening → select → research → 取引提案 → 発注記録 → 保有レビュー → 較正の増分再計測。"
 doc_type: operation
 status: active
-last_reviewed: 2026-07-06
+last_reviewed: 2026-07-09
 related_docs:
   - "../workflow/README.md"
   - "../portfolio-management.md"
@@ -63,7 +63,7 @@ uv run baibai-loop-screening select --asof "$ASOF" --top 20 \
   --detail full > ".cache/select-triage-$ASOF.yaml"
 ```
 
-- recommendations は **機械 E[r] 降順**（成分分解 + FV アンカー付き）。durability 注記・sector / playbook 集中度・E[r] 成分を確認する。
+- recommendations は **機械 E[r] 降順**（成分分解 + FV アンカー付き）。playbook screen は `evidence_hits` / `selection_playbook` の注記であり、evidence がない候補も `selection_playbook: null` のまま E[r] 上位なら入る。durability 注記・sector / playbook 集中度・E[r] 成分を確認する。
 - 広域 triage は `--top` だけでなく、本番 rules YAML を `.cache/screening-rules-triage-$ASOF.yaml` にコピーして `output.research_selection_target_max` を必要件数へ引き上げ、その一時 rules を `--rules-path` で渡す。本番 rules と calibration store は、較正済み baseline と再現性のある本番順位を保つために触らない。
 - 既存保有 ticker と構造衰退業種は skill 側 post-filter で除外する（`select` に除外フラグはない）。
 - `price_change_60d` / percentile が極端な候補は corporate action を確認する（AP-03）。

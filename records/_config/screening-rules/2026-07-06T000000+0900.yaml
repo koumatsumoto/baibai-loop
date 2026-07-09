@@ -48,14 +48,10 @@ selection:
     fcf_yield_positive_min: 0.0
     min_avg_turnover_oku: 1.0
   diversity:
-    # max_recommended_per_sector=1 では top=5 の推奨で良候補を取り逃がすため
-    # 2 とし、sector 集中は warning で監視する。E[r] 主キー下の変種比較でも
-    # sector cap 2 を維持 (reports/2026-07-04-preregistered-ranking-validation.md)。
-    max_recommended_per_sector: 2
-    # E[r] 主キー化に伴い playbook cap は実質無効化する (10)。cap=2 は推奨を
-    # 8 銘柄で飽和させ、design/confirm の変種比較で confirm 側の成績を落とした
-    # (reports/2026-07-04-preregistered-ranking-validation.md)。
-    max_recommended_per_playbook: 10
+    # select は E[r] 母集団順位を壊さない。sector / playbook 集中は ranking cap
+    # ではなく診断と entry preflight / position policy で管理する。
+    max_recommended_per_sector: 1000
+    max_recommended_per_playbook: 1000
     # E[r] 主キーでは割安上位が月をまたいで持続するのが正常な挙動で、繰越 cap は
     # 較正リプレイで検証した順位 (previous 中立で計測) を運用で崩す。null = cap なし。
     max_previous_candidates_in_recommended: null
