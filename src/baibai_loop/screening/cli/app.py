@@ -229,6 +229,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="horizon to evaluate (3m/6m/12m; repeatable; default: all)",
     )
     calibration_evaluate_parser.add_argument(
+        "--sector-subset",
+        action="append",
+        dest="sector_subset",
+        help=(
+            "sector_33 value or preset name to include in optional subset diagnostics "
+            "(repeatable or comma-separated; preset: financial)"
+        ),
+    )
+    calibration_evaluate_parser.add_argument(
+        "--sector-subset-axis",
+        action="append",
+        dest="sector_subset_axes",
+        help=(
+            "axis to include in optional sector subset diagnostics "
+            "(repeatable or comma-separated; default: all axes)"
+        ),
+    )
+    calibration_evaluate_parser.add_argument(
         "--out",
         help="write the evaluation YAML to this path instead of stdout",
     )
@@ -331,6 +349,8 @@ def main(argv: list[str] | None = None) -> int:
         return calibration_evaluate_command(
             calibration_dir=Path(args.calibration_dir),
             horizons=args.horizons,
+            sector_subset=args.sector_subset,
+            sector_subset_axes=args.sector_subset_axes,
             output_path=Path(args.out) if args.out else None,
             start=_parse_iso_date(args.start) if args.start else None,
             end=_parse_iso_date(args.end) if args.end else None,

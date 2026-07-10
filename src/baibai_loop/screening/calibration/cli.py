@@ -15,7 +15,7 @@ from typing import TextIO
 import yaml
 
 from ..rule_config import ScreeningRules
-from .evaluation import TRAP_EXCESS_THRESHOLD, evaluate_cohorts
+from .evaluation import AXES, TRAP_EXCESS_THRESHOLD, evaluate_cohorts
 from .forward import HORIZONS, ForwardReturnRow, compute_forward_returns
 from .grid import month_end_asof_grid
 from .panel import CalibrationError, build_panel
@@ -105,6 +105,8 @@ def calibration_evaluate_command(
     *,
     calibration_dir: Path,
     horizons: list[str] | None = None,
+    sector_subset: list[str] | None = None,
+    sector_subset_axes: list[str] | None = None,
     output_path: Path | None = None,
     start: date | None = None,
     end: date | None = None,
@@ -112,9 +114,18 @@ def calibration_evaluate_command(
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
     horizons = horizons or list(HORIZONS)
+    sector_subset_values = _parse_sector_subset(sector_subset)
+    sector_subset_axis_values = _parse_sector_subset_axes(sector_subset_axes)
     unknown = [horizon for horizon in horizons if horizon not in HORIZONS]
     if unknown:
         print(f"unknown horizon(s): {', '.join(unknown)}", file=sys.stderr)
+        return 1
+    unknown_axes = [axis for axis in sector_subset_axis_values if axis not in _AXIS_NAMES]
+    if unknown_axes:
+        print(f"unknown sector subset axis/axes: {', '.join(unknown_axes)}", file=sys.stderr)
+        return 1
+    if sector_subset_axis_values and not sector_subset_values:
+        print("--sector-subset-axis requires --sector-subset", file=sys.stderr)
         return 1
     all_asofs = [
         date.fromisoformat(path.stem.removeprefix("panel-"))
@@ -145,7 +156,13 @@ def calibration_evaluate_command(
         )
         for asof in asofs
     }
-    result = evaluate_cohorts(panels, forwards, horizons=horizons)
+    result = evaluate_cohorts(
+        panels,
+        forwards,
+        horizons=horizons,
+        sector_subset=sector_subset_values,
+        sector_subset_axes=sector_subset_axis_values,
+    )
     payload = {
         "kind": "estimate-calibration-evaluation",
         "cohort_window": {
@@ -158,6 +175,11 @@ def calibration_evaluate_command(
         "excess_basis": "population_median_total_return_dividend_accrual",
         "results": result,
     }
+    if sector_subset_values:
+        payload["sector_subset"] = {
+            "sectors": sector_subset_values,
+            "axes": sector_subset_axis_values or "all",
+        }
     text = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True, default_flow_style=False)
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -166,6 +188,44 @@ def calibration_evaluate_command(
     else:
         print(text, file=out)
     return 0
+
+
+_AXIS_NAMES = {spec.name for spec in AXES}
+_SECTOR_SUBSET_PRESETS: dict[str, tuple[str, ...]] = {
+    "financial": ("銀行業", "証券・商品先物取引業", "保険業", "その他金融業"),
+    "金融": ("銀行業", "証券・商品先物取引業", "保険業", "その他金融業"),
+}
+
+
+def _parse_sector_subset(values: list[str] | None) -> list[str]:
+    if not values:
+        return []
+    sectors: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        for raw in value.replace("、", ",").split(","):
+            sector = raw.strip()
+            for expanded in _SECTOR_SUBSET_PRESETS.get(sector, (sector,)):
+                if not expanded or expanded in seen:
+                    continue
+                seen.add(expanded)
+                sectors.append(expanded)
+    return sectors
+
+
+def _parse_sector_subset_axes(values: list[str] | None) -> list[str]:
+    if not values:
+        return []
+    axes: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        for raw in value.replace("、", ",").split(","):
+            axis = raw.strip()
+            if not axis or axis in seen:
+                continue
+            seen.add(axis)
+            axes.append(axis)
+    return axes
 
 
 def _panel_consistency_error(calibration_dir: Path, asofs: list[date]) -> str | None:

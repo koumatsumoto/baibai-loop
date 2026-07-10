@@ -15,6 +15,12 @@ uv run baibai-loop-screening calibration-build --start 2023-01-01 --end 2026-04-
 
 # 2) 評価（rank IC / decile / selection replay / トラップ率 / gate / 収束）
 uv run baibai-loop-screening calibration-evaluate --out .cache/calibration-eval.yaml
+
+# 任意: sector subset の診断（例: 金融 subset の er_annual）
+uv run baibai-loop-screening calibration-evaluate \
+  --sector-subset financial \
+  --sector-subset-axis er_annual \
+  --out .cache/calibration-eval-financial.yaml
 ```
 
 - panel / forward は `data/screening/calibration/` に CSV + meta YAML で永続化する（再生成可能な L2 中間物。git に積まない）。既存 panel は skip、`--force` で再構築。`calibration-evaluate` の YAML 出力も再生成可能な計測出力であり、CSV store とともに **安定契約 1（CLI YAML 出力）の対象外**（形の正本は本 doc §5）。
@@ -51,10 +57,13 @@ panel には全普通株（universe scope）を記録し、`in_population`（sel
 | トラップ率 | 超過リターン < −20% の比率 | ゲートの実効性 |
 | gate 条件付き spread | 割安 decile 内の deterioration gate（YoY ≤ −30%）通過 / 非通過差 | ゲートの keep / 改訂 |
 | 収束実現 | sector 中央値倍率までの implied upside 分位 × 実現超過 | E[r] 収束年数の較正 |
+| sector subset diagnostics | 任意指定した sector subset について、軸別 rank IC / best decile trap / 全母集団 best decile trap との差分 | sector 除外・個別監視の再現可能な診断 |
 
 - **超過リターンの一次基準は流動性母集団の中央値**（選定スキルの直接計測。両辺が同じリターン定義で整合する）。TOPIX ETF（1306・price-only）は市況文脈の参考値。
 - cohort は forward 窓が重複し独立でないため、有意性検定はせず効果量と cohort 勝率で判断する（doctrine 柱 5 の誠実性規律）。
 - 軸ごとの最小標本 100 / IC 最小標本 30 を満たさない cohort × 軸は skip として現れる。
+- `--sector-subset` を指定すると、通常の `results.<horizon>.cohorts` / `aggregate` は変えず、`results.<horizon>.sector_subset_diagnostics` に任意診断を追加する。`--sector-subset-axis` は repeatable / comma-separated で、未指定時は全 axis を出す。`financial` preset は銀行業 / 証券・商品先物取引業 / 保険業 / その他金融業に展開する。
+- sector subset diagnostics は、全母集団と同じ excess 基準で subset 内の軸順位を評価する。金融のように subset 件数が 100 未満の cohort があるため、subset 診断は rank IC の最小標本 30 を下限にし、出力を rank IC / best decile trap / 全母集団 best decile trap 差分に絞る。
 
 ## 6. cohort の採用ゲートと開示
 
