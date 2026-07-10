@@ -30,10 +30,11 @@ uv run baibai-loop-position benchmark                # 保有の対 benchmark �
 
 ```bash
 uv run baibai-loop-macro list                        # series registry
-# 判断に使う主要 series は refresh してから読む（get --latest は cache 最新を返す）
+# 判断に使う主要 series は refresh してから読む（get --latest は鮮度窓内の cache を優先する）
 uv run baibai-loop-macro refresh <series> --start <直近> --end <today>
 ```
 
+- `refresh` は一時的な provider failure を 1 回 retry する。再失敗した series は upstream 停止・HTML/CSV/XLSX 構造変更・credential 欠落のいずれかとして扱い、error と source を確認してから再実行する。
 - 世界情勢 → 日本経済 → 個別資産の順に読み（[`../doctrine.md`](../doctrine.md) §7）、**リスク姿勢（ディフェンシブ / リスクオン）とセクター tilt** に落とす。深さの基準・敵対的 self-check は skill `macro-analysis` の品質ゲートを通す。
 - 成果物: `records/01-macro-context/YYYY/MM/macro-context-YYYY-MM-DD-<slug>.yaml`（schema: `records/_schemas/macro-context.json`）。`as_of` は screening asof（最新の完全営業日）に合わせる。
 - `uv run baibai-loop-validation --target macro-context` を通す。

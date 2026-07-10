@@ -7,7 +7,7 @@ import tempfile
 import unittest
 import zipfile
 from collections.abc import Mapping
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -32,15 +32,21 @@ from baibai_loop.macro.indicators.definitions import SeriesDefinition, load_defi
 from baibai_loop.macro.indicators.providers import (
     IndicatorsProviderError,
     fetch_observations,
+    parse_boj_mutan_xlsx,
     parse_boj_xlsx,
     parse_ecb_fx_csv,
     parse_estat_json,
     parse_fred_csv,
     parse_h15_csv,
     parse_manual_entries,
+    parse_mof_jgb_csv,
     parse_multpl_current,
     parse_trades_spec,
     parse_yahoo_chart,
+)
+from baibai_loop.macro.indicators.providers.boj_mutan import (
+    BojMutanProvider,
+    parse_boj_mutan_old_average,
 )
 from baibai_loop.macro.indicators.service import IndicatorsService
 
@@ -423,6 +429,87 @@ class IndicatorsProviderParserTests(unittest.TestCase):
                 series, buffer.getvalue(), start=date(2026, 1, 1), end=date(2026, 12, 31)
             )
 
+    def test_parse_mof_jgb_csv_extracts_10y_and_filters_range(self) -> None:
+        series = _series("mof_jgb", "10年")
+        text = "\n".join(
+            [
+                "国債金利情報,,,,,,,,,,,(単位 : %)",
+                "基準日,1年,2年,3年,4年,5年,6年,7年,8年,9年,10年,15年",
+                "R8.7.7,1.168,1.402,1.565,1.816,2.007,2.172,2.342,2.524,2.68,2.834,3.415",
+                "R8.7.8,1.18,1.433,1.59,1.843,2.039,2.198,2.368,2.552,2.705,2.856,3.445",
+                "R8.7.9,1.18,1.433,1.59,1.843,2.039,2.198,2.368,2.552,2.705,-,3.445",
+            ]
+        )
+
+        observations = parse_mof_jgb_csv(
+            series,
+            text,
+            start=date(2026, 7, 8),
+            end=date(2026, 7, 9),
+        )
+
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0].observed_at, date(2026, 7, 8))
+        self.assertEqual(observations[0].value, 2.856)
+
+    def test_parse_mof_jgb_csv_rejects_missing_column(self) -> None:
+        series = _series("mof_jgb", "10年")
+        text = "基準日,1年\nR8.7.8,1.18\n"
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "missing column 10年"):
+            parse_mof_jgb_csv(series, text, start=date(2026, 7, 8), end=date(2026, 7, 8))
+
+    def test_parse_boj_mutan_xlsx_extracts_average_rate(self) -> None:
+        content = _boj_mutan_workbook_bytes(average=0.978)
+        series = _series("boj_mutan", "average_final")
+
+        observation = parse_boj_mutan_xlsx(series, content, observed_at=date(2026, 7, 8))
+
+        self.assertEqual(observation.observed_at, date(2026, 7, 8))
+        self.assertEqual(observation.value, 0.978)
+
+    def test_parse_boj_mutan_xlsx_rejects_missing_average(self) -> None:
+        content = _boj_workbook_bytes([("最高\nMaximum", 1.03)])
+        series = _series("boj_mutan", "average_final")
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "Average"):
+            parse_boj_mutan_xlsx(series, content, observed_at=date(2026, 7, 8))
+
+    def test_parse_boj_mutan_old_average_accepts_cp932_and_utf8(self) -> None:
+        self.assertEqual(
+            parse_boj_mutan_old_average("<html>平均 0.477％</html>".encode("cp932")),
+            0.477,
+        )
+        self.assertEqual(
+            parse_boj_mutan_old_average("<td>平均</td><td>0.478%</td>".encode()),
+            0.478,
+        )
+
+    def test_boj_mutan_fetch_reads_old_archive_link_and_average(self) -> None:
+        series = _series("boj_mutan", "average_final")
+        menu_url = "https://www3.boj.or.jp/market/jp/menuold_m_2025.htm"
+        page_url = "https://www3.boj.or.jp/market/jp/stat/md250930.htm"
+        session = _RoutingSession(
+            {
+                menu_url: _FakeResponse(
+                    '<a href="stat/md250930.htm">2025年9月30日</a>'.encode("cp932")
+                ),
+                page_url: _FakeResponse("<html><body>平均 0.477％</body></html>".encode("cp932")),
+            }
+        )
+
+        observations = BojMutanProvider().fetch(
+            series,
+            start=date(2025, 9, 30),
+            end=date(2025, 9, 30),
+            session=session,
+        )
+
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0].observed_at, date(2025, 9, 30))
+        self.assertEqual(observations[0].value, 0.477)
+        self.assertEqual(session.urls, [menu_url, page_url])
+
     def test_parse_estat_json_filters_range_and_skips_nonnumeric(self) -> None:
         series = _series("estat", "0003427113", unit="index")
         text = json.dumps(
@@ -611,7 +698,8 @@ class IndicatorsRegistryTests(unittest.TestCase):
         by_id = load_definitions().by_id()
         expected = {
             "jp.nikkei225": ("fred_csv", "equity-index"),
-            "jp.policy_rate": ("fred_csv", "policy"),
+            "jp.policy_rate": ("boj_mutan", "policy"),
+            "jp.10y": ("mof_jgb", "rates"),
             "jp.unemployment": ("fred_csv", "labor"),
             "credit.us_hy_oas": ("fred_csv", "credit"),
             "credit.us_ccc_oas": ("fred_csv", "credit"),
@@ -671,6 +759,107 @@ class IndicatorsServiceTests(unittest.TestCase):
                 [date(2026, 5, 1), date(2026, 5, 2), date(2026, 5, 3)],
             )
 
+    def test_get_range_retries_transient_provider_error_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "macro.sqlite"
+            initialize_database(db).close()
+            observation = ObservationRecord(
+                series_id="us.10y",
+                observed_at=date(2026, 5, 1),
+                value=4.39,
+                unit="percent",
+                source_url="https://example.com/data.csv",
+                vintage_at=datetime.now(UTC),
+            )
+            with (
+                patch(
+                    "baibai_loop.macro.indicators.service.fetch_observations",
+                    side_effect=[
+                        IndicatorsProviderError("temporary upstream error"),
+                        [observation],
+                    ],
+                ) as fetch,
+                patch("baibai_loop.macro.indicators.service.time.sleep") as sleep,
+            ):
+                result = IndicatorsService(db).get_range(
+                    "us.10y",
+                    start=date(2026, 5, 1),
+                    end=date(2026, 5, 1),
+                    refresh=True,
+                )
+
+            self.assertFalse(result.cache_hit)
+            self.assertEqual(fetch.call_count, 2)
+            sleep.assert_called_once()
+            self.assertEqual(result.observations[0].value, 4.39)
+            conn = sqlite3.connect(db)
+            try:
+                runs = conn.execute(
+                    "SELECT status, record_count FROM provider_runs WHERE series_id = ?",
+                    ("us.10y",),
+                ).fetchall()
+            finally:
+                conn.close()
+            self.assertEqual(runs, [("ok", 1)])
+
+    def test_get_range_daily_partial_provider_run_does_not_cover_unobserved_tail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "macro.sqlite"
+            initialize_database(db).close()
+            first_observation = ObservationRecord(
+                series_id="jp.10y",
+                observed_at=date(2026, 7, 8),
+                value=2.856,
+                unit="percent",
+                source_url="https://example.com/data.csv",
+                vintage_at=datetime.now(UTC),
+            )
+            second_observation = ObservationRecord(
+                series_id="jp.10y",
+                observed_at=date(2026, 7, 9),
+                value=2.858,
+                unit="percent",
+                source_url="https://example.com/data.csv",
+                vintage_at=datetime.now(UTC),
+            )
+            with patch(
+                "baibai_loop.macro.indicators.service.fetch_observations",
+                side_effect=[[first_observation], [second_observation]],
+            ) as fetch:
+                first = IndicatorsService(db).get_range(
+                    "jp.10y",
+                    start=date(2026, 7, 8),
+                    end=date(2026, 7, 9),
+                    refresh=True,
+                )
+                second = IndicatorsService(db).get_range(
+                    "jp.10y",
+                    start=date(2026, 7, 9),
+                    end=date(2026, 7, 9),
+                )
+
+            self.assertFalse(first.cache_hit)
+            self.assertFalse(second.cache_hit)
+            self.assertEqual(fetch.call_count, 2)
+            self.assertEqual(fetch.call_args.kwargs["start"], date(2026, 7, 9))
+            self.assertEqual(second.observations[0].observed_at, date(2026, 7, 9))
+            conn = sqlite3.connect(db)
+            try:
+                runs = conn.execute(
+                    "SELECT range_start, range_end, record_count "
+                    "FROM provider_runs WHERE series_id = ? ORDER BY range_start",
+                    ("jp.10y",),
+                ).fetchall()
+            finally:
+                conn.close()
+            self.assertEqual(
+                runs,
+                [
+                    ("2026-07-08", "2026-07-08", 1),
+                    ("2026-07-09", "2026-07-09", 1),
+                ],
+            )
+
     def test_get_range_uses_cache_when_coverage_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "macro.sqlite"
@@ -712,6 +901,59 @@ class IndicatorsServiceTests(unittest.TestCase):
 
             self.assertTrue(result.cache_hit)
             self.assertEqual(result.observations[0].observed_at, observed_at)
+
+    def test_get_latest_uses_short_daily_provider_lookback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "macro.sqlite"
+            initialize_database(db).close()
+            today = datetime.now(UTC).date()
+            observation = ObservationRecord(
+                series_id="jp.10y",
+                observed_at=today,
+                value=2.8,
+                unit="percent",
+                source_url="https://example.com/data.csv",
+                vintage_at=datetime.now(UTC),
+            )
+            with patch(
+                "baibai_loop.macro.indicators.service.fetch_observations",
+                return_value=[observation],
+            ) as fetch:
+                result = IndicatorsService(db).get_latest("jp.10y", refresh=True)
+
+            self.assertFalse(result.cache_hit)
+            self.assertEqual(fetch.call_args.kwargs["start"], today - timedelta(days=14))
+
+    def test_get_latest_refreshes_stale_latest_even_when_range_has_coverage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "macro.sqlite"
+            today = datetime.now(UTC).date()
+            _write_observation_with_coverage(
+                db,
+                "jp.10y",
+                observed_at=today - timedelta(days=2),
+                value=2.7,
+                coverage_start=today - timedelta(days=14),
+                coverage_end=today,
+            )
+            observation = ObservationRecord(
+                series_id="jp.10y",
+                observed_at=today - timedelta(days=1),
+                value=2.8,
+                unit="percent",
+                source_url="https://example.com/data.csv",
+                vintage_at=datetime.now(UTC),
+            )
+            with patch(
+                "baibai_loop.macro.indicators.service.fetch_observations",
+                return_value=[observation],
+            ) as fetch:
+                result = IndicatorsService(db).get_latest("jp.10y")
+
+            self.assertFalse(result.cache_hit)
+            self.assertEqual(fetch.call_count, 1)
+            self.assertEqual(result.observations[0].observed_at, today - timedelta(days=1))
+            self.assertEqual(result.observations[0].value, 2.8)
 
     def test_cli_search_and_cached_get(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -775,6 +1017,16 @@ def _boj_workbook_bytes(rows: list[tuple[object, ...]]) -> bytes:
     buffer = io.BytesIO()
     workbook.save(buffer)
     return buffer.getvalue()
+
+
+def _boj_mutan_workbook_bytes(*, average: float) -> bytes:
+    return _boj_workbook_bytes(
+        [
+            ("無担保コールＯ／Ｎ物レート（7月8日＜水＞確報）", None, None),
+            (None, "平均\nAverage", average),
+            (None, "最高\nMaximum", 1.03),
+        ]
+    )
 
 
 def _write_observation_with_coverage(
@@ -859,6 +1111,24 @@ class _StaticSession:
         stream: bool = False,
     ) -> _FakeResponse:
         return self.response
+
+
+class _RoutingSession:
+    def __init__(self, responses: dict[str, _FakeResponse]) -> None:
+        self.responses = responses
+        self.urls: list[str] = []
+
+    def get(
+        self,
+        url: str,
+        *,
+        params: dict[str, str] | None = None,
+        headers: Mapping[str, str] | None = None,
+        timeout: int,
+        stream: bool = False,
+    ) -> _FakeResponse:
+        self.urls.append(url)
+        return self.responses[url]
 
 
 class _FakeResponse:

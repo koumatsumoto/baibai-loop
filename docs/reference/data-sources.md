@@ -3,7 +3,7 @@ title: "Data sources"
 summary: "データソースの Tier 分類・キャッシュ方針・Tier 1 取得失敗時の扱いの正本。"
 doc_type: reference
 status: active
-last_reviewed: 2026-05-04
+last_reviewed: 2026-07-09
 source_paths:
   - "../../data/"
 related_docs:
@@ -101,6 +101,8 @@ FRED は多くの一次統計の集約先として機能する。Tier 1 の適�
 
 - [厚生労働省](https://www.mhlw.go.jp/) — 有効求人倍率 / 毎月勤労統計
 - [経済産業省](https://www.meti.go.jp/) — 鉱工業生産指数 / 商業動態統計
+- [財務省 国債金利情報](https://www.mof.go.jp/jgbs/reference/interest_rate/index.htm) — 日本国債の主要年限別利回り。全履歴 CSV と当月 CSV を併用し、日次の 10 年国債利回りを取得する
+- [日本銀行 コール市場関連統計](https://www.boj.or.jp/statistics/market/short/mutan/index.htm) — 無担保コール O/N 物レートの速報・確報。日次の確報 xlsx から平均レートを取得する
 
 ### 主要中央銀行（FRB・日銀に準ずる）
 

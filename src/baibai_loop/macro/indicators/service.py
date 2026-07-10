@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -8,14 +9,21 @@ from pathlib import Path
 from . import db
 from .db import ObservationRecord
 from .definitions import SeriesDefinition
-from .providers import FetchContext, fetch_observations
+from .providers import FetchContext, IndicatorsProviderError, fetch_observations
 
 DEFAULT_LATEST_LOOKBACK_DAYS = 370
+LATEST_FETCH_LOOKBACK_DAYS = {
+    "daily": 14,
+    "weekly": 60,
+    "monthly": DEFAULT_LATEST_LOOKBACK_DAYS,
+}
 LATEST_CACHE_MAX_AGE_DAYS = {
-    "daily": 7,
+    "daily": 1,
     "weekly": 14,
     "monthly": 70,
 }
+PROVIDER_FETCH_ATTEMPTS = 2
+PROVIDER_FETCH_RETRY_BACKOFF_SECONDS = 1.0
 
 
 @dataclass(frozen=True)
@@ -81,8 +89,16 @@ class IndicatorsService:
                     return QueryResult(series, (cached_latest,), cache_hit=True)
         finally:
             conn.close()
-        start = end - timedelta(days=DEFAULT_LATEST_LOOKBACK_DAYS)
-        result = self.get_range(series_id, start=start, end=end, refresh=refresh)
+        lookback_days = LATEST_FETCH_LOOKBACK_DAYS.get(
+            series.frequency, DEFAULT_LATEST_LOOKBACK_DAYS
+        )
+        start = end - timedelta(days=lookback_days)
+        result = self.get_range(
+            series_id,
+            start=start,
+            end=end,
+            refresh=refresh or cached_latest is not None,
+        )
         if not result.observations:
             return result
         return QueryResult(
@@ -102,14 +118,18 @@ class IndicatorsService:
     ) -> list[ObservationRecord]:
         started_at = datetime.now(UTC)
         try:
-            observations = fetch_observations(series, start=start, end=end, context=context)
+            observations = _fetch_observations_with_retry(
+                series, start=start, end=end, context=context
+            )
             db.insert_observations(conn, observations)
             db.record_provider_run(
                 conn,
                 provider=series.provider,
                 series_id=series.series_id,
                 start=start,
-                end=end,
+                end=_provider_run_coverage_end(
+                    series, requested_end=end, observations=observations
+                ),
                 started_at=started_at,
                 status="ok",
                 record_count=len(observations),
@@ -130,3 +150,31 @@ class IndicatorsService:
             )
             conn.commit()
             raise
+
+
+def _provider_run_coverage_end(
+    series: SeriesDefinition,
+    *,
+    requested_end: date,
+    observations: list[ObservationRecord],
+) -> date:
+    if series.frequency == "daily" and observations:
+        return min(requested_end, max(item.observed_at for item in observations))
+    return requested_end
+
+
+def _fetch_observations_with_retry(
+    series: SeriesDefinition,
+    *,
+    start: date,
+    end: date,
+    context: FetchContext | None,
+) -> list[ObservationRecord]:
+    for attempt in range(1, PROVIDER_FETCH_ATTEMPTS + 1):
+        try:
+            return fetch_observations(series, start=start, end=end, context=context)
+        except IndicatorsProviderError:
+            if attempt == PROVIDER_FETCH_ATTEMPTS:
+                raise
+            time.sleep(PROVIDER_FETCH_RETRY_BACKOFF_SECONDS)
+    raise AssertionError("unreachable provider retry loop")
