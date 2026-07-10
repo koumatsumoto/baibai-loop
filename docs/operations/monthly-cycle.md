@@ -91,7 +91,12 @@ uv run baibai-loop-screening select --asof "$ASOF" --top 20 \
 
 ## 7. 保有レビュー（月次 + 決算後）
 
+```bash
+uv run baibai-loop-position calibration --asof "$ASOF" > ".cache/position-calibration-$ASOF.yaml"
+```
+
 - 各保有の `review_valuation`（FV・現値・valuation zone・hold/add/sell）を月次で更新する。割高ゾーン到達は全売り、割安継続は保有 / 買増し。
+- `calibration` の YAML は、open position ごとの entry 見積り、現在リターン、benchmark 相対リターン、FV gap、draft `valuation_zone` / `action`、aggregate、coverage を持つ。draft `action` は `review_valuation` と `estimate_calibration` の下書きであり、自動の exit 判断ではない。FV や J-Quants bars が欠ける場合は該当値を `null` として扱い、warning と coverage を確認する。
 - 決算後レビューは `task:earnings-review` issue（[`./task-runbook.md`](./task-runbook.md)）で漏れを防ぎ、判断は records に戻す。
 - exit・決算後に `estimate_calibration`（entry 見積り vs 実現）を更新する。
 

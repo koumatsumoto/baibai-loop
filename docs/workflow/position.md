@@ -72,6 +72,14 @@ estimate_calibration: { entry_expected_upside_pct: 40.0, entry_expected_yield_pc
 - **定例の見直し**：**月次**（積立と同じ周期）と **決算発表後**に、各保有の `review_valuation`（FV・現値・valuation zone・次の行動）を更新する。割高ゾーンに到達していれば全株売却、割安が続いていれば保有または買増し。決算後の見直しが必要な保有は GitHub Issue（`task:earnings-review` ラベル、`task: YYYY-MM-DD <ticker> を <event> 後に確認する`）で実行漏れを防ぐ。判断の正本は records に戻す。
 - **見積りの較正（estimate calibration）**：exit 時と決算後に `estimate_calibration` を更新し、entry 時の見積り（想定上昇率・期待利回り）と実現結果（実際のリターン・利回り・thesis の的中）を突き合わせる。系統的なずれ（マクロの読み・FV 推定・耐性判定のどこが外れたか）を次の見積りに反映する（= 改善ループ、[`../doctrine.md`](../doctrine.md) 柱 3）。保有の対 benchmark 相対リターンは `uv run baibai-loop-position benchmark`（`1321` proxy、[`../reference/data-sources.md`](../reference/data-sources.md)）で機械的に算出し、較正の参考情報にする。
 
+月次の下書きは read-only CLI で作る。
+
+```bash
+uv run baibai-loop-position calibration --asof YYYY-MM-DD
+```
+
+`calibration` は `records/04-position/**/*.md` の open position、対応する `records/03-thesis` の FV、J-Quants bars（`data/screening/market.sqlite`）を読み、保有ごとの entry 見積り・現在リターン・benchmark 相対リターン・FV gap・draft `valuation_zone` / `action` を YAML で出す。draft `valuation_zone` は FV がある場合だけ `cheap` / `fair` / `rich` を機械計算し、draft `action` は `rich` のとき `sell`、それ以外は `hold` を出す。これは `review_valuation` と `estimate_calibration` 更新の下書きであり、自動の exit 判断ではない。FV または J-Quants bars が欠ける項目は `null` として残し、CLI warning と coverage で欠損を確認する。
+
 ## Kill switch check
 
 `kill_switch_check` は保有中の継続監視として記録する。ファンダメンタルズ毀損を検知したら「全売り (b)」で exit する。結果が二値に振れるイベント（決算跨ぎ・日銀会合前日・FOMC 前日）の直前の新規建玉は、避けるか小さくする（長期の積立では必須の禁止事項ではない、[`../portfolio-management.md`](../portfolio-management.md)）。
