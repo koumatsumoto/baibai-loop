@@ -52,6 +52,17 @@ class AxisSpec:
     direction: int
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _CohortExcessContext:
+    population: list[PanelRow]
+    excess: dict[str, float]
+    population_median_return: float
+    benchmark_price_return: float | None
+    stale_price_count: int
+    dividend_yield_coverage: int
+    horizon_years: float
+
+
 AXES: tuple[AxisSpec, ...] = (
     AxisSpec(name="per_forward", direction=-1),
     AxisSpec(name="per_trailing", direction=-1),
@@ -95,24 +106,50 @@ def evaluate_cohorts(
     forwards: Mapping[str, Sequence[ForwardReturnRow]],
     *,
     horizons: Sequence[str],
+    sector_subset: Sequence[str] | None = None,
+    sector_subset_axes: Sequence[str] | None = None,
 ) -> dict[str, object]:
     """Evaluate all cohorts and aggregate per horizon.
 
     ``panels`` / ``forwards`` は asof (ISO 文字列) を key にする。
     """
+    sector_subset_values = _normalize_sector_subset(sector_subset)
+    sector_subset_axis_values = _normalize_axis_subset(sector_subset_axes)
     per_horizon: dict[str, object] = {}
     for horizon in horizons:
         cohort_results: list[dict[str, object]] = []
+        sector_subset_results: list[dict[str, object]] = []
         for asof in sorted(panels):
             cohort = _evaluate_cohort(
                 panels[asof], forwards.get(asof, ()), asof=asof, horizon=horizon
             )
             if cohort is not None:
                 cohort_results.append(cohort)
-        per_horizon[horizon] = {
+                if sector_subset_values:
+                    axes = cohort.get("axes")
+                    sector_subset_cohort = _evaluate_sector_subset_cohort(
+                        panels[asof],
+                        forwards.get(asof, ()),
+                        asof=asof,
+                        horizon=horizon,
+                        sectors=sector_subset_values,
+                        axis_names=sector_subset_axis_values,
+                        all_population_axes=axes if isinstance(axes, dict) else {},
+                    )
+                    if sector_subset_cohort is not None:
+                        sector_subset_results.append(sector_subset_cohort)
+        horizon_result: dict[str, object] = {
             "cohorts": cohort_results,
             "aggregate": _aggregate(cohort_results),
         }
+        if sector_subset_values:
+            horizon_result["sector_subset_diagnostics"] = {
+                "sectors": list(sector_subset_values),
+                "axes": list(sector_subset_axis_values) if sector_subset_axis_values else "all",
+                "cohorts": sector_subset_results,
+                "aggregate": _aggregate_sector_subset(sector_subset_results),
+            }
+        per_horizon[horizon] = horizon_result
     return per_horizon
 
 
@@ -123,6 +160,44 @@ def _evaluate_cohort(
     asof: str,
     horizon: str,
 ) -> dict[str, object] | None:
+    context = _cohort_excess_context(panel, forward_rows, horizon=horizon)
+    if context is None:
+        return None
+    population = context.population
+    excess = context.excess
+
+    axes: dict[str, object] = {}
+    for spec in AXES:
+        axes_result = _evaluate_axis(spec, population, excess)
+        if axes_result is not None:
+            axes[spec.name] = axes_result
+
+    return {
+        "asof": asof,
+        "horizon": horizon,
+        "population_resolved": len(population),
+        "dividend_yield_coverage": context.dividend_yield_coverage,
+        "population_median_return": round(context.population_median_return, 6),
+        "benchmark_price_return": (
+            round(context.benchmark_price_return, 6)
+            if context.benchmark_price_return is not None
+            else None
+        ),
+        "stale_price_count": context.stale_price_count,
+        "axes": axes,
+        "selection": _evaluate_selection(population, excess),
+        "gates": _evaluate_gates(population, excess),
+        "reversion": _evaluate_reversion(population, excess),
+        "er_calibration": _evaluate_er_calibration(population, excess, years=context.horizon_years),
+    }
+
+
+def _cohort_excess_context(
+    panel: Sequence[PanelRow],
+    forward_rows: Sequence[ForwardReturnRow],
+    *,
+    horizon: str,
+) -> _CohortExcessContext | None:
     price_returns: dict[str, float] = {}
     stale_count = 0
     for row in forward_rows:
@@ -144,28 +219,99 @@ def _evaluate_cohort(
     population_median_return = median(returns[row.ticker] for row in population)
     excess = {row.ticker: returns[row.ticker] - population_median_return for row in population}
     benchmark_return = price_returns.get(TOPIX_ETF_PROXY)
+    return _CohortExcessContext(
+        population=population,
+        excess=excess,
+        population_median_return=population_median_return,
+        benchmark_price_return=benchmark_return,
+        stale_price_count=stale_count,
+        dividend_yield_coverage=dividend_coverage,
+        horizon_years=years,
+    )
 
+
+def _evaluate_sector_subset_cohort(
+    panel: Sequence[PanelRow],
+    forward_rows: Sequence[ForwardReturnRow],
+    *,
+    asof: str,
+    horizon: str,
+    sectors: Sequence[str],
+    axis_names: Sequence[str],
+    all_population_axes: Mapping[str, object],
+) -> dict[str, object] | None:
+    """指定 sector subset の軸診断を、全母集団 excess と同じ基準で計算する。"""
+    context = _cohort_excess_context(panel, forward_rows, horizon=horizon)
+    if context is None:
+        return None
+    population = context.population
+    excess = context.excess
+
+    sector_set = set(sectors)
+    subset = [row for row in population if row.sector_33 in sector_set]
     axes: dict[str, object] = {}
-    for spec in AXES:
-        axes_result = _evaluate_axis(spec, population, excess)
-        if axes_result is not None:
-            axes[spec.name] = axes_result
-
+    for spec in _axis_specs(axis_names):
+        subset_axis = _evaluate_sector_subset_axis(spec, subset, excess)
+        if subset_axis is None:
+            continue
+        all_axis = all_population_axes.get(spec.name)
+        all_trap = (
+            _numeric(all_axis.get("best_decile_trap_rate")) if isinstance(all_axis, dict) else None
+        )
+        subset_trap = _numeric(subset_axis.get("best_decile_trap_rate"))
+        axes[spec.name] = {
+            "n": subset_axis["n"],
+            "rank_ic": subset_axis["rank_ic"],
+            "best_decile_trap_rate": subset_axis["best_decile_trap_rate"],
+            "all_population_best_decile_trap_rate": (
+                round(all_trap, 4) if all_trap is not None else None
+            ),
+            "best_decile_trap_rate_delta_vs_all_population": (
+                round(subset_trap - all_trap, 4)
+                if subset_trap is not None and all_trap is not None
+                else None
+            ),
+        }
     return {
         "asof": asof,
         "horizon": horizon,
-        "population_resolved": len(population),
-        "dividend_yield_coverage": dividend_coverage,
-        "population_median_return": round(population_median_return, 6),
-        "benchmark_price_return": (
-            round(benchmark_return, 6) if benchmark_return is not None else None
-        ),
-        "stale_price_count": stale_count,
+        "all_population_resolved": len(population),
+        "subset_population_resolved": len(subset),
         "axes": axes,
-        "selection": _evaluate_selection(population, excess),
-        "gates": _evaluate_gates(population, excess),
-        "reversion": _evaluate_reversion(population, excess),
-        "er_calibration": _evaluate_er_calibration(population, excess, years=years),
+    }
+
+
+def _evaluate_sector_subset_axis(
+    spec: AxisSpec,
+    subset: Sequence[PanelRow],
+    excess: Mapping[str, float],
+) -> dict[str, object] | None:
+    """小さめの sector subset 向け軸診断。
+
+    全母集団の axis 評価は decile の安定性を優先して 100 件を下限にする。
+    sector subset は金融のように月次 cohort が 100 件未満になり得るため、
+    IC と top decile trap の最低限の診断に絞り、IC 計算下限の 30 件で出す。
+    """
+    pairs = [
+        (value * spec.direction, excess[row.ticker])
+        for row in subset
+        if (value := getattr(row, spec.name)) is not None
+    ]
+    if len(pairs) < MIN_IC_SAMPLE:
+        return None
+    ic = _spearman(pairs)
+    best_values = _decile_values(pairs)[-1]
+    return {
+        "n": len(pairs),
+        "rank_ic": round(ic, 4) if ic is not None else None,
+        "best_decile_trap_rate": (
+            round(
+                sum(1 for value in best_values if value < TRAP_EXCESS_THRESHOLD) / len(best_values),
+                4,
+            )
+            if best_values
+            else None
+        ),
     }
 
 
@@ -500,3 +646,105 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
         "axes": axis_summary,
         "selection": selection_summary,
     }
+
+
+def _aggregate_sector_subset(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
+    """sector subset 診断の cohort 横断集計。design/confirm 表へ転記する粒度に絞る。"""
+    if not cohorts:
+        return {"cohort_count": 0}
+    subset_ns = [
+        int(value)
+        for cohort in cohorts
+        if isinstance(value := cohort.get("subset_population_resolved"), int)
+    ]
+    axis_summary: dict[str, object] = {}
+    for spec in AXES:
+        ns: list[int] = []
+        ics: list[float] = []
+        subset_traps: list[float] = []
+        all_population_traps: list[float] = []
+        trap_deltas: list[float] = []
+        for cohort in cohorts:
+            axes = cohort.get("axes")
+            if not isinstance(axes, dict):
+                continue
+            axis = axes.get(spec.name)
+            if not isinstance(axis, dict):
+                continue
+            n = axis.get("n")
+            if isinstance(n, int):
+                ns.append(n)
+            if (ic := _numeric(axis.get("rank_ic"))) is not None:
+                ics.append(ic)
+            if (trap := _numeric(axis.get("best_decile_trap_rate"))) is not None:
+                subset_traps.append(trap)
+            if (
+                all_population_trap := _numeric(axis.get("all_population_best_decile_trap_rate"))
+            ) is not None:
+                all_population_traps.append(all_population_trap)
+            if (
+                trap_delta := _numeric(axis.get("best_decile_trap_rate_delta_vs_all_population"))
+            ) is not None:
+                trap_deltas.append(trap_delta)
+        if not ns:
+            continue
+        axis_summary[spec.name] = {
+            "cohorts": len(ns),
+            "mean_n": round(fmean(ns), 1),
+            "mean_rank_ic": round(fmean(ics), 4) if ics else None,
+            "ic_positive_share": (
+                round(sum(1 for ic in ics if ic > 0) / len(ics), 4) if ics else None
+            ),
+            "mean_best_decile_trap_rate": (round(fmean(subset_traps), 4) if subset_traps else None),
+            "mean_all_population_best_decile_trap_rate": (
+                round(fmean(all_population_traps), 4) if all_population_traps else None
+            ),
+            "mean_best_decile_trap_rate_delta_vs_all_population": (
+                round(fmean(trap_deltas), 4) if trap_deltas else None
+            ),
+        }
+    return {
+        "cohort_count": len(cohorts),
+        "mean_subset_population_resolved": round(fmean(subset_ns), 1) if subset_ns else 0,
+        "axes": axis_summary,
+    }
+
+
+def _normalize_sector_subset(sector_subset: Sequence[str] | None) -> tuple[str, ...]:
+    if not sector_subset:
+        return ()
+    sectors: list[str] = []
+    seen: set[str] = set()
+    for raw in sector_subset:
+        sector = raw.strip()
+        if not sector or sector in seen:
+            continue
+        seen.add(sector)
+        sectors.append(sector)
+    return tuple(sectors)
+
+
+def _normalize_axis_subset(axis_names: Sequence[str] | None) -> tuple[str, ...]:
+    if not axis_names:
+        return ()
+    known = {spec.name for spec in AXES}
+    axes: list[str] = []
+    seen: set[str] = set()
+    for raw in axis_names:
+        axis = raw.strip()
+        if not axis or axis in seen or axis not in known:
+            continue
+        seen.add(axis)
+        axes.append(axis)
+    return tuple(axes)
+
+
+def _axis_specs(axis_names: Sequence[str]) -> tuple[AxisSpec, ...]:
+    if not axis_names:
+        return AXES
+    selected = set(axis_names)
+    return tuple(spec for spec in AXES if spec.name in selected)
+
+
+def _numeric(value: object) -> float | None:
+    return float(value) if isinstance(value, int | float) else None

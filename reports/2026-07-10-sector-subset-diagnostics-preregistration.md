@@ -78,3 +78,75 @@ uv run baibai-loop-screening calibration-evaluate \
 5. focused tests または full gates が通らない。
 
 残リスクは、sector 名・業種コードの local data 表記揺れにより、金融 subset の membership が #309 の手作業集計とずれることである。この場合は CLI の引数または出力 metadata に、使った sector 定義を明示する必要がある。
+
+## 5. 採否結果
+
+実装は採用する。`calibration-evaluate` は `--sector-subset` と `--sector-subset-axis` を任意引数として受け、指定がある場合だけ `results.<horizon>.sector_subset_diagnostics` と top-level `sector_subset` metadata を出す。指定がない場合の YAML は、事前に保存した baseline と byte-for-byte で一致した。
+
+`financial` preset は銀行業 / 証券・商品先物取引業 / 保険業 / その他金融業に展開する。subset 診断は全母集団と同じ excess 基準を使い、金融 subset のように cohort が 100 件未満になる場合でも rank IC の最小標本 30 を満たせば、rank IC / best decile trap / 全母集団 best decile trap 差分を出す。
+
+## 6. 金融 sector 診断の再現
+
+既存 store `data/screening/calibration-universe-er-population` で、事前登録した design / confirm の 6m 金融 sector 診断を再実行した。出力 aggregate は #309 report §6 の手作業値と丸め範囲で一致する。
+
+| window | cohorts | mean financial n | mean financial rank IC | IC positive share | financial top decile trap | all E[r] best decile trap | trap delta |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| design | 22 | 90.3 | 0.1196 | 0.8636 | 0.0202 | 0.0584 | -3.820pt |
+| confirm | 18 | 104.3 | 0.0212 | 0.6667 | 0.0351 | 0.0578 | -2.270pt |
+
+再現コマンド:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening calibration-evaluate \
+  --calibration-dir data/screening/calibration-universe-er-population \
+  --start 2022-09-01 \
+  --end 2024-06-30 \
+  --horizon 6m \
+  --sector-subset financial \
+  --sector-subset-axis er_annual \
+  --out .cache/sector-subset-financial-design-6m.yaml
+
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening calibration-evaluate \
+  --calibration-dir data/screening/calibration-universe-er-population \
+  --start 2024-07-01 \
+  --end 2026-06-30 \
+  --horizon 6m \
+  --sector-subset financial \
+  --sector-subset-axis er_annual \
+  --out .cache/sector-subset-financial-confirm-6m.yaml
+```
+
+後方互換確認:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening calibration-evaluate \
+  --calibration-dir data/screening/calibration-universe-er-population \
+  --start 2022-09-01 \
+  --end 2024-06-30 \
+  --horizon 6m \
+  --out .cache/sector-subset-after-design-6m.yaml
+
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening calibration-evaluate \
+  --calibration-dir data/screening/calibration-universe-er-population \
+  --start 2024-07-01 \
+  --end 2026-06-30 \
+  --horizon 6m \
+  --out .cache/sector-subset-after-confirm-6m.yaml
+```
+
+`.cache/sector-subset-baseline-design-6m.yaml` と `.cache/sector-subset-after-design-6m.yaml`、`.cache/sector-subset-baseline-confirm-6m.yaml` と `.cache/sector-subset-after-confirm-6m.yaml` はそれぞれ一致した。
+
+## 7. 検証
+
+以下を通した。
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_calibration_evaluation.py
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check .
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check .
+UV_CACHE_DIR=/tmp/uv-cache uv run mypy
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest
+```
+
+`baibai-loop-validation` は 0 error / 7 warning。warning は既存 thesis の sector concentration warning で、本変更の対象外である。full `pytest` は 591 passed / 1 skipped。

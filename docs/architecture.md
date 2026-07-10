@@ -123,7 +123,7 @@ Automation は人間の投資判断を置き換えず、fact snapshot 生成・s
 | `baibai-loop-screening ticker-profile --ticker` | `screening/` | 個別銘柄の事実 packet（全上場対応） |
 | `baibai-loop-screening market-snapshot` | `screening/` | regime 履歴・sector 集計（macro context の機械入力） |
 | `baibai-loop-screening calibration-build --start --end` | `screening/` | 見積り較正の point-in-time 月次 panel + forward return を local store へ構築（cache のみ） |
-| `baibai-loop-screening calibration-evaluate` | `screening/` | 較正 cohort の評価（rank IC / decile / selection replay / トラップ率）を YAML 出力 |
+| `baibai-loop-screening calibration-evaluate` | `screening/` | 較正 cohort の評価（rank IC / decile / selection replay / トラップ率 / 任意 sector subset 診断）を YAML 出力 |
 | `baibai-loop-macro` | `macro/` | 指標 series を provenance 付きで取得・cache |
 | `baibai-loop-validation` | `validation/` | records と schema の整合を検証 |
 | `baibai-loop-position benchmark` | `position/` | 保有の entry 以降リターンと benchmark（`1321`）比を算出 |
