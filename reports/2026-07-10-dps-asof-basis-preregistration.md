@@ -101,4 +101,82 @@ uv run baibai-loop-screening select --asof 2026-07-08 --candidates .cache/candid
 
 ## 5. 判定記録
 
-未計測。variant 実装後、design / confirm の結果、spot check、採否判断を本節以降に追記する。
+## 5. 検証結果
+
+事前登録後に、baseline store と variant store を分けて構築した。baseline は現行 `disclosed_at` 基準の actual DPS 正規化、variant は FY 行の actual DPS だけを、次の固定条件をすべて満たす場合に `period_start` 基準へ拡張補正する実装である。
+
+- `period_start` 基準の factor が `disclosed_at` 基準の factor と異なる。
+- `dps_actual_annual / dps_forecast_annual >= 1.5`。
+- 補正後 actual DPS / forecast DPS が `0.5..1.5` の範囲に入る。
+- 補正後 actual DPS が raw actual DPS より forecast DPS に近づく。
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening calibration-build --start 2022-09-01 --end 2026-03-31 --calibration-dir data/screening/calibration-dps-asof-baseline --force
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening calibration-build --start 2022-09-01 --end 2026-03-31 --calibration-dir data/screening/calibration-dps-asof-confirmed --force
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening calibration-evaluate --calibration-dir data/screening/calibration-dps-asof-baseline --horizon 6m --start 2022-09-01 --end 2024-06-30 --out .cache/dps-asof-baseline-design-6m.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening calibration-evaluate --calibration-dir data/screening/calibration-dps-asof-baseline --horizon 6m --start 2024-07-01 --end 2026-03-31 --out .cache/dps-asof-baseline-confirm-6m.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening calibration-evaluate --calibration-dir data/screening/calibration-dps-asof-confirmed --horizon 6m --start 2022-09-01 --end 2024-06-30 --out .cache/dps-asof-confirmed-design-6m.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening calibration-evaluate --calibration-dir data/screening/calibration-dps-asof-confirmed --horizon 6m --start 2024-07-01 --end 2026-03-31 --out .cache/dps-asof-confirmed-confirm-6m.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening calibration-evaluate --calibration-dir data/screening/calibration-dps-asof-baseline --horizon 12m --start 2022-09-01 --end 2024-06-30 --out .cache/dps-asof-baseline-design-12m.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening calibration-evaluate --calibration-dir data/screening/calibration-dps-asof-baseline --horizon 12m --start 2024-07-01 --end 2026-03-31 --out .cache/dps-asof-baseline-confirm-12m.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening calibration-evaluate --calibration-dir data/screening/calibration-dps-asof-confirmed --horizon 12m --start 2022-09-01 --end 2024-06-30 --out .cache/dps-asof-confirmed-design-12m.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening calibration-evaluate --calibration-dir data/screening/calibration-dps-asof-confirmed --horizon 12m --start 2024-07-01 --end 2026-03-31 --out .cache/dps-asof-confirmed-confirm-12m.yaml
+```
+
+### 5.1 6m primary gate
+
+| cohort | series | baseline median excess | variant median excess | delta | baseline trap | variant trap | delta |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| design | er_ranked_top10 | 8.483% | 7.680% | -0.803pt | 12.270% | 12.730% | +0.460pt |
+| design | recommended_rank_top10 | 14.113% | 13.185% | -0.928pt | 8.640% | 9.550% | +0.910pt |
+| confirm | er_ranked_top10 | 7.436% | 6.792% | -0.645pt | 10.560% | 13.330% | +2.770pt |
+| confirm | recommended_rank_top10 | 6.687% | 3.856% | -2.831pt | 5.560% | 9.440% | +3.880pt |
+
+`er_annual` axis の mean rank IC は design 0.2262 → 0.2254、confirm 0.1477 → 0.1451 で正を維持し、variant の IC 正 cohort 率は design 1.000、confirm 0.944 だった。したがって axis IC 条件は満たす。
+
+一方、6m primary gate は confirm の trap 非悪化条件と `recommended_rank_top10` の median 非劣化条件を満たさない。confirm `recommended_rank_top10` は median -2.831pt、trap +3.880pt で、事前登録した許容幅（median -1.0pt 以上、trap +1.0pt 以下）を明確に超えて悪化した。
+
+### 5.2 12m 補助確認
+
+| cohort | series | baseline median excess | variant median excess | delta | baseline trap | variant trap | delta |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| design | er_ranked_top10 | 20.354% | 18.274% | -2.080pt | 15.910% | 16.820% | +0.910pt |
+| design | recommended_rank_top10 | 30.089% | 28.790% | -1.299pt | 11.360% | 13.180% | +1.820pt |
+| confirm | er_ranked_top10 | 15.179% | 5.603% | -9.576pt | 16.670% | 25.000% | +8.330pt |
+| confirm | recommended_rank_top10 | 14.581% | 5.711% | -8.870pt | 8.330% | 19.170% | +10.840pt |
+
+12m は採否の一次基準ではないが、confirm で同方向に大きく悪化している。6m gate 不通過を覆す材料はない。
+
+## 6. 2026-07 spot check
+
+variant 実装で 2026-07-08 asof の pipeline を回した。
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening run --asof 2026-07-08 --output-path .cache/candidates-2026-07-08-dps-asof.yaml --force
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening select --asof 2026-07-08 --candidates .cache/candidates-2026-07-08-dps-asof.yaml --top 20 --detail full > .cache/select-2026-07-08-dps-asof.yaml
+```
+
+`run` は既存同様の partial warning（TTM quality / 入力欠損）で exit 2 だが、output は作成され、select は正常終了した。
+
+| ticker | baseline actual / forecast DPS | variant actual / forecast DPS | baseline E[r] | variant E[r] | 判定 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 4116 | 220 / 55 | 55 / 55 | 17.54% | 2.22% | 分割 artifact は解消 |
+| 4008 | 220 / 48 | 44 / 48 | 14.83% | 1.16% | 分割 artifact は解消 |
+| 8078 | 290 / 66 | 58 / 66 | 12.64% | -0.59% | 分割 artifact は解消 |
+| 8273 | 90 / 30 | 30 / 30 | 9.90% | 3.90% | 分割 artifact は解消 |
+| 5108 | 230 / 125 | 115 / 125 | 9.85% | 6.67% | 分割 artifact は解消 |
+| 5410 | 180 / 100 | 180 / 100 | 11.51% | 11.51% | 減配ガイダンス乖離は補正せず |
+
+spot では #313 型の split artifact は説明でき、5410 型の単純な actual / forecast 乖離は補正しなかった。variant select top は 6417 / 5410 / 7095 / 5445 / 4887 となり、4116 / 4008 / 8078 の carry 膨張による上位占有は消えた。
+
+## 7. 判定
+
+本 variant は採用しない。
+
+理由は、事前登録した 6m design / confirm 非劣化 gate を満たさないためである。spot check では既知の 2026-07 split artifact を解消するが、confirm replay の `recommended_rank_top10` で median -2.831pt、trap +3.880pt まで悪化し、12m 補助確認でも confirm が同方向に悪化した。grid search や閾値の後出し調整は行わない。
+
+現行 production code には actual DPS の新しい補正を入れない。引き続き monthly-cycle の triage self-check（`dps_actual_annual / dps_forecast_annual > 1.5` の候補を corporate action / 特別配当 / 減配ガイダンスで確認し、必要なら E[r] を手で読み替える）を使う。
+
+## 8. 残課題
+
+現行 local schema には配当支払日・権利確定日・配当基準日が無く、観測できる corporate action は daily bar の `adjustment_factor` だけである。この制約下の heuristic は replay gate を満たさなかった。actual DPS を機械的に asof-basis 化するなら、配当スケジュールまたは corporate-action event と配当基準日の対応を一次データで持つ provider を追加してから、別 issue として再検証する。
