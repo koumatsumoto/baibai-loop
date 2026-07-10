@@ -168,25 +168,25 @@ series:
     name: 日本10Y国債利回り
     category: rates
     geography: japan
-    frequency: monthly
+    frequency: daily
     unit: percent
-    provider: fred_csv
-    provider_series_id: IRLTLT01JPM156N
-    source_id: fred-irltlt01jpm156n
-    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=IRLTLT01JPM156N
-    notes: OECD系列でFREDは月次。日次JGBが要る場合はJ-Qu/別providerで後日追加
+    provider: mof_jgb
+    provider_series_id: 10年
+    source_id: mof-jgbcm-all
+    source_url: https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv
+    notes: 財務省「国債金利情報」の全履歴CSV。流通市場の固定利付国債実勢価格から算出した主要年限別の半年複利最終利回り。
     aliases: [日本10Y, JGB10Y, JGB 10Y, 日本国債10年, jgb_10y]
   - series_id: jp.policy_rate
     name: 日本政策金利(無担保コールON)
     category: policy
     geography: japan
-    frequency: monthly
+    frequency: daily
     unit: percent
-    provider: fred_csv
-    provider_series_id: IRSTCI01JPM156N
-    source_id: fred-irstci01jpm156n
-    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=IRSTCI01JPM156N
-    notes: 無担保コールレート(BOJ政策金利の近似)。OECD系列で月次
+    provider: boj_mutan
+    provider_series_id: average_final
+    source_id: boj-mutan-final
+    source_url: https://www.boj.or.jp/statistics/market/short/mutan/index.htm
+    notes: 日本銀行「コール市場関連統計（毎営業日）」の無担保コールO/N物レート確報・平均。金融政策の実効短期金利として読む。
     aliases: [日銀政策金利, BOJ policy rate, コールレート, 無担保コール, boj_policy_rate]
   - series_id: jp.unemployment
     name: 日本失業率

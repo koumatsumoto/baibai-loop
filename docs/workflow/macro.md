@@ -3,7 +3,7 @@ title: "Workflow — macro analysis"
 summary: "マクロ環境分析：指標データを引き、リスク姿勢（ディフェンシブ / リスクオン）とセクター・AI 前提を読んだ環境認識を macro-context record に残す。単一ループの入口。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-02
+last_reviewed: 2026-07-09
 ---
 
 # Workflow — マクロ環境分析
@@ -24,23 +24,25 @@ uv run baibai-loop-macro get jp.policy_rate --latest
 uv run baibai-loop-macro refresh us.10y --start 2026-06-20 --end 2026-07-02   # provider を強制再取得
 ```
 
-`get` は取得済み範囲のキャッシュを確認し、不足があるときだけ provider を呼ぶ。同じ入力には同じ出力を返す（決定論）。**取得済みの窓の中では provider を呼び直さないため、`get --latest` は「キャッシュ上の最新」を返すことに注意**（`observed_at` が数営業日前で止まっていることがある）。環境認識を書く直前は、判断に使う主要 series を `refresh` で直近窓ごと再取得してから `get --latest` を読む。
+`get` は取得済み範囲のキャッシュを確認し、不足があるときだけ provider を呼ぶ。同じ入力には同じ出力を返す（決定論）。`get --latest` は frequency 別の鮮度窓（daily は 1 暦日、weekly は 14 日、monthly は 70 日）内の cache があればそれを返し、古い場合は最新確認用の短い窓（daily は 14 日、weekly は 60 日、monthly は 370 日）を provider で再取得する。環境認識を書く直前は、判断に使う主要 series を `refresh` で直近窓ごと再取得してから `get --latest` を読む。
 
 ### データソース registry
 
 | Provider | 取得 | 担当ドメイン | 確認手順・既知の caveat |
 | --- | --- | --- | --- |
-| `fred_csv` | 無認証 CSV | 米マクロ・金利・実質金利/期待インフレ・FX・原油・VIX・クレジット OAS・BTC・流動性・NFCI ＋ JP ミラー | 系列 ID を `fredgraph.csv?id=<ID>` の header で実 fetch 確認。**廃止系列あり**（JP OECD CPI は 2021 停止、金 LBMA は 2025/5 停止）。金・SOX は `yahoo`。 |
+| `fred_csv` | 無認証 CSV | 米マクロ・実質金利/期待インフレ・FX・原油・VIX・クレジット OAS・BTC・流動性・NFCI・JP 失業率 | 系列 ID を `fredgraph.csv?id=<ID>` の header で実 fetch 確認。**廃止系列あり**（JP OECD CPI は 2021 停止、金 LBMA は 2025/5 停止）。金・SOX は `yahoo`。 |
 | `frb_h15` | 無認証 CSV | 米国債金利・スプレッド | 1 package を series 横断に 1 回 DL |
 | `ecb_fx` | 無認証 ZIP | JPY クロス（USD/EUR/AUD） | JPY と基軸通貨の比で算出 |
 | `estat` | API（`ESTAT_APP_ID`） | JP 公式マクロ（CPI・鉱工業生産 等） | JP CPI の一次ソース。`statsDataId` は e-Stat で確認 |
 | `jquants_flows` | 認証（`JQUANTS_API_KEY`） | JP 市場内部（海外投資家フロー） | screening と同じ credential |
 | `boj` | 無認証 xlsx | BOJ 長期時系列（マネタリーベース 等） | `mblong.xlsx` を openpyxl で読む |
+| `boj_mutan` | 無認証 HTML + xlsx | BOJ 無担保コール O/N 確報 | 年別 index から `mdYYYYMMDD.xlsx` を辿り、確報 workbook の平均値を読む。公表タイミングは BOJ の日次更新予定に従う |
+| `mof_jgb` | 無認証 CSV | JP 国債金利（主要年限） | `jgbcm_all.csv` と当月 `jgbcm.csv` を CP932 で読み、和暦の基準日を ISO date に正規化する |
 | `manual` | ローカル file | 倒産件数・PMI | clean な無料 API が無い。`providers/manual_data.yaml` に手動更新し一次ソースで検証 |
 | `yahoo` | 無認証 JSON | 金/銀/銅先物・MOVE・Russell2000・SOX 等 | **ブラウザ UA 必須**（default は 429）。`provider_series_id` は Yahoo シンボル |
 | `multpl` | 無認証 HTML | S&P500 バリュエーション（CAPE・GAAP PER・益回り） | HTML 構造変更で壊れる脆さ。追加時は `--latest` で live 確認 |
 
-新ソース追加＝provider モジュールを 1 つ足して `series.yaml` に series を登録する（`providers/` に 1 ファイル）。1 series_id = 1 provider を厳守する。
+新ソース追加＝provider モジュールを 1 つ足して `series.yaml` に series を登録する（`providers/` に 1 ファイル）。1 series_id = 1 provider を厳守する。provider 取得は一時的な `IndicatorsProviderError` を 1 回 retry し、再失敗した場合は `provider_runs` に failed として記録する。
 
 ### 運用テスト（series / provider を変更したら必ず回す）
 
