@@ -9,7 +9,7 @@ description = "Automation utilities for the Baibai-Loop Japanese equity trading 
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
 dependencies = [
-  "jquants-api-client>=2.2.0",
+  "jquants-api-client>=2.3.0",
   "openpyxl>=3.1.0",
   "pandas>=2.3.0",
   "pydantic>=2.13.4",

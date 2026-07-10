@@ -119,7 +119,7 @@ typing = [
 
 [package.metadata]
 requires-dist = [
-    { name = "jquants-api-client", specifier = ">=2.2.0" },
+    { name = "jquants-api-client", specifier = ">=2.3.0" },
     { name = "jsonschema", specifier = ">=4.21.0" },
     { name = "openpyxl", specifier = ">=3.1.0" },
     { name = "pandas", specifier = ">=2.3.0" },
@@ -487,7 +487,7 @@ wheels = [
 
 [[package]]
 name = "jquants-api-client"
-version = "2.2.0"
+version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
@@ -495,9 +495,9 @@ dependencies = [
     { name = "requests" },
     { name = "tenacity" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ac/8d/a987ed0305b7f39c50a8058a9f19375e8901c55d407d0708d95761f33dbe/jquants_api_client-2.2.0.tar.gz", hash = "sha256:74f4e50c5959f0f61be99614680c9be43517099a30cf87bf9ec5362cd6be186a", size = 44116, upload-time = "2026-06-10T00:54:12.607Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2d/51/b36e3c24e7ca4f6fa6670c027ba0e2563db9a3abcee45a7ca1bd061eec0e/jquants_api_client-2.3.0.tar.gz", hash = "sha256:c1f644653e2d8c97930951275df1d92a70f7d482347e0c3f5e0984d404e5a023", size = 29857, upload-time = "2026-06-29T06:53:33.526Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/57/70/18209401f5e61b5550338f479817191910d66dd3d72eafcbebc836f57d71/jquants_api_client-2.2.0-py3-none-any.whl", hash = "sha256:344a20bba758c78971e0336372a8e5c12926a47f854ed55757477e74fd19ad23", size = 54595, upload-time = "2026-06-10T00:54:13.695Z" },
+    { url = "https://files.pythonhosted.org/packages/dc/91/068dbcc949f7af714e5739514e754c9ced0870705a162c550744b89159a1/jquants_api_client-2.3.0-py3-none-any.whl", hash = "sha256:10450fba27154642bc2c9c74eb094af52798bc883ff3031c39c50fdfdb098e1b", size = 35157, upload-time = "2026-06-29T06:53:34.304Z" },
 ]
 
 [[package]]
