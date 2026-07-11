@@ -1,0 +1,184 @@
+candidate:
+  ticker: "2331"
+  name: "ALSOK"
+  as_of: "2026-07-03"
+  evaluation_mode: historical_replay
+portfolio_snapshot:
+  total_capital_yen: 10000000
+  cash_balance_yen: 8352900
+  existing_reservations_yen: 119000
+  dry_powder_floor_yen: 2000000
+  source_ids: [portfolio-fixture, position-8929]
+quote_snapshot:
+  assumed_at: "2026-07-03T09:00:00+09:00"
+  source_id: synthetic-quote
+  origin: synthetic_fixture
+  freshness_status: historical
+  is_executable: false
+  last_yen: 1052.5
+  bid_yen: 1052
+  ask_yen: 1053
+proposal:
+  max_acceptable_price_yen: 1050
+  quantity: 100
+  board_lot: 100
+  tick_size_yen: 1
+  deep_discount_pct: 0.025
+  source_ids: [thesis-2331]
+estimate_snapshot:
+  legacy_fair_value_yen: 1300
+  legacy_expected_yield_pct: 14.4
+  legacy_risk_reward_ratio: 2.5
+  valuation_method: scenario total-return CAGR from price ceiling
+  source_ids: [thesis-2331]
+  derivation: Terminal value plus cumulative dividends divided by the 1050-yen entry ceiling.
+policy_snapshot:
+  ticker_weight_pct: 1.05
+  ticker_weight_warning_pct: 6
+  sector_weight_pct: 5.2
+  sector_weight_warning_pct: 40
+  playbook_weight_pct: 8.5
+  playbook_weight_warning_pct: 35
+  adv_participation_pct: 0.0077
+  adv_participation_warning_pct: 5
+  source_ids: [thesis-2331]
+greatest_risk:
+  statement: NDC integration and capital intensity can keep FCF conversion below the OCF signal.
+  source_ids: [thesis-2331]
+scenarios:
+  - horizon_years: 3
+    name: bear
+    terminal_price_yen: 900
+    total_dividends_yen: 72
+    assumption: Pricing power weakens and integration costs delay margin recovery.
+    source_ids: [thesis-2331]
+    derivation: Provisional downside judgment anchored to the tracked thesis.
+  - horizon_years: 3
+    name: base
+    terminal_price_yen: 1250
+    total_dividends_yen: 105
+    assumption: Recurring security revenue and shareholder returns progress near guidance.
+    source_ids: [thesis-2331]
+    derivation: Provisional base judgment anchored to the tracked thesis.
+  - horizon_years: 3
+    name: bull
+    terminal_price_yen: 1500
+    total_dividends_yen: 120
+    assumption: Price increases and NDC synergies lift margins without balance-sheet stress.
+    source_ids: [thesis-2331]
+    derivation: Provisional upside judgment anchored to the tracked thesis.
+  - horizon_years: 5
+    name: bear
+    terminal_price_yen: 850
+    total_dividends_yen: 120
+    assumption: Labor inflation and acquisition costs consume most operating cash-flow growth.
+    source_ids: [thesis-2331]
+    derivation: Provisional downside judgment anchored to the tracked thesis.
+  - horizon_years: 5
+    name: base
+    terminal_price_yen: 1300
+    total_dividends_yen: 180
+    assumption: Earnings compound modestly and valuation reaches the existing fair-value anchor.
+    source_ids: [thesis-2331]
+    derivation: Provisional base judgment anchored to the tracked thesis.
+  - horizon_years: 5
+    name: bull
+    terminal_price_yen: 1650
+    total_dividends_yen: 220
+    assumption: Automation, pricing power, and capital returns expand shareholder value.
+    source_ids: [thesis-2331]
+    derivation: Provisional upside judgment anchored to the tracked thesis.
+sources:
+  - source_id: thesis-2331
+    ref: records/03-thesis/2026/07/2026-07-03-2331-cashflow-yield-discount.md
+    as_of: "2026-07-03"
+    used_for: valuation, cash flow, risks, price ceiling, and scenario assumptions
+    source_kind: tracked_analysis
+    source_tier: internal_record
+  - source_id: monthly-report
+    ref: reports/2026-07-02-monthly-selection.html
+    as_of: "2026-07-02"
+    used_for: candidate comparison and historical closing-price context
+    source_kind: tracked_analysis
+    source_tier: internal_record
+  - source_id: portfolio-fixture
+    ref: tests/fixtures/vnext-walking-skeleton/input.yaml
+    as_of: "2026-07-03"
+    used_for: synthetic pre-decision cash snapshot only
+    source_kind: offline_portfolio_fixture
+    source_tier: synthetic_fixture
+  - source_id: position-8929
+    ref: records/04-position/2026/07/2026-07-03-8929.md
+    as_of: "2026-07-03"
+    used_for: existing submitted-order reservation
+    source_kind: decision_record
+    source_tier: internal_record
+  - source_id: synthetic-quote
+    ref: tests/fixtures/vnext-walking-skeleton/input.yaml
+    as_of: "2026-07-03"
+    used_for: synthetic non-executable bid and ask around the recorded close
+    source_kind: offline_quote_fixture
+    source_tier: synthetic_fixture
+load_bearing_claims:
+  - claim_id: max-price
+    claim: The tracked thesis caps entry at 1050 yen for this replay.
+    origin: judgment
+    source_ids: [thesis-2331]
+  - claim_id: cash-flow-support
+    claim: Operating cash flow is positive, but FCF conversion is materially lower.
+    origin: derived
+    source_ids: [thesis-2331]
+  - claim_id: quote-is-synthetic
+    claim: The bid and ask are synthetic replay inputs and cannot support a live order.
+    origin: observed
+    source_ids: [synthetic-quote]
+  - claim_id: existing-reservation
+    claim: A separate submitted 8929 order reserves 119000 yen before this replayed proposal.
+    origin: observed
+    source_ids: [position-8929]
+permanent_loss_risks:
+  - axis: balance_sheet_liquidity
+    assessment: pass
+    evidence_status: partial
+    summary: Recorded balance-sheet ratios do not indicate immediate insolvency.
+    source_id: thesis-2331
+  - axis: market_liquidity
+    assessment: pass
+    evidence_status: partial
+    summary: The tracked ADV participation estimate is 0.0077%, below the warning line.
+    source_id: thesis-2331
+  - axis: debt_repayment
+    assessment: pass
+    evidence_status: partial
+    summary: Refinancing risk appears low, although the net-cash basis needs primary verification.
+    source_id: thesis-2331
+  - axis: cash_flow_conversion
+    assessment: concern
+    evidence_status: partial
+    summary: FCF yield trails OCF yield because operations and acquisitions are capital intensive.
+    source_id: thesis-2331
+  - axis: dilution
+    assessment: pass
+    evidence_status: partial
+    summary: No dilution is recorded and an active share repurchase points in the opposite direction.
+    source_id: thesis-2331
+  - axis: customer_concentration
+    assessment: unknown
+    evidence_status: missing
+    summary: The tracked thesis does not quantify customer concentration.
+    source_id: thesis-2331
+  - axis: structural_decline
+    assessment: pass
+    evidence_status: partial
+    summary: Recurring security demand is not classified as structurally declining.
+    source_id: thesis-2331
+  - axis: governance_accounting
+    assessment: unknown
+    evidence_status: missing
+    summary: The tracked thesis does not link audit, governance, or accounting primary evidence.
+    source_id: thesis-2331
+evidence_gaps:
+  - Primary IR URLs are not preserved in the tracked thesis.
+  - Customer concentration and governance/accounting evidence are not quantified.
+  - The quote is synthetic historical input, not a refreshed executable quote.
+  - No alternative candidate packet is available for an independent opportunity-cost comparison.
