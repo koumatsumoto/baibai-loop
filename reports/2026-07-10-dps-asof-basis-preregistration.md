@@ -175,7 +175,7 @@ spot では #313 型の split artifact は説明でき、5410 型の単純な ac
 
 理由は、事前登録した 6m design / confirm 非劣化 gate を満たさないためである。spot check では既知の 2026-07 split artifact を解消するが、confirm replay の `recommended_rank_top10` で median -2.831pt、trap +3.880pt まで悪化し、12m 補助確認でも confirm が同方向に悪化した。grid search や閾値の後出し調整は行わない。
 
-現行 production code には actual DPS の新しい補正を入れない。引き続き monthly-cycle の triage self-check（`dps_actual_annual / dps_forecast_annual > 1.5` の候補を corporate action / 特別配当 / 減配ガイダンスで確認し、必要なら E[r] を手で読み替える）を使う。
+現行 production code には actual DPS の新しい補正を入れない。引き続きdecision cycleのtriage self-check（`dps_actual_annual / dps_forecast_annual > 1.5` の候補を corporate action / 特別配当 / 減配ガイダンスで確認し、必要なら E[r] を手で読み替える）を使う。
 
 ## 8. 残課題
 

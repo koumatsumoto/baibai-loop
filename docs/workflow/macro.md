@@ -3,7 +3,7 @@ title: "Workflow — macro analysis"
 summary: "マクロ環境分析：指標データを引き、リスク姿勢（ディフェンシブ / リスクオン）とセクター・AI 前提を読んだ環境認識を macro-context record に残す。単一ループの入口。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-09
+last_reviewed: 2026-07-11
 ---
 
 # Workflow — マクロ環境分析
@@ -64,7 +64,7 @@ uv run baibai-loop-macro refresh us.10y --start 2026-06-20 --end 2026-07-02   # 
 
 **分析の独立性**：環境認識の前提にしてよいのは過去の客観的事実（価格・指標・イベント）だけで、過去の macro-context record にある分析・結論（前回の sector tilt や相場観）は前提にしない。保有中の建玉も分析に持ち込まない。一次情報と指標から、解釈を毎回ゼロベースで組み立てる。過去の context との連続性は、結論を確定させた後に `changes_since_previous` として事後的に接続する。
 
-**更新のきっかけ**：macro-context は定期的には生成せず、**screening の前**（select は鮮度のある context を前提条件にする）・**主要イベントの後**（FOMC / 日銀会合 / ECB / 米 CPI・PCE・雇用統計 / 地政学ショック）・**前回書いた `refresh_triggers` の発火**、のいずれかで必要になったときに更新する（`valid_until = as_of + 7 日` とするため、実質は週次）。
+**更新のきっかけ**：macro-context は定期的には生成せず、**screening の前**（select は鮮度のある context を前提条件にする）・**主要イベントの後**（FOMC / 日銀会合 / ECB / 米 CPI・PCE・雇用統計 / 地政学ショック）・**前回書いた `refresh_triggers` の発火**、のいずれかで必要になったときに更新する（`valid_until = as_of + 7 日` とするため、実質は週次）。triggerの選択と全体導線は[`../operations/decision-cycle.md`](../operations/decision-cycle.md)を正本とする。
 
 ## ③ ナレッジ：8 分析レンズ
 

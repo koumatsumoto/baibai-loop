@@ -10,7 +10,7 @@ description: >-
 
 # マクロ経済分析の方法（Baibai-Loop）
 
-このスキルは **マクロ環境分析の「操作」と「公開前の品質ゲート」** を担う。思想・provider 設計・**汎用レンズの読み方（8 レンズ）**・誠実性ファイアウォールの正本は [`docs/workflow/macro.md`](../../../docs/workflow/macro.md)。formal な calibration/retro ループは持たない（正本冒頭「形式化した独自ループにはしない」と同じ精神）— §5 は「手順を都度洗練する」だけ。
+このスキルは **マクロ環境分析の「操作」と「公開前の品質ゲート」** を担う。思想・provider 設計・**汎用レンズの読み方（8 レンズ）**・誠実性ファイアウォールの正本は [`docs/workflow/macro.md`](../../../docs/workflow/macro.md)。trigger選択とe2e導線は [`docs/operations/decision-cycle.md`](../../../docs/operations/decision-cycle.md)。formal な calibration/retro ループは持たない（正本冒頭「形式化した独自ループにはしない」と同じ精神）— §5 は「手順を都度洗練する」だけ。
 
 > **鉄則 — 自分のデータと結論を照合する**
 > 結論を書く前に、自分が引いた series の実値と結論が矛盾していないかを必ず照合する。方向を語る前に range を引き、結論を**反証する** series の実値が反証側に振れていないか確認する（§3-1）。

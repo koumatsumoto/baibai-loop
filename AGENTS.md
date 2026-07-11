@@ -17,8 +17,8 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 
 | サイクル | 内容 | 正本 runbook | skill |
 | --- | --- | --- | --- |
-| **月次運用** | マクロ環境認識 → screening → select → research → 取引提案 → 発注記録 → 保有レビュー → 較正の増分再計測 | [`docs/operations/monthly-cycle.md`](./docs/operations/monthly-cycle.md) | `macro-analysis` / `ai-value-bargain-selection` / `ir-research` / `financial-pro-review` |
-| **基盤改善** | 現状計測 → 仮説の事前登録 → design/confirm 検証 → 採用実装 → 運用テスト → dated report → 月次監視 | [`docs/operations/improvement-loop.md`](./docs/operations/improvement-loop.md) | `improvement-loop` |
+| **継続的な投資判断** | 随時の機会判断 / pending order / 月次入金 / 決算・重要event / 年次outcomeをtriggerごとに進める | [`docs/operations/decision-cycle.md`](./docs/operations/decision-cycle.md) | `macro-analysis` / `ai-value-bargain-selection` / `ir-research` / `financial-pro-review` |
+| **基盤改善** | 現状計測 → 仮説の事前登録 → design/confirm 検証 → 採用実装 → 運用テスト → dated report → 継続監視 | [`docs/operations/improvement-loop.md`](./docs/operations/improvement-loop.md) | `improvement-loop` |
 
 ## サブシステム索引
 
@@ -34,7 +34,7 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 | foundation | `src/baibai_loop/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
 | validation | `src/baibai_loop/validation/` | `records/_schemas/`（検証対象 schema） | `baibai-loop-validation` | records 公開言語の検証器（CI gate） |
 
-品質改善は単一の見積り calibration に集約する: entry 時の見積り（RR・期待利回り・FV）を保有の実現結果と突き合わせ、加えて全銘柄の長期 horizon 較正リプレイ（[`docs/reference/estimate-calibration.md`](./docs/reference/estimate-calibration.md)）で見積り手法そのものを較正して、macro 読み・screening 閾値・FV 推定・耐性判定を離散的に改善する（短期 horizon の screen 成績最適化はしない。doctrine 柱 5）。thesis は発注前の preflight gate を持つ。詳細は各 [`docs/workflow/`](./docs/workflow/) doc を正本とする。
+品質改善は単一の見積り calibration に集約する: entry 時の見積り（RR・期待利回り・FV）を保有の実現結果と突き合わせ、加えて全銘柄の長期 horizon 較正リプレイ（[`docs/reference/estimate-calibration.md`](./docs/reference/estimate-calibration.md)）で見積り手法そのものを較正して、macro 読み・screening 閾値・FV 推定・耐性判定を離散的に改善する（短期 horizon の screen 成績最適化はしない。doctrine 柱 5）。これは日常の判断triggerとは独立した基盤改善である。詳細は各 [`docs/workflow/`](./docs/workflow/) doc を正本とする。
 
 ## 言語運用
 

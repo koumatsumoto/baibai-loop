@@ -51,7 +51,7 @@ portfolio資本は各positionへ複製せず、portfolio ledgerから再計算�
 
 multi-intent lifecycleは [`../reference/execution-lifecycle.md`](../reference/execution-lifecycle.md) を正本にする。そこでは human-confirmed decision、manual broker order、broker-confirmed executionを別artifactとして持ち、intentの最大許容価格と各orderのlimit priceを分ける。現行position recordは`position.json`のcontractを使い、active recordへの切替はactive stateの再構成と同時に行う。
 
-人間承認前の価格・数量案は[`../reference/decision-packet.md#execution-pricing`](../reference/decision-packet.md#execution-pricing)のexecution policyで作る。承認後だけproposalのpacket hashを#333 lifecycle intentへ束縛する。期限後のlow price touchはfillではないため、broker-confirmed executionと別にnot-filled outcomeとして測定する。
+#341のactive lifecycle移行後だけ、人間承認前の価格・数量案を[`../reference/decision-packet.md#execution-pricing`](../reference/decision-packet.md#execution-pricing)のexecution policyで作る。承認後だけproposalのpacket hashを#333 lifecycle intentへ束縛し、期限後のlow price touchをbroker-confirmed executionと別にnot-filled outcomeとして測定する。移行前はactive `position.json` contractだけを使い、lifecycle、ledger、not-filled artifactを併設しない。
 
 ## 期限付き指値（約定待ち）の運用
 
@@ -60,13 +60,13 @@ multi-intent lifecycleは [`../reference/execution-lifecycle.md`](../reference/e
 - **発注時**: `position_state: none`・`execution_state: submitted`・`orders[].state: submitted`・`executions: []` で record を作る。`order_intent.expires_at` に注文期限を入れる。約定価格を推定で埋めない（AP-09）。
 - **期限内のイベント跨ぎ**: 期限までに FOMC・日銀会合・CPI 等を跨ぐ場合は、`macro_context_fit.sizing_caution` にその旨を残し、**約定前の撤回条件**（例: macro context の refresh trigger 発火・円の閾値割れ）を record 本文に明文化する。kill_switch_check は発注時点の判定であり、期限内イベントはこの撤回条件で管理する。
 - **約定時**: `executions[]` / `entry_legs[]` を追記し、`orders[].state: filled`・`execution_state: filled`・`position_state: open`・`current_quantity` を更新する。thesis 側は書き換えない（entry 時の見積りを較正の基準として保存する）。
-- **期限切れ・撤回時**: `orders[].state: expired | cancelled`・`execution_state: expired | cancelled` に更新し、ledgerへ`release`を記録する。releaseなしにreserved cashを暗黙解放しない。
+- **期限切れ・撤回時**: `orders[].state: expired | cancelled`・`execution_state: expired | cancelled` に更新する。#341移行後はledgerへ`release`を記録し、reserved cashを暗黙解放しない。移行前はactive `position.json` contractだけを更新する。
 
 ## 買い・長期保有・押し目での買増し
 
 - **買い**：research が確認した「割安ゾーン ∧ FV より十分に安い」で entry する。指値の上限価格と単元株数で数量を丸める。
 - **長期保有**：株価の下落では切らない。含み損でも、塩漬け耐性が保たれている限り保有を続ける。
-- **押し目での買増し**：保有銘柄がさらに割安なら、available cashとcurrent + reserved exposureをledgerで再計算して買い増す。warning超過は理由と期限を明示する。
+- **押し目での買増し**：保有銘柄がさらに割安なら、#341移行後はavailable cashとcurrent + reserved exposureをledgerで再計算して買い増す。移行前は既存position / thesis gateを使う。warning超過は理由と期限を明示する。
 
 ## 割高で全売り
 
@@ -74,10 +74,10 @@ multi-intent lifecycleは [`../reference/execution-lifecycle.md`](../reference/e
 
 ## 保有の見直しと見積りの較正
 
-- **定例の見直し**：**月次**（積立と同じ周期）と **決算発表後**に、各保有の `review_valuation`（FV・現値・valuation zone・次の行動）を更新する。割高ゾーンに到達していれば全株売却、割安が続いていれば保有または買増し。決算後の見直しが必要な保有は GitHub Issue（`task:earnings-review` ラベル、`task: YYYY-MM-DD <ticker> を <event> 後に確認する`）で実行漏れを防ぐ。判断の正本は records に戻す。
+- **定例・event後の見直し**：保有確認は月次入金に強制されず、決算発表後またはmaterialな変化があった対象から`review_valuation`（FV・現値・valuation zone・次の行動）を更新する。割高ゾーンに到達していれば全株売却、割安が続いていれば保有または買増し。triggerと対象選択は[`../operations/decision-cycle.md#5-earnings-and-material-event-path`](../operations/decision-cycle.md#5-earnings-and-material-event-path)を正本とする。決算後の見直しが必要な保有は GitHub Issue（`task:earnings-review` ラベル、`task: YYYY-MM-DD <ticker> を <event> 後に確認する`）で実行漏れを防ぎ、判断の正本は records に戻す。
 - **見積りの較正（estimate calibration）**：exit 時と決算後に `estimate_calibration` を更新し、entry 時の見積り（想定上昇率・期待利回り）と実現結果（実際のリターン・利回り・thesis の的中）を突き合わせる。系統的なずれ（マクロの読み・FV 推定・耐性判定のどこが外れたか）を次の見積りに反映する（= 改善ループ、[`../doctrine.md`](../doctrine.md) 柱 3）。保有の対 benchmark 相対リターンは `uv run baibai-loop-position benchmark`（`1321` proxy、[`../reference/data-sources.md`](../reference/data-sources.md)）で機械的に算出し、較正の参考情報にする。
 
-月次の下書きは read-only CLI で作る。
+定期確認の下書きは read-only CLI で作る。
 
 ```bash
 uv run baibai-loop-position calibration --asof YYYY-MM-DD

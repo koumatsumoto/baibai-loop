@@ -3,7 +3,7 @@ title: "タスク runbook"
 summary: "GitHub issue で決算後確認などの運用タスクを管理するための入口。"
 doc_type: operation
 status: active
-last_reviewed: 2026-06-23
+last_reviewed: 2026-07-11
 related_docs:
   - "../workflow/research.md"
   - "../workflow/position.md"
@@ -11,7 +11,7 @@ related_docs:
 
 # タスク runbook
 
-GitHub issue は、決算後確認など「将来の特定イベント後に実行する作業」の運用タスク一覧として使います。投資判断の正本は records に残し、issue には実行漏れを防ぐための期限、確認項目、更新先を記録します。
+GitHub issue は、決算後確認など「将来の特定イベント後に実行する作業」の運用タスク一覧として使います。triggerの選択と全体導線は[`decision-cycle.md`](./decision-cycle.md)を正本とし、投資判断の正本はrecordsに残します。issueには実行漏れを防ぐための期限、確認項目、更新先を記録します。
 
 ## 対象
 

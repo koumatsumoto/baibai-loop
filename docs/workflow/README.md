@@ -3,7 +3,7 @@ title: "Workflow"
 summary: "単一ループの各工程（macro → screening → research → position）と playbooks の入口。1 工程 = 1 doc。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-02
+last_reviewed: 2026-07-11
 ---
 
 # Workflow — 単一ループの各工程
@@ -27,4 +27,4 @@ flowchart LR
 | 執行・保有 | [`position.md`](./position.md) | 注文・約定・長期保有・押し目買増し・割高で全売り・見積り calibration |
 | 戦略プレイブック | [`playbooks.md`](./playbooks.md) | research が参照する割安 value の archetype |
 
-上流の運用方針は [`../portfolio-management.md`](../portfolio-management.md)、構造は [`../architecture.md`](../architecture.md)、詳細な参照仕様は [`../reference/`](../reference/) を見る。
+上流の運用方針は [`../portfolio-management.md`](../portfolio-management.md)、triggerごとのe2e導線は [`../operations/decision-cycle.md`](../operations/decision-cycle.md)、構造は [`../architecture.md`](../architecture.md)、詳細な参照仕様は [`../reference/`](../reference/) を見る。

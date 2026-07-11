@@ -9,7 +9,7 @@ description: >-
 
 # IR 調査の手順（Baibai-Loop）
 
-> **正本と操作の分離**: 本 skill は IR 開示を調べて反映する〈操作〉を持つ。data source の Tier 分類の正本は [`reference/data-sources.md`](../../../docs/reference/data-sources.md)、失敗パターンは [`anti-patterns.md`](../../../docs/anti-patterns.md)。
+> **正本と操作の分離**: 本 skill は IR 開示を調べて反映する〈操作〉を持つ。data source の Tier 分類の正本は [`reference/data-sources.md`](../../../docs/reference/data-sources.md)、失敗パターンは [`anti-patterns.md`](../../../docs/anti-patterns.md)、trigger別の更新導線は [`operations/decision-cycle.md#5-earnings-and-material-event-path`](../../../docs/operations/decision-cycle.md#5-earnings-and-material-event-path)。
 
 上場企業の開示を調べて thesis / position record に反映するときの手順。`AGENTS.md` の anti-pattern（AP-01 一次情報 / AP-02 数値検算 / AP-03 corporate action / AP-04 schema・意味の読み / AP-07 公表日）と整合させる。`docs/reference/data-sources.md` の Tier 分類が上位ルール。
 

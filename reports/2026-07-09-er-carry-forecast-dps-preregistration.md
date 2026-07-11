@@ -69,8 +69,8 @@ uv run baibai-loop-screening calibration-evaluate --calibration-dir data/screeni
 
 以下を同一 PR で満たす。
 
-1. `docs/operations/monthly-cycle.md` に、広域 triage は `--rules-path` で `research_selection_target_max` を引き上げた一時 rules を渡す手順を書く。
-2. `docs/operations/monthly-cycle.md` と `ai-value-bargain-selection` skill に、`dps_actual_annual / dps_forecast_annual > 1.5` の self-check を現在形で書く。
+1. `docs/operations/decision-cycle.md` に、広域 triage は `--rules-path` で `research_selection_target_max` を引き上げた一時 rules を渡す手順を書く。
+2. `docs/operations/decision-cycle.md` と `ai-value-bargain-selection` skill に、`dps_actual_annual / dps_forecast_annual > 1.5` の self-check を現在形で書く。
 3. `macro-analysis` skill に、WebSearch は日本語 query で unavailable になりやすく、一次 URL 直接取得を優先しつつ必要時は英語 query を使う注意を fold する。
 4. 記載は現状の手順と WHY に限り、2026-07 運用の経緯や作業ログを書かない。
 
@@ -116,7 +116,7 @@ period_start 正規化は 2026-07-08 spot check では 4116 / 4008 / 8078 / 8273
 同一 PR では、低リスクで運用価値がある以下だけを採用する。
 
 - select recommendation summary に `dps_actual_annual` / `dps_forecast_annual` / `er_dividend_yield` を転記し、triage 時に実績・予想の乖離と E[r] carry 入力を目検できるようにする。
-- monthly-cycle と `ai-value-bargain-selection` skill に、DPS 比 1.5 超の候補を forecast 基準で読み替え、corporate action・特別配当・減配ガイダンスを確認する self-check を現在形で記載する。
+- decision cycleと`ai-value-bargain-selection` skillに、DPS 比 1.5 超の候補をforecast基準で読み替え、corporate action・特別配当・減配ガイダンスを確認するself-checkを現在形で記載する。
 - `macro-analysis` skill に、WebSearch の日本語 query unavailable リスクと英語 query / 一次 URL 優先の操作注意を fold する。
 
 ## 7. 運用テスト

@@ -1,13 +1,13 @@
 ---
 title: "改善ループ runbook"
-summary: "基盤改善サイクルの正本。現状計測 → 仮説の事前登録 → design/confirm 検証 → 採用実装 → 運用テスト → 月次監視を、誠実性規律つきで回す手順。"
+summary: "基盤改善サイクルの正本。現状計測 → 仮説の事前登録 → design/confirm 検証 → 採用実装 → 運用テスト → 継続監視を、誠実性規律つきで回す手順。"
 doc_type: operation
 status: active
-last_reviewed: 2026-07-06
+last_reviewed: 2026-07-11
 related_docs:
   - "../doctrine.md"
   - "../reference/estimate-calibration.md"
-  - "./monthly-cycle.md"
+  - "./decision-cycle.md"
 ---
 
 # 改善ループ runbook — 見積り精度の継続改善
@@ -62,7 +62,7 @@ uv run baibai-loop-screening calibration-evaluate --out .cache/calibration-eval-
 
 ### 5. 運用テスト
 
-現 asof でパイプラインを回し、実出力で妥当性を確認する（[`./monthly-cycle.md`](./monthly-cycle.md) §screening と同じ操作）:
+現 asof でパイプラインを回し、実出力で妥当性を確認する（[`./decision-cycle.md`](./decision-cycle.md) の`opportunity` pathと同じ操作）:
 
 ```bash
 uv run baibai-loop-screening run --asof <最新の完全営業日>
@@ -76,10 +76,10 @@ uv run baibai-loop-screening select --asof <同上>
 
 `reports/YYYY-MM-DD-<slug>.md` に、再現手順（コマンド）・データ窓・coverage / survivorship の開示・判定表・検算（AP-02）・**採用後の監視事項**を書く。これが一次計測記録であり、別途の監査ファイルは作らない。
 
-### 7. PR → レビュー → マージ → 月次監視
+### 7. PR → レビュー → マージ → 継続監視
 
 - PR には issue 参照・変更要約・検証結果（design/confirm 表）・運用テスト結果を書く。レビューは [`../anti-patterns.md`](../anti-patterns.md) チェックリスト + 敵対的 self-review（データ⇄結論の整合、比率の再計算、単点で方向を断じない）。
-- マージ後、report に書いた監視事項を**月次の再計測**（[`./monthly-cycle.md`](./monthly-cycle.md) §較正）で追う。監視で劣化が持続したら新しい issue として次のサイクルに入れる。
+- マージ後、report に書いた監視事項を次のreplay計測で追う。監視で劣化が持続したら新しい issue として次のサイクルに入れる。日常の`opportunity`や`monthly-contribution`をreplay実行の前提にしない。
 
 ## 誠実性の規律（doctrine 柱 5 の運用形）
 
