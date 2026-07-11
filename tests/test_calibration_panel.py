@@ -14,6 +14,7 @@ if str(SRC) not in sys.path:
 from baibai_loop.screening.calibration.forward import ForwardReturnRow
 from baibai_loop.screening.calibration.panel import build_panel
 from baibai_loop.screening.calibration.store import (
+    CalibrationCacheError,
     read_forward,
     read_panel,
     write_forward,
@@ -191,6 +192,34 @@ class CalibrationPanelTest(unittest.TestCase):
             ]
             write_forward(store_dir, ASOF, forward_rows)
             self.assertEqual(read_forward(store_dir, ASOF), forward_rows)
+
+    def test_store_rejects_unversioned_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store_dir = Path(tmp) / "calibration"
+            store_dir.mkdir()
+            (store_dir / f"panel-{ASOF.isoformat()}.csv").write_text("asof\n", encoding="utf-8")
+            with self.assertRaisesRegex(CalibrationCacheError, "calibration-build --force"):
+                read_panel(store_dir, ASOF)
+
+    def test_store_rejects_partial_versioned_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            store_dir = Path(tmp) / "calibration"
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            with self.assertRaisesRegex(CalibrationCacheError, "calibration-build --force"):
+                read_forward(store_dir, ASOF)
+
+    def test_missing_master_snapshot_becomes_unresolved_panel(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            conn.commit()
+            conn.close()
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            self.assertEqual(result.rows, ())
+            self.assertEqual(result.diagnostics.master_snapshot_status, "unavailable")
 
 
 if __name__ == "__main__":

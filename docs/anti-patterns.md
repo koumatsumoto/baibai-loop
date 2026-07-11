@@ -105,6 +105,8 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] J-Quants の adjustment_factor が分割を反映しているか実装で確認
 - [ ] `self_range_percentile` が下位 5% 以下の銘柄も同様に corporate action を必ず確認
 - [ ] portfolio outcomeで保有期間の`adjustment_factor != 1`を検出したとき、adjusted closeや0円補完で継続せず`corporate_action_unresolved`にしたか
+- [ ] calibration forward で stale / missing exit を resolved return に混ぜず、delisting unknown として明示したか
+- [ ] adjustment factor の観測可否と corporate-action event coverage を同一視していないか
 - [ ] `forward PER` と `trailing PER` の乖離が ±100% を超える場合、決算特殊要因 (税引前
       一過性 gains / losses、減損、グループ再編) の可能性を有報で確認
 
@@ -202,6 +204,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
       `used_for` を残したか
 - [ ] 次に更新すべき大型 event は `refresh_triggers[]` に具体的に残したか
 - [ ] 「随時」「○月下旬」「前後」のような曖昧表現を避け、確認できた具体日付を書く
+- [ ] historical calibration panel が cohort as-of 以下の master snapshot を読み、latest snapshot へ fallback していないか
 
 ## 8. AP-08: schema validator の抜け道を意識しない
 
@@ -218,6 +221,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 ### 根本原因
 - validator を「データが揃っている前提」で実装し、欠損時の挙動を「skip」にする
 - corner case (rejected / deferred / 0 値 / null) のテストを書かない
+- unresolved cohort を aggregate から silent drop し、coverage が完全であるかのように扱う
 - ユーザ指摘で初めて抜け道に気付く
 - runtime / formatter target の違いを確認せず、構文レビューと formatter 挙動を推測で判断する
 

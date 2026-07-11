@@ -186,10 +186,7 @@ class EvaluateCohortsTest(unittest.TestCase):
         assert isinstance(aggregate, dict)
         self.assertEqual(aggregate["cohort_count"], 1)
 
-    def test_dividend_accrual_shifts_total_return_excess(self) -> None:
-        # 全銘柄 price return 0 の中で、配当利回り 4% の銘柄だけが 6m で
-        # +2% (= 0.04 x 0.5) の total return を持つ。中央値 (=0 近傍) に対する
-        # excess が accrual 分だけ正になることを確認する。
+    def test_price_return_only_does_not_accrue_dividend_yield(self) -> None:
         panel: list[PanelRow] = []
         forwards: list[ForwardReturnRow] = []
         for i in range(120):
@@ -203,7 +200,7 @@ class EvaluateCohortsTest(unittest.TestCase):
         cohorts = horizon["cohorts"]
         assert isinstance(cohorts, list)
         self.assertEqual(len(cohorts), 1)
-        self.assertEqual(cohorts[0]["dividend_yield_coverage"], 120)
+        self.assertEqual(cohorts[0]["metric_basis"], "price_return_only")
         axes = cohorts[0]["axes"]
         assert isinstance(axes, dict)
         dy_axis = axes["dividend_yield"]
@@ -212,10 +209,10 @@ class EvaluateCohortsTest(unittest.TestCase):
         assert isinstance(deciles, list)
         best = deciles[-1]
         assert isinstance(best, dict)
-        # best decile (配当あり銘柄を含む) の mean excess は accrual 分 > 0
+        # 配当利回りだけでは price return diagnostic の excess を作らない。
         mean_excess = best["mean_excess"]
         assert isinstance(mean_excess, float)
-        self.assertGreater(mean_excess, 0.0)
+        self.assertEqual(mean_excess, 0.0)
 
     def test_er_ranked_virtual_replay_orders_by_er_within_screen_passers(self) -> None:
         # screen 通過 20 銘柄に er_annual を 0.01..0.20 で与え、er と forward return を
@@ -250,7 +247,7 @@ class EvaluateCohortsTest(unittest.TestCase):
         assert isinstance(pop_top5, dict)
         self.assertEqual(pop_top5["median_excess"], er_top5["median_excess"])
 
-    def test_cohort_skipped_when_population_too_small(self) -> None:
+    def test_cohort_with_insufficient_sample_remains_explicitly_unresolved(self) -> None:
         panel = [_panel_row("1000", per_trailing=10.0)]
         forwards = [_forward_row("1000", 0.1)]
         result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
@@ -258,9 +255,22 @@ class EvaluateCohortsTest(unittest.TestCase):
         assert isinstance(horizon, dict)
         cohorts = horizon["cohorts"]
         assert isinstance(cohorts, list)
-        self.assertEqual(cohorts, [])
+        self.assertEqual(len(cohorts), 1)
+        self.assertEqual(cohorts[0]["metric_calculation_status"], "unresolved")
 
-    def test_sector_subset_diagnostics_compare_best_decile_trap_to_all_population(
+    def test_candidate_partition_requires_exact_ticker_membership(self) -> None:
+        panel = [_panel_row("1000", per_trailing=10.0), _panel_row("1001", per_trailing=10.0)]
+        forwards = [_forward_row("9998", 0.1), _forward_row("9999", 0.1)]
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+        cohort = result["6m"]["cohorts"][0]
+        assert isinstance(cohort, dict)
+        coverage = cohort["coverage"]
+        assert isinstance(coverage, dict)
+        self.assertFalse(coverage["candidate_partition_complete"])
+        self.assertEqual(coverage["candidate_forward_missing_count"], 2)
+        self.assertEqual(coverage["candidate_forward_extra_count"], 2)
+
+    def test_removed_per_sector_diagnostics_are_not_emitted(
         self,
     ) -> None:
         panel: list[PanelRow] = []
@@ -290,40 +300,13 @@ class EvaluateCohortsTest(unittest.TestCase):
             {"2025-06-30": panel},
             {"2025-06-30": forwards},
             horizons=["6m"],
-            sector_subset=["機械"],
         )
 
         horizon = result["6m"]
         assert isinstance(horizon, dict)
-        diagnostics = horizon["sector_subset_diagnostics"]
-        assert isinstance(diagnostics, dict)
-        self.assertEqual(diagnostics["sectors"], ["機械"])
-        cohorts = diagnostics["cohorts"]
-        assert isinstance(cohorts, list)
-        self.assertEqual(len(cohorts), 1)
-        self.assertEqual(cohorts[0]["subset_population_resolved"], 120)
-        axes = cohorts[0]["axes"]
-        assert isinstance(axes, dict)
-        per_axis = axes["per_trailing"]
-        assert isinstance(per_axis, dict)
-        self.assertEqual(per_axis["n"], 120)
-        self.assertEqual(per_axis["rank_ic"], 1.0)
-        self.assertEqual(per_axis["best_decile_trap_rate"], 0.0)
-        self.assertEqual(per_axis["all_population_best_decile_trap_rate"], 1.0)
-        self.assertEqual(per_axis["best_decile_trap_rate_delta_vs_all_population"], -1.0)
+        self.assertEqual(set(horizon), {"authority", "cohorts", "aggregate"})
 
-        aggregate = diagnostics["aggregate"]
-        assert isinstance(aggregate, dict)
-        aggregate_axes = aggregate["axes"]
-        assert isinstance(aggregate_axes, dict)
-        aggregate_per = aggregate_axes["per_trailing"]
-        assert isinstance(aggregate_per, dict)
-        self.assertEqual(aggregate_per["mean_rank_ic"], 1.0)
-        self.assertEqual(aggregate_per["mean_best_decile_trap_rate"], 0.0)
-        self.assertEqual(aggregate_per["mean_all_population_best_decile_trap_rate"], 1.0)
-        self.assertEqual(aggregate_per["mean_best_decile_trap_rate_delta_vs_all_population"], -1.0)
-
-    def test_sector_subset_diagnostics_are_absent_without_sector_subset(self) -> None:
+    def test_horizon_output_has_only_current_contract_sections(self) -> None:
         panel: list[PanelRow] = []
         forwards: list[ForwardReturnRow] = []
         for i in range(120):
@@ -335,58 +318,9 @@ class EvaluateCohortsTest(unittest.TestCase):
 
         horizon = result["6m"]
         assert isinstance(horizon, dict)
-        self.assertNotIn("sector_subset_diagnostics", horizon)
+        self.assertEqual(set(horizon), {"authority", "cohorts", "aggregate"})
 
-    def test_sector_subset_diagnostics_allow_subset_below_axis_sample_minimum(
-        self,
-    ) -> None:
-        panel: list[PanelRow] = []
-        forwards: list[ForwardReturnRow] = []
-        for i in range(60):
-            ticker = f"7{i:03d}"
-            panel.append(
-                _panel_row(
-                    ticker,
-                    per_trailing=5.0 + i * 0.05,
-                    sector_33="銀行業",
-                )
-            )
-            forwards.append(_forward_row(ticker, 0.25 - i * 0.001))
-        for i in range(60):
-            ticker = f"8{i:03d}"
-            panel.append(
-                _panel_row(
-                    ticker,
-                    per_trailing=20.0 + i * 0.05,
-                    sector_33="機械",
-                )
-            )
-            forwards.append(_forward_row(ticker, -0.25 - i * 0.001))
-
-        result = evaluate_cohorts(
-            {"2025-06-30": panel},
-            {"2025-06-30": forwards},
-            horizons=["6m"],
-            sector_subset=["銀行業"],
-            sector_subset_axes=["per_trailing"],
-        )
-
-        horizon = result["6m"]
-        assert isinstance(horizon, dict)
-        diagnostics = horizon["sector_subset_diagnostics"]
-        assert isinstance(diagnostics, dict)
-        self.assertEqual(diagnostics["axes"], ["per_trailing"])
-        aggregate = diagnostics["aggregate"]
-        assert isinstance(aggregate, dict)
-        aggregate_axes = aggregate["axes"]
-        assert isinstance(aggregate_axes, dict)
-        per_axis = aggregate_axes["per_trailing"]
-        assert isinstance(per_axis, dict)
-        self.assertEqual(per_axis["cohorts"], 1)
-        self.assertEqual(per_axis["mean_n"], 60.0)
-        self.assertEqual(per_axis["mean_rank_ic"], 1.0)
-
-    def test_calibration_evaluate_command_writes_sector_subset_yaml(self) -> None:
+    def test_calibration_evaluate_command_marks_short_horizon_as_diagnostic(self) -> None:
         panel: list[PanelRow] = []
         forwards: list[ForwardReturnRow] = []
         for i in range(60):
@@ -395,7 +329,7 @@ class EvaluateCohortsTest(unittest.TestCase):
                 _panel_row(
                     ticker,
                     per_trailing=10.0 + i * 0.05,
-                    sector_33="銀行業",
+                    sector_33="サービス業",
                 )
             )
             forwards.append(_forward_row(ticker, 0.30 - i * 0.001))
@@ -419,8 +353,6 @@ class EvaluateCohortsTest(unittest.TestCase):
             exit_code = calibration_evaluate_command(
                 calibration_dir=root,
                 horizons=["6m"],
-                sector_subset=["financial"],
-                sector_subset_axes=["per_trailing"],
                 output_path=output_path,
                 stdout=StringIO(),
             )
@@ -428,27 +360,26 @@ class EvaluateCohortsTest(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = yaml.safe_load(output_path.read_text(encoding="utf-8"))
             assert isinstance(payload, dict)
-            self.assertEqual(
-                payload["sector_subset"],
-                {
-                    "sectors": ["銀行業", "証券・商品先物取引業", "保険業", "その他金融業"],
-                    "axes": ["per_trailing"],
-                },
-            )
+            self.assertEqual(payload["metric_basis"], "price_return_only")
+            decision = payload["production_decision"]
+            assert isinstance(decision, dict)
+            self.assertFalse(decision["production_change_allowed"])
             results = payload["results"]
             assert isinstance(results, dict)
             horizon = results["6m"]
             assert isinstance(horizon, dict)
-            diagnostics = horizon["sector_subset_diagnostics"]
-            assert isinstance(diagnostics, dict)
-            self.assertEqual(
-                diagnostics["sectors"],
-                ["銀行業", "証券・商品先物取引業", "保険業", "その他金融業"],
-            )
-            self.assertEqual(diagnostics["axes"], ["per_trailing"])
-            aggregate = diagnostics["aggregate"]
+            aggregate = horizon["aggregate"]
             assert isinstance(aggregate, dict)
             self.assertEqual(aggregate["cohort_count"], 1)
+
+    def test_production_decision_requires_explicit_core_scope(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            exit_code = calibration_evaluate_command(
+                calibration_dir=Path(temp_dir),
+                run_purpose="production_decision",
+                stdout=StringIO(),
+            )
+        self.assertEqual(exit_code, 1)
 
 
 if __name__ == "__main__":

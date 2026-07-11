@@ -19,7 +19,7 @@ output:
   # playbook 優先順位。推奨 queue の従キー (主キーは機械 E[r] 降順) と
   # primary evidence の選択に使う。下値保護の裏付けが強い順 (資産・現金 →
   # 相対 valuation → cash flow → 売上)。主キーの根拠:
-  # reports/2026-07-04-preregistered-ranking-validation.md (H3)。
+  # E[r] ranking policy parameter。実証的な変更は long-horizon evidence を要する。
   research_selection_playbook_order:
   - cash-rich-asset-discount
   - valuation-reversion
@@ -70,8 +70,7 @@ screening_playbooks:
     sector_median_gap_max: -0.2
     self_range_percentile_max: 0.2
     # 条件 B は σギャップ × 悪化ゲート。60 日下落は要件にしない — price_change_60d 軸は
-    # 較正で D10 trap 全軸最悪であり、撤廃の非劣性を design/confirm で確認
-    # (reports/2026-07-06-h7-gate-followup-validation.md)。
+    # price change はランキング入力ではなく、別の観測情報として扱う。
     sigma_gap_max: -1.0
     # docs/reference/valuation-metrics.md は「PER は forward 優先、未公表時は
     # trailing」と mandate。per_forward を primary に置き、null 時に

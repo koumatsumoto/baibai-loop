@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,57 @@ from .providers.jquants import (
     JQuantsProviderError,
 )
 from .schema import SecurityMaster
+
+
+@dataclass(frozen=True, slots=True)
+class MasterSnapshotRead:
+    """A point-in-time security-master read with its source snapshot status."""
+
+    masters: tuple[SecurityMaster, ...]
+    snapshot_date: date | None
+    status: str
+
+
+def read_eq_master_asof(sqlite_path: Path, asof: date) -> MasterSnapshotRead:
+    """Read only the newest master snapshot at or before ``asof``.
+
+    This intentionally never falls forward to the current snapshot: calibration
+    needs the historical membership that was knowable at the cohort date.
+    """
+    if not sqlite_path.exists():
+        return MasterSnapshotRead((), None, "unavailable")
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return MasterSnapshotRead((), None, "unavailable")
+    try:
+        snapshot = conn.execute(
+            "SELECT MAX(snapshot_date) FROM jquants_master_snapshots WHERE snapshot_date <= ?",
+            (asof.isoformat(),),
+        ).fetchone()[0]
+        if snapshot is None:
+            return MasterSnapshotRead((), None, "unavailable")
+        rows = conn.execute(
+            "SELECT ticker, name, market, sector_33, is_common_stock "
+            "FROM jquants_master_snapshots WHERE snapshot_date = ? ORDER BY ticker",
+            (str(snapshot),),
+        ).fetchall()
+    finally:
+        conn.close()
+    snapshot_date = date.fromisoformat(str(snapshot))
+    return MasterSnapshotRead(
+        tuple(
+            SecurityMaster(
+                code=ticker,
+                name=str(name or ""),
+                market_segment=str(market or ""),
+                sector_33=str(sector_33 or ""),
+                is_common_stock=bool(is_common),
+            )
+            for ticker, name, market, sector_33, is_common in rows
+        ),
+        snapshot_date,
+        "exact_date" if snapshot_date == asof else "prior_snapshot",
+    )
 
 
 def read_eq_master(sqlite_path: Path) -> list[SecurityMaster] | None:

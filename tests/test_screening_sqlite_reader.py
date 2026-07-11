@@ -22,6 +22,7 @@ from baibai_loop.screening.sqlite_cache import (
 from baibai_loop.screening.sqlite_reader import (
     read_eq_earnings_cal,
     read_eq_master,
+    read_eq_master_asof,
     read_fin_summaries,
 )
 
@@ -121,6 +122,31 @@ class ReadEqMasterTests(unittest.TestCase):
             masters = read_eq_master(db)
             assert masters is not None
             self.assertEqual(masters[0].name, "NewName")
+
+    def test_asof_reader_never_falls_forward_to_a_future_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            conn = open_connection(db)
+            conn.executemany(
+                "INSERT INTO jquants_master_snapshots("
+                "snapshot_date, ticker, name, market, sector_33, is_common_stock"
+                ") VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    ("2025-01-31", "1301", "Historical", "プライム", "水産", 1),
+                    ("2025-02-28", "1302", "Future", "プライム", "水産", 1),
+                ],
+            )
+            conn.commit()
+            conn.close()
+
+            prior = read_eq_master_asof(db, date(2025, 2, 15))
+            self.assertEqual(prior.status, "prior_snapshot")
+            self.assertEqual(prior.snapshot_date, date(2025, 1, 31))
+            self.assertEqual([master.code for master in prior.masters], ["1301"])
+
+            unavailable = read_eq_master_asof(db, date(2025, 1, 1))
+            self.assertEqual(unavailable.status, "unavailable")
+            self.assertEqual(unavailable.masters, ())
 
 
 class ReadDailyBarsTests(unittest.TestCase):

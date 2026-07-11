@@ -75,7 +75,7 @@ records/02-candidates/YYYY/MM/YYYY-MM-DD.yaml
 
 ## 長期予測力の計測（estimate calibration）
 
-screen の軸・閾値・select 順位が「3 か月以上先の割安回復」を予測できているかは、`calibration-build` / `calibration-evaluate` の較正リプレイで計測する（[`../reference/estimate-calibration.md`](../reference/estimate-calibration.md)）。ランキング・ゲート・閾値の改訂は、事前登録した仮説をこの計測で design/confirm 分割の両方で確認した場合だけ行う（doctrine 柱 5 の誠実性規律）。
+screen の軸・閾値・select 順位は、`calibration-build` / `calibration-evaluate` の較正リプレイで観測する（[`../reference/estimate-calibration.md`](../reference/estimate-calibration.md)）。3m/6m は regression alert、1y は leading evidence であり、ランキング・ゲート・閾値の実証的改訂には design/confirm を通じた 3y/5y eligible evidence が必要である（doctrine 柱 5）。
 
 ## 事実と分析の分離
 

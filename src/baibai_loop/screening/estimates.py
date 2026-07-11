@@ -10,9 +10,7 @@ doctrine 柱 5(b) との整合: E[r] は単位 (%/年) と前提 (anchor・実�
   採る。片方欠損時はもう片方。
 - implied upside = anchor / current - 1 (signed。割高なら負)
 - reversion (年率) = REALIZATION_RATE_ANNUAL x clip(upside, ±UPSIDE_CAP)
-  — baseline 計測 (reports/2026-07-03-estimate-calibration-baseline.md §5) で
-  収束実現は implied upside に単調でなく、~50% を超える deep discount は gap の
-  1% 弱/6m しか実現しなかったため、上側を cap して線形近似する。
+  — model policy parameter により過大な upside を保守側へ制限する。
 - carry (年率) = 実績配当利回り + clip(自社株買い利回り, ±BUYBACK_CLIP)
   — 自社株買い利回り = -net_share_change_yoy (株数縮小 = 正)。
 - E[r] (年率) = reversion + carry
@@ -27,15 +25,8 @@ from typing import Literal
 
 from .schema import DerivedMetrics, FinancialSnapshot
 
-# 較正パラメータ。値の出典は較正リプレイの収束実現テーブル (直近の較正レポート) で、
-# 更新するときは新しい計測とセットで変更する (grid search はしない。自由パラメータは
-# この 3 つに限定する)。
-# 0.10 の較正根拠 (2026-07-04 計測・2 点比較): 0.10 では実現スプレッドが予測の
-# ~2.4x (予測は保守側)、0.20 に上げると水準は近づく (~1.5x) が reversion の重みが
-# 増えて順位品質が劣化する (er_annual IC 0.191→0.169/6m・best decile trap
-# 5.8%→8.3%)。E[r] の目的は (i) 並べ替え情報 (IC 優先) と (ii) thesis の保守的
-# アンカー (過大評価しない) なので、両方で優る 0.10 を採る。水準の過小は
-# 「実現がこのレジームでは予測を上回った」事実として較正レポートに開示する。
+# 現在の MODEL_V1 policy parameters。実証的な変更は long-horizon authority を満たす
+# artifact と人間レビューを経て code で明示的に変更し、自動更新はしない。
 REALIZATION_RATE_ANNUAL = 0.10
 UPSIDE_CAP = 0.50
 BUYBACK_CLIP = 0.05
@@ -43,7 +34,7 @@ EXPECTED_RETURN_MODEL_VERSION = "expected-return-v1"
 EXPECTED_RETURN_UNIT = "annual_ratio"
 
 # anchor に使う倍率軸。資産 (pbr) と収益 (per_forward → per_trailing fallback) の
-# 2 系統を blend する (baseline で予測力上位の 2 軸。単一軸のノイズを平均で薄める)。
+# 2 系統を blend して単一軸のノイズを平均で薄める。
 _EARNINGS_METRICS = ("per_forward", "per_trailing")
 
 

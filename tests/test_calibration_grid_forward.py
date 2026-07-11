@@ -72,14 +72,14 @@ class ForwardReturnTest(unittest.TestCase):
         bars = [
             _bar(date(2025, 1, 31), 100.0),
             _bar(date(2025, 4, 30), 120.0),
-            _bar(date(2025, 8, 1), 150.0),
+            _bar(date(2025, 7, 31), 150.0),
         ]
         rows = _ticker_forward_rows(
             "1000",
             bars,
             asofs=[date(2025, 1, 31)],
-            horizons={"3m": 91, "6m": 182},
-            eval_cap=date(2025, 8, 1),
+            horizons=(HORIZONS["3m"], HORIZONS["6m"]),
+            eval_cap=date(2025, 7, 31),
         )
         by_horizon = {row.horizon: row for row in rows}
         row_3m = by_horizon["3m"]
@@ -104,7 +104,7 @@ class ForwardReturnTest(unittest.TestCase):
             "1000",
             bars,
             asofs=[date(2025, 1, 31)],
-            horizons={"3m": 91},
+            horizons=(HORIZONS["3m"],),
             eval_cap=date(2025, 5, 30),
         )
         row = rows[0]
@@ -118,27 +118,27 @@ class ForwardReturnTest(unittest.TestCase):
             "1000",
             bars,
             asofs=[date(2025, 1, 31)],
-            horizons={"12m": 365},
+            horizons=(HORIZONS["1y"],),
             eval_cap=date(2025, 3, 31),
         )
         self.assertFalse(rows[0].resolved)
         self.assertIsNone(rows[0].price_return)
 
     def test_forward_return_flags_stale_exit_price(self) -> None:
-        # 上場廃止・長期停止: target 直近の bar が 15 日超古い → stale flag。
+        # 長期停止: stale exit は明示的な未解決であり resolved metric へ入れない。
         bars = [_bar(date(2025, 1, 31), 100.0), _bar(date(2025, 2, 28), 130.0)]
         rows = _ticker_forward_rows(
             "1000",
             bars,
             asofs=[date(2025, 1, 31)],
-            horizons={"3m": 91},
+            horizons=(HORIZONS["3m"],),
             eval_cap=date(2025, 6, 30),
         )
         row = rows[0]
-        self.assertTrue(row.resolved)
+        self.assertFalse(row.resolved)
         self.assertTrue(row.stale_price)
-        assert row.price_return is not None
-        self.assertAlmostEqual(row.price_return, 0.3)
+        self.assertEqual(row.status, "unresolved_stale_exit")
+        self.assertIsNone(row.price_return)
 
     def test_forward_return_invalid_entry_when_no_recent_bar_at_asof(self) -> None:
         # asof より 15 日超前の bar しか無い (上場前 / 廃止後) → 全 horizon 未解決。
@@ -147,7 +147,7 @@ class ForwardReturnTest(unittest.TestCase):
             "1000",
             bars,
             asofs=[date(2025, 1, 31)],
-            horizons=dict(HORIZONS),
+            horizons=tuple(HORIZONS.values()),
             eval_cap=date(2026, 6, 30),
         )
         self.assertEqual(len(rows), len(HORIZONS))
