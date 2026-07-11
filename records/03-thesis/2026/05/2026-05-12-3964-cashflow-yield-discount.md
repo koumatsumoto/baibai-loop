@@ -51,12 +51,6 @@ valuation:
   - ocf_yield
   - fcf_yield
   - p_s
-macro_context_ref: records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml
-macro_context_fit:
-  context_freshness: current
-  fit: neutral
-  decision_effect: proceed
-  required_checks: []
 corporate_action_check:
   checked: true
   result: none
@@ -70,13 +64,6 @@ corporate_action_check:
 3964 オークネットは、2026-05-08 screening で `cashflow-yield-discount`、`fcf-yield-discount`、`sales-discount-growth` が同時 hit した。候補時点の TTM OCF yield は 21.8%、FCF yield は 18.9%、P/S は 0.91、売上 YoY は +14.7% で、降格した cash-rich game names の代替候補として見る理由は残る。
 
 Q1 公式 IR では、売上高 +13.8%、営業利益 +4.6%、通期営業利益予想の上方修正、年間配当予想の上方修正が確認できた。したがって `reject` ではなく継続 research とする。一方、Q1 では四半期連結キャッシュ・フロー計算書が作成されておらず、2025年12月期の強い CFO / FCF が再現可能かは確認できない。decision は `deferred / wait_for_event` とし、Q2 の半期 CF で営業 CF と working capital を確認する。
-
-## Macro context
-
-- Fit: neutral / proceed。
-- Sector: 情報・通信業。
-- 参照: `records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml`。
-- Macro context は情報・通信業を neutral としている。ただしオークネットの主要 driver は中古デジタル機器、ブランド品、中古車・バイクの循環型マーケットであり、AI / data center theme を直接の買い理由にはしない。AI / データ活用は、オークション運営や在庫流通の補助材料にとどめる。
 
 ## Cashflow snapshot
 

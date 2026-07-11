@@ -11,7 +11,6 @@ from baibai_loop.foundation.errors import ValidationFinding
 from baibai_loop.position.policy import PORTFOLIO_POLICY
 
 from .shared import (
-    _KNOWN_MACRO_CONTEXT_FRESHNESS,
     _LONG_HOLD_EFFECTIVE_DATE,
     _gate_boundary_date,
     _thesis_record_date,
@@ -68,51 +67,10 @@ def _check_entry_preflight(
             )
         )
 
-    preflight_freshness = preflight.get("macro_freshness")
-    macro_fit = mapping_or_empty(front_matter.get("macro_context_fit"))
-    macro_freshness = macro_fit.get("context_freshness")
-    if preflight_freshness not in _KNOWN_MACRO_CONTEXT_FRESHNESS:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="thesis.entry-preflight-macro-freshness",
-                message="entry_preflight.macro_freshness must be current, stale, or future",
-                location="entry_preflight.macro_freshness",
-            )
-        )
-    elif isinstance(macro_freshness, str) and preflight_freshness != macro_freshness:
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="thesis.entry-preflight-macro-freshness-match",
-                message=(
-                    "entry_preflight.macro_freshness must match macro_context_fit.context_freshness"
-                ),
-                location="entry_preflight.macro_freshness",
-            )
-        )
-    if preflight_freshness == "future":
-        findings.append(
-            ValidationFinding(
-                severity="error",
-                target=path,
-                code="thesis.entry-preflight-future-approved",
-                message="approved thesis cannot use future macro freshness in entry_preflight",
-                location="entry_preflight.macro_freshness",
-            )
-        )
-
     # 割安 (相対劣後)を買うのが本流のため、相対リターンや market regime による
     # hard trigger は持たない (docs/workflow/research.md)。Active trade records retain
     # the exposure gate until a canonical portfolio ledger exists.
     hard_triggers: list[str] = []
-    if preflight_freshness == "future":
-        hard_triggers.append("future macro freshness")
-    if preflight_freshness == "stale" and preflight.get("near_term_catalyst") is not True:
-        hard_triggers.append("stale macro freshness without a dated near-term catalyst")
-
     gate_date = _gate_boundary_date(front_matter, path=path) or thesis_date
     if gate_date >= _LONG_HOLD_EFFECTIVE_DATE:
         exposure = mapping_or_empty(preflight.get("exposure_after_order"))

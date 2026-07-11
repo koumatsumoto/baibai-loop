@@ -21,11 +21,13 @@ Decision packetは、実購入候補の判断根拠を短い要約と再計算�
 | `input_snapshot` | ticker、判断基準日、判断時price、主要財務・valuation、source provenanceを固定した最小fact snapshot |
 | `derived` | formula ID、input fact IDs、version、as-of、unit、assumptionを持つ機械再計算値 |
 | `estimates` | 判断時に観測した入口価格、要求5年CAGR、model version・仮定を持つ3年/5年bear/base/bull |
-| `judgment` | buy/defer/rejectのAI initial proposal、提案時刻、確信度、永久損失結論、最強反対仮説、sizing |
+| `judgment` | buy/defer/rejectのAI initial proposal、提案時刻、確信度、永久損失結論、最強反対仮説、sizing、AI value captureの企業別評価 |
 
 この4つはdata/judgment namespaceである。`permanent_loss_risks`はjudgmentを構成する軸別評価、`independent_review_ref`は別artifactのsecond-pass review envelopeへの参照、`human_evidence_override`はreview後の人間によるrisk受容としてtop-levelに置く。最終発注判断はexecution contractの別artifactであり、AI proposalへ混ぜない。
 
 ScreeningのE[r]とFV anchorは決定論的でも事実ではなくestimateである。candidate出力は`origin: estimate`、model version、unit、assumptionsを併記し、decision packetへ採用する値はscenario modelのsourceとして固定する。
+
+`judgment.ai_value_capture`は、AIを企業価値へ変換できるかを企業別に評価する分析層である。roleは`enabler / infrastructure / complement / adopter / disrupted`を使い、value captureの持続性、競争優位、収益化、株主への帰属をsource付きで記述する。`not_material`ならroleも判断weightも持たず、AIだけで採用・順位・投入額を決めない。`disrupted`を記す場合は、同じ根拠で`structural_decline`の永久損失評価へ接続する。
 
 ## Input snapshot and lineage
 

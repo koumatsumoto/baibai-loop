@@ -14,7 +14,6 @@ from baibai_loop.foundation.errors import ValidationFinding
 from baibai_loop.foundation.yaml_io import safe_load
 
 from .fields import _check_decision, _check_playbook, _check_ticker
-from .macro_context import _check_macro_context_fit
 from .payoff import _check_corporate_action_check, _check_long_hold_requirements, _check_payoff
 from .playbook_schema import (
     PlaybookSchemaError,
@@ -78,7 +77,6 @@ def validate_thesis_parsed(
     findings.extend(_check_ticker(path, front_matter))
     findings.extend(_check_playbook(path, front_matter, known_playbooks))
     findings.extend(_check_decision(path, front_matter))
-    findings.extend(_check_macro_context_fit(path, front_matter))
     findings.extend(_check_entry_preflight(path, front_matter))
     findings.extend(_check_sizing_invariants(path, front_matter))
     findings.extend(_check_corporate_action_check(path, front_matter))

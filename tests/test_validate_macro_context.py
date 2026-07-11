@@ -39,6 +39,38 @@ class MacroContextSeriesRegistryTests(unittest.TestCase):
             }
             self.assertEqual(self._unregistered_findings(payload), [], series_id)
 
+    def test_material_delta_requires_resolved_nonfailed_input(self) -> None:
+        payload: dict[str, object] = {
+            "as_of": "2026-07-01",
+            "valid_until": "2026-07-08",
+            "published_at": "2026-07-01T09:00:00+09:00",
+            "inputs": {
+                "articles": [
+                    {"input_id": "failed-source", "status": "failed"},
+                ],
+                "indicator_series": [],
+            },
+            "material_deltas": [
+                {"source_ids": ["failed-source"]},
+            ],
+            "sizing_cautions": [],
+        }
+
+        codes = {finding.code for finding in _validate_custom(_PATH, payload)}
+
+        self.assertIn("macro-context.failed-source-only", codes)
+
+    def test_material_delta_rejects_unknown_input_id(self) -> None:
+        payload: dict[str, object] = {
+            "inputs": {"articles": [], "indicator_series": []},
+            "material_deltas": [{"source_ids": ["missing"]}],
+            "sizing_cautions": [],
+        }
+
+        codes = {finding.code for finding in _validate_custom(_PATH, payload)}
+
+        self.assertIn("macro-context.unknown-source-id", codes)
+
 
 if __name__ == "__main__":
     unittest.main()

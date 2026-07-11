@@ -37,18 +37,6 @@ valuation:
   primary_metric:
   - ocf_yield
   - per_trailing
-macro_context_ref: records/01-macro-context/2026/06/macro-context-2026-06-30-overshoot-reverted-ath-risk-on.yaml
-macro_context_fit:
-  context_freshness: current
-  fit: not_matched
-  decision_effect: proceed
-  required_checks:
-  - サービス業は 6/30 context の sector_tilts に明示 tilt が無い（neutral）。ただし本銘柄の実体は AI/DX 実装受益（CX/BPO の生成AI導入・NTT Com Digital
-    BPO）で、context の情報・通信業 tailwind（AI/DX 受益）の論拠と整合する点を確認する。
-  - 指数は高値圏（日経 ATH−3.8%・benchmark 1321 の 20d +5.27%）で、割安は銘柄固有の de-rating（AI-BPO 懸念と成長減速で取り残された低β バリュー）に偏在する。指数の押し目ではない。
-  sizing_caution:
-  - risk_on_rally_regime_contrarian_entry_waived_by_low_correlation_beta_0_15
-  - q1_fy2027_earnings_early_august_event_risk_within_hold_window
 thesis_payoff:
   max_entry_price_yen: 3557
   fair_value_yen: 4000
@@ -66,11 +54,9 @@ entry_preflight:
   evaluated_on: '2026-07-01'
   market_relative_return_pct: -11.89
   sector_or_peer_relative_return_pct: 0.0
-  macro_freshness: current
   exposure_after_order:
     sector_33_pct: 20.74
     playbook_pct: 37.26
-  near_term_catalyst: false
   action: proceed
   reason: '2026-07-01 にユーザー指示で 100 株を 3,557 円で約定（指値 3,560 円に対し dip 約定）。regime は risk_on_rally（benchmark 1321 の 20d
     +5.27%）で、9715 の 20d は −6.62%＝market relative −11.89pt と 大幅劣後（AI-BPO 懸念と成長減速で高値ラリーに取り残された低β バリューの定量裏付け）。通常この局面の
@@ -78,7 +64,7 @@ entry_preflight:
     を exception_basis=[low_correlation] で正当化する。 sector/peer relative はサービス業セクター指数を Tier1 取得できず not_checked（0.0）。tactical
     exposure after order はサービス業 20.74% / cashflow-yield-discount 37.26%（分母 tactical 200 万円）で 50% 上限内。 実資金基準では ticker
     3.56%（cap 8%）・サービス業 4.15%（cap 45%）・playbook 7.45%（cap 35%）で全て内。 9715 はサービス業で、既存の deployed 集中（情報・通信業 41%＝9682/9692/9470/4432）を悪化させず分散する。
-    近接 catalyst は Q1 FY2027（8月上旬）だが routine ゆえ near_term_catalyst=false とし、low_correlation で waive。
+    近接 catalyst は Q1 FY2027（8月上旬）だが routine eventのため、追加の発注条件にはしない。
 
     '
 corporate_action_check:
@@ -102,15 +88,6 @@ corporate_action_check:
 - **Long-hold fallback**: 高い。**ネットキャッシュ約 ¥760億（時価の 0.48）**・自己資本比率 62%・営業CF潤沢（ocf_yield 13.2%）・**配当利回り約 4.0%**（¥140→¥145 予想）で、含み損ロック時も配当と財務健全性が支える。BPO はリカーリング色が強く低循環（β 0.15）。
 - **Capital lock / shareholder return（＝ dated catalyst）**: **配当性向を 40% へ引上げ（2026年6月配当から）**、中計期間の株主還元総額 ¥160億、ROE 10%+ 維持を明言。筆頭株主はトランスコスモス財団 18%（支配的）だが、還元強化に舵を切った点は「trapped cash」懸念を部分的に解消。
 - **AI long-term impact**: 中（受益寄り、ただし上限あり）。CXスクエア生成AI（応対アシスト/分析支援）、**NTT Com と Digital BPO 5 年 ¥1,000億**提携、エスカレーション 6 割削減の実績。中計は「AIエコノミー上の新サービス」を成長ドライバーに位置づけ、「グローバルCXは AI の登場で規模拡大から差別化へ」と自認。AI は単独の採用・sizing 根拠にはせず、valuation・CF・財務と合わせて判断する。
-
-## 2. Macro context
-
-- **macro_context_ref**: `records/01-macro-context/2026/06/macro-context-2026-06-30-overshoot-reverted-ath-risk-on.yaml`
-- **context_freshness**: current（as_of 2026-06-30 / valid_until 2026-07-07、約定 2026-07-01 は window 内）
-- **fit**: not_matched（サービス業は 6/30 context の sector_tilts に明示 tilt が無い）。ただし実体は AI/DX 実装受益で、context の情報・通信業 tailwind（AI/DX 受益）論拠と整合。
-- **decision_effect**: proceed（高値圏リスクオン回帰の中、割安は銘柄固有の de-rating に偏在。低β・ネットキャッシュ床で下値保護）。
-- **required_checks**: 指数は高値圏で押し目ではない点、AI-BPO 侵食が受益に転じるか。
-- **sizing_caution**: risk_on_rally での contrarian entry を β 0.15 の low_correlation で waive、Q1 FY27（8月上旬）の event risk。
 
 ## Cashflow snapshot
 
@@ -188,7 +165,6 @@ accruals_to_assets −0.0252（**負の accruals ＝ 現金利益が会計利益
 | Price window | basis: candidate asof 2026-06-30 / fill: 2026-07-01 | candidate row + user fill |
 | Market baseline | benchmark proxy 1321 20d +5.27% | SQLite daily bars |
 | Relative return | vs market: −11.89pt / vs sector-peer: 0.0pt (not_checked) | candidate 20d −6.62% − 1321 20d +5.27% |
-| Macro freshness | current | window 内（[6-30, 7-07]） |
 | Regime | risk_on_rally（1321 20d +5.27%） | 高値圏リスクオン回帰 |
 | Exposure after order | サービス業 20.74% / cashflow-yield-discount 37.26%（分母 tactical 200 万円） | 実資金基準では ticker 7.11%・サービス業 8.29%・playbook 14.9% |
 | Action | proceed（当時の判定は exception、exception_basis=[low_correlation]） | risk_on_rally の contrarian entry を β 0.15 の low_correlation で waive。regime gate 廃止後の契約では proceed に対応 |

@@ -3,7 +3,7 @@ name: macro-analysis
 description: >-
   マクロ経済分析（環境読み・相場 regime・地合い/リスクオンオフ・金融環境・FOMC/利上げ見通し・
   ドル円/クレジットスプレッド・BTC等の中長期見通し）を行うときの操作手順と公開前の品質ゲート。
-  指標パネルの取得 → 4 レンズでの解釈 → 敵対的 self-check → records/reports への落とし込みまでを、
+  material deltaに必要な指標・一次情報の取得 → 敵対的 self-check → records/reports への落とし込みまでを、
   「自分が引いたデータと自分の結論が矛盾しない」検算規律つきで回す。「マクロ環境を分析」「相場局面/
   regime を読む」「macro-context を書く」「金利/流動性/為替のマクロ見通し」等のときに使う。
 ---
@@ -21,23 +21,23 @@ description: >-
 ## 更新トリガー（いつ環境読みを更新するか）
 
 macro-context は **定期生成しない**（cron 化しない）。次のトリガーで「必要時に」更新する（workflow/macro.md ②「更新のきっかけ」と整合）:
-- **screening 前**: select は鮮度ある context を hard precondition にする（不在 / `as_of` 未来 / `valid_until < asof`=stale で ERROR）。基準 cadence は `valid_until = as_of + 7日` ＝ 実質週次。
-- **主要イベント後**: FOMC / BOJ / ECB / 米 CPI・PCE・NFP / 地政学ショック（§3-9 の発行日±5営業日と整合）。
+- **material change後**: discount rate、需要、資金調達、共通tail riskのいずれかが個別5年期待値を変えると判断できるときだけ更新する。selectはcontext不在/staleをwarningとして継続し、future contextだけをERRORにする。
+- **主要イベント後**: FOMC / BOJ / ECB / 米 CPI・PCE・NFP / 地政学ショックを、material deltaの有無を確認する契機にする。変化がなければrecordは作らない。
 - **前回 `refresh_triggers` の発火**: 前回 context が「前提が崩れる条件」とした事象が起きたとき。
 
 固定 cadence の網羅蓄積を目的化しない。トリガーが無ければ作らない。
 
 ## 1. 手順（end-to-end）
 
-1. **パネルを引く** — §2。方向を語る series は §3 の標準窓で range も引く（`--latest` 単点で方向を断じない）。
-2. **主要ドライバーを基盤 series で ground** — 数値＋日付＋`series_id`。基盤/一次を優先、外部 web は provenance を明示。
-3. **4 レンズで方向を言語化** — 束ね方は §2、読み方の正本は workflow/macro.md ③（8 レンズ）。レンズ間の矛盾は裁定する。
-4. **§3 ゲートを通す** — 1 つでも✗なら結論を書かない。
-5. **落とし込む** — §4（環境読み=records、特殊調査=reports、編集後に validation 実行）。
+1. **変化channelを特定する** — discount rate、需要、資金調達、共通tail riskのどれが個別5年期待値を変え得るかを先に置く。該当しなければ終了する。
+2. **必要なsourceだけを引く** — channelを確認できる基盤seriesと一次情報を取り、方向を語るseriesだけはrangeも引く（`--latest`単点で方向を断じない）。
+3. **個別判断への経路を言語化する** — researchで確認すべき因果と反証を短く残す。全レンズの結論やsector姿勢を作らない。
+4. **該当する§3ゲートを通す** — 1つでも✗ならその結論を書かない。
+5. **落とし込む** — material deltaがある場合だけrecordsへ、特殊調査はreportsへ置き、編集後にvalidationを実行する。
 
 KAIZEN は §3 末尾の掃き出しチェックで回す（§5）。
 
-## 2. パネル取得（操作）
+## 2. 必要なsourceの取得（操作）
 
 `baibai-loop-macro get` は 1 series ずつ。出力カラムは `series_id  observed_at  value  unit  provider  source`（`source`=cache/provider）。束ねて latest を引く（決定論・cache miss 時だけ provider）。
 
@@ -46,7 +46,7 @@ cd /home/kou/baibai-loop
 # registry が登録 series の正本。固定 series リストを skill に持たず list から束ねる（series 追加で skill が陳腐化しない）
 uv run baibai-loop-macro list                     # 全 series を id/name/category/geo/freq/unit/provider で一覧
 uv run baibai-loop-macro list --category energy   # レンズ別に絞る例（rates/credit/fx/energy/liquidity 等）
-# latest パネル: 下の「レンズ→series」表と list を突き合わせ、必要レンズの series を漏れなく束ねて逐次に引く。
+# 下の表はchannel別の候補であり、毎回全series・全レンズを取得するチェックリストではない。今回のmaterial deltaを確認するものだけを逐次に引く。
 # list の 1 列目が series_id。category ごとに id を取り、1 series ずつ get する（並行起動しない・§2 末尾の注意）:
 for s in $(uv run baibai-loop-macro list --category rates | cut -f1); do
   uv run baibai-loop-macro get "$s" --latest 2>&1 | tail -1
@@ -97,15 +97,14 @@ uv run baibai-loop-macro get btc_usd       --start "$(date -d '3 months ago' +%F
 
 ## 4. 落とし込み
 
-- 環境読み → `records/01-macro-context/<YYYY>/<MM>/...yaml`。`inputs.indicator_series[]` に使った series を `series_id`＋`window`＋`used_for` で grounding（series_id は registry 一致必須、未登録は validator が warning）。読みは `sector_tilts`・`research_questions`・`refresh_triggers` へ。screen は macro-blind のまま。
+- 環境読み → `records/01-macro-context/<YYYY>/<MM>/...yaml`。articles/indicator seriesには横断一意な`input_id`、status、used_forを持たせる。material deltaとsizing cautionはそのinput_idを参照する。screenはmacro-blindのまま。
 - 特殊な単発調査（例 暗号資産トレジャリーの財務）→ `reports/<YYYY-MM-DD>-<slug>.md`。基盤に入れない特殊対象はここに閉じる。
 - **編集後に `uv run baibai-loop-validation --target macro-context` を通す**（§3-12）。新しい汎用 series が要るなら `series.yaml` に 1 行足し、必ず `--latest` で live 取得を実 fetch 確認（FRED は廃止系列あり。workflow/macro.md ①のデータソース registry）。
 
-## 4.5 プロ品質 HTML レポート（深い環境レポートを共有するとき）
+## 4.5 任意の人間向けHTMLレポート
 
-§4 の環境読み（yaml）と **同一リサーチから併産する** 人が読む単一 HTML レポート。1 回のパネル取得＋レンズ＋§3 ゲートから、yaml（機械接続の正本・select に効く）と HTML（人間ビュー）を両方出す（二度手間にしない）。対応: yaml.summary ↔ ①局面規定、yaml.sector_tilts ↔ ⑪セクター tilt、yaml.inputs.indicator_series ↔ ⑫出典。雛形は同梱の [`report-template.html`](./report-template.html)（構造の参考実装）を最新 series 値で更新して使う。
+通常運用ではYAMLの短いsummaryとmaterial deltaだけを残す。HTMLは別途共有価値がある調査だけで作成し、macro recordとの併産や12セクション構成を要求しない。雛形は必要時の参考実装に留める。
 
-- **構成（12セクション）**: ①局面規定＋リスクレジームメーター ②キー指標ダッシュボード（値＋percentile） ③バリュエーション/ERP ④グローバル中銀同期 ⑤基軸ナラティブ（タイムライン） ⑥レンズ間調停 ⑦資産クラス別ドライバー分岐 ⑧ポジショニング ⑨反証テーブル ⑩シナリオ（確率バー） ⑪セクター tilt ⑫主要リスク／出典・免責。
 - **規律**: 単一 HTML・インライン CSS・外部依存ゼロ（オフラインで開く）。水準は percentile バッジで定量化（§3-4）、基盤 series と web を出典で分離（§3-6, web は source 明記）。§3 ゲートを全て通してから書く。脆い provider（`multpl`）の数値は注記する。
 - **出力先と表示**: `.plan/macro-report-<date>.html`（ドラフト）に書き `open-file` skill で既定ブラウザに表示。確定版は records/reports へ。逐次取得（§2 の並行起動禁止）を厳守する。
 

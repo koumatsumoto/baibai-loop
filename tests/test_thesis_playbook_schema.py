@@ -51,7 +51,7 @@ class PlaybookSchemaLoaderTests(unittest.TestCase):
         schema = load_playbook_schema(ROOT / "records/_playbooks", "valuation-reversion")
         self.assertIsInstance(schema, PlaybookSchema)
         self.assertEqual(schema.name, "valuation-reversion")
-        self.assertGreaterEqual(len(schema.body_sections), 13)
+        self.assertGreaterEqual(len(schema.body_sections), 12)
 
     def test_missing_schema_raises_file_not_found(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir, self.assertRaises(FileNotFoundError):

@@ -45,12 +45,6 @@ valuation:
   equity_ratio: 0.4111
   primary_metric:
   - p_s
-macro_context_ref: records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml
-macro_context_fit:
-  context_freshness: current
-  fit: neutral
-  decision_effect: proceed
-  required_checks: []
 corporate_action_check:
   checked: true
   result: none
@@ -64,13 +58,6 @@ corporate_action_check:
 ユーザーは 2026-05-01 screening result を見た後に 9470 を買い付けた。現在の records に買付履歴がなかったため、この memo では現在保有している事実と、trade ledger に載せるための research check を記録する。broker position snapshot では 200 株、982 円の保有が確認されている。
 
 candidate fact は明確。9470 は P/S 0.21、P/S sector gap -90.5%、売上 YoY +6.0%、営業黒字で sales-discount-growth に該当した。公式 FY2026 Q1 IR では、売上 +6.0% YoY、EBITDA +38.9%、営業利益 +85.7% が確認でき、2 つ目の evidence component として使える。一方、Q1 の親会社株主帰属利益は減少しており、margin quality も未確認のため、2026-05-15 FY2026 Q2 決算後に必ず確認する。
-
-## Macro context
-
-- Fit: neutral / proceed。
-- Sector: 情報・通信業。
-- 参照: `records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml`。
-- 学研個別の confidence は low。sector tilt の neutral は AI / cloud spillover が主因だが、学研は教育・医療福祉コンテンツ / サービスの色が強い。
 
 ## Sales / P/S snapshot（売上・P/S）
 

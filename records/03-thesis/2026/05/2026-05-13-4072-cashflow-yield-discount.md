@@ -51,12 +51,6 @@ valuation:
   - ocf_yield
   - fcf_yield
   - p_s
-macro_context_ref: records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml
-macro_context_fit:
-  context_freshness: current
-  fit: neutral
-  decision_effect: proceed
-  required_checks: []
 corporate_action_check:
   checked: true
   result: none
@@ -70,13 +64,6 @@ corporate_action_check:
 4072 電算システムホールディングスは、2026-05-08 screening で `cashflow-yield-discount`、`fcf-yield-discount`、`sales-discount-growth` が同時 hit した。候補時点の TTM OCF yield は 13.2%、FCF yield は 11.2%、P/S は 0.46、PER は 10.77、net cash / market cap は 69.9% で、quality / stability 候補として継続確認に値する。
 
 Q1 公式 IR では、売上高 +10.8%、営業利益 +13.2%、情報サービス営業利益 +52.1%、Google ビジネス売上高 +30.6%、通期営業利益進捗 33.6% が確認できた。したがって `reject` ではなく継続 research とする。一方、Q1 では四半期連結キャッシュ・フロー計算書が作成されておらず、収納代行サービスは仕入単価・金利上昇・新規投資で営業減益である。decision は `deferred / wait_for_event` とし、Q2 の半期 CF と価格改定後の margin を待つ。
-
-## Macro context
-
-- Fit: neutral / proceed。
-- Sector: 情報・通信業。
-- 参照: `records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml`。
-- Macro context は情報・通信業を neutral としている。4072 の Google Workspace / Google Cloud、公共 DX、AI PoC はこの前提と矛盾しない。ただし、今回の採用根拠は AI theme ではなく、cashflow yield、FCF yield、P/S discount、Q1 の事業進捗である。
 
 ## Cashflow snapshot
 
@@ -142,7 +129,7 @@ Q2 で半期営業 CF、FCF、収納代行 margin、価格改定効果が確認�
 - 収納代行サービスの営業減益が価格改定後も続き、仕入単価・金利上昇を価格転嫁できない。
 - Google Workspace / Google Cloud、SI、公共 DX の伸びが鈍化し、情報サービスの営業利益率改善が続かない。
 - 通期営業利益予想 +0.7% の据え置きに対し、Q2 以降の進捗が鈍化する。
-- 情報・通信業の macro context fit が headwind へ悪化する。
+- 顧客需要、価格決定力、または営業CFが悪化する。
 
 ## Position size
 

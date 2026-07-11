@@ -1125,35 +1125,43 @@ class SelectCommandTests(unittest.TestCase):
     def _write_macro_context(self, root: Path, asof: date, sectors: dict[str, str | None]) -> Path:
         path = root / f"{asof:%Y}" / f"{asof:%m}" / f"macro-context-{asof:%Y-%m-%d}-test.yaml"
         path.parent.mkdir(parents=True, exist_ok=True)
-        stance_by_status = {
-            "tailwind": "tailwind",
-            "neutral": "neutral",
-            "headwind": "headwind",
-            None: "neutral",
-        }
-        sectors_payload = [
-            {
-                "id": f"sector-{index}",
-                "scope": "sector_33",
-                "key": sector,
-                "stance": stance_by_status[status],
-                "strength": "medium",
-                "confidence": "medium",
-                "rationale": "test",
-            }
-            for index, (sector, status) in enumerate(sectors.items(), start=1)
-        ]
+        del sectors
         path.write_text(
             yaml.safe_dump(
                 {
+                    "schema_version": 2,
                     "kind": "macro-context",
                     "context_id": f"macro-context-{asof:%Y-%m-%d}-test",
                     "as_of": asof.isoformat(),
                     "valid_until": (asof + timedelta(days=7)).isoformat(),
                     "published_at": f"{asof.isoformat()}T00:00:00+09:00",
                     "summary": "test",
-                    "inputs": {"articles": [], "indicator_series": []},
-                    "sector_tilts": {"items": sectors_payload},
+                    "inputs": {
+                        "articles": [
+                            {
+                                "input_id": "article-test",
+                                "source": "test",
+                                "title": "test",
+                                "url": "https://example.com/macro",
+                                "published_at": f"{asof.isoformat()}T00:00:00+09:00",
+                                "accessed_at": f"{asof.isoformat()}T00:00:00+09:00",
+                                "status": "ok",
+                                "used_for": "test delta",
+                            }
+                        ],
+                        "indicator_series": [],
+                    },
+                    "material_deltas": [
+                        {
+                            "channel": "common_tail",
+                            "direction": "mixed",
+                            "materiality": "low",
+                            "summary": "test delta",
+                            "used_for": "test context",
+                            "source_ids": ["article-test"],
+                        }
+                    ],
+                    "sizing_cautions": [],
                     "research_questions": ["test question"],
                     "refresh_triggers": ["test trigger"],
                     "changes_since_previous": [],
@@ -1313,7 +1321,6 @@ class SelectCommandTests(unittest.TestCase):
             payload = safe_load(buffer.getvalue())
             self.assertNotIn("input_count", payload)
             self.assertEqual(payload["selection"]["counts"]["input"], 3)
-            self.assertEqual(payload["selection"]["counts"]["after_macro_context_check"], 3)
             self.assertEqual(
                 payload["selection"]["macro_context_summary"]["research_questions"],
                 ["test question"],
@@ -1323,8 +1330,8 @@ class SelectCommandTests(unittest.TestCase):
                 ["test trigger"],
             )
             tickers = [c["ticker"] for c in self._recommended(payload)]
-            # macro context は診断 annotation で順位に影響しない (headwind の 1111 も
-            # 落ちない)。helper が付ける er_annual 既定値の降順で並ぶ。
+            # macro context はcontext-level annotationで順位に影響しない。helper が
+            # 付ける er_annual 既定値の降順で並ぶ。
             self.assertEqual(tickers, ["1111", "2222", "3333"])
             self.assertEqual(
                 payload["selection"]["research_selection_playbook_order"],
@@ -2377,7 +2384,168 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 1)
             self.assertIn("macro context as_of is after screening asof", stderr.getvalue())
 
-    def test_select_rejects_stale_macro_context(self) -> None:
+    def test_select_rejects_legacy_macro_context_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/02-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "candidate",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    }
+                ],
+            )
+            context_path = self._write_macro_context(
+                root / "records/01-macro-context", asof, sectors={}
+            )
+            context = safe_load(context_path.read_text(encoding="utf-8"))
+            assert isinstance(context, dict)
+            context["schema_version"] = 1
+            context_path.write_text(
+                yaml.safe_dump(context, allow_unicode=True, sort_keys=False), encoding="utf-8"
+            )
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = select_command(
+                    asof_date=asof,
+                    macro_context_path=context_path,
+                    top=10,
+                    candidates_root=root / "records/02-candidates",
+                    macro_context_root=root / "records/01-macro-context",
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("schema invalid at schema_version", stderr.getvalue())
+
+    def test_select_rejects_macro_context_with_invalid_validity_window(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/02-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "candidate",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    }
+                ],
+            )
+            context_path = self._write_macro_context(
+                root / "records/01-macro-context", asof, sectors={}
+            )
+            context = safe_load(context_path.read_text(encoding="utf-8"))
+            assert isinstance(context, dict)
+            context["valid_until"] = "2026-04-23"
+            context_path.write_text(
+                yaml.safe_dump(context, allow_unicode=True, sort_keys=False), encoding="utf-8"
+            )
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = select_command(
+                    asof_date=asof,
+                    macro_context_path=context_path,
+                    top=10,
+                    candidates_root=root / "records/02-candidates",
+                    macro_context_root=root / "records/01-macro-context",
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("valid_until must not predate as_of", stderr.getvalue())
+
+    def test_select_rejects_macro_context_with_unresolved_delta_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/02-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "candidate",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    }
+                ],
+            )
+            context_path = self._write_macro_context(
+                root / "records/01-macro-context", asof, sectors={}
+            )
+            context = safe_load(context_path.read_text(encoding="utf-8"))
+            assert isinstance(context, dict)
+            deltas = context["material_deltas"]
+            assert isinstance(deltas, list)
+            delta = deltas[0]
+            assert isinstance(delta, dict)
+            delta["source_ids"] = ["missing-source"]
+            context_path.write_text(
+                yaml.safe_dump(context, allow_unicode=True, sort_keys=False), encoding="utf-8"
+            )
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = select_command(
+                    asof_date=asof,
+                    macro_context_path=context_path,
+                    top=10,
+                    candidates_root=root / "records/02-candidates",
+                    macro_context_root=root / "records/01-macro-context",
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("references unknown input IDs", stderr.getvalue())
+
+    def test_select_rejects_malformed_macro_context_yaml(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/02-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "candidate",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    }
+                ],
+            )
+            context_path = root / "invalid.yaml"
+            context_path.write_text("kind: [macro-context\n", encoding="utf-8")
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = select_command(
+                    asof_date=asof,
+                    macro_context_path=context_path,
+                    top=10,
+                    candidates_root=root / "records/02-candidates",
+                    macro_context_root=root / "records/01-macro-context",
+                    stdout=io.StringIO(),
+                )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("failed to load macro context", stderr.getvalue())
+
+    def test_select_allows_stale_macro_context_with_warning(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 5, 20)
@@ -2401,21 +2569,56 @@ class SelectCommandTests(unittest.TestCase):
             )
 
             buffer = io.StringIO()
-            stderr = io.StringIO()
-            with contextlib.redirect_stderr(stderr):
-                exit_code = select_command(
-                    asof_date=asof,
-                    macro_context_path=(
-                        root / "records/01-macro-context/2026/05/macro-context-2026-05-01-test.yaml"
-                    ),
-                    top=10,
-                    candidates_root=root / "records/02-candidates",
-                    macro_context_root=root / "records/01-macro-context",
-                    stdout=buffer,
-                )
+            exit_code = select_command(
+                asof_date=asof,
+                macro_context_path=(
+                    root / "records/01-macro-context/2026/05/macro-context-2026-05-01-test.yaml"
+                ),
+                top=10,
+                candidates_root=root / "records/02-candidates",
+                macro_context_root=root / "records/01-macro-context",
+                stdout=buffer,
+            )
 
-            self.assertEqual(exit_code, 1)
-            self.assertIn("macro context is stale for screening asof", stderr.getvalue())
+            self.assertEqual(exit_code, 0)
+            payload = safe_load(buffer.getvalue())
+            self.assertIn(
+                "macro_context_stale", payload["selection"]["macro_context_summary"]["warnings"]
+            )
+
+    def test_select_allows_missing_macro_context_with_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 5, 20)
+            self._write_candidates(
+                root / "records/02-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "candidate",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
+                    }
+                ],
+            )
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                macro_context_path=None,
+                top=10,
+                candidates_root=root / "records/02-candidates",
+                macro_context_root=root / "records/01-macro-context",
+                stdout=buffer,
+            )
+
+            self.assertEqual(exit_code, 0)
+            payload = safe_load(buffer.getvalue())
+            summary = payload["selection"]["macro_context_summary"]
+            self.assertIsNone(summary["context_id"])
+            self.assertEqual(summary["warnings"], ["macro_context_missing"])
 
     def test_tolerates_unknown_candidate_fields(self) -> None:
         """新しい screen fact を loader が拒否しない(単一 parsing 経路の回帰確認)。"""

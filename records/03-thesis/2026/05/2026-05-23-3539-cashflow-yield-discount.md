@@ -24,7 +24,7 @@ thesis_payoff:
   invalidation_conditions:
   - 2026-06-12 予定の Q3 決算で既存店・粗利・営業 CF の thesis が崩れる。
   - 食品小売の低価格志向が粗利率を継続的に削り、営業増益が維持できない。
-  - 2026-05-04 macro context が stale なままの starter entry で、更新後に内需小売の前提が悪化する。
+  - Q3決算で既存店・粗利・営業CFの悪化が確認される。
   entry_trigger: issue_176_limit_fill
   expected_upside_pct: 13.73
   expected_downside_pct: 5.88
@@ -49,17 +49,6 @@ valuation:
   - ocf_yield
   - fcf_yield
   - sales_growth
-macro_context_ref: records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml
-macro_context_fit:
-  context_freshness: stale
-  fit: not_matched
-  decision_effect: caution
-  required_checks:
-  - 2026-06-12 予定の Q3 決算前に追加買いしない。
-  - 次回 screening / review 前に macro context を更新する。
-  sizing_caution:
-  - stale_macro_context_starter_only
-  - q3_earnings_near
 corporate_action_check:
   checked: true
   result: none
@@ -76,14 +65,7 @@ Swing thesis は、2026-05-08 時点の 20d -14.9%、60d -25.6% の下落に対�
 
 Long-hold fallback は中程度。スーパーマーケット事業が売上の中心で需要は相対的に defensive、net cash と自己資本比率が支えになる。一方で食品小売は人件費、物流費、電気料金、円安・原材料高による価格転嫁と低価格志向の板挟みを受けるため、粗利と既存店が崩れる場合は長期保有へ逃がさない。
 
-AI long-term impact は低い。店舗オペレーション、在庫、需要予測の効率化余地はあるが、今回の採用根拠、sizing 根拠、macro context fit には使わない。
-
-## Macro context
-
-- 判定: stale / not_matched / caution。
-- 参照: `records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml`。
-- 小売業は sector_tilts に明示されていないため `not_matched`。ただし macro context は 2026-05-17 で valid window を過ぎている。
-- stale macro のため、100 株 starter に限定する。追加買いは macro context 更新と 2026-06-12 予定の Q3 決算確認後に再判断する。
+AI long-term impact は低い。店舗オペレーション、在庫、需要予測の効率化余地はあるが、今回の採用根拠とsizing根拠には使わない。
 
 ## Cashflow snapshot
 
@@ -138,7 +120,7 @@ Source:
 
 ## Entry
 
-ユーザー確認により、Issue #176 の注文は 100 株、1,275 円で約定した。100 株の実 notional は 127,500 円で、実資金 5,000,000 円比 2.55%、tactical budget 1,000,000 円比 12.75%。Q3 決算予定が近く、macro context も stale のため、初回 100 株に限定する。
+ユーザー確認により、Issue #176 の注文は 100 株、1,275 円で約定した。100 株の実 notional は 127,500 円で、実資金 5,000,000 円比 2.55%、tactical budget 1,000,000 円比 12.75%。Q3決算予定が近く、初回100株に限定する。
 
 Issue:
 
@@ -156,7 +138,7 @@ Issue:
 - 仕入債務増による Q2 営業 CF 押し上げが反動で剥落する。
 - 低価格志向、人件費、物流費、電気料金、原材料高により粗利率が継続的に低下する。
 - 新規出店・関西展開の投資負担が FCF を継続的に薄める。
-- macro context 更新後に内需小売の前提が悪化し、defensive thesis が崩れる。
+- 既存店売上、粗利率、営業CFの悪化でdefensive thesisが崩れる。
 
 ## Position size
 
@@ -166,4 +148,4 @@ Issue:
 - ADV participation: 1,000,000 / 1.8 億円 * 100 = 0.5556%。
 - 実資金 concentration: 127,500 / 5,000,000 = 2.55%。
 - tactical concentration: 127,500 / 1,000,000 = 12.75%。
-- 制約: Q3 決算前かつ macro context stale のため追加買い禁止。累計 200 株までは Q3 後に再検討し、300 株は Q3 確認後でも別途 thesis update を要求する。
+- 制約: Q3決算前のため追加買いは保留する。累計200株はQ3後に再検討し、300株は別途thesis updateを要求する。

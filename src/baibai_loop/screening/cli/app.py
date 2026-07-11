@@ -116,13 +116,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     select_parser = subparsers.add_parser(
         "select",
-        help="rank research candidates by combining candidates with macro context",
+        help="rank research candidates and optionally summarize macro material deltas",
     )
     select_parser.add_argument("--asof", required=True, help="screening target date (YYYY-MM-DD)")
     select_parser.add_argument(
         "--macro-context",
         help=(
-            "macro context path to apply (default: latest "
+            "optional macro context path to summarize (default: latest "
             "records/01-macro-context/<YYYY>/<MM>/macro-context-*.yaml on or before asof)"
         ),
     )

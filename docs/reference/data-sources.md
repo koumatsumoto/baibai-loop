@@ -19,9 +19,9 @@ Decision lifecycle ([`../architecture.md`](../architecture.md)) における各 
 
 | Artifact | 用途 | 主なソース |
 | --- | --- | --- |
-| `records/01-macro-context/` | screening 前のマクロ判断前提 | Reuters 等の記事 + Tier 1 / Tier 1 準拠統計 + 必要な market data |
+| `records/01-macro-context/` | 必要時の個別調査用material-delta context | Reuters 等の記事 + Tier 1 / Tier 1 準拠統計 + 必要な market data |
 | `records/02-candidates/` | 銘柄ふるい・valuation 指標 | J-Quants（銘柄一覧・日足・財務サマリー・決算予定日・営業日カレンダ）+ EDINET（財務諸表補完）+ JPX（特別注意 / 整理 / 取引停止 / 上場廃止警告の除外判定） |
-| `records/03-thesis/` | 個別銘柄深掘り | J-Quants + EDINET + TDnet（開示文）+ JPX（資本コスト対応開示一覧）+ 必要時 macro context 参照 |
+| `records/03-thesis/` | 個別銘柄深掘り | J-Quants + EDINET + TDnet（開示文）+ JPX（資本コスト対応開示一覧）+ 個別期待値へ影響するときだけmacro context参照 |
 | `records/04-position/` | 執行記録 | 証券会社からの約定情報（手動記録） |
 
 本ファイルの主領域は **Tier 1 / Tier 2 一次統計** と macro context で使う補助ソースのスコアリングである。screening / research で使う J-Quants / EDINET / TDnet の詳細仕様は [`./valuation-metrics.md`](./valuation-metrics.md) を参照。
@@ -169,8 +169,8 @@ Tier 2 の Reuters / AP News / NHK は、Web 取得ツール側の制約で直�
 
 ### 運用
 
-- macro context の `sources` で Tier 1 の URL は `status: failed` (取得不能) として残し、Tier 2 二次集計 URL を別 source id で `status: ok`、`note: "Tier 2 (一次統計の二次集計、Tier 1 一次は本作業環境で未取得)"` で追加する
-- fact item の `source_ids` に **両方を併記** し、`status: ok` の Tier 2 source 経由で値を採用する (validator は `status: ok` の source_id が 1 つ以上必要)
+- macro context の`inputs.articles`で Tier 1 URL は`status: failed`（取得不能）として残し、Tier 2二次集計 URLは別の`input_id`で`status: ok`として追加する。`used_for`にTier 2例外であることを明記する
+- material deltaまたはsizing cautionの`source_ids`には、採用根拠となる`status: ok`のinput_idを含める（failed inputだけを根拠にできない）
 - 数値の前後に「Tier 2 二次集計、Tier 1 で確認できない期間」と注記し、macro context で引用する場合も同等の注記をつける
 - 連続 2 回 (= 2 つの macro context cycle) で Tier 1 が取れない指標は、本ファイルの Tier 1 表に「個別 release URL 解決困難の運用注記」を追加し、暫定状態を可視化する
 - 一次統計の数値が二次集計と乖離している場合 (=単一二次集計のみの値) は本例外を適用せず、analysis layer で「報道ベースの参考値」として質的に扱う

@@ -155,24 +155,25 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] 解釈・因果推論・予測は macro context / research の分析層に移したか
 - [ ] macro context で使った外部記事・統計は source metadata として残し、記事本文や網羅的 fact を repo に蓄積していないか
 
-## 6. AP-06: 依存関係 (macro context → candidates → research) の整合性を skip する
+## 6. AP-06: macro material delta と個別判断の境界を曖昧にする
 
 ### 観測された症状
-- macro context が stale / future / scope mismatch なのに、そのまま screening / research に使った
-- macro context の sector tilt と candidates の業種・exposure を確認せず、headwind を tailwind と同列に扱った
-- research で macro context の caution を読み飛ばし、追加確認や低 sizing の条件を残さなかった
+- future の macro context を判断時点の情報として使った
+- stale / missing macro context を理由に、決定論的なscreeningまたは候補比較を停止した
+- macroのmaterial deltaを銘柄別の事実や機械rankingへ混入した
+- material deltaが個別5年期待値へ影響するのに、decision packetの根拠・反証へ接続しなかった
 
 ### 根本原因
-- macro context は hard gate ではないため「見なくてもよい」と誤解する
-- screening 前提の鮮度、対象 sector、tailwind / headwind を確認しない
-- doctrine.md の柱 (事実層と分析層の物理分離、macro context は判断前提) を運用で守らない
+- macro contextを候補選別用のsector/ranking入力だと誤解する
+- stale warningとfuture errorを区別しない
+- doctrine.md の柱（事実層と分析層の物理分離、macroは判断の補助）を運用で守らない
 
 ### 再発防止チェックリスト
 
-- [ ] screening 前に使う `records/01-macro-context/` が asof より未来ではないか
-- [ ] `valid_until` を過ぎている場合、更新するか stale 前提のまま使う理由を selection / research で確認したか
-- [ ] research の `macro_context_ref` / `candidate_ref.candidates_ref` が valid パスかつ実在するか
-- [ ] `macro_context_fit.fit` と `macro_context_fit.decision_effect` が thesis / sizing / required checks に反映されているか
+- [ ] macro contextを使う場合、`as_of`が判断時点より未来ではないか（futureは停止、staleはwarning）
+- [ ] `inputs`のinput_id、`material_deltas` / `sizing_cautions` のsource_ids、statusを照合したか
+- [ ] macro summaryをcandidateのfact、E[r]順位、機械sizingへ混入していないか
+- [ ] material deltaが個別仮説に影響する場合だけ、decision packetの判断と反証にsource付きで接続したか
 - [ ] **機械化チェック**: macro context 編集後に `uv run baibai-loop-validation` を実行したか
 
 ## 7. AP-07: 公表日 / 期間 / source の最新性確認を skip する
@@ -225,6 +226,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] snapshot sourceのticker不一致、未来as-of/retrieval、未知source ID、不正unit/typeを拒否する
   - [ ] source retrievalとmarket price observationがAI proposal時刻より後なら拒否する
   - [ ] canonical decision filenameの日付・tickerがsnapshot identityと一致する
+  - [ ] AI value captureはsourceを持ち、`not_material`ならrole/decision weightを持たず、`disrupted`ならstructural_decline riskと根拠が接続する
   - [ ] `entry_price_basis: observed_market_price`はsnapshotの判断時priceと一致する
   - [ ] execution policyはstale / historical / synthetic quote、max price超過、cash / dry-powder不足を`defer`にし、全orderがboard lot・合法tick・max priceを守る
   - [ ] local candidate YAML / SQLite pathをtracked decisionの参照先にせず、provider・dataset・retrieved_atをsnapshotへ固定する

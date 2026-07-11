@@ -35,19 +35,6 @@ valuation:
   primary_metric:
   - ocf_yield
   - per_forward
-macro_context_ref: records/01-macro-context/2026/07/macro-context-2026-07-01-post-war-derisk-narrow-ath-value-rotation.yaml
-macro_context_fit:
-  context_freshness: current
-  fit: not_matched
-  decision_effect: proceed
-  required_checks:
-  - サービス業は 7/1 context の sector_tilts に明示 tilt が無い（neutral）。ただし context の中核読み「円高スナップバック
-    に耐える内需・割安・高還元 cohort を買う」に正面から合致する（海外売上 4.7%・円高ほぼ無風・リカーリング CF・還元強化）。
-  - 7/2 の NFP +57K 後、米国は AI 集中銘柄からバリューへのローテーション（Dow ATH・Nasdaq100 -1.8%）が進行しており、
-    本銘柄はローテーションの受け皿側にある。
-  sizing_caution:
-  - order_window_straddles_fomc_0728_boj_0730_within_expiry
-  - q1_fy2027_earnings_early_august_after_expiry
 thesis_payoff:
   max_entry_price_yen: 1050
   fair_value_yen: 1300
@@ -73,19 +60,17 @@ entry_preflight:
   evaluated_on: '2026-07-03'
   market_relative_return_pct: -5.01
   sector_or_peer_relative_return_pct: 0.0
-  macro_freshness: current
   exposure_after_order:
     sector_33_pct: 5.2
     playbook_pct: 8.5
-  near_term_catalyst: false
   action: proceed
   reason: 'ユーザー決定により 2026-07-03 に 100 株を指値 1,050 円・期限 2026-07-31 で発注（未約定・約定待ち）。20d は
     -2.05% vs benchmark 1321 +2.96% = market relative -5.01pt（sell-the-news の劣後を定量確認。sector 指数は
     Tier1 取得不可のため not_checked=0.0）。exposure after order は実資金 1,000 万円基準で ticker 1.05%（cap 6%）・
     サービス業 5.20%（cap 40%）・cashflow-yield-discount 8.50%（cap 35%）で全て上限内。ADV 参加率 0.0077%。
     直近の binary event（7/2 NFP +57K）は通過済みで、米国はバリューローテーション（thesis 追い風）。注文期限 7/31 は
-    FOMC 7/28-29・BOJ 7/30-31 を跨ぐため、円 158 割れ（context の撤回トリガー）発生時は約定前でも注文を撤回して
-    macro 更新後に再判断する。near_term_catalyst は Q1 決算が 8 月上旬（期限後）のため false。'
+    FOMC 7/28-29・BOJ 7/30-31 を跨ぐため、重大な企業固有の仮説毀損が判明した場合は約定前でも注文を見直す。Q1 決算は
+    8 月上旬（期限後）のため、今回の発注条件には含めない。'
 corporate_action_check:
   checked: true
   result: none
@@ -105,14 +90,6 @@ corporate_action_check:
 - **成長の源泉**: 業務別 5 年トレンドで FM/防災 +36%（682→930 億）・介護 +33%・海外が牽引し、警備コアは価格改定（+7.0% 浸透）で防衛。人手不足を「売る側」（警備ロボ REBORG・AI カメラ・省人化）かつ「コスト削減側」（BPR）の両輪。NDC 買収（TOB 3,730 円・プレミアム 19.9%・P/E 16.4 倍）は成長セグメント防災への純増。
 - **中計 STAGE 2028（一次 PDF 確認）**: FY2029 営業 650–720 億・経常率 ~10%・ROE ~10%・性向 40–50%・成長投資 900–1,000 億。**前中計 GD2025 は未達（経常 65 億目標 vs 実績 49.9 億）** — 中計は割引いて読む。割引後（FY2029 営業 ~600 億・EPS ~85 円）でも現値はその ~12.4 倍。
 - **payoff**: FV 1,300 円（1,250–1,350）= EPS 76.75 × 16–18 倍 ≒ DDM（DPS 33 円・g4.5%・r7% → ~1,320 円）。expected_yield 14.4%/年 = FV 2 年収束の値上がり 11.3% + 配当 3.14%。保守下値 950 円（52 週安値 1,003 円のさらに −5.3% 下）で RR 2.5。
-
-## 2. Macro context
-
-- **macro_context_ref**: `records/01-macro-context/2026/07/macro-context-2026-07-01-post-war-derisk-narrow-ath-value-rotation.yaml`
-- **context_freshness**: current（as_of 2026-07-01 / valid_until 2026-07-08、発注 2026-07-03 は window 内）
-- **fit**: not_matched（サービス業は sector_tilts に明示 tilt なし）。ただし context の中核読み「円高スナップバックに耐える内需・割安・高還元 cohort を買う」に正面から合致（海外売上 4.7%・円高ほぼ無風・リカーリング CF・還元強化）。
-- **decision_effect**: proceed。7/2 NFP +57K 通過後の米国はバリューローテーション（Dow ATH・Nasdaq100 −1.8%）で、本銘柄群は受け皿側。
-- **sizing_caution**: 注文期限 7/31 は FOMC 7/28-29・BOJ 7/30-31 を跨ぐ（円 158 割れで撤回ルール）。Q1 決算は 8 月上旬で期限後。
 
 ## Cashflow snapshot
 

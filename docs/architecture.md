@@ -24,12 +24,12 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 
 ## 単一ループと repository のマッピング
 
-3 層の上を、[`doctrine.md`](./doctrine.md) §2 の単一ループ（運用方針 → マクロ分析 → 割安 screening → リサーチ候補選定 → 個別調査 → 買い → 長期保有 → thesis health と税引後代替による保有見直し → 見積り calibration）が流れる。各 stage の repository 上の実体：
+3 層の上を、[`doctrine.md`](./doctrine.md) §2 の単一ループ（運用方針 → 割安 screening → リサーチ候補選定 → 個別調査 → 買い → 長期保有 → thesis health と税引後代替による保有見直し → 見積り calibration）が流れる。macro analysisは必要時に個別調査へmaterial-delta contextを渡す独立した補助工程である。各 stage の repository 上の実体：
 
 | 日本語概念名 | slug | repository location | レイヤー | 役割 |
 | --- | --- | --- | --- | --- |
 | 運用方針 | portfolio management | [`docs/portfolio-management.md`](./portfolio-management.md) | governance | 資本・許容リスク・ポジション管理・kill switch |
-| マクロ環境分析 | macro context | `records/01-macro-context/` | analysis | 姿勢・セクター・AI 前提の環境読み |
+| マクロ環境分析 | macro context | `records/01-macro-context/` | analysis | material deltaと共通riskの補助context |
 | 通過銘柄リスト | candidates | `records/02-candidates/`（git 外の local store） | machine analysis | observed / derived / estimateを分離したscreen出力 |
 | 投資判断 | decision packet / thesis | `records/03-thesis/` | judgment | 4 namespace・5年scenario・永久損失・反証。active移行まではthesis Markdownも有効 |
 | 売買提案 | trade proposal | GitHub Issue（records 外） | 判断の入口 | 銘柄 / 価格 / 株数を人間に上げる |
@@ -85,7 +85,7 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 
 | path | レイヤー | 責務 |
 | --- | --- | --- |
-| `records/01-macro-context/` | analysis | screening 前に読む macro context YAML |
+| `records/01-macro-context/` | analysis | 必要時に読むmaterial-delta macro context YAML |
 | `records/02-candidates/` | fact | candidates YAML（git 追跡しない local store） |
 | `records/03-thesis/` | analysis | investment memo Markdown。同一銘柄を再審査した場合は最新 record が正で、置き換えられた旧版は `records/_archive/` へ移す |
 | `records/04-position/` | execution | portfolio ledger contract（active record移行後にcanonical化）+ trade record Markdown |
@@ -119,7 +119,7 @@ Automation は人間の投資判断を置き換えず、fact snapshot 生成・s
 | `baibai-loop-screening extract-edinet-metrics --asof` | `screening/` | EDINET CSV から TTM metrics を抽出し SQLite へ保存 |
 | `baibai-loop-screening verify-cache-coverage --asof` | `screening/` | SQLite が screening run の必須入力を満たすか read-only 検証 |
 | `baibai-loop-screening run --asof` | `screening/` | 完全性検証済み SQLite から candidates YAML を生成 |
-| `baibai-loop-screening select --asof --macro-context` | `screening/` | candidates と macro context を突合し research 候補を triage |
+| `baibai-loop-screening select --asof --macro-context` | `screening/` | E[r]順でresearch候補をtriageし、macro contextを任意のwarningとして併記 |
 | `baibai-loop-screening ticker-profile --ticker` | `screening/` | 個別銘柄の事実 packet（全上場対応） |
 | `baibai-loop-screening market-snapshot` | `screening/` | regime 履歴・sector 集計（macro context の機械入力） |
 | `baibai-loop-screening calibration-build --start --end` | `screening/` | 見積り較正の point-in-time 月次 panel + forward return を local store へ構築（cache のみ） |

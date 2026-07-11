@@ -11,8 +11,6 @@
     "playbook_ref",
     "thesis_decision",
     "candidate_ref",
-    "macro_context_ref",
-    "macro_context_fit",
     "position_sizing_overlay",
     "thesis_payoff",
     "corporate_action_check"
@@ -55,19 +53,6 @@
             }
           }
         }
-      }
-    },
-    "macro_context_ref": {"type": "string", "pattern": "^records/01-macro-context/[^\\n]*\\.ya?ml$"},
-    "macro_context_fit": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["context_freshness", "fit", "decision_effect"],
-      "properties": {
-        "context_freshness": {"enum": ["current", "stale", "future"]},
-        "fit": {"enum": ["tailwind", "neutral", "mixed", "headwind", "not_matched"]},
-        "decision_effect": {"enum": ["proceed", "caution", "defer"]},
-        "required_checks": {"type": "array"},
-        "sizing_caution": {"type": "array"}
       }
     },
     "corporate_action_check": {
@@ -142,9 +127,7 @@
         "evaluated_on",
         "market_relative_return_pct",
         "sector_or_peer_relative_return_pct",
-        "macro_freshness",
         "exposure_after_order",
-        "near_term_catalyst",
         "action",
         "reason"
       ],
@@ -152,7 +135,6 @@
         "evaluated_on": {"type": "string", "format": "date"},
         "market_relative_return_pct": {"type": "number"},
         "sector_or_peer_relative_return_pct": {"type": ["number", "null"]},
-        "macro_freshness": {"enum": ["current", "stale", "future"]},
         "exposure_after_order": {
           "type": "object",
           "additionalProperties": false,
@@ -162,7 +144,6 @@
             "playbook_pct": {"type": "number"}
           }
         },
-        "near_term_catalyst": {"type": "boolean"},
         "action": {"enum": ["proceed", "starter", "defer"]},
         "reason": {"type": "string", "minLength": 1}
       }

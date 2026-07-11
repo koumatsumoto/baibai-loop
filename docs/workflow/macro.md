@@ -1,6 +1,6 @@
 ---
 title: "Workflow — macro analysis"
-summary: "マクロ環境分析：指標データを引き、リスク姿勢（ディフェンシブ / リスクオン）とセクター・AI 前提を読んだ環境認識を macro-context record に残す。単一ループの入口。"
+summary: "マクロ環境分析：指標と一次情報から、個別5年期待値を変えるmaterial deltaと共通riskを必要時だけmacro-context recordに残す。"
 doc_type: workflow
 status: active
 last_reviewed: 2026-07-11
@@ -8,7 +8,7 @@ last_reviewed: 2026-07-11
 
 # Workflow — マクロ環境分析
 
-単一ループ（[`../doctrine.md`](../doctrine.md) §2）の入口。マクロ環境分析は **独立した機能のまとまり**（データ取得層 + リサーチの実践）であり、形式化した独自ループにはしない。狙いは、環境を読んで「**どのリスク姿勢で、どのセクターに向かうか**」を判断層へ供給すること。改善（調査方法・データソース確認手順の知見）は、使いながらその都度蓄積する。
+マクロ環境分析は **独立した機能のまとまり**（データ取得層 + リサーチの実践）であり、形式化した独自ループにはしない。狙いは、個別銘柄の5年期待値を変え得る外部経路と共通riskを判断層へ供給すること。sector順位、相場方向、買い時、投入額を決めない。
 
 扱うものは性質の異なる 3 種：**① データ（事実）／ ② 環境認識（macro-context record）／ ③ 知見（調べ方のメタ知識）**。マクロは標本数がほぼ 1 の判断であり、優位性の数値・統計的有意性・自動の投入額倍率は出さない（§誠実性）。
 
@@ -55,16 +55,17 @@ uv run baibai-loop-macro refresh us.10y --start 2026-06-20 --end 2026-07-02   # 
 主な field：
 
 - `context_id` / `as_of` / `valid_until` / `published_at`
-- `inputs.articles`：外部記事の source / title / url / used_for（記事本文や監査ログは保存しない）
-- `inputs.indicator_series`：`baibai-loop-macro` で確認した series と window
-- `sector_tilts.items`：`sector_33` exact match で使う姿勢 tilt（`key` / `stance` / `strength` / `confidence`）
+- `inputs.articles`：外部記事の一意な`input_id`、source / title / url / published_at / accessed_at / status / used_for（記事本文や監査ログは保存しない）
+- `inputs.indicator_series`：一意な`input_id`、`baibai-loop-macro`で確認したprovider / series / window / observation_as_of / status / used_for
+- `material_deltas`：discount rate、demand、funding、common tailのどれが変わったか、方向・重要度・使い道・根拠input
+- `sizing_cautions`：個別の投入額を決めないが、proposalで可視化する共通risk
 - `research_questions` / `refresh_triggers` / `changes_since_previous`
 
 **record は分析レイヤーであり、手順（作業の指示）を書かない**。「次回からこう調べる」といった手順の話は本 doc（workflow）に置く。record には、screening / research の前提として使う環境認識と出所のメタデータだけを残す。
 
-**分析の独立性**：環境認識の前提にしてよいのは過去の客観的事実（価格・指標・イベント）だけで、過去の macro-context record にある分析・結論（前回の sector tilt や相場観）は前提にしない。保有中の建玉も分析に持ち込まない。一次情報と指標から、解釈を毎回ゼロベースで組み立てる。過去の context との連続性は、結論を確定させた後に `changes_since_previous` として事後的に接続する。
+**分析の独立性**：環境認識の前提にしてよいのは過去の客観的事実（価格・指標・イベント）だけで、過去のmacro-context recordにある分析・結論は前提にしない。保有中の建玉も分析に持ち込まない。一次情報と指標から、解釈を毎回ゼロベースで組み立てる。過去のcontextとの連続性は、結論を確定させた後に`changes_since_previous`として事後的に接続する。
 
-**更新のきっかけ**：macro-context は定期的には生成せず、**screening の前**（select は鮮度のある context を前提条件にする）・**主要イベントの後**（FOMC / 日銀会合 / ECB / 米 CPI・PCE・雇用統計 / 地政学ショック）・**前回書いた `refresh_triggers` の発火**、のいずれかで必要になったときに更新する（`valid_until = as_of + 7 日` とするため、実質は週次）。triggerの選択と全体導線は[`../operations/decision-cycle.md`](../operations/decision-cycle.md)を正本とする。
+**更新のきっかけ**：macro-contextは定期的には生成せず、discount rate・需要・資金調達・共通tail riskにmaterial changeがあったとき、または前回の`refresh_triggers`が発火したときだけ更新する。unchanged専用recordは作らない。`valid_until`はwarningの材料であり、screeningの前提条件ではない。triggerの選択と全体導線は[`../operations/decision-cycle.md`](../operations/decision-cycle.md)を正本とする。
 
 ## ③ ナレッジ：8 分析レンズ
 
@@ -79,20 +80,16 @@ uv run baibai-loop-macro refresh us.10y --start 2026-06-20 --end 2026-07-02   # 
 7. **グローバル中銀の同期**：`us.fed_funds.upper` + `jp.policy_rate` + `ecb.policy_rate`。1 国でなく同期を読む。
 8. **エネルギー・地政学**：`wti`/`brent` + `gold`。日本はエネルギー輸入依存が高く（中東 ~95%・ホルムズ ~74%）原油 spike が通貨・スタグフレーションに直結するため `usd_jpy` と併読。
 
-## 姿勢とセクター、AI 中心
+## Material deltaとAIの境界
 
-環境認識は **リスク姿勢とセクター配分** という結論に落とす（[`../doctrine.md`](../doctrine.md) 柱 2）。
-
-- **リスクを取るべきでない局面**（高値圏・ERP≤0・信用二極化・流動性逆風・地政学テール）：**ディフェンシブ** へ寄せ、余力を厚く保つ（[`../portfolio-management.md`](../portfolio-management.md)）。
-- **リスクを取るべき局面**（過度な悲観・割安拡大・流動性追い風）：**追い風セクター** へ配分し、暴落では余力を投下する。
-- **AI は中心に据えるセクター**。AI による産業革命を前提に、長期の産業成長とマクロ観を組み立てる。ただし AI への期待は、それ単独では採用理由にも投入額の根拠にもしない。
+macro contextはdiscount rate、需要、資金調達、共通tail risk、sizing cautionだけを表す。AIの役割と株主価値の獲得可能性はmacro contextに置かず、企業別decision packetで評価する。
 
 ## 接続：判断層にだけ効かせる（screen は macro-blind）
 
 マクロの読みは機械スクリーニングの `run` には接続しない（`run` は財務事実だけを扱う決定論的なエンジンのまま）。効かせるのは判断層だけ：
 
-- **select**（[`./screening.md`](./screening.md)）：`sector_tilts` が候補セクターの追い風 / 向かい風の参考情報として効く。回避としたセクターの割安株も一覧には現れ、注意情報が付くだけで機械的には落とさない。
-- **portfolio management / research**：姿勢・テーマ・警戒事項を、資金を投じるタイミングや投入額の判断、個別 thesis の背景情報に使う。マクロを数値ドライバーにはしない。
+- **select**（[`./screening.md`](./screening.md)）：material deltaとwarningをcontext-level summaryとして出す。E[r]順位とcandidateの事実層は変えない。
+- **research**：material deltaが個別5年期待値へ影響する場合だけ、decision packetのjudgmentへその因果と根拠を残す。マクロを数値ドライバー、採用gate、投入額ルールにはしない。
 
 ## 誠実性（honesty firewall）
 
@@ -100,7 +97,6 @@ uv run baibai-loop-macro refresh us.10y --start 2026-06-20 --end 2026-07-02   # 
 
 ## 参考
 
-- [`../doctrine.md`](../doctrine.md)：思想・柱 2（macro が姿勢を決める）
-- [`../portfolio-management.md`](../portfolio-management.md)：資金投下のタイミング・余力
-- [`./screening.md`](./screening.md)：sector_tilts を使う select
+- [`../doctrine.md`](../doctrine.md)：思想・柱 2（macroとAIの責務境界）
+- [`./screening.md`](./screening.md)：material deltaをwarningとして出すselect
 - [`../reference/data-sources.md`](../reference/data-sources.md)：データソース Tier
