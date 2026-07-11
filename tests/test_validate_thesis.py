@@ -244,7 +244,7 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertNotIn("thesis.entry-preflight-proceed-trigger", codes)
 
-    def test_entry_preflight_exposure_cap_blocks_proceed_on_new_records(self) -> None:
+    def test_entry_preflight_exposure_cap_blocks_proceed_until_ledger_migration(self) -> None:
         front = _long_hold_front_matter()
         front["entry_preflight"] = _entry_preflight(
             evaluated_on="2026-07-02",
@@ -543,8 +543,7 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("thesis.adv-participation-pct", codes)
 
-    def test_order_notional_above_ticker_cap_is_flagged(self) -> None:
-        # ticker cap = real_capital_yen 10M x 6% = 600,000
+    def test_order_notional_above_ticker_cap_is_flagged_until_ledger_migration(self) -> None:
         front = _minimal_research_front_matter()
         sizing = front["position_sizing_overlay"]
         assert isinstance(sizing, dict)

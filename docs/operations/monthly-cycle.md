@@ -23,7 +23,9 @@ ls records/04-position/*/*/*.md                      # 現保有・約定待ち
 uv run baibai-loop-position benchmark                # 保有の対 benchmark 相対リターン
 ```
 
-- `real_capital_yen` を月次積立（[`../portfolio-management.md`](../portfolio-management.md): 月 +40 万、投下は 20–30 万 + 暴落余力）に応じて更新する。
+canonical ledgerはactive position recordと同時に移行してから使用する。`records/04-position/portfolio-ledger.yaml`が未初期化の間は推測で作成せず、既存position recordとconcentration gateを使う。
+
+- canonical ledger稼働時は月40万円の入金を`contribution` eventとして記録し、available / reserved cashを再計算する。購入額は固定せず、割安候補がなければavailable cashへ残す。
 - 約定待ち注文（`execution_state: submitted`）の期限・撤回条件を確認する。期限切れは `expired` に更新し、今月の選定で再評価する。
 
 ## 1. マクロ環境認識（skill: `macro-analysis`）
@@ -80,7 +82,7 @@ uv run baibai-loop-screening select --asof "$ASOF" --top 20 \
 ## 5. 取引提案（GitHub Issue）
 
 - 採用銘柄を「**どの銘柄を・いくらで・何株**」の売買提案 issue に落とす（提案が records ディレクトリを持たない設計。承認結果は position record に落ちる）。
-- 必須: thesis への参照、指値と数量（単元丸め）、cap 確認（単一銘柄 4–6% / sector 30–40% / playbook 35% / ADV 5%、分母 `real_capital_yen`）、注文期限、撤回条件（期限内の大型イベント・macro refresh trigger）、**TradingView リンク**（skill `tradingview-open`）。
+- 必須: thesisへの参照、指値と数量（単元丸め）、ledgerのavailable cash・current + reserved exposure warning、注文期限、撤回条件（期限内の大型イベント・macro refresh trigger）、**TradingView リンク**（skill `tradingview-open`）。
 - 人間が判断・発注する。
 
 ## 6. 発注記録と約定監視
@@ -112,7 +114,7 @@ uv run baibai-loop-screening calibration-evaluate --out .cache/calibration-eval-
 
 ## 月次チェックリスト
 
-- [ ] `real_capital_yen` 更新・約定待ち注文の棚卸し
+- [ ] canonical ledger稼働時: 月次`contribution`記録・約定待ちreservation / releaseの棚卸し
 - [ ] macro-context 更新（refresh → 8 レンズ → validation）
 - [ ] screening pipeline（bootstrap → extract → verify → run → select）
 - [ ] 上位候補の research（一次 IR・FV/RR/耐性・pro review）

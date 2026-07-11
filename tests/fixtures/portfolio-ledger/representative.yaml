@@ -1,0 +1,96 @@
+schema_version: 1
+portfolio_scope: repository_only
+as_of: "2026-07-11T15:30:00+09:00"
+estimated_exit_tax_rate_bps: null
+estimated_exit_tax_basis: null
+events:
+  - event_id: opening-20260501
+    type: opening_balance
+    occurred_at: "2026-05-01T08:00:00+09:00"
+    amount_yen: 10000000
+  - event_id: contribution-202606
+    type: contribution
+    occurred_at: "2026-06-01T08:00:00+09:00"
+    amount_yen: 400000
+  - event_id: reserve-2331-first
+    type: reservation
+    occurred_at: "2026-06-02T09:00:00+09:00"
+    reservation_id: reservation-2331-first
+    order_id: order-2331-first
+    ticker: "2331"
+    sector: サービス業
+    common_factors: [labor-automation]
+    quantity: 200
+    price_guard_yen: 1050
+    expires_at: "2026-06-05T15:30:00+09:00"
+  - event_id: fill-2331-partial
+    type: execution
+    occurred_at: "2026-06-03T10:00:00+09:00"
+    execution_id: execution-2331-first-1
+    reservation_id: reservation-2331-first
+    ticker: "2331"
+    side: buy
+    quantity: 100
+    price_yen: 1040
+  - event_id: release-2331-expired
+    type: release
+    occurred_at: "2026-06-05T15:30:00+09:00"
+    reservation_id: reservation-2331-first
+    reason: expired
+  - event_id: reserve-2331-add
+    type: reservation
+    occurred_at: "2026-07-01T09:00:00+09:00"
+    reservation_id: reservation-2331-add
+    order_id: order-2331-add
+    ticker: "2331"
+    sector: サービス業
+    common_factors: [labor-automation]
+    quantity: 100
+    price_guard_yen: 1000
+    expires_at: "2026-07-05T15:30:00+09:00"
+  - event_id: fill-2331-add
+    type: execution
+    occurred_at: "2026-07-01T10:00:00+09:00"
+    execution_id: execution-2331-add-1
+    reservation_id: reservation-2331-add
+    ticker: "2331"
+    side: buy
+    quantity: 100
+    price_yen: 990
+  - event_id: dividend-2331
+    type: income
+    occurred_at: "2026-07-02T09:00:00+09:00"
+    ticker: "2331"
+    income_kind: dividend
+    amount_yen: 3300
+  - event_id: commission-2331
+    type: cost
+    occurred_at: "2026-07-02T09:01:00+09:00"
+    ticker: "2331"
+    cost_kind: commission
+    amount_yen: 500
+  - event_id: confirmed-tax-2331
+    type: tax_confirmed
+    occurred_at: "2026-07-02T09:02:00+09:00"
+    ticker: "2331"
+    tax_kind: dividend
+    amount_yen: 300
+  - event_id: reserve-8929-pending
+    type: reservation
+    occurred_at: "2026-07-03T09:00:00+09:00"
+    reservation_id: reservation-8929-pending
+    order_id: order-8929-pending
+    ticker: "8929"
+    sector: 不動産業
+    common_factors: [domestic-demand]
+    quantity: 100
+    price_guard_yen: 1190
+    expires_at: "2026-07-31T15:30:00+09:00"
+market_prices:
+  - ticker: "2331"
+    price_yen: 1100
+    observed_at: "2026-07-11T15:00:00+09:00"
+    source_kind: test_fixture
+    price_basis: close
+    source_ref: offline-fixture:2331
+overrides: []

@@ -338,7 +338,7 @@ def test_no_margin_trading_constraint_rejects_margin_usage(tmp_path: Path) -> No
     assert "position.no-margin-trading" in codes
 
 
-def test_open_trades_must_stay_within_portfolio_concentration_caps(tmp_path: Path) -> None:
+def test_open_trades_keep_concentration_gate_until_ledger_migration(tmp_path: Path) -> None:
     front = _trade_front(current_quantity=5000)
     front["position_sizing_overlay"] = {
         "estimated_real_order_notional_yen": 5250000,

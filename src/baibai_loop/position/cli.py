@@ -29,6 +29,12 @@ from baibai_loop.position.benchmark import (
     compute_forward_performance,
 )
 from baibai_loop.position.calibration import build_calibration_telemetry, telemetry_to_payload
+from baibai_loop.position.ledger import (
+    PortfolioLedgerError,
+    load_portfolio_ledger,
+    reconcile_portfolio,
+    snapshot_to_payload,
+)
 from baibai_loop.position.trades import load_open_trades
 
 
@@ -76,11 +82,26 @@ def build_parser() -> argparse.ArgumentParser:
         default=NIKKEI225_ETF_PROXY,
         help=f"benchmark ETF proxy ticker (default: {NIKKEI225_ETF_PROXY})",
     )
+    ledger_parser = subparsers.add_parser(
+        "ledger",
+        description="Reconcile the repository-only portfolio ledger and emit a YAML snapshot.",
+        help="reconcile available cash, reservations, holdings, income, costs, and warnings",
+    )
+    ledger_parser.add_argument("--root", type=Path, default=Path.cwd())
+    ledger_parser.add_argument(
+        "--ledger",
+        type=Path,
+        default=Path("records/04-position/portfolio-ledger.yaml"),
+        help="ledger YAML path, relative to --root unless absolute",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "ledger":
+        ledger_path = args.ledger if args.ledger.is_absolute() else args.root / args.ledger
+        return _run_ledger(ledger_path)
     load_project_env(args.root)
     if args.command == "benchmark":
         excluded = tuple(tag.strip() for tag in args.exclude_cohort_tags.split(",") if tag.strip())
@@ -176,6 +197,22 @@ def _run_calibration(root: Path, asof: date, proxy: str, env: Mapping[str, str])
     )
     for warning in telemetry.warnings:
         print(f"warning: {warning}", file=sys.stderr)
+    return 0
+
+
+def _run_ledger(path: Path) -> int:
+    try:
+        snapshot = reconcile_portfolio(load_portfolio_ledger(path))
+    except PortfolioLedgerError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    yaml.safe_dump(
+        snapshot_to_payload(snapshot),
+        sys.stdout,
+        sort_keys=False,
+        allow_unicode=True,
+        default_flow_style=False,
+    )
     return 0
 
 

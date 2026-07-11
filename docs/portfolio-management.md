@@ -3,7 +3,7 @@ title: "Portfolio management"
 summary: "資本・許容リスク・ポジション管理・積立と余力・concentration cap・kill switch の正本。macro / screening の上流にある自己運用の governance。"
 doc_type: governance
 status: active
-last_reviewed: 2026-07-02
+last_reviewed: 2026-07-11
 ---
 
 # Portfolio management — 資本とポジションの運用方針
@@ -20,17 +20,19 @@ Baibai-Loop は投資助言サービスではない。これは自分の裁量�
 
 ## 資本モデル
 
-- **単一プール**：投資に回せる実資金の全体を 1 つの `real_capital_yen` として扱う（二層構造や仮想資本は用いない）。集中度上限の分母はこの `real_capital_yen`（積立に応じて手動で月次更新する簿価）に統一する。
-- **初期資産**：既存の建玉を含めて ¥10,000,000。
-- **月次積立**：毎月 **+¥40 万**が予算に加わる。うち **実際に投資へ回すのは月 ¥20–30 万**を基本とし、差額（月 ¥10–20 万）は **暴落時に押し目を買うための余力**として残す。`real_capital_yen` は積立に応じて月次で更新し、% 建ての上限額を自動的に増やしていく。
-- **資金を投じるタイミングはマクロが決める**（[`workflow/macro.md`](./workflow/macro.md)）。高値圏やリスクオフの局面では余力を厚く保ち、暴落や過度な悲観の局面で余力を投下する。平時は月次の割安候補へ淡々と積み立てる。
-- **余力と保有数の充足**：余力（dry powder）の主目的は暴落時の押し目買いだが、暴落が来ない局面でも、割安な候補があれば平時の月次積立（¥20–30 万）で 15–25 銘柄へ段階的に埋めていく。暴落待ちが長期化しても現金がポートフォリオを支配し続けないよう、余力を際限なく積み上げず平時の投下は継続する。
+以下のevent replayはcanonical ledger稼働後の資本モデルである。未初期化期間の検証境界は「Policy field との境界」に従う。
+
+- **repo 内単一 ledger**：対象はこの repository で管理する日本株portfolioだけとし、repo外の保有、海外株、index商品は合算しない。資本額をpolicyや各positionへ手入力しない。
+- **event replay**：`opening_balance / contribution / reservation / release / execution / income / cost / tax_confirmed` を時系列に再生し、available cash、未約定引当、取得原価、保有時価、確認済み収益・費用・税を1円単位で再計算する。契約と式は [`reference/portfolio-ledger.md`](./reference/portfolio-ledger.md) を正本とする。
+- **月次積立**：毎月 **+¥40万**を `contribution` として記録する。割安候補がなければ投資を強制せず、未使用分はavailable cashとして累積する。好機では通常配分を超えられるが、実在するcashを超えるreservationはhard errorにする。
+- **待機資金**：dry powderは恒常的に残す判断目安であり、固定配分のhard gateではない。policyのwarning lineを下回る提案は理由と期限を持つhuman overrideを要求する。
+- **将来税**：配当・売却で実際に確認した税だけを`tax_confirmed`へ記録する。将来売却税は任意の実効税率estimateとして別表示し、率が未入力なら`unknown`とする。
 
 ## ポジション管理
 
 - **銘柄数**：**15–25 銘柄**を目安にする。深い個別調査が回る規模と、個別銘柄のリスクを薄める分散を両立させる。
-- **集中度上限（concentration cap）**：単一銘柄 **4–6%**、単一 `sector_33` **30–40%**、同一 playbook **35%**、ADV（平均売買代金）参加率 **5%**。**cap は entry 時の投入額に対する制約**であり、`real_capital_yen`（簿価）に対する % で評価する。購入後の値上がりで保有時価が cap を超えても売って縮めることはしない（部分売却をしないため。cap は保有中ずっと守らせる不変条件ではない）。具体的な閾値は code 管理の policy（`src/baibai_loop/position/policy.py`）を正本とし、本 doc は方針を説明する。
-- **投入額（sizing）**：候補のリスクリワード → マクロ姿勢 → 塩漬け耐性 → 流動性 → policy cap の順に検討して決め、単元株数と指値の上限価格で丸める。cap を超える分は単元単位で減額する。
+- **集中度warning**：単一銘柄 **6%**、単一sector **40%**、共通要因 **35%**をwarning lineとする。分子は保有時価と未約定reservationを合算し、分母はledgerが再計算した`total_capital_yen`を使う。超過は情報を隠さず表示し、最大31日の理由付きhuman overrideを許す。
+- **投入額（sizing）**：期待総合リターン、恒久損失リスク、流動性、既存+予約済みexposure、available cashを比較し、単元株数と上限価格で丸める。現金不足だけは提案を成立させない。
 
 ## 割安 / 割高と売買規律
 
@@ -62,11 +64,11 @@ AI を中心セクターに据える思想は [`doctrine.md`](./doctrine.md) 柱
 
 - **日本の上場普通株のみ**（ETF / 投資信託 / 海外株は扱わない）。買い建てのみ・現物のみ（信用取引・レバレッジは使わない）。
 - 流動性の絞り込み（時価総額・平均売買代金・上場期間・JPX 規制）は分析層のパラメータとして selection 時に適用する（[`workflow/screening.md`](./workflow/screening.md)）。
-- **口座や税制（NISA / 特定口座）はモデル化しない**。売買判断は純粋に valuation で行う。
+- **口座種別（NISA / 特定口座）はモデル化しない**。確認済み税額と、売却比較に必要な任意の実効税率estimateだけを扱う。
 
 ## Policy field との境界
 
-capital・リスク・流動性・集中度の **具体的な閾値は code 管理の policy config（`src/baibai_loop/position/policy.py`）を正本**とし、validator が検査する。本 doc は判断の方針と背景を説明する。1 注文の大きさは月次予算と % 建ての cap で自然に律速されるため、絶対額の上限は置かない。塩漬け耐性は `durability_gate` field の **記入を schema で必須**にするが、耐性の **合否判定は人間**が行う（機械的な足切りにはしない）。AI の長期影響は戦略上の注意を向ける原則であり、research / macro の手順と自己レビューで担保する。
+cash・保有・未約定引当の目標正本はportfolio ledger、warning lineと単元制約の正本は`src/baibai_loop/position/policy.py`とする。canonical ledgerへのactive record移行が完了するまでは既存position gateも有効に保ち、切替変更で旧`capital_basis`を削除する。切替後は各positionの`capital_basis`や手計算した集中度を資本の正本にしない。validatorはledgerのreconciliation errorをhard error、concentration・dry powder超過をwarningとして報告する。
 
 ## 参考
 

@@ -1,0 +1,686 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "portfolio-ledger",
+  "$defs": {
+    "ConfirmedTaxEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "minLength": 1,
+          "title": "Event Id",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "type": {
+          "const": "tax_confirmed",
+          "title": "Type",
+          "type": "string"
+        },
+        "ticker": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9A-Z]{4}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ticker"
+        },
+        "tax_kind": {
+          "enum": [
+            "dividend",
+            "capital_gain",
+            "other"
+          ],
+          "title": "Tax Kind",
+          "type": "string"
+        },
+        "amount_yen": {
+          "exclusiveMinimum": 0,
+          "title": "Amount Yen",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "type",
+        "tax_kind",
+        "amount_yen"
+      ],
+      "title": "ConfirmedTaxEvent",
+      "type": "object"
+    },
+    "ContributionEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "minLength": 1,
+          "title": "Event Id",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "type": {
+          "const": "contribution",
+          "title": "Type",
+          "type": "string"
+        },
+        "amount_yen": {
+          "exclusiveMinimum": 0,
+          "title": "Amount Yen",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "type",
+        "amount_yen"
+      ],
+      "title": "ContributionEvent",
+      "type": "object"
+    },
+    "CostEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "minLength": 1,
+          "title": "Event Id",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "type": {
+          "const": "cost",
+          "title": "Type",
+          "type": "string"
+        },
+        "ticker": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9A-Z]{4}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ticker"
+        },
+        "cost_kind": {
+          "enum": [
+            "commission",
+            "exchange_fee",
+            "other"
+          ],
+          "title": "Cost Kind",
+          "type": "string"
+        },
+        "amount_yen": {
+          "exclusiveMinimum": 0,
+          "title": "Amount Yen",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "type",
+        "cost_kind",
+        "amount_yen"
+      ],
+      "title": "CostEvent",
+      "type": "object"
+    },
+    "ExecutionEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "minLength": 1,
+          "title": "Event Id",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "type": {
+          "const": "execution",
+          "title": "Type",
+          "type": "string"
+        },
+        "execution_id": {
+          "minLength": 1,
+          "title": "Execution Id",
+          "type": "string"
+        },
+        "reservation_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reservation Id"
+        },
+        "ticker": {
+          "pattern": "^[0-9A-Z]{4}$",
+          "title": "Ticker",
+          "type": "string"
+        },
+        "side": {
+          "enum": [
+            "buy",
+            "sell"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "quantity": {
+          "exclusiveMinimum": 0,
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "price_yen": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,4}0*$",
+              "type": "string"
+            }
+          ],
+          "title": "Price Yen"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "type",
+        "execution_id",
+        "ticker",
+        "side",
+        "quantity",
+        "price_yen"
+      ],
+      "title": "ExecutionEvent",
+      "type": "object"
+    },
+    "HumanOverride": {
+      "additionalProperties": false,
+      "properties": {
+        "override_id": {
+          "minLength": 1,
+          "title": "Override Id",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "ticker",
+            "sector",
+            "common_factor",
+            "dry_powder"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "key": {
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "decision_reference": {
+          "minLength": 1,
+          "title": "Decision Reference",
+          "type": "string"
+        },
+        "approved_at": {
+          "format": "date-time",
+          "title": "Approved At",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "override_id",
+        "scope",
+        "key",
+        "reason",
+        "decision_reference",
+        "approved_at",
+        "expires_at"
+      ],
+      "title": "HumanOverride",
+      "type": "object"
+    },
+    "IncomeEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "minLength": 1,
+          "title": "Event Id",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "type": {
+          "const": "income",
+          "title": "Type",
+          "type": "string"
+        },
+        "ticker": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9A-Z]{4}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ticker"
+        },
+        "income_kind": {
+          "enum": [
+            "dividend",
+            "other"
+          ],
+          "title": "Income Kind",
+          "type": "string"
+        },
+        "amount_yen": {
+          "exclusiveMinimum": 0,
+          "title": "Amount Yen",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "type",
+        "income_kind",
+        "amount_yen"
+      ],
+      "title": "IncomeEvent",
+      "type": "object"
+    },
+    "LedgerEvent": {
+      "discriminator": {
+        "mapping": {
+          "contribution": "#/$defs/ContributionEvent",
+          "cost": "#/$defs/CostEvent",
+          "execution": "#/$defs/ExecutionEvent",
+          "income": "#/$defs/IncomeEvent",
+          "opening_balance": "#/$defs/OpeningBalanceEvent",
+          "release": "#/$defs/ReleaseEvent",
+          "reservation": "#/$defs/ReservationEvent",
+          "tax_confirmed": "#/$defs/ConfirmedTaxEvent"
+        },
+        "propertyName": "type"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/OpeningBalanceEvent"
+        },
+        {
+          "$ref": "#/$defs/ContributionEvent"
+        },
+        {
+          "$ref": "#/$defs/ReservationEvent"
+        },
+        {
+          "$ref": "#/$defs/ReleaseEvent"
+        },
+        {
+          "$ref": "#/$defs/ExecutionEvent"
+        },
+        {
+          "$ref": "#/$defs/IncomeEvent"
+        },
+        {
+          "$ref": "#/$defs/CostEvent"
+        },
+        {
+          "$ref": "#/$defs/ConfirmedTaxEvent"
+        }
+      ]
+    },
+    "MarketPrice": {
+      "additionalProperties": false,
+      "properties": {
+        "ticker": {
+          "pattern": "^[0-9A-Z]{4}$",
+          "title": "Ticker",
+          "type": "string"
+        },
+        "price_yen": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,4}0*$",
+              "type": "string"
+            }
+          ],
+          "title": "Price Yen"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "source_kind": {
+          "enum": [
+            "market_api",
+            "official_exchange",
+            "licensed_dataset",
+            "test_fixture"
+          ],
+          "title": "Source Kind",
+          "type": "string"
+        },
+        "price_basis": {
+          "enum": [
+            "current",
+            "close",
+            "unadjusted_close"
+          ],
+          "title": "Price Basis",
+          "type": "string"
+        },
+        "source_ref": {
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ticker",
+        "price_yen",
+        "observed_at",
+        "source_kind",
+        "price_basis",
+        "source_ref"
+      ],
+      "title": "MarketPrice",
+      "type": "object"
+    },
+    "OpeningBalanceEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "minLength": 1,
+          "title": "Event Id",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "type": {
+          "const": "opening_balance",
+          "title": "Type",
+          "type": "string"
+        },
+        "amount_yen": {
+          "exclusiveMinimum": 0,
+          "title": "Amount Yen",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "type",
+        "amount_yen"
+      ],
+      "title": "OpeningBalanceEvent",
+      "type": "object"
+    },
+    "ReleaseEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "minLength": 1,
+          "title": "Event Id",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "type": {
+          "const": "release",
+          "title": "Type",
+          "type": "string"
+        },
+        "reservation_id": {
+          "minLength": 1,
+          "title": "Reservation Id",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "cancelled",
+            "expired",
+            "broker_rejected",
+            "decision_changed"
+          ],
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "type",
+        "reservation_id",
+        "reason"
+      ],
+      "title": "ReleaseEvent",
+      "type": "object"
+    },
+    "ReservationEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "minLength": 1,
+          "title": "Event Id",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "type": {
+          "const": "reservation",
+          "title": "Type",
+          "type": "string"
+        },
+        "reservation_id": {
+          "minLength": 1,
+          "title": "Reservation Id",
+          "type": "string"
+        },
+        "order_id": {
+          "minLength": 1,
+          "title": "Order Id",
+          "type": "string"
+        },
+        "ticker": {
+          "pattern": "^[0-9A-Z]{4}$",
+          "title": "Ticker",
+          "type": "string"
+        },
+        "sector": {
+          "minLength": 1,
+          "title": "Sector",
+          "type": "string"
+        },
+        "common_factors": {
+          "default": [],
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Common Factors",
+          "type": "array"
+        },
+        "quantity": {
+          "exclusiveMinimum": 0,
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "price_guard_yen": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,4}0*$",
+              "type": "string"
+            }
+          ],
+          "title": "Price Guard Yen"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "type",
+        "reservation_id",
+        "order_id",
+        "ticker",
+        "sector",
+        "quantity",
+        "price_guard_yen",
+        "expires_at"
+      ],
+      "title": "ReservationEvent",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Versioned persistence contract for repository-only portfolio capital.",
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "portfolio_scope": {
+      "const": "repository_only",
+      "title": "Portfolio Scope",
+      "type": "string"
+    },
+    "as_of": {
+      "format": "date-time",
+      "title": "As Of",
+      "type": "string"
+    },
+    "estimated_exit_tax_rate_bps": {
+      "anyOf": [
+        {
+          "maximum": 10000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Estimated Exit Tax Rate Bps"
+    },
+    "estimated_exit_tax_basis": {
+      "anyOf": [
+        {
+          "const": "ledger_fifo_gross_unrealized_gain",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Estimated Exit Tax Basis"
+    },
+    "events": {
+      "items": {
+        "$ref": "#/$defs/LedgerEvent"
+      },
+      "title": "Events",
+      "type": "array"
+    },
+    "market_prices": {
+      "items": {
+        "$ref": "#/$defs/MarketPrice"
+      },
+      "title": "Market Prices",
+      "type": "array"
+    },
+    "overrides": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/HumanOverride"
+      },
+      "title": "Overrides",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "portfolio_scope",
+    "as_of",
+    "events",
+    "market_prices"
+  ],
+  "title": "PortfolioLedgerDocument",
+  "type": "object"
+}

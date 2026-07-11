@@ -19,9 +19,23 @@ class PolicyConfigTests(unittest.TestCase):
 
     def test_portfolio_policy_config_fails_fast_on_missing_threshold(self) -> None:
         policy = copy.deepcopy(PORTFOLIO_POLICY)
-        del policy["risk_budget"]["max_ticker_real_concentration_pct"]
+        del policy["risk_budget"]["max_ticker_concentration_pct"]
 
-        with self.assertRaisesRegex(RuntimeError, "max_ticker_real_concentration_pct"):
+        with self.assertRaisesRegex(RuntimeError, "max_ticker_concentration_pct"):
+            validate_policy(policy)
+
+    def test_portfolio_policy_rejects_invalid_ranges(self) -> None:
+        policy = copy.deepcopy(PORTFOLIO_POLICY)
+        policy["cash_management"]["dry_powder_warning_pct"] = 101
+
+        with self.assertRaisesRegex(RuntimeError, "within 0..100"):
+            validate_policy(policy)
+
+    def test_portfolio_policy_requires_integer_board_lot(self) -> None:
+        policy = copy.deepcopy(PORTFOLIO_POLICY)
+        policy["order_constraints"]["board_lot"] = 100.5
+
+        with self.assertRaisesRegex(RuntimeError, "positive integer"):
             validate_policy(policy)
 
 

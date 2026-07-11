@@ -33,7 +33,7 @@ L2 の「分析」は決定論的な機械処理であり、その出力（candi
 | 通過銘柄リスト | candidates | `records/02-candidates/`（git 外の local store） | fact | screen の生の事実出力（銘柄単位） |
 | 個別銘柄リサーチ | thesis | `records/03-thesis/` | analysis | FV・RR・期待利回り・耐性・採否の投資メモ |
 | 売買提案 | trade proposal | GitHub Issue（records 外） | 判断の入口 | 銘柄 / 価格 / 株数を人間に上げる |
-| 売買執行記録 | position | `records/04-position/` | execution | 注文・約定・保有・全売り決済・calibration |
+| portfolio・売買執行記録 | position | `records/04-position/` | execution | ledger、注文・約定・保有・決済・calibration |
 
 表は各 stage の artifact / record の repository location を示す（engine の `select` 等は L2 機械処理で record を持たない）。役割の詳細は [`doctrine.md#vocabulary`](./doctrine.md#vocabulary)。**売買提案は GitHub Issue を成果物とし、`records/` にディレクトリを持たない**。承認結果は position record に落ちる。
 
@@ -76,7 +76,7 @@ L2 の「分析」は決定論的な機械処理であり、その出力（candi
 | `macro/` | macro 環境分析（`context` ＋ `indicators` data 層）。screening / position / validation から独立 | `baibai-loop-macro` |
 | `screening/` | universe → 機械スクリーニング（valuation ranking）→ candidates 生成、selection | `baibai-loop-screening` |
 | `thesis/` | investment memo の domain engine（schema・payoff・sizing・refs）。最上位層 | （`baibai-loop-validation` 経由） |
-| `position/` | trade record・保有 price tracking・benchmark-relative return | `baibai-loop-position` |
+| `position/` | portfolio ledger・trade record・保有 price tracking・benchmark-relative return | `baibai-loop-position` |
 | `validation/` | records（公開言語）の検証 dispatcher。domain は entry surface 経由でのみ参照 | `baibai-loop-validation` |
 
 依存方向は `foundation ← market ← {screening, position} ← thesis`（`A ← B` ＝「B が A を import」の向き）。`macro` は `foundation` の上に立つ **独立枝** で spine に属さず、`validation` は `thesis` / `position` を entry surface 経由で駆動する。7 contract は (1) macro 独立、(2) foundation = import sink、(3) market は foundation のみ、(4) position ↛ screening、(5) screening ↛ position、(6) thesis は最上位（下位層は thesis を import しない。thesis は screening / position を import してよい）、(7) validation は entry surface 経由のみ、を強制する。
@@ -88,7 +88,7 @@ L2 の「分析」は決定論的な機械処理であり、その出力（candi
 | `records/01-macro-context/` | analysis | screening 前に読む macro context YAML |
 | `records/02-candidates/` | fact | candidates YAML（git 追跡しない local store） |
 | `records/03-thesis/` | analysis | investment memo Markdown。同一銘柄を再審査した場合は最新 record が正で、置き換えられた旧版は `records/_archive/` へ移す |
-| `records/04-position/` | execution | trade record Markdown |
+| `records/04-position/` | execution | portfolio ledger contract（active record移行後にcanonical化）+ trade record Markdown |
 
 通常の record は出来事ごとの成果物（event artifact）として path 自体を正本にし、更新され続ける「最新一覧」の index は持たない。
 
@@ -127,6 +127,7 @@ Automation は人間の投資判断を置き換えず、fact snapshot 生成・s
 | `baibai-loop-macro` | `macro/` | 指標 series を provenance 付きで取得・cache |
 | `baibai-loop-validation` | `validation/` | records と schema の整合を検証 |
 | `baibai-loop-position benchmark` | `position/` | 保有の entry 以降リターンと benchmark（`1321`）比を算出 |
+| `baibai-loop-position ledger` | `position/` | repo内portfolioのcash、reservation、保有、income、cost、taxを再計算 |
 
 ### Schema and validation
 
