@@ -42,6 +42,7 @@ from .records import (
 from .summaries import (
     _candidate_reason_tags,
     _candidate_risk_tags,
+    _decision_input_seed,
     _durability_counts,
     _selection_candidate_summary,
     _sweep_candidate_summary,
@@ -142,6 +143,7 @@ def build_selection_payload(
             previous_candidate=item.ticker in previous_tickers,
             benchmark_return_20d=benchmark_return_20d,
         )
+        candidate["decision_input_seed"] = _decision_input_seed(candidate, asof_date=asof_date)
         # 主キーは機械 E[r] (成分分解付き見積り) の降順:「どれくらいお買い得か」の
         # 見積りが着手順位を決める (#295 の design/confirm 検証で採用。計測は
         # reports/2026-07-04-preregistered-ranking-validation.md)。E[r] 欠損の
@@ -180,7 +182,7 @@ def build_selection_payload(
         recommended
         if detail == "full"
         else [
-            _selection_candidate_summary(candidate, rank=rank)
+            _selection_candidate_summary(candidate, rank=rank, asof_date=asof_date)
             for rank, candidate in enumerate(recommended, start=1)
         ]
     )

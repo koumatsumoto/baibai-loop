@@ -18,7 +18,7 @@ Decision packetは、実購入候補の判断根拠を短い要約と再計算�
 
 | namespace | responsibility |
 | --- | --- |
-| `observed` | ticker、判断基準日、source、判断に使う最小fact snapshot |
+| `input_snapshot` | ticker、判断基準日、判断時price、主要財務・valuation、source provenanceを固定した最小fact snapshot |
 | `derived` | formula ID、input fact IDs、version、as-of、unit、assumptionを持つ機械再計算値 |
 | `estimates` | 判断上限または市場観測として種別を明示した入口価格と、model version・仮定を持つ3年/5年bear/base/bull |
 | `judgment` | buy/defer/rejectのAI initial proposal、提案時刻、確信度、永久損失結論、最強反対仮説、sizing |
@@ -26,6 +26,14 @@ Decision packetは、実購入候補の判断根拠を短い要約と再計算�
 この4つはdata/judgment namespaceである。`permanent_loss_risks`はjudgmentを構成する軸別評価、`independent_review_ref`は別artifactのsecond-pass review envelopeへの参照、`human_evidence_override`はreview後の人間によるrisk受容としてtop-levelに置く。最終発注判断はexecution contractの別artifactであり、AI proposalへ混ぜない。
 
 ScreeningのE[r]とFV anchorは決定論的でも事実ではなくestimateである。candidate出力は`origin: estimate`、model version、unit、assumptionsを併記し、decision packetへ採用する値はscenario modelのsourceとして固定する。
+
+## Input snapshot and lineage
+
+Candidate YAMLはlocalで再生成する探索成果物であり、decision packetから参照しない。採用した入力だけを`input_snapshot`へ値として固定する。これによりpacketはgitignoredなcandidate fileやSQLite fileの存在に依存せず、clean checkout単体で判断時点の入力を検証できる。
+
+`input_snapshot`は`snapshot_version`と`producer_model_version`、ticker、as-of、source、factを持つ。判断時市場価格は`market_price`を正確に1件、valuationは`valuation_metric`を1件以上要求する。factはunit、as-of、`source_ids`を持ち、scenarioの起点となる利益・株数も同じsnapshotに置く。`estimates.market_price_fact_id`は判断時市場価格へjoinする。
+
+外部sourceはHTTPS URLを持つ。local dataは消失し得るファイルパスを参照せず、`provider`、`dataset`、`retrieved_at`を持つ。`retrieved_at`はAI proposal時刻以前でなければならず、提案後に得た情報を判断時点snapshotへ遡及混入できない。市場価格は`observed_at`と`price_basis`（realtime / 調整済み終値 / 未調整終値）を持つ。すべてのsourceはpacketと同じtickerを明示し、source/fact/scenarioがpacket as-ofより未来の場合、source IDが解決しない場合、価格・valuationのtypeまたはunitが不正な場合は`incomplete`とする。canonical filenameの日付・tickerもsnapshotと一致させる。HTML、PR body、proposal Issueは説明・リンクにとどめ、判断入力の正本を複製しない。
 
 ## Scenario arithmetic
 

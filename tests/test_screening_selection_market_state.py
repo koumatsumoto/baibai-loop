@@ -212,6 +212,39 @@ class SelectionMarketStateTests(unittest.TestCase):
         assert isinstance(market_regime, Mapping)
         self.assertEqual(market_regime["regime"], "risk_on_rally")
 
+    def test_all_detail_modes_expose_decision_input_seed_without_candidate_ref(self) -> None:
+        for detail in ("summary", "full"):
+            with self.subTest(detail=detail):
+                payload = build_selection_payload(
+                    asof_date=_ASOF,
+                    candidates=self.candidates,
+                    macro_context=None,
+                    rules=self.rules,
+                    top=10,
+                    profile="balanced",
+                    candidates_ref="local-candidates.yaml",
+                    macro_context_ref=None,
+                    market_regime=None,
+                    detail=detail,
+                )
+
+                seed = self._recommendations(payload)[0]["decision_input_seed"]
+                assert isinstance(seed, Mapping)
+                self.assertEqual(seed["snapshot_version"], 1)
+                self.assertEqual(seed["producer_model_version"], "screening-selection-v1")
+                self.assertEqual(seed["as_of"], _ASOF.isoformat())
+                self.assertIn(seed["completeness"], {"ready_for_enrichment", "missing_valuation"})
+                self.assertIn("market_price", seed["required_enrichment"])
+                self.assertIsInstance(seed["estimates"], Mapping)
+                estimates = seed["estimates"]
+                assert isinstance(estimates, Mapping)
+                fair_value = estimates["fair_value"]
+                assert isinstance(fair_value, Mapping)
+                self.assertEqual(fair_value["unit"], "JPY_per_share")
+                self.assertIn("model_version", fair_value)
+                self.assertIn("assumptions", fair_value)
+                self.assertNotIn("candidate_ref", seed)
+
 
 class MarketStateCliArgumentTests(unittest.TestCase):
     def test_select_parser_has_sqlite_path_default(self) -> None:

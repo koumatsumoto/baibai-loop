@@ -103,6 +103,11 @@
           "title": "Model Version",
           "type": "string"
         },
+        "market_price_fact_id": {
+          "minLength": 1,
+          "title": "Market Price Fact Id",
+          "type": "string"
+        },
         "entry_price_basis_yen": {
           "anyOf": [
             {
@@ -148,6 +153,7 @@
       },
       "required": [
         "model_version",
+        "market_price_fact_id",
         "entry_price_basis_yen",
         "entry_price_basis",
         "entry_price_source_ids",
@@ -229,6 +235,61 @@
       "title": "EvidenceOverride",
       "type": "object"
     },
+    "InputSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "snapshot_version": {
+          "const": 1,
+          "title": "Snapshot Version",
+          "type": "integer"
+        },
+        "producer_model_version": {
+          "minLength": 1,
+          "title": "Producer Model Version",
+          "type": "string"
+        },
+        "ticker": {
+          "pattern": "^[0-9A-Z]{4}$",
+          "title": "Ticker",
+          "type": "string"
+        },
+        "company_name": {
+          "minLength": 1,
+          "title": "Company Name",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/Source"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "facts": {
+          "items": {
+            "$ref": "#/$defs/ObservedFact"
+          },
+          "title": "Facts",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_version",
+        "producer_model_version",
+        "ticker",
+        "company_name",
+        "as_of",
+        "sources",
+        "facts"
+      ],
+      "title": "InputSnapshot",
+      "type": "object"
+    },
     "JudgmentNamespace": {
       "additionalProperties": false,
       "properties": {
@@ -300,6 +361,8 @@
         },
         "fact_kind": {
           "enum": [
+            "market_price",
+            "valuation_metric",
             "net_income_attributable_to_owners",
             "fcfe",
             "shares_outstanding",
@@ -346,6 +409,36 @@
           },
           "title": "Source Ids",
           "type": "array"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "price_basis": {
+          "anyOf": [
+            {
+              "enum": [
+                "realtime",
+                "last_close_adjusted",
+                "last_close_unadjusted"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Price Basis"
         }
       },
       "required": [
@@ -357,49 +450,6 @@
         "source_ids"
       ],
       "title": "ObservedFact",
-      "type": "object"
-    },
-    "ObservedNamespace": {
-      "additionalProperties": false,
-      "properties": {
-        "ticker": {
-          "pattern": "^[0-9A-Z]{4}$",
-          "title": "Ticker",
-          "type": "string"
-        },
-        "company_name": {
-          "minLength": 1,
-          "title": "Company Name",
-          "type": "string"
-        },
-        "as_of": {
-          "format": "date",
-          "title": "As Of",
-          "type": "string"
-        },
-        "sources": {
-          "items": {
-            "$ref": "#/$defs/Source"
-          },
-          "title": "Sources",
-          "type": "array"
-        },
-        "facts": {
-          "items": {
-            "$ref": "#/$defs/ObservedFact"
-          },
-          "title": "Facts",
-          "type": "array"
-        }
-      },
-      "required": [
-        "ticker",
-        "company_name",
-        "as_of",
-        "sources",
-        "facts"
-      ],
-      "title": "ObservedNamespace",
       "type": "object"
     },
     "PermanentLossRisk": {
@@ -688,18 +738,62 @@
           "title": "Source Id",
           "type": "string"
         },
+        "ticker": {
+          "pattern": "^[0-9A-Z]{4}$",
+          "title": "Ticker",
+          "type": "string"
+        },
         "source_tier": {
           "enum": [
             "primary",
             "secondary",
-            "internal_record"
+            "local_data"
           ],
           "title": "Source Tier",
           "type": "string"
         },
         "ref": {
-          "minLength": 1,
-          "title": "Ref",
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ref"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "dataset": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset"
+        },
+        "retrieved_at": {
+          "format": "date-time",
+          "title": "Retrieved At",
           "type": "string"
         },
         "as_of": {
@@ -715,8 +809,9 @@
       },
       "required": [
         "source_id",
+        "ticker",
         "source_tier",
-        "ref",
+        "retrieved_at",
         "as_of",
         "used_for"
       ],
@@ -732,8 +827,8 @@
       "title": "Schema Version",
       "type": "integer"
     },
-    "observed": {
-      "$ref": "#/$defs/ObservedNamespace"
+    "input_snapshot": {
+      "$ref": "#/$defs/InputSnapshot"
     },
     "derived": {
       "$ref": "#/$defs/DerivedNamespace"
@@ -778,7 +873,7 @@
   },
   "required": [
     "schema_version",
-    "observed",
+    "input_snapshot",
     "derived",
     "estimates",
     "permanent_loss_risks",
