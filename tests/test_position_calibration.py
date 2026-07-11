@@ -49,12 +49,41 @@ def test_calibration_cli_emits_fv_gap_zone_action_and_returns(
     assert row["relative_return_pct"] == 23.0
     assert row["fv_gap_pct"] == pytest.approx(10.8333)
     assert row["valuation_zone"] == "rich"
-    assert row["action"] == "sell"
+    # Reaching fair value is a review trigger, not an auto-sell.
+    assert row["review_trigger"] is True
     assert payload["aggregate"]["position_count"] == 1
-    assert payload["aggregate"]["draft_action_counts"]["sell"] == 1
+    assert payload["aggregate"]["review_trigger_count"] == 1
     assert payload["coverage"]["current_price_count"] == 1
     assert payload["coverage"]["thesis_fair_value_count"] == 1
-    assert "not automatic exit decisions" in payload["note"]
+    assert "not an automatic sell" in payload["note"]
+
+
+def test_calibration_review_trigger_starts_at_fair_value(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_thesis(tmp_path, "4444", fair_value_yen=1000, expected_upside_pct=10.0)
+    _write_position(
+        tmp_path,
+        "4444",
+        quantity=100,
+        entry_price=900,
+        entry_expected_upside_pct=10.0,
+        entry_expected_yield_pct=None,
+    )
+    _seed_bars(
+        tmp_path,
+        {
+            "4444": {date(2026, 1, 11): 900, date(2026, 1, 15): 1000},
+            "1321": {date(2026, 1, 11): 1000, date(2026, 1, 15): 1000},
+        },
+    )
+
+    assert main(["calibration", "--root", str(tmp_path), "--asof", "2026-01-15"]) == 0
+
+    payload = yaml.safe_load(capsys.readouterr().out)
+    row = payload["positions"][0]
+    assert row["valuation_zone"] == "fair"
+    assert row["review_trigger"] is True
 
 
 def test_calibration_cli_degrades_to_null_when_fv_is_missing(
@@ -86,7 +115,7 @@ def test_calibration_cli_degrades_to_null_when_fv_is_missing(
     assert row["thesis_fair_value_yen"] is None
     assert row["fv_gap_pct"] is None
     assert row["valuation_zone"] is None
-    assert row["action"] is None
+    assert row["review_trigger"] is None
 
 
 def test_calibration_cli_degrades_prices_to_null_without_jquants_cache(
@@ -114,7 +143,7 @@ def test_calibration_cli_degrades_prices_to_null_without_jquants_cache(
     assert row["relative_return_pct"] is None
     assert row["fv_gap_pct"] is None
     assert row["valuation_zone"] is None
-    assert row["action"] is None
+    assert row["review_trigger"] is None
     assert payload["coverage"]["jquants_bars_loaded"] is False
     assert payload["coverage"]["warnings_count"] == len(payload["warnings"])
     assert "no J-Quants bars" in captured.err

@@ -23,12 +23,12 @@ Baibai-Loop は、割安な優良銘柄を長期で積み立てる 1 つの投�
 3. 割安 screening でふるいにかける: `records/02-candidates/`
 4. 深い個別調査でフェアバリュー・リスクリワード・期待利回りを見積もり、塩漬け耐性を確認する: `records/03-thesis/`
 5. 採用銘柄を「いくらで何株」の売買提案として GitHub Issue に上げ、人間が判断する
-6. 約定したら執行記録を残し、割高化・事業毀損で全売りする: `records/04-position/`
+6. 約定したら執行記録を残し、thesis health と税引後の代替期待値で保有を見直す: `records/04-position/`
 7. 見積りと実現結果を突き合わせて較正し、次の見積りを磨く
 
 ## 対象としないこと
 
-現在の戦略(長期積立・割高で全売り・1 人運用)が計測経路を持てない、または必要としない機能の線引きです([`docs/doctrine.md`](./docs/doctrine.md) §8)。
+現在の戦略(長期積立・1 人運用)が計測経路を持てない、または必要としない機能の線引きです([`docs/doctrine.md`](./docs/doctrine.md) §8)。
 
 - 過去データへの閾値 grid search / パラメータ最適化、戦略累積リターン(年率・MaxDD・シャープ)の track-record claim
 - 銘柄全体を対象にした短期(3 か月未満)forward-backtest による screen 最適化(長期 horizon の較正リプレイは正式な計測経路)

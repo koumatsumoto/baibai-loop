@@ -44,7 +44,7 @@ buy判断を具体的な発注案へ落とすときは、decision packetの5年b
   - `expected_downside_pct`：保守的に見た下値までの下落率。**ネットキャッシュや清算価値を下値の床として使えるのは、還元・価値実現の仕組み（自社株買い・DOE・アクティビスト・清算への道筋）が確認できる場合に限る**。仕組みがなければ床とはみなさず、percentile の追加下落余地や同業他社の底値倍率など、保守的な下値を使う（還元の仕組みを欠くネットキャッシュはバリュートラップとして滞留し得る）。価格による損切りは置かない。
   - `risk_reward_ratio = expected_upside_pct / expected_downside_pct`。**採用の目安は RR ≥ 2、かつ希望的な超過収益を差し引いた後でも期待値がプラス**であること。
   - **期待利回り**：FV への収束で得られる期待リターン（想定する収束年数で年率換算）に配当などの収益を加えた、トータルリターンの年率概算。配当利回り単体とは別に記録する。
-- **売りの条件**：現値が FV へ収束（割高化）するか、割高ゾーンに到達したら **全株売却**。保有期間の長さでは売らない。
+- **保有見直しの条件**：FV 到達・割高ゾーンは holding review の trigger であり、自動売却ではない。thesis break は全株 exit の優先候補とし、健全な thesis の reduce / exit は税・費用を引いた代替期待値が上回る場合だけ提案する。保有期間の長さでは売らない。
 
 payoff が弱い場合は `thesis_decision`・`macro_context_fit.required_checks`・`sizing_caution`・`position_sizing_overlay` に反映する。リスクリワードの下限方針は [`../portfolio-management.md`](../portfolio-management.md)。
 
@@ -78,7 +78,7 @@ payoff が弱い場合は `thesis_decision`・`macro_context_fit.required_checks
 
 ## Exit
 
-- **全株売却の引き金は 2 つだけ**：(a) 割高化（FV 到達・割高ゾーン入り）、(b) 事業のファンダメンタルズ毀損。株価の下落そのものでは売らない（価格による損切りを置かない）。保有期間の長さでも売らない。
+- **保有見直しの引き金**：(a) FV 到達・割高ゾーン入りは review trigger、(b) 事業のファンダメンタルズ毀損は全株 exit の優先候補。株価の下落そのものでは売らない（価格による損切りを置かない）。保有期間の長さでも売らない。action の正本は [`../reference/holding-review.md`](../reference/holding-review.md)。
 - **(b) の具体条件は銘柄ごとに事前に列挙する**（`thesis_payoff.invalidation_conditions[]`）：塩漬け耐性の土台（営業キャッシュフロー・バランスシート・株主還元・収益基盤）が「何をもって崩れたと判断するか」を、この銘柄の数値・出来事として定義する。反対仮説 10 類型（購入前のバリュートラップ判定）とは別に、保有中に監視する毀損条件を書く。
 - exit の実行と見積りの較正は [`./position.md`](./position.md)。
 

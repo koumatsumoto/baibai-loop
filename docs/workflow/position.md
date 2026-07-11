@@ -1,6 +1,6 @@
 ---
 title: "Workflow — position (execution & holding)"
-summary: "売買執行記録：approved thesis の注文・約定・長期保有・押し目買増し・割高で全売りを記録し、見積り（RR・期待利回り）と実現結果を突き合わせて較正する。"
+summary: "売買執行記録：approved thesis の注文・約定・長期保有・押し目買増し・holding reviewを記録し、見積り（RR・期待利回り）と実現結果を突き合わせて較正する。"
 doc_type: workflow
 status: active
 last_reviewed: 2026-07-11
@@ -8,7 +8,7 @@ last_reviewed: 2026-07-11
 
 # Workflow — 執行・保有（position）
 
-単一ループ（[`../doctrine.md`](../doctrine.md) §2）の執行・保有・較正の工程。[`./research.md`](./research.md) で `approved` になった判断について、注文・約定・長期保有・押し目での買増し・**割高での全株売却**を記録し、entry 時の見積り（リスクリワード・期待利回り・FV）を **実現結果と突き合わせて較正する**（= 運用の改善）。自動発注はしない。契約の正本は `records/_schemas/position.json`。
+単一ループ（[`../doctrine.md`](../doctrine.md) §2）の執行・保有・較正の工程。[`./research.md`](./research.md) で `approved` になった判断について、注文・約定・長期保有・押し目での買増し・**holding review に基づく reduce / exit**を記録し、entry 時の見積り（リスクリワード・期待利回り・FV）を **実現結果と突き合わせて較正する**（= 運用の改善）。自動発注はしない。position record の契約正本は `records/_schemas/position.json`、holding review の契約正本は `records/_schemas/holding-review.json`。
 
 `records/04-position/portfolio-ledger.yaml`が存在する場合だけledger手順を実行する。未初期化の間はactive position recordと既存のposition/thesis concentration gateを使い、推測でledgerを作らない。切替条件は[`../reference/portfolio-ledger.md`](../reference/portfolio-ledger.md)のActivation boundaryに従う。
 
@@ -38,8 +38,8 @@ order_intent: { order_intent_id: intent-YYYYMMDD-XXXX-entry, side: buy | sell, q
 orders: [ { order_id: order-YYYYMMDD-XXXX-1, origin_order_intent_id: intent-YYYYMMDD-XXXX-entry, side: buy, state: filled, submitted_quantity: 100, filled_quantity: 100 } ]
 executions: [ { execution_id: exec-..., order_id: order-..., side: buy, quantity: 100, price_yen: 1000, at: "YYYY-MM-DDTHH:MM:SS+09:00" } ]
 position_sizing_overlay: { estimated_real_order_notional_yen: 100000, guarded_max_notional_yen: 100000 }
-review_valuation: { as_of: "YYYY-MM-DD", fair_value_yen: 1400, current_price_yen: 1050, valuation_zone: cheap | fair | rich, action: hold | add | sell }
-kill_switch_check: { earnings_straddle: false, boj_eve: false, fomc_eve: false }
+review_valuation: { as_of: "YYYY-MM-DD", fair_value_yen: 1400, current_price_yen: 1050, valuation_zone: cheap | fair | rich, action: hold | add | sell } # #341移行までの旧field
+kill_switch_check: { earnings_straddle: false, boj_eve: false, fomc_eve: false } # #341移行までの旧field
 estimate_calibration: { entry_expected_upside_pct: 40.0, entry_expected_yield_pct: 0.0, realized_return_pct: null, realized_yield_pct: null, thesis_held: null }
 ```
 
@@ -68,26 +68,29 @@ multi-intent lifecycleは [`../reference/execution-lifecycle.md`](../reference/e
 - **長期保有**：株価の下落では切らない。含み損でも、塩漬け耐性が保たれている限り保有を続ける。
 - **押し目での買増し**：保有銘柄がさらに割安なら、#341移行後はavailable cashとcurrent + reserved exposureをledgerで再計算して買い増す。移行前は既存position / thesis gateを使う。warning超過は理由と期限を明示する。
 
-## 割高で全売り
+## 売却（thesis break の全売り・代替優位の縮小）
 
-売りの引き金は 2 つだけ：**(a) 割高化**（現値が FV へ収束・割高ゾーン到達）、**(b) 事業のファンダメンタルズ毀損**（減益トレンド・財務悪化・減配・thesis の中核崩壊）。いずれの場合も **全株売却**する（部分売却はしない）。exit の `executions[]` と、手数料等控除前後のリターン・執行コストを記録する。
+売買判断は holding review（[`../reference/holding-review.md`](../reference/holding-review.md)）の `hold / add / reduce / exit` に従う。**thesis break（事業のファンダメンタルズ毀損：減益トレンド・財務悪化・減配・thesis の中核崩壊・verified な永久損失軸）は全株 exit** する。**FV 到達は review trigger** であって自動売却ではなく、税・費用を引いた代替候補が現保有を上回るときだけ reduce（部分）/ exit する。exit / reduce では `executions[]` と、手数料等控除前後のリターン・執行コストを記録する。
 
 ## 保有の見直しと見積りの較正
 
-- **定例・event後の見直し**：保有確認は月次入金に強制されず、決算発表後またはmaterialな変化があった対象から`review_valuation`（FV・現値・valuation zone・次の行動）を更新する。割高ゾーンに到達していれば全株売却、割安が続いていれば保有または買増し。triggerと対象選択は[`../operations/decision-cycle.md#5-earnings-and-material-event-path`](../operations/decision-cycle.md#5-earnings-and-material-event-path)を正本とする。決算後の見直しが必要な保有は GitHub Issue（`task:earnings-review` ラベル、`task: YYYY-MM-DD <ticker> を <event> 後に確認する`）で実行漏れを防ぎ、判断の正本は records に戻す。
+- **定例・event後の見直し**：保有確認は月次入金に強制されず、決算発表後またはmaterialな変化があった対象から holding review（thesis health・税引後代替）を更新する。判断式と算術は[`../reference/holding-review.md`](../reference/holding-review.md)、triggerと対象選択は[`../operations/decision-cycle.md#5-earnings-and-material-event-path`](../operations/decision-cycle.md#5-earnings-and-material-event-path)を正本とする。決算後の見直しが必要な保有は GitHub Issue（`task:earnings-review` ラベル、`task: YYYY-MM-DD <ticker> を <event> 後に確認する`）で実行漏れを防ぎ、判断の正本は records に戻す。
 - **見積りの較正（estimate calibration）**：exit 時と決算後に `estimate_calibration` を更新し、entry 時の見積り（想定上昇率・期待利回り）と実現結果（実際のリターン・利回り・thesis の的中）を突き合わせる。系統的なずれ（マクロの読み・FV 推定・耐性判定のどこが外れたか）を次の見積りに反映する（= 改善ループ、[`../doctrine.md`](../doctrine.md) 柱 3）。保有の対 benchmark 相対リターンは `uv run baibai-loop-position benchmark`（`1321` proxy、[`../reference/data-sources.md`](../reference/data-sources.md)）で機械的に算出し、較正の参考情報にする。
 
-定期確認の下書きは read-only CLI で作る。
+下書きは read-only CLI で作る。
 
 ```bash
 uv run baibai-loop-position calibration --asof YYYY-MM-DD
+uv run baibai-loop-position holding-review --input records/04-position/YYYY/MM/YYYY-MM-DD-XXXX-review.yaml
 ```
 
-`calibration` は `records/04-position/**/*.md` の open position、対応する `records/03-thesis` の FV、J-Quants bars（`data/screening/market.sqlite`）を読み、保有ごとの entry 見積り・現在リターン・benchmark 相対リターン・FV gap・draft `valuation_zone` / `action` を YAML で出す。draft `valuation_zone` は FV がある場合だけ `cheap` / `fair` / `rich` を機械計算し、draft `action` は `rich` のとき `sell`、それ以外は `hold` を出す。これは `review_valuation` と `estimate_calibration` 更新の下書きであり、自動の exit 判断ではない。FV または J-Quants bars が欠ける項目は `null` として残し、CLI warning と coverage で欠損を確認する。
+`calibration` は `records/04-position/**/*.md` の open position、対応する `records/03-thesis` の FV、J-Quants bars（`data/screening/market.sqlite`）を読み、保有ごとの entry 見積り・現在リターン・benchmark 相対リターン・FV gap・draft `valuation_zone` / `review_trigger` を YAML で出す。draft `valuation_zone` は FV がある場合だけ `cheap` / `fair` / `rich` を機械計算し、`review_trigger` は **現値が FV に到達したとき** `true` を出す。これは **保有見直しが必要になったこと**を示す trigger であり、自動 sell ではない。`hold/add/reduce/exit` の判断は holding review が thesis health と税引後代替から行う。FV または J-Quants bars が欠ける項目は `null` として残し、CLI warning と coverage で欠損を確認する。
 
-## Kill switch check
+`holding-review` は holding review draft を読み、thesis health・現値/FV の review trigger・税引後代替から action を再計算して、記録された action との一致を検査する。契約の正本は[`../reference/holding-review.md`](../reference/holding-review.md)。
 
-`kill_switch_check` は保有中の継続監視として記録する。ファンダメンタルズ毀損を検知したら「全売り (b)」で exit する。結果が二値に振れるイベント（決算跨ぎ・日銀会合前日・FOMC 前日）の直前の新規建玉は、避けるか小さくする（長期の積立では必須の禁止事項ではない、[`../portfolio-management.md`](../portfolio-management.md)）。
+## Binary event 直前の新規建玉
+
+結果が二値に振れるイベント（決算跨ぎ・日銀会合前日・FOMC 前日）の直前の新規建玉は、避けるか小さくする（長期の積立では必須の禁止事項ではない、[`../portfolio-management.md`](../portfolio-management.md)）。保有の売却判断は holding review の thesis health（永久損失軸）で行い、価格下落そのものは売却理由にしない。
 
 ## AI の役割境界
 
@@ -102,6 +105,7 @@ uv run baibai-loop-position calibration --asof YYYY-MM-DD
 ```bash
 uv run baibai-loop-validation --target position
 uv run baibai-loop-validation --target ledger
+uv run baibai-loop-validation --target holding-review
 uv run baibai-loop-validation
 ```
 
@@ -110,7 +114,8 @@ position validationは注文・約定の整合を、ledger validationはcash rec
 ## 参考
 
 - [`./research.md`](./research.md)：approved thesis と FV・見積り
-- [`../portfolio-management.md`](../portfolio-management.md)：cap・kill switch・全売りの規律
+- [`../portfolio-management.md`](../portfolio-management.md)：cap・保有見直し・売却の規律
+- [`../reference/holding-review.md`](../reference/holding-review.md)：thesis health と税引後代替の契約
 - [`../reference/portfolio-ledger.md`](../reference/portfolio-ledger.md)：資本eventとsnapshot式
 - [`../doctrine.md`](../doctrine.md)：柱 3（見積りの較正）
 - [`../anti-patterns.md`](../anti-patterns.md)：AP-09（会社 IR の一次確認・注文と約定の状態分離）

@@ -56,8 +56,10 @@ def telemetry_to_payload(telemetry: CalibrationTelemetry) -> dict[str, object]:
         "asof": telemetry.asof.isoformat(),
         "benchmark_proxy": telemetry.benchmark_ticker,
         "note": (
-            "valuation_zone and action are mechanical drafts for monthly "
-            "review_valuation / estimate_calibration; they are not automatic exit decisions."
+            "valuation_zone and review_trigger are mechanical drafts for holding review "
+            "/ estimate_calibration; review_trigger means fair value is reached and a "
+            "thesis-health review is due, not an automatic sell. hold/add/reduce/exit is "
+            "decided by the holding review, not by a fair-value threshold."
         ),
         "positions": list(telemetry.positions),
         "aggregate": telemetry.aggregate,
@@ -103,7 +105,7 @@ def _position_rows(
                 "relative_return_pct": _ratio_to_pct(benchmark.relative),
                 "fv_gap_pct": fv_gap,
                 "valuation_zone": valuation_zone,
-                "action": _draft_action(valuation_zone),
+                "review_trigger": _review_trigger(current_price, fair_value),
             }
         )
     return rows
@@ -166,10 +168,13 @@ def _valuation_zone(current_price: float | None, fair_value: float | None) -> st
     return "rich"
 
 
-def _draft_action(valuation_zone: str | None) -> str | None:
-    if valuation_zone is None:
+def _review_trigger(current_price: float | None, fair_value: float | None) -> bool | None:
+    # Reaching fair value is a review trigger, not an auto-sell. The
+    # hold/add/reduce/exit decision is made by the holding review from thesis
+    # health and after-tax replacement, never from this valuation threshold.
+    if current_price is None or fair_value is None:
         return None
-    return "sell" if valuation_zone == "rich" else "hold"
+    return current_price >= fair_value
 
 
 def _aggregate(
@@ -177,7 +182,6 @@ def _aggregate(
     performance: PortfolioBenchmark,
 ) -> dict[str, object]:
     zone_counts = _counts(position_rows, "valuation_zone", keys=("cheap", "fair", "rich"))
-    action_counts = _counts(position_rows, "action", keys=("hold", "sell"))
     return {
         "position_count": len(position_rows),
         "total_entry_notional_yen": _round_float(performance.total_notional),
@@ -188,7 +192,9 @@ def _aggregate(
         "benchmark_return_pct": _ratio_to_pct(performance.benchmark_return),
         "relative_return_pct": _ratio_to_pct(performance.relative),
         "valuation_zone_counts": zone_counts,
-        "draft_action_counts": action_counts,
+        "review_trigger_count": sum(
+            1 for row in position_rows if row.get("review_trigger") is True
+        ),
     }
 
 

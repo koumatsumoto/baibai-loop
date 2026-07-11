@@ -24,7 +24,7 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 
 ## 単一ループと repository のマッピング
 
-3 層の上を、[`doctrine.md`](./doctrine.md) §2 の単一ループ（運用方針 → マクロ分析 → 割安 screening → リサーチ候補選定 → 個別調査 → 買い → 長期保有 → 割高で全売り → 見積り calibration）が流れる。各 stage の repository 上の実体：
+3 層の上を、[`doctrine.md`](./doctrine.md) §2 の単一ループ（運用方針 → マクロ分析 → 割安 screening → リサーチ候補選定 → 個別調査 → 買い → 長期保有 → thesis health と税引後代替による保有見直し → 見積り calibration）が流れる。各 stage の repository 上の実体：
 
 | 日本語概念名 | slug | repository location | レイヤー | 役割 |
 | --- | --- | --- | --- | --- |
@@ -33,16 +33,16 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 | 通過銘柄リスト | candidates | `records/02-candidates/`（git 外の local store） | machine analysis | observed / derived / estimateを分離したscreen出力 |
 | 投資判断 | decision packet / thesis | `records/03-thesis/` | judgment | 4 namespace・5年scenario・永久損失・反証。active移行まではthesis Markdownも有効 |
 | 売買提案 | trade proposal | GitHub Issue（records 外） | 判断の入口 | 銘柄 / 価格 / 株数を人間に上げる |
-| portfolio・売買執行記録 | position | `records/04-position/` | execution | ledger、注文・約定・保有・決済・calibration |
+| portfolio・売買執行記録 | position | `records/04-position/` | execution | ledger、注文・約定・保有・holding review・決済・calibration |
 
 表は各 stage の artifact / record の repository location を示す（engine の `select` 等は L2 機械処理で record を持たない）。役割の詳細は [`doctrine.md#vocabulary`](./doctrine.md#vocabulary)。**売買提案は GitHub Issue を成果物とし、`records/` にディレクトリを持たない**。承認結果は position record に落ちる。
 
 ## スコープと非目標
 
-- 割安な優良銘柄を **長期で積み立て**、valuation（割高化）で **全売り** する裁量支援基盤。日本の個別株のみ（ETF / 投資信託 / 海外株は扱わない）。買い建てのみ・現物のみ。
+- 割安な優良銘柄を **長期で積み立て**、thesis health と税引後の代替期待値で保有を見直す裁量支援基盤。日本の個別株のみ（ETF / 投資信託 / 海外株は扱わない）。買い建てのみ・現物のみ。
 - Markdown / YAML と Git を正本にする。ただし週次 screen output（candidates YAML）は再生成可能な L2 機械出力として local store に置き git に積まない。
 - 成果物の機械契約は `records/_schemas/*.json` を正本（contract-of-record）にする。
-- **構造としての非目標**：MCP / API server・第三者向けサービング・部分売却 / リバランスの schema 化・**固定期間の review gate**。戦略上の非目標（ML スコアリング・短期 forward-backtest・自動発注・口座 / 税制モデル化）は [`doctrine.md`](./doctrine.md) §8 を参照。
+- **構造としての非目標**：MCP / API server・第三者向けサービング・**固定期間の review gate**。戦略上の非目標（ML スコアリング・短期 forward-backtest・自動発注・口座 / 税制モデル化）は [`doctrine.md`](./doctrine.md) §8 を参照。
 
 <a id="repository-map"></a>
 
@@ -76,7 +76,7 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 | `macro/` | macro 環境分析（`context` ＋ `indicators` data 層）。screening / position / validation から独立 | `baibai-loop-macro` |
 | `screening/` | universe → 機械スクリーニング（valuation ranking）→ candidates 生成、selection | `baibai-loop-screening` |
 | `thesis/` | investment memo の domain engine（schema・payoff・sizing・refs）。最上位層 | （`baibai-loop-validation` 経由） |
-| `position/` | portfolio ledger・trade record・保有 price tracking・benchmark-relative return | `baibai-loop-position` |
+| `position/` | portfolio ledger・trade record・保有 price tracking・holding review・benchmark-relative return | `baibai-loop-position` |
 | `validation/` | records（公開言語）の検証 dispatcher。domain は entry surface 経由でのみ参照 | `baibai-loop-validation` |
 
 依存方向は `foundation ← market ← {screening, position} ← thesis`（`A ← B` ＝「B が A を import」の向き）。`macro` は `foundation` の上に立つ **独立枝** で spine に属さず、`validation` は `thesis` / `position` を entry surface 経由で駆動する。7 contract は (1) macro 独立、(2) foundation = import sink、(3) market は foundation のみ、(4) position ↛ screening、(5) screening ↛ position、(6) thesis は最上位（下位層は thesis を import しない。thesis は screening / position を import してよい）、(7) validation は entry surface 経由のみ、を強制する。
@@ -98,12 +98,12 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 | --- | --- | --- |
 | `records/_config/` | [`workflow/screening.md`](./workflow/screening.md) | screening rules と selection profile config |
 | `records/_playbooks/` | [`workflow/playbooks.md`](./workflow/playbooks.md) | 運用中 playbook（value archetype）の保存領域 |
-| `records/_schemas/` | [`reference/testing-and-validation.md`](./reference/testing-and-validation.md) | records validation schema の保存領域 |
+| `records/_schemas/` | [`reference/testing-and-validation.md`](./reference/testing-and-validation.md) | records validation schema（holding reviewを含む）の保存領域 |
 | `records/_archive/` | 本 doc（この表） | 再審査などで置き換えられた過去 record の凍結保管。validator / select の走査対象外で、当時の contract のまま変更せず保持する |
 
 ### records/_schemas — 公開言語の kernel（contract-of-record）
 
-`records/_schemas/*.json`（JSON Schema draft 2020-12）は records artifact（macro-context / candidates / thesis / position）の形を固定する **公開言語の中心資産**であり、成果物の機械契約の正本。CLI の YAML 出力、records front matter、validation 検証、AI が読む契約はこの schema set を共有語彙の基盤にする。doc 側は JSON に書けないもの（式・enum の意味・WHY・境界）だけを持ち、field を再転記しない。
+`records/_schemas/*.json`（JSON Schema draft 2020-12）は records artifact（macro-context / candidates / thesis / position / holding-review）の形を固定する **公開言語の中心資産**であり、成果物の機械契約の正本。CLI の YAML 出力、records front matter、validation 検証、AI が読む契約はこの schema set を共有語彙の基盤にする。doc 側は JSON に書けないもの（式・enum の意味・WHY・境界）だけを持ち、field を再転記しない。
 
 <a id="automation"></a>
 
@@ -128,6 +128,7 @@ Automation は人間の投資判断を置き換えず、fact snapshot 生成・s
 | `baibai-loop-validation` | `validation/` | records と schema の整合を検証 |
 | `baibai-loop-position benchmark` | `position/` | 保有の entry 以降リターンと benchmark（`1321`）比を算出 |
 | `baibai-loop-position ledger` | `position/` | repo内portfolioのcash、reservation、保有、income、cost、taxを再計算 |
+| `baibai-loop-position holding-review --input` | `position/` | holding review draftのthesis health・税引後代替・`hold / add / reduce / exit` を再計算 |
 | `baibai-loop-decision <packet>` | `thesis/` | decision packetのscenario、証拠、独立reviewをread-only再計算 |
 
 ### Schema and validation

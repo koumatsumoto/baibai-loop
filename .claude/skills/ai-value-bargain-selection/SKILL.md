@@ -12,12 +12,12 @@ description: >-
 
 > **正本と操作の分離**: 本 skill は選定フローの〈操作〉（漏斗の順序・判断ノブ・出力形態）を持つ。思想・仕様・契約の正本は docs 側にあり、本 skill はそれを書き写さず参照する — [`doctrine.md`](../../../docs/doctrine.md)（柱 2 / 柱 5）・[`portfolio-management.md`](../../../docs/portfolio-management.md)（資本・cap・耐性ゲート）・[`workflow/screening.md`](../../../docs/workflow/screening.md)・[`workflow/research.md`](../../../docs/workflow/research.md)（FV・RR・見積り式）・[`reference/decision-packet.md#execution-pricing`](../../../docs/reference/decision-packet.md#execution-pricing)（最大許容価格と指値policy）・[`operations/decision-cycle.md#2-opportunity-path`](../../../docs/operations/decision-cycle.md#2-opportunity-path)（triggerとproposal導線）。
 
-長期 AI 構造価値 × 足元割安の日本株を、本リポジトリの screening 基盤で選定し提案する手順。`AGENTS.md` の anti-pattern（AP-01 一次情報 / AP-02 検算 / AP-09 会社 IR 確認）、`docs/portfolio-management.md`（単一プール資本・concentration cap・塩漬け耐性ゲート・割高で全売り）、`docs/doctrine.md` 柱 5（単一合成スコアを出さない＝スコアは軸別座標）、`docs/workflow/research.md`（FV・RR・期待利回りの見積り式と entry/exit 規律）に従う。
+長期 AI 構造価値 × 足元割安の日本株を、本リポジトリの screening 基盤で選定し提案する手順。`AGENTS.md` の anti-pattern（AP-01 一次情報 / AP-02 検算 / AP-09 会社 IR 確認）、`docs/portfolio-management.md`（単一プール資本・concentration cap・塩漬け耐性ゲート・holding review）、`docs/doctrine.md` 柱 5（単一合成スコアを出さない＝スコアは軸別座標）、`docs/workflow/research.md`（FV・RR・期待利回りの見積り式と entry/exit 規律）に従う。
 
 ## 0. ゴールと前提
 
 - **ゴール**: 長期的に企業価値が高まる銘柄のうち最もお買い得なものを選定し、ユーザーに提案する。最終提案はユーザーがレビューして決める（research memo の `approved` は決定後に作る）。
-- **前提の固定**: 投資フレームは doctrine の long-hold value（長期積立・価格 stop なし・割高化 or 事業毀損で全売り）で固定。AI の解釈の広さ（本命AIのみ / AI受益まで広く / RR最優先で範囲不問）だけ、依頼文から読めない場合に `AskUserQuestion` で確認する。
+- **前提の固定**: 投資フレームは doctrine の long-hold value（長期積立・価格 stop なし・FV到達はreview trigger・thesis breakを優先売却候補）で固定。AI の解釈の広さ（本命AIのみ / AI受益まで広く / RR最優先で範囲不問）だけ、依頼文から読めない場合に `AskUserQuestion` で確認する。
 - **除外**: 既存保有銘柄（`records/04-position/` から）は「新規」候補から外す。パチンコ機械のような構造的に廃れる事業は人間判断で外す。
 
 ## 1. 準備

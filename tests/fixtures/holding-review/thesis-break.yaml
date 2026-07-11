@@ -1,0 +1,21 @@
+# Broken thesis is the priority sell candidate: action=exit regardless of price.
+schema_version: 1
+as_of: "2026-07-15"
+position_id: trade-20260701-9715
+ticker: "9715"
+thesis_health:
+  invalidation_status: broken
+  permanent_loss_axes:
+    - {axis: funding_liquidity, assessment: acceptable, evidence_status: verified}
+    - {axis: debt_repayment, assessment: acceptable, evidence_status: verified}
+    - {axis: cash_flow, assessment: adverse, evidence_status: verified}
+    - {axis: dilution, assessment: acceptable, evidence_status: verified}
+    - {axis: customer_concentration, assessment: acceptable, evidence_status: verified}
+    - {axis: structural_decline, assessment: acceptable, evidence_status: verified}
+    - {axis: governance_accounting, assessment: acceptable, evidence_status: verified}
+  evidence_freshness: {latest_source_as_of: "2026-07-10", age_days: 5}
+  current_5y_estimate: {status: resolved, forward_5y_cagr_pct: 2.0}
+valuation_review: {status: resolved, current_price_yen: 800, fair_value_yen: 1000, review_trigger: false}
+replacement_comparison:
+  status: no_candidate
+action: exit
