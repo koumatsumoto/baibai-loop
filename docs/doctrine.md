@@ -48,7 +48,7 @@ flowchart LR
 
 ### 柱 1: 事実と分析の分離
 
-- **(a)** 記録すべき **事実**（candidates）と、人間 / AI による **解釈**（macro context・thesis）は、責務を分けて別ファイルで管理する。禁止表現と運用ルールは §6 [事実と分析の分離](#fact-analysis-separation) を正本とする。
+- **(a)** candidates内のobserved / derived / estimateと、人間/AIによるjudgment（macro context・decision packet）は責務を分ける。禁止表現と運用ルールは§6[事実と分析の分離](#fact-analysis-separation)を正本とする。
 - **(b)** 事実と意見が混ざると、AI が過去の解釈を「事実」として再生産してしまう。ファイル単位で分けておけば「解釈ファイルを AI に見せない」という選択ができ、後知恵バイアスと責任の所在の混乱を防げる。
 - **(c)** タグや front matter の `type` で同一ファイル内を区分けする案は、混入したときに見落としやすく機械チェックも利きにくい。ファイル単位の物理的な分離が最も安全。
 
@@ -72,7 +72,7 @@ flowchart LR
 
 ### 柱 5: 計測ファーストのデータ基盤
 
-- **(a)** 主軸は、全上場銘柄の実データを保持する **データ層（L1）** と、決定論的な screen・軸別スコアからなる **分析層（L2）** であり、判断層（L3 = records）はその消費者にあたる（3 層の詳細は [`architecture.md`](./architecture.md)）。ここでの L2 の「分析」は決定論的な機械処理を指し、その出力（candidates・軸別スコア）は柱 1 の意味では **事実** に属する（柱 1 / §6 で「分析」と呼ぶのは人間 / AI の解釈 = macro context・thesis）。計測手段を持たない機械的機能は追加しない。計測の対象は **長期戦略が依存するもの**（見積り精度・実現利回り・valuation の収束）に限る。**長期 horizon（3 か月以上）の見積り較正リプレイ**（過去 asof の point-in-time 再構成 × 実現リターンの突き合わせ。estimate calibration）はこの正式な計測経路であり、**短期（3 か月未満）horizon の forward-backtest による screen 成績最適化は行わない**。較正リプレイには誠実性の規律を課す: 有意性・統計的優位を主張しない（cohort の窓は重複し独立でないため、効果量と cohort 勝率で判断する）／仮説と採否基準は検証前に事前登録し、時間分割（design/confirm）の両方で整合した変更だけ採用する（grid search をしない）／survivorship・coverage の欠けを計数で開示する／累積リターン・年率・シャープ等を実績（track record）として掲げない。
+- **(a)** 主軸は、全上場銘柄の実データを保持する **データ層（L1）** と、決定論的なscreen・導出指標・モデル見積りからなる **分析層（L2）** であり、判断層（L3 = records）はその消費者にあたる（3層の詳細は[`architecture.md`](./architecture.md)）。L2出力は`observed / derived / estimate`を区別し、決定論的に生成されてもE[r]やFV anchorを事実とは呼ばない。人間/AIの解釈は`judgment`としてdecision packetへ置く。計測手段を持たない機械的機能は追加しない。計測の対象は **長期戦略が依存するもの**（見積り精度・実現利回り・valuation の収束）に限る。**長期 horizon（3 か月以上）の見積り較正リプレイ**（過去 asof の point-in-time 再構成 × 実現リターンの突き合わせ。estimate calibration）はこの正式な計測経路であり、**短期（3 か月未満）horizon の forward-backtest による screen 成績最適化は行わない**。較正リプレイには誠実性の規律を課す: 有意性・統計的優位を主張しない（cohort の窓は重複し独立でないため、効果量と cohort 勝率で判断する）／仮説と採否基準は検証前に事前登録し、時間分割（design/confirm）の両方で整合した変更だけ採用する（grid search をしない）／survivorship・coverage の欠けを計数で開示する／累積リターン・年率・シャープ等を実績（track record）として掲げない。
 - **(b)** スコアは軸ごとの座標（業種相対・自己レンジ相対の percentile）であり、単一の合成点や売買指示には決して畳まない。**単位（%/年）・成分分解（reversion / carry）・前提（anchor・実現率・cap）を持つ機械見積り（E[r]・FV アンカー）は「単一の合成点」とはみなさない** — ただし (i) 出力に成分と前提を必ず併記する、(ii) 較正リプレイで予測と実現を突き合わせ続ける、(iii) 採否と投入額の判断は人間に残る、を必須条件とする。正直な軸別の事実 + 人間の判断という役割分担が、AI の強み（機械可読な事実の整理・統合）を活かしつつ、弱み（判断の責任を負えないこと）を遮断する。
 - **(c)** 機械学習によるスコアリングは、サンプルが 3 桁に満たない 1 人運用では過剰適合が必然で、判断の帰責も壊れる。固定閾値と見積り calibration で改善は十分に回る。MCP / API server 化やリアルタイム化は、1 人・ローカル完結の運用では不要（YAGNI）。
 
@@ -88,7 +88,7 @@ flowchart LR
 | マクロ環境分析 | macro context | 分析（判断） | L3 | 姿勢・セクター・AI 前提を読む環境認識 |
 | 市場データ基盤 | market.sqlite | データ store | L1 | 全上場銘柄の実データの正本 |
 | 機械スクリーニング | screening | 機械処理 | L2 | valuation ranking で割安ゾーンを機械抽出 |
-| 通過銘柄リスト | candidates | 成果物（事実） | L2 出力 | スクリーニング通過銘柄の事実 snapshot |
+| 通過銘柄リスト | candidates | 機械成果物 | L2 出力 | observed / derived / estimateを分離したsnapshot |
 | リサーチ候補選定 | select | 機械処理 | L2 | 通過銘柄に機械 E[r] 降順の着手順位と lens 注記を付ける |
 | 個別銘柄リサーチ | thesis | 分析（判断） | L3 | FV・RR・期待利回り・耐性・採否を判断する投資メモ |
 | 戦略プレイブック | playbooks | governance | — | 再現可能な割安 value の型（archetype） |
@@ -105,7 +105,7 @@ thesis で見積りの根拠を検証するときの分析レンズ / リター�
 
 - **運用方針 (portfolio management)**：目的・制約・資本・許容リスク・ポジション管理・投資対象の範囲・kill switch・割高で全売りする規律を扱う。個別銘柄の thesis や entry / exit の個別設計は扱わない。
 - **マクロ環境分析 (macro context)**：外部記事と指標データを参照し、screening 前の姿勢・セクター・AI 前提を読む。記事本文や取得ログは保存しない。
-- **通過銘柄リスト (candidates)**：screen の事実層。銘柄単位の事実だけを残し、解釈・予測・相場観を書かない。
+- **通過銘柄リスト (candidates)**：screenの機械出力。observed、derived、estimateを由来付きで残し、judgment・因果解釈・相場観を書かない。
 - **個別銘柄リサーチ (thesis)**：投資メモ。フェアバリュー・想定上昇率と下落率・リスクリワード・期待利回り・塩漬け耐性・毀損条件（invalidation）を検証する。
 - **売買提案 (trade proposal)**：research の採用結論を「どの銘柄を・いくらで・何株」という具体提案に落とし、GitHub Issue で人間に上げる入口。
 - **売買執行記録 (position)**：実際に発注・entry した判断の注文・約定・保有・全売り決済と、見積り vs 実現の calibration を記録する。
@@ -114,7 +114,7 @@ thesis で見積りの根拠を検証するときの分析レンズ / リター�
 
 ## 6. 事実と分析の分離（禁止表現）
 
-事実層（candidates）と分析層（macro context・thesis）は、物理的に別ファイル・別ディレクトリに分ける。事実層に解釈・因果・予測を書かない。**この節は AP-05 が根拠として引く正本**であり、アンカー `#fact-analysis-separation` を変更しない。
+candidatesのobserved / derived / estimateと、macro context・decision packetのjudgmentは物理的・構造的に分ける。candidatesにAI judgment・因果解釈・相場観を書かず、estimateをobserved factと呼ばない。**この節はAP-05が根拠として引く正本**であり、アンカー`#fact-analysis-separation`を変更しない。
 
 事実層で禁止する表現：
 

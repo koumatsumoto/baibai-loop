@@ -8,7 +8,7 @@ last_reviewed: 2026-07-09
 
 # Workflow — 割安 screening
 
-単一ループ（[`../doctrine.md`](../doctrine.md) §2）の「お買い得を機械的に見つける」工程。全上場普通株を対象に valuation facts と playbook evidence を `records/02-candidates/` に出力し、`select` で流動性母集団を **機械 E[r]（成分分解付き年率見積り）降順**に並べて深掘りする候補を選り分ける。この工程は決定論的な機械処理（L2）であり、出力は解釈を含まない **事実**。指標算出の仕様は [`../reference/valuation-metrics.md`](../reference/valuation-metrics.md)、CLI / SQLite の実装は [`../reference/screening-runtime.md`](../reference/screening-runtime.md)、契約の正本は `records/_schemas/candidates.json`。
+単一ループ（[`../doctrine.md`](../doctrine.md) §2）の「お買い得を機械的に見つける」工程。全上場普通株を対象に observed facts、derived metrics、playbook evidence、機械 estimate を `records/02-candidates/` に出力し、`select` で流動性母集団を **機械 E[r]（成分分解付き年率見積り）降順**に並べて深掘りする候補を選り分ける。決定論的に生成されることと事実であることは別であり、E[r] / FV anchorには`origin`、model version、unit、assumptionsを付ける。指標算出の仕様は [`../reference/valuation-metrics.md`](../reference/valuation-metrics.md)、CLI / SQLite の実装は [`../reference/screening-runtime.md`](../reference/screening-runtime.md)、契約の正本は `records/_schemas/candidates.json`。
 
 ## Universe（対象範囲）
 
@@ -79,7 +79,7 @@ screen の軸・閾値・select 順位が「3 か月以上先の割安回復」�
 
 ## 事実と分析の分離
 
-candidates は **事実層**。valuation facts、E[r] 成分、screen の evidence 判定は機械的であり、「なぜ割安なのか」「採用すべきか」の解釈は [`./research.md`](./research.md) 側で行う（[`../doctrine.md#fact-analysis-separation`](../doctrine.md#fact-analysis-separation)）。candidates 本文には因果・予測・相場観を書かない。
+candidates はobserved / derived / estimateを混同しない機械出力層である。valuation inputはobserved、percentile等はderived、E[r] / FV anchorはestimateとして扱う。「なぜ割安なのか」「採用すべきか」のjudgmentは[`./research.md`](./research.md)側だけに置く（[`../doctrine.md#fact-analysis-separation`](../doctrine.md#fact-analysis-separation)）。candidates本文には因果・相場観を書かない。
 
 ## 参考
 

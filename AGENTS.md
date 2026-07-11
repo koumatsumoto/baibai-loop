@@ -28,7 +28,7 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 | --- | --- | --- | --- | --- |
 | macro | `src/baibai_loop/macro/` | `records/01-macro-context/` | `baibai-loop-macro` | 見積り calibration（[`workflow/macro.md`](./docs/workflow/macro.md)、formal loop にしない） |
 | screening | `src/baibai_loop/screening/` | `records/02-candidates/`, `records/_config/` | `baibai-loop-screening` | 見積り calibration（保有 outcome + 長期 horizon の較正リプレイ `calibration-build/evaluate`。短期 backtest はしない） |
-| thesis | `src/baibai_loop/thesis/` | `records/03-thesis/`, `records/_playbooks/` | （`baibai-loop-validation --target thesis` 経由） | preflight gate（`thesis/preflight.py`） |
+| thesis | `src/baibai_loop/thesis/` | `records/03-thesis/`, `records/_playbooks/` | `baibai-loop-decision` / validation | decision packet + 移行完了までのpreflight gate |
 | position | `src/baibai_loop/position/` | `records/04-position/` | `baibai-loop-position` | portfolio ledger + 見積り calibration（entry 見積り vs 実現） |
 | market | `src/baibai_loop/market/` | （`data/screening/market.sqlite` ほか、git 外） | — | 価格・calendar data 層（screening・保有計測の価格基盤） |
 | foundation | `src/baibai_loop/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
@@ -69,7 +69,7 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 
 ## 事実と分析の分離
 
-`records/02-candidates/` は事実層、`records/01-macro-context/` と `records/03-thesis/` は分析層。事実ファイルに解釈・予測・相場観を書かない。詳細は [`docs/doctrine.md#fact-analysis-separation`](./docs/doctrine.md#fact-analysis-separation)。
+`records/02-candidates/`はobserved / derived / estimateを区別する機械出力層、`records/01-macro-context/`と`records/03-thesis/`はjudgment層。candidatesにAI解釈・因果・相場観を書かず、E[r] / FV anchorを事実と呼ばない。詳細は[`docs/doctrine.md#fact-analysis-separation`](./docs/doctrine.md#fact-analysis-separation)。
 
 ## 検証
 

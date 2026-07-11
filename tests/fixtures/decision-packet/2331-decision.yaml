@@ -1,0 +1,174 @@
+schema_version: 1
+observed:
+  ticker: "2331"
+  company_name: ALSOK
+  as_of: "2026-07-03"
+  sources:
+    - source_id: primary-results
+      source_tier: primary
+      ref: https://www.alsok.co.jp/ir/library/
+      as_of: "2026-06-30"
+      used_for: profit, cash flow, shares, debt, and governance facts
+    - source_id: internal-screen
+      source_tier: internal_record
+      ref: data/screening/market.sqlite
+      as_of: "2026-07-03"
+      used_for: valuation and liquidity metrics
+  facts:
+    - fact_id: normalized-profit
+      fact_kind: net_income_attributable_to_owners
+      value: 100000000000
+      unit: JPY
+      as_of: "2026-06-30"
+      source_ids: [primary-results]
+    - fact_id: shares-outstanding
+      fact_kind: shares_outstanding
+      value: 100000000
+      unit: shares
+      as_of: "2026-06-30"
+      source_ids: [primary-results]
+derived:
+  metrics:
+    - metric_id: normalized-eps
+      value: 1000
+      unit: JPY_per_share
+      as_of: "2026-07-03"
+      formula: ratio
+      formula_version: ratio-v1
+      input_fact_ids: [normalized-profit, shares-outstanding]
+      assumption: Normalized profit and share count use the latest disclosed period.
+      source_ids: [primary-results, internal-screen]
+estimates:
+  model_version: scenario-v1
+  entry_price_basis_yen: 1050
+  entry_price_basis: max_acceptable_price
+  entry_price_source_ids: [primary-results, internal-screen]
+  entry_price_assumption: Maximum acceptable price used for all scenario CAGR calculations.
+  scenarios:
+    - &scenario_3_bear
+      horizon_years: 3
+      name: bear
+      earnings_basis: net_income_attributable_to_owners
+      starting_earnings_fact_id: normalized-profit
+      starting_earnings_yen: 100000000000
+      annual_earnings_growth_pct: -2
+      starting_share_count_fact_id: shares-outstanding
+      starting_share_count: 100000000
+      annual_share_count_change_pct: 1
+      terminal_valuation_multiple: 0.9
+      cumulative_dividend_per_share_yen: 90
+      terminal_price_includes_dividends: false
+      claimed_terminal_earnings_yen: 94119200000
+      claimed_terminal_share_count: 103030100
+      claimed_terminal_price_yen: 822.1605
+      claimed_total_return_cagr_pct: -4.58
+      as_of: "2026-07-03"
+      unit: JPY_per_share_total_return
+      model_version: scenario-v1
+      assumption: Margin pressure and dilution reduce per-share value.
+      source_ids: [primary-results]
+    - <<: *scenario_3_bear
+      name: base
+      annual_earnings_growth_pct: 4
+      annual_share_count_change_pct: -0.5
+      terminal_valuation_multiple: 1.1
+      cumulative_dividend_per_share_yen: 105
+      claimed_terminal_earnings_yen: 112486400000
+      claimed_terminal_share_count: 98507487.5
+      claimed_terminal_price_yen: 1256.0978
+      claimed_total_return_cagr_pct: 9.04
+      assumption: Modest profit growth and buybacks improve per-share value.
+    - <<: *scenario_3_bear
+      name: bull
+      annual_earnings_growth_pct: 8
+      annual_share_count_change_pct: -1
+      terminal_valuation_multiple: 1.3
+      cumulative_dividend_per_share_yen: 120
+      claimed_terminal_earnings_yen: 125971200000
+      claimed_terminal_share_count: 97029900
+      claimed_terminal_price_yen: 1687.7536
+      claimed_total_return_cagr_pct: 19.85
+      assumption: Pricing and automation expand profits and capital returns.
+    - <<: *scenario_3_bear
+      horizon_years: 5
+      name: bear
+      annual_earnings_growth_pct: -1
+      annual_share_count_change_pct: 1
+      terminal_valuation_multiple: 0.8
+      cumulative_dividend_per_share_yen: 150
+      claimed_terminal_earnings_yen: 95099004990
+      claimed_terminal_share_count: 105101005.01
+      claimed_terminal_price_yen: 723.8675
+      claimed_total_return_cagr_pct: -3.61
+      assumption: Structural cost pressure persists for five years.
+    - <<: *scenario_3_bear
+      horizon_years: 5
+      name: base
+      annual_earnings_growth_pct: 5
+      annual_share_count_change_pct: -0.5
+      terminal_valuation_multiple: 1.1
+      cumulative_dividend_per_share_yen: 190
+      claimed_terminal_earnings_yen: 127628156250
+      claimed_terminal_share_count: 97524875.3122
+      claimed_terminal_price_yen: 1439.5401
+      claimed_total_return_cagr_pct: 9.19
+      assumption: Durable demand compounds profit with disciplined buybacks.
+    - <<: *scenario_3_bear
+      horizon_years: 5
+      name: bull
+      annual_earnings_growth_pct: 9
+      annual_share_count_change_pct: -1
+      terminal_valuation_multiple: 1.4
+      cumulative_dividend_per_share_yen: 230
+      claimed_terminal_earnings_yen: 153862395490
+      claimed_terminal_share_count: 95099004.99
+      claimed_terminal_price_yen: 2265.0853
+      claimed_total_return_cagr_pct: 18.9
+      assumption: Automation and pricing power compound shareholder value.
+permanent_loss_risks:
+  - &risk
+    axis: funding_liquidity
+    assessment: acceptable
+    evidence_status: verified
+    summary: Cash and committed funding cover the modeled stress period.
+    as_of: "2026-06-30"
+    source_ids: [primary-results]
+  - <<: *risk
+    axis: debt_repayment
+    summary: Scheduled debt service remains covered by operating cash flow.
+  - <<: *risk
+    axis: cash_flow
+    summary: Operating cash flow remains positive after normalized investment.
+  - <<: *risk
+    axis: dilution
+    summary: No material dilution program is disclosed.
+  - <<: *risk
+    axis: customer_concentration
+    assessment: unknown
+    evidence_status: partially_verified
+    summary: Public disclosure does not quantify the largest customer share.
+  - <<: *risk
+    axis: structural_decline
+    summary: Security demand is not structurally declining in the evidence window.
+  - <<: *risk
+    axis: governance_accounting
+    summary: No material governance or accounting warning is confirmed.
+judgment:
+  recommendation: buy
+  proposed_at: "2026-07-03T09:00:00+09:00"
+  confidence: medium
+  permanent_loss_conclusion: unknown
+  strongest_countercase: FCF conversion may remain below normalized profit after acquisitions.
+  sizing_action: reduced
+independent_review_ref: 2331-decision-review.yaml
+human_evidence_override:
+  override_id: evidence-override-2331
+  reason: Customer concentration is unquantified, so proposal size is reduced to one lot.
+  decision_reference: user-confirmed-evidence-override-2331
+  proposal_sha256: "a1a6a7bf91075f25fc4a148d182c221a2fbd371c6b0a79a362438e7666c24f0d"
+  review_id: review-2331-20260703
+  review_sha256: "2758ef81483d27da3600d069e2a8eb1973139b4e44d10590227a2f306d05605d"
+  approved_by: human
+  acknowledged_risk_axes: [customer_concentration]
+  approved_at: "2026-07-03T10:30:00+09:00"
+  expires_at: "2026-07-31T15:30:00+09:00"

@@ -23,6 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import isfinite
 from statistics import fmean
+from typing import Literal
 
 from .schema import DerivedMetrics, FinancialSnapshot
 
@@ -38,6 +39,8 @@ from .schema import DerivedMetrics, FinancialSnapshot
 REALIZATION_RATE_ANNUAL = 0.10
 UPSIDE_CAP = 0.50
 BUYBACK_CLIP = 0.05
+EXPECTED_RETURN_MODEL_VERSION = "expected-return-v1"
+EXPECTED_RETURN_UNIT = "annual_ratio"
 
 # anchor に使う倍率軸。資産 (pbr) と収益 (per_forward → per_trailing fallback) の
 # 2 系統を blend する (baseline で予測力上位の 2 軸。単一軸のノイズを平均で薄める)。
@@ -58,6 +61,13 @@ class ExpectedReturnEstimate:
     buyback_yield: float | None
     fv_sector_median_yen: float | None
     fv_self_range_yen: float | None
+    origin: Literal["estimate"] = "estimate"
+    model_version: str = EXPECTED_RETURN_MODEL_VERSION
+    unit: str = EXPECTED_RETURN_UNIT
+    assumptions: str = (
+        "reversion=0.10*clip(implied_upside,+/-0.50); "
+        "carry=actual_dividend_yield+clip(buyback_yield,+/-0.05)"
+    )
 
 
 def estimate_expected_return(

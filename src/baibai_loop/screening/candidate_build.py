@@ -137,6 +137,10 @@ def candidate_metrics_map(
         "er_anchor_metrics": estimate.anchor_metrics if estimate else None,
         "fv_sector_median_yen": estimate.fv_sector_median_yen if estimate else None,
         "fv_self_range_yen": estimate.fv_self_range_yen if estimate else None,
+        "er_origin": estimate.origin if estimate else None,
+        "er_model_version": estimate.model_version if estimate else None,
+        "er_unit": estimate.unit if estimate else None,
+        "er_assumptions": estimate.assumptions if estimate else None,
     }
 
 
