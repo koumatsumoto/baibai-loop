@@ -88,7 +88,7 @@ uv run baibai-loop-screening run --asof YYYY-MM-DD
 uv run baibai-loop-screening select --asof YYYY-MM-DD  # macro context is optional
 uv run baibai-loop-macro search CPI
 uv run baibai-loop-validation
-uv run baibai-loop-position benchmark
+uv run baibai-loop-position outcome --benchmark-observation records/04-position/benchmarks/topix-1y.yaml
 uv run baibai-loop-screening calibration-build --start 2022-09-01 --end YYYY-MM-DD
 uv run baibai-loop-screening calibration-evaluate --out .cache/calibration-eval.yaml
 ```

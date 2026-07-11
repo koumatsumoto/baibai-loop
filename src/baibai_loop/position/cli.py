@@ -1,15 +1,15 @@
 """Command-line entry for position tracking (`baibai-loop-position`).
 
-Computes open-position benchmark-relative return. The command needs J-Quants
-daily bars to price holdings, so this entry point is the composition root that
-loads market data from the screening SQLite cache and passes it into the
-position-tracking logic; the position core modules themselves stay free of any
+Composes ledger, holding-review, calibration, and outcome inputs. This entry
+point owns SQLite composition while position core modules remain free of a
 screening dependency.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import sys
 from collections.abc import Mapping
@@ -21,51 +21,41 @@ import yaml
 from baibai_loop.foundation.env import load_project_env
 from baibai_loop.market.bars import JQuantsDailyBar, JQuantsMarketCalendarDay
 from baibai_loop.market.config import DEFAULT_CACHE_DIR, DEFAULT_SQLITE_CACHE_DIR
-from baibai_loop.market.provider import JQuantsMarketProvider, JQuantsProviderError
-from baibai_loop.market.store import read_daily_bars, read_market_calendar
-from baibai_loop.position.benchmark import (
-    NIKKEI225_ETF_PROXY,
-    PortfolioBenchmark,
-    compute_forward_performance,
+from baibai_loop.market.jpx_total_return import (
+    BenchmarkObservation,
+    BenchmarkObservationError,
+    load_benchmark_observation,
 )
+from baibai_loop.market.provider import JQuantsMarketProvider, JQuantsProviderError
+from baibai_loop.market.store import (
+    read_daily_bars,
+    read_daily_bars_for_tickers,
+    read_market_calendar,
+)
+from baibai_loop.position.benchmark import NIKKEI225_ETF_PROXY
 from baibai_loop.position.calibration import build_calibration_telemetry, telemetry_to_payload
 from baibai_loop.position.holding_review import (
     HoldingReviewError,
     evaluate_holding_review,
     load_holding_review,
     result_to_payload,
+    validate_holding_review_sources,
 )
 from baibai_loop.position.ledger import (
+    ExecutionEvent,
     PortfolioLedgerError,
+    ReservationEvent,
     load_portfolio_ledger,
     reconcile_portfolio,
     snapshot_to_payload,
 )
+from baibai_loop.position.outcome import compute_portfolio_outcome, outcome_to_payload
 from baibai_loop.position.trades import load_open_trades
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-loop-position")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    benchmark_parser = subparsers.add_parser(
-        "benchmark",
-        help="compute open-position return versus the Nikkei 225 ETF proxy",
-    )
-    benchmark_parser.add_argument("--root", type=Path, default=Path.cwd())
-    benchmark_parser.add_argument("--asof", help="evaluation date (YYYY-MM-DD); defaults to today")
-    benchmark_parser.add_argument(
-        "--proxy",
-        default=NIKKEI225_ETF_PROXY,
-        help=f"benchmark ETF proxy ticker (default: {NIKKEI225_ETF_PROXY})",
-    )
-    benchmark_parser.add_argument(
-        "--exclude-cohort-tags",
-        default="",
-        help=(
-            "comma-separated cohort_tag values to exclude (e.g. "
-            "'pre_refactor_backfill,user_position_confirmed'); empty includes everything"
-        ),
-    )
     calibration_parser = subparsers.add_parser(
         "calibration",
         description=(
@@ -101,6 +91,29 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("records/04-position/portfolio-ledger.yaml"),
         help="ledger YAML path, relative to --root unless absolute",
     )
+    outcome_parser = subparsers.add_parser(
+        "outcome",
+        help=(
+            "report a portfolio outcome only from a canonical ledger and JPX "
+            "gross-total-return observation"
+        ),
+    )
+    outcome_parser.add_argument("--root", type=Path, default=Path.cwd())
+    outcome_parser.add_argument(
+        "--ledger", type=Path, default=Path("records/04-position/portfolio-ledger.yaml")
+    )
+    outcome_parser.add_argument("--benchmark-observation", type=Path, required=True)
+    outcome_parser.add_argument(
+        "--sqlite",
+        type=Path,
+        default=DEFAULT_SQLITE_CACHE_DIR / "market.sqlite",
+        help="market SQLite path, relative to --root unless absolute",
+    )
+    outcome_parser.add_argument(
+        "--out",
+        type=Path,
+        help="write a new canonical outcome YAML; existing paths are never overwritten",
+    )
     holding_review_parser = subparsers.add_parser(
         "holding-review",
         description=(
@@ -127,16 +140,21 @@ def main(argv: list[str] | None = None) -> int:
         return _run_ledger(ledger_path)
     if args.command == "holding-review":
         return _run_holding_review(args.input)
-    load_project_env(args.root)
-    if args.command == "benchmark":
-        excluded = tuple(tag.strip() for tag in args.exclude_cohort_tags.split(",") if tag.strip())
-        return _run_benchmark(
-            args.root,
-            _resolve_asof(args.asof),
-            args.proxy,
-            os.environ,
-            excluded_cohort_tags=excluded,
+    if args.command == "outcome":
+        ledger_path = args.ledger if args.ledger.is_absolute() else args.root / args.ledger
+        benchmark_path = (
+            args.benchmark_observation
+            if args.benchmark_observation.is_absolute()
+            else args.root / args.benchmark_observation
         )
+        sqlite_path = args.sqlite if args.sqlite.is_absolute() else args.root / args.sqlite
+        out_path = (
+            None
+            if args.out is None
+            else (args.out if args.out.is_absolute() else args.root / args.out)
+        )
+        return _run_outcome(ledger_path, benchmark_path, sqlite_path, out_path)
+    load_project_env(args.root)
     if args.command == "calibration":
         return _run_calibration(args.root, _resolve_asof(args.asof), args.proxy, os.environ)
     raise AssertionError(f"unreachable command: {args.command!r}")
@@ -146,54 +164,6 @@ def _resolve_asof(value: str | None) -> date:
     if value is None:
         return datetime.now(UTC).date()
     return date.fromisoformat(value)
-
-
-def _run_benchmark(
-    root: Path,
-    asof: date,
-    proxy: str,
-    env: Mapping[str, str],
-    *,
-    excluded_cohort_tags: tuple[str, ...] = (),
-) -> int:
-    trades = load_open_trades(root)
-    if excluded_cohort_tags:
-        excluded_set = frozenset(excluded_cohort_tags)
-        observed_tags = frozenset(t.cohort_tag for t in trades if t.cohort_tag is not None)
-        # R4 P0 fix: surface typos. Silently dropping zero trades because the
-        # cohort name does not match any observed tag was a real foot-gun —
-        # the operator believes they're looking at a regulated cohort while
-        # actually reading the unfiltered total. Emit a warning AND return 2
-        # so CI / scripts can flag the bad invocation.
-        unknown_tags = excluded_set - observed_tags
-        if unknown_tags:
-            print(
-                f"warning: --exclude-cohort-tags has no match for "
-                f"{sorted(unknown_tags)} (observed cohort_tag values: "
-                f"{sorted(observed_tags) if observed_tags else 'none'})",
-                file=sys.stderr,
-            )
-            return 2
-        before = len(trades)
-        trades = [trade for trade in trades if trade.cohort_tag not in excluded_set]
-        excluded_count = before - len(trades)
-        if excluded_count > 0:
-            print(
-                f"excluded {excluded_count} trade(s) with cohort_tag in {sorted(excluded_set)}",
-                file=sys.stderr,
-            )
-    if not trades:
-        print("no open positions")
-        return 0
-    _calendar, bars, market_warnings = _load_market_data(root, env)
-    for warning in market_warnings:
-        print(f"warning: {warning}", file=sys.stderr)
-    result = compute_forward_performance(trades, asof, bars, proxy)
-    for line in _format_benchmark(result):
-        print(line)
-    for warning in result.warnings:
-        print(f"warning: {warning}", file=sys.stderr)
-    return 0
 
 
 def _run_calibration(root: Path, asof: date, proxy: str, env: Mapping[str, str]) -> int:
@@ -241,9 +211,128 @@ def _run_ledger(path: Path) -> int:
     return 0
 
 
+def _run_outcome(
+    ledger_path: Path, benchmark_path: Path, sqlite_path: Path, out_path: Path | None
+) -> int:
+    """Emit a source-bound TWR result without fetching market data at runtime."""
+
+    try:
+        benchmark = load_benchmark_observation(benchmark_path)
+    except BenchmarkObservationError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    if not ledger_path.is_file():
+        payload = {
+            "schema_version": 1,
+            "kind": "portfolio_outcome",
+            "status": "unresolved",
+            "reason": "activation_pending",
+            "benchmark_id": benchmark.benchmark_id,
+            "horizon": benchmark.horizon,
+        }
+        if out_path is not None:
+            print("error: activation_pending outcome cannot be persisted", file=sys.stderr)
+            return 2
+        yaml.safe_dump(payload, sys.stdout, sort_keys=False, allow_unicode=True)
+        return 0
+    try:
+        ledger = load_portfolio_ledger(ledger_path)
+    except PortfolioLedgerError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    calendar_days = read_market_calendar(
+        sqlite_path, benchmark.period_start_date, benchmark.period_end_date
+    )
+    if calendar_days is None:
+        payload = _outcome_unresolved_payload(benchmark, "benchmark_unavailable")
+        market_fingerprint = None
+    else:
+        tickers = tuple(
+            sorted(
+                {
+                    event.ticker
+                    for event in ledger.events
+                    if isinstance(event, (ExecutionEvent, ReservationEvent))
+                }
+            )
+        )
+        bars = read_daily_bars_for_tickers(
+            sqlite_path, tickers, benchmark.period_start_date, benchmark.period_end_date
+        )
+        if bars is None:
+            payload = _outcome_unresolved_payload(benchmark, "missing_market_price")
+            market_fingerprint = None
+        else:
+            outcome = compute_portfolio_outcome(
+                ledger,
+                benchmark,
+                business_days=tuple(day.day for day in calendar_days if day.is_business_day),
+                bars=tuple(bars),
+            )
+            payload = outcome_to_payload(outcome)
+            market_fingerprint = _market_data_fingerprint(bars)
+    payload.update(
+        benchmark_id=benchmark.benchmark_id,
+        benchmark_observation_ref=str(benchmark_path),
+        benchmark_observation_sha256=_sha256(benchmark_path),
+        ledger_ref=str(ledger_path),
+        ledger_sha256=_sha256(ledger_path),
+        market_data_ref=str(sqlite_path),
+        market_data_sha256=_sha256(sqlite_path),
+        market_data_coverage_start_date=benchmark.period_start_date.isoformat(),
+        market_data_coverage_end_date=benchmark.period_end_date.isoformat(),
+        market_data_fingerprint=market_fingerprint,
+    )
+    yaml.safe_dump(payload, sys.stdout, sort_keys=False, allow_unicode=True)
+    if out_path is not None:
+        if out_path.exists():
+            print(f"error: refusing to overwrite existing outcome: {out_path}", file=sys.stderr)
+            return 2
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8"
+        )
+    return 0
+
+
+def _outcome_unresolved_payload(benchmark: BenchmarkObservation, reason: str) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "kind": "portfolio_outcome",
+        "status": "unresolved",
+        "reason": reason,
+        "horizon": benchmark.horizon,
+        "period_start_date": benchmark.period_start_date.isoformat(),
+        "period_end_date": benchmark.period_end_date.isoformat(),
+    }
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _market_data_fingerprint(bars: list[JQuantsDailyBar]) -> str:
+    rows = [
+        (
+            bar.ticker,
+            bar.traded_at.isoformat(),
+            bar.close,
+            bar.adjustment_factor,
+        )
+        for bar in bars
+    ]
+    encoded = json.dumps(rows, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
 def _run_holding_review(path: Path) -> int:
     try:
         document = load_holding_review(path)
+    except HoldingReviewError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    try:
+        validate_holding_review_sources(document, root=Path.cwd())
     except HoldingReviewError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -260,38 +349,6 @@ def _run_holding_review(path: Path) -> int:
     for finding in result.errors:
         print(f"error: {finding}", file=sys.stderr)
     return 2 if result.errors else 0
-
-
-def _format_benchmark(result: PortfolioBenchmark) -> list[str]:
-    lines = [
-        f"asof={result.asof.isoformat()} benchmark_proxy={result.benchmark_ticker} "
-        f"positions={len(result.positions)}"
-    ]
-    for position in result.positions:
-        lines.append(
-            f"{position.ticker} {position.name} entry={position.entry_date.isoformat()} "
-            f"qty={position.quantity} pnl={_fmt_yen(position.gross_pnl)} "
-            f"ret={_fmt_pct(position.return_ratio)} bm={_fmt_pct(position.benchmark_return)} "
-            f"rel={_fmt_pt(position.relative)}"
-        )
-    lines.append(
-        f"TOTAL notional={result.total_notional:,.0f} pnl={_fmt_yen(result.total_gross_pnl)} "
-        f"ret={_fmt_pct(result.portfolio_return)} bm={_fmt_pct(result.benchmark_return)} "
-        f"rel={_fmt_pt(result.relative)}"
-    )
-    return lines
-
-
-def _fmt_yen(value: float | None) -> str:
-    return "n/a" if value is None else f"{value:+,.0f}"
-
-
-def _fmt_pct(value: float | None) -> str:
-    return "n/a" if value is None else f"{value * 100:+.2f}%"
-
-
-def _fmt_pt(value: float | None) -> str:
-    return "n/a" if value is None else f"{value * 100:+.2f}pt"
 
 
 def _load_market_data(

@@ -30,11 +30,11 @@ Decision lifecycle ([`../architecture.md`](../architecture.md)) における各 
 
 holding review・見積り calibration の価格 source は J-Quants(`data/screening/market.sqlite`)を primary とする。J-Quants が subscription / availability 問題で使えない場合だけ、公開 quote の daily close を手動 fallback として使い、position record 本文の `Price evidence` に source URL・取得日時・評価日・price basis・benchmark と同一 basis かを残す。basis が揃わない場合や corporate action の調整が確認できない場合は、確定評価ではなく provisional / inconclusive として扱う。
 
-## Benchmark proxy
+## Portfolio outcome benchmark
 
-保有の benchmark-relative 評価で使う日経平均は J-Quants に index として収録されていない。そのため benchmark は **同一 universe の ETF proxy `1321`（野村 日経225 ETF）** を canonical proxy とする。`1321` は holdings と同じ `get_eq_bars_daily_range` 呼び出しで取得され、stock と benchmark を 1 source・同一 price basis（`resolve_price_on_or_before` で adjusted 優先、無ければ close_unadjusted）に揃える。
+portfolio全体の年次・3年・5年outcomeは、JPXが公表する**TOPIX gross total return**だけをprimary benchmarkにする。operatorは公式factsheetまたは配当込み期間投資収益率の一次資料から、期間両端・公表日・as-of・gross区分・累積returnを`records/04-position/benchmarks/`のoffline observationへ正規化する。runtimeはHTTP/PDFを取得せず、期間や値を推測しない。
 
-ETF は index を tracking error 込みで追うため、proxy 由来の relative return は index 実値よりやや保守的（数週間で ~0.3pt 弱め）に出る。保有見直し・calibration で proxy を使う場合は、benchmark が index 実値ではなく ETF proxy である旨を `Price evidence` に明記する。`baibai-loop-position benchmark` が open position の entry 以降リターン / benchmark / relative を算出する。
+`1321`や`1306`などのETF price proxyはportfolio outcomeの比較値として使用しない。J-Quants price-only proxyはscreeningまたは短期calibrationのdiagnosticに限り、総合収益率・年次benchmarkと表示しない。
 
 ## 取得データの保存方針
 

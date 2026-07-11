@@ -24,6 +24,7 @@ ledgerは`portfolio_scope: repository_only`だけを許し、このrepositoryで
 | --- | --- |
 | `opening_balance` | 初期available cashを設定する。ledger内で1件だけ |
 | `contribution` | available cashを増やす。月次標準額は400,000円 |
+| `withdrawal` | available cashだけを減らす。予約・保有は暗黙に解約しない |
 | `reservation` | `quantity * price_guard_yen`をavailableからreservedへ移す |
 | `release` | 未約定残数のguarded notionalをreservedからavailableへ戻す |
 | `execution` buy | filled分をreservedから取得原価へ移し、価格改善分をavailableへ戻す |
@@ -80,3 +81,15 @@ uv run baibai-loop-validation --target ledger
 ```
 
 representative contract fixtureは`tests/fixtures/portfolio-ledger/representative.yaml`に置く。
+
+## Historical outcome
+
+portfolio outcome はledger eventを各JPX営業日closeまで再生し、日次NAVを
+`available_cash + reserved_cash + open holdings market value` として算出する。
+`contribution`だけを正、`withdrawal`だけを負のexternal flowとし、buy/sell、reservation、配当、費用、確定税はNAV内部のeventである。開始日を除く各営業日のreturnは次で連鎖する。
+
+```text
+r_d = V_d / (V_(d-1) + CF_d) - 1
+```
+
+非営業日のeventは次のJPX営業日のBODへ繰り越す。価格欠損、未解決のcorporate action、ゼロ以下NAVは補完せずoutcomeを`unresolved`にする。`estimated_exit_tax_yen`は将来仮定の表示であり、実績returnへ入れない。

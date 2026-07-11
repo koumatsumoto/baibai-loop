@@ -196,6 +196,35 @@
       "title": "HoldLeg",
       "type": "object"
     },
+    "HoldingReviewSources": {
+      "additionalProperties": false,
+      "description": "Inputs that bind every load-bearing review value to current artifacts.",
+      "properties": {
+        "ledger": {
+          "$ref": "#/$defs/SourceArtifact"
+        },
+        "holding_packet": {
+          "$ref": "#/$defs/SourceArtifact"
+        },
+        "candidate_packet": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceArtifact"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "ledger",
+        "holding_packet"
+      ],
+      "title": "HoldingReviewSources",
+      "type": "object"
+    },
     "PermanentLossAxis": {
       "additionalProperties": false,
       "properties": {
@@ -304,6 +333,28 @@
       "title": "ReplacementComparison",
       "type": "object"
     },
+    "SourceArtifact": {
+      "additionalProperties": false,
+      "description": "Immutable reference to a source artifact used by a review draft.",
+      "properties": {
+        "ref": {
+          "minLength": 1,
+          "title": "Ref",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "sha256"
+      ],
+      "title": "SourceArtifact",
+      "type": "object"
+    },
     "ThesisHealth": {
       "additionalProperties": false,
       "properties": {
@@ -401,7 +452,7 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "const": 1,
+      "const": 2,
       "title": "Schema Version",
       "type": "integer"
     },
@@ -419,6 +470,9 @@
       "pattern": "^[0-9A-Z]{4}$",
       "title": "Ticker",
       "type": "string"
+    },
+    "sources": {
+      "$ref": "#/$defs/HoldingReviewSources"
     },
     "thesis_health": {
       "$ref": "#/$defs/ThesisHealth"
@@ -480,6 +534,7 @@
     "as_of",
     "position_id",
     "ticker",
+    "sources",
     "thesis_health",
     "valuation_review",
     "replacement_comparison",

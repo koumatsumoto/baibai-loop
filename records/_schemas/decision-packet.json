@@ -262,6 +262,34 @@
           "title": "Required 5Y Base Cagr Pct",
           "type": "number"
         },
+        "current_fair_value_yen": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0001,
+              "maximum": 1000000000.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,4}0*$",
+              "type": "string"
+            }
+          ],
+          "title": "Current Fair Value Yen"
+        },
+        "valuation_model_version": {
+          "minLength": 1,
+          "title": "Valuation Model Version",
+          "type": "string"
+        },
+        "fair_value_source_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Fair Value Source Ids",
+          "type": "array"
+        },
         "deep_discount_bps": {
           "anyOf": [
             {
@@ -291,6 +319,9 @@
         "entry_price_source_ids",
         "entry_price_assumption",
         "required_5y_base_cagr_pct",
+        "current_fair_value_yen",
+        "valuation_model_version",
+        "fair_value_source_ids",
         "deep_discount_bps",
         "scenarios"
       ],

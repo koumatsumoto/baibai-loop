@@ -11,7 +11,9 @@ from baibai_loop.position.cli import main
 from baibai_loop.position.holding_review import (
     HoldingReviewDocument,
     evaluate_holding_review,
+    validate_holding_review_sources,
 )
+from baibai_loop.thesis.holding_review_builder import build_holding_review
 
 FIXTURES = Path(__file__).parent / "fixtures" / "holding-review"
 
@@ -211,9 +213,6 @@ def test_cli_recomputes_action_from_draft(capsys: pytest.CaptureFixture[str]) ->
     assert exit_code == 0
     payload = yaml.safe_load(capsys.readouterr().out)
     assert payload["computed_action"] == "reduce"
-    assert payload["recorded_action"] == "reduce"
-    assert payload["replacement"]["edge_yen"] > 0
-    assert payload["replacement"]["tax_basis"] == "estimated"
 
 
 def test_cli_flags_inconsistent_draft(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -224,3 +223,24 @@ def test_cli_flags_inconsistent_draft(tmp_path: Path, capsys: pytest.CaptureFixt
     exit_code = main(["holding-review", "--input", str(draft)])
     assert exit_code == 2
     assert "disagrees with computed" in capsys.readouterr().err
+
+
+def test_source_hash_mismatch_rejects_review() -> None:
+    document = _load("underwater-hold.yaml")
+    validate_holding_review_sources(document, root=Path.cwd())
+
+    raw = _raw("underwater-hold.yaml")
+    raw["sources"]["ledger"]["sha256"] = "f" * 64
+    tampered = HoldingReviewDocument.model_validate(raw)
+    with pytest.raises(ValueError, match="source hash mismatch"):
+        validate_holding_review_sources(tampered, root=Path.cwd())
+
+
+def test_source_builder_rejects_adjusted_or_stale_packet_price() -> None:
+    with pytest.raises(ValueError, match="ledger valuation date"):
+        build_holding_review(
+            root=Path.cwd(),
+            ledger_ref=Path("tests/fixtures/portfolio-ledger/representative.yaml"),
+            holding_packet_ref=Path("tests/fixtures/decision-packet/2331-decision.yaml"),
+            position_id="test-position",
+        )

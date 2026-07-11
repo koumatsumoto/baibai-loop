@@ -78,6 +78,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
       `(計算: A / B * 100 = C)` の形で残しているか**
 - [ ] execution policyの最大許容価格を、5年base terminal price + 累積配当と明示した要求CAGRから再計算し、合法tickへ切り下げたか。終値からの任意率やclaimed max priceを転記していないか
 - [ ] 単位を明示しているか (% / bp / pt / 倍 / 円 / USD)
+- [ ] portfolio outcomeでは、contribution / withdrawalだけをexternal flowとしてTWR分母へ入れ、buy/sell・reservation・配当・費用・確定税を二重にflow扱いしていないか
 - [ ] 価格 → リターン換算は (新値 - 旧値) / 旧値 * 100 で計算しているか
 - [ ] PER / EV/EBITDA 等の倍率変化は EPS / EBITDA 一定なら株価リターン = (target / current - 1) * 100
 - [ ] 桁数 (0.005 vs 0.05 vs 0.5、1e-3 vs 1e-2 vs 1e-1) を音読で確認したか
@@ -103,6 +104,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] TDnet / 適時開示で同期間の重要発表を確認
   - [ ] J-Quants の adjustment_factor が分割を反映しているか実装で確認
 - [ ] `self_range_percentile` が下位 5% 以下の銘柄も同様に corporate action を必ず確認
+- [ ] portfolio outcomeで保有期間の`adjustment_factor != 1`を検出したとき、adjusted closeや0円補完で継続せず`corporate_action_unresolved`にしたか
 - [ ] `forward PER` と `trailing PER` の乖離が ±100% を超える場合、決算特殊要因 (税引前
       一過性 gains / losses、減損、グループ再編) の可能性を有報で確認
 
@@ -131,6 +133,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] 既存ファイル (candidates、macro context、research) のサンプル形式に
       従っているか、独自構造を勝手に追加していないか
 - [ ] `additionalProperties: false` の object に独自 key を追加していないか
+- [ ] holding review / portfolio outcomeがledger・decision packet・benchmark observationのref/hashを検証し、scalarやsource hashのdriftを通していないか
 
 ## 5. AP-05: fact 層と分析層の境界を曖昧にする
 

@@ -1,0 +1,17 @@
+schema_version: 1
+kind: benchmark_observation
+benchmark_id: jpx-topix-gross-total-return
+index_name: TOPIX
+dividend_treatment: gross_total_return
+horizon: 1y
+period_start_date: "2025-06-30"
+period_end_date: "2026-06-30"
+period_basis: official_explicit
+period_rule_source_url: null
+cumulative_return_pct: 12.3
+annualized_return_pct: null
+display_precision_bps: 10
+source_url: https://www.jpx.co.jp/markets/indices/factsheets/files/001_fac2_TOPIX.pdf
+source_as_of: "2026-06-30"
+published_at: "2026-07-01"
+retrieved_at: "2026-07-12T09:00:00+09:00"

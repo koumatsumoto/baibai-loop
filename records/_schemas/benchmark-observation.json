@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "benchmark-observation",
+  "additionalProperties": false,
+  "description": "One official JPX period-return observation, not an inferred price proxy.",
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "kind": {
+      "const": "benchmark_observation",
+      "title": "Kind",
+      "type": "string"
+    },
+    "benchmark_id": {
+      "const": "jpx-topix-gross-total-return",
+      "title": "Benchmark Id",
+      "type": "string"
+    },
+    "index_name": {
+      "const": "TOPIX",
+      "title": "Index Name",
+      "type": "string"
+    },
+    "dividend_treatment": {
+      "const": "gross_total_return",
+      "title": "Dividend Treatment",
+      "type": "string"
+    },
+    "horizon": {
+      "enum": [
+        "1y",
+        "3y",
+        "5y"
+      ],
+      "title": "Horizon",
+      "type": "string"
+    },
+    "period_start_date": {
+      "format": "date",
+      "title": "Period Start Date",
+      "type": "string"
+    },
+    "period_end_date": {
+      "format": "date",
+      "title": "Period End Date",
+      "type": "string"
+    },
+    "period_basis": {
+      "enum": [
+        "official_explicit",
+        "official_month_end_rule"
+      ],
+      "title": "Period Basis",
+      "type": "string"
+    },
+    "period_rule_source_url": {
+      "anyOf": [
+        {
+          "pattern": "^https://",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Period Rule Source Url"
+    },
+    "cumulative_return_pct": {
+      "title": "Cumulative Return Pct",
+      "type": "number"
+    },
+    "annualized_return_pct": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Annualized Return Pct"
+    },
+    "display_precision_bps": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Display Precision Bps",
+      "type": "integer"
+    },
+    "source_url": {
+      "pattern": "^https://",
+      "title": "Source Url",
+      "type": "string"
+    },
+    "source_as_of": {
+      "format": "date",
+      "title": "Source As Of",
+      "type": "string"
+    },
+    "published_at": {
+      "format": "date",
+      "title": "Published At",
+      "type": "string"
+    },
+    "retrieved_at": {
+      "format": "date-time",
+      "title": "Retrieved At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "benchmark_id",
+    "index_name",
+    "dividend_treatment",
+    "horizon",
+    "period_start_date",
+    "period_end_date",
+    "period_basis",
+    "period_rule_source_url",
+    "cumulative_return_pct",
+    "annualized_return_pct",
+    "display_precision_bps",
+    "source_url",
+    "source_as_of",
+    "published_at",
+    "retrieved_at"
+  ],
+  "title": "BenchmarkObservation",
+  "type": "object"
+}

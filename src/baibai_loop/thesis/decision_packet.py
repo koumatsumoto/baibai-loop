@@ -310,15 +310,22 @@ class EstimatesNamespace(BaseModel):
     entry_price_source_ids: tuple[Annotated[str, Field(min_length=1)], ...]
     entry_price_assumption: Annotated[str, Field(min_length=1)]
     required_5y_base_cagr_pct: Annotated[float, Field(gt=0, le=100)]
+    current_fair_value_yen: Annotated[
+        Decimal, Field(gt=Decimal("0.0001"), le=Decimal("1000000000"), decimal_places=4)
+    ]
+    valuation_model_version: Annotated[str, Field(min_length=1)]
+    fair_value_source_ids: Annotated[
+        tuple[Annotated[str, Field(min_length=1)], ...], Field(min_length=1)
+    ]
     deep_discount_bps: Annotated[int, Field(ge=0, le=9_999)] | None
     scenarios: tuple[ScenarioEstimate, ...]
 
-    @field_validator("scenarios", "entry_price_source_ids", mode="before")
+    @field_validator("scenarios", "entry_price_source_ids", "fair_value_source_ids", mode="before")
     @classmethod
     def _parse_scenarios(cls, value: object) -> object:
         return _tuple(value)
 
-    @field_validator("entry_price_basis_yen", mode="before")
+    @field_validator("entry_price_basis_yen", "current_fair_value_yen", mode="before")
     @classmethod
     def _parse_entry_price(cls, value: object) -> Decimal:
         return _decimal(value)
@@ -609,6 +616,7 @@ def evaluate_decision_packet(
     _check_lineage(document, source_ids, errors)
     _check_snapshot_contract(document, errors)
     required_review_source_ids = set(document.estimates.entry_price_source_ids)
+    required_review_source_ids.update(document.estimates.fair_value_source_ids)
     for fact in document.input_snapshot.facts:
         required_review_source_ids.update(fact.source_ids)
     for metric in document.derived.metrics:
@@ -992,6 +1000,13 @@ def _check_lineage(
             "estimate entry price basis",
             document.input_snapshot.as_of,
             document.estimates.entry_price_source_ids,
+        )
+    )
+    rows.append(
+        (
+            "estimate current fair value",
+            document.input_snapshot.as_of,
+            document.estimates.fair_value_source_ids,
         )
     )
     rows.extend(

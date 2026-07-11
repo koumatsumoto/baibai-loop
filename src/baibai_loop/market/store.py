@@ -65,6 +65,63 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
     return bars
 
 
+def read_daily_bars_for_tickers(
+    sqlite_path: Path,
+    tickers: tuple[str, ...],
+    start: date,
+    end: date,
+) -> list[JQuantsDailyBar] | None:
+    """Read only the requested instruments over a covered range.
+
+    Portfolio outcome can span five years, but it must never load the full
+    exchange universe merely to value the repository's own holdings. Missing
+    ticker-day rows are deliberately returned to the caller; the outcome engine
+    classifies them as unresolved instead of inventing a close.
+    """
+
+    if not tickers:
+        return []
+    if not sqlite_path.exists():
+        return None
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return None
+    try:
+        if not daily_bars_covered_by_data(conn, start, end):
+            return None
+        placeholders = ", ".join("?" for _ in tickers)
+        rows = conn.execute(
+            "SELECT ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor "
+            "FROM jquants_daily_bars "
+            # Local placeholder count; ticker values remain bound.  # nosec B608
+            f"WHERE ticker IN ({placeholders}) AND traded_at BETWEEN ? AND ? "
+            "ORDER BY ticker, traded_at",
+            (*tickers, start.isoformat(), end.isoformat()),
+        ).fetchall()
+    finally:
+        conn.close()
+    bars: list[JQuantsDailyBar] = []
+    for ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor in rows:
+        if close is None or traded_at is None:
+            continue
+        try:
+            bars.append(
+                JQuantsDailyBar(
+                    ticker=str(ticker),
+                    traded_at=date.fromisoformat(traded_at),
+                    close=float(close),
+                    turnover_value=optional_float(turnover_value),
+                    adjustment_close=optional_float(adjustment_close),
+                    adjustment_factor=optional_float(adjustment_factor),
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            raise JQuantsProviderError(
+                f"corrupt SQLite row in jquants_daily_bars for {ticker} on {traded_at}: {exc}"
+            ) from exc
+    return bars
+
+
 def latest_daily_bar_date(sqlite_path: Path, start: date, end: date) -> date | None:
     """Return the most recent ``traded_at`` stored within ``[start, end]``, or None.
 
