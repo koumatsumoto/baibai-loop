@@ -49,6 +49,8 @@ portfolio資本は各positionへ複製せず、portfolio ledgerから再計算�
 
 `execution_state` は執行意図（order_intent）の最終状態、`orders[].state` は個々の注文の状態、`position_state` は約定履歴から検証される建玉の状態。`orders[].origin_order_intent_id` は order_intent と一致させる。`orders[].filled_quantity <= submitted_quantity`。`position_state: none` の record は executions を持たない。
 
+multi-intent lifecycleは [`../reference/execution-lifecycle.md`](../reference/execution-lifecycle.md) を正本にする。そこでは human-confirmed decision、manual broker order、broker-confirmed executionを別artifactとして持ち、intentの最大許容価格と各orderのlimit priceを分ける。現行position recordは`position.json`のcontractを使い、active recordへの切替はactive stateの再構成と同時に行う。
+
 ## 期限付き指値（約定待ち）の運用
 
 指値に期限を付けて発注し約定を待つ場合（例: 月末まで有効の GTC 風注文）、record は次の形で管理する:
