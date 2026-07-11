@@ -10,7 +10,7 @@ description: >-
 
 # AI バリュー・バーゲン銘柄選定（Baibai-Loop）
 
-> **正本と操作の分離**: 本 skill は選定フローの〈操作〉（漏斗の順序・判断ノブ・出力形態）を持つ。思想・仕様・契約の正本は docs 側にあり、本 skill はそれを書き写さず参照する — [`doctrine.md`](../../../docs/doctrine.md)（柱 2 / 柱 5）・[`portfolio-management.md`](../../../docs/portfolio-management.md)（資本・cap・耐性ゲート）・[`workflow/screening.md`](../../../docs/workflow/screening.md)・[`workflow/research.md`](../../../docs/workflow/research.md)（FV・RR・見積り式）・[`operations/monthly-cycle.md`](../../../docs/operations/monthly-cycle.md)（月次 e2e 導線）。
+> **正本と操作の分離**: 本 skill は選定フローの〈操作〉（漏斗の順序・判断ノブ・出力形態）を持つ。思想・仕様・契約の正本は docs 側にあり、本 skill はそれを書き写さず参照する — [`doctrine.md`](../../../docs/doctrine.md)（柱 2 / 柱 5）・[`portfolio-management.md`](../../../docs/portfolio-management.md)（資本・cap・耐性ゲート）・[`workflow/screening.md`](../../../docs/workflow/screening.md)・[`workflow/research.md`](../../../docs/workflow/research.md)（FV・RR・見積り式）・[`reference/decision-packet.md#execution-pricing`](../../../docs/reference/decision-packet.md#execution-pricing)（最大許容価格と指値policy）。
 
 長期 AI 構造価値 × 足元割安の日本株を、本リポジトリの screening 基盤で選定し提案する手順。`AGENTS.md` の anti-pattern（AP-01 一次情報 / AP-02 検算 / AP-09 会社 IR 確認）、`docs/portfolio-management.md`（単一プール資本・concentration cap・塩漬け耐性ゲート・割高で全売り）、`docs/doctrine.md` 柱 5（単一合成スコアを出さない＝スコアは軸別座標）、`docs/workflow/research.md`（FV・RR・期待利回りの見積り式と entry/exit 規律）に従う。
 
@@ -72,7 +72,7 @@ uv run baibai-loop-screening select --asof YYYY-MM-DD --top 10 --detail full > .
 - **value-trap は forward-quality ゲートで弾く**（本フローの最重要精度レバー）: trailing が割安でも「来期(FY+1)の減益ガイダンス or ガイド非開示」「op が伸びても FCF≈0/低 cash 変換」「PER は安いが EV/EBITDA は割高」「ピーク循環（単一製品・単一顧客依存の業績ピーク）」は value trap として減点。減配・規制 overhang・のれん減損リスクも同様。AI ラベルが最弱セグメントに偏在する銘柄は本物度を下げる。これらの判別シグナル（per/pbr/ev_ebitda/p_s/pcfr/cash・net_cash/equity/ocf/operating_profit_yoy/sales_yoy/fcf_yield）は `select` の recommendation 出力に転記済みで、ticker-profile を別途引かずに triage できる。
 - 「割安の理由」は **de-rating（需給・全体安・中計未達などで株価が崩れたが業績は崩壊していない）と earnings-collapse（業績そのものが崩れている）を切り分ける**。買うのは前者。
 - 4 銘柄 + 最良 1 銘柄を確定し、各々に **FV・想定下値・invalidation_conditions・durability_gate** と policy 準拠の sizing（`src/baibai_loop/position/policy.py` の `PORTFOLIO_POLICY`: 単一プール real_capital ¥10,000,000・ticker cap 6%=¥600,000・sector 40%・playbook 35%・ADV 5%・board lot 100。1 注文の絶対額上限は無く月次予算 ¥20–30 万で律速）を付す。`expected_upside=(fair_value/entry-1)*100`、`expected_downside=保守下値までの判断値`、`RR=upside/downside ≥ 2 目安`、`expected_yield=FV 収束の年率 + 配当`（AP-02 で検算。式の正本は docs/workflow/research.md）。
-- **具体的な指値プラン**: entry は最新終値基準の指値（laggard を強さに追わないなら終値のわずか下）。board-lot 丸めで月次予算・ticker cap 内に収め、「約定しない場合」のルール（押し目待ち等）と binary event（NFP/FOMC/BOJ/決算）を跨がないタイミングも書く。
+- **具体的な指値プラン**: 5年base scenarioと要求CAGRから最大許容価格を再計算し、current quoteとcanonical ledgerを`baibai-loop-decision --execution-input ... --ledger records/04-position/portfolio-ledger.yaml`へ渡して`buy_now / shallow_limit / deep_limit / defer`を比較する。board-lot・dry powder・max priceを満たすproposalだけを提示し、約定確率を推測しない。
 - **RR は market regime で調整する（最重要・甘くしない）**: `target÷stop` のボトムアップ RR は<strong>ベストケース</strong>。市場が最高値圏（regime=risk_on_rally かつ指数が ATH 圏）なら、(a) 上方は限定的・低確率（バリュエーション過熱・mean-reversion）、(b) 下方はテール厚め（Bear/Tail、単日ギャップでキャリー巻戻し −10%+）として **upside/downside をシナリオ別・β調整・ギャップ込みで引き直す**。価格 stop は置かない前提（long-hold）に立ち、実質の下値境界は<strong>ネットキャッシュ/ファンダ床</strong>（net cash/株 ＋ distressed 事業価値。ただし還元・実現機構が確認できる場合に限り床扱い、docs/workflow/research.md）に置く。確率加重の期待リターンと分布の歪み（左テール）も出す。**最高値圏では「待つ／小さく段階建て」が最良 RR のことが多い**。RR を綺麗な単一倍率で誇張しない。
 
 ## 6. HTML レポート + PR で報告

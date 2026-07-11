@@ -1,0 +1,41 @@
+decision_reference: decision-2331-20260703
+order_id: order-2331-not-filled
+ticker: "2331"
+side: buy
+limit_price_yen: 1105
+quantity: 100
+filled_quantity: 0
+submitted_at: "2026-07-03T10:00:00+09:00"
+expires_at: "2026-07-07T15:30:00+09:00"
+terminal_reason: expired
+terminal_at: "2026-07-07T15:30:00+09:00"
+decision_quote:
+  ticker: "2331"
+  exchange: TSE
+  observed_at: "2026-07-03T10:00:00+09:00"
+  session: regular
+  source_kind: market_api
+  source_ref: fixture:decision-quote
+  is_executable: true
+  freshness_status: current
+  last_yen: 1105
+  bid_yen: 1104
+  ask_yen: 1105
+  bid_size: 500
+  ask_size: 500
+  bid_depth: []
+  ask_depth: []
+  average_daily_value_yen: 100000000
+  price_basis: realtime
+  basis_group_id: tse-unadjusted-2331
+  tick_size_yen: 1
+tracking_horizon_sessions: 5
+bars:
+  - {ticker: "2331", trade_date: "2026-07-03", low_yen: 1104, close_yen: 1106, price_basis: realtime, basis_group_id: tse-unadjusted-2331, source_ref: fixture:bar-0, fetched_at: "2026-07-03T16:00:00+09:00", corporate_action_checked: true}
+  - {ticker: "2331", trade_date: "2026-07-06", low_yen: 1104, close_yen: 1110, price_basis: realtime, basis_group_id: tse-unadjusted-2331, source_ref: fixture:bar-1, fetched_at: "2026-07-06T16:00:00+09:00", corporate_action_checked: true}
+  - {ticker: "2331", trade_date: "2026-07-07", low_yen: 1112, close_yen: 1115, price_basis: realtime, basis_group_id: tse-unadjusted-2331, source_ref: fixture:bar-2, fetched_at: "2026-07-07T16:00:00+09:00", corporate_action_checked: true}
+  - {ticker: "2331", trade_date: "2026-07-08", low_yen: 1120, close_yen: 1125, price_basis: realtime, basis_group_id: tse-unadjusted-2331, source_ref: fixture:bar-3, fetched_at: "2026-07-08T16:00:00+09:00", corporate_action_checked: true}
+  - {ticker: "2331", trade_date: "2026-07-09", low_yen: 1130, close_yen: 1135, price_basis: realtime, basis_group_id: tse-unadjusted-2331, source_ref: fixture:bar-4, fetched_at: "2026-07-09T16:00:00+09:00", corporate_action_checked: true}
+  - {ticker: "2331", trade_date: "2026-07-10", low_yen: 1140, close_yen: 1145, price_basis: realtime, basis_group_id: tse-unadjusted-2331, source_ref: fixture:bar-5, fetched_at: "2026-07-10T16:00:00+09:00", corporate_action_checked: true}
+  - {ticker: "2331", trade_date: "2026-07-13", low_yen: 1145, close_yen: 1150, price_basis: realtime, basis_group_id: tse-unadjusted-2331, source_ref: fixture:bar-6, fetched_at: "2026-07-13T16:00:00+09:00", corporate_action_checked: true}
+  - {ticker: "2331", trade_date: "2026-07-14", low_yen: 1150, close_yen: 1155, price_basis: realtime, basis_group_id: tse-unadjusted-2331, source_ref: fixture:bar-7, fetched_at: "2026-07-14T16:00:00+09:00", corporate_action_checked: true}

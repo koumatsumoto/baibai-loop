@@ -76,6 +76,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 
 - [ ] **各数値計算について、Python / 電卓で 1 回検算した結果を文書内のコメントまたは
       `(計算: A / B * 100 = C)` の形で残しているか**
+- [ ] execution policyの最大許容価格を、5年base terminal price + 累積配当と明示した要求CAGRから再計算し、合法tickへ切り下げたか。終値からの任意率やclaimed max priceを転記していないか
 - [ ] 単位を明示しているか (% / bp / pt / 倍 / 円 / USD)
 - [ ] 価格 → リターン換算は (新値 - 旧値) / 旧値 * 100 で計算しているか
 - [ ] PER / EV/EBITDA 等の倍率変化は EPS / EBITDA 一定なら株価リターン = (target / current - 1) * 100
@@ -225,6 +226,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] source retrievalとmarket price observationがAI proposal時刻より後なら拒否する
   - [ ] canonical decision filenameの日付・tickerがsnapshot identityと一致する
   - [ ] `entry_price_basis: observed_market_price`はsnapshotの判断時priceと一致する
+  - [ ] execution policyはstale / historical / synthetic quote、max price超過、cash / dry-powder不足を`defer`にし、全orderがboard lot・合法tick・max priceを守る
   - [ ] local candidate YAML / SQLite pathをtracked decisionの参照先にせず、provider・dataset・retrieved_atをsnapshotへ固定する
   - [ ] scenarioの利益、株数変化、terminal multiple、配当、CAGRを再計算し、配当をterminal priceと二重計上できない
   - [ ] primary evidence不足でhigh confidenceまたは通常sizingのbuyへ進めず、期限付きoverrideと縮小sizingを要求する
@@ -335,6 +337,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] `real_concentration` が [`portfolio-management.md`](./portfolio-management.md) / `policy.py` の cap（単一銘柄 4–6% / 単一 sector 30–40%）を超える場合、`overrides` に理由を記録したか
 - [ ] 注文日が休場日または立会時間外の場合、trade は `orders[].state: submitted` とし、
       executions がない限り約定価格を推定で埋めていないか
+- [ ] not-filled outcomeのlimit touchをbroker fillとして記録していないか。期限後return / missed upsideはsame-basisの観測値が揃う場合だけ補助観測として扱ったか
 - [ ] fallback price observation は `decision_event_id`、`tracking_horizon`、`target_date`、`resolved_trade_date`、`price_basis`、`source_url`、`fetched_at`、`corporate_action_checked`、`same_basis_group_id`、`provisional` を持ち、basis 不一致を確定評価に使っていないか
 - [ ] 外部市場予測 (例: Gartner / IDC / 証券サイトの同業倍率) は、今回の canonical fact として
       採用するなら macro context / research の source として明示し、未確認なら「判断補助・未採用」として分離したか

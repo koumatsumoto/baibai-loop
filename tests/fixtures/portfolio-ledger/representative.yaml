@@ -1,6 +1,6 @@
 schema_version: 1
 portfolio_scope: repository_only
-as_of: "2026-07-11T15:30:00+09:00"
+as_of: "2026-07-11T10:00:00+09:00"
 estimated_exit_tax_rate_bps: null
 estimated_exit_tax_basis: null
 events:
@@ -89,7 +89,7 @@ events:
 market_prices:
   - ticker: "2331"
     price_yen: 1100
-    observed_at: "2026-07-11T15:00:00+09:00"
+    observed_at: "2026-07-11T10:00:00+09:00"
     source_kind: test_fixture
     price_basis: close
     source_ref: offline-fixture:2331

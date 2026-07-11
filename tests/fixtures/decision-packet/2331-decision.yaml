@@ -4,6 +4,8 @@ input_snapshot:
   producer_model_version: screening-selection-v1
   ticker: "2331"
   company_name: ALSOK
+  sector: サービス業
+  common_factors: [labor-automation]
   as_of: "2026-07-03"
   sources:
     - source_id: primary-results
@@ -62,10 +64,12 @@ derived:
 estimates:
   model_version: scenario-v1
   market_price_fact_id: decision-market-price
-  entry_price_basis_yen: 1050
-  entry_price_basis: max_acceptable_price
+  entry_price_basis_yen: 1032
+  entry_price_basis: observed_market_price
   entry_price_source_ids: [primary-results, internal-screen]
-  entry_price_assumption: Maximum acceptable price used for all scenario CAGR calculations.
+  entry_price_assumption: Observed decision-time market price used for scenario CAGR calculations.
+  required_5y_base_cagr_pct: 8.0
+  deep_discount_bps: 100
   scenarios:
     - &scenario_3_bear
       horizon_years: 3
@@ -83,7 +87,7 @@ estimates:
       claimed_terminal_earnings_yen: 94119200000
       claimed_terminal_share_count: 103030100
       claimed_terminal_price_yen: 822.1605
-      claimed_total_return_cagr_pct: -4.58
+      claimed_total_return_cagr_pct: -4.03
       as_of: "2026-07-03"
       unit: JPY_per_share_total_return
       model_version: scenario-v1
@@ -98,7 +102,7 @@ estimates:
       claimed_terminal_earnings_yen: 112486400000
       claimed_terminal_share_count: 98507487.5
       claimed_terminal_price_yen: 1256.0978
-      claimed_total_return_cagr_pct: 9.04
+      claimed_total_return_cagr_pct: 9.67
       assumption: Modest profit growth and buybacks improve per-share value.
     - <<: *scenario_3_bear
       name: bull
@@ -109,7 +113,7 @@ estimates:
       claimed_terminal_earnings_yen: 125971200000
       claimed_terminal_share_count: 97029900
       claimed_terminal_price_yen: 1687.7536
-      claimed_total_return_cagr_pct: 19.85
+      claimed_total_return_cagr_pct: 20.55
       assumption: Pricing and automation expand profits and capital returns.
     - <<: *scenario_3_bear
       horizon_years: 5
@@ -121,7 +125,7 @@ estimates:
       claimed_terminal_earnings_yen: 95099004990
       claimed_terminal_share_count: 105101005.01
       claimed_terminal_price_yen: 723.8675
-      claimed_total_return_cagr_pct: -3.61
+      claimed_total_return_cagr_pct: -3.27
       assumption: Structural cost pressure persists for five years.
     - <<: *scenario_3_bear
       horizon_years: 5
@@ -133,7 +137,7 @@ estimates:
       claimed_terminal_earnings_yen: 127628156250
       claimed_terminal_share_count: 97524875.3122
       claimed_terminal_price_yen: 1439.5401
-      claimed_total_return_cagr_pct: 9.19
+      claimed_total_return_cagr_pct: 9.57
       assumption: Durable demand compounds profit with disciplined buybacks.
     - <<: *scenario_3_bear
       horizon_years: 5
@@ -145,7 +149,7 @@ estimates:
       claimed_terminal_earnings_yen: 153862395490
       claimed_terminal_share_count: 95099004.99
       claimed_terminal_price_yen: 2265.0853
-      claimed_total_return_cagr_pct: 18.9
+      claimed_total_return_cagr_pct: 19.31
       assumption: Automation and pricing power compound shareholder value.
 permanent_loss_risks:
   - &risk
@@ -187,9 +191,9 @@ human_evidence_override:
   override_id: evidence-override-2331
   reason: Customer concentration is unquantified, so proposal size is reduced to one lot.
   decision_reference: user-confirmed-evidence-override-2331
-  proposal_sha256: "9f758e9d98d3380c352c61c2dce30ec75fa6eeeda8f1ec9ecf4548a1ca05f65d"
+  proposal_sha256: "844464e9ebf508031ef0ec6246fce7b2634614467ce254c63e58bbf3e791682f"
   review_id: review-2331-20260703
-  review_sha256: "fdcd117a1c72cad5a6d28038cad909c1b9ec2c46b0a80ea979b192b5fe05ee33"
+  review_sha256: "cb9983e20d5e130ecc45de681472dd0051a9a6b9b4d633d28bac075f9524e166"
   approved_by: human
   acknowledged_risk_axes: [customer_concentration]
   approved_at: "2026-07-03T10:30:00+09:00"
