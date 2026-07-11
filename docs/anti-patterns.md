@@ -220,6 +220,12 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 
 - [ ] validator rule を追加・修正する場合、以下の corner case の test を必ず書く:
   - [ ] decision packetは7永久損失軸、source/as-of、3年/5年bear/base/bullを欠くと`incomplete`になる
+  - [ ] decision packetは`input_snapshot`、判断時`market_price`、valuation factを欠くと`incomplete`になる
+  - [ ] snapshot sourceのticker不一致、未来as-of/retrieval、未知source ID、不正unit/typeを拒否する
+  - [ ] source retrievalとmarket price observationがAI proposal時刻より後なら拒否する
+  - [ ] canonical decision filenameの日付・tickerがsnapshot identityと一致する
+  - [ ] `entry_price_basis: observed_market_price`はsnapshotの判断時priceと一致する
+  - [ ] local candidate YAML / SQLite pathをtracked decisionの参照先にせず、provider・dataset・retrieved_atをsnapshotへ固定する
   - [ ] scenarioの利益、株数変化、terminal multiple、配当、CAGRを再計算し、配当をterminal priceと二重計上できない
   - [ ] primary evidence不足でhigh confidenceまたは通常sizingのbuyへ進めず、期限付きoverrideと縮小sizingを要求する
   - [ ] buy proposalのindependent reviewは別agent/session・別artifactで作り、packet hash、reviewer run ID、6 scenario再計算、全load-bearing source照合、変更有無へ束縛される

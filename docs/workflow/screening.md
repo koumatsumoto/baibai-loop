@@ -81,6 +81,8 @@ screen の軸・閾値・select 順位が「3 か月以上先の割安回復」�
 
 candidates はobserved / derived / estimateを混同しない機械出力層である。valuation inputはobserved、percentile等はderived、E[r] / FV anchorはestimateとして扱う。「なぜ割安なのか」「採用すべきか」のjudgmentは[`./research.md`](./research.md)側だけに置く（[`../doctrine.md#fact-analysis-separation`](../doctrine.md#fact-analysis-separation)）。candidates本文には因果・相場観を書かない。
 
+`select`のrecommendationはdetail modeにかかわらず`decision_input_seed`としてsnapshot version、producer model version、ticker、as-of、valuation、derived値、E[r]/FV estimate metadata、local data provenanceを返す。valuationがない場合は`completeness: missing_valuation`を返す。これはresearch開始時の転記補助であり、`required_enrichment`に示す判断時priceと会社IRの主要財務を補ってdecision packetの`input_snapshot`として検証する。local candidate fileのパスをdecisionへ持ち込まない。
+
 ## 参考
 
 - [`../reference/valuation-metrics.md`](../reference/valuation-metrics.md)：指標算出仕様

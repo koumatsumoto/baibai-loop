@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from datetime import date
 
 from baibai_loop.foundation.coerce import (
     dedupe_strings,
@@ -82,11 +83,11 @@ def _candidate_risk_tags(candidate: Mapping[str, object]) -> list[str]:
 
 
 def _selection_candidate_summary(
-    candidate: Mapping[str, object], *, rank: int
+    candidate: Mapping[str, object], *, rank: int, asof_date: date
 ) -> dict[str, object]:
     durability_lens = _durability_lens_of(candidate)
     metrics = mapping_or_empty(candidate.get("metrics"))
-    return {
+    summary = {
         "rank": rank,
         "ticker": string_or_none(candidate.get("ticker")),
         "name": string_or_none(candidate.get("name")),
@@ -147,6 +148,70 @@ def _selection_candidate_summary(
         "suppression_reasons": list(string_sequence(candidate.get("suppression_reasons"))),
         "reason_tags": list(string_sequence(candidate.get("reason_tags"))),
         "risk_tags": list(string_sequence(candidate.get("risk_tags"))),
+    }
+    summary["decision_input_seed"] = candidate["decision_input_seed"]
+    return summary
+
+
+def _decision_input_seed(candidate: Mapping[str, object], *, asof_date: date) -> dict[str, object]:
+    metrics = mapping_or_empty(candidate.get("metrics"))
+    valuation = {
+        key: candidate[key]
+        for key in ("per_trailing", "per_forward", "pbr", "ev_ebitda", "p_s", "pcfr")
+        if candidate.get(key) is not None
+    }
+    return {
+        "snapshot_version": 1,
+        "producer_model_version": "screening-selection-v1",
+        "ticker": string_or_none(candidate.get("ticker")),
+        "company_name": string_or_none(candidate.get("name")),
+        "as_of": asof_date.isoformat(),
+        "local_data_provenance": {
+            "provider": "baibai-loop",
+            "dataset": "screening-selection",
+        },
+        "completeness": "ready_for_enrichment" if valuation else "missing_valuation",
+        "required_enrichment": ["market_price", "primary_financials"],
+        "valuation": valuation,
+        "derived": {
+            key: candidate.get(key)
+            for key in (
+                "price_change_5d",
+                "price_change_20d",
+                "price_change_60d",
+                "benchmark_relative_20d",
+                "gap_from_52w_low",
+            )
+            if candidate.get(key) is not None
+        },
+        "estimates": {
+            "expected_return": {
+                key.removeprefix("er_"): metrics.get(key)
+                for key in (
+                    "er_annual",
+                    "er_reversion_annual",
+                    "er_carry_annual",
+                    "er_dividend_yield",
+                    "er_anchor_metrics",
+                    "er_origin",
+                    "er_model_version",
+                    "er_unit",
+                    "er_assumptions",
+                )
+                if metrics.get(key) is not None
+            },
+            "fair_value": {
+                "anchors": {
+                    key: metrics.get(key)
+                    for key in ("fv_sector_median_yen", "fv_self_range_yen")
+                    if metrics.get(key) is not None
+                },
+                "origin": metrics.get("er_origin"),
+                "model_version": metrics.get("er_model_version"),
+                "unit": "JPY_per_share",
+                "assumptions": metrics.get("er_assumptions"),
+            },
+        },
     }
 
 

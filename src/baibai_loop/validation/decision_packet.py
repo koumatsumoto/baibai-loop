@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,9 @@ def _load_validator() -> Draft202012Validator:
 
 
 _VALIDATOR = _load_validator()
+_CANONICAL_NAME = re.compile(
+    r"^(?P<as_of>\d{4}-\d{2}-\d{2})-(?P<ticker>[0-9A-Z]{4})-decision\.yaml$"
+)
 
 
 def discover_decision_packet_files(root: Path) -> list[Path]:
@@ -48,6 +52,9 @@ def validate_decision_packet_file(path: Path) -> list[ValidationFinding]:
         return findings
     try:
         document = DecisionPacketDocument.model_validate(raw)
+        findings.extend(_validate_canonical_identity(path, document))
+        if findings:
+            return findings
         review = None
         if document.independent_review_ref is not None:
             review_path = _review_path(path, document.independent_review_ref)
@@ -61,6 +68,53 @@ def validate_decision_packet_file(path: Path) -> list[ValidationFinding]:
     findings.extend(
         _finding(path, "warning", "decision-packet.warning", message) for message in result.warnings
     )
+    return findings
+
+
+def _validate_canonical_identity(
+    path: Path, document: DecisionPacketDocument
+) -> list[ValidationFinding]:
+    match = _CANONICAL_NAME.fullmatch(path.name)
+    if match is None:
+        return [
+            _finding(
+                path,
+                "error",
+                "decision-packet.identity",
+                "decision packet filename must use YYYY-MM-DD-<ticker>-decision.yaml",
+            )
+        ]
+    findings: list[ValidationFinding] = []
+    if match.group("ticker") != document.input_snapshot.ticker:
+        findings.append(
+            _finding(
+                path,
+                "error",
+                "decision-packet.identity",
+                "filename ticker does not match input_snapshot.ticker",
+                location="input_snapshot.ticker",
+            )
+        )
+    if match.group("as_of") != document.input_snapshot.as_of.isoformat():
+        findings.append(
+            _finding(
+                path,
+                "error",
+                "decision-packet.identity",
+                "filename date does not match input_snapshot.as_of",
+                location="input_snapshot.as_of",
+            )
+        )
+    expected_year, expected_month = match.group("as_of").split("-")[:2]
+    if path.parent.name != expected_month or path.parent.parent.name != expected_year:
+        findings.append(
+            _finding(
+                path,
+                "error",
+                "decision-packet.identity",
+                "decision packet path year/month does not match filename date",
+            )
+        )
     return findings
 
 

@@ -85,8 +85,12 @@ class Source(BaseModel):
     model_config = _CONFIG
 
     source_id: Annotated[str, Field(min_length=1)]
-    source_tier: Literal["primary", "secondary", "internal_record"]
-    ref: Annotated[str, Field(min_length=1)]
+    ticker: Annotated[str, Field(pattern=_TICKER)]
+    source_tier: Literal["primary", "secondary", "local_data"]
+    ref: Annotated[str, Field(min_length=1)] | None = None
+    provider: Annotated[str, Field(min_length=1)] | None = None
+    dataset: Annotated[str, Field(min_length=1)] | None = None
+    retrieved_at: datetime
     as_of: date
     used_for: Annotated[str, Field(min_length=1)]
 
@@ -95,12 +99,35 @@ class Source(BaseModel):
     def _parse_date(cls, value: object) -> date:
         return _date(value)
 
+    @field_validator("retrieved_at", mode="before")
+    @classmethod
+    def _parse_time(cls, value: object) -> datetime:
+        return _datetime(value)
+
+    @model_validator(mode="after")
+    def _source_locator(self) -> Source:
+        if self.source_tier == "local_data":
+            if self.ref is not None or self.provider is None or self.dataset is None:
+                raise ValueError("local_data source requires provider and dataset and forbids ref")
+        elif self.ref is None or not self.ref.startswith("https://"):
+            raise ValueError("external source requires an HTTPS ref")
+        elif self.provider is not None or self.dataset is not None:
+            raise ValueError("external source forbids local provider and dataset")
+        return self
+
 
 class ObservedFact(BaseModel):
     model_config = _CONFIG
 
     fact_id: Annotated[str, Field(min_length=1)]
-    fact_kind: Literal["net_income_attributable_to_owners", "fcfe", "shares_outstanding", "other"]
+    fact_kind: Literal[
+        "market_price",
+        "valuation_metric",
+        "net_income_attributable_to_owners",
+        "fcfe",
+        "shares_outstanding",
+        "other",
+    ]
     value: (
         str
         | bool
@@ -110,6 +137,15 @@ class ObservedFact(BaseModel):
     unit: Annotated[str, Field(min_length=1)]
     as_of: date
     source_ids: tuple[Annotated[str, Field(min_length=1)], ...]
+    observed_at: datetime | None = None
+    price_basis: (
+        Literal[
+            "realtime",
+            "last_close_adjusted",
+            "last_close_unadjusted",
+        ]
+        | None
+    ) = None
 
     @field_validator("as_of", mode="before")
     @classmethod
@@ -121,10 +157,26 @@ class ObservedFact(BaseModel):
     def _parse_sources(cls, value: object) -> object:
         return _tuple(value)
 
+    @field_validator("observed_at", mode="before")
+    @classmethod
+    def _parse_observed_at(cls, value: object) -> datetime | None:
+        return None if value is None else _datetime(value)
 
-class ObservedNamespace(BaseModel):
+    @model_validator(mode="after")
+    def _market_price_metadata(self) -> ObservedFact:
+        if self.fact_kind == "market_price":
+            if self.observed_at is None or self.price_basis is None:
+                raise ValueError("market_price requires observed_at and price_basis")
+        elif self.observed_at is not None or self.price_basis is not None:
+            raise ValueError("observed_at and price_basis are reserved for market_price")
+        return self
+
+
+class InputSnapshot(BaseModel):
     model_config = _CONFIG
 
+    snapshot_version: Literal[1]
+    producer_model_version: Annotated[str, Field(min_length=1)]
     ticker: Annotated[str, Field(pattern=_TICKER)]
     company_name: Annotated[str, Field(min_length=1)]
     as_of: date
@@ -231,6 +283,7 @@ class EstimatesNamespace(BaseModel):
     model_config = _CONFIG
 
     model_version: Annotated[str, Field(min_length=1)]
+    market_price_fact_id: Annotated[str, Field(min_length=1)]
     entry_price_basis_yen: Annotated[
         Decimal, Field(ge=Decimal("0.0001"), le=Decimal("1000000000"), decimal_places=4)
     ]
@@ -376,7 +429,7 @@ class DecisionPacketDocument(BaseModel):
     model_config = _CONFIG
 
     schema_version: Literal[1]
-    observed: ObservedNamespace
+    input_snapshot: InputSnapshot
     derived: DerivedNamespace
     estimates: EstimatesNamespace
     permanent_loss_risks: tuple[PermanentLossRisk, ...]
@@ -469,26 +522,35 @@ def evaluate_decision_packet(
     errors: list[str] = []
     warnings: list[str] = []
     evaluated_at = now or datetime.now(tz=ZoneInfo("Asia/Tokyo"))
-    if document.observed.as_of > evaluated_at.date():
+    if document.input_snapshot.as_of > evaluated_at.date():
         errors.append("packet as_of cannot be in the future")
-    if document.judgment.proposed_at.date() < document.observed.as_of:
+    if document.judgment.proposed_at.date() < document.input_snapshot.as_of:
         errors.append("proposal cannot predate packet as_of")
     if document.judgment.proposed_at > evaluated_at:
         errors.append("proposal cannot be future-dated")
-    source_ids = {source.source_id for source in document.observed.sources}
-    source_tiers = {source.source_id: source.source_tier for source in document.observed.sources}
-    if len(source_ids) != len(document.observed.sources):
+    source_ids = {source.source_id for source in document.input_snapshot.sources}
+    source_tiers = {
+        source.source_id: source.source_tier for source in document.input_snapshot.sources
+    }
+    if len(source_ids) != len(document.input_snapshot.sources):
         errors.append("source_id must be unique")
     if not source_ids:
-        errors.append("observed.sources must not be empty")
-    for source in document.observed.sources:
-        if source.as_of > document.observed.as_of:
+        errors.append("input_snapshot.sources must not be empty")
+    for source in document.input_snapshot.sources:
+        if source.ticker != document.input_snapshot.ticker:
+            errors.append(f"source {source.source_id} ticker does not match input_snapshot")
+        if source.as_of > document.input_snapshot.as_of:
             errors.append(f"source {source.source_id} is after packet as_of")
-        if source.source_tier == "primary" and not source.ref.startswith("https://"):
-            errors.append(f"primary source {source.source_id} must use an HTTPS reference")
+        if source.retrieved_at.date() < source.as_of:
+            errors.append(f"source {source.source_id} was retrieved before its as_of")
+        if source.retrieved_at > evaluated_at:
+            errors.append(f"source {source.source_id} retrieval is future-dated")
+        if source.retrieved_at > document.judgment.proposed_at:
+            errors.append(f"source {source.source_id} was retrieved after the AI proposal")
     _check_lineage(document, source_ids, errors)
+    _check_snapshot_contract(document, errors)
     required_review_source_ids = set(document.estimates.entry_price_source_ids)
-    for fact in document.observed.facts:
+    for fact in document.input_snapshot.facts:
         required_review_source_ids.update(fact.source_ids)
     for metric in document.derived.metrics:
         required_review_source_ids.update(metric.source_ids)
@@ -517,7 +579,7 @@ def evaluate_decision_packet(
             errors.append(
                 f"scenario {supplied.horizon_years}y/{supplied.name} model version mismatch"
             )
-        if supplied.as_of != document.observed.as_of:
+        if supplied.as_of != document.input_snapshot.as_of:
             errors.append(f"scenario {supplied.horizon_years}y/{supplied.name} as_of mismatch")
     for horizon, values in by_horizon.items():
         if set(values) == {"bear", "base", "bull"} and not (
@@ -563,7 +625,7 @@ def evaluate_decision_packet(
             _check_review(
                 review,
                 core_hash,
-                document.observed,
+                document.input_snapshot,
                 document.judgment,
                 evaluated_at,
                 source_ids,
@@ -589,7 +651,7 @@ def evaluate_decision_packet(
         _check_review(
             review,
             core_hash,
-            document.observed,
+            document.input_snapshot,
             document.judgment,
             evaluated_at,
             source_ids,
@@ -725,7 +787,7 @@ def _compare_claims(
 
 
 def _check_derived_metrics(document: DecisionPacketDocument, errors: list[str]) -> None:
-    facts = {fact.fact_id: fact for fact in document.observed.facts}
+    facts = {fact.fact_id: fact for fact in document.input_snapshot.facts}
     metric_ids = {metric.metric_id for metric in document.derived.metrics}
     if len(metric_ids) != len(document.derived.metrics):
         errors.append("derived metric_id must be unique")
@@ -771,10 +833,47 @@ def _check_derived_metrics(document: DecisionPacketDocument, errors: list[str]) 
             )
 
 
+def _check_snapshot_contract(document: DecisionPacketDocument, errors: list[str]) -> None:
+    """Enforce the minimum self-contained decision-time input snapshot."""
+
+    facts = document.input_snapshot.facts
+    market_prices = [fact for fact in facts if fact.fact_kind == "market_price"]
+    valuations = [fact for fact in facts if fact.fact_kind == "valuation_metric"]
+    if len(market_prices) != 1:
+        errors.append("input_snapshot requires exactly one market_price fact")
+    if not valuations:
+        errors.append("input_snapshot requires at least one valuation_metric fact")
+    for fact in market_prices:
+        if fact.fact_id != document.estimates.market_price_fact_id:
+            errors.append("estimates.market_price_fact_id does not match snapshot market price")
+        if fact.unit != "JPY_per_share":
+            errors.append("market_price fact unit must be JPY_per_share")
+        if fact.as_of != document.input_snapshot.as_of:
+            errors.append("market_price fact as_of must equal input_snapshot as_of")
+        if fact.observed_at is not None:
+            if fact.observed_at.date() != fact.as_of:
+                errors.append("market_price observed_at date must equal its as_of")
+            if fact.observed_at > document.judgment.proposed_at:
+                errors.append("market_price was observed after the AI proposal")
+        if isinstance(fact.value, bool | str) or fact.value <= 0:
+            errors.append("market_price fact must be a positive number")
+        elif (
+            document.estimates.entry_price_basis == "observed_market_price"
+            and Decimal(str(fact.value)) != document.estimates.entry_price_basis_yen
+        ):
+            errors.append("observed_market_price entry basis must equal snapshot market price")
+    allowed_valuation_units = {"ratio", "percent", "JPY_per_share"}
+    for fact in valuations:
+        if fact.unit not in allowed_valuation_units:
+            errors.append(f"valuation fact {fact.fact_id} has unsupported unit {fact.unit}")
+        if isinstance(fact.value, bool | str):
+            errors.append(f"valuation fact {fact.fact_id} must be numeric")
+
+
 def _check_scenario_fact_inputs(document: DecisionPacketDocument, errors: list[str]) -> None:
-    facts = {fact.fact_id: fact for fact in document.observed.facts}
-    if len(facts) != len(document.observed.facts):
-        errors.append("observed fact_id must be unique")
+    facts = {fact.fact_id: fact for fact in document.input_snapshot.facts}
+    if len(facts) != len(document.input_snapshot.facts):
+        errors.append("input_snapshot fact_id must be unique")
     for scenario in document.estimates.scenarios:
         key = f"{scenario.horizon_years}y/{scenario.name}"
         pairs = (
@@ -819,7 +918,8 @@ def _check_lineage(
 ) -> None:
     rows: list[tuple[str, date, tuple[str, ...]]] = []
     rows.extend(
-        (f"fact {item.fact_id}", item.as_of, item.source_ids) for item in document.observed.facts
+        (f"fact {item.fact_id}", item.as_of, item.source_ids)
+        for item in document.input_snapshot.facts
     )
     rows.extend(
         (f"metric {item.metric_id}", item.as_of, item.source_ids)
@@ -832,23 +932,23 @@ def _check_lineage(
     rows.append(
         (
             "estimate entry price basis",
-            document.observed.as_of,
+            document.input_snapshot.as_of,
             document.estimates.entry_price_source_ids,
         )
     )
     rows.extend(
         (f"risk {item.axis}", item.as_of, item.source_ids) for item in document.permanent_loss_risks
     )
-    sources = {source.source_id: source for source in document.observed.sources}
+    sources = {source.source_id: source for source in document.input_snapshot.sources}
     for label, as_of, references in rows:
         if not references:
             errors.append(f"{label} requires source_ids")
         unknown = sorted(set(references) - source_ids)
         if unknown:
             errors.append(f"{label} references unknown sources: {unknown}")
-        if as_of > document.observed.as_of:
+        if as_of > document.input_snapshot.as_of:
             errors.append(f"{label} as_of is after packet as_of")
-        if (document.observed.as_of - as_of).days > 400:
+        if (document.input_snapshot.as_of - as_of).days > 400:
             errors.append(f"{label} is more than 400 days older than packet as_of")
         for source_id in references:
             source = sources.get(source_id)
@@ -886,7 +986,7 @@ def _has_valid_evidence_override(
 def _check_review(
     review: IndependentReview,
     expected_hash: str,
-    observed: ObservedNamespace,
+    input_snapshot: InputSnapshot,
     judgment: JudgmentNamespace,
     evaluated_at: datetime,
     source_ids: set[str],
@@ -905,12 +1005,12 @@ def _check_review(
     unchecked = sorted(required_source_ids - set(review.checked_source_ids))
     if unchecked:
         errors.append(f"independent review did not check load-bearing sources: {unchecked}")
-    source_tiers = {source.source_id: source.source_tier for source in observed.sources}
+    source_tiers = {source.source_id: source.source_tier for source in input_snapshot.sources}
     if review.primary_source_check == "verified" and not any(
         source_tiers.get(source_id) == "primary" for source_id in review.checked_source_ids
     ):
         errors.append("verified primary-source review must check a primary source")
-    if review.reviewed_at.date() < observed.as_of:
+    if review.reviewed_at.date() < input_snapshot.as_of:
         errors.append("independent review cannot predate packet as_of")
     if review.reviewed_at < judgment.proposed_at:
         errors.append("independent review cannot predate the AI proposal")

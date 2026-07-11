@@ -1,20 +1,41 @@
 schema_version: 1
-observed:
+input_snapshot:
+  snapshot_version: 1
+  producer_model_version: screening-selection-v1
   ticker: "2331"
   company_name: ALSOK
   as_of: "2026-07-03"
   sources:
     - source_id: primary-results
+      ticker: "2331"
       source_tier: primary
       ref: https://www.alsok.co.jp/ir/library/
+      retrieved_at: "2026-07-03T08:15:00+09:00"
       as_of: "2026-06-30"
       used_for: profit, cash flow, shares, debt, and governance facts
     - source_id: internal-screen
-      source_tier: internal_record
-      ref: data/screening/market.sqlite
+      ticker: "2331"
+      source_tier: local_data
+      provider: J-Quants
+      dataset: screening/market-daily
+      retrieved_at: "2026-07-03T08:30:00+09:00"
       as_of: "2026-07-03"
       used_for: valuation and liquidity metrics
   facts:
+    - fact_id: decision-market-price
+      fact_kind: market_price
+      value: 1032
+      unit: JPY_per_share
+      as_of: "2026-07-03"
+      observed_at: "2026-07-03T08:30:00+09:00"
+      price_basis: last_close_adjusted
+      source_ids: [internal-screen]
+    - fact_id: trailing-per
+      fact_kind: valuation_metric
+      value: 10.32
+      unit: ratio
+      as_of: "2026-07-03"
+      source_ids: [primary-results, internal-screen]
     - fact_id: normalized-profit
       fact_kind: net_income_attributable_to_owners
       value: 100000000000
@@ -40,6 +61,7 @@ derived:
       source_ids: [primary-results, internal-screen]
 estimates:
   model_version: scenario-v1
+  market_price_fact_id: decision-market-price
   entry_price_basis_yen: 1050
   entry_price_basis: max_acceptable_price
   entry_price_source_ids: [primary-results, internal-screen]
@@ -165,9 +187,9 @@ human_evidence_override:
   override_id: evidence-override-2331
   reason: Customer concentration is unquantified, so proposal size is reduced to one lot.
   decision_reference: user-confirmed-evidence-override-2331
-  proposal_sha256: "a1a6a7bf91075f25fc4a148d182c221a2fbd371c6b0a79a362438e7666c24f0d"
+  proposal_sha256: "9f758e9d98d3380c352c61c2dce30ec75fa6eeeda8f1ec9ecf4548a1ca05f65d"
   review_id: review-2331-20260703
-  review_sha256: "2758ef81483d27da3600d069e2a8eb1973139b4e44d10590227a2f306d05605d"
+  review_sha256: "fdcd117a1c72cad5a6d28038cad909c1b9ec2c46b0a80ea979b192b5fe05ee33"
   approved_by: human
   acknowledged_risk_axes: [customer_concentration]
   approved_at: "2026-07-03T10:30:00+09:00"

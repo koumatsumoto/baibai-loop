@@ -96,6 +96,173 @@ def test_generated_schema_matches_tracked_contract() -> None:
     assert json.loads(REVIEW_SCHEMA.read_text(encoding="utf-8")) == independent_review_json_schema()
 
 
+def test_packet_requires_input_snapshot() -> None:
+    raw = _raw()
+    del raw["input_snapshot"]
+
+    with pytest.raises(ValueError, match="input_snapshot"):
+        _document(raw)
+
+
+def test_source_ticker_must_match_snapshot_ticker() -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    sources = snapshot["sources"]
+    assert isinstance(sources, list)
+    sources[0]["ticker"] = "2332"
+
+    result = _evaluate(raw)
+
+    assert any("ticker does not match input_snapshot" in error for error in result.errors)
+
+
+def test_snapshot_future_as_of_is_rejected() -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    snapshot["as_of"] = "2099-01-01"
+
+    result = _evaluate(raw)
+
+    assert "packet as_of cannot be in the future" in result.errors
+
+
+def test_future_source_retrieval_is_rejected() -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    sources = snapshot["sources"]
+    assert isinstance(sources, list)
+    sources[0]["retrieved_at"] = "2099-01-01T00:00:00+09:00"
+
+    result = _evaluate(raw)
+
+    assert any("retrieval is future-dated" in error for error in result.errors)
+
+
+def test_source_retrieved_after_proposal_is_rejected() -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    sources = snapshot["sources"]
+    assert isinstance(sources, list)
+    sources[0]["retrieved_at"] = "2026-07-03T09:00:01+09:00"
+
+    result = _evaluate(raw)
+
+    assert any("retrieved after the AI proposal" in error for error in result.errors)
+
+
+def test_market_price_unit_is_checked() -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    facts = snapshot["facts"]
+    assert isinstance(facts, list)
+    facts[0]["unit"] = "JPY"
+
+    result = _evaluate(raw)
+
+    assert "market_price fact unit must be JPY_per_share" in result.errors
+
+
+def test_observed_entry_price_must_equal_snapshot_market_price() -> None:
+    raw = _raw()
+    estimates = raw["estimates"]
+    assert isinstance(estimates, dict)
+    estimates["entry_price_basis"] = "observed_market_price"
+
+    result = _evaluate(raw)
+
+    assert "observed_market_price entry basis must equal snapshot market price" in result.errors
+
+
+def test_valuation_fact_must_be_numeric() -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    facts = snapshot["facts"]
+    assert isinstance(facts, list)
+    facts[1]["value"] = "cheap"
+
+    result = _evaluate(raw)
+
+    assert "valuation fact trailing-per must be numeric" in result.errors
+
+
+def test_snapshot_fact_requires_known_source() -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    facts = snapshot["facts"]
+    assert isinstance(facts, list)
+    facts[0]["source_ids"] = ["missing-source"]
+
+    result = _evaluate(raw)
+
+    assert any("references unknown sources" in error for error in result.errors)
+
+
+def test_snapshot_requires_exactly_one_market_price() -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    facts = snapshot["facts"]
+    assert isinstance(facts, list)
+    facts[0]["fact_kind"] = "other"
+    facts[0].pop("observed_at")
+    facts[0].pop("price_basis")
+
+    result = _evaluate(raw)
+
+    assert "input_snapshot requires exactly one market_price fact" in result.errors
+
+
+def test_snapshot_rejects_multiple_market_prices() -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    facts = snapshot["facts"]
+    assert isinstance(facts, list)
+    duplicate = copy.deepcopy(facts[0])
+    duplicate["fact_id"] = "second-market-price"
+    facts.append(duplicate)
+
+    result = _evaluate(raw)
+
+    assert "input_snapshot requires exactly one market_price fact" in result.errors
+
+
+def test_snapshot_requires_valuation_fact() -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    facts = snapshot["facts"]
+    assert isinstance(facts, list)
+    facts[1]["fact_kind"] = "other"
+
+    result = _evaluate(raw)
+
+    assert "input_snapshot requires at least one valuation_metric fact" in result.errors
+
+
+def test_fixture_lineage_is_self_contained_for_clean_checkout() -> None:
+    document = load_decision_packet(FIXTURE)
+
+    assert all(
+        source.ref is None
+        for source in document.input_snapshot.sources
+        if source.source_tier == "local_data"
+    )
+    assert all(
+        source.provider and source.dataset
+        for source in document.input_snapshot.sources
+        if source.source_tier == "local_data"
+    )
+    assert "candidate_ref" not in FIXTURE.read_text(encoding="utf-8")
+
+
 def test_missing_risk_axis_makes_packet_incomplete() -> None:
     raw = _raw()
     risks = raw["permanent_loss_risks"]
@@ -182,11 +349,11 @@ def test_scenario_starting_values_must_match_observed_facts() -> None:
 
 def test_scenario_fact_kind_must_match_earnings_basis() -> None:
     raw = _raw()
-    observed = raw["observed"]
-    assert isinstance(observed, dict)
-    facts = observed["facts"]
+    snapshot = raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    facts = snapshot["facts"]
     assert isinstance(facts, list)
-    facts[0]["fact_kind"] = "other"
+    facts[2]["fact_kind"] = "other"
 
     result = _evaluate(raw)
 
@@ -353,22 +520,24 @@ def test_review_must_follow_initial_proposal() -> None:
 
 def test_review_must_cover_every_load_bearing_source() -> None:
     raw = _raw()
-    observed = raw["observed"]
-    assert isinstance(observed, dict)
-    sources = observed["sources"]
-    facts = observed["facts"]
+    snapshot = raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    sources = snapshot["sources"]
+    facts = snapshot["facts"]
     assert isinstance(sources, list)
     assert isinstance(facts, list)
     sources.append(
         {
             "source_id": "fact-only-source",
+            "ticker": "2331",
             "source_tier": "secondary",
             "ref": "https://example.com/fact",
+            "retrieved_at": "2026-07-03T08:45:00+09:00",
             "as_of": "2026-06-30",
             "used_for": "scenario starting fact",
         }
     )
-    facts[0]["source_ids"] = ["fact-only-source"]
+    facts[2]["source_ids"] = ["fact-only-source"]
     review = _review_raw()
 
     result = _evaluate(raw, review)
@@ -390,9 +559,9 @@ def test_extreme_growth_is_rejected_before_arithmetic() -> None:
 
 def test_huge_observed_integer_is_rejected_before_hashing() -> None:
     raw = _raw()
-    observed = raw["observed"]
-    assert isinstance(observed, dict)
-    facts = observed["facts"]
+    snapshot = raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    facts = snapshot["facts"]
     assert isinstance(facts, list)
     facts[0]["value"] = 10**10_000
 
@@ -402,9 +571,9 @@ def test_huge_observed_integer_is_rejected_before_hashing() -> None:
 
 def test_stale_source_cannot_support_current_fact() -> None:
     raw = _raw()
-    observed = raw["observed"]
-    assert isinstance(observed, dict)
-    sources = observed["sources"]
+    snapshot = raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    sources = snapshot["sources"]
     assert isinstance(sources, list)
     sources[0]["as_of"] = "2020-01-01"
 
@@ -417,23 +586,25 @@ def test_stale_source_cannot_support_current_fact() -> None:
 
 def test_old_fact_date_cannot_be_hidden_by_matching_old_source_date() -> None:
     raw = _raw()
-    observed = raw["observed"]
-    assert isinstance(observed, dict)
-    sources = observed["sources"]
-    facts = observed["facts"]
+    snapshot = raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    sources = snapshot["sources"]
+    facts = snapshot["facts"]
     assert isinstance(sources, list)
     assert isinstance(facts, list)
     sources.append(
         {
             "source_id": "old-fact-source",
+            "ticker": "2331",
             "source_tier": "secondary",
             "ref": "https://example.com/old",
+            "retrieved_at": "2026-07-03T08:45:00+09:00",
             "as_of": "2020-01-01",
             "used_for": "stale starting fact",
         }
     )
-    facts[0]["as_of"] = "2020-01-01"
-    facts[0]["source_ids"] = ["old-fact-source"]
+    facts[2]["as_of"] = "2020-01-01"
+    facts[2]["source_ids"] = ["old-fact-source"]
     review = _review_raw()
     checked = review["checked_source_ids"]
     assert isinstance(checked, list)
@@ -535,6 +706,39 @@ def test_validator_and_read_only_cli_use_same_result(
     output = yaml.safe_load(capsys.readouterr().out)
     assert output["packet_status"] == "ready_with_warnings"
     assert output["decision_readiness"] == "ready"
+
+
+@pytest.mark.parametrize(
+    ("filename", "message"),
+    [
+        ("2026-07-03-9999-decision.yaml", "filename ticker"),
+        ("2026-07-04-2331-decision.yaml", "filename date"),
+        ("noncanonical-2331-decision.yaml", "must use YYYY-MM-DD"),
+    ],
+)
+def test_validator_rejects_canonical_filename_identity_mismatch(
+    tmp_path: Path, filename: str, message: str
+) -> None:
+    path = tmp_path / "records/03-thesis/2026/07" / filename
+    path.parent.mkdir(parents=True)
+    path.write_text(FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
+    (path.parent / "2331-decision-review.yaml").write_text(
+        REVIEW_FIXTURE.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+
+    findings = validate_decision_packet_file(path)
+
+    assert any(message in finding.message for finding in findings)
+
+
+def test_validator_rejects_canonical_path_date_mismatch(tmp_path: Path) -> None:
+    path = tmp_path / "records/03-thesis/2025/12/2026-07-03-2331-decision.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
+
+    findings = validate_decision_packet_file(path)
+
+    assert any("path year/month" in finding.message for finding in findings)
 
 
 def test_independent_review_hash_changes_with_initial_proposal() -> None:
