@@ -19,7 +19,7 @@ last_reviewed: 2026-07-02
 3. 各候補の `evidence_hits[]`・candidates の指標・macro context の `sector_tilts` を確認する。
 4. リスクリワード・[`../portfolio-management.md`](../portfolio-management.md) の cap・塩漬け耐性ゲート・流動性に照らして、`thesis_decision` と `position_sizing_overlay` を確定する。
 
-一度の選定で扱うのは 3–5 銘柄まで。複数の playbook に同時に該当することは優先度を上げる材料になるが、投入額はあくまでリスクリワード・耐性・流動性・policy cap で決める。
+一度の選定で扱うのは 3–5 銘柄まで。複数の playbook に同時に該当することは優先度を上げる材料になるが、投入額はリスクリワード・耐性・流動性とportfolio exposureで決める。canonical ledger稼働時はavailable cashとexposure warning、未初期化時は既存position/thesis gateを使う。
 
 ## thesis_decision
 
@@ -69,7 +69,7 @@ payoff が弱い場合は `thesis_decision`・`macro_context_fit.required_checks
 ## Entry
 
 - **買うのは、割安ゾーンにあり、かつ FV より十分に安い**銘柄。長期の積立として買い、押し目（直近の下落で割安ゾーンへ入った局面）を拾ってよい。
-- **Entry preflight**（front matter `entry_preflight`）：比較開始日・判定日・価格の基準、市場（日経 / TOPIX）と sector に対する相対リターン（参考情報）、macro context の鮮度、追加注文まで含めた同一 sector / playbook の保有比率の確認、を発注前に通す。sector の基準値は原則 sector 指数を使い、同一基準で取れなければ同業 3–5 社の平均、いずれも不可なら `not_checked` と理由を記録する。リスクオン相場での逆張りを禁じる仕組みは持たない（割安（= 相対的に売られた銘柄）を買うのが本流のため）。`action`（`proceed` / `starter` / `defer`）は次で決まる：macro context が鮮度切れで、日付の確定した近接カタリストもなければ `defer`。保有比率が cap の近傍なら `starter`（小さめの初回建玉）。それ以外は `proceed`。
+- **Entry preflight**（front matter `entry_preflight`）：比較開始日・判定日・価格の基準、市場（日経 / TOPIX）と sector に対する相対リターン（参考情報）、macro context の鮮度を確認する。canonical ledger稼働時のportfolio exposureはcurrent holdingとreservationから再計算しwarningとして提示する。未初期化時は既存position/thesis gateを使う。sector の基準値は原則 sector 指数を使い、取得できなければ同業 3–5 社の平均、それも不可なら`not_checked`と理由を記録する。macro contextが鮮度切れで日付の確定した近接カタリストもなければ`defer`とする。
 - 投入額は §Position size に従う。
 
 ## Exit

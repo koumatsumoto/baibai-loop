@@ -726,15 +726,6 @@ def _open_trade_notional(front: Mapping[str, Any]) -> float | None:
     return None
 
 
-def _is_repository_trade_record(path: Path) -> bool:
-    root = repo_root_for(path)
-    try:
-        path.resolve().relative_to((root / "records/04-position").resolve())
-    except ValueError:
-        return False
-    return True
-
-
 def _format_path(parts: Iterable[Any]) -> str:
     rendered: list[str] = []
     for part in parts:

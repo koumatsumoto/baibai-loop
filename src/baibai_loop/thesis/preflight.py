@@ -105,9 +105,8 @@ def _check_entry_preflight(
         )
 
     # 割安 (相対劣後)を買うのが本流のため、相対リターンや market regime による
-    # hard trigger は持たない (docs/workflow/research.md)。full-size proceed を
-    # 妨げるのは (1) macro 前提の鮮度 (stale は dated near-term catalyst が無い
-    # 限り defer)、(2) entry 時 sizing 制約としての exposure cap、の 2 系統のみ。
+    # hard trigger は持たない (docs/workflow/research.md)。Active trade records retain
+    # the exposure gate until a canonical portfolio ledger exists.
     hard_triggers: list[str] = []
     if preflight_freshness == "future":
         hard_triggers.append("future macro freshness")

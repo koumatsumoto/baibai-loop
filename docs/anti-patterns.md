@@ -243,7 +243,10 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
         `not_filled` / `partially_filled` / `filled` のいずれか
   - [ ] `orders[].filled_quantity <= orders[].submitted_quantity`
   - [ ] `position_state: none` で executions を持たない
-  - [ ] `capital_basis.real_capital_yen`（単一プール）を実資金集中度の分母に使う
+  - [ ] canonical ledger稼働時はpending orderごとにreservationを1回だけ作り、partial fill後は未約定残数だけを引き当てる
+  - [ ] canonical ledger稼働時はexpiry / cancel / broker rejectionを明示`release`し、reserved cashを暗黙解放しない
+  - [ ] canonical ledger稼働時はcash不足、guard超過、expiry以後のbuy、保有超過sellをhard errorにする
+  - [ ] canonical ledger稼働時のconcentrationはholding market value + active reservationをledgerの`total_capital_yen`で割り、warning + 期限付きoverrideとして扱う。未初期化時は既存position/thesis gateを維持する
   - [ ] `order_price_guard_yen` を置く場合、`order_intent.quantity` /
         `position_sizing_overlay.guarded_max_notional_yen` を記録し、
         `guarded_max_notional_yen = order_price_guard_yen * quantity` と整合させたか
@@ -311,7 +314,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] EPS / PER / 配当利回り / target price は公式 EPS・配当予想・株価で再計算したか
 - [ ] 直前の `rejected`、最新 candidates からの不在、universe drop、macro context headwind、実資金集中度超過などを
       上書きする場合、research front matter の `overrides` と本文に prior state / reason / evidence を残したか
-- [ ] 実資金の集中度は `capital_basis.real_capital_yen`（単一プール）を分母に算出したか
+- [ ] canonical ledger稼働時の資本・集中度はcurrent + reserved exposureから再計算したか。未初期化時は既存position/thesis gateを使ったか
 - [ ] `real_concentration` が [`portfolio-management.md`](./portfolio-management.md) / `policy.py` の cap（単一銘柄 4–6% / 単一 sector 30–40%）を超える場合、`overrides` に理由を記録したか
 - [ ] 注文日が休場日または立会時間外の場合、trade は `orders[].state: submitted` とし、
       executions がない限り約定価格を推定で埋めていないか

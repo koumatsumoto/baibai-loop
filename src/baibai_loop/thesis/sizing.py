@@ -158,8 +158,7 @@ def _check_approved_position_sizing_limits(
             )
         )
 
-    # 1 注文サイズの絶対額上限は置かない (docs/portfolio-management.md)。上限は
-    # liquidity (ADV 参加率) と ticker concentration の % cap で律速する。
+    # Active trade records still require the entry gate until a canonical ledger exists.
     real_capital_yen = optional_float(capital.get("real_capital_yen"))
     ticker_cap_pct = optional_float(risk.get("max_ticker_real_concentration_pct"))
     adv_cap_pct = optional_float(risk.get("max_adv_participation_pct"))

@@ -7,32 +7,43 @@ from typing import Any
 
 type PolicyConfig = Mapping[str, Any]
 
-# 単一プール資本モデル (docs/portfolio-management.md): 投資可能な実資金全体を
-# real_capital_yen 1 つで扱い、concentration cap の分母にする。積立に応じて
-# 手動で月次更新する簿価。cap は entry 時の sizing 制約で、保有時価の変動では
-# 再評価しない (部分トリムをしないため)。
+# 資本額は ledger event から再計算する。ここには状態を置かず、判断時に適用する
+# warning line と注文制約だけを置く。
 PORTFOLIO_POLICY: dict[str, Any] = {
-    "capital_basis": {
-        "real_capital_yen": 10_000_000,
+    # TODO(#341): remove after active position records are represented by the canonical ledger.
+    "capital_basis": {"real_capital_yen": 10_000_000},
+    "cash_management": {
+        "monthly_contribution_yen": 400_000,
+        "dry_powder_warning_pct": 20.0,
+        "override_max_days": 31,
     },
     "risk_budget": {
-        # ticker は 4-6% 帯で運用し、hard cap は帯の上限 6% (docs は方針、
-        # 具体閾値は本 config が正本)。sector も同様に 30-40% 帯の上限 40%。
+        "max_ticker_concentration_pct": 6.0,
+        "max_sector_concentration_pct": 40.0,
+        "max_common_factor_concentration_pct": 35.0,
+        "max_adv_participation_pct": 5.0,
         "max_ticker_real_concentration_pct": 6.0,
         "max_sector_real_concentration_pct": 40.0,
         "max_playbook_real_concentration_pct": 35.0,
-        "max_adv_participation_pct": 5.0,
     },
     "order_constraints": {"board_lot": 100, "price_guard_required": True},
+    "valuation": {"market_price_max_age_days": 7},
 }
 
 _REQUIRED_NUMERIC_PATHS: tuple[tuple[str, ...], ...] = (
     ("capital_basis", "real_capital_yen"),
+    ("cash_management", "monthly_contribution_yen"),
+    ("cash_management", "dry_powder_warning_pct"),
+    ("cash_management", "override_max_days"),
+    ("risk_budget", "max_ticker_concentration_pct"),
+    ("risk_budget", "max_sector_concentration_pct"),
+    ("risk_budget", "max_common_factor_concentration_pct"),
+    ("risk_budget", "max_adv_participation_pct"),
     ("risk_budget", "max_ticker_real_concentration_pct"),
     ("risk_budget", "max_sector_real_concentration_pct"),
     ("risk_budget", "max_playbook_real_concentration_pct"),
-    ("risk_budget", "max_adv_participation_pct"),
     ("order_constraints", "board_lot"),
+    ("valuation", "market_price_max_age_days"),
 )
 
 
@@ -44,6 +55,32 @@ def validate_policy(policy: PolicyConfig = PORTFOLIO_POLICY) -> None:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             dotted = ".".join(path)
             raise RuntimeError(f"PORTFOLIO_POLICY.{dotted} must be numeric")
+    positive_integer_paths = (
+        ("cash_management", "monthly_contribution_yen"),
+        ("cash_management", "override_max_days"),
+        ("order_constraints", "board_lot"),
+        ("valuation", "market_price_max_age_days"),
+    )
+    for path in positive_integer_paths:
+        value = _value_at(policy, path)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise RuntimeError(f"PORTFOLIO_POLICY.{'.'.join(path)} must be a positive integer")
+    percentage_paths = (
+        ("cash_management", "dry_powder_warning_pct"),
+        ("risk_budget", "max_ticker_concentration_pct"),
+        ("risk_budget", "max_sector_concentration_pct"),
+        ("risk_budget", "max_common_factor_concentration_pct"),
+        ("risk_budget", "max_adv_participation_pct"),
+    )
+    for path in percentage_paths:
+        value = _value_at(policy, path)
+        if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 100:
+            raise RuntimeError(f"PORTFOLIO_POLICY.{'.'.join(path)} must be within 0..100")
+    price_guard_required = _value_at(policy, ("order_constraints", "price_guard_required"))
+    if not isinstance(price_guard_required, bool):
+        raise RuntimeError(
+            "PORTFOLIO_POLICY.order_constraints.price_guard_required must be boolean"
+        )
 
 
 def _value_at(policy: PolicyConfig, path: tuple[str, ...]) -> object:
