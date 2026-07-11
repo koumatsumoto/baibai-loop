@@ -15,6 +15,7 @@ last_reviewed: 2026-07-11
 | [`portfolio-ledger.md`](./portfolio-ledger.md) | repo内portfolioのevent、snapshot式、hard error / warning境界 |
 | [`execution-lifecycle.md`](./execution-lifecycle.md) | user decision、manual order、broker-confirmed executionのmulti-intent contract |
 | [`decision-packet.md`](./decision-packet.md) | 5年scenario、永久損失、証拠override、独立second pass |
+| [`holding-review.md`](./holding-review.md) | thesis health と税引後代替で保有を `hold / add / reduce / exit` へ見直す契約 |
 | [`valuation-metrics.md`](./valuation-metrics.md) | valuation 指標の算出仕様 |
 | [`estimate-calibration.md`](./estimate-calibration.md) | 長期見積り較正リプレイ（PIT panel / forward return / 評価指標）の実装仕様 |
 | [`screening-runtime.md`](./screening-runtime.md) | screening CLI / provider / EDINET・JPX / SQLite schema・env var・J-Quants rate limit の実装仕様 |

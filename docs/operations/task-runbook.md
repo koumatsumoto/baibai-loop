@@ -18,7 +18,7 @@ GitHub issue は、決算後確認など「将来の特定イベント後に実�
 次のいずれかに該当する場合、タスク issue を作成または既存タスク issue に紐づけます。
 
 - `thesis_decision.outcome: deferred` かつ `thesis_decision.posture: wait_for_event` の research を作った。
-- 既存保有に、決算発表後の保有見直し（`review_valuation` 更新）がある。
+- 既存保有に、決算発表後の holding review 更新がある。
 - screening / research の途中で「YYYY-MM-DD の決算後に確認」のような実行日付きの判断待ちが発生した。
 
 単なる調査メモ、将来いつか確認する改善案、playbook 改訂案はこの runbook の対象外です。別途 follow-up issue として扱います。
@@ -93,14 +93,14 @@ YYYY-MM-DD の <イベント> 後に、以下を確認する。
 ## 更新先
 
 - thesis:
-- position（`review_valuation` / `estimate_calibration`）:
+- position（holding review / `estimate_calibration`）:
 ```
 
 ## 完了時
 
 1. 会社の一次 IR を確認する。
 2. issue の確認項目に沿って判断を決める。
-3. 必要な records（thesis / position の `review_valuation`・`estimate_calibration`）を更新する。
+3. 必要な records（thesis / position の holding review・`estimate_calibration`）を更新する。
 4. issue に更新先 path と判断結果をコメントする。
 5. タスクが完了したら issue を close する。
 

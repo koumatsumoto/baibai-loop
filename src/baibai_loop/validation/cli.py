@@ -25,6 +25,7 @@ from baibai_loop.thesis.playbook_schema import discover_playbook_schemas
 
 from .candidates import discover_candidates_files, validate_candidates_file
 from .decision_packet import discover_decision_packet_files, validate_decision_packet_file
+from .holding_review import discover_holding_review_files, validate_holding_review_file
 from .ledger import discover_ledger_files, validate_ledger_file
 from .macro_context import discover_macro_context_files, validate_macro_context_file
 from .policy import validate_policy_file
@@ -38,6 +39,7 @@ type ValidationTarget = Literal[
     "position",
     "ledger",
     "decision-packet",
+    "holding-review",
 ]
 _TARGETS: tuple[ValidationTarget, ...] = (
     "macro-context",
@@ -47,6 +49,7 @@ _TARGETS: tuple[ValidationTarget, ...] = (
     "position",
     "ledger",
     "decision-packet",
+    "holding-review",
 )
 
 MACRO_CONTEXT_ROOT = Path("records/01-macro-context")
@@ -177,6 +180,8 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
             return discover_ledger_files(root / POSITION_ROOT)
         case "decision-packet":
             return discover_decision_packet_files(root / THESIS_ROOT)
+        case "holding-review":
+            return discover_holding_review_files(root / POSITION_ROOT)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 
@@ -206,6 +211,8 @@ def _validate(
             return validate_ledger_file(path)
         case "decision-packet":
             return validate_decision_packet_file(path)
+        case "holding-review":
+            return validate_holding_review_file(path)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 

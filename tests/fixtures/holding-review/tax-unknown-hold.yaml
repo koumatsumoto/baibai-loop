@@ -1,0 +1,26 @@
+# Same candidate edge as replacement-superior, but exit tax is unknown (NISA /
+# loss offset). The comparison shows a sensitivity (breakeven rate, zero-tax
+# edge) instead of asserting a switch: action=hold.
+schema_version: 1
+as_of: "2026-07-15"
+position_id: trade-20260616-4432
+ticker: "4432"
+thesis_health:
+  invalidation_status: intact
+  permanent_loss_axes:
+    - {axis: funding_liquidity, assessment: acceptable, evidence_status: verified}
+    - {axis: debt_repayment, assessment: acceptable, evidence_status: verified}
+    - {axis: cash_flow, assessment: acceptable, evidence_status: verified}
+    - {axis: dilution, assessment: acceptable, evidence_status: verified}
+    - {axis: customer_concentration, assessment: acceptable, evidence_status: verified}
+    - {axis: structural_decline, assessment: acceptable, evidence_status: verified}
+    - {axis: governance_accounting, assessment: acceptable, evidence_status: verified}
+  evidence_freshness: {latest_source_as_of: "2026-07-08", age_days: 7}
+  current_5y_estimate: {status: resolved, forward_5y_cagr_pct: 6.0}
+valuation_review: {status: resolved, current_price_yen: 900, fair_value_yen: 1200, review_trigger: false}
+replacement_comparison:
+  status: evaluated
+  hold: {market_value_yen: 400000, deployed_cost_yen: 300000, forward_5y_cagr_pct: 6.0}
+  candidate: {ticker: "1234", forward_5y_cagr_pct: 14.0}
+  exit_tax: {tax_basis: unknown}
+action: hold

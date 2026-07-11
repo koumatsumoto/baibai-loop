@@ -18,12 +18,12 @@ last_reviewed: 2026-07-02
 
 ## Value archetype
 
-playbook は「どのタイプの割安を、どの耐性条件で買い、いつ全株売却するか」を定めた型。長期積立に合う少数の型に整理する。
+playbook は「どのタイプの割安を、どの耐性条件で買い、どの条件で holding review を起こすか」を定めた型。長期積立に合う少数の型に整理する。
 
 - **割安 value（現金 / キャッシュフロー / 資産系）**：ネットキャッシュ・営業キャッシュフロー・資産価値に対する割安を、業種相対 / 自己レンジ相対の percentile と個別のフェアバリューで拾う。構造的に塩漬け耐性が厚い（[`./screening.md`](./screening.md) の `cash-rich-asset-discount` / `cashflow-yield-discount` / `valuation-reversion` が対応）。
 - **配当インカム**：安定した配当・株主還元のある割安銘柄を、資金が拘束されている間の収益源として拾う。減配や還元方針の毀損を無効化条件（invalidation）にする。
 
-各型の本体は次を含む：対象範囲・狙い・判定条件（valuation / 財務）・塩漬け耐性の確認項目・**全株売却の条件（割高化 = FV 到達または割高ゾーン、およびファンダメンタルズ毀損）**・無効化条件・kill switch の確認。保有期間は固定しない（期間ではなく valuation と耐性で判断する）。
+各型の本体は次を含む：対象範囲・狙い・判定条件（valuation / 財務）・塩漬け耐性の確認項目・**FV 到達時の review trigger と thesis break の条件**・無効化条件・永久損失軸の確認。FV 到達は自動売却ではなく、`hold / add / reduce / exit` の正本は [`../reference/holding-review.md`](../reference/holding-review.md) とする。保有期間は固定しない。
 
 ## Lifecycle
 

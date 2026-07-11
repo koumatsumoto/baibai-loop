@@ -602,7 +602,7 @@ def reconcile_portfolio(
     total_capital = available_cash + reserved_cash + market_value
     if total_capital <= 0:
         raise PortfolioLedgerError("total capital must remain positive")
-    estimated_tax = _estimated_exit_tax(
+    estimated_tax = estimated_exit_tax_yen(
         holdings,
         rate_bps=document.estimated_exit_tax_rate_bps,
         basis=document.estimated_exit_tax_basis,
@@ -793,15 +793,43 @@ def _holding_snapshots(
     return tuple(holdings)
 
 
-def _estimated_exit_tax(
+def estimated_exit_tax_yen(
     holdings: tuple[HoldingSnapshot, ...], *, rate_bps: int | None, basis: str | None
 ) -> int | None:
+    """Return the configured FIFO gross-unrealized-gain tax estimate.
+
+    Both the ledger aggregate and a holding review use this deliberately small
+    estimate.  It is not an account-tax engine: confirmed tax, fees, loss
+    offsets, and account type remain separate ledger facts.
+    """
     if rate_bps is None or basis is None:
         return None
+    if basis != "ledger_fifo_gross_unrealized_gain":
+        raise ValueError(f"unsupported estimated exit tax basis: {basis}")
     unrealized_gain = sum(
         max(0, holding.market_value_yen - holding.deployed_cost_yen) for holding in holdings
     )
-    return unrealized_gain * rate_bps // 10_000
+    return estimated_exit_tax_for_gain_yen(
+        gross_unrealized_gain_yen=unrealized_gain,
+        rate_bps=rate_bps,
+        basis=basis,
+    )
+
+
+def estimated_exit_tax_for_gain_yen(
+    *,
+    gross_unrealized_gain_yen: int,
+    rate_bps: int | None,
+    basis: str | None,
+) -> int | None:
+    """Apply the ledger's configured future-exit-tax estimate to one gain."""
+    if rate_bps is None or basis is None:
+        return None
+    if gross_unrealized_gain_yen < 0:
+        raise ValueError("gross unrealized gain must not be negative")
+    if basis != "ledger_fifo_gross_unrealized_gain":
+        raise ValueError(f"unsupported estimated exit tax basis: {basis}")
+    return gross_unrealized_gain_yen * rate_bps // 10_000
 
 
 def _portfolio_warnings(

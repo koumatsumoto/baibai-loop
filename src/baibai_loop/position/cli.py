@@ -29,6 +29,12 @@ from baibai_loop.position.benchmark import (
     compute_forward_performance,
 )
 from baibai_loop.position.calibration import build_calibration_telemetry, telemetry_to_payload
+from baibai_loop.position.holding_review import (
+    HoldingReviewError,
+    evaluate_holding_review,
+    load_holding_review,
+    result_to_payload,
+)
 from baibai_loop.position.ledger import (
     PortfolioLedgerError,
     load_portfolio_ledger,
@@ -63,13 +69,14 @@ def build_parser() -> argparse.ArgumentParser:
     calibration_parser = subparsers.add_parser(
         "calibration",
         description=(
-            "Emit read-only YAML telemetry for monthly review_valuation / "
-            "estimate_calibration drafts. Draft valuation_zone and action are "
-            "mechanical review inputs, not automatic exit decisions."
+            "Emit read-only YAML telemetry for holding review / estimate_calibration "
+            "drafts. Draft valuation_zone and review_trigger are mechanical review "
+            "inputs: review_trigger flags that fair value is reached and a thesis-health "
+            "review is due, not an automatic sell."
         ),
         help=(
-            "emit read-only YAML telemetry for monthly review_valuation / "
-            "estimate_calibration drafts; draft actions are not automatic exit decisions"
+            "emit read-only YAML telemetry for holding review / estimate_calibration "
+            "drafts; review_trigger flags a due review, not an automatic sell"
         ),
     )
     calibration_parser.add_argument("--root", type=Path, default=Path.cwd())
@@ -94,6 +101,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("records/04-position/portfolio-ledger.yaml"),
         help="ledger YAML path, relative to --root unless absolute",
     )
+    holding_review_parser = subparsers.add_parser(
+        "holding-review",
+        description=(
+            "Recompute a holding review draft's hold/add/reduce/exit from thesis "
+            "health and the after-tax replacement comparison, and emit a YAML "
+            "summary. A broken thesis is the priority sell candidate; fair value is "
+            "a review trigger; price decline alone is never an exit reason."
+        ),
+        help="recompute hold/add/reduce/exit from a holding review draft YAML",
+    )
+    holding_review_parser.add_argument(
+        "--input",
+        type=Path,
+        required=True,
+        help="holding review draft YAML path",
+    )
     return parser
 
 
@@ -102,6 +125,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "ledger":
         ledger_path = args.ledger if args.ledger.is_absolute() else args.root / args.ledger
         return _run_ledger(ledger_path)
+    if args.command == "holding-review":
+        return _run_holding_review(args.input)
     load_project_env(args.root)
     if args.command == "benchmark":
         excluded = tuple(tag.strip() for tag in args.exclude_cohort_tags.split(",") if tag.strip())
@@ -214,6 +239,27 @@ def _run_ledger(path: Path) -> int:
         default_flow_style=False,
     )
     return 0
+
+
+def _run_holding_review(path: Path) -> int:
+    try:
+        document = load_holding_review(path)
+    except HoldingReviewError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    result = evaluate_holding_review(document)
+    yaml.safe_dump(
+        result_to_payload(document, result),
+        sys.stdout,
+        sort_keys=False,
+        allow_unicode=True,
+        default_flow_style=False,
+    )
+    for warning in result.warnings:
+        print(f"warning: {warning}", file=sys.stderr)
+    for finding in result.errors:
+        print(f"error: {finding}", file=sys.stderr)
+    return 2 if result.errors else 0
 
 
 def _format_benchmark(result: PortfolioBenchmark) -> list[str]:
