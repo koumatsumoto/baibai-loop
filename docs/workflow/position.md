@@ -75,7 +75,7 @@ multi-intent lifecycleは [`../reference/execution-lifecycle.md`](../reference/e
 ## 保有の見直しと見積りの較正
 
 - **定例・event後の見直し**：保有確認は月次入金に強制されず、決算発表後またはmaterialな変化があった対象から holding review（thesis health・税引後代替）を更新する。判断式と算術は[`../reference/holding-review.md`](../reference/holding-review.md)、triggerと対象選択は[`../operations/decision-cycle.md#5-earnings-and-material-event-path`](../operations/decision-cycle.md#5-earnings-and-material-event-path)を正本とする。決算後の見直しが必要な保有は GitHub Issue（`task:earnings-review` ラベル、`task: YYYY-MM-DD <ticker> を <event> 後に確認する`）で実行漏れを防ぎ、判断の正本は records に戻す。
-- **見積りの較正（estimate calibration）**：exit 時と決算後に `estimate_calibration` を更新し、entry 時の見積り（想定上昇率・期待利回り）と実現結果（実際のリターン・利回り・thesis の的中）を突き合わせる。系統的なずれ（マクロの読み・FV 推定・耐性判定のどこが外れたか）を次の見積りに反映する（= 改善ループ、[`../doctrine.md`](../doctrine.md) 柱 3）。保有の対 benchmark 相対リターンは `uv run baibai-loop-position benchmark`（`1321` proxy、[`../reference/data-sources.md`](../reference/data-sources.md)）で機械的に算出し、較正の参考情報にする。
+- **見積りの較正（estimate calibration）**：exit 時と決算後に `estimate_calibration` を更新し、entry 時の見積り（想定上昇率・期待利回り）と実現結果（実際のリターン・利回り・thesis の的中）を突き合わせる。系統的なずれ（マクロの読み・FV 推定・耐性判定のどこが外れたか）を次の見積りに反映する（= 改善ループ、[`../doctrine.md`](../doctrine.md) 柱 3）。portfolio全体の実績は `outcome` がJPX TOPIX配当込みと同期間で比較する。個別保有のprice-relative値はcalibration用diagnosticであり、総合収益率ではない。
 
 下書きは read-only CLI で作る。
 

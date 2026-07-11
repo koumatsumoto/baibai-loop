@@ -69,6 +69,9 @@ estimates:
   entry_price_source_ids: [primary-results, internal-screen]
   entry_price_assumption: Observed decision-time market price used for scenario CAGR calculations.
   required_5y_base_cagr_pct: 8.0
+  current_fair_value_yen: 1300
+  valuation_model_version: fv-v1
+  fair_value_source_ids: [primary-results]
   deep_discount_bps: 100
   scenarios:
     - &scenario_3_bear
@@ -202,9 +205,9 @@ human_evidence_override:
   override_id: evidence-override-2331
   reason: Customer concentration is unquantified, so proposal size is reduced to one lot.
   decision_reference: user-confirmed-evidence-override-2331
-  proposal_sha256: "f6a025ad82d75f60afb8dba85dea4cc0d9c2bc29c92b19971acd77e3333f894a"
+  proposal_sha256: "88b7d6c21b7fd2578709ba1c52fa7472717240455d0e75cc2008444470b1131b"
   review_id: review-2331-20260703
-  review_sha256: "14d6959e089d5021eaaef7642bb8e98cd6419d23d0e3665d5e030d3cc55b93f7"
+  review_sha256: "8d2ae58994db66079aa707b6aea2f06a0616d8645ae195b7b6d54b68b327b2b3"
   approved_by: human
   acknowledged_risk_axes: [customer_concentration]
   approved_at: "2026-07-03T10:30:00+09:00"

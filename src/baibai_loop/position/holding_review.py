@@ -15,6 +15,7 @@ estimated tax split rather than modelling any account tax engine.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
@@ -250,13 +251,33 @@ class ReduceContext(BaseModel):
     concentration_exceeded: bool
 
 
+class SourceArtifact(BaseModel):
+    """Immutable reference to a source artifact used by a review draft."""
+
+    model_config = _CONFIG
+
+    ref: Annotated[str, Field(min_length=1)]
+    sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+class HoldingReviewSources(BaseModel):
+    """Inputs that bind every load-bearing review value to current artifacts."""
+
+    model_config = _CONFIG
+
+    ledger: SourceArtifact
+    holding_packet: SourceArtifact
+    candidate_packet: SourceArtifact | None = None
+
+
 class HoldingReviewDocument(BaseModel):
     model_config = _CONFIG
 
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     as_of: date
     position_id: Annotated[str, Field(min_length=1)]
     ticker: Annotated[str, Field(pattern=_TICKER)]
+    sources: HoldingReviewSources
     thesis_health: ThesisHealth
     valuation_review: ValuationReview
     replacement_comparison: ReplacementComparison
@@ -274,6 +295,11 @@ class HoldingReviewDocument(BaseModel):
     def _validate_replacement_inputs(self) -> HoldingReviewDocument:
         replacement = self.replacement_comparison
         estimate = self.thesis_health.current_5y_estimate
+        if (replacement.status == "evaluated") != (self.sources.candidate_packet is not None):
+            raise ValueError(
+                "candidate_packet source is required exactly when replacement comparison "
+                "is evaluated"
+            )
         if estimate.status == "unresolved" and self.add_context is not None:
             raise ValueError("add_context requires a resolved current_5y_estimate")
         if self.add_context is not None:
@@ -338,6 +364,32 @@ def load_holding_review(path: Path) -> HoldingReviewDocument:
         return HoldingReviewDocument.model_validate(raw)
     except ValidationError as error:
         raise HoldingReviewError(str(error)) from error
+
+
+def validate_holding_review_sources(document: HoldingReviewDocument, *, root: Path) -> None:
+    """Reject source drift before a review's scalar inputs can be trusted.
+
+    The calculation contract remains intentionally small, but it never treats a
+    copied price, fair value, or risk axis as sufficient evidence. This boundary
+    verifies that the reviewed artifacts are the exact files named by the draft.
+    Detailed source-to-scalar construction is performed by the review builder.
+    """
+
+    bindings = (
+        ("ledger", document.sources.ledger),
+        ("holding_packet", document.sources.holding_packet),
+        ("candidate_packet", document.sources.candidate_packet),
+    )
+    for name, binding in bindings:
+        if binding is None:
+            continue
+        candidate = Path(binding.ref)
+        path = candidate if candidate.is_absolute() else root / candidate
+        if not path.is_file():
+            raise HoldingReviewError(f"{name} source is missing: {binding.ref}")
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual != binding.sha256:
+            raise HoldingReviewError(f"{name} source hash mismatch: {binding.ref}")
 
 
 def evaluate_holding_review(document: HoldingReviewDocument) -> HoldingReviewResult:

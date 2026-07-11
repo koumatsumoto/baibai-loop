@@ -21,7 +21,7 @@ def test_committed_schema_matches_model() -> None:
     assert json.loads(SCHEMA.read_text(encoding="utf-8")) == holding_review_json_schema()
 
 
-def test_representative_fixtures_validate_clean() -> None:
+def test_legacy_arithmetic_fixtures_are_rejected_without_current_sources() -> None:
     for name in (
         "thesis-break.yaml",
         "fair-value-hold.yaml",
@@ -30,8 +30,7 @@ def test_representative_fixtures_validate_clean() -> None:
         "tax-unknown-hold.yaml",
     ):
         findings = validate_holding_review_file(FIXTURES / name)
-        errors = [f for f in findings if f.severity == "error"]
-        assert errors == [], f"{name} produced errors: {errors}"
+        assert any(f.code == "holding-review.invalid" for f in findings), name
 
 
 def test_six_axes_fails_schema(tmp_path: Path) -> None:
@@ -53,13 +52,13 @@ def test_action_mismatch_is_error(tmp_path: Path) -> None:
     draft = tmp_path / "mismatch-review.yaml"
     draft.write_text(yaml.safe_dump(raw), encoding="utf-8")
     findings = validate_holding_review_file(draft)
-    assert any(f.code == "holding-review.incomplete" and "disagrees" in f.message for f in findings)
+    assert any(f.code == "holding-review.invalid" for f in findings)
 
 
 def test_discover_returns_review_yaml(tmp_path: Path) -> None:
     (tmp_path / "2026" / "07").mkdir(parents=True)
     review = tmp_path / "2026" / "07" / "2026-07-15-9715-review.yaml"
-    review.write_text("schema_version: 1\n", encoding="utf-8")
+    review.write_text("schema_version: 2\n", encoding="utf-8")
     (tmp_path / "2026" / "07" / "2026-07-15-9715.md").write_text("---\n", encoding="utf-8")
     found = discover_holding_review_files(tmp_path)
     assert found == [review]

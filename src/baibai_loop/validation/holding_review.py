@@ -16,7 +16,9 @@ from baibai_loop.position.holding_review import (
     HoldingReviewDocument,
     HoldingReviewError,
     evaluate_holding_review,
+    validate_holding_review_sources,
 )
+from baibai_loop.thesis.holding_review_builder import validate_holding_review_scalars
 
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "holding-review.json"
 
@@ -47,6 +49,8 @@ def validate_holding_review_file(path: Path) -> list[ValidationFinding]:
         return findings
     try:
         document = HoldingReviewDocument.model_validate(raw)
+        validate_holding_review_sources(document, root=Path.cwd())
+        validate_holding_review_scalars(document, root=Path.cwd())
         result = evaluate_holding_review(document)
     except (ValueError, HoldingReviewError) as error:
         return [_finding(path, "error", "holding-review.invalid", str(error))]

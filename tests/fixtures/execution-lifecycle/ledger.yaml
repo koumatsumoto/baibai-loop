@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 portfolio_scope: repository_only
 as_of: "2026-07-10T15:30:00+09:00"
 estimated_exit_tax_rate_bps: null

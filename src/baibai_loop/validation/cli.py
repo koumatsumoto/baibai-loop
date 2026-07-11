@@ -23,12 +23,17 @@ from baibai_loop.thesis import (
 )
 from baibai_loop.thesis.playbook_schema import discover_playbook_schemas
 
+from .benchmark_observation import (
+    discover_benchmark_observation_files,
+    validate_benchmark_observation_file,
+)
 from .candidates import discover_candidates_files, validate_candidates_file
 from .decision_packet import discover_decision_packet_files, validate_decision_packet_file
 from .holding_review import discover_holding_review_files, validate_holding_review_file
 from .ledger import discover_ledger_files, validate_ledger_file
 from .macro_context import discover_macro_context_files, validate_macro_context_file
 from .policy import validate_policy_file
+from .portfolio_outcome import discover_portfolio_outcome_files, validate_portfolio_outcome_file
 from .position import discover_position_files, validate_position_file
 
 type ValidationTarget = Literal[
@@ -40,6 +45,8 @@ type ValidationTarget = Literal[
     "ledger",
     "decision-packet",
     "holding-review",
+    "benchmark-observation",
+    "portfolio-outcome",
 ]
 _TARGETS: tuple[ValidationTarget, ...] = (
     "macro-context",
@@ -50,6 +57,8 @@ _TARGETS: tuple[ValidationTarget, ...] = (
     "ledger",
     "decision-packet",
     "holding-review",
+    "benchmark-observation",
+    "portfolio-outcome",
 )
 
 MACRO_CONTEXT_ROOT = Path("records/01-macro-context")
@@ -57,6 +66,7 @@ POLICY_PATH = Path("docs/portfolio-management.md")
 CANDIDATES_ROOT = Path("records/02-candidates")
 THESIS_ROOT = Path("records/03-thesis")
 POSITION_ROOT = Path("records/04-position")
+BENCHMARK_ROOT = POSITION_ROOT / "benchmarks"
 PLAYBOOKS_ROOT = Path("records/_playbooks")
 
 
@@ -182,6 +192,10 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
             return discover_decision_packet_files(root / THESIS_ROOT)
         case "holding-review":
             return discover_holding_review_files(root / POSITION_ROOT)
+        case "benchmark-observation":
+            return discover_benchmark_observation_files(root / BENCHMARK_ROOT)
+        case "portfolio-outcome":
+            return discover_portfolio_outcome_files(root / POSITION_ROOT)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 
@@ -213,6 +227,10 @@ def _validate(
             return validate_decision_packet_file(path)
         case "holding-review":
             return validate_holding_review_file(path)
+        case "benchmark-observation":
+            return validate_benchmark_observation_file(path)
+        case "portfolio-outcome":
+            return validate_portfolio_outcome_file(path)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 

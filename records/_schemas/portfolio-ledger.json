@@ -349,7 +349,8 @@
           "opening_balance": "#/$defs/OpeningBalanceEvent",
           "release": "#/$defs/ReleaseEvent",
           "reservation": "#/$defs/ReservationEvent",
-          "tax_confirmed": "#/$defs/ConfirmedTaxEvent"
+          "tax_confirmed": "#/$defs/ConfirmedTaxEvent",
+          "withdrawal": "#/$defs/WithdrawalEvent"
         },
         "propertyName": "type"
       },
@@ -359,6 +360,9 @@
         },
         {
           "$ref": "#/$defs/ContributionEvent"
+        },
+        {
+          "$ref": "#/$defs/WithdrawalEvent"
         },
         {
           "$ref": "#/$defs/ReservationEvent"
@@ -604,13 +608,46 @@
       ],
       "title": "ReservationEvent",
       "type": "object"
+    },
+    "WithdrawalEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "minLength": 1,
+          "title": "Event Id",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "type": {
+          "const": "withdrawal",
+          "title": "Type",
+          "type": "string"
+        },
+        "amount_yen": {
+          "exclusiveMinimum": 0,
+          "title": "Amount Yen",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "type",
+        "amount_yen"
+      ],
+      "title": "WithdrawalEvent",
+      "type": "object"
     }
   },
   "additionalProperties": false,
   "description": "Versioned persistence contract for repository-only portfolio capital.",
   "properties": {
     "schema_version": {
-      "const": 1,
+      "const": 2,
       "title": "Schema Version",
       "type": "integer"
     },

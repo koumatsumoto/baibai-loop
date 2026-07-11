@@ -1,9 +1,13 @@
 # Fair value reached with a candidate that does not beat holding after exit tax:
 # action=hold. Reaching fair value is a review trigger, not an auto-sell.
-schema_version: 1
+schema_version: 2
 as_of: "2026-07-15"
 position_id: trade-20260609-2749
 ticker: "2749"
+sources:
+  ledger: {ref: tests/fixtures/portfolio-ledger/representative.yaml, sha256: "1d613c663d87c39eb7d53dd9bfb0c7f11b7625bb8512becfb187a1f2f681ea7c"}
+  holding_packet: {ref: tests/fixtures/decision-packet/2331-decision.yaml, sha256: "a95d52fa2f8a91d2a2f05d8f667b6e3e3746f9be624d919a9b8b938e98084677"}
+  candidate_packet: {ref: tests/fixtures/decision-packet/2331-decision.yaml, sha256: "a95d52fa2f8a91d2a2f05d8f667b6e3e3746f9be624d919a9b8b938e98084677"}
 thesis_health:
   invalidation_status: intact
   permanent_loss_axes:

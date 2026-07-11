@@ -149,12 +149,9 @@ def test_calibration_cli_degrades_prices_to_null_without_jquants_cache(
     assert "no J-Quants bars" in captured.err
 
 
-def test_benchmark_subcommand_still_handles_empty_positions(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    assert main(["benchmark", "--root", str(tmp_path), "--asof", "2026-01-15"]) == 0
-    assert capsys.readouterr().out.strip() == "no open positions"
+def test_legacy_benchmark_subcommand_is_not_exposed(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit):
+        main(["benchmark", "--root", str(tmp_path), "--asof", "2026-01-15"])
 
 
 def _write_thesis(

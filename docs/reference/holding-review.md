@@ -20,7 +20,7 @@ Holding review は、保有 1 件の売買判断を **thesis health** と **税�
 
 売却の主因は **thesis break（事業毀損）** で、これは優先売却候補になる。**フェアバリュー到達は review trigger であって自動の全売りではない**。**価格下落そのものは売却理由にしない**。
 
-この契約は decision packet を入力にする。active position が decision packet を持つのは移行後（[active records vNext 移行](https://github.com/koumatsumoto/baibai-loop/issues/341)）であり、それまでは packet 未整備の holding を `current_5y_estimate: unresolved` として degrade させ、数値を捏造しない。旧 position record の `kill_switch_check` / `review_valuation` field と 11 件の active record の本契約への載せ替えは同移行で行う。
+review v2は`ledger`、holding decision packet、候補packetを`ref + sha256`で必須参照する。review scalarはsource artifactと切り離して信頼しない。active position recordへの接続は[active records vNext 移行](https://github.com/koumatsumoto/baibai-loop/issues/341)で行い、それまではcanonical active reviewを生成しない。
 
 ## Inputs
 
@@ -30,6 +30,7 @@ Holding review は、保有 1 件の売買判断を **thesis health** と **税�
 | `valuation_review` | 現値・FV・`current_price_yen >= fair_value_yen` から再計算した review trigger |
 | `replacement_comparison` | 現保有と候補の 5 年期待総合リターン、確定/推定の exit 税、機会費用 edge |
 | `add_context` | 押し目買増しの現値・最大許容価格・available cash・concentration 判定（任意） |
+| `sources` | ledgerとcurrent/candidate decision packetのimmutable ref/hash。validatorはhash driftをrejectする |
 
 `thesis_health.permanent_loss_axes` は `funding_liquidity / debt_repayment / cash_flow / dilution / customer_concentration / structural_decline / governance_accounting` の 7 軸を各 1 回ちょうど持つ。1 つでも欠けると review は `incomplete` になる。`permanent_loss_conclusion` は **verified な adverse 軸**があるとき `elevated`、partially verified / unverified な adverse を含むとき `unknown`、それ以外は `acceptable` とする。`elevated` だけが全株 exit の条件であり、未確認の懸念で税負担を伴う全株売却を断定しない。
 

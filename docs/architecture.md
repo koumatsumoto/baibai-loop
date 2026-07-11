@@ -76,7 +76,7 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 | `macro/` | macro 環境分析（`context` ＋ `indicators` data 層）。screening / position / validation から独立 | `baibai-loop-macro` |
 | `screening/` | universe → 機械スクリーニング（valuation ranking）→ candidates 生成、selection | `baibai-loop-screening` |
 | `thesis/` | investment memo の domain engine（schema・payoff・sizing・refs）。最上位層 | （`baibai-loop-validation` 経由） |
-| `position/` | portfolio ledger・trade record・保有 price tracking・holding review・benchmark-relative return | `baibai-loop-position` |
+| `position/` | portfolio ledger・trade record・保有 price tracking・holding review・JPX total-return outcome | `baibai-loop-position` |
 | `validation/` | records（公開言語）の検証 dispatcher。domain は entry surface 経由でのみ参照 | `baibai-loop-validation` |
 
 依存方向は `foundation ← market ← {screening, position} ← thesis`（`A ← B` ＝「B が A を import」の向き）。`macro` は `foundation` の上に立つ **独立枝** で spine に属さず、`validation` は `thesis` / `position` を entry surface 経由で駆動する。7 contract は (1) macro 独立、(2) foundation = import sink、(3) market は foundation のみ、(4) position ↛ screening、(5) screening ↛ position、(6) thesis は最上位（下位層は thesis を import しない。thesis は screening / position を import してよい）、(7) validation は entry surface 経由のみ、を強制する。
@@ -126,7 +126,7 @@ Automation は人間の投資判断を置き換えず、fact snapshot 生成・s
 | `baibai-loop-screening calibration-evaluate` | `screening/` | 較正 cohort の評価（rank IC / decile / selection replay / トラップ率 / 任意 sector subset 診断）を YAML 出力 |
 | `baibai-loop-macro` | `macro/` | 指標 series を provenance 付きで取得・cache |
 | `baibai-loop-validation` | `validation/` | records と schema の整合を検証 |
-| `baibai-loop-position benchmark` | `position/` | 保有の entry 以降リターンと benchmark（`1321`）比を算出 |
+| `baibai-loop-position outcome` | `position/` | ledger TWRをJPX TOPIX配当込み公式期間returnと比較 |
 | `baibai-loop-position ledger` | `position/` | repo内portfolioのcash、reservation、保有、income、cost、taxを再計算 |
 | `baibai-loop-position holding-review --input` | `position/` | holding review draftのthesis health・税引後代替・`hold / add / reduce / exit` を再計算 |
 | `baibai-loop-decision <packet>` | `thesis/` | decision packetのscenario、証拠、独立reviewをread-only再計算 |

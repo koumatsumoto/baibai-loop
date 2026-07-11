@@ -89,6 +89,11 @@ class ContributionEvent(_EventBase):
     amount_yen: Annotated[int, Field(gt=0)]
 
 
+class WithdrawalEvent(_EventBase):
+    type: Literal["withdrawal"]
+    amount_yen: Annotated[int, Field(gt=0)]
+
+
 class ReservationEvent(_EventBase):
     type: Literal["reservation"]
     reservation_id: Annotated[str, Field(min_length=1)]
@@ -171,6 +176,7 @@ class ConfirmedTaxEvent(_EventBase):
 type LedgerEvent = Annotated[
     OpeningBalanceEvent
     | ContributionEvent
+    | WithdrawalEvent
     | ReservationEvent
     | ReleaseEvent
     | ExecutionEvent
@@ -232,7 +238,7 @@ class PortfolioLedgerDocument(BaseModel):
 
     model_config = _MODEL_CONFIG
 
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     portfolio_scope: Literal["repository_only"]
     as_of: datetime
     estimated_exit_tax_rate_bps: Annotated[int, Field(ge=0, le=10_000)] | None = None
@@ -364,6 +370,36 @@ class _Lot:
     price_yen: Decimal
 
 
+@dataclass(slots=True)
+class ReplayedPortfolioState:
+    """Price-independent ledger state at one instant.
+
+    Historical outcome measurement reuses this state with a close price for the
+    valuation date. Keeping execution replay separate from valuation prevents a
+    final ledger quote or a current override from leaking into past NAV.
+    """
+
+    as_of: datetime
+    available_cash_yen: int
+    reserved_cash_yen: int
+    confirmed_income_yen: int
+    confirmed_cost_yen: int
+    confirmed_tax_yen: int
+    active_reservations: dict[str, _Reservation]
+    lots: dict[str, list[_Lot]]
+    metadata: dict[str, tuple[str, tuple[str, ...]]]
+
+
+@dataclass(frozen=True, slots=True)
+class ReplayedPortfolioValue:
+    available_cash_yen: int
+    reserved_cash_yen: int
+    deployed_cost_yen: int
+    holdings_market_value_yen: int
+    total_capital_yen: int
+    holdings: tuple[HoldingSnapshot, ...]
+
+
 def load_portfolio_ledger(path: Path) -> PortfolioLedgerDocument:
     """Load strict YAML without accepting implicit numeric or datetime coercion."""
 
@@ -399,6 +435,205 @@ def portfolio_ledger_json_schema() -> dict[str, object]:
     }
 
 
+def replay_events_through(
+    events: tuple[LedgerEvent, ...],
+    as_of: datetime,
+    *,
+    policy: PolicyConfig = PORTFOLIO_POLICY,
+) -> ReplayedPortfolioState:
+    """Replay ordered events through ``as_of`` without reading any price.
+
+    Callers must preserve the ledger input sequence: events sharing an instant
+    are intentionally not re-sorted by identifier.  This is the same execution
+    state machine used by the current ledger snapshot, exposed so historical
+    valuation can supply only that day's close prices.
+    """
+
+    available_cash = reserved_cash = confirmed_income = confirmed_cost = confirmed_tax = 0
+    active: dict[str, _Reservation] = {}
+    seen_reservations: set[str] = set()
+    seen_order_ids: set[str] = set()
+    seen_executions: set[str] = set()
+    lots: dict[str, list[_Lot]] = defaultdict(list)
+    metadata: dict[str, tuple[str, tuple[str, ...]]] = {}
+    board_lot = _policy_positive_int(_policy_mapping(policy, "order_constraints"), "board_lot")
+
+    for event in events:
+        if event.occurred_at > as_of:
+            continue
+        match event:
+            case OpeningBalanceEvent():
+                available_cash += event.amount_yen
+            case ContributionEvent():
+                available_cash += event.amount_yen
+            case WithdrawalEvent():
+                _require_cash(available_cash, event.amount_yen, event.event_id)
+                available_cash -= event.amount_yen
+            case ReservationEvent():
+                if event.reservation_id in seen_reservations:
+                    raise PortfolioLedgerError(
+                        f"reservation_id already used: {event.reservation_id}"
+                    )
+                if event.order_id in seen_order_ids:
+                    raise PortfolioLedgerError(f"order_id already reserved: {event.order_id}")
+                if event.quantity % board_lot:
+                    raise PortfolioLedgerError(
+                        f"reservation quantity must be a multiple of board_lot {board_lot}"
+                    )
+                _yen_notional(
+                    board_lot, event.price_guard_yen, field="reservation board-lot notional"
+                )
+                notional = _yen_notional(
+                    event.quantity, event.price_guard_yen, field="reservation notional"
+                )
+                _require_cash(available_cash, notional, event.event_id)
+                has_exposure = any(lot.quantity > 0 for lot in lots[event.ticker]) or any(
+                    item.ticker == event.ticker for item in active.values()
+                )
+                if not has_exposure:
+                    metadata.pop(event.ticker, None)
+                _check_metadata(metadata, event.ticker, event.sector, event.common_factors)
+                seen_reservations.add(event.reservation_id)
+                seen_order_ids.add(event.order_id)
+                active[event.reservation_id] = _Reservation(
+                    reservation_id=event.reservation_id,
+                    order_id=event.order_id,
+                    ticker=event.ticker,
+                    sector=event.sector,
+                    common_factors=event.common_factors,
+                    remaining_quantity=event.quantity,
+                    price_guard_yen=event.price_guard_yen,
+                    expires_at=event.expires_at,
+                )
+                available_cash -= notional
+                reserved_cash += notional
+            case ReleaseEvent():
+                reservation = active.get(event.reservation_id)
+                if reservation is None:
+                    raise PortfolioLedgerError(
+                        f"release references no active reservation: {event.reservation_id}"
+                    )
+                if event.reason == "expired" and event.occurred_at < reservation.expires_at:
+                    raise PortfolioLedgerError(
+                        f"expired release predates expires_at: {event.reservation_id}"
+                    )
+                if event.occurred_at >= reservation.expires_at and event.reason != "expired":
+                    raise PortfolioLedgerError(
+                        "release at or after expires_at must use expired reason: "
+                        f"{event.reservation_id}"
+                    )
+                released = _yen_notional(
+                    reservation.remaining_quantity,
+                    reservation.price_guard_yen,
+                    field="released reservation notional",
+                )
+                available_cash += released
+                reserved_cash -= released
+                del active[event.reservation_id]
+            case ExecutionEvent(side="buy"):
+                if event.execution_id in seen_executions:
+                    raise PortfolioLedgerError(f"execution_id already used: {event.execution_id}")
+                if event.reservation_id is None:
+                    raise PortfolioLedgerError("buy execution requires reservation_id")
+                if event.quantity % board_lot:
+                    raise PortfolioLedgerError(
+                        f"execution quantity must be a multiple of board_lot {board_lot}"
+                    )
+                reservation = active.get(event.reservation_id)
+                if reservation is None:
+                    raise PortfolioLedgerError(
+                        f"buy references no active reservation: {event.reservation_id}"
+                    )
+                if event.ticker != reservation.ticker:
+                    raise PortfolioLedgerError("execution ticker must match reservation ticker")
+                if event.occurred_at >= reservation.expires_at:
+                    raise PortfolioLedgerError("buy execution cannot occur at or after expires_at")
+                if event.quantity > reservation.remaining_quantity:
+                    raise PortfolioLedgerError("execution quantity exceeds reserved quantity")
+                if event.price_yen > reservation.price_guard_yen:
+                    raise PortfolioLedgerError("execution price exceeds reservation price guard")
+                seen_executions.add(event.execution_id)
+                guarded = _yen_notional(
+                    event.quantity, reservation.price_guard_yen, field="filled guarded notional"
+                )
+                paid = _yen_notional(
+                    event.quantity, event.price_yen, field="buy execution notional"
+                )
+                reserved_cash -= guarded
+                available_cash += guarded - paid
+                reservation.remaining_quantity -= event.quantity
+                lots[event.ticker].append(_Lot(event.quantity, event.price_yen))
+                if reservation.remaining_quantity == 0:
+                    del active[event.reservation_id]
+            case ExecutionEvent(side="sell"):
+                if event.execution_id in seen_executions:
+                    raise PortfolioLedgerError(f"execution_id already used: {event.execution_id}")
+                if event.reservation_id is not None:
+                    raise PortfolioLedgerError("sell execution cannot consume a cash reservation")
+                if event.quantity % board_lot:
+                    raise PortfolioLedgerError(
+                        f"execution quantity must be a multiple of board_lot {board_lot}"
+                    )
+                _consume_fifo(lots[event.ticker], event.quantity, event.ticker)
+                seen_executions.add(event.execution_id)
+                available_cash += _yen_notional(
+                    event.quantity, event.price_yen, field="sell execution notional"
+                )
+            case IncomeEvent():
+                available_cash += event.amount_yen
+                confirmed_income += event.amount_yen
+            case CostEvent():
+                _require_cash(available_cash, event.amount_yen, event.event_id)
+                available_cash -= event.amount_yen
+                confirmed_cost += event.amount_yen
+            case ConfirmedTaxEvent():
+                _require_cash(available_cash, event.amount_yen, event.event_id)
+                available_cash -= event.amount_yen
+                confirmed_tax += event.amount_yen
+
+    expired = sorted(item.reservation_id for item in active.values() if item.expires_at <= as_of)
+    if expired:
+        raise PortfolioLedgerError(f"expired reservations require an explicit release: {expired}")
+    if reserved_cash != sum(
+        _yen_notional(
+            item.remaining_quantity, item.price_guard_yen, field="active reservation notional"
+        )
+        for item in active.values()
+    ):
+        raise PortfolioLedgerError("reserved cash does not reconcile to active reservations")
+    return ReplayedPortfolioState(
+        as_of=as_of,
+        available_cash_yen=available_cash,
+        reserved_cash_yen=reserved_cash,
+        confirmed_income_yen=confirmed_income,
+        confirmed_cost_yen=confirmed_cost,
+        confirmed_tax_yen=confirmed_tax,
+        active_reservations=active,
+        lots=lots,
+        metadata=metadata,
+    )
+
+
+def value_replayed_state(
+    state: ReplayedPortfolioState,
+    prices_at_close: Mapping[str, MarketPrice],
+) -> ReplayedPortfolioValue:
+    """Value a replayed state using only close prices provided for that date."""
+
+    holdings = _holding_snapshots(state.lots, state.metadata, prices_at_close)
+    deployed_cost = sum(holding.deployed_cost_yen for holding in holdings)
+    holdings_market_value = sum(holding.market_value_yen for holding in holdings)
+    total_capital = state.available_cash_yen + state.reserved_cash_yen + holdings_market_value
+    return ReplayedPortfolioValue(
+        available_cash_yen=state.available_cash_yen,
+        reserved_cash_yen=state.reserved_cash_yen,
+        deployed_cost_yen=deployed_cost,
+        holdings_market_value_yen=holdings_market_value,
+        total_capital_yen=total_capital,
+        holdings=holdings,
+    )
+
+
 def reconcile_portfolio(
     document: PortfolioLedgerDocument,
     *,
@@ -425,6 +660,9 @@ def reconcile_portfolio(
                 available_cash += event.amount_yen
             case ContributionEvent():
                 available_cash += event.amount_yen
+            case WithdrawalEvent():
+                _require_cash(available_cash, event.amount_yen, event.event_id)
+                available_cash -= event.amount_yen
             case ReservationEvent():
                 if event.reservation_id in seen_reservations:
                     raise PortfolioLedgerError(

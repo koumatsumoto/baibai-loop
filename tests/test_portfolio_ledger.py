@@ -119,6 +119,44 @@ def test_available_cash_shortage_is_a_hard_error() -> None:
         reconcile_portfolio(_document(raw))
 
 
+def test_withdrawal_reduces_available_cash_without_touching_reservations() -> None:
+    raw = _raw()
+    events = raw["events"]
+    assert isinstance(events, list)
+    events.insert(
+        2,
+        {
+            "event_id": "withdrawal-202606",
+            "type": "withdrawal",
+            "occurred_at": "2026-06-01T09:00:00+09:00",
+            "amount_yen": 100_000,
+        },
+    )
+
+    snapshot = reconcile_portfolio(_document(raw))
+
+    assert snapshot.available_cash_yen == 9_980_500
+    assert snapshot.reserved_cash_yen == 119_000
+
+
+def test_withdrawal_cannot_exceed_available_cash() -> None:
+    raw = _raw()
+    events = raw["events"]
+    assert isinstance(events, list)
+    events.insert(
+        1,
+        {
+            "event_id": "withdrawal-too-large",
+            "type": "withdrawal",
+            "occurred_at": "2026-05-01T09:00:01+09:00",
+            "amount_yen": 10_000_001,
+        },
+    )
+
+    with pytest.raises(PortfolioLedgerError, match="insufficient available cash"):
+        reconcile_portfolio(_document(raw))
+
+
 def test_expired_reservation_requires_an_explicit_release() -> None:
     raw = _raw()
     events = raw["events"]
@@ -383,7 +421,7 @@ def test_reservation_partial_fill_release_preserves_book_capital(
             }
         )
     raw: dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "portfolio_scope": "repository_only",
         "as_of": "2026-01-06T15:30:00+09:00",
         "estimated_exit_tax_rate_bps": None,
