@@ -93,6 +93,7 @@ def read_daily_bars_for_tickers(
         rows = conn.execute(
             "SELECT ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor "
             "FROM jquants_daily_bars "
+            # Local placeholder count; ticker values remain bound.  # nosec B608
             f"WHERE ticker IN ({placeholders}) AND traded_at BETWEEN ? AND ? "
             "ORDER BY ticker, traded_at",
             (*tickers, start.isoformat(), end.isoformat()),
