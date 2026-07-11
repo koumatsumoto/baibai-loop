@@ -3,7 +3,7 @@ title: "Workflow — research (thesis)"
 summary: "個別銘柄リサーチ：candidates と macro context から、フェアバリュー・リスクリワード・期待利回りを見積もり、塩漬け耐性を確認し、採否と投入額を決める投資メモ。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-02
+last_reviewed: 2026-07-11
 ---
 
 # Workflow — 個別銘柄リサーチ（thesis）
@@ -12,7 +12,7 @@ last_reviewed: 2026-07-02
 
 active record移行後の判断正本は[`../reference/decision-packet.md`](../reference/decision-packet.md)である。移行完了までは本docのthesis Markdown契約を使い、旧fieldとdecision packetを1つのrecordへ混在させない。
 
-buy判断を具体的な発注案へ落とすときは、decision packetの5年base scenarioと`required_5y_base_cagr_pct`から最大許容価格を再計算し、quoteとledger snapshotを入力に`buy_now / shallow_limit / deep_limit / defer`を比較する。終値から任意率を引いた上限や、約定確率の推測を使わない。詳細は[`../reference/decision-packet.md#execution-pricing`](../reference/decision-packet.md#execution-pricing)を正本とする。
+buy判断を具体的な発注案へ落とすときは、decision packetの5年base scenarioと`required_5y_base_cagr_pct`から最大許容価格を再計算し、quoteとledger snapshotを入力に`buy_now / shallow_limit / deep_limit / defer`を比較する。終値から任意率を引いた上限や、約定確率の推測を使わない。詳細は[`../reference/decision-packet.md#execution-pricing`](../reference/decision-packet.md#execution-pricing)を正本とし、trigger別の導線は[`../operations/decision-cycle.md#2-opportunity-path`](../operations/decision-cycle.md#2-opportunity-path)に従う。
 
 契約の正本は `records/_schemas/thesis.json`（front matter の形・必須項目・enum）。本 doc は JSON に書けないもの（見積りの式・enum の意味・設計判断の理由・手順）を持つ。front matter の完全な形は template ではなく schema と実際の record を正とし、本 doc 末尾に最小限の例を置く。
 

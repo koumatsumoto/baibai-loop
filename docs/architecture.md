@@ -3,7 +3,7 @@ title: "Architecture"
 summary: "Baibai-Loop の構造の正本：3 層インフラ（データ / 決定論的分析 / 判断）と単一ループ、repository map、CLI/SQLite の安定契約。"
 doc_type: architecture
 status: active
-last_reviewed: 2026-07-06
+last_reviewed: 2026-07-11
 ---
 
 # Architecture — 構造・repository map・安定契約
@@ -162,7 +162,7 @@ AI の利用モデル：L1/L2 は SQL 直接発行と CLI 出力で自由に読�
 | `anti-patterns.md` | 失敗パターンと commit 前チェックリスト |
 | `workflow/` | 単一ループ各工程の手順（macro / screening / research / position / playbooks） |
 | `reference/` | valuation-metrics・screening-runtime・data-sources・python-foundation・testing-and-validation |
-| `operations/` | 工程横断の手順（task-runbook / incident-runbook） |
+| `operations/` | 工程横断の手順（decision-cycle / improvement-loop / task-runbook / incident-runbook） |
 
 ## 参考
 

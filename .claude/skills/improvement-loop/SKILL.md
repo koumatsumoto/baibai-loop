@@ -3,7 +3,7 @@ name: improvement-loop
 description: >-
   Baibai-Loop のトレード基盤（マクロ読み・screening 選定・E[r]/FV/RR 見積り）の精度を
   計測で改善するサイクルを回す操作手順。現状計測 → 仮説の事前登録 → design/confirm 検証 →
-  採用実装 → 運用テスト → dated report → 月次監視まで。「基盤を改善して」「改善ループを回して」
+  採用実装 → 運用テスト → dated report → 継続監視まで。「基盤を改善して」「改善ループを回して」
   「calibration で検証して」「screening / E[r] の精度を上げて」「rules variant を計測して」
   と言われたとき、および select ランキング・screen 閾値・E[r] パラメータの改訂を伴う
   すべての変更で使う。
@@ -61,7 +61,7 @@ uv run baibai-loop-screening calibration-evaluate --horizon 6m --start 2024-07-0
 
 - dated report に再現手順・coverage / survivorship 開示・判定表・検算（AP-02）・**採用後の監視事項**を固定する。
 - マージ前ゲート: `uv run baibai-loop-validation` / `ruff format --check .` / `ruff check .` / `mypy` / `pytest` + 運用テスト。
-- マージ後は月次サイクル（[`docs/operations/monthly-cycle.md`](../../../docs/operations/monthly-cycle.md) §8）で監視事項を追う。
+- マージ後は次のreplay計測で監視事項を追う。日常triggerとの境界は[`docs/operations/decision-cycle.md#6-annual-outcome-and-improvement-handoff`](../../../docs/operations/decision-cycle.md#6-annual-outcome-and-improvement-handoff)を正本とする。
 
 ## 落とし穴
 

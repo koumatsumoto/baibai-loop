@@ -33,7 +33,7 @@
 
 ## 4. 運用・docs の完了条件
 
-1. `docs/workflow/screening.md` / `docs/reference/estimate-calibration.md` / `docs/operations/monthly-cycle.md` / `ai-value-bargain-selection` skill が、screen を注記、E[r] を ranking とする現在形に揃っている。
+1. `docs/workflow/screening.md` / `docs/reference/estimate-calibration.md` / `docs/operations/decision-cycle.md` / `ai-value-bargain-selection` skill が、screen を注記、E[r] を ranking とする現在形に揃っている。
 2. candidates schema / validator は `evidence_hits: []` を正しい fact として許容する。
 3. PR では #309 を close し、検証表・金融 sector 診断・現 asof select 差分を self-contained に記載する。
 

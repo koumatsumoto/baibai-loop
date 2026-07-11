@@ -3,7 +3,7 @@ title: "Workflow — screening"
 summary: "割安 screening：全上場普通株を対象に valuation facts と playbook evidence を出力し、select で流動性母集団を E[r] 降順に並べて research 候補を選り分ける。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-09
+last_reviewed: 2026-07-11
 ---
 
 # Workflow — 割安 screening
@@ -69,7 +69,7 @@ records/02-candidates/YYYY/MM/YYYY-MM-DD.yaml
 
 ## 実行
 
-コマンド列（`bootstrap-cache` → `extract-edinet-metrics` → `verify-cache-coverage` → `run` → `select`）の e2e 導線は [`../operations/monthly-cycle.md`](../operations/monthly-cycle.md) §2–3、CLI 引数 / env / SQLite schema の実装仕様は [`../reference/screening-runtime.md`](../reference/screening-runtime.md) を正本にする。ここでは工程の意味だけを記す。
+コマンド列（`bootstrap-cache` → `extract-edinet-metrics` → `verify-cache-coverage` → `run` → `select`）を実行するtriggerとe2e導線は [`../operations/decision-cycle.md#2-opportunity-path`](../operations/decision-cycle.md#2-opportunity-path)、CLI 引数 / env / SQLite schema の実装仕様は [`../reference/screening-runtime.md`](../reference/screening-runtime.md) を正本にする。ここでは工程の意味だけを記す。
 
 `run` は開始時に SQLite のデータ充足を検証し、不足があれば即座に失敗させる（provider API へはフォールバックしない）。JPX 規制情報と EDINET の前処理済み指標は必須入力。`select` の推奨順位は**機械 E[r]（成分分解付き年率見積り）の降順**を主キーにする（E[r] 欠損は ranking 対象外・従キーは playbook 優先順 + 強度キー。採用根拠は較正リプレイの design/confirm 検証）。`selection_playbook` / `selection_metrics` は evidence がある候補だけに付く thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。macro context の `sector_tilts` は追い風 / 向かい風の参考情報として使い（機械的な足切りにはしない）、`recommendations` と `selection.diagnostics` を出力する。`--macro-context` を省略すると `records/01-macro-context/` の最新 context を自動解決する（`valid_until` が asof より古い context は鮮度切れとして失敗させる）。
 

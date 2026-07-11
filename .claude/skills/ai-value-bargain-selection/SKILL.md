@@ -3,14 +3,14 @@ name: ai-value-bargain-selection
 description: >-
   長期的に AI で企業価値が高まる × 今のトレード状態で割安になっている日本株を、
   スクリーニング基盤から TOP12 → 一次 IR 深掘り → 4 銘柄 → 最良リスクリワード 1 銘柄へ
-  絞り込み、HTML レポートと PR で提案するまでの end-to-end 手順。
+  絞り込み、canonical packetと短い第1層proposalを人間判断へ渡すまでの end-to-end 手順。
   「お買い得な銘柄を選定して」「新規に買う AI 割安株を選んで」「今買う銘柄を提案して」
   と言われたとき、または同種の銘柄選定を再現するときに使う。
 ---
 
 # AI バリュー・バーゲン銘柄選定（Baibai-Loop）
 
-> **正本と操作の分離**: 本 skill は選定フローの〈操作〉（漏斗の順序・判断ノブ・出力形態）を持つ。思想・仕様・契約の正本は docs 側にあり、本 skill はそれを書き写さず参照する — [`doctrine.md`](../../../docs/doctrine.md)（柱 2 / 柱 5）・[`portfolio-management.md`](../../../docs/portfolio-management.md)（資本・cap・耐性ゲート）・[`workflow/screening.md`](../../../docs/workflow/screening.md)・[`workflow/research.md`](../../../docs/workflow/research.md)（FV・RR・見積り式）・[`reference/decision-packet.md#execution-pricing`](../../../docs/reference/decision-packet.md#execution-pricing)（最大許容価格と指値policy）。
+> **正本と操作の分離**: 本 skill は選定フローの〈操作〉（漏斗の順序・判断ノブ・出力形態）を持つ。思想・仕様・契約の正本は docs 側にあり、本 skill はそれを書き写さず参照する — [`doctrine.md`](../../../docs/doctrine.md)（柱 2 / 柱 5）・[`portfolio-management.md`](../../../docs/portfolio-management.md)（資本・cap・耐性ゲート）・[`workflow/screening.md`](../../../docs/workflow/screening.md)・[`workflow/research.md`](../../../docs/workflow/research.md)（FV・RR・見積り式）・[`reference/decision-packet.md#execution-pricing`](../../../docs/reference/decision-packet.md#execution-pricing)（最大許容価格と指値policy）・[`operations/decision-cycle.md#2-opportunity-path`](../../../docs/operations/decision-cycle.md#2-opportunity-path)（triggerとproposal導線）。
 
 長期 AI 構造価値 × 足元割安の日本株を、本リポジトリの screening 基盤で選定し提案する手順。`AGENTS.md` の anti-pattern（AP-01 一次情報 / AP-02 検算 / AP-09 会社 IR 確認）、`docs/portfolio-management.md`（単一プール資本・concentration cap・塩漬け耐性ゲート・割高で全売り）、`docs/doctrine.md` 柱 5（単一合成スコアを出さない＝スコアは軸別座標）、`docs/workflow/research.md`（FV・RR・期待利回りの見積り式と entry/exit 規律）に従う。
 
@@ -31,7 +31,7 @@ python3 -c "import sqlite3;c=sqlite3.connect('data/screening/market.sqlite');pri
 ls records/02-candidates/*/*/*.yaml | tail -3
 ```
 
-cache が最新営業日に届いていなければ、その asof まで拡張してから run する。screening pipeline（`bootstrap-cache` → `extract-edinet-metrics` → `verify-cache-coverage` → `run`）の実行は [`docs/operations/monthly-cycle.md`](../../../docs/operations/monthly-cycle.md) §2 を正本にする。**skill 固有ノブ**: `ASOF` は最新の完全営業日を使い、J-Quants throttling 時は直近の完全営業日へフォールバックする。`run` / `select` は cache-only / point-in-time で API fallback しない（`extract-edinet-metrics` は数分かかるので背景実行可）。
+cache が最新営業日に届いていなければ、その asof まで拡張してから run する。screening pipeline（`bootstrap-cache` → `extract-edinet-metrics` → `verify-cache-coverage` → `run`）を実行するtriggerは [`docs/operations/decision-cycle.md#2-opportunity-path`](../../../docs/operations/decision-cycle.md#2-opportunity-path) を正本にする。**skill 固有ノブ**: `ASOF` は最新の完全営業日を使い、J-Quants throttling 時は直近の完全営業日へフォールバックする。`run` / `select` は cache-only / point-in-time で API fallback しない（`extract-edinet-metrics` は数分かかるので背景実行可）。
 
 ## 2. macro context を「深く」作る（リスクリワードの土台）
 
@@ -71,17 +71,17 @@ uv run baibai-loop-screening select --asof YYYY-MM-DD --top 10 --detail full > .
 - 軸で横並び比較（単一合成スコアに畳まない）。重視: **AI 構造性の確度（後付けでない）× 割安度（de-rating であって業績崩壊でない）× 下値保護（net cash/CF/還元）× 近接 catalyst × 長期保有の質（塩漬け耐性）**。
 - **value-trap は forward-quality ゲートで弾く**（本フローの最重要精度レバー）: trailing が割安でも「来期(FY+1)の減益ガイダンス or ガイド非開示」「op が伸びても FCF≈0/低 cash 変換」「PER は安いが EV/EBITDA は割高」「ピーク循環（単一製品・単一顧客依存の業績ピーク）」は value trap として減点。減配・規制 overhang・のれん減損リスクも同様。AI ラベルが最弱セグメントに偏在する銘柄は本物度を下げる。これらの判別シグナル（per/pbr/ev_ebitda/p_s/pcfr/cash・net_cash/equity/ocf/operating_profit_yoy/sales_yoy/fcf_yield）は `select` の recommendation 出力に転記済みで、ticker-profile を別途引かずに triage できる。
 - 「割安の理由」は **de-rating（需給・全体安・中計未達などで株価が崩れたが業績は崩壊していない）と earnings-collapse（業績そのものが崩れている）を切り分ける**。買うのは前者。
-- 4 銘柄 + 最良 1 銘柄を確定し、各々に **FV・想定下値・invalidation_conditions・durability_gate** と policy 準拠の sizing（`src/baibai_loop/position/policy.py` の `PORTFOLIO_POLICY`: 単一プール real_capital ¥10,000,000・ticker cap 6%=¥600,000・sector 40%・playbook 35%・ADV 5%・board lot 100。1 注文の絶対額上限は無く月次予算 ¥20–30 万で律速）を付す。`expected_upside=(fair_value/entry-1)*100`、`expected_downside=保守下値までの判断値`、`RR=upside/downside ≥ 2 目安`、`expected_yield=FV 収束の年率 + 配当`（AP-02 で検算。式の正本は docs/workflow/research.md）。
-- **具体的な指値プラン**: 5年base scenarioと要求CAGRから最大許容価格を再計算し、current quoteとcanonical ledgerを`baibai-loop-decision --execution-input ... --ledger records/04-position/portfolio-ledger.yaml`へ渡して`buy_now / shallow_limit / deep_limit / defer`を比較する。board-lot・dry powder・max priceを満たすproposalだけを提示し、約定確率を推測しない。
+- 4 銘柄 + 最良 1 銘柄を確定し、各々に **FV・想定下値・invalidation_conditions・durability_gate** とpolicy準拠のsizingを付す。cash、concentration、board lot、ADVはcanonical ledgerとexecution policyから導出し、ここで月次予算や独自capを再定義しない。`expected_upside=(fair_value/entry-1)*100`、`expected_downside=保守下値までの判断値`、`RR=upside/downside ≥ 2 目安`、`expected_yield=FV 収束の年率 + 配当`（AP-02 で検算。式の正本は docs/workflow/research.md）。
+- **具体的な指値プラン**: #341のactive lifecycle移行後だけ、5年base scenarioと要求CAGRから最大許容価格を再計算し、current quoteとcanonical ledgerを`baibai-loop-decision --execution-input ... --ledger records/04-position/portfolio-ledger.yaml`へ渡して`buy_now / shallow_limit / deep_limit / defer`を比較する。移行前はpacket / reviewまでで`defer`し、cashやexecutionを推測しない。board-lot・dry powder・max priceを満たすproposalだけを提示し、約定確率を推測しない。
 - **RR は market regime で調整する（最重要・甘くしない）**: `target÷stop` のボトムアップ RR は<strong>ベストケース</strong>。市場が最高値圏（regime=risk_on_rally かつ指数が ATH 圏）なら、(a) 上方は限定的・低確率（バリュエーション過熱・mean-reversion）、(b) 下方はテール厚め（Bear/Tail、単日ギャップでキャリー巻戻し −10%+）として **upside/downside をシナリオ別・β調整・ギャップ込みで引き直す**。価格 stop は置かない前提（long-hold）に立ち、実質の下値境界は<strong>ネットキャッシュ/ファンダ床</strong>（net cash/株 ＋ distressed 事業価値。ただし還元・実現機構が確認できる場合に限り床扱い、docs/workflow/research.md）に置く。確率加重の期待リターンと分布の歪み（左テール）も出す。**最高値圏では「待つ／小さく段階建て」が最良 RR のことが多い**。RR を綺麗な単一倍率で誇張しない。
 
-## 6. HTML レポート + PR で報告
+## 6. Short proposal and human decision
 
-- **HTML レポート**: `km:html-document` で 1 枚物の HTML を作る（内容＝市場 context の深い分析・4 シナリオ・主要リスク・select 軸別座標・4 候補比較・最良 RR の根拠・**翌営業日以降の具体的指値**・**リスクリワードの正直な評価（必須・下記）**・一次ソース。skill はレイアウト/セキュリティのみ担当）。`reports/YYYY-MM-DD-ai-value-bargain-selection.html` に保存して **commit する**（root の `/baibai-loop-*.html` は gitignore 対象なので `reports/` 配下に置く）。
-  - **「リスクリワードの正直な評価」は毎回必須セクション**: ボトムアップ RR（target÷stop）はベストケースと明記し、market regime（最高値圏か）でテール・ギャップ・β調整した**上昇余地と下落余地**、ネットキャッシュ/ファンダ床、確率加重期待リターンと分布の歪み（左テール）を出す。RR を綺麗な単一倍率で誇張しない（§5 の RR 規律を結果に必ず反映する）。
-- **PR で添付**: `km:github-workflow` で PR を作り、commit 済み HTML レポートを PR の差分に含める（＝添付）。PR body には 4 候補・最良 1・entry/target/stop/invalidation・sizing・主要リスクの markdown サマリを self-contained に書く（GitHub 上で読めるよう、レポートのリンクだけに依存しない）。必要なら proposal Issue も併設する。
+- canonical decision packet、independent review、source、全scenario、全risk axis、全price optionを詳細層として保存する。
+- 第1層はticker / name / as-of、recommendation / confidence、5y base CAGR、3y sanity、permanent-loss conclusion、strongest countercase、max acceptable price、tactic、quantity / notional / expiry、cash / reservation / dry-powder / concentration warning、`approve / defer / reject`だけに絞る。tickerにはTradingView linkを添える。
+- 通常proposalにHTML、全候補の中間比較、長い思考過程を重複して作らない。人間の判断後にだけ、exact packet hashをuser decisionへ束縛する。
 
-## 7. 検証・PR
+## 7. 検証
 
 基盤コードや records を触ったら commit 前に通す:
 
@@ -89,14 +89,14 @@ uv run baibai-loop-screening select --asof YYYY-MM-DD --top 10 --detail full > .
 uv run baibai-loop-validation && uv run ruff format --check . && uv run ruff check . && uv run mypy && uv run pytest
 ```
 
-1 issue = 1 PR、commit で分ける（[[feedback_pr_splitting]]）。基盤変更と選定成果物・docs を同一 PR に積む。
+基盤変更は別issue / PRへ分け、選定の判断artifactと混ぜない。
 
 ## 8. 完了条件
 
-- AI 構造性が本物で、足元 de-rating で割安、下値保護のある銘柄を、一次 IR 出典つきで 4 つに絞り、最良 RR 1 つを根拠つきで選んだ。
+- viableなresearch候補がある場合、AI 構造性が本物で、足元 de-rating で割安、下値保護のある銘柄を、一次 IR 出典つきで 4 つに絞り、最良 RR 1 つを根拠つきで選んだ。候補がなければ、短い理由を残して正常終了する。
 - 深い macro context（多角・Tier-1 多数・シナリオ・リスク）が RR の前提として揃い、validate を通った。
-- **リスクリワードを regime 調整・ギャップ込み・ファンダ床で正直に評価し、結果（レポート・提案）に必ず含めた**（ボトムアップの単一倍率で誇張していない。最高値圏なら「待つ／小さく段階建て」の選択肢も提示した）。
-- HTML レポートと PR でユーザーがレビューできる形になっている。検証（validate/ruff/mypy/pytest）が緑。
+- **リスクリワードを regime調整・ギャップ込み・ファンダ床で正直に評価し、第1層proposalと詳細層の両方から確認できる**（ボトムアップの単一倍率で誇張していない。最高値圏なら「待つ／小さく段階建て」の選択肢も提示した）。
+- 第1層proposalでユーザーが判断を開始でき、詳細層のpacket / review / sourceへ遡れる。検証（validate/ruff/mypy/pytest）が緑。
 
 ## 9. 制約（必ず守る）
 
@@ -104,16 +104,8 @@ uv run baibai-loop-validation && uv run ruff format --check . && uv run ruff che
 - **AI 期待を単独の採用 / sizing / macro fit / validator rule / ranking sort-key にしない**（`docs/doctrine.md` 柱 2）。AI 構造性は §4 の一次 IR 深掘りで人間判定する。
 - **単一の合成スコア・売買指示を出さない**。スコアは軸別座標（`docs/doctrine.md` 柱 5）。
 - 既存保有と構造衰退（パチンコ機械等）は新規候補から外す。
-- 最終採用判断はユーザー。提案は PR + HTML レポート（必要なら proposal Issue も）で渡し、`approved` research memo は決定後に作る。
+- 最終採用判断はユーザー。proposalはdecision cycleの第1層で渡し、`approved` research memoは決定後に作る。
 
-## 10. 改善しながら最後に取り込む（運用知見）
+## 10. Improvement handoff
 
-このフロー自体を高精度化するための実践知。マクロ分析→screening→選定→調査→提案を回す中で気づいた基盤の不便・不足を、現作業に混ぜず最後に同一 PR へ取り込む。
-
-- **改善は .plan にメモ → 同一 PR に実装**（[[feedback_same_pr_for_followups]] / [[feedback_stacked_commits]]）: 運用中に見つけた基盤の不足（出力に欲しい指標が無い・sort bug・指標欠落・test の外部依存 等）は現作業に混ぜず `.plan` にメモし、選定が終わったら同じ PR に実装で積む。
-  - 各改善は **forward 計測経路を1行で説明できること**（計器原則 / AGENTS.md AP-08）。説明できない改善は入れない。**test でロック**する。
-  - **監査専用 logic は足さない / 後方互換は気にしない**（CLAUDE.md 優先度ルール）。古い実装はまず捨てる。
-  - 実例: select recommendation への valuation / 下値保護 / value-trap シグナル転記（ticker-profile 往復を不要にし triage を速く・確実に）。macro 回では observation sort 正常化・米株指数/CCC OAS 追加・unit test の J-Quants 依存と time-bomb の除去。
-- **改善の発見源は「自分が手で補った所」**: 選定中に CLI 出力だけでは足りず手作業（別コマンド・手計算・全候補スキャン）で補った箇所こそ、基盤に載せるべき改善。今フローの最大レバーは「value-trap 判別に必要な forward-quality 指標（op_yoy/fcf_yield/EV 倍率/来期ガイド）を select 出力に載せる」だった。
-- **計測・検証の規律**: pivotal な数値は複数 Tier-1＋`baibai-loop-macro` で検算（AP-02）。unit test は外部 API を呼ばない（fixture/モックで完全オフライン、forward window は now 基準で time-bomb 回避）[[feedback_unit_test_no_external_api]]。サブエージェントは同時最大 5、制限時はメインコンテキストの WebSearch で代替 [[feedback_subagent_cap]]。
-- **最後に適用する成果物**: 改善（code+test）＋選定 HTML レポート＋この skill の更新を、運用テストで通した全 gate（validate/ruff/mypy/pytest）green の状態で 1 PR にまとめ、`km:review` で深くレビューしてから提出する。
+選定中に手作業で補った不便や、出力・指標・testの不足を見つけたら、選定成果物へ混ぜずissue化して[`operations/improvement-loop.md`](../../../docs/operations/improvement-loop.md)へ渡す。改善はforward計測経路を説明でき、testで固定できるものだけを採用する。
