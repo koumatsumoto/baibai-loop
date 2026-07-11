@@ -179,6 +179,8 @@ class InputSnapshot(BaseModel):
     producer_model_version: Annotated[str, Field(min_length=1)]
     ticker: Annotated[str, Field(pattern=_TICKER)]
     company_name: Annotated[str, Field(min_length=1)]
+    sector: Annotated[str, Field(min_length=1)]
+    common_factors: tuple[Annotated[str, Field(min_length=1)], ...]
     as_of: date
     sources: tuple[Source, ...]
     facts: tuple[ObservedFact, ...]
@@ -188,10 +190,18 @@ class InputSnapshot(BaseModel):
     def _parse_date(cls, value: object) -> date:
         return _date(value)
 
-    @field_validator("sources", "facts", mode="before")
+    @field_validator("sources", "facts", "common_factors", mode="before")
     @classmethod
     def _parse_sequences(cls, value: object) -> object:
         return _tuple(value)
+
+    @model_validator(mode="after")
+    def _common_factor_shape(self) -> InputSnapshot:
+        if len(set(self.common_factors)) != len(self.common_factors):
+            raise ValueError("common_factors must not contain duplicates")
+        if self.common_factors != tuple(sorted(self.common_factors)):
+            raise ValueError("common_factors must be sorted")
+        return self
 
 
 class DerivedMetric(BaseModel):
@@ -287,9 +297,11 @@ class EstimatesNamespace(BaseModel):
     entry_price_basis_yen: Annotated[
         Decimal, Field(ge=Decimal("0.0001"), le=Decimal("1000000000"), decimal_places=4)
     ]
-    entry_price_basis: Literal["max_acceptable_price", "observed_market_price"]
+    entry_price_basis: Literal["observed_market_price"]
     entry_price_source_ids: tuple[Annotated[str, Field(min_length=1)], ...]
     entry_price_assumption: Annotated[str, Field(min_length=1)]
+    required_5y_base_cagr_pct: Annotated[float, Field(gt=0, le=100)]
+    deep_discount_bps: Annotated[int, Field(ge=0, le=9_999)] | None
     scenarios: tuple[ScenarioEstimate, ...]
 
     @field_validator("scenarios", "entry_price_source_ids", mode="before")
@@ -857,10 +869,7 @@ def _check_snapshot_contract(document: DecisionPacketDocument, errors: list[str]
                 errors.append("market_price was observed after the AI proposal")
         if isinstance(fact.value, bool | str) or fact.value <= 0:
             errors.append("market_price fact must be a positive number")
-        elif (
-            document.estimates.entry_price_basis == "observed_market_price"
-            and Decimal(str(fact.value)) != document.estimates.entry_price_basis_yen
-        ):
+        elif Decimal(str(fact.value)) != document.estimates.entry_price_basis_yen:
             errors.append("observed_market_price entry basis must equal snapshot market price")
     allowed_valuation_units = {"ratio", "percent", "JPY_per_share"}
     for fact in valuations:

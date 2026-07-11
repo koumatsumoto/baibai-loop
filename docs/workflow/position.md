@@ -51,6 +51,8 @@ portfolio資本は各positionへ複製せず、portfolio ledgerから再計算�
 
 multi-intent lifecycleは [`../reference/execution-lifecycle.md`](../reference/execution-lifecycle.md) を正本にする。そこでは human-confirmed decision、manual broker order、broker-confirmed executionを別artifactとして持ち、intentの最大許容価格と各orderのlimit priceを分ける。現行position recordは`position.json`のcontractを使い、active recordへの切替はactive stateの再構成と同時に行う。
 
+人間承認前の価格・数量案は[`../reference/decision-packet.md#execution-pricing`](../reference/decision-packet.md#execution-pricing)のexecution policyで作る。承認後だけproposalのpacket hashを#333 lifecycle intentへ束縛する。期限後のlow price touchはfillではないため、broker-confirmed executionと別にnot-filled outcomeとして測定する。
+
 ## 期限付き指値（約定待ち）の運用
 
 指値に期限を付けて発注し約定を待つ場合（例: 月末まで有効の GTC 風注文）、record は次の形で管理する:

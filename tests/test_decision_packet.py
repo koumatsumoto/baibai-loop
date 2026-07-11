@@ -13,6 +13,7 @@ from baibai_loop.thesis.decision_cli import main as decision_main
 from baibai_loop.thesis.decision_packet import (
     DecisionPacketDocument,
     DecisionPacketError,
+    DecisionPacketResult,
     IndependentReview,
     decision_packet_core_hash,
     decision_packet_json_schema,
@@ -61,7 +62,7 @@ def _evaluate(
     review_raw: dict[str, object] | None = None,
     *,
     now: datetime | None = None,
-):
+) -> DecisionPacketResult:
     document, review = _bind_review(raw, review_raw)
     return evaluate_decision_packet(document, review=review, now=now)
 
@@ -88,7 +89,7 @@ def test_golden_packet_is_ready_with_explicit_evidence_warning() -> None:
     )
     assert base_five.terminal_share_count == 97_524_875.3122
     assert base_five.terminal_price_yen == 1439.5401
-    assert base_five.total_return_cagr_pct == 9.19
+    assert base_five.total_return_cagr_pct == 9.57
 
 
 def test_generated_schema_matches_tracked_contract() -> None:
@@ -101,6 +102,20 @@ def test_packet_requires_input_snapshot() -> None:
     del raw["input_snapshot"]
 
     with pytest.raises(ValueError, match="input_snapshot"):
+        _document(raw)
+
+
+@pytest.mark.parametrize("value", [None, 0, -1])
+def test_packet_requires_an_explicit_positive_5y_base_return(value: object) -> None:
+    raw = _raw()
+    estimates = raw["estimates"]
+    assert isinstance(estimates, dict)
+    if value is None:
+        del estimates["required_5y_base_cagr_pct"]
+    else:
+        estimates["required_5y_base_cagr_pct"] = value
+
+    with pytest.raises(ValueError, match="required_5y_base_cagr_pct"):
         _document(raw)
 
 
@@ -171,7 +186,7 @@ def test_observed_entry_price_must_equal_snapshot_market_price() -> None:
     raw = _raw()
     estimates = raw["estimates"]
     assert isinstance(estimates, dict)
-    estimates["entry_price_basis"] = "observed_market_price"
+    estimates["entry_price_basis_yen"] = 1031
 
     result = _evaluate(raw)
 

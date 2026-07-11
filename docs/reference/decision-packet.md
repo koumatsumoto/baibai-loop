@@ -20,7 +20,7 @@ Decision packetは、実購入候補の判断根拠を短い要約と再計算�
 | --- | --- |
 | `input_snapshot` | ticker、判断基準日、判断時price、主要財務・valuation、source provenanceを固定した最小fact snapshot |
 | `derived` | formula ID、input fact IDs、version、as-of、unit、assumptionを持つ機械再計算値 |
-| `estimates` | 判断上限または市場観測として種別を明示した入口価格と、model version・仮定を持つ3年/5年bear/base/bull |
+| `estimates` | 判断時に観測した入口価格、要求5年CAGR、model version・仮定を持つ3年/5年bear/base/bull |
 | `judgment` | buy/defer/rejectのAI initial proposal、提案時刻、確信度、永久損失結論、最強反対仮説、sizing |
 
 この4つはdata/judgment namespaceである。`permanent_loss_risks`はjudgmentを構成する軸別評価、`independent_review_ref`は別artifactのsecond-pass review envelopeへの参照、`human_evidence_override`はreview後の人間によるrisk受容としてtop-levelに置く。最終発注判断はexecution contractの別artifactであり、AI proposalへ混ぜない。
@@ -48,6 +48,22 @@ total_return_CAGR = ((terminal_price + cumulative_dividend_per_share) / entry_pr
 
 `annual_share_count_change_pct`が正なら希薄化、負ならbuybackによる株数減少である。terminal priceは配当を含めず、累積配当をCAGR計算で1回だけ加える。入力が主張するterminal earnings、shares、price、CAGRを式から再計算し、不一致を`incomplete`にする。
 
+## Execution pricing
+
+`estimates.required_5y_base_cagr_pct`は、5年base scenarioに対してこの判断が要求する年率を明示する。`deep_discount_bps`を使う場合も同じpacketに保存し、後から別の値へ差し替えない。execution policyは表示用の上限価格や終値からの任意率を入力にせず、再計算した5年base terminal priceと累積配当から最大許容価格を求める。
+
+```text
+terminal_total_value = recalculated_5y_base_terminal_price
+                     + cumulative_dividend_per_share_yen
+max_acceptable_price = floor_to_tick(
+  terminal_total_value / (1 + required_5y_base_cagr_pct / 100)^5
+)
+```
+
+`baibai-loop-decision --execution-input <yaml> --ledger <canonical-ledger>` は、この上限、provider-neutral quote、canonical ledgerから導出したcash・concentration snapshot、数量・期限を使い、`buy_now / shallow_limit / deep_limit / defer` を比較する。CLIはinput YAMLのcashやexposureがledger snapshotと一致しない場合に停止する。proposalは人間承認前の判断材料であり、brokerを操作しない。評価時刻はexecution inputに固定し、quoteとledger snapshotはその時刻の5分以内でなければならない。CLIはさらに実行時刻との差が5分以内であり、注文期限がまだ到来していないことを確認するため、過去のreplay inputを現在の発注案として使えない。stale・historical・synthetic quote、または可視bid/askの全てが上限を超える場合は`defer`にする。spread、visible depth、ADV、注文後concentrationはwarningであり、根拠のないfill probabilityや価格予測を作らない。
+
+未約定の測定では、期限内の日中安値がlimitにtouchした事実とbroker fillを区別する。touchは約定証明ではない。same-basisの観測値が揃う場合だけ、期限後5 sessionの価格とdecision時askを比較してmissed upsideを記録する。この値は指値policyを改善する観測値であり、strategy performanceや確定損益ではない。
+
 ## Permanent-loss axes
 
 必須軸は`funding_liquidity / debt_repayment / cash_flow / dilution / customer_concentration / structural_decline / governance_accounting`である。各軸は`acceptable / adverse / unknown`、`verified / partially_verified / unverified`、source、as-ofを持つ。
@@ -72,5 +88,6 @@ hashとrun metadataが保証するのはartifactの整合性であり、reviewer
 
 ```bash
 uv run baibai-loop-decision records/03-thesis/YYYY/MM/YYYY-MM-DD-XXXX-decision.yaml
+uv run baibai-loop-decision records/03-thesis/YYYY/MM/YYYY-MM-DD-XXXX-decision.yaml --execution-input execution-input.yaml --ledger records/04-position/portfolio-ledger.yaml
 uv run baibai-loop-validation --target decision-packet
 ```

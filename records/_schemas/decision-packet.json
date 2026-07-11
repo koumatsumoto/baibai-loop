@@ -123,10 +123,7 @@
           "title": "Entry Price Basis Yen"
         },
         "entry_price_basis": {
-          "enum": [
-            "max_acceptable_price",
-            "observed_market_price"
-          ],
+          "const": "observed_market_price",
           "title": "Entry Price Basis",
           "type": "string"
         },
@@ -143,6 +140,25 @@
           "title": "Entry Price Assumption",
           "type": "string"
         },
+        "required_5y_base_cagr_pct": {
+          "exclusiveMinimum": 0,
+          "maximum": 100,
+          "title": "Required 5Y Base Cagr Pct",
+          "type": "number"
+        },
+        "deep_discount_bps": {
+          "anyOf": [
+            {
+              "maximum": 9999,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deep Discount Bps"
+        },
         "scenarios": {
           "items": {
             "$ref": "#/$defs/ScenarioEstimate"
@@ -158,6 +174,8 @@
         "entry_price_basis",
         "entry_price_source_ids",
         "entry_price_assumption",
+        "required_5y_base_cagr_pct",
+        "deep_discount_bps",
         "scenarios"
       ],
       "title": "EstimatesNamespace",
@@ -258,6 +276,19 @@
           "title": "Company Name",
           "type": "string"
         },
+        "sector": {
+          "minLength": 1,
+          "title": "Sector",
+          "type": "string"
+        },
+        "common_factors": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Common Factors",
+          "type": "array"
+        },
         "as_of": {
           "format": "date",
           "title": "As Of",
@@ -283,6 +314,8 @@
         "producer_model_version",
         "ticker",
         "company_name",
+        "sector",
+        "common_factors",
         "as_of",
         "sources",
         "facts"
