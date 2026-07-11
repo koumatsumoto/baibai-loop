@@ -1,0 +1,102 @@
+schema_version: 1
+portfolio_scope: repository_only
+as_of: "2026-07-10T15:30:00+09:00"
+estimated_exit_tax_rate_bps: null
+estimated_exit_tax_basis: null
+events:
+  - event_id: opening-20260602
+    type: opening_balance
+    occurred_at: "2026-06-02T08:00:00+09:00"
+    amount_yen: 1000000
+  - event_id: reserve-2331-initial
+    type: reservation
+    occurred_at: "2026-06-02T09:00:00+09:00"
+    reservation_id: reservation-2331-initial
+    order_id: order-2331-initial
+    ticker: "2331"
+    sector: サービス業
+    common_factors: [labor-automation]
+    quantity: 200
+    price_guard_yen: 1050
+    expires_at: "2026-06-05T15:30:00+09:00"
+  - event_id: fill-2331-initial-partial
+    type: execution
+    occurred_at: "2026-06-03T10:00:00+09:00"
+    execution_id: execution-2331-initial-partial
+    reservation_id: reservation-2331-initial
+    ticker: "2331"
+    side: buy
+    quantity: 100
+    price_yen: 1040
+  - event_id: release-2331-initial-cancelled
+    type: release
+    occurred_at: "2026-06-04T10:00:00+09:00"
+    reservation_id: reservation-2331-initial
+    reason: cancelled
+  - event_id: reserve-2331-initial-retry
+    type: reservation
+    occurred_at: "2026-06-04T10:01:00+09:00"
+    reservation_id: reservation-2331-initial-retry
+    order_id: order-2331-initial-retry
+    ticker: "2331"
+    sector: サービス業
+    common_factors: [labor-automation]
+    quantity: 100
+    price_guard_yen: 1030
+    expires_at: "2026-06-05T15:30:00+09:00"
+  - event_id: release-2331-initial-retry-expired
+    type: release
+    occurred_at: "2026-06-05T15:30:00+09:00"
+    reservation_id: reservation-2331-initial-retry
+    reason: expired
+  - event_id: reserve-2331-reprice
+    type: reservation
+    occurred_at: "2026-07-01T09:00:00+09:00"
+    reservation_id: reservation-2331-reprice
+    order_id: order-2331-reprice
+    ticker: "2331"
+    sector: サービス業
+    common_factors: [labor-automation]
+    quantity: 100
+    price_guard_yen: 1000
+    expires_at: "2026-07-05T15:30:00+09:00"
+  - event_id: fill-2331-reprice
+    type: execution
+    occurred_at: "2026-07-01T10:00:00+09:00"
+    execution_id: execution-2331-reprice
+    reservation_id: reservation-2331-reprice
+    ticker: "2331"
+    side: buy
+    quantity: 100
+    price_yen: 990
+  - event_id: reserve-2331-add
+    type: reservation
+    occurred_at: "2026-07-03T09:00:00+09:00"
+    reservation_id: reservation-2331-add
+    order_id: order-2331-add
+    ticker: "2331"
+    sector: サービス業
+    common_factors: [labor-automation]
+    quantity: 100
+    price_guard_yen: 980
+    expires_at: "2026-07-07T15:30:00+09:00"
+  - event_id: fill-2331-add
+    type: execution
+    occurred_at: "2026-07-03T10:00:00+09:00"
+    execution_id: execution-2331-add
+    reservation_id: reservation-2331-add
+    ticker: "2331"
+    side: buy
+    quantity: 100
+    price_yen: 970
+  - event_id: sell-2331-exit
+    type: execution
+    occurred_at: "2026-07-10T10:00:00+09:00"
+    execution_id: execution-2331-exit
+    reservation_id: null
+    ticker: "2331"
+    side: sell
+    quantity: 300
+    price_yen: 1120
+market_prices: []
+overrides: []

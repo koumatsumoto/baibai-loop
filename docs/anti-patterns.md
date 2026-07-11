@@ -262,6 +262,12 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
         `position_sizing_overlay.guarded_max_notional_yen` を記録し、
         `guarded_max_notional_yen = order_price_guard_yen * quantity` と整合させたか
   - [ ] guarded notional を必要時に再計算できる入力が揃っているか
+- [ ] multi-intent execution lifecycleを導入・変更する場合、以下をcontract testで確認したか:
+  - [ ] intentが空でないuser decision reference、exact decision packet hash、side、board-lot quantity、guard、expiryを持つ
+  - [ ] orderは実在intentへjoinし、intent guardの内側のlimit priceだけを使う。retry/ladderの同時live quantityはintent残数を超えない
+  - [ ] executionは実在orderへjoinし、side、submission時刻、expiry、limit price、order quantityと整合する
+  - [ ] duplicate intent/order/execution/external broker order ID、orphan、terminal後execution、guard違反、over-sellをhard errorにする
+  - [ ] canonical ledgerがある場合、同一`as_of`・lifecycle開始以後の同一ticker reservation / execution ID集合を完全一致させ、buy orderのreservation、buy/sell execution、terminal buy orderのreleaseをIDと数値・時刻で照合する
 - [ ] `thesis_decision.outcome: approved` の場合、`candidate_ref` が参照した candidates repository file の対象 candidate に join できるか
 - [ ] 連続する commit で `thesis_decision.outcome: deferred|rejected → approved` に flip した場合、PR review で thesis / event / sizing の変更理由を確認する
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
