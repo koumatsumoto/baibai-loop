@@ -1,6 +1,6 @@
 # Baibai-Loop
 
-Baibai-Loop は、日本株の実データ(価格・財務・開示・規制)を機械的に収集・正規化し、固定ルールで**割安な銘柄を機械抽出**し、深い個別調査で**フェアバリュー・リスクリワード・期待利回りを見積もる**データ解析基盤です。運用モデルは **AI 主導・人間裁定**: AI がマクロ経済分析 → 割安 screening → 個別リサーチ → 売買提案までを主導し、人間が提案を判断して発注します。目的は「お買い得な優良銘柄を長期で拾い、資産を積み上げる」ことです。
+Baibai-Loop は、日本株の実データ(価格・財務・開示・規制)を機械的に収集・正規化し、固定ルールで**割安な銘柄を機械抽出**し、深い個別調査で**フェアバリュー・リスクリワード・期待利回りを見積もる**データ解析基盤です。運用モデルは **AI 主導・人間裁定**: AI がscreening、必要時のmacro material delta確認、個別リサーチ、売買提案までを主導し、人間が提案を判断して発注します。目的は「お買い得な優良銘柄を長期で拾い、資産を積み上げる」ことです。
 
 運用の詳細は [`docs/`](./docs/) を正本とします。初めて読む場合は [`docs/doctrine.md`](./docs/doctrine.md) → [`docs/README.md`](./docs/README.md) から入ってください。
 
@@ -19,12 +19,11 @@ AI が利用する安定契約は **CLI の YAML 出力と SQLite schema の 2 �
 Baibai-Loop は、割安な優良銘柄を長期で積み立てる 1 つの投資ループを回し、その中核スキル(リスクリワード・期待利回りの見積り)を実現結果と突き合わせて継続改善します。思想の正本は [`docs/doctrine.md`](./docs/doctrine.md)。
 
 1. 運用方針で資本・許容リスク・ポジション管理を固定する
-2. マクロ分析で姿勢(ディフェンシブ / リスクオン)とセクター・AI 前提を読む: `records/01-macro-context/`
-3. 割安 screening でふるいにかける: `records/02-candidates/`
-4. 深い個別調査でフェアバリュー・リスクリワード・期待利回りを見積もり、塩漬け耐性を確認する: `records/03-thesis/`
-5. 採用銘柄を「いくらで何株」の売買提案として GitHub Issue に上げ、人間が判断する
-6. 約定したら執行記録を残し、thesis health と税引後の代替期待値で保有を見直す: `records/04-position/`
-7. 見積りと実現結果を突き合わせて較正し、次の見積りを磨く
+2. 割安 screening でふるいにかける: `records/02-candidates/`
+3. 必要時だけmacro material deltaを確認し、深い個別調査でフェアバリュー・リスクリワード・期待利回りを見積もり、塩漬け耐性を確認する: `records/01-macro-context/`, `records/03-thesis/`
+4. 採用銘柄を「いくらで何株」の売買提案として GitHub Issue に上げ、人間が判断する
+5. 約定したら執行記録を残し、thesis health と税引後の代替期待値で保有を見直す: `records/04-position/`
+6. 見積りと実現結果を突き合わせて較正し、次の見積りを磨く
 
 ## 対象としないこと
 
@@ -86,7 +85,7 @@ directory ごとの責務は [`docs/architecture.md#repository-map`](./docs/arch
 
 ```bash
 uv run baibai-loop-screening run --asof YYYY-MM-DD
-uv run baibai-loop-screening select --asof YYYY-MM-DD --macro-context records/01-macro-context/YYYY/MM/macro-context-YYYY-MM-DD-slug.yaml
+uv run baibai-loop-screening select --asof YYYY-MM-DD  # macro context is optional
 uv run baibai-loop-macro search CPI
 uv run baibai-loop-validation
 uv run baibai-loop-position benchmark

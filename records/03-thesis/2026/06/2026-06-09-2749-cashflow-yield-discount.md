@@ -37,17 +37,6 @@ valuation:
   primary_metric:
   - ocf_yield
   - fcf_yield
-macro_context_ref: records/01-macro-context/2026/06/macro-context-2026-06-08-post-crash.yaml
-macro_context_fit:
-  context_freshness: current
-  fit: not_matched
-  decision_effect: proceed
-  required_checks:
-  - サービス業（保育）は 2026-06-08 macro context の sector_tilts に明示されず not_matched。internal-demand かつ net cash の value として「金利・半導体非感応の
-    domestic net-cash value の overshoot」テーマに乗るかを個別確認する。
-  - 出生数の構造減（2024 に初の 70 万人割れ）が保育稼働率・補助金前提を中期で崩さないか。
-  sizing_caution:
-  - discretionary_panel_thesis_starter_only
 thesis_payoff:
   max_entry_price_yen: 590
   fair_value_yen: 680
@@ -57,21 +46,19 @@ thesis_payoff:
   invalidation_conditions:
   - 出生数の構造減で保育稼働率・補助金前提が崩れ、営業 CF と増益基調が反転する。
   - cashflow-yield-discount の前提（OCF yield 11.95%、net cash）が次回決算で剥落する。
-  - macro context 更新後に internal-demand defensive の前提が悪化する。
+  - 出生動態・補助金前提・次回決算のいずれかが悪化する。
   entry_trigger: issue_203_limit_fill
 entry_preflight:
   evaluated_on: '2026-06-09'
   market_relative_return_pct: 4.36
   sector_or_peer_relative_return_pct: 0.0
-  macro_freshness: current
   exposure_after_order:
     sector_33_pct: 2.95
     playbook_pct: 19.48
-  near_term_catalyst: false
   action: starter
   reason: '2026-06-09 約定の 100 株 starter。市場相対は 6/8 暴落日（日経 -3.85%）に対し candidate の price_change_1d +0.51% で +4.36pt
     と逆行耐性を示した。サービス業セクター指数の同期間リターンは Tier1 で取得できず peer relative は not_checked（0.0）扱いだが、sector_relative_strength_percentile
-    81.8%ile で相対的に強い。macro context は current。tactical exposure は sector 2.95% / playbook（cashflow-yield-discount
+    81.8%ile で相対的に強い。tactical exposure は sector 2.95% / playbook（cashflow-yield-discount
     既存 3539+8255 含む）19.5% で 50% 上限内。discretionary な #201 パネル thesis のため proceed ではなく starter に留める。
 
     '
@@ -93,15 +80,6 @@ corporate_action_check:
 - **Long-hold fallback**: 中程度。net cash（+137 億）、自己資本比率 60.0%、保育の需要 defensive 性が支え。ただし保育は出生数の構造減（2024 に初の 70 万人割れ）という長期逆風があり、補助金・稼働率前提が崩れる場合は長期保有へ逃がさない。
 - **Capital lock / shareholder return**: 配当はあるが PBR 2.23・P/S 1.21 と balance sheet 倍率は割安ではなく、cashflow yield と net cash が主な下支え。含み損ロック時の安心材料は配当より財務健全性に依存する。2026-06-13 IR 確認で期末配当 12.50 円増額・利回り約1.78% を確認（§Shareholder return）。
 - **AI long-term impact**: 低い。保育オペレーションの効率化余地はあるが、採用根拠・sizing 根拠には使わない。
-
-## Macro context
-
-- **macro_context_ref**: `records/01-macro-context/2026/06/macro-context-2026-06-08-post-crash.yaml`
-- **context_freshness**: current（as_of 2026-06-08 / valid_until 2026-06-15、発注 2026-06-09 は window 内）
-- **fit**: not_matched（サービス業は sector_tilts に明示されない）
-- **decision_effect**: proceed（暴落は半導体・bond-proxy 集中で、internal-demand net-cash value はむしろ macro の最良 risk-reward テーマ側）
-- **required_checks**: 出生数構造減が中期の稼働率・補助金前提を崩さないか。
-- **sizing_caution**: discretionary パネル thesis のため starter のみ。
 
 ## Cashflow snapshot
 
@@ -156,7 +134,6 @@ Source:
 | Market baseline | Nikkei 6/8 -3.85% | macro context（Tier 1 日経） |
 | Sector / peer baseline | not_checked（サービス業セクター指数を Tier1 取得できず） | sector_relative_strength_percentile 81.8%ile を定性参照 |
 | Relative return | vs market: +4.36pt / vs sector-peer: 0.0pt (not_checked) | price_change_1d +0.51% − (−3.85%) |
-| Macro freshness | current | window 内 |
 | Exposure review | after-order sector: 2.95% / playbook: 19.5% | 分母 tactical_real_budget_yen 200 万円。playbook は既存 3539+8255 を含む cashflow-yield-discount 合計 |
 | Action | starter | discretionary パネル thesis のため 100 株 starter に限定 |
 
@@ -177,7 +154,7 @@ Issue:
 
 - 出生数の構造減で保育稼働率・補助金前提が崩れ、営業 CF・増益基調が反転する。
 - OCF yield・net cash の cashflow thesis が次回決算で剥落する。
-- macro context 更新後に internal-demand defensive の前提が悪化する。
+- 出生動態・補助金前提・次回決算のいずれかが悪化する。
 
 ## Position size
 

@@ -1,6 +1,6 @@
 ---
 title: "Workflow — research (thesis)"
-summary: "個別銘柄リサーチ：candidates と macro context から、フェアバリュー・リスクリワード・期待利回りを見積もり、塩漬け耐性を確認し、採否と投入額を決める投資メモ。"
+summary: "個別銘柄リサーチ：candidatesを起点に、フェアバリュー・リスクリワード・期待利回りを見積もり、塩漬け耐性を確認し、採否と投入額を決める投資メモ。"
 doc_type: workflow
 status: active
 last_reviewed: 2026-07-11
@@ -8,7 +8,7 @@ last_reviewed: 2026-07-11
 
 # Workflow — 個別銘柄リサーチ（thesis）
 
-単一ループ（[`../doctrine.md`](../doctrine.md) §2）の中核工程。[`./screening.md`](./screening.md) の candidates と [`./macro.md`](./macro.md) の環境認識を材料に個別銘柄を深く調べ、**フェアバリュー（FV）・リスクリワード・期待利回りを見積もり**、**塩漬け耐性**を確認したうえで、採否と投入額を決める投資メモ（`records/03-thesis/`）を書く。運用で磨く中核の技能はこの見積りの精度であり、見積りは実現結果と突き合わせて較正する（[`./position.md`](./position.md)）。
+単一ループ（[`../doctrine.md`](../doctrine.md) §2）の中核工程。[`./screening.md`](./screening.md) のcandidatesを起点に個別銘柄を深く調べ、**フェアバリュー（FV）・リスクリワード・期待利回りを見積もり**、**塩漬け耐性**を確認したうえで、採否と投入額を決める投資メモ（`records/03-thesis/`）を書く。material macro deltaがある場合だけ、その外部経路が個別期待値を変えるかを確認する。運用で磨く中核の技能はこの見積りの精度であり、見積りは実現結果と突き合わせて較正する（[`./position.md`](./position.md)）。
 
 active record移行後の判断正本は[`../reference/decision-packet.md`](../reference/decision-packet.md)である。移行完了までは本docのthesis Markdown契約を使い、旧fieldとdecision packetを1つのrecordへ混在させない。
 
@@ -18,9 +18,9 @@ buy判断を具体的な発注案へ落とすときは、decision packetの5年b
 
 ## 選定プロセス
 
-1. 最新の macro context と candidates に対して `uv run baibai-loop-screening select` を実行し、`recommendations`（機械 E[r] 降順）・E[r] 成分と FV アンカー・durability（塩漬け耐性）の注記・sector / playbook ごとの集中度を確認する。個別銘柄は `ticker-profile --ticker XXXX` の事実 packet を起点にする。
+1. candidatesに対して `uv run baibai-loop-screening select` を実行し、`recommendations`（機械 E[r] 降順）・E[r] 成分と FV アンカー・durability（塩漬け耐性）の注記・sector / playbook ごとの集中度を確認する。material macro deltaが表示されている場合は、個別期待値への影響だけを確認する。個別銘柄は `ticker-profile --ticker XXXX` の事実 packet を起点にする。
 2. `recommendations` の上位 3–5 銘柄に絞る（閾値を変えて試すときは `records/_config/screening-rules/*.yaml` を編集して `select` を再実行する）。
-3. 各候補の `evidence_hits[]`・candidates の指標・macro context の `sector_tilts` を確認する。
+3. 各候補の `evidence_hits[]`・candidates の指標・必要時のmaterial macro deltaを確認する。
 4. リスクリワード・[`../portfolio-management.md`](../portfolio-management.md) の cap・塩漬け耐性ゲート・流動性に照らして、`thesis_decision` と `position_sizing_overlay` を確定する。
 
 一度の選定で扱うのは 3–5 銘柄まで。複数の playbook に同時に該当することは優先度を上げる材料になるが、投入額はリスクリワード・耐性・流動性とportfolio exposureで決める。canonical ledger稼働時はavailable cashとexposure warning、未初期化時は既存position/thesis gateを使う。
@@ -31,7 +31,7 @@ buy判断を具体的な発注案へ落とすときは、decision packetの5年b
 
 ## Macro context fit
 
-`decision_effect` は `proceed | caution | defer`。macro context は機械的な足切りではないが、`defer` の場合は `approved` にしない。判定不能・鮮度切れ・確信度の低い sector tilt は保守的に扱い、`required_checks[]` に追加確認を残す。sector tilt が逆風（headwind）でも自動的に却下はせず、`sizing_caution` / `required_checks` として扱う（[`./macro.md`](./macro.md)）。
+macro contextは投資判断のhard gateではない。future contextだけは使わず、missing/staleはwarningとして扱う。material deltaがあるときは、discount rate・需要・資金調達・共通tail riskのどれが個別5年期待値を変えるかをdecision packetのrationaleへ残す。
 
 ## 見積り — フェアバリュー・リスクリワード・期待利回り
 
@@ -46,7 +46,7 @@ buy判断を具体的な発注案へ落とすときは、decision packetの5年b
   - **期待利回り**：FV への収束で得られる期待リターン（想定する収束年数で年率換算）に配当などの収益を加えた、トータルリターンの年率概算。配当利回り単体とは別に記録する。
 - **保有見直しの条件**：FV 到達・割高ゾーンは holding review の trigger であり、自動売却ではない。thesis break は全株 exit の優先候補とし、健全な thesis の reduce / exit は税・費用を引いた代替期待値が上回る場合だけ提案する。保有期間の長さでは売らない。
 
-payoff が弱い場合は `thesis_decision`・`macro_context_fit.required_checks`・`sizing_caution`・`position_sizing_overlay` に反映する。リスクリワードの下限方針は [`../portfolio-management.md`](../portfolio-management.md)。
+payoff が弱い場合は `thesis_decision`・`position_sizing_overlay`・decision packetのcountercaseに反映する。リスクリワードの下限方針は [`../portfolio-management.md`](../portfolio-management.md)。
 
 ## 塩漬け耐性ゲート（必須）
 
@@ -73,7 +73,7 @@ payoff が弱い場合は `thesis_decision`・`macro_context_fit.required_checks
 ## Entry
 
 - **買うのは、割安ゾーンにあり、かつ FV より十分に安い**銘柄。長期の積立として買い、押し目（直近の下落で割安ゾーンへ入った局面）を拾ってよい。
-- **Entry preflight**（front matter `entry_preflight`）：比較開始日・判定日・価格の基準、市場（日経 / TOPIX）と sector に対する相対リターン（参考情報）、macro context の鮮度を確認する。canonical ledger稼働時のportfolio exposureはcurrent holdingとreservationから再計算しwarningとして提示する。未初期化時は既存position/thesis gateを使う。sector の基準値は原則 sector 指数を使い、取得できなければ同業 3–5 社の平均、それも不可なら`not_checked`と理由を記録する。macro contextが鮮度切れで日付の確定した近接カタリストもなければ`defer`とする。
+- **Entry preflight**（front matter `entry_preflight`）：比較開始日・判定日・価格の基準、市場（日経 / TOPIX）とsectorに対する相対リターン（参考情報）を確認する。canonical ledger稼働時のportfolio exposureはcurrent holdingとreservationから再計算しwarningとして提示する。未初期化時は既存position/thesis gateを使う。sector の基準値は原則 sector 指数を使い、取得できなければ同業 3–5 社の平均、それも不可なら`not_checked`と理由を記録する。
 - 投入額は §Position size に従う。
 
 ## Exit
@@ -84,11 +84,11 @@ payoff が弱い場合は `thesis_decision`・`macro_context_fit.required_checks
 
 ## AI の長期影響
 
-AI を中心セクターに据える思想は [`../doctrine.md`](../doctrine.md) 柱 2 が正本。thesis では、その銘柄にとっての **AI の長期的な機会・長期的な脅威・今回の判断における重み**を 1 行以上で明示する。AI への期待は、それ単独では採用理由にも投入額の根拠にもしない。
+AIは中心sectorではなく企業別value-capture lensである。decision packetではrole（enabler / infrastructure / complement / adopter / disrupted）、競争優位、価格決定力、必要capex、顧客交渉力、value captureの結論と根拠sourceを構造化する。AI需要だけで採用理由や投入額を正当化しない。`disrupted`なら構造衰退の永久損失軸でadverseまたはunknownを明示する。
 
 ## Position size
 
-次の順に確認して投入額を決める：(1) payoff とリスクリワードの下限、(2) 塩漬け耐性、(3) macro 起因の注意（sizing_caution）と cap、(4) 流動性の上限（ADV 参加率）、(5) policy cap（[`../portfolio-management.md`](../portfolio-management.md)：単一銘柄 4–6% / sector 30–40% / playbook 35%、entry 時の投入額に対する制約）、(6) 単元株数と指値の上限価格での丸め。丸めた結果 0 株になる場合は `execution_state: none` と理由を記録する。
+次の順に確認して投入額を決める：(1) payoff とリスクリワードの下限、(2) 塩漬け耐性、(3) 流動性の上限（ADV 参加率）、(4) policy cap（[`../portfolio-management.md`](../portfolio-management.md)：単一銘柄 4–6% / sector 30–40% / playbook 35%、entry 時の投入額に対する制約）、(5) 単元株数と指値の上限価格での丸め。material macro deltaは追加のwarningとして表示できるが、投入額を単独では決めない。丸めた結果 0 株になる場合は `execution_state: none` と理由を記録する。
 
 ## AI の役割境界
 
@@ -108,8 +108,6 @@ name: "..."
 playbook_id: cashflow-yield-discount
 playbook_ref: { ref_path: records/_playbooks/<archetype>/<version>.md }
 candidate_ref: { candidates_ref: records/02-candidates/YYYY/MM/YYYY-MM-DD.yaml, ticker: "XXXX" }
-macro_context_ref: records/01-macro-context/YYYY/MM/macro-context-YYYY-MM-DD-<slug>.yaml
-macro_context_fit: { context_freshness: current, fit: neutral, decision_effect: proceed, required_checks: [], sizing_caution: [] }
 thesis_decision: { outcome: approved, posture: act_now }
 thesis_payoff:
   max_entry_price_yen: 1000
@@ -137,7 +135,7 @@ published_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 uv run baibai-loop-validation --target thesis
 ```
 
-front matter の schema・repository refs・macro context fit・thesis payoff・durability_gate・corporate action check・position sizing overlay を検査する。
+front matter の schema・repository refs・thesis payoff・durability_gate・corporate action check・position sizing overlay を検査する。decision packetではAI value-captureのsource lineageとcross-field rulesも検査する。
 
 ## 参考
 

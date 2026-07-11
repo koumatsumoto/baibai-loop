@@ -21,9 +21,7 @@ from ..rule_config import ScreeningRules, SelectionDiversityRules, SelectionLiqu
 from ..tiers import position_tier
 from .lenses import _candidate_lenses
 from .macro_fit import (
-    _candidate_macro_context_result,
-    _macro_context_alignment,
-    _macro_context_summary,
+    macro_context_summary,
 )
 from .profiles import resolve_selection_rules
 from .ranking import (
@@ -98,8 +96,6 @@ def build_selection_payload(
     er_missing_count = 0
 
     ranked_entries: list[tuple[tuple[object, ...], dict[str, object]]] = []
-    macro_context_checked_count = 0
-
     for item in candidates:
         passes, facts_missing = _passes_liquidity(item, liquidity, required_jpx_flags)
         if facts_missing:
@@ -107,17 +103,10 @@ def build_selection_payload(
         if not passes:
             liquidity_excluded_count += 1
             continue
-        macro_context_checked_count += 1
         er_annual = optional_float(item.metrics.get("er_annual"))
         if er_annual is None:
             er_missing_count += 1
             continue
-        macro_context_result = _candidate_macro_context_result(
-            item,
-            macro_context=macro_context,
-            asof_date=asof_date,
-        )
-        macro_context_alignment = _macro_context_alignment(macro_context_result)
         eligible_evidence_hits = _sizing_eligible_evidence_hits(item.evidence_hits)
         if eligible_evidence_hits:
             evidence_annotated_count += 1
@@ -132,8 +121,6 @@ def build_selection_payload(
         lenses = _candidate_lenses(item, selection_rules)
         candidate = _selection_candidate(
             item,
-            macro_context_result=macro_context_result,
-            macro_context_alignment=macro_context_alignment,
             selection_playbook=selection_playbook,
             selection_metrics=selection_metrics,
             lenses=lenses,
@@ -199,7 +186,6 @@ def build_selection_payload(
             "counts": {
                 "input": len(candidates),
                 "after_liquidity_filter": len(candidates) - liquidity_excluded_count,
-                "after_macro_context_check": macro_context_checked_count,
                 "after_er_filter": len(ranked_candidates),
                 "evidence_annotated": evidence_annotated_count,
                 "er_missing": er_missing_count,
@@ -208,7 +194,7 @@ def build_selection_payload(
             "research_selection_playbook_order": list(
                 rules.output.research_selection_playbook_order
             ),
-            "macro_context_summary": _macro_context_summary(macro_context),
+            "macro_context_summary": macro_context_summary(macro_context, asof_date=asof_date),
             "diagnostics": diagnostics,
             "detail": detail,
         },
@@ -290,7 +276,7 @@ def build_selection_sweep_payload(
             if previous_candidates is not None
             else None,
         },
-        "macro_context_summary": _macro_context_summary(macro_context),
+        "macro_context_summary": macro_context_summary(macro_context, asof_date=asof_date),
         "market_regime": market_regime.to_dict() if market_regime is not None else None,
         "profiles": profile_results,
     }
@@ -299,8 +285,6 @@ def build_selection_sweep_payload(
 def _selection_candidate(
     item: CandidateRecord,
     *,
-    macro_context_result: Mapping[str, object],
-    macro_context_alignment: str,
     selection_playbook: str | None,
     selection_metrics: Mapping[str, object],
     lenses: Mapping[str, object],
@@ -319,8 +303,6 @@ def _selection_candidate(
         "ticker": item.ticker,
         "name": item.name,
         "sector_33": item.sector_33,
-        "macro_context_alignment": macro_context_alignment,
-        "macro_context": dict(macro_context_result),
         "market_cap_oku": item.market_cap_oku,
         "avg_turnover_oku": item.avg_turnover_oku,
         "per_trailing": item.per_trailing,

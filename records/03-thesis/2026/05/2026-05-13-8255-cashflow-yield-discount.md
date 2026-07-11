@@ -49,12 +49,6 @@ valuation:
   - ocf_yield
   - post_earnings_oversold
   - shareholder_return
-macro_context_ref: records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml
-macro_context_fit:
-  context_freshness: current
-  fit: not_matched
-  decision_effect: proceed
-  required_checks: []
 corporate_action_check:
   checked: true
   result: none
@@ -72,13 +66,6 @@ corporate_action_check:
 Long-hold fallback は 3 銘柄内で最も強い。食品スーパーは高成長ではないが、需要が景気循環に相対的に鈍く、同社は net cash、66.1% の自己資本比率、累進配当、長期保有優待新設を持つ。含み損になっても、決算後の仮説が崩れない限り保有継続の説明がつく。
 
 AI long-term impact は低い。直接の AI 成長銘柄ではないが、物流・店舗オペレーション・在庫管理の効率化余地はある。今回の primary thesis には使わない。
-
-## Macro context
-
-- 判定: not_matched / proceed。
-- Sector: 小売業。
-- Source: `records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml`。
-- 注意: CPI と燃料価格は粗利と販管費に効くため、macro は支援材料ではない。ただし内需食品スーパーで外需ショックへの直接感応度は低く、保有耐性は高い。
 
 ## Oversold check
 

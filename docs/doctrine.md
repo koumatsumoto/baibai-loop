@@ -26,8 +26,8 @@ Baibai-Loop が回すのは 1 つの長期投資ループである。その中�
 
 ```mermaid
 flowchart LR
-  policy["運用方針<br/>資本・積立・余力"] --> macro["マクロ分析<br/>姿勢・セクター・AI 前提"]
-  macro --> screen["割安 screening<br/>valuation ranking"]
+  policy["運用方針<br/>資本・積立・余力"] --> screen["割安 screening<br/>valuation ranking"]
+  macro["マクロ分析<br/>material delta / common risk"] -.補助context.-> research
   screen --> select["リサーチ候補選定<br/>lens で着手順位"]
   select --> research["深い個別調査<br/>FV・RR・期待利回りを見積る"]
   research --> buy["割安を長期で積立て買い"]
@@ -52,11 +52,11 @@ flowchart LR
 - **(b)** 事実と意見が混ざると、AI が過去の解釈を「事実」として再生産してしまう。ファイル単位で分けておけば「解釈ファイルを AI に見せない」という選択ができ、後知恵バイアスと責任の所在の混乱を防げる。
 - **(c)** タグや front matter の `type` で同一ファイル内を区分けする案は、混入したときに見落としやすく機械チェックも利きにくい。ファイル単位の物理的な分離が最も安全。
 
-### 柱 2: マクロが姿勢を決める
+### 柱 2: マクロはmaterial delta、AIは企業別value captureとして扱う
 
-- **(a)** マクロ分析は screening の前提であるだけでなく、**リスク姿勢とセクター選択の決め手**である。リスクを取るべきでない局面では **ディフェンシブ銘柄**へ、取るべき局面では **追い風の吹くセクター**へ資金を配分する。**AI は中心に据えるセクター**であり、AI による産業革命を前提に長期の産業成長とマクロ観を組み立てる。ただしマクロを機械的な足切り（hard gate）にはせず、姿勢と優先度を与える位置づけに留める。
-- **(b)** 逆風の業種で割安に見える銘柄は、株価が戻らないまま割安であり続けるバリュートラップ（割安の罠）になりやすい。その銘柄が本当に「売られすぎ」なのかを判定するには、マクロ姿勢の確認が欠かせない。世界情勢 → 日本経済 → 日本株という因果の伝播（§7）に沿って上流から読み解けば、銘柄固有の要因と外部環境の要因を切り分けられる。なお AI への期待は、それ単独では採用理由にも投入額の根拠にもしない。
-- **(c)** マクロを文章での注意喚起だけに留めると、逆風下の割安を拾ってしまう危険が残る。逆にマクロだけで候補を決めると、個別銘柄の valuation・塩漬け耐性・カタリスト（株価修正の契機）を活かせない。マクロを数値ドライバー（自動の投入額倍率）にもしない。
+- **(a)** マクロ分析は、discount rate・需要・資金調達・共通tail risk・sizing cautionという外部経路が個別5年期待値を変えたときだけ記録する補助contextである。screening、採用、順位、投入額の決定者にはしない。contextがない、またはstaleでも候補抽出は継続し、未来情報だけをhard errorにする。
+- **(b)** AIはsectorではなく企業別の構造変化lensである。enabler、infrastructure、complement、adopter、disruptedのどこに位置するかと、競争優位・価格決定力・必要capex・顧客交渉力を通じて株主価値を獲得できるかをdecision packetで判断する。AI需要が増えてもvalue captureがなければ採用根拠にしない。
+- **(c)** 非AI企業も個別のE[r]と永久損失リスクで同じ土俵に置く。macro/AIの合成score、自動sizing、sector順位は作らない。
 
 ### 柱 3: 見積りを磨くフィードバック先行
 
@@ -85,7 +85,7 @@ flowchart LR
 | 日本語概念名 | slug | 種別 | 層 | 役割 |
 | --- | --- | --- | --- | --- |
 | 運用方針 | portfolio management | governance | — | 資本・許容リスク・ポジション管理・kill switch |
-| マクロ環境分析 | macro context | 分析（判断） | L3 | 姿勢・セクター・AI 前提を読む環境認識 |
+| マクロ環境分析 | macro context | 分析（判断） | L3 | 個別期待値を変えるmaterial deltaと共通riskの補助context |
 | 市場データ基盤 | market.sqlite | データ store | L1 | 全上場銘柄の実データの正本 |
 | 機械スクリーニング | screening | 機械処理 | L2 | valuation ranking で割安ゾーンを機械抽出 |
 | 通過銘柄リスト | candidates | 機械成果物 | L2 出力 | observed / derived / estimateを分離したsnapshot |
@@ -104,7 +104,7 @@ thesis で見積りの根拠を検証するときの分析レンズ / リター�
 ## 5. 責務境界
 
 - **運用方針 (portfolio management)**：目的・制約・資本・許容リスク・ポジション管理・投資対象の範囲・thesis health と税引後代替で保有を見直す規律を扱う。個別銘柄の thesis や entry / exit の個別設計は扱わない。
-- **マクロ環境分析 (macro context)**：外部記事と指標データを参照し、screening 前の姿勢・セクター・AI 前提を読む。記事本文や取得ログは保存しない。
+- **マクロ環境分析 (macro context)**：外部記事と指標データを参照し、個別期待値へ影響するmaterial deltaと共通riskを短く残す。記事本文や取得ログは保存しない。
 - **通過銘柄リスト (candidates)**：screenの機械出力。observed、derived、estimateを由来付きで残し、judgment・因果解釈・相場観を書かない。
 - **個別銘柄リサーチ (thesis)**：投資メモ。フェアバリュー・想定上昇率と下落率・リスクリワード・期待利回り・塩漬け耐性・毀損条件（invalidation）を検証する。
 - **売買提案 (trade proposal)**：research の採用結論を「どの銘柄を・いくらで・何株」という具体提案に落とし、GitHub Issue で人間に上げる入口。

@@ -59,6 +59,7 @@ def _make_candidates_payload() -> dict[str, object]:
 
 def _make_macro_context_yaml_text() -> str:
     payload: dict[str, object] = {
+        "schema_version": 2,
         "kind": "macro-context",
         "context_id": "macro-context-2026-04-24-test",
         "as_of": "2026-04-24",
@@ -66,22 +67,43 @@ def _make_macro_context_yaml_text() -> str:
         "published_at": "2026-04-24T09:00:00+09:00",
         "summary": "summary",
         "inputs": {
-            "articles": [],
-            "indicator_series": [{"series_id": "usd_jpy", "window": "1m", "used_for": "test"}],
-        },
-        "sector_tilts": {
-            "items": [
+            "articles": [
                 {
-                    "id": "sector-info",
-                    "scope": "sector_33",
-                    "key": "情報・通信業",
-                    "stance": "neutral",
-                    "strength": "medium",
-                    "confidence": "medium",
-                    "rationale": "test",
+                    "input_id": "article-test",
+                    "source": "test",
+                    "title": "test",
+                    "url": "https://example.com/macro",
+                    "published_at": "2026-04-24T09:00:00+09:00",
+                    "accessed_at": "2026-04-24T09:00:00+09:00",
+                    "status": "ok",
+                    "used_for": "test",
                 }
-            ]
+            ],
+            "indicator_series": [
+                {
+                    "input_id": "series-usd-jpy",
+                    "provider": "test",
+                    "series_id": "usd_jpy",
+                    "window": "1m",
+                    "observation_as_of": "2026-04-24",
+                    "published_at": "2026-04-24T09:00:00+09:00",
+                    "accessed_at": "2026-04-24T09:00:00+09:00",
+                    "status": "ok",
+                    "used_for": "test",
+                }
+            ],
         },
+        "material_deltas": [
+            {
+                "channel": "demand",
+                "direction": "mixed",
+                "materiality": "low",
+                "summary": "test",
+                "used_for": "test",
+                "source_ids": ["article-test"],
+            }
+        ],
+        "sizing_cautions": [],
         "research_questions": ["question"],
         "refresh_triggers": ["trigger"],
         "changes_since_previous": [],
@@ -119,10 +141,7 @@ def _seed_repo(root: Path, *, candidates_overrides: dict[str, object] | None = N
         _make_macro_context_yaml_text(), encoding="utf-8"
     )
     (root / "records/03-thesis/2026/04/2026-04-25-2767-valuation-reversion.md").write_text(
-        "---\n"
-        "macro_context_ref: records/01-macro-context/2026/04/macro-context-2026-04-24-test.yaml\n"
-        "---\n# Research\n",
-        encoding="utf-8",
+        "---\nticker: '2767'\n---\n# Research\n", encoding="utf-8"
     )
     (root / "records/_playbooks/valuation-reversion/2026-05-01T000000+0900.md").write_text(
         "---\nplaybook_id: valuation-reversion\n---\n# Playbook\n", encoding="utf-8"

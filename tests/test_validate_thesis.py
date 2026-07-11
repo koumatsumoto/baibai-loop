@@ -84,16 +84,6 @@ def _minimal_research_front_matter() -> dict[str, object]:
             "ticker": "2767",
         },
         "thesis_decision": {"outcome": "approved", "posture": "act_now"},
-        "macro_context_ref": (
-            "records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml"
-        ),
-        "macro_context_fit": {
-            "context_freshness": "current",
-            "fit": "neutral",
-            "decision_effect": "proceed",
-            "required_checks": [],
-            "sizing_caution": [],
-        },
         "position_sizing_overlay": {
             "estimated_real_order_notional_yen": 200000,
             "adv_participation_pct": 0.1,
@@ -122,13 +112,6 @@ def _long_hold_front_matter() -> dict[str, object]:
     """Approved memo on/after the long-hold effective date (full new contract)."""
     front = _minimal_research_front_matter()
     front["published_at"] = "2026-07-02T20:00:00+09:00"
-    front["macro_context_ref"] = (
-        "records/01-macro-context/2026/06/"
-        "macro-context-2026-06-30-overshoot-reverted-ath-risk-on.yaml"
-    )
-    fit = front["macro_context_fit"]
-    assert isinstance(fit, dict)
-    fit["fit"] = "tailwind"
     payoff = front["thesis_payoff"]
     assert isinstance(payoff, dict)
     payoff["expected_yield_pct"] = 12.0
@@ -152,14 +135,12 @@ def _entry_preflight(**overrides: object) -> dict[str, object]:
         "evaluated_on": "2026-06-02",
         "market_relative_return_pct": 0.0,
         "sector_or_peer_relative_return_pct": 0.0,
-        "macro_freshness": "current",
         "exposure_after_order": {
             "sector_33_pct": 20.0,
             "playbook_pct": 20.0,
         },
-        "near_term_catalyst": False,
         "action": "proceed",
-        "reason": "macro is fresh and exposure stays inside the caps",
+        "reason": "exposure stays inside the caps",
     }
     preflight.update(overrides)
     return preflight
@@ -200,41 +181,13 @@ class ResearchValidationTests(unittest.TestCase):
     def test_new_approved_research_accepts_valid_entry_preflight(self) -> None:
         front = _minimal_research_front_matter()
         front["published_at"] = "2026-06-02T20:00:00+09:00"
-        fit = front["macro_context_fit"]
-        assert isinstance(fit, dict)
-        fit["context_freshness"] = "stale"
         front["entry_preflight"] = _entry_preflight(
-            macro_freshness="stale",
             action="starter",
-            reason="macro is stale, so entry is constrained to starter size",
+            reason="entry is constrained to starter size",
         )
         findings = self._findings_for(front)
         errors = [finding for finding in findings if finding.severity == "error"]
         self.assertEqual(errors, [], f"unexpected errors: {errors}")
-
-    def test_entry_preflight_rejects_stale_macro_proceed(self) -> None:
-        front = _minimal_research_front_matter()
-        front["published_at"] = "2026-06-02T20:00:00+09:00"
-        fit = front["macro_context_fit"]
-        assert isinstance(fit, dict)
-        fit["context_freshness"] = "stale"
-        front["entry_preflight"] = _entry_preflight(macro_freshness="stale")
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("thesis.entry-preflight-proceed-trigger", codes)
-
-    def test_entry_preflight_allows_stale_proceed_with_near_term_catalyst(self) -> None:
-        front = _minimal_research_front_matter()
-        front["published_at"] = "2026-06-02T20:00:00+09:00"
-        fit = front["macro_context_fit"]
-        assert isinstance(fit, dict)
-        fit["context_freshness"] = "stale"
-        front["entry_preflight"] = _entry_preflight(
-            macro_freshness="stale",
-            near_term_catalyst=True,
-            reason="dated near-term catalyst justifies acting on a stale macro read",
-        )
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertNotIn("thesis.entry-preflight-proceed-trigger", codes)
 
     def test_entry_preflight_relative_lag_is_informational_only(self) -> None:
         # 割安 (相対劣後)を買うのが本流のため、相対リターンは hard trigger にしない。
@@ -404,11 +357,11 @@ class ResearchValidationTests(unittest.TestCase):
 
     # --- schema shape ---
 
-    def test_missing_required_field_is_flagged_by_schema(self) -> None:
+    def test_legacy_macro_fields_are_rejected_by_schema(self) -> None:
         front = _minimal_research_front_matter()
-        del front["macro_context_fit"]
+        front["macro_context_fit"] = {"context_freshness": "current"}
         codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("thesis.required", codes)
+        self.assertIn("thesis.additionalProperties", codes)
 
     def test_top_level_research_rejects_unknown_field(self) -> None:
         front = _minimal_research_front_matter()
@@ -441,7 +394,7 @@ class ResearchValidationTests(unittest.TestCase):
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("thesis.additionalProperties", codes)
 
-    # --- decision / macro fit / corporate action ---
+    # --- decision / corporate action ---
 
     def test_unknown_outcome_is_flagged(self) -> None:
         front = _minimal_research_front_matter()
@@ -469,14 +422,6 @@ class ResearchValidationTests(unittest.TestCase):
         }
         codes = {finding.code for finding in self._findings_for(front)}
         self.assertIn("thesis.rejected-sizing", codes)
-
-    def test_deferred_macro_context_cannot_be_approved(self) -> None:
-        front = _minimal_research_front_matter()
-        fit = front["macro_context_fit"]
-        assert isinstance(fit, dict)
-        fit["decision_effect"] = "defer"
-        codes = {finding.code for finding in self._findings_for(front)}
-        self.assertIn("thesis.macro-context-defer-approved", codes)
 
     def test_approved_requires_corporate_action_check(self) -> None:
         front = _minimal_research_front_matter()

@@ -48,12 +48,6 @@ valuation:
   primary_metric:
   - ocf_yield
   - p_s
-macro_context_ref: records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml
-macro_context_fit:
-  context_freshness: current
-  fit: mixed
-  decision_effect: proceed
-  required_checks: []
 corporate_action_check:
   checked: true
   result: none
@@ -67,13 +61,6 @@ corporate_action_check:
 6310 は今回の 2026-05-15 Q1 後確認では追加投入候補から外す。売上高 +11.5%、営業利益 +88.5% は良いが、採用根拠の中心だった OCF yield 56.5% が Q1 の営業 CF -8,933 百万円で確認できなかった。Q1 特有の季節性はあるが、売上債権増加、棚卸資産増加、短期借入金増加が同時に出ており、net debt risk を抱えたまま 1 単元 17 万円台の starter を作る理由は弱い。
 
 Long-hold fallback は低-中のまま。P/S 0.22、PBR 0.55 は割安だが、農機の薄い margin、在庫、販売金融、金利感応度を上回る cash conversion がまだ見えていない。
-
-## Macro context
-
-- 判定: mixed / proceed。
-- Sector: 機械。
-- Source: `records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml`。
-- 注意: macro context の機械 mixed は半導体製造装置・外需設備投資の色が強い。井関農機への直接度は低いため、macro context fit はこの rejection を覆さない。
 
 ## Cashflow snapshot
 

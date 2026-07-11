@@ -45,12 +45,6 @@ valuation:
   equity_ratio: 0.7589
   primary_metric:
   - p_s
-macro_context_ref: records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml
-macro_context_fit:
-  context_freshness: current
-  fit: neutral
-  decision_effect: proceed
-  required_checks: []
 corporate_action_check:
   checked: true
   result: none
@@ -63,14 +57,7 @@ corporate_action_check:
 
 DTS は、リファクタリング前に承認済みだったメモを現在の records に戻したもの。過去の git history では、9682 は 2026-05-07 より前にリサーチされ、注文対象になっていた。現在の broker position snapshot では、200 株が 1,010 円で約定している。
 
-仮説は狭い。P/S 1.23、売上 YoY +7.4%、営業黒字、株主還元を根拠にした小さめの情報サービス銘柄トレードであり、大きな rerating 狙いではない。sector tilt は neutral だが、ポジションサイズは抑える。
-
-## Macro context
-
-- Fit: neutral / proceed。
-- Sector: 情報・通信業。
-- 参照: `records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml`。
-- Macro context は初期ポジションを妨げない。ただし DTS は伝統的な SIer 色が強いため、AI / cloud の波及効果を過大評価しない。
+仮説は狭い。P/S 1.23、売上 YoY +7.4%、営業黒字、株主還元を根拠にした小さめの情報サービス銘柄トレードであり、大きなrerating狙いではない。ポジションサイズは抑える。
 
 ## Sales / P/S snapshot（売上・P/S）
 

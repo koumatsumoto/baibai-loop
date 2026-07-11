@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 input_snapshot:
   snapshot_version: 1
   producer_model_version: screening-selection-v1
@@ -186,14 +186,25 @@ judgment:
   permanent_loss_conclusion: unknown
   strongest_countercase: FCF conversion may remain below normalized profit after acquisitions.
   sizing_action: reduced
+  ai_value_capture:
+    assessment_status: material
+    roles: [adopter]
+    competitive_advantage: favorable
+    pricing_power: favorable
+    capex_burden: neutral
+    customer_bargaining_power: neutral
+    value_capture_conclusion: captured
+    decision_weight: supporting
+    rationale: Security operations can convert automation into recurring service capacity.
+    source_ids: [primary-results]
 independent_review_ref: 2331-decision-review.yaml
 human_evidence_override:
   override_id: evidence-override-2331
   reason: Customer concentration is unquantified, so proposal size is reduced to one lot.
   decision_reference: user-confirmed-evidence-override-2331
-  proposal_sha256: "844464e9ebf508031ef0ec6246fce7b2634614467ce254c63e58bbf3e791682f"
+  proposal_sha256: "f6a025ad82d75f60afb8dba85dea4cc0d9c2bc29c92b19971acd77e3333f894a"
   review_id: review-2331-20260703
-  review_sha256: "cb9983e20d5e130ecc45de681472dd0051a9a6b9b4d633d28bac075f9524e166"
+  review_sha256: "14d6959e089d5021eaaef7642bb8e98cd6419d23d0e3665d5e030d3cc55b93f7"
   approved_by: human
   acknowledged_risk_axes: [customer_concentration]
   approved_at: "2026-07-03T10:30:00+09:00"

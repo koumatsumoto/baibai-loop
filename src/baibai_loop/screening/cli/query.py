@@ -212,31 +212,24 @@ def _load_selection_inputs(
     resolved_macro_context_path = macro_context_path or find_latest_macro_context(
         resolved_macro_context_root, asof_date
     )
-    if resolved_macro_context_path is None or not resolved_macro_context_path.exists():
-        raise ValueError(
-            "macro context file not found. Pass --macro-context <path> or create "
-            "records/01-macro-context/<YYYY>/<MM>/macro-context-*.yaml"
-        )
-    try:
-        macro_context = load_macro_context(resolved_macro_context_path)
-    except ValueError as exc:
-        raise ValueError(f"invalid macro context: {resolved_macro_context_path}: {exc}") from exc
-    if macro_context.as_of > asof_date:
-        raise ValueError(
-            "macro context as_of is after screening asof; create an asof-appropriate "
-            f"context or choose a later --asof: {macro_context.as_of.isoformat()} > "
-            f"{asof_date.isoformat()}"
-        )
-    if macro_context.is_stale_for(asof_date):
-        raise ValueError(
-            "macro context is stale for screening asof; refresh macro context before "
-            f"screening: valid_until {macro_context.valid_until.isoformat()} < "
-            f"{asof_date.isoformat()}"
-        )
+    macro_context: MacroContext | None = None
+    if resolved_macro_context_path is not None:
+        if not resolved_macro_context_path.exists():
+            raise ValueError(f"macro context file not found: {resolved_macro_context_path}")
+        try:
+            macro_context = load_macro_context(resolved_macro_context_path)
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid macro context: {resolved_macro_context_path}: {exc}"
+            ) from exc
+        if macro_context.as_of > asof_date:
+            raise ValueError(
+                "macro context as_of is after screening asof; create an asof-appropriate "
+                f"context or choose a later --asof: {macro_context.as_of.isoformat()} > "
+                f"{asof_date.isoformat()}"
+            )
 
-    repo_root = _repository_root_from_records_anchor(
-        resolved_macro_context_path, warn_on_fallback=True
-    )
+    repo_root = _repository_root_from_records_anchor(candidates_path, warn_on_fallback=True)
     previous_candidates = load_previous_candidates(
         resolved_candidates_root,
         asof_date,
@@ -250,11 +243,12 @@ def _load_selection_inputs(
         prior_research=prior_research,
         candidates_ref=_repository_relative_ref(
             candidates_path,
-            anchor=resolved_macro_context_path,
+            anchor=candidates_path,
         ),
-        macro_context_ref=_repository_relative_ref(
-            resolved_macro_context_path,
-            anchor=resolved_macro_context_path,
+        macro_context_ref=(
+            _repository_relative_ref(resolved_macro_context_path, anchor=candidates_path)
+            if resolved_macro_context_path is not None
+            else None
         ),
     )
 

@@ -43,7 +43,7 @@ candidates YAML（`records/02-candidates/`）は market.sqlite から再生成�
 
 ## Selection lens（triage）
 
-`select` は candidates と最新の macro context を突き合わせ、深掘りする候補を選り分ける。lens は割安ゾーンを狭めるためのものではなく、**塩漬け耐性と過去調査との重複**の観点で着手順位を付ける。
+`select` はcandidatesをE[r]順に並べ、macro contextがある場合はmaterial deltaをcontext-level warningとして併記する。macro contextの有無・内容は着手順位を変えない。lens は割安ゾーンを狭めるためのものではなく、**塩漬け耐性と過去調査との重複**の観点で着手順位を付ける。
 
 | lens | 目的 | 扱い |
 | --- | --- | --- |
@@ -71,7 +71,7 @@ records/02-candidates/YYYY/MM/YYYY-MM-DD.yaml
 
 コマンド列（`bootstrap-cache` → `extract-edinet-metrics` → `verify-cache-coverage` → `run` → `select`）を実行するtriggerとe2e導線は [`../operations/decision-cycle.md#2-opportunity-path`](../operations/decision-cycle.md#2-opportunity-path)、CLI 引数 / env / SQLite schema の実装仕様は [`../reference/screening-runtime.md`](../reference/screening-runtime.md) を正本にする。ここでは工程の意味だけを記す。
 
-`run` は開始時に SQLite のデータ充足を検証し、不足があれば即座に失敗させる（provider API へはフォールバックしない）。JPX 規制情報と EDINET の前処理済み指標は必須入力。`select` の推奨順位は**機械 E[r]（成分分解付き年率見積り）の降順**を主キーにする（E[r] 欠損は ranking 対象外・従キーは playbook 優先順 + 強度キー。採用根拠は較正リプレイの design/confirm 検証）。`selection_playbook` / `selection_metrics` は evidence がある候補だけに付く thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。macro context の `sector_tilts` は追い風 / 向かい風の参考情報として使い（機械的な足切りにはしない）、`recommendations` と `selection.diagnostics` を出力する。`--macro-context` を省略すると `records/01-macro-context/` の最新 context を自動解決する（`valid_until` が asof より古い context は鮮度切れとして失敗させる）。
+`run` は開始時に SQLite のデータ充足を検証し、不足があれば即座に失敗させる（provider API へはフォールバックしない）。JPX 規制情報と EDINET の前処理済み指標は必須入力。`select` の推奨順位は**機械 E[r]（成分分解付き年率見積り）の降順**を主キーにする（E[r] 欠損は ranking 対象外・従キーは playbook 優先順 + 強度キー）。`selection_playbook` / `selection_metrics` は evidence がある候補だけに付く thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。`--macro-context` を省略すると最新contextを任意で読み、存在しない場合は`macro_context_missing`、staleの場合は`macro_context_stale`をcontext-level warningとして出す。future context、明示path不在、invalid YAMLは失敗させる。
 
 ## 長期予測力の計測（estimate calibration）
 
@@ -88,6 +88,6 @@ candidates はobserved / derived / estimateを混同しない機械出力層で�
 - [`../reference/valuation-metrics.md`](../reference/valuation-metrics.md)：指標算出仕様
 - [`../reference/estimate-calibration.md`](../reference/estimate-calibration.md)：長期見積り較正リプレイ
 - [`../reference/screening-runtime.md`](../reference/screening-runtime.md)：CLI / provider / SQLite schema
-- [`./macro.md`](./macro.md)：select が使う sector_tilts
+- [`./macro.md`](./macro.md)：material deltaを記録する補助context
 - [`./research.md`](./research.md)：candidates を起点にした個別調査
 - [`./playbooks.md`](./playbooks.md)：割安 value の archetype

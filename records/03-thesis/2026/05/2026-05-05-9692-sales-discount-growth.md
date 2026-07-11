@@ -45,12 +45,6 @@ valuation:
   equity_ratio: 0.6848
   primary_metric:
   - p_s
-macro_context_ref: records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml
-macro_context_fit:
-  context_freshness: current
-  fit: neutral
-  decision_effect: proceed
-  required_checks: []
 corporate_action_check:
   checked: true
   result: none
@@ -64,13 +58,6 @@ corporate_action_check:
 CEC は、リファクタリング前に承認済みだったメモを現在の records に戻したもの。旧 records では DTS と並んで選定されており、現在の broker position snapshot では 100 株が 1,953 円で約定している。
 
 2026-05-01 candidate snapshot 上では、DTS より仮説は強い。P/S 1.03、売上 YoY +17.2%、OCF yield 8.59%、net cash / market cap 36.61%、配当支えがある。ただし単一銘柄としては控えめなサイズに留め、tactical allocation を大きく張る位置づけではない。
-
-## Macro context
-
-- Fit: neutral / proceed。
-- Sector: 情報・通信業。
-- 参照: `records/01-macro-context/2026/05/macro-context-2026-05-04-screening.yaml`。
-- CEC は DX / cloud / security spending の恩恵を受けるが、direct AI beta は過大評価しない。
 
 ## Sales / P/S snapshot（売上・P/S）
 

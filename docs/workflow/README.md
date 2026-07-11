@@ -1,6 +1,6 @@
 ---
 title: "Workflow"
-summary: "単一ループの各工程（macro → screening → research → position）と playbooks の入口。1 工程 = 1 doc。"
+summary: "単一ループの各工程（screening → research → position）と、必要時のmacro material-delta context・playbooksの入口。1 工程 = 1 doc。"
 doc_type: workflow
 status: active
 last_reviewed: 2026-07-11
@@ -12,7 +12,7 @@ last_reviewed: 2026-07-11
 
 ```mermaid
 flowchart LR
-  macro["macro.md<br/>姿勢・セクター・AI 前提"] --> screening["screening.md<br/>割安 ranking → candidates"]
+  macro["macro.md<br/>material delta・共通risk"] -.必要時の補助context.-> research["research.md<br/>FV・RR・期待利回り・耐性"]
   screening --> research["research.md<br/>FV・RR・期待利回り・耐性"]
   research --> position["position.md<br/>買い・長期保有・holding review・calibration"]
   position -.見積り calibration.-> macro
@@ -21,7 +21,7 @@ flowchart LR
 
 | 工程 | doc | 役割 |
 | --- | --- | --- |
-| マクロ環境分析 | [`macro.md`](./macro.md) | 指標を引き、姿勢（ディフェンシブ / リスクオン）・セクター・AI 前提を読む |
+| マクロ環境分析 | [`macro.md`](./macro.md) | 必要時にmaterial deltaと共通riskを短く記録し、個別調査の補助contextにする |
 | 割安 screening | [`screening.md`](./screening.md) | 全上場銘柄から割安ゾーンを機械抽出し、candidatesのobserved / derived / estimateを出す |
 | 個別銘柄リサーチ | [`research.md`](./research.md) | FV・RR・期待利回りを見積もり、塩漬け耐性を確認して採否と投入額を決める |
 | 執行・保有 | [`position.md`](./position.md) | 注文・約定・長期保有・押し目買増し・holding review・見積り calibration |

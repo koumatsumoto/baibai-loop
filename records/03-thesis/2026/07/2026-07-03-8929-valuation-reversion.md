@@ -33,18 +33,6 @@ valuation:
   primary_metric:
   - ev_ebitda
   - per_trailing
-macro_context_ref: records/01-macro-context/2026/07/macro-context-2026-07-01-post-war-derisk-narrow-ath-value-rotation.yaml
-macro_context_fit:
-  context_freshness: current
-  fit: not_matched
-  decision_effect: proceed
-  required_checks:
-  - 不動産業は 7/1 context の sector_tilts に明示 tilt が無い（neutral）。ただし context の中核読み「円高スナップバックに
-    耐える内需・割安・高還元 cohort を買う」に正面から合致する（純内需・円高感応ゼロ・16 期連続増配・52 週安値）。
-  - 事業は相続・事業承継のフィー型コンサルが利益エンジンで、金利・地価は間接影響に留まる点を確認（BS 一次確認済み）。
-  sizing_caution:
-  - standard_market_low_liquidity_adv_1_1_oku_limit_order_only
-  - order_window_straddles_fomc_0728_boj_0730_within_expiry
 thesis_payoff:
   max_entry_price_yen: 1190
   fair_value_yen: 1625
@@ -70,11 +58,9 @@ entry_preflight:
   evaluated_on: '2026-07-03'
   market_relative_return_pct: -10.94
   sector_or_peer_relative_return_pct: 0.0
-  macro_freshness: current
   exposure_after_order:
     sector_33_pct: 1.19
     playbook_pct: 4.27
-  near_term_catalyst: false
   action: proceed
   reason: 'ユーザー決定により 2026-07-03 に 100 株を指値 1,190 円・期限 2026-07-31 で発注（未約定・約定待ち）。20d は
     -7.98% vs benchmark 1321 +2.96% = market relative -10.94pt、gap_from_52w_low 0.0（52 週安値ちょうど）で
@@ -102,14 +88,6 @@ corporate_action_check:
 - **何を買うか**: 相続増税 × 高齢化の構造成長市場で、フィー型財産コンサル（FY2025 +45.8%・うちチェスター G 16.5 億）が牽引する ROE 25.7% のコンパウンダー。売上 −8.4% は税制改正対応で不動産小口化商品（ADVANTAGE CLUB）の販売を意図的に期ズレさせた見かけで、純利益は 27.5 億の過去最高。「減収」ヘッドラインの額面視とスタンダード小型からの資金流出で 52 週安値まで de-rate。
 - **財務床（BS 一次確認済み）**: ネットキャッシュ +78.9 億（現預金 141.0 億 − 有利子負債 62.1 億 = 時価総額の 26.2%）・自己資本比率 44.4%。会社が短信に「資本コスト約 8% 想定・性向 50%・純資産配当率 11.9%」と資本規律を明記。
 - **payoff**: FV 1,625 円（1,500–1,750）= 正常化 EPS 115–125 円 × 13–15 倍。expected_yield 17.1%/年（保守側: FV 下限 1,500 円の 2 年収束 12.3% + 配当 4.87%。中心 1,625 円なら 21.7%）。保守下値 1,000 円で RR 2.29。
-
-## 2. Macro context
-
-- **macro_context_ref**: `records/01-macro-context/2026/07/macro-context-2026-07-01-post-war-derisk-narrow-ath-value-rotation.yaml`
-- **context_freshness**: current（as_of 2026-07-01 / valid_until 2026-07-08、発注 2026-07-03 は window 内）
-- **fit**: not_matched（不動産業は sector_tilts に明示 tilt なし）。ただし context の中核読み「円高スナップバックに耐える内需・割安・高還元 cohort を買う」に正面から合致（純内需・円高感応ゼロ・16 期連続増配・52 週安値）。
-- **decision_effect**: proceed。7/2 NFP +57K 通過後の米国はバリューローテーション（Dow ATH・Nasdaq100 −1.8%）で、本銘柄群は受け皿側。
-- **sizing_caution**: スタンダード・ADV 1.1 億の流動性（成行禁止・指値厳守）。注文期限 7/31 は FOMC 7/28-29・BOJ 7/30-31 を跨ぐ（円 158 割れで撤回ルール）。
 
 ## 3. Valuation snapshot
 

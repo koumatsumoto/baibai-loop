@@ -1,7 +1,7 @@
 """Thesis domain engine.
 
 Validates thesis decision records (investment memos): JSON schema, field
-vocabularies, macro-context fit, entry preflight, position sizing,
+vocabularies, entry preflight, position sizing,
 payoff arithmetic, and reference integrity. Consumes ``screening.regime``
 and ``position.policy`` to gate and size theses, so it sits above both as a
 top-level subsystem rather than under either.

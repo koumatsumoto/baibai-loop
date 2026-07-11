@@ -2,6 +2,122 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "decision-packet",
   "$defs": {
+    "AIValueCaptureJudgment": {
+      "additionalProperties": false,
+      "description": "Company-specific assessment of whether AI change reaches shareholders.",
+      "properties": {
+        "assessment_status": {
+          "enum": [
+            "material",
+            "not_material",
+            "unknown"
+          ],
+          "title": "Assessment Status",
+          "type": "string"
+        },
+        "roles": {
+          "items": {
+            "enum": [
+              "enabler",
+              "infrastructure",
+              "complement",
+              "adopter",
+              "disrupted"
+            ],
+            "type": "string"
+          },
+          "title": "Roles",
+          "type": "array"
+        },
+        "competitive_advantage": {
+          "enum": [
+            "favorable",
+            "neutral",
+            "adverse",
+            "unknown"
+          ],
+          "title": "Competitive Advantage",
+          "type": "string"
+        },
+        "pricing_power": {
+          "enum": [
+            "favorable",
+            "neutral",
+            "adverse",
+            "unknown"
+          ],
+          "title": "Pricing Power",
+          "type": "string"
+        },
+        "capex_burden": {
+          "enum": [
+            "favorable",
+            "neutral",
+            "adverse",
+            "unknown"
+          ],
+          "title": "Capex Burden",
+          "type": "string"
+        },
+        "customer_bargaining_power": {
+          "enum": [
+            "favorable",
+            "neutral",
+            "adverse",
+            "unknown"
+          ],
+          "title": "Customer Bargaining Power",
+          "type": "string"
+        },
+        "value_capture_conclusion": {
+          "enum": [
+            "captured",
+            "uncertain",
+            "not_captured",
+            "adverse"
+          ],
+          "title": "Value Capture Conclusion",
+          "type": "string"
+        },
+        "decision_weight": {
+          "enum": [
+            "none",
+            "supporting",
+            "material"
+          ],
+          "title": "Decision Weight",
+          "type": "string"
+        },
+        "rationale": {
+          "minLength": 1,
+          "title": "Rationale",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "assessment_status",
+        "roles",
+        "competitive_advantage",
+        "pricing_power",
+        "capex_burden",
+        "customer_bargaining_power",
+        "value_capture_conclusion",
+        "decision_weight",
+        "rationale",
+        "source_ids"
+      ],
+      "title": "AIValueCaptureJudgment",
+      "type": "object"
+    },
     "DerivedMetric": {
       "additionalProperties": false,
       "properties": {
@@ -371,6 +487,9 @@
           ],
           "title": "Sizing Action",
           "type": "string"
+        },
+        "ai_value_capture": {
+          "$ref": "#/$defs/AIValueCaptureJudgment"
         }
       },
       "required": [
@@ -379,7 +498,8 @@
         "confidence",
         "permanent_loss_conclusion",
         "strongest_countercase",
-        "sizing_action"
+        "sizing_action",
+        "ai_value_capture"
       ],
       "title": "JudgmentNamespace",
       "type": "object"
@@ -856,7 +976,7 @@
   "description": "Strict persisted contract with no legacy thesis compatibility fields.",
   "properties": {
     "schema_version": {
-      "const": 1,
+      "const": 2,
       "title": "Schema Version",
       "type": "integer"
     },

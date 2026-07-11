@@ -37,18 +37,6 @@ valuation:
   primary_metric:
   - per_trailing
   - pbr
-macro_context_ref: records/01-macro-context/2026/06/macro-context-2026-06-16-record-high-rotation.yaml
-macro_context_fit:
-  context_freshness: current
-  fit: mixed
-  decision_effect: proceed
-  required_checks:
-  - 情報・通信業は record-high-rotation context で stance=mixed（構造 DX 需要・FX 中立は追い風、BOJ 利上げの discount は高 PER 逆風）。 本銘柄は予想
-    PER 約 11 と既に割安で discount 余地が小さい点を確認する。
-  - 指数は最高値圏で、割安は銘柄固有の de-rating（半導体ラリーに非参加で取り残された内需 AI/DX ソフト）に偏在する。指数の押し目ではない。
-  sizing_caution:
-  - event_window_starter_boj_fomc_iran_signing
-  - sector_33_information_communication_already_dominant_exposure
 thesis_payoff:
   max_entry_price_yen: 2340
   fair_value_yen: 2800
@@ -65,11 +53,9 @@ entry_preflight:
   evaluated_on: '2026-06-16'
   market_relative_return_pct: -14.06
   sector_or_peer_relative_return_pct: 0.0
-  macro_freshness: current
   exposure_after_order:
     sector_33_pct: 41.39
     playbook_pct: 15.41
-  near_term_catalyst: false
   action: starter
   reason: '2026-06-16 にユーザー指示で 100 株を 2,340 円で約定。market relative は candidate 20d −6.58% に対し benchmark proxy 1321
     の 20d +7.48% で −14.06pt と大幅劣後（=半導体主導ラリーに乗らず取り残された 内需 AI/DX ソフトという thesis の定量裏付け。hard trigger に該当するため proceed
@@ -97,15 +83,6 @@ corporate_action_check:
 - **Long-hold fallback**: 高い。ネットキャッシュ約 76.5 億（時価総額の約 9%）・自己資本比率 64%・保守継続率 93.4%・営業利益率 29%・配当利回り 4.58%。クラウド移行が**希薄化でなく増益的**（リカーリング 61%→66%、EBITDA マージン Q4 29%→38%）で、含み損ロック時も配当と財務健全性が支える。
 - **Capital lock / shareholder return**: 配当利回り 4.58%・総還元方針 約 50%・6 年連続増配。自己株買いはほぼ未実施＝ROE 引き上げの未活用レバー（資本配分の積極化が上振れ材料）。
 - **AI long-term impact**: 中〜高（耐性側）。ユーザー懸念「SaaS は価値が下がるかもしれない」を一次調査で検証した。2026 年のセクター見解（Bain / Stratechery / Oliver Wyman / Starburst）は、AI が毀損するのは**薄い UI 層・単純ワークフロー・seat 課金・コモディティ抽出**で、**独自データ・コンプラ/監査ロックイン・System of Record・決定論的な構造化出力**はむしろ強化されるとする。本銘柄は重心（売上の約 63%＝帳票 SVF/invoiceAgent）が後者に深く食い込む：国内シェア約 70%・42,000 社超、電帳法 JIIMA 認証、インボイス対応、デジタル庁認定 Peppol サービスプロバイダー（電子インボイス規格移行の関所）。AI 普及はむしろ信頼できる構造化出力の需要を増やす（新製品 Trustee = AI 生成物の真正性）。残り 37%＝BI（MotionBoard）はダッシュボード可視化として脆弱面だが、SVF/Dr.Sum との国産スタック一体＋日本データレジデンシー摩擦（Microsoft Copilot は日本容量でも米国処理・ソブリン未対応）が当面の防壁。AI は単独の採用・sizing 根拠にはせず、valuation・CF・財務と合わせて判断する。
-
-## 2. Macro context
-
-- **macro_context_ref**: `records/01-macro-context/2026/06/macro-context-2026-06-16-record-high-rotation.yaml`
-- **context_freshness**: current（as_of 2026-06-16 / valid_until 2026-06-23、約定 2026-06-16 は window 内）
-- **fit**: mixed（情報・通信業の sector_tilt stance = mixed：構造 DX 需要・FX 中立は追い風、BOJ 利上げの discount は高 PER 逆風）
-- **decision_effect**: proceed（予想 PER 約 11 と既に割安で discount 余地が小さく、半導体ラリーに乗らなかった取り残されバリュー側）
-- **required_checks**: 指数は最高値圏で割安は銘柄固有の de-rating に偏在する点、BOJ 利上げの高 PER 逆風を割安度が相殺するか。
-- **sizing_caution**: 連続イベント週の starter、情報・通信業は既に最大の集中（§8）。
 
 ## 3. Valuation snapshot
 
@@ -168,7 +145,6 @@ corporate_action_check:
 | Price window | basis: candidate asof 2026-06-12 / fill: 2026-06-16 | candidate row + user fill |
 | Market baseline | benchmark proxy 1321 20d +7.48% | SQLite daily bars |
 | Relative return | vs market: −14.06pt / vs sector-peer: 0.0pt (not_checked) | candidate 20d −6.58% − 1321 20d +7.48% |
-| Macro freshness | current | window 内（[6-16, 6-23]） |
 | Exposure after order | sector 41.39% / playbook 15.41%（分母 tactical 200 万円） | deployed share では情報・通信業 約 64%（§8） |
 | Action | starter | market relative −14pt の hard trigger ＋連続イベント週＋sector 集中のため 100 株 starter |
 

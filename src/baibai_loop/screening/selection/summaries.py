@@ -93,7 +93,6 @@ def _selection_candidate_summary(
         "name": string_or_none(candidate.get("name")),
         "sector_33": string_or_none(candidate.get("sector_33")),
         "selection_playbook": string_or_none(candidate.get("selection_playbook")),
-        "macro_context_alignment": string_or_none(candidate.get("macro_context_alignment")),
         "market_cap_oku": candidate.get("market_cap_oku"),
         # liquidity: 5% ADV 参加上限で発注可能サイズを判断し、約定できない薄商いを弾く
         "avg_turnover_oku": candidate.get("avg_turnover_oku"),
