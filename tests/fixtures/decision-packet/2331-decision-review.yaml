@@ -1,0 +1,19 @@
+review_id: review-2331-20260703
+reviewer_role: independent_second_pass
+reviewer_identity: independent-review-agent
+reviewer_run_id: review-run-20260703-2331
+reviewed_at: "2026-07-03T10:00:00+09:00"
+reviewed_packet_sha256: "a1a6a7bf91075f25fc4a148d182c221a2fbd371c6b0a79a362438e7666c24f0d"
+primary_source_check: verified
+checked_source_ids: [primary-results, internal-screen]
+recalculated_scenarios:
+  - {horizon_years: 3, name: bear, total_return_cagr_pct: -4.58}
+  - {horizon_years: 3, name: base, total_return_cagr_pct: 9.04}
+  - {horizon_years: 3, name: bull, total_return_cagr_pct: 19.85}
+  - {horizon_years: 5, name: bear, total_return_cagr_pct: -3.61}
+  - {horizon_years: 5, name: base, total_return_cagr_pct: 9.19}
+  - {horizon_years: 5, name: bull, total_return_cagr_pct: 18.9}
+strongest_countercase: Acquisition cash needs can invalidate profit-based valuation.
+alternative_candidate_check: compared
+proposal_changed: false
+change_rationale: null

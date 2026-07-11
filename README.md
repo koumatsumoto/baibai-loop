@@ -12,7 +12,7 @@ Baibai-Loop は、日本株の実データ(価格・財務・開示・規制)を
 | L2 分析層 | 割安 valuation ranking・selection lens・軸別スコア | 決定論的・閾値固定の機械的分析 |
 | L3 判断層 | `records/`(macro context / thesis / position) + `reports/` | 人間 + AI 下書きの解釈と判断 |
 
-AI が利用する安定契約は **CLI の YAML 出力と SQLite schema の 2 面**です([`docs/architecture.md`](./docs/architecture.md))。判断と帰責は人間(L3)に残し、AI は L1/L2 の事実に grounded な下書きを作ります。
+AI が利用する安定契約は **CLI の YAML 出力と SQLite schema の 2 面**です([`docs/architecture.md`](./docs/architecture.md))。判断と帰責は人間(L3)に残し、AIはL1/L2のobserved facts、derived metrics、model estimatesにgroundedな下書きを作ります。
 
 ## 単一ループ
 

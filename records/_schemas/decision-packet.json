@@ -1,0 +1,789 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "decision-packet",
+  "$defs": {
+    "DerivedMetric": {
+      "additionalProperties": false,
+      "properties": {
+        "metric_id": {
+          "minLength": 1,
+          "title": "Metric Id",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "unit": {
+          "minLength": 1,
+          "title": "Unit",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "formula": {
+          "const": "ratio",
+          "title": "Formula",
+          "type": "string"
+        },
+        "formula_version": {
+          "const": "ratio-v1",
+          "title": "Formula Version",
+          "type": "string"
+        },
+        "input_fact_ids": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "minLength": 1,
+              "type": "string"
+            }
+          ],
+          "title": "Input Fact Ids",
+          "type": "array"
+        },
+        "assumption": {
+          "minLength": 1,
+          "title": "Assumption",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "metric_id",
+        "value",
+        "unit",
+        "as_of",
+        "formula",
+        "formula_version",
+        "input_fact_ids",
+        "assumption",
+        "source_ids"
+      ],
+      "title": "DerivedMetric",
+      "type": "object"
+    },
+    "DerivedNamespace": {
+      "additionalProperties": false,
+      "properties": {
+        "metrics": {
+          "items": {
+            "$ref": "#/$defs/DerivedMetric"
+          },
+          "title": "Metrics",
+          "type": "array"
+        }
+      },
+      "required": [
+        "metrics"
+      ],
+      "title": "DerivedNamespace",
+      "type": "object"
+    },
+    "EstimatesNamespace": {
+      "additionalProperties": false,
+      "properties": {
+        "model_version": {
+          "minLength": 1,
+          "title": "Model Version",
+          "type": "string"
+        },
+        "entry_price_basis_yen": {
+          "anyOf": [
+            {
+              "maximum": 1000000000.0,
+              "minimum": 0.0001,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,4}0*$",
+              "type": "string"
+            }
+          ],
+          "title": "Entry Price Basis Yen"
+        },
+        "entry_price_basis": {
+          "enum": [
+            "max_acceptable_price",
+            "observed_market_price"
+          ],
+          "title": "Entry Price Basis",
+          "type": "string"
+        },
+        "entry_price_source_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Entry Price Source Ids",
+          "type": "array"
+        },
+        "entry_price_assumption": {
+          "minLength": 1,
+          "title": "Entry Price Assumption",
+          "type": "string"
+        },
+        "scenarios": {
+          "items": {
+            "$ref": "#/$defs/ScenarioEstimate"
+          },
+          "title": "Scenarios",
+          "type": "array"
+        }
+      },
+      "required": [
+        "model_version",
+        "entry_price_basis_yen",
+        "entry_price_basis",
+        "entry_price_source_ids",
+        "entry_price_assumption",
+        "scenarios"
+      ],
+      "title": "EstimatesNamespace",
+      "type": "object"
+    },
+    "EvidenceOverride": {
+      "additionalProperties": false,
+      "properties": {
+        "override_id": {
+          "minLength": 1,
+          "title": "Override Id",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "decision_reference": {
+          "minLength": 1,
+          "title": "Decision Reference",
+          "type": "string"
+        },
+        "proposal_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Proposal Sha256",
+          "type": "string"
+        },
+        "review_id": {
+          "minLength": 1,
+          "title": "Review Id",
+          "type": "string"
+        },
+        "review_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Review Sha256",
+          "type": "string"
+        },
+        "approved_by": {
+          "const": "human",
+          "title": "Approved By",
+          "type": "string"
+        },
+        "acknowledged_risk_axes": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Acknowledged Risk Axes",
+          "type": "array"
+        },
+        "approved_at": {
+          "format": "date-time",
+          "title": "Approved At",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "override_id",
+        "reason",
+        "decision_reference",
+        "proposal_sha256",
+        "review_id",
+        "review_sha256",
+        "approved_by",
+        "acknowledged_risk_axes",
+        "approved_at",
+        "expires_at"
+      ],
+      "title": "EvidenceOverride",
+      "type": "object"
+    },
+    "JudgmentNamespace": {
+      "additionalProperties": false,
+      "properties": {
+        "recommendation": {
+          "enum": [
+            "buy",
+            "defer",
+            "reject"
+          ],
+          "title": "Recommendation",
+          "type": "string"
+        },
+        "proposed_at": {
+          "format": "date-time",
+          "title": "Proposed At",
+          "type": "string"
+        },
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "permanent_loss_conclusion": {
+          "enum": [
+            "acceptable",
+            "elevated",
+            "unknown"
+          ],
+          "title": "Permanent Loss Conclusion",
+          "type": "string"
+        },
+        "strongest_countercase": {
+          "minLength": 1,
+          "title": "Strongest Countercase",
+          "type": "string"
+        },
+        "sizing_action": {
+          "enum": [
+            "normal",
+            "reduced",
+            "none"
+          ],
+          "title": "Sizing Action",
+          "type": "string"
+        }
+      },
+      "required": [
+        "recommendation",
+        "proposed_at",
+        "confidence",
+        "permanent_loss_conclusion",
+        "strongest_countercase",
+        "sizing_action"
+      ],
+      "title": "JudgmentNamespace",
+      "type": "object"
+    },
+    "ObservedFact": {
+      "additionalProperties": false,
+      "properties": {
+        "fact_id": {
+          "minLength": 1,
+          "title": "Fact Id",
+          "type": "string"
+        },
+        "fact_kind": {
+          "enum": [
+            "net_income_attributable_to_owners",
+            "fcfe",
+            "shares_outstanding",
+            "other"
+          ],
+          "title": "Fact Kind",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "maximum": 1000000000000000000000000000000,
+              "minimum": -1000000000000000000000000000000,
+              "type": "integer"
+            },
+            {
+              "maximum": 1e+30,
+              "minimum": -1e+30,
+              "type": "number"
+            }
+          ],
+          "title": "Value"
+        },
+        "unit": {
+          "minLength": 1,
+          "title": "Unit",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "fact_id",
+        "fact_kind",
+        "value",
+        "unit",
+        "as_of",
+        "source_ids"
+      ],
+      "title": "ObservedFact",
+      "type": "object"
+    },
+    "ObservedNamespace": {
+      "additionalProperties": false,
+      "properties": {
+        "ticker": {
+          "pattern": "^[0-9A-Z]{4}$",
+          "title": "Ticker",
+          "type": "string"
+        },
+        "company_name": {
+          "minLength": 1,
+          "title": "Company Name",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/Source"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "facts": {
+          "items": {
+            "$ref": "#/$defs/ObservedFact"
+          },
+          "title": "Facts",
+          "type": "array"
+        }
+      },
+      "required": [
+        "ticker",
+        "company_name",
+        "as_of",
+        "sources",
+        "facts"
+      ],
+      "title": "ObservedNamespace",
+      "type": "object"
+    },
+    "PermanentLossRisk": {
+      "additionalProperties": false,
+      "properties": {
+        "axis": {
+          "enum": [
+            "funding_liquidity",
+            "debt_repayment",
+            "cash_flow",
+            "dilution",
+            "customer_concentration",
+            "structural_decline",
+            "governance_accounting"
+          ],
+          "title": "Axis",
+          "type": "string"
+        },
+        "assessment": {
+          "enum": [
+            "acceptable",
+            "adverse",
+            "unknown"
+          ],
+          "title": "Assessment",
+          "type": "string"
+        },
+        "evidence_status": {
+          "enum": [
+            "verified",
+            "partially_verified",
+            "unverified"
+          ],
+          "title": "Evidence Status",
+          "type": "string"
+        },
+        "summary": {
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "axis",
+        "assessment",
+        "evidence_status",
+        "summary",
+        "as_of",
+        "source_ids"
+      ],
+      "title": "PermanentLossRisk",
+      "type": "object"
+    },
+    "ScenarioEstimate": {
+      "additionalProperties": false,
+      "properties": {
+        "horizon_years": {
+          "enum": [
+            3,
+            5
+          ],
+          "title": "Horizon Years",
+          "type": "integer"
+        },
+        "name": {
+          "enum": [
+            "bear",
+            "base",
+            "bull"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "earnings_basis": {
+          "enum": [
+            "net_income_attributable_to_owners",
+            "fcfe"
+          ],
+          "title": "Earnings Basis",
+          "type": "string"
+        },
+        "starting_earnings_fact_id": {
+          "minLength": 1,
+          "title": "Starting Earnings Fact Id",
+          "type": "string"
+        },
+        "starting_earnings_yen": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "maximum": 1e+16,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Starting Earnings Yen"
+        },
+        "annual_earnings_growth_pct": {
+          "maximum": 50,
+          "minimum": -50,
+          "title": "Annual Earnings Growth Pct",
+          "type": "number"
+        },
+        "starting_share_count_fact_id": {
+          "minLength": 1,
+          "title": "Starting Share Count Fact Id",
+          "type": "string"
+        },
+        "starting_share_count": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "maximum": 10000000000000.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Starting Share Count"
+        },
+        "annual_share_count_change_pct": {
+          "maximum": 20,
+          "minimum": -20,
+          "title": "Annual Share Count Change Pct",
+          "type": "number"
+        },
+        "terminal_valuation_multiple": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "maximum": 100.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Terminal Valuation Multiple"
+        },
+        "cumulative_dividend_per_share_yen": {
+          "anyOf": [
+            {
+              "maximum": 1000000000.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Cumulative Dividend Per Share Yen"
+        },
+        "terminal_price_includes_dividends": {
+          "const": false,
+          "title": "Terminal Price Includes Dividends",
+          "type": "boolean"
+        },
+        "claimed_terminal_earnings_yen": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "maximum": 1e+18,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Claimed Terminal Earnings Yen"
+        },
+        "claimed_terminal_share_count": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "maximum": 1000000000000000.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Claimed Terminal Share Count"
+        },
+        "claimed_terminal_price_yen": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "maximum": 1000000000000.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Claimed Terminal Price Yen"
+        },
+        "claimed_total_return_cagr_pct": {
+          "maximum": 1000,
+          "minimum": -100,
+          "title": "Claimed Total Return Cagr Pct",
+          "type": "number"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "unit": {
+          "const": "JPY_per_share_total_return",
+          "title": "Unit",
+          "type": "string"
+        },
+        "model_version": {
+          "minLength": 1,
+          "title": "Model Version",
+          "type": "string"
+        },
+        "assumption": {
+          "minLength": 1,
+          "title": "Assumption",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "horizon_years",
+        "name",
+        "earnings_basis",
+        "starting_earnings_fact_id",
+        "starting_earnings_yen",
+        "annual_earnings_growth_pct",
+        "starting_share_count_fact_id",
+        "starting_share_count",
+        "annual_share_count_change_pct",
+        "terminal_valuation_multiple",
+        "cumulative_dividend_per_share_yen",
+        "terminal_price_includes_dividends",
+        "claimed_terminal_earnings_yen",
+        "claimed_terminal_share_count",
+        "claimed_terminal_price_yen",
+        "claimed_total_return_cagr_pct",
+        "as_of",
+        "unit",
+        "model_version",
+        "assumption",
+        "source_ids"
+      ],
+      "title": "ScenarioEstimate",
+      "type": "object"
+    },
+    "Source": {
+      "additionalProperties": false,
+      "properties": {
+        "source_id": {
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_tier": {
+          "enum": [
+            "primary",
+            "secondary",
+            "internal_record"
+          ],
+          "title": "Source Tier",
+          "type": "string"
+        },
+        "ref": {
+          "minLength": 1,
+          "title": "Ref",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "used_for": {
+          "minLength": 1,
+          "title": "Used For",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "source_tier",
+        "ref",
+        "as_of",
+        "used_for"
+      ],
+      "title": "Source",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Strict persisted contract with no legacy thesis compatibility fields.",
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "observed": {
+      "$ref": "#/$defs/ObservedNamespace"
+    },
+    "derived": {
+      "$ref": "#/$defs/DerivedNamespace"
+    },
+    "estimates": {
+      "$ref": "#/$defs/EstimatesNamespace"
+    },
+    "permanent_loss_risks": {
+      "items": {
+        "$ref": "#/$defs/PermanentLossRisk"
+      },
+      "title": "Permanent Loss Risks",
+      "type": "array"
+    },
+    "judgment": {
+      "$ref": "#/$defs/JudgmentNamespace"
+    },
+    "independent_review_ref": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Independent Review Ref"
+    },
+    "human_evidence_override": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EvidenceOverride"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "schema_version",
+    "observed",
+    "derived",
+    "estimates",
+    "permanent_loss_risks",
+    "judgment"
+  ],
+  "title": "DecisionPacketDocument",
+  "type": "object"
+}

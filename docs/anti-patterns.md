@@ -219,6 +219,11 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 ### 再発防止チェックリスト
 
 - [ ] validator rule を追加・修正する場合、以下の corner case の test を必ず書く:
+  - [ ] decision packetは7永久損失軸、source/as-of、3年/5年bear/base/bullを欠くと`incomplete`になる
+  - [ ] scenarioの利益、株数変化、terminal multiple、配当、CAGRを再計算し、配当をterminal priceと二重計上できない
+  - [ ] primary evidence不足でhigh confidenceまたは通常sizingのbuyへ進めず、期限付きoverrideと縮小sizingを要求する
+  - [ ] buy proposalのindependent reviewは別agent/session・別artifactで作り、packet hash、reviewer run ID、6 scenario再計算、全load-bearing source照合、変更有無へ束縛される
+  - [ ] AI proposalは`proposed_at <= reviewed_at`、一次情報不足overrideは別envelopeでhuman decision reference・認識risk axesを持ち、review後かつ期限内に承認される
   - [ ] 関連 field が **不在** の場合 (skip / error どちらが正しいか)
   - [ ] 関連 field が **null** の場合
   - [ ] 関連 field が **0 / 負値** の場合 (decision との整合性)

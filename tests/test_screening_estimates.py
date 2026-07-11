@@ -77,6 +77,10 @@ class EstimateExpectedReturnTest(unittest.TestCase):
         # FV anchor: sector 側 = close x mean(1.2/0.8, 15/10) = 1000 x 1.5
         assert estimate.fv_sector_median_yen is not None
         self.assertAlmostEqual(estimate.fv_sector_median_yen, 1500.0)
+        self.assertEqual(estimate.origin, "estimate")
+        self.assertEqual(estimate.model_version, "expected-return-v1")
+        self.assertEqual(estimate.unit, "annual_ratio")
+        self.assertIn("reversion=", estimate.assumptions)
         # 自己側 = close x (1.0/0.8) = 1250
         assert estimate.fv_self_range_yen is not None
         self.assertAlmostEqual(estimate.fv_self_range_yen, 1250.0)

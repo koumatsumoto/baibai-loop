@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "decision-review",
+  "$defs": {
+    "ReviewedScenario": {
+      "additionalProperties": false,
+      "properties": {
+        "horizon_years": {
+          "enum": [
+            3,
+            5
+          ],
+          "title": "Horizon Years",
+          "type": "integer"
+        },
+        "name": {
+          "enum": [
+            "bear",
+            "base",
+            "bull"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "total_return_cagr_pct": {
+          "maximum": 1000,
+          "minimum": -100,
+          "title": "Total Return Cagr Pct",
+          "type": "number"
+        }
+      },
+      "required": [
+        "horizon_years",
+        "name",
+        "total_return_cagr_pct"
+      ],
+      "title": "ReviewedScenario",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "review_id": {
+      "minLength": 1,
+      "title": "Review Id",
+      "type": "string"
+    },
+    "reviewer_role": {
+      "const": "independent_second_pass",
+      "title": "Reviewer Role",
+      "type": "string"
+    },
+    "reviewer_identity": {
+      "minLength": 1,
+      "title": "Reviewer Identity",
+      "type": "string"
+    },
+    "reviewer_run_id": {
+      "minLength": 1,
+      "title": "Reviewer Run Id",
+      "type": "string"
+    },
+    "reviewed_at": {
+      "format": "date-time",
+      "title": "Reviewed At",
+      "type": "string"
+    },
+    "reviewed_packet_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Reviewed Packet Sha256",
+      "type": "string"
+    },
+    "primary_source_check": {
+      "enum": [
+        "verified",
+        "partially_verified",
+        "unverified"
+      ],
+      "title": "Primary Source Check",
+      "type": "string"
+    },
+    "checked_source_ids": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "Checked Source Ids",
+      "type": "array"
+    },
+    "recalculated_scenarios": {
+      "items": {
+        "$ref": "#/$defs/ReviewedScenario"
+      },
+      "title": "Recalculated Scenarios",
+      "type": "array"
+    },
+    "strongest_countercase": {
+      "minLength": 1,
+      "title": "Strongest Countercase",
+      "type": "string"
+    },
+    "alternative_candidate_check": {
+      "enum": [
+        "compared",
+        "unavailable"
+      ],
+      "title": "Alternative Candidate Check",
+      "type": "string"
+    },
+    "proposal_changed": {
+      "title": "Proposal Changed",
+      "type": "boolean"
+    },
+    "change_rationale": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Change Rationale"
+    }
+  },
+  "required": [
+    "review_id",
+    "reviewer_role",
+    "reviewer_identity",
+    "reviewer_run_id",
+    "reviewed_at",
+    "reviewed_packet_sha256",
+    "primary_source_check",
+    "checked_source_ids",
+    "recalculated_scenarios",
+    "strongest_countercase",
+    "alternative_candidate_check",
+    "proposal_changed"
+  ],
+  "title": "IndependentReview",
+  "type": "object"
+}

@@ -17,10 +17,10 @@ Baibai-Loop の **構造** の正本。思想・大戦略は [`doctrine.md`](./d
 | 層 | 実体 | 性質 |
 | --- | --- | --- |
 | L1 データ層 | `data/screening/market.sqlite`（J-Quants 価格・財務 / EDINET metrics / JPX 規制） | 全上場銘柄の再現可能な事実。coverage は fail-fast で検証 |
-| L2 分析層 | screen（valuation ranking）・selection lens・軸別スコア。機械ふるいの事実出力 = `records/02-candidates/` | 決定論的・閾値固定の機械処理。出力は事実 |
+| L2 分析層 | screen（valuation ranking）・selection lens・軸別スコア・E[r] | 決定論的な機械処理。出力をobserved / derived / estimateに分類 |
 | L3 判断層 | `records/`（macro context / thesis / position） | 人間 + AI 下書きの解釈と判断。見積り（RR・期待利回り）と採否を決める |
 
-L2 の「分析」は決定論的な機械処理であり、その出力（candidates・軸別スコア）は **事実** として扱う。人間 / AI の解釈を伴う analysis（macro context・thesis）は L3。3 層の判定基準は「人間の判断が入るか」。
+L2の「分析」は決定論的な機械処理だが、出力がすべて事実になるわけではない。取得値はobserved、式による指標はderived、仮定を持つE[r] / FV anchorはestimateとして扱う。人間/AIの解釈と採否はjudgmentとしてL3のdecision packetへ置く。
 
 ## 単一ループと repository のマッピング
 
@@ -30,8 +30,8 @@ L2 の「分析」は決定論的な機械処理であり、その出力（candi
 | --- | --- | --- | --- | --- |
 | 運用方針 | portfolio management | [`docs/portfolio-management.md`](./portfolio-management.md) | governance | 資本・許容リスク・ポジション管理・kill switch |
 | マクロ環境分析 | macro context | `records/01-macro-context/` | analysis | 姿勢・セクター・AI 前提の環境読み |
-| 通過銘柄リスト | candidates | `records/02-candidates/`（git 外の local store） | fact | screen の生の事実出力（銘柄単位） |
-| 個別銘柄リサーチ | thesis | `records/03-thesis/` | analysis | FV・RR・期待利回り・耐性・採否の投資メモ |
+| 通過銘柄リスト | candidates | `records/02-candidates/`（git 外の local store） | machine analysis | observed / derived / estimateを分離したscreen出力 |
+| 投資判断 | decision packet / thesis | `records/03-thesis/` | judgment | 4 namespace・5年scenario・永久損失・反証。active移行まではthesis Markdownも有効 |
 | 売買提案 | trade proposal | GitHub Issue（records 外） | 判断の入口 | 銘柄 / 価格 / 株数を人間に上げる |
 | portfolio・売買執行記録 | position | `records/04-position/` | execution | ledger、注文・約定・保有・決済・calibration |
 
@@ -128,6 +128,7 @@ Automation は人間の投資判断を置き換えず、fact snapshot 生成・s
 | `baibai-loop-validation` | `validation/` | records と schema の整合を検証 |
 | `baibai-loop-position benchmark` | `position/` | 保有の entry 以降リターンと benchmark（`1321`）比を算出 |
 | `baibai-loop-position ledger` | `position/` | repo内portfolioのcash、reservation、保有、income、cost、taxを再計算 |
+| `baibai-loop-decision <packet>` | `thesis/` | decision packetのscenario、証拠、独立reviewをread-only再計算 |
 
 ### Schema and validation
 
@@ -146,10 +147,10 @@ Python runtime・dependency・quality gate の詳細は [`reference/python-found
 
 AI / スクリプトが基盤を利用するための安定化対象は **2 面だけ**。これ以外（Python 内部 API・`.cache/` の中間物）は予告なく変わる。
 
-- **契約 1：CLI の YAML 出力** — `run`（candidates 事実）・`select`（recommendations + diagnostics）・`ticker-profile`・`market-snapshot`・`baibai-loop-macro`。field の追加は随時、既存 field の名前と意味は黙って変えない。人間向け整形は stdout サマリに分離する。
+- **契約 1：CLI の YAML 出力** — `run`（candidatesのobserved / derived / estimate）・`select`（recommendations + diagnostics）・`ticker-profile`・`market-snapshot`・`baibai-loop-macro`。field の追加は随時、既存 field の名前と意味は黙って変えない。人間向け整形は stdout サマリに分離する。
 - **契約 2：SQLite schema**（`data/screening/market.sqlite`） — 対象は全上場銘柄、`PRAGMA user_version` で版管理、破壊的変更は version bump + rebuild（migration しない）。**AI は読み取り専用で SQL を直接発行してよく、書き込みは CLI（bootstrap / extract / run）経由に限る**。主要テーブルは `jquants_daily_bars` / `jquants_fin_summaries` / `jquants_master_snapshots` / `edinet_metrics` / `jpx_regulation_flags`、定義の正本は [`reference/screening-runtime.md`](./reference/screening-runtime.md)。
 
-AI の利用モデル：L1/L2 は SQL 直接発行と CLI 出力で自由に読み、すべての主張を SQL で検証できる事実へ遡れる形で書く（AP-01）。L3 は下書きまで（最終採用判定・failure 分類・macro 前提確認は人間）。スコアは軸別座標であり売買判定ではない。
+AI の利用モデル：L1/L2 は SQL 直接発行と CLI 出力で自由に読み、observedはsource、derivedはformula、estimateはmodel versionとassumptionへ遡れる形で書く（AP-01）。L3 は下書きまで（最終採用判定は人間）。スコアとestimateは売買判定ではない。
 
 ## Docs sections
 

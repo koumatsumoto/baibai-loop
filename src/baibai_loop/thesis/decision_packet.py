@@ -1,0 +1,931 @@
+"""Canonical long-horizon investment decision packet and deterministic checks."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
+from typing import Annotated, Literal
+from zoneinfo import ZoneInfo
+
+import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+
+from baibai_loop.foundation.yaml_io import safe_load
+
+_CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=False)
+_TICKER = r"^[0-9A-Z]{4}$"
+_RISK_AXES = frozenset(
+    {
+        "funding_liquidity",
+        "debt_repayment",
+        "cash_flow",
+        "dilution",
+        "customer_concentration",
+        "structural_decline",
+        "governance_accounting",
+    }
+)
+_SCENARIO_KEYS = frozenset(
+    (horizon, name) for horizon in (3, 5) for name in ("bear", "base", "bull")
+)
+_SCENARIO_ORDER = {"bear": 0, "base": 1, "bull": 2}
+
+
+class DecisionPacketError(ValueError):
+    """Raised when a packet cannot be evaluated without inventing facts."""
+
+
+def _date(value: object) -> date:
+    if not isinstance(value, str):
+        raise ValueError("must be an ISO date string")
+    try:
+        return date.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError("must be an ISO date string") from error
+
+
+def _datetime(value: object) -> datetime:
+    if not isinstance(value, str):
+        raise ValueError("must be an ISO datetime string")
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError("must be an ISO datetime string") from error
+    if parsed.tzinfo is None:
+        raise ValueError("must include a timezone")
+    return parsed
+
+
+def _tuple(value: object) -> object:
+    return tuple(value) if isinstance(value, list) else value
+
+
+def _decimal(value: object) -> Decimal:
+    if isinstance(value, bool) or not isinstance(value, int | float | str | Decimal):
+        raise ValueError("must be a decimal number")
+    if isinstance(value, str) and re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", value) is None:
+        raise ValueError("decimal string must use fixed-point notation")
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, ValueError) as error:
+        raise ValueError("must be a decimal number") from error
+    if not parsed.is_finite():
+        raise ValueError("must be a finite decimal number")
+    return parsed
+
+
+class Source(BaseModel):
+    model_config = _CONFIG
+
+    source_id: Annotated[str, Field(min_length=1)]
+    source_tier: Literal["primary", "secondary", "internal_record"]
+    ref: Annotated[str, Field(min_length=1)]
+    as_of: date
+    used_for: Annotated[str, Field(min_length=1)]
+
+    @field_validator("as_of", mode="before")
+    @classmethod
+    def _parse_date(cls, value: object) -> date:
+        return _date(value)
+
+
+class ObservedFact(BaseModel):
+    model_config = _CONFIG
+
+    fact_id: Annotated[str, Field(min_length=1)]
+    fact_kind: Literal["net_income_attributable_to_owners", "fcfe", "shares_outstanding", "other"]
+    value: (
+        str
+        | bool
+        | Annotated[int, Field(ge=-(10**30), le=10**30)]
+        | Annotated[float, Field(ge=-1e30, le=1e30)]
+    )
+    unit: Annotated[str, Field(min_length=1)]
+    as_of: date
+    source_ids: tuple[Annotated[str, Field(min_length=1)], ...]
+
+    @field_validator("as_of", mode="before")
+    @classmethod
+    def _parse_date(cls, value: object) -> date:
+        return _date(value)
+
+    @field_validator("source_ids", mode="before")
+    @classmethod
+    def _parse_sources(cls, value: object) -> object:
+        return _tuple(value)
+
+
+class ObservedNamespace(BaseModel):
+    model_config = _CONFIG
+
+    ticker: Annotated[str, Field(pattern=_TICKER)]
+    company_name: Annotated[str, Field(min_length=1)]
+    as_of: date
+    sources: tuple[Source, ...]
+    facts: tuple[ObservedFact, ...]
+
+    @field_validator("as_of", mode="before")
+    @classmethod
+    def _parse_date(cls, value: object) -> date:
+        return _date(value)
+
+    @field_validator("sources", "facts", mode="before")
+    @classmethod
+    def _parse_sequences(cls, value: object) -> object:
+        return _tuple(value)
+
+
+class DerivedMetric(BaseModel):
+    model_config = _CONFIG
+
+    metric_id: Annotated[str, Field(min_length=1)]
+    value: float
+    unit: Annotated[str, Field(min_length=1)]
+    as_of: date
+    formula: Literal["ratio"]
+    formula_version: Literal["ratio-v1"]
+    input_fact_ids: tuple[Annotated[str, Field(min_length=1)], Annotated[str, Field(min_length=1)]]
+    assumption: Annotated[str, Field(min_length=1)]
+    source_ids: tuple[Annotated[str, Field(min_length=1)], ...]
+
+    @field_validator("as_of", mode="before")
+    @classmethod
+    def _parse_date(cls, value: object) -> date:
+        return _date(value)
+
+    @field_validator("source_ids", "input_fact_ids", mode="before")
+    @classmethod
+    def _parse_sources(cls, value: object) -> object:
+        return _tuple(value)
+
+
+class DerivedNamespace(BaseModel):
+    model_config = _CONFIG
+
+    metrics: tuple[DerivedMetric, ...]
+
+    @field_validator("metrics", mode="before")
+    @classmethod
+    def _parse_metrics(cls, value: object) -> object:
+        return _tuple(value)
+
+
+class ScenarioEstimate(BaseModel):
+    model_config = _CONFIG
+
+    horizon_years: Literal[3, 5]
+    name: Literal["bear", "base", "bull"]
+    earnings_basis: Literal["net_income_attributable_to_owners", "fcfe"]
+    starting_earnings_fact_id: Annotated[str, Field(min_length=1)]
+    starting_earnings_yen: Annotated[Decimal, Field(gt=0, le=Decimal("10000000000000000"))]
+    annual_earnings_growth_pct: Annotated[float, Field(ge=-50, le=50)]
+    starting_share_count_fact_id: Annotated[str, Field(min_length=1)]
+    starting_share_count: Annotated[Decimal, Field(gt=0, le=Decimal("10000000000000"))]
+    annual_share_count_change_pct: Annotated[float, Field(ge=-20, le=20)]
+    terminal_valuation_multiple: Annotated[Decimal, Field(gt=0, le=100)]
+    cumulative_dividend_per_share_yen: Annotated[Decimal, Field(ge=0, le=1000000000)]
+    terminal_price_includes_dividends: Literal[False]
+    claimed_terminal_earnings_yen: Annotated[Decimal, Field(gt=0, le=Decimal("1e18"))]
+    claimed_terminal_share_count: Annotated[Decimal, Field(gt=0, le=Decimal("1e15"))]
+    claimed_terminal_price_yen: Annotated[Decimal, Field(gt=0, le=Decimal("1e12"))]
+    claimed_total_return_cagr_pct: Annotated[float, Field(ge=-100, le=1000)]
+    as_of: date
+    unit: Literal["JPY_per_share_total_return"]
+    model_version: Annotated[str, Field(min_length=1)]
+    assumption: Annotated[str, Field(min_length=1)]
+    source_ids: tuple[Annotated[str, Field(min_length=1)], ...]
+
+    @field_validator("as_of", mode="before")
+    @classmethod
+    def _parse_date(cls, value: object) -> date:
+        return _date(value)
+
+    @field_validator("source_ids", mode="before")
+    @classmethod
+    def _parse_sources(cls, value: object) -> object:
+        return _tuple(value)
+
+    @field_validator(
+        "starting_earnings_yen",
+        "starting_share_count",
+        "terminal_valuation_multiple",
+        "cumulative_dividend_per_share_yen",
+        "claimed_terminal_earnings_yen",
+        "claimed_terminal_share_count",
+        "claimed_terminal_price_yen",
+        mode="before",
+    )
+    @classmethod
+    def _parse_decimals(cls, value: object) -> Decimal:
+        return _decimal(value)
+
+
+class EstimatesNamespace(BaseModel):
+    model_config = _CONFIG
+
+    model_version: Annotated[str, Field(min_length=1)]
+    entry_price_basis_yen: Annotated[
+        Decimal, Field(ge=Decimal("0.0001"), le=Decimal("1000000000"), decimal_places=4)
+    ]
+    entry_price_basis: Literal["max_acceptable_price", "observed_market_price"]
+    entry_price_source_ids: tuple[Annotated[str, Field(min_length=1)], ...]
+    entry_price_assumption: Annotated[str, Field(min_length=1)]
+    scenarios: tuple[ScenarioEstimate, ...]
+
+    @field_validator("scenarios", "entry_price_source_ids", mode="before")
+    @classmethod
+    def _parse_scenarios(cls, value: object) -> object:
+        return _tuple(value)
+
+    @field_validator("entry_price_basis_yen", mode="before")
+    @classmethod
+    def _parse_entry_price(cls, value: object) -> Decimal:
+        return _decimal(value)
+
+
+class PermanentLossRisk(BaseModel):
+    model_config = _CONFIG
+
+    axis: Literal[
+        "funding_liquidity",
+        "debt_repayment",
+        "cash_flow",
+        "dilution",
+        "customer_concentration",
+        "structural_decline",
+        "governance_accounting",
+    ]
+    assessment: Literal["acceptable", "adverse", "unknown"]
+    evidence_status: Literal["verified", "partially_verified", "unverified"]
+    summary: Annotated[str, Field(min_length=1)]
+    as_of: date
+    source_ids: tuple[Annotated[str, Field(min_length=1)], ...]
+
+    @field_validator("as_of", mode="before")
+    @classmethod
+    def _parse_date(cls, value: object) -> date:
+        return _date(value)
+
+    @field_validator("source_ids", mode="before")
+    @classmethod
+    def _parse_sources(cls, value: object) -> object:
+        return _tuple(value)
+
+
+class EvidenceOverride(BaseModel):
+    model_config = _CONFIG
+
+    override_id: Annotated[str, Field(min_length=1)]
+    reason: Annotated[str, Field(min_length=1)]
+    decision_reference: Annotated[str, Field(min_length=1)]
+    proposal_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    review_id: Annotated[str, Field(min_length=1)]
+    review_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    approved_by: Literal["human"]
+    acknowledged_risk_axes: tuple[Annotated[str, Field(min_length=1)], ...]
+    approved_at: datetime
+    expires_at: datetime
+
+    @field_validator("approved_at", "expires_at", mode="before")
+    @classmethod
+    def _parse_time(cls, value: object) -> datetime:
+        return _datetime(value)
+
+    @field_validator("acknowledged_risk_axes", mode="before")
+    @classmethod
+    def _parse_axes(cls, value: object) -> object:
+        return _tuple(value)
+
+    @model_validator(mode="after")
+    def _valid_window(self) -> EvidenceOverride:
+        if self.expires_at <= self.approved_at:
+            raise ValueError("evidence override expires_at must follow approved_at")
+        if (self.expires_at - self.approved_at).total_seconds() > 31 * 86_400:
+            raise ValueError("evidence override cannot exceed 31 days")
+        return self
+
+
+class JudgmentNamespace(BaseModel):
+    model_config = _CONFIG
+
+    recommendation: Literal["buy", "defer", "reject"]
+    proposed_at: datetime
+    confidence: Literal["low", "medium", "high"]
+    permanent_loss_conclusion: Literal["acceptable", "elevated", "unknown"]
+    strongest_countercase: Annotated[str, Field(min_length=1)]
+    sizing_action: Literal["normal", "reduced", "none"]
+
+    @field_validator("proposed_at", mode="before")
+    @classmethod
+    def _parse_time(cls, value: object) -> datetime:
+        return _datetime(value)
+
+
+class ReviewedScenario(BaseModel):
+    model_config = _CONFIG
+
+    horizon_years: Literal[3, 5]
+    name: Literal["bear", "base", "bull"]
+    total_return_cagr_pct: Annotated[float, Field(ge=-100, le=1000)]
+
+
+class IndependentReview(BaseModel):
+    model_config = _CONFIG
+
+    review_id: Annotated[str, Field(min_length=1)]
+    reviewer_role: Literal["independent_second_pass"]
+    reviewer_identity: Annotated[str, Field(min_length=1)]
+    reviewer_run_id: Annotated[str, Field(min_length=1)]
+    reviewed_at: datetime
+    reviewed_packet_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    primary_source_check: Literal["verified", "partially_verified", "unverified"]
+    checked_source_ids: tuple[Annotated[str, Field(min_length=1)], ...]
+    recalculated_scenarios: tuple[ReviewedScenario, ...]
+    strongest_countercase: Annotated[str, Field(min_length=1)]
+    alternative_candidate_check: Literal["compared", "unavailable"]
+    proposal_changed: bool
+    change_rationale: str | None = None
+
+    @field_validator("reviewed_at", mode="before")
+    @classmethod
+    def _parse_time(cls, value: object) -> datetime:
+        return _datetime(value)
+
+    @field_validator("checked_source_ids", "recalculated_scenarios", mode="before")
+    @classmethod
+    def _parse_sequences(cls, value: object) -> object:
+        return _tuple(value)
+
+    @model_validator(mode="after")
+    def _change_has_reason(self) -> IndependentReview:
+        if self.proposal_changed != bool(self.change_rationale and self.change_rationale.strip()):
+            raise ValueError("proposal_changed and change_rationale must be specified together")
+        return self
+
+
+class DecisionPacketDocument(BaseModel):
+    """Strict persisted contract with no legacy thesis compatibility fields."""
+
+    model_config = _CONFIG
+
+    schema_version: Literal[1]
+    observed: ObservedNamespace
+    derived: DerivedNamespace
+    estimates: EstimatesNamespace
+    permanent_loss_risks: tuple[PermanentLossRisk, ...]
+    judgment: JudgmentNamespace
+    independent_review_ref: Annotated[str, Field(min_length=1)] | None = None
+    human_evidence_override: EvidenceOverride | None = None
+
+    @field_validator("permanent_loss_risks", mode="before")
+    @classmethod
+    def _parse_risks(cls, value: object) -> object:
+        return _tuple(value)
+
+
+@dataclass(frozen=True, slots=True)
+class ScenarioResult:
+    horizon_years: int
+    name: str
+    terminal_earnings_yen: float
+    terminal_share_count: float
+    terminal_price_yen: float
+    total_return_cagr_pct: float
+
+
+@dataclass(frozen=True, slots=True)
+class DecisionPacketResult:
+    packet_status: Literal["incomplete", "review_required", "ready", "ready_with_warnings"]
+    decision_readiness: Literal["not_ready", "ready"]
+    packet_sha256: str
+    errors: tuple[str, ...]
+    warnings: tuple[str, ...]
+    scenarios: tuple[ScenarioResult, ...]
+
+
+def load_decision_packet(path: Path) -> DecisionPacketDocument:
+    """Load a strict YAML packet."""
+
+    try:
+        raw = safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as error:
+        raise DecisionPacketError(f"failed to load decision packet: {error}") from error
+    if not isinstance(raw, Mapping):
+        raise DecisionPacketError("decision packet root must be a mapping")
+    try:
+        return DecisionPacketDocument.model_validate(raw)
+    except ValidationError as error:
+        raise DecisionPacketError(str(error)) from error
+
+
+def load_independent_review(path: Path) -> IndependentReview:
+    """Load a second-pass artifact independently from its reviewed packet."""
+
+    try:
+        raw = safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as error:
+        raise DecisionPacketError(f"failed to load independent review: {error}") from error
+    if not isinstance(raw, Mapping):
+        raise DecisionPacketError("independent review root must be a mapping")
+    try:
+        return IndependentReview.model_validate(raw)
+    except ValidationError as error:
+        raise DecisionPacketError(str(error)) from error
+
+
+def decision_packet_json_schema() -> dict[str, object]:
+    schema = DecisionPacketDocument.model_json_schema()
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "decision-packet",
+        **schema,
+    }
+
+
+def independent_review_json_schema() -> dict[str, object]:
+    schema = IndependentReview.model_json_schema()
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "decision-review",
+        **schema,
+    }
+
+
+def evaluate_decision_packet(
+    document: DecisionPacketDocument,
+    *,
+    review: IndependentReview | None = None,
+    now: datetime | None = None,
+) -> DecisionPacketResult:
+    """Recalculate scenarios and determine whether the proposal is decision-ready."""
+
+    errors: list[str] = []
+    warnings: list[str] = []
+    evaluated_at = now or datetime.now(tz=ZoneInfo("Asia/Tokyo"))
+    if document.observed.as_of > evaluated_at.date():
+        errors.append("packet as_of cannot be in the future")
+    if document.judgment.proposed_at.date() < document.observed.as_of:
+        errors.append("proposal cannot predate packet as_of")
+    if document.judgment.proposed_at > evaluated_at:
+        errors.append("proposal cannot be future-dated")
+    source_ids = {source.source_id for source in document.observed.sources}
+    source_tiers = {source.source_id: source.source_tier for source in document.observed.sources}
+    if len(source_ids) != len(document.observed.sources):
+        errors.append("source_id must be unique")
+    if not source_ids:
+        errors.append("observed.sources must not be empty")
+    for source in document.observed.sources:
+        if source.as_of > document.observed.as_of:
+            errors.append(f"source {source.source_id} is after packet as_of")
+        if source.source_tier == "primary" and not source.ref.startswith("https://"):
+            errors.append(f"primary source {source.source_id} must use an HTTPS reference")
+    _check_lineage(document, source_ids, errors)
+    required_review_source_ids = set(document.estimates.entry_price_source_ids)
+    for fact in document.observed.facts:
+        required_review_source_ids.update(fact.source_ids)
+    for metric in document.derived.metrics:
+        required_review_source_ids.update(metric.source_ids)
+    for scenario in document.estimates.scenarios:
+        required_review_source_ids.update(scenario.source_ids)
+    for risk in document.permanent_loss_risks:
+        required_review_source_ids.update(risk.source_ids)
+
+    try:
+        scenarios = tuple(
+            _recalculate_scenario(item, entry_price=document.estimates.entry_price_basis_yen)
+            for item in document.estimates.scenarios
+        )
+    except (ArithmeticError, OverflowError, ValueError) as error:
+        raise DecisionPacketError(f"scenario calculation failed: {error}") from error
+    _check_derived_metrics(document, errors)
+    _check_scenario_fact_inputs(document, errors)
+    keys = {(item.horizon_years, item.name) for item in document.estimates.scenarios}
+    if keys != _SCENARIO_KEYS or len(keys) != len(document.estimates.scenarios):
+        errors.append("scenarios must contain each bear/base/bull 3y/5y pair exactly once")
+    by_horizon: dict[int, dict[str, float]] = {3: {}, 5: {}}
+    for supplied, calculated in zip(document.estimates.scenarios, scenarios, strict=True):
+        by_horizon[supplied.horizon_years][supplied.name] = calculated.total_return_cagr_pct
+        _compare_claims(supplied, calculated, errors)
+        if supplied.model_version != document.estimates.model_version:
+            errors.append(
+                f"scenario {supplied.horizon_years}y/{supplied.name} model version mismatch"
+            )
+        if supplied.as_of != document.observed.as_of:
+            errors.append(f"scenario {supplied.horizon_years}y/{supplied.name} as_of mismatch")
+    for horizon, values in by_horizon.items():
+        if set(values) == {"bear", "base", "bull"} and not (
+            values["bear"] <= values["base"] <= values["bull"]
+        ):
+            errors.append(f"scenario total returns are not ordered for {horizon}y")
+
+    risk_by_axis = {risk.axis: risk for risk in document.permanent_loss_risks}
+    if len(risk_by_axis) != len(document.permanent_loss_risks):
+        errors.append("permanent-loss risk axes must be unique")
+    for axis in sorted(_RISK_AXES - set(risk_by_axis)):
+        errors.append(f"missing permanent-loss risk axis: {axis}")
+    expected_conclusion = _risk_conclusion(document.permanent_loss_risks)
+    if document.judgment.permanent_loss_conclusion != expected_conclusion:
+        errors.append("judgment.permanent_loss_conclusion contradicts permanent-loss risk axes")
+    evidence_gaps = [
+        risk.axis
+        for risk in document.permanent_loss_risks
+        if risk.evidence_status != "verified"
+        or risk.assessment == "unknown"
+        or not any(source_tiers.get(source_id) == "primary" for source_id in risk.source_ids)
+    ]
+    if evidence_gaps:
+        warnings.append(f"permanent-loss evidence incomplete: {sorted(evidence_gaps)}")
+    if evidence_gaps and document.judgment.confidence == "high":
+        errors.append("high confidence is not allowed with incomplete primary evidence")
+
+    adverse_axes = [
+        risk.axis for risk in document.permanent_loss_risks if risk.assessment == "adverse"
+    ]
+    if adverse_axes:
+        warnings.append(f"permanent-loss risk is adverse: {sorted(adverse_axes)}")
+    exception_axes = sorted(set(evidence_gaps + adverse_axes))
+    override = document.human_evidence_override
+    if override is not None and not set(exception_axes).issubset(override.acknowledged_risk_axes):
+        errors.append("evidence override must acknowledge every incomplete or adverse risk axis")
+
+    core_hash = decision_packet_core_hash(document)
+    if document.judgment.recommendation == "buy":
+        if review is None or document.independent_review_ref is None:
+            errors.append("buy recommendation requires an independent second-pass review")
+        else:
+            _check_review(
+                review,
+                core_hash,
+                document.observed,
+                document.judgment,
+                evaluated_at,
+                source_ids,
+                required_review_source_ids,
+                scenarios,
+                errors,
+                warnings,
+            )
+            valid_evidence_override = _has_valid_evidence_override(
+                document, review=review, evaluated_at=evaluated_at
+            )
+            if exception_axes and not valid_evidence_override:
+                errors.append(
+                    "buy with incomplete or adverse evidence requires a human override "
+                    "and reduced sizing"
+                )
+            if review.primary_source_check != "verified" and not valid_evidence_override:
+                errors.append(
+                    "buy without fully verified primary review requires an active override "
+                    "and reduced sizing"
+                )
+    elif review is not None:
+        _check_review(
+            review,
+            core_hash,
+            document.observed,
+            document.judgment,
+            evaluated_at,
+            source_ids,
+            required_review_source_ids,
+            scenarios,
+            errors,
+            warnings,
+        )
+
+    if errors:
+        status: Literal["incomplete", "review_required", "ready", "ready_with_warnings"] = (
+            "review_required"
+            if errors == ["buy recommendation requires an independent second-pass review"]
+            else "incomplete"
+        )
+    else:
+        status = "ready_with_warnings" if warnings else "ready"
+    return DecisionPacketResult(
+        packet_status=status,
+        decision_readiness="ready" if status in {"ready", "ready_with_warnings"} else "not_ready",
+        packet_sha256=core_hash,
+        errors=tuple(errors),
+        warnings=tuple(warnings),
+        scenarios=tuple(
+            sorted(
+                scenarios,
+                key=lambda item: (item.horizon_years, _SCENARIO_ORDER[item.name]),
+            )
+        ),
+    )
+
+
+def decision_packet_core_hash(document: DecisionPacketDocument) -> str:
+    payload = document.model_dump(mode="json", exclude={"human_evidence_override"})
+    try:
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    except (OverflowError, ValueError) as error:
+        raise DecisionPacketError(f"decision packet cannot be hashed: {error}") from error
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def independent_review_hash(review: IndependentReview) -> str:
+    payload = review.model_dump(mode="json")
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def result_to_payload(result: DecisionPacketResult) -> dict[str, object]:
+    return {
+        "packet_status": result.packet_status,
+        "decision_readiness": result.decision_readiness,
+        "packet_sha256": result.packet_sha256,
+        "errors": list(result.errors),
+        "warnings": list(result.warnings),
+        "scenarios": [
+            {
+                "horizon_years": item.horizon_years,
+                "name": item.name,
+                "terminal_earnings_yen": item.terminal_earnings_yen,
+                "terminal_share_count": item.terminal_share_count,
+                "terminal_price_yen": item.terminal_price_yen,
+                "total_return_cagr_pct": item.total_return_cagr_pct,
+            }
+            for item in result.scenarios
+        ],
+    }
+
+
+def _recalculate_scenario(scenario: ScenarioEstimate, *, entry_price: Decimal) -> ScenarioResult:
+    horizon = scenario.horizon_years
+    terminal_earnings = (
+        float(scenario.starting_earnings_yen)
+        * (1 + scenario.annual_earnings_growth_pct / 100) ** horizon
+    )
+    terminal_shares = (
+        float(scenario.starting_share_count)
+        * (1 + scenario.annual_share_count_change_pct / 100) ** horizon
+    )
+    terminal_price = (
+        terminal_earnings / terminal_shares * float(scenario.terminal_valuation_multiple)
+    )
+    total_value = terminal_price + float(scenario.cumulative_dividend_per_share_yen)
+    cagr = ((total_value / float(entry_price)) ** (1 / horizon) - 1) * 100
+    if not all(
+        math.isfinite(value) for value in (terminal_earnings, terminal_shares, terminal_price, cagr)
+    ):
+        raise DecisionPacketError(
+            f"scenario {horizon}y/{scenario.name} calculation must remain finite"
+        )
+    return ScenarioResult(
+        horizon_years=horizon,
+        name=scenario.name,
+        terminal_earnings_yen=round(terminal_earnings, 2),
+        terminal_share_count=round(terminal_shares, 4),
+        terminal_price_yen=round(terminal_price, 4),
+        total_return_cagr_pct=round(cagr, 2),
+    )
+
+
+def _compare_claims(
+    supplied: ScenarioEstimate, calculated: ScenarioResult, errors: list[str]
+) -> None:
+    key = f"{supplied.horizon_years}y/{supplied.name}"
+    checks = (
+        (
+            "terminal earnings",
+            float(supplied.claimed_terminal_earnings_yen),
+            calculated.terminal_earnings_yen,
+            0.01,
+        ),
+        (
+            "terminal share count",
+            float(supplied.claimed_terminal_share_count),
+            calculated.terminal_share_count,
+            0.0001,
+        ),
+        (
+            "terminal price",
+            float(supplied.claimed_terminal_price_yen),
+            calculated.terminal_price_yen,
+            0.0001,
+        ),
+        (
+            "total-return CAGR",
+            supplied.claimed_total_return_cagr_pct,
+            calculated.total_return_cagr_pct,
+            0.01,
+        ),
+    )
+    for label, claimed, expected, tolerance in checks:
+        if not math.isclose(claimed, expected, abs_tol=tolerance):
+            errors.append(f"scenario {key} {label} mismatch: expected {expected}, got {claimed}")
+
+
+def _check_derived_metrics(document: DecisionPacketDocument, errors: list[str]) -> None:
+    facts = {fact.fact_id: fact for fact in document.observed.facts}
+    metric_ids = {metric.metric_id for metric in document.derived.metrics}
+    if len(metric_ids) != len(document.derived.metrics):
+        errors.append("derived metric_id must be unique")
+    for metric in document.derived.metrics:
+        inputs = [facts.get(fact_id) for fact_id in metric.input_fact_ids]
+        if any(item is None for item in inputs):
+            errors.append(f"metric {metric.metric_id} references unknown input fact")
+            continue
+        values: list[Decimal] = []
+        units: list[str] = []
+        for item in inputs:
+            assert item is not None
+            if isinstance(item.value, bool | str):
+                errors.append(f"metric {metric.metric_id} input facts must be numeric")
+                break
+            value = Decimal(str(item.value))
+            if abs(value) > Decimal("1e30"):
+                errors.append(f"metric {metric.metric_id} input fact magnitude is too large")
+                break
+            values.append(value)
+            units.append(item.unit)
+        if len(values) != 2:
+            continue
+        if values[1] == 0:
+            errors.append(f"metric {metric.metric_id} ratio denominator cannot be zero")
+            continue
+        expected = values[0] / values[1]
+        if abs(expected) > Decimal("1e300"):
+            errors.append(f"metric {metric.metric_id} ratio result magnitude is too large")
+            continue
+        expected_unit = {
+            ("JPY", "shares"): "JPY_per_share",
+            ("JPY", "JPY"): "ratio",
+            ("shares", "shares"): "ratio",
+        }.get((units[0], units[1]))
+        if expected_unit is None or metric.unit != expected_unit:
+            errors.append(
+                f"metric {metric.metric_id} unit mismatch for ratio inputs {tuple(units)}"
+            )
+        if not math.isclose(metric.value, float(expected), rel_tol=1e-12, abs_tol=1e-12):
+            errors.append(
+                f"metric {metric.metric_id} value mismatch: expected {expected}, got {metric.value}"
+            )
+
+
+def _check_scenario_fact_inputs(document: DecisionPacketDocument, errors: list[str]) -> None:
+    facts = {fact.fact_id: fact for fact in document.observed.facts}
+    if len(facts) != len(document.observed.facts):
+        errors.append("observed fact_id must be unique")
+    for scenario in document.estimates.scenarios:
+        key = f"{scenario.horizon_years}y/{scenario.name}"
+        pairs = (
+            (
+                "starting earnings",
+                scenario.starting_earnings_fact_id,
+                scenario.starting_earnings_yen,
+                "JPY",
+                scenario.earnings_basis,
+            ),
+            (
+                "starting share count",
+                scenario.starting_share_count_fact_id,
+                scenario.starting_share_count,
+                "shares",
+                "shares_outstanding",
+            ),
+        )
+        for label, fact_id, supplied, expected_unit, expected_kind in pairs:
+            fact = facts.get(fact_id)
+            if fact is None:
+                errors.append(f"scenario {key} {label} references unknown fact {fact_id}")
+                continue
+            if fact.unit != expected_unit:
+                errors.append(
+                    f"scenario {key} {label} fact unit must be {expected_unit}, got {fact.unit}"
+                )
+            if fact.fact_kind != expected_kind:
+                errors.append(
+                    f"scenario {key} {label} fact kind must be {expected_kind}, "
+                    f"got {fact.fact_kind}"
+                )
+            if isinstance(fact.value, bool | str):
+                errors.append(f"scenario {key} {label} fact must be numeric")
+                continue
+            if Decimal(str(fact.value)) != supplied:
+                errors.append(f"scenario {key} {label} does not match observed fact {fact_id}")
+
+
+def _check_lineage(
+    document: DecisionPacketDocument, source_ids: set[str], errors: list[str]
+) -> None:
+    rows: list[tuple[str, date, tuple[str, ...]]] = []
+    rows.extend(
+        (f"fact {item.fact_id}", item.as_of, item.source_ids) for item in document.observed.facts
+    )
+    rows.extend(
+        (f"metric {item.metric_id}", item.as_of, item.source_ids)
+        for item in document.derived.metrics
+    )
+    rows.extend(
+        (f"scenario {item.horizon_years}y/{item.name}", item.as_of, item.source_ids)
+        for item in document.estimates.scenarios
+    )
+    rows.append(
+        (
+            "estimate entry price basis",
+            document.observed.as_of,
+            document.estimates.entry_price_source_ids,
+        )
+    )
+    rows.extend(
+        (f"risk {item.axis}", item.as_of, item.source_ids) for item in document.permanent_loss_risks
+    )
+    sources = {source.source_id: source for source in document.observed.sources}
+    for label, as_of, references in rows:
+        if not references:
+            errors.append(f"{label} requires source_ids")
+        unknown = sorted(set(references) - source_ids)
+        if unknown:
+            errors.append(f"{label} references unknown sources: {unknown}")
+        if as_of > document.observed.as_of:
+            errors.append(f"{label} as_of is after packet as_of")
+        if (document.observed.as_of - as_of).days > 400:
+            errors.append(f"{label} is more than 400 days older than packet as_of")
+        for source_id in references:
+            source = sources.get(source_id)
+            if source is not None and (as_of - source.as_of).days > 400:
+                errors.append(f"{label} source {source_id} is more than 400 days old")
+
+
+def _risk_conclusion(risks: tuple[PermanentLossRisk, ...]) -> str:
+    if any(risk.assessment == "adverse" for risk in risks):
+        return "elevated"
+    if any(risk.assessment == "unknown" for risk in risks):
+        return "unknown"
+    return "acceptable"
+
+
+def _has_valid_evidence_override(
+    document: DecisionPacketDocument,
+    *,
+    review: IndependentReview,
+    evaluated_at: datetime,
+) -> bool:
+    override = document.human_evidence_override
+    if override is None:
+        return False
+    return (
+        document.judgment.proposed_at <= review.reviewed_at <= override.approved_at
+        and override.approved_at <= evaluated_at < override.expires_at
+        and override.proposal_sha256 == decision_packet_core_hash(document)
+        and override.review_id == review.review_id
+        and override.review_sha256 == independent_review_hash(review)
+        and document.judgment.sizing_action == "reduced"
+    )
+
+
+def _check_review(
+    review: IndependentReview,
+    expected_hash: str,
+    observed: ObservedNamespace,
+    judgment: JudgmentNamespace,
+    evaluated_at: datetime,
+    source_ids: set[str],
+    required_source_ids: set[str],
+    scenarios: tuple[ScenarioResult, ...],
+    errors: list[str],
+    warnings: list[str],
+) -> None:
+    if review.reviewed_packet_sha256 != expected_hash:
+        errors.append("independent review hash does not match decision packet")
+    if not review.checked_source_ids:
+        errors.append("independent review must check at least one source")
+    unknown = sorted(set(review.checked_source_ids) - source_ids)
+    if unknown:
+        errors.append(f"independent review references unknown sources: {unknown}")
+    unchecked = sorted(required_source_ids - set(review.checked_source_ids))
+    if unchecked:
+        errors.append(f"independent review did not check load-bearing sources: {unchecked}")
+    source_tiers = {source.source_id: source.source_tier for source in observed.sources}
+    if review.primary_source_check == "verified" and not any(
+        source_tiers.get(source_id) == "primary" for source_id in review.checked_source_ids
+    ):
+        errors.append("verified primary-source review must check a primary source")
+    if review.reviewed_at.date() < observed.as_of:
+        errors.append("independent review cannot predate packet as_of")
+    if review.reviewed_at < judgment.proposed_at:
+        errors.append("independent review cannot predate the AI proposal")
+    if review.reviewed_at > evaluated_at:
+        errors.append("independent review cannot be future-dated")
+    expected = {(item.horizon_years, item.name): item.total_return_cagr_pct for item in scenarios}
+    supplied = {
+        (item.horizon_years, item.name): item.total_return_cagr_pct
+        for item in review.recalculated_scenarios
+    }
+    if len(supplied) != len(review.recalculated_scenarios) or supplied != expected:
+        errors.append("independent review scenario recalculation does not match packet")
+    if review.primary_source_check != "verified":
+        warnings.append("independent review did not fully verify primary sources")
+    if review.alternative_candidate_check != "compared":
+        warnings.append("independent review did not compare an alternative candidate")
+    if review.proposal_changed:
+        errors.append("independent review changed the proposal; regenerate the decision packet")
