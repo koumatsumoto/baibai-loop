@@ -203,7 +203,12 @@ def build_analysis_draft(
                     "after=available-prospective_notional"
                 ),
             },
-            "policy_checks": _policy_checks(policy_input, source_ids=source_ids),
+            "policy_checks": _policy_checks(
+                policy_input,
+                source_ids=source_ids,
+                total_capital=total_capital,
+                prospective_notional=prospective_notional,
+            ),
             "greatest_risk": risk_statement,
         },
         "detail": {
@@ -265,6 +270,11 @@ def build_decision_packet(
         f"risk:{risk['axis']}"
         for risk in risks
         if isinstance(risk, Mapping) and risk.get("assessment") != "pass"
+    )
+    warning_ids.extend(
+        f"risk_evidence:{risk['axis']}"
+        for risk in risks
+        if isinstance(risk, Mapping) and risk.get("evidence_status") != "verified"
     )
     policy_checks = summary["policy_checks"]
     assert isinstance(policy_checks, Mapping)
@@ -567,10 +577,36 @@ def _risk_conclusion(
     }
 
 
-def _policy_checks(value: Mapping[str, object], *, source_ids: frozenset[str]) -> dict[str, object]:
+def _policy_checks(
+    value: Mapping[str, object],
+    *,
+    source_ids: frozenset[str],
+    total_capital: float,
+    prospective_notional: float,
+) -> dict[str, object]:
+    actuals = {
+        "ticker_weight": (
+            _nonnegative_number(value, "existing_ticker_notional_yen") + prospective_notional
+        )
+        / total_capital
+        * 100,
+        "sector_weight": (
+            _nonnegative_number(value, "existing_sector_notional_yen") + prospective_notional
+        )
+        / total_capital
+        * 100,
+        "playbook_weight": (
+            _nonnegative_number(value, "existing_playbook_notional_yen") + prospective_notional
+        )
+        / total_capital
+        * 100,
+        "adv_participation": prospective_notional
+        / _positive_number(value, "average_daily_value_yen")
+        * 100,
+    }
     checks: list[dict[str, object]] = []
     for name in ("ticker_weight", "sector_weight", "playbook_weight", "adv_participation"):
-        actual = _nonnegative_number(value, f"{name}_pct")
+        actual = round(actuals[name], 4)
         warning = _positive_number(value, f"{name}_warning_pct")
         checks.append(
             {
@@ -587,7 +623,10 @@ def _policy_checks(value: Mapping[str, object], *, source_ids: frozenset[str]) -
         "source_ids": _validated_source_ids(
             value.get("source_ids"), field="policy_snapshot.source_ids", source_ids=source_ids
         ),
-        "derivation": "Each projected exposure is compared with its warning line.",
+        "derivation": (
+            "Post-order ticker, sector, and playbook notionals use the proposal notional; "
+            "ADV participation is proposal notional divided by average daily value."
+        ),
     }
 
 

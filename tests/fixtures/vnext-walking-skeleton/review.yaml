@@ -1,7 +1,7 @@
 review_id: independent-review-20260711-2331
 reviewer_role: independent_second_pass
 reviewed_at: "2026-07-11T12:00:00+09:00"
-reviewed_packet_sha256: 82a1bac611637262fbda248ce8c0416a41bdf70224a2f69ef5844b1d67186c88
+reviewed_packet_sha256: f7c00c870f2945177c94c2dbc51115b9005fd5d44f82af7aea2fa62eefb7d5eb
 primary_source_check: partially_verified
 checked_source_ids: [thesis-2331, monthly-report, portfolio-fixture, position-8929, synthetic-quote]
 recalculated_scenario_cagrs:

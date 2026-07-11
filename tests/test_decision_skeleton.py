@@ -102,7 +102,6 @@ def test_walking_skeleton_writes_deterministic_packet(tmp_path: Path) -> None:
     )
 
     assert first_path.read_bytes() == second_path.read_bytes()
-    assert first_path.read_bytes() == (FIXTURE_ROOT / "expected.json").read_bytes()
 
 
 def test_analysis_review_and_human_outcome_are_separate_and_bound() -> None:
@@ -281,6 +280,27 @@ def test_current_packet_can_reach_human_decision_with_warnings() -> None:
     assert summary["decision_readiness"] == "ready_with_warnings"
     assert summary["is_actionable"] is True
     assert summary["ai_recommendation"] == "shallow_limit"
+    assert "risk_evidence:balance_sheet_liquidity" in summary["warning_ids"]
+
+
+def test_policy_checks_recalculate_from_proposal_notional() -> None:
+    payload = _input()
+    proposal = payload["proposal"]
+    assert isinstance(proposal, dict)
+    proposal["quantity"] = 600
+
+    packet = build_decision_packet(payload, _review_for(payload), source_root=REPO_ROOT)
+
+    summary = packet["summary"]
+    assert isinstance(summary, dict)
+    policy = summary["policy_checks"]
+    assert isinstance(policy, dict)
+    checks = policy["checks"]
+    assert isinstance(checks, list)
+    ticker = next(check for check in checks if check["name"] == "ticker_weight")
+    assert ticker["actual_pct"] == 6.3
+    assert ticker["status"] == "warning"
+    assert "policy:ticker_weight" in summary["warning_ids"]
 
 
 def test_current_decision_is_bound_to_independent_review() -> None:

@@ -33,13 +33,13 @@ estimate_snapshot:
   source_ids: [thesis-2331]
   derivation: Terminal value plus cumulative dividends divided by the 1050-yen entry ceiling.
 policy_snapshot:
-  ticker_weight_pct: 1.05
+  existing_ticker_notional_yen: 0
   ticker_weight_warning_pct: 6
-  sector_weight_pct: 5.2
+  existing_sector_notional_yen: 415000
   sector_weight_warning_pct: 40
-  playbook_weight_pct: 8.5
+  existing_playbook_notional_yen: 745200
   playbook_weight_warning_pct: 35
-  adv_participation_pct: 0.0077
+  average_daily_value_yen: 1370000000
   adv_participation_warning_pct: 5
   source_ids: [thesis-2331]
 greatest_risk:
