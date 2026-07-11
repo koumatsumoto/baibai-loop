@@ -1,0 +1,6 @@
+decision: approve
+decision_mode: historical_record
+decided_at: "2026-07-03T12:00:00+09:00"
+reference: decision-20260703-2331-trade
+proposal_sha256: e3ad620bd26f36ee9f5e77d6023c869393a87516f44023c9055be1241920e518
+analysis_draft_sha256: f7c00c870f2945177c94c2dbc51115b9005fd5d44f82af7aea2fa62eefb7d5eb

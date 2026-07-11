@@ -1,0 +1,17 @@
+review_id: independent-review-20260711-2331
+reviewer_role: independent_second_pass
+reviewed_at: "2026-07-11T12:00:00+09:00"
+reviewed_packet_sha256: f7c00c870f2945177c94c2dbc51115b9005fd5d44f82af7aea2fa62eefb7d5eb
+primary_source_check: partially_verified
+checked_source_ids: [thesis-2331, monthly-report, portfolio-fixture, position-8929, synthetic-quote]
+recalculated_scenario_cagrs:
+  - {horizon_years: 3, name: bear, total_return_cagr_pct: -2.54}
+  - {horizon_years: 3, name: base, total_return_cagr_pct: 8.87}
+  - {horizon_years: 3, name: bull, total_return_cagr_pct: 15.55}
+  - {horizon_years: 5, name: bear, total_return_cagr_pct: -1.57}
+  - {horizon_years: 5, name: base, total_return_cagr_pct: 7.11}
+  - {horizon_years: 5, name: bull, total_return_cagr_pct: 12.24}
+strongest_countercase: FCF conversion and acquisition integration can invalidate the OCF-yield bargain signal.
+alternative_candidate_check: unavailable
+proposal_changed: false
+proposed_patch: null
