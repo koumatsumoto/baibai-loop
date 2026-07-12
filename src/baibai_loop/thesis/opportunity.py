@@ -478,8 +478,13 @@ def scaffold_packet(
 def _packet_draft_skeleton(
     *, ticker: str, asof: date, price: PreviousClose, sqlite_path: Path
 ) -> dict[str, object]:
-    # Observed price snapshot uses the raw/unadjusted close. AI judgment fields are
-    # left null so the operator fills them from primary sources; no value is guessed.
+    # The observed close is the previous business day's raw/unadjusted close, emitted
+    # as the packet's single market_price fact so the draft is schema-valid on load.
+    # AI judgment fields are left null so the operator fills them from primary sources;
+    # no value is guessed. An adjustment_factor anomaly is surfaced to the corporate
+    # action checklist (not the fact), which blocks that check.
+    del sqlite_path
+    observed_at = datetime.combine(price.price_as_of, time(15, 30), tzinfo=JST)
     return {
         "schema_version": 2,
         "input_snapshot": {
@@ -490,15 +495,30 @@ def _packet_draft_skeleton(
             "sector": None,
             "common_factors": [],
             "as_of": asof.isoformat(),
-            "price_snapshot": {
-                "market_price_yen": price.close_yen,
-                "price_as_of": price.price_as_of.isoformat(),
-                "price_basis": "raw_unadjusted_close",
-                "source_ref": f"{sqlite_path.as_posix()}:jquants_daily_bars",
-                "adjustment_factor": price.adjustment_factor,
-            },
-            "sources": [],
-            "facts": [],
+            "sources": [
+                {
+                    "source_id": "market_close",
+                    "ticker": ticker,
+                    "source_tier": "local_data",
+                    "provider": "jquants",
+                    "dataset": "jquants_daily_bars",
+                    "retrieved_at": observed_at.isoformat(),
+                    "as_of": price.price_as_of.isoformat(),
+                    "used_for": "market_price",
+                }
+            ],
+            "facts": [
+                {
+                    "fact_id": "market_price_close",
+                    "fact_kind": "market_price",
+                    "value": price.close_yen,
+                    "unit": "JPY",
+                    "as_of": price.price_as_of.isoformat(),
+                    "source_ids": ["market_close"],
+                    "observed_at": observed_at.isoformat(),
+                    "price_basis": "last_close_unadjusted",
+                }
+            ],
         },
         "derived": {"metrics": []},
         "estimates": None,
@@ -751,7 +771,7 @@ def plan_limit(
     base_output: dict[str, object] = {
         "ticker": ticker,
         "price_as_of": price.price_as_of.isoformat() if price is not None else None,
-        "price_basis": "raw_unadjusted_close",
+        "price_basis": "last_close_unadjusted",
         "source_ref": f"{sqlite_path.as_posix()}:jquants_daily_bars",
         "close_yen": price.close_yen if price is not None else None,
         "max_acceptable_price_yen": _decimal_to_number(max_price),
