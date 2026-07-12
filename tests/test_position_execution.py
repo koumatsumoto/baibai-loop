@@ -20,6 +20,7 @@ from baibai_loop.position.execution import (
     reconcile_execution_lifecycle_with_ledger,
 )
 from baibai_loop.position.ledger import PortfolioLedgerDocument
+from baibai_loop.position.policy import PORTFOLIO_POLICY
 from baibai_loop.validation.execution_lifecycle import validate_execution_lifecycle_file
 
 ROOT = Path(__file__).parents[1]
@@ -45,6 +46,17 @@ def _write(path: Path, raw: dict[str, object]) -> Path:
 
 def test_generated_public_schema_matches_tracked_contract() -> None:
     assert json.loads(SCHEMA.read_text(encoding="utf-8")) == execution_lifecycle_json_schema()
+
+
+def test_validator_default_board_lot_comes_from_portfolio_policy(
+    mocker: pytest.MockFixture,
+) -> None:
+    mocker.patch.dict(PORTFOLIO_POLICY["order_constraints"], {"board_lot": 200})
+
+    findings = validate_execution_lifecycle_file(FIXTURE)
+
+    assert [finding.code for finding in findings] == ["execution-lifecycle.reconciliation"]
+    assert "board_lot 200" in findings[0].message
 
 
 def test_representative_fixture_passes_staged_validator() -> None:

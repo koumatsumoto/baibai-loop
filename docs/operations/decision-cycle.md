@@ -20,7 +20,7 @@ related_docs:
 | --- | --- | --- | --- |
 | `opportunity` | 随時、通常は週1程度 | 市場・macroのmaterial deltaを確認し、必要なrefresh、screening、差分research、decision packet、短いproposalを作る | 候補がなければ購入を強制しない。毎回全macro・全researchを作り直さない |
 | `pending-order` | `opportunity`開始時と注文event発生時 | submitted / retry / partial / cancel / expireを確認し、lifecycleとledgerを照合する | 約定価格を推定しない。期限切れreservationを暗黙解放しない |
-| `monthly-contribution` | 月1回 | canonical ledgerへ400,000円の`contribution`を記録してcash snapshotを更新する | screening、購入、全保有reviewを強制しない |
+| `monthly-contribution` | 月1回 | portfolio-management の月次標準額をcanonical ledgerの`contribution`として記録してcash snapshotを更新する | screening、購入、全保有reviewを強制しない |
 | `earnings-material-event` | 公表・重要event後 | 対象tickerだけの一次source、permanent-loss、thesis estimateを差分更新する | 全portfolioを一括refreshしない |
 | `annual-outcome` | 年1回 | portfolio outcomeとestimator governanceを評価する | 短期成績だけでpolicyを変えない |
 | `improvement` | issue駆動 | 基盤改善を[`improvement-loop.md`](./improvement-loop.md)へ渡す | 日常判断の完了条件にpopulation replayを入れない |
@@ -81,7 +81,7 @@ related_docs:
 
 ## 4. Monthly-contribution path
 
-1. 当月の400,000円を一意の`contribution` eventとして記録する。
+1. [`../portfolio-management.md`](../portfolio-management.md)の月次標準額を一意の`contribution` eventとして記録する。
 2. event ID重複、future timestamp、amount、snapshotを確認し、`uv run baibai-loop-validation --target ledger`と`uv run baibai-loop-position ledger`を実行する。
 3. 割安機会がなければavailable cashに残す。このtriggerだけでscreening、購入、全保有reviewを始めない。
 

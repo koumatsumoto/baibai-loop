@@ -62,7 +62,7 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 | `src/baibai_loop/` | 7 subsystem package の実装 |
 | `tests/` | CLI・provider・schema・validator・position tracking の automated tests |
 | `.github/` | CI、security audit、Dependabot |
-| `reports/` | 工程横断の dated 分析・レポート出力（macro context ダイジェスト・銘柄選定・HTML） |
+| `reports/` | 通常は再生成可能な dated analysis / generated view。improvement-loop の dated measurement report は計測証跡として残す |
 | `pyproject.toml` / `uv.lock` | Python package と dependency lock の正本 |
 
 ### Source subsystems

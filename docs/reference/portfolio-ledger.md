@@ -23,7 +23,7 @@ ledgerは`portfolio_scope: repository_only`だけを許し、このrepositoryで
 | event | cash / position effect |
 | --- | --- |
 | `opening_balance` | 初期available cashを設定する。ledger内で1件だけ |
-| `contribution` | available cashを増やす。月次標準額は400,000円 |
+| `contribution` | available cashを増やす。月次標準額は[`../portfolio-management.md`](../portfolio-management.md)を正本とする |
 | `withdrawal` | available cashだけを減らす。予約・保有は暗黙に解約しない |
 | `reservation` | `quantity * price_guard_yen`をavailableからreservedへ移す |
 | `release` | 未約定残数のguarded notionalをreservedからavailableへ戻す |
