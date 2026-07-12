@@ -117,6 +117,8 @@ def candidate_metrics_map(
         "dps_actual_annual": financial.dps_actual_annual,
         "dps_forecast_annual": financial.dps_forecast_annual,
         "dividend_yield": financial.dividend_yield,
+        "dividend_basis": financial.dividend_basis,
+        "dividend_split_factor": financial.dividend_split_factor,
         "sales_yoy": financial.sales_yoy,
         "cfo_yoy": financial.cfo_yoy,
         "operating_profit": financial.operating_profit,

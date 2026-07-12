@@ -147,8 +147,9 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertAlmostEqual(cheap.pbr, 0.5)
             assert cheap.cash_to_market_cap is not None
             self.assertAlmostEqual(cheap.cash_to_market_cap, 0.4)
+            # carry 用配当利回りは予想 DPS (4.5) を実績 (4.0) より優先する。
             assert cheap.dividend_yield is not None
-            self.assertAlmostEqual(cheap.dividend_yield, 0.04)
+            self.assertAlmostEqual(cheap.dividend_yield, 0.045)
 
             self.assertIsNone(rows_by_ticker["9002"].dividend_yield)
 
