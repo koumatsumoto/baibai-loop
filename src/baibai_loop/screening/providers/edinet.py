@@ -248,6 +248,9 @@ class EDINETProvider:
             try:
                 response = self._session.get(url, timeout=30)
             except requests.RequestException as exc:
+                if attempt < max_attempts - 1:
+                    time.sleep(3 * (2**attempt))
+                    continue
                 # 例外文字列には URL がそのまま乗ることが多く、URL に Subscription-Key が
                 # 載っている設計制約上、サニタイズしてから新しい例外で投げ直す。
                 # `from None` で原因チェーンも切って traceback 経由の漏洩も遮断する。
@@ -277,6 +280,9 @@ class EDINETProvider:
             try:
                 response = self._session.get(url, timeout=60)
             except requests.RequestException as exc:
+                if attempt < max_attempts - 1:
+                    time.sleep(3 * (2**attempt))
+                    continue
                 message = self._sanitize_secret(str(exc))
                 raise EDINETProviderError(
                     f"EDINET request raised: {type(exc).__name__}: {message}"
