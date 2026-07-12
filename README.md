@@ -1,114 +1,106 @@
 # Baibai-Loop
 
-Baibai-Loop は、日本株の実データ(価格・財務・開示・規制)を機械的に収集・正規化し、固定ルールで**割安な銘柄を機械抽出**し、深い個別調査で**フェアバリュー・リスクリワード・期待利回りを見積もる**データ解析基盤です。運用モデルは **AI 主導・人間裁定**: AI がscreening、必要時のmacro material delta確認、個別リサーチ、売買提案までを主導し、人間が提案を判断して発注します。目的は「お買い得な優良銘柄を長期で拾い、資産を積み上げる」ことです。
+Baibai-Loopは、一人で日本株を長期運用するための意思決定基盤です。AIが市場観測、割安候補抽出、一次情報確認、3年・5年評価、独立反証、指値・数量提案、保有見直しを行い、人間が最終判断とbroker発注を行います。自動売買システムではありません。
 
-運用の詳細は [`docs/`](./docs/) を正本とします。初めて読む場合は [`docs/doctrine.md`](./docs/doctrine.md) → [`docs/README.md`](./docs/README.md) から入ってください。
+成功は注文数や予算消化では測りません。永久的な資本毀損を抑え、その時点で最もお買い得な候補を納得可能な根拠とともに判断し、税・費用込みの長期総合returnを配当込みTOPIXと比較して、3年・5年単位で見積り能力を改善できることを成果とします。
 
-## 3 層モデル
+## Start here
 
-| 層 | 実体 | 性質 |
-| --- | --- | --- |
-| L1 データ層 | `data/screening/market.sqlite`(J-Quants 価格・財務 / EDINET metrics / JPX 規制) | 全上場銘柄の再現可能な事実 |
-| L2 分析層 | 割安 valuation ranking・selection lens・軸別スコア | 決定論的・閾値固定の機械的分析 |
-| L3 判断層 | `records/`(macro context / thesis / position) + `reports/` | 人間 + AI 下書きの解釈と判断 |
-
-AI が利用する安定契約は **CLI の YAML 出力と SQLite schema の 2 面**です([`docs/architecture.md`](./docs/architecture.md))。判断と帰責は人間(L3)に残し、AIはL1/L2のobserved facts、derived metrics、model estimatesにgroundedな下書きを作ります。
-
-## 単一ループ
-
-Baibai-Loop は、割安な優良銘柄を長期で積み立てる 1 つの投資ループを回し、その中核スキル(リスクリワード・期待利回りの見積り)を実現結果と突き合わせて継続改善します。思想の正本は [`docs/doctrine.md`](./docs/doctrine.md)。
-
-1. 運用方針で資本・許容リスク・ポジション管理を固定する
-2. 割安 screening でふるいにかける: `records/02-candidates/`
-3. 必要時だけmacro material deltaを確認し、深い個別調査でフェアバリュー・リスクリワード・期待利回りを見積もり、塩漬け耐性を確認する: `records/01-macro-context/`, `records/03-thesis/`
-4. 採用銘柄を「いくらで何株」の売買提案として GitHub Issue に上げ、人間が判断する
-5. 約定したら執行記録を残し、thesis health と税引後の代替期待値で保有を見直す: `records/04-position/`
-6. 見積りと実現結果を突き合わせて較正し、次の見積りを磨く
-
-## 対象としないこと
-
-現在の戦略(長期積立・1 人運用)が計測経路を持てない、または必要としない機能の線引きです([`docs/doctrine.md`](./docs/doctrine.md) §8)。
-
-- 過去データへの閾値 grid search / パラメータ最適化、戦略累積リターン(年率・MaxDD・シャープ)の track-record claim
-- 銘柄全体を対象にした短期(3 か月未満)forward-backtest による screen 最適化(長期 horizon の較正リプレイは正式な計測経路)
-- 機械学習によるスコアリング・予測(単一の合成スコアや売買指示は出力しない。スコアは軸別の座標であり判定ではない)
-- 自動発注、リアルタイム処理(発注は人間の裁定。判断材料の生成・分析・提案の作成は AI が主導する)
-- ETF / 投信 / 海外株、口座・税制のモデル化
-- 汎用 feature store / MCP / API server
-
-原則は [`docs/doctrine.md`](./docs/doctrine.md)、構造は [`docs/architecture.md`](./docs/architecture.md) を参照してください。
-
-## 構成
-
-```text
-baibai-loop/
-├── README.md
-├── AGENTS.md
-├── docs/
-│   ├── doctrine.md              思想・大戦略・原則・語彙
-│   ├── architecture.md          構造・repository map・CLI/SQLite 契約
-│   ├── portfolio-management.md  資本・ポジション管理
-│   ├── anti-patterns.md         失敗パターン
-│   ├── workflow/                単一ループ各工程の手順
-│   ├── reference/               valuation-metrics・screening-runtime・data/Python 基盤
-│   └── operations/              工程横断の手順(task / incident)
-├── records/
-│   ├── 01-macro-context/
-│   ├── 02-candidates/
-│   ├── 03-thesis/
-│   ├── 04-position/
-│   ├── _config/
-│   ├── _playbooks/
-│   └── _schemas/
-├── src/baibai_loop/
-├── tests/
-├── .github/
-├── pyproject.toml
-└── uv.lock
-```
-
-directory ごとの責務は [`docs/architecture.md#repository-map`](./docs/architecture.md#repository-map) を参照してください。
-
-## 主要 docs
-
-| 目的 | doc |
+| 目的 | 入口 |
 | --- | --- |
-| docs portal | [`docs/README.md`](./docs/README.md) |
-| 思想・大戦略・語彙 | [`docs/doctrine.md`](./docs/doctrine.md) |
-| 構造・repository map・CLI/SQLite 契約 | [`docs/architecture.md`](./docs/architecture.md) |
-| 資本・ポジション管理 | [`docs/portfolio-management.md`](./docs/portfolio-management.md) |
-| 各工程の手順 | [`docs/workflow/README.md`](./docs/workflow/README.md) |
-| data sources / validation / Python 基盤 | [`docs/reference/README.md`](./docs/reference/README.md) |
-| 失敗パターン | [`docs/anti-patterns.md`](./docs/anti-patterns.md) |
+| 候補選定、指値、人間からの注文結果、保有review | [`docs/operations/decision-cycle.md`](./docs/operations/decision-cycle.md) |
+| screening、FV、E[r]等の方法改善 | [`docs/operations/improvement-loop.md`](./docs/operations/improvement-loop.md) |
+| 思想、優先順位、語彙 | [`docs/doctrine.md`](./docs/doctrine.md) |
+| package、CLI、records、schema | [`docs/architecture.md`](./docs/architecture.md) |
+| AIへ作業させる | [`AGENTS.md`](./AGENTS.md)から`.agents/skills`を選ぶ |
+| docs全体から探す | [`docs/README.md`](./docs/README.md) |
 
-## CLI
+## What success means
+
+候補は次の順で比較します。
+
+1. 永久的資本毀損リスク
+2. 5年期待総合returnとFV乖離
+3. repository portfolioへの追加価値
+4. 購入可能性
+
+月40万円の追加資金と1回20〜30万円はplanning baselineです。予算、cash、集中、保有・予約は人間へ見せるwarning/annotationであり、それだけで投資価値順位を変えません。候補がない、価格が最大許容価格を超える、一次情報が足りない場合は、買わずに終了することが正常な判断です。
+
+## Human boundary
+
+AIは提案までを担当し、人間だけが`approve / defer / reject`とbroker操作を行います。寄り前の価格提案にはJPX基盤の最新完全営業日のraw/unadjusted closeを使え、realtime quoteや板は必須ではありません。AIは人間から報告されていない`open / filled / cancelled`を推定せず、ledgerを更新しません。
+
+## Two operating cycles
+
+| cycle | 目的 | 主な成果物 |
+| --- | --- | --- |
+| continuous decision cycle | お買い得候補を見つけ、発注判断、結果反映、保有見直しまで進める | proposal Issue、decision packet/review、human-confirmed ledger、holding review、annual outcome |
+| improvement loop | 見積り方法を計測し、再現可能な変更だけ採用する | preregistration、design/confirm評価、PR、operation test、dated report |
+
+個別銘柄の判断と基盤方法の改善を同じ作業に混ぜません。日常運用で見つけた基盤不備はIssue化し、improvement loopへ渡します。
+
+## Three layers
+
+| layer | 内容 | 例 |
+| --- | --- | --- |
+| L1 observed data | 再取得可能な市場・開示データ | `data/screening/market.sqlite` |
+| L2 derived / estimate | 決定論的screen、指標、E[r]、FV anchor | screening output、local opportunity workspace |
+| L3 judgment / records | 一次情報を確認した投資・保有判断 | macro context、decision packet/review、ledger、holding review、outcome |
+
+E[r]とFV anchorは決定論的でも事実ではなくestimateです。候補探索のlocal outputを判断の正本にせず、採用した入力と判断だけをcanonical recordsへpromoteします。
+
+## Repository map
+
+| path | 役割 |
+| --- | --- |
+| `src/baibai_loop/` | macro、market、screening、thesis、position、validation、foundation package |
+| `records/` | 人間が確認できるcanonical judgment recordsとschema/config |
+| `data/` | git外の再取得可能なmarket data |
+| `docs/` | doctrine、governance、operations、workflow、reference |
+| `.agents/skills/` | repository-local AI skillの正本 |
+| `.claude/skills/` | canonical skillへのClaude互換symlink |
+| `tools/drift/` | docs、CLI、lineage、skillのdrift gate |
+| `tests/` | domain、public CLI、validation contract test |
+
+詳細は[`docs/architecture.md`](./docs/architecture.md)を参照してください。
+
+## Public CLI
+
+| command | 役割 |
+| --- | --- |
+| `baibai-loop-screening` | cache、screening、select、ticker profile、calibration |
+| `baibai-loop-opportunity` | opportunity workspace、packet/review scaffold、promotion、前営業日指値 |
+| `baibai-loop-decision` | decision packetと既存execution policyの再計算 |
+| `baibai-loop-position` | ledger、human result draft、holding review、portfolio outcome |
+| `baibai-loop-macro` | macro indicator seriesの取得・cache |
+| `baibai-loop-validation` | canonical recordsとpolicyのvalidation |
+
+日常運用の完全なcommand順は[`docs/operations/decision-cycle.md`](./docs/operations/decision-cycle.md)、各optionはpublic `--help`を正本とします。
+
+## Non-goals
+
+- broker API、自動発注、未報告broker状態の推定
+- realtime quoteや板を通常proposalの必須入力にすること
+- ledgerをbroker会計の完全な複製へ発展させること
+- 予算消化のために候補品質を下げること
+- 短期screen成績の最適化、grid search、機械学習score
+- ETF、投資信託、海外株、口座・税制の完全モデル化
+
+## Development and validation
+
+Python 3.14と`uv`を使用します。records/schema/src/docsを変更したら次を実行します。
 
 ```bash
-uv run baibai-loop-screening run --asof YYYY-MM-DD
-uv run baibai-loop-screening select --asof YYYY-MM-DD  # macro context is optional
-uv run baibai-loop-macro search CPI
-uv run baibai-loop-validation
-uv run baibai-loop-position outcome --benchmark-observation records/04-position/benchmarks/topix-1y.yaml
-uv run baibai-loop-screening calibration-build --start 2022-09-01 --end YYYY-MM-DD
-uv run baibai-loop-screening calibration-evaluate --out .cache/calibration-eval.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check .
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check .
+UV_CACHE_DIR=/tmp/uv-cache uv run mypy
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest
+UV_CACHE_DIR=/tmp/uv-cache uv run lint-imports
 ```
 
-automation の位置付けは [`docs/architecture.md#automation`](./docs/architecture.md#automation) を参照してください。
+詳細は[`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md)と[`docs/reference/testing-and-validation.md`](./docs/reference/testing-and-validation.md)を参照してください。
 
-## 開発と検証
+## Issues
 
-```bash
-uv run baibai-loop-validation
-uv run ruff format --check .
-uv run ruff check .
-uv run mypy
-uv run pytest
-```
-
-CI と local parity の詳細は [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) を参照してください。
-
-## 改善バックログ
-
-改善点・未解決の設計課題は GitHub Issues で管理します。
-
-<https://github.com/koumatsumoto/baibai-loop/issues>
+改善点・未解決課題は[GitHub Issues](https://github.com/koumatsumoto/baibai-loop/issues)で管理します。

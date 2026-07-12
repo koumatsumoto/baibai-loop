@@ -1,30 +1,33 @@
 ---
 title: "Workflow"
-summary: "単一ループの各工程（screening → research → position）と、必要時のmacro material-delta context・evidence pattern checklistの入口。1 工程 = 1 doc。"
-doc_type: workflow
+summary: "各工程がinputをoutputへ変換する方法と品質境界の入口。e2e順序はoperations、artifact契約はreferenceを参照する。"
+doc_type: workflow-index
 status: active
-last_reviewed: 2026-07-11
+last_reviewed: 2026-07-12
 ---
 
-# Workflow — 単一ループの各工程
+# Workflow
 
-[`../doctrine.md`](../doctrine.md) §2 の単一ループを、1 工程 = 1 doc で辿る。各 doc は概念の説明・手順・最小限の例を持ち、成果物の機械契約は `records/_schemas/*.json` を正本にする。
+workflowは「工程内でどう変換するか」を持つ。triggerと工程横断の順序は[`operations/decision-cycle.md`](../operations/decision-cycle.md)、artifact・式・schemaの意味は[`reference/`](../reference/)を正本とする。
 
 ```mermaid
 flowchart LR
-  macro["macro.md<br/>material delta・共通risk"] -.必要時の補助context.-> research["research.md<br/>FV・RR・期待利回り・耐性"]
-  screening --> research["research.md<br/>FV・RR・期待利回り・耐性"]
-  research --> position["position.md<br/>買い・長期保有・holding review・portfolio outcome"]
-  position -.outcome review.-> macro
-  playbooks["playbooks.md<br/>evidence pattern checklist"] -.参照.-> research
+  market[L1 market data] --> screening[L2 screening/select]
+  screening --> research[L3 decision packet]
+  macro[material macro delta] -. context .-> research
+  research --> proposal[human decision Issue]
+  proposal --> human[human broker action]
+  human --> ledger[human-confirmed ledger]
+  ledger --> holding[holding review/outcome]
+  holding -. calibration .-> improve[improvement loop]
 ```
 
-| 工程 | doc | 役割 |
-| --- | --- | --- |
-| マクロ環境分析 | [`macro.md`](./macro.md) | 必要時にmaterial deltaと共通riskを短く記録し、個別調査の補助contextにする |
-| 割安 screening | [`screening.md`](./screening.md) | 全上場銘柄から割安ゾーンを機械抽出し、candidatesのobserved / derived / estimateを出す |
-| 個別銘柄リサーチ | [`research.md`](./research.md) | FV・RR・期待利回りを見積もり、塩漬け耐性を確認して採否と投入額を決める |
-| 執行・保有 | [`position.md`](./position.md) | 注文・約定・長期保有・押し目買増し・holding review・portfolio outcome |
-| Evidence pattern checklist | [`playbooks.md`](./playbooks.md) | `playbook_id` ごとの research 確認項目 |
+| 工程 | input | output | doc |
+| --- | --- | --- | --- |
+| macro | indicator series、一次source、refresh trigger | material delta contextまたは変更なし | [`macro.md`](./macro.md) |
+| screening | point-in-time market/financial data、rules | candidates、audit pool、selection | [`screening.md`](./screening.md) |
+| research | shortlist、一次IR、ledger annotation | decision packet、independent review、defer/reject | [`research.md`](./research.md) |
+| position | human result、packet/review、ledger、market close | ledger draft、holding review、outcome | [`position.md`](./position.md) |
+| playbook | candidate evidence pattern | research checklist | [`playbooks.md`](./playbooks.md) |
 
-上流の運用方針は [`../portfolio-management.md`](../portfolio-management.md)、triggerごとのe2e導線は [`../operations/decision-cycle.md`](../operations/decision-cycle.md)、構造は [`../architecture.md`](../architecture.md)、詳細な参照仕様は [`../reference/`](../reference/) を見る。
+AIはL2 estimateをfactと呼ばず、L3へ採用する値だけsource lineage付きで固定する。

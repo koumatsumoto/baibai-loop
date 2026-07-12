@@ -3,7 +3,7 @@ title: "Portfolio ledger reference"
 summary: "repo内portfolioのcash、予約、約定、保有、income、cost、taxを再計算するevent契約。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-11
+last_reviewed: 2026-07-12
 ---
 
 # Portfolio ledger
@@ -14,7 +14,7 @@ ledgerは`portfolio_scope: repository_only`だけを許し、このrepositoryで
 
 ## Activation boundary
 
-この文書とschemaはledgerの永続化契約を定義する。canonical ledgerはrepository内portfolioの資本・保有・未約定引当の唯一の正本であり、validatorはこの契約だけを検証する。
+この文書とschemaはledgerの永続化契約を定義する。canonical ledgerはrepository内portfolioのhuman-confirmed cash、保有、未約定引当の正本であり、validatorはこの契約だけを検証する。broker残高を自動取得・推定・完全照合する契約ではない。
 
 公開schemaは`records/_schemas/portfolio-ledger.json`、実装は`src/baibai_loop/position/ledger.py`を正本とする。schemaはunknown fieldと、event総額におけるfloat円額を拒否する。単価は小数4桁まで許すが、数量との積が1円単位に一致しないeventを暗黙に丸めず拒否する。
 
@@ -33,7 +33,11 @@ ledgerは`portfolio_scope: repository_only`だけを許し、このrepositoryで
 | `cost` | 確認済み手数料等をavailableから引く |
 | `tax_confirmed` | 実際に確認した税額をavailableから引く |
 
-reservation ID、broker order ID、execution IDは再利用しない。buy executionはactive reservation、同じticker、残数量以下、guard価格以下、expiry前を必須とする。expiry到達後は`release(reason=expired)`を明記し、暗黙解放しない。
+reservation ID、order identity、execution IDは再利用しない。これらはledger replay用のrepository identityであり、brokerが同名IDを報告したことを意味しない。buy executionはactive reservation、同じticker、残数量以下、guard価格以下、expiry前を必須とする。expiry到達後は`release(reason=expired)`を明記し、暗黙解放しない。
+
+`record-result`が作るreservation、execution、releaseはproposal/approval Issue URLを`decision_reference`に持つ。既存migration eventはこのfieldを持たない場合がある。active reservationにreferenceがあるfill/cancelは同じreferenceだけを受け付け、別の判断へ付け替えない。
+
+人間報告から作る`reservation / execution / release`はproposal/approval URLを`decision_reference`に持つ。既存migration eventではnullを許すが、新しいhuman resultは参照なしで記録しない。
 
 reservationとexecutionの数量はpolicyの`board_lot`倍数に限定する。小数単価は1 board lotとの積が整数円になる場合だけ受理するため、合法な部分約定ごとのreserved cashも暗黙の丸めなしに再計算できる。
 
@@ -77,10 +81,15 @@ warningは判断を禁止しない。overrideは`reason`、`decision_reference`�
 
 ```bash
 uv run baibai-loop-position ledger
+uv run baibai-loop-position record-result --help
 uv run baibai-loop-validation --target ledger
 ```
 
+`record-result`は人間の`open / filled / cancelled`報告だけを入力とし、canonical ledgerを直接変更しない。source ledger hashとpatched local draftを返す。報告がない状態、missing field、未知reservation、future timestamp、reconciliation errorを推定で補わない。draftのevent/snapshot/diffを確認し、source hash不変とvalidationを確認してからcanonicalへ反映する。
+
 representative contract fixtureは`tests/fixtures/portfolio-ledger/representative.yaml`に置く。
+
+<a id="historical-outcome"></a>
 
 ## Historical outcome
 

@@ -14,6 +14,11 @@ def check(root: Path) -> list[str]:
     paths = [root / name for name in _ROOT_FILES if (root / name).is_file()]
     paths.extend((root / "docs").rglob("*.md") if (root / "docs").is_dir() else ())
     paths.extend(
+        (root / ".agents" / "skills").rglob("*.md")
+        if (root / ".agents" / "skills").is_dir()
+        else ()
+    )
+    paths.extend(
         (root / ".claude" / "skills").rglob("*.md")
         if (root / ".claude" / "skills").is_dir()
         else ()

@@ -21,10 +21,6 @@ from .benchmark_observation import (
 )
 from .candidates import discover_candidates_files, validate_candidates_file
 from .decision_packet import discover_decision_packet_files, validate_decision_packet_file
-from .execution_lifecycle import (
-    discover_execution_lifecycle_files,
-    validate_execution_lifecycle_file,
-)
 from .holding_review import discover_holding_review_files, validate_holding_review_file
 from .ledger import discover_ledger_files, validate_ledger_file
 from .macro_context import discover_macro_context_files, validate_macro_context_file
@@ -36,7 +32,6 @@ type ValidationTarget = Literal[
     "policy",
     "candidates",
     "ledger",
-    "execution-lifecycle",
     "decision-packet",
     "holding-review",
     "benchmark-observation",
@@ -47,7 +42,6 @@ _TARGETS: tuple[ValidationTarget, ...] = (
     "policy",
     "candidates",
     "ledger",
-    "execution-lifecycle",
     "decision-packet",
     "holding-review",
     "benchmark-observation",
@@ -143,8 +137,6 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
             return discover_candidates_files(root / CANDIDATES_ROOT)
         case "ledger":
             return discover_ledger_files(root / POSITION_ROOT)
-        case "execution-lifecycle":
-            return discover_execution_lifecycle_files(root / POSITION_ROOT)
         case "decision-packet":
             return discover_decision_packet_files(root / THESIS_ROOT)
         case "holding-review":
@@ -167,8 +159,6 @@ def _validate(target: ValidationTarget, path: Path) -> list[ValidationFinding]:
             return validate_candidates_file(path)
         case "ledger":
             return validate_ledger_file(path)
-        case "execution-lifecycle":
-            return validate_execution_lifecycle_file(path)
         case "decision-packet":
             return validate_decision_packet_file(path)
         case "holding-review":

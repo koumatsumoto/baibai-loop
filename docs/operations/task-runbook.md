@@ -3,7 +3,7 @@ title: "タスク runbook"
 summary: "GitHub issue で決算後確認などの運用タスクを管理するための入口。"
 doc_type: operation
 status: active
-last_reviewed: 2026-07-11
+last_reviewed: 2026-07-12
 related_docs:
   - "../workflow/research.md"
   - "../workflow/position.md"
@@ -59,49 +59,37 @@ task: YYYY-MM-DD <対象>を<イベント>後に確認する
 ## 本文テンプレート
 
 ```markdown
-## タスク
+## Trigger
 
-YYYY-MM-DD の <イベント> 後に、以下を確認する。
+- due event / date:
+- ticker / name:
+- related proposal / packet / holding review:
 
-- `<ticker> <name>`: <Q1 後確認 / Q2 後保有レビューなど>
+## Load-bearing question
 
-## 背景
+- このeventで何が確認できれば判断が変わるか:
+- 現在blocked/deferの理由:
 
-- 関連 candidates / research / trade / PR / issue:
-- 判断待ちになった理由:
-- 既存保有の場合は数量・entry・直近の保有見直し予定:
+## Primary sources
 
-## 確認項目
+- company IR / TDnet / EDINET / JPX:
+- 対象期、公表予定日:
 
-### <ticker> <name>
+## Expected destination
 
-- 一次 IR:
-- 売上 / 利益 / margin:
-- OCF / FCF / working capital:
-- guidance / shareholder return:
-- 既存 thesis を壊す条件:
+- decision packet / holding review / ledger（必要なものだけ）:
 
-## 判断
+## Close condition
 
-各対象について、次のいずれかを決める。
-
-- 継続 research
-- reject
-- keep waiting
-- 既存 position review 更新
-
-## 更新先
-
-- thesis:
-- position（holding review / portfolio outcome）:
+- complete / blocked / next dated event:
 ```
 
 ## 完了時
 
 1. 会社の一次 IR を確認する。
 2. issue の確認項目に沿って判断を決める。
-3. 必要なrecords（decision packet / execution lifecycle / holding review / ledger）を更新する。
-4. issue に更新先 path と判断結果をコメントする。
+3. 必要なdecision packet、holding review、ledgerだけを更新する。
+4. issueに更新先path/hashと1〜3行の判断結果をコメントする。判断本文を複製しない。
 5. タスクが完了したら issue を close する。
 
-issue だけに判断結果を残して終わらせません。投資判断、保有判断、見送り理由は records（thesis / position）へ戻します。
+issueだけに判断結果を残して終わらせない。投資判断、保有判断、見送り理由はcanonical recordsへ戻す。

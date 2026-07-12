@@ -1,1 +1,1 @@
-"""Portfolio ledger, manual execution lifecycle, holding review, and outcome."""
+"""Human-confirmed portfolio ledger, holding review, and outcome."""

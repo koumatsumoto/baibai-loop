@@ -1,3 +1,11 @@
+---
+title: "Valuation metrics"
+summary: "screeningで使うvaluation指標の定義、単位、欠損、算出仕様。"
+doc_type: reference
+status: active
+last_reviewed: 2026-07-12
+---
+
 # valuation-metrics — valuation 指標の算出仕様
 
 Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。`records/02-candidates/` と `records/03-thesis/` の両方で参照される指標の前提を確定する。

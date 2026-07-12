@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
 
 import pytest
 import yaml
 
+from baibai_loop.position.cli import build_parser as position_parser
 from baibai_loop.position.cli import main as position_main
 from baibai_loop.screening.cli import main as screening_main
+from baibai_loop.screening.cli.app import build_parser as screening_parser
 from baibai_loop.thesis.decision_cli import main as decision_main
 from baibai_loop.thesis.opportunity_cli import build_parser as opportunity_parser
 from baibai_loop.thesis.opportunity_cli import main as opportunity_main
@@ -331,7 +334,13 @@ def test_decision_cli_emits_execution_proposal_shape(capsys: pytest.CaptureFixtu
     }
 
 
-def test_holding_review_cli_emits_stable_yaml_shape(capsys: pytest.CaptureFixture[str]) -> None:
+def test_holding_review_cli_emits_stable_yaml_shape(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "baibai_loop.position.cli.validate_holding_review_scalars",
+        lambda document, root: None,
+    )
     assert position_main(["holding-review", "--input", str(HOLDING_REVIEW_FIXTURE)]) == 0
     payload = _payload(capsys.readouterr().out)
 
@@ -389,3 +398,189 @@ def test_opportunity_missing_required_argument_is_usage_error() -> None:
     with pytest.raises(SystemExit) as excinfo:
         opportunity_main(["prepare"])
     assert excinfo.value.code == 2
+
+
+def test_position_cli_exposes_human_result_and_holding_build_subcommands() -> None:
+    parser = position_parser()
+    subactions = [
+        action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
+    ]
+    assert len(subactions) == 1
+    assert set(subactions[0].choices) == {
+        "ledger",
+        "outcome",
+        "holding-review",
+        "holding-review-build",
+        "record-result",
+    }
+
+
+@pytest.mark.parametrize("command", ["holding-review-build", "record-result"])
+def test_position_human_boundary_subcommand_help_is_public(command: str) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        position_main([command, "--help"])
+    assert excinfo.value.code == 0
+
+
+@pytest.mark.parametrize(
+    ("parser_factory", "argv"),
+    [
+        (screening_parser, ["verify-cache-coverage", "--asof", "2026-07-10"]),
+        (screening_parser, ["bootstrap-cache", "--asof", "2026-07-10"]),
+        (screening_parser, ["extract-edinet-metrics", "--asof", "2026-07-10"]),
+        (
+            screening_parser,
+            ["run", "--asof", "2026-07-10", "--output-path", "/tmp/candidates.yaml"],
+        ),
+        (
+            screening_parser,
+            [
+                "select",
+                "--asof",
+                "2026-07-10",
+                "--candidates",
+                "/tmp/candidates.yaml",
+                "--detail",
+                "full",
+                "--audit-top",
+                "20",
+                "--output-path",
+                "/tmp/selection.yaml",
+            ],
+        ),
+        (
+            opportunity_parser,
+            [
+                "prepare",
+                "--asof",
+                "2026-07-10",
+                "--selection-output",
+                "/tmp/selection.yaml",
+                "--ledger",
+                "records/04-position/portfolio-ledger.yaml",
+                "--workspace",
+                ".cache/opportunity/2026-07-10",
+            ],
+        ),
+        (opportunity_parser, ["status", "--workspace", ".cache/opportunity/2026-07-10"]),
+        (
+            opportunity_parser,
+            [
+                "packet-scaffold",
+                "--workspace",
+                ".cache/opportunity/2026-07-10",
+                "--ticker",
+                "1234",
+                "--sqlite-path",
+                "data/screening/market.sqlite",
+                "--target-session",
+                "2026-07-13",
+            ],
+        ),
+        (
+            opportunity_parser,
+            [
+                "review-scaffold",
+                "--workspace",
+                ".cache/opportunity/2026-07-10",
+                "--ticker",
+                "1234",
+            ],
+        ),
+        (
+            opportunity_parser,
+            [
+                "promote",
+                "--workspace",
+                ".cache/opportunity/2026-07-10",
+                "--ticker",
+                "1234",
+                "--output-dir",
+                "records/03-thesis/2026/07",
+            ],
+        ),
+        (
+            opportunity_parser,
+            [
+                "plan-limit",
+                "--packet",
+                "packet.yaml",
+                "--ledger",
+                "ledger.yaml",
+                "--sqlite-path",
+                "market.sqlite",
+                "--target-session",
+                "2026-07-13",
+                "--budget-min-yen",
+                "200000",
+                "--budget-max-yen",
+                "300000",
+                "--output",
+                "proposal.yaml",
+            ],
+        ),
+        (
+            position_parser,
+            [
+                "record-result",
+                "--ledger",
+                "ledger.yaml",
+                "--proposal-ref",
+                "https://github.com/owner/repo/issues/1#issuecomment-1",
+                "--status",
+                "filled",
+                "--occurred-at",
+                "2026-07-12T10:00:00+09:00",
+                "--ticker",
+                "1234",
+                "--quantity",
+                "100",
+                "--price-yen",
+                "990",
+                "--reservation-id",
+                "reservation-1",
+                "--out",
+                ".cache/ledger/draft.yaml",
+            ],
+        ),
+        (
+            position_parser,
+            [
+                "holding-review-build",
+                "--packet",
+                "packet.yaml",
+                "--ledger",
+                "ledger.yaml",
+                "--position-id",
+                "position-1",
+                "--out",
+                ".cache/holding-review/review.yaml",
+            ],
+        ),
+        (
+            position_parser,
+            [
+                "holding-review",
+                "--root",
+                ".",
+                "--input",
+                ".cache/holding-review/review.yaml",
+            ],
+        ),
+    ],
+)
+def test_decision_cycle_runbook_recipes_use_public_cli_contract(
+    parser_factory: Callable[[], argparse.ArgumentParser], argv: list[str]
+) -> None:
+    parser = parser_factory()
+    parsed = parser.parse_args(argv)
+    assert parsed.command == argv[0]
+    executable = {
+        screening_parser: "baibai-loop-screening",
+        opportunity_parser: "baibai-loop-opportunity",
+        position_parser: "baibai-loop-position",
+    }[parser_factory]
+    runbook = (ROOT / "docs/operations/decision-cycle.md").read_text(encoding="utf-8")
+    assert f"{executable} {argv[0]}" in runbook
+    for option in (item for item in argv if item.startswith("--")):
+        assert option in runbook

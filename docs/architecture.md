@@ -3,7 +3,7 @@ title: "Architecture"
 summary: "Baibai-Loop の構造の正本：3 層インフラ（データ / 決定論的分析 / 判断）と単一ループ、repository map、CLI/SQLite の安定契約。"
 doc_type: architecture
 status: active
-last_reviewed: 2026-07-11
+last_reviewed: 2026-07-12
 ---
 
 # Architecture — 構造・repository map・安定契約
@@ -11,6 +11,21 @@ last_reviewed: 2026-07-11
 Baibai-Loop の **構造** の正本。思想・大戦略は [`doctrine.md`](./doctrine.md)、資本・ポジション管理は [`portfolio-management.md`](./portfolio-management.md)、各工程の手順は [`workflow/`](./workflow/) を参照する。
 
 日本株の実データを機械的に収集・解析・スコアリングし、割安さの機械判定を土台に長期積立の裁量判断を支える基盤。構造としては、**3 層インフラ**（データ / 決定論的分析 / 判断）の上を **1 つの長期投資ループ**が流れる。
+
+```mermaid
+flowchart LR
+  sources[JPX / EDINET / J-Quants / company IR] --> market[L1 market data]
+  market --> screen[L2 screening / estimates]
+  screen --> packet[L3 packet / review]
+  packet --> issue[proposal Issue]
+  issue --> human[human approve / defer / reject]
+  human --> broker[broker operation]
+  broker -. human-reported fact .-> ledger[ledger]
+  ledger --> holding[holding review / outcome]
+  holding -. calibration evidence .-> improve[improvement loop]
+```
+
+brokerとrepositoryの間に自動integrationはない。人間が確認した結果だけがledger eventになる。proposal Issueは人間判断の入口、decision packet/reviewは投資判断の正本、ledgerは確認済みportfolio state、holding review/outcomeは保有と長期評価の正本である。
 
 ## 3 層インフラ
 
@@ -33,9 +48,9 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 | 通過銘柄リスト | candidates | `records/02-candidates/`（git 外の local store） | machine analysis | observed / derived / estimateを分離したscreen出力 |
 | 投資判断 | decision packet | `records/03-thesis/` | judgment | 5年scenario・永久損失・反証・独立review |
 | 売買提案 | trade proposal | GitHub Issue（records 外） | 判断の入口 | 銘柄 / 価格 / 株数を人間に上げる |
-| portfolio・売買執行記録 | position | `records/04-position/` | execution | ledger、注文・約定・保有・holding review・portfolio outcome |
+| portfolio・保有記録 | position | `records/04-position/` | execution/holding | human-confirmed ledger、holding review、portfolio outcome |
 
-表は各 stage のartifactのrepository locationを示す（engine の `select` 等は L2 機械処理でrecordを持たない）。役割の詳細は [`doctrine.md#vocabulary`](./doctrine.md)。**売買提案は GitHub Issue を成果物とし、`records/` にディレクトリを持たない**。承認結果はexecution lifecycleとledgerに記録する。
+表は各stageのartifact locationを示す。engineの`select`とopportunity workspaceはrebuildableなL2/local成果物である。**売買提案はGitHub Issue、人間が報告した結果はledger eventに置き、同じ注文事実の第二の正本を作らない**。
 
 ## スコープと非目標
 
@@ -62,6 +77,8 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 | `src/baibai_loop/` | 7 subsystem package の実装 |
 | `tests/` | CLI・provider・schema・validator・position tracking の automated tests |
 | `.github/` | CI、security audit、Dependabot |
+| `.agents/skills/` | repository-local AI skillのcanonical behavior asset |
+| `.claude/skills/` | canonical skillへのClaude互換relative symlink |
 | `reports/` | 通常は再生成可能な dated analysis / generated view。improvement-loop の dated measurement report は計測証跡として残す |
 | `pyproject.toml` / `uv.lock` | Python package と dependency lock の正本 |
 
@@ -75,11 +92,11 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 | `market/` | 価格・market calendar の data-access 層（J-Quants）。`foundation` のみに依存 | — |
 | `macro/` | macro 環境分析（`context` ＋ `indicators` data 層）。screening / position / validation から独立 | `baibai-loop-macro` |
 | `screening/` | universe → 機械スクリーニング（valuation ranking）→ candidates 生成、selection | `baibai-loop-screening` |
-| `thesis/` | decision packet評価、execution proposal、decision packetとledgerからのholding review合成 | `baibai-loop-decision` |
-| `position/` | portfolio ledger・execution lifecycle・holding review・JPX total-return outcome | `baibai-loop-position` |
+| `thesis/` | decision packet評価、opportunity authoring、planning-only limit、packetとledgerからのholding review合成 | `baibai-loop-opportunity` / `baibai-loop-decision` |
+| `position/` | human-confirmed portfolio ledger・holding review・JPX total-return outcome | `baibai-loop-position` |
 | `validation/` | records（公開言語）の検証 dispatcher。domain は entry surface 経由でのみ参照 | `baibai-loop-validation` |
 
-依存方向は `foundation ← market ← {screening, position} ← thesis`（`A ← B` ＝「B が A を import」の向き）。`thesis` は `position` の ledger/review 計算を使って判断成果物を合成し、`position` は `thesis` を import しない。`macro` は `foundation` の上に立つ **独立枝** で spine に属さず、`validation` は `thesis` / `position` を entry surface 経由で駆動する。8 contract は (1) macro 独立、(2) foundation = import sink、(3) market は foundation のみ、(4) position ↛ screening、(5) screening ↛ position、(6) thesis は最上位（下位層は thesis を import しない）、(7) thesis の直接依存は foundation / position のみ、(8) validation は entry surface 経由のみ、を強制する。
+依存方向は`foundation ← market ← {screening, position} ← thesis`（`A ← B`＝BがAをimport）。thesisはpositionのledger/review計算を使う。domain moduleのpositionはthesisをimportしない。例外はpublic `position.cli`だけで、holding-review buildのcomposition boundaryとしてthesis builderを呼ぶ。macroは独立枝、validationはentry surface経由でdomainを駆動する。
 
 ### Records
 
@@ -88,7 +105,7 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 | `records/01-macro-context/` | analysis | 必要時に読むmaterial-delta macro context YAML |
 | `records/02-candidates/` | fact | candidates YAML（git 追跡しない local store） |
 | `records/03-thesis/` | judgment | decision packetと独立review YAML |
-| `records/04-position/` | execution | canonical portfolio ledger、execution lifecycle、holding review、portfolio outcome YAML |
+| `records/04-position/` | execution/holding | canonical portfolio ledger、holding review、portfolio outcome YAML |
 
 通常の record は出来事ごとの成果物（event artifact）として path 自体を正本にし、更新され続ける「最新一覧」の index は持たない。
 
@@ -103,7 +120,7 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 
 ### records/_schemas — 公開言語の kernel（contract-of-record）
 
-`records/_schemas/*.json`（JSON Schema draft 2020-12）は records artifact（macro-context / candidates / decision packet / ledger / lifecycle / holding review / outcome）の形を固定する **公開言語の中心資産**であり、成果物の機械契約の正本。CLI の YAML 出力、records YAML、validation 検証、AI が読む契約はこの schema set を共有語彙の基盤にする。doc 側は JSON に書けないもの（式・enum の意味・WHY・境界）だけを持ち、field を再転記しない。
+`records/_schemas/*.json`（JSON Schema draft 2020-12）はmacro context、candidates、decision packet/review、ledger、holding review、benchmark/outcomeの形を固定する公開言語の中心資産。docはJSONに書けない式、意味、WHY、境界だけを持ち、fieldを再転記しない。
 
 <a id="automation"></a>
 
@@ -128,7 +145,9 @@ Automation は人間の投資判断を置き換えず、fact snapshot 生成・s
 | `baibai-loop-validation` | `validation/` | records と schema の整合を検証 |
 | `baibai-loop-position outcome` | `position/` | ledger TWRをJPX TOPIX配当込み公式期間returnと比較 |
 | `baibai-loop-position ledger` | `position/` | repo内portfolioのcash、reservation、保有、income、cost、taxを再計算 |
-| `baibai-loop-position holding-review --input` | `position/` | holding review draftのthesis health・税引後代替・`hold / add / reduce / exit` を再計算 |
+| `baibai-loop-position record-result` | `position/` | 人間のopen/filled/cancelled報告からvalidated ledger draftを生成 |
+| `baibai-loop-position holding-review-build` | CLI composition | ready packet/reviewとledgerからholding review draftを生成 |
+| `baibai-loop-position holding-review --root --input` | CLI composition | source hashとsource再構築scalarを照合し、thesis health・税引後代替・`hold / add / reduce / exit`を再計算 |
 | `baibai-loop-decision <packet>` | `thesis/` | decision packetのscenario、証拠、独立reviewをread-only再計算 |
 | `baibai-loop-opportunity` | `thesis/` | opportunity workspace の prepare / status / packet-scaffold / review-scaffold / promote と、前営業日 raw close からの planning-only `plan-limit`（promote だけが canonical packet/review を書く） |
 
@@ -147,10 +166,13 @@ Python runtime・dependency・quality gate の詳細は [`reference/python-found
 
 ## 安定契約（platform interface）
 
-AI / スクリプトが基盤を利用するための安定化対象は **2 面だけ**。これ以外（Python 内部 API・`.cache/` の中間物）は予告なく変わる。
+AI / スクリプトが利用する安定化対象は次の5面。Python内部APIと`.cache/`中間物は安定契約ではない。
 
 - **契約 1：CLI の YAML 出力** — `run`（candidatesのobserved / derived / estimate）・`select`（recommendations + diagnostics）・`ticker-profile`・`market-snapshot`・`baibai-loop-macro`。field の追加は随時、既存 field の名前と意味は黙って変えない。人間向け整形は stdout サマリに分離する。
 - **契約 2：SQLite schema**（`data/screening/market.sqlite`） — 対象は全上場銘柄、`PRAGMA user_version` で版管理、破壊的変更は version bump + rebuild（migration しない）。**AI は読み取り専用で SQL を直接発行してよく、書き込みは CLI（bootstrap / extract / run）経由に限る**。主要テーブルは `jquants_daily_bars` / `jquants_fin_summaries` / `jquants_master_snapshots` / `edinet_metrics` / `jpx_regulation_flags`、定義の正本は [`reference/screening-runtime.md`](./reference/screening-runtime.md)。
+- **契約 3：JSON schemaとcanonical path** — recordsのshape、required、enumと保存先。
+- **契約 4：docs anchor** — doctrineの語彙/fact境界、decision-cycleの主要trigger path。
+- **契約 5：skill inventory** — `.agents/skills`の4 canonical skillと`.claude` symlink parity。
 
 AI の利用モデル：L1/L2 は SQL 直接発行と CLI 出力で自由に読み、observedはsource、derivedはformula、estimateはmodel versionとassumptionへ遡れる形で書く（AP-01）。L3 は下書きまで（最終採用判定は人間）。スコアとestimateは売買判定ではない。
 

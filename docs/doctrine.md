@@ -3,7 +3,7 @@ title: "Doctrine"
 summary: "Baibai-Loop の投資思想・大戦略・原則・語彙の正本。割安な優良銘柄を長期で積み立て、見積りの精度を運用の中で磨いていく単一ループを定義する。"
 doc_type: doctrine
 status: active
-last_reviewed: 2026-07-11
+last_reviewed: 2026-07-12
 ---
 
 # Doctrine — Baibai-Loop の投資思想と大戦略
@@ -11,6 +11,10 @@ last_reviewed: 2026-07-11
 このリポジトリが **何を信じ、何を狙い、どの原則と語彙で判断するか** を定める正本。構造（3 層・7 package・CLI/SQLite 契約）は [`architecture.md`](./architecture.md)、資本とポジションの管理は [`portfolio-management.md`](./portfolio-management.md)、各工程の手順は [`workflow/`](./workflow/) を参照する。
 
 運用モデルは **AI 主導・人間裁定**：AI がマクロ経済を分析してトレンドを読み、市場で過小評価されているお買い得銘柄を機械抽出し、長期積立・配当還元を前提とした長期保有に耐える銘柄を個別にリサーチして売買提案まで作る。人間はその提案を判断し、発注する。Baibai-Loop はこの分業に一貫性を持たせ、判断を後から検証できるようにするための基盤であり、投資助言サービスではない。
+
+最上位成果は予算消化や注文数ではなく、永久的な資本毀損を抑えながら、その時点で最も割安な候補を人間が納得して判断できることである。候補は永久損失、5年期待総合return/FV乖離、portfolioへの追加価値、購入可能性の順で比較する。資金目安、既存保有、予約は判断材料だが、価値順位を先に歪めない。
+
+AIは観測・分析・提案に責任を持ち、人間は`approve / defer / reject`とbroker操作に責任を持つ。repositoryが保持するbroker factは人間が確認して報告したものに限る。AIは未報告の注文状態を補間せず、broker会計の完全再現を目的にしない。候補なし、購入見送り、価格超過によるdeferは正常な判断である。
 
 ## 1. 目的（このシステムで達成したいこと）
 
@@ -90,23 +94,24 @@ flowchart LR
 | 機械スクリーニング | screening | 機械処理 | L2 | valuation ranking で割安ゾーンを機械抽出 |
 | 通過銘柄リスト | candidates | 機械成果物 | L2 出力 | observed / derived / estimateを分離したsnapshot |
 | リサーチ候補選定 | select | 機械処理 | L2 | 通過銘柄に機械 E[r] 降順の着手順位と lens 注記を付ける |
-| 個別銘柄リサーチ | thesis | 分析（判断） | L3 | FV・RR・期待利回り・耐性・採否を判断する投資メモ |
+| 個別銘柄リサーチ | research | 活動 | L3 | 一次情報、FV、RR、期待利回り、耐性、反証を調べる工程 |
+| 投資判断packet | decision packet | 分析（判断） | L3 | 3年/5年scenario、永久損失、source、採否を固定するcanonical artifact |
 | 戦略プレイブック | `playbook_id` | L2 設定 + research checklist | 割安型の label・閾値・除外条件を `screening-rules` から候補へ注記し、個別調査の確認項目を保持する |
 | 売買提案 | trade proposal | 判断の入口 | L3 | 銘柄・価格・株数を人間に上げる（GitHub Issue） |
-| 売買執行記録 | position | 執行 | L3 | 注文・約定・保有・全売り決済・見積り calibration |
+| portfolio状態・保有判断 | position | 執行/保有 | L3 | human-confirmed ledger、holding review、outcome |
 
-`research`（個別銘柄を調べる活動）と `thesis`（その成果物 = 投資メモ）は別の語彙。ディレクトリや component の識別子には成果物側の slug `thesis` を使う。
+`research`は個別銘柄を調べる活動、`decision packet`はcanonical成果物である。package/directory識別子`thesis`は実装境界として残るが、旧Markdown投資メモをcurrent artifactとして指さない。
 
 ### Evidence Taxonomy
 
-thesis で見積りの根拠を検証するときの分析レンズ / リターン源泉の分類（統計的なリスクファクターの体系ではない）。candidates と投資メモの evidence hit では `fundamental`・`valuation`・`market-derived`・`positioning/liquidity`・`catalyst` に限定する。`macroeconomic`・`policy/geopolitical` は macro context 側で扱う。schema の enum には `market_derived` / `positioning_liquidity` のような ASCII 安全な値を使う。`technical` は正準の分類ではない（価格・相対強度・出来高は `market-derived`、信用残・売買代金・規制銘柄指定は `positioning / liquidity` に割り当てる）。
+decision packetで見積りの根拠を検証するときの分析レンズ / return源泉の分類（統計的なrisk factor体系ではない）。candidatesとpacketのevidence hitでは`fundamental`・`valuation`・`market-derived`・`positioning/liquidity`・`catalyst`に限定する。`macroeconomic`・`policy/geopolitical`はmacro context側で扱う。schema enumには`market_derived / positioning_liquidity`のようなASCII安全な値を使う。`technical`は正準分類ではない。
 
 ## 5. 責務境界
 
-- **運用方針 (portfolio management)**：目的・制約・資本・許容リスク・ポジション管理・投資対象の範囲・thesis health と税引後代替で保有を見直す規律を扱う。個別銘柄の thesis や entry / exit の個別設計は扱わない。
+- **運用方針 (portfolio management)**：目的・制約・資本・許容risk・position管理・投資対象・thesis healthと税引後代替で保有を見直す規律を扱う。個別銘柄のpacketやentry/exit設計は扱わない。
 - **マクロ環境分析 (macro context)**：外部記事と指標データを参照し、個別期待値へ影響するmaterial deltaと共通riskを短く残す。記事本文や取得ログは保存しない。
 - **通過銘柄リスト (candidates)**：screenの機械出力。observed、derived、estimateを由来付きで残し、judgment・因果解釈・相場観を書かない。
-- **個別銘柄リサーチ (thesis)**：投資メモ。フェアバリュー・想定上昇率と下落率・リスクリワード・期待利回り・塩漬け耐性・毀損条件（invalidation）を検証する。
+- **個別銘柄research / decision packet**：一次情報、FV、3年/5年scenario、risk/reward、期待return、永久損失、countercaseを検証し、採否をcanonical packetへ固定する。
 - **売買提案 (trade proposal)**：research の採用結論を「どの銘柄を・いくらで・何株」という具体提案に落とし、GitHub Issue で人間に上げる入口。
 - **売買執行記録 (position)**：実際に発注・entry した判断の注文・約定・保有・全売り決済と、見積り vs 実現の calibration を記録する。
 
@@ -123,7 +128,7 @@ candidatesのobserved / derived / estimateと、macro context・decision packet�
 - 意味付け：「この動きは〜を意味する」「正当化材料」「early evidence hit」「構造要因」
 - 重要度の評価：「注目すべき」「重要な」「焦点となる」（Major / Notable は変化量の統計的な大きさを表すラベルであり、重要度の評価ではない）
 
-事実層で使う用語は、解釈を招かない中立的な語を選ぶ（「連続トレンド」「転換点」ではなく「方向履歴」「方向反転」）。新しい用語を導入するときは「自然言語として解釈や予測を含意しないか」を確認する。解釈・因果・予測は macro context / thesis の分析層に置く。
+事実層で使う用語は、解釈を招かない中立的な語を選ぶ（「連続トレンド」「転換点」ではなく「方向履歴」「方向反転」）。新語が解釈や予測を含意しないか確認する。解釈・因果・予測はmacro context / decision packetの分析層に置く。
 
 ## 7. 分析階層：世界情勢 → 地域経済 → 個別資産
 
@@ -138,6 +143,7 @@ candidatesのobserved / derived / estimateと、macro context・decision packet�
 - 自動発注・リアルタイム処理。発注を人間の裁定に置くのは帰責の分業のためであり、**判断材料の生成・分析・提案の作成を AI が主導することは範囲内**。
 - 銘柄全体を対象にした**短期（3 か月未満）horizon** の forward-backtest による screen 成績最適化（長期 horizon の見積り較正リプレイは柱 5 の正式な計測経路であり、非目標ではない）。
 - ETF / 投資信託 / 海外株、口座・税制のモデル化。
+- broker状態の自動推定、broker会計の完全複製、ledger精密化の目的化。
 - 汎用のデータ配信基盤（feature store）・MCP / API server 化。SQLite は market data のローカル正本とし、AI は CLI と SQL で直接読む。
 
 ## 9. 参考

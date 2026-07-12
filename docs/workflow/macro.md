@@ -69,7 +69,7 @@ uv run baibai-loop-macro refresh us.10y --start 2026-06-20 --end 2026-07-02   # 
 
 ## ③ ナレッジ：8 分析レンズ
 
-個別の指標は単体で読まず、以下のレンズに束ねて環境認識に使う（1 枚のパネルとして横断的に読む）。操作手順と公開前の敵対的セルフチェックは skill [`macro-analysis`](../../.claude/skills/macro-analysis/SKILL.md) に集約する。
+個別の指標は単体で読まず、以下のレンズに束ねて環境認識に使う（1枚のパネルとして横断的に読む）。操作routingはskill[`macro-analysis`](../../.agents/skills/macro-analysis/SKILL.md)、分析詳細とsource規律は本docを正本とする。
 
 1. **グローバル流動性**：net liquidity ≈ `us.fed_assets` − `us.reverse_repo` − `us.tga`（単位換算注意）。`us.m2` 前年比はリスク資産に約 10 週先行。
 2. **実質金利・store-of-value**：`us.real_10y` + `us.breakeven_10y` + `usd_index.broad` + `gold`。名目 = 実質 + 期待インフレに分解。
