@@ -20,7 +20,7 @@ related_docs:
 
 | レバー | 所在 | 計測経路 |
 | --- | --- | --- |
-| screen の閾値・gate・playbook 条件 | `records/_config/screening-rules/*.yaml` | 較正リプレイ（rules variant） |
+| screen の閾値・gate・evidence pattern 条件 | `records/_config/screening-rules/*.yaml` | 較正リプレイ（rules variant） |
 | select の順位付け・diversity cap | 同上 + `src/baibai_loop/screening/selection/` | 較正リプレイ（selection replay） |
 | 機械 E[r]・FV アンカー（anchor・実現率・cap・carry） | `src/baibai_loop/screening/estimates.py` | 較正リプレイ（er 軸 IC / decile / 予測 vs 実現） |
 | valuation 指標の算出 | `src/baibai_loop/screening/metrics` 系 + [`../reference/valuation-metrics.md`](../reference/valuation-metrics.md) | 較正リプレイ（軸別 IC / coverage） |

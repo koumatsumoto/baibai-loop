@@ -32,7 +32,7 @@ python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--s
 
 `extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出して `data/screening/market.sqlite` に保存する。CSV ZIP 本体は再生成可能な cache として `.cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 
-`select` は最新 `records/02-candidates/<YYYY>/<MM>/<asof>.yaml` からresearch recommendationsを出力する。macro contextは任意のcontext-level warningで、ranking、candidate facts、採用、投入額を変えない。不在時は`macro_context_missing`、stale時は`macro_context_stale`、future context・明示path不在・invalid YAMLはerrorである。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、詳細は `--detail full` で出す。ranking の主キーは機械 E[r]（成分分解付き年率見積り）の降順（E[r] 欠損は ranking 対象外・従キーに playbook 優先順 + 割安強度）で、`durability`（塩漬け耐性）annotation を採用の gate へ接続する。`selection_playbook` は evidence がある候補だけに付く primary thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。閾値変更は `records/_config/screening-rules/` の rules 設定を編集して再実行し output を diff する。`research` の選定プロセス ([`../workflow/research.md`](../workflow/research.md)) をスクリプトで支援する。
+`select` は最新 `records/02-candidates/<YYYY>/<MM>/<asof>.yaml` からresearch recommendationsを出力する。macro contextは任意のcontext-level warningで、ranking、candidate facts、採用、投入額を変えない。不在時は`macro_context_missing`、stale時は`macro_context_stale`、future context・明示path不在・invalid YAMLはerrorである。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、詳細は `--detail full` で出す。ranking の主キーは機械 E[r]（成分分解付き年率見積り）の降順（E[r] 欠損は ranking 対象外・従キーに evidence pattern の優先順 + 割安強度）で、`durability`（塩漬け耐性）annotation を採用の gate へ接続する。`selection_playbook` は evidence がある候補だけに付く primary thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。閾値変更は `records/_config/screening-rules/` の rules 設定を編集して再実行し output を diff する。`research` の選定プロセス ([`../workflow/research.md`](../workflow/research.md)) をスクリプトで支援する。
 
 `ticker-profile` は任意の上場銘柄(universe 内外を問わない)について、価格・流動性・対 benchmark / sector 相対・regime・イベント(次回決算日、JPX 規制 flag)・直近 candidates 記録・prior research を 1 つの事実 packet として出力する。valuation は candidates 記録から引用し、再計算しない(記録と矛盾する値を作らないため)。`--asof` 省略時は cache の最新営業日を使う。provider 認証は不要で、market.sqlite と records だけを読む。
 
@@ -124,14 +124,14 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 閾値の正本は `records/_config/screening-rules/2026-06-19T000000+0900.yaml`。実装側の hardcode は parser default と型定義に留め、運用で変える閾値は YAML に寄せる。
 
 - scope / 絞り込み: `universe.required_jpx_flags`(記録対象の規制 flag)と `selection.liquidity`(時価総額・平均売買代金・上場期間・JPX 規制の分析層パラメータ)
-- playbook-linked screen 閾値: `valuation-reversion` / `cashflow-yield-discount` / `sales-discount-growth`
+- evidence pattern (`playbook_id`) の screen 閾値: `valuation-reversion` / `cashflow-yield-discount` / `sales-discount-growth`
 - TTM 期間一致基準: partial period の許容日数差、FY 期間長
 - 品質条件: 売上 YoY、営業利益、営業 CF 悪化、赤字縮小条件
 - `EV/EBITDA` は `ttm_quality = exact` かつ EV / EBITDA がどちらも正のときのみ判定に使う。EDINET が無い場合、または EV / EBITDA がゼロ以下の場合は `unavailable` / `null` として他 metric で degrade する
 
 ## 9. Partial Warning Thresholds
 
-- 有効な playbook-linked screen が必須とする TTM metric の `ttm_quality != exact` が universe の 5% 以上、または 20 銘柄以上
+- 有効な evidence pattern が必須とする TTM metric の `ttm_quality != exact` が universe の 5% 以上、または 20 銘柄以上
 - EDINET metrics は `run` の必須 coverage。metrics 抽出済みでも個別 metric が `unavailable` になる場合だけ partial warning の対象にする
 - 業績悪化フィルタ入力欠損が universe の 10% 以上
 

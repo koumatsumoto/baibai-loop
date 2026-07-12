@@ -45,7 +45,7 @@ docs 再編や link 更新をした場合は、少なくとも以下を確認し
 
 ```bash
 rg -nP '\]\((?!https?://|#|/)[^)]+\.md\)' docs README.md AGENTS.md
-rg -n 'docs/' src tests records/_playbooks records/_schemas
+rg -n 'docs/' src tests records/_schemas
 ```
 
 relative Markdown links は GitHub 上で解決される path かを確認します。旧 path shim を削除する前には、repo 全体で旧 path の参照が消えていることを `rg` で確認します。

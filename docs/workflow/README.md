@@ -1,6 +1,6 @@
 ---
 title: "Workflow"
-summary: "単一ループの各工程（screening → research → position）と、必要時のmacro material-delta context・playbooksの入口。1 工程 = 1 doc。"
+summary: "単一ループの各工程（screening → research → position）と、必要時のmacro material-delta context・evidence pattern checklistの入口。1 工程 = 1 doc。"
 doc_type: workflow
 status: active
 last_reviewed: 2026-07-11
@@ -16,7 +16,7 @@ flowchart LR
   screening --> research["research.md<br/>FV・RR・期待利回り・耐性"]
   research --> position["position.md<br/>買い・長期保有・holding review・portfolio outcome"]
   position -.outcome review.-> macro
-  playbooks["playbooks.md<br/>割安 value archetype"] -.参照.-> research
+  playbooks["playbooks.md<br/>evidence pattern checklist"] -.参照.-> research
 ```
 
 | 工程 | doc | 役割 |
@@ -25,6 +25,6 @@ flowchart LR
 | 割安 screening | [`screening.md`](./screening.md) | 全上場銘柄から割安ゾーンを機械抽出し、candidatesのobserved / derived / estimateを出す |
 | 個別銘柄リサーチ | [`research.md`](./research.md) | FV・RR・期待利回りを見積もり、塩漬け耐性を確認して採否と投入額を決める |
 | 執行・保有 | [`position.md`](./position.md) | 注文・約定・長期保有・押し目買増し・holding review・portfolio outcome |
-| 戦略プレイブック | [`playbooks.md`](./playbooks.md) | research が参照する割安 value の archetype |
+| Evidence pattern checklist | [`playbooks.md`](./playbooks.md) | `playbook_id` ごとの research 確認項目 |
 
 上流の運用方針は [`../portfolio-management.md`](../portfolio-management.md)、triggerごとのe2e導線は [`../operations/decision-cycle.md`](../operations/decision-cycle.md)、構造は [`../architecture.md`](../architecture.md)、詳細な参照仕様は [`../reference/`](../reference/) を見る。

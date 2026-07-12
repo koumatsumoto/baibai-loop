@@ -1,6 +1,6 @@
 ---
 title: "Workflow — screening"
-summary: "割安 screening：全上場普通株を対象に valuation facts と playbook evidence を出力し、select で流動性母集団を E[r] 降順に並べて research 候補を選り分ける。"
+summary: "割安 screening：全上場普通株を対象に valuation facts と evidence pattern を出力し、select で流動性母集団を E[r] 降順に並べて research 候補を選り分ける。"
 doc_type: workflow
 status: active
 last_reviewed: 2026-07-11
@@ -8,7 +8,7 @@ last_reviewed: 2026-07-11
 
 # Workflow — 割安 screening
 
-単一ループ（[`../doctrine.md`](../doctrine.md) §2）の「お買い得を機械的に見つける」工程。全上場普通株を対象に observed facts、derived metrics、playbook evidence、機械 estimate を `records/02-candidates/` に出力し、`select` で流動性母集団を **機械 E[r]（成分分解付き年率見積り）降順**に並べて深掘りする候補を選り分ける。決定論的に生成されることと事実であることは別であり、E[r] / FV anchorには`origin`、model version、unit、assumptionsを付ける。指標算出の仕様は [`../reference/valuation-metrics.md`](../reference/valuation-metrics.md)、CLI / SQLite の実装は [`../reference/screening-runtime.md`](../reference/screening-runtime.md)、契約の正本は `records/_schemas/candidates.json`。
+単一ループ（[`../doctrine.md`](../doctrine.md) §2）の「お買い得を機械的に見つける」工程。全上場普通株を対象に observed facts、derived metrics、evidence pattern、機械 estimate を `records/02-candidates/` に出力し、`select` で流動性母集団を **機械 E[r]（成分分解付き年率見積り）降順**に並べて深掘りする候補を選り分ける。決定論的に生成されることと事実であることは別であり、E[r] / FV anchorには`origin`、model version、unit、assumptionsを付ける。指標算出の仕様は [`../reference/valuation-metrics.md`](../reference/valuation-metrics.md)、CLI / SQLite の実装は [`../reference/screening-runtime.md`](../reference/screening-runtime.md)、契約の正本は `records/_schemas/candidates.json`。
 
 ## Universe（対象範囲）
 
@@ -30,9 +30,9 @@ candidates YAML（`records/02-candidates/`）は market.sqlite から再生成�
 
 各銘柄について、[`../reference/valuation-metrics.md`](../reference/valuation-metrics.md) の指標（PER forward/trailing・PBR・EV/EBITDA・P/S・PCFR・OCF yield・FCF yield・net-cash ratio）を、**業種中央値相対** と **過去自己レンジ（直近 750 営業日 ≒ 3 年、上場 3 年未満は上場来）相対** の percentile として出す。スコアは軸別の座標であり、単一の合成点や売買指示には畳まない（[`../doctrine.md`](../doctrine.md) 柱 5）。
 
-## Playbook-linked screen（evidence annotation）
+## Screening evidence pattern（evidence annotation）
 
-以下の割安 screen は、銘柄がどの archetype に該当するかを示す evidence annotation として使う。閾値は `records/_config/screening-rules/*.yaml` を正本とする。複数 hit は research で確認する thesis の厚みを示す材料。`evidence_hits[]` には該当した playbook 名・hit reasons・判定 metrics を記録し、該当 screen が無い銘柄は空配列のまま candidates に残る。
+以下の割安 screen は、銘柄がどの archetype に該当するかを示す evidence annotation として使う。`playbook_id` はこの pattern の機械識別子であり、閾値・除外条件・選定順の正本は `records/_config/screening-rules/*.yaml` とする。複数 hit は research で確認する thesis の厚みを示す材料。`evidence_hits[]` には該当した pattern ID・hit reasons・判定 metrics を記録し、該当 screen が無い銘柄は空配列のまま candidates に残る。
 
 - **`valuation-reversion`**：PER / PBR / 正の EV/EBITDA が業種中央値との比較・過去の自己レンジの下位にあり割安（条件 A）。あるいは自己レンジからの σギャップが大きく（valuation の統計的な割安）、かつ業績悪化ゲートに触れない銘柄（条件 B）。60 営業日の下落は要件にしない（`price_change_60d` は事実として記録するが判定には使わない）。銀行・証券・保険・その他金融は除外（規制資本・与信サイクルの影響で、事業会社と同じ判定ができない）。
 - **`cash-rich-asset-discount`**：現金性資産 / 時価総額・株価純資産倍率・自己資本比率で、現金や資産に対して割安な銘柄を拾う。EDINET のネットキャッシュとの突き合わせで矛盾を抑止する。営業赤字・営業利益の前年比急減（悪化ゲート）は除外。金融・電気ガス・卸売・不動産は除外（バランスシートの意味合いが事業会社と異なる）。
@@ -49,14 +49,14 @@ candidates YAML（`records/02-candidates/`）は market.sqlite から再生成�
 | --- | --- | --- |
 | `durability`（塩漬け耐性） | 長期保有に耐えるか（ネットキャッシュ・営業 CF 黒字・低負債・借換耐性・配当）を `high\|medium\|low\|unknown` で注記 | 採用の必須確認（[`../portfolio-management.md`](../portfolio-management.md) の耐性ゲート）に接続する入力。ranking には使わない |
 
-ranking の主キーは **機械 E[r]** とする。組み込みの selection profile は `balanced` のみ。閾値を変えるときは `records/_config/screening-rules/` の設定を編集して `select` を再実行し、出力の差分を確認する。playbook evidence は tie-break と thesis annotation に使い、evidence の有無だけで候補を足切りしない。**短期の急落銘柄を上位に押し上げる仕組みや、リスクオン相場で逆張り候補を沈める仕組みは持たない**（保有期間ではなく valuation と耐性で判断するため）。
+ranking の主キーは **機械 E[r]** とする。組み込みの selection profile は `balanced` のみ。閾値を変えるときは `records/_config/screening-rules/` の設定を編集して `select` を再実行し、出力の差分を確認する。evidence pattern は tie-break と thesis annotation に使い、evidence の有無だけで候補を足切りしない。**短期の急落銘柄を上位に押し上げる仕組みや、リスクオン相場で逆張り候補を沈める仕組みは持たない**（保有期間ではなく valuation と耐性で判断するため）。
 
 `select` の triage は `records/_config/screening-rules/*.yaml` の `selection` block を契約とする（閾値 baseline の正本は [`../reference/screening-runtime.md`](../reference/screening-runtime.md) §8）。
 
 - `selection.default_profile`：明示 `--profile` がないときの built-in profile。built-in は `balanced` のみで、未知 profile は rules load 時に error にする。
 - `selection.liquidity`：research 推奨に適用する規模・流動性・上場期間・JPX 規制の絞り込み。screen の scope は全普通株のままで、絞り込みはこの分析層パラメータだけが担う。
 - `selection.durability`：塩漬け耐性の閾値。built-in profile はコード側の閾値を優先し、この YAML block は load-time contract と custom profile のベースとして扱う。
-- `selection.diversity`：recommendations の sector / playbook 集中度、過去 candidates の混入上限、previous overlap warning。
+- `selection.diversity`：recommendations の sector / evidence pattern 集中度、過去 candidates の混入上限、previous overlap warning。
 
 ## Candidates 出力（事実）
 
@@ -70,7 +70,7 @@ records/02-candidates/YYYY/MM/YYYY-MM-DD.yaml
 
 コマンド列（`bootstrap-cache` → `extract-edinet-metrics` → `verify-cache-coverage` → `run` → `select`）を実行するtriggerとe2e導線は [`../operations/decision-cycle.md#2-opportunity-path`](../operations/decision-cycle.md#2-opportunity-path)、CLI 引数 / env / SQLite schema の実装仕様は [`../reference/screening-runtime.md`](../reference/screening-runtime.md) を正本にする。ここでは工程の意味だけを記す。
 
-`run` は開始時に SQLite のデータ充足を検証し、不足があれば即座に失敗させる（provider API へはフォールバックしない）。JPX 規制情報と EDINET の前処理済み指標は必須入力。`select` の推奨順位は**機械 E[r]（成分分解付き年率見積り）の降順**を主キーにする（E[r] 欠損は ranking 対象外・従キーは playbook 優先順 + 強度キー）。`selection_playbook` / `selection_metrics` は evidence がある候補だけに付く thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。`--macro-context` を省略すると最新contextを任意で読み、存在しない場合は`macro_context_missing`、staleの場合は`macro_context_stale`をcontext-level warningとして出す。future context、明示path不在、invalid YAMLは失敗させる。
+`run` は開始時に SQLite のデータ充足を検証し、不足があれば即座に失敗させる（provider API へはフォールバックしない）。JPX 規制情報と EDINET の前処理済み指標は必須入力。`select` の推奨順位は**機械 E[r]（成分分解付き年率見積り）の降順**を主キーにする（E[r] 欠損は ranking 対象外・従キーは evidence pattern の優先順 + 強度キー）。`selection_playbook` / `selection_metrics` は evidence がある候補だけに付く thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。`--macro-context` を省略すると最新contextを任意で読み、存在しない場合は`macro_context_missing`、staleの場合は`macro_context_stale`をcontext-level warningとして出す。future context、明示path不在、invalid YAMLは失敗させる。
 
 ## 長期予測力の計測（estimate calibration）
 
@@ -89,4 +89,3 @@ candidates はobserved / derived / estimateを混同しない機械出力層で�
 - [`../reference/screening-runtime.md`](../reference/screening-runtime.md)：CLI / provider / SQLite schema
 - [`./macro.md`](./macro.md)：material deltaを記録する補助context
 - [`./research.md`](./research.md)：candidates を起点にした個別調査
-- [`./playbooks.md`](./playbooks.md)：割安 value の archetype

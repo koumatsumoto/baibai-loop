@@ -22,13 +22,13 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 
 ## サブシステム索引
 
-サブシステム名（macro / screening / thesis / position など）を指定されたら、この表で src / records / CLI / 品質改善計器を引いて着手する。各工程の詳細は [`docs/workflow/`](./docs/workflow/)、依存構造（7 package・7 import-linter contract）は [`docs/architecture.md#repository-map`](./docs/architecture.md#repository-map) を正本とする。
+サブシステム名（macro / screening / thesis / position など）を指定されたら、この表で src / records / CLI / 品質改善計器を引いて着手する。各工程の詳細は [`docs/workflow/`](./docs/workflow/)、依存構造（7 package・8 import-linter contract）は [`docs/architecture.md#repository-map`](./docs/architecture.md#repository-map) を正本とする。
 
 | subsystem | src | records | CLI | 品質改善計器 |
 | --- | --- | --- | --- | --- |
 | macro | `src/baibai_loop/macro/` | `records/01-macro-context/` | `baibai-loop-macro` | 見積り calibration（[`workflow/macro.md`](./docs/workflow/macro.md)、formal loop にしない） |
 | screening | `src/baibai_loop/screening/` | `records/02-candidates/`, `records/_config/` | `baibai-loop-screening` | 見積り calibration（保有 outcome + 長期 horizon の較正リプレイ `calibration-build/evaluate`。短期 backtest はしない） |
-| thesis | `src/baibai_loop/thesis/` | `records/03-thesis/`, `records/_playbooks/` | `baibai-loop-decision` / validation | decision packet + execution policy |
+| thesis | `src/baibai_loop/thesis/` | `records/03-thesis/`, `records/_playbooks/` | `baibai-loop-decision` / validation | decision packet + execution policy + holding-review composition |
 | position | `src/baibai_loop/position/` | `records/04-position/` | `baibai-loop-position` | portfolio ledger + holding review + portfolio outcome |
 | market | `src/baibai_loop/market/` | （`data/screening/market.sqlite` ほか、git 外） | — | 価格・calendar data 層（screening・保有計測の価格基盤） |
 | foundation | `src/baibai_loop/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
