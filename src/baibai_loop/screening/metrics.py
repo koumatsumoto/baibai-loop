@@ -33,6 +33,11 @@ PRICE_HISTORY_WINDOW_DAYS = 750
 BARS_INPUT_WINDOW_DAYS = 1200
 FIN_INPUT_WINDOW_DAYS = 730
 
+# 通期実績 DPS の accrual 期間を bound する暦日窓。前期の通期実績開示行が窓内に
+# 無い (実績が 1 期分しか無い) ときのフォールバックで、開示日から約 1 年遡って
+# その期間内・開示前の分割を carry へ反映するために使う。
+DIVIDEND_ACCRUAL_LOOKBACK_DAYS = 400
+
 
 @dataclass(frozen=True)
 class MetricBuildResult:
@@ -70,15 +75,18 @@ def build_metrics(
         if latest_bar is None:
             continue
         latest_prices[ticker] = latest_bar.close
+        ticker_bars = bars_by_ticker.get(ticker, ())
         financials[ticker] = _build_financial_snapshot(
             latest_price=latest_bar.close,
             summaries=_normalize_summaries_to_asof_basis(
                 summaries_by_ticker.get(ticker, ()),
-                bars_by_ticker.get(ticker, ()),
+                ticker_bars,
                 asof_date,
             ),
             edinet=edinet_by_ticker.get(ticker),
             rules=rules,
+            ticker_bars=ticker_bars,
+            asof_date=asof_date,
         )
 
     def _in_population(ticker: str) -> bool:
@@ -325,11 +333,104 @@ def group_summaries_by_ticker(
     return grouped
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _DividendCarry:
+    """carry 用に解決した配当利回りと、その基準・分割 factor の事実記録。"""
+
+    dividend_yield: float | None
+    dps_actual_annual: float | None
+    dps_forecast_annual: float | None
+    basis: str
+    split_factor: float | None
+
+
+def _actual_dps_rows(
+    summaries: Sequence[JQuantsFinancialSummary],
+) -> list[JQuantsFinancialSummary]:
+    return [
+        summary
+        for summary in sorted(summaries, key=lambda item: item.disclosed_at, reverse=True)
+        if summary.dps_actual_annual is not None
+    ]
+
+
+def _resolve_dividend_carry(
+    summaries: Sequence[JQuantsFinancialSummary],
+    ticker_bars: Sequence[JQuantsDailyBar],
+    latest_price: float,
+    asof_date: date,
+) -> _DividendCarry:
+    """carry 用の配当利回りと基準を解決する。
+
+    通期実績 DPS は accrual 期間 (前期通期実績開示 〜 当期通期実績開示) で積み上がる。
+    その期間内かつ開示前に分割が起きると、正規化 (各行の開示日基準) では捕捉できず、
+    実績 DPS が分割前・株価が分割後の混在になり配当利回りが factor 倍に膨らむ。
+    carry は将来利回りなので、分割後基準で開示される予想 DPS を最優先し、無ければ
+    accrual 期間の累積分割 factor で実績 DPS を分割後基準へ調整する。予想・実績とも
+    正の値が取れなければ利回りは None (buyback のみが carry に残る)。
+    """
+    del asof_date  # accrual 窓は実績開示日を基準に閉じるため asof は使わない
+    forecast = _latest_non_null(summaries, "dps_forecast_annual")
+
+    actual_rows = _actual_dps_rows(summaries)
+    split_factor = 1.0
+    actual_split_safe: float | None = None
+    if actual_rows:
+        latest_actual = actual_rows[0]
+        assert latest_actual.dps_actual_annual is not None
+        # accrual 開始 = 前期の通期実績開示日。無ければ開示日から約 1 年遡る。
+        accrual_start = (
+            actual_rows[1].disclosed_at
+            if len(actual_rows) > 1
+            else latest_actual.disclosed_at - timedelta(days=DIVIDEND_ACCRUAL_LOOKBACK_DAYS)
+        )
+        # 正規化は開示日「後」の分割のみ反映済み。ここでは accrual 開始〜開示日の
+        # (開示前) 分割の差分 factor だけを掛け、二重計上を避ける。
+        split_factor = _cumulative_adjustment_factor_after(
+            ticker_bars, accrual_start, latest_actual.disclosed_at
+        )
+        actual_split_safe = latest_actual.dps_actual_annual * split_factor
+
+    recorded_factor = split_factor if split_factor != 1.0 else None
+
+    if latest_price <= 0:
+        basis = "unavailable"
+    elif forecast is not None and forecast > 0:
+        return _DividendCarry(
+            dividend_yield=forecast / latest_price,
+            dps_actual_annual=actual_split_safe,
+            dps_forecast_annual=forecast,
+            basis="forecast_annual",
+            split_factor=recorded_factor,
+        )
+    elif actual_split_safe is not None and actual_split_safe > 0:
+        return _DividendCarry(
+            dividend_yield=actual_split_safe / latest_price,
+            dps_actual_annual=actual_split_safe,
+            dps_forecast_annual=forecast,
+            basis="actual_split_adjusted" if split_factor != 1.0 else "actual_reported",
+            split_factor=recorded_factor,
+        )
+    else:
+        basis = "unavailable"
+
+    return _DividendCarry(
+        dividend_yield=None,
+        dps_actual_annual=actual_split_safe,
+        dps_forecast_annual=forecast,
+        basis=basis,
+        split_factor=recorded_factor,
+    )
+
+
 def _build_financial_snapshot(
     latest_price: float,
     summaries: Sequence[JQuantsFinancialSummary],
     edinet: EdinetMetricRecord | None,
     rules: ScreeningRules,
+    *,
+    ticker_bars: Sequence[JQuantsDailyBar],
+    asof_date: date,
 ) -> FinancialSnapshot:
     latest = _latest_summary(summaries)
     prior_year = _prior_year_summary(summaries, rules.ttm)
@@ -363,17 +464,15 @@ def _build_financial_snapshot(
     bs_carry_forward_lag_days = max(
         (lag for lag in carried_lags.values() if lag is not None), default=None
     )
-    # 実績年間 DPS は FY 開示にしか載らないため「直近の非 null 行」から取る
-    # (直近 FY の実績年間配当は次の FY 開示まで最新の実績であり続ける)。
-    # 予想年間 DPS は四半期開示が持つので同様に直近非 null 行から取る。
-    dps_actual_annual = _latest_non_null(summaries, "dps_actual_annual")
-    dps_forecast_annual = _latest_non_null(summaries, "dps_forecast_annual")
+    # carry 用の配当利回りは予想 DPS (分割後基準・特別配当を含まない前提) を最優先し、
+    # 無ければ accrual 期間の分割 factor で調整した実績 DPS を使う。実績 DPS は
+    # FY 開示にしか載らないため直近の非 null 行から取り、split-safe 化した値を
+    # snapshot の実績 DPS として記録する (株価と同じ分割後基準で表示・比較できる)。
+    dividend = _resolve_dividend_carry(summaries, ticker_bars, latest_price, asof_date)
+    dps_actual_annual = dividend.dps_actual_annual
+    dps_forecast_annual = dividend.dps_forecast_annual
+    dividend_yield = dividend.dividend_yield
     per_forward = (latest_price / forecast_eps) if forecast_eps and forecast_eps > 0 else None
-    dividend_yield = (
-        dps_actual_annual / latest_price
-        if dps_actual_annual is not None and latest_price > 0
-        else None
-    )
     per_trailing = (latest_price / eps_ttm) if eps_ttm and eps_ttm > 0 else None
     pbr = (latest_price / bps) if bps and bps > 0 else None
     operating_profit, operating_profit_source = _select_operating_profit(latest)
@@ -409,6 +508,8 @@ def _build_financial_snapshot(
         dps_actual_annual=dps_actual_annual,
         dps_forecast_annual=dps_forecast_annual,
         dividend_yield=dividend_yield,
+        dividend_basis=dividend.basis,
+        dividend_split_factor=dividend.split_factor,
         sales_ttm=sales_ttm,
         ocf_ttm=ocf_ttm,
         edinet_ocf_ttm=edinet_ocf_ttm,

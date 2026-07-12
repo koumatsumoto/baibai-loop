@@ -10,7 +10,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.screening.metrics import build_metrics
+from baibai_loop.screening.metrics import _resolve_dividend_carry, build_metrics
 from baibai_loop.screening.providers.edinet import EdinetMetricRecord
 from baibai_loop.screening.providers.jquants import JQuantsDailyBar, JQuantsFinancialSummary
 from baibai_loop.screening.schema import SecurityMaster, TTMQuality
@@ -249,10 +249,11 @@ class ScreeningMetricsTests(unittest.TestCase):
         # 直近 1Q 行に実績が無くても carry-forward される。
         assert financial.dps_actual_annual is not None
         self.assertAlmostEqual(financial.dps_actual_annual, 20.0, places=6)
+        # carry 用配当利回りは予想 DPS を最優先する。FY 行 (分割跨ぎ) の予想は
+        # None 化されるが、分割後 1Q 行の 22 円が最新の予想として使われる。
         assert financial.dividend_yield is not None
-        self.assertAlmostEqual(financial.dividend_yield, 20.0 / 50.0, places=6)
-        # 予想 DPS: FY 行 (分割跨ぎ) は None 化されるが、分割後の 1Q 行の
-        # 22 円はそのまま最新の予想として使える。
+        self.assertAlmostEqual(financial.dividend_yield, 22.0 / 50.0, places=6)
+        self.assertEqual(financial.dividend_basis, "forecast_annual")
         self.assertAlmostEqual(financial.dps_forecast_annual or 0.0, 22.0, places=6)
 
     def test_bs_fields_carry_forward_from_recent_disclosure(self) -> None:
@@ -1178,3 +1179,78 @@ class MedianPopulationTests(unittest.TestCase):
         # PER 100 vs liquid-population median 10 -> gap = 9.0; a full-population
         # median would shift the baseline and lower the gap.
         self.assertAlmostEqual(gap, 9.0, places=6)
+
+
+def _split_bar(code: str, traded_at: date, factor: float) -> JQuantsDailyBar:
+    return JQuantsDailyBar(
+        ticker=code,
+        traded_at=traded_at,
+        close=100.0,
+        turnover_value=300_000_000.0,
+        adjustment_factor=factor,
+    )
+
+
+class DividendCarryResolverTests(unittest.TestCase):
+    """carry 用配当利回りの基準解決 (予想優先・分割 factor 調整) を直接検証する。"""
+
+    def test_prefers_forecast_over_actual(self) -> None:
+        # 予想 DPS があれば実績より優先し、分割後基準の予想で利回りを出す。
+        summaries = [
+            _summary("5445", date(2026, 5, 7), dps_actual_annual=300.0, dps_forecast_annual=100.0),
+            _summary("5445", date(2025, 5, 7), dps_actual_annual=375.0),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("5445", date(2026, 3, 30), 1.0 / 3.0)],
+            latest_price=1911.0,
+            asof_date=date(2026, 7, 10),
+        )
+        self.assertEqual(carry.basis, "forecast_annual")
+        assert carry.dividend_yield is not None
+        self.assertAlmostEqual(carry.dividend_yield, 100.0 / 1911.0, places=6)
+
+    def test_adjusts_fiscal_boundary_split_actual_when_no_forecast(self) -> None:
+        # 通期実績 DPS が accrual 期間内・開示前の分割前基準のまま、株価は分割後。
+        # 予想が無くても accrual 期間 (前期実績開示〜当期実績開示) の分割 factor で
+        # 実績を分割後基準へ寄せ、分割前配当 x 分割後株価の膨張利回りを拒否する。
+        summaries = [
+            _summary("5445", date(2026, 5, 7), dps_actual_annual=300.0, dps_forecast_annual=None),
+            _summary("5445", date(2025, 5, 7), dps_actual_annual=375.0, dps_forecast_annual=None),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("5445", date(2026, 3, 30), 1.0 / 3.0)],
+            latest_price=1911.0,
+            asof_date=date(2026, 7, 10),
+        )
+        self.assertEqual(carry.basis, "actual_split_adjusted")
+        assert carry.split_factor is not None
+        self.assertAlmostEqual(carry.split_factor, 1.0 / 3.0, places=6)
+        assert carry.dps_actual_annual is not None
+        self.assertAlmostEqual(carry.dps_actual_annual, 100.0, places=6)
+        assert carry.dividend_yield is not None
+        self.assertAlmostEqual(carry.dividend_yield, 100.0 / 1911.0, places=6)
+        # negative assertion: 分割前実績 300 を分割後株価で割った ~15.7% を出さない。
+        self.assertLess(carry.dividend_yield, 0.08)
+
+    def test_uses_actual_reported_when_no_split_and_no_forecast(self) -> None:
+        summaries = [
+            _summary("7203", date(2026, 5, 7), dps_actual_annual=50.0, dps_forecast_annual=None),
+            _summary("7203", date(2025, 5, 7), dps_actual_annual=45.0, dps_forecast_annual=None),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries, [], latest_price=1000.0, asof_date=date(2026, 7, 10)
+        )
+        self.assertEqual(carry.basis, "actual_reported")
+        self.assertIsNone(carry.split_factor)
+        assert carry.dividend_yield is not None
+        self.assertAlmostEqual(carry.dividend_yield, 50.0 / 1000.0, places=6)
+
+    def test_none_when_no_dividend_data(self) -> None:
+        summaries = [_summary("9999", date(2026, 5, 7))]
+        carry = _resolve_dividend_carry(
+            summaries, [], latest_price=1000.0, asof_date=date(2026, 7, 10)
+        )
+        self.assertEqual(carry.basis, "unavailable")
+        self.assertIsNone(carry.dividend_yield)

@@ -88,11 +88,16 @@ class FinancialSnapshot:
     sales_ttm: float | None
     ocf_ttm: float | None
     edinet_ocf_ttm: float | None = None
-    # 直近実績の年間 DPS (asof-basis 正規化済み)・進行期の予想年間 DPS・
-    # 実績配当利回り (dps_actual_annual / 直近終値)。
+    # 直近実績の年間 DPS (accrual 期間の分割 factor で asof/分割後基準へ調整済み)・
+    # 進行期の予想年間 DPS・carry 用配当利回り。dividend_yield は将来 carry なので
+    # 予想 DPS を最優先し (dividend_basis=forecast_annual)、無ければ split-safe 実績を
+    # 使う (actual_split_adjusted / actual_reported)。dividend_split_factor は実績を
+    # 分割後基準へ寄せた累積 factor (調整不要なら None)。
     dps_actual_annual: float | None = None
     dps_forecast_annual: float | None = None
     dividend_yield: float | None = None
+    dividend_basis: str | None = None
+    dividend_split_factor: float | None = None
     # BS 系 fact (bps / cash_eq / equity / total_assets) の carry-forward 記録。
     # fields = latest 行に無く過去行から引いた field 名 (comma 区切り)、
     # lag_days = その最大遅延日数 (staleness fact)。
@@ -163,6 +168,7 @@ class FinancialSnapshot:
         "dps_actual_annual",
         "dps_forecast_annual",
         "dividend_yield",
+        "dividend_split_factor",
         "sales_ttm",
         "ocf_ttm",
         "edinet_ocf_ttm",
