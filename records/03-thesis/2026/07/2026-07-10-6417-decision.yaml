@@ -1,0 +1,213 @@
+schema_version: 2
+input_snapshot:
+  snapshot_version: 1
+  producer_model_version: screening-selection-v1
+  ticker: '6417'
+  company_name: SANKYO
+  sector: 機械
+  common_factors: [hit-product-cycle, regulated-entertainment]
+  as_of: '2026-07-10'
+  sources:
+  - source_id: sankyo-results-2026
+    ticker: '6417'
+    source_tier: primary
+    ref: https://www.sankyo-fever.co.jp/corporate/modify/IR/Library_Briefing/files/explanation_20260513_ja.pdf
+    retrieved_at: '2026-07-12T20:05:00+09:00'
+    as_of: '2026-05-13'
+    used_for: FY2026 results, FY2027 forecast, balance sheet, dividend, market share, and scenario inputs
+  - source_id: sankyo-report-2026
+    ticker: '6417'
+    source_tier: primary
+    ref: https://www.sankyo-fever.co.jp/corporate/modify/IR/Library_Report/files/report_20260625.pdf
+    retrieved_at: '2026-07-12T20:05:00+09:00'
+    as_of: '2026-06-25'
+    used_for: permanent-loss risks, regulation, customer concentration, governance, and share count
+  - source_id: jpx-close-20260710
+    ticker: '6417'
+    source_tier: local_data
+    provider: J-Quants
+    dataset: jquants_daily_bars
+    retrieved_at: '2026-07-12T19:37:00+09:00'
+    as_of: '2026-07-10'
+    used_for: raw unadjusted closing price and adjustment factor
+  facts:
+  - fact_id: decision-market-price
+    fact_kind: market_price
+    value: 1650.5
+    unit: JPY_per_share
+    as_of: '2026-07-10'
+    observed_at: '2026-07-10T15:30:00+09:00'
+    price_basis: last_close_unadjusted
+    source_ids: [jpx-close-20260710]
+  - fact_id: forward-per
+    fact_kind: valuation_metric
+    value: 8.15
+    unit: ratio
+    as_of: '2026-07-10'
+    source_ids: [sankyo-results-2026, jpx-close-20260710]
+  - fact_id: forecast-profit
+    fact_kind: net_income_attributable_to_owners
+    value: 40000000000
+    unit: JPY
+    as_of: '2026-05-13'
+    source_ids: [sankyo-results-2026]
+  - fact_id: forecast-share-basis
+    fact_kind: shares_outstanding
+    value: 197511357
+    unit: shares
+    as_of: '2026-05-13'
+    source_ids: [sankyo-results-2026]
+derived:
+  metrics:
+  - metric_id: forecast-eps
+    value: 202.5199999006
+    unit: JPY_per_share
+    as_of: '2026-05-13'
+    formula: ratio
+    formula_version: ratio-v1
+    input_fact_ids: [forecast-profit, forecast-share-basis]
+    assumption: FY2027 company forecast profit divided by the share basis implied by disclosed forecast EPS.
+    source_ids: [sankyo-results-2026]
+estimates:
+  model_version: scenario-v1
+  market_price_fact_id: decision-market-price
+  entry_price_basis_yen: 1650.5
+  entry_price_basis: observed_market_price
+  entry_price_source_ids: [jpx-close-20260710]
+  entry_price_assumption: 2026-07-10 JPX raw unadjusted close is used for the 2026-07-13 planning proposal.
+  required_5y_base_cagr_pct: 8.0
+  current_fair_value_yen: 2025.2
+  valuation_model_version: normalized-eps-net-cash-v1
+  fair_value_source_ids: [sankyo-results-2026, sankyo-report-2026]
+  deep_discount_bps: 1850
+  scenarios:
+  - &scenario
+    horizon_years: 3
+    name: bear
+    earnings_basis: net_income_attributable_to_owners
+    starting_earnings_fact_id: forecast-profit
+    starting_earnings_yen: 40000000000
+    annual_earnings_growth_pct: -12
+    starting_share_count_fact_id: forecast-share-basis
+    starting_share_count: 197511357
+    annual_share_count_change_pct: 0
+    terminal_valuation_multiple: 6
+    cumulative_dividend_per_share_yen: 210
+    terminal_price_includes_dividends: false
+    claimed_terminal_earnings_yen: 27258880000
+    claimed_terminal_share_count: 197511357
+    claimed_terminal_price_yen: 828.0703
+    claimed_total_return_cagr_pct: -14.32
+    as_of: '2026-07-10'
+    unit: JPY_per_share_total_return
+    model_version: scenario-v1
+    assumption: Market contraction and title delays reduce profit while valuation compresses despite the cash buffer.
+    source_ids: [sankyo-results-2026, sankyo-report-2026]
+  - <<: *scenario
+    name: base
+    annual_earnings_growth_pct: 0
+    annual_share_count_change_pct: 0
+    terminal_valuation_multiple: 10
+    cumulative_dividend_per_share_yen: 240
+    claimed_terminal_earnings_yen: 40000000000
+    claimed_terminal_share_count: 197511357
+    claimed_terminal_price_yen: 2025.2
+    claimed_total_return_cagr_pct: 11.13
+    assumption: Profit stays near the FY2027 forecast and only a limited rerating from the current 8.15x recognizes part of the net-cash balance.
+  - <<: *scenario
+    name: bull
+    annual_earnings_growth_pct: 5
+    annual_share_count_change_pct: -1
+    terminal_valuation_multiple: 12
+    cumulative_dividend_per_share_yen: 270
+    claimed_terminal_earnings_yen: 46305000000
+    claimed_terminal_share_count: 191645072.1857
+    claimed_terminal_price_yen: 2899.4223
+    claimed_total_return_cagr_pct: 24.3
+    assumption: Sustained pachinko leadership and pachislot recovery compound profit and shareholder returns.
+  - <<: *scenario
+    horizon_years: 5
+    name: bear
+    annual_earnings_growth_pct: -8
+    annual_share_count_change_pct: 0
+    terminal_valuation_multiple: 6
+    cumulative_dividend_per_share_yen: 350
+    claimed_terminal_earnings_yen: 26363260928
+    claimed_terminal_share_count: 197511357
+    claimed_terminal_price_yen: 800.8631
+    claimed_total_return_cagr_pct: -6.96
+    assumption: Structural market shrinkage and regulation outweigh the cash buffer for five years.
+  - <<: *scenario
+    horizon_years: 5
+    name: base
+    annual_earnings_growth_pct: 0
+    annual_share_count_change_pct: 0
+    terminal_valuation_multiple: 10
+    cumulative_dividend_per_share_yen: 400
+    claimed_terminal_earnings_yen: 40000000000
+    claimed_terminal_share_count: 197511357
+    claimed_terminal_price_yen: 2025.2
+    claimed_total_return_cagr_pct: 8.0
+    assumption: Earnings remain around the conservative FY2027 forecast, no buyback is assumed, and the equity multiple rises only to 10x.
+  - <<: *scenario
+    horizon_years: 5
+    name: bull
+    annual_earnings_growth_pct: 3
+    annual_share_count_change_pct: -1
+    terminal_valuation_multiple: 12
+    cumulative_dividend_per_share_yen: 450
+    claimed_terminal_earnings_yen: 46370962972
+    claimed_terminal_share_count: 187831335.2492
+    claimed_terminal_price_yen: 2962.5065
+    claimed_total_return_cagr_pct: 15.64
+    assumption: Product hit-rate, share gains, and capital returns offset mature-market decline.
+permanent_loss_risks:
+- &risk
+  axis: funding_liquidity
+  assessment: acceptable
+  evidence_status: verified
+  summary: FY2026 current assets of 229.9 billion yen materially exceed total liabilities of 37.3 billion yen.
+  as_of: '2026-06-25'
+  source_ids: [sankyo-results-2026, sankyo-report-2026]
+- <<: *risk
+  axis: debt_repayment
+  summary: The balance sheet is net-cash and disclosed liabilities are small relative to liquid assets and operating profit.
+- <<: *risk
+  axis: cash_flow
+  summary: Operating cash generation is strong, though title timing makes annual conversion volatile and capital returns consume cash.
+- <<: *risk
+  axis: dilution
+  summary: The company cancelled 30 million shares in February 2026 and no material equity-financing plan is disclosed.
+- <<: *risk
+  axis: customer_concentration
+  assessment: acceptable
+  evidence_status: verified
+  summary: The annual report does not disclose a customer meeting the material major-customer threshold; distributor and hall-market dependence remains an industry risk.
+- <<: *risk
+  axis: structural_decline
+  assessment: acceptable
+  evidence_status: verified
+  summary: A mature regulated market is a material risk, but leading share, hit products, and the net-cash balance keep permanent loss acceptable.
+- <<: *risk
+  axis: governance_accounting
+  evidence_status: verified
+  summary: The unqualified audit and KAM procedures cover the 12.95 billion yen headquarters purchase from a director-related company; the transaction remains a capital-allocation monitoring item.
+judgment:
+  recommendation: buy
+  proposed_at: '2026-07-12T20:10:00+09:00'
+  confidence: medium
+  permanent_loss_conclusion: acceptable
+  strongest_countercase: Participation decline, regulation, and type-test failures may make current earnings structurally unsustainable despite the net-cash balance.
+  sizing_action: normal
+  ai_value_capture:
+    assessment_status: not_material
+    roles: []
+    competitive_advantage: neutral
+    pricing_power: neutral
+    capex_burden: neutral
+    customer_bargaining_power: neutral
+    value_capture_conclusion: uncertain
+    decision_weight: none
+    rationale: AI is not a load-bearing source of SANKYO shareholder value in this decision.
+    source_ids: [sankyo-results-2026]
+independent_review_ref: 2026-07-10-6417-decision-review.yaml

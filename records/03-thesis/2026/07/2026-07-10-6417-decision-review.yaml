@@ -1,0 +1,24 @@
+review_id: review-6417-20260712-final2
+reviewer_role: independent_second_pass
+reviewer_identity: independent-review-agent-/root/review_adversary
+reviewer_run_id: review-run-20260712-6417-cp4-final2
+reviewed_at: '2026-07-12T20:13:37+09:00'
+reviewed_packet_sha256: dcdfca20128d0a600e0752b8f837e7b189e8fe4b62d107a9bf220404c001c995
+primary_source_check: verified
+checked_source_ids: [sankyo-results-2026, sankyo-report-2026, jpx-close-20260710]
+recalculated_scenarios:
+- {horizon_years: 3, name: bear, total_return_cagr_pct: -14.32}
+- {horizon_years: 3, name: base, total_return_cagr_pct: 11.13}
+- {horizon_years: 3, name: bull, total_return_cagr_pct: 24.30}
+- {horizon_years: 5, name: bear, total_return_cagr_pct: -6.96}
+- {horizon_years: 5, name: base, total_return_cagr_pct: 8.00}
+- {horizon_years: 5, name: bull, total_return_cagr_pct: 15.64}
+strongest_countercase: >-
+  遊技人口減少、規制、型式試験不適合及びヒット機種への依存により、
+  FY2027利益400億円が5年間持続しない可能性がある。5年base returnは
+  terminal multiple 10倍を前提としてrequired 8%を約0.0007ポイントだけ上回り、
+  max acceptable priceと判断時終値の差も約0.05円しかない。利益の小幅未達、
+  10倍へのrerating未達、又は資本配分悪化のいずれでも要求returnを下回り得る。
+alternative_candidate_check: compared
+proposal_changed: false
+change_rationale: null
