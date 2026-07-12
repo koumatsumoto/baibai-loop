@@ -9,11 +9,23 @@ from datetime import date
 from baibai_loop.foundation.coerce import (
     dedupe_strings,
     mapping_or_empty,
+    optional_float,
     string_or_none,
     string_sequence,
 )
 
 from .lenses import _durability_lens_of
+
+# audit pool の event_warnings は、価格・EPS・配当の fact を歪め得る
+# corporate action / 決算跨ぎ / 開示鮮度の risk tag だけを写す。需給系
+# (previous_candidate / benchmark_laggard) は event ではないので除く。
+_EVENT_RISK_TAGS = frozenset(
+    {
+        "split_adjustment_recent",
+        "earnings_scheduled",
+        "freshness_warning",
+    }
+)
 
 # Nikkei に 3pt 以上劣後している候補を事前固定の annotation 閾値で注記する。
 # 割安 (相対劣後) を買うのが本流のため ranking / gate には使わず、entry
@@ -145,6 +157,60 @@ def _selection_candidate_summary(
     }
     summary["decision_input_seed"] = candidate["decision_input_seed"]
     return summary
+
+
+def _audit_pool_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str, object]:
+    """Render one audit-pool row: the pre-shortlist view of a ranked candidate.
+
+    audit pool は diversity/cap による recommendation 切断 *前* の rank 済み集合を
+    そのまま監査するための view。ranking も candidate の値も変えず、rank と主要な
+    見積り・warning だけを平らに写す。約定用の price basis はここでは決めない
+    (plan-limit が SQLite の raw close を正本にする)ため、market_price は screening
+    の参考値であることを field で明示する。
+    """
+    metrics = mapping_or_empty(candidate.get("metrics"))
+    durability_lens = _durability_lens_of(candidate)
+    risk_tags = list(string_sequence(candidate.get("risk_tags")))
+    return {
+        "rank": rank,
+        "ticker": string_or_none(candidate.get("ticker")),
+        "name": string_or_none(candidate.get("name")),
+        "screening_playbook": string_or_none(candidate.get("selection_playbook")),
+        # er_annual は annual_ratio (0.1 = 10%/年)。audit view は pct で読むので x100。
+        "expected_return_pct": _ratio_to_pct(optional_float(metrics.get("er_annual"))),
+        "fair_value_anchor_yen": _conservative_fair_value_yen(metrics),
+        # market_cap_oku (億円) * 1e8 / 発行株数 = 円/株。FV anchor が使う close と同じ
+        # 基準に載せる screening 参考値。約定 limit の price basis ではなく、正本の
+        # raw/unadjusted close は plan-limit が SQLite から再取得する。
+        "market_price_yen": _screening_reference_close_yen(candidate, metrics),
+        "liquidity_status": "pass",
+        "durability_warnings": list(string_sequence(durability_lens.get("caution_reasons"))),
+        "event_warnings": [tag for tag in risk_tags if tag in _EVENT_RISK_TAGS],
+        "selection_reasons": list(string_sequence(candidate.get("reason_tags"))),
+    }
+
+
+def _ratio_to_pct(value: float | None) -> float | None:
+    return round(value * 100, 4) if value is not None else None
+
+
+def _conservative_fair_value_yen(metrics: Mapping[str, object]) -> float | None:
+    anchors = [
+        anchor
+        for key in ("fv_sector_median_yen", "fv_self_range_yen")
+        if (anchor := optional_float(metrics.get(key))) is not None
+    ]
+    return round(min(anchors), 4) if anchors else None
+
+
+def _screening_reference_close_yen(
+    candidate: Mapping[str, object], metrics: Mapping[str, object]
+) -> float | None:
+    market_cap_oku = optional_float(candidate.get("market_cap_oku"))
+    shares_outstanding = optional_float(metrics.get("shares_outstanding"))
+    if market_cap_oku is None or not shares_outstanding:
+        return None
+    return round(market_cap_oku * 1e8 / shares_outstanding, 4)
 
 
 def _decision_input_seed(candidate: Mapping[str, object], *, asof_date: date) -> dict[str, object]:

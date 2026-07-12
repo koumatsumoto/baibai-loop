@@ -743,7 +743,10 @@ def test_future_proposal_is_not_decision_ready() -> None:
     assert isinstance(judgment, dict)
     judgment["proposed_at"] = "2026-07-12T11:00:00+09:00"
 
-    result = _evaluate(raw)
+    # Inject a fixed aware clock earlier than proposed_at so the future-dating
+    # gate is exercised deterministically regardless of the wall clock the suite
+    # runs under.
+    result = _evaluate(raw, now=datetime.fromisoformat("2026-07-12T10:00:00+09:00"))
 
     assert "proposal cannot be future-dated" in result.errors
 
