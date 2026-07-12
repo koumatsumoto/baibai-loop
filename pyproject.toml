@@ -114,6 +114,9 @@ fixable = ["ALL"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["ANN", "C408", "E402", "E501", "PT009", "PT027", "RUF012"]
+# The candidate-report renderer embeds an HTML/CSS template and long inline
+# f-string rows where wrapping hurts readability; line length is not enforced.
+"tools/candidate_report/render.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.14"
