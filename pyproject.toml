@@ -32,6 +32,7 @@ baibai-loop-validation = "baibai_loop.validation.cli:main"
 baibai-loop-position = "baibai_loop.position.cli:main"
 baibai-loop-macro = "baibai_loop.macro.indicators.cli:main"
 baibai-loop-decision = "baibai_loop.thesis.decision_cli:main"
+baibai-loop-opportunity = "baibai_loop.thesis.opportunity_cli:main"
 
 [dependency-groups]
 dev = [
