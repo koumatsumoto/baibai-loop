@@ -11,6 +11,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import requests
+
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -70,6 +72,46 @@ class _SequenceBytesSession:
                 self.headers = {"content-type": "application/octet-stream"}
 
         return _Response(content)
+
+
+class _TransientThenBytesSession:
+    def __init__(self, *, content: bytes, secret: str = "key") -> None:
+        self._content = content
+        self._secret = secret
+        self.calls = 0
+
+    def get(self, url: str, timeout: int):
+        del url, timeout
+        self.calls += 1
+        if self.calls == 1:
+            raise requests.ConnectionError(f"temporary failure Subscription-Key={self._secret}")
+
+        class _Response:
+            def __init__(self, payload: bytes) -> None:
+                self.content = payload
+                self.status_code = 200
+
+        return _Response(self._content)
+
+
+class _TransientThenJsonSession:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def get(self, url: str, timeout: int):
+        del url, timeout
+        self.calls += 1
+        if self.calls == 1:
+            raise requests.ConnectionError("temporary failure")
+
+        class _Response:
+            status_code = 200
+
+            @staticmethod
+            def json() -> dict[str, object]:
+                return {"results": []}
+
+        return _Response()
 
 
 def _edinet_csv_zip(rows: list[tuple[str, str, str]]) -> bytes:
@@ -287,6 +329,61 @@ class ScreeningProviderTests(unittest.TestCase):
 
             self.assertEqual(content, expected)
             self.assertEqual((cache / "edinet/csv_zips/S100TEST.zip").read_bytes(), expected)
+
+    def test_download_csv_zip_retries_transient_connection_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp)
+            expected = _edinet_csv_zip(
+                [("jpcrp_cor:NetSales", "CurrentYearDuration_ConsolidatedMember", "1000")]
+            )
+            session = _TransientThenBytesSession(content=expected)
+            provider = EDINETProvider("key", cache, session=session)
+
+            with patch("baibai_loop.screening.providers.edinet.time.sleep") as sleep:
+                content = provider.download_csv_zip("S100TEST")
+
+            self.assertEqual(content, expected)
+            self.assertEqual(session.calls, 2)
+            sleep.assert_called_once_with(3)
+            self.assertEqual((cache / "edinet/csv_zips/S100TEST.zip").read_bytes(), expected)
+
+    def test_list_documents_retries_transient_connection_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            session = _TransientThenJsonSession()
+            provider = EDINETProvider("key", Path(tmp), session=session)
+
+            with patch("baibai_loop.screening.providers.edinet.time.sleep") as sleep:
+                documents = provider.list_documents(date(2026, 7, 10))
+
+            self.assertEqual(documents, [])
+            self.assertEqual(session.calls, 2)
+            sleep.assert_called_once_with(3)
+
+    def test_download_csv_zip_final_connection_error_is_redacted_without_final_sleep(
+        self,
+    ) -> None:
+        class AlwaysFailingSession:
+            calls = 0
+
+            def get(self, url: str, timeout: int):
+                del url, timeout
+                self.calls += 1
+                raise requests.ConnectionError("temporary failure secret-key")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            session = AlwaysFailingSession()
+            provider = EDINETProvider("secret-key", Path(tmp), session=session)
+
+            with (
+                patch("baibai_loop.screening.providers.edinet.time.sleep") as sleep,
+                self.assertRaises(EDINETProviderError) as caught,
+            ):
+                provider.download_csv_zip("S100TEST")
+
+            self.assertEqual(session.calls, 3)
+            self.assertEqual(sleep.call_count, 2)
+            self.assertNotIn("secret-key", str(caught.exception))
+            self.assertIn("<redacted>", str(caught.exception))
 
     def test_download_csv_zip_raises_rate_limit_after_json_retries_without_caching_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
