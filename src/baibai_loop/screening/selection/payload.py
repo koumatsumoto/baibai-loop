@@ -132,8 +132,7 @@ def build_selection_payload(
         )
         candidate["decision_input_seed"] = _decision_input_seed(candidate, asof_date=asof_date)
         # 主キーは機械 E[r] (成分分解付き見積り) の降順:「どれくらいお買い得か」の
-        # 見積りが着手順位を決める (#295 の design/confirm 検証で採用。計測は
-        # reports/2026-07-04-preregistered-ranking-validation.md)。E[r] 欠損の
+        # 見積りが着手順位を決める。E[r] 欠損の
         # 候補は ranking 対象外とし、従キーとして playbook 優先順 + 各 screen の
         # 強度キーを残す。macro context は診断 annotation であり順位には使わない。
         sort_key = (

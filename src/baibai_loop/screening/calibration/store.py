@@ -1,9 +1,4 @@
-"""Panel / forward return の local store 永続化 (CSV + meta YAML)。
-
-再生成可能な L2 中間物なので candidates と同じ扱いで git には積まない
-(`data/screening/` の allowlist .gitignore が除外する)。評価の反復を安くする
-ための cache であり、schema 安定契約の対象外。
-"""
+"""Versioned local cache for point-in-time panel and forward observations."""
 
 from __future__ import annotations
 
@@ -21,9 +16,44 @@ from .forward import ForwardReturnRow
 from .panel import PanelDiagnostics, PanelRow
 
 DEFAULT_CALIBRATION_DIR = DEFAULT_SQLITE_CACHE_DIR / "calibration"
+CACHE_SCHEMA_VERSION = 2
 
 _BOOL_TRUE = "true"
 _BOOL_FALSE = "false"
+
+
+class CalibrationCacheError(RuntimeError):
+    """The local cache cannot prove that it uses the current contract."""
+
+
+def cache_meta_path(root: Path) -> Path:
+    return root / "calibration.meta.yaml"
+
+
+def _write_cache_meta(root: Path) -> None:
+    cache_meta_path(root).write_text(
+        yaml.safe_dump({"cache_schema_version": CACHE_SCHEMA_VERSION}, sort_keys=False),
+        encoding="utf-8",
+    )
+
+
+def _require_current_cache(root: Path) -> None:
+    path = cache_meta_path(root)
+    if not path.exists():
+        raise CalibrationCacheError(
+            "calibration cache version is missing; run calibration-build --force"
+        )
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise CalibrationCacheError(
+            "calibration cache version is invalid; run calibration-build --force"
+        ) from exc
+    version = payload.get("cache_schema_version") if isinstance(payload, dict) else None
+    if version != CACHE_SCHEMA_VERSION:
+        raise CalibrationCacheError(
+            "calibration cache version is incompatible; run calibration-build --force"
+        )
 
 
 def panel_path(root: Path, asof: date) -> Path:
@@ -42,6 +72,7 @@ def write_panel(
     root: Path, asof: date, rows: tuple[PanelRow, ...], diagnostics: PanelDiagnostics
 ) -> None:
     root.mkdir(parents=True, exist_ok=True)
+    _write_cache_meta(root)
     _write_rows(panel_path(root, asof), [asdict(row) for row in rows], PanelRow)
     panel_meta_path(root, asof).write_text(
         yaml.safe_dump(asdict(diagnostics), sort_keys=False, allow_unicode=True),
@@ -50,21 +81,53 @@ def write_panel(
 
 
 def read_panel_meta(root: Path, asof: date) -> dict[str, object]:
-    payload = yaml.safe_load(panel_meta_path(root, asof).read_text(encoding="utf-8"))
-    return payload if isinstance(payload, dict) else {}
+    _require_current_cache(root)
+    path = panel_meta_path(root, asof)
+    if not path.exists():
+        raise CalibrationCacheError("calibration cache is partial; run calibration-build --force")
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise CalibrationCacheError(
+            "calibration cache metadata is invalid; run calibration-build --force"
+        ) from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("rules_hash"), str):
+        raise CalibrationCacheError(
+            "calibration cache metadata is invalid; run calibration-build --force"
+        )
+    return payload
 
 
 def read_panel(root: Path, asof: date) -> list[PanelRow]:
-    return [_panel_row_from_csv(raw) for raw in _read_rows(panel_path(root, asof))]
+    _require_current_cache(root)
+    path = panel_path(root, asof)
+    if not path.exists():
+        raise CalibrationCacheError("calibration cache is partial; run calibration-build --force")
+    try:
+        return [_panel_row_from_csv(raw) for raw in _read_rows(path, PanelRow)]
+    except (KeyError, ValueError, csv.Error) as exc:
+        raise CalibrationCacheError(
+            "calibration panel cache is invalid; run calibration-build --force"
+        ) from exc
 
 
 def write_forward(root: Path, asof: date, rows: list[ForwardReturnRow]) -> None:
     root.mkdir(parents=True, exist_ok=True)
+    _write_cache_meta(root)
     _write_rows(forward_path(root, asof), [asdict(row) for row in rows], ForwardReturnRow)
 
 
 def read_forward(root: Path, asof: date) -> list[ForwardReturnRow]:
-    return [_forward_row_from_csv(raw) for raw in _read_rows(forward_path(root, asof))]
+    _require_current_cache(root)
+    path = forward_path(root, asof)
+    if not path.exists():
+        raise CalibrationCacheError("calibration cache is partial; run calibration-build --force")
+    try:
+        return [_forward_row_from_csv(raw) for raw in _read_rows(path, ForwardReturnRow)]
+    except (KeyError, ValueError, csv.Error) as exc:
+        raise CalibrationCacheError(
+            "calibration forward cache is invalid; run calibration-build --force"
+        ) from exc
 
 
 def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
@@ -133,6 +196,11 @@ def _forward_row_from_csv(raw: Mapping[str, str]) -> ForwardReturnRow:
         stale_price=raw["stale_price"] == _BOOL_TRUE,
         entry_date=raw["entry_date"] or None,
         exit_date=raw["exit_date"] or None,
+        status=str(raw["status"]),
+        delisting_coverage_status=raw["delisting_coverage_status"],
+        corporate_action_event_coverage_status=raw["corporate_action_event_coverage_status"],
+        survivorship_coverage_status=raw["survivorship_coverage_status"],
+        adjustment_factor_coverage=raw["adjustment_factor_coverage"],
     )
 
 
@@ -157,9 +225,16 @@ def _write_rows(
             writer.writerow([_encode(row[name]) for name in names])
 
 
-def _read_rows(path: Path) -> list[dict[str, str]]:
+def _read_rows(
+    path: Path, row_type: type[PanelRow] | type[ForwardReturnRow]
+) -> list[dict[str, str]]:
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
+        expected_names = [field.name for field in fields(row_type)]
+        if reader.fieldnames != expected_names:
+            raise CalibrationCacheError(
+                "calibration cache schema is invalid; run calibration-build --force"
+            )
         return [dict(raw) for raw in reader]
 
 

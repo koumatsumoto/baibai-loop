@@ -39,8 +39,8 @@ from ..rules import evaluate_screening
 from ..schema import ScreenedCandidate, TTMQuality
 from ..selection import build_selection_payload
 from ..selection.records import candidate_record_from_mapping
-from ..sqlite_reader import read_edinet_metrics, read_eq_master, read_fin_summaries
-from ..universe import build_universe, liquid_median_population
+from ..sqlite_reader import read_edinet_metrics, read_eq_master_asof, read_fin_summaries
+from ..universe import ELIGIBLE_MARKETS, build_universe, liquid_median_population
 
 # select リプレイで記録する production-diversity 推奨順位の深さ。
 RECOMMENDED_RANK_DEPTH = 50
@@ -129,6 +129,14 @@ class PanelDiagnostics:
     population_pbr_nonnull: int
     population_ocf_yield_nonnull: int
     population_per_trailing_exact: int
+    master_snapshot_date: str | None = None
+    master_snapshot_status: str = "unavailable"
+    survivorship_coverage_status: str = "not_assessed"
+    delisting_coverage_status: str = "not_assessed"
+    corporate_action_event_coverage_status: str = "not_assessed"
+    master_population_count: int = 0
+    candidate_population_count: int = 0
+    policy_exclusion_reason_counts: dict[str, int] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,13 +151,13 @@ def build_panel(
     sqlite_path: Path,
     rules: ScreeningRules,
 ) -> PanelBuildResult:
+    master_read = read_eq_master_asof(sqlite_path, asof_date)
+    securities = list(master_read.masters)
+    if not securities:
+        return _unavailable_master_panel(asof_date, rules, master_read.status)
     bars_floor, fin_floor = _coverage_floors(sqlite_path)
     bars_start = max(bars_floor, asof_date - timedelta(days=BARS_INPUT_WINDOW_DAYS))
     fin_start = max(fin_floor, asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS))
-
-    securities = read_eq_master(sqlite_path)
-    if securities is None:
-        raise CalibrationError("eq_master is not available in the SQLite cache")
     bars = read_daily_bars(sqlite_path, bars_start, asof_date)
     if bars is None:
         raise CalibrationError(
@@ -199,6 +207,7 @@ def build_panel(
             rules,
             sector_33=securities_by_ticker[ticker].sector_33,
         )
+
         if result.pass_fail:
             evidence_by_ticker[ticker] = tuple(hit.name for hit in result.evidence_hits)
         candidates.append(
@@ -291,6 +300,25 @@ def build_panel(
             )
         )
 
+    # A historical master member without enough local bars is unavailable data,
+    # not a silently excluded survivor. Keep an explicit row so its forward
+    # observation and cohort coverage remain visible to authority checks.
+    for security in securities:
+        if (
+            security.code not in universe_result.snapshots
+            and security.is_common_stock
+            and security.market_segment.upper() in ELIGIBLE_MARKETS
+        ):
+            rows.append(_unresolved_master_member_row(asof_date, security.code, security.sector_33))
+
+    policy_exclusions: dict[str, int] = {}
+    for security in securities:
+        if not security.is_common_stock:
+            policy_exclusions["non_common_stock"] = policy_exclusions.get("non_common_stock", 0) + 1
+        elif security.market_segment.upper() not in ELIGIBLE_MARKETS:
+            policy_exclusions["market_out_of_scope"] = (
+                policy_exclusions.get("market_out_of_scope", 0) + 1
+            )
     population_rows = [row for row in rows if row.in_population]
     diagnostics = PanelDiagnostics(
         asof=asof_date.isoformat(),
@@ -314,8 +342,99 @@ def build_panel(
         population_per_trailing_exact=sum(
             1 for row in population_rows if row.ttm_quality_per_trailing == TTMQuality.EXACT.value
         ),
+        master_snapshot_date=(
+            master_read.snapshot_date.isoformat() if master_read.snapshot_date is not None else None
+        ),
+        master_snapshot_status=master_read.status,
+        master_population_count=len(securities),
+        candidate_population_count=len(rows),
+        policy_exclusion_reason_counts=policy_exclusions,
     )
     return PanelBuildResult(rows=tuple(rows), diagnostics=diagnostics)
+
+
+def _unresolved_master_member_row(asof_date: date, ticker: str, sector_33: str) -> PanelRow:
+    return PanelRow(
+        asof=asof_date.isoformat(),
+        ticker=ticker,
+        sector_33=sector_33,
+        in_population=True,
+        market_cap_oku=None,
+        avg_turnover_oku=None,
+        listing_span_days=None,
+        close=None,
+        per_forward=None,
+        per_trailing=None,
+        pbr=None,
+        ev_ebitda=None,
+        p_s=None,
+        pcfr=None,
+        ocf_yield=None,
+        fcf_yield=None,
+        net_cash_to_market_cap=None,
+        cash_to_market_cap=None,
+        equity_ratio=None,
+        price_to_equity=None,
+        dividend_yield=None,
+        eps_yoy=None,
+        sales_yoy=None,
+        operating_profit_yoy=None,
+        cfo_yoy=None,
+        accruals_to_assets=None,
+        net_share_change_yoy=None,
+        ttm_quality_per_trailing="unavailable",
+        ttm_quality_ocf_yield="unavailable",
+        price_change_60d=None,
+        gap_from_52w_low=None,
+        price_history_coverage_750d=None,
+        smg_per_forward=None,
+        smg_per_trailing=None,
+        smg_pbr=None,
+        smg_ev_ebitda=None,
+        smg_p_s=None,
+        srp_per_forward=None,
+        srp_per_trailing=None,
+        srp_pbr=None,
+        srp_ev_ebitda=None,
+        srp_p_s=None,
+        er_annual=None,
+        er_reversion_annual=None,
+        er_carry_annual=None,
+        er_upside_capped=None,
+        pass_screen=False,
+        evidence_playbooks="",
+        selection_rank=None,
+        recommended_rank=None,
+    )
+
+
+def _unavailable_master_panel(
+    asof_date: date, rules: ScreeningRules, master_status: str
+) -> PanelBuildResult:
+    """Persist an unresolved cohort instead of silently removing it from evaluation."""
+    diagnostics = PanelDiagnostics(
+        asof=asof_date.isoformat(),
+        rules_hash=rules_content_hash(rules),
+        universe_size=0,
+        population_size=0,
+        candidates=0,
+        evidence_candidates=0,
+        bars_tickers_not_in_master=0,
+        effective_bars_start=asof_date.isoformat(),
+        effective_fin_start=asof_date.isoformat(),
+        bars_window_clamped=False,
+        fin_window_clamped=False,
+        population_per_trailing_nonnull=0,
+        population_pbr_nonnull=0,
+        population_ocf_yield_nonnull=0,
+        population_per_trailing_exact=0,
+        master_snapshot_date=None,
+        master_snapshot_status=master_status,
+        master_population_count=0,
+        candidate_population_count=0,
+        policy_exclusion_reason_counts={},
+    )
+    return PanelBuildResult(rows=(), diagnostics=diagnostics)
 
 
 def _replay_ranks(
