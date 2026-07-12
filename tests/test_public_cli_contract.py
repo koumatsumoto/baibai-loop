@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from datetime import date, datetime
 from pathlib import Path
 
@@ -9,6 +10,8 @@ import yaml
 from baibai_loop.position.cli import main as position_main
 from baibai_loop.screening.cli import main as screening_main
 from baibai_loop.thesis.decision_cli import main as decision_main
+from baibai_loop.thesis.opportunity_cli import build_parser as opportunity_parser
+from baibai_loop.thesis.opportunity_cli import main as opportunity_main
 
 ROOT = Path(__file__).resolve().parents[1]
 DECISION_FIXTURE = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
@@ -353,3 +356,36 @@ def test_holding_review_cli_emits_stable_yaml_shape(capsys: pytest.CaptureFixtur
         "breakeven_exit_tax_rate_bps",
         "edge_at_zero_tax_yen",
     }
+
+
+def test_opportunity_cli_exposes_milestone_a_subcommands() -> None:
+    parser = opportunity_parser()
+    subactions = [
+        action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
+    ]
+    assert len(subactions) == 1
+    assert set(subactions[0].choices) == {
+        "prepare",
+        "status",
+        "packet-scaffold",
+        "review-scaffold",
+        "promote",
+        "plan-limit",
+    }
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["prepare", "status", "packet-scaffold", "review-scaffold", "promote", "plan-limit"],
+)
+def test_opportunity_subcommand_help_is_public(command: str) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        opportunity_main([command, "--help"])
+    assert excinfo.value.code == 0
+
+
+def test_opportunity_missing_required_argument_is_usage_error() -> None:
+    # argparse usage errors exit 2, distinct from the data (3) / conflict (4) classes.
+    with pytest.raises(SystemExit) as excinfo:
+        opportunity_main(["prepare"])
+    assert excinfo.value.code == 2

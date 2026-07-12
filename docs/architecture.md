@@ -130,6 +130,7 @@ Automation は人間の投資判断を置き換えず、fact snapshot 生成・s
 | `baibai-loop-position ledger` | `position/` | repo内portfolioのcash、reservation、保有、income、cost、taxを再計算 |
 | `baibai-loop-position holding-review --input` | `position/` | holding review draftのthesis health・税引後代替・`hold / add / reduce / exit` を再計算 |
 | `baibai-loop-decision <packet>` | `thesis/` | decision packetのscenario、証拠、独立reviewをread-only再計算 |
+| `baibai-loop-opportunity` | `thesis/` | opportunity workspace の prepare / status / packet-scaffold / review-scaffold / promote と、前営業日 raw close からの planning-only `plan-limit`（promote だけが canonical packet/review を書く） |
 
 ### Schema and validation
 
