@@ -67,7 +67,7 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 
 ### Source subsystems
 
-`src/baibai_loop/` は 7 package に分かれ、依存方向は import-linter（7 contract、`pyproject.toml [tool.importlinter]`）で固定する。
+`src/baibai_loop/` は 7 package に分かれ、依存方向は import-linter（8 contract、`pyproject.toml [tool.importlinter]`）で固定する。
 
 | package | 責務 | CLI |
 | --- | --- | --- |
@@ -75,11 +75,11 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 | `market/` | 価格・market calendar の data-access 層（J-Quants）。`foundation` のみに依存 | — |
 | `macro/` | macro 環境分析（`context` ＋ `indicators` data 層）。screening / position / validation から独立 | `baibai-loop-macro` |
 | `screening/` | universe → 機械スクリーニング（valuation ranking）→ candidates 生成、selection | `baibai-loop-screening` |
-| `thesis/` | decision packet・execution policyの判断domain | `baibai-loop-decision` |
+| `thesis/` | decision packet評価、execution proposal、decision packetとledgerからのholding review合成 | `baibai-loop-decision` |
 | `position/` | portfolio ledger・execution lifecycle・holding review・JPX total-return outcome | `baibai-loop-position` |
 | `validation/` | records（公開言語）の検証 dispatcher。domain は entry surface 経由でのみ参照 | `baibai-loop-validation` |
 
-依存方向は `foundation ← market ← {screening, position} ← thesis`（`A ← B` ＝「B が A を import」の向き）。`macro` は `foundation` の上に立つ **独立枝** で spine に属さず、`validation` は `thesis` / `position` を entry surface 経由で駆動する。7 contract は (1) macro 独立、(2) foundation = import sink、(3) market は foundation のみ、(4) position ↛ screening、(5) screening ↛ position、(6) thesis は最上位（下位層は thesis を import しない。thesis は screening / position を import してよい）、(7) validation は entry surface 経由のみ、を強制する。
+依存方向は `foundation ← market ← {screening, position} ← thesis`（`A ← B` ＝「B が A を import」の向き）。`thesis` は `position` の ledger/review 計算を使って判断成果物を合成し、`position` は `thesis` を import しない。`macro` は `foundation` の上に立つ **独立枝** で spine に属さず、`validation` は `thesis` / `position` を entry surface 経由で駆動する。8 contract は (1) macro 独立、(2) foundation = import sink、(3) market は foundation のみ、(4) position ↛ screening、(5) screening ↛ position、(6) thesis は最上位（下位層は thesis を import しない）、(7) thesis の直接依存は foundation / position のみ、(8) validation は entry surface 経由のみ、を強制する。
 
 ### Records
 
@@ -97,7 +97,7 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 | path | 正本 docs | 役割 |
 | --- | --- | --- |
 | `records/_config/` | [`workflow/screening.md`](./workflow/screening.md) | screening rules と selection profile config |
-| `records/_playbooks/` | [`workflow/playbooks.md`](./workflow/playbooks.md) | 運用中 playbook（value archetype）の保存領域 |
+| `records/_playbooks/` | [`workflow/playbooks.md`](./workflow/playbooks.md) | evidence pattern ごとの人間向け research checklist |
 | `records/_schemas/` | [`reference/testing-and-validation.md`](./reference/testing-and-validation.md) | records validation schema（holding reviewを含む）の保存領域 |
 | `records/_archive/` | 本 doc（この表） | 再審査などで置き換えられた過去 record の凍結保管。validator / select の走査対象外で、当時の contract のまま変更せず保持する |
 

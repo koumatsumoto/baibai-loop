@@ -91,7 +91,7 @@ flowchart LR
 | 通過銘柄リスト | candidates | 機械成果物 | L2 出力 | observed / derived / estimateを分離したsnapshot |
 | リサーチ候補選定 | select | 機械処理 | L2 | 通過銘柄に機械 E[r] 降順の着手順位と lens 注記を付ける |
 | 個別銘柄リサーチ | thesis | 分析（判断） | L3 | FV・RR・期待利回り・耐性・採否を判断する投資メモ |
-| 戦略プレイブック | playbooks | governance | — | 再現可能な割安 value の型（archetype） |
+| 戦略プレイブック | `playbook_id` | L2 設定 + research checklist | 割安型の label・閾値・除外条件を `screening-rules` から候補へ注記し、個別調査の確認項目を保持する |
 | 売買提案 | trade proposal | 判断の入口 | L3 | 銘柄・価格・株数を人間に上げる（GitHub Issue） |
 | 売買執行記録 | position | 執行 | L3 | 注文・約定・保有・全売り決済・見積り calibration |
 

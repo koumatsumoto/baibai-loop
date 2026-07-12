@@ -205,7 +205,7 @@ def _run_outcome(
         ledger_ref=str(ledger_path),
         ledger_sha256=_sha256(ledger_path),
         market_data_ref=str(sqlite_path),
-        market_data_sha256=_sha256(sqlite_path),
+        market_data_sha256=_sha256(sqlite_path) if sqlite_path.is_file() else None,
         market_data_coverage_start_date=benchmark.period_start_date.isoformat(),
         market_data_coverage_end_date=benchmark.period_end_date.isoformat(),
         market_data_fingerprint=market_fingerprint,

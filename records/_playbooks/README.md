@@ -1,9 +1,19 @@
 # records/_playbooks/
 
-Baibai-Loop で運用中の playbook 集合。各 historical record は判断時に使った repo 内 file path を参照する。
+Screening evidence pattern ごとの人間向け research checklist。各 Markdown の
+`playbook_id` は `records/_config/screening-rules/*.yaml` と candidates の
+`evidence_hits[].playbook_id` に対応する。機械的な閾値・除外条件・選定順は
+screening rules が正本で、この領域は H2 見出しの強制や runtime loader を持たない。
 
-## Playbook Layout
+## Layout
 
 `records/_playbooks/<playbook_id>/YYYY-MM-DDTHHMMSS+0900.md`
 
-Research / decision register / trade は mutable alias ではなく、参照した playbook の repo 内 file path を持つ。content hash は持たない。
+## Active Patterns
+
+| `playbook_id` | Focus | Checklist |
+| --- | --- | --- |
+| `cash-rich-asset-discount` | 現金・純資産に対する割安 | [`2026-05-01T000000+0900.md`](./cash-rich-asset-discount/2026-05-01T000000+0900.md) |
+| `cashflow-yield-discount` | 営業キャッシュフロー利回りの割安 | [`2026-05-01T000000+0900.md`](./cashflow-yield-discount/2026-05-01T000000+0900.md) |
+| `sales-discount-growth` | 売上成長を伴う P/S 割安 | [`2026-05-01T000000+0900.md`](./sales-discount-growth/2026-05-01T000000+0900.md) |
+| `valuation-reversion` | 業種・自己レンジ対比の valuation 割安 | [`2026-05-01T000000+0900.md`](./valuation-reversion/2026-05-01T000000+0900.md) |

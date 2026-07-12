@@ -271,8 +271,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] `.claude/skills/` 全 grep: skill が当該 CLI を中核に据えていないか
   - [ ] `docs/reference/screening-runtime.md` §3 (env var) / §8 (rules baseline) と `docs/workflow/screening.md` の selection block 節
   - [ ] 関連 test fixture (test_screening_cli の sweep / scorecard テスト等)
-- [ ] **playbook を削減する場合、以下を同 commit で揃える** (PR #246 で 5 名レビューで指摘):
-  - [ ] `records/_playbooks/<playbook>/` ディレクトリ削除
+- [ ] **screening evidence pattern を削減する場合、以下を同 commit で揃える** (PR #246 で 5 名レビューで指摘):
   - [ ] `records/_config/screening-rules/*.yaml` の `screening_playbooks.<playbook>` と
         `research_selection_playbook_order` から削除
   - [ ] `src/baibai_loop/screening/rules.py` の `match` 句 / PLAYBOOK_* / REASON_* / `_<playbook>_*` 関数

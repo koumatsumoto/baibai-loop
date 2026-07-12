@@ -25,7 +25,7 @@ last_reviewed: 2026-07-11
 | 区分 | 責務 |
 | --- | --- |
 | [`doctrine.md`](./doctrine.md) | 投資思想・大戦略・原則・語彙（正準ドメインモデル） |
-| [`architecture.md`](./architecture.md) | 構造・3 層・7 package・repository map・CLI/SQLite 安定契約 |
+| [`architecture.md`](./architecture.md) | 構造・3 層・package 境界・repository map・CLI/SQLite 安定契約 |
 | [`portfolio-management.md`](./portfolio-management.md) | 資本・ポジション管理・cap・積立・余力・kill switch |
 | [`anti-patterns.md`](./anti-patterns.md) | 失敗パターンと commit 前チェックリスト |
 | [`workflow/`](./workflow/) | 単一ループ各工程の手順（macro / screening / research / position / playbooks） |

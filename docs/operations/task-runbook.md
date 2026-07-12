@@ -21,7 +21,7 @@ GitHub issue は、決算後確認など「将来の特定イベント後に実�
 - 既存保有に、決算発表後の holding review 更新がある。
 - screening / research の途中で「YYYY-MM-DD の決算後に確認」のような実行日付きの判断待ちが発生した。
 
-単なる調査メモ、将来いつか確認する改善案、playbook 改訂案はこの runbook の対象外です。別途 follow-up issue として扱います。
+単なる調査メモ、将来いつか確認する改善案、screening rule 改訂案はこの runbook の対象外です。別途 follow-up issue として扱います。
 
 ## 粒度
 

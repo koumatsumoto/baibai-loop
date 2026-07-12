@@ -54,7 +54,7 @@ Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデ
 
 EDINET `type=5` CSV から抽出する。raw XBRL 直接 parse は現時点の非スコープとし、EDINET API が返す CSV ZIP を deterministic な中間データとして使う。J-Quants Light の財務サマリーで取れる項目は優先使用し、不足分を EDINET CSV-derived metrics で補完する。
 
-EV がゼロ以下、または EBITDA がゼロ以下の場合、EV/EBITDA は `null` として valuation-reversion から除外する。負の EV は net cash / cash-rich playbook で扱うべき balance sheet evidence であり、負の EBITDA は倍率が「低い」ほど割安という解釈が成立しないため。
+EV がゼロ以下、または EBITDA がゼロ以下の場合、EV/EBITDA は `null` として valuation-reversion から除外する。負の EV は net cash / cash-rich evidence pattern で扱うべき balance sheet evidence であり、負の EBITDA は倍率が「低い」ほど割安という解釈が成立しないため。
 
 ## 6. P/S の算出
 
@@ -171,7 +171,7 @@ return ではない)。これ以外のコーポレートアクション (合併�
 - 2024 年以降、EDINET 単体では旧来の四半期報告書に依存した TTM 再構成ができない期間がある
 - TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - `EV/EBITDA` は `ttm_quality_ev_ebitda = exact` かつ EV / EBITDA がどちらも正のときのみ valuation-reversion 判定に使用する
-- `P/S` / `PCFR` / `OCF yield` / `FCF yield` / `Net cash` は、それぞれ playbook が要求する品質条件を満たすときのみ mechanical 判定に使う
+- `P/S` / `PCFR` / `OCF yield` / `FCF yield` / `Net cash` は、それぞれ evidence pattern が要求する品質条件を満たすときのみ mechanical 判定に使う
 
 ## 12. 営業利益相当の fallback
 
@@ -193,5 +193,5 @@ J-Quants の財務サマリーは四半期 disclosure の時系列として扱�
 
 ## 15. 参考
 
-- [`../workflow/screening.md`](../workflow/screening.md): universe / playbook screen / candidates
+- [`../workflow/screening.md`](../workflow/screening.md): universe / evidence pattern screen / candidates
 - [`./data-sources.md`](./data-sources.md): データソース Tier 一覧

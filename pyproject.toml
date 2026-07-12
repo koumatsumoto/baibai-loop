@@ -235,10 +235,9 @@ ignore_imports = [
 [[tool.importlinter.contracts]]
 name = "thesis is the top-level domain engine (lower layers do not import it)"
 type = "forbidden"
-# thesis consumes screening.regime + position.policy to gate and size theses, so
-# it sits above every data/analysis layer. Forbid the reverse edges to keep the
-# DAG acyclic; validation is intentionally excluded because validation.cli drives
-# thesis validation (validation -> thesis).
+# Thesis composes decision packets with portfolio state.  Forbid reverse edges
+# to keep the DAG acyclic; validation is intentionally excluded because it
+# drives domain validation through the public entry surfaces.
 source_modules = [
   "baibai_loop.foundation",
   "baibai_loop.market",
@@ -247,6 +246,20 @@ source_modules = [
   "baibai_loop.position",
 ]
 forbidden_modules = ["baibai_loop.thesis"]
+
+[[tool.importlinter.contracts]]
+name = "thesis only composes foundation and position domains"
+type = "forbidden"
+# Current thesis behavior is decision composition plus portfolio-aware execution
+# and holding-review construction.  It has no direct macro, market, screening,
+# or validation dependency; keep that surface narrow.
+source_modules = ["baibai_loop.thesis"]
+forbidden_modules = [
+  "baibai_loop.macro",
+  "baibai_loop.market",
+  "baibai_loop.screening",
+  "baibai_loop.validation",
+]
 
 [[tool.importlinter.contracts]]
 name = "validation imports domain contexts only through their entry surface"

@@ -16,7 +16,7 @@ Baibai-Loop は投資助言サービスではない。これは自分の裁量�
 
 **責務**：資本と許容リスクの定義、ポジション管理（銘柄数・集中度上限（concentration cap）・投入額の決め方）、積立と余力の運用、投資対象の範囲、thesis health、最低リスクリワードの方針、割安で買い保有を見直す売買規律。
 
-**対象外**：個別銘柄の thesis の説明、screening playbook の条件、entry / 目標価格 / 毀損条件の個別設計、実注文の約定記録（これらは [`workflow/`](./workflow/) の research / screening / position が扱う）。playbook（再現可能な thesis の型と根拠チェックリスト）は [`workflow/playbooks.md`](./workflow/playbooks.md)、最低リスクリワードの具体判定は [`workflow/research.md`](./workflow/research.md) が扱う。
+**対象外**：個別銘柄の thesis の説明、screening 条件、entry / 目標価格 / 毀損条件の個別設計、実注文の約定記録（これらは [`workflow/`](./workflow/) の research / screening / position が扱う）。screening の型別条件は `records/_config/screening-rules/*.yaml`、型別の research checklist は [`workflow/playbooks.md`](./workflow/playbooks.md)、最低リスクリワードの具体判定は [`workflow/research.md`](./workflow/research.md) が扱う。
 
 ## 資本モデル
 

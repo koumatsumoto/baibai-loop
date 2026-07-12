@@ -1,4 +1,9 @@
-"""Build a source-bound holding review from a ledger and current decision packets."""
+"""Compose a source-bound holding review from decision and portfolio contracts.
+
+The position package owns ledger replay and holding-review arithmetic.  This
+module belongs to thesis because it assembles their output with the current
+decision packet, without introducing a reverse position-to-thesis dependency.
+"""
 
 from __future__ import annotations
 
