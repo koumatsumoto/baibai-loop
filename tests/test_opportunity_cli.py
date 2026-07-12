@@ -138,6 +138,18 @@ def _ready_packet_and_review() -> tuple[dict[str, object], dict[str, object], st
 
 def _fill_ready_workspace(workspace: Path, ticker: str = "2331") -> str:
     """Simulate the operator filling a scaffolded draft with a ready packet+review."""
+    selection_path = workspace / "selection.yaml"
+    selection = safe_load(selection_path.read_text(encoding="utf-8"))
+    selection["shortlist"] = [{"ticker": ticker, "reason": "primary-source research"}]
+    selection_path.write_text(
+        yaml.safe_dump(selection, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    comparison_path = workspace / "research-comparison.yaml"
+    comparison = safe_load(comparison_path.read_text(encoding="utf-8"))
+    comparison["selected_ticker"] = ticker
+    comparison_path.write_text(
+        yaml.safe_dump(comparison, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
     packet, review, review_filename = _ready_packet_and_review()
     ticker_dir = workspace / ticker
     ticker_dir.mkdir(parents=True, exist_ok=True)
@@ -244,18 +256,48 @@ def test_prepare_empty_audit_pool_is_no_actionable_bargain(
     assert payload["note"] == "no actionable bargain"
 
 
-def test_status_reports_input_hash_drift_as_exit_4(
+def test_status_allows_intentional_shortlist_edit(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     selection_file = workspace / "selection.yaml"
+    selection = safe_load(selection_file.read_text(encoding="utf-8"))
+    selection["shortlist"] = [{"ticker": "2331", "reason": "primary-source research"}]
+    selection_file.write_text(yaml.safe_dump(selection, sort_keys=False), encoding="utf-8")
+    code = opportunity_main(["status", "--workspace", str(workspace)], now=FIXED_NOW)
+    assert code == 0
+
+
+def test_status_reports_external_input_hash_drift_as_exit_4(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
+    manifest = safe_load((workspace / "manifest.yaml").read_text(encoding="utf-8"))
+    selection_file = Path(manifest["inputs"]["selection_output"]["path"])
     selection_file.write_text(
-        selection_file.read_text(encoding="utf-8") + "\n# tampered\n", encoding="utf-8"
+        selection_file.read_text(encoding="utf-8") + "\n# changed after prepare\n",
+        encoding="utf-8",
     )
     code = opportunity_main(["status", "--workspace", str(workspace)], now=FIXED_NOW)
     assert code == 4
+
+
+def test_status_rejects_shortlist_ticker_outside_audit_pool(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
+    selection_file = workspace / "selection.yaml"
+    selection = safe_load(selection_file.read_text(encoding="utf-8"))
+    selection["shortlist"] = [{"ticker": "9999", "reason": "not in audit pool"}]
+    selection_file.write_text(yaml.safe_dump(selection, sort_keys=False), encoding="utf-8")
+    code = opportunity_main(["status", "--workspace", str(workspace)], now=FIXED_NOW)
+    assert code == 3
 
 
 # --------------------------------------------------------------------------- #
