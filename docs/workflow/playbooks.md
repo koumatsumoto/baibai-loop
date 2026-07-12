@@ -29,7 +29,7 @@ playbook は「どのタイプの割安を、どの耐性条件で買い、ど�
 
 1. 新規 archetype は `records/_playbooks/<slug>/` に versioned Markdown で作る。
 2. research は front matter の `playbook` で active archetype を参照する。
-3. 保有の実現結果（実際のリターン・利回り・valuation の収束・thesis の的中）を [`./position.md`](./position.md) の `estimate_calibration` に蓄積する。
+3. 保有の実現結果は[`./position.md`](./position.md)のportfolio outcomeと、見積り手法の長期horizon calibrationで確認する。
 4. 較正の結果が「この型の見積りは系統的に外れている / 有効に機能している」を示したら、型を改訂する issue / PR を起こす。判定条件を変える場合は [`./screening.md`](./screening.md) の screen ルール（`records/_config/screening-rules/*.yaml`）と揃える。
 5. 旧版は削除せず、research が参照していた当時のルールを後から追跡できる状態を保つ。
 

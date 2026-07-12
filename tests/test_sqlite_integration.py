@@ -339,34 +339,5 @@ class ScreeningRunOverSqliteTests(unittest.TestCase):
                 os.chdir(cwd)
 
 
-class DecisionSyncOverSqliteTests(unittest.TestCase):
-    def test_sync_resolves_market_data_from_sqlite(self) -> None:
-        from baibai_loop.position.cli import _load_market_data
-
-        asof = date(2026, 4, 24)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            workspace = Path(tmpdir)
-            sqlite_dir = workspace / "data" / "screening"
-            sqlite_path = sqlite_dir / "market.sqlite"
-            _populate_screening_fixture(sqlite_path, asof)
-
-            # Place a minimal research packet so _load_market_data discovers
-            # at least one decision date and resolves market data from SQLite.
-            research_path = workspace / "records" / "03-thesis" / f"{asof.isoformat()}-130A.md"
-            research_path.parent.mkdir(parents=True)
-            research_path.write_text("---\nticker: 130A\n---\n", encoding="utf-8")
-
-            # The SQLite fixture holds bars and market calendar, so resolution
-            # stays fully offline — no JQUANTS_API_KEY, no external J-Quants call.
-            env: dict[str, str] = {}
-
-            calendar, bars, warnings = _load_market_data(workspace, env)
-
-            self.assertEqual(warnings, ())
-            self.assertGreater(len(calendar), 0)
-            self.assertGreater(len(bars), 0)
-            self.assertEqual(bars[0].ticker, "130A")
-
-
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

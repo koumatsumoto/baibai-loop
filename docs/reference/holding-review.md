@@ -20,7 +20,7 @@ Holding review は、保有 1 件の売買判断を **thesis health** と **税�
 
 売却の主因は **thesis break（事業毀損）** で、これは優先売却候補になる。**フェアバリュー到達は review trigger であって自動の全売りではない**。**価格下落そのものは売却理由にしない**。
 
-review v2は`ledger`、holding decision packet、候補packetを`ref + sha256`で必須参照する。review scalarはsource artifactと切り離して信頼しない。active position recordへの接続は[active records vNext 移行](https://github.com/koumatsumoto/baibai-loop/issues/341)で行い、それまではcanonical active reviewを生成しない。
+holding reviewは`ledger`、holding decision packet、候補packetを`ref + sha256`で必須参照する。review scalarはsource artifactと切り離して信頼しない。
 
 ## Inputs
 

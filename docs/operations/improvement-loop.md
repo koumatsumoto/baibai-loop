@@ -25,7 +25,7 @@ related_docs:
 | 機械 E[r]・FV アンカー（anchor・実現率・cap・carry） | `src/baibai_loop/screening/estimates.py` | 較正リプレイ（er 軸 IC / decile / 予測 vs 実現） |
 | valuation 指標の算出 | `src/baibai_loop/screening/metrics` 系 + [`../reference/valuation-metrics.md`](../reference/valuation-metrics.md) | 較正リプレイ（軸別 IC / coverage） |
 | マクロ読みの手順・レンズ | [`../workflow/macro.md`](../workflow/macro.md) + skill `macro-analysis` | 保有 outcome / 月次の事後検証（N≈1、統計計測はしない） |
-| research の見積り手順（FV・RR・耐性） | [`../workflow/research.md`](../workflow/research.md) + skill `ai-value-bargain-selection` | 保有 outcome（`estimate_calibration`・機械 vs 手動 vs 実現） |
+| research の見積り手順（FV・RR・耐性） | [`../workflow/research.md`](../workflow/research.md) + skill `ai-value-bargain-selection` | portfolio outcome と長期horizon calibration |
 | 資本・cap・sizing | [`../portfolio-management.md`](../portfolio-management.md) + `src/baibai_loop/position/policy.py` | 保有 outcome |
 
 計測の母数は 2 系統（doctrine §2）: **(a) 保有 outcome**（少数・深い観測。判断品質の最終的な正）と **(b) 較正リプレイ**（全銘柄 × 長期 horizon。手法較正用に件数を桁で補う）。機械レバー（screen / select / E[r]）の実証的改訂は (b) の 3y/5y eligible evidence を必須の関門にし、判断レバー（macro / research 手順）は (a) と運用の事後検証で改める。

@@ -14,7 +14,7 @@ ledgerは`portfolio_scope: repository_only`だけを許し、このrepositoryで
 
 ## Activation boundary
 
-この文書とschemaはledgerの永続化契約を定義する。canonical fileの作成とactive position recordの移行が完了するまでは、既存position validatorの`capital_basis` / concentration gateも有効である。切替時はcanonical ledgerの追加、active recordの移行、旧gateの削除を同一変更で行い、検証空白を作らない。
+この文書とschemaはledgerの永続化契約を定義する。canonical ledgerはrepository内portfolioの資本・保有・未約定引当の唯一の正本であり、validatorはこの契約だけを検証する。
 
 公開schemaは`records/_schemas/portfolio-ledger.json`、実装は`src/baibai_loop/position/ledger.py`を正本とする。schemaはunknown fieldと、event総額におけるfloat円額を拒否する。単価は小数4桁まで許すが、数量との積が1円単位に一致しないeventを暗黙に丸めず拒否する。
 

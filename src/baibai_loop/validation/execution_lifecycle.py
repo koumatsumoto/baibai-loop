@@ -1,4 +1,4 @@
-"""Validate the staged execution lifecycle contract before active-record migration."""
+"""Validate the execution lifecycle contract for manual broker activity."""
 
 from __future__ import annotations
 
@@ -22,6 +22,12 @@ from baibai_loop.position.execution import (
 SCHEMA_PATH = (
     Path(__file__).resolve().parents[3] / "records" / "_schemas" / "execution-lifecycle.json"
 )
+
+
+def discover_execution_lifecycle_files(root: Path) -> list[Path]:
+    """Find forward execution records without scanning unrelated position artifacts."""
+
+    return sorted(root.rglob("*-execution.yaml"))
 
 
 def _load_validator() -> Draft202012Validator:

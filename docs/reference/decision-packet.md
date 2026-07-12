@@ -12,7 +12,7 @@ last_reviewed: 2026-07-11
 
 Decision packetは、実購入候補の判断根拠を短い要約と再計算可能な詳細へ固定する。公開schemaは`records/_schemas/decision-packet.json`と`decision-review.json`、実装は`src/baibai_loop/thesis/decision_packet.py`である。canonical pathは`records/03-thesis/YYYY/MM/YYYY-MM-DD-<ticker>-decision.yaml`、reviewはpacketの`independent_review_ref`が指す隣接YAMLとする。
 
-この契約はactive thesisの移行前でも独立に検証できる。移行完了までは既存thesis Markdownとvalidatorを運用し、canonical packetを推測で生成しない。移行ではactive thesisを新contractへ再生成し、旧`thesis_payoff`、`durability_gate`、`entry_preflight`とその互換分岐を同一変更で削除する。
+decision packetは新規の購入判断と保有見直しの判断根拠を固定する。既存保有に判断根拠が必要になった場合は、その時点の一次情報と現値からpacketを作成する。
 
 ## Four namespaces
 

@@ -115,19 +115,8 @@ def _seed_repo(root: Path, *, candidates_overrides: dict[str, object] | None = N
     (root / "src").mkdir(parents=True, exist_ok=True)
     macro_context_dir = root / "records/01-macro-context" / "2026" / "04"
     candidates_dir = root / "records/02-candidates" / "2026" / "04"
-    playbooks_dir = root / "records/_playbooks"
     docs_dir = root / "docs"
-    support_dirs = (
-        docs_dir,
-        root / "records/_playbooks/valuation-reversion",
-        root / "records/03-thesis/2026/04",
-    )
-    for directory in (
-        macro_context_dir,
-        candidates_dir,
-        playbooks_dir,
-        *support_dirs,
-    ):
+    for directory in (macro_context_dir, candidates_dir, docs_dir):
         directory.mkdir(parents=True, exist_ok=True)
 
     payload = _make_candidates_payload()
@@ -140,21 +129,9 @@ def _seed_repo(root: Path, *, candidates_overrides: dict[str, object] | None = N
     (macro_context_dir / "macro-context-2026-04-24-test.yaml").write_text(
         _make_macro_context_yaml_text(), encoding="utf-8"
     )
-    (root / "records/03-thesis/2026/04/2026-04-25-2767-valuation-reversion.md").write_text(
-        "---\nticker: '2767'\n---\n# Research\n", encoding="utf-8"
-    )
-    (root / "records/_playbooks/valuation-reversion/2026-05-01T000000+0900.md").write_text(
-        "---\nplaybook_id: valuation-reversion\n---\n# Playbook\n", encoding="utf-8"
-    )
     policy_source = ROOT / "docs/portfolio-management.md"
     (root / "docs/portfolio-management.md").write_text(
         policy_source.read_text(encoding="utf-8"), encoding="utf-8"
-    )
-    playbook_schema_dir = playbooks_dir / "valuation-reversion"
-    playbook_schema_dir.mkdir(parents=True, exist_ok=True)
-    schema_source = ROOT / "records/_playbooks" / "valuation-reversion" / "body-schema.yaml"
-    (playbook_schema_dir / "body-schema.yaml").write_text(
-        schema_source.read_text(encoding="utf-8"), encoding="utf-8"
     )
 
 
@@ -206,6 +183,27 @@ class ValidateCliTests(unittest.TestCase):
                 stderr=stderr,
             )
             self.assertEqual(exit_code, 0, msg=stderr.getvalue())
+
+    def test_execution_lifecycle_target_discovers_forward_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _seed_repo(root)
+            source = ROOT / "tests/fixtures/execution-lifecycle/representative.yaml"
+            target = root / "records/04-position/2026/06/2026-06-03-2331-execution.yaml"
+            target.parent.mkdir(parents=True)
+            target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            exit_code = run_validation(
+                root=root,
+                targets=("execution-lifecycle",),
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+            self.assertEqual(exit_code, 0, msg=stderr.getvalue())
+            self.assertIn("validated 1 file(s)", stdout.getvalue())
 
     def test_policy_target_requires_repository_policy_doc(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

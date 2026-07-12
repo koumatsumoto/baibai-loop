@@ -2,7 +2,7 @@
 
 Module map (extension points):
 
-- ``records``: candidate / prior-research record types and loaders
+- ``records``: candidate record types and loaders
 - ``profiles``: built-in profile resolution (``balanced`` is the only profile,
   inlined into ``records/_config/screening-rules/*.yaml``)
 - ``lenses``: per-candidate annotations (durability / 塩漬け耐性) — add a
@@ -22,20 +22,16 @@ from .profiles import resolve_selection_rules
 from .records import (
     CandidateRecord,
     PreviousCandidates,
-    PriorResearch,
     candidate_record_from_mapping,
     load_previous_candidates,
-    load_prior_research,
 )
 
 __all__ = [
     "CandidateRecord",
     "PreviousCandidates",
-    "PriorResearch",
     "build_selection_payload",
     "build_selection_sweep_payload",
     "candidate_record_from_mapping",
     "load_previous_candidates",
-    "load_prior_research",
     "resolve_selection_rules",
 ]

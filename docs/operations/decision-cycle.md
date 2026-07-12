@@ -19,7 +19,7 @@ related_docs:
 | trigger | default cadence | 行うこと | 行わないこと |
 | --- | --- | --- | --- |
 | `opportunity` | 随時、通常は週1程度 | 市場・macroのmaterial deltaを確認し、必要なrefresh、screening、差分research、decision packet、短いproposalを作る | 候補がなければ購入を強制しない。毎回全macro・全researchを作り直さない |
-| `pending-order` | `opportunity`開始時と注文event発生時 | submitted / retry / partial / cancel / expireを確認する。#341移行後はlifecycleとledgerを照合し、移行前はactive `position.json`だけを更新する | 約定価格を推定しない。移行後の期限切れreservationを暗黙解放しない |
+| `pending-order` | `opportunity`開始時と注文event発生時 | submitted / retry / partial / cancel / expireを確認し、lifecycleとledgerを照合する | 約定価格を推定しない。期限切れreservationを暗黙解放しない |
 | `monthly-contribution` | 月1回 | canonical ledgerへ400,000円の`contribution`を記録してcash snapshotを更新する | screening、購入、全保有reviewを強制しない |
 | `earnings-material-event` | 公表・重要event後 | 対象tickerだけの一次source、permanent-loss、thesis estimateを差分更新する | 全portfolioを一括refreshしない |
 | `annual-outcome` | 年1回 | portfolio outcomeとestimator governanceを評価する | 短期成績だけでpolicyを変えない |
@@ -30,7 +30,7 @@ related_docs:
 ## 0. Resume and current state
 
 1. `git status --short --branch`でworktreeを確認する。dirtyなら既存作業を理解するまで運用recordを更新しない。
-2. canonical ledgerが存在する場合は、`uv run baibai-loop-position ledger`でavailable cash、active reservation、holding、warningを読む。存在しない場合は外部保有や推測から作らず、[`../reference/portfolio-ledger.md`](../reference/portfolio-ledger.md)のactivation boundaryに従う。
+2. `uv run baibai-loop-position ledger`でavailable cash、active reservation、holding、warningを読む。
 3. pending order / intentのcurrent view、expiry、terminal eventの有無を最初に確認する。
 4. 最新のmarket data日、macro contextの`as_of` / `valid_until`、candidate as-of、対象thesis / decision packetを確認する。
 
@@ -51,10 +51,10 @@ related_docs:
 2. screening cache coverageを確認し、必要な場合だけ`bootstrap-cache -> extract-edinet-metrics -> verify-cache-coverage -> run -> select`を実行する。操作詳細は[`../workflow/screening.md`](../workflow/screening.md)を正本とする。
 3. 前回候補との差分、未保有、構造的衰退除外、permanent-loss warningを使い、research対象を絞る。候補がなければ理由を記して終了する。
 4. 新規または変化したload-bearing claimだけを一次情報で更新し、canonical decision packetを生成する。buy候補には独立second-pass reviewを付ける。
-5. canonical ledgerが稼働し、#341のactive lifecycle移行が完了している場合だけ、`baibai-loop-decision <packet> --execution-input <yaml> --ledger <ledger>`で#334のexecution proposalを生成する。ledger未初期化または移行前はcash / concentrationを推測で補わず、packet / reviewまでで`defer`する。
-6. 移行後は第1層のproposalを人間へ提示する。詳細はpacket、independent review、source、全scenario、price optionへの参照に置く。
-7. 移行後だけ、人間の`approve / defer / reject`をexact packet hashへ束縛する。`approve`だけが#333の`decision_intents[]`へ進む。
-8. 人間がbrokerを操作した後に、order / execution事実を記録し、lifecycleとledgerを照合する。移行前は新しいlifecycle / ledger artifactを併設せず、active `position.json` contractだけを使う。
+5. `baibai-loop-decision <packet> --execution-input <yaml> --ledger <ledger>`でexecution proposalを生成する。cashまたはconcentrationが不足する場合は推測で補わず`defer`する。
+6. 第1層のproposalを人間へ提示する。詳細はpacket、independent review、source、全scenario、price optionへの参照に置く。
+7. 人間の`approve / defer / reject`をexact packet hashへ束縛する。`approve`だけが`decision_intents[]`へ進む。
+8. 人間がbrokerを操作した後に、order / execution事実を記録し、lifecycleとledgerを照合する。
 
 ### Proposal first layer
 
@@ -71,21 +71,19 @@ related_docs:
 
 ## 3. Pending-order path
 
-1. current order view、filled / remaining quantity、expiry、withdraw condition、quote freshnessを確認し、#341のactivation boundaryを判定する。
-2. 移行前はactive `position.json` contractだけを更新して終了する。新しいlifecycle / ledger artifact、#334 not-filled outcomeを併設しない。
-3. 移行後は、同じ数量上限・価格guard・期限のbroker retryを同一intent内で扱う。価格・数量・期限を変えるrepriceは新しいpacket、user decision、intentを作る。
-4. 移行後のpartial fillではbroker-confirmed executionをlifecycleとledgerへ同じID・時刻・価格で記録し、reservationはremaining quantity分だけ維持する。partial fillで`release`しない。
-5. 移行後のcancel / expire / broker rejectionでは、remaining reservationだけを#333のterminal factとledgerの`release`で終える。terminal unfilled quantityには#334のoutcomeとしてtouchと期限後観測を記録できるが、touchをfillとみなさない。
+1. current order view、filled / remaining quantity、expiry、withdraw condition、quote freshnessを確認する。
+2. lifecycleのterminal eventとledgerのreleaseを照合し、未約定結果をnot-filled outcomeとして記録する。
+3. 同じ数量上限・価格guard・期限のbroker retryを同一intent内で扱う。価格・数量・期限を変えるrepriceは新しいpacket、user decision、intentを作る。
+4. partial fillではbroker-confirmed executionをlifecycleとledgerへ同じID・時刻・価格で記録し、reservationはremaining quantity分だけ維持する。partial fillで`release`しない。
+5. cancel / expire / broker rejectionでは、remaining reservationだけをterminal factとledgerの`release`で終える。terminal unfilled quantityにはnot-filled outcomeとしてtouchと期限後観測を記録できるが、touchをfillとみなさない。
 
 契約の正本は[`../reference/execution-lifecycle.md`](../reference/execution-lifecycle.md)と[`../reference/portfolio-ledger.md`](../reference/portfolio-ledger.md)である。
 
 ## 4. Monthly-contribution path
 
-1. canonical ledgerが稼働している場合だけ、当月の400,000円を一意の`contribution` eventとして記録する。
+1. 当月の400,000円を一意の`contribution` eventとして記録する。
 2. event ID重複、future timestamp、amount、snapshotを確認し、`uv run baibai-loop-validation --target ledger`と`uv run baibai-loop-position ledger`を実行する。
 3. 割安機会がなければavailable cashに残す。このtriggerだけでscreening、購入、全保有reviewを始めない。
-
-ledger未初期化なら、入金額を別recordへ推測で複製せず、activation boundaryが完了するまでこのpathは「ledger未稼働」として終了する。
 
 ## 5. Earnings and material-event path
 
@@ -101,9 +99,9 @@ ledger未初期化なら、入金額を別recordへ推測で複製せず、activ
 
 runbook変更時は、次の3経路を実recordを作らずに確認する。
 
-- `opportunity`: candidateなしで終了できること。移行前はpacket / reviewで安全に`defer`し、移行後はexecution proposalまで到達できること
-- `monthly-contribution`: 移行後はledger eventとsnapshot更新だけで終了でき、移行前はledger未稼働として安全に終了できること
-- `pending-order`: 移行後はrepriceが新decision / intentを要求し、partial fillがexecutionとremaining reservationへ、expireがterminal factとreleaseへ到達すること
+- `opportunity`: candidateなしで終了できること。判断に必要なcash・evidenceが不足する場合は安全に`defer`できること
+- `monthly-contribution`: ledger eventとsnapshot更新だけで終了できること
+- `pending-order`: repriceが新decision / intentを要求し、partial fillがexecutionとremaining reservationへ、expireがterminal factとreleaseへ到達すること
 
 ## Validation
 

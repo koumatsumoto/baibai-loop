@@ -48,7 +48,6 @@ candidates YAML（`records/02-candidates/`）は market.sqlite から再生成�
 | lens | 目的 | 扱い |
 | --- | --- | --- |
 | `durability`（塩漬け耐性） | 長期保有に耐えるか（ネットキャッシュ・営業 CF 黒字・低負債・借換耐性・配当）を `high\|medium\|low\|unknown` で注記 | 採用の必須確認（[`../portfolio-management.md`](../portfolio-management.md) の耐性ゲート）に接続する入力。ranking には使わない |
-| `prior_research` | 過去の research で deferred / rejected にした候補の再登場を抑え、同じ候補への偏りを下げる | `records/03-thesis/` の判断履歴から機械的に引く |
 
 ranking の主キーは **機械 E[r]** とする。組み込みの selection profile は `balanced` のみ。閾値を変えるときは `records/_config/screening-rules/` の設定を編集して `select` を再実行し、出力の差分を確認する。playbook evidence は tie-break と thesis annotation に使い、evidence の有無だけで候補を足切りしない。**短期の急落銘柄を上位に押し上げる仕組みや、リスクオン相場で逆張り候補を沈める仕組みは持たない**（保有期間ではなく valuation と耐性で判断するため）。
 

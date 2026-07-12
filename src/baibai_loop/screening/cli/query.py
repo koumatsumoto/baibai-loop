@@ -29,11 +29,9 @@ from baibai_loop.screening.schema import (
 from baibai_loop.screening.selection import (
     CandidateRecord,
     PreviousCandidates,
-    PriorResearch,
     build_selection_payload,
     candidate_record_from_mapping,
     load_previous_candidates,
-    load_prior_research,
 )
 from baibai_loop.screening.ticker_profile import build_ticker_profile
 
@@ -153,7 +151,6 @@ def select_command(
             candidates_ref=inputs.candidates_ref,
             macro_context_ref=inputs.macro_context_ref,
             previous_candidates=inputs.previous_candidates,
-            prior_research_by_ticker=inputs.prior_research,
             market_regime=_load_market_regime(regime_sqlite_path, asof_date),
             detail=detail,
         )
@@ -181,7 +178,6 @@ class _SelectionInputs:
     candidates: tuple[CandidateRecord, ...]
     macro_context: MacroContext | None
     previous_candidates: PreviousCandidates
-    prior_research: Mapping[str, PriorResearch]
     candidates_ref: str
     macro_context_ref: str | None
 
@@ -229,18 +225,15 @@ def _load_selection_inputs(
                 f"{asof_date.isoformat()}"
             )
 
-    repo_root = _repository_root_from_records_anchor(candidates_path, warn_on_fallback=True)
     previous_candidates = load_previous_candidates(
         resolved_candidates_root,
         asof_date,
         current_path=candidates_path,
     )
-    prior_research = load_prior_research(repo_root / "records/03-thesis", asof_date)
     return _SelectionInputs(
         candidates=candidate_records,
         macro_context=macro_context,
         previous_candidates=previous_candidates,
-        prior_research=prior_research,
         candidates_ref=_repository_relative_ref(
             candidates_path,
             anchor=candidates_path,

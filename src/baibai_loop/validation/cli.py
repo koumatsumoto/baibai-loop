@@ -14,14 +14,6 @@ from pathlib import Path
 from typing import Literal, TextIO, assert_never
 
 from baibai_loop.foundation.errors import ValidationFinding
-from baibai_loop.thesis import (
-    discover_thesis_files,
-    load_thesis_document,
-    validate_thesis_collection,
-    validate_thesis_file,
-    validate_thesis_parsed,
-)
-from baibai_loop.thesis.playbook_schema import discover_playbook_schemas
 
 from .benchmark_observation import (
     discover_benchmark_observation_files,
@@ -29,20 +21,22 @@ from .benchmark_observation import (
 )
 from .candidates import discover_candidates_files, validate_candidates_file
 from .decision_packet import discover_decision_packet_files, validate_decision_packet_file
+from .execution_lifecycle import (
+    discover_execution_lifecycle_files,
+    validate_execution_lifecycle_file,
+)
 from .holding_review import discover_holding_review_files, validate_holding_review_file
 from .ledger import discover_ledger_files, validate_ledger_file
 from .macro_context import discover_macro_context_files, validate_macro_context_file
 from .policy import validate_policy_file
 from .portfolio_outcome import discover_portfolio_outcome_files, validate_portfolio_outcome_file
-from .position import discover_position_files, validate_position_file
 
 type ValidationTarget = Literal[
     "macro-context",
     "policy",
     "candidates",
-    "thesis",
-    "position",
     "ledger",
+    "execution-lifecycle",
     "decision-packet",
     "holding-review",
     "benchmark-observation",
@@ -52,9 +46,8 @@ _TARGETS: tuple[ValidationTarget, ...] = (
     "macro-context",
     "policy",
     "candidates",
-    "thesis",
-    "position",
     "ledger",
+    "execution-lifecycle",
     "decision-packet",
     "holding-review",
     "benchmark-observation",
@@ -67,7 +60,6 @@ CANDIDATES_ROOT = Path("records/02-candidates")
 THESIS_ROOT = Path("records/03-thesis")
 POSITION_ROOT = Path("records/04-position")
 BENCHMARK_ROOT = POSITION_ROOT / "benchmarks"
-PLAYBOOKS_ROOT = Path("records/_playbooks")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -115,46 +107,13 @@ def run_validation(
         )
         return 1
 
-    # thesis validation で playbook schema lookup が必要。1 回だけ discover
-    # して全 thesis file に再利用する (Phase 2 で packet が増えたときに
-    # I/O を線形回数に抑える)。
-    known_playbooks = frozenset(discover_playbook_schemas(root / PLAYBOOKS_ROOT))
-
-    # thesis target は per-file 検証と collection 集約の両方で同じ document を
-    # 読むため、target ループ前に 1 度 load して再利用する。
-    thesis_documents: dict[Path, tuple[dict[str, object], str] | list[ValidationFinding]] = {}
-    if "thesis" in targets:
-        for path in discover_thesis_files(root / THESIS_ROOT):
-            thesis_documents[path] = load_thesis_document(path)
-
     findings: list[ValidationFinding] = []
     file_count = 0
     for target in targets:
         files = _discover(root, target)
         file_count += len(files)
         for path in files:
-            if target == "thesis":
-                doc = thesis_documents[path]
-                if isinstance(doc, list):
-                    findings.extend(doc)
-                else:
-                    front_matter, body = doc
-                    findings.extend(
-                        validate_thesis_parsed(
-                            path,
-                            front_matter,
-                            body,
-                            playbooks_root=root / PLAYBOOKS_ROOT,
-                            known_playbooks=known_playbooks,
-                        )
-                    )
-            else:
-                findings.extend(_validate(root, target, path, known_playbooks))
-    if thesis_documents:
-        front_matters = [
-            (path, doc[0]) for path, doc in thesis_documents.items() if not isinstance(doc, list)
-        ]
-        findings.extend(validate_thesis_collection(front_matters))
+            findings.extend(_validate(target, path))
 
     error_count = 0
     warning_count = 0
@@ -182,12 +141,10 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
             return [root / POLICY_PATH]
         case "candidates":
             return discover_candidates_files(root / CANDIDATES_ROOT)
-        case "thesis":
-            return discover_thesis_files(root / THESIS_ROOT)
-        case "position":
-            return discover_position_files(root / POSITION_ROOT)
         case "ledger":
             return discover_ledger_files(root / POSITION_ROOT)
+        case "execution-lifecycle":
+            return discover_execution_lifecycle_files(root / POSITION_ROOT)
         case "decision-packet":
             return discover_decision_packet_files(root / THESIS_ROOT)
         case "holding-review":
@@ -200,12 +157,7 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
             assert_never(unhandled)
 
 
-def _validate(
-    root: Path,
-    target: ValidationTarget,
-    path: Path,
-    known_playbooks: frozenset[str],
-) -> list[ValidationFinding]:
+def _validate(target: ValidationTarget, path: Path) -> list[ValidationFinding]:
     match target:
         case "macro-context":
             return validate_macro_context_file(path)
@@ -213,16 +165,10 @@ def _validate(
             return validate_policy_file(path)
         case "candidates":
             return validate_candidates_file(path)
-        case "thesis":
-            return validate_thesis_file(
-                path,
-                playbooks_root=root / PLAYBOOKS_ROOT,
-                known_playbooks=known_playbooks,
-            )
-        case "position":
-            return validate_position_file(path)
         case "ledger":
             return validate_ledger_file(path)
+        case "execution-lifecycle":
+            return validate_execution_lifecycle_file(path)
         case "decision-packet":
             return validate_decision_packet_file(path)
         case "holding-review":

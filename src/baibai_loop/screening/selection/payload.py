@@ -8,7 +8,6 @@ from datetime import date
 
 from baibai_loop.foundation.coerce import (
     dict_sequence,
-    int_or,
     mapping_or_empty,
     optional_float,
     string_or_none,
@@ -33,7 +32,6 @@ from .ranking import (
 from .records import (
     CandidateRecord,
     PreviousCandidates,
-    PriorResearch,
     _evidence_metric_type_warnings,
     _numeric_metric_type_warnings,
 )
@@ -59,7 +57,6 @@ def build_selection_payload(
     candidates_ref: str,
     macro_context_ref: str | None,
     previous_candidates: PreviousCandidates | None = None,
-    prior_research_by_ticker: Mapping[str, PriorResearch] | None = None,
     market_regime: MarketRegimeSnapshot | None = None,
     profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
     detail: str = "summary",
@@ -76,7 +73,6 @@ def build_selection_payload(
         top=top,
         configured_max=rules.output.research_selection_target_max,
     )
-    prior_research_by_ticker = prior_research_by_ticker or {}
     previous_candidates = previous_candidates or PreviousCandidates(ref_path=None, tickers=())
     previous_tickers = set(previous_candidates.tickers)
     # Entry preflight は候補の対 benchmark 20 日相対リターンを情報として使うため、
@@ -114,19 +110,12 @@ def build_selection_payload(
             eligible_evidence_hits,
             playbook_order=playbook_order,
         )
-        prior_research = prior_research_by_ticker.get(item.ticker)
-        suppress_reason = (
-            prior_research.suppression_reason(asof_date) if prior_research is not None else None
-        )
         lenses = _candidate_lenses(item, selection_rules)
         candidate = _selection_candidate(
             item,
             selection_playbook=selection_playbook,
             selection_metrics=selection_metrics,
             lenses=lenses,
-            prior_research=prior_research,
-            suppressed=suppress_reason is not None,
-            suppression_reasons=(suppress_reason,) if suppress_reason else (),
             previous_candidate=item.ticker in previous_tickers,
             benchmark_return_20d=benchmark_return_20d,
         )
@@ -145,11 +134,8 @@ def build_selection_payload(
 
     ranked_entries.sort(key=lambda item: item[0])
     ranked_candidates = [candidate for _, candidate in ranked_entries]
-    ranked_active_candidates = [
-        candidate for candidate in ranked_candidates if not candidate["suppressed"]
-    ]
     recommended = _recommended_research_candidates(
-        ranked_candidates=ranked_active_candidates,
+        ranked_candidates=ranked_candidates,
         playbook_order=rules.output.research_selection_playbook_order,
         diversity_rules=selection_rules.diversity,
         limit=recommendation_limit,
@@ -211,7 +197,6 @@ def build_selection_sweep_payload(
     candidates_ref: str,
     macro_context_ref: str | None,
     previous_candidates: PreviousCandidates | None = None,
-    prior_research_by_ticker: Mapping[str, PriorResearch] | None = None,
     market_regime: MarketRegimeSnapshot | None = None,
 ) -> dict[str, object]:
     profile_results: list[dict[str, object]] = []
@@ -226,7 +211,6 @@ def build_selection_sweep_payload(
             candidates_ref=candidates_ref,
             macro_context_ref=macro_context_ref,
             previous_candidates=previous_candidates,
-            prior_research_by_ticker=prior_research_by_ticker,
             market_regime=market_regime,
             detail="full",
         )
@@ -243,7 +227,6 @@ def build_selection_sweep_payload(
                 "recommended_tickers": [string_or_none(item.get("ticker")) for item in recommended],
                 "recommended_count": len(recommended),
                 "durability_counts": dict(mapping_or_empty(diagnostics.get("durability_counts"))),
-                "suppressed_count": int_or(diagnostics.get("suppressed_count"), 0),
                 "warnings": diagnostics.get("warnings"),
             }
         )
@@ -287,9 +270,6 @@ def _selection_candidate(
     selection_playbook: str | None,
     selection_metrics: Mapping[str, object],
     lenses: Mapping[str, object],
-    prior_research: PriorResearch | None,
-    suppressed: bool,
-    suppression_reasons: Sequence[str],
     previous_candidate: bool,
     benchmark_return_20d: float | None = None,
 ) -> dict[str, object]:
@@ -328,10 +308,7 @@ def _selection_candidate(
         "next_earnings_date": item.next_earnings_date,
         "position_tier": position_tier(item.market_cap_oku),
         "lenses": dict(lenses),
-        "prior_research": prior_research.to_dict() if prior_research is not None else None,
         "previous_candidate": previous_candidate,
-        "suppressed": suppressed,
-        "suppression_reasons": list(suppression_reasons),
     }
     metric_type_warnings = _numeric_metric_type_warnings(item.metrics, source="metrics")
     metric_type_warnings.extend(_evidence_metric_type_warnings(item.evidence_hits))
@@ -475,7 +452,6 @@ def _diagnostics(
             "overlap_count": len(overlap_tickers),
             "overlap_ratio": round(overlap_ratio, 4),
         },
-        "suppressed_count": sum(1 for candidate in ranked_candidates if candidate["suppressed"]),
         "durability_counts": _durability_counts(ranked_candidates),
         "invalid_numeric_metric_value_count": metric_type_warning_count,
     }

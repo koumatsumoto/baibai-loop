@@ -28,8 +28,8 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 | --- | --- | --- | --- | --- |
 | macro | `src/baibai_loop/macro/` | `records/01-macro-context/` | `baibai-loop-macro` | 見積り calibration（[`workflow/macro.md`](./docs/workflow/macro.md)、formal loop にしない） |
 | screening | `src/baibai_loop/screening/` | `records/02-candidates/`, `records/_config/` | `baibai-loop-screening` | 見積り calibration（保有 outcome + 長期 horizon の較正リプレイ `calibration-build/evaluate`。短期 backtest はしない） |
-| thesis | `src/baibai_loop/thesis/` | `records/03-thesis/`, `records/_playbooks/` | `baibai-loop-decision` / validation | decision packet + 移行完了までのpreflight gate |
-| position | `src/baibai_loop/position/` | `records/04-position/` | `baibai-loop-position` | portfolio ledger + 見積り calibration（entry 見積り vs 実現） |
+| thesis | `src/baibai_loop/thesis/` | `records/03-thesis/`, `records/_playbooks/` | `baibai-loop-decision` / validation | decision packet + execution policy |
+| position | `src/baibai_loop/position/` | `records/04-position/` | `baibai-loop-position` | portfolio ledger + holding review + portfolio outcome |
 | market | `src/baibai_loop/market/` | （`data/screening/market.sqlite` ほか、git 外） | — | 価格・calendar data 層（screening・保有計測の価格基盤） |
 | foundation | `src/baibai_loop/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
 | validation | `src/baibai_loop/validation/` | `records/_schemas/`（検証対象 schema） | `baibai-loop-validation` | records 公開言語の検証器（CI gate） |
@@ -51,7 +51,7 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 - macro context の根拠 URL / series / used_for を曖昧にする
 - 公表日 / source の最新性確認を skip する (AP-07)
 - validator の抜け道を意識しない (AP-08)
-- 外部 AI 分析や system output を事実として records に取り込む / canonical ledger稼働時にcurrent + reserved exposureを再計算しない / ledger未初期化時に既存position/thesis gateを使わない / 注文と約定の状態を区別しない (AP-09)
+- 外部 AI 分析や system output を事実として records に取り込む / canonical ledgerのcurrent + reserved exposureを再計算しない / 注文と約定の状態を区別しない (AP-09)
 
 成分別の詳細チェックリスト:
 - macro context 編集時: [`docs/workflow/macro.md`](./docs/workflow/macro.md)

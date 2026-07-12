@@ -28,14 +28,14 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 
 | 日本語概念名 | slug | repository location | レイヤー | 役割 |
 | --- | --- | --- | --- | --- |
-| 運用方針 | portfolio management | [`docs/portfolio-management.md`](./portfolio-management.md) | governance | 資本・許容リスク・ポジション管理・kill switch |
+| 運用方針 | portfolio management | [`docs/portfolio-management.md`](./portfolio-management.md) | governance | 資本・許容リスク・ポジション管理 |
 | マクロ環境分析 | macro context | `records/01-macro-context/` | analysis | material deltaと共通riskの補助context |
 | 通過銘柄リスト | candidates | `records/02-candidates/`（git 外の local store） | machine analysis | observed / derived / estimateを分離したscreen出力 |
-| 投資判断 | decision packet / thesis | `records/03-thesis/` | judgment | 4 namespace・5年scenario・永久損失・反証。active移行まではthesis Markdownも有効 |
+| 投資判断 | decision packet | `records/03-thesis/` | judgment | 5年scenario・永久損失・反証・独立review |
 | 売買提案 | trade proposal | GitHub Issue（records 外） | 判断の入口 | 銘柄 / 価格 / 株数を人間に上げる |
-| portfolio・売買執行記録 | position | `records/04-position/` | execution | ledger、注文・約定・保有・holding review・決済・calibration |
+| portfolio・売買執行記録 | position | `records/04-position/` | execution | ledger、注文・約定・保有・holding review・portfolio outcome |
 
-表は各 stage の artifact / record の repository location を示す（engine の `select` 等は L2 機械処理で record を持たない）。役割の詳細は [`doctrine.md#vocabulary`](./doctrine.md#vocabulary)。**売買提案は GitHub Issue を成果物とし、`records/` にディレクトリを持たない**。承認結果は position record に落ちる。
+表は各 stage のartifactのrepository locationを示す（engine の `select` 等は L2 機械処理でrecordを持たない）。役割の詳細は [`doctrine.md#vocabulary`](./doctrine.md)。**売買提案は GitHub Issue を成果物とし、`records/` にディレクトリを持たない**。承認結果はexecution lifecycleとledgerに記録する。
 
 ## スコープと非目標
 
@@ -75,8 +75,8 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 | `market/` | 価格・market calendar の data-access 層（J-Quants）。`foundation` のみに依存 | — |
 | `macro/` | macro 環境分析（`context` ＋ `indicators` data 層）。screening / position / validation から独立 | `baibai-loop-macro` |
 | `screening/` | universe → 機械スクリーニング（valuation ranking）→ candidates 生成、selection | `baibai-loop-screening` |
-| `thesis/` | investment memo の domain engine（schema・payoff・sizing・refs）。最上位層 | （`baibai-loop-validation` 経由） |
-| `position/` | portfolio ledger・trade record・保有 price tracking・holding review・JPX total-return outcome | `baibai-loop-position` |
+| `thesis/` | decision packet・execution policyの判断domain | `baibai-loop-decision` |
+| `position/` | portfolio ledger・execution lifecycle・holding review・JPX total-return outcome | `baibai-loop-position` |
 | `validation/` | records（公開言語）の検証 dispatcher。domain は entry surface 経由でのみ参照 | `baibai-loop-validation` |
 
 依存方向は `foundation ← market ← {screening, position} ← thesis`（`A ← B` ＝「B が A を import」の向き）。`macro` は `foundation` の上に立つ **独立枝** で spine に属さず、`validation` は `thesis` / `position` を entry surface 経由で駆動する。7 contract は (1) macro 独立、(2) foundation = import sink、(3) market は foundation のみ、(4) position ↛ screening、(5) screening ↛ position、(6) thesis は最上位（下位層は thesis を import しない。thesis は screening / position を import してよい）、(7) validation は entry surface 経由のみ、を強制する。
@@ -87,8 +87,8 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 | --- | --- | --- |
 | `records/01-macro-context/` | analysis | 必要時に読むmaterial-delta macro context YAML |
 | `records/02-candidates/` | fact | candidates YAML（git 追跡しない local store） |
-| `records/03-thesis/` | analysis | investment memo Markdown。同一銘柄を再審査した場合は最新 record が正で、置き換えられた旧版は `records/_archive/` へ移す |
-| `records/04-position/` | execution | portfolio ledger contract（active record移行後にcanonical化）+ trade record Markdown |
+| `records/03-thesis/` | judgment | decision packetと独立review YAML |
+| `records/04-position/` | execution | canonical portfolio ledger、execution lifecycle、holding review、portfolio outcome YAML |
 
 通常の record は出来事ごとの成果物（event artifact）として path 自体を正本にし、更新され続ける「最新一覧」の index は持たない。
 
@@ -103,7 +103,7 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 
 ### records/_schemas — 公開言語の kernel（contract-of-record）
 
-`records/_schemas/*.json`（JSON Schema draft 2020-12）は records artifact（macro-context / candidates / thesis / position / holding-review）の形を固定する **公開言語の中心資産**であり、成果物の機械契約の正本。CLI の YAML 出力、records front matter、validation 検証、AI が読む契約はこの schema set を共有語彙の基盤にする。doc 側は JSON に書けないもの（式・enum の意味・WHY・境界）だけを持ち、field を再転記しない。
+`records/_schemas/*.json`（JSON Schema draft 2020-12）は records artifact（macro-context / candidates / decision packet / ledger / lifecycle / holding review / outcome）の形を固定する **公開言語の中心資産**であり、成果物の機械契約の正本。CLI の YAML 出力、records YAML、validation 検証、AI が読む契約はこの schema set を共有語彙の基盤にする。doc 側は JSON に書けないもの（式・enum の意味・WHY・境界）だけを持ち、field を再転記しない。
 
 <a id="automation"></a>
 
@@ -159,7 +159,7 @@ AI の利用モデル：L1/L2 は SQL 直接発行と CLI 出力で自由に読�
 | --- | --- |
 | `doctrine.md` | 思想・大戦略・原則・語彙 |
 | `architecture.md` | 構造・repository map・automation・安定契約（本 doc） |
-| `portfolio-management.md` | 資本・ポジション管理・kill switch |
+| `portfolio-management.md` | 資本・ポジション管理 |
 | `anti-patterns.md` | 失敗パターンと commit 前チェックリスト |
 | `workflow/` | 単一ループ各工程の手順（macro / screening / research / position / playbooks） |
 | `reference/` | valuation-metrics・screening-runtime・data-sources・python-foundation・testing-and-validation |

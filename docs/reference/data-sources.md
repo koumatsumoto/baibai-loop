@@ -28,7 +28,7 @@ Decision lifecycle ([`../architecture.md`](../architecture.md)) における各 
 
 ## 保有見直しの価格 fallback
 
-holding review・見積り calibration の価格 source は J-Quants(`data/screening/market.sqlite`)を primary とする。J-Quants が subscription / availability 問題で使えない場合だけ、公開 quote の daily close を手動 fallback として使い、position record 本文の `Price evidence` に source URL・取得日時・評価日・price basis・benchmark と同一 basis かを残す。basis が揃わない場合や corporate action の調整が確認できない場合は、確定評価ではなく provisional / inconclusive として扱う。
+holding review・見積り calibration の価格 source は J-Quants(`data/screening/market.sqlite`)を primary とする。J-Quants が subscription / availability 問題で使えない場合だけ、公開 quote の daily close を手動 fallback として使い、ledgerまたはdecision packetのsource refへURL・取得日時・評価日・price basis・benchmark と同一 basis かを残す。basis が揃わない場合や corporate action の調整が確認できない場合は、確定評価ではなく provisional / inconclusive として扱う。
 
 ## Portfolio outcome benchmark
 
