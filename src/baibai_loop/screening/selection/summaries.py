@@ -73,8 +73,6 @@ def _candidate_risk_tags(candidate: Mapping[str, object]) -> list[str]:
     # corporate action check を必ず通すよう triage 段階で注意を立てる。
     if candidate.get("split_adjustment_flag") is True:
         tags.append("split_adjustment_recent")
-    if candidate.get("suppressed") is True:
-        tags.append("suppressed_by_prior_research")
     if string_or_none(candidate.get("next_earnings_date")):
         tags.append("earnings_scheduled")
     if candidate.get("freshness_warnings"):
@@ -141,10 +139,7 @@ def _selection_candidate_summary(
         "position_tier": candidate.get("position_tier"),
         "durability_rating": string_or_none(durability_lens.get("rating")),
         "durability_caution_reasons": list(string_sequence(durability_lens.get("caution_reasons"))),
-        "prior_research": candidate.get("prior_research"),
         "previous_candidate": candidate.get("previous_candidate") is True,
-        "suppressed": candidate.get("suppressed") is True,
-        "suppression_reasons": list(string_sequence(candidate.get("suppression_reasons"))),
         "reason_tags": list(string_sequence(candidate.get("reason_tags"))),
         "risk_tags": list(string_sequence(candidate.get("risk_tags"))),
     }

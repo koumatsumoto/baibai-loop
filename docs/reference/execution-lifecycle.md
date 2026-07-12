@@ -10,7 +10,7 @@ last_reviewed: 2026-07-11
 
 `records/_schemas/execution-lifecycle.json` は、単一tickerの人間承認、brokerへの手動注文、brokerで確認した約定を分離する公開contractである。実装は `src/baibai_loop/position/execution.py`、schemaだけでは表せない整合性検証は `src/baibai_loop/validation/execution_lifecycle.py` を正本とする。
 
-このcontractは現行の `position.json` とは独立に検証する。active position recordをこのcontractへ切り替える作業は、active stateを再構成する変更と同時に行う。旧/new fieldを同一recordへ混在させない。
+このcontractは、decision packetに束縛された人間承認からbroker-confirmed executionまでを検証する。現金・保有・未約定引当はledgerへ対応するeventとして記録し、同じ状態をlifecycleに複製しない。
 
 ## Responsibility
 

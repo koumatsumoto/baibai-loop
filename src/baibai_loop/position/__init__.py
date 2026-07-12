@@ -1,1 +1,1 @@
-"""Position tracking: trade records and benchmark-relative return."""
+"""Portfolio ledger, manual execution lifecycle, holding review, and outcome."""

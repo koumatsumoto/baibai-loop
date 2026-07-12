@@ -1,6 +1,6 @@
 ---
 title: "Portfolio management"
-summary: "資本・許容リスク・ポジション管理・積立と余力・concentration cap・kill switch の正本。macro / screening の上流にある自己運用の governance。"
+summary: "資本・許容リスク・ポジション管理・積立と余力・concentration warningの正本。macro / screening の上流にある自己運用の governance。"
 doc_type: governance
 status: active
 last_reviewed: 2026-07-11
@@ -8,7 +8,7 @@ last_reviewed: 2026-07-11
 
 # Portfolio management — 資本とポジションの運用方針
 
-判断ループの上流に置く、自己運用の統制文書。目的・制約・資本・許容リスク・ポジション管理・投資対象の範囲・kill switch を明文化し、research / trade が判断時点の前提を後から再現できるようにする。思想・大戦略は [`doctrine.md`](./doctrine.md)、構造は [`architecture.md`](./architecture.md) を参照。
+判断ループの上流に置く、自己運用の統制文書。目的・制約・資本・許容リスク・ポジション管理・投資対象の範囲を明文化し、research / trade が判断時点の前提を後から再現できるようにする。思想・大戦略は [`doctrine.md`](./doctrine.md)、構造は [`architecture.md`](./architecture.md) を参照。
 
 Baibai-Loop は投資助言サービスではない。これは自分の裁量判断を後から検証するための統制文書である。
 
@@ -20,7 +20,7 @@ Baibai-Loop は投資助言サービスではない。これは自分の裁量�
 
 ## 資本モデル
 
-以下のevent replayはcanonical ledger稼働後の資本モデルである。未初期化期間の検証境界は「Policy field との境界」に従う。
+資本はcanonical ledgerのevent replayで管理する。
 
 - **repo 内単一 ledger**：対象はこの repository で管理する日本株portfolioだけとし、repo外の保有、海外株、index商品は合算しない。資本額をpolicyや各positionへ手入力しない。
 - **event replay**：`opening_balance / contribution / reservation / release / execution / income / cost / tax_confirmed` を時系列に再生し、available cash、未約定引当、取得原価、保有時価、確認済み収益・費用・税を1円単位で再計算する。契約と式は [`reference/portfolio-ledger.md`](./reference/portfolio-ledger.md) を正本とする。
@@ -69,11 +69,11 @@ AIへの期待は、それ単独では採用理由にも投入額の根拠にも
 
 ## Policy field との境界
 
-cash・保有・未約定引当の目標正本はportfolio ledger、warning lineと単元制約の正本は`src/baibai_loop/position/policy.py`とする。canonical ledgerへのactive record移行が完了するまでは既存position gateも有効に保ち、切替変更で旧`capital_basis`を削除する。切替後は各positionの`capital_basis`や手計算した集中度を資本の正本にしない。validatorはledgerのreconciliation errorをhard error、concentration・dry powder超過をwarningとして報告する。
+cash・保有・未約定引当の正本はportfolio ledger、warning lineと単元制約の正本は`src/baibai_loop/position/policy.py`とする。各artifactの手計算した集中度を資本の正本にしない。validatorはledgerのreconciliation errorをhard error、concentration・dry powder超過をwarningとして報告する。
 
 ## 参考
 
 - [`doctrine.md`](./doctrine.md)：思想・大戦略・5 つの柱
 - [`workflow/research.md`](./workflow/research.md)：個別 thesis での FV・RR・期待利回り・耐性の検証
-- [`workflow/position.md`](./workflow/position.md)：執行・保有・全売り・見積り calibration
+- [`workflow/position.md`](./workflow/position.md)：執行・保有・全売り・portfolio outcome
 - [`reference/valuation-metrics.md`](./reference/valuation-metrics.md)：割安判定に使う valuation 指標

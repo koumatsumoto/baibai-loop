@@ -5,9 +5,7 @@
 実装の単一性で担保する。相違点は入力の中立化だけ:
 
 - macro_context=None (macro は annotation であり順位に使わない)
-- prior_research_by_ticker={} / previous_candidates=None (L3 record 由来の
-  suppression は published_at ≤ asof の PIT チェックを持たず、現在の判断が過去
-  cohort へ漏れるため遮断する)
+- previous_candidates=None (現在の候補履歴を過去 cohort の順位へ混入させない)
 - JPX 規制 flag は過去断面が cache に無いため空 (除外は annotation 数銘柄規模)
 """
 
@@ -479,7 +477,6 @@ def _replay_ranks(
         candidates_ref="calibration-replay",
         macro_context_ref=None,
         previous_candidates=None,
-        prior_research_by_ticker={},
         market_regime=None,
         profile_overrides=profile_overrides,
         detail="summary",

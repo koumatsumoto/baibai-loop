@@ -10,8 +10,6 @@ type PolicyConfig = Mapping[str, Any]
 # 資本額は ledger event から再計算する。ここには状態を置かず、判断時に適用する
 # warning line と注文制約だけを置く。
 PORTFOLIO_POLICY: dict[str, Any] = {
-    # TODO(#341): remove after active position records are represented by the canonical ledger.
-    "capital_basis": {"real_capital_yen": 10_000_000},
     "cash_management": {
         "monthly_contribution_yen": 400_000,
         "dry_powder_warning_pct": 20.0,
@@ -22,16 +20,12 @@ PORTFOLIO_POLICY: dict[str, Any] = {
         "max_sector_concentration_pct": 40.0,
         "max_common_factor_concentration_pct": 35.0,
         "max_adv_participation_pct": 5.0,
-        "max_ticker_real_concentration_pct": 6.0,
-        "max_sector_real_concentration_pct": 40.0,
-        "max_playbook_real_concentration_pct": 35.0,
     },
     "order_constraints": {"board_lot": 100, "price_guard_required": True},
     "valuation": {"market_price_max_age_days": 7},
 }
 
 _REQUIRED_NUMERIC_PATHS: tuple[tuple[str, ...], ...] = (
-    ("capital_basis", "real_capital_yen"),
     ("cash_management", "monthly_contribution_yen"),
     ("cash_management", "dry_powder_warning_pct"),
     ("cash_management", "override_max_days"),
@@ -39,9 +33,6 @@ _REQUIRED_NUMERIC_PATHS: tuple[tuple[str, ...], ...] = (
     ("risk_budget", "max_sector_concentration_pct"),
     ("risk_budget", "max_common_factor_concentration_pct"),
     ("risk_budget", "max_adv_participation_pct"),
-    ("risk_budget", "max_ticker_real_concentration_pct"),
-    ("risk_budget", "max_sector_real_concentration_pct"),
-    ("risk_budget", "max_playbook_real_concentration_pct"),
     ("order_constraints", "board_lot"),
     ("valuation", "market_price_max_age_days"),
 )

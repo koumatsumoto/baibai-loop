@@ -25,13 +25,15 @@ from pathlib import Path
 
 from baibai_loop.foundation.yaml_io import safe_load
 
-# position.trades is a standalone record reader (imports only foundation), so
-# this screening->position import does not create a package cycle; the packet
-# deliberately reads the trade records to expose portfolio-concentration facts.
-from baibai_loop.position.trades import load_open_trades
+# The canonical ledger is the only portfolio source. This screened fact packet
+# reads its reconciled holdings solely to expose current concentration facts.
+from baibai_loop.position.ledger import (
+    PortfolioLedgerError,
+    load_portfolio_ledger,
+    reconcile_portfolio,
+)
 
 from .regime import compute_market_regime
-from .selection import load_prior_research
 
 _BENCHMARK_TICKER = "1321"
 _SELF_RANGE_WINDOW_BARS = 750
@@ -74,7 +76,6 @@ def build_ticker_profile(
     sector = master.get("sector_33") if master else None
     regime = compute_market_regime(sqlite_path, asof_date, benchmark_ticker=benchmark_ticker)
     candidates_block = _load_candidates_entry(candidates_root, ticker, asof_date)
-    prior = load_prior_research(records_root / "03-thesis", asof_date).get(ticker)
     return {
         "ticker": ticker,
         "asof": asof_date.isoformat(),
@@ -94,9 +95,7 @@ def build_ticker_profile(
             "jpx_regulation": _jpx_flags(sqlite_path, ticker, asof_date),
         },
         "screening": candidates_block,
-        "prior_research": prior.to_dict() if prior is not None else None,
         "portfolio": _portfolio_block(
-            sqlite_path,
             repo_root=records_root.parent,
             ticker=ticker,
             sector=sector if isinstance(sector, str) else None,
@@ -210,38 +209,34 @@ def _sector_block(
 
 
 def _portfolio_block(
-    sqlite_path: Path,
     *,
     repo_root: Path,
     ticker: str,
     sector: str | None,
 ) -> dict[str, object]:
-    """Concentration facts versus currently open positions.
-
-    Entry notional uses each trade's recorded entry price x quantity (the same
-    basis as the trade contract), so the sector share matches how the retro
-    measures deployed concentration.
-    """
-    trades = load_open_trades(repo_root)
+    """Concentration facts from the reconciled canonical portfolio ledger."""
+    ledger_path = repo_root / "records/04-position/portfolio-ledger.yaml"
+    try:
+        snapshot = reconcile_portfolio(load_portfolio_ledger(ledger_path))
+    except PortfolioLedgerError:
+        return _empty_portfolio_block()
     positions = []
-    total_notional = 0.0
-    same_sector_notional = 0.0
+    total_notional = 0
+    same_sector_notional = 0
     holds_this_ticker = False
-    for trade in trades:
-        master = _load_master_row(sqlite_path, trade.ticker)
-        trade_sector = master.get("sector_33") if master else None
-        notional = trade.entry_price * trade.quantity
+    for holding in snapshot.holdings:
+        notional = holding.deployed_cost_yen
         total_notional += notional
-        if trade.ticker == ticker:
+        if holding.ticker == ticker:
             holds_this_ticker = True
-        if sector is not None and trade_sector == sector:
+        if sector is not None and holding.sector == sector:
             same_sector_notional += notional
         positions.append(
             {
-                "ticker": trade.ticker,
-                "name": trade.name,
-                "sector_33": trade_sector,
-                "entry_notional_yen": round(notional),
+                "ticker": holding.ticker,
+                "name": None,
+                "sector_33": holding.sector,
+                "entry_notional_yen": notional,
             }
         )
     return {
@@ -254,6 +249,16 @@ def _portfolio_block(
             round(same_sector_notional / total_notional, 4) if total_notional else None
         ),
         "open_positions": positions,
+    }
+
+
+def _empty_portfolio_block() -> dict[str, object]:
+    return {
+        "open_position_count": 0,
+        "holds_this_ticker": False,
+        "same_sector_position_count": 0,
+        "same_sector_entry_notional_share": None,
+        "open_positions": [],
     }
 
 

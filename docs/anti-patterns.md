@@ -213,7 +213,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - 当初の整合チェックを `avg_turnover_oku` 不在時には silently skip するように実装、
   required field 化を忘れた → 抜け道残存
 - schema 管理している nested object が未知 field を許しており、current contract 以外の値を取り込めた
-- `thesis_decision.outcome: rejected` の packet に正値の sizing / order が紐づき、非採用 decision と矛盾していた
+- `judgment.recommendation: reject` のpacketに買い注文が紐づき、非採用判断と矛盾していた
 - `except TypeError, ValueError:` のような Python 2 風に見える except をめぐって、レビューで
   「構文エラー」なのか「Python 3.14 の PEP 758 による複数例外捕捉」なのかが混乱した。
   本 repo では可読性とレビュー容易性を優先し、複数例外捕捉は `except (A, B):` に統一する
@@ -247,40 +247,16 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] schema 管理している **nested object** が未知 field を許していないか
   - [ ] **既存 packet** (4/25 research 5 件など) が新 rule で breakage しないか、する場合は
         同 commit で fix する
-- [ ] 以下の adv_participation 関連の具体条件を validator が catch するか、test を書いて
-      確認する:
-  - [ ] `avg_turnover_oku <= 0` は error (整合チェックの分母が成立しない、required な数値
-        だけでは抜け道になる)
-  - [ ] **`thesis_decision.outcome != 'approved'` の decision に正値の order / sizing が紐づいていないか** (deferred / rejected で正値が残ると decision と矛盾する)
-  - [ ] `valuation` / `position_sizing_overlay` のような nested object は current schema の field だけを許す
-- [ ] cross-field consistency rule は **依存先の field が「数値であること」だけでなく、
-      「正値 (> 0) であること」を確認**する。0 / 負値で silently skip する実装は穴になる
-- [ ] front matter の `avg_turnover_oku` が `candidate_ref.candidates_ref` の
-      `ticker` 一致 row の値と整合しているか
-      (現状は research validator が enforce する)
-- [ ] trade order / execution state を導入・変更する場合、以下の corner case を確認したか
-      (現状は `src/baibai_loop/validation/position.py` が enforce する):
-  - [ ] `order_intent.order_intent_id` と `orders[].origin_order_intent_id` が join できる
-  - [ ] `orders[].state` は `submitted` / `broker_rejected` / `cancelled` / `expired` /
-        `not_filled` / `partially_filled` / `filled` のいずれか
-  - [ ] `orders[].filled_quantity <= orders[].submitted_quantity`
-  - [ ] `position_state: none` で executions を持たない
-  - [ ] canonical ledger稼働時はpending orderごとにreservationを1回だけ作り、partial fill後は未約定残数だけを引き当てる
-  - [ ] canonical ledger稼働時はexpiry / cancel / broker rejectionを明示`release`し、reserved cashを暗黙解放しない
-  - [ ] canonical ledger稼働時はcash不足、guard超過、expiry以後のbuy、保有超過sellをhard errorにする
-  - [ ] canonical ledger稼働時のconcentrationはholding market value + active reservationをledgerの`total_capital_yen`で割り、warning + 期限付きoverrideとして扱う。未初期化時は既存position/thesis gateを維持する
-  - [ ] `order_price_guard_yen` を置く場合、`order_intent.quantity` /
-        `position_sizing_overlay.guarded_max_notional_yen` を記録し、
-        `guarded_max_notional_yen = order_price_guard_yen * quantity` と整合させたか
-  - [ ] guarded notional を必要時に再計算できる入力が揃っているか
+- [ ] execution lifecycleを導入・変更する場合、intent・order・executionの時系列、数量、価格guard、期限、external broker order IDの整合をcontract testで確認したか
+- [ ] ledger eventを導入・変更する場合、reservationとbuy execution、terminal orderとrelease、cash不足、guard超過、expiry後のbuy、保有超過sellをhard errorとして確認したか
+- [ ] concentrationはholding market value + active reservationをledgerの`total_capital_yen`で割り、warning + 期限付きoverrideとして扱うことを確認したか
 - [ ] multi-intent execution lifecycleを導入・変更する場合、以下をcontract testで確認したか:
   - [ ] intentが空でないuser decision reference、exact decision packet hash、side、board-lot quantity、guard、expiryを持つ
   - [ ] orderは実在intentへjoinし、intent guardの内側のlimit priceだけを使う。retry/ladderの同時live quantityはintent残数を超えない
   - [ ] executionは実在orderへjoinし、side、submission時刻、expiry、limit price、order quantityと整合する
   - [ ] duplicate intent/order/execution/external broker order ID、orphan、terminal後execution、guard違反、over-sellをhard errorにする
   - [ ] canonical ledgerがある場合、同一`as_of`・lifecycle開始以後の同一ticker reservation / execution ID集合を完全一致させ、buy orderのreservation、buy/sell execution、terminal buy orderのreleaseをIDと数値・時刻で照合する
-- [ ] `thesis_decision.outcome: approved` の場合、`candidate_ref` が参照した candidates repository file の対象 candidate に join できるか
-- [ ] 連続する commit で `thesis_decision.outcome: deferred|rejected → approved` に flip した場合、PR review で thesis / event / sizing の変更理由を確認する
+- [ ] decision packetがapprovedの場合、source snapshot、scenario、independent review、execution inputが同一packet hashに束縛されるか
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
@@ -304,7 +280,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
         (`screening_playbooks: Mapping[..., A | B | C]`) と `match` 句
   - [ ] `src/baibai_loop/screening/selection/ranking.py` の sort key match arm
   - [ ] 削除根拠は保有 outcome の calibration で示す (安易な削除で有効な割安タイプを失わない)
-- [ ] **judgment-gate 系の必須 field（`durability_gate` 等）を追加する場合、bypass を test で塞ぐ**:
+- [ ] **judgment-gate 系の必須 contract を追加する場合、bypass を test で塞ぐ**:
   - [ ] data 不在 label で hard trigger を回避できないか
   - [ ] label と根拠数値の不整合が catch されるか
   - [ ] `regime` key 欠落のような partial mapping が `required` 違反として catch されるか
@@ -325,27 +301,26 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - research 対象は全銘柄で会社IR確認が必須、という前提が弱い
 - source URL が貼られていても、一次情報か二次情報か、本文中に数値が存在するかを確認しない
 - system output を上書きする行為を一級の decision として記録していない
-- order と execution の状態遷移を trade record で区別しない
+- order と execution の状態遷移をexecution lifecycleで区別しない
 
 ### 再発防止チェックリスト
 
 - [ ] research 対象銘柄について、業種を問わず会社IRを確認したか。最低限、直近決算短信 /
       決算説明資料 / Q&A / 有価証券報告書または統合報告書 / 中期経営計画 / 株主還元関連開示を
       確認し、未確認項目を本文に残したか
-- [ ] 会社IR未確認のまま `thesis_decision.outcome: approved` にしていないか。未確認なら `deferred` または
-      `rejected` にして、追加確認条件を明示したか
+- [ ] 会社IR未確認のまま `judgment.recommendation: buy` にしていないか。未確認なら`defer`または
+      `reject`にして、追加確認条件を明示したか
 - [ ] 外部 AI / 二次分析の結論を採用する前に、主要数値を会社IR・決算短信・決算説明資料・Q&A・
       取引所 calendar・candidates のいずれかで再確認したか
 - [ ] 外部 AI セッション・証券レポート・アナリストノートを使う場合、records に原稿管理を増やさず、採用した事実と再計算結果だけを本文に残したか
 - [ ] 外部 AI の出力を review 後に修正する場合、修正・未採用の判断を research 本文の確認ログに残したか
 - [ ] 確認できた事実、修正した数値、未採用の二次情報を research の source verification log に分けて残したか
 - [ ] EPS / PER / 配当利回り / target price は公式 EPS・配当予想・株価で再計算したか
-- [ ] 直前の `rejected`、最新 candidates からの不在、universe drop、macro context headwind、実資金集中度超過などを
-      上書きする場合、research front matter の `overrides` と本文に prior state / reason / evidence を残したか
-- [ ] canonical ledger稼働時の資本・集中度はcurrent + reserved exposureから再計算したか。未初期化時は既存position/thesis gateを使ったか
-- [ ] `real_concentration` が [`portfolio-management.md`](./portfolio-management.md) / `policy.py` の cap（単一銘柄 4–6% / 単一 sector 30–40%）を超える場合、`overrides` に理由を記録したか
-- [ ] 注文日が休場日または立会時間外の場合、trade は `orders[].state: submitted` とし、
-      executions がない限り約定価格を推定で埋めていないか
+- [ ] 候補の不在、universe drop、macro context headwind、concentration warningなどを上書きする場合、
+      decision packetのevidence overrideへ人間判断の根拠と期限を残したか
+- [ ] canonical ledgerの資本・集中度はcurrent + reserved exposureから再計算したか
+- [ ] concentration warningを受け入れる場合、ledger overrideに理由と期限を記録したか
+- [ ] 注文日が休場日または立会時間外の場合、broker-confirmed executionがない限り約定価格を推定で埋めていないか
 - [ ] not-filled outcomeのlimit touchをbroker fillとして記録していないか。期限後return / missed upsideはsame-basisの観測値が揃う場合だけ補助観測として扱ったか
 - [ ] fallback price observation は `decision_event_id`、`tracking_horizon`、`target_date`、`resolved_trade_date`、`price_basis`、`source_url`、`fetched_at`、`corporate_action_checked`、`same_basis_group_id`、`provisional` を持ち、basis 不一致を確定評価に使っていないか
 - [ ] 外部市場予測 (例: Gartner / IDC / 証券サイトの同業倍率) は、今回の canonical fact として
@@ -359,9 +334,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   思い込み、YAML パースが 93% を占めていることに気付かなかった
 - `yaml.safe_load(...)` を素朴に使い、libyaml backed の `yaml.CSafeLoader` に切り替えるだけで
   5 倍速くなる事実を見落とした
-- `src/baibai_loop/thesis/shared.py` だけが private に
-  `_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)` を持っており、他 14 src 件は
-  pure-Python loader のままだった (知識のサイロ化)
+- YAML loaderの高速化が個別moduleに閉じ、他のrecords readerがpure-Python loaderへ戻った
 
 ### 根本原因
 

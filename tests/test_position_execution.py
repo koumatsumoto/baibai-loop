@@ -20,7 +20,6 @@ from baibai_loop.position.execution import (
     reconcile_execution_lifecycle_with_ledger,
 )
 from baibai_loop.position.ledger import PortfolioLedgerDocument
-from baibai_loop.position.trades import load_open_trades
 from baibai_loop.validation.execution_lifecycle import validate_execution_lifecycle_file
 
 ROOT = Path(__file__).parents[1]
@@ -86,58 +85,6 @@ def test_representative_lifecycle_matches_reservations_and_executions_in_ledger(
 
     assert view.position_state == "closed"
     assert view.current_quantity == 0
-
-
-def test_open_trade_reader_derives_the_same_entry_basis_from_execution_facts(
-    tmp_path: Path,
-) -> None:
-    raw = _raw()
-    intents = raw["decision_intents"]
-    orders = raw["orders"]
-    executions = raw["executions"]
-    assert isinstance(intents, list)
-    assert isinstance(orders, list)
-    assert isinstance(executions, list)
-    intents.pop()
-    orders.pop()
-    executions.pop()
-    lifecycle = evaluate_execution_lifecycle(_document(raw), board_lot=100)
-    legacy_executions = []
-    for execution in executions:
-        assert isinstance(execution, dict)
-        legacy_executions.append(
-            {
-                "execution_id": execution["execution_id"],
-                "order_id": execution["order_id"],
-                "side": execution["side"],
-                "quantity": execution["quantity"],
-                "price_yen": execution["price_yen"],
-                "at": execution["executed_at"],
-            }
-        )
-    record = {
-        "position_id": lifecycle.position_id,
-        "ticker": lifecycle.ticker,
-        "name": "ALSOK",
-        "position_state": "open",
-        "executions": legacy_executions,
-    }
-    path = tmp_path / "records/04-position/2026/07/2026-07-03-2331.md"
-    path.parent.mkdir(parents=True)
-    path.write_text(
-        "---\n" + yaml.safe_dump(record, allow_unicode=True, sort_keys=False) + "---\n",
-        encoding="utf-8",
-    )
-
-    trades = load_open_trades(tmp_path)
-
-    assert len(trades) == 1
-    trade = trades[0]
-    assert lifecycle.entry_date is not None
-    assert lifecycle.weighted_buy_price_yen is not None
-    assert trade.entry_date == lifecycle.entry_date.date()
-    assert trade.quantity == lifecycle.current_quantity == 300
-    assert trade.entry_price == float(lifecycle.weighted_buy_price_yen)
 
 
 def test_same_intent_can_retry_after_a_terminal_order_without_new_confirmation() -> None:

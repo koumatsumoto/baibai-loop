@@ -225,12 +225,11 @@ name = "screening does not import position (one-way market<-{screening,position}
 type = "forbidden"
 source_modules = ["baibai_loop.screening"]
 forbidden_modules = ["baibai_loop.position"]
-# ticker_profile reads open positions to surface portfolio-concentration facts in
-# the candidate packet. position.trades is a standalone trade-record reader
-# (foundation only), so this single holdings-lookup edge does not form a package
-# cycle; price/calendar data both subsystems share now flows through market.
+# ticker_profile reads the canonical ledger to surface current portfolio-
+# concentration facts in the candidate packet. This single lookup edge does not
+# form a package cycle; price/calendar data both subsystems share flow through market.
 ignore_imports = [
-  "baibai_loop.screening.ticker_profile -> baibai_loop.position.trades",
+  "baibai_loop.screening.ticker_profile -> baibai_loop.position.ledger",
 ]
 
 [[tool.importlinter.contracts]]

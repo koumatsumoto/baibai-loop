@@ -206,24 +206,7 @@ class PortfolioBlockTests(unittest.TestCase):
             sqlite_path = root / "market.sqlite"
             _insert_bars(sqlite_path, "AAAA", [100.0] * 30, end=_ASOF)
             _insert_reference_rows(sqlite_path)
-            trade_dir = root / "records" / "04-position" / "2026" / "05"
-            trade_dir.mkdir(parents=True)
-            (trade_dir / "2026-05-13-bbbb.md").write_text(
-                "---\n"
-                "position_id: trade-1\n"
-                "ticker: 'BBBB'\n"
-                "name: 同業ペア\n"
-                "position_state: open\n"
-                "review_state: scheduled\n"
-                "executions:\n"
-                "- execution_id: exec-1\n"
-                "  side: buy\n"
-                "  quantity: 100\n"
-                "  price_yen: 500\n"
-                "  at: '2026-05-14T09:00:00+09:00'\n"
-                "---\n",
-                encoding="utf-8",
-            )
+            _write_portfolio_ledger(root, ticker="BBBB", sector="機械", price_yen=500)
 
             packet = build_ticker_profile(
                 sqlite_path=sqlite_path,
@@ -243,3 +226,65 @@ class PortfolioBlockTests(unittest.TestCase):
             positions = portfolio["open_positions"]
             assert isinstance(positions, list)
             self.assertEqual(positions[0]["entry_notional_yen"], 50000)
+
+
+def _write_portfolio_ledger(root: Path, *, ticker: str, sector: str, price_yen: int) -> None:
+    path = root / "records/04-position/portfolio-ledger.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "schema_version": 2,
+                "portfolio_scope": "repository_only",
+                "as_of": "2026-05-29T15:30:00+09:00",
+                "estimated_exit_tax_rate_bps": None,
+                "estimated_exit_tax_basis": None,
+                "events": [
+                    {
+                        "event_id": "opening",
+                        "type": "opening_balance",
+                        "occurred_at": "2026-05-14T08:00:00+09:00",
+                        "amount_yen": 100000,
+                    },
+                    {
+                        "event_id": "reservation",
+                        "type": "reservation",
+                        "occurred_at": "2026-05-14T08:01:00+09:00",
+                        "reservation_id": "reservation-1",
+                        "order_id": "order-1",
+                        "ticker": ticker,
+                        "sector": sector,
+                        "common_factors": [],
+                        "quantity": 100,
+                        "price_guard_yen": price_yen,
+                        "expires_at": "2026-05-14T15:30:00+09:00",
+                    },
+                    {
+                        "event_id": "execution",
+                        "type": "execution",
+                        "occurred_at": "2026-05-14T09:00:00+09:00",
+                        "execution_id": "execution-1",
+                        "reservation_id": "reservation-1",
+                        "ticker": ticker,
+                        "side": "buy",
+                        "quantity": 100,
+                        "price_yen": price_yen,
+                    },
+                ],
+                "market_prices": [
+                    {
+                        "ticker": ticker,
+                        "price_yen": price_yen,
+                        "observed_at": "2026-05-29T15:30:00+09:00",
+                        "source_kind": "licensed_dataset",
+                        "price_basis": "unadjusted_close",
+                        "source_ref": "test:ledger-price",
+                    }
+                ],
+                "overrides": [],
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )

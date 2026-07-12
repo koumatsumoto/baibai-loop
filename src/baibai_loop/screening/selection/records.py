@@ -7,10 +7,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-import yaml
-
 from baibai_loop.foundation.coerce import (
-    date_from_datetime_prefix,
     dict_sequence,
     mapping_sequence,
     metric_map,
@@ -19,7 +16,6 @@ from baibai_loop.foundation.coerce import (
     string_or_none,
     string_sequence,
 )
-from baibai_loop.foundation.records_ref import load_markdown_front_matter, repo_root_for
 from baibai_loop.foundation.yaml_io import safe_load
 
 
@@ -53,42 +49,6 @@ class CandidateRecord:
     p_s: float | None = None
     ev_ebitda: float | None = None
     pcfr: float | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class PriorResearch:
-    ticker: str
-    outcome: str | None
-    posture: str | None
-    reason_code: str | None
-    deferral_reason: str | None
-    revisit_after: date | None
-    expires_at: date | None
-    published_at: str | None
-    thesis_ref: str | None
-
-    def suppression_reason(self, asof_date: date) -> str | None:
-        if self.outcome == "deferred":
-            if self.revisit_after is None:
-                return "deferred_without_revisit_after"
-            if self.revisit_after > asof_date:
-                return "deferred_until_revisit_after"
-            return None
-        if self.outcome == "rejected" and (self.expires_at is None or self.expires_at > asof_date):
-            return "prior_rejected"
-        return None
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "outcome": self.outcome,
-            "posture": self.posture,
-            "reason_code": self.reason_code,
-            "deferral_reason": self.deferral_reason,
-            "revisit_after": self.revisit_after.isoformat() if self.revisit_after else None,
-            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
-            "published_at": self.published_at,
-            "thesis_ref": self.thesis_ref,
-        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,57 +114,6 @@ _EXPECTED_NUMERIC_EVIDENCE_METRICS = _EXPECTED_NUMERIC_METRICS | frozenset(
         "ps_sector_gap",
     }
 )
-
-
-def load_prior_research(thesis_root: Path, asof_date: date) -> dict[str, PriorResearch]:
-    """Return the latest prior research decision per ticker from thesis records.
-
-    Investment memos (`records/03-thesis/`) are the single source of prior
-    decisions. The latest record per ticker on or before ``asof_date`` wins,
-    ordered by published_at (falling back to the filename date) then filename
-    for determinism.
-    """
-    if not thesis_root.exists():
-        return {}
-    latest: dict[str, tuple[tuple[str, str], PriorResearch]] = {}
-    for path in sorted(thesis_root.rglob("*.md")):
-        try:
-            front = load_markdown_front_matter(path)
-        except (OSError, ValueError, yaml.YAMLError):
-            continue
-        ticker = string_or_none(front.get("ticker"))
-        decision = front.get("thesis_decision")
-        if ticker is None or not isinstance(decision, Mapping):
-            continue
-        published_at = string_or_none(front.get("published_at")) or string_or_none(
-            front.get("recorded_at")
-        )
-        event_date = date_from_datetime_prefix(published_at) or parse_iso_date(path.name[:10])
-        if event_date is None or event_date > asof_date:
-            continue
-        revisit = decision.get("revisit")
-        revisit_map = revisit if isinstance(revisit, Mapping) else {}
-        root = repo_root_for(path)
-        try:
-            thesis_ref = path.resolve().relative_to(root.resolve()).as_posix()
-        except ValueError:
-            thesis_ref = path.as_posix()
-        prior = PriorResearch(
-            ticker=ticker,
-            outcome=string_or_none(decision.get("outcome")),
-            posture=string_or_none(decision.get("posture")),
-            reason_code=string_or_none(decision.get("reason_code")),
-            deferral_reason=string_or_none(decision.get("deferral_reason")),
-            revisit_after=parse_iso_date(string_or_none(revisit_map.get("revisit_after"))),
-            expires_at=parse_iso_date(string_or_none(revisit_map.get("expires_at"))),
-            published_at=published_at,
-            thesis_ref=thesis_ref,
-        )
-        event_key = (event_date.isoformat(), path.name)
-        previous = latest.get(ticker)
-        if previous is None or event_key >= previous[0]:
-            latest[ticker] = (event_key, prior)
-    return {ticker: prior for ticker, (_, prior) in latest.items()}
 
 
 def load_previous_candidates(
