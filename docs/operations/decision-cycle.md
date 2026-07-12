@@ -40,7 +40,7 @@ Baibai-Loopの日常運用は「最もお買い得な日本株を見つけ、人
 
 1. `git status --short --branch`でbranchとtracked差分を確認する。dirtyなら所有者と目的を理解するまでrecordを更新しない。
 2. triggerを1件選び、対応するoperation Issueへ同じsessionのcheckpointを集約する。
-3. `UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger`でcanonical holdings、active reservations、cash、warningsを読む。warningはannotationでありrankingを変更しない。
+3. `UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger`でcanonical holdings、active reservations、cash、warningsを読む。warningはannotationでありrankingを変更しない。`event_annotations`のmigration eventはcanonical stateの初期化記録で、人間報告後のbroker resultではないため、当月の新規注文・約定件数へ数えない。
 4. このtriggerで使うpublic commandの`--help`とrequired inputを確認する。
 
 全trigger共通のstop条件はdirty worktreeの所有不明、schema/public CLI不明、入力同士の矛盾である。market/EDINET/JPX coverageとmacro freshnessは`opportunity`、価格を再計算するholding/outcome等、そのdataを実際に使うpathだけで確認する。`pending-result`は人間報告、proposal reference、ledger source hash/reconciliationだけで完了でき、market cacheやmacroが不足していても止めない。stop時はcommand、error、判断への影響、必要な入力をIssueへ残す。

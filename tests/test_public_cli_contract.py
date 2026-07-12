@@ -178,7 +178,9 @@ def test_ledger_cli_emits_stable_yaml_shape(capsys: pytest.CaptureFixture[str]) 
         "holdings",
         "active_reservations",
         "warnings",
+        "event_annotations",
     }
+    assert payload["event_annotations"] == []
     holdings = payload["holdings"]
     assert isinstance(holdings, list)
     assert holdings
@@ -195,6 +197,32 @@ def test_ledger_cli_emits_stable_yaml_shape(capsys: pytest.CaptureFixture[str]) 
         "market_price_source_ref",
         "market_value_yen",
     }
+
+
+def test_ledger_cli_labels_migration_events_as_initialization(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    raw = yaml.safe_load(LEDGER_FIXTURE.read_text())
+    assert isinstance(raw, dict)
+    events = raw["events"]
+    assert isinstance(events, list)
+    events[0]["event_id"] = "migration-opening-20260501"
+    ledger = tmp_path / "migration-ledger.yaml"
+    ledger.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True))
+
+    assert position_main(["ledger", "--ledger", str(ledger)]) == 0
+    payload = _payload(capsys.readouterr().out)
+
+    assert payload["event_annotations"] == [
+        {
+            "code": "ledger.migration-initialization",
+            "event_count": 1,
+            "message": (
+                "migration events initialize canonical state and are not "
+                "human-reported broker results"
+            ),
+        }
+    ]
 
 
 def test_outcome_cli_emits_stable_activation_pending_shape(
