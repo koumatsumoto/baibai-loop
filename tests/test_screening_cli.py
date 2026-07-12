@@ -2407,3 +2407,228 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = safe_load(buffer.getvalue())
             self.assertEqual(self._recommended(payload)[0]["ticker"], "1111")
+
+    def test_audit_top_omitted_keeps_output_backward_compatible(self) -> None:
+        """--audit-top 省略時は audit_pool key を出さず既存 output 互換を保つ。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/02-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "candidate",
+                        "sector_33": "機械",
+                        "evidence_hits": [{"name": "valuation-reversion"}],
+                    }
+                ],
+            )
+            self._write_macro_context(
+                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+            )
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                macro_context_path=None,
+                top=10,
+                candidates_root=root / "records/02-candidates",
+                macro_context_root=root / "records/01-macro-context",
+                stdout=buffer,
+            )
+            self.assertEqual(exit_code, 0)
+            payload = safe_load(buffer.getvalue())
+            self.assertNotIn("audit_pool", payload)
+            self.assertEqual(set(payload), {"recommendations", "selection"})
+
+    def test_audit_pool_caps_at_audit_top_independent_of_recommendation_cap(self) -> None:
+        """audit_pool は diversity/cap 切断前の rank 済み集合の先頭 N 件を返す。
+
+        recommendation は production cap (target_max=5) に従うが、audit_pool は
+        --audit-top 20 まで rank 順で残り、監査 view として cap から独立する。
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            candidates = [
+                {
+                    "ticker": f"{1000 + index}",
+                    "name": f"candidate {index}",
+                    "sector_33": "機械",
+                    "metrics": {"er_annual": round(0.30 - index * 0.001, 6)},
+                    "evidence_hits": [{"name": "valuation-reversion"}],
+                }
+                for index in range(25)
+            ]
+            self._write_candidates(root / "records/02-candidates", asof, candidates=candidates)
+            self._write_macro_context(
+                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+            )
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                macro_context_path=None,
+                top=10,
+                candidates_root=root / "records/02-candidates",
+                macro_context_root=root / "records/01-macro-context",
+                stdout=buffer,
+                audit_top=20,
+            )
+            self.assertEqual(exit_code, 0)
+            payload = safe_load(buffer.getvalue())
+            recommendations = self._recommended(payload)
+            audit_pool = payload["audit_pool"]
+            self.assertIsInstance(audit_pool, list)
+            self.assertLessEqual(len(recommendations), 5)
+            self.assertEqual(len(audit_pool), 20)
+            self.assertGreater(len(audit_pool), len(recommendations))
+            # rank は 1..20 で E[r] 降順 (最高 er の 1000 が先頭)。
+            self.assertEqual([row["rank"] for row in audit_pool], list(range(1, 21)))
+            self.assertEqual(audit_pool[0]["ticker"], "1000")
+
+    def test_audit_pool_entry_reports_pct_and_derived_reference_price(self) -> None:
+        """audit_pool は er_annual を pct 化し、market cap/株数から参考 close を導く。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/02-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "priced candidate",
+                        "sector_33": "機械",
+                        "market_cap_oku": 300,
+                        "metrics": {
+                            "er_annual": 0.125,
+                            "shares_outstanding": 30_000_000,
+                            "fv_sector_median_yen": 1200,
+                            "fv_self_range_yen": 1500,
+                        },
+                        "evidence_hits": [{"name": "valuation-reversion"}],
+                    }
+                ],
+            )
+            self._write_macro_context(
+                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+            )
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                macro_context_path=None,
+                top=10,
+                candidates_root=root / "records/02-candidates",
+                macro_context_root=root / "records/01-macro-context",
+                stdout=buffer,
+                audit_top=5,
+            )
+            self.assertEqual(exit_code, 0)
+            payload = safe_load(buffer.getvalue())
+            entry = payload["audit_pool"][0]
+            self.assertEqual(
+                set(entry),
+                {
+                    "rank",
+                    "ticker",
+                    "name",
+                    "screening_playbook",
+                    "expected_return_pct",
+                    "fair_value_anchor_yen",
+                    "market_price_yen",
+                    "liquidity_status",
+                    "durability_warnings",
+                    "event_warnings",
+                    "selection_reasons",
+                },
+            )
+            self.assertEqual(entry["expected_return_pct"], 12.5)
+            # 300 億円 * 1e8 / 30,000,000 株 = 1000 円/株。
+            self.assertEqual(entry["market_price_yen"], 1000.0)
+            # 保守側の FV アンカー = min(1200, 1500)。
+            self.assertEqual(entry["fair_value_anchor_yen"], 1200.0)
+            self.assertEqual(entry["liquidity_status"], "pass")
+            self.assertEqual(entry["screening_playbook"], "valuation-reversion")
+
+    def test_audit_top_out_of_range_returns_usage_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/02-candidates",
+                asof,
+                candidates=[{"ticker": "1111", "name": "x", "sector_33": "機械"}],
+            )
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                macro_context_path=None,
+                top=10,
+                candidates_root=root / "records/02-candidates",
+                macro_context_root=root / "records/01-macro-context",
+                stdout=buffer,
+                audit_top=101,
+            )
+            self.assertEqual(exit_code, 1)
+
+    def test_output_path_writes_yaml_and_refuses_overwrite_without_force(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asof = date(2026, 4, 24)
+            self._write_candidates(
+                root / "records/02-candidates",
+                asof,
+                candidates=[
+                    {
+                        "ticker": "1111",
+                        "name": "candidate",
+                        "sector_33": "機械",
+                        "evidence_hits": [{"name": "valuation-reversion"}],
+                    }
+                ],
+            )
+            self._write_macro_context(
+                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+            )
+            output_path = root / "out/selection.yaml"
+
+            buffer = io.StringIO()
+            exit_code = select_command(
+                asof_date=asof,
+                macro_context_path=None,
+                top=10,
+                candidates_root=root / "records/02-candidates",
+                macro_context_root=root / "records/01-macro-context",
+                stdout=buffer,
+                output_path=output_path,
+            )
+            self.assertEqual(exit_code, 0)
+            # 同一内容が file と stdout の両方へ出る。
+            self.assertTrue(output_path.exists())
+            self.assertEqual(output_path.read_text(encoding="utf-8"), buffer.getvalue())
+
+            # --force なしでは既存 file を上書き拒否する。
+            second = select_command(
+                asof_date=asof,
+                macro_context_path=None,
+                top=10,
+                candidates_root=root / "records/02-candidates",
+                macro_context_root=root / "records/01-macro-context",
+                stdout=io.StringIO(),
+                output_path=output_path,
+            )
+            self.assertEqual(second, 1)
+
+            # --force ありでは上書きできる。
+            third = select_command(
+                asof_date=asof,
+                macro_context_path=None,
+                top=10,
+                candidates_root=root / "records/02-candidates",
+                macro_context_root=root / "records/01-macro-context",
+                stdout=io.StringIO(),
+                output_path=output_path,
+                force=True,
+            )
+            self.assertEqual(third, 0)

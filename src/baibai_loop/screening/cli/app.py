@@ -154,6 +154,24 @@ def build_parser() -> argparse.ArgumentParser:
         default="summary",
         help="selection output detail (default: summary)",
     )
+    select_parser.add_argument(
+        "--audit-top",
+        type=int,
+        default=0,
+        help=(
+            "emit an audit_pool of the top N ranked candidates before diversity/cap "
+            "truncation (0-100; default 0 omits audit_pool for output compatibility)"
+        ),
+    )
+    select_parser.add_argument(
+        "--output-path",
+        help="also write the selection YAML to this path (stdout is unchanged)",
+    )
+    select_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite an existing --output-path file",
+    )
     _add_market_state_arguments(select_parser)
 
     profile_parser = subparsers.add_parser(
@@ -302,6 +320,9 @@ def main(argv: list[str] | None = None) -> int:
             rules=load_screening_rules(Path(args.rules_path)),
             profile=args.profile,
             detail=args.detail,
+            audit_top=args.audit_top,
+            output_path=Path(args.output_path) if args.output_path else None,
+            force=args.force,
             regime_sqlite_path=Path(args.sqlite_path),
         )
 

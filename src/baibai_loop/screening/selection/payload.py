@@ -36,6 +36,7 @@ from .records import (
     _numeric_metric_type_warnings,
 )
 from .summaries import (
+    _audit_pool_summary,
     _candidate_reason_tags,
     _candidate_risk_tags,
     _decision_input_seed,
@@ -60,9 +61,12 @@ def build_selection_payload(
     market_regime: MarketRegimeSnapshot | None = None,
     profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
     detail: str = "summary",
+    audit_top: int = 0,
 ) -> dict[str, object]:
     if detail not in {"summary", "full"}:
         raise ValueError("detail must be summary or full")
+    if audit_top < 0:
+        raise ValueError("audit_top must be zero or greater")
     effective_profile = profile or rules.selection.default_profile
     selection_rules = resolve_selection_rules(
         rules.selection,
@@ -158,32 +162,39 @@ def build_selection_payload(
             for rank, candidate in enumerate(recommended, start=1)
         ]
     )
-    return {
+    payload: dict[str, object] = {
         "recommendations": recommendations,
-        "selection": {
-            "asof": asof_date.isoformat(),
-            "profile": effective_profile,
-            "input_refs": {
-                "candidates_ref": candidates_ref,
-                "macro_context_ref": macro_context_ref,
-                "previous_candidates_ref": previous_candidates.ref_path,
-            },
-            "counts": {
-                "input": len(candidates),
-                "after_liquidity_filter": len(candidates) - liquidity_excluded_count,
-                "after_er_filter": len(ranked_candidates),
-                "evidence_annotated": evidence_annotated_count,
-                "er_missing": er_missing_count,
-            },
-            "research_selection_target_max": rules.output.research_selection_target_max,
-            "research_selection_playbook_order": list(
-                rules.output.research_selection_playbook_order
-            ),
-            "macro_context_summary": macro_context_summary(macro_context, asof_date=asof_date),
-            "diagnostics": diagnostics,
-            "detail": detail,
-        },
     }
+    # audit_pool は監査用の追加 view。--audit-top 省略 (0) では既存 output 互換のため
+    # key 自体を出さない。出す場合は同じ rank 済み集合 (diversity/cap 切断前) の先頭
+    # N 件で、recommendation の production cap とは独立に監査できるようにする。
+    if audit_top > 0:
+        payload["audit_pool"] = [
+            _audit_pool_summary(candidate, rank=rank)
+            for rank, candidate in enumerate(ranked_candidates[:audit_top], start=1)
+        ]
+    payload["selection"] = {
+        "asof": asof_date.isoformat(),
+        "profile": effective_profile,
+        "input_refs": {
+            "candidates_ref": candidates_ref,
+            "macro_context_ref": macro_context_ref,
+            "previous_candidates_ref": previous_candidates.ref_path,
+        },
+        "counts": {
+            "input": len(candidates),
+            "after_liquidity_filter": len(candidates) - liquidity_excluded_count,
+            "after_er_filter": len(ranked_candidates),
+            "evidence_annotated": evidence_annotated_count,
+            "er_missing": er_missing_count,
+        },
+        "research_selection_target_max": rules.output.research_selection_target_max,
+        "research_selection_playbook_order": list(rules.output.research_selection_playbook_order),
+        "macro_context_summary": macro_context_summary(macro_context, asof_date=asof_date),
+        "diagnostics": diagnostics,
+        "detail": detail,
+    }
+    return payload
 
 
 def build_selection_sweep_payload(
