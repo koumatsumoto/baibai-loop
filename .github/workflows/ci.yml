@@ -42,6 +42,14 @@ jobs:
       - name: Import contracts
         run: uv run lint-imports
 
+      - name: Drift gates
+        run: |
+          uv run python tools/drift/check_markdown_links.py
+          uv run python tools/drift/check_cli_doc.py
+          uv run python tools/drift/check_legacy_semantics.py
+          uv run python tools/drift/check_duplicate_constants.py
+          uv run python tools/drift/check_clean_lineage.py
+
       - name: Block tracked raw screening cache
         run: |
           if git ls-files 'records/_data/raw/screening' 'records/_data/cache' | grep -q .; then
@@ -58,6 +66,15 @@ jobs:
 
       - name: Validate artefacts
         run: uv run baibai-loop-validation
+
+      - name: Validate clean checkout lineage
+        run: |
+          checkout="$(mktemp -d)"
+          git archive HEAD | tar -x -C "$checkout"
+          (
+            cd "$checkout"
+            uv run --frozen baibai-loop-validation
+          )
 
       - name: Build package
         run: uv build --wheel

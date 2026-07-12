@@ -18,6 +18,7 @@ from baibai_loop.position.execution import (
     ExecutionLifecycleError,
     evaluate_execution_lifecycle,
 )
+from baibai_loop.position.policy import PORTFOLIO_POLICY
 
 SCHEMA_PATH = (
     Path(__file__).resolve().parents[3] / "records" / "_schemas" / "execution-lifecycle.json"
@@ -42,7 +43,9 @@ _VALIDATOR = _load_validator()
 
 
 def validate_execution_lifecycle_file(
-    path: Path, *, board_lot: int = 100
+    path: Path,
+    *,
+    board_lot: int | None = None,
 ) -> list[ValidationFinding]:
     """Validate schema and lifecycle invariants for one staged contract fixture."""
 
@@ -54,7 +57,12 @@ def validate_execution_lifecycle_file(
         return findings
     try:
         document = ExecutionLifecycleDocument.model_validate(raw)
-        evaluate_execution_lifecycle(document, board_lot=board_lot)
+        resolved_board_lot = (
+            int(PORTFOLIO_POLICY["order_constraints"]["board_lot"])
+            if board_lot is None
+            else board_lot
+        )
+        evaluate_execution_lifecycle(document, board_lot=resolved_board_lot)
     except (ExecutionLifecycleError, ValidationError, ValueError) as error:
         return [
             ValidationFinding(

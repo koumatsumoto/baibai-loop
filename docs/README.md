@@ -49,3 +49,5 @@ last_reviewed: 2026-07-11
 - 構造・repository map・automation は [`architecture.md`](./architecture.md)。安定アンカー `#repository-map` / `#automation`。
 - 成果物の機械契約は `records/_schemas/*.json`（contract-of-record）。工程 doc は field を書き写さず、意味・計算式・設計判断の理由だけを持つ。
 - 失敗パターンの正本は [`anti-patterns.md`](./anti-patterns.md)。AP 番号は維持する。
+- skill は正本を参照して操作差分だけを持つ。runbook や skill に policy 値・schema field を複写しない。
+- HTML と通常の `reports/` は records・schema・Markdown の判断を複製せず、再生成可能な表示に留める。改善ループの dated measurement report だけは、[`operations/improvement-loop.md`](./operations/improvement-loop.md) が定める計測証跡として残す。

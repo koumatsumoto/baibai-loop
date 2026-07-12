@@ -35,7 +35,6 @@ macro-context は **定期生成しない**（cron 化しない）。次のト�
 4. **該当する§3ゲートを通す** — 1つでも✗ならその結論を書かない。
 5. **落とし込む** — material deltaがある場合だけrecordsへ、特殊調査はreportsへ置き、編集後にvalidationを実行する。
 
-KAIZEN は §3 末尾の掃き出しチェックで回す（§5）。
 
 ## 2. 必要なsourceの取得（操作）
 
@@ -93,7 +92,6 @@ uv run baibai-loop-macro get btc_usd       --start "$(date -d '3 months ago' +%F
 10. **誠実性ファイアウォール**: edge 数値・統計的有意・自動 sizing を出していないか。シナリオ確率は主観と明示し、合計≈1・相互排他・網羅・horizon 一致か。
 11. **スコープ分離**: 汎用指標と特殊対象（例 BTC トレジャリーの mNAV・転換社債）を分け、特殊を基盤（`series.yaml`/workflow doc）に入れていないか。
 12. **機械検証**: macro-context を編集したら `uv run baibai-loop-validation --target macro-context` を通したか（schema/additionalProperties/series 一致）。[AP-08]
-13. **KAIZEN 掃き出し**: この run で踏んだ手順の穴を `./KAIZEN.md` に拾い、再現する手続き的欠陥は本 SKILL の該当節へ畳んで KAIZEN を空にしたか（§5）。
 
 ## 4. 落とし込み
 
@@ -106,20 +104,8 @@ uv run baibai-loop-macro get btc_usd       --start "$(date -d '3 months ago' +%F
 通常運用ではYAMLの短いsummaryとmaterial deltaだけを残す。HTMLは別途共有価値がある調査だけで作成し、macro recordとの併産や12セクション構成を要求しない。雛形は必要時の参考実装に留める。
 
 - **規律**: 単一 HTML・インライン CSS・外部依存ゼロ（オフラインで開く）。水準は percentile バッジで定量化（§3-4）、基盤 series と web を出典で分離（§3-6, web は source 明記）。§3 ゲートを全て通してから書く。脆い provider（`multpl`）の数値は注記する。
-- **出力先と表示**: `.plan/macro-report-<date>.html`（ドラフト）に書き `open-file` skill で既定ブラウザに表示。確定版は records/reports へ。逐次取得（§2 の並行起動禁止）を厳守する。
+- **出力先と表示**: `.plan/macro-report-<date>.html`（ドラフト）に書き `open-file` skill で既定ブラウザに表示する。HTML は要求時だけの generated view であり、通常の macro context や proposal に commit しない。保存が必要な判断は records と Markdown に置き、HTML はそれらを正本にしない。逐次取得（§2 の並行起動禁止）を厳守する。
 
-## 5. このスキルの自己改善（§3 ゲートを育てる）
-
-正味の仕事は **§3 ゲートを育てること**で、専用儀式を増やさない。§3 を通すついでに回す。
-
-- **拾う**: この run で踏んだ手順の穴・摩擦・不足レンズを 1 行で `./KAIZEN.md` に書く（強制は §3-13 の掃き出し時の 1 回 sweep、即時メモは任意）。
-- **畳む基準**: 「別の fresh agent が同手順で同じ穴に落ちる＝再現する手続き的欠陥」なら該当節（多くは §3、必要なら §1/§2/§4）へ恒久化し、本文には「今このチェックが要る理由」を現在形で書く。1 回限りの typo・その日の事情は捨てる。
-- **掃き出す**: 畳んだ／捨てた項目は KAIZEN.md から消す。fold は **1 commit**（KAIZEN 削除＋SKILL 追記）で残し、理由は commit message に書く。これで KAIZEN.md は常に「未反映だけ」、git history が判断根拠の安全網になる。
-- **置き場**: 手続き的チェック → 本 SKILL §3／データ取得・source 手順の知見 → workflow/macro.md ①／複数サブシステム横断の普遍的失敗（PR review で 2 回以上の型）→ `docs/anti-patterns.md` へ昇格。
-- `KAIZEN.md` は本スキル同梱の skill-scoped backlog。repo 全体の `.plan/` scratch とは別に、スキルと一緒に travel し SKILL.md から 1 ホップで辿れるよう同梱・commit する。
-- **前提検証（forward calibration ではない）**: 次回更新時に、前回 context の `refresh_triggers` が発火したか（前提が崩れたか）を確認し `changes_since_previous` に記録する。「予測が当たったか」ではなく「前提の鮮度」を追う（誠実性ファイアウォール: マクロは track record を出さない）。発火の早すぎ/遅すぎは `refresh_triggers` 設定の改善に回す。
-
-## 6. 参照
+## 5. 参照
 - [`docs/workflow/macro.md`](../../../docs/workflow/macro.md): 思想・provider registry・**汎用レンズの読み方（正本）**・接続・誠実性。
 - [`anti-patterns.md`](../../../docs/anti-patterns.md): AP カタログ（一次情報 AP-01・検算 AP-02・異常値 cross-check AP-03・最新性 AP-07・validator AP-08 等）。
-- 改善 backlog: [`./KAIZEN.md`](./KAIZEN.md)。
