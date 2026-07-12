@@ -3,7 +3,7 @@ title: "Decision packet reference"
 summary: "5年総合リターン、永久損失、証拠状態、独立反証を持つ投資判断のcanonical contract。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-11
+last_reviewed: 2026-07-12
 ---
 
 # Decision packet
@@ -50,7 +50,7 @@ total_return_CAGR = ((terminal_price + cumulative_dividend_per_share) / entry_pr
 
 `annual_share_count_change_pct`が正なら希薄化、負ならbuybackによる株数減少である。terminal priceは配当を含めず、累積配当をCAGR計算で1回だけ加える。入力が主張するterminal earnings、shares、price、CAGRを式から再計算し、不一致を`incomplete`にする。
 
-## Execution pricing
+## Planning-only execution pricing
 
 `estimates.required_5y_base_cagr_pct`は、5年base scenarioに対してこの判断が要求する年率を明示する。`deep_discount_bps`を使う場合も同じpacketに保存し、後から別の値へ差し替えない。execution policyは表示用の上限価格や終値からの任意率を入力にせず、再計算した5年base terminal priceと累積配当から最大許容価格を求める。
 
@@ -62,9 +62,18 @@ max_acceptable_price = floor_to_tick(
 )
 ```
 
-`baibai-loop-decision --execution-input <yaml> --ledger <canonical-ledger>` は、この上限、provider-neutral quote、canonical ledgerから導出したcash・concentration snapshot、数量・期限を使い、`buy_now / shallow_limit / deep_limit / defer` を比較する。CLIはinput YAMLのcashやexposureがledger snapshotと一致しない場合に停止する。proposalは人間承認前の判断材料であり、brokerを操作しない。評価時刻はexecution inputに固定し、quoteとledger snapshotはその時刻の5分以内でなければならない。CLIはさらに実行時刻との差が5分以内であり、注文期限がまだ到来していないことを確認するため、過去のreplay inputを現在の発注案として使えない。stale・historical・synthetic quote、または可視bid/askの全てが上限を超える場合は`defer`にする。spread、visible depth、ADV、注文後concentrationはwarningであり、根拠のないfill probabilityや価格予測を作らない。
+日常の寄り前proposalは`baibai-loop-opportunity plan-limit`を使う。target session直前の最新完全営業日のJPX raw/unadjusted closeをSQLiteから読み、packetの最大許容価格とboard lotへ接続する。regular session、realtime quote、板、5分freshnessは要求しない。
 
-未約定の測定では、期限内の日中安値がlimitにtouchした事実とbroker fillを区別する。touchは約定証明ではない。same-basisの観測値が揃う場合だけ、期限後5 sessionの価格とdecision時askを比較してmissed upsideを記録する。この値は指値policyを改善する観測値であり、strategy performanceや確定損益ではない。
+| condition | result |
+| --- | --- |
+| packet/review ready、corporate action resolved、close ≤ max price | `planned_limit`。主指値はclose |
+| close > max price | `defer` |
+| adjusted-only、non-1 adjustment factor、価格basis不明 | `defer` |
+| packet/review not readyまたはhash mismatch | `defer` |
+
+20〜30万円はquantityを考える目安。1単元が上限を超えても1単元と超過warningを出し、より安い次点へ自動変更しない。cash、dry powder、concentration、held/reservedは人間向けwarning/annotationであり、投資価値rankingや最大許容価格を変えない。
+
+proposalは人間承認前の判断材料で、brokerを操作しない。AIはfill probability、当日価格方向、未報告broker状態を推定しない。人間から結果が報告された後だけledger draftを作る。既存`baibai-loop-decision --execution-input`は互換的なlive evaluationであり、通常の寄り前runbook入口ではない。
 
 ## Permanent-loss axes
 
@@ -90,6 +99,7 @@ hashとrun metadataが保証するのはartifactの整合性であり、reviewer
 
 ```bash
 uv run baibai-loop-decision records/03-thesis/YYYY/MM/YYYY-MM-DD-XXXX-decision.yaml
-uv run baibai-loop-decision records/03-thesis/YYYY/MM/YYYY-MM-DD-XXXX-decision.yaml --execution-input execution-input.yaml --ledger records/04-position/portfolio-ledger.yaml
+uv run baibai-loop-opportunity status --workspace .cache/opportunity/YYYY-MM-DD
+uv run baibai-loop-opportunity plan-limit --help
 uv run baibai-loop-validation --target decision-packet
 ```

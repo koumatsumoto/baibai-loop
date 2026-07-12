@@ -3,7 +3,7 @@ title: "改善ループ runbook"
 summary: "基盤改善サイクルの正本。現状計測 → 仮説の事前登録 → design/confirm 検証 → 採用実装 → 運用テスト → 継続監視を、誠実性規律つきで回す手順。"
 doc_type: operation
 status: active
-last_reviewed: 2026-07-11
+last_reviewed: 2026-07-12
 related_docs:
   - "../doctrine.md"
   - "../reference/estimate-calibration.md"
@@ -12,7 +12,7 @@ related_docs:
 
 # 改善ループ runbook — 見積り精度の継続改善
 
-基盤（マクロ読み・screening 選定・E[r]/FV/RR 見積り）の精度を計測で改善するサイクルの正本。ゴールは「**マクロ経済分析・screening からの個別銘柄提案・期待値計算の精度を高め、お買い得銘柄をより適切に選定できる状態を作る**」こと。思想上の位置づけ（計測ファースト・誠実性の規律）は [`../doctrine.md`](../doctrine.md) 柱 5、計測基盤の実装仕様は [`../reference/estimate-calibration.md`](../reference/estimate-calibration.md) が正本。操作の skill は [`improvement-loop`](../../.claude/skills/improvement-loop/SKILL.md)。
+基盤（マクロ読み・screening 選定・E[r]/FV/RR 見積り）の精度を計測で改善するサイクルの正本。ゴールは「**マクロ経済分析・screening からの個別銘柄提案・期待値計算の精度を高め、お買い得銘柄をより適切に選定できる状態を作る**」こと。思想上の位置づけ（計測ファースト・誠実性の規律）は [`../doctrine.md`](../doctrine.md) 柱 5、計測基盤の実装仕様は [`../reference/estimate-calibration.md`](../reference/estimate-calibration.md) が正本。操作のskillは[`improvement-loop`](../../.agents/skills/improvement-loop/SKILL.md)。
 
 ## 改善対象マップ（レバーの所在）
 
@@ -25,7 +25,7 @@ related_docs:
 | 機械 E[r]・FV アンカー（anchor・実現率・cap・carry） | `src/baibai_loop/screening/estimates.py` | 較正リプレイ（er 軸 IC / decile / 予測 vs 実現） |
 | valuation 指標の算出 | `src/baibai_loop/screening/metrics` 系 + [`../reference/valuation-metrics.md`](../reference/valuation-metrics.md) | 較正リプレイ（軸別 IC / coverage） |
 | マクロ読みの手順・レンズ | [`../workflow/macro.md`](../workflow/macro.md) + skill `macro-analysis` | 保有 outcome / 月次の事後検証（N≈1、統計計測はしない） |
-| research の見積り手順（FV・RR・耐性） | [`../workflow/research.md`](../workflow/research.md) + skill `ai-value-bargain-selection` | portfolio outcome と長期horizon calibration |
+| research の見積り手順（FV・RR・耐性） | [`../workflow/research.md`](../workflow/research.md) + skill `decision-cycle` | portfolio outcome と長期horizon calibration |
 | 資本・cap・sizing | [`../portfolio-management.md`](../portfolio-management.md) + `src/baibai_loop/position/policy.py` | 保有 outcome |
 
 計測の母数は 2 系統（doctrine §2）: **(a) 保有 outcome**（少数・深い観測。判断品質の最終的な正）と **(b) 較正リプレイ**（全銘柄 × 長期 horizon。手法較正用に件数を桁で補う）。機械レバー（screen / select / E[r]）の実証的改訂は (b) の 3y/5y eligible evidence を必須の関門にし、判断レバー（macro / research 手順）は (a) と運用の事後検証で改める。

@@ -14,6 +14,7 @@ def check(root: Path) -> list[str]:
     forbidden = _policy_patterns(root)
     candidates = [root / "README.md", root / "AGENTS.md"]
     candidates.extend((root / "docs").rglob("*.md"))
+    candidates.extend((root / ".agents" / "skills").rglob("*.md"))
     candidates.extend((root / ".claude" / "skills").rglob("*.md"))
     errors: list[str] = []
     for path in candidates:

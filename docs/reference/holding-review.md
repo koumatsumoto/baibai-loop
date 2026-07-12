@@ -3,7 +3,7 @@ title: "Holding review reference"
 summary: "保有・売却を thesis health と税引後の代替機会費用で hold/add/reduce/exit へ落とす契約と算術。FV 到達は review trigger、価格下落単独は売却理由にしない。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-11
+last_reviewed: 2026-07-12
 related_docs:
   - "../doctrine.md"
   - "../portfolio-management.md"
@@ -21,6 +21,8 @@ Holding review は、保有 1 件の売買判断を **thesis health** と **税�
 売却の主因は **thesis break（事業毀損）** で、これは優先売却候補になる。**フェアバリュー到達は review trigger であって自動の全売りではない**。**価格下落そのものは売却理由にしない**。
 
 holding reviewは`ledger`、holding decision packet、候補packetを`ref + sha256`で必須参照する。review scalarはsource artifactと切り離して信頼しない。
+
+`holding-review-build`はholding packetの隣接`independent_review_ref`をpath-confinedに読み、packet/review readinessとhashを確認してからledgerと結合する。load-bearing scalarはsourceから生成し、運用担当が手入力で変更しない。
 
 ## Inputs
 
@@ -68,6 +70,9 @@ replacement_edge = switch_terminal - hold_terminal
 ## Commands
 
 ```bash
-uv run baibai-loop-position holding-review --input records/04-position/YYYY/MM/YYYY-MM-DD-XXXX-review.yaml
+uv run baibai-loop-position holding-review-build --packet records/03-thesis/YYYY/MM/YYYY-MM-DD-XXXX-decision.yaml --ledger records/04-position/portfolio-ledger.yaml --position-id POSITION_ID --out .cache/holding-review/YYYY-MM-DD-XXXX-attempt-N-review.yaml
+uv run baibai-loop-position holding-review --root . --input .cache/holding-review/YYYY-MM-DD-XXXX-attempt-N-review.yaml
 uv run baibai-loop-validation --target holding-review
 ```
+
+buildはpacket/review missing、hash drift、packetとholding market-price observationの日付不一致、ledgerにopen holdingなし、raw/unadjusted price basis不一致、source path escapeで停止する。ledgerの非価格eventはmarket closeより新しくてよい。draft生成後は`holding-review --root . --input`がsourceからscalarを再構築して照合する。人間が確認したdraftだけをcanonicalへcopyし、その後にvalidationを通す。完全な手順は[`../operations/decision-cycle.md#earnings-and-material-event-path`](../operations/decision-cycle.md#earnings-and-material-event-path)を正本とする。

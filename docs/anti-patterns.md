@@ -1,3 +1,11 @@
+---
+title: "Anti-patterns"
+summary: "投資判断、data、schema、validator、AI運用で繰り返し防ぐ失敗パターンとcommit前checklist。"
+doc_type: governance
+status: active
+last_reviewed: 2026-07-12
+---
+
 # anti-patterns
 
 baibai-loop での AI agent 作業で観測された失敗パターン集と、再発防止のためのチェックリスト。
@@ -247,15 +255,9 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] schema 管理している **nested object** が未知 field を許していないか
   - [ ] **既存 packet** (4/25 research 5 件など) が新 rule で breakage しないか、する場合は
         同 commit で fix する
-- [ ] execution lifecycleを導入・変更する場合、intent・order・executionの時系列、数量、価格guard、期限、external broker order IDの整合をcontract testで確認したか
 - [ ] ledger eventを導入・変更する場合、reservationとbuy execution、terminal orderとrelease、cash不足、guard超過、expiry後のbuy、保有超過sellをhard errorとして確認したか
 - [ ] concentrationはholding market value + active reservationをledgerの`total_capital_yen`で割り、warning + 期限付きoverrideとして扱うことを確認したか
-- [ ] multi-intent execution lifecycleを導入・変更する場合、以下をcontract testで確認したか:
-  - [ ] intentが空でないuser decision reference、exact decision packet hash、side、board-lot quantity、guard、expiryを持つ
-  - [ ] orderは実在intentへjoinし、intent guardの内側のlimit priceだけを使う。retry/ladderの同時live quantityはintent残数を超えない
-  - [ ] executionは実在orderへjoinし、side、submission時刻、expiry、limit price、order quantityと整合する
-  - [ ] duplicate intent/order/execution/external broker order ID、orphan、terminal後execution、guard違反、over-sellをhard errorにする
-  - [ ] canonical ledgerがある場合、同一`as_of`・lifecycle開始以後の同一ticker reservation / execution ID集合を完全一致させ、buy orderのreservation、buy/sell execution、terminal buy orderのreleaseをIDと数値・時刻で照合する
+- [ ] human result CLIを変更する場合、報告なしでno write、proposal/approval URL必須、missing fieldの質問、canonical非上書き、source hash drift拒否をcontract testで確認したか
 - [ ] decision packetがapprovedの場合、source snapshot、scenario、independent review、execution inputが同一packet hashに束縛されるか
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
@@ -268,7 +270,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] `src/baibai_loop/screening/cli/{__init__.py,query.py,cache.py,run.py}` の関数 / import
   - [ ] `src/baibai_loop/screening/cli/common.py` の専用 helper (`_parse_profiles_arg` のような callers が消えた helper)
   - [ ] `docs/` 全 grep (`rg <subcommand> docs/ records/ reports/`): runbook の bash example、reference の CLI 表、components / screening の説明文、`docs/reference/screening-runtime.md` の subcommand 一覧
-  - [ ] `.claude/skills/` 全 grep: skill が当該 CLI を中核に据えていないか
+  - [ ] `.agents/skills/`と`.claude/skills/`全grep: canonical skillとsymlinkが当該CLIを参照していないか
   - [ ] `docs/reference/screening-runtime.md` §3 (env var) / §8 (rules baseline) と `docs/workflow/screening.md` の selection block 節
   - [ ] 関連 test fixture (test_screening_cli の sweep / scorecard テスト等)
 - [ ] **screening evidence pattern を削減する場合、以下を同 commit で揃える** (PR #246 で 5 名レビューで指摘):
@@ -284,7 +286,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] label と根拠数値の不整合が catch されるか
   - [ ] `regime` key 欠落のような partial mapping が `required` 違反として catch されるか
 
-## 9. AP-09: 外部 AI 分析を検証せず records に取り込む
+## 9. AP-09: 外部AI・broker事実・canonical stateを無検証で取り込む
 
 ### 観測された症状
 - research 対象銘柄なのに、会社IRを読まず、screening 数値や外部分析だけで採用 / 見送り判断を書く
@@ -300,7 +302,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - research 対象は全銘柄で会社IR確認が必須、という前提が弱い
 - source URL が貼られていても、一次情報か二次情報か、本文中に数値が存在するかを確認しない
 - system output を上書きする行為を一級の decision として記録していない
-- order と execution の状態遷移をexecution lifecycleで区別しない
+- 人間報告、proposal、ledger eventの境界を曖昧にし、未報告broker状態を推定する
 
 ### 再発防止チェックリスト
 
@@ -318,6 +320,11 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] 候補の不在、universe drop、macro context headwind、concentration warningなどを上書きする場合、
       decision packetのevidence overrideへ人間判断の根拠と期限を残したか
 - [ ] canonical ledgerの資本・集中度はcurrent + reserved exposureから再計算したか
+- [ ] brokerの`open / filled / cancelled`を人間報告なしに推定していないか
+- [ ] proposal/approval URLへ辿れないresultをledgerへ入れていないか
+- [ ] holdings/reservationsをcanonical ledgerから読み、削除済みMarkdown globを使っていないか
+- [ ] 予算、保有、予約だけを理由に、より割安な候補をscreening/research前にhard除外していないか
+- [ ] ledger精密化、二重記録、realtime取得を、お買い得候補の一次情報・5年評価より優先していないか
 - [ ] concentration warningを受け入れる場合、ledger overrideに理由と期限を記録したか
 - [ ] 注文日が休場日または立会時間外の場合、broker-confirmed executionがない限り約定価格を推定で埋めていないか
 - [ ] not-filled outcomeのlimit touchをbroker fillとして記録していないか。期限後return / missed upsideはsame-basisの観測値が揃う場合だけ補助観測として扱ったか

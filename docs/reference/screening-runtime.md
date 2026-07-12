@@ -1,3 +1,11 @@
+---
+title: "Screening runtime"
+summary: "screening CLI、provider、SQLite schema、cache coverage、runtime設定の実装仕様。"
+doc_type: reference
+status: active
+last_reviewed: 2026-07-12
+---
+
 # screening-runtime — CLI / provider / SQLite の実装仕様
 
 `records/02-candidates/` の自動生成を担う screening CLI の実装正本。週次 screening の入力と実行条件を traceability として追跡するための実行方式、依存、失敗時の扱いを定義する。

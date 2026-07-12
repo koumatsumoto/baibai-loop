@@ -1,0 +1,6 @@
+interface:
+  display_name: "Baibai TradingView"
+  short_description: "ticker linkを提示しfocus chartを開く"
+  default_prompt: "Use $tradingview-open to link every ticker and open the focus chart."
+policy:
+  allow_implicit_invocation: true

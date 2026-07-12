@@ -1,45 +1,101 @@
 ---
-title: "Workflow — position (execution & holding)"
-summary: "decision packetに基づく手動注文、ledgerへの約定反映、holding review、portfolio outcomeをつなぐ工程。"
+title: "Workflow — position"
+summary: "人間のbroker結果をledger draftへ反映し、source-bound holding reviewとportfolio outcomeへつなぐ工程。"
 doc_type: workflow
 status: active
 last_reviewed: 2026-07-12
+related_docs:
+  - "../operations/decision-cycle.md"
+  - "../reference/portfolio-ledger.md"
+  - "../reference/holding-review.md"
 ---
 
-# Workflow — 執行・保有
+# Workflow — position
 
-この工程は、decision packetの購入判断を人間のbroker操作へ渡し、確認済みの注文・約定・現金・保有をcanonical portfolio ledgerへ記録する。自動発注はしない。資本の正本は`records/04-position/portfolio-ledger.yaml`、注文と約定の整合はexecution lifecycle、保有見直しはholding reviewで扱う。
+この工程は、proposalを人間のbroker操作へ渡し、人間が確認して報告した注文結果、cash、holding、reservationをcanonical portfolio ledgerへ記録する。自動発注とbroker状態の推定は行わない。ledgerはrepository内の正本だが、broker会計の完全な複製ではない。
 
-## 新規注文
+## Proposal and approval
 
-1. decision packetを`baibai-loop-decision`で再計算し、source freshness、5年base scenario、永久損失7軸、独立reviewを確認する。
-2. `uv run baibai-loop-position ledger`でavailable cash、active reservation、保有、concentration warningを確認する。warningを受け入れる場合は理由と期限を持つhuman overrideをledgerに記録する。
-3. packet hashに束縛したexecution lifecycleへ、human-confirmed intent、brokerへ送信したorder、broker-confirmed executionを時系列で記録する。約定価格を推測で埋めない。
-4. lifecycleのreservation / execution / releaseと対応するledger eventを照合する。期限切れ・取消・broker拒否はreleaseを明示し、reserved cashを暗黙解放しない。
+AIの新規注文作業は、packet/reviewに束縛したproposal Issueを作り、人間の`approve / defer / reject`を待つところまで。approve後もAIは発注せず、ledgerを変更しない。人間がbrokerを操作し、結果を報告する。
 
-契約の詳細は[`../reference/execution-lifecycle.md`](../reference/execution-lifecycle.md)、資本eventとreconciliationは[`../reference/portfolio-ledger.md`](../reference/portfolio-ledger.md)を正本とする。
+## Human result input
 
-## 保有見直し
+| report | required input | draft event | no-op | stop / ask |
+| --- | --- | --- | --- | --- |
+| `open` | ticker、quantity、limit、expiry、sector、proposal/approval URL | reservation | 同一reportの全payload一致 | proposal不明、期限/数量/価格不足 |
+| `filled` | ticker、quantity、price、executed_at、proposal/approval URL | execution。必要なら先行reservation | 同一event | reservationなしでapproval/guard/expiry/sector不足、未来日時、残数量超過 |
+| `cancelled` | reservation_id、cancelled_at、proposal/approval URL | remaining release | 既にterminal | reservation不明、未来日時 |
 
-決算発表後またはmaterialな変化があった保有だけを対象にholding reviewを更新する。価格下落だけでは売らず、永久損失リスク、証拠鮮度、現値起点の5年期待値、税引後の代替機会費用から`hold / add / reduce / exit`を提案する。FV到達はreview triggerであって自動売却ではない。
+報告がなければ何も更新しない。約定価格と時刻をAIが推定しない。`reservation_id / order_id / event_id`はrepository内のstable identityであり、brokerがIDを報告しない場合はhuman reportから決定的に生成してよい。これはbroker order IDを観測したという意味ではない。
 
-既存保有に初めてreviewを作る場合は、現在の一次情報と現値からholding decision packetを作る。根拠を推測で復元しない。
+## Ledger draft lifecycle
+
+1. **Draft**: `record-result`がcanonical input hashを固定し、patched local YAMLを生成する。
+2. **Inspect**: event、decision reference、cash、reserved cash、quantity、holding差分を読む。
+3. **Validate**: schema、event順序、future timestamp、reservation/execution/release、reconciliationを確認する。
+4. **Apply**: operation Issueにhash、event、snapshot差分を残し、人間が確認した場合だけsource hashを再照合してcanonicalへcopyし、validationと最終diffを確認する。
+
+CLIはcanonical ledgerを直接上書きしない。詳細recipeは[`operations/decision-cycle.md#human-result-path`](../operations/decision-cycle.md#human-result-path)を正本とする。
+
+## Reservation behavior
+
+- `open`: 同一event identityかつ全payload一致だけをno-opにする。同じ形の別proposalは別reportとして扱う。
+- `filled`: active reservationをquantity分消費する。部分約定ならremaining reservationを維持する。
+- reservationなしの`filled`: 人間がapproval時刻、guard、expiry、sectorを報告した場合だけreservation→executionを同じdraftへ作る。
+- `cancelled`: 指定reservationのremaining quantityをreleaseする。
+- expiryは推定で処理しない。人間報告または明示された運用入力を使う。
+
+## Holding review trigger
+
+決算、業績修正、資本政策、永久損失兆候、FV到達、より良い代替候補がmaterialなとき、対象tickerだけreviewする。全portfolioやscreeningを自動で始めない。
+
+input:
+
+| source | check |
+| --- | --- |
+| current decision packet + review | as-of、ready、hash、source freshness |
+| canonical ledger position | ticker、quantity、cost、market close、event lineage |
+| new primary source | packet以後のmaterial deltaだけ |
+| replacement candidate | 税・費用控除後の期待値比較 |
+
+`holding-review-build`はpacketの隣接independent reviewを読み、ledgerとcurrent packetからload-bearing scalarを生成する。価格日はledger event時刻ではなく、holdingの最新完全営業日market-price observationとpacketのraw/unadjusted closeを照合する。source値を手入力で変更しない。生成後に`holding-review --root . --input ...`でsource hashとscalar再構築を検証し、人間確認後だけcanonicalへcopyしてvalidationを通す。
+
+## Holding action
+
+| action | meaning |
+| --- | --- |
+| `hold` | thesis intactで税引後代替が明確に優れない |
+| `add` | thesis intact、永久損失acceptable、現値が上限内で追加価値がある |
+| `reduce` | thesis at risk、集中超過、または税引後代替が優れる |
+| `exit` | thesis brokenまたは確認済み永久損失が優先される |
+
+含み損だけでは売らない。FV到達はreview triggerであり自動exitではない。
+
+## Portfolio outcome
+
+portfolio outcomeはcanonical ledger eventをJPX営業日closeまで再生し、同期間の配当込みTOPIX観測と比較する。内部cash flowをneutralizeし、tax/costを含める。source、period、corporate action、benchmark不足は`unresolved`で、独自推定を作らない。
+
+outcomeは長期判断のcalibration evidenceであり、短期screenの最適化やtrack record主張には使わない。
+
+## Failure / stop conditions
+
+- 人間報告、proposal/approval URL、required fieldがない。
+- draft作成後にcanonical ledger hashが変わった。
+- eventがfuture-dated、時系列不正、reservationと矛盾する。
+- holding packet/reviewがmissing、stale、hash mismatch。
+- market closeまたはcorporate actionがunresolved。
+
+## Validation
 
 ```bash
-uv run baibai-loop-position holding-review --input records/04-position/YYYY/MM/YYYY-MM-DD-XXXX-review.yaml
-uv run baibai-loop-validation --target holding-review
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation --target ledger
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation --target holding-review
 ```
 
-## 成果測定
+## Related
 
-portfolio全体の結果はledger eventをJPX営業日closeまで再生し、TOPIX配当込みの同期間returnと比較する。これはportfolioの実現結果を確認する計測であり、短期screen最適化には使わない。
-
-```bash
-uv run baibai-loop-position outcome --benchmark-observation records/04-position/benchmarks/topix-1y.yaml
-```
-
-## 参考
-
-- [`./research.md`](./research.md)：購入判断と発注上限
-- [`../operations/decision-cycle.md`](../operations/decision-cycle.md)：trigger別の実行順序
-- [`../reference/holding-review.md`](../reference/holding-review.md)：保有判断の算術
+- [`../operations/decision-cycle.md`](../operations/decision-cycle.md)
+- [`../reference/portfolio-ledger.md`](../reference/portfolio-ledger.md)
+- [`../reference/holding-review.md`](../reference/holding-review.md)
+- [`../reference/estimate-calibration.md`](../reference/estimate-calibration.md)

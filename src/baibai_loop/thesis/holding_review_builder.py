@@ -8,7 +8,6 @@ decision packet, without introducing a reverse position-to-thesis dependency.
 from __future__ import annotations
 
 import hashlib
-from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
@@ -20,8 +19,10 @@ from baibai_loop.position.holding_review import (
 from baibai_loop.position.ledger import load_portfolio_ledger, reconcile_portfolio
 from baibai_loop.thesis.decision_packet import (
     DecisionPacketDocument,
+    DecisionPacketError,
     evaluate_decision_packet,
     load_decision_packet,
+    load_independent_review,
 )
 
 
@@ -36,16 +37,15 @@ def build_holding_review(
     """Derive every load-bearing review scalar from immutable source artifacts.
 
     A review only accepts a current packet whose decision-time unadjusted close
-    is the same price and date as the ledger valuation. This prevents an entry
-    packet or adjusted series from being copied into a current holding decision.
+    is the same price and date as the holding's ledger market-price observation.
+    Non-price ledger events may be newer than that latest complete close.
     """
 
+    root = root.resolve()
     ledger_path = _resolve(root, ledger_ref)
     holding_path = _resolve(root, holding_packet_ref)
     ledger = load_portfolio_ledger(ledger_path)
-    packet = load_decision_packet(holding_path)
-    as_of = ledger.as_of.date()
-    _require_current_packet(packet, as_of=as_of)
+    packet = _load_ready_packet(holding_path)
     snapshot = reconcile_portfolio(ledger)
     holding = next(
         (item for item in snapshot.holdings if item.ticker == packet.input_snapshot.ticker),
@@ -53,6 +53,11 @@ def build_holding_review(
     )
     if holding is None:
         raise HoldingReviewError("holding packet ticker has no open ledger holding")
+    as_of = holding.market_price_observed_at.date()
+    if packet.input_snapshot.as_of != as_of:
+        raise HoldingReviewError(
+            "decision packet as_of must equal the holding market-price observation date"
+        )
     packet_price = _packet_market_price(packet)
     if packet_price != holding.market_price_yen or holding.market_price_observed_at.date() != as_of:
         raise HoldingReviewError(
@@ -67,8 +72,11 @@ def build_holding_review(
     replacement: dict[str, object] = {"status": "no_candidate"}
     if candidate_packet_ref is not None:
         candidate_path = _resolve(root, candidate_packet_ref)
-        candidate = load_decision_packet(candidate_path)
-        _require_current_packet(candidate, as_of=as_of)
+        candidate = _load_ready_packet(candidate_path)
+        if candidate.input_snapshot.as_of != as_of:
+            raise HoldingReviewError(
+                "candidate packet as_of must equal the holding market-price observation date"
+            )
         if candidate.input_snapshot.ticker == holding.ticker:
             raise HoldingReviewError("replacement candidate ticker must differ from holding ticker")
         sources["candidate_packet"] = _source_ref(root, candidate_path)
@@ -163,14 +171,29 @@ def validate_holding_review_scalars(document: HoldingReviewDocument, *, root: Pa
         raise HoldingReviewError("holding review load-bearing values differ from source rebuild")
 
 
-def _require_current_packet(packet: DecisionPacketDocument, *, as_of: date) -> None:
-    if packet.input_snapshot.as_of != as_of:
-        raise HoldingReviewError("decision packet as_of must equal ledger valuation date")
-    result = evaluate_decision_packet(packet)
+def _load_ready_packet(path: Path) -> DecisionPacketDocument:
+    try:
+        packet = load_decision_packet(path)
+    except DecisionPacketError as error:
+        raise HoldingReviewError(f"failed to load decision packet: {error}") from error
+    if packet.independent_review_ref is None:
+        raise HoldingReviewError("decision packet requires an independent review")
+    review_ref = Path(packet.independent_review_ref)
+    if review_ref.is_absolute() or review_ref.name != packet.independent_review_ref:
+        raise HoldingReviewError("independent review must be an adjacent file reference")
+    review_path = (path.parent / review_ref).resolve()
+    if review_path.parent != path.parent.resolve():
+        raise HoldingReviewError("independent review must stay adjacent to its packet")
+    try:
+        review = load_independent_review(review_path)
+    except DecisionPacketError as error:
+        raise HoldingReviewError(f"failed to load independent review: {error}") from error
+    result = evaluate_decision_packet(packet, review=review)
     if result.errors or result.decision_readiness != "ready":
         raise HoldingReviewError(
             "decision packet is not ready for holding review: " + "; ".join(result.errors)
         )
+    return packet
 
 
 def _packet_market_price(packet: DecisionPacketDocument) -> Decimal:
@@ -210,7 +233,10 @@ def _source_ref(root: Path, path: Path) -> dict[str, str]:
 
 
 def _resolve(root: Path, reference: Path) -> Path:
-    path = reference if reference.is_absolute() else root / reference
+    resolved_root = root.resolve()
+    path = reference.resolve() if reference.is_absolute() else (resolved_root / reference).resolve()
+    if not path.is_relative_to(resolved_root):
+        raise HoldingReviewError(f"source must stay within repository root: {reference}")
     if not path.is_file():
         raise HoldingReviewError(f"source is missing: {reference}")
     return path

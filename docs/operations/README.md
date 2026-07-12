@@ -1,23 +1,20 @@
 ---
 title: "Operations index"
-summary: "工程横断の運用手順（continuous decision cycle、基盤改善ループ、決算後確認タスク、障害対応）の入口。工程ごとの手順は workflow/ を参照。"
+summary: "triggerから工程横断runbookを選ぶ入口。工程内の変換はworkflow、artifact contractはreferenceを参照する。"
 doc_type: operation-index
 status: active
-last_reviewed: 2026-07-11
+last_reviewed: 2026-07-12
 ---
 
 # Operations
 
-`docs/operations/` は工程横断の運用手順を置く。単一ループの各工程（macro / screening / research / position）の手順は [`../workflow/`](../workflow/) を参照する。
+operationは「いつ・どの順で完了するか」を持つ。各工程のinput/output/failureは[`workflow/`](../workflow/)、artifact・式・validationの意味は[`reference/`](../reference/)を正本とする。
 
-| runbook | 使う場面 |
-| --- | --- |
-| [`decision-cycle.md`](./decision-cycle.md) | 随時の機会判断、pending order、月次入金、決算・重要event、年次outcomeをtriggerごとに進める e2e 導線 |
-| [`improvement-loop.md`](./improvement-loop.md) | 基盤（screening / select / E[r] / マクロ読み）の精度を計測で改善するサイクル |
-| [`task-runbook.md`](./task-runbook.md) | 決算後確認など将来イベント後に実行する GitHub issue タスク管理 |
-| [`incident-runbook.md`](./incident-runbook.md) | source 取得失敗、validator failure、automation failure |
+| trigger / situation | runbook | 完了 |
+| --- | --- | --- |
+| 候補、指値、人間からの注文結果、月次入金、決算、保有、年次結果 | [`decision-cycle.md`](./decision-cycle.md) | trigger固有のproposal/draft/review/outcome |
+| screening/FV/E[r]/macro読み等の方法変更 | [`improvement-loop.md`](./improvement-loop.md) | preregistration、評価、PR、運用テスト |
+| 将来の決算・event後に再確認 | [`task-runbook.md`](./task-runbook.md) | dated Issueからcanonical recordへ反映 |
+| source/coverage/validator/CLI failure | [`incident-runbook.md`](./incident-runbook.md) | safe stop、復旧条件、escalation |
 
-## 原則
-
-- 投資判断の正本は records / workflow doc に残し、issue には期限・確認項目・更新先を記録する。
-- records / schema を変更したら [`../reference/testing-and-validation.md`](../reference/testing-and-validation.md) の検証を通す。
+投資判断の正本はrecords、session checkpointはoperation Issueに置く。同じ判断本文をIssueとrecordsへ複製しない。

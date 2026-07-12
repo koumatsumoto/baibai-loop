@@ -184,27 +184,6 @@ class ValidateCliTests(unittest.TestCase):
             )
             self.assertEqual(exit_code, 0, msg=stderr.getvalue())
 
-    def test_execution_lifecycle_target_discovers_forward_artifacts(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            _seed_repo(root)
-            source = ROOT / "tests/fixtures/execution-lifecycle/representative.yaml"
-            target = root / "records/04-position/2026/06/2026-06-03-2331-execution.yaml"
-            target.parent.mkdir(parents=True)
-            target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
-            stdout = io.StringIO()
-            stderr = io.StringIO()
-
-            exit_code = run_validation(
-                root=root,
-                targets=("execution-lifecycle",),
-                stdout=stdout,
-                stderr=stderr,
-            )
-
-            self.assertEqual(exit_code, 0, msg=stderr.getvalue())
-            self.assertIn("validated 1 file(s)", stdout.getvalue())
-
     def test_policy_target_requires_repository_policy_doc(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

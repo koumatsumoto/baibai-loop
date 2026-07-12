@@ -1,3 +1,11 @@
+---
+title: "Estimate calibration"
+summary: "point-in-time panelと長期forward returnでE[r]・FV・selection方法を較正するcontract。"
+doc_type: reference
+status: active
+last_reviewed: 2026-07-12
+---
+
 # estimate-calibration
 
 screening の機械見積りと選定順位を過去 as-of で再構成し、価格リターンの実現値へ突き合わせる local-only の較正処理である。portfolio outcome や JPX total-return benchmark とは別の、cross-sectional な estimator diagnostic を所有する。

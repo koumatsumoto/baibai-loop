@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections import defaultdict
 from collections.abc import Mapping
@@ -101,6 +102,7 @@ class ReservationEvent(_EventBase):
     ticker: Annotated[str, Field(pattern=_TICKER_PATTERN)]
     sector: Annotated[str, Field(min_length=1)]
     common_factors: tuple[Annotated[str, Field(min_length=1)], ...] = ()
+    decision_reference: Annotated[str, Field(min_length=1)] | None = None
     quantity: Annotated[int, Field(gt=0)]
     price_guard_yen: Annotated[Decimal, Field(gt=0, decimal_places=4)]
     expires_at: datetime
@@ -135,6 +137,7 @@ class ReleaseEvent(_EventBase):
     type: Literal["release"]
     reservation_id: Annotated[str, Field(min_length=1)]
     reason: Literal["cancelled", "expired", "broker_rejected", "decision_changed"]
+    decision_reference: Annotated[str, Field(min_length=1)] | None = None
 
 
 class ExecutionEvent(_EventBase):
@@ -145,6 +148,7 @@ class ExecutionEvent(_EventBase):
     side: Literal["buy", "sell"]
     quantity: Annotated[int, Field(gt=0)]
     price_yen: Annotated[Decimal, Field(gt=0, decimal_places=4)]
+    decision_reference: Annotated[str, Field(min_length=1)] | None = None
 
     @field_validator("price_yen", mode="before")
     @classmethod
@@ -311,6 +315,7 @@ class ReservationSnapshot:
     ticker: str
     sector: str
     common_factors: tuple[str, ...]
+    decision_reference: str | None
     remaining_quantity: int
     price_guard_yen: Decimal
     reserved_yen: int
@@ -359,6 +364,7 @@ class _Reservation:
     ticker: str
     sector: str
     common_factors: tuple[str, ...]
+    decision_reference: str | None
     remaining_quantity: int
     price_guard_yen: Decimal
     expires_at: datetime
@@ -403,9 +409,18 @@ class ReplayedPortfolioValue:
 def load_portfolio_ledger(path: Path) -> PortfolioLedgerDocument:
     """Load strict YAML without accepting implicit numeric or datetime coercion."""
 
+    document, _source_sha256 = load_portfolio_ledger_with_sha256(path)
+    return document
+
+
+def load_portfolio_ledger_with_sha256(path: Path) -> tuple[PortfolioLedgerDocument, str]:
+    """Parse a ledger and hash the exact same bytes used for that parse."""
+
     try:
-        raw = safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as error:
+        source = path.read_bytes()
+        text = source.decode("utf-8")
+        raw = safe_load(text)
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as error:
         raise PortfolioLedgerError(f"failed to read ledger: {error}") from error
     if not isinstance(raw, Mapping):
         raise PortfolioLedgerError("portfolio ledger root must be a mapping")
@@ -414,7 +429,7 @@ def load_portfolio_ledger(path: Path) -> PortfolioLedgerDocument:
     except ValidationError as error:
         raise PortfolioLedgerError(str(error)) from error
     _reject_test_prices_in_canonical(document, path)
-    return document
+    return document, hashlib.sha256(source).hexdigest()
 
 
 def _reject_test_prices_in_canonical(document: PortfolioLedgerDocument, path: Path) -> None:
@@ -501,6 +516,7 @@ def replay_events_through(
                     ticker=event.ticker,
                     sector=event.sector,
                     common_factors=event.common_factors,
+                    decision_reference=event.decision_reference,
                     remaining_quantity=event.quantity,
                     price_guard_yen=event.price_guard_yen,
                     expires_at=event.expires_at,
@@ -697,6 +713,7 @@ def reconcile_portfolio(
                     ticker=event.ticker,
                     sector=event.sector,
                     common_factors=event.common_factors,
+                    decision_reference=event.decision_reference,
                     remaining_quantity=event.quantity,
                     price_guard_yen=event.price_guard_yen,
                     expires_at=event.expires_at,
@@ -823,6 +840,7 @@ def reconcile_portfolio(
             ticker=item.ticker,
             sector=item.sector,
             common_factors=item.common_factors,
+            decision_reference=item.decision_reference,
             remaining_quantity=item.remaining_quantity,
             price_guard_yen=item.price_guard_yen,
             reserved_yen=_yen_notional(

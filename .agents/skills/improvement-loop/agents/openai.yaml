@@ -1,0 +1,6 @@
+interface:
+  display_name: "Baibai Improvement Loop"
+  short_description: "見積り方法を事前登録評価と運用テストで改善"
+  default_prompt: "Use $improvement-loop to evaluate and deliver this Baibai-Loop method improvement."
+policy:
+  allow_implicit_invocation: true

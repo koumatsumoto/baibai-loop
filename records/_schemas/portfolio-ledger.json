@@ -213,6 +213,19 @@
             }
           ],
           "title": "Price Yen"
+        },
+        "decision_reference": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision Reference"
         }
       },
       "required": [
@@ -511,6 +524,19 @@
           ],
           "title": "Reason",
           "type": "string"
+        },
+        "decision_reference": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision Reference"
         }
       },
       "required": [
@@ -569,6 +595,19 @@
           },
           "title": "Common Factors",
           "type": "array"
+        },
+        "decision_reference": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision Reference"
         },
         "quantity": {
           "exclusiveMinimum": 0,

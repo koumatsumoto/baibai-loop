@@ -1,0 +1,6 @@
+interface:
+  display_name: "Baibai Macro Analysis"
+  short_description: "個別5年評価へ効くmaterial macro deltaを確認"
+  default_prompt: "Use $macro-analysis to evaluate the material macro delta for this Baibai-Loop decision."
+policy:
+  allow_implicit_invocation: true

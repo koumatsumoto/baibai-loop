@@ -17,7 +17,7 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 
 | サイクル | 内容 | 正本 runbook | skill |
 | --- | --- | --- | --- |
-| **継続的な投資判断** | 随時の機会判断 / pending order / 月次入金 / 決算・重要event / 年次outcomeをtriggerごとに進める | [`docs/operations/decision-cycle.md`](./docs/operations/decision-cycle.md) | `macro-analysis` / `ai-value-bargain-selection` / `ir-research` / `financial-pro-review` |
+| **継続的な投資判断** | 随時の機会判断 / 人間からの注文結果 / 月次入金 / 決算・重要event / 年次outcomeをtriggerごとに進める | [`docs/operations/decision-cycle.md`](./docs/operations/decision-cycle.md) | `decision-cycle`（必要時に`macro-analysis`） |
 | **基盤改善** | 現状計測 → 仮説の事前登録 → design/confirm 検証 → 採用実装 → 運用テスト → dated report → 継続監視 | [`docs/operations/improvement-loop.md`](./docs/operations/improvement-loop.md) | `improvement-loop` |
 
 ## サブシステム索引
@@ -28,13 +28,24 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 | --- | --- | --- | --- | --- |
 | macro | `src/baibai_loop/macro/` | `records/01-macro-context/` | `baibai-loop-macro` | 見積り calibration（[`workflow/macro.md`](./docs/workflow/macro.md)、formal loop にしない） |
 | screening | `src/baibai_loop/screening/` | `records/02-candidates/`, `records/_config/` | `baibai-loop-screening` | 見積り calibration（保有 outcome + 長期 horizon の較正リプレイ `calibration-build/evaluate`。短期 backtest はしない） |
-| thesis | `src/baibai_loop/thesis/` | `records/03-thesis/`, `records/_playbooks/` | `baibai-loop-decision` / validation | decision packet + execution policy + holding-review composition |
-| position | `src/baibai_loop/position/` | `records/04-position/` | `baibai-loop-position` | portfolio ledger + holding review + portfolio outcome |
+| thesis | `src/baibai_loop/thesis/` | `records/03-thesis/`, `records/_playbooks/` | `baibai-loop-opportunity` / `baibai-loop-decision` / validation | decision packet + planning-only limit + holding-review composition |
+| position | `src/baibai_loop/position/` | `records/04-position/` | `baibai-loop-position` (`ledger` / `record-result` / `holding-review-build` / `outcome`) | human-confirmed portfolio ledger + holding review + portfolio outcome |
 | market | `src/baibai_loop/market/` | （`data/screening/market.sqlite` ほか、git 外） | — | 価格・calendar data 層（screening・保有計測の価格基盤） |
 | foundation | `src/baibai_loop/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
 | validation | `src/baibai_loop/validation/` | `records/_schemas/`（検証対象 schema） | `baibai-loop-validation` | records 公開言語の検証器（CI gate） |
 
 品質改善は単一の見積り calibration に集約する: entry 時の見積り（RR・期待利回り・FV）を保有の実現結果と突き合わせ、加えて全銘柄の長期 horizon 較正リプレイ（[`docs/reference/estimate-calibration.md`](./docs/reference/estimate-calibration.md)）で見積り手法そのものを較正して、macro 読み・screening 閾値・FV 推定・耐性判定を離散的に改善する（短期 horizon の screen 成績最適化はしない。doctrine 柱 5）。これは日常の判断triggerとは独立した基盤改善である。詳細は各 [`docs/workflow/`](./docs/workflow/) doc を正本とする。
+
+## Repository-local skills
+
+repository-local skillの正本は`.agents/skills/<name>/SKILL.md`である。該当taskでは次表からskillを選び、SKILL.mdを全文読んでから操作する。`.claude/skills/<name>`は同じdirectoryへのrelative symlinkであり、別内容として編集しない。skillが参照するrunbook/referenceとpublic `--help`を優先し、tests/fixturesやsrcから日常手順を推測しない。
+
+| task | skill |
+| --- | --- |
+| 候補抽出、IR、購入・指値提案、人間からの注文結果、保有review、年次outcome | [`.agents/skills/decision-cycle/SKILL.md`](./.agents/skills/decision-cycle/SKILL.md) |
+| 個別5年評価を変えるmaterial macro delta | [`.agents/skills/macro-analysis/SKILL.md`](./.agents/skills/macro-analysis/SKILL.md) |
+| screening/FV/E[r]等の方法改善 | [`.agents/skills/improvement-loop/SKILL.md`](./.agents/skills/improvement-loop/SKILL.md) |
+| ticker提示とfocus chart起動 | [`.agents/skills/tradingview-open/SKILL.md`](./.agents/skills/tradingview-open/SKILL.md) |
 
 ## 言語運用
 
@@ -65,7 +76,7 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 
 ## 銘柄提示時の TradingView リンク
 
-このリポジトリで ticker（証券コード）を提案・提示するときは、必ず TradingView チャート URL `https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A<code>`（`:` は `%3A`）を Markdown リンクで併記する。WSL / Windows では `powershell.exe -NoProfile -Command "Start-Process '<url>'"` で既定ブラウザにも開く（`explorer.exe` / `cmd start` は query 付き URL を壊すので使わない）。focus 銘柄（最終候補・推し）は自動で開き、screening の大量一覧はリンクは全件・ブラウザ起動は focus 分だけにする。手順の詳細は [`.claude/skills/tradingview-open/SKILL.md`](./.claude/skills/tradingview-open/SKILL.md)。
+このリポジトリで ticker（証券コード）を提案・提示するときは、必ず TradingView チャート URL `https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A<code>`（`:` は `%3A`）を Markdown リンクで併記する。WSL / Windows では`powershell.exe -NoProfile -Command "Start-Process '<url>'"`で既定ブラウザにも開く（`explorer.exe` / `cmd start`はquery付きURLを壊すので使わない）。focus銘柄だけ自動で開く。正本は[`.agents/skills/tradingview-open/SKILL.md`](./.agents/skills/tradingview-open/SKILL.md)。
 
 ## 事実と分析の分離
 

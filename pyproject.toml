@@ -247,6 +247,12 @@ source_modules = [
   "baibai_loop.position",
 ]
 forbidden_modules = ["baibai_loop.thesis"]
+ignore_imports = [
+  # The public CLI is the repository composition boundary for building a
+  # holding review from thesis and position artifacts. Position domain modules
+  # remain independent of thesis.
+  "baibai_loop.position.cli -> baibai_loop.thesis.holding_review_builder",
+]
 
 [[tool.importlinter.contracts]]
 name = "thesis only composes foundation and position domains"
