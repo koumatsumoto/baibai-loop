@@ -169,8 +169,8 @@ def prepare_workspace(
     comparison_doc = _research_comparison(asof, annotated)
 
     workspace.mkdir(parents=True, exist_ok=True)
-    selection_hash = _write_workspace_file(workspace / "selection.yaml", selection_doc)
-    comparison_hash = _write_workspace_file(workspace / "research-comparison.yaml", comparison_doc)
+    _write_workspace_file(workspace / "selection.yaml", selection_doc)
+    _write_workspace_file(workspace / "research-comparison.yaml", comparison_doc)
 
     manifest = {
         "as_of": asof.isoformat(),
@@ -188,10 +188,6 @@ def prepare_workspace(
         "rules": {
             "research_selection_target_max": _selection_int(selection),
             "research_selection_playbook_order": _selection_playbook_order(selection),
-        },
-        "workspace_files": {
-            "selection.yaml": selection_hash,
-            "research-comparison.yaml": comparison_hash,
         },
     }
     _write_workspace_file(manifest_path, manifest)
@@ -270,11 +266,12 @@ def _write_status(workspace: Path) -> dict[str, object]:
 def compute_status(workspace: Path) -> dict[str, object]:
     """Read the workspace and report completion, drift, and the next command.
 
-    A workspace whose generated files no longer match the manifest hashes is
-    reported as invalid so a hand-edited or stale workspace cannot be promoted.
+    External inputs remain bound to their prepare-time hashes. Operator-authored
+    drafts are editable, but their structure and lineage must remain consistent.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
-    _verify_workspace_integrity(workspace, manifest)
+    _verify_external_inputs(manifest)
+    _validate_editable_drafts(workspace, manifest)
 
     comparison = _load_mapping(workspace / "research-comparison.yaml", label="research comparison")
     selected_ticker = _string_or_none(comparison.get("selected_ticker"))
@@ -367,19 +364,60 @@ def _status_payload(
     }
 
 
-def _verify_workspace_integrity(workspace: Path, manifest: Mapping[str, object]) -> None:
-    workspace_files = manifest.get("workspace_files")
-    if not isinstance(workspace_files, Mapping):
-        raise OpportunityDataError("manifest is missing workspace_files hashes")
-    for name, expected in workspace_files.items():
-        path = workspace / str(name)
-        if not path.exists():
-            raise OpportunityConflictError(f"workspace file missing since prepare: {name}")
+def _verify_external_inputs(manifest: Mapping[str, object]) -> None:
+    inputs = manifest.get("inputs")
+    if not isinstance(inputs, Mapping):
+        raise OpportunityDataError("manifest is missing external input hashes")
+    for name in ("selection_output", "ledger"):
+        input_ref = inputs.get(name)
+        if not isinstance(input_ref, Mapping):
+            raise OpportunityDataError(f"manifest is missing input hash: {name}")
+        path_value = input_ref.get("path")
+        expected = input_ref.get("sha256")
+        if not isinstance(path_value, str) or not isinstance(expected, str):
+            raise OpportunityDataError(f"manifest input ref is invalid: {name}")
+        path = Path(path_value)
+        if not path.is_file():
+            raise OpportunityConflictError(f"workspace external input is missing: {name}")
         actual = _sha256_text(path.read_text(encoding="utf-8"))
         if actual != expected:
             raise OpportunityConflictError(
-                f"workspace file changed since prepare (input hash drift): {name}"
+                f"workspace external input changed since prepare (input hash drift): {name}"
             )
+
+
+def _validate_editable_drafts(workspace: Path, manifest: Mapping[str, object]) -> None:
+    selection = _load_mapping(workspace / "selection.yaml", label="workspace selection")
+    comparison = _load_mapping(workspace / "research-comparison.yaml", label="research comparison")
+    manifest_asof = str(manifest.get("as_of") or "")
+    if selection.get("as_of") != manifest_asof or comparison.get("as_of") != manifest_asof:
+        raise OpportunityDataError("workspace draft as_of does not match manifest")
+
+    audit_pool = _dict_list(selection.get("audit_pool"))
+    audit_tickers = [str(row.get("ticker") or "") for row in audit_pool]
+    if (not audit_tickers or any(not ticker for ticker in audit_tickers)) and selection.get(
+        "actionable"
+    ):
+        raise OpportunityDataError("workspace audit_pool is invalid")
+    shortlist = _dict_list(selection.get("shortlist"))
+    shortlist_slots = selection.get("shortlist_slots")
+    if not isinstance(shortlist_slots, int) or shortlist_slots < 0:
+        raise OpportunityDataError("workspace shortlist_slots is invalid")
+    shortlist_tickers = [str(row.get("ticker") or "") for row in shortlist]
+    if (
+        len(shortlist) > shortlist_slots
+        or len(shortlist_tickers) != len(set(shortlist_tickers))
+        or any(ticker not in audit_tickers for ticker in shortlist_tickers)
+    ):
+        raise OpportunityDataError("workspace shortlist is invalid")
+
+    candidates = _dict_list(comparison.get("candidates"))
+    comparison_tickers = [str(row.get("ticker") or "") for row in candidates]
+    if comparison_tickers != audit_tickers:
+        raise OpportunityDataError("research comparison candidates do not match audit_pool")
+    selected = _string_or_none(comparison.get("selected_ticker"))
+    if selected is not None and selected not in shortlist_tickers:
+        raise OpportunityDataError("selected_ticker is not present in shortlist")
 
 
 # --------------------------------------------------------------------------- #
@@ -402,6 +440,8 @@ def scaffold_packet(
     series). An unresolved corporate action blocks the corporate-action check.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
+    _verify_external_inputs(manifest)
+    _validate_editable_drafts(workspace, manifest)
     asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
 
     price = resolve_previous_business_day_close(
@@ -505,6 +545,9 @@ def scaffold_review(*, workspace: Path, ticker: str, force: bool = False) -> dic
     lays out the recalculation slots and never produces the review conclusions. The
     bound ``reviewed_packet_sha256`` is what lets ``promote`` detect a stale review.
     """
+    manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
+    _verify_external_inputs(manifest)
+    _validate_editable_drafts(workspace, manifest)
     ticker_dir = workspace / ticker
     packet_path = ticker_dir / "packet-draft.yaml"
     if not packet_path.exists():
@@ -576,7 +619,11 @@ def promote(
     path confinement. A canonical file that already exists is never overwritten.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
-    _verify_workspace_integrity(workspace, manifest)
+    _verify_external_inputs(manifest)
+    _validate_editable_drafts(workspace, manifest)
+    comparison = _load_mapping(workspace / "research-comparison.yaml", label="research comparison")
+    if _string_or_none(comparison.get("selected_ticker")) != ticker:
+        raise OpportunityDataError(f"cannot promote {ticker}: it is not the selected_ticker")
 
     ticker_dir = workspace / ticker
     packet_path = ticker_dir / "packet-draft.yaml"
