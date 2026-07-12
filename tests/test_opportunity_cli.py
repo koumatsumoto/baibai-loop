@@ -331,9 +331,56 @@ def test_packet_scaffold_snapshots_raw_close(
     assert payload["close_yen"] == 1005.0
     assert payload["price_as_of"] == "2026-07-10"
     draft = safe_load((workspace / "2331" / "packet-draft.yaml").read_text(encoding="utf-8"))
-    snapshot = draft["input_snapshot"]["price_snapshot"]
-    assert snapshot["market_price_yen"] == 1005.0
-    assert snapshot["price_basis"] == "raw_unadjusted_close"
+    snapshot = draft["input_snapshot"]
+    # The raw close is emitted as the single schema-valid market_price fact, not a
+    # bespoke price_snapshot block. price_basis uses the canonical schema enum.
+    assert "price_snapshot" not in snapshot
+    facts = snapshot["facts"]
+    assert len(facts) == 1
+    fact = facts[0]
+    assert fact["fact_kind"] == "market_price"
+    assert fact["value"] == 1005.0
+    assert fact["unit"] == "JPY"
+    assert fact["as_of"] == "2026-07-10"
+    assert fact["observed_at"] == "2026-07-10T15:30:00+09:00"
+    assert fact["price_basis"] == "last_close_unadjusted"
+    # The fact references a declared local_data source.
+    assert fact["source_ids"] == [snapshot["sources"][0]["source_id"]]
+
+
+def test_packet_scaffold_draft_has_no_structural_schema_errors(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A freshly scaffolded draft must only be flagged for unfilled operator fields,
+    never for a malformed price fact — the operator fills judgment, not structure."""
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(
+        sqlite_path, [("2331", "2026-07-09", 990.0, 1.0), ("2331", "2026-07-10", 1005.0, 1.0)]
+    )
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
+    code, _ = _run(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+    assert code == 0
+    draft_path = workspace / "2331" / "packet-draft.yaml"
+    findings = validate_decision_packet_file(draft_path)
+    messages = " ".join(f"{finding.code} {finding.message}" for finding in findings)
+    # The malformed-structure symptoms (extra price_snapshot / invalid price_basis)
+    # must be absent; only unfilled judgment/metadata fields remain.
+    assert "price_snapshot" not in messages
+    assert "raw_unadjusted_close" not in messages
+    assert "price_basis" not in messages
 
 
 def test_packet_scaffold_without_raw_close_exits_3(
@@ -632,7 +679,7 @@ def test_plan_limit_close_within_max_plans_limit_at_close(
     assert code == 0
     assert payload["status"] == "planned_limit"
     assert payload["limit_price_yen"] == payload["close_yen"] == 1000
-    assert payload["price_basis"] == "raw_unadjusted_close"
+    assert payload["price_basis"] == "last_close_unadjusted"
     assert payload["expires_at"] == "2026-07-13T15:30:00+09:00"
 
 
