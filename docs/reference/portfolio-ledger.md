@@ -39,6 +39,8 @@ reservation ID、order identity、execution IDは再利用しない。これら�
 
 人間報告から作る`reservation / execution / release`はproposal/approval URLを`decision_reference`に持つ。既存migration eventではnullを許すが、新しいhuman resultは参照なしで記録しない。
 
+`event_id`が`migration-`で始まるeventは、移行時点の保有・予約をcanonical stateへ初期化する記録であり、人間が報告したbroker注文・約定・取消ではない。`baibai-loop-position ledger`はこれらを`event_annotations`の`ledger.migration-initialization`として件数表示する。期間内の新規broker resultを数えるときはmigration eventを含めず、`record-result`へ入力された人間報告と`decision_reference`を基準にする。この注記は表示上の区別であり、reconciliation計算やevent modelを分岐させない。
+
 reservationとexecutionの数量はpolicyの`board_lot`倍数に限定する。小数単価は1 board lotとの積が整数円になる場合だけ受理するため、合法な部分約定ごとのreserved cashも暗黙の丸めなしに再計算できる。
 
 ## Snapshot equations

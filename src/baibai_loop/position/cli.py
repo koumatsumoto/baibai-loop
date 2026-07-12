@@ -195,12 +195,31 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
 
 def _run_ledger(path: Path) -> int:
     try:
-        snapshot = reconcile_portfolio(load_portfolio_ledger(path))
+        document = load_portfolio_ledger(path)
+        snapshot = reconcile_portfolio(document)
     except PortfolioLedgerError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
+    payload = snapshot_to_payload(snapshot)
+    migration_event_count = sum(
+        event.event_id.startswith("migration-") for event in document.events
+    )
+    payload["event_annotations"] = (
+        [
+            {
+                "code": "ledger.migration-initialization",
+                "event_count": migration_event_count,
+                "message": (
+                    "migration events initialize canonical state and are not "
+                    "human-reported broker results"
+                ),
+            }
+        ]
+        if migration_event_count
+        else []
+    )
     yaml.safe_dump(
-        snapshot_to_payload(snapshot),
+        payload,
         sys.stdout,
         sort_keys=False,
         allow_unicode=True,
