@@ -15,7 +15,7 @@ related_docs:
 
 Baibai-Loopの日常運用は「最もお買い得な日本株を見つけ、人間が発注判断できる状態にする」ことを目的とする。AIは観測、候補抽出、一次情報確認、5年評価、独立反証、最大許容価格、指値・数量、保有見直しを担当する。人間だけが`approve / defer / reject`とbroker操作を行う。
 
-`opportunity`では一次リサーチの前に人間レビューgateを置く。audit poolから8〜10候補のhuman-review shortlist reportを提示し、人間がprimary-research setを選んでから、選択銘柄だけを個別リサーチする（OP3→OP4）。1銘柄へ先に決め打ちせず、比較可能な候補群を先に人間へ渡す。
+`opportunity`では一次リサーチの前に人間レビューgateを置く。audit poolから8〜10候補のhuman-review shortlist reportを提示し、人間がprimary-research setを選んでから、選択銘柄だけを個別リサーチする（OP3→OP4）。1銘柄へ先に決め打ちせず、比較可能な候補群を先に人間へ渡す。人間が複数銘柄を選んだ場合はticker別laneでresearchを並行できるが、資本予約は最新canonical ledgerを使って1件ずつ直列に進める。
 
 価格判断にはJPX基盤の最新完全営業日のraw/unadjusted closeを使う。寄り前のrealtime quoteと板は必須入力ではない。AIは約定可能性や当日価格方向を予測しない。人間からbroker結果が報告されるまで注文状態を推定せず、ledgerを更新しない。
 
@@ -93,16 +93,18 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.candidate_report.render --sele
 
 ### OP4 Primary research on selected candidates
 
-primary-research setだけを対象に、会社IR、TDnet、EDINET、JPXを直接確認し、永久損失7軸、corporate action、bear/base/bullの3年sanityと5年total return、FV、countercaseを同じ表で比較する。手順は[`../workflow/research.md`](../workflow/research.md)を正本とする。全対象の比較後に`research-comparison.yaml.selected_ticker`へ固定する最終候補は0または1件。0件なら`no actionable bargain`で終了する。
+人間が選んだprimary-research setだけを対象に、会社IR、TDnet、EDINET、JPXを直接確認する。複数銘柄が選ばれたことが並行researchのtriggerであり、暴落検知やmacro timing判定を自動追加しない。
 
-### OP5 Packet scaffold
+共有workspaceの`manifest.yaml`に固定したselection output / ledger hashを全laneの共通lineageとし、各tickerの成果物は`.cache/opportunity/YYYY-MM-DD/<ticker>/`へ隔離する。永久損失7軸、corporate action、bear/base/bullの3年sanityと5年total return、FV、countercaseの調査はlaneごとに並行できる。手順は[`../workflow/research.md`](../workflow/research.md)を正本とする。
+
+### OP5 Per-lane packet and research scaffold
 
 ```bash
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity packet-scaffold --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX --sqlite-path data/screening/market.sqlite --target-session YYYY-MM-DD
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .cache/opportunity/YYYY-MM-DD
 ```
 
-生成された`research-checklist.yaml`を一次sourceで`complete / blocked`にする。blockedを推定で埋めない。packetのobserved/derived/estimate/judgmentを区別し、scenario算術を機械再計算する。
+`packet-scaffold`は`selection.yaml.shortlist`に含まれるtickerだけを受け入れる。primary-research setの各tickerについて実行し、生成されたlane内の`research-checklist.yaml`を一次sourceで`complete / blocked`にする。blockedを推定で埋めない。packetのobserved/derived/estimate/judgmentを区別し、scenario算術を機械再計算する。他laneのdraftをcopyまたは上書きしない。
 
 ### OP6 Independent review and promotion
 
@@ -113,7 +115,9 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity promote --workspace .c
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation --target decision-packet
 ```
 
-reviewはpacket authorと別roleが行う。`proposal_changed=true`ならpacketへ戻り、packet hash変更後の旧reviewを使わない。promotionはchecklist、packet/review schema、hash、pathが一致するときだけ行う。
+reviewはpacket authorと別roleがlaneごとに行い、複数laneを並行できる。`proposal_changed=true`なら該当laneのpacketへ戻り、packet hash変更後の旧reviewを使わない。
+
+全laneの調査・反証後に共有`research-comparison.yaml`で比較し、現在の提案roundの最良0〜1件だけを`selected_ticker`へ固定する。0件なら`no actionable bargain`で終了する。promotionは`selected_ticker`のlaneについて、checklist、packet/review schema、hash、pathが一致するときだけ行う。
 
 ### OP7 Planning-only limit
 
@@ -122,6 +126,8 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity plan-limit --packet re
 ```
 
 `planned_limit`は前営業日終値、max acceptable price、board lotから作る。終値が上限超過、corporate action unresolved、packet/review not readyは`defer`。1単元が30万円を超えても自動棄却せず、超過をwarningとして表示する。
+
+複数laneがviableでも、同じledger snapshotから複数proposalを一括生成しない。最上位laneを`plan-limit`したら、出力の`source_ledger_sha256`が現在のcanonical ledgerと一致することを確認して人間へ提示する。人間の`approve / defer / reject`と、注文がある場合はhuman result pathによるcanonical ledger更新を完了してから、残るlaneを再比較する。次のlaneへ進む場合は`selected_ticker`をその1件へ更新し、更新後canonical ledgerで`plan-limit`を再実行する。これによりactive reservationを含まないstale ledgerから資本を二重に割り当てない。
 
 proposal第1層にはticker/name/as-of、5年base CAGR、永久損失結論、最強countercase、max price、limit、quantity/notional、portfolio warnings、packet/review参照、人間に求める`approve / defer / reject`だけを置く。tickerにはTradingView linkを付け、focus tickerだけ開く。AIは発注しない。
 

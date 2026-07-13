@@ -8,6 +8,7 @@ simulate the operator filling the draft from primary sources.
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
@@ -113,6 +114,12 @@ def _prepared_workspace(tmp_path: Path, sqlite_path: Path, ticker: str = "2331")
             ]
         )
         == 0
+    )
+    workspace_selection = workspace / "selection.yaml"
+    selection_doc = safe_load(workspace_selection.read_text(encoding="utf-8"))
+    selection_doc["shortlist"] = [{"ticker": ticker, "reason": "primary-source research"}]
+    workspace_selection.write_text(
+        yaml.safe_dump(selection_doc, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
     return workspace
 
@@ -373,6 +380,180 @@ def test_status_rejects_shortlist_ticker_outside_audit_pool(
     selection_file.write_text(yaml.safe_dump(selection, sort_keys=False), encoding="utf-8")
     code = opportunity_main(["status", "--workspace", str(workspace)], now=FIXED_NOW)
     assert code == 3
+
+
+def test_packet_scaffold_requires_primary_research_set_membership(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
+    selection_path = workspace / "selection.yaml"
+    selection = safe_load(selection_path.read_text(encoding="utf-8"))
+    selection["shortlist"] = []
+    selection_path.write_text(
+        yaml.safe_dump(selection, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+    code = opportunity_main(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ]
+    )
+
+    assert code == 3
+    assert "primary-research set" in capsys.readouterr().err
+    assert not (workspace / "2331").exists()
+
+
+def test_packet_scaffold_confines_research_lane_to_direct_ticker_child(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    selection_output = tmp_path / "selection.yaml"
+    _write_selection(selection_output, [_audit_row("../outside")])
+    workspace = tmp_path / "ws"
+    assert (
+        opportunity_main(
+            [
+                "prepare",
+                "--asof",
+                "2026-07-03",
+                "--selection-output",
+                str(selection_output),
+                "--ledger",
+                str(LEDGER_FIXTURE),
+                "--workspace",
+                str(workspace),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    selection_path = workspace / "selection.yaml"
+    selection = safe_load(selection_path.read_text(encoding="utf-8"))
+    selection["shortlist"] = [{"ticker": "../outside", "reason": "invalid path"}]
+    selection_path.write_text(
+        yaml.safe_dump(selection, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+    code = opportunity_main(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "../outside",
+            "--sqlite-path",
+            str(tmp_path / "market.sqlite"),
+            "--target-session",
+            TARGET_SESSION,
+        ]
+    )
+
+    assert code == 3
+    assert "direct child" in capsys.readouterr().err
+    assert not (tmp_path / "outside").exists()
+
+
+def test_primary_research_lanes_share_lineage_and_remain_isolated(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(
+        sqlite_path,
+        [("2331", "2026-07-10", 1000.0, 1.0), ("8929", "2026-07-10", 750.0, 1.0)],
+    )
+    selection_output = tmp_path / "selection.yaml"
+    _write_selection(selection_output, [_audit_row("2331"), _audit_row("8929", rank=2)])
+    workspace = tmp_path / "ws"
+    assert (
+        opportunity_main(
+            [
+                "prepare",
+                "--asof",
+                "2026-07-03",
+                "--selection-output",
+                str(selection_output),
+                "--ledger",
+                str(LEDGER_FIXTURE),
+                "--workspace",
+                str(workspace),
+            ]
+        )
+        == 0
+    )
+    selection_path = workspace / "selection.yaml"
+    selection = safe_load(selection_path.read_text(encoding="utf-8"))
+    selection["shortlist"] = [
+        {"ticker": "2331", "reason": "primary-source research"},
+        {"ticker": "8929", "reason": "primary-source research"},
+    ]
+    selection_path.write_text(
+        yaml.safe_dump(selection, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    manifest_before = (workspace / "manifest.yaml").read_bytes()
+
+    for ticker in ("2331", "8929"):
+        assert (
+            opportunity_main(
+                [
+                    "packet-scaffold",
+                    "--workspace",
+                    str(workspace),
+                    "--ticker",
+                    ticker,
+                    "--sqlite-path",
+                    str(sqlite_path),
+                    "--target-session",
+                    TARGET_SESSION,
+                ]
+            )
+            == 0
+        )
+        capsys.readouterr()
+
+    manifest = safe_load(manifest_before.decode("utf-8"))
+    assert (
+        manifest["inputs"]["selection_output"]["sha256"]
+        == hashlib.sha256(selection_output.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
+    )
+    assert (
+        manifest["inputs"]["ledger"]["sha256"]
+        == hashlib.sha256(LEDGER_FIXTURE.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
+    )
+    assert (workspace / "manifest.yaml").read_bytes() == manifest_before
+    first_packet = safe_load((workspace / "2331" / "packet-draft.yaml").read_text("utf-8"))
+    second_packet_path = workspace / "8929" / "packet-draft.yaml"
+    second_packet_before = second_packet_path.read_bytes()
+    assert first_packet["input_snapshot"]["ticker"] == "2331"
+    assert safe_load(second_packet_before.decode("utf-8"))["input_snapshot"]["ticker"] == "8929"
+
+    assert (
+        opportunity_main(
+            [
+                "packet-scaffold",
+                "--workspace",
+                str(workspace),
+                "--ticker",
+                "2331",
+                "--sqlite-path",
+                str(sqlite_path),
+                "--target-session",
+                TARGET_SESSION,
+                "--force",
+            ]
+        )
+        == 0
+    )
+    assert second_packet_path.read_bytes() == second_packet_before
 
 
 # --------------------------------------------------------------------------- #
@@ -756,6 +937,9 @@ def test_plan_limit_close_within_max_plans_limit_at_close(
     assert payload["limit_price_yen"] == payload["close_yen"] == 1000
     assert payload["price_basis"] == "last_close_unadjusted"
     assert payload["expires_at"] == "2026-07-13T15:30:00+09:00"
+    assert (
+        payload["source_ledger_sha256"] == hashlib.sha256(LEDGER_FIXTURE.read_bytes()).hexdigest()
+    )
 
 
 def test_plan_limit_close_above_max_defers(

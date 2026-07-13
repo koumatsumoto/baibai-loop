@@ -44,6 +44,12 @@ researchの目的は、安く見える理由が一時的な誤解か、企業価
 
 primary-research setの比較は永久損失、5年期待return/FV乖離、portfolio marginal value、購入可能性の順。単一合成scoreで畳まない。
 
+## Parallel research lanes
+
+人間がprimary-research setを複数選んだ場合、共有workspaceのselection output / ledger hashを共通lineageとして、tickerごとの`.cache/opportunity/YYYY-MM-DD/<ticker>/` laneを作る。一次source確認、永久損失7軸、scenario、packet、独立reviewはlane間で並行できる。各laneは自tickerのdraftとchecklistだけを変更し、他tickerの成果物をcopyまたは上書きしない。
+
+並行化するのは調査と反証までである。全laneを同じ比較表で評価した後、現在の提案roundの`selected_ticker`は0〜1件に保つ。複数laneがviableなら、最上位の人間判断と必要なcanonical ledger更新を完了してから次のlaneを再比較し、最新ledgerで指値を再計算する。selection時点のledger hashを複数proposalへ使い回さない。
+
 ## Primary-source record
 
 | source_id | class | document / URL | period | published_at | accessed_at | status | used_for |
@@ -87,7 +93,7 @@ ledgerから`unheld / held / reserved / held_and_reserved`を付け、追加後c
 
 ## Packet scaffold
 
-[`operations/decision-cycle.md#opportunity-path`](../operations/decision-cycle.md#opportunity-path)のpublic recipeでworkspaceを作る。scaffoldが埋めないjudgmentを推測で補完せず、checklistを`complete / blocked`にする。
+[`operations/decision-cycle.md#opportunity-path`](../operations/decision-cycle.md#opportunity-path)のpublic recipeでworkspaceを作る。`packet-scaffold`はprimary-research setに含まれるtickerのlaneだけに作成する。scaffoldが埋めないjudgmentを推測で補完せず、checklistを`complete / blocked`にする。
 
 packetは次を分離する。
 
