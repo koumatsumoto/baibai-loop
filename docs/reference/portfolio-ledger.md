@@ -3,7 +3,7 @@ title: "Portfolio ledger reference"
 summary: "repo内portfolioのcash、予約、約定、保有、income、cost、taxを再計算するevent契約。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-13
 ---
 
 # Portfolio ledger
@@ -35,7 +35,7 @@ ledgerは`portfolio_scope: repository_only`だけを許し、このrepositoryで
 
 reservation ID、order identity、execution IDは再利用しない。これらはledger replay用のrepository identityであり、brokerが同名IDを報告したことを意味しない。buy executionはactive reservation、同じticker、残数量以下、guard価格以下、expiry前を必須とする。expiry到達後は`release(reason=expired)`を明記し、暗黙解放しない。
 
-`record-result`が作るreservation、execution、releaseはproposal/approval Issue URLを`decision_reference`に持つ。既存migration eventはこのfieldを持たない場合がある。active reservationにreferenceがあるfill/cancelは同じreferenceだけを受け付け、別の判断へ付け替えない。
+`record-result`が作るreservation、execution、releaseはproposal/approval Issue URLを`decision_reference`に持つ。既存migration eventはこのfieldを持たない場合がある。active reservationにreferenceがあるfill/cancel/expiryは同じreferenceだけを受け付け、別の判断へ付け替えない。
 
 人間報告から作る`reservation / execution / release`はproposal/approval URLを`decision_reference`に持つ。既存migration eventではnullを許すが、新しいhuman resultは参照なしで記録しない。
 
@@ -84,10 +84,13 @@ warningは判断を禁止しない。overrideは`reason`、`decision_reference`�
 ```bash
 uv run baibai-loop-position ledger
 uv run baibai-loop-position record-result --help
+uv run python -m tools.limit_outcome --help
 uv run baibai-loop-validation --target ledger
 ```
 
-`record-result`は人間の`open / filled / cancelled`報告だけを入力とし、canonical ledgerを直接変更しない。source ledger hashとpatched local draftを返す。報告がない状態、missing field、未知reservation、future timestamp、reconciliation errorを推定で補わない。draftのevent/snapshot/diffを確認し、source hash不変とvalidationを確認してからcanonicalへ反映する。
+`record-result`は人間の`open / filled / cancelled / expired`報告だけを入力とし、canonical ledgerを直接変更しない。`expired`は明示的なreservation_idと`occurred_at >= expires_at`を必須とし、未約定残数を`release(reason=expired)`にする。active reservationが1件でもIDを推定しない。source ledger hashとpatched local draftを返す。報告がない状態、missing field、未知reservation、future timestamp、reconciliation errorを推定で補わない。result draftのevent replayはmarket price鮮度に依存せず、broker結果の記録を無関係なmarket不足で止めない。draftのevent/snapshot/diffを確認し、source hash不変とvalidationを確認してからcanonicalへ反映する。
+
+`tools.limit_outcome`はhuman-confirmed expired releaseを持つreservationだけをformal targetとするread-only個票toolである。最初にledger event stateをprice-free replayし、schema-validでもexpiry前releaseやoverfill等の不整合があれば停止する。raw/unadjusted daily lowのtouchはfillと同一視せず、submission日をtouchから除外し、15:30 JSTまで有効なexpiry日だけを含める。submission日はcorporate-action basis確認には含める。期限後価格はexpiry直前営業session raw closeから5 JPX営業session後のraw closeまでの実観測であり、limit fillを起点にしない。同一URI `mode=ro` transactionからcalendarとraw barsを読み、submissionから固定5 session horizonまでに実際に使用したrowの決定論的fingerprintとhash basis、ledger ref/hash、未約定残数、touch、期限後観測、単一のpending/unresolved reasonをstdout YAMLへ出す。SQLite全体のbyte hashは使わない。horizonより後のbarは判定とfingerprintに含めない。calendar外bar、corporate action、`adjustment_factor`未確認、raw basis欠損をadjusted seriesで補完せず、canonical/recordsを書かない。stdout YAMLはoperation Issueへ貼る初期サンプルであり、永続schemaやaggregateではない。反復利用と効果を確認してからstable surfaceへの昇格を判断する。
 
 representative contract fixtureは`tests/fixtures/portfolio-ledger/representative.yaml`に置く。
 

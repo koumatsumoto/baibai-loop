@@ -2,7 +2,7 @@
 
 ## Trigger routing
 
-- 人間から`open / filled / cancelled`を受け取ったら[`docs/operations/decision-cycle.md#human-result-path`](../../../../docs/operations/decision-cycle.md#human-result-path)を実行する。
+- 人間から`open / filled / cancelled / expired`を受け取ったら[`docs/operations/decision-cycle.md#human-result-path`](../../../../docs/operations/decision-cycle.md#human-result-path)を実行する。
 - 決算・material event後の保有判断は[`docs/operations/decision-cycle.md#earnings-and-material-event-path`](../../../../docs/operations/decision-cycle.md#earnings-and-material-event-path)を実行する。
 - 年次比較は[`docs/operations/decision-cycle.md#annual-outcome-path`](../../../../docs/operations/decision-cycle.md#annual-outcome-path)を実行する。
 

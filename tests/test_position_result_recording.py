@@ -11,7 +11,12 @@ import yaml
 
 from baibai_loop.position import cli as position_cli
 from baibai_loop.position.cli import main
-from baibai_loop.position.ledger import load_portfolio_ledger, reconcile_portfolio
+from baibai_loop.position.ledger import (
+    load_portfolio_ledger,
+    reconcile_portfolio,
+    replay_events_through,
+    reservation_snapshots,
+)
 from baibai_loop.position.result_recording import ResultRecordingError, record_result
 
 FIXTURE = Path(__file__).parent / "fixtures" / "portfolio-ledger" / "representative.yaml"
@@ -85,7 +90,10 @@ def test_cancelled_report_releases_only_the_reported_reservation() -> None:
         reservation_id="reservation-8929-pending",
         now=_at(12),
     )
-    assert reconcile_portfolio(result.document).active_reservations == ()
+    assert (
+        reservation_snapshots(replay_events_through(result.document.events, result.document.as_of))
+        == ()
+    )
     repeated = record_result(
         result.document,
         proposal_ref=PROPOSAL,
@@ -95,6 +103,154 @@ def test_cancelled_report_releases_only_the_reported_reservation() -> None:
         now=_at(12),
     )
     assert repeated.changed is False
+
+
+def test_expired_report_requires_expiry_and_is_idempotent() -> None:
+    ledger = load_portfolio_ledger(FIXTURE)
+    expiry = datetime(2026, 7, 31, 15, 30, tzinfo=JST)
+    now = datetime(2026, 8, 1, 12, 0, tzinfo=JST)
+    with pytest.raises(ResultRecordingError, match="at or after expires_at"):
+        record_result(
+            ledger,
+            proposal_ref=PROPOSAL,
+            status="expired",
+            occurred_at=datetime(2026, 7, 31, 15, 29, tzinfo=JST),
+            reservation_id="reservation-8929-pending",
+            now=now,
+        )
+
+    result = record_result(
+        ledger,
+        proposal_ref=PROPOSAL,
+        status="expired",
+        occurred_at=expiry,
+        reservation_id="reservation-8929-pending",
+        now=now,
+    )
+    release = result.document.events[-1]
+    assert release.type == "release"
+    assert release.reason == "expired"
+    assert (
+        reservation_snapshots(replay_events_through(result.document.events, result.document.as_of))
+        == ()
+    )
+    repeated = record_result(
+        result.document,
+        proposal_ref=PROPOSAL,
+        status="expired",
+        occurred_at=expiry,
+        reservation_id="reservation-8929-pending",
+        now=now,
+    )
+    assert repeated.changed is False
+
+
+def test_expired_report_requires_explicit_reservation_id() -> None:
+    with pytest.raises(ResultRecordingError, match="expired requires reservation_id"):
+        record_result(
+            load_portfolio_ledger(FIXTURE),
+            proposal_ref=PROPOSAL,
+            status="expired",
+            occurred_at=datetime(2026, 7, 31, 15, 30, tzinfo=JST),
+            now=datetime(2026, 8, 1, 12, 0, tzinfo=JST),
+        )
+
+
+def test_cli_expired_requires_explicit_reservation_id(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ledger = tmp_path / "ledger.yaml"
+    ledger.write_bytes(FIXTURE.read_bytes())
+    assert (
+        main(
+            [
+                "record-result",
+                "--root",
+                str(tmp_path),
+                "--ledger",
+                "ledger.yaml",
+                "--proposal-ref",
+                PROPOSAL,
+                "--status",
+                "expired",
+                "--occurred-at",
+                "2026-07-31T15:30:00+09:00",
+                "--out",
+                "expired.yaml",
+            ],
+            now=datetime(2026, 8, 1, 12, 0, tzinfo=JST),
+        )
+        == 2
+    )
+    assert "expired requires reservation_id" in capsys.readouterr().err
+    assert not (tmp_path / "expired.yaml").exists()
+
+
+def test_expired_report_releases_only_remaining_partial_fill_quantity() -> None:
+    expiry = datetime(2026, 7, 20, 15, 30, tzinfo=JST)
+    now = datetime(2026, 7, 21, 12, 0, tzinfo=JST)
+    opened = record_result(
+        load_portfolio_ledger(FIXTURE),
+        proposal_ref=PROPOSAL,
+        status="open",
+        occurred_at=_at(9),
+        ticker="1234",
+        quantity=200,
+        sector="サービス業",
+        price_guard_yen=Decimal("900"),
+        expires_at=expiry,
+        now=now,
+    )
+    reservation = next(
+        item
+        for item in reconcile_portfolio(opened.document).active_reservations
+        if item.ticker == "1234"
+    )
+    partial = record_result(
+        opened.document,
+        proposal_ref=PROPOSAL,
+        status="filled",
+        occurred_at=_at(10),
+        ticker="1234",
+        quantity=100,
+        price_yen=Decimal("890"),
+        reservation_id=reservation.reservation_id,
+        now=now,
+    )
+    partial_state = replay_events_through(partial.document.events, partial.document.as_of)
+    assert (
+        next(
+            item
+            for item in reservation_snapshots(partial_state)
+            if item.reservation_id == reservation.reservation_id
+        ).remaining_quantity
+        == 100
+    )
+    expired = record_result(
+        partial.document,
+        proposal_ref=PROPOSAL,
+        status="expired",
+        occurred_at=expiry,
+        reservation_id=reservation.reservation_id,
+        now=now,
+    )
+    state = replay_events_through(expired.document.events, expired.document.as_of)
+    assert all(
+        item.reservation_id != reservation.reservation_id for item in reservation_snapshots(state)
+    )
+    assert sum(lot.quantity for lot in state.lots["1234"]) == 100
+
+
+def test_cancelled_report_at_expiry_must_use_expired_status() -> None:
+    with pytest.raises(ResultRecordingError, match="must use expired reason"):
+        record_result(
+            load_portfolio_ledger(FIXTURE),
+            proposal_ref=PROPOSAL,
+            status="cancelled",
+            occurred_at=datetime(2026, 7, 31, 15, 30, tzinfo=JST),
+            reservation_id="reservation-8929-pending",
+            now=datetime(2026, 8, 1, 12, 0, tzinfo=JST),
+        )
 
 
 def test_filled_without_reservation_lists_missing_human_facts() -> None:
@@ -154,6 +310,42 @@ def test_cli_writes_a_draft_without_mutating_the_source(
     assert ledger.read_bytes() == before
     assert yaml.safe_load(capsys.readouterr().out)["status"] == "draft_created"
     assert load_portfolio_ledger(output).events[-1].type == "release"
+
+
+def test_cli_writes_human_confirmed_expiry_draft(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ledger = tmp_path / "ledger.yaml"
+    ledger.write_bytes(FIXTURE.read_bytes())
+    occurred_at = datetime(2026, 7, 31, 15, 30, tzinfo=JST)
+    argv = [
+        "record-result",
+        "--root",
+        str(tmp_path),
+        "--ledger",
+        "ledger.yaml",
+        "--proposal-ref",
+        PROPOSAL,
+        "--status",
+        "expired",
+        "--occurred-at",
+        occurred_at.isoformat(),
+        "--reservation-id",
+        "reservation-8929-pending",
+        "--out",
+        "expired.yaml",
+    ]
+
+    assert main(argv, now=datetime(2026, 8, 1, 12, 0, tzinfo=JST)) == 0
+    first = yaml.safe_load(capsys.readouterr().out)
+    assert first["status"] == "draft_created"
+    draft = load_portfolio_ledger(tmp_path / "expired.yaml")
+    assert draft.events[-1].type == "release"
+    assert draft.events[-1].reason == "expired"
+
+    ledger.write_bytes((tmp_path / "expired.yaml").read_bytes())
+    assert main(argv, now=datetime(2026, 8, 1, 12, 0, tzinfo=JST)) == 0
+    assert yaml.safe_load(capsys.readouterr().out)["status"] == "no_change"
 
 
 def test_cli_hashes_the_exact_ledger_bytes_used_for_the_draft(

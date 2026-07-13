@@ -136,12 +136,14 @@ def build_parser() -> argparse.ArgumentParser:
     holding_build_parser.add_argument("--out", type=Path, required=True)
     result_parser = subparsers.add_parser(
         "record-result",
-        help="turn a human-reported open/filled/cancelled result into a ledger draft",
+        help="turn a human-reported open/filled/cancelled/expired result into a ledger draft",
     )
     result_parser.add_argument("--root", type=Path, default=Path.cwd())
     result_parser.add_argument("--ledger", type=Path, required=True)
     result_parser.add_argument("--proposal-ref", required=True)
-    result_parser.add_argument("--status", choices=("open", "filled", "cancelled"), required=True)
+    result_parser.add_argument(
+        "--status", choices=("open", "filled", "cancelled", "expired"), required=True
+    )
     result_parser.add_argument("--occurred-at", type=_datetime_argument, required=True)
     result_parser.add_argument("--ticker")
     result_parser.add_argument("--quantity", type=int)
