@@ -3,7 +3,7 @@ title: "Continuous decision cycle runbook"
 summary: "前営業日終値の候補・指値提案、人間報告後のledger、保有review、年次評価をtrigger別に進める唯一のe2e入口。"
 doc_type: operation
 status: active
-last_reviewed: 2026-07-13
+last_reviewed: 2026-07-14
 related_docs:
   - "../doctrine.md"
   - "../portfolio-management.md"
@@ -39,11 +39,12 @@ Baibai-Loopの日常運用は「最もお買い得な日本株を見つけ、人
 ## Resume checkpoint
 
 1. `git status --short --branch`でbranchとtracked差分を確認する。dirtyなら所有者と目的を理解するまでrecordを更新しない。
-2. triggerを1件選び、対応するoperation Issueへ同じsessionのcheckpointを集約する。
-3. `UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger`でcanonical holdings、active reservations、cash、warningsを読む。warningはannotationでありrankingを変更しない。`event_annotations`のmigration eventはcanonical stateの初期化記録で、人間報告後のbroker resultではないため、当月の新規注文・約定件数へ数えない。
-4. このtriggerで使うpublic commandの`--help`とrequired inputを確認する。
+2. `UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger`でcanonical holdings、active reservations、cash、warningsを読む。warningはannotationでありrankingを変更しない。`event_annotations`のmigration eventはcanonical stateの初期化記録で、人間報告後のbroker resultではないため、当月の新規注文・約定件数へ数えない。
+3. 期限、注文、次eventを持つopenなdated trade/task Issueを一覧し、[`task-runbook.md`のOpen dated Issue lifecycle](./task-runbook.md#open-issue-lifecycle)に従ってcurrent question、expected destination、close conditionをcanonical recordsとledgerへ照合する。`living`には次のdated triggerとopenのまま残す理由をコメントする。`current-question-invalid`はcurrent canonical stateまたは判断根拠と理由をコメントしてcloseし、該当canonical recordが存在する場合はpath/hashも示す。別triggerが必要な部分は既存または新しいIssueへ移管する。
+4. triggerを1件選び、対応するoperation Issueへ同じsessionのcheckpointを集約する。
+5. このtriggerで使うpublic commandの`--help`とrequired inputを確認する。
 
-全trigger共通のstop条件はdirty worktreeの所有不明、schema/public CLI不明、入力同士の矛盾である。market/EDINET/JPX coverageとmacro freshnessは`opportunity`、価格を再計算するholding/outcome等、そのdataを実際に使うpathだけで確認する。`pending-result`は人間報告、proposal reference、ledger source hash/reconciliationだけで完了でき、market cacheやmacroが不足していても止めない。stop時はcommand、error、判断への影響、必要な入力をIssueへ残す。
+全trigger共通のstop条件はdirty worktreeの所有不明、schema/public CLI不明、入力同士の矛盾である。Issue、canonical record、ledgerの矛盾も同じstop条件として扱う。market/EDINET/JPX coverageとmacro freshnessは`opportunity`、価格を再計算するholding/outcome等、そのdataを実際に使うpathだけで確認する。`pending-result`は人間報告、proposal reference、ledger source hash/reconciliationだけで完了でき、market cacheやmacroが不足していても止めない。人間のbroker結果報告がない限り、期日経過や他入力の欠落から`filled / cancelled / expired`を推定せず、records、ledger、Issueを終端状態へ進めない。stop時はcommand、error、判断への影響、必要な入力をIssueへ残す。
 
 `UV_CACHE_DIR=/tmp/uv-cache`はworkspace外のread-only cacheを避け、同じrepository operationを再現するための標準prefixである。
 
