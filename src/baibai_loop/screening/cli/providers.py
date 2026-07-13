@@ -10,7 +10,10 @@ from typing import Any, Protocol
 from baibai_loop.screening.providers.edinet import (
     EdinetMetricRecord,
 )
-from baibai_loop.screening.providers.jpx import JPXRegulationSnapshot
+from baibai_loop.screening.providers.jpx import (
+    JPXEarningsCalendarSnapshot,
+    JPXRegulationSnapshot,
+)
 from baibai_loop.screening.providers.jquants import (
     JQuantsDailyBar,
     JQuantsFinancialSummary,
@@ -34,8 +37,6 @@ class JQuantsAdapter(Protocol):
         end: date,
     ) -> list[JQuantsFinancialSummary]: ...
 
-    def get_eq_earnings_cal(self, start: date, end: date) -> list[dict[str, object]]: ...
-
 
 class EDINETAdapter(Protocol):
     def load_metric_records(self, asof_date: date) -> Mapping[str, EdinetMetricRecord]: ...
@@ -48,6 +49,8 @@ class EDINETAdapter(Protocol):
 
 
 class JPXAdapter(Protocol):
+    def get_earnings_calendar_snapshot(self, asof_date: date) -> JPXEarningsCalendarSnapshot: ...
+
     def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot: ...
 
     def has_regulation_cache(self, asof_date: date) -> bool: ...

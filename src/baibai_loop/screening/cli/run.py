@@ -29,7 +29,7 @@ from baibai_loop.screening.providers.edinet import (
     EdinetMetricRecord,
     EDINETProviderError,
 )
-from baibai_loop.screening.providers.jpx import JPXProviderError
+from baibai_loop.screening.providers.jpx import JPXEarningsCalendarEntry, JPXProviderError
 from baibai_loop.screening.providers.jquants import (
     JQuantsProviderError,
 )
@@ -134,20 +134,11 @@ def run_command(
             file=out,
             flush=True,
         )
-        # Pull earnings calendar from asof to asof + 90 calendar days (~ 60
-        # business days) so research can populate next_earnings_date and
-        # surface kill-switch overlaps at packet build time.
+        print("screening run jpx earnings_calendar snapshot: start", file=out, flush=True)
+        earnings_snapshot = providers.jpx.get_earnings_calendar_snapshot(asof_date)
         print(
-            "screening run jquants earnings_calendar: "
-            f"{asof_date.isoformat()}..{(asof_date + timedelta(days=90)).isoformat()} start",
-            file=out,
-            flush=True,
-        )
-        earnings_records = providers.jquants.get_eq_earnings_cal(
-            asof_date, asof_date + timedelta(days=90)
-        )
-        print(
-            f"screening run jquants earnings_calendar: {len(earnings_records)} row(s)",
+            "screening run jpx earnings_calendar snapshot: "
+            f"{earnings_snapshot.valid_record_count} row(s)",
             file=out,
             flush=True,
         )
@@ -178,7 +169,7 @@ def run_command(
 
     bars_by_ticker = group_bars_by_ticker(bars)
     summaries_by_ticker = group_summaries_by_ticker(summaries)
-    next_earnings_by_ticker = _index_next_earnings(earnings_records, asof_date)
+    next_earnings_by_ticker = _index_next_earnings(earnings_snapshot.entries, asof_date)
     shares_by_ticker = build_shares_outstanding_index(
         summaries_by_ticker, bars_by_ticker, asof_date
     )
@@ -322,12 +313,18 @@ def run_command(
             f"{disclosure_load_result.unsupported_record_count} 件"
         )
 
-    data_sources = ["j-quants-light", "jpx-public-regulation"]
+    data_sources = [
+        "j-quants-light",
+        "jpx-public-earnings-calendar",
+        "jpx-public-regulation",
+    ]
     if edinet_by_ticker:
         data_sources.append("edinet-preprocessed-metrics")
     if disclosure_load_result.file_count:
         data_sources.append("disclosure-title-events")
-    provider_status_lines = ["データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX"]
+    provider_status_lines = [
+        "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX（決算発表予定・規制）"
+    ]
     if edinet_by_ticker:
         provider_status_lines.append("EDINET preprocessed metrics: loaded")
     else:
@@ -424,37 +421,16 @@ def _required_ttm_non_exact_count(
 
 
 def _index_next_earnings(
-    records: Sequence[Mapping[str, object]], asof_date: date
+    entries: Sequence[JPXEarningsCalendarEntry], asof_date: date
 ) -> dict[str, date]:
     # Pick the soonest forthcoming earnings announcement (>= asof_date) per
     # ticker so research packets can populate next_earnings_date for the
     # decision-period kill switch.
-    asof_iso = asof_date.isoformat()
-    by_ticker: dict[str, str] = {}
-    for record in records:
-        raw_code = (
-            record.get("Code")
-            or record.get("code")
-            or record.get("LocalCode")
-            or record.get("local_code")
-        )
-        if not raw_code:
+    by_ticker: dict[str, date] = {}
+    for entry in entries:
+        if entry.announcement_date < asof_date:
             continue
-        code = str(raw_code).strip().upper()
-        ticker = code[:4] if len(code) == 5 else code
-        if not ticker.isalnum() or len(ticker) != 4:
-            continue
-        raw_date = (
-            record.get("Date")
-            or record.get("date")
-            or record.get("AnnouncementDate")
-            or record.get("announcement_date")
-        )
-        if not raw_date:
-            continue
-        date_iso = str(raw_date)[:10]
-        if date_iso < asof_iso:
-            continue
-        if ticker not in by_ticker or date_iso < by_ticker[ticker]:
-            by_ticker[ticker] = date_iso
-    return {ticker: date.fromisoformat(value) for ticker, value in by_ticker.items()}
+        previous = by_ticker.get(entry.ticker)
+        if previous is None or entry.announcement_date < previous:
+            by_ticker[entry.ticker] = entry.announcement_date
+    return by_ticker

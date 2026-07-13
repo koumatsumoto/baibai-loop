@@ -260,7 +260,6 @@ def bootstrap_cache_command(
     out = stdout if stdout is not None else sys.stdout
     bars_start = asof_date - timedelta(days=1200)
     fin_start = asof_date - timedelta(days=730)
-    earnings_end = asof_date + timedelta(days=90)
     try:
         print(f"bootstrap-cache start: asof={asof_date.isoformat()}", file=out, flush=True)
         print("bootstrap-cache jquants eq_master: start", file=out, flush=True)
@@ -294,18 +293,6 @@ def bootstrap_cache_command(
             file=out,
             flush=True,
         )
-        print(
-            "bootstrap-cache jquants earnings_calendar: "
-            f"{asof_date.isoformat()}..{earnings_end.isoformat()} start",
-            file=out,
-            flush=True,
-        )
-        earnings = providers.jquants.get_eq_earnings_cal(asof_date, earnings_end)
-        print(
-            f"bootstrap-cache jquants earnings_calendar: {len(earnings)} row(s)",
-            file=out,
-            flush=True,
-        )
         print("bootstrap-cache jquants market_calendar: start", file=out, flush=True)
         calendar = providers.jquants.get_mkt_calendar(asof_date, asof_date)
         print(
@@ -332,10 +319,10 @@ def bootstrap_cache_command(
                 "note: EDINET provider is not configured; skipping EDINET bootstrap",
                 file=sys.stderr,
             )
-        print("bootstrap-cache jpx regulation: start", file=out, flush=True)
+        print("bootstrap-cache jpx snapshots: start", file=out, flush=True)
         jpx_result = providers.jpx.bootstrap_cache(asof_date)
         print(
-            "bootstrap-cache jpx regulation: "
+            "bootstrap-cache jpx snapshots: "
             + ", ".join(f"{key}={value}" for key, value in sorted(jpx_result.items())),
             file=out,
             flush=True,

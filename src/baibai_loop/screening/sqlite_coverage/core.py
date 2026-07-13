@@ -16,12 +16,14 @@ from baibai_loop.market.sqlite import (
 )
 from baibai_loop.screening.sqlite_reader import (
     _has_any_import,
-    _minmax_covered,
-    _minmax_horizon_covered,
 )
 
 from .edinet import _append_edinet_metrics_coverage_issues
-from .jpx import _append_jpx_freshness_issues, _jpx_source_names
+from .jpx import (
+    _append_jpx_earnings_calendar_issues,
+    _append_jpx_freshness_issues,
+    _jpx_source_names,
+)
 from .jquants import (
     _append_asof_bar_density_issue,
     _append_daily_history_density_issue,
@@ -217,59 +219,12 @@ def verify_screening_sqlite_coverage(
                     start=fin_start,
                     end=asof_date,
                 )
-            earnings_end = asof_date + timedelta(days=90)
-            earnings_exact = _minmax_covered(
-                conn, "jquants_earnings_calendar", asof_date, earnings_end
+            _append_jpx_earnings_calendar_issues(
+                conn,
+                issues,
+                asof_date=asof_date,
+                allow_stale_jpx=allow_stale_jpx,
             )
-            # For historical replay (allow_stale_jpx), fall back to end-only coverage:
-            # the earnings calendar is a live-only endpoint so past asof dates can never
-            # satisfy coverage_start <= asof_date. Accept any fetch whose horizon covers
-            # the 90-day window, even if that fetch post-dates asof.
-            earnings_covered = earnings_exact or (
-                allow_stale_jpx
-                and _minmax_horizon_covered(conn, "jquants_earnings_calendar", earnings_end)
-            )
-            if not earnings_covered:
-                _append_source_coverage_quality_issues(
-                    conn,
-                    issues,
-                    source="jquants_earnings_calendar",
-                    start=asof_date,
-                    end=earnings_end,
-                )
-                issues.append(
-                    CacheCoverageIssue(
-                        source="jquants_earnings_calendar",
-                        requirement=f"{asof_date.isoformat()}..{earnings_end.isoformat()}",
-                        reason="earnings calendar horizon is not covered in SQLite",
-                    )
-                )
-                _append_table_consistency_issues(
-                    conn,
-                    issues,
-                    source="jquants_earnings_calendar",
-                    table="jquants_earnings_calendar",
-                    requirement=f"{asof_date.isoformat()}..{earnings_end.isoformat()}",
-                    require_rows=True,
-                    enforce_record_count=True,
-                )
-            else:
-                _append_source_coverage_quality_issues(
-                    conn,
-                    issues,
-                    source="jquants_earnings_calendar",
-                    start=asof_date,
-                    end=earnings_end,
-                )
-                _append_table_consistency_issues(
-                    conn,
-                    issues,
-                    source="jquants_earnings_calendar",
-                    table="jquants_earnings_calendar",
-                    requirement=f"{asof_date.isoformat()}..{earnings_end.isoformat()}",
-                    require_rows=True,
-                    enforce_record_count=True,
-                )
             if not range_covered(conn, "jquants_market_calendar", asof_date, asof_date):
                 _append_source_coverage_quality_issues(
                     conn,

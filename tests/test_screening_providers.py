@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pandas as pd
 import requests
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,7 +29,11 @@ from baibai_loop.screening.providers.edinet import (
     select_document_candidates,
 )
 from baibai_loop.screening.providers.edinet_csv import parse_csv_zip_metric_record
-from baibai_loop.screening.providers.jpx import JPXProvider, JPXProviderError
+from baibai_loop.screening.providers.jpx import (
+    JPXEarningsCalendarEntry,
+    JPXProvider,
+    JPXProviderError,
+)
 from baibai_loop.screening.providers.jquants import (
     JQuantsProvider,
     normalize_daily_bar,
@@ -127,6 +132,12 @@ def _edinet_csv_zip(rows: list[tuple[str, str, str]]) -> bytes:
 class ScreeningProviderTests(unittest.TestCase):
     def _read_jpx_fixture(self, name: str) -> bytes:
         return (ROOT / "tests" / "fixtures" / "jpx" / name).read_bytes()
+
+    @staticmethod
+    def _earnings_xlsx(rows: list[list[str]]) -> bytes:
+        buffer = BytesIO()
+        pd.DataFrame(rows).to_excel(buffer, index=False, header=False)
+        return buffer.getvalue()
 
     def test_parse_sec_code_supports_alpha_numeric_code(self) -> None:
         self.assertEqual(parse_sec_code("130A0"), "130A")
@@ -1086,6 +1097,104 @@ class ScreeningProviderTests(unittest.TestCase):
             "コード,規制区分\n3856,整理銘柄\n".encode("cp932"), "https://example.com/sample.csv"
         )
         self.assertEqual(rows, [{"コード": "3856", "規制区分": "整理銘柄"}])
+
+    def test_jpx_earnings_parser_detects_header_and_normalizes_rows(self) -> None:
+        provider = JPXProvider(Path("/tmp"))
+        content = self._earnings_xlsx(
+            [
+                ["決算発表予定", "", ""],
+                [
+                    "決算発表予定日\nScheduled Dates for Earnings Announcements",
+                    "コード\nCode",
+                    "会社名\nCompany Name",
+                ],
+                ["2026-07-15", "130A", "Alpha"],
+                ["未定_Undecided", "7203", "Toyota"],
+                ["", "※注", ""],
+                ["2026/07/16", "72030", "Toyota"],
+            ]
+        )
+
+        entries, raw_count, excluded_count = provider._parse_earnings_calendar_excel(
+            content,
+            "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx",
+        )
+
+        self.assertEqual(
+            [(entry.ticker, entry.announcement_date) for entry in entries],
+            [("130A", date(2026, 7, 15)), ("7203", date(2026, 7, 16))],
+        )
+        self.assertEqual(raw_count, 3)
+        self.assertEqual(excluded_count, 1)
+
+    def test_jpx_earnings_parser_fails_on_layout_and_invalid_date(self) -> None:
+        provider = JPXProvider(Path("/tmp"))
+        url = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx"
+        with self.assertRaisesRegex(JPXProviderError, "header layout"):
+            provider._parse_earnings_calendar_excel(
+                self._earnings_xlsx([["Date", "Code"], ["2026-07-15", "130A"]]), url
+            )
+        with self.assertRaisesRegex(JPXProviderError, "invalid JPX earnings date"):
+            provider._parse_earnings_calendar_excel(
+                self._earnings_xlsx([["決算発表日", "コード"], ["2026-99-99", "130A"]]),
+                url,
+            )
+        with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
+            provider._parse_earnings_calendar_excel(
+                self._earnings_xlsx([["決算発表日", "コード"], ["2026-07-15", "INVALID"]]),
+                url,
+            )
+
+    def test_jpx_earnings_snapshot_fails_on_conflict_and_all_past(self) -> None:
+        provider = JPXProvider(Path("/tmp"))
+        urls = (
+            "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/a/kessan1.xlsx",
+            "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/b/kessan2.xlsx",
+        )
+        with (
+            patch.object(provider, "_resolve_earnings_calendar_urls", return_value=urls),
+            patch.object(
+                provider,
+                "_download_earnings_calendar",
+                side_effect=(
+                    ((JPXEarningsCalendarEntry("130A", date(2026, 7, 15)),), 1, 0),
+                    ((JPXEarningsCalendarEntry("130A", date(2026, 7, 16)),), 1, 0),
+                ),
+            ),
+            self.assertRaisesRegex(JPXProviderError, "conflicting JPX earnings dates"),
+        ):
+            provider.get_earnings_calendar_snapshot(date(2026, 7, 14))
+
+        with (
+            patch.object(provider, "_resolve_earnings_calendar_urls", return_value=(urls[0],)),
+            patch.object(
+                provider,
+                "_download_earnings_calendar",
+                return_value=((JPXEarningsCalendarEntry("130A", date(2026, 7, 13)),), 1, 0),
+            ),
+            self.assertRaisesRegex(JPXProviderError, "only past dates"),
+        ):
+            provider.get_earnings_calendar_snapshot(date(2026, 7, 14))
+
+    def test_jpx_earnings_index_resolves_all_allowed_cohort_links(self) -> None:
+        html = b"""
+        <a href="./files/kessan-1.xlsx">one</a>
+        <a href="/listing/event-schedules/financial-announcement/files/kessan-2.xls">two</a>
+        <a href="https://example.com/listing/event-schedules/financial-announcement/kessan-3.xlsx">external</a>
+        <a href="/listing/event-schedules/other/kessan-4.xlsx">other</a>
+        <a href="./files/notes.xlsx">notes</a>
+        """
+        provider = JPXProvider(Path("/tmp"), session=_FixedHtmlSession(html))
+
+        self.assertEqual(
+            provider._resolve_earnings_calendar_urls(),
+            (
+                "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/"
+                "files/kessan-1.xlsx",
+                "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/"
+                "files/kessan-2.xls",
+            ),
+        )
 
     def test_jpx_parse_special_alert_margin_rows_extracts_marked_codes(self) -> None:
         class FakeFrame:

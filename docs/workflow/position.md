@@ -62,7 +62,7 @@ canonical ledgerにhuman-confirmed `release(reason=expired)`があるreservation
 
 ## Holding review trigger
 
-決算、業績修正、資本政策、永久損失兆候、FV到達、より良い代替候補がmaterialなとき、対象tickerだけreviewする。全portfolioやscreeningを自動で始めない。
+決算、業績修正、資本政策、永久損失兆候、FV到達、より良い代替候補がmaterialなとき、dated task と一次 IR で event を確認して対象tickerだけreviewする。JPX の予定日は事実入力であり、通知や review の自動起動ではない。全portfolioやscreeningを自動で始めない。
 
 input:
 

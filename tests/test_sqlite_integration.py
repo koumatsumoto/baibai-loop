@@ -190,11 +190,12 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     )
     add_source_coverage(
         conn,
-        source="jquants_earnings_calendar",
-        coverage_key="records/_data/raw/screening/jquants/get_eq_earnings_cal.json",
+        source="jpx_earnings_calendar",
+        coverage_key="get_earnings_calendar_snapshot:current",
         record_count=1,
-        min_date=asof.isoformat(),
-        max_date=(asof + timedelta(days=90)).isoformat(),
+        min_date=earnings_date.isoformat(),
+        max_date=earnings_date.isoformat(),
+        fetched_at_utc=f"{asof.isoformat()}T00:00:00+09:00",
     )
 
     # Market calendar — populate the same forward window as bars so the

@@ -158,13 +158,13 @@ return ではない)。これ以外のコーポレートアクション (合併�
   - `get_eq_master`: 上場銘柄一覧、普通株判定、市場区分、33 業種
   - `get_eq_bars_daily_range`: 日足（OHLC + 出来高 + 売買代金）
   - `get_fin_summary_range`: 財務サマリー、会社予想 EPS、利益系の概要値
-  - `get_eq_earnings_cal`: 決算発表予定日
   - `get_mkt_calendar`: 営業日カレンダ
 - **EDINET API v2**:
   - documents list (`type=2`): CSV 取得可能な提出書類の選定
   - document download (`type=5`): CSV ZIP から EV/EBITDA / Net cash / FCF 関連項目を抽出
   - raw XBRL (`type=1`) の直接 parser は将来拡張。CSV-derived metrics の coverage / precision が不十分な場合に検討する
 - **JPX**:
+  - 決算発表予定: 公式 financial-announcement index に掲載された全 cohort Excel の既知日程
   - 上場会社情報（業種分類、市場区分の補助確認）
   - 特別注意 / 整理 / 取引停止 / 上場廃止警告の除外判定
 

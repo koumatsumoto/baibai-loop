@@ -3,7 +3,7 @@
 `JQuantsMarketProvider` owns the shared fetch engine (retry/backoff, chunked
 range fetch, SQLite read-through and store dispatch) plus the daily-bar and
 market-calendar endpoints. Screening's `JQuantsProvider` extends it with the
-fundamentals endpoints (master / fin summary / earnings calendar), so both
+fundamentals endpoints (master / fin summary), so both
 paths share one J-Quants client contract while market never depends on
 screening.
 """

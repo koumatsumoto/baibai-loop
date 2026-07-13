@@ -31,7 +31,7 @@ brokerとrepositoryの間に自動integrationはない。人間が確認した�
 
 | 層 | 実体 | 性質 |
 | --- | --- | --- |
-| L1 データ層 | `data/screening/market.sqlite`（J-Quants 価格・財務 / EDINET metrics / JPX 規制） | 全上場銘柄の再現可能な事実。coverage は fail-fast で検証 |
+| L1 データ層 | `data/screening/market.sqlite`（J-Quants 価格・財務 / EDINET metrics / JPX 決算日程・規制） | 全上場銘柄の再現可能な事実。coverage は fail-fast で検証 |
 | L2 分析層 | screen（valuation ranking）・selection lens・軸別スコア・E[r] | 決定論的な機械処理。出力をobserved / derived / estimateに分類 |
 | L3 判断層 | `records/`（macro context / thesis / position） | 人間 + AI 下書きの解釈と判断。見積り（RR・期待利回り）と採否を決める |
 
