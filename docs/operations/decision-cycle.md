@@ -84,11 +84,15 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .ca
 
 audit pool上位20件から8〜10候補を選び、human-review shortlist reportを人間へ提示する。audit poolが8件未満なら全件を提示して不足を明記し、pool外の銘柄で件数を埋めない。第1層データ（価格・valuation・自己資本比率・net cash・配当basis・機械E[r]・FVアンカー乖離・TradingView link）と選定背景（なぜ安い / 一時的か構造的か / 5年耐性 / 最強countercase / 深掘り論点）、比較表、非選択理由を含める。数値はscreening出力から機械生成し、narrativeだけ運用者が`narratives.yaml`に書く。
 
+直近の前回reportがある週次runでは、前回と今回のhuman-review shortlistをtickerで比較し、`new / continued / exited`をoperation Issueのshortlist checkpointに残して今回reportと同時に人間へ提示する。`new`は今回だけ、`continued`は両方、`exited`は前回だけに含まれるtickerとする。`new`には今回shortlistへ入れる理由、`exited`には今回shortlistへ残さない理由を新たに書く。前回reportを確認できないrunは差分を推定せず、全候補のnarrativeを確認するfull reportへfallbackする。
+
+`continued`のnarrativeは、前回からのaudit-pool順位差、価格、前回as-of後に会社IR・TDnet・EDINETで公表された最新開示、最強countercaseと判断を変え得るmaterial deltaを確認し、現在も判断を支える場合だけ再利用できる。いずれかにmaterial changeまたは確認不能があれば該当narrativeを更新し、差分理由をcheckpointへ残す。今回reportの価格、valuation、E[r]、FV等の数値は必ず今回runのscreening出力からrendererで生成し、前回reportや前回`narratives.yaml`から転記または再利用しない。
+
 ```bash
 UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.candidate_report.render --selection .cache/opportunity/YYYY-MM-DD/selection-output.yaml --candidates .cache/opportunity/YYYY-MM-DD/candidates.yaml --narratives .cache/opportunity/YYYY-MM-DD/narratives.yaml --out .cache/opportunity/YYYY-MM-DD/candidate-report.html
 ```
 
-生成HTMLは`.cache`のephemeral成果物でcommitしない。詳細は[`../reference/candidate-report.md`](../reference/candidate-report.md)。非選択上位候補にも構造的衰退、永久損失warning、一次情報不足、FV乖離不足、投資対象外等の理由を残す。「保有済み」「予約中」「予算外」だけを除外理由にしない。
+生成HTMLは`.cache`のephemeral成果物でcommitしない。詳細は[`../reference/candidate-report.md`](../reference/candidate-report.md)。非選択上位候補にも構造的衰退、永久損失warning、一次情報不足、FV乖離不足、投資対象外等の理由を残す。「保有済み」「予約中」「予算外」だけを除外理由にしない。weekly差分の分類と確認結果は当面operation Issueへ残し、2〜3回の運用テストでfieldと表示の必要性が安定するまでrenderer/schemaへ組み込まない。
 
 このレポートを提示し、人間がprimary-research set（推奨2〜4件）を選ぶまで一次リサーチへ進まない。選択結果はworkspaceの`selection.yaml.shortlist`へ記録し、件数上限はselection outputの`research_selection_target_max`に従う。買う候補が無ければこの段階で`no actionable bargain`終了できる。
 
