@@ -1,8 +1,8 @@
 """Render the stage-1 candidate shortlist report (self-contained HTML).
 
-The report is the human-review gate of the opportunity path: 8-10 audit-pool
-candidates are presented with first-layer facts and selection background so the
-operator can pick which ones to research individually.
+The report is the human-review gate of the opportunity path: the audit-pool
+candidates required by decision-cycle OP3 are presented with first-layer facts
+and selection background so the operator can pick the primary-research set.
 
 Design mirrors packet-scaffold: the machine plumbs every hard number from the
 screening output (price, valuation, dividend basis, expected return, fair-value

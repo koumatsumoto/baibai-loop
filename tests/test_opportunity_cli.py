@@ -61,12 +61,17 @@ def _seed_bars(
         conn.close()
 
 
-def _write_selection(path: Path, audit_pool: list[dict[str, object]]) -> None:
+def _write_selection(
+    path: Path,
+    audit_pool: list[dict[str, object]],
+    *,
+    research_selection_target_max: object = 5,
+) -> None:
     payload = {
         "recommendations": [],
         "audit_pool": audit_pool,
         "selection": {
-            "research_selection_target_max": 5,
+            "research_selection_target_max": research_selection_target_max,
             "research_selection_playbook_order": ["cashflow-yield-discount"],
         },
     }
@@ -254,6 +259,76 @@ def test_prepare_empty_audit_pool_is_no_actionable_bargain(
     assert code == 0
     assert payload["actionable"] is False
     assert payload["note"] == "no actionable bargain"
+
+
+@pytest.mark.parametrize(
+    ("configured_max", "expected_slots"),
+    [(3, 3), (0, 4)],
+)
+def test_prepare_derives_shortlist_slots_from_selection_output(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    configured_max: int,
+    expected_slots: int,
+) -> None:
+    selection = tmp_path / "selection.yaml"
+    _write_selection(
+        selection,
+        [_audit_row(str(1000 + index), rank=index + 1) for index in range(4)],
+        research_selection_target_max=configured_max,
+    )
+    code, payload = _run(
+        [
+            "prepare",
+            "--asof",
+            "2026-07-03",
+            "--selection-output",
+            str(selection),
+            "--ledger",
+            str(LEDGER_FIXTURE),
+            "--workspace",
+            str(tmp_path / "ws"),
+        ],
+        capsys,
+    )
+    assert code == 0
+    assert payload["shortlist_slots"] == expected_slots
+
+    workspace_selection = safe_load(
+        (tmp_path / "ws" / "selection.yaml").read_text(encoding="utf-8")
+    )
+    assert workspace_selection["shortlist_slots"] == expected_slots
+
+
+@pytest.mark.parametrize("invalid_max", [None, -1, True, "5"])
+def test_prepare_rejects_invalid_research_selection_target_max(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    invalid_max: object,
+) -> None:
+    selection = tmp_path / "selection.yaml"
+    _write_selection(
+        selection,
+        [_audit_row("2331")],
+        research_selection_target_max=invalid_max,
+    )
+    code = opportunity_main(
+        [
+            "prepare",
+            "--asof",
+            "2026-07-03",
+            "--selection-output",
+            str(selection),
+            "--ledger",
+            str(LEDGER_FIXTURE),
+            "--workspace",
+            str(tmp_path / "ws"),
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 3
+    assert "research_selection_target_max" in captured.err
+    assert not (tmp_path / "ws").exists()
 
 
 def test_status_allows_intentional_shortlist_edit(

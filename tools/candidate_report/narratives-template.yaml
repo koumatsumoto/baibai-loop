@@ -4,7 +4,7 @@
 # expected return, fair-value anchor, input hashes) from the screening output;
 # this file supplies only the qualitative judgment. Copy it next to the run's
 # screening output (e.g. .cache/opportunity/ASOF/narratives.yaml), fill it for
-# the 8-10 audit-pool tickers you shortlist, then run:
+# the audit-pool tickers required by docs/operations/decision-cycle.md OP3, then run:
 #
 #   uv run python -m tools.candidate_report.render \
 #     --selection  .cache/opportunity/ASOF/selection-output.yaml \

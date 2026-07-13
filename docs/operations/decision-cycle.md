@@ -3,7 +3,7 @@ title: "Continuous decision cycle runbook"
 summary: "前営業日終値の候補・指値提案、人間報告後のledger、保有review、年次評価をtrigger別に進める唯一のe2e入口。"
 doc_type: operation
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-13
 related_docs:
   - "../doctrine.md"
   - "../portfolio-management.md"
@@ -15,7 +15,7 @@ related_docs:
 
 Baibai-Loopの日常運用は「最もお買い得な日本株を見つけ、人間が発注判断できる状態にする」ことを目的とする。AIは観測、候補抽出、一次情報確認、5年評価、独立反証、最大許容価格、指値・数量、保有見直しを担当する。人間だけが`approve / defer / reject`とbroker操作を行う。
 
-`opportunity`では一次リサーチの前に人間レビューgateを置く。audit poolから8〜10候補のshortlistレポートを提示し、人間が深掘り対象を選んでから、選択銘柄だけを個別リサーチする（OP3→OP4）。1銘柄へ先に決め打ちせず、比較可能な候補群を先に人間へ渡す。
+`opportunity`では一次リサーチの前に人間レビューgateを置く。audit poolから8〜10候補のhuman-review shortlist reportを提示し、人間がprimary-research setを選んでから、選択銘柄だけを個別リサーチする（OP3→OP4）。1銘柄へ先に決め打ちせず、比較可能な候補群を先に人間へ渡す。
 
 価格判断にはJPX基盤の最新完全営業日のraw/unadjusted closeを使う。寄り前のrealtime quoteと板は必須入力ではない。AIは約定可能性や当日価格方向を予測しない。人間からbroker結果が報告されるまで注文状態を推定せず、ledgerを更新しない。
 
@@ -25,7 +25,7 @@ Baibai-Loopの日常運用は「最もお買い得な日本株を見つけ、人
 
 | trigger | 開始条件 | 必須成果物 | 始めないこと |
 | --- | --- | --- | --- |
-| `opportunity` | 割安候補を探す、週次確認、指値提案 | operation Issue、8〜10候補shortlist reportと人間選択、選択銘柄の一次リサーチ、必要ならpacket/review、proposal | 年次calibration、全保有review |
+| `opportunity` | 割安候補を探す、週次確認、指値提案 | operation Issue、8〜10候補human-review shortlist reportとprimary-research setの人間選択、選択銘柄の一次リサーチ、必要ならpacket/review、proposal | 年次calibration、全保有review |
 | `pending-result` | 人間からopen/filled/cancelled報告 | validated ledger draft/差分 | broker状態の推定、screening |
 | `monthly-contribution` | 人間が入金を確定 | contribution eventとsnapshot | 購入の強制 |
 | `earnings-material-event` | 決算、修正、資本政策等 | 対象tickerのpacket/holding review delta | 全portfolio再調査 |
@@ -77,11 +77,11 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity prepare --asof YYYY-MM
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .cache/opportunity/YYYY-MM-DD
 ```
 
-確認するものは`audit_pool`最大20件、production `recommendations`、holding/reservation annotation、workspace hash、`next_command`。candidate/audit poolは探索用で、buy候補やcanonical judgmentではない。
+確認するものは`audit_pool`最大20件、production `recommendations`、holding/reservation annotation、workspace hash、`next_command`。`recommendations`はrulesの通常表示capを適用した機械出力で、OP3のhuman-review shortlistではない。candidate/audit poolは探索用で、buy候補やcanonical judgmentではない。
 
 ### OP3 Candidate shortlist report (human review gate)
 
-audit pool上位20件から8〜10候補を選び、候補shortlistレポートを人間へ提示する。第1層データ（価格・valuation・自己資本比率・net cash・配当basis・機械E[r]・FVアンカー乖離・TradingView link）と選定背景（なぜ安い / 一時的か構造的か / 5年耐性 / 最強countercase / 深掘り論点）、比較表、非選択理由を含める。数値はscreening出力から機械生成し、narrativeだけ運用者が`narratives.yaml`に書く。
+audit pool上位20件から8〜10候補を選び、human-review shortlist reportを人間へ提示する。audit poolが8件未満なら全件を提示して不足を明記し、pool外の銘柄で件数を埋めない。第1層データ（価格・valuation・自己資本比率・net cash・配当basis・機械E[r]・FVアンカー乖離・TradingView link）と選定背景（なぜ安い / 一時的か構造的か / 5年耐性 / 最強countercase / 深掘り論点）、比較表、非選択理由を含める。数値はscreening出力から機械生成し、narrativeだけ運用者が`narratives.yaml`に書く。
 
 ```bash
 UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.candidate_report.render --selection .cache/opportunity/YYYY-MM-DD/selection-output.yaml --candidates .cache/opportunity/YYYY-MM-DD/candidates.yaml --narratives .cache/opportunity/YYYY-MM-DD/narratives.yaml --out .cache/opportunity/YYYY-MM-DD/candidate-report.html
@@ -89,11 +89,11 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.candidate_report.render --sele
 
 生成HTMLは`.cache`のephemeral成果物でcommitしない。詳細は[`../reference/candidate-report.md`](../reference/candidate-report.md)。非選択上位候補にも構造的衰退、永久損失warning、一次情報不足、FV乖離不足、投資対象外等の理由を残す。「保有済み」「予約中」「予算外」だけを除外理由にしない。
 
-このレポートを提示し、人間が深掘り対象（推奨2〜4件）を選ぶまで一次リサーチへ進まない。買う候補が無ければこの段階で`no actionable bargain`終了できる。
+このレポートを提示し、人間がprimary-research set（推奨2〜4件）を選ぶまで一次リサーチへ進まない。選択結果はworkspaceの`selection.yaml.shortlist`へ記録し、件数上限はselection outputの`research_selection_target_max`に従う。買う候補が無ければこの段階で`no actionable bargain`終了できる。
 
 ### OP4 Primary research on selected candidates
 
-人間が選んだ銘柄だけを対象に、会社IR、TDnet、EDINET、JPXを直接確認し、永久損失7軸、corporate action、bear/base/bullの3年sanityと5年total return、FV、countercaseを同じ表で比較する。手順は[`../workflow/research.md`](../workflow/research.md)を正本とする。selectedは0または1件。0件なら`no actionable bargain`で終了する。
+primary-research setだけを対象に、会社IR、TDnet、EDINET、JPXを直接確認し、永久損失7軸、corporate action、bear/base/bullの3年sanityと5年total return、FV、countercaseを同じ表で比較する。手順は[`../workflow/research.md`](../workflow/research.md)を正本とする。全対象の比較後に`research-comparison.yaml.selected_ticker`へ固定する最終候補は0または1件。0件なら`no actionable bargain`で終了する。
 
 ### OP5 Packet scaffold
 
@@ -259,7 +259,7 @@ portfolio outcomeはcanonical ledger、JPX営業日close、配当込みTOPIX観�
 - next: <next CP or stop reason>
 ```
 
-候補shortlist checkpointだけ8〜10件の比較表と非選択理由を追加する。recordsへ保存した判断はpath/hashと1〜3行結果だけ参照し、本文をIssueへ複製しない。
+human-review shortlist checkpointだけ8〜10件の比較表と非選択理由を追加する。recordsへ保存した判断はpath/hashと1〜3行結果だけ参照し、本文をIssueへ複製しない。
 
 ## Failure / stop conditions
 
