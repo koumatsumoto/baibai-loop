@@ -1,14 +1,14 @@
 ---
 title: "Candidate shortlist report"
-summary: "opportunity path OP3 の人間レビューgateに出す 8〜10 候補 HTML レポートの生成方式と narratives スキーマ。"
+summary: "opportunity path OP3の人間レビューgateに出す候補HTMLレポートの生成方式とnarrativesスキーマ。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-13
 ---
 
 # candidate-report — 候補shortlistレポートの生成
 
-`opportunity` path の OP3（[decision-cycle.md](../operations/decision-cycle.md#opportunity-path)）で、人間が深掘り対象を選ぶための 8〜10 候補 HTML レポートを生成する。1 銘柄へ先に決め打ちせず、比較可能な候補群を先に人間へ渡す人間レビューgateの成果物。
+`opportunity` pathの[OP3](../operations/decision-cycle.md#opportunity-path)で、人間がprimary-research setを選ぶための候補HTMLレポートを生成する。候補件数はOP3の契約を正本とする。1銘柄へ先に決め打ちせず、比較可能な候補群を先に人間へ渡す人間レビューgateの成果物。
 
 ## 設計
 
@@ -19,7 +19,7 @@ packet-scaffold と同じく「機械 = data plumbing / 人間 = judgment」。�
 ## 生成手順
 
 1. OP2 で `candidates.yaml` / `selection-output.yaml`（`--audit-top 20`）を作る。
-2. audit pool から 8〜10 候補を選び、[`tools/candidate_report/narratives-template.yaml`](../../tools/candidate_report/narratives-template.yaml) を run の workspace へ複製して記入する。
+2. audit poolから[OP3の件数契約](../operations/decision-cycle.md#opportunity-path)に従って候補を選び、[`tools/candidate_report/narratives-template.yaml`](../../tools/candidate_report/narratives-template.yaml)をrunのworkspaceへ複製して記入する。
 3. レンダラを実行する。
 
 ```bash

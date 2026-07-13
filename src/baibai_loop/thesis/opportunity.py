@@ -50,7 +50,6 @@ from .decision_packet import (
 from .execution_policy import ExecutionPolicyError, max_acceptable_price
 
 TOOL_VERSION = "opportunity-v1"
-SHORTLIST_MAX = 5
 BOARD_LOT: int = PORTFOLIO_POLICY["order_constraints"]["board_lot"]
 # 対象 sizing 帯 (20-30万円 / 100株 = ¥2000-3000/株) はちょうど JPX 現物の ¥1 tick 帯。
 # max acceptable price の ceiling floor 丸めはこの帯で正確な ¥1 を使う。
@@ -157,7 +156,12 @@ def prepare_workspace(
     held = {holding.ticker for holding in snapshot.holdings}
     reserved = {reservation.ticker for reservation in snapshot.active_reservations}
     annotated = [_annotate_candidate(row, held=held, reserved=reserved) for row in audit_pool]
-    shortlist_slots = min(SHORTLIST_MAX, len(annotated))
+    research_selection_target_max = _research_selection_target_max(selection)
+    shortlist_slots = (
+        min(research_selection_target_max, len(annotated))
+        if research_selection_target_max > 0
+        else len(annotated)
+    )
 
     selection_doc = {
         "as_of": asof.isoformat(),
@@ -186,7 +190,7 @@ def prepare_workspace(
             },
         },
         "rules": {
-            "research_selection_target_max": _selection_int(selection),
+            "research_selection_target_max": research_selection_target_max,
             "research_selection_playbook_order": _selection_playbook_order(selection),
         },
     }
@@ -909,11 +913,14 @@ def _string_or_none(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _selection_int(selection: Mapping[str, object]) -> object:
+def _research_selection_target_max(selection: Mapping[str, object]) -> int:
     block = selection.get("selection")
-    if isinstance(block, Mapping):
-        return block.get("research_selection_target_max")
-    return None
+    value = block.get("research_selection_target_max") if isinstance(block, Mapping) else None
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise OpportunityDataError(
+            "selection output research_selection_target_max must be a non-negative integer"
+        )
+    return value
 
 
 def _selection_playbook_order(selection: Mapping[str, object]) -> object:

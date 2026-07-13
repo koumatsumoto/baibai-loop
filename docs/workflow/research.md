@@ -1,9 +1,9 @@
 ---
 title: "Workflow — research"
-summary: "shortlistを一次情報、永久損失、3年/5年scenario、反証で比較し、最良0〜1件をdecision packetへ固定する。"
+summary: "人間が選んだprimary-research setを一次情報、永久損失、3年/5年scenario、反証で比較し、最良0〜1件をdecision packetへ固定する。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-13
 related_docs:
   - "./screening.md"
   - "../reference/decision-packet.md"
@@ -26,14 +26,23 @@ researchの目的は、安く見える理由が一時的な誤解か、企業価
 
 検索snippet、ニュース見出し、外部AI要約を観測事実にしない。二次情報は一次sourceの所在確認と相互検算だけに使う。
 
-## Shortlist
+## Candidate stages
 
-audit pool上位20件から一次IRへ進める候補を最大5件に絞る。上位非選択候補にも理由を残し、保有済み、予約中、予算外だけを理由に除外しない。
+候補件数は段階ごとに意味が異なる。
+
+| stage | artifact | contract |
+| --- | --- | --- |
+| production recommendations | screening selection outputの`recommendations` | rulesの`research_selection_target_max`を適用した通常表示 |
+| human-review shortlist | OP3のcandidate report | 件数と選定手順は[`decision-cycle` OP3](../operations/decision-cycle.md#opportunity-path)を正本とする |
+| primary-research set | workspaceの`selection.yaml.shortlist` | 人間がreportから選ぶ。推奨2〜4件で、selection outputの`research_selection_target_max`を上限とする |
+| selected | `research-comparison.yaml.selected_ticker` | 一次情報で全対象を比較した後の最良0〜1件 |
+
+上位非選択候補にも理由を残し、保有済み、予約中、予算外だけを理由に除外しない。
 
 | rank | ticker | temporary mispricing | permanent loss | 5y CAGR/FV | portfolio annotation | strongest countercase | disposition/reason |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 
-候補比較は永久損失、5年期待return/FV乖離、portfolio marginal value、購入可能性の順。単一合成scoreで畳まない。selectedは0または1件。
+primary-research setの比較は永久損失、5年期待return/FV乖離、portfolio marginal value、購入可能性の順。単一合成scoreで畳まない。
 
 ## Primary-source record
 
