@@ -33,6 +33,8 @@ def _panel_row(
     dividend_yield: float | None = None,
     sector_33: str = "サービス業",
     er_annual: float | None = None,
+    er_reversion_annual: float | None = None,
+    er_carry_annual: float | None = None,
 ) -> PanelRow:
     return PanelRow(
         asof="2025-06-30",
@@ -78,8 +80,8 @@ def _panel_row(
         srp_ev_ebitda=None,
         srp_p_s=None,
         er_annual=er_annual,
-        er_reversion_annual=None,
-        er_carry_annual=None,
+        er_reversion_annual=er_reversion_annual,
+        er_carry_annual=er_carry_annual,
         er_upside_capped=None,
         pass_screen=rank is not None,
         evidence_playbooks="",
@@ -247,6 +249,75 @@ class EvaluateCohortsTest(unittest.TestCase):
         assert isinstance(pop_top5, dict)
         self.assertEqual(pop_top5["median_excess"], er_top5["median_excess"])
 
+    def test_er_calibration_compares_centered_reversion_with_centered_price_return(self) -> None:
+        panel: list[PanelRow] = []
+        forwards: list[ForwardReturnRow] = []
+        for i in range(100):
+            ticker = f"35{i:02d}"
+            reversion = i / 1000
+            panel.append(
+                _panel_row(
+                    ticker,
+                    per_trailing=10.0,
+                    er_annual=reversion + 0.03,
+                    er_reversion_annual=reversion,
+                    er_carry_annual=0.03,
+                )
+            )
+            forwards.append(_forward_row(ticker, i / 1000))
+
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+
+        calibration = result["6m"]["cohorts"][0]["er_calibration"]
+        assert isinstance(calibration, dict)
+        self.assertEqual(
+            calibration["prediction_basis"],
+            "er_reversion_annual_relative_to_population_median",
+        )
+        self.assertEqual(
+            calibration["realized_basis"], "price_return_relative_to_population_median"
+        )
+        self.assertEqual(calibration["calibration_error_basis"], "realized_minus_predicted")
+        self.assertEqual(calibration["population_median_reversion_annual"], 0.0495)
+        quintiles = calibration["er_quintiles"]
+        assert isinstance(quintiles, list)
+        first = quintiles[0]
+        assert isinstance(first, dict)
+        self.assertEqual(first["median_predicted_reversion_excess"], -0.02)
+        self.assertEqual(first["median_realized_price_excess"], -0.04)
+        self.assertEqual(first["calibration_error"], -0.02)
+
+    def test_er_calibration_is_unchanged_when_only_carry_changes(self) -> None:
+        forwards = [_forward_row(f"36{i:02d}", i / 1000) for i in range(100)]
+
+        def panel_with_carry(carry: float) -> list[PanelRow]:
+            return [
+                _panel_row(
+                    f"36{i:02d}",
+                    per_trailing=10.0,
+                    er_annual=i / 1000 + carry,
+                    er_reversion_annual=i / 1000,
+                    er_carry_annual=carry,
+                )
+                for i in range(100)
+            ]
+
+        low_carry = evaluate_cohorts(
+            {"2025-06-30": panel_with_carry(0.01)},
+            {"2025-06-30": forwards},
+            horizons=["6m"],
+        )
+        high_carry = evaluate_cohorts(
+            {"2025-06-30": panel_with_carry(0.20)},
+            {"2025-06-30": forwards},
+            horizons=["6m"],
+        )
+
+        self.assertEqual(
+            low_carry["6m"]["cohorts"][0]["er_calibration"],
+            high_carry["6m"]["cohorts"][0]["er_calibration"],
+        )
+
     def test_cohort_with_insufficient_sample_remains_explicitly_unresolved(self) -> None:
         panel = [_panel_row("1000", per_trailing=10.0)]
         forwards = [_forward_row("1000", 0.1)]
@@ -330,6 +401,9 @@ class EvaluateCohortsTest(unittest.TestCase):
                     ticker,
                     per_trailing=10.0 + i * 0.05,
                     sector_33="サービス業",
+                    er_annual=i / 1000 + 0.03,
+                    er_reversion_annual=i / 1000,
+                    er_carry_annual=0.03,
                 )
             )
             forwards.append(_forward_row(ticker, 0.30 - i * 0.001))
@@ -340,6 +414,9 @@ class EvaluateCohortsTest(unittest.TestCase):
                     ticker,
                     per_trailing=4.0 + i * 0.05,
                     sector_33="サービス業",
+                    er_annual=(60 + i) / 1000 + 0.03,
+                    er_reversion_annual=(60 + i) / 1000,
+                    er_carry_annual=0.03,
                 )
             )
             forwards.append(_forward_row(ticker, -0.30 - i * 0.001))
@@ -371,6 +448,19 @@ class EvaluateCohortsTest(unittest.TestCase):
             aggregate = horizon["aggregate"]
             assert isinstance(aggregate, dict)
             self.assertEqual(aggregate["cohort_count"], 1)
+            cohorts = horizon["cohorts"]
+            assert isinstance(cohorts, list)
+            calibration = cohorts[0]["er_calibration"]
+            assert isinstance(calibration, dict)
+            self.assertEqual(
+                calibration["prediction_basis"],
+                "er_reversion_annual_relative_to_population_median",
+            )
+            self.assertEqual(
+                calibration["realized_basis"],
+                "price_return_relative_to_population_median",
+            )
+            self.assertEqual(calibration["calibration_error_basis"], "realized_minus_predicted")
 
     def test_production_decision_requires_explicit_core_scope(self) -> None:
         with TemporaryDirectory() as temp_dir:
