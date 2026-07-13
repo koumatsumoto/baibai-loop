@@ -3,7 +3,7 @@ title: "Portfolio management"
 summary: "投資価値rankingを先に行い、資金目安、human-confirmed ledger、保有規律、年次評価を運用する方針。"
 doc_type: governance
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-13
 related_docs:
   - "./doctrine.md"
   - "./operations/decision-cycle.md"
@@ -63,6 +63,12 @@ canonical ledgerはrepository内で確認済みのcash、holding、reservation�
 reservationは`quantity * price_guard`をcashから引き当て、partial fill後はremaining quantityだけを残す。cancel/expireはrelease eventで明示する。これはrepository snapshotを再計算するための最小状態で、自動broker lifecycleではない。
 
 cash、ticker/sector/common-factor concentration、dry powderはwarning。warningは人間判断を禁止せず、投資価値rankを変更しない。受け入れる場合のoverride contractはledger schema/referenceを正本とする。
+
+## Parallel research and serial capital reservation
+
+人間がprimary-research setを複数選んだ場合、企業別researchと独立reviewはticker別laneで並行できる。並行調査は候補比較の時間を短縮するためのもので、資本を先回りして複数銘柄へ予約する許可ではない。
+
+proposalとreservationは投資価値rank順に1件ずつ進める。各`plan-limit`は出力の`source_ledger_sha256`を現在のcanonical ledgerと照合し、人間の注文結果と必要なledger更新を完了してから次の候補を最新ledgerで再計算する。同じ更新前snapshotから複数proposalを作らないため、先行注文のreserved cashとconcentrationが後続proposalのwarningへ反映される。
 
 ## Holding discipline
 

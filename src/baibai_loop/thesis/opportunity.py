@@ -34,7 +34,7 @@ from baibai_loop.foundation.time import JST
 from baibai_loop.foundation.yaml_io import safe_load
 from baibai_loop.position.ledger import (
     PortfolioSnapshot,
-    load_portfolio_ledger,
+    load_portfolio_ledger_with_sha256,
     reconcile_portfolio,
 )
 from baibai_loop.position.policy import PORTFOLIO_POLICY
@@ -424,6 +424,29 @@ def _validate_editable_drafts(workspace: Path, manifest: Mapping[str, object]) -
         raise OpportunityDataError("selected_ticker is not present in shortlist")
 
 
+def _research_lane_dir(workspace: Path, ticker: str) -> Path:
+    """Return a path-confined ticker lane inside the shared opportunity workspace."""
+
+    workspace_root = workspace.resolve()
+    ticker_dir = (workspace_root / ticker).resolve()
+    if ticker_dir.parent != workspace_root:
+        raise OpportunityDataError(
+            f"research lane must be a direct child of the workspace: {ticker}"
+        )
+    return ticker_dir
+
+
+def _require_primary_research_ticker(workspace: Path, ticker: str) -> None:
+    selection = _load_mapping(workspace / "selection.yaml", label="workspace selection")
+    shortlist_tickers = {
+        str(row.get("ticker") or "") for row in _dict_list(selection.get("shortlist"))
+    }
+    if ticker not in shortlist_tickers:
+        raise OpportunityDataError(
+            f"cannot scaffold research lane for {ticker}: ticker is not in the primary-research set"
+        )
+
+
 # --------------------------------------------------------------------------- #
 # packet-scaffold
 # --------------------------------------------------------------------------- #
@@ -446,7 +469,9 @@ def scaffold_packet(
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     _verify_external_inputs(manifest)
     _validate_editable_drafts(workspace, manifest)
+    _require_primary_research_ticker(workspace, ticker)
     asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
+    ticker_dir = _research_lane_dir(workspace, ticker)
 
     price = resolve_previous_business_day_close(
         sqlite_path=sqlite_path, ticker=ticker, target_session=target_session
@@ -457,7 +482,6 @@ def scaffold_packet(
             "an adjusted-only series is not substituted"
         )
 
-    ticker_dir = workspace / ticker
     packet_path = ticker_dir / "packet-draft.yaml"
     if packet_path.exists() and not force:
         raise OpportunityConflictError(
@@ -572,7 +596,8 @@ def scaffold_review(*, workspace: Path, ticker: str, force: bool = False) -> dic
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     _verify_external_inputs(manifest)
     _validate_editable_drafts(workspace, manifest)
-    ticker_dir = workspace / ticker
+    _require_primary_research_ticker(workspace, ticker)
+    ticker_dir = _research_lane_dir(workspace, ticker)
     packet_path = ticker_dir / "packet-draft.yaml"
     if not packet_path.exists():
         raise OpportunityDataError(f"packet draft not found for {ticker}: {packet_path}")
@@ -649,7 +674,7 @@ def promote(
     if _string_or_none(comparison.get("selected_ticker")) != ticker:
         raise OpportunityDataError(f"cannot promote {ticker}: it is not the selected_ticker")
 
-    ticker_dir = workspace / ticker
+    ticker_dir = _research_lane_dir(workspace, ticker)
     packet_path = ticker_dir / "packet-draft.yaml"
     review_path = ticker_dir / "review-draft.yaml"
     if not packet_path.exists() or not review_path.exists():
@@ -768,7 +793,7 @@ def plan_limit(
     if close_decimal is not None and close_decimal > max_price:
         defer_reasons.append("close_above_max_acceptable_price")
 
-    snapshot = _load_snapshot(ledger)
+    snapshot, source_ledger_sha256 = _load_snapshot_with_sha256(ledger)
     portfolio_annotations = _portfolio_annotations(snapshot, ticker=ticker)
     expires_at = datetime.combine(target_session, time(15, 30), tzinfo=JST)
 
@@ -783,6 +808,7 @@ def plan_limit(
         "budget_min_yen": budget_min_yen,
         "budget_max_yen": budget_max_yen,
         "portfolio_annotations": portfolio_annotations,
+        "source_ledger_sha256": source_ledger_sha256,
         "expires_at": expires_at.isoformat(),
     }
 
@@ -853,20 +879,26 @@ def _portfolio_warnings(snapshot: PortfolioSnapshot, *, notional_yen: Decimal) -
 
 
 def _load_snapshot(ledger: Path) -> PortfolioSnapshot:
+    snapshot, _source_sha256 = _load_snapshot_with_sha256(ledger)
+    return snapshot
+
+
+def _load_snapshot_with_sha256(ledger: Path) -> tuple[PortfolioSnapshot, str]:
     try:
-        return reconcile_portfolio(load_portfolio_ledger(ledger))
+        document, source_sha256 = load_portfolio_ledger_with_sha256(ledger)
+        return reconcile_portfolio(document), source_sha256
     except (OSError, ValueError) as error:
         raise OpportunityDataError(f"cannot reconcile ledger: {error}") from error
 
 
 def _load_checklist(workspace: Path, ticker: str) -> list[dict[str, object]]:
-    checklist_path = workspace / ticker / "research-checklist.yaml"
+    checklist_path = _research_lane_dir(workspace, ticker) / "research-checklist.yaml"
     payload = _load_mapping(checklist_path, label="research checklist")
     return _dict_list(payload.get("checks"))
 
 
 def _packet_validation_errors(workspace: Path, ticker: str) -> list[str]:
-    packet_path = workspace / ticker / "packet-draft.yaml"
+    packet_path = _research_lane_dir(workspace, ticker) / "packet-draft.yaml"
     if not packet_path.exists():
         return ["packet draft missing"]
     try:
@@ -877,14 +909,14 @@ def _packet_validation_errors(workspace: Path, ticker: str) -> list[str]:
 
 
 def _review_validation_errors(workspace: Path, ticker: str) -> list[str]:
-    review_path = workspace / ticker / "review-draft.yaml"
+    review_path = _research_lane_dir(workspace, ticker) / "review-draft.yaml"
     if not review_path.exists():
         return ["review draft missing"]
     try:
         review = load_independent_review(review_path)
     except DecisionPacketError as error:
         return [str(error).splitlines()[0]]
-    packet_path = workspace / ticker / "packet-draft.yaml"
+    packet_path = _research_lane_dir(workspace, ticker) / "packet-draft.yaml"
     core_hash = _packet_core_hash_if_valid(packet_path)
     if core_hash is not None and review.reviewed_packet_sha256 != core_hash:
         return ["review is stale for the current packet"]
