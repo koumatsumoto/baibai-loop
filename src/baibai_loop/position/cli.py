@@ -10,19 +10,27 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sqlite3
 import sys
-from datetime import datetime
+from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import yaml
 
+from baibai_loop.foundation.time import JST
 from baibai_loop.market.bars import JQuantsDailyBar
 from baibai_loop.market.config import DEFAULT_SQLITE_CACHE_DIR
 from baibai_loop.market.jpx_total_return import (
     BenchmarkObservation,
     BenchmarkObservationError,
     load_benchmark_observation,
+)
+from baibai_loop.market.sqlite import (
+    connect_current,
+    daily_bars_covered_by_data,
+    optional_float,
+    range_covered,
 )
 from baibai_loop.market.store import read_daily_bars_for_tickers, read_market_calendar
 from baibai_loop.position.holding_review import (
@@ -34,6 +42,8 @@ from baibai_loop.position.holding_review import (
 )
 from baibai_loop.position.ledger import (
     ExecutionEvent,
+    MarketPrice,
+    PortfolioLedgerDocument,
     PortfolioLedgerError,
     ReservationEvent,
     load_portfolio_ledger,
@@ -57,6 +67,13 @@ def _datetime_argument(value: str) -> datetime:
     if parsed.tzinfo is None:
         raise argparse.ArgumentTypeError("must include a timezone")
     return parsed
+
+
+def _date_argument(value: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be an ISO date") from error
 
 
 def _decimal_argument(value: str) -> Decimal:
@@ -134,6 +151,15 @@ def build_parser() -> argparse.ArgumentParser:
     holding_build_parser.add_argument("--position-id", required=True)
     holding_build_parser.add_argument("--candidate-packet", type=Path)
     holding_build_parser.add_argument("--out", type=Path, required=True)
+    market_price_parser = subparsers.add_parser(
+        "market-price-draft",
+        help="build a new ledger draft with exact same-day raw closes for all open holdings",
+    )
+    market_price_parser.add_argument("--root", type=Path, default=Path.cwd())
+    market_price_parser.add_argument("--ledger", type=Path, required=True)
+    market_price_parser.add_argument("--sqlite", type=Path, required=True)
+    market_price_parser.add_argument("--asof", type=_date_argument, required=True)
+    market_price_parser.add_argument("--out", type=Path, required=True)
     result_parser = subparsers.add_parser(
         "record-result",
         help="turn a human-reported open/filled/cancelled/expired result into a ledger draft",
@@ -174,6 +200,14 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             ledger=args.ledger,
             position_id=args.position_id,
             candidate_packet=args.candidate_packet,
+            out=args.out,
+        )
+    if args.command == "market-price-draft":
+        return _run_market_price_draft(
+            root=args.root,
+            ledger=args.ledger,
+            sqlite_path=args.sqlite,
+            asof=args.asof,
             out=args.out,
         )
     if args.command == "record-result":
@@ -456,6 +490,164 @@ def _run_record_result(args: argparse.Namespace, *, now: datetime | None) -> int
         allow_unicode=True,
     )
     return 0
+
+
+class _MarketPriceDraftError(ValueError):
+    """The requested market-price observation cannot produce a complete draft."""
+
+
+def _run_market_price_draft(
+    *,
+    root: Path,
+    ledger: Path,
+    sqlite_path: Path,
+    asof: date,
+    out: Path,
+) -> int:
+    ledger_path = ledger if ledger.is_absolute() else root / ledger
+    resolved_sqlite = sqlite_path if sqlite_path.is_absolute() else root / sqlite_path
+    try:
+        output_path = _draft_output_path(root, out, label="market price ledger draft")
+        sqlite_ref = _repository_source_ref(root, resolved_sqlite)
+        document, source_sha256 = load_portfolio_ledger_with_sha256(ledger_path)
+        snapshot = reconcile_portfolio(document)
+        tickers = tuple(sorted(holding.ticker for holding in snapshot.holdings))
+        if not tickers:
+            raise _MarketPriceDraftError("ledger has no open holdings to price")
+        newer_prices = sorted(
+            holding.ticker
+            for holding in snapshot.holdings
+            if holding.market_price_observed_at.date() > asof
+        )
+        if newer_prices:
+            raise _MarketPriceDraftError(
+                f"--asof would roll back current holding market prices: {', '.join(newer_prices)}"
+            )
+        rows = _read_exact_raw_closes(resolved_sqlite, tickers=tickers, asof=asof)
+        observed_at = datetime.combine(asof, time(15, 30), tzinfo=JST)
+        prices = tuple(
+            MarketPrice(
+                ticker=ticker,
+                price_yen=Decimal(str(close)),
+                observed_at=observed_at.isoformat(),
+                source_kind="licensed_dataset",
+                price_basis="unadjusted_close",
+                source_ref=(f"{sqlite_ref}:jquants_daily_bars:{ticker}:{asof.isoformat()}"),
+            )
+            for ticker, close, _adjustment_close, _adjustment_factor in rows
+        )
+        payload = document.model_dump(mode="json")
+        payload["as_of"] = max(document.as_of, observed_at).isoformat()
+        payload["market_prices"] = [price.model_dump(mode="json") for price in prices]
+        draft = PortfolioLedgerDocument.model_validate(payload)
+        reconcile_portfolio(draft)
+        _write_yaml_exclusive(output_path, draft.model_dump(mode="json"))
+        draft_sha256 = _sha256(output_path)
+    except (OSError, PortfolioLedgerError, sqlite3.Error, ValueError) as error:
+        print(f"error: failed to build market price ledger draft: {error}", file=sys.stderr)
+        return 2
+
+    yaml.safe_dump(
+        {
+            "source_ledger": str(ledger_path),
+            "source_ledger_sha256": source_sha256,
+            "market_data_fingerprint": _exact_raw_close_fingerprint(rows, asof=asof),
+            "draft_sha256": draft_sha256,
+            "output": str(output_path),
+        },
+        sys.stdout,
+        sort_keys=False,
+        allow_unicode=True,
+    )
+    return 0
+
+
+def _repository_source_ref(root: Path, sqlite_path: Path) -> str:
+    resolved_root = root.resolve()
+    try:
+        return sqlite_path.resolve().relative_to(resolved_root).as_posix()
+    except ValueError as error:
+        raise _MarketPriceDraftError(
+            "--sqlite must be below --root for a stable source_ref"
+        ) from error
+
+
+def _read_exact_raw_closes(
+    sqlite_path: Path,
+    *,
+    tickers: tuple[str, ...],
+    asof: date,
+) -> list[tuple[str, float, float | None, float | None]]:
+    if not sqlite_path.is_file():
+        raise _MarketPriceDraftError(f"market SQLite not found: {sqlite_path}")
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        raise _MarketPriceDraftError("market SQLite schema is missing or incompatible")
+    try:
+        conn.execute("BEGIN")
+        if not range_covered(conn, "jquants_market_calendar", asof, asof):
+            raise _MarketPriceDraftError("market calendar coverage is incomplete for --asof")
+        calendar_row = conn.execute(
+            "SELECT is_business_day FROM jquants_market_calendar WHERE day = ?",
+            (asof.isoformat(),),
+        ).fetchone()
+        if calendar_row is None or int(calendar_row[0]) != 1:
+            raise _MarketPriceDraftError("--asof is not a covered business day")
+        if not daily_bars_covered_by_data(conn, asof, asof):
+            raise _MarketPriceDraftError("daily-bar coverage is incomplete for --asof")
+        fetched = [
+            row
+            for ticker in tickers
+            if (
+                row := conn.execute(
+                    "SELECT ticker, traded_at, close, adjustment_close, adjustment_factor "
+                    "FROM jquants_daily_bars WHERE ticker = ? AND traded_at = ?",
+                    (ticker, asof.isoformat()),
+                ).fetchone()
+            )
+            is not None
+        ]
+    finally:
+        conn.close()
+
+    by_ticker = {str(row[0]): row for row in fetched}
+    missing = [ticker for ticker in tickers if ticker not in by_ticker]
+    if missing:
+        raise _MarketPriceDraftError(
+            f"raw close is missing for open holdings on {asof.isoformat()}: {', '.join(missing)}"
+        )
+    rows: list[tuple[str, float, float | None, float | None]] = []
+    for ticker in tickers:
+        _row_ticker, traded_at, raw_close, adjustment_close, adjustment_factor = by_ticker[ticker]
+        if str(traded_at) != asof.isoformat():
+            raise _MarketPriceDraftError(f"daily-bar date mismatch for {ticker}")
+        close = optional_float(raw_close)
+        if close is None or close <= 0:
+            raise _MarketPriceDraftError(
+                f"raw close is missing or invalid for {ticker} on {asof.isoformat()}"
+            )
+        rows.append(
+            (
+                ticker,
+                close,
+                optional_float(adjustment_close),
+                optional_float(adjustment_factor),
+            )
+        )
+    return rows
+
+
+def _exact_raw_close_fingerprint(
+    rows: list[tuple[str, float, float | None, float | None]],
+    *,
+    asof: date,
+) -> str:
+    dated_rows = [
+        (ticker, asof.isoformat(), close, adjustment_close, adjustment_factor)
+        for ticker, close, adjustment_close, adjustment_factor in rows
+    ]
+    encoded = json.dumps(dated_rows, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(encoded.encode()).hexdigest()
 
 
 def _draft_output_path(root: Path, output: Path, *, label: str) -> Path:

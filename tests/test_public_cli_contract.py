@@ -403,6 +403,7 @@ def test_opportunity_cli_exposes_milestone_a_subcommands() -> None:
     assert len(subactions) == 1
     assert set(subactions[0].choices) == {
         "prepare",
+        "holding-prepare",
         "status",
         "packet-scaffold",
         "review-scaffold",
@@ -413,7 +414,15 @@ def test_opportunity_cli_exposes_milestone_a_subcommands() -> None:
 
 @pytest.mark.parametrize(
     "command",
-    ["prepare", "status", "packet-scaffold", "review-scaffold", "promote", "plan-limit"],
+    [
+        "prepare",
+        "holding-prepare",
+        "status",
+        "packet-scaffold",
+        "review-scaffold",
+        "promote",
+        "plan-limit",
+    ],
 )
 def test_opportunity_subcommand_help_is_public(command: str) -> None:
     with pytest.raises(SystemExit) as excinfo:
@@ -439,11 +448,12 @@ def test_position_cli_exposes_human_result_and_holding_build_subcommands() -> No
         "outcome",
         "holding-review",
         "holding-review-build",
+        "market-price-draft",
         "record-result",
     }
 
 
-@pytest.mark.parametrize("command", ["holding-review-build", "record-result"])
+@pytest.mark.parametrize("command", ["holding-review-build", "market-price-draft", "record-result"])
 def test_position_human_boundary_subcommand_help_is_public(command: str) -> None:
     with pytest.raises(SystemExit) as excinfo:
         position_main([command, "--help"])
@@ -488,6 +498,20 @@ def test_position_human_boundary_subcommand_help_is_public(command: str) -> None
                 "records/04-position/portfolio-ledger.yaml",
                 "--workspace",
                 ".cache/opportunity/2026-07-10",
+            ],
+        ),
+        (
+            opportunity_parser,
+            [
+                "holding-prepare",
+                "--asof",
+                "2026-07-10",
+                "--ledger",
+                "records/04-position/portfolio-ledger.yaml",
+                "--ticker",
+                "1234",
+                "--workspace",
+                ".cache/opportunity/2026-07-10/holding-1234",
             ],
         ),
         (opportunity_parser, ["status", "--workspace", ".cache/opportunity/2026-07-10"]),
@@ -545,6 +569,22 @@ def test_position_human_boundary_subcommand_help_is_public(command: str) -> None
                 "300000",
                 "--output",
                 "proposal.yaml",
+            ],
+        ),
+        (
+            position_parser,
+            [
+                "market-price-draft",
+                "--root",
+                ".",
+                "--ledger",
+                "records/04-position/portfolio-ledger.yaml",
+                "--sqlite",
+                "data/screening/market.sqlite",
+                "--asof",
+                "2026-07-10",
+                "--out",
+                ".cache/position/2026-07-10-market-price-ledger.yaml",
             ],
         ),
         (

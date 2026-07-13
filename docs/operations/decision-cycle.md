@@ -51,30 +51,30 @@ Baibai-Loopの日常運用は「最もお買い得な日本株を見つけ、人
 
 ## Opportunity path
 
-以下で`ASOF=最新完全営業日`、`TARGET=次の発注対象session`、`WORKSPACE=.cache/opportunity/$ASOF`と読み替える。shell変数の設定を要求せず、実行時は値を日付へ置換する。
+以下で`ASOF_DATE=最新完全営業日`、`NEXT_SESSION_DATE=ASOF_DATEの次の取引session`、`WORKSPACE=.cache/opportunity/ASOF_DATE`と読み替える。shell変数の設定を要求せず、実行時は値を日付へ置換する。`packet-scaffold --target-session`は`NEXT_SESSION_DATE`を指定し、解決される前取引sessionのraw close日をworkspaceの`ASOF_DATE`へ一致させる。
 
 ### OP1 Cache coverage
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening verify-cache-coverage --asof YYYY-MM-DD
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening verify-cache-coverage --asof ASOF_DATE
 ```
 
-- pass: exit 0、必要sourceがASOFをcoverする。
+- pass: exit 0、必要sourceが`ASOF_DATE`をcoverする。
 - stop: missing/stale/future data。後続を実行しない。
 - refreshが必要な場合だけ次を実行し、再度coverageを単独確認する。
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening bootstrap-cache --asof YYYY-MM-DD
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening extract-edinet-metrics --asof YYYY-MM-DD
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening bootstrap-cache --asof ASOF_DATE
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening extract-edinet-metrics --asof ASOF_DATE
 ```
 
 ### OP2 Screening and audit pool
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening run --asof YYYY-MM-DD --output-path /tmp/candidates-YYYY-MM-DD.yaml
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening select --asof YYYY-MM-DD --candidates /tmp/candidates-YYYY-MM-DD.yaml --detail full --audit-top 20 --output-path /tmp/selection-YYYY-MM-DD.yaml
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity prepare --asof YYYY-MM-DD --selection-output /tmp/selection-YYYY-MM-DD.yaml --ledger records/04-position/portfolio-ledger.yaml --workspace .cache/opportunity/YYYY-MM-DD
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .cache/opportunity/YYYY-MM-DD
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening run --asof ASOF_DATE --output-path /tmp/candidates-ASOF_DATE.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening select --asof ASOF_DATE --candidates /tmp/candidates-ASOF_DATE.yaml --detail full --audit-top 20 --output-path /tmp/selection-ASOF_DATE.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity prepare --asof ASOF_DATE --selection-output /tmp/selection-ASOF_DATE.yaml --ledger records/04-position/portfolio-ledger.yaml --workspace .cache/opportunity/ASOF_DATE
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .cache/opportunity/ASOF_DATE
 ```
 
 確認するものは`audit_pool`最大20件、production `recommendations`、holding/reservation annotation、workspace hash、`next_command`。`recommendations`はrulesの通常表示capを適用した機械出力で、OP3のhuman-review shortlistではない。candidate/audit poolは探索用で、buy候補やcanonical judgmentではない。
@@ -84,7 +84,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .ca
 audit pool上位20件から8〜10候補を選び、human-review shortlist reportを人間へ提示する。audit poolが8件未満なら全件を提示して不足を明記し、pool外の銘柄で件数を埋めない。第1層データ（価格・valuation・自己資本比率・net cash・配当basis・機械E[r]・FVアンカー乖離・TradingView link）と選定背景（なぜ安い / 一時的か構造的か / 5年耐性 / 最強countercase / 深掘り論点）、比較表、非選択理由を含める。数値はscreening出力から機械生成し、narrativeだけ運用者が`narratives.yaml`に書く。
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.candidate_report.render --selection .cache/opportunity/YYYY-MM-DD/selection-output.yaml --candidates .cache/opportunity/YYYY-MM-DD/candidates.yaml --narratives .cache/opportunity/YYYY-MM-DD/narratives.yaml --out .cache/opportunity/YYYY-MM-DD/candidate-report.html
+UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.candidate_report.render --selection .cache/opportunity/ASOF_DATE/selection-output.yaml --candidates .cache/opportunity/ASOF_DATE/candidates.yaml --narratives .cache/opportunity/ASOF_DATE/narratives.yaml --out .cache/opportunity/ASOF_DATE/candidate-report.html
 ```
 
 生成HTMLは`.cache`のephemeral成果物でcommitしない。詳細は[`../reference/candidate-report.md`](../reference/candidate-report.md)。非選択上位候補にも構造的衰退、永久損失warning、一次情報不足、FV乖離不足、投資対象外等の理由を残す。「保有済み」「予約中」「予算外」だけを除外理由にしない。
@@ -95,13 +95,13 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.candidate_report.render --sele
 
 人間が選んだprimary-research setだけを対象に、会社IR、TDnet、EDINET、JPXを直接確認する。複数銘柄が選ばれたことが並行researchのtriggerであり、暴落検知やmacro timing判定を自動追加しない。
 
-共有workspaceの`manifest.yaml`に固定したselection output / ledger hashを全laneの共通lineageとし、各tickerの成果物は`.cache/opportunity/YYYY-MM-DD/<ticker>/`へ隔離する。永久損失7軸、corporate action、bear/base/bullの3年sanityと5年total return、FV、countercaseの調査はlaneごとに並行できる。手順は[`../workflow/research.md`](../workflow/research.md)を正本とする。
+共有workspaceの`manifest.yaml`に固定したselection output / ledger hashを全laneの共通lineageとし、各tickerの成果物は`.cache/opportunity/ASOF_DATE/<ticker>/`へ隔離する。永久損失7軸、corporate action、bear/base/bullの3年sanityと5年total return、FV、countercaseの調査はlaneごとに並行できる。手順は[`../workflow/research.md`](../workflow/research.md)を正本とする。
 
 ### OP5 Per-lane packet and research scaffold
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity packet-scaffold --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX --sqlite-path data/screening/market.sqlite --target-session YYYY-MM-DD
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .cache/opportunity/YYYY-MM-DD
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity packet-scaffold --workspace .cache/opportunity/ASOF_DATE --ticker XXXX --sqlite-path data/screening/market.sqlite --target-session NEXT_SESSION_DATE
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .cache/opportunity/ASOF_DATE
 ```
 
 `packet-scaffold`は`selection.yaml.shortlist`に含まれるtickerだけを受け入れる。primary-research setの各tickerについて実行し、生成されたlane内の`research-checklist.yaml`を一次sourceで`complete / blocked`にする。blockedを推定で埋めない。packetのobserved/derived/estimate/judgmentを区別し、scenario算術を機械再計算する。他laneのdraftをcopyまたは上書きしない。
@@ -109,9 +109,9 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .ca
 ### OP6 Independent review and promotion
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity review-scaffold --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .cache/opportunity/YYYY-MM-DD
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity promote --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX --output-dir records/03-thesis/YYYY/MM
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity review-scaffold --workspace .cache/opportunity/ASOF_DATE --ticker XXXX
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .cache/opportunity/ASOF_DATE
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity promote --workspace .cache/opportunity/ASOF_DATE --ticker XXXX --output-dir records/03-thesis/YYYY/MM
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation --target decision-packet
 ```
 
@@ -122,7 +122,7 @@ reviewはpacket authorと別roleがlaneごとに行い、複数laneを並行で�
 ### OP7 Planning-only limit
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity plan-limit --packet records/03-thesis/YYYY/MM/YYYY-MM-DD-XXXX-decision.yaml --ledger records/04-position/portfolio-ledger.yaml --sqlite-path data/screening/market.sqlite --target-session YYYY-MM-DD --budget-min-yen 200000 --budget-max-yen 300000 --output .cache/opportunity/YYYY-MM-DD/XXXX/proposal.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity plan-limit --packet records/03-thesis/YYYY/MM/ASOF_DATE-XXXX-decision.yaml --ledger records/04-position/portfolio-ledger.yaml --sqlite-path data/screening/market.sqlite --target-session NEXT_SESSION_DATE --budget-min-yen 200000 --budget-max-yen 300000 --output .cache/opportunity/ASOF_DATE/XXXX/proposal.yaml
 ```
 
 `planned_limit`は前営業日終値、max acceptable price、board lotから作る。終値が上限超過、corporate action unresolved、packet/review not readyは`defer`。1単元が30万円を超えても自動棄却せず、超過をwarningとして表示する。
@@ -238,14 +238,28 @@ human-confirmed release前、必要な期限後session未到来は`pending`、ca
 ## Earnings and material-event path
 
 1. [`task-runbook.md`](./task-runbook.md)のdated Issueと対象tickerを確認する。
-2. packet以後の一次IRとmaterial deltaだけを調べる。
-3. 対象tickerのcurrent decision packet/reviewを更新する。
-4. `holding-review-build`でreview draftをsourceから作る。
+2. 最新完全営業日の全保有raw closeからledger draftを作り、source hash、全ticker同日、raw/unadjusted basisを確認する。人間が確認したdraftだけをcanonical ledgerへcopyし、ledger validationを通す。
+3. canonical ledgerのopen holdingを起点に1銘柄固定workspaceを作る。
+4. packet以後の一次IRとmaterial deltaだけを調べ、既存のpacket/review/promote経路で対象tickerのcurrent decision packet/reviewを更新する。
+5. `holding-review-build`でreview draftをsourceから作る。
+
+ここでも`ASOF_DATE`は価格draftに使う最新完全営業日、`NEXT_SESSION_DATE`はその次の取引sessionを表す。`packet-scaffold`が解決するraw close日は`ASOF_DATE`と一致しなければならない。
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position holding-review-build --packet records/03-thesis/YYYY/MM/YYYY-MM-DD-XXXX-decision.yaml --ledger records/04-position/portfolio-ledger.yaml --position-id POSITION_ID --out .cache/holding-review/YYYY-MM-DD-XXXX-attempt-N-review.yaml
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position holding-review --root . --input .cache/holding-review/YYYY-MM-DD-XXXX-attempt-N-review.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position market-price-draft --root . --ledger records/04-position/portfolio-ledger.yaml --sqlite data/screening/market.sqlite --asof ASOF_DATE --out .cache/position/ASOF_DATE-market-price-ledger.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger --ledger .cache/position/ASOF_DATE-market-price-ledger.yaml
+git diff --no-index records/04-position/portfolio-ledger.yaml .cache/position/ASOF_DATE-market-price-ledger.yaml
+cp .cache/position/ASOF_DATE-market-price-ledger.yaml records/04-position/portfolio-ledger.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation --target ledger
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity holding-prepare --asof ASOF_DATE --ledger records/04-position/portfolio-ledger.yaml --ticker XXXX --workspace .cache/opportunity/ASOF_DATE/holding-XXXX
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity packet-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --ticker XXXX --sqlite-path data/screening/market.sqlite --target-session NEXT_SESSION_DATE
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity review-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --ticker XXXX
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity promote --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --ticker XXXX --output-dir records/03-thesis/YYYY/MM
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position holding-review-build --packet records/03-thesis/YYYY/MM/ASOF_DATE-XXXX-decision.yaml --ledger records/04-position/portfolio-ledger.yaml --position-id POSITION_ID --out .cache/holding-review/ASOF_DATE-XXXX-attempt-N-review.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position holding-review --root . --input .cache/holding-review/ASOF_DATE-XXXX-attempt-N-review.yaml
 ```
+
+`market-price-draft`は指定日のJ-Quants raw closeが全open holdingで同日に揃い、既存のopen holding price日を巻き戻さない場合だけ新規draftを作る。canonical ledgerを上書きせず、adjusted closeで補完しない。copy直前にstdoutのsource ledger hashが現在のcanonical ledgerと一致し、draftのbyte hashがstdoutの`draft_sha256`と一致することを確認する。どちらかが異なればcopyせず再生成する。market row fingerprintも確認し、人間確認なしにcanonicalへcopyしない。`holding-prepare`はcanonical ledgerに実在し、market-price observationの日付が`--asof`と一致するopen holdingだけを受け入れ、audit pool、shortlist、selected tickerをその1銘柄に固定する。通常のopportunity `prepare`とprimary-research set gateは変更しない。
 
 `holding-review`はsource hashだけでなくpacket/ledgerからload-bearing scalarを再構築してdraftと照合する。pass後、生成された`action`、最強countercase、source日付をoperation Issueへ要約し、人間に保存確認を求める。確認後だけ次を実行する。`CANONICAL_REVIEW.yaml`は対象positionの既存命名規則に従う新規pathへ置換する。
 

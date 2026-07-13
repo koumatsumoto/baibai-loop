@@ -97,6 +97,10 @@ def _sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def _dump_yaml(payload: object) -> str:
     return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True, default_flow_style=False)
 
@@ -182,11 +186,11 @@ def prepare_workspace(
         "inputs": {
             "selection_output": {
                 "path": selection_output.as_posix(),
-                "sha256": _sha256_text(selection_output.read_text(encoding="utf-8")),
+                "sha256": _sha256_file(selection_output),
             },
             "ledger": {
                 "path": ledger.as_posix(),
-                "sha256": _sha256_text(ledger.read_text(encoding="utf-8")),
+                "sha256": _sha256_file(ledger),
             },
         },
         "rules": {
@@ -201,6 +205,86 @@ def prepare_workspace(
         actionable=bool(annotated),
         shortlist_slots=shortlist_slots,
         audit_pool_size=len(annotated),
+    )
+
+
+def prepare_holding_workspace(
+    *,
+    asof: date,
+    ledger: Path,
+    ticker: str,
+    workspace: Path,
+    force: bool = False,
+) -> PrepareResult:
+    """Build a one-ticker research workspace for an actual open holding.
+
+    Holding review bypasses screening selection because the canonical ledger is
+    the source of its research target. The fixed audit pool, shortlist, and
+    selected ticker keep the existing packet/review/promotion gates usable
+    without weakening the normal opportunity-selection contract.
+    """
+    snapshot, ledger_sha256 = _load_snapshot_with_sha256(ledger)
+    holding = next((item for item in snapshot.holdings if item.ticker == ticker), None)
+    if holding is None:
+        raise OpportunityDataError(
+            f"cannot prepare holding review for {ticker}: ticker is not an open holding"
+        )
+    if holding.market_price_observed_at.date() != asof:
+        raise OpportunityDataError(
+            f"cannot prepare holding review for {ticker}: holding market price date "
+            f"{holding.market_price_observed_at.date().isoformat()} does not match --asof "
+            f"{asof.isoformat()}"
+        )
+
+    manifest_path = workspace / "manifest.yaml"
+    if manifest_path.exists() and not force:
+        raise OpportunityConflictError(
+            f"workspace already prepared (use --force to rebuild): {workspace}"
+        )
+
+    audit_pool = [
+        {
+            "rank": 1,
+            "ticker": holding.ticker,
+            "sector": holding.sector,
+            "quantity": holding.quantity,
+            "portfolio_annotation": "held",
+        }
+    ]
+    selection_doc = {
+        "as_of": asof.isoformat(),
+        "audit_pool": audit_pool,
+        "shortlist_slots": 1,
+        "shortlist": [{"ticker": ticker, "reason": "open holding review"}],
+        "actionable": True,
+    }
+    comparison_doc = _research_comparison(asof, audit_pool)
+    comparison_doc["selected_ticker"] = ticker
+    comparison_doc["ranking_rationale"] = "research target fixed by the canonical open holding"
+
+    workspace.mkdir(parents=True, exist_ok=True)
+    _write_workspace_file(workspace / "selection.yaml", selection_doc)
+    _write_workspace_file(workspace / "research-comparison.yaml", comparison_doc)
+    manifest = {
+        "purpose": "holding_review",
+        "holding_ticker": ticker,
+        "as_of": asof.isoformat(),
+        "tool_version": TOOL_VERSION,
+        "inputs": {
+            "ledger": {
+                "path": ledger.as_posix(),
+                "sha256": ledger_sha256,
+            }
+        },
+        "rules": {},
+    }
+    _write_workspace_file(manifest_path, manifest)
+    _write_status(workspace)
+    return PrepareResult(
+        workspace=workspace,
+        actionable=True,
+        shortlist_slots=1,
+        audit_pool_size=1,
     )
 
 
@@ -285,6 +369,14 @@ def compute_status(workspace: Path) -> dict[str, object]:
             workspace_status="incomplete",
             selected_ticker=None,
             next_command="baibai-loop-opportunity packet-scaffold",
+        )
+
+    checklist_path = _research_lane_dir(workspace, selected_ticker) / "research-checklist.yaml"
+    if not checklist_path.exists():
+        return _status_payload(
+            workspace_status="incomplete",
+            selected_ticker=selected_ticker,
+            next_command=f"baibai-loop-opportunity packet-scaffold --ticker {selected_ticker}",
         )
 
     checklist = _load_checklist(workspace, selected_ticker)
@@ -372,7 +464,15 @@ def _verify_external_inputs(manifest: Mapping[str, object]) -> None:
     inputs = manifest.get("inputs")
     if not isinstance(inputs, Mapping):
         raise OpportunityDataError("manifest is missing external input hashes")
-    for name in ("selection_output", "ledger"):
+    purpose = str(manifest.get("purpose") or "opportunity")
+    required_inputs: tuple[str, ...]
+    if purpose == "opportunity":
+        required_inputs = ("selection_output", "ledger")
+    elif purpose == "holding_review":
+        required_inputs = ("ledger",)
+    else:
+        raise OpportunityDataError(f"manifest purpose is invalid: {purpose}")
+    for name in required_inputs:
         input_ref = inputs.get(name)
         if not isinstance(input_ref, Mapping):
             raise OpportunityDataError(f"manifest is missing input hash: {name}")
@@ -383,7 +483,7 @@ def _verify_external_inputs(manifest: Mapping[str, object]) -> None:
         path = Path(path_value)
         if not path.is_file():
             raise OpportunityConflictError(f"workspace external input is missing: {name}")
-        actual = _sha256_text(path.read_text(encoding="utf-8"))
+        actual = _sha256_file(path)
         if actual != expected:
             raise OpportunityConflictError(
                 f"workspace external input changed since prepare (input hash drift): {name}"
@@ -396,6 +496,13 @@ def _validate_editable_drafts(workspace: Path, manifest: Mapping[str, object]) -
     manifest_asof = str(manifest.get("as_of") or "")
     if selection.get("as_of") != manifest_asof or comparison.get("as_of") != manifest_asof:
         raise OpportunityDataError("workspace draft as_of does not match manifest")
+
+    purpose = str(manifest.get("purpose") or "opportunity")
+    if purpose == "holding_review":
+        _validate_holding_review_drafts(selection, comparison, manifest)
+        return
+    if purpose != "opportunity":
+        raise OpportunityDataError(f"manifest purpose is invalid: {purpose}")
 
     audit_pool = _dict_list(selection.get("audit_pool"))
     audit_tickers = [str(row.get("ticker") or "") for row in audit_pool]
@@ -422,6 +529,37 @@ def _validate_editable_drafts(workspace: Path, manifest: Mapping[str, object]) -
     selected = _string_or_none(comparison.get("selected_ticker"))
     if selected is not None and selected not in shortlist_tickers:
         raise OpportunityDataError("selected_ticker is not present in shortlist")
+
+
+def _validate_holding_review_drafts(
+    selection: Mapping[str, object],
+    comparison: Mapping[str, object],
+    manifest: Mapping[str, object],
+) -> None:
+    ticker = _string_or_none(manifest.get("holding_ticker"))
+    if ticker is None:
+        raise OpportunityDataError("holding-review manifest is missing holding_ticker")
+    audit_tickers = [
+        str(row.get("ticker") or "") for row in _dict_list(selection.get("audit_pool"))
+    ]
+    shortlist_tickers = [
+        str(row.get("ticker") or "") for row in _dict_list(selection.get("shortlist"))
+    ]
+    comparison_tickers = [
+        str(row.get("ticker") or "") for row in _dict_list(comparison.get("candidates"))
+    ]
+    if (
+        audit_tickers != [ticker]
+        or shortlist_tickers != [ticker]
+        or comparison_tickers != [ticker]
+        or selection.get("shortlist_slots") != 1
+        or selection.get("actionable") is not True
+        or comparison.get("selected_ticker") != ticker
+    ):
+        raise OpportunityDataError(
+            "holding-review workspace must keep its audit pool, shortlist, "
+            "and selected ticker fixed"
+        )
 
 
 def _research_lane_dir(workspace: Path, ticker: str) -> Path:
@@ -480,6 +618,11 @@ def scaffold_packet(
         raise OpportunityDataError(
             f"no raw/unadjusted close available for {ticker} before {target_session.isoformat()}; "
             "an adjusted-only series is not substituted"
+        )
+    if price.price_as_of != asof:
+        raise OpportunityDataError(
+            f"raw close date {price.price_as_of.isoformat()} does not match workspace manifest "
+            f"as_of {asof.isoformat()}; --target-session must be the next trading session"
         )
 
     packet_path = ticker_dir / "packet-draft.yaml"
@@ -701,6 +844,17 @@ def promote(
         review = load_independent_review(review_path)
     except DecisionPacketError as error:
         raise OpportunityDataError(f"draft is not schema-valid: {error}") from error
+
+    manifest_asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
+    if document.input_snapshot.ticker != ticker:
+        raise OpportunityDataError(
+            f"cannot promote {ticker}: packet ticker is {document.input_snapshot.ticker}"
+        )
+    if document.input_snapshot.as_of != manifest_asof:
+        raise OpportunityDataError(
+            f"cannot promote {ticker}: packet as_of {document.input_snapshot.as_of.isoformat()} "
+            f"does not match workspace manifest as_of {manifest_asof.isoformat()}"
+        )
 
     core_hash = decision_packet_core_hash(document)
     if review.reviewed_packet_sha256 != core_hash:
