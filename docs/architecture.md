@@ -3,7 +3,7 @@ title: "Architecture"
 summary: "Baibai-Loop の構造の正本：3 層インフラ（データ / 決定論的分析 / 判断）と単一ループ、repository map、CLI/SQLite の安定契約。"
 doc_type: architecture
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-13
 ---
 
 # Architecture — 構造・repository map・安定契約
@@ -145,7 +145,7 @@ Automation は人間の投資判断を置き換えず、fact snapshot 生成・s
 | `baibai-loop-validation` | `validation/` | records と schema の整合を検証 |
 | `baibai-loop-position outcome` | `position/` | ledger TWRをJPX TOPIX配当込み公式期間returnと比較 |
 | `baibai-loop-position ledger` | `position/` | repo内portfolioのcash、reservation、保有、income、cost、taxを再計算 |
-| `baibai-loop-position record-result` | `position/` | 人間のopen/filled/cancelled報告からvalidated ledger draftを生成 |
+| `baibai-loop-position record-result` | `position/` | 人間のopen/filled/cancelled/expired報告からvalidated ledger draftを生成 |
 | `baibai-loop-position holding-review-build` | CLI composition | ready packet/reviewとledgerからholding review draftを生成 |
 | `baibai-loop-position holding-review --root --input` | CLI composition | source hashとsource再構築scalarを照合し、thesis health・税引後代替・`hold / add / reduce / exit`を再計算 |
 | `baibai-loop-decision <packet>` | `thesis/` | decision packetのscenario、証拠、独立reviewをread-only再計算 |

@@ -26,7 +26,7 @@ Baibai-Loopの日常運用は「最もお買い得な日本株を見つけ、人
 | trigger | 開始条件 | 必須成果物 | 始めないこと |
 | --- | --- | --- | --- |
 | `opportunity` | 割安候補を探す、週次確認、指値提案 | operation Issue、8〜10候補human-review shortlist reportとprimary-research setの人間選択、選択銘柄の一次リサーチ、必要ならpacket/review、proposal | 年次calibration、全保有review |
-| `pending-result` | 人間からopen/filled/cancelled報告 | validated ledger draft/差分 | broker状態の推定、screening |
+| `pending-result` | 人間からopen/filled/cancelled/expired報告 | validated ledger draft/差分 | broker状態の推定、screening |
 | `monthly-contribution` | 人間が入金を確定 | contribution eventとsnapshot | 購入の強制 |
 | `earnings-material-event` | 決算、修正、資本政策等 | 対象tickerのpacket/holding review delta | 全portfolio再調査 |
 | `annual-outcome` | 年次評価日 | portfolio outcomeとTOPIX比較 | 短期成績によるpolicy変更 |
@@ -142,6 +142,7 @@ proposal第1層にはticker/name/as-of、5年base CAGR、永久損失結論、�
 | open | ticker、quantity、limit、expiry、sector、proposal/approval URL | reservation draft |
 | filled | ticker、quantity、price、executed_at、proposal/approval URL | execution draft。reservationなしはapproval/guard/expiry/sectorも確認 |
 | cancelled | reservation_id、cancelled_at、proposal/approval URL | remaining release draft |
+| expired | reservation_id、expired_at、proposal/approval URL | remaining release draft。reservation_idを省略せず、`expired_at >= expires_at`を必須とする |
 
 例: open。
 
@@ -161,7 +162,13 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position record-result --ledger re
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position record-result --ledger records/04-position/portfolio-ledger.yaml --proposal-ref https://github.com/OWNER/REPO/issues/NNN#issuecomment-NNN --status cancelled --occurred-at YYYY-MM-DDTHH:MM:SS+09:00 --reservation-id RESERVATION_ID --out .cache/ledger/YYYY-MM-DDTHHMMSS-XXXX-cancelled-ledger.yaml
 ```
 
-`YYYY-MM-DDTHHMMSS`は報告時刻、`XXXX`はticker（cancelledではreservationのticker）へ置換する。各reportで別file名を使い、既存draftを再利用しない。同一reportを再実行してcanonicalに既に同じeventがある場合、CLIは既存`--out`より先にidempotencyを確認し、fileを書かず`status: no_change`を返す。
+例: expired。brokerで未約定のまま期限到来したことを人間が確認してから実行し、時刻や状態を自動推定しない。
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position record-result --ledger records/04-position/portfolio-ledger.yaml --proposal-ref https://github.com/OWNER/REPO/issues/NNN#issuecomment-NNN --status expired --occurred-at YYYY-MM-DDTHH:MM:SS+09:00 --reservation-id RESERVATION_ID --out .cache/ledger/YYYY-MM-DDTHHMMSS-XXXX-expired-ledger.yaml
+```
+
+`YYYY-MM-DDTHHMMSS`は報告時刻、`XXXX`はticker（cancelled/expiredではreservationのticker）へ置換する。各reportで別file名を使い、既存draftを再利用しない。同一reportを再実行してcanonicalに既に同じeventがある場合、CLIは既存`--out`より先にidempotencyを確認し、fileを書かず`status: no_change`を返す。
 
 `record-result`はcanonical ledgerを直接変更せず、実際にparseした同一bytesの`source_ledger_sha256`と新規event IDをstdoutへ返す。`--out`はrepository root配下の相対pathだけを許し、既存fileとsymlinkを上書きしない。報告がなければ何も更新しない。
 
@@ -190,7 +197,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger --ledger .cache/le
 3. AIは次をoperation Issueへ記録し、人間にcanonical反映の確認を求める。
 
 ```markdown
-- human report: <open|filled|cancelled and supplied facts>
+- human report: <open|filled|cancelled|expired and supplied facts>
 - source ledger sha256: <64 hex>
 - draft: .cache/ledger/UNIQUE-RESULT-ledger.yaml
 - event IDs: <stdout values>
@@ -209,6 +216,18 @@ git diff -- records/04-position/portfolio-ledger.yaml
 ```
 
 最初のhashが保存値と違えば`cp`を実行しない。copy後はvalidation、snapshot、最終diffの3つがpassするまでcommitしない。この一人運用ではledger反映を単純な人間確認付きcopyに保ち、別系統の注文状態記録や自動broker照合を設けない。
+
+### Expired limit feedback
+
+human-confirmed `release(reason=expired)`をcanonical ledgerへ反映した後だけ、未約定残数の機会観測をread-onlyで作る。
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.limit_outcome --ledger records/04-position/portfolio-ledger.yaml --reservation-id RESERVATION_ID --sqlite-path data/screening/market.sqlite --asof YYYY-MM-DD
+```
+
+stdout YAMLはledger ref/hash、market SQLite ref、同一read-only transactionで実際に観測対象としたcalendar/raw bar rowsのfingerprintとhash basis、reservation、未約定残数、raw/unadjusted daily lowのtouch、期限後5 JPX営業session固定のraw close変化を示す。fingerprintと判定範囲はsubmissionから5 session horizonまでで打ち切り、それより後のbarを混ぜない。submission日はintraday順序が不明なのでtouch判定から除外するが、corporate-action basis確認には含める。expiry日は`expires_at`が15:30 JSTまで有効な場合だけ含める。daily lowが指値以下でも約定とはみなさず、期限後変化はexpiry直前営業session closeからの実価格変化であって、指値約定や逸失利益の推定ではない。
+
+human-confirmed release前、必要な期限後session未到来は`pending`、cancel等の別terminal reasonは`not_eligible`、raw price欠損・calendarとの不整合・corporate action・`adjustment_factor`未確認は`unresolved`とする。ledger event stateがreplayできない場合、または`asof`がsubmission/releaseより前なら停止する。adjusted priceで補完しない。この個票toolはcanonical recordやlocal fileを書かず、stdoutだけを返す。YAMLはoperation Issueへ貼り、初期サンプルを比較する。反復利用と効果を確認するまでは永続schema、aggregate、stable public CLIへ昇格しない。
 
 ## Monthly contribution path
 

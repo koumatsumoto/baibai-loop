@@ -20,6 +20,14 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 | **継続的な投資判断** | 随時の機会判断 / 人間からの注文結果 / 月次入金 / 決算・重要event / 年次outcomeをtriggerごとに進める | [`docs/operations/decision-cycle.md`](./docs/operations/decision-cycle.md) | `decision-cycle`（必要時に`macro-analysis`） |
 | **基盤改善** | 現状計測 → 仮説の事前登録 → design/confirm 検証 → 採用実装 → 運用テスト → dated report → 継続監視 | [`docs/operations/improvement-loop.md`](./docs/operations/improvement-loop.md) | `improvement-loop` |
 
+## 効果と複雑性の均衡
+
+subsystem、public CLI、schema、persistence、dependency、state、運用手順などの複雑性を増やす前に、期待効果の大きさと導入・保守・撤回コストを比較する。期待効果はbusiness value、利用頻度、意思決定改善、risk低減、evidence強度で評価し、作れることや実装済みであること自体を採用理由にしない。
+
+効果に見合う最小で可逆なsurfaceを選ぶ。初期サンプルや単発用途は`tools/`、既存output、operation Issueから始め、反復利用と効果を確認してからstable CLI、schema、subsystemへ昇格する。将来の利用を仮定した未使用拡張、汎用化、永続stateは持ち込まない。
+
+実装後のreviewでも効果対複雑性を再判定する。釣り合わない場合は一般化を削る、surfaceを縮小する、またはnon-adoptionとする。correctnessとsafetyに必要な検証・防御は「複雑だから」という理由で削らず、効果核を守る最小構成へ置く。
+
 ## サブシステム索引
 
 サブシステム名（macro / screening / thesis / position など）を指定されたら、この表で src / records / CLI / 品質改善計器を引いて着手する。各工程の詳細は [`docs/workflow/`](./docs/workflow/)、依存構造（7 package・8 import-linter contract）は [`docs/architecture.md#repository-map`](./docs/architecture.md#repository-map) を正本とする。
