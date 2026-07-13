@@ -427,17 +427,15 @@ def _evaluate_er_calibration(
     *,
     years: float,
 ) -> dict[str, object]:
-    """機械 E[r] の予測 vs 実現の座標。
-
-    quintile ごとに「予測リターン (er_annual x 保有年数)」と「実現 median excess」を
-    並べる。excess は対母集団中央値なので、予測側も母集団平均 E[r] を引いた相対値で
-    比較できるよう mean_er_predicted をそのまま出し、読み手が両方を見られる形にする。
-    """
+    """価格収束 E[r] の予測 vs price-only 実現値を相対 basis で比較する。"""
     entries = [
-        (row.er_annual, excess[row.ticker]) for row in population if row.er_annual is not None
+        (row.er_reversion_annual, excess[row.ticker])
+        for row in population
+        if row.er_reversion_annual is not None
     ]
     if len(entries) < MIN_AXIS_SAMPLE:
         return {}
+    population_median_reversion = median(reversion for reversion, _ in entries)
     entries.sort(key=lambda item: item[0])
     quintiles: list[dict[str, object]] = []
     step = len(entries) / 5
@@ -445,14 +443,27 @@ def _evaluate_er_calibration(
         chunk = entries[int(index * step) : int((index + 1) * step)]
         if not chunk:
             continue
+        predicted_excess = median(
+            (reversion - population_median_reversion) * years for reversion, _ in chunk
+        )
+        realized_excess = median(realized for _, realized in chunk)
         quintiles.append(
             {
-                "mean_er_predicted": round(fmean(er for er, _ in chunk) * years, 6),
-                "median_excess": round(median(e for _, e in chunk), 6),
+                "median_predicted_reversion_excess": round(predicted_excess, 6),
+                "median_realized_price_excess": round(realized_excess, 6),
+                "calibration_error": round(realized_excess - predicted_excess, 6),
                 "n": len(chunk),
             }
         )
-    return {"n": len(entries), "horizon_years": years, "er_quintiles": quintiles}
+    return {
+        "n": len(entries),
+        "horizon_years": years,
+        "prediction_basis": "er_reversion_annual_relative_to_population_median",
+        "realized_basis": "price_return_relative_to_population_median",
+        "calibration_error_basis": "realized_minus_predicted",
+        "population_median_reversion_annual": round(population_median_reversion, 6),
+        "er_quintiles": quintiles,
+    }
 
 
 def _group_stats(values: Sequence[float]) -> dict[str, object]:
