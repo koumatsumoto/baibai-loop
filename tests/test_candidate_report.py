@@ -11,14 +11,16 @@ def _write(path: Path, doc: object) -> None:
     path.write_text(yaml.safe_dump(doc, allow_unicode=True), encoding="utf-8")
 
 
-def _fixture(tmp_path: Path, *, narratives: dict[str, object]) -> dict[str, Path]:
+def _fixture(
+    tmp_path: Path, *, narratives: dict[str, object], asof: object = "2026-07-10"
+) -> dict[str, Path]:
     selection = tmp_path / "selection-output.yaml"
     candidates = tmp_path / "candidates.yaml"
     narratives_path = tmp_path / "narratives.yaml"
     _write(
         selection,
         {
-            "selection": {"asof": "2026-07-10"},
+            "selection": {"asof": asof},
             "audit_pool": [
                 {
                     "rank": 1,
@@ -90,6 +92,7 @@ def test_render_pulls_numbers_from_screening_output(tmp_path: Path) -> None:
     # Hard numbers come from the screening output, and the FV gap is computed.
     assert "TSE%3A7203" in html
     assert "2,000.0 円" in html
+    assert "7/10終値" in html
     assert "+50%" in html  # (3000/2000 - 1) * 100
     assert "basis=forecast_annual" in html
     assert "割安仮説" in html
@@ -99,6 +102,48 @@ def test_render_pulls_numbers_from_screening_output(tmp_path: Path) -> None:
     assert "投資対象外" in html
     # Missing metrics render as an em dash, never a literal None.
     assert "None" not in html
+
+
+def test_render_uses_selection_asof_for_close_label(tmp_path: Path) -> None:
+    paths = _fixture(
+        tmp_path,
+        narratives={"candidates": [{"ticker": "7203", "ploss": "低", "prov": "x"}]},
+        asof="2026-07-13",
+    )
+
+    html = render(**paths)
+
+    assert "7/13終値" in html
+    assert "7/10終値" not in html
+
+
+@pytest.mark.parametrize("asof", [None, "not-a-date"])
+def test_render_falls_back_to_undated_close_label(tmp_path: Path, asof: object) -> None:
+    paths = _fixture(
+        tmp_path,
+        narratives={"candidates": [{"ticker": "7203", "ploss": "低", "prov": "x"}]},
+        asof=asof,
+    )
+
+    html = render(**paths)
+
+    assert "<th>終値</th>" in html
+    assert "7/10終値" not in html
+
+
+def test_render_falls_back_when_selection_asof_is_missing(tmp_path: Path) -> None:
+    paths = _fixture(
+        tmp_path,
+        narratives={"candidates": [{"ticker": "7203", "ploss": "低", "prov": "x"}]},
+    )
+    selection_doc = yaml.safe_load(paths["selection"].read_text(encoding="utf-8"))
+    selection_doc["selection"].pop("asof")
+    _write(paths["selection"], selection_doc)
+
+    html = render(**paths)
+
+    assert "<th>終値</th>" in html
+    assert "7/10終値" not in html
 
 
 def test_render_rejects_ticker_absent_from_audit_pool(tmp_path: Path) -> None:

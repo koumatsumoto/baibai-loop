@@ -50,6 +50,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import html
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -111,8 +112,25 @@ def _fv_gap_pct(entry: dict[str, Any]) -> float | None:
     return None
 
 
+def _close_label(asof: object) -> str:
+    if isinstance(asof, date):
+        parsed = asof
+    elif isinstance(asof, str):
+        try:
+            parsed = date.fromisoformat(asof)
+        except ValueError:
+            return "終値"
+    else:
+        return "終値"
+    return f"{parsed.month}/{parsed.day}終値"
+
+
 def _fact_rows(
-    ticker: str, cand: dict[str, Any], entry: dict[str, Any], nar: dict[str, Any]
+    ticker: str,
+    cand: dict[str, Any],
+    entry: dict[str, Any],
+    nar: dict[str, Any],
+    asof: object,
 ) -> str:
     metrics = cand.get("metrics", {})
     px = entry.get("market_price_yen")
@@ -132,7 +150,7 @@ def _fact_rows(
             "TradingView",
             f'<a href="{TRADINGVIEW.format(ticker=ticker)}" target="_blank" rel="noopener">TSE:{esc(ticker)} チャート ↗</a>',
         ),
-        ("7/10終値", fnum(px, 1, 1, " 円")),
+        (_close_label(asof), fnum(px, 1, 1, " 円")),
         ("時価総額", fnum(cand.get("market_cap_oku"), 1, 0, " 億円")),
         ("業種", esc(sector)),
         (
@@ -166,9 +184,14 @@ def _fact_rows(
 
 
 def _card(
-    idx: int, ticker: str, cand: dict[str, Any], entry: dict[str, Any], nar: dict[str, Any]
+    idx: int,
+    ticker: str,
+    cand: dict[str, Any],
+    entry: dict[str, Any],
+    nar: dict[str, Any],
+    asof: object,
 ) -> str:
-    facts = _fact_rows(ticker, cand, entry, nar)
+    facts = _fact_rows(ticker, cand, entry, nar, asof)
     secs = "\n".join(
         f'<div class="sec"><h4>{esc(heading)}</h4><p>{esc(nar.get(key, "—"))}</p></div>'
         for key, heading in SECTIONS
@@ -235,7 +258,7 @@ def render(*, selection: Path, candidates: Path, narratives: Path) -> str:
     intro_block = f"<ul>{intro}</ul>" if intro else ""
 
     cards = "\n".join(
-        _card(i, t, cand_by[t], pool[t], nar_by[t]) for i, t in enumerate(order, start=1)
+        _card(i, t, cand_by[t], pool[t], nar_by[t], asof) for i, t in enumerate(order, start=1)
     )
     comp = _comparison_rows(order, cand_by, pool, nar_by)
     excl = "\n".join(
