@@ -2,8 +2,8 @@
 
 The price/calendar fetch engine, error type, code parsing, and bar/calendar
 normalization live in `baibai_loop.market`; this module re-exposes them and adds
-the screening-only endpoints (master snapshot, financial summaries, earnings
-calendar) by extending `JQuantsMarketProvider`.
+the screening-only endpoints (master snapshot and financial summaries) by
+extending `JQuantsMarketProvider`.
 """
 
 from __future__ import annotations
@@ -142,32 +142,6 @@ class JQuantsProvider(JQuantsMarketProvider):
             if (summary := normalize_financial_summary(record)) is not None
         ]
 
-    def get_eq_earnings_cal(self, start: date, end: date) -> list[dict[str, Any]]:
-        if self._sqlite_path is not None:
-            from ..sqlite_reader import read_eq_earnings_cal
-
-            cached = read_eq_earnings_cal(self._sqlite_path, start, end)
-            if cached is not None:
-                return cached
-        self._raise_if_cache_only(
-            "jquants_earnings_calendar", f"{start.isoformat()}..{end.isoformat()}"
-        )
-        records = self._load_or_fetch(
-            "get_eq_earnings_cal",
-            store_params={"requested_start": start, "requested_end": end},
-        )
-        start_iso = start.isoformat()
-        end_iso = end.isoformat()
-        return [
-            record
-            for record in records
-            if start_iso
-            <= str(
-                record.get("Date") or record.get("date") or record.get("AnnouncementDate") or ""
-            )[:10]
-            <= end_iso
-        ]
-
     def _range_chunk_is_cached(self, method: str, start: date, end: date) -> bool:
         if self._sqlite_path is not None and method == "get_fin_summary_range":
             from ..sqlite_reader import read_fin_summaries
@@ -187,18 +161,6 @@ class JQuantsProvider(JQuantsMarketProvider):
             from ..sqlite_cache import store_jquants_master
 
             store_jquants_master(self._sqlite_path, records)
-            return
-        if method == "get_eq_earnings_cal":
-            from ..sqlite_cache import store_jquants_earnings_calendar
-
-            requested_start = params.get("requested_start")
-            requested_end = params.get("requested_end")
-            store_jquants_earnings_calendar(
-                self._sqlite_path,
-                records,
-                requested_start=requested_start if isinstance(requested_start, date) else None,
-                requested_end=requested_end if isinstance(requested_end, date) else None,
-            )
             return
         if method == "get_fin_summary_range":
             from ..sqlite_cache import store_jquants_fin_summaries

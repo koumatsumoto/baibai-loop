@@ -34,6 +34,7 @@ from baibai_loop.position.ledger import (
 )
 
 from .regime import compute_market_regime
+from .sqlite_reader import read_jpx_earnings_calendar_snapshot
 
 _BENCHMARK_TICKER = "1321"
 _SELF_RANGE_WINDOW_BARS = 750
@@ -42,7 +43,6 @@ _VOL_WINDOW_BARS = 20
 _TURNOVER_WINDOW_BARS = 20
 _RETURN_WINDOWS_BARS: tuple[int, ...] = (1, 5, 20, 60)
 _PEER_RETURN_WINDOW_BARS = 20
-_EARNINGS_HORIZON_DAYS = 90
 
 _TICKER_LOOKBACK_CALENDAR_DAYS = 1130
 _BENCHMARK_LOOKBACK_CALENDAR_DAYS = 100
@@ -310,17 +310,18 @@ def _load_candidates_entry(
 
 
 def _next_earnings_date(sqlite_path: Path, ticker: str, asof_date: date) -> str | None:
-    row = _query_one(
-        sqlite_path,
-        "SELECT MIN(announcement_date) FROM jquants_earnings_calendar "
-        "WHERE ticker = ? AND announcement_date >= ? AND announcement_date <= ?",
+    snapshot = read_jpx_earnings_calendar_snapshot(sqlite_path, asof_date)
+    if snapshot is None:
+        return None
+    next_date = min(
         (
-            ticker,
-            asof_date.isoformat(),
-            (asof_date + timedelta(days=_EARNINGS_HORIZON_DAYS)).isoformat(),
+            entry.announcement_date
+            for entry in snapshot.entries
+            if entry.ticker == ticker and entry.announcement_date >= asof_date
         ),
+        default=None,
     )
-    return row[0] if row and isinstance(row[0], str) else None
+    return next_date.isoformat() if next_date is not None else None
 
 
 def _jpx_flags(sqlite_path: Path, ticker: str, asof_date: date) -> dict[str, object]:

@@ -29,6 +29,10 @@ _JPX_STALE_SNAPSHOT_BUSINESS_DAYS = 7
 # below so a future filename prefix change fails less often and never silently.
 _JPX_SPECIAL_CAUTION_MARGIN_LINK_HINT = "mtdailyk"
 _JPX_EXCEL_SUFFIXES = {".xls", ".xlsx"}
+JPX_EARNINGS_CALENDAR_INDEX_URL = (
+    "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html"
+)
+_JPX_EARNINGS_PATH_PREFIX = "/listing/event-schedules/financial-announcement/"
 _TRADING_HALT_EMPTY_MARKER = "現在、該当する情報はありません。"
 _HTTP_TIMEOUT_SECONDS = 30
 _LOGGER = logging.getLogger(__name__)
@@ -43,6 +47,33 @@ class JPXProviderError(RuntimeError):
 class JPXRegulationSnapshot:
     flags_by_ticker: Mapping[str, tuple[str, ...]] = Field(default_factory=dict)
     source_names: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
+class JPXEarningsCalendarEntry:
+    ticker: str
+    announcement_date: date
+
+
+@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
+class JPXEarningsCalendarSnapshot:
+    entries: tuple[JPXEarningsCalendarEntry, ...]
+    source_urls: tuple[str, ...]
+    raw_record_count: int
+    excluded_record_count: int
+    rejected_record_count: int
+
+    @property
+    def valid_record_count(self) -> int:
+        return len(self.entries)
+
+    @property
+    def min_date(self) -> date:
+        return min(entry.announcement_date for entry in self.entries)
+
+    @property
+    def max_date(self) -> date:
+        return max(entry.announcement_date for entry in self.entries)
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
@@ -231,6 +262,7 @@ class JPXProvider:
         *,
         sqlite_path: Path | None = None,
         cache_only: bool = False,
+        allow_stale_snapshot: bool = False,
     ) -> None:
         self._cache_dir = Path(cache_dir) / "jpx"
         self._session = session or requests.Session()
@@ -238,6 +270,7 @@ class JPXProvider:
         self._special_caution_index_url = special_caution_index_url
         self._sqlite_path = Path(sqlite_path) if sqlite_path is not None else None
         self._cache_only = cache_only
+        self._allow_stale_snapshot = allow_stale_snapshot
         if special_caution_index_url:
             self._regulation_urls.setdefault(
                 JPX_SPECIAL_CAUTION_SOURCE_NAME, special_caution_index_url
@@ -296,6 +329,55 @@ class JPXProvider:
             )
         return snapshot
 
+    def get_earnings_calendar_snapshot(self, asof_date: date) -> JPXEarningsCalendarSnapshot:
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_jpx_earnings_calendar_snapshot
+
+            cached = read_jpx_earnings_calendar_snapshot(
+                self._sqlite_path,
+                asof_date,
+                allow_stale=self._allow_stale_snapshot,
+            )
+            if cached is not None:
+                return cached
+        self._raise_if_cache_only("jpx_earnings_calendar", asof_date.isoformat())
+        source_urls = self._resolve_earnings_calendar_urls()
+        entries: dict[str, date] = {}
+        raw_count = 0
+        excluded_count = 0
+        for url in source_urls:
+            parsed, raw, excluded = self._download_earnings_calendar(url)
+            raw_count += raw
+            excluded_count += excluded
+            for entry in parsed:
+                previous = entries.get(entry.ticker)
+                if previous is not None and previous != entry.announcement_date:
+                    raise JPXProviderError(
+                        "conflicting JPX earnings dates for "
+                        f"{entry.ticker}: {previous} and {entry.announcement_date}"
+                    )
+                entries[entry.ticker] = entry.announcement_date
+        normalized_entries = tuple(
+            JPXEarningsCalendarEntry(ticker=ticker, announcement_date=on_date)
+            for ticker, on_date in sorted(entries.items(), key=lambda item: (item[1], item[0]))
+        )
+        if not normalized_entries:
+            raise JPXProviderError("JPX earnings calendar snapshot has zero valid rows")
+        if max(entry.announcement_date for entry in normalized_entries) < asof_date:
+            raise JPXProviderError("JPX earnings calendar snapshot contains only past dates")
+        snapshot = JPXEarningsCalendarSnapshot(
+            entries=normalized_entries,
+            source_urls=source_urls,
+            raw_record_count=raw_count,
+            excluded_record_count=excluded_count,
+            rejected_record_count=0,
+        )
+        if self._sqlite_path is not None:
+            from ..sqlite_cache import store_jpx_earnings_calendar_snapshot
+
+            store_jpx_earnings_calendar_snapshot(self._sqlite_path, snapshot)
+        return snapshot
+
     def has_regulation_cache(self, asof_date: date) -> bool:
         if self._sqlite_path is not None:
             from ..sqlite_reader import has_jpx_regulation_data
@@ -338,8 +420,133 @@ class JPXProvider:
             )
 
     def bootstrap_cache(self, asof_date: date) -> dict[str, int]:
+        earnings = self.get_earnings_calendar_snapshot(asof_date)
         snapshot = self.get_regulation_snapshot(asof_date)
-        return {"regulated_tickers": len(snapshot.flags_by_ticker)}
+        return {
+            "earnings_calendar_rows": earnings.valid_record_count,
+            "regulated_tickers": len(snapshot.flags_by_ticker),
+        }
+
+    def _resolve_earnings_calendar_urls(self) -> tuple[str, ...]:
+        index_url = JPX_EARNINGS_CALENDAR_INDEX_URL
+        self._validate_allowed_url(index_url)
+        try:
+            response = self._session.get(index_url, timeout=_HTTP_TIMEOUT_SECONDS)
+        except requests.RequestException as exc:
+            raise JPXProviderError(
+                f"failed to download JPX earnings calendar index: {index_url}"
+            ) from exc
+        if response.status_code >= 400:
+            raise JPXProviderError(
+                f"failed to download JPX earnings calendar index: {index_url} "
+                f"(status={response.status_code})"
+            )
+        html = self._decode_html_text(
+            response.content, index_url, response.headers.get("content-type", "")
+        )
+        indexer = _JpxHtmlIndexer()
+        indexer.feed(html)
+        urls: list[str] = []
+        for link in indexer.links:
+            resolved = urljoin(index_url, link.href)
+            parsed = urlparse(resolved)
+            path_lower = parsed.path.lower()
+            if parsed.scheme != _JPX_ALLOWED_SCHEME or parsed.netloc != _JPX_ALLOWED_HOST:
+                continue
+            if not path_lower.startswith(_JPX_EARNINGS_PATH_PREFIX):
+                continue
+            if Path(path_lower).suffix not in _JPX_EXCEL_SUFFIXES:
+                continue
+            if "kessan" not in Path(path_lower).name:
+                continue
+            if resolved not in urls:
+                urls.append(resolved)
+        if not urls:
+            raise JPXProviderError(
+                f"failed to locate JPX earnings calendar Excel links: {index_url}"
+            )
+        return tuple(urls)
+
+    def _download_earnings_calendar(
+        self, url: str
+    ) -> tuple[tuple[JPXEarningsCalendarEntry, ...], int, int]:
+        self._validate_allowed_url(url)
+        parsed_url = urlparse(url)
+        if not parsed_url.path.lower().startswith(_JPX_EARNINGS_PATH_PREFIX):
+            raise JPXProviderError(f"JPX earnings calendar URL is outside allowed path: {url}")
+        try:
+            response = self._session.get(url, timeout=_HTTP_TIMEOUT_SECONDS)
+        except requests.RequestException as exc:
+            raise JPXProviderError(f"failed to download JPX earnings calendar: {url}") from exc
+        if response.status_code >= 400:
+            raise JPXProviderError(
+                f"failed to download JPX earnings calendar: {url} (status={response.status_code})"
+            )
+        return self._parse_earnings_calendar_excel(response.content, url)
+
+    def _parse_earnings_calendar_excel(
+        self, content: bytes, url: str
+    ) -> tuple[tuple[JPXEarningsCalendarEntry, ...], int, int]:
+        try:
+            import pandas as pd
+        except ModuleNotFoundError as exc:
+            raise JPXProviderError("pandas is required to read JPX Excel sources") from exc
+        try:
+            frame = pd.read_excel(BytesIO(content), header=None, dtype=str).fillna("")
+        except Exception as exc:
+            raise JPXProviderError(f"failed to parse JPX earnings calendar Excel: {url}") from exc
+        header_index: int | None = None
+        code_column: int | None = None
+        date_column: int | None = None
+        for row_index, (_, raw_row) in enumerate(frame.iterrows()):
+            cells = [re.sub(r"\s+", "", str(value)) for value in raw_row.tolist()]
+            code_candidates = [
+                index
+                for index, value in enumerate(cells)
+                if value.startswith(("コード", "銘柄コード", "証券コード"))
+            ]
+            date_candidates = [
+                index
+                for index, value in enumerate(cells)
+                if "決算" in value and "発表" in value and "日" in value
+            ]
+            if code_candidates and date_candidates:
+                header_index = row_index
+                code_column = code_candidates[0]
+                date_column = date_candidates[0]
+                break
+        if header_index is None or code_column is None or date_column is None:
+            raise JPXProviderError(f"unexpected JPX earnings calendar header layout: {url}")
+        entries: list[JPXEarningsCalendarEntry] = []
+        raw_count = 0
+        excluded_count = 0
+        seen: dict[str, date] = {}
+        for _, raw_row in frame.iloc[header_index + 1 :].iterrows():
+            values = [str(value).strip() for value in raw_row.tolist()]
+            code_raw = values[code_column] if code_column < len(values) else ""
+            date_raw = values[date_column] if date_column < len(values) else ""
+            if not code_raw:
+                continue
+            if not date_raw and re.match(r"^(?:※|注|備考|note\b)", code_raw, re.IGNORECASE):
+                continue
+            raw_count += 1
+            ticker = parse_jpx_code(code_raw)
+            if not date_raw or date_raw.startswith("未定"):
+                excluded_count += 1
+                continue
+            announcement_date = _parse_jpx_earnings_date(date_raw, url=url, ticker=ticker)
+            previous = seen.get(ticker)
+            if previous is not None and previous != announcement_date:
+                raise JPXProviderError(
+                    f"conflicting JPX earnings dates for {ticker}: "
+                    f"{previous} and {announcement_date}"
+                )
+            if previous is None:
+                seen[ticker] = announcement_date
+                entries.append(
+                    JPXEarningsCalendarEntry(ticker=ticker, announcement_date=announcement_date)
+                )
+        return tuple(entries), raw_count, excluded_count
 
     def _download_rows(self, source_name: str, url: str) -> list[dict[str, str]]:
         self._validate_allowed_url(url)
@@ -657,3 +864,12 @@ def parse_jpx_code(code: object) -> str:
     if len(raw) == 5 and raw[:4].isalnum() and raw.endswith("0"):
         return normalize_ticker(raw[:4])
     raise JPXProviderError(f"invalid JPX code: {code!r}")
+
+
+def _parse_jpx_earnings_date(raw: str, *, url: str, ticker: str) -> date:
+    normalized = raw.strip().replace("年", "-").replace("月", "-").replace("日", "")
+    normalized = normalized.replace("/", "-").replace(".", "-")[:10]
+    try:
+        return date.fromisoformat(normalized)
+    except ValueError as exc:
+        raise JPXProviderError(f"invalid JPX earnings date for {ticker}: {raw!r} ({url})") from exc

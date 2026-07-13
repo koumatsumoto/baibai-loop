@@ -238,6 +238,7 @@ human-confirmed release前、必要な期限後session未到来は`pending`、ca
 ## Earnings and material-event path
 
 1. [`task-runbook.md`](./task-runbook.md)のdated Issueと対象tickerを確認する。
+   JPX の決算発表予定は日付確認の補助事実であり、通知や自動 trigger ではない。実施時は一次 IR で発表を確認する。
 2. packet以後の一次IRとmaterial deltaだけを調べる。
 3. 対象tickerのcurrent decision packet/reviewを更新する。
 4. `holding-review-build`でreview draftをsourceから作る。

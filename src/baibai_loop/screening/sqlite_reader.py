@@ -14,10 +14,12 @@ import json
 import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from baibai_loop.foundation.date_utils import weekday_distance
+from baibai_loop.foundation.time import JST
 from baibai_loop.market.sqlite import (
     connect_current,
     optional_date,
@@ -26,7 +28,11 @@ from baibai_loop.market.sqlite import (
 )
 
 from .providers.edinet import EdinetMetricRecord, normalize_metric_record
-from .providers.jpx import JPXRegulationSnapshot
+from .providers.jpx import (
+    JPXEarningsCalendarEntry,
+    JPXEarningsCalendarSnapshot,
+    JPXRegulationSnapshot,
+)
 from .providers.jquants import (
     JQuantsFinancialSummary,
     JQuantsProviderError,
@@ -208,35 +214,75 @@ def read_fin_summaries(
     return summaries
 
 
-def read_eq_earnings_cal(sqlite_path: Path, start: date, end: date) -> list[dict[str, Any]] | None:
-    """Return earnings calendar records overlapping `[start, end]`, or
-    `None` when the cache cannot serve the range. Records are returned as
-    raw dicts to match the JSON path's contract.
-    """
+def read_jpx_earnings_calendar_snapshot(
+    sqlite_path: Path,
+    asof_date: date,
+    *,
+    allow_stale: bool = False,
+) -> JPXEarningsCalendarSnapshot | None:
+    """Read the fresh JPX schedule snapshot from compatibility storage."""
     if not sqlite_path.exists():
         return None
     conn = connect_current(sqlite_path)
     if conn is None:
         return None
     try:
-        # Fallback for historical replay: earnings calendar is a live-only endpoint
-        # so past asof dates can't be matched exactly. Accept best-available data
-        # if the forward horizon is covered by a more-recent fetch.
-        exact = _minmax_covered(conn, "jquants_earnings_calendar", start, end)
-        horizon = _minmax_horizon_covered(conn, "jquants_earnings_calendar", end)
-        if not exact and not horizon:
+        coverage = conn.execute(
+            "SELECT coverage_key, coverage_start, coverage_end, fetched_at_utc, "
+            "record_count, status FROM source_coverage "
+            "WHERE source = 'jpx_earnings_calendar' LIMIT 1"
+        ).fetchone()
+        if coverage is None:
+            return None
+        coverage_key, coverage_start, coverage_end, fetched_at_text, record_count, status = coverage
+        if (
+            coverage_key != "get_earnings_calendar_snapshot:current"
+            or status != "ok"
+            or not coverage_start
+            or not coverage_end
+        ):
+            return None
+        try:
+            recorded_start = date.fromisoformat(str(coverage_start))
+            recorded_end = date.fromisoformat(str(coverage_end))
+            fetched_at = datetime.fromisoformat(str(fetched_at_text).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if not allow_stale and weekday_distance(asof_date, fetched_at.astimezone(JST).date()) > 7:
             return None
         rows = conn.execute(
             "SELECT ticker, announcement_date FROM jquants_earnings_calendar "
-            "WHERE announcement_date BETWEEN ? AND ? "
-            "ORDER BY announcement_date, ticker",
-            (start.isoformat(), end.isoformat()),
+            "ORDER BY announcement_date, ticker"
         ).fetchall()
+        if not rows or len(rows) != int(record_count or 0):
+            return None
+        try:
+            actual_start = date.fromisoformat(str(rows[0][1]))
+            actual_end = date.fromisoformat(str(rows[-1][1]))
+        except ValueError:
+            return None
+        if actual_start != recorded_start or actual_end != recorded_end or actual_end < asof_date:
+            return None
     except sqlite3.OperationalError:
         return None
     finally:
         conn.close()
-    return [{"Code": f"{ticker}0", "Date": announcement_date} for ticker, announcement_date in rows]
+    try:
+        entries = tuple(
+            JPXEarningsCalendarEntry(
+                ticker=str(ticker), announcement_date=date.fromisoformat(str(announcement_date))
+            )
+            for ticker, announcement_date in rows
+        )
+    except (TypeError, ValueError):
+        return None
+    return JPXEarningsCalendarSnapshot(
+        entries=entries,
+        source_urls=(),
+        raw_record_count=len(entries),
+        excluded_record_count=0,
+        rejected_record_count=0,
+    )
 
 
 def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, Any]] | None:
@@ -447,44 +493,6 @@ def _date_imported(conn: sqlite3.Connection, source: str, on_date: date) -> bool
             "SELECT 1 FROM source_coverage WHERE source = ? "
             "AND coverage_start <= ? AND coverage_end >= ? AND status = 'ok' LIMIT 1",
             (source, iso, iso),
-        )
-    except sqlite3.OperationalError:
-        return False
-    return cur.fetchone() is not None
-
-
-def _minmax_covered(conn: sqlite3.Connection, source: str, start: date, end: date) -> bool:
-    """True when at least one coverage row brackets the requested range.
-
-    Earnings calendar is cached as a whole-list endpoint rather than a
-    request-windowed chunk. Sparse dates inside the window are valid, but a
-    stale whole-list file whose actual min/max does not cover the requested
-    horizon must fall back to the JSON/API path.
-    """
-    try:
-        cur = conn.execute(
-            "SELECT 1 FROM source_coverage WHERE source = ? "
-            "AND coverage_start <= ? AND coverage_end >= ? "
-            "AND status = 'ok' AND record_count > 0 LIMIT 1",
-            (source, start.isoformat(), end.isoformat()),
-        )
-    except sqlite3.OperationalError:
-        return False
-    return cur.fetchone() is not None
-
-
-def _minmax_horizon_covered(conn: sqlite3.Connection, source: str, end: date) -> bool:
-    """True when any coverage row's end date covers the horizon, regardless of start.
-
-    Used as a relaxed fallback for historical replay: the earnings calendar is a
-    live-only endpoint so the exact start-date cannot be matched for past asof dates.
-    Only checks that the forward horizon is covered by the available data.
-    """
-    try:
-        cur = conn.execute(
-            "SELECT 1 FROM source_coverage WHERE source = ? "
-            "AND coverage_end >= ? AND status = 'ok' AND record_count > 0 LIMIT 1",
-            (source, end.isoformat()),
         )
     except sqlite3.OperationalError:
         return False

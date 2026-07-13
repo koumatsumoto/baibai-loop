@@ -1,5 +1,10 @@
 from .edinet import EdinetMetricRecord, EDINETProvider, EDINETProviderError
-from .jpx import JPXProvider, JPXProviderError
+from .jpx import (
+    JPXEarningsCalendarEntry,
+    JPXEarningsCalendarSnapshot,
+    JPXProvider,
+    JPXProviderError,
+)
 from .jquants import (
     JQuantsDailyBar,
     JQuantsFinancialSummary,
@@ -12,6 +17,8 @@ __all__ = [
     "EDINETProvider",
     "EDINETProviderError",
     "EdinetMetricRecord",
+    "JPXEarningsCalendarEntry",
+    "JPXEarningsCalendarSnapshot",
     "JPXProvider",
     "JPXProviderError",
     "JQuantsDailyBar",

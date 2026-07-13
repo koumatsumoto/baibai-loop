@@ -13,17 +13,21 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from baibai_loop.market.store import read_daily_bars
+from baibai_loop.screening.providers.jpx import (
+    JPXEarningsCalendarEntry,
+    JPXEarningsCalendarSnapshot,
+)
 from baibai_loop.screening.sqlite_cache import (
     open_connection,
+    store_jpx_earnings_calendar_snapshot,
     store_jquants_daily_bars,
-    store_jquants_earnings_calendar,
     store_jquants_master,
 )
 from baibai_loop.screening.sqlite_reader import (
-    read_eq_earnings_cal,
     read_eq_master,
     read_eq_master_asof,
     read_fin_summaries,
+    read_jpx_earnings_calendar_snapshot,
 )
 
 
@@ -320,7 +324,7 @@ class ReadFinSummariesTests(unittest.TestCase):
             self.assertIsNone(read_fin_summaries(db, date(2025, 9, 28), date(2025, 10, 28)))
 
 
-class ReadEqEarningsCalTests(unittest.TestCase):
+class ReadJPXEarningsCalendarTests(unittest.TestCase):
     def test_returns_none_when_earnings_calendar_not_imported(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -332,33 +336,56 @@ class ReadEqEarningsCalTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            self.assertIsNone(read_eq_earnings_cal(db, date(2026, 5, 8), date(2026, 8, 6)))
+            self.assertIsNone(read_jpx_earnings_calendar_snapshot(db, date(2026, 5, 8)))
 
     def test_returns_records_from_covered_sparse_whole_list_import(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
-            store_jquants_earnings_calendar(
+            store_jpx_earnings_calendar_snapshot(
                 db,
-                [{"Code": "13010", "Date": "2026-05-15"}],
-                requested_start=date(2026, 5, 8),
-                requested_end=date(2026, 8, 6),
+                JPXEarningsCalendarSnapshot(
+                    entries=(
+                        JPXEarningsCalendarEntry(
+                            ticker="1301", announcement_date=date(2026, 5, 15)
+                        ),
+                    ),
+                    source_urls=("https://www.jpx.co.jp/kessan.xlsx",),
+                    raw_record_count=2,
+                    excluded_record_count=1,
+                    rejected_record_count=0,
+                ),
+                fetched_at_utc="2026-05-08T00:00:00+00:00",
             )
 
-            records = read_eq_earnings_cal(db, date(2026, 5, 8), date(2026, 8, 6))
+            snapshot = read_jpx_earnings_calendar_snapshot(db, date(2026, 5, 8))
 
-            self.assertEqual(records, [{"Code": "13010", "Date": "2026-05-15"}])
+            self.assertIsNotNone(snapshot)
+            assert snapshot is not None
+            self.assertEqual(snapshot.entries[0].ticker, "1301")
+            self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 5, 15))
 
     def test_returns_none_when_covered_whole_list_has_zero_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
-            store_jquants_earnings_calendar(
-                db,
-                [],
-                requested_start=date(2026, 5, 8),
-                requested_end=date(2026, 8, 6),
+            conn = open_connection(db)
+            conn.execute(
+                "INSERT INTO source_coverage(source, coverage_key, coverage_start, "
+                "coverage_end, fetched_at_utc, record_count, status) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "jpx_earnings_calendar",
+                    "get_earnings_calendar_snapshot:current",
+                    "2026-05-08",
+                    "2026-08-06",
+                    datetime.now(UTC).isoformat(),
+                    0,
+                    "ok",
+                ),
             )
+            conn.commit()
+            conn.close()
 
-            self.assertIsNone(read_eq_earnings_cal(db, date(2026, 5, 8), date(2026, 8, 6)))
+            self.assertIsNone(read_jpx_earnings_calendar_snapshot(db, date(2026, 5, 8)))
 
 
 if __name__ == "__main__":  # pragma: no cover
