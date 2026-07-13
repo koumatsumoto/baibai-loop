@@ -3,7 +3,7 @@ title: "タスク runbook"
 summary: "GitHub issue で決算後確認などの運用タスクを管理するための入口。"
 doc_type: operation
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-14
 related_docs:
   - "../workflow/research.md"
   - "../workflow/position.md"
@@ -29,6 +29,31 @@ GitHub issue は、決算後確認など「将来の特定イベント後に実�
 - 既存保有、売買判断が絡むもの、高重要候補、確認項目が大きく異なるものは個別 issue にします。
 - 既に同じ期限日のタスク issue がある場合は、新規作成前にその issue へ追記できるか確認します。
 - 重複 issue を見つけた場合は、残す issue に内容を移し、重複側に移管先をコメントして close します。
+
+<a id="open-issue-lifecycle"></a>
+
+## Open dated Issue の lifecycle
+
+resume時は、期限、注文、次eventのいずれかを持つopenなdated trade/task Issueを一覧し、各Issueのcurrent load-bearing question、expected destination、close conditionをcanonical recordsとledgerへ照合します。未完了の人間確認や将来triggerを失わず、Issueだけに残った判断をcanonical stateと誤認しないための監査です。
+
+照合対象は次のとおりです。
+
+- due event/date、ticker、current question、関連proposal/packet/holding review、expected destination
+- canonical decision packet、holding review、portfolio ledgerのcurrent stateとsource/hash
+- broker操作が関係する場合、人間が報告した`open / filled / cancelled / expired`と各statusの必須情報
+
+Issue、canonical record、ledgerの間で対象、数量、注文状態、判断、更新先のいずれかが矛盾する場合はstopします。矛盾している入力、判断への影響、解除に必要な人間入力をIssueへコメントし、records更新、ledger更新、Issue closeを推定で進めません。
+
+broker状態は人間の報告だけを事実入力とします。期日を過ぎたこと、ledgerにreservationがないこと、proposalの判断が現在と合わないことだけから`filled / cancelled / expired`を推定しません。人間のstatus報告がないIssueでは注文状態を変えず、照合結果と必要な報告をコメントします。
+
+監査後はIssueを次のいずれかとして扱います。
+
+- **`complete`**: load-bearing questionへの判断が確定し、必要なcanonical recordまたはledger更新が完了している。更新不要ならcurrent canonical stateで解決できることを確認し、current decisionとその理由をコメントしてcloseします。該当canonical recordが存在する場合はpath/hashも示します。
+- **`current-question-invalid`**: Issueのload-bearing questionがcurrent canonical stateでは成立しない。current canonical stateまたは判断根拠への参照と、そのquestionを維持しない理由をコメントしてcloseします。該当canonical recordが存在する場合はpath/hashも示します。別のtriggerや判断が残る場合は既存Issueへ移すか新しいIssueに分割し、移管先と理由をコメントします。
+- **`living`**: 次に判断できるdated triggerまたは人間入力が未到来である。次のtrigger/date、openのまま残す理由、その時点で必要な一次sourceまたは人間入力をコメントしてopenを維持します。
+- **`blocked`**: canonical inputsに矛盾または不足がある。該当入力、判断への影響、解除に必要な人間入力をコメントしてopenを維持します。
+
+close、分割、継続のコメントは現在の正本、現在の判断、その判断を支える理由を示します。Issue本文を判断の正本にせず、投資判断と注文状態はそれぞれcanonical recordsと人間確認済みledgerに残します。
 
 ## Issue タイトル
 
@@ -81,15 +106,21 @@ task: YYYY-MM-DD <対象>を<イベント>後に確認する
 
 ## Close condition
 
-- complete / blocked / next dated event:
+- current lifecycle: living / complete / current-question-invalid / blocked
+- complete時のcurrent canonical state、判断、該当recordがある場合はpath/hash:
+- current-question-invalid時のcurrent canonical stateまたは判断根拠、close理由、該当recordがある場合はpath/hash、必要なら移管先:
+- living時のnext dated trigger/dateとopenのまま残す理由:
+- blocked時の矛盾・不足inputと解除条件:
 ```
 
 ## 完了時
 
+resume時の監査とIssueのclose/分割/継続判定は[`Open dated Issue の lifecycle`](#open-issue-lifecycle)に従います。
+
 1. 会社の一次 IR を確認する。
 2. issue の確認項目に沿って判断を決める。
 3. 必要なdecision packet、holding review、ledgerだけを更新する。
-4. issueに更新先path/hashと1〜3行の判断結果をコメントする。判断本文を複製しない。
+4. issueにcurrent canonical stateと1〜3行の判断結果をコメントする。canonical recordを更新または参照した場合はpath/hashも示し、判断本文を複製しない。
 5. タスクが完了したら issue を close する。
 
-issueだけに判断結果を残して終わらせない。投資判断、保有判断、見送り理由はcanonical recordsへ戻す。
+canonical recordを更新する判断はrecordsへ戻し、recordを作らない正常終了はcurrent canonical stateと判断根拠への参照をissueへ残す。issue本文だけに新しいcanonical判断を作らない。
