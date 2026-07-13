@@ -3,7 +3,7 @@ title: "Screening runtime"
 summary: "screening CLI、provider、SQLite schema、cache coverage、runtime設定の実装仕様。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-13
 ---
 
 # screening-runtime — CLI / provider / SQLite の実装仕様
@@ -41,6 +41,8 @@ python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--s
 `extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出して `data/screening/market.sqlite` に保存する。CSV ZIP 本体は再生成可能な cache として `.cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 
 `select` は最新 `records/02-candidates/<YYYY>/<MM>/<asof>.yaml` からresearch recommendationsを出力する。macro contextは任意のcontext-level warningで、ranking、candidate facts、採用、投入額を変えない。不在時は`macro_context_missing`、stale時は`macro_context_stale`、future context・明示path不在・invalid YAMLはerrorである。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、詳細は `--detail full` で出す。ranking の主キーは機械 E[r]（成分分解付き年率見積り）の降順（E[r] 欠損は ranking 対象外・従キーに evidence pattern の優先順 + 割安強度）で、`durability`（塩漬け耐性）annotation を採用の gate へ接続する。`selection_playbook` は evidence がある候補だけに付く primary thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。閾値変更は `records/_config/screening-rules/` の rules 設定を編集して再実行し output を diff する。`research` の選定プロセス ([`../workflow/research.md`](../workflow/research.md)) をスクリプトで支援する。
+
+金融4業種（銀行業、証券・商品先物取引業、保険業、その他金融業）の `excluded_sectors` は、事業会社向け generic evidence playbook の適用だけを止める。金融4業種も liquidity を通過して E[r] が非 null なら、通常どおり ranking、recommendation、audit の対象になる。
 
 `ticker-profile` は任意の上場銘柄(universe 内外を問わない)について、価格・流動性・対 benchmark / sector 相対・regime・イベント(次回決算日、JPX 規制 flag)・直近 candidates 記録・prior research を 1 つの事実 packet として出力する。valuation は candidates 記録から引用し、再計算しない(記録と矛盾する値を作らないため)。`--asof` 省略時は cache の最新営業日を使う。provider 認証は不要で、market.sqlite と records だけを読む。
 
