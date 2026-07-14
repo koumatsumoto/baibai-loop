@@ -9,7 +9,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, DecimalException, InvalidOperation, localcontext
 from pathlib import Path
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
@@ -44,6 +44,27 @@ RiskAxis = Literal[
     "customer_concentration",
     "structural_decline",
     "governance_accounting",
+]
+TerminalMultipleStatus = Literal[
+    "within_model_bounds",
+    "below_model_min",
+    "above_model_max",
+    "dividends_alone_sufficient",
+    "calculation_unresolved",
+]
+EarningsGrowthStatus = Literal[
+    "within_model_bounds",
+    "below_model_min",
+    "above_model_max",
+    "dividends_alone_sufficient",
+    "calculation_unresolved",
+]
+ObservedTrailingMultipleStatus = Literal[
+    "resolved",
+    "missing",
+    "ambiguous",
+    "invalid",
+    "not_applicable",
 ]
 
 
@@ -520,6 +541,25 @@ class ScenarioResult:
 
 
 @dataclass(frozen=True, slots=True)
+class FiveYearBaseBreakEvenResult:
+    required_total_value_yen: Decimal | None
+    required_total_return_cagr_pct: Decimal
+    base_terminal_valuation_multiple: Decimal
+    break_even_terminal_valuation_multiple: Decimal | None
+    terminal_multiple_downside_buffer: Decimal | None
+    terminal_multiple_status: TerminalMultipleStatus
+    base_annual_earnings_growth_pct: Decimal
+    break_even_annual_earnings_growth_pct: Decimal | None
+    earnings_growth_downside_buffer_pct_points: Decimal | None
+    earnings_growth_status: EarningsGrowthStatus
+    observed_trailing_multiple_status: ObservedTrailingMultipleStatus
+    observed_trailing_multiple_fact_id: str | None
+    observed_trailing_multiple: Decimal | None
+    base_terminal_multiple_minus_observed: Decimal | None
+    base_terminal_multiple_premium_pct: Decimal | None
+
+
+@dataclass(frozen=True, slots=True)
 class DecisionPacketResult:
     packet_status: Literal["incomplete", "review_required", "ready", "ready_with_warnings"]
     decision_readiness: Literal["not_ready", "ready"]
@@ -527,6 +567,7 @@ class DecisionPacketResult:
     errors: tuple[str, ...]
     warnings: tuple[str, ...]
     scenarios: tuple[ScenarioResult, ...]
+    five_year_base_break_even: FiveYearBaseBreakEvenResult | None = None
 
 
 def load_decision_packet(path: Path) -> DecisionPacketDocument:
@@ -738,6 +779,14 @@ def evaluate_decision_packet(
         )
     else:
         status = "ready_with_warnings" if warnings else "ready"
+    five_year_base = next(
+        (
+            item
+            for item in document.estimates.scenarios
+            if item.horizon_years == 5 and item.name == "base"
+        ),
+        None,
+    )
     return DecisionPacketResult(
         packet_status=status,
         decision_readiness="ready" if status in {"ready", "ready_with_warnings"} else "not_ready",
@@ -749,6 +798,11 @@ def evaluate_decision_packet(
                 scenarios,
                 key=lambda item: (item.horizon_years, _SCENARIO_ORDER[item.name]),
             )
+        ),
+        five_year_base_break_even=(
+            _calculate_five_year_base_break_even(document, five_year_base)
+            if five_year_base is not None
+            else None
         ),
     )
 
@@ -786,7 +840,244 @@ def result_to_payload(result: DecisionPacketResult) -> dict[str, object]:
             }
             for item in result.scenarios
         ],
+        "five_year_base_break_even": _five_year_base_break_even_to_payload(
+            result.five_year_base_break_even
+        ),
     }
+
+
+def _calculate_five_year_base_break_even(
+    document: DecisionPacketDocument,
+    scenario: ScenarioEstimate,
+) -> FiveYearBaseBreakEvenResult:
+    required_return = Decimal(str(document.estimates.required_5y_base_cagr_pct))
+    base_multiple = scenario.terminal_valuation_multiple
+    base_growth = Decimal(str(scenario.annual_earnings_growth_pct))
+    (
+        observed_status,
+        observed_fact_id,
+        observed_multiple,
+        base_minus_observed,
+        base_premium_pct,
+    ) = _observed_trailing_multiple(document, scenario)
+
+    required_total_value: Decimal | None = None
+    break_even_multiple: Decimal | None = None
+    multiple_buffer: Decimal | None = None
+    multiple_status: TerminalMultipleStatus = "calculation_unresolved"
+    break_even_growth: Decimal | None = None
+    growth_buffer: Decimal | None = None
+    growth_status: EarningsGrowthStatus = "calculation_unresolved"
+    try:
+        with localcontext() as context:
+            context.prec = 50
+            one = Decimal(1)
+            hundred = Decimal(100)
+            horizon = Decimal(scenario.horizon_years)
+            required_total_value = (
+                document.estimates.entry_price_basis_yen
+                * (one + required_return / hundred) ** scenario.horizon_years
+            )
+            if not required_total_value.is_finite():
+                raise ArithmeticError("required total value must be finite")
+
+            dividends = scenario.cumulative_dividend_per_share_yen
+            if dividends >= required_total_value:
+                multiple_status = "dividends_alone_sufficient"
+                growth_status = "dividends_alone_sufficient"
+            else:
+                terminal_shares = (
+                    scenario.starting_share_count
+                    * (one + Decimal(str(scenario.annual_share_count_change_pct)) / hundred)
+                    ** scenario.horizon_years
+                )
+                terminal_earnings = (
+                    scenario.starting_earnings_yen
+                    * (one + base_growth / hundred) ** scenario.horizon_years
+                )
+                break_even_multiple = (
+                    (required_total_value - dividends) * terminal_shares / terminal_earnings
+                )
+                if not break_even_multiple.is_finite():
+                    raise ArithmeticError("break-even terminal multiple must be finite")
+                multiple_buffer = base_multiple - break_even_multiple
+                multiple_status = _terminal_multiple_status(break_even_multiple)
+
+                earnings_growth_ratio = (
+                    (required_total_value - dividends)
+                    * terminal_shares
+                    / (scenario.starting_earnings_yen * base_multiple)
+                )
+                if not earnings_growth_ratio.is_finite() or earnings_growth_ratio <= 0:
+                    raise ArithmeticError("break-even earnings growth ratio must be positive")
+                break_even_growth = ((earnings_growth_ratio.ln() / horizon).exp() - one) * hundred
+                if not break_even_growth.is_finite():
+                    raise ArithmeticError("break-even earnings growth must be finite")
+                growth_buffer = base_growth - break_even_growth
+                growth_status = _earnings_growth_status(break_even_growth)
+    except (DecimalException, ArithmeticError, OverflowError, ValueError):
+        required_total_value = None
+        break_even_multiple = None
+        multiple_buffer = None
+        multiple_status = "calculation_unresolved"
+        break_even_growth = None
+        growth_buffer = None
+        growth_status = "calculation_unresolved"
+
+    return FiveYearBaseBreakEvenResult(
+        required_total_value_yen=required_total_value,
+        required_total_return_cagr_pct=required_return,
+        base_terminal_valuation_multiple=base_multiple,
+        break_even_terminal_valuation_multiple=break_even_multiple,
+        terminal_multiple_downside_buffer=multiple_buffer,
+        terminal_multiple_status=multiple_status,
+        base_annual_earnings_growth_pct=base_growth,
+        break_even_annual_earnings_growth_pct=break_even_growth,
+        earnings_growth_downside_buffer_pct_points=growth_buffer,
+        earnings_growth_status=growth_status,
+        observed_trailing_multiple_status=observed_status,
+        observed_trailing_multiple_fact_id=observed_fact_id,
+        observed_trailing_multiple=observed_multiple,
+        base_terminal_multiple_minus_observed=base_minus_observed,
+        base_terminal_multiple_premium_pct=base_premium_pct,
+    )
+
+
+def _terminal_multiple_status(value: Decimal) -> TerminalMultipleStatus:
+    if value <= 0:
+        return "below_model_min"
+    if value > 100:
+        return "above_model_max"
+    return "within_model_bounds"
+
+
+def _earnings_growth_status(value: Decimal) -> EarningsGrowthStatus:
+    if value < -50:
+        return "below_model_min"
+    if value > 50:
+        return "above_model_max"
+    return "within_model_bounds"
+
+
+def _observed_trailing_multiple(
+    document: DecisionPacketDocument,
+    scenario: ScenarioEstimate,
+) -> tuple[
+    ObservedTrailingMultipleStatus,
+    str | None,
+    Decimal | None,
+    Decimal | None,
+    Decimal | None,
+]:
+    if scenario.earnings_basis != "net_income_attributable_to_owners":
+        return "not_applicable", None, None, None, None
+
+    candidates = [
+        fact
+        for fact in document.input_snapshot.facts
+        if fact.fact_id == "trailing-per" or fact.fact_id.startswith("trailing-per-")
+    ]
+    if not candidates:
+        return "missing", None, None, None, None
+    if len(candidates) > 1:
+        return "ambiguous", None, None, None, None
+
+    fact = candidates[0]
+    try:
+        value = _observed_fact_decimal(fact.value)
+    except (InvalidOperation, TypeError, ValueError):
+        value = None
+    resolved_sources: list[Source] = []
+    for source_id in fact.source_ids:
+        matches = [
+            source for source in document.input_snapshot.sources if source.source_id == source_id
+        ]
+        if len(matches) != 1:
+            return "invalid", fact.fact_id, None, None, None
+        resolved_sources.append(matches[0])
+    if (
+        fact.fact_kind != "valuation_metric"
+        or fact.unit != "ratio"
+        or fact.as_of != document.input_snapshot.as_of
+        or value is None
+        or value <= 0
+        or not any(source.source_tier == "local_data" for source in resolved_sources)
+    ):
+        return "invalid", fact.fact_id, None, None, None
+
+    base_multiple = scenario.terminal_valuation_multiple
+    return (
+        "resolved",
+        fact.fact_id,
+        value,
+        base_multiple - value,
+        (base_multiple / value - Decimal(1)) * Decimal(100),
+    )
+
+
+def _observed_fact_decimal(value: object) -> Decimal:
+    if isinstance(value, bool) or not isinstance(value, int | float | Decimal):
+        raise TypeError("observed multiple must be numeric")
+    parsed = Decimal(str(value))
+    if not parsed.is_finite():
+        raise ValueError("observed multiple must be finite")
+    return parsed
+
+
+def _five_year_base_break_even_to_payload(
+    result: FiveYearBaseBreakEvenResult | None,
+) -> dict[str, object] | None:
+    if result is None:
+        return None
+    return {
+        "required_total_value_yen": _round_payload_decimal(result.required_total_value_yen),
+        "required_total_return_cagr_pct": _round_payload_decimal(
+            result.required_total_return_cagr_pct
+        ),
+        "base_terminal_valuation_multiple": _round_payload_decimal(
+            result.base_terminal_valuation_multiple
+        ),
+        "break_even_terminal_valuation_multiple": _round_payload_decimal(
+            result.break_even_terminal_valuation_multiple
+        ),
+        "terminal_multiple_downside_buffer": _round_payload_decimal(
+            result.terminal_multiple_downside_buffer
+        ),
+        "terminal_multiple_status": result.terminal_multiple_status,
+        "base_annual_earnings_growth_pct": _round_payload_decimal(
+            result.base_annual_earnings_growth_pct
+        ),
+        "break_even_annual_earnings_growth_pct": _round_payload_decimal(
+            result.break_even_annual_earnings_growth_pct
+        ),
+        "earnings_growth_downside_buffer_pct_points": _round_payload_decimal(
+            result.earnings_growth_downside_buffer_pct_points
+        ),
+        "earnings_growth_status": result.earnings_growth_status,
+        "observed_trailing_multiple_status": result.observed_trailing_multiple_status,
+        "observed_trailing_multiple_fact_id": result.observed_trailing_multiple_fact_id,
+        "observed_trailing_multiple": _round_payload_decimal(result.observed_trailing_multiple),
+        "base_terminal_multiple_minus_observed": _round_payload_decimal(
+            result.base_terminal_multiple_minus_observed
+        ),
+        "base_terminal_multiple_premium_pct": _round_payload_decimal(
+            result.base_terminal_multiple_premium_pct
+        ),
+    }
+
+
+def _round_payload_decimal(value: Decimal | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        with localcontext() as context:
+            integer_digits = max(value.adjusted() + 1, 1)
+            context.prec = max(50, integer_digits + 5)
+            rounded = value.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+            payload_value = float(rounded)
+    except (DecimalException, OverflowError, ValueError):
+        return None
+    return payload_value if math.isfinite(payload_value) else None
 
 
 def _recalculate_scenario(scenario: ScenarioEstimate, *, entry_price: Decimal) -> ScenarioResult:

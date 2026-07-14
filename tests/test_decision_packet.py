@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 from datetime import datetime
+from decimal import Decimal, localcontext
 from pathlib import Path
 
 import pytest
@@ -15,12 +16,14 @@ from baibai_loop.thesis.decision_packet import (
     DecisionPacketError,
     DecisionPacketResult,
     IndependentReview,
+    _round_payload_decimal,
     decision_packet_core_hash,
     decision_packet_json_schema,
     evaluate_decision_packet,
     independent_review_json_schema,
     load_decision_packet,
     load_independent_review,
+    result_to_payload,
 )
 from baibai_loop.validation.cli import main as validation_main
 from baibai_loop.validation.decision_packet import validate_decision_packet_file
@@ -67,6 +70,18 @@ def _evaluate(
     return evaluate_decision_packet(document, review=review, now=now)
 
 
+def _five_year_base_raw(raw: dict[str, object]) -> dict[str, object]:
+    estimates = raw["estimates"]
+    assert isinstance(estimates, dict)
+    scenarios = estimates["scenarios"]
+    assert isinstance(scenarios, list)
+    scenario = next(
+        item for item in scenarios if item["horizon_years"] == 5 and item["name"] == "base"
+    )
+    assert isinstance(scenario, dict)
+    return scenario
+
+
 def test_golden_packet_is_ready_with_explicit_evidence_warning() -> None:
     result = evaluate_decision_packet(
         load_decision_packet(FIXTURE), review=load_independent_review(REVIEW_FIXTURE)
@@ -90,6 +105,234 @@ def test_golden_packet_is_ready_with_explicit_evidence_warning() -> None:
     assert base_five.terminal_share_count == 97_524_875.3122
     assert base_five.terminal_price_yen == 1439.5401
     assert base_five.total_return_cagr_pct == 9.57
+    break_even = result.five_year_base_break_even
+    assert break_even is not None
+    assert break_even.break_even_terminal_valuation_multiple == pytest.approx(
+        Decimal("1.0135050773543111")
+    )
+    assert break_even.break_even_annual_earnings_growth_pct == pytest.approx(
+        Decimal("3.2942026976003037")
+    )
+    assert result_to_payload(result)["five_year_base_break_even"] == {
+        "required_total_value_yen": 1516.3466,
+        "required_total_return_cagr_pct": 8.0,
+        "base_terminal_valuation_multiple": 1.1,
+        "break_even_terminal_valuation_multiple": 1.0135,
+        "terminal_multiple_downside_buffer": 0.0865,
+        "terminal_multiple_status": "within_model_bounds",
+        "base_annual_earnings_growth_pct": 5.0,
+        "break_even_annual_earnings_growth_pct": 3.2942,
+        "earnings_growth_downside_buffer_pct_points": 1.7058,
+        "earnings_growth_status": "within_model_bounds",
+        "observed_trailing_multiple_status": "resolved",
+        "observed_trailing_multiple_fact_id": "trailing-per",
+        "observed_trailing_multiple": 10.32,
+        "base_terminal_multiple_minus_observed": -9.22,
+        "base_terminal_multiple_premium_pct": -89.3411,
+    }
+
+
+def test_break_even_values_reproduce_required_return_and_are_monotonic() -> None:
+    document = _document()
+    result = evaluate_decision_packet(document)
+    break_even = result.five_year_base_break_even
+    assert break_even is not None
+    assert break_even.required_total_value_yen is not None
+    assert break_even.break_even_terminal_valuation_multiple is not None
+    assert break_even.break_even_annual_earnings_growth_pct is not None
+    scenario = next(
+        item
+        for item in document.estimates.scenarios
+        if item.horizon_years == 5 and item.name == "base"
+    )
+
+    with localcontext() as context:
+        context.prec = 50
+        one = Decimal(1)
+        hundred = Decimal(100)
+        terminal_shares = (
+            scenario.starting_share_count
+            * (one + Decimal(str(scenario.annual_share_count_change_pct)) / hundred) ** 5
+        )
+        base_terminal_earnings = (
+            scenario.starting_earnings_yen
+            * (one + Decimal(str(scenario.annual_earnings_growth_pct)) / hundred) ** 5
+        )
+        multiple_total = (
+            base_terminal_earnings
+            / terminal_shares
+            * break_even.break_even_terminal_valuation_multiple
+            + scenario.cumulative_dividend_per_share_yen
+        )
+        growth_terminal_earnings = (
+            scenario.starting_earnings_yen
+            * (one + break_even.break_even_annual_earnings_growth_pct / hundred) ** 5
+        )
+        growth_total = (
+            growth_terminal_earnings / terminal_shares * scenario.terminal_valuation_multiple
+            + scenario.cumulative_dividend_per_share_yen
+        )
+
+        assert multiple_total == pytest.approx(break_even.required_total_value_yen)
+        assert growth_total == pytest.approx(break_even.required_total_value_yen)
+        multiple_step = Decimal("0.0001")
+        assert (
+            base_terminal_earnings
+            / terminal_shares
+            * (break_even.break_even_terminal_valuation_multiple - multiple_step)
+            + scenario.cumulative_dividend_per_share_yen
+            < break_even.required_total_value_yen
+        )
+        assert (
+            base_terminal_earnings
+            / terminal_shares
+            * (break_even.break_even_terminal_valuation_multiple + multiple_step)
+            + scenario.cumulative_dividend_per_share_yen
+            > break_even.required_total_value_yen
+        )
+        growth_step = Decimal("0.0001")
+        below_growth_earnings = (
+            scenario.starting_earnings_yen
+            * (one + (break_even.break_even_annual_earnings_growth_pct - growth_step) / hundred)
+            ** 5
+        )
+        above_growth_earnings = (
+            scenario.starting_earnings_yen
+            * (one + (break_even.break_even_annual_earnings_growth_pct + growth_step) / hundred)
+            ** 5
+        )
+        assert (
+            below_growth_earnings / terminal_shares * scenario.terminal_valuation_multiple
+            + scenario.cumulative_dividend_per_share_yen
+            < break_even.required_total_value_yen
+        )
+        assert (
+            above_growth_earnings / terminal_shares * scenario.terminal_valuation_multiple
+            + scenario.cumulative_dividend_per_share_yen
+            > break_even.required_total_value_yen
+        )
+
+
+def test_break_even_handles_dividends_and_model_bounds() -> None:
+    dividend_raw = _raw()
+    _five_year_base_raw(dividend_raw)["cumulative_dividend_per_share_yen"] = 2000
+    dividend_result = _evaluate(dividend_raw)
+    dividend_break_even = dividend_result.five_year_base_break_even
+    assert dividend_break_even is not None
+    assert dividend_break_even.terminal_multiple_status == "dividends_alone_sufficient"
+    assert dividend_break_even.earnings_growth_status == "dividends_alone_sufficient"
+    assert dividend_break_even.break_even_terminal_valuation_multiple is None
+    assert dividend_break_even.break_even_annual_earnings_growth_pct is None
+    assert dividend_break_even.terminal_multiple_downside_buffer is None
+    assert dividend_break_even.earnings_growth_downside_buffer_pct_points is None
+
+    above_raw = _raw()
+    above_base = _five_year_base_raw(above_raw)
+    above_base["annual_earnings_growth_pct"] = -50
+    above_base["annual_share_count_change_pct"] = 20
+    above_base["terminal_valuation_multiple"] = 0.0001
+    above_break_even = _evaluate(above_raw).five_year_base_break_even
+    assert above_break_even is not None
+    assert above_break_even.terminal_multiple_status == "above_model_max"
+    assert above_break_even.earnings_growth_status == "above_model_max"
+
+    below_raw = _raw()
+    _five_year_base_raw(below_raw)["terminal_valuation_multiple"] = 100
+    below_break_even = _evaluate(below_raw).five_year_base_break_even
+    assert below_break_even is not None
+    assert below_break_even.earnings_growth_status == "below_model_min"
+
+
+def test_break_even_payload_rounding_handles_large_finite_values() -> None:
+    raw = _raw()
+    estimates = raw["estimates"]
+    assert isinstance(estimates, dict)
+    estimates["entry_price_basis_yen"] = 1_000_000_000
+    estimates["required_5y_base_cagr_pct"] = 100
+    base = _five_year_base_raw(raw)
+    base["starting_earnings_yen"] = 0.0001
+    base["starting_share_count"] = 10_000_000_000_000
+    base["annual_share_count_change_pct"] = 20
+
+    result = _evaluate(raw)
+    break_even = result.five_year_base_break_even
+    assert break_even is not None
+    assert break_even.terminal_multiple_status == "above_model_max"
+    payload = result_to_payload(result)["five_year_base_break_even"]
+    assert isinstance(payload, dict)
+    payload_multiple = payload["break_even_terminal_valuation_multiple"]
+    assert isinstance(payload_multiple, float)
+    assert payload_multiple > 6e27
+    assert (
+        _round_payload_decimal(Decimal("99999999999999999999999999999999999999999999999999.99995"))
+        == 1e50
+    )
+
+
+def test_observed_trailing_multiple_requires_one_valid_named_local_anchor() -> None:
+    missing_raw = _raw()
+    snapshot = missing_raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    facts = snapshot["facts"]
+    assert isinstance(facts, list)
+    trailing = next(item for item in facts if item["fact_id"] == "trailing-per")
+    trailing["fact_id"] = "unrelated-valuation-metric"
+    missing = _evaluate(missing_raw).five_year_base_break_even
+    assert missing is not None
+    assert missing.observed_trailing_multiple_status == "missing"
+    assert missing.observed_trailing_multiple is None
+
+    ambiguous_raw = _raw()
+    ambiguous_snapshot = ambiguous_raw["input_snapshot"]
+    assert isinstance(ambiguous_snapshot, dict)
+    ambiguous_facts = ambiguous_snapshot["facts"]
+    assert isinstance(ambiguous_facts, list)
+    duplicate = copy.deepcopy(
+        next(item for item in ambiguous_facts if item["fact_id"] == "trailing-per")
+    )
+    duplicate["fact_id"] = "trailing-per-screening"
+    ambiguous_facts.append(duplicate)
+    ambiguous = _evaluate(ambiguous_raw).five_year_base_break_even
+    assert ambiguous is not None
+    assert ambiguous.observed_trailing_multiple_status == "ambiguous"
+
+    invalid_raw = _raw()
+    invalid_snapshot = invalid_raw["input_snapshot"]
+    assert isinstance(invalid_snapshot, dict)
+    invalid_facts = invalid_snapshot["facts"]
+    assert isinstance(invalid_facts, list)
+    invalid_fact = next(item for item in invalid_facts if item["fact_id"] == "trailing-per")
+    invalid_fact["source_ids"] = ["primary-results"]
+    invalid = _evaluate(invalid_raw).five_year_base_break_even
+    assert invalid is not None
+    assert invalid.observed_trailing_multiple_status == "invalid"
+    assert invalid.observed_trailing_multiple_fact_id == "trailing-per"
+    assert invalid.observed_trailing_multiple is None
+
+    duplicate_source_raw = _raw()
+    duplicate_snapshot = duplicate_source_raw["input_snapshot"]
+    assert isinstance(duplicate_snapshot, dict)
+    duplicate_sources = duplicate_snapshot["sources"]
+    assert isinstance(duplicate_sources, list)
+    local_source = next(
+        item for item in duplicate_sources if item["source_id"] == "internal-screen"
+    )
+    duplicate_source = copy.deepcopy(local_source)
+    duplicate_source["source_tier"] = "primary"
+    duplicate_source["ref"] = "https://example.com/duplicate-source"
+    duplicate_source.pop("provider")
+    duplicate_source.pop("dataset")
+    duplicate_sources.append(duplicate_source)
+    duplicate_anchor = _evaluate(duplicate_source_raw).five_year_base_break_even
+    assert duplicate_anchor is not None
+    assert duplicate_anchor.observed_trailing_multiple_status == "invalid"
+    assert duplicate_anchor.observed_trailing_multiple is None
+
+    fcfe_raw = _raw()
+    _five_year_base_raw(fcfe_raw)["earnings_basis"] = "fcfe"
+    not_applicable = _evaluate(fcfe_raw).five_year_base_break_even
+    assert not_applicable is not None
+    assert not_applicable.observed_trailing_multiple_status == "not_applicable"
 
 
 def test_generated_schema_matches_tracked_contract() -> None:

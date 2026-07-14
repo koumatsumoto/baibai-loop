@@ -3,7 +3,7 @@ title: "Workflow — research"
 summary: "人間が選んだprimary-research setを一次情報、永久損失、3年/5年scenario、反証で比較し、最良0〜1件をdecision packetへ固定する。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-14
+last_reviewed: 2026-07-15
 related_docs:
   - "./screening.md"
   - "../reference/decision-packet.md"
@@ -80,6 +80,7 @@ schemaの7軸を全件評価する。
 - dividendをterminal priceとreturnへ二重計上しない。
 - FV、entry price、required 5y CAGRのsource/as-ofを固定する。
 - E[r]とscreening FV anchorはestimateで、個別FVの代替ではない。
+- `baibai-loop-decision`の5年base break-evenを使い、terminal multipleとearnings growthが要求CAGRまで持つ余裕を確認する。
 
 算術とfield意味は[`../reference/decision-packet.md`](../reference/decision-packet.md)を正本とする。
 
@@ -107,6 +108,15 @@ raw candidate YAML、SQLite path依存、検索snippet、fixture copyをcanonica
 ## Independent review
 
 packet authorと別roleが、候補抜け、一次source、scenario算術、永久損失7軸、countercase、代替候補、portfolio annotation、limit/quantityを再確認する。reviewはpacketを直接編集せず、decision-review draftだけを返す。
+
+5年baseのreviewでは`baibai-loop-decision <packet>`を実行する。reviewerは既存の`scenario.base_3y_5y` checkをいったん`pending`へ戻し、次を記録・確認した後だけ`complete`へ戻す。
+
+- base / break-even terminal multipleと、その差であるdownside buffer
+- base / break-even annual earnings growthと、その差であるdownside buffer（percentage points）
+- 観測trailing multipleのfact IDと値、およびbase multipleとの差
+- terminal multiple仮定を維持・修正した判断理由と、proposalへの影響
+
+base terminal multipleが観測trailing multipleを上回る場合は、premiumを支えるpacket内fact IDと、そのfactへ接続する一次source IDを同じcheckに記録する。観測anchorまたはbreak-even計算が解決しない、あるいはpremiumを支える一次情報を特定できない場合はcheckを`complete`にせずpacket authorへ戻す。downside bufferが0以下であること自体は有効な計算結果であり、review不備とはしない。ただし買い提案と必要利回りが整合するかを`decision_impact`で明示し、scenarioやproposalを変える必要がある場合、review draftは`proposal_changed=true`とする。数値が良好であることだけをscenario仮定の根拠にしない。
 
 `proposal_changed=true`ならpacketへ戻る。packet core hashが変わった後のreviewはstaleで、promotionへ使えない。
 
