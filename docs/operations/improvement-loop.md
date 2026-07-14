@@ -47,6 +47,8 @@ uv run baibai-loop-screening calibration-evaluate --out .cache/calibration-eval-
 
 冒頭には[`doctrine.md`の改善提案の価値階層](../doctrine.md#improvement-value-hierarchy)に従い、`価値tier: Tn — <直接的な成果への因果経路>`を1行で書く。T3は観測した頻度・負担、T4を例外採用する場合は人間の実損またはT1〜T3への検証可能な寄与を示す。価値階層を第一基準とし、同じtier内では効果の見込みが大きい順に優先する。
 
+導入後のprimary-research laneのうち完了・review済みをcoverageの分母、screening FV baselineとresearch FVと有効なbridgeがあるものを分子とし、canonical packetとoperation Issueに保存した非promote laneから同一packet hashの再実行、scaffold-only、未review、遡及記入を除いた有効観測が5件以上になったら、乖離率の中央値・範囲、要因件数、`other`率、coverage、ユニーク銘柄数・運用回数を記述集計し、この集計だけでscreening式を変更せず変更仮説は別Issueで事前登録してdesign/confirm検証へ進める。
+
 ### 2. 採否基準の事前登録（計測より先に commit）
 
 採用judgeになる数値基準（例: IC・replay 上位の超過リターン差・トラップ非悪化）を、**計測を実行する前に** report の冒頭節または issue に書いて commit する。git history が事前登録の正本。既知の結果（公開済みレポート）がある場合は、盲検性の限定を正直に書く。

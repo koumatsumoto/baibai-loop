@@ -202,6 +202,41 @@ class ObservedFact(BaseModel):
         return self
 
 
+class ScreeningEstimate(BaseModel):
+    model_config = _CONFIG
+
+    origin: Literal["estimate"]
+    model_version: Annotated[str, Field(min_length=1)]
+    as_of: date
+    expected_return_annual_ratio: Annotated[float, Field(ge=-1, le=10)]
+    expected_return_unit: Literal["annual_ratio"]
+    fair_value_anchor_yen: (
+        Annotated[
+            Decimal,
+            Field(gt=Decimal("0.0001"), le=Decimal("1000000000"), decimal_places=4),
+        ]
+        | None
+    )
+    fair_value_unit: Literal["JPY_per_share"]
+    assumptions: Annotated[str, Field(min_length=1)]
+    source_ids: Annotated[tuple[Annotated[str, Field(min_length=1)], ...], Field(min_length=1)]
+
+    @field_validator("as_of", mode="before")
+    @classmethod
+    def _parse_date(cls, value: object) -> date:
+        return _date(value)
+
+    @field_validator("fair_value_anchor_yen", mode="before")
+    @classmethod
+    def _parse_fair_value(cls, value: object) -> Decimal | None:
+        return None if value is None else _decimal(value)
+
+    @field_validator("source_ids", mode="before")
+    @classmethod
+    def _parse_sources(cls, value: object) -> object:
+        return _tuple(value)
+
+
 class InputSnapshot(BaseModel):
     model_config = _CONFIG
 
@@ -214,6 +249,7 @@ class InputSnapshot(BaseModel):
     as_of: date
     sources: tuple[Source, ...]
     facts: tuple[ObservedFact, ...]
+    screening_estimate: ScreeningEstimate | None = None
 
     @field_validator("as_of", mode="before")
     @classmethod
@@ -319,6 +355,30 @@ class ScenarioEstimate(BaseModel):
         return _decimal(value)
 
 
+class ScreeningFVBridge(BaseModel):
+    model_config = _CONFIG
+
+    primary_driver: Literal[
+        "earnings_normalization",
+        "growth",
+        "shares",
+        "multiple",
+        "dividend",
+        "required_return",
+        "other",
+    ]
+    note: Annotated[
+        str,
+        Field(
+            min_length=1,
+            pattern=(
+                r"^(?:[^\r\n]*\S[^\r\n]*(?:\r?\n[^\r\n]*)?|"
+                r"[^\r\n]*\r?\n[^\r\n]*\S[^\r\n]*)$"
+            ),
+        ),
+    ]
+
+
 class EstimatesNamespace(BaseModel):
     model_config = _CONFIG
 
@@ -340,6 +400,7 @@ class EstimatesNamespace(BaseModel):
     ]
     deep_discount_bps: Annotated[int, Field(ge=0, le=9_999)] | None
     scenarios: tuple[ScenarioEstimate, ...]
+    screening_fv_bridge: ScreeningFVBridge | None = None
 
     @field_validator("scenarios", "entry_price_source_ids", "fair_value_source_ids", mode="before")
     @classmethod
@@ -568,6 +629,7 @@ class DecisionPacketResult:
     warnings: tuple[str, ...]
     scenarios: tuple[ScenarioResult, ...]
     five_year_base_break_even: FiveYearBaseBreakEvenResult | None = None
+    screening_fv_revision_pct: Decimal | None = None
 
 
 def load_decision_packet(path: Path) -> DecisionPacketDocument:
@@ -656,6 +718,7 @@ def evaluate_decision_packet(
             errors.append(f"source {source.source_id} was retrieved after the AI proposal")
     _check_lineage(document, source_ids, errors)
     _check_snapshot_contract(document, errors)
+    _check_screening_fv_bridge(document, source_tiers, errors, warnings)
     required_review_source_ids = set(document.estimates.entry_price_source_ids)
     required_review_source_ids.update(document.estimates.fair_value_source_ids)
     for fact in document.input_snapshot.facts:
@@ -804,11 +867,20 @@ def evaluate_decision_packet(
             if five_year_base is not None
             else None
         ),
+        screening_fv_revision_pct=_calculate_screening_fv_revision_pct(document),
     )
 
 
 def decision_packet_core_hash(document: DecisionPacketDocument) -> str:
     payload = document.model_dump(mode="json", exclude={"human_evidence_override"})
+    if document.input_snapshot.screening_estimate is None:
+        input_snapshot = payload.get("input_snapshot")
+        if isinstance(input_snapshot, dict):
+            input_snapshot.pop("screening_estimate", None)
+    if document.estimates.screening_fv_bridge is None:
+        estimates = payload.get("estimates")
+        if isinstance(estimates, dict):
+            estimates.pop("screening_fv_bridge", None)
     try:
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     except (OverflowError, ValueError) as error:
@@ -843,7 +915,26 @@ def result_to_payload(result: DecisionPacketResult) -> dict[str, object]:
         "five_year_base_break_even": _five_year_base_break_even_to_payload(
             result.five_year_base_break_even
         ),
+        "screening_fv_revision_pct": _round_payload_decimal(result.screening_fv_revision_pct),
     }
+
+
+def _calculate_screening_fv_revision_pct(
+    document: DecisionPacketDocument,
+) -> Decimal | None:
+    screening_estimate = document.input_snapshot.screening_estimate
+    if screening_estimate is None or screening_estimate.fair_value_anchor_yen is None:
+        return None
+    try:
+        with localcontext() as context:
+            context.prec = 50
+            revision_pct = (
+                document.estimates.current_fair_value_yen / screening_estimate.fair_value_anchor_yen
+                - Decimal(1)
+            ) * Decimal(100)
+    except (DecimalException, ArithmeticError, OverflowError, ValueError):
+        return None
+    return revision_pct if revision_pct.is_finite() else None
 
 
 def _calculate_five_year_base_break_even(
@@ -1227,6 +1318,32 @@ def _check_snapshot_contract(document: DecisionPacketDocument, errors: list[str]
             errors.append(f"valuation fact {fact.fact_id} must be numeric")
 
 
+def _check_screening_fv_bridge(
+    document: DecisionPacketDocument,
+    source_tiers: Mapping[str, str],
+    errors: list[str],
+    warnings: list[str],
+) -> None:
+    screening_estimate = document.input_snapshot.screening_estimate
+    bridge = document.estimates.screening_fv_bridge
+    if screening_estimate is not None:
+        if screening_estimate.as_of != document.input_snapshot.as_of:
+            errors.append("input_snapshot.screening_estimate.as_of must equal packet as_of")
+        if not any(
+            source_tiers.get(source_id) == "local_data"
+            for source_id in screening_estimate.source_ids
+        ):
+            errors.append("input_snapshot.screening_estimate requires a local_data source")
+    anchor = None if screening_estimate is None else screening_estimate.fair_value_anchor_yen
+    if bridge is not None and anchor is None:
+        errors.append(
+            "estimates.screening_fv_bridge requires "
+            "input_snapshot.screening_estimate.fair_value_anchor_yen"
+        )
+    elif anchor is not None and bridge is None:
+        warnings.append("screening fair-value anchor has no screening_fv_bridge")
+
+
 def _check_scenario_fact_inputs(document: DecisionPacketDocument, errors: list[str]) -> None:
     facts = {fact.fact_id: fact for fact in document.input_snapshot.facts}
     if len(facts) != len(document.input_snapshot.facts):
@@ -1300,6 +1417,14 @@ def _check_lineage(
             document.estimates.fair_value_source_ids,
         )
     )
+    if document.input_snapshot.screening_estimate is not None:
+        rows.append(
+            (
+                "screening estimate",
+                document.input_snapshot.screening_estimate.as_of,
+                document.input_snapshot.screening_estimate.source_ids,
+            )
+        )
     rows.extend(
         (f"risk {item.axis}", item.as_of, item.source_ids) for item in document.permanent_loss_risks
     )

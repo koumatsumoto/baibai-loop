@@ -304,6 +304,7 @@ def test_decision_cli_emits_stable_yaml_shape(capsys: pytest.CaptureFixture[str]
         "warnings",
         "scenarios",
         "five_year_base_break_even",
+        "screening_fv_revision_pct",
     }
     scenarios = payload["scenarios"]
     assert isinstance(scenarios, list)
@@ -361,6 +362,7 @@ def test_decision_cli_emits_execution_proposal_shape(capsys: pytest.CaptureFixtu
         "warnings",
         "scenarios",
         "five_year_base_break_even",
+        "screening_fv_revision_pct",
         "execution_proposal",
     }
     break_even = payload["five_year_base_break_even"]
