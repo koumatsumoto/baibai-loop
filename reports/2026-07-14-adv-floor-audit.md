@@ -184,7 +184,9 @@ follow-up は次を満たすときに着手する。
 - variant は `min_avg_turnover_oku: 0.5` だけを変更し、別 calibration store・別 rules hash で
   `--force` 再構築する。
 
-判定対象は design / confirm 双方の `er_calibration`、top-5 / top-10 median excess、trap rate、coverage / integrity、
+判定対象は design / confirm 双方の `er_calibration`、
+`summary.selection.recommended_rank_top5/10.mean_median_excess`、
+`summary.selection.recommended_rank_top10.mean_trap_rate`、coverage / integrity、
 および現 as-of の `run` / `select` による shortlist 差分とする。両期間・3y / 5y で事前基準を通過した
 場合だけ production 採用候補とし、片側だけなら不確定、逆方向または integrity block なら非採用とする。
 
