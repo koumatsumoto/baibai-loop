@@ -78,6 +78,50 @@ def test_duplicate_policy_constant_gate_rejects_skill_copy(tmp_path: Path) -> No
     ]
 
 
+def test_duplicate_policy_constant_gate_rejects_japanese_monthly_contribution(
+    tmp_path: Path,
+) -> None:
+    policy = tmp_path / "src/baibai_loop/position/policy.py"
+    policy.parent.mkdir(parents=True)
+    policy.write_text(
+        (ROOT / "src/baibai_loop/position/policy.py").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    path = tmp_path / "docs" / "copied-policy.md"
+    path.parent.mkdir()
+    for literal in ("40万", "40万円"):
+        path.write_text(f"月{literal}を拠出する\n", encoding="utf-8")
+        matched_literal = "月40万" if literal == "40万" else literal
+        assert check_duplicate_constants.check(tmp_path) == [
+            f"docs/copied-policy.md: duplicated policy literal {matched_literal!r}"
+        ]
+    path.write_text("毎月 40万を拠出する\n", encoding="utf-8")
+    assert check_duplicate_constants.check(tmp_path) == [
+        "docs/copied-policy.md: duplicated policy literal '毎月 40万'"
+    ]
+
+
+def test_duplicate_policy_constant_gate_allows_other_japanese_quantities(
+    tmp_path: Path,
+) -> None:
+    policy = tmp_path / "src/baibai_loop/position/policy.py"
+    policy.parent.mkdir(parents=True)
+    policy.write_text(
+        (ROOT / "src/baibai_loop/position/policy.py").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    canonical = tmp_path / "docs" / "portfolio-management.md"
+    canonical.parent.mkdir()
+    canonical.write_text("月40万円、通常20〜30万円\n", encoding="utf-8")
+    path = tmp_path / "docs" / "other-quantities.md"
+    path.write_text(
+        "0.40万円、140万円、40万人、40万株、40万件、40万台、40万個、40万ドル、40万票、40万社、"
+        "40万トン、20〜30万件\n",
+        encoding="utf-8",
+    )
+    assert check_duplicate_constants.check(tmp_path) == []
+
+
 def test_clean_lineage_gate_rejects_ignored_local_source(tmp_path: Path) -> None:
     path = tmp_path / "records" / "03-thesis" / "packet.yaml"
     path.parent.mkdir(parents=True)

@@ -3,7 +3,7 @@ title: "Decision packet reference"
 summary: "5年総合リターン、永久損失、証拠状態、独立反証を持つ投資判断のcanonical contract。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-14
 ---
 
 # Decision packet
@@ -71,7 +71,7 @@ max_acceptable_price = floor_to_tick(
 | adjusted-only、non-1 adjustment factor、価格basis不明 | `defer` |
 | packet/review not readyまたはhash mismatch | `defer` |
 
-20〜30万円はquantityを考える目安。1単元が上限を超えても1単元と超過warningを出し、より安い次点へ自動変更しない。cash、dry powder、concentration、held/reservedは人間向けwarning/annotationであり、投資価値rankingや最大許容価格を変えない。
+quantityを考える注文額の目安は[`portfolio-management`](../portfolio-management.md#capital-guidance)を正本とする。1単元が上限を超えても1単元と超過warningを出し、より安い次点へ自動変更しない。cash、dry powder、concentration、held/reservedは人間向けwarning/annotationであり、投資価値rankingや最大許容価格を変えない。
 
 proposalは人間承認前の判断材料で、brokerを操作しない。AIはfill probability、当日価格方向、未報告broker状態を推定しない。人間から結果が報告された後だけledger draftを作る。既存`baibai-loop-decision --execution-input`は互換的なlive evaluationであり、通常の寄り前runbook入口ではない。
 

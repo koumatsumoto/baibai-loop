@@ -3,7 +3,7 @@ title: "Anti-patterns"
 summary: "投資判断、data、schema、validator、AI運用で繰り返し防ぐ失敗パターンとcommit前checklist。"
 doc_type: governance
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-14
 ---
 
 # anti-patterns
@@ -261,6 +261,8 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] decision packetがapprovedの場合、source snapshot、scenario、independent review、execution inputが同一packet hashに束縛されるか
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
+- [ ] policy literalのdrift gateを追加・変更する場合、正本の値からpatternを導出し、正本doc/codeを
+      除外し、桁prefixと単位違い（円 / 株 / 件）のnegative testを持つか
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
       required 化する
 - [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。
