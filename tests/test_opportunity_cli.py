@@ -26,6 +26,7 @@ from baibai_loop.thesis.close_source import (
 from baibai_loop.thesis.decision_cli import main as decision_main
 from baibai_loop.thesis.decision_packet import (
     DecisionPacketDocument,
+    ScreeningEstimate,
     decision_packet_core_hash,
 )
 from baibai_loop.thesis.opportunity_cli import main as opportunity_main
@@ -67,14 +68,18 @@ def _write_selection(
     audit_pool: list[dict[str, object]],
     *,
     research_selection_target_max: object = 5,
+    selection_asof: str | None = "2026-07-03",
 ) -> None:
+    selection_metadata: dict[str, object] = {
+        "research_selection_target_max": research_selection_target_max,
+        "research_selection_playbook_order": ["cashflow-yield-discount"],
+    }
+    if selection_asof is not None:
+        selection_metadata["asof"] = selection_asof
     payload = {
         "recommendations": [],
         "audit_pool": audit_pool,
-        "selection": {
-            "research_selection_target_max": research_selection_target_max,
-            "research_selection_playbook_order": ["cashflow-yield-discount"],
-        },
+        "selection": selection_metadata,
     }
     path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
 
@@ -95,9 +100,57 @@ def _audit_row(ticker: str, rank: int = 1) -> dict[str, object]:
     }
 
 
-def _prepared_workspace(tmp_path: Path, sqlite_path: Path, ticker: str = "2331") -> Path:
+def _audit_row_with_estimate(
+    ticker: str,
+    rank: int = 1,
+    *,
+    annual: object = 0.095,
+    expected_return_unit: object = "annual_ratio",
+    sector_anchor: object = 1350.0,
+    self_anchor: object = 1300.0,
+) -> dict[str, object]:
+    row = _audit_row(ticker, rank)
+    row["estimate_snapshot"] = {
+        "as_of": "2026-07-03",
+        "expected_return": {
+            "annual": annual,
+            "origin": "estimate",
+            "model_version": "expected-return-v1",
+            "unit": expected_return_unit,
+            "assumptions": "fixed screening estimate assumptions",
+        },
+        "fair_value": {
+            "anchors": {
+                "fv_sector_median_yen": sector_anchor,
+                "fv_self_range_yen": self_anchor,
+            },
+            "origin": "estimate",
+            "model_version": "expected-return-v1",
+            "unit": "JPY_per_share",
+            "assumptions": "fixed screening estimate assumptions",
+        },
+    }
+    row["expected_return_pct"] = (
+        round(float(annual) * 100, 4) if isinstance(annual, int | float) else 9.5
+    )
+    anchors = [
+        float(value)
+        for value in (sector_anchor, self_anchor)
+        if isinstance(value, int | float) and not isinstance(value, bool)
+    ]
+    row["fair_value_anchor_yen"] = round(min(anchors), 4) if anchors else None
+    return row
+
+
+def _prepared_workspace(
+    tmp_path: Path,
+    sqlite_path: Path,
+    ticker: str = "2331",
+    *,
+    audit_pool: list[dict[str, object]] | None = None,
+) -> Path:
     selection = tmp_path / "selection.yaml"
-    _write_selection(selection, [_audit_row(ticker)])
+    _write_selection(selection, audit_pool or [_audit_row(ticker)])
     workspace = tmp_path / "ws"
     assert (
         opportunity_main(
@@ -148,7 +201,12 @@ def _ready_packet_and_review() -> tuple[dict[str, object], dict[str, object], st
     return packet, review, review_filename
 
 
-def _fill_ready_workspace(workspace: Path, ticker: str = "2331") -> str:
+def _fill_ready_workspace(
+    workspace: Path,
+    ticker: str = "2331",
+    *,
+    preserve_screening_estimate: bool = False,
+) -> str:
     """Simulate the operator filling a scaffolded draft with a ready packet+review."""
     selection_path = workspace / "selection.yaml"
     selection = safe_load(selection_path.read_text(encoding="utf-8"))
@@ -165,6 +223,27 @@ def _fill_ready_workspace(workspace: Path, ticker: str = "2331") -> str:
     packet, review, review_filename = _ready_packet_and_review()
     ticker_dir = workspace / ticker
     ticker_dir.mkdir(parents=True, exist_ok=True)
+    if preserve_screening_estimate:
+        scaffold = safe_load((ticker_dir / "packet-draft.yaml").read_text(encoding="utf-8"))
+        scaffold_snapshot = scaffold["input_snapshot"]
+        screening_estimate = scaffold_snapshot["screening_estimate"]
+        screening_source = next(
+            source
+            for source in scaffold_snapshot["sources"]
+            if source["source_id"] == "screening_selection"
+        )
+        packet["input_snapshot"]["sources"].append(screening_source)
+        packet["input_snapshot"]["screening_estimate"] = screening_estimate
+        packet["estimates"]["current_fair_value_yen"] = 1481.9088
+        packet["estimates"]["screening_fv_bridge"] = {
+            "primary_driver": "other",
+            "note": "Research kept the screening FV anchor with no material revision.",
+        }
+        packet["judgment"]["proposed_at"] = FIXED_NOW.isoformat()
+        review["reviewed_at"] = FIXED_NOW.isoformat()
+        review["reviewed_packet_sha256"] = decision_packet_core_hash(
+            DecisionPacketDocument.model_validate(packet)
+        )
     (ticker_dir / "packet-draft.yaml").write_text(
         yaml.safe_dump(packet, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
@@ -676,6 +755,8 @@ def test_packet_scaffold_snapshots_raw_close(
     assert code == 0
     assert payload["close_yen"] == 1005.0
     assert payload["price_as_of"] == "2026-07-10"
+    assert payload["screening_estimate_transferred"] is False
+    assert payload["screening_estimate_transfer_reason"] == "estimate_snapshot_missing"
     draft = safe_load((workspace / "2331" / "packet-draft.yaml").read_text(encoding="utf-8"))
     snapshot = draft["input_snapshot"]
     # The raw close is emitted as the single schema-valid market_price fact, not a
@@ -692,6 +773,362 @@ def test_packet_scaffold_snapshots_raw_close(
     assert fact["price_basis"] == "last_close_unadjusted"
     # The fact references a declared local_data source.
     assert fact["source_ids"] == [snapshot["sources"][0]["source_id"]]
+    assert "screening_estimate" not in snapshot
+
+
+def test_packet_scaffold_transfers_raw_screening_estimate(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    workspace = _prepared_workspace(
+        tmp_path,
+        sqlite_path,
+        audit_pool=[_audit_row_with_estimate("2331")],
+    )
+    code, payload = _run(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+    assert code == 0
+    assert payload["screening_estimate_transferred"] is True
+    assert payload["screening_estimate_transfer_reason"] is None
+    draft = safe_load((workspace / "2331" / "packet-draft.yaml").read_text(encoding="utf-8"))
+    snapshot = draft["input_snapshot"]
+    assert snapshot["screening_estimate"] == {
+        "origin": "estimate",
+        "model_version": "expected-return-v1",
+        "as_of": "2026-07-03",
+        "expected_return_annual_ratio": 0.095,
+        "expected_return_unit": "annual_ratio",
+        "fair_value_anchor_yen": 1300.0,
+        "fair_value_unit": "JPY_per_share",
+        "assumptions": "fixed screening estimate assumptions",
+        "source_ids": ["screening_selection"],
+    }
+    source = next(
+        item for item in snapshot["sources"] if item["source_id"] == "screening_selection"
+    )
+    assert source == {
+        "source_id": "screening_selection",
+        "ticker": "2331",
+        "source_tier": "local_data",
+        "provider": "baibai-loop",
+        "dataset": "screening-selection",
+        "retrieved_at": FIXED_NOW.isoformat(),
+        "as_of": "2026-07-03",
+        "used_for": "screening expected return and fair value anchor",
+    }
+
+    force_code, force_payload = _run(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+            "--force",
+        ],
+        capsys,
+    )
+    assert force_code == 0
+    assert force_payload["screening_estimate_transferred"] is True
+    regenerated = safe_load((workspace / "2331" / "packet-draft.yaml").read_text(encoding="utf-8"))
+    assert regenerated["input_snapshot"]["screening_estimate"] == snapshot["screening_estimate"]
+
+
+def test_packet_scaffold_reads_hash_bound_selection_not_editable_audit_values(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    workspace = _prepared_workspace(
+        tmp_path,
+        sqlite_path,
+        audit_pool=[_audit_row_with_estimate("2331")],
+    )
+    workspace_selection_path = workspace / "selection.yaml"
+    editable = safe_load(workspace_selection_path.read_text(encoding="utf-8"))
+    editable_row = editable["audit_pool"][0]
+    editable_row["expected_return_pct"] = 50.0
+    editable_row["fair_value_anchor_yen"] = 9999.0
+    editable_row["estimate_snapshot"]["expected_return"]["annual"] = 0.5
+    editable_row["estimate_snapshot"]["fair_value"]["anchors"] = {
+        "fv_sector_median_yen": 9999.0,
+        "fv_self_range_yen": 10000.0,
+    }
+    workspace_selection_path.write_text(
+        yaml.safe_dump(editable, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+    code, payload = _run(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+
+    assert code == 0
+    assert payload["screening_estimate_transferred"] is True
+    draft = safe_load((workspace / "2331" / "packet-draft.yaml").read_text(encoding="utf-8"))
+    estimate = draft["input_snapshot"]["screening_estimate"]
+    assert estimate["expected_return_annual_ratio"] == 0.095
+    assert estimate["fair_value_anchor_yen"] == 1300.0
+
+
+def test_packet_scaffold_keeps_null_fair_value_without_inventing_anchor(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    workspace = _prepared_workspace(
+        tmp_path,
+        sqlite_path,
+        audit_pool=[_audit_row_with_estimate("2331", sector_anchor=None, self_anchor=None)],
+    )
+    code, payload = _run(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+    assert code == 0
+    assert payload["screening_estimate_transferred"] is True
+    draft = safe_load((workspace / "2331" / "packet-draft.yaml").read_text(encoding="utf-8"))
+    assert draft["input_snapshot"]["screening_estimate"]["fair_value_anchor_yen"] is None
+
+
+def test_packet_scaffold_quantizes_screening_anchor_to_packet_precision(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    workspace = _prepared_workspace(
+        tmp_path,
+        sqlite_path,
+        audit_pool=[
+            _audit_row_with_estimate("2331", sector_anchor=1350.0, self_anchor=1300.123456)
+        ],
+    )
+
+    code, payload = _run(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+
+    assert code == 0
+    assert payload["screening_estimate_transferred"] is True
+    draft = safe_load((workspace / "2331" / "packet-draft.yaml").read_text(encoding="utf-8"))
+    estimate = draft["input_snapshot"]["screening_estimate"]
+    assert estimate["fair_value_anchor_yen"] == 1300.1235
+    ScreeningEstimate.model_validate(estimate)
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        _audit_row_with_estimate("2331", expected_return_unit="percent"),
+        {
+            **_audit_row_with_estimate("2331"),
+            "expected_return_pct": 0.095,
+        },
+    ],
+)
+def test_packet_scaffold_rejects_malformed_estimate_snapshot(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    row: dict[str, object],
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    workspace = _prepared_workspace(tmp_path, sqlite_path, audit_pool=[row])
+    code = opportunity_main(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        now=FIXED_NOW,
+    )
+    assert code == 3
+
+
+def test_packet_scaffold_converts_huge_numeric_overflow_to_data_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    row = _audit_row_with_estimate("2331")
+    row["estimate_snapshot"]["expected_return"]["annual"] = 10**400
+    workspace = _prepared_workspace(tmp_path, sqlite_path, audit_pool=[row])
+
+    code = opportunity_main(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        now=FIXED_NOW,
+    )
+
+    assert code == 3
+
+
+@pytest.mark.parametrize(
+    ("annual", "sector_anchor", "self_anchor"),
+    [
+        (-1.0001, 1350.0, 1300.0),
+        (10.0001, 1350.0, 1300.0),
+        (0.095, 1350.0, 0.0001),
+        (0.095, 1_000_000_001, None),
+    ],
+)
+def test_packet_scaffold_rejects_values_outside_packet_estimate_contract(
+    tmp_path: Path,
+    annual: object,
+    sector_anchor: object,
+    self_anchor: object,
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    row = _audit_row_with_estimate(
+        "2331",
+        annual=annual,
+        sector_anchor=sector_anchor,
+        self_anchor=self_anchor,
+    )
+    workspace = _prepared_workspace(tmp_path, sqlite_path, audit_pool=[row])
+
+    code = opportunity_main(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        now=FIXED_NOW,
+    )
+
+    assert code == 3
+
+
+@pytest.mark.parametrize(
+    ("selection_asof", "snapshot_asof"),
+    [
+        ("2026-07-02", "2026-07-03"),
+        ("2026-07-03", "2026-07-02"),
+    ],
+)
+def test_prepare_rejects_selection_estimate_asof_mismatch(
+    tmp_path: Path,
+    selection_asof: str,
+    snapshot_asof: str,
+) -> None:
+    selection = tmp_path / "selection.yaml"
+    row = _audit_row_with_estimate("2331")
+    row["estimate_snapshot"]["as_of"] = snapshot_asof
+    _write_selection(selection, [row], selection_asof=selection_asof)
+
+    code = opportunity_main(
+        [
+            "prepare",
+            "--asof",
+            "2026-07-03",
+            "--selection-output",
+            str(selection),
+            "--ledger",
+            str(LEDGER_FIXTURE),
+            "--workspace",
+            str(tmp_path / "ws"),
+        ],
+        now=FIXED_NOW,
+    )
+
+    assert code == 3
+
+
+def test_packet_scaffold_rejects_duplicate_audit_ticker(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    workspace = _prepared_workspace(
+        tmp_path,
+        sqlite_path,
+        audit_pool=[_audit_row("2331", 1), _audit_row("2331", 2)],
+    )
+    code = opportunity_main(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        now=FIXED_NOW,
+    )
+    assert code == 3
 
 
 def test_packet_scaffold_draft_has_no_structural_schema_errors(
@@ -951,6 +1388,67 @@ def test_promote_ready_writes_two_validated_canonical_files(
     findings = validate_decision_packet_file(packet_out)
     assert [finding.severity for finding in findings if finding.severity == "error"] == []
     assert decision_main([str(packet_out)]) == 0
+
+
+def test_screening_fv_bridge_scaffold_fill_promote_and_validate_e2e(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    workspace = _prepared_workspace(
+        tmp_path,
+        sqlite_path,
+        audit_pool=[
+            _audit_row_with_estimate(
+                "2331",
+                sector_anchor=1507.0856,
+                self_anchor=1484.5,
+                annual=0.0826,
+            )
+        ],
+    )
+    code, _ = _run(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+    assert code == 0
+    review_filename = _fill_ready_workspace(workspace, preserve_screening_estimate=True)
+    output_dir = tmp_path / "records/03-thesis/2026/07"
+
+    promote_code, _ = _run(
+        [
+            "promote",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--output-dir",
+            str(output_dir),
+        ],
+        capsys,
+    )
+
+    assert promote_code == 0
+    packet_out = output_dir / "2026-07-03-2331-decision.yaml"
+    review_out = output_dir / review_filename
+    assert review_out.exists()
+    promoted_review = safe_load(review_out.read_text(encoding="utf-8"))
+    assert "screening_selection" not in promoted_review["checked_source_ids"]
+    findings = validate_decision_packet_file(packet_out)
+    assert [finding for finding in findings if finding.severity == "error"] == []
+    assert decision_main([str(packet_out)]) == 0
+    payload = safe_load(capsys.readouterr().out)
+    assert payload["screening_fv_revision_pct"] == -0.1746
 
 
 def test_promote_never_overwrites_canonical(

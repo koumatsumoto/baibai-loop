@@ -119,7 +119,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity packet-scaffold --work
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .cache/opportunity/YYYY-MM-DD
 ```
 
-`packet-scaffold`は`selection.yaml.shortlist`に含まれるtickerだけを受け入れる。primary-research setの各tickerについて実行し、生成されたlane内の`research-checklist.yaml`を一次sourceで`complete / blocked`にする。blockedを推定で埋めない。packetのobserved/derived/estimate/judgmentを区別し、scenario算術を機械再計算する。他laneのdraftをcopyまたは上書きしない。
+`packet-scaffold`は`selection.yaml.shortlist`に含まれるtickerだけを受け入れる。primary-research setの各tickerについて実行し、生成されたlane内の`research-checklist.yaml`を一次sourceで`complete / blocked`にする。screening E[r]とFV baselineはestimateとしてselection snapshotから機械転記し、observed factへ変換しない。blockedを推定で埋めない。packetのobserved/derived/estimate/judgmentを区別し、scenario算術を機械再計算する。他laneのdraftをcopyまたは上書きしない。
 
 ### OP6 Independent review and promotion
 

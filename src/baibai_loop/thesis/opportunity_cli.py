@@ -141,6 +141,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         ticker=args.ticker,
                         sqlite_path=args.sqlite_path,
                         target_session=_parse_date(args.target_session),
+                        retrieved_at=resolved_now,
                         force=args.force,
                     ),
                     out,

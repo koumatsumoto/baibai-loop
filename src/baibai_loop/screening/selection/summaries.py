@@ -171,6 +171,8 @@ def _audit_pool_summary(candidate: Mapping[str, object], *, rank: int) -> dict[s
     metrics = mapping_or_empty(candidate.get("metrics"))
     durability_lens = _durability_lens_of(candidate)
     risk_tags = list(string_sequence(candidate.get("risk_tags")))
+    decision_input_seed = mapping_or_empty(candidate.get("decision_input_seed"))
+    seed_estimates = mapping_or_empty(decision_input_seed.get("estimates"))
     return {
         "rank": rank,
         "ticker": string_or_none(candidate.get("ticker")),
@@ -187,6 +189,13 @@ def _audit_pool_summary(candidate: Mapping[str, object], *, rank: int) -> dict[s
         "durability_warnings": list(string_sequence(durability_lens.get("caution_reasons"))),
         "event_warnings": [tag for tag in risk_tags if tag in _EVENT_RISK_TAGS],
         "selection_reasons": list(string_sequence(candidate.get("reason_tags"))),
+        # opportunity packet-scaffold は audit_pool から選ばれた銘柄も扱うため、
+        # recommendation と同じ raw estimate + provenance contract を渡す。flat fields
+        # は人間向け表示であり、転記時の正本にはしない。
+        "estimate_snapshot": {
+            "as_of": decision_input_seed.get("as_of"),
+            **seed_estimates,
+        },
     }
 
 

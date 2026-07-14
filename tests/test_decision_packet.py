@@ -82,6 +82,27 @@ def _five_year_base_raw(raw: dict[str, object]) -> dict[str, object]:
     return scenario
 
 
+def _screening_estimate(*, fair_value_anchor_yen: object = 1300) -> dict[str, object]:
+    return {
+        "origin": "estimate",
+        "model_version": "screening-estimate-v1",
+        "as_of": "2026-07-03",
+        "expected_return_annual_ratio": 0.095,
+        "expected_return_unit": "annual_ratio",
+        "fair_value_anchor_yen": fair_value_anchor_yen,
+        "fair_value_unit": "JPY_per_share",
+        "assumptions": "Conservative minimum of the available screening FV anchors.",
+        "source_ids": ["internal-screen"],
+    }
+
+
+def _screening_fv_bridge() -> dict[str, object]:
+    return {
+        "primary_driver": "earnings_normalization",
+        "note": "Primary-source research uses normalized owner earnings.",
+    }
+
+
 def test_golden_packet_is_ready_with_explicit_evidence_warning() -> None:
     result = evaluate_decision_packet(
         load_decision_packet(FIXTURE), review=load_independent_review(REVIEW_FIXTURE)
@@ -91,6 +112,10 @@ def test_golden_packet_is_ready_with_explicit_evidence_warning() -> None:
     assert result.decision_readiness == "ready"
     assert result.errors == ()
     assert result.warnings == ("permanent-loss evidence incomplete: ['customer_concentration']",)
+    assert result.screening_fv_revision_pct is None
+    assert (
+        result.packet_sha256 == "88b7d6c21b7fd2578709ba1c52fa7472717240455d0e75cc2008444470b1131b"
+    )
     assert [(item.horizon_years, item.name) for item in result.scenarios] == [
         (3, "bear"),
         (3, "base"),
@@ -130,6 +155,206 @@ def test_golden_packet_is_ready_with_explicit_evidence_warning() -> None:
         "base_terminal_multiple_minus_observed": -9.22,
         "base_terminal_multiple_premium_pct": -89.3411,
     }
+
+
+def test_optional_screening_fields_preserve_legacy_hash_and_bind_new_values() -> None:
+    absent = _raw()
+    explicit_null = copy.deepcopy(absent)
+    null_snapshot = explicit_null["input_snapshot"]
+    null_estimates = explicit_null["estimates"]
+    assert isinstance(null_snapshot, dict)
+    assert isinstance(null_estimates, dict)
+    null_snapshot["screening_estimate"] = None
+    null_estimates["screening_fv_bridge"] = None
+
+    legacy_hash = decision_packet_core_hash(_document(absent))
+    assert decision_packet_core_hash(_document(explicit_null)) == legacy_hash
+
+    bridged = copy.deepcopy(absent)
+    snapshot = bridged["input_snapshot"]
+    estimates = bridged["estimates"]
+    assert isinstance(snapshot, dict)
+    assert isinstance(estimates, dict)
+    snapshot["screening_estimate"] = _screening_estimate()
+    estimates["screening_fv_bridge"] = _screening_fv_bridge()
+    bridged_hash = decision_packet_core_hash(_document(bridged))
+    assert bridged_hash != legacy_hash
+
+    changed = copy.deepcopy(bridged)
+    changed_estimates = changed["estimates"]
+    assert isinstance(changed_estimates, dict)
+    changed_bridge = changed_estimates["screening_fv_bridge"]
+    assert isinstance(changed_bridge, dict)
+    changed_bridge["primary_driver"] = "growth"
+    assert decision_packet_core_hash(_document(changed)) != bridged_hash
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("primary_driver", "pricing", "primary_driver"),
+        ("note", "", "at least 1 character"),
+        ("note", "   ", "match pattern"),
+        ("note", "first line\nsecond line\nthird line", "match pattern"),
+    ],
+)
+def test_screening_fv_bridge_rejects_invalid_contract_values(
+    field: str, value: object, message: str, tmp_path: Path
+) -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    estimates = raw["estimates"]
+    assert isinstance(snapshot, dict)
+    assert isinstance(estimates, dict)
+    snapshot["screening_estimate"] = _screening_estimate()
+    bridge = _screening_fv_bridge()
+    bridge[field] = value
+    estimates["screening_fv_bridge"] = bridge
+
+    with pytest.raises(ValueError, match=message):
+        _document(raw)
+
+    path = tmp_path / "records/03-thesis/2026/07/2026-07-03-2331-decision.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+    findings = validate_decision_packet_file(path)
+    assert any(
+        finding.severity == "error" and finding.location == "estimates.screening_fv_bridge"
+        for finding in findings
+    )
+
+
+def test_screening_fv_bridge_accepts_two_physical_lines() -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    estimates = raw["estimates"]
+    assert isinstance(snapshot, dict)
+    assert isinstance(estimates, dict)
+    snapshot["screening_estimate"] = _screening_estimate()
+    estimates["screening_fv_bridge"] = {
+        "primary_driver": "earnings_normalization",
+        "note": "Primary-source research normalizes earnings.\nThe second line states the key limitation.",
+    }
+
+    assert _document(raw).estimates.screening_fv_bridge is not None
+
+
+def test_screening_anchor_without_bridge_is_a_non_blocking_warning() -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    risks = raw["permanent_loss_risks"]
+    judgment = raw["judgment"]
+    assert isinstance(snapshot, dict)
+    assert isinstance(risks, list)
+    assert isinstance(judgment, dict)
+    snapshot["screening_estimate"] = _screening_estimate()
+    for risk in risks:
+        risk["assessment"] = "acceptable"
+        risk["evidence_status"] = "verified"
+    judgment["permanent_loss_conclusion"] = "acceptable"
+    judgment["sizing_action"] = "normal"
+    raw.pop("human_evidence_override", None)
+
+    result = _evaluate(raw)
+
+    assert result.errors == ()
+    assert result.decision_readiness == "ready"
+    assert result.warnings == ("screening fair-value anchor has no screening_fv_bridge",)
+
+
+@pytest.mark.parametrize("baseline", [None, _screening_estimate(fair_value_anchor_yen=None)])
+def test_screening_fv_bridge_requires_a_baseline_anchor(
+    baseline: dict[str, object] | None,
+) -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    estimates = raw["estimates"]
+    assert isinstance(snapshot, dict)
+    assert isinstance(estimates, dict)
+    snapshot["screening_estimate"] = baseline
+    estimates["screening_fv_bridge"] = _screening_fv_bridge()
+
+    result = _evaluate(raw)
+
+    assert any("screening_fv_bridge requires" in error for error in result.errors)
+
+
+def test_screening_estimate_sources_require_lineage_without_review_coverage() -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    screening_estimate = _screening_estimate()
+    screening_estimate["source_ids"] = ["missing-screening-source"]
+    snapshot["screening_estimate"] = screening_estimate
+
+    result = _evaluate(raw)
+
+    assert any("screening estimate references unknown sources" in error for error in result.errors)
+    assert not any("did not check load-bearing sources" in error for error in result.errors)
+
+
+def test_screening_estimate_requires_packet_as_of_and_local_data_source() -> None:
+    stale_raw = _raw()
+    stale_snapshot = stale_raw["input_snapshot"]
+    assert isinstance(stale_snapshot, dict)
+    stale_estimate = _screening_estimate()
+    stale_estimate["as_of"] = "2026-07-02"
+    stale_snapshot["screening_estimate"] = stale_estimate
+
+    stale_result = _evaluate(stale_raw)
+
+    assert any("screening_estimate.as_of must equal" in error for error in stale_result.errors)
+
+    primary_raw = _raw()
+    primary_snapshot = primary_raw["input_snapshot"]
+    assert isinstance(primary_snapshot, dict)
+    primary_estimate = _screening_estimate()
+    primary_estimate["source_ids"] = ["primary-results"]
+    primary_snapshot["screening_estimate"] = primary_estimate
+
+    primary_result = _evaluate(primary_raw)
+
+    assert any(
+        "screening_estimate requires a local_data source" in error
+        for error in primary_result.errors
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("expected_return_annual_ratio", -1.0001),
+        ("expected_return_annual_ratio", 10.0001),
+        ("fair_value_anchor_yen", 0.0001),
+        ("fair_value_anchor_yen", 1_000_000_001),
+    ],
+)
+def test_screening_estimate_rejects_out_of_bounds_values(field: str, value: object) -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    screening_estimate = _screening_estimate()
+    screening_estimate[field] = value
+    snapshot["screening_estimate"] = screening_estimate
+
+    with pytest.raises(ValueError, match=field):
+        _document(raw)
+
+
+def test_screening_fv_revision_uses_raw_decimal_values() -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    estimates = raw["estimates"]
+    assert isinstance(snapshot, dict)
+    assert isinstance(estimates, dict)
+    snapshot["screening_estimate"] = _screening_estimate(fair_value_anchor_yen=1484.5)
+    estimates["screening_fv_bridge"] = _screening_fv_bridge()
+    estimates["current_fair_value_yen"] = 1481.9088
+
+    result = _evaluate(raw)
+
+    assert result.screening_fv_revision_pct == pytest.approx(Decimal("-0.1745503536544291"))
+    assert result_to_payload(result)["screening_fv_revision_pct"] == -0.1746
 
 
 def test_break_even_values_reproduce_required_return_and_are_monotonic() -> None:

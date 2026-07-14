@@ -35,6 +35,8 @@ Candidate YAMLはlocalで再生成する探索成果物であり、decision pack
 
 `input_snapshot`は`snapshot_version`と`producer_model_version`、ticker、as-of、source、factを持つ。判断時市場価格は`market_price`を正確に1件、valuationは`valuation_metric`を1件以上要求する。factはunit、as-of、`source_ids`を持ち、scenarioの起点となる利益・株数も同じsnapshotに置く。`estimates.market_price_fact_id`は判断時市場価格へjoinする。
 
+Selectionから機械転記するE[r]とFV anchorは観測factではないため、`facts`へ混ぜず`input_snapshot.screening_estimate`へ置く。このobjectは`origin: estimate`、model version、unit、assumptions、as-of、source IDsを保持し、E[r]は`annual_ratio`、FVは`JPY_per_share`で固定する。値はworkspaceの外部inputとしてhashで束縛したselection outputのaudit rowから転記し、編集可能なshortlistや表示用percent・丸め済みFVから逆算しない。selection、estimate snapshot、workspaceのas-ofは一致を必須とする。転記元が無い旧selectionやFV欠損を推測で埋めず、bridge telemetryの欠損だけでresearch・promotionを停止しない。
+
 外部sourceはHTTPS URLを持つ。local dataは消失し得るファイルパスを参照せず、`provider`、`dataset`、`retrieved_at`を持つ。`retrieved_at`はAI proposal時刻以前でなければならず、提案後に得た情報を判断時点snapshotへ遡及混入できない。市場価格は`observed_at`と`price_basis`（realtime / 調整済み終値 / 未調整終値）を持つ。すべてのsourceはpacketと同じtickerを明示し、source/fact/scenarioがpacket as-ofより未来の場合、source IDが解決しない場合、価格・valuationのtypeまたはunitが不正な場合は`incomplete`とする。canonical filenameの日付・tickerもsnapshotと一致させる。HTML、PR body、proposal Issueは説明・リンクにとどめ、判断入力の正本を複製しない。
 
 ## Scenario arithmetic
@@ -67,6 +69,10 @@ break_even_earnings_growth =
 `terminal_multiple_downside_buffer`はbase multipleからbreak-even multipleを引いた値、`earnings_growth_downside_buffer_pct_points`はbase growthからbreak-even growthを引いた値である。正なら、他の仮定を固定したときに要求CAGRまで悪化を吸収できる。境界判定には丸め前のraw入力と計算値を使い、出力だけを小数4桁へ丸める。累積配当だけで必要価値を満たす場合は無効な0倍・負のmultipleを表示せず`dividends_alone_sufficient`、model domain外の有限な境界は値を保持して`below_model_min`または`above_model_max`とする。
 
 観測multipleとの比較は、利益basisが`net_income_attributable_to_owners`で、同一as-ofの`valuation_metric` / `ratio` factのうち、fact IDが`trailing-per`または`trailing-per-`で始まる一意な正値だけを使う。候補なし、複数候補、source未解決はfail-closedでstatusを返し、他のvaluation metricへfallbackしない。この派生出力は仮定感応度をreviewする材料であり、packet readiness、recommendation、execution policyを変更しない。
+
+### Screening-to-research FV bridge
+
+`estimates.screening_fv_bridge`は、screening FV anchorからresearch FVへ修正した主要説明要因1つと短いnoteだけを持つ。全要因の寄与率や乖離率をpacketへ複製しない。`baibai-loop-decision`は`screening_fv_revision_pct = (current_fair_value_yen / screening_estimate.fair_value_anchor_yen - 1) * 100`を派生計算し、負値をresearchによるFV引き下げ、正値を引き上げとして返す。bridgeが存在するのにbaseline FVが無い場合は不整合、baselineがあるのにbridgeが無い場合は改善telemetryのwarningであり、投資判断のhard blockではない。
 
 ## Planning-only execution pricing
 

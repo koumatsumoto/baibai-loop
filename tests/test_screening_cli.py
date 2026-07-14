@@ -2555,6 +2555,7 @@ class SelectCommandTests(unittest.TestCase):
                     "durability_warnings",
                     "event_warnings",
                     "selection_reasons",
+                    "estimate_snapshot",
                 },
             )
             self.assertEqual(entry["expected_return_pct"], 12.5)
@@ -2562,6 +2563,23 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(entry["market_price_yen"], 1000.0)
             # 保守側の FV アンカー = min(1200, 1500)。
             self.assertEqual(entry["fair_value_anchor_yen"], 1200.0)
+            self.assertEqual(
+                entry["estimate_snapshot"],
+                {
+                    "as_of": "2026-04-24",
+                    "expected_return": {"annual": 0.125},
+                    "fair_value": {
+                        "anchors": {
+                            "fv_sector_median_yen": 1200,
+                            "fv_self_range_yen": 1500,
+                        },
+                        "origin": None,
+                        "model_version": None,
+                        "unit": "JPY_per_share",
+                        "assumptions": None,
+                    },
+                },
+            )
             self.assertEqual(entry["liquidity_status"], "pass")
             self.assertEqual(entry["screening_playbook"], "valuation-reversion")
 

@@ -82,6 +82,12 @@ schemaの7軸を全件評価する。
 - E[r]とscreening FV anchorはestimateで、個別FVの代替ではない。
 - `baibai-loop-decision`の5年base break-evenを使い、terminal multipleとearnings growthが要求CAGRまで持つ余裕を確認する。
 
+Research FV確定時、screening FV anchorとの差率を`(research_fv / screening_fv_anchor - 1) * 100`で機械計算する。
+主要説明要因を`earnings_normalization / growth / shares / multiple / dividend / required_return / other`から1つ選び、noteは1〜2行に限定する。
+複数要因のwaterfall分解や合計100%への配賦は行わず、判断困難な場合は`other`として理由をnoteに残す。
+このbridgeは改善計測用であり、screening順位、FV anchor、購入提案を自動補正しない。
+scaffold済みscreening estimateを手書きで置換せず、欠損時はbridgeを推定で埋めない。
+
 算術とfield意味は[`../reference/decision-packet.md`](../reference/decision-packet.md)を正本とする。
 
 ## AI value capture
