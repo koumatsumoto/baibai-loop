@@ -3,7 +3,7 @@ title: "改善ループ runbook"
 summary: "基盤改善サイクルの正本。現状計測 → 仮説の事前登録 → design/confirm 検証 → 採用実装 → 運用テスト → 継続監視を、誠実性規律つきで回す手順。"
 doc_type: operation
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-15
 related_docs:
   - "../doctrine.md"
   - "../reference/estimate-calibration.md"
@@ -43,7 +43,9 @@ uv run baibai-loop-screening calibration-evaluate --out .cache/calibration-eval-
 
 ### 1. 仮説の列挙と issue 化
 
-計測の観察（軸別 IC・decile・トラップ率・replay・保有 outcome のずれ）から改善仮説を挙げ、**issue に登録する**。issue には (i) 観察された事実（レポートへの参照）、(ii) 仮説、(iii) 検証方法（rules variant / 実装変更 / 手順変更）、(iv) 着手条件を書く。効果の見込みが大きい順に優先する。
+計測の観察（軸別 IC・decile・トラップ率・replay・保有 outcome のずれ）から改善仮説を挙げ、**issue に登録する**。issue には (i) 観察された事実（レポートへの参照）、(ii) 仮説、(iii) 検証方法（rules variant / 実装変更 / 手順変更）、(iv) 着手条件を書く。
+
+冒頭には[`doctrine.md`の改善提案の価値階層](../doctrine.md#improvement-value-hierarchy)に従い、`価値tier: Tn — <直接的な成果への因果経路>`を1行で書く。T3は観測した頻度・負担、T4を例外採用する場合は人間の実損またはT1〜T3への検証可能な寄与を示す。価値階層を第一基準とし、同じtier内では効果の見込みが大きい順に優先する。
 
 ### 2. 採否基準の事前登録（計測より先に commit）
 
