@@ -3,7 +3,7 @@ title: "Decision packet reference"
 summary: "5年総合リターン、永久損失、証拠状態、独立反証を持つ投資判断のcanonical contract。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-14
+last_reviewed: 2026-07-15
 ---
 
 # Decision packet
@@ -49,6 +49,24 @@ total_return_CAGR = ((terminal_price + cumulative_dividend_per_share) / entry_pr
 ```
 
 `annual_share_count_change_pct`が正なら希薄化、負ならbuybackによる株数減少である。terminal priceは配当を含めず、累積配当をCAGR計算で1回だけ加える。入力が主張するterminal earnings、shares、price、CAGRを式から再計算し、不一致を`incomplete`にする。
+
+### 5-year base break-even
+
+`baibai-loop-decision`は5年base scenarioだけについて、packet schemaへ値を複製せず`five_year_base_break_even`を派生出力する。要求CAGRを`r`、entry priceを`P`、累積配当を`D`、5年後利益と株数を`E5`、`S5`とすると、境界値は次の式で求める。
+
+```text
+required_total_value = P * (1 + r)^5
+break_even_terminal_multiple = (required_total_value - D) * S5 / E5
+break_even_earnings_growth =
+  (1 + annual_share_count_change)
+  * (((required_total_value - D) * starting_shares)
+     / (terminal_valuation_multiple * starting_earnings))^(1/5)
+  - 1
+```
+
+`terminal_multiple_downside_buffer`はbase multipleからbreak-even multipleを引いた値、`earnings_growth_downside_buffer_pct_points`はbase growthからbreak-even growthを引いた値である。正なら、他の仮定を固定したときに要求CAGRまで悪化を吸収できる。境界判定には丸め前のraw入力と計算値を使い、出力だけを小数4桁へ丸める。累積配当だけで必要価値を満たす場合は無効な0倍・負のmultipleを表示せず`dividends_alone_sufficient`、model domain外の有限な境界は値を保持して`below_model_min`または`above_model_max`とする。
+
+観測multipleとの比較は、利益basisが`net_income_attributable_to_owners`で、同一as-ofの`valuation_metric` / `ratio` factのうち、fact IDが`trailing-per`または`trailing-per-`で始まる一意な正値だけを使う。候補なし、複数候補、source未解決はfail-closedでstatusを返し、他のvaluation metricへfallbackしない。この派生出力は仮定感応度をreviewする材料であり、packet readiness、recommendation、execution policyを変更しない。
 
 ## Planning-only execution pricing
 

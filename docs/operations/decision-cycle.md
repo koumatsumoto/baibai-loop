@@ -124,13 +124,14 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .ca
 ### OP6 Independent review and promotion
 
 ```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-decision .cache/opportunity/YYYY-MM-DD/XXXX/packet-draft.yaml
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity review-scaffold --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .cache/opportunity/YYYY-MM-DD
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity promote --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX --output-dir records/03-thesis/YYYY/MM
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation --target decision-packet
 ```
 
-reviewはpacket authorと別roleがlaneごとに行い、複数laneを並行できる。`proposal_changed=true`なら該当laneのpacketへ戻り、packet hash変更後の旧reviewを使わない。
+reviewはpacket authorと別roleがlaneごとに行い、複数laneを並行できる。reviewerは最初のcommandが返す5年base break-evenと観測multipleを、[`workflow/research.md#independent-review`](../workflow/research.md#independent-review)のfield対応で既存research checklistへ記録してからreview draftを完成させる。`proposal_changed=true`なら該当laneのpacketへ戻り、packet hash変更後の旧reviewを使わない。
 
 全laneの調査・反証後に共有`research-comparison.yaml`で比較し、現在の提案roundの最良0〜1件だけを`selected_ticker`へ固定する。0件なら`no actionable bargain`で終了する。promotionは`selected_ticker`のlaneについて、checklist、packet/review schema、hash、pathが一致するときだけ行う。
 
