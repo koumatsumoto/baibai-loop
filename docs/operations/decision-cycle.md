@@ -134,7 +134,29 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity plan-limit --packet re
 
 複数laneがviableでも、同じledger snapshotから複数proposalを一括生成しない。最上位laneを`plan-limit`したら、出力の`source_ledger_sha256`が現在のcanonical ledgerと一致することを確認して人間へ提示する。人間の`approve / defer / reject`と、注文がある場合はhuman result pathによるcanonical ledger更新を完了してから、残るlaneを再比較する。次のlaneへ進む場合は`selected_ticker`をその1件へ更新し、更新後canonical ledgerで`plan-limit`を再実行する。これによりactive reservationを含まないstale ledgerから資本を二重に割り当てない。
 
-proposal第1層にはticker/name/as-of、5年base CAGR、永久損失結論、最強countercase、max price、limit、quantity/notional、portfolio warnings、packet/review参照、人間に求める`approve / defer / reject`だけを置く。tickerにはTradingView linkを付け、focus tickerだけ開く。AIは発注しない。
+proposal第1層にはticker/name/as-of、5年base CAGR、永久損失結論、最強countercase、max price、limit、quantity/notional、portfolio warnings、packet/review参照、人間に求める`approve / defer / reject`だけを置く。TradingView linkはOP9の統合HTMLへ各ticker分を生成し、browserを自動起動しない。AIは発注しない。
+
+### OP8 Integrated research content review
+
+全laneの詳細調査、比較、購入方法を`findings.yaml`へ統合する。定性contentだけをfindingsへ書き、source/fact/scenario/FV/7軸はlane packet、採否は`research-comparison.yaml`、価格・数量・notionalは`proposal.yaml`を正本として転記しない。共通field、業種固有分析、海外展開3層、growth qualityの分解は[`../reference/research-decision-report.md`](../reference/research-decision-report.md)を正本とする。
+
+HTMLをreviewしない。report compilerとは別roleが、軽量なfindings / comparison / packet / proposalをreviewするため、hash-bound draftを作る。
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.research_decision_report.review_scaffold --workspace .cache/opportunity/YYYY-MM-DD --findings .cache/opportunity/YYYY-MM-DD/findings.yaml --proposal .cache/opportunity/YYYY-MM-DD/XXXX/proposal.yaml --out .cache/opportunity/YYYY-MM-DD/report-review-attempt-1.yaml
+```
+
+reviewerはsource freshness、指定質問、一次source、fact/estimate分離、countercase/unknown、scenario/FV、比較/portfolio fit、購入方法を再確認する。`changes_required`なら該当入力へ戻り、変更後は既存reviewを上書きせず`report-review-attempt-2.yaml`のようにattempt番号を増やして再scaffoldする。全checkが`pass`で入力hashが一致するときだけHTMLへ進む。`selected_ticker: null`ではproposalを省略し、購入提案なしの結論をreviewする。
+
+### OP9 Reviewed HTML and human checkpoint
+
+この工程はrepository内の専用rendererを正本とする。汎用HTML生成skillや別templateを使わない。
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.research_decision_report.render --workspace .cache/opportunity/YYYY-MM-DD --findings .cache/opportunity/YYYY-MM-DD/findings.yaml --review .cache/opportunity/YYYY-MM-DD/report-review-attempt-N.yaml --proposal .cache/opportunity/YYYY-MM-DD/XXXX/proposal.yaml --out .cache/opportunity/YYYY-MM-DD/research-decision-report.html
+```
+
+HTMLはreview済み入力のephemeral projectionであり、内容reviewやcanonical recordの対象にしない。plan-limitが`defer`、または比較結果が`no actionable bargain`でも正常に生成し、注文なしと理由を明示する。repository visibilityを確認してから、operation Issueへmanifest、findings、comparison、non-promoted lane packet、proposal、report reviewのreview済み内容をartifact別commentとして保存する。promote済みselected packet/reviewはcanonical pathとhashを参照し、同じ内容を複製しない。summaryに各comment URLまたはcanonical pathとhash、全laneの採否、購入方法または注文なしの理由、HTML pathを残す。local pathとhashだけを残してcompact inputを破棄しない。人間の`approve / defer / reject`を待つ。
 
 <a id="human-result-path"></a>
 

@@ -1,0 +1,57 @@
+schema_version: 1
+meta:
+  title: 詳細リサーチ・購入判断レポート
+  as_of: 'YYYY-MM-DD'
+  target_session: 'YYYY-MM-DD'
+  budget_yen: 300000
+  source_freshness: latest result / annual report / material disclosure checked through YYYY-MM-DD
+  warnings: []
+decision_context:
+  portfolio_fit: current ledgerとの重複・集中・cash余力を定性的に要約する
+  human_action: approve / defer / reject のどれを判断してほしいかを書く
+candidates:
+- ticker: '0000'
+  confidence: medium
+  assigned_questions:
+  - heading: ユーザー指定の質問
+    conclusion: 一次情報から得た結論
+    evidence:
+    - statement: 根拠。数値はpacket fact/scenarioとsourceへ束縛する
+      kind: observed
+      source_ids: [primary-results]
+  business_model:
+    statement: 顧客・提供価値・収益化の仕組み
+    kind: observed
+    source_ids: [primary-results]
+  value_capture:
+    statement: 売上増が利益・FCF・一株価値へ届く経路
+    kind: estimate
+    source_ids: [primary-results]
+  growth_quality:
+  - heading: volume / price / mix / upsell・churn / FX
+    conclusion: 開示範囲で成長を分解した結論
+    evidence:
+    - statement: 未開示部分は推定せずunknownへ残す
+      kind: observed
+      source_ids: [primary-results]
+  financial_resilience:
+    statement: cash flow、balance sheet、資金需要の耐久性
+    kind: observed
+    source_ids: [primary-results]
+  domain_findings: []
+  strongest_countercase:
+    statement: 最も強い反証
+    kind: estimate
+    source_ids: [primary-results]
+  catalysts:
+  - expected_on: null
+    event: 次の確認event
+    decision_impact: 何が起きれば判断を変えるか
+  unknowns: [未開示・blocked事項]
+  monitoring: [dated triggerと確認KPI]
+  source_metadata:
+  - source_id: primary-results
+    document_title: 最新決算資料
+    published_at: 'YYYY-MM-DD'
+    status: ok
+    note: null

@@ -352,6 +352,96 @@ def test_status_allows_intentional_shortlist_edit(
     assert code == 0
 
 
+def test_status_waits_for_human_shortlist_before_packet_scaffold(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
+    selection_path = workspace / "selection.yaml"
+    selection = safe_load(selection_path.read_text(encoding="utf-8"))
+    selection["shortlist"] = []
+    selection_path.write_text(
+        yaml.safe_dump(selection, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+    code, payload = _run(["status", "--workspace", str(workspace)], capsys)
+
+    assert code == 0
+    assert payload["workspace_status"] == "awaiting_primary_research_selection"
+    assert "candidate-report" in str(payload["next_command"])
+
+
+def test_status_points_to_first_missing_shortlist_lane(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
+    selection_path = workspace / "selection.yaml"
+    selection = safe_load(selection_path.read_text(encoding="utf-8"))
+    selection["shortlist"] = [{"ticker": "2331", "reason": "research"}]
+    selection_path.write_text(
+        yaml.safe_dump(selection, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+    code, payload = _run(["status", "--workspace", str(workspace)], capsys)
+
+    assert code == 0
+    assert payload["workspace_status"] == "incomplete"
+    assert payload["next_command"] == "baibai-loop-opportunity packet-scaffold --ticker 2331"
+
+
+def test_status_waits_for_all_lane_checks_before_comparison(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
+    assert (
+        opportunity_main(
+            [
+                "packet-scaffold",
+                "--workspace",
+                str(workspace),
+                "--ticker",
+                "2331",
+                "--sqlite-path",
+                str(sqlite_path),
+                "--target-session",
+                TARGET_SESSION,
+            ],
+            now=FIXED_NOW,
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    code, payload = _run(["status", "--workspace", str(workspace)], capsys)
+
+    assert code == 0
+    assert payload["workspace_status"] == "incomplete"
+    assert payload["pending_checks"]
+    assert payload["next_command"] == "complete primary research lane for 2331"
+
+    checklist_path = workspace / "2331" / "research-checklist.yaml"
+    checklist = safe_load(checklist_path.read_text(encoding="utf-8"))
+    for check in checklist["checks"]:
+        check["status"] = "complete"
+    checklist_path.write_text(
+        yaml.safe_dump(checklist, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    packet, _review, _review_filename = _ready_packet_and_review()
+    (workspace / "2331" / "packet-draft.yaml").write_text(
+        yaml.safe_dump(packet, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+    code, payload = _run(["status", "--workspace", str(workspace)], capsys)
+
+    assert code == 0
+    assert payload["workspace_status"] == "ready_for_comparison"
+
+
 def test_status_reports_external_input_hash_drift_as_exit_4(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -937,6 +1027,12 @@ def test_plan_limit_close_within_max_plans_limit_at_close(
     assert payload["limit_price_yen"] == payload["close_yen"] == 1000
     assert payload["price_basis"] == "last_close_unadjusted"
     assert payload["expires_at"] == "2026-07-13T15:30:00+09:00"
+    assert payload["decision_packet_ref"] == str(packet)
+    assert payload["decision_packet_sha256"] == hashlib.sha256(packet.read_bytes()).hexdigest()
+    assert isinstance(payload["decision_packet_core_sha256"], str)
+    review = packet.with_name("2026-07-03-2331-decision-review.yaml")
+    assert payload["independent_review_ref"] == str(review)
+    assert payload["independent_review_sha256"] == hashlib.sha256(review.read_bytes()).hexdigest()
     assert (
         payload["source_ledger_sha256"] == hashlib.sha256(LEDGER_FIXTURE.read_bytes()).hexdigest()
     )

@@ -110,6 +110,14 @@ packet authorと別roleが、候補抜け、一次source、scenario算術、永�
 
 `proposal_changed=true`ならpacketへ戻る。packet core hashが変わった後のreviewはstaleで、promotionへ使えない。
 
+## Integrated research report and content review
+
+全lane比較後は[`research-decision-report`](../reference/research-decision-report.md)の共通findings templateへ、指定質問への回答、business model、value capture、growth quality、財務耐久性、業種固有分析、unknown、monitoringを統合する。数値scenario、FV、7軸、採否、指値・数量をfindingsへ複製せず、packet / comparison / proposalからrendererがjoinする。
+
+growth qualityは開示範囲でvolume、price、mix、upsell/churn、FXへ分ける。海外展開は商品coverage、契約所在地/請求通貨/地域売上、ultimate customer originを別々に評価する。management claimにはその区分を付け、未開示値はunknownに残す。
+
+HTML生成前に、report compilerと別roleが軽量なfindings / comparison / packet / proposalをreviewする。source freshness、指定質問への回答、一次source traceability、fact/estimate分離、countercase/unknown、scenario/FV、横比較/portfolio fit、購入方法bindingの全checkがpassで、reviewed input hashが現在値と一致する場合だけHTMLを生成する。HTMLそのものはreview対象にしない。
+
 ## Result states
 
 | state | 条件 | 次 |
@@ -128,6 +136,7 @@ promotionはpacket/review/hash/schema/pathが一致するときだけ行う。te
 - corporate actionまたはprice basisがunresolved。
 - 7永久損失軸、3年/5年scenario、countercaseが欠ける。
 - packetとreviewのhashが一致しない。
+- integrated content reviewが未完、changes required、または入力hashと一致しない。
 - budget fitだけで上位候補を入れ替えている。
 
 ## Validation

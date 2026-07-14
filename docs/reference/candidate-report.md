@@ -12,7 +12,7 @@ last_reviewed: 2026-07-13
 
 ## 設計
 
-packet-scaffold と同じく「機械 = data plumbing / 人間 = judgment」。レンダラは screening 出力（`selection-output.yaml` の `audit_pool` と `candidates.yaml` の metrics）から価格・valuation・自己資本比率・net cash・配当 basis・機械 E[r]・FV アンカー乖離・JPX が公表した `next_earnings_date`・入力 sha256 を機械取得し、**数値を転記しない**。`next_earnings_date: null` は JPX snapshot に既知日程がない（未定を含む）状態で、決算が存在しないという意味ではない。運用者は各候補の定性 narrative だけを `narratives.yaml` に書く。
+packet-scaffold と同じく「機械 = data plumbing / 人間 = judgment」。レンダラは screening 出力（`selection-output.yaml` の `audit_pool` と`candidates.yaml`のmetrics）からscreening評価用参考価格・valuation・自己資本比率・net cash・配当 basis・機械 E[r]・FV アンカー乖離・JPX が公表した `next_earnings_date`・入力 sha256 を機械取得し、**数値を転記しない**。この価格はscreeningの入力整合用で、発注に使うJPX raw/unadjusted closeではない。発注価格はprimary research後の`plan-limit`で別に取得する。`next_earnings_date: null` は JPX snapshot に既知日程がない（未定を含む）状態で、決算が存在しないという意味ではない。運用者は各候補の定性 narrative だけを `narratives.yaml` に書く。
 
 生成 HTML は `.cache` 配下の **ephemeral 成果物で commit しない**（screen とレンダラの再実行で再現する。records には promote 済み packet/review だけを残す方針と一致）。
 

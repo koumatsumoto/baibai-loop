@@ -92,11 +92,13 @@ def test_render_pulls_numbers_from_screening_output(tmp_path: Path) -> None:
     # Hard numbers come from the screening output, and the FV gap is computed.
     assert "TSE%3A7203" in html
     assert "2,000.0 円" in html
-    assert "7/10終値" in html
+    assert "7/10 screening参考価格" in html
     assert "+50%" in html  # (3000/2000 - 1) * 100
     assert "basis=forecast_annual" in html
     assert "割安仮説" in html
     assert "反対仮説" in html
+    assert "Content-Security-Policy" in html
+    assert "script-src 'none'" in html
     # Exclusion reasons render with the ticker's name pulled from candidates.
     assert "6417" in html
     assert "投資対象外" in html
@@ -104,7 +106,7 @@ def test_render_pulls_numbers_from_screening_output(tmp_path: Path) -> None:
     assert "None" not in html
 
 
-def test_render_uses_selection_asof_for_close_label(tmp_path: Path) -> None:
+def test_render_uses_selection_asof_for_price_label(tmp_path: Path) -> None:
     paths = _fixture(
         tmp_path,
         narratives={"candidates": [{"ticker": "7203", "ploss": "低", "prov": "x"}]},
@@ -113,8 +115,8 @@ def test_render_uses_selection_asof_for_close_label(tmp_path: Path) -> None:
 
     html = render(**paths)
 
-    assert "7/13終値" in html
-    assert "7/10終値" not in html
+    assert "7/13 screening参考価格" in html
+    assert "7/10 screening参考価格" not in html
 
 
 @pytest.mark.parametrize("asof", [None, "not-a-date"])
@@ -127,8 +129,8 @@ def test_render_falls_back_to_undated_close_label(tmp_path: Path, asof: object) 
 
     html = render(**paths)
 
-    assert "<th>終値</th>" in html
-    assert "7/10終値" not in html
+    assert "<th>screening参考価格</th>" in html
+    assert "7/10 screening参考価格" not in html
 
 
 def test_render_falls_back_when_selection_asof_is_missing(tmp_path: Path) -> None:
@@ -142,8 +144,8 @@ def test_render_falls_back_when_selection_asof_is_missing(tmp_path: Path) -> Non
 
     html = render(**paths)
 
-    assert "<th>終値</th>" in html
-    assert "7/10終値" not in html
+    assert "<th>screening参考価格</th>" in html
+    assert "7/10 screening参考価格" not in html
 
 
 def test_render_rejects_ticker_absent_from_audit_pool(tmp_path: Path) -> None:

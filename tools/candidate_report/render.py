@@ -112,17 +112,17 @@ def _fv_gap_pct(entry: dict[str, Any]) -> float | None:
     return None
 
 
-def _close_label(asof: object) -> str:
+def _price_label(asof: object) -> str:
     if isinstance(asof, date):
         parsed = asof
     elif isinstance(asof, str):
         try:
             parsed = date.fromisoformat(asof)
         except ValueError:
-            return "終値"
+            return "screening参考価格"
     else:
-        return "終値"
-    return f"{parsed.month}/{parsed.day}終値"
+        return "screening参考価格"
+    return f"{parsed.month}/{parsed.day} screening参考価格"
 
 
 def _fact_rows(
@@ -150,7 +150,7 @@ def _fact_rows(
             "TradingView",
             f'<a href="{TRADINGVIEW.format(ticker=ticker)}" target="_blank" rel="noopener">TSE:{esc(ticker)} チャート ↗</a>',
         ),
-        (_close_label(asof), fnum(px, 1, 1, " 円")),
+        (_price_label(asof), fnum(px, 1, 1, " 円")),
         ("時価総額", fnum(cand.get("market_cap_oku"), 1, 0, " 億円")),
         ("業種", esc(sector)),
         (
@@ -301,6 +301,7 @@ _TEMPLATE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; script-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'">
 <title>{title}</title>
 <style>
 :root {{
@@ -351,7 +352,7 @@ code {{ background:color-mix(in srgb, var(--ink) 8%, transparent); padding:1px 5
 <body>
 <div class="wrap">
 <h1>{title}</h1>
-<p class="lede">基準日 {asof}（JPX raw/unadjusted close）／注文想定日 {target} ／ これは<b>最終buy提案ではありません</b>。ユーザーが深掘り候補を選んだ後に、個別の一次リサーチ（決算・有報・5年シナリオ・独立反証・指値）へ進みます。</p>
+<p class="lede">screening基準日 {asof}／注文想定日 {target} ／ これは<b>最終buy提案ではありません</b>。表示価格はscreeningの評価用参考価格で、発注に使うJPX raw/unadjusted closeは深掘り後のplan-limitで別に取得します。</p>
 
 <div class="brief">
 <div><span class="pill">目的</span> 永久的資本毀損リスクを抑えつつ、一時的に大きく割安になっている日本株を見つける。提示順は{order_by}（推奨順位ではありません）。</div>
@@ -365,7 +366,7 @@ code {{ background:color-mix(in srgb, var(--ink) 8%, transparent); padding:1px 5
 <div class="scroll">
 <table class="comp">
 <thead><tr>
-<th>#</th><th>ticker / 銘柄</th><th>終値</th><th>valuation</th><th>永久損失(暫定)</th>
+<th>#</th><th>ticker / 銘柄</th><th>screening参考価格</th><th>valuation</th><th>永久損失(暫定)</th>
 <th>自己資本比率 / net cash比</th><th>機械E[r]</th><th>FV乖離</th><th>暫定判断</th>
 </tr></thead>
 <tbody>
