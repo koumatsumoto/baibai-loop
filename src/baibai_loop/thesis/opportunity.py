@@ -277,14 +277,71 @@ def compute_status(workspace: Path) -> dict[str, object]:
     _verify_external_inputs(manifest)
     _validate_editable_drafts(workspace, manifest)
 
+    selection = _load_mapping(workspace / "selection.yaml", label="workspace selection")
+    shortlist = _dict_list(selection.get("shortlist"))
+    shortlist_tickers = [str(row.get("ticker") or "") for row in shortlist]
     comparison = _load_mapping(workspace / "research-comparison.yaml", label="research comparison")
     selected_ticker = _string_or_none(comparison.get("selected_ticker"))
 
-    if selected_ticker is None:
+    if not shortlist_tickers:
+        return _status_payload(
+            workspace_status="awaiting_primary_research_selection",
+            selected_ticker=None,
+            next_command="review candidate-report and fill selection.yaml shortlist",
+        )
+
+    missing_lanes = [
+        ticker
+        for ticker in shortlist_tickers
+        if not (_research_lane_dir(workspace, ticker) / "packet-draft.yaml").is_file()
+    ]
+    if missing_lanes:
         return _status_payload(
             workspace_status="incomplete",
+            selected_ticker=selected_ticker,
+            next_command=f"baibai-loop-opportunity packet-scaffold --ticker {missing_lanes[0]}",
+        )
+
+    lane_pending: list[str] = []
+    lane_blocked: list[str] = []
+    lane_packet_errors: list[str] = []
+    for ticker in shortlist_tickers:
+        checklist = _load_checklist(workspace, ticker)
+        lane_pending.extend(
+            f"{ticker}:{check_id}"
+            for item in checklist
+            if item.get("status") == "pending"
+            if (check_id := _string_or_none(item.get("check_id"))) is not None
+        )
+        lane_blocked.extend(
+            f"{ticker}:{check_id}"
+            for item in checklist
+            if item.get("status") == "blocked"
+            if (check_id := _string_or_none(item.get("check_id"))) is not None
+        )
+        lane_packet_errors.extend(
+            f"{ticker}:{error}" for error in _packet_validation_errors(workspace, ticker)
+        )
+    if lane_pending or lane_packet_errors:
+        first_ticker = (lane_pending or lane_packet_errors)[0].split(":", maxsplit=1)[0]
+        return _status_payload(
+            workspace_status="incomplete",
+            selected_ticker=selected_ticker,
+            pending_checks=lane_pending,
+            blocked_checks=lane_blocked,
+            packet_validation_errors=lane_packet_errors,
+            next_command=f"complete primary research lane for {first_ticker}",
+        )
+
+    if selected_ticker is None:
+        return _status_payload(
+            workspace_status="ready_for_comparison",
             selected_ticker=None,
-            next_command="baibai-loop-opportunity packet-scaffold",
+            blocked_checks=lane_blocked,
+            next_command=(
+                "complete research-comparison.yaml and set selected_ticker, "
+                "or record no actionable bargain"
+            ),
         )
 
     checklist = _load_checklist(workspace, selected_ticker)
@@ -799,6 +856,15 @@ def plan_limit(
 
     base_output: dict[str, object] = {
         "ticker": ticker,
+        "decision_packet_ref": str(packet),
+        "decision_packet_sha256": _sha256_text(packet.read_text(encoding="utf-8")),
+        "decision_packet_core_sha256": decision_packet_core_hash(document),
+        "independent_review_ref": str(review_path) if review_path is not None else None,
+        "independent_review_sha256": (
+            _sha256_text(review_path.read_text(encoding="utf-8"))
+            if review_path is not None
+            else None
+        ),
         "price_as_of": price.price_as_of.isoformat() if price is not None else None,
         "price_basis": "last_close_unadjusted",
         "source_ref": f"{sqlite_path.as_posix()}:jquants_daily_bars",

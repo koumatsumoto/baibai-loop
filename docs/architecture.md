@@ -172,7 +172,7 @@ AI / スクリプトが利用する安定化対象は次の5面。Python内部AP
 - **契約 2：SQLite schema**（`data/screening/market.sqlite`） — 対象は全上場銘柄、`PRAGMA user_version` で版管理、破壊的変更は version bump + rebuild（migration しない）。**AI は読み取り専用で SQL を直接発行してよく、書き込みは CLI（bootstrap / extract / run）経由に限る**。主要テーブルは `jquants_daily_bars` / `jquants_fin_summaries` / `jquants_master_snapshots` / `edinet_metrics` / `jpx_regulation_flags`、定義の正本は [`reference/screening-runtime.md`](./reference/screening-runtime.md)。
 - **契約 3：JSON schemaとcanonical path** — recordsのshape、required、enumと保存先。
 - **契約 4：docs anchor** — doctrineの語彙/fact境界、decision-cycleの主要trigger path。
-- **契約 5：skill inventory** — `.agents/skills`の4 canonical skillと`.claude` symlink parity。
+- **契約 5：skill inventory** — `.agents/skills`の3 canonical skillと`.claude` symlink parity。
 
 AI の利用モデル：L1/L2 は SQL 直接発行と CLI 出力で自由に読み、observedはsource、derivedはformula、estimateはmodel versionとassumptionへ遡れる形で書く（AP-01）。L3 は下書きまで（最終採用判定は人間）。スコアとestimateは売買判定ではない。
 

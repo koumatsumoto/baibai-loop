@@ -63,7 +63,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python tools/drift/check_duplicate_constants.p
 UV_CACHE_DIR=/tmp/uv-cache uv run python tools/drift/check_skill_inventory.py
 ```
 
-`check_skill_inventory.py`は`.agents/skills`が`decision-cycle / macro-analysis / improvement-loop / tradingview-open`のexact 4件、`.claude/skills`が各canonical directoryへのrelative symlinkであることを検証する。canonical tree内のsymlink、frontmatter name/description不正、`agents/openai.yaml`の必須interface/policy不正、旧skill directory、別実体copyを許さない。
+`check_skill_inventory.py`は`.agents/skills`が`decision-cycle / macro-analysis / improvement-loop`のexact 3件、`.claude/skills`が各canonical directoryへのrelative symlinkであることを検証する。canonical tree内のsymlink、frontmatter name/description不正、`agents/openai.yaml`の必須interface/policy不正、旧skill directory、別実体copyを許さない。
 
 decision-cycleのcopy/paste recipeは`tests/test_public_cli_contract.py`で各subcommandとoptionをpublic parserへ渡し、同じcommand/optionがrunbookに存在することを固定する。commandを変更するときはparser、runbook、contract testを同じPRで更新する。
 

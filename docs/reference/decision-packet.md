@@ -75,6 +75,8 @@ quantityを考える注文額の目安は[`portfolio-management`](../portfolio-m
 
 proposalは人間承認前の判断材料で、brokerを操作しない。AIはfill probability、当日価格方向、未報告broker状態を推定しない。人間から結果が報告された後だけledger draftを作る。既存`baibai-loop-decision --execution-input`は互換的なlive evaluationであり、通常の寄り前runbook入口ではない。
 
+`plan-limit`出力は説明用pathに加え、`decision_packet_sha256`、`decision_packet_core_sha256`、`independent_review_sha256`、`source_ledger_sha256`を持つ。統合reportやIssue checkpointはこのhashでpacket / review / ledger snapshotへのbindingを確認し、path文字列だけで同一性を判断しない。packet、review、ledgerのいずれかが変わったら旧proposalはstaleで、再計算する。
+
 ## Permanent-loss axes
 
 必須軸は`funding_liquidity / debt_repayment / cash_flow / dilution / customer_concentration / structural_decline / governance_accounting`である。各軸は`acceptable / adverse / unknown`、`verified / partially_verified / unverified`、source、as-ofを持つ。

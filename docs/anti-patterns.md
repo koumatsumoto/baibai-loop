@@ -259,6 +259,8 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] concentrationはholding market value + active reservationをledgerの`total_capital_yen`で割り、warning + 期限付きoverrideとして扱うことを確認したか
 - [ ] human result CLIを変更する場合、報告なしでno write、proposal/approval URL必須、missing fieldの質問、canonical非上書き、source hash drift拒否をcontract testで確認したか
 - [ ] decision packetがapprovedの場合、source snapshot、scenario、independent review、execution inputが同一packet hashに束縛されるか
+- [ ] 統合reportはHTMLをreview対象にせず、findings / comparison / packet / proposalへ別roleのcontent reviewを行い、manifest・全packet raw/core・proposal hashの変更をstaleとして拒否するか
+- [ ] `planned_limit / defer / no actionable bargain`の全経路で、購入方法または注文なしが比較結論と矛盾せず、未知source IDと手書き注文数値を拒否するか
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 - [ ] policy literalのdrift gateを追加・変更する場合、正本の値からpatternを導出し、正本doc/codeを

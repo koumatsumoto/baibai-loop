@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-EXPECTED = frozenset({"decision-cycle", "macro-analysis", "improvement-loop", "tradingview-open"})
+EXPECTED = frozenset({"decision-cycle", "macro-analysis", "improvement-loop"})
 OLD = frozenset({"ai-value-bargain-selection", "ir-research", "financial-pro-review"})
 
 

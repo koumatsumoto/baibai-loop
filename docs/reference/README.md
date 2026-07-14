@@ -13,6 +13,7 @@ referenceは「artifact・式・error/warningは何を意味するか」を持�
 | 調べたいこと | reference |
 | --- | --- |
 | decision packet、3年/5年算術、review hash、planning limit | [`decision-packet.md`](./decision-packet.md) |
+| 詳細リサーチ統合入力、content review、HTML projection | [`research-decision-report.md`](./research-decision-report.md) |
 | cash、reservation、execution、release、snapshot | [`portfolio-ledger.md`](./portfolio-ledger.md) |
 | hold/add/reduce/exitと税引後代替 | [`holding-review.md`](./holding-review.md) |
 | portfolio returnとTOPIX観測 | [`portfolio-ledger.md#historical-outcome`](./portfolio-ledger.md#historical-outcome) |
