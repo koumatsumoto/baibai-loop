@@ -16,7 +16,8 @@ rule を変更しない。
 - 0.5 億円 floor は固定 E[r] ranking の eligible を 1,473 件から 1,767 件へ 294 件増やし、
   追加候補が 1 位、top 10 に 3 件、top 50 に 15 件流入する。
 - 0.3 億円 floor は baseline 比 492 件を追加し、top 10 に 6 件流入する。ただし、0.5 億円から
-  追加で下げる部分の最高順位は 6 位であり、最小の material variant は 0.5 億円である。
+  追加で下げる部分の最高順位は 6 位である。比較した variant のうち、baseline に最も近く
+  material だった 0.5 億円を正式検証の対象とする。
 - 単一 as-of の shortlist に明確な差が出るため formal validation の価値はあるが、production
   採用効果は未立証である。0.5 億円だけを事前登録した rules variant として design / confirm
   検証する follow-up を推奨する。
@@ -171,7 +172,8 @@ top 50 流入 15 件である。したがって、ADV floor を正式な基盤�
 
 次の改善単位は、0.5 億円だけを動かす rules variant を結果計測前に事前登録し、現行 panel と分離して
 design / confirm を評価することである。0.3 億円はこの report で結果を見た後の追加 variant であり、
-同じ検証で grid search しない。まず最小の material change である 0.5 億円を単独検証する。
+同じ検証で grid search しない。比較した variant のうち baseline に最も近く material だった
+0.5 億円を単独検証する。
 
 ## 6. formal follow-up の着手条件と判定対象
 
