@@ -3,7 +3,7 @@ title: "Continuous decision cycle runbook"
 summary: "前営業日終値の候補・指値提案、人間報告後のledger、保有review、年次評価をtrigger別に進める唯一のe2e入口。"
 doc_type: operation
 status: active
-last_reviewed: 2026-07-14
+last_reviewed: 2026-07-15
 related_docs:
   - "../doctrine.md"
   - "../portfolio-management.md"
@@ -79,6 +79,16 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .ca
 ```
 
 確認するものは`audit_pool`最大20件、production `recommendations`、holding/reservation annotation、workspace hash、`next_command`。`recommendations`はrulesの通常表示capを適用した機械出力で、OP3のhuman-review shortlistではない。candidate/audit poolは探索用で、buy候補やcanonical judgmentではない。
+
+### OP2.5 Promoted research price watch
+
+weekly runではpromote済みresearchのFVとASOFのraw closeをread-onlyで比較し、stdout YAMLをshortlist checkpointへ貼ってOP3 reportと同時に提示する。
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.research_price_watch --packets-root records/03-thesis --ledger records/04-position/portfolio-ledger.yaml --sqlite-path data/screening/market.sqlite --asof YYYY-MM-DD
+```
+
+これはscreening top-20外の再調査候補を見つける観測であり、過去FV・recommendationを現在のbuy signalにしない。`market_asof`は価格時点、`ledger_as_of`はcurrent portfolio annotationの時点として別に読む。`re_research_required: true`のtickerを調べ直す場合は、新しいopportunityまたは[`earnings-and-material-event` path](#earnings-and-material-event-path)で一次情報・FV・countercaseを更新してから提案する。
 
 ### OP3 Candidate shortlist report (human review gate)
 
