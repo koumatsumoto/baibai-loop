@@ -24,7 +24,7 @@ Baibai-Loopは、一人で日本株を長期運用するための意思決定基
 3. repository portfolioへの追加価値
 4. 購入可能性
 
-月40万円の追加資金と1回20〜30万円はplanning baselineです。予算、cash、集中、保有・予約は人間へ見せるwarning/annotationであり、それだけで投資価値順位を変えません。候補がない、価格が最大許容価格を超える、一次情報が足りない場合は、買わずに終了することが正常な判断です。
+追加資金と1回の注文額のplanning baselineは[`docs/portfolio-management.md`](./docs/portfolio-management.md)を正本とします。予算、cash、集中、保有・予約は人間へ見せるwarning/annotationであり、それだけで投資価値順位を変えません。候補がない、価格が最大許容価格を超える、一次情報が足りない場合は、買わずに終了することが正常な判断です。
 
 ## Human boundary
 

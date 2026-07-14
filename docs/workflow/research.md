@@ -3,7 +3,7 @@ title: "Workflow — research"
 summary: "人間が選んだprimary-research setを一次情報、永久損失、3年/5年scenario、反証で比較し、最良0〜1件をdecision packetへ固定する。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-13
+last_reviewed: 2026-07-14
 related_docs:
   - "./screening.md"
   - "../reference/decision-packet.md"
@@ -89,7 +89,7 @@ AIはテーマではなく企業別のvalue captureとして評価する。role�
 
 ## Portfolio annotation and affordability
 
-ledgerから`unheld / held / reserved / held_and_reserved`を付け、追加後concentrationと既存proposalの関係を示す。月40万円、20〜30万円、cash、dry powder、集中はwarningであり、永久損失と5年期待値を比較する前のhard filterではない。
+ledgerから`unheld / held / reserved / held_and_reserved`を付け、追加後concentrationと既存proposalの関係を示す。追加資金と通常注文額のplanning baselineは[`portfolio-management`](../portfolio-management.md#capital-guidance)を正本とする。cash、dry powder、集中はwarningであり、永久損失と5年期待値を比較する前のhard filterではない。
 
 ## Packet scaffold
 

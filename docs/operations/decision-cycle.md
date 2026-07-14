@@ -19,7 +19,7 @@ Baibai-Loopの日常運用は「最もお買い得な日本株を見つけ、人
 
 価格判断にはJPX基盤の最新完全営業日のraw/unadjusted closeを使う。寄り前のrealtime quoteと板は必須入力ではない。AIは約定可能性や当日価格方向を予測しない。人間からbroker結果が報告されるまで注文状態を推定せず、ledgerを更新しない。
 
-候補比較順は、(1)永久的資本毀損リスク、(2)5年期待総合returnとFV乖離、(3)repository portfolioへの追加価値、(4)購入可能性で固定する。月40万円、通常20〜30万円、dry powder、集中warningは人間判断用の目安であり、投資価値順位を変えない。保有・予約銘柄もhard除外せず、買増し・既存注文との関係をannotationする。
+候補比較順は、(1)永久的資本毀損リスク、(2)5年期待総合returnとFV乖離、(3)repository portfolioへの追加価値、(4)購入可能性で固定する。追加資金と通常注文額のplanning baselineは[`portfolio-management`](../portfolio-management.md#capital-guidance)を正本とする。dry powderと集中warningは人間判断用の目安であり、投資価値順位を変えない。保有・予約銘柄もhard除外せず、買増し・既存注文との関係をannotationする。
 
 ## Trigger table
 

@@ -46,7 +46,7 @@ dirty worktreeの所有不明、public command不明、入力矛盾では停止�
 3. repository portfolioへの追加価値
 4. 購入可能性
 
-月40万円、通常20〜30万円、cash、集中、保有・予約は人間向けannotationである。これらだけで上位候補をhard除外しない。候補0件、購入見送り、価格超過の`defer`は正常終了である。
+追加資金と通常注文額のplanning baselineは[`docs/portfolio-management.md`](../../../docs/portfolio-management.md)を正本とする。cash、集中、保有・予約は人間向けannotationである。これらだけで上位候補をhard除外しない。候補0件、購入見送り、価格超過の`defer`は正常終了である。
 
 ## 人間境界
 
