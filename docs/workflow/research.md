@@ -26,6 +26,8 @@ researchの目的は、安く見える理由が一時的な誤解か、企業価
 
 検索snippet、ニュース見出し、外部AI要約を観測事実にしない。二次情報は一次sourceの所在確認と相互検算だけに使う。
 
+operation Issueでbusiness-model guide pilotの対象に指定したlaneでは、[`business-model research guide`](../reference/business-model-research.md)からprimary lensを1つ選び、複合modelで5年評価にmaterialな場合だけsecondary lensを1つ追加する。primary lensの全required questionsとsecondary lensから選んだ全material questionsを`answered / unknown / not_applicable`とし、`answered / not_applicable`は根拠sourceを持つ既存`domain_findings`、`unknown`は既存`unknowns`へ同guideの規約で置く。issuer-primaryだけで確定できるclaimと独立裏取りが必要なclaimを同guideの区分で判定し、適合するlensが無ければ分類を強制せず共通checklistへ戻る。pilot対象外のlaneへ一律に強制しない。
+
 ## Candidate stages
 
 候補件数は段階ごとに意味が異なる。
