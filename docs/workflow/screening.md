@@ -1,9 +1,9 @@
 ---
 title: "Workflow — screening"
-summary: "point-in-time cacheからcandidate、audit pool、selectionを決定論的に生成し、一次IR shortlistへ渡す工程。"
+summary: "point-in-time cacheからcandidate、audit pool、selectionを決定論的に生成し、人間レビューgateへ渡す工程。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-13
 related_docs:
   - "../operations/decision-cycle.md"
   - "../reference/screening-runtime.md"
@@ -18,8 +18,9 @@ screeningは全上場銘柄から割安ゾーンを機械抽出し、observed、
 
 - `run`: point-in-timeの財務・価格・JPX factsからcandidate poolを作る。
 - `select`: candidateを既存rulesでrankし、production recommendationsと監査用audit poolを出す。
-- AI: audit poolから一次IR shortlistを最大5件作る。
-- research: 一次情報、永久損失、3年/5年scenarioで最良0〜1件を決める。
+- AI: audit poolから[`decision-cycle` OP3](../operations/decision-cycle.md#opportunity-path)のhuman-review shortlist reportを作る。
+- human: reportからprimary-research setを選ぶ。
+- research: primary-research setを一次情報、永久損失、3年/5年scenarioで比較し、最良0〜1件を決める。
 
 macro context、ledger、予算はscreening rankを変更しない。後段のcontext/annotationとして扱う。
 
@@ -69,9 +70,10 @@ AI judgment、割安の原因、将来予測、採用結論をcandidateへ書か
 | candidate pool | screen通過全件 | select/calibration | rebuildable |
 | `recommendations` | production rule/cap適用後の通常表示 | operator | rebuildable |
 | `audit_pool` | diversity/cap切断前のrank上位N件を監査 | AI/reviewer | rebuildable |
-| IR shortlist | audit poolから最大5件を理由付き選定 | research | operation Issue/workspace |
+| human-review shortlist | audit poolからOP3の件数契約で理由付き選定 | human review | operation Issue/candidate report |
+| primary-research set | human-review shortlistから人間が選択 | research | workspace |
 
-`--audit-top 20`は候補抜けを監査するviewで、20件すべてを深掘りする命令ではない。`recommendations`のproduction capとIR shortlist最大5を混同しない。
+`--audit-top 20`は候補抜けを監査するviewで、20件すべてを深掘りする命令ではない。`recommendations`のproduction capはhuman-review shortlistの件数を決めない。selection outputの`research_selection_target_max`はproduction `recommendations`とworkspaceのprimary-research setの上限に使う。
 
 ## Ranking versus warnings
 
@@ -93,7 +95,7 @@ split/併合、株式交換、権利落ち、価格系列異常が疑われる�
 ## No candidate and failure
 
 - candidate 0件: screen条件とcoverageを確認し、正しければ正常終了。
-- viable shortlist 0件: `no actionable bargain`。購入を強制しない。
+- viable primary-research set 0件: `no actionable bargain`。購入を強制しない。
 - estimate missing: observed factで穴埋めせず、原因と影響を示す。
 - output drift: rules/input hashを確認し、古いworkspaceをpromoteしない。
 

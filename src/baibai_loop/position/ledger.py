@@ -650,6 +650,36 @@ def value_replayed_state(
     )
 
 
+def reservation_snapshots(state: ReplayedPortfolioState) -> tuple[ReservationSnapshot, ...]:
+    """Expose active reservation facts from price-free event replay."""
+
+    return _reservation_snapshots(state.active_reservations)
+
+
+def _reservation_snapshots(
+    active: Mapping[str, _Reservation],
+) -> tuple[ReservationSnapshot, ...]:
+    return tuple(
+        ReservationSnapshot(
+            reservation_id=item.reservation_id,
+            order_id=item.order_id,
+            ticker=item.ticker,
+            sector=item.sector,
+            common_factors=item.common_factors,
+            decision_reference=item.decision_reference,
+            remaining_quantity=item.remaining_quantity,
+            price_guard_yen=item.price_guard_yen,
+            reserved_yen=_yen_notional(
+                item.remaining_quantity,
+                item.price_guard_yen,
+                field="reservation snapshot notional",
+            ),
+            expires_at=item.expires_at,
+        )
+        for item in sorted(active.values(), key=lambda item: item.reservation_id)
+    )
+
+
 def reconcile_portfolio(
     document: PortfolioLedgerDocument,
     *,
@@ -833,25 +863,7 @@ def reconcile_portfolio(
             )
     prices = {price.ticker: price for price in document.market_prices}
     holdings = _holding_snapshots(lots, metadata, prices)
-    reservations = tuple(
-        ReservationSnapshot(
-            reservation_id=item.reservation_id,
-            order_id=item.order_id,
-            ticker=item.ticker,
-            sector=item.sector,
-            common_factors=item.common_factors,
-            decision_reference=item.decision_reference,
-            remaining_quantity=item.remaining_quantity,
-            price_guard_yen=item.price_guard_yen,
-            reserved_yen=_yen_notional(
-                item.remaining_quantity,
-                item.price_guard_yen,
-                field="reservation snapshot notional",
-            ),
-            expires_at=item.expires_at,
-        )
-        for item in sorted(active.values(), key=lambda item: item.reservation_id)
-    )
+    reservations = _reservation_snapshots(active)
     deployed_cost = sum(holding.deployed_cost_yen for holding in holdings)
     market_value = sum(holding.market_value_yen for holding in holdings)
     book_capital = available_cash + reserved_cash + deployed_cost

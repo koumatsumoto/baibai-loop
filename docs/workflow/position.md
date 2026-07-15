@@ -3,7 +3,7 @@ title: "Workflow — position"
 summary: "人間のbroker結果をledger draftへ反映し、source-bound holding reviewとportfolio outcomeへつなぐ工程。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-13
 related_docs:
   - "../operations/decision-cycle.md"
   - "../reference/portfolio-ledger.md"
@@ -25,6 +25,7 @@ AIの新規注文作業は、packet/reviewに束縛したproposal Issueを作り
 | `open` | ticker、quantity、limit、expiry、sector、proposal/approval URL | reservation | 同一reportの全payload一致 | proposal不明、期限/数量/価格不足 |
 | `filled` | ticker、quantity、price、executed_at、proposal/approval URL | execution。必要なら先行reservation | 同一event | reservationなしでapproval/guard/expiry/sector不足、未来日時、残数量超過 |
 | `cancelled` | reservation_id、cancelled_at、proposal/approval URL | remaining release | 既にterminal | reservation不明、未来日時 |
+| `expired` | reservation_id、expired_at、proposal/approval URL | remaining release (`reason=expired`) | 同一event | reservation_id省略、reservation不明、expiry前、未来日時 |
 
 報告がなければ何も更新しない。約定価格と時刻をAIが推定しない。`reservation_id / order_id / event_id`はrepository内のstable identityであり、brokerがIDを報告しない場合はhuman reportから決定的に生成してよい。これはbroker order IDを観測したという意味ではない。
 
@@ -43,11 +44,25 @@ CLIはcanonical ledgerを直接上書きしない。詳細recipeは[`operations/
 - `filled`: active reservationをquantity分消費する。部分約定ならremaining reservationを維持する。
 - reservationなしの`filled`: 人間がapproval時刻、guard、expiry、sectorを報告した場合だけreservation→executionを同じdraftへ作る。
 - `cancelled`: 指定reservationのremaining quantityをreleaseする。
-- expiryは推定で処理しない。人間報告または明示された運用入力を使う。
+- `expired`: 人間が未約定の期限到来を確認した場合だけ、指定reservationのremaining quantityをreleaseする。`occurred_at >= expires_at`を必須とする。
+- expiryは時刻やbroker状態から自動推定しない。人間報告または明示された運用入力を使う。
+
+## Expired limit outcome
+
+canonical ledgerにhuman-confirmed `release(reason=expired)`があるreservationは、`uv run python -m tools.limit_outcome`で個票の機会観測を作れる。これはread-onlyの補助観測であり、ledger eventやbroker resultを生成しない。
+
+- touch windowはJPX営業sessionで数え、submission日はintraday順序不明のためtouch判定から除外する。corporate-action basis確認にはsubmission日を含める。
+- expiry日は注文が15:30 JSTまで有効な場合だけraw/unadjusted daily lowを使う。
+- daily lowが指値以下であることはtouchの観測であり、fillの証拠ではない。
+- 期限後観測はexpiry直前営業sessionのraw closeから指定horizon末日のraw closeまでの価格変化であり、limit fillやmissed profitを仮定しない。
+- partial fillは未約定残数だけを対象とする。
+- human-confirmed releaseなし、期限後session不足、raw price欠損、calendar不整合、corporate action、`adjustment_factor`未確認を推定やadjusted priceで埋めない。
+
+結果はledger hashと、同一read-only SQLite transactionで使用したcalendar/raw bar rowsの決定論的fingerprintに束縛したstdout YAMLだけで、canonical/recordsへ保存しない。SQLite file全体のbyte hashには束縛しない。YAMLはoperation Issueへ貼る初期サンプルであり、schemaやaggregateを持たない。反復利用と効果を確認してからstable surfaceへの昇格を判断する。詳細commandは[`operations/decision-cycle.md#expired-limit-feedback`](../operations/decision-cycle.md#expired-limit-feedback)を正本とする。
 
 ## Holding review trigger
 
-決算、業績修正、資本政策、永久損失兆候、FV到達、より良い代替候補がmaterialなとき、対象tickerだけreviewする。全portfolioやscreeningを自動で始めない。
+決算、業績修正、資本政策、永久損失兆候、FV到達、より良い代替候補がmaterialなとき、dated task と一次 IR で event を確認して対象tickerだけreviewする。JPX の予定日は事実入力であり、通知や review の自動起動ではない。全portfolioやscreeningを自動で始めない。
 
 input:
 

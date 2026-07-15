@@ -33,7 +33,12 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
     def setUp(self) -> None:
         self.rules = load_screening_rules(DEFAULT_RULES_PATH)
 
-    def _payload(self, candidates: list[Mapping[str, object]]) -> dict[str, object]:
+    def _payload(
+        self,
+        candidates: list[Mapping[str, object]],
+        *,
+        audit_top: int = 0,
+    ) -> dict[str, object]:
         return build_selection_payload(
             asof_date=_ASOF,
             candidates=tuple(candidate_record_from_mapping(item) for item in candidates),
@@ -43,6 +48,7 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
             profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
+            audit_top=audit_top,
         )
 
     def _tickers(self, payload: dict[str, object]) -> set[str]:
@@ -167,6 +173,42 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
         self.assertEqual([item["ticker"] for item in recommendations], ["1111", "2222"])
         self.assertIsNone(recommendations[0]["selection_playbook"])
         self.assertEqual(payload["selection"]["counts"]["evidence_annotated"], 1)
+
+    def test_financial_sectors_without_evidence_remain_in_er_ranking(self) -> None:
+        financial_sectors = (
+            "銀行業",
+            "証券・商品先物取引業",
+            "保険業",
+            "その他金融業",
+        )
+        payload = self._payload(
+            [
+                _candidate(
+                    str(1001 + index),
+                    sector_33=sector,
+                    evidence_hits=[],
+                    metrics={"er_annual": 0.12 - index * 0.01},
+                )
+                for index, sector in enumerate(financial_sectors)
+            ],
+            audit_top=len(financial_sectors),
+        )
+
+        recommendations = payload["recommendations"]
+        assert isinstance(recommendations, list)
+        self.assertEqual(
+            [item["sector_33"] for item in recommendations],
+            list(financial_sectors),
+        )
+        self.assertTrue(all(item["selection_playbook"] is None for item in recommendations))
+        self.assertEqual(payload["selection"]["counts"]["evidence_annotated"], 0)
+        audit_pool = payload["audit_pool"]
+        assert isinstance(audit_pool, list)
+        self.assertEqual(
+            [item["ticker"] for item in audit_pool],
+            [str(1001 + index) for index in range(len(financial_sectors))],
+        )
+        self.assertTrue(all(item["screening_playbook"] is None for item in audit_pool))
 
     def test_playbook_cap_binds_via_profile_override(self) -> None:
         """max_recommended_per_playbook は E[r] 主キー下でも enforcement が生きている。

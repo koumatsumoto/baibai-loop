@@ -3,7 +3,7 @@ title: "Baibai-Loop docs portal"
 summary: "やりたいことから思想、運用、工程、contract、AI skillの唯一の正本へ案内する入口。"
 doc_type: portal
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-14
 ---
 
 # Baibai-Loop docs
@@ -43,7 +43,7 @@ last_reviewed: 2026-07-12
 | 仕様 | 唯一の所有者 |
 | --- | --- |
 | 投資価値の優先順位、永久損失、5年評価 | [`doctrine.md`](./doctrine.md) |
-| 月40万円、20〜30万円目安、資本warning | [`portfolio-management.md`](./portfolio-management.md) |
+| 追加資金・注文額目安・資本warning | [`portfolio-management.md`](./portfolio-management.md) |
 | AI・人間・broker責務 | [`doctrine.md`](./doctrine.md) |
 | trigger、e2e順序、checkpoint、Issue log | [`operations/decision-cycle.md`](./operations/decision-cycle.md) |
 | subsystem input/output/failure | 各[`workflow`](./workflow/) |

@@ -3,7 +3,7 @@ title: "Anti-patterns"
 summary: "投資判断、data、schema、validator、AI運用で繰り返し防ぐ失敗パターンとcommit前checklist。"
 doc_type: governance
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-14
 ---
 
 # anti-patterns
@@ -249,6 +249,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] primary evidence不足でhigh confidenceまたは通常sizingのbuyへ進めず、期限付きoverrideと縮小sizingを要求する
   - [ ] buy proposalのindependent reviewは別agent/session・別artifactで作り、packet hash、reviewer run ID、6 scenario再計算、全load-bearing source照合、変更有無へ束縛される
   - [ ] AI proposalは`proposed_at <= reviewed_at`、一次情報不足overrideは別envelopeでhuman decision reference・認識risk axesを持ち、review後かつ期限内に承認される
+  - [ ] screening E[r] / FVはobserved factへ混ぜずsource付きestimateとして扱い、値の不在・null・範囲外、selection / snapshot / packetのas-of不一致、未知sourceを検証する。FV bridge欠損だけではinvestment readinessをblockせずscreening sourceをindependent reviewのload-bearing集合へ入れない一方、bridge enum、空白note、3物理行以上を拒否し、optional field追加前のpacket core hashを維持する
   - [ ] 関連 field が **不在** の場合 (skip / error どちらが正しいか)
   - [ ] 関連 field が **null** の場合
   - [ ] 関連 field が **0 / 負値** の場合 (decision との整合性)
@@ -259,8 +260,13 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] concentrationはholding market value + active reservationをledgerの`total_capital_yen`で割り、warning + 期限付きoverrideとして扱うことを確認したか
 - [ ] human result CLIを変更する場合、報告なしでno write、proposal/approval URL必須、missing fieldの質問、canonical非上書き、source hash drift拒否をcontract testで確認したか
 - [ ] decision packetがapprovedの場合、source snapshot、scenario、independent review、execution inputが同一packet hashに束縛されるか
+- [ ] 統合reportはHTMLをreview対象にせず、findings / comparison / packet / proposalへ別roleのcontent reviewを行い、manifest・全packet raw/core・proposal hashの変更をstaleとして拒否するか
+- [ ] `planned_limit / defer / no actionable bargain`の全経路で、購入方法または注文なしが比較結論と矛盾せず、未知source IDと手書き注文数値を拒否するか
+- [ ] `planned_limit`のportfolio exposureは、共通as-of・分母・current / prospective円額・比率・閾値・fallback銘柄が必須かつ機械整合し、欠損 / null / 0 / 負値 / nested未知field / 閾値warningの過不足 / fallback warningの過不足を拒否するか
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
+- [ ] policy literalのdrift gateを追加・変更する場合、正本の値からpatternを導出し、正本doc/codeを
+      除外し、桁prefixと単位違い（円 / 株 / 件）のnegative testを持つか
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
       required 化する
 - [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。
@@ -321,6 +327,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
       decision packetのevidence overrideへ人間判断の根拠と期限を残したか
 - [ ] canonical ledgerの資本・集中度はcurrent + reserved exposureから再計算したか
 - [ ] brokerの`open / filled / cancelled`を人間報告なしに推定していないか
+- [ ] 同一tickerのactive reservationがある間は、元注文の再表示と追加注文を区別できない`planned_limit`を新たに作っていないか
 - [ ] proposal/approval URLへ辿れないresultをledgerへ入れていないか
 - [ ] holdings/reservationsをcanonical ledgerから読み、削除済みMarkdown globを使っていないか
 - [ ] 予算、保有、予約だけを理由に、より割安な候補をscreening/research前にhard除外していないか

@@ -3,7 +3,7 @@ title: "Valuation metrics"
 summary: "screeningで使うvaluation指標の定義、単位、欠損、算出仕様。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-13
 ---
 
 # valuation-metrics — valuation 指標の算出仕様
@@ -95,8 +95,8 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 - `dps_actual_annual`: 直近実績の年間 1 株配当。J-Quants `DivAnn`（FY 開示にのみ記載）を、**開示行群の直近非 null 行から carry-forward** して使う（直近 FY の実績年間配当は次の FY 開示まで最新の実績であり続けるため。bps のような latest-row-only の季節欠損を避ける）。分割・併合を跨ぐ行は adjustment_factor 累積で asof-basis へ換算する。
 - `dps_forecast_annual`: 進行期の予想年間 1 株配当。四半期開示の `FDivAnn`、本決算開示では進行期ガイダンスの `NxFDivAnn` を使う。分割を跨ぐ行は forecast EPS と同じく開示基準を機械判別できないため None に落とす。
-- `dividend_yield = dps_actual_annual / 直近終値`。実績基準（保守側）で、予想配当は使わない。
-- 較正リプレイの total return はこの実績利回りを保有年数で按分する accrual 近似で加算する（[`./estimate-calibration.md`](./estimate-calibration.md) §4）。
+- `dividend_yield` は、正の `dps_forecast_annual` を取得できる場合は `dps_forecast_annual / 直近終値`、取得できない場合は分割調整済みの正の `dps_actual_annual / 直近終値` とする。どちらも取れなければ `null` とする。
+- この利回りは将来 carry の機械 E[r] anchor に使う。較正リプレイの実現値は price-only であり、entry 時点の利回りを保有年数で按分する疑似配当 accrual は加えない。
 
 ## 8. 業種中央値の算出
 
@@ -158,13 +158,13 @@ return ではない)。これ以外のコーポレートアクション (合併�
   - `get_eq_master`: 上場銘柄一覧、普通株判定、市場区分、33 業種
   - `get_eq_bars_daily_range`: 日足（OHLC + 出来高 + 売買代金）
   - `get_fin_summary_range`: 財務サマリー、会社予想 EPS、利益系の概要値
-  - `get_eq_earnings_cal`: 決算発表予定日
   - `get_mkt_calendar`: 営業日カレンダ
 - **EDINET API v2**:
   - documents list (`type=2`): CSV 取得可能な提出書類の選定
   - document download (`type=5`): CSV ZIP から EV/EBITDA / Net cash / FCF 関連項目を抽出
   - raw XBRL (`type=1`) の直接 parser は将来拡張。CSV-derived metrics の coverage / precision が不十分な場合に検討する
 - **JPX**:
+  - 決算発表予定: 公式 financial-announcement index に掲載された全 cohort Excel の既知日程
   - 上場会社情報（業種分類、市場区分の補助確認）
   - 特別注意 / 整理 / 取引停止 / 上場廃止警告の除外判定
 

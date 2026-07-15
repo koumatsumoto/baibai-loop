@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 from datetime import datetime
+from decimal import Decimal, localcontext
 from pathlib import Path
 
 import pytest
@@ -15,12 +16,14 @@ from baibai_loop.thesis.decision_packet import (
     DecisionPacketError,
     DecisionPacketResult,
     IndependentReview,
+    _round_payload_decimal,
     decision_packet_core_hash,
     decision_packet_json_schema,
     evaluate_decision_packet,
     independent_review_json_schema,
     load_decision_packet,
     load_independent_review,
+    result_to_payload,
 )
 from baibai_loop.validation.cli import main as validation_main
 from baibai_loop.validation.decision_packet import validate_decision_packet_file
@@ -67,6 +70,39 @@ def _evaluate(
     return evaluate_decision_packet(document, review=review, now=now)
 
 
+def _five_year_base_raw(raw: dict[str, object]) -> dict[str, object]:
+    estimates = raw["estimates"]
+    assert isinstance(estimates, dict)
+    scenarios = estimates["scenarios"]
+    assert isinstance(scenarios, list)
+    scenario = next(
+        item for item in scenarios if item["horizon_years"] == 5 and item["name"] == "base"
+    )
+    assert isinstance(scenario, dict)
+    return scenario
+
+
+def _screening_estimate(*, fair_value_anchor_yen: object = 1300) -> dict[str, object]:
+    return {
+        "origin": "estimate",
+        "model_version": "screening-estimate-v1",
+        "as_of": "2026-07-03",
+        "expected_return_annual_ratio": 0.095,
+        "expected_return_unit": "annual_ratio",
+        "fair_value_anchor_yen": fair_value_anchor_yen,
+        "fair_value_unit": "JPY_per_share",
+        "assumptions": "Conservative minimum of the available screening FV anchors.",
+        "source_ids": ["internal-screen"],
+    }
+
+
+def _screening_fv_bridge() -> dict[str, object]:
+    return {
+        "primary_driver": "earnings_normalization",
+        "note": "Primary-source research uses normalized owner earnings.",
+    }
+
+
 def test_golden_packet_is_ready_with_explicit_evidence_warning() -> None:
     result = evaluate_decision_packet(
         load_decision_packet(FIXTURE), review=load_independent_review(REVIEW_FIXTURE)
@@ -76,6 +112,10 @@ def test_golden_packet_is_ready_with_explicit_evidence_warning() -> None:
     assert result.decision_readiness == "ready"
     assert result.errors == ()
     assert result.warnings == ("permanent-loss evidence incomplete: ['customer_concentration']",)
+    assert result.screening_fv_revision_pct is None
+    assert (
+        result.packet_sha256 == "88b7d6c21b7fd2578709ba1c52fa7472717240455d0e75cc2008444470b1131b"
+    )
     assert [(item.horizon_years, item.name) for item in result.scenarios] == [
         (3, "bear"),
         (3, "base"),
@@ -90,6 +130,434 @@ def test_golden_packet_is_ready_with_explicit_evidence_warning() -> None:
     assert base_five.terminal_share_count == 97_524_875.3122
     assert base_five.terminal_price_yen == 1439.5401
     assert base_five.total_return_cagr_pct == 9.57
+    break_even = result.five_year_base_break_even
+    assert break_even is not None
+    assert break_even.break_even_terminal_valuation_multiple == pytest.approx(
+        Decimal("1.0135050773543111")
+    )
+    assert break_even.break_even_annual_earnings_growth_pct == pytest.approx(
+        Decimal("3.2942026976003037")
+    )
+    assert result_to_payload(result)["five_year_base_break_even"] == {
+        "required_total_value_yen": 1516.3466,
+        "required_total_return_cagr_pct": 8.0,
+        "base_terminal_valuation_multiple": 1.1,
+        "break_even_terminal_valuation_multiple": 1.0135,
+        "terminal_multiple_downside_buffer": 0.0865,
+        "terminal_multiple_status": "within_model_bounds",
+        "base_annual_earnings_growth_pct": 5.0,
+        "break_even_annual_earnings_growth_pct": 3.2942,
+        "earnings_growth_downside_buffer_pct_points": 1.7058,
+        "earnings_growth_status": "within_model_bounds",
+        "observed_trailing_multiple_status": "resolved",
+        "observed_trailing_multiple_fact_id": "trailing-per",
+        "observed_trailing_multiple": 10.32,
+        "base_terminal_multiple_minus_observed": -9.22,
+        "base_terminal_multiple_premium_pct": -89.3411,
+    }
+
+
+def test_optional_screening_fields_preserve_legacy_hash_and_bind_new_values() -> None:
+    absent = _raw()
+    explicit_null = copy.deepcopy(absent)
+    null_snapshot = explicit_null["input_snapshot"]
+    null_estimates = explicit_null["estimates"]
+    assert isinstance(null_snapshot, dict)
+    assert isinstance(null_estimates, dict)
+    null_snapshot["screening_estimate"] = None
+    null_estimates["screening_fv_bridge"] = None
+
+    legacy_hash = decision_packet_core_hash(_document(absent))
+    assert decision_packet_core_hash(_document(explicit_null)) == legacy_hash
+
+    bridged = copy.deepcopy(absent)
+    snapshot = bridged["input_snapshot"]
+    estimates = bridged["estimates"]
+    assert isinstance(snapshot, dict)
+    assert isinstance(estimates, dict)
+    snapshot["screening_estimate"] = _screening_estimate()
+    estimates["screening_fv_bridge"] = _screening_fv_bridge()
+    bridged_hash = decision_packet_core_hash(_document(bridged))
+    assert bridged_hash != legacy_hash
+
+    changed = copy.deepcopy(bridged)
+    changed_estimates = changed["estimates"]
+    assert isinstance(changed_estimates, dict)
+    changed_bridge = changed_estimates["screening_fv_bridge"]
+    assert isinstance(changed_bridge, dict)
+    changed_bridge["primary_driver"] = "growth"
+    assert decision_packet_core_hash(_document(changed)) != bridged_hash
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("primary_driver", "pricing", "primary_driver"),
+        ("note", "", "at least 1 character"),
+        ("note", "   ", "match pattern"),
+        ("note", "first line\nsecond line\nthird line", "match pattern"),
+    ],
+)
+def test_screening_fv_bridge_rejects_invalid_contract_values(
+    field: str, value: object, message: str, tmp_path: Path
+) -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    estimates = raw["estimates"]
+    assert isinstance(snapshot, dict)
+    assert isinstance(estimates, dict)
+    snapshot["screening_estimate"] = _screening_estimate()
+    bridge = _screening_fv_bridge()
+    bridge[field] = value
+    estimates["screening_fv_bridge"] = bridge
+
+    with pytest.raises(ValueError, match=message):
+        _document(raw)
+
+    path = tmp_path / "records/03-thesis/2026/07/2026-07-03-2331-decision.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+    findings = validate_decision_packet_file(path)
+    assert any(
+        finding.severity == "error" and finding.location == "estimates.screening_fv_bridge"
+        for finding in findings
+    )
+
+
+def test_screening_fv_bridge_accepts_two_physical_lines() -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    estimates = raw["estimates"]
+    assert isinstance(snapshot, dict)
+    assert isinstance(estimates, dict)
+    snapshot["screening_estimate"] = _screening_estimate()
+    estimates["screening_fv_bridge"] = {
+        "primary_driver": "earnings_normalization",
+        "note": "Primary-source research normalizes earnings.\nThe second line states the key limitation.",
+    }
+
+    assert _document(raw).estimates.screening_fv_bridge is not None
+
+
+def test_screening_anchor_without_bridge_is_a_non_blocking_warning() -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    risks = raw["permanent_loss_risks"]
+    judgment = raw["judgment"]
+    assert isinstance(snapshot, dict)
+    assert isinstance(risks, list)
+    assert isinstance(judgment, dict)
+    snapshot["screening_estimate"] = _screening_estimate()
+    for risk in risks:
+        risk["assessment"] = "acceptable"
+        risk["evidence_status"] = "verified"
+    judgment["permanent_loss_conclusion"] = "acceptable"
+    judgment["sizing_action"] = "normal"
+    raw.pop("human_evidence_override", None)
+
+    result = _evaluate(raw)
+
+    assert result.errors == ()
+    assert result.decision_readiness == "ready"
+    assert result.warnings == ("screening fair-value anchor has no screening_fv_bridge",)
+
+
+@pytest.mark.parametrize("baseline", [None, _screening_estimate(fair_value_anchor_yen=None)])
+def test_screening_fv_bridge_requires_a_baseline_anchor(
+    baseline: dict[str, object] | None,
+) -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    estimates = raw["estimates"]
+    assert isinstance(snapshot, dict)
+    assert isinstance(estimates, dict)
+    snapshot["screening_estimate"] = baseline
+    estimates["screening_fv_bridge"] = _screening_fv_bridge()
+
+    result = _evaluate(raw)
+
+    assert any("screening_fv_bridge requires" in error for error in result.errors)
+
+
+def test_screening_estimate_sources_require_lineage_without_review_coverage() -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    screening_estimate = _screening_estimate()
+    screening_estimate["source_ids"] = ["missing-screening-source"]
+    snapshot["screening_estimate"] = screening_estimate
+
+    result = _evaluate(raw)
+
+    assert any("screening estimate references unknown sources" in error for error in result.errors)
+    assert not any("did not check load-bearing sources" in error for error in result.errors)
+
+
+def test_screening_estimate_requires_packet_as_of_and_local_data_source() -> None:
+    stale_raw = _raw()
+    stale_snapshot = stale_raw["input_snapshot"]
+    assert isinstance(stale_snapshot, dict)
+    stale_estimate = _screening_estimate()
+    stale_estimate["as_of"] = "2026-07-02"
+    stale_snapshot["screening_estimate"] = stale_estimate
+
+    stale_result = _evaluate(stale_raw)
+
+    assert any("screening_estimate.as_of must equal" in error for error in stale_result.errors)
+
+    primary_raw = _raw()
+    primary_snapshot = primary_raw["input_snapshot"]
+    assert isinstance(primary_snapshot, dict)
+    primary_estimate = _screening_estimate()
+    primary_estimate["source_ids"] = ["primary-results"]
+    primary_snapshot["screening_estimate"] = primary_estimate
+
+    primary_result = _evaluate(primary_raw)
+
+    assert any(
+        "screening_estimate requires a local_data source" in error
+        for error in primary_result.errors
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("expected_return_annual_ratio", -1.0001),
+        ("expected_return_annual_ratio", 10.0001),
+        ("fair_value_anchor_yen", 0.0001),
+        ("fair_value_anchor_yen", 1_000_000_001),
+    ],
+)
+def test_screening_estimate_rejects_out_of_bounds_values(field: str, value: object) -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    screening_estimate = _screening_estimate()
+    screening_estimate[field] = value
+    snapshot["screening_estimate"] = screening_estimate
+
+    with pytest.raises(ValueError, match=field):
+        _document(raw)
+
+
+def test_screening_fv_revision_uses_raw_decimal_values() -> None:
+    raw = _raw()
+    snapshot = raw["input_snapshot"]
+    estimates = raw["estimates"]
+    assert isinstance(snapshot, dict)
+    assert isinstance(estimates, dict)
+    snapshot["screening_estimate"] = _screening_estimate(fair_value_anchor_yen=1484.5)
+    estimates["screening_fv_bridge"] = _screening_fv_bridge()
+    estimates["current_fair_value_yen"] = 1481.9088
+
+    result = _evaluate(raw)
+
+    assert result.screening_fv_revision_pct == pytest.approx(Decimal("-0.1745503536544291"))
+    assert result_to_payload(result)["screening_fv_revision_pct"] == -0.1746
+
+
+def test_break_even_values_reproduce_required_return_and_are_monotonic() -> None:
+    document = _document()
+    result = evaluate_decision_packet(document)
+    break_even = result.five_year_base_break_even
+    assert break_even is not None
+    assert break_even.required_total_value_yen is not None
+    assert break_even.break_even_terminal_valuation_multiple is not None
+    assert break_even.break_even_annual_earnings_growth_pct is not None
+    scenario = next(
+        item
+        for item in document.estimates.scenarios
+        if item.horizon_years == 5 and item.name == "base"
+    )
+
+    with localcontext() as context:
+        context.prec = 50
+        one = Decimal(1)
+        hundred = Decimal(100)
+        terminal_shares = (
+            scenario.starting_share_count
+            * (one + Decimal(str(scenario.annual_share_count_change_pct)) / hundred) ** 5
+        )
+        base_terminal_earnings = (
+            scenario.starting_earnings_yen
+            * (one + Decimal(str(scenario.annual_earnings_growth_pct)) / hundred) ** 5
+        )
+        multiple_total = (
+            base_terminal_earnings
+            / terminal_shares
+            * break_even.break_even_terminal_valuation_multiple
+            + scenario.cumulative_dividend_per_share_yen
+        )
+        growth_terminal_earnings = (
+            scenario.starting_earnings_yen
+            * (one + break_even.break_even_annual_earnings_growth_pct / hundred) ** 5
+        )
+        growth_total = (
+            growth_terminal_earnings / terminal_shares * scenario.terminal_valuation_multiple
+            + scenario.cumulative_dividend_per_share_yen
+        )
+
+        assert multiple_total == pytest.approx(break_even.required_total_value_yen)
+        assert growth_total == pytest.approx(break_even.required_total_value_yen)
+        multiple_step = Decimal("0.0001")
+        assert (
+            base_terminal_earnings
+            / terminal_shares
+            * (break_even.break_even_terminal_valuation_multiple - multiple_step)
+            + scenario.cumulative_dividend_per_share_yen
+            < break_even.required_total_value_yen
+        )
+        assert (
+            base_terminal_earnings
+            / terminal_shares
+            * (break_even.break_even_terminal_valuation_multiple + multiple_step)
+            + scenario.cumulative_dividend_per_share_yen
+            > break_even.required_total_value_yen
+        )
+        growth_step = Decimal("0.0001")
+        below_growth_earnings = (
+            scenario.starting_earnings_yen
+            * (one + (break_even.break_even_annual_earnings_growth_pct - growth_step) / hundred)
+            ** 5
+        )
+        above_growth_earnings = (
+            scenario.starting_earnings_yen
+            * (one + (break_even.break_even_annual_earnings_growth_pct + growth_step) / hundred)
+            ** 5
+        )
+        assert (
+            below_growth_earnings / terminal_shares * scenario.terminal_valuation_multiple
+            + scenario.cumulative_dividend_per_share_yen
+            < break_even.required_total_value_yen
+        )
+        assert (
+            above_growth_earnings / terminal_shares * scenario.terminal_valuation_multiple
+            + scenario.cumulative_dividend_per_share_yen
+            > break_even.required_total_value_yen
+        )
+
+
+def test_break_even_handles_dividends_and_model_bounds() -> None:
+    dividend_raw = _raw()
+    _five_year_base_raw(dividend_raw)["cumulative_dividend_per_share_yen"] = 2000
+    dividend_result = _evaluate(dividend_raw)
+    dividend_break_even = dividend_result.five_year_base_break_even
+    assert dividend_break_even is not None
+    assert dividend_break_even.terminal_multiple_status == "dividends_alone_sufficient"
+    assert dividend_break_even.earnings_growth_status == "dividends_alone_sufficient"
+    assert dividend_break_even.break_even_terminal_valuation_multiple is None
+    assert dividend_break_even.break_even_annual_earnings_growth_pct is None
+    assert dividend_break_even.terminal_multiple_downside_buffer is None
+    assert dividend_break_even.earnings_growth_downside_buffer_pct_points is None
+
+    above_raw = _raw()
+    above_base = _five_year_base_raw(above_raw)
+    above_base["annual_earnings_growth_pct"] = -50
+    above_base["annual_share_count_change_pct"] = 20
+    above_base["terminal_valuation_multiple"] = 0.0001
+    above_break_even = _evaluate(above_raw).five_year_base_break_even
+    assert above_break_even is not None
+    assert above_break_even.terminal_multiple_status == "above_model_max"
+    assert above_break_even.earnings_growth_status == "above_model_max"
+
+    below_raw = _raw()
+    _five_year_base_raw(below_raw)["terminal_valuation_multiple"] = 100
+    below_break_even = _evaluate(below_raw).five_year_base_break_even
+    assert below_break_even is not None
+    assert below_break_even.earnings_growth_status == "below_model_min"
+
+
+def test_break_even_payload_rounding_handles_large_finite_values() -> None:
+    raw = _raw()
+    estimates = raw["estimates"]
+    assert isinstance(estimates, dict)
+    estimates["entry_price_basis_yen"] = 1_000_000_000
+    estimates["required_5y_base_cagr_pct"] = 100
+    base = _five_year_base_raw(raw)
+    base["starting_earnings_yen"] = 0.0001
+    base["starting_share_count"] = 10_000_000_000_000
+    base["annual_share_count_change_pct"] = 20
+
+    result = _evaluate(raw)
+    break_even = result.five_year_base_break_even
+    assert break_even is not None
+    assert break_even.terminal_multiple_status == "above_model_max"
+    payload = result_to_payload(result)["five_year_base_break_even"]
+    assert isinstance(payload, dict)
+    payload_multiple = payload["break_even_terminal_valuation_multiple"]
+    assert isinstance(payload_multiple, float)
+    assert payload_multiple > 6e27
+    assert (
+        _round_payload_decimal(Decimal("99999999999999999999999999999999999999999999999999.99995"))
+        == 1e50
+    )
+
+
+def test_observed_trailing_multiple_requires_one_valid_named_local_anchor() -> None:
+    missing_raw = _raw()
+    snapshot = missing_raw["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    facts = snapshot["facts"]
+    assert isinstance(facts, list)
+    trailing = next(item for item in facts if item["fact_id"] == "trailing-per")
+    trailing["fact_id"] = "unrelated-valuation-metric"
+    missing = _evaluate(missing_raw).five_year_base_break_even
+    assert missing is not None
+    assert missing.observed_trailing_multiple_status == "missing"
+    assert missing.observed_trailing_multiple is None
+
+    ambiguous_raw = _raw()
+    ambiguous_snapshot = ambiguous_raw["input_snapshot"]
+    assert isinstance(ambiguous_snapshot, dict)
+    ambiguous_facts = ambiguous_snapshot["facts"]
+    assert isinstance(ambiguous_facts, list)
+    duplicate = copy.deepcopy(
+        next(item for item in ambiguous_facts if item["fact_id"] == "trailing-per")
+    )
+    duplicate["fact_id"] = "trailing-per-screening"
+    ambiguous_facts.append(duplicate)
+    ambiguous = _evaluate(ambiguous_raw).five_year_base_break_even
+    assert ambiguous is not None
+    assert ambiguous.observed_trailing_multiple_status == "ambiguous"
+
+    invalid_raw = _raw()
+    invalid_snapshot = invalid_raw["input_snapshot"]
+    assert isinstance(invalid_snapshot, dict)
+    invalid_facts = invalid_snapshot["facts"]
+    assert isinstance(invalid_facts, list)
+    invalid_fact = next(item for item in invalid_facts if item["fact_id"] == "trailing-per")
+    invalid_fact["source_ids"] = ["primary-results"]
+    invalid = _evaluate(invalid_raw).five_year_base_break_even
+    assert invalid is not None
+    assert invalid.observed_trailing_multiple_status == "invalid"
+    assert invalid.observed_trailing_multiple_fact_id == "trailing-per"
+    assert invalid.observed_trailing_multiple is None
+
+    duplicate_source_raw = _raw()
+    duplicate_snapshot = duplicate_source_raw["input_snapshot"]
+    assert isinstance(duplicate_snapshot, dict)
+    duplicate_sources = duplicate_snapshot["sources"]
+    assert isinstance(duplicate_sources, list)
+    local_source = next(
+        item for item in duplicate_sources if item["source_id"] == "internal-screen"
+    )
+    duplicate_source = copy.deepcopy(local_source)
+    duplicate_source["source_tier"] = "primary"
+    duplicate_source["ref"] = "https://example.com/duplicate-source"
+    duplicate_source.pop("provider")
+    duplicate_source.pop("dataset")
+    duplicate_sources.append(duplicate_source)
+    duplicate_anchor = _evaluate(duplicate_source_raw).five_year_base_break_even
+    assert duplicate_anchor is not None
+    assert duplicate_anchor.observed_trailing_multiple_status == "invalid"
+    assert duplicate_anchor.observed_trailing_multiple is None
+
+    fcfe_raw = _raw()
+    _five_year_base_raw(fcfe_raw)["earnings_basis"] = "fcfe"
+    not_applicable = _evaluate(fcfe_raw).five_year_base_break_even
+    assert not_applicable is not None
+    assert not_applicable.observed_trailing_multiple_status == "not_applicable"
 
 
 def test_generated_schema_matches_tracked_contract() -> None:

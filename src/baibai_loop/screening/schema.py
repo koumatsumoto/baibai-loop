@@ -369,6 +369,7 @@ class ScreenedRunDocument:
     generated_by: str = "screening-cli-v1"
     data_sources: tuple[str, ...] = (
         "j-quants-light",
+        "jpx-public-earnings-calendar",
         "jpx-public-regulation",
     )
     provider_status_lines: tuple[str, ...] = ()

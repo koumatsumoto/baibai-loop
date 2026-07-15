@@ -57,6 +57,9 @@ selection:
     max_previous_candidates_in_recommended: null
     previous_overlap_warning_ratio: 0.6
 screening_playbooks:
+  # 金融4業種は規制資本・金利構造の影響により、事業会社向け generic evidence
+  # pattern の比較前提が成立しないため除外する。excluded_sectors は evidence
+  # annotation だけを止め、liquidity と E[r] を満たす候補の ranking は止めない。
   valuation-reversion:
     # 金融業の PER / PBR は規制資本・金利環境の構造要因を含み、事業会社と同じ
     # mean-reversion の前提で機械判定できないため、他 playbook と同様に除外する。

@@ -15,10 +15,11 @@ from baibai_loop.position.ledger import (
     PortfolioLedgerError,
     ReleaseEvent,
     ReservationSnapshot,
-    reconcile_portfolio,
+    replay_events_through,
+    reservation_snapshots,
 )
 
-type ResultStatus = Literal["open", "filled", "cancelled"]
+type ResultStatus = Literal["open", "filled", "cancelled", "expired"]
 
 
 class ResultRecordingError(ValueError):
@@ -71,6 +72,8 @@ def record_result(
             raise ResultRecordingError("approved_at must include a timezone")
         if approved_at > effective_now:
             raise ResultRecordingError("approved_at must not be in the future")
+    if status == "expired" and reservation_id is None:
+        raise ResultRecordingError("expired requires reservation_id")
 
     existing_by_id = {event.event_id: event for event in document.events}
     if ticker is not None and status in {"open", "filled"}:
@@ -89,33 +92,41 @@ def record_result(
             ):
                 raise ResultRecordingError("conflicting human report for existing fill event")
             return ResultRecordingResult(document=document, changed=False, event_ids=())
-    if status == "cancelled" and reservation_id is not None:
+    if status in {"cancelled", "expired"} and reservation_id is not None:
+        release_reason: Literal["cancelled", "expired"] = (
+            "cancelled" if status == "cancelled" else "expired"
+        )
         releases = [
             event
             for event in document.events
             if isinstance(event, ReleaseEvent) and event.reservation_id == reservation_id
         ]
         if releases:
-            if len(releases) != 1 or not _same_cancel_report(
-                releases[0], proposal_ref=proposal_ref, occurred_at=occurred_at
+            if len(releases) != 1 or not _same_release_report(
+                releases[0],
+                reason=release_reason,
+                proposal_ref=proposal_ref,
+                occurred_at=occurred_at,
             ):
                 raise ResultRecordingError("conflicting human report for released reservation")
             return ResultRecordingResult(document=document, changed=False, event_ids=())
 
-    snapshot = reconcile_portfolio(document)
-    holding = next((item for item in snapshot.holdings if item.ticker == ticker), None)
-    resolved_sector = sector if sector is not None else (holding.sector if holding else None)
+    state = replay_events_through(document.events, document.as_of)
+    holding_metadata = state.metadata.get(ticker) if ticker is not None else None
+    resolved_sector = (
+        sector if sector is not None else (holding_metadata[0] if holding_metadata else None)
+    )
     resolved_common_factors = (
-        common_factors if common_factors else (holding.common_factors if holding else ())
+        common_factors if common_factors else (holding_metadata[1] if holding_metadata else ())
     )
     reservation = (
         None
         if status == "open"
         else _select_reservation(
-            snapshot.active_reservations,
+            reservation_snapshots(state),
             reservation_id=reservation_id,
             ticker=ticker,
-            required=status == "cancelled",
+            required=status in {"cancelled", "expired"},
         )
     )
     additions: list[dict[str, object]] = []
@@ -213,16 +224,19 @@ def record_result(
             and proposal_ref != reservation.decision_reference
         ):
             raise ResultRecordingError(
-                "cancelled proposal_ref does not match the active reservation"
+                f"{status} proposal_ref does not match the active reservation"
             )
+        if status == "expired" and occurred_at < reservation.expires_at:
+            raise ResultRecordingError("expired occurred_at must be at or after expires_at")
         suffix = _event_suffix(proposal_ref, status, reservation.ticker, occurred_at)
+        prefix = "human-cancel" if status == "cancelled" else "human-expire"
         additions.append(
             {
-                "event_id": f"human-cancel-{suffix}",
+                "event_id": f"{prefix}-{suffix}",
                 "type": "release",
                 "occurred_at": occurred_at.isoformat(),
                 "reservation_id": reservation.reservation_id,
-                "reason": "cancelled",
+                "reason": status,
                 "decision_reference": proposal_ref,
             }
         )
@@ -246,7 +260,7 @@ def record_result(
     raw["as_of"] = max(document.as_of, occurred_at).isoformat()
     try:
         patched = PortfolioLedgerDocument.model_validate(raw)
-        reconcile_portfolio(patched)
+        replay_events_through(patched.events, patched.as_of)
     except (PortfolioLedgerError, ValueError) as error:
         raise ResultRecordingError(f"reported result does not reconcile: {error}") from error
     return ResultRecordingResult(
@@ -315,9 +329,15 @@ def _same_fill_report(
     )
 
 
-def _same_cancel_report(event: ReleaseEvent, *, proposal_ref: str, occurred_at: datetime) -> bool:
+def _same_release_report(
+    event: ReleaseEvent,
+    *,
+    reason: Literal["cancelled", "expired"],
+    proposal_ref: str,
+    occurred_at: datetime,
+) -> bool:
     return (
-        event.reason == "cancelled"
+        event.reason == reason
         and event.decision_reference == proposal_ref
         and event.occurred_at == occurred_at
     )

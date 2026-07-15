@@ -9,7 +9,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, DecimalException, InvalidOperation, localcontext
 from pathlib import Path
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
@@ -44,6 +44,27 @@ RiskAxis = Literal[
     "customer_concentration",
     "structural_decline",
     "governance_accounting",
+]
+TerminalMultipleStatus = Literal[
+    "within_model_bounds",
+    "below_model_min",
+    "above_model_max",
+    "dividends_alone_sufficient",
+    "calculation_unresolved",
+]
+EarningsGrowthStatus = Literal[
+    "within_model_bounds",
+    "below_model_min",
+    "above_model_max",
+    "dividends_alone_sufficient",
+    "calculation_unresolved",
+]
+ObservedTrailingMultipleStatus = Literal[
+    "resolved",
+    "missing",
+    "ambiguous",
+    "invalid",
+    "not_applicable",
 ]
 
 
@@ -181,6 +202,41 @@ class ObservedFact(BaseModel):
         return self
 
 
+class ScreeningEstimate(BaseModel):
+    model_config = _CONFIG
+
+    origin: Literal["estimate"]
+    model_version: Annotated[str, Field(min_length=1)]
+    as_of: date
+    expected_return_annual_ratio: Annotated[float, Field(ge=-1, le=10)]
+    expected_return_unit: Literal["annual_ratio"]
+    fair_value_anchor_yen: (
+        Annotated[
+            Decimal,
+            Field(gt=Decimal("0.0001"), le=Decimal("1000000000"), decimal_places=4),
+        ]
+        | None
+    )
+    fair_value_unit: Literal["JPY_per_share"]
+    assumptions: Annotated[str, Field(min_length=1)]
+    source_ids: Annotated[tuple[Annotated[str, Field(min_length=1)], ...], Field(min_length=1)]
+
+    @field_validator("as_of", mode="before")
+    @classmethod
+    def _parse_date(cls, value: object) -> date:
+        return _date(value)
+
+    @field_validator("fair_value_anchor_yen", mode="before")
+    @classmethod
+    def _parse_fair_value(cls, value: object) -> Decimal | None:
+        return None if value is None else _decimal(value)
+
+    @field_validator("source_ids", mode="before")
+    @classmethod
+    def _parse_sources(cls, value: object) -> object:
+        return _tuple(value)
+
+
 class InputSnapshot(BaseModel):
     model_config = _CONFIG
 
@@ -193,6 +249,7 @@ class InputSnapshot(BaseModel):
     as_of: date
     sources: tuple[Source, ...]
     facts: tuple[ObservedFact, ...]
+    screening_estimate: ScreeningEstimate | None = None
 
     @field_validator("as_of", mode="before")
     @classmethod
@@ -298,6 +355,30 @@ class ScenarioEstimate(BaseModel):
         return _decimal(value)
 
 
+class ScreeningFVBridge(BaseModel):
+    model_config = _CONFIG
+
+    primary_driver: Literal[
+        "earnings_normalization",
+        "growth",
+        "shares",
+        "multiple",
+        "dividend",
+        "required_return",
+        "other",
+    ]
+    note: Annotated[
+        str,
+        Field(
+            min_length=1,
+            pattern=(
+                r"^(?:[^\r\n]*\S[^\r\n]*(?:\r?\n[^\r\n]*)?|"
+                r"[^\r\n]*\r?\n[^\r\n]*\S[^\r\n]*)$"
+            ),
+        ),
+    ]
+
+
 class EstimatesNamespace(BaseModel):
     model_config = _CONFIG
 
@@ -319,6 +400,7 @@ class EstimatesNamespace(BaseModel):
     ]
     deep_discount_bps: Annotated[int, Field(ge=0, le=9_999)] | None
     scenarios: tuple[ScenarioEstimate, ...]
+    screening_fv_bridge: ScreeningFVBridge | None = None
 
     @field_validator("scenarios", "entry_price_source_ids", "fair_value_source_ids", mode="before")
     @classmethod
@@ -520,6 +602,25 @@ class ScenarioResult:
 
 
 @dataclass(frozen=True, slots=True)
+class FiveYearBaseBreakEvenResult:
+    required_total_value_yen: Decimal | None
+    required_total_return_cagr_pct: Decimal
+    base_terminal_valuation_multiple: Decimal
+    break_even_terminal_valuation_multiple: Decimal | None
+    terminal_multiple_downside_buffer: Decimal | None
+    terminal_multiple_status: TerminalMultipleStatus
+    base_annual_earnings_growth_pct: Decimal
+    break_even_annual_earnings_growth_pct: Decimal | None
+    earnings_growth_downside_buffer_pct_points: Decimal | None
+    earnings_growth_status: EarningsGrowthStatus
+    observed_trailing_multiple_status: ObservedTrailingMultipleStatus
+    observed_trailing_multiple_fact_id: str | None
+    observed_trailing_multiple: Decimal | None
+    base_terminal_multiple_minus_observed: Decimal | None
+    base_terminal_multiple_premium_pct: Decimal | None
+
+
+@dataclass(frozen=True, slots=True)
 class DecisionPacketResult:
     packet_status: Literal["incomplete", "review_required", "ready", "ready_with_warnings"]
     decision_readiness: Literal["not_ready", "ready"]
@@ -527,6 +628,8 @@ class DecisionPacketResult:
     errors: tuple[str, ...]
     warnings: tuple[str, ...]
     scenarios: tuple[ScenarioResult, ...]
+    five_year_base_break_even: FiveYearBaseBreakEvenResult | None = None
+    screening_fv_revision_pct: Decimal | None = None
 
 
 def load_decision_packet(path: Path) -> DecisionPacketDocument:
@@ -615,6 +718,7 @@ def evaluate_decision_packet(
             errors.append(f"source {source.source_id} was retrieved after the AI proposal")
     _check_lineage(document, source_ids, errors)
     _check_snapshot_contract(document, errors)
+    _check_screening_fv_bridge(document, source_tiers, errors, warnings)
     required_review_source_ids = set(document.estimates.entry_price_source_ids)
     required_review_source_ids.update(document.estimates.fair_value_source_ids)
     for fact in document.input_snapshot.facts:
@@ -738,6 +842,14 @@ def evaluate_decision_packet(
         )
     else:
         status = "ready_with_warnings" if warnings else "ready"
+    five_year_base = next(
+        (
+            item
+            for item in document.estimates.scenarios
+            if item.horizon_years == 5 and item.name == "base"
+        ),
+        None,
+    )
     return DecisionPacketResult(
         packet_status=status,
         decision_readiness="ready" if status in {"ready", "ready_with_warnings"} else "not_ready",
@@ -750,11 +862,25 @@ def evaluate_decision_packet(
                 key=lambda item: (item.horizon_years, _SCENARIO_ORDER[item.name]),
             )
         ),
+        five_year_base_break_even=(
+            _calculate_five_year_base_break_even(document, five_year_base)
+            if five_year_base is not None
+            else None
+        ),
+        screening_fv_revision_pct=_calculate_screening_fv_revision_pct(document),
     )
 
 
 def decision_packet_core_hash(document: DecisionPacketDocument) -> str:
     payload = document.model_dump(mode="json", exclude={"human_evidence_override"})
+    if document.input_snapshot.screening_estimate is None:
+        input_snapshot = payload.get("input_snapshot")
+        if isinstance(input_snapshot, dict):
+            input_snapshot.pop("screening_estimate", None)
+    if document.estimates.screening_fv_bridge is None:
+        estimates = payload.get("estimates")
+        if isinstance(estimates, dict):
+            estimates.pop("screening_fv_bridge", None)
     try:
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     except (OverflowError, ValueError) as error:
@@ -786,7 +912,263 @@ def result_to_payload(result: DecisionPacketResult) -> dict[str, object]:
             }
             for item in result.scenarios
         ],
+        "five_year_base_break_even": _five_year_base_break_even_to_payload(
+            result.five_year_base_break_even
+        ),
+        "screening_fv_revision_pct": _round_payload_decimal(result.screening_fv_revision_pct),
     }
+
+
+def _calculate_screening_fv_revision_pct(
+    document: DecisionPacketDocument,
+) -> Decimal | None:
+    screening_estimate = document.input_snapshot.screening_estimate
+    if screening_estimate is None or screening_estimate.fair_value_anchor_yen is None:
+        return None
+    try:
+        with localcontext() as context:
+            context.prec = 50
+            revision_pct = (
+                document.estimates.current_fair_value_yen / screening_estimate.fair_value_anchor_yen
+                - Decimal(1)
+            ) * Decimal(100)
+    except (DecimalException, ArithmeticError, OverflowError, ValueError):
+        return None
+    return revision_pct if revision_pct.is_finite() else None
+
+
+def _calculate_five_year_base_break_even(
+    document: DecisionPacketDocument,
+    scenario: ScenarioEstimate,
+) -> FiveYearBaseBreakEvenResult:
+    required_return = Decimal(str(document.estimates.required_5y_base_cagr_pct))
+    base_multiple = scenario.terminal_valuation_multiple
+    base_growth = Decimal(str(scenario.annual_earnings_growth_pct))
+    (
+        observed_status,
+        observed_fact_id,
+        observed_multiple,
+        base_minus_observed,
+        base_premium_pct,
+    ) = _observed_trailing_multiple(document, scenario)
+
+    required_total_value: Decimal | None = None
+    break_even_multiple: Decimal | None = None
+    multiple_buffer: Decimal | None = None
+    multiple_status: TerminalMultipleStatus = "calculation_unresolved"
+    break_even_growth: Decimal | None = None
+    growth_buffer: Decimal | None = None
+    growth_status: EarningsGrowthStatus = "calculation_unresolved"
+    try:
+        with localcontext() as context:
+            context.prec = 50
+            one = Decimal(1)
+            hundred = Decimal(100)
+            horizon = Decimal(scenario.horizon_years)
+            required_total_value = (
+                document.estimates.entry_price_basis_yen
+                * (one + required_return / hundred) ** scenario.horizon_years
+            )
+            if not required_total_value.is_finite():
+                raise ArithmeticError("required total value must be finite")
+
+            dividends = scenario.cumulative_dividend_per_share_yen
+            if dividends >= required_total_value:
+                multiple_status = "dividends_alone_sufficient"
+                growth_status = "dividends_alone_sufficient"
+            else:
+                terminal_shares = (
+                    scenario.starting_share_count
+                    * (one + Decimal(str(scenario.annual_share_count_change_pct)) / hundred)
+                    ** scenario.horizon_years
+                )
+                terminal_earnings = (
+                    scenario.starting_earnings_yen
+                    * (one + base_growth / hundred) ** scenario.horizon_years
+                )
+                break_even_multiple = (
+                    (required_total_value - dividends) * terminal_shares / terminal_earnings
+                )
+                if not break_even_multiple.is_finite():
+                    raise ArithmeticError("break-even terminal multiple must be finite")
+                multiple_buffer = base_multiple - break_even_multiple
+                multiple_status = _terminal_multiple_status(break_even_multiple)
+
+                earnings_growth_ratio = (
+                    (required_total_value - dividends)
+                    * terminal_shares
+                    / (scenario.starting_earnings_yen * base_multiple)
+                )
+                if not earnings_growth_ratio.is_finite() or earnings_growth_ratio <= 0:
+                    raise ArithmeticError("break-even earnings growth ratio must be positive")
+                break_even_growth = ((earnings_growth_ratio.ln() / horizon).exp() - one) * hundred
+                if not break_even_growth.is_finite():
+                    raise ArithmeticError("break-even earnings growth must be finite")
+                growth_buffer = base_growth - break_even_growth
+                growth_status = _earnings_growth_status(break_even_growth)
+    except (DecimalException, ArithmeticError, OverflowError, ValueError):
+        required_total_value = None
+        break_even_multiple = None
+        multiple_buffer = None
+        multiple_status = "calculation_unresolved"
+        break_even_growth = None
+        growth_buffer = None
+        growth_status = "calculation_unresolved"
+
+    return FiveYearBaseBreakEvenResult(
+        required_total_value_yen=required_total_value,
+        required_total_return_cagr_pct=required_return,
+        base_terminal_valuation_multiple=base_multiple,
+        break_even_terminal_valuation_multiple=break_even_multiple,
+        terminal_multiple_downside_buffer=multiple_buffer,
+        terminal_multiple_status=multiple_status,
+        base_annual_earnings_growth_pct=base_growth,
+        break_even_annual_earnings_growth_pct=break_even_growth,
+        earnings_growth_downside_buffer_pct_points=growth_buffer,
+        earnings_growth_status=growth_status,
+        observed_trailing_multiple_status=observed_status,
+        observed_trailing_multiple_fact_id=observed_fact_id,
+        observed_trailing_multiple=observed_multiple,
+        base_terminal_multiple_minus_observed=base_minus_observed,
+        base_terminal_multiple_premium_pct=base_premium_pct,
+    )
+
+
+def _terminal_multiple_status(value: Decimal) -> TerminalMultipleStatus:
+    if value <= 0:
+        return "below_model_min"
+    if value > 100:
+        return "above_model_max"
+    return "within_model_bounds"
+
+
+def _earnings_growth_status(value: Decimal) -> EarningsGrowthStatus:
+    if value < -50:
+        return "below_model_min"
+    if value > 50:
+        return "above_model_max"
+    return "within_model_bounds"
+
+
+def _observed_trailing_multiple(
+    document: DecisionPacketDocument,
+    scenario: ScenarioEstimate,
+) -> tuple[
+    ObservedTrailingMultipleStatus,
+    str | None,
+    Decimal | None,
+    Decimal | None,
+    Decimal | None,
+]:
+    if scenario.earnings_basis != "net_income_attributable_to_owners":
+        return "not_applicable", None, None, None, None
+
+    candidates = [
+        fact
+        for fact in document.input_snapshot.facts
+        if fact.fact_id == "trailing-per" or fact.fact_id.startswith("trailing-per-")
+    ]
+    if not candidates:
+        return "missing", None, None, None, None
+    if len(candidates) > 1:
+        return "ambiguous", None, None, None, None
+
+    fact = candidates[0]
+    try:
+        value = _observed_fact_decimal(fact.value)
+    except (InvalidOperation, TypeError, ValueError):
+        value = None
+    resolved_sources: list[Source] = []
+    for source_id in fact.source_ids:
+        matches = [
+            source for source in document.input_snapshot.sources if source.source_id == source_id
+        ]
+        if len(matches) != 1:
+            return "invalid", fact.fact_id, None, None, None
+        resolved_sources.append(matches[0])
+    if (
+        fact.fact_kind != "valuation_metric"
+        or fact.unit != "ratio"
+        or fact.as_of != document.input_snapshot.as_of
+        or value is None
+        or value <= 0
+        or not any(source.source_tier == "local_data" for source in resolved_sources)
+    ):
+        return "invalid", fact.fact_id, None, None, None
+
+    base_multiple = scenario.terminal_valuation_multiple
+    return (
+        "resolved",
+        fact.fact_id,
+        value,
+        base_multiple - value,
+        (base_multiple / value - Decimal(1)) * Decimal(100),
+    )
+
+
+def _observed_fact_decimal(value: object) -> Decimal:
+    if isinstance(value, bool) or not isinstance(value, int | float | Decimal):
+        raise TypeError("observed multiple must be numeric")
+    parsed = Decimal(str(value))
+    if not parsed.is_finite():
+        raise ValueError("observed multiple must be finite")
+    return parsed
+
+
+def _five_year_base_break_even_to_payload(
+    result: FiveYearBaseBreakEvenResult | None,
+) -> dict[str, object] | None:
+    if result is None:
+        return None
+    return {
+        "required_total_value_yen": _round_payload_decimal(result.required_total_value_yen),
+        "required_total_return_cagr_pct": _round_payload_decimal(
+            result.required_total_return_cagr_pct
+        ),
+        "base_terminal_valuation_multiple": _round_payload_decimal(
+            result.base_terminal_valuation_multiple
+        ),
+        "break_even_terminal_valuation_multiple": _round_payload_decimal(
+            result.break_even_terminal_valuation_multiple
+        ),
+        "terminal_multiple_downside_buffer": _round_payload_decimal(
+            result.terminal_multiple_downside_buffer
+        ),
+        "terminal_multiple_status": result.terminal_multiple_status,
+        "base_annual_earnings_growth_pct": _round_payload_decimal(
+            result.base_annual_earnings_growth_pct
+        ),
+        "break_even_annual_earnings_growth_pct": _round_payload_decimal(
+            result.break_even_annual_earnings_growth_pct
+        ),
+        "earnings_growth_downside_buffer_pct_points": _round_payload_decimal(
+            result.earnings_growth_downside_buffer_pct_points
+        ),
+        "earnings_growth_status": result.earnings_growth_status,
+        "observed_trailing_multiple_status": result.observed_trailing_multiple_status,
+        "observed_trailing_multiple_fact_id": result.observed_trailing_multiple_fact_id,
+        "observed_trailing_multiple": _round_payload_decimal(result.observed_trailing_multiple),
+        "base_terminal_multiple_minus_observed": _round_payload_decimal(
+            result.base_terminal_multiple_minus_observed
+        ),
+        "base_terminal_multiple_premium_pct": _round_payload_decimal(
+            result.base_terminal_multiple_premium_pct
+        ),
+    }
+
+
+def _round_payload_decimal(value: Decimal | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        with localcontext() as context:
+            integer_digits = max(value.adjusted() + 1, 1)
+            context.prec = max(50, integer_digits + 5)
+            rounded = value.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+            payload_value = float(rounded)
+    except (DecimalException, OverflowError, ValueError):
+        return None
+    return payload_value if math.isfinite(payload_value) else None
 
 
 def _recalculate_scenario(scenario: ScenarioEstimate, *, entry_price: Decimal) -> ScenarioResult:
@@ -936,6 +1318,32 @@ def _check_snapshot_contract(document: DecisionPacketDocument, errors: list[str]
             errors.append(f"valuation fact {fact.fact_id} must be numeric")
 
 
+def _check_screening_fv_bridge(
+    document: DecisionPacketDocument,
+    source_tiers: Mapping[str, str],
+    errors: list[str],
+    warnings: list[str],
+) -> None:
+    screening_estimate = document.input_snapshot.screening_estimate
+    bridge = document.estimates.screening_fv_bridge
+    if screening_estimate is not None:
+        if screening_estimate.as_of != document.input_snapshot.as_of:
+            errors.append("input_snapshot.screening_estimate.as_of must equal packet as_of")
+        if not any(
+            source_tiers.get(source_id) == "local_data"
+            for source_id in screening_estimate.source_ids
+        ):
+            errors.append("input_snapshot.screening_estimate requires a local_data source")
+    anchor = None if screening_estimate is None else screening_estimate.fair_value_anchor_yen
+    if bridge is not None and anchor is None:
+        errors.append(
+            "estimates.screening_fv_bridge requires "
+            "input_snapshot.screening_estimate.fair_value_anchor_yen"
+        )
+    elif anchor is not None and bridge is None:
+        warnings.append("screening fair-value anchor has no screening_fv_bridge")
+
+
 def _check_scenario_fact_inputs(document: DecisionPacketDocument, errors: list[str]) -> None:
     facts = {fact.fact_id: fact for fact in document.input_snapshot.facts}
     if len(facts) != len(document.input_snapshot.facts):
@@ -1009,6 +1417,14 @@ def _check_lineage(
             document.estimates.fair_value_source_ids,
         )
     )
+    if document.input_snapshot.screening_estimate is not None:
+        rows.append(
+            (
+                "screening estimate",
+                document.input_snapshot.screening_estimate.as_of,
+                document.input_snapshot.screening_estimate.source_ids,
+            )
+        )
     rows.extend(
         (f"risk {item.axis}", item.as_of, item.source_ids) for item in document.permanent_loss_risks
     )

@@ -3,7 +3,7 @@ title: "Architecture"
 summary: "Baibai-Loop の構造の正本：3 層インフラ（データ / 決定論的分析 / 判断）と単一ループ、repository map、CLI/SQLite の安定契約。"
 doc_type: architecture
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-13
 ---
 
 # Architecture — 構造・repository map・安定契約
@@ -31,7 +31,7 @@ brokerとrepositoryの間に自動integrationはない。人間が確認した�
 
 | 層 | 実体 | 性質 |
 | --- | --- | --- |
-| L1 データ層 | `data/screening/market.sqlite`（J-Quants 価格・財務 / EDINET metrics / JPX 規制） | 全上場銘柄の再現可能な事実。coverage は fail-fast で検証 |
+| L1 データ層 | `data/screening/market.sqlite`（J-Quants 価格・財務 / EDINET metrics / JPX 決算日程・規制） | 全上場銘柄の再現可能な事実。coverage は fail-fast で検証 |
 | L2 分析層 | screen（valuation ranking）・selection lens・軸別スコア・E[r] | 決定論的な機械処理。出力をobserved / derived / estimateに分類 |
 | L3 判断層 | `records/`（macro context / thesis / position） | 人間 + AI 下書きの解釈と判断。見積り（RR・期待利回り）と採否を決める |
 
@@ -145,7 +145,7 @@ Automation は人間の投資判断を置き換えず、fact snapshot 生成・s
 | `baibai-loop-validation` | `validation/` | records と schema の整合を検証 |
 | `baibai-loop-position outcome` | `position/` | ledger TWRをJPX TOPIX配当込み公式期間returnと比較 |
 | `baibai-loop-position ledger` | `position/` | repo内portfolioのcash、reservation、保有、income、cost、taxを再計算 |
-| `baibai-loop-position record-result` | `position/` | 人間のopen/filled/cancelled報告からvalidated ledger draftを生成 |
+| `baibai-loop-position record-result` | `position/` | 人間のopen/filled/cancelled/expired報告からvalidated ledger draftを生成 |
 | `baibai-loop-position holding-review-build` | CLI composition | ready packet/reviewとledgerからholding review draftを生成 |
 | `baibai-loop-position holding-review --root --input` | CLI composition | source hashとsource再構築scalarを照合し、thesis health・税引後代替・`hold / add / reduce / exit`を再計算 |
 | `baibai-loop-decision <packet>` | `thesis/` | decision packetのscenario、証拠、独立reviewをread-only再計算 |
@@ -172,7 +172,7 @@ AI / スクリプトが利用する安定化対象は次の5面。Python内部AP
 - **契約 2：SQLite schema**（`data/screening/market.sqlite`） — 対象は全上場銘柄、`PRAGMA user_version` で版管理、破壊的変更は version bump + rebuild（migration しない）。**AI は読み取り専用で SQL を直接発行してよく、書き込みは CLI（bootstrap / extract / run）経由に限る**。主要テーブルは `jquants_daily_bars` / `jquants_fin_summaries` / `jquants_master_snapshots` / `edinet_metrics` / `jpx_regulation_flags`、定義の正本は [`reference/screening-runtime.md`](./reference/screening-runtime.md)。
 - **契約 3：JSON schemaとcanonical path** — recordsのshape、required、enumと保存先。
 - **契約 4：docs anchor** — doctrineの語彙/fact境界、decision-cycleの主要trigger path。
-- **契約 5：skill inventory** — `.agents/skills`の4 canonical skillと`.claude` symlink parity。
+- **契約 5：skill inventory** — `.agents/skills`の3 canonical skillと`.claude` symlink parity。
 
 AI の利用モデル：L1/L2 は SQL 直接発行と CLI 出力で自由に読み、observedはsource、derivedはformula、estimateはmodel versionとassumptionへ遡れる形で書く（AP-01）。L3 は下書きまで（最終採用判定は人間）。スコアとestimateは売買判定ではない。
 

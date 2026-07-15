@@ -309,6 +309,17 @@
           },
           "title": "Scenarios",
           "type": "array"
+        },
+        "screening_fv_bridge": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScreeningFVBridge"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -454,6 +465,17 @@
           },
           "title": "Facts",
           "type": "array"
+        },
+        "screening_estimate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScreeningEstimate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -912,6 +934,116 @@
         "source_ids"
       ],
       "title": "ScenarioEstimate",
+      "type": "object"
+    },
+    "ScreeningEstimate": {
+      "additionalProperties": false,
+      "properties": {
+        "origin": {
+          "const": "estimate",
+          "title": "Origin",
+          "type": "string"
+        },
+        "model_version": {
+          "minLength": 1,
+          "title": "Model Version",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "expected_return_annual_ratio": {
+          "maximum": 10,
+          "minimum": -1,
+          "title": "Expected Return Annual Ratio",
+          "type": "number"
+        },
+        "expected_return_unit": {
+          "const": "annual_ratio",
+          "title": "Expected Return Unit",
+          "type": "string"
+        },
+        "fair_value_anchor_yen": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0001,
+              "maximum": 1000000000.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,4}0*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fair Value Anchor Yen"
+        },
+        "fair_value_unit": {
+          "const": "JPY_per_share",
+          "title": "Fair Value Unit",
+          "type": "string"
+        },
+        "assumptions": {
+          "minLength": 1,
+          "title": "Assumptions",
+          "type": "string"
+        },
+        "source_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Source Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "origin",
+        "model_version",
+        "as_of",
+        "expected_return_annual_ratio",
+        "expected_return_unit",
+        "fair_value_anchor_yen",
+        "fair_value_unit",
+        "assumptions",
+        "source_ids"
+      ],
+      "title": "ScreeningEstimate",
+      "type": "object"
+    },
+    "ScreeningFVBridge": {
+      "additionalProperties": false,
+      "properties": {
+        "primary_driver": {
+          "enum": [
+            "earnings_normalization",
+            "growth",
+            "shares",
+            "multiple",
+            "dividend",
+            "required_return",
+            "other"
+          ],
+          "title": "Primary Driver",
+          "type": "string"
+        },
+        "note": {
+          "minLength": 1,
+          "pattern": "^(?:[^\\r\\n]*\\S[^\\r\\n]*(?:\\r?\\n[^\\r\\n]*)?|[^\\r\\n]*\\r?\\n[^\\r\\n]*\\S[^\\r\\n]*)$",
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "primary_driver",
+        "note"
+      ],
+      "title": "ScreeningFVBridge",
       "type": "object"
     },
     "Source": {

@@ -94,6 +94,7 @@ class ScreeningRenderTests(unittest.TestCase):
         self.assertIn("approximated", rendered)
         self.assertIn("freshness_warnings:", rendered)
         self.assertIn("ttm_quality_counts:", rendered)
+        self.assertIn('- "jpx-public-earnings-calendar"', rendered)
         self.assertIn('- "jpx-public-regulation"', rendered)
 
     def test_render_screened_yaml_matches_canonical_structure(self) -> None:

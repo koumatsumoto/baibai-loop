@@ -1,4 +1,4 @@
-"""J-Quants fundamentals ingest: master snapshot, fin summaries, earnings calendar."""
+"""J-Quants fundamentals ingest: master snapshot and financial summaries."""
 
 from __future__ import annotations
 
@@ -114,89 +114,6 @@ def store_jquants_master(db_path: Path, records: Iterable[Mapping[str, Any]]) ->
         return persisted_count
     finally:
         conn.close()
-
-
-def store_jquants_earnings_calendar(
-    db_path: Path,
-    records: Iterable[Mapping[str, Any]],
-    *,
-    requested_start: date | None = None,
-    requested_end: date | None = None,
-) -> int:
-    conn = open_connection(db_path)
-    try:
-        records_list = list(records)
-        normalized = _earnings_calendar_rows_with_quality(records_list)
-        rows = normalized.rows
-        conn.execute("DELETE FROM jquants_earnings_calendar")
-        delete_source_coverage(conn, "jquants_earnings_calendar")
-        if rows:
-            conn.executemany(
-                "INSERT OR REPLACE INTO jquants_earnings_calendar("
-                "announcement_date, ticker"
-                ") VALUES (?, ?)",
-                rows,
-            )
-        persisted_count = table_row_count(conn, "jquants_earnings_calendar")
-        dates = sorted({row[0] for row in rows})
-        coverage_start = (
-            requested_start.isoformat() if requested_start else dates[0] if dates else None
-        )
-        coverage_end = requested_end.isoformat() if requested_end else dates[-1] if dates else None
-        params = {
-            key: value.isoformat()
-            for key, value in (("start_dt", requested_start), ("end_dt", requested_end))
-            if value is not None
-        }
-        record_source_coverage(
-            conn,
-            source="jquants_earnings_calendar",
-            operation="get_eq_earnings_cal",
-            coverage_key="whole-list",
-            coverage_start=coverage_start,
-            coverage_end=coverage_end,
-            requested_start=requested_start.isoformat() if requested_start else None,
-            requested_end=requested_end.isoformat() if requested_end else None,
-            params=params,
-            record_count=persisted_count,
-            raw_record_count=len(records_list),
-            skipped_record_count=normalized.skipped_count,
-            rejected_record_count=normalized.rejected_count,
-            excluded_record_count=normalized.excluded_count,
-            status=normalized.status,
-            error=normalized.error,
-        )
-        conn.commit()
-        return persisted_count
-    finally:
-        conn.close()
-
-
-def _earnings_calendar_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedRows:
-    rows: list[tuple[Any, ...]] = []
-    rejected_count = 0
-    excluded_count = 0
-    for record in records:
-        ticker, code_status = code_quality(first(record, "Code", "code"))
-        if code_status == "rejected":
-            rejected_count += 1
-            continue
-        if code_status == "excluded":
-            excluded_count += 1
-            continue
-        announcement_date = date_iso(
-            first(record, "Date", "date", "AnnouncementDate", "announcement_date")
-        )
-        if ticker is None or announcement_date is None:
-            rejected_count += 1
-            continue
-        rows.append(
-            (
-                announcement_date,
-                ticker,
-            )
-        )
-    return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
 
 
 def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedRows:

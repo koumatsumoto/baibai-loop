@@ -3,7 +3,7 @@ title: "Continuous decision cycle runbook"
 summary: "前営業日終値の候補・指値提案、人間報告後のledger、保有review、年次評価をtrigger別に進める唯一のe2e入口。"
 doc_type: operation
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-15
 related_docs:
   - "../doctrine.md"
   - "../portfolio-management.md"
@@ -15,18 +15,18 @@ related_docs:
 
 Baibai-Loopの日常運用は「最もお買い得な日本株を見つけ、人間が発注判断できる状態にする」ことを目的とする。AIは観測、候補抽出、一次情報確認、5年評価、独立反証、最大許容価格、指値・数量、保有見直しを担当する。人間だけが`approve / defer / reject`とbroker操作を行う。
 
-`opportunity`では一次リサーチの前に人間レビューgateを置く。audit poolから8〜10候補のshortlistレポートを提示し、人間が深掘り対象を選んでから、選択銘柄だけを個別リサーチする（OP3→OP4）。1銘柄へ先に決め打ちせず、比較可能な候補群を先に人間へ渡す。
+`opportunity`では一次リサーチの前に人間レビューgateを置く。audit poolから8〜10候補のhuman-review shortlist reportを提示し、人間がprimary-research setを選んでから、選択銘柄だけを個別リサーチする（OP3→OP4）。1銘柄へ先に決め打ちせず、比較可能な候補群を先に人間へ渡す。人間が複数銘柄を選んだ場合はticker別laneでresearchを並行できるが、資本予約は最新canonical ledgerを使って1件ずつ直列に進める。
 
 価格判断にはJPX基盤の最新完全営業日のraw/unadjusted closeを使う。寄り前のrealtime quoteと板は必須入力ではない。AIは約定可能性や当日価格方向を予測しない。人間からbroker結果が報告されるまで注文状態を推定せず、ledgerを更新しない。
 
-候補比較順は、(1)永久的資本毀損リスク、(2)5年期待総合returnとFV乖離、(3)repository portfolioへの追加価値、(4)購入可能性で固定する。月40万円、通常20〜30万円、dry powder、集中warningは人間判断用の目安であり、投資価値順位を変えない。保有・予約銘柄もhard除外せず、買増し・既存注文との関係をannotationする。
+候補比較順は、(1)永久的資本毀損リスク、(2)5年期待総合returnとFV乖離、(3)repository portfolioへの追加価値、(4)購入可能性で固定する。追加資金と通常注文額のplanning baselineは[`portfolio-management`](../portfolio-management.md#capital-guidance)を正本とする。dry powderと集中warningは人間判断用の目安であり、投資価値順位を変えない。保有・予約銘柄もhard除外せず、買増し・既存注文との関係をannotationする。
 
 ## Trigger table
 
 | trigger | 開始条件 | 必須成果物 | 始めないこと |
 | --- | --- | --- | --- |
-| `opportunity` | 割安候補を探す、週次確認、指値提案 | operation Issue、8〜10候補shortlist reportと人間選択、選択銘柄の一次リサーチ、必要ならpacket/review、proposal | 年次calibration、全保有review |
-| `pending-result` | 人間からopen/filled/cancelled報告 | validated ledger draft/差分 | broker状態の推定、screening |
+| `opportunity` | 割安候補を探す、週次確認、指値提案 | operation Issue、8〜10候補human-review shortlist reportとprimary-research setの人間選択、選択銘柄の一次リサーチ、必要ならpacket/review、proposal | 年次calibration、全保有review |
+| `pending-result` | 人間からopen/filled/cancelled/expired報告 | validated ledger draft/差分 | broker状態の推定、screening |
 | `monthly-contribution` | 人間が入金を確定 | contribution eventとsnapshot | 購入の強制 |
 | `earnings-material-event` | 決算、修正、資本政策等 | 対象tickerのpacket/holding review delta | 全portfolio再調査 |
 | `annual-outcome` | 年次評価日 | portfolio outcomeとTOPIX比較 | 短期成績によるpolicy変更 |
@@ -39,11 +39,12 @@ Baibai-Loopの日常運用は「最もお買い得な日本株を見つけ、人
 ## Resume checkpoint
 
 1. `git status --short --branch`でbranchとtracked差分を確認する。dirtyなら所有者と目的を理解するまでrecordを更新しない。
-2. triggerを1件選び、対応するoperation Issueへ同じsessionのcheckpointを集約する。
-3. `UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger`でcanonical holdings、active reservations、cash、warningsを読む。warningはannotationでありrankingを変更しない。
-4. このtriggerで使うpublic commandの`--help`とrequired inputを確認する。
+2. `UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger`でcanonical holdings、active reservations、cash、warningsを読む。warningはannotationでありrankingを変更しない。`event_annotations`のmigration eventはcanonical stateの初期化記録で、人間報告後のbroker resultではないため、当月の新規注文・約定件数へ数えない。
+3. 期限、注文、次eventを持つopenなdated trade/task Issueを一覧し、[`task-runbook.md`のOpen dated Issue lifecycle](./task-runbook.md#open-issue-lifecycle)に従ってcurrent question、expected destination、close conditionをcanonical recordsとledgerへ照合する。`living`には次のdated triggerとopenのまま残す理由をコメントする。`current-question-invalid`はcurrent canonical stateまたは判断根拠と理由をコメントしてcloseし、該当canonical recordが存在する場合はpath/hashも示す。別triggerが必要な部分は既存または新しいIssueへ移管する。
+4. triggerを1件選び、対応するoperation Issueへ同じsessionのcheckpointを集約する。
+5. このtriggerで使うpublic commandの`--help`とrequired inputを確認する。
 
-全trigger共通のstop条件はdirty worktreeの所有不明、schema/public CLI不明、入力同士の矛盾である。market/EDINET/JPX coverageとmacro freshnessは`opportunity`、価格を再計算するholding/outcome等、そのdataを実際に使うpathだけで確認する。`pending-result`は人間報告、proposal reference、ledger source hash/reconciliationだけで完了でき、market cacheやmacroが不足していても止めない。stop時はcommand、error、判断への影響、必要な入力をIssueへ残す。
+全trigger共通のstop条件はdirty worktreeの所有不明、schema/public CLI不明、入力同士の矛盾である。Issue、canonical record、ledgerの矛盾も同じstop条件として扱う。market/EDINET/JPX coverageとmacro freshnessは`opportunity`、価格を再計算するholding/outcome等、そのdataを実際に使うpathだけで確認する。`pending-result`は人間報告、proposal reference、ledger source hash/reconciliationだけで完了でき、market cacheやmacroが不足していても止めない。人間のbroker結果報告がない限り、期日経過や他入力の欠落から`filled / cancelled / expired`を推定せず、records、ledger、Issueを終端状態へ進めない。stop時はcommand、error、判断への影響、必要な入力をIssueへ残す。
 
 `UV_CACHE_DIR=/tmp/uv-cache`はworkspace外のread-only cacheを避け、同じrepository operationを再現するための標準prefixである。
 
@@ -77,43 +78,62 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity prepare --asof YYYY-MM
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .cache/opportunity/YYYY-MM-DD
 ```
 
-確認するものは`audit_pool`最大20件、production `recommendations`、holding/reservation annotation、workspace hash、`next_command`。candidate/audit poolは探索用で、buy候補やcanonical judgmentではない。
+確認するものは`audit_pool`最大20件、production `recommendations`、holding/reservation annotation、workspace hash、`next_command`。`recommendations`はrulesの通常表示capを適用した機械出力で、OP3のhuman-review shortlistではない。candidate/audit poolは探索用で、buy候補やcanonical judgmentではない。
+
+### OP2.5 Promoted research price watch
+
+weekly runではpromote済みresearchのFVとASOFのraw closeをread-onlyで比較し、stdout YAMLをshortlist checkpointへ貼ってOP3 reportと同時に提示する。
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.research_price_watch --packets-root records/03-thesis --ledger records/04-position/portfolio-ledger.yaml --sqlite-path data/screening/market.sqlite --asof YYYY-MM-DD
+```
+
+これはscreening top-20外の再調査候補を見つける観測であり、過去FV・recommendationを現在のbuy signalにしない。`market_asof`は価格時点、`ledger_as_of`はcurrent portfolio annotationの時点として別に読む。`re_research_required: true`のtickerを調べ直す場合は、新しいopportunityまたは[`earnings-and-material-event` path](#earnings-and-material-event-path)で一次情報・FV・countercaseを更新してから提案する。
 
 ### OP3 Candidate shortlist report (human review gate)
 
-audit pool上位20件から8〜10候補を選び、候補shortlistレポートを人間へ提示する。第1層データ（価格・valuation・自己資本比率・net cash・配当basis・機械E[r]・FVアンカー乖離・TradingView link）と選定背景（なぜ安い / 一時的か構造的か / 5年耐性 / 最強countercase / 深掘り論点）、比較表、非選択理由を含める。数値はscreening出力から機械生成し、narrativeだけ運用者が`narratives.yaml`に書く。
+audit pool上位20件から8〜10候補を選び、human-review shortlist reportを人間へ提示する。audit poolが8件未満なら全件を提示して不足を明記し、pool外の銘柄で件数を埋めない。第1層データ（価格・valuation・自己資本比率・net cash・配当basis・機械E[r]・FVアンカー乖離・TradingView link）と選定背景（なぜ安い / 一時的か構造的か / 5年耐性 / 最強countercase / 深掘り論点）、比較表、非選択理由を含める。数値はscreening出力から機械生成し、narrativeだけ運用者が`narratives.yaml`に書く。
+
+直近の前回reportがある週次runでは、前回と今回のhuman-review shortlistをtickerで比較し、`new / continued / exited`をoperation Issueのshortlist checkpointに残して今回reportと同時に人間へ提示する。`new`は今回だけ、`continued`は両方、`exited`は前回だけに含まれるtickerとする。`new`には今回shortlistへ入れる理由、`exited`には今回shortlistへ残さない理由を新たに書く。前回reportを確認できないrunは差分を推定せず、全候補のnarrativeを確認するfull reportへfallbackする。
+
+`continued`のnarrativeは、前回からのaudit-pool順位差、価格、前回as-of後に会社IR・TDnet・EDINETで公表された最新開示、最強countercaseと判断を変え得るmaterial deltaを確認し、現在も判断を支える場合だけ再利用できる。いずれかにmaterial changeまたは確認不能があれば該当narrativeを更新し、差分理由をcheckpointへ残す。今回reportの価格、valuation、E[r]、FV等の数値は必ず今回runのscreening出力からrendererで生成し、前回reportや前回`narratives.yaml`から転記または再利用しない。
 
 ```bash
 UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.candidate_report.render --selection .cache/opportunity/YYYY-MM-DD/selection-output.yaml --candidates .cache/opportunity/YYYY-MM-DD/candidates.yaml --narratives .cache/opportunity/YYYY-MM-DD/narratives.yaml --out .cache/opportunity/YYYY-MM-DD/candidate-report.html
 ```
 
-生成HTMLは`.cache`のephemeral成果物でcommitしない。詳細は[`../reference/candidate-report.md`](../reference/candidate-report.md)。非選択上位候補にも構造的衰退、永久損失warning、一次情報不足、FV乖離不足、投資対象外等の理由を残す。「保有済み」「予約中」「予算外」だけを除外理由にしない。
+生成HTMLは`.cache`のephemeral成果物でcommitしない。詳細は[`../reference/candidate-report.md`](../reference/candidate-report.md)。非選択上位候補にも構造的衰退、永久損失warning、一次情報不足、FV乖離不足、投資対象外等の理由を残す。「保有済み」「予約中」「予算外」だけを除外理由にしない。weekly差分の分類と確認結果は当面operation Issueへ残し、2〜3回の運用テストでfieldと表示の必要性が安定するまでrenderer/schemaへ組み込まない。
 
-このレポートを提示し、人間が深掘り対象（推奨2〜4件）を選ぶまで一次リサーチへ進まない。買う候補が無ければこの段階で`no actionable bargain`終了できる。
+このレポートを提示し、人間がprimary-research set（推奨2〜4件）を選ぶまで一次リサーチへ進まない。選択結果はworkspaceの`selection.yaml.shortlist`へ記録し、件数上限はselection outputの`research_selection_target_max`に従う。買う候補が無ければこの段階で`no actionable bargain`終了できる。
 
 ### OP4 Primary research on selected candidates
 
-人間が選んだ銘柄だけを対象に、会社IR、TDnet、EDINET、JPXを直接確認し、永久損失7軸、corporate action、bear/base/bullの3年sanityと5年total return、FV、countercaseを同じ表で比較する。手順は[`../workflow/research.md`](../workflow/research.md)を正本とする。selectedは0または1件。0件なら`no actionable bargain`で終了する。
+人間が選んだprimary-research setだけを対象に、会社IR、TDnet、EDINET、JPXを直接確認する。複数銘柄が選ばれたことが並行researchのtriggerであり、暴落検知やmacro timing判定を自動追加しない。
 
-### OP5 Packet scaffold
+共有workspaceの`manifest.yaml`に固定したselection output / ledger hashを全laneの共通lineageとし、各tickerの成果物は`.cache/opportunity/YYYY-MM-DD/<ticker>/`へ隔離する。永久損失7軸、corporate action、bear/base/bullの3年sanityと5年total return、FV、countercaseの調査はlaneごとに並行できる。手順は[`../workflow/research.md`](../workflow/research.md)を正本とする。
+
+### OP5 Per-lane packet and research scaffold
 
 ```bash
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity packet-scaffold --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX --sqlite-path data/screening/market.sqlite --target-session YYYY-MM-DD
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .cache/opportunity/YYYY-MM-DD
 ```
 
-生成された`research-checklist.yaml`を一次sourceで`complete / blocked`にする。blockedを推定で埋めない。packetのobserved/derived/estimate/judgmentを区別し、scenario算術を機械再計算する。
+`packet-scaffold`は`selection.yaml.shortlist`に含まれるtickerだけを受け入れる。primary-research setの各tickerについて実行し、生成されたlane内の`research-checklist.yaml`を一次sourceで`complete / blocked`にする。screening E[r]とFV baselineはestimateとしてselection snapshotから機械転記し、observed factへ変換しない。blockedを推定で埋めない。packetのobserved/derived/estimate/judgmentを区別し、scenario算術を機械再計算する。他laneのdraftをcopyまたは上書きしない。
 
 ### OP6 Independent review and promotion
 
 ```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-decision .cache/opportunity/YYYY-MM-DD/XXXX/packet-draft.yaml
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity review-scaffold --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .cache/opportunity/YYYY-MM-DD
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity promote --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX --output-dir records/03-thesis/YYYY/MM
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation --target decision-packet
 ```
 
-reviewはpacket authorと別roleが行う。`proposal_changed=true`ならpacketへ戻り、packet hash変更後の旧reviewを使わない。promotionはchecklist、packet/review schema、hash、pathが一致するときだけ行う。
+reviewはpacket authorと別roleがlaneごとに行い、複数laneを並行できる。reviewerは最初のcommandが返す5年base break-evenと観測multipleを、[`workflow/research.md#independent-review`](../workflow/research.md#independent-review)のfield対応で既存research checklistへ記録してからreview draftを完成させる。`proposal_changed=true`なら該当laneのpacketへ戻り、packet hash変更後の旧reviewを使わない。
+
+全laneの調査・反証後に共有`research-comparison.yaml`で比較し、現在の提案roundの最良0〜1件だけを`selected_ticker`へ固定する。0件なら`no actionable bargain`で終了する。promotionは`selected_ticker`のlaneについて、checklist、packet/review schema、hash、pathが一致するときだけ行う。
 
 ### OP7 Planning-only limit
 
@@ -121,9 +141,46 @@ reviewはpacket authorと別roleが行う。`proposal_changed=true`ならpacket�
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity plan-limit --packet records/03-thesis/YYYY/MM/YYYY-MM-DD-XXXX-decision.yaml --ledger records/04-position/portfolio-ledger.yaml --sqlite-path data/screening/market.sqlite --target-session YYYY-MM-DD --budget-min-yen 200000 --budget-max-yen 300000 --output .cache/opportunity/YYYY-MM-DD/XXXX/proposal.yaml
 ```
 
-`planned_limit`は前営業日終値、max acceptable price、board lotから作る。終値が上限超過、corporate action unresolved、packet/review not readyは`defer`。1単元が30万円を超えても自動棄却せず、超過をwarningとして表示する。
+`planned_limit`は前営業日終値、max acceptable price、board lotから作る。終値が上限超過、corporate action unresolved、packet/review not readyは`defer`。1単元が30万円を超えても自動棄却せず、超過をwarningとして表示する。同一tickerのactive reservationがある場合は、元注文の再表示と追加注文を機械的に区別できないため`active_reservation_exists`で`defer`する。human resultで約定またはreleaseをledgerに反映するまで新規注文を作らない。
 
-proposal第1層にはticker/name/as-of、5年base CAGR、永久損失結論、最強countercase、max price、limit、quantity/notional、portfolio warnings、packet/review参照、人間に求める`approve / defer / reject`だけを置く。tickerにはTradingView linkを付け、focus tickerだけ開く。AIは発注しない。
+`portfolio_exposure`はproposalと同じ`price_as_of`のraw/unadjusted closeで全保有を横断再評価した一時計算である。ticker / sector / common-factorごとに、保有とactive reservationを合わせた現在額、今回注文後のprospective額と比率、warning閾値を確認する。`ledger_fallback_tickers`が空でない場合は`holding_valuation_status: mixed_with_ledger_fallback`であり、欠損またはcorporate action未解決の銘柄だけledger評価額が混在する。`common_factor_empty_tickers`が空でない場合のfactor比率は宣言済みtagに基づく下限値である。どちらのwarningも解消せず人間へ提示する。この再評価はledgerを更新しない。
+
+複数laneがviableでも、同じledger snapshotから複数proposalを一括生成しない。最上位laneを`plan-limit`したら、出力の`source_ledger_sha256`が現在のcanonical ledgerと一致することを確認して人間へ提示する。人間の`approve / defer / reject`と、注文がある場合はhuman result pathによるcanonical ledger更新を完了してから、残るlaneを再比較する。次のlaneへ進む場合は`selected_ticker`をその1件へ更新し、更新後canonical ledgerで`plan-limit`を再実行する。これによりactive reservationを含まないstale ledgerから資本を二重に割り当てない。
+
+proposal第1層にはticker/name/as-of、5年base CAGR、永久損失結論、最強countercase、max price、limit、quantity/notional、portfolio warnings、packet/review参照、人間に求める`approve / defer / reject`だけを置く。TradingView linkはOP9の統合HTMLへ各ticker分を生成し、browserを自動起動しない。AIは発注しない。
+
+### OP8 Integrated research content review
+
+全laneの詳細調査、比較、購入方法を`findings.yaml`へ統合する。定性contentだけをfindingsへ書き、source/fact/scenario/FV/7軸はlane packet、採否は`research-comparison.yaml`、価格・数量・notionalは`proposal.yaml`を正本として転記しない。共通field、業種固有分析、海外展開3層、growth qualityの分解は[`../reference/research-decision-report.md`](../reference/research-decision-report.md)を正本とする。
+
+HTMLをreviewしない。report compilerとは別roleが、軽量なfindings / comparison / packet / proposalをreviewするため、hash-bound draftを作る。
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.research_decision_report.review_scaffold --workspace .cache/opportunity/YYYY-MM-DD --findings .cache/opportunity/YYYY-MM-DD/findings.yaml --proposal .cache/opportunity/YYYY-MM-DD/XXXX/proposal.yaml --out .cache/opportunity/YYYY-MM-DD/report-review-attempt-1.yaml
+```
+
+reviewerはsource freshness、指定質問、一次source、fact/estimate分離、countercase/unknown、scenario/FV、比較/portfolio fit、購入方法を再確認する。`changes_required`なら該当入力へ戻り、変更後は既存reviewを上書きせず`report-review-attempt-2.yaml`のようにattempt番号を増やして再scaffoldする。全checkが`pass`で入力hashが一致するときだけHTMLへ進む。`selected_ticker: null`ではproposalを省略し、購入提案なしの結論をreviewする。
+
+### OP9 Reviewed HTML and human checkpoint
+
+この工程はrepository内の専用rendererを正本とする。汎用HTML生成skillや別templateを使わない。
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.research_decision_report.render --workspace .cache/opportunity/YYYY-MM-DD --findings .cache/opportunity/YYYY-MM-DD/findings.yaml --review .cache/opportunity/YYYY-MM-DD/report-review-attempt-N.yaml --proposal .cache/opportunity/YYYY-MM-DD/XXXX/proposal.yaml --out .cache/opportunity/YYYY-MM-DD/research-decision-report.html
+```
+
+HTMLはreview済み入力のephemeral projectionであり、内容reviewやcanonical recordの対象にしない。plan-limitが`defer`、または比較結果が`no actionable bargain`でも正常に生成し、注文なしと理由を明示する。repository visibilityを確認してから、operation Issueへmanifest、findings、comparison、non-promoted lane packet、proposal、report reviewのreview済み内容をartifact別commentとして保存する。promote済みselected packet/reviewはcanonical pathとhashを参照し、同じ内容を複製しない。summaryに各comment URLまたはcanonical pathとhash、全laneの採否、購入方法または注文なしの理由、HTML pathを残す。local pathとhashだけを残してcompact inputを破棄しない。人間の`approve / defer / reject`を待つ。
+
+### Opportunity Issueのcloseと注文監視の移管
+
+review済みの提案または注文なし結論と、人間の`approve / defer / reject`を記録した時点で、opportunity triggerの判断責務は完了する。
+
+- `defer / reject`またはbrokerの注文報告がない場合は、判断と理由をcommentして元Issueをcloseする。`approve`だけからbroker factやreservationを作らない。
+- 人間の`open`報告またはpartial fillでremaining reservationがある場合、同一reservationを追跡するdated Issueを1件作成または再利用する。canonical ledgerへ未反映の間は`blocked`、active reservation反映後は`living`とする。
+- 移管先にreservation ID、expiry、元proposal/approval comment URLを記録し、元Issueと相互linkする。元Issueがopenなら移管後にcloseし、既にclose済みなら移管先URLを追記する。
+- 後続の`filled / cancelled / expired`でも元proposal/approval URLをledgerのdecision referenceに使い、ledger event本文や全履歴を複製せず、Human result path所定のcheckpointだけを移管先に記録する。
+- partial fillはremaining reservationがある間`living`とし、full fill、cancelled、expiredはcanonical execution/release反映後に移管先を`complete`とする。期限超過だけで状態を推定しない。
+- active reservationが残らない即時full fillは監視Issueへ移管せず、Human result pathのcheckpointとcanonical execution反映で完了する。移管先は[`task-runbook.md#open-issue-lifecycle`](./task-runbook.md#open-issue-lifecycle)に従う。
 
 <a id="human-result-path"></a>
 
@@ -136,6 +193,7 @@ proposal第1層にはticker/name/as-of、5年base CAGR、永久損失結論、�
 | open | ticker、quantity、limit、expiry、sector、proposal/approval URL | reservation draft |
 | filled | ticker、quantity、price、executed_at、proposal/approval URL | execution draft。reservationなしはapproval/guard/expiry/sectorも確認 |
 | cancelled | reservation_id、cancelled_at、proposal/approval URL | remaining release draft |
+| expired | reservation_id、expired_at、proposal/approval URL | remaining release draft。reservation_idを省略せず、`expired_at >= expires_at`を必須とする |
 
 例: open。
 
@@ -155,7 +213,13 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position record-result --ledger re
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position record-result --ledger records/04-position/portfolio-ledger.yaml --proposal-ref https://github.com/OWNER/REPO/issues/NNN#issuecomment-NNN --status cancelled --occurred-at YYYY-MM-DDTHH:MM:SS+09:00 --reservation-id RESERVATION_ID --out .cache/ledger/YYYY-MM-DDTHHMMSS-XXXX-cancelled-ledger.yaml
 ```
 
-`YYYY-MM-DDTHHMMSS`は報告時刻、`XXXX`はticker（cancelledではreservationのticker）へ置換する。各reportで別file名を使い、既存draftを再利用しない。同一reportを再実行してcanonicalに既に同じeventがある場合、CLIは既存`--out`より先にidempotencyを確認し、fileを書かず`status: no_change`を返す。
+例: expired。brokerで未約定のまま期限到来したことを人間が確認してから実行し、時刻や状態を自動推定しない。
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position record-result --ledger records/04-position/portfolio-ledger.yaml --proposal-ref https://github.com/OWNER/REPO/issues/NNN#issuecomment-NNN --status expired --occurred-at YYYY-MM-DDTHH:MM:SS+09:00 --reservation-id RESERVATION_ID --out .cache/ledger/YYYY-MM-DDTHHMMSS-XXXX-expired-ledger.yaml
+```
+
+`YYYY-MM-DDTHHMMSS`は報告時刻、`XXXX`はticker（cancelled/expiredではreservationのticker）へ置換する。各reportで別file名を使い、既存draftを再利用しない。同一reportを再実行してcanonicalに既に同じeventがある場合、CLIは既存`--out`より先にidempotencyを確認し、fileを書かず`status: no_change`を返す。
 
 `record-result`はcanonical ledgerを直接変更せず、実際にparseした同一bytesの`source_ledger_sha256`と新規event IDをstdoutへ返す。`--out`はrepository root配下の相対pathだけを許し、既存fileとsymlinkを上書きしない。報告がなければ何も更新しない。
 
@@ -184,7 +248,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger --ledger .cache/le
 3. AIは次をoperation Issueへ記録し、人間にcanonical反映の確認を求める。
 
 ```markdown
-- human report: <open|filled|cancelled and supplied facts>
+- human report: <open|filled|cancelled|expired and supplied facts>
 - source ledger sha256: <64 hex>
 - draft: .cache/ledger/UNIQUE-RESULT-ledger.yaml
 - event IDs: <stdout values>
@@ -204,6 +268,18 @@ git diff -- records/04-position/portfolio-ledger.yaml
 
 最初のhashが保存値と違えば`cp`を実行しない。copy後はvalidation、snapshot、最終diffの3つがpassするまでcommitしない。この一人運用ではledger反映を単純な人間確認付きcopyに保ち、別系統の注文状態記録や自動broker照合を設けない。
 
+### Expired limit feedback
+
+human-confirmed `release(reason=expired)`をcanonical ledgerへ反映した後だけ、未約定残数の機会観測をread-onlyで作る。
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.limit_outcome --ledger records/04-position/portfolio-ledger.yaml --reservation-id RESERVATION_ID --sqlite-path data/screening/market.sqlite --asof YYYY-MM-DD
+```
+
+stdout YAMLはledger ref/hash、market SQLite ref、同一read-only transactionで実際に観測対象としたcalendar/raw bar rowsのfingerprintとhash basis、reservation、未約定残数、raw/unadjusted daily lowのtouch、期限後5 JPX営業session固定のraw close変化を示す。fingerprintと判定範囲はsubmissionから5 session horizonまでで打ち切り、それより後のbarを混ぜない。submission日はintraday順序が不明なのでtouch判定から除外するが、corporate-action basis確認には含める。expiry日は`expires_at`が15:30 JSTまで有効な場合だけ含める。daily lowが指値以下でも約定とはみなさず、期限後変化はexpiry直前営業session closeからの実価格変化であって、指値約定や逸失利益の推定ではない。
+
+human-confirmed release前、必要な期限後session未到来は`pending`、cancel等の別terminal reasonは`not_eligible`、raw price欠損・calendarとの不整合・corporate action・`adjustment_factor`未確認は`unresolved`とする。ledger event stateがreplayできない場合、または`asof`がsubmission/releaseより前なら停止する。adjusted priceで補完しない。この個票toolはcanonical recordやlocal fileを書かず、stdoutだけを返す。YAMLはoperation Issueへ貼り、初期サンプルを比較する。反復利用と効果を確認するまでは永続schema、aggregate、stable public CLIへ昇格しない。
+
 ## Monthly contribution path
 
 人間が入金を確定した後だけ、一意な`contribution` eventをledger draftへ追加する。snapshotとvalidationを確認し、購入やscreeningを強制しない。お買い得候補がなければcashに残す。
@@ -213,6 +289,7 @@ git diff -- records/04-position/portfolio-ledger.yaml
 ## Earnings and material-event path
 
 1. [`task-runbook.md`](./task-runbook.md)のdated Issueと対象tickerを確認する。
+   JPX の決算発表予定は日付確認の補助事実であり、通知や自動 trigger ではない。実施時は一次 IR で発表を確認する。
 2. packet以後の一次IRとmaterial deltaだけを調べる。
 3. 対象tickerのcurrent decision packet/reviewを更新する。
 4. `holding-review-build`でreview draftをsourceから作る。
@@ -259,7 +336,7 @@ portfolio outcomeはcanonical ledger、JPX営業日close、配当込みTOPIX観�
 - next: <next CP or stop reason>
 ```
 
-候補shortlist checkpointだけ8〜10件の比較表と非選択理由を追加する。recordsへ保存した判断はpath/hashと1〜3行結果だけ参照し、本文をIssueへ複製しない。
+human-review shortlist checkpointだけ8〜10件の比較表と非選択理由を追加する。recordsへ保存した判断はpath/hashと1〜3行結果だけ参照し、本文をIssueへ複製しない。
 
 ## Failure / stop conditions
 

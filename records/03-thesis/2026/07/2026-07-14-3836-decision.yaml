@@ -1,0 +1,413 @@
+schema_version: 2
+input_snapshot:
+  snapshot_version: 1
+  producer_model_version: screening-selection-v1
+  ticker: '3836'
+  company_name: アバントグループ
+  sector: 情報・通信業
+  common_factors:
+  - ai-adoption
+  - enterprise-dx
+  - human-capital
+  as_of: '2026-07-14'
+  sources:
+  - source_id: market_close
+    ticker: '3836'
+    source_tier: local_data
+    provider: jquants
+    dataset: jquants_daily_bars
+    retrieved_at: '2026-07-14T15:30:00+09:00'
+    as_of: '2026-07-14'
+    used_for: 2026-07-14の未調整終値とcorporate action確認
+  - source_id: screening_snapshot
+    ticker: '3836'
+    source_tier: local_data
+    provider: baibai-loop
+    dataset: screening-selection-v1
+    retrieved_at: '2026-07-14T21:35:00+09:00'
+    as_of: '2026-07-14'
+    used_for: スクリーニング時点のtrailing PER
+  - source_id: fy26_q3_results_presentation
+    ticker: '3836'
+    source_tier: primary
+    ref: https://data.swcms.net/file/avantgroup-corp/dam/jcr%3A43f934b3-203e-432f-b67c-7cad1c136939/140120260430514980.pdf
+    retrieved_at: '2026-07-14T21:40:00+09:00'
+    as_of: '2026-03-31'
+    used_for: FY2026第3四半期のsegment、software gross profit、recurring sales、通期計画進捗
+  - source_id: fy26_q3_financial_results
+    ticker: '3836'
+    source_tier: primary
+    ref: https://www.avantgroup.com/en/ir/irnews/auto_20260430514969/pdfFile.pdf
+    retrieved_at: '2026-07-14T21:45:00+09:00'
+    as_of: '2026-03-31'
+    used_for: FY2026第3四半期の財政状態、cash flow、発行済株式と自己株式
+  - source_id: fy25_securities_report
+    ticker: '3836'
+    source_tier: primary
+    ref: https://www.avantgroup.com/en/ir/library/securities/main/0/teaserItems1/02/linkList/02/link/AVANTGROUPCorpSecuritiesReport20250919en.pdf
+    retrieved_at: '2026-07-14T21:50:00+09:00'
+    as_of: '2025-06-30'
+    used_for: FY2025実績、cash flow、借入、顧客集中、risk、会計方針
+  - source_id: integrated_report_2025
+    ticker: '3836'
+    source_tier: primary
+    ref: https://www.avantgroup.com/en/ir/library/integratedreport/main/018/teaserItems2/02/linkList/013/link/03_00_Section3_FCF_EN.pdf
+    retrieved_at: '2026-07-14T21:45:00+09:00'
+    as_of: '2025-06-30'
+    used_for: BE GLOBAL 2028目標、DX・BPO・softwareの価値獲得経路
+  - source_id: cynch_investment
+    ticker: '3836'
+    source_tier: primary
+    ref: https://www.avantgroup.com/en/ir/irnews/auto_20260514535964/pdfFile.pdf
+    retrieved_at: '2026-07-14T21:46:00+09:00'
+    as_of: '2026-05-15'
+    used_for: AI-native企業への投資と学習目的、収益寄与の非開示確認
+  - source_id: ir_calendar
+    ticker: '3836'
+    source_tier: primary
+    ref: https://www.avantgroup.com/en/ir/calendar.html
+    retrieved_at: '2026-07-14T21:47:00+09:00'
+    as_of: '2026-07-14'
+    used_for: 次回決算予定日
+  facts:
+  - fact_id: market_price_close
+    fact_kind: market_price
+    value: 1204.0
+    unit: JPY_per_share
+    as_of: '2026-07-14'
+    source_ids:
+    - market_close
+    observed_at: '2026-07-14T15:30:00+09:00'
+    price_basis: last_close_unadjusted
+  - fact_id: trailing-per-screening
+    fact_kind: valuation_metric
+    value: 11.8
+    unit: ratio
+    as_of: '2026-07-14'
+    source_ids:
+    - screening_snapshot
+  - fact_id: fy25-owner-profit
+    fact_kind: net_income_attributable_to_owners
+    value: 3434688000
+    unit: JPY
+    as_of: '2025-06-30'
+    source_ids:
+    - fy25_securities_report
+  - fact_id: net-shares-at-fy26-q3
+    fact_kind: shares_outstanding
+    value: 34621952
+    unit: shares
+    as_of: '2026-03-31'
+    source_ids:
+    - fy26_q3_financial_results
+  - fact_id: fy25-operating-cash-flow
+    fact_kind: other
+    value: 4469729000
+    unit: JPY
+    as_of: '2025-06-30'
+    source_ids:
+    - fy25_securities_report
+  - fact_id: fy26-q3-cash-equivalents
+    fact_kind: other
+    value: 11334951000
+    unit: JPY
+    as_of: '2026-03-31'
+    source_ids:
+    - fy26_q3_financial_results
+  - fact_id: fy26-q3-cumulative-sales
+    fact_kind: other
+    value: 22828000000
+    unit: JPY
+    as_of: '2026-03-31'
+    source_ids:
+    - fy26_q3_results_presentation
+  - fact_id: fy26-q3-cumulative-operating-profit
+    fact_kind: other
+    value: 4072000000
+    unit: JPY
+    as_of: '2026-03-31'
+    source_ids:
+    - fy26_q3_results_presentation
+  - fact_id: fy26-q3-quarter-software-gross-profit
+    fact_kind: other
+    value: 729000000
+    unit: JPY
+    as_of: '2026-03-31'
+    source_ids:
+    - fy26_q3_results_presentation
+  - fact_id: fy26-q3-quarter-recurring-sales-ratio
+    fact_kind: other
+    value: 41.2
+    unit: percent
+    as_of: '2026-03-31'
+    source_ids:
+    - fy26_q3_results_presentation
+  - fact_id: fy25-operating-profit-per-employee
+    fact_kind: other
+    value: 2800000
+    unit: JPY_per_employee
+    as_of: '2025-06-30'
+    source_ids:
+    - integrated_report_2025
+  - fact_id: no-customer-at-least-ten-percent
+    fact_kind: other
+    value: true
+    unit: boolean
+    as_of: '2025-06-30'
+    source_ids:
+    - fy25_securities_report
+derived:
+  metrics:
+  - metric_id: normalized-eps
+    value: 99.20549829195073
+    unit: JPY_per_share
+    as_of: '2026-03-31'
+    formula: ratio
+    formula_version: ratio-v1
+    input_fact_ids:
+    - fy25-owner-profit
+    - net-shares-at-fy26-q3
+    assumption: FY2025実績純利益を2026年3月末の発行済株式36,009,551株から自己株式1,387,599株を控除した34,621,952株で除した正規化EPS。期間差をscenarioの出発点に明示している。
+    source_ids:
+    - fy25_securities_report
+    - fy26_q3_financial_results
+estimates:
+  model_version: avant-long-horizon-scenario-v1
+  market_price_fact_id: market_price_close
+  entry_price_basis_yen: 1204.0
+  entry_price_basis: observed_market_price
+  entry_price_source_ids:
+  - market_close
+  entry_price_assumption: 2026-07-14の未調整終値。price adjustment factorは1.0で、株式分割等によるprice basisの未解決差異はない。
+  required_5y_base_cagr_pct: 8.0
+  current_fair_value_yen: 1481.9088
+  valuation_model_version: five-year-base-required-return-v1
+  fair_value_source_ids:
+  - fy25_securities_report
+  - fy26_q3_results_presentation
+  - integrated_report_2025
+  deep_discount_bps: null
+  scenarios:
+  - horizon_years: 3
+    name: bear
+    earnings_basis: net_income_attributable_to_owners
+    starting_earnings_fact_id: fy25-owner-profit
+    starting_earnings_yen: 3434688000
+    annual_earnings_growth_pct: -3.0
+    starting_share_count_fact_id: net-shares-at-fy26-q3
+    starting_share_count: 34621952
+    annual_share_count_change_pct: 0.3
+    terminal_valuation_multiple: 10.0
+    cumulative_dividend_per_share_yen: 90
+    terminal_price_includes_dividends: false
+    claimed_terminal_earnings_yen: 3134747001.02
+    claimed_terminal_share_count: 34934485.2955
+    claimed_terminal_price_yen: 897.3217
+    claimed_total_return_cagr_pct: -6.4
+    as_of: '2026-07-14'
+    unit: JPY_per_share_total_return
+    model_version: avant-long-horizon-scenario-v1
+    assumption: Software gross profitの直近四半期成長が2.1%に留まり、Management Solutionsの累計営業利益が28.1%減となる状態が続く。recurring sales ratio 41.2%はARRではなく、採用・IT投資と株式報酬で一株利益が縮小する。
+    source_ids:
+    - fy25_securities_report
+    - fy26_q3_results_presentation
+    - integrated_report_2025
+  - horizon_years: 3
+    name: base
+    earnings_basis: net_income_attributable_to_owners
+    starting_earnings_fact_id: fy25-owner-profit
+    starting_earnings_yen: 3434688000
+    annual_earnings_growth_pct: 7.0
+    starting_share_count_fact_id: net-shares-at-fy26-q3
+    starting_share_count: 34621952
+    annual_share_count_change_pct: -0.5
+    terminal_valuation_multiple: 14.0
+    cumulative_dividend_per_share_yen: 102
+    terminal_price_includes_dividends: false
+    claimed_terminal_earnings_yen: 4207640491.58
+    claimed_terminal_share_count: 34105215.0387
+    claimed_terminal_price_yen: 1727.2129
+    claimed_total_return_cagr_pct: 14.96
+    as_of: '2026-07-14'
+    unit: JPY_per_share_total_return
+    model_version: avant-long-horizon-scenario-v1
+    assumption: Consolidated Financial DisclosureとDXの増収・margin改善がManagement Solutionsの弱さを補い、software gross profitと一人当たり営業利益はFY2028目標へ部分的に前進するが、利益成長は目標達成に必要な20.4%から26.8%を大きく下回る。
+    source_ids:
+    - fy25_securities_report
+    - fy26_q3_results_presentation
+    - integrated_report_2025
+  - horizon_years: 3
+    name: bull
+    earnings_basis: net_income_attributable_to_owners
+    starting_earnings_fact_id: fy25-owner-profit
+    starting_earnings_yen: 3434688000
+    annual_earnings_growth_pct: 15.0
+    starting_share_count_fact_id: net-shares-at-fy26-q3
+    starting_share_count: 34621952
+    annual_share_count_change_pct: -1.0
+    terminal_valuation_multiple: 18.0
+    cumulative_dividend_per_share_yen: 120
+    terminal_price_includes_dividends: false
+    claimed_terminal_earnings_yen: 5223731112.0
+    claimed_terminal_share_count: 33593645.4036
+    claimed_terminal_price_yen: 2798.9567
+    claimed_total_return_cagr_pct: 34.34
+    as_of: '2026-07-14'
+    unit: JPY_per_share_total_return
+    model_version: avant-long-horizon-scenario-v1
+    assumption: DivaSystem顧客へのBPO cross-sell、AI/RAGを組み込むdata platform案件、AVANT Cruiseの拡販が同時に進み、software gross profit年率25%前後と一人当たり営業利益3.5百万円以上への接近が確認される。
+    source_ids:
+    - fy25_securities_report
+    - fy26_q3_results_presentation
+    - integrated_report_2025
+  - horizon_years: 5
+    name: bear
+    earnings_basis: net_income_attributable_to_owners
+    starting_earnings_fact_id: fy25-owner-profit
+    starting_earnings_yen: 3434688000
+    annual_earnings_growth_pct: -3.0
+    starting_share_count_fact_id: net-shares-at-fy26-q3
+    starting_share_count: 34621952
+    annual_share_count_change_pct: 0.3
+    terminal_valuation_multiple: 10.0
+    cumulative_dividend_per_share_yen: 150
+    terminal_price_includes_dividends: false
+    claimed_terminal_earnings_yen: 2949483453.26
+    claimed_terminal_share_count: 35144406.6176
+    claimed_terminal_price_yen: 839.2469
+    claimed_total_return_cagr_pct: -3.85
+    as_of: '2026-07-14'
+    unit: JPY_per_share_total_return
+    model_version: avant-long-horizon-scenario-v1
+    assumption: Proprietary softwareのgross profit拡大が止まり、AIによるprogram開発consultingの単価・工数圧力と人材投資が5年間継続する。recurring salesの内訳・churnが非開示のため下方硬直性を仮定しない。
+    source_ids:
+    - fy25_securities_report
+    - fy26_q3_results_presentation
+    - integrated_report_2025
+  - horizon_years: 5
+    name: base
+    earnings_basis: net_income_attributable_to_owners
+    starting_earnings_fact_id: fy25-owner-profit
+    starting_earnings_yen: 3434688000
+    annual_earnings_growth_pct: 7.0
+    starting_share_count_fact_id: net-shares-at-fy26-q3
+    starting_share_count: 34621952
+    annual_share_count_change_pct: -0.5
+    terminal_valuation_multiple: 14.0
+    cumulative_dividend_per_share_yen: 180
+    terminal_price_includes_dividends: false
+    claimed_terminal_earnings_yen: 4817327598.81
+    claimed_terminal_share_count: 33765015.5186
+    claimed_terminal_price_yen: 1997.4102
+    claimed_total_return_cagr_pct: 12.58
+    as_of: '2026-07-14'
+    unit: JPY_per_share_total_return
+    model_version: avant-long-horizon-scenario-v1
+    assumption: DX需要を売上へ変換しつつ、software gross profitとrecurring sales比率の改善が緩やかに利益率へ届く。FY2028のsoftware gross profit5.5から6.0十億円と一人当たり営業利益3.5から4.3百万円は未達とし、7%利益成長と小幅な自己株式取得だけを置く。
+    source_ids:
+    - fy25_securities_report
+    - fy26_q3_results_presentation
+    - integrated_report_2025
+  - horizon_years: 5
+    name: bull
+    earnings_basis: net_income_attributable_to_owners
+    starting_earnings_fact_id: fy25-owner-profit
+    starting_earnings_yen: 3434688000
+    annual_earnings_growth_pct: 15.0
+    starting_share_count_fact_id: net-shares-at-fy26-q3
+    starting_share_count: 34621952
+    annual_share_count_change_pct: -1.0
+    terminal_valuation_multiple: 18.0
+    cumulative_dividend_per_share_yen: 220
+    terminal_price_includes_dividends: false
+    claimed_terminal_earnings_yen: 6908384395.62
+    claimed_terminal_share_count: 32925131.8601
+    claimed_terminal_price_yen: 3776.7782
+    claimed_total_return_cagr_pct: 27.12
+    as_of: '2026-07-14'
+    unit: JPY_per_share_total_return
+    model_version: avant-long-horizon-scenario-v1
+    assumption: FY2028後もBPO SaaS、AI/RAG data platform、Management Solutions製品が複利成長し、software gross profitと一人当たり営業利益の高いmixへ移行する。15%利益成長はFY2028目標下限に必要な20.4%よりなお低い。
+    source_ids:
+    - fy25_securities_report
+    - fy26_q3_results_presentation
+    - integrated_report_2025
+permanent_loss_risks:
+- axis: funding_liquidity
+  assessment: acceptable
+  evidence_status: verified
+  summary: 2026年3月末cash equivalentsは11.335十億円で、3.5十億円のcommitment lineもある。採用・IT・製品投資を続けても短期資金枯渇を示す一次情報はない。
+  as_of: '2026-03-31'
+  source_ids:
+  - fy26_q3_financial_results
+  - fy25_securities_report
+- axis: debt_repayment
+  assessment: acceptable
+  evidence_status: verified
+  summary: FY2025末の借入残高はゼロで、2026年3月末も有利子負債はlease liabilities約31百万円に限られるため、返済wallは確認されない。
+  as_of: '2026-03-31'
+  source_ids:
+  - fy26_q3_financial_results
+  - fy25_securities_report
+- axis: cash_flow
+  assessment: acceptable
+  evidence_status: verified
+  summary: FY2025 operating cash flowは4.470十億円と純利益を上回る。一方FY2026第3四半期累計は1.149十億円へ低下し、DX外注費の前払いで成長時に運転資本が増えるためconversionを継続監視する。
+  as_of: '2026-03-31'
+  source_ids:
+  - fy26_q3_financial_results
+  - fy25_securities_report
+- axis: dilution
+  assessment: acceptable
+  evidence_status: verified
+  summary: 2026年3月末のnet sharesは発行済36,009,551株から自己株式1,387,599株を控除した34,621,952株で、自己株式取得は一株価値に寄与する。株式報酬による再希薄化は監視対象に残る。
+  as_of: '2026-03-31'
+  source_ids:
+  - fy26_q3_financial_results
+- axis: customer_concentration
+  assessment: acceptable
+  evidence_status: verified
+  summary: FY2025有価証券報告書では売上高10%以上の主要顧客はない。上位顧客合計やsegment別集中は非開示だが、単一顧客喪失で直ちに存続が揺らぐ証拠はない。
+  as_of: '2025-06-30'
+  source_ids:
+  - fy25_securities_report
+- axis: structural_decline
+  assessment: acceptable
+  evidence_status: verified
+  summary: 連結売上はFY2025に増加しFY2026第3四半期累計も9.0%増で、DX需要の縮小は観測されない。ただし会社自身がAIによるprogram開発consulting収入縮小をriskとして開示しており、software・BPOへのmix転換が必要である。
+  as_of: '2026-03-31'
+  source_ids:
+  - fy26_q3_results_presentation
+  - fy25_securities_report
+- axis: governance_accounting
+  assessment: acceptable
+  evidence_status: verified
+  summary: FY2025監査済み開示とFY2026第3四半期開示に重大な会計・継続企業warningはない。進行基準売上にはsystem developmentも含まれるため、これをrecurring revenueと誤読しない。
+  as_of: '2026-03-31'
+  source_ids:
+  - fy26_q3_financial_results
+  - fy25_securities_report
+judgment:
+  recommendation: buy
+  proposed_at: '2026-07-14T21:51:00+09:00'
+  confidence: medium
+  permanent_loss_conclusion: acceptable
+  strongest_countercase: FY2026第3四半期のsoftware gross profitは単四半期2.1%増に留まり、Management Solutions営業利益は累計28.1%減である。FY2025からFY2028目標にはsoftware gross profit年率24.9%から28.6%、純利益年率20.4%から26.8%が必要で、recurring sales ratio 41.2%もARR・NRR・churnを示さないため、DX市場の成長が一株利益へ届かない可能性が最も強い反証である。
+  sizing_action: normal
+  ai_value_capture:
+    assessment_status: material
+    roles:
+    - adopter
+    - complement
+    competitive_advantage: neutral
+    pricing_power: unknown
+    capex_burden: neutral
+    customer_bargaining_power: unknown
+    value_capture_conclusion: uncertain
+    decision_weight: none
+    rationale: AI/RAGはdata platform案件の大型化と開発生産性の向上余地を持つ一方、会社はprogram開発consultingの収入縮小riskも開示する。Cynch投資の金額・持分・収益寄与とAI起点の単価・粗利改善は非開示で、株主価値への純寄与をまだ確認できない。
+    source_ids:
+    - fy25_securities_report
+    - integrated_report_2025
+    - cynch_investment
+independent_review_ref: 2026-07-14-3836-decision-review.yaml

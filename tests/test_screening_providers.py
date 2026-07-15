@@ -11,6 +11,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pandas as pd
+import requests
+
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -26,7 +29,11 @@ from baibai_loop.screening.providers.edinet import (
     select_document_candidates,
 )
 from baibai_loop.screening.providers.edinet_csv import parse_csv_zip_metric_record
-from baibai_loop.screening.providers.jpx import JPXProvider, JPXProviderError
+from baibai_loop.screening.providers.jpx import (
+    JPXEarningsCalendarEntry,
+    JPXProvider,
+    JPXProviderError,
+)
 from baibai_loop.screening.providers.jquants import (
     JQuantsProvider,
     normalize_daily_bar,
@@ -72,6 +79,46 @@ class _SequenceBytesSession:
         return _Response(content)
 
 
+class _TransientThenBytesSession:
+    def __init__(self, *, content: bytes, secret: str = "key") -> None:
+        self._content = content
+        self._secret = secret
+        self.calls = 0
+
+    def get(self, url: str, timeout: int):
+        del url, timeout
+        self.calls += 1
+        if self.calls == 1:
+            raise requests.ConnectionError(f"temporary failure Subscription-Key={self._secret}")
+
+        class _Response:
+            def __init__(self, payload: bytes) -> None:
+                self.content = payload
+                self.status_code = 200
+
+        return _Response(self._content)
+
+
+class _TransientThenJsonSession:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def get(self, url: str, timeout: int):
+        del url, timeout
+        self.calls += 1
+        if self.calls == 1:
+            raise requests.ConnectionError("temporary failure")
+
+        class _Response:
+            status_code = 200
+
+            @staticmethod
+            def json() -> dict[str, object]:
+                return {"results": []}
+
+        return _Response()
+
+
 def _edinet_csv_zip(rows: list[tuple[str, str, str]]) -> bytes:
     csv_text = "要素ID\tコンテキストID\t値\n" + "\n".join(
         f"{element}\t{context}\t{value}" for element, context, value in rows
@@ -85,6 +132,12 @@ def _edinet_csv_zip(rows: list[tuple[str, str, str]]) -> bytes:
 class ScreeningProviderTests(unittest.TestCase):
     def _read_jpx_fixture(self, name: str) -> bytes:
         return (ROOT / "tests" / "fixtures" / "jpx" / name).read_bytes()
+
+    @staticmethod
+    def _earnings_xlsx(rows: list[list[str]]) -> bytes:
+        buffer = BytesIO()
+        pd.DataFrame(rows).to_excel(buffer, index=False, header=False)
+        return buffer.getvalue()
 
     def test_parse_sec_code_supports_alpha_numeric_code(self) -> None:
         self.assertEqual(parse_sec_code("130A0"), "130A")
@@ -287,6 +340,61 @@ class ScreeningProviderTests(unittest.TestCase):
 
             self.assertEqual(content, expected)
             self.assertEqual((cache / "edinet/csv_zips/S100TEST.zip").read_bytes(), expected)
+
+    def test_download_csv_zip_retries_transient_connection_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp)
+            expected = _edinet_csv_zip(
+                [("jpcrp_cor:NetSales", "CurrentYearDuration_ConsolidatedMember", "1000")]
+            )
+            session = _TransientThenBytesSession(content=expected)
+            provider = EDINETProvider("key", cache, session=session)
+
+            with patch("baibai_loop.screening.providers.edinet.time.sleep") as sleep:
+                content = provider.download_csv_zip("S100TEST")
+
+            self.assertEqual(content, expected)
+            self.assertEqual(session.calls, 2)
+            sleep.assert_called_once_with(3)
+            self.assertEqual((cache / "edinet/csv_zips/S100TEST.zip").read_bytes(), expected)
+
+    def test_list_documents_retries_transient_connection_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            session = _TransientThenJsonSession()
+            provider = EDINETProvider("key", Path(tmp), session=session)
+
+            with patch("baibai_loop.screening.providers.edinet.time.sleep") as sleep:
+                documents = provider.list_documents(date(2026, 7, 10))
+
+            self.assertEqual(documents, [])
+            self.assertEqual(session.calls, 2)
+            sleep.assert_called_once_with(3)
+
+    def test_download_csv_zip_final_connection_error_is_redacted_without_final_sleep(
+        self,
+    ) -> None:
+        class AlwaysFailingSession:
+            calls = 0
+
+            def get(self, url: str, timeout: int):
+                del url, timeout
+                self.calls += 1
+                raise requests.ConnectionError("temporary failure secret-key")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            session = AlwaysFailingSession()
+            provider = EDINETProvider("secret-key", Path(tmp), session=session)
+
+            with (
+                patch("baibai_loop.screening.providers.edinet.time.sleep") as sleep,
+                self.assertRaises(EDINETProviderError) as caught,
+            ):
+                provider.download_csv_zip("S100TEST")
+
+            self.assertEqual(session.calls, 3)
+            self.assertEqual(sleep.call_count, 2)
+            self.assertNotIn("secret-key", str(caught.exception))
+            self.assertIn("<redacted>", str(caught.exception))
 
     def test_download_csv_zip_raises_rate_limit_after_json_retries_without_caching_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -989,6 +1097,104 @@ class ScreeningProviderTests(unittest.TestCase):
             "コード,規制区分\n3856,整理銘柄\n".encode("cp932"), "https://example.com/sample.csv"
         )
         self.assertEqual(rows, [{"コード": "3856", "規制区分": "整理銘柄"}])
+
+    def test_jpx_earnings_parser_detects_header_and_normalizes_rows(self) -> None:
+        provider = JPXProvider(Path("/tmp"))
+        content = self._earnings_xlsx(
+            [
+                ["決算発表予定", "", ""],
+                [
+                    "決算発表予定日\nScheduled Dates for Earnings Announcements",
+                    "コード\nCode",
+                    "会社名\nCompany Name",
+                ],
+                ["2026-07-15", "130A", "Alpha"],
+                ["未定_Undecided", "7203", "Toyota"],
+                ["", "※注", ""],
+                ["2026/07/16", "72030", "Toyota"],
+            ]
+        )
+
+        entries, raw_count, excluded_count = provider._parse_earnings_calendar_excel(
+            content,
+            "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx",
+        )
+
+        self.assertEqual(
+            [(entry.ticker, entry.announcement_date) for entry in entries],
+            [("130A", date(2026, 7, 15)), ("7203", date(2026, 7, 16))],
+        )
+        self.assertEqual(raw_count, 3)
+        self.assertEqual(excluded_count, 1)
+
+    def test_jpx_earnings_parser_fails_on_layout_and_invalid_date(self) -> None:
+        provider = JPXProvider(Path("/tmp"))
+        url = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx"
+        with self.assertRaisesRegex(JPXProviderError, "header layout"):
+            provider._parse_earnings_calendar_excel(
+                self._earnings_xlsx([["Date", "Code"], ["2026-07-15", "130A"]]), url
+            )
+        with self.assertRaisesRegex(JPXProviderError, "invalid JPX earnings date"):
+            provider._parse_earnings_calendar_excel(
+                self._earnings_xlsx([["決算発表日", "コード"], ["2026-99-99", "130A"]]),
+                url,
+            )
+        with self.assertRaisesRegex(JPXProviderError, "invalid JPX code"):
+            provider._parse_earnings_calendar_excel(
+                self._earnings_xlsx([["決算発表日", "コード"], ["2026-07-15", "INVALID"]]),
+                url,
+            )
+
+    def test_jpx_earnings_snapshot_fails_on_conflict_and_all_past(self) -> None:
+        provider = JPXProvider(Path("/tmp"))
+        urls = (
+            "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/a/kessan1.xlsx",
+            "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/b/kessan2.xlsx",
+        )
+        with (
+            patch.object(provider, "_resolve_earnings_calendar_urls", return_value=urls),
+            patch.object(
+                provider,
+                "_download_earnings_calendar",
+                side_effect=(
+                    ((JPXEarningsCalendarEntry("130A", date(2026, 7, 15)),), 1, 0),
+                    ((JPXEarningsCalendarEntry("130A", date(2026, 7, 16)),), 1, 0),
+                ),
+            ),
+            self.assertRaisesRegex(JPXProviderError, "conflicting JPX earnings dates"),
+        ):
+            provider.get_earnings_calendar_snapshot(date(2026, 7, 14))
+
+        with (
+            patch.object(provider, "_resolve_earnings_calendar_urls", return_value=(urls[0],)),
+            patch.object(
+                provider,
+                "_download_earnings_calendar",
+                return_value=((JPXEarningsCalendarEntry("130A", date(2026, 7, 13)),), 1, 0),
+            ),
+            self.assertRaisesRegex(JPXProviderError, "only past dates"),
+        ):
+            provider.get_earnings_calendar_snapshot(date(2026, 7, 14))
+
+    def test_jpx_earnings_index_resolves_all_allowed_cohort_links(self) -> None:
+        html = b"""
+        <a href="./files/kessan-1.xlsx">one</a>
+        <a href="/listing/event-schedules/financial-announcement/files/kessan-2.xls">two</a>
+        <a href="https://example.com/listing/event-schedules/financial-announcement/kessan-3.xlsx">external</a>
+        <a href="/listing/event-schedules/other/kessan-4.xlsx">other</a>
+        <a href="./files/notes.xlsx">notes</a>
+        """
+        provider = JPXProvider(Path("/tmp"), session=_FixedHtmlSession(html))
+
+        self.assertEqual(
+            provider._resolve_earnings_calendar_urls(),
+            (
+                "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/"
+                "files/kessan-1.xlsx",
+                "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/"
+                "files/kessan-2.xls",
+            ),
+        )
 
     def test_jpx_parse_special_alert_margin_rows_extracts_marked_codes(self) -> None:
         class FakeFrame:

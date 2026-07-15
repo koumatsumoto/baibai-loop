@@ -1,7 +1,8 @@
-"""JPX regulation ingest: flags and source freshness rows."""
+"""JPX snapshot ingest for earnings dates and regulation flags."""
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable, Mapping
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -11,9 +12,69 @@ from baibai_loop.market.sqlite.convert import normalize_ticker_or_none, to_str_o
 from baibai_loop.market.sqlite.coverage import (
     date_range_row_count,
     delete_overlapping_source_coverage,
+    delete_source_coverage,
     record_source_coverage,
 )
 from baibai_loop.market.sqlite.schema import open_connection
+from baibai_loop.screening.providers.jpx import JPXEarningsCalendarSnapshot
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def store_jpx_earnings_calendar_snapshot(
+    db_path: Path,
+    snapshot: JPXEarningsCalendarSnapshot,
+    *,
+    fetched_at_utc: str | None = None,
+) -> int:
+    """Store a JPX snapshot in the compatibility earnings-calendar table.
+
+    The physical table keeps its historical J-Quants name until a coordinated
+    schema migration. Source authority is the logical source_coverage row and
+    the JPX-only writer/reader API, not the table identifier.
+    """
+    if not snapshot.entries:
+        raise ValueError("JPX earnings calendar snapshot must contain at least one valid row")
+    conn = open_connection(db_path)
+    fetched_at = fetched_at_utc or datetime.now(UTC).isoformat()
+    try:
+        conn.execute("DELETE FROM jquants_earnings_calendar")
+        delete_source_coverage(conn, "jquants_earnings_calendar")
+        delete_source_coverage(conn, "jpx_earnings_calendar")
+        rows = [(entry.announcement_date.isoformat(), entry.ticker) for entry in snapshot.entries]
+        conn.executemany(
+            "INSERT INTO jquants_earnings_calendar(announcement_date, ticker) VALUES (?, ?)",
+            rows,
+        )
+        persisted_count = int(
+            conn.execute("SELECT COUNT(*) FROM jquants_earnings_calendar").fetchone()[0]
+        )
+        record_source_coverage(
+            conn,
+            source="jpx_earnings_calendar",
+            coverage_key="get_earnings_calendar_snapshot:current",
+            coverage_start=snapshot.min_date.isoformat(),
+            coverage_end=snapshot.max_date.isoformat(),
+            fetched_at_utc=fetched_at,
+            record_count=persisted_count,
+            status="ok",
+            error=None,
+        )
+        conn.commit()
+        _LOGGER.info(
+            "stored JPX earnings calendar snapshot: sources=%s raw=%d valid=%d "
+            "excluded=%d rejected=%d min=%s max=%s",
+            ",".join(snapshot.source_urls),
+            snapshot.raw_record_count,
+            snapshot.valid_record_count,
+            snapshot.excluded_record_count,
+            snapshot.rejected_record_count,
+            snapshot.min_date.isoformat(),
+            snapshot.max_date.isoformat(),
+        )
+        return persisted_count
+    finally:
+        conn.close()
 
 
 def store_jpx_regulations(

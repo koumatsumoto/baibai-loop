@@ -34,8 +34,20 @@ def _policy_patterns(root: Path) -> tuple[re.Pattern[str], ...]:
     cash = policy["cash_management"]
     risk = policy["risk_budget"]
     order = policy["order_constraints"]
-    monthly = str(cash["monthly_contribution_yen"])
+    monthly_yen = cash["monthly_contribution_yen"]
+    monthly = str(monthly_yen)
     monthly_pattern = r"[,_]?".join(monthly)
+    japanese_monthly_patterns: tuple[re.Pattern[str], ...] = ()
+    if isinstance(monthly_yen, int) and not isinstance(monthly_yen, bool):
+        monthly_man_yen, remainder = divmod(monthly_yen, 10_000)
+        if remainder == 0:
+            man_yen = re.escape(str(monthly_man_yen))
+            japanese_monthly_patterns = (
+                re.compile(
+                    rf"(?<![\d.])(?:{man_yen}万円(?![株件人])|"
+                    rf"(?:月|毎月)\s*{man_yen}万(?![円株件人]))"
+                ),
+            )
     concentrations = (
         risk["max_ticker_concentration_pct"],
         risk["max_sector_concentration_pct"],
@@ -46,6 +58,7 @@ def _policy_patterns(root: Path) -> tuple[re.Pattern[str], ...]:
     dry_powder = re.escape(_number(cash["dry_powder_warning_pct"]))
     return (
         re.compile(rf"(?<!\d){monthly_pattern}(?!\d)"),
+        *japanese_monthly_patterns,
         re.compile(rf"(?<![\d.])(?:{concentration_pattern})(?:\.0)?\s*%"),
         re.compile(rf"\b{board_lot}\s*株"),
         re.compile(rf"board[ _-]?lot.{{0,30}}\b{board_lot}\b", re.IGNORECASE),
