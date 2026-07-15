@@ -348,7 +348,8 @@ def _load_master_row(sqlite_path: Path, ticker: str) -> dict[str, object] | None
     row = _query_one(
         sqlite_path,
         "SELECT name, market, sector_33, is_common_stock FROM jquants_master_snapshots "
-        "WHERE ticker = ? ORDER BY snapshot_date DESC LIMIT 1",
+        "WHERE ticker = ? AND snapshot_date = (SELECT MAX(snapshot_date) "
+        "FROM jquants_master_snapshots WHERE snapshot_date != 'unknown')",
         (ticker,),
     )
     if row is None:
@@ -365,7 +366,9 @@ def _load_master_row(sqlite_path: Path, ticker: str) -> dict[str, object] | None
 def _sector_peers(sqlite_path: Path, *, sector: str, exclude: str) -> list[str]:
     rows = _query_all(
         sqlite_path,
-        "SELECT DISTINCT ticker FROM jquants_master_snapshots WHERE sector_33 = ? AND ticker != ?",
+        "SELECT ticker FROM jquants_master_snapshots WHERE sector_33 = ? AND ticker != ? "
+        "AND snapshot_date = (SELECT MAX(snapshot_date) FROM jquants_master_snapshots "
+        "WHERE snapshot_date != 'unknown') ORDER BY ticker",
         (sector, exclude),
     )
     return [str(row[0]) for row in rows]

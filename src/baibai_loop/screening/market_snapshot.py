@@ -256,13 +256,15 @@ def _load_sectors(sqlite_path: Path) -> dict[str, str]:
     conn = sqlite3.connect(sqlite_path)
     try:
         rows = conn.execute(
-            "SELECT ticker, sector_33 FROM jquants_master_snapshots ORDER BY snapshot_date DESC"
+            "SELECT ticker, sector_33 FROM jquants_master_snapshots "
+            "WHERE snapshot_date = (SELECT MAX(snapshot_date) "
+            "FROM jquants_master_snapshots WHERE snapshot_date != 'unknown') "
+            "ORDER BY ticker"
         ).fetchall()
     finally:
         conn.close()
     sectors: dict[str, str] = {}
     for ticker, sector in rows:
-        key = str(ticker)
-        if key not in sectors and isinstance(sector, str) and sector:
-            sectors[key] = sector
+        if isinstance(sector, str) and sector:
+            sectors[str(ticker)] = sector
     return sectors

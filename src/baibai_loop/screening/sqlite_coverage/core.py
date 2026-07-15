@@ -14,9 +14,6 @@ from baibai_loop.market.sqlite import (
     range_covered,
     validate_current_schema,
 )
-from baibai_loop.screening.sqlite_reader import (
-    _has_any_import,
-)
 
 from .edinet import _append_edinet_metrics_coverage_issues
 from .jpx import (
@@ -28,7 +25,7 @@ from .jquants import (
     _append_asof_bar_density_issue,
     _append_daily_history_density_issue,
     _append_fin_summary_density_issue,
-    _append_master_common_stock_issue,
+    _append_master_snapshot_issues,
     _append_recent_bar_density_issue,
 )
 from .shared import CacheCoverageIssue
@@ -36,7 +33,6 @@ from .sources import (
     _append_required_date_rows_issue,
     _append_source_coverage_quality_issues,
     _append_table_consistency_issues,
-    _has_source_coverage,
     _source_coverage_covers_date,
 )
 
@@ -88,42 +84,7 @@ def verify_screening_sqlite_coverage(
             schema_shape_issue = _schema_shape_issue(conn, sqlite_path)
             if schema_shape_issue is not None:
                 return (schema_shape_issue,)
-            if not _has_any_import(conn, "jquants_master_snapshots"):
-                _append_source_coverage_quality_issues(
-                    conn, issues, source="jquants_master_snapshots"
-                )
-                if _has_source_coverage(conn, "jquants_master_snapshots"):
-                    _append_table_consistency_issues(
-                        conn,
-                        issues,
-                        source="jquants_master_snapshots",
-                        table="jquants_master_snapshots",
-                        requirement="latest imported master snapshot",
-                        require_rows=True,
-                        enforce_record_count=True,
-                    )
-                    _append_master_common_stock_issue(conn, issues, asof_date=asof_date)
-                issues.append(
-                    CacheCoverageIssue(
-                        source="jquants_master_snapshots",
-                        requirement="latest imported master snapshot",
-                        reason="no imported master snapshot in SQLite",
-                    )
-                )
-            else:
-                _append_source_coverage_quality_issues(
-                    conn, issues, source="jquants_master_snapshots"
-                )
-                _append_table_consistency_issues(
-                    conn,
-                    issues,
-                    source="jquants_master_snapshots",
-                    table="jquants_master_snapshots",
-                    requirement="latest imported master snapshot",
-                    require_rows=True,
-                    enforce_record_count=True,
-                )
-                _append_master_common_stock_issue(conn, issues, asof_date=asof_date)
+            _append_master_snapshot_issues(conn, issues, asof_date=asof_date)
             # daily_bars completeness is derived from the actual rows. The
             # quality / density checks below run regardless of the coverage gate
             # so a grossly incomplete cache reports both the missing window and

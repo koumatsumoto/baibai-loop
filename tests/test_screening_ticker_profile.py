@@ -189,6 +189,41 @@ class BuildTickerProfileTests(unittest.TestCase):
             self.assertFalse(screening["in_candidates"])
             self.assertIn("not present", str(screening["note"]))
 
+    def test_master_and_sector_peers_use_only_latest_global_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            sqlite_path = root / "market.sqlite"
+            _insert_bars(sqlite_path, "AAAA", [100.0] * 30, end=_ASOF)
+            _insert_bars(sqlite_path, "BBBB", [300 * 0.99**i for i in range(30)], end=_ASOF)
+            _insert_bars(sqlite_path, "CCCC", [200 * 1.01**i for i in range(30)], end=_ASOF)
+            _insert_reference_rows(sqlite_path)
+            conn = open_connection(sqlite_path)
+            try:
+                conn.executemany(
+                    "INSERT INTO jquants_master_snapshots"
+                    "(snapshot_date, ticker, name, market, sector_33, is_common_stock)"
+                    " VALUES ('2026-05-29', ?, ?, 'プライム', '機械', 1)",
+                    (
+                        ("AAAA", "テスト製作所"),
+                        ("CCCC", "現構成ペア"),
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            current_packet = self._build(root, "AAAA")
+            old_only_packet = self._build(root, "BBBB")
+
+            relative = current_packet["relative"]
+            assert isinstance(relative, dict)
+            sector = relative["sector"]
+            assert isinstance(sector, dict)
+            self.assertEqual(sector["peer_count"], 1)
+            assert isinstance(sector["peer_median_return_20d"], float)
+            self.assertGreater(sector["peer_median_return_20d"], 0)
+            self.assertIsNone(old_only_packet["master"])
+
 
 class TickerProfileCliTests(unittest.TestCase):
     def test_parser_accepts_ticker_profile_arguments(self) -> None:

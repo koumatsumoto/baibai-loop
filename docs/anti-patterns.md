@@ -267,6 +267,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 - [ ] policy literalのdrift gateを追加・変更する場合、正本の値からpatternを導出し、正本doc/codeを
       除外し、桁prefixと単位違い（円 / 株 / 件）のnegative testを持つか
+- [ ] master snapshot ingestはrequested as-ofと全response `Date`の一致、必須field、normalized ticker一意性、普通株population floorをtransaction前に検証し、同日だけを置換して別日snapshotを変えないrollback testを持つか
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
       required 化する
 - [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。

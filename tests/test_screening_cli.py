@@ -69,8 +69,8 @@ class FakeJQuantsProvider:
         self.calls.append(("get_mkt_calendar", start, end))
         return [JQuantsMarketCalendarDay(day=start, is_business_day=self.business_day)]
 
-    def get_eq_master(self) -> list[SecurityMaster]:
-        self.calls.append(("get_eq_master", None, None))
+    def get_eq_master(self, requested_asof: date) -> list[SecurityMaster]:
+        self.calls.append(("get_eq_master", requested_asof, requested_asof))
         return [
             SecurityMaster(
                 code="130A",
@@ -195,7 +195,8 @@ class _FailingEDINETProvider(FakeEDINETProvider):
 
 
 class _CorruptSQLiteJQuantsProvider(FakeJQuantsProvider):
-    def get_eq_master(self) -> list[SecurityMaster]:
+    def get_eq_master(self, requested_asof: date) -> list[SecurityMaster]:
+        del requested_asof
         raise sqlite3.DatabaseError("file is not a database")
 
 
@@ -812,7 +813,7 @@ class ScreeningCliTests(unittest.TestCase):
         self.assertIn("bootstrap-cache jquants daily_bars", buffer.getvalue())
         self.assertIn("bootstrap-cache edinet documents", buffer.getvalue())
         self.assertIn("bootstrap-cache done", buffer.getvalue())
-        self.assertIn(("get_eq_master", None, None), jquants.calls)
+        self.assertIn(("get_eq_master", asof, asof), jquants.calls)
         self.assertIn(("get_eq_bars_daily_range", asof - timedelta(days=1200), asof), jquants.calls)
         self.assertIn(("get_fin_summary_range", asof - timedelta(days=730), asof), jquants.calls)
         self.assertIn(("get_mkt_calendar", asof, asof), jquants.calls)

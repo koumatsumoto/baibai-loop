@@ -91,6 +91,37 @@ class BuildMarketSnapshotTests(unittest.TestCase):
             self.assertIsNone(points[0]["breadth_pct_above_ma20"])
             self.assertEqual(points[0]["regime"], "neutral_range")
 
+    def test_sectors_do_not_restore_tickers_from_older_master_snapshots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            _insert_bars(sqlite_path, "OLD1", [100 * 1.01**i for i in range(30)], end=_ASOF)
+            _insert_bars(sqlite_path, "LIVE", [100 * 1.01**i for i in range(30)], end=_ASOF)
+            conn = open_connection(sqlite_path)
+            try:
+                conn.executemany(
+                    "INSERT INTO jquants_master_snapshots"
+                    "(snapshot_date, ticker, name, market, sector_33, is_common_stock)"
+                    " VALUES (?, ?, ?, 'プライム', ?, 1)",
+                    (
+                        ("2026-05-28", "OLD1", "旧構成銘柄", "旧構成セクター"),
+                        ("2026-05-29", "LIVE", "現構成銘柄", "機械"),
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            payload = build_market_snapshot(
+                sqlite_path=sqlite_path,
+                asof_date=_ASOF,
+                history_weeks=1,
+                min_breadth_sample=1,
+            )
+
+            sectors = payload["sectors"]
+            assert isinstance(sectors, list)
+            self.assertEqual([row["sector_33"] for row in sectors], ["機械"])
+
 
 class MarketSnapshotCliTests(unittest.TestCase):
     def test_parser_accepts_market_snapshot_arguments(self) -> None:

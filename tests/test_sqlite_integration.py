@@ -54,10 +54,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     fin_start = asof - timedelta(days=730)
 
     # Master snapshot
-    conn.execute(
-        "INSERT INTO jquants_master_snapshots("
-        "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-        ") VALUES (?, ?, ?, ?, ?, ?)",
+    master_rows = [
         (
             asof.isoformat(),
             ticker,
@@ -66,12 +63,29 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             "情報・通信業",
             1,
         ),
+        *[
+            (
+                asof.isoformat(),
+                f"{1000 + index:04d}",
+                f"Company {index}",
+                "Prime",
+                "情報・通信業",
+                1,
+            )
+            for index in range(2499)
+        ],
+    ]
+    conn.executemany(
+        "INSERT INTO jquants_master_snapshots("
+        "snapshot_date, ticker, name, market, sector_33, is_common_stock"
+        ") VALUES (?, ?, ?, ?, ?, ?)",
+        master_rows,
     )
     add_source_coverage(
         conn,
         source="jquants_master_snapshots",
-        coverage_key="records/_data/raw/screening/jquants/get_eq_master.json",
-        record_count=1,
+        coverage_key=f"get_eq_master:{asof.isoformat()}..{asof.isoformat()}",
+        record_count=len(master_rows),
         min_date=asof.isoformat(),
         max_date=asof.isoformat(),
     )

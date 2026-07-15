@@ -263,7 +263,7 @@ def bootstrap_cache_command(
     try:
         print(f"bootstrap-cache start: asof={asof_date.isoformat()}", file=out, flush=True)
         print("bootstrap-cache jquants eq_master: start", file=out, flush=True)
-        securities = providers.jquants.get_eq_master()
+        securities = providers.jquants.get_eq_master(asof_date)
         print(
             f"bootstrap-cache jquants eq_master: {len(securities)} row(s)",
             file=out,

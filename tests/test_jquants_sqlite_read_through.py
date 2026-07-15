@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import sqlite3
 import sys
 import tempfile
@@ -14,8 +15,12 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from baibai_loop.screening.providers.jquants import JQuantsProvider, JQuantsProviderError
-from baibai_loop.screening.sqlite_cache import open_connection, store_jquants_daily_bars
-from tests.helpers.screening_sqlite import add_source_coverage
+from baibai_loop.screening.sqlite_cache import (
+    open_connection,
+    store_jquants_daily_bars,
+    store_jquants_master,
+)
+from tests.helpers.screening_sqlite import add_source_coverage, make_master_records
 
 
 class _RecordingClient:
@@ -24,21 +29,15 @@ class _RecordingClient:
     """
 
     def __init__(self) -> None:
-        self.eq_master_calls = 0
+        self.eq_master_calls: list[str] = []
         self.bars_calls: list[tuple[str, str]] = []
         self.fin_calls: list[tuple[str, str]] = []
 
-    def get_eq_master(self) -> list[dict[str, Any]]:
-        self.eq_master_calls += 1
-        return [
-            {
-                "Code": "13010",
-                "CoName": "API_FALLBACK_NAME",
-                "MktNm": "プライム",
-                "S33Nm": "水産・農林業",
-                "Mrgn": "2",
-            }
-        ]
+    def get_eq_master(self, *, date: str) -> list[dict[str, Any]]:
+        self.eq_master_calls.append(date)
+        records = make_master_records(dt.date.fromisoformat(date))
+        records[0]["CoName"] = "API_FALLBACK_NAME"
+        return records
 
     def get_eq_bars_daily_range(self, start_dt: str, end_dt: str) -> list[dict[str, Any]]:
         self.bars_calls.append((start_dt, end_dt))
@@ -99,30 +98,18 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            conn.execute(
-                "INSERT INTO jquants_master_snapshots("
-                "snapshot_date, ticker, name, market, sector_33, is_common_stock"
-                ") VALUES (?, ?, ?, ?, ?, ?)",
-                ("2026-05-07", "1301", "極洋", "プライム", "水産・農林業", 1),
-            )
-            _add_source_coverage(
-                conn,
-                source="jquants_master_snapshots",
-                record_count=1,
-                min_date="2026-05-07",
-                max_date="2026-05-07",
-            )
-            conn.commit()
-            conn.close()
+            asof = date(2026, 5, 7)
+            records = make_master_records(asof)
+            records[0]["CoName"] = "極洋"
+            store_jquants_master(sqlite_path, records, requested_asof=asof)
 
             client = _RecordingClient()
             provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
 
-            masters = provider.get_eq_master()
+            masters = provider.get_eq_master(asof)
 
-            self.assertEqual(client.eq_master_calls, 0)
-            self.assertEqual(len(masters), 1)
+            self.assertEqual(client.eq_master_calls, [])
+            self.assertEqual(len(masters), 2500)
             self.assertEqual(masters[0].name, "極洋")
 
     def test_get_eq_master_falls_back_to_api_when_sqlite_empty(self) -> None:
@@ -136,9 +123,10 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             client = _RecordingClient()
             provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
 
-            masters = provider.get_eq_master()
+            asof = date(2026, 5, 7)
+            masters = provider.get_eq_master(asof)
 
-            self.assertEqual(client.eq_master_calls, 1)
+            self.assertEqual(client.eq_master_calls, ["2026-05-07"])
             self.assertEqual(masters[0].name, "API_FALLBACK_NAME")
 
     def test_get_bars_uses_sqlite_for_covered_range(self) -> None:
@@ -343,9 +331,9 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             client = _RecordingClient()
             provider = JQuantsProvider("token", Path(tmp), client=client)
 
-            masters = provider.get_eq_master()
+            masters = provider.get_eq_master(date(2026, 5, 7))
 
-            self.assertEqual(client.eq_master_calls, 1)
+            self.assertEqual(client.eq_master_calls, ["2026-05-07"])
             self.assertEqual(masters[0].name, "API_FALLBACK_NAME")
 
 
