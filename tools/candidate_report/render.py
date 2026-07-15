@@ -18,7 +18,14 @@ Usage::
         --selection .cache/opportunity/ASOF/selection-output.yaml \\
         --candidates .cache/opportunity/ASOF/candidates.yaml \\
         --narratives .cache/opportunity/ASOF/narratives.yaml \\
+        --prepared .cache/opportunity/ASOF/selection.yaml \\
         --out .cache/opportunity/ASOF/candidate-report.html
+
+``--prepared`` points at the ``baibai-loop-opportunity prepare`` workspace
+output (``selection.yaml``): its ``audit_pool`` rows carry
+``portfolio_annotation`` (unheld/held/reserved/held_and_reserved), the one
+fact ``selection-output.yaml`` does not know because screening runs
+portfolio-blind.
 
 ``narratives.yaml`` schema (see ``narratives-template.yaml``)::
 
@@ -70,6 +77,12 @@ SECTIONS: tuple[tuple[str, str], ...] = (
     ("value", "この候補を深掘りする価値"),
 )
 PLOSS_CLASS = {"低": "lo", "中低": "mlo", "中": "mid", "要精査": "hi", "高": "hi"}
+PORTFOLIO_ANNOTATION_LABELS = {
+    "unheld": "未保有",
+    "held": "保有中（買増し候補）",
+    "reserved": "予約中（active reservationあり）",
+    "held_and_reserved": "保有中＋予約中",
+}
 
 
 class ReportError(ValueError):
@@ -125,10 +138,76 @@ def _price_label(asof: object) -> str:
     return f"{parsed.month}/{parsed.day} screening参考価格"
 
 
+def _portfolio_annotation_label(prep: dict[str, Any]) -> str:
+    raw = prep.get("portfolio_annotation")
+    if raw is None:
+        return "—"
+    return esc(PORTFOLIO_ANNOTATION_LABELS.get(str(raw), str(raw)))
+
+
+def _earnings_cell(cand: dict[str, Any], entry: dict[str, Any]) -> str:
+    raw = cand.get("next_earnings_date")
+    label = esc(raw) if raw else "未定/JPX未公表"
+    warnings = [str(w) for w in (entry.get("event_warnings") or [])]
+    if warnings:
+        label = f"{label}（warning: {esc(', '.join(warnings))}）"
+    return label
+
+
+def _er_decomposition_cell(metrics: dict[str, Any]) -> str:
+    reversion = fnum(metrics.get("er_reversion_annual"), 100, 1, "%", sign=True)
+    carry = fnum(metrics.get("er_carry_annual"), 100, 1, "%", sign=True)
+    return f"reversion {reversion} + carry {carry}"
+
+
+def _price_position_cell(cand: dict[str, Any]) -> str:
+    change_60d = fnum(cand.get("price_change_60d"), 100, 1, "%", sign=True)
+    gap = fnum(cand.get("gap_from_52w_low"), 100, 1, "%", sign=True)
+    return f"60日 {change_60d} ／ 52週安値から {gap}"
+
+
+def _growth_yoy_cell(metrics: dict[str, Any]) -> str:
+    sales = fnum(metrics.get("sales_yoy"), 100, 1, "%", sign=True)
+    op = fnum(metrics.get("operating_profit_yoy"), 100, 1, "%", sign=True)
+    return f"売上 {sales} ／ 営業益 {op}"
+
+
+def _fv_anchor_cell(metrics: dict[str, Any]) -> str:
+    self_range = fnum(metrics.get("fv_self_range_yen"), 1, 0, " 円")
+    sector_median = fnum(metrics.get("fv_sector_median_yen"), 1, 0, " 円")
+    text = f"自社レンジ {self_range} ／ 業種中央値 {sector_median}"
+    anchor = metrics.get("er_anchor_metrics")
+    if anchor:
+        text += f"（anchor: {esc(anchor)}）"
+    return text
+
+
+def _liquidity_cell(cand: dict[str, Any], entry: dict[str, Any]) -> str:
+    turnover = fnum(cand.get("avg_turnover_oku"), 1, 1, " 億円/日")
+    status = entry.get("liquidity_status")
+    return f"{turnover} ／ {esc(status) if status else '—'}"
+
+
+def _data_quality_cell(cand: dict[str, Any], metrics: dict[str, Any]) -> str:
+    warnings = [str(w) for w in (cand.get("freshness_warnings") or [])]
+    edinet_failure = metrics.get("edinet_failure_reasons")
+    if edinet_failure:
+        warnings.append(f"edinet: {edinet_failure}")
+    lag = metrics.get("bs_carry_forward_lag_days")
+    if isinstance(lag, (int, float)) and not isinstance(lag, bool) and lag > 0:
+        warnings.append(f"BS前期繰越 {fnum(lag, 1, 0)}日")
+    ttm_quality = cand.get("ttm_quality") or {}
+    non_exact = [key for key, value in ttm_quality.items() if value != "exact"]
+    if non_exact:
+        warnings.append(f"ttm非exact: {','.join(non_exact)}")
+    return esc(", ".join(warnings)) if warnings else "なし"
+
+
 def _fact_rows(
     ticker: str,
     cand: dict[str, Any],
     entry: dict[str, Any],
+    prep: dict[str, Any],
     nar: dict[str, Any],
     asof: object,
 ) -> str:
@@ -153,19 +232,24 @@ def _fact_rows(
         (_price_label(asof), fnum(px, 1, 1, " 円")),
         ("時価総額", fnum(cand.get("market_cap_oku"), 1, 0, " 億円")),
         ("業種", esc(sector)),
+        ("次回決算予定", _earnings_cell(cand, entry)),
         (
             "screening順位 / E[r]",
             f"{entry.get('rank', '—')}位 / <b>{fnum(entry.get('expected_return_pct'), 1, 2, '%')}</b>",
         ),
+        ("機械E[r]分解", _er_decomposition_cell(metrics)),
         (
             "FVアンカー / 乖離",
             f"{fnum(fv, 1, 0, ' 円')} / <b>{fnum(gap, 1, 0, '%', sign=True)}</b>",
         ),
+        ("FVアンカー構成", _fv_anchor_cell(metrics)),
+        ("値位置", _price_position_cell(cand)),
         (
             "PER(予/実) / PBR",
             f"{fnum(cand.get('per_forward'), 1, 1)} / {fnum(cand.get('per_trailing'), 1, 1)} ・ {fnum(cand.get('pbr'), 1, 2)}",
         ),
         ("EV/EBITDA", fnum(cand.get("ev_ebitda"), 1, 1)),
+        ("売上/営業益 YoY", _growth_yoy_cell(metrics)),
         ("自己資本比率", fnum(metrics.get("equity_ratio"), 100, 0, "%")),
         (f"{net_label} / 時価総額", fnum(net_cash, 100, 0, "%")),
         (
@@ -176,8 +260,10 @@ def _fact_rows(
             "実績→予想 配当",
             f"{fnum(metrics.get('dps_actual_annual'), 1, 1)} → {fnum(metrics.get('dps_forecast_annual'), 1, 1)} 円（利回り {fnum(metrics.get('dividend_yield'), 100, 2, '%')}, basis={esc(metrics.get('dividend_basis'))}）",
         ),
+        ("流動性", _liquidity_cell(cand, entry)),
         ("corporate action", corp),
-        ("portfolio状態", "未保有（追加候補）"),
+        ("データ品質", _data_quality_cell(cand, metrics)),
+        ("portfolio状態", _portfolio_annotation_label(prep)),
         ("暫定判断", f"<b>{esc(nar.get('prov', '—'))}</b>"),
     ]
     return "\n".join(f"<tr><th>{esc(k)}</th><td>{v}</td></tr>" for k, v in rows)
@@ -188,10 +274,11 @@ def _card(
     ticker: str,
     cand: dict[str, Any],
     entry: dict[str, Any],
+    prep: dict[str, Any],
     nar: dict[str, Any],
     asof: object,
 ) -> str:
-    facts = _fact_rows(ticker, cand, entry, nar, asof)
+    facts = _fact_rows(ticker, cand, entry, prep, nar, asof)
     secs = "\n".join(
         f'<div class="sec"><h4>{esc(heading)}</h4><p>{esc(nar.get(key, "—"))}</p></div>'
         for key, heading in SECTIONS
@@ -222,6 +309,11 @@ def _comparison_rows(
         nar = nar_by[ticker]
         metrics = cand.get("metrics", {})
         gap = _fv_gap_pct(entry)
+        er_decomp = (
+            f"{fnum(metrics.get('er_reversion_annual'), 100, 1, sign=True)}"
+            f"/{fnum(metrics.get('er_carry_annual'), 100, 1, sign=True)}%"
+        )
+        next_earnings = cand.get("next_earnings_date")
         out.append(
             f"<tr><td>{i}</td>"
             f'<td><a href="{TRADINGVIEW.format(ticker=ticker)}" target="_blank" rel="noopener">{esc(ticker)}</a> {esc(cand.get("name", ""))}</td>'
@@ -230,18 +322,23 @@ def _comparison_rows(
             f"<td>{esc(nar.get('ploss', '—'))}</td>"
             f'<td class="num">{fnum(metrics.get("equity_ratio"), 100, 0, "%")} / {fnum(metrics.get("net_cash_to_market_cap"), 100, 0, "%")}</td>'
             f'<td class="num">{fnum(entry.get("expected_return_pct"), 1, 2, "%")}</td>'
+            f'<td class="num">{er_decomp}</td>'
+            f'<td class="num">{fnum(cand.get("price_change_60d"), 100, 1, "%", sign=True)}</td>'
             f'<td class="num">{fnum(gap, 1, 0, "%", sign=True)}</td>'
+            f"<td>{esc(next_earnings) if next_earnings else '—'}</td>"
             f"<td>{esc(nar.get('prov', '—'))}</td></tr>"
         )
     return "\n".join(out)
 
 
-def render(*, selection: Path, candidates: Path, narratives: Path) -> str:
+def render(*, selection: Path, candidates: Path, narratives: Path, prepared: Path) -> str:
     sel_doc = _load(selection)
     cand_by = _candidate_index(_load(candidates))
     nar_doc = _load(narratives)
+    prepared_doc = _load(prepared)
 
     pool = {e["ticker"]: e for e in sel_doc.get("audit_pool", [])}
+    prepared_pool = {e["ticker"]: e for e in prepared_doc.get("audit_pool", [])}
     meta = nar_doc.get("meta", {}) or {}
     nar_list = nar_doc.get("candidates", []) or []
     order = [c["ticker"] for c in nar_list]
@@ -251,6 +348,13 @@ def render(*, selection: Path, candidates: Path, narratives: Path) -> str:
     if missing:
         raise ReportError(f"narrative tickers not in screening audit pool/candidates: {missing}")
 
+    missing_prepared = [t for t in order if t not in prepared_pool]
+    if missing_prepared:
+        raise ReportError(
+            "narrative tickers not in prepared selection (prepare output) audit pool: "
+            f"{missing_prepared}"
+        )
+
     asof = (sel_doc.get("selection", {}) or {}).get("asof", "—")
     title = meta.get("title", f"日本株 候補レポート — 第1段階（{asof} 基準）")
     order_by = meta.get("order_by", "運用者指定順")
@@ -258,7 +362,8 @@ def render(*, selection: Path, candidates: Path, narratives: Path) -> str:
     intro_block = f"<ul>{intro}</ul>" if intro else ""
 
     cards = "\n".join(
-        _card(i, t, cand_by[t], pool[t], nar_by[t], asof) for i, t in enumerate(order, start=1)
+        _card(i, t, cand_by[t], pool[t], prepared_pool[t], nar_by[t], asof)
+        for i, t in enumerate(order, start=1)
     )
     comp = _comparison_rows(order, cand_by, pool, nar_by)
     excl = "\n".join(
@@ -279,6 +384,7 @@ def render(*, selection: Path, candidates: Path, narratives: Path) -> str:
         excl_rows=excl,
         cand_hash=_sha256(candidates),
         sel_hash=_sha256(selection),
+        prepared_hash=_sha256(prepared),
         selection_path=esc(selection),
     )
 
@@ -288,9 +394,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--selection", required=True, type=Path)
     parser.add_argument("--candidates", required=True, type=Path)
     parser.add_argument("--narratives", required=True, type=Path)
+    parser.add_argument("--prepared", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
     args = parser.parse_args(argv)
-    doc = render(selection=args.selection, candidates=args.candidates, narratives=args.narratives)
+    doc = render(
+        selection=args.selection,
+        candidates=args.candidates,
+        narratives=args.narratives,
+        prepared=args.prepared,
+    )
     args.out.write_text(doc, encoding="utf-8")
     print(f"wrote {args.out} ({len(doc)} bytes)")
     return 0
@@ -338,7 +450,7 @@ table.facts a, table.comp a {{ color:var(--accent); text-decoration:none; }}
 .secs {{ padding:6px 18px 12px; }}
 .sec {{ margin:12px 0; }} .sec h4 {{ margin:0 0 3px; font-size:14px; color:var(--accent); }} .sec p {{ margin:0; font-size:13.5px; }}
 .scroll {{ overflow-x:auto; }}
-table.comp {{ border-collapse:collapse; width:100%; font-size:13px; min-width:820px; }}
+table.comp {{ border-collapse:collapse; width:100%; font-size:13px; min-width:1100px; }}
 table.comp th, table.comp td {{ padding:8px 10px; border-bottom:1px solid var(--line); text-align:left; }}
 table.comp thead th {{ background:var(--card); border-bottom:2px solid var(--line); }}
 table.comp td.num {{ text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }}
@@ -367,14 +479,14 @@ code {{ background:color-mix(in srgb, var(--ink) 8%, transparent); padding:1px 5
 <table class="comp">
 <thead><tr>
 <th>#</th><th>ticker / 銘柄</th><th>screening参考価格</th><th>valuation</th><th>永久損失(暫定)</th>
-<th>自己資本比率 / net cash比</th><th>機械E[r]</th><th>FV乖離</th><th>暫定判断</th>
+<th>自己資本比率 / net cash比</th><th>機械E[r]</th><th>E[r]分解(rev/carry)</th><th>60日変化</th><th>FV乖離</th><th>次回決算</th><th>暫定判断</th>
 </tr></thead>
 <tbody>
 {comp_rows}
 </tbody>
 </table>
 </div>
-<p class="lede">注: 機械E[r]・FVアンカーは screening の機械見積り（reversion + carry）であり<b>事実ではありません</b>。FV乖離は「FVアンカー/現値−1」。永久損失は第1段階の暫定読みで、7軸の本評価は第2段階。</p>
+<p class="lede">注: 機械E[r]・FVアンカーは screening の機械見積り（reversion + carry）であり<b>事実ではありません</b>。FV乖離は「FVアンカー/現値−1」。永久損失は第1段階の暫定読みで、7軸の本評価は第2段階。E[r]分解のreversionは価格の異常乖離の回帰、carryは配当等の継続リターン推定。carry偏重のE[r]は割安の証拠ではない。</p>
 
 <h2>audit pool 上位のうち 非選択の理由</h2>
 <ul class="excl">
@@ -390,6 +502,7 @@ code {{ background:color-mix(in srgb, var(--ink) 8%, transparent); padding:1px 5
 <div class="foot">
 screening candidates sha256: <code>{cand_hash}</code><br>
 selection-output sha256: <code>{sel_hash}</code><br>
+prepared selection sha256: <code>{prepared_hash}</code><br>
 selection: {selection_path}
 </div>
 </div>
