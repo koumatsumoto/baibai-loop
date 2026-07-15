@@ -134,6 +134,8 @@ base terminal multipleが観測trailing multipleを上回る場合は、premium�
 
 全lane比較後は[`research-decision-report`](../reference/research-decision-report.md)の共通findings templateへ、指定質問への回答、business model、value capture、growth quality、財務耐久性、業種固有分析、unknown、monitoringを統合する。数値scenario、FV、7軸、採否、指値・数量をfindingsへ複製せず、packet / comparison / proposalからrendererがjoinする。
 
+OP3 shortlist narrativeの`research`確認事項は、primary-research setの各銘柄についてfindingsでansweredにするか`unknowns`へ残す。購入提案がある場合は`decision_context.entry_timing`に、選択銘柄の直近dated material eventとevent前に買う判断理由を書く（契約は[`research-decision-report`](../reference/research-decision-report.md)を正本とする）。
+
 growth qualityは開示範囲でvolume、price、mix、upsell/churn、FXへ分ける。海外展開は商品coverage、契約所在地/請求通貨/地域売上、ultimate customer originを別々に評価する。management claimにはその区分を付け、未開示値はunknownに残す。
 
 HTML生成前に、report compilerと別roleが軽量なfindings / comparison / packet / proposalをreviewする。source freshness、指定質問への回答、一次source traceability、fact/estimate分離、countercase/unknown、scenario/FV、横比較/portfolio fit、購入方法bindingの全checkがpassで、reviewed input hashが現在値と一致する場合だけHTMLを生成する。HTMLそのものはreview対象にしない。

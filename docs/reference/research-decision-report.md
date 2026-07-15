@@ -3,7 +3,7 @@ title: "Research decision report"
 summary: "詳細リサーチ、横比較、購入方法を独立content review後にHTML projectionへ統合する契約。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-14
+last_reviewed: 2026-07-15
 ---
 
 # research-decision-report — 詳細リサーチ統合レポート
@@ -37,6 +37,10 @@ templateは[`tools/research_decision_report/findings-template.yaml`](../../tools
 - dated catalyst、未開示・blocked、monitoring trigger
 - source document title、公表日、取得status（`ok / missing / stale / failed / blocked`）
 
+candidate shortlist report（OP3）の`research`に挙げた確認事項は、primary-research setに選ばれた銘柄について`assigned_questions` / `growth_quality` / `domain_findings`のいずれかでansweredにするか、一次情報で確認できなければ`unknowns`へ残す。researchを正当化した論点を黙って落とさない。
+
+`decision_context.entry_timing`は、購入提案がある場合に必須とする。選択銘柄の直近のdated material event（決算、guidance更新等）と、そのeventの**前に**買う理由（またはeventが判断のload-bearingではない理由）を1〜3行で書く。event結果が判断を変え得るのに先回りして買う場合、その非対称性（待つコストと先回りのrisk）を明示する。rendererは購入提案があるのに`entry_timing`が無い場合に停止し、選択銘柄のfindingsから直近dated catalystを購入方法の隣へ機械表示する。
+
 各evidenceは`observed / derived / estimate / management_claim`を区別し、packetの`source_id`へjoinする。URL、retrieved_at、as-of、used_forはpacket sourceを正本とし、findingsへ重複させない。外部sourceのdocument title / published_at / statusだけを`source_metadata`で補う。未知source ID、不正ticker、shortlist不一致、as-of不一致は生成を停止する。
 
 海外展開は少なくとも次の3層を分ける。所在地ベースの海外売上だけで国際分散を確定しない。
@@ -62,13 +66,13 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.research_decision_report.revie
 `selected_ticker: null`の`no actionable bargain`では`--proposal`を省略する。reviewerは以下を一つずつ`pass / fail`にし、`reviewer_identity`、別`reviewer_run_id`、`reviewed_at`、findingを記録する。
 
 1. source freshness
-2. user questions answered
+2. user questions answered — 人間指定質問に加え、OP3 shortlist narrativeの`research`確認事項がanswered / unknownとして消化されていること
 3. primary source traceability
 4. fact / estimate separation
 5. countercase and unknowns
 6. scenario and FV consistency
 7. comparison and portfolio fit
-8. purchase method binding
+8. purchase method binding — 指値・数量・hash bindingに加え、`entry_timing`が直近dated catalystと整合し、event前に買う理由が根拠を持つこと
 
 `changes_required`ならfindings / comparison / packet / proposalへ戻る。変更後はhashが変わるため、既存reviewを上書きせず`report-review-attempt-2.yaml`のようにattempt番号を増やして再scaffoldする。rendererの`--review`には最終attemptを明示する。全checkが`pass`でerror findingがなく、reviewed input hashが現在値と一致するときだけ`conclusion: pass`にする。
 
@@ -95,7 +99,7 @@ no actionable bargainでは`--proposal`を省略する。selected tickerがあ�
 
 HTMLは外部script/assetを持たず、CSPを設定し、全自由記述をescapeする。tickerは固定形式のTradingView URLだけへlinkする。一次source linkはHTTPSかつpublic hostだけを許し、hostnameを表示してuserinfo、localhost、private / link-local literalを拒否する。non-ok sourceのdecision-impact noteと、pass reviewに残るwarning / info findingを省略せず表示する。`missing / failed / blocked` sourceを`observed` evidenceの根拠には使えない。
 
-comparisonの5年base CAGR / FV / FV gapはpacketから再計算し、proposalのboard lot / max price / raw close / quantity / notionalは`plan-limit`と同じpolicy・式から再導出する。portfolio exposureはproposal内のcurrent / prospective円額と同一basisの総資本から比率を再計算し、fallback銘柄とwarning codeの1対1対応も確認する。review hashがfreshでも矛盾した手書き数値は拒否する。`planned_limit`は何を・いくらで・何株・想定いくら・いつまでに加え、同一as-ofのticker / sector / common-factor比率とfallback有無を表示する。`defer` / `no actionable bargain`は購入提案なしを明示する。
+comparisonの5年base CAGR / FV / FV gapはpacketから再計算し、proposalのboard lot / max price / raw close / quantity / notionalは`plan-limit`と同じpolicy・式から再導出する。各候補のscenario節には、`evaluate_decision_packet`で再導出した要求5年CAGR、base terminal multiple、5年base break-even（multiple / earnings growthとdownside buffer）、観測trailing multipleを表示する。bufferが負であることは表示上の欠陥ではなく、買い提案との整合はreview gateの責務とする。break-evenを再導出できないpacketはfail-closedで停止する。portfolio exposureはproposal内のcurrent / prospective円額と同一basisの総資本から比率を再計算し、fallback銘柄とwarning codeの1対1対応も確認する。review hashがfreshでも矛盾した手書き数値は拒否する。`planned_limit`は何を・いくらで・何株・想定いくら・いつまでに加え、同一as-ofのticker / sector / common-factor比率とfallback有無を表示する。`defer` / `no actionable bargain`は購入提案なしを明示する。
 
 ## Storage and checkpoint
 

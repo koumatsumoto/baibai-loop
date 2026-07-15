@@ -29,7 +29,9 @@ from baibai_loop.position.policy import PORTFOLIO_POLICY
 from baibai_loop.thesis.decision_packet import (
     DecisionPacketDocument,
     DecisionPacketError,
+    FiveYearBaseBreakEvenResult,
     decision_packet_core_hash,
+    evaluate_decision_packet,
     load_decision_packet,
 )
 from baibai_loop.thesis.execution_policy import ExecutionPolicyError, max_acceptable_price
@@ -180,6 +182,7 @@ class DecisionContext(BaseModel):
 
     portfolio_fit: Annotated[str, Field(min_length=1)]
     human_action: Annotated[str, Field(min_length=1)]
+    entry_timing: Annotated[str, Field(min_length=1)] | None = None
 
 
 class FindingsDocument(BaseModel):
@@ -927,14 +930,53 @@ def _scenario_html(packet: DecisionPacketDocument) -> str:
         "<tr>"
         f"<td>{scenario.horizon_years}年</td><td>{_esc(scenario.name)}</td>"
         f"<td>{scenario.annual_earnings_growth_pct:+.1f}%</td>"
+        f"<td>{float(scenario.terminal_valuation_multiple):,.2f}倍</td>"
         f"<td>{float(scenario.claimed_terminal_price_yen):,.0f}円</td>"
+        f"<td>{float(scenario.cumulative_dividend_per_share_yen):,.0f}円</td>"
         f"<td>{scenario.claimed_total_return_cagr_pct:+.2f}%</td>"
         f"<td>{_esc(scenario.assumption)}</td></tr>"
         for scenario in packet.estimates.scenarios
     )
     return f"""<div class="scroll"><table><thead><tr><th>horizon</th><th>case</th>
-<th>利益成長</th><th>terminal price</th><th>total return CAGR</th><th>assumption</th>
+<th>利益成長</th><th>terminal multiple</th><th>terminal price</th><th>累積配当</th><th>total return CAGR</th><th>assumption</th>
 </tr></thead><tbody>{rows}</tbody></table></div>"""
+
+
+_BREAK_EVEN_STATUS_LABELS: Mapping[str, str] = {
+    "within_model_bounds": "モデル範囲内",
+    "below_model_min": "モデル下限未満",
+    "above_model_max": "モデル上限超過",
+    "dividends_alone_sufficient": "配当のみで到達可能",
+    "calculation_unresolved": "計算不能",
+    "resolved": "観測値あり",
+    "missing": "観測データなし",
+    "ambiguous": "観測データ複数該当",
+    "invalid": "観測データ不正",
+    "not_applicable": "対象外（FCFEベース）",
+}
+
+
+def _maybe_float(value: Decimal | None) -> float | None:
+    return None if value is None else float(value)
+
+
+def _break_even_html(result: FiveYearBaseBreakEvenResult | None) -> str:
+    if result is None:
+        return '<p class="note">break-even算出対象外。</p>'
+    return f"""<div class="decision">
+<p><b>要求5年CAGR:</b> {_fmt(_maybe_float(result.required_total_return_cagr_pct), digits=2, suffix="%")}</p>
+<p><b>terminal multiple:</b> base {_fmt(_maybe_float(result.base_terminal_valuation_multiple), digits=2, suffix="倍")} /
+break-even {_fmt(_maybe_float(result.break_even_terminal_valuation_multiple), digits=2, suffix="倍")} /
+downside buffer {_fmt(_maybe_float(result.terminal_multiple_downside_buffer), digits=2, suffix="倍")}
+— {_esc(_BREAK_EVEN_STATUS_LABELS[result.terminal_multiple_status])}</p>
+<p><b>earnings growth:</b> base {_fmt(_maybe_float(result.base_annual_earnings_growth_pct), digits=1, suffix="%")} /
+break-even {_fmt(_maybe_float(result.break_even_annual_earnings_growth_pct), digits=1, suffix="%")} /
+buffer {_fmt(_maybe_float(result.earnings_growth_downside_buffer_pct_points), digits=1, suffix="pt")}
+— {_esc(_BREAK_EVEN_STATUS_LABELS[result.earnings_growth_status])}</p>
+<p><b>観測trailing multiple:</b> {_fmt(_maybe_float(result.observed_trailing_multiple), digits=2, suffix="倍")}
+（{_esc(_BREAK_EVEN_STATUS_LABELS[result.observed_trailing_multiple_status])}）</p>
+<p class="note">buffer正 = 他の仮定を固定したとき要求CAGRを守りながら吸収できる悪化余地。負でも計算としては有効で、買い提案との整合はreview済み。</p>
+</div>"""
 
 
 def _risks_html(packet: DecisionPacketDocument) -> str:
@@ -973,7 +1015,11 @@ def _sources_html(findings: CandidateFindings, packet: DecisionPacketDocument) -
 
 
 def _candidate_html(
-    *, findings: CandidateFindings, packet: DecisionPacketDocument, comparison: Mapping[str, object]
+    *,
+    findings: CandidateFindings,
+    packet: DecisionPacketDocument,
+    comparison: Mapping[str, object],
+    break_even: FiveYearBaseBreakEvenResult | None,
 ) -> str:
     assert packet.estimates is not None
     questions = "".join(_finding_html(item) for item in findings.assigned_questions)
@@ -1007,6 +1053,7 @@ def _candidate_html(
 <h3>財務耐久性</h3><ul>{_evidence_html((findings.financial_resilience,))}</ul>
 {domains}
 <h3>3年 / 5年 scenario</h3>{_scenario_html(packet)}
+{_break_even_html(break_even)}
 <h3>永久損失 7軸</h3><ul>{_risks_html(packet)}</ul>
 <h3>AI value capture</h3><p>{_esc(ai.assessment_status)} / {_esc(ai.value_capture_conclusion)} / {_esc(ai.decision_weight)} — {_esc(ai.rationale)}</p>
 <h3>最強countercase</h3><ul>{_evidence_html((findings.strongest_countercase,))}</ul>
@@ -1101,7 +1148,27 @@ def _portfolio_exposure_html(proposal: Mapping[str, object]) -> str:
 {factor_coverage_note}"""
 
 
-def _proposal_html(proposal: Mapping[str, object] | None, selected_ticker: str | None) -> str:
+def _nearest_dated_catalyst_html(findings: CandidateFindings | None) -> str:
+    if findings is None:
+        return "dated catalystなし"
+    dated: list[tuple[date, str]] = sorted(
+        (item.expected_on, item.event)
+        for item in findings.catalysts
+        if item.expected_on is not None
+    )
+    if not dated:
+        return "dated catalystなし"
+    nearest_date, nearest_event = dated[0]
+    return f"{nearest_date.isoformat()} {_esc(nearest_event)}"
+
+
+def _proposal_html(
+    proposal: Mapping[str, object] | None,
+    selected_ticker: str | None,
+    *,
+    candidate_findings: CandidateFindings | None,
+    entry_timing: str | None,
+) -> str:
     if proposal is None or selected_ticker is None:
         return """<section class="order no-order"><h2>購入提案なし</h2>
 <p>全調査結果を比較した結論は no actionable bargain です。注文は作成しません。</p></section>"""
@@ -1125,7 +1192,9 @@ def _proposal_html(proposal: Mapping[str, object] | None, selected_ticker: str |
 <dl><dt>価格basis</dt><dd>{_esc(proposal.get("price_basis"))} / {_esc(proposal.get("price_as_of"))}</dd>
 <dt>最大許容価格</dt><dd>{_fmt(proposal.get("max_acceptable_price_yen"), digits=1, suffix="円")}</dd>
 <dt>board lot</dt><dd>{_fmt(proposal.get("board_lot"), digits=0, suffix="株")}</dd>
-<dt>有効期限</dt><dd>{_esc(proposal.get("expires_at"))}</dd></dl>
+<dt>有効期限</dt><dd>{_esc(proposal.get("expires_at"))}</dd>
+<dt>entry timing</dt><dd>{_esc(entry_timing) if entry_timing is not None else "—"}</dd>
+<dt>直近の確認event</dt><dd>{_nearest_dated_catalyst_html(candidate_findings)}</dd></dl>
 {_portfolio_exposure_html(proposal)}
 <h3>warning</h3><ul>{warnings or "<li>なし</li>"}</ul>
 <h3>portfolio annotation</h3><ul>{annotations or "<li>なし</li>"}</ul>
@@ -1154,6 +1223,7 @@ def render(
     rows = _comparison_index(comparison)
     packets: dict[str, DecisionPacketDocument] = {}
     packet_paths: dict[str, Path] = {}
+    break_evens: dict[str, FiveYearBaseBreakEvenResult | None] = {}
     for ticker in shortlist_tickers:
         if ticker not in rows:
             raise ReportError(f"comparison is missing shortlist ticker {ticker}")
@@ -1163,8 +1233,13 @@ def render(
         if packet.input_snapshot.as_of != findings.meta.as_of:
             raise ReportError(f"packet as_of mismatch for {ticker}")
         _validate_sources(findings_by[ticker], packet)
+        try:
+            packet_result = evaluate_decision_packet(packet)
+        except DecisionPacketError as error:
+            raise ReportError(f"cannot evaluate decision packet for {ticker}: {error}") from error
         packet_paths[ticker] = packet_path
         packets[ticker] = packet
+        break_evens[ticker] = packet_result.five_year_base_break_even
     selected = comparison.get("selected_ticker")
     selected_ticker = str(selected) if selected is not None else None
     if selected_ticker is not None and selected_ticker not in shortlist_tickers:
@@ -1182,6 +1257,8 @@ def render(
         report_budget_yen=findings.meta.budget_yen,
         target_session=findings.meta.target_session,
     )
+    if selected_ticker is not None and findings.decision_context.entry_timing is None:
+        raise ReportError("decision_context.entry_timing is required when a proposal exists")
     bindings = review_bindings(
         workspace=workspace,
         findings_path=findings_path,
@@ -1194,7 +1271,10 @@ def render(
     warnings = "".join(f"<li>{_esc(item)}</li>" for item in findings.meta.warnings)
     companies = "".join(
         _candidate_html(
-            findings=findings_by[ticker], packet=packets[ticker], comparison=rows[ticker]
+            findings=findings_by[ticker],
+            packet=packets[ticker],
+            comparison=rows[ticker],
+            break_even=break_evens[ticker],
         )
         for ticker in shortlist_tickers
     )
@@ -1218,7 +1298,12 @@ def render(
         ranking=_esc(comparison["ranking_rationale"]),
         portfolio_fit=_esc(findings.decision_context.portfolio_fit),
         human_action=_esc(findings.decision_context.human_action),
-        proposal=_proposal_html(proposal, selected_ticker),
+        proposal=_proposal_html(
+            proposal,
+            selected_ticker,
+            candidate_findings=findings_by.get(selected_ticker) if selected_ticker else None,
+            entry_timing=findings.decision_context.entry_timing,
+        ),
         comparison=_comparison_html(tickers=shortlist_tickers, rows=rows, packets=packets),
         companies=companies,
         manifest_hash=_sha256(workspace / "manifest.yaml"),

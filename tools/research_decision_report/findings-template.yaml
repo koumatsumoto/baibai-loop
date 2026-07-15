@@ -9,6 +9,7 @@ meta:
 decision_context:
   portfolio_fit: current ledgerとの重複・集中・cash余力を定性的に要約する
   human_action: approve / defer / reject のどれを判断してほしいかを書く
+  entry_timing: 選択銘柄の直近material event（決算等）と、その前に買う/待つ判断理由。購入提案があるとき必須
 candidates:
 - ticker: '0000'
   confidence: medium
