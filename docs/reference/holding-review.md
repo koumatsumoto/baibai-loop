@@ -70,9 +70,12 @@ replacement_edge = switch_terminal - hold_terminal
 ## Commands
 
 ```bash
-uv run baibai-loop-position holding-review-build --packet records/03-thesis/YYYY/MM/YYYY-MM-DD-XXXX-decision.yaml --ledger records/04-position/portfolio-ledger.yaml --position-id POSITION_ID --out .cache/holding-review/YYYY-MM-DD-XXXX-attempt-N-review.yaml
-uv run baibai-loop-position holding-review --root . --input .cache/holding-review/YYYY-MM-DD-XXXX-attempt-N-review.yaml
+uv run baibai-loop-position market-price-draft --root . --ledger records/04-position/portfolio-ledger.yaml --sqlite data/screening/market.sqlite --asof ASOF_DATE --out .cache/position/ASOF_DATE-market-price-ledger.yaml
+uv run baibai-loop-opportunity holding-prepare --asof ASOF_DATE --ledger records/04-position/portfolio-ledger.yaml --ticker XXXX --workspace .cache/opportunity/ASOF_DATE/holding-XXXX
+uv run baibai-loop-opportunity packet-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --ticker XXXX --sqlite-path data/screening/market.sqlite --target-session NEXT_SESSION_DATE
+uv run baibai-loop-position holding-review-build --packet records/03-thesis/YYYY/MM/ASOF_DATE-XXXX-decision.yaml --ledger records/04-position/portfolio-ledger.yaml --position-id POSITION_ID --out .cache/holding-review/ASOF_DATE-XXXX-attempt-N-review.yaml
+uv run baibai-loop-position holding-review --root . --input .cache/holding-review/ASOF_DATE-XXXX-attempt-N-review.yaml
 uv run baibai-loop-validation --target holding-review
 ```
 
-buildはpacket/review missing、hash drift、packetとholding market-price observationの日付不一致、ledgerにopen holdingなし、raw/unadjusted price basis不一致、source path escapeで停止する。ledgerの非価格eventはmarket closeより新しくてよい。draft生成後は`holding-review --root . --input`がsourceからscalarを再構築して照合する。人間が確認したdraftだけをcanonicalへcopyし、その後にvalidationを通す。完全な手順は[`../operations/decision-cycle.md#earnings-and-material-event-path`](../operations/decision-cycle.md#earnings-and-material-event-path)を正本とする。
+`ASOF_DATE`は価格draftの最新完全営業日、`NEXT_SESSION_DATE`はその次の取引sessionである。`market-price-draft`は全open holdingの`ASOF_DATE` raw closeを同じcalendar dateで揃え、canonical ledgerを直接変更しない。人間がdraftをcanonicalへ反映した後、`holding-prepare`がledger hashに束縛した1銘柄固定workspaceを作り、holding market-price observationの日付が`--asof`と異なれば停止する。`packet-scaffold`も解決したraw close日がworkspace `as_of`と異なれば停止する。buildはpacket/review missing、hash drift、packetとholding market-price observationの日付不一致、ledgerにopen holdingなし、raw/unadjusted price basis不一致、source path escapeで停止する。ledgerの非価格eventはmarket closeより新しくてよい。draft生成後は`holding-review --root . --input`がsourceからscalarを再構築して照合する。人間が確認したdraftだけをcanonicalへcopyし、その後にvalidationを通す。完全な手順は[`../operations/decision-cycle.md#earnings-and-material-event-path`](../operations/decision-cycle.md#earnings-and-material-event-path)を正本とする。

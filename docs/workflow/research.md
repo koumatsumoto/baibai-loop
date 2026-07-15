@@ -48,7 +48,7 @@ primary-research setの比較は永久損失、5年期待return/FV乖離、portf
 
 ## Parallel research lanes
 
-人間がprimary-research setを複数選んだ場合、共有workspaceのselection output / ledger hashを共通lineageとして、tickerごとの`.cache/opportunity/YYYY-MM-DD/<ticker>/` laneを作る。一次source確認、永久損失7軸、scenario、packet、独立reviewはlane間で並行できる。各laneは自tickerのdraftとchecklistだけを変更し、他tickerの成果物をcopyまたは上書きしない。
+人間がprimary-research setを複数選んだ場合、共有workspaceのselection output / ledger hashを共通lineageとして、tickerごとの`.cache/opportunity/ASOF_DATE/<ticker>/` laneを作る。一次source確認、永久損失7軸、scenario、packet、独立reviewはlane間で並行できる。各laneは自tickerのdraftとchecklistだけを変更し、他tickerの成果物をcopyまたは上書きしない。
 
 並行化するのは調査と反証までである。全laneを同じ比較表で評価した後、現在の提案roundの`selected_ticker`は0〜1件に保つ。複数laneがviableなら、最上位の人間判断と必要なcanonical ledger更新を完了してから次のlaneを再比較し、最新ledgerで指値を再計算する。selection時点のledger hashを複数proposalへ使い回さない。
 
@@ -102,7 +102,9 @@ ledgerから`unheld / held / reserved / held_and_reserved`を付け、追加後c
 
 ## Packet scaffold
 
-[`operations/decision-cycle.md#opportunity-path`](../operations/decision-cycle.md#opportunity-path)のpublic recipeでworkspaceを作る。`packet-scaffold`はprimary-research setに含まれるtickerのlaneだけに作成する。scaffoldが埋めないjudgmentを推測で補完せず、checklistを`complete / blocked`にする。
+通常の候補調査は[`operations/decision-cycle.md#opportunity-path`](../operations/decision-cycle.md#opportunity-path)のpublic recipeでworkspaceを作る。`packet-scaffold`はprimary-research setに含まれるtickerのlaneだけに作成し、このgateを保有reviewのために緩めない。workspaceの`ASOF_DATE`に対して`--target-session`には次の取引sessionを指定し、解決したraw close日がmanifest `as_of`と異なる場合は停止する。
+
+決算・material eventによる保有更新は[`operations/decision-cycle.md#earnings-and-material-event-path`](../operations/decision-cycle.md#earnings-and-material-event-path)の`holding-prepare`を使う。canonical ledgerの実在open holdingが調査対象を決め、audit pool、shortlist、selected tickerを同じ1銘柄に固定するため、screening selection outputを要求しない。どちらのworkspaceでもscaffoldが埋めないjudgmentを推測で補完せず、checklistを`complete / blocked`にする。
 
 packetは次を分離する。
 

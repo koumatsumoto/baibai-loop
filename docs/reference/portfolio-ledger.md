@@ -83,10 +83,13 @@ warningは判断を禁止しない。overrideは`reason`、`decision_reference`�
 
 ```bash
 uv run baibai-loop-position ledger
+uv run baibai-loop-position market-price-draft --root . --ledger records/04-position/portfolio-ledger.yaml --sqlite data/screening/market.sqlite --asof YYYY-MM-DD --out .cache/position/YYYY-MM-DD-market-price-ledger.yaml
 uv run baibai-loop-position record-result --help
 uv run python -m tools.limit_outcome --help
 uv run baibai-loop-validation --target ledger
 ```
+
+`market-price-draft`はreconcile済みsource ledgerの全open holdingについて、指定日のJ-Quants `jquants_daily_bars.close`を同日に観測でき、かつ指定日が各holdingのcurrent market-price observation日以上である場合だけ、新しいledger draftをexclusive createする。`adjustment_close`は代替価格に使わず、`adjustment_factor != 1`でもraw closeを記録してcorporate-action確認を別contractに残す。生成した全`market_prices`は`source_kind: licensed_dataset`、`price_basis: unadjusted_close`、`source_ref: data/screening/market.sqlite:jquants_daily_bars:TICKER:YYYY-MM-DD`を持つ。ledger `as_of`は既存時刻と指定日15:30 JSTの遅い方なので、より新しい非価格eventを巻き戻さない。stdoutはsource ledger path/hash、使用rowのfingerprint、生成直後の`draft_sha256`、output pathを返す。copy直前にcurrent canonical ledgerのhashがsource ledger hashと一致し、draftのbyte hashが`draft_sha256`と一致することを確認する。どちらかが異なればcopyせず、current sourceからdraftを再生成する。
 
 `record-result`は人間の`open / filled / cancelled / expired`報告だけを入力とし、canonical ledgerを直接変更しない。`expired`は明示的なreservation_idと`occurred_at >= expires_at`を必須とし、未約定残数を`release(reason=expired)`にする。active reservationが1件でもIDを推定しない。source ledger hashとpatched local draftを返す。報告がない状態、missing field、未知reservation、future timestamp、reconciliation errorを推定で補わない。result draftのevent replayはmarket price鮮度に依存せず、broker結果の記録を無関係なmarket不足で止めない。draftのevent/snapshot/diffを確認し、source hash不変とvalidationを確認してからcanonicalへ反映する。
 

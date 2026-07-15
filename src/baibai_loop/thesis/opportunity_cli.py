@@ -27,6 +27,7 @@ from .opportunity import (
     OpportunityError,
     compute_status,
     plan_limit,
+    prepare_holding_workspace,
     prepare_workspace,
     promote,
     scaffold_packet,
@@ -57,6 +58,19 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("--ledger", required=True, type=Path)
     prepare_parser.add_argument("--workspace", required=True, type=Path)
     prepare_parser.add_argument(
+        "--force", action="store_true", help="rebuild an existing local workspace"
+    )
+
+    holding_prepare_parser = subparsers.add_parser(
+        "holding-prepare", help="build a one-ticker workspace for an open holding"
+    )
+    holding_prepare_parser.add_argument(
+        "--asof", required=True, help="workspace as-of date (YYYY-MM-DD)"
+    )
+    holding_prepare_parser.add_argument("--ledger", required=True, type=Path)
+    holding_prepare_parser.add_argument("--ticker", required=True)
+    holding_prepare_parser.add_argument("--workspace", required=True, type=Path)
+    holding_prepare_parser.add_argument(
         "--force", action="store_true", help="rebuild an existing local workspace"
     )
 
@@ -129,6 +143,23 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         "audit_pool_size": prepared.audit_pool_size,
                         "shortlist_slots": prepared.shortlist_slots,
                         "note": None if prepared.actionable else "no actionable bargain",
+                    },
+                    out,
+                )
+            case "holding-prepare":
+                prepared = prepare_holding_workspace(
+                    asof=_parse_date(args.asof),
+                    ledger=args.ledger,
+                    ticker=args.ticker,
+                    workspace=args.workspace,
+                    force=args.force,
+                )
+                _emit(
+                    {
+                        "workspace": str(prepared.workspace),
+                        "actionable": prepared.actionable,
+                        "audit_pool_size": prepared.audit_pool_size,
+                        "shortlist_slots": prepared.shortlist_slots,
                     },
                     out,
                 )

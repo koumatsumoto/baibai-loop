@@ -145,11 +145,12 @@ Automation は人間の投資判断を置き換えず、fact snapshot 生成・s
 | `baibai-loop-validation` | `validation/` | records と schema の整合を検証 |
 | `baibai-loop-position outcome` | `position/` | ledger TWRをJPX TOPIX配当込み公式期間returnと比較 |
 | `baibai-loop-position ledger` | `position/` | repo内portfolioのcash、reservation、保有、income、cost、taxを再計算 |
+| `baibai-loop-position market-price-draft` | CLI composition | 全open holdingの指定日raw closeからsource-bound ledger draftを新規作成 |
 | `baibai-loop-position record-result` | `position/` | 人間のopen/filled/cancelled/expired報告からvalidated ledger draftを生成 |
 | `baibai-loop-position holding-review-build` | CLI composition | ready packet/reviewとledgerからholding review draftを生成 |
 | `baibai-loop-position holding-review --root --input` | CLI composition | source hashとsource再構築scalarを照合し、thesis health・税引後代替・`hold / add / reduce / exit`を再計算 |
 | `baibai-loop-decision <packet>` | `thesis/` | decision packetのscenario、証拠、独立reviewをread-only再計算 |
-| `baibai-loop-opportunity` | `thesis/` | opportunity workspace の prepare / status / packet-scaffold / review-scaffold / promote と、前営業日 raw close からの planning-only `plan-limit`（promote だけが canonical packet/review を書く） |
+| `baibai-loop-opportunity` | `thesis/` | screening起点の`prepare`、open holding起点の1銘柄固定`holding-prepare`、status / packet-scaffold / review-scaffold / promote と、前営業日 raw close からの planning-only `plan-limit`（promote だけが canonical packet/review を書く） |
 
 ### Schema and validation
 

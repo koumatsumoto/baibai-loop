@@ -290,14 +290,28 @@ human-confirmed release前、必要な期限後session未到来は`pending`、ca
 
 1. [`task-runbook.md`](./task-runbook.md)のdated Issueと対象tickerを確認する。
    JPX の決算発表予定は日付確認の補助事実であり、通知や自動 trigger ではない。実施時は一次 IR で発表を確認する。
-2. packet以後の一次IRとmaterial deltaだけを調べる。
-3. 対象tickerのcurrent decision packet/reviewを更新する。
-4. `holding-review-build`でreview draftをsourceから作る。
+2. 最新完全営業日の全保有raw closeからledger draftを作り、source hash、全ticker同日、raw/unadjusted basisを確認する。人間が確認したdraftだけをcanonical ledgerへcopyし、ledger validationを通す。
+3. canonical ledgerのopen holdingを起点に1銘柄固定workspaceを作る。
+4. packet以後の一次IRとmaterial deltaだけを調べ、既存のpacket/review/promote経路で対象tickerのcurrent decision packet/reviewを更新する。
+5. `holding-review-build`でreview draftをsourceから作る。
+
+ここでも`ASOF_DATE`は価格draftに使う最新完全営業日、`NEXT_SESSION_DATE`はその次の取引sessionを表す。`packet-scaffold`が解決するraw close日は`ASOF_DATE`と一致しなければならない。
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position holding-review-build --packet records/03-thesis/YYYY/MM/YYYY-MM-DD-XXXX-decision.yaml --ledger records/04-position/portfolio-ledger.yaml --position-id POSITION_ID --out .cache/holding-review/YYYY-MM-DD-XXXX-attempt-N-review.yaml
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position holding-review --root . --input .cache/holding-review/YYYY-MM-DD-XXXX-attempt-N-review.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position market-price-draft --root . --ledger records/04-position/portfolio-ledger.yaml --sqlite data/screening/market.sqlite --asof ASOF_DATE --out .cache/position/ASOF_DATE-market-price-ledger.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger --ledger .cache/position/ASOF_DATE-market-price-ledger.yaml
+git diff --no-index records/04-position/portfolio-ledger.yaml .cache/position/ASOF_DATE-market-price-ledger.yaml
+cp .cache/position/ASOF_DATE-market-price-ledger.yaml records/04-position/portfolio-ledger.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation --target ledger
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity holding-prepare --asof ASOF_DATE --ledger records/04-position/portfolio-ledger.yaml --ticker XXXX --workspace .cache/opportunity/ASOF_DATE/holding-XXXX
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity packet-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --ticker XXXX --sqlite-path data/screening/market.sqlite --target-session NEXT_SESSION_DATE
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity review-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --ticker XXXX
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity promote --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --ticker XXXX --output-dir records/03-thesis/YYYY/MM
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position holding-review-build --packet records/03-thesis/YYYY/MM/ASOF_DATE-XXXX-decision.yaml --ledger records/04-position/portfolio-ledger.yaml --position-id POSITION_ID --out .cache/holding-review/ASOF_DATE-XXXX-attempt-N-review.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position holding-review --root . --input .cache/holding-review/ASOF_DATE-XXXX-attempt-N-review.yaml
 ```
+
+`market-price-draft`は指定日のJ-Quants raw closeが全open holdingで同日に揃い、既存のopen holding price日を巻き戻さない場合だけ新規draftを作る。canonical ledgerを上書きせず、adjusted closeで補完しない。copy直前にstdoutのsource ledger hashが現在のcanonical ledgerと一致し、draftのbyte hashがstdoutの`draft_sha256`と一致することを確認する。どちらかが異なればcopyせず再生成する。market row fingerprintも確認し、人間確認なしにcanonicalへcopyしない。`holding-prepare`はcanonical ledgerに実在し、market-price observationの日付が`--asof`と一致するopen holdingだけを受け入れ、audit pool、shortlist、selected tickerをその1銘柄に固定する。通常のopportunity `prepare`とprimary-research set gateは変更しない。
 
 `holding-review`はsource hashだけでなくpacket/ledgerからload-bearing scalarを再構築してdraftと照合する。pass後、生成された`action`、最強countercase、source日付をoperation Issueへ要約し、人間に保存確認を求める。確認後だけ次を実行する。`CANONICAL_REVIEW.yaml`は対象positionの既存命名規則に従う新規pathへ置換する。
 

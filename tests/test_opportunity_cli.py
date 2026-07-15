@@ -235,6 +235,15 @@ def _prepared_workspace(
     return workspace
 
 
+def _ledger_with_market_price_date(path: Path, observed_on: date) -> None:
+    payload = safe_load(LEDGER_FIXTURE.read_text(encoding="utf-8"))
+    payload["market_prices"][0]["observed_at"] = f"{observed_on.isoformat()}T15:30:00+09:00"
+    path.write_text(
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+
+
 def _ready_packet_and_review() -> tuple[dict[str, object], dict[str, object], str]:
     """Build an override-free ready packet + a matching bound review from the fixture.
 
@@ -487,6 +496,166 @@ def test_prepare_empty_audit_pool_is_no_actionable_bargain(
     assert code == 0
     assert payload["actionable"] is False
     assert payload["note"] == "no actionable bargain"
+
+
+def test_holding_prepare_builds_fixed_one_ticker_workspace(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    ledger = tmp_path / "ledger.yaml"
+    _ledger_with_market_price_date(ledger, date(2026, 7, 10))
+    workspace = tmp_path / "holding-ws"
+    code, payload = _run(
+        [
+            "holding-prepare",
+            "--asof",
+            "2026-07-10",
+            "--ledger",
+            str(ledger),
+            "--ticker",
+            "2331",
+            "--workspace",
+            str(workspace),
+        ],
+        capsys,
+    )
+
+    assert code == 0
+    assert payload["audit_pool_size"] == 1
+    manifest = safe_load((workspace / "manifest.yaml").read_text(encoding="utf-8"))
+    selection = safe_load((workspace / "selection.yaml").read_text(encoding="utf-8"))
+    comparison = safe_load((workspace / "research-comparison.yaml").read_text(encoding="utf-8"))
+    assert manifest["purpose"] == "holding_review"
+    assert manifest["holding_ticker"] == "2331"
+    assert set(manifest["inputs"]) == {"ledger"}
+    assert [row["ticker"] for row in selection["audit_pool"]] == ["2331"]
+    assert [row["ticker"] for row in selection["shortlist"]] == ["2331"]
+    assert comparison["selected_ticker"] == "2331"
+    assert [row["ticker"] for row in comparison["candidates"]] == ["2331"]
+    assert (
+        opportunity_main(
+            [
+                "packet-scaffold",
+                "--workspace",
+                str(workspace),
+                "--ticker",
+                "2331",
+                "--sqlite-path",
+                str(sqlite_path),
+                "--target-session",
+                TARGET_SESSION,
+            ]
+        )
+        == 0
+    )
+    packet = safe_load((workspace / "2331/packet-draft.yaml").read_text(encoding="utf-8"))
+    assert packet["input_snapshot"]["as_of"] == "2026-07-10"
+    assert packet["input_snapshot"]["sources"][0]["as_of"] == "2026-07-10"
+    assert packet["input_snapshot"]["facts"][0]["as_of"] == "2026-07-10"
+
+
+@pytest.mark.parametrize("ticker", ["8929", "9999"])
+def test_holding_prepare_rejects_ticker_without_open_holding(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], ticker: str
+) -> None:
+    code = opportunity_main(
+        [
+            "holding-prepare",
+            "--asof",
+            "2026-07-11",
+            "--ledger",
+            str(LEDGER_FIXTURE),
+            "--ticker",
+            ticker,
+            "--workspace",
+            str(tmp_path / "holding-ws"),
+        ]
+    )
+
+    assert code == 3
+    assert "not an open holding" in capsys.readouterr().err
+    assert not (tmp_path / "holding-ws").exists()
+
+
+def test_holding_workspace_detects_ledger_hash_drift(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ledger = tmp_path / "ledger.yaml"
+    ledger.write_bytes(LEDGER_FIXTURE.read_bytes())
+    workspace = tmp_path / "holding-ws"
+    assert (
+        opportunity_main(
+            [
+                "holding-prepare",
+                "--asof",
+                "2026-07-11",
+                "--ledger",
+                str(ledger),
+                "--ticker",
+                "2331",
+                "--workspace",
+                str(workspace),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    ledger.write_text(ledger.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+
+    assert opportunity_main(["status", "--workspace", str(workspace)]) == 4
+    assert "input hash drift" in capsys.readouterr().err
+
+
+def test_holding_workspace_uses_exact_byte_hash_for_crlf_ledger(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ledger = tmp_path / "ledger-crlf.yaml"
+    ledger.write_bytes(LEDGER_FIXTURE.read_bytes().replace(b"\n", b"\r\n"))
+    workspace = tmp_path / "holding-ws"
+
+    assert (
+        opportunity_main(
+            [
+                "holding-prepare",
+                "--asof",
+                "2026-07-11",
+                "--ledger",
+                str(ledger),
+                "--ticker",
+                "2331",
+                "--workspace",
+                str(workspace),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    manifest = safe_load((workspace / "manifest.yaml").read_text(encoding="utf-8"))
+    assert manifest["inputs"]["ledger"]["sha256"] == hashlib.sha256(ledger.read_bytes()).hexdigest()
+    assert opportunity_main(["status", "--workspace", str(workspace)]) == 0
+
+
+def test_holding_prepare_requires_same_day_market_price(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = opportunity_main(
+        [
+            "holding-prepare",
+            "--asof",
+            "2026-07-10",
+            "--ledger",
+            str(LEDGER_FIXTURE),
+            "--ticker",
+            "2331",
+            "--workspace",
+            str(tmp_path / "holding-ws"),
+        ]
+    )
+
+    assert code == 3
+    assert "market price date" in capsys.readouterr().err
+    assert not (tmp_path / "holding-ws").exists()
 
 
 @pytest.mark.parametrize(
@@ -1273,6 +1442,51 @@ def test_packet_scaffold_rejects_duplicate_audit_ticker(
     assert code == 3
 
 
+def test_holding_packet_scaffold_rejects_raw_close_date_before_workspace_asof(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-09", 990.0, 1.0)])
+    ledger = tmp_path / "ledger.yaml"
+    _ledger_with_market_price_date(ledger, date(2026, 7, 10))
+    workspace = tmp_path / "holding-ws"
+    assert (
+        opportunity_main(
+            [
+                "holding-prepare",
+                "--asof",
+                "2026-07-10",
+                "--ledger",
+                str(ledger),
+                "--ticker",
+                "2331",
+                "--workspace",
+                str(workspace),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    code = opportunity_main(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ]
+    )
+
+    assert code == 3
+    assert "does not match workspace manifest as_of" in capsys.readouterr().err
+    assert not (workspace / "2331").exists()
+
+
 def test_packet_scaffold_draft_has_no_structural_schema_errors(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1497,6 +1711,58 @@ def test_promote_rejects_non_complete_checklist_status(
         now=FIXED_NOW,
     )
     assert code == 3
+    assert not output_dir.exists() or not list(output_dir.glob("*.yaml"))
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "error_text"),
+    [
+        ("ticker", "8929", "packet ticker is 8929"),
+        ("as_of", "2026-07-02", "does not match workspace manifest as_of"),
+    ],
+)
+def test_promote_rejects_packet_identity_tampering(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    field: str,
+    value: str,
+    error_text: str,
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
+    _fill_ready_workspace(workspace)
+    packet_path = workspace / "2331/packet-draft.yaml"
+    packet = safe_load(packet_path.read_text(encoding="utf-8"))
+    packet["input_snapshot"][field] = value
+    document = DecisionPacketDocument.model_validate(packet)
+    packet_path.write_text(
+        yaml.safe_dump(packet, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    review_path = workspace / "2331/review-draft.yaml"
+    review = safe_load(review_path.read_text(encoding="utf-8"))
+    review["reviewed_packet_sha256"] = decision_packet_core_hash(document)
+    review_path.write_text(
+        yaml.safe_dump(review, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    output_dir = tmp_path / "records/03-thesis/2026/07"
+
+    assert (
+        opportunity_main(
+            [
+                "promote",
+                "--workspace",
+                str(workspace),
+                "--ticker",
+                "2331",
+                "--output-dir",
+                str(output_dir),
+            ],
+            now=FIXED_NOW,
+        )
+        == 3
+    )
+    assert error_text in capsys.readouterr().err
     assert not output_dir.exists() or not list(output_dir.glob("*.yaml"))
 
 
