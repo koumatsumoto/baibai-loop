@@ -92,14 +92,16 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.research_price_watch --packets
 
 ### OP3 Candidate shortlist report (human review gate)
 
-audit pool上位20件から8〜10候補を選び、human-review shortlist reportを人間へ提示する。audit poolが8件未満なら全件を提示して不足を明記し、pool外の銘柄で件数を埋めない。第1層データ（価格・valuation・自己資本比率・net cash・配当basis・機械E[r]・FVアンカー乖離・TradingView link）と選定背景（なぜ安い / 一時的か構造的か / 5年耐性 / 最強countercase / 深掘り論点）、比較表、非選択理由を含める。数値はscreening出力から機械生成し、narrativeだけ運用者が`narratives.yaml`に書く。
+audit pool上位20件から8〜10候補を選び、human-review shortlist reportを人間へ提示する。audit poolが8件未満なら全件を提示して不足を明記し、pool外の銘柄で件数を埋めない。第1層データ（価格・valuation・財務・配当basis・機械E[r]とreversion/carry分解・FVアンカー構成と乖離・値位置・流動性・次回決算日・データ品質flag・portfolio annotation・TradingView link。field一覧は[`../reference/candidate-report.md`](../reference/candidate-report.md)を正本とする）と選定背景（なぜ安い / 一時的か構造的か / 5年耐性 / 最強countercase / 深掘り論点）、比較表、非選択理由を含める。数値はscreening出力とprepare出力から機械生成し、narrativeだけ運用者が`narratives.yaml`に書く。
+
+`new`の候補（前回reportを確認できないfull reportでは全候補）は、narrativeを書く前に会社IR・TDnetの直近開示をタイトルレベルで確認する。screeningのas-of財務に反映されないmaterial開示（業績修正、資本政策、TOB/MBO、不祥事等）があれば`why`と`counter`へ反映し、確認した開示範囲をshortlist checkpointへ残す。この確認はresearch laneを割く前の開示スキャンであり、一次リサーチの代替ではない。
 
 直近の前回reportがある週次runでは、前回と今回のhuman-review shortlistをtickerで比較し、`new / continued / exited`をoperation Issueのshortlist checkpointに残して今回reportと同時に人間へ提示する。`new`は今回だけ、`continued`は両方、`exited`は前回だけに含まれるtickerとする。`new`には今回shortlistへ入れる理由、`exited`には今回shortlistへ残さない理由を新たに書く。前回reportを確認できないrunは差分を推定せず、全候補のnarrativeを確認するfull reportへfallbackする。
 
 `continued`のnarrativeは、前回からのaudit-pool順位差、価格、前回as-of後に会社IR・TDnet・EDINETで公表された最新開示、最強countercaseと判断を変え得るmaterial deltaを確認し、現在も判断を支える場合だけ再利用できる。いずれかにmaterial changeまたは確認不能があれば該当narrativeを更新し、差分理由をcheckpointへ残す。今回reportの価格、valuation、E[r]、FV等の数値は必ず今回runのscreening出力からrendererで生成し、前回reportや前回`narratives.yaml`から転記または再利用しない。
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.candidate_report.render --selection .cache/opportunity/YYYY-MM-DD/selection-output.yaml --candidates .cache/opportunity/YYYY-MM-DD/candidates.yaml --narratives .cache/opportunity/YYYY-MM-DD/narratives.yaml --out .cache/opportunity/YYYY-MM-DD/candidate-report.html
+UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.candidate_report.render --selection .cache/opportunity/YYYY-MM-DD/selection-output.yaml --candidates .cache/opportunity/YYYY-MM-DD/candidates.yaml --narratives .cache/opportunity/YYYY-MM-DD/narratives.yaml --prepared .cache/opportunity/YYYY-MM-DD/selection.yaml --out .cache/opportunity/YYYY-MM-DD/candidate-report.html
 ```
 
 生成HTMLは`.cache`のephemeral成果物でcommitしない。詳細は[`../reference/candidate-report.md`](../reference/candidate-report.md)。非選択上位候補にも構造的衰退、永久損失warning、一次情報不足、FV乖離不足、投資対象外等の理由を残す。「保有済み」「予約中」「予算外」だけを除外理由にしない。weekly差分の分類と確認結果は当面operation Issueへ残し、2〜3回の運用テストでfieldと表示の必要性が安定するまでrenderer/schemaへ組み込まない。
@@ -244,6 +246,17 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger --ledger .cache/le
 ```
 
 `git diff --no-index`のexit 1は「期待した差分あり」を表し、この場合は失敗ではない。追加されたeventが人間報告と一致し、既存eventの削除・改変がなく、cash、reservation、holding quantityが説明可能ならpass。不明な差分、未来時刻、proposal不一致、reconciliation errorはstopして人間へ質問する。
+
+`filled`が新規holdingを作り、そのtickerのmarket priceがまだ無い場合だけ、中間result draftは`market price is required for holding`でsnapshotを生成できない。この中間状態をcanonicalへcopyせず、event差分を確認したうえで価格なしevent replayを使う`market-price-draft`へ直接渡す。
+
+```bash
+sha256sum .cache/ledger/UNIQUE-FILLED-ledger.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position market-price-draft --root . --ledger .cache/ledger/UNIQUE-FILLED-ledger.yaml --sqlite data/screening/market.sqlite --asof YYYY-MM-DD --out .cache/position/YYYY-MM-DD-market-price-after-fill-ledger.yaml
+sha256sum .cache/position/YYYY-MM-DD-market-price-after-fill-ledger.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger --ledger .cache/position/YYYY-MM-DD-market-price-after-fill-ledger.yaml
+```
+
+このcompositionでは、(1) current canonical hashと`record-result`の`source_ledger_sha256`、(2) filled中間draftのbyte hashと`market-price-draft`の`source_ledger_sha256`、(3) 最終draftのbyte hashと`draft_sha256`を順に完全一致させる。open holdingは中間ledgerの`as_of`までevent replayして決め、価格は指定した最新完全営業日の同日raw/unadjusted closeを使う。このため価格観測時刻が当日のfillより前でも、eventを巻き戻さず全open holdingを評価できる。価格不足以外のreconciliation error、hash不一致、raw close欠損では停止する。人間確認後にcanonicalへ反映するのは、reconciliationを通った最終draftだけである。
 
 3. AIは次をoperation Issueへ記録し、人間にcanonical反映の確認を求める。
 

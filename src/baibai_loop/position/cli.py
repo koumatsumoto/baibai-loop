@@ -49,6 +49,7 @@ from baibai_loop.position.ledger import (
     load_portfolio_ledger,
     load_portfolio_ledger_with_sha256,
     reconcile_portfolio,
+    replay_events_through,
     snapshot_to_payload,
 )
 from baibai_loop.position.outcome import compute_portfolio_outcome, outcome_to_payload
@@ -510,14 +511,22 @@ def _run_market_price_draft(
         output_path = _draft_output_path(root, out, label="market price ledger draft")
         sqlite_ref = _repository_source_ref(root, resolved_sqlite)
         document, source_sha256 = load_portfolio_ledger_with_sha256(ledger_path)
-        snapshot = reconcile_portfolio(document)
-        tickers = tuple(sorted(holding.ticker for holding in snapshot.holdings))
+        state = replay_events_through(document.events, document.as_of)
+        tickers = tuple(
+            sorted(
+                ticker
+                for ticker, lots in state.lots.items()
+                if any(lot.quantity > 0 for lot in lots)
+            )
+        )
         if not tickers:
             raise _MarketPriceDraftError("ledger has no open holdings to price")
+        current_prices = {price.ticker: price for price in document.market_prices}
         newer_prices = sorted(
-            holding.ticker
-            for holding in snapshot.holdings
-            if holding.market_price_observed_at.date() > asof
+            ticker
+            for ticker in tickers
+            if (current_price := current_prices.get(ticker)) is not None
+            and current_price.observed_at.date() > asof
         )
         if newer_prices:
             raise _MarketPriceDraftError(

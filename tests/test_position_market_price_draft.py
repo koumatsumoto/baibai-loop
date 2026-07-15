@@ -9,7 +9,11 @@ import yaml
 
 from baibai_loop.market.sqlite import open_connection, store_jquants_market_calendar
 from baibai_loop.position.cli import main
-from baibai_loop.position.ledger import load_portfolio_ledger, reconcile_portfolio
+from baibai_loop.position.ledger import (
+    PortfolioLedgerError,
+    load_portfolio_ledger,
+    reconcile_portfolio,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "portfolio-ledger" / "representative.yaml"
 ASOF = date(2026, 7, 13)
@@ -151,6 +155,65 @@ def test_market_price_draft_replaces_all_holdings_with_exact_raw_close(
         f"data/screening/market.sqlite:jquants_daily_bars:2331:{ASOF}",
         f"data/screening/market.sqlite:jquants_daily_bars:2749:{ASOF}",
     }
+
+
+def test_market_price_draft_prices_new_fill_missing_from_input_market_prices(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ledger_path = tmp_path / "ledger.yaml"
+    payload = yaml.safe_load(FIXTURE.read_text(encoding="utf-8"))
+    payload["as_of"] = "2026-07-14T09:00:00+09:00"
+    payload["events"].extend(
+        [
+            {
+                "event_id": "reserve-2749-new-fill",
+                "type": "reservation",
+                "occurred_at": "2026-07-14T08:59:00+09:00",
+                "reservation_id": "reservation-2749-new-fill",
+                "order_id": "order-2749-new-fill",
+                "ticker": "2749",
+                "sector": "サービス業",
+                "common_factors": ["domestic-demand"],
+                "quantity": 100,
+                "price_guard_yen": 1000,
+                "expires_at": "2026-07-15T15:30:00+09:00",
+            },
+            {
+                "event_id": "fill-2749-new-fill",
+                "type": "execution",
+                "occurred_at": "2026-07-14T09:00:00+09:00",
+                "execution_id": "execution-2749-new-fill",
+                "reservation_id": "reservation-2749-new-fill",
+                "ticker": "2749",
+                "side": "buy",
+                "quantity": 100,
+                "price_yen": 990,
+            },
+        ]
+    )
+    ledger_path.write_text(
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    assert all(price["ticker"] != "2749" for price in payload["market_prices"])
+    document = load_portfolio_ledger(ledger_path)
+    with pytest.raises(PortfolioLedgerError, match="market price is required for holding 2749"):
+        reconcile_portfolio(document)
+
+    _seed_market(
+        tmp_path / "data/screening/market.sqlite",
+        [("2331", 1200.0, 1200.0, 1.0), ("2749", 1010.0, 1010.0, 1.0)],
+    )
+
+    assert _run(tmp_path) == 0
+    capsys.readouterr()
+    draft = load_portfolio_ledger(tmp_path / "drafts/market-price.yaml")
+    snapshot = reconcile_portfolio(draft)
+    assert {holding.ticker for holding in snapshot.holdings} == {"2331", "2749"}
+    assert {price.ticker for price in draft.market_prices} == {"2331", "2749"}
+    assert draft.as_of.isoformat() == "2026-07-14T09:00:00+09:00"
+    new_fill_price = next(price for price in draft.market_prices if price.ticker == "2749")
+    assert new_fill_price.observed_at.isoformat() == "2026-07-13T15:30:00+09:00"
+    assert new_fill_price.observed_at < draft.as_of
 
 
 @pytest.mark.parametrize(

@@ -89,7 +89,11 @@ uv run python -m tools.limit_outcome --help
 uv run baibai-loop-validation --target ledger
 ```
 
-`market-price-draft`はreconcile済みsource ledgerの全open holdingについて、指定日のJ-Quants `jquants_daily_bars.close`を同日に観測でき、かつ指定日が各holdingのcurrent market-price observation日以上である場合だけ、新しいledger draftをexclusive createする。`adjustment_close`は代替価格に使わず、`adjustment_factor != 1`でもraw closeを記録してcorporate-action確認を別contractに残す。生成した全`market_prices`は`source_kind: licensed_dataset`、`price_basis: unadjusted_close`、`source_ref: data/screening/market.sqlite:jquants_daily_bars:TICKER:YYYY-MM-DD`を持つ。ledger `as_of`は既存時刻と指定日15:30 JSTの遅い方なので、より新しい非価格eventを巻き戻さない。stdoutはsource ledger path/hash、使用rowのfingerprint、生成直後の`draft_sha256`、output pathを返す。copy直前にcurrent canonical ledgerのhashがsource ledger hashと一致し、draftのbyte hashが`draft_sha256`と一致することを確認する。どちらかが異なればcopyせず、current sourceからdraftを再生成する。
+`market-price-draft`はsource ledgerのeventを価格なしで`as_of`まで再生して全open holdingを特定し、指定日のJ-Quants `jquants_daily_bars.close`を全tickerで同日に観測できる場合だけ、新しいledger draftをexclusive createする。新規約定でholdingが生じ、source ledgerにそのtickerのmarket priceがまだ無い中間状態も受理する。open holdingは価格観測時点ではなくledger `as_of`のevent stateで決まるため、最新完全営業日のcloseが当日の約定時刻より前でもよい。既存market priceを持つholdingでは、指定日がcurrent observation日以上であることを要求する。
+
+`adjustment_close`は代替価格に使わず、`adjustment_factor != 1`でもraw closeを記録してcorporate-action確認を別contractに残す。生成した全`market_prices`は`source_kind: licensed_dataset`、`price_basis: unadjusted_close`、`source_ref: data/screening/market.sqlite:jquants_daily_bars:TICKER:YYYY-MM-DD`を持つ。ledger `as_of`は既存時刻と指定日15:30 JSTの遅い方なので、より新しい非価格eventを巻き戻さない。全価格を組み込んだ最終draftは通常のledger reconciliationを必ず通る。
+
+stdoutはsource ledger path/hash、使用rowのfingerprint、生成直後の`draft_sha256`、output pathを返す。canonical ledgerを直接sourceにする場合は、copy直前にcurrent canonical hashとsource ledger hashを照合する。`record-result`の中間draftをsourceにする場合は、current canonical hashと`record-result`のsource hash、中間draftのbyte hashと`market-price-draft`のsource hash、最終draftのbyte hashと`draft_sha256`を順に照合する。いずれかが異なればcopyせず、current canonical sourceからdraft chainを再生成する。
 
 `record-result`は人間の`open / filled / cancelled / expired`報告だけを入力とし、canonical ledgerを直接変更しない。`expired`は明示的なreservation_idと`occurred_at >= expires_at`を必須とし、未約定残数を`release(reason=expired)`にする。active reservationが1件でもIDを推定しない。source ledger hashとpatched local draftを返す。報告がない状態、missing field、未知reservation、future timestamp、reconciliation errorを推定で補わない。result draftのevent replayはmarket price鮮度に依存せず、broker結果の記録を無関係なmarket不足で止めない。draftのevent/snapshot/diffを確認し、source hash不変とvalidationを確認してからcanonicalへ反映する。
 
