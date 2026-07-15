@@ -1,6 +1,6 @@
 schema_version: 2
 portfolio_scope: repository_only
-as_of: '2026-07-14T22:49:28+09:00'
+as_of: '2026-07-15T09:00:00+09:00'
 estimated_exit_tax_rate_bps: null
 estimated_exit_tax_basis: null
 events:
@@ -242,59 +242,75 @@ events:
   quantity: 200
   price_guard_yen: '1204'
   expires_at: '2026-07-15T15:30:00+09:00'
+- event_id: human-fill-38932a582eeac0b5
+  occurred_at: '2026-07-15T09:00:00+09:00'
+  type: execution
+  execution_id: execution-38932a582eeac0b5
+  reservation_id: reservation-ea811a7de7a7247e
+  ticker: '3836'
+  side: buy
+  quantity: 200
+  price_yen: '1204'
+  decision_reference: https://github.com/koumatsumoto/baibai-loop/issues/413#issuecomment-4969672022
 market_prices:
 - ticker: '2749'
-  price_yen: '614'
-  observed_at: '2026-07-10T15:30:00+09:00'
+  price_yen: '623.0'
+  observed_at: '2026-07-14T15:30:00+09:00'
   source_kind: licensed_dataset
   price_basis: unadjusted_close
-  source_ref: data/screening/market.sqlite:jquants_daily_bars:2749:2026-07-10
+  source_ref: data/screening/market.sqlite:jquants_daily_bars:2749:2026-07-14
 - ticker: '3539'
-  price_yen: '1261'
-  observed_at: '2026-07-10T15:30:00+09:00'
+  price_yen: '1274.0'
+  observed_at: '2026-07-14T15:30:00+09:00'
   source_kind: licensed_dataset
   price_basis: unadjusted_close
-  source_ref: data/screening/market.sqlite:jquants_daily_bars:3539:2026-07-10
+  source_ref: data/screening/market.sqlite:jquants_daily_bars:3539:2026-07-14
+- ticker: '3836'
+  price_yen: '1204.0'
+  observed_at: '2026-07-14T15:30:00+09:00'
+  source_kind: licensed_dataset
+  price_basis: unadjusted_close
+  source_ref: data/screening/market.sqlite:jquants_daily_bars:3836:2026-07-14
 - ticker: '4432'
-  price_yen: '2543'
-  observed_at: '2026-07-10T15:30:00+09:00'
+  price_yen: '2741.0'
+  observed_at: '2026-07-14T15:30:00+09:00'
   source_kind: licensed_dataset
   price_basis: unadjusted_close
-  source_ref: data/screening/market.sqlite:jquants_daily_bars:4432:2026-07-10
+  source_ref: data/screening/market.sqlite:jquants_daily_bars:4432:2026-07-14
 - ticker: '8255'
-  price_yen: '1170'
-  observed_at: '2026-07-10T15:30:00+09:00'
+  price_yen: '1183.0'
+  observed_at: '2026-07-14T15:30:00+09:00'
   source_kind: licensed_dataset
   price_basis: unadjusted_close
-  source_ref: data/screening/market.sqlite:jquants_daily_bars:8255:2026-07-10
+  source_ref: data/screening/market.sqlite:jquants_daily_bars:8255:2026-07-14
 - ticker: '9470'
-  price_yen: '1022'
-  observed_at: '2026-07-10T15:30:00+09:00'
+  price_yen: '1027.0'
+  observed_at: '2026-07-14T15:30:00+09:00'
   source_kind: licensed_dataset
   price_basis: unadjusted_close
-  source_ref: data/screening/market.sqlite:jquants_daily_bars:9470:2026-07-10
+  source_ref: data/screening/market.sqlite:jquants_daily_bars:9470:2026-07-14
 - ticker: '9534'
-  price_yen: '765'
-  observed_at: '2026-07-10T15:30:00+09:00'
+  price_yen: '775.0'
+  observed_at: '2026-07-14T15:30:00+09:00'
   source_kind: licensed_dataset
   price_basis: unadjusted_close
-  source_ref: data/screening/market.sqlite:jquants_daily_bars:9534:2026-07-10
+  source_ref: data/screening/market.sqlite:jquants_daily_bars:9534:2026-07-14
 - ticker: '9682'
-  price_yen: '1061'
-  observed_at: '2026-07-10T15:30:00+09:00'
+  price_yen: '1070.0'
+  observed_at: '2026-07-14T15:30:00+09:00'
   source_kind: licensed_dataset
   price_basis: unadjusted_close
-  source_ref: data/screening/market.sqlite:jquants_daily_bars:9682:2026-07-10
+  source_ref: data/screening/market.sqlite:jquants_daily_bars:9682:2026-07-14
 - ticker: '9692'
-  price_yen: '2196'
-  observed_at: '2026-07-10T15:30:00+09:00'
+  price_yen: '2173.0'
+  observed_at: '2026-07-14T15:30:00+09:00'
   source_kind: licensed_dataset
   price_basis: unadjusted_close
-  source_ref: data/screening/market.sqlite:jquants_daily_bars:9692:2026-07-10
+  source_ref: data/screening/market.sqlite:jquants_daily_bars:9692:2026-07-14
 - ticker: '9715'
-  price_yen: '3650'
-  observed_at: '2026-07-10T15:30:00+09:00'
+  price_yen: '3675.0'
+  observed_at: '2026-07-14T15:30:00+09:00'
   source_kind: licensed_dataset
   price_basis: unadjusted_close
-  source_ref: data/screening/market.sqlite:jquants_daily_bars:9715:2026-07-10
+  source_ref: data/screening/market.sqlite:jquants_daily_bars:9715:2026-07-14
 overrides: []

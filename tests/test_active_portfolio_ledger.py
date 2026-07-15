@@ -16,7 +16,7 @@ def test_canonical_ledger_reconstructs_the_active_portfolio() -> None:
         snapshot.reserved_cash_yen,
         snapshot.deployed_cost_yen,
         snapshot.book_capital_yen,
-    ) == (2_759_200, 464_800, 1_647_100, 4_871_100)
+    ) == (2_759_200, 224_000, 1_887_900, 4_871_100)
     assert {
         holding.ticker: (holding.quantity, holding.deployed_cost_yen)
         for holding in snapshot.holdings
@@ -30,6 +30,7 @@ def test_canonical_ledger_reconstructs_the_active_portfolio() -> None:
         "9534": (100, 74_200),
         "4432": (100, 234_000),
         "9715": (100, 355_700),
+        "3836": (200, 240_800),
     }
     assert {
         reservation.ticker: (reservation.remaining_quantity, reservation.reserved_yen)
@@ -37,5 +38,4 @@ def test_canonical_ledger_reconstructs_the_active_portfolio() -> None:
     } == {
         "2331": (100, 105_000),
         "8929": (100, 119_000),
-        "3836": (200, 240_800),
     }
