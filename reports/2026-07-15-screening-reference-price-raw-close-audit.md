@@ -14,7 +14,7 @@
 
 一方、[`estimate_expected_return`](../src/baibai_loop/screening/estimates.py)が使うFV anchorとE[r]は丸め前のraw closeから作られる。[`build_selection_payload`](../src/baibai_loop/screening/selection/payload.py)のaudit rankは`er_annual`降順、playbook順、evidence strength、tickerで確定した後に表示用`market_price_yen`を付与する。したがってreferenceをraw closeへ差し替えてもproduction audit rankとtop-20 membershipは変わらず、影響件数はcontract上0である。FV-gap順の仮想rerankはproductionに存在しないため行わない。
 
-機械計測でもselection sort keyにreference priceが含まれないことと、audit rowのreferenceをraw closeへ差し替えても保存済みrankが全件不変であることを確認する。主な実測指標は価格誤差とFV gap表示差である。
+selection sort keyにreference priceが含まれないことはproduction実装のcontractとして確認する。機械計測では同一inputからproduction selectionを再構成して保存artifactとのrank・ticker・reference一致を検査し、主な実測指標を価格誤差とFV gap表示差とする。
 
 ## 2. 計測母集団とinput provenance
 
