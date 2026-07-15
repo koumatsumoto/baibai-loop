@@ -71,8 +71,9 @@ content hash、response range、row count、取得時刻も存在しない。
 - [上場廃止銘柄一覧](https://www.jpx.co.jp/listing/stocks/delisted/index.html)は上場廃止日、銘柄名、
   code、市場区分、理由を公開し、TOB、MBO、合併、株式交換・移転等の理由を区別できる。一覧だけでは
   cash consideration、交換比率、最終売買日、successor tickerを一意に再現できないため、exit valueは
-  個別の会社・取引所一次開示への接続が必要である。pageは予定日も含み、過去11年より前は統計月報を
-  参照する契約なので、単独で全期間のpoint-in-time状態を表さない。
+  個別の会社・取引所一次開示への接続が必要である。pageは予定日も含み、一覧の対象外となる11年前分は
+  統計月報へ誘導されるが、それより前のcoverageはこのpageから確認できない。したがって単独で全期間の
+  point-in-time状態を表さない。
 
 PDF本体のsample download、hash、format/correction inventory、代表eventの一次開示追跡は実施していない。
 したがって対象期間のevent completenessとexit value resolved率は未評価である。
@@ -104,8 +105,16 @@ financial summaries: 2019-10-31 - 730 days = 2017-10-31
 
 ```bash
 sqlite3 -header -column 'file:data/screening/market.sqlite?mode=ro' \
+  "SELECT COUNT(*), COUNT(DISTINCT snapshot_date), MIN(snapshot_date), MAX(snapshot_date),
+          COUNT(DISTINCT ticker) FROM jquants_master_snapshots;"
+
+sqlite3 -header -column 'file:data/screening/market.sqlite?mode=ro' \
   "SELECT COUNT(*), COUNT(DISTINCT traded_at), MIN(traded_at), MAX(traded_at),
           COUNT(DISTINCT ticker) FROM jquants_daily_bars;"
+
+sqlite3 -header -column 'file:data/screening/market.sqlite?mode=ro' \
+  "SELECT COUNT(*), COUNT(DISTINCT disclosed_at), MIN(disclosed_at), MAX(disclosed_at),
+          COUNT(DISTINCT ticker) FROM jquants_fin_summaries;"
 
 UV_CACHE_DIR=/tmp/uv-cache uv run python -c \
   "from datetime import date, timedelta; from pathlib import Path;
