@@ -141,7 +141,9 @@ reviewはpacket authorと別roleがlaneごとに行い、複数laneを並行で�
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity plan-limit --packet records/03-thesis/YYYY/MM/YYYY-MM-DD-XXXX-decision.yaml --ledger records/04-position/portfolio-ledger.yaml --sqlite-path data/screening/market.sqlite --target-session YYYY-MM-DD --budget-min-yen 200000 --budget-max-yen 300000 --output .cache/opportunity/YYYY-MM-DD/XXXX/proposal.yaml
 ```
 
-`planned_limit`は前営業日終値、max acceptable price、board lotから作る。終値が上限超過、corporate action unresolved、packet/review not readyは`defer`。1単元が30万円を超えても自動棄却せず、超過をwarningとして表示する。
+`planned_limit`は前営業日終値、max acceptable price、board lotから作る。終値が上限超過、corporate action unresolved、packet/review not readyは`defer`。1単元が30万円を超えても自動棄却せず、超過をwarningとして表示する。同一tickerのactive reservationがある場合は、元注文の再表示と追加注文を機械的に区別できないため`active_reservation_exists`で`defer`する。human resultで約定またはreleaseをledgerに反映するまで新規注文を作らない。
+
+`portfolio_exposure`はproposalと同じ`price_as_of`のraw/unadjusted closeで全保有を横断再評価した一時計算である。ticker / sector / common-factorごとに、保有とactive reservationを合わせた現在額、今回注文後のprospective額と比率、warning閾値を確認する。`ledger_fallback_tickers`が空でない場合は`holding_valuation_status: mixed_with_ledger_fallback`であり、欠損またはcorporate action未解決の銘柄だけledger評価額が混在する。`common_factor_empty_tickers`が空でない場合のfactor比率は宣言済みtagに基づく下限値である。どちらのwarningも解消せず人間へ提示する。この再評価はledgerを更新しない。
 
 複数laneがviableでも、同じledger snapshotから複数proposalを一括生成しない。最上位laneを`plan-limit`したら、出力の`source_ledger_sha256`が現在のcanonical ledgerと一致することを確認して人間へ提示する。人間の`approve / defer / reject`と、注文がある場合はhuman result pathによるcanonical ledger更新を完了してから、残るlaneを再比較する。次のlaneへ進む場合は`selected_ticker`をその1件へ更新し、更新後canonical ledgerで`plan-limit`を再実行する。これによりactive reservationを含まないstale ledgerから資本を二重に割り当てない。
 

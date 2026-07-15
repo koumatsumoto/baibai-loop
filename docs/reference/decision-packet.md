@@ -93,9 +93,16 @@ max_acceptable_price = floor_to_tick(
 | packet/review ready、corporate action resolved、close ≤ max price | `planned_limit`。主指値はclose |
 | close > max price | `defer` |
 | adjusted-only、non-1 adjustment factor、価格basis不明 | `defer` |
+| 同一tickerのactive reservationあり | `defer`。元注文の再表示と追加注文を区別できないため新規注文を作らない |
 | packet/review not readyまたはhash mismatch | `defer` |
 
-quantityを考える注文額の目安は[`portfolio-management`](../portfolio-management.md#capital-guidance)を正本とする。1単元が上限を超えても1単元と超過warningを出し、より安い次点へ自動変更しない。cash、dry powder、concentration、held/reservedは人間向けwarning/annotationであり、投資価値rankingや最大許容価格を変えない。
+quantityを考える注文額の目安は[`portfolio-management`](../portfolio-management.md#capital-guidance)を正本とする。1単元が上限を超えても1単元と超過warningを出し、より安い次点へ自動変更しない。cash、dry powder、concentration、既存保有、他tickerのreservationは人間向けwarning/annotationであり、投資価値rankingや最大許容価格を変えない。同一tickerのactive reservationだけは注文の重複を防ぐため`defer`にし、human resultによる約定またはreleaseのledger反映後に再実行する。
+
+`planned_limit`のportfolio exposureは、proposalの`price_as_of`を全保有の共通評価日とし、同日のJPX raw/unadjusted close × 保有数量で一時的に再評価する。分母は、再評価した保有時価とavailable / reserved cashから同じbasisで再計算する。active reservationは市場価格ではなく`reserved_yen`を現在exposureに1回だけ加え、今回注文はprospective exposureの分子に1回だけ加える。注文はcashと保有の資産振替えなので分母に加算しない。
+
+共通評価日のcloseがない、ledger評価日から共通評価日までの営業日barが欠ける、または`adjustment_factor`が未確認・非1の保有はledger評価額へfallbackする。出力はその銘柄を`ledger_fallback_tickers`とwarningの両方で明示し、`holding_valuation_status: mixed_with_ledger_fallback`としてraw closeとledger値の混在を黙示しない。fallbackやconcentration warningは人間のsizing判断に渡すが、`planned_limit`、投資価値ranking、最大許容価格を変えない。canonical ledgerも書き換えない。
+
+common-factor exposureは、選定銘柄にpacketの現行classification、その他にledgerの宣言済みtagを使う。選定銘柄以外で`common_factors`が空の銘柄は`common_factor_empty_tickers`に列挙し、その場合のcommon-factor円額・比率は宣言済みtagだけに基づく下限値である。coverage warningを併記し、閾値未満を完全なfactor分散の保証として扱わない。
 
 proposalは人間承認前の判断材料で、brokerを操作しない。AIはfill probability、当日価格方向、未報告broker状態を推定しない。人間から結果が報告された後だけledger draftを作る。既存`baibai-loop-decision --execution-input`は互換的なlive evaluationであり、通常の寄り前runbook入口ではない。
 

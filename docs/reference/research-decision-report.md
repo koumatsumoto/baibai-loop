@@ -90,11 +90,12 @@ no actionable bargainでは`--proposal`を省略する。selected tickerがあ�
 - selected ticker、packet raw/core hash、independent review hash
 - workspace manifestのledger hashとproposalの`source_ledger_sha256`
 - target sessionとproposal expiry
+- `planned_limit`のportfolio exposureの共通as-of、円額、prospective比率、warning閾値、holding valuation status、ledger fallback / common-factor coverage warning
 - reviewが束縛したmanifest / findings / comparison / 全packet / proposal hash
 
 HTMLは外部script/assetを持たず、CSPを設定し、全自由記述をescapeする。tickerは固定形式のTradingView URLだけへlinkする。一次source linkはHTTPSかつpublic hostだけを許し、hostnameを表示してuserinfo、localhost、private / link-local literalを拒否する。non-ok sourceのdecision-impact noteと、pass reviewに残るwarning / info findingを省略せず表示する。`missing / failed / blocked` sourceを`observed` evidenceの根拠には使えない。
 
-comparisonの5年base CAGR / FV / FV gapはpacketから再計算し、proposalのboard lot / max price / raw close / quantity / notionalは`plan-limit`と同じpolicy・式から再導出する。review hashがfreshでも矛盾した手書き数値は拒否する。`planned_limit`は何を・いくらで・何株・想定いくら・いつまでを表示し、`defer` / `no actionable bargain`は購入提案なしを明示する。
+comparisonの5年base CAGR / FV / FV gapはpacketから再計算し、proposalのboard lot / max price / raw close / quantity / notionalは`plan-limit`と同じpolicy・式から再導出する。portfolio exposureはproposal内のcurrent / prospective円額と同一basisの総資本から比率を再計算し、fallback銘柄とwarning codeの1対1対応も確認する。review hashがfreshでも矛盾した手書き数値は拒否する。`planned_limit`は何を・いくらで・何株・想定いくら・いつまでに加え、同一as-ofのticker / sector / common-factor比率とfallback有無を表示する。`defer` / `no actionable bargain`は購入提案なしを明示する。
 
 ## Storage and checkpoint
 
