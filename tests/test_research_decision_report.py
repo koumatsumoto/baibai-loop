@@ -44,7 +44,13 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _findings() -> dict[str, object]:
+_DEFAULT_ENTRY_TIMING = (
+    "次のmaterial eventは2026-08-05のFY2026通期決算。指値は前営業日終値でFV比+25.97%の余地があり、"
+    "決算前でも要求利回りを満たすため待たずに提案する。"
+)
+
+
+def _findings(*, entry_timing: str | None = _DEFAULT_ENTRY_TIMING) -> dict[str, object]:
     primary = {
         "statement": "警備契約の継続収入と省人化が価値獲得の中心である。",
         "kind": "observed",
@@ -63,6 +69,7 @@ def _findings() -> dict[str, object]:
         "decision_context": {
             "portfolio_fit": "既存保有と異なる需要源を追加する。",
             "human_action": "指値と数量を確認し、発注可否を最終判断する。",
+            "entry_timing": entry_timing,
         },
         "candidates": [
             {
@@ -103,7 +110,17 @@ def _findings() -> dict[str, object]:
                         "expected_on": None,
                         "event": "次回決算",
                         "decision_impact": "利益率とFCF conversionを再評価する。",
-                    }
+                    },
+                    {
+                        "expected_on": "2026-09-01",
+                        "event": "中間配当基準日",
+                        "decision_impact": "配当継続方針を確認する。",
+                    },
+                    {
+                        "expected_on": "2026-08-05",
+                        "event": "FY2026通期決算",
+                        "decision_impact": "通期業績と自動化投資計画を確認する。",
+                    },
                 ],
                 "unknowns": ["最大顧客の売上比率は未開示"],
                 "monitoring": ["営業CFと設備投資の推移"],
@@ -255,7 +272,12 @@ def _review(
     }
 
 
-def _workspace(tmp_path: Path, *, mode: str = "planned_limit") -> dict[str, Path | None]:
+def _workspace(
+    tmp_path: Path,
+    *,
+    mode: str = "planned_limit",
+    entry_timing: str | None = _DEFAULT_ENTRY_TIMING,
+) -> dict[str, Path | None]:
     workspace = tmp_path / "opportunity"
     ticker_dir = workspace / "2331"
     ticker_dir.mkdir(parents=True)
@@ -285,7 +307,7 @@ def _workspace(tmp_path: Path, *, mode: str = "planned_limit") -> dict[str, Path
         _comparison(selected_ticker=selected_ticker),
     )
     findings_path = workspace / "findings.yaml"
-    _write(findings_path, _findings())
+    _write(findings_path, _findings(entry_timing=entry_timing))
     proposal_path: Path | None = None
     if selected_ticker is not None:
         proposal_path = workspace / "plan-limit.yaml"
@@ -1018,6 +1040,77 @@ def test_render_rejects_observed_evidence_from_unavailable_source(tmp_path: Path
 
     with pytest.raises(ReportError, match="observed evidence uses unavailable sources"):
         render(**paths)  # type: ignore[arg-type]
+
+
+def test_render_shows_five_year_base_break_even_summary(tmp_path: Path) -> None:
+    paths = _workspace(tmp_path)
+
+    document = render(**paths)  # type: ignore[arg-type]
+
+    assert "要求5年CAGR" in document
+    assert "8.00%" in document
+    assert "base 1.10倍 /" in document
+    assert "break-even 1.01倍 /" in document
+    assert "downside buffer 0.09倍" in document
+    assert "base 5.0% /" in document
+    assert "break-even 3.3% /" in document
+    assert "buffer 1.7pt" in document
+    assert "観測trailing multiple" in document
+    assert "10.32倍" in document
+    assert "モデル範囲内" in document
+    assert "観測値あり" in document
+    assert (
+        "buffer正 = 他の仮定を固定したとき要求CAGRを守りながら吸収できる悪化余地。"
+        "負でも計算としては有効で、買い提案との整合はreview済み。" in document
+    )
+
+
+def test_render_scenario_table_shows_terminal_multiple_and_dividend_columns(
+    tmp_path: Path,
+) -> None:
+    paths = _workspace(tmp_path)
+
+    document = render(**paths)  # type: ignore[arg-type]
+
+    assert "<th>terminal multiple</th>" in document
+    assert "<th>累積配当</th>" in document
+    assert "0.80倍" in document
+    assert "150円" in document
+
+
+def test_render_requires_entry_timing_when_a_proposal_exists(tmp_path: Path) -> None:
+    paths = _workspace(tmp_path, entry_timing=None)
+
+    with pytest.raises(ReportError, match="entry_timing"):
+        render(**paths)  # type: ignore[arg-type]
+
+
+def test_render_requires_entry_timing_even_for_a_defer_proposal(tmp_path: Path) -> None:
+    paths = _workspace(tmp_path, mode="defer", entry_timing=None)
+
+    with pytest.raises(ReportError, match="entry_timing"):
+        render(**paths)  # type: ignore[arg-type]
+
+
+def test_render_shows_entry_timing_and_nearest_dated_catalyst_in_purchase_method(
+    tmp_path: Path,
+) -> None:
+    paths = _workspace(tmp_path)
+
+    document = render(**paths)  # type: ignore[arg-type]
+
+    assert "entry timing" in document
+    assert _DEFAULT_ENTRY_TIMING in document
+    assert "直近の確認event" in document
+    assert "2026-08-05 FY2026通期決算" in document
+
+
+def test_render_allows_missing_entry_timing_without_a_proposal(tmp_path: Path) -> None:
+    paths = _workspace(tmp_path, mode="no_selected", entry_timing=None)
+
+    document = render(**paths)  # type: ignore[arg-type]
+
+    assert "no actionable bargain" in document
 
 
 def test_external_links_are_https_only() -> None:

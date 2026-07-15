@@ -3,7 +3,7 @@ title: "Candidate shortlist report"
 summary: "opportunity path OP3の人間レビューgateに出す候補HTMLレポートの生成方式とnarrativesスキーマ。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-13
+last_reviewed: 2026-07-15
 ---
 
 # candidate-report — 候補shortlistレポートの生成
@@ -12,7 +12,20 @@ last_reviewed: 2026-07-13
 
 ## 設計
 
-packet-scaffold と同じく「機械 = data plumbing / 人間 = judgment」。レンダラは screening 出力（`selection-output.yaml` の `audit_pool` と`candidates.yaml`のmetrics）からscreening評価用参考価格・valuation・自己資本比率・net cash・配当 basis・機械 E[r]・FV アンカー乖離・JPX が公表した `next_earnings_date`・入力 sha256 を機械取得し、**数値を転記しない**。この価格はscreeningの入力整合用で、発注に使うJPX raw/unadjusted closeではない。発注価格はprimary research後の`plan-limit`で別に取得する。`next_earnings_date: null` は JPX snapshot に既知日程がない（未定を含む）状態で、決算が存在しないという意味ではない。運用者は各候補の定性 narrative だけを `narratives.yaml` に書く。
+packet-scaffold と同じく「機械 = data plumbing / 人間 = judgment」。レンダラは screening 出力（`selection-output.yaml` の `audit_pool` と`candidates.yaml`のmetrics）とprepare出力（workspaceの`selection.yaml`）から以下を機械取得し、**数値を転記しない**。
+
+- 価格・valuation・自己資本比率・net cash・OCF/FCF・配当basis: screening評価用参考価格での基本fact。この価格はscreeningの入力整合用で、発注に使うJPX raw/unadjusted closeではない。発注価格はprimary research後の`plan-limit`で別に取得する。
+- 機械E[r]と**reversion/carry分解**: carry偏重のE[r]は割安の証拠にならないため、合計値だけでなく内訳を第1層に出す。
+- **FVアンカー構成**（`fv_self_range_yen` / `fv_sector_median_yen`と使用anchor metrics）と乖離: 自社レンジ比の安さと業種比の安さはmispricing仮説も失敗モードも異なるため分けて示す。
+- **値位置**（60日変化・52週安値からの位置）: 新鮮なdislocationか慢性的な安値放置かは一時的/構造的の事前判断を変える。
+- **売上・営業利益YoY**: narrativeの増収減益等の主張の隣に機械値を置く。
+- **流動性**（日次売買代金・liquidity_status）: 比較固定順の第4軸「購入可能性」の機械入力。
+- **`next_earnings_date`とevent warning**: research窓・注文窓のevent riskを深掘り選択の時点で見せる。`next_earnings_date: null` は JPX snapshot に既知日程がない（未定を含む）状態で、決算が存在しないという意味ではない。
+- **データ品質flag**（TTM品質非exact・EDINET取得失敗・BS前期繰越・freshness warning）: stale・欠損データ上の指標を無警告で信じさせない。
+- **portfolio annotation**（`unheld / held / reserved / held_and_reserved`）: prepare出力から機械join し、保有・予約状態を推定や固定文言で書かない。
+- 入力 sha256（selection / candidates / prepared selection）。
+
+運用者は各候補の定性 narrative だけを `narratives.yaml` に書く。
 
 生成 HTML は `.cache` 配下の **ephemeral 成果物で commit しない**（screen とレンダラの再実行で再現する。records には promote 済み packet/review だけを残す方針と一致）。
 
@@ -20,7 +33,7 @@ packet-scaffold と同じく「機械 = data plumbing / 人間 = judgment」。�
 
 直近の前回reportが確認できる週次runでは、前回と今回のhuman-review shortlistをticker集合で比較します。
 
-- `new`: 今回だけに含まれるticker。現在のscreening結果と定性判断に基づき、今回shortlistへ入れる理由とnarrativeを新たに書く。
+- `new`: 今回だけに含まれるticker。現在のscreening結果と定性判断に基づき、今回shortlistへ入れる理由とnarrativeを新たに書く。narrativeを書く前に会社IR・TDnetの直近開示をタイトルレベルで確認し、screeningのas-of財務に反映されないmaterial開示（業績修正、資本政策、TOB/MBO、不祥事等）を`why` / `counter`へ反映する（[OP3](../operations/decision-cycle.md#opportunity-path)の開示スキャン契約）。前回reportを確認できないfull reportでは全候補にこの確認を適用する。
 - `continued`: 前回と今回の両方に含まれるticker。前回narrativeは自動継承せず、audit-pool順位差、価格、前回as-of後に会社IR・TDnet・EDINETで公表された最新開示、最強countercaseとmaterial deltaを確認する。
 - `exited`: 前回だけに含まれるticker。今回のaudit pool外である場合も含め、今回shortlistへ残さない現在の理由を新たに書く。
 
@@ -42,8 +55,11 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.candidate_report.render \
   --selection .cache/opportunity/YYYY-MM-DD/selection-output.yaml \
   --candidates .cache/opportunity/YYYY-MM-DD/candidates.yaml \
   --narratives .cache/opportunity/YYYY-MM-DD/narratives.yaml \
+  --prepared .cache/opportunity/YYYY-MM-DD/selection.yaml \
   --out .cache/opportunity/YYYY-MM-DD/candidate-report.html
 ```
+
+`--prepared`は`baibai-loop-opportunity prepare`が書くworkspaceの`selection.yaml`で、portfolio annotationの唯一の機械sourceとする。narrativeのtickerがprepared audit poolに無い場合、レンダラはerrorで停止する。
 
 ## narratives スキーマ
 
