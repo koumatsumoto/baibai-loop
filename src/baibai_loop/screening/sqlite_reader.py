@@ -27,6 +27,7 @@ from baibai_loop.market.sqlite import (
     range_covered,
 )
 
+from . import master_snapshot as master_contract
 from .providers.edinet import EdinetMetricRecord, normalize_metric_record
 from .providers.jpx import (
     JPXEarningsCalendarEntry,
@@ -92,8 +93,10 @@ def read_eq_master_asof(sqlite_path: Path, asof: date) -> MasterSnapshotRead:
 
 
 def read_eq_master(sqlite_path: Path) -> list[SecurityMaster] | None:
-    """Return the master snapshot rows currently in SQLite, or `None` when
-    the cache is unavailable or has not imported any master file.
+    """Return only the globally latest operational master snapshot.
+
+    A ticker absent from the latest snapshot is not backfilled from an older
+    date. Historical membership belongs to :func:`read_eq_master_asof`.
     """
     if not sqlite_path.exists():
         return None
@@ -103,32 +106,78 @@ def read_eq_master(sqlite_path: Path) -> list[SecurityMaster] | None:
     try:
         if not _has_any_import(conn, "jquants_master_snapshots"):
             return None
+        snapshot = conn.execute(
+            "SELECT MAX(snapshot_date) FROM jquants_master_snapshots "
+            "WHERE snapshot_date != 'unknown'"
+        ).fetchone()[0]
+        if snapshot is None:
+            return None
         rows = conn.execute(
             "SELECT ticker, name, market, sector_33, is_common_stock "
-            "FROM jquants_master_snapshots ORDER BY snapshot_date DESC, ticker"
+            "FROM jquants_master_snapshots WHERE snapshot_date = ? ORDER BY ticker",
+            (str(snapshot),),
         ).fetchall()
     finally:
         conn.close()
 
-    seen: set[str] = set()
-    masters: list[SecurityMaster] = []
-    for ticker, name, market, sector_33, is_common in rows:
-        if ticker in seen:
-            # The table is keyed by (snapshot_date, ticker). When multiple
-            # snapshots exist, prefer the most recent — the ORDER BY above
-            # walks newest-first, so dropping repeats keeps the latest row.
-            continue
-        seen.add(ticker)
-        masters.append(
-            SecurityMaster(
-                code=ticker,
-                name=str(name or ""),
-                market_segment=str(market or ""),
-                sector_33=str(sector_33 or ""),
-                is_common_stock=bool(is_common),
-            )
+    return _materialize_masters(rows)
+
+
+def read_eq_master_exact(sqlite_path: Path, asof: date) -> list[SecurityMaster] | None:
+    """Return an exact snapshot only when its canonical coverage also agrees."""
+    if not sqlite_path.exists():
+        return None
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return None
+    iso = asof.isoformat()
+    try:
+        coverage_rows = conn.execute(
+            "SELECT coverage_start, coverage_end, record_count, status, error "
+            "FROM source_coverage WHERE source = ? AND coverage_key = ?",
+            (master_contract.MASTER_SOURCE, master_contract.master_coverage_key(asof)),
+        ).fetchall()
+        if len(coverage_rows) != 1:
+            return None
+        coverage_start, coverage_end, record_count, status, error = coverage_rows[0]
+        if coverage_start != iso or coverage_end != iso or status != "ok" or error is not None:
+            return None
+        expected_count = master_contract.master_coverage_count(record_count)
+        if expected_count is None:
+            return None
+        rows = conn.execute(
+            "SELECT ticker, name, market, sector_33, is_common_stock "
+            "FROM jquants_master_snapshots WHERE snapshot_date = ? ORDER BY ticker",
+            (iso,),
+        ).fetchall()
+        if len(rows) != expected_count or expected_count <= 0:
+            return None
+        common_count = sum(row[4] == 1 for row in rows)
+        if common_count < master_contract.MIN_COMMON_STOCK_MASTER_ROWS or common_count != len(rows):
+            return None
+        if any(not str(value or "").strip() for row in rows for value in row[:4]):
+            return None
+    except (sqlite3.OperationalError, TypeError, ValueError):
+        return None
+    finally:
+        conn.close()
+    try:
+        return _materialize_masters(rows)
+    except (TypeError, ValueError):
+        return None
+
+
+def _materialize_masters(rows: list[tuple[Any, ...]]) -> list[SecurityMaster]:
+    return [
+        SecurityMaster(
+            code=ticker,
+            name=str(name or ""),
+            market_segment=str(market or ""),
+            sector_33=str(sector_33 or ""),
+            is_common_stock=bool(is_common),
         )
-    return masters
+        for ticker, name, market, sector_33, is_common in rows
+    ]
 
 
 def read_fin_summaries(

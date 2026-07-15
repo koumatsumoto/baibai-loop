@@ -5,27 +5,112 @@ from __future__ import annotations
 import sqlite3
 from datetime import date, timedelta
 
+from baibai_loop.screening import master_snapshot as master_contract
+
 from .shared import CacheCoverageIssue
 
-_MIN_COMMON_STOCK_MASTER_ROWS = 2500
 _DENSITY_BUCKET_DAYS = 120
 
 
-def _append_master_common_stock_issue(
+def _append_master_snapshot_issues(
     conn: sqlite3.Connection,
     issues: list[CacheCoverageIssue],
     *,
     asof_date: date,
 ) -> None:
-    common_count = _latest_common_stock_count(conn)
-    if common_count < _MIN_COMMON_STOCK_MASTER_ROWS:
+    iso = asof_date.isoformat()
+    row = conn.execute(
+        "SELECT COUNT(*), "
+        "SUM(CASE WHEN is_common_stock = 1 THEN 1 ELSE 0 END), "
+        "SUM(CASE WHEN TRIM(ticker) = '' OR name IS NULL OR TRIM(name) = '' "
+        "OR market IS NULL OR TRIM(market) = '' "
+        "OR sector_33 IS NULL OR TRIM(sector_33) = '' "
+        "OR is_common_stock IS NULL OR is_common_stock != 1 THEN 1 ELSE 0 END) "
+        "FROM jquants_master_snapshots WHERE snapshot_date = ?",
+        (iso,),
+    ).fetchone()
+    actual_count = int(row[0] or 0)
+    common_count = int(row[1] or 0)
+    invalid_count = int(row[2] or 0)
+    coverage_rows = conn.execute(
+        "SELECT coverage_start, coverage_end, record_count, status, error "
+        "FROM source_coverage WHERE source = ? AND coverage_key = ?",
+        (master_contract.MASTER_SOURCE, master_contract.master_coverage_key(asof_date)),
+    ).fetchall()
+
+    if actual_count <= 0:
         issues.append(
             CacheCoverageIssue(
-                source="jquants_master_snapshots",
-                requirement=asof_date.isoformat(),
+                source=master_contract.MASTER_SOURCE,
+                requirement=iso,
+                reason="no exact master snapshot rows for requested as-of",
+            )
+        )
+    if len(coverage_rows) != 1:
+        issues.append(
+            CacheCoverageIssue(
+                source=master_contract.MASTER_SOURCE,
+                requirement=master_contract.master_coverage_key(asof_date),
+                reason="canonical exact-date master coverage row is missing or duplicated",
+            )
+        )
+    else:
+        coverage_start, coverage_end, record_count, status, error = coverage_rows[0]
+        if coverage_start != iso or coverage_end != iso:
+            issues.append(
+                CacheCoverageIssue(
+                    source=master_contract.MASTER_SOURCE,
+                    requirement=master_contract.master_coverage_key(asof_date),
+                    reason="master coverage range does not equal requested as-of",
+                )
+            )
+        if status != "ok" or error is not None:
+            suffix = f": {error}" if error else ""
+            issues.append(
+                CacheCoverageIssue(
+                    source=master_contract.MASTER_SOURCE,
+                    requirement=master_contract.master_coverage_key(asof_date),
+                    reason=f"source_coverage status is not ok: {status}{suffix}",
+                )
+            )
+        coverage_count = master_contract.master_coverage_count(record_count)
+        if coverage_count is None:
+            issues.append(
+                CacheCoverageIssue(
+                    source=master_contract.MASTER_SOURCE,
+                    requirement=iso,
+                    reason="master source_coverage record_count is not a non-negative integer",
+                )
+            )
+        if coverage_count is not None and coverage_count != actual_count:
+            issues.append(
+                CacheCoverageIssue(
+                    source=master_contract.MASTER_SOURCE,
+                    requirement=iso,
+                    reason=(
+                        f"exact master row count ({actual_count}) does not match "
+                        f"source_coverage record_count ({coverage_count}); repair SQLite"
+                    ),
+                )
+            )
+    if invalid_count:
+        issues.append(
+            CacheCoverageIssue(
+                source=master_contract.MASTER_SOURCE,
+                requirement=iso,
                 reason=(
-                    f"latest master common-stock row count ({common_count}) is below "
-                    f"minimum {_MIN_COMMON_STOCK_MASTER_ROWS}; repair SQLite"
+                    f"exact master snapshot has {invalid_count} row(s) with invalid required data"
+                ),
+            )
+        )
+    if common_count < master_contract.MIN_COMMON_STOCK_MASTER_ROWS:
+        issues.append(
+            CacheCoverageIssue(
+                source=master_contract.MASTER_SOURCE,
+                requirement=iso,
+                reason=(
+                    f"exact master common-stock row count ({common_count}) is below "
+                    f"minimum {master_contract.MIN_COMMON_STOCK_MASTER_ROWS}; repair SQLite"
                 ),
             )
         )
@@ -38,7 +123,7 @@ def _append_asof_bar_density_issue(
     asof_date: date,
 ) -> None:
     asof_iso = asof_date.isoformat()
-    expected = _latest_common_stock_count(conn)
+    expected = _common_stock_count(conn, asof_date)
     if expected <= 0:
         return
     actual_row = conn.execute(
@@ -67,7 +152,7 @@ def _append_recent_bar_density_issue(
     *,
     asof_date: date,
 ) -> None:
-    expected = _latest_common_stock_count(conn)
+    expected = _common_stock_count(conn, asof_date)
     if expected <= 0:
         return
     recent_start = asof_date - timedelta(days=30)
@@ -111,8 +196,8 @@ def _append_daily_history_density_issue(
     start: date,
     end: date,
 ) -> None:
-    expected = _latest_common_stock_count(conn)
-    if expected < _MIN_COMMON_STOCK_MASTER_ROWS:
+    expected = _common_stock_count(conn, end)
+    if expected < master_contract.MIN_COMMON_STOCK_MASTER_ROWS:
         return
     minimum_tickers = max(1, expected // 2)
     weak_buckets: list[str] = []
@@ -157,8 +242,8 @@ def _append_fin_summary_density_issue(
     start: date,
     end: date,
 ) -> None:
-    expected = _latest_common_stock_count(conn)
-    if expected < _MIN_COMMON_STOCK_MASTER_ROWS:
+    expected = _common_stock_count(conn, end)
+    if expected < master_contract.MIN_COMMON_STOCK_MASTER_ROWS:
         return
     minimum_tickers = max(1, expected // 2)
     recent_start = max(start, end - timedelta(days=450))
@@ -181,11 +266,10 @@ def _append_fin_summary_density_issue(
         )
 
 
-def _latest_common_stock_count(conn: sqlite3.Connection) -> int:
+def _common_stock_count(conn: sqlite3.Connection, snapshot_date: date) -> int:
     master_row = conn.execute(
         "SELECT COUNT(DISTINCT ticker) FROM jquants_master_snapshots "
-        "WHERE is_common_stock = 1 AND snapshot_date = ("
-        "SELECT MAX(snapshot_date) FROM jquants_master_snapshots WHERE snapshot_date != 'unknown'"
-        ")"
+        "WHERE is_common_stock = 1 AND snapshot_date = ?",
+        (snapshot_date.isoformat(),),
     ).fetchone()
     return int(master_row[0] or 0)

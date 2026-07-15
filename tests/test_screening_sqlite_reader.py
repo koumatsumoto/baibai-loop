@@ -21,7 +21,6 @@ from baibai_loop.screening.sqlite_cache import (
     open_connection,
     store_jpx_earnings_calendar_snapshot,
     store_jquants_daily_bars,
-    store_jquants_master,
 )
 from baibai_loop.screening.sqlite_reader import (
     read_eq_master,
@@ -65,7 +64,17 @@ class ReadEqMasterTests(unittest.TestCase):
     def test_returns_none_when_master_coverage_has_zero_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
-            store_jquants_master(db, [])
+            conn = open_connection(db)
+            _add_source_coverage(
+                conn,
+                source="jquants_master_snapshots",
+                path="get_eq_master:2026-05-07..2026-05-07",
+                record_count=0,
+                min_date="2026-05-07",
+                max_date="2026-05-07",
+            )
+            conn.commit()
+            conn.close()
 
             self.assertIsNone(read_eq_master(db))
 

@@ -104,7 +104,7 @@ def run_command(
             print(f"--asof must be a business day: {asof_date.isoformat()}", file=sys.stderr)
             return 1
         print("screening run jquants eq_master: start", file=out, flush=True)
-        securities = providers.jquants.get_eq_master()
+        securities = providers.jquants.get_eq_master(asof_date)
         print(
             f"screening run jquants eq_master: {len(securities)} row(s)",
             file=out,

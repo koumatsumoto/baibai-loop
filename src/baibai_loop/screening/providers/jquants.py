@@ -48,6 +48,7 @@ from baibai_loop.market.jquants import (
 )
 from baibai_loop.market.provider import JQuantsMarketProvider
 
+from ..master_snapshot import normalize_sector_name, validate_master_snapshot
 from ..schema import SecurityMaster, normalize_ticker
 
 
@@ -103,18 +104,42 @@ class JQuantsFinancialSummary:
 class JQuantsProvider(JQuantsMarketProvider):
     """Cache-first adapter for jquantsapi.ClientV2: price/calendar + fundamentals."""
 
-    def get_eq_master(self) -> list[SecurityMaster]:
+    def get_eq_master(self, requested_asof: date) -> list[SecurityMaster]:
         if self._sqlite_path is not None:
             # Imported lazily to avoid a circular import: sqlite_reader pulls in
             # this module's schema dataclasses to materialise rows.
-            from ..sqlite_reader import read_eq_master
+            from ..sqlite_reader import read_eq_master_exact
 
-            cached = read_eq_master(self._sqlite_path)
+            cached = read_eq_master_exact(self._sqlite_path, requested_asof)
             if cached is not None:
                 return cached
-        self._raise_if_cache_only("jquants_master_snapshots", "latest master snapshot")
-        records = self._load_or_fetch("get_eq_master")
-        return [normalize_security_master(record) for record in records]
+        self._raise_if_cache_only("jquants_master_snapshots", requested_asof.isoformat())
+        records = self._load_or_fetch(
+            "get_eq_master",
+            store_params={"requested_asof": requested_asof},
+            date=requested_asof.isoformat(),
+        )
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_eq_master_exact
+
+            stored = read_eq_master_exact(self._sqlite_path, requested_asof)
+            if stored is None:
+                raise JQuantsProviderError(
+                    "SQLite cache remained incomplete after fetching jquants_master_snapshots "
+                    f"for {requested_asof.isoformat()}"
+                )
+            return stored
+        validated = validate_master_snapshot(records, requested_asof)
+        return [
+            SecurityMaster(
+                code=ticker,
+                name=name,
+                market_segment=market,
+                sector_33=sector,
+                is_common_stock=bool(is_common),
+            )
+            for _, ticker, name, market, sector, is_common in validated.rows
+        ]
 
     def get_fin_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
         if self._sqlite_path is not None:
@@ -160,7 +185,10 @@ class JQuantsProvider(JQuantsMarketProvider):
         if method == "get_eq_master":
             from ..sqlite_cache import store_jquants_master
 
-            store_jquants_master(self._sqlite_path, records)
+            requested_asof = params.get("requested_asof")
+            if not isinstance(requested_asof, date):
+                raise JQuantsProviderError("get_eq_master store requires requested_asof")
+            store_jquants_master(self._sqlite_path, records, requested_asof=requested_asof)
             return
         if method == "get_fin_summary_range":
             from ..sqlite_cache import store_jquants_fin_summaries
@@ -177,15 +205,6 @@ class JQuantsProvider(JQuantsMarketProvider):
             )
             return
         super()._store_records(method, records, params)
-
-
-def normalize_sector_name(value: Any) -> str:
-    # J-Quants payloads sometimes return the half-width katakana middle dot
-    # ("情報･通信業", U+FF65) and other times the full-width middle dot
-    # ("情報・通信業", U+30FB) for the same TSE 33 sector. Pick the full-width
-    # form as canonical so downstream views and matchers see one spelling.
-    text = str(value or "")
-    return text.replace("･", "・")
 
 
 def normalize_security_master(record: Mapping[str, Any]) -> SecurityMaster:

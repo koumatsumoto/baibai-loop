@@ -14,6 +14,36 @@ from pathlib import Path
 from baibai_loop.screening.sqlite_cache import open_connection
 
 
+def make_master_records(
+    asof: date,
+    *,
+    count: int = 2500,
+    excluded_count: int = 0,
+) -> list[dict[str, str]]:
+    """Return a complete official-key master response for offline tests."""
+    records = [
+        {
+            "Date": asof.isoformat(),
+            "Code": f"{1000 + index:04d}0",
+            "CoName": f"Company {index}",
+            "MktNm": "Prime",
+            "S33Nm": "情報・通信業",
+        }
+        for index in range(count)
+    ]
+    records.extend(
+        {
+            "Date": asof.isoformat(),
+            "Code": f"{9000 + index:04d}1",
+            "CoName": f"Excluded {index}",
+            "MktNm": "Prime",
+            "S33Nm": "情報・通信業",
+        }
+        for index in range(excluded_count)
+    )
+    return records
+
+
 def add_source_coverage(
     conn: sqlite3.Connection,
     *,

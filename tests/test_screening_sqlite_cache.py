@@ -24,6 +24,7 @@ from baibai_loop.screening.sqlite_cache import (
     store_jquants_master,
 )
 from baibai_loop.screening.sqlite_reader import range_covered
+from tests.helpers.screening_sqlite import make_master_records
 
 
 def _earnings_snapshot(on_date: date = date(2026, 5, 15)) -> JPXEarningsCalendarSnapshot:
@@ -286,24 +287,10 @@ class SQLiteCacheTest(unittest.TestCase):
             self.assertEqual(
                 store_jquants_master(
                     db,
-                    [
-                        {
-                            "Code": "72030",
-                            "Date": "2026-05-08",
-                            "CompanyName": "Toyota",
-                            "MarketCodeName": "Prime",
-                            "Sector33CodeName": "輸送用機器",
-                        },
-                        {
-                            "Code": "72030",
-                            "Date": "2026-05-08",
-                            "CompanyName": "Toyota 2",
-                            "MarketCodeName": "Prime",
-                            "Sector33CodeName": "輸送用機器",
-                        },
-                    ],
+                    make_master_records(date(2026, 5, 8)),
+                    requested_asof=date(2026, 5, 8),
                 ),
-                1,
+                2500,
             )
             self.assertEqual(
                 store_jpx_earnings_calendar_snapshot(db, _earnings_snapshot(date(2026, 5, 8))),
@@ -370,7 +357,7 @@ class SQLiteCacheTest(unittest.TestCase):
             self.assertEqual(
                 coverage,
                 {
-                    "jquants_master_snapshots": 1,
+                    "jquants_master_snapshots": 2500,
                     "jpx_earnings_calendar": 1,
                     "jquants_market_calendar": 1,
                     "edinet_documents": 1,
@@ -390,15 +377,8 @@ class SQLiteCacheTest(unittest.TestCase):
             )
             store_jquants_master(
                 db,
-                [
-                    {
-                        "Code": "72030",
-                        "Date": "2026-05-08",
-                        "CompanyName": "Toyota",
-                        "MarketCodeName": "Prime",
-                        "Sector33CodeName": "輸送用機器",
-                    }
-                ],
+                make_master_records(date(2026, 5, 8)),
+                requested_asof=date(2026, 5, 8),
             )
             store_jpx_earnings_calendar_snapshot(db, _earnings_snapshot())
             store_jquants_market_calendar(

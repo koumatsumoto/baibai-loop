@@ -7,25 +7,26 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from baibai_loop.market.jquants import JQuantsProviderError
 from baibai_loop.market.sqlite.convert import (
     NormalizedRows,
     code_quality,
     date_iso,
     first,
-    is_common_stock_flag,
     to_float,
     to_str_or_none,
 )
 from baibai_loop.market.sqlite.coverage import (
     delete_date_range,
-    delete_source_coverage,
     record_range_source_coverage,
     record_source_coverage,
-    table_row_count,
 )
 from baibai_loop.market.sqlite.schema import open_connection
-from baibai_loop.screening.providers.jquants import (
-    normalize_sector_name,
+from baibai_loop.screening.master_snapshot import (
+    MASTER_OPERATION,
+    MASTER_SOURCE,
+    master_coverage_key,
+    validate_master_snapshot,
 )
 
 
@@ -73,45 +74,93 @@ def store_jquants_fin_summaries(
         conn.close()
 
 
-def store_jquants_master(db_path: Path, records: Iterable[Mapping[str, Any]]) -> int:
+def store_jquants_master(
+    db_path: Path,
+    records: Iterable[Mapping[str, Any]],
+    *,
+    requested_asof: date,
+) -> int:
+    # Materialize and validate the complete response before opening SQLite. An
+    # invalid provider batch must not create a DB or begin a transaction that
+    # can disturb an already accepted snapshot.
+    records_list = list(records)
+    validated = validate_master_snapshot(records_list, requested_asof)
     conn = open_connection(db_path)
     try:
-        records_list = list(records)
-        normalized = _master_rows_with_quality(records_list)
-        rows = normalized.rows
-        conn.execute("DELETE FROM jquants_master_snapshots")
-        delete_source_coverage(conn, "jquants_master_snapshots")
-        if rows:
-            conn.executemany(
-                """
-                INSERT OR REPLACE INTO jquants_master_snapshots(
-                  snapshot_date, ticker, name, market, sector_33, is_common_stock
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                rows,
+        iso = requested_asof.isoformat()
+        conn.execute("BEGIN")
+        conn.execute(
+            "DELETE FROM jquants_master_snapshots WHERE snapshot_date = ?",
+            (iso,),
+        )
+        # Remove coverage only for this requested snapshot. This also cleans a
+        # same-date legacy key while retaining every other captured date.
+        conn.execute(
+            "DELETE FROM source_coverage WHERE source = ? "
+            "AND coverage_start = ? AND coverage_end = ?",
+            (MASTER_SOURCE, iso, iso),
+        )
+        conn.executemany(
+            """
+            INSERT INTO jquants_master_snapshots(
+              snapshot_date, ticker, name, market, sector_33, is_common_stock
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            validated.rows,
+        )
+        count_row = conn.execute(
+            "SELECT COUNT(*) FROM jquants_master_snapshots WHERE snapshot_date = ?",
+            (iso,),
+        ).fetchone()
+        persisted_count = int(count_row[0] or 0)
+        if persisted_count != validated.persisted_count:
+            raise JQuantsProviderError(
+                "J-Quants master persisted count mismatch before coverage write: "
+                f"expected={validated.persisted_count} actual={persisted_count}"
             )
-        persisted_count = table_row_count(conn, "jquants_master_snapshots")
-        dates = sorted({row[0] for row in rows if row[0] != "unknown"})
+        if validated.raw_count != persisted_count + validated.excluded_count:
+            raise JQuantsProviderError(
+                "J-Quants master raw/persisted/excluded count mismatch after insert: "
+                f"raw={validated.raw_count} persisted={persisted_count} "
+                f"excluded={validated.excluded_count}"
+            )
+        common_row = conn.execute(
+            "SELECT COUNT(*) FROM jquants_master_snapshots "
+            "WHERE snapshot_date = ? AND is_common_stock = 1",
+            (iso,),
+        ).fetchone()
+        persisted_common_count = int(common_row[0] or 0)
+        if persisted_common_count != validated.common_stock_count:
+            raise JQuantsProviderError(
+                "J-Quants master common-stock count mismatch after insert: "
+                f"expected={validated.common_stock_count} actual={persisted_common_count}"
+            )
         record_source_coverage(
             conn,
-            source="jquants_master_snapshots",
-            operation="get_eq_master",
-            coverage_key="latest",
-            coverage_start=dates[0] if dates else None,
-            coverage_end=dates[-1] if dates else None,
-            requested_start=None,
-            requested_end=None,
-            params={},
+            source=MASTER_SOURCE,
+            operation=MASTER_OPERATION,
+            coverage_key=master_coverage_key(requested_asof),
+            coverage_start=iso,
+            coverage_end=iso,
+            requested_start=iso,
+            requested_end=iso,
+            params={"date": iso},
             record_count=persisted_count,
-            raw_record_count=len(records_list),
-            skipped_record_count=normalized.skipped_count,
-            rejected_record_count=normalized.rejected_count,
-            excluded_record_count=normalized.excluded_count,
-            status=normalized.status,
-            error=normalized.error,
+            status="ok",
+            error=None,
         )
+        coverage = conn.execute(
+            "SELECT coverage_start, coverage_end, record_count, status, error "
+            "FROM source_coverage WHERE source = ? AND coverage_key = ?",
+            (MASTER_SOURCE, master_coverage_key(requested_asof)),
+        ).fetchone()
+        if coverage != (iso, iso, persisted_count, "ok", None):
+            raise JQuantsProviderError("J-Quants master coverage write did not round-trip exactly")
         conn.commit()
         return persisted_count
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -201,39 +250,6 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> Norm
                 # 本決算開示では進行期ガイダンスが NxFDivAnn に入る (FEPS→NxFEPS と同型)。
                 to_float(first(record, "DivAnn")),
                 to_float(first(record, "FDivAnn", "NxFDivAnn")),
-            )
-        )
-    return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
-
-
-def _master_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedRows:
-    rows: list[tuple[Any, ...]] = []
-    rejected_count = 0
-    excluded_count = 0
-    for record in records:
-        ticker, code_status = code_quality(first(record, "Code", "code"))
-        if code_status == "rejected":
-            rejected_count += 1
-            continue
-        if code_status == "excluded":
-            excluded_count += 1
-            continue
-        snapshot_date = date_iso(first(record, "Date", "date", "snapshot_date")) or "unknown"
-        is_common_stock = is_common_stock_flag(record)
-        sector_raw = to_str_or_none(
-            first(record, "Sector33CodeName", "sector_33", "Sector33Name", "S33Nm", "S33")
-        )
-        rows.append(
-            (
-                snapshot_date,
-                ticker,
-                to_str_or_none(first(record, "CompanyName", "company_name", "Name", "CoName")),
-                to_str_or_none(first(record, "MarketCodeName", "market_segment", "MktNm", "Mkt")),
-                # J-Quants は同じ TSE 33 セクターを半角中黒 (U+FF65)・全角中黒 (U+30FB) で
-                # 揺らせて返してくる。SQLite に取り込む段階で全角形に正規化し、macro context /
-                # candidates / select の matcher が一意に解決できるようにする。
-                normalize_sector_name(sector_raw) if sector_raw else sector_raw,
-                1 if is_common_stock else 0,
             )
         )
     return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)

@@ -30,7 +30,7 @@ _WINDOW_COUNT_SOURCES = {
     "jquants_daily_bars": ("jquants_daily_bars", "traded_at"),
     "jquants_fin_summaries": ("jquants_fin_summaries", "disclosed_at"),
 }
-_SINGLE_SNAPSHOT_SOURCES = frozenset({"jquants_master_snapshots", "jpx_earnings_calendar"})
+_SINGLE_SNAPSHOT_SOURCES = frozenset({"jpx_earnings_calendar"})
 
 
 def _append_required_date_rows_issue(
