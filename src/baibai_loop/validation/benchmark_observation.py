@@ -6,7 +6,7 @@ import json
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any
 
 import yaml
 from jsonschema import Draft202012Validator, FormatChecker
@@ -92,8 +92,8 @@ def _semantic_error(raw: Mapping[str, object]) -> str | None:
         source_as_of=source_as_of,
         published_at=published_at,
         retrieved_at=retrieved_at,
-        horizon=cast(Literal["1y", "3y", "5y"], horizon),
-        period_basis=cast(Literal["official_explicit", "official_month_end_rule"], period_basis),
+        horizon=horizon,
+        period_basis=period_basis,
         period_rule_source_url=rule_url if isinstance(rule_url, str) else None,
         cumulative_return_pct=float(cumulative),
         annualized_return_pct=None if annualized is None else float(annualized),
