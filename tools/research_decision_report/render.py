@@ -16,7 +16,7 @@ import ipaddress
 import socket
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from baibai_loop.foundation.filesystem import write_text_atomic
 from baibai_loop.foundation.yaml_io import safe_load
+from baibai_loop.position.policy import PORTFOLIO_POLICY
 from baibai_loop.thesis.decision_packet import (
     DecisionPacketDocument,
     DecisionPacketError,
@@ -37,6 +38,7 @@ from baibai_loop.thesis.opportunity import BOARD_LOT, PLANNING_TICK_SIZE_YEN
 TRADINGVIEW = "https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A{ticker}"
 _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid")
 _TICKER = r"^[0-9A-Z]{4}$"
+_LEDGER_FALLBACK_WARNING_PREFIX = "portfolio_exposure_ledger_fallback:"
 
 
 class ReportError(ValueError):
@@ -557,6 +559,198 @@ def _validate_selection_dispositions(
         raise ReportError("comparison dispositions do not match selected_ticker")
 
 
+def _exposure_mapping(value: object, *, label: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise ReportError(f"{label} must be a mapping")
+    return value
+
+
+def _validate_exposure_row(
+    value: object,
+    *,
+    label: str,
+    expected_key: str,
+    expected_warning_pct: Decimal,
+    total_capital_yen: Decimal,
+    order_notional_yen: Decimal,
+) -> bool:
+    row = _exposure_mapping(value, label=label)
+    expected_fields = {
+        "key",
+        "current_and_reserved_yen",
+        "prospective_yen",
+        "prospective_pct",
+        "warning_pct",
+    }
+    if set(row) != expected_fields:
+        raise ReportError(f"{label} fields do not match the portfolio exposure contract")
+    if row.get("key") != expected_key:
+        raise ReportError(f"{label} key does not match the selected packet")
+    current = _decimal(
+        row.get("current_and_reserved_yen"), label=f"{label} current_and_reserved_yen"
+    )
+    prospective = _decimal(row.get("prospective_yen"), label=f"{label} prospective_yen")
+    prospective_pct = _decimal(row.get("prospective_pct"), label=f"{label} prospective_pct")
+    warning_pct = _decimal(row.get("warning_pct"), label=f"{label} warning_pct")
+    if current < 0 or prospective <= 0 or prospective_pct <= 0 or warning_pct <= 0:
+        raise ReportError(f"{label} exposure values must be positive (current may be zero)")
+    if any(value != value.to_integral_value() for value in (current, prospective)):
+        raise ReportError(f"{label} yen values must be whole numbers")
+    if warning_pct != expected_warning_pct:
+        raise ReportError(f"{label} warning_pct does not match portfolio policy")
+    if prospective != current + order_notional_yen:
+        raise ReportError(
+            f"{label} prospective_yen must equal current exposure plus order notional"
+        )
+    raw_pct = prospective / total_capital_yen * 100
+    expected_pct = raw_pct.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if prospective_pct != expected_pct:
+        raise ReportError(f"{label} prospective_pct does not match portfolio exposure arithmetic")
+    return raw_pct > warning_pct
+
+
+def _validate_portfolio_exposure(
+    proposal: Mapping[str, object],
+    *,
+    selected_ticker: str,
+    packet: DecisionPacketDocument,
+    order_notional_yen: Decimal,
+    warnings: list[str],
+) -> None:
+    exposure = _exposure_mapping(
+        proposal.get("portfolio_exposure"), label="proposal portfolio_exposure"
+    )
+    expected_fields = {
+        "price_as_of",
+        "price_basis",
+        "holding_valuation_status",
+        "total_capital_yen",
+        "ledger_fallback_tickers",
+        "common_factor_empty_tickers",
+        "ticker",
+        "sector",
+        "common_factors",
+    }
+    if set(exposure) != expected_fields:
+        raise ReportError("proposal portfolio_exposure fields do not match the contract")
+    if exposure.get("price_as_of") != proposal.get("price_as_of"):
+        raise ReportError("portfolio exposure price_as_of does not match proposal price_as_of")
+    if exposure.get("price_basis") != "last_close_unadjusted":
+        raise ReportError("portfolio exposure price_basis must be last_close_unadjusted")
+    total_capital = _decimal(
+        exposure.get("total_capital_yen"), label="portfolio exposure total_capital_yen"
+    )
+    if total_capital <= 0:
+        raise ReportError("portfolio exposure total_capital_yen must be positive")
+    if total_capital != total_capital.to_integral_value():
+        raise ReportError("portfolio exposure total_capital_yen must be a whole number")
+
+    risk_policy = PORTFOLIO_POLICY["risk_budget"]
+    ticker_warning_pct = Decimal(str(risk_policy["max_ticker_concentration_pct"]))
+    sector_warning_pct = Decimal(str(risk_policy["max_sector_concentration_pct"]))
+    factor_warning_pct = Decimal(str(risk_policy["max_common_factor_concentration_pct"]))
+
+    warning_expectations = {
+        "prospective_ticker_concentration_exceeds_warning": _validate_exposure_row(
+            exposure.get("ticker"),
+            label="portfolio exposure ticker",
+            expected_key=selected_ticker,
+            expected_warning_pct=ticker_warning_pct,
+            total_capital_yen=total_capital,
+            order_notional_yen=order_notional_yen,
+        ),
+        "prospective_sector_concentration_exceeds_warning": _validate_exposure_row(
+            exposure.get("sector"),
+            label="portfolio exposure sector",
+            expected_key=packet.input_snapshot.sector,
+            expected_warning_pct=sector_warning_pct,
+            total_capital_yen=total_capital,
+            order_notional_yen=order_notional_yen,
+        ),
+    }
+    factor_rows = _dict_rows(
+        exposure.get("common_factors"), label="portfolio exposure common_factors"
+    )
+    factor_keys = tuple(str(row.get("key")) for row in factor_rows)
+    if factor_keys != packet.input_snapshot.common_factors:
+        raise ReportError("portfolio exposure common-factor keys do not match the selected packet")
+    for factor, row in zip(packet.input_snapshot.common_factors, factor_rows, strict=True):
+        warning_expectations[
+            f"prospective_common_factor_concentration_exceeds_warning:{factor}"
+        ] = _validate_exposure_row(
+            row,
+            label=f"portfolio exposure common factor {factor}",
+            expected_key=factor,
+            expected_warning_pct=factor_warning_pct,
+            total_capital_yen=total_capital,
+            order_notional_yen=order_notional_yen,
+        )
+    warning_set = set(warnings)
+    factor_warning_prefix = "prospective_common_factor_concentration_exceeds_warning:"
+    fixed_concentration_warnings = {
+        "prospective_ticker_concentration_exceeds_warning",
+        "prospective_sector_concentration_exceeds_warning",
+    }
+    actual_concentration_warnings = {
+        code
+        for code in warning_set
+        if code in fixed_concentration_warnings or code.startswith(factor_warning_prefix)
+    }
+    expected_concentration_warnings = {
+        code for code, exceeds_threshold in warning_expectations.items() if exceeds_threshold
+    }
+    if actual_concentration_warnings != expected_concentration_warnings:
+        raise ReportError("portfolio exposure concentration warnings do not match thresholds")
+
+    fallback_tickers = _string_items(
+        exposure.get("ledger_fallback_tickers"),
+        label="portfolio exposure ledger_fallback_tickers",
+    )
+    if len(fallback_tickers) != len(set(fallback_tickers)):
+        raise ReportError("portfolio exposure ledger_fallback_tickers must be unique")
+    if any(
+        len(ticker) != 4 or not ticker.isalnum() or ticker.upper() != ticker
+        for ticker in fallback_tickers
+    ):
+        raise ReportError("portfolio exposure ledger_fallback_tickers contain an invalid ticker")
+    expected_fallback_warnings = {
+        f"{_LEDGER_FALLBACK_WARNING_PREFIX}{ticker}" for ticker in fallback_tickers
+    }
+    actual_fallback_warnings = {
+        code for code in warning_set if code.startswith(_LEDGER_FALLBACK_WARNING_PREFIX)
+    }
+    if actual_fallback_warnings != expected_fallback_warnings:
+        raise ReportError("portfolio exposure fallback tickers and warnings do not match")
+    expected_valuation_status = (
+        "mixed_with_ledger_fallback" if fallback_tickers else "same_asof_raw_close"
+    )
+    if exposure.get("holding_valuation_status") != expected_valuation_status:
+        raise ReportError(
+            "portfolio exposure holding_valuation_status does not match ledger fallbacks"
+        )
+
+    empty_factor_tickers = _string_items(
+        exposure.get("common_factor_empty_tickers"),
+        label="portfolio exposure common_factor_empty_tickers",
+    )
+    if empty_factor_tickers != sorted(set(empty_factor_tickers)):
+        raise ReportError(
+            "portfolio exposure common_factor_empty_tickers must be sorted and unique"
+        )
+    if any(
+        len(ticker) != 4 or not ticker.isalnum() or ticker.upper() != ticker
+        for ticker in empty_factor_tickers
+    ):
+        raise ReportError(
+            "portfolio exposure common_factor_empty_tickers contain an invalid ticker"
+        )
+    coverage_warning = "portfolio_exposure_common_factor_coverage_incomplete"
+    if warnings.count(coverage_warning) != int(bool(empty_factor_tickers)):
+        raise ReportError(
+            "portfolio exposure common-factor coverage warning does not match empty tickers"
+        )
+
+
 def _validate_proposal(
     *,
     proposal_path: Path | None,
@@ -602,7 +796,7 @@ def _validate_proposal(
         raise ReportError("proposal expires_at must include a timezone")
     if expires_at_value.date() != target_session:
         raise ReportError("proposal expiry does not match target_session")
-    _string_items(proposal.get("warnings"), label="proposal warnings")
+    warnings = _string_items(proposal.get("warnings"), label="proposal warnings")
     _string_items(proposal.get("portfolio_annotations"), label="proposal portfolio_annotations")
     defer_reasons = _string_items(proposal.get("defer_reasons"), label="proposal defer_reasons")
     status = proposal["status"]
@@ -650,7 +844,16 @@ def _validate_proposal(
             raise ReportError("planned_limit notional must equal limit price times quantity")
         if defer_reasons:
             raise ReportError("planned_limit proposal cannot retain defer reasons")
+        _validate_portfolio_exposure(
+            proposal,
+            selected_ticker=selected_ticker,
+            packet=packet,
+            order_notional_yen=notional,
+            warnings=warnings,
+        )
     else:
+        if "portfolio_exposure" in proposal:
+            raise ReportError("defer proposal cannot contain portfolio_exposure")
         price_as_of = proposal.get("price_as_of")
         if price_as_of is not None and price_as_of != report_as_of.isoformat():
             raise ReportError("defer price_as_of does not match report as_of")
@@ -849,6 +1052,55 @@ def _review_findings_html(findings: Iterable[ReviewFinding]) -> str:
     return items or "<li>なし</li>"
 
 
+def _portfolio_exposure_html(proposal: Mapping[str, object]) -> str:
+    exposure = _exposure_mapping(
+        proposal.get("portfolio_exposure"), label="proposal portfolio_exposure"
+    )
+    ticker = _exposure_mapping(exposure.get("ticker"), label="portfolio exposure ticker")
+    sector = _exposure_mapping(exposure.get("sector"), label="portfolio exposure sector")
+    factors = _dict_rows(exposure.get("common_factors"), label="portfolio exposure common_factors")
+    rows = [("ticker", ticker), ("sector", sector)] + [
+        ("common factor", factor) for factor in factors
+    ]
+    table_rows = "".join(
+        "<tr>"
+        f"<td>{_esc(scope)}</td>"
+        f"<td>{_esc(row.get('key'))}</td>"
+        f"<td>{_fmt(row.get('current_and_reserved_yen'), digits=0, suffix='円')}</td>"
+        f"<td>{_fmt(row.get('prospective_yen'), digits=0, suffix='円')}</td>"
+        f"<td>{_fmt(row.get('prospective_pct'), digits=2, suffix='%')}</td>"
+        f"<td>{_fmt(row.get('warning_pct'), digits=2, suffix='%')}</td>"
+        "</tr>"
+        for scope, row in rows
+    )
+    fallbacks = exposure.get("ledger_fallback_tickers")
+    fallback_text = (
+        ", ".join(_esc(item) for item in fallbacks)
+        if isinstance(fallbacks, list) and fallbacks
+        else "なし"
+    )
+    empty_factor_tickers = exposure.get("common_factor_empty_tickers")
+    empty_factor_text = (
+        ", ".join(_esc(item) for item in empty_factor_tickers)
+        if isinstance(empty_factor_tickers, list) and empty_factor_tickers
+        else "なし"
+    )
+    factor_coverage_note = (
+        '<p class="note">common-factor比率は、tagが付与された銘柄だけを集計したdeclared tagsベースの下限値です。</p>'
+        if isinstance(empty_factor_tickers, list) and empty_factor_tickers
+        else ""
+    )
+    return f"""<h3>portfolio exposure（同一as-of）</h3>
+<dl><dt>価格basis</dt><dd>{_esc(exposure.get("price_basis"))} / {_esc(exposure.get("price_as_of"))}</dd>
+<dt>holding valuation status</dt><dd>{_esc(exposure.get("holding_valuation_status"))}</dd>
+<dt>total capital</dt><dd>{_fmt(exposure.get("total_capital_yen"), digits=0, suffix="円")}</dd>
+<dt>ledger fallback</dt><dd>{fallback_text}</dd>
+<dt>common-factor tagなし</dt><dd>{empty_factor_text}</dd></dl>
+<div class="scroll"><table><thead><tr><th>scope</th><th>key</th><th>current + reserved</th>
+<th>注文後</th><th>注文後比率</th><th>warning閾値</th></tr></thead><tbody>{table_rows}</tbody></table></div>
+{factor_coverage_note}"""
+
+
 def _proposal_html(proposal: Mapping[str, object] | None, selected_ticker: str | None) -> str:
     if proposal is None or selected_ticker is None:
         return """<section class="order no-order"><h2>購入提案なし</h2>
@@ -874,7 +1126,8 @@ def _proposal_html(proposal: Mapping[str, object] | None, selected_ticker: str |
 <dt>最大許容価格</dt><dd>{_fmt(proposal.get("max_acceptable_price_yen"), digits=1, suffix="円")}</dd>
 <dt>board lot</dt><dd>{_fmt(proposal.get("board_lot"), digits=0, suffix="株")}</dd>
 <dt>有効期限</dt><dd>{_esc(proposal.get("expires_at"))}</dd></dl>
-<h3>budget warning</h3><ul>{warnings or "<li>なし</li>"}</ul>
+{_portfolio_exposure_html(proposal)}
+<h3>warning</h3><ul>{warnings or "<li>なし</li>"}</ul>
 <h3>portfolio annotation</h3><ul>{annotations or "<li>なし</li>"}</ul>
 <p class="note">これは人間の注文判断のためのplanning-only提案であり、brokerへ発注しません。</p></section>"""
 

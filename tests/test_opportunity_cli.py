@@ -21,6 +21,7 @@ from baibai_loop.foundation.yaml_io import safe_load
 from baibai_loop.market.sqlite.schema import open_connection
 from baibai_loop.thesis.close_source import (
     _EXPECTED_MARKET_SCHEMA_VERSION,
+    resolve_holding_close_on_basis,
     resolve_previous_business_day_close,
 )
 from baibai_loop.thesis.decision_cli import main as decision_main
@@ -61,6 +62,63 @@ def _seed_bars(
         conn.commit()
     finally:
         conn.close()
+
+
+def _ledger_with_observed_at(
+    tmp_path: Path,
+    observed_at: str,
+    *,
+    active_candidate_reservation: bool = False,
+    active_same_scope_reservation: bool = False,
+    empty_other_reservation_factor: bool = False,
+) -> Path:
+    payload = safe_load(LEDGER_FIXTURE.read_text(encoding="utf-8"))
+    payload["market_prices"][0]["observed_at"] = observed_at
+    payload["market_prices"][0]["source_kind"] = "licensed_dataset"
+    payload["market_prices"][0]["price_basis"] = "unadjusted_close"
+    payload["market_prices"][0]["source_ref"] = "offline-test:raw-close:2331"
+    if empty_other_reservation_factor:
+        for event in payload["events"]:
+            if event.get("ticker") == "8929" and "common_factors" in event:
+                event["common_factors"] = []
+    if active_candidate_reservation:
+        for event in payload["events"]:
+            if event.get("ticker") == "2331" and "common_factors" in event:
+                event["common_factors"] = []
+        payload["events"].append(
+            {
+                "event_id": "reserve-2331-proposal-test",
+                "type": "reservation",
+                "occurred_at": "2026-07-09T09:00:00+09:00",
+                "reservation_id": "reservation-2331-proposal-test",
+                "order_id": "order-2331-proposal-test",
+                "ticker": "2331",
+                "sector": "サービス業",
+                "common_factors": [],
+                "quantity": 100,
+                "price_guard_yen": 1000,
+                "expires_at": "2026-07-31T15:30:00+09:00",
+            }
+        )
+    if active_same_scope_reservation:
+        payload["events"].append(
+            {
+                "event_id": "reserve-9999-same-scope-test",
+                "type": "reservation",
+                "occurred_at": "2026-07-09T09:00:00+09:00",
+                "reservation_id": "reservation-9999-same-scope-test",
+                "order_id": "order-9999-same-scope-test",
+                "ticker": "9999",
+                "sector": "サービス業",
+                "common_factors": ["labor-automation"],
+                "quantity": 100,
+                "price_guard_yen": 1000,
+                "expires_at": "2026-07-31T15:30:00+09:00",
+            }
+        )
+    path = tmp_path / "test-ledger.yaml"
+    path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    return path
 
 
 def _write_selection(
@@ -303,6 +361,90 @@ def test_close_source_degrades_on_schema_version_mismatch(tmp_path: Path) -> Non
         sqlite_path=sqlite_path, ticker="2331", target_session=date(2026, 7, 13)
     )
     assert resolved is None
+
+
+def test_close_source_never_uses_older_ticker_bar_when_market_wide_date_is_missing(
+    tmp_path: Path,
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(
+        sqlite_path,
+        [
+            ("2331", "2026-07-09", 990.0, 1.0),
+            ("9999", "2026-07-10", 500.0, 1.0),
+        ],
+    )
+
+    resolved = resolve_previous_business_day_close(
+        sqlite_path=sqlite_path, ticker="2331", target_session=date(2026, 7, 13)
+    )
+
+    assert resolved is None
+
+
+def test_close_source_treats_missing_adjustment_factor_as_unresolved(tmp_path: Path) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, None)])
+
+    resolved = resolve_previous_business_day_close(
+        sqlite_path=sqlite_path, ticker="2331", target_session=date(2026, 7, 13)
+    )
+
+    assert resolved is not None
+    assert resolved.corporate_action_unresolved is True
+
+
+@pytest.mark.parametrize(
+    ("intermediate_close", "intermediate_factor"),
+    [(None, 1.0), (995.0, None), (995.0, 0.5)],
+    ids=("missing-bar", "missing-factor", "non-unit-factor"),
+)
+def test_holding_close_falls_back_when_revaluation_chain_is_incomplete(
+    tmp_path: Path,
+    intermediate_close: float | None,
+    intermediate_factor: float | None,
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    rows: list[tuple[str, str, float | None, float | None]] = [
+        ("2331", "2026-07-08", 990.0, 1.0),
+        ("2331", "2026-07-10", 1000.0, 1.0),
+    ]
+    if intermediate_close is None:
+        rows.append(("9999", "2026-07-09", 500.0, 1.0))
+    else:
+        rows.append(("2331", "2026-07-09", intermediate_close, intermediate_factor))
+    _seed_bars(sqlite_path, rows)
+
+    resolved = resolve_holding_close_on_basis(
+        sqlite_path=sqlite_path,
+        ticker="2331",
+        ledger_price_observed_on=date(2026, 7, 8),
+        basis_as_of=date(2026, 7, 10),
+    )
+
+    assert resolved is None
+
+
+def test_holding_close_uses_exact_basis_after_complete_raw_chain(tmp_path: Path) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(
+        sqlite_path,
+        [
+            ("2331", "2026-07-09", 990.0, 1.0),
+            ("2331", "2026-07-10", 1000.0, 1.0),
+        ],
+    )
+
+    resolved = resolve_holding_close_on_basis(
+        sqlite_path=sqlite_path,
+        ticker="2331",
+        ledger_price_observed_on=date(2026, 7, 9),
+        basis_as_of=date(2026, 7, 10),
+    )
+
+    assert resolved is not None
+    assert resolved.price_as_of == date(2026, 7, 10)
+    assert resolved.close_yen == 1000.0
 
 
 def test_prepare_annotates_held_reserved_without_excluding(
@@ -1534,6 +1676,305 @@ def test_plan_limit_close_within_max_plans_limit_at_close(
     assert (
         payload["source_ledger_sha256"] == hashlib.sha256(LEDGER_FIXTURE.read_bytes()).hexdigest()
     )
+    assert payload["portfolio_exposure"]["ledger_fallback_tickers"] == ["2331"]
+    assert payload["portfolio_exposure"]["holding_valuation_status"] == (
+        "mixed_with_ledger_fallback"
+    )
+    assert "portfolio_exposure_ledger_fallback:2331" in payload["warnings"]
+
+
+def test_plan_limit_revalues_holding_on_proposal_basis_and_derives_exposure(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(
+        sqlite_path,
+        [
+            ("2331", "2026-07-09", 1100.0, 1.0),
+            ("2331", "2026-07-10", 1000.0, 1.0),
+        ],
+    )
+    packet = _promoted_packet(tmp_path, sqlite_path)
+    ledger = _ledger_with_observed_at(tmp_path, "2026-07-09T15:30:00+09:00")
+
+    code, payload = _run(
+        [
+            "plan-limit",
+            "--packet",
+            str(packet),
+            "--ledger",
+            str(ledger),
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+
+    assert code == 0
+    assert payload["status"] == "planned_limit"
+    exposure = payload["portfolio_exposure"]
+    # available 10,080,500 + reserved 119,000 + 200 shares * 1,000 raw close.
+    assert exposure["total_capital_yen"] == 10_399_500
+    assert exposure["price_as_of"] == "2026-07-10"
+    assert exposure["price_basis"] == "last_close_unadjusted"
+    assert exposure["holding_valuation_status"] == "same_asof_raw_close"
+    assert exposure["ledger_fallback_tickers"] == []
+    assert exposure["common_factor_empty_tickers"] == []
+    assert exposure["ticker"] == {
+        "key": "2331",
+        "current_and_reserved_yen": 200_000,
+        "prospective_yen": 500_000,
+        "prospective_pct": 4.81,
+        "warning_pct": 6,
+    }
+    assert exposure["sector"]["current_and_reserved_yen"] == 200_000
+    assert exposure["sector"]["prospective_yen"] == 500_000
+    assert exposure["common_factors"] == [
+        {
+            "key": "labor-automation",
+            "current_and_reserved_yen": 200_000,
+            "prospective_yen": 500_000,
+            "prospective_pct": 4.81,
+            "warning_pct": 35,
+        }
+    ]
+
+    # Remaining available cash is 2,080,500. It is above 20% of the revalued
+    # 10,399,500 capital (2,079,900), but below 20% of stale ledger capital
+    # 10,419,500 (2,083,900); therefore no stale-denominator warning is allowed.
+    code, large_order = _run(
+        [
+            "plan-limit",
+            "--packet",
+            str(packet),
+            "--ledger",
+            str(ledger),
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+            "--budget-max-yen",
+            "8000000",
+        ],
+        capsys,
+    )
+    assert code == 0
+    assert large_order["notional_yen"] == 8_000_000
+    assert "dry_powder_below_floor" not in large_order["warnings"]
+
+
+def test_plan_limit_active_candidate_reservation_defers_without_second_order(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(
+        sqlite_path,
+        [
+            ("2331", "2026-07-09", 1100.0, 1.0),
+            ("2331", "2026-07-10", 1000.0, 1.0),
+        ],
+    )
+    packet = _promoted_packet(tmp_path, sqlite_path)
+    ledger = _ledger_with_observed_at(
+        tmp_path,
+        "2026-07-09T15:30:00+09:00",
+        active_candidate_reservation=True,
+    )
+
+    code, payload = _run(
+        [
+            "plan-limit",
+            "--packet",
+            str(packet),
+            "--ledger",
+            str(ledger),
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+
+    assert code == 0
+    assert payload["status"] == "defer"
+    assert payload["close_yen"] == 1000
+    assert payload["max_acceptable_price_yen"] == 1109
+    assert payload["limit_price_yen"] is None
+    assert payload["quantity"] == 0
+    assert payload["notional_yen"] == 0
+    assert payload["portfolio_annotations"] == ["already_held", "active_reservation"]
+    assert payload["defer_reasons"] == ["active_reservation_exists"]
+    assert "portfolio_exposure" not in payload
+
+
+def test_plan_limit_counts_same_scope_reservation_and_order_once(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(
+        sqlite_path,
+        [
+            ("2331", "2026-07-09", 1100.0, 1.0),
+            ("2331", "2026-07-10", 1000.0, 1.0),
+        ],
+    )
+    packet = _promoted_packet(tmp_path, sqlite_path)
+    ledger = _ledger_with_observed_at(
+        tmp_path,
+        "2026-07-09T15:30:00+09:00",
+        active_same_scope_reservation=True,
+    )
+
+    code, payload = _run(
+        [
+            "plan-limit",
+            "--packet",
+            str(packet),
+            "--ledger",
+            str(ledger),
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+            "--budget-max-yen",
+            "400000",
+        ],
+        capsys,
+    )
+
+    assert code == 0
+    assert payload["status"] == "planned_limit"
+    assert payload["notional_yen"] == 400_000
+    exposure = payload["portfolio_exposure"]
+    # Reservation moves 100,000 from available to reserved, leaving capital
+    # unchanged. It contributes once to the same sector/factor, while this order
+    # contributes once to each prospective numerator and never to the denominator.
+    assert exposure["total_capital_yen"] == 10_399_500
+    assert exposure["ticker"]["current_and_reserved_yen"] == 200_000
+    assert exposure["ticker"]["prospective_yen"] == 600_000
+    assert exposure["sector"]["current_and_reserved_yen"] == 300_000
+    assert exposure["sector"]["prospective_yen"] == 700_000
+    assert exposure["common_factors"][0]["current_and_reserved_yen"] == 300_000
+    assert exposure["common_factors"][0]["prospective_yen"] == 700_000
+    assert payload["defer_reasons"] == []
+
+
+def test_plan_limit_ticker_concentration_warning_does_not_change_status_or_limit(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(
+        sqlite_path,
+        [
+            ("2331", "2026-07-09", 1100.0, 1.0),
+            ("2331", "2026-07-10", 1000.0, 1.0),
+        ],
+    )
+    packet = _promoted_packet(tmp_path, sqlite_path)
+    ledger = _ledger_with_observed_at(tmp_path, "2026-07-09T15:30:00+09:00")
+
+    code, payload = _run(
+        [
+            "plan-limit",
+            "--packet",
+            str(packet),
+            "--ledger",
+            str(ledger),
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+            "--budget-max-yen",
+            "500000",
+        ],
+        capsys,
+    )
+
+    assert code == 0
+    assert payload["status"] == "planned_limit"
+    assert payload["limit_price_yen"] == 1000
+    assert payload["portfolio_exposure"]["ticker"]["prospective_yen"] == 700_000
+    assert "prospective_ticker_concentration_exceeds_warning" in payload["warnings"]
+
+
+def test_plan_limit_discloses_other_ticker_with_missing_common_factor_coverage(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(
+        sqlite_path,
+        [
+            ("2331", "2026-07-09", 1100.0, 1.0),
+            ("2331", "2026-07-10", 1000.0, 1.0),
+        ],
+    )
+    packet = _promoted_packet(tmp_path, sqlite_path)
+    ledger = _ledger_with_observed_at(
+        tmp_path,
+        "2026-07-09T15:30:00+09:00",
+        empty_other_reservation_factor=True,
+    )
+
+    code, payload = _run(
+        [
+            "plan-limit",
+            "--packet",
+            str(packet),
+            "--ledger",
+            str(ledger),
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+
+    assert code == 0
+    assert payload["portfolio_exposure"]["common_factor_empty_tickers"] == ["8929"]
+    assert "portfolio_exposure_common_factor_coverage_incomplete" in payload["warnings"]
+
+
+def test_plan_limit_falls_back_when_revalued_holding_is_not_whole_yen(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(
+        sqlite_path,
+        [
+            ("2331", "2026-07-09", 1100.0, 1.0),
+            ("2331", "2026-07-10", 1000.0025, 1.0),
+        ],
+    )
+    packet = _promoted_packet(tmp_path, sqlite_path)
+    ledger = _ledger_with_observed_at(tmp_path, "2026-07-09T15:30:00+09:00")
+
+    code, payload = _run(
+        [
+            "plan-limit",
+            "--packet",
+            str(packet),
+            "--ledger",
+            str(ledger),
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+
+    assert code == 0
+    assert payload["status"] == "planned_limit"
+    assert payload["portfolio_exposure"]["ledger_fallback_tickers"] == ["2331"]
+    assert payload["portfolio_exposure"]["holding_valuation_status"] == (
+        "mixed_with_ledger_fallback"
+    )
+    assert payload["portfolio_exposure"]["ticker"]["current_and_reserved_yen"] == 220_000
+    assert "portfolio_exposure_ledger_fallback:2331" in payload["warnings"]
 
 
 def test_plan_limit_close_above_max_defers(
@@ -1613,6 +2054,32 @@ def test_plan_limit_corporate_action_defers(
     assert code == 0
     assert payload["status"] == "defer"
     assert "corporate_action_unresolved" in payload["defer_reasons"]
+
+
+def test_plan_limit_missing_adjustment_factor_defers(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, None)])
+    packet = _promoted_packet(tmp_path, sqlite_path)
+    code, payload = _run(
+        [
+            "plan-limit",
+            "--packet",
+            str(packet),
+            "--ledger",
+            str(LEDGER_FIXTURE),
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+    assert code == 0
+    assert payload["status"] == "defer"
+    assert "corporate_action_unresolved" in payload["defer_reasons"]
+    assert "portfolio_exposure" not in payload
 
 
 def test_plan_limit_single_lot_above_budget_max_still_proposes_with_warning(

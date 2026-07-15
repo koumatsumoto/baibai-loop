@@ -155,7 +155,7 @@ def _proposal(workspace: Path, *, status: str) -> dict[str, object]:
     assert packet.estimates is not None
     close_yen = int(packet.estimates.entry_price_basis_yen)
     quantity = 200 if planned else 0
-    return {
+    proposal: dict[str, object] = {
         "status": status,
         "ticker": "2331",
         "decision_packet_sha256": _sha256(packet_path),
@@ -174,9 +174,52 @@ def _proposal(workspace: Path, *, status: str) -> dict[str, object]:
         "limit_price_yen": close_yen if planned else None,
         "quantity": quantity,
         "notional_yen": close_yen * quantity,
-        "warnings": ["dry_powder_below_floor"] if planned else [],
+        "warnings": (
+            [
+                "dry_powder_below_floor",
+                "prospective_ticker_concentration_exceeds_warning",
+                "prospective_common_factor_concentration_exceeds_warning:labor-automation",
+                "portfolio_exposure_ledger_fallback:9999",
+            ]
+            if planned
+            else []
+        ),
         "defer_reasons": [] if planned else ["close_above_max_acceptable_price"],
     }
+    if planned:
+        notional = close_yen * quantity
+        proposal["portfolio_exposure"] = {
+            "price_as_of": "2026-07-03",
+            "price_basis": "last_close_unadjusted",
+            "holding_valuation_status": "mixed_with_ledger_fallback",
+            "total_capital_yen": 5_000_000,
+            "ledger_fallback_tickers": ["9999"],
+            "common_factor_empty_tickers": [],
+            "ticker": {
+                "key": "2331",
+                "current_and_reserved_yen": 100_000,
+                "prospective_yen": 100_000 + notional,
+                "prospective_pct": 6.13,
+                "warning_pct": 6.0,
+            },
+            "sector": {
+                "key": "サービス業",
+                "current_and_reserved_yen": 1_000_000,
+                "prospective_yen": 1_000_000 + notional,
+                "prospective_pct": 24.13,
+                "warning_pct": 40.0,
+            },
+            "common_factors": [
+                {
+                    "key": "labor-automation",
+                    "current_and_reserved_yen": 1_900_000,
+                    "prospective_yen": 1_900_000 + notional,
+                    "prospective_pct": 42.13,
+                    "warning_pct": 35.0,
+                }
+            ],
+        }
+    return proposal
 
 
 def _review(
@@ -277,6 +320,15 @@ def test_render_planned_limit_after_passing_hash_bound_review(tmp_path: Path) ->
     assert "内容レビュー: pass" in document
     assert "independent-report-reviewer" in document
     assert "ledger_warning:portfolio.ticker-concentration" in document
+    assert "portfolio exposure（同一as-of）" in document
+    assert "5,000,000円" in document
+    assert "6.13%" in document
+    assert "24.13%" in document
+    assert "42.13%" in document
+    assert "ledger fallback" in document
+    assert "holding valuation status" in document
+    assert "mixed_with_ledger_fallback" in document
+    assert "9999" in document
     assert "TSE%3A2331" in document
     assert "Content-Security-Policy" in document
     assert "script-src 'none'" in document
@@ -380,6 +432,33 @@ def test_render_keeps_defer_and_no_selection_as_explicit_no_order_outcomes(
     assert "推奨する購入方法" not in document
 
 
+def test_render_rejects_portfolio_exposure_on_defer(tmp_path: Path) -> None:
+    paths = _workspace(tmp_path, mode="defer")
+    workspace = paths["workspace"]
+    findings_path = paths["findings_path"]
+    review_path = paths["review_path"]
+    proposal_path = paths["proposal_path"]
+    assert isinstance(workspace, Path)
+    assert isinstance(findings_path, Path)
+    assert isinstance(review_path, Path)
+    assert isinstance(proposal_path, Path)
+    proposal = yaml.safe_load(proposal_path.read_text(encoding="utf-8"))
+    proposal["portfolio_exposure"] = {}
+    _write(proposal_path, proposal)
+    _write(
+        review_path,
+        _review(
+            workspace=workspace,
+            findings_path=findings_path,
+            proposal_path=proposal_path,
+            selected_ticker="2331",
+        ),
+    )
+
+    with pytest.raises(ReportError, match="defer proposal cannot contain portfolio_exposure"):
+        render(**paths)  # type: ignore[arg-type]
+
+
 def test_render_rejects_review_after_a_reviewed_input_changes(tmp_path: Path) -> None:
     paths = _workspace(tmp_path)
     findings_path = paths["findings_path"]
@@ -428,6 +507,266 @@ def test_render_rejects_order_arithmetic_even_with_fresh_review(tmp_path: Path) 
     )
 
     with pytest.raises(ReportError, match="notional must equal"):
+        render(**paths)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (
+            lambda proposal: proposal.pop("portfolio_exposure"),
+            "proposal portfolio_exposure must be a mapping",
+        ),
+        (
+            lambda proposal: proposal.update({"portfolio_exposure": None}),
+            "proposal portfolio_exposure must be a mapping",
+        ),
+        (
+            lambda proposal: proposal["portfolio_exposure"].update({"total_capital_yen": 0}),
+            "total_capital_yen must be positive",
+        ),
+        (
+            lambda proposal: proposal["portfolio_exposure"]["ticker"].update(
+                {"prospective_yen": 1}
+            ),
+            "prospective_yen must equal",
+        ),
+        (
+            lambda proposal: proposal["portfolio_exposure"]["sector"].update(
+                {"prospective_pct": 99.0}
+            ),
+            "prospective_pct does not match",
+        ),
+        (
+            lambda proposal: proposal["portfolio_exposure"]["ticker"].update({"key": "9999"}),
+            "ticker key does not match",
+        ),
+        (
+            lambda proposal: proposal["portfolio_exposure"]["common_factors"][0].update(
+                {"key": "wrong-factor"}
+            ),
+            "common-factor keys do not match",
+        ),
+        (
+            lambda proposal: proposal["portfolio_exposure"]["ticker"].update({"warning_pct": 99.0}),
+            "warning_pct does not match portfolio policy",
+        ),
+        (
+            lambda proposal: proposal["portfolio_exposure"]["ticker"].update({"unknown": "bypass"}),
+            "fields do not match the portfolio exposure contract",
+        ),
+    ],
+)
+def test_render_rejects_tampered_portfolio_exposure_with_fresh_review(
+    tmp_path: Path, mutate: object, message: str
+) -> None:
+    paths = _workspace(tmp_path)
+    workspace = paths["workspace"]
+    findings_path = paths["findings_path"]
+    review_path = paths["review_path"]
+    proposal_path = paths["proposal_path"]
+    assert isinstance(workspace, Path)
+    assert isinstance(findings_path, Path)
+    assert isinstance(review_path, Path)
+    assert isinstance(proposal_path, Path)
+    proposal = yaml.safe_load(proposal_path.read_text(encoding="utf-8"))
+    assert callable(mutate)
+    mutate(proposal)
+    _write(proposal_path, proposal)
+    _write(
+        review_path,
+        _review(
+            workspace=workspace,
+            findings_path=findings_path,
+            proposal_path=proposal_path,
+            selected_ticker="2331",
+        ),
+    )
+
+    with pytest.raises(ReportError, match=message):
+        render(**paths)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("remove_warning", "fallback_tickers", "message"),
+    [
+        (
+            "prospective_ticker_concentration_exceeds_warning",
+            ["9999"],
+            "concentration warnings do not match thresholds",
+        ),
+        (
+            "portfolio_exposure_ledger_fallback:9999",
+            ["9999"],
+            "fallback tickers and warnings do not match",
+        ),
+        (
+            None,
+            [],
+            "fallback tickers and warnings do not match",
+        ),
+    ],
+)
+def test_render_rejects_portfolio_exposure_warning_mismatch_with_fresh_review(
+    tmp_path: Path,
+    remove_warning: str | None,
+    fallback_tickers: list[str],
+    message: str,
+) -> None:
+    paths = _workspace(tmp_path)
+    workspace = paths["workspace"]
+    findings_path = paths["findings_path"]
+    review_path = paths["review_path"]
+    proposal_path = paths["proposal_path"]
+    assert isinstance(workspace, Path)
+    assert isinstance(findings_path, Path)
+    assert isinstance(review_path, Path)
+    assert isinstance(proposal_path, Path)
+    proposal = yaml.safe_load(proposal_path.read_text(encoding="utf-8"))
+    if remove_warning is not None:
+        proposal["warnings"].remove(remove_warning)
+    proposal["portfolio_exposure"]["ledger_fallback_tickers"] = fallback_tickers
+    _write(proposal_path, proposal)
+    _write(
+        review_path,
+        _review(
+            workspace=workspace,
+            findings_path=findings_path,
+            proposal_path=proposal_path,
+            selected_ticker="2331",
+        ),
+    )
+
+    with pytest.raises(ReportError, match=message):
+        render(**paths)  # type: ignore[arg-type]
+
+
+def test_render_rejects_holding_valuation_status_that_hides_fallback(tmp_path: Path) -> None:
+    paths = _workspace(tmp_path)
+    workspace = paths["workspace"]
+    findings_path = paths["findings_path"]
+    review_path = paths["review_path"]
+    proposal_path = paths["proposal_path"]
+    assert isinstance(workspace, Path)
+    assert isinstance(findings_path, Path)
+    assert isinstance(review_path, Path)
+    assert isinstance(proposal_path, Path)
+    proposal = yaml.safe_load(proposal_path.read_text(encoding="utf-8"))
+    proposal["portfolio_exposure"]["holding_valuation_status"] = "same_asof_raw_close"
+    _write(proposal_path, proposal)
+    _write(
+        review_path,
+        _review(
+            workspace=workspace,
+            findings_path=findings_path,
+            proposal_path=proposal_path,
+            selected_ticker="2331",
+        ),
+    )
+
+    with pytest.raises(ReportError, match="holding_valuation_status does not match"):
+        render(**paths)  # type: ignore[arg-type]
+
+
+def test_render_rejects_unknown_common_factor_warning_with_fresh_review(tmp_path: Path) -> None:
+    paths = _workspace(tmp_path)
+    workspace = paths["workspace"]
+    findings_path = paths["findings_path"]
+    review_path = paths["review_path"]
+    proposal_path = paths["proposal_path"]
+    assert isinstance(workspace, Path)
+    assert isinstance(findings_path, Path)
+    assert isinstance(review_path, Path)
+    assert isinstance(proposal_path, Path)
+    proposal = yaml.safe_load(proposal_path.read_text(encoding="utf-8"))
+    proposal["warnings"].append("prospective_common_factor_concentration_exceeds_warning:evil")
+    _write(proposal_path, proposal)
+    _write(
+        review_path,
+        _review(
+            workspace=workspace,
+            findings_path=findings_path,
+            proposal_path=proposal_path,
+            selected_ticker="2331",
+        ),
+    )
+
+    with pytest.raises(ReportError, match="concentration warnings do not match thresholds"):
+        render(**paths)  # type: ignore[arg-type]
+
+
+def test_render_shows_incomplete_common_factor_coverage_as_lower_bound(tmp_path: Path) -> None:
+    paths = _workspace(tmp_path)
+    workspace = paths["workspace"]
+    findings_path = paths["findings_path"]
+    review_path = paths["review_path"]
+    proposal_path = paths["proposal_path"]
+    assert isinstance(workspace, Path)
+    assert isinstance(findings_path, Path)
+    assert isinstance(review_path, Path)
+    assert isinstance(proposal_path, Path)
+    proposal = yaml.safe_load(proposal_path.read_text(encoding="utf-8"))
+    proposal["portfolio_exposure"]["common_factor_empty_tickers"] = ["1111", "9999"]
+    proposal["warnings"].append("portfolio_exposure_common_factor_coverage_incomplete")
+    _write(proposal_path, proposal)
+    _write(
+        review_path,
+        _review(
+            workspace=workspace,
+            findings_path=findings_path,
+            proposal_path=proposal_path,
+            selected_ticker="2331",
+        ),
+    )
+
+    document = render(**paths)  # type: ignore[arg-type]
+
+    assert "common-factor tagなし" in document
+    assert "1111, 9999" in document
+    assert "declared tagsベースの下限値" in document
+
+
+@pytest.mark.parametrize(
+    ("empty_tickers", "add_warning", "message"),
+    [
+        (["9999"], False, "coverage warning does not match empty tickers"),
+        ([], True, "coverage warning does not match empty tickers"),
+        (["9999", "1111"], True, "must be sorted and unique"),
+        (["9999", "9999"], True, "must be sorted and unique"),
+        (["bad"], True, "contain an invalid ticker"),
+    ],
+)
+def test_render_rejects_invalid_common_factor_coverage_with_fresh_review(
+    tmp_path: Path,
+    empty_tickers: list[str],
+    add_warning: bool,
+    message: str,
+) -> None:
+    paths = _workspace(tmp_path)
+    workspace = paths["workspace"]
+    findings_path = paths["findings_path"]
+    review_path = paths["review_path"]
+    proposal_path = paths["proposal_path"]
+    assert isinstance(workspace, Path)
+    assert isinstance(findings_path, Path)
+    assert isinstance(review_path, Path)
+    assert isinstance(proposal_path, Path)
+    proposal = yaml.safe_load(proposal_path.read_text(encoding="utf-8"))
+    proposal["portfolio_exposure"]["common_factor_empty_tickers"] = empty_tickers
+    if add_warning:
+        proposal["warnings"].append("portfolio_exposure_common_factor_coverage_incomplete")
+    _write(proposal_path, proposal)
+    _write(
+        review_path,
+        _review(
+            workspace=workspace,
+            findings_path=findings_path,
+            proposal_path=proposal_path,
+            selected_ticker="2331",
+        ),
+    )
+
+    with pytest.raises(ReportError, match=message):
         render(**paths)  # type: ignore[arg-type]
 
 

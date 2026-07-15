@@ -262,6 +262,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] decision packetがapprovedの場合、source snapshot、scenario、independent review、execution inputが同一packet hashに束縛されるか
 - [ ] 統合reportはHTMLをreview対象にせず、findings / comparison / packet / proposalへ別roleのcontent reviewを行い、manifest・全packet raw/core・proposal hashの変更をstaleとして拒否するか
 - [ ] `planned_limit / defer / no actionable bargain`の全経路で、購入方法または注文なしが比較結論と矛盾せず、未知source IDと手書き注文数値を拒否するか
+- [ ] `planned_limit`のportfolio exposureは、共通as-of・分母・current / prospective円額・比率・閾値・fallback銘柄が必須かつ機械整合し、欠損 / null / 0 / 負値 / nested未知field / 閾値warningの過不足 / fallback warningの過不足を拒否するか
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
 - [ ] policy literalのdrift gateを追加・変更する場合、正本の値からpatternを導出し、正本doc/codeを
@@ -326,6 +327,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
       decision packetのevidence overrideへ人間判断の根拠と期限を残したか
 - [ ] canonical ledgerの資本・集中度はcurrent + reserved exposureから再計算したか
 - [ ] brokerの`open / filled / cancelled`を人間報告なしに推定していないか
+- [ ] 同一tickerのactive reservationがある間は、元注文の再表示と追加注文を区別できない`planned_limit`を新たに作っていないか
 - [ ] proposal/approval URLへ辿れないresultをledgerへ入れていないか
 - [ ] holdings/reservationsをcanonical ledgerから読み、削除済みMarkdown globを使っていないか
 - [ ] 予算、保有、予約だけを理由に、より割安な候補をscreening/research前にhard除外していないか

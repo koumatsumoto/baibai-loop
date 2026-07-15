@@ -41,7 +41,11 @@ from baibai_loop.position.ledger import (
 )
 from baibai_loop.position.policy import PORTFOLIO_POLICY
 
-from .close_source import PreviousClose, resolve_previous_business_day_close
+from .close_source import (
+    PreviousClose,
+    resolve_holding_close_on_basis,
+    resolve_previous_business_day_close,
+)
 from .decision_packet import (
     DecisionPacketError,
     ScreeningEstimate,
@@ -1018,9 +1022,11 @@ def plan_limit(
     """Derive a planning-only ``limit``/``defer`` from the previous business-day close.
 
     The primary limit is the legal market close itself; no future price or fill
-    probability is asserted. Budget, cash, dry powder, concentration, and existing
-    reservations are warnings/annotations only — they never change the investment
-    ranking or the ``planned_limit``. ``defer`` is a normal judgment (exit 0).
+    probability is asserted. Budget, cash, dry powder, concentration, and reservations
+    in other tickers are warnings/annotations only — they never change the investment
+    ranking or limit price. An active reservation in the selected ticker defers a new
+    order until human-confirmed broker state is recorded. ``defer`` is a normal
+    judgment (exit 0).
     """
     document = load_decision_packet(packet)
     ticker = document.input_snapshot.ticker
@@ -1051,6 +1057,8 @@ def plan_limit(
 
     snapshot, source_ledger_sha256 = _load_snapshot_with_sha256(ledger)
     portfolio_annotations = _portfolio_annotations(snapshot, ticker=ticker)
+    if any(reservation.ticker == ticker for reservation in snapshot.active_reservations):
+        defer_reasons.append("active_reservation_exists")
     expires_at = datetime.combine(target_session, time(15, 30), tzinfo=JST)
 
     base_output: dict[str, object] = {
@@ -1088,6 +1096,7 @@ def plan_limit(
             "defer_reasons": defer_reasons,
         }
 
+    assert price is not None  # close_decimal is derived only from a resolved price
     warnings: list[str] = []
     lot_notional = close_decimal * BOARD_LOT
     if lot_notional <= budget_max_yen:
@@ -1102,13 +1111,30 @@ def plan_limit(
     if notional < budget_min_yen:
         warnings.append("budget_guide_under")
 
-    warnings.extend(_portfolio_warnings(snapshot, notional_yen=notional))
+    portfolio_exposure, exposure_warnings, exposure_total_capital_yen = _portfolio_exposure(
+        snapshot,
+        sqlite_path=sqlite_path,
+        price_as_of=price.price_as_of,
+        ticker=ticker,
+        sector=document.input_snapshot.sector,
+        common_factors=document.input_snapshot.common_factors,
+        order_notional_yen=int(notional),
+    )
+    warnings.extend(
+        _portfolio_warnings(
+            snapshot,
+            notional_yen=notional,
+            total_capital_yen=exposure_total_capital_yen,
+        )
+    )
+    warnings.extend(exposure_warnings)
     return {
         "status": "planned_limit",
         **base_output,
         "limit_price_yen": _decimal_to_number(close_decimal),
         "quantity": quantity,
         "notional_yen": int(notional),
+        "portfolio_exposure": portfolio_exposure,
         "warnings": warnings,
         "defer_reasons": [],
     }
@@ -1125,17 +1151,172 @@ def _portfolio_annotations(snapshot: PortfolioSnapshot, *, ticker: str) -> list[
     return annotations
 
 
-def _portfolio_warnings(snapshot: PortfolioSnapshot, *, notional_yen: Decimal) -> list[str]:
+def _portfolio_warnings(
+    snapshot: PortfolioSnapshot, *, notional_yen: Decimal, total_capital_yen: int
+) -> list[str]:
     # Cash / dry powder shortfalls are human-decision warnings only; they never
     # downgrade the investment ranking or auto-switch to a cheaper next candidate.
     warnings: list[str] = []
     if notional_yen > snapshot.available_cash_yen:
         warnings.append("available_cash_below_notional")
     dry_powder_pct = Decimal(str(PORTFOLIO_POLICY["cash_management"]["dry_powder_warning_pct"]))
-    dry_powder_floor = Decimal(snapshot.total_capital_yen) * dry_powder_pct / 100
+    dry_powder_floor = Decimal(total_capital_yen) * dry_powder_pct / 100
     if Decimal(snapshot.available_cash_yen) - notional_yen < dry_powder_floor:
         warnings.append("dry_powder_below_floor")
     return warnings
+
+
+def _portfolio_exposure(
+    snapshot: PortfolioSnapshot,
+    *,
+    sqlite_path: Path,
+    price_as_of: date,
+    ticker: str,
+    sector: str,
+    common_factors: Sequence[str],
+    order_notional_yen: int,
+) -> tuple[dict[str, object], list[str], int]:
+    """Derive prospective concentration with disclosed common-factor coverage.
+
+    Candidate holdings/reservations use the packet's current factor classification.
+    Other tickers retain ledger classifications; empty classifications are reported,
+    so common-factor exposure remains an explicit lower bound rather than a silent
+    claim of complete portfolio coverage.
+    """
+    holding_values: dict[str, int] = {}
+    fallback_tickers: list[str] = []
+    for holding in snapshot.holdings:
+        resolved = resolve_holding_close_on_basis(
+            sqlite_path=sqlite_path,
+            ticker=holding.ticker,
+            ledger_price_observed_on=holding.market_price_observed_at.date(),
+            basis_as_of=price_as_of,
+        )
+        market_value = (
+            Decimal(str(resolved.close_yen)) * holding.quantity if resolved is not None else None
+        )
+        if market_value is None or market_value != market_value.to_integral_value():
+            holding_values[holding.ticker] = holding.market_value_yen
+            fallback_tickers.append(holding.ticker)
+        else:
+            holding_values[holding.ticker] = int(market_value)
+
+    total_capital_yen = (
+        snapshot.available_cash_yen + snapshot.reserved_cash_yen + sum(holding_values.values())
+    )
+    risk_policy = PORTFOLIO_POLICY["risk_budget"]
+    ticker_warning_pct = Decimal(str(risk_policy["max_ticker_concentration_pct"]))
+    sector_warning_pct = Decimal(str(risk_policy["max_sector_concentration_pct"]))
+    factor_warning_pct = Decimal(str(risk_policy["max_common_factor_concentration_pct"]))
+
+    def current_exposure(*, scope: str, key: str) -> int:
+        holding_yen = sum(
+            holding_values[holding.ticker]
+            for holding in snapshot.holdings
+            if (
+                (scope == "ticker" and holding.ticker == key)
+                or (scope == "sector" and holding.sector == key)
+                or (
+                    scope == "common_factor"
+                    and (
+                        key in holding.common_factors
+                        or (holding.ticker == ticker and key in common_factors)
+                    )
+                )
+            )
+        )
+        reservation_yen = sum(
+            reservation.reserved_yen
+            for reservation in snapshot.active_reservations
+            if (
+                (scope == "ticker" and reservation.ticker == key)
+                or (scope == "sector" and reservation.sector == key)
+                or (
+                    scope == "common_factor"
+                    and (
+                        key in reservation.common_factors
+                        or (reservation.ticker == ticker and key in common_factors)
+                    )
+                )
+            )
+        )
+        return holding_yen + reservation_yen
+
+    def exposure_row(*, scope: str, key: str, warning_pct: Decimal) -> dict[str, object]:
+        current_yen = current_exposure(scope=scope, key=key)
+        prospective_yen = current_yen + order_notional_yen
+        prospective_pct = (Decimal(prospective_yen) * 100 / Decimal(total_capital_yen)).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        return {
+            "key": key,
+            "current_and_reserved_yen": current_yen,
+            "prospective_yen": prospective_yen,
+            "prospective_pct": float(prospective_pct),
+            "warning_pct": _decimal_to_number(warning_pct),
+        }
+
+    ticker_current_yen = current_exposure(scope="ticker", key=ticker)
+    sector_current_yen = current_exposure(scope="sector", key=sector)
+    factor_current_yen = {
+        factor: current_exposure(scope="common_factor", key=factor) for factor in common_factors
+    }
+    ticker_row = exposure_row(scope="ticker", key=ticker, warning_pct=ticker_warning_pct)
+    sector_row = exposure_row(scope="sector", key=sector, warning_pct=sector_warning_pct)
+    factor_rows = [
+        exposure_row(scope="common_factor", key=factor, warning_pct=factor_warning_pct)
+        for factor in common_factors
+    ]
+    common_factor_empty_tickers = sorted(
+        {
+            holding.ticker
+            for holding in snapshot.holdings
+            if holding.ticker != ticker and not holding.common_factors
+        }
+        | {
+            reservation.ticker
+            for reservation in snapshot.active_reservations
+            if reservation.ticker != ticker and not reservation.common_factors
+        }
+    )
+    warnings = [
+        f"portfolio_exposure_ledger_fallback:{fallback_ticker}"
+        for fallback_ticker in sorted(fallback_tickers)
+    ]
+    if common_factor_empty_tickers:
+        warnings.append("portfolio_exposure_common_factor_coverage_incomplete")
+    if (
+        Decimal(ticker_current_yen + order_notional_yen) * 100 / Decimal(total_capital_yen)
+        > ticker_warning_pct
+    ):
+        warnings.append("prospective_ticker_concentration_exceeds_warning")
+    if (
+        Decimal(sector_current_yen + order_notional_yen) * 100 / Decimal(total_capital_yen)
+        > sector_warning_pct
+    ):
+        warnings.append("prospective_sector_concentration_exceeds_warning")
+    for factor in common_factors:
+        if Decimal(factor_current_yen[factor] + order_notional_yen) * 100 / Decimal(
+            total_capital_yen
+        ) > (factor_warning_pct):
+            warnings.append(f"prospective_common_factor_concentration_exceeds_warning:{factor}")
+    return (
+        {
+            "price_as_of": price_as_of.isoformat(),
+            "price_basis": "last_close_unadjusted",
+            "total_capital_yen": total_capital_yen,
+            "holding_valuation_status": (
+                "mixed_with_ledger_fallback" if fallback_tickers else "same_asof_raw_close"
+            ),
+            "ledger_fallback_tickers": sorted(fallback_tickers),
+            "common_factor_empty_tickers": common_factor_empty_tickers,
+            "ticker": ticker_row,
+            "sector": sector_row,
+            "common_factors": factor_rows,
+        },
+        warnings,
+        total_capital_yen,
+    )
 
 
 # --------------------------------------------------------------------------- #
