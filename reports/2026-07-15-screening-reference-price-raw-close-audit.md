@@ -50,7 +50,17 @@ abs_fv_gap_delta_pp = abs(fv_gap_delta_pp)
 
 primary comparableはreference、raw close、shares、FV anchorが正でfinite、同日barの`adjustment_factor = 1`、candidateの`split_adjustment_flag = false`である行とする。欠損、non-1 / null factor、split flagは別表に残し、adjusted priceで補完せずprimary分布から除く。
 
-medianとp95は丸め前のabsolute値で計算する。p95は補間を使わなnearest-rankとし、`sorted(values)[ceil(0.95 * n) - 1]`で固定する。表示では十分な桁へ丸めるが、採否は丸め前値で決める。
+medianとp95は丸め前のabsolute値で計算する。p95は補間を使わないnearest-rankとし、`sorted(values)[ceil(0.95 * n) - 1]`で固定する。表示では十分な桁へ丸めるが、採否は丸め前値で決める。
+
+計測はrepository rootから次の通り実行した。scratch scriptとJSONはlocal-onlyでありGit管理しない。判定の正本は本reportの式・集計値・検算である。
+
+```bash
+.venv/bin/python .cache/432/reference_price_audit.py
+sha256sum .cache/432/reference_price_audit.py .cache/432/result.json
+```
+
+- scratch script SHA-256: `a09eef003662701f953baefdd68a8ab901e232c30e7e3edbff10312f0b8fd3c8`
+- result JSON SHA-256: `fa785fed7b8d190d7a8fc99507ed908415ba6da6908e5e5f694024ebe5662395`
 
 ### 3.1 数学上のrounding bound
 
@@ -83,19 +93,53 @@ confirmはranking-eligible 100件以上かつexact primary comparable coverage 9
 
 ### 5.1 coverageと分布
 
-TBD
+2026-07-14 candidates 3,744件にpublic `select`と同じgateを適用すると、liquidity通過1,476件からE[r]欠損1件を除いた1,475件がranking-eligibleとなった。public `select`の`selection.counts.after_er_filter: 1475`とscratchの抽出数は一致した。
+
+21件は`split_adjustment_flag: true`のため事前登録どおりprimary分布から除いた。これらを含め全1,475件でexact-date raw closeは取得でき、`adjustment_factor` は1.0だった。primary comparableは1,454件、coverageは98.5763%で、95%の事前条件を通過した。
+
+| scope | rows / primary | coverage | abs price error median / p95 / max | abs FV-gap delta median / p95 / max | 整数%表示変化 | FV-gap符号反転 | 0.55%上限超え |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 2026-07-14 全ranking-eligible confirm | 1,475 / 1,454 | 98.5763% | 0.012546% / 0.129458% / 0.386494% | 0.008007pt / 0.093253pt / 0.551165pt | 41（2.8198%） | 1（0.0688%） | 0 |
+| 既知current top-20除外sensitivity | 1,455 / 1,434 | 98.5567% | 0.012425% / 0.129458% / 0.386494% | 0.007932pt / 0.091292pt / 0.551165pt | 40 | 1 | 0 |
+| 2026-07-14 current audit top-20 | 20 / 20 | 100% | 0.026611% / 0.102641% / 0.165981% | 0.025918pt / 0.126424pt / 0.369370pt | 1 | 0 | 0 |
+| 2026-07-10 final-retry pilot top-20 | 20 / 20 | 100% | 0.022476% / 0.085245% / 0.224247% | 0.019499pt / 0.126759pt / 0.511128pt | 2 | 0 | 0 |
+
+confirmの`p95(abs_fv_gap_delta_pp) = 0.093253`はraw close追加表示基準1.0ptの9.4%で、最大値0.551165ptも基準未満だった。価格誤差の最大0.386494%は数学上限0.502513%とstop基準0.55%の内側にある。予備probeで既知のcurrent top-20を除いたsensitivityでもFV-gap差p95は0.091292ptで、採否は変わらない。
 
 ### 5.2 audit top-20の意思決定影響
 
-TBD
+2026-07-14 / 2026-07-10とも、audit artifactの`market_price_yen`とcandidateから再構成したreferenceは20件すべて`0.0001円`以内で一致した。さらにproductionの`build_selection_payload`を同一candidates / rulesで独立再実行し、保存artifactと20件のrank・ticker・referenceが全件一致した。artifactの20件完備、rank連番、reference一致、production rebuild一致を確認し、contract gateはpassした。referenceはproductionのrank確定後に付与される表示fieldであり、raw closeとの差はrank inputを変えない。
+
+current top-20にはFV-gap差1.0pt以上、符号反転、raw/factor unresolved、未識別のmaterial corporate action行はなく、row warning条件は0件だった。最大は[7095 Macbee Planet](https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A7095)で、参考価格1,160.0713円、raw close 1,162円、FV-gap差-0.369370pt、整数%表示は123%から122%へ変わるが事前基準1.0ptに達しない。[3836 アバントグループ](https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A3836)は参考価格1,205.2358円、raw close 1,204円、FV-gap差+0.126424ptで、整数表示は変わらなかった。
+
+全eligibleで唯一の符号反転は[2198 アイ・ケイ・ケイホールディングス](https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A2198)だった。参考価格751.0816円でFV gap -0.032220%、raw close 750円で+0.111947%と、いずれも0%の周辺0.15pt以内の表示境界跨ぎである。audit top-20には含まれず、row warningの事前条件に該当しない。
+
+主な例外は次の通りである。
+
+| ticker | scope / impact | reference / raw | abs price error | FV-gap reference / raw | abs delta |
+| --- | --- | ---: | ---: | ---: | ---: |
+| [5572 Ridge-i](https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A5572) | confirm最大price error | 2,757.6170 / 2,747円 | 0.386494% | -41.692940% / -41.467586% | 0.225353pt |
+| [3903 gumi](https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A3903) | confirm最大FV-gap delta | 241.2007 / 242円 | 0.330289% | 66.873479% / 66.322314% | 0.551165pt |
+| [2198 アイ・ケイ・ケイHD](https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A2198) | 唯一の符号反転（top-20外） | 751.0816 / 750円 | 0.144213% | -0.032220% / 0.111947% | 0.144167pt |
+| [7095 Macbee Planet](https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A7095) | current top-20最大 | 1,160.0713 / 1,162円 | 0.165981% | 122.537701% / 122.168330% | 0.369370pt |
 
 ### 5.3 AP-02独立検算
 
-TBD
+SQLiteのexact-date rowとcandidateのmarket cap / shares / FV anchorを別々に抽出し、scratchと別の`awk`式で再計算した。referenceは現行contractどおり先4桁小数へ丸め、その値をpercentage計算に使った。
+
+| ticker | independent inputs | independent result | scratchとの差 |
+| --- | --- | --- | ---: |
+| [5572 Ridge-i](https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A5572) | market cap 119億円、shares 4,315,320、raw 2,747円、FV 1,607.8854円 | reference 2,757.6170円、price error +0.386494357481%、FV-gap delta +0.225353497087pt | 価格0.0000円、percentage < 0.000001 |
+| [1964 中外炉工業](https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A1964) | market cap 312億円、shares 7,800,000、raw 4,000円、FV 3,342.5円 | reference 4,000.0000円、price error 0%、FV-gap delta 0pt | 価格0.0000円、percentage 0 |
+
+FV-gap差が最大の[3903 gumi](https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A3903)も追加spot checkし、reference 241.2007円、price error -0.330289256198%、FV-gap delta -0.551165173318ptでscratchと一致した。
 
 ## 6. 判定（5行以内）
 
-TBD
+- **判定: 現状維持。** exact comparable coverage 98.5763%で、事前の判定条件を満たした。
+- FV-gap差のp95は0.093253ptで追加表示基準1.0ptを大きく下回り、0.55%を超えるbasis defectも0件だった。
+- current audit top-20にwarning条件はなく、referenceはrank inputではないためproduction rankへの影響はcontract上0件だった。
+- raw closeのdual displayもrow warningも追加せず、renderer変更のfollow-up Issueは起票しない。
 
 ## 7. 限界と再評価trigger
 
