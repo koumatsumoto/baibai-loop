@@ -107,25 +107,15 @@ def _populate_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
     )
     _add_source_coverage(
         conn,
-        source="jquants_earnings_calendar",
-        coverage_key="get_eq_earnings_cal",
+        source="jpx_earnings_calendar",
+        coverage_key="get_earnings_calendar_snapshot:current",
         record_count=1,
         min_date=earnings_date.isoformat(),
         max_date=earnings_date.isoformat(),
     )
     conn.execute(
-        "INSERT INTO source_coverage("
-        "source, coverage_key, coverage_start, coverage_end, fetched_at_utc, record_count, status"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (
-            "jquants_earnings_calendar",
-            "whole-list",
-            asof.isoformat(),
-            (asof + timedelta(days=90)).isoformat(),
-            datetime.now(UTC).isoformat(),
-            1,
-            "ok",
-        ),
+        "UPDATE source_coverage SET fetched_at_utc = ? WHERE source = ?",
+        (f"{asof.isoformat()}T00:00:00+09:00", "jpx_earnings_calendar"),
     )
     conn.execute(
         "INSERT INTO jquants_market_calendar(day, is_business_day) VALUES (?, ?)",
@@ -515,18 +505,22 @@ class SQLiteCoverageTests(unittest.TestCase):
 
             self.assertIn("jquants_daily_bars", {issue.source for issue in issues})
 
-    def test_stale_earnings_calendar_horizon_reports_issue(self) -> None:
+    def test_all_past_earnings_calendar_snapshot_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             conn = open_connection(sqlite_path)
             _populate_complete_coverage(conn, asof)
             conn.execute(
-                "UPDATE source_coverage SET coverage_end = ? WHERE source = ? AND coverage_key = ?",
+                "UPDATE jquants_earnings_calendar SET announcement_date = ?",
+                ((asof - timedelta(days=1)).isoformat(),),
+            )
+            conn.execute(
+                "UPDATE source_coverage SET coverage_start = ?, coverage_end = ? WHERE source = ?",
                 (
-                    (asof + timedelta(days=30)).isoformat(),
-                    "jquants_earnings_calendar",
-                    "whole-list",
+                    (asof - timedelta(days=1)).isoformat(),
+                    (asof - timedelta(days=1)).isoformat(),
+                    "jpx_earnings_calendar",
                 ),
             )
             conn.commit()
@@ -536,8 +530,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
             self.assertTrue(
                 any(
-                    issue.source == "jquants_earnings_calendar"
-                    and "horizon is not covered" in issue.reason
+                    issue.source == "jpx_earnings_calendar"
+                    and "only past known dates" in issue.reason
                     for issue in issues
                 )
             )
@@ -551,7 +545,7 @@ class SQLiteCoverageTests(unittest.TestCase):
             conn.execute("DELETE FROM jquants_earnings_calendar")
             conn.execute(
                 "UPDATE source_coverage SET record_count = ? WHERE source = ?",
-                (0, "jquants_earnings_calendar"),
+                (0, "jpx_earnings_calendar"),
             )
             conn.commit()
             conn.close()
@@ -560,8 +554,7 @@ class SQLiteCoverageTests(unittest.TestCase):
 
             self.assertTrue(
                 any(
-                    issue.source == "jquants_earnings_calendar"
-                    and "zero imported rows" in issue.reason
+                    issue.source == "jpx_earnings_calendar" and "row count" in issue.reason
                     for issue in issues
                 )
             )

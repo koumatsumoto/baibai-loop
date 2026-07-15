@@ -245,6 +245,31 @@ class SelectionMarketStateTests(unittest.TestCase):
                 self.assertIn("assumptions", fair_value)
                 self.assertNotIn("candidate_ref", seed)
 
+    def test_audit_pool_copies_the_decision_seed_estimates(self) -> None:
+        payload = build_selection_payload(
+            asof_date=_ASOF,
+            candidates=self.candidates,
+            macro_context=None,
+            rules=self.rules,
+            top=10,
+            profile="balanced",
+            candidates_ref="local-candidates.yaml",
+            macro_context_ref=None,
+            market_regime=None,
+            audit_top=2,
+        )
+        recommendations = {item["ticker"]: item for item in self._recommendations(payload)}
+        audit_pool = payload["audit_pool"]
+        assert isinstance(audit_pool, list)
+        for row in audit_pool:
+            snapshot = row["estimate_snapshot"]
+            assert isinstance(snapshot, Mapping)
+            self.assertEqual(snapshot["as_of"], _ASOF.isoformat())
+            self.assertEqual(
+                {key: value for key, value in snapshot.items() if key != "as_of"},
+                recommendations[row["ticker"]]["decision_input_seed"]["estimates"],
+            )
+
 
 class MarketStateCliArgumentTests(unittest.TestCase):
     def test_select_parser_has_sqlite_path_default(self) -> None:

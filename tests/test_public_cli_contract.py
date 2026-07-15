@@ -303,6 +303,8 @@ def test_decision_cli_emits_stable_yaml_shape(capsys: pytest.CaptureFixture[str]
         "errors",
         "warnings",
         "scenarios",
+        "five_year_base_break_even",
+        "screening_fv_revision_pct",
     }
     scenarios = payload["scenarios"]
     assert isinstance(scenarios, list)
@@ -314,6 +316,25 @@ def test_decision_cli_emits_stable_yaml_shape(capsys: pytest.CaptureFixture[str]
         "terminal_share_count",
         "terminal_price_yen",
         "total_return_cagr_pct",
+    }
+    break_even = payload["five_year_base_break_even"]
+    assert isinstance(break_even, dict)
+    assert set(break_even) == {
+        "required_total_value_yen",
+        "required_total_return_cagr_pct",
+        "base_terminal_valuation_multiple",
+        "break_even_terminal_valuation_multiple",
+        "terminal_multiple_downside_buffer",
+        "terminal_multiple_status",
+        "base_annual_earnings_growth_pct",
+        "break_even_annual_earnings_growth_pct",
+        "earnings_growth_downside_buffer_pct_points",
+        "earnings_growth_status",
+        "observed_trailing_multiple_status",
+        "observed_trailing_multiple_fact_id",
+        "observed_trailing_multiple",
+        "base_terminal_multiple_minus_observed",
+        "base_terminal_multiple_premium_pct",
     }
 
 
@@ -340,7 +361,28 @@ def test_decision_cli_emits_execution_proposal_shape(capsys: pytest.CaptureFixtu
         "errors",
         "warnings",
         "scenarios",
+        "five_year_base_break_even",
+        "screening_fv_revision_pct",
         "execution_proposal",
+    }
+    break_even = payload["five_year_base_break_even"]
+    assert isinstance(break_even, dict)
+    assert set(break_even) == {
+        "required_total_value_yen",
+        "required_total_return_cagr_pct",
+        "base_terminal_valuation_multiple",
+        "break_even_terminal_valuation_multiple",
+        "terminal_multiple_downside_buffer",
+        "terminal_multiple_status",
+        "base_annual_earnings_growth_pct",
+        "break_even_annual_earnings_growth_pct",
+        "earnings_growth_downside_buffer_pct_points",
+        "earnings_growth_status",
+        "observed_trailing_multiple_status",
+        "observed_trailing_multiple_fact_id",
+        "observed_trailing_multiple",
+        "base_terminal_multiple_minus_observed",
+        "base_terminal_multiple_premium_pct",
     }
     proposal = payload["execution_proposal"]
     assert isinstance(proposal, dict)

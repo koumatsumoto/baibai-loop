@@ -12,15 +12,30 @@ last_reviewed: 2026-07-13
 
 ## 設計
 
-packet-scaffold と同じく「機械 = data plumbing / 人間 = judgment」。レンダラは screening 出力（`selection-output.yaml` の `audit_pool` と `candidates.yaml` の metrics）から価格・valuation・自己資本比率・net cash・配当 basis・機械 E[r]・FV アンカー乖離・入力 sha256 を機械取得し、**数値を転記しない**。運用者は各候補の定性 narrative だけを `narratives.yaml` に書く。
+packet-scaffold と同じく「機械 = data plumbing / 人間 = judgment」。レンダラは screening 出力（`selection-output.yaml` の `audit_pool` と`candidates.yaml`のmetrics）からscreening評価用参考価格・valuation・自己資本比率・net cash・配当 basis・機械 E[r]・FV アンカー乖離・JPX が公表した `next_earnings_date`・入力 sha256 を機械取得し、**数値を転記しない**。この価格はscreeningの入力整合用で、発注に使うJPX raw/unadjusted closeではない。発注価格はprimary research後の`plan-limit`で別に取得する。`next_earnings_date: null` は JPX snapshot に既知日程がない（未定を含む）状態で、決算が存在しないという意味ではない。運用者は各候補の定性 narrative だけを `narratives.yaml` に書く。
 
 生成 HTML は `.cache` 配下の **ephemeral 成果物で commit しない**（screen とレンダラの再実行で再現する。records には promote 済み packet/review だけを残す方針と一致）。
+
+## Weekly report の差分確認
+
+直近の前回reportが確認できる週次runでは、前回と今回のhuman-review shortlistをticker集合で比較します。
+
+- `new`: 今回だけに含まれるticker。現在のscreening結果と定性判断に基づき、今回shortlistへ入れる理由とnarrativeを新たに書く。
+- `continued`: 前回と今回の両方に含まれるticker。前回narrativeは自動継承せず、audit-pool順位差、価格、前回as-of後に会社IR・TDnet・EDINETで公表された最新開示、最強countercaseとmaterial deltaを確認する。
+- `exited`: 前回だけに含まれるticker。今回のaudit pool外である場合も含め、今回shortlistへ残さない現在の理由を新たに書く。
+
+`continued`は、上記確認後も定性判断を支える根拠にmaterial changeがない場合だけ、前回narrativeを今回の`narratives.yaml`で再利用できます。material changeがあるfieldは現在の一次情報と判断へ更新し、確認不能なら再利用せずその不足を明記します。`new / continued / exited`、順位差、確認した最新開示、narrativeを再利用または更新した理由はoperation Issueのshortlist checkpointへ残し、今回reportと同時に人間へ提示します。前回reportを確認できない場合は分類を推定せず、全候補のnarrativeを確認するfull reportを作ります。
+
+価格、valuation、配当basis、E[r]、FVアンカー乖離等の数値は、毎回そのrunの`selection-output.yaml`と`candidates.yaml`からrendererが生成します。前回HTMLの表示値や前回`narratives.yaml`に数値を転記して再利用しません。
+
+この差分運用は当面、既存のrendererとnarratives schemaを変えずに実施します。operation Issue上の2〜3回の運用結果から、繰り返し必要になるfield、表示先、確認コストが安定した後にだけrenderer/schema変更を別のimprovement taskとして判断します。
 
 ## 生成手順
 
 1. OP2 で `candidates.yaml` / `selection-output.yaml`（`--audit-top 20`）を作る。
 2. audit poolから[OP3の件数契約](../operations/decision-cycle.md#opportunity-path)に従って候補を選び、[`tools/candidate_report/narratives-template.yaml`](../../tools/candidate_report/narratives-template.yaml)をrunのworkspaceへ複製して記入する。
-3. レンダラを実行する。
+3. 直近の前回reportがある場合は[`Weekly report の差分確認`](#weekly-report-の差分確認)を実施し、結果をoperation Issueへ記録する。前回reportがない場合はfull reportとして全narrativeを確認する。
+4. レンダラを実行する。
 
 ```bash
 UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.candidate_report.render \

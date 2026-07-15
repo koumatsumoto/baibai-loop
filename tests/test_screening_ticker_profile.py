@@ -39,6 +39,20 @@ def _insert_reference_rows(sqlite_path: Path) -> None:
             "(announcement_date, ticker) VALUES ('2026-06-10', 'AAAA')"
         )
         conn.execute(
+            "INSERT OR REPLACE INTO source_coverage("
+            "source, coverage_key, coverage_start, coverage_end, fetched_at_utc, "
+            "record_count, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "jpx_earnings_calendar",
+                "get_earnings_calendar_snapshot:current",
+                "2026-06-10",
+                "2026-06-10",
+                "2026-05-29T00:00:00+09:00",
+                1,
+                "ok",
+            ),
+        )
+        conn.execute(
             "INSERT OR REPLACE INTO jpx_regulation_flags"
             "(asof_date, source_name, ticker, flag)"
             " VALUES ('2026-05-29', '特別注意銘柄', 'AAAA', '特別注意銘柄')"
@@ -78,6 +92,28 @@ class BuildTickerProfileTests(unittest.TestCase):
             candidates_root=root / "candidates",
             records_root=root / "records",
         )
+
+    def test_legacy_jquants_earnings_rows_are_not_reported_as_jpx_fact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sqlite_path = root / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            conn.execute(
+                "INSERT INTO jquants_earnings_calendar(announcement_date, ticker) "
+                "VALUES ('2026-06-10', 'AAAA')"
+            )
+            conn.execute(
+                "INSERT INTO source_coverage(source, coverage_key, coverage_start, "
+                "coverage_end, fetched_at_utc, record_count, status) "
+                "VALUES ('jquants_earnings_calendar', 'legacy', '2026-05-29', "
+                "'2026-08-27', '2026-05-29T00:00:00+09:00', 1, 'ok')"
+            )
+            conn.commit()
+            conn.close()
+
+            profile = self._build(root, "AAAA")
+
+            self.assertIsNone(profile["events"]["next_earnings_date"])
 
     def test_packet_covers_price_relative_events_and_screening(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

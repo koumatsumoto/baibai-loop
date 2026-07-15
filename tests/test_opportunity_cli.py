@@ -21,11 +21,13 @@ from baibai_loop.foundation.yaml_io import safe_load
 from baibai_loop.market.sqlite.schema import open_connection
 from baibai_loop.thesis.close_source import (
     _EXPECTED_MARKET_SCHEMA_VERSION,
+    resolve_holding_close_on_basis,
     resolve_previous_business_day_close,
 )
 from baibai_loop.thesis.decision_cli import main as decision_main
 from baibai_loop.thesis.decision_packet import (
     DecisionPacketDocument,
+    ScreeningEstimate,
     decision_packet_core_hash,
 )
 from baibai_loop.thesis.opportunity_cli import main as opportunity_main
@@ -62,19 +64,80 @@ def _seed_bars(
         conn.close()
 
 
+def _ledger_with_observed_at(
+    tmp_path: Path,
+    observed_at: str,
+    *,
+    active_candidate_reservation: bool = False,
+    active_same_scope_reservation: bool = False,
+    empty_other_reservation_factor: bool = False,
+) -> Path:
+    payload = safe_load(LEDGER_FIXTURE.read_text(encoding="utf-8"))
+    payload["market_prices"][0]["observed_at"] = observed_at
+    payload["market_prices"][0]["source_kind"] = "licensed_dataset"
+    payload["market_prices"][0]["price_basis"] = "unadjusted_close"
+    payload["market_prices"][0]["source_ref"] = "offline-test:raw-close:2331"
+    if empty_other_reservation_factor:
+        for event in payload["events"]:
+            if event.get("ticker") == "8929" and "common_factors" in event:
+                event["common_factors"] = []
+    if active_candidate_reservation:
+        for event in payload["events"]:
+            if event.get("ticker") == "2331" and "common_factors" in event:
+                event["common_factors"] = []
+        payload["events"].append(
+            {
+                "event_id": "reserve-2331-proposal-test",
+                "type": "reservation",
+                "occurred_at": "2026-07-09T09:00:00+09:00",
+                "reservation_id": "reservation-2331-proposal-test",
+                "order_id": "order-2331-proposal-test",
+                "ticker": "2331",
+                "sector": "サービス業",
+                "common_factors": [],
+                "quantity": 100,
+                "price_guard_yen": 1000,
+                "expires_at": "2026-07-31T15:30:00+09:00",
+            }
+        )
+    if active_same_scope_reservation:
+        payload["events"].append(
+            {
+                "event_id": "reserve-9999-same-scope-test",
+                "type": "reservation",
+                "occurred_at": "2026-07-09T09:00:00+09:00",
+                "reservation_id": "reservation-9999-same-scope-test",
+                "order_id": "order-9999-same-scope-test",
+                "ticker": "9999",
+                "sector": "サービス業",
+                "common_factors": ["labor-automation"],
+                "quantity": 100,
+                "price_guard_yen": 1000,
+                "expires_at": "2026-07-31T15:30:00+09:00",
+            }
+        )
+    path = tmp_path / "test-ledger.yaml"
+    path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    return path
+
+
 def _write_selection(
     path: Path,
     audit_pool: list[dict[str, object]],
     *,
     research_selection_target_max: object = 5,
+    selection_asof: str | None = "2026-07-03",
 ) -> None:
+    selection_metadata: dict[str, object] = {
+        "research_selection_target_max": research_selection_target_max,
+        "research_selection_playbook_order": ["cashflow-yield-discount"],
+    }
+    if selection_asof is not None:
+        selection_metadata["asof"] = selection_asof
     payload = {
         "recommendations": [],
         "audit_pool": audit_pool,
-        "selection": {
-            "research_selection_target_max": research_selection_target_max,
-            "research_selection_playbook_order": ["cashflow-yield-discount"],
-        },
+        "selection": selection_metadata,
     }
     path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
 
@@ -95,22 +158,64 @@ def _audit_row(ticker: str, rank: int = 1) -> dict[str, object]:
     }
 
 
+def _audit_row_with_estimate(
+    ticker: str,
+    rank: int = 1,
+    *,
+    annual: object = 0.095,
+    expected_return_unit: object = "annual_ratio",
+    sector_anchor: object = 1350.0,
+    self_anchor: object = 1300.0,
+) -> dict[str, object]:
+    row = _audit_row(ticker, rank)
+    row["estimate_snapshot"] = {
+        "as_of": "2026-07-03",
+        "expected_return": {
+            "annual": annual,
+            "origin": "estimate",
+            "model_version": "expected-return-v1",
+            "unit": expected_return_unit,
+            "assumptions": "fixed screening estimate assumptions",
+        },
+        "fair_value": {
+            "anchors": {
+                "fv_sector_median_yen": sector_anchor,
+                "fv_self_range_yen": self_anchor,
+            },
+            "origin": "estimate",
+            "model_version": "expected-return-v1",
+            "unit": "JPY_per_share",
+            "assumptions": "fixed screening estimate assumptions",
+        },
+    }
+    row["expected_return_pct"] = (
+        round(float(annual) * 100, 4) if isinstance(annual, int | float) else 9.5
+    )
+    anchors = [
+        float(value)
+        for value in (sector_anchor, self_anchor)
+        if isinstance(value, int | float) and not isinstance(value, bool)
+    ]
+    row["fair_value_anchor_yen"] = round(min(anchors), 4) if anchors else None
+    return row
+
+
 def _prepared_workspace(
     tmp_path: Path,
     sqlite_path: Path,
     ticker: str = "2331",
     *,
-    asof: str = "2026-07-10",
+    audit_pool: list[dict[str, object]] | None = None,
 ) -> Path:
     selection = tmp_path / "selection.yaml"
-    _write_selection(selection, [_audit_row(ticker)])
+    _write_selection(selection, audit_pool or [_audit_row(ticker)])
     workspace = tmp_path / "ws"
     assert (
         opportunity_main(
             [
                 "prepare",
                 "--asof",
-                asof,
+                "2026-07-03",
                 "--selection-output",
                 str(selection),
                 "--ledger",
@@ -163,7 +268,12 @@ def _ready_packet_and_review() -> tuple[dict[str, object], dict[str, object], st
     return packet, review, review_filename
 
 
-def _fill_ready_workspace(workspace: Path, ticker: str = "2331") -> str:
+def _fill_ready_workspace(
+    workspace: Path,
+    ticker: str = "2331",
+    *,
+    preserve_screening_estimate: bool = False,
+) -> str:
     """Simulate the operator filling a scaffolded draft with a ready packet+review."""
     selection_path = workspace / "selection.yaml"
     selection = safe_load(selection_path.read_text(encoding="utf-8"))
@@ -180,6 +290,27 @@ def _fill_ready_workspace(workspace: Path, ticker: str = "2331") -> str:
     packet, review, review_filename = _ready_packet_and_review()
     ticker_dir = workspace / ticker
     ticker_dir.mkdir(parents=True, exist_ok=True)
+    if preserve_screening_estimate:
+        scaffold = safe_load((ticker_dir / "packet-draft.yaml").read_text(encoding="utf-8"))
+        scaffold_snapshot = scaffold["input_snapshot"]
+        screening_estimate = scaffold_snapshot["screening_estimate"]
+        screening_source = next(
+            source
+            for source in scaffold_snapshot["sources"]
+            if source["source_id"] == "screening_selection"
+        )
+        packet["input_snapshot"]["sources"].append(screening_source)
+        packet["input_snapshot"]["screening_estimate"] = screening_estimate
+        packet["estimates"]["current_fair_value_yen"] = 1481.9088
+        packet["estimates"]["screening_fv_bridge"] = {
+            "primary_driver": "other",
+            "note": "Research kept the screening FV anchor with no material revision.",
+        }
+        packet["judgment"]["proposed_at"] = FIXED_NOW.isoformat()
+        review["reviewed_at"] = FIXED_NOW.isoformat()
+        review["reviewed_packet_sha256"] = decision_packet_core_hash(
+            DecisionPacketDocument.model_validate(packet)
+        )
     (ticker_dir / "packet-draft.yaml").write_text(
         yaml.safe_dump(packet, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
@@ -239,6 +370,90 @@ def test_close_source_degrades_on_schema_version_mismatch(tmp_path: Path) -> Non
         sqlite_path=sqlite_path, ticker="2331", target_session=date(2026, 7, 13)
     )
     assert resolved is None
+
+
+def test_close_source_never_uses_older_ticker_bar_when_market_wide_date_is_missing(
+    tmp_path: Path,
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(
+        sqlite_path,
+        [
+            ("2331", "2026-07-09", 990.0, 1.0),
+            ("9999", "2026-07-10", 500.0, 1.0),
+        ],
+    )
+
+    resolved = resolve_previous_business_day_close(
+        sqlite_path=sqlite_path, ticker="2331", target_session=date(2026, 7, 13)
+    )
+
+    assert resolved is None
+
+
+def test_close_source_treats_missing_adjustment_factor_as_unresolved(tmp_path: Path) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, None)])
+
+    resolved = resolve_previous_business_day_close(
+        sqlite_path=sqlite_path, ticker="2331", target_session=date(2026, 7, 13)
+    )
+
+    assert resolved is not None
+    assert resolved.corporate_action_unresolved is True
+
+
+@pytest.mark.parametrize(
+    ("intermediate_close", "intermediate_factor"),
+    [(None, 1.0), (995.0, None), (995.0, 0.5)],
+    ids=("missing-bar", "missing-factor", "non-unit-factor"),
+)
+def test_holding_close_falls_back_when_revaluation_chain_is_incomplete(
+    tmp_path: Path,
+    intermediate_close: float | None,
+    intermediate_factor: float | None,
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    rows: list[tuple[str, str, float | None, float | None]] = [
+        ("2331", "2026-07-08", 990.0, 1.0),
+        ("2331", "2026-07-10", 1000.0, 1.0),
+    ]
+    if intermediate_close is None:
+        rows.append(("9999", "2026-07-09", 500.0, 1.0))
+    else:
+        rows.append(("2331", "2026-07-09", intermediate_close, intermediate_factor))
+    _seed_bars(sqlite_path, rows)
+
+    resolved = resolve_holding_close_on_basis(
+        sqlite_path=sqlite_path,
+        ticker="2331",
+        ledger_price_observed_on=date(2026, 7, 8),
+        basis_as_of=date(2026, 7, 10),
+    )
+
+    assert resolved is None
+
+
+def test_holding_close_uses_exact_basis_after_complete_raw_chain(tmp_path: Path) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(
+        sqlite_path,
+        [
+            ("2331", "2026-07-09", 990.0, 1.0),
+            ("2331", "2026-07-10", 1000.0, 1.0),
+        ],
+    )
+
+    resolved = resolve_holding_close_on_basis(
+        sqlite_path=sqlite_path,
+        ticker="2331",
+        ledger_price_observed_on=date(2026, 7, 9),
+        basis_as_of=date(2026, 7, 10),
+    )
+
+    assert resolved is not None
+    assert resolved.price_as_of == date(2026, 7, 10)
+    assert resolved.close_yen == 1000.0
 
 
 def test_prepare_annotates_held_reserved_without_excluding(
@@ -527,6 +742,96 @@ def test_status_allows_intentional_shortlist_edit(
     assert code == 0
 
 
+def test_status_waits_for_human_shortlist_before_packet_scaffold(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
+    selection_path = workspace / "selection.yaml"
+    selection = safe_load(selection_path.read_text(encoding="utf-8"))
+    selection["shortlist"] = []
+    selection_path.write_text(
+        yaml.safe_dump(selection, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+    code, payload = _run(["status", "--workspace", str(workspace)], capsys)
+
+    assert code == 0
+    assert payload["workspace_status"] == "awaiting_primary_research_selection"
+    assert "candidate-report" in str(payload["next_command"])
+
+
+def test_status_points_to_first_missing_shortlist_lane(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
+    selection_path = workspace / "selection.yaml"
+    selection = safe_load(selection_path.read_text(encoding="utf-8"))
+    selection["shortlist"] = [{"ticker": "2331", "reason": "research"}]
+    selection_path.write_text(
+        yaml.safe_dump(selection, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+    code, payload = _run(["status", "--workspace", str(workspace)], capsys)
+
+    assert code == 0
+    assert payload["workspace_status"] == "incomplete"
+    assert payload["next_command"] == "baibai-loop-opportunity packet-scaffold --ticker 2331"
+
+
+def test_status_waits_for_all_lane_checks_before_comparison(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
+    assert (
+        opportunity_main(
+            [
+                "packet-scaffold",
+                "--workspace",
+                str(workspace),
+                "--ticker",
+                "2331",
+                "--sqlite-path",
+                str(sqlite_path),
+                "--target-session",
+                TARGET_SESSION,
+            ],
+            now=FIXED_NOW,
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    code, payload = _run(["status", "--workspace", str(workspace)], capsys)
+
+    assert code == 0
+    assert payload["workspace_status"] == "incomplete"
+    assert payload["pending_checks"]
+    assert payload["next_command"] == "complete primary research lane for 2331"
+
+    checklist_path = workspace / "2331" / "research-checklist.yaml"
+    checklist = safe_load(checklist_path.read_text(encoding="utf-8"))
+    for check in checklist["checks"]:
+        check["status"] = "complete"
+    checklist_path.write_text(
+        yaml.safe_dump(checklist, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    packet, _review, _review_filename = _ready_packet_and_review()
+    (workspace / "2331" / "packet-draft.yaml").write_text(
+        yaml.safe_dump(packet, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+    code, payload = _run(["status", "--workspace", str(workspace)], capsys)
+
+    assert code == 0
+    assert payload["workspace_status"] == "ready_for_comparison"
+
+
 def test_status_reports_external_input_hash_drift_as_exit_4(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -600,7 +905,7 @@ def test_packet_scaffold_confines_research_lane_to_direct_ticker_child(
             [
                 "prepare",
                 "--asof",
-                "2026-07-10",
+                "2026-07-03",
                 "--selection-output",
                 str(selection_output),
                 "--ledger",
@@ -654,7 +959,7 @@ def test_primary_research_lanes_share_lineage_and_remain_isolated(
             [
                 "prepare",
                 "--asof",
-                "2026-07-10",
+                "2026-07-03",
                 "--selection-output",
                 str(selection_output),
                 "--ledger",
@@ -761,6 +1066,8 @@ def test_packet_scaffold_snapshots_raw_close(
     assert code == 0
     assert payload["close_yen"] == 1005.0
     assert payload["price_as_of"] == "2026-07-10"
+    assert payload["screening_estimate_transferred"] is False
+    assert payload["screening_estimate_transfer_reason"] == "estimate_snapshot_missing"
     draft = safe_load((workspace / "2331" / "packet-draft.yaml").read_text(encoding="utf-8"))
     snapshot = draft["input_snapshot"]
     # The raw close is emitted as the single schema-valid market_price fact, not a
@@ -777,14 +1084,389 @@ def test_packet_scaffold_snapshots_raw_close(
     assert fact["price_basis"] == "last_close_unadjusted"
     # The fact references a declared local_data source.
     assert fact["source_ids"] == [snapshot["sources"][0]["source_id"]]
+    assert "screening_estimate" not in snapshot
 
 
-def test_packet_scaffold_rejects_raw_close_date_before_workspace_asof(
+def test_packet_scaffold_transfers_raw_screening_estimate(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    workspace = _prepared_workspace(
+        tmp_path,
+        sqlite_path,
+        audit_pool=[_audit_row_with_estimate("2331")],
+    )
+    code, payload = _run(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+    assert code == 0
+    assert payload["screening_estimate_transferred"] is True
+    assert payload["screening_estimate_transfer_reason"] is None
+    draft = safe_load((workspace / "2331" / "packet-draft.yaml").read_text(encoding="utf-8"))
+    snapshot = draft["input_snapshot"]
+    assert snapshot["screening_estimate"] == {
+        "origin": "estimate",
+        "model_version": "expected-return-v1",
+        "as_of": "2026-07-03",
+        "expected_return_annual_ratio": 0.095,
+        "expected_return_unit": "annual_ratio",
+        "fair_value_anchor_yen": 1300.0,
+        "fair_value_unit": "JPY_per_share",
+        "assumptions": "fixed screening estimate assumptions",
+        "source_ids": ["screening_selection"],
+    }
+    source = next(
+        item for item in snapshot["sources"] if item["source_id"] == "screening_selection"
+    )
+    assert source == {
+        "source_id": "screening_selection",
+        "ticker": "2331",
+        "source_tier": "local_data",
+        "provider": "baibai-loop",
+        "dataset": "screening-selection",
+        "retrieved_at": FIXED_NOW.isoformat(),
+        "as_of": "2026-07-03",
+        "used_for": "screening expected return and fair value anchor",
+    }
+
+    force_code, force_payload = _run(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+            "--force",
+        ],
+        capsys,
+    )
+    assert force_code == 0
+    assert force_payload["screening_estimate_transferred"] is True
+    regenerated = safe_load((workspace / "2331" / "packet-draft.yaml").read_text(encoding="utf-8"))
+    assert regenerated["input_snapshot"]["screening_estimate"] == snapshot["screening_estimate"]
+
+
+def test_packet_scaffold_reads_hash_bound_selection_not_editable_audit_values(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    workspace = _prepared_workspace(
+        tmp_path,
+        sqlite_path,
+        audit_pool=[_audit_row_with_estimate("2331")],
+    )
+    workspace_selection_path = workspace / "selection.yaml"
+    editable = safe_load(workspace_selection_path.read_text(encoding="utf-8"))
+    editable_row = editable["audit_pool"][0]
+    editable_row["expected_return_pct"] = 50.0
+    editable_row["fair_value_anchor_yen"] = 9999.0
+    editable_row["estimate_snapshot"]["expected_return"]["annual"] = 0.5
+    editable_row["estimate_snapshot"]["fair_value"]["anchors"] = {
+        "fv_sector_median_yen": 9999.0,
+        "fv_self_range_yen": 10000.0,
+    }
+    workspace_selection_path.write_text(
+        yaml.safe_dump(editable, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+    code, payload = _run(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+
+    assert code == 0
+    assert payload["screening_estimate_transferred"] is True
+    draft = safe_load((workspace / "2331" / "packet-draft.yaml").read_text(encoding="utf-8"))
+    estimate = draft["input_snapshot"]["screening_estimate"]
+    assert estimate["expected_return_annual_ratio"] == 0.095
+    assert estimate["fair_value_anchor_yen"] == 1300.0
+
+
+def test_packet_scaffold_keeps_null_fair_value_without_inventing_anchor(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    workspace = _prepared_workspace(
+        tmp_path,
+        sqlite_path,
+        audit_pool=[_audit_row_with_estimate("2331", sector_anchor=None, self_anchor=None)],
+    )
+    code, payload = _run(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+    assert code == 0
+    assert payload["screening_estimate_transferred"] is True
+    draft = safe_load((workspace / "2331" / "packet-draft.yaml").read_text(encoding="utf-8"))
+    assert draft["input_snapshot"]["screening_estimate"]["fair_value_anchor_yen"] is None
+
+
+def test_packet_scaffold_quantizes_screening_anchor_to_packet_precision(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    workspace = _prepared_workspace(
+        tmp_path,
+        sqlite_path,
+        audit_pool=[
+            _audit_row_with_estimate("2331", sector_anchor=1350.0, self_anchor=1300.123456)
+        ],
+    )
+
+    code, payload = _run(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+
+    assert code == 0
+    assert payload["screening_estimate_transferred"] is True
+    draft = safe_load((workspace / "2331" / "packet-draft.yaml").read_text(encoding="utf-8"))
+    estimate = draft["input_snapshot"]["screening_estimate"]
+    assert estimate["fair_value_anchor_yen"] == 1300.1235
+    ScreeningEstimate.model_validate(estimate)
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        _audit_row_with_estimate("2331", expected_return_unit="percent"),
+        {
+            **_audit_row_with_estimate("2331"),
+            "expected_return_pct": 0.095,
+        },
+    ],
+)
+def test_packet_scaffold_rejects_malformed_estimate_snapshot(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    row: dict[str, object],
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    workspace = _prepared_workspace(tmp_path, sqlite_path, audit_pool=[row])
+    code = opportunity_main(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        now=FIXED_NOW,
+    )
+    assert code == 3
+
+
+def test_packet_scaffold_converts_huge_numeric_overflow_to_data_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    row = _audit_row_with_estimate("2331")
+    row["estimate_snapshot"]["expected_return"]["annual"] = 10**400
+    workspace = _prepared_workspace(tmp_path, sqlite_path, audit_pool=[row])
+
+    code = opportunity_main(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        now=FIXED_NOW,
+    )
+
+    assert code == 3
+
+
+@pytest.mark.parametrize(
+    ("annual", "sector_anchor", "self_anchor"),
+    [
+        (-1.0001, 1350.0, 1300.0),
+        (10.0001, 1350.0, 1300.0),
+        (0.095, 1350.0, 0.0001),
+        (0.095, 1_000_000_001, None),
+    ],
+)
+def test_packet_scaffold_rejects_values_outside_packet_estimate_contract(
+    tmp_path: Path,
+    annual: object,
+    sector_anchor: object,
+    self_anchor: object,
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    row = _audit_row_with_estimate(
+        "2331",
+        annual=annual,
+        sector_anchor=sector_anchor,
+        self_anchor=self_anchor,
+    )
+    workspace = _prepared_workspace(tmp_path, sqlite_path, audit_pool=[row])
+
+    code = opportunity_main(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        now=FIXED_NOW,
+    )
+
+    assert code == 3
+
+
+@pytest.mark.parametrize(
+    ("selection_asof", "snapshot_asof"),
+    [
+        ("2026-07-02", "2026-07-03"),
+        ("2026-07-03", "2026-07-02"),
+    ],
+)
+def test_prepare_rejects_selection_estimate_asof_mismatch(
+    tmp_path: Path,
+    selection_asof: str,
+    snapshot_asof: str,
+) -> None:
+    selection = tmp_path / "selection.yaml"
+    row = _audit_row_with_estimate("2331")
+    row["estimate_snapshot"]["as_of"] = snapshot_asof
+    _write_selection(selection, [row], selection_asof=selection_asof)
+
+    code = opportunity_main(
+        [
+            "prepare",
+            "--asof",
+            "2026-07-03",
+            "--selection-output",
+            str(selection),
+            "--ledger",
+            str(LEDGER_FIXTURE),
+            "--workspace",
+            str(tmp_path / "ws"),
+        ],
+        now=FIXED_NOW,
+    )
+
+    assert code == 3
+
+
+def test_packet_scaffold_rejects_duplicate_audit_ticker(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
+    workspace = _prepared_workspace(
+        tmp_path,
+        sqlite_path,
+        audit_pool=[_audit_row("2331", 1), _audit_row("2331", 2)],
+    )
+    code = opportunity_main(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        now=FIXED_NOW,
+    )
+    assert code == 3
+
+
+def test_holding_packet_scaffold_rejects_raw_close_date_before_workspace_asof(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-09", 990.0, 1.0)])
-    workspace = _prepared_workspace(tmp_path, sqlite_path)
+    ledger = tmp_path / "ledger.yaml"
+    _ledger_with_market_price_date(ledger, date(2026, 7, 10))
+    workspace = tmp_path / "holding-ws"
+    assert (
+        opportunity_main(
+            [
+                "holding-prepare",
+                "--asof",
+                "2026-07-10",
+                "--ledger",
+                str(ledger),
+                "--ticker",
+                "2331",
+                "--workspace",
+                str(workspace),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
 
     code = opportunity_main(
         [
@@ -934,7 +1616,7 @@ def test_review_scaffold_goes_stale_when_packet_hash_changes(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
-    workspace = _prepared_workspace(tmp_path, sqlite_path, asof="2026-07-03")
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
     # Bind the review to the current packet hash.
     assert (
@@ -978,7 +1660,7 @@ def test_promote_refuses_when_checklist_pending(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
-    workspace = _prepared_workspace(tmp_path, sqlite_path, asof="2026-07-03")
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
     # Reintroduce a pending check.
     checklist_path = workspace / "2331" / "research-checklist.yaml"
@@ -1009,7 +1691,7 @@ def test_promote_rejects_non_complete_checklist_status(
     # unresolved so it cannot slip past the promotion gate.
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
-    workspace = _prepared_workspace(tmp_path, sqlite_path, asof="2026-07-03")
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
     checklist_path = workspace / "2331" / "research-checklist.yaml"
     checklist = safe_load(checklist_path.read_text(encoding="utf-8"))
@@ -1048,7 +1730,7 @@ def test_promote_rejects_packet_identity_tampering(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
-    workspace = _prepared_workspace(tmp_path, sqlite_path, asof="2026-07-03")
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
     packet_path = workspace / "2331/packet-draft.yaml"
     packet = safe_load(packet_path.read_text(encoding="utf-8"))
@@ -1089,7 +1771,7 @@ def test_promote_ready_writes_two_validated_canonical_files(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
-    workspace = _prepared_workspace(tmp_path, sqlite_path, asof="2026-07-03")
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
     review_filename = _fill_ready_workspace(workspace)
     output_dir = tmp_path / "records/03-thesis/2026/07"
 
@@ -1116,12 +1798,73 @@ def test_promote_ready_writes_two_validated_canonical_files(
     assert decision_main([str(packet_out)]) == 0
 
 
+def test_screening_fv_bridge_scaffold_fill_promote_and_validate_e2e(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    workspace = _prepared_workspace(
+        tmp_path,
+        sqlite_path,
+        audit_pool=[
+            _audit_row_with_estimate(
+                "2331",
+                sector_anchor=1507.0856,
+                self_anchor=1484.5,
+                annual=0.0826,
+            )
+        ],
+    )
+    code, _ = _run(
+        [
+            "packet-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+    assert code == 0
+    review_filename = _fill_ready_workspace(workspace, preserve_screening_estimate=True)
+    output_dir = tmp_path / "records/03-thesis/2026/07"
+
+    promote_code, _ = _run(
+        [
+            "promote",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--output-dir",
+            str(output_dir),
+        ],
+        capsys,
+    )
+
+    assert promote_code == 0
+    packet_out = output_dir / "2026-07-03-2331-decision.yaml"
+    review_out = output_dir / review_filename
+    assert review_out.exists()
+    promoted_review = safe_load(review_out.read_text(encoding="utf-8"))
+    assert "screening_selection" not in promoted_review["checked_source_ids"]
+    findings = validate_decision_packet_file(packet_out)
+    assert [finding for finding in findings if finding.severity == "error"] == []
+    assert decision_main([str(packet_out)]) == 0
+    payload = safe_load(capsys.readouterr().out)
+    assert payload["screening_fv_revision_pct"] == -0.1746
+
+
 def test_promote_never_overwrites_canonical(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
-    workspace = _prepared_workspace(tmp_path, sqlite_path, asof="2026-07-03")
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
     output_dir = tmp_path / "records/03-thesis/2026/07"
     args = [
@@ -1144,7 +1887,7 @@ def test_promote_never_overwrites_canonical(
 
 
 def _promoted_packet(tmp_path: Path, sqlite_path: Path) -> Path:
-    workspace = _prepared_workspace(tmp_path, sqlite_path, asof="2026-07-03")
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
     output_dir = tmp_path / "records/03-thesis/2026/07"
     assert (
@@ -1190,9 +1933,314 @@ def test_plan_limit_close_within_max_plans_limit_at_close(
     assert payload["limit_price_yen"] == payload["close_yen"] == 1000
     assert payload["price_basis"] == "last_close_unadjusted"
     assert payload["expires_at"] == "2026-07-13T15:30:00+09:00"
+    assert payload["decision_packet_ref"] == str(packet)
+    assert payload["decision_packet_sha256"] == hashlib.sha256(packet.read_bytes()).hexdigest()
+    assert isinstance(payload["decision_packet_core_sha256"], str)
+    review = packet.with_name("2026-07-03-2331-decision-review.yaml")
+    assert payload["independent_review_ref"] == str(review)
+    assert payload["independent_review_sha256"] == hashlib.sha256(review.read_bytes()).hexdigest()
     assert (
         payload["source_ledger_sha256"] == hashlib.sha256(LEDGER_FIXTURE.read_bytes()).hexdigest()
     )
+    assert payload["portfolio_exposure"]["ledger_fallback_tickers"] == ["2331"]
+    assert payload["portfolio_exposure"]["holding_valuation_status"] == (
+        "mixed_with_ledger_fallback"
+    )
+    assert "portfolio_exposure_ledger_fallback:2331" in payload["warnings"]
+
+
+def test_plan_limit_revalues_holding_on_proposal_basis_and_derives_exposure(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(
+        sqlite_path,
+        [
+            ("2331", "2026-07-09", 1100.0, 1.0),
+            ("2331", "2026-07-10", 1000.0, 1.0),
+        ],
+    )
+    packet = _promoted_packet(tmp_path, sqlite_path)
+    ledger = _ledger_with_observed_at(tmp_path, "2026-07-09T15:30:00+09:00")
+
+    code, payload = _run(
+        [
+            "plan-limit",
+            "--packet",
+            str(packet),
+            "--ledger",
+            str(ledger),
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+
+    assert code == 0
+    assert payload["status"] == "planned_limit"
+    exposure = payload["portfolio_exposure"]
+    # available 10,080,500 + reserved 119,000 + 200 shares * 1,000 raw close.
+    assert exposure["total_capital_yen"] == 10_399_500
+    assert exposure["price_as_of"] == "2026-07-10"
+    assert exposure["price_basis"] == "last_close_unadjusted"
+    assert exposure["holding_valuation_status"] == "same_asof_raw_close"
+    assert exposure["ledger_fallback_tickers"] == []
+    assert exposure["common_factor_empty_tickers"] == []
+    assert exposure["ticker"] == {
+        "key": "2331",
+        "current_and_reserved_yen": 200_000,
+        "prospective_yen": 500_000,
+        "prospective_pct": 4.81,
+        "warning_pct": 6,
+    }
+    assert exposure["sector"]["current_and_reserved_yen"] == 200_000
+    assert exposure["sector"]["prospective_yen"] == 500_000
+    assert exposure["common_factors"] == [
+        {
+            "key": "labor-automation",
+            "current_and_reserved_yen": 200_000,
+            "prospective_yen": 500_000,
+            "prospective_pct": 4.81,
+            "warning_pct": 35,
+        }
+    ]
+
+    # Remaining available cash is 2,080,500. It is above 20% of the revalued
+    # 10,399,500 capital (2,079,900), but below 20% of stale ledger capital
+    # 10,419,500 (2,083,900); therefore no stale-denominator warning is allowed.
+    code, large_order = _run(
+        [
+            "plan-limit",
+            "--packet",
+            str(packet),
+            "--ledger",
+            str(ledger),
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+            "--budget-max-yen",
+            "8000000",
+        ],
+        capsys,
+    )
+    assert code == 0
+    assert large_order["notional_yen"] == 8_000_000
+    assert "dry_powder_below_floor" not in large_order["warnings"]
+
+
+def test_plan_limit_active_candidate_reservation_defers_without_second_order(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(
+        sqlite_path,
+        [
+            ("2331", "2026-07-09", 1100.0, 1.0),
+            ("2331", "2026-07-10", 1000.0, 1.0),
+        ],
+    )
+    packet = _promoted_packet(tmp_path, sqlite_path)
+    ledger = _ledger_with_observed_at(
+        tmp_path,
+        "2026-07-09T15:30:00+09:00",
+        active_candidate_reservation=True,
+    )
+
+    code, payload = _run(
+        [
+            "plan-limit",
+            "--packet",
+            str(packet),
+            "--ledger",
+            str(ledger),
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+
+    assert code == 0
+    assert payload["status"] == "defer"
+    assert payload["close_yen"] == 1000
+    assert payload["max_acceptable_price_yen"] == 1109
+    assert payload["limit_price_yen"] is None
+    assert payload["quantity"] == 0
+    assert payload["notional_yen"] == 0
+    assert payload["portfolio_annotations"] == ["already_held", "active_reservation"]
+    assert payload["defer_reasons"] == ["active_reservation_exists"]
+    assert "portfolio_exposure" not in payload
+
+
+def test_plan_limit_counts_same_scope_reservation_and_order_once(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(
+        sqlite_path,
+        [
+            ("2331", "2026-07-09", 1100.0, 1.0),
+            ("2331", "2026-07-10", 1000.0, 1.0),
+        ],
+    )
+    packet = _promoted_packet(tmp_path, sqlite_path)
+    ledger = _ledger_with_observed_at(
+        tmp_path,
+        "2026-07-09T15:30:00+09:00",
+        active_same_scope_reservation=True,
+    )
+
+    code, payload = _run(
+        [
+            "plan-limit",
+            "--packet",
+            str(packet),
+            "--ledger",
+            str(ledger),
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+            "--budget-max-yen",
+            "400000",
+        ],
+        capsys,
+    )
+
+    assert code == 0
+    assert payload["status"] == "planned_limit"
+    assert payload["notional_yen"] == 400_000
+    exposure = payload["portfolio_exposure"]
+    # Reservation moves 100,000 from available to reserved, leaving capital
+    # unchanged. It contributes once to the same sector/factor, while this order
+    # contributes once to each prospective numerator and never to the denominator.
+    assert exposure["total_capital_yen"] == 10_399_500
+    assert exposure["ticker"]["current_and_reserved_yen"] == 200_000
+    assert exposure["ticker"]["prospective_yen"] == 600_000
+    assert exposure["sector"]["current_and_reserved_yen"] == 300_000
+    assert exposure["sector"]["prospective_yen"] == 700_000
+    assert exposure["common_factors"][0]["current_and_reserved_yen"] == 300_000
+    assert exposure["common_factors"][0]["prospective_yen"] == 700_000
+    assert payload["defer_reasons"] == []
+
+
+def test_plan_limit_ticker_concentration_warning_does_not_change_status_or_limit(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(
+        sqlite_path,
+        [
+            ("2331", "2026-07-09", 1100.0, 1.0),
+            ("2331", "2026-07-10", 1000.0, 1.0),
+        ],
+    )
+    packet = _promoted_packet(tmp_path, sqlite_path)
+    ledger = _ledger_with_observed_at(tmp_path, "2026-07-09T15:30:00+09:00")
+
+    code, payload = _run(
+        [
+            "plan-limit",
+            "--packet",
+            str(packet),
+            "--ledger",
+            str(ledger),
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+            "--budget-max-yen",
+            "500000",
+        ],
+        capsys,
+    )
+
+    assert code == 0
+    assert payload["status"] == "planned_limit"
+    assert payload["limit_price_yen"] == 1000
+    assert payload["portfolio_exposure"]["ticker"]["prospective_yen"] == 700_000
+    assert "prospective_ticker_concentration_exceeds_warning" in payload["warnings"]
+
+
+def test_plan_limit_discloses_other_ticker_with_missing_common_factor_coverage(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(
+        sqlite_path,
+        [
+            ("2331", "2026-07-09", 1100.0, 1.0),
+            ("2331", "2026-07-10", 1000.0, 1.0),
+        ],
+    )
+    packet = _promoted_packet(tmp_path, sqlite_path)
+    ledger = _ledger_with_observed_at(
+        tmp_path,
+        "2026-07-09T15:30:00+09:00",
+        empty_other_reservation_factor=True,
+    )
+
+    code, payload = _run(
+        [
+            "plan-limit",
+            "--packet",
+            str(packet),
+            "--ledger",
+            str(ledger),
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+
+    assert code == 0
+    assert payload["portfolio_exposure"]["common_factor_empty_tickers"] == ["8929"]
+    assert "portfolio_exposure_common_factor_coverage_incomplete" in payload["warnings"]
+
+
+def test_plan_limit_falls_back_when_revalued_holding_is_not_whole_yen(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(
+        sqlite_path,
+        [
+            ("2331", "2026-07-09", 1100.0, 1.0),
+            ("2331", "2026-07-10", 1000.0025, 1.0),
+        ],
+    )
+    packet = _promoted_packet(tmp_path, sqlite_path)
+    ledger = _ledger_with_observed_at(tmp_path, "2026-07-09T15:30:00+09:00")
+
+    code, payload = _run(
+        [
+            "plan-limit",
+            "--packet",
+            str(packet),
+            "--ledger",
+            str(ledger),
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+
+    assert code == 0
+    assert payload["status"] == "planned_limit"
+    assert payload["portfolio_exposure"]["ledger_fallback_tickers"] == ["2331"]
+    assert payload["portfolio_exposure"]["holding_valuation_status"] == (
+        "mixed_with_ledger_fallback"
+    )
+    assert payload["portfolio_exposure"]["ticker"]["current_and_reserved_yen"] == 220_000
+    assert "portfolio_exposure_ledger_fallback:2331" in payload["warnings"]
 
 
 def test_plan_limit_close_above_max_defers(
@@ -1272,6 +2320,32 @@ def test_plan_limit_corporate_action_defers(
     assert code == 0
     assert payload["status"] == "defer"
     assert "corporate_action_unresolved" in payload["defer_reasons"]
+
+
+def test_plan_limit_missing_adjustment_factor_defers(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, None)])
+    packet = _promoted_packet(tmp_path, sqlite_path)
+    code, payload = _run(
+        [
+            "plan-limit",
+            "--packet",
+            str(packet),
+            "--ledger",
+            str(LEDGER_FIXTURE),
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            TARGET_SESSION,
+        ],
+        capsys,
+    )
+    assert code == 0
+    assert payload["status"] == "defer"
+    assert "corporate_action_unresolved" in payload["defer_reasons"]
+    assert "portfolio_exposure" not in payload
 
 
 def test_plan_limit_single_lot_above_budget_max_still_proposes_with_warning(

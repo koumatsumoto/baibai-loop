@@ -344,6 +344,7 @@ def test_policy_rejects_packet_that_is_not_decision_ready() -> None:
         warnings=(),
         scenarios=result.scenarios,
     )
+    assert not_ready.five_year_base_break_even is None
 
     with pytest.raises(ExecutionPolicyError, match="decision-ready"):
         evaluate_execution_policy(document, not_ready, _policy(raw))

@@ -6,20 +6,34 @@ import unittest
 from datetime import date
 from pathlib import Path
 
+from baibai_loop.screening.providers.jpx import (
+    JPXEarningsCalendarEntry,
+    JPXEarningsCalendarSnapshot,
+)
 from baibai_loop.screening.sqlite_cache import (
     SQLITE_SCHEMA_VERSION,
     SQLiteSchemaError,
     open_connection,
     store_edinet_documents,
     store_edinet_metrics,
+    store_jpx_earnings_calendar_snapshot,
     store_jpx_regulations,
     store_jquants_daily_bars,
-    store_jquants_earnings_calendar,
     store_jquants_fin_summaries,
     store_jquants_market_calendar,
     store_jquants_master,
 )
 from baibai_loop.screening.sqlite_reader import range_covered
+
+
+def _earnings_snapshot(on_date: date = date(2026, 5, 15)) -> JPXEarningsCalendarSnapshot:
+    return JPXEarningsCalendarSnapshot(
+        entries=(JPXEarningsCalendarEntry(ticker="7203", announcement_date=on_date),),
+        source_urls=("https://www.jpx.co.jp/kessan.xlsx",),
+        raw_record_count=2,
+        excluded_record_count=1,
+        rejected_record_count=0,
+    )
 
 
 class SQLiteCacheTest(unittest.TestCase):
@@ -292,15 +306,7 @@ class SQLiteCacheTest(unittest.TestCase):
                 1,
             )
             self.assertEqual(
-                store_jquants_earnings_calendar(
-                    db,
-                    [
-                        {"Code": "72030", "Date": "2026-05-08"},
-                        {"Code": "72030", "Date": "2026-05-08"},
-                    ],
-                    requested_start=date(2026, 5, 8),
-                    requested_end=date(2026, 5, 8),
-                ),
+                store_jpx_earnings_calendar_snapshot(db, _earnings_snapshot(date(2026, 5, 8))),
                 1,
             )
             self.assertEqual(
@@ -353,7 +359,7 @@ class SQLiteCacheTest(unittest.TestCase):
                     conn.execute(
                         "SELECT source, record_count FROM source_coverage "
                         "WHERE source IN ("
-                        "'jquants_master_snapshots', 'jquants_earnings_calendar', "
+                        "'jquants_master_snapshots', 'jpx_earnings_calendar', "
                         "'jquants_market_calendar', 'edinet_documents', 'edinet_metrics', "
                         "'jpx_regulation_flags')"
                     ).fetchall()
@@ -365,7 +371,7 @@ class SQLiteCacheTest(unittest.TestCase):
                 coverage,
                 {
                     "jquants_master_snapshots": 1,
-                    "jquants_earnings_calendar": 1,
+                    "jpx_earnings_calendar": 1,
                     "jquants_market_calendar": 1,
                     "edinet_documents": 1,
                     "edinet_metrics": 1,
@@ -394,12 +400,7 @@ class SQLiteCacheTest(unittest.TestCase):
                     }
                 ],
             )
-            store_jquants_earnings_calendar(
-                db,
-                [{"Code": "72030", "Date": "2026-05-15"}],
-                requested_start=date(2026, 5, 8),
-                requested_end=date(2026, 8, 6),
-            )
+            store_jpx_earnings_calendar_snapshot(db, _earnings_snapshot())
             store_jquants_market_calendar(
                 db,
                 [{"Date": "2026-05-08", "HolidayDivision": "1"}],

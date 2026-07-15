@@ -426,6 +426,7 @@ def main(argv: list[str] | None = None) -> int:
             special_caution_index_url=config.jpx_special_caution_index_url,
             sqlite_path=sqlite_path,
             cache_only=args.command == "run",
+            allow_stale_snapshot=args.allow_stale_jpx if args.command == "run" else False,
         ),
     )
 

@@ -3,7 +3,7 @@ title: "Workflow — research"
 summary: "人間が選んだprimary-research setを一次情報、永久損失、3年/5年scenario、反証で比較し、最良0〜1件をdecision packetへ固定する。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-13
+last_reviewed: 2026-07-15
 related_docs:
   - "./screening.md"
   - "../reference/decision-packet.md"
@@ -25,6 +25,8 @@ researchの目的は、安く見える理由が一時的な誤解か、企業価
 | macro context | materialな外部経路 | screen rank、sizing formulaへ入れない |
 
 検索snippet、ニュース見出し、外部AI要約を観測事実にしない。二次情報は一次sourceの所在確認と相互検算だけに使う。
+
+operation Issueでbusiness-model guide pilotの対象に指定したlaneでは、[`business-model research guide`](../reference/business-model-research.md)からprimary lensを1つ選び、複合modelで5年評価にmaterialな場合だけsecondary lensを1つ追加する。primary lensの全required questionsとsecondary lensから選んだ全material questionsを`answered / unknown / not_applicable`とし、`answered / not_applicable`は根拠sourceを持つ既存`domain_findings`、`unknown`は既存`unknowns`へ同guideの規約で置く。issuer-primaryだけで確定できるclaimと独立裏取りが必要なclaimを同guideの区分で判定し、適合するlensが無ければ分類を強制せず共通checklistへ戻る。pilot対象外のlaneへ一律に強制しない。
 
 ## Candidate stages
 
@@ -80,6 +82,13 @@ schemaの7軸を全件評価する。
 - dividendをterminal priceとreturnへ二重計上しない。
 - FV、entry price、required 5y CAGRのsource/as-ofを固定する。
 - E[r]とscreening FV anchorはestimateで、個別FVの代替ではない。
+- `baibai-loop-decision`の5年base break-evenを使い、terminal multipleとearnings growthが要求CAGRまで持つ余裕を確認する。
+
+Research FV確定時、screening FV anchorとの差率を`(research_fv / screening_fv_anchor - 1) * 100`で機械計算する。
+主要説明要因を`earnings_normalization / growth / shares / multiple / dividend / required_return / other`から1つ選び、noteは1〜2行に限定する。
+複数要因のwaterfall分解や合計100%への配賦は行わず、判断困難な場合は`other`として理由をnoteに残す。
+このbridgeは改善計測用であり、screening順位、FV anchor、購入提案を自動補正しない。
+scaffold済みscreening estimateを手書きで置換せず、欠損時はbridgeを推定で埋めない。
 
 算術とfield意味は[`../reference/decision-packet.md`](../reference/decision-packet.md)を正本とする。
 
@@ -89,7 +98,7 @@ AIはテーマではなく企業別のvalue captureとして評価する。role�
 
 ## Portfolio annotation and affordability
 
-ledgerから`unheld / held / reserved / held_and_reserved`を付け、追加後concentrationと既存proposalの関係を示す。月40万円、20〜30万円、cash、dry powder、集中はwarningであり、永久損失と5年期待値を比較する前のhard filterではない。
+ledgerから`unheld / held / reserved / held_and_reserved`を付け、追加後concentrationと既存proposalの関係を示す。追加資金と通常注文額のplanning baselineは[`portfolio-management`](../portfolio-management.md#capital-guidance)を正本とする。cash、dry powder、集中はwarningであり、永久損失と5年期待値を比較する前のhard filterではない。
 
 ## Packet scaffold
 
@@ -110,7 +119,24 @@ raw candidate YAML、SQLite path依存、検索snippet、fixture copyをcanonica
 
 packet authorと別roleが、候補抜け、一次source、scenario算術、永久損失7軸、countercase、代替候補、portfolio annotation、limit/quantityを再確認する。reviewはpacketを直接編集せず、decision-review draftだけを返す。
 
+5年baseのreviewでは`baibai-loop-decision <packet>`を実行する。reviewerは既存の`scenario.base_3y_5y` checkをいったん`pending`へ戻し、次を記録・確認した後だけ`complete`へ戻す。
+
+- base / break-even terminal multipleと、その差であるdownside buffer
+- base / break-even annual earnings growthと、その差であるdownside buffer（percentage points）
+- 観測trailing multipleのfact IDと値、およびbase multipleとの差
+- terminal multiple仮定を維持・修正した判断理由と、proposalへの影響
+
+base terminal multipleが観測trailing multipleを上回る場合は、premiumを支えるpacket内fact IDと、そのfactへ接続する一次source IDを同じcheckに記録する。観測anchorまたはbreak-even計算が解決しない、あるいはpremiumを支える一次情報を特定できない場合はcheckを`complete`にせずpacket authorへ戻す。downside bufferが0以下であること自体は有効な計算結果であり、review不備とはしない。ただし買い提案と必要利回りが整合するかを`decision_impact`で明示し、scenarioやproposalを変える必要がある場合、review draftは`proposal_changed=true`とする。数値が良好であることだけをscenario仮定の根拠にしない。
+
 `proposal_changed=true`ならpacketへ戻る。packet core hashが変わった後のreviewはstaleで、promotionへ使えない。
+
+## Integrated research report and content review
+
+全lane比較後は[`research-decision-report`](../reference/research-decision-report.md)の共通findings templateへ、指定質問への回答、business model、value capture、growth quality、財務耐久性、業種固有分析、unknown、monitoringを統合する。数値scenario、FV、7軸、採否、指値・数量をfindingsへ複製せず、packet / comparison / proposalからrendererがjoinする。
+
+growth qualityは開示範囲でvolume、price、mix、upsell/churn、FXへ分ける。海外展開は商品coverage、契約所在地/請求通貨/地域売上、ultimate customer originを別々に評価する。management claimにはその区分を付け、未開示値はunknownに残す。
+
+HTML生成前に、report compilerと別roleが軽量なfindings / comparison / packet / proposalをreviewする。source freshness、指定質問への回答、一次source traceability、fact/estimate分離、countercase/unknown、scenario/FV、横比較/portfolio fit、購入方法bindingの全checkがpassで、reviewed input hashが現在値と一致する場合だけHTMLを生成する。HTMLそのものはreview対象にしない。
 
 ## Result states
 
@@ -130,6 +156,7 @@ promotionはpacket/review/hash/schema/pathが一致するときだけ行う。te
 - corporate actionまたはprice basisがunresolved。
 - 7永久損失軸、3年/5年scenario、countercaseが欠ける。
 - packetとreviewのhashが一致しない。
+- integrated content reviewが未完、changes required、または入力hashと一致しない。
 - budget fitだけで上位候補を入れ替えている。
 
 ## Validation

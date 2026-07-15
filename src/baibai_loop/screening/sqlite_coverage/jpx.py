@@ -87,3 +87,122 @@ def _append_jpx_freshness_issues(
                 ),
             )
         )
+
+
+def _append_jpx_earnings_calendar_issues(
+    conn: sqlite3.Connection,
+    issues: list[CacheCoverageIssue],
+    *,
+    asof_date: date,
+    allow_stale_jpx: bool,
+) -> None:
+    source = "jpx_earnings_calendar"
+    requirement = f"fresh snapshot with a known date on/after {asof_date.isoformat()}"
+    rows = conn.execute(
+        "SELECT coverage_key, coverage_start, coverage_end, fetched_at_utc, "
+        "record_count, status, error "
+        "FROM source_coverage WHERE source = ?",
+        (source,),
+    ).fetchall()
+    if len(rows) != 1:
+        issues.append(
+            CacheCoverageIssue(
+                source=source,
+                requirement=requirement,
+                reason="JPX earnings calendar must have exactly one logical snapshot coverage row",
+            )
+        )
+        return
+    (
+        coverage_key,
+        coverage_start,
+        coverage_end,
+        fetched_at_text,
+        record_count,
+        status,
+        error,
+    ) = rows[0]
+    if coverage_key != "get_earnings_calendar_snapshot:current":
+        issues.append(
+            CacheCoverageIssue(
+                source=source,
+                requirement=requirement,
+                reason="JPX earnings calendar has an unexpected snapshot coverage key",
+            )
+        )
+    if status != "ok":
+        issues.append(
+            CacheCoverageIssue(
+                source=source,
+                requirement=requirement,
+                reason=f"source_coverage status is not ok: {status}: {error or ''}",
+            )
+        )
+    table_count = int(
+        conn.execute("SELECT COUNT(*) FROM jquants_earnings_calendar").fetchone()[0] or 0
+    )
+    if table_count <= 0 or table_count != int(record_count or 0):
+        issues.append(
+            CacheCoverageIssue(
+                source=source,
+                requirement=requirement,
+                reason=(
+                    f"compatibility table row count ({table_count}) does not match "
+                    f"snapshot record_count ({int(record_count or 0)})"
+                ),
+            )
+        )
+    actual_range = conn.execute(
+        "SELECT MIN(announcement_date), MAX(announcement_date) FROM jquants_earnings_calendar"
+    ).fetchone()
+    actual_start_text, actual_end_text = actual_range
+    try:
+        actual_start = date.fromisoformat(str(actual_start_text))
+        actual_max = date.fromisoformat(str(actual_end_text))
+    except ValueError:
+        actual_start = date.min
+        actual_max = date.min
+    if (
+        str(coverage_start) != actual_start.isoformat()
+        or str(coverage_end) != actual_max.isoformat()
+    ):
+        issues.append(
+            CacheCoverageIssue(
+                source=source,
+                requirement=requirement,
+                reason="JPX earnings calendar coverage dates do not match stored rows",
+            )
+        )
+    if actual_max < asof_date:
+        issues.append(
+            CacheCoverageIssue(
+                source=source,
+                requirement=requirement,
+                reason="JPX earnings calendar snapshot contains only past known dates",
+            )
+        )
+    if allow_stale_jpx:
+        return
+    try:
+        fetched_at = datetime.fromisoformat(str(fetched_at_text).replace("Z", "+00:00"))
+    except ValueError:
+        issues.append(
+            CacheCoverageIssue(
+                source=source,
+                requirement=requirement,
+                reason="JPX earnings calendar has invalid fetched_at_utc",
+            )
+        )
+        return
+    if weekday_distance(asof_date, fetched_at.astimezone(JST).date()) > 7:
+        issues.append(
+            CacheCoverageIssue(
+                source=source,
+                requirement=requirement,
+                reason=(
+                    "JPX earnings calendar fetched_at_utc is stale; refetch SQLite or pass "
+                    "--allow-stale-jpx"
+                ),
+            )
+        )
+        return

@@ -42,7 +42,12 @@ from baibai_loop.screening.providers.edinet import (
     EDINETProviderError,
     EDINETRateLimitError,
 )
-from baibai_loop.screening.providers.jpx import JPXProviderError, JPXRegulationSnapshot
+from baibai_loop.screening.providers.jpx import (
+    JPXEarningsCalendarEntry,
+    JPXEarningsCalendarSnapshot,
+    JPXProviderError,
+    JPXRegulationSnapshot,
+)
 from baibai_loop.screening.providers.jquants import (
     JQuantsDailyBar,
     JQuantsFinancialSummary,
@@ -127,10 +132,6 @@ class FakeJQuantsProvider:
             ),
         ]
 
-    def get_eq_earnings_cal(self, start: date, end: date) -> list[dict[str, str]]:
-        self.calls.append(("get_eq_earnings_cal", start, end))
-        return []
-
 
 @dataclass
 class FakeEDINETProvider:
@@ -210,6 +211,21 @@ class FakeJPXProvider:
         "特別注意銘柄",
     )
     bootstrap_calls: list[date] = field(default_factory=list)
+    earnings_requests: list[date] = field(default_factory=list)
+
+    def get_earnings_calendar_snapshot(self, asof_date: date) -> JPXEarningsCalendarSnapshot:
+        self.earnings_requests.append(asof_date)
+        return JPXEarningsCalendarSnapshot(
+            entries=(
+                JPXEarningsCalendarEntry(
+                    ticker="130A", announcement_date=asof_date + timedelta(days=7)
+                ),
+            ),
+            source_urls=("https://www.jpx.co.jp/test/kessan.xlsx",),
+            raw_record_count=1,
+            excluded_record_count=0,
+            rejected_record_count=0,
+        )
 
     def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot:
         del asof_date
@@ -284,6 +300,7 @@ class ScreeningCliTests(unittest.TestCase):
                     payload["data_sources"],
                     [
                         "j-quants-light",
+                        "jpx-public-earnings-calendar",
                         "jpx-public-regulation",
                         "edinet-preprocessed-metrics",
                     ],
@@ -798,7 +815,6 @@ class ScreeningCliTests(unittest.TestCase):
         self.assertIn(("get_eq_master", None, None), jquants.calls)
         self.assertIn(("get_eq_bars_daily_range", asof - timedelta(days=1200), asof), jquants.calls)
         self.assertIn(("get_fin_summary_range", asof - timedelta(days=730), asof), jquants.calls)
-        self.assertIn(("get_eq_earnings_cal", asof, asof + timedelta(days=90)), jquants.calls)
         self.assertIn(("get_mkt_calendar", asof, asof), jquants.calls)
         self.assertEqual(edinet.bootstrap_calls, [(asof - timedelta(days=730), asof)])
         self.assertEqual(jpx.bootstrap_calls, [asof])
@@ -1041,29 +1057,27 @@ class ScreeningCliTests(unittest.TestCase):
 class IndexNextEarningsTests(unittest.TestCase):
     def test_picks_earliest_future_announcement_per_ticker(self) -> None:
         records = [
-            {"Code": "13010", "Date": "2026-05-13T00:00:00"},
-            {"Code": "13010", "Date": "2026-08-13T00:00:00"},
-            {"Code": "29140", "Date": "2026-05-08T00:00:00"},
+            JPXEarningsCalendarEntry(ticker="1301", announcement_date=date(2026, 5, 13)),
+            JPXEarningsCalendarEntry(ticker="1301", announcement_date=date(2026, 8, 13)),
+            JPXEarningsCalendarEntry(ticker="2914", announcement_date=date(2026, 5, 8)),
         ]
         result = _index_next_earnings(records, date(2026, 4, 25))
         self.assertEqual(result, {"1301": date(2026, 5, 13), "2914": date(2026, 5, 8)})
 
     def test_skips_announcements_before_asof(self) -> None:
         records = [
-            {"Code": "13010", "Date": "2026-04-20T00:00:00"},
-            {"Code": "13010", "Date": "2026-05-13T00:00:00"},
+            JPXEarningsCalendarEntry(ticker="1301", announcement_date=date(2026, 4, 20)),
+            JPXEarningsCalendarEntry(ticker="1301", announcement_date=date(2026, 5, 13)),
         ]
         result = _index_next_earnings(records, date(2026, 4, 25))
         self.assertEqual(result, {"1301": date(2026, 5, 13)})
 
-    def test_handles_invalid_codes_and_dates_without_raising(self) -> None:
+    def test_keeps_alphanumeric_ticker(self) -> None:
         records = [
-            {"Code": "", "Date": "2026-05-13"},
-            {"Code": "13010"},
-            {"Code": "abcde", "Date": "2026-05-13"},
+            JPXEarningsCalendarEntry(ticker="130A", announcement_date=date(2026, 5, 13)),
         ]
         result = _index_next_earnings(records, date(2026, 4, 25))
-        self.assertEqual(result, {"ABCD": date(2026, 5, 13)})
+        self.assertEqual(result, {"130A": date(2026, 5, 13)})
 
 
 def _edinet_csv_zip(*, include_debt: bool = True) -> bytes:
@@ -2541,6 +2555,7 @@ class SelectCommandTests(unittest.TestCase):
                     "durability_warnings",
                     "event_warnings",
                     "selection_reasons",
+                    "estimate_snapshot",
                 },
             )
             self.assertEqual(entry["expected_return_pct"], 12.5)
@@ -2548,6 +2563,23 @@ class SelectCommandTests(unittest.TestCase):
             self.assertEqual(entry["market_price_yen"], 1000.0)
             # 保守側の FV アンカー = min(1200, 1500)。
             self.assertEqual(entry["fair_value_anchor_yen"], 1200.0)
+            self.assertEqual(
+                entry["estimate_snapshot"],
+                {
+                    "as_of": "2026-04-24",
+                    "expected_return": {"annual": 0.125},
+                    "fair_value": {
+                        "anchors": {
+                            "fv_sector_median_yen": 1200,
+                            "fv_self_range_yen": 1500,
+                        },
+                        "origin": None,
+                        "model_version": None,
+                        "unit": "JPY_per_share",
+                        "assumptions": None,
+                    },
+                },
+            )
             self.assertEqual(entry["liquidity_status"], "pass")
             self.assertEqual(entry["screening_playbook"], "valuation-reversion")
 

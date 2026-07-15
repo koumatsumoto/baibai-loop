@@ -24,10 +24,12 @@ import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
+from math import isfinite
 from pathlib import Path
 
 import yaml
+from pydantic import ValidationError
 
 from baibai_loop.foundation.filesystem import write_text_atomic
 from baibai_loop.foundation.time import JST
@@ -39,9 +41,14 @@ from baibai_loop.position.ledger import (
 )
 from baibai_loop.position.policy import PORTFOLIO_POLICY
 
-from .close_source import PreviousClose, resolve_previous_business_day_close
+from .close_source import (
+    PreviousClose,
+    resolve_holding_close_on_basis,
+    resolve_previous_business_day_close,
+)
 from .decision_packet import (
     DecisionPacketError,
+    ScreeningEstimate,
     decision_packet_core_hash,
     evaluate_decision_packet,
     load_decision_packet,
@@ -149,6 +156,7 @@ def prepare_workspace(
     """
     selection = _load_mapping(selection_output, label="selection output")
     audit_pool = _dict_list(selection.get("audit_pool"))
+    _validate_selection_estimate_asof(selection=selection, audit_pool=audit_pool, asof=asof)
     snapshot = _load_snapshot(ledger)
 
     manifest_path = workspace / "manifest.yaml"
@@ -361,14 +369,71 @@ def compute_status(workspace: Path) -> dict[str, object]:
     _verify_external_inputs(manifest)
     _validate_editable_drafts(workspace, manifest)
 
+    selection = _load_mapping(workspace / "selection.yaml", label="workspace selection")
+    shortlist = _dict_list(selection.get("shortlist"))
+    shortlist_tickers = [str(row.get("ticker") or "") for row in shortlist]
     comparison = _load_mapping(workspace / "research-comparison.yaml", label="research comparison")
     selected_ticker = _string_or_none(comparison.get("selected_ticker"))
 
-    if selected_ticker is None:
+    if not shortlist_tickers:
+        return _status_payload(
+            workspace_status="awaiting_primary_research_selection",
+            selected_ticker=None,
+            next_command="review candidate-report and fill selection.yaml shortlist",
+        )
+
+    missing_lanes = [
+        ticker
+        for ticker in shortlist_tickers
+        if not (_research_lane_dir(workspace, ticker) / "packet-draft.yaml").is_file()
+    ]
+    if missing_lanes:
         return _status_payload(
             workspace_status="incomplete",
+            selected_ticker=selected_ticker,
+            next_command=f"baibai-loop-opportunity packet-scaffold --ticker {missing_lanes[0]}",
+        )
+
+    lane_pending: list[str] = []
+    lane_blocked: list[str] = []
+    lane_packet_errors: list[str] = []
+    for ticker in shortlist_tickers:
+        checklist = _load_checklist(workspace, ticker)
+        lane_pending.extend(
+            f"{ticker}:{check_id}"
+            for item in checklist
+            if item.get("status") == "pending"
+            if (check_id := _string_or_none(item.get("check_id"))) is not None
+        )
+        lane_blocked.extend(
+            f"{ticker}:{check_id}"
+            for item in checklist
+            if item.get("status") == "blocked"
+            if (check_id := _string_or_none(item.get("check_id"))) is not None
+        )
+        lane_packet_errors.extend(
+            f"{ticker}:{error}" for error in _packet_validation_errors(workspace, ticker)
+        )
+    if lane_pending or lane_packet_errors:
+        first_ticker = (lane_pending or lane_packet_errors)[0].split(":", maxsplit=1)[0]
+        return _status_payload(
+            workspace_status="incomplete",
+            selected_ticker=selected_ticker,
+            pending_checks=lane_pending,
+            blocked_checks=lane_blocked,
+            packet_validation_errors=lane_packet_errors,
+            next_command=f"complete primary research lane for {first_ticker}",
+        )
+
+    if selected_ticker is None:
+        return _status_payload(
+            workspace_status="ready_for_comparison",
             selected_ticker=None,
-            next_command="baibai-loop-opportunity packet-scaffold",
+            blocked_checks=lane_blocked,
+            next_command=(
+                "complete research-comparison.yaml and set selected_ticker, "
+                "or record no actionable bargain"
+            ),
         )
 
     checklist_path = _research_lane_dir(workspace, selected_ticker) / "research-checklist.yaml"
@@ -596,6 +661,7 @@ def scaffold_packet(
     ticker: str,
     sqlite_path: Path,
     target_session: date,
+    retrieved_at: datetime,
     force: bool = False,
 ) -> dict[str, object]:
     """Write a packet-draft with observed price facts and a pending checklist.
@@ -609,6 +675,17 @@ def scaffold_packet(
     _validate_editable_drafts(workspace, manifest)
     _require_primary_research_ticker(workspace, ticker)
     asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
+    purpose = str(manifest.get("purpose") or "opportunity")
+    screening_estimate: dict[str, object] | None
+    transfer_reason: str | None
+    if purpose == "holding_review":
+        screening_estimate, transfer_reason = None, "not_applicable_holding_review"
+    else:
+        screening_estimate, transfer_reason = _screening_estimate_from_selection_output(
+            manifest=manifest,
+            ticker=ticker,
+            asof=asof,
+        )
     ticker_dir = _research_lane_dir(workspace, ticker)
 
     price = resolve_previous_business_day_close(
@@ -619,7 +696,7 @@ def scaffold_packet(
             f"no raw/unadjusted close available for {ticker} before {target_session.isoformat()}; "
             "an adjusted-only series is not substituted"
         )
-    if price.price_as_of != asof:
+    if purpose == "holding_review" and price.price_as_of != asof:
         raise OpportunityDataError(
             f"raw close date {price.price_as_of.isoformat()} does not match workspace manifest "
             f"as_of {asof.isoformat()}; --target-session must be the next trading session"
@@ -633,7 +710,12 @@ def scaffold_packet(
     ticker_dir.mkdir(parents=True, exist_ok=True)
 
     packet_draft = _packet_draft_skeleton(
-        ticker=ticker, asof=asof, price=price, sqlite_path=sqlite_path
+        ticker=ticker,
+        asof=asof,
+        price=price,
+        sqlite_path=sqlite_path,
+        screening_estimate=screening_estimate,
+        screening_retrieved_at=retrieved_at,
     )
     write_text_atomic(packet_path, _dump_yaml(packet_draft))
     checklist = _checklist_skeleton(price=price)
@@ -643,11 +725,19 @@ def scaffold_packet(
         "price_as_of": price.price_as_of.isoformat(),
         "close_yen": price.close_yen,
         "corporate_action_unresolved": price.corporate_action_unresolved,
+        "screening_estimate_transferred": screening_estimate is not None,
+        "screening_estimate_transfer_reason": transfer_reason,
     }
 
 
 def _packet_draft_skeleton(
-    *, ticker: str, asof: date, price: PreviousClose, sqlite_path: Path
+    *,
+    ticker: str,
+    asof: date,
+    price: PreviousClose,
+    sqlite_path: Path,
+    screening_estimate: dict[str, object] | None,
+    screening_retrieved_at: datetime,
 ) -> dict[str, object]:
     # The observed close is the previous business day's raw/unadjusted close, emitted
     # as the packet's single market_price fact so the draft is schema-valid on load.
@@ -656,47 +746,223 @@ def _packet_draft_skeleton(
     # action checklist (not the fact), which blocks that check.
     del sqlite_path
     observed_at = datetime.combine(price.price_as_of, time(15, 30), tzinfo=JST)
+    sources = [
+        {
+            "source_id": "market_close",
+            "ticker": ticker,
+            "source_tier": "local_data",
+            "provider": "jquants",
+            "dataset": "jquants_daily_bars",
+            "retrieved_at": observed_at.isoformat(),
+            "as_of": price.price_as_of.isoformat(),
+            "used_for": "market_price",
+        }
+    ]
+    if screening_estimate is not None:
+        sources.append(
+            {
+                "source_id": "screening_selection",
+                "ticker": ticker,
+                "source_tier": "local_data",
+                "provider": "baibai-loop",
+                "dataset": "screening-selection",
+                "retrieved_at": screening_retrieved_at.isoformat(),
+                "as_of": asof.isoformat(),
+                "used_for": "screening expected return and fair value anchor",
+            }
+        )
+    input_snapshot = {
+        "snapshot_version": 1,
+        "producer_model_version": "screening-selection-v1",
+        "ticker": ticker,
+        "company_name": None,
+        "sector": None,
+        "common_factors": [],
+        "as_of": asof.isoformat(),
+        "sources": sources,
+        "facts": [
+            {
+                "fact_id": "market_price_close",
+                "fact_kind": "market_price",
+                "value": price.close_yen,
+                "unit": "JPY",
+                "as_of": price.price_as_of.isoformat(),
+                "source_ids": ["market_close"],
+                "observed_at": observed_at.isoformat(),
+                "price_basis": "last_close_unadjusted",
+            }
+        ],
+    }
+    if screening_estimate is not None:
+        input_snapshot["screening_estimate"] = screening_estimate
     return {
         "schema_version": 2,
-        "input_snapshot": {
-            "snapshot_version": 1,
-            "producer_model_version": "screening-selection-v1",
-            "ticker": ticker,
-            "company_name": None,
-            "sector": None,
-            "common_factors": [],
-            "as_of": asof.isoformat(),
-            "sources": [
-                {
-                    "source_id": "market_close",
-                    "ticker": ticker,
-                    "source_tier": "local_data",
-                    "provider": "jquants",
-                    "dataset": "jquants_daily_bars",
-                    "retrieved_at": observed_at.isoformat(),
-                    "as_of": price.price_as_of.isoformat(),
-                    "used_for": "market_price",
-                }
-            ],
-            "facts": [
-                {
-                    "fact_id": "market_price_close",
-                    "fact_kind": "market_price",
-                    "value": price.close_yen,
-                    "unit": "JPY",
-                    "as_of": price.price_as_of.isoformat(),
-                    "source_ids": ["market_close"],
-                    "observed_at": observed_at.isoformat(),
-                    "price_basis": "last_close_unadjusted",
-                }
-            ],
-        },
+        "input_snapshot": input_snapshot,
         "derived": {"metrics": []},
         "estimates": None,
         "permanent_loss_risks": [],
         "judgment": None,
         "independent_review_ref": None,
     }
+
+
+def _screening_estimate_from_selection_output(
+    *, manifest: Mapping[str, object], ticker: str, asof: date
+) -> tuple[dict[str, object] | None, str | None]:
+    inputs = _required_mapping(manifest.get("inputs"), label="manifest.inputs")
+    selection_ref = _required_mapping(
+        inputs.get("selection_output"), label="manifest.inputs.selection_output"
+    )
+    selection_path = _nonempty_string(
+        selection_ref.get("path"), label="manifest.inputs.selection_output.path"
+    )
+    selection = _load_mapping(Path(selection_path), label="selection output")
+    audit_pool = _dict_list(selection.get("audit_pool"))
+    audit_tickers = [str(row.get("ticker") or "") for row in audit_pool]
+    if len(audit_tickers) != len(set(audit_tickers)):
+        raise OpportunityDataError("selection output audit_pool tickers must be unique")
+    matching_rows = [row for row in audit_pool if str(row.get("ticker") or "") == ticker]
+    if len(matching_rows) != 1:
+        raise OpportunityDataError(
+            f"selection output audit_pool must contain ticker exactly once: {ticker}"
+        )
+    row = matching_rows[0]
+    if "estimate_snapshot" not in row:
+        return None, "estimate_snapshot_missing"
+
+    snapshot = _required_mapping(row["estimate_snapshot"], label="estimate_snapshot")
+    selection_metadata = _required_mapping(selection.get("selection"), label="selection.selection")
+    expected_asof = asof.isoformat()
+    if selection_metadata.get("asof") != expected_asof or snapshot.get("as_of") != expected_asof:
+        raise OpportunityDataError("selection, estimate snapshot, and manifest as_of must match")
+    expected_return = _required_mapping(
+        snapshot.get("expected_return"), label="estimate_snapshot.expected_return"
+    )
+    fair_value = _required_mapping(snapshot.get("fair_value"), label="estimate_snapshot.fair_value")
+    annual = _finite_number(
+        expected_return.get("annual"), label="estimate_snapshot.expected_return.annual"
+    )
+    if expected_return.get("origin") != "estimate" or fair_value.get("origin") != "estimate":
+        raise OpportunityDataError("estimate_snapshot origin must be estimate")
+    if expected_return.get("unit") != "annual_ratio":
+        raise OpportunityDataError("estimate_snapshot expected return unit must be annual_ratio")
+    if fair_value.get("unit") != "JPY_per_share":
+        raise OpportunityDataError("estimate_snapshot fair value unit must be JPY_per_share")
+    model_version = _nonempty_string(
+        expected_return.get("model_version"),
+        label="estimate_snapshot.expected_return.model_version",
+    )
+    fair_value_model_version = _nonempty_string(
+        fair_value.get("model_version"), label="estimate_snapshot.fair_value.model_version"
+    )
+    assumptions = _nonempty_string(
+        expected_return.get("assumptions"), label="estimate_snapshot.expected_return.assumptions"
+    )
+    fair_value_assumptions = _nonempty_string(
+        fair_value.get("assumptions"), label="estimate_snapshot.fair_value.assumptions"
+    )
+    if model_version != fair_value_model_version or assumptions != fair_value_assumptions:
+        raise OpportunityDataError("estimate_snapshot model version and assumptions must agree")
+
+    displayed_er_pct = _finite_number(
+        row.get("expected_return_pct"), label="audit_pool.expected_return_pct"
+    )
+    if displayed_er_pct != round(annual * 100, 4):
+        raise OpportunityDataError("estimate_snapshot expected return does not match audit row")
+
+    anchors = _required_mapping(
+        fair_value.get("anchors"), label="estimate_snapshot.fair_value.anchors"
+    )
+    positive_anchors: list[float] = []
+    for key in ("fv_sector_median_yen", "fv_self_range_yen"):
+        value = anchors.get(key)
+        if value is None:
+            continue
+        number = _finite_number(value, label=f"estimate_snapshot.fair_value.anchors.{key}")
+        if number <= 0:
+            raise OpportunityDataError(
+                f"estimate_snapshot fair value anchor must be positive: {key}"
+            )
+        positive_anchors.append(number)
+    raw_fair_value_anchor_yen = min(positive_anchors) if positive_anchors else None
+    displayed_fair_value = row.get("fair_value_anchor_yen")
+    if raw_fair_value_anchor_yen is None:
+        if displayed_fair_value is not None:
+            raise OpportunityDataError("null estimate anchors do not match audit row fair value")
+    else:
+        displayed_anchor = _finite_number(
+            displayed_fair_value, label="audit_pool.fair_value_anchor_yen"
+        )
+        if displayed_anchor != round(raw_fair_value_anchor_yen, 4):
+            raise OpportunityDataError("estimate_snapshot fair value does not match audit row")
+
+    fair_value_anchor_yen = (
+        None
+        if raw_fair_value_anchor_yen is None
+        else float(
+            Decimal(str(raw_fair_value_anchor_yen)).quantize(
+                Decimal("0.0001"), rounding=ROUND_HALF_UP
+            )
+        )
+    )
+    screening_estimate = {
+        "origin": "estimate",
+        "model_version": model_version,
+        "as_of": asof.isoformat(),
+        "expected_return_annual_ratio": annual,
+        "expected_return_unit": "annual_ratio",
+        "fair_value_anchor_yen": fair_value_anchor_yen,
+        "fair_value_unit": "JPY_per_share",
+        "assumptions": assumptions,
+        "source_ids": ["screening_selection"],
+    }
+    try:
+        ScreeningEstimate.model_validate(screening_estimate)
+    except (ValidationError, ValueError) as error:
+        raise OpportunityDataError(
+            f"screening estimate violates packet contract: {error}"
+        ) from error
+    return screening_estimate, None
+
+
+def _required_mapping(value: object, *, label: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise OpportunityDataError(f"{label} must be a mapping")
+    return value
+
+
+def _nonempty_string(value: object, *, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise OpportunityDataError(f"{label} must be a non-empty string")
+    return value
+
+
+def _finite_number(value: object, *, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise OpportunityDataError(f"{label} must be a number")
+    try:
+        number = float(value)
+    except (OverflowError, ValueError) as error:
+        raise OpportunityDataError(f"{label} must be finite") from error
+    if not isfinite(number):
+        raise OpportunityDataError(f"{label} must be finite")
+    return number
+
+
+def _validate_selection_estimate_asof(
+    *, selection: Mapping[str, object], audit_pool: Sequence[Mapping[str, object]], asof: date
+) -> None:
+    snapshots = [row["estimate_snapshot"] for row in audit_pool if "estimate_snapshot" in row]
+    if not snapshots:
+        return
+    selection_metadata = _required_mapping(selection.get("selection"), label="selection.selection")
+    expected_asof = asof.isoformat()
+    if selection_metadata.get("asof") != expected_asof:
+        raise OpportunityDataError("selection as_of does not match prepare as_of")
+    for snapshot_value in snapshots:
+        snapshot = _required_mapping(snapshot_value, label="estimate_snapshot")
+        if snapshot.get("as_of") != expected_asof:
+            raise OpportunityDataError("estimate_snapshot as_of does not match prepare as_of")
 
 
 def _checklist_skeleton(*, price: PreviousClose) -> dict[str, object]:
@@ -916,9 +1182,11 @@ def plan_limit(
     """Derive a planning-only ``limit``/``defer`` from the previous business-day close.
 
     The primary limit is the legal market close itself; no future price or fill
-    probability is asserted. Budget, cash, dry powder, concentration, and existing
-    reservations are warnings/annotations only — they never change the investment
-    ranking or the ``planned_limit``. ``defer`` is a normal judgment (exit 0).
+    probability is asserted. Budget, cash, dry powder, concentration, and reservations
+    in other tickers are warnings/annotations only — they never change the investment
+    ranking or limit price. An active reservation in the selected ticker defers a new
+    order until human-confirmed broker state is recorded. ``defer`` is a normal
+    judgment (exit 0).
     """
     document = load_decision_packet(packet)
     ticker = document.input_snapshot.ticker
@@ -949,10 +1217,21 @@ def plan_limit(
 
     snapshot, source_ledger_sha256 = _load_snapshot_with_sha256(ledger)
     portfolio_annotations = _portfolio_annotations(snapshot, ticker=ticker)
+    if any(reservation.ticker == ticker for reservation in snapshot.active_reservations):
+        defer_reasons.append("active_reservation_exists")
     expires_at = datetime.combine(target_session, time(15, 30), tzinfo=JST)
 
     base_output: dict[str, object] = {
         "ticker": ticker,
+        "decision_packet_ref": str(packet),
+        "decision_packet_sha256": _sha256_text(packet.read_text(encoding="utf-8")),
+        "decision_packet_core_sha256": decision_packet_core_hash(document),
+        "independent_review_ref": str(review_path) if review_path is not None else None,
+        "independent_review_sha256": (
+            _sha256_text(review_path.read_text(encoding="utf-8"))
+            if review_path is not None
+            else None
+        ),
         "price_as_of": price.price_as_of.isoformat() if price is not None else None,
         "price_basis": "last_close_unadjusted",
         "source_ref": f"{sqlite_path.as_posix()}:jquants_daily_bars",
@@ -977,6 +1256,7 @@ def plan_limit(
             "defer_reasons": defer_reasons,
         }
 
+    assert price is not None  # close_decimal is derived only from a resolved price
     warnings: list[str] = []
     lot_notional = close_decimal * BOARD_LOT
     if lot_notional <= budget_max_yen:
@@ -991,13 +1271,30 @@ def plan_limit(
     if notional < budget_min_yen:
         warnings.append("budget_guide_under")
 
-    warnings.extend(_portfolio_warnings(snapshot, notional_yen=notional))
+    portfolio_exposure, exposure_warnings, exposure_total_capital_yen = _portfolio_exposure(
+        snapshot,
+        sqlite_path=sqlite_path,
+        price_as_of=price.price_as_of,
+        ticker=ticker,
+        sector=document.input_snapshot.sector,
+        common_factors=document.input_snapshot.common_factors,
+        order_notional_yen=int(notional),
+    )
+    warnings.extend(
+        _portfolio_warnings(
+            snapshot,
+            notional_yen=notional,
+            total_capital_yen=exposure_total_capital_yen,
+        )
+    )
+    warnings.extend(exposure_warnings)
     return {
         "status": "planned_limit",
         **base_output,
         "limit_price_yen": _decimal_to_number(close_decimal),
         "quantity": quantity,
         "notional_yen": int(notional),
+        "portfolio_exposure": portfolio_exposure,
         "warnings": warnings,
         "defer_reasons": [],
     }
@@ -1014,17 +1311,172 @@ def _portfolio_annotations(snapshot: PortfolioSnapshot, *, ticker: str) -> list[
     return annotations
 
 
-def _portfolio_warnings(snapshot: PortfolioSnapshot, *, notional_yen: Decimal) -> list[str]:
+def _portfolio_warnings(
+    snapshot: PortfolioSnapshot, *, notional_yen: Decimal, total_capital_yen: int
+) -> list[str]:
     # Cash / dry powder shortfalls are human-decision warnings only; they never
     # downgrade the investment ranking or auto-switch to a cheaper next candidate.
     warnings: list[str] = []
     if notional_yen > snapshot.available_cash_yen:
         warnings.append("available_cash_below_notional")
     dry_powder_pct = Decimal(str(PORTFOLIO_POLICY["cash_management"]["dry_powder_warning_pct"]))
-    dry_powder_floor = Decimal(snapshot.total_capital_yen) * dry_powder_pct / 100
+    dry_powder_floor = Decimal(total_capital_yen) * dry_powder_pct / 100
     if Decimal(snapshot.available_cash_yen) - notional_yen < dry_powder_floor:
         warnings.append("dry_powder_below_floor")
     return warnings
+
+
+def _portfolio_exposure(
+    snapshot: PortfolioSnapshot,
+    *,
+    sqlite_path: Path,
+    price_as_of: date,
+    ticker: str,
+    sector: str,
+    common_factors: Sequence[str],
+    order_notional_yen: int,
+) -> tuple[dict[str, object], list[str], int]:
+    """Derive prospective concentration with disclosed common-factor coverage.
+
+    Candidate holdings/reservations use the packet's current factor classification.
+    Other tickers retain ledger classifications; empty classifications are reported,
+    so common-factor exposure remains an explicit lower bound rather than a silent
+    claim of complete portfolio coverage.
+    """
+    holding_values: dict[str, int] = {}
+    fallback_tickers: list[str] = []
+    for holding in snapshot.holdings:
+        resolved = resolve_holding_close_on_basis(
+            sqlite_path=sqlite_path,
+            ticker=holding.ticker,
+            ledger_price_observed_on=holding.market_price_observed_at.date(),
+            basis_as_of=price_as_of,
+        )
+        market_value = (
+            Decimal(str(resolved.close_yen)) * holding.quantity if resolved is not None else None
+        )
+        if market_value is None or market_value != market_value.to_integral_value():
+            holding_values[holding.ticker] = holding.market_value_yen
+            fallback_tickers.append(holding.ticker)
+        else:
+            holding_values[holding.ticker] = int(market_value)
+
+    total_capital_yen = (
+        snapshot.available_cash_yen + snapshot.reserved_cash_yen + sum(holding_values.values())
+    )
+    risk_policy = PORTFOLIO_POLICY["risk_budget"]
+    ticker_warning_pct = Decimal(str(risk_policy["max_ticker_concentration_pct"]))
+    sector_warning_pct = Decimal(str(risk_policy["max_sector_concentration_pct"]))
+    factor_warning_pct = Decimal(str(risk_policy["max_common_factor_concentration_pct"]))
+
+    def current_exposure(*, scope: str, key: str) -> int:
+        holding_yen = sum(
+            holding_values[holding.ticker]
+            for holding in snapshot.holdings
+            if (
+                (scope == "ticker" and holding.ticker == key)
+                or (scope == "sector" and holding.sector == key)
+                or (
+                    scope == "common_factor"
+                    and (
+                        key in holding.common_factors
+                        or (holding.ticker == ticker and key in common_factors)
+                    )
+                )
+            )
+        )
+        reservation_yen = sum(
+            reservation.reserved_yen
+            for reservation in snapshot.active_reservations
+            if (
+                (scope == "ticker" and reservation.ticker == key)
+                or (scope == "sector" and reservation.sector == key)
+                or (
+                    scope == "common_factor"
+                    and (
+                        key in reservation.common_factors
+                        or (reservation.ticker == ticker and key in common_factors)
+                    )
+                )
+            )
+        )
+        return holding_yen + reservation_yen
+
+    def exposure_row(*, scope: str, key: str, warning_pct: Decimal) -> dict[str, object]:
+        current_yen = current_exposure(scope=scope, key=key)
+        prospective_yen = current_yen + order_notional_yen
+        prospective_pct = (Decimal(prospective_yen) * 100 / Decimal(total_capital_yen)).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        return {
+            "key": key,
+            "current_and_reserved_yen": current_yen,
+            "prospective_yen": prospective_yen,
+            "prospective_pct": float(prospective_pct),
+            "warning_pct": _decimal_to_number(warning_pct),
+        }
+
+    ticker_current_yen = current_exposure(scope="ticker", key=ticker)
+    sector_current_yen = current_exposure(scope="sector", key=sector)
+    factor_current_yen = {
+        factor: current_exposure(scope="common_factor", key=factor) for factor in common_factors
+    }
+    ticker_row = exposure_row(scope="ticker", key=ticker, warning_pct=ticker_warning_pct)
+    sector_row = exposure_row(scope="sector", key=sector, warning_pct=sector_warning_pct)
+    factor_rows = [
+        exposure_row(scope="common_factor", key=factor, warning_pct=factor_warning_pct)
+        for factor in common_factors
+    ]
+    common_factor_empty_tickers = sorted(
+        {
+            holding.ticker
+            for holding in snapshot.holdings
+            if holding.ticker != ticker and not holding.common_factors
+        }
+        | {
+            reservation.ticker
+            for reservation in snapshot.active_reservations
+            if reservation.ticker != ticker and not reservation.common_factors
+        }
+    )
+    warnings = [
+        f"portfolio_exposure_ledger_fallback:{fallback_ticker}"
+        for fallback_ticker in sorted(fallback_tickers)
+    ]
+    if common_factor_empty_tickers:
+        warnings.append("portfolio_exposure_common_factor_coverage_incomplete")
+    if (
+        Decimal(ticker_current_yen + order_notional_yen) * 100 / Decimal(total_capital_yen)
+        > ticker_warning_pct
+    ):
+        warnings.append("prospective_ticker_concentration_exceeds_warning")
+    if (
+        Decimal(sector_current_yen + order_notional_yen) * 100 / Decimal(total_capital_yen)
+        > sector_warning_pct
+    ):
+        warnings.append("prospective_sector_concentration_exceeds_warning")
+    for factor in common_factors:
+        if Decimal(factor_current_yen[factor] + order_notional_yen) * 100 / Decimal(
+            total_capital_yen
+        ) > (factor_warning_pct):
+            warnings.append(f"prospective_common_factor_concentration_exceeds_warning:{factor}")
+    return (
+        {
+            "price_as_of": price_as_of.isoformat(),
+            "price_basis": "last_close_unadjusted",
+            "total_capital_yen": total_capital_yen,
+            "holding_valuation_status": (
+                "mixed_with_ledger_fallback" if fallback_tickers else "same_asof_raw_close"
+            ),
+            "ledger_fallback_tickers": sorted(fallback_tickers),
+            "common_factor_empty_tickers": common_factor_empty_tickers,
+            "ticker": ticker_row,
+            "sector": sector_row,
+            "common_factors": factor_rows,
+        },
+        warnings,
+        total_capital_yen,
+    )
 
 
 # --------------------------------------------------------------------------- #
