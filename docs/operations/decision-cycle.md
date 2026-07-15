@@ -171,6 +171,17 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.research_decision_report.rende
 
 HTMLはreview済み入力のephemeral projectionであり、内容reviewやcanonical recordの対象にしない。plan-limitが`defer`、または比較結果が`no actionable bargain`でも正常に生成し、注文なしと理由を明示する。repository visibilityを確認してから、operation Issueへmanifest、findings、comparison、non-promoted lane packet、proposal、report reviewのreview済み内容をartifact別commentとして保存する。promote済みselected packet/reviewはcanonical pathとhashを参照し、同じ内容を複製しない。summaryに各comment URLまたはcanonical pathとhash、全laneの採否、購入方法または注文なしの理由、HTML pathを残す。local pathとhashだけを残してcompact inputを破棄しない。人間の`approve / defer / reject`を待つ。
 
+### Opportunity Issueのcloseと注文監視の移管
+
+review済みの提案または注文なし結論と、人間の`approve / defer / reject`を記録した時点で、opportunity triggerの判断責務は完了する。
+
+- `defer / reject`またはbrokerの注文報告がない場合は、判断と理由をcommentして元Issueをcloseする。`approve`だけからbroker factやreservationを作らない。
+- 人間の`open`報告またはpartial fillでremaining reservationがある場合、同一reservationを追跡するdated Issueを1件作成または再利用する。canonical ledgerへ未反映の間は`blocked`、active reservation反映後は`living`とする。
+- 移管先にreservation ID、expiry、元proposal/approval comment URLを記録し、元Issueと相互linkする。元Issueがopenなら移管後にcloseし、既にclose済みなら移管先URLを追記する。
+- 後続の`filled / cancelled / expired`でも元proposal/approval URLをledgerのdecision referenceに使い、ledger event本文や全履歴を複製せず、Human result path所定のcheckpointだけを移管先に記録する。
+- partial fillはremaining reservationがある間`living`とし、full fill、cancelled、expiredはcanonical execution/release反映後に移管先を`complete`とする。期限超過だけで状態を推定しない。
+- active reservationが残らない即時full fillは監視Issueへ移管せず、Human result pathのcheckpointとcanonical execution反映で完了する。移管先は[`task-runbook.md#open-issue-lifecycle`](./task-runbook.md#open-issue-lifecycle)に従う。
+
 <a id="human-result-path"></a>
 
 ## Human result path
