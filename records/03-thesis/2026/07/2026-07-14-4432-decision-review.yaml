@@ -1,0 +1,37 @@
+review_id: review-20260715-4432-second-review-4432
+reviewer_role: independent_second_pass
+reviewer_identity: /root/second_review_4432
+reviewer_run_id: /root/second_review_4432
+reviewed_at: '2026-07-15T23:36:56+09:00'
+reviewed_packet_sha256: d3c8600fd2d9c7a9d76e6214ec6268c5615ba4f31c106e1d4c77cf72e6d770e0
+primary_source_check: verified
+checked_source_ids:
+- market_close
+- fy2027_q1_results
+- fy2027_q1_presentation
+- fy2026_annual_report
+- treasury_share_resolution
+- shareholder_benefit_resolution
+recalculated_scenarios:
+- horizon_years: 3
+  name: bear
+  total_return_cagr_pct: -7.49
+- horizon_years: 3
+  name: base
+  total_return_cagr_pct: 10.3
+- horizon_years: 3
+  name: bull
+  total_return_cagr_pct: 25.09
+- horizon_years: 5
+  name: bear
+  total_return_cagr_pct: -2.87
+- horizon_years: 5
+  name: base
+  total_return_cagr_pct: 10.64
+- horizon_years: 5
+  name: bull
+  total_return_cagr_pct: 21.21
+strongest_countercase: Q1のrecurring売上17.8%増はNEX等の連結寄与を含み、保守継続率90.2%、license/service減収、売上を上回る人件費・外注費増が同時に観測される。Q2でorganic成長とmargin回復を確認できず、goodwill・無形資産が資本に対して大きい状態で買収統合が失速すれば、baseの利益8%成長と14倍terminal multipleを同時に維持できない。
+alternative_candidate_check: unavailable
+proposal_changed: false
+change_rationale: null
