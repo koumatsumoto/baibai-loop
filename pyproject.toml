@@ -287,3 +287,27 @@ forbidden_modules = [
   "baibai_loop.screening",
 ]
 allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "app is the top-level read composition surface (no package imports it)"
+type = "forbidden"
+# app composes domain read APIs into local UI read models. Reverse imports
+# would make UI iteration ripple into domain packages and obstruct a storage swap.
+source_modules = [
+  "baibai_loop.foundation",
+  "baibai_loop.market",
+  "baibai_loop.macro",
+  "baibai_loop.screening",
+  "baibai_loop.position",
+  "baibai_loop.thesis",
+  "baibai_loop.validation",
+]
+forbidden_modules = ["baibai_loop.app"]
+
+[[tool.importlinter.contracts]]
+name = "app does not depend on macro or validation"
+type = "forbidden"
+# v1 reads ledger, thesis, candidates, and task artifacts; macro has no UI
+# surface and validation is a CI gate rather than an application data API.
+source_modules = ["baibai_loop.app"]
+forbidden_modules = ["baibai_loop.macro", "baibai_loop.validation"]
