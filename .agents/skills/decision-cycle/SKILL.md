@@ -31,7 +31,7 @@ schema fieldやCLI optionはskillから推測しない。JSON schemaとpublic `-
 ## 共通開始checkpoint
 
 1. `git status --short --branch`でbranchとtracked差分を確認する。
-2. `records/05-task/tasks.yaml` の open task を canonical records / ledger と照合して trigger を1件選び、operation Issueへcheckpointを集約する。
+2. triggerを1件選び、operation Issueへcheckpointを集約する。
 3. `uv run baibai-loop-position ledger`でholding、active reservation、cash、warningを読む。
 4. triggerで使うpublic commandの`--help`とrequired inputを確認する。
 

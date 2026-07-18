@@ -164,7 +164,7 @@ Automation は人間の投資判断を置き換えず、fact snapshot 生成・s
 
 | workflow | trigger | gate |
 | --- | --- | --- |
-| `.github/workflows/ci.yml` | pull request / main push | `uv sync`, Ruff format/check, mypy, tracked raw screening cache block, pytest coverage, `baibai-loop-validation`, build |
+| `.github/workflows/ci.yml` | pull request / main push | Python の `uv sync`、Ruff、mypy、import contracts、drift gates、pytest coverage、records validation、wheel buildと、frontend の `npm ci` / build |
 | `.github/workflows/security.yml` | pull request / main push / weekly | Bandit, pip-audit |
 
 Python runtime・dependency・quality gate の詳細は [`reference/python-foundation.md`](./reference/python-foundation.md)。

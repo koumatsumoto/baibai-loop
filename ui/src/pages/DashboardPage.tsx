@@ -88,6 +88,7 @@ export function DashboardPage() {
 
       <main className="page dashboard">
         {data.ledger_error && <div className="alert alert--danger"><strong>Ledger error</strong><span>{data.ledger_error}</span></div>}
+        {data.research_load_errors.length > 0 && <div className="alert alert--danger"><strong>Research read error</strong><span>{data.research_load_errors.join(' / ')}</span></div>}
         <section className="page-heading">
           <div><p className="eyebrow">OPERATIONS COCKPIT</p><h1>いま、何をすべきか。</h1></div>
           <AsOfBadge value={data.ledger_as_of} stale={data.ledger_stale} />

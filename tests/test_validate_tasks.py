@@ -28,6 +28,16 @@ def test_invalid_calendar_date_fails() -> None:
     assert {finding.code for finding in findings} == {"task-list.format"}
 
 
+def test_invalid_optional_calendar_dates_fail() -> None:
+    findings = validate_task_list_file(FIXTURES / "invalid-optional-dates.yaml")
+
+    assert {finding.code for finding in findings} == {"task-list.anyOf"}
+    assert {finding.location for finding in findings} == {
+        "tasks[0].event_date",
+        "tasks[1].closed_at",
+    }
+
+
 def test_duplicate_task_id_fails() -> None:
     findings = validate_task_list_file(FIXTURES / "duplicate-id.yaml")
 

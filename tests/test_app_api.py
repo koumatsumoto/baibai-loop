@@ -9,7 +9,7 @@ from baibai_loop.app.cli import main
 
 
 def test_api_exposes_read_views_and_spa_fallback(app_records_root: Path) -> None:
-    with TestClient(create_app(app_records_root)) as client:
+    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
         health = client.get("/api/health")
         dashboard = client.get("/api/dashboard")
         screening = client.get("/api/screening/latest")
@@ -31,7 +31,7 @@ def test_api_exposes_read_views_and_spa_fallback(app_records_root: Path) -> None
 
 
 def test_api_returns_404_for_unknown_security_and_api_route(app_records_root: Path) -> None:
-    with TestClient(create_app(app_records_root)) as client:
+    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
         unknown_security = client.get("/api/securities/0000")
         unknown_api = client.get("/api/unknown")
 
@@ -39,6 +39,13 @@ def test_api_returns_404_for_unknown_security_and_api_route(app_records_root: Pa
         assert unknown_security.json() == {"detail": "unknown ticker"}
         assert unknown_api.status_code == 404
         assert client.post("/api/dashboard").status_code == 405
+
+
+def test_api_rejects_non_loopback_host(app_records_root: Path) -> None:
+    with TestClient(create_app(app_records_root), base_url="http://attacker.example") as client:
+        response = client.get("/api/dashboard")
+
+    assert response.status_code == 400
 
 
 def test_cli_rejects_wrong_root_without_starting_server(tmp_path: Path, mocker) -> None:
