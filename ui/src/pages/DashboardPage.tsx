@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 
 import { fetchJson } from '../api/client'
 import type { DashboardView, TaskView } from '../api/types'
+import { AppShell } from '../components/AppShell'
 import { AsOfBadge } from '../components/AsOfBadge'
 import { PctBadge } from '../components/PctBadge'
 import { YenAmount } from '../components/YenAmount'
@@ -83,11 +84,7 @@ export function DashboardPage() {
 
   return (
     <>
-      <header className="topbar">
-        <Link className="brand" to="/"><span className="brand__mark">BL</span><span>Baibai-Loop</span></Link>
-        <nav><Link className="active" to="/">Dashboard</Link><Link to="/screening">Screening</Link></nav>
-        <span className="readonly">READ ONLY</span>
-      </header>
+      <AppShell />
 
       <main className="page dashboard">
         {data.ledger_error && <div className="alert alert--danger"><strong>Ledger error</strong><span>{data.ledger_error}</span></div>}
